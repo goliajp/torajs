@@ -267,6 +267,10 @@ fn try_lower_call_or_closure_callee(
             ))
         }
         Type::FnSig(sig_id) => Some(emit_fnsig_callee(ctx, eid, callee_op, sig_id, args)),
+        // a method read off a typed receiver comes out boxed
+        Type::Any if matches!(ctx.ast.get_expr(callee), Expr::Sequence { .. }) => Some(
+            crate::ssa_lower_any_call::emit(ctx, callee, callee_op, args),
+        ),
         _ => {
             // Non-callable — fall through to resolve_callee for the panic
             // with a clearer error message.

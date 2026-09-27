@@ -70,6 +70,18 @@ pub(crate) fn lower(
     args: &[crate::ast::ExprId],
 ) -> Operand {
     let recv = ctx.lower_expr(callee);
+    emit(ctx, callee, recv, args)
+}
+
+/// The call half of [`lower`], for a caller that already holds the
+/// callee's value — a callee whose checker type is not `any` but
+/// whose lowered value is (`(0, c.m)()`, `ssa_lower_call_fn_indirect`).
+pub(crate) fn emit(
+    ctx: &mut LowerCtx<'_>,
+    callee: crate::ast::ExprId,
+    recv: Operand,
+    args: &[crate::ast::ExprId],
+) -> Operand {
     // Rotation 550 — an owned callee temp (`f(1)(boom())`) is live
     // across the arguments' lowers; park it for their throw paths.
     let recv_tok = ctx.park_owned_temp(callee, &recv);

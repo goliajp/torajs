@@ -13,3 +13,7 @@ console.log((k++, f)(k), k);
 const log: string[] = [];
 const pick = (s: string) => { log.push(s); return g; };
 console.log((log.push("left"), pick("right"))(5), log.join(","));
+// a method read off a typed receiver loses the receiver as well
+class D { tag = "d"; m(): string { return typeof this; } }
+const d = new D();
+console.log((d.tag, d.m)());
