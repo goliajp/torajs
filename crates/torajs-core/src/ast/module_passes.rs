@@ -3,7 +3,7 @@
 //! - rename_user_main — user `function main()` → `__user_main` so it
 //!   doesn't collide with the synthesized OS-entry `main`
 //! - unwrap_exports — flatten `export <decl>` wrappers (K.1)
-//! - is_builtin_module / sanitize_module_name — built-in module name
+//! - sanitize_module_name — built-in module name
 //!   helpers for the import desugar
 //! - desugar_builtin_imports — `import { x } from "fs"` alias
 //!   registration → `fs.x` member rewrites (T-18.a)
@@ -103,27 +103,6 @@ pub fn unwrap_exports(ast: &mut Ast) {
     ast.stmts = new_stmts;
 }
 
-/// Rewrite `new <BuiltinClass>(args)` into a direct call to the
-/// matching `__torajs_<class>_*` intrinsic. Runs before
-/// `desugar_classes` (which has an early-return when no user
-/// `class` declarations exist) so built-in News still get rewritten
-/// in pure-builtin programs. v0.2 #2 covers Date; future built-ins
-/// (BigInt, Map, Set, ...) extend the match arm.
-/* Built-in module names whose `import` statements register the
- * imported names as aliases for `<module>.<name>` member access.
- * E.g. `import { readFileSync } from "fs"` is desugared so any later
- * `readFileSync(path)` call lowers as `fs.readFileSync(path)` —
- * routed through the existing fs-namespace dispatch in ssa_lower.
- *
- * Cross-file user imports are unaffected; this pass only acts when
- * `source` is one of the known built-in module names. */
-fn is_builtin_module(source: &str) -> bool {
-    matches!(
-        source,
-        "fs" | "node:fs" | "fs/promises" | "node:fs/promises"
-    )
-}
-
 /// T-18.a (v0.5.0) — sanitize the module name for the Ident-based
 /// desugar lookup. Slash isn't a valid Ident; rewrite "fs/promises"
 /// → "__fs_promises" so the Member rewrite produces a parseable
@@ -150,7 +129,7 @@ pub fn desugar_builtin_imports(ast: &mut Ast) {
             default: _,
             namespace,
         } = s
-            && is_builtin_module(source)
+            && crate::modules::is_builtin_module_source(source)
         {
             let module_name = sanitize_module_name(source);
             for (orig, alias) in named {

@@ -350,9 +350,9 @@ fn check_k2_form(
 }
 
 /// True for module sources that map to runtime built-ins instead of
-/// user files. Mirrored by `ast::desugar_builtin_imports`. Keep the
-/// two lists in sync.
-fn is_builtin_module_source(source: &str) -> bool {
+/// user files — the one list both the resolver and
+/// `ast::desugar_builtin_imports` read.
+pub(crate) fn is_builtin_module_source(source: &str) -> bool {
     matches!(
         source,
         "fs" | "node:fs" | "fs/promises" | "node:fs/promises"
