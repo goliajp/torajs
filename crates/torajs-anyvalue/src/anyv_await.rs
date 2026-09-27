@@ -4,7 +4,7 @@
 //! await kernel lives here on the same promise-cell layout.
 
 use crate::method_call_promise::{
-    P_REPR_OFF, P_STATE_OFF, REPR_UNSTAMPED, STATE_FULFILLED, box_settled,
+    P_REPR_OFF, P_STATE_OFF, REPR_UNSTAMPED, STATE_FULFILLED, STATE_REJECTED, box_settled,
 };
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED};
 
@@ -22,8 +22,8 @@ use core::ffi::c_void;
 /// result is an independent binding, mirroring the typed lane's
 /// rc_inc after `get_value` (box_settled is a borrow). A REJECTED
 /// cell routes through `get_value`'s throw slot (the call site's
-/// throw-check propagates); a still-PENDING cell answers undefined
-/// (the sync-resolve model's guard, same as the typed read); an
+/// throw-check propagates); a still-PENDING cell raises a TypeError
+/// (the runtime cannot suspend here yet, same as the heap lane); an
 /// UNSTAMPED fulfilled cell refuses loudly — never a silent mis-box.
 /// Every other value — including a thenable struct (L3b) — passes
 /// through identity WITH a fresh +1: the contract is "+1 stake on
@@ -48,10 +48,21 @@ pub unsafe extern "C" fn __torajs_anyv_await(av: AnyValue) -> AnyValue {
         }
         let state = ptr.cast::<u8>().add(P_STATE_OFF).read();
         let repr = ptr.cast::<u8>().add(P_REPR_OFF).read();
+        // Still pending after the call site drained the microtasks: no
+        // job left can settle it, and this lane cannot suspend yet.
+        // Answering undefined let the code after the await run on a
+        // value that never existed — same raise as the heap lane.
+        if state != STATE_FULFILLED && state != STATE_REJECTED {
+            __torajs_throw_type_error(
+                c"await on a promise that is still pending: a value of this type cannot be read \
+                  before it settles (the runtime does not suspend here yet)"
+                    .as_ptr(),
+            );
+            return VALUE_UNDEFINED;
+        }
         let value = __torajs_promise_get_value(ptr);
         if state != STATE_FULFILLED {
-            // rejected: get_value set the throw slot; pending: the
-            // sync-model undefined guard.
+            // rejected: get_value set the throw slot
             return VALUE_UNDEFINED;
         }
         if repr == REPR_UNSTAMPED {
