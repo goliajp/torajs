@@ -9,9 +9,9 @@
 use crate::exec::exec;
 use std::path::{Path, PathBuf};
 
-/// Return bun's stdout for `src`. On cache hit (content-hash match)
-/// reads the cached bytes directly; on miss runs `bun run` once and
-/// writes the result into
+/// Return bun's stdout for `src`. On cache hit (a hash over every
+/// input file, [`oracle_inputs`]) reads the cached bytes directly; on
+/// miss runs `bun run` once and writes the result into
 /// `conformance/.oracle-cache/<bun version>/<hash>.out`.
 ///
 /// Why this helps: each `bun run` is ~10-20 ms wall time even for
@@ -34,8 +34,7 @@ use std::path::{Path, PathBuf};
 /// and you can see which bun each answer came from, and drop the
 /// retired ones.
 pub(crate) fn get_or_fill_bun_oracle(src: &Path) -> Result<String, String> {
-    let bytes = std::fs::read(src).map_err(|e| format!("read {}: {e}", src.display()))?;
-    let hash = content_hash(&bytes);
+    let hash = content_hash(&oracle_inputs(src)?);
     // No readable version means no trustworthy key, so there is no
     // cache — every case pays the bun spawn rather than risk being
     // served an answer from an unknown oracle.
@@ -53,14 +52,104 @@ pub(crate) fn get_or_fill_bun_oracle(src: &Path) -> Result<String, String> {
     Ok(out)
 }
 
-fn content_hash(bytes: &[u8]) -> String {
+/// Every file bun reads to answer `src`, as (path, bytes) in a fixed
+/// order: the entry first, then what it can import. A key over the
+/// entry alone served a stale answer whenever a case changed only a
+/// file its entry imports — the gate then compared tr against what bun
+/// said about the OLD sibling. A directory case (`<dir>/main.ts`)
+/// takes its whole directory; a single-file case takes the files its
+/// relative specifiers name, transitively. Over-including only costs a
+/// cache miss; missing an input is the failure this guards against.
+/// The entry's path is part of the key too: bun's messages can name it.
+fn oracle_inputs(src: &Path) -> Result<Vec<(PathBuf, Vec<u8>)>, String> {
+    let read = |p: &Path| std::fs::read(p).map_err(|e| format!("read {}: {e}", p.display()));
+    let mut out = vec![(src.to_path_buf(), read(src)?)];
+    if src.file_name().is_some_and(|n| n == "main.ts")
+        && let Some(dir) = src.parent()
+    {
+        let mut files = Vec::new();
+        list_files(dir, &mut files).map_err(|e| format!("read_dir {}: {e}", dir.display()))?;
+        files.sort();
+        for f in files.into_iter().filter(|f| f != src) {
+            let bytes = read(&f)?;
+            out.push((f, bytes));
+        }
+        return Ok(out);
+    }
+    let mut seen = vec![src.to_path_buf()];
+    let mut i = 0;
+    while i < out.len() {
+        let base = out[i].0.parent().unwrap_or(Path::new(".")).to_path_buf();
+        for spec in relative_specifiers(&out[i].1) {
+            let Some(dep) = resolve_relative(&base, &spec) else {
+                continue;
+            };
+            if !seen.contains(&dep) {
+                seen.push(dep.clone());
+                let bytes = read(&dep)?;
+                out.push((dep, bytes));
+            }
+        }
+        i += 1;
+    }
+    Ok(out)
+}
+
+fn list_files(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
+    for e in std::fs::read_dir(dir)? {
+        let p = e?.path();
+        if p.is_dir() {
+            list_files(&p, out)?;
+        } else {
+            out.push(p);
+        }
+    }
+    Ok(())
+}
+
+/// Every quoted string in `src` that starts `./` or `../` — a superset
+/// of the relative module specifiers, which is the safe direction.
+fn relative_specifiers(src: &[u8]) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < src.len() {
+        let q = src[i];
+        if (q == b'"' || q == b'\'' || q == b'`')
+            && (src[i + 1..].starts_with(b"./") || src[i + 1..].starts_with(b"../"))
+            && let Some(len) = src[i + 1..].iter().position(|&c| c == q || c == b'\n')
+            && src[i + 1 + len] == q
+        {
+            out.push(String::from_utf8_lossy(&src[i + 1..i + 1 + len]).into_owned());
+            i += len + 2;
+            continue;
+        }
+        i += 1;
+    }
+    out
+}
+
+fn resolve_relative(base: &Path, spec: &str) -> Option<PathBuf> {
+    let p = base.join(spec);
+    if p.is_file() {
+        return Some(p);
+    }
+    ["ts", "cts", "mts", "js"]
+        .iter()
+        .map(|ext| base.join(format!("{spec}.{ext}")))
+        .find(|p| p.is_file())
+}
+
+fn content_hash(inputs: &[(PathBuf, Vec<u8>)]) -> String {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    bytes.hash(&mut h);
+    for (path, bytes) in inputs {
+        path.hash(&mut h);
+        bytes.hash(&mut h);
+    }
     // Convention tag — bump if the cached bytes stop meaning "bun's
-    // stdout for this source". The oracle's own identity lives in
+    // stdout for these inputs". The oracle's own identity lives in
     // the directory name, not here.
-    "oracle-v1".hash(&mut h);
+    "oracle-v2".hash(&mut h);
     format!("{:016x}", h.finish())
 }
 
@@ -87,4 +176,28 @@ fn repo_root_oracle_cache_dir() -> PathBuf {
     std::env::current_dir()
         .map(|p| p.join("conformance/.oracle-cache"))
         .unwrap_or_else(|_| PathBuf::from("conformance/.oracle-cache"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::relative_specifiers;
+
+    #[test]
+    fn finds_relative_specifiers_in_every_quote_style() {
+        let src = br#"import { a } from "./lib.ts";
+export * from '../up/m';
+const m = await import(`./dyn.js`);
+const s = "not/relative"; const t = "./unterminated
+"#;
+        assert_eq!(
+            relative_specifiers(src),
+            vec!["./lib.ts", "../up/m", "./dyn.js"]
+        );
+    }
+
+    #[test]
+    fn ignores_a_quote_at_the_end_of_the_source() {
+        assert!(relative_specifiers(b"x = \"").is_empty());
+        assert!(relative_specifiers(b"'./").is_empty());
+    }
 }
