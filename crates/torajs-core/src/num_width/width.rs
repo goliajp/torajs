@@ -225,7 +225,7 @@ impl<'a> Analysis<'a> {
                 // where the program should see `undefined` looks
                 // exactly like the taint table having missed the
                 // value (RFC 20260923 §3.3c).
-                if self.sentinel_member_reads.contains(&eid) {
+                if self.sentinel_member_reads.contains(&eid) || self.namespace_number_read(eid) {
                     return W::F64;
                 }
                 match self.container_key_lookup(eid, scope) {

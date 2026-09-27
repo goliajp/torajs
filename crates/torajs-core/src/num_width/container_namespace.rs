@@ -1,7 +1,8 @@
 //! Member calls on a builtin namespace receiver (`Promise.*`,
 //! `Array.from`, `Object.defineProperty`, `Reflect.set` /
 //! `Reflect.deleteProperty`): the receiver is no
-//! container, so each wires its own edges. Split from
+//! container, so each wires its own edges. Also the value properties
+//! of `Math` and `Number`, which no container lattice holds. Split from
 //! `container_methods.rs` (file-size limit).
 
 use super::{Analysis, Scope, SlotKey, W};
@@ -90,5 +91,15 @@ impl<'a> Analysis<'a> {
             return true;
         }
         false
+    }
+
+    /// `Math.PI` / `Number.EPSILON` and their siblings (§21.3.1,
+    /// §21.1.2): doubles — fractions, NaN, ±∞ — so the slot they land
+    /// in has to be F64. As a receiver-free read it had no container
+    /// key and answered NotNum, and an I64 slot then held the f64's
+    /// bit pattern as an integer.
+    pub(super) fn namespace_number_read(&self, eid: ExprId) -> bool {
+        matches!(self.ast.get_expr(eid), Expr::Member { obj, .. }
+            if matches!(self.ast.get_expr(*obj), Expr::Ident(ns) if ns == "Math" || ns == "Number"))
     }
 }
