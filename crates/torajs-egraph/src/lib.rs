@@ -150,6 +150,27 @@ fn analyze_intervals(module: &Module) -> Option<Vec<HashMap<ValueId, interval::N
     })
 }
 
+/// The two passes that take array header words out of loops: the
+/// length of a loop that stores it into a register, then header-field
+/// loads of arrays the loop never writes. Before throw_check_fold (its
+/// loop-entry probe would otherwise sit between the preheader and the
+/// header).
+fn array_header_passes(module: &mut Module) {
+    // Array length word into a register across a loop that stores it
+    // (`len_promote`): the pop loop's `str len` → next `ldr len` chain.
+    // After branch_fold (its folded arms are no longer loop body),
+    // before load_licm, which then sees the loop without the stores.
+    // `TORAJS_LEN_PROMOTE_OFF=1` skips (bisect gate).
+    gated_pass("LEN_PROMOTE", module, len_promote::promote_lengths);
+    // Array header-field loads out of loops that never write that
+    // array's header (allocation-site alias slices, `load_licm`).
+    // After branch_fold (a folded-away out-of-range arm is no longer
+    // loop body), before throw_check_fold (its loop-entry probe would
+    // otherwise sit between the preheader and the header).
+    // `TORAJS_LOAD_LICM_OFF=1` skips (bisect gate).
+    gated_pass("LOAD_LICM", module, load_licm::hoist_header_loads);
+}
+
 /// The two loop-constant hoists: each distinct in-loop `ConstF64`
 /// operand mints one preheader Copy and body uses read the value,
 /// killing the per-iteration 3-inst rematerialization + GPR→FPR
@@ -303,19 +324,9 @@ pub fn transform_module(mut module: Module) -> Module {
     // (folded diamonds must not be select-formed).
     // `TORAJS_BRANCH_FOLD_OFF=1` skips (bisect gate).
     gated_pass("BRANCH_FOLD", &mut module, branch_fold::fold_branches);
-    // Array length word into a register across a loop that stores it
-    // (`len_promote`): the pop loop's `str len` → next `ldr len` chain.
-    // After branch_fold (its folded arms are no longer loop body),
-    // before load_licm, which then sees the loop without the stores.
-    // `TORAJS_LEN_PROMOTE_OFF=1` skips (bisect gate).
-    gated_pass("LEN_PROMOTE", &mut module, len_promote::promote_lengths);
-    // Array header-field loads out of loops that never write that
-    // array's header (allocation-site alias slices, `load_licm`).
-    // After branch_fold (a folded-away out-of-range arm is no longer
-    // loop body), before throw_check_fold (its loop-entry probe would
-    // otherwise sit between the preheader and the header).
-    // `TORAJS_LOAD_LICM_OFF=1` skips (bisect gate).
-    gated_pass("LOAD_LICM", &mut module, load_licm::hoist_header_loads);
+    // Array header words out of loops (`array_header_passes`). After
+    // branch_fold: its folded-away arms are no longer loop body.
+    array_header_passes(&mut module);
     // Pending-exception probes already known to read 0 — the flag
     // only moves inside a call, so a probe after a passed probe with
     // no call between answers "continue". After branch_fold (it removes
