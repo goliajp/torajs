@@ -133,16 +133,17 @@ pub(crate) fn lower(
         None
     };
 
+    // Clause bodies lower in source order, so a closure in a clause
+    // after a mid-switch `default` sees the bindings the default
+    // declares.
     for (i, c) in cases.iter().enumerate() {
         let cmp_blk = ctx.cur_block;
-        let _ = i;
         let eq = emit_case_compare(ctx, scrutinee, scrut_val, scrut_ty, c.value, cmp_blk);
         let next_cmp_or_default = if i + 1 < cases.len() {
             ctx.f.add_block()
         } else {
             default_blk.unwrap_or(after)
         };
-        let _ = cmp_blk;
         ctx.f.set_term(
             ctx.cur_block,
             Terminator::CondBr {
@@ -151,6 +152,11 @@ pub(crate) fn lower(
                 else_blk: next_cmp_or_default,
             },
         );
+        if i == default_at
+            && let (Some(db), Some(d)) = (default_blk, default)
+        {
+            lower_clause_body(ctx, db, d, body_blks[i]);
+        }
         // Bodies fall through in source order, where the default
         // sits `default_at` clauses in.
         let fall_through = match default_blk {
@@ -158,33 +164,15 @@ pub(crate) fn lower(
             _ if i + 1 < body_blks.len() => body_blks[i + 1],
             _ => after,
         };
-        ctx.cur_block = body_blks[i];
-        for s in &c.body {
-            ctx.lower_stmt(s);
-            if !ctx.cur_open() {
-                break;
-            }
-        }
-        if ctx.cur_open() {
-            ctx.f.set_term(ctx.cur_block, Terminator::Br(fall_through));
-        }
+        lower_clause_body(ctx, body_blks[i], &c.body, fall_through);
         if i + 1 < cases.len() {
             ctx.cur_block = next_cmp_or_default;
         }
     }
-
-    if let (Some(db), Some(default_body)) = (default_blk, default) {
-        ctx.cur_block = db;
-        for s in default_body {
-            ctx.lower_stmt(s);
-            if !ctx.cur_open() {
-                break;
-            }
-        }
-        if ctx.cur_open() {
-            let next = body_blks.get(default_at).copied().unwrap_or(after);
-            ctx.f.set_term(ctx.cur_block, Terminator::Br(next));
-        }
+    if default_at == cases.len()
+        && let (Some(db), Some(d)) = (default_blk, default)
+    {
+        lower_clause_body(ctx, db, d, after);
     }
     if cases.is_empty() {
         let target = default_blk.unwrap_or(after);
@@ -195,4 +183,19 @@ pub(crate) fn lower(
     ctx.case_block_depth -= 1;
     ctx.cur_block = after;
     ctx.close_scope_frame();
+}
+
+/// Lower one clause body into `blk`, falling through to `next` unless
+/// it already jumped away.
+fn lower_clause_body(ctx: &mut LowerCtx, blk: BlockId, body: &[Stmt], next: BlockId) {
+    ctx.cur_block = blk;
+    for s in body {
+        ctx.lower_stmt(s);
+        if !ctx.cur_open() {
+            break;
+        }
+    }
+    if ctx.cur_open() {
+        ctx.f.set_term(ctx.cur_block, Terminator::Br(next));
+    }
 }

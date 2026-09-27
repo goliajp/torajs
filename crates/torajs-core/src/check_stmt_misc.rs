@@ -21,7 +21,7 @@
 
 use std::collections::HashMap;
 
-use crate::ast::{Ast, ExprId, Stmt, SwitchCase};
+use crate::ast::{Ast, Stmt};
 use crate::check::{Checker, DiagPush, Type};
 
 /// `true` when a `case undefined:` / `case null:` clause CAN be
@@ -63,14 +63,17 @@ fn nullish_clause_is_reachable(scrut_ty: &Type, clause_ty: &Type) -> bool {
     )
 }
 
-pub(crate) fn check_switch(
-    checker: &mut Checker,
-    ast: &Ast,
-    scrutinee: ExprId,
-    cases: &[SwitchCase],
-    default: &Option<Vec<Stmt>>,
-) {
-    let scrut_ty = match checker.type_of(ast, scrutinee) {
+pub(crate) fn check_switch(checker: &mut Checker, ast: &Ast, stmt: &Stmt) {
+    let Stmt::Switch {
+        scrutinee,
+        cases,
+        default,
+        default_at,
+    } = stmt
+    else {
+        return;
+    };
+    let scrut_ty = match checker.type_of(ast, *scrutinee) {
         Ok(t) => t,
         Err(e) => {
             checker.errors.push_err(e);
@@ -82,7 +85,10 @@ pub(crate) fn check_switch(
     // frames made `case 0: let a = 1; case 1: a` an unknown
     // identifier and let a clause-declared name escape the switch.
     checker.scopes.push(HashMap::new());
-    for c in cases {
+    for (i, c) in cases.iter().enumerate() {
+        if i == *default_at {
+            check_clause_body(checker, ast, default.as_deref().unwrap_or_default());
+        }
         match checker.type_of(ast, c.value) {
             // `any` on either side is the type whose runtime value is
             // unknown, so nothing can be said about it here.
@@ -136,20 +142,23 @@ pub(crate) fn check_switch(
             )),
             Err(e) => checker.errors.push_err(e),
         }
-        for s in &c.body {
-            checker.check_stmt(ast, s);
-        }
-        // ut3 — only one case body executes; no assignment narrow
-        // crosses case boundaries.
-        checker.flush_assign_narrows();
+        check_clause_body(checker, ast, &c.body);
     }
-    if let Some(db) = default {
-        for s in db {
-            checker.check_stmt(ast, s);
-        }
-        checker.flush_assign_narrows();
+    if *default_at == cases.len() {
+        check_clause_body(checker, ast, default.as_deref().unwrap_or_default());
     }
     checker.scopes.pop();
+}
+
+/// One clause body, in source order — a later clause's closures see
+/// what an earlier one (the default included) declares.
+fn check_clause_body(checker: &mut Checker, ast: &Ast, body: &[Stmt]) {
+    for s in body {
+        checker.check_stmt(ast, s);
+    }
+    // ut3 — only one case body executes; no assignment narrow
+    // crosses case boundaries.
+    checker.flush_assign_narrows();
 }
 
 pub(crate) fn check_yield(checker: &mut Checker) {

@@ -52,14 +52,9 @@ impl Checker {
                 crate::check_stmt_while::check_do_while(self, ast, body, *cond);
                 self.flush_assign_narrows();
             }
-            Stmt::Switch {
-                scrutinee,
-                cases,
-                default,
-                ..
-            } => {
-                // scrutinee vs case value types; a scope per clause body
-                crate::check_stmt_misc::check_switch(self, ast, *scrutinee, cases, default);
+            Stmt::Switch { .. } => {
+                // clause value types vs the scrutinee's; one CaseBlock scope
+                crate::check_stmt_misc::check_switch(self, ast, stmt);
                 self.flush_assign_narrows();
             }
             Stmt::For {
