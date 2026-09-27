@@ -34,6 +34,7 @@
 //!                     their stderr first line (default 20).
 
 mod args;
+mod bounded_wait;
 mod bugdump;
 mod cache;
 mod fixtures;

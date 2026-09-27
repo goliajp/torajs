@@ -218,7 +218,7 @@ pub fn bun_oracle(
     if let Some(c) = lookup(case_bytes, harness_bytes) {
         return Ok((c.success, c.stdout));
     }
-    let mut child = Command::new("bun")
+    let child = Command::new("bun")
         .args(["run", &tmp_path.to_string_lossy()])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -230,28 +230,15 @@ pub fn bun_oracle(
     // not drag the whole batch down". 30s tr timeout already exists
     // downstream; 15s here keeps total per-case <= 45s ceiling.
     let timeout = std::time::Duration::from_secs(15);
-    let started = std::time::Instant::now();
-    // Exponential backoff: bun 通常 50-80ms/case,flat 20ms sleep 让快 case
-    // 平均多等 10ms(× 53k case = 分钟级 wall waste)。500us→20ms cap 与
-    // verdict.rs tr wait / conformance/runner/exec.rs 同 pattern。
-    let mut backoff_us: u64 = 500;
-    let out = loop {
-        match child.try_wait() {
-            Ok(Some(_)) => break child.wait_with_output(),
-            Ok(None) => {
-                if started.elapsed() >= timeout {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    // Treat as BunSkip — same outcome as bun exiting
-                    // non-zero. Don't cache hangs (re-test next run
-                    // in case bun improved or environment changed).
-                    return Ok((false, Vec::new()));
-                }
-                std::thread::sleep(std::time::Duration::from_micros(backoff_us));
-                backoff_us = (backoff_us * 2).min(20_000);
-            }
-            Err(e) => return Err(format!("bun wait: {e}")),
-        }
+    let Some(out) = crate::bounded_wait::wait_output_within(
+        child,
+        crate::bounded_wait::KillTarget::Process,
+        timeout,
+    ) else {
+        // Treat as BunSkip — same outcome as bun exiting non-zero.
+        // Don't cache hangs (re-test next run in case bun improved or
+        // environment changed).
+        return Ok((false, Vec::new()));
     };
     let out = out.map_err(|e| format!("bun output: {e}"))?;
     let success = out.status.success();

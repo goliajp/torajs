@@ -13,7 +13,7 @@
 use std::io::Read;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// Hard ceiling per child process invocation. Any single `bun run`,
 /// `tr run`, `tr build`, or AOT-binary exec must finish within this
@@ -75,35 +75,38 @@ pub(crate) fn exec_with_timeout(
         s
     });
 
-    let start = Instant::now();
-    // Exponential backoff polling: most fixtures finish in <50 ms so a
-    // flat 20 ms sleep wastes ~15 ms per case on short ops. Start at
-    // 0.5 ms (catches fast cases nearly idle-free), double up to a
-    // 20 ms cap.
-    let mut backoff_us: u64 = 500;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(s)) => break s,
-            Ok(None) => {
-                if start.elapsed() >= timeout {
-                    // SIGKILL the *whole group* so the AOT-spawned
-                    // native grandchild dies with tr rather than
-                    // orphaning to init.
-                    unsafe { kill(-pgid, SIGKILL) };
-                    let _ = child.wait();
-                    let _ = stdout_thread.join();
-                    let _ = stderr_thread.join();
-                    return Err(format!(
-                        "{cmd} timeout after {}s (SIGKILL group)",
-                        timeout.as_secs_f64()
-                    ));
-                }
-                std::thread::sleep(Duration::from_micros(backoff_us));
-                backoff_us = (backoff_us * 2).min(20_000);
-            }
-            Err(e) => return Err(format!("wait {cmd}: {e}")),
+    // Block on the child instead of polling it: a watchdog thread
+    // waits out the deadline and SIGKILLs the group unless the wait
+    // below reports the exit first. Polling (0.5 ms doubling to a
+    // 20 ms cap) noticed an exit half a step late on average, three
+    // execs per case. The watchdog can fire in the instant between the
+    // reap and `done`, against a pid macOS will not have handed out
+    // again that soon (pids increment).
+    let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
+    let watchdog = std::thread::spawn(move || {
+        let fired = done_rx.recv_timeout(timeout).is_err();
+        if fired {
+            // SIGKILL the *whole group* so the AOT-spawned native
+            // grandchild dies with tr rather than orphaning to init.
+            unsafe { kill(-pgid, SIGKILL) };
         }
+        fired
+    });
+    let waited = child.wait();
+    let _ = done_tx.send(());
+    let timed_out = watchdog.join().unwrap_or(false);
+    let status = match waited {
+        Ok(s) => s,
+        Err(e) => return Err(format!("wait {cmd}: {e}")),
     };
+    if timed_out {
+        let _ = stdout_thread.join();
+        let _ = stderr_thread.join();
+        return Err(format!(
+            "{cmd} timeout after {}s (SIGKILL group)",
+            timeout.as_secs_f64()
+        ));
+    }
 
     let stdout = stdout_thread.join().unwrap_or_default();
     let stderr = stderr_thread.join().unwrap_or_default();
@@ -117,6 +120,7 @@ pub(crate) fn exec_with_timeout(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Instant;
 
     #[test]
     fn exec_returns_stdout_for_quick_command() {

@@ -25,20 +25,6 @@
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::Command;
-use std::time::Instant;
-
-/// `kill(2)` — sent with a negated pid to signal a whole process group.
-/// tr AOT-compiles each case to a native binary it then spawns
-/// (`torajs-run-new-*`); killing only the direct child (`Child::kill`)
-/// orphaned that grandchild to init, where an infinite-loop or
-/// runaway-allocation case kept a core pegged and memory growing forever.
-/// On a shared runner that starved the host into a watchdog-timeout panic
-/// and a reboot loop (mini, 2026-07-23). `torajs-test262` is a dev-only
-/// harness; declaring the one libc call inline keeps its zero-dep build.
-const SIGKILL: i32 = 9;
-unsafe extern "C" {
-    fn kill(pid: i32, sig: i32) -> i32;
-}
 
 /// Per-case verdict. `Pass` = oracle-matched; `PassNoOracle` /
 /// `PassNegative` = self-validated (see module doc).
@@ -61,9 +47,9 @@ pub enum Outcome {
 /// tr runs as the leader of its own process group so the guard can
 /// signal the group (`kill(-pgid)`) — tr **and** the native binary it
 /// AOT-spawns — rather than tr alone. Killing only tr orphaned the
-/// grandchild, which on a hang kept running unbounded (see `SIGKILL`).
+/// grandchild, which on a hang kept running unbounded (`bounded_wait`).
 pub fn run_tr(tr_bin: &Path, tmp_path: &Path) -> Result<std::process::Output, Outcome> {
-    let mut tr_proc = match Command::new(tr_bin)
+    let tr_proc = match Command::new(tr_bin)
         .args(["run", &tmp_path.to_string_lossy()])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -77,45 +63,19 @@ pub fn run_tr(tr_bin: &Path, tmp_path: &Path) -> Result<std::process::Output, Ou
             });
         }
     };
-    // Group leader's pid is the pgid; negate it to target the whole group.
-    let pgid = tr_proc.id() as i32;
     let timeout = std::time::Duration::from_secs(30);
-    let started = Instant::now();
-    // Exponential backoff: most tr runs finish in tens of ms so a flat
-    // 50ms sleep wastes tens of ms per fast case (× 53k case × 8 worker
-    // = measurable sweep wall). Start at 0.5ms (catches fast cases nearly
-    // idle-free), double up to a 20ms cap. Mirrors conformance runner
-    // `conformance/runner/exec.rs` pattern.
-    let mut backoff_us: u64 = 500;
-    loop {
-        match tr_proc.try_wait() {
-            Ok(Some(_status)) => {
-                return tr_proc
-                    .wait_with_output()
-                    .map_err(|e| Outcome::HarnessError {
-                        msg: format!("tr output: {e}"),
-                    });
-            }
-            Ok(None) => {
-                if started.elapsed() >= timeout {
-                    // Kill the whole group so the AOT-spawned native child
-                    // dies with tr instead of being orphaned to init.
-                    unsafe { kill(-pgid, SIGKILL) };
-                    let _ = tr_proc.wait();
-                    return Err(Outcome::Incompatible {
-                        kind: "tr-timeout".to_string(),
-                        msg: format!("tr timed out after {}s", timeout.as_secs()),
-                    });
-                }
-                std::thread::sleep(std::time::Duration::from_micros(backoff_us));
-                backoff_us = (backoff_us * 2).min(20_000);
-            }
-            Err(e) => {
-                return Err(Outcome::HarnessError {
-                    msg: format!("tr wait: {e}"),
-                });
-            }
-        }
+    match crate::bounded_wait::wait_output_within(
+        tr_proc,
+        crate::bounded_wait::KillTarget::Group,
+        timeout,
+    ) {
+        Some(out) => out.map_err(|e| Outcome::HarnessError {
+            msg: format!("tr output: {e}"),
+        }),
+        None => Err(Outcome::Incompatible {
+            kind: "tr-timeout".to_string(),
+            msg: format!("tr timed out after {}s", timeout.as_secs()),
+        }),
     }
 }
 
