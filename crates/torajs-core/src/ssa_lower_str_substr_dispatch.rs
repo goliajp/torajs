@@ -24,6 +24,34 @@ use crate::ast::ExprId;
 use crate::ssa::{BinOp as SsaBinOp, InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
+/// The String methods this lane has no arm for: the caller asks
+/// them of an owned copy instead.
+pub(crate) fn needs_owned_receiver(method: &str) -> bool {
+    matches!(
+        method,
+        "split"
+            | "substr"
+            | "concat"
+            | "normalize"
+            | "isWellFormed"
+            | "toWellFormed"
+            | "toLocaleString"
+            | "anchor"
+            | "fontcolor"
+            | "fontsize"
+            | "link"
+            | "big"
+            | "blink"
+            | "bold"
+            | "fixed"
+            | "italics"
+            | "small"
+            | "strike"
+            | "sub"
+            | "sup"
+    )
+}
+
 /// Dispatch `<Substr>.<method>(args)` to the appropriate
 /// runtime intrinsic / fast path. Returns `Some(value)` when the
 /// receiver was a [`Type::Substr`] and the call was lowered;

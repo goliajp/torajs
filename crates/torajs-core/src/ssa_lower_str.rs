@@ -269,6 +269,32 @@ fn dispatch_method(
     recv_op: Operand,
     recv_ty: Type,
 ) -> Option<Operand> {
+    // A view receiver of a method the view lane has no kernel for
+    // (`split`, `concat`, `normalize`, the Annex B wrappers, …) is
+    // copied out and asked as an owned string; the copy is released
+    // after the call — a split product holds its own reference on it.
+    if recv_ty == Type::Substr && crate::ssa_lower_str_substr_dispatch::needs_owned_receiver(method)
+    {
+        let owned = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.substr_to_owned, vec![recv_op]),
+            Type::Str,
+            None,
+        );
+        let v = dispatch_method(
+            ctx,
+            call_eid,
+            method,
+            args,
+            Operand::Value(owned),
+            Type::Str,
+        );
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.str_drop, vec![Operand::Value(owned)]),
+        );
+        return v;
+    }
     // Phase Substr.B: dispatch view-aware methods on
     // Type::Substr receivers without materializing.
     // Currently MVP routes only the cheap byte-only ops;
