@@ -246,9 +246,9 @@ pub unsafe extern "C" fn __torajs_arr_iter_family(iter_p: *const c_void) -> u32 
 /// what that box may own: ENTRIES mints a fresh `[index, value]`
 /// Array<Any> at refcount 1, KEYS yields a primitive.
 ///
-/// VALUES `+1`s the slot payload it forwards, because the slot read
-/// above is an explicit borrow and the box would otherwise adopt the
-/// array's own reference.
+/// VALUES forwards an owned read of the slot: a heap element takes
+/// its own `+1`, and an inline substring view (a split product) is
+/// materialized, since the view belongs to its split block.
 ///
 /// # Safety
 /// `iter_p` is null or a live ArrIter. `out_*` are valid writable
@@ -317,12 +317,10 @@ pub unsafe extern "C" fn __torajs_arr_iter_step(
         }
         return 0;
     }
-    // Kind-aware borrowed whole-box read (backfill chunk 4) — a
-    // typed block behind an `any` view reboxes per its recorded elem
-    // kind; FLAG_ARR_ANY blocks keep the raw NaN-box slot read.
-    // The typed read is OWNED where the array read is borrowed, so
-    // the +1 the VALUES / ENTRIES arms below apply would be one too
-    // many — `owned_read` tracks which it was.
+    // Kind-aware whole-box read (backfill chunk 4) — a typed block
+    // behind an `any` view reboxes per its recorded elem kind;
+    // FLAG_ARR_ANY blocks read the NaN-box slot. Every lane answers
+    // an OWNED value, which is what the VALUES / ENTRIES arms hand on.
     //
     // KEYS yields the index alone and reads no element at all
     // (§23.2.5.1's `key` kind does not either): a typed read MINTS
@@ -332,23 +330,18 @@ pub unsafe extern "C" fn __torajs_arr_iter_step(
     // (rotation 546 — one leaked Str per `keys()` step).
     let kind = unsafe { (*it).kind };
     let read = kind != ARR_ITER_KEYS;
-    let (slot_av, owned_read) = if !read {
-        (0u64, false)
+    let slot_av = if !read {
+        0u64
     } else if typed {
-        (
-            unsafe { __torajs_typedarray_index_get(arr as u64, i as f64) },
-            true,
-        )
+        unsafe { __torajs_typedarray_index_get(arr as u64, i as f64) }
     } else if arraylike {
-        (
-            unsafe { __torajs_any_index_get(arr as u64, i as i64) },
-            true,
-        )
+        unsafe { __torajs_any_index_get(arr as u64, i as i64) }
     } else {
-        (
-            unsafe { crate::any::__torajs_arr_get_any_boxed(arr, i as u64) },
-            false,
-        )
+        // Not the borrowed read: an inline substring view handed to
+        // `.value` as itself dangled once its split block died, and a
+        // step value kept across later allocations read other strings'
+        // bytes. The owned read materializes it.
+        unsafe { crate::any_get::__torajs_arr_get_any_owned(arr, i as u64) }
     };
     // Nothing was read on the skipped path, so nothing is decoded
     // either — `slot_av` there is a placeholder no arm looks at.
@@ -367,22 +360,10 @@ pub unsafe extern "C" fn __torajs_arr_iter_step(
     let (tag, payload) = match unsafe { (*it).kind } {
         k if k == ARR_ITER_KEYS => (ANY_I64 as i64, i as i64),
         k if k == ARR_ITER_VALUES => {
-            // The `.value` box adopts what it is handed, and
-            // `__torajs_arr_get_any_boxed` above is an explicit borrow
-            // (the slot keeps its reference), so the +1 has to happen
-            // here. Without it `arr.values().next().value` handed out
-            // the element's only stake and the element died under the
-            // array — `arr[0][0]` answered undefined after five steps
-            // (rotation 323). The inc gates on cell-likeness, not the
-            // tag: a ShortStr reports Heap but `slot_val` is then the
-            // materialization, whose fresh rc=1 stake transfers as-is
-            // (rotation 546 — inc'ing it double-staked and leaked).
-            if !owned_read
-                && (slot_tag & 0xff) == ANY_HEAP as u64
-                && torajs_rc::ffi::nan_box_is_cell_like(slot_av as *mut c_void)
-            {
-                unsafe { __torajs_rc_inc(slot_val as *mut c_void) };
-            }
+            // The `.value` box adopts what it is handed: the owned
+            // read's stake, or for a ShortStr the unbox's fresh
+            // materialization (rotation 546 — one more inc there
+            // double-staked and leaked).
             (slot_tag as i64, slot_val as i64)
         }
         k if k == ARR_ITER_ENTRIES => {
@@ -394,15 +375,8 @@ pub unsafe extern "C" fn __torajs_arr_iter_step(
                 let mut out_arr = __torajs_arr_alloc_any(2);
                 // Index — primitive i64, no rc_inc.
                 out_arr = __torajs_arr_push_any(out_arr, ANY_I64 as u64, i as u64);
-                // Value — a borrowed CELL payload needs rc_inc before
-                // the push adopts it; a ShortStr materialization's
-                // fresh stake transfers as-is (same gate as VALUES).
-                if !owned_read
-                    && (slot_tag & 0xff) == ANY_HEAP as u64
-                    && torajs_rc::ffi::nan_box_is_cell_like(slot_av as *mut c_void)
-                {
-                    __torajs_rc_inc(slot_val as *mut c_void);
-                }
+                // Value — the owned read's stake transfers into the
+                // push, as it does into the VALUES box.
                 out_arr = __torajs_arr_push_any(out_arr, slot_tag, slot_val);
                 (ANY_HEAP as i64, out_arr as i64)
             }

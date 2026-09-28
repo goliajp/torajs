@@ -189,6 +189,13 @@ pub unsafe extern "C" fn __torajs_arr_index_get(arr: *const c_void, idx: i64) ->
                 if raw == 0 || crate::layout::heap_slot_is_undef(raw as *const u8) {
                     return undef();
                 }
+                // An inline view's storage is its split block's; the
+                // +1 below lands on a count its drop never reads, so
+                // the answer is an owned copy instead.
+                if crate::substr_materialize::is_inline_view(raw as *const u8) {
+                    let owned = crate::substr_materialize::view_to_owned(raw as *const u8);
+                    return __torajs_anyv_box_from_pair(4, owned as i64);
+                }
                 __torajs_rc_inc(raw as *mut c_void);
                 __torajs_anyv_box_from_pair(4, raw as i64)
             }
