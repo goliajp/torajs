@@ -162,32 +162,23 @@ pub(super) fn inject_export_inner(
             .to_string();
         let extras: Vec<&str> = visibles.iter().filter(|v| **v != first).copied().collect();
         // Extra spellings inject as their own decls AFTER the first.
-        // A FnDecl deep-clones (a shared body would hand one ExprId
-        // tree to two decls, and every stmts-walking desugar pass
-        // would rewrite it twice); a TypeDecl is ExprId-free and
-        // clones plainly; a LetDecl aliases by REFERENCE (`const
-        // renamed = fa`) so its initializer evaluates once, per
-        // §16.2.1's one-binding semantics. A ClassDecl aliases by
-        // reference too (423-01 knife D1): `const K2 = K` shares the
-        // ONE class identity — `new K2()` rides the non-class-new
-        // NewDynamic route off the class value, instanceof included —
-        // where a deep clone would silently split statics and brand.
+        // A TypeDecl is ExprId-free and clones plainly; every value
+        // decl aliases by REFERENCE (`const renamed = fa`), per
+        // §16.2.1's one-binding semantics: a LetDecl's initializer
+        // evaluates once, a FnDecl keeps one identity, and a ClassDecl
+        // (423-01 knife D1) keeps its ONE class — `new K2()` rides the
+        // non-class-new NewDynamic route off the class value,
+        // instanceof included — where a deep clone would silently
+        // split statics and brand.
         let mut extra_decls: Vec<Stmt> = Vec::new();
         for alias in extras {
             match &inner {
-                Stmt::FnDecl { .. } => {
-                    let mut copy = crate::ast::clone_toplevel_stmt(ast, &inner);
-                    rename_decl(&mut copy, alias.to_string());
-                    crate::ast::rename_fn_self_refs(ast, &mut copy, &name, alias);
-                    copy_fn_name_tables(ast, &name, alias);
-                    extra_decls.push(copy);
-                }
                 Stmt::TypeDecl { .. } => {
                     let mut copy = inner.clone();
                     rename_decl(&mut copy, alias.to_string());
                     extra_decls.push(copy);
                 }
-                Stmt::LetDecl { .. } | Stmt::ClassDecl { .. } => {
+                Stmt::FnDecl { .. } | Stmt::LetDecl { .. } | Stmt::ClassDecl { .. } => {
                     let init = ast.add_expr(Expr::Ident(first.clone()));
                     extra_decls.push(Stmt::LetDecl {
                         mutable: false,
