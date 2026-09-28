@@ -192,7 +192,7 @@ pub(super) fn rewrite_classdecls_pass3(
         // so a program carrying one mints every class's twin — the
         // runtime registry dispatches `super(…)` to it by class cell.
         if ast.es5_real_parents.contains(cname) || !ast.es5_value_parents.is_empty() {
-            super::desugar_classes_generic_twin::mint_ctor_generic_twin(
+            super::desugar_classes_ctor_twin::mint_ctor_generic_twin(
                 ast,
                 cname,
                 (ctor, own_fields),
