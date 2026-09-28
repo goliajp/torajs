@@ -1,20 +1,25 @@
-//! Namespace statics handed over as VALUES where no annotated slot
+//! Namespace statics handed over as CALLBACKS where no annotated slot
 //! names their type: a builtin array HOF's callback, a promise
-//! handler, an object literal's field, an array literal's element.
-//! The dispatcher cell (RFC 20260719) serves the boxed lane only —
-//! its `fn_addr` is a loud TypeError — so a typed consumer of such a
-//! site (`xs.map(Math.sqrt)` calling through `CallIndirect`,
-//! `o.f(1)` on a typed field, `.then` running its handler) threw, or
-//! read the throw's stand-in as the handler's result. Each site now
-//! takes a forwarder shell spelled from the member's OWN signature —
-//! the checker's namespace table, the one truth for what the member
-//! takes and answers — so the consumer sees an ordinary lifted
-//! closure: `__forward_nsv_Math_sqrt(__env, __nsa0: number): number
-//! { return Math.sqrt(__nsa0) }`, whose body compiles through the
-//! typed kernel. A member the table types with a rest parameter has
-//! no fixed shell and keeps the cell. A site an annotated slot receives is the
-//! sibling `wrap_ns_static_values`, which spells the shell from the
-//! slot and runs first.
+//! handler. The dispatcher cell (RFC 20260719) serves the boxed lane
+//! only — its `fn_addr` is a loud TypeError — so a typed consumer of
+//! such a site (`xs.map(Math.sqrt)` calling through `CallIndirect`,
+//! `.then` running its handler) threw, or read the throw's stand-in
+//! as the handler's result. Each site now takes a forwarder shell
+//! spelled from the member's OWN signature — the checker's namespace
+//! table, the one truth for what the member takes and answers — so
+//! the consumer sees an ordinary lifted closure:
+//! `__forward_nsv_Math_sqrt(__env, __nsa0: number): number { return
+//! Math.sqrt(__nsa0) }`, whose body compiles through the typed
+//! kernel. A member the table types with a rest parameter has no
+//! fixed shell and keeps the cell. A site an annotated slot receives
+//! is the sibling `wrap_ns_static_values`, which spells the shell
+//! from the slot and runs first.
+//!
+//! Only a callback site: the caller calls the value and nothing else.
+//! A value stored somewhere — an object literal's field, an array's
+//! element — is compared as well (`{ value: Promise.try }` in a
+//! property-descriptor check is `=== Promise.try`), and a shell is
+//! not the member; those sites keep the cell.
 
 use std::collections::HashSet;
 
@@ -39,19 +44,17 @@ fn callback_arity(name: &str) -> Option<usize> {
 }
 
 pub fn wrap_ns_static_value_sites(ast: &mut Ast) {
-    // (site, arity the site's caller passes; None = the member's own)
-    let mut sites: Vec<(ExprId, Option<usize>)> = Vec::new();
+    // (site, arity the site's caller passes)
+    let mut sites: Vec<(ExprId, usize)> = Vec::new();
     for e in ast.exprs.iter() {
-        let (candidates, arity): (Vec<ExprId>, Option<usize>) = match e {
+        let (candidates, arity): (Vec<ExprId>, usize) = match e {
             Expr::Call { callee, args } => match ast.get_expr(*callee) {
                 Expr::Member { name, .. } => match callback_arity(name) {
-                    Some(n) => (args.clone(), Some(n)),
+                    Some(n) => (args.clone(), n),
                     None => continue,
                 },
                 _ => continue,
             },
-            Expr::ObjectLit { fields } => (fields.iter().map(|(_, v)| *v).collect(), None),
-            Expr::Array(elems) => (elems.clone(), None),
             _ => continue,
         };
         sites.extend(
@@ -86,7 +89,6 @@ pub fn wrap_ns_static_value_sites(ast: &mut Ast) {
         // one reads them all (`[9, 4].map(Math.max)` is
         // `Math.max(9, 0, [9, 4])`, NaN) — the table's `length` is
         // the spec length and cannot tell the two apart.
-        let arity = arity.unwrap_or(own_anns.len());
         let param_anns: Vec<String> = (0..arity)
             .map(|i| {
                 own_anns
