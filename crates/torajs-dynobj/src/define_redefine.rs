@@ -76,8 +76,11 @@ pub(crate) unsafe fn module_ns_refuses(
     //    NaN (same bits) and +0 does not match -0 (different bits),
     //    which is precisely what SameValue asks for and what `===`
     //    would get wrong in both directions.
+    //    A live-binding entry (a cell over the export's slot) is
+    //    compared by the binding's CURRENT value, which is what the
+    //    property's [[Value]] is.
     if flags_byte & DEFINE_PRESENT_VALUE != 0 {
-        let cur_anyv = unsafe { (*e).value_anyv };
+        let cur_anyv = unsafe { crate::global_cell::deref_global_cell((*e).value_anyv) };
         let cur_tag = unsafe { __torajs_anyv_unbox_tag(cur_anyv) } as u64;
         let cur_val = unsafe { __torajs_anyv_unbox_value(cur_anyv) } as u64;
         return cur_tag != (tag & BUCKET_TAG_MASK) || cur_val != value;

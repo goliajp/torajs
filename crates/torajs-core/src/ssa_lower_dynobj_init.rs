@@ -349,6 +349,11 @@ impl<'a> LowerCtx<'a> {
             // as `null`, silently collapsing the two (`{u: undefined}`
             // read back `=== null`; probe-proven). A local binding
             // shadowing `undefined` keeps the general path.
+            // A namespace field over a mutable export is a cell over
+            // the export's global slot, not a copy of its value.
+            if self.try_emit_ns_binding_field(slot, &fname, fval_eid) {
+                continue;
+            }
             if matches!(self.ast.get_expr(fval_eid), Expr::Ident(n) if n == "undefined")
                 && !self.locals.contains_key("undefined")
             {

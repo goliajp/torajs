@@ -301,20 +301,10 @@ pub(crate) fn emit_script_global_var_bind(
     } else {
         0
     };
-    let kind: i64 = configurable
-        | writerless
-        | function
-        | assigned
-        | implicit
-        | match slot_ty {
-            Type::Any => 0,
-            Type::I64 | Type::I32 => 1,
-            Type::F64 => 2,
-            Type::Bool => 3,
-            Type::Str => 4,
-            ref t if t.is_refcounted() => 5,
-            _ => return,
-        };
+    let Some(repr) = global_cell_kind(&slot_ty) else {
+        return;
+    };
+    let kind: i64 = configurable | writerless | function | assigned | implicit | repr;
     let name_str = ctx.intern_string_literal(name);
     let f = ctx.intrinsics.global_var_bind;
     ctx.f.append_void(
@@ -329,6 +319,21 @@ pub(crate) fn emit_script_global_var_bind(
         ),
     );
     ctx.emit_throw_check(None);
+}
+
+/// The representation word a cell over a global slot of `ty` carries
+/// (torajs-dynobj `global_cell::KIND_*`): what the cell reads the
+/// slot as. `None` for a slot no cell can read.
+pub(crate) fn global_cell_kind(ty: &Type) -> Option<i64> {
+    Some(match ty {
+        Type::Any => 0,
+        Type::I64 | Type::I32 => 1,
+        Type::F64 => 2,
+        Type::Bool => 3,
+        Type::Str => 4,
+        t if t.is_refcounted() => 5,
+        _ => return None,
+    })
 }
 
 /// M2 Phase B Stage 4 — `let f = global_fn`: FnSig slot with FnAddr

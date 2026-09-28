@@ -2,9 +2,6 @@
 //! parent under the 500-line file discipline (rotation 146), leaving
 //! `ast.rs` as the module-tree and re-export face (the same shape
 //! `torajs-core/src/lib.rs` settled into at chunk 486).
-//!
-//! Verbatim move; `pub use ast_def::Ast` in the parent keeps every
-//! `crate::ast::Ast` path working.
 
 use super::*;
 
@@ -1269,6 +1266,9 @@ pub struct Ast {
     /// retarget a static `ns.<export>` read straight at the local,
     /// leaving the object itself to the value uses §10.4.6 is about.
     pub namespace_bindings: std::collections::HashMap<String, Vec<(String, String)>>,
+    /// Every namespace object literal's field values (`Ident`s of landed
+    /// exports); one over a mutable export lowers to a cell over its slot.
+    pub ns_binding_fields: std::collections::HashSet<ExprId>,
     /// True when the parser saw at least one dynamic `import(...)`
     /// expression (any argument shape — §13.3.10 takes a full
     /// AssignmentExpression). Gates the module resolver's speculative

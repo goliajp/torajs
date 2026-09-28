@@ -69,7 +69,11 @@ pub(super) fn materialize_pending_namespaces(
 
 /// `{ name1: local1, name2: local2, … }` — the namespace object literal
 /// over an already-sorted export list; each value is an `Ident(local)`
-/// naming an injected lib decl.
+/// naming an injected lib decl. Every field is recorded in
+/// `ns_binding_fields`: the one over a mutable export lowers to a
+/// cell over the export's slot, so the object reads the binding live
+/// (§10.4.6.8) at every reflective face — the static `ns.x` read is
+/// rewritten to the binding itself by `read_through_namespace`.
 pub(super) fn namespace_objlit_expr(
     ast: &mut Ast,
     sorted: &[(String, String)],
@@ -77,6 +81,7 @@ pub(super) fn namespace_objlit_expr(
     let mut fields: Vec<(PropKey, crate::ast::ExprId)> = Vec::with_capacity(sorted.len());
     for (name, local) in sorted {
         let id = ast.add_expr(Expr::Ident(local.clone()));
+        ast.ns_binding_fields.insert(id);
         fields.push((PropKey::from(name), id));
     }
     ast.add_expr(Expr::ObjectLit { fields })

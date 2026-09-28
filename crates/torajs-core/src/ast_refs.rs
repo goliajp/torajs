@@ -63,6 +63,10 @@ pub fn toplevel_binding_refs(ast: &Ast) -> ToplevelBindingRefs {
             }
         }
     }
+    // A mutable export a namespace object refers to needs the same
+    // stable home a named-fn read does: the object holds a cell over
+    // the slot (see `ns_live_exports`).
+    named_fn_refs.extend(ns_live_exports(ast));
     let mut closure_captured = HashSet::new();
     for e in &ast.exprs {
         if let Expr::Closure { captures, .. } = e {
@@ -73,6 +77,35 @@ pub fn toplevel_binding_refs(ast: &Ast) -> ToplevelBindingRefs {
         named_fn_refs,
         closure_captured,
     }
+}
+
+/// The top-level bindings a namespace object literal refers to
+/// (`ast.ns_binding_fields`) that are MUTABLE — `let` / `var`
+/// declarations, which a module may reassign after the object is
+/// built. Their namespace fields lower to cells over their global
+/// slots; an immutable export's value never changes, so its field
+/// stays a plain copy.
+pub fn ns_live_exports(ast: &Ast) -> HashSet<String> {
+    let mutable: HashSet<&str> = ast
+        .stmts
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::LetDecl {
+                name,
+                mutable,
+                is_var,
+                ..
+            } if *mutable || *is_var => Some(name.as_str()),
+            _ => None,
+        })
+        .collect();
+    ast.ns_binding_fields
+        .iter()
+        .filter_map(|eid| match ast.get_expr(*eid) {
+            Expr::Ident(n) if mutable.contains(n.as_str()) => Some(n.clone()),
+            _ => None,
+        })
+        .collect()
 }
 
 fn idents_in_stmt(ast: &Ast, s: &Stmt, shadow: &HashSet<String>, out: &mut HashSet<String>) {

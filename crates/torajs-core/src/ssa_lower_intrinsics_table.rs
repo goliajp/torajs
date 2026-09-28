@@ -374,6 +374,7 @@ pub(crate) fn build(
         accessor_invoke_getter: init_b.object.accessor_invoke_getter,
         get_property_descriptor: init_b.object.get_property_descriptor,
         module_ns_finalize: init_b.object.module_ns_finalize,
+        dynobj_define_binding: init_b.object.dynobj_define_binding,
         throw_typeerror_if_not_object: init_b.object.throw_typeerror_if_not_object,
         throw_typeerror_if_not_desc_object: init_b.object.throw_typeerror_if_not_desc_object,
         throw_typeerror_if_props_nullish: init_b.object.throw_typeerror_if_props_nullish,

@@ -71,6 +71,9 @@ pub(crate) struct ObjectIds {
     /// exotic attributes (null proto / non-extensible / sealed
     /// entries / `@@toStringTag`).
     pub module_ns_finalize: FuncId,
+    /// `__torajs_dynobj_define_binding(obj_slot, key, slot_ptr, kind)`
+    /// — a namespace field as a cell over the export's global slot.
+    pub dynobj_define_binding: FuncId,
     pub throw_typeerror_if_not_object: FuncId,
     pub throw_typeerror_if_not_desc_object: FuncId,
     pub throw_typeerror_if_props_nullish: FuncId,
@@ -236,6 +239,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         accessor_invoke_getter: decl!("__torajs_accessor_invoke_getter", [Ptr, Any], Any),
         get_property_descriptor: decl!("__torajs_anyv_get_property_descriptor", [Any, Ptr], Any),
         module_ns_finalize: decl!("__torajs_module_ns_finalize", [Any], Void),
+        dynobj_define_binding: decl!("__torajs_dynobj_define_binding", [Ptr, Ptr, Ptr, I64], Void),
         throw_typeerror_if_not_object: decl!(
             "__torajs_anyv_throw_typeerror_if_not_object",
             [Any],

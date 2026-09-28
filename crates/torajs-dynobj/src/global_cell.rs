@@ -144,6 +144,44 @@ pub unsafe extern "C" fn __torajs_global_cell_alloc(
     p as *mut c_void
 }
 
+/// `__torajs_dynobj_define_binding(obj_slot, key, slot_ptr, kind)` —
+/// define `key` on the dynobj as a data property whose value IS the
+/// binding behind `slot_ptr`: a fresh cell over the slot, so every
+/// reader sees the slot's current value (§10.4.6.8 [[Get]] reads the
+/// binding on each access). The attributes are the module
+/// namespace's (writable, enumerable, not configurable); a write
+/// never reaches the cell — the header's module-namespace bit refuses
+/// it first. The dynobj must still be extensible (the mint calls this
+/// before it finalizes the object).
+///
+/// # Safety
+/// `obj_slot` holds a live dynobj; `key` is a live Str cell
+/// (borrowed); `slot_ptr` is the address of a data global that
+/// outlives the object.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dynobj_define_binding(
+    obj_slot: *mut *mut c_void,
+    key: *mut c_void,
+    slot_ptr: *mut c_void,
+    kind: u64,
+) {
+    unsafe {
+        let cell = __torajs_global_cell_alloc(slot_ptr, kind & KIND_MASK);
+        crate::define_entry::__torajs_dynobj_define_plain(
+            obj_slot,
+            key,
+            crate::layout::ANY_HEAP,
+            cell as u64,
+            crate::layout::DEFINE_PRESENT_VALUE
+                | crate::layout::DEFINE_PRESENT_WRITABLE
+                | crate::layout::DEFINE_FLAG_WRITABLE
+                | crate::layout::DEFINE_PRESENT_ENUMERABLE
+                | crate::layout::DEFINE_FLAG_ENUMERABLE
+                | crate::layout::DEFINE_PRESENT_CONFIGURABLE,
+        );
+    }
+}
+
 /// `__torajs_global_cell_drop(cell)` — refcount dec; on hit-zero free
 /// the block. The slot behind it is not the cell's to settle.
 ///

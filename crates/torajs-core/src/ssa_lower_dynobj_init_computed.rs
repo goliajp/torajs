@@ -18,7 +18,7 @@ use crate::ast::PropKey;
 use std::collections::HashSet;
 use torajs_wtf8::Wtf8;
 
-use crate::ast::ExprId;
+use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 
@@ -341,5 +341,54 @@ impl LowerCtx<'_> {
         if key_transfers {
             self.emit_drop_value(key_keep, k_ty);
         }
+    }
+}
+
+impl LowerCtx<'_> {
+    /// A namespace object's field over a MUTABLE export (§10.4.6.8 —
+    /// the object reads the binding on each access, never a copy):
+    /// the entry is defined as a cell over the export's global slot,
+    /// with the slot's address and representation. Answers false
+    /// for every other field, and for an export the global lane did
+    /// not home (a closure captures it), which keeps the value copy.
+    pub(crate) fn try_emit_ns_binding_field(
+        &mut self,
+        slot: ValueId,
+        fname: &Wtf8,
+        fval_eid: ExprId,
+    ) -> bool {
+        if !self.ast.ns_binding_fields.contains(&fval_eid) {
+            return false;
+        }
+        let Expr::Ident(local) = self.ast.get_expr(fval_eid) else {
+            return false;
+        };
+        let Some(slot_ty) = self.globals.get(local).cloned() else {
+            return false;
+        };
+        let Some(kind) = crate::ssa_lower_stmt_let_decl_global::global_cell_kind(&slot_ty) else {
+            return false;
+        };
+        if !crate::ast_refs::ns_live_exports(self.ast).contains(local) {
+            return false;
+        }
+        let local = local.clone();
+        let key = self.intern_string_literal(fname);
+        let ptr = self
+            .f
+            .append_inst(self.cur_block, InstKind::GlobalRef(local), Type::Ptr, None);
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Call(
+                self.intrinsics.dynobj_define_binding,
+                vec![
+                    Operand::Value(slot),
+                    Operand::Value(key),
+                    Operand::Value(ptr),
+                    Operand::ConstI64(kind),
+                ],
+            ),
+        );
+        true
     }
 }

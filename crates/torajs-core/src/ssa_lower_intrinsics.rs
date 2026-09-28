@@ -434,6 +434,7 @@ pub(crate) struct Intrinsics {
     pub(crate) accessor_invoke_getter: FuncId,
     pub(crate) get_property_descriptor: FuncId,
     pub(crate) module_ns_finalize: FuncId,
+    pub(crate) dynobj_define_binding: FuncId,
     pub(crate) throw_typeerror_if_not_object: FuncId,
     pub(crate) throw_typeerror_if_not_desc_object: FuncId,
     pub(crate) throw_typeerror_if_props_nullish: FuncId,
