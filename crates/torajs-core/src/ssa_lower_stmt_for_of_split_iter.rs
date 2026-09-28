@@ -81,13 +81,30 @@ const PARENT_HOLD: &str = "__split_parent";
 pub(crate) fn lower(ctx: &mut LowerCtx, var_name: &str, parent: ExprId, sep: ExprId, body: &Stmt) {
     let parent_op = ctx.lower_expr(parent);
     let sep_op = ctx.lower_expr(sep);
+    // The iterator kernel reads its parent as a plain string, so a
+    // view parent (`for (const c of row.split(","))` with `row` itself
+    // a split element) is copied out first; the loop holds the copy.
+    let (parent_op, minted) = if ctx.operand_ty(&parent_op) == Type::Substr {
+        let owned = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.substr_to_owned, vec![parent_op.clone()]),
+            Type::Str,
+            None,
+        );
+        if ctx.expr_transfers_ownership(parent) {
+            ctx.emit_drop_value(parent_op, Type::Substr);
+        }
+        (Operand::Value(owned), true)
+    } else {
+        (parent_op, false)
+    };
     let parent_ty = ctx.operand_ty(&parent_op);
 
     // Outer frame: owns the parent stake, when the loop needs one.
     ctx.scope_stack.push(Vec::new());
     ctx.shadow_stack.push(Vec::new());
-    if parent_ty.is_refcounted() && !source_outlives_loop(ctx, parent, body) {
-        if !ctx.expr_transfers_ownership(parent) {
+    if parent_ty.is_refcounted() && (minted || !source_outlives_loop(ctx, parent, body)) {
+        if !minted && !ctx.expr_transfers_ownership(parent) {
             ctx.emit_owned_result_inc(parent_op.clone(), parent_ty);
         }
         let hold = ctx.alloca(parent_ty, Some(PARENT_HOLD));
