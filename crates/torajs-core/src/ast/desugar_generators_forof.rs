@@ -54,7 +54,7 @@
 
 use super::desugar_generators_forof_close::{Suspend, clear_live, set_live, wrap_with_close};
 use super::desugar_generators_forof_label::{is_loop_tail, label_loop_tail, unlabel};
-use super::desugar_generators_forof_step::build_step_decl;
+use super::desugar_generators_forof_step::{build_step_decl, symbol_index_expr};
 use super::desugar_generators_sm_rewrite::stmt_contains_yield;
 use super::{Ast, Expr, Stmt};
 
@@ -220,30 +220,6 @@ fn rewrite_in_stmt(ast: &mut Ast, s: &mut Stmt, cx: &mut Cx) {
         }
         _ => {}
     }
-}
-
-/// `(src as any)[Symbol.<well_known>]` — the symbol-keyed probe the
-/// derive line reads (and, with `Call`, invokes: F0b index-call
-/// receiver semantics make `o[k]()` take `o` as `this`).
-pub(super) fn symbol_index_expr(
-    ast: &mut Ast,
-    src_ident: &str,
-    well_known: &str,
-) -> crate::ast::ExprId {
-    let src_ref = ast.add_expr(Expr::Ident(src_ident.to_string()));
-    let src_any = ast.add_expr(Expr::As {
-        expr: src_ref,
-        ty_ann: "any".into(),
-    });
-    let sym = ast.add_expr(Expr::Ident("Symbol".into()));
-    let sym_key = ast.add_expr(Expr::Member {
-        obj: sym,
-        name: well_known.into(),
-    });
-    ast.add_expr(Expr::Index {
-        obj: src_any,
-        index: sym_key,
-    })
 }
 
 /// Build the module-doc shape. `body` is the already-recursed loop

@@ -5,8 +5,9 @@
 //! `__agen_step_call`, whose Async-from-Sync posture is decided by the
 //! `@@asyncIterator` probe riding along), a sync loop calls `next()`
 //! with no argument (§7.4.4), and a sync `yield*` delegation passes its
-//! one `received` argument (§27.5.3.2 step 7.a.i). Split out when the
-//! parent crossed the file-size line.
+//! one `received` argument (§27.5.3.2 step 7.a.i). Also the
+//! `(src as any)[Symbol.<well_known>]` probe both protocols derive the
+//! iterator from. Split out when the parent crossed the file-size line.
 
 use super::desugar_generators_forof::Cx;
 use super::desugar_generators_forof_close::Suspend;
@@ -74,4 +75,28 @@ pub(super) fn build_step_decl(
             is_var: false,
         }
     }
+}
+
+/// `(src as any)[Symbol.<well_known>]` — the symbol-keyed probe the
+/// derive line reads (and, with `Call`, invokes: F0b index-call
+/// receiver semantics make `o[k]()` take `o` as `this`).
+pub(super) fn symbol_index_expr(
+    ast: &mut Ast,
+    src_ident: &str,
+    well_known: &str,
+) -> crate::ast::ExprId {
+    let src_ref = ast.add_expr(Expr::Ident(src_ident.to_string()));
+    let src_any = ast.add_expr(Expr::As {
+        expr: src_ref,
+        ty_ann: "any".into(),
+    });
+    let sym = ast.add_expr(Expr::Ident("Symbol".into()));
+    let sym_key = ast.add_expr(Expr::Member {
+        obj: sym,
+        name: well_known.into(),
+    });
+    ast.add_expr(Expr::Index {
+        obj: src_any,
+        index: sym_key,
+    })
 }

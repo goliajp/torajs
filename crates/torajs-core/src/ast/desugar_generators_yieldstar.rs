@@ -64,7 +64,7 @@
 //! done step's value completes the outer generator; a missing `return`
 //! completes it with v.
 
-use super::desugar_generators_forof::symbol_index_expr;
+use super::desugar_generators_forof_step::symbol_index_expr;
 use super::desugar_generators_yieldstar_ast::{
     assign_stmt, call_method, ident, is_null, let_any, member, not_null, not_object, this_field,
     type_error,
