@@ -128,31 +128,7 @@ pub(crate) fn try_lower(
             ctx.release_owned_temp(args[0], &target_op);
             (Operand::Value(to), true)
         };
-        for src_eid in &args[1..] {
-            let s_raw = ctx.lower_expr(*src_eid);
-            let s_ty = ctx.operand_ty(&s_raw);
-            let (s_op, we_boxed) = if matches!(s_ty, Type::Any) {
-                (s_raw, false)
-            } else {
-                if !ctx.expr_transfers_ownership(*src_eid) && s_ty.is_refcounted() {
-                    ctx.emit_rc_inc(s_raw.clone());
-                }
-                (ctx.box_to_any(s_raw), true)
-            };
-            ctx.f.append_void(
-                ctx.cur_block,
-                InstKind::Call(
-                    ctx.intrinsics.anyv_assign,
-                    vec![walk_target.clone(), s_op.clone()],
-                ),
-            );
-            if we_boxed {
-                ctx.emit_drop_value(s_op, Type::Any);
-            } else {
-                ctx.release_owned_temp(*src_eid, &s_op);
-            }
-            ctx.emit_throw_check(None);
-        }
+        assign_any_sources(ctx, &args[1..], &walk_target);
         if !target_is_fresh {
             ctx.emit_owned_result_inc(walk_target.clone(), Type::Any);
         }
@@ -240,4 +216,33 @@ pub(crate) fn try_lower(
     // bypasses integrity's lower_noop).
     ctx.emit_owned_result_inc(target_op.clone(), target_ty);
     Some(target_op)
+}
+
+/// One `anyv_assign` call per source onto the any-lane walk target.
+fn assign_any_sources(ctx: &mut LowerCtx<'_>, sources: &[ExprId], walk_target: &Operand) {
+    for src_eid in sources {
+        let s_raw = ctx.lower_expr(*src_eid);
+        let s_ty = ctx.operand_ty(&s_raw);
+        let (s_op, we_boxed) = if matches!(s_ty, Type::Any) {
+            (s_raw, false)
+        } else {
+            if !ctx.expr_transfers_ownership(*src_eid) && s_ty.is_refcounted() {
+                ctx.emit_rc_inc(s_raw.clone());
+            }
+            (ctx.box_to_any(s_raw), true)
+        };
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.anyv_assign,
+                vec![walk_target.clone(), s_op.clone()],
+            ),
+        );
+        if we_boxed {
+            ctx.emit_drop_value(s_op, Type::Any);
+        } else {
+            ctx.release_owned_temp(*src_eid, &s_op);
+        }
+        ctx.emit_throw_check(None);
+    }
 }

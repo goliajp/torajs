@@ -61,6 +61,7 @@ pub mod proto_tostringtag_install;
 pub mod reflect;
 pub mod reflect_descriptors;
 pub mod reflect_get_property_descriptor;
+pub mod reflect_gopd_dynobj;
 pub mod reflect_proto;
 pub mod reflect_proto_set;
 mod reflect_proto_set_faces;
