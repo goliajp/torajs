@@ -49,6 +49,7 @@ unsafe extern "C" {
     /// owned heap Str; dropped via the universal dispatcher below.
     fn __torajs_anyv_to_str(v: u64) -> *mut c_void;
     fn __torajs_value_drop_heap(p: *mut c_void);
+    fn __torajs_throw_check() -> i64;
     /// torajs-arr kind-aware borrowed whole-box slot read (chunk 625
     /// contract: the slot keeps its share; OOB answers undefined).
     fn __torajs_arr_get_any_boxed(arr: *const c_void, i: u64) -> u64;
@@ -134,6 +135,13 @@ pub(crate) unsafe fn dynobj_values_append(
             continue;
         }
         let (tag, val) = unsafe { entry_value_pair(obj, i) };
+        // the read raised (a getter, a module namespace field in its
+        // dead zone): the caller's throw edge releases nothing it was
+        // handed, so the walk settles its array and hands back null
+        if unsafe { __torajs_throw_check() } != 0 {
+            unsafe { __torajs_value_drop_heap(arr as *mut c_void) };
+            return core::ptr::null_mut();
+        }
         arr = unsafe { __torajs_arr_push_any(arr as *mut c_void, tag, val) };
     }
     arr
@@ -160,8 +168,13 @@ pub(crate) unsafe fn dynobj_entries_append(
             continue;
         }
         // Borrowed key → the inner pair takes its own share.
-        unsafe { __torajs_rc_inc(key) };
         let (tag, val) = unsafe { entry_value_pair(obj, i) };
+        if unsafe { __torajs_throw_check() } != 0 {
+            unsafe { __torajs_arr_mark_kind(outer as *mut c_void, KIND_CHAIN_HEAP) };
+            unsafe { __torajs_value_drop_heap(outer as *mut c_void) };
+            return core::ptr::null_mut();
+        }
+        unsafe { __torajs_rc_inc(key) };
         let inner = unsafe { __torajs_arr_alloc_any(2) };
         let inner =
             unsafe { __torajs_arr_push_any(inner as *mut c_void, ANY_HEAP_TAG as u64, key as u64) };

@@ -123,6 +123,12 @@ pub unsafe extern "C" fn __torajs_anyv_get_property_descriptors(obj_any: u64) ->
         unsafe { __torajs_anyv_own_keys(obj_any, 1) }
     };
     unsafe { drain_keys(obj_any, keys, out_slot) };
+    // A descriptor read raised: the caller's throw edge releases
+    // nothing it was handed, so the mint is settled here.
+    if unsafe { __torajs_throw_check() } != 0 {
+        unsafe { __torajs_value_drop_heap(out) };
+        return VALUE_UNDEFINED_IMM;
+    }
     // The answer is the dynobj itself, boxed as a heap AnyValue —
     // the caller adopts the mint's one share.
     unsafe { __torajs_anyv_box_from_pair(ANY_HEAP, out as i64) }

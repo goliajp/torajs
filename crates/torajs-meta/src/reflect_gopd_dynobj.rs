@@ -13,6 +13,10 @@ use crate::reflect::{
 };
 use crate::reflect_get_property_descriptor::{builtin_proto_descriptor, key_is_symbol_cell};
 
+unsafe extern "C" {
+    fn __torajs_throw_check() -> i64;
+}
+
 /// The dynobj's own descriptor for `key`, or a synthesized
 /// prototype-method descriptor for a name it does not own.
 ///
@@ -31,6 +35,11 @@ pub(crate) unsafe fn dynobj_descriptor(dynobj: *const c_void, key: *const c_void
         return unsafe { builtin_proto_descriptor(dynobj, key) };
     }
     let v_tag = unsafe { __torajs_dynobj_get_tag(dynobj, k_str) };
+    // a module namespace field in its dead zone raised in that read;
+    // no descriptor is built over a pending error
+    if unsafe { __torajs_throw_check() } != 0 {
+        return VALUE_UNDEFINED_IMM;
+    }
     let v_val = unsafe { __torajs_dynobj_get_value(dynobj, k_str) };
     let flags = unsafe { __torajs_dynobj_get_flags(dynobj, k_str) };
 

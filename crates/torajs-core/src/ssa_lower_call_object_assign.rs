@@ -128,7 +128,7 @@ pub(crate) fn try_lower(
             ctx.release_owned_temp(args[0], &target_op);
             (Operand::Value(to), true)
         };
-        assign_any_sources(ctx, &args[1..], &walk_target);
+        assign_any_sources(ctx, &args[1..], &walk_target, target_is_fresh);
         if !target_is_fresh {
             ctx.emit_owned_result_inc(walk_target.clone(), Type::Any);
         }
@@ -218,8 +218,16 @@ pub(crate) fn try_lower(
     Some(target_op)
 }
 
-/// One `anyv_assign` call per source onto the any-lane walk target.
-fn assign_any_sources(ctx: &mut LowerCtx<'_>, sources: &[ExprId], walk_target: &Operand) {
+/// One `anyv_assign` call per source onto the any-lane walk target. A
+/// fresh target is a temp nobody else holds until it is the answer:
+/// parked so a source's raise releases it.
+fn assign_any_sources(
+    ctx: &mut LowerCtx<'_>,
+    sources: &[ExprId],
+    walk_target: &Operand,
+    target_is_fresh: bool,
+) {
+    let parked = target_is_fresh.then(|| ctx.push_throw_temp(walk_target.clone(), Type::Any));
     for src_eid in sources {
         let s_raw = ctx.lower_expr(*src_eid);
         let s_ty = ctx.operand_ty(&s_raw);
@@ -244,5 +252,8 @@ fn assign_any_sources(ctx: &mut LowerCtx<'_>, sources: &[ExprId], walk_target: &
             ctx.release_owned_temp(*src_eid, &s_op);
         }
         ctx.emit_throw_check(None);
+    }
+    if let Some(t) = parked {
+        ctx.pop_throw_temp(t);
     }
 }

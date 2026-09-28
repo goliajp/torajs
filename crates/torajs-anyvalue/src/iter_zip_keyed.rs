@@ -63,6 +63,10 @@ pub unsafe extern "C" fn __torajs_iterator_zip_keyed(obj: AnyValue, options: Any
         };
         // Step 7 — the keys snapshot (own enumerable string keys).
         let keys = __torajs_anyv_own_keys(obj, 0);
+        // null: the walk raised (a module namespace field in its dead zone)
+        if keys.is_null() {
+            return VALUE_UNDEFINED;
+        }
         __torajs_arr_mark_kind(keys, KIND_CHAIN_HEAP);
         let count = (keys.cast::<u8>().add(ARR_LEN_OFF) as *const u64).read();
         let key_data = ((keys as *const u8).add(ARR_DATA_PTR_OFF) as *const *const u8).read();

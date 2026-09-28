@@ -358,6 +358,10 @@ unsafe fn define_all_from_keys(obj_slot: *mut *mut c_void, props: *const c_void,
     } else {
         unsafe { __torajs_anyv_struct_keys(props_anyv, 0) }
     };
+    // null: the walk raised (a module namespace field in its dead zone)
+    if keys.is_null() {
+        return;
+    }
     let klen = unsafe { (keys.cast::<u8>().add(ARR_LEN_OFF) as *const u64).read() } as usize;
     let kdata = unsafe { (keys.cast::<u8>().add(ARR_DATA_PTR_OFF) as *const *const u64).read() };
     if klen == 0 {

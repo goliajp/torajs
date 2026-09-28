@@ -212,7 +212,14 @@ fn lower_plural(ctx: &mut LowerCtx<'_>, callee: ExprId, args: &[ExprId]) -> Opti
         Type::Any,
         None,
     );
+    // the receiver temp is released after the call on both edges
+    let parked = ctx
+        .expr_owned_shape(args[0])
+        .then(|| ctx.push_throw_temp(obj_raw.clone(), obj_ty.clone()));
     ctx.emit_throw_check(None);
+    if let Some(t) = parked {
+        ctx.pop_throw_temp(t);
+    }
     // Same receiver-ownership settlement as the singular path above.
     ctx.release_owned_temp(args[0], &obj_raw);
     Some(Operand::Value(v))

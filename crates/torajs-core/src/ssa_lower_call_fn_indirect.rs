@@ -212,59 +212,41 @@ fn try_lower_call_or_closure_callee(
     let callee_ty = ctx.operand_ty(&callee_op);
     match callee_ty {
         Type::Closure(user_sig_id) => {
-            // Rotation 362 — a rest-tail callee VALUE (`box[0](…)` where
-            // the element's checker type is `(...args: any[]) => R`)
-            // never static-dispatches: the SSA sig only carries the
-            // fixed prefix, so the env-first CallIndirect argv would
-            // mismatch the closure's real native arity (the argv-face
-            // injected params read garbage — SIGSEGV). Route through
-            // the boxed dual entry, mirroring the struct-field arm
-            // (`callable_field_is_variadic`).
-            if matches!(
-                ctx.expr_types.get(&callee),
-                Some(crate::check::Type::Function(ps, _))
-                    if matches!(ps.last(), Some(crate::check::Type::Rest(_)))
-            ) {
-                return Some(
-                    crate::ssa_lower_call_closure_local::emit_variadic_boxed_call(
-                        ctx,
-                        callee_op,
-                        user_sig_id,
-                        args,
-                    ),
-                );
-            }
-            // Rotation 328 — an inline PROMOTED fn-expr callee (the
-            // IIFE arm): its native ABI carries the `__this: any`
-            // param the Closure sig sheds, so the receiverless call
-            // must re-insert the slot with a boxed `undefined` — the
-            // plain env-first shape would shift every user arg by
-            // one. A runtime closure value arriving through a Call /
-            // Index callee cannot be promoted (the AST bar admits
-            // zero-alias faces only) and keeps the plain shape.
-            let this = match ctx.ast.get_expr(callee) {
-                Expr::Closure { fn_name, .. } if ctx.ast.fnexpr_recv_fns.contains(fn_name) => {
-                    ClosureThis::Undef
+            // a closure literal minted for this call (`(() => v)()`) is
+            // a temp nobody else holds: parked across the call's throw
+            // check, released once the call is over. An async or
+            // generator literal (the async desugar's generator wrapper
+            // sits on the arrow's own ExprId and is called at once)
+            // answers a machine that keeps reading the env without a
+            // share of its own, so that cell stays as it was; a Call
+            // callee's answer may be a passthrough of a binding's
+            // share (`k > 0 ? f1 : f2`).
+            let minted = match ctx.ast.get_expr(callee) {
+                Expr::Closure { fn_name, .. } => {
+                    !ctx.ast.fn_async_value_fns.contains(fn_name)
+                        && !ctx.ast.genexpr_names.contains_key(fn_name)
+                        && !ctx.ast.async_fn_value_exprs.contains(&callee)
+                        && !ctx.ast.async_sm_value_exprs.contains(&callee)
+                        && !ctx.ast.gen_fn_exprs.contains_key(&callee)
                 }
-                _ => match recv_base {
-                    Some(op) => ClosureThis::Base(op),
-                    None => ClosureThis::None,
-                },
+                _ => false,
             };
-            // 403-03 — an fn-typed boundary can hand back the
-            // undefined sentinel (coerce_to_ret's Any→Closure arm);
-            // calling it must be a catchable TypeError, not a jump
-            // through bytes past the sentinel header. No-op unless
-            // the callee source can spell the sentinel.
-            crate::ssa_lower_nullable_guard::emit_undefable_heap_guard(ctx, callee, &callee_op);
-            Some(emit_closure_callee_with_this(
+            let parked =
+                minted.then(|| ctx.push_throw_temp(callee_op.clone(), Type::Closure(user_sig_id)));
+            let result = emit_closure_arm(
                 ctx,
                 eid,
-                callee_op,
+                callee,
+                callee_op.clone(),
                 user_sig_id,
                 args,
-                this,
-            ))
+                recv_base,
+            );
+            if let Some(t) = parked {
+                ctx.pop_throw_temp(t);
+                ctx.release_owned_temp(callee, &callee_op);
+            }
+            Some(result)
         }
         Type::FnSig(sig_id) => Some(emit_fnsig_callee(ctx, eid, callee_op, sig_id, args)),
         // a method read off a typed receiver comes out boxed
@@ -277,6 +259,63 @@ fn try_lower_call_or_closure_callee(
             None
         }
     }
+}
+
+/// The `Type::Closure` callee arm: env-first CallIndirect, or the
+/// boxed dual entry for a rest-tail callee value.
+fn emit_closure_arm(
+    ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
+    callee: ExprId,
+    callee_op: Operand,
+    user_sig_id: crate::ssa::SigId,
+    args: &[ExprId],
+    recv_base: Option<Operand>,
+) -> Operand {
+    // Rotation 362 — a rest-tail callee VALUE (`box[0](…)` where
+    // the element's checker type is `(...args: any[]) => R`)
+    // never static-dispatches: the SSA sig only carries the
+    // fixed prefix, so the env-first CallIndirect argv would
+    // mismatch the closure's real native arity (the argv-face
+    // injected params read garbage — SIGSEGV). Route through
+    // the boxed dual entry, mirroring the struct-field arm
+    // (`callable_field_is_variadic`).
+    if matches!(
+        ctx.expr_types.get(&callee),
+        Some(crate::check::Type::Function(ps, _))
+            if matches!(ps.last(), Some(crate::check::Type::Rest(_)))
+    ) {
+        return crate::ssa_lower_call_closure_local::emit_variadic_boxed_call(
+            ctx,
+            callee_op,
+            user_sig_id,
+            args,
+        );
+    }
+    // Rotation 328 — an inline PROMOTED fn-expr callee (the
+    // IIFE arm): its native ABI carries the `__this: any`
+    // param the Closure sig sheds, so the receiverless call
+    // must re-insert the slot with a boxed `undefined` — the
+    // plain env-first shape would shift every user arg by
+    // one. A runtime closure value arriving through a Call /
+    // Index callee cannot be promoted (the AST bar admits
+    // zero-alias faces only) and keeps the plain shape.
+    let this = match ctx.ast.get_expr(callee) {
+        Expr::Closure { fn_name, .. } if ctx.ast.fnexpr_recv_fns.contains(fn_name) => {
+            ClosureThis::Undef
+        }
+        _ => match recv_base {
+            Some(op) => ClosureThis::Base(op),
+            None => ClosureThis::None,
+        },
+    };
+    // 403-03 — an fn-typed boundary can hand back the
+    // undefined sentinel (coerce_to_ret's Any→Closure arm);
+    // calling it must be a catchable TypeError, not a jump
+    // through bytes past the sentinel header. No-op unless
+    // the callee source can spell the sentinel.
+    crate::ssa_lower_nullable_guard::emit_undefable_heap_guard(ctx, callee, &callee_op);
+    emit_closure_callee_with_this(ctx, eid, callee_op, user_sig_id, args, this)
 }
 
 /// Emit direct CallIndirect for a `Type::FnSig` callee (no env prefix).

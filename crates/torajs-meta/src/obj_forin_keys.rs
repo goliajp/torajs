@@ -166,6 +166,11 @@ pub unsafe extern "C" fn __torajs_anyv_forin_keys(v: u64) -> *mut c_void {
         return unsafe { __torajs_arr_alloc(0) as *mut c_void };
     }
     let out = unsafe { __torajs_anyv_own_keys(v, 0) };
+    // null: the own walk raised (a module namespace field in its dead
+    // zone) and settled its array; the error is pending
+    if out.is_null() {
+        return out;
+    }
     let reparented = unsafe { struct_user_proto(v) };
     if !is_dynobj_imm(v) && reparented.is_none() {
         return out;

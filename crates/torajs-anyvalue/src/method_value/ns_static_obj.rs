@@ -51,6 +51,11 @@ pub(super) unsafe fn own_enum(kind: &OwnKind, recv: u64) -> u64 {
             OwnKind::Values => __torajs_anyv_own_values(recv),
             OwnKind::Entries => __torajs_anyv_own_entries(recv),
         };
+        // null: the walk raised (a module namespace field in its dead
+        // zone); the pending error is the answer
+        if arr.is_null() {
+            return VALUE_UNDEFINED;
+        }
         arr as u64
     }
 }

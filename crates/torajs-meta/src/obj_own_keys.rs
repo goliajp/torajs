@@ -153,13 +153,16 @@ pub(crate) unsafe fn dynobj_keys_append(
         }
         // §7.3.23 EnumerableOwnProperties reads each listed value
         // ([[GetOwnProperty]] → §10.4.6.8 [[Get]]): a module namespace
-        // field over a binding still in its dead zone raises there,
-        // and the walk hands back what it has with the error pending.
-        // The gOPN face (§10.4.6.11) lists keys without reading.
+        // field over a binding still in its dead zone raises there.
+        // The caller's throw edge releases nothing it was handed, so
+        // the walk settles its array and hands back null with the
+        // error pending. The gOPN face (§10.4.6.11) lists keys
+        // without reading.
         if include_nonenum == 0 && unsafe { is_module_namespace(obj) } {
             unsafe { __torajs_dynobj_iter_value(obj, i) };
             if unsafe { __torajs_throw_check() } != 0 {
-                return arr;
+                unsafe { __torajs_value_drop_heap(arr as *mut c_void) };
+                return core::ptr::null_mut();
             }
         }
         // Borrowed key → the array slot takes its own share.

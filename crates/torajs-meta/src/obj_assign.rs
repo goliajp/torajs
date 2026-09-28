@@ -261,6 +261,10 @@ unsafe fn copy_own_into_ex(
         return;
     }
     let strings = unsafe { crate::obj_own_keys::__torajs_anyv_own_keys(source, 0) };
+    // null: the walk raised (a module namespace field in its dead zone)
+    if strings.is_null() {
+        return;
+    }
     let threw = unsafe { copy_keys(target_slot, source, strings, excluded, keys) };
     if !threw {
         let symbols = unsafe { crate::own_names::__torajs_anyv_own_enum_symbols(source) };
