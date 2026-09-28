@@ -49,8 +49,8 @@
 //! The helpers the shape calls are injected once per program that can
 //! hold a machine (`desugar_generators_forof_helpers`).
 //!
-//! Narrowed face (registered, not silently wrong): the for-in desugar
-//! (`forin_obj`) keeps the catch-all.
+//! A yield-bearing for-in takes its own counted walk over the parser's
+//! key snapshot (`desugar_generators_forin`).
 
 use super::desugar_generators_forof_close::{Suspend, clear_live, set_live, wrap_with_close};
 use super::desugar_generators_forof_label::{is_loop_tail, label_loop_tail, unlabel};
@@ -117,6 +117,26 @@ fn rewrite_in_seq(ast: &mut Ast, stmts: &mut [Stmt], cx: &mut Cx) {
                 *type_ann = Some("any".into());
             }
         }
+        // A for-in's hoisted key snapshot is a `string[]` (the
+        // checker's answer for `Object.__forinKeys`), which the lift
+        // needs spelled out as well.
+        if let Stmt::ForOf {
+            src_ident,
+            forin_obj: Some(_),
+            body,
+            ..
+        } = unlabel(&stmts[i])
+            && i > 0
+            && stmt_contains_yield(body)
+        {
+            let src = src_ident.clone();
+            if let Stmt::LetDecl { name, type_ann, .. } = &mut stmts[i - 1]
+                && *name == src
+                && type_ann.is_none()
+            {
+                *type_ann = Some("string[]".into());
+            }
+        }
         rewrite_in_stmt(ast, &mut stmts[i], cx);
     }
 }
@@ -130,7 +150,24 @@ pub(super) fn rewrite_in_stmt(ast: &mut Ast, s: &mut Stmt, cx: &mut Cx) {
             ..
         } => {
             rewrite_in_stmt(ast, body, cx);
-            if forin_obj.is_none() && takes_protocol(body, *is_await) {
+            if forin_obj.is_some() && stmt_contains_yield(body) {
+                let old = std::mem::replace(s, Stmt::Multi(Vec::new()));
+                let Stmt::ForOf {
+                    var_name,
+                    src_ident,
+                    forin_obj: Some(obj),
+                    body,
+                    ..
+                } = old
+                else {
+                    unreachable!()
+                };
+                let n = cx.counter;
+                cx.counter += 1;
+                *s = super::desugar_generators_forin::build_forin_walk(
+                    ast, var_name, src_ident, obj, *body, n,
+                );
+            } else if forin_obj.is_none() && takes_protocol(body, *is_await) {
                 let old = std::mem::replace(s, Stmt::Multi(Vec::new()));
                 let Stmt::ForOf {
                     var_name,
@@ -178,17 +215,16 @@ pub(super) fn rewrite_in_stmt(ast: &mut Ast, s: &mut Stmt, cx: &mut Cx) {
         // through that try's finally like any escaping jump.
         Stmt::Labeled { body, .. } => {
             rewrite_in_stmt(ast, body, cx);
-            if matches!(&**body, Stmt::Multi(ss) if ss.last().is_some_and(is_loop_tail)) {
-                let Stmt::Labeled { label, body } = std::mem::replace(s, Stmt::Multi(Vec::new()))
+            if loop_tail_mut(body).is_some() {
+                let Stmt::Labeled { label, mut body } =
+                    std::mem::replace(s, Stmt::Multi(Vec::new()))
                 else {
                     unreachable!()
                 };
-                let Stmt::Multi(mut ss) = *body else {
-                    unreachable!()
-                };
-                let last = ss.pop().expect("matched a loop tail");
-                ss.push(label_loop_tail(label, last));
-                *s = Stmt::Multi(ss);
+                let tail = loop_tail_mut(&mut body).expect("matched a loop tail");
+                let last = std::mem::replace(tail, Stmt::Multi(Vec::new()));
+                *tail = label_loop_tail(label, last);
+                *s = *body;
             }
         }
         Stmt::For { init, body, .. } => {
@@ -416,4 +452,18 @@ pub(super) fn build_manual_protocol(
     // through the machine's own suspend.
     let suspend = if is_await { cx.suspend } else { Suspend::None };
     wrap_with_close(ast, n, is_await, suspend, head, while_loop)
+}
+
+/// The loop a rewritten labeled statement ends in: the last statement
+/// of its `Multi`, looking through a nested one (a for-in's hoists
+/// followed by its counted walk).
+fn loop_tail_mut(s: &mut Stmt) -> Option<&mut Stmt> {
+    let Stmt::Multi(ss) = s else {
+        return None;
+    };
+    let last = ss.last_mut()?;
+    if is_loop_tail(last) {
+        return Some(last);
+    }
+    loop_tail_mut(last)
 }

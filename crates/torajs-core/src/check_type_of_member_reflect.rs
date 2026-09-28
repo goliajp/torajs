@@ -60,6 +60,11 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
         // rejects loud at typecheck), so the result is statically
         // the empty array; undefined / null still throw at runtime
         // per §20.1.2.11 (ToObject).
+        // The for-in key-liveness guard a generator body spells as a
+        // call (`desugar_generators_forin`).
+        (Type::Object("Object"), "__forinKeyLive") => {
+            Type::Function(vec![Type::Any, Type::String], Box::new(Type::Boolean))
+        }
         (Type::Object("Object"), "getOwnPropertySymbols") => {
             Type::Function(vec![Type::Any], Box::new(Type::Array(Box::new(Type::Symbol))))
         }

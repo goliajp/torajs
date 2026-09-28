@@ -114,6 +114,7 @@ mod desugar_generators_class;
 mod desugar_generators_field_ann;
 mod desugar_generators_field_ann_builtin;
 mod desugar_generators_field_ann_fnsigs;
+mod desugar_generators_forin;
 mod desugar_generators_forof;
 mod desugar_generators_forof_close;
 mod desugar_generators_forof_helpers;

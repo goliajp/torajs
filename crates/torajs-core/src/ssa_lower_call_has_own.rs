@@ -48,6 +48,9 @@ pub(crate) fn try_lower(
     let Expr::Ident(ns) = ctx.ast.get_expr(ns_id) else {
         return None;
     };
+    if ns == "Object" && m_name == "__forinKeyLive" && args.len() == 2 {
+        return Some(lower_forin_key_live(ctx, args[0], args[1]));
+    }
     let is_reflect_has = m_name == "has" && ns == "Reflect";
     if !(m_name == "hasOwn" && ns == "Object") && !is_reflect_has {
         return None;
@@ -224,4 +227,22 @@ pub(crate) fn try_lower(
                     .is_some_and(|p| p == key.as_wtf8())
         });
     Some(Operand::ConstBool(has))
+}
+
+/// `Object.__forinKeyLive(obj, key)` — the for-in mid-loop-delete guard
+/// a generator machine body spells as a call (`desugar_generators_forin`);
+/// a receiver whose key set is fixed answers `true`.
+fn lower_forin_key_live(ctx: &mut LowerCtx<'_>, obj: ExprId, key: ExprId) -> Operand {
+    let obj_op = ctx.lower_expr(obj);
+    let key_op = ctx.lower_expr(key);
+    let Some(has) = crate::ssa_lower_stmt_for_of::forin_key_live(ctx, obj_op, key_op) else {
+        return Operand::ConstBool(true);
+    };
+    let live = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Ne, Operand::Value(has), Operand::ConstI64(0)),
+        Type::Bool,
+        None,
+    );
+    Operand::Value(live)
 }

@@ -260,30 +260,9 @@ fn emit_forin_guard(
     step_blk: crate::ssa::BlockId,
 ) {
     let obj_op = ctx.lower_expr(obj_eid);
-    // A typed Arr receiver can shrink mid-loop too (`a.length = 1` /
-    // `splice` — RFC 20260721 刀 12 G16); its guard rides the same
-    // §7.3.11 walk through the borrow-boxing kernel. Every other
-    // typed source keeps a fixed key set and skips the guard.
-    let obj_ty = ctx.operand_ty(&obj_op);
-    let (guard_fid, args) = if obj_ty == Type::Any {
-        (
-            ctx.intrinsics.any_has_property,
-            vec![obj_op, key_val.clone()],
-        )
-    } else if matches!(obj_ty, Type::Arr(_)) {
-        (
-            ctx.intrinsics.arr_forin_key_live,
-            vec![obj_op, key_val.clone()],
-        )
-    } else {
+    let Some(has) = forin_key_live(ctx, obj_op, key_val.clone()) else {
         return;
     };
-    let has = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Call(guard_fid, args),
-        Type::I64,
-        None,
-    );
     let cond = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::ICmp(IPred::Ne, Operand::Value(has), Operand::ConstI64(0)),
@@ -300,6 +279,29 @@ fn emit_forin_guard(
         },
     );
     ctx.cur_block = live_blk;
+}
+
+/// Is `key` still a property of the for-in object (I64 0 / 1)? `None`
+/// for a receiver whose key set cannot change mid-loop. A typed Arr
+/// receiver can shrink (`a.length = 1` / `splice` — RFC 20260721 刀 12
+/// G16); its check rides the same §7.3.11 walk through the
+/// borrow-boxing kernel.
+pub(crate) fn forin_key_live(
+    ctx: &mut LowerCtx,
+    obj_op: Operand,
+    key: Operand,
+) -> Option<crate::ssa::ValueId> {
+    let fid = match ctx.operand_ty(&obj_op) {
+        Type::Any => ctx.intrinsics.any_has_property,
+        Type::Arr(_) => ctx.intrinsics.arr_forin_key_live,
+        _ => return None,
+    };
+    Some(ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(fid, vec![obj_op, key]),
+        Type::I64,
+        None,
+    ))
 }
 
 /// Register `name` in the innermost scope frame, shadow-saving any
