@@ -168,6 +168,12 @@ pub fn resolve_imports(
                 .as_ref()
                 .is_some_and(|a| entry_seed.dyn_roots.iter().any(|(_, n)| n == a)),
         );
+        // Each statement's declaration name before the census renames
+        // it — what `repeat_request::bind_repeat_decls` keys on.
+        let orig_names: Vec<Option<String>> = lib_section
+            .iter()
+            .map(deconflict::top_value_decl_name)
+            .collect();
         let (want, rename, bare_exports, own_exports, demangle, hidden, other_faces) =
             deconflict::prep_lib_request(
                 ast,
@@ -177,6 +183,7 @@ pub fn resolve_imports(
                 &named,
                 &mut st.seen_names,
                 st.mangled_by_path.entry(target_path.clone()).or_default(),
+                st.landed_by_path.entry(target_path.clone()).or_default(),
                 st.hidden_by_path.entry(target_path.clone()).or_default(),
                 &mut st.mangle_seq,
                 deconflict::LaneShape {
@@ -231,9 +238,14 @@ pub fn resolve_imports(
             .remove(&target_path)
             .unwrap_or_default();
         let work_mark = st.work.len();
-        for s in lib_section {
+        let landed = st.landed_by_path.entry(target_path.clone()).or_default();
+        for (s, orig) in lib_section.into_iter().zip(orig_names) {
             types_lane::note_type_aliases(&mut st.type_aliases, &s);
+            let before = injections.len();
             walk_lib_stmt(ast, &mut st.work, &target_dir, &mut injections, s, &mut req)?;
+            if let Some(orig) = orig {
+                repeat_request::bind_repeat_decls(ast, &mut injections[before..], &orig, landed);
+            }
         }
 
         st.graph.record(

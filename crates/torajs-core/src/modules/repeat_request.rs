@@ -182,3 +182,49 @@ pub(super) fn evaluation_role(
         && ledger.insert("__eval".into());
     (evaluate, false)
 }
+
+/// §16.2.1 — a module's declaration is ONE binding however many
+/// requests reach it. Each request re-parses the module and its census
+/// may land the same declaration under another spelling (a mangle for a
+/// namespace walk, an alias for a named one), so a later walk would
+/// inject a second copy: `a === m.a` answered false, and an object
+/// literal was evaluated twice. `pushed` is what one source statement
+/// injected in this walk, `orig` its declaration's own name in the
+/// module; the first spelling it ever landed under is remembered in
+/// `landed`, and every later one binds to it by reference. That also
+/// covers a function asked for under two spellings in one request,
+/// which used to inject a deep copy.
+pub(super) fn bind_repeat_decls(
+    ast: &mut Ast,
+    pushed: &mut [Stmt],
+    orig: &str,
+    landed: &mut HashMap<String, String>,
+) {
+    for s in pushed.iter_mut() {
+        let name = match s {
+            Stmt::FnDecl { name, .. }
+            | Stmt::ClassDecl { name, .. }
+            | Stmt::LetDecl {
+                name,
+                is_var: false,
+                ..
+            } => name.clone(),
+            _ => continue,
+        };
+        let Some(first) = landed.get(orig) else {
+            landed.insert(orig.to_string(), name);
+            continue;
+        };
+        if *first == name {
+            continue;
+        }
+        let init = ast.add_expr(crate::ast::Expr::Ident(first.clone()));
+        *s = Stmt::LetDecl {
+            mutable: false,
+            name,
+            type_ann: None,
+            init,
+            is_var: false,
+        };
+    }
+}

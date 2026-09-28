@@ -110,8 +110,19 @@ pub fn wrap_escaping_fn_ident_bindings(ast: &mut Ast) {
 /// and a static FIELD read (`__sf_C__x`) is a global, never in
 /// `fn_sigs`. Accessors never reach this test at all: `C.p` becomes a
 /// CALL to `__sm_C__p_get`, not a bare Ident.
+///
+/// A module's function declaration can land under a synthetic spelling
+/// too — the re-export alias `__reex_*`, the deconflict mangle
+/// `__m<k>_*` — and a later request binds its own spelling to it
+/// (`const __reex_b = __reex_a`); both are the user's function.
 fn relayable_target(g: &str) -> bool {
-    !g.starts_with("__") || g.starts_with("__sm_")
+    !g.starts_with("__")
+        || g.starts_with("__sm_")
+        || g.starts_with("__reex_")
+        || g.strip_prefix("__m").is_some_and(|r| {
+            let digits = r.bytes().take_while(u8::is_ascii_digit).count();
+            digits > 0 && r.as_bytes().get(digits) == Some(&b'_')
+        })
 }
 
 /// Whether some arena `Ident(name)` sits outside a callee slot.

@@ -65,6 +65,7 @@ pub(super) fn deconflict_lib_section(
     bare_exports: &mut HashMap<String, String>,
     prior: &mut HashMap<String, String>,
     hidden_prior: &mut HashMap<String, String>,
+    landed: &HashMap<String, String>,
     mangle_seq: &mut usize,
     hidden_inject: &mut HashSet<String>,
     delta: &class_rename::LibTableDelta,
@@ -104,7 +105,10 @@ pub(super) fn deconflict_lib_section(
         let bare_face = bare_exports.get(&name).cloned();
         let surface = bare_face.as_deref().unwrap_or(name.as_str());
         if requested.contains(surface) && !is_hidden {
-            if prior.contains_key(&name) {
+            // The spelling asked for is the one this decl itself
+            // already landed under: the request binds to that binding
+            // (`repeat_request::bind_repeat_decls`), nothing collides.
+            if prior.contains_key(&name) && landed.get(&name).map(String::as_str) != Some(surface) {
                 return Err(format!(
                     "import name `{surface}` collides with a same-named export of another \
                      module; import it through a namespace (`import * as ns`) instead"
