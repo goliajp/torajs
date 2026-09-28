@@ -93,7 +93,8 @@ pub unsafe extern "C" fn __torajs_dynobj_iter_value(obj: *const c_void, i: u64) 
     }
     // A global-variable cell answers the binding's current value
     // (RFC 20260912-global-var-cell).
-    unsafe { deref_global_cell((*e).value_anyv) }
+    let key = unsafe { (*e).key_ptr_tagged & !0x7 } as *mut c_void;
+    unsafe { deref_global_cell((*e).value_anyv, key) }
 }
 
 /// Str-cell layout mirror for the array-index key scan (same

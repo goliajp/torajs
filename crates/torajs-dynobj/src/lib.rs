@@ -98,6 +98,15 @@ pub unsafe extern "C" fn __torajs_rc_inc(_p: *mut core::ffi::c_void) {
 
 #[cfg(test)]
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_throw_reference_error_tdz(_name: *mut core::ffi::c_void) {
+    panic!(
+        "torajs-dynobj unit-test stub: __torajs_throw_reference_error_tdz should not be called \
+         from cargo test paths"
+    );
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_regex_last_index_define(
     _re: *mut core::ffi::c_void,
     _tag: u64,

@@ -80,7 +80,8 @@ pub(crate) unsafe fn module_ns_refuses(
     //    compared by the binding's CURRENT value, which is what the
     //    property's [[Value]] is.
     if flags_byte & DEFINE_PRESENT_VALUE != 0 {
-        let cur_anyv = unsafe { crate::global_cell::deref_global_cell((*e).value_anyv) };
+        let key = unsafe { (*e).key_ptr_tagged & !0x7 } as *mut c_void;
+        let cur_anyv = unsafe { crate::global_cell::deref_global_cell((*e).value_anyv, key) };
         let cur_tag = unsafe { __torajs_anyv_unbox_tag(cur_anyv) } as u64;
         let cur_val = unsafe { __torajs_anyv_unbox_value(cur_anyv) } as u64;
         return cur_tag != (tag & BUCKET_TAG_MASK) || cur_val != value;
@@ -230,6 +231,7 @@ pub(crate) unsafe fn redefine_entry(
                 tag & BUCKET_TAG_MASK,
                 value,
                 flags_byte,
+                ((*e).key_ptr_tagged & !0x7) as *mut c_void,
             )
         } {
             // A configurable binding took an enumerable / configurable

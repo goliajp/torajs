@@ -38,7 +38,11 @@ unsafe extern "C" {
         value: u64,
         flags_byte: u64,
     );
-    fn __torajs_global_cell_alloc(slot_ptr: *mut c_void, kind: u64) -> *mut c_void;
+    fn __torajs_global_cell_alloc(
+        slot_ptr: *mut c_void,
+        kind: u64,
+        init_ptr: *const c_void,
+    ) -> *mut c_void;
     fn __torajs_dynobj_set_entry_flags(obj_slot: *mut *mut c_void, key: *mut c_void, flags: u64);
     fn __torajs_dynobj_set_entry_value_raw(
         obj_slot: *mut *mut c_void,
@@ -166,7 +170,7 @@ pub unsafe extern "C" fn __torajs_global_var_bind(
                     );
                     return;
                 }
-                let cell = __torajs_global_cell_alloc(slot_ptr, kind);
+                let cell = __torajs_global_cell_alloc(slot_ptr, kind, core::ptr::null());
                 if cur_configurable {
                     // The flags upsert resets the value slot (it revives
                     // holes); the cell lands after it.
@@ -205,7 +209,7 @@ pub unsafe extern "C" fn __torajs_global_var_bind(
                 *(slot_ptr as *mut u64) =
                     __torajs_anyv_box_from_pair(cur_tag as i64, cur_value as i64);
             }
-            let cell = __torajs_global_cell_alloc(slot_ptr, cell_kind);
+            let cell = __torajs_global_cell_alloc(slot_ptr, cell_kind, core::ptr::null());
             if writable {
                 __torajs_dynobj_set(&mut obj, key, ANY_HEAP, cell as u64);
             } else {
@@ -234,7 +238,7 @@ pub unsafe extern "C" fn __torajs_global_var_bind(
                 );
                 return;
             }
-            let cell = __torajs_global_cell_alloc(slot_ptr, cell_kind);
+            let cell = __torajs_global_cell_alloc(slot_ptr, cell_kind, core::ptr::null());
             let flags = DEFINE_PRESENT_VALUE
                 | DEFINE_PRESENT_WRITABLE
                 | DEFINE_FLAG_WRITABLE

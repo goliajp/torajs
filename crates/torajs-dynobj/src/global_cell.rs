@@ -57,14 +57,26 @@ unsafe extern "C" {
     fn __torajs_anyv_unbox_tag(v: u64) -> i64;
     /// torajs-anyvalue — §7.2.10 SameValue over two boxed values.
     fn __torajs_anyv_same_value(l: u64, r: u64) -> bool;
+    /// torajs-throw — records the pending ReferenceError; the caller
+    /// returns normally and its emit site's throw check propagates.
+    fn __torajs_throw_reference_error_tdz(name: *mut c_void);
 }
 
 /// `type_tag` of a `GlobalCell` block (mirrors `torajs_rc::Tag::GlobalCell`).
 pub const TAG_GLOBAL_CELL: u16 = 30;
 /// Total block size.
-pub const GLOBAL_CELL_SIZE: usize = 24;
+pub const GLOBAL_CELL_SIZE: usize = 32;
 const SLOT_OFF: usize = 8;
 const KIND_OFF: usize = 16;
+/// The binding's initialization flag: null when the binding is
+/// initialized before anything can read it through the object; else
+/// the address of a `boolean` data global that is 0 until the
+/// declaration runs. A module namespace field over a `let` / `const`
+/// the entry declares after the namespace object exists reads the
+/// binding in its temporal dead zone (§10.4.6.8 → §9.1.1.1.6
+/// GetBindingValue throws), and only a per-binding flag can tell
+/// that apart from a binding initialized to `undefined` / `0`.
+const INIT_OFF: usize = 24;
 
 /// The slot holds a NaN-box `AnyValue` it owns (every hoisted `var`).
 pub const KIND_ANY: u64 = 0;
@@ -110,28 +122,32 @@ pub(crate) unsafe fn value_is_global_cell(v_anyv: u64) -> bool {
 /// An entry value with any `GlobalCell` resolved to the slot's
 /// CURRENT value — what a reader is owed. Not a cell: answered as is.
 /// The heap payload of the answer is borrowed, the same contract
-/// `get_value` and `iter_value` have always had.
+/// `get_value` and `iter_value` have always had. `key` is the entry's
+/// own key, named by the dead-zone ReferenceError.
 #[inline]
-pub(crate) unsafe fn deref_global_cell(v_anyv: u64) -> u64 {
+pub(crate) unsafe fn deref_global_cell(v_anyv: u64, key: *mut c_void) -> u64 {
     if unsafe { value_is_global_cell(v_anyv) } {
-        unsafe { global_cell_read(__torajs_anyv_cell_ptr(v_anyv) as *const c_void) }
+        unsafe { global_cell_read(__torajs_anyv_cell_ptr(v_anyv) as *const c_void, key) }
     } else {
         v_anyv
     }
 }
 
-/// `__torajs_global_cell_alloc(slot_ptr, kind)` — mint a cell over a
-/// data-global slot. Refcount 1, owned by the entry it is stored into.
-/// `kind` is a `KIND_*` representation, optionally `|
-/// KIND_FLAG_WRITERLESS`; any other bit is dropped.
+/// `__torajs_global_cell_alloc(slot_ptr, kind, init_ptr)` — mint a
+/// cell over a data-global slot. Refcount 1, owned by the entry it is
+/// stored into. `kind` is a `KIND_*` representation, optionally `|
+/// KIND_FLAG_WRITERLESS`; any other bit is dropped. `init_ptr` is
+/// null, or the binding's initialization flag (see `INIT_OFF`).
 ///
 /// # Safety
 /// `slot_ptr` is the address of a live data global that outlives the
-/// global object (a link-time slot does).
+/// global object (a link-time slot does); so is `init_ptr` when not
+/// null.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_global_cell_alloc(
     slot_ptr: *mut c_void,
     kind: u64,
+    init_ptr: *const c_void,
 ) -> *mut c_void {
     let p = unsafe { calloc(GLOBAL_CELL_SIZE) } as *mut u8;
     // SAFETY: fresh zeroed block of GLOBAL_CELL_SIZE bytes.
@@ -140,12 +156,13 @@ pub unsafe extern "C" fn __torajs_global_cell_alloc(
         *(p.add(4) as *mut u16) = TAG_GLOBAL_CELL;
         *(p.add(SLOT_OFF) as *mut u64) = slot_ptr as u64;
         *(p.add(KIND_OFF) as *mut u64) = kind & (KIND_MASK | KIND_FLAG_WRITERLESS);
+        *(p.add(INIT_OFF) as *mut u64) = init_ptr as u64;
     }
     p as *mut c_void
 }
 
-/// `__torajs_dynobj_define_binding(obj_slot, key, slot_ptr, kind)` —
-/// define `key` on the dynobj as a data property whose value IS the
+/// `__torajs_dynobj_define_binding(obj_slot, key, slot_ptr, kind,
+/// init_ptr)` — define `key` on the dynobj as a data property whose value IS the
 /// binding behind `slot_ptr`: a fresh cell over the slot, so every
 /// reader sees the slot's current value (§10.4.6.8 [[Get]] reads the
 /// binding on each access). The attributes are the module
@@ -156,17 +173,18 @@ pub unsafe extern "C" fn __torajs_global_cell_alloc(
 ///
 /// # Safety
 /// `obj_slot` holds a live dynobj; `key` is a live Str cell
-/// (borrowed); `slot_ptr` is the address of a data global that
-/// outlives the object.
+/// (borrowed); `slot_ptr` and a non-null `init_ptr` are addresses of
+/// data globals that outlive the object.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_dynobj_define_binding(
     obj_slot: *mut *mut c_void,
     key: *mut c_void,
     slot_ptr: *mut c_void,
     kind: u64,
+    init_ptr: *const c_void,
 ) {
     unsafe {
-        let cell = __torajs_global_cell_alloc(slot_ptr, kind & KIND_MASK);
+        let cell = __torajs_global_cell_alloc(slot_ptr, kind & KIND_MASK, init_ptr);
         crate::define_entry::__torajs_dynobj_define_plain(
             obj_slot,
             key,
@@ -198,6 +216,15 @@ pub unsafe extern "C" fn __torajs_global_cell_drop(cell: *mut c_void) {
     unsafe { free(cell, GLOBAL_CELL_SIZE) };
 }
 
+/// Is `cell`'s binding still in its temporal dead zone — a flagged
+/// binding whose declaration has not run (see `INIT_OFF`)? The flag
+/// is read as a byte, which is right for either slot width.
+#[inline]
+unsafe fn cell_uninit(cell: *const c_void) -> bool {
+    let flag = unsafe { *((cell as *const u8).add(INIT_OFF) as *const u64) } as *const u8;
+    !flag.is_null() && unsafe { *flag } == 0
+}
+
 /// The slot representation of `cell` — its kind word's low byte.
 #[inline]
 unsafe fn cell_kind(cell: *const c_void) -> u64 {
@@ -217,7 +244,13 @@ pub(crate) unsafe fn cell_is_writerless(cell: *const c_void) -> bool {
 /// payloads are borrowed. A null heap slot (a typed binding read
 /// through the object before its declaration ran) answers `undefined`
 /// rather than a null pointer.
-pub(crate) unsafe fn global_cell_read(cell: *const c_void) -> u64 {
+pub(crate) unsafe fn global_cell_read(cell: *const c_void, key: *mut c_void) -> u64 {
+    if unsafe { cell_uninit(cell) } {
+        // §9.1.1.1.6 — the binding is in its temporal dead zone; the
+        // error is pending, the value handed back is never read
+        unsafe { __torajs_throw_reference_error_tdz(key) };
+        return unsafe { __torajs_anyv_box_from_pair(ANY_UNDEF as i64, 0) };
+    }
     let slot = unsafe { *((cell as *const u8).add(SLOT_OFF) as *const u64) } as *const u64;
     let kind = unsafe { cell_kind(cell) };
     let word = unsafe { *slot };
@@ -311,6 +344,7 @@ pub(crate) unsafe fn redefine_through_cell(
     tag: u64,
     value: u64,
     flags_byte: u64,
+    key: *mut c_void,
 ) -> Result<CellRedefine, *const u8> {
     let differs = |present: u64, desc: u64, cur: u64| {
         flags_byte & present != 0 && (flags_byte & desc != 0) != (cur_flags & cur != 0)
@@ -356,7 +390,7 @@ pub(crate) unsafe fn redefine_through_cell(
         let becomes_writable = writable_change && flags_byte & DEFINE_FLAG_WRITABLE != 0;
         let other_value = has_value && {
             let boxed = unsafe { __torajs_anyv_box_from_pair(tag as i64, value as i64) };
-            !unsafe { __torajs_anyv_same_value(global_cell_read(cell), boxed) }
+            !unsafe { __torajs_anyv_same_value(global_cell_read(cell, key), boxed) }
         };
         if becomes_writable || other_value {
             return Err(c"Cannot redefine a non-configurable, read-only global variable binding through the global object.".as_ptr() as *const u8);

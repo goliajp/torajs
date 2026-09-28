@@ -64,7 +64,7 @@ pub unsafe extern "C" fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const
     }
     // A global-variable cell answers the binding's current value
     // (RFC 20260912-global-var-cell); every other value is itself.
-    let v = unsafe { deref_global_cell(v) };
+    let v = unsafe { deref_global_cell(v, key as *mut c_void) };
     let tag = unsafe { __torajs_anyv_unbox_tag(v) } as u64;
     // Accessor entries store an `AccessorPair` cell — surface the
     // synthetic ANY_ACCESSOR sentinel so the SSA GET path dispatches
@@ -103,7 +103,7 @@ pub unsafe extern "C" fn __torajs_dynobj_get_value(obj: *const c_void, key: *con
     if v == crate::layout::DYNOBJ_HOLE_SENTINEL {
         return 0;
     }
-    let v = unsafe { deref_global_cell(v) };
+    let v = unsafe { deref_global_cell(v, key as *mut c_void) };
     unsafe { __torajs_anyv_unbox_value(v) as u64 }
 }
 

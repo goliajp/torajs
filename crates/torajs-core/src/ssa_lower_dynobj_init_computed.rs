@@ -377,6 +377,8 @@ impl LowerCtx<'_> {
         let ptr = self
             .f
             .append_inst(self.cur_block, InstKind::GlobalRef(local), Type::Ptr, None);
+        // no initialization flag yet: null = initialized by now
+        let init = Operand::ConstPtrNull;
         self.f.append_void(
             self.cur_block,
             InstKind::Call(
@@ -386,6 +388,7 @@ impl LowerCtx<'_> {
                     Operand::Value(key),
                     Operand::Value(ptr),
                     Operand::ConstI64(kind),
+                    init,
                 ],
             ),
         );
