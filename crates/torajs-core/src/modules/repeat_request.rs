@@ -295,14 +295,12 @@ pub(super) fn bind_repeat_decls(
     aliases: &mut Vec<(String, String)>,
 ) {
     for s in pushed.iter_mut() {
+        // `var` included: a second request of an `export var r = f()`
+        // otherwise re-injected the declaration and ran `f` twice
         let name = match s {
             Stmt::FnDecl { name, .. }
             | Stmt::ClassDecl { name, .. }
-            | Stmt::LetDecl {
-                name,
-                is_var: false,
-                ..
-            } => name.clone(),
+            | Stmt::LetDecl { name, .. } => name.clone(),
             _ => continue,
         };
         let Some(first) = landed.get(orig) else {
