@@ -104,6 +104,7 @@ pub(super) fn global_coercion_compatible(ctx: &LowerCtx<'_>, slot_ty: Type, v_ty
         || v_ty == Type::Ptr
         || (matches!(slot_ty, Type::I64 | Type::F64) && v_ty == Type::Any)
         || (slot_ty == Type::Str && v_ty == Type::Any)
+        || (slot_ty == Type::Str && v_ty == Type::Substr)
         // rotation 630 — a Bool slot takes an `any` value through
         // ToBoolean-shaped unboxing (`__torajs_anyv_to_bool`), the
         // same typed-lane posture as the Number / Str arms above:
@@ -140,6 +141,18 @@ pub(super) fn coerce_for_global(
         ctx.coerce_to_bool(v)
     } else if slot_ty == Type::Str && v_ty == Type::Any {
         ctx.coerce_to_str(v, Type::Any)
+    } else if slot_ty == Type::Str && v_ty == Type::Substr {
+        let cur_block = ctx.cur_block;
+        let owned = ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(ctx.intrinsics.substr_to_owned, vec![v.clone()]),
+            Type::Str,
+            None,
+        );
+        if ctx.expr_transfers_ownership(value) {
+            ctx.emit_drop_value(v, Type::Substr);
+        }
+        Operand::Value(owned)
     } else {
         v
     }

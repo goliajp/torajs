@@ -243,10 +243,12 @@ fn lower_global_assign(
     // since the slot and the rhs home share ownership. Then
     // load-old → store-new → drop-old; self-assign `g = g` is safe
     // because the borrow inc lands before the old value's dec.
-    if drop_old_slot {
+    let v_ty = ctx.operand_ty(&v);
+    // A view into a Str slot is copied out below and takes no share
+    // (an inline view's own count is never read by its drop).
+    if drop_old_slot && !(slot_ty == Type::Str && v_ty == Type::Substr) {
         apply_borrow_rc_inc(ctx, &v, value);
     }
-    let v_ty = ctx.operand_ty(&v);
     if !global_coercion_compatible(ctx, slot_ty, v_ty) {
         panic!(
             "ssa-lower: assignment to global `{name}` mismatch — slot is {slot_ty:?} but value is {v_ty:?}{}",

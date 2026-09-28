@@ -458,6 +458,32 @@ fn fit_to_field(
         // this function reports it.
         (Type::F64 | Type::I64, Type::Any) => (ctx.coerce_any_to_number(v, field_ty), false),
         (Type::Str, Type::Any) => (ctx.coerce_to_str(v, Type::Any), true),
+        // A view outlives nothing it borrows from once it sits in a
+        // field (a split element's storage is its array's): the field
+        // takes an owned copy, and a fresh view is released after it.
+        (Type::Str, Type::Substr) => {
+            let owned = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.substr_to_owned, vec![v.clone()]),
+                Type::Str,
+                None,
+            );
+            if ctx.expr_transfers_ownership(value) {
+                ctx.emit_drop_value(v, Type::Substr);
+            }
+            (Operand::Value(owned), true)
+        }
+        _ if crate::ssa_lower_assign_slot_fit::arr_views_into_owned_slot(ctx, field_ty, v_ty) => {
+            if ctx.expr_transfers_ownership(value) {
+                let m = crate::ssa_lower_assign_slot_fit::materialize_fresh_views(ctx, field_ty, v);
+                (m, false)
+            } else {
+                (
+                    crate::ssa_lower_assign_slot_fit::copy_views_out(ctx, field_ty, v),
+                    true,
+                )
+            }
+        }
         _ => (v, false),
     }
 }

@@ -356,7 +356,24 @@ fn lower_one_plus_op(
     // path stole it (UAF once the promise dropped first, reuse-window
     // probe printed filler vs bun val42). Owned temps transfer their
     // fresh ref as-is.
-    if is_heap && !ctx.expr_transfers_ownership(arg0) {
+    //
+    // A view settles as an owned copy: the cell outlives whatever the
+    // view borrows from (a split element's storage is its array's).
+    let (arg_op, arg_ty, minted) = if arg_ty == Type::Substr {
+        let owned = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.substr_to_owned, vec![arg_op.clone()]),
+            Type::Str,
+            None,
+        );
+        if ctx.expr_transfers_ownership(arg0) {
+            ctx.emit_drop_value(arg_op, Type::Substr);
+        }
+        (Operand::Value(owned), Type::Str, true)
+    } else {
+        (arg_op, arg_ty, false)
+    };
+    if is_heap && !minted && !ctx.expr_transfers_ownership(arg0) {
         ctx.emit_owned_result_inc(arg_op.clone(), arg_ty.clone());
     }
     // RFC 20260720-anylane-promise-methods knife 1 — the repr stamp
