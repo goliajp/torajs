@@ -269,6 +269,13 @@ impl<'a> Parser<'a> {
         {
             self.pos += 2; // consume label ident + ':'
             let body_start = self.pos;
+            // A stacked label's body is a `Labeled`, or the block a
+            // `for` below it sank into — never a block the user wrote.
+            let is_for = matches!(self.peek(), Token::For)
+                || self
+                    .tokens
+                    .get(self.pos + 1)
+                    .is_some_and(|t| matches!(t.token, Token::Colon));
             let body = Box::new(self.parse_single_stmt_body()?);
             self.reject_decl_in_single_stmt(
                 &body,
@@ -276,37 +283,34 @@ impl<'a> Parser<'a> {
                 "a labeled statement",
                 super::single_stmt_judge::SingleStmtPos::LabelledItem,
             )?;
-            return Ok(Some(Self::label_hoisted_for_of(label, body)));
+            return Ok(Some(Self::label_hoisted_for_of(label, body, is_for)));
         }
         Ok(None)
     }
 
-    /// `label: for (x of <expr>)` — the for-of desugar hoists a
-    /// non-identifier source into `Block[let __forof_src_N = e; ForOf]`
-    /// (`try_parse_for_of`), and a label wrapped around that block
-    /// would name a BLOCK, not the loop: the early-error pass refused
-    /// `continue label` (§14.8.1 wants an IterationStatement), and the
-    /// state machine, which hands a label to the yield-loop it wraps,
-    /// never saw the loop. The label sinks onto the loop itself:
-    /// `Block[let; Labeled { label, ForOf }]`. Stacked labels sink one
-    /// at a time (the inner one already sits on the loop), so the
-    /// second statement may be a `Labeled` chain.
-    fn label_hoisted_for_of(label: String, body: Box<Stmt>) -> Stmt {
-        let is_hoisted = matches!(&*body, Stmt::Block(ss)
-            if ss.len() == 2
-                && matches!(&ss[0], Stmt::LetDecl { name, .. } if name.starts_with("__forof_src_"))
-                && matches!(&ss[1], Stmt::ForOf { .. } | Stmt::Labeled { .. }));
-        if !is_hoisted {
+    /// `label: for (…)` — the for-of / for-in desugar puts what runs
+    /// once before the loop in front of it: a non-identifier source's
+    /// `let __forof_src_N = e`, a for-in object's `let __forin_obj_N`,
+    /// a `var` head's declaration, an Annex B initializer
+    /// (`try_parse_for_of`), as `Block[…; loop]`, nested once per
+    /// layer. A label wrapped around that block would name a BLOCK, not
+    /// the loop: the early-error pass refused `continue label`
+    /// (§14.8.1 wants an IterationStatement), and the state machine,
+    /// which hands a label to the yield-loop it wraps, never saw the
+    /// loop. The label sinks onto the loop itself, through every
+    /// layer. A statement that starts with `for` is never a block the
+    /// user wrote, so every block here is the desugar's. Stacked
+    /// labels sink one at a time (the inner one already sits on the
+    /// loop), which is why a label over a label counts too.
+    fn label_hoisted_for_of(label: String, body: Box<Stmt>, is_for: bool) -> Stmt {
+        if !is_for || !matches!(&*body, Stmt::Block(ss) if !ss.is_empty()) {
             return Stmt::Labeled { label, body };
         }
         let Stmt::Block(mut ss) = *body else {
             unreachable!()
         };
-        let stmt = ss.pop().expect("two statements");
-        ss.push(Stmt::Labeled {
-            label,
-            body: Box::new(stmt),
-        });
+        let last = ss.pop().expect("non-empty block");
+        ss.push(Self::label_hoisted_for_of(label, Box::new(last), true));
         Stmt::Block(ss)
     }
 
