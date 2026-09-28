@@ -201,14 +201,17 @@ pub(crate) fn build_vtable_globals(ssa_module: &Module) -> Vec<UserVtableEntry> 
 
 /// SSA `Type` → `(slot size in bytes, log2 alignment)` for
 /// `__DATA,__bss` placement. Heap-shaped reference types lower to a
-/// single pointer at codegen, so they share the I64 8/3 slot. `Void`
-/// is not allocable and panics at this layer (the SSA layer should
-/// never declare a `let x: void`).
+/// single pointer at codegen, so they share the I64 8/3 slot. A
+/// `Bool` slot is a full word too: codegen loads and stores it with
+/// the X forms and the global cell reads and writes the whole word,
+/// so a one-byte slot let every store into it overwrite the next
+/// seven bytes of `__bss` (two adjacent `boolean` globals, one
+/// write, both changed). `Void` is not allocable and panics at this
+/// layer (the SSA layer should never declare a `let x: void`).
 pub(crate) fn type_slot_size_align(ty: Type) -> (u32, u8) {
     match ty {
         Type::Void => panic!("DataGlobal of type Void is not allocable"),
         Type::I32 => (4, 2),
-        Type::Bool => (1, 0),
         _ => (8, 3),
     }
 }
