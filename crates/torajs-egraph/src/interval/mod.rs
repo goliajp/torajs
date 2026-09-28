@@ -23,6 +23,7 @@
 //! `i <= 1e6` loop-counter shape).
 
 pub(crate) mod elem;
+mod elem_kernels;
 pub mod refine;
 pub mod transfer;
 

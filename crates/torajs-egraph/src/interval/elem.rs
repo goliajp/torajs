@@ -53,44 +53,7 @@ use std::collections::{HashMap, HashSet};
 
 use torajs_core::ssa::{FuncId, Function, InstKind, Operand, Terminator, ValueId};
 
-/// Array header offsets. Mirrors `torajs_core::ssa_lower`'s
-/// `ARR_LEN_OFF` / `ARR_PROPS_OFF` / `ARR_DATA_PTR_OFF` (private to
-/// that crate) and, through them, `torajs_arr::layout`.
-/// The heap header: refcount word and flags half-word. The two
-/// spellings lowering reads them with — `Load(I64, arr, 0)` then
-/// `LShr 48`, and `Load(I32, arr, 4)` then a `<< 16` mask — are the
-/// [[Extensible]] / [[Writable]] guards on push / pop / shift / fill,
-/// and a read of either says nothing about the elements.
-const ARR_HEADER_WORD_OFF: u64 = 0;
-const ARR_HEADER_FLAGS_OFF: u64 = 4;
-const ARR_LEN_OFF: u64 = 8;
-const ARR_CAP_HEAD_OFF: u64 = 16;
-const ARR_DATA_PTR_OFF: u64 = 32;
-
-/// Defines a fresh array whose elements are all still unwritten.
-const ALLOC_CALLS: &[&str] = &["__torajs_arr_alloc", "__torajs_arr_alloc_pooled"];
-/// Returns the same array (possibly reallocated, existing elements
-/// carried over) and writes no element.
-const IDENTITY_CALLS: &[&str] = &["__torajs_arr_reserve"];
-/// Returns the same array AND writes argument 1 into an element.
-const IDENTITY_PUSH_CALLS: &[&str] = &["__torajs_arr_push"];
-/// Writes argument 1 into an element; returns nothing.
-const VOID_PUSH_CALLS: &[&str] = &["__torajs_arr_push_unchecked"];
-/// Touches the header or frees the block; no element value effect.
-/// The length-lock raisers belong here too: they read the flags and
-/// either do nothing or record a TypeError, and the one that moves
-/// elements first (`shift_guard`'s partial shift) only copies values
-/// the slots already held.
-const VOID_INERT_CALLS: &[&str] = &[
-    "__torajs_arr_mark_kind",
-    "__torajs_arr_delete_tail_guard",
-    "__torajs_arr_shift_guard",
-    "__torajs_arr_drop",
-    "__torajs_arr_drop_scalar",
-    "__torajs_arr_drop_any",
-    "__torajs_arr_drop_heap",
-    "__torajs_arr_drop_str_elems",
-];
+use super::elem_kernels::*;
 
 /// The element points of one function.
 pub(super) struct ElemPoints {
