@@ -84,12 +84,11 @@ pub(super) fn walk_types(
             other => (other, false),
         };
         if let Stmt::ClassDecl { name, .. } = &decl {
-            // kept under its own name: a parent the module does not
-            // export is still what its children extend
-            let face = match bare.get(name) {
-                Some(face) if exported => face.clone(),
-                _ => name.clone(),
-            };
+            // recorded under the spelling an importer names it by
+            // (`export { C as D }` answers to `D`); the declaration
+            // itself keeps its own name, which is what its children
+            // extend and what an unexported parent only has
+            let face = bare.get(name).cloned().unwrap_or_else(|| name.clone());
             st.ambient_classes.push((path.to_path_buf(), face, decl));
             continue;
         }
@@ -166,7 +165,7 @@ pub(super) fn note_type_aliases(out: &mut Vec<(PathBuf, String, String)>, dir: &
 /// value use of it is the TS1361 refusal instead of a fresh instance
 /// of a class the program never evaluated. A class already declared
 /// (the entry's own, or one a value walk landed) is left alone.
-pub(super) fn inject_ambient_classes(ast: &mut Ast, st: &ResolveState) {
+pub(super) fn inject_ambient_classes(ast: &mut Ast, st: &mut ResolveState) {
     let mut declared: HashSet<String> = ast
         .stmts
         .iter()
@@ -192,6 +191,17 @@ pub(super) fn inject_ambient_classes(ast: &mut Ast, st: &ResolveState) {
             continue;
         };
         push_ambient_chain(ast, &st.ambient_classes, idx, &mut declared, &mut front);
+        // a bare-clause face lands under the declaration's own name;
+        // the type alias that follows resolves the face through the
+        // landed map like a value import would
+        if let Stmt::ClassDecl { name, .. } = &st.ambient_classes[idx].2
+            && name != orig
+        {
+            st.landed_by_path
+                .entry(path.clone())
+                .or_default()
+                .insert(orig.clone(), name.clone());
+        }
     }
     ast.stmts.splice(0..0, front);
 }

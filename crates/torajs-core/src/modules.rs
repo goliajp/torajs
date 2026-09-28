@@ -269,7 +269,7 @@ pub fn resolve_imports(
         );
     }
 
-    types_lane::inject_ambient_classes(ast, &st);
+    types_lane::inject_ambient_classes(ast, &mut st);
     // §16.2.1.5/.6 post-BFS judgment + final assembly + dead-copy
     // sweep — see `splice::settle_and_splice`.
     splice::settle_and_splice(
