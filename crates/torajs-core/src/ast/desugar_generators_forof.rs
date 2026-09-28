@@ -121,7 +121,7 @@ fn rewrite_in_seq(ast: &mut Ast, stmts: &mut [Stmt], cx: &mut Cx) {
     }
 }
 
-fn rewrite_in_stmt(ast: &mut Ast, s: &mut Stmt, cx: &mut Cx) {
+pub(super) fn rewrite_in_stmt(ast: &mut Ast, s: &mut Stmt, cx: &mut Cx) {
     match s {
         Stmt::ForOf {
             body,
@@ -168,9 +168,8 @@ fn rewrite_in_stmt(ast: &mut Ast, s: &mut Stmt, cx: &mut Cx) {
                 rewrite_in_stmt(ast, eb, cx);
             }
         }
-        Stmt::While { body, .. }
-        | Stmt::DoWhile { body, .. }
-        | Stmt::ForOfSplitIter { body, .. } => rewrite_in_stmt(ast, body, cx),
+        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => rewrite_in_stmt(ast, body, cx),
+        Stmt::ForOfSplitIter { .. } => super::desugar_generators_forof_split::rewrite(ast, s, cx),
         // A labeled for-of becomes `Multi[decls…, Try { While }]` (the
         // close wrap; a delegation protocol ends in a bare While); the
         // label moves onto the While so the machine still sees a
@@ -224,7 +223,7 @@ fn rewrite_in_stmt(ast: &mut Ast, s: &mut Stmt, cx: &mut Cx) {
 
 /// Build the module-doc shape. `body` is the already-recursed loop
 /// body; the caller's slot receives the Multi.
-fn build_manual_protocol(
+pub(super) fn build_manual_protocol(
     ast: &mut Ast,
     var_name: String,
     src_ident: String,
