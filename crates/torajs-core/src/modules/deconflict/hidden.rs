@@ -48,19 +48,30 @@ pub(super) fn hidden_injection_closure(
     for (i, s) in lib_section.iter().enumerate() {
         match s {
             Stmt::ExportDecl { inner: Some(d), .. } => {
+                let Some(n) = super::super::decl_name(d) else {
+                    continue;
+                };
                 // wanted under its own name, or under a face a bare
                 // clause gave it (`export { bump as inc }`)
-                if let Some(n) = super::super::decl_name(d)
-                    && (lane.is_ns
-                        || want.contains(n.as_str())
-                        || bare_exports
-                            .get(&n)
-                            .is_some_and(|face| want.contains(face.as_str())))
+                if lane.is_ns
+                    || want.contains(n.as_str())
+                    || bare_exports
+                        .get(&n)
+                        .is_some_and(|face| want.contains(face.as_str()))
                 {
                     push_class_synths(lib_section, &n, &mut work);
                     push_computed_key_frees(ast, &n, &mut work);
                     will_inject.insert(n);
                     work.extend(crate::ast::free_idents_of_stmt(ast, &lib_section[i]));
+                } else if lane.evaluate {
+                    // §16.2.1.5 — the evaluating walk runs every
+                    // declaration's initializer, requested or not
+                    // (`export let counter = (log("init"), 10)` with
+                    // only `other` imported). An unrequested export
+                    // lands through the hidden lane like a non-exported
+                    // declaration the body reaches: kept under its
+                    // name, mangled only where that name collides.
+                    work.push(n);
                 }
             }
             Stmt::ExportDecl {
