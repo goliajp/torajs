@@ -316,13 +316,21 @@ fn try_then_heterogeneous(
                         | Type::String
                         | Type::Boolean
                         | Type::Void
+                        | Type::Undefined
+                        | Type::Any
                         // A handler returning a promise is the adopted
                         // shape (§27.2.1.3.2) — `promise_of` collapses
                         // it, so this lane answers Promise<U> for a
                         // `(T) => Promise<U>` handler. It moves as a
                         // cell through the kernel's REPR_HEAP return,
-                        // the same slot the other admits use.
+                        // the same slot the other admits use — and so
+                        // does any other heap value the handler
+                        // returns; the any-parameter lane above has
+                        // always carried them.
                         | Type::Promise(_)
+                        | Type::Array(_)
+                        | Type::Struct(_)
+                        | Type::ClassRef(_)
                 )
                 && **ret != inner_ty
             {
@@ -375,11 +383,10 @@ fn try_then_heterogeneous(
 /// (*)(int64_t)` already passes Array ptr in rdi; cb
 /// reads it directly. No runtime change.
 ///
-/// cb return V: primitive (Number / String / Boolean)
-/// → Promise<V>; Void / Undefined → Promise<Undefined>.
-/// Array<W> return is deferred (would need helper-side
-/// value_is_heap=true propagation for next Promise's
-/// heap value — separate sub-A).
+/// cb return V: Void / Undefined / a throw-only body →
+/// Promise<Undefined>; anything else → Promise<V> (a heap
+/// V rides the kernel's REPR_HEAP return, as it does for
+/// the any-parameter handlers).
 ///
 /// cb does NOT retain the array past invocation —
 /// source Promise still owns the Array ref for its
@@ -445,13 +452,8 @@ fn try_then_array(
                 && params[0] == inner_arr_ty
             {
                 let result_inner = match &**ret {
-                    Type::Number | Type::String | Type::Boolean => (**ret).clone(),
                     Type::Void | Type::Never | Type::Undefined => Type::Undefined,
-                    other => {
-                        return Some(Err(format!(
-                            "Promise.{m_name} on Promise<{inner_arr_ty:?}>: cb return must be Number / String / Boolean / Void / Undefined (got {other:?}); Array<W> return deferred to a later sub-A"
-                        )));
-                    }
+                    other => other.clone(),
                 };
                 return Some(Ok(promise_of(&result_inner)));
             }
