@@ -81,6 +81,19 @@ pub(super) fn collect_bare_exports(
             }
         }
     }
+    // `export let count` beside `export { count as total }`: the
+    // declaration's own name is one more face of the same binding, so
+    // it joins the faces the clause gave — the decl then lands once,
+    // under whichever face the request picks.
+    for s in lib_section {
+        if let Stmt::ExportDecl { inner: Some(d), .. } = s
+            && let Some(n) = decl_name(d)
+            && let Some((_, fs)) = faces.iter_mut().find(|(o, _)| *o == n)
+            && !fs.contains(&n)
+        {
+            fs.push(n);
+        }
+    }
     let mut primary: HashMap<String, String> = HashMap::new();
     let mut others: HashMap<String, Vec<String>> = HashMap::new();
     for (orig, mut fs) in faces {

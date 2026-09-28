@@ -217,10 +217,32 @@ pub(super) fn walk_lib_stmt(
         Stmt::ExportDecl {
             inner: Some(boxed), ..
         } => {
+            let decl = *boxed;
+            // A declaration a bare clause also exports under other
+            // names lands the way a plain declaration with those faces
+            // does — under the face the request picked.
+            if decl_name(&decl).is_some_and(|n| req.bare_exports.contains_key(&n)) {
+                inject_bare_exported_decl(
+                    ast,
+                    injections,
+                    decl,
+                    req.bare_exports,
+                    req.other_faces,
+                    req.want,
+                    req.rename,
+                    req.default_alias,
+                    req.ns.as_deref_mut(),
+                    req.injected,
+                    req.demangle,
+                    req.hidden,
+                    &mut req.landings,
+                );
+                return Ok(());
+            }
             inject_export_inner(
                 ast,
                 injections,
-                *boxed,
+                decl,
                 req.want,
                 req.rename,
                 req.ns.as_deref_mut(),

@@ -29,6 +29,9 @@ pub(super) struct Landings<'a> {
     pub(super) first: &'a mut HashMap<String, PathBuf>,
     /// aliases a second, different path landed again.
     pub(super) ambiguous: &'a mut HashSet<String>,
+    /// every `(later, first)` spelling pair bound by reference to one
+    /// declaration, for `repeat_request::follow_aliases`
+    pub(super) aliases: &'a mut Vec<(String, String)>,
 }
 
 impl Landings<'_> {
@@ -181,6 +184,7 @@ pub(super) fn inject_export_inner(
                 }
                 Stmt::FnDecl { .. } | Stmt::LetDecl { .. } | Stmt::ClassDecl { .. } => {
                     let init = ast.add_expr(Expr::Ident(first.clone()));
+                    landings.aliases.push((alias.to_string(), first.clone()));
                     extra_decls.push(Stmt::LetDecl {
                         mutable: false,
                         name: alias.to_string(),

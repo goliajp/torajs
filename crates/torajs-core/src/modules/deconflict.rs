@@ -66,6 +66,7 @@ pub(super) fn deconflict_lib_section(
     prior: &mut HashMap<String, String>,
     hidden_prior: &mut HashMap<String, String>,
     landed: &HashMap<String, String>,
+    is_ns: bool,
     mangle_seq: &mut usize,
     hidden_inject: &mut HashSet<String>,
     delta: &class_rename::LibTableDelta,
@@ -147,6 +148,16 @@ pub(super) fn deconflict_lib_section(
             );
             continue;
         }
+        // A decl this walk will not inject — not requested, not a
+        // hidden dependency, and no namespace object asking for every
+        // export — needs no new name. Mangling it anyway recorded a
+        // spelling for a decl no walk ever landed, and a later request
+        // for its own name then read as a collision with another
+        // module (`import { count }`, then `{ bump }`, then `{ peek }`
+        // rejected `peek`).
+        if !is_hidden && !is_ns {
+            continue;
+        }
         let prior_mangle = prior
             .get(&name)
             .or_else(|| hidden_prior.get(&name))
@@ -226,12 +237,17 @@ pub(super) fn deconflict_lib_section(
     if mangles.is_empty() {
         return Ok((HashMap::new(), requested_renames));
     }
-    // Reference rewrite — every lib expression lives in the appended
-    // arena slice; a bare Ident there referencing a mangled top-level
-    // binding follows it (self-references included). `New` names its
-    // class in a String field the Ident arm can't see (knife D — and
-    // the parser also mints `Expr::New` for `new f()` over a plain
-    // fn, so the arm applies to every mangle, not just classes).
+    rewrite_lib_refs(ast, lib_expr_offset, &mangles);
+    Ok((demangle, requested_renames))
+}
+
+/// Reference rewrite — every lib expression lives in the appended
+/// arena slice; a bare Ident there referencing a mangled top-level
+/// binding follows it (self-references included). `New` names its
+/// class in a String field the Ident arm can't see (knife D — and
+/// the parser also mints `Expr::New` for `new f()` over a plain fn,
+/// so the arm applies to every mangle, not just classes).
+fn rewrite_lib_refs(ast: &mut Ast, lib_expr_offset: usize, mangles: &HashMap<String, String>) {
     for e in ast.exprs[lib_expr_offset..].iter_mut() {
         match e {
             Expr::Ident(n) => {
@@ -247,7 +263,6 @@ pub(super) fn deconflict_lib_section(
             _ => {}
         }
     }
-    Ok((demangle, requested_renames))
 }
 
 /// 427-01 — the P13-S4b face rename (`const a = …; export { a as b }`

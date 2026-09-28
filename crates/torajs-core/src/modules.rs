@@ -219,6 +219,7 @@ pub fn resolve_imports(
                 path: &target_path,
                 first: &mut st.landing_first,
                 ambiguous: &mut st.ambiguous_locals,
+                aliases: &mut st.repeat_aliases,
             },
             ledger: st.ledger.ledger(&target_path),
             // A candidate that is the entry itself has no body to run at
@@ -249,7 +250,7 @@ pub fn resolve_imports(
                     &mut injections[before..],
                     &orig,
                     landed,
-                    &mut st.repeat_aliases,
+                    req.landings.aliases,
                 );
             }
         }

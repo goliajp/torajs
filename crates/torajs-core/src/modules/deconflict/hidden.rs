@@ -48,8 +48,14 @@ pub(super) fn hidden_injection_closure(
     for (i, s) in lib_section.iter().enumerate() {
         match s {
             Stmt::ExportDecl { inner: Some(d), .. } => {
+                // wanted under its own name, or under a face a bare
+                // clause gave it (`export { bump as inc }`)
                 if let Some(n) = super::super::decl_name(d)
-                    && (lane.is_ns || want.contains(n.as_str()))
+                    && (lane.is_ns
+                        || want.contains(n.as_str())
+                        || bare_exports
+                            .get(&n)
+                            .is_some_and(|face| want.contains(face.as_str())))
                 {
                     push_class_synths(lib_section, &n, &mut work);
                     push_computed_key_frees(ast, &n, &mut work);
