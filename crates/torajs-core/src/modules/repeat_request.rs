@@ -40,8 +40,8 @@ pub(super) fn align_and_filter(
     }
     if let Some(alias) = namespace_alias.as_deref()
         && entry_path == Some(target_path)
+        && claim_entry_namespace(ast, alias, tables)
     {
-        claim_entry_namespace(ast, alias, tables);
         namespace_alias = None;
         if named.is_empty() && default_alias.is_none() {
             return None;
@@ -80,8 +80,26 @@ pub(super) fn align_and_filter(
 /// `x++` still read the copy's initial value. The entry's `export
 /// default <expr>` has no binding of its own, so it becomes one here
 /// (`__nsdefault_entry`, evaluated in place) and the `default` field
-/// names it.
-fn claim_entry_namespace(ast: &mut Ast, alias: &str, tables: &mut super::ns_tables::NsTables) {
+/// names it. An entry that re-exports (`export … from`, `export *
+/// from`) answers false and keeps the walk: those fields come from
+/// the modules the clauses name, which only the walk reaches.
+fn claim_entry_namespace(
+    ast: &mut Ast,
+    alias: &str,
+    tables: &mut super::ns_tables::NsTables,
+) -> bool {
+    let reexports = ast.stmts.iter().any(|s| {
+        matches!(
+            s,
+            Stmt::ExportDecl {
+                source: Some(_),
+                ..
+            }
+        )
+    });
+    if reexports {
+        return false;
+    }
     if !tables.accums.contains_key(alias) {
         tables.order.push(alias.to_string());
         tables
@@ -102,10 +120,13 @@ fn claim_entry_namespace(ast: &mut Ast, alias: &str, tables: &mut super::ns_tabl
                 ..
             } => {
                 acc.claim("default", ENTRY_DEFAULT);
+                // `any`: the namespace literal at the program's head
+                // reads it as a global cell whatever the initializer
+                // (`export default null` has no slot shape to infer)
                 *s = Stmt::LetDecl {
                     mutable: false,
                     name: ENTRY_DEFAULT.to_string(),
-                    type_ann: None,
+                    type_ann: Some("any".to_string()),
                     init: *eid,
                     is_var: false,
                 };
@@ -127,6 +148,7 @@ fn claim_entry_namespace(ast: &mut Ast, alias: &str, tables: &mut super::ns_tabl
             _ => {}
         }
     }
+    true
 }
 
 /// The binding the entry's `export default <expr>` becomes when the
