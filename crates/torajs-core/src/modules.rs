@@ -287,6 +287,7 @@ pub fn resolve_imports(
         &st.dyn_eval_bodies,
     )?;
     repeat_request::follow_aliases(ast, &st.repeat_aliases);
+    namespace_objlit::read_through_namespace(ast);
     types_lane::inject_type_aliases(ast, &st.type_aliases);
     Ok(st.closure_files)
 }

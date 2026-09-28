@@ -274,7 +274,7 @@ pub(super) fn follow_aliases(ast: &mut Ast, aliases: &[(String, String)]) {
 /// Does anything but `name`'s own top-level function or lexical
 /// declaration bind it — a nested scope, a class, an arrow's
 /// parameter?
-fn rebound(ast: &Ast, name: &str) -> bool {
+pub(super) fn rebound(ast: &Ast, name: &str) -> bool {
     let in_stmts = ast.stmts.iter().any(|s| {
         let s = match s {
             Stmt::ExportDecl {

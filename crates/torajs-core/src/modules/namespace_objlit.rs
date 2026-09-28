@@ -20,8 +20,8 @@
 //! answered true.
 
 use crate::ast::PropKey;
-use crate::ast::{Ast, Expr, Stmt};
-use std::collections::HashMap;
+use crate::ast::{Ast, Expr, ExprId, Stmt};
+use std::collections::{HashMap, HashSet};
 
 use super::resolve_helpers::NsAccum;
 
@@ -96,4 +96,61 @@ pub(super) fn sorted_exports(fields: &[(String, String)]) -> Vec<(String, String
     let mut out = fields.to_vec();
     out.sort_by(|a, b| a.0.encode_utf16().cmp(b.0.encode_utf16()));
     out
+}
+
+/// §16.2.1.10 — a namespace object's property read is the export's
+/// binding itself, live; the literal above holds the values it saw
+/// when it ran. Every `<alias>.<field>` READ of a static namespace
+/// alias therefore becomes the landed binding's own name — unless
+/// some inner scope rebinds the alias, or the member is written
+/// (`ns.x = v` is the §10.4.6 TypeError, left to the object). The
+/// object remains for reflection: `Object.keys(ns)`, `"x" in ns`,
+/// spread.
+pub(super) fn read_through_namespace(ast: &mut Ast) {
+    if ast.namespace_bindings.is_empty() {
+        return;
+    }
+    let mut written: HashSet<ExprId> = HashSet::new();
+    for e in &ast.exprs {
+        match e {
+            Expr::Assign { target, .. } | Expr::PostIncr { target, .. } => {
+                written.insert(*target);
+            }
+            Expr::Delete { expr } => {
+                written.insert(*expr);
+            }
+            _ => {}
+        }
+    }
+    let aliases: Vec<String> = ast
+        .namespace_bindings
+        .keys()
+        .filter(|a| !a.starts_with("__dyn_ns_") && !super::repeat_request::rebound(ast, a))
+        .cloned()
+        .collect();
+    let mut rewrites: Vec<(ExprId, String)> = Vec::new();
+    for (i, e) in ast.exprs.iter().enumerate() {
+        let Expr::Member { obj, name } = e else {
+            continue;
+        };
+        let eid = ExprId(i as u32);
+        if written.contains(&eid) {
+            continue;
+        }
+        let Expr::Ident(alias) = ast.get_expr(*obj) else {
+            continue;
+        };
+        if !aliases.contains(alias) {
+            continue;
+        }
+        if let Some((_, local)) = ast.namespace_bindings[alias]
+            .iter()
+            .find(|(f, _)| f == name)
+        {
+            rewrites.push((eid, local.clone()));
+        }
+    }
+    for (eid, local) in rewrites {
+        ast.exprs[eid.0 as usize] = Expr::Ident(local);
+    }
 }
