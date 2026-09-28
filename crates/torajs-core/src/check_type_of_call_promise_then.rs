@@ -53,9 +53,17 @@ use crate::check_type_of_call_promise_then_nullable::try_then_nullable;
 ///
 /// One level is all that can occur — the collapse runs at every mint,
 /// so a nested inner is itself already collapsed.
+///
+/// A handler that only throws (`never`) settles nothing on the
+/// fulfilled leg: the derived promise rejects (§27.2.2.1 step 8), and
+/// what it would have fulfilled with is the undefined a void handler
+/// answers — the typed-parameter arms have always said so, and the
+/// promise it names must still take `.then` / `.catch` / `.finally`,
+/// which a `Promise<never>` in this lattice does not.
 pub(crate) fn promise_of(ret: &Type) -> Type {
     match ret {
         Type::Promise(inner) => Type::Promise(inner.clone()),
+        Type::Never => Type::Promise(Box::new(Type::Undefined)),
         other => Type::Promise(Box::new(other.clone())),
     }
 }
