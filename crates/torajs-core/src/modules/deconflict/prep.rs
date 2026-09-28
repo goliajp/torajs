@@ -104,7 +104,6 @@ pub(in crate::modules) fn prep_lib_request<'a>(
         prior_mangles,
         hidden_mangles,
         landed,
-        lane.is_ns,
         mangle_seq,
         &mut hidden_inject,
         delta,

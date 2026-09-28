@@ -66,7 +66,6 @@ pub(super) fn deconflict_lib_section(
     prior: &mut HashMap<String, String>,
     hidden_prior: &mut HashMap<String, String>,
     landed: &HashMap<String, String>,
-    is_ns: bool,
     mangle_seq: &mut usize,
     hidden_inject: &mut HashSet<String>,
     delta: &class_rename::LibTableDelta,
@@ -146,16 +145,6 @@ pub(super) fn deconflict_lib_section(
                 hidden,
                 hidden_inject,
             );
-            continue;
-        }
-        // A decl this walk will not inject — not requested, not a
-        // hidden dependency, and no namespace object asking for every
-        // export — needs no new name. Mangling it anyway recorded a
-        // spelling for a decl no walk ever landed, and a later request
-        // for its own name then read as a collision with another
-        // module (`import { count }`, then `{ bump }`, then `{ peek }`
-        // rejected `peek`).
-        if !is_hidden && !is_ns {
             continue;
         }
         let prior_mangle = prior
