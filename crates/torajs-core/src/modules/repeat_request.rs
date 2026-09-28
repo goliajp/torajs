@@ -192,13 +192,15 @@ pub(super) fn evaluation_role(
 /// injected in this walk, `orig` its declaration's own name in the
 /// module; the first spelling it ever landed under is remembered in
 /// `landed`, and every later one binds to it by reference. That also
-/// covers a function asked for under two spellings in one request,
-/// which used to inject a deep copy.
+/// covers a function asked for under two spellings in one request.
+/// Each `(later, first)` pair goes to `aliases` for
+/// [`follow_aliases`].
 pub(super) fn bind_repeat_decls(
     ast: &mut Ast,
     pushed: &mut [Stmt],
     orig: &str,
     landed: &mut HashMap<String, String>,
+    aliases: &mut Vec<(String, String)>,
 ) {
     for s in pushed.iter_mut() {
         let name = match s {
@@ -219,6 +221,7 @@ pub(super) fn bind_repeat_decls(
             continue;
         }
         let init = ast.add_expr(crate::ast::Expr::Ident(first.clone()));
+        aliases.push((name.clone(), first.clone()));
         *s = Stmt::LetDecl {
             mutable: false,
             name,
@@ -227,4 +230,80 @@ pub(super) fn bind_repeat_decls(
             is_var: false,
         };
     }
+}
+
+/// §16.2.1 — an import binding is an indirect binding to the export's
+/// own binding, not a copy of its value. The `const later = first`
+/// that [`bind_repeat_decls`] leaves reads the export once: a `let`
+/// the module later reassigns stays stale through it, and a requester
+/// that runs before its provider (an import cycle) cannot call a
+/// function through it — the `const` is not hoisted, the function
+/// declaration is. Every program-wide reference to `later` therefore
+/// follows `first` itself. The flattened program gives each top-level
+/// name one binding, so the blind arena rewrite is sound unless some
+/// inner scope rebinds either spelling; such a pair keeps the `const`.
+/// A class keeps it too: its binding is not hoisted either, and a
+/// class spelling also lives in type annotations this rewrite does not
+/// reach.
+pub(super) fn follow_aliases(ast: &mut Ast, aliases: &[(String, String)]) {
+    let map: HashMap<&str, &str> = aliases
+        .iter()
+        .filter(|(later, first)| !rebound(ast, later) && !rebound(ast, first))
+        .map(|(later, first)| (later.as_str(), first.as_str()))
+        .collect();
+    if map.is_empty() {
+        return;
+    }
+    for e in ast.exprs.iter_mut() {
+        match e {
+            crate::ast::Expr::Ident(n) => {
+                if let Some(first) = map.get(n.as_str()) {
+                    *n = first.to_string();
+                }
+            }
+            crate::ast::Expr::New { class_name, .. } => {
+                if let Some(first) = map.get(class_name.as_str()) {
+                    *class_name = first.to_string();
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Does anything but `name`'s own top-level function or lexical
+/// declaration bind it — a nested scope, a class, an arrow's
+/// parameter?
+fn rebound(ast: &Ast, name: &str) -> bool {
+    let in_stmts = ast.stmts.iter().any(|s| {
+        let s = match s {
+            Stmt::ExportDecl {
+                inner: Some(inner), ..
+            } => inner,
+            other => other,
+        };
+        match s {
+            Stmt::FnDecl {
+                name: n,
+                params,
+                body,
+                ..
+            } if n == name => {
+                params.iter().any(|p| p.name == name)
+                    || body.iter().any(|b| crate::ast::rebinds_in_stmt(b, name))
+            }
+            Stmt::LetDecl {
+                name: n,
+                is_var: false,
+                ..
+            } if n == name => false,
+            other => crate::ast::rebinds_in_stmt(other, name),
+        }
+    });
+    in_stmts
+        || ast.exprs.iter().any(|e| {
+            matches!(e, crate::ast::Expr::ArrowFn { params, body, .. }
+                if params.iter().any(|p| p.name == name)
+                    || body.iter().any(|s| crate::ast::rebinds_in_stmt(s, name)))
+        })
 }

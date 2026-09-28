@@ -169,7 +169,8 @@ pub(super) fn inject_export_inner(
         // (423-01 knife D1) keeps its ONE class — `new K2()` rides the
         // non-class-new NewDynamic route off the class value,
         // instanceof included — where a deep clone would silently
-        // split statics and brand.
+        // split statics and brand. The importer's references then
+        // follow the first spelling (`repeat_request::follow_aliases`).
         let mut extra_decls: Vec<Stmt> = Vec::new();
         for alias in extras {
             match &inner {

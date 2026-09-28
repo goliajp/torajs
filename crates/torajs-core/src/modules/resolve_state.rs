@@ -45,6 +45,9 @@ pub(super) struct ResolveState {
     /// Per path, each declaration's own name → the spelling it first
     /// landed under (see `repeat_request::bind_repeat_decls`).
     pub(super) landed_by_path: HashMap<PathBuf, HashMap<String, String>>,
+    /// Every `(later, first)` spelling pair a repeat landing bound
+    /// (see `repeat_request::follow_aliases`).
+    pub(super) repeat_aliases: Vec<(String, String)>,
     /// Statements injected on behalf of one module, keyed by its path
     /// so the dependency-order splice can reassemble them. A path may
     /// be walked more than once (a later request asking for a name the
@@ -85,6 +88,7 @@ impl ResolveState {
             hidden_by_path: HashMap::new(),
             mangle_seq: 0,
             landed_by_path: HashMap::new(),
+            repeat_aliases: Vec::new(),
             injections_by_path: HashMap::new(),
             ns: ns_tables::NsTables::default(),
             landing_first: HashMap::new(),

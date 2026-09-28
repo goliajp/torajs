@@ -244,7 +244,13 @@ pub fn resolve_imports(
             let before = injections.len();
             walk_lib_stmt(ast, &mut st.work, &target_dir, &mut injections, s, &mut req)?;
             if let Some(orig) = orig {
-                repeat_request::bind_repeat_decls(ast, &mut injections[before..], &orig, landed);
+                repeat_request::bind_repeat_decls(
+                    ast,
+                    &mut injections[before..],
+                    &orig,
+                    landed,
+                    &mut st.repeat_aliases,
+                );
             }
         }
 
@@ -279,6 +285,7 @@ pub fn resolve_imports(
         &st.ledger.nested,
         &st.dyn_eval_bodies,
     )?;
+    repeat_request::follow_aliases(ast, &st.repeat_aliases);
     types_lane::inject_type_aliases(ast, &st.type_aliases);
     Ok(st.closure_files)
 }
