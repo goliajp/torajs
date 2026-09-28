@@ -130,11 +130,7 @@ pub fn resolve_imports(
                 default_alias,
                 namespace_alias,
                 side_effect_only,
-                &mut st.ns,
-                &st.default_bound_as,
-                &mut st.injections_by_path,
-                &mut st.injected_names,
-                &st.mangled_by_path,
+                &mut st,
             )
         else {
             continue;

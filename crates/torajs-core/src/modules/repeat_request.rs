@@ -20,7 +20,7 @@ use super::{NamedImport, default_binding};
 /// "./self"`, a lib's `export { x } from "./entry"`), which
 /// evaluates nothing extra: the entry is the program, and a walk
 /// would splice a second copy of its whole body in front of it.
-#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+#[allow(clippy::type_complexity)]
 pub(super) fn align_and_filter(
     ast: &mut Ast,
     target_path: &Path,
@@ -29,18 +29,14 @@ pub(super) fn align_and_filter(
     mut default_alias: Option<String>,
     mut namespace_alias: Option<String>,
     side_effect_only: bool,
-    tables: &mut super::ns_tables::NsTables,
-    default_bound_as: &HashMap<PathBuf, String>,
-    injections_by_path: &mut HashMap<PathBuf, Vec<Stmt>>,
-    injected_names: &mut HashMap<PathBuf, HashSet<String>>,
-    mangled_by_path: &HashMap<PathBuf, HashMap<String, String>>,
+    st: &mut super::resolve_state::ResolveState,
 ) -> Option<(Vec<NamedImport>, Option<String>, Option<String>, bool)> {
     if side_effect_only && entry_path == Some(target_path) {
         return None;
     }
     if let Some(alias) = namespace_alias.as_deref()
         && entry_path == Some(target_path)
-        && super::entry_namespace::claim_entry_namespace(ast, alias, tables)
+        && super::entry_namespace::claim_entry_namespace(ast, alias, &mut st.ns)
     {
         namespace_alias = None;
         if named.is_empty() && default_alias.is_none() {
@@ -52,11 +48,14 @@ pub(super) fn align_and_filter(
         target_path,
         &mut default_alias,
         &mut namespace_alias,
-        tables,
-        default_bound_as,
-        injections_by_path,
+        &mut st.ns,
+        &st.default_bound_as,
+        &mut st.injections_by_path,
     );
-    let entry = injected_names.entry(target_path.to_path_buf()).or_default();
+    let entry = st
+        .injected_names
+        .entry(target_path.to_path_buf())
+        .or_default();
     let (mut named, default_alias, namespace_alias, side_effect_only) = filter_request(
         entry,
         named,
@@ -64,7 +63,7 @@ pub(super) fn align_and_filter(
         namespace_alias,
         side_effect_only,
     )?;
-    realign_named_to_mangles(&mut named, mangled_by_path.get(target_path));
+    realign_named_to_mangles(&mut named, st.mangled_by_path.get(target_path));
     Some((named, default_alias, namespace_alias, side_effect_only))
 }
 
