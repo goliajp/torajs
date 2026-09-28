@@ -600,6 +600,7 @@ pub(crate) mod ssa_lower_new_finreg;
 pub(crate) mod ssa_lower_nullable_guard;
 pub(crate) mod ssa_lower_nullable_guard_emit;
 pub(crate) mod ssa_lower_nullish;
+pub(crate) mod ssa_lower_nullish_any;
 pub(crate) mod ssa_lower_number_coerce;
 pub mod ssa_lower_obj_escape;
 pub(crate) mod ssa_lower_object_define;
