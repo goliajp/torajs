@@ -350,8 +350,9 @@ pub(super) fn try_lower_static_field_reify(
 /// S2.38 — a static body never reads a runtime receiver (its `this`
 /// resolves to the class object at parse time), so its face may run a
 /// detached bare call IF the adapter-visible argument surface is
-/// lossless: every undefaulted param `Any` (a typed slot would
-/// silently unbox an undefined argv box to 0) and no
+/// lossless: every undefaulted param `Any` or `F64` (the adapter keeps
+/// an undefined argv box as the F64 undefined sentinel; an I64 / Bool /
+/// Str slot would make it 0 / false / "undefined") and no
 /// caller-side-injected default a runtime call would bypass.
 ///
 /// Mirror of the instance-side verdict (S2.38/S2.39, see
@@ -381,7 +382,7 @@ pub(super) fn static_this_free(
             let tys = &ctx.fn_sigs[sid.0 as usize].0;
             tys.len() == ps.len()
                 && tys.iter().zip(ps.iter()).all(|(ty, p)| match &p.default {
-                    None => *ty == Type::Any,
+                    None => matches!(ty, Type::Any | Type::F64),
                     Some(d) => {
                         matches!(ctx.ast.get_expr(*d), Expr::Number(_) | Expr::Bool(_))
                             && matches!(

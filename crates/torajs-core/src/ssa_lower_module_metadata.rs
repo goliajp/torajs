@@ -270,9 +270,10 @@ fn collect_this_free_fids(
     // S2.38 — `__cm_` bodies proven safe to run through the boxed
     // adapter with a NULL receiver: (1) the body never observes its
     // receiver param, and (2) the adapter-visible argument surface
-    // is lossless — every user param is `Any` (a typed slot would
-    // silently unbox an undefined argv box to 0/"" instead of ES's
-    // undefined) and none carries a default (defaults are
+    // is lossless — every user param is `Any` or `F64` (the adapter
+    // keeps an undefined argv box as the F64 undefined sentinel; an
+    // I64 / Bool / Str slot would make it 0 / false / "undefined"
+    // instead of ES's undefined) and none carries a default (defaults are
     // caller-side injected, which a runtime bare call bypasses —
     // trading the loud TypeError for a silent wrong answer is
     // forbidden). A generator-method forwarder feeds `__this` into
@@ -339,7 +340,7 @@ fn collect_this_free_fids(
                         match v {
                             // No default: only an Any slot passes an
                             // undefined argv box through losslessly.
-                            None => *ty == Type::Any,
+                            None => matches!(ty, Type::Any | Type::F64),
                             // Adapter-substituted literal: the undefined
                             // case never reaches the typed unbox, so any
                             // scalar slot is safe.

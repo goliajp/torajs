@@ -42,6 +42,7 @@ mod fallthrough;
 mod fnsig;
 mod json_seed;
 mod let_names;
+mod method_value;
 mod mono;
 mod sentinel_hof;
 mod sentinel_member_reads;
