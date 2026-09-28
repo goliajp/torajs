@@ -131,7 +131,7 @@ pub fn resolve_imports(
                 namespace_alias,
                 side_effect_only,
                 &mut st,
-            )
+            )?
         else {
             continue;
         };

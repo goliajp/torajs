@@ -30,17 +30,24 @@ pub(super) fn align_and_filter(
     mut namespace_alias: Option<String>,
     side_effect_only: bool,
     st: &mut super::resolve_state::ResolveState,
-) -> Option<(Vec<NamedImport>, Option<String>, Option<String>, bool)> {
+) -> Result<Option<(Vec<NamedImport>, Option<String>, Option<String>, bool)>, String> {
     if side_effect_only && entry_path == Some(target_path) {
-        return None;
+        return Ok(None);
     }
     if let Some(alias) = namespace_alias.as_deref()
         && entry_path == Some(target_path)
-        && super::entry_namespace::claim_entry_namespace(ast, alias, &mut st.ns)
     {
+        super::entry_namespace::claim_entry_namespace(
+            ast,
+            alias,
+            target_path,
+            &mut st.ns,
+            &mut st.work,
+            &mut st.ledger,
+        )?;
         namespace_alias = None;
         if named.is_empty() && default_alias.is_none() {
-            return None;
+            return Ok(None);
         }
     }
     align_repeat_request(
@@ -56,15 +63,22 @@ pub(super) fn align_and_filter(
         .injected_names
         .entry(target_path.to_path_buf())
         .or_default();
-    let (mut named, default_alias, namespace_alias, side_effect_only) = filter_request(
+    let Some((mut named, default_alias, namespace_alias, side_effect_only)) = filter_request(
         entry,
         named,
         default_alias,
         namespace_alias,
         side_effect_only,
-    )?;
+    ) else {
+        return Ok(None);
+    };
     realign_named_to_mangles(&mut named, st.mangled_by_path.get(target_path));
-    Some((named, default_alias, namespace_alias, side_effect_only))
+    Ok(Some((
+        named,
+        default_alias,
+        namespace_alias,
+        side_effect_only,
+    )))
 }
 
 /// The pre-filter half: a dyn-import namespace revisiting a path
