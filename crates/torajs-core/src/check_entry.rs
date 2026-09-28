@@ -56,7 +56,7 @@ pub fn check(ast: &Ast) -> Result<GenericCallSites, String> {
 /// 22+ parse_type call sites — this side-channel is the smaller
 /// change).
 pub fn check_with_types(ast: &Ast) -> Result<(GenericCallSites, HashMap<ExprId, Type>), String> {
-    check_with_arity(ast).map(|(g, t, _, _, _, _)| (g, t))
+    check_with_arity(ast).map(|(g, t, _, _, _, _, _)| (g, t))
 }
 
 /// T-28 — full pipeline artifacts: generic call sites, per-Expr types,
@@ -74,6 +74,7 @@ pub type CheckArtifacts = (
     HashMap<ExprId, ExprId>,
     std::collections::HashSet<ExprId>,
     crate::check_monomorph::MonoOutput,
+    HashMap<String, String>,
 );
 
 /// T-28 — check that also returns the per-Call arity pad + demotion
@@ -170,6 +171,7 @@ pub fn check_with_arity_warn(ast: &Ast) -> Result<(CheckArtifacts, Vec<String>),
             c.demoted_cm_rewrites,
             c.contextual_any_literals,
             mono,
+            c.global_spellings,
         ),
         warnings,
     ))

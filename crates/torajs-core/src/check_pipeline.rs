@@ -298,156 +298,32 @@ pub(crate) fn pass_2_register_globals_and_check_stmts(c: &mut Checker, ast: &Ast
                 (Some(lit), Some(ann)) => resolve_type_ann(ann, &c.aliases).or(Some(lit)),
                 (None, Some(ann)) => resolve_type_ann(ann, &c.aliases),
                 (None, None) => {
-                    // Chunk 737 — immutable closure-captured bindings
-                    // register too (the lowerer's capture filter
-                    // resolves them to the global; mirror of the
-                    // inferred_slot_ty gate). Chunk 740 — mutable
-                    // captured bindings join: the capture filter gives
-                    // the lifted body GlobalRef reads AND the Assign-
-                    // Ident global lane gives it writes, so the global
-                    // is the single home (the old env-copy snapshot
-                    // disagreed with ES shared-binding semantics).
-                    if binding_refs.named_fn_refs.contains(name) {
-                        // Rotation 204 — a dynobj-degraded ObjectLit
-                        // init registers Any, making a degraded
-                        // binding named-fn-visible exactly like a
-                        // `: any` annotation (the degrade IS the
-                        // any-lane routing decision; see
-                        // `crate::dynobj_degrade`). `var` stays
-                        // main-local — the lowerer's promote loop
-                        // only takes `is_var: false`, and a
-                        // checker-only registration would typecheck
-                        // programs whose lowering still aborts.
-                        if !*is_var && c.dynobj_degraded.contains(init) {
-                            Some(Type::Any)
-                        }
-                        // A cross-type-widened init: its main binding
-                        // is `any` (`let_widen`); the global slot the
-                        // lowerer's inferred_slot_ty asks the same set
-                        // for is the boxed one.
-                        else if !*is_var && c.cross_type_widened.contains(init) {
-                            c.any_promoted_inits.insert(*init);
-                            Some(Type::Any)
-                        }
-                        // RFC 20260709-closure-global chunk 2 — an
-                        // un-annotated lifted-arrow init registers
-                        // under the sig synthesized from the lifted
-                        // FnDecl's (preinfer-backfilled) anns, the
-                        // same `__fn(...)` spelling the annotated
-                        // lane resolves. Mutable bindings register
-                        // too (chunk 730: the Assign-Ident lane owns
-                        // drop-old/store-new, mirroring the lowerer's
-                        // mutable_promote gate). A VARIADIC sig
-                        // registers with the rest sentinel it really
-                        // carries: the lowerer gives the same binding
-                        // a Closure slot from the same string and
-                        // routes its calls through the boxed dual
-                        // entry, so the two homes agree (RFC O2).
-                        else if let Expr::Closure { fn_name, .. } = ast.get_expr(*init) {
-                            if *is_var {
-                                None
-                            } else {
-                                crate::ast_refs::lifted_closure_fn_canon(ast, fn_name)
-                                    .and_then(|canon| resolve_type_ann(&canon, &c.aliases))
-                            }
-                        }
-                        // Rotation 592 — an un-annotated ALIAS of a
-                        // lifted-arrow binding (`const c = k`)
-                        // registers under that binding's own
-                        // spelling. The alias holds the identical
-                        // value, and both sides resolve the identical
-                        // string (`closure_alias_fn_canon`), so the
-                        // slots cannot drift. Without it a named-fn
-                        // read of the alias answered "unknown
-                        // identifier" while the same program written
-                        // `const c: any = k` worked.
-                        else if !*is_var
-                            && let Some(canon) = crate::ast_refs::closure_alias_fn_canon(ast, *init)
-                        {
-                            resolve_type_ann(&canon, &c.aliases)
-                        }
-                        // RFC 20260725 follow-up — an un-annotated
-                        // all-literal ObjectLit init registers under
-                        // its synthesized `__inlobj(...)` spelling
-                        // (the lowerer's K.3b arm resolves the same
-                        // string, so the slots can't drift). `var`
-                        // stays main-local like every arm here.
-                        else if !*is_var
-                            && let Some(ann) =
-                                crate::ast_refs::objlit_literal_inlobj_ann(ast, *init)
-                        {
-                            resolve_type_ann(&ann, &c.aliases)
-                        }
-                        // Cluster-`values` follow-up (rotation 253) —
-                        // an un-annotated all-literal Array init
-                        // registers under its synthesized `T[]`
-                        // spelling (the lowerer's K.3b arm resolves
-                        // the same string, so the slots can't
-                        // drift). `var` reaches here already
-                        // converted by the hoist escape hatch
-                        // (Array inits keep their typed slot), so
-                        // the is_var gate mirrors the arms above.
-                        else if !*is_var
-                            && let Some(ann) =
-                                crate::ast_refs_arrlit::arrlit_literal_elem_ann(ast, *init)
-                        {
-                            resolve_type_ann(&ann, &c.aliases)
-                        }
-                        // An un-annotated `new C()` init registers
-                        // under its class spelling (the lowerer's
-                        // K.3b arm resolves the same string, so the
-                        // slots can't drift). Its own nominal type,
-                        // not Any: `any_promote_init` refuses class
-                        // instances so main-side method calls keep
-                        // the typed lanes, and before this arm that
-                        // refusal left the binding unregistered —
-                        // every named-fn read of a `let e = new
-                        // Error()` answered "unknown identifier".
-                        else if !*is_var
-                            && let Some(ann) = crate::ast_refs::new_class_ann(ast, *init)
-                                .or_else(|| crate::ast_refs::collection_new_ann(ast, *init))
-                        {
-                            resolve_type_ann(&ann, &c.aliases)
-                        } else {
-                            let shaped = crate::ast_refs::infer_toplevel_slot_shape(ast, *init)
-                                .map(|s| match s {
-                                    crate::ast_refs::GlobalSlotShape::I64
-                                    | crate::ast_refs::GlobalSlotShape::F64 => Type::Number,
-                                    crate::ast_refs::GlobalSlotShape::Str => Type::String,
-                                    crate::ast_refs::GlobalSlotShape::Bool => Type::Boolean,
-                                    crate::ast_refs::GlobalSlotShape::Symbol => Type::Symbol,
-                                    crate::ast_refs::GlobalSlotShape::BigInt => Type::BigInt,
-                                    crate::ast_refs::GlobalSlotShape::RegExp => Type::RegExp,
-                                });
-                            // S2.35 — a call-result init the shape
-                            // inference can't type (the test262
-                            // IIFE-iterator idiom) registers Any via
-                            // the shared verdict
-                            // (`ast_refs_any_promote`; the lowerer's
-                            // inferred_slot_ty consults the same fn
-                            // in the same fallback position). The
-                            // eid is recorded so the LetDecl arm
-                            // widens the main binding to Any too —
-                            // both homes must agree with the boxed
-                            // slot. Shape-typed calls (simple ret
-                            // ann / `Symbol()`) keep their exact
-                            // slot — the fallback never demotes.
-                            if shaped.is_none()
-                                && !*is_var
-                                && crate::ast_refs_any_promote::any_promote_init(ast, *init)
-                            {
+                    match synthesized_spelling(c, ast, name, *init, *is_var, &binding_refs) {
+                        Some((spelling, widened)) => {
+                            // A widened init's main binding becomes
+                            // `any` too (`let_widen`): both homes must
+                            // agree with the boxed slot.
+                            if widened {
                                 c.any_promoted_inits.insert(*init);
-                                Some(Type::Any)
-                            } else {
-                                shaped
                             }
+                            let ty = resolve_type_ann(&spelling, &c.aliases);
+                            if ty.is_some() {
+                                c.global_spellings.insert(name.clone(), spelling);
+                            }
+                            ty
                         }
-                    } else {
-                        None
+                        None => None,
                     }
                 }
                 _ => lit_ty,
             };
+            if type_ann.is_some()
+                && let Some((spelling, _)) =
+                    synthesized_spelling(c, ast, name, *init, *is_var, &binding_refs)
+                && resolve_type_ann(&spelling, &c.aliases).is_some()
+            {
+                c.global_spellings.insert(name.clone(), spelling);
+            }
             if let Some(ty) = ann_ty
                 && !c.globals.contains_key(name)
             {
@@ -459,4 +335,82 @@ pub(crate) fn pass_2_register_globals_and_check_stmts(c: &mut Checker, ast: &Ast
     let saved_hoists = crate::check_hoist_closure_lets::enter(c, ast, &ast.stmts);
     crate::check_gen_env::check_stmts(c, ast);
     c.hoisted_closure_lets = saved_hoists;
+}
+
+/// The annotation spelling an UN-annotated top-level binding registers
+/// from, when a named function body reads it (named functions have no
+/// capture machinery; a captured binding, mutable or not, takes the
+/// same global home — the capture filter resolves it there and the
+/// lifted body's writes take the global lane). `None` keeps the binding
+/// main-local. The lowerer parses the recorded string for the slot, so
+/// the checker's type and the slot's cannot drift. The flag says the
+/// init was widened to `any` (a cross-type write, or a literal only the
+/// `any` slot can hold): its main binding widens too.
+///
+/// The arms, in order:
+/// - a dynobj-degraded object literal is `any` — the degrade IS the
+///   any-lane routing decision (`crate::dynobj_degrade`);
+/// - an init a cross-type write widened is `any` (`let_widen`);
+/// - a lifted arrow spells the signature synthesized from its lifted
+///   decl's annotations (a variadic one carries its rest sentinel: the
+///   lowerer gives it a Closure slot from the same string and routes
+///   its calls through the boxed dual entry);
+/// - an alias of such a binding (`const c = k`) spells the same;
+/// - an all-literal object literal spells its `__inlobj(...)`, an
+///   all-literal array its `T[]`, a `new C()` its class or collection;
+/// - a literal / operator / named-fn-call init spells its scalar
+///   shape (`ast_refs::infer_toplevel_slot_shape`);
+/// - a call result or literal no shape names, but the `any` slot can
+///   hold (the test262 IIFE-iterator idiom), is `any`.
+/// `var` stays main-local in every arm but the scalar shape (the hoist
+/// escape hatch converts it first): the lowerer's promote loop only
+/// takes `is_var: false`, and a checker-only registration would
+/// typecheck programs whose lowering still aborts.
+fn synthesized_spelling(
+    c: &Checker,
+    ast: &Ast,
+    name: &str,
+    init: ExprId,
+    is_var: bool,
+    binding_refs: &crate::ast_refs::ToplevelBindingRefs,
+) -> Option<(String, bool)> {
+    if !binding_refs.named_fn_refs.contains(name) {
+        return None;
+    }
+    if !is_var && c.dynobj_degraded.contains(&init) {
+        return Some(("any".into(), false));
+    }
+    if !is_var && c.cross_type_widened.contains(&init) {
+        return Some(("any".into(), true));
+    }
+    if let Expr::Closure { fn_name, .. } = ast.get_expr(init) {
+        if is_var {
+            return None;
+        }
+        return crate::ast_refs::lifted_closure_fn_canon(ast, fn_name).map(|s| (s, false));
+    }
+    if !is_var
+        && let Some(ann) = crate::ast_refs::closure_alias_fn_canon(ast, init)
+            .or_else(|| crate::ast_refs::objlit_literal_inlobj_ann(ast, init))
+            .or_else(|| crate::ast_refs_arrlit::arrlit_literal_elem_ann(ast, init))
+            .or_else(|| crate::ast_refs::new_class_ann(ast, init))
+            .or_else(|| crate::ast_refs::collection_new_ann(ast, init))
+    {
+        return Some((ann, false));
+    }
+    if let Some(shape) = crate::ast_refs::infer_toplevel_slot_shape(ast, init) {
+        use crate::ast_refs::GlobalSlotShape as S;
+        let spelling = match shape {
+            S::I64 => "number",
+            S::F64 => "f64",
+            S::Str => "string",
+            S::Bool => "boolean",
+            S::Symbol => "symbol",
+            S::BigInt => "bigint",
+            S::RegExp => "regex",
+        };
+        return Some((spelling.into(), false));
+    }
+    (!is_var && crate::ast_refs_any_promote::any_promote_init(ast, init))
+        .then(|| ("any".into(), true))
 }

@@ -55,6 +55,7 @@ pub(crate) fn lower_inner(
     demoted_cm_rewrites: &HashMap<crate::ast::ExprId, crate::ast::ExprId>,
     contextual_any: &std::collections::HashSet<crate::ast::ExprId>,
     mono: &MonoOutput,
+    global_spellings: &HashMap<String, String>,
 ) -> Module {
     // Monomorphization ran at the end of the check pipeline
     // (check_monomorph.rs) — specializations are already appended and
@@ -142,6 +143,7 @@ pub(crate) fn lower_inner(
     let globals = register_toplevel_globals(
         ast,
         expr_types,
+        global_spellings,
         &aliases,
         &mut arr_layouts,
         &mut fn_sigs,
@@ -345,6 +347,7 @@ fn setup_callable_infra(
 fn register_toplevel_globals(
     ast: &Ast,
     expr_types: &HashMap<crate::ast::ExprId, crate::check::Type>,
+    global_spellings: &HashMap<String, String>,
     aliases: &HashMap<String, Type>,
     arr_layouts: &mut Vec<Type>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
@@ -361,6 +364,7 @@ fn register_toplevel_globals(
     let globals = crate::ssa_lower_toplevel_globals::collect_toplevel_globals(
         ast,
         expr_types,
+        global_spellings,
         aliases,
         arr_layouts,
         fn_sigs,

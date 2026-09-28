@@ -17,11 +17,10 @@
 //! too — including closure/method-carrying shapes since rotation
 //! 546; see the verdict fn's doc.
 //!
-//! Consumed by BOTH the checker (`check_pipeline::pass_2` register +
-//! `check_stmt_let_decl` main-binding widen via the recorded eid
-//! set) and the lowerer (`ssa_lower_toplevel_globals::
-//! inferred_slot_ty` promote) — one verdict fn is the no-drift
-//! contract. Callers gate on `is_var: false` and the named-fn-refs
+//! Consumed by the checker (`check_pipeline::synthesized_spelling`
+//! register + `check_stmt_let_decl` main-binding widen via the
+//! recorded eid set); the lowerer parses the spelling the checker
+//! recorded. Callers gate on `is_var: false` and the named-fn-refs
 //! set themselves; this fn judges the init SHAPE only.
 
 use crate::ast::{Ast, Expr, ExprId};

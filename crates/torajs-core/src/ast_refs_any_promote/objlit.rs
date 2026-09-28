@@ -13,7 +13,7 @@ use crate::ast::{Ast, Expr};
 /// against the promoted dynobj receiver answered raw entry bytes —
 /// the 546-03 box-bits silent-wrong).
 ///
-/// The gate MIRRORS the pass_2 / `inferred_slot_ty` fallback
+/// The gate MIRRORS the `synthesized_spelling` fallback
 /// position, restricted to the ObjectLit case: a flat-walked
 /// (`toplevel_stmts_flat`) un-annotated non-`var` let whose name a
 /// named fn reads, whose literal `objlit_literal_inlobj_ann` refuses

@@ -14,6 +14,7 @@ impl Checker {
     pub(crate) fn new() -> Self {
         Self {
             globals: HashMap::new(),
+            global_spellings: HashMap::new(),
             hoisted_closure_lets: HashMap::new(),
             scopes: vec![HashMap::new()],
             aliases: HashMap::new(),

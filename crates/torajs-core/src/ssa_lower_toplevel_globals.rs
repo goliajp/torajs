@@ -10,11 +10,11 @@
 //! Skipped (still scope to implicit main as a local):
 //!   - literal-init forms (`const X = 42`) — the K.1 inline-literal
 //!     fallback path is faster and doesn't need a slot.
-//!   - missing type annotation without a named-fn reader — K.3
-//!     doesn't run inference here; `let Y = computeValue()` without
-//!     `: T` keeps the K.1 behavior of being a main-fn local
-//!     (named-fn read errors with "unknown ident"). The K.3b
-//!     `ast_refs` gate promotes the subset a named fn actually reads.
+//!   - missing type annotation without a named-fn reader — `let Y =
+//!     computeValue()` without `: T` keeps the K.1 behavior of being a
+//!     main-fn local (named-fn read errors with "unknown ident"). A
+//!     binding a named fn reads takes the slot of the spelling the
+//!     checker registered it from (`Checker::global_spellings`).
 //!   - annotated primitive bindings that NO named-fn body references
 //!     (the localize gate) — the slot exists solely for named-fn
 //!     visibility, so a main-only binding keeps the local home and
@@ -31,18 +31,19 @@ use crate::num_width::SlotKey;
 use crate::ssa::Type;
 use crate::ssa_lower::parse_type;
 
-// r290 file-size split — the K.3b un-annotated inference half.
 mod gate;
-mod infer;
 mod write_through;
 use gate::{mutable_promotes, slot_type_supported, stays_main_local};
-use infer::{inferred_slot_ty, late_home_slot};
 use write_through::{binding_written_through, init_is_static_string_split};
 
+/// `global_spellings` is the checker's record of the annotation spelling
+/// each un-annotated binding registered from (`Checker::global_spellings`);
+/// the slot parses the identical string.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn collect_toplevel_globals(
     ast: &Ast,
     expr_types: &HashMap<ExprId, crate::check::Type>,
+    global_spellings: &HashMap<String, String>,
     aliases: &HashMap<String, Type>,
     arr_layouts: &mut Vec<Type>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
@@ -52,17 +53,9 @@ pub(crate) fn collect_toplevel_globals(
     num_f64_slots: &crate::num_width::WidthTable,
 ) -> HashMap<String, Type> {
     let binding_refs = crate::ast_refs::toplevel_binding_refs(ast);
-    // Rotation 204 — mirror of the checker's `dynobj_degraded`
-    // consult in pass_2 (recomputed from this side's own Ast
-    // snapshot, the standard no-drift contract).
-    let dynobj_degraded = crate::dynobj_degrade::collect_dynobj_degraded_inits(ast);
-    // Rotation 652 — same mirror for the cross-type widen set
-    // (`check/construct.rs` holds the checker's copy).
-    let cross_type_widened =
-        crate::let_widen::collect_cross_type_widen_inits(ast, Some(expr_types));
     let mut globals: HashMap<String, Type> = HashMap::new();
-    // Multi-flattened walk (rotation 230) — mirror of the checker's
-    // pass_2 pre-pass, same no-drift contract.
+    // Multi-flattened walk (rotation 230) — the same flat view the
+    // checker's pass_2 walks.
     for stmt in crate::ast::toplevel_stmts_flat(ast) {
         if let Stmt::LetDecl {
             name,
@@ -93,29 +86,33 @@ pub(crate) fn collect_toplevel_globals(
             if init_is_inline_literal && !*mutable && type_ann.as_deref() != Some("any") {
                 continue;
             }
-            // K.3b — slot type. With an annotation, parse it; without
-            // one, run the gated shape inference. Both helpers answer
-            // `None` for shapes that keep the K.1 main-local behavior.
-            // An initializer whose own layout carries accessor slots
-            // keeps that layout; the annotation only gated admission
-            // in the checker (`check_accessor_objlit_slot`). Parsing
-            // it here would hand the global a data field where the
-            // value has a getter closure. The inference path is the
-            // one the same literal takes unannotated, and it is right.
+            // Slot type. With an annotation, parse it; without one,
+            // parse the spelling the checker registered the binding
+            // from. Both answer `None` for shapes that keep the K.1
+            // main-local behavior. An initializer whose own layout
+            // carries accessor slots keeps that layout; the annotation
+            // only gated admission in the checker
+            // (`check_accessor_objlit_slot`). Parsing it here would
+            // hand the global a data field where the value has a
+            // getter closure, so such a binding takes the spelling
+            // path the same literal takes unannotated.
             //
             // The parse decides, not the annotation's presence: only
             // an `Obj` / `Arr` slot denotes a concrete LAYOUT that a
             // literal's accessor slots can conflict with. An `any`
             // annotation is a box whose dynamic member lane serves
             // accessors already — and setting it aside here loses the
-            // global entirely, because the inference path answers
-            // `None` for an object literal and the binding then has
-            // no home at all (`const t: any = { get then() { … } }`
+            // global entirely (`const t: any = { get then() { … } }`
             // became `unknown ident t`, which the conformance gate
             // caught and no probe would have).
-            let annotated = type_ann.as_ref().and_then(|ann| {
-                annotated_slot_ty(
+            let mut from_spelling = |written: Option<&str>| {
+                let (ann, written) = match written {
+                    Some(ann) => (ann, true),
+                    None => (global_spellings.get(name)?.as_str(), false),
+                };
+                slot_ty_from_ann(
                     ann,
+                    written,
                     name,
                     *init,
                     ast,
@@ -128,45 +125,21 @@ pub(crate) fn collect_toplevel_globals(
                     inst_memo,
                     num_f64_slots,
                 )
-            });
-            let accessor_layout = matches!(annotated, Some(Type::Obj(_) | Type::Arr(_)))
-                && expr_types
-                    .get(init)
-                    .is_some_and(crate::check_accessor_objlit_slot::layout_carries_accessor);
-            let slot_ty = match annotated.filter(|_| !accessor_layout) {
-                Some(t) => Some(t),
-                None if type_ann.is_some() && !accessor_layout => None,
-                None => inferred_slot_ty(
-                    name,
-                    *init,
-                    ast,
-                    &binding_refs,
-                    &dynobj_degraded,
-                    &cross_type_widened,
-                    aliases,
-                    arr_layouts,
-                    fn_sigs,
-                    generic_struct_decls,
-                    struct_layouts,
-                    inst_memo,
-                    num_f64_slots,
-                )
-                .or_else(|| {
-                    late_home_slot(
-                        ast,
-                        name,
-                        *init,
-                        &binding_refs,
-                        expr_types,
-                        aliases,
-                        arr_layouts,
-                        fn_sigs,
-                        generic_struct_decls,
-                        struct_layouts,
-                        inst_memo,
-                        num_f64_slots,
-                    )
-                }),
+            };
+            let slot_ty = match type_ann {
+                Some(ann) => {
+                    let annotated = from_spelling(Some(ann));
+                    let accessor_layout = matches!(annotated, Some(Type::Obj(_) | Type::Arr(_)))
+                        && expr_types.get(init).is_some_and(
+                            crate::check_accessor_objlit_slot::layout_carries_accessor,
+                        );
+                    if accessor_layout {
+                        from_spelling(None)
+                    } else {
+                        annotated
+                    }
+                }
+                None => from_spelling(None),
             };
             let Some(ty) = slot_ty else {
                 continue;
@@ -210,8 +183,19 @@ pub(crate) fn collect_toplevel_globals(
     globals
 }
 
-/// K.3b — slot type for an ANNOTATED top-level binding. `None` keeps
-/// the binding main-local.
+/// Slot type for a top-level binding from an annotation spelling —
+/// `written` in the source, or synthesized by the checker
+/// (`Checker::global_spellings`). `None` keeps the binding main-local.
+///
+/// A synthesized fn spelling widens by the slot's own key, not by the
+/// spelling's nominal class: with no annotation written, the binding
+/// never joined that class — its widths live on the slot key's
+/// `__ret` / `__p{i}` projections, glued to the lifted fn's keys by
+/// the let site's `fn_value_flow`. Querying the class would answer
+/// stale parse widths, and the env-first CallIndirect would read a
+/// floated callee's d0 ret off x0. A synthesized spelling also comes
+/// from an ALIAS of a lifted arrow (`const c = k`), which holds the
+/// same env cell the arrow mints and takes the same Closure slot.
 ///
 /// W4 — container elem widths come from the alias-class table (same
 /// consult as the fn-local let site).
@@ -233,8 +217,9 @@ pub(crate) fn collect_toplevel_globals(
 /// keeps the lifted-arrow condition for the same reason the re-repr
 /// above does: only that init shape mints the env cell K.4 needs.
 #[allow(clippy::too_many_arguments)]
-fn annotated_slot_ty(
+fn slot_ty_from_ann(
     ann: &str,
+    written: bool,
     name: &str,
     init: ExprId,
     ast: &Ast,
@@ -256,15 +241,26 @@ fn annotated_slot_ty(
         struct_layouts,
         inst_memo,
     );
-    let parsed = crate::ssa_lower_container_width::widen_container_ty(
-        parsed,
-        Some(ann),
-        &SlotKey::Global(name.to_string()),
-        num_f64_slots,
-        arr_layouts,
-        struct_layouts,
-        fn_sigs,
-    );
+    let key = SlotKey::Global(name.to_string());
+    let parsed = if !written && matches!(parsed, Type::FnSig(_) | Type::Closure(_)) {
+        crate::ssa_lower_container_width::widen_fn_sig_by_key(
+            parsed,
+            &key,
+            num_f64_slots,
+            arr_layouts,
+            fn_sigs,
+        )
+    } else {
+        crate::ssa_lower_container_width::widen_container_ty(
+            parsed,
+            Some(ann),
+            &key,
+            num_f64_slots,
+            arr_layouts,
+            struct_layouts,
+            fn_sigs,
+        )
+    };
     // Rotation 357 — the arrow probe peels `as` casts (`(<arrow>) as
     // any` is the probe-abi1 shape): the cast is a value-layer
     // pass-through, so the init still mints the env cell a FnSig
@@ -275,6 +271,8 @@ fn annotated_slot_ty(
         peeled = *expr;
     }
     let init_is_lifted_arrow = matches!(ast.get_expr(peeled), Expr::Closure { .. });
+    let closure_shaped = init_is_lifted_arrow
+        || (!written && crate::ast_refs::closure_alias_fn_canon(ast, peeled).is_some());
     // Any other Any-typed init (an any-bound ident, an any member
     // read) carries the cell shape too, but K.4's global-init store
     // lane has no Any→Closure conversion — keep the binding
@@ -288,8 +286,8 @@ fn annotated_slot_ty(
         return None;
     }
     let parsed = match parsed {
-        Type::FnSig(sig) if !ann.contains("__rest(") && init_is_lifted_arrow => Type::Closure(sig),
-        Type::Closure(sig) if ann.contains("__rest(") && init_is_lifted_arrow => Type::Closure(sig),
+        Type::FnSig(sig) if !ann.contains("__rest(") && closure_shaped => Type::Closure(sig),
+        Type::Closure(sig) if ann.contains("__rest(") && closure_shaped => Type::Closure(sig),
         // An ALIAS of a lifted-arrow binding carries the same env
         // cell the arrow itself mints, so it takes the same slot —
         // `const gb: (...xs: number[]) => number = ga` was "unknown

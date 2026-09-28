@@ -183,6 +183,7 @@ pub fn lower_with_arity(ast: &Ast, artifacts: &crate::check::CheckArtifacts) -> 
         demoted_cm_rewrites,
         contextual_any,
         mono,
+        global_spellings,
     ) = artifacts;
     let _ = ast;
     lower_inner(
@@ -191,6 +192,7 @@ pub fn lower_with_arity(ast: &Ast, artifacts: &crate::check::CheckArtifacts) -> 
         demoted_cm_rewrites,
         contextual_any,
         mono,
+        global_spellings,
     )
 }
 

@@ -180,6 +180,11 @@ pub(crate) struct Checker {
     /// what the set means and why a member list cannot answer it.
     pub(crate) declared_privates: std::collections::HashSet<String>,
     pub(crate) globals: HashMap<String, Type>,
+    /// For each top-level binding registered from a spelling the
+    /// checker synthesized (no annotation written), that spelling: the
+    /// lowerer parses the identical string for the binding's slot, so
+    /// the two homes cannot drift (`check_pipeline::synthesized_spelling`).
+    pub(crate) global_spellings: HashMap<String, String>,
     pub(crate) scopes: Vec<HashMap<String, LocalInfo>>,
     /// Closure bindings a peer closure in the same statement list
     /// captures before their own declaration is reached — two arrows

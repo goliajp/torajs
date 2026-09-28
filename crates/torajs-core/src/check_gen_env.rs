@@ -93,6 +93,8 @@ fn register_late_homes(c: &mut Checker, ast: &Ast) {
                 .get(init)
                 .and_then(|t| late_home(ast, *init, t))
         {
+            c.global_spellings
+                .insert(name.clone(), crate::check_type_to_ann::type_to_ann(&ty));
             c.globals.insert(name.clone(), ty);
         }
     }

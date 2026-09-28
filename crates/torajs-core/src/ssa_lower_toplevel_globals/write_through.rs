@@ -14,7 +14,7 @@
 //! `Arr<Substr>` (views, nothing written) or must not be promoted at
 //! all (views, but written — neither layout is right for a global, so
 //! the binding stays the main-local the `let` spelling already is).
-//! See the parent's `annotated_slot_ty` arm and RFC 20260821 §5.10.
+//! See the parent's `slot_ty_from_ann` arm and RFC 20260821 §5.10.
 
 use std::collections::HashMap;
 
