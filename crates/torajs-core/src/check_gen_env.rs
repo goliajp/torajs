@@ -104,7 +104,10 @@ fn register_late_homes(c: &mut Checker, ast: &Ast) {
 /// slot's own stake in a borrowed read; a value of no fixed type
 /// (`any`, `null`, `undefined`) in an `any` slot. An optional chain
 /// takes the `any` slot whatever its type: it lowers to a box on both
-/// arms, and a typed slot would store the box bits as the value.
+/// arms, and a typed slot would store the box bits as the value. An
+/// object layout (`{ ...so }`, `{ k: new K() }`) takes its own
+/// layout, spelled the way the lowerer re-interns it; one with
+/// accessor slots has no data layout to name and stays without.
 pub(crate) fn late_home(ast: &Ast, init: ExprId, ty: &Type) -> Option<Type> {
     let mut e = init;
     while let Expr::As { expr, .. } = ast.get_expr(e) {
@@ -119,6 +122,9 @@ pub(crate) fn late_home(ast: &Ast, init: ExprId, ty: &Type) -> Option<Type> {
     match ty {
         Type::Number | Type::Boolean | Type::String | Type::Symbol => Some(ty.clone()),
         Type::Any | Type::Null | Type::Undefined => Some(Type::Any),
+        Type::Struct(_) if !crate::check_accessor_objlit_slot::layout_carries_accessor(ty) => {
+            Some(ty.clone())
+        }
         _ => None,
     }
 }

@@ -291,13 +291,22 @@ pub(super) fn inferred_slot_ty(
 
 /// The checker's late home (`check_gen_env::register_late_homes`): an
 /// init no pre-pass arm types takes the slot of the type the checker
-/// gave it, same gate, same fallback position.
+/// gave it, same gate, same fallback position. An object layout goes
+/// through the pipeline the literal-object arm above runs, from the
+/// checker type's own spelling.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn late_home_slot(
     ast: &Ast,
     name: &str,
     init: ExprId,
     binding_refs: &crate::ast_refs::ToplevelBindingRefs,
     expr_types: &HashMap<ExprId, crate::check::Type>,
+    aliases: &HashMap<String, Type>,
+    arr_layouts: &mut Vec<Type>,
+    fn_sigs: &mut Vec<(Vec<Type>, Type)>,
+    generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(PropKey, String)>)>,
+    struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
+    inst_memo: &mut HashMap<String, crate::ssa::StructId>,
     num_f64_slots: &crate::num_width::WidthTable,
 ) -> Option<Type> {
     if !binding_refs.named_fn_refs.contains(name) {
@@ -306,6 +315,27 @@ pub(super) fn late_home_slot(
     let ty = expr_types
         .get(&init)
         .and_then(|t| crate::check_gen_env::late_home(ast, init, t))?;
+    if matches!(ty, crate::check::Type::Struct(_)) {
+        let ann = crate::check_type_to_ann::type_to_ann(&ty);
+        let parsed = parse_type(
+            Some(&ann),
+            aliases,
+            arr_layouts,
+            fn_sigs,
+            generic_struct_decls,
+            struct_layouts,
+            inst_memo,
+        );
+        return Some(crate::ssa_lower_container_width::widen_container_ty(
+            parsed,
+            Some(&ann),
+            &SlotKey::Global(name.to_string()),
+            num_f64_slots,
+            arr_layouts,
+            struct_layouts,
+            fn_sigs,
+        ));
+    }
     Some(match ty {
         crate::check::Type::Any => Type::Any,
         crate::check::Type::Boolean => Type::Bool,

@@ -152,7 +152,20 @@ pub(crate) fn collect_toplevel_globals(
                     num_f64_slots,
                 )
                 .or_else(|| {
-                    late_home_slot(ast, name, *init, &binding_refs, expr_types, num_f64_slots)
+                    late_home_slot(
+                        ast,
+                        name,
+                        *init,
+                        &binding_refs,
+                        expr_types,
+                        aliases,
+                        arr_layouts,
+                        fn_sigs,
+                        generic_struct_decls,
+                        struct_layouts,
+                        inst_memo,
+                        num_f64_slots,
+                    )
                 }),
             };
             let Some(ty) = slot_ty else {
