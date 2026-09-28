@@ -31,7 +31,7 @@
 //!   same fixpoint run; it turns the Ident into `Expr::Closure`,
 //!   which the plain fn-to-closure wrap then skips.
 
-use torajs_core::{ast, ast_closure_param_tag};
+use torajs_core::{ast, ast_closure_param_tag, ast_closure_param_tag_ns_values};
 
 /// The passes that run BEFORE the chain below, plus the two raw-AST
 /// early-error gates that bracket them.
@@ -395,6 +395,7 @@ pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) -> Result<(), ()> {
     ast::promote_this_fn_values(ast);
     ast::synthesize_new_target_ctor_faces(ast);
     ast_closure_param_tag::tag_closure_arg_params(ast);
+    ast_closure_param_tag_ns_values::wrap_ns_static_value_sites(ast);
     ast::synthesize_forwarders(ast);
     ast::desugar_nested_fns(ast);
     ast::synthesize_fn_to_closure_forwarders(ast);
