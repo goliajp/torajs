@@ -21,11 +21,10 @@
 //! Reference rewrite is an arena-slice scan: `parse_into` appends the
 //! lib's expressions after `lib_expr_offset`, entry and lib never
 //! share ExprIds, and every reference at any nesting depth is an
-//! `Expr::Ident` in that slice. Shadowing is handled by DECLINE, not
-//! scope tracking: a lib that rebinds the name anywhere (a fn param,
-//! a body `let`, an arrow) keeps today's loud redeclaration reject —
-//! never a silently mis-scoped rewrite (the
-//! `desugar_generators_alpha` posture).
+//! `Expr::Ident` in that slice. A lib that rebinds the name anywhere
+//! (a fn param, a body `let`, an arrow) takes the site rewrite in
+//! `refs.rs` instead — only references the free-variable walk
+//! resolves to the top level move; a class keeps the decline there.
 //!
 //! Class / type decls are out of this knife's scope (knife C/D —
 //! `__priv_<C>__` strings bake the class name at parse time); their
@@ -76,6 +75,9 @@ pub(super) fn deconflict_lib_section(
     // the export FACE for a bare export, the decl name otherwise).
     let mut mangles: HashMap<String, String> = HashMap::new();
     let mut demangle: HashMap<String, String> = HashMap::new();
+    // orig → mangled for spellings the lib rebinds somewhere: those
+    // move by resolved site, not by arena scan
+    let mut site_mangles: HashMap<String, String> = HashMap::new();
     let mut requested_renames: Vec<(String, String)> = Vec::new();
     for i in 0..lib_section.len() {
         let Some(name) = top_value_decl_name(&lib_section[i]) else {
@@ -164,8 +166,12 @@ pub(super) fn deconflict_lib_section(
             );
             continue;
         }
-        if rebinds_elsewhere(ast, lib_section, lib_expr_offset, i, &name)
-            || (is_class && class_rename::type_param_shadows(lib_section, &name))
+        // A rebound spelling takes the site rewrite (`refs.rs`); a
+        // class declines there, since its spelling is baked into
+        // artifacts the site walk does not reach.
+        let rebinds = rebinds_elsewhere(ast, lib_section, lib_expr_offset, i, &name);
+        if (is_class && (rebinds || class_rename::type_param_shadows(lib_section, &name)))
+            || redeclared_at_top(lib_section, i, &name)
         {
             // decline — keeps the loud redeclaration reject. A hidden
             // dep still injects under its own spelling when nothing
@@ -213,12 +219,17 @@ pub(super) fn deconflict_lib_section(
         } else {
             demangle.insert(mangled.clone(), name.clone());
         }
-        mangles.insert(name, mangled);
+        if rebinds {
+            site_mangles.insert(name, mangled);
+        } else {
+            mangles.insert(name, mangled);
+        }
     }
-    if mangles.is_empty() {
+    if mangles.is_empty() && site_mangles.is_empty() {
         return Ok((HashMap::new(), requested_renames));
     }
     rewrite_lib_refs(ast, lib_expr_offset, &mangles);
+    rewrite_lib_ref_sites(ast, lib_section, lib_expr_offset, &site_mangles);
     Ok((demangle, requested_renames))
 }
 
@@ -306,7 +317,7 @@ mod hidden;
 pub(super) use hidden::LaneShape;
 mod refs;
 pub(super) use refs::rebinds_elsewhere;
-use refs::rewrite_lib_refs;
+use refs::{redeclared_at_top, rewrite_lib_ref_sites, rewrite_lib_refs};
 mod requested;
 use requested::settle_requested_landing;
 mod prep;
