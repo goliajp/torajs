@@ -7,20 +7,20 @@
 //! recursive across the module boundary — an expression carrying a
 //! function body walks statements again.
 
-use super::free_vars::Bound;
+use super::free_vars::{Bound, FreeSink};
 use super::free_vars::{is_global_name, walk_stmt};
 use super::free_vars_hoisted_names::hoist_list_names;
 use super::{Ast, Expr, ExprId};
 
-pub(super) fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Bound<'_>, out: &mut Vec<String>) {
+pub(super) fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Bound<'_>, out: &mut dyn FreeSink) {
     match ast.get_expr(eid) {
         Expr::Elision => {}
         Expr::Ident(name) => {
             if is_global_name(name) && !bound.rebound_globals.iter().any(|g| g == name) {
                 return;
             }
-            if !bound.names.contains(name) && !out.contains(name) {
-                out.push(name.clone());
+            if !bound.names.contains(name) {
+                out.free(name, Some(eid), &bound.names);
             }
         }
         Expr::String(_)
@@ -118,8 +118,8 @@ pub(super) fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Bound<'_>, out: &mut
                 {
                     continue;
                 }
-                if !bound.names.contains(c) && !out.contains(c) {
-                    out.push(c.clone());
+                if !bound.names.contains(c) {
+                    out.free(c, None, &bound.names);
                 }
             }
         }
@@ -138,11 +138,8 @@ pub(super) fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Bound<'_>, out: &mut
             // shape; the arrow-lift caller runs after desugar_classes /
             // builtin-new rewrites, where class News have become
             // factory calls.
-            if !is_global_name(class_name)
-                && !bound.names.contains(class_name)
-                && !out.contains(class_name)
-            {
-                out.push(class_name.clone());
+            if !is_global_name(class_name) && !bound.names.contains(class_name) {
+                out.free(class_name, Some(eid), &bound.names);
             }
             for a in args {
                 walk_expr(ast, *a, bound, out);

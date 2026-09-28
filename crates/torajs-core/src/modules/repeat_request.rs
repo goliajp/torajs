@@ -273,34 +273,57 @@ pub(super) fn bind_repeat_decls(
 /// the module later reassigns stays stale through it, and a requester
 /// that runs before its provider (an import cycle) cannot call a
 /// function through it — the `const` is not hoisted, the function
-/// declaration is. Every program-wide reference to `later` therefore
-/// follows `first` itself. The flattened program gives each top-level
-/// name one binding, so the blind arena rewrite is sound unless some
-/// inner scope rebinds either spelling; such a pair keeps the `const`.
-/// A class keeps it too: its binding is not hoisted either, and a
-/// class spelling also lives in type annotations this rewrite does not
+/// declaration is. Every reference to `later` that resolves to the
+/// top level therefore follows `first` itself — site by site: a
+/// reference under a frame that binds `later` is that frame's own
+/// name, and one under a frame that binds `first` would be captured
+/// by it, so both keep reading the `const`. A class keeps it
+/// everywhere: its binding is not hoisted either, and a class
+/// spelling also lives in type annotations this rewrite does not
 /// reach.
 pub(super) fn follow_aliases(ast: &mut Ast, aliases: &[(String, String)]) {
-    let map: HashMap<&str, &str> = aliases
+    let classes: HashSet<&str> = ast
+        .stmts
         .iter()
-        .filter(|(later, first)| !rebound(ast, later) && !rebound(ast, first))
-        .map(|(later, first)| (later.as_str(), first.as_str()))
+        .filter_map(|s| match s {
+            Stmt::ExportDecl {
+                inner: Some(inner), ..
+            } => Some(inner.as_ref()),
+            other => Some(other),
+        })
+        .filter_map(|s| match s {
+            Stmt::ClassDecl { name, .. } => Some(name.as_str()),
+            _ => None,
+        })
         .collect();
-    if map.is_empty() {
-        return;
+    // A class's computed keys live only in the side tables (the
+    // hidden-dependency census reaches them the same way).
+    let side_stmts: Vec<Stmt> = ast
+        .class_computed_keys
+        .values()
+        .map(|v| Stmt::Expr(*v))
+        .chain(
+            ast.class_computed_static_fields
+                .iter()
+                .map(|r| Stmt::Expr(r.2)),
+        )
+        .collect();
+    let mut rewrites: Vec<(crate::ast::ExprId, &str)> = Vec::new();
+    for (later, first) in aliases {
+        if classes.contains(first.as_str()) {
+            continue;
+        }
+        let also_free = std::slice::from_ref(first);
+        for s in ast.stmts.iter().chain(side_stmts.iter()) {
+            for eid in crate::ast::top_ref_sites(ast, s, later, also_free) {
+                rewrites.push((eid, first.as_str()));
+            }
+        }
     }
-    for e in ast.exprs.iter_mut() {
-        match e {
-            crate::ast::Expr::Ident(n) => {
-                if let Some(first) = map.get(n.as_str()) {
-                    *n = first.to_string();
-                }
-            }
-            crate::ast::Expr::New { class_name, .. } => {
-                if let Some(first) = map.get(class_name.as_str()) {
-                    *class_name = first.to_string();
-                }
-            }
+    for (eid, first) in rewrites {
+        match &mut ast.exprs[eid.0 as usize] {
+            crate::ast::Expr::Ident(n) => *n = first.to_string(),
+            crate::ast::Expr::New { class_name, .. } => *class_name = first.to_string(),
             _ => {}
         }
     }

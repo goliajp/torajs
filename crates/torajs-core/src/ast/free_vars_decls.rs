@@ -3,8 +3,8 @@
 //! whole declaration BODY (a fn's or a class's own scope) leaves
 //! free in the enclosing scope.
 
-use super::free_vars::Bound;
 use super::free_vars::walk_stmt;
+use super::free_vars::{Bound, FreeSink};
 use super::free_vars_expr::walk_expr;
 use super::free_vars_hoisted_names::hoist_list_names;
 use super::{Ast, ClassCtor, ClassMethod, ExprId, Param, StaticInit, Stmt};
@@ -29,7 +29,7 @@ pub(super) fn walk_fn_decl(
     params: &[Param],
     body: &[Stmt],
     bound: &mut Bound<'_>,
-    out: &mut Vec<String>,
+    out: &mut dyn FreeSink,
 ) {
     let saved = bound.names.len();
     for p in params {
@@ -61,7 +61,7 @@ pub(super) fn walk_class_decl(
     static_methods: &[ClassMethod],
     static_init: &[StaticInit],
     bound: &mut Bound<'_>,
-    out: &mut Vec<String>,
+    out: &mut dyn FreeSink,
 ) {
     if let Some(pid) = parent {
         walk_expr(ast, *pid, bound, out);

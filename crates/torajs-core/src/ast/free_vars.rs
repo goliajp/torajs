@@ -15,7 +15,7 @@
 use super::free_vars_decls::{walk_class_decl, walk_fn_decl};
 use super::free_vars_expr::walk_expr;
 use super::free_vars_hoisted_names::{hoist_annexb_fn_names, hoist_list_names, hoist_var_names};
-use super::{Ast, Param, Stmt};
+use super::{Ast, ExprId, Param, Stmt};
 
 /// Free-variable analysis for an arrow fn body. Returns a deterministic,
 /// de-duplicated list of identifier names referenced in the body that are
@@ -93,6 +93,61 @@ pub(super) fn free_vars_of_body_rebound(
     out
 }
 
+/// Where the walk reports a free reference. The name list is the
+/// arrow lift's capture set; the module resolver's alias follow wants
+/// the arena sites instead, with the binding frame at each one.
+pub(super) trait FreeSink {
+    /// `site` is the node spelling the reference — an `Ident`, or a
+    /// `New` carrying the name as its class — and is absent for a
+    /// lifted closure's recorded capture. `bound` is every name the
+    /// frames around the site bind.
+    fn free(&mut self, name: &str, site: Option<ExprId>, bound: &[String]);
+}
+
+impl FreeSink for Vec<String> {
+    fn free(&mut self, name: &str, _site: Option<ExprId>, _bound: &[String]) {
+        if !self.iter().any(|n| n == name) {
+            self.push(name.to_string());
+        }
+    }
+}
+
+/// The sites in one top-level statement where a reference to `name`
+/// resolves to the top level — no frame between binds it — and where
+/// none of `also_free` is bound either. Two spellings of one top-level
+/// binding are interchangeable exactly at such a site. A spelling on
+/// the global-name list is still a binding here, so it reports.
+pub(crate) fn top_ref_sites(ast: &Ast, s: &Stmt, name: &str, also_free: &[String]) -> Vec<ExprId> {
+    struct Sites<'a> {
+        name: &'a str,
+        also_free: &'a [String],
+        out: Vec<ExprId>,
+    }
+    impl FreeSink for Sites<'_> {
+        fn free(&mut self, name: &str, site: Option<ExprId>, bound: &[String]) {
+            if name == self.name
+                && let Some(site) = site
+                && !self.also_free.iter().any(|f| bound.contains(f))
+            {
+                self.out.push(site);
+            }
+        }
+    }
+    let mut rebound_globals: Vec<String> = vec![name.to_string()];
+    rebound_globals.extend(also_free.iter().cloned());
+    let mut bound = Bound {
+        names: Vec::new(),
+        rebound_globals: &rebound_globals,
+    };
+    let mut sites = Sites {
+        name,
+        also_free,
+        out: Vec::new(),
+    };
+    walk_stmt(ast, s, &mut bound, &mut sites);
+    sites.out
+}
+
 /// The walk's binding frame.
 pub(super) struct Bound<'a> {
     /// Every name bound so far — the arrow's params, the pre-bound
@@ -124,7 +179,7 @@ fn walk_try(
     catch_body: &[Stmt],
     finally_body: &Option<Vec<Stmt>>,
     bound: &mut Bound<'_>,
-    out: &mut Vec<String>,
+    out: &mut dyn FreeSink,
 ) {
     let saved = bound.names.len();
     hoist_list_names(body, &mut bound.names);
@@ -149,7 +204,7 @@ fn walk_try(
     }
 }
 
-pub(super) fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Bound<'_>, out: &mut Vec<String>) {
+pub(super) fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Bound<'_>, out: &mut dyn FreeSink) {
     match s {
         Stmt::Expr(eid) | Stmt::Return(Some(eid)) | Stmt::Yield(eid) => {
             walk_expr(ast, *eid, bound, out)
