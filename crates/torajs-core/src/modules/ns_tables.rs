@@ -21,6 +21,16 @@ pub(super) struct NsTables {
     /// an already-visited module (its request is sentinel-deduped to
     /// nothing) still gets its binding.
     pub(super) fields_by_path: HashMap<PathBuf, Vec<(String, String)>>,
+    /// The alias a module's OWN namespace object was first walked
+    /// under — a static `import * as ns` binding or a `__dyn_ns_c<k>`
+    /// candidate. A star-feed walk pours into another module's object
+    /// and records nothing. §16.2.1.5.3 GetModuleNamespace answers one
+    /// object per module, so a later `import()` of the path shares it.
+    pub(super) alias_by_path: HashMap<PathBuf, String>,
+    /// `__dyn_ns_c<k>` repeat aliases → the earlier alias whose
+    /// namespace object their eval fn hands out instead of minting
+    /// its own literal.
+    pub(super) dyn_ns_shared: HashMap<String, String>,
     /// Namespace object fields, keyed by the ALIAS rather than the
     /// module — a lib's `export * from "m"` pours m's exports into the
     /// same namespace, and m is a work item popped later.

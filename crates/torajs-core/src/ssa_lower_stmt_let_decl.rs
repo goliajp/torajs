@@ -209,14 +209,7 @@ pub(crate) fn lower(
     // the `@@toStringTag` own entry. An importer whose every use was
     // a static member read never reaches this — `module_ns_members`
     // retargeted those, and the elision drops the binding entirely.
-    if ty == Type::Any && ctx.ast.namespace_bindings.contains_key(name) {
-        ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.module_ns_finalize, vec![init_val.clone()]),
-            Type::Void,
-            None,
-        );
-    }
+    crate::ssa_lower_stmt_let_decl_global::emit_module_ns_finalize(ctx, name, ty, &init_val);
     let num_map = crate::ssa_lower_map_num_lane::claim_binding(ctx, name, init, mutable, &init_val);
     finalize_and_bind(
         ctx,

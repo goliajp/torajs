@@ -130,8 +130,7 @@ pub fn resolve_imports(
                 default_alias,
                 namespace_alias,
                 side_effect_only,
-                &st.ns.fields_by_path,
-                &mut st.ns.dyn_ns_repeat,
+                &mut st.ns,
                 &st.default_bound_as,
                 &mut st.injections_by_path,
                 &mut st.injected_names,
@@ -265,6 +264,7 @@ pub fn resolve_imports(
             &namespace_alias,
             repeat_default_field,
             first_field,
+            ns_star_feed,
         );
     }
 
@@ -275,9 +275,7 @@ pub fn resolve_imports(
         &st.graph,
         st.injections_by_path,
         &dyn_table,
-        &st.ns.order,
-        &st.ns.accums,
-        &mut st.ns.dyn_ns_repeat,
+        &st.ns,
         &st.ambiguous_locals,
         &entry_seed,
         &st.ledger.nested,

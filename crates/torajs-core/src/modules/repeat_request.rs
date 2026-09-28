@@ -29,8 +29,7 @@ pub(super) fn align_and_filter(
     mut default_alias: Option<String>,
     mut namespace_alias: Option<String>,
     side_effect_only: bool,
-    ns_fields_by_path: &HashMap<PathBuf, Vec<(String, String)>>,
-    dyn_ns_repeat: &mut Vec<(String, Vec<(String, String)>)>,
+    tables: &mut super::ns_tables::NsTables,
     default_bound_as: &HashMap<PathBuf, String>,
     injections_by_path: &mut HashMap<PathBuf, Vec<Stmt>>,
     injected_names: &mut HashMap<PathBuf, HashSet<String>>,
@@ -44,8 +43,7 @@ pub(super) fn align_and_filter(
         target_path,
         &mut default_alias,
         &mut namespace_alias,
-        ns_fields_by_path,
-        dyn_ns_repeat,
+        tables,
         default_bound_as,
         injections_by_path,
     );
@@ -71,17 +69,19 @@ pub(super) fn align_repeat_request(
     target_path: &Path,
     default_alias: &mut Option<String>,
     namespace_alias: &mut Option<String>,
-    ns_fields_by_path: &HashMap<PathBuf, Vec<(String, String)>>,
-    dyn_ns_repeat: &mut Vec<(String, Vec<(String, String)>)>,
+    tables: &mut super::ns_tables::NsTables,
     default_bound_as: &HashMap<PathBuf, String>,
     injections_by_path: &mut HashMap<PathBuf, Vec<Stmt>>,
 ) {
     if let Some(ns) = namespace_alias
         .as_ref()
         .filter(|n| n.starts_with("__dyn_ns_"))
-        && let Some(fields) = ns_fields_by_path.get(target_path)
+        && let Some(fields) = tables.fields_by_path.get(target_path)
     {
-        dyn_ns_repeat.push((ns.clone(), fields.clone()));
+        tables.dyn_ns_repeat.push((ns.clone(), fields.clone()));
+        if let Some(earlier) = tables.alias_by_path.get(target_path) {
+            tables.dyn_ns_shared.insert(ns.clone(), earlier.clone());
+        }
         *namespace_alias = None;
     }
     default_binding::shortcut_repeat_default(
@@ -150,6 +150,7 @@ pub(super) fn close_walk(
     namespace_alias: &Option<String>,
     repeat_default_field: Option<String>,
     first_field: usize,
+    ns_star_feed: bool,
 ) {
     super::deconflict::extend_seen_with_lib(&injections[inject_mark..], &mut st.seen_names);
     st.graph.record(
@@ -165,6 +166,8 @@ pub(super) fn close_walk(
         first_field,
         target_path,
         &mut st.ns.fields_by_path,
+        &mut st.ns.alias_by_path,
+        ns_star_feed,
     );
 }
 
@@ -179,6 +182,8 @@ fn record_ns_walk(
     first_field: usize,
     target_path: &Path,
     ns_fields_by_path: &mut HashMap<PathBuf, Vec<(String, String)>>,
+    ns_alias_by_path: &mut HashMap<PathBuf, String>,
+    ns_star_feed: bool,
 ) {
     let Some(alias) = namespace_alias else { return };
     if let Some(binding) = repeat_default_field
@@ -188,6 +193,11 @@ fn record_ns_walk(
     }
     let fields = ns_accums[alias].fields()[first_field..].to_vec();
     ns_fields_by_path.insert(target_path.to_path_buf(), fields);
+    if !ns_star_feed {
+        ns_alias_by_path
+            .entry(target_path.to_path_buf())
+            .or_insert_with(|| alias.clone());
+    }
 }
 
 /// §16.2.1.5 — which walk runs a module's body. The first request of

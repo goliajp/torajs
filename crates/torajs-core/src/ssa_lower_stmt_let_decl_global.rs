@@ -127,6 +127,7 @@ pub(crate) fn try_lower_global_let(
     // kind-aware Arr<Any> readers (621 let-decl general-path mirror;
     // self-gating no-op for non-array / Arr<Any> values).
     ctx.emit_arr_mark_kind(&coerced);
+    emit_module_ns_finalize(ctx, name, slot_ty, &coerced);
     crate::ssa_lower_map_num_lane::mark_global(ctx, name, coerced);
     let ptr = ctx.f.append_inst(
         ctx.cur_block,
@@ -143,6 +144,23 @@ pub(crate) fn try_lower_global_let(
 }
 
 /// Where a global-var cell bind is being emitted from.
+/// A module namespace binding's object gets its §10.4.6 exotic
+/// attributes from `__torajs_module_ns_finalize`, whichever slot the
+/// binding lands in: the main-local lane and this global lane both
+/// call here. A namespace read from a named function promotes to a
+/// global, and without this the promoted object took writes
+/// (`ns.count = 99` ran instead of throwing).
+pub(crate) fn emit_module_ns_finalize(ctx: &mut LowerCtx, name: &str, ty: Type, val: &Operand) {
+    if ty == Type::Any && ctx.ast.namespace_bindings.contains_key(name) {
+        ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.module_ns_finalize, vec![val.clone()]),
+            Type::Void,
+            None,
+        );
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BindSite {
     /// The top-level declaration's store — a written `var` binds here,

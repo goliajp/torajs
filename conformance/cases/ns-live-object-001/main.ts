@@ -22,4 +22,4 @@ ns.inner.up();
 console.log(ns.inner.n, { ...ns.inner }.n, Object.values(ns.inner)[0]);
 const dyn = await import("./lib");
 ns.bump();
-console.log(dyn.count, typeof dyn, { ...dyn }.count, Object.values(dyn).length);
+console.log(dyn.count, typeof dyn, { ...dyn }.count, Object.values(dyn).length, dyn === ns);

@@ -11,7 +11,7 @@ use super::dyn_import_dispatcher;
 use super::dyn_import_poison;
 use super::graph::ModuleGraph;
 use super::namespace_objlit::{materialize_pending_namespaces, sorted_exports};
-use super::resolve_helpers::NsAccum;
+use super::ns_tables::NsTables;
 use super::{dead_lib_exprs, static_resolution};
 
 /// The resolver's whole tail in one call, extracted so
@@ -26,9 +26,7 @@ pub(super) fn settle_and_splice(
     graph: &ModuleGraph,
     injections_by_path: HashMap<PathBuf, Vec<Stmt>>,
     dyn_table: &[(String, dyn_import::DynTarget)],
-    ns_order: &[String],
-    ns_accums: &HashMap<String, NsAccum>,
-    dyn_ns_repeat: &mut Vec<(String, Vec<(String, String)>)>,
+    ns: &NsTables,
     ambiguous_locals: &HashSet<String>,
     entry_seed: &static_resolution::EntrySeed,
     nested: &[static_resolution::NestedRequest],
@@ -40,7 +38,7 @@ pub(super) fn settle_and_splice(
         graph,
         nested,
         &injections_by_path,
-        ns_accums,
+        &ns.accums,
         ambiguous_locals,
     )?;
     let entry_expr_len = entry_seed.entry_expr_len;
@@ -49,9 +47,7 @@ pub(super) fn settle_and_splice(
         graph,
         injections_by_path,
         dyn_table,
-        ns_order,
-        ns_accums,
-        dyn_ns_repeat,
+        ns,
         ambiguous_locals,
         &lib_poisoned,
         dyn_eval_bodies,
@@ -74,9 +70,7 @@ pub(super) fn assemble_and_splice(
     graph: &ModuleGraph,
     mut injections_by_path: HashMap<PathBuf, Vec<Stmt>>,
     dyn_table: &[(String, dyn_import::DynTarget)],
-    ns_order: &[String],
-    ns_accums: &HashMap<String, NsAccum>,
-    dyn_ns_repeat: &mut Vec<(String, Vec<(String, String)>)>,
+    ns: &NsTables,
     ambiguous_locals: &HashSet<String>,
     lib_poisoned: &HashSet<String>,
     dyn_eval_bodies: &HashMap<String, Vec<Stmt>>,
@@ -90,7 +84,7 @@ pub(super) fn assemble_and_splice(
     if ast.dyn_import_present {
         let mut poisoned = dyn_import_poison::poisoned_candidates(
             dyn_table,
-            ns_accums,
+            &ns.accums,
             &injections,
             ambiguous_locals,
         );
@@ -101,12 +95,12 @@ pub(super) fn assemble_and_splice(
         // (a repeat request of an already-walked module) from the
         // fields remembered per path.
         let mut dyn_ns_fields: HashMap<String, Vec<(String, String)>> = HashMap::new();
-        for (alias, acc) in ns_accums {
+        for (alias, acc) in &ns.accums {
             if alias.starts_with("__dyn_ns_") {
                 dyn_ns_fields.insert(alias.clone(), sorted_exports(acc.fields()));
             }
         }
-        for (alias, fields) in dyn_ns_repeat.iter() {
+        for (alias, fields) in &ns.dyn_ns_repeat {
             dyn_ns_fields.insert(alias.clone(), sorted_exports(fields));
         }
         injections.extend(dyn_import_dispatcher::synth_dispatcher(
@@ -115,12 +109,13 @@ pub(super) fn assemble_and_splice(
             &poisoned,
             dyn_eval_bodies,
             &dyn_ns_fields,
+            &ns.dyn_ns_shared,
         ));
     }
     // The synthetic `let ns = { … }` bindings only reference decls, so
     // they land after every module's statements regardless of which
     // module asked for them.
-    materialize_pending_namespaces(ast, &mut injections, ns_order, ns_accums);
+    materialize_pending_namespaces(ast, &mut injections, &ns.order, &ns.accums);
     splice_injections(ast, injections);
 }
 

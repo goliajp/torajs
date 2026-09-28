@@ -64,6 +64,7 @@ pub(super) fn synth_dispatcher(
     poisoned: &HashSet<String>,
     eval_bodies: &HashMap<String, Vec<Stmt>>,
     ns_fields: &HashMap<String, Vec<(String, String)>>,
+    shared: &HashMap<String, String>,
 ) -> Vec<Stmt> {
     let mut out: Vec<Stmt> = Vec::new();
     let mut body: Vec<Stmt> = Vec::new();
@@ -129,7 +130,11 @@ pub(super) fn synth_dispatcher(
             .cloned()
             .unwrap_or_default();
         let fields = ns_fields.get(ns_name.as_str()).cloned().unwrap_or_default();
-        let eval_name = synth_eval_fn(ast, &mut out, ns_name, stmts, fields);
+        let shared_alias = shared
+            .get(ns_name.as_str())
+            .filter(|earlier| !poisoned.contains(earlier.as_str()))
+            .map(String::as_str);
+        let eval_name = synth_eval_fn(ast, &mut out, ns_name, stmts, fields, shared_alias);
         let promise_ident = ast.add_expr(Expr::Ident("Promise".to_string()));
         ast.synth_global_refs.insert(promise_ident);
         let resolve = ast.add_expr(Expr::Member {
@@ -272,12 +277,20 @@ pub(super) fn synth_dispatcher(
 /// order between the two is the one deviation left. A body holding
 /// a top-level `await` is not hosted by a plain function and keeps
 /// the drop. Answers the function's name.
+///
+/// `shared` names the alias the module's namespace object already
+/// exists under (its static `import * as ns` binding, or an earlier
+/// candidate's `__dyn_ns_c<j>`): §16.2.1.5.3 GetModuleNamespace is one
+/// object per module, so the memo takes that object — the top-level
+/// binding read, or the earlier eval fn's answer — and no literal is
+/// minted.
 fn synth_eval_fn(
     ast: &mut Ast,
     out: &mut Vec<Stmt>,
     ns_name: &str,
     stmts: Vec<Stmt>,
     fields: Vec<(String, String)>,
+    shared: Option<&str>,
 ) -> String {
     let suffix = ns_name.trim_start_matches("__dyn_ns_");
     let memo = format!("__dyn_memo_{suffix}");
@@ -352,21 +365,36 @@ fn synth_eval_fn(
         left: ns_slot,
         right: undef_cmp,
     });
-    let ns_lit = super::namespace_objlit::namespace_objlit_expr(ast, &fields);
-    ast.namespace_bindings.insert(ns_name.to_string(), fields);
-    let bind_ns = Stmt::LetDecl {
-        mutable: false,
-        name: ns_name.to_string(),
-        type_ann: Some("any".to_string()),
-        init: ns_lit,
-        is_var: false,
+    let mut bind: Vec<Stmt> = Vec::new();
+    let ns_value = match shared {
+        Some(earlier) => match earlier.strip_prefix("__dyn_ns_") {
+            Some(earlier_suffix) => {
+                let callee = ast.add_expr(Expr::Ident(format!("__dyn_eval_{earlier_suffix}")));
+                ast.add_expr(Expr::Call {
+                    callee,
+                    args: Vec::new(),
+                })
+            }
+            None => ast.add_expr(Expr::Ident(earlier.to_string())),
+        },
+        None => {
+            let ns_lit = super::namespace_objlit::namespace_objlit_expr(ast, &fields);
+            ast.namespace_bindings.insert(ns_name.to_string(), fields);
+            bind.push(Stmt::LetDecl {
+                mutable: false,
+                name: ns_name.to_string(),
+                type_ann: Some("any".to_string()),
+                init: ns_lit,
+                is_var: false,
+            });
+            ast.add_expr(Expr::Ident(ns_name.to_string()))
+        }
     };
     let ns_store_target = field(ast, "ns");
-    let ns_value = ast.add_expr(Expr::Ident(ns_name.to_string()));
-    let store_ns = Stmt::Expr(ast.add_expr(Expr::Assign {
+    bind.push(Stmt::Expr(ast.add_expr(Expr::Assign {
         target: ns_store_target,
         value: ns_value,
-    }));
+    })));
     let ns_read = field(ast, "ns");
     out.push(Stmt::FnDecl {
         name: eval.clone(),
@@ -386,7 +414,7 @@ fn synth_eval_fn(
             },
             Stmt::If {
                 cond: unbound,
-                then_branch: Box::new(Stmt::Block(vec![bind_ns, store_ns])),
+                then_branch: Box::new(Stmt::Block(bind)),
                 else_branch: None,
             },
             Stmt::Return(Some(ns_read)),
