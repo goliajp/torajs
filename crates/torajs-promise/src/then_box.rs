@@ -121,7 +121,17 @@ pub(crate) unsafe fn settle_handler_return(result: *mut c_void, ret_repr: u8, va
         {
             return;
         }
-        (*as_promise(result)).value_repr = ret_repr;
+        let pp = as_promise(result);
+        (*pp).value_repr = ret_repr;
+        // The return is OWNED (a callee hands back its own reference),
+        // and the cell is where it now lives: mark the stake so the
+        // cell's drop releases it. The mint marks the same forms
+        // (`Promise.resolve(x)` over a Str / heap / any argument);
+        // an immediate behind the any stamp passes the drop's NaN-box
+        // gate untouched. Left unmarked, every array, string or
+        // object a handler returned stayed allocated for the life of
+        // the program.
+        (*pp).value_is_heap = matches!(ret_repr, REPR_STR | REPR_HEAP | REPR_ANY) as u8;
         crate::state::__torajs_promise_resolve(result, value);
     }
 }
