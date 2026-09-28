@@ -54,6 +54,19 @@ pub unsafe extern "C" fn __torajs_dynobj_set_entry_flags(
     unreachable_stub!(__torajs_dynobj_set_entry_flags)
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dynobj_set_entry_hole(
+    _obj_slot: *mut *mut c_void,
+    _key: *mut c_void,
+) {
+    unreachable_stub!(__torajs_dynobj_set_entry_hole)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dynobj_delete(_dynobj: *mut c_void, _key: *const c_void) -> i32 {
+    unreachable_stub!(__torajs_dynobj_delete)
+}
+
 /// `__torajs_rc_dec` posts every death here; a unit test that frees
 /// a cell must not trip a panic, so this one is a no-op like the
 /// stub torajs-rc's own tests use.
