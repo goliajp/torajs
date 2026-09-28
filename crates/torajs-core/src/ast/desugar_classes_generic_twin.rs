@@ -58,7 +58,7 @@ pub(in crate::ast) fn mint_generic_twin(
         matches!(cloner.ast.get_expr(*old), Expr::This | Expr::NewTarget)
             || matches!(cloner.ast.get_expr(*old), Expr::Ident(n) if n == "__this")
     });
-    if !reads_receiver && !has_lossy_param(params) {
+    if !reads_receiver && !has_lossy_param(cloner.ast, params) {
         neutralize_clone(&mut cloner);
         return;
     }
@@ -127,7 +127,7 @@ pub(in crate::ast) fn mint_static_generic_twin(
 ) {
     let mut cloner = BodyCloner::new(ast);
     let cloned_body = cloner.clone_stmts(body);
-    if !rebind_this_sites(&mut cloner) && !has_lossy_param(params) {
+    if !rebind_this_sites(&mut cloner) && !has_lossy_param(cloner.ast, params) {
         neutralize_clone(&mut cloner);
         return;
     }
@@ -189,12 +189,16 @@ pub(in crate::ast) fn mint_static_generic_twin(
 /// reads the receiver: the bare call (`const f = d.m; f()`) then
 /// runs the twin, whose every parameter is `any`, instead of the
 /// loud "class method called without a receiver". A slot with a
-/// default is exempt — the adapter materializes the default from
-/// the same `undefined`. (`number` stays out: a method read as a
-/// value already seeds its number parameters F64.)
-fn has_lossy_param(params: &[Param]) -> bool {
-    params.iter().any(|p| {
-        p.default.is_none() && matches!(p.type_ann.as_deref(), Some("boolean" | "i64" | "i32"))
+/// Number / Bool literal default is exempt — the adapter
+/// materializes that default from the same `undefined`; any other
+/// default is an expression the adapter cannot replay, so it counts
+/// like a lossy slot and the twin evaluates it (`number` without a
+/// default stays out: a method read as a value already seeds its
+/// number parameters F64.)
+fn has_lossy_param(ast: &Ast, params: &[Param]) -> bool {
+    params.iter().any(|p| match p.default {
+        None => matches!(p.type_ann.as_deref(), Some("boolean" | "i64" | "i32")),
+        Some(d) => !matches!(ast.get_expr(d), Expr::Number(_) | Expr::Bool(_)),
     })
 }
 

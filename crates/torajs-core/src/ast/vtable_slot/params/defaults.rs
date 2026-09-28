@@ -46,8 +46,10 @@ fn default_fate(ast: &Ast, p: &Param, prior: &[String], global_fns: &[String]) -
     if matches!(ast.get_expr(d), Expr::Ident(n) if n == "undefined") {
         return DefaultFate::Absent;
     }
-    match super::super::super::apply_args_materialize::guardable_default(ast, p, global_fns, prior)
-    {
+    // a method row is a FnDecl lane: its default moves into the body
+    match super::super::super::apply_args_materialize::guardable_default(
+        ast, p, global_fns, prior, true,
+    ) {
         Some(d) => DefaultFate::Move(d),
         None => DefaultFate::Blocking,
     }

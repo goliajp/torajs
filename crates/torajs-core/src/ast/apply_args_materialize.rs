@@ -115,8 +115,9 @@ fn converting_default(
     p: &super::Param,
     global_fns: &[String],
     prior: &[String],
+    in_fn_decl: bool,
 ) -> Option<ExprId> {
-    let d = guardable_default(ast, p, global_fns, prior)?;
+    let d = guardable_default(ast, p, global_fns, prior, in_fn_decl)?;
     let ann_ok = p.type_ann.as_deref().is_none_or(|a| a.trim() == "any");
     if !ann_ok {
         return None;
@@ -131,6 +132,7 @@ pub(super) fn guardable_default(
     p: &super::Param,
     global_fns: &[String],
     prior: &[String],
+    in_fn_decl: bool,
 ) -> Option<ExprId> {
     let d = p.default?;
     if p.name == "__yield_arg" {
@@ -139,7 +141,7 @@ pub(super) fn guardable_default(
     if matches!(ast.get_expr(d), Expr::Ident(n) if n == "undefined") {
         return None;
     }
-    if !body_safe_default(ast, d, global_fns, prior) {
+    if !body_safe_default(ast, d, global_fns, prior, in_fn_decl) {
         return None;
     }
     Some(d)
@@ -157,8 +159,9 @@ fn converting_typed_default(
     p: &super::Param,
     global_fns: &[String],
     prior: &[String],
+    in_fn_decl: bool,
 ) -> Option<(ExprId, String)> {
-    let d = guardable_default(ast, p, global_fns, prior)?;
+    let d = guardable_default(ast, p, global_fns, prior, in_fn_decl)?;
     let ann = p.type_ann.as_deref()?.trim();
     // Fn-shaped test mirrors `lift_arrow_fns`'s `is_fn_type_ann`.
     let fn_shaped = ann.starts_with("__cls(")
@@ -329,9 +332,11 @@ pub fn materialize_expr_defaults(ast: &mut Ast) {
         };
         for (pi, p) in params.iter().enumerate() {
             let prior: Vec<String> = params[..pi].iter().map(|q| q.name.clone()).collect();
-            if let Some(d) = converting_default(ast, p, &global_fns, &prior) {
+            if let Some(d) = converting_default(ast, p, &global_fns, &prior, false) {
                 arrow_sites.push((ei, pi, p.name.clone(), Conv::Any(d)));
-            } else if let Some((d, ann)) = converting_typed_default(ast, p, &global_fns, &prior) {
+            } else if let Some((d, ann)) =
+                converting_typed_default(ast, p, &global_fns, &prior, false)
+            {
                 arrow_sites.push((ei, pi, p.name.clone(), Conv::TypedNarrow(d, ann)));
             }
         }
@@ -390,9 +395,9 @@ fn collect_fn_conv(
     let mut conv: Vec<(usize, String, Conv)> = Vec::new();
     for (pi, p) in params.iter().enumerate() {
         let prior: Vec<String> = params[..pi].iter().map(|q| q.name.clone()).collect();
-        if let Some(d) = converting_default(ast, p, global_fns, &prior) {
+        if let Some(d) = converting_default(ast, p, global_fns, &prior, true) {
             conv.push((pi, p.name.clone(), Conv::Any(d)));
-        } else if let Some((d, ann)) = converting_typed_default(ast, p, global_fns, &prior)
+        } else if let Some((d, ann)) = converting_typed_default(ast, p, global_fns, &prior, true)
             && refs_prior_param(ast, params, pi, d, global_fns)
         {
             conv.push((pi, p.name.clone(), Conv::TypedNarrow(d, ann)));

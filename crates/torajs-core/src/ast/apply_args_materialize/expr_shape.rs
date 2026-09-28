@@ -33,51 +33,61 @@ use crate::ast::{Param, free_vars};
 /// body `let` declared after this guard, and the capture passes owe
 /// no forward-reference story. Unknown shapes answer false — keeping
 /// today's behavior is always safe.
+///
+/// `in_fn_decl`: an assignment default (`n += 1`, `count++` — the
+/// t262 dflt-params-arg-val templates) writes a top-level binding,
+/// which a named fn body does through the global lane; moved into an
+/// arrow body it would be a closure capture instead, so only the
+/// FnDecl lane admits it.
 pub(super) fn body_safe_default(
     ast: &Ast,
     e: ExprId,
     global_fns: &[String],
     prior: &[String],
+    in_fn_decl: bool,
 ) -> bool {
+    let rec = |a| body_safe_default(ast, a, global_fns, prior, in_fn_decl);
     match ast.get_expr(e) {
         Expr::Number(_) | Expr::String(_) | Expr::Bool(_) | Expr::Null | Expr::Ident(_) => true,
+        Expr::Assign { target, value } => in_fn_decl && rec(*target) && rec(*value),
+        Expr::PostIncr { target, .. } => in_fn_decl && rec(*target),
         Expr::BinOp { left, right, .. } => {
-            body_safe_default(ast, *left, global_fns, prior)
-                && body_safe_default(ast, *right, global_fns, prior)
+            body_safe_default(ast, *left, global_fns, prior, in_fn_decl)
+                && body_safe_default(ast, *right, global_fns, prior, in_fn_decl)
         }
         Expr::Unary { expr, .. } | Expr::As { expr, .. } => {
-            body_safe_default(ast, *expr, global_fns, prior)
+            body_safe_default(ast, *expr, global_fns, prior, in_fn_decl)
         }
-        Expr::Member { obj, .. } => body_safe_default(ast, *obj, global_fns, prior),
+        Expr::Member { obj, .. } => body_safe_default(ast, *obj, global_fns, prior, in_fn_decl),
         Expr::Index { obj, index } => {
-            body_safe_default(ast, *obj, global_fns, prior)
-                && body_safe_default(ast, *index, global_fns, prior)
+            body_safe_default(ast, *obj, global_fns, prior, in_fn_decl)
+                && body_safe_default(ast, *index, global_fns, prior, in_fn_decl)
         }
         Expr::Ternary {
             cond,
             then_branch,
             else_branch,
         } => {
-            body_safe_default(ast, *cond, global_fns, prior)
-                && body_safe_default(ast, *then_branch, global_fns, prior)
-                && body_safe_default(ast, *else_branch, global_fns, prior)
+            body_safe_default(ast, *cond, global_fns, prior, in_fn_decl)
+                && body_safe_default(ast, *then_branch, global_fns, prior, in_fn_decl)
+                && body_safe_default(ast, *else_branch, global_fns, prior, in_fn_decl)
         }
         Expr::Sequence { left, right } => {
-            body_safe_default(ast, *left, global_fns, prior)
-                && body_safe_default(ast, *right, global_fns, prior)
+            body_safe_default(ast, *left, global_fns, prior, in_fn_decl)
+                && body_safe_default(ast, *right, global_fns, prior, in_fn_decl)
         }
         Expr::Call { callee, args } => {
-            body_safe_default(ast, *callee, global_fns, prior)
+            body_safe_default(ast, *callee, global_fns, prior, in_fn_decl)
                 && args
                     .iter()
-                    .all(|a| body_safe_default(ast, *a, global_fns, prior))
+                    .all(|a| body_safe_default(ast, *a, global_fns, prior, in_fn_decl))
         }
         Expr::Array(elems) => elems
             .iter()
-            .all(|a| body_safe_default(ast, *a, global_fns, prior)),
+            .all(|a| body_safe_default(ast, *a, global_fns, prior, in_fn_decl)),
         Expr::ObjectLit { fields } => fields
             .iter()
-            .all(|(_, v)| body_safe_default(ast, *v, global_fns, prior)),
+            .all(|(_, v)| body_safe_default(ast, *v, global_fns, prior, in_fn_decl)),
         Expr::ArrowFn { params, body, .. } => {
             free_vars::free_vars_of_arrow(ast, params, body, global_fns, &[], None)
                 .iter()
@@ -110,6 +120,8 @@ pub(super) fn refs_prior_param(
     let rec = |a| refs_prior_param(ast, params, pi, a, global_fns);
     match ast.get_expr(d) {
         Expr::Ident(n) => params[..pi].iter().any(|p| p.name == *n),
+        Expr::Assign { target, value } => rec(*target) || rec(*value),
+        Expr::PostIncr { target, .. } => rec(*target),
         Expr::BinOp { left, right, .. } | Expr::Sequence { left, right } => {
             rec(*left) || rec(*right)
         }
