@@ -38,6 +38,15 @@ pub(super) fn align_and_filter(
     if side_effect_only && entry_path == Some(target_path) {
         return None;
     }
+    if let Some(alias) = namespace_alias.as_deref()
+        && entry_path == Some(target_path)
+    {
+        claim_entry_namespace(ast, alias, tables);
+        namespace_alias = None;
+        if named.is_empty() && default_alias.is_none() {
+            return None;
+        }
+    }
     align_repeat_request(
         ast,
         target_path,
@@ -63,6 +72,44 @@ pub(super) fn align_and_filter(
 /// whose fields are already known binds them without re-walking,
 /// and a repeat default request binds by reference (see
 /// `default_binding::shortcut_repeat_default`).
+/// `import * as ns from "./self"` — the entry's own namespace. Its
+/// fields are the entry's own top-level bindings, claimed straight
+/// from its export clauses: a walk of the entry would inject a second
+/// copy of every declaration (mangled past the collision with the
+/// original) and point the fields at the copies, so `ns.x` after
+/// `x++` still read the copy's initial value. `export default` stays
+/// out: the entry's `export default <expr>` has no binding to name.
+fn claim_entry_namespace(ast: &Ast, alias: &str, tables: &mut super::ns_tables::NsTables) {
+    if !tables.accums.contains_key(alias) {
+        tables.order.push(alias.to_string());
+        tables
+            .accums
+            .insert(alias.to_string(), NsAccum::new(alias.to_string()));
+    }
+    let acc = tables.accums.get_mut(alias).expect("inserted above");
+    for s in crate::ast::toplevel_stmts_flat(ast) {
+        match s {
+            Stmt::ExportDecl { inner: Some(d), .. } => {
+                if let Some(n) = super::inject_export::decl_name(d) {
+                    acc.claim(&n, &n);
+                }
+            }
+            Stmt::ExportDecl {
+                inner: None,
+                named,
+                source: None,
+                type_only: false,
+                ..
+            } => {
+                for (local, face) in named {
+                    acc.claim(face.as_deref().unwrap_or(local), local);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn align_repeat_request(
     ast: &mut Ast,
