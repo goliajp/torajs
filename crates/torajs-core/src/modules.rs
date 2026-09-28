@@ -283,8 +283,11 @@ pub fn resolve_imports(
         &st.ledger.nested,
         &st.dyn_eval_bodies,
     )?;
-    repeat_request::follow_aliases(ast, &st.repeat_aliases);
+    // The namespace read lands on whatever spelling the field claimed,
+    // which may be a repeat's alias binding — so it goes first, and
+    // the alias follow carries the new references to the binding.
     namespace_objlit::read_through_namespace(ast);
+    repeat_request::follow_aliases(ast, &st.repeat_aliases);
     types_lane::inject_type_aliases(ast, &st.type_aliases);
     Ok(st.closure_files)
 }
