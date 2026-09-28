@@ -74,6 +74,7 @@ pub(super) fn rewrite_tdz(ast: &mut Ast, body: &mut Vec<Stmt>) {
         }
     }
     super::desugar_generators_tdz_flag::flag_closure_reads(ast, body);
+    super::switch_tdz_flag::flag_machine_switches(ast, body, &mut 0);
 }
 
 /// The reads the parser marked (`forof_binding::mark_forof_head_tdz`:

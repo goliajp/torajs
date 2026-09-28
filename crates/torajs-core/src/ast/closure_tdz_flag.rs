@@ -41,8 +41,8 @@
 //! creation point is the top of the list and almost every later
 //! binding it reads would carry a flag into what is usually a hot
 //! function; settling it properly needs to know which declarations a
-//! call before the binding can reach. A switch CaseBlock is skipped for
-//! the reason `tdz_reads` gives.
+//! call before the binding can reach. A switch CaseBlock's own bindings
+//! are settled by `switch_tdz_flag`.
 
 use super::desugar_generators_tdz_flag::{
     Site, collect_sites_expr, collect_sites_stmt, rewrite_site,
@@ -176,7 +176,14 @@ fn descend(ast: &mut Ast, s: &mut Stmt, counter: &mut usize) {
             }
             descend(ast, body, counter);
         }
-        Stmt::Switch { cases, default, .. } => {
+        Stmt::Switch {
+            cases,
+            default,
+            default_at,
+            ..
+        } => {
+            let heads =
+                super::switch_tdz_flag::flag_case_block(ast, cases, default, *default_at, counter);
             for c in cases.iter_mut() {
                 for b in c.body.iter_mut() {
                     descend(ast, b, counter);
@@ -184,6 +191,9 @@ fn descend(ast: &mut Ast, s: &mut Stmt, counter: &mut usize) {
             }
             for b in default.iter_mut().flatten() {
                 descend(ast, b, counter);
+            }
+            if !heads.is_empty() {
+                wrap(s, |sw| heads.into_iter().chain([sw]).collect());
             }
         }
         Stmt::ExportDecl {
@@ -231,7 +241,7 @@ fn flag_arrow(ast: &mut Ast, eid: ExprId, counter: &mut usize) {
 
 /// Index paths through `Multi` groups: the list is scanned as the one
 /// scope it is without being restructured.
-fn flat_paths(stmts: &[Stmt], prefix: &mut Vec<usize>, out: &mut Vec<Vec<usize>>) {
+pub(super) fn flat_paths(stmts: &[Stmt], prefix: &mut Vec<usize>, out: &mut Vec<Vec<usize>>) {
     for (i, s) in stmts.iter().enumerate() {
         prefix.push(i);
         match s {
@@ -242,7 +252,7 @@ fn flat_paths(stmts: &[Stmt], prefix: &mut Vec<usize>, out: &mut Vec<Vec<usize>>
     }
 }
 
-fn at<'a>(stmts: &'a [Stmt], path: &[usize]) -> &'a Stmt {
+pub(super) fn at<'a>(stmts: &'a [Stmt], path: &[usize]) -> &'a Stmt {
     let s = &stmts[path[0]];
     match (s, path.len()) {
         (_, 1) => s,
@@ -251,7 +261,7 @@ fn at<'a>(stmts: &'a [Stmt], path: &[usize]) -> &'a Stmt {
     }
 }
 
-fn at_mut<'a>(stmts: &'a mut [Stmt], path: &[usize]) -> &'a mut Stmt {
+pub(super) fn at_mut<'a>(stmts: &'a mut [Stmt], path: &[usize]) -> &'a mut Stmt {
     if path.len() == 1 {
         return &mut stmts[path[0]];
     }
@@ -264,7 +274,7 @@ fn at_mut<'a>(stmts: &'a mut [Stmt], path: &[usize]) -> &'a mut Stmt {
 /// Replace `s` in place by a `Multi` holding what `f` makes of it. A
 /// statement wrapped once is found again by the same path, so a second
 /// wrap nests.
-fn wrap(s: &mut Stmt, f: impl FnOnce(Stmt) -> Vec<Stmt>) {
+pub(super) fn wrap(s: &mut Stmt, f: impl FnOnce(Stmt) -> Vec<Stmt>) {
     let orig = std::mem::replace(s, Stmt::Multi(Vec::new()));
     *s = Stmt::Multi(f(orig));
 }

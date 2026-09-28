@@ -56,7 +56,7 @@
 //!
 //! A switch's CaseBlock is one declarative environment spread across
 //! the case bodies (§14.12.4), so it is not one of the lists this pass
-//! runs on — a recorded gap rather than a guess.
+//! runs on; `switch_tdz_flag` settles its bindings at run time.
 //!
 //! Two more narrowings, both to keep a false raise impossible:
 //!

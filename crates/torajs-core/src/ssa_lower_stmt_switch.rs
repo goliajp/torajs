@@ -100,8 +100,8 @@ pub(crate) fn lower(
     // none of the others (see `open_case_block_box`).
     let captured: Vec<String> = cases
         .iter()
-        .flat_map(|c| c.body.iter())
-        .chain(default.iter().flatten())
+        .flat_map(|c| crate::ast::stmts_flat(&c.body))
+        .chain(default.iter().flat_map(|d| crate::ast::stmts_flat(d)))
         .filter_map(|s| match s {
             Stmt::LetDecl { name, .. } if ctx.escape_captured_lets.contains(name) => {
                 Some(name.clone())

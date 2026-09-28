@@ -85,6 +85,23 @@ pub(crate) fn check_switch(checker: &mut Checker, ast: &Ast, stmt: &Stmt) {
     // frames made `case 0: let a = 1; case 1: a` an unknown
     // identifier and let a clause-declared name escape the switch.
     checker.scopes.push(HashMap::new());
+    // One list for the closure-capture hoist too: a closure in an
+    // earlier clause may name a binding a later clause declares, and
+    // falling through runs that declaration before the closure is
+    // called (the dead zone itself is settled at run time by
+    // `switch_tdz_flag`).
+    let block: Vec<Stmt> = {
+        let (before, after) = cases.split_at(*default_at);
+        before
+            .iter()
+            .map(|c| c.body.as_slice())
+            .chain(default.as_deref())
+            .chain(after.iter().map(|c| c.body.as_slice()))
+            .flatten()
+            .cloned()
+            .collect()
+    };
+    let saved_hoists = crate::check_hoist_closure_lets::enter(checker, ast, &block);
     for (i, c) in cases.iter().enumerate() {
         if i == *default_at {
             check_clause_body(checker, ast, default.as_deref().unwrap_or_default());
@@ -147,6 +164,7 @@ pub(crate) fn check_switch(checker: &mut Checker, ast: &Ast, stmt: &Stmt) {
     if *default_at == cases.len() {
         check_clause_body(checker, ast, default.as_deref().unwrap_or_default());
     }
+    checker.hoisted_closure_lets = saved_hoists;
     checker.scopes.pop();
 }
 

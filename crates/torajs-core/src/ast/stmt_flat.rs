@@ -15,6 +15,13 @@ use super::{Ast, Stmt};
 /// test262 dstr-assignment preamble is exactly `let v2, vNull, …;`
 /// plus writes inside an async fn).
 pub fn toplevel_stmts_flat(ast: &Ast) -> Vec<&Stmt> {
+    stmts_flat(&ast.stmts)
+}
+
+/// Any statement list with its `Stmt::Multi` groups flattened — the
+/// same view for a list that is not the top level (a switch's clause
+/// bodies share one scope the same way).
+pub fn stmts_flat(stmts: &[Stmt]) -> Vec<&Stmt> {
     fn walk<'a>(stmts: &'a [Stmt], out: &mut Vec<&'a Stmt>) {
         for s in stmts {
             match s {
@@ -24,6 +31,6 @@ pub fn toplevel_stmts_flat(ast: &Ast) -> Vec<&Stmt> {
         }
     }
     let mut out = Vec::new();
-    walk(&ast.stmts, &mut out);
+    walk(stmts, &mut out);
     out
 }
