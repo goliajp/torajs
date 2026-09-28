@@ -6,6 +6,7 @@ export let x = 1;
 export function bump() { x++; }
 const hidden = "h";
 export { hidden as shown };
+export default (console.log("default evaluated"), 7);
 console.log("body");
 bump();
-console.log(ns.x, x, ns.shown, Object.keys(ns).join(","), typeof ns.bump, ns.bump === bump);
+console.log(ns.x, x, ns.shown, Object.keys(ns).join(","), typeof ns.bump, ns.bump === bump, ns.default);

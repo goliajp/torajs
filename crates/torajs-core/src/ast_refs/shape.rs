@@ -108,6 +108,9 @@ pub(super) fn infer_slot_shape(ast: &Ast, init: ExprId, depth: u32) -> Option<Gl
                 _ => None,
             })
             .flatten(),
+        // §13.16 — the comma operator's value is its right operand;
+        // the left is evaluated for effect at the declaration
+        Expr::Sequence { right, .. } => infer_slot_shape(ast, *right, depth),
         // Every operator arm — the ones whose answer comes from the
         // operator rather than from the value — lives in the sibling
         // module. See [`crate::ast_refs::shape_operator`].

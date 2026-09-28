@@ -77,9 +77,11 @@ pub(super) fn align_and_filter(
 /// from its export clauses: a walk of the entry would inject a second
 /// copy of every declaration (mangled past the collision with the
 /// original) and point the fields at the copies, so `ns.x` after
-/// `x++` still read the copy's initial value. `export default` stays
-/// out: the entry's `export default <expr>` has no binding to name.
-fn claim_entry_namespace(ast: &Ast, alias: &str, tables: &mut super::ns_tables::NsTables) {
+/// `x++` still read the copy's initial value. The entry's `export
+/// default <expr>` has no binding of its own, so it becomes one here
+/// (`__nsdefault_entry`, evaluated in place) and the `default` field
+/// names it.
+fn claim_entry_namespace(ast: &mut Ast, alias: &str, tables: &mut super::ns_tables::NsTables) {
     if !tables.accums.contains_key(alias) {
         tables.order.push(alias.to_string());
         tables
@@ -87,7 +89,7 @@ fn claim_entry_namespace(ast: &Ast, alias: &str, tables: &mut super::ns_tables::
             .insert(alias.to_string(), NsAccum::new(alias.to_string()));
     }
     let acc = tables.accums.get_mut(alias).expect("inserted above");
-    for s in crate::ast::toplevel_stmts_flat(ast) {
+    for s in ast.stmts.iter_mut() {
         match s {
             Stmt::ExportDecl { inner: Some(d), .. } => {
                 if let Some(n) = super::inject_export::decl_name(d) {
@@ -96,12 +98,29 @@ fn claim_entry_namespace(ast: &Ast, alias: &str, tables: &mut super::ns_tables::
             }
             Stmt::ExportDecl {
                 inner: None,
+                default_expr: Some(eid),
+                ..
+            } => {
+                acc.claim("default", ENTRY_DEFAULT);
+                *s = Stmt::LetDecl {
+                    mutable: false,
+                    name: ENTRY_DEFAULT.to_string(),
+                    type_ann: None,
+                    init: *eid,
+                    is_var: false,
+                };
+            }
+            Stmt::LetDecl { name, .. } if name == ENTRY_DEFAULT => {
+                acc.claim("default", ENTRY_DEFAULT);
+            }
+            Stmt::ExportDecl {
+                inner: None,
                 named,
                 source: None,
                 type_only: false,
                 ..
             } => {
-                for (local, face) in named {
+                for (local, face) in named.iter() {
                     acc.claim(face.as_deref().unwrap_or(local), local);
                 }
             }
@@ -109,6 +128,10 @@ fn claim_entry_namespace(ast: &Ast, alias: &str, tables: &mut super::ns_tables::
         }
     }
 }
+
+/// The binding the entry's `export default <expr>` becomes when the
+/// entry imports its own namespace (`claim_entry_namespace`).
+const ENTRY_DEFAULT: &str = "__nsdefault_entry";
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn align_repeat_request(
