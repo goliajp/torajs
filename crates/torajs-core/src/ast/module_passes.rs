@@ -91,13 +91,20 @@ pub fn rename_user_main(ast: &mut Ast) {
 pub fn unwrap_exports(ast: &mut Ast) {
     let mut new_stmts: Vec<Stmt> = Vec::with_capacity(ast.stmts.len());
     for s in std::mem::take(&mut ast.stmts) {
-        if let Stmt::ExportDecl {
-            inner: Some(boxed), ..
-        } = s
-        {
-            new_stmts.push(*boxed);
-        } else {
-            new_stmts.push(s);
+        match s {
+            Stmt::ExportDecl {
+                inner: Some(boxed), ..
+            } => new_stmts.push(*boxed),
+            // §16.2.1.6.1 — `export default <expr>` evaluates the
+            // expression when the module does. The entry has no
+            // importer to read the binding; the evaluation (and its
+            // throw) still happens, in statement order.
+            Stmt::ExportDecl {
+                inner: None,
+                default_expr: Some(eid),
+                ..
+            } => new_stmts.push(Stmt::Expr(eid)),
+            other => new_stmts.push(other),
         }
     }
     ast.stmts = new_stmts;
