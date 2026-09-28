@@ -22,6 +22,10 @@ pub(crate) struct StructExpandoIds {
     /// §7.3.x propertyIsEnumerable over an any-boxed receiver — the
     /// enumerable-flag twin of `__torajs_any_prop_has`.
     pub any_prop_enumerable: FuncId,
+    /// The [[GetOwnProperty]] face of `__torajs_any_prop_has`
+    /// (`hasOwnProperty` / `Object.hasOwn`): a module namespace
+    /// reads the binding, so a dead-zone field raises.
+    pub any_own_prop_has: FuncId,
     /// §20.1.2.9 getOwnPropertyDescriptors — the plural of the
     /// descriptor read, which had no lowering at all.
     pub get_property_descriptors: FuncId,
@@ -36,6 +40,13 @@ pub(crate) fn declare(
             module,
             fn_table,
             "__torajs_any_prop_enumerable",
+            &[Type::Any, Type::Ptr],
+            Type::I64,
+        ),
+        any_own_prop_has: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_any_own_prop_has",
             &[Type::Any, Type::Ptr],
             Type::I64,
         ),

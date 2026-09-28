@@ -163,7 +163,7 @@ pub(crate) fn try_lower(
         let ans = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Call(
-                ctx.intrinsics.any_prop_has,
+                ctx.intrinsics.any_own_prop_has,
                 vec![obj_op, Operand::Value(key_v)],
             ),
             Type::I64,

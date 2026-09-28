@@ -40,6 +40,10 @@ use torajs_rc::str_wtf8::StrWtf8;
 unsafe extern "C" {
     /// torajs-dynobj — own-entry presence (1 = live entry).
     fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
+    /// torajs-dynobj — the entry's value tag; a module namespace
+    /// field reads its binding here (a dead-zone binding raises).
+    fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
+    fn __torajs_throw_check() -> i64;
     /// torajs-arr — the arguments-materialization `"length"` face:
     /// 0 = plain array, 1 = arguments (intact), 2 = deleted.
     fn __torajs_arr_arguments_length_state(arr: *const c_void, key: *const c_void) -> i64;
@@ -175,6 +179,43 @@ pub(crate) unsafe fn struct_has_own(ptr: *const c_void, key: *const c_void) -> i
         idx != u32::MAX
     };
     (has_half(ACC_GETTER) || has_half(ACC_SETTER)) as i64
+}
+
+/// Read a module namespace's field through the object so a binding
+/// still in its temporal dead zone raises (§10.4.6.8); `true` = the
+/// error is pending and the caller answers nothing. Any other
+/// receiver, or an initialized binding, reads for nothing.
+pub(crate) unsafe fn module_ns_dead_zone_read(ptr: *const c_void, key: *const c_void) -> bool {
+    let module_ns = unsafe { ptr.cast::<u8>().add(6).cast::<u16>().read() }
+        & torajs_rc::FLAG_DYNOBJ_MODULE_NS
+        != 0;
+    if !module_ns {
+        return false;
+    }
+    unsafe { __torajs_dynobj_get_tag(ptr, key) };
+    let pending = unsafe { __torajs_throw_check() };
+    pending != 0
+}
+
+/// `Object.prototype.hasOwnProperty` / `Object.hasOwn` — the
+/// [[GetOwnProperty]] face of [`__torajs_any_prop_has`]: on a module
+/// namespace §10.4.6.5 reads the binding, so a field over a binding
+/// still in its dead zone raises here (`in` — [[HasProperty]],
+/// §10.4.6.6 — answers without reading, and keeps the bare probe).
+///
+/// # Safety
+/// Same as [`__torajs_any_prop_has`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_any_own_prop_has(recv: AnyValue, key: *const c_void) -> i64 {
+    let has = unsafe { __torajs_any_prop_has(recv, key) };
+    if has != 0
+        && let Some((ptr, t)) = recv_cell(recv)
+        && t == Tag::DynObj as u16
+        && unsafe { module_ns_dead_zone_read(ptr, key) }
+    {
+        return 0;
+    }
+    has
 }
 
 /// See module doc. `key` is a live Str cell (the lowering interns

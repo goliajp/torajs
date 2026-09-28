@@ -22,6 +22,11 @@ use core::ffi::c_void;
 
 use crate::nanbox::{AnyValue, is_cell};
 
+unsafe extern "C" {
+    /// torajs-dynobj — own-entry presence (1 = live entry).
+    fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
+}
+
 /// §10.1.9.2 with an explicit receiver. Answers the spec boolean as
 /// `1` / `0` — a refusal never throws here, which is the flavor both
 /// callers want (`Reflect.set` reports it, a strict SuperProperty
@@ -99,6 +104,16 @@ pub unsafe extern "C" fn __torajs_any_member_set_with_receiver(
         // re-enter that trap forever (RFC 20260823 刀 8).
         if crate::proxy::is_proxy(receiver) {
             return crate::proxy_define::receiver_set_data(receiver, key, tag, value);
+        }
+        // Step 2.e's `Receiver.[[GetOwnProperty]](P)` on a module
+        // namespace reads the binding (§10.4.6.5): a dead-zone one
+        // raises before the refusal the receiver would answer.
+        if let Some((ptr, t)) = crate::member_get::recv_cell(receiver)
+            && t == torajs_rc::Tag::DynObj as u16
+            && __torajs_dynobj_has(ptr, key) != 0
+            && crate::prop_has::module_ns_dead_zone_read(ptr, key)
+        {
+            return 0;
         }
         crate::member_set::__torajs_any_member_set_soft(recv_slot, key, tag, value, -1)
     }

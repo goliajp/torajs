@@ -58,6 +58,13 @@ pub unsafe extern "C" fn __torajs_any_prop_enumerable(recv: AnyValue, key: *cons
     }
     match recv_cell(recv) {
         Some((ptr, t)) if t == Tag::DynObj as u16 => {
+            // §10.4.6.5 — [[GetOwnProperty]] on a module namespace
+            // reads the binding; a dead-zone one raises
+            if unsafe { __torajs_dynobj_has(ptr, key) } != 0
+                && unsafe { super::prop_has::module_ns_dead_zone_read(ptr, key) }
+            {
+                return 0;
+            }
             ((unsafe { __torajs_dynobj_get_flags(ptr, key) } & 0x2) != 0) as i64
         }
         Some((ptr, t)) if t == Tag::Arr as u16 => {

@@ -1,0 +1,4 @@
+ReferenceError ReferenceError ReferenceError ReferenceError
+ReferenceError ReferenceError ReferenceError ReferenceError
+true true default,indirect,local1,renamed ReferenceError ReferenceError
+23 45 23 null default,indirect,local1,renamed ok

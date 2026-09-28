@@ -636,6 +636,7 @@ pub(crate) fn build(
         any_member_get_with_receiver: init_b.object.any_member_get_with_receiver,
         reflect_set_prototype_of: init_b.object.reflect_set_prototype_of,
         any_prop_has: init_c.any_substrate.any_prop_has,
+        any_own_prop_has: init_c.struct_expando.any_own_prop_has,
         any_has_property: init_c.any_substrate.any_has_property,
         arr_forin_key_live: init_c.any_substrate.arr_forin_key_live,
         builtin_proto_method_value: init_c.any_substrate.builtin_proto_method_value,

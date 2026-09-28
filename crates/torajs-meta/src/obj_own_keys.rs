@@ -38,6 +38,10 @@ unsafe extern "C" {
     /// torajs-dynobj iteration surface — keys are BORROWED.
     fn __torajs_dynobj_iter_len(obj: *const c_void) -> u64;
     fn __torajs_dynobj_iter_key(obj: *const c_void, i: u64) -> *mut c_void;
+    /// torajs-dynobj — the entry's value (a module namespace field
+    /// reads its binding here, and a dead-zone binding raises).
+    fn __torajs_dynobj_iter_value(obj: *const c_void, i: u64) -> u64;
+    fn __torajs_throw_check() -> i64;
     fn __torajs_dynobj_iter_order(obj: *const c_void, out: *mut u64, cap: u64) -> u64;
     fn __torajs_dynobj_iter_flags(obj: *const c_void, i: u64) -> u64;
     /// torajs-throw — ToObject on null / undefined (§20.1.2.17 step 1).
@@ -147,11 +151,29 @@ pub(crate) unsafe fn dynobj_keys_append(
         if unsafe { key_is_hidden_own(key) } {
             continue;
         }
+        // §7.3.23 EnumerableOwnProperties reads each listed value
+        // ([[GetOwnProperty]] → §10.4.6.8 [[Get]]): a module namespace
+        // field over a binding still in its dead zone raises there,
+        // and the walk hands back what it has with the error pending.
+        // The gOPN face (§10.4.6.11) lists keys without reading.
+        if include_nonenum == 0 && unsafe { is_module_namespace(obj) } {
+            unsafe { __torajs_dynobj_iter_value(obj, i) };
+            if unsafe { __torajs_throw_check() } != 0 {
+                return arr;
+            }
+        }
         // Borrowed key → the array slot takes its own share.
         unsafe { __torajs_rc_inc(key) };
         arr = unsafe { __torajs_arr_push(arr, key as i64) };
     }
     arr
+}
+
+/// Header bit 12 of a DynObj — `torajs_rc::FLAG_DYNOBJ_MODULE_NS`.
+#[inline]
+unsafe fn is_module_namespace(obj: *const c_void) -> bool {
+    let flags = unsafe { obj.cast::<u8>().add(6).cast::<u16>().read() };
+    flags & (1 << 12) != 0
 }
 
 /// Build the key `Arr<Str>` from a live DynObj walk in ES

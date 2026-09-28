@@ -35,7 +35,7 @@ fn emit_expando_probe(
     let target = if is_enumerable_probe {
         ctx.intrinsics.any_prop_enumerable
     } else {
-        ctx.intrinsics.any_prop_has
+        ctx.intrinsics.any_own_prop_has
     };
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(

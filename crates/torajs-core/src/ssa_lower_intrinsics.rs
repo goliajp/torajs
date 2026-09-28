@@ -759,6 +759,7 @@ pub(crate) struct Intrinsics {
     pub(crate) reflect_set_prototype_of: FuncId,
     pub(crate) regexp_escape_any: FuncId,
     pub(crate) any_prop_has: FuncId,
+    pub(crate) any_own_prop_has: FuncId,
     pub(crate) any_has_property: FuncId,
     pub(crate) arr_forin_key_live: FuncId,
     pub(crate) builtin_proto_method_value: FuncId,

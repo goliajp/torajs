@@ -126,7 +126,7 @@ pub(crate) unsafe fn own_prop_probe(
         return crate::nanbox::VALUE_FALSE;
     }
     let hit = if mid == ANY_METHOD_HAS_OWN_PROPERTY {
-        unsafe { crate::prop_has::__torajs_any_prop_has(recv, key) }
+        unsafe { crate::prop_has::__torajs_any_own_prop_has(recv, key) }
     } else {
         unsafe { crate::prop_enumerable::__torajs_any_prop_enumerable(recv, key) }
     };
