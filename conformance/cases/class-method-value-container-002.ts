@@ -14,6 +14,10 @@ const m = [d.n, d.two, e.n];
 const o = { f: d.n, g: d.two, h: e.two };
 function f() { return m[0](5) + m[1](9, 4) + m[2](1); }
 function g() { return o.f(4) + o.g(7, 2) + o.h(3, 1); }
-console.log(f(), g());
+function k() {
+  const l = [d.n, d.two];
+  return l[0].call(d, 2) + l[1].apply(d, [9, 4]) + typeof l[0].bind(d);
+}
+console.log(f(), g(), k(), m[0].call(d, 3));
 console.log([d.n].map(h => h(1)));
 console.log(typeof m[0], typeof o.f, m.length, m[2] === d.n, o.h === d.two);

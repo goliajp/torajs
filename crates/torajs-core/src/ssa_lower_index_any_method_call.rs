@@ -57,7 +57,7 @@ fn index_is_symbol_key(ctx: &LowerCtx<'_>, index: ExprId) -> bool {
 /// for the global of the same name. A keyed hop off such a slot is
 /// itself an Any value, and indexing an Any answers Any, so the
 /// question recurses down the chain to the binding it starts from.
-fn obj_slot_elems_are_any(ctx: &LowerCtx<'_>, obj: ExprId) -> bool {
+pub(crate) fn obj_slot_elems_are_any(ctx: &LowerCtx<'_>, obj: ExprId) -> bool {
     let slot_is_any = |ty: &Type| match ty {
         Type::Any => true,
         Type::Arr(aid) => ctx.arr_layouts[aid.0 as usize] == Type::Any,

@@ -276,6 +276,15 @@ fn non_any_recv_admitted(ctx: &LowerCtx<'_>, callee: ExprId, obj: &ExprId, name:
     let class_method_value = is_fn_surface
         && matches!(ctx.ast.get_expr(*obj), Expr::Member { obj: inner, name: m }
             if crate::ssa_lower_member::receiver_class_owns_method(ctx, *inner, m));
+    // The same surfaces on an ELEMENT read whose array took the any
+    // lane (`const m = [d.n]; m[0].call(d, 2)`): the checker types
+    // the element by the literal (Function), the lowering boxed it
+    // into Arr<Any>, so the call any-dispatches like the detached
+    // binding above — the caller coerces the Any this lane answers
+    // to the static replay's type.
+    let any_elem_method = is_fn_surface
+        && matches!(ctx.ast.get_expr(*obj), Expr::Index { obj: arr, .. }
+            if crate::ssa_lower_index_any_method_call::obj_slot_elems_are_any(ctx, *arr));
     sugar_fn_on_any
         || builtin_mv
         || ns_static_fn
@@ -285,6 +294,7 @@ fn non_any_recv_admitted(ctx: &LowerCtx<'_>, callee: ExprId, obj: &ExprId, name:
         || patched_ns_static
         || detached_method
         || class_method_value
+        || any_elem_method
 }
 
 /// Box the call arguments into a stack argv per the chunk-496
