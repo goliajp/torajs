@@ -80,6 +80,11 @@ pub(crate) struct BoxedEntryIntrinsics {
     /// adapter's array RETURN needs it for the same reason an array
     /// ARGUMENT does (RFC 20260823-proxy-substrate 刀 4b).
     pub(crate) arr_mark_kind: FuncId,
+    /// `__torajs_anyv_box_str_slot(s) -> AnyValue` — a Str RETURN
+    /// crosses into the any world through the slot's own encoding,
+    /// so the undefined sentinel a string slot carries comes out as
+    /// `undefined`, not as a heap box of the sentinel cell.
+    pub(crate) anyv_box_str_slot: FuncId,
 }
 
 /// Walk the lifted closure fns and synthesize one adapter each.

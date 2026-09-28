@@ -68,6 +68,7 @@ pub(super) fn build_intrinsics_and_boxed_entries(
             arr_any_push: intrinsics.arr_any_push,
             anyv_or_default: intrinsics.anyv_or_default,
             arr_mark_kind: intrinsics.arr_mark_kind,
+            anyv_box_str_slot: intrinsics.anyv_box_str_slot,
         },
         anon_stamp_pool,
         class_name_to_tag,

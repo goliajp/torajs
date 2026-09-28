@@ -264,6 +264,15 @@ fn box_return(
             Type::Any,
             None,
         ),
+        // A string slot spells undefined with its own sentinel cell;
+        // the slot box maps it to `undefined` (a live Str transfers
+        // its +1 through the box like the heap arm below).
+        Type::Str => f.append_inst(
+            entry,
+            InstKind::Call(intr.anyv_box_str_slot, vec![Operand::Value(r)]),
+            Type::Any,
+            None,
+        ),
         // Heap-typed returns arrive +1 owned; the box transfers
         // that reference to the returned AnyValue.
         _ => {
