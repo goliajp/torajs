@@ -333,6 +333,17 @@ fn collect_undef_sentinel_params(
 ) -> HashSet<(String, String)> {
     let lifted = super::sentinel_hof::lifted_closure_names(a.ast);
     let mut out = HashSet::new();
+    // A class method read as a value may run bare through its boxed
+    // adapter, where a missing argument is `undefined` in whatever
+    // slot the parameter has — no call site in the program spells
+    // that, so the read itself names the parameters.
+    for f in super::method_value::detached_methods(a) {
+        for p in a.user_params(&f) {
+            if p != "__this" {
+                out.insert((f.clone(), p));
+            }
+        }
+    }
     for eid in 0..a.ast.exprs.len() {
         let Expr::Call { callee, args } = a.ast.get_expr(crate::ast::ExprId(eid as u32)) else {
             continue;
