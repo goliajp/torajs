@@ -161,8 +161,8 @@ fn stmt_scope_declares(s: &Stmt, name: &str) -> bool {
 /// not one — [`rebound_beyond_blocks`] refuses those whole-name,
 /// because the reads it owns reach outside the block it is written in.
 fn declares(stmts: &[Stmt], name: &str) -> bool {
-    stmts
-        .iter()
+    super::stmts_flat(stmts)
+        .into_iter()
         .any(|s| matches!(s, Stmt::LetDecl { name: dn, is_var: false, .. } if dn == name))
 }
 
