@@ -96,6 +96,21 @@ fn lower_inner(ctx: &mut LowerCtx<'_>, eid: ExprId, lhs: ExprId, rhs: ExprId) ->
     {
         return lower_f64_undefable_lhs(ctx, lhs_op, rhs);
     }
+    // A pointer-shaped slot the checker types non-nullable can still
+    // hold its undefined sentinel at run time — a `string[]` index
+    // read past the end, a `pop()` off an empty array, a missing
+    // `process.argv` entry: `argv[2] ?? "5"` forwarded the sentinel
+    // and `Number` of it answered NaN. Such a source takes the
+    // sentinel-aware pointer lane below; a join the checker widened
+    // to `any` keeps its boxing lane.
+    if !matches!(ctx.expr_types.get(&eid), Some(check_mod::Type::Any))
+        && ((matches!(lhs_ty, Type::Str | Type::Substr)
+            && (crate::ssa_lower_nullable_guard::is_nullable_str_source(ctx, lhs)
+                || crate::ssa_lower_nullable_guard::is_undefable_substr_source(ctx, lhs)))
+            || crate::ssa_lower_nullable_guard::holds_undef_cell(ctx, lhs, lhs_ty.clone()))
+    {
+        return lower_generic_ptr_lhs(ctx, eid, lhs_op, lhs_ty, lhs, rhs);
+    }
     if is_non_nullable(&lhs_check_ty) {
         // Chunk 722 — the short-circuit forwards lhs's value, so it
         // forwards lhs's ownership too: `mkStr(i) ?? d` discarded /
