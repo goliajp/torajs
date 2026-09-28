@@ -34,6 +34,9 @@ const ACCESSOR_TAG: u64 = 6;
 const ARR_DATA_PTR_OFF: usize = 32;
 
 unsafe extern "C" {
+    /// torajs-anyvalue — a borrowed payload made owned (an inline split
+    /// view is copied out rather than shared).
+    fn __torajs_anyv_unbox_value_owned(v: u64) -> i64;
     fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_value_drop_heap(p: *mut c_void);
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
@@ -313,9 +316,9 @@ unsafe fn copy_keys(
         } else {
             // Borrow-shaped probe answer — retain before feeding
             // member_set's consume contract.
-            let v = unsafe { __torajs_any_member_get_value(source, key) };
+            let mut v = unsafe { __torajs_any_member_get_value(source, key) };
             if tag == ANY_HEAP_TAG as u64 && v != 0 {
-                unsafe { __torajs_rc_inc(v as *mut c_void) };
+                v = unsafe { __torajs_anyv_unbox_value_owned(v) } as u64;
             }
             (tag, v)
         };

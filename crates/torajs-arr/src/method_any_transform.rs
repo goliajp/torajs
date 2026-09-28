@@ -398,6 +398,14 @@ pub unsafe extern "C" fn __torajs_arr_any_splice(
                 arr_data(removed),
                 actual_delete as usize * 8,
             );
+            // A split product's inline views cannot move to another
+            // block — their storage is the receiver's tail. Each is
+            // copied out and released.
+            if !is_any && header.arr_elem_kind() == ARR_KIND_HEAP {
+                crate::substr_materialize::__torajs_arr_substr_materialize_owned(
+                    removed as *mut c_void,
+                );
+            }
         }
 
         let diff = item_count - actual_delete;

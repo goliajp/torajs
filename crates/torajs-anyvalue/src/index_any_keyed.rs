@@ -137,9 +137,11 @@ unsafe fn probe_key_cell(recv: AnyValue, key: *const c_void) -> AnyValue {
         if tag == ANY_ACCESSOR_TAG {
             return crate::struct_probe::__torajs_any_accessor_get(recv, key, value);
         }
-        if tag == ANY_HEAP_TAG && value != 0 {
-            __torajs_rc_inc(value as *mut c_void);
-        }
+        let value = if tag == ANY_HEAP_TAG && value != 0 {
+            crate::nanbox_encode::payload_owned(value as *mut c_void) as u64
+        } else {
+            value
+        };
         crate::nanbox_encode::__torajs_anyv_box_from_pair(tag as i64, value as i64)
     }
 }

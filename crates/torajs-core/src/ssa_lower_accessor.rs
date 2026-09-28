@@ -105,24 +105,25 @@ fn emit_get_result(
         InstKind::Store(Operand::Value(getr), Operand::Value(res_slot), 0),
     );
     ctx.f.set_term(acc_cont, Terminator::Br(after));
-    // data path: take an owned stake on the heap payload (immediates
-    // no-op), then NaN-box `(tag, value)`. `any_box` itself is a pure
+    // data path: NaN-box `(tag, value)`, then take an owned stake on
+    // the heap payload (immediates no-op). `any_box` itself is a pure
     // bit-encode (`__torajs_anyv_box_from_pair` takes no ref), so the
-    // inc is what turns the borrowed pair into an owned result.
+    // retain is what turns the borrowed pair into an owned result —
+    // and it answers a copy for a split product's element, whose view
+    // cannot leave the split array.
     ctx.cur_block = data_blk;
-    ctx.f.append_void(
-        data_blk,
-        InstKind::Call(
-            ctx.intrinsics.any_payload_rc_inc,
-            vec![Operand::Value(tag), Operand::Value(value)],
-        ),
-    );
-    let box_v = ctx.f.append_inst(
+    let borrowed = ctx.f.append_inst(
         data_blk,
         InstKind::Call(
             ctx.intrinsics.any_box,
             vec![Operand::Value(tag), Operand::Value(value)],
         ),
+        Type::Any,
+        None,
+    );
+    let box_v = ctx.f.append_inst(
+        data_blk,
+        InstKind::Call(ctx.intrinsics.anyv_retain, vec![Operand::Value(borrowed)]),
         Type::Any,
         None,
     );

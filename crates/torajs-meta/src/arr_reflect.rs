@@ -26,6 +26,9 @@ use core::ffi::c_void;
 use crate::reflect::{VALUE_UNDEFINED_IMM, build_data_descriptor};
 
 unsafe extern "C" {
+    /// torajs-anyvalue — a borrowed payload made owned (an inline split
+    /// view is copied out rather than shared).
+    fn __torajs_anyv_unbox_value_owned(v: u64) -> i64;
     fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_dynobj_has(dynobj: *const c_void, key: *const u8) -> bool;
     /// torajs-arr kind-aware slot reads — borrow contract (no inc).
@@ -189,11 +192,11 @@ pub(crate) unsafe fn arr_cell_descriptor(arr: *const c_void, key: *const c_void)
             };
         }
         let tag = unsafe { __torajs_arr_get_any_tag(arr, idx) };
-        let val = unsafe { __torajs_arr_get_any_value(arr, idx) };
+        let mut val = unsafe { __torajs_arr_get_any_value(arr, idx) };
         if tag == ANY_HEAP && val != 0 {
-            // SAFETY: ANY_HEAP slot holds a valid heap pointer — the
-            // element keeps its share, the descriptor owns a fresh one.
-            unsafe { __torajs_rc_inc(val as *mut c_void) };
+            // The element keeps its share, the descriptor owns a fresh
+            // one (a split product's view is copied out instead).
+            val = unsafe { __torajs_anyv_unbox_value_owned(val) } as u64;
         }
         // Shadow entry flags (or the implicit defaults) — bits 0/1/2
         // = writable / enumerable / configurable.

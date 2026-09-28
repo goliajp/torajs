@@ -51,6 +51,9 @@ const ANY_HEAP: u64 = 4;
 const ANY_ACCESSOR: u64 = 6;
 
 unsafe extern "C" {
+    /// torajs-anyvalue — a borrowed payload made owned (an inline split
+    /// view is copied out rather than shared).
+    fn __torajs_anyv_unbox_value_owned(v: u64) -> i64;
     fn __torajs_throw_type_error(msg: *const c_char);
     fn __torajs_dynobj_alloc() -> *mut c_void;
     fn __torajs_dynobj_set(dst: *mut *mut c_void, key: *const u8, tag: u64, value: u64);
@@ -326,10 +329,12 @@ unsafe fn set_prop_with(
     v_val: u64,
     v_owned: bool,
 ) {
-    if !v_owned && v_tag == ANY_HEAP && v_val != 0 {
-        // SAFETY: ANY_HEAP slot holds a valid heap pointer.
-        unsafe { __torajs_rc_inc(v_val as *mut c_void) };
-    }
+    let v_val = if !v_owned && v_tag == ANY_HEAP && v_val != 0 {
+        // A split product's view is copied out rather than shared.
+        unsafe { __torajs_anyv_unbox_value_owned(v_val) as u64 }
+    } else {
+        v_val
+    };
     unsafe { __torajs_dynobj_set(obj, k_str as *const u8, v_tag, v_val) };
     unsafe { __torajs_str_drop(k_str as *mut u8) };
 }

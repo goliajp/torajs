@@ -114,6 +114,17 @@ unsafe fn materialize_inline_view(p: *mut c_void) -> *mut c_void {
     }
 }
 
+/// A borrowed heap cell made the caller's own: an inline view is
+/// copied out (the copy's rc 1 is the stake), anything else is shared
+/// by one refcount. The answer may be a different cell than `p`.
+pub(crate) fn payload_owned(p: *mut c_void) -> *mut c_void {
+    let q = unsafe { materialize_inline_view(p) };
+    if q == p {
+        payload_rc_inc(AnySlotTag::Heap as i64, p as i64);
+    }
+    q
+}
+
 /// Encode a Str-typed slot value as an [`AnyValue`] (RFC 20260707
 /// chunk 3). A Str slot carries three shapes: NULL (JS null), the
 /// undefined sentinel cell, or a real heap Str. Rc-neutral exactly
@@ -396,8 +407,7 @@ pub extern "C" fn __torajs_anyv_unbox_value(v: AnyValue) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __torajs_anyv_unbox_value_owned(v: AnyValue) -> i64 {
     if is_cell(v) {
-        payload_rc_inc(AnySlotTag::Heap as i64, v as i64);
-        v as i64
+        payload_owned(v as *mut c_void) as i64
     } else {
         __torajs_anyv_unbox_value(v)
     }
@@ -411,7 +421,7 @@ pub extern "C" fn __torajs_anyv_unbox_value_owned(v: AnyValue) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __torajs_anyv_retain(v: AnyValue) -> AnyValue {
     if is_cell(v) {
-        payload_rc_inc(AnySlotTag::Heap as i64, v as i64);
+        return payload_owned(v as *mut c_void) as AnyValue;
     }
     v
 }

@@ -162,10 +162,10 @@ pub(crate) unsafe fn arr_method_ext(
                     return VALUE_UNDEFINED;
                 }
                 // The slot read is borrowed — take the owned-return
-                // stake (NaN-box-safe inc no-ops on immediates).
-                let av = __torajs_arr_get_any_boxed(arr, adj as u64);
-                torajs_rc::__torajs_rc_inc(av as *mut c_void);
-                av
+                // stake; an inline split view is copied out instead.
+                crate::nanbox_encode::__torajs_anyv_retain(__torajs_arr_get_any_boxed(
+                    arr, adj as u64,
+                ))
             }
             m if m == ANY_METHOD_TO_STRING => arr_to_string_direct(arr),
             m if m == ANY_METHOD_FLAT => {

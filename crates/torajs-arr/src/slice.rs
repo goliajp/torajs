@@ -280,10 +280,14 @@ unsafe fn any_slice(arr: *const u8, start: i64, end: i64, holes: Holes) -> *mut 
         let kind_bits = flags & ARR_ELEM_KIND_MASK;
         *(p.add(6) as *mut u16) |= kind_bits;
         if kind_bits >> torajs_rc::ARR_ELEM_KIND_SHIFT == ARR_KIND_HEAP {
-            for i in 0..out_len as usize {
-                let cell = *(arr_data(p).add(i * 8) as *const u64);
-                __torajs_rc_inc(cell as *mut c_void);
-            }
+            // A split product's slots are inline views, which the copy
+            // cannot share: they are copied out, everything else is
+            // shared by one refcount.
+            crate::substr_materialize::__torajs_arr_substr_adopt_copied(
+                p as *mut c_void,
+                0,
+                out_len as i64,
+            );
         }
         p
     }

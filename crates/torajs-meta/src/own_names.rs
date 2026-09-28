@@ -13,6 +13,9 @@ use core::ffi::{c_char, c_void};
 use crate::obj_own_keys::{heap_type_tag_local, is_dynobj_imm};
 
 unsafe extern "C" {
+    /// torajs-anyvalue — a borrowed payload made owned (an inline split
+    /// view is copied out rather than shared).
+    fn __torajs_anyv_unbox_value_owned(v: u64) -> i64;
     fn __torajs_throw_type_error(msg: *const c_char);
     /// torajs-dynobj iteration surface — keys are BORROWED.
     fn __torajs_dynobj_iter_len(obj: *const c_void) -> u64;
@@ -283,11 +286,11 @@ pub unsafe extern "C" fn __torajs_arr_entries_by_tag(
         // via i64 bits is ABI-safe since LLVM stores both in the
         // same machine word).
         let slot_off = ((head + i) as usize) * 8;
-        let slot = unsafe { (data.add(slot_off) as *const i64).read() };
+        let mut slot = unsafe { (data.add(slot_off) as *const i64).read() };
         if val_tag == 4 {
-            // ANY_HEAP — push_any takes an owning ref; bump rc so
-            // the original Arr's drop won't tear the cell out.
-            unsafe { __torajs_rc_inc(slot as *mut c_void) };
+            // ANY_HEAP — push_any takes an owning ref, so the source
+            // keeps its own (a split product's view is copied out).
+            slot = unsafe { __torajs_anyv_unbox_value_owned(slot as u64) };
         }
         let idx_str = unsafe { __torajs_i64_to_str(i) };
         let inner = unsafe { __torajs_arr_alloc_any(2) };
