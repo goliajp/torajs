@@ -190,6 +190,7 @@ pub fn resolve_imports(
                     is_ns: namespace_alias.is_some(),
                     side_effect_only,
                     evaluate,
+                    defers_body: defer_body,
                 },
                 &table_delta,
             )?;

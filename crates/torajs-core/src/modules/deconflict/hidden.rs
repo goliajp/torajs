@@ -17,6 +17,11 @@ pub(in crate::modules) struct LaneShape {
     pub(in crate::modules) is_ns: bool,
     pub(in crate::modules) side_effect_only: bool,
     pub(in crate::modules) evaluate: bool,
+    /// A dynamic-import candidate: its declarations land now and its
+    /// body statements wait in the eval function (`LibRequest::deferred`),
+    /// so what those statements read must land like what an
+    /// evaluating walk's body reads.
+    pub(in crate::modules) defers_body: bool,
 }
 
 /// Which UN-injected lib decls must still land because an injected
@@ -91,10 +96,13 @@ pub(super) fn hidden_injection_closure(
                     push_computed_key_frees(ast, n, &mut work);
                     will_inject.insert(n.clone());
                     work.extend(crate::ast::free_idents_of_stmt(ast, &lib_section[i]));
-                } else if lane.evaluate {
+                } else if lane.evaluate || lane.defers_body {
+                    // every declaration lands, bare-exported ones too
+                    // (`const a = f(); export { a as b }` with `b` not
+                    // requested): the census mangles the hidden copy
+                    // and the walk injects it like any hidden decl
                     match name {
-                        Some(n) if !bare_exports.contains_key(&n) => work.push(n),
-                        Some(_) => {}
+                        Some(n) => work.push(n),
                         None => work.extend(crate::ast::free_idents_of_stmt(ast, other)),
                     }
                 }
