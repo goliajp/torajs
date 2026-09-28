@@ -58,7 +58,7 @@ pub(in crate::ast) fn mint_generic_twin(
         matches!(cloner.ast.get_expr(*old), Expr::This | Expr::NewTarget)
             || matches!(cloner.ast.get_expr(*old), Expr::Ident(n) if n == "__this")
     });
-    if !reads_receiver {
+    if !reads_receiver && !has_lossy_param(params) {
         neutralize_clone(&mut cloner);
         return;
     }
@@ -127,7 +127,7 @@ pub(in crate::ast) fn mint_static_generic_twin(
 ) {
     let mut cloner = BodyCloner::new(ast);
     let cloned_body = cloner.clone_stmts(body);
-    if !rebind_this_sites(&mut cloner) {
+    if !rebind_this_sites(&mut cloner) && !has_lossy_param(params) {
         neutralize_clone(&mut cloner);
         return;
     }
@@ -178,6 +178,24 @@ pub(in crate::ast) fn mint_static_generic_twin(
         is_generator: false,
         span,
     });
+}
+
+/// A parameter slot a missing argument cannot cross without loss:
+/// the boxed adapter unboxes `undefined` into an F64 slot as the
+/// NaN sentinel and into a Str slot as the immortal undefined cell,
+/// but a `boolean` slot takes `false` and an integer slot `0`, which
+/// is a silent wrong answer for `typeof b` / `b === undefined`. A
+/// method with such a slot mints its twin even when its body never
+/// reads the receiver: the bare call (`const f = d.m; f()`) then
+/// runs the twin, whose every parameter is `any`, instead of the
+/// loud "class method called without a receiver". A slot with a
+/// default is exempt — the adapter materializes the default from
+/// the same `undefined`. (`number` stays out: a method read as a
+/// value already seeds its number parameters F64.)
+fn has_lossy_param(params: &[Param]) -> bool {
+    params.iter().any(|p| {
+        p.default.is_none() && matches!(p.type_ann.as_deref(), Some("boolean" | "i64" | "i32"))
+    })
 }
 
 /// Point every cloned counterpart of a static-`this` site at the
