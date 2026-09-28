@@ -11,8 +11,7 @@
 //! extern surface. The 248-LOC `Object.getOwnPropertyDescriptor(obj,
 //! key)` dispatch cascade lives in
 //! [`crate::reflect_get_property_descriptor`] as of the
-//! rotation-196 file-size sweep (the parent had drifted to 519 LOC
-//! per `rules/torajs-file-size-debt.md`).
+//! rotation-196 file-size sweep (the parent had drifted to 519 LOC).
 
 use core::ffi::{c_char, c_void};
 

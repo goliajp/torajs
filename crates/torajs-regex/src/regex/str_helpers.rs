@@ -1,8 +1,7 @@
 //! Str-payload transcoding + fresh-Str allocation helpers extracted
 //! from [`super`] as the rotation-196 file-size sweep — the parent
-//! `regex/mod.rs` had drifted to 538 LOC over the strictness wave
-//! (registered in `rules/torajs-file-size-debt.md` rotation 185
-//! audit). Zero-copy ASCII view + full transcode + two allocator
+//! `regex/mod.rs` had drifted to 538 LOC over the strictness wave.
+//! Zero-copy ASCII view + full transcode + two allocator
 //! shells share the same STR_HDR_SIZE / `__torajs_str_alloc*` extern
 //! surface, so they cluster naturally into a sibling module.
 //!
