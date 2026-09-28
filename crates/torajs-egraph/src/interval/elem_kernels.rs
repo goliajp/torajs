@@ -32,7 +32,15 @@ pub(super) const VOID_PUSH_CALLS: &[&str] = &["__torajs_arr_push_unchecked"];
 /// either do nothing or record a TypeError, and the one that moves
 /// elements first (`shift_guard`'s partial shift) only copies values
 /// the slots already held.
+/// The species guard (`Array.prototype.map` and its family, §9.4.2.3)
+/// reads the props slot and answers on a null bag; a bag — the only
+/// way to a `constructor` getter that could touch the array — is
+/// grown by kernels this list already leaves out, so on a tracked
+/// array the guard reads and nothing more. Off the list it took the
+/// source of every typed `map` out of the analysis, and the map loop
+/// re-read the source's data pointer and capacity per step.
 pub(super) const VOID_INERT_CALLS: &[&str] = &[
+    "__torajs_arr_species_guard",
     "__torajs_arr_mark_kind",
     "__torajs_arr_delete_tail_guard",
     "__torajs_arr_shift_guard",

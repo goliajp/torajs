@@ -58,7 +58,10 @@ const ARR_DATA_PTR_OFF: u64 = 32;
 /// The pop's length-lock raiser reads the flags and length, and at
 /// most deletes shadow entries inside the props dynobj; it writes no
 /// header word.
-const HEADER_READ_ONLY_CALLS: &[&str] = &["__torajs_arr_delete_tail_guard"];
+const HEADER_READ_ONLY_CALLS: &[&str] = &[
+    "__torajs_arr_delete_tail_guard",
+    "__torajs_arr_species_guard",
+];
 
 pub fn hoist_header_loads(module: &mut Module) -> LoadLicmStats {
     let names: Vec<String> = module.funcs.iter().map(|f| f.name.clone()).collect();
