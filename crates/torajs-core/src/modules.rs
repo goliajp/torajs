@@ -144,15 +144,6 @@ pub fn resolve_imports(
             &mut st.closure_files,
         )?;
 
-        // §16.2.1.10 ns `default` field — see `default_binding.rs`.
-        let repeat_default_field = default_binding::settle_walk_default(
-            &lib_section,
-            &namespace_alias,
-            &mut default_alias,
-            &mut st.default_bound_as,
-            &target_path,
-            ns_star_feed,
-        );
         let (evaluate, defer_body) = repeat_request::evaluation_role(
             &mut st.injected_names,
             &target_path,
@@ -162,6 +153,17 @@ pub fn resolve_imports(
             namespace_alias
                 .as_ref()
                 .is_some_and(|a| entry_seed.dyn_roots.iter().any(|(_, n)| n == a)),
+        );
+        // §16.2.1.10 ns `default` field, and §16.2.1.5 the evaluating
+        // walk's own `export default <expr>` — see `default_binding.rs`.
+        let repeat_default_field = default_binding::settle_walk_default(
+            &lib_section,
+            &namespace_alias,
+            &mut default_alias,
+            &mut st.default_bound_as,
+            &target_path,
+            ns_star_feed,
+            evaluate,
         );
         // Each statement's declaration name before the census renames
         // it — what `repeat_request::bind_repeat_decls` keys on.

@@ -199,10 +199,18 @@ pub(super) fn walk_lib_stmt(
             // binding for its `default` field (§16.2.1.10; minted in
             // `resolve_imports` when the lib has a default export).
             if let Some(alias) = req.default_alias {
+                // `any`: a namespace's `default` field reads the
+                // binding as a global cell from the object's position
+                // ahead of the module's statements, whatever the
+                // initializer (`export default null` has no slot shape
+                // to infer, and an unregistered binding would be a
+                // dead-zone copy) — the entry's own default binding
+                // is spelled the same way
+                let type_ann = alias.starts_with("__nsdefault_").then(|| "any".to_string());
                 injections.push(Stmt::LetDecl {
                     mutable: false,
                     name: alias.clone(),
-                    type_ann: None,
+                    type_ann,
                     init: eid,
                     is_var: false,
                 });

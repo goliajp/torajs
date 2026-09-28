@@ -62,6 +62,7 @@ pub(super) fn settle_walk_default(
     default_bound_as: &mut HashMap<PathBuf, String>,
     target_path: &Path,
     ns_star_feed: bool,
+    evaluate: bool,
 ) -> Option<String> {
     let repeat = synth_ns_default_binding(
         lib_section,
@@ -71,10 +72,43 @@ pub(super) fn settle_walk_default(
         target_path,
         ns_star_feed,
     );
+    // §16.2.1.5 — the walk that evaluates the module runs its `export
+    // default <expr>` at its position whether or not anyone asked for
+    // the binding (the initializer's side effects, and the value a
+    // later request or namespace field binds to by reference through
+    // this memo). Named under the namespace-default spelling so the
+    // slot is a global cell like every other default binding.
+    if evaluate
+        && default_alias.is_none()
+        && !default_bound_as.contains_key(target_path)
+        && has_default_export(lib_section)
+    {
+        *default_alias = Some(format!("__nsdefault_m{}", default_bound_as.len()));
+    }
     if let Some(a) = default_alias {
         default_bound_as.insert(target_path.to_path_buf(), a.clone());
     }
     repeat
+}
+
+/// `export default <expr>`, or a bare `export { x as default }` face
+/// (§16.2.3.2), which the walk injects on the same lane.
+fn has_default_export(lib_section: &[Stmt]) -> bool {
+    lib_section.iter().any(|s| match s {
+        Stmt::ExportDecl {
+            default_expr: Some(_),
+            ..
+        } => true,
+        Stmt::ExportDecl {
+            inner: None,
+            named,
+            source: None,
+            ..
+        } => named
+            .iter()
+            .any(|(_, alias)| alias.as_deref() == Some("default")),
+        _ => false,
+    })
 }
 
 /// §16.2.1.10 — the namespace object always carries a `default` field
@@ -106,24 +140,7 @@ fn synth_ns_default_binding(
     if let Some(first) = default_bound_as.get(target_path) {
         return Some(first.clone());
     }
-    // `export default <expr>` — or a bare `export { x as default }`
-    // face (§16.2.3.2), which the walk injects on the same lane.
-    let has_default = lib_section.iter().any(|s| match s {
-        Stmt::ExportDecl {
-            default_expr: Some(_),
-            ..
-        } => true,
-        Stmt::ExportDecl {
-            inner: None,
-            named,
-            source: None,
-            ..
-        } => named
-            .iter()
-            .any(|(_, alias)| alias.as_deref() == Some("default")),
-        _ => false,
-    });
-    if has_default {
+    if has_default_export(lib_section) {
         *default_alias = Some(format!("__nsdefault_{ns_alias}"));
     }
     None
