@@ -55,8 +55,13 @@
 //! shape above, and stays unmarked.
 //!
 //! A switch's CaseBlock is one declarative environment spread across
-//! the case bodies (§14.12.4), so it is not one of the lists this pass
-//! runs on; `switch_tdz_flag` settles its bindings at run time.
+//! the case bodies (§14.12.4), and the bodies in source order are one
+//! list for this rule: entering at any clause, control only moves
+//! forward through them, so a read written in an earlier clause than
+//! the declaration — or earlier in the same clause — is a dead-zone
+//! read whenever it happens. Whether a read AFTER the declaration
+//! finds it initialized depends on the clause control entered at;
+//! `switch_tdz_flag` settles that at run time.
 //!
 //! Two more narrowings, both to keep a false raise impossible:
 //!
@@ -154,6 +159,24 @@ fn descend_lists(ast: &Ast, s: &Stmt, out: &mut HashSet<ExprId>) {
         Stmt::Block(b) => {
             run_nested(ast, b, out);
             return;
+        }
+        Stmt::Switch {
+            cases,
+            default,
+            default_at,
+            ..
+        } => {
+            let (before, after) = cases.split_at(*default_at);
+            let mut flat: Vec<&Stmt> = Vec::new();
+            for body in before
+                .iter()
+                .map(|c| c.body.as_slice())
+                .chain(default.as_deref())
+                .chain(after.iter().map(|c| c.body.as_slice()))
+            {
+                flatten(body, &mut flat);
+            }
+            mark_list(ast, &flat, out);
         }
         Stmt::FnDecl { body, .. } => {
             run_nested(ast, body, out);
