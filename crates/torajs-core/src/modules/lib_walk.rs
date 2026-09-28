@@ -23,6 +23,10 @@ use super::{
 /// the namespace accumulator when the request was `import * as ns`.
 pub(super) struct LibRequest<'a> {
     pub(super) side_effect_only: bool,
+    /// An `export * from` pour into another module's namespace:
+    /// §16.2.3 forwards no `default`, so the default binding this
+    /// walk lands (the evaluating walk's own) claims no field.
+    pub(super) ns_star_feed: bool,
     pub(super) default_alias: &'a Option<String>,
     pub(super) want: &'a HashSet<&'a str>,
     pub(super) rename: &'a HashMap<&'a str, Vec<&'a str>>,
@@ -214,13 +218,12 @@ pub(super) fn walk_lib_stmt(
                     init: eid,
                     is_var: false,
                 });
-                if let Some(ns) = req.ns.as_deref_mut() {
+                if let Some(ns) = req.ns.as_deref_mut()
+                    && !req.ns_star_feed
+                {
                     ns.claim("default", alias);
                 }
             }
-            // If no binding was requested the export is silently
-            // dropped — matches "named exports not in the
-            // importer's list" behavior for parity.
         }
         Stmt::ExportDecl {
             inner: Some(boxed), ..

@@ -197,6 +197,7 @@ pub fn resolve_imports(
             repeat_request::open_ns_walk(&namespace_alias, &mut st.ns.accums, &mut st.ns.order);
         let mut req = LibRequest {
             side_effect_only,
+            ns_star_feed,
             default_alias: &default_alias,
             want: &want,
             rename: &rename,

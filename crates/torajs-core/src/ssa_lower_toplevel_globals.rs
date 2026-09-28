@@ -53,6 +53,10 @@ pub(crate) fn collect_toplevel_globals(
     num_f64_slots: &crate::num_width::WidthTable,
 ) -> HashMap<String, Type> {
     let binding_refs = crate::ast_refs::toplevel_binding_refs(ast);
+    // A binding a namespace object names ahead of its declaration is
+    // read through a cell over its slot (`ns_live_exports`), so it
+    // needs a slot even when every direct read could inline it.
+    let ns_live = crate::ast_refs::ns_live_exports(ast);
     let mut globals: HashMap<String, Type> = HashMap::new();
     // Multi-flattened walk (rotation 230) — the same flat view the
     // checker's pass_2 walks.
@@ -83,7 +87,11 @@ pub(crate) fn collect_toplevel_globals(
             // path: the checker registers it Any (annotation wins),
             // so named-fn reads expect a boxed slot, not a folded
             // scalar.
-            if init_is_inline_literal && !*mutable && type_ann.as_deref() != Some("any") {
+            if init_is_inline_literal
+                && !*mutable
+                && type_ann.as_deref() != Some("any")
+                && !ns_live.contains(name)
+            {
                 continue;
             }
             // Slot type. With an annotation, parse it; without one,
