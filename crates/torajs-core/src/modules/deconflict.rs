@@ -108,11 +108,32 @@ pub(super) fn deconflict_lib_section(
             // The spelling asked for is the one this decl itself
             // already landed under: the request binds to that binding
             // (`repeat_request::bind_repeat_decls`), nothing collides.
-            if prior.contains_key(&name) && landed.get(&name).map(String::as_str) != Some(surface) {
-                return Err(format!(
-                    "import name `{surface}` collides with a same-named export of another \
-                     module; import it through a namespace (`import * as ns`) instead"
-                ));
+            if prior.contains_key(&name) {
+                match landed.get(&name).map(String::as_str) {
+                    // Landed under a mangle and the spelling asked for
+                    // is held by some other declaration: the program's
+                    // own duplicate binding, kept loud.
+                    Some(l) if l != surface && seed.hard.contains(surface) => {
+                        return Err(format!(
+                            "import name `{surface}` collides with a same-named export of \
+                             another module; import it through a namespace (`import * as \
+                             ns`) instead"
+                        ));
+                    }
+                    // Landed under a mangle that only a RESERVATION
+                    // forced — the entry imports this spelling from a
+                    // path that re-exports it from here — and nothing
+                    // holds the spelling: the request binds to that
+                    // landing (`repeat_request::bind_repeat_decls`).
+                    Some(_) => {}
+                    // Mangled by an earlier walk that never injected it,
+                    // for the same reservation: nothing holds either
+                    // spelling, so the request lands as asked and the
+                    // mangle memory is void.
+                    None => {
+                        prior.remove(&name);
+                    }
+                }
             }
             if is_class
                 && bare_face.is_none()
