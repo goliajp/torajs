@@ -225,56 +225,23 @@ pub(crate) fn lower_from_value(
         ctx.release_owned_temp(obj, &arr_val);
         return Operand::Value(v);
     }
-    if matches!(arr_ty, Type::Arr(_))
-        && ctx
-            .expr_types
-            .get(&index)
-            .is_some_and(crate::check_type_of_index::array_key_domain)
-    {
-        return lower_typed_arr_any_key(ctx, eid, arr_val, index);
-    }
-    // RC-4 F1a — a nullable-arr receiver (exec/match result) may be
-    // null on miss; guard before the element load (both Arr<Any>
-    // and typed Arr<T> lanes).
-    crate::ssa_lower_nullable_guard::emit_nullable_arr_guard(ctx, obj, &arr_val);
-    let elem_ty = match arr_ty {
-        Type::Arr(arr_id) => ctx.arr_layouts[arr_id.0 as usize],
-        // Same as the member lane: the receiver is a read that already
-        // RAISED, so this element load is unreachable and `arr_val` is
-        // only the raise's stand-in shape
-        // (`ssa_lower_ident::read_raises`).
-        _ if crate::ssa_lower_ident::read_raises(ctx.ast, obj) => {
-            return Operand::ConstPtrNull;
-        }
-        other => panic!("ssa-lower: index access on non-array type {other:?}"),
-    };
-    let (idx_val, nonint) = crate::ssa_lower_index_nonintegral::lower_typed_read_index(ctx, index);
-    if elem_ty == Type::Any {
-        // An index that is not an integer names a property, not an
-        // element — the keyed kernel answers it (an expando, or
-        // undefined), the way an `any` receiver already does.
-        if let Some(split) = nonint {
-            ctx.owned_member_reads.insert(eid);
-            return crate::ssa_lower_index_nonintegral::emit_any_elem_read_split(
-                ctx, arr_val, idx_val, split,
-            );
-        }
-        return lower_array_any_index(ctx, arr_val, idx_val);
-    }
-    // Guard-dominated bounds elision — an enclosing `i < xs.length`
-    // guard settles the upper compare, so it and the length load it
-    // needs (the aliasing wall LLVM cannot hoist past the raw-pointer
-    // LoadDyn) drop out. See [`crate::ssa_lower_bounds_proven`].
-    let upper_proven = crate::ssa_lower_bounds_proven::is_proven(ctx, eid);
-    lower_typed_index_checked(
+    // A receiver that is an owned temp (`f()[0]`, `s.split(",")[0]`,
+    // `[a, b][i]`) has no consumer but this read: the element takes
+    // its own stake and the receiver is released here, as the member
+    // lane does for `f().x`. The stake is parked across the lanes'
+    // throw edges (nullable guard, index conversion, OOB RangeError).
+    let parked = ctx.park_owned_temp(obj, &arr_val);
+    let elem = crate::ssa_lower_index_owned_recv::lower_typed_arr(
         ctx,
-        arr_val,
-        idx_val,
+        eid,
+        obj,
+        index,
+        arr_val.clone(),
+        arr_ty,
         is_non_deque,
-        elem_ty,
-        upper_proven,
-        nonint,
-    )
+    );
+    ctx.unpark_owned_temp(parked);
+    crate::ssa_lower_index_owned_recv::detach_from_owned_receiver(ctx, eid, obj, &arr_val, elem)
 }
 
 /// Typed-array indexed read with the OOB bounds branch (RFC

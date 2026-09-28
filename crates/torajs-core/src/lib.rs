@@ -508,6 +508,7 @@ pub(crate) mod ssa_lower_index_assign_dyn_key;
 pub(crate) mod ssa_lower_index_assign_guards;
 pub(crate) mod ssa_lower_index_assign_pack;
 pub(crate) mod ssa_lower_index_nonintegral;
+pub(crate) mod ssa_lower_index_owned_recv;
 pub(crate) mod ssa_lower_index_recv_shape;
 pub(crate) mod ssa_lower_index_undef;
 pub(crate) mod ssa_lower_inner;
