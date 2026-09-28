@@ -231,6 +231,7 @@ pub(super) fn inject_bare_exported_decl(
     rename: &HashMap<&str, Vec<&str>>,
     default_alias: &Option<String>,
     ns: Option<&mut NsAccum>,
+    ns_star_feed: bool,
     injected: &mut HashSet<String>,
     demangle: &HashMap<String, String>,
     hidden: &HashSet<String>,
@@ -247,7 +248,10 @@ pub(super) fn inject_bare_exported_decl(
             crate::ast::rename_fn_self_refs(ast, &mut inner, &dname, alias);
             copy_fn_name_tables(ast, &dname, alias);
             rename_decl(&mut inner, alias.clone());
-            if let Some(ns) = ns {
+            // §16.2.3 — an `export * from` pour forwards no `default`
+            if let Some(ns) = ns
+                && !ns_star_feed
+            {
                 ns.claim("default", alias);
                 claim_other_faces(ns, other_faces, "default", alias);
             }
