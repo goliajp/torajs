@@ -83,6 +83,16 @@ pub(super) fn walk_types(
             } => (*inner, true),
             other => (other, false),
         };
+        if let Stmt::ClassDecl { name, .. } = &decl {
+            // kept under its own name: a parent the module does not
+            // export is still what its children extend
+            let face = match bare.get(name) {
+                Some(face) if exported => face.clone(),
+                _ => name.clone(),
+            };
+            st.ambient_classes.push((path.to_path_buf(), face, decl));
+            continue;
+        }
         let Stmt::TypeDecl { name, .. } = &decl else {
             continue;
         };
@@ -147,6 +157,82 @@ pub(super) fn note_type_aliases(out: &mut Vec<(PathBuf, String, String)>, dir: &
 /// the spelling its value walk gave it (`landed`), which a hidden
 /// dependency's mangle may have moved away from the exported name.
 /// A target that never landed stays an unknown type.
+/// A class a type-only import names that no value walk landed has
+/// no declaration in the program, and every annotation naming it was
+/// "unknown type". TS `import type` asks for exactly the shape: the
+/// class declaration goes in — ancestors first, static initializers
+/// dropped (they are the declaration's only evaluation), the module
+/// body never runs — and the name joins `type_only_classes`, so a
+/// value use of it is the TS1361 refusal instead of a fresh instance
+/// of a class the program never evaluated. A class already declared
+/// (the entry's own, or one a value walk landed) is left alone.
+pub(super) fn inject_ambient_classes(ast: &mut Ast, st: &ResolveState) {
+    let mut declared: HashSet<String> = ast
+        .stmts
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::ClassDecl { name, .. } => Some(name.clone()),
+            _ => None,
+        })
+        .collect();
+    let mut front: Vec<Stmt> = Vec::new();
+    for (path, orig, _) in &st.type_aliases {
+        if st
+            .landed_by_path
+            .get(path)
+            .is_some_and(|m| m.contains_key(orig))
+        {
+            continue;
+        }
+        let Some(idx) = st
+            .ambient_classes
+            .iter()
+            .position(|(p, face, _)| p == path && face == orig)
+        else {
+            continue;
+        };
+        push_ambient_chain(ast, &st.ambient_classes, idx, &mut declared, &mut front);
+    }
+    ast.stmts.splice(0..0, front);
+}
+
+fn push_ambient_chain(
+    ast: &mut Ast,
+    ambient: &[(PathBuf, String, Stmt)],
+    idx: usize,
+    declared: &mut HashSet<String>,
+    out: &mut Vec<Stmt>,
+) {
+    let Stmt::ClassDecl { name, parent, .. } = &ambient[idx].2 else {
+        return;
+    };
+    if !declared.insert(name.clone()) {
+        return;
+    }
+    if let Some(pid) = parent
+        && let crate::ast::Expr::Ident(pname) = ast.get_expr(*pid)
+        && !declared.contains(pname)
+        && let Some(pidx) = ambient
+            .iter()
+            .position(|(p, _, s)| {
+                p == &ambient[idx].0 && matches!(s, Stmt::ClassDecl { name, .. } if name == pname)
+            })
+            .or_else(|| {
+                ambient.iter().position(
+                    |(_, _, s)| matches!(s, Stmt::ClassDecl { name, .. } if name == pname),
+                )
+            })
+    {
+        push_ambient_chain(ast, ambient, pidx, declared, out);
+    }
+    let mut decl = ambient[idx].2.clone();
+    if let Stmt::ClassDecl { static_init, .. } = &mut decl {
+        static_init.clear();
+    }
+    ast.type_only_classes.insert(name.clone());
+    out.push(decl);
+}
+
 pub(super) fn inject_type_aliases(
     ast: &mut Ast,
     aliases: &[(PathBuf, String, String)],

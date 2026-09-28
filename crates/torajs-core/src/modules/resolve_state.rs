@@ -74,6 +74,11 @@ pub(super) struct ResolveState {
     /// exported name, local spelling) — see
     /// `types_lane::note_type_aliases`.
     pub(super) type_aliases: Vec<(PathBuf, String, String)>,
+    /// Every class declaration a types-only walk read, with its module
+    /// and the export spelling it answers to (`types_lane::walk_types`);
+    /// the ones a type-only import names and no value walk landed are
+    /// injected for their shape (`types_lane::inject_ambient_classes`).
+    pub(super) ambient_classes: Vec<(PathBuf, String, Stmt)>,
 }
 
 impl ResolveState {
@@ -89,6 +94,7 @@ impl ResolveState {
             hidden_by_path: HashMap::new(),
             mangle_seq: 0,
             landed_by_path: HashMap::new(),
+            ambient_classes: Vec::new(),
             repeat_aliases: Vec::new(),
             injections_by_path: HashMap::new(),
             ns: ns_tables::NsTables::default(),

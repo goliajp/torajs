@@ -42,6 +42,12 @@ pub(crate) fn check(
     callee: &ExprId,
     args: &Vec<ExprId>,
 ) -> Result<Type, String> {
+    if let Expr::Ident(f) = ast.get_expr(*callee)
+        && let Some(c) = f.strip_prefix("__new_")
+        && ast.type_only_classes.contains(c)
+    {
+        return Err(crate::check_type_of_misc::type_only_value_error(c));
+    }
     // RFC 20260806 blade 2 — the member-read gate in
     // `check_type_of_member` only sees calls whose callee gets typed on
     // the way past; the routes below claim many builtin calls straight

@@ -448,4 +448,5 @@ pub use with_object_widen::widen_with_object_bindings;
 pub use yield_ident_goal::triage_yield_idents;
 
 mod ast_def;
+mod ast_def_impl;
 pub use ast_def::*;

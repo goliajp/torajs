@@ -32,6 +32,13 @@ use crate::check::{Checker, Type, is_known_builtin_global};
 use crate::check_type_ann::resolve_type_ann_full;
 
 pub(crate) fn check_typeof(checker: &mut Checker, ast: &Ast, expr: ExprId) -> Result<Type, String> {
+    // `typeof C` on a type-only class is a value use too (TS1361);
+    // the undeclared-ident forgiveness below must not swallow it
+    if let Expr::Ident(name) = ast.get_expr(expr)
+        && let Some(c) = type_only_class(ast, name)
+    {
+        return Err(type_only_value_error(c));
+    }
     // V3-18 m1.h.3 / m1.h.20 — short-circuit known-builtin Ident
     // and Member-on-known-namespace; the spec result is the literal
     // string regardless of resolver state.
@@ -46,7 +53,7 @@ pub(crate) fn check_typeof(checker: &mut Checker, ast: &Ast, expr: ExprId) -> Re
         // there and takes no mark), and that mark is what the throw
         // analysis reads; the answer is String either way.
         if !is_known_builtin_global(name) {
-            let _ = crate::check_type_of_ident::check(checker, expr, name);
+            let _ = crate::check_type_of_ident::check(checker, ast, expr, name);
         }
         return Ok(Type::String);
     }
@@ -77,10 +84,32 @@ pub(crate) fn check_instanceof(
     rhs: ExprId,
 ) -> Result<Type, String> {
     let _ = checker.type_of(ast, expr)?;
-    if !matches!(ast.get_expr(rhs), Expr::Ident(_)) {
-        let _ = checker.type_of(ast, rhs)?;
+    match ast.get_expr(rhs) {
+        Expr::Ident(name) => {
+            if let Some(c) = type_only_class(ast, name) {
+                return Err(type_only_value_error(c));
+            }
+        }
+        _ => {
+            let _ = checker.type_of(ast, rhs)?;
+        }
     }
     Ok(Type::Boolean)
+}
+
+/// The type-only class a value-position name reads — the bare
+/// spelling, or the `__class_<C>` cell spelling the class-globals
+/// pass rewrites a value use to.
+pub(crate) fn type_only_class<'a>(ast: &Ast, name: &'a str) -> Option<&'a str> {
+    let bare = name.strip_prefix("__class_").unwrap_or(name);
+    ast.type_only_classes.contains(bare).then_some(bare)
+}
+
+/// TS1361 — a class that only an `import type` named has no value in
+/// the program (its module never evaluated), so a value use of the
+/// name is refused at compile time (`ast.type_only_classes`).
+pub(crate) fn type_only_value_error(class: &str) -> String {
+    format!("'{class}' cannot be used as a value because it was imported using 'import type'")
 }
 
 pub(crate) fn check_nullish(

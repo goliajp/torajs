@@ -76,6 +76,7 @@ pub(crate) const NS_OBJECT_IDENTS: [&str; 41] = [
 
 pub(crate) fn check(
     checker: &mut Checker,
+    ast: &crate::ast::Ast,
     eid: crate::ast::ExprId,
     name: &str,
 ) -> Result<Type, String> {
@@ -186,6 +187,9 @@ pub(crate) fn check(
                 .or_else(|| other.strip_prefix("__proto_"))
                 && checker.class_names.contains(c)
             {
+                if ast.type_only_classes.contains(c) {
+                    return Err(crate::check_type_of_misc::type_only_value_error(c));
+                }
                 return Ok(Type::Any);
             }
             if checker.is_synthesized_dunder(other) || crate::check::is_known_builtin_global(other)
