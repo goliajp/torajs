@@ -288,6 +288,7 @@ pub(crate) fn pass_2_register_globals_and_check_stmts(c: &mut Checker, ast: &Ast
                 Expr::Bool(_) => Some(Type::Boolean),
                 _ => None,
             };
+            let literal_init = lit_ty.is_some();
             let ann_ty = match (lit_ty.clone(), type_ann) {
                 // Chunk 809 — an explicit annotation wins over the
                 // literal's shape: `let a: any = "s"` registers Any,
@@ -317,7 +318,12 @@ pub(crate) fn pass_2_register_globals_and_check_stmts(c: &mut Checker, ast: &Ast
                 }
                 _ => lit_ty,
             };
-            if type_ann.is_some()
+            // A literal init registers its literal's type, an annotated
+            // one its annotation; the lowerer still wants the synthesized
+            // spelling for both — the mutable literal's slot, and the
+            // fallback for an annotation naming a layout the literal's
+            // accessor slots contradict.
+            if (literal_init || type_ann.is_some())
                 && let Some((spelling, _)) =
                     synthesized_spelling(c, ast, name, *init, *is_var, &binding_refs)
                 && resolve_type_ann(&spelling, &c.aliases).is_some()
