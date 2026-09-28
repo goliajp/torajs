@@ -273,6 +273,9 @@ pub fn objlit_literal_inlobj_ann(ast: &Ast, init: ExprId) -> Option<String> {
             Expr::As { ty_ann, .. } if crate::ast::is_fn_like_ann(ty_ann) => {
                 crate::ast::retag_field_fn_ann(ty_ann)
             }
+            // A class method read as a value (`{ f: d.n }`) is the
+            // prototype's reified cell, an Any — see the predicate.
+            Expr::Member { .. } if super::class_method_value_read(ast, *val) => "any".to_string(),
             _ => shape_field_ann(ast, *val)?,
         };
         parts.push(format!("{fname}:{ann}"));

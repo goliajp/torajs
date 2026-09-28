@@ -272,6 +272,9 @@ fn slot_safe(ast: &Ast, e: ExprId, hops: u8) -> bool {
                 || crate::ast_refs::infer_toplevel_slot_shape(ast, e).is_some()
                 || names_heap_literal(ast, e, hops)
         }
+        // A class method read as a value (`[d.n]`, `{ f: d.n }`) is
+        // the prototype's reified cell — an any-lane value already.
+        Expr::Member { .. } => crate::ast_refs::class_method_value_read(ast, e),
         // Statically-shaped expressions (operator results, top-level
         // aliases, `Symbol()`) are certainly non-callable — the
         // shape table only answers primitives.
