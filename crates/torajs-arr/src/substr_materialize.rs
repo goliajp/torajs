@@ -61,9 +61,13 @@ unsafe extern "C" {
 /// `cell`'s header flags when it is a `Tag::Str` cell. The substring
 /// bits are Str-tag bits: bit 0 is `FLAG_SUBCLASSED` on a Map, Set,
 /// Date, RegExp or Promise, so a flags test without the tag took a
-/// subclass instance for a view.
+/// subclass instance for a view. A heap-kind slot can also hold an
+/// immediate (a short string's NaN-box), which has no header at all.
 #[inline]
 unsafe fn str_flags(cell: *const u8) -> Option<u16> {
+    if !torajs_rc::ffi::nan_box_is_cell_like(cell as *mut c_void) {
+        return None;
+    }
     let h = unsafe { &*(cell as *const HeapHeader) };
     (h.type_tag == Tag::Str as u16).then_some(h.flags)
 }
