@@ -79,17 +79,27 @@ pub fn stage(slot_dir: &Path, case_path: &Path, case_src: &str) -> Vec<u8> {
     // Self-import alias — the assembled case runs as `case.ts`, but
     // several module-code fixtures import the case back by its
     // CORPUS filename (`export { x } from './instn-iee-err-circular
-    // .js'` where that file IS the case). Stage the raw case source
-    // under its original name too so those chains resolve instead of
-    // dying on path-not-found. The alias is the UNTRANSFORMED source
-    // (both runtimes see the same module text); it rides the oracle
-    // salt so cached verdicts from the alias-less staging era can't
-    // score this one.
+    // .js'` where that file IS the case). In a real module host that
+    // name IS the case's own module record: one evaluation, one set
+    // of bindings. Staging a source copy under the name made it a
+    // second module — evaluated first as the fixture's dependency,
+    // running the case's asserts before the harness defined
+    // `assert`, and answering a namespace over copied bindings. The
+    // alias is therefore a re-export shim over the assembled case:
+    // every name resolves to the case's own binding and nothing
+    // evaluates twice. `export *` forwards no `default`, so a case
+    // with one gets it forwarded by name. The shim text rides the
+    // oracle salt so cached verdicts from the copy era can't score
+    // this one.
     if let Some(name) = case_path.file_name() {
-        let _ = std::fs::write(slot_dir.join(name), case_src.as_bytes());
+        let mut shim = String::from("export * from \"./case.ts\";\n");
+        if case_src.contains("export default") {
+            shim.push_str("export { default } from \"./case.ts\";\n");
+        }
+        let _ = std::fs::write(slot_dir.join(name), shim.as_bytes());
         salt.extend_from_slice(name.to_string_lossy().as_bytes());
         salt.push(0xfe);
-        salt.extend_from_slice(case_src.as_bytes());
+        salt.extend_from_slice(shim.as_bytes());
         salt.push(0xfe);
     }
     // Fixture chains can also reference SIBLING CASE files (the -as
