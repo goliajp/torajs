@@ -105,8 +105,9 @@ const FLAG_SUBSTR_INLINE: u16 = 1 << 0;
 /// sentinels never reach here.
 #[inline]
 unsafe fn materialize_inline_view(p: *mut c_void) -> *mut c_void {
-    let flags = unsafe { (*(p as *const torajs_rc::HeapHeader)).flags };
-    if flags & FLAG_SUBSTR_INLINE != 0 {
+    // Bit 0 is a Str-tag bit (`FLAG_SUBCLASSED` on other tags).
+    let h = unsafe { &*(p as *const torajs_rc::HeapHeader) };
+    if h.type_tag == torajs_rc::Tag::Str as u16 && h.flags & FLAG_SUBSTR_INLINE != 0 {
         unsafe { __torajs_substr_to_owned(p as *const u8) }
     } else {
         p

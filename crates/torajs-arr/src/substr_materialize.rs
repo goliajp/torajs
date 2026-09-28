@@ -43,7 +43,7 @@
 
 use core::ffi::c_void;
 
-use torajs_rc::{__torajs_rc_inc, ARR_KIND_HEAP, HeapHeader};
+use torajs_rc::{__torajs_rc_inc, ARR_KIND_HEAP, HeapHeader, Tag};
 use torajs_str::substr::{FLAG_SUBSTR_INLINE, FLAG_SUBSTR_VIEW};
 
 use crate::layout::{ARR_CAP_OFF, arr_data, arr_live_extent};
@@ -58,12 +58,21 @@ unsafe extern "C" {
     fn __torajs_str_drop(s: *mut c_void);
 }
 
+/// `cell`'s header flags when it is a `Tag::Str` cell. The substring
+/// bits are Str-tag bits: bit 0 is `FLAG_SUBCLASSED` on a Map, Set,
+/// Date, RegExp or Promise, so a flags test without the tag took a
+/// subclass instance for a view.
+#[inline]
+unsafe fn str_flags(cell: *const u8) -> Option<u16> {
+    let h = unsafe { &*(cell as *const HeapHeader) };
+    (h.type_tag == Tag::Str as u16).then_some(h.flags)
+}
+
 /// True for a substring view of either shape (inline in a split
 /// block, or standalone). Owned strings have neither flag.
 #[inline]
 unsafe fn is_view(cell: *const u8) -> bool {
-    let flags = unsafe { (*(cell as *const HeapHeader)).flags };
-    flags & (FLAG_SUBSTR_VIEW | FLAG_SUBSTR_INLINE) != 0
+    unsafe { str_flags(cell) }.is_some_and(|f| f & (FLAG_SUBSTR_VIEW | FLAG_SUBSTR_INLINE) != 0)
 }
 
 /// True only for an INLINE view — the shape whose storage belongs to
@@ -73,8 +82,7 @@ unsafe fn is_view(cell: *const u8) -> bool {
 /// like any heap value.
 #[inline]
 pub(crate) unsafe fn is_inline_view(cell: *const u8) -> bool {
-    let flags = unsafe { (*(cell as *const HeapHeader)).flags };
-    flags & FLAG_SUBSTR_INLINE != 0
+    unsafe { str_flags(cell) }.is_some_and(|f| f & FLAG_SUBSTR_INLINE != 0)
 }
 
 /// Fresh owned string (rc 1) with the view's text.
