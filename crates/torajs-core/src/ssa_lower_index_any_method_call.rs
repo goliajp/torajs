@@ -20,7 +20,7 @@
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
-use crate::ssa_lower_any_method_call::pack_any_argv;
+use crate::ssa_lower_any_method_call::{emit_any_method_call, pack_any_argv};
 
 /// True when the index expression is a symbol key — the syntactic
 /// `Symbol.<wellKnown>` member read, or anything the checker typed
@@ -58,18 +58,25 @@ fn index_is_symbol_key(ctx: &LowerCtx<'_>, index: ExprId) -> bool {
 /// itself an Any value, and indexing an Any answers Any, so the
 /// question recurses down the chain to the binding it starts from.
 fn obj_slot_elems_are_any(ctx: &LowerCtx<'_>, obj: ExprId) -> bool {
+    let slot_is_any = |ty: &Type| match ty {
+        Type::Any => true,
+        Type::Arr(aid) => ctx.arr_layouts[aid.0 as usize] == Type::Any,
+        _ => false,
+    };
     match ctx.ast.get_expr(obj) {
-        Expr::Ident(n) => {
-            if ctx.locals.contains_key(n) {
-                return false;
-            }
-            match ctx.globals.get(n) {
-                Some(Type::Any) => true,
-                Some(Type::Arr(aid)) => ctx.arr_layouts[aid.0 as usize] == Type::Any,
-                _ => false,
-            }
-        }
+        Expr::Ident(n) => match ctx.locals.get(n) {
+            Some(l) => slot_is_any(&l.ty),
+            None => ctx.globals.get(n).is_some_and(slot_is_any),
+        },
         Expr::Index { obj: inner, .. } => obj_slot_elems_are_any(ctx, *inner),
+        // The literal itself, called through (`[d.n][0](2)`): the
+        // same gate that sends it down the any lane answers here.
+        Expr::Array(els) => {
+            let has_spread = els
+                .iter()
+                .any(|e| matches!(ctx.ast.get_expr(*e), Expr::Spread { .. }));
+            crate::ssa_lower_array_any_gate::takes_any_lane(ctx, els, obj, has_spread)
+        }
         _ => false,
     }
 }
@@ -242,4 +249,28 @@ pub(crate) fn try_lower(
     // must release it.
     ctx.emit_throw_check_owned(None, Operand::Value(result), Type::Any);
     Some(Operand::Value(result))
+}
+
+/// A struct field typed `Function` whose slot holds an Any — a class
+/// method read as a value stored in an object literal (`{ f: d.n }`;
+/// S2.34 hands out the prototype's cell boxed, so the field is an Any
+/// slot whatever the checker calls it). The typed field arms of
+/// `ssa_lower_call_struct_method_dispatch` cannot call through it; the
+/// runtime's struct arm resolves the field by key and calls with the
+/// object as `this` (§13.3.6.2) — the same any method call the
+/// index-keyed lane above rides.
+pub(crate) fn emit_any_field_call(
+    ctx: &mut LowerCtx<'_>,
+    obj: ExprId,
+    recv_op: Operand,
+    name: &str,
+    args: &[ExprId],
+) -> Operand {
+    let recv_tok = ctx.park_owned_temp(obj, &recv_op);
+    let boxed = ctx.box_to_any(recv_op.clone());
+    let result = emit_any_method_call(ctx, boxed, name, Operand::ConstPtrNull, args);
+    ctx.unpark_owned_temp(recv_tok);
+    ctx.release_owned_temp(obj, &recv_op);
+    ctx.emit_throw_check_owned(None, Operand::Value(result), Type::Any);
+    Operand::Value(result)
 }

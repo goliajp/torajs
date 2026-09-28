@@ -166,7 +166,16 @@ pub(crate) fn try_lower(
                 pad_n,
             ))
         }
-        _ => None,
+        // A field typed Function that holds an Any — a class method
+        // read as a value (S2.34 hands out the prototype's cell
+        // boxed): see `ssa_lower_index_any_method_call::emit_any_field_call`.
+        Type::Any => Some(crate::ssa_lower_index_any_method_call::emit_any_field_call(
+            ctx, obj, recv_op, name, args,
+        )),
+        _ => {
+            ctx.redispatch_lowered = Some((obj, recv_op));
+            None
+        }
     }
 }
 

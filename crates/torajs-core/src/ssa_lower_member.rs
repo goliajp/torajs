@@ -392,6 +392,22 @@ pub(crate) fn receiver_class_owns_method(ctx: &LowerCtx<'_>, obj: ExprId, name: 
     }
 }
 
+/// S2.34's admit as a predicate on the expression alone: `obj.name`
+/// (under any `as` wrapping) reads a class METHOD as a value — the
+/// receiver has a nominal class and the name is a method of it or of
+/// an ancestor. The value the arm above hands out is an Any (the
+/// reified cell resolved off the prototype) whatever the checker
+/// calls it, so a container literal holding one takes the any lane
+/// (`ssa_lower_array_any_gate`), the same way a binding holding one
+/// is an Any slot.
+pub(crate) fn is_class_method_value_read(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
+    let shape = ctx.peel_as_wrappers(eid);
+    let crate::ast::Expr::Member { obj, name } = ctx.ast.get_expr(shape) else {
+        return false;
+    };
+    receiver_class_owns_method(ctx, *obj, name)
+}
+
 fn try_lower_str_method_value(
     ctx: &mut LowerCtx<'_>,
     eid: ExprId,
