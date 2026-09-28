@@ -292,6 +292,7 @@ pub fn resolve_imports(
     Ok(st.closure_files)
 }
 
+mod ambient_class;
 mod dead_lib_exprs;
 mod deconflict;
 mod default_binding;

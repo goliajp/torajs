@@ -89,6 +89,12 @@ pub(super) fn walk_types(
             // itself keeps its own name, which is what its children
             // extend and what an unexported parent only has
             let face = bare.get(name).cloned().unwrap_or_else(|| name.clone());
+            // every face of the one declaration (`export { C as D, C
+            // as E }`): each answers a type-only import of its own
+            for other in other_faces.get(&face).cloned().unwrap_or_default() {
+                st.ambient_classes
+                    .push((path.to_path_buf(), other, decl.clone()));
+            }
             st.ambient_classes.push((path.to_path_buf(), face, decl));
             continue;
         }
@@ -236,9 +242,7 @@ fn push_ambient_chain(
         push_ambient_chain(ast, ambient, pidx, declared, out);
     }
     let mut decl = ambient[idx].2.clone();
-    if let Stmt::ClassDecl { static_init, .. } = &mut decl {
-        static_init.clear();
-    }
+    super::ambient_class::shape_only(ast, &mut decl);
     ast.type_only_classes.insert(name.clone());
     out.push(decl);
 }
