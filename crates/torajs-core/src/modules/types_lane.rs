@@ -7,8 +7,8 @@
 //! in the path's ledger under [`type_key`] and whichever comes first
 //! lands it.
 
-use std::collections::HashSet;
-use std::path::Path;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 
 use crate::ast::{Ast, PropKey, Stmt};
 
@@ -67,7 +67,7 @@ pub(super) fn walk_types(
     for s in lib_section {
         let (decl, exported) = match s {
             Stmt::ImportDecl { ref source, .. } => {
-                note_type_aliases(&mut st.type_aliases, &s);
+                note_type_aliases(&mut st.type_aliases, &target_dir, &s);
                 queue_types(&mut st.work, &target_dir, source)?;
                 continue;
             }
@@ -107,13 +107,17 @@ pub(super) fn walk_types(
     Ok(())
 }
 
-/// Record the `(exported name, local alias)` pairs an import clause
-/// names as types under another spelling: `import type { A as B }`
-/// and `import { type A as B }`. Both lanes inject a module's type
-/// declarations under their exported names, so the alias needs its
-/// own declaration ([`inject_type_aliases`]).
-pub(super) fn note_type_aliases(out: &mut Vec<(String, String)>, s: &Stmt) {
+/// Record the type imports an import clause makes — `import type
+/// { A as B }`, `import { type A as B }`, and the unaliased `import
+/// type { C }` — as (source path, exported name, local spelling).
+/// Both lanes inject a module's type declarations under their
+/// exported names, so an alias needs its own declaration; and a
+/// class reaches the program under whatever spelling its value walk
+/// landed it (a hidden dependency lands mangled), so even the
+/// unaliased import may need one ([`inject_type_aliases`]).
+pub(super) fn note_type_aliases(out: &mut Vec<(PathBuf, String, String)>, dir: &Path, s: &Stmt) {
     let Stmt::ImportDecl {
+        source,
         named,
         type_only,
         type_named,
@@ -122,22 +126,36 @@ pub(super) fn note_type_aliases(out: &mut Vec<(String, String)>, s: &Stmt) {
     else {
         return;
     };
+    if is_builtin_module_source(source) {
+        return;
+    }
+    let Ok(path) = resolve_path(dir, source) else {
+        return;
+    };
     let types = type_named.iter().chain(named.iter().filter(|_| *type_only));
     for (orig, alias) in types {
-        if let Some(alias) = alias.as_ref().filter(|a| *a != orig) {
-            out.push((orig.clone(), alias.clone()));
-        }
+        let local = alias.clone().unwrap_or_else(|| orig.clone());
+        out.push((path.clone(), orig.clone(), local));
     }
 }
 
-/// `type B<Ps> = A<Ps>` for each recorded alias, once every module's
-/// declarations have landed — appended last, so the checker resolves
-/// the alias after its target. A target that never landed stays an
-/// unknown type.
-pub(super) fn inject_type_aliases(ast: &mut Ast, aliases: &[(String, String)]) {
+/// `type B<Ps> = A<Ps>` for each recorded type import whose local
+/// spelling differs from the spelling its declaration landed under,
+/// once every module's declarations have landed — appended last, so
+/// the checker resolves the alias after its target. A type
+/// declaration lands under its exported name; a class lands under
+/// the spelling its value walk gave it (`landed`), which a hidden
+/// dependency's mangle may have moved away from the exported name.
+/// A target that never landed stays an unknown type.
+pub(super) fn inject_type_aliases(
+    ast: &mut Ast,
+    aliases: &[(PathBuf, String, String)],
+    landed: &HashMap<PathBuf, HashMap<String, String>>,
+) {
     let mut seen: HashSet<&str> = HashSet::new();
-    for (orig, alias) in aliases {
-        if !seen.insert(alias) {
+    for (path, orig, alias) in aliases {
+        let target_name = landed.get(path).and_then(|m| m.get(orig)).unwrap_or(orig);
+        if target_name == alias || !seen.insert(alias) {
             continue;
         }
         let Some(params) = ast.stmts.iter().find_map(|s| match s {
@@ -146,16 +164,16 @@ pub(super) fn inject_type_aliases(ast: &mut Ast, aliases: &[(String, String)]) {
             }
             | Stmt::ClassDecl {
                 name, type_params, ..
-            } if name == orig => Some(type_params.clone()),
+            } if name == target_name => Some(type_params.clone()),
             _ => None,
         }) else {
             continue;
         };
         // the parser joins generic arguments with `|`
         let target = if params.is_empty() {
-            orig.clone()
+            target_name.clone()
         } else {
-            format!("{orig}<{}>", params.join("|"))
+            format!("{target_name}<{}>", params.join("|"))
         };
         ast.stmts.push(Stmt::TypeDecl {
             name: alias.clone(),

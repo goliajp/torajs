@@ -242,7 +242,7 @@ pub fn resolve_imports(
         let inject_mark = injections.len();
         let landed = st.landed_by_path.entry(target_path.clone()).or_default();
         for (s, orig) in lib_section.into_iter().zip(orig_names) {
-            types_lane::note_type_aliases(&mut st.type_aliases, &s);
+            types_lane::note_type_aliases(&mut st.type_aliases, &target_dir, &s);
             let before = injections.len();
             walk_lib_stmt(ast, &mut st.work, &target_dir, &mut injections, s, &mut req)?;
             if let Some(orig) = orig {
@@ -288,7 +288,7 @@ pub fn resolve_imports(
     // the alias follow carries the new references to the binding.
     namespace_objlit::read_through_namespace(ast);
     repeat_request::follow_aliases(ast, &st.repeat_aliases);
-    types_lane::inject_type_aliases(ast, &st.type_aliases);
+    types_lane::inject_type_aliases(ast, &st.type_aliases, &st.landed_by_path);
     Ok(st.closure_files)
 }
 
