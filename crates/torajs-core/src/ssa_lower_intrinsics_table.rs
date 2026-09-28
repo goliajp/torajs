@@ -179,6 +179,7 @@ pub(crate) fn build(
         substr_code_point_at: init_d.substr.substr_code_point_at,
         substr_eq_str: init_d.substr.substr_eq_str,
         substr_to_owned: init_d.arr_str_etc.substr_to_owned,
+        substr_share: init_d.arr_str_etc.substr_share,
         substr_starts_with: init_d.substr.substr_starts_with,
         substr_ends_with: init_d.substr.substr_ends_with,
         substr_includes: init_d.substr.substr_includes,

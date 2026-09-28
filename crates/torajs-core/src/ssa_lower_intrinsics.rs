@@ -203,6 +203,7 @@ pub(crate) struct Intrinsics {
     pub(crate) substr_code_point_at: FuncId,
     pub(crate) substr_eq_str: FuncId,
     pub(crate) substr_to_owned: FuncId,
+    pub(crate) substr_share: FuncId,
     pub(crate) substr_starts_with: FuncId,
     pub(crate) substr_ends_with: FuncId,
     pub(crate) substr_includes: FuncId,

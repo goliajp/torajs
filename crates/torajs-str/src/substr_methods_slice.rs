@@ -111,3 +111,32 @@ pub unsafe extern "C" fn __torajs_substr_substring(
         )
     }
 }
+
+/// A second holder's stake on a view. An inline view's storage belongs
+/// to its split block, and a refcount taken on it is never read by its
+/// drop, so the holder gets a standalone view of the same text instead
+/// (it shares the root parent, as the other functions here do). Any
+/// other view — standalone, or the immortal sentinel — is shared by
+/// one refcount.
+///
+/// # Safety
+/// `v` is null or a live `*const Substr`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_substr_share(v: *mut c_void) -> *mut c_void {
+    if v.is_null() {
+        return v;
+    }
+    let flags = unsafe { (*(v as *const torajs_rc::HeapHeader)).flags };
+    if flags & crate::substr::FLAG_SUBSTR_INLINE != 0 {
+        let p = v as *const u8;
+        return unsafe {
+            __torajs_substr_create(
+                substr_parent(p) as *mut c_void,
+                substr_offset(p),
+                substr_len(p),
+            )
+        };
+    }
+    unsafe { torajs_rc::__torajs_rc_inc(v) };
+    v
+}

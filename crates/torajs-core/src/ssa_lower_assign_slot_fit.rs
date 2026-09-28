@@ -248,10 +248,10 @@ pub(super) fn coerce_for_local(
         ctx.coerce_to_str(v, Type::Any)
     } else if snap_ty == Type::Str && v_ty == Type::Substr {
         // Chunk 561 — a Substr view assigned into an owned-Str slot
-        // materializes (mirror of materialize_call_args); the view
-        // reference (fresh from string indexing, or the +1 an alias
-        // rhs took above) releases after the copy, so both shapes
-        // balance.
+        // materializes (mirror of materialize_call_args). A fresh view
+        // releases after the copy; a borrowed one took no share — an
+        // inline view's own count is never read by its drop, so a
+        // share-then-release returned its parent's reference twice.
         let cur_block = ctx.cur_block;
         let owned = ctx.f.append_inst(
             cur_block,
@@ -259,7 +259,9 @@ pub(super) fn coerce_for_local(
             Type::Str,
             None,
         );
-        ctx.emit_drop_value(v, Type::Substr);
+        if ctx.expr_transfers_ownership(value) {
+            ctx.emit_drop_value(v, Type::Substr);
+        }
         Operand::Value(owned)
     } else {
         v

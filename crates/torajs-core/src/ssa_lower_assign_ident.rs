@@ -320,8 +320,12 @@ fn lower_local_assign(ctx: &mut LowerCtx<'_>, name: String, value: ExprId) -> Op
         None => panic!("ssa-lower: assign to unknown ident `{name}`"),
     };
     let v = lower_assign_rhs(ctx, snapshot.ty, value);
-    apply_borrow_rc_inc(ctx, &v, value);
     let v_ty = ctx.operand_ty(&v);
+    // Same carve-out as the global lane: a view into a Str slot is
+    // copied out and takes no share.
+    if !(snapshot.ty == Type::Str && v_ty == Type::Substr) {
+        apply_borrow_rc_inc(ctx, &v, value);
+    }
     check_local_coercion(ctx, &name, snapshot.ty, v_ty);
     let v = coerce_for_local(ctx, snapshot.ty, v_ty, v, value);
     let post_rhs = *ctx.locals.get(&name).unwrap_or(&snapshot);

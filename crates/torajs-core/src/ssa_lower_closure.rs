@@ -410,9 +410,21 @@ fn write_captures(ctx: &mut LowerCtx<'_>, env_v: crate::ssa::ValueId, captures: 
             // literal passed as a call argument drops its env right
             // after the call, so every later use of the captured
             // binding was a UAF (test262-bug-corpus RC-4 F6).
+            // A view's stake is its own cell unless the view is inline
+            // in a split block, whose storage the env cannot share.
+            let v = if *cap_ty == Type::Substr {
+                ctx.f.append_inst(
+                    cur_block,
+                    InstKind::Call(ctx.intrinsics.substr_share, vec![Operand::Value(v)]),
+                    Type::Substr,
+                    None,
+                )
+            } else {
+                v
+            };
             if *cap_ty == Type::Any {
                 ctx.emit_any_rc_inc_in(cur_block, Operand::Value(v));
-            } else if !cap_ty.is_copy() {
+            } else if *cap_ty != Type::Substr && !cap_ty.is_copy() {
                 ctx.emit_rc_inc(Operand::Value(v));
             }
             ctx.f.append_void(
