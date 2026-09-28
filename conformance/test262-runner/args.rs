@@ -10,17 +10,15 @@
 pub const DEFAULT_WORKERS: usize = 8;
 pub const DEFAULT_REPORT_BUGS: usize = 20;
 
-/// Default worker count: auto-detects logical core count via
-/// `std::thread::available_parallelism()` and clamps to 10 to avoid
-/// M-series E-core efficiency drag(mini M4 Pro 10P+4E cores empirical
-/// @ rotation 199 chunk 4:workers=10 -22.3% sweep wall vs workers=8;
-/// 12/14 未测,10 = P-core count 是 saturation 上限,更多 workers 会拉
-/// E-core 单线程效率低 30-40% + 每 case tr+bun 双级 spawn = workers×2
-/// process 争 mmap/fs 恶化)。其它 host clamp to logical core count 保守
-/// (M2 Pro 8-core → 8 / M1 4-core → 4)。CLI `--workers N` override 优先。
+/// Default worker count: one per logical core
+/// (`std::thread::available_parallelism()`). On the 14-core runner
+/// (rotation 719, same tree and tr): 10 workers 544.8 s, 14 workers
+/// 512.6 s, with every one of the 53174 verdicts identical and the same
+/// three `tr-timeout` cases — the clamp to 10 this replaced was chosen
+/// before 12 or 14 had been measured. CLI `--workers N` overrides.
 pub fn default_workers() -> usize {
     std::thread::available_parallelism()
-        .map(|n| n.get().min(10))
+        .map(|n| n.get())
         .unwrap_or(DEFAULT_WORKERS)
 }
 
