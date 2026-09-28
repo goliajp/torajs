@@ -22,8 +22,7 @@
 use crate::ast::PropKey;
 use crate::ast::{Ast, Expr, ExprId, Stmt};
 use std::collections::{HashMap, HashSet};
-
-use super::resolve_helpers::NsAccum;
+use std::path::PathBuf;
 
 /// P13-S2 — materialize each namespace alias as a synthetic
 /// `let <alias> = { name1: name1, name2: name2, ... }`. Each field's
@@ -37,19 +36,43 @@ use super::resolve_helpers::NsAccum;
 /// can only name another that was discovered while walking it
 /// (`export * as inner from "m"`), so the later-discovered one has to
 /// bind first.
+///
+/// Where it lands: §16.2.1.5.3 makes a module's namespace object
+/// exist before the module evaluates, and the module itself may read
+/// it (`import * as ns from "./self"` — `Object.keys(ns)` in its own
+/// body). The object a module was first walked under
+/// (`alias_by_path`) therefore goes in FRONT of that module's own
+/// statements; its fields over bindings declared after it are cells
+/// (`ns_live_exports`) that know their dead zone (`ns_tdz_flag`).
+/// Every other object — one nobody's own module claims — lands after
+/// every module's statements, as before.
 pub(super) fn materialize_pending_namespaces(
     ast: &mut Ast,
     injections: &mut Vec<Stmt>,
-    order: &[String],
-    accums: &HashMap<String, NsAccum>,
+    ns: &super::ns_tables::NsTables,
+    section_start: &HashMap<PathBuf, usize>,
 ) {
-    for alias in order.iter().rev() {
+    // one alias may name several modules' objects when modules spell
+    // the same alias (a test harness and the module it wraps both say
+    // `import * as ns`): the object then goes in front of the earliest
+    // of their sections, ahead of every reader
+    let mut own_start: HashMap<&str, usize> = HashMap::new();
+    for (path, alias) in &ns.alias_by_path {
+        if let Some(&at) = section_start.get(path) {
+            own_start
+                .entry(alias.as_str())
+                .and_modify(|first| *first = (*first).min(at))
+                .or_insert(at);
+        }
+    }
+    let mut heads: Vec<(usize, Stmt)> = Vec::new();
+    for alias in ns.order.iter().rev() {
         // A dynamic candidate's namespace is bound inside its eval fn
         // (`synth_dispatcher` took its fields from these same accums).
         if alias.starts_with("__dyn_ns_") {
             continue;
         }
-        let Some(accum) = accums.get(alias) else {
+        let Some(accum) = ns.accums.get(alias) else {
             continue;
         };
         let sorted = sorted_exports(accum.fields());
@@ -57,13 +80,23 @@ pub(super) fn materialize_pending_namespaces(
         // §10.4.6.8 — mark the binding so a member miss on it answers
         // undefined instead of the anonymous-struct typo reject.
         ast.namespace_bindings.insert(alias.clone(), sorted);
-        injections.push(Stmt::LetDecl {
+        let decl = Stmt::LetDecl {
             mutable: false,
             name: alias.clone(),
             type_ann: None,
             init: obj_id,
             is_var: false,
-        });
+        };
+        match own_start.get(alias.as_str()) {
+            Some(&at) => heads.push((at, decl)),
+            None => injections.push(decl),
+        }
+    }
+    // back to front, so an earlier insertion never moves a later index;
+    // two objects at one section keep their reverse-discovery order
+    heads.sort_by_key(|(at, _)| std::cmp::Reverse(*at));
+    for (at, decl) in heads {
+        injections.insert(at, decl);
     }
 }
 

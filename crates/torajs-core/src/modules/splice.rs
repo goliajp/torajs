@@ -76,8 +76,12 @@ pub(super) fn assemble_and_splice(
     dyn_eval_bodies: &HashMap<String, Vec<Stmt>>,
 ) {
     let mut injections: Vec<Stmt> = Vec::new();
+    // where each module's own statements begin — a module's namespace
+    // object goes in front of them (`materialize_pending_namespaces`)
+    let mut section_start: HashMap<PathBuf, usize> = HashMap::new();
     for path in graph.evaluation_order() {
         if let Some(stmts) = injections_by_path.remove(&path) {
+            section_start.insert(path, injections.len());
             injections.extend(stmts);
         }
     }
@@ -112,10 +116,7 @@ pub(super) fn assemble_and_splice(
             &ns.dyn_ns_shared,
         ));
     }
-    // The synthetic `let ns = { … }` bindings only reference decls, so
-    // they land after every module's statements regardless of which
-    // module asked for them.
-    materialize_pending_namespaces(ast, &mut injections, &ns.order, &ns.accums);
+    materialize_pending_namespaces(ast, &mut injections, ns, &section_start);
     splice_injections(ast, injections);
 }
 
