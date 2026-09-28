@@ -282,6 +282,10 @@ pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
     // in every ordinary list. After the machines, whose own bodies
     // `desugar_generators_tdz` has already settled.
     ast::flag_closure_tdz(ast);
+    // §10.4.6.8 — the entry's own namespace over bindings declared
+    // after it: the reflective faces need the binding's dead zone
+    // at run time, off a flag the cell is handed (`ns_tdz_flag`).
+    ast::flag_ns_tdz(ast);
     ast::desugar_builtin_imports(ast);
     ast::desugar_builtin_new(ast);
     ast::desugar_regex_syntax_error(ast);

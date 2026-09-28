@@ -78,7 +78,13 @@ fn flag_list(ast: &mut Ast, stmts: &mut [Stmt], counter: &mut usize) {
         else {
             continue;
         };
-        if name.starts_with("__") {
+        // A minted name is initialized before anything reads it —
+        // except the entry's own `export default` binding
+        // (`__nsdefault_entry`): the entry's namespace names it from
+        // the program's head, and a closure reading `ns.default`
+        // (rewritten to the binding) before the export runs is in
+        // its dead zone like any user `const`.
+        if name.starts_with("__") && !name.starts_with("__nsdefault_") {
             continue;
         }
         let (name, init) = (name.clone(), *init);

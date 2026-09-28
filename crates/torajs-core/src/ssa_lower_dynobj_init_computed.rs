@@ -374,11 +374,26 @@ impl LowerCtx<'_> {
         }
         let local = local.clone();
         let key = self.intern_string_literal(fname);
-        let ptr = self
-            .f
-            .append_inst(self.cur_block, InstKind::GlobalRef(local), Type::Ptr, None);
-        // no initialization flag yet: null = initialized by now
-        let init = Operand::ConstPtrNull;
+        let ptr = self.f.append_inst(
+            self.cur_block,
+            InstKind::GlobalRef(local.clone()),
+            Type::Ptr,
+            None,
+        );
+        // the binding's initialization flag, when `flag_ns_tdz` gave
+        // it one (declared after the namespace literal): the cell
+        // answers the dead zone off it; null = initialized by now
+        let flag = format!("{}{local}", crate::ast::NS_INIT_FLAG_PREFIX);
+        let init = if self.globals.contains_key(&flag) {
+            Operand::Value(self.f.append_inst(
+                self.cur_block,
+                InstKind::GlobalRef(flag),
+                Type::Ptr,
+                None,
+            ))
+        } else {
+            Operand::ConstPtrNull
+        };
         self.f.append_void(
             self.cur_block,
             InstKind::Call(

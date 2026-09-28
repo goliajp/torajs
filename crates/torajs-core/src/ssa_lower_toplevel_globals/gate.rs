@@ -221,6 +221,10 @@ pub(super) fn stays_main_local(
             ty,
             Type::Str | Type::Arr(_) | Type::Obj(_) | Type::Closure(_) | Type::Symbol | Type::Any
         );
+    // A namespace field's initialization flag (`ns_tdz_flag`) has no
+    // reader in the program at all: the runtime reads it through the
+    // cell's pointer, which only a data global has.
     (matches!(ty, Type::I64 | Type::F64 | Type::Bool | Type::I32) || visibility_only)
         && !binding_refs.named_fn_refs.contains(name)
+        && !name.starts_with(crate::ast::NS_INIT_FLAG_PREFIX)
 }
