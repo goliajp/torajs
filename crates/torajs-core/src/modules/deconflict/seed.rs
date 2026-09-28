@@ -93,27 +93,19 @@ pub(in crate::modules) fn seed_seen_names(
     seed
 }
 
-/// Commit one walked lib's (post-census) top-level INJECTED spellings
-/// — hard: whoever comes later collides with them. A bare-exported
-/// decl injects under its face (P13-S4b renames it), so the face is
-/// what later walks must avoid; a census-mangled bare decl's map
-/// entry is the identity, which lands here unchanged.
-pub(in crate::modules) fn extend_seen_with_lib(
-    lib_section: &[Stmt],
-    bare_exports: &HashMap<String, String>,
-    seed: &mut SeedNames,
-) {
-    for s in lib_section {
-        let inner = match s {
-            Stmt::ExportDecl {
-                inner: Some(inner), ..
-            } => inner,
-            other => other,
-        };
-        if let Some(n) = crate::modules::decl_name(inner) {
-            let injected = bare_exports.get(&n).cloned().unwrap_or(n);
-            seed.reserved.remove(&injected);
-            seed.hard.insert(injected);
+/// Commit one walk's INJECTED decls — hard: whoever comes later
+/// collides with them. The statements are what the walk pushed, so
+/// their names are the spellings that landed (a bare export's face,
+/// a census mangle, a repeat's alias binding). A declaration the walk
+/// did not inject is not taken: a named request injects only what it
+/// asked for and their hidden deps, and a later request of the same
+/// module for one of the others must land it under its own name, not
+/// find it "colliding" with a spelling nothing holds.
+pub(in crate::modules) fn extend_seen_with_lib(injected: &[Stmt], seed: &mut SeedNames) {
+    for s in injected {
+        if let Some(n) = crate::modules::decl_name(s) {
+            seed.reserved.remove(&n);
+            seed.hard.insert(n);
         }
     }
 }

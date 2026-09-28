@@ -239,6 +239,7 @@ pub fn resolve_imports(
             .remove(&target_path)
             .unwrap_or_default();
         let work_mark = st.work.len();
+        let inject_mark = injections.len();
         let landed = st.landed_by_path.entry(target_path.clone()).or_default();
         for (s, orig) in lib_section.into_iter().zip(orig_names) {
             types_lane::note_type_aliases(&mut st.type_aliases, &s);
@@ -255,19 +256,15 @@ pub fn resolve_imports(
             }
         }
 
-        st.graph.record(
-            target_path.clone(),
-            st.graph.edges_since(&st.work, work_mark),
-        );
-        st.injections_by_path
-            .insert(target_path.clone(), injections);
-        repeat_request::record_ns_walk(
+        repeat_request::close_walk(
+            &mut st,
+            &target_path,
+            injections,
+            inject_mark,
+            work_mark,
             &namespace_alias,
             repeat_default_field,
-            &mut st.ns.accums,
             first_field,
-            &target_path,
-            &mut st.ns.fields_by_path,
         );
     }
 

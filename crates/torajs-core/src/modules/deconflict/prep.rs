@@ -2,10 +2,7 @@
 //! spelling maps, the lib's export faces, and the deconflict census
 //! over them, in the order the walk needs them.
 
-use super::{
-    LaneShape, LibTableDelta, SeedNames, alias_rename, deconflict_lib_section,
-    extend_seen_with_lib, hidden,
-};
+use super::{LaneShape, LibTableDelta, SeedNames, alias_rename, deconflict_lib_section, hidden};
 use crate::ast::{Ast, Stmt};
 use std::collections::{HashMap, HashSet};
 
@@ -134,7 +131,6 @@ pub(in crate::modules) fn prep_lib_request<'a>(
             rename.insert(a.as_str(), vec![a.as_str()]);
         }
     }
-    extend_seen_with_lib(lib_section, &bare_exports, seed);
     Ok((
         want,
         rename,

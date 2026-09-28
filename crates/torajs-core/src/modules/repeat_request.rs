@@ -133,11 +133,46 @@ pub(super) fn open_ns_walk(
     ns_accums[alias].fields().len()
 }
 
+/// What one walk leaves behind for the requests after it: the
+/// spellings it landed join the committed-name seed (`inject_mark`
+/// is where this walk's statements start in the path's injections),
+/// the imports it queued become the graph's edges from this path
+/// (`work_mark` is the worklist length before the walk), the
+/// injections go back to the path's slot, and a namespace walk
+/// records its fields.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn close_walk(
+    st: &mut super::resolve_state::ResolveState,
+    target_path: &Path,
+    injections: Vec<Stmt>,
+    inject_mark: usize,
+    work_mark: usize,
+    namespace_alias: &Option<String>,
+    repeat_default_field: Option<String>,
+    first_field: usize,
+) {
+    super::deconflict::extend_seen_with_lib(&injections[inject_mark..], &mut st.seen_names);
+    st.graph.record(
+        target_path.to_path_buf(),
+        st.graph.edges_since(&st.work, work_mark),
+    );
+    st.injections_by_path
+        .insert(target_path.to_path_buf(), injections);
+    record_ns_walk(
+        namespace_alias,
+        repeat_default_field,
+        &mut st.ns.accums,
+        first_field,
+        target_path,
+        &mut st.ns.fields_by_path,
+    );
+}
+
 /// The post-walk half: settle the repeat side of the ns `default`
 /// field (the binding already exists, only the claim is owed) and
 /// snapshot this walk's fields so a dyn revisit can inline them —
 /// claim before snapshot, so the snapshot carries the field.
-pub(super) fn record_ns_walk(
+fn record_ns_walk(
     namespace_alias: &Option<String>,
     repeat_default_field: Option<String>,
     ns_accums: &mut HashMap<String, NsAccum>,
