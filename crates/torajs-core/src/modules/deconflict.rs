@@ -31,7 +31,7 @@
 //! `__priv_<C>__` strings bake the class name at parse time); their
 //! collisions keep the loud reject.
 
-use crate::ast::{Ast, Expr, Stmt};
+use crate::ast::{Ast, Stmt};
 use std::collections::{HashMap, HashSet};
 
 /// Census + rename over one freshly-parsed lib section. Returns the
@@ -105,36 +105,7 @@ pub(super) fn deconflict_lib_section(
         let bare_face = bare_exports.get(&name).cloned();
         let surface = bare_face.as_deref().unwrap_or(name.as_str());
         if requested.contains(surface) && !is_hidden {
-            // The spelling asked for is the one this decl itself
-            // already landed under: the request binds to that binding
-            // (`repeat_request::bind_repeat_decls`), nothing collides.
-            if prior.contains_key(&name) {
-                match landed.get(&name).map(String::as_str) {
-                    // Landed under a mangle and the spelling asked for
-                    // is held by some other declaration: the program's
-                    // own duplicate binding, kept loud.
-                    Some(l) if l != surface && seed.hard.contains(surface) => {
-                        return Err(format!(
-                            "import name `{surface}` collides with a same-named export of \
-                             another module; import it through a namespace (`import * as \
-                             ns`) instead"
-                        ));
-                    }
-                    // Landed under a mangle that only a RESERVATION
-                    // forced — the entry imports this spelling from a
-                    // path that re-exports it from here — and nothing
-                    // holds the spelling: the request binds to that
-                    // landing (`repeat_request::bind_repeat_decls`).
-                    Some(_) => {}
-                    // Mangled by an earlier walk that never injected it,
-                    // for the same reservation: nothing holds either
-                    // spelling, so the request lands as asked and the
-                    // mangle memory is void.
-                    None => {
-                        prior.remove(&name);
-                    }
-                }
-            }
+            settle_requested_landing(prior, landed, seed, &name, surface)?;
             if is_class
                 && bare_face.is_none()
                 && class_rename::try_alias_rename(
@@ -251,30 +222,6 @@ pub(super) fn deconflict_lib_section(
     Ok((demangle, requested_renames))
 }
 
-/// Reference rewrite — every lib expression lives in the appended
-/// arena slice; a bare Ident there referencing a mangled top-level
-/// binding follows it (self-references included). `New` names its
-/// class in a String field the Ident arm can't see (knife D — and
-/// the parser also mints `Expr::New` for `new f()` over a plain fn,
-/// so the arm applies to every mangle, not just classes).
-fn rewrite_lib_refs(ast: &mut Ast, lib_expr_offset: usize, mangles: &HashMap<String, String>) {
-    for e in ast.exprs[lib_expr_offset..].iter_mut() {
-        match e {
-            Expr::Ident(n) => {
-                if let Some(m) = mangles.get(n) {
-                    *n = m.clone();
-                }
-            }
-            Expr::New { class_name, .. } => {
-                if let Some(m) = mangles.get(class_name) {
-                    *class_name = m.clone();
-                }
-            }
-            _ => {}
-        }
-    }
-}
-
 /// 427-01 — the P13-S4b face rename (`const a = …; export { a as b }`
 /// injects under `b`), hoisted from walk time into the census: the
 /// walk-time rename only followed a fn's self-references, so a
@@ -329,39 +276,6 @@ fn hoist_face_rename(
     mangles.insert(name.to_string(), face.clone());
 }
 
-/// Does any OTHER statement of the lib — or any arrow value in the
-/// lib's arena slice — rebind `name`? The blind arena rewrite is only
-/// sound when nothing shadows the top-level binding; a rebinding
-/// declines the mangle (module doc).
-pub(super) fn rebinds_elsewhere(
-    ast: &Ast,
-    lib_section: &[Stmt],
-    lib_expr_offset: usize,
-    decl_idx: usize,
-    name: &str,
-) -> bool {
-    let stmt_rebinds = lib_section.iter().enumerate().any(|(j, s)| {
-        if j == decl_idx {
-            return false;
-        }
-        let inner = match s {
-            Stmt::ExportDecl {
-                inner: Some(inner), ..
-            } => inner,
-            other => other,
-        };
-        crate::ast::rebinds_in_stmt(inner, name)
-    });
-    if stmt_rebinds {
-        return true;
-    }
-    ast.exprs[lib_expr_offset..].iter().any(|e| {
-        matches!(e, Expr::ArrowFn { params, body, .. }
-            if params.iter().any(|p| p.name == name)
-                || body.iter().any(|s| crate::ast::rebinds_in_stmt(s, name)))
-    })
-}
-
 /// COPY the parser-filled name-keyed fn tables onto the mangle. Not
 /// a move: the original spelling may belong to the ENTRY's same-named
 /// fn (the very collision that forced this mangle) or re-appear when
@@ -390,5 +304,10 @@ pub(super) use class_rename::{
 };
 mod hidden;
 pub(super) use hidden::LaneShape;
+mod refs;
+pub(super) use refs::rebinds_elsewhere;
+use refs::rewrite_lib_refs;
+mod requested;
+use requested::settle_requested_landing;
 mod prep;
 pub(super) use prep::prep_lib_request;
