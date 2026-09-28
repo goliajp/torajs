@@ -194,7 +194,7 @@ fn stmt_names_arguments(ast: &Ast, s: &Stmt) -> bool {
             .any(|c| stmt_names_arguments(ast, c))
 }
 
-fn expr_names_arguments(ast: &Ast, eid: ExprId) -> bool {
+pub(super) fn expr_names_arguments(ast: &Ast, eid: ExprId) -> bool {
     match ast.get_expr(eid) {
         Expr::Ident(n) => n == "arguments",
         Expr::ArrowFn { body, .. } => names_arguments(ast, body),

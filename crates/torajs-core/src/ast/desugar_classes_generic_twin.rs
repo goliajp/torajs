@@ -198,7 +198,13 @@ pub(in crate::ast) fn mint_static_generic_twin(
 fn has_lossy_param(ast: &Ast, params: &[Param]) -> bool {
     params.iter().any(|p| match p.default {
         None => matches!(p.type_ann.as_deref(), Some("boolean" | "i64" | "i32")),
-        Some(d) => !matches!(ast.get_expr(d), Expr::Number(_) | Expr::Bool(_)),
+        // a default that reads `arguments` stays on the direct lane:
+        // the adapter's argv carries the declared arity only, so the
+        // twin would answer `arguments[3]` as undefined
+        Some(d) => {
+            !matches!(ast.get_expr(d), Expr::Number(_) | Expr::Bool(_))
+                && !super::desugar_async_nested_fns::expr_names_arguments(ast, d)
+        }
     })
 }
 
