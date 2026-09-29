@@ -58,7 +58,7 @@ pub(in crate::ast) fn mint_generic_twin(
         matches!(cloner.ast.get_expr(*old), Expr::This | Expr::NewTarget)
             || matches!(cloner.ast.get_expr(*old), Expr::Ident(n) if n == "__this")
     });
-    if !reads_receiver && !has_lossy_param(cloner.ast, params, false) {
+    if !reads_receiver && !has_lossy_param(cloner.ast, params) {
         neutralize_clone(&mut cloner);
         return;
     }
@@ -128,7 +128,7 @@ pub(in crate::ast) fn mint_static_generic_twin(
     let mut cloner = BodyCloner::new(ast);
     let cloned_body = cloner.clone_stmts(body);
     let reads_this = rebind_this_sites(&mut cloner);
-    if !reads_this && !has_lossy_param(cloner.ast, params, true) {
+    if !reads_this && !has_lossy_param(cloner.ast, params) {
         neutralize_clone(&mut cloner);
         return;
     }
@@ -196,18 +196,15 @@ pub(in crate::ast) fn mint_static_generic_twin(
 /// Number / Bool literal default is exempt — the adapter
 /// materializes that default from the same `undefined`; any other
 /// default is an expression the adapter cannot replay, so it counts
-/// like a lossy slot and the twin evaluates it. An instance method's
-/// `number` without a default stays out: a method read as a value
-/// already seeds its number parameters F64. A static method has no
-/// such seed (`num_width::method_value` walks `__cm_` bodies only),
-/// so its integer-valued `number` slot is an I64 and counts.
-fn has_lossy_param(ast: &Ast, params: &[Param], is_static: bool) -> bool {
+/// like a lossy slot and the twin evaluates it. `number` without a
+/// default stays out: an instance method read as a value already
+/// seeds its number parameters F64; a static method's `number` slot
+/// is an I64 whose missing argument reads 0 (an open item — minting a
+/// twin for it re-routes the static's spread call sites, which then
+/// lose their true argument count).
+fn has_lossy_param(ast: &Ast, params: &[Param]) -> bool {
     params.iter().any(|p| match p.default {
-        None => match p.type_ann.as_deref() {
-            Some("boolean" | "i64" | "i32") => true,
-            Some("number") => is_static,
-            _ => false,
-        },
+        None => matches!(p.type_ann.as_deref(), Some("boolean" | "i64" | "i32")),
         // a default that reads `arguments` stays on the direct lane:
         // the adapter's argv carries the declared arity only, so the
         // twin would answer `arguments[3]` as undefined
