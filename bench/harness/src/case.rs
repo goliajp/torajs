@@ -99,7 +99,10 @@ pub fn discover_all(cases_dir: &Path) -> Result<Vec<Case>> {
             compile_warmup: cfg.compile_warmup.unwrap_or(DEFAULT_COMPILE_WARMUP),
             compile_runs: cfg.compile_runs.unwrap_or(DEFAULT_COMPILE_RUNS),
             tolerance: cfg.tolerance.unwrap_or(0),
-            args: cfg.args.map(|a| a.split_whitespace().map(String::from).collect()).unwrap_or_default(),
+            args: cfg
+                .args
+                .map(|a| a.split_whitespace().map(String::from).collect())
+                .unwrap_or_default(),
         });
     }
     Ok(out)
