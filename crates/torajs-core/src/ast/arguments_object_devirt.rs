@@ -19,6 +19,14 @@
 //! face keeps its alias untouched — an over-arity direct call would
 //! otherwise turn today's legal pad/drop closure call into a checker
 //! arity error.
+//!
+//! A relay the fold leaves unreferenced goes too. Its body still
+//! calls `f`, and once `desugar_implicit_generics` has made an
+//! untyped `f` a generic template, that template never lowers under
+//! its own name — the dead relay's call then died at
+//! `resolve_callee` ("unknown function `f`") for exactly the aliases
+//! this pass had already folded (`const cg = g; cg(1); cg(1, 2)` on
+//! `function g(a, b) { … arguments.length }`).
 
 use super::arguments_object_walkers::{
     body_has_arguments_length, body_has_non_length_arguments_touch,
@@ -31,6 +39,8 @@ pub(super) fn devirtualize_fn_value_aliases(ast: &mut Ast) {
     // `let x = Closure __forward_<f> captures=[]` decls whose target
     // exists as a top-level FnDecl with an arguments touch.
     let mut aliases: HashMap<String, (usize, String)> = HashMap::new();
+    // alias binding name → (its init expr, the relay it holds)
+    let mut alias_relays: HashMap<String, (ExprId, String)> = HashMap::new();
     for (si, s) in ast.stmts.iter().enumerate() {
         let Stmt::LetDecl { name, init, .. } = s else {
             continue;
@@ -44,6 +54,7 @@ pub(super) fn devirtualize_fn_value_aliases(ast: &mut Ast) {
         let Some(target) = relay_target(ast, fn_name) else {
             continue;
         };
+        alias_relays.insert(name.clone(), (*init, fn_name.clone()));
         let touches = ast.stmts.iter().any(|s| {
             matches!(s, Stmt::FnDecl { name: n, body, .. }
                 if *n == target
@@ -62,6 +73,7 @@ pub(super) fn devirtualize_fn_value_aliases(ast: &mut Ast) {
     // the binding-safety walk (any other use kills it: those sites
     // still need the closure value).
     let mut drop_idxs: Vec<usize> = Vec::new();
+    let mut folded_relays: HashSet<String> = HashSet::new();
     for (name, (si, target)) in &aliases {
         let eids: HashSet<u32> = (0..ast.exprs.len() as u32)
             .filter(|&i| matches!(&ast.exprs[i as usize], Expr::Ident(n) if n == name))
@@ -103,10 +115,35 @@ pub(super) fn devirtualize_fn_value_aliases(ast: &mut Ast) {
             }
         }
         drop_idxs.push(*si);
+        // The dropped decl's init stays in the arena as a dead expr;
+        // neutralize it so the reference count below sees only live
+        // holders of the relay.
+        let (init, relay) = &alias_relays[name];
+        ast.exprs[init.0 as usize] = Expr::Ident("undefined".into());
+        folded_relays.insert(relay.clone());
     }
     drop_idxs.sort_unstable_by(|a, b| b.cmp(a));
     for si in drop_idxs {
         ast.stmts.remove(si);
+    }
+    let still_held: HashSet<&str> = ast
+        .exprs
+        .iter()
+        .filter_map(|e| match e {
+            Expr::Closure { fn_name, .. } if folded_relays.contains(fn_name) => {
+                Some(fn_name.as_str())
+            }
+            _ => None,
+        })
+        .collect();
+    let dead: HashSet<String> = folded_relays
+        .iter()
+        .filter(|r| !still_held.contains(r.as_str()))
+        .cloned()
+        .collect();
+    if !dead.is_empty() {
+        ast.stmts
+            .retain(|s| !matches!(s, Stmt::FnDecl { name, .. } if dead.contains(name)));
     }
 }
 

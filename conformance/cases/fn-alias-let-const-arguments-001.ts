@@ -8,7 +8,9 @@
 // back to direct calls keeps every all-call alias on the direct lane.
 // Static methods with a boolean slot (twin), untyped and zero-param
 // statics, top-level functions, a spread call through the alias, and
-// an alias that is also read as a value.
+// an alias that is also read as a value, and an alias whose target is
+// called twice with no other use of it (the folded relay is dead and
+// must not be left calling a generic template).
 class E {
   static one(a: boolean) { return [a, arguments.length]; }
   static plain(a, b) { return [a, b, arguments.length]; }
@@ -39,3 +41,8 @@ let lz = z;
 console.log(lz(), lz(1, 2));
 const both = E.plain;
 console.log(JSON.stringify(both(4)), typeof both, [both].length);
+function twice(a, b) { return arguments.length; }
+const tw = twice;
+console.log(tw(1), tw(1, 2));
+var tv = twice;
+console.log(tv(1, 2), tv(3, 4));
