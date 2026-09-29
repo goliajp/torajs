@@ -87,9 +87,15 @@ pub(super) fn filter_request(
     namespace_alias: Option<String>,
     side_effect_only: bool,
 ) -> Option<(Vec<NamedImport>, Option<String>, Option<String>, bool)> {
+    // A request is answered when the same (name, spelling) was asked
+    // before, or when a declaration already landed under the spelling
+    // (the walks record a landing by its bare name); a request that
+    // was only forwarded onward left no declaration and answers
+    // nothing here.
     let mut effective_named: Vec<NamedImport> = Vec::new();
     for (orig, alias) in &named {
-        if !entry.contains(&named_key(orig, alias.as_deref())) {
+        let visible = alias.as_deref().unwrap_or(orig);
+        if !entry.contains(&named_key(orig, alias.as_deref())) && !entry.contains(visible) {
             effective_named.push((orig.clone(), alias.clone()));
         }
     }
