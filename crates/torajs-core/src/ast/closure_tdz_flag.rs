@@ -65,11 +65,15 @@ use crate::ast_refs::{idents_in_expr, idents_in_stmt};
 pub fn flag_closure_tdz(ast: &mut Ast) {
     let mut counter = 0usize;
     let mut stmts = std::mem::take(&mut ast.stmts);
-    flag_list(ast, &mut stmts, &mut counter);
+    flag_list(ast, &mut stmts, &mut counter, true);
     ast.stmts = stmts;
 }
 
-fn flag_list(ast: &mut Ast, stmts: &mut Vec<Stmt>, counter: &mut usize) {
+/// `named_fns`: whether the hoisted named functions of this list are
+/// settled too (`reachable_fns`). A function expression's body is
+/// not: a nested declaration lifted out of one captures its flag as an
+/// unresolvable name today, so that shape keeps its plain read.
+fn flag_list(ast: &mut Ast, stmts: &mut Vec<Stmt>, counter: &mut usize, named_fns: bool) {
     let mut paths: Vec<Vec<usize>> = Vec::new();
     flat_paths(stmts, &mut Vec::new(), &mut paths);
     let inert: Vec<bool> = paths
@@ -120,7 +124,12 @@ fn flag_list(ast: &mut Ast, stmts: &mut Vec<Stmt>, counter: &mut usize) {
                 sites.extend(here);
             }
         }
-        for g in reachable_fns(ast, stmts, &paths, j, init) {
+        let reach = if named_fns {
+            reachable_fns(ast, stmts, &paths, j, init)
+        } else {
+            Vec::new()
+        };
+        for g in reach {
             let mut here = Vec::new();
             collect_sites_stmt(ast, at(stmts, &paths[g]), &name, false, true, &mut here);
             if !here.is_empty() {
@@ -157,27 +166,22 @@ fn flag_list(ast: &mut Ast, stmts: &mut Vec<Stmt>, counter: &mut usize) {
         wrap(at_mut(stmts, &paths[i]), |s| vec![decl, s]);
     }
     for s in stmts.iter_mut() {
-        descend(ast, s, counter);
+        descend(ast, s, counter, named_fns);
     }
-    splice_class_multis(stmts);
+    splice_multis(stmts);
 }
 
-/// A `Multi` this pass wrapped around a class declaration is spliced
-/// back into the list: `Multi` is a transparent sequence, but the
-/// class passes downstream find their declarations by scanning the
-/// list itself (`desugar_classes_index`), and a class left inside one
-/// is never desugared — its name then resolves to nothing.
-fn splice_class_multis(stmts: &mut Vec<Stmt>) {
-    fn holds_class(s: &Stmt) -> bool {
-        match s {
-            Stmt::ClassDecl { .. } => true,
-            Stmt::Multi(v) => v.iter().any(holds_class),
-            _ => false,
-        }
-    }
+/// The `Multi`s this pass wrapped around statements are spliced back
+/// into the list once the scan is done: `Multi` is a transparent
+/// sequence, but the passes downstream find what they need by
+/// scanning the list itself — the class passes their declarations
+/// (`desugar_classes_index`), and the capture census of a nested named
+/// function the flag `let` it reads (a flag left inside a Multi was an
+/// unknown identifier to the lifted closure).
+fn splice_multis(stmts: &mut Vec<Stmt>) {
     let mut i = 0;
     while i < stmts.len() {
-        if matches!(&stmts[i], Stmt::Multi(v) if v.iter().any(holds_class)) {
+        if matches!(&stmts[i], Stmt::Multi(_)) {
             let Stmt::Multi(v) = std::mem::replace(&mut stmts[i], Stmt::Multi(Vec::new())) else {
                 unreachable!("matched Multi above");
             };
@@ -260,15 +264,16 @@ fn first_runnable(stmts: &[Stmt], paths: &[Vec<usize>]) -> usize {
 
 /// Every statement list nested in `s`: blocks, function and class
 /// bodies, and the bodies of the closures its own expressions write.
-fn descend(ast: &mut Ast, s: &mut Stmt, counter: &mut usize) {
+fn descend(ast: &mut Ast, s: &mut Stmt, counter: &mut usize, named_fns: bool) {
     for a in arrow_nodes(ast, s) {
         flag_arrow(ast, a, counter);
     }
     match s {
-        Stmt::Block(v) | Stmt::FnDecl { body: v, .. } => flag_list(ast, v, counter),
+        Stmt::Block(v) => flag_list(ast, v, counter, named_fns),
+        Stmt::FnDecl { body: v, .. } => flag_list(ast, v, counter, true),
         Stmt::Multi(v) => {
             for c in v.iter_mut() {
-                descend(ast, c, counter);
+                descend(ast, c, counter, named_fns);
             }
         }
         Stmt::Try {
@@ -277,10 +282,10 @@ fn descend(ast: &mut Ast, s: &mut Stmt, counter: &mut usize) {
             finally_body,
             ..
         } => {
-            flag_list(ast, body, counter);
-            flag_list(ast, catch_body, counter);
+            flag_list(ast, body, counter, named_fns);
+            flag_list(ast, catch_body, counter, named_fns);
             if let Some(f) = finally_body {
-                flag_list(ast, f, counter);
+                flag_list(ast, f, counter, named_fns);
             }
         }
         Stmt::If {
@@ -288,21 +293,21 @@ fn descend(ast: &mut Ast, s: &mut Stmt, counter: &mut usize) {
             else_branch,
             ..
         } => {
-            descend(ast, then_branch, counter);
+            descend(ast, then_branch, counter, named_fns);
             if let Some(e) = else_branch {
-                descend(ast, e, counter);
+                descend(ast, e, counter, named_fns);
             }
         }
         Stmt::While { body, .. }
         | Stmt::DoWhile { body, .. }
         | Stmt::Labeled { body, .. }
         | Stmt::ForOf { body, .. }
-        | Stmt::ForOfSplitIter { body, .. } => descend(ast, body, counter),
+        | Stmt::ForOfSplitIter { body, .. } => descend(ast, body, counter, named_fns),
         Stmt::For { init, body, .. } => {
             if let Some(i) = init {
-                descend(ast, i, counter);
+                descend(ast, i, counter, named_fns);
             }
-            descend(ast, body, counter);
+            descend(ast, body, counter, named_fns);
         }
         Stmt::Switch {
             cases,
@@ -314,11 +319,11 @@ fn descend(ast: &mut Ast, s: &mut Stmt, counter: &mut usize) {
                 super::switch_tdz_flag::flag_case_block(ast, cases, default, *default_at, counter);
             for c in cases.iter_mut() {
                 for b in c.body.iter_mut() {
-                    descend(ast, b, counter);
+                    descend(ast, b, counter, named_fns);
                 }
             }
             for b in default.iter_mut().flatten() {
-                descend(ast, b, counter);
+                descend(ast, b, counter, named_fns);
             }
             if !heads.is_empty() {
                 wrap(s, |sw| heads.into_iter().chain([sw]).collect());
@@ -326,7 +331,7 @@ fn descend(ast: &mut Ast, s: &mut Stmt, counter: &mut usize) {
         }
         Stmt::ExportDecl {
             inner: Some(inner), ..
-        } => descend(ast, inner, counter),
+        } => descend(ast, inner, counter, named_fns),
         Stmt::ClassDecl {
             ctor,
             methods,
@@ -335,17 +340,17 @@ fn descend(ast: &mut Ast, s: &mut Stmt, counter: &mut usize) {
             ..
         } => {
             if let Some(c) = ctor {
-                flag_list(ast, &mut c.body, counter);
+                flag_list(ast, &mut c.body, counter, true);
             }
             for m in methods.iter_mut().chain(static_methods.iter_mut()) {
-                flag_list(ast, &mut m.body, counter);
+                flag_list(ast, &mut m.body, counter, true);
             }
             for i in static_init.iter_mut() {
                 match i {
-                    StaticInit::Block(b) => flag_list(ast, b, counter),
+                    StaticInit::Block(b) => flag_list(ast, b, counter, named_fns),
                     StaticInit::Field(f) => {
                         let mut e = Stmt::Expr(f.init);
-                        descend(ast, &mut e, counter);
+                        descend(ast, &mut e, counter, named_fns);
                     }
                 }
             }
@@ -361,7 +366,7 @@ fn flag_arrow(ast: &mut Ast, eid: ExprId, counter: &mut usize) {
         return;
     };
     let mut body = std::mem::take(body);
-    flag_list(ast, &mut body, counter);
+    flag_list(ast, &mut body, counter, false);
     if let Expr::ArrowFn { body: slot, .. } = &mut ast.exprs[eid.0 as usize] {
         *slot = body;
     }

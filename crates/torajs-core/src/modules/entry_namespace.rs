@@ -18,7 +18,28 @@ use super::{NamedImport, WorkItem, is_builtin_module_source, resolve_path};
 /// evaluated in place). An `export … from "./self"` clause naming one
 /// of these faces is one more face of the same binding; a clause
 /// forwarding from elsewhere is not the entry's own and is left out.
-fn entry_own_faces(ast: &mut Ast, entry_path: &Path) -> Result<Vec<(String, String)>, String> {
+/// `fn_defaults`: whether a default that is a function or class
+/// definition is claimed too — the namespace lane reads it after
+/// the definition ran, but a named self-import of it is hoisted
+/// (`f()` ahead of the `export default function`), which a binding
+/// evaluated in place cannot give; that lane leaves it out.
+fn entry_own_faces(
+    ast: &mut Ast,
+    entry_path: &Path,
+    fn_defaults: bool,
+) -> Result<Vec<(String, String)>, String> {
+    let definition_default = ast.stmts.iter().any(|s| match s {
+        Stmt::ExportDecl {
+            inner: None,
+            default_expr: Some(eid),
+            ..
+        } => {
+            matches!(ast.get_expr(*eid), Expr::ArrowFn { .. })
+                || matches!(ast.get_expr(*eid), Expr::Ident(n) if n.starts_with("__ClassExpr_"))
+        }
+        _ => false,
+    });
+    let claim_default = fn_defaults || !definition_default;
     let mut own: Vec<(String, String)> = Vec::new();
     for s in ast.stmts.iter_mut() {
         match s {
@@ -27,6 +48,11 @@ fn entry_own_faces(ast: &mut Ast, entry_path: &Path) -> Result<Vec<(String, Stri
                     own.push((n.clone(), n));
                 }
             }
+            Stmt::ExportDecl {
+                inner: None,
+                default_expr: Some(_),
+                ..
+            } if !claim_default => {}
             Stmt::ExportDecl {
                 inner: None,
                 default_expr: Some(eid),
@@ -103,7 +129,7 @@ pub(super) fn bind_entry_self_imports(
     default_alias: Option<String>,
     st: &mut super::resolve_state::ResolveState,
 ) -> Result<(Vec<NamedImport>, Option<String>), String> {
-    let own = entry_own_faces(ast, entry_path)?;
+    let own = entry_own_faces(ast, entry_path, false)?;
     let local_of = |face: &str| own.iter().find(|(f, _)| f == face).map(|(_, l)| l.clone());
     let mut rest: Vec<NamedImport> = Vec::new();
     for (orig, alias) in named {
@@ -193,7 +219,7 @@ pub(super) fn claim_entry_namespace(
     }
     // exported name → the entry's own local binding (an own face an
     // `export … from "./self"` clause re-spells is claimed here too)
-    let faces = entry_own_faces(ast, entry_path)?;
+    let faces = entry_own_faces(ast, entry_path, true)?;
     let own: HashMap<String, String> = faces.iter().cloned().collect();
     let acc = tables.accums.get_mut(alias).expect("inserted above");
     for (face, local) in &faces {
