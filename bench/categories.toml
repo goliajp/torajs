@@ -70,9 +70,8 @@ cases = [
   "str-build-1mb",
 ]
 
-# Every regex case today is written so that only the match length is
-# observed; tr answers those without building a match array. Diagnostic
-# weight until the sibling cases that materialize the match land.
+# The -100k cases only observe the match length, and tr answers those
+# without building a match array; the two -1m cases read the captures.
 [categories.regex]
 weight = 6
 cases = [
@@ -85,6 +84,8 @@ cases = [
   "regex-dfa-uflag-cprange-100k",
   "regex-dfa-wbound-100k",
   "regex-wireback-minlit-100k",
+  "regex-capture-exec-1m",
+  "regex-replace-callback-1m",
 ]
 
 [categories.multibyte_string]

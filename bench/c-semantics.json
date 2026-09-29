@@ -49,5 +49,7 @@
   "split-materialize-1m": {"kind": "same", "why": "split counts the separators, then allocates the array once and every field as its own length-prefixed heap string; rebuilt is appended in place with doubling capacity"},
   "throw-unwind-depth8-1m": {"kind": "libc", "why": "sigsetjmp / siglongjmp without the signal mask stands in for throw / catch; every frame with a finally has its own jump buffer and re-raises; the thrown object is heap-allocated"},
   "str-build-1mb": {"kind": "same", "why": "byte buffer appended in place with doubling capacity from 8, a fresh buffer every round"},
-  "tokenizer-parser-eval-10k": {"kind": "same", "why": "one malloc per token and per AST node, token array grown by doubling, tree and tokens freed per line; the parser state never escapes, so it is a local struct"}
+  "tokenizer-parser-eval-10k": {"kind": "same", "why": "one malloc per token and per AST node, token array grown by doubling, tree and tokens freed per line; the parser state never escapes, so it is a local struct"},
+  "regex-capture-exec-1m": {"kind": "different", "why": "a hand-written matcher for ([a-z]+)=(\\d+) stands in for a general regex engine; both captures are written as their own heap strings and the digits parsed with strtoll from the captured one, but only the length of the key is read, so clang removes that allocation"},
+  "regex-replace-callback-1m": {"kind": "different", "why": "a hand-written matcher for ([a-z]+)=(\\d+) stands in for a general regex engine; both captures and the replacer's result are their own heap strings, the output is appended in place with doubling capacity from 8"}
 }
