@@ -149,19 +149,25 @@ static void hm_add(hash_map *m, char *key, size_t key_len, int64_t delta) {
     }
 }
 
-/* mirrors main.rs: format!("key{}", j) / format!("ключ{}", j) -- a fresh
-   heap allocation per call, same as a Rust String */
+/* prefix + decimal digits written straight into a fresh heap allocation;
+   snprintf would put a format-string interpreter on the hot path */
 static char *make_key(int64_t i, int64_t j, size_t *out_len) {
-    char buf[64];
-    int len;
-    if (i % 2 == 0) {
-        len = snprintf(buf, sizeof buf, "key%" PRId64, j);
-    } else {
-        len = snprintf(buf, sizeof buf, "ключ%" PRId64, j);
-    }
-    char *key = (char *)malloc((size_t)len + 1);
-    memcpy(key, buf, (size_t)len + 1);
-    *out_len = (size_t)len;
+    static const char even[] = "key";
+    static const char odd[] = "ключ";
+    const char *prefix = (i % 2 == 0) ? even : odd;
+    size_t plen = (i % 2 == 0) ? sizeof even - 1 : sizeof odd - 1;
+    char digits[20];
+    size_t pos = sizeof digits;
+    uint64_t u = (uint64_t)j;
+    do {
+        digits[--pos] = (char)('0' + u % 10);
+        u /= 10;
+    } while (u != 0);
+    size_t dlen = sizeof digits - pos;
+    char *key = (char *)malloc(plen + dlen);
+    memcpy(key, prefix, plen);
+    memcpy(key + plen, digits + pos, dlen);
+    *out_len = plen + dlen;
     return key;
 }
 

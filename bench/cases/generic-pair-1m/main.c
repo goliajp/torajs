@@ -8,16 +8,11 @@ typedef struct {
     int64_t snd;
 } Pair;
 
-/* mirrors main.rs: #[inline(never)] on loop_sum */
-__attribute__((noinline)) static int64_t loop_sum(int64_t n) {
+static int64_t loop_sum(int64_t n) {
     int64_t sum = 0;
     for (int64_t i = 0; i < n; i++) {
-        /* heap-allocated, mirrors Box<Pair<i64, i64>> */
-        Pair *p = malloc(sizeof(Pair));
-        p->fst = i;
-        p->snd = i + 1;
-        sum = sum + p->fst + p->snd;
-        free(p);
+        Pair p = {i, i + 1};
+        sum = sum + p.fst + p.snd;
     }
     return sum;
 }
