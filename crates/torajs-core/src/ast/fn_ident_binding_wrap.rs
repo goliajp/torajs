@@ -38,6 +38,17 @@
 //! spells `__fn(...)`, which is exactly the FnSig repr, and swapping
 //! in a Closure would put a closure cell in a slot typed for a
 //! direct-dispatch signature.
+//!
+//! A target whose body touches `arguments` is wrapped whether or not
+//! the local escapes. Its signature grows a hidden argc slot (and an
+//! argv pointer on the value face) that the FnSig lane cannot see:
+//! `const c = E.one; c(true)` on `static one(a: boolean) { …
+//! arguments.length }` fed `true` into the count slot and read `a`
+//! off nothing. The relay carries the true count; when every use of
+//! the local is a direct call, `arguments_object_devirt` folds the
+//! alias back into direct calls of the target, so those sites keep
+//! the direct lane with the slot filled — the shape `var c = E.one`
+//! already took through its declare-then-assign fold.
 
 use super::forwarders_object::{snapshot_fn_sigs, synthesize_forwarder_decls};
 use super::{Ast, Expr, ExprId, Stmt};
@@ -74,7 +85,9 @@ pub fn wrap_escaping_fn_ident_bindings(ast: &mut Ast) {
     let mut escaping: HashSet<String> = HashSet::new();
     let mut settled: HashSet<String> = HashSet::new();
     for (eid, local, target) in cands {
-        if settled.insert(local.clone()) && local_escapes(ast, &local) {
+        if settled.insert(local.clone())
+            && (local_escapes(ast, &local) || target_touches_arguments(ast, &target))
+        {
             escaping.insert(local.clone());
         }
         if !escaping.contains(&local) {
@@ -125,11 +138,31 @@ fn relayable_target(g: &str) -> bool {
         })
 }
 
+/// Whether the top-level fn `target`'s body reads `arguments` in any
+/// form — the same test `arguments_object_devirt` gates its fold on,
+/// so a wrapped alias whose uses are all direct calls comes back out
+/// as direct calls.
+fn target_touches_arguments(ast: &Ast, target: &str) -> bool {
+    use super::arguments_object_walkers::{
+        body_has_arguments_length, body_has_non_length_arguments_touch,
+    };
+    ast.stmts.iter().any(|s| {
+        matches!(s, Stmt::FnDecl { name, body, .. }
+            if name == target
+                && (body_has_arguments_length(ast, body)
+                    || body_has_non_length_arguments_touch(ast, body)))
+    })
+}
+
 /// Whether some arena `Ident(name)` sits outside a callee slot.
 /// Conservative by construction: an unrelated binding sharing the
 /// name only costs the wrap (mirroring
 /// `arguments_object_headless_argv::name_only_called_directly`,
 /// which answers the same question about a fn name).
+///
+/// A spread call's callee slot is an escape: the runtime spread lane
+/// boxes its callee as a value, which a bare FnSig cannot be
+/// (`const h = E.plain; h(1, ...arr)` refused loud there).
 fn local_escapes(ast: &Ast, name: &str) -> bool {
     let mut occurrences: HashSet<u32> = HashSet::new();
     for (i, e) in ast.exprs.iter().enumerate() {
@@ -143,7 +176,14 @@ fn local_escapes(ast: &Ast, name: &str) -> bool {
     let mut callee_slots: HashSet<u32> = HashSet::new();
     for e in &ast.exprs {
         let callee = match e {
-            Expr::Call { callee, .. } | Expr::NewDynamic { callee, .. } => *callee,
+            Expr::Call { callee, args }
+                if !args
+                    .iter()
+                    .any(|a| matches!(ast.get_expr(*a), Expr::Spread { .. })) =>
+            {
+                *callee
+            }
+            Expr::NewDynamic { callee, .. } => *callee,
             _ => continue,
         };
         if occurrences.contains(&callee.0) {
