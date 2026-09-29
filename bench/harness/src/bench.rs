@@ -52,6 +52,14 @@ pub struct RunOutcome {
     pub diskio_written_bytes: Option<u64>,
 }
 
+/// The run command with the case's arguments appended.
+fn with_args(cmd: &str, args: &[String]) -> String {
+    if args.is_empty() {
+        return cmd.to_string();
+    }
+    format!("{cmd} {}", args.join(" "))
+}
+
 /// Artifact file name padded to one length: the path is in the
 /// child's argv, and argv length moves the initial stack, which moves
 /// the measurement (Mytkowicz 2009). Every cell gets the same offset.
@@ -252,7 +260,7 @@ pub fn run_one(
         });
     }
 
-    let run_cmd = ctx.substitute(&runner.run);
+    let run_cmd = with_args(&ctx.substitute(&runner.run), &case.args);
 
     let actual_stdout = match exec_capture(&run_cmd) {
         Ok(s) => s,

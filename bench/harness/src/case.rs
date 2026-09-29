@@ -28,11 +28,16 @@ pub struct Case {
     /// mandelbrot, where compiler FMA choices produce different bit-exact
     /// answers on the same algorithm.
     pub tolerance: u64,
+    /// Command-line arguments appended to every runtime's run command,
+    /// so a case takes its size and seed at run time instead of from a
+    /// literal the compiler can fold. `expected.txt` is for these args.
+    pub args: Vec<String>,
 }
 
 /// Optional per-case `bench.toml` overrides.
 ///
 /// ```toml
+/// args = "1000000 42"      # appended to the run command of every runtime
 /// compile_runs = 5
 /// compile_warmup = 1
 /// tolerance = 500         # absolute int diff allowed on stdout's last line
@@ -42,6 +47,7 @@ struct CaseConfig {
     compile_runs: Option<u32>,
     compile_warmup: Option<u32>,
     tolerance: Option<u64>,
+    args: Option<String>,
 }
 
 pub fn discover_all(cases_dir: &Path) -> Result<Vec<Case>> {
@@ -93,6 +99,7 @@ pub fn discover_all(cases_dir: &Path) -> Result<Vec<Case>> {
             compile_warmup: cfg.compile_warmup.unwrap_or(DEFAULT_COMPILE_WARMUP),
             compile_runs: cfg.compile_runs.unwrap_or(DEFAULT_COMPILE_RUNS),
             tolerance: cfg.tolerance.unwrap_or(0),
+            args: cfg.args.map(|a| a.split_whitespace().map(String::from).collect()).unwrap_or_default(),
         });
     }
     Ok(out)
