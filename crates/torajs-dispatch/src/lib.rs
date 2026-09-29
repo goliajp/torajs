@@ -256,16 +256,6 @@ pub unsafe extern "C" fn __torajs_closure_drop_props_slow(cell: *mut core::ffi::
     }
 }
 
-/// Default resolution of the closure env-drop's cycle-buffer scrub
-/// (A5): the cell carries `FLAG_BUFFERED`.
-///
-/// # Safety
-/// `cell` is a live closure cell reaching rc=0.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_closure_unbuffer_slow(cell: *mut core::ffi::c_void) {
-    unsafe { __torajs_cycle_unbuffer(cell) }
-}
-
 /// Default resolution of a struct instance's expando-bag release
 /// (r502, the A5 shape on `Tag::Obj`): the bag at +24 is a dynobj,
 /// released through the universal drop.

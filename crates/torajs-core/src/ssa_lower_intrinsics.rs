@@ -77,7 +77,6 @@ pub(crate) struct Intrinsics {
     pub(crate) value_drop_heap: FuncId,
     pub(crate) cycle_unbuffer: FuncId,
     pub(crate) closure_drop_props_slow: FuncId,
-    pub(crate) closure_unbuffer_slow: FuncId,
     /// r502 — a struct instance's expando legs behind link seams.
     pub(crate) obj_props_drop_slow: FuncId,
     pub(crate) obj_buffer_slow: FuncId,

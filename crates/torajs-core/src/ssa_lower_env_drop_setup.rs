@@ -19,7 +19,7 @@
 use std::collections::HashMap;
 
 use crate::ast::Stmt;
-use crate::ssa::{self, FuncId, InstKind, Module, Operand, Terminator, Type};
+use crate::ssa::{self, FuncId, Module, Type};
 use crate::ssa_lower::{CLOSURE_CAP_BASE_OFF, intern_fn_sig};
 use crate::ssa_lower_intrinsics_init_a::InitA;
 
@@ -94,20 +94,15 @@ pub(crate) fn run(
             &mut f,
             entry,
             env_pid,
-            init_a.obj_capture.closure_unbuffer_slow,
             init_a.obj_capture.closure_drop_props_slow,
         );
-        f.append_void(
+        crate::ssa_lower_env_drop_and_ret_ty::emit_env_free_or_defer(
+            &mut f,
             after_props,
-            InstKind::Call(
-                init_a.obj_capture.obj_drop_sized,
-                vec![
-                    Operand::Value(env_pid),
-                    Operand::ConstI64(CLOSURE_CAP_BASE_OFF as i64),
-                ],
-            ),
+            env_pid,
+            CLOSURE_CAP_BASE_OFF,
+            init_a.obj_capture.obj_drop_sized,
         );
-        f.set_term(after_props, Terminator::Ret(None));
         module.funcs.push(f);
         (fid, sig)
     };

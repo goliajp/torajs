@@ -47,13 +47,7 @@ pub(crate) fn synthesize_env_drop(
     let env_pid = f.add_param(Type::Ptr, "env");
     let entry = f.add_block();
     let env_op = Operand::Value(env_pid);
-    let entry = emit_env_drop_prologue(
-        &mut f,
-        entry,
-        env_pid,
-        intrinsics.closure_unbuffer_slow,
-        intrinsics.closure_drop_props_slow,
-    );
+    let entry = emit_env_drop_prologue(&mut f, entry, env_pid, intrinsics.closure_drop_props_slow);
     for (i, (cap_ty, is_byref)) in cap_meta.iter().enumerate() {
         let offset = CLOSURE_CAP_BASE_OFF + (i as u64) * 8;
         if *is_byref {
@@ -107,52 +101,38 @@ pub(crate) fn synthesize_env_drop(
     // Free the env block itself. Size = closure header
     // (`CLOSURE_CAP_BASE_OFF`) + N_captures * 8.
     let env_block_size = CLOSURE_CAP_BASE_OFF + (cap_meta.len() as u64) * 8;
-    f.append_void(
+    emit_env_free_or_defer(
+        &mut f,
         entry,
-        InstKind::Call(
-            intrinsics.obj_drop_sized,
-            vec![env_op, Operand::ConstI64(env_block_size as i64)],
-        ),
+        env_pid,
+        env_block_size,
+        intrinsics.obj_drop_sized,
     );
-    f.set_term(entry, Terminator::Ret(None));
     f
 }
 
-/// The two speculative legs every closure env-drop opens with, each
-/// behind a link seam (A5, RFC 20260824-s2-5 刀 4; defaults in
-/// torajs-dispatch, guards in `cmd_build_elide::SYMBOL_STUBS`):
-///
-/// 1. RFC 20260717 knife 3 — scrub the cycle root buffer before the
-///    env goes away (a buffered candidate that then normal-drops
-///    would leave a dangling entry). The `FLAG_BUFFERED` test is
-///    inline so an unbuffered cell — every cell in a program nothing
-///    ever buffers — pays one load and no call; the seam is reached
-///    only when set, and its guard is `__torajs_cycle_buffer`'s own
-///    text (the only way a cell gets the flag).
-/// 2. T-27 — release the props dynobj if non-NULL. The NULL test is
-///    inline for the same reason (measured 5-12% on closure-heavy
-///    benches when every drop paid the call); the seam's guard is
-///    `__torajs_closure_props_attach`, the one first-attach entry.
-///
-/// Answers the block the caller continues in.
-pub(crate) fn emit_env_drop_prologue(
+/// The end of every env drop: free the block, unless the cycle
+/// collector holds it as a candidate root. Then it stays allocated,
+/// coloured black with rc 0, and the next collect's root walk frees
+/// it, so the buffer entry leaves in O(1) and this path makes no call.
+/// Only `cycle_buffer` sets FLAG_BUFFERED, so an unbuffered env pays
+/// one load. Both legs return.
+pub(crate) fn emit_env_free_or_defer(
     f: &mut ssa::Function,
-    entry: ssa::BlockId,
+    blk: ssa::BlockId,
     env: ssa::ValueId,
-    unbuffer_slow: ssa::FuncId,
-    drop_props_slow: ssa::FuncId,
-) -> ssa::BlockId {
+    env_block_size: u64,
+    obj_drop_sized: ssa::FuncId,
+) {
     let env_op = Operand::Value(env);
-    // header +4 packs tag:u16 | flags:u16 (same read as the inline
-    // closure drop's static-literal gate).
     let tag_flags = f.append_inst(
-        entry,
+        blk,
         InstKind::Load(Type::I32, env_op.clone(), 4),
         Type::I32,
         None,
     );
     let buffered_bit = f.append_inst(
-        entry,
+        blk,
         InstKind::BinOp(
             SsaBinOp::And,
             Operand::Value(tag_flags),
@@ -162,7 +142,7 @@ pub(crate) fn emit_env_drop_prologue(
         None,
     );
     let is_buffered = f.append_inst(
-        entry,
+        blk,
         InstKind::ICmp(
             IPred::Ne,
             Operand::Value(buffered_bit),
@@ -171,30 +151,65 @@ pub(crate) fn emit_env_drop_prologue(
         Type::Bool,
         None,
     );
-    let unbuf_blk = f.add_block();
-    let after_unbuf = f.add_block();
+    let defer_blk = f.add_block();
+    let free_blk = f.add_block();
     f.set_term(
-        entry,
+        blk,
         Terminator::CondBr {
             cond: Operand::Value(is_buffered),
-            then_blk: unbuf_blk,
-            else_blk: after_unbuf,
+            then_blk: defer_blk,
+            else_blk: free_blk,
         },
     );
-    f.append_void(
-        unbuf_blk,
-        InstKind::Call(unbuffer_slow, vec![env_op.clone()]),
+    let black = f.append_inst(
+        defer_blk,
+        InstKind::BinOp(
+            SsaBinOp::And,
+            Operand::Value(tag_flags),
+            Operand::ConstI32(!((torajs_rc::COLOR_MASK as u32) << 16) as i32),
+        ),
+        Type::I32,
+        None,
     );
-    f.set_term(unbuf_blk, Terminator::Br(after_unbuf));
+    f.append_void(
+        defer_blk,
+        InstKind::Store(Operand::Value(black), env_op.clone(), 4),
+    );
+    f.set_term(defer_blk, Terminator::Ret(None));
+    f.append_void(
+        free_blk,
+        InstKind::Call(
+            obj_drop_sized,
+            vec![env_op, Operand::ConstI64(env_block_size as i64)],
+        ),
+    );
+    f.set_term(free_blk, Terminator::Ret(None));
+}
 
+/// The speculative leg every closure env-drop opens with, behind a
+/// link seam (A5, RFC 20260824-s2-5 刀 4; default in torajs-dispatch,
+/// guard in `cmd_build_elide::SYMBOL_STUBS`): T-27 — release the
+/// props dynobj if non-NULL. The NULL test is inline (measured 5-12%
+/// on closure-heavy benches when every drop paid the call); the
+/// seam's guard is `__torajs_closure_props_attach`, the one
+/// first-attach entry.
+///
+/// Answers the block the caller continues in.
+pub(crate) fn emit_env_drop_prologue(
+    f: &mut ssa::Function,
+    entry: ssa::BlockId,
+    env: ssa::ValueId,
+    drop_props_slow: ssa::FuncId,
+) -> ssa::BlockId {
+    let env_op = Operand::Value(env);
     let props_v = f.append_inst(
-        after_unbuf,
+        entry,
         InstKind::Load(Type::Ptr, env_op.clone(), CLOSURE_PROPS_OFF),
         Type::Ptr,
         None,
     );
     let props_nonnull = f.append_inst(
-        after_unbuf,
+        entry,
         InstKind::ICmp(IPred::Ne, Operand::Value(props_v), Operand::ConstPtrNull),
         Type::Bool,
         None,
@@ -202,7 +217,7 @@ pub(crate) fn emit_env_drop_prologue(
     let drop_blk = f.add_block();
     let after_props = f.add_block();
     f.set_term(
-        after_unbuf,
+        entry,
         Terminator::CondBr {
             cond: Operand::Value(props_nonnull),
             then_blk: drop_blk,

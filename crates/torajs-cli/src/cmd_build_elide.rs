@@ -121,7 +121,7 @@ const SITES: [(&str, &str, &[&str], u32); 3] = [
 /// entries whose text liveness un-assumes the stub, landing-pad fam
 /// id). The join seam's enabler is the exotic-flag writer; the
 /// species probe's enablers are the two props-bag creators.
-const SYMBOL_STUBS: [(&str, &[&str], u32); 10] = [
+const SYMBOL_STUBS: [(&str, &[&str], u32); 9] = [
     (
         "___torajs_arr_join_exotic",
         &["___torajs_arr_flag_exotic"],
@@ -152,19 +152,12 @@ const SYMBOL_STUBS: [(&str, &[&str], u32); 10] = [
         &["___torajs_arr_subclass_alloc"],
         43,
     ),
-    // the closure env-drop's two legs (A5): a props bag to release
-    // — only `__torajs_closure_props_attach` gives a user closure
-    // one — and a buffered cell to scrub — only `__torajs_cycle_
-    // buffer` sets FLAG_BUFFERED.
+    // the closure env-drop's props leg (A5): a bag to release — only
+    // `__torajs_closure_props_attach` gives a user closure one.
     (
         "___torajs_closure_drop_props_slow",
         &["___torajs_closure_props_attach"],
         44,
-    ),
-    (
-        "___torajs_closure_unbuffer_slow",
-        &["___torajs_cycle_buffer"],
-        45,
     ),
     // the uncaught reporter's Error-instance rendering (A6): FLAG_
     // ERROR is set only by Error-derived `__new_<C>` factories, and
@@ -180,8 +173,7 @@ const SYMBOL_STUBS: [(&str, &[&str], u32); 10] = [
     // a struct instance's expando legs (r502, the A5 shape on
     // `Tag::Obj`): a bag to release and — for a fields-all-scalar
     // instance — a bag to buffer a cycle through; only
-    // `__torajs_obj_props_attach` gives an instance a bag. The
-    // scrub leg: only `__torajs_cycle_buffer` sets FLAG_BUFFERED.
+    // `__torajs_obj_props_attach` gives an instance a bag.
     (
         "___torajs_obj_props_drop_slow",
         &["___torajs_obj_props_attach"],
@@ -440,8 +432,8 @@ mod tests {
     #[test]
     fn exotic_slow_path_stubs_are_symbol_guarded_loud_rejects() {
         let stubs = guarded_stubs();
-        assert_eq!(stubs.len(), 11);
-        let guard = &stubs[10];
+        assert_eq!(stubs.len(), 10);
+        let guard = &stubs[9];
         assert_eq!(guard.sym, "___torajs_obj_check_field_writable");
         assert_eq!(
             guard.guard.to_string(),
@@ -488,15 +480,9 @@ mod tests {
             stubs[5].guard.to_string(),
             "syms:___torajs_closure_props_attach"
         );
-        assert_eq!(stubs[6].sym, "___torajs_closure_unbuffer_slow");
-        assert_eq!(stubs[6].guard.to_string(), "syms:___torajs_cycle_buffer");
+        assert_eq!(stubs[6].sym, "___torajs_uncaught_error_render_slow");
         assert_eq!(
-            &stubs[6].bytes[..4],
-            &(0xD280_0000u32 | (45 << 5) | 7).to_le_bytes()
-        );
-        assert_eq!(stubs[7].sym, "___torajs_uncaught_error_render_slow");
-        assert_eq!(
-            stubs[7].guard.to_string(),
+            stubs[6].guard.to_string(),
             "syms:___torajs_register_native_error"
         );
     }

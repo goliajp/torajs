@@ -60,10 +60,7 @@ const OBJ_ALLOC: &str = "__torajs_obj_alloc";
 const OBJ_DROP_SIZED: &str = "__torajs_obj_drop_sized";
 const FIELD_GUARD: &str = "__torajs_obj_check_field_writable";
 /// Seams that only touch runtime state `%b` cannot be in.
-const INERT_SEAMS: &[&str] = &[
-    "__torajs_closure_unbuffer_slow",
-    "__torajs_weakref_target_dying",
-];
+const INERT_SEAMS: &[&str] = &["__torajs_weakref_target_dying"];
 /// Seams that release the expando bag at `PROPS_OFF`.
 const PROPS_SEAMS: &[&str] = &[
     "__torajs_closure_drop_props_slow",
@@ -314,7 +311,7 @@ mod tests {
     const B: Operand = Operand::Value(ValueId(0));
 
     /// fids: 0 obj_alloc · 1 obj_drop_sized · 2 closure_drop_props_slow
-    /// · 3 closure_unbuffer_slow · 4 an unrelated callee
+    /// · 3 weakref_target_dying · 4 an unrelated callee
     fn module_with(body: Vec<Inst>) -> Module {
         let main = Function {
             name: "main".into(),
@@ -339,7 +336,7 @@ mod tests {
                 decl(OBJ_ALLOC),
                 decl(OBJ_DROP_SIZED),
                 decl("__torajs_closure_drop_props_slow"),
-                decl("__torajs_closure_unbuffer_slow"),
+                decl("__torajs_weakref_target_dying"),
                 decl("__torajs_other"),
                 main,
             ],
