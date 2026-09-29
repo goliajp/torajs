@@ -28,7 +28,7 @@
 # - generator / container / throw : niche.
 #
 # Substrate gaps documented separately (no cases yet — bench
-# coverage backlog): regex, map_set, math_transcendental, typed_array,
+# coverage backlog): map_set, math_transcendental, typed_array,
 # inheritance, real_app.
 
 [categories.compute]
@@ -50,6 +50,8 @@ weight = 12
 cases = [
   "array-map-1m",
   "array-sum-1m",
+  "array-copy-1m",
+  "array-any-indexed-100k",
   "stack-pop-1m",
   "array-sort-100k",
 ]
@@ -62,6 +64,25 @@ cases = [
   "split-only-100k",
   "rpn-eval-100k",
   "str-replace-100k",
+  "str-concat-ascii-100k",
+  "i64-to-str-100k",
+]
+
+# Every regex case today is written so that only the match length is
+# observed; tr answers those without building a match array. Diagnostic
+# weight until the sibling cases that materialize the match land.
+[categories.regex]
+weight = 6
+cases = [
+  "regex-dfa-anchored-100k",
+  "regex-dfa-dotall-100k",
+  "regex-dfa-iflag-100k",
+  "regex-dfa-mflag-100k",
+  "regex-dfa-safeclass-100k",
+  "regex-dfa-uflag-100k",
+  "regex-dfa-uflag-cprange-100k",
+  "regex-dfa-wbound-100k",
+  "regex-wireback-minlit-100k",
 ]
 
 [categories.multibyte_string]
@@ -109,9 +130,6 @@ cases = ["startup"]
 # Substrate gaps — categories with no cases yet (bench coverage
 # backlog; substrate work required before these can ship):
 #
-#   regex                 — Regex.test/exec substrate gap
-#                           (str.replace(/regex/) works; pure Regex
-#                           prototype methods don't yet).
 #   map_set               — Map.get / Set ops return Nullable(Any);
 #                           `as number` unbox returns garbage. Needs
 #                           the Any-unbox substrate fix.
