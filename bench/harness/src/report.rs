@@ -183,6 +183,27 @@ pub fn aggregate(outcomes: Vec<RunOutcome>) -> RunOutcome {
     let comp: Vec<f64> = outcomes.iter().filter_map(|o| o.compile_ms).collect();
     base.compile_ms = median(&comp);
 
+    base.run_samples_ms = outcomes.iter().flat_map(|o| o.run_samples_ms.iter().copied()).collect();
+    base.run_min_ms = outcomes.iter().filter_map(|o| o.run_min_ms).reduce(f64::min);
+    let med_f = |get: fn(&RunOutcome) -> Option<f64>| {
+        let xs: Vec<f64> = outcomes.iter().filter_map(get).collect();
+        median(&xs)
+    };
+    let med_u = |get: fn(&RunOutcome) -> Option<u64>| {
+        let xs: Vec<f64> = outcomes.iter().filter_map(get).map(|v| v as f64).collect();
+        median(&xs).map(|m| m.round() as u64)
+    };
+    base.user_ms = med_f(|o| o.user_ms);
+    base.system_ms = med_f(|o| o.system_ms);
+    base.instructions = med_u(|o| o.instructions);
+    base.cycles = med_u(|o| o.cycles);
+    base.pinstructions = med_u(|o| o.pinstructions);
+    base.pcycles = med_u(|o| o.pcycles);
+    base.phys_footprint_kb = outcomes.iter().filter_map(|o| o.phys_footprint_kb).max();
+    base.pageins = med_u(|o| o.pageins);
+    base.diskio_read_bytes = med_u(|o| o.diskio_read_bytes);
+    base.diskio_written_bytes = med_u(|o| o.diskio_written_bytes);
+
     let arts: Vec<u64> = outcomes.iter().filter_map(|o| o.artifact_bytes).collect();
     base.artifact_bytes = if arts.is_empty() {
         None

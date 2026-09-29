@@ -5,6 +5,7 @@ mod exec;
 mod hyperfine;
 mod report;
 mod runner;
+mod rusage;
 mod score;
 mod version_check;
 

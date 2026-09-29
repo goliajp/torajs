@@ -1,5 +1,5 @@
-//! One hyperfine invocation: warmup + runs of a command, read back
-//! through hyperfine's JSON export.
+//! One hyperfine invocation for the compile step: warmup + runs of a
+//! command, read back through hyperfine's JSON export.
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
@@ -7,13 +7,11 @@ use serde::Deserialize;
 use crate::bench::preview;
 use crate::exec::{PER_EXEC_TIMEOUT, spawn_output_bounded};
 
+/// Only the compile step still goes through hyperfine; the timed run
+/// is measured in `rusage.rs`, which keeps the counters hyperfine drops.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Stats {
     pub(crate) median_ms: f64,
-    pub(crate) stddev_ms: f64,
-    /// Largest peak RSS any measured run reached; `None` when hyperfine
-    /// did not report memory.
-    pub(crate) max_rss_kb: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -24,11 +22,6 @@ struct HyperfineExport {
 #[derive(Deserialize)]
 struct HyperfineRun {
     median: f64, // seconds
-    stddev: f64, // seconds
-    /// Peak RSS per measured run, from the child's rusage (hyperfine
-    /// 1.17+; absent in older exports).
-    #[serde(default)]
-    memory_usage_byte: Vec<u64>,
 }
 
 pub(crate) fn hyperfine_one(
@@ -81,8 +74,6 @@ pub(crate) fn hyperfine_one(
         .context("hyperfine returned no results")?;
     Ok(Stats {
         median_ms: r.median * 1000.0,
-        stddev_ms: r.stddev * 1000.0,
-        max_rss_kb: r.memory_usage_byte.iter().max().map(|b| b / 1024),
     })
 }
 

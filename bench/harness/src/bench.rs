@@ -4,6 +4,7 @@ use std::path::Path;
 use crate::case::Case;
 use crate::exec::{PER_EXEC_TIMEOUT, spawn_output_bounded};
 use crate::hyperfine::hyperfine_one;
+use crate::rusage::measure_runs;
 use crate::runner::{Runner, TemplateContext, split_cmd};
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -32,6 +33,23 @@ pub struct RunOutcome {
     pub artifact_sha256: Option<String>,
     pub stdout_match: Option<bool>,
     pub error: Option<String>,
+    /// The run step's raw wall-clock samples (ms), every pass
+    /// concatenated, so a reader can redo the statistics.
+    #[serde(default)]
+    pub run_samples_ms: Vec<f64>,
+    pub run_min_ms: Option<f64>,
+    /// Kernel resource account of the run step (macOS
+    /// `proc_pid_rusage`): medians across runs, footprint the largest.
+    pub user_ms: Option<f64>,
+    pub system_ms: Option<f64>,
+    pub instructions: Option<u64>,
+    pub cycles: Option<u64>,
+    pub pinstructions: Option<u64>,
+    pub pcycles: Option<u64>,
+    pub phys_footprint_kb: Option<u64>,
+    pub pageins: Option<u64>,
+    pub diskio_read_bytes: Option<u64>,
+    pub diskio_written_bytes: Option<u64>,
 }
 
 /// Hex-encoded SHA-256 of a file's contents, via the in-house
@@ -70,6 +88,18 @@ impl RunOutcome {
             artifact_sha256: None,
             stdout_match: None,
             error: Some(reason),
+            run_samples_ms: Vec::new(),
+            run_min_ms: None,
+            user_ms: None,
+            system_ms: None,
+            instructions: None,
+            cycles: None,
+            pinstructions: None,
+            pcycles: None,
+            phys_footprint_kb: None,
+            pageins: None,
+            diskio_read_bytes: None,
+            diskio_written_bytes: None,
         }
     }
 
@@ -126,6 +156,18 @@ pub fn run_one(
         artifact_sha256: None,
         stdout_match: None,
         error: None,
+        run_samples_ms: Vec::new(),
+        run_min_ms: None,
+        user_ms: None,
+        system_ms: None,
+        instructions: None,
+        cycles: None,
+        pinstructions: None,
+        pcycles: None,
+        phys_footprint_kb: None,
+        pageins: None,
+        diskio_read_bytes: None,
+        diskio_written_bytes: None,
     };
 
     if let Some(compile_template) = &runner.compile {
@@ -218,15 +260,27 @@ pub fn run_one(
         return Ok(outcome);
     }
 
-    match hyperfine_one(&run_cmd, case.run_warmup, case.run_runs, &[]) {
+    match measure_runs(&run_cmd, case.run_warmup, case.run_runs, &[], PER_EXEC_TIMEOUT) {
         Ok(stats) => {
             outcome.run_ms = Some(stats.median_ms);
             outcome.run_stddev_ms = Some(stats.stddev_ms);
-            outcome.max_rss_kb = stats.max_rss_kb;
+            outcome.run_min_ms = Some(stats.min_ms);
+            outcome.run_samples_ms = stats.samples_ms;
+            outcome.max_rss_kb = Some(stats.max_rss_kb);
+            outcome.user_ms = stats.user_ms;
+            outcome.system_ms = stats.system_ms;
+            outcome.instructions = stats.instructions;
+            outcome.cycles = stats.cycles;
+            outcome.pinstructions = stats.pinstructions;
+            outcome.pcycles = stats.pcycles;
+            outcome.phys_footprint_kb = stats.phys_footprint_kb;
+            outcome.pageins = stats.pageins;
+            outcome.diskio_read_bytes = stats.diskio_read_bytes;
+            outcome.diskio_written_bytes = stats.diskio_written_bytes;
         }
         Err(e) => {
             outcome.status = Status::Failed;
-            outcome.error = Some(format!("hyperfine run: {e:#}"));
+            outcome.error = Some(format!("timed run: {e:#}"));
         }
     }
 
@@ -263,6 +317,18 @@ pub fn artifact_only(
         artifact_sha256: None,
         stdout_match: None,
         error: None,
+        run_samples_ms: Vec::new(),
+        run_min_ms: None,
+        user_ms: None,
+        system_ms: None,
+        instructions: None,
+        cycles: None,
+        pinstructions: None,
+        pcycles: None,
+        phys_footprint_kb: None,
+        pageins: None,
+        diskio_read_bytes: None,
+        diskio_written_bytes: None,
     };
     if !src_path.exists() {
         outcome.status = Status::Skipped;
