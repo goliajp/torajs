@@ -7,8 +7,10 @@ function loopSum(xs: number[], offset: number): number {
   return sum
 }
 
+const n = parseInt(process.argv[2], 10)
+const offset = parseInt(process.argv[3], 10)
 const xs: number[] = []
-for (let i = 0; i < 10000000; i = i + 1) {
+for (let i = 0; i < n; i = i + 1) {
   xs.push(i)
 }
-console.log(loopSum(xs, 2))
+console.log(loopSum(xs, offset))

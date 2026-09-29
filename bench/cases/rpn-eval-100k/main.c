@@ -1,6 +1,7 @@
 #include <inttypes.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 /* mirrors main.rs: expr.split(' ') is a lazy iterator (no Vec collect), so
    this walks the string in place and never allocates a token array */
@@ -44,9 +45,10 @@ static int64_t eval_rpn(const char *expr) {
     return stack[0];
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+    (void)argc;
     int64_t total = 0;
-    int64_t n = 100000;
+    int64_t n = strtoll(argv[1], NULL, 10);
     for (int64_t i = 0; i < n; i++) {
         total += eval_rpn("3 4 + 2 * 5 +");
     }

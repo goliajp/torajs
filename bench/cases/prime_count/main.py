@@ -1,3 +1,5 @@
+import sys
+
 def is_prime(n):
     if n < 2:
         return False
@@ -9,9 +11,10 @@ def is_prime(n):
     return True
 
 
+limit = int(sys.argv[1])
 count = 0
 n = 0
-while n < 1_000_000:
+while n < limit:
     if is_prime(n):
         count += 1
     n += 1

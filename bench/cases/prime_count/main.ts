@@ -8,9 +8,10 @@ function is_prime(n: number): boolean {
   return true;
 }
 
+const limit: number = parseInt(process.argv[2], 10);
 let count: number = 0;
 let n: number = 0;
-while (n < 1000000) {
+while (n < limit) {
   if (is_prime(n)) {
     count = count + 1;
   }

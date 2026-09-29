@@ -6,3 +6,4 @@
 # rejecting actual algorithmic divergence (e.g. a sign flip at one cell
 # would drift by ~max_iter = 1000).
 tolerance = 500
+args = "200 1000"

@@ -1,6 +1,10 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+	"strconv"
+)
 
 func fib(n int) int {
 	if n < 2 {
@@ -10,5 +14,6 @@ func fib(n int) int {
 }
 
 func main() {
-	fmt.Println(fib(40))
+	n, _ := strconv.ParseInt(os.Args[1], 10, 64)
+	fmt.Println(fib(int(n)))
 }

@@ -48,14 +48,16 @@ static int deque_pop_front(Deque *q, int64_t *out) {
     return 1;
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+    (void)argc;
     Deque q;
     deque_init(&q);
     int64_t total = 0;
-    int64_t n = 100000;
+    int64_t n = strtoll(argv[1], NULL, 10);
+    size_t window = strtoull(argv[2], NULL, 10);
     for (int64_t i = 0; i < n; i++) {
         deque_push_back(&q, i);
-        if (q.len > 16) {
+        if (q.len > window) {
             int64_t v;
             deque_pop_front(&q, &v);
             total += v;

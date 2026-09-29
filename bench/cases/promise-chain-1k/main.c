@@ -132,11 +132,13 @@ typedef struct {
     Promise *awaiting;
 } MainFrame;
 
+static int64_t chain_len;
+
 static void main_step(void *env, int64_t v) {
     MainFrame *f = env;
     if (f->state == 0) {
         Promise *p = promise_resolved(0);
-        for (int64_t i = 0; i < 1000; i++) {
+        for (int64_t i = 0; i < chain_len; i++) {
             Promise *next = promise_then(p, add1);
             promise_release(p);
             p = next;
@@ -151,7 +153,9 @@ static void main_step(void *env, int64_t v) {
     free(f);
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+    (void)argc;
+    chain_len = strtoll(argv[1], NULL, 10);
     MainFrame *f = malloc(sizeof *f);
     f->state = 0;
     main_step(f, 0);

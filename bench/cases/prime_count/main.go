@@ -1,6 +1,10 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+	"strconv"
+)
 
 func isPrime(n uint64) bool {
 	if n < 2 {
@@ -15,8 +19,9 @@ func isPrime(n uint64) bool {
 }
 
 func main() {
+	limit, _ := strconv.ParseUint(os.Args[1], 10, 64)
 	var count uint64 = 0
-	for n := uint64(0); n < 1_000_000; n++ {
+	for n := uint64(0); n < limit; n++ {
 		if isPrime(n) {
 			count++
 		}

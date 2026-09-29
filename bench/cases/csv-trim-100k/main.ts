@@ -9,7 +9,7 @@ function rowLen(line: string): number {
 }
 
 let total = 0
-const n = 100000
+const n = parseInt(process.argv[2], 10)
 for (let i = 0; i < n; i = i + 1) {
   total = total + rowLen('  alpha , beta , gamma , delta , epsilon , zeta  ')
 }

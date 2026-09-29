@@ -61,8 +61,9 @@ fn stringify(r: &Record) -> String {
 }
 
 fn main() {
+    let mut args = std::env::args().skip(1);
     let mut total: i64 = 0;
-    let n: i64 = 100_000;
+    let n: i64 = args.next().unwrap().parse().unwrap();
     for i in 0..n {
         // black_box keeps the record allocation, which LLVM would otherwise elide
         let r = black_box(make_record(i));

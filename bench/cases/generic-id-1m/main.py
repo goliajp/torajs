@@ -1,3 +1,5 @@
+import sys
+
 from typing import TypeVar
 
 T = TypeVar("T")
@@ -16,7 +18,7 @@ def loop_sum(xs):
 
 def main():
     xs = []
-    for i in range(10_000_000):
+    for i in range(int(sys.argv[1])):
         xs.append(i)
     print(loop_sum(xs))
 

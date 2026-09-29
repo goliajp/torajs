@@ -5,10 +5,11 @@
 // units).
 let total = 0
 const piece = '中文测试'
-const n = 1000
+const n = parseInt(process.argv[2], 10)
+const pieces = parseInt(process.argv[3], 10)
 for (let i = 0; i < n; i = i + 1) {
   let acc = ''
-  for (let j = 0; j < 100; j = j + 1) {
+  for (let j = 0; j < pieces; j = j + 1) {
     acc = acc + piece
   }
   total = total + acc.length

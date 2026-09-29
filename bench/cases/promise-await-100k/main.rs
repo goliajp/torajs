@@ -123,6 +123,7 @@ impl<T: Clone> Promise<T> {
 
 // the module body as the state machine an async block lowers to
 struct MainBody {
+    n: i64,
     i: i64,
     total: i64,
     awaiting: Option<Await<i64>>,
@@ -143,7 +144,7 @@ impl Future for MainBody {
                     }
                 }
             }
-            if this.i < 100_000 {
+            if this.i < this.n {
                 this.awaiting = Some(Promise::resolved(this.i).into_await());
                 continue;
             }
@@ -154,7 +155,10 @@ impl Future for MainBody {
 }
 
 fn main() {
+    let mut args = std::env::args().skip(1);
+    let n: i64 = args.next().unwrap().parse().unwrap();
     spawn(MainBody {
+        n,
         i: 0,
         total: 0,
         awaiting: None,

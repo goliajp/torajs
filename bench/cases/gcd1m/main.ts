@@ -8,8 +8,9 @@ function gcd(a: number, b: number): number {
 }
 
 let total = 0;
-const target = 1234567;
-for (let i = 1; i <= 1000000; i++) {
+const n = parseInt(process.argv[2], 10);
+const target = parseInt(process.argv[3], 10);
+for (let i = 1; i <= n; i++) {
   total += gcd(i, target);
 }
 console.log(total);

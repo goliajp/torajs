@@ -8,8 +8,9 @@ function popcount(x: number): number {
   return count;
 }
 
+const limit = parseInt(process.argv[2], 10);
 let total = 0;
-for (let i = 0; i < 10000000; i++) {
+for (let i = 0; i < limit; i++) {
   total += popcount(i);
 }
 console.log(total);

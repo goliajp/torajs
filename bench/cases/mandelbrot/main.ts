@@ -12,12 +12,14 @@ function mandel(cr: number, ci: number, max_iter: number): number {
   return max_iter;
 }
 
+const side = parseInt(process.argv[2], 10);
+const max_iter = parseInt(process.argv[3], 10);
 let total = 0;
-for (let i = 0; i < 200; i++) {
-  for (let j = 0; j < 200; j++) {
+for (let i = 0; i < side; i++) {
+  for (let j = 0; j < side; j++) {
     const cr = i / 100 - 1.5;
     const ci = j / 100 - 1.0;
-    total += mandel(cr, ci, 1000);
+    total += mandel(cr, ci, max_iter);
   }
 }
 console.log(total);

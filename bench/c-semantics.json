@@ -17,7 +17,7 @@
   "array-copy-1m": {"kind": "suppressed", "why": "volatile / asm per element block the memcpy the loop is"},
   "array-map-1m": {"kind": "suppressed", "why": "noinline callback + volatile keep the call indirect"},
   "array-sum-1m": {"kind": "suppressed", "why": "volatile / asm per element block vectorisation"},
-  "closure-counter": {"kind": "suppressed", "why": "noinline + volatile + asm forbid devirtualisation"},
+  "closure-counter": {"kind": "suppressed", "why": "noinline + volatile forbid devirtualisation"},
   "closure-pipeline-1m": {"kind": "suppressed", "why": "volatile forbids devirtualisation"},
   "class-method-100k": {"kind": "suppressed", "why": "volatile + asm keep both per-iteration heap objects alive"},
   "str-concat-ascii-100k": {"kind": "suppressed", "why": "volatile + asm keep the per-iteration buffer, which clang would fold"},

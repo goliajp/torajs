@@ -1,3 +1,5 @@
+import sys
+
 def mandel(cr, ci, max_iter):
     zr = 0.0
     zi = 0.0
@@ -12,11 +14,13 @@ def mandel(cr, ci, max_iter):
     return max_iter
 
 
+side = int(sys.argv[1])
+max_iter = int(sys.argv[2])
 total = 0
-for i in range(200):
-    for j in range(200):
+for i in range(side):
+    for j in range(side):
         cr = i / 100 - 1.5
         ci = j / 100 - 1.0
-        total += mandel(cr, ci, 1000)
+        total += mandel(cr, ci, max_iter)
 
 print(total)

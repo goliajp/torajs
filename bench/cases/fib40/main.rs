@@ -7,5 +7,7 @@ fn fib(n: u64) -> u64 {
 }
 
 fn main() {
-    println!("{}", fib(40));
+    let mut args = std::env::args().skip(1);
+    let n: u64 = args.next().unwrap().parse().unwrap();
+    println!("{}", fib(n));
 }

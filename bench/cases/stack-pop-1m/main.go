@@ -1,10 +1,14 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+	"strconv"
+)
 
 func main() {
-	xs := make([]int64, 0, 1_000_000)
-	var n int64 = 1_000_000
+	n, _ := strconv.ParseInt(os.Args[1], 10, 64)
+	xs := make([]int64, 0, n)
 	for i := int64(0); i < n; i++ {
 		xs = append(xs, i)
 	}

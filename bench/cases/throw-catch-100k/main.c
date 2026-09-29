@@ -2,6 +2,7 @@
 #include <setjmp.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 static jmp_buf panic_buf;
 static int64_t panic_value;
@@ -25,9 +26,11 @@ static int64_t trial(int64_t i) {
     return panic_value;
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+    (void)argc;
+    int64_t n = strtoll(argv[1], NULL, 10);
     int64_t total = 0;
-    for (int64_t i = 0; i < 100000; i++) {
+    for (int64_t i = 0; i < n; i++) {
         total = total + trial(i);
     }
     printf("%" PRId64 "\n", total);

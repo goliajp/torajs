@@ -1,6 +1,10 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+	"strconv"
+)
 
 func popcount(x uint64) uint64 {
 	n := x
@@ -13,8 +17,9 @@ func popcount(x uint64) uint64 {
 }
 
 func main() {
+	limit, _ := strconv.ParseUint(os.Args[1], 10, 64)
 	var total uint64 = 0
-	for i := uint64(0); i < 10000000; i++ {
+	for i := uint64(0); i < limit; i++ {
 		total += popcount(i)
 	}
 	fmt.Println(total)

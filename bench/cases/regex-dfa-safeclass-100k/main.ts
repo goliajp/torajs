@@ -5,7 +5,7 @@
 // chunk 10d covers the unsafe-class case via `utf8_class_expand`.
 const re = /[A-Za-z0-9]+/
 let total = 0
-const n = 100000
+const n = parseInt(process.argv[2], 10)
 for (let i = 0; i < n; i = i + 1) {
   const s = '  Hello42 world  ' + i.toString()
   const m = s.match(re)

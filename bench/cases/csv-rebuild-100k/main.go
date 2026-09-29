@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 )
 
@@ -16,7 +18,7 @@ func rebuild(line string) int64 {
 
 func main() {
 	var total int64 = 0
-	var n int64 = 100_000
+	n, _ := strconv.ParseInt(os.Args[1], 10, 64)
 	for i := int64(0); i < n; i++ {
 		total += rebuild("alpha,beta,gamma,delta,epsilon,zeta")
 	}

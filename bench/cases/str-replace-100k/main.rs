@@ -26,8 +26,9 @@ fn replace_abc(s: &str, with: &str) -> String {
 }
 
 fn main() {
+    let mut args = std::env::args().skip(1);
     let mut total: i64 = 0;
-    let n: i64 = 100_000;
+    let n: i64 = args.next().unwrap().parse().unwrap();
     for _ in 0..n {
         let s = "abbc xxx abc yyy abbbbc";
         let r = replace_abc(s, "XY");

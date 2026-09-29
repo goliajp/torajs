@@ -11,4 +11,6 @@ function loopSum(n: number, k: number): number {
   return sum
 }
 
-console.log(loopSum(10000000, 2))
+const n = parseInt(process.argv[2], 10)
+const k = parseInt(process.argv[3], 10)
+console.log(loopSum(n, k))

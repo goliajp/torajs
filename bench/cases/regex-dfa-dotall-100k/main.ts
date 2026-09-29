@@ -4,7 +4,7 @@
 // byte under `s` (without `s` it skips `\n` — Pike VM path).
 const re = /a.+c/s
 let total = 0
-const n = 100000
+const n = parseInt(process.argv[2], 10)
 for (let i = 0; i < n; i = i + 1) {
   const s = 'pre a\nmiddle\nc post ' + i.toString()
   const m = s.match(re)

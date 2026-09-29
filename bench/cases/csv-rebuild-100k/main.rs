@@ -8,8 +8,9 @@ fn rebuild(line: &str) -> i64 {
 }
 
 fn main() {
+    let mut args = std::env::args().skip(1);
     let mut total: i64 = 0;
-    let n: i64 = 100_000;
+    let n: i64 = args.next().unwrap().parse().unwrap();
     for _ in 0..n {
         total += rebuild("alpha,beta,gamma,delta,epsilon,zeta");
     }

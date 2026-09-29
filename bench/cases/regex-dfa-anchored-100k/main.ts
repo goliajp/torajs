@@ -4,7 +4,7 @@
 // retries (Pike VM fallback would scan from byte 0 + 1 + 2 ...).
 const re = /^\w+/
 let total = 0
-const n = 100000
+const n = parseInt(process.argv[2], 10)
 for (let i = 0; i < n; i = i + 1) {
   const s = 'hello world ' + i.toString()
   const m = s.match(re)

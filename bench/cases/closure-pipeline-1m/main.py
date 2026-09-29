@@ -1,3 +1,5 @@
+import sys
+
 def add1(x):
     return x + 1
 
@@ -10,6 +12,6 @@ def reduce(xs, f):
 
 
 xs = []
-for i in range(10000000):
+for i in range(int(sys.argv[1])):
     xs.append(i)
 print(reduce(xs, add1))

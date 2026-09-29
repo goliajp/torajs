@@ -1,9 +1,11 @@
 use std::hint::black_box;
 
 fn main() {
+    let mut args = std::env::args().skip(1);
+    let count: i64 = args.next().unwrap().parse().unwrap();
     let mut xs: Vec<i64> = Vec::new();
     let mut i: i64 = 0;
-    while i < 10_000_000 {
+    while i < count {
         xs.push(i);
         i += 1;
     }

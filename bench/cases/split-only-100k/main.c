@@ -39,9 +39,10 @@ static size_t split_space(const char *s, str_slice **out) {
     return len;
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+    (void)argc;
     int64_t total = 0;
-    int64_t n = 100000;
+    int64_t n = strtoll(argv[1], NULL, 10);
     const char *s = "3 4 + 2 * 5 +";
 
     for (int64_t i = 0; i < n; i++) {

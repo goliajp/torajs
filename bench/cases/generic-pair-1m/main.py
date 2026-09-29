@@ -1,3 +1,5 @@
+import sys
+
 def loop_sum(n):
     s = 0
     for i in range(n):
@@ -6,4 +8,4 @@ def loop_sum(n):
     return s
 
 
-print(loop_sum(1_000_000))
+print(loop_sum(int(sys.argv[1])))

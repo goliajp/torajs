@@ -9,4 +9,5 @@ function loopSum(n: number): number {
   return sum
 }
 
-console.log(loopSum(1000000))
+const n = parseInt(process.argv[2], 10)
+console.log(loopSum(n))

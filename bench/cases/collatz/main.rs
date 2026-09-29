@@ -12,9 +12,11 @@ fn steps(mut n: u64) -> u64 {
 }
 
 fn main() {
+    let mut args = std::env::args().skip(1);
+    let limit: u64 = args.next().unwrap().parse().unwrap();
     let mut max: u64 = 0;
     let mut i: u64 = 1;
-    while i <= 1_000_000 {
+    while i <= limit {
         let s = steps(i);
         if s > max {
             max = s;

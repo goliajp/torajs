@@ -1,6 +1,10 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+	"strconv"
+)
 
 func mandel(cr, ci float64, maxIter int) int {
 	zr := 0.0
@@ -19,12 +23,16 @@ func mandel(cr, ci float64, maxIter int) int {
 }
 
 func main() {
+	sideArg, _ := strconv.ParseInt(os.Args[1], 10, 64)
+	maxIterArg, _ := strconv.ParseInt(os.Args[2], 10, 64)
+	side := int(sideArg)
+	maxIter := int(maxIterArg)
 	total := 0
-	for i := 0; i < 200; i++ {
-		for j := 0; j < 200; j++ {
+	for i := 0; i < side; i++ {
+		for j := 0; j < side; j++ {
 			cr := float64(i)/100 - 1.5
 			ci := float64(j)/100 - 1.0
-			total += mandel(cr, ci, 1000)
+			total += mandel(cr, ci, maxIter)
 		}
 	}
 	fmt.Println(total)

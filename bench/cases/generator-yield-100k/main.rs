@@ -41,10 +41,12 @@ fn range(start: i64, end: i64) -> Box<Range> {
 }
 
 fn main() {
+    let mut args = std::env::args().skip(1);
     let mut total: i64 = 0;
-    let passes = 100;
+    let passes: i32 = args.next().unwrap().parse().unwrap();
+    let end: i64 = args.next().unwrap().parse().unwrap();
     for _ in 0..passes {
-        for v in range(0, 1000) {
+        for v in range(0, end) {
             total = total + v;
         }
     }

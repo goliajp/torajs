@@ -1,6 +1,10 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+	"strconv"
+)
 
 func trial(i int64) (result int64) {
 	defer func() {
@@ -12,8 +16,9 @@ func trial(i int64) (result int64) {
 }
 
 func main() {
+	n, _ := strconv.ParseInt(os.Args[1], 10, 64)
 	var total int64 = 0
-	for i := int64(0); i < 100000; i++ {
+	for i := int64(0); i < n; i++ {
 		total = total + trial(i)
 	}
 	fmt.Println(total)

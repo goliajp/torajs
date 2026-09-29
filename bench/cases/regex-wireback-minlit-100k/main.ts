@@ -10,7 +10,7 @@
 // (non-global branch falls through `attach_exec_props` + `attach_groups`).
 const re = /x/
 let total = 0
-const n = 100000
+const n = parseInt(process.argv[2], 10)
 for (let i = 0; i < n; i = i + 1) {
   const m = 'x'.match(re)
   if (m !== null) total = total + 1

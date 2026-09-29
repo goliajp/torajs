@@ -1,3 +1,5 @@
+import sys
+
 def trial(i):
     try:
         raise Exception(i)
@@ -6,6 +8,6 @@ def trial(i):
 
 
 total = 0
-for i in range(100_000):
+for i in range(int(sys.argv[1])):
     total = total + trial(i)
 print(total)

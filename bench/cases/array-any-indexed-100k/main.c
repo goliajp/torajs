@@ -9,10 +9,12 @@ typedef struct {
     size_t len;
 } Str;
 
-int main(void) {
+int main(int argc, char **argv) {
+    (void)argc;
     /* mirrors main.rs: format!("item{}", j) -- each element is a heap string */
-    Str arr[100];
-    for (int64_t j = 0; j < 100; j++) {
+    int64_t pool = strtoll(argv[2], NULL, 10);
+    Str *arr = malloc((size_t)pool * sizeof(Str));
+    for (int64_t j = 0; j < pool; j++) {
         char buf[32];
         int len = snprintf(buf, sizeof buf, "item%" PRId64, j);
         arr[j].ptr = malloc((size_t)len);
@@ -21,15 +23,16 @@ int main(void) {
     }
 
     int64_t total = 0;
-    int64_t n = 100000;
+    int64_t n = strtoll(argv[1], NULL, 10);
     for (int64_t i = 0; i < n; i++) {
-        const Str *s = &arr[i % 100];
+        const Str *s = &arr[i % pool];
         total = total + (int64_t)s->len;
     }
     printf("%" PRId64 "\n", total);
 
-    for (int j = 0; j < 100; j++) {
+    for (int j = 0; j < pool; j++) {
         free(arr[j].ptr);
     }
+    free(arr);
     return 0;
 }

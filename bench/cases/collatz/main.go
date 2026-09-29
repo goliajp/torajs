@@ -1,6 +1,10 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+	"strconv"
+)
 
 func steps(n uint64) uint64 {
 	var count uint64 = 0
@@ -16,8 +20,9 @@ func steps(n uint64) uint64 {
 }
 
 func main() {
+	limit, _ := strconv.ParseUint(os.Args[1], 10, 64)
 	var max uint64 = 0
-	for i := uint64(1); i <= 1_000_000; i++ {
+	for i := uint64(1); i <= limit; i++ {
 		s := steps(i)
 		if s > max {
 			max = s

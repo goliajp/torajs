@@ -1,6 +1,10 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+	"strconv"
+)
 
 func ackermann(m, n uint64) uint64 {
 	if m == 0 {
@@ -13,5 +17,7 @@ func ackermann(m, n uint64) uint64 {
 }
 
 func main() {
-	fmt.Println(ackermann(3, 8))
+	m, _ := strconv.ParseUint(os.Args[1], 10, 64)
+	n, _ := strconv.ParseUint(os.Args[2], 10, 64)
+	fmt.Println(ackermann(m, n))
 }

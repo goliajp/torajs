@@ -12,8 +12,10 @@ fn loop_sum(xs: &[i64]) -> i64 {
 }
 
 fn main() {
+    let mut args = std::env::args().skip(1);
+    let count: i64 = args.next().unwrap().parse().unwrap();
     let mut xs: Vec<i64> = Vec::new();
-    for i in 0..10_000_000 {
+    for i in 0..count {
         xs.push(i);
     }
     println!("{}", loop_sum(&xs));

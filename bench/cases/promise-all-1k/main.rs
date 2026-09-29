@@ -210,6 +210,7 @@ fn promise_all(ps: &[Promise<i64>]) -> Promise<Rc<Vec<i64>>> {
 
 // the module body as the state machine an async block lowers to
 struct MainBody {
+    count: i64,
     awaiting: Option<Await<Rc<Vec<i64>>>>,
 }
 
@@ -234,7 +235,7 @@ impl Future for MainBody {
             }
             let mut arr: Vec<Promise<i64>> = Vec::new();
             let mut i: i64 = 0;
-            while i < 1000 {
+            while i < this.count {
                 arr.push(Promise::resolved(i));
                 i = i + 1;
             }
@@ -244,6 +245,11 @@ impl Future for MainBody {
 }
 
 fn main() {
-    spawn(MainBody { awaiting: None });
+    let mut args = std::env::args().skip(1);
+    let count: i64 = args.next().unwrap().parse().unwrap();
+    spawn(MainBody {
+        count,
+        awaiting: None,
+    });
     run_microtasks();
 }

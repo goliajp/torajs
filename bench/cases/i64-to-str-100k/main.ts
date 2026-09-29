@@ -3,7 +3,7 @@
 // Round 2 attack #A2 / #A3). Expected stdout = sum of decimal-digit-counts
 // of 0..99999 = 488890.
 let total = 0
-const n = 100000
+const n = parseInt(process.argv[2], 10)
 for (let i = 0; i < n; i = i + 1) {
   const s = i.toString()
   total = total + s.length

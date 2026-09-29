@@ -5,7 +5,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-int main(void) {
+int main(int argc, char **argv) {
+    (void)argc;
     regex_t re;
     // in the C locale an ascii-only class never matches a utf-8 lead or continuation byte,
     // so byte-wise ERE finds the same matches as the u flag
@@ -13,7 +14,7 @@ int main(void) {
     regmatch_t m[1];
 
     int64_t total = 0;
-    int64_t n = 100000;
+    int64_t n = strtoll(argv[1], NULL, 10);
     for (int64_t i = 0; i < n; i++) {
         char *s = (char *)malloc(64);
         snprintf(s, 64, "  Hello42 word  %" PRId64, i);

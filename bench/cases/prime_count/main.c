@@ -1,6 +1,7 @@
 #include <inttypes.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 static int is_prime(uint64_t n) {
     if (n < 2) {
@@ -16,10 +17,12 @@ static int is_prime(uint64_t n) {
     return 1;
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+    (void)argc;
+    uint64_t limit = strtoull(argv[1], NULL, 10);
     uint64_t count = 0;
     uint64_t n = 0;
-    while (n < 1000000) {
+    while (n < limit) {
         if (is_prime(n)) {
             count += 1;
         }

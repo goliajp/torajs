@@ -24,9 +24,10 @@ static Vec2 *vec2_scale(const Vec2 *v, int64_t k) {
     return vec2_new(v->x * k, v->y * k);
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+    (void)argc;
     int64_t total = 0;
-    int64_t n = 100000;
+    int64_t n = strtoll(argv[1], NULL, 10);
     for (int64_t i = 0; i < n; i++) {
         Vec2 *v = vec2_new(i, i + 1);
         // mirrors main.rs: black_box keeps both allocations

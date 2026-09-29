@@ -1,6 +1,7 @@
 fn main() {
+    let mut args = std::env::args().skip(1);
     let mut xs: Vec<i64> = Vec::new();
-    let n: i64 = 1_000_000;
+    let n: i64 = args.next().unwrap().parse().unwrap();
     for i in 0..n {
         xs.push(i);
     }

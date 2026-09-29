@@ -39,13 +39,15 @@ static int cmp_i64(const void *pa, const void *pb) {
     return (d > 0) - (d < 0);
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+    (void)argc;
     int64_t checksum = 0;
-    int64_t passes = 100;
+    int64_t passes = strtoll(argv[1], NULL, 10);
+    size_t len = strtoull(argv[2], NULL, 10);
     for (int64_t p = 0; p < passes; p++) {
-        I64Vec xs = build(1000, p + 1);
+        I64Vec xs = build(len, p + 1);
         qsort(xs.data, xs.len, sizeof(int64_t), cmp_i64);
-        checksum = checksum + xs.data[0] + xs.data[999];
+        checksum = checksum + xs.data[0] + xs.data[len - 1];
         free(xs.data);
     }
     printf("%" PRId64 "\n", checksum);

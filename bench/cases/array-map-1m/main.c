@@ -54,7 +54,10 @@ static int64_t loop_sum(int64_t n, int64_t k) {
     return sum;
 }
 
-int main(void) {
-    printf("%" PRId64 "\n", loop_sum(10000000, 2));
+int main(int argc, char **argv) {
+    (void)argc;
+    int64_t n = strtoll(argv[1], NULL, 10);
+    int64_t k = strtoll(argv[2], NULL, 10);
+    printf("%" PRId64 "\n", loop_sum(n, k));
     return 0;
 }

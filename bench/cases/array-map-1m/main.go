@@ -1,6 +1,10 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+	"strconv"
+)
 
 //go:noinline
 func loopSum(n int64, k int64) int64 {
@@ -21,5 +25,7 @@ func loopSum(n int64, k int64) int64 {
 }
 
 func main() {
-	fmt.Println(loopSum(10000000, 2))
+	n, _ := strconv.ParseInt(os.Args[1], 10, 64)
+	k, _ := strconv.ParseInt(os.Args[2], 10, 64)
+	fmt.Println(loopSum(n, k))
 }

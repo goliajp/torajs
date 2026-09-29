@@ -1,3 +1,5 @@
+import sys
+
 def popcount(x):
     n = x
     count = 0
@@ -8,7 +10,7 @@ def popcount(x):
 
 
 total = 0
-for i in range(10000000):
+for i in range(int(sys.argv[1])):
     total += popcount(i)
 
 print(total)

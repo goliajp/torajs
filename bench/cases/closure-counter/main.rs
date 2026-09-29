@@ -10,11 +10,13 @@ fn loop_sum(xs: &[i64], f: &dyn Fn(i64) -> i64) -> i64 {
 }
 
 fn main() {
+    let mut args = std::env::args().skip(1);
+    let count: i64 = args.next().unwrap().parse().unwrap();
     let mut xs: Vec<i64> = Vec::new();
-    for i in 0..10_000_000 {
+    for i in 0..count {
         xs.push(i);
     }
-    let offset: i64 = black_box(2);
+    let offset: i64 = args.next().unwrap().parse().unwrap();
     // Box::new(move |x| x + offset) is the rust equivalent of a
     // capturing arrow with heap-allocated env; the &dyn Fn vtable
     // dispatch matches torajs's load-fn_ptr-from-env + indirect call.

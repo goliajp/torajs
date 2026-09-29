@@ -42,11 +42,13 @@ static bool range_next(Range *g, int64_t *out) {
     return false;
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+    (void)argc;
     int64_t total = 0;
-    int passes = 100;
+    int passes = (int)strtoll(argv[1], NULL, 10);
+    int64_t end = strtoll(argv[2], NULL, 10);
     for (int p = 0; p < passes; p++) {
-        Range *g = range(0, 1000);
+        Range *g = range(0, end);
         int64_t v;
         while (range_next(g, &v)) {
             total = total + v;

@@ -14,7 +14,7 @@ class Vec2 {
 }
 
 let total = 0
-const n = 100000
+const n = parseInt(process.argv[2], 10)
 for (let i = 0; i < n; i = i + 1) {
   const v = new Vec2(i, i + 1)
   const s = v.scale(2)

@@ -187,6 +187,7 @@ fn add1(v: i64) -> i64 {
 
 // the module body as the state machine an async block lowers to
 struct MainBody {
+    len: i32,
     awaiting: Option<Await<i64>>,
 }
 
@@ -206,7 +207,7 @@ impl Future for MainBody {
             }
             let mut p = Promise::resolved(0);
             let mut i = 0;
-            while i < 1000 {
+            while i < this.len {
                 p = p.then(add1);
                 i = i + 1;
             }
@@ -216,6 +217,11 @@ impl Future for MainBody {
 }
 
 fn main() {
-    spawn(MainBody { awaiting: None });
+    let mut args = std::env::args().skip(1);
+    let len: i32 = args.next().unwrap().parse().unwrap();
+    spawn(MainBody {
+        len,
+        awaiting: None,
+    });
     run_microtasks();
 }

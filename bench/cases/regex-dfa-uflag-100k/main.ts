@@ -6,7 +6,7 @@
 // CharClass instructions; the DFA byte-step walks it verbatim.
 const re = /\p{L}+/u
 let total = 0
-const n = 100000
+const n = parseInt(process.argv[2], 10)
 for (let i = 0; i < n; i = i + 1) {
   const s = '  Hello42 word  ' + i.toString()
   const m = s.match(re)

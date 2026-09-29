@@ -1,14 +1,19 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+	"strconv"
+)
 
 func main() {
 	q := make([]int64, 0, 32)
 	var total int64 = 0
-	var n int64 = 100_000
+	n, _ := strconv.ParseInt(os.Args[1], 10, 64)
+	window, _ := strconv.ParseInt(os.Args[2], 10, 64)
 	for i := int64(0); i < n; i++ {
 		q = append(q, i)
-		if len(q) > 16 {
+		if int64(len(q)) > window {
 			total += q[0]
 			q = q[1:]
 		}

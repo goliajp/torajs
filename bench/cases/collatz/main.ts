@@ -15,9 +15,10 @@ function steps(n: number): number {
   return count;
 }
 
+const limit: number = parseInt(process.argv[2], 10);
 let max: number = 0;
 let i: number = 1;
-while (i <= 1000000) {
+while (i <= limit) {
   const s: number = steps(i);
   if (s > max) {
     max = s;

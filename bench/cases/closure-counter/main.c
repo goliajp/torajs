@@ -37,15 +37,15 @@ static int64_t loop_sum(const int64_t *xs, size_t len, int64_t (*f)(void *, int6
     return sum;
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+    (void)argc;
+    int64_t count = strtoll(argv[1], NULL, 10);
     I64Vec xs = {0};
-    for (int64_t i = 0; i < 10000000; i++) {
+    for (int64_t i = 0; i < count; i++) {
         vec_push(&xs, i);
     }
 
-    int64_t offset = 2;
-    // mirrors main.rs: black_box(2) opaques the literal
-    __asm__ volatile("" : "+r"(offset) : : "memory");
+    int64_t offset = strtoll(argv[2], NULL, 10);
 
     ClosureEnv env = { offset };
     // mirrors main.rs: Box<dyn Fn> + black_box(&*f) force a real indirect call

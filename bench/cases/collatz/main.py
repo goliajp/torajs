@@ -1,3 +1,5 @@
+import sys
+
 def steps(n):
     count = 0
     while n != 1:
@@ -9,9 +11,10 @@ def steps(n):
     return count
 
 
+limit = int(sys.argv[1])
 max_steps = 0
 i = 1
-while i <= 1_000_000:
+while i <= limit:
     s = steps(i)
     if s > max_steps:
         max_steps = s

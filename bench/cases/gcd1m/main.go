@@ -1,6 +1,10 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+	"strconv"
+)
 
 func gcd(a, b uint64) uint64 {
 	for b != 0 {
@@ -12,9 +16,10 @@ func gcd(a, b uint64) uint64 {
 }
 
 func main() {
+	limit, _ := strconv.ParseUint(os.Args[1], 10, 64)
 	var total uint64 = 0
-	const target uint64 = 1234567
-	for i := uint64(1); i <= 1000000; i++ {
+	target, _ := strconv.ParseUint(os.Args[2], 10, 64)
+	for i := uint64(1); i <= limit; i++ {
 		total += gcd(i, target)
 	}
 	fmt.Println(total)

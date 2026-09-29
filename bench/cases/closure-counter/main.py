@@ -1,3 +1,5 @@
+import sys
+
 def loop_sum(xs, f):
     s = 0
     for x in xs:
@@ -7,9 +9,9 @@ def loop_sum(xs, f):
 
 def main():
     xs = []
-    for i in range(10_000_000):
+    for i in range(int(sys.argv[1])):
         xs.append(i)
-    offset = 2
+    offset = int(sys.argv[2])
     add = lambda x: x + offset
     print(loop_sum(xs, add))
 

@@ -9,5 +9,8 @@ fn ackermann(m: u64, n: u64) -> u64 {
 }
 
 fn main() {
-    println!("{}", ackermann(3, 8));
+    let mut args = std::env::args().skip(1);
+    let m: u64 = args.next().unwrap().parse().unwrap();
+    let n: u64 = args.next().unwrap().parse().unwrap();
+    println!("{}", ackermann(m, n));
 }

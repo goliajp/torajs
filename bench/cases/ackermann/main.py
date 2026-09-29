@@ -10,4 +10,4 @@ def ackermann(m, n):
     return ackermann(m - 1, ackermann(m, n - 1))
 
 
-print(ackermann(3, 8))
+print(ackermann(int(sys.argv[1]), int(sys.argv[2])))

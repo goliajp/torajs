@@ -3,11 +3,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-int main(void) {
+int main(int argc, char **argv) {
+    (void)argc;
     int64_t *xs = NULL;
     size_t len = 0;
     size_t cap = 0;
-    int64_t n = 1000000;
+    int64_t n = strtoll(argv[1], NULL, 10);
 
     for (int64_t i = 0; i < n; i++) {
         if (len == cap) {

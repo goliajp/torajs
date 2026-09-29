@@ -18,5 +18,7 @@ fn loop_sum(n: i64) -> i64 {
 }
 
 fn main() {
-    println!("{}", loop_sum(1_000_000));
+    let mut args = std::env::args().skip(1);
+    let n: i64 = args.next().unwrap().parse().unwrap();
+    println!("{}", loop_sum(n));
 }

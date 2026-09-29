@@ -13,9 +13,11 @@ fn is_prime(n: u64) -> bool {
 }
 
 fn main() {
+    let mut args = std::env::args().skip(1);
+    let limit: u64 = args.next().unwrap().parse().unwrap();
     let mut count: u64 = 0;
     let mut n: u64 = 0;
-    while n < 1_000_000 {
+    while n < limit {
         if is_prime(n) {
             count += 1;
         }

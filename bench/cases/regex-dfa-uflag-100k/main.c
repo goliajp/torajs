@@ -215,9 +215,10 @@ static int find_letters(const char *s, size_t len, size_t *start, size_t *end) {
     return 0;
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+    (void)argc;
     int64_t total = 0;
-    int64_t n = 100000;
+    int64_t n = strtoll(argv[1], NULL, 10);
     for (int64_t i = 0; i < n; i++) {
         char *s = (char *)malloc(64);
         int len = snprintf(s, 64, "  Hello42 word  %" PRId64, i);

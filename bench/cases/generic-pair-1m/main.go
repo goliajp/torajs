@@ -1,6 +1,10 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+	"strconv"
+)
 
 type Pair[A any, B any] struct {
 	Fst A
@@ -17,5 +21,6 @@ func loopSum(n int64) int64 {
 }
 
 func main() {
-	fmt.Println(loopSum(1000000))
+	n, _ := strconv.ParseInt(os.Args[1], 10, 64)
+	fmt.Println(loopSum(n))
 }

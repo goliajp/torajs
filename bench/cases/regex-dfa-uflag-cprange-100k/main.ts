@@ -10,7 +10,7 @@
 // Sibling-band ratio (~1.75-2×) here = gap lives in `\p{L}` expansion.
 const re = /[A-Za-z]+/u
 let total = 0
-const n = 100000
+const n = parseInt(process.argv[2], 10)
 for (let i = 0; i < n; i = i + 1) {
   const s = '  Hello42 word  ' + i.toString()
   const m = s.match(re)

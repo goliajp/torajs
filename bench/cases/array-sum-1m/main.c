@@ -19,10 +19,12 @@ static void vec_push(I64Vec *v, int64_t val) {
     v->data[v->len++] = val;
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+    (void)argc;
+    int64_t count = strtoll(argv[1], NULL, 10);
     I64Vec xs = {0};
     int64_t i = 0;
-    while (i < 10000000) {
+    while (i < count) {
         vec_push(&xs, i);
         i += 1;
     }

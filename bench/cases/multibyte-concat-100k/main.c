@@ -23,14 +23,16 @@ static U16Str concat(U16Str a, U16Str b) {
     return out;
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+    (void)argc;
     int64_t total = 0;
     static uint16_t piece_units[] = u"中文测试";
     U16Str piece = {piece_units, sizeof piece_units / sizeof(uint16_t) - 1};
-    int64_t n = 1000;
+    int64_t n = strtoll(argv[1], NULL, 10);
+    int pieces = (int)strtoll(argv[2], NULL, 10);
     for (int64_t i = 0; i < n; i++) {
         U16Str acc = {NULL, 0};
-        for (int j = 0; j < 100; j++) {
+        for (int j = 0; j < pieces; j++) {
             U16Str next = concat(acc, piece);
             free(acc.ptr);
             acc = next;

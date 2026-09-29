@@ -3,4 +3,6 @@ function ackermann(m: number, n: number): number {
   if (n === 0) return ackermann(m - 1, 1);
   return ackermann(m - 1, ackermann(m, n - 1));
 }
-console.log(ackermann(3, 8));
+const m = parseInt(process.argv[2], 10);
+const n = parseInt(process.argv[3], 10);
+console.log(ackermann(m, n));

@@ -4,7 +4,7 @@
 // A6 (empty-string early-return) + A7 (rope).
 const prefix = '  Hello42 word  '
 let total = 0
-const n = 100000
+const n = parseInt(process.argv[2], 10)
 for (let i = 0; i < n; i = i + 1) {
   const s = prefix + 'x'
   total = total + s.length

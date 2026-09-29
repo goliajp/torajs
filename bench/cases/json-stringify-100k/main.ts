@@ -3,7 +3,7 @@ function makeRecord(i: number) {
 }
 
 let total = 0
-const n = 100000
+const n = parseInt(process.argv[2], 10)
 for (let i = 0; i < n; i = i + 1) {
   const r = makeRecord(i)
   const s = JSON.stringify(r)

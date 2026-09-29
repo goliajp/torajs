@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 
 fn main() {
+    let mut args = std::env::args().skip(1);
     let mut m: HashMap<String, i64> = HashMap::new();
-    let n: i64 = 100_000;
+    let n: i64 = args.next().unwrap().parse().unwrap();
+    let modulus: i64 = args.next().unwrap().parse().unwrap();
     for i in 0..n {
-        let j = i % 4096;
+        let j = i % modulus;
         let key = if i % 2 == 0 {
             format!("key{}", j)
         } else {

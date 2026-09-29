@@ -165,13 +165,15 @@ static char *make_key(int64_t i, int64_t j, size_t *out_len) {
     return key;
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+    (void)argc;
     hash_map m;
     hm_init(&m);
 
-    int64_t n = 100000;
+    int64_t n = strtoll(argv[1], NULL, 10);
+    int64_t modulus = strtoll(argv[2], NULL, 10);
     for (int64_t i = 0; i < n; i++) {
-        int64_t j = i % 4096;
+        int64_t j = i % modulus;
         size_t key_len;
         char *key = make_key(i, j, &key_len);
         hm_add(&m, key, key_len, i);

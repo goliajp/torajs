@@ -128,6 +128,8 @@ typedef struct {
     Promise *awaiting;
 } MainFrame;
 
+static int64_t iterations;
+
 static void main_step(void *env, int64_t v) {
     MainFrame *f = env;
     switch (f->state) {
@@ -141,7 +143,7 @@ static void main_step(void *env, int64_t v) {
         f->i = f->i + 1;
         break;
     }
-    if (f->i < 100000) {
+    if (f->i < iterations) {
         f->awaiting = double_call(f->i);
         f->state = 1;
         promise_react(f->awaiting, main_step, f);
@@ -151,7 +153,9 @@ static void main_step(void *env, int64_t v) {
     free(f);
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+    (void)argc;
+    iterations = strtoll(argv[1], NULL, 10);
     MainFrame *f = malloc(sizeof *f);
     f->state = 0;
     main_step(f, 0);

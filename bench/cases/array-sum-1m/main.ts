@@ -1,6 +1,7 @@
+const n = parseInt(process.argv[2], 10)
 let xs: number[] = []
 let i = 0
-while (i < 10000000) {
+while (i < n) {
   xs.push(i)
   i = i + 1
 }

@@ -5,7 +5,7 @@
 // fallback would re-evaluate the boundary per position).
 const re = /\bword\b/
 let total = 0
-const n = 100000
+const n = parseInt(process.argv[2], 10)
 for (let i = 0; i < n; i = i + 1) {
   const s = 'a word b xword wordy ' + i.toString()
   const m = s.match(re)

@@ -10,12 +10,14 @@ fn concat(a: &[u16], b: &[u16]) -> Vec<u16> {
 }
 
 fn main() {
+    let mut args = std::env::args().skip(1);
     let mut total: i64 = 0;
     let piece: Vec<u16> = "中文测试".encode_utf16().collect();
-    let n: i64 = 1000;
+    let n: i64 = args.next().unwrap().parse().unwrap();
+    let pieces: i32 = args.next().unwrap().parse().unwrap();
     for _ in 0..n {
         let mut acc: Vec<u16> = Vec::new();
-        for _ in 0..100 {
+        for _ in 0..pieces {
             acc = concat(&acc, &piece);
         }
         total = total + acc.len() as i64;

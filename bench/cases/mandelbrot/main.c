@@ -1,6 +1,7 @@
 #include <inttypes.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 /* mirrors main.rs: rust never auto-fuses a*b+c into a single rounded FMA
  * without an explicit intrinsic; clang's C default allows intra-expression
@@ -23,13 +24,16 @@ static uint32_t mandel(double cr, double ci, uint32_t max_iter) {
     return max_iter;
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+    (void)argc;
+    int side = (int)strtoll(argv[1], NULL, 10);
+    uint32_t max_iter = (uint32_t)strtoull(argv[2], NULL, 10);
     uint64_t total = 0;
-    for (int i = 0; i < 200; i++) {
-        for (int j = 0; j < 200; j++) {
+    for (int i = 0; i < side; i++) {
+        for (int j = 0; j < side; j++) {
             double cr = (double)i / 100.0 - 1.5;
             double ci = (double)j / 100.0 - 1.0;
-            total += (uint64_t)mandel(cr, ci, 1000);
+            total += (uint64_t)mandel(cr, ci, max_iter);
         }
     }
     printf("%" PRIu64 "\n", total);

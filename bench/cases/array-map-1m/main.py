@@ -1,3 +1,5 @@
+import sys
+
 def loop_sum(n, k):
     xs = []
     for i in range(n):
@@ -10,4 +12,4 @@ def loop_sum(n, k):
     return s
 
 
-print(loop_sum(10_000_000, 2))
+print(loop_sum(int(sys.argv[1]), int(sys.argv[2])))

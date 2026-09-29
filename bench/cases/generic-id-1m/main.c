@@ -32,12 +32,14 @@ __attribute__((noinline)) static int64_t loop_sum(const int64_t *xs, size_t len)
     return sum;
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+    (void)argc;
+    int64_t count = strtoll(argv[1], NULL, 10);
     Vec xs;
     xs.buf = NULL;
     xs.cap = 0;
     xs.len = 0;
-    for (int64_t i = 0; i < 10000000; i++) {
+    for (int64_t i = 0; i < count; i++) {
         vec_push(&xs, i);
     }
     printf("%" PRId64 "\n", loop_sum(xs.buf, xs.len));

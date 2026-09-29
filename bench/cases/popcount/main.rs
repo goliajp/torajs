@@ -9,8 +9,10 @@ fn popcount(x: u64) -> u64 {
 }
 
 fn main() {
+    let mut args = std::env::args().skip(1);
+    let limit: u64 = args.next().unwrap().parse().unwrap();
     let mut total: u64 = 0;
-    for i in 0..10_000_000_u64 {
+    for i in 0..limit {
         total += popcount(i);
     }
     println!("{}", total);

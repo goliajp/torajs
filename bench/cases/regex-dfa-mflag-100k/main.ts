@@ -4,7 +4,7 @@
 // line-internal anchors; the wire selects entry state per `\n`.
 const re = /^line/m
 let total = 0
-const n = 100000
+const n = parseInt(process.argv[2], 10)
 for (let i = 0; i < n; i = i + 1) {
   const s = 'pre\nline-text\nend ' + i.toString()
   const m = s.match(re)

@@ -15,10 +15,11 @@ function build(n: number, seed: number): number[] {
 }
 
 let checksum = 0
-const passes = 100
+const passes = parseInt(process.argv[2], 10)
+const len = parseInt(process.argv[3], 10)
 for (let p = 0; p < passes; p = p + 1) {
-  const xs = build(1000, p + 1)
+  const xs = build(len, p + 1)
   xs.sort((a, b) => a - b)
-  checksum = checksum + xs[0] + xs[999]
+  checksum = checksum + xs[0] + xs[len - 1]
 }
 console.log(checksum)

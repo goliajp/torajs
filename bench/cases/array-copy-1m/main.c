@@ -19,10 +19,12 @@ static void vec_push(I64Vec *v, int64_t val) {
     v->data[v->len++] = val;
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+    (void)argc;
+    int64_t count = strtoll(argv[1], NULL, 10);
     I64Vec src = {0};
     int64_t i = 0;
-    while (i < 10000000) {
+    while (i < count) {
         vec_push(&src, i);
         i += 1;
     }
@@ -37,7 +39,7 @@ int main(void) {
         j += 1;
     }
 
-    printf("%" PRId64 "\n", (int64_t)dst.len + dst.data[9999999]);
+    printf("%" PRId64 "\n", (int64_t)dst.len + dst.data[count - 1]);
 
     free(src.data);
     free(dst.data);

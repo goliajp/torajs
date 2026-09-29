@@ -192,13 +192,15 @@ typedef struct {
     Promise *awaiting;
 } MainFrame;
 
+static int64_t promise_count;
+
 static void main_step(void *env, Value v) {
     MainFrame *f = env;
     if (f->state == 0) {
         size_t cap = 0;
         f->arr = NULL;
         f->len = 0;
-        for (int64_t i = 0; i < 1000; i++) {
+        for (int64_t i = 0; i < promise_count; i++) {
             if (f->len == cap) {
                 cap = cap == 0 ? 1 : cap * 2;
                 f->arr = realloc(f->arr, cap * sizeof(Promise *));
@@ -226,7 +228,9 @@ static void main_step(void *env, Value v) {
     free(f);
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+    (void)argc;
+    promise_count = strtoll(argv[1], NULL, 10);
     MainFrame *f = malloc(sizeof *f);
     f->state = 0;
     main_step(f, (Value){0});
