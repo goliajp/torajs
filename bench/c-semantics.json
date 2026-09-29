@@ -41,9 +41,9 @@
   "multibyte-concat-100k": {"kind": "same", "why": "uint16_t buffer holds the UTF-16 code units a JS string has"},
   "str-replace-100k": {"kind": "same"},
   "generator-yield-100k": {"kind": "same", "why": "hand-written resumable state struct"},
-  "async-fn-call-100k": {"kind": "same", "why": "hand-written microtask queue + reaction list; enqueues and resumes as the spec orders"},
-  "promise-all-1k": {"kind": "same", "why": "hand-written microtask queue"},
-  "promise-await-100k": {"kind": "same", "why": "hand-written microtask queue"},
-  "promise-chain-1k": {"kind": "same", "why": "hand-written microtask queue"},
-  "promise-then-100k": {"kind": "same", "why": "hand-written microtask queue"}
+  "async-fn-call-100k": {"kind": "same", "why": "hand-written microtask queue + reaction list; enqueues and resumes as the spec orders", "caveat": "tr does not suspend at these awaits yet (P-LOOP 4): the drain runs inline in an order the spec forbids, so tr's lead here is not a ceiling reading"},
+  "promise-all-1k": {"kind": "same", "why": "hand-written microtask queue", "caveat": "tr does not suspend at these awaits yet (P-LOOP 4): the drain runs inline in an order the spec forbids, so tr's lead here is not a ceiling reading"},
+  "promise-await-100k": {"kind": "same", "why": "hand-written microtask queue", "caveat": "tr does not suspend at these awaits yet (P-LOOP 4): the drain runs inline in an order the spec forbids, so tr's lead here is not a ceiling reading"},
+  "promise-chain-1k": {"kind": "same", "why": "hand-written microtask queue", "caveat": "tr does not suspend at these awaits yet (P-LOOP 4): the drain runs inline in an order the spec forbids, so tr's lead here is not a ceiling reading"},
+  "promise-then-100k": {"kind": "same", "why": "hand-written microtask queue", "caveat": "tr does not suspend at these awaits yet (P-LOOP 4): the drain runs inline in an order the spec forbids, so tr's lead here is not a ceiling reading"}
 }
