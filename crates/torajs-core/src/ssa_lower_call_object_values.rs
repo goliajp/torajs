@@ -183,8 +183,7 @@ pub(crate) fn try_lower(
             Type::Arr(arr_id),
             None,
         );
-        ctx.emit_throw_check(None);
-        ctx.release_owned_temp(args[0], &arg_raw);
+        ctx.emit_throw_check_releasing(args[0], &arg_raw);
         return Some(Operand::Value(v));
     }
 
@@ -217,8 +216,7 @@ pub(crate) fn try_lower(
             Type::Arr(arr_id),
             None,
         );
-        ctx.emit_throw_check(None);
-        ctx.release_owned_temp(args[0], &arg_raw);
+        ctx.emit_throw_check_releasing(args[0], &arg_raw);
         return Some(Operand::Value(v));
     }
 
@@ -234,6 +232,8 @@ pub(crate) fn try_lower(
     // instead, asking per member whether it is hidden right now.
     let layout_hidden = layout.clone();
     let arg_hidden = arg_op.clone();
+    // a getter under either arm can throw at a check inside the arm
+    let parked = ctx.park_owned_temp(args[0], &arg_raw);
     let out = crate::ssa_lower_struct_exotic_gate::with_exotic_field_gate(
         ctx,
         &arg_op.clone(),
@@ -247,6 +247,7 @@ pub(crate) fn try_lower(
             emit_values_unfold(ctx, &arg_op, &props, arr_id, false)
         },
     );
+    ctx.unpark_owned_temp(parked);
     // The gate joins both arms before this point, so one release in
     // the join block covers them both.
     ctx.release_owned_temp(args[0], &arg_raw);

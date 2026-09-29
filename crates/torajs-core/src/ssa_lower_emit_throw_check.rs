@@ -326,6 +326,19 @@ impl<'a> LowerCtx<'a> {
         }
     }
 
+    /// The throw check of a kernel call that borrowed `eid`'s value as
+    /// an argument, releasing the argument's owned temp on both edges:
+    /// the throw edge through the parked slot, the normal edge here.
+    /// A check followed by the release alone leaks the temp whenever
+    /// the kernel raises (a user `valueOf` / getter / `toJSON` under
+    /// the call).
+    pub(crate) fn emit_throw_check_releasing(&mut self, eid: ExprId, op: &Operand) {
+        let parked = self.park_owned_temp(eid, op);
+        self.emit_throw_check(None);
+        self.unpark_owned_temp(parked);
+        self.release_owned_temp(eid, op);
+    }
+
     /// Park a fresh-owned str-method argv operand for the post-call
     /// drain (`TempScratch::argv_owned`) AND for every throw edge
     /// between here and that drain.

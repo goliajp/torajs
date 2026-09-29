@@ -124,8 +124,7 @@ pub(crate) fn try_lower(
                 Type::Any,
                 None,
             );
-            ctx.emit_throw_check(None);
-            ctx.release_owned_temp(args[0], &target_op);
+            ctx.emit_throw_check_releasing(args[0], &target_op);
             (Operand::Value(to), true)
         };
         assign_any_sources(ctx, &args[1..], &walk_target, target_is_fresh);

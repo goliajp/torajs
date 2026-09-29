@@ -122,8 +122,7 @@ pub(crate) fn try_lower(
             Type::Any,
             None,
         );
-        ctx.emit_throw_check(None);
-        ctx.release_owned_temp(args[0], &arg_op);
+        ctx.emit_throw_check_releasing(args[0], &arg_op);
         if for_non_str && !arg_is_any {
             // The checker types a typed-key `Symbol.for` as `Symbol`;
             // the kernel answers the registry's symbol cell (borrowed,

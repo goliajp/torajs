@@ -180,8 +180,7 @@ pub(crate) fn try_lower(
             Type::Arr(outer_arr_id),
             None,
         );
-        ctx.emit_throw_check(None);
-        ctx.release_owned_temp(args[0], &arg_raw);
+        ctx.emit_throw_check_releasing(args[0], &arg_raw);
         return Some(Operand::Value(v));
     }
 
@@ -199,6 +198,8 @@ pub(crate) fn try_lower(
     let outer_ty = Type::Arr(intern_arr_layout(ctx.arr_layouts, Type::Arr(inner_arr_id)));
     let walk_arg = arg_op.clone();
     let walk_ty = outer_ty.clone();
+    // a getter under either arm can throw at a check inside the arm
+    let parked = ctx.park_owned_temp(args[0], &arg_raw);
     let out = crate::ssa_lower_struct_exotic_gate::with_exotic_field_gate(
         ctx,
         &arg_op.clone(),
@@ -216,6 +217,7 @@ pub(crate) fn try_lower(
         },
         move |ctx| emit_struct_entries_unfold(ctx, arg_op, &layout),
     );
+    ctx.unpark_owned_temp(parked);
     // The gate joins both arms before this point, so one release in
     // the join block covers them both.
     ctx.release_owned_temp(args[0], &arg_raw);

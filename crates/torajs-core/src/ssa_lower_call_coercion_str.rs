@@ -360,7 +360,6 @@ fn emit_struct_to_string(ctx: &mut LowerCtx<'_>, arg_eid: ExprId, arg_op: Operan
         Type::Str,
         None,
     );
-    ctx.emit_throw_check(None);
-    ctx.release_owned_temp(arg_eid, &arg_op);
+    ctx.emit_throw_check_releasing(arg_eid, &arg_op);
     Operand::Value(s)
 }

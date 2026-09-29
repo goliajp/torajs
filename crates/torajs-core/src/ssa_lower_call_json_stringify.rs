@@ -132,8 +132,7 @@ pub(crate) fn try_lower(
         if let Some(g) = gap {
             ctx.emit_drop_value(g, Type::Str);
         }
-        ctx.emit_throw_check(None);
-        ctx.release_owned_temp(args[0], &arg_raw);
+        ctx.emit_throw_check_releasing(args[0], &arg_raw);
         release_extra_args(ctx, &replacer_raw, &space_raw);
         return Some(Operand::Value(out));
     }
@@ -179,9 +178,14 @@ pub(crate) fn try_lower(
     // Self-gating on the checker's nullable typing: a slot that was
     // never nullable keeps the static unfold, so no program that
     // could not reach the bug pays for it.
+    // A `toJSON` under the walk can throw at a check inside it: the
+    // argument temp is parked across the walk so that edge releases
+    // it too.
     if crate::ssa_lower_nullable_guard::holds_undef_cell(ctx, args[0], arg_ty) {
         let boxed = ctx.box_to_any_from_expr(args[0], arg_op);
+        let parked = ctx.park_owned_temp(args[0], &arg_raw);
         let out = crate::ssa_lower_json_stringify::emit_any_walk(ctx, boxed, gap.clone(), 0);
+        ctx.unpark_owned_temp(parked);
         if let Some(g) = gap {
             ctx.emit_drop_value(g, Type::Str);
         }
@@ -189,7 +193,9 @@ pub(crate) fn try_lower(
         release_extra_args(ctx, &replacer_raw, &space_raw);
         return Some(out);
     }
+    let parked = ctx.park_owned_temp(args[0], &arg_raw);
     let out = crate::ssa_lower_json_stringify::lower_top(ctx, arg_op, arg_ty, arg_fe, gap.clone());
+    ctx.unpark_owned_temp(parked);
     if let Some(g) = gap {
         ctx.emit_drop_value(g, Type::Str);
     }

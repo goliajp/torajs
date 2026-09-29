@@ -209,8 +209,7 @@ pub(crate) fn try_lower(
             Type::Arr(intern_arr_layout(ctx.arr_layouts, Type::Str)),
             None,
         );
-        ctx.emit_throw_check(None);
-        ctx.release_owned_temp(args[0], &arg_raw);
+        ctx.emit_throw_check_releasing(args[0], &arg_raw);
         return Some(Operand::Value(v));
     }
     if m_name == "__forinKeys" && !matches!(arg_ty, Type::Obj(_)) {
@@ -348,8 +347,7 @@ fn lower_symbols_arm(
             Type::Arr(arr_id),
             None,
         );
-        ctx.emit_throw_check(None);
-        ctx.release_owned_temp(recv_eid, arg_raw);
+        ctx.emit_throw_check_releasing(recv_eid, arg_raw);
         return Operand::Value(v);
     }
     let empty = ctx.f.append_inst(
@@ -394,8 +392,7 @@ fn lower_forin_nonstruct_keys(
         Type::Arr(intern_arr_layout(ctx.arr_layouts, Type::Str)),
         None,
     );
-    ctx.emit_throw_check(None);
-    ctx.release_owned_temp(arg_eid, arg_raw);
+    ctx.emit_throw_check_releasing(arg_eid, arg_raw);
     Operand::Value(v)
 }
 

@@ -336,8 +336,7 @@ fn lower_is_extensible(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     );
     // §10.5.3 step 8 — a Proxy trap that disagrees with its target
     // throws (RFC 20260823 刀 5).
-    ctx.emit_throw_check(None);
-    ctx.release_owned_temp(args[0], &obj_raw);
+    ctx.emit_throw_check_releasing(args[0], &obj_raw);
     Operand::Value(v)
 }
 

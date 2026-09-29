@@ -145,8 +145,7 @@ pub(crate) fn emit_to_number(
         let boxed = ctx.box_to_any_from_expr(arg_eid, arg_op.clone());
         let n = ctx.coerce_any_to_number(boxed, Type::F64);
         // A user `valueOf` on the live side can throw.
-        ctx.emit_throw_check(None);
-        ctx.release_owned_temp(arg_eid, &arg_op);
+        ctx.emit_throw_check_releasing(arg_eid, &arg_op);
         return n;
     }
     match arg_ty {
@@ -210,8 +209,7 @@ pub(crate) fn emit_to_number(
             // §7.1.4 can record a pending throw (Symbol reject /
             // OrdinaryToPrimitive TypeError) — same check the
             // coerce_any_to_number sink emits.
-            ctx.emit_throw_check(None);
-            ctx.release_owned_temp(arg_eid, &arg_op);
+            ctx.emit_throw_check_releasing(arg_eid, &arg_op);
             v
         }
         Type::Arr(elem_arr_id) => {
@@ -241,10 +239,12 @@ pub(crate) fn emit_to_number(
         | Type::ArrIter
         | Type::Date
         | Type::Promise => {
+            // A user `valueOf` can throw: the coercion's own check
+            // takes the throw edge, so the temp is parked across it.
             let boxed = ctx.box_to_any(arg_op.clone());
+            let parked = ctx.park_owned_temp(arg_eid, &arg_op);
             let n = ctx.coerce_any_to_number(boxed, Type::F64);
-            // A user `valueOf` can throw.
-            ctx.emit_throw_check(None);
+            ctx.unpark_owned_temp(parked);
             ctx.release_owned_temp(arg_eid, &arg_op);
             n
         }
