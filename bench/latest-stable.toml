@@ -40,7 +40,7 @@ floor = "1.98.1"
 hint  = "rustup update stable"
 
 [runners.c]
-floor = "23.1.0"
+floor = "23.1.2"
 hint  = "brew upgrade llvm"
 
 [runners.python]
