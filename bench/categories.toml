@@ -66,6 +66,8 @@ cases = [
   "str-replace-100k",
   "str-concat-ascii-100k",
   "i64-to-str-100k",
+  "split-materialize-1m",
+  "str-build-1mb",
 ]
 
 # Every regex case today is written so that only the match length is
@@ -95,7 +97,7 @@ cases = ["json-stringify-100k"]
 
 [categories.oop]
 weight = 14
-cases = ["class-method-100k"]
+cases = ["class-method-100k", "tokenizer-parser-eval-10k"]
 
 [categories.promise]
 weight = 10
@@ -121,7 +123,7 @@ cases = ["fifo-queue-100k", "map-str-100k"]
 
 [categories.throw]
 weight = 3
-cases = ["throw-catch-100k"]
+cases = ["throw-catch-100k", "throw-unwind-depth8-1m"]
 
 [categories.startup]
 weight = 10
