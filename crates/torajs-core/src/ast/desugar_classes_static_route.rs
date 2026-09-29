@@ -17,7 +17,65 @@ use super::{Ast, Expr, PropKey};
 pub(super) fn route_static_calls(ast: &mut Ast, inherited_static_owners: &InheritedStaticOwners) {
     route_inherited_static_calls(ast, inherited_static_owners);
     route_cast_static_calls(ast, inherited_static_owners);
+    route_spread_static_calls(ast, inherited_static_owners);
     resolve_static_super_calls(ast);
+}
+
+/// `C.m(a, ...xs)` keeps its receiver.
+///
+/// A spread call the static expanders decline goes to the runtime
+/// spread lane through the mono's `__forward_` relay
+/// (`wrap_dynamic_spread_callees`), and that relay is the plain-call
+/// value: it forwards to the twin with an `undefined` receiver. The
+/// call is a member call, though — §13.3.6.1 EvaluateCall binds the
+/// reference's base — so a body reading `this` threw on `this.k`
+/// and answered `this === C` false where the same call without a
+/// spread ran fine. Route it to the twin with the accessing class as
+/// its `__this`, the shape `C.m.apply(C, [a, ...xs])` already lowers.
+///
+/// Only a twin-bearing static is routed: a this-free one runs
+/// identically through the relay, and its hidden count rides the
+/// relay's own argc.
+fn route_spread_static_calls(ast: &mut Ast, inherited_static_owners: &InheritedStaticOwners) {
+    if ast.smany_twins.is_empty() {
+        return;
+    }
+    for i in 0..ast.exprs.len() {
+        let Expr::Call { callee, args } = &ast.exprs[i] else {
+            continue;
+        };
+        if !args
+            .iter()
+            .any(|a| matches!(ast.get_expr(*a), Expr::Spread { .. }))
+        {
+            continue;
+        }
+        let (callee, args) = (*callee, args.clone());
+        let Expr::Member { obj, name } = &ast.exprs[callee.0 as usize] else {
+            continue;
+        };
+        let Expr::Ident(class_name) = &ast.exprs[obj.0 as usize] else {
+            continue;
+        };
+        let key = (class_name.clone(), PropKey::from(name));
+        let owner = inherited_static_owners.get(&key).unwrap_or(class_name);
+        let Some(twin) = ast
+            .smany_twins
+            .get(&format!("__sm_{owner}__{name}"))
+            .cloned()
+        else {
+            continue;
+        };
+        let twin_callee = ast.add_expr(Expr::Ident(twin));
+        let recv = ast.add_expr(Expr::Ident(key.0));
+        let mut new_args = Vec::with_capacity(args.len() + 1);
+        new_args.push(recv);
+        new_args.extend(args);
+        ast.exprs[i] = Expr::Call {
+            callee: twin_callee,
+            args: new_args,
+        };
+    }
 }
 
 /// RFC 20260804-fn-this-channel knife 3d — give `Sub.<inherited
