@@ -238,6 +238,7 @@ pub(crate) fn lower_reserve_bound(
     ctx: &mut LowerCtx<'_>,
     bound: ExprId,
     names: &[String],
+    body: &Stmt,
 ) -> Option<Operand> {
     // `xs.length` may be read as a bound only when nothing the body
     // does can move it, which needs each filled array proved to be
@@ -251,7 +252,16 @@ pub(crate) fn lower_reserve_bound(
         return None;
     }
     let op = ctx.lower_expr(bound);
-    matches!(ctx.operand_ty(&op), Type::I64).then_some(op)
+    match ctx.operand_ty(&op) {
+        Type::I64 => Some(op),
+        // an f64 bound past 2^53 reserves what cannot be allocated, and
+        // nothing a push argument does may run between that and the
+        // first store
+        Type::F64 if crate::ssa_lower_push_loop_gate::push_args_cannot_call(ctx, body) => {
+            Some(ctx.emit_f64_trip_count(op))
+        }
+        _ => None,
+    }
 }
 
 /// The bound's allowlist: inert, plus `A.length` for an `A` that the

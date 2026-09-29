@@ -632,6 +632,7 @@ pub(crate) mod ssa_lower_promise_chain_two_arg;
 pub(crate) mod ssa_lower_promise_repr_mark;
 pub(crate) mod ssa_lower_promise_thunk;
 pub mod ssa_lower_push_loop_detect;
+pub mod ssa_lower_push_loop_f64_bound;
 pub mod ssa_lower_push_loop_gate;
 pub(crate) mod ssa_lower_rc_emit;
 mod ssa_lower_recv_face;

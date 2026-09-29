@@ -70,7 +70,7 @@ pub(crate) fn lower_while_inner(
         // for the whole loop, and each array is reserved on its own
         // length. See `lower_reserve_bound` for both obligations.
         && let Some(bound_op) =
-            crate::ssa_lower_push_loop_detect::lower_reserve_bound(ctx, bound_eid, &names)
+            crate::ssa_lower_push_loop_detect::lower_reserve_bound(ctx, bound_eid, &names, body)
     {
         // Only a body whose every push argument is inert may keep the
         // length word in a register until the loop ends — see
