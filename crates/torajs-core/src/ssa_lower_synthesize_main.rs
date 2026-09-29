@@ -213,6 +213,15 @@ pub(crate) fn synthesize_main(
                 ctx.cur_block,
                 InstKind::Call(ctx.intrinsics.cycle_at_exit_drain, vec![]),
             );
+            // Census lines on fd 2, from a `--cfg torajs_census` build
+            // only; the names are declared under the same cfg.
+            if cfg!(torajs_census) {
+                for name in crate::ssa_lower_intrinsics_runtime_misc::CENSUS_DUMPS {
+                    let dump = ctx.fn_table[name];
+                    ctx.f
+                        .append_void(ctx.cur_block, InstKind::Call(dump, vec![]));
+                }
+            }
             crate::ssa_lower_main_exit::emit_ret(&mut ctx, exit_code);
         }
     }

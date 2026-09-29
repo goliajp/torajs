@@ -431,3 +431,11 @@ mod tests {
         );
     }
 }
+
+/// Census lines for the allocator; the compiler calls this at main's
+/// exit only when it was itself built with `--cfg torajs_census`.
+#[cfg(torajs_census)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_mmalloc_census_dump() {
+    crate::core::census::dump();
+}

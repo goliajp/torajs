@@ -115,10 +115,14 @@ fn zero_sentinel() -> *mut u8 {
 /// call overhead per alloc.
 #[inline(always)]
 pub fn alloc_sized(size: usize) -> *mut u8 {
+    #[cfg(torajs_census)]
+    census::alloc(size);
     if size == 0 {
         return zero_sentinel();
     }
     if size > SIZE_CLASSES[SIZE_CLASSES.len() - 1] {
+        #[cfg(torajs_census)]
+        census::LARGE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         return alloc_large(size);
     }
     let class_idx = match Allocator::bucket_for(size) {
@@ -166,6 +170,8 @@ fn alloc_large(size: usize) -> *mut u8 {
 #[cold]
 #[inline(never)]
 fn alloc_refill(size: usize, class_idx: usize) -> *mut u8 {
+    #[cfg(torajs_census)]
+    census::REFILLS.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     let tlab = &raw mut __torajs_core_tlab;
     let first_central = CORE_CENTRAL.pop(class_idx);
     if let Some(p) = first_central {
@@ -217,6 +223,8 @@ pub unsafe fn free_sized(ptr: *mut u8, size: usize) {
     if ptr.is_null() || ptr == zero_sentinel() || size == 0 {
         return;
     }
+    #[cfg(torajs_census)]
+    census::FREES.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     if size > SIZE_CLASSES[SIZE_CLASSES.len() - 1] {
         unsafe { free_large(ptr, size) };
         return;
@@ -374,5 +382,34 @@ mod tests {
     fn layer0_free_sentinel_is_safe() {
         let s = alloc_sized(0);
         unsafe { free(s) };
+    }
+}
+
+/// Allocation counters, present only under `--cfg torajs_census`.
+/// Relaxed atomics: a census build measures, it does not have to be
+/// the fastest build, and the counters stay right with more threads.
+#[cfg(torajs_census)]
+pub(crate) mod census {
+    use core::sync::atomic::{AtomicU64, Ordering};
+
+    pub static ALLOCS: AtomicU64 = AtomicU64::new(0);
+    pub static BYTES: AtomicU64 = AtomicU64::new(0);
+    pub static FREES: AtomicU64 = AtomicU64::new(0);
+    pub static REFILLS: AtomicU64 = AtomicU64::new(0);
+    pub static LARGE: AtomicU64 = AtomicU64::new(0);
+
+    #[inline]
+    pub fn alloc(size: usize) {
+        ALLOCS.fetch_add(1, Ordering::Relaxed);
+        BYTES.fetch_add(size as u64, Ordering::Relaxed);
+    }
+
+    pub fn dump() {
+        use torajs_syscall::census::emit;
+        emit(b"alloc.count", ALLOCS.load(Ordering::Relaxed));
+        emit(b"alloc.bytes", BYTES.load(Ordering::Relaxed));
+        emit(b"alloc.frees", FREES.load(Ordering::Relaxed));
+        emit(b"alloc.refills", REFILLS.load(Ordering::Relaxed));
+        emit(b"alloc.large", LARGE.load(Ordering::Relaxed));
     }
 }

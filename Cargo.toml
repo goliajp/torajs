@@ -78,6 +78,7 @@ warnings = "deny"
 # its detector flag is declared here instead.
 unexpected_cfgs = { level = "deny", check-cfg = [
   'cfg(torajs_rc_underflow_detect)',
+  'cfg(torajs_census)',
 ] }
 
 [workspace.lints.clippy]

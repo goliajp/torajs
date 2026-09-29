@@ -47,6 +47,9 @@ pub mod arch_aarch64_macos;
 #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
 pub use arch_aarch64_macos::{syscall0, syscall1, syscall3, syscall6};
 
+#[cfg(all(target_arch = "aarch64", target_os = "macos", torajs_census))]
+pub mod census;
+
 // C-ABI exports (`__torajs_syscall_*`) bound at link by the
 // 0-Cargo-deps Layer-0 staticlibs (panic-runtime / abort).
 #[cfg(all(target_arch = "aarch64", target_os = "macos"))]

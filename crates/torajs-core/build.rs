@@ -232,6 +232,9 @@ const STATICLIBS: &[&str] = &[
 ];
 
 fn main() {
+    // Opt-in flag the census build sets (RUSTFLAGS=--cfg=torajs_census);
+    // this crate has no [lints] table, so it declares the name itself.
+    println!("cargo::rustc-check-cfg=cfg(torajs_census)");
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR not set by cargo"));
 
     // OUT_DIR layout (cargo internal):

@@ -44,6 +44,13 @@ use std::collections::HashMap;
 use crate::ssa::{FuncId, Module, Type};
 use crate::ssa_lower::declare_intrinsic;
 
+pub(crate) const CENSUS_DUMPS: [&str; 4] = [
+    "__torajs_syscall_census_dump",
+    "__torajs_mmalloc_census_dump",
+    "__torajs_cycle_census_dump",
+    "__torajs_process_census_dump",
+];
+
 pub(crate) struct RuntimeMiscIds {
     pub cycle_buffer: FuncId,
     pub cycle_collect: FuncId,
@@ -87,6 +94,14 @@ pub(crate) fn declare(
     module: &mut Module,
     fn_table: &mut HashMap<String, FuncId>,
 ) -> RuntimeMiscIds {
+    // The census dumps main calls before returning. Declared only in a
+    // `--cfg torajs_census` compiler, whose runtime staticlibs are the
+    // only ones that define them; synthesize_main finds them by name.
+    if cfg!(torajs_census) {
+        for name in CENSUS_DUMPS {
+            declare_intrinsic(module, fn_table, name, &[], Type::Void);
+        }
+    }
     RuntimeMiscIds {
         cycle_buffer: declare_intrinsic(
             module,

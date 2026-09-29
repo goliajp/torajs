@@ -121,9 +121,54 @@ unsafe fn str_data(s: *const u8) -> *const u8 {
     unsafe { s.add(STR_HDR_SIZE) }
 }
 
+#[cfg(torajs_census)]
+unsafe extern "C" {
+    fn __torajs_syscall_census_dump();
+    fn __torajs_mmalloc_census_dump();
+    fn __torajs_cycle_census_dump();
+    fn __torajs_census_emit(name: *const u8, len: usize, value: u64);
+}
+
+/// Where the process's own clock stood at `main` (recorded in
+/// `__torajs_argv_init`, the first runtime call) and at exit. Same
+/// counter as the kernel's `ri_proc_start_abstime`, so the harness can
+/// split exec → main → exit without a second clock.
+#[cfg(torajs_census)]
+mod census {
+    use core::sync::atomic::{AtomicU64, Ordering};
+
+    pub static ENTRY_TICKS: AtomicU64 = AtomicU64::new(0);
+
+    pub fn now() -> u64 {
+        let t: u64;
+        unsafe { core::arch::asm!("mrs {}, cntvct_el0", out(reg) t, options(nomem, nostack)) };
+        t
+    }
+
+    fn emit(name: &[u8], v: u64) {
+        unsafe { super::__torajs_census_emit(name.as_ptr(), name.len(), v) };
+    }
+
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_process_census_dump() {
+        let f: u64;
+        unsafe { core::arch::asm!("mrs {}, cntfrq_el0", out(reg) f, options(nomem, nostack)) };
+        emit(b"process.entry_ticks", ENTRY_TICKS.load(Ordering::Relaxed));
+        emit(b"process.exit_ticks", now());
+        emit(b"process.tick_hz", f);
+    }
+}
+
 /// `process.exit(code)` — libc exit. Does not return.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_process_exit(code: i64) -> ! {
+    #[cfg(torajs_census)]
+    unsafe {
+        __torajs_syscall_census_dump();
+        __torajs_mmalloc_census_dump();
+        __torajs_cycle_census_dump();
+        census::__torajs_process_census_dump();
+    }
     unsafe { exit(code as i32) }
 }
 
@@ -283,6 +328,8 @@ pub unsafe extern "C" fn __torajs_argv_init(
     argv: *mut *mut c_char,
     envp: *mut *mut c_char,
 ) {
+    #[cfg(torajs_census)]
+    census::ENTRY_TICKS.store(census::now(), core::sync::atomic::Ordering::Relaxed);
     {
         let mut state = ARGV_STATE.lock();
         *state = (argc, argv as usize);

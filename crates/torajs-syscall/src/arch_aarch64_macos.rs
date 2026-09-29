@@ -28,6 +28,27 @@ use core::arch::asm;
 /// pointer outside the current process's address space is UB; etc.
 #[inline]
 pub unsafe fn syscall6(sysno: u32, a0: i64, a1: i64, a2: i64, a3: i64, a4: i64, a5: i64) -> i64 {
+    #[cfg(torajs_census)]
+    crate::census::tick(sysno);
+    unsafe { syscall6_raw(sysno, a0, a1, a2, a3, a4, a5) }
+}
+
+/// The trampoline itself, uncounted: what the census dump writes
+/// through so it does not count its own lines.
+///
+/// # Safety
+///
+/// As [`syscall6`].
+#[inline]
+pub unsafe fn syscall6_raw(
+    sysno: u32,
+    a0: i64,
+    a1: i64,
+    a2: i64,
+    a3: i64,
+    a4: i64,
+    a5: i64,
+) -> i64 {
     let ret: i64;
     unsafe {
         asm!(
