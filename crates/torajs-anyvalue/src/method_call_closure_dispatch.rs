@@ -146,6 +146,25 @@ pub(crate) unsafe fn invoke_boxed_recv_first(
     }
 }
 
+/// [`invoke_boxed_recv_first`] for compiled code: a typed mono
+/// adapter whose boolean / integer slot arrived undefined hands the
+/// whole call to its receiver-polymorphic twin's adapter, the
+/// receiver box prepended.
+///
+/// # Safety
+/// `entry` is a live boxed-adapter address; `argv` holds `argc` live
+/// AnyValues.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_invoke_recv_first(
+    env: *mut c_void,
+    entry: u64,
+    recv: AnyValue,
+    argv: *const u64,
+    argc: i64,
+) -> AnyValue {
+    unsafe { invoke_boxed_recv_first(env, entry, recv, argv, argc) }
+}
+
 /// `f(args…)` where the callee itself is an `any` value (RFC C4+
 /// bare any-call). A `Tag::Closure` cell with a non-zero boxed dual
 /// entry invokes through the uniform ABI; every other shape —
@@ -310,9 +329,20 @@ pub(crate) unsafe fn invoke_with_this(
             // OrdinaryCallBindThis puts no shape bound on it).
             let (face_tag, twin) = crate::method_value_class::class_method_face_guard(env);
             if face_tag == 0 && twin != 0 {
-                return crate::method_call_unit_guard::invoke_static_face(
-                    env, twin, this_arg, argv, argc,
-                );
+                // A this-free static whose twin exists only for its
+                // boolean / integer slots runs the typed mono when
+                // every such argument is present; the mono adapter
+                // itself hands a missing one to the twin.
+                let flags = (env as *const u8).add(6).cast::<u16>().read();
+                if flags & torajs_rc::FLAG_CLASS_METHOD_THIS_FREE == 0 {
+                    return crate::method_call_unit_guard::invoke_static_face(
+                        env, twin, this_arg, argv, argc,
+                    );
+                }
+                if crate::method_call_unit_guard::refuses_receiver(env, this_arg) {
+                    return VALUE_UNDEFINED;
+                }
+                return invoke_boxed(env, adapter, argv, argc);
             }
             // K2b — a face minted by one evaluation of a unit class
             // refuses another evaluation's receiver once its body

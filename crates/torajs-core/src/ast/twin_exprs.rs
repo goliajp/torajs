@@ -1,0 +1,44 @@
+//! The expressions the receiver-polymorphic twins hold — the census
+//! leaves them out.
+//!
+//! A `__cmany_` / `__smany_` / `__ctorany_` twin is the compiler's own
+//! clone of a method body with every parameter retyped `any`, minted
+//! so a rebound or under-supplied bare call has somewhere correct to
+//! run. Its expressions are the mono's expressions counted a second
+//! time, and the second count always lands in the `any` bucket, so a
+//! method that gains a twin reads as a typed-coverage loss although
+//! the user's program and its typed body are unchanged. The census
+//! therefore skips them: the mono already scored the same source.
+
+use std::collections::HashSet;
+
+use super::desugar_async_sm_walk::{visit_expr_children, visit_stmt_exprs};
+use super::{Ast, ExprId, Stmt};
+
+pub(crate) fn twin_body_exprs(ast: &Ast) -> HashSet<ExprId> {
+    let mut out: HashSet<ExprId> = HashSet::new();
+    for stmt in &ast.stmts {
+        let Stmt::FnDecl {
+            name, params, body, ..
+        } = stmt
+        else {
+            continue;
+        };
+        if !(name.starts_with("__cmany_")
+            || name.starts_with("__smany_")
+            || name.starts_with("__ctorany_"))
+        {
+            continue;
+        }
+        let mut roots: Vec<ExprId> = params.iter().filter_map(|p| p.default).collect();
+        for s in body {
+            visit_stmt_exprs(s, &mut |e| roots.push(e));
+        }
+        while let Some(e) = roots.pop() {
+            if out.insert(e) {
+                visit_expr_children(ast, e, &mut |c| roots.push(c));
+            }
+        }
+    }
+    out
+}

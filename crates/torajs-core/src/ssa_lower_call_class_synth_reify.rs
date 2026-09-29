@@ -375,6 +375,21 @@ pub(super) fn static_this_free(
         crate::ast::Stmt::FnDecl { name, params, .. } if name == body => Some(params),
         _ => None,
     });
+    // A body that reads `this` (the class object) keeps its face on
+    // the twin for every call: a rebind must see the new receiver.
+    if ctx.ast.smany_reads_this.contains(body) {
+        return false;
+    }
+    // A boolean / integer slot is lossless once a twin with an
+    // adapter stands behind it (the mono adapter hands an undefined
+    // one over).
+    let twin_backed = crate::ssa_lower_boxed_entry::twin_adapter_of(
+        ctx.ast,
+        ctx.fn_table,
+        ctx.boxed_entries,
+        body,
+    )
+    .is_some();
     ctx.fn_sig_ids
         .get(&body_fid)
         .zip(ast_params)
@@ -382,7 +397,10 @@ pub(super) fn static_this_free(
             let tys = &ctx.fn_sigs[sid.0 as usize].0;
             tys.len() == ps.len()
                 && tys.iter().zip(ps.iter()).all(|(ty, p)| match &p.default {
-                    None => matches!(ty, Type::Any | Type::F64 | Type::Str),
+                    None => {
+                        matches!(ty, Type::Any | Type::F64 | Type::Str)
+                            || (twin_backed && matches!(ty, Type::Bool | Type::I64 | Type::I32))
+                    }
                     Some(d) => {
                         matches!(ctx.ast.get_expr(*d), Expr::Number(_) | Expr::Bool(_))
                             && matches!(

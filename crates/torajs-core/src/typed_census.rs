@@ -34,7 +34,15 @@
 //!
 //! 第 3 条是这个量具最容易骗人的地方,与 perf 方法论「测量装置的失效
 //! 长得跟数据一模一样」同族。
+//!
+//! 不计的表达式:receiver-polymorphic 孪生体(`__cmany_` / `__smany_` /
+//! `__ctorany_`)的 body。它们是编译器自己克隆的方法体、参数全改
+//! `any`,同一份源码表达式在 mono 里已经计过一次;再计一次只会把
+//! 「多铸了一个孪生体」读成 typed 面缩小。见 `ast::twin_body_exprs`。
 
+use std::collections::HashSet;
+
+use crate::ast::{Ast, ExprId};
 use crate::check::{Checker, Severity, Type};
 
 /// 一次编译的类型面三分计数。
@@ -81,10 +89,13 @@ impl TypedCensus {
 }
 
 impl Checker {
-    /// 数出本次编译的三分计数。
-    pub(crate) fn typed_census(&self) -> TypedCensus {
+    /// 数出本次编译的三分计数,`skip` 里的表达式不计(孪生体 body)。
+    pub(crate) fn typed_census(&self, skip: &HashSet<ExprId>) -> TypedCensus {
         let mut census = TypedCensus::default();
-        for ty in self.expr_types.values() {
+        for (eid, ty) in &self.expr_types {
+            if skip.contains(eid) {
+                continue;
+            }
             if matches!(ty, Type::Any) {
                 census.any += 1;
             } else {
@@ -104,11 +115,12 @@ impl Checker {
     /// 调用点在 `check_entry::check_with_arity_warn`,紧跟
     /// `run_full_pipeline` 之后、错误分支提前返回**之前** —— 一次被
     /// 拒的编译同样要有读数,否则 `refused` 永远是 0。
-    pub(crate) fn emit_typed_census(&self) {
+    pub(crate) fn emit_typed_census(&self, ast: &Ast) {
         if std::env::var("TORAJS_TYPED_CENSUS").as_deref() != Ok("1") {
             return;
         }
-        eprintln!("{}", self.typed_census().report_line());
+        let skip = crate::ast::twin_body_exprs(ast);
+        eprintln!("{}", self.typed_census(&skip).report_line());
     }
 }
 

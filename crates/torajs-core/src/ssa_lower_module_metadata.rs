@@ -127,7 +127,7 @@ pub(crate) fn populate_class_layouts(
         fn_table,
         &all_class_names,
     );
-    let this_free_fids = collect_this_free_fids(ast, module, &own_methods);
+    let this_free_fids = collect_this_free_fids(ast, module, &own_methods, boxed_entries);
     let touches_private_fids = collect_touches_private_fids(ast, module, &own_methods);
     let facts = crate::ssa_lower_module_metadata_methods::MethodFidFacts {
         this_free: &this_free_fids,
@@ -266,6 +266,7 @@ fn collect_this_free_fids(
     ast: &crate::ast::Ast,
     module: &Module,
     own_methods: &HashMap<String, Vec<(PropKey, ssa::FuncId, Option<ssa::FuncId>)>>,
+    boxed_entries: &HashMap<ssa::FuncId, (ssa::FuncId, ssa::SigId)>,
 ) -> std::collections::HashSet<ssa::FuncId> {
     // S2.38 — `__cm_` bodies proven safe to run through the boxed
     // adapter with a NULL receiver: (1) the body never observes its
@@ -309,8 +310,11 @@ fn collect_this_free_fids(
     let this_free_fids: std::collections::HashSet<ssa::FuncId> = own_methods
         .values()
         .flatten()
-        .map(|(_, fid, _)| *fid)
-        .filter(|fid| {
+        .filter(|(_, fid, twin)| {
+            // A boolean / integer slot is lossless once a twin with an
+            // adapter stands behind it: the mono adapter tests the
+            // slot and hands an undefined one to the twin.
+            let twin_backed = twin.is_some_and(|t| boxed_entries.contains_key(&t));
             let f = &module.funcs[fid.0 as usize];
             let Some(verdicts) = fn_dflt_verdicts.get(f.name.as_str()) else {
                 return false;
@@ -340,7 +344,11 @@ fn collect_this_free_fids(
                         match v {
                             // No default: the slot must carry an
                             // undefined argv box through losslessly.
-                            None => matches!(ty, Type::Any | Type::F64 | Type::Str),
+                            None => {
+                                matches!(ty, Type::Any | Type::F64 | Type::Str)
+                                    || (twin_backed
+                                        && matches!(ty, Type::Bool | Type::I64 | Type::I32))
+                            }
                             // Adapter-substituted literal: the undefined
                             // case never reaches the typed unbox, so any
                             // scalar slot is safe.
@@ -354,6 +362,7 @@ fn collect_this_free_fids(
                         }
                     })
         })
+        .map(|(_, fid, _)| *fid)
         .collect();
     this_free_fids
 }

@@ -479,6 +479,10 @@ pub struct Ast {
     /// which needs to know the receiver channel exists BEFORE the
     /// `fn_sigs` table the `.call` devirtualization consults is built.
     pub smany_twins: std::collections::HashMap<String, String>,
+    /// Static monos whose body reads `this` (the twin exists for the
+    /// rebind); a static twin minted only for its boolean / integer
+    /// slots is not here, and its face may run the mono this-free.
+    pub smany_reads_this: std::collections::HashSet<String>,
     /// RFC 20260724-regex-literal-syntax-error — side-channel populated
     /// by `ast_desugar_regex_syntax_error::run`. Keyed by `Expr::Regex`
     /// ExprId; value = the SyntaxError message to raise when the

@@ -104,7 +104,7 @@ pub fn check_with_arity_warn(ast: &Ast) -> Result<(CheckArtifacts, Vec<String>),
     // typed 覆盖率读数(`TORAJS_TYPED_CENSUS=1` 下才打)。放在错误分支
     // 提前返回**之前** —— 一次被拒的编译同样要有读数,否则 `refused`
     // 永远是 0。见 `crate::typed_census`。
-    c.emit_typed_census();
+    c.emit_typed_census(ast);
     let error_messages: Vec<String> = c
         .errors
         .iter()

@@ -19,6 +19,10 @@ pub(super) struct BoxedCoerceIntrinsics<'a> {
     /// literal-default substitution kernel.
     pub(super) anyv_or_default: FuncId,
     pub(super) obj_tags: &'a [Option<u32>],
+    /// The twin adapter an under-supplied boolean / integer slot
+    /// hands the call to (`build_reroute`); `None` = no lossy slot,
+    /// or no twin to hand it to.
+    pub(super) twin_reroute: Option<super::build_reroute::TwinReroute>,
 }
 
 /// The adapter's per-param unbox walk (module-doc ABI): load each

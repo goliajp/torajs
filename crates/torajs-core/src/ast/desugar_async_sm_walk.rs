@@ -11,7 +11,7 @@ use super::{Ast, Expr, ExprId, Stmt};
 /// Call `f` on each direct child expression of `eid`. Nested function
 /// bodies (`ArrowFn`) are NOT descended into: an `await` there belongs
 /// to that function, not to the one being moved.
-pub(super) fn visit_expr_children(ast: &Ast, eid: ExprId, f: &mut impl FnMut(ExprId)) {
+pub(crate) fn visit_expr_children(ast: &Ast, eid: ExprId, f: &mut impl FnMut(ExprId)) {
     match ast.get_expr(eid) {
         Expr::Ident(_)
         | Expr::String(_)
@@ -85,7 +85,7 @@ pub(super) fn visit_expr_children(ast: &Ast, eid: ExprId, f: &mut impl FnMut(Exp
 /// frame, descending through nested statements. Declaration bodies
 /// (`FnDecl`, `ClassDecl`) are skipped for the same reason `ArrowFn`
 /// is above.
-pub(super) fn visit_stmt_exprs(s: &Stmt, f: &mut impl FnMut(ExprId)) {
+pub(crate) fn visit_stmt_exprs(s: &Stmt, f: &mut impl FnMut(ExprId)) {
     match s {
         Stmt::Expr(e) | Stmt::Throw(e) | Stmt::Yield(e) => f(*e),
         Stmt::Return(v) => {

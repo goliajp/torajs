@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use crate::ssa::{self, FuncId, InstKind, Module, Operand, Terminator, Type};
 use crate::ssa_lower::intern_fn_sig;
 
+use super::build_reroute::emit_twin_reroute;
 use super::build_rest::emit_rest_slot;
 use super::unbox::{
     BoxedCoerceIntrinsics, drop_obj_temps, drop_settle_temps, drop_str_temps, unbox_args,
@@ -88,6 +89,13 @@ pub(super) fn build_boxed_entry(
     // (receiver, and a construct face's new.target).
     let skip = lead.max(usize::from(recv_slot));
     let shifted = (skip > 0).then(|| shifted_argv(&mut f, entry, argv, skip));
+    if let Some(rr) = coerce.twin_reroute {
+        let base = shifted.unwrap_or(argv);
+        entry = emit_twin_reroute(
+            &mut f, entry, intr, rr, env, argv, argc, base, user_tys, dflt_lits, recv_slot,
+            feeds_env,
+        );
+    }
     // A twin on the this-first argv lane: its `__this` is user param
     // 0 and sits BEFORE the hidden slots in the sig, so the receiver
     // in argv[0] is unboxed here and the rest of the user params
