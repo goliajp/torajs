@@ -342,7 +342,7 @@ pub(super) fn finalize(
             }
         }
     }
-    reject_import_binding_writes(ast, &seed.import_bindings, seed.entry_expr_len);
+    reject_import_binding_writes(ast, &seed.import_bindings, 0..seed.entry_expr_len);
     Ok(poisoned)
 }
 
@@ -356,15 +356,21 @@ pub(super) fn finalize(
 /// position carrier — the arrow is constructed here at module scope,
 /// so the closure lift sees a live construction site).
 ///
-/// Only expressions the ENTRY itself wrote rewrite (`i <
-/// entry_expr_len`, the arena length before any lib parsed): a lib
-/// module assigning its OWN exported binding is the legal
-/// live-binding write path, and every lib expr sits past the mark.
-fn reject_import_binding_writes(ast: &mut Ast, bindings: &HashSet<String>, entry_expr_len: usize) {
+/// `exprs` is the arena range one module wrote — the entry's
+/// `0..entry_expr_len`, or a library's parse range (`load_lib`, which
+/// rewrites the library's writes to its own imports before any census
+/// rename touches the spellings). A module assigning its OWN exported
+/// binding is the legal live-binding write path and is not in
+/// `bindings`.
+pub(super) fn reject_import_binding_writes(
+    ast: &mut Ast,
+    bindings: &HashSet<String>,
+    exprs: std::ops::Range<usize>,
+) {
     if bindings.is_empty() {
         return;
     }
-    for i in 0..entry_expr_len {
+    for i in exprs {
         let target = match &ast.exprs[i] {
             Expr::Assign { target, .. } | Expr::PostIncr { target, .. } => *target,
             _ => continue,

@@ -136,6 +136,31 @@ pub(super) fn load_lib_section(
         .map(Path::to_path_buf)
         .unwrap_or_else(|| base_dir.to_path_buf());
     let lib_section: Vec<Stmt> = ast.stmts.drain(lib_offset..).collect();
+    // §16.2.1.5 CreateImportBinding — the library's writes to its own
+    // import bindings are runtime TypeErrors like the entry's; judged
+    // on the library's own arena range while its spellings are still
+    // the source's.
+    let mut import_bindings: HashSet<String> = HashSet::new();
+    for s in &lib_section {
+        if let Stmt::ImportDecl {
+            named,
+            default,
+            namespace,
+            ..
+        } = s
+        {
+            for (orig, alias) in named {
+                import_bindings.insert(alias.as_deref().unwrap_or(orig).to_string());
+            }
+            import_bindings.extend(default.iter().cloned());
+            import_bindings.extend(namespace.iter().cloned());
+        }
+    }
+    super::static_resolution::reject_import_binding_writes(
+        ast,
+        &import_bindings,
+        lib_expr_offset..ast.exprs.len(),
+    );
     // §14.8.1 / §14.9.1 — this module's own `break` / `continue`
     // early errors, judged here rather than on the spliced program
     // (where they would read as the entry's parse error).
