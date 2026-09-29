@@ -51,6 +51,9 @@ unsafe extern "C" {
 
     // torajs-throw — loud failure for the non-struct slot.
     fn __torajs_throw_type_error(msg: *const c_char);
+    fn __torajs_throw_check() -> i64;
+    fn __torajs_arr_mark_kind(arr: *mut c_void, chain: u64);
+    fn __torajs_value_drop_heap(p: *mut c_void);
     /// torajs-anyvalue — a struct accessor's [[Get]], keyed by raw name
     /// bytes (RFC 20260714-objlit-accessor blade 6). Answers the
     /// getter's result OWNED; `undefined` for a set-only property.
@@ -368,6 +371,13 @@ pub unsafe extern "C" fn __torajs_anyv_struct_values(v: u64) -> *mut c_void {
             continue;
         }
         let (tag, val) = unsafe { slot_own_value(cell, layout, i, name) };
+        // the getter raised: the caller's throw edge releases nothing
+        // it was handed, so the walk settles its array and hands back
+        // null (the `dynobj_values_append` contract)
+        if unsafe { __torajs_throw_check() } != 0 {
+            unsafe { __torajs_value_drop_heap(out as *mut c_void) };
+            return core::ptr::null_mut();
+        }
         out = unsafe { __torajs_arr_push_any(out as *mut c_void, tag, val) };
     }
     // Blade 3 — expando values after the layout fields (insertion
@@ -427,8 +437,18 @@ pub unsafe extern "C" fn __torajs_anyv_struct_entries(v: u64) -> *mut c_void {
         {
             continue;
         }
-        let name_s = unsafe { alloc_str_from_raw(kp, klen) };
         let (tag, val) = unsafe { slot_own_value(cell, layout, i, name) };
+        if unsafe { __torajs_throw_check() } != 0 {
+            unsafe {
+                __torajs_arr_mark_kind(
+                    outer as *mut c_void,
+                    crate::obj_own_keys_layout::KIND_CHAIN_HEAP,
+                );
+                __torajs_value_drop_heap(outer as *mut c_void);
+            }
+            return core::ptr::null_mut();
+        }
+        let name_s = unsafe { alloc_str_from_raw(kp, klen) };
         let inner = unsafe { __torajs_arr_alloc_any(2) };
         let inner = unsafe { __torajs_arr_push_any(inner as *mut c_void, ANY_HEAP, name_s as u64) };
         let inner = unsafe { __torajs_arr_push_any(inner as *mut c_void, tag, val) };
