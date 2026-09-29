@@ -37,6 +37,7 @@ pub mod frem_narrow;
 pub mod heap_to_stack;
 pub mod iconst_hoist;
 pub mod inliner;
+pub mod int_entry;
 pub mod interval;
 pub mod late_gvn;
 pub mod len_promote;
@@ -276,6 +277,8 @@ pub fn transform_module(mut module: Module) -> Module {
     // interval analysis / float_demote below see the recovered int
     // loops directly. `TORAJS_FREM_NARROW_OFF=1` skips (bisect gate).
     gated_pass("FREM_NARROW", &mut module, frem_narrow::narrow_frems);
+    // `TORAJS_INT_ENTRY_OFF=1` skips (bisect gate).
+    gated_pass("INT_ENTRY", &mut module, int_entry::version_loops);
     // Integer range analysis (analysis-only, RFC 20260611) — interval
     // lattice with branch refinement + loop widening over the post-φ
     // canonical shape. Feeds float demotion below and seeds sext_elide

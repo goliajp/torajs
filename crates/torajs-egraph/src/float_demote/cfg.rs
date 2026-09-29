@@ -9,7 +9,7 @@ use torajs_core::ssa::{BlockId, Function, Operand, Terminator, ValueId};
 use crate::rc_peephole::visit_value_operands;
 use torajs_core::ssa::loop_analysis::LoopAnalysis;
 
-pub(super) fn successors(term: &Terminator) -> impl Iterator<Item = BlockId> + '_ {
+pub(crate) fn successors(term: &Terminator) -> impl Iterator<Item = BlockId> + '_ {
     let mut out: [Option<BlockId>; 2] = [None, None];
     match term {
         Terminator::Br(b) => out[0] = Some(*b),
@@ -74,7 +74,7 @@ pub(super) fn collect_value_blocks(
     m
 }
 
-pub(super) fn multi_def_values(func: &Function) -> HashSet<ValueId> {
+pub(crate) fn multi_def_values(func: &Function) -> HashSet<ValueId> {
     let mut seen: HashSet<ValueId> = HashSet::new();
     let mut multi: HashSet<ValueId> = HashSet::new();
     for block in &func.blocks {
@@ -140,7 +140,7 @@ pub(super) fn block_touches(func: &Function, b: BlockId, fresh: &HashSet<ValueId
     hit
 }
 
-pub(super) fn term_operand_value(term: &Terminator) -> Option<ValueId> {
+pub(crate) fn term_operand_value(term: &Terminator) -> Option<ValueId> {
     match term {
         Terminator::CondBr {
             cond: Operand::Value(v),
@@ -151,7 +151,7 @@ pub(super) fn term_operand_value(term: &Terminator) -> Option<ValueId> {
     }
 }
 
-pub(super) fn remap_term_operand(
+pub(crate) fn remap_term_operand(
     term: Terminator,
     op_map: &HashMap<ValueId, Operand>,
 ) -> Terminator {
@@ -172,7 +172,7 @@ pub(super) fn remap_term_operand(
     }
 }
 
-pub(super) fn retarget(term: Terminator, block_map: &HashMap<BlockId, BlockId>) -> Terminator {
+pub(crate) fn retarget(term: Terminator, block_map: &HashMap<BlockId, BlockId>) -> Terminator {
     let map = |b: BlockId| block_map.get(&b).copied().unwrap_or(b);
     match term {
         Terminator::Br(b) => Terminator::Br(map(b)),
@@ -189,7 +189,7 @@ pub(super) fn retarget(term: Terminator, block_map: &HashMap<BlockId, BlockId>) 
     }
 }
 
-pub(super) fn retarget_edge(term: &mut Terminator, from: BlockId, to: BlockId) {
+pub(crate) fn retarget_edge(term: &mut Terminator, from: BlockId, to: BlockId) {
     match term {
         Terminator::Br(b) if *b == from => *b = to,
         Terminator::CondBr {

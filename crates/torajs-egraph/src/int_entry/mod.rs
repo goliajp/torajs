@@ -1,0 +1,345 @@
+//! Loop versioning on an integer bound — for a loop whose counter is
+//! an i64 and whose bound is an f64 nothing is known of: a size that
+//! arrived at run time (`parseInt(process.argv[2], 10)`), a
+//! parameter, a load.
+//!
+//! The header of such a loop reads `fcmp olt (sitofp i), n`, and the
+//! interval analysis learns nothing from it: `n` has no fact, so `i`
+//! has no upper bound, and every consumer of bounds downstream —
+//! float demotion, the sign-extension seeds, the popcount idiom, the
+//! growth-guard fold — stands down. With a literal bound the same
+//! loop was bounded; the source only moved its size to the command
+//! line.
+//!
+//! The loop is copied ([`region`]). In front of the two a chain of
+//! checks rounds the bound to an integer once ([`guard`]); the copy
+//! it passes into compares `i` with that integer, and what it fails
+//! into is the loop as it was. Nothing is assumed of the bound: NaN,
+//! an infinity, anything at or past 2^53 takes the loop as it was.
+//!
+//! Runs after `frem_narrow` — whose truncation rule does not check
+//! 2^53 and must not be fed the `sitofp`s minted here — and before
+//! the interval analysis, which reads the assumption back out of the
+//! checks. `TORAJS_INT_ENTRY_OFF=1` skips it.
+
+mod guard;
+mod region;
+
+use std::collections::{HashMap, HashSet};
+
+use torajs_core::ssa::dominator::DominatorTree;
+use torajs_core::ssa::loop_analysis::LoopAnalysis;
+use torajs_core::ssa::{
+    BinOp, BlockId, FPred, Function, IPred, InstKind, Module, Operand, Type, ValueId,
+};
+
+use crate::float_demote::cfg::{multi_def_values, retarget_edge, term_operand_value};
+use crate::rc_peephole::visit_value_operands;
+use guard::{Need, Round};
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct IntEntryStats {
+    pub loops_versioned: u32,
+    /// f64 comparisons the fast copies make between integers
+    pub bounds_converted: u32,
+    /// loops left alone: a value they define is read after them, or
+    /// a cell of theirs by code that may also run before them
+    pub skipped_escaping: u32,
+    /// loops left alone: too large to copy
+    pub skipped_budget: u32,
+    /// bounds left alone: the loop also reads them as values
+    pub skipped_value_use: u32,
+}
+
+const REGION_INST_BUDGET: usize = 512;
+const FUNCTION_INST_BUDGET: usize = 2000;
+
+/// The widest window. Both `sitofp` and the comparison are exact up
+/// to 2^53 - 1, but the counter's cell also holds the value that
+/// ended the loop, one step past the bound, and a cell whose fact
+/// touches 2^53 is not one float demotion takes for exact. Half the
+/// range leaves any step room.
+const EXACT_MAX: i64 = 1 << 52;
+/// What the counter of a loop that does 32-bit work must stay inside
+/// for that work to be provably 32-bit.
+const INT32_MAX: i64 = i32::MAX as i64;
+const INT32_MIN: i64 = i32::MIN as i64;
+
+/// One `fcmp` between the counter's image and an opaque bound.
+struct BoundUse {
+    block: BlockId,
+    inst: usize,
+    source: ValueId,
+    counter: Operand,
+    pred: IPred,
+    round: Round,
+}
+
+struct Plan {
+    header: BlockId,
+    region: Vec<BlockId>,
+    uses: Vec<BoundUse>,
+    needs: Vec<Need>,
+    /// loop cells read after the loop, and the blocks reading them
+    out: Vec<ValueId>,
+    readers: Vec<BlockId>,
+}
+
+pub fn version_loops(module: &mut Module) -> IntEntryStats {
+    let mut stats = IntEntryStats::default();
+    for func in module.funcs.iter_mut() {
+        let dense = func
+            .blocks
+            .iter()
+            .enumerate()
+            .all(|(i, b)| b.id.0 as usize == i);
+        if func.is_declaration() || !dense {
+            continue;
+        }
+        for plan in plan_function(func, &mut stats) {
+            apply(func, &plan);
+            stats.loops_versioned += 1;
+            stats.bounds_converted += plan.uses.len() as u32;
+        }
+    }
+    stats
+}
+
+fn plan_function(func: &Function, stats: &mut IntEntryStats) -> Vec<Plan> {
+    let dom = DominatorTree::compute(func);
+    let loops = LoopAnalysis::compute(func, &dom);
+    let mut outermost_first: Vec<_> = loops.loops().iter().collect();
+    outermost_first.sort_by_key(|l| (std::cmp::Reverse(l.body.len()), l.header.0));
+
+    let cells = multi_def_values(func);
+    let mut defs: HashMap<ValueId, (BlockId, &InstKind)> = HashMap::new();
+    for block in &func.blocks {
+        for inst in &block.insts {
+            if let Some(r) = inst.result.filter(|r| !cells.contains(r)) {
+                defs.insert(r, (block.id, &inst.kind));
+            }
+        }
+    }
+
+    let mut plans = Vec::new();
+    let mut taken: HashSet<BlockId> = HashSet::new();
+    let mut budget = FUNCTION_INST_BUDGET;
+    for l in outermost_first {
+        if l.header.0 == 0 || l.body.iter().any(|b| taken.contains(b)) {
+            continue;
+        }
+        let region: HashSet<BlockId> = l.body.iter().copied().collect();
+        let mut uses = bound_uses(func, &region, &defs);
+        let before = uses.len();
+        let matched: HashSet<(BlockId, usize)> = uses.iter().map(|u| (u.block, u.inst)).collect();
+        uses.retain(|u| only_compared(func, &region, u.source, &matched));
+        stats.skipped_value_use += (before - uses.len()) as u32;
+        if uses.is_empty() {
+            continue;
+        }
+        let size: usize = l
+            .body
+            .iter()
+            .map(|b| func.blocks[b.0 as usize].insts.len())
+            .sum();
+        if size > REGION_INST_BUDGET || size > budget {
+            stats.skipped_budget += 1;
+            continue;
+        }
+        let after = region::readers_after(func, &l.body, l.header, &dom, &cells);
+        let Some((out, readers)) = after.filter(|_| !region::escapes(func, &region, &cells)) else {
+            stats.skipped_escaping += 1;
+            continue;
+        };
+        let needs = needs_of(&uses, does_int32_work(func, &region));
+        taken.extend(region);
+        // a reader is rewritten once, for one loop
+        taken.extend(readers.iter().copied());
+        budget -= size;
+        plans.push(Plan {
+            header: l.header,
+            region: l.body.clone(),
+            uses,
+            needs,
+            out,
+            readers,
+        });
+    }
+    plans
+}
+
+/// True when the region reads `source` nowhere but in the matched
+/// comparisons. A bound that is also added, stored or passed on must
+/// itself be an integer for the loop to be one, which is a stricter
+/// check than this pass makes.
+fn only_compared(
+    func: &Function,
+    region: &HashSet<BlockId>,
+    source: ValueId,
+    matched: &HashSet<(BlockId, usize)>,
+) -> bool {
+    region.iter().all(|b| {
+        let block = &func.blocks[b.0 as usize];
+        let mut elsewhere = term_operand_value(&block.term) == Some(source);
+        for (i, inst) in block.insts.iter().enumerate() {
+            if !matched.contains(&(*b, i)) {
+                visit_value_operands(&inst.kind, |v| elsewhere |= v == source);
+            }
+        }
+        !elsewhere
+    })
+}
+
+fn bound_uses(
+    func: &Function,
+    region: &HashSet<BlockId>,
+    defs: &HashMap<ValueId, (BlockId, &InstKind)>,
+) -> Vec<BoundUse> {
+    let counter_of = |v: ValueId| match defs.get(&v) {
+        Some((_, InstKind::SiToFp(x))) => Some(*x),
+        _ => None,
+    };
+    let is_source = |v: ValueId| {
+        if func.values[v.0 as usize].ty != Type::F64 {
+            return false;
+        }
+        match defs.get(&v) {
+            Some((at, kind)) => {
+                !region.contains(at)
+                    && matches!(
+                        kind,
+                        InstKind::Call(..)
+                            | InstKind::CallIndirect(..)
+                            | InstKind::Load(..)
+                            | InstKind::LoadDyn(..)
+                    )
+            }
+            None => func.params.contains(&v),
+        }
+    };
+    let mut ordered: Vec<BlockId> = region.iter().copied().collect();
+    ordered.sort_by_key(|b| b.0);
+    let mut out = Vec::new();
+    for b in ordered {
+        for (i, inst) in func.blocks[b.0 as usize].insts.iter().enumerate() {
+            let InstKind::FCmp(pred, Operand::Value(l), Operand::Value(r)) = &inst.kind else {
+                continue;
+            };
+            // counter on the left reads as written; on the right the
+            // predicate mirrors
+            let (counter, source, pred) = match (counter_of(*l), counter_of(*r)) {
+                (Some(x), _) if is_source(*r) => (x, *r, *pred),
+                (_, Some(x)) if is_source(*l) => (x, *l, mirrored(*pred)),
+                _ => continue,
+            };
+            let (pred, round) = match pred {
+                FPred::Olt => (IPred::Slt, Round::Ceil),
+                FPred::Ole => (IPred::Sle, Round::Floor),
+                FPred::Ogt => (IPred::Sgt, Round::Floor),
+                FPred::Oge => (IPred::Sge, Round::Ceil),
+                FPred::Oeq | FPred::One | FPred::Une => continue,
+            };
+            out.push(BoundUse {
+                block: b,
+                inst: i,
+                source,
+                counter,
+                pred,
+                round,
+            });
+        }
+    }
+    out
+}
+
+fn mirrored(pred: FPred) -> FPred {
+    match pred {
+        FPred::Olt => FPred::Ogt,
+        FPred::Ogt => FPred::Olt,
+        FPred::Ole => FPred::Oge,
+        FPred::Oge => FPred::Ole,
+        p => p,
+    }
+}
+
+/// A sign-extension pair or a bitwise operator: the loop is doing
+/// 32-bit work, and proving it so needs the counter inside int32.
+fn does_int32_work(func: &Function, region: &HashSet<BlockId>) -> bool {
+    region.iter().any(|b| {
+        func.blocks[b.0 as usize].insts.iter().any(|inst| {
+            matches!(
+                inst.kind,
+                InstKind::BinOp(
+                    BinOp::And | BinOp::Or | BinOp::Xor | BinOp::Shl | BinOp::AShr,
+                    ..
+                )
+            )
+        })
+    })
+}
+
+/// One need per (source, rounding), its window the intersection of
+/// what each comparison reading it asks for. A narrower window sends
+/// more inputs to the slow copy; it never changes an answer.
+fn needs_of(uses: &[BoundUse], int32: bool) -> Vec<Need> {
+    let mut needs: Vec<Need> = Vec::new();
+    for u in uses {
+        let (lo, hi) = match (int32, u.pred) {
+            (false, _) => (-EXACT_MAX, EXACT_MAX),
+            (true, IPred::Slt) => (-EXACT_MAX, INT32_MAX + 1),
+            (true, IPred::Sle) => (-EXACT_MAX, INT32_MAX),
+            (true, IPred::Sge) => (INT32_MIN, EXACT_MAX),
+            (true, _) => (INT32_MIN - 1, EXACT_MAX),
+        };
+        match needs
+            .iter_mut()
+            .find(|n| n.source == u.source && n.round == u.round)
+        {
+            Some(n) => {
+                n.lo = n.lo.max(lo);
+                n.hi = n.hi.min(hi);
+            }
+            None => needs.push(Need {
+                source: u.source,
+                round: u.round,
+                lo,
+                hi,
+            }),
+        }
+    }
+    needs
+}
+
+fn apply(func: &mut Function, plan: &Plan) {
+    let outside = func.blocks.len();
+    let cells = multi_def_values(func);
+    let copy = region::clone_blocks(func, &plan.region);
+    let chain = guard::build_chain(func, &plan.needs, plan.header, copy.blocks[&plan.header]);
+    region::seed_cells(
+        func,
+        &plan.region,
+        plan.header,
+        outside,
+        chain.pass,
+        &cells,
+        &copy,
+    );
+    // every way into the loop from outside it now enters the chain;
+    // the back edges stay where they are
+    let region: HashSet<BlockId> = plan.region.iter().copied().collect();
+    for bi in 0..outside {
+        if !region.contains(&BlockId(bi as u32)) {
+            retarget_edge(&mut func.blocks[bi].term, plan.header, chain.head);
+        }
+    }
+    region::write_out(func, &plan.region, &plan.out, &plan.readers, &copy);
+    for u in &plan.uses {
+        let bound = Operand::Value(chain.rounded[&(u.source, u.round)]);
+        let at = copy.blocks[&u.block];
+        func.blocks[at.0 as usize].insts[u.inst].kind =
+            InstKind::ICmp(u.pred, copy.operand(u.counter), bound);
+    }
+}
+
+#[cfg(test)]
+mod tests;
