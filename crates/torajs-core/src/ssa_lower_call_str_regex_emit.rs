@@ -238,6 +238,18 @@ pub(crate) fn emit_replace(
         repl = ctx.box_to_any(repl);
         repl_ty = Type::Any;
     }
+    // A regex that is not written at the call has a capture count only
+    // the run time knows, and the typed callback ABI fixes the argument
+    // list at compile time. A callback that names more than the match
+    // goes through the boxed entry instead, which hands it what the
+    // match produced.
+    if let Type::Closure(sig_id) = repl_ty
+        && !matches!(ctx.ast.get_expr(args[0]), Expr::Regex { .. })
+        && ctx.fn_sigs[sig_id.0 as usize].0.len() > 1
+    {
+        repl = ctx.box_to_any(repl);
+        repl_ty = Type::Any;
+    }
     // P9.5-A1 / A1.1 — fn-callback dispatch. Repl is either Str (existing
     // $&/$N expand_repl path) or Closure (env+8 ABI runtime invoke, with
     // N capture Strs built from saves[] per match).
@@ -288,8 +300,8 @@ pub(crate) fn emit_replace(
                          string) => Str` (A1.2), got params={params:?} ret={ret_ty:?}"
                 );
             };
-            // For ident-bound regex tora can't count captures statically;
-            // A1.1 narrow scope = inline regex literal for N ≥ 1.
+            // a regex not written here reaches this arm only with a
+            // callback that names the match alone
             let n_caps_actual = match ctx.ast.get_expr(args[0]) {
                 Expr::Regex { pattern, .. } => count_capture_groups(pattern),
                 _ => 0,
@@ -317,9 +329,7 @@ pub(crate) fn emit_replace(
                          {n_caps_actual} capture group(s) but cb takes \
                          {declared} capture arg(s). A cb may take FEWER than the \
                          regex has, but not more, and the (number, string) tail \
-                         has to name every capture before it. Note: ident-bound \
-                         regex always assumed 0 captures; inline the regex \
-                         literal to use captures."
+                         has to name every capture before it."
                 );
             }
             let fid = if m_name == "replace" {
