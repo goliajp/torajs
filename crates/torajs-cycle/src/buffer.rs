@@ -189,10 +189,14 @@ pub unsafe extern "C" fn __torajs_cycle_unbuffer(p: *mut c_void) {
     unsafe { (*h).flags &= !FLAG_BUFFERED };
     let buf = G_BUFFER.load(Ordering::Relaxed);
     let len = G_BUFFER_LEN.load(Ordering::Relaxed);
-    for i in 0..len as usize {
+    // a block is in the buffer at most once (the FLAG_BUFFERED gate in
+    // cycle_buffer), and the blocks dropped soonest are the ones pushed
+    // last, so scan from the tail and stop at the hit
+    for i in (0..len as usize).rev() {
         unsafe {
             if *buf.add(i) == p {
                 *buf.add(i) = ptr::null_mut();
+                return;
             }
         }
     }
