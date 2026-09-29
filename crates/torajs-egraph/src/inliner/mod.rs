@@ -51,12 +51,14 @@ mod sole_site;
 mod splice;
 mod splice2;
 mod splice2_emit;
+mod stats;
 
 use crate::cost::{Cost, cost_of_kind};
 use torajs_core::ssa::{FuncId, Function, InstKind, Module, Operand, ValueId};
 
 pub use splice::{SpliceError, inline_single_block_leaf};
 pub use splice2::{SpliceMultiError, inline_multi_block_leaf};
+pub use stats::InlinerStats;
 
 /// Budget configuration for `inline_module`. Defaults are conservative
 /// starting points calibrated against LLVM `-O2` hint thresholds
@@ -150,60 +152,6 @@ pub enum SkipReason {
     /// own fn. Inlining it would put the whole dynobj / anyvalue
     /// world back into main on every class program.
     LinkJudgedUnit,
-}
-
-/// Aggregate diagnostic counters across one `inline_module` run.
-/// Reported to the integration layer for logging and regression
-/// tracking. Not used to gate correctness.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct InlinerStats {
-    /// Direct call sites considered for inlining (`InstKind::Call(...)`
-    /// occurrences in every caller body). `CallIndirect` sites are
-    /// counted toward `skipped_indirect` and NOT toward `candidates`
-    /// (an indirect site is not a candidate at Phase 0).
-    pub candidates: u32,
-    /// Sites that passed every check at the classifier (cost-benefit
-    /// budget + recursion + indirect filters). A would-inline decision
-    /// is necessary but not sufficient for actual emit: Phase 1's
-    /// `splice` module further requires single-block leaf shape, so
-    /// `inlined` ≤ `would_inline` at all times. Inspect the gap to
-    /// attribute splice rejections (multi-block callee, non-Ret
-    /// terminator, etc.).
-    pub would_inline: u32,
-    /// Sites that not only passed the classifier but were also
-    /// successfully spliced into the caller body. Sum of
-    /// `inlined_single_block` and `inlined_multi_block`. Always ≤
-    /// `would_inline`. In dry-run mode (`TORAJS_INLINER_OFF=1`) this
-    /// stays at 0 regardless of `would_inline`.
-    pub inlined: u32,
-    /// Subset of `inlined` that took the Phase 1.0a single-block-leaf
-    /// fast path via `splice::inline_single_block_leaf`.
-    pub inlined_single_block: u32,
-    /// Subset of `inlined` that fell through to Phase 2.0a multi-block
-    /// leaf via `splice2::inline_multi_block_leaf`. Real production
-    /// code tends to land here because `ssa_lower` emits multi-block
-    /// functions even for the smallest leaf bodies.
-    pub inlined_multi_block: u32,
-    /// Sites rejected by `SkipReason::CalleeTooLarge`.
-    pub skipped_callee_too_large: u32,
-    /// Sites rejected by `SkipReason::CallerBudgetExhausted`.
-    pub skipped_caller_budget: u32,
-    /// Sites rejected by `SkipReason::CalleeIsDeclaration`.
-    pub skipped_declaration: u32,
-    /// Sites rejected by `SkipReason::Recursion`.
-    pub skipped_recursion: u32,
-    /// Sites rejected by `SkipReason::LinkJudgedUnit`.
-    pub skipped_link_judged_unit: u32,
-    /// Indirect call sites observed. Tracked separately from
-    /// `candidates` because at Phase 0 they are categorically out of
-    /// scope rather than a per-site cost-benefit miss.
-    pub skipped_indirect: u32,
-    /// Sites approved by the classifier but skipped at emit because
-    /// the callee's live body cost exceeded the ceiling by then — an
-    /// earlier splice in the same pass (self-inline, or a callee
-    /// processed earlier as a caller) grew it past the precomputed
-    /// cost the classifier saw. Phase 2.1 stale-cost guard.
-    pub skipped_live_cost: u32,
 }
 
 /// Sum `cost_of_kind` over every instruction in every block of `func`.
@@ -410,6 +358,7 @@ pub fn inline_module_with_budget(module: &mut Module, budget: InlineBudget) -> I
         // the ORIGINAL body (the GCC recursive-inlining shape). Without
         // this, the second self-site would clone a body already grown
         // by the first splice — compounding growth within one pass.
+        let mut spliced_sole: Vec<usize> = Vec::new();
         let self_snapshot: Option<Function> = if targets
             .iter()
             .any(|(_, _, cid, _, _)| cid.0 as usize == caller_idx)
@@ -458,6 +407,7 @@ pub fn inline_module_with_budget(module: &mut Module, budget: InlineBudget) -> I
                 Ok(()) => {
                     stats.inlined += 1;
                     stats.inlined_single_block += 1;
+                    spliced_sole.push(callee_id.0 as usize);
                 }
                 Err(SpliceError::NotSingleBlock) => {
                     if inline_multi_block_leaf(
@@ -472,9 +422,21 @@ pub fn inline_module_with_budget(module: &mut Module, budget: InlineBudget) -> I
                     {
                         stats.inlined += 1;
                         stats.inlined_multi_block += 1;
+                        spliced_sole.push(callee_id.0 as usize);
                     }
                 }
                 Err(_) => {}
+            }
+        }
+        // A sole-site callee's one call is gone: its out-of-line body
+        // is unreachable. A user function (no `__` prefix) is named by
+        // nothing but SSA instructions, so its body goes; a
+        // compiler-minted one may sit in a metadata table by fid.
+        for callee in spliced_sole {
+            let f = &mut module.funcs[callee];
+            if callee != caller_idx && sole[callee] && !f.name.starts_with("__") {
+                f.blocks.clear();
+                stats.sole_bodies_dropped += 1;
             }
         }
         // its callers, visited later, price the body they will clone
@@ -641,6 +603,38 @@ mod tests {
         let stats = inline_module(&mut m);
         assert_eq!(stats.would_inline, 1);
         assert_eq!(stats.inlined, 1);
+    }
+
+    /// A sole-site user function's one call spliced: its out-of-line
+    /// body is gone (a declaration nothing calls), so the dump shows
+    /// the live copy only.
+    #[test]
+    fn spliced_sole_site_user_body_is_dropped() {
+        let leaf = alu_body("loopSum", 8);
+        let main = caller("main", vec![void_inst(InstKind::Call(FuncId(1), vec![]))]);
+        let mut m = module_of(vec![main, leaf]);
+        let stats = inline_module(&mut m);
+        assert_eq!(stats.inlined, 1);
+        assert_eq!(stats.sole_bodies_dropped, 1);
+        assert!(m.funcs[1].is_declaration(), "the spliced body is dropped");
+        assert_eq!(
+            m.funcs[0].blocks[0].insts.len(),
+            8,
+            "the live copy stays in main"
+        );
+    }
+
+    /// A compiler-minted function (`__` prefix) may sit in a metadata
+    /// table by fid, so its body stays even when its one call splices.
+    #[test]
+    fn spliced_sole_site_minted_body_stays() {
+        let leaf = alu_body("__boxed_leaf", 8);
+        let main = caller("main", vec![void_inst(InstKind::Call(FuncId(1), vec![]))]);
+        let mut m = module_of(vec![main, leaf]);
+        let stats = inline_module(&mut m);
+        assert_eq!(stats.inlined, 1);
+        assert_eq!(stats.sole_bodies_dropped, 0);
+        assert!(!m.funcs[1].is_declaration());
     }
 
     #[test]
