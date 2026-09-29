@@ -4,14 +4,14 @@
 use alloc::vec::Vec;
 use core::ffi::c_void;
 
+use super::groups::build_groups;
 use super::match_indices::attach_indices;
 use super::static_keys::{K_GROUPS, K_INDEX, K_INPUT, cached_static_key};
 use super::{
     __torajs_arr_alloc_with, __torajs_arr_push, __torajs_arrprops_attach_exec3,
-    __torajs_arrprops_set, __torajs_dynobj_alloc, __torajs_dynobj_mark_null_proto,
-    __torajs_dynobj_set, __torajs_rc_inc, __torajs_str_drop, __torajs_str_undef, ANY_HEAP, ANY_I64,
-    ANY_UNDEF, RegExp, abort_unsupported, as_regex_mut, byte_to_utf16_units, haystack, span_str,
-    str_from_bytes, str_slice_ascii_view, utf16_units_to_byte,
+    __torajs_arrprops_set, __torajs_rc_inc, __torajs_str_undef, ANY_HEAP, ANY_I64, ANY_UNDEF,
+    RegExp, abort_unsupported, as_regex_mut, byte_to_utf16_units, haystack, span_str,
+    str_slice_ascii_view, utf16_units_to_byte,
 };
 use crate::node::REGEX_MAX_CAPTURES;
 use crate::parser::{RE_FLAG_G, RE_FLAG_Y};
@@ -99,81 +99,24 @@ pub unsafe fn attach_exec_props(arr: *mut c_void, str_ptr: *const c_void, index:
     }
 }
 
-/// Build `.groups` dynobj from the named captures recorded on `re`
-/// and the just-finished match's saves[]. Attaches the dict to
-/// `arr` via the arrprops side table (so `arr.groups` resolves via
-/// the standard Array.<unknown-prop> path). Without named captures
-/// the property is still attached, as `undefined` (spec §22.2.7.8
-/// step 24; bun prints `groups: undefined`).
+/// Attach `.groups` to `arr` via the arrprops side table (so
+/// `arr.groups` resolves via the standard Array.<unknown-prop> path):
+/// the dict [`build_groups`] makes, or `undefined` for a regex without
+/// named captures (spec §22.2.7.8 step 24; bun prints
+/// `groups: undefined`).
 ///
 /// # Safety
 ///
 /// Calls cross-tier extern allocators; `arr` must be a live tora
 /// Array. `re` and `s` must outlive the call.
 pub unsafe fn attach_groups(arr: *mut c_void, re: &RegExp, s: &[u8], saves: &[i64]) {
-    if re.n_named_captures == 0 || re.capture_names.is_empty() {
-        // Round 4 wire-back Phase B chunk 1 — cached static "groups" key.
-        let outer_key = unsafe { cached_static_key(&K_GROUPS, b"groups") };
-        unsafe {
-            __torajs_arrprops_set(arr, outer_key as *mut c_void, ANY_UNDEF as i64, 0);
-        }
-        return;
-    }
-    // Spec: the groups object is created with a null prototype
-    // (OrdinaryObjectCreate(null)); the flag drives the
-    // `[Object: null prototype] ` print prefix.
-    let mut groups = unsafe { __torajs_dynobj_alloc() };
-    unsafe { __torajs_dynobj_mark_null_proto(groups) };
-    let n_cap_lim = (re.n_captures as usize).min(REGEX_MAX_CAPTURES - 1);
-    // Duplicate named groups (`(?:(?<z>c)|(?<z>d))`) — §22.2.7.8:
-    // the groups object carries the PARTICIPATING twin's value, but
-    // key order follows the FIRST occurrence in source order. So a
-    // non-participating slot still writes its undefined placeholder
-    // (a later participating twin's dynobj set updates in place,
-    // keeping the slot), unless a participating twin already wrote
-    // a defined value — that must not be clobbered back.
-    let mut defined_names: Vec<&[u8]> = Vec::new();
-    for i in 1..=n_cap_lim {
-        let name = match re.capture_names.get(i) {
-            Some(n) if !n.is_empty() => n,
-            _ => continue,
-        };
-        let name_key = unsafe { str_from_bytes(name) };
-        let gs = save_slot(saves, 2 * i);
-        let ge = save_slot(saves, 2 * i + 1);
-        if gs < 0 || ge < 0 {
-            if defined_names.iter().any(|n| *n == name.as_slice()) {
-                unsafe { __torajs_str_drop(name_key as *mut c_void) };
-                continue;
-            }
-            // Non-participating named group → undefined.
-            unsafe {
-                __torajs_dynobj_set(&mut groups, name_key as *mut c_void, ANY_UNDEF, 0);
-            }
-        } else {
-            defined_names.push(name.as_slice());
-            let val_str = unsafe { str_from_bytes(&s[gs as usize..ge as usize]) };
-            unsafe {
-                __torajs_dynobj_set(
-                    &mut groups,
-                    name_key as *mut c_void,
-                    ANY_HEAP,
-                    val_str as u64,
-                );
-            }
-        }
-        unsafe { __torajs_str_drop(name_key as *mut c_void) };
-    }
-    // Round 4 wire-back Phase B chunk 1 — same cached static "groups" key.
+    // Round 4 wire-back Phase B chunk 1 — cached static "groups" key.
     let outer_key = unsafe { cached_static_key(&K_GROUPS, b"groups") };
-    unsafe {
-        __torajs_arrprops_set(
-            arr,
-            outer_key as *mut c_void,
-            ANY_HEAP as i64,
-            groups as i64,
-        );
-    }
+    let (tag, groups) = match unsafe { build_groups(re, s, saves) } {
+        Some(groups) => (ANY_HEAP, groups as i64),
+        None => (ANY_UNDEF, 0),
+    };
+    unsafe { __torajs_arrprops_set(arr, outer_key as *mut c_void, tag as i64, groups) };
 }
 
 /// `s.match(re)` — Phase 1c shape: Array<Str>.
