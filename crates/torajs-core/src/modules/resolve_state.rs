@@ -48,6 +48,10 @@ pub(super) struct ResolveState {
     /// Every `(later, first)` spelling pair a repeat landing bound
     /// (see `repeat_request::follow_aliases`).
     pub(super) repeat_aliases: Vec<(String, String)>,
+    /// Import spellings bound to the entry's own bindings without a
+    /// walk (`entry_namespace::bind_entry_self_imports`) — resolved
+    /// requests with no injected declaration behind them.
+    pub(super) entry_self_bindings: HashSet<String>,
     /// Statements injected on behalf of one module, keyed by its path
     /// so the dependency-order splice can reassemble them. A path may
     /// be walked more than once (a later request asking for a name the
@@ -96,6 +100,7 @@ impl ResolveState {
             landed_by_path: HashMap::new(),
             ambient_classes: Vec::new(),
             repeat_aliases: Vec::new(),
+            entry_self_bindings: HashSet::new(),
             injections_by_path: HashMap::new(),
             ns: ns_tables::NsTables::default(),
             landing_first: HashMap::new(),

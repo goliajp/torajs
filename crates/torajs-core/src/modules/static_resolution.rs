@@ -312,11 +312,13 @@ pub(super) fn finalize(
     injections_by_path: &HashMap<PathBuf, Vec<Stmt>>,
     ns_accums: &HashMap<String, NsAccum>,
     ambiguous_locals: &HashSet<String>,
+    entry_self_bindings: &HashSet<String>,
 ) -> Result<HashSet<String>, String> {
     let mut declared: HashSet<String> = HashSet::new();
     for stmts in injections_by_path.values() {
         super::dyn_import_poison::collect_decl_names(stmts, &mut declared);
     }
+    declared.extend(entry_self_bindings.iter().cloned());
     let verdict =
         |face: &str, binding: &str| check(face, binding, &declared, ns_accums, ambiguous_locals);
     for (face, binding) in &seed.requests {

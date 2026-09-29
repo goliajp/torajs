@@ -31,6 +31,7 @@ pub(super) fn settle_and_splice(
     entry_seed: &static_resolution::EntrySeed,
     nested: &[static_resolution::NestedRequest],
     dyn_eval_bodies: &HashMap<String, Vec<Stmt>>,
+    entry_self_bindings: &HashSet<String>,
 ) -> Result<(), String> {
     let lib_poisoned = static_resolution::finalize(
         ast,
@@ -40,6 +41,7 @@ pub(super) fn settle_and_splice(
         &injections_by_path,
         &ns.accums,
         ambiguous_locals,
+        entry_self_bindings,
     )?;
     let entry_expr_len = entry_seed.entry_expr_len;
     assemble_and_splice(

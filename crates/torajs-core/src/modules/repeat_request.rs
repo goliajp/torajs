@@ -25,7 +25,7 @@ pub(super) fn align_and_filter(
     ast: &mut Ast,
     target_path: &Path,
     entry_path: Option<&Path>,
-    named: Vec<NamedImport>,
+    mut named: Vec<NamedImport>,
     mut default_alias: Option<String>,
     mut namespace_alias: Option<String>,
     side_effect_only: bool,
@@ -33,6 +33,21 @@ pub(super) fn align_and_filter(
 ) -> Result<Option<(Vec<NamedImport>, Option<String>, Option<String>, bool)>, String> {
     if side_effect_only && entry_path == Some(target_path) {
         return Ok(None);
+    }
+    // The entry's own named exports and default bind by reference; a
+    // walk of the entry would inject a second copy of each declaration
+    // and point the imports at the copies.
+    if entry_path == Some(target_path) && (!named.is_empty() || default_alias.is_some()) {
+        (named, default_alias) = super::entry_namespace::bind_entry_self_imports(
+            ast,
+            target_path,
+            named,
+            default_alias,
+            st,
+        )?;
+        if named.is_empty() && default_alias.is_none() && namespace_alias.is_none() {
+            return Ok(None);
+        }
     }
     if let Some(alias) = namespace_alias.as_deref()
         && entry_path == Some(target_path)

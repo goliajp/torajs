@@ -281,6 +281,7 @@ pub fn resolve_imports(
         &entry_seed,
         &st.ledger.nested,
         &st.dyn_eval_bodies,
+        &st.entry_self_bindings,
     )?;
     // The namespace read lands on whatever spelling the field claimed,
     // which may be a repeat's alias binding — so it goes first, and
