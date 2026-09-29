@@ -15,14 +15,28 @@
 //! along a path avoiding it (block-granular DFS — traversing a block
 //! executes all of its instructions, so a path "passes" a def exactly
 //! when it traverses the def's block through or up to the def index).
+//!
+//! A tracked array's length field is one more cell: its defs are the
+//! allocation, the `ARR_LEN_OFF` stores and the kernel calls on it
+//! (`interval::elem_len`), and a length load resolves through the same
+//! unique-last-def rule. A stored value with no unique def at the store
+//! (the push loop's count cell, read after its loop) falls back to the
+//! after-loop recurrence bound.
+//!
+//! The evaluator also carries the function's flow-insensitive lattice,
+//! built on first use: it is the one source that knows an element load
+//! (`interval::elem`), which no point has a def for.
 
-use std::cell::{Cell, RefCell};
+use std::cell::{Cell, OnceCell, RefCell};
 use std::collections::HashMap;
 
 use torajs_core::ssa::{Function, InstKind, Operand, Terminator, ValueId};
 
+use super::accum::cell_bound_after_loop;
+use crate::interval::elem_len::{LenCells, LenDef, len_cells};
 use crate::interval::transfer::{self, AbsVal, NumFact};
 use torajs_core::ssa::dominator::DominatorTree;
+use torajs_core::ssa::loop_analysis::LoopAnalysis;
 
 /// A program point: `(block index, inst index)`. Operand reads of the
 /// instruction at `inst_idx` see defs strictly before it; a block's
@@ -36,14 +50,26 @@ const FUEL: u32 = 256;
 pub(crate) struct PointEval<'a> {
     func: &'a Function,
     dom: &'a DominatorTree,
+    la: &'a LoopAnalysis,
     /// Every def site of every value, in layout order.
     defs: HashMap<ValueId, Vec<Point>>,
+    len: LenCells,
+    names: &'a [String],
+    flow: OnceCell<HashMap<ValueId, NumFact>>,
     memo: RefCell<HashMap<(ValueId, usize, usize), Option<NumFact>>>,
     fuel: Cell<u32>,
 }
 
 impl<'a> PointEval<'a> {
-    pub(crate) fn new(func: &'a Function, dom: &'a DominatorTree) -> Self {
+    /// `names` is index-aligned with `Module::funcs`; it is what lets
+    /// the length cells and the lattice's element points recognize the
+    /// array runtime (empty: neither is tracked).
+    pub(crate) fn new(
+        func: &'a Function,
+        dom: &'a DominatorTree,
+        la: &'a LoopAnalysis,
+        names: &'a [String],
+    ) -> Self {
         let mut defs: HashMap<ValueId, Vec<Point>> = HashMap::new();
         for (bi, block) in func.blocks.iter().enumerate() {
             for (ii, inst) in block.insts.iter().enumerate() {
@@ -55,9 +81,37 @@ impl<'a> PointEval<'a> {
         Self {
             func,
             dom,
+            la,
             defs,
+            len: len_cells(func, names),
+            names,
+            flow: OnceCell::new(),
             memo: RefCell::new(HashMap::new()),
             fuel: Cell::new(FUEL),
+        }
+    }
+
+    /// The flow-insensitive lattice's fact for `v`, sound at every
+    /// point of the function.
+    pub(crate) fn flow_fact(&self, v: ValueId) -> Option<NumFact> {
+        self.flow
+            .get_or_init(|| crate::interval::analyze_function_with(self.func, self.names))
+            .get(&v)
+            .copied()
+    }
+
+    /// Point evaluation met with the lattice: each is sound, so the
+    /// answer is their intersection, or whichever one speaks.
+    pub(crate) fn eval_operand_with_flow(&self, op: &Operand, point: Point) -> Option<NumFact> {
+        let pf = self.eval_operand(op, point);
+        let ff = match op {
+            Operand::Value(v) => self.flow_fact(*v),
+            _ => None,
+        };
+        match (pf, ff) {
+            (Some(p), Some(f)) => Some(p.meet(f).unwrap_or(p)),
+            (p, None) => p,
+            (None, f) => f,
         }
     }
 
@@ -94,6 +148,14 @@ impl<'a> PointEval<'a> {
 
     fn eval_value_uncached(&self, v: ValueId, point: Point) -> Option<NumFact> {
         let sites = self.defs.get(&v)?;
+        let last = self.unique_last_def(sites, point)?;
+        let inst = &self.func.blocks[last.0].insts[last.1];
+        self.eval_def_inst(&inst.kind, inst.result?, last)
+    }
+
+    /// The one def among `sites` that every execution reaching `point`
+    /// passed last, if it exists.
+    fn unique_last_def(&self, sites: &[Point], point: Point) -> Option<Point> {
         // Lowest def that dominates the read point (program-point
         // dominance: strictly-dominating block, or same block at a
         // lower inst index).
@@ -121,14 +183,34 @@ impl<'a> PointEval<'a> {
                 return None;
             }
         }
-        let inst = &self.func.blocks[last.0].insts[last.1];
-        self.eval_def_inst(&inst.kind, inst.result?, last)
+        Some(last)
+    }
+
+    /// A length load: the value the root's unique last length def
+    /// left, read at that def's point.
+    fn eval_len(&self, root: ValueId, at: Point) -> Option<NumFact> {
+        let sites = self.len.defs.get(&root)?;
+        let points: Vec<Point> = sites.iter().map(|(p, _)| *p).collect();
+        let last = self.unique_last_def(&points, at)?;
+        let (_, def) = sites.iter().find(|(p, _)| *p == last)?;
+        let LenDef::Known(op) = def else {
+            return None;
+        };
+        self.eval_operand(op, last).or_else(|| match op {
+            Operand::Value(v) => {
+                cell_bound_after_loop(self.func, self.la, self, self.dom, *v, last)
+            }
+            _ => None,
+        })
     }
 
     /// Evaluate a def instruction with its operands read at the def's
     /// own point. Arithmetic shapes delegate to the shared interval
     /// transfer function.
     fn eval_def_inst(&self, kind: &InstKind, r: ValueId, at: Point) -> Option<NumFact> {
+        if let Some(root) = self.len.reads.get(&r) {
+            return self.eval_len(*root, at);
+        }
         let ty = self.func.values[r.0 as usize].ty;
         let env = |op: &Operand| match self.eval_operand(op, at) {
             Some(f) => AbsVal::Fact(f),
@@ -296,7 +378,8 @@ mod tests {
             ],
         );
         let dom = DominatorTree::compute(&f);
-        let pe = PointEval::new(&f, &dom);
+        let la = LoopAnalysis::compute(&f, &dom);
+        let pe = PointEval::new(&f, &dom, &la, &[]);
         // read of %1 at the add (bb1, idx 2): unique last def is the
         // copy-0 at idx 0 (the idx-3 redef re-passes it on loop-back).
         assert_eq!(pe.eval_value(ValueId(1), (1, 2)), Some(NumFact::new(0, 0)));
@@ -336,7 +419,8 @@ mod tests {
             ],
         );
         let dom = DominatorTree::compute(&f);
-        let pe = PointEval::new(&f, &dom);
+        let la = LoopAnalysis::compute(&f, &dom);
+        let pe = PointEval::new(&f, &dom, &la, &[]);
         assert_eq!(pe.eval_value(ValueId(0), (1, 0)), None);
     }
 }

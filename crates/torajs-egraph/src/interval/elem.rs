@@ -117,14 +117,14 @@ pub(crate) fn array_classes(func: &Function, callee_names: &[String]) -> Option<
     analyze(func, callee_names).map(|a| a.classes)
 }
 
-struct Analysis {
+pub(super) struct Analysis {
     roots: Vec<ValueId>,
-    classes: ArrayClasses,
+    pub(super) classes: ArrayClasses,
     writes: HashMap<ValueId, Vec<Operand>>,
     reads: HashMap<ValueId, ValueId>,
 }
 
-fn analyze(func: &Function, callee_names: &[String]) -> Option<Analysis> {
+pub(super) fn analyze(func: &Function, callee_names: &[String]) -> Option<Analysis> {
     if callee_names.is_empty() {
         return None;
     }

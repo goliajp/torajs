@@ -60,11 +60,12 @@ pub fn narrow_prints(module: &mut Module) -> PrintNarrowStats {
     if pairs.is_empty() {
         return stats;
     }
+    let names: Vec<String> = module.funcs.iter().map(|f| f.name.clone()).collect();
     for func in &mut module.funcs {
         if func.is_declaration() {
             continue;
         }
-        narrow_in_function(func, &pairs, &mut stats);
+        narrow_in_function(func, &pairs, &names, &mut stats);
     }
     stats
 }
@@ -72,11 +73,12 @@ pub fn narrow_prints(module: &mut Module) -> PrintNarrowStats {
 fn narrow_in_function(
     func: &mut Function,
     pairs: &[(FuncId, FuncId)],
+    names: &[String],
     stats: &mut PrintNarrowStats,
 ) {
     let dom = DominatorTree::compute(func);
     let la = LoopAnalysis::compute(func, &dom);
-    let pe = PointEval::new(func, &dom);
+    let pe = PointEval::new(func, &dom, &la, names);
     // (block, inst) → (i64 twin, integer operand)
     let mut rewrites: Vec<((usize, usize), FuncId, ValueId)> = Vec::new();
     for (bi, block) in func.blocks.iter().enumerate() {

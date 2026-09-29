@@ -16,7 +16,11 @@
 //!   episode per function entry and the entry value cannot compound
 //!   across episodes);
 //! * the loop has a single back edge and its header exits on
-//!   `counter <slt/sle> K` with the in-loop side on `then`;
+//!   `counter <slt/sle> K` with the in-loop side on `then`; `K` is a
+//!   constant or a value with a fact at the compare (a tracked array's
+//!   length read after its push loop's writeback) — a fact holds at
+//!   every header visit, so its high end bounds the trips whatever `K`
+//!   does within it;
 //! * the counter's only in-loop def is `copy (add counter, s)` with
 //!   constant step `s >= 1`;
 //! * entry values for both cells come from `PointEval` at every
@@ -31,7 +35,9 @@
 //! `[entry, K (−1 for slt) + s]` — the header check bounds it at
 //! iteration start and one step is all a body pass adds (r506; the
 //! `sum += i` guard never folded before, so its slow version and
-//! f64 exit bridge stayed).
+//! f64 exit bridge stayed). An increment read out of an array
+//! (`sum += xs[i]`) has no def at any point; the lattice's element
+//! point is met in for it.
 
 use torajs_core::ssa::{BlockId, Function, IPred, InstKind, Operand, Terminator, ValueId};
 
@@ -93,7 +99,7 @@ pub(crate) fn accum_bound(
     let counter = loop_counter(func, lp, pe)?;
     let trip = counter.trip();
     let entry = entry_fact(func, lp, pe, acc)?;
-    let inc = match pe.eval_operand(inc_op, x_def) {
+    let inc = match pe.eval_operand_with_flow(inc_op, x_def) {
         Some(f) => f,
         None if resolves_to(func, inc_op, counter.cell) => counter.body_range(),
         None => return None,
@@ -237,7 +243,9 @@ fn resolves_to(func: &Function, op: &Operand, cell: ValueId) -> bool {
 }
 
 /// The counting argument from the header's `counter <slt/sle> K`
-/// exit compare and the counter's `+s` step.
+/// exit compare and the counter's `+s` step. `K` is bounded by its
+/// fact at the compare; the counter never enters the body above the
+/// fact's high end.
 fn loop_counter(func: &Function, lp: &NaturalLoop, pe: &PointEval) -> Option<LoopCounter> {
     let hb = lp.header.0 as usize;
     let header = &func.blocks[hb];
@@ -258,7 +266,10 @@ fn loop_counter(func: &Function, lp: &NaturalLoop, pe: &PointEval) -> Option<Loo
     else {
         return None;
     };
-    let k = op_const_int(k_op)?;
+    let k = match op_const_int(k_op) {
+        Some(k) => k,
+        None => pe.eval_operand_with_flow(k_op, cond_def)?.hi,
+    };
     // Counter: only in-loop def is `copy (add counter, s)`, s >= 1.
     let mut step: Option<i128> = None;
     for block in &func.blocks {
@@ -341,4 +352,202 @@ fn single_def(func: &Function, v: ValueId) -> Option<(usize, usize)> {
         }
     }
     found
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::{BranchFoldStats, fold_in_function};
+    use torajs_core::ssa::{
+        BinOp, Block, BlockId, FuncId, Function, IPred, Inst, InstKind, Operand, Terminator, Type,
+        ValueId, ValueInfo,
+    };
+
+    const ALLOC: u32 = 0;
+    const RESERVE: u32 = 1;
+    const PUSH_UNCHECKED: u32 = 2;
+
+    fn names() -> Vec<String> {
+        vec![
+            "__torajs_arr_alloc".into(),
+            "__torajs_arr_reserve".into(),
+            "__torajs_arr_push_unchecked".into(),
+        ]
+    }
+
+    fn inst(result: u32, kind: InstKind) -> Inst {
+        Inst {
+            result: Some(ValueId(result)),
+            kind,
+            origin: None,
+        }
+    }
+
+    fn void(kind: InstKind) -> Inst {
+        Inst {
+            result: None,
+            kind,
+            origin: None,
+        }
+    }
+
+    fn v(id: u32) -> Operand {
+        Operand::Value(ValueId(id))
+    }
+
+    fn c(n: i64) -> Operand {
+        Operand::ConstI64(n)
+    }
+
+    fn block(id: u32, insts: Vec<Inst>, term: Terminator) -> Block {
+        Block {
+            id: BlockId(id),
+            insts,
+            term,
+        }
+    }
+
+    fn cond(cond: u32, then_blk: u32, else_blk: u32) -> Terminator {
+        Terminator::CondBr {
+            cond: v(cond),
+            then_blk: BlockId(then_blk),
+            else_blk: BlockId(else_blk),
+        }
+    }
+
+    /// The parameter-array reduction after inlining: a pre-reserved
+    /// push loop writes `i ∈ [0, 1e7)` into a fresh array and stores
+    /// the count back as its length, then `for (j = 0; j < xs.length;
+    /// j++) sum += xs[j]` runs with float_demote's `sum > 2^53-1` guard.
+    /// `xs.length` is the length cell read after the push loop's
+    /// writeback and `xs[j]` the element point; both bound the sum.
+    ///
+    ///   b0: arr=alloc; reserve; n=len; i=0     b4: K=len; j < K ? b5 : b7
+    ///   b1: i < 1e7 ? b2 : b3                  b5: e=xs[j]; x=sum+e; x > 2^53-1 ? b8 : b6
+    ///   b2: xs[n]=i; n++; i++ → b1             b6: j++; sum=x → b4
+    ///   b3: len=n; j=0; sum=0 → b4             b7: ret   b8: side exit
+    fn reduction(body_extra: Vec<Inst>) -> Function {
+        // %0 arr, %1 len0, %2 cap, %3 arr2, %4 data, %5 len1, %6 i cell,
+        // %7 n cell, %8 hdr1, %9 n+1, %10 i+1, %11 K, %12 hdr2, %13 j cell,
+        // %14 sum cell, %15 e, %16 x, %17 guard, %18 j+1
+        let mut b5 = vec![
+            inst(15, InstKind::LoadDyn(Type::I64, v(4), v(13))),
+            inst(16, InstKind::BinOp(BinOp::Add, v(14), v(15))),
+            inst(17, InstKind::ICmp(IPred::Sgt, v(16), c(9007199254740991))),
+        ];
+        b5.splice(1..1, body_extra);
+        Function {
+            name: "f".into(),
+            params: vec![],
+            ret: Type::Void,
+            blocks: vec![
+                block(
+                    0,
+                    vec![
+                        inst(0, InstKind::Call(FuncId(ALLOC), vec![c(0)])),
+                        inst(1, InstKind::Load(Type::I64, v(0), 8)),
+                        inst(2, InstKind::BinOp(BinOp::Add, v(1), c(10_000_000))),
+                        inst(3, InstKind::Call(FuncId(RESERVE), vec![v(0), v(2)])),
+                        inst(4, InstKind::Load(Type::Ptr, v(3), 32)),
+                        inst(5, InstKind::Load(Type::I64, v(3), 8)),
+                        inst(6, InstKind::Copy(Type::I64, c(0))),
+                        inst(7, InstKind::Copy(Type::I64, v(5))),
+                    ],
+                    Terminator::Br(BlockId(1)),
+                ),
+                block(
+                    1,
+                    vec![inst(8, InstKind::ICmp(IPred::Slt, v(6), c(10_000_000)))],
+                    cond(8, 2, 3),
+                ),
+                block(
+                    2,
+                    vec![
+                        void(InstKind::StoreDyn(v(6), v(4), v(7))),
+                        inst(9, InstKind::BinOp(BinOp::Add, v(7), c(1))),
+                        inst(10, InstKind::BinOp(BinOp::Add, v(6), c(1))),
+                        inst(6, InstKind::Copy(Type::I64, v(10))),
+                        inst(7, InstKind::Copy(Type::I64, v(9))),
+                    ],
+                    Terminator::Br(BlockId(1)),
+                ),
+                block(
+                    3,
+                    vec![
+                        void(InstKind::Store(v(7), v(3), 8)),
+                        inst(13, InstKind::Copy(Type::I64, c(0))),
+                        inst(14, InstKind::Copy(Type::I64, c(0))),
+                    ],
+                    Terminator::Br(BlockId(4)),
+                ),
+                block(
+                    4,
+                    vec![
+                        inst(11, InstKind::Load(Type::I64, v(0), 8)),
+                        inst(12, InstKind::ICmp(IPred::Slt, v(13), v(11))),
+                    ],
+                    cond(12, 5, 7),
+                ),
+                block(5, b5, cond(17, 8, 6)),
+                block(
+                    6,
+                    vec![
+                        inst(18, InstKind::BinOp(BinOp::Add, v(13), c(1))),
+                        inst(14, InstKind::Copy(Type::I64, v(16))),
+                        inst(13, InstKind::Copy(Type::I64, v(18))),
+                    ],
+                    Terminator::Br(BlockId(4)),
+                ),
+                block(7, vec![], Terminator::Ret(None)),
+                block(8, vec![], Terminator::Ret(None)),
+            ],
+            values: (0..19)
+                .map(|i| ValueInfo {
+                    ty: if matches!(i, 0 | 3 | 4) {
+                        Type::Ptr
+                    } else {
+                        Type::I64
+                    },
+                    name: None,
+                })
+                .collect(),
+            current_origin: None,
+        }
+    }
+
+    #[test]
+    fn length_bounded_reduction_guard_folds() {
+        let mut f = reduction(vec![]);
+        let mut stats = BranchFoldStats::default();
+        fold_in_function(&mut f, &names(), &mut stats);
+        assert_eq!(stats.folded, 1, "the accumulator guard folds: {stats:?}");
+        assert!(
+            matches!(f.blocks[5].term, Terminator::Br(BlockId(6))),
+            "the guard takes the in-range arm: {:?}",
+            f.blocks[5].term
+        );
+    }
+
+    /// A push inside the reduction loop moves the length by an amount
+    /// nothing models, so the header's length read has no unique last
+    /// def and the guard stays.
+    #[test]
+    fn push_in_the_loop_keeps_the_guard() {
+        let mut f = reduction(vec![void(InstKind::Call(
+            FuncId(PUSH_UNCHECKED),
+            vec![v(3), v(15)],
+        ))]);
+        let mut stats = BranchFoldStats::default();
+        fold_in_function(&mut f, &names(), &mut stats);
+        assert_eq!(stats.folded, 0, "{stats:?}");
+    }
+
+    /// Without callee names no array is tracked: the length read and
+    /// the element read are opaque and the guard stays.
+    #[test]
+    fn untracked_array_keeps_the_guard() {
+        let mut f = reduction(vec![]);
+        let mut stats = BranchFoldStats::default();
+        fold_in_function(&mut f, &[], &mut stats);
+        assert_eq!(stats.folded, 0, "{stats:?}");
+    }
 }

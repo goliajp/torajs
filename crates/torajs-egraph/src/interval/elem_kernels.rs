@@ -27,6 +27,15 @@ pub(super) const IDENTITY_CALLS: &[&str] = &["__torajs_arr_reserve"];
 pub(super) const IDENTITY_PUSH_CALLS: &[&str] = &["__torajs_arr_push"];
 /// Writes argument 1 into an element; returns nothing.
 pub(super) const VOID_PUSH_CALLS: &[&str] = &["__torajs_arr_push_unchecked"];
+/// Admitted kernels that leave the length field as they found it:
+/// `reserve` grows capacity only, the species guard reads the props
+/// slot, `mark_kind` reads the length to walk the elements. Every
+/// other admitted call is an opaque length def for the length cells.
+pub(super) const LEN_INERT_CALLS: &[&str] = &[
+    "__torajs_arr_reserve",
+    "__torajs_arr_species_guard",
+    "__torajs_arr_mark_kind",
+];
 /// Touches the header or frees the block; no element value effect.
 /// The length-lock raisers belong here too: they read the flags and
 /// either do nothing or record a TypeError, and the one that moves

@@ -66,29 +66,27 @@ pub struct BranchFoldStats {
 
 /// Fold provably-constant conditional branches in every function.
 pub fn fold_branches(module: &mut Module) -> BranchFoldStats {
+    let names: Vec<String> = module.funcs.iter().map(|f| f.name.clone()).collect();
     let mut stats = BranchFoldStats::default();
     for func in module.funcs.iter_mut() {
         if func.is_declaration() {
             continue;
         }
-        fold_in_function(func, &mut stats);
+        fold_in_function(func, &names, &mut stats);
     }
     stats
 }
 
-fn fold_in_function(func: &mut Function, stats: &mut BranchFoldStats) {
+fn fold_in_function(func: &mut Function, names: &[String], stats: &mut BranchFoldStats) {
     let dom = DominatorTree::compute(func);
     let la = LoopAnalysis::compute(func, &dom);
-    let pe = PointEval::new(func, &dom);
-    // Lazily: most functions carry no ICmp-fed CondBr at all, and the
-    // lattice is a fixpoint per function.
-    let flow: OnceCell<HashMap<ValueId, NumFact>> = OnceCell::new();
+    let pe = PointEval::new(func, &dom, &la, names);
+    // Lazily: most functions carry no ICmp-fed CondBr at all.
     let edges: OnceCell<Constraints> = OnceCell::new();
     let src = Sources {
         func,
         la: &la,
         pe: &pe,
-        flow: &flow,
         edges: &edges,
         dom: &dom,
     };
@@ -131,13 +129,12 @@ fn fold_in_function(func: &mut Function, stats: &mut BranchFoldStats) {
     stats.blocks_removed += sweep_unreachable_blocks(func);
 }
 
-/// What [`eval_side`] consults, the lattice and the edge constraints
-/// built on first use.
+/// What [`eval_side`] consults; the edge constraints are built on
+/// first use, the lattice lives in the point evaluator.
 struct Sources<'a> {
     func: &'a Function,
     la: &'a LoopAnalysis,
     pe: &'a PointEval<'a>,
-    flow: &'a OnceCell<HashMap<ValueId, NumFact>>,
     edges: &'a OnceCell<Constraints>,
     dom: &'a DominatorTree,
 }
@@ -148,9 +145,7 @@ struct Sources<'a> {
 /// the branch edges into the compare's block put on a single-def
 /// value. Each is sound on its own, so the answer is their meet.
 fn eval_side(src: &Sources<'_>, op: &Operand, at: (usize, usize)) -> Option<NumFact> {
-    let Sources {
-        func, la, pe, flow, ..
-    } = *src;
+    let Sources { func, la, pe, .. } = *src;
     // Point evaluation resolves opaque i64 defs to the vacuous
     // full-i64 fact, so the other two must always get their shot;
     // all are sound → meet (disjoint cannot arise among sound facts,
@@ -163,10 +158,7 @@ fn eval_side(src: &Sources<'_>, op: &Operand, at: (usize, usize)) -> Option<NumF
         _ => None,
     };
     let ff = match op {
-        Operand::Value(v) => flow
-            .get_or_init(|| crate::interval::analyze_function(func))
-            .get(v)
-            .copied(),
+        Operand::Value(v) => pe.flow_fact(*v),
         _ => None,
     };
     let ef = match op {
@@ -505,7 +497,7 @@ mod tests {
             current_origin: None,
         };
         let mut stats = BranchFoldStats::default();
-        fold_in_function(&mut f, &mut stats);
+        fold_in_function(&mut f, &[], &mut stats);
         assert_eq!(stats.folded, 2, "both guards fold: {stats:?}");
         assert_eq!(stats.blocks_removed, 2, "side exits sweep: {stats:?}");
         assert_eq!(f.blocks.len(), 8);
@@ -564,7 +556,7 @@ mod tests {
             current_origin: None,
         };
         let mut stats = BranchFoldStats::default();
-        fold_in_function(&mut f, &mut stats);
+        fold_in_function(&mut f, &[], &mut stats);
         assert_eq!(stats, BranchFoldStats::default());
     }
 }
