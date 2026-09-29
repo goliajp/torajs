@@ -390,7 +390,12 @@ fn rewrite_expr(ast: &mut Ast, eid: ExprId, sh: &Shadow) {
             continue;
         }
         if let Expr::Ident(n) = &ast.exprs[id.0 as usize] {
-            if let Some(new_name) = sh.rename(n.as_str()) {
+            // a read of another module's class keeps its spelling: it
+            // has no binding in this module (§16.2.1.6) and must not
+            // reach the class registry under the synthesized name
+            if !ast.module_foreign_reads.contains(&id)
+                && let Some(new_name) = sh.rename(n.as_str())
+            {
                 ast.exprs[id.0 as usize] = Expr::Ident(new_name);
             }
             continue;

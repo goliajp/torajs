@@ -1,5 +1,6 @@
 export const results: string[] = [];
-let libLet = 1;
+class LibClass { v = 1; }
+let libLet = new LibClass().v;
 const libConst = 2;
 var libVar = 3;
 export function libOnly() { return 1; }
