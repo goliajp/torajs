@@ -14,8 +14,9 @@
 #   IS the git HEAD, not a downloaded toolchain.
 # - The runner key matches `Runner.name` from bench/runners/<name>.toml.
 #
-# Last review: 2026-08-22 (bun 1.4.0 — the only bun the comparison
-# recognises; every ratio recorded against 1.3.x is superseded).
+# Last review: 2026-09-29 (rust floor 1.98.1 and the channel check: every
+# earlier rust ratio was recorded against a pinned July nightly). node /
+# go floors were last reviewed 2026-08-22.
 
 [runners.node-v8]
 floor = "26.0.0"
@@ -34,7 +35,7 @@ floor = "1.25.0"
 hint  = "brew upgrade go  (or `asdf install golang latest && asdf global golang latest`)"
 
 [runners.rust]
-floor = "1.95.0"
+floor = "1.98.1"
 hint  = "rustup update stable"
 
 [runners.c]

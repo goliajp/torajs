@@ -1,5 +1,8 @@
+# `rustup run stable` pins the comparator to the stable channel: the
+# workspace's rust-toolchain.toml would otherwise route a bare `rustc` to
+# the nightly the compiler itself is built with.
 name = "rust"
-detect = "rustc --version"
+detect = "rustup run stable rustc --version"
 src_filename = "main.rs"
-compile = "rustc -C opt-level=3 {src} -o {out}"
+compile = "rustup run stable rustc -C opt-level=3 {src} -o {out}"
 run = "{out}"

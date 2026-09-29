@@ -68,6 +68,16 @@ pub fn parse_version(s: &str) -> Option<(u32, u32, u32)> {
     None
 }
 
+/// A pre-release channel marker in a detect output (`rustc 1.99.0-nightly
+/// (…)`, `1.100.0-beta.2`). The floor check alone lets these through: a
+/// July nightly out-numbers September's stable, and the comparison is
+/// meant to be against what users actually ship with.
+pub fn is_prerelease(detected: &str) -> bool {
+    ["-nightly", "-beta", "-dev", "-rc"]
+        .iter()
+        .any(|m| detected.contains(m))
+}
+
 /// True iff `detected >= floor` by semver tuple ordering. Returns None when
 /// either side cannot be parsed (caller decides whether that's fatal).
 pub fn version_satisfies(detected: &str, floor: &str) -> Option<bool> {
@@ -124,6 +134,13 @@ pub fn verify_versions(
         let detected_trim = detected.trim();
         let bin_path =
             resolve_binary_path(&runner.detect).unwrap_or_else(|| "<unresolved>".to_string());
+        if is_prerelease(detected_trim) {
+            errors.push(format!(
+                "{}: detected `{}` is a pre-release channel, not a stable release\n  fix: {}",
+                runner.name, detected_trim, floor_cfg.hint
+            ));
+            continue;
+        }
         match version_satisfies(detected_trim, &floor_cfg.floor) {
             Some(true) => {
                 summary.push(format!(
@@ -223,6 +240,14 @@ mod tests {
     fn satisfies_unparseable() {
         assert_eq!(version_satisfies("garbage", "1.0.0"), None);
         assert_eq!(version_satisfies("1.0.0", "garbage"), None);
+    }
+
+    #[test]
+    fn prerelease_channels_are_rejected() {
+        assert!(is_prerelease("rustc 1.99.0-nightly (af3d95584 2026-07-09)"));
+        assert!(is_prerelease("1.100.0-beta.2"));
+        assert!(!is_prerelease("rustc 1.98.1 (48a229cea 2026-09-01)"));
+        assert!(!is_prerelease("go version go1.27.1 darwin/arm64"));
     }
 
     #[test]
