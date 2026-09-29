@@ -409,7 +409,8 @@ pub unsafe extern "C" fn __torajs_anyv_own_enum_symbols(obj_any: u64) -> *mut c_
 unsafe fn own_symbols_arr(obj_any: u64, include_nonenum: i64) -> *mut c_void {
     // §10.5.11 — a Proxy answers through its ownKeys trap.
     if is_proxy(obj_any) {
-        return unsafe { __torajs_proxy_own_symbols(obj_any, include_nonenum) } as *mut c_void;
+        let keys = unsafe { __torajs_proxy_own_symbols(obj_any, include_nonenum) } as *mut c_void;
+        return unsafe { crate::obj_own_keys_layout::settled(keys, true) };
     }
     let out = unsafe { __torajs_arr_alloc(0) };
     unsafe { append_own_symbols(out, obj_any, include_nonenum) }
@@ -430,7 +431,8 @@ unsafe fn own_symbols_arr(obj_any: u64, include_nonenum: i64) -> *mut c_void {
 pub unsafe extern "C" fn __torajs_anyv_own_keys_all(obj_any: u64) -> *mut c_void {
     // One trap call for the whole list, not one per bucket.
     if is_proxy(obj_any) {
-        return unsafe { __torajs_proxy_own_keys_all(obj_any, 1) } as *mut c_void;
+        let keys = unsafe { __torajs_proxy_own_keys_all(obj_any, 1) } as *mut c_void;
+        return unsafe { crate::obj_own_keys_layout::settled(keys, true) };
     }
     let names = unsafe { crate::obj_own_keys::__torajs_anyv_own_keys(obj_any, 1) };
     unsafe { append_own_symbols(names as *mut u8, obj_any, 1) }

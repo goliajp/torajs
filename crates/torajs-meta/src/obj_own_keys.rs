@@ -329,7 +329,8 @@ pub unsafe extern "C" fn __torajs_anyv_own_keys(v: u64, include_nonenum: i64) ->
         // trap, filtered through [[GetOwnProperty]] for the
         // enumerable-only surface per §7.3.24).
         if unsafe { heap_type_tag_local(cell) } == crate::reflect::TAG_PROXY {
-            return unsafe { __torajs_proxy_own_keys(v, include_nonenum) } as *mut c_void;
+            let keys = unsafe { __torajs_proxy_own_keys(v, include_nonenum) } as *mut c_void;
+            return unsafe { crate::obj_own_keys_layout::settled(keys, true) };
         }
         let htag = unsafe { heap_type_tag_local(cell) };
         return match htag {

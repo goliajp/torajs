@@ -255,17 +255,12 @@ unsafe fn wrapper_str_inner(cell: *const c_void) -> *const c_void {
     unsafe { (cell.cast::<u8>().add(WRAPPER_INNER_OFF) as *const u64).read() as *const c_void }
 }
 
-/// ToObject throw shared by both choosers (§20.1.2.17 step 1); the
-/// pending-throw model still needs a valid array for the value flow.
-unsafe fn throw_to_object(any_shape: bool) -> *mut c_void {
-    unsafe {
-        __torajs_throw_type_error(c"cannot convert undefined or null to object".as_ptr());
-        if any_shape {
-            __torajs_arr_alloc_any(0) as *mut c_void
-        } else {
-            __torajs_arr_alloc(0) as *mut c_void
-        }
-    }
+/// ToObject throw shared by both choosers (§20.1.2.17 step 1). Null
+/// goes back with the error pending: the caller's throw edge
+/// releases nothing it was handed.
+unsafe fn throw_to_object() -> *mut c_void {
+    unsafe { __torajs_throw_type_error(c"cannot convert undefined or null to object".as_ptr()) };
+    core::ptr::null_mut()
 }
 
 /// `Object.values` arm for an `any`-typed receiver — see module doc.
@@ -281,13 +276,14 @@ pub unsafe extern "C" fn __torajs_anyv_own_values(v: u64) -> *mut c_void {
     if crate::reflect::is_cell_imm(v)
         && unsafe { heap_type_tag_local(v as *const c_void) } == crate::reflect::TAG_PROXY
     {
-        return unsafe { __torajs_proxy_own_values(v, 0) } as *mut c_void;
+        let out = unsafe { __torajs_proxy_own_values(v, 0) } as *mut c_void;
+        return unsafe { crate::obj_own_keys_layout::settled(out, false) };
     }
     if is_dynobj_imm(v) {
         return unsafe { dynobj_values_walk(v as *const c_void) };
     }
     if v == crate::reflect::VALUE_NULL_IMM || v == crate::reflect::VALUE_UNDEFINED_IMM {
-        return unsafe { throw_to_object(true) };
+        return unsafe { throw_to_object() };
     }
     if v >> 48 == SHORT_STR_TOP16 {
         let cell = unsafe { __torajs_anyv_to_str(v) };
@@ -399,13 +395,14 @@ pub unsafe extern "C" fn __torajs_anyv_own_entries(v: u64) -> *mut c_void {
     if crate::reflect::is_cell_imm(v)
         && unsafe { heap_type_tag_local(v as *const c_void) } == crate::reflect::TAG_PROXY
     {
-        return unsafe { __torajs_proxy_own_values(v, 1) } as *mut c_void;
+        let out = unsafe { __torajs_proxy_own_values(v, 1) } as *mut c_void;
+        return unsafe { crate::obj_own_keys_layout::settled(out, true) };
     }
     if is_dynobj_imm(v) {
         return unsafe { dynobj_entries_walk(v as *const c_void) };
     }
     if v == crate::reflect::VALUE_NULL_IMM || v == crate::reflect::VALUE_UNDEFINED_IMM {
-        return unsafe { throw_to_object(false) };
+        return unsafe { throw_to_object() };
     }
     if v >> 48 == SHORT_STR_TOP16 {
         let cell = unsafe { __torajs_anyv_to_str(v) };

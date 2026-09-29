@@ -208,3 +208,30 @@ pub(crate) const TAG_ACCESSOR_PAIR: u16 = 18;
 /// heap elem = 4, inner FLAG_ARR_ANY blocks self-describe) so
 /// kind-aware borrow readers (Object.fromEntries) decode the slots.
 pub(crate) const KIND_CHAIN_HEAP: u64 = 4;
+
+unsafe extern "C" {
+    fn __torajs_throw_check() -> i64;
+    fn __torajs_arr_mark_kind(arr: *mut core::ffi::c_void, chain: u64);
+    fn __torajs_value_drop_heap(p: *mut core::ffi::c_void);
+}
+
+/// The answer of a walk that may have raised (a Proxy trap): with an
+/// error pending the caller's throw edge releases nothing it was
+/// handed, so the array is settled here and null goes back. `nested`
+/// marks an `Arr` of inner pair arrays, whose slots carry no kind
+/// until the caller stamps one.
+///
+/// # Safety
+/// `arr` is null or an owned array.
+pub(crate) unsafe fn settled(arr: *mut core::ffi::c_void, nested: bool) -> *mut core::ffi::c_void {
+    if unsafe { __torajs_throw_check() } == 0 {
+        return arr;
+    }
+    if !arr.is_null() {
+        if nested {
+            unsafe { __torajs_arr_mark_kind(arr, KIND_CHAIN_HEAP) };
+        }
+        unsafe { __torajs_value_drop_heap(arr) };
+    }
+    core::ptr::null_mut()
+}
