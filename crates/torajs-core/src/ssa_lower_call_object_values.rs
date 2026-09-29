@@ -275,14 +275,11 @@ fn emit_values_unfold(
         Type::Arr(arr_id),
         None,
     );
-    if !filtered {
-        // Pre-set len so the direct stores below land in the slot
-        // region.
-        ctx.f.append_void(
-            ctx.cur_block,
-            InstKind::Store(Operand::ConstI64(n), Operand::Value(arr_ptr), ARR_LEN_OFF),
-        );
-    }
+    // A getter under the walk can raise at its own throw check: the
+    // half-built array is parked so that edge drops it, and its
+    // length advances one stored slot at a time so the drop frees
+    // exactly the values it holds.
+    let parked = ctx.push_throw_temp(Operand::Value(arr_ptr), Type::Arr(arr_id));
     for (i, prop) in props.iter().enumerate() {
         let skip_blk = if filtered {
             let key = ctx.intern_string_literal(&prop.key);
@@ -337,8 +334,17 @@ fn emit_values_unfold(
             let data = ctx.emit_arr_data_ptr(Operand::Value(arr_ptr));
             ctx.f
                 .append_void(ctx.cur_block, InstKind::Store(v, data, (i as u64) * 8));
+            ctx.f.append_void(
+                ctx.cur_block,
+                InstKind::Store(
+                    Operand::ConstI64(i as i64 + 1),
+                    Operand::Value(arr_ptr),
+                    ARR_LEN_OFF,
+                ),
+            );
         }
     }
+    ctx.pop_throw_temp(parked);
     Operand::Value(arr_ptr)
 }
 

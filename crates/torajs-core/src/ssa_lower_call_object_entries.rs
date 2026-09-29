@@ -248,11 +248,11 @@ fn emit_struct_entries_unfold(
         Type::Arr(outer_arr_id),
         None,
     );
-    // Pre-set len so direct stores at offset 16+i*8 work.
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::Store(Operand::ConstI64(n), Operand::Value(outer), ARR_LEN_OFF),
-    );
+    // A getter under the walk can raise at its own throw check: the
+    // half-built outer array is parked so that edge drops it, and its
+    // length advances one stored pair at a time so the drop frees
+    // exactly the pairs it holds.
+    let parked = ctx.push_throw_temp(Operand::Value(outer), Type::Arr(outer_arr_id));
     for (idx, prop) in props.iter().enumerate() {
         let inner_after_val = emit_one_pair(ctx, inner_arr_id, &arg_op, prop);
         // Store inner ptr directly into the outer's slot region
@@ -265,7 +265,16 @@ fn emit_struct_entries_unfold(
             ctx.cur_block,
             InstKind::Store(Operand::Value(inner_after_val), data, off),
         );
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Store(
+                Operand::ConstI64(idx as i64 + 1),
+                Operand::Value(outer),
+                ARR_LEN_OFF,
+            ),
+        );
     }
+    ctx.pop_throw_temp(parked);
     Operand::Value(outer)
 }
 
@@ -309,7 +318,11 @@ fn emit_one_pair(
     // The property's value: a data field is borrowed out of its slot, a
     // getter's result arrives OWNED (so it skips the rc_inc below —
     // `push_any` takes an owning ref either way).
+    // the pair holds its key already; a raising getter must not leave
+    // it behind
+    let parked = ctx.push_throw_temp(Operand::Value(inner_after_key), Type::Arr(inner_arr_id));
     let (val_op, owned) = crate::ssa_lower_struct_own_props::emit_prop_value(ctx, arg_op, prop);
+    ctx.pop_throw_temp(parked);
     let fty = prop.ty();
     // An `Any` value is a NaN-box, but `push_any` takes a (tag, value)
     // pair — split it at runtime (a set-only property's `undefined`
