@@ -123,7 +123,8 @@ impl Passes<'_> {
             if let (Some(b), Some((start_ms, start_instructions))) = (&self.calibration_bin, start)
             {
                 let (end_ms, end_instructions) = calibrate(b)?;
-                let unstable = ((end_ms - start_ms) / start_ms * 100.0).abs() > CALIBRATION_DRIFT_PCT;
+                let unstable =
+                    ((end_ms - start_ms) / start_ms * 100.0).abs() > CALIBRATION_DRIFT_PCT;
                 if unstable {
                     eprintln!(
                         "⚠ pass {pass}: calibration moved {start_ms:.3} → {end_ms:.3} ms \

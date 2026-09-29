@@ -4,8 +4,8 @@ use std::path::Path;
 use crate::case::Case;
 use crate::exec::{PER_EXEC_TIMEOUT, spawn_output_bounded};
 use crate::hyperfine::hyperfine_one;
-use crate::rusage::measure_runs;
 use crate::runner::{Runner, TemplateContext, split_cmd};
+use crate::rusage::measure_runs;
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct RunOutcome {
@@ -274,7 +274,13 @@ pub fn run_one(
         return Ok(outcome);
     }
 
-    match measure_runs(&run_cmd, case.run_warmup, case.run_runs, &[], PER_EXEC_TIMEOUT) {
+    match measure_runs(
+        &run_cmd,
+        case.run_warmup,
+        case.run_runs,
+        &[],
+        PER_EXEC_TIMEOUT,
+    ) {
         Ok(stats) => {
             outcome.run_ms = Some(stats.median_ms);
             outcome.run_stddev_ms = Some(stats.stddev_ms);

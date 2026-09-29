@@ -240,7 +240,11 @@ fn run_once(argv: &[String], env: &[(String, String)], timeout: Duration) -> Res
         if rc == 0 {
             let mut ri = RusageInfoV6::default();
             let ok = unsafe {
-                proc_pid_rusage(pid, RUSAGE_INFO_V6, (&mut ri as *mut RusageInfoV6).cast::<c_void>())
+                proc_pid_rusage(
+                    pid,
+                    RUSAGE_INFO_V6,
+                    (&mut ri as *mut RusageInfoV6).cast::<c_void>(),
+                )
             } == 0;
             if ok {
                 sample.user_ms = Some(abs_to_ns(ri.ri_user_time) / 1e6);
@@ -258,8 +262,14 @@ fn run_once(argv: &[String], env: &[(String, String)], timeout: Duration) -> Res
     }
     let mut status: i32 = 0;
     let mut ru = Rusage {
-        ru_utime: Timeval { tv_sec: 0, tv_usec: 0 },
-        ru_stime: Timeval { tv_sec: 0, tv_usec: 0 },
+        ru_utime: Timeval {
+            tv_sec: 0,
+            tv_usec: 0,
+        },
+        ru_stime: Timeval {
+            tv_sec: 0,
+            tv_usec: 0,
+        },
         ru_maxrss: 0,
         rest: [0; 13],
     };
@@ -290,13 +300,21 @@ fn run_once(argv: &[String], env: &[(String, String)], timeout: Duration) -> Res
 fn median_f64(xs: &mut [f64]) -> f64 {
     xs.sort_by(|a, b| a.partial_cmp(b).unwrap());
     let n = xs.len();
-    if n % 2 == 1 { xs[n / 2] } else { (xs[n / 2 - 1] + xs[n / 2]) / 2.0 }
+    if n % 2 == 1 {
+        xs[n / 2]
+    } else {
+        (xs[n / 2 - 1] + xs[n / 2]) / 2.0
+    }
 }
 
 fn median_u64(xs: &mut [u64]) -> u64 {
     xs.sort_unstable();
     let n = xs.len();
-    if n % 2 == 1 { xs[n / 2] } else { (xs[n / 2 - 1] + xs[n / 2]) / 2 }
+    if n % 2 == 1 {
+        xs[n / 2]
+    } else {
+        (xs[n / 2 - 1] + xs[n / 2]) / 2
+    }
 }
 
 fn median_of<T: Copy, F: Fn(&RunSample) -> Option<T>>(
@@ -305,7 +323,11 @@ fn median_of<T: Copy, F: Fn(&RunSample) -> Option<T>>(
     reduce: fn(&mut [T]) -> T,
 ) -> Option<T> {
     let mut xs: Vec<T> = samples.iter().filter_map(&get).collect();
-    if xs.is_empty() { None } else { Some(reduce(&mut xs)) }
+    if xs.is_empty() {
+        None
+    } else {
+        Some(reduce(&mut xs))
+    }
 }
 
 /// `warmup` unmeasured runs, then `runs` measured ones.
@@ -380,8 +402,18 @@ mod tests {
     #[test]
     fn timeout_kills_the_group() {
         let start = Instant::now();
-        let err = measure_runs("sh -c sleep 30 & wait", 0, 1, &[], Duration::from_millis(200));
+        let err = measure_runs(
+            "sh -c sleep 30 & wait",
+            0,
+            1,
+            &[],
+            Duration::from_millis(200),
+        );
         assert!(err.is_err());
-        assert!(start.elapsed() < Duration::from_secs(3), "{:?}", start.elapsed());
+        assert!(
+            start.elapsed() < Duration::from_secs(3),
+            "{:?}",
+            start.elapsed()
+        );
     }
 }

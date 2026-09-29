@@ -202,8 +202,14 @@ pub fn aggregate(outcomes: Vec<RunOutcome>) -> RunOutcome {
     let comp: Vec<f64> = outcomes.iter().filter_map(|o| o.compile_ms).collect();
     base.compile_ms = median(&comp);
 
-    base.run_samples_ms = outcomes.iter().flat_map(|o| o.run_samples_ms.iter().copied()).collect();
-    base.run_min_ms = outcomes.iter().filter_map(|o| o.run_min_ms).reduce(f64::min);
+    base.run_samples_ms = outcomes
+        .iter()
+        .flat_map(|o| o.run_samples_ms.iter().copied())
+        .collect();
+    base.run_min_ms = outcomes
+        .iter()
+        .filter_map(|o| o.run_min_ms)
+        .reduce(f64::min);
     let med_f = |get: fn(&RunOutcome) -> Option<f64>| {
         let xs: Vec<f64> = outcomes.iter().filter_map(get).collect();
         median(&xs)

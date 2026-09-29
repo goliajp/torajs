@@ -410,7 +410,9 @@ fn run_cmd(bench_dir: &Path, args: &[String]) -> Result<bool> {
         None => None,
     };
     if calibration_bin.is_none() {
-        eprintln!("→ no calibration binary (c runner or its compiler missing); passes run unbracketed");
+        eprintln!(
+            "→ no calibration binary (c runner or its compiler missing); passes run unbracketed"
+        );
     }
     let (rows, calibration) = passes::Passes {
         cases: &cases,
