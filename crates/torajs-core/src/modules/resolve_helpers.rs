@@ -70,6 +70,16 @@ impl NsAccum {
 /// Reserves the names about to inject so a sibling queue entry for
 /// the same path skips them. Returns `None` when nothing is left to
 /// inject.
+///
+/// A named request is keyed by what it asks the module for AND the
+/// spelling it lands under — not the spelling alone. A re-export
+/// chain forwards the importer's spelling unchanged while the name
+/// asked of each module changes at every hop (`export { c as b } from
+/// "./m"` forwards a request for `b` as one for `c`, still landing as
+/// the importer's `a`), so keying on the spelling let the second hop
+/// back into a module collide with the first request's reservation
+/// and the chain died as "does not resolve". A true cycle repeats the
+/// same (name, spelling) at the same module and still stops here.
 pub(super) fn filter_request(
     entry: &mut HashSet<String>,
     named: Vec<NamedImport>,
@@ -79,8 +89,7 @@ pub(super) fn filter_request(
 ) -> Option<(Vec<NamedImport>, Option<String>, Option<String>, bool)> {
     let mut effective_named: Vec<NamedImport> = Vec::new();
     for (orig, alias) in &named {
-        let visible = alias.as_deref().unwrap_or(orig);
-        if !entry.contains(visible) {
+        if !entry.contains(&named_key(orig, alias.as_deref())) {
             effective_named.push((orig.clone(), alias.clone()));
         }
     }
@@ -92,7 +101,7 @@ pub(super) fn filter_request(
         return None;
     }
     for (orig, alias) in &effective_named {
-        entry.insert(alias.as_deref().unwrap_or(orig).to_string());
+        entry.insert(named_key(orig, alias.as_deref()));
     }
     if want_default {
         entry.insert("__default".into());
@@ -113,6 +122,12 @@ pub(super) fn filter_request(
         },
         want_se,
     ))
+}
+
+/// The per-path ledger key of one named request: the export asked
+/// for and the spelling it lands under (`alias ?? orig`).
+fn named_key(orig: &str, alias: Option<&str>) -> String {
+    format!("{orig}\u{1}{}", alias.unwrap_or(orig))
 }
 
 /// Queue one `import` request for the BFS resolver. Built-in module
