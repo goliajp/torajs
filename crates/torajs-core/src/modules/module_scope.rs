@@ -12,7 +12,8 @@
 //! Each module's visible set is its own top-level declarations (the
 //! spellings the census left in its section, hidden dependencies
 //! included), the import bindings its clauses made, and the global
-//! object; every other module's declaration is foreign. A free
+//! object; every other module's declaration or import binding is
+//! foreign. A free
 //! `Ident` in the module's statements naming a foreign declaration is
 //! recorded in `Ast::module_foreign_reads`, and the checker turns it
 //! into the unresolvable-Reference lane (`undeclared_reads`: `Any`,
@@ -88,12 +89,27 @@ fn visible_sets<'a>(ast: &Ast, st: &'a ResolveState, entry_seed: &EntrySeed) -> 
     for d in visible_by_path.values() {
         all.extend(d.iter().cloned());
     }
-    all.retain(|n| !st.ns.accums.contains_key(n) && !is_synthesized_dunder(ast, n));
-    for n in &st.ledger.nested {
+    // An import binding is a name of its importer alone, like a
+    // declaration: `export { A as B } from "./entry"` binds no `B` in
+    // the module that writes it, whatever the entry imported it as.
+    all.extend(entry_seed.import_bindings.iter().cloned());
+    all.extend(st.entry_self_bindings.iter().cloned());
+    // A repeat request's alias declaration (`const later = first`)
+    // lands in the EXPORTING module's section; it is the requester's
+    // name, put back below for the modules that imported it.
+    for (later, _) in &st.repeat_aliases {
+        all.insert(later.clone());
+        for v in visible_by_path.values_mut() {
+            v.remove(later);
+        }
+    }
+    for n in st.ledger.nested.iter().filter(|n| n.imported) {
+        all.insert(n.binding.clone());
         if let Some(v) = visible_by_path.get_mut(n.requester.as_path()) {
             v.insert(n.binding.clone());
         }
     }
+    all.retain(|n| !st.ns.accums.contains_key(n) && !is_synthesized_dunder(ast, n));
     let mut entry_visible = entry_decls;
     entry_visible.extend(entry_seed.import_bindings.iter().cloned());
     entry_visible.extend(st.entry_self_bindings.iter().cloned());

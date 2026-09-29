@@ -51,6 +51,10 @@ pub(super) struct NestedRequest {
     pub(super) requester: PathBuf,
     pub(super) face: String,
     pub(super) binding: String,
+    /// Whether an `import` clause made the request — the binding is
+    /// then a name of the requester's own scope. A re-export's
+    /// forwarded request binds nothing the requester can read.
+    pub(super) imported: bool,
 }
 
 /// The walk's handle on the nested ledger: which module is asking,
@@ -97,10 +101,15 @@ impl RequestLedger<'_> {
     /// One request: the export name asked for (for the message) and
     /// the binding its declaration lands under.
     pub(super) fn record(&mut self, face: &str, binding: &str) {
+        self.push(face, binding, false);
+    }
+
+    fn push(&mut self, face: &str, binding: &str, imported: bool) {
         self.nested.push(NestedRequest {
             requester: self.requester.to_path_buf(),
             face: face.to_string(),
             binding: binding.to_string(),
+            imported,
         });
     }
 
@@ -125,10 +134,10 @@ impl RequestLedger<'_> {
         }
         for (orig, alias) in named {
             let binding = alias.as_deref().unwrap_or(orig).to_string();
-            self.record(orig, &binding);
+            self.push(orig, &binding, true);
         }
         if let Some(d) = default {
-            self.record("default", d);
+            self.push("default", d, true);
         }
     }
 
