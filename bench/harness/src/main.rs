@@ -241,6 +241,12 @@ fn run_cmd(bench_dir: &Path, args: &[String]) -> Result<bool> {
 
     let runners_all = runner::load_all(&bench_dir.join("runners"))?;
     let cases_all = case::discover_all(&bench_dir.join("cases"))?;
+    // the calibration program is gcd1m's c source, so it takes gcd1m's args
+    let calibration_args: Vec<String> = cases_all
+        .iter()
+        .find(|c| c.name == "gcd1m")
+        .map(|c| c.args.clone())
+        .unwrap_or_default();
 
     let cases: Vec<_> = match &case_filter {
         Some(name) => cases_all.into_iter().filter(|c| &c.name == name).collect(),
@@ -406,7 +412,12 @@ fn run_cmd(bench_dir: &Path, args: &[String]) -> Result<bool> {
     report.pass_order_seed = seed;
     eprintln!("→ pass order seed {seed}");
     let calibration_bin = match &c_runner {
-        Some(c) => passes::build_calibration(c, &bench_dir.join("cases/gcd1m/main.c"), &work_dir)?,
+        Some(c) => passes::build_calibration(
+            c,
+            &bench_dir.join("cases/gcd1m/main.c"),
+            &calibration_args,
+            &work_dir,
+        )?,
         None => None,
     };
     if calibration_bin.is_none() {

@@ -53,14 +53,21 @@ pub struct Passes<'a> {
     pub work_dir: &'a Path,
     pub workspace: &'a Path,
     pub seed: u64,
-    /// Path of the compiled calibration binary; `None` skips calibration.
+    /// Run command of the compiled calibration binary, args included;
+    /// `None` skips calibration.
     pub calibration_bin: Option<String>,
 }
 
 /// Compiles the calibration program with the `c` runner's own compile
-/// template. `None` when the compiler is not there — the run goes on
-/// without calibration rather than not at all.
-pub fn build_calibration(c: &Runner, src: &Path, work_dir: &Path) -> Result<Option<String>> {
+/// template and returns its run command, `args` appended. `None` when
+/// the compiler is not there — the run goes on without calibration
+/// rather than not at all.
+pub fn build_calibration(
+    c: &Runner,
+    src: &Path,
+    args: &[String],
+    work_dir: &Path,
+) -> Result<Option<String>> {
     let Some(template) = &c.compile else {
         return Ok(None);
     };
@@ -73,9 +80,17 @@ pub fn build_calibration(c: &Runner, src: &Path, work_dir: &Path) -> Result<Opti
     };
     let cmd = ctx.substitute(template);
     let parts = crate::runner::split_cmd(&cmd);
-    let args: Vec<&str> = parts[1..].iter().map(String::as_str).collect();
-    match crate::exec::spawn_output_bounded(&parts[0], &args, &[], Duration::from_secs(120)) {
-        Ok(o) if o.status.success() => Ok(Some(out.to_string_lossy().to_string())),
+    let compile_args: Vec<&str> = parts[1..].iter().map(String::as_str).collect();
+    match crate::exec::spawn_output_bounded(&parts[0], &compile_args, &[], Duration::from_secs(120))
+    {
+        Ok(o) if o.status.success() => {
+            let mut run = out.to_string_lossy().to_string();
+            for a in args {
+                run.push(' ');
+                run.push_str(a);
+            }
+            Ok(Some(run))
+        }
         _ => Ok(None),
     }
 }
