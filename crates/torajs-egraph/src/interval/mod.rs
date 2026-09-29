@@ -306,6 +306,21 @@ fn lookup(op: &Operand, state: &HashMap<ValueId, AbsVal>, live: &[Constraint]) -
                     f = NumFact::new(f.lo, -1);
                 }
             }
+            // the comparand's own fact is the flow-insensitive one:
+            // the join of everything it is ever defined as
+            Constraint::Rel {
+                value,
+                rel,
+                bound,
+                via_sitofp,
+            } if value == v => {
+                if let Some(AbsVal::Fact(known)) = state.get(bound)
+                    && let Some(r) = refine::rel_range(*rel, *known, *via_sitofp)
+                    && let Some(m) = f.meet(r)
+                {
+                    f = m;
+                }
+            }
             _ => {}
         }
     }

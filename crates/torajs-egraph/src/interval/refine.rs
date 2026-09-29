@@ -1,6 +1,8 @@
 //! Branch-driven interval refinement — the lightweight LVI/SCCP
 //! analogue. A `cond_br` whose condition is a single-def `icmp v, k`
-//! (k constant) narrows `v`'s interval on each outgoing edge; an
+//! (k constant) narrows `v`'s interval on each outgoing edge; one
+//! whose comparand is another value relates the two, and narrows `v`
+//! by whatever is known of the comparand where `v` is read; an
 //! `fcmp oeq (frem n, 2), 0` proves `n` even on the true edge (the
 //! parity-guard shape that makes `fdiv n, 2` exact).
 //!
@@ -30,13 +32,57 @@ pub enum Constraint {
     /// `while (b !== 0)` loop-guard shape; consumed as an endpoint
     /// trim when the base range touches zero).
     NonZero(ValueId),
+    /// `value <rel> bound` holds on this path. Says something about
+    /// `value` only once `bound` has a fact of its own.
+    Rel {
+        value: ValueId,
+        rel: Rel,
+        bound: ValueId,
+        /// the comparison was made between f64s and `value` is the
+        /// i64 under a `sitofp`: sound only for endpoints the
+        /// conversion keeps exact
+        via_sitofp: bool,
+    },
+}
+
+/// How a value stands to the comparand it was branched on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Rel {
+    Lt,
+    Le,
+    Gt,
+    Ge,
+    Eq,
+    /// unsigned below: inside `[0, bound)`
+    Below,
 }
 
 impl Constraint {
     pub fn value(&self) -> ValueId {
         match self {
             Constraint::Range(v, _) | Constraint::Even(v) | Constraint::NonZero(v) => *v,
+            Constraint::Rel { value, .. } => *value,
         }
+    }
+}
+
+/// 2^53: past it `sitofp` rounds, and `sitofp(i) <= y` no longer
+/// says `i <= y`.
+const EXACT_LIMIT: i128 = 1 << 53;
+
+/// `value`'s interval under `value <rel> bound`, `bound` lying in
+/// `known`. `None` when the endpoint the relation reads is not one
+/// the relation can be trusted at.
+pub fn rel_range(rel: Rel, known: NumFact, via_sitofp: bool) -> Option<NumFact> {
+    let usable = |e: i128| e > NEG_INF && e < POS_INF && (!via_sitofp || e.abs() < EXACT_LIMIT);
+    match rel {
+        Rel::Lt => usable(known.hi).then(|| NumFact::new(NEG_INF, known.hi - 1)),
+        Rel::Le => usable(known.hi).then(|| NumFact::new(NEG_INF, known.hi)),
+        Rel::Gt => usable(known.lo).then(|| NumFact::new(known.lo + 1, POS_INF)),
+        Rel::Ge => usable(known.lo).then(|| NumFact::new(known.lo, POS_INF)),
+        Rel::Eq => (usable(known.lo) && usable(known.hi)).then_some(known),
+        Rel::Below => (known.lo >= 0 && known.hi >= 1 && usable(known.hi))
+            .then(|| NumFact::new(0, known.hi - 1)),
     }
 }
 
@@ -159,6 +205,27 @@ fn edge_constraints(
                     out.push(Constraint::NonZero(*v));
                 }
             }
+            if let (Operand::Value(x), Operand::Value(y)) = (a, b) {
+                out.extend(rel_pair(*pred, taken, *x, *y, false));
+            }
+            (!out.is_empty()).then_some(out)
+        }
+        // an ordered compare between two values, one of them the f64
+        // image of an i64: both relate, and so does the i64 itself.
+        // The not-taken edge negates only for operands that are not
+        // NaN, which is every operand that has a fact to read.
+        InstKind::FCmp(pred, Operand::Value(x), Operand::Value(y))
+            if int_pred(*pred).is_some()
+                && (under_sitofp(*x, defs).is_some() || under_sitofp(*y, defs).is_some()) =>
+        {
+            let pred = int_pred(*pred)?;
+            let mut out = rel_pair(pred, taken, *x, *y, true);
+            if let Some(ix) = under_sitofp(*x, defs) {
+                out.extend(rel_pair(pred, taken, ix, *y, true).into_iter().take(1));
+            }
+            if let Some(iy) = under_sitofp(*y, defs) {
+                out.extend(rel_pair(pred, taken, *x, iy, true).into_iter().skip(1));
+            }
             (!out.is_empty()).then_some(out)
         }
         // fcmp une/one (v, 0) taken — or oeq not taken — proves the
@@ -184,6 +251,73 @@ fn edge_constraints(
             None
         }
         _ => None,
+    }
+}
+
+/// The signed predicate an ordered f64 compare reads as between
+/// integer-valued operands.
+fn int_pred(pred: FPred) -> Option<IPred> {
+    match pred {
+        FPred::Olt => Some(IPred::Slt),
+        FPred::Ole => Some(IPred::Sle),
+        FPred::Ogt => Some(IPred::Sgt),
+        FPred::Oge => Some(IPred::Sge),
+        FPred::Oeq => Some(IPred::Eq),
+        FPred::One | FPred::Une => None,
+    }
+}
+
+/// The i64 a single-def `sitofp` converts.
+fn under_sitofp(v: ValueId, defs: &HashMap<ValueId, InstKind>) -> Option<ValueId> {
+    match defs.get(&v) {
+        Some(InstKind::SiToFp(Operand::Value(i))) => Some(*i),
+        _ => None,
+    }
+}
+
+/// `x <pred> y` on the taken / not-taken edge, read both ways: what
+/// it says of `x` given `y`, then what it says of `y` given `x`.
+/// Empty for an edge that relates nothing (`ne` taken, the far side
+/// of an unsigned compare).
+fn rel_pair(pred: IPred, taken: bool, x: ValueId, y: ValueId, via_sitofp: bool) -> Vec<Constraint> {
+    let Some(of_x) = edge_rel(pred, taken) else {
+        return Vec::new();
+    };
+    let of_y = match of_x {
+        Rel::Lt => Some(Rel::Gt),
+        Rel::Le => Some(Rel::Ge),
+        Rel::Gt => Some(Rel::Lt),
+        Rel::Ge => Some(Rel::Le),
+        Rel::Eq => Some(Rel::Eq),
+        // `x` below `y` leaves `y` above a value of unknown sign
+        Rel::Below => None,
+    };
+    let mut out = vec![Constraint::Rel {
+        value: x,
+        rel: of_x,
+        bound: y,
+        via_sitofp,
+    }];
+    out.extend(of_y.map(|rel| Constraint::Rel {
+        value: y,
+        rel,
+        bound: x,
+        via_sitofp,
+    }));
+    out
+}
+
+/// What `value <pred> bound` says of `value` on the edge.
+fn edge_rel(pred: IPred, taken: bool) -> Option<Rel> {
+    match (pred, taken) {
+        (IPred::Ult, true) | (IPred::Uge, false) => Some(Rel::Below),
+        (IPred::Ult | IPred::Uge, _) => None,
+        (IPred::Eq, true) | (IPred::Ne, false) => Some(Rel::Eq),
+        (IPred::Eq | IPred::Ne, _) => None,
+        (IPred::Slt, true) | (IPred::Sge, false) => Some(Rel::Lt),
+        (IPred::Sle, true) | (IPred::Sgt, false) => Some(Rel::Le),
+        (IPred::Sgt, true) | (IPred::Sle, false) => Some(Rel::Gt),
+        (IPred::Sge, true) | (IPred::Slt, false) => Some(Rel::Ge),
     }
 }
 
@@ -273,6 +407,87 @@ mod tests {
         assert_eq!(icmp_range(IPred::Uge, true, 16, false), None);
         assert_eq!(icmp_range(IPred::Ult, true, 16, true), None);
         assert_eq!(icmp_range(IPred::Ult, true, 0, false), None);
+    }
+
+    #[test]
+    fn a_relation_reads_the_endpoint_facing_the_value() {
+        let known = NumFact::new(3, 10);
+        assert_eq!(
+            rel_range(Rel::Lt, known, false),
+            Some(NumFact::new(NEG_INF, 9))
+        );
+        assert_eq!(
+            rel_range(Rel::Le, known, false),
+            Some(NumFact::new(NEG_INF, 10))
+        );
+        assert_eq!(
+            rel_range(Rel::Gt, known, false),
+            Some(NumFact::new(4, POS_INF))
+        );
+        assert_eq!(
+            rel_range(Rel::Ge, known, false),
+            Some(NumFact::new(3, POS_INF))
+        );
+        assert_eq!(rel_range(Rel::Eq, known, false), Some(known));
+        assert_eq!(
+            rel_range(Rel::Below, known, false),
+            Some(NumFact::new(0, 9))
+        );
+    }
+
+    #[test]
+    fn a_relation_trusts_no_endpoint_it_cannot_read() {
+        let open = NumFact::new(0, POS_INF);
+        assert_eq!(rel_range(Rel::Lt, open, false), None);
+        assert_eq!(
+            rel_range(Rel::Ge, open, false),
+            Some(NumFact::new(0, POS_INF))
+        );
+        // may be negative: unsigned-below says nothing signed
+        assert_eq!(rel_range(Rel::Below, NumFact::new(-1, 10), false), None);
+        // through sitofp, 2^53 is where the conversion starts rounding
+        let edge = NumFact::new(0, 1 << 53);
+        assert_eq!(rel_range(Rel::Le, edge, true), None);
+        assert_eq!(
+            rel_range(Rel::Le, edge, false),
+            Some(NumFact::new(NEG_INF, 1 << 53))
+        );
+        let inside = NumFact::new(0, (1 << 53) - 1);
+        assert_eq!(
+            rel_range(Rel::Le, inside, true),
+            Some(NumFact::new(NEG_INF, (1 << 53) - 1))
+        );
+    }
+
+    #[test]
+    fn each_edge_of_a_compare_relates_both_operands() {
+        let (x, y) = (ValueId(1), ValueId(2));
+        let rels = |pred, taken| -> Vec<(ValueId, Rel, ValueId)> {
+            rel_pair(pred, taken, x, y, false)
+                .into_iter()
+                .map(|c| match c {
+                    Constraint::Rel {
+                        value, rel, bound, ..
+                    } => (value, rel, bound),
+                    other => panic!("not a relation: {other:?}"),
+                })
+                .collect()
+        };
+        assert_eq!(
+            rels(IPred::Slt, true),
+            vec![(x, Rel::Lt, y), (y, Rel::Gt, x)]
+        );
+        assert_eq!(
+            rels(IPred::Slt, false),
+            vec![(x, Rel::Ge, y), (y, Rel::Le, x)]
+        );
+        assert_eq!(rels(IPred::Ult, true), vec![(x, Rel::Below, y)]);
+        assert!(rels(IPred::Ult, false).is_empty());
+        assert!(rels(IPred::Ne, true).is_empty());
+        assert_eq!(
+            rels(IPred::Ne, false),
+            vec![(x, Rel::Eq, y), (y, Rel::Eq, x)]
+        );
     }
 
     #[test]
