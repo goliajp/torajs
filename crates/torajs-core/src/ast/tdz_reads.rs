@@ -109,6 +109,11 @@ pub fn mark_tdz_reads(ast: &mut Ast) {
     for s in &ast.stmts {
         descend_lists(ast, s, &mut marks);
     }
+    // §16.2.1.6 — a read the module resolver judged unresolvable in
+    // its own module has no binding to be in the dead zone of; the
+    // flat position that put it there belongs to another module's
+    // declaration, and the read raises "not defined" instead.
+    marks.retain(|e| !ast.module_foreign_reads.contains(e));
     // Extend, not replace: the parser already marked the reads a
     // for-in / for-of head puts in its own dead zone
     // (`forof_binding::mark_forof_head_tdz`).

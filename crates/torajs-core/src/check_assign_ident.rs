@@ -50,9 +50,8 @@ pub(crate) fn check(
     // being looked up. Until now the write silently SUCCEEDED —
     // `typeof C` inside the body answered "number" afterwards while
     // bun threw — which is the failure mode this ordering exists for.
-    if crate::ast::capturing_classes::is_es5_inner_class_binding(&name) {
-        checker.self_name_writes.insert(target);
-        return checker.type_of(ast, value);
+    if let Some(r) = write_outside_lookup(checker, ast, target, &name, value) {
+        return r;
     }
     if checker.lookup(&name).is_none()
         && let Some(global_ty) = checker.globals.get(&name).cloned()
@@ -221,4 +220,29 @@ pub(crate) fn check(
     checker.assign_narrow_demote(&name, &value_ty);
     checker.mark_unmoved(&name);
     Ok(target_ty)
+}
+
+/// The two write targets decided before either resolution arm: the
+/// ES5 lane's class-scope binding (`__cci<N>_<C>`, a runtime
+/// TypeError like the fn-expression self-name), and a target the
+/// module resolver judged unresolvable in its own module
+/// (`Ast::module_foreign_reads` — §16.2.1.6: PutValue on an
+/// unresolvable Reference in module code raises ReferenceError at run
+/// time, whatever the flat top level would resolve the name to).
+fn write_outside_lookup(
+    checker: &mut Checker,
+    ast: &Ast,
+    target: ExprId,
+    name: &str,
+    value: ExprId,
+) -> Option<Result<Type, String>> {
+    if crate::ast::capturing_classes::is_es5_inner_class_binding(name) {
+        checker.self_name_writes.insert(target);
+        return Some(checker.type_of(ast, value));
+    }
+    if ast.module_foreign_reads.contains(&target) {
+        checker.undeclared_reads.insert(target, name.to_string());
+        return Some(checker.type_of(ast, value));
+    }
+    None
 }

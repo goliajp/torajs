@@ -156,7 +156,7 @@ impl RequestLedger<'_> {
 /// §16.2.1.5 still evaluates the module it names.
 pub(super) struct EntrySeed {
     pub(super) requests: Vec<StaticRequest>,
-    import_bindings: HashSet<String>,
+    pub(super) import_bindings: HashSet<String>,
     /// The arena length BEFORE any lib parses — marks which
     /// expressions the entry itself wrote. The import-binding write
     /// rejection scopes to exactly those, and the dead-copy sweep

@@ -269,6 +269,7 @@ pub fn resolve_imports(
     }
 
     types_lane::inject_ambient_classes(ast, &mut st);
+    module_scope::mark_foreign_reads(ast, &st, &entry_seed);
     // §16.2.1.5/.6 post-BFS judgment + final assembly + dead-copy
     // sweep — see `splice::settle_and_splice`.
     splice::settle_and_splice(
@@ -306,6 +307,7 @@ mod graph;
 mod inject_export;
 mod lib_walk;
 mod load_lib;
+mod module_scope;
 mod namespace_objlit;
 mod ns_tables;
 mod repeat_request;

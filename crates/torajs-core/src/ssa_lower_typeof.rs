@@ -195,10 +195,16 @@ fn try_undeclared_ident_typeof(ctx: &mut LowerCtx<'_>, expr: ExprId) -> Option<O
     let Expr::Ident(name) = ctx.ast.get_expr(expr) else {
         return None;
     };
-    if ctx.locals.get(name).is_some()
-        || ctx.globals.contains_key(name)
-        || ctx.fn_table.contains_key(name)
-        || matches!(name.as_str(), "NaN" | "Infinity")
+    // A read the checker marked unresolvable is one whatever the three
+    // scopes say: the module resolver marks a name another MODULE
+    // declared (`Ast::module_foreign_reads`), which the flat top level
+    // does carry, and a bare read of it raises — `typeof` must not.
+    let marked = ctx.ast.undeclared_reads.contains_key(&expr);
+    if !marked
+        && (ctx.locals.get(name).is_some()
+            || ctx.globals.contains_key(name)
+            || ctx.fn_table.contains_key(name)
+            || matches!(name.as_str(), "NaN" | "Infinity"))
     {
         return None;
     }

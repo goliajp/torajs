@@ -15,7 +15,8 @@
 use super::free_vars_decls::{walk_class_decl, walk_fn_decl};
 use super::free_vars_expr::walk_expr;
 use super::free_vars_hoisted_names::{hoist_annexb_fn_names, hoist_list_names, hoist_var_names};
-use super::{Ast, ExprId, Param, Stmt};
+use super::{Ast, Expr, ExprId, Param, Stmt};
+use std::collections::HashSet;
 
 /// Free-variable analysis for an arrow fn body. Returns a deterministic,
 /// de-duplicated list of identifier names referenced in the body that are
@@ -142,6 +143,41 @@ pub(crate) fn top_ref_sites(ast: &Ast, s: &Stmt, name: &str, also_free: &[String
     let mut sites = Sites {
         name,
         also_free,
+        out: Vec::new(),
+    };
+    walk_stmt(ast, s, &mut bound, &mut sites);
+    sites.out
+}
+
+/// The `Ident` sites in one top-level statement whose free name is
+/// one of `names` — no frame between the site and the top level binds
+/// it. The module resolver asks this about the names another module
+/// declared (`modules::module_scope`); a spelling on the global-name
+/// list still reports, as in [`top_ref_sites`].
+pub(crate) fn foreign_ref_sites(ast: &Ast, s: &Stmt, names: &HashSet<String>) -> Vec<ExprId> {
+    struct Sites<'a> {
+        ast: &'a Ast,
+        names: &'a HashSet<String>,
+        out: Vec<ExprId>,
+    }
+    impl FreeSink for Sites<'_> {
+        fn free(&mut self, name: &str, site: Option<ExprId>, _bound: &[String]) {
+            if let Some(site) = site
+                && self.names.contains(name)
+                && matches!(self.ast.get_expr(site), Expr::Ident(_))
+            {
+                self.out.push(site);
+            }
+        }
+    }
+    let rebound_globals: Vec<String> = names.iter().cloned().collect();
+    let mut bound = Bound {
+        names: Vec::new(),
+        rebound_globals: &rebound_globals,
+    };
+    let mut sites = Sites {
+        ast,
+        names,
         out: Vec::new(),
     };
     walk_stmt(ast, s, &mut bound, &mut sites);

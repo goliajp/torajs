@@ -374,7 +374,7 @@ pub use forwarders::synthesize_forwarders;
 pub(crate) use forwarders::{push_gen_argv_spread, split_gen_argv_tail};
 pub use forwarders_object::{synthesize_fn_to_closure_forwarders, tag_struct_field_closure_types};
 pub(crate) use free_vars::is_global_name as free_vars_is_global_name;
-pub(crate) use free_vars::{free_idents_of_stmt, top_ref_sites};
+pub(crate) use free_vars::{foreign_ref_sites, free_idents_of_stmt, top_ref_sites};
 pub use gen_fn_expr::{GenEnvInfo, GenFnExprInfo, GenFnExprKind, gen_env_methods_by_wrapper};
 pub use globalthis_member::desugar_globalthis_members;
 pub use hof_len_shrink::{HofLenShrinks, collect_hof_len_shrinks};

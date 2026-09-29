@@ -80,6 +80,15 @@ pub(crate) fn check(
     eid: crate::ast::ExprId,
     name: &str,
 ) -> Result<Type, String> {
+    // §16.2.1.6 — a read the module resolver judged unresolvable in
+    // its own module (`Ast::module_foreign_reads`) is an unresolvable
+    // Reference whatever the flat top level would answer. The mark
+    // names another module's user declaration, so the synthesized-
+    // name and builtin carve-outs below have nothing to say about it.
+    if ast.module_foreign_reads.contains(&eid) {
+        checker.undeclared_reads.insert(eid, name.to_string());
+        return Ok(Type::Any);
+    }
     if let Some(info) = checker.lookup(name) {
         // A read marked undeclared by an earlier speculative pass
         // (hoist pre-typing under an incomplete scope) that NOW

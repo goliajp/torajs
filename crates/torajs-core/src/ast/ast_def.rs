@@ -227,6 +227,14 @@ pub struct Ast {
     /// post-check AST (same ride as `iter_destr_srcs`). Empty
     /// pre-check.
     pub undeclared_reads: std::collections::HashMap<ExprId, String>,
+    /// §16.2.1.6 — reads the module resolver judged unresolvable in
+    /// THEIR module: an `Ident` in one module's statements naming a
+    /// top-level declaration only another module made. The flat top
+    /// level the splice builds would resolve the name; a module's own
+    /// environment record has no binding for it. The checker treats a
+    /// marked read (or write target) as an unresolvable Reference
+    /// before any lexical lookup. Filled by `modules::module_scope`.
+    pub module_foreign_reads: std::collections::HashSet<ExprId>,
     /// RFC 20260810 — writes to a fn-expression's own self-name
     /// (§15.5.5: an immutable function-env binding; a strict-mode
     /// write — module code always is — raises TypeError at run time,

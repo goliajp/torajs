@@ -43,7 +43,9 @@ pub(crate) fn check_typeof(checker: &mut Checker, ast: &Ast, expr: ExprId) -> Re
     // and Member-on-known-namespace; the spec result is the literal
     // string regardless of resolver state.
     if let Expr::Ident(name) = ast.get_expr(expr)
-        && (checker.lookup(name).is_none() || is_known_builtin_global(name))
+        && (checker.lookup(name).is_none()
+            || is_known_builtin_global(name)
+            || ast.module_foreign_reads.contains(&expr))
     {
         // §13.5.3 step 2 — `typeof` takes GetValue, and on a name with
         // no binding the lowering asks the global object at run time,
