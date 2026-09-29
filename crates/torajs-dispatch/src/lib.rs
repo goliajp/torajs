@@ -292,16 +292,6 @@ pub unsafe extern "C" fn __torajs_obj_buffer_slow(cell: *mut core::ffi::c_void) 
     unsafe { __torajs_cycle_buffer(cell) }
 }
 
-/// Default resolution of a struct instance's cycle-buffer scrub
-/// (r502): the cell carries `FLAG_BUFFERED`.
-///
-/// # Safety
-/// `cell` is a live struct cell reaching rc=0.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_obj_unbuffer_slow(cell: *mut core::ffi::c_void) {
-    unsafe { __torajs_cycle_unbuffer(cell) }
-}
-
 /// Default resolution of the uncaught reporter's Error-instance
 /// rendering (A6): `name: message` through the prototype-chain name
 /// resolver in torajs-throw / torajs-anyvalue.

@@ -62,7 +62,6 @@ const FIELD_GUARD: &str = "__torajs_obj_check_field_writable";
 /// Seams that only touch runtime state `%b` cannot be in.
 const INERT_SEAMS: &[&str] = &[
     "__torajs_closure_unbuffer_slow",
-    "__torajs_obj_unbuffer_slow",
     "__torajs_weakref_target_dying",
 ];
 /// Seams that release the expando bag at `PROPS_OFF`.

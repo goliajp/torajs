@@ -121,7 +121,7 @@ const SITES: [(&str, &str, &[&str], u32); 3] = [
 /// entries whose text liveness un-assumes the stub, landing-pad fam
 /// id). The join seam's enabler is the exotic-flag writer; the
 /// species probe's enablers are the two props-bag creators.
-const SYMBOL_STUBS: [(&str, &[&str], u32); 11] = [
+const SYMBOL_STUBS: [(&str, &[&str], u32); 10] = [
     (
         "___torajs_arr_join_exotic",
         &["___torajs_arr_flag_exotic"],
@@ -191,11 +191,6 @@ const SYMBOL_STUBS: [(&str, &[&str], u32); 11] = [
         "___torajs_obj_buffer_slow",
         &["___torajs_obj_props_attach"],
         48,
-    ),
-    (
-        "___torajs_obj_unbuffer_slow",
-        &["___torajs_cycle_buffer"],
-        49,
     ),
     // the typed field-write guard (r503): a struct cell's store is
     // anything but one store only under FLAG_FROZEN (written by
@@ -445,8 +440,8 @@ mod tests {
     #[test]
     fn exotic_slow_path_stubs_are_symbol_guarded_loud_rejects() {
         let stubs = guarded_stubs();
-        assert_eq!(stubs.len(), 12);
-        let guard = &stubs[11];
+        assert_eq!(stubs.len(), 11);
+        let guard = &stubs[10];
         assert_eq!(guard.sym, "___torajs_obj_check_field_writable");
         assert_eq!(
             guard.guard.to_string(),

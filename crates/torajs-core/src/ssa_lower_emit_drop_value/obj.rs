@@ -7,7 +7,9 @@
 //! The parent keeps the per-type dispatch and the shared
 //! `nullish_skip_cond`; this child reaches it via `super::`.
 
-use crate::ssa::{BinOp as SsaBinOp, FuncId, IPred, InstKind, Operand, Terminator, Type, ValueId};
+use crate::ssa::{
+    BinOp as SsaBinOp, BlockId, FuncId, IPred, InstKind, Operand, Terminator, Type, ValueId,
+};
 use crate::ssa_lower::{LowerCtx, OBJ_HEADER_SIZE, OBJ_PROPS_OFF};
 
 use super::nullish_skip_cond;
@@ -165,15 +167,7 @@ pub(super) fn emit_drop_obj(ctx: &mut LowerCtx, val: Operand, sid: crate::ssa::S
     // on the bag's one attach entry.
     emit_if_nonnull_call_arg(ctx, props_val, ctx.intrinsics.obj_props_drop_slow, val);
     if is_class_sid {
-        // r502 — `__torajs_obj_unbuffer_slow` (default = `cycle_
-        // unbuffer`) guarded on `__torajs_cycle_buffer`: only it sets
-        // FLAG_BUFFERED.
-        emit_if_flag_call(
-            ctx,
-            val,
-            torajs_rc::FLAG_BUFFERED,
-            ctx.intrinsics.obj_unbuffer_slow,
-        );
+        emit_defer_free_if_buffered(ctx, val.clone(), after);
     }
     let obj_block_size = OBJ_HEADER_SIZE + (layout.len() as u64) * 8;
     ctx.f.append_void(
@@ -186,6 +180,60 @@ pub(super) fn emit_drop_obj(ctx: &mut LowerCtx, val: Operand, sid: crate::ssa::S
     ctx.f.set_term(ctx.cur_block, Terminator::Br(after));
     ctx.cur_block = after;
     ctx.drop_inline_stack.remove(&sid.0);
+}
+
+/// A class instance the cycle collector holds as a candidate root
+/// stays allocated: coloured black with rc 0, the next collect's root
+/// walk frees it, so the buffer entry leaves in O(1) and this path
+/// makes no call. Only `cycle_buffer` sets FLAG_BUFFERED, so an
+/// unbuffered cell pays one load. Leaves `cur_block` on the free leg.
+fn emit_defer_free_if_buffered(ctx: &mut LowerCtx, hdr: Operand, after: BlockId) {
+    let word = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I32, hdr.clone(), 4),
+        Type::I32,
+        None,
+    );
+    let buffered = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::BinOp(
+            SsaBinOp::And,
+            Operand::Value(word),
+            Operand::ConstI32(((torajs_rc::FLAG_BUFFERED as u32) << 16) as i32),
+        ),
+        Type::I32,
+        None,
+    );
+    let is_buffered = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Ne, Operand::Value(buffered), Operand::ConstI32(0)),
+        Type::Bool,
+        None,
+    );
+    let defer_blk = ctx.f.add_block();
+    let free_blk = ctx.f.add_block();
+    ctx.f.set_term(
+        ctx.cur_block,
+        Terminator::CondBr {
+            cond: Operand::Value(is_buffered),
+            then_blk: defer_blk,
+            else_blk: free_blk,
+        },
+    );
+    let black = ctx.f.append_inst(
+        defer_blk,
+        InstKind::BinOp(
+            SsaBinOp::And,
+            Operand::Value(word),
+            Operand::ConstI32(!((torajs_rc::COLOR_MASK as u32) << 16) as i32),
+        ),
+        Type::I32,
+        None,
+    );
+    ctx.f
+        .append_void(defer_blk, InstKind::Store(Operand::Value(black), hdr, 4));
+    ctx.f.set_term(defer_blk, Terminator::Br(after));
+    ctx.cur_block = free_blk;
 }
 
 /// `if (ptr != NULL) fid(ptr)` — leaves `cur_block` on the join.
@@ -202,31 +250,6 @@ fn emit_if_nonnull_call_arg(ctx: &mut LowerCtx, ptr: ValueId, fid: FuncId, arg: 
 
 /// `if (hdr.flags & flag) fid(hdr)` — the u16 `flags` at +6 read as
 /// the high half of the u32 at +4; leaves `cur_block` on the join.
-fn emit_if_flag_call(ctx: &mut LowerCtx, hdr: Operand, flag: u16, fid: FuncId) {
-    let word = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Load(Type::I32, hdr.clone(), 4),
-        Type::I32,
-        None,
-    );
-    let masked = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::BinOp(
-            SsaBinOp::And,
-            Operand::Value(word),
-            Operand::ConstI32(((flag as u32) << 16) as i32),
-        ),
-        Type::I32,
-        None,
-    );
-    let set = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::ICmp(IPred::Ne, Operand::Value(masked), Operand::ConstI32(0)),
-        Type::Bool,
-        None,
-    );
-    emit_cond_call(ctx, set, fid, hdr);
-}
 
 fn emit_cond_call(ctx: &mut LowerCtx, cond: ValueId, fid: FuncId, arg: Operand) {
     let call_blk = ctx.f.add_block();

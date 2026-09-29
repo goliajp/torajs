@@ -18,7 +18,9 @@
 //!   reference through `value_drop_heap` (NaN-box immediates in
 //!   `any`-typed fields are filtered by its cell gate), then the
 //!   +24 props dynobj (fixed offset — released for anonymous
-//!   structs too), then the buffer scrub + `free`.
+//!   structs too), then `free` — unless the block sits in the cycle
+//!   root buffer, where it stays allocated, coloured black, for the
+//!   next collect's root walk to free (a buffer entry leaves in O(1)).
 //! - `class_tag == 0` (anonymous struct interned too late for a
 //!   layout — see `torajs-structmeta`'s graceful-degradation note)
 //!   has no walkable metadata: outer block frees, field refs leak
@@ -26,8 +28,11 @@
 
 use core::ffi::c_void;
 
-use crate::buffer::{__torajs_cycle_buffer, __torajs_cycle_unbuffer};
-use crate::layout::{CLASS_LAYOUT_FLAG_NAMED, OBJ_PROPS_OFF, is_class_obj, layout_for_class_obj};
+use crate::buffer::__torajs_cycle_buffer;
+use crate::layout::{
+    CLASS_LAYOUT_FLAG_NAMED, COLOR_BLACK, FLAG_BUFFERED, HeapHeader, OBJ_PROPS_OFF, is_class_obj,
+    layout_for_class_obj, set_color,
+};
 
 unsafe extern "C" {
     /// torajs-mmalloc libc-compat free (the Obj allocator is mmalloc
@@ -88,10 +93,12 @@ pub unsafe extern "C" fn __torajs_obj_drop_rc(p: *mut c_void) {
     // walked (that residue is documented above). NULL-safe kernel.
     let props = unsafe { *((p as *mut u8).add(OBJ_PROPS_OFF) as *mut *mut c_void) };
     unsafe { __torajs_value_drop_heap(props) };
-    // Cheap no-op when FLAG_BUFFERED is clear; scrubs a buffered
-    // class Obj so the root buffer never holds a freed pointer.
-    unsafe { __torajs_cycle_unbuffer(p) };
-    unsafe { free(p) };
+    let h = p as *mut HeapHeader;
+    if unsafe { (*h).flags } & FLAG_BUFFERED != 0 {
+        unsafe { set_color(h, COLOR_BLACK) };
+    } else {
+        unsafe { free(p) };
+    }
 }
 
 #[cfg(test)]

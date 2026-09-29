@@ -27,7 +27,7 @@ main-exit drain). Per-collection cost matters; per-rc_dec
 ## Memory budget
 
 - Global trial buffer: `Vec<*mut c_void>` with `AUTO_COLLECT_THRESHOLD`
-  = 8192 capacity (peak; doubled on overflow). ~64 KB at threshold.
+  = 1024 capacity (peak; doubled on overflow). ~64 KB at threshold.
 - No additional per-object overhead: cycle colors live in the
   universal heap header's `flags` field (2 spare bits).
 

@@ -29,6 +29,7 @@
 //!    then drop non-cycle children normally, then `free()` the block.
 
 use core::ffi::c_void;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::buffer;
 use crate::children::{clear_child_slot, for_each_child};
@@ -37,6 +38,20 @@ use crate::layout::{
     FLAG_STATIC_LITERAL, HeapHeader, TAG_CLOSURE, color_of, has_walkable_children, is_class_obj,
     layout_for_class_obj, set_color,
 };
+
+unsafe extern "C" {
+    /// torajs-mmalloc libc-compat free: the allocator behind
+    /// `obj_alloc`, so also the one that takes back a class instance
+    /// or closure env that died while buffered.
+    #[link_name = "__torajs_libc_free"]
+    fn free(p: *mut c_void);
+}
+
+/// Set while a collect runs. A drop inside pass 3 that pushes the
+/// 1024th candidate would otherwise start a nested collect, and the
+/// nested root walk could not tell a black survivor being dismantled
+/// from a block that finished dying while buffered.
+static IN_COLLECT: AtomicBool = AtomicBool::new(false);
 
 unsafe extern "C" {
     /// Universal-drop dispatcher in runtime_str.c — type-tag-keyed
@@ -231,7 +246,7 @@ unsafe fn collect_white(p: *mut c_void) {
 /// stays cheap.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_cycle_collect() {
-    if buffer::len() == 0 {
+    if buffer::len() == 0 || IN_COLLECT.swap(true, Ordering::Relaxed) {
         return;
     }
     #[cfg(torajs_census)]
@@ -241,9 +256,26 @@ pub unsafe extern "C" fn __torajs_cycle_collect() {
     // below keeps them instead of blanket-resetting the length.
     let processed = buffer::len();
 
-    // Mark phase: descend from each buffered root.
-    buffer::for_each(|p| {
+    // Mark phase: descend from each buffered root. A block whose rc
+    // is already 0 is either dead and coloured black by the drop that
+    // dismantled it (free it here, its children are long released) or
+    // still being dismantled by a drop further up the stack (leave it;
+    // that drop frees it once pass 3 has cleared its buffered bit).
+    buffer::for_each_with_index(|i, p| {
+        if p.is_null() {
+            return;
+        }
         let h = p as *mut HeapHeader;
+        if unsafe { (*h).flags } & FLAG_STATIC_LITERAL != 0 {
+            return;
+        }
+        if unsafe { (*h).refcount } == 0 {
+            if color_of(h) == COLOR_BLACK {
+                buffer::clear_slot(i);
+                unsafe { free(p) };
+            }
+            return;
+        }
         if color_of(h) == COLOR_PURPLE {
             unsafe { mark_gray(p) };
         }
@@ -254,7 +286,11 @@ pub unsafe extern "C" fn __torajs_cycle_collect() {
     // Scan phase: distinguish WHITE garbage from BLACK-restore.
     buffer::for_each(|p| unsafe { scan(p) });
 
-    // Collect phase: sweep every WHITE node + defer its free.
+    // Collect phase: sweep every WHITE node + defer its free. Class
+    // instances only die in `finalize_all`, after this pass has
+    // cleared every buffered bit, so nothing in this range turns into
+    // a black corpse here; one that dies buffered during finalize sits
+    // in the kept region for the next root walk.
     buffer::for_each_with_index(|_i, p| {
         if p.is_null() {
             return;
@@ -273,6 +309,7 @@ pub unsafe extern "C" fn __torajs_cycle_collect() {
     buffer::compact_from(processed);
     #[cfg(torajs_census)]
     census::record(processed as u64, census_start);
+    IN_COLLECT.store(false, Ordering::Relaxed);
 }
 
 /// Main-exit drain. Public symbol the codegen wires into the

@@ -48,7 +48,7 @@ Systems"](https://citeseerx.ist.psu.edu/document?repid=rep1&type=pdf&doi=ee1cb38
 ## When does it run
 
 1. **Auto**: when the trial buffer exceeds threshold (`AUTO_COLLECT_THRESHOLD`
-   = 8192 candidates today).
+   = 1024 candidates today).
 2. **Manual**: `gc()` from user code.
 3. **Main exit**: drained from the `main()` post-return hook.
 

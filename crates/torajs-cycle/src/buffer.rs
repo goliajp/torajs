@@ -32,9 +32,10 @@ pub const CYCLE_AUTO_COLLECT_THRESHOLD: u32 = 1024;
 /// on growth.
 static G_BUFFER: AtomicPtr<*mut c_void> = AtomicPtr::new(ptr::null_mut());
 
-/// Number of valid entries in `G_BUFFER` (NULL holes are valid —
-/// `cycle_unbuffer` may zero a slot when an object normal-drops out
-/// of the cycle path).
+/// Number of valid entries in `G_BUFFER`. A slot is NULL when
+/// `cycle_unbuffer` scrubbed it, or names a block whose rc reached 0
+/// while it was buffered: that block stays allocated, coloured black,
+/// until the next collect's root walk frees it.
 static G_BUFFER_LEN: AtomicU32 = AtomicU32::new(0);
 
 /// Allocated capacity. Doubles from 64 on growth.
@@ -131,6 +132,14 @@ pub fn compact_from(processed: u32) {
     G_BUFFER_LEN.store(w, Ordering::Relaxed);
 }
 
+/// Empties slot `i`; the collect's root walk does this before it
+/// frees a block that died while buffered.
+#[inline]
+pub(crate) fn clear_slot(i: usize) {
+    let buf = G_BUFFER.load(Ordering::Relaxed);
+    unsafe { *buf.add(i) = ptr::null_mut() };
+}
+
 /// Current buffer length, for the early-out fast path in
 /// `cycle_collect` (skip the whole thing if 0).
 #[inline]
@@ -199,5 +208,31 @@ pub unsafe extern "C" fn __torajs_cycle_unbuffer(p: *mut c_void) {
                 return;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // one process per test under nextest, so the global buffer is ours
+    #[test]
+    fn clear_slot_then_compact_keeps_the_rest() {
+        let a = 0x1000 as *mut c_void;
+        let b = 0x2000 as *mut c_void;
+        let c = 0x3000 as *mut c_void;
+        buffer_push(a);
+        buffer_push(b);
+        buffer_push(c);
+        assert_eq!(len(), 3);
+        clear_slot(1);
+        let mut seen = Vec::new();
+        for_each(|p| seen.push(p));
+        assert_eq!(seen, vec![a, c]);
+        compact_from(1);
+        assert_eq!(len(), 1);
+        let mut kept = Vec::new();
+        for_each_with_index(|i, p| kept.push((i, p)));
+        assert_eq!(kept, vec![(0, c)]);
     }
 }
