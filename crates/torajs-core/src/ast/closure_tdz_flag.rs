@@ -36,19 +36,29 @@
 //! literals of those. Identifiers are not inert: a read of a global
 //! object accessor runs a getter.
 //!
-//! Not entered, and a recorded gap rather than a guess: a `function`
-//! declaration standing in the list itself. It is hoisted, so its
-//! creation point is the top of the list and almost every later
-//! binding it reads would carry a flag into what is usually a hot
-//! function; settling it properly needs to know which declarations a
-//! call before the binding can reach. A switch CaseBlock's own bindings
-//! are settled by `switch_tdz_flag`.
+//! A `function` declaration standing in the list is hoisted: its
+//! creation point is the top of the list, so a call ahead of the
+//! declaration reaches its body while the binding is dead
+//! (`function f() { return typeof x } f(); let x = 1`). Flagging every
+//! later binding such a function reads would tax what is usually a hot
+//! function, so the pass first settles which functions a call before
+//! the declaration can reach — by name from the statements ahead of
+//! it and from the declaration's own initializer, then through the
+//! bodies of the functions reached and the closures they hold — and
+//! flags the reads of those alone (`reachable_fns`). A function only
+//! ever called after the declaration keeps its plain read. The flag
+//! of a named-function site is declared ahead of the list's first
+//! statement that can run. A switch CaseBlock's own bindings are
+//! settled by `switch_tdz_flag`.
+
+use std::collections::{HashMap, HashSet};
 
 use super::desugar_generators_tdz_flag::{
     Site, collect_sites_expr, collect_sites_stmt, rewrite_site,
 };
 use super::desugar_with::walk::arrow_nodes;
 use super::{Ast, Expr, ExprId, StaticInit, Stmt};
+use crate::ast_refs::{idents_in_expr, idents_in_stmt};
 
 /// Entry — every statement list of the program, outer lists first so a
 /// closure body is still in the arena while the list around it scans.
@@ -103,6 +113,14 @@ fn flag_list(ast: &mut Ast, stmts: &mut [Stmt], counter: &mut usize) {
         if !here.is_empty() && !inert[j] {
             sites.extend(here);
         }
+        for g in reachable_fns(ast, stmts, &paths, j, init) {
+            let mut here = Vec::new();
+            collect_sites_stmt(ast, at(stmts, &paths[g]), &name, false, true, &mut here);
+            if !here.is_empty() {
+                sites.extend(here);
+                first = first.min(first_runnable(stmts, &paths));
+            }
+        }
         if sites.is_empty() {
             continue;
         }
@@ -134,6 +152,74 @@ fn flag_list(ast: &mut Ast, stmts: &mut [Stmt], counter: &mut usize) {
     for s in stmts.iter_mut() {
         descend(ast, s, counter);
     }
+}
+
+/// The named functions of the list (path indices) a call ahead of the
+/// declaration at path `j` can reach: named from the statements before
+/// it or from its initializer `init`, then transitively from the bodies
+/// of the functions reached (a closure held in a body counts with the
+/// body). Function declarations ahead of `j` contribute nothing by
+/// standing there — hoisted and inert, they run only when called.
+/// Compiler-minted (`__`) functions are not user functions a program
+/// names.
+fn reachable_fns(
+    ast: &Ast,
+    stmts: &[Stmt],
+    paths: &[Vec<usize>],
+    j: usize,
+    init: ExprId,
+) -> Vec<usize> {
+    let fns: HashMap<&str, usize> = paths
+        .iter()
+        .enumerate()
+        .filter_map(|(i, p)| match at(stmts, p) {
+            Stmt::FnDecl { name, .. } if !name.starts_with("__") => Some((name.as_str(), i)),
+            _ => None,
+        })
+        .collect();
+    if fns.is_empty() {
+        return Vec::new();
+    }
+    let none: HashSet<String> = HashSet::new();
+    let mut names: HashSet<String> = HashSet::new();
+    for p in &paths[..j] {
+        let s = at(stmts, p);
+        if !matches!(s, Stmt::FnDecl { .. }) {
+            idents_in_stmt(ast, s, &none, &mut names);
+        }
+    }
+    idents_in_expr(ast, init, &none, &mut names);
+    let mut reached: Vec<usize> = Vec::new();
+    let mut work: Vec<usize> = fns
+        .iter()
+        .filter(|(n, _)| names.contains(**n))
+        .map(|(_, i)| *i)
+        .collect();
+    while let Some(i) = work.pop() {
+        if reached.contains(&i) {
+            continue;
+        }
+        reached.push(i);
+        let mut body: HashSet<String> = HashSet::new();
+        idents_in_stmt(ast, at(stmts, &paths[i]), &none, &mut body);
+        work.extend(
+            fns.iter()
+                .filter(|(n, _)| body.contains(**n))
+                .map(|(_, k)| *k),
+        );
+    }
+    reached.sort_unstable();
+    reached
+}
+
+/// The first path whose statement can run — a function declaration is
+/// hoisted and runs only when called, so a flag declared ahead of this
+/// statement is initialized before any body reads it.
+fn first_runnable(stmts: &[Stmt], paths: &[Vec<usize>]) -> usize {
+    paths
+        .iter()
+        .position(|p| !matches!(at(stmts, p), Stmt::FnDecl { .. }))
+        .unwrap_or(0)
 }
 
 /// Every statement list nested in `s`: blocks, function and class

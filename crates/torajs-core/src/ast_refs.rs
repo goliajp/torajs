@@ -134,7 +134,12 @@ pub fn ns_live_exports(ast: &Ast) -> HashSet<String> {
     live
 }
 
-fn idents_in_stmt(ast: &Ast, s: &Stmt, shadow: &HashSet<String>, out: &mut HashSet<String>) {
+pub(crate) fn idents_in_stmt(
+    ast: &Ast,
+    s: &Stmt,
+    shadow: &HashSet<String>,
+    out: &mut HashSet<String>,
+) {
     match s {
         Stmt::Expr(e) | Stmt::Throw(e) | Stmt::Yield(e) => idents_in_expr(ast, *e, shadow, out),
         Stmt::LetDecl { init, .. } => idents_in_expr(ast, *init, shadow, out),
@@ -273,7 +278,12 @@ fn idents_in_stmt(ast: &Ast, s: &Stmt, shadow: &HashSet<String>, out: &mut HashS
     }
 }
 
-fn idents_in_expr(ast: &Ast, eid: ExprId, shadow: &HashSet<String>, out: &mut HashSet<String>) {
+pub(crate) fn idents_in_expr(
+    ast: &Ast,
+    eid: ExprId,
+    shadow: &HashSet<String>,
+    out: &mut HashSet<String>,
+) {
     match ast.get_expr(eid) {
         Expr::Ident(n) => {
             if !shadow.contains(n) {
