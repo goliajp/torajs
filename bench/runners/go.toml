@@ -1,5 +1,8 @@
 name = "go"
-detect = "go version"
+# the homebrew go, the latest stable release; /usr/local/go, first on
+# PATH on the bench machine, lags it. The paths are spelled out as in
+# the c runner.
+detect = "/opt/homebrew/bin/go version"
 src_filename = "main.go"
-compile = "go build -o {out} {src}"
+compile = "/opt/homebrew/bin/go build -o {out} {src}"
 run = "{out}"
