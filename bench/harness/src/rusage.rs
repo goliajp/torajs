@@ -187,6 +187,15 @@ pub(crate) struct RunStats {
 fn run_once(argv: &[String], env: &[(String, String)], timeout: Duration) -> Result<RunSample> {
     let mut command = Command::new(&argv[0]);
     command.args(&argv[1..]);
+    // A fixed, minimal environment: the size of the environment block
+    // moves the stack and with it the measurement (Mytkowicz 2009),
+    // so the child sees the same few variables on every machine.
+    command.env_clear();
+    for k in ["PATH", "HOME", "TMPDIR"] {
+        if let Ok(v) = std::env::var(k) {
+            command.env(k, v);
+        }
+    }
     for (k, v) in env {
         command.env(k, v);
     }

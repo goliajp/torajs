@@ -52,6 +52,20 @@ pub struct RunOutcome {
     pub diskio_written_bytes: Option<u64>,
 }
 
+/// Artifact file name padded to one length: the path is in the
+/// child's argv, and argv length moves the initial stack, which moves
+/// the measurement (Mytkowicz 2009). Every cell gets the same offset.
+const OUT_NAME_LEN: usize = 56;
+
+pub(crate) fn out_name(case: &str, runner: &str) -> String {
+    let mut name = format!("{case}-{runner}");
+    assert!(name.len() <= OUT_NAME_LEN, "artifact name too long: {name}");
+    while name.len() < OUT_NAME_LEN {
+        name.push('_');
+    }
+    name
+}
+
 /// Hex-encoded SHA-256 of a file's contents, via the in-house
 /// `torajs_link::sha256` (the codesign digest — no external dep).
 fn file_sha256_hex(path: &Path) -> Option<String> {
@@ -135,7 +149,7 @@ pub fn run_one(
         }
     };
 
-    let out_path = work_dir.join(format!("{}-{}", case.name, runner.name));
+    let out_path = work_dir.join(out_name(&case.name, &runner.name));
     let ctx = TemplateContext {
         src: src_path.to_string_lossy().to_string(),
         out: out_path.to_string_lossy().to_string(),
@@ -340,7 +354,7 @@ pub fn artifact_only(
         outcome.error = Some("runner has no compile step (no artifact)".into());
         return Ok(outcome);
     };
-    let out_path = work_dir.join(format!("{}-{}", case.name, runner.name));
+    let out_path = work_dir.join(out_name(&case.name, &runner.name));
     let ctx = TemplateContext {
         src: src_path.to_string_lossy().to_string(),
         out: out_path.to_string_lossy().to_string(),

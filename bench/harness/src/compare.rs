@@ -54,7 +54,20 @@ struct Row {
     // 16 KiB segment alignment absorbs small text deltas)
     #[serde(default)]
     artifact_sha256: Option<String>,
+    // the harness's own kernel account (2026-09-29); absent in older
+    // files, and then the counter gates below have nothing to judge
+    #[serde(default)]
+    instructions: Option<u64>,
+    #[serde(default)]
+    phys_footprint_kb: Option<u64>,
 }
+
+/// Instruction count drifts under 0.5 % run to run for the same
+/// binary (a provisional figure; `hardev/bench-noise.json` replaces it
+/// once the noise-band script exists), so a 2 % rise is code, not the
+/// machine. Footprint is deterministic to the page.
+const INSTRUCTIONS_GATE_PCT: f64 = 2.0;
+const FOOTPRINT_GATE_KB: u64 = 64;
 
 fn load(path: &str) -> Result<BTreeMap<(String, String), Row>> {
     let txt = std::fs::read_to_string(path).with_context(|| format!("reading {path}"))?;
@@ -86,6 +99,7 @@ pub fn load_artifacts(path: &str) -> Result<BTreeMap<(String, String), Option<St
 pub fn compare(args: &[String]) -> Result<bool> {
     let mut positional: Vec<String> = Vec::new();
     let mut allowed: HashSet<String> = HashSet::new();
+    let mut allowed_counters: HashSet<String> = HashSet::new();
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -95,6 +109,15 @@ pub fn compare(args: &[String]) -> Result<bool> {
                     .context("--allow-artifact-delta requires case:runtime[,…]")?;
                 for x in v.split(',').filter(|s| !s.is_empty()) {
                     allowed.insert(x.to_string());
+                }
+                i += 2;
+            }
+            "--allow-counter-delta" => {
+                let v = args
+                    .get(i + 1)
+                    .context("--allow-counter-delta requires case:runtime[,…]")?;
+                for x in v.split(',').filter(|s| !s.is_empty()) {
+                    allowed_counters.insert(x.to_string());
                 }
                 i += 2;
             }
@@ -108,7 +131,7 @@ pub fn compare(args: &[String]) -> Result<bool> {
     if positional.len() != 2 {
         anyhow::bail!(
             "usage: bench-harness compare <baseline.json> <current.json> \
-             [--allow-artifact-delta case:runtime,…]"
+             [--allow-artifact-delta case:runtime,…] [--allow-counter-delta case:runtime,…]"
         );
     }
     let base = load(&positional[0])?;
@@ -121,6 +144,9 @@ pub fn compare(args: &[String]) -> Result<bool> {
     // (case, runtime, base_ms, cur_ms) — only where artifact ALSO changed
     let mut run_real: Vec<(String, String, f64, f64)> = Vec::new();
     let mut run_noise = 0usize;
+    // (case, runtime, what, base, cur, justified) — counter rises past the gate
+    let mut counter_regress: Vec<(String, String, &'static str, u64, u64, bool)> = Vec::new();
+    let mut counters_judged = 0usize;
 
     for (key, c) in &cur {
         if c.status != "ok" {
@@ -147,6 +173,35 @@ pub fn compare(args: &[String]) -> Result<bool> {
                 ba == ca
             }
         };
+        // Instructions and footprint are judged on every row: the
+        // same binary retiring 2 % more instructions is a runtime
+        // staticlib or input change the artifact hash does not see.
+        let tag = format!("{case}:{rt}");
+        if let (Some(bi), Some(ci)) = (b.instructions, c.instructions) {
+            counters_judged += 1;
+            if bi > 0 && (ci as f64 - bi as f64) / bi as f64 * 100.0 > INSTRUCTIONS_GATE_PCT {
+                counter_regress.push((
+                    case.clone(),
+                    rt.clone(),
+                    "instructions",
+                    bi,
+                    ci,
+                    allowed_counters.contains(&tag),
+                ));
+            }
+        }
+        if let (Some(bf), Some(cf)) = (b.phys_footprint_kb, c.phys_footprint_kb) {
+            if cf > bf + FOOTPRINT_GATE_KB {
+                counter_regress.push((
+                    case.clone(),
+                    rt.clone(),
+                    "footprint_kb",
+                    bf,
+                    cf,
+                    allowed_counters.contains(&tag),
+                ));
+            }
+        }
         if identical {
             artifact_same += 1;
             if b.run_ms.is_some() && c.run_ms.is_some() {
@@ -154,7 +209,6 @@ pub fn compare(args: &[String]) -> Result<bool> {
                 run_noise += 1;
             }
         } else {
-            let tag = format!("{case}:{rt}");
             let justified = allowed.contains(&tag);
             artifact_delta.push((case.clone(), rt.clone(), ba, ca, justified));
             if let (Some(br), Some(cr)) = (b.run_ms, c.run_ms) {
@@ -209,16 +263,35 @@ pub fn compare(args: &[String]) -> Result<bool> {
         }
     }
     println!();
+    println!(
+        "instructions (> +{INSTRUCTIONS_GATE_PCT}%) and footprint (> +{FOOTPRINT_GATE_KB} KiB) — HARD GATE:"
+    );
+    println!("  rows with counters on both sides: {counters_judged}");
+    if counter_regress.is_empty() {
+        println!("  regressions: 0  ✓");
+    } else {
+        println!("  regressions: {}:", counter_regress.len());
+        for (case, rt, what, bv, cv, j) in &counter_regress {
+            let mark = if *j { "justified" } else { "‼ UNJUSTIFIED" };
+            println!(
+                "    {case} × {rt}: {what} {bv} → {cv} ({:+.2}%) [{mark}]",
+                (*cv as f64 - *bv as f64) / *bv as f64 * 100.0
+            );
+        }
+    }
+    println!();
 
     let unjustified = artifact_delta.iter().filter(|x| !x.4).count();
-    if unjustified == 0 {
-        println!("VERDICT: PASS — 0 unjustified artifact content regressions");
+    let unjustified_counters = counter_regress.iter().filter(|x| !x.5).count();
+    if unjustified == 0 && unjustified_counters == 0 {
+        println!("VERDICT: PASS — 0 unjustified artifact or counter regressions");
         Ok(true)
     } else {
         println!(
-            "VERDICT: FAIL — {unjustified} unjustified artifact content change(s). \
-             Investigate, or justify intended ones with \
-             --allow-artifact-delta case:runtime[,…]"
+            "VERDICT: FAIL — {unjustified} unjustified artifact content change(s), \
+             {unjustified_counters} unjustified counter regression(s). Investigate, or \
+             justify intended ones with --allow-artifact-delta / --allow-counter-delta \
+             case:runtime[,…]"
         );
         Ok(false)
     }

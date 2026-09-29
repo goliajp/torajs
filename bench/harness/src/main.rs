@@ -3,6 +3,7 @@ mod case;
 mod compare;
 mod exec;
 mod hyperfine;
+mod passes;
 mod report;
 mod runner;
 mod rusage;
@@ -48,6 +49,7 @@ fn print_usage() {
     println!(
         "        --runs N                  N full interleaved passes; row = median run_ms + MAD"
     );
+    println!("        --seed N                  replay a run's per-pass shuffle order");
     println!(
         "        --self                    per-commit fast path: torajs runtimes only (~3-4×;"
     );
@@ -171,6 +173,7 @@ fn run_cmd(bench_dir: &Path, args: &[String]) -> Result<bool> {
     let mut self_only = false;
     let mut all_runtimes = false;
     let mut vs_baseline: Option<String> = None;
+    let mut seed: Option<u64> = None;
 
     let mut i = 0;
     while i < args.len() {
@@ -218,6 +221,11 @@ fn run_cmd(bench_dir: &Path, args: &[String]) -> Result<bool> {
             "--runtime" => {
                 let v = args.get(i + 1).context("--runtime requires a value")?;
                 runtime_filter = Some(v.split(',').map(String::from).collect());
+                i += 2;
+            }
+            "--seed" => {
+                let v = args.get(i + 1).context("--seed requires an integer")?;
+                seed = Some(v.parse::<u64>().context("--seed requires an integer")?);
                 i += 2;
             }
             s if s.starts_with("--") => anyhow::bail!("unknown flag: {s}"),
@@ -283,6 +291,7 @@ fn run_cmd(bench_dir: &Path, args: &[String]) -> Result<bool> {
         }
     }
 
+    let c_runner = runners_all.iter().find(|r| r.name == "c").cloned();
     let runners: Vec<_> = match &runtime_filter {
         Some(filt) => runners_all
             .into_iter()
@@ -388,61 +397,38 @@ fn run_cmd(bench_dir: &Path, args: &[String]) -> Result<bool> {
 
     let mut report = report::Report::new(bench_dir, head_sha.as_deref())?;
     report.runs = runs;
-    let mut all_ok = true;
-
-    // hardev bench B1b — N full interleaved passes (full case×runner
-    // matrix per pass, repeated `runs` times) so the median samples
-    // machine-state variance ACROSS time (matches the historical
-    // "3 full-suite runs" intent), not N back-to-back runs of one
-    // cell. One aggregated row per cell → one statistically-sound
-    // json, no same-name overwrite, no log-parsing.
-    //
-    // hardev bench B4 — within-invocation compile_ms cache. Compile is
-    // deterministic across passes for the same (case, runner) under
-    // the same compiler + source, so passes 2+ reuse the first pass's
-    // compile_ms (avoiding ~6× redundant compile invocations that the
-    // hyperfine warmup+runs would otherwise do per pass). The compile
-    // step still runs once per pass via `exec_capture_status` to
-    // produce the artifact for the run-side timing — only the timing
-    // hyperfine call is skipped.
-    let nr = runners.len();
-    let mut acc: Vec<Vec<bench::RunOutcome>> = (0..cases.len() * nr).map(|_| Vec::new()).collect();
-    let mut compile_cache: Vec<Option<f64>> = vec![None; cases.len() * nr];
-    for pass in 1..=runs {
-        for (ci, c) in cases.iter().enumerate() {
-            for (ri, r) in runners.iter().enumerate() {
-                if runs > 1 {
-                    eprintln!("→ {} × {} (pass {pass}/{runs})", c.name, r.name);
-                } else {
-                    eprintln!("→ {} × {}", c.name, r.name);
-                }
-                let idx = ci * nr + ri;
-                let cached = compile_cache[idx];
-                let outcome = bench::run_one(c, r, &work_dir, workspace, cached)?;
-                // First successful compile populates the cache so
-                // passes 2+ for this (case, runner) skip the timing.
-                if cached.is_none() {
-                    if let Some(cm) = outcome.compile_ms {
-                        compile_cache[idx] = Some(cm);
-                    }
-                }
-                acc[idx].push(outcome);
-            }
-        }
+    let seed = seed.unwrap_or_else(|| {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(1)
+    });
+    report.pass_order_seed = seed;
+    eprintln!("→ pass order seed {seed}");
+    let calibration_bin = match &c_runner {
+        Some(c) => passes::build_calibration(c, &bench_dir.join("cases/gcd1m/main.c"), &work_dir)?,
+        None => None,
+    };
+    if calibration_bin.is_none() {
+        eprintln!("→ no calibration binary (c runner or its compiler missing); passes run unbracketed");
     }
-    for (ci, _c) in cases.iter().enumerate() {
-        for ri in 0..nr {
-            let passes = std::mem::take(&mut acc[ci * nr + ri]);
-            let outcome = if passes.len() > 1 {
-                report::aggregate(passes)
-            } else {
-                passes.into_iter().next().expect("at least one pass")
-            };
-            if !outcome.is_ok() {
-                all_ok = false;
-            }
-            report.push(outcome);
+    let (rows, calibration) = passes::Passes {
+        cases: &cases,
+        runners: &runners,
+        runs,
+        work_dir: &work_dir,
+        workspace,
+        seed,
+        calibration_bin,
+    }
+    .run()?;
+    report.calibration = calibration;
+    let mut all_ok = true;
+    for outcome in rows {
+        if !outcome.is_ok() {
+            all_ok = false;
         }
+        report.push(outcome);
     }
 
     report.print_table();

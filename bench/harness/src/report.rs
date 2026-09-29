@@ -17,7 +17,24 @@ pub struct Report {
     /// absolute deviation, robust to mac single-point spikes). A
     /// reader / `bench compare` keys off this to interpret the spread.
     pub runs: usize,
+    /// Seed of the per-pass shuffle of (case, runner) order, so a run
+    /// can be replayed in the same order.
+    pub pass_order_seed: u64,
+    /// The fixed C `gcd1m` binary timed once at the start and once at
+    /// the end of every pass. A pass whose two readings differ by more
+    /// than 3 % ran on a machine that changed under it.
+    pub calibration: Vec<Calibration>,
     pub rows: Vec<RunOutcome>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Calibration {
+    pub pass: usize,
+    pub start_ms: f64,
+    pub end_ms: f64,
+    pub start_instructions: Option<u64>,
+    pub end_instructions: Option<u64>,
+    pub unstable: bool,
 }
 
 impl Report {
@@ -27,6 +44,8 @@ impl Report {
             host: hostname(),
             git_sha: git_sha(bench_dir, head_sha),
             runs: 1,
+            pass_order_seed: 0,
+            calibration: Vec::new(),
             rows: Vec::new(),
         })
     }

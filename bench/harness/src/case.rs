@@ -3,8 +3,11 @@ use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const DEFAULT_RUN_WARMUP: u32 = 3;
-const DEFAULT_RUN_RUNS: u32 = 10;
+// Every case runs the same count: the spread between result files
+// (4.5 % median) dwarfs the spread inside one (1.5 %), so repetition
+// belongs at the pass level, not per case.
+const DEFAULT_RUN_WARMUP: u32 = 2;
+const DEFAULT_RUN_RUNS: u32 = 5;
 const DEFAULT_COMPILE_WARMUP: u32 = 1;
 const DEFAULT_COMPILE_RUNS: u32 = 5;
 
@@ -30,16 +33,12 @@ pub struct Case {
 /// Optional per-case `bench.toml` overrides.
 ///
 /// ```toml
-/// runs = 3                # hyperfine --runs for the run command
-/// warmup = 1              # hyperfine --warmup for the run command
 /// compile_runs = 5
 /// compile_warmup = 1
 /// tolerance = 500         # absolute int diff allowed on stdout's last line
 /// ```
 #[derive(Debug, Default, Deserialize)]
 struct CaseConfig {
-    runs: Option<u32>,
-    warmup: Option<u32>,
     compile_runs: Option<u32>,
     compile_warmup: Option<u32>,
     tolerance: Option<u64>,
@@ -89,8 +88,8 @@ pub fn discover_all(cases_dir: &Path) -> Result<Vec<Case>> {
             name,
             dir: path,
             expected_stdout,
-            run_warmup: cfg.warmup.unwrap_or(DEFAULT_RUN_WARMUP),
-            run_runs: cfg.runs.unwrap_or(DEFAULT_RUN_RUNS),
+            run_warmup: DEFAULT_RUN_WARMUP,
+            run_runs: DEFAULT_RUN_RUNS,
             compile_warmup: cfg.compile_warmup.unwrap_or(DEFAULT_COMPILE_WARMUP),
             compile_runs: cfg.compile_runs.unwrap_or(DEFAULT_COMPILE_RUNS),
             tolerance: cfg.tolerance.unwrap_or(0),
