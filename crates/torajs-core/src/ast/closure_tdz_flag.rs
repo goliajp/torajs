@@ -69,7 +69,7 @@ pub fn flag_closure_tdz(ast: &mut Ast) {
     ast.stmts = stmts;
 }
 
-fn flag_list(ast: &mut Ast, stmts: &mut [Stmt], counter: &mut usize) {
+fn flag_list(ast: &mut Ast, stmts: &mut Vec<Stmt>, counter: &mut usize) {
     let mut paths: Vec<Vec<usize>> = Vec::new();
     flat_paths(stmts, &mut Vec::new(), &mut paths);
     let inert: Vec<bool> = paths
@@ -79,14 +79,19 @@ fn flag_list(ast: &mut Ast, stmts: &mut [Stmt], counter: &mut usize) {
     let mut decls: Vec<(usize, String)> = Vec::new();
     let mut heads: Vec<(usize, String)> = Vec::new();
     for j in 0..paths.len() {
-        let Stmt::LetDecl {
-            name,
-            init,
-            is_var: false,
-            ..
-        } = at(stmts, &paths[j])
-        else {
-            continue;
+        // A class declaration's binding is created with the scope and
+        // initialized by the declaration exactly like a `let`
+        // (§8.1.1.1 step 4; §16.1.7 step 16); it has no initializer
+        // expression of its own to scan.
+        let (name, init) = match at(stmts, &paths[j]) {
+            Stmt::LetDecl {
+                name,
+                init,
+                is_var: false,
+                ..
+            } => (name, Some(*init)),
+            Stmt::ClassDecl { name, .. } => (name, None),
+            _ => continue,
         };
         // A minted name is initialized before anything reads it —
         // except the entry's own `export default` binding
@@ -97,7 +102,7 @@ fn flag_list(ast: &mut Ast, stmts: &mut [Stmt], counter: &mut usize) {
         if name.starts_with("__") && !name.starts_with("__nsdefault_") {
             continue;
         }
-        let (name, init) = (name.clone(), *init);
+        let name = name.clone();
         let mut sites: Vec<Site> = Vec::new();
         let mut first = j;
         for i in 0..j {
@@ -108,10 +113,12 @@ fn flag_list(ast: &mut Ast, stmts: &mut [Stmt], counter: &mut usize) {
                 sites.extend(here);
             }
         }
-        let mut here = Vec::new();
-        collect_sites_expr(ast, init, &name, false, false, &mut here);
-        if !here.is_empty() && !inert[j] {
-            sites.extend(here);
+        if let Some(init) = init {
+            let mut here = Vec::new();
+            collect_sites_expr(ast, init, &name, false, false, &mut here);
+            if !here.is_empty() && !inert[j] {
+                sites.extend(here);
+            }
         }
         for g in reachable_fns(ast, stmts, &paths, j, init) {
             let mut here = Vec::new();
@@ -152,6 +159,33 @@ fn flag_list(ast: &mut Ast, stmts: &mut [Stmt], counter: &mut usize) {
     for s in stmts.iter_mut() {
         descend(ast, s, counter);
     }
+    splice_class_multis(stmts);
+}
+
+/// A `Multi` this pass wrapped around a class declaration is spliced
+/// back into the list: `Multi` is a transparent sequence, but the
+/// class passes downstream find their declarations by scanning the
+/// list itself (`desugar_classes_index`), and a class left inside one
+/// is never desugared — its name then resolves to nothing.
+fn splice_class_multis(stmts: &mut Vec<Stmt>) {
+    fn holds_class(s: &Stmt) -> bool {
+        match s {
+            Stmt::ClassDecl { .. } => true,
+            Stmt::Multi(v) => v.iter().any(holds_class),
+            _ => false,
+        }
+    }
+    let mut i = 0;
+    while i < stmts.len() {
+        if matches!(&stmts[i], Stmt::Multi(v) if v.iter().any(holds_class)) {
+            let Stmt::Multi(v) = std::mem::replace(&mut stmts[i], Stmt::Multi(Vec::new())) else {
+                unreachable!("matched Multi above");
+            };
+            stmts.splice(i..i + 1, v);
+            continue;
+        }
+        i += 1;
+    }
 }
 
 /// The named functions of the list (path indices) a call ahead of the
@@ -167,7 +201,7 @@ fn reachable_fns(
     stmts: &[Stmt],
     paths: &[Vec<usize>],
     j: usize,
-    init: ExprId,
+    init: Option<ExprId>,
 ) -> Vec<usize> {
     let fns: HashMap<&str, usize> = paths
         .iter()
@@ -188,7 +222,9 @@ fn reachable_fns(
             idents_in_stmt(ast, s, &none, &mut names);
         }
     }
-    idents_in_expr(ast, init, &none, &mut names);
+    if let Some(init) = init {
+        idents_in_expr(ast, init, &none, &mut names);
+    }
     let mut reached: Vec<usize> = Vec::new();
     let mut work: Vec<usize> = fns
         .iter()
