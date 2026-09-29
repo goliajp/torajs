@@ -23,3 +23,13 @@ console.log('zaz'.replace(none, (whole) => whole.toUpperCase()))
 
 const all = /(o)(p)?/g
 console.log('opo'.replaceAll(all, (whole, o, p) => '(' + o + ',' + p + ')'))
+
+const named = /(?<fst>.)(?<snd>.)/
+console.log('abcd'.replace(named, (match, fst, snd, offset, str, groups) => {
+  console.log(match, fst, snd, offset, str, typeof groups, groups.fst, groups.snd)
+  return groups.snd + groups.fst
+}))
+const either = /(?<fst>a)|(?<snd>b)/g
+console.log('abcab'.replace(either, (match, fst, snd, offset, str, groups) => '[' + groups.fst + '/' + groups.snd + ']'))
+const built = new RegExp('(?<word>[a-z]+)', 'g')
+console.log('one two'.replace(built, (match, word, offset, str, groups) => groups.word.toUpperCase() + offset))

@@ -266,17 +266,17 @@ unsafe fn typed_invoke(
 }
 
 /// The boxed lane's invoke strategy — §22.2.6.11 step 14.j's full
-/// «matched, p1..pn, position, string» argv over the closure's boxed
-/// entry, which reads exactly its callee's declared-param count of
-/// slots. `n_caps` here is the PATTERN's own capture count (the
-/// caller read it off the RegExp cell), so position/string land on
-/// their spec slots for every callback arity; a non-participating
-/// group boxes the real `undefined`, not a Str sentinel. The
-/// callback's return takes ToString; its pending throw aborts the
-/// walk via `Err`.
+/// «matched, p1..pn, position, string, groups» argv over the closure's
+/// boxed entry, which reads exactly its callee's declared-param count
+/// of slots. The capture count is the PATTERN's own, read off the
+/// RegExp cell, so position/string land on their spec slots for every
+/// callback arity; a non-participating group boxes the real
+/// `undefined`, not a Str sentinel, and the groups object is there
+/// only for a pattern that names a capture. The callback's return
+/// takes ToString; its pending throw aborts the walk via `Err`.
 unsafe fn boxed_invoke(
     closure: *mut c_void,
-    n_caps: usize,
+    re: &RegExp,
     m: *mut c_void,
     saves: &[i64],
     s: &[u8],
@@ -292,7 +292,9 @@ unsafe fn boxed_invoke(
                 != 0,
         );
         let undef = __torajs_anyv_box_from_pair(TAG_UNDEF, 0);
-        let live = shift + 1 + n_caps + 2;
+        let n_caps = re.n_captures.max(0) as usize;
+        let groups = super::groups::build_groups(re, s, saves);
+        let live = shift + 1 + n_caps + 2 + usize::from(groups.is_some());
         let mut argv: Vec<u64> = Vec::with_capacity(live.max(BOXED_ARGV_MIN));
         // Receiver-first shift — argv[0] stays the undefined
         // receiver, the spec args move up one.
@@ -314,6 +316,9 @@ unsafe fn boxed_invoke(
         }
         argv.push(__torajs_anyv_box_from_pair(TAG_I64, off));
         argv.push(__torajs_anyv_box_from_pair(TAG_HEAP, input as i64));
+        if let Some(g) = groups {
+            argv.push(__torajs_anyv_box_from_pair(TAG_HEAP, g as i64));
+        }
         // Undefined pad — a callback declaring more params than the
         // spec args reads the spec-correct `undefined`, not
         // out-of-bounds garbage.
@@ -323,6 +328,9 @@ unsafe fn boxed_invoke(
         let ret = entry(closure, argv.as_ptr(), live as i64);
         for p in cap_strs {
             __torajs_str_drop(p);
+        }
+        if let Some(g) = groups {
+            super::__torajs_value_drop_heap(g);
         }
         if __torajs_throw_check() != 0 {
             return Err(());
@@ -460,9 +468,8 @@ pub unsafe extern "C" fn __torajs_str_replace_regex_fn_boxed(
             return str_from_bytes(&s) as *mut c_void;
         }
         let global = all != 0 || re.flags & RE_FLAG_G != 0;
-        let n_caps = re.n_captures.max(0) as usize;
         replace_fn_inner(str_ptr, re_ptr, global, |m, saves, s, off| {
-            boxed_invoke(closure, n_caps, m, saves, s, off, str_ptr)
+            boxed_invoke(closure, re, m, saves, s, off, str_ptr)
         })
     }
 }
