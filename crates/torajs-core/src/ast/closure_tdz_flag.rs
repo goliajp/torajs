@@ -168,20 +168,27 @@ fn flag_list(ast: &mut Ast, stmts: &mut Vec<Stmt>, counter: &mut usize, named_fn
     for s in stmts.iter_mut() {
         descend(ast, s, counter, named_fns);
     }
-    splice_multis(stmts);
+    splice_class_multis(stmts);
 }
 
-/// The `Multi`s this pass wrapped around statements are spliced back
-/// into the list once the scan is done: `Multi` is a transparent
-/// sequence, but the passes downstream find what they need by
-/// scanning the list itself — the class passes their declarations
-/// (`desugar_classes_index`), and the capture census of a nested named
-/// function the flag `let` it reads (a flag left inside a Multi was an
-/// unknown identifier to the lifted closure).
-fn splice_multis(stmts: &mut Vec<Stmt>) {
+/// A `Multi` this pass wrapped around a class declaration is spliced
+/// back into the list: `Multi` is a transparent sequence, but the
+/// class passes downstream find their declarations by scanning the
+/// list itself (`desugar_classes_index`), and a class left inside one
+/// is never desugared — its name then resolves to nothing. Only those:
+/// flattening every `Multi` regrouped the destructuring desugar's
+/// statements and moved the checker's inference on them.
+fn splice_class_multis(stmts: &mut Vec<Stmt>) {
+    fn holds_class(s: &Stmt) -> bool {
+        match s {
+            Stmt::ClassDecl { .. } => true,
+            Stmt::Multi(v) => v.iter().any(holds_class),
+            _ => false,
+        }
+    }
     let mut i = 0;
     while i < stmts.len() {
-        if matches!(&stmts[i], Stmt::Multi(_)) {
+        if matches!(&stmts[i], Stmt::Multi(v) if v.iter().any(holds_class)) {
             let Stmt::Multi(v) = std::mem::replace(&mut stmts[i], Stmt::Multi(Vec::new())) else {
                 unreachable!("matched Multi above");
             };
