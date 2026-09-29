@@ -14,4 +14,7 @@ console.log(probe(), JSON.stringify(results));
 console.log(typeof libOnly, typeof A, A());
 try { libOnly; } catch (e) { console.log(e.name); }
 try { libOnly = 3; } catch (e) { console.log(e.name); }
+for (const f of [() => libLet, () => libConst, () => libVar]) {
+  try { f(); console.log("no throw"); } catch (e) { console.log(e.name); }
+}
 console.log(L, hidden, probe2 === probe);

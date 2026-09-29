@@ -47,6 +47,14 @@ use crate::ssa_lower::LowerCtx;
 
 pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: crate::ast::ExprId, name: &str) -> Operand {
     emit_tdz_raise(ctx, eid, name);
+    // §16.2.1.6 — a read the module resolver judged unresolvable in
+    // its own module raises even where a slot answers to the name: a
+    // lifted closure captured the other module's binding under it.
+    if ctx.ast.module_foreign_reads.contains(&eid)
+        && let Some(op) = crate::ssa_lower_ident_global::try_undeclared_read_throw(ctx, eid, name)
+    {
+        return op;
+    }
     if ctx.locals.get(name).is_none() {
         if let Some(op) = crate::ssa_lower_ident_global::try_undeclared_read_throw(ctx, eid, name) {
             return op;
