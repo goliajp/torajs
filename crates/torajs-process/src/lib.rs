@@ -340,7 +340,9 @@ pub unsafe extern "C" fn __torajs_argv_init(
     }
 }
 
-/// `process.argv` → fresh Array<Str>.
+/// `process.argv` → fresh Array<Str>. The executable path fills both
+/// slot 0 and slot 1, so the first user argument is at index 2 as it
+/// is under a runtime that takes a script path.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_process_argv() -> *mut u8 {
     let (argc, argv_addr) = {
@@ -348,11 +350,15 @@ pub unsafe extern "C" fn __torajs_process_argv() -> *mut u8 {
         (state.0, state.1)
     };
     let argv = argv_addr as *mut *mut c_char;
-    let mut out = unsafe { __torajs_arr_alloc(argc as u64) };
+    let mut out = unsafe { __torajs_arr_alloc(argc as u64 + 1) };
     for i in 0..argc {
         let cstr = unsafe { argv.add(i as usize).read() };
         let str_v = unsafe { alloc_str_from_cstr(cstr) };
         out = unsafe { __torajs_arr_push(out, str_v as i64) };
+        if i == 0 {
+            let script = unsafe { alloc_str_from_cstr(cstr) };
+            out = unsafe { __torajs_arr_push(out, script as i64) };
+        }
     }
     out
 }

@@ -14,8 +14,8 @@ use crate::cmd_build::{build_link_config, lower_to_ssa};
 use crate::util::rand_suffix;
 use torajs_link::archive_emit::link_to_exec_with_archives;
 
-pub(crate) fn run(file_arg: Option<&String>) -> ExitCode {
-    let path = match file_arg {
+pub(crate) fn run(args: &[String]) -> ExitCode {
+    let path = match args.first() {
         Some(p) => p.as_str(),
         None => {
             eprintln!("error: missing file argument (use `-` for stdin)");
@@ -71,6 +71,7 @@ pub(crate) fn run(file_arg: Option<&String>) -> ExitCode {
     }
 
     let status = Command::new(&target_path)
+        .args(&args[1..])
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())

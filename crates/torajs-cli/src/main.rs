@@ -86,7 +86,7 @@ fn main() -> ExitCode {
         // `jit` is kept as a back-compat alias.
         // Pipeline: codegen → torajs-obj → torajs-link (in-house aarch64 toolchain,
         // ssa_inkwell/LLVM retired in #9 atomic swap).
-        Some("run") | Some("jit") => cmd_run::run(args.get(1)),
+        Some("run") | Some("jit") => cmd_run::run(&args[1..]),
         Some("build") => cmd_build::run(&args[1..]),
         Some("lsp") => match lsp::run() {
             Ok(()) => ExitCode::SUCCESS,
