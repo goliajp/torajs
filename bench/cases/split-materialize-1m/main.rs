@@ -28,7 +28,7 @@ fn main() {
 
     let mut total: i64 = 0;
     for i in 0..n {
-        let parts: Vec<String> = lines[i & 1023].split(',').map(String::from).collect();
+        let parts: Vec<&str> = lines[i & 1023].split(',').collect();
         let mut rebuilt = String::new();
         for p in &parts {
             total += p.as_bytes()[p.len() - 1] as i64;

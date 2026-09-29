@@ -10,11 +10,11 @@ typedef struct {
     size_t cap;
 } StrBuf;
 
-/* an immutable string value: one allocation holding the length and the bytes */
+/* a field of the line: a view into its bytes, not a copy */
 typedef struct {
+    const char *ptr;
     size_t len;
-    char data[];
-} Str;
+} Slice;
 
 static void append(StrBuf *b, const char *s, size_t len) {
     size_t need = b->len + len;
@@ -42,28 +42,24 @@ static int64_t next(int64_t s) {
     return t == 0 ? 1 : t;
 }
 
-static Str *str_new(const char *s, size_t len) {
-    Str *p = malloc(sizeof(Str) + len);
-    p->len = len;
-    memcpy(p->data, s, len);
-    return p;
-}
-
-static Str **split(const char *s, size_t len, char sep, size_t *count) {
+static Slice *split(const char *s, size_t len, char sep, size_t *count) {
     size_t n = 1;
     for (size_t i = 0; i < len; i++) {
         n += s[i] == sep;
     }
-    Str **parts = malloc(n * sizeof(Str *));
+    Slice *parts = malloc(n * sizeof(Slice));
     size_t k = 0;
     size_t start = 0;
     for (size_t i = 0; i < len; i++) {
         if (s[i] == sep) {
-            parts[k++] = str_new(s + start, i - start);
+            parts[k].ptr = s + start;
+            parts[k].len = i - start;
+            k++;
             start = i + 1;
         }
     }
-    parts[k] = str_new(s + start, len - start);
+    parts[k].ptr = s + start;
+    parts[k].len = len - start;
     *count = n;
     return parts;
 }
@@ -91,19 +87,16 @@ int main(int argc, char **argv) {
     for (int64_t i = 0; i < n; i++) {
         const StrBuf *line = &lines[i & 1023];
         size_t count;
-        Str **parts = split(line->ptr, line->len, ',', &count);
+        Slice *parts = split(line->ptr, line->len, ',', &count);
         StrBuf rebuilt = {NULL, 0, 0};
         for (size_t k = 0; k < count; k++) {
-            const Str *p = parts[k];
-            total = total + (unsigned char)p->data[p->len - 1];
-            append(&rebuilt, p->data, p->len);
+            const Slice *p = &parts[k];
+            total = total + (unsigned char)p->ptr[p->len - 1];
+            append(&rebuilt, p->ptr, p->len);
             append(&rebuilt, ";", 1);
         }
         total = total + (int64_t)rebuilt.len;
         free(rebuilt.ptr);
-        for (size_t k = 0; k < count; k++) {
-            free(parts[k]);
-        }
         free(parts);
     }
     printf("%" PRId64 "\n", total);
