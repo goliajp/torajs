@@ -58,8 +58,17 @@ pub(crate) fn forwarded_argc(
         .f
         .name
         .strip_prefix("__forward_")
-        .or_else(|| ctx.f.name.strip_prefix("__fwdrecv_"));
-    if relay_of != Some(callee_name.as_str()) {
+        .or_else(|| ctx.f.name.strip_prefix("__fwdrecv_"))?;
+    // A this-reading (or lossy-slot) static's relay forwards to the
+    // receiver-polymorphic twin under the mono's `__forward_` name
+    // (`forwarder_synth::static_twin_target`), so the callee it
+    // reaches is `__smany_<C>__<m>`, not the name the relay is minted
+    // for. Matching the mono alone left that call on the static
+    // count: `E.two(true, "x", ...arr)` on `static two(a: boolean,
+    // b: string)` answered `arguments.length` as the declared 2.
+    let forwards_to_callee =
+        relay_of == callee_name.as_str() || ctx.ast.smany_twins.get(relay_of) == Some(callee_name);
+    if !forwards_to_callee {
         return None;
     }
     let info = ctx.locals.get("__torajs_argc")?;
