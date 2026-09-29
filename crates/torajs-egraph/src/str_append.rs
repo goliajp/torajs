@@ -23,11 +23,16 @@
 //! the caller into the callee, so the refcount arithmetic is
 //! unchanged. Two things make that safe rather than merely equal:
 //!
-//! * **Strict adjacency.** The drop must be the instruction right
-//!   after the concat. Anything in between could read the cell (or
-//!   an un-inc'd copy of the same pointer — the block-tail `copy`
-//!   this IR uses for loop-carried bindings makes those real), and
-//!   an in-place append would show it the appended bytes early.
+//! * **A closed window.** Between the concat and the drop of its left
+//!   operand only the string kernels themselves may run, and only on
+//!   values that cannot be the left operand's cell under another
+//!   name: values the window itself defined, and static strings.
+//!   That is the `s = s + a + b` shape, where the rest of the chain
+//!   sits between the first concat and the release of the old `s`.
+//!   Anything else could read the cell (or an un-inc'd copy of the
+//!   same pointer — the block-tail `copy` this IR uses for
+//!   loop-carried bindings makes those real), and an in-place append
+//!   would show it the appended bytes early.
 //! * **Nothing may read the left operand afterwards.** Guaranteed by
 //!   the program that was already there: past its own `drop` the
 //!   cell may already be freed, so any later read was invalid before
@@ -43,7 +48,11 @@
 //! spliced in from inlined callee bodies are visible too.
 //! `TORAJS_STR_APPEND_OFF=1` skips it.
 
-use torajs_core::ssa::{FuncId, Inst, InstKind, Module, Operand};
+use std::collections::HashSet;
+
+use torajs_core::ssa::{
+    FuncId, Function, Inst, InstKind, Module, Operand, ValueId, visit_value_operands,
+};
 
 const STR_CONCAT: &str = "__torajs_str_concat";
 const STR_DROP: &str = "__torajs_str_drop";
@@ -55,11 +64,14 @@ pub struct StrAppendStats {
     /// `str_drop`).
     pub rewritten: u32,
     /// `concat` calls left alone because no `str_drop` of the left
-    /// operand followed immediately.
+    /// operand closed a window behind them.
     pub left_borrowed: u32,
+    /// Of `rewritten`, the pairs that had other kernel calls between
+    /// them.
+    pub across_window: u32,
 }
 
-/// Rewrite every adjacent `concat` + `drop-left` pair in the module.
+/// Rewrite every `concat` + `drop-left` pair in the module.
 pub fn rewrite_str_appends(module: &mut Module) -> StrAppendStats {
     let mut stats = StrAppendStats::default();
     let Some(concat_fid) = find_func(module, STR_CONCAT) else {
@@ -70,10 +82,12 @@ pub fn rewrite_str_appends(module: &mut Module) -> StrAppendStats {
     else {
         return stats;
     };
+    let kernels = [concat_fid, drop_fid, append_fid];
     for func in module.funcs.iter_mut() {
         if func.is_declaration() {
             continue;
         }
+        let statics = static_strings(func);
         for block in func.blocks.iter_mut() {
             let mut i = 0;
             while i < block.insts.len() {
@@ -81,24 +95,81 @@ pub fn rewrite_str_appends(module: &mut Module) -> StrAppendStats {
                     i += 1;
                     continue;
                 };
-                if block
-                    .insts
-                    .get(i + 1)
-                    .is_some_and(|next| drops_value(next, drop_fid, &left))
-                {
-                    if let InstKind::Call(fid, _) = &mut block.insts[i].kind {
-                        *fid = append_fid;
+                match closing_drop(&block.insts, i, &left, drop_fid, &kernels, &statics) {
+                    Some(at) => {
+                        if let InstKind::Call(fid, _) = &mut block.insts[i].kind {
+                            *fid = append_fid;
+                        }
+                        block.insts.remove(at);
+                        stats.rewritten += 1;
+                        if at > i + 1 {
+                            stats.across_window += 1;
+                        }
                     }
-                    block.insts.remove(i + 1);
-                    stats.rewritten += 1;
-                } else {
-                    stats.left_borrowed += 1;
+                    None => stats.left_borrowed += 1,
                 }
                 i += 1;
             }
         }
     }
     stats
+}
+
+/// Values whose only definition is a static string: immortal cells no
+/// binding's buffer can be.
+fn static_strings(func: &Function) -> HashSet<ValueId> {
+    let mut statics = HashSet::new();
+    let mut others = HashSet::new();
+    for inst in func.blocks.iter().flat_map(|b| b.insts.iter()) {
+        let Some(result) = inst.result else { continue };
+        if matches!(inst.kind, InstKind::StaticStrRef(_)) {
+            statics.insert(result);
+        } else {
+            others.insert(result);
+        }
+    }
+    statics.retain(|v| !others.contains(v));
+    statics
+}
+
+/// Index of the `str_drop` of `left` that follows the concat at `at`,
+/// when every instruction between the two is a string kernel call or a
+/// static string, and touches nothing but values defined inside the
+/// window and static strings.
+fn closing_drop(
+    insts: &[Inst],
+    at: usize,
+    left: &Operand,
+    drop_fid: FuncId,
+    kernels: &[FuncId],
+    statics: &HashSet<ValueId>,
+) -> Option<usize> {
+    let Operand::Value(left_id) = *left else {
+        return None;
+    };
+    let mut fresh: HashSet<ValueId> = insts[at].result.into_iter().collect();
+    for (j, inst) in insts.iter().enumerate().skip(at + 1) {
+        if drops_value(inst, drop_fid, left) {
+            return Some(j);
+        }
+        match &inst.kind {
+            InstKind::StaticStrRef(_) => {}
+            InstKind::Call(fid, _) if kernels.contains(fid) => {}
+            _ => return None,
+        }
+        if inst.result == Some(left_id) {
+            return None;
+        }
+        let mut foreign = false;
+        visit_value_operands(&inst.kind, |v| {
+            foreign |= !fresh.contains(&v) && !statics.contains(&v);
+        });
+        if foreign {
+            return None;
+        }
+        fresh.extend(inst.result);
+    }
+    None
 }
 
 fn find_func(module: &Module, name: &str) -> Option<FuncId> {
@@ -130,7 +201,7 @@ fn drops_value(inst: &Inst, drop_fid: FuncId, left: &Operand) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use torajs_core::ssa::{Block, BlockId, Function, Terminator, Type, ValueId, ValueInfo};
+    use torajs_core::ssa::{Block, BlockId, StringId, Terminator, Type, ValueInfo};
 
     fn v(id: u32) -> Operand {
         Operand::Value(ValueId(id))
@@ -210,11 +281,84 @@ mod tests {
         assert_eq!(m.funcs[3].blocks[0].insts.len(), 2);
     }
 
+    fn static_str(result: u32) -> Inst {
+        Inst {
+            result: Some(ValueId(result)),
+            kind: InstKind::StaticStrRef(StringId(0)),
+            origin: None,
+        }
+    }
+
+    #[test]
+    fn the_rest_of_a_chain_may_sit_between_the_concat_and_the_drop() {
+        // `s = s + a + b` with `b` a literal: the second link and the
+        // release of its temp run before the old `s` is released.
+        let mut m = module_with(vec![
+            concat(4, 2, 3),
+            static_str(6),
+            concat(5, 4, 6),
+            drop_of(4),
+            drop_of(2),
+        ]);
+        let stats = rewrite_str_appends(&mut m);
+        assert_eq!(stats.rewritten, 2);
+        assert_eq!(stats.across_window, 1);
+        let insts = &m.funcs[3].blocks[0].insts;
+        assert_eq!(insts.len(), 3, "both drops moved into their calls");
+        assert!(matches!(&insts[0].kind, InstKind::Call(f, _) if *f == FuncId(2)));
+        assert!(matches!(&insts[2].kind, InstKind::Call(f, _) if *f == FuncId(2)));
+    }
+
+    #[test]
+    fn a_static_string_defined_before_the_concat_may_be_read_in_the_window() {
+        let mut m = module_with(vec![
+            static_str(6),
+            concat(4, 2, 3),
+            concat(5, 4, 6),
+            drop_of(4),
+            drop_of(2),
+        ]);
+        assert_eq!(rewrite_str_appends(&mut m).rewritten, 2);
+    }
+
+    #[test]
+    fn a_value_from_before_the_concat_read_in_the_window_closes_it() {
+        // value 3 may be the left operand's cell under another name
+        let mut m = module_with(vec![
+            concat(4, 2, 3),
+            concat(5, 4, 3),
+            drop_of(4),
+            drop_of(2),
+        ]);
+        let stats = rewrite_str_appends(&mut m);
+        assert_eq!(stats.rewritten, 1, "only the inner, adjacent pair");
+        let insts = &m.funcs[3].blocks[0].insts;
+        assert!(matches!(&insts[0].kind, InstKind::Call(f, _) if *f == FuncId(0)));
+        assert!(insts.iter().any(|i| drops_value(i, FuncId(1), &v(2))));
+    }
+
+    #[test]
+    fn the_left_operand_read_again_in_the_window_closes_it() {
+        // `s = s + a + s`
+        let mut m = module_with(vec![
+            concat(4, 2, 3),
+            concat(5, 4, 2),
+            drop_of(4),
+            drop_of(2),
+        ]);
+        let stats = rewrite_str_appends(&mut m);
+        assert_eq!(stats.rewritten, 1);
+        assert!(matches!(
+            &m.funcs[3].blocks[0].insts[0].kind,
+            InstKind::Call(f, _) if *f == FuncId(0)
+        ));
+    }
+
     #[test]
     fn an_instruction_between_the_two_closes_the_window() {
-        // Anything in the gap may observe the cell — including a
-        // block-tail `copy` carrying the same pointer under another
-        // name — so the pair only fires back to back.
+        // Anything but a string kernel in the gap may observe the
+        // cell — including a block-tail `copy` carrying the same
+        // pointer under another name.
         let between = Inst {
             result: Some(ValueId(5)),
             kind: InstKind::Copy(Type::Str, v(2)),
