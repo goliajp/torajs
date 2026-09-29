@@ -6,4 +6,3 @@ warmup = 2
 # sentinel, caller checks flag, br to catch, take value) vs rust's
 # DWARF EH unwind (`panic::catch_unwind`), go's panic+defer+recover,
 # bun/node's setjmp-style throw.
-torajs_opt = "O3"

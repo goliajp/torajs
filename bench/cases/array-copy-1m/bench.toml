@@ -8,4 +8,3 @@ warmup = 2
 # (nothing in the body writes `src`) that the pre-reserve lanes cannot
 # currently prove, so it runs the cap-checked push path. Measured at 7x
 # against the same loop with a literal bound.
-torajs_opt = "O3"

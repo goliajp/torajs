@@ -1,6 +1,6 @@
-# torajs production AOT path: tr → SSA IR → Inkwell → LLVM 22 → object → cc.
-# Replaced the previous `torajs-aot` (wasm-via-C) row in P3.7 — wasm-via-C is
-# gone; this is the canonical `torajs` identity on the bench scoreboard.
+# torajs production AOT path: tr → SSA IR → native aarch64 codegen →
+# in-house linker. This is the canonical `torajs` identity on the bench
+# scoreboard.
 name = "torajs"
 detect = "{workspace}/target/release/tr --version"
 src_filename = "main.ts"

@@ -7,4 +7,3 @@ warmup = 2
 # iteration. Compares torajs's __torajs_obj_alloc + heap struct against
 # rust's Box<Pair<i64,i64>>, go's *Pair[int64, int64], bun's hidden-
 # class object.
-torajs_opt = "O3"

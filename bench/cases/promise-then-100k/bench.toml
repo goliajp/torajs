@@ -11,4 +11,3 @@ warmup = 2
 # overhead of the Promise/then/microtask substrate rather than real
 # scheduler work. Real-suspension async lands with T-16 (state-
 # machine async/await); a separate bench case will cover that path.
-torajs_opt = "O3"

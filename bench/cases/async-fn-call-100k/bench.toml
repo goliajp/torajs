@@ -6,4 +6,3 @@ warmup = 2
 # (Promise.resolve(v + v)), await drain. Tests the async-fn
 # desugar pipeline (async body → Promise.resolve(<expr>)) +
 # call-site await dispatch under tight loop pressure.
-torajs_opt = "O3"

@@ -130,16 +130,7 @@ pub fn run_one(
 
     if let Some(compile_template) = &runner.compile {
         let compile_cmd = ctx.substitute(compile_template);
-        // Per-case env overrides for the compile step. Sets `TORAJS_OPT`
-        // on the `torajs` runner only — `tr build` reads it as the LLVM
-        // new-pass-manager opt level (fib40 favors O1, popcount favors O3,
-        // etc.). Default O3 if unset.
-        let compile_env: Vec<(String, String)> = case
-            .torajs_opt
-            .as_ref()
-            .filter(|_| runner.name == "torajs")
-            .map(|f| vec![("TORAJS_OPT".to_string(), f.clone())])
-            .unwrap_or_default();
+        let compile_env: Vec<(String, String)> = Vec::new();
 
         // Compile must run at least once per pass to produce the
         // artifact that the run-side timing executes. The compile_ms
@@ -291,12 +282,7 @@ pub fn artifact_only(
         workspace: workspace.to_string_lossy().to_string(),
     };
     let compile_cmd = ctx.substitute(compile_template);
-    let compile_env: Vec<(String, String)> = case
-        .torajs_opt
-        .as_ref()
-        .filter(|_| runner.name == "torajs")
-        .map(|f| vec![("TORAJS_OPT".to_string(), f.clone())])
-        .unwrap_or_default();
+    let compile_env: Vec<(String, String)> = Vec::new();
     match exec_capture_status(&compile_cmd, &compile_env) {
         Ok(()) => {}
         Err(CompileError::NotYetImplemented(stderr)) => {

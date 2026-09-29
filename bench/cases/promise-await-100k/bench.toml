@@ -5,4 +5,3 @@ warmup = 2
 # the await drain + Promise alloc + Promise drop hot loop without
 # the .then dispatcher contribution. Pairs with promise-then-100k:
 # the difference between the two reveals .then's per-iteration cost.
-torajs_opt = "O3"

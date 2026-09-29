@@ -5,4 +5,3 @@ warmup = 2
 # the previous Promise; resolving the head fires a cascade through
 # the whole chain. Stresses microtask FIFO ordering + per-link
 # callback alloc/dispatch/free in steady state.
-torajs_opt = "O3"

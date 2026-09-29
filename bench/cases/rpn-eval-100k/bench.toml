@@ -8,4 +8,3 @@ warmup = 2
 # Substr (view) layout — every substring would otherwise pay a
 # malloc + memcpy for bytes the source already holds. With
 # Substr, each split element is a 32-byte view with no byte copy.
-torajs_opt = "O3"

@@ -1,8 +1,3 @@
 runs = 3
 warmup = 1
 
-# `O1` beats `O3` by ~12% on fib40 because LLVM's higher opt levels do loop
-# transforms (unroll / vectorize attempts) that don't help recursive integer
-# code and cost code-locality. Confirmed empirically:
-#   -O1 → 150 ms, -O2 → 181 ms, -O3 → 169 ms.
-torajs_opt = "O1"
