@@ -4,7 +4,9 @@
 //! whose comparand is another value relates the two, and narrows `v`
 //! by whatever is known of the comparand where `v` is read; an
 //! `fcmp oeq (frem n, 2), 0` proves `n` even on the true edge (the
-//! parity-guard shape that makes `fdiv n, 2` exact).
+//! parity-guard shape that makes `fdiv n, 2` exact). A condition
+//! merged from a short-circuit `||` / `&&` (a bool cell, a `select`,
+//! a copy chain) is read through its arms in `refine_logic`.
 //!
 //! A constraint attaches to a branch target only when that target's
 //! sole predecessor is the branching block (every path into it takes
@@ -19,6 +21,7 @@ use std::collections::{HashMap, HashSet};
 
 use torajs_core::ssa::{BlockId, FPred, Function, IPred, InstKind, Operand, Terminator, ValueId};
 
+use super::refine_logic::Logic;
 use super::transfer::{NEG_INF, NumFact, POS_INF, op_const_int};
 use torajs_core::ssa::dominator::DominatorTree;
 
@@ -137,6 +140,7 @@ impl Constraints {
                 }
             }
         }
+        Logic::new(func, defs).extend(&mut at_entry);
         Self { at_entry }
     }
 
@@ -181,7 +185,7 @@ impl Constraints {
 
 /// Constraints implied by taking (`taken`) / not taking the branch
 /// guarded by `kind`.
-fn edge_constraints(
+pub(super) fn edge_constraints(
     kind: &InstKind,
     taken: bool,
     defs: &HashMap<ValueId, InstKind>,

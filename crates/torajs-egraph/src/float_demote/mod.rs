@@ -67,7 +67,6 @@ use crate::rc_peephole::visit_value_operands;
 use crate::slot_forward::rewrite_operands;
 
 use fit::Fit;
-use guard::GuardSite;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct FloatDemoteStats {
@@ -247,7 +246,7 @@ fn compute_demote_set(
             continue;
         }
         // guarded defs need a hosting region (1b-ii)
-        let (growth, entries) = collect_guard_sites(func, &set, facts);
+        let (growth, entries) = guard::collect_guard_sites(func, &set, facts);
         if growth.is_empty() && entries.is_empty() {
             return Some((set, Vec::new()));
         }
@@ -279,53 +278,6 @@ fn compute_demote_set(
             }
         }
     }
-}
-
-/// The non-exact (guarded) def sites of the final set, split into
-/// growth sites and sitofp entries. Entry sites carry their inst
-/// position too: one whose operand is defined inside the hosting
-/// region re-classifies as a per-iteration growth site during
-/// planning (the `sum += xs[j]` loop-body sitofp shape).
-fn collect_guard_sites(
-    func: &Function,
-    set: &HashSet<ValueId>,
-    facts: &HashMap<ValueId, NumFact>,
-) -> (Vec<GuardSite>, Vec<GuardSite>) {
-    let mut growth: Vec<GuardSite> = Vec::new();
-    let mut entries: Vec<GuardSite> = Vec::new();
-    for block in &func.blocks {
-        for (i, inst) in block.insts.iter().enumerate() {
-            let Some(r) = inst.result else { continue };
-            if !set.contains(&r) || fit::def_exact(&inst.kind, &r, facts, set) {
-                continue;
-            }
-            match &inst.kind {
-                InstKind::SiToFp(x) => {
-                    if let Some(checks) = guard::entry_checks(x, facts) {
-                        entries.push(GuardSite {
-                            block: block.id,
-                            inst_idx: i,
-                            result: r,
-                            checks,
-                            post: false,
-                        });
-                    }
-                }
-                _ => {
-                    if let Some((checks, post)) = guard::growth_checks(&inst.kind, r, facts) {
-                        growth.push(GuardSite {
-                            block: block.id,
-                            inst_idx: i,
-                            result: r,
-                            checks,
-                            post,
-                        });
-                    }
-                }
-            }
-        }
-    }
-    (growth, entries)
 }
 
 /// Rewrite the function in place. Single walk — every inst takes
@@ -822,14 +774,15 @@ mod tests {
     #[test]
     fn collatz_versions_with_growth_guards() {
         let (m, stats) = run(collatz_loop());
-        // %1, %2, %4, %7, %8, %9 demote; both fcmps convert; the 3n
-        // and +1 sites each take one upper-bound guard; the region
-        // clones once; the count cell needs no bridge.
+        // %1, %2, %4, %7, %8, %9 demote; both fcmps convert; the +1
+        // site folds onto the 3n window, one upper-bound guard for
+        // the chain; the region clones once; the count cell needs no
+        // bridge.
         assert_eq!(stats.values_demoted, 6);
         assert_eq!(stats.fcmp_converted, 2);
         assert_eq!(stats.bridges_inserted, 0);
         assert_eq!(stats.loops_versioned, 1);
-        assert_eq!(stats.guards_inserted, 2);
+        assert_eq!(stats.guards_inserted, 1);
         assert_eq!(stats.entry_guards, 0);
 
         let f = &m.funcs[0];
@@ -837,16 +790,22 @@ mod tests {
         // parity block ahead of it: block 4 now holds just the check,
         // the parity test moves to its continuation, and the side exit
         // re-enters the f64 clone at the parity test (its frem)
-        let [check] = &f.blocks[4].insts[..] else {
+        // n ≤ (2^53-1)/3 rounds down to n < 2^51: a shift and a
+        // compare with zero
+        let [shift, check] = &f.blocks[4].insts[..] else {
             panic!("parity block should hold only the widened check");
         };
         assert!(matches!(
-            check.kind,
-            InstKind::ICmp(
-                IPred::Sgt,
+            shift.kind,
+            InstKind::BinOp(
+                BinOp::LShr,
                 Operand::Value(ValueId(2)),
-                Operand::ConstI64(3_002_399_751_580_330)
+                Operand::ConstI64(51)
             )
+        ));
+        assert!(matches!(
+            check.kind,
+            InstKind::ICmp(IPred::Ne, _, Operand::ConstI64(0))
         ));
         let Terminator::CondBr {
             then_blk: exit,
@@ -876,13 +835,13 @@ mod tests {
             f.blocks[5].insts[0].kind,
             InstKind::BinOp(BinOp::AShr, _, Operand::ConstI64(1))
         ));
-        // the fmul guard checks n > (2^53-1)/3 (lower side proven by
-        // the non-negative fact)
+        // the fmul guard checks n ≥ 2^51 (lower side proven by the
+        // non-negative fact)
         let has_mul_guard = f.blocks.iter().any(|b| {
             b.insts.iter().any(|i| {
                 matches!(
                     i.kind,
-                    InstKind::ICmp(IPred::Sgt, _, Operand::ConstI64(3_002_399_751_580_330))
+                    InstKind::BinOp(BinOp::LShr, _, Operand::ConstI64(51))
                 )
             })
         });

@@ -35,6 +35,7 @@
 //! skips, `TORAJS_SELECT_FORM_STATS=1` dumps counters.
 
 pub mod cmp_sink;
+mod range_fold;
 
 use std::collections::HashMap;
 
@@ -50,6 +51,8 @@ pub struct SelectFormStats {
     pub selects_formed: u32,
     /// non-Copy arm instructions hoisted into the header.
     pub insts_hoisted: u32,
+    /// short-circuits of two compares folded to one range test.
+    pub range_tests_formed: u32,
 }
 
 /// Per-arm speculation cap: at most this many non-Copy defs may hoist.
@@ -252,14 +255,17 @@ fn try_form_pure(
     // join values must pair up exactly: same vid set, two defs
     // globally (one per arm), and no copy source feeding on
     // another join value of this same diamond (parallel-copy
-    // sequencing across arms is not reconstructed here).
+    // sequencing across arms is not reconstructed here). A range
+    // test needs only one def per arm: a cell with more defs
+    // elsewhere (a versioned loop's clone repeats the diamond) keeps
+    // them, and the test is a win where a select may not be.
     if tp.copies.len() != ep.copies.len() {
         return false;
     }
     let paired = tp
         .copies
         .iter()
-        .all(|(v, _, _)| ep.copies.iter().any(|(w, _, _)| w == v) && def_count(*v) == 2);
+        .all(|(v, _, _)| ep.copies.iter().any(|(w, _, _)| w == v) && def_count(*v) >= 2);
     let self_ref = tp.copies.iter().chain(ep.copies.iter()).any(
         |(_, _, src)| matches!(src, Operand::Value(x) if tp.copies.iter().any(|(v, _, _)| v == x)),
     );
@@ -267,11 +273,32 @@ fn try_form_pure(
         return false;
     }
 
-    // convert: hoist arms, form selects, collapse the branch
+    // convert: hoist arms, form selects (or the one range test the
+    // two compares of a short-circuit fold into), collapse the branch
+    let fold = range_fold::fold(func, h, cond, &tp, &ep);
+    if fold.is_none() && tp.copies.iter().any(|(v, _, _)| def_count(*v) != 2) {
+        return false;
+    }
+    let retired = |i: &Inst| {
+        fold.as_ref()
+            .is_some_and(|f| i.result.is_some_and(|r| f.dead.contains(&r)))
+    };
     let mut appended: Vec<Inst> = Vec::new();
-    stats.insts_hoisted += (tp.hoisted.len() + ep.hoisted.len()) as u32;
-    appended.extend(tp.hoisted);
-    appended.extend(ep.hoisted);
+    appended.extend(tp.hoisted.into_iter().filter(|i| !retired(i)));
+    appended.extend(ep.hoisted.into_iter().filter(|i| !retired(i)));
+    stats.insts_hoisted += appended.len() as u32;
+    if let Some(f) = fold {
+        func.blocks[h].insts.retain(|i| i.result != Some(f.dead[0]));
+        appended.extend(f.insts);
+        stats.range_tests_formed += 1;
+        func.blocks[h].insts.extend(appended);
+        func.blocks[h].term = Terminator::Br(join);
+        for b in t_blks.into_iter().chain(e_blks) {
+            func.blocks[b].insts.clear();
+        }
+        stats.diamonds_converted += 1;
+        return true;
+    }
     for (vid, ty, t_src) in &tp.copies {
         let (_, _, e_src) = ep
             .copies

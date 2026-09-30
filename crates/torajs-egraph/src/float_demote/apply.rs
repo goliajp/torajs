@@ -17,7 +17,7 @@
 use std::collections::{HashMap, HashSet};
 
 use torajs_core::ssa::{
-    Block, BlockId, Function, Inst, InstKind, Operand, Terminator, Type, ValueId,
+    BinOp, Block, BlockId, Function, IPred, Inst, InstKind, Operand, Terminator, Type, ValueId,
 };
 
 use crate::rc_peephole::visit_value_operands;
@@ -27,7 +27,7 @@ use super::cfg::{
     block_touches, multi_def_values, remap_term_operand, retarget, retarget_edge, successors,
     term_operand_value,
 };
-use super::guard::{GuardCheck, GuardSite};
+use super::guard::{GuardCheck, GuardSite, Test};
 use super::plan::RegionPlan;
 use super::push_value;
 
@@ -204,13 +204,8 @@ pub(crate) fn install_guards(
             } else {
                 build_check_chain(func, rest, exit, cont)
             };
-            let cond = push_value(&mut func.values, Type::Bool);
+            let cond = push_check(func, prev, first);
             let head = &mut func.blocks[prev.0 as usize];
-            head.insts.push(Inst {
-                result: Some(cond),
-                kind: InstKind::ICmp(first.pred, first.operand, Operand::ConstI64(first.bound)),
-                origin: None,
-            });
             head.term = Terminator::CondBr {
                 cond: Operand::Value(cond),
                 then_blk: exit,
@@ -381,7 +376,6 @@ fn build_check_chain(
     debug_assert!(!checks.is_empty());
     let head = BlockId(func.blocks.len() as u32);
     for (i, c) in checks.iter().enumerate() {
-        let cond = push_value(&mut func.values, Type::Bool);
         let id = BlockId(func.blocks.len() as u32);
         let next = if i + 1 == checks.len() {
             on_pass
@@ -390,19 +384,44 @@ fn build_check_chain(
         };
         func.blocks.push(Block {
             id,
-            insts: vec![Inst {
-                result: Some(cond),
-                kind: InstKind::ICmp(c.pred, c.operand, Operand::ConstI64(c.bound)),
-                origin: None,
-            }],
-            term: Terminator::CondBr {
-                cond: Operand::Value(cond),
-                then_blk: on_fail,
-                else_blk: next,
-            },
+            insts: Vec::new(),
+            term: Terminator::Br(next),
         });
+        let cond = push_check(func, id, c);
+        func.blocks[id.0 as usize].term = Terminator::CondBr {
+            cond: Operand::Value(cond),
+            then_blk: on_fail,
+            else_blk: next,
+        };
     }
     head
+}
+
+/// Append one check to `block`; the returned bool is true on
+/// violation.
+fn push_check(func: &mut Function, block: BlockId, c: &GuardCheck) -> ValueId {
+    let cond = push_value(&mut func.values, Type::Bool);
+    let mut insts: Vec<Inst> = Vec::new();
+    let kind = match c.test {
+        Test::Above(bound) => InstKind::ICmp(IPred::Sgt, c.operand, Operand::ConstI64(bound)),
+        Test::Below(bound) => InstKind::ICmp(IPred::Slt, c.operand, Operand::ConstI64(bound)),
+        Test::HighBits(k) => {
+            let high = push_value(&mut func.values, Type::I64);
+            insts.push(Inst {
+                result: Some(high),
+                kind: InstKind::BinOp(BinOp::LShr, c.operand, Operand::ConstI64(k as i64)),
+                origin: None,
+            });
+            InstKind::ICmp(IPred::Ne, Operand::Value(high), Operand::ConstI64(0))
+        }
+    };
+    insts.push(Inst {
+        result: Some(cond),
+        kind,
+        origin: None,
+    });
+    func.blocks[block.0 as usize].insts.extend(insts);
+    cond
 }
 
 #[cfg(test)]

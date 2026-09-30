@@ -26,6 +26,7 @@ pub(crate) mod elem;
 mod elem_kernels;
 pub(crate) mod elem_len;
 pub mod refine;
+mod refine_logic;
 pub mod transfer;
 
 pub use transfer::{AbsVal, NumFact};

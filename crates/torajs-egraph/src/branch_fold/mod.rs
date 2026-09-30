@@ -45,11 +45,12 @@ use std::cell::OnceCell;
 use std::collections::{HashMap, HashSet};
 
 use torajs_core::ssa::{
-    BlockId, Function, IPred, InstKind, Module, Operand, Terminator, ValueId, visit_value_operands,
+    BinOp, BlockId, Function, IPred, InstKind, Module, Operand, Terminator, ValueId,
+    visit_value_operands,
 };
 
 use crate::interval::refine::{Constraint, Constraints};
-use crate::interval::transfer::NumFact;
+use crate::interval::transfer::{NumFact, POS_INF, op_const_int};
 use point_eval::{PointEval, successors};
 use torajs_core::ssa::dominator::DominatorTree;
 use torajs_core::ssa::loop_analysis::LoopAnalysis;
@@ -165,10 +166,27 @@ fn eval_side(src: &Sources<'_>, op: &Operand, at: (usize, usize)) -> Option<NumF
         Operand::Value(v) => edge_range(src, *v, at.0),
         _ => None,
     };
-    [pf, af, ff, ef]
+    let sf = match op {
+        Operand::Value(v) => single_def(func, *v).and_then(|vd| shifted_bound(src, vd)),
+        _ => None,
+    };
+    [pf, af, ff, ef, sf]
         .into_iter()
         .flatten()
         .reduce(|a, b| a.meet(b).unwrap_or(b))
+}
+
+/// A single-def `lshr v, k` at `vd` carries every bound the sources
+/// put on `v` there, shifted — the float_demote window test reads its
+/// operand through such a shift.
+fn shifted_bound(src: &Sources<'_>, vd: (usize, usize)) -> Option<NumFact> {
+    let InstKind::BinOp(BinOp::LShr, inner, k) = &src.func.blocks[vd.0].insts[vd.1].kind else {
+        return None;
+    };
+    let k = op_const_int(k).filter(|k| (0..64).contains(k))? as u32;
+    let f = eval_side(src, inner, vd)?;
+    let hi = if f.hi >= POS_INF { POS_INF } else { f.hi >> k };
+    (f.lo >= 0).then(|| NumFact::new(f.lo >> k, hi))
 }
 
 /// The range the branch edges dominating block `bi` put on `v`, when
@@ -404,12 +422,26 @@ mod tests {
     ///   b1: i < 1e7 ? b2 : b7            b5: x = total+count; g2 ? b9 : b6
     ///   b2: n=i; count=0                 b6: i++; total=x → b1
     ///   b3: pc=ctpop n; count=0+pc       b7: ret   b8/b9: side exits
-    #[test]
-    fn popcount_guards_fold_and_side_exits_sweep() {
+    fn popcount_guarded(shift: bool) -> Function {
         // v0 total cell, v1 i cell, v2 n cell, v3 count cell,
         // v4 header cmp, v5 pc, v6 sum, v7 g1, v8 t1, v9 x, v10 g2,
-        // v11 i2
-        let mut f = Function {
+        // v11 i2, v12 / v13 the shifted guard reads
+        let guard = |cond: u32, x: u32, shifted: u32, bound: i64| -> Vec<Inst> {
+            if shift {
+                vec![
+                    inst(shifted, InstKind::BinOp(BinOp::LShr, v(x), c(53))),
+                    inst(cond, InstKind::ICmp(IPred::Ne, v(shifted), c(0))),
+                ]
+            } else {
+                vec![inst(cond, InstKind::ICmp(IPred::Sgt, v(x), c(bound)))]
+            }
+        };
+        let mut accumulate = vec![
+            inst(8, InstKind::Copy(Type::I64, v(3))),
+            inst(9, InstKind::BinOp(BinOp::Add, v(0), v(8))),
+        ];
+        accumulate.extend(guard(10, 9, 13, 9007199254740991));
+        Function {
             name: "f".into(),
             params: vec![],
             ret: Type::Void,
@@ -418,7 +450,7 @@ mod tests {
                     ty: Type::I64,
                     name: None
                 };
-                12
+                14
             ],
             blocks: vec![
                 block(
@@ -458,10 +490,7 @@ mod tests {
                 ),
                 block(
                     4,
-                    vec![inst(
-                        7,
-                        InstKind::ICmp(IPred::Sgt, v(3), c(9007199254740992)),
-                    )],
+                    guard(7, 3, 12, 9007199254740992),
                     Terminator::CondBr {
                         cond: v(7),
                         then_blk: BlockId(8),
@@ -470,11 +499,7 @@ mod tests {
                 ),
                 block(
                     5,
-                    vec![
-                        inst(8, InstKind::Copy(Type::I64, v(3))),
-                        inst(9, InstKind::BinOp(BinOp::Add, v(0), v(8))),
-                        inst(10, InstKind::ICmp(IPred::Sgt, v(9), c(9007199254740991))),
-                    ],
+                    accumulate,
                     Terminator::CondBr {
                         cond: v(10),
                         then_blk: BlockId(9),
@@ -495,7 +520,30 @@ mod tests {
                 block(9, vec![], Terminator::Br(BlockId(7))),
             ],
             current_origin: None,
-        };
+        }
+    }
+
+    /// The accumulator bound reaches the guard through the shift of
+    /// the power-of-two window form, and the shift sweeps with it.
+    #[test]
+    fn popcount_shift_guards_fold_and_sweep() {
+        let mut f = popcount_guarded(true);
+        let mut stats = BranchFoldStats::default();
+        fold_in_function(&mut f, &[], &mut stats);
+        assert_eq!(stats.folded, 2, "both guards fold: {stats:?}");
+        assert_eq!(stats.blocks_removed, 2, "side exits sweep: {stats:?}");
+        let shifts = f
+            .blocks
+            .iter()
+            .flat_map(|b| &b.insts)
+            .filter(|i| matches!(i.kind, InstKind::BinOp(BinOp::LShr, ..)))
+            .count();
+        assert_eq!(shifts, 0, "the guard shifts are dead and swept");
+    }
+
+    #[test]
+    fn popcount_guards_fold_and_side_exits_sweep() {
+        let mut f = popcount_guarded(false);
         let mut stats = BranchFoldStats::default();
         fold_in_function(&mut f, &[], &mut stats);
         assert_eq!(stats.folded, 2, "both guards fold: {stats:?}");
