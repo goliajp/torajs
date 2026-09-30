@@ -44,19 +44,30 @@
 //! values may carry one pointer — so the kernel pointer-compares its
 //! operands and declines. This pass does not try to prove it.
 //!
+//! The view kernels (`__torajs_substr_concat_str_substr` and its
+//! siblings) are concats too: a Str left operand dropped behind one
+//! becomes `__torajs_str_append_substr`, and they sit inside a window
+//! like any other string kernel. Once the pairs are rewritten,
+//! `chain` flattens a chain whose result is only appended onto
+//! another cell and dropped, so the intermediate cell is never built.
+//!
 //! Runs late, after the inliner and the egraph loop, so the pairs
 //! spliced in from inlined callee bodies are visible too.
 //! `TORAJS_STR_APPEND_OFF=1` skips it.
 
-use std::collections::HashSet;
+// chain flattening and the kernel table live beside this file
+mod chain;
+mod kernels;
+#[cfg(test)]
+pub(crate) mod test_support;
+
+use std::collections::{HashMap, HashSet};
 
 use torajs_core::ssa::{
-    FuncId, Function, Inst, InstKind, Module, Operand, ValueId, visit_value_operands,
+    Function, Inst, InstKind, Module, Operand, Terminator, ValueId, visit_value_operands,
 };
 
-const STR_CONCAT: &str = "__torajs_str_concat";
-const STR_DROP: &str = "__torajs_str_drop";
-const STR_APPEND: &str = "__torajs_str_append";
+use kernels::{Kernels, Kind};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct StrAppendStats {
@@ -69,50 +80,65 @@ pub struct StrAppendStats {
     /// Of `rewritten`, the pairs that had other kernel calls between
     /// them.
     pub across_window: u32,
+    /// Chains whose pieces went straight onto the cell they were
+    /// appended to.
+    pub flattened: u32,
 }
 
-/// Rewrite every `concat` + `drop-left` pair in the module.
+/// Rewrite every `concat` + `drop-left` pair in the module, then
+/// flatten the chains that only feed an append.
 pub fn rewrite_str_appends(module: &mut Module) -> StrAppendStats {
     let mut stats = StrAppendStats::default();
-    let Some(concat_fid) = find_func(module, STR_CONCAT) else {
+    let Some(kernels) = Kernels::find(module) else {
         return stats; // program concatenates no strings at all
     };
-    let (Some(drop_fid), Some(append_fid)) =
-        (find_func(module, STR_DROP), find_func(module, STR_APPEND))
-    else {
-        return stats;
-    };
-    let kernels = [concat_fid, drop_fid, append_fid];
     for func in module.funcs.iter_mut() {
         if func.is_declaration() {
             continue;
         }
         let statics = static_strings(func);
         for block in func.blocks.iter_mut() {
-            let mut i = 0;
-            while i < block.insts.len() {
-                let Some(left) = concat_left(&block.insts[i], concat_fid) else {
-                    i += 1;
-                    continue;
-                };
-                match closing_drop(&block.insts, i, &left, drop_fid, &kernels, &statics) {
-                    Some(at) => {
-                        if let InstKind::Call(fid, _) = &mut block.insts[i].kind {
-                            *fid = append_fid;
-                        }
-                        block.insts.remove(at);
-                        stats.rewritten += 1;
-                        if at > i + 1 {
-                            stats.across_window += 1;
-                        }
-                    }
-                    None => stats.left_borrowed += 1,
-                }
-                i += 1;
-            }
+            rewrite_pairs(&mut block.insts, &kernels, &statics, &mut stats);
+        }
+        let mut uses = use_counts(func);
+        for block in func.blocks.iter_mut() {
+            stats.flattened += chain::flatten_block(block, &mut func.values, &kernels, &mut uses);
         }
     }
     stats
+}
+
+fn rewrite_pairs(
+    insts: &mut Vec<Inst>,
+    kernels: &Kernels,
+    statics: &HashSet<ValueId>,
+    stats: &mut StrAppendStats,
+) {
+    let mut i = 0;
+    while i < insts.len() {
+        let Some((right, left)) = borrowed_str_left(&insts[i], kernels) else {
+            i += 1;
+            continue;
+        };
+        let Some(append) = kernels.flavor(Kind::Str, true, right) else {
+            i += 1;
+            continue;
+        };
+        match closing_drop(insts, i, &left, kernels, statics) {
+            Some(at) => {
+                if let InstKind::Call(fid, _) = &mut insts[i].kind {
+                    *fid = append;
+                }
+                insts.remove(at);
+                stats.rewritten += 1;
+                if at > i + 1 {
+                    stats.across_window += 1;
+                }
+            }
+            None => stats.left_borrowed += 1,
+        }
+        i += 1;
+    }
 }
 
 /// Values whose only definition is a static string: immortal cells no
@@ -132,6 +158,25 @@ fn static_strings(func: &Function) -> HashSet<ValueId> {
     statics
 }
 
+/// Operand occurrences per value, terminators included.
+fn use_counts(func: &Function) -> HashMap<ValueId, u32> {
+    let mut uses: HashMap<ValueId, u32> = HashMap::new();
+    for block in &func.blocks {
+        for inst in &block.insts {
+            visit_value_operands(&inst.kind, |v| *uses.entry(v).or_insert(0) += 1);
+        }
+        match &block.term {
+            Terminator::CondBr {
+                cond: Operand::Value(v),
+                ..
+            }
+            | Terminator::Ret(Some(Operand::Value(v))) => *uses.entry(*v).or_insert(0) += 1,
+            _ => {}
+        }
+    }
+    uses
+}
+
 /// Index of the `str_drop` of `left` that follows the concat at `at`,
 /// when every instruction between the two is a string kernel call or a
 /// static string, and touches nothing but values defined inside the
@@ -140,8 +185,7 @@ fn closing_drop(
     insts: &[Inst],
     at: usize,
     left: &Operand,
-    drop_fid: FuncId,
-    kernels: &[FuncId],
+    kernels: &Kernels,
     statics: &HashSet<ValueId>,
 ) -> Option<usize> {
     let Operand::Value(left_id) = *left else {
@@ -149,12 +193,12 @@ fn closing_drop(
     };
     let mut fresh: HashSet<ValueId> = insts[at].result.into_iter().collect();
     for (j, inst) in insts.iter().enumerate().skip(at + 1) {
-        if drops_value(inst, drop_fid, left) {
+        if drops_value(inst, kernels, left) {
             return Some(j);
         }
         match &inst.kind {
             InstKind::StaticStrRef(_) => {}
-            InstKind::Call(fid, _) if kernels.contains(fid) => {}
+            InstKind::Call(fid, _) if kernels.is_kernel(*fid) => {}
             _ => return None,
         }
         if inst.result == Some(left_id) {
@@ -172,92 +216,35 @@ fn closing_drop(
     None
 }
 
-fn find_func(module: &Module, name: &str) -> Option<FuncId> {
-    module
-        .funcs
-        .iter()
-        .position(|f| f.name == name)
-        .map(|i| FuncId(i as u32))
-}
-
-/// The left operand of `inst` when it is a two-argument call to the
-/// concat kernel.
-fn concat_left(inst: &Inst, concat_fid: FuncId) -> Option<Operand> {
-    match &inst.kind {
-        InstKind::Call(fid, args) if *fid == concat_fid && args.len() == 2 => Some(args[0].clone()),
-        _ => None,
-    }
+/// The right operand's kind and the left operand of `inst` when it
+/// is a concat that borrows a Str left operand.
+fn borrowed_str_left(inst: &Inst, kernels: &Kernels) -> Option<(Kind, Operand)> {
+    let (k, args) = kernels.call(inst)?;
+    (k.left == Kind::Str && !k.consumes_left).then(|| (k.right, args[0].clone()))
 }
 
 /// True when `inst` is a result-less `str_drop` of exactly `left`.
 /// Result-less matters: removing an instruction that defines a value
 /// would orphan its uses.
-fn drops_value(inst: &Inst, drop_fid: FuncId, left: &Operand) -> bool {
-    inst.result.is_none()
-        && matches!(&inst.kind, InstKind::Call(fid, args)
-            if *fid == drop_fid && args.len() == 1 && args[0] == *left)
+fn drops_value(inst: &Inst, kernels: &Kernels, left: &Operand) -> bool {
+    matches!(&inst.kind, InstKind::Call(fid, _) if *fid == kernels.str_drop)
+        && kernels.dropped(inst) == Some(left)
 }
 
 #[cfg(test)]
 mod tests {
+    use super::test_support::*;
     use super::*;
-    use torajs_core::ssa::{Block, BlockId, StringId, Terminator, Type, ValueInfo};
+    use torajs_core::ssa::{FuncId, Type};
 
-    fn v(id: u32) -> Operand {
-        Operand::Value(ValueId(id))
+    fn body(m: &Module) -> &[Inst] {
+        &m.funcs[BODY].blocks[0].insts
     }
 
-    fn decl(name: &str) -> Function {
-        Function {
-            name: name.into(),
-            params: vec![],
-            ret: Type::Str,
-            blocks: vec![],
-            values: vec![],
-            current_origin: None,
-        }
-    }
-
-    /// Module whose function 0/1/2 are the three kernels this pass
-    /// keys on, plus a body holding `insts`.
-    fn module_with(insts: Vec<Inst>) -> Module {
-        let values = (0..8)
-            .map(|_| ValueInfo {
-                ty: Type::Str,
-                name: None,
-            })
-            .collect();
-        let body = Function {
-            name: "f".into(),
-            params: vec![],
-            ret: Type::Str,
-            blocks: vec![Block {
-                id: BlockId(0),
-                insts,
-                term: Terminator::Ret(None),
-            }],
-            values,
-            current_origin: None,
-        };
-        Module {
-            funcs: vec![decl(STR_CONCAT), decl(STR_DROP), decl(STR_APPEND), body],
-            ..Module::default()
-        }
-    }
-
-    fn concat(result: u32, left: u32, right: u32) -> Inst {
-        Inst {
-            result: Some(ValueId(result)),
-            kind: InstKind::Call(FuncId(0), vec![v(left), v(right)]),
-            origin: None,
-        }
-    }
-
-    fn drop_of(x: u32) -> Inst {
-        Inst {
-            result: None,
-            kind: InstKind::Call(FuncId(1), vec![v(x)]),
-            origin: None,
+    fn callee(inst: &Inst) -> Option<FuncId> {
+        match &inst.kind {
+            InstKind::Call(f, _) => Some(*f),
+            _ => None,
         }
     }
 
@@ -267,9 +254,8 @@ mod tests {
         let stats = rewrite_str_appends(&mut m);
         assert_eq!(stats.rewritten, 1);
         assert_eq!(stats.left_borrowed, 0);
-        let insts = &m.funcs[3].blocks[0].insts;
-        assert_eq!(insts.len(), 1, "the drop moved into the call");
-        assert!(matches!(&insts[0].kind, InstKind::Call(f, _) if *f == FuncId(2)));
+        assert_eq!(body(&m).len(), 1, "the drop moved into the call");
+        assert_eq!(callee(&body(&m)[0]), Some(STR_APPEND));
     }
 
     #[test]
@@ -278,15 +264,7 @@ mod tests {
         let stats = rewrite_str_appends(&mut m);
         assert_eq!(stats.rewritten, 0);
         assert_eq!(stats.left_borrowed, 1);
-        assert_eq!(m.funcs[3].blocks[0].insts.len(), 2);
-    }
-
-    fn static_str(result: u32) -> Inst {
-        Inst {
-            result: Some(ValueId(result)),
-            kind: InstKind::StaticStrRef(StringId(0)),
-            origin: None,
-        }
+        assert_eq!(body(&m).len(), 2);
     }
 
     #[test]
@@ -303,10 +281,9 @@ mod tests {
         let stats = rewrite_str_appends(&mut m);
         assert_eq!(stats.rewritten, 2);
         assert_eq!(stats.across_window, 1);
-        let insts = &m.funcs[3].blocks[0].insts;
-        assert_eq!(insts.len(), 3, "both drops moved into their calls");
-        assert!(matches!(&insts[0].kind, InstKind::Call(f, _) if *f == FuncId(2)));
-        assert!(matches!(&insts[2].kind, InstKind::Call(f, _) if *f == FuncId(2)));
+        assert_eq!(body(&m).len(), 3, "both drops moved into their calls");
+        assert_eq!(callee(&body(&m)[0]), Some(STR_APPEND));
+        assert_eq!(callee(&body(&m)[2]), Some(STR_APPEND));
     }
 
     #[test]
@@ -332,9 +309,9 @@ mod tests {
         ]);
         let stats = rewrite_str_appends(&mut m);
         assert_eq!(stats.rewritten, 1, "only the inner, adjacent pair");
-        let insts = &m.funcs[3].blocks[0].insts;
-        assert!(matches!(&insts[0].kind, InstKind::Call(f, _) if *f == FuncId(0)));
-        assert!(insts.iter().any(|i| drops_value(i, FuncId(1), &v(2))));
+        assert_eq!(callee(&body(&m)[0]), Some(STR_CONCAT));
+        let kernels = Kernels::find(&m).unwrap();
+        assert!(body(&m).iter().any(|i| drops_value(i, &kernels, &v(2))));
     }
 
     #[test]
@@ -348,10 +325,7 @@ mod tests {
         ]);
         let stats = rewrite_str_appends(&mut m);
         assert_eq!(stats.rewritten, 1);
-        assert!(matches!(
-            &m.funcs[3].blocks[0].insts[0].kind,
-            InstKind::Call(f, _) if *f == FuncId(0)
-        ));
+        assert_eq!(callee(&body(&m)[0]), Some(STR_CONCAT));
     }
 
     #[test]
@@ -367,7 +341,7 @@ mod tests {
         let mut m = module_with(vec![concat(4, 2, 3), between, drop_of(2)]);
         let stats = rewrite_str_appends(&mut m);
         assert_eq!(stats.rewritten, 0);
-        assert_eq!(m.funcs[3].blocks[0].insts.len(), 3);
+        assert_eq!(body(&m).len(), 3);
     }
 
     #[test]
@@ -382,15 +356,56 @@ mod tests {
         ]);
         let stats = rewrite_str_appends(&mut m);
         assert_eq!(stats.rewritten, 2);
-        assert_eq!(m.funcs[3].blocks[0].insts.len(), 2);
+        assert_eq!(body(&m).len(), 2);
     }
 
     #[test]
     fn a_module_without_the_append_kernel_is_left_alone() {
         let mut m = module_with(vec![concat(4, 2, 3), drop_of(2)]);
-        m.funcs[2].name = "__torajs_something_else".into();
+        m.funcs[STR_APPEND.0 as usize].name = "__torajs_something_else".into();
         let stats = rewrite_str_appends(&mut m);
         assert_eq!(stats.rewritten, 0);
-        assert_eq!(m.funcs[3].blocks[0].insts.len(), 2);
+        assert_eq!(body(&m).len(), 2);
+    }
+
+    #[test]
+    fn a_str_left_operand_dropped_behind_a_view_concat_becomes_a_view_append() {
+        let mut m = module_with(vec![call(SUBSTR_CONCAT_STR_SUBSTR, 4, &[2, 3]), drop_of(2)]);
+        let stats = rewrite_str_appends(&mut m);
+        assert_eq!(stats.rewritten, 1);
+        assert_eq!(calls(&m, 0), vec![(STR_APPEND_SUBSTR, Some(4), vec![2, 3])]);
+    }
+
+    #[test]
+    fn a_view_left_operand_has_no_in_place_form() {
+        let mut m = module_with(vec![
+            call(SUBSTR_CONCAT_SUBSTR_STR, 4, &[2, 3]),
+            Inst {
+                result: None,
+                kind: InstKind::Call(SUBSTR_DROP, vec![v(2)]),
+                origin: None,
+            },
+        ]);
+        let stats = rewrite_str_appends(&mut m);
+        assert_eq!(stats.rewritten, 0);
+        assert_eq!(stats.left_borrowed, 0, "not a candidate at all");
+        assert_eq!(body(&m).len(), 2);
+    }
+
+    #[test]
+    fn a_view_read_in_the_window_is_foreign_like_any_other_operand() {
+        // `s = s + a + view`: the inner pair folds onto the view
+        // append, the outer window closes on the view it reads
+        let mut m = module_with(vec![
+            concat(4, 2, 3),
+            call(SUBSTR_CONCAT_STR_SUBSTR, 5, &[4, 6]),
+            drop_of(4),
+            drop_of(2),
+        ]);
+        let stats = rewrite_str_appends(&mut m);
+        assert_eq!(stats.rewritten, 1);
+        assert_eq!(stats.left_borrowed, 1);
+        assert_eq!(callee(&body(&m)[0]), Some(STR_CONCAT));
+        assert_eq!(callee(&body(&m)[1]), Some(STR_APPEND_SUBSTR));
     }
 }
