@@ -123,6 +123,9 @@ pub unsafe extern "C" fn __torajs_str_append(a: *mut u8, b: *const u8) -> *mut u
 ///
 /// `a` is a valid Str block with refcount 1 that the caller owns, and
 /// `b_payload` does not alias its payload.
+// two entries share it; left to the optimizer it became a call on the
+// hot append path
+#[inline(always)]
 pub(crate) unsafe fn append_payload(
     a: *mut u8,
     b_payload: &[u8],
