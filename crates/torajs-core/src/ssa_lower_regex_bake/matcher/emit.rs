@@ -9,7 +9,12 @@
 //! positions and the loop-carried cursor live in stack slots the
 //! mid-end promotes. Under `u` / `v` over UTF-16 an edge that admits
 //! a high surrogate steps over the low one that follows it, and so
-//! does the start scan.
+//! does the start scan. A sticky matcher has no scan: the attempt at
+//! `start` is the only one.
+//!
+//! A state that probes the position (`probes`) first branches on the
+//! bits it reads — a decision tree in `probes.rs` — and each leaf is
+//! the variant those bits select, emitted like a plain state.
 //!
 //! The row is written in place. An accept that has edges may be
 //! followed by writes the walk later abandons, so the slots such a
@@ -17,8 +22,10 @@
 //! aside at the accept and put back when the walk dies with that
 //! accept as its answer.
 
+mod probes;
+
 use crate::ssa::{BinOp, BlockId, Function, IPred, InstKind, Operand, Terminator, Type, ValueId};
-use torajs_regex::onepass::MatcherIr;
+use torajs_regex::onepass::{MatcherIr, Variant};
 
 pub(crate) fn walk(name: &str, ir: &MatcherIr) -> Function {
     let mut f = Function::new(name, Type::I64);
@@ -72,30 +79,20 @@ pub(crate) fn walk(name: &str, ir: &MatcherIr) -> Function {
     // scan: every start position up to and including `len`
     let st = e.load(scan, st_slot, 0);
     let past = e.icmp(scan, IPred::Sgt, st, Operand::Value(len));
-    e.f.set_term(
-        scan,
-        Terminator::CondBr {
-            cond: Operand::Value(past),
-            then_blk: miss,
-            else_blk: attempt,
-        },
-    );
+    e.cond_br(scan, past, miss, attempt);
     e.store(attempt, Operand::Value(st), pos_slot, 0);
     e.f.set_term(attempt, Terminator::Br(e.states[0]));
 
-    e.scan_advance(scan);
+    if ir.anchored {
+        e.f.set_term(next_st, Terminator::Br(miss));
+    } else {
+        e.scan_advance(scan);
+    }
 
     // dead: the walk found no edge; the last accept answers if there was one
     let last = e.load(dead, last_slot, 0);
     let hit = e.icmp(dead, IPred::Sge, last, Operand::ConstI64(0));
-    e.f.set_term(
-        dead,
-        Terminator::CondBr {
-            cond: Operand::Value(hit),
-            then_blk: restore,
-            else_blk: next_st,
-        },
-    );
+    e.cond_br(dead, hit, restore, next_st);
     if let Some(backup) = e.backup {
         for (k, &slot) in e.held.clone().iter().enumerate() {
             let v = e.load(restore, backup, 8 * k as u64);
@@ -262,30 +259,44 @@ impl Emit<'_> {
     }
 
     fn state(&mut self, i: usize) {
-        let ir = self.ir;
-        let node = &ir.states[i];
+        let node = &self.ir.states[i];
         let blk = self.states[i];
-        let out = self.out;
         // the start state is never an edge target, so an attempt begins
         // either at its top (it can accept before consuming) or on the
         // edge it takes
-        let fresh_on_edge = i == 0 && node.accept.is_none();
-        if i == 0 && node.accept.is_some() {
+        let accepts = node.accepts_anywhere();
+        let fresh_on_edge = i == 0 && !accepts;
+        if i == 0 && accepts {
             self.begin_attempt(blk);
         }
         let pos = self.load(blk, self.pos_slot, 0);
-        if let Some(acc) = &node.accept {
+        if node.probes == 0 {
+            self.variant(blk, pos, &node.variants[0], fresh_on_edge);
+            return;
+        }
+        let leaves: Vec<BlockId> = node.variants.iter().map(|_| self.f.add_block()).collect();
+        self.probe_tree(blk, pos, node.probes, 0, 0, &leaves);
+        for (v, &leaf) in node.variants.iter().zip(&leaves) {
+            self.variant(leaf, pos, v, fresh_on_edge);
+        }
+    }
+
+    /// The body of one variant from `blk`, at `pos`.
+    fn variant(&mut self, blk: BlockId, pos: ValueId, v: &Variant, fresh_on_edge: bool) {
+        let ir = self.ir;
+        let out = self.out;
+        if let Some(acc) = &v.accept {
             for &slot in acc {
                 self.store(blk, Operand::Value(pos), out, 8 * slot as u64);
             }
-            if node.edges.is_empty() {
+            if v.edges.is_empty() {
                 self.answer(blk, Operand::Value(pos));
                 return;
             }
             if let Some(backup) = self.backup {
                 for (k, &slot) in self.held.clone().iter().enumerate() {
-                    let v = self.load(blk, out, 8 * slot as u64);
-                    self.store(blk, Operand::Value(v), backup, 8 * k as u64);
+                    let val = self.load(blk, out, 8 * slot as u64);
+                    self.store(blk, Operand::Value(val), backup, 8 * k as u64);
                 }
             }
             self.store(blk, Operand::Value(pos), self.last_slot, 0);
@@ -295,7 +306,7 @@ impl Emit<'_> {
         } else {
             self.dead
         };
-        if node.edges.is_empty() {
+        if v.edges.is_empty() {
             self.f.set_term(blk, Terminator::Br(fail));
             return;
         }
@@ -304,10 +315,9 @@ impl Emit<'_> {
         self.cond_br(blk, at_end, fail, read);
         let u = self.unit(read, pos);
         let mut cur = read;
-        let edges = &node.edges;
-        for (j, edge) in edges.iter().enumerate() {
+        for (j, edge) in v.edges.iter().enumerate() {
             let taken = self.f.add_block();
-            let next = if j + 1 == edges.len() {
+            let next = if j + 1 == v.edges.len() {
                 fail
             } else {
                 self.f.add_block()

@@ -12,12 +12,18 @@
 //! edges built for units above `0xFF` reach them. Under `u` / `v` the
 //! UTF-16 walk takes a surrogate pair as one step, the way the Pike
 //! VM takes the code point it transcodes to.
+//!
+//! An assertion on a state's ε path is a question about the position:
+//! at the input's start or end, at a line's, after or before a word
+//! unit. A state names the bits its closure reads (`probes`) and
+//! carries one [`Variant`] per answer, so the walk reads the bits at
+//! the position and takes the variant they select.
 
 use alloc::vec;
 use alloc::vec::Vec;
 
-/// One code-unit range out of a state. Ranges of a state are disjoint
-/// and sorted by `lo`.
+/// One code-unit range out of a state. Ranges of a variant are
+/// disjoint and sorted by `lo`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Edge {
     pub lo: u32,
@@ -27,8 +33,9 @@ pub struct Edge {
     pub target: u32,
 }
 
+/// A state's body under one answer to its probes.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct State {
+pub struct Variant {
     pub edges: Vec<Edge>,
     /// `Some(saves)` when `Op::Match` is reachable: the highest-
     /// priority thread wins, so an accept with no edges answers at
@@ -36,6 +43,35 @@ pub struct State {
     /// that dies later
     pub accept: Option<Vec<u32>>,
 }
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct State {
+    /// the context bits this state's closure reads (`INPUT_START` …)
+    pub probes: u8,
+    /// one variant per assignment of the probed bits, at the index
+    /// [`pack`] gives that assignment; one variant when nothing is
+    /// probed
+    pub variants: Vec<Variant>,
+}
+
+/// The position is 0.
+pub const INPUT_START: u8 = 1;
+/// The position is the length.
+pub const INPUT_END: u8 = 2;
+/// The position is 0 or follows a LineTerminator (`^` under `m`).
+pub const LINE_START: u8 = 4;
+/// The position is the length or precedes a LineTerminator (`$`
+/// under `m`).
+pub const LINE_END: u8 = 8;
+/// The unit before the position is a word character.
+pub const WORD_LEFT: u8 = 16;
+/// The unit at the position is a word character.
+pub const WORD_RIGHT: u8 = 32;
+/// `WORD_LEFT` with the `iu` word characters (§22.2.2.9.1: `ſ` and
+/// Kelvin `K` canonicalize into the ASCII word set).
+pub const WORD_LEFT_FOLD: u8 = 64;
+/// `WORD_RIGHT` with the `iu` word characters.
+pub const WORD_RIGHT_FOLD: u8 = 128;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MatcherIr {
@@ -48,12 +84,40 @@ pub struct MatcherIr {
     /// a high surrogate followed by a low one is one step of the walk
     /// and one step of the start scan (`u` / `v` over UTF-16)
     pub pairs: bool,
+    /// the walk tries `start` only (`y`)
+    pub anchored: bool,
 }
 
 /// Highest unit an edge of a `wide` walk can name.
 pub const UNIT_MAX_WIDE: u32 = 0xFFFF;
 /// Highest unit an edge of a narrow walk can name.
 pub const UNIT_MAX_NARROW: u32 = 0xFF;
+
+/// The variant index of the probed bits `probes` under the context
+/// `ctx`: bit `k` of the index is the `k`-th probed bit, lowest first.
+pub fn pack(probes: u8, ctx: u8) -> usize {
+    let mut index = 0;
+    let mut k = 0;
+    for bit in 0..8 {
+        if probes & (1 << bit) != 0 {
+            if ctx & (1 << bit) != 0 {
+                index |= 1 << k;
+            }
+            k += 1;
+        }
+    }
+    index
+}
+
+impl State {
+    pub fn variant(&self, ctx: u8) -> &Variant {
+        &self.variants[pack(self.probes, ctx)]
+    }
+
+    pub fn accepts_anywhere(&self) -> bool {
+        self.variants.iter().any(|v| v.accept.is_some())
+    }
+}
 
 impl MatcherIr {
     pub fn unit_max(&self) -> u32 {
@@ -77,13 +141,14 @@ impl MatcherIr {
             let mut last = -1i64;
             loop {
                 let node = &self.states[state];
-                if let Some(acc) = &node.accept {
+                let v = node.variant(context(s, pos));
+                if let Some(acc) = &v.accept {
                     out[2..stride].copy_from_slice(&work[2..stride]);
                     for &slot in acc {
                         out[slot as usize] = pos as i64;
                     }
                     last = pos as i64;
-                    if node.edges.is_empty() {
+                    if v.edges.is_empty() {
                         break;
                     }
                 }
@@ -91,7 +156,7 @@ impl MatcherIr {
                     break;
                 }
                 let u: u32 = s[pos].into();
-                let Some(e) = node.edges.iter().find(|e| e.lo <= u && u <= e.hi) else {
+                let Some(e) = v.edges.iter().find(|e| e.lo <= u && u <= e.hi) else {
                     break;
                 };
                 for &slot in &e.saves {
@@ -104,6 +169,9 @@ impl MatcherIr {
                 out[0] = st as i64;
                 out[1] = last;
                 return last;
+            }
+            if self.anchored {
+                break;
             }
             st += self.step(s, st);
         }
@@ -126,19 +194,21 @@ impl MatcherIr {
     }
 
     /// Slots a walk may still write after leaving an accept that has
-    /// edges: everything reachable from such a state, its own accept
-    /// included when a loop returns to it. A native walk that writes
-    /// the row in place must hold these back at the accept and put
-    /// them back when the walk dies.
+    /// edges: everything reachable from such a variant, its state's
+    /// own accepts included when a loop returns to it. A native walk
+    /// that writes the row in place must hold these back at the
+    /// accept and put them back when the walk dies.
     pub fn slots_written_past_accept(&self) -> Vec<u32> {
         let mut seen = vec![false; self.states.len()];
         let mut stack: Vec<usize> = Vec::new();
         let mut slots: Vec<u32> = Vec::new();
         for st in &self.states {
-            if st.accept.is_some() && !st.edges.is_empty() {
-                for e in &st.edges {
-                    slots.extend_from_slice(&e.saves);
-                    stack.push(e.target as usize);
+            for v in &st.variants {
+                if v.accept.is_some() && !v.edges.is_empty() {
+                    for e in &v.edges {
+                        slots.extend_from_slice(&e.saves);
+                        stack.push(e.target as usize);
+                    }
                 }
             }
         }
@@ -147,19 +217,64 @@ impl MatcherIr {
                 continue;
             }
             seen[i] = true;
-            let st = &self.states[i];
-            if let Some(acc) = &st.accept {
-                slots.extend_from_slice(acc);
-            }
-            for e in &st.edges {
-                slots.extend_from_slice(&e.saves);
-                stack.push(e.target as usize);
+            for v in &self.states[i].variants {
+                if let Some(acc) = &v.accept {
+                    slots.extend_from_slice(acc);
+                }
+                for e in &v.edges {
+                    slots.extend_from_slice(&e.saves);
+                    stack.push(e.target as usize);
+                }
             }
         }
         slots.sort_unstable();
         slots.dedup();
         slots
     }
+}
+
+/// Every context bit at `pos` of `s`.
+pub fn context<U: Copy + Into<u32>>(s: &[U], pos: usize) -> u8 {
+    let before = (pos > 0).then(|| s[pos - 1].into());
+    let at = (pos < s.len()).then(|| s[pos].into());
+    let mut ctx = 0;
+    if pos == 0 {
+        ctx |= INPUT_START;
+    }
+    if pos == s.len() {
+        ctx |= INPUT_END;
+    }
+    if before.is_none_or(is_line_terminator) {
+        ctx |= LINE_START;
+    }
+    if at.is_none_or(is_line_terminator) {
+        ctx |= LINE_END;
+    }
+    if before.is_some_and(|u| is_word(u, false)) {
+        ctx |= WORD_LEFT;
+    }
+    if at.is_some_and(|u| is_word(u, false)) {
+        ctx |= WORD_RIGHT;
+    }
+    if before.is_some_and(|u| is_word(u, true)) {
+        ctx |= WORD_LEFT_FOLD;
+    }
+    if at.is_some_and(|u| is_word(u, true)) {
+        ctx |= WORD_RIGHT_FOLD;
+    }
+    ctx
+}
+
+/// §12.3 LineTerminator.
+pub fn is_line_terminator(u: u32) -> bool {
+    matches!(u, 0x0A | 0x0D | 0x2028 | 0x2029)
+}
+
+/// §22.2.2.9.1 WordCharacters: the ASCII word set, plus the two units
+/// that canonicalize into it under `iu` when `fold`.
+pub fn is_word(u: u32, fold: bool) -> bool {
+    matches!(u, 0x30..=0x39 | 0x41..=0x5A | 0x61..=0x7A | 0x5F)
+        || (fold && matches!(u, 0x17F | 0x212A))
 }
 
 pub fn is_high_surrogate(u: u32) -> bool {

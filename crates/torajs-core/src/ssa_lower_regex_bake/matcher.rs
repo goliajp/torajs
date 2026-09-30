@@ -17,7 +17,6 @@ use crate::ast::{Ast, Expr};
 use crate::ssa::{FuncId, Module, Type};
 use crate::ssa_lower::{declare_intrinsic, intern_fn_sig};
 use torajs_regex::onepass::MatcherIr;
-use torajs_regex::parser::RE_FLAG_Y;
 use torajs_regex::program::{Inst, Program};
 
 /// `(matcher_latin1, matcher_utf16, baked_dfa_meta, pattern, flags) ->
@@ -76,14 +75,11 @@ pub(crate) fn synthesize(
 
 /// The one-pass matcher of `/pattern/flags` over one payload encoding,
 /// or `None` where the lane declines it: a pattern the runtime would
-/// reject, a sticky one (the walk scans from `start`; anchoring at
-/// lastIndex is the exec kernel's), or a program `onepass::build`
-/// refuses.
+/// reject, or a program `onepass::build` refuses. A sticky pattern's
+/// matcher tries `start` alone; the lastIndex flow around it is the
+/// exec kernel's.
 pub(crate) fn matcher_ir(pattern: &str, flags: &str, wide: bool) -> Option<MatcherIr> {
     let lit = crate::ssa_lower_regex_bake::parse_literal(pattern, flags)?;
-    if lit.flag_bits & RE_FLAG_Y != 0 {
-        return None;
-    }
     let mut prog = Program::new();
     prog.raw_classes = true;
     torajs_regex::compiler::compile(&mut prog, &lit.root, lit.flag_bits);
@@ -102,8 +98,10 @@ mod tests {
             assert!(matcher_ir(r"[^=;]+", "i", wide).is_some());
             assert!(matcher_ir(r"(a|ab)(c|bcd)", "", wide).is_none());
             assert!(matcher_ir(r"(a)\1", "", wide).is_none());
-            assert!(matcher_ir(r"^(a)", "", wide).is_none());
-            assert!(matcher_ir(r"(a)", "y", wide).is_none());
+            assert!(matcher_ir(r"^(a)", "", wide).is_some());
+            assert!(matcher_ir(r"(a)", "y", wide).unwrap().anchored);
+            assert!(matcher_ir(r"\bword\b", "i", wide).is_some());
+            assert!(matcher_ir(r"(?:^a|a)b", "", wide).is_none());
             assert!(matcher_ir("(\u{e9}+)=", "", wide).is_none());
             assert!(matcher_ir(r"[", "", wide).is_none());
             assert!(matcher_ir(r"a", "uv", wide).is_none());
@@ -118,6 +116,9 @@ mod tests {
             (r"([a-z]+)=(\d+)", "g", false),
             (r"([^a]+)a(.)", "gu", true),
             (r"(a*)", "", true),
+            (r"^(\w+)$", "m", false),
+            (r"\b(\w+)\b", "iu", true),
+            (r"(\d+)", "y", false),
         ] {
             let ir = matcher_ir(pat, flags, wide).unwrap();
             let f = emit::walk("__regex_matcher_l1_7", &ir);

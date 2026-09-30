@@ -9,9 +9,10 @@
 use core::ffi::c_void;
 
 use super::match_op::match_walk;
-use super::{as_regex_mut, byte_to_utf16_units, str_slice_ascii_view};
+use super::{as_regex_mut, str_slice_ascii_view};
 use crate::parser::{RE_FLAG_G, RE_FLAG_Y};
 use crate::search_anchors::find_literal;
+use crate::vm::result::INLINE_SLOTS;
 use crate::vm::search::dfa_find_from;
 
 /// The first match's length in UTF-16 code units, or -1 when
@@ -33,9 +34,8 @@ pub unsafe extern "C" fn __torajs_str_match_len(
     }
     let mut len: i64 = -1;
     unsafe {
-        match_walk(str_ptr, re_ptr, |_, s, is_ascii, m| {
-            len =
-                byte_to_utf16_units(s, m.end, is_ascii) - byte_to_utf16_units(s, m.start, is_ascii);
+        match_walk(str_ptr, re_ptr, |_, subject, m| {
+            len = subject.units_at(m.end) - subject.units_at(m.start);
             false
         });
     }
@@ -46,9 +46,9 @@ pub unsafe extern "C" fn __torajs_str_match_len(
 /// walk: no `g` / `y` (so lastIndex is neither read nor written and a
 /// single search from 0 decides) over an ASCII haystack (bytes are
 /// UTF-16 units, and no match start can land on a continuation byte),
-/// searched the way the walk's search would: a literal program by
-/// memchr, any other by the DFA bound to the RegExp. `None` hands the
-/// call to the walk.
+/// searched the way the walk's search would: a literal's compiled
+/// matcher, else a literal program by memchr, any other by the DFA
+/// bound to the RegExp. `None` hands the call to the walk.
 ///
 /// # Safety
 ///
@@ -63,13 +63,20 @@ unsafe fn plain_len(str_ptr: *const c_void, re_ptr: *const c_void) -> Option<i64
         return None;
     }
     let s = unsafe { str_slice_ascii_view(str_ptr) }?;
-    let span = match re.prog.literal.as_deref() {
-        Some(lit) => find_literal(s, 0, lit).map(|m| (m.start, m.end)),
-        None => {
-            let dfa_view = re.baked_dfa_view();
-            let dfa = dfa_view.as_ref().or(re.dfa_runtime.as_ref())?;
-            dfa_find_from(&re.prog, dfa, s, 0, re.flags, true)
-        }
-    };
+    if let Some(lit) = re.prog.literal.as_deref() {
+        return Some(find_literal(s, 0, lit).map_or(-1, |m| m.end - m.start));
+    }
+    if let Some(f) = re.matcher_latin1
+        && re.matcher_stride as usize <= INLINE_SLOTS
+    {
+        // the row is read for the start alone; a wider row (more than
+        // three captures) takes the walk's boxed row instead
+        let mut row = [-1i64; INLINE_SLOTS];
+        let end = unsafe { f(s.as_ptr(), s.len() as i64, 0, row.as_mut_ptr()) };
+        return Some(if end < 0 { -1 } else { end - row[0] });
+    }
+    let dfa_view = re.baked_dfa_view();
+    let dfa = dfa_view.as_ref().or(re.dfa_runtime.as_ref())?;
+    let span = dfa_find_from(&re.prog, dfa, s, 0, re.flags, true);
     Some(span.map_or(-1, |(start, end)| end - start))
 }

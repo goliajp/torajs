@@ -4,20 +4,22 @@
 use alloc::vec::Vec;
 use core::ffi::c_void;
 
-use super::exec_find::exec_find;
+use super::exec_find::{exec_find, matcher_for, run_matcher, search_start};
 use super::groups::build_groups;
 use super::match_indices::attach_indices;
 use super::static_keys::{K_GROUPS, K_INDEX, K_INPUT, cached_static_key};
-use super::str_helpers::subject::Subject;
+use super::str_helpers::subject::{Subject, UnitsView, str_units_view};
 use super::{
     __torajs_arr_alloc_with, __torajs_arr_push, __torajs_arrprops_attach_exec3,
     __torajs_arrprops_set, __torajs_rc_inc, __torajs_str_undef, ANY_HEAP, ANY_I64, ANY_UNDEF,
-    RegExp, abort_unsupported, as_regex_mut, byte_to_utf16_units, haystack, str_slice_ascii_view,
-    utf16_units_to_byte,
+    MatcherFn, RegExp, abort_unsupported, as_regex_mut, byte_to_utf16_units, haystack,
+    str_slice_ascii_view, utf16_units_to_byte,
 };
+use crate::flags::unicode_mode;
 use crate::node::REGEX_MAX_CAPTURES;
+use crate::onepass::ir::{is_high_surrogate, is_low_surrogate};
 use crate::parser::{RE_FLAG_G, RE_FLAG_Y};
-use crate::vm::{Workspace, match_anchor, save_slot, search_from_with_ws};
+use crate::vm::{MatchResult, Workspace, match_anchor, save_slot, search_from_with_ws};
 
 /// Attach the spec §22.2.7.8 match-result properties `index` (match
 /// start; UTF-8 byte domain — same domain note as lastIndex) and
@@ -142,8 +144,7 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
     // never owns a stray +1 block.
     let mut out: *mut c_void = core::ptr::null_mut();
     unsafe {
-        match_walk(str_ptr, re_ptr, |re, s, haystack_is_ascii, m| {
-            let subject = Subject::bytes(str_ptr, s, haystack_is_ascii);
+        match_walk(str_ptr, re_ptr, |re, subject, m| {
             let seg = subject.span(m.start, m.end);
             out = if out.is_null() {
                 // Round 5 attack #6 — pre-size to the exec shape
@@ -177,7 +178,7 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
             // index / input / groups (+ `/d` indices) attach in
             // print order; byte→UTF-16 mapping happens inside.
             if want_exec != 0 {
-                attach_exec_all(out, re, &subject, m.start, m.end, m.saves());
+                attach_exec_all(out, re, subject, m.start, m.end, m.saves());
             }
             false
         });
@@ -189,10 +190,13 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
 /// checks, the haystack view, lastIndex normalization, the per-hit
 /// search in its three shapes (sticky, global + sticky, free), the
 /// empty-match bump and the global walk's closing `lastIndex = 0`.
-/// `on_hit(re, haystack, haystack_is_ascii, m)` receives each hit and
-/// answers whether to look for the next one — only a global match
-/// asks. Returns without calling it when the call answers null before
-/// searching.
+/// `on_hit(re, subject, m)` receives each hit and answers whether to
+/// look for the next one — only a global match asks. Returns without
+/// calling it when the call answers null before searching.
+///
+/// A literal with a compiled matcher for the string's encoding walks
+/// the string's own code units ([`match_walk_matcher`]); the rest run
+/// the engine over the ASCII payload in place or a transcoded copy.
 ///
 /// # Safety
 ///
@@ -201,7 +205,7 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
 pub(crate) unsafe fn match_walk(
     str_ptr: *const c_void,
     re_ptr: *const c_void,
-    mut on_hit: impl FnMut(&RegExp, &[u8], bool, &crate::vm::MatchResult) -> bool,
+    mut on_hit: impl FnMut(&RegExp, &Subject, &MatchResult) -> bool,
 ) {
     if re_ptr.is_null() || str_ptr.is_null() {
         return;
@@ -209,6 +213,10 @@ pub(crate) unsafe fn match_walk(
     let re = unsafe { as_regex_mut(re_ptr as *mut c_void) };
     if re.rejected != 0 {
         abort_unsupported(re);
+    }
+    let view = unsafe { str_units_view(str_ptr) };
+    if let Some(f) = matcher_for(re, &view) {
+        return unsafe { match_walk_matcher(str_ptr, re, &view, f, on_hit) };
     }
     // chunk 7.7 v2 step 12 C2 Phase B-1 attack #A — zero-copy
     // ASCII Latin-1 view; transcode fallback for non-ASCII Latin-1
@@ -305,7 +313,7 @@ pub(crate) unsafe fn match_walk(
             )
         };
         let Some(m) = hit else { break };
-        if !on_hit(re, &s, haystack_is_ascii, &m) {
+        if !on_hit(re, &Subject::bytes(str_ptr, s, haystack_is_ascii), &m) {
             break;
         }
         // Empty match — bump pos by 1.
@@ -316,6 +324,73 @@ pub(crate) unsafe fn match_walk(
         // the exec loop, and the loop only terminates on an exec miss
         // which itself stores 0 — so the observable post-state is
         // always 0, even when the caller pre-set a nonzero value.
+        re.set_last_index_num(0.0);
+    }
+}
+
+/// [`match_walk`] through the literal's own matcher over the string's
+/// payload: offsets are code units, the row is the Pike VM's. A
+/// sticky pattern's anchoring is compiled into its matcher, so every
+/// shape is one call per hit; the lastIndex flow is the walk's.
+///
+/// # Safety
+///
+/// `view` is the payload of `str_ptr` and `f` was synthesized for its
+/// encoding.
+unsafe fn match_walk_matcher(
+    str_ptr: *const c_void,
+    re: &mut RegExp,
+    view: &UnitsView<'_>,
+    f: MatcherFn,
+    mut on_hit: impl FnMut(&RegExp, &Subject, &MatchResult) -> bool,
+) {
+    let global = re.flags & RE_FLAG_G != 0;
+    let sticky = re.flags & RE_FLAG_Y != 0;
+    if global && unsafe { super::lifecycle::tracked_store_refuses(re) } {
+        return;
+    }
+    let stride = re.matcher_stride as usize;
+    let len = view.len() as i64;
+    let subject = Subject::units(str_ptr, view.len());
+    let pairs = view.wide() && unicode_mode(re.flags);
+    let mut pos: i64 = 0;
+    while pos <= len {
+        let hit = if !global && sticky {
+            // one RegExpBuiltinExec: anchored at lastIndex, the end
+            // stored, 0 on a miss
+            let start = re.last_index_i64();
+            let h = if start > len {
+                None
+            } else {
+                unsafe { run_matcher(f, stride, view, search_start(view, re.flags, start)) }
+            };
+            re.set_last_index_num(h.as_ref().map_or(0.0, |m| m.end as f64));
+            h
+        } else {
+            unsafe { run_matcher(f, stride, view, pos) }
+        };
+        let Some(m) = hit else { break };
+        if !on_hit(re, &subject, &m) {
+            break;
+        }
+        // an empty match steps over one element: a unit, or a pair
+        // under `u` / `v` (AdvanceStringIndex)
+        pos = if m.end == m.start {
+            let next = m.end + 1;
+            if pairs
+                && next < len
+                && is_high_surrogate(view.unit(m.end as usize))
+                && is_low_surrogate(view.unit(next as usize))
+            {
+                next + 1
+            } else {
+                next
+            }
+        } else {
+            m.end
+        };
+    }
+    if global {
         re.set_last_index_num(0.0);
     }
 }

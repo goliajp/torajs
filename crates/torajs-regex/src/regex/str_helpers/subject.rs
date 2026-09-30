@@ -133,6 +133,7 @@ impl<'a> Subject<'a> {
     /// # Safety
     ///
     /// `0 <= start <= end <= len`; the subject is live.
+    #[inline(always)]
     pub unsafe fn span(&self, start: i64, end: i64) -> *mut u8 {
         match self.text {
             Text::Bytes { s, is_ascii } => unsafe {

@@ -15,7 +15,8 @@
 //!   native function.
 
 pub mod analyze;
+pub mod fold;
 pub mod ir;
 
 pub use analyze::build;
-pub use ir::{Edge, MatcherIr, State};
+pub use ir::{Edge, MatcherIr, State, Variant};

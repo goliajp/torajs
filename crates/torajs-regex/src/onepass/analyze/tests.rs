@@ -1,6 +1,9 @@
 //! Parity with the Pike VM over both payload encodings: every search
 //! start over a subject answers what `vm_match_at` answers on the
 //! transcoded form of the same subject, mapped back to code units.
+//! Where the VM stops short of the spec (a `.` at `\r`, case folding
+//! beyond ASCII, the `iu` word characters) the answer is pinned to
+//! the spec instead.
 
 use super::*;
 use crate::compiler::compile;
@@ -45,6 +48,9 @@ fn pike(prog: &Program, s: &[u8], from: usize, flags: u8) -> Option<(i64, i64, V
             row[0] = st as i64;
             row[1] = end;
             return Some((st as i64, end, row));
+        }
+        if flags & RE_FLAG_Y != 0 {
+            break;
         }
         // the VM scans code points of its UTF-8 form
         st += 1;
@@ -169,6 +175,12 @@ fn utf16(s: &str) -> Vec<u16> {
     s.encode_utf16().collect()
 }
 
+/// the end the matcher answers from 0 over `hay`
+fn end_of(ir: &MatcherIr, hay: &[u16]) -> i64 {
+    let mut out = vec![-1i64; ir.stride as usize];
+    ir.exec(hay, 0, &mut out)
+}
+
 #[test]
 fn bench_pattern() {
     same("([a-z]+)=(\\d+)", 0, "kq=17;=3;abc=905;zz12;");
@@ -178,14 +190,20 @@ fn bench_pattern() {
     // one share a closure shape but not a seed
     assert_eq!(ir.states.len(), 6);
     assert_eq!(ir.stride, 6);
-    assert_eq!(ir.states[0].edges.len(), 1);
-    assert_eq!(ir.states[0].edges[0].saves, [2]);
-    assert!(ir.states[0].accept.is_none());
+    assert!(
+        ir.states
+            .iter()
+            .all(|s| s.probes == 0 && s.variants.len() == 1)
+    );
+    let start = &ir.states[0].variants[0];
+    assert_eq!(start.edges.len(), 1);
+    assert_eq!(start.edges[0].saves, [2]);
+    assert!(start.accept.is_none());
     let mut out = vec![-1i64; 6];
     assert_eq!(ir.exec(b"..ab=12;", 0, &mut out), 7);
     assert_eq!(out, [2, 7, 2, 4, 5, 7]);
     assert_eq!(ir.slots_written_past_accept(), [5]);
-    assert!(!ir.wide && !ir.pairs);
+    assert!(!ir.wide && !ir.pairs && !ir.anchored);
 }
 
 #[test]
@@ -210,7 +228,8 @@ fn empty_matches_and_loops() {
     always("(a*?)", 0, "aa");
     always("(a+?)?", 0, "aa");
     let ir = matcher("(a*)", 0).unwrap();
-    assert!(ir.states[0].accept.is_some() && !ir.states[0].edges.is_empty());
+    let start = &ir.states[0].variants[0];
+    assert!(start.accept.is_some() && !start.edges.is_empty());
 }
 
 #[test]
@@ -221,6 +240,7 @@ fn flags_fold_into_the_edges() {
     same("(a.)(.b)?", 0, "a\nab.b");
     same("([^=;]+)=([^;]*);?", 0, "k=v;=x;ab=;q");
     same("(\\w+)@(\\w+)", RE_FLAG_U, "a@b c@d");
+    same("([^a-c]+)", RE_FLAG_I, "xABcdC");
 }
 
 #[test]
@@ -297,6 +317,107 @@ fn a_surrogate_pair_is_one_step_under_u_and_two_units_otherwise() {
 }
 
 #[test]
+fn anchors_and_word_boundaries_agree_with_the_vm() {
+    same("^(a+)", 0, "aab a");
+    same("(a+)$", 0, "a aa");
+    same("^(a+)$", 0, "aa");
+    same("^", 0, "ab");
+    always("$", 0, "ab");
+    same("^(a+)$", RE_FLAG_M, "aa\naaa\na");
+    same("^(\\w)", RE_FLAG_M, "a\nb\n\nc");
+    same("(\\w)$", RE_FLAG_M, "a\nb\n");
+    same("\\b(\\w+)\\b", 0, "ab cd-e");
+    same("\\B(\\w)", 0, "abc d");
+    same("(a)\\b", 0, "a ab");
+    same("\\bword\\b", 0, "a word b xword wordy");
+    same("(?:^|x)(a)", 0, "axa xa");
+    same("(a)(?:$|;)", 0, "a;a a");
+    same("(^)?(a)", 0, "aa");
+    same("(\\w+)(?:\\b|$)", 0, "ab c");
+    same("^line", RE_FLAG_M, "pre\nline-text\nend");
+    same("^\\w+", 0, "hello world");
+    let ir = matcher("^(a+)", 0).unwrap();
+    assert_eq!(ir.states[0].probes, INPUT_START);
+    assert_eq!(ir.states[0].variants.len(), 2);
+    assert!(ir.states[0].variants[0].edges.is_empty());
+    let ir = matcher("\\bword\\b", 0).unwrap();
+    assert_eq!(ir.states[0].probes, WORD_LEFT | WORD_RIGHT);
+    assert_eq!(ir.states[0].variants.len(), 4);
+}
+
+#[test]
+fn line_starts_and_ends_follow_the_spec_line_terminators() {
+    // the Pike VM knows `\n` only, so these are pinned
+    let ir = matcher("^(b)", RE_FLAG_M).unwrap();
+    let mut out = vec![-1i64; 4];
+    assert_eq!(ir.exec(b"a\rb", 0, &mut out), 3);
+    assert_eq!(ir.exec(b"a b", 0, &mut out), -1);
+    let ir = matcher("(a)$", RE_FLAG_M).unwrap();
+    assert_eq!(ir.exec(b"a\rb", 0, &mut out), 1);
+    let ir = wide_matcher("^(b)", RE_FLAG_M).unwrap();
+    assert_eq!(end_of(&ir, &utf16("a\u{2028}b")), 3);
+    assert_eq!(end_of(&ir, &utf16("a\u{2027}b")), -1);
+}
+
+#[test]
+fn case_folding_beyond_ascii_follows_canonicalize() {
+    // the Pike VM folds ASCII only, so these are pinned
+    let ir = matcher("([\u{e9}])", RE_FLAG_I).unwrap();
+    let mut out = vec![-1i64; 4];
+    assert_eq!(ir.exec(b"x\xc9", 0, &mut out), 2);
+    assert_eq!(ir.exec(b"x\xc9", 0, &mut out), 2);
+    assert_eq!(out, [1, 2, 1, 2]);
+    let ir = matcher("([^\u{e9}])", RE_FLAG_I).unwrap();
+    assert_eq!(ir.exec(b"\xc9\xe9x", 0, &mut out), 3);
+    let ir = matcher("([\u{ff}])", RE_FLAG_I).unwrap();
+    assert_eq!(ir.exec(b"\xff", 0, &mut out), 1);
+    // ß is its own class without u; ẞ folds to it under u
+    let ir = wide_matcher("([\u{df}])", RE_FLAG_I).unwrap();
+    assert_eq!(end_of(&ir, &utf16("\u{1e9e}")), -1);
+    let ir = wide_matcher("([\u{df}])", RE_FLAG_I | RE_FLAG_U).unwrap();
+    assert_eq!(end_of(&ir, &utf16("\u{1e9e}")), 1);
+    // µ meets Μ and μ in both modes, ÿ meets Ÿ
+    for flags in [RE_FLAG_I, RE_FLAG_I | RE_FLAG_U] {
+        let ir = wide_matcher("([\u{b5}])", flags).unwrap();
+        assert_eq!(end_of(&ir, &utf16("\u{39c}")), 1);
+        assert_eq!(end_of(&ir, &utf16("\u{3bc}")), 1);
+        assert_eq!(end_of(&ir, &utf16("\u{3bd}")), -1);
+        let ir = wide_matcher("([\u{ff}])", flags).unwrap();
+        assert_eq!(end_of(&ir, &utf16("\u{178}")), 1);
+    }
+    // ſ and Kelvin K fold into ASCII only under u
+    let ir = wide_matcher("(s)", RE_FLAG_I).unwrap();
+    assert_eq!(end_of(&ir, &utf16("\u{17f}")), -1);
+    let ir = wide_matcher("(s)", RE_FLAG_I | RE_FLAG_U).unwrap();
+    assert_eq!(end_of(&ir, &utf16("\u{17f}")), 1);
+    let ir = wide_matcher("([^k])", RE_FLAG_I | RE_FLAG_U).unwrap();
+    assert_eq!(end_of(&ir, &utf16("\u{212a}")), -1);
+    let ir = wide_matcher("(\\w)", RE_FLAG_I | RE_FLAG_U).unwrap();
+    assert_eq!(end_of(&ir, &utf16("\u{212a}")), 1);
+    let ir = wide_matcher("(\\w)", RE_FLAG_I).unwrap();
+    assert_eq!(end_of(&ir, &utf16("\u{212a}")), -1);
+    // the iu word characters reach `\b`
+    let ir = wide_matcher("\\b(.)", RE_FLAG_I | RE_FLAG_U).unwrap();
+    assert_eq!(ir.states[0].probes, WORD_LEFT_FOLD | WORD_RIGHT_FOLD);
+    assert_eq!(end_of(&ir, &utf16(" \u{17f}")), 2);
+    let ir = wide_matcher("\\b(.)", RE_FLAG_I).unwrap();
+    assert_eq!(end_of(&ir, &utf16(" \u{17f}")), -1);
+}
+
+#[test]
+fn a_sticky_matcher_tries_the_start_only() {
+    let ir = matcher("(a)", RE_FLAG_Y).unwrap();
+    assert!(ir.anchored);
+    let mut out = vec![-1i64; 4];
+    assert_eq!(ir.exec(b"ba", 0, &mut out), -1);
+    assert_eq!(ir.exec(b"ba", 1, &mut out), 2);
+    assert_eq!(out, [1, 2, 1, 2]);
+    same("(\\d+)", RE_FLAG_Y, "ab12");
+    same("^(a)", RE_FLAG_Y, "aa");
+    always("(a*)", RE_FLAG_Y, "baa");
+}
+
+#[test]
 fn refuses_what_it_cannot_walk() {
     for (pat, flags) in [
         ("(a|ab)(c|bcd)", 0),
@@ -305,12 +426,10 @@ fn refuses_what_it_cannot_walk() {
         ("(a)\\1", 0),
         ("a(?=b)", 0),
         ("(?<!a)b", 0),
-        ("^(a)", 0),
-        ("(a)$", 0),
-        ("\\b(\\w+)", 0),
         ("(\u{e9}+)=", 0),
         ("[\u{4e2d}]", 0),
         ("(\\p{L}+)", RE_FLAG_U),
+        ("(?:^a|a)b", 0),
     ] {
         assert!(matcher(pat, flags).is_none(), "{pat}");
         assert!(wide_matcher(pat, flags).is_none(), "{pat} wide");

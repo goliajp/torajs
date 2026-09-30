@@ -9,35 +9,45 @@
 //! `Op::Match`: threads behind it are lower priority than a match
 //! the VM has already committed to, so they never consume.
 //!
+//! An assertion on the way passes or fails with the position's
+//! context, so the closure is walked once per assignment of the
+//! context bits the seed can reach, and the state carries a variant
+//! for each (`ir::State::probes`).
+//!
 //! The program is one-pass when no unit is claimed by two consuming
-//! instructions of the same state unless both lead to the same
+//! instructions of the same variant unless both lead to the same
 //! `(target, saves)` pair.
 //!
 //! Units are claimed segment by segment: every unit up to `0xFF` on
 //! its own, and above that the ranges between the points where an
-//! instruction's answer can change — the line terminators `.` skips.
+//! instruction's answer can change — the line terminators `.` skips,
+//! and the units that share a canonical form with a Latin-1 one.
 //! Every instruction the lane serves is constant between them.
 
 use alloc::collections::BTreeMap;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use super::ir::{Edge, MatcherIr, State, UNIT_MAX_NARROW, UNIT_MAX_WIDE};
+use super::fold::{SHARED_HIGH_UNITS, canonicalize};
+use super::ir::{
+    Edge, INPUT_END, INPUT_START, LINE_END, LINE_START, MatcherIr, State, UNIT_MAX_NARROW,
+    UNIT_MAX_WIDE, Variant, WORD_LEFT, WORD_LEFT_FOLD, WORD_RIGHT, WORD_RIGHT_FOLD,
+};
 use crate::flags::unicode_mode;
-use crate::parser::RE_FLAG_S;
+use crate::parser::{RE_FLAG_I, RE_FLAG_M, RE_FLAG_S, RE_FLAG_Y};
 use crate::program::{Inst, Op, Program};
-use crate::vm::char_eq;
 
 /// Build the matcher for `prog` (compiled with `Program::raw_classes`
 /// under `flags`) over Latin-1 code units, or over UTF-16 code units
 /// when `wide`. `None` when the program is not one-pass, or uses a
-/// shape this walk does not serve: assertions, lookaround,
-/// backreferences, a literal above 0x7F (the parser spells it as
-/// UTF-8 bytes), a property class or a range past U+00FF.
+/// shape this walk does not serve: lookaround, backreferences, a
+/// literal above 0x7F (the parser spells it as UTF-8 bytes), a
+/// property class or a range past U+00FF.
 pub fn build(prog: &Program, flags: u8, wide: bool) -> Option<MatcherIr> {
     if !servable(prog) {
         return None;
     }
+    let unicode = unicode_mode(flags);
     let segments = segments(wide);
     let mut states: Vec<State> = Vec::new();
     let mut by_seed: BTreeMap<usize, u32> = BTreeMap::new();
@@ -47,46 +57,53 @@ pub fn build(prog: &Program, flags: u8, wide: bool) -> Option<MatcherIr> {
         let id = by_seed[&seed] as usize;
         if states.len() <= id {
             states.resize_with(id + 1, || State {
-                edges: Vec::new(),
-                accept: None,
+                probes: 0,
+                variants: Vec::new(),
             });
         }
-        let Closure { consuming, accept } = closure(prog, seed);
-        let mut table: Vec<Option<(u32, Vec<u32>)>> = vec![None; segments.len()];
-        for (pc, saves) in consuming {
-            let next = pc + 1;
-            let target = match by_seed.get(&next) {
-                Some(&t) => t,
-                None => {
-                    let t = by_seed.len() as u32;
-                    by_seed.insert(next, t);
-                    queue.push(next);
-                    t
-                }
-            };
-            let ins = prog.insts[pc];
-            for (k, &(lo, _)) in segments.iter().enumerate() {
-                if !admits(prog, ins, lo) {
-                    continue;
-                }
-                let want = (target, saves.clone());
-                match &table[k] {
-                    None => table[k] = Some(want),
-                    Some(have) if *have == want => {}
-                    Some(_) => return None,
+        let probes = probes(prog, seed, unicode);
+        let mut variants = Vec::with_capacity(1 << probes.count_ones());
+        for index in 0..1usize << probes.count_ones() {
+            let ctx = unpack(probes, index);
+            let Closure { consuming, accept } = closure(prog, seed, ctx, unicode);
+            let mut table: Vec<Option<(u32, Vec<u32>)>> = vec![None; segments.len()];
+            for (pc, saves) in consuming {
+                let next = pc + 1;
+                let target = match by_seed.get(&next) {
+                    Some(&t) => t,
+                    None => {
+                        let t = by_seed.len() as u32;
+                        by_seed.insert(next, t);
+                        queue.push(next);
+                        t
+                    }
+                };
+                let ins = prog.insts[pc];
+                for (k, &(lo, _)) in segments.iter().enumerate() {
+                    if !admits(prog, ins, lo, unicode) {
+                        continue;
+                    }
+                    let want = (target, saves.clone());
+                    match &table[k] {
+                        None => table[k] = Some(want),
+                        Some(have) if *have == want => {}
+                        Some(_) => return None,
+                    }
                 }
             }
+            variants.push(Variant {
+                edges: coalesce(&segments, &table),
+                accept,
+            });
         }
-        states[id] = State {
-            edges: coalesce(&segments, &table),
-            accept,
-        };
+        states[id] = State { probes, variants };
     }
     Some(MatcherIr {
         states,
         stride: crate::vm::saves_arena::detect_stride(prog) as u32,
         wide,
-        pairs: wide && unicode_mode(flags),
+        pairs: wide && unicode,
+        anchored: flags & RE_FLAG_Y != 0,
     })
 }
 
@@ -107,6 +124,7 @@ fn servable(prog: &Program) -> bool {
                     && single_unit_class(&prog.classes[ins.a as usize])
             }
             Some(Op::Save) => falls_through && ins.a >= 0,
+            Some(Op::AnchorB | Op::AnchorE | Op::WBound | Op::NWBound) => falls_through,
             Some(Op::Jmp) => in_range(ins.a),
             Some(Op::Split) => in_range(ins.a) && in_range(ins.b),
             Some(Op::Match) => true,
@@ -125,18 +143,15 @@ fn single_unit_class(c: &crate::charclass::CharClass) -> bool {
 }
 
 /// Units above `0xFF` where a served instruction's answer can change:
-/// the LineTerminators `.` skips (§12.3), each on its own.
-const HIGH_POINTS: [u32; 2] = [0x2028, 0x2029];
-
-/// `(lo, hi)` ranges covering every unit the walk can read, each
-/// answered alike by every served instruction.
+/// the LineTerminators `.` skips (§12.3) and the units a Latin-1 atom
+/// folds together with, each on its own.
 fn segments(wide: bool) -> Vec<(u32, u32)> {
     let mut segs: Vec<(u32, u32)> = (0..=UNIT_MAX_NARROW).map(|u| (u, u)).collect();
     if !wide {
         return segs;
     }
     let mut cuts: Vec<u32> = vec![UNIT_MAX_NARROW + 1];
-    for &p in &HIGH_POINTS {
+    for &p in [0x2028, 0x2029].iter().chain(&SHARED_HIGH_UNITS) {
         cuts.push(p);
         cuts.push(p + 1);
     }
@@ -149,20 +164,108 @@ fn segments(wide: bool) -> Vec<(u32, u32)> {
     segs
 }
 
-/// Whether `ins` consumes the code unit `u` (`§22.2.2.7.3`: a `.` skips
-/// the four LineTerminators unless `s`; a class is tested as a unit,
-/// which under `u` / `v` is the code point for everything the lane
-/// serves, a lone surrogate included).
-fn admits(prog: &Program, ins: Inst, u: u32) -> bool {
+/// Whether `ins` consumes the code unit `u` (§22.2.2.7.3: a `.` skips
+/// the four LineTerminators unless `s`; under `i` a character matches
+/// what canonicalizes with it, and a class what canonicalizes with a
+/// member; a class is tested as a unit, which under `u` / `v` is the
+/// code point for everything the lane serves, a lone surrogate
+/// included).
+fn admits(prog: &Program, ins: Inst, u: u32, unicode: bool) -> bool {
+    let ci = ins.pad as u8 & RE_FLAG_I != 0;
     match Op::from_u8(ins.op) {
-        Some(Op::Char) => u <= 0xFF && char_eq(ins.ch, u as u8, ins.pad as u8),
-        Some(Op::AnyChar) => {
-            ins.pad as u8 & RE_FLAG_S != 0 || !matches!(u, 0x0A | 0x0D | 0x2028 | 0x2029)
+        Some(Op::Char) => {
+            let c = ins.ch as u32;
+            c == u || (ci && canonicalize(c, unicode) == canonicalize(u, unicode))
         }
+        Some(Op::AnyChar) => ins.pad as u8 & RE_FLAG_S != 0 || !super::ir::is_line_terminator(u),
         Some(Op::Class) => {
-            let ci = ins.pad as u8 & crate::parser::RE_FLAG_I != 0;
-            prog.classes[ins.a as usize].test_cp_fold(u as i32, ci)
+            let class = &prog.classes[ins.a as usize];
+            // membership of the class as written; `negate` is applied
+            // after the fold, as CharacterSetMatcher's `invert` is
+            let member = |m: u32| class.test_cp(m as i32) != class.negate;
+            let found = member(u)
+                || (ci && {
+                    let cu = canonicalize(u, unicode);
+                    (0..=UNIT_MAX_NARROW).any(|m| member(m) && canonicalize(m, unicode) == cu)
+                });
+            found != class.negate
         }
+        _ => false,
+    }
+}
+
+/// The context bits the assertions reachable from `seed` by ε read.
+fn probes(prog: &Program, seed: usize, unicode: bool) -> u8 {
+    let mut visited = vec![false; prog.len()];
+    let mut stack = vec![seed];
+    let mut probes = 0;
+    while let Some(pc) = stack.pop() {
+        if visited[pc] {
+            continue;
+        }
+        visited[pc] = true;
+        let ins = prog.insts[pc];
+        let multiline = ins.pad as u8 & RE_FLAG_M != 0;
+        let fold = unicode && ins.pad as u8 & RE_FLAG_I != 0;
+        match Op::from_u8(ins.op) {
+            Some(Op::Jmp) => stack.push(ins.a as usize),
+            Some(Op::Split) => {
+                stack.push(ins.a as usize);
+                stack.push(ins.b as usize);
+            }
+            Some(Op::Save) => stack.push(pc + 1),
+            Some(Op::AnchorB) => {
+                probes |= if multiline { LINE_START } else { INPUT_START };
+                stack.push(pc + 1);
+            }
+            Some(Op::AnchorE) => {
+                probes |= if multiline { LINE_END } else { INPUT_END };
+                stack.push(pc + 1);
+            }
+            Some(Op::WBound | Op::NWBound) => {
+                probes |= if fold {
+                    WORD_LEFT_FOLD | WORD_RIGHT_FOLD
+                } else {
+                    WORD_LEFT | WORD_RIGHT
+                };
+                stack.push(pc + 1);
+            }
+            _ => {}
+        }
+    }
+    probes
+}
+
+/// The context whose variant index is `index` (the inverse of
+/// [`super::ir::pack`]).
+fn unpack(probes: u8, index: usize) -> u8 {
+    let mut ctx = 0;
+    let mut k = 0;
+    for bit in 0..8 {
+        if probes & (1 << bit) != 0 {
+            if index & (1 << k) != 0 {
+                ctx |= 1 << bit;
+            }
+            k += 1;
+        }
+    }
+    ctx
+}
+
+/// Whether the assertion `ins` holds under `ctx`.
+fn holds(ins: Inst, ctx: u8, unicode: bool) -> bool {
+    let multiline = ins.pad as u8 & RE_FLAG_M != 0;
+    let fold = unicode && ins.pad as u8 & RE_FLAG_I != 0;
+    let (left, right) = if fold {
+        (WORD_LEFT_FOLD, WORD_RIGHT_FOLD)
+    } else {
+        (WORD_LEFT, WORD_RIGHT)
+    };
+    match Op::from_u8(ins.op) {
+        Some(Op::AnchorB) => ctx & if multiline { LINE_START } else { INPUT_START } != 0,
+        Some(Op::AnchorE) => ctx & if multiline { LINE_END } else { INPUT_END } != 0,
+        Some(Op::WBound) => (ctx & left != 0) != (ctx & right != 0),
+        Some(Op::NWBound) => (ctx & left != 0) == (ctx & right != 0),
         _ => false,
     }
 }
@@ -174,7 +277,7 @@ struct Closure {
     accept: Option<Vec<u32>>,
 }
 
-fn closure(prog: &Program, seed: usize) -> Closure {
+fn closure(prog: &Program, seed: usize, ctx: u8, unicode: bool) -> Closure {
     let mut visited = vec![false; prog.len()];
     let mut stack: Vec<(usize, Vec<u32>)> = vec![(seed, Vec::new())];
     let mut consuming = Vec::new();
@@ -198,6 +301,11 @@ fn closure(prog: &Program, seed: usize) -> Closure {
                     saves.insert(at, slot);
                 }
                 stack.push((pc + 1, saves));
+            }
+            Some(Op::AnchorB | Op::AnchorE | Op::WBound | Op::NWBound) => {
+                if holds(ins, ctx, unicode) {
+                    stack.push((pc + 1, saves));
+                }
             }
             Some(Op::Match) => {
                 accept = Some(saves);
