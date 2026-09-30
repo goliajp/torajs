@@ -86,7 +86,11 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId) -> Operand {
             ctx.emit_throw_check(None);
             return Operand::ConstPtrNull;
         }
-        Expr::Ident(name) => lower_ident(ctx, eid, name, Step { is_inc, is_prefix }),
+        Expr::Ident(name) => {
+            let v = lower_ident(ctx, eid, name.clone(), Step { is_inc, is_prefix });
+            ctx.proofs.kill(&name);
+            v
+        }
         Expr::Member { obj, name: field } => {
             lower_member(ctx, eid, target, obj, field, Step { is_inc, is_prefix })
         }

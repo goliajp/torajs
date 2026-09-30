@@ -87,6 +87,7 @@ pub(crate) fn lower_inner(
     let mut baked_regex_buf = pass05.baked_regex_buf;
     let mut fn_sigs = pass05.fn_sigs;
     let may_throw = pass05.may_throw;
+    let arr_head_pinned = pass05.arr_head_pinned;
     let generic_struct_decls = pass05.generic_struct_decls;
     let mut struct_layouts = pass05.struct_layouts;
     let mut inst_memo = pass05.inst_memo;
@@ -204,6 +205,7 @@ pub(crate) fn lower_inner(
         &mut closure_variadic_captures,
         call_retargets,
         &may_throw,
+        arr_head_pinned,
         &class_name_to_tag,
         &anon_stamp_pool,
         &globals,

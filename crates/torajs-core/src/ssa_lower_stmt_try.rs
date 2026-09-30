@@ -130,12 +130,14 @@ pub(crate) fn lower(
     // binding declared later in it needs that binding's box up first,
     // exactly as `ssa_lower_stmt_block::lower` does for a bare block.
     crate::ssa_lower_stmt_let_decl_recursive::hoist_forward_boxes(ctx, body.iter());
+    let saved = ctx.proofs.region_enter();
     for s in body {
         ctx.lower_stmt(s);
         if !ctx.cur_open() {
             break;
         }
     }
+    ctx.proofs.region_leave(&saved);
     // Fall-through closes the body frame like any block: drop its
     // owners, remove them from `locals` (the fn-exit / finally-tail
     // walks must not see them again), restore shadows. Pre-RFC the
@@ -152,6 +154,9 @@ pub(crate) fn lower(
     }
 
     if let Some(catch_blk) = catch_blk {
+        if let Some(p) = catch_param {
+            ctx.proofs.kill(p);
+        }
         lower_catch(
             ctx,
             catch_blk,
@@ -163,8 +168,10 @@ pub(crate) fn lower(
         );
     }
 
+    ctx.proofs.region_leave(&saved);
     if let (Some(fb), Some(fbody)) = (finally_blk, finally_body) {
         crate::ssa_lower_stmt_try_finally::lower(ctx, fb, fbody, after_blk);
+        ctx.proofs.region_leave(&saved);
     }
     ctx.cur_block = after_blk;
 }

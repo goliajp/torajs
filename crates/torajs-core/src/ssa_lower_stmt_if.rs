@@ -59,11 +59,13 @@ pub(crate) fn lower(
         },
     );
 
+    let saved = ctx.proofs.region_enter();
     ctx.cur_block = then_blk;
     ctx.lower_stmt(then_branch);
     if ctx.cur_open() {
         ctx.f.set_term(ctx.cur_block, Terminator::Br(after_blk));
     }
+    ctx.proofs.region_leave(&saved);
 
     if let Some(eb) = else_branch {
         ctx.cur_block = else_blk;
@@ -71,6 +73,7 @@ pub(crate) fn lower(
         if ctx.cur_open() {
             ctx.f.set_term(ctx.cur_block, Terminator::Br(after_blk));
         }
+        ctx.proofs.region_leave(&saved);
     }
 
     ctx.cur_block = after_blk;

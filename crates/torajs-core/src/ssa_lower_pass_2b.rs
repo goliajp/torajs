@@ -111,6 +111,7 @@ pub(crate) fn run(
     closure_variadic_captures: &mut HashMap<String, Vec<String>>,
     call_retargets: &HashMap<ExprId, String>,
     may_throw: &std::collections::HashSet<String>,
+    arr_head_pinned: bool,
     class_name_to_tag: &HashMap<String, u32>,
     anon_stamp_pool: &crate::ssa_lower_anon_stamp::AnonStampPoolCell,
     globals: &HashMap<String, Type>,
@@ -132,49 +133,17 @@ pub(crate) fn run(
             ..
         } = &ast.stmts[stmt_idx]
         {
-            // A capturing closure with NO capture side-channel entry
-            // by now is dead code: 2B runs after every other body
-            // (pass 2A user fns, pass 3 main) and its own reverse
-            // append order puts enclosing bodies first, so no
-            // construction site exists anywhere in the program and
-            // the fn value can never come to exist. Defence in
-            // depth: the module channel that used to strand such
-            // orphans (a discarded lib copy's fn literal riding the
-            // whole-arena lift) is closed at the source by the
-            // resolver's dead-copy sweep (`modules/dead_lib_exprs`),
-            // but any OTHER channel that materializes a dead expr —
-            // the generic-twin clone lane guards its own with
-            // `neutralize_clone` — still lands here instead of
-            // panicking on the env preamble. The pass-1 shell stays
-            // an empty Function no call site can reach.
-            // 551-03 — an any-widened clone of a lifted body is never
-            // constructed; it is live through its retargeted call and
-            // its layout is the original's (`widen_clone_origin`).
-            let layout_of = ast
-                .widen_clone_origin
-                .get(name.as_str())
-                .map_or(name.as_str(), String::as_str);
-            let dead_orphan = params.first().is_some_and(|p| {
-                p.name == "__env"
-                    && p.type_ann
-                        .as_deref()
-                        .and_then(crate::ssa_lower_free_helpers::decode_env_ann)
-                        .is_some_and(|caps| !caps.is_empty())
-            }) && !closure_captures.contains_key(layout_of);
-            // RFC 20260912 — a generator's iterator method that reads
-            // captures through its wrapper's env lowers here, in the
-            // closure order (after the body that constructs the
-            // wrapper, before the closures its own body constructs). A
-            // wrapper never constructed leaves it unreachable: stub it
-            // like an orphan closure.
             let gen_env_wrapper = ast
                 .gen_env_methods
                 .get(name)
                 .map(|info| info.wrapper_fn_name(ast));
-            let dead_orphan = dead_orphan
-                || gen_env_wrapper
-                    .as_ref()
-                    .is_some_and(|w| !closure_captures.contains_key(w));
+            let dead_orphan = is_dead_orphan(
+                ast,
+                name,
+                params,
+                closure_captures,
+                gen_env_wrapper.as_deref(),
+            );
             if dead_orphan {
                 // The definition must still exist — the boxed-entry
                 // adapter (synthesized for every lifted closure)
@@ -208,6 +177,7 @@ pub(crate) fn run(
                 closure_variadic_captures,
                 call_retargets,
                 may_throw,
+                arr_head_pinned,
                 class_name_to_tag,
                 anon_stamp_pool,
                 globals,
@@ -291,4 +261,45 @@ pub(crate) fn run(
             });
         }
     }
+}
+
+/// A capturing closure with NO capture side-channel entry by now is
+/// dead code: 2B runs after every other body (pass 2A user fns, pass
+/// 3 main) and its own reverse append order puts enclosing bodies
+/// first, so no construction site exists anywhere in the program and
+/// the fn value can never come to exist. Defence in depth: the module
+/// channel that used to strand such orphans (a discarded lib copy's
+/// fn literal riding the whole-arena lift) is closed at the source by
+/// the resolver's dead-copy sweep (`modules/dead_lib_exprs`), but any
+/// OTHER channel that materializes a dead expr — the generic-twin
+/// clone lane guards its own with `neutralize_clone` — still lands
+/// here instead of panicking on the env preamble. The pass-1 shell
+/// stays an empty Function no call site can reach.
+/// 551-03 — an any-widened clone of a lifted body is never
+/// constructed; it is live through its retargeted call and its layout
+/// is the original's (`widen_clone_origin`).
+/// RFC 20260912 — a generator's iterator method that reads captures
+/// through its wrapper's env lowers here, in the closure order (after
+/// the body that constructs the wrapper, before the closures its own
+/// body constructs). A wrapper never constructed leaves it
+/// unreachable: stub it like an orphan closure.
+fn is_dead_orphan(
+    ast: &Ast,
+    name: &str,
+    params: &[crate::ast::Param],
+    closure_captures: &HashMap<String, Vec<(String, Type, bool)>>,
+    gen_env_wrapper: Option<&str>,
+) -> bool {
+    let layout_of = ast
+        .widen_clone_origin
+        .get(name)
+        .map_or(name, String::as_str);
+    let dead_orphan = params.first().is_some_and(|p| {
+        p.name == "__env"
+            && p.type_ann
+                .as_deref()
+                .and_then(crate::ssa_lower_free_helpers::decode_env_ann)
+                .is_some_and(|caps| !caps.is_empty())
+    }) && !closure_captures.contains_key(layout_of);
+    dead_orphan || gen_env_wrapper.is_some_and(|w| !closure_captures.contains_key(w))
 }

@@ -234,7 +234,9 @@ fn lower_generic_ptr_lhs(
         },
     );
     ctx.cur_block = then_blk;
+    ctx.proofs.enter_cond();
     let rhs_op = ctx.lower_expr(rhs);
+    ctx.proofs.leave_cond();
     let then_end = ctx.cur_block;
     ctx.f.append_void(
         then_end,
@@ -305,7 +307,9 @@ fn lower_f64_undefable_lhs(ctx: &mut LowerCtx<'_>, lhs_op: Operand, rhs: ExprId)
         },
     );
     ctx.cur_block = rhs_blk;
+    ctx.proofs.enter_cond();
     let rhs_raw = ctx.lower_expr(rhs);
+    ctx.proofs.leave_cond();
     let rhs_f64 = ctx.coerce_to_f64(rhs_raw);
     let cur = ctx.cur_block;
     ctx.f

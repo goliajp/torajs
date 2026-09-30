@@ -18,6 +18,8 @@
 use crate::ast::PropKey;
 use std::collections::{HashMap, HashSet};
 
+pub(crate) mod arr_head_census;
+
 use crate::ast::{Ast, ExprId, Stmt};
 use crate::num_width::WidthTable;
 use crate::ssa::{self, BakedRegexEntry, Module, Type};
@@ -29,6 +31,7 @@ pub(crate) struct Pass05 {
     pub baked_regex_buf: Vec<BakedRegexEntry>,
     pub fn_sigs: Vec<(Vec<Type>, Type)>,
     pub may_throw: HashSet<String>,
+    pub arr_head_pinned: bool,
     pub generic_struct_decls: HashMap<String, (Vec<String>, Vec<(PropKey, String)>)>,
     pub struct_layouts: Vec<Vec<(PropKey, Type)>>,
     pub inst_memo: HashMap<String, ssa::StructId>,
@@ -46,6 +49,7 @@ pub(crate) fn run(
     let baked_regex_buf: Vec<BakedRegexEntry> = Vec::new();
     let mut fn_sigs: Vec<(Vec<Type>, Type)> = Vec::new();
     let may_throw = crate::ast_throw_info::compute_may_throw_fns(ast, expr_types);
+    let arr_head_pinned = arr_head_census::program_pins_arr_head(ast, expr_types);
 
     let mut generic_struct_decls: HashMap<String, (Vec<String>, Vec<(PropKey, String)>)> =
         HashMap::new();
@@ -209,6 +213,7 @@ pub(crate) fn run(
         baked_regex_buf,
         fn_sigs,
         may_throw,
+        arr_head_pinned,
         generic_struct_decls,
         struct_layouts,
         inst_memo,

@@ -113,11 +113,13 @@ pub(crate) fn lower(
         },
     );
     emit_miss_path(ctx, null_blk, res_slot, after);
+    ctx.proofs.enter_cond();
     if let Type::Obj(sid) = obj_ty {
         emit_hit_path(ctx, mem_blk, eid, obj_op, sid, name, res_slot, after);
     } else {
         emit_hit_path_member(ctx, mem_blk, eid, obj, obj_op, name, res_slot, after);
     }
+    ctx.proofs.leave_cond();
     ctx.cur_block = after;
     let cur_block = ctx.cur_block;
     let r = ctx.f.append_inst(

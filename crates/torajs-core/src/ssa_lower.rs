@@ -25,6 +25,8 @@
 
 use std::collections::HashMap;
 
+pub(crate) mod proofs;
+
 use crate::ast::{Ast, ExprId};
 use crate::ssa::{InstKind, Module, Operand, Type, ValueId};
 pub(crate) use crate::ssa_lower_ctx_struct::LowerCtx;

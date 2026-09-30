@@ -46,7 +46,9 @@ pub(crate) fn lower_any_lhs(
         },
     );
     ctx.cur_block = rhs_blk;
+    ctx.proofs.enter_cond();
     let rhs_raw = ctx.lower_expr(rhs);
+    ctx.proofs.leave_cond();
     let rhs_raw_ty = ctx.operand_ty(&rhs_raw);
     // Rotation 362 — the join is ANY (mirrors check_nullish): a
     // non-nullish lhs IS the result, whatever its tag holds, so the

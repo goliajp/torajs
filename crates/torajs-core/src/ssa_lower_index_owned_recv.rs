@@ -59,6 +59,27 @@ pub(crate) fn lower_typed_arr(
     // needs (the aliasing wall LLVM cannot hoist past the raw-pointer
     // LoadDyn) drop out. See [`crate::ssa_lower_bounds_proven`].
     let upper_proven = crate::ssa_lower_bounds_proven::is_proven(ctx, eid);
+    // The receiver of a field read: the exits that would answer
+    // `undefined` raise the TypeError that read would raise on it,
+    // and the element flows on without a merge.
+    if let Type::Obj(sid) = elem_ty
+        && nonint.is_none()
+        && ctx.proofs.recv_field.get(&eid).is_some_and(|field| {
+            ctx.struct_layouts[sid.0 as usize]
+                .iter()
+                .any(|(k, _)| k == field.as_str())
+        })
+    {
+        ctx.proofs.nonnull_exprs.insert(eid);
+        return crate::ssa_lower_index_undef::recv::lower_typed_index_receiver(
+            ctx,
+            arr_val,
+            idx_val,
+            is_non_deque,
+            elem_ty,
+            upper_proven,
+        );
+    }
     crate::ssa_lower_index::lower_typed_index_checked(
         ctx,
         arr_val,

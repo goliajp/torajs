@@ -135,6 +135,7 @@ fn lower_member_opt(ctx: &mut LowerCtx<'_>, obj: ExprId, name: &str, args: &[Exp
     // receiver rides its variable slot so growth-relocating methods
     // (push) write the fresh block pointer back.
     ctx.cur_block = hit_blk;
+    ctx.proofs.enter_cond();
     let recv_slot = if let crate::ast::Expr::Ident(n) = ctx.ast.get_expr(obj) {
         if let Some(info) = ctx.locals.get(n) {
             Operand::Value(info.slot)
@@ -176,6 +177,7 @@ fn lower_member_opt(ctx: &mut LowerCtx<'_>, obj: ExprId, name: &str, args: &[Exp
         ctx.cur_block,
         InstKind::Store(Operand::Value(result), Operand::Value(res_slot), 0),
     );
+    ctx.proofs.leave_cond();
     let hb = ctx.cur_block;
     ctx.f.set_term(hb, Terminator::Br(after));
     ctx.cur_block = after;
@@ -224,6 +226,7 @@ fn lower_guarded(ctx: &mut LowerCtx<'_>, callee: ExprId, args: &[ExprId]) -> Ope
     // Hit path — the arguments lower HERE (short-circuit never
     // evaluates them).
     ctx.cur_block = hit_blk;
+    ctx.proofs.enter_cond();
     let (callee_av, we_boxed) = if matches!(v_ty, Type::Any) {
         (v.clone(), false)
     } else {
@@ -269,6 +272,7 @@ fn lower_guarded(ctx: &mut LowerCtx<'_>, callee: ExprId, args: &[ExprId]) -> Ope
         ctx.cur_block,
         InstKind::Store(Operand::Value(result), Operand::Value(res_slot), 0),
     );
+    ctx.proofs.leave_cond();
     let hb = ctx.cur_block;
     ctx.f.set_term(hb, Terminator::Br(after));
     ctx.cur_block = after;

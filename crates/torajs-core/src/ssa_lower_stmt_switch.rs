@@ -189,12 +189,14 @@ pub(crate) fn lower(
 /// it already jumped away.
 fn lower_clause_body(ctx: &mut LowerCtx, blk: BlockId, body: &[Stmt], next: BlockId) {
     ctx.cur_block = blk;
+    let saved = ctx.proofs.region_enter();
     for s in body {
         ctx.lower_stmt(s);
         if !ctx.cur_open() {
             break;
         }
     }
+    ctx.proofs.region_leave(&saved);
     if ctx.cur_open() {
         ctx.f.set_term(ctx.cur_block, Terminator::Br(next));
     }

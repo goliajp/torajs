@@ -123,7 +123,9 @@ impl<'a> LowerCtx<'a> {
             return false;
         };
         let counter = let_counter_zero_name(self.ast, prev);
+        self.proofs.forget_lets();
         lower_while_inner(self, *cond, body, counter.as_deref());
+        self.proofs.forget_lets();
         true
     }
 }

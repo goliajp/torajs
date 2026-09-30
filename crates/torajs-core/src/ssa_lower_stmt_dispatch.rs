@@ -63,6 +63,7 @@ impl<'a> LowerCtx<'a> {
                 // An array this body wrote out itself, which is what
                 // `PreReserve::owns_alone` needs to rule out the
                 // caller having passed the same one in twice.
+                self.proofs.kill(name);
                 if matches!(self.ast.get_expr(*init), crate::ast::Expr::Array(_)) {
                     self.prereserve.note_array_literal_let(name);
                 }
@@ -75,7 +76,9 @@ impl<'a> LowerCtx<'a> {
                 );
             }
             Stmt::While { cond, body } => {
+                self.proofs.forget_lets();
                 lower_while_inner(self, *cond, body, None);
+                self.proofs.forget_lets();
             }
             Stmt::ForOfSplitIter {
                 var_name,
@@ -83,7 +86,9 @@ impl<'a> LowerCtx<'a> {
                 sep,
                 body,
             } => {
+                self.proofs.forget_lets();
                 crate::ssa_lower_stmt_for_of_split_iter::lower(self, var_name, *parent, *sep, body);
+                self.proofs.forget_lets();
             }
             Stmt::ForOf {
                 var_name,
@@ -94,12 +99,16 @@ impl<'a> LowerCtx<'a> {
                 is_await,
                 ..
             } => {
+                self.proofs.forget_lets();
                 crate::ssa_lower_stmt_for_of::lower(
                     self, var_name, i_ident, *elem_expr, body, *forin_obj, *is_await,
                 );
+                self.proofs.forget_lets();
             }
             Stmt::DoWhile { body, cond } => {
+                self.proofs.forget_lets();
                 crate::ssa_lower_stmt_do_while::lower(self, body, *cond);
+                self.proofs.forget_lets();
             }
             Stmt::Switch {
                 scrutinee,
@@ -107,7 +116,9 @@ impl<'a> LowerCtx<'a> {
                 default,
                 default_at,
             } => {
+                let saved = self.proofs.region_enter();
                 crate::ssa_lower_stmt_switch::lower(self, *scrutinee, cases, default, *default_at);
+                self.proofs.region_leave(&saved);
             }
             Stmt::For {
                 init,
@@ -115,7 +126,9 @@ impl<'a> LowerCtx<'a> {
                 step,
                 body,
             } => {
+                self.proofs.forget_lets();
                 crate::ssa_lower_stmt_for::lower(self, init.as_deref(), *cond, *step, body);
+                self.proofs.forget_lets();
             }
             Stmt::Break(label) => {
                 crate::ssa_lower_stmt_break_continue::lower_break(self, label.as_deref());
@@ -124,7 +137,9 @@ impl<'a> LowerCtx<'a> {
                 crate::ssa_lower_stmt_break_continue::lower_continue(self, label.as_deref());
             }
             Stmt::Labeled { label, body } => {
+                let saved = self.proofs.region_enter();
                 crate::ssa_lower_stmt_break_continue::lower_labeled(self, label, body);
+                self.proofs.region_leave(&saved);
             }
             Stmt::Throw(eid) => {
                 crate::ssa_lower_stmt_throw::lower(self, *eid);
@@ -201,21 +216,22 @@ impl<'a> LowerCtx<'a> {
                 // ... }`) reaches here and is a no-op in single-file
                 // mode.
             }
-            other => {
-                // Friendly classification for the most common shapes
-                // that hit this catch-all so users get a readable
-                // message instead of the raw AST debug print.
-                let label = match other {
-                    Stmt::FnDecl { name, .. } => format!(
-                        "nested function declaration `{name}` inside a block / switch (planned: function-statement hoisting, see roadmap)"
-                    ),
-                    Stmt::ClassDecl { name, .. } => format!(
-                        "nested class declaration `{name}` inside a block (planned: same hoisting story as nested functions)"
-                    ),
-                    _ => format!("statement shape not yet implemented: {other:?}"),
-                };
-                panic!("{label}");
-            }
+            other => panic!("{}", unimplemented_stmt_label(other)),
         }
+    }
+}
+
+/// Friendly classification for the most common shapes that hit the
+/// catch-all so users get a readable message instead of the raw AST
+/// debug print.
+fn unimplemented_stmt_label(other: &Stmt) -> String {
+    match other {
+        Stmt::FnDecl { name, .. } => format!(
+            "nested function declaration `{name}` inside a block / switch (planned: function-statement hoisting, see roadmap)"
+        ),
+        Stmt::ClassDecl { name, .. } => format!(
+            "nested class declaration `{name}` inside a block (planned: same hoisting story as nested functions)"
+        ),
+        _ => format!("statement shape not yet implemented: {other:?}"),
     }
 }

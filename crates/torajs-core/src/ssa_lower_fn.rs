@@ -65,6 +65,7 @@ pub(crate) fn lower_fn(
     closure_variadic_captures: &mut HashMap<String, Vec<String>>,
     call_retargets: &CallRetargets,
     may_throw_fns: &std::collections::HashSet<String>,
+    arr_head_pinned: bool,
     class_name_to_tag: &HashMap<String, u32>,
     anon_stamp_pool: &crate::ssa_lower_anon_stamp::AnonStampPoolCell,
     globals: &HashMap<String, Type>,
@@ -197,6 +198,7 @@ pub(crate) fn lower_fn(
         temps: Default::default(),
         owned_member_reads: std::collections::HashSet::new(),
         pins: Default::default(),
+        proofs: crate::ssa_lower::proofs::Proofs::new(arr_head_pinned),
     };
 
     let assigned_in_body = ctx.prime_body_binding_sets(body.iter());

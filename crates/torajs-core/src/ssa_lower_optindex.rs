@@ -65,6 +65,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId, index: Exp
     // Hit path — the index expression lowers HERE (short-circuit
     // never evaluates it).
     ctx.cur_block = hit_blk;
+    ctx.proofs.enter_cond();
     let elem = if matches!(obj_ty, Type::Any) {
         lower_any_hit(ctx, eid, obj_op, index)
     } else {
@@ -100,6 +101,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId, index: Exp
         }
         boxed
     };
+    ctx.proofs.leave_cond();
     ctx.f.append_void(
         ctx.cur_block,
         InstKind::Store(elem, Operand::Value(res_slot), 0),

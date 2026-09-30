@@ -210,6 +210,9 @@ impl LowerCtx<'_> {
             if self.binding_is_boxed_noncopy(&name, &prev) {
                 self.boxed_noncopy_lets.insert(name.clone());
             }
+            // the name denotes the outer binding again; what the
+            // inner one proved does not carry over
+            self.proofs.kill(&name);
             self.locals.insert(name, prev);
         }
     }

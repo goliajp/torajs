@@ -52,12 +52,14 @@ pub(crate) fn lower(
     let else_blk = ctx.f.add_block();
     let after_blk = ctx.f.add_block();
     let saved = ctx.cur_block;
+    ctx.proofs.enter_cond();
     ctx.cur_block = then_blk;
     let then_val = ctx.lower_expr(then_branch);
     let mut then_end = ctx.cur_block;
     ctx.cur_block = else_blk;
     let else_val = ctx.lower_expr(else_branch);
     let mut else_end = ctx.cur_block;
+    ctx.proofs.leave_cond();
     let (then_val, else_val, res_ty, then_boxed, else_boxed) = widen_branches(
         ctx,
         eid,

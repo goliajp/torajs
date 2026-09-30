@@ -186,7 +186,9 @@ fn lower_by_target(ctx: &mut LowerCtx, eid: ExprId, target: ExprId, value: ExprI
             // coerce_to_str), plus the RFC 20260730 undeclared-
             // write ReferenceError lane keyed by target eid. See
             // [`crate::ssa_lower_assign_ident::lower`].
-            crate::ssa_lower_assign_ident::lower(ctx, eid, target, name, value)
+            let v = crate::ssa_lower_assign_ident::lower(ctx, eid, target, name.clone(), value);
+            ctx.proofs.kill(&name);
+            v
         }
         Expr::Member { obj, name: field } => {
             // M1.4 — `obj.field = value`. 7-way dispatch

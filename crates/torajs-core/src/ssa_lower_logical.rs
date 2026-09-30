@@ -104,7 +104,9 @@ impl LowerCtx<'_> {
         if a_owned {
             self.emit_drop_value(a_for_slot.clone(), slot_ty.clone());
         }
+        self.proofs.enter_cond();
         let b = self.lower_expr(right);
+        self.proofs.leave_cond();
         let b_for_slot = if widen_to_any && self.operand_ty(&b) != Type::Any {
             self.box_to_any_from_expr(right, b)
         } else {
@@ -282,7 +284,9 @@ impl LowerCtx<'_> {
         if a_owned {
             self.emit_drop_value(a_for_slot.clone(), slot_ty.clone());
         }
+        self.proofs.enter_cond();
         let b = self.lower_expr(right);
+        self.proofs.leave_cond();
         let b_for_slot = if widen_to_any && self.operand_ty(&b) != Type::Any {
             self.box_to_any_from_expr(right, b)
         } else {

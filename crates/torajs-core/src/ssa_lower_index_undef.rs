@@ -9,6 +9,8 @@ use crate::ssa_lower_binop_null_undef::UNDEF_CELL_SYM;
 use crate::ssa_lower_intrinsics_str_b::STR_UNDEF_CELL_SYM;
 use crate::ssa_lower_undef_f64_source::F64_UNDEF_SENTINEL_BITS;
 
+pub(crate) mod recv;
+
 /// The value an out-of-range read of an `elem_ty` element stores into
 /// its result slot, emitted into `oob_blk`, and whether that exit
 /// records a RangeError instead (an integer element has no spelling

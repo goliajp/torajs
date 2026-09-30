@@ -494,4 +494,6 @@ pub(crate) struct LowerCtx<'a> {
     /// Operands an assignment expression parks for its own second
     /// site (the coerced key of `o[k] op= v` — see the struct doc).
     pub(crate) pins: crate::ssa_lower_assign::SharedPins,
+    /// What the lowering has proven so far (see the struct doc).
+    pub(crate) proofs: crate::ssa_lower::proofs::Proofs,
 }
