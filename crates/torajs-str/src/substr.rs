@@ -346,8 +346,9 @@ fn pool_pop() -> Option<NonNull<u8>> {
     }
     let new_count = count - 1;
     POOL_COUNT.store(new_count, Ordering::Relaxed);
-    let p = POOL_SLOTS_ARR[new_count].swap(ptr::null_mut(), Ordering::Relaxed);
-    NonNull::new(p)
+    // a plain load, not `swap`: an atomic exchange buys nothing the
+    // separately updated count does not already rule out
+    NonNull::new(POOL_SLOTS_ARR[new_count].load(Ordering::Relaxed))
 }
 
 #[inline]

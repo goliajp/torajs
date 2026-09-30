@@ -12,11 +12,16 @@
 //! tora's runtime is single-threaded today (JS spec's single
 //! event-loop model). Using `static mut [*mut u8; N]` would
 //! compile to the same instructions but trip the Rust 2024
-//! `static_mut_refs` lint. `AtomicPtr` + `AtomicUsize` under
-//! `Ordering::Relaxed` codegen identically and keep the API
-//! `&'static` clean. If threading ever lands, the pool will need a
-//! per-thread `RefCell` (or `thread_local!`) variant — but that
-//! API change is explicit at that point.
+//! `static_mut_refs` lint. `AtomicPtr` + `AtomicUsize` keep the API
+//! `&'static` clean, and every access here is a `Relaxed` `load` or
+//! `store`, which is an ordinary load or store instruction. A
+//! read-modify-write method is not: `swap` is an atomic exchange
+//! (`swp` on aarch64) whatever ordering it is given, so `pop` does
+//! not use one. Nothing is lost by that — the count is already
+//! updated with a separate load and store, so two threads could
+//! never have shared a pool through this type. If threading ever
+//! lands, the pool becomes one pool per thread, and that API change
+//! is explicit at that point.
 //!
 //! ## Bounded slot count
 //!
@@ -34,7 +39,7 @@ use crate::layout::{STR_POOL_PAYLOADS, STR_POOL_SLOTS};
 const N_CLASSES: usize = STR_POOL_PAYLOADS.len();
 
 /// LIFO slot array. `SLOTS[0..COUNT]` is occupied; the rest is
-/// undefined. `pop()` reads `SLOTS[COUNT - 1]` and decrements;
+/// stale. `pop()` reads `SLOTS[COUNT - 1]` and decrements;
 /// `push()` writes `SLOTS[COUNT]` and increments.
 static SLOTS: [[AtomicPtr<u8>; STR_POOL_SLOTS]; N_CLASSES] =
     [const { [const { AtomicPtr::new(ptr::null_mut()) }; STR_POOL_SLOTS] }; N_CLASSES];
@@ -63,15 +68,9 @@ pub fn pop(class: usize) -> Option<NonNull<u8>> {
     let new_count = count - 1;
     let slot = SLOTS.get(class)?.get(new_count)?;
     counter.store(new_count, Ordering::Relaxed);
-    let p = slot.swap(ptr::null_mut(), Ordering::Relaxed);
-    // `swap` to null clears the slot so a leaked debug walk
-    // doesn't think the pool still owns it. `p` was non-null when
-    // we pushed it, so `NonNull::new` is `Some` in non-corrupt
-    // builds; using the constructor instead of `unchecked` keeps
-    // a panic on accidental corruption (debug-only via
-    // `expect_none()` would be wrong since prod hits this every
-    // string drop).
-    NonNull::new(p)
+    // the slot keeps its pointer: the count alone says what the pool
+    // holds, and the next push overwrites it
+    NonNull::new(slot.load(Ordering::Relaxed))
 }
 
 /// Push a freed block onto the LIFO. Returns `true` if accepted,

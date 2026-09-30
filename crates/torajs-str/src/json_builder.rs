@@ -168,10 +168,11 @@ pub(crate) fn write_i64_into(dst: &mut Vec<u8>, n: i64) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_jsb_new(initial_cap: u32) -> *mut JsonBuilder {
     let cap = (initial_cap as usize).max(INITIAL_CAP);
-    let parked = PARKED.swap(ptr::null_mut(), Ordering::Relaxed);
+    let parked = PARKED.load(Ordering::Relaxed);
     if !parked.is_null() {
+        PARKED.store(ptr::null_mut(), Ordering::Relaxed);
         // SAFETY: only `finalize` parks, and it parks a builder it
-        // has just stopped using; the swap above takes it back out,
+        // has just stopped using; the store above takes it back out,
         // so this is the only live handle.
         let b = unsafe { &mut *parked };
         if b.buf.capacity() < cap {
