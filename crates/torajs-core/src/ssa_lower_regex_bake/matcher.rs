@@ -103,7 +103,10 @@ mod tests {
             assert!(matcher_ir(r"\bword\b", "i", wide).is_some());
             assert!(matcher_ir(r"(?:^a|a)b", "", wide).is_none());
             assert!(matcher_ir("(\u{e9}+)=", "", wide).is_some());
-            assert!(matcher_ir("(\u{65e5}+)=", "", wide).is_none());
+            assert!(matcher_ir("(\u{65e5}+)=", "", wide).is_some());
+            assert!(matcher_ir("(\u{65e5}+)=", "i", wide).is_none());
+            assert!(matcher_ir(r"\p{L}+", "u", wide).is_some());
+            assert!(matcher_ir(r"\p{L}+", "iu", wide).is_none());
             assert!(matcher_ir(r"[", "", wide).is_none());
             assert!(matcher_ir(r"a", "uv", wide).is_none());
         }
@@ -120,6 +123,9 @@ mod tests {
             (r"^(\w+)$", "m", false),
             (r"\b(\w+)\b", "iu", true),
             (r"(\d+)", "y", false),
+            (r"(\p{L}+)", "u", true),
+            (r"(\p{L}+)", "u", false),
+            (r"([^\p{L}]+)(\p{Lu})?", "gu", true),
         ] {
             let ir = matcher_ir(pat, flags, wide).unwrap();
             let f = emit::walk("__regex_matcher_l1_7", &ir);

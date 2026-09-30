@@ -10,8 +10,8 @@
 //! bytes, UTF-16 code units are 16-bit. Edges compare the unit, so a
 //! Latin-1 range is the same range on either payload and only the
 //! edges built for units above `0xFF` reach them. Under `u` / `v` the
-//! UTF-16 walk takes a surrogate pair as one step, the way the Pike
-//! VM takes the code point it transcodes to.
+//! UTF-16 walk reads a surrogate pair as one step and compares its
+//! code point; a surrogate outside a pair is a step of its own.
 //!
 //! An assertion on a state's ε path is a question about the position:
 //! at the input's start or end, at a line's, after or before a word
@@ -22,8 +22,8 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
-/// One code-unit range out of a state. Ranges of a variant are
-/// disjoint and sorted by `lo`.
+/// One range of units out of a state — code points when the walk
+/// reads pairs. Ranges of a variant are disjoint and sorted by `lo`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Edge {
     pub lo: u32,
@@ -82,13 +82,15 @@ pub struct MatcherIr {
     /// the walk reads 16-bit units; otherwise bytes
     pub wide: bool,
     /// a high surrogate followed by a low one is one step of the walk
-    /// and one step of the start scan (`u` / `v` over UTF-16)
+    /// and of the start scan, named by its code point (`u` / `v`, wide)
     pub pairs: bool,
     /// the walk tries `start` only (`y`)
     pub anchored: bool,
 }
 
-/// Highest unit an edge of a `wide` walk can name.
+/// Highest unit an edge of a `pairs` walk can name.
+pub const UNIT_MAX_PAIRS: u32 = 0x10FFFF;
+/// Highest unit an edge of a `wide` walk without `pairs` can name.
 pub const UNIT_MAX_WIDE: u32 = 0xFFFF;
 /// Highest unit an edge of a narrow walk can name.
 pub const UNIT_MAX_NARROW: u32 = 0xFF;
@@ -121,7 +123,9 @@ impl State {
 
 impl MatcherIr {
     pub fn unit_max(&self) -> u32 {
-        if self.wide {
+        if self.pairs {
+            UNIT_MAX_PAIRS
+        } else if self.wide {
             UNIT_MAX_WIDE
         } else {
             UNIT_MAX_NARROW
@@ -155,14 +159,19 @@ impl MatcherIr {
                 if pos == s.len() {
                     break;
                 }
-                let u: u32 = s[pos].into();
+                let step = self.step(s, pos);
+                let u = if step == 2 {
+                    code_point(s[pos].into(), s[pos + 1].into())
+                } else {
+                    s[pos].into()
+                };
                 let Some(e) = v.edges.iter().find(|e| e.lo <= u && u <= e.hi) else {
                     break;
                 };
                 for &slot in &e.saves {
                     work[slot as usize] = pos as i64;
                 }
-                pos += self.step(s, pos);
+                pos += step;
                 state = e.target as usize;
             }
             if last >= 0 {
@@ -275,6 +284,11 @@ pub fn is_line_terminator(u: u32) -> bool {
 pub fn is_word(u: u32, fold: bool) -> bool {
     matches!(u, 0x30..=0x39 | 0x41..=0x5A | 0x61..=0x7A | 0x5F)
         || (fold && matches!(u, 0x17F | 0x212A))
+}
+
+/// The code point a surrogate pair spells.
+pub fn code_point(high: u32, low: u32) -> u32 {
+    0x10000 + ((high - 0xD800) << 10) + (low - 0xDC00)
 }
 
 pub fn is_high_surrogate(u: u32) -> bool {

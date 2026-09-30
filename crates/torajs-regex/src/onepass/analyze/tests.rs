@@ -260,6 +260,38 @@ fn a_latin1_literal_is_one_unit() {
 }
 
 #[test]
+fn literals_ranges_and_properties_past_latin1_take_the_code_point() {
+    let s = utf16("12 H\u{e9}llo\u{65e5}\u{672c} \u{1d49c}\u{1d4b7}c 3\u{1f600}");
+    for (pat, flags) in [
+        ("(\\p{L}+)", RE_FLAG_U),
+        ("(\\P{L}+)", RE_FLAG_U),
+        ("([\\p{Lu}\\d]+)(\\p{Ll}*)", RE_FLAG_U),
+        ("[^\\p{L}\\d]+", RE_FLAG_U),
+        ("[^\u{4e00}-\u{9fff}]+", RE_FLAG_U),
+        ("[\u{100}-\u{ffff}]+", 0),
+        ("(\u{65e5}+)\u{672c}", 0),
+        ("(\u{65e5}+)\u{672c}", RE_FLAG_U),
+        ("\u{1d49c}+(\u{1d4b7})", RE_FLAG_U),
+        ("\\u{1F600}|\\u{1d4b7}", RE_FLAG_U),
+    ] {
+        assert!(wide_agrees(pat, flags, &s) > 0, "{pat}");
+    }
+    // a lone surrogate is a code point of its own, never half a pair
+    let ir = wide_matcher("[\u{10000}-\u{10ffff}]", RE_FLAG_U).unwrap();
+    assert_eq!(end_of(&ir, &[0xD83D, 0xDE00]), 2);
+    assert_eq!(end_of(&ir, &[0xD83D, 0x41]), -1);
+    assert_eq!(end_of(&ir, &[0xDE00, 0xD83D]), -1);
+    let ir = wide_matcher("\\P{L}", RE_FLAG_U).unwrap();
+    assert_eq!(end_of(&ir, &[0xD83D, 0x41]), 1);
+    // over Latin-1 the same class is its members up to U+00FF
+    let ir = matcher("(\\p{L}+)", RE_FLAG_U).unwrap();
+    let mut out = vec![-1i64; 4];
+    assert_eq!(ir.exec(b"1 H\xe9llo\xf7x", 0, &mut out), 7);
+    assert_eq!(out, [2, 7, 2, 7]);
+    assert!(matcher("(\u{65e5}+)=", 0).is_some());
+}
+
+#[test]
 fn latin1_units_take_the_negated_class() {
     let ir = matcher("([^a]+)", 0).unwrap();
     let mut out = vec![-1i64; 4];
@@ -442,9 +474,9 @@ fn refuses_what_it_cannot_walk() {
         ("(a)\\1", 0),
         ("a(?=b)", 0),
         ("(?<!a)b", 0),
-        ("(\u{65e5}+)=", 0),
-        ("[\u{4e2d}]", 0),
-        ("(\\p{L}+)", RE_FLAG_U),
+        ("(\u{65e5}+)=", RE_FLAG_I),
+        ("[\u{4e2d}]", RE_FLAG_I),
+        ("(\\p{L}+)", RE_FLAG_U | RE_FLAG_I),
         ("(?:^a|a)b", 0),
     ] {
         assert!(matcher(pat, flags).is_none(), "{pat}");

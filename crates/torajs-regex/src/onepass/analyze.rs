@@ -18,36 +18,34 @@
 //! instructions of the same variant unless both lead to the same
 //! `(target, saves)` pair.
 //!
-//! Units are claimed segment by segment: every unit up to `0xFF` on
-//! its own, and above that the ranges between the points where an
-//! instruction's answer can change — the line terminators `.` skips,
-//! and the units that share a canonical form with a Latin-1 one.
-//! Every instruction the lane serves is constant between them.
+//! Units are claimed segment by segment ([`super::units`]): every
+//! instruction the lane serves gives one answer across a segment.
 
 use alloc::collections::BTreeMap;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use super::fold::{SHARED_HIGH_UNITS, canonicalize};
 use super::ir::{
-    Edge, INPUT_END, INPUT_START, LINE_END, LINE_START, MatcherIr, State, UNIT_MAX_NARROW,
-    UNIT_MAX_WIDE, Variant, WORD_LEFT, WORD_LEFT_FOLD, WORD_RIGHT, WORD_RIGHT_FOLD,
+    Edge, INPUT_END, INPUT_START, LINE_END, LINE_START, MatcherIr, State, UNIT_MAX_NARROW, Variant,
+    WORD_LEFT, WORD_LEFT_FOLD, WORD_RIGHT, WORD_RIGHT_FOLD,
 };
+use super::units::{admits, segments};
 use crate::flags::unicode_mode;
-use crate::parser::{RE_FLAG_I, RE_FLAG_M, RE_FLAG_S, RE_FLAG_Y};
+use crate::parser::{RE_FLAG_I, RE_FLAG_M, RE_FLAG_Y};
 use crate::program::{Inst, Op, Program};
 
 /// Build the matcher for `prog` (compiled with `Program::raw_classes`
 /// under `flags`) over Latin-1 code units, or over UTF-16 code units
 /// when `wide`. `None` when the program is not one-pass, or uses a
-/// shape this walk does not serve: lookaround, backreferences, a
-/// literal, a property class or a range past U+00FF.
+/// shape this walk does not serve: lookaround, backreferences, and
+/// under `i` an atom that reaches past U+00FF.
 pub fn build(prog: &Program, flags: u8, wide: bool) -> Option<MatcherIr> {
     if !servable(prog) {
         return None;
     }
     let unicode = unicode_mode(flags);
-    let segments = segments(wide);
+    let pairs = wide && unicode;
+    let segments = segments(prog, wide, pairs);
     let mut states: Vec<State> = Vec::new();
     let mut by_seed: BTreeMap<usize, u32> = BTreeMap::new();
     let mut queue: Vec<usize> = vec![0];
@@ -101,7 +99,7 @@ pub fn build(prog: &Program, flags: u8, wide: bool) -> Option<MatcherIr> {
         states,
         stride: crate::vm::saves_arena::detect_stride(prog) as u32,
         wide,
-        pairs: wide && unicode,
+        pairs,
         anchored: flags & RE_FLAG_Y != 0,
     })
 }
@@ -115,12 +113,14 @@ fn servable(prog: &Program) -> bool {
     prog.insts.iter().enumerate().all(|(i, ins)| {
         let falls_through = i + 1 < n;
         match Op::from_u8(ins.op) {
-            Some(Op::Char) => falls_through && ins.cp() <= UNIT_MAX_NARROW,
+            Some(Op::Char) => falls_through && (!folds(ins) || ins.cp() <= UNIT_MAX_NARROW),
             Some(Op::AnyChar) => falls_through,
             Some(Op::Class) => {
                 falls_through
-                    && (ins.a as usize) < prog.classes.len()
-                    && single_unit_class(&prog.classes[ins.a as usize])
+                    && prog
+                        .classes
+                        .get(ins.a as usize)
+                        .is_some_and(|c| !c.byte_only && (!folds(ins) || latin1_class(c)))
             }
             Some(Op::Save) => falls_through && ins.a >= 0,
             Some(Op::AnchorB | Op::AnchorE | Op::WBound | Op::NWBound) => falls_through,
@@ -132,65 +132,16 @@ fn servable(prog: &Program) -> bool {
     })
 }
 
-/// A class decided by one Latin-1 code unit: the bitmap holds
-/// U+0000..U+00FF as parsed (`Program::raw_classes`), so `negate`
-/// reaches every unit above 0x7F the way the spec's `[^…]` does;
-/// a property table or a range past U+00FF needs the code point,
-/// and an expansion leaf (`byte_only`) is a UTF-8 byte, not a unit.
-fn single_unit_class(c: &crate::charclass::CharClass) -> bool {
-    c.u_prop_tables.is_empty() && c.owned_ranges.is_empty() && !c.byte_only
+fn folds(ins: &Inst) -> bool {
+    ins.pad as u8 & RE_FLAG_I != 0
 }
 
-/// Units above `0xFF` where a served instruction's answer can change:
-/// the LineTerminators `.` skips (§12.3) and the units a Latin-1 atom
-/// folds together with, each on its own.
-fn segments(wide: bool) -> Vec<(u32, u32)> {
-    let mut segs: Vec<(u32, u32)> = (0..=UNIT_MAX_NARROW).map(|u| (u, u)).collect();
-    if !wide {
-        return segs;
-    }
-    let mut cuts: Vec<u32> = vec![UNIT_MAX_NARROW + 1];
-    for &p in [0x2028, 0x2029].iter().chain(&SHARED_HIGH_UNITS) {
-        cuts.push(p);
-        cuts.push(p + 1);
-    }
-    cuts.sort_unstable();
-    cuts.dedup();
-    for (i, &lo) in cuts.iter().enumerate() {
-        let hi = cuts.get(i + 1).map_or(UNIT_MAX_WIDE, |&next| next - 1);
-        segs.push((lo, hi));
-    }
-    segs
-}
-
-/// Whether `ins` consumes the code unit `u` (§22.2.2.7.3: a `.` skips
-/// the four LineTerminators unless `s`; under `i` a character matches
-/// what canonicalizes with it, and a class what canonicalizes with a
-/// member; a class is tested as a unit, which under `u` / `v` is the
-/// code point for everything the lane serves, a lone surrogate
-/// included).
-fn admits(prog: &Program, ins: Inst, u: u32, unicode: bool) -> bool {
-    let ci = ins.pad as u8 & RE_FLAG_I != 0;
-    match Op::from_u8(ins.op) {
-        Some(Op::Char) => {
-            let c = ins.cp();
-            c == u || (ci && canonicalize(c, unicode) == canonicalize(u, unicode))
-        }
-        Some(Op::AnyChar) => ins.pad as u8 & RE_FLAG_S != 0 || !super::ir::is_line_terminator(u),
-        Some(Op::Class) => {
-            let class = &prog.classes[ins.a as usize];
-            // membership of the class as written; `negate` is applied
-            // after the fold, as CharacterSetMatcher's `invert` is
-            let member = |m: u32| class.test_cp(m as i32) != class.negate;
-            let found = member(u)
-                || (ci && {
-                    let cu = canonicalize(u, unicode);
-                    (0..=UNIT_MAX_NARROW).any(|m| member(m) && canonicalize(m, unicode) == cu)
-                });
-            found != class.negate
-        }
-        _ => false,
-    }
+/// A class whose members all lie in U+0000..U+00FF — the domain
+/// [`super::fold::canonicalize`] covers, so the class can be matched
+/// under `i`. A property table or a range past U+00FF would need the
+/// full case-folding tables.
+fn latin1_class(c: &crate::charclass::CharClass) -> bool {
+    c.u_prop_tables.is_empty() && c.owned_ranges.is_empty()
 }
 
 /// The context bits the assertions reachable from `seed` by ε read.

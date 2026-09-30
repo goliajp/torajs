@@ -17,6 +17,7 @@
 pub mod analyze;
 pub mod fold;
 pub mod ir;
+mod units;
 
 pub use analyze::build;
 pub use ir::{Edge, MatcherIr, State, Variant};
