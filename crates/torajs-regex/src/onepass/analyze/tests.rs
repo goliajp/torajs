@@ -186,9 +186,9 @@ fn bench_pattern() {
     same("([a-z]+)=(\\d+)", 0, "kq=17;=3;abc=905;zz12;");
     assert_eq!(agrees("([a-z]+)=(\\d+)", 0, "aaaaaaaa;bbbb="), 0);
     let ir = matcher("([a-z]+)=(\\d+)", 0).unwrap();
-    // one state per seed pc: the loop body's class and the first
-    // one share a closure shape but not a seed
-    assert_eq!(ir.states.len(), 6);
+    // one state per seed pc past its jumps: the start, each class
+    // loop, and the `=` between them
+    assert_eq!(ir.states.len(), 4);
     assert_eq!(ir.stride, 6);
     assert!(
         ir.states
@@ -466,6 +466,19 @@ fn a_sticky_matcher_tries_the_start_only() {
 }
 
 #[test]
+fn the_arms_of_an_alternation_exit_into_one_state() {
+    // `+` is one mandatory copy and a looped one: the start, the loop
+    // every arm of both rejoins, and after `a` and after `c` in each
+    let m = wide_matcher("(?:ab|cd|e)+", 0).expect("one-pass");
+    assert_eq!(m.states.len(), 6);
+    for hay in ["abcde", "eab", "abc", "xcdx"] {
+        same("(?:ab|cd|e)+", 0, hay);
+    }
+    // both arms claim `a` and rejoin with the same slots
+    same("(?:^a|a)b", 0, "ab xab");
+}
+
+#[test]
 fn refuses_what_it_cannot_walk() {
     for (pat, flags) in [
         ("(a|ab)(c|bcd)", 0),
@@ -477,7 +490,7 @@ fn refuses_what_it_cannot_walk() {
         ("(\u{65e5}+)=", RE_FLAG_I),
         ("[\u{4e2d}]", RE_FLAG_I),
         ("(\\p{L}+)", RE_FLAG_U | RE_FLAG_I),
-        ("(?:^a|a)b", 0),
+        ("(?:^a|(a))b", 0),
     ] {
         assert!(matcher(pat, flags).is_none(), "{pat}");
         assert!(wide_matcher(pat, flags).is_none(), "{pat} wide");

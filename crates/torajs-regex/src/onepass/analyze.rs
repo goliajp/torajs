@@ -65,7 +65,7 @@ pub fn build(prog: &Program, flags: u8, wide: bool) -> Option<MatcherIr> {
             let Closure { consuming, accept } = closure(prog, seed, ctx, unicode);
             let mut table: Vec<Option<(u32, Vec<u32>)>> = vec![None; segments.len()];
             for (pc, saves) in consuming {
-                let next = pc + 1;
+                let next = past_jumps(prog, pc + 1);
                 let target = match by_seed.get(&next) {
                     Some(&t) => t,
                     None => {
@@ -130,6 +130,19 @@ fn servable(prog: &Program) -> bool {
             _ => false,
         }
     })
+}
+
+/// Where a walk entered at `pc` starts consuming: a jump writes no slot
+/// and reads no context, so the arms of an alternation share the state
+/// their exits jump to instead of seeding one state per arm.
+fn past_jumps(prog: &Program, mut pc: usize) -> usize {
+    for _ in 0..prog.len() {
+        if Op::from_u8(prog.insts[pc].op) != Some(Op::Jmp) {
+            break;
+        }
+        pc = prog.insts[pc].a as usize;
+    }
+    pc
 }
 
 fn folds(ins: &Inst) -> bool {
