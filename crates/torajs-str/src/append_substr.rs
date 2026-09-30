@@ -11,8 +11,9 @@
 
 use torajs_rc::HeapHeader;
 
-use crate::append::{append_payload, is_solely_ours};
+use crate::append::{append_in_place, append_payload, is_solely_ours};
 use crate::block::StrBlock;
+use crate::join::Side;
 use crate::layout::{STR_FLAG_IS_ASCII, grow_capacity};
 use crate::str_drop::__torajs_str_drop;
 use crate::substr_concat::__torajs_substr_concat_str_substr;
@@ -28,6 +29,19 @@ use crate::substr_methods::{substr_parent, substr_view};
 /// (released here); `v` is a valid Substr whose parent is live.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_append_substr(a: *mut u8, v: *const u8) -> *mut u8 {
+    // a view of `a` itself reads the payload the append would write;
+    // the general path owns that case
+    if !core::ptr::eq(a as *const u8, unsafe { substr_parent(v) })
+        && unsafe { append_in_place(a, Side::of_view(v)) }
+    {
+        return a;
+    }
+    unsafe { append_substr_general(a, v) }
+}
+
+/// [`__torajs_str_append_substr`] past its in-place shortcut.
+#[inline(never)]
+unsafe fn append_substr_general(a: *mut u8, v: *const u8) -> *mut u8 {
     // SAFETY: caller's contract is a valid Str block at `a` and a
     // valid view at `v`.
     let header = unsafe { &*(a as *const HeapHeader) };

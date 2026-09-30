@@ -31,11 +31,19 @@
 //! from `concat` to `append` is a peephole on the emitted stream
 //! (`torajs-egraph`'s `str_append` pass), not something `concat`
 //! could ever decide for itself.
+//!
+//! The first branch is also the one a builder loop takes on nearly
+//! every round, so it is tried first and on its own
+//! ([`append_in_place`]): same width, a short right side, room in the
+//! slack. That path has no call in it; everything else leaves through
+//! one tail call.
 
 use torajs_rc::{FLAG_STATIC_LITERAL, HeapHeader};
 
 use crate::block::StrBlock;
 use crate::concat::__torajs_str_concat;
+use crate::copy::{SHORT_MAX, copy_short};
+use crate::join::Side;
 use crate::layout::{
     STR_DATA_OFF, STR_FLAG_IS_ASCII, STR_FLAG_IS_LATIN1, STR_LEN_OFF, byte_capacity, grow_capacity,
 };
@@ -71,6 +79,46 @@ fn write_side(src: &[u8], dst: &mut [u8], src_is_latin1: bool, dst_is_latin1: bo
     }
 }
 
+/// Write `b` into the slack of `a` when that is all the append takes:
+/// `a` is a plain cell nobody else holds, `b` has its width and is at
+/// most [`SHORT_MAX`] bytes, and the room is already there. Answers
+/// whether it did; on `false` nothing was touched.
+///
+/// # Safety
+///
+/// `a` is a valid, non-null Str heap block the caller owns a reference
+/// to, and `b` is readable for its code units and does not alias `a`'s
+/// payload.
+#[inline(always)]
+pub(crate) unsafe fn append_in_place(a: *mut u8, b: Side) -> bool {
+    // SAFETY: caller's contract is a valid Str block at `a`.
+    let header = unsafe { &*(a as *const HeapHeader) };
+    let flags = header.flags;
+    if !unsafe { is_solely_ours(header) } || (flags ^ b.flags) & STR_FLAG_IS_LATIN1 != 0 {
+        return false;
+    }
+    let shift = u32::from(flags & STR_FLAG_IS_LATIN1 == 0);
+    let add = (b.len as u64) << shift;
+    if add > SHORT_MAX as u64 {
+        return false;
+    }
+    let len = unsafe { (a.add(STR_LEN_OFF) as *const u32).read() };
+    let used = len << shift;
+    let cap = unsafe { StrBlock::from_raw(a).payload_capacity() };
+    if used as u64 + add > cap as u64 {
+        return false;
+    }
+    unsafe {
+        copy_short(a.add(STR_DATA_OFF + used as usize), b.ptr, add as usize);
+        (a.add(STR_LEN_OFF) as *mut u32).write(len + b.len);
+        // `a` stays known-ASCII only if what landed on it is too
+        if flags & STR_FLAG_IS_ASCII != 0 && b.flags & STR_FLAG_IS_ASCII == 0 {
+            (*(a as *mut HeapHeader)).flags = flags & !STR_FLAG_IS_ASCII;
+        }
+    }
+    true
+}
+
 /// `a + b` for Str operands where **the caller's reference to `a` is
 /// consumed**. Answers an owned refcount-1 Str; the answer aliases
 /// `a` when the append happened in place.
@@ -82,6 +130,23 @@ fn write_side(src: &[u8], dst: &mut [u8], src_is_latin1: bool, dst_is_latin1: bo
 /// releases it). `b` is borrowed.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_append(a: *mut u8, b: *const u8) -> *mut u8 {
+    // `s + s` hands the same cell in twice; the general path owns
+    // that case, and the null ones.
+    if !a.is_null()
+        && !b.is_null()
+        && !core::ptr::eq(a as *const u8, b)
+        && unsafe { append_in_place(a, Side::of_str(b)) }
+    {
+        return a;
+    }
+    unsafe { append_general(a, b) }
+}
+
+/// [`__torajs_str_append`] past its in-place shortcut: null operands,
+/// a shared or aliased left side, a long or wider right side, a cell
+/// that has to grow.
+#[inline(never)]
+unsafe fn append_general(a: *mut u8, b: *const u8) -> *mut u8 {
     // A null operand is the JS `null` value (RFC 20260707 chunk 4);
     // `concat` already owns that path. Cold either way.
     if a.is_null() || b.is_null() {

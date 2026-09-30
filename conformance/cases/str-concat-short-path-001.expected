@@ -1,0 +1,10 @@
+latin1+latin1 0 78276
+utf16+utf16 0 78276
+latin1+utf16 0 78276
+utf16+latin1 0 78276
+high-latin1 0 78276
+view latin1 0 104368
+view utf16 0 104368
+view mixed 0 104368
+ab,cdabab,cdab ab cd
+nullwww wwwnull undefinedwww wwwundefined

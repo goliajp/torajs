@@ -90,17 +90,21 @@ pub const STR_POOL_PAYLOADS: [u32; 3] = [16, 32, 64];
 pub const STR_POOL_PAYLOAD: u32 = STR_POOL_PAYLOADS[STR_POOL_PAYLOADS.len() - 1];
 
 /// Pool class holding a payload of `byte_capacity` bytes, or `None`
-/// when it is too large to pool. `ceil_log2(cap) - 4` clamped at
-/// zero, which is why the class sizes have to stay powers of two
-/// starting at 16 (`pool_classes_are_the_powers_of_two_this_assumes`
-/// pins that).
+/// when it is too large to pool: the number of class payloads below
+/// the largest that the capacity is past. Spelled as one compare per
+/// boundary because this sits on every string allocation and release
+/// (`pool_classes_are_the_powers_of_two_this_assumes` pins it against
+/// the table).
 #[inline]
 pub const fn pool_class_of(byte_capacity: u32) -> Option<usize> {
+    const _: () = assert!(STR_POOL_PAYLOADS.len() == 3);
     if byte_capacity > STR_POOL_PAYLOAD {
         return None;
     }
-    let ceil_log2 = u32::BITS - byte_capacity.saturating_sub(1).leading_zeros();
-    Some((ceil_log2 as usize).saturating_sub(4))
+    Some(
+        (byte_capacity > STR_POOL_PAYLOADS[0]) as usize
+            + (byte_capacity > STR_POOL_PAYLOADS[1]) as usize,
+    )
 }
 
 /// Number of LIFO slots in the small-Str pool. Bounded so a

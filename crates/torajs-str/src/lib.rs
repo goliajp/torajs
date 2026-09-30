@@ -114,6 +114,7 @@ pub(crate) fn write_stderr(bytes: &[u8]) {
 
 pub(crate) mod alloc_canonical;
 pub mod append;
+pub mod append_lit;
 pub mod append_substr;
 pub mod block;
 pub mod block_ffi;
@@ -122,12 +123,14 @@ pub mod code_point;
 pub mod concat;
 pub mod concat_lit;
 pub mod concat_num;
+pub(crate) mod copy;
 pub mod eq;
 pub mod escape;
 pub mod group_span;
 pub mod hash;
 pub mod html;
 pub mod index_any;
+pub(crate) mod join;
 pub mod json;
 pub mod json_builder;
 pub mod json_parse;

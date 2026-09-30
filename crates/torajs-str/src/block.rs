@@ -140,11 +140,9 @@ impl StrBlock {
     #[must_use = "StrBlock owns a heap allocation; ignore the value and the block leaks"]
     pub fn alloc_with_flags(length: u32, is_latin1: bool, extra: u16) -> Self {
         let cap = byte_capacity(length, is_latin1);
-        if let Some(class) = pool_class_of(cap) {
-            if let Some(p) = pool::pop(class) {
-                Self::init_header_and_length(p, length, is_latin1, extra);
-                return Self(p);
-            }
+        let flags = extra | if is_latin1 { STR_FLAG_IS_LATIN1 } else { 0 };
+        if let Some(block) = Self::pop_pooled(length, cap, flags) {
+            return block;
         }
         // SAFETY: malloc is the standard libc allocator. We then
         // wrap the result in NonNull; libc returns null on OOM
@@ -155,6 +153,28 @@ impl StrBlock {
         let nn = NonNull::new(raw).unwrap_or_else(|| torajs_abort::abort_with(b"OOM in Str alloc"));
         Self::init_header_and_length(nn, length, is_latin1, extra);
         Self(nn)
+    }
+
+    /// The pool half of [`Self::alloc_with_flags`]: a recycled block
+    /// for `length` code units in `payload_bytes` bytes, its header
+    /// written with `flags` (the encoding bit and any producer marks,
+    /// as the caller already holds them), or `None` when the payload
+    /// is past the pool's classes or its class is empty. There is no
+    /// call in it, so a kernel whose short path ends here stays a
+    /// leaf.
+    #[inline(always)]
+    #[must_use = "StrBlock owns a heap allocation; ignore the value and the block leaks"]
+    pub(crate) fn pop_pooled(length: u32, payload_bytes: u32, flags: u16) -> Option<Self> {
+        let class = pool_class_of(payload_bytes)?;
+        let p = pool::pop(class)?;
+        // SAFETY: a popped block is exclusively ours until we return.
+        // The length store is eight bytes wide: it zeroes the
+        // capacity slot beside it.
+        unsafe {
+            (p.as_ptr() as *mut u64).write(packed_header_init(false) | (flags as u64) << 48);
+            (p.as_ptr().add(STR_LEN_OFF) as *mut u64).write(length as u64);
+        }
+        Some(Self(p))
     }
 
     /// Allocate a fresh Str block holding `length` code units but

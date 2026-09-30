@@ -2,12 +2,13 @@
 //!
 //! Port of `ssa_inkwell::define_str_concat` (P3.1-g.4, 2026-05-23).
 //! Pool-aware alloc plus encoding-aware payload writes; both operand
-//! Strs are read-only and the caller's drops still fire on them.
+//! Strs are read-only and the caller's drops still fire on them. The
+//! copy itself is [`crate::join`]'s.
 //!
 //! Returns NULL only if alloc panics on OOM (matches the IR shape:
 //! str_alloc_pooled abort-on-OOM). Inputs are valid Str heap blocks
-//! OR NULL — a NULL operand denotes the JS `undefined` value and
-//! concats as the text "undefined" (RC-4 F1b-2, see the fn body).
+//! OR NULL — a NULL operand denotes the JS `null` value and concats
+//! as the text "null" (see the fn body).
 //!
 //! ## P11.1-S2.1 encoding-aware
 //!
@@ -32,8 +33,8 @@
 //! ASCII concat stays on the all-Latin-1 fast path with the same
 //! shape as pre-S2; only mixed-encoding concats pay the widen cost.
 
-use crate::block::StrBlock;
-use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_ASCII, STR_FLAG_IS_LATIN1, STR_LEN_OFF};
+use crate::join::{Side, join, join_general};
+use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_LEN_OFF};
 use torajs_rc::HeapHeader;
 
 // ============================================================
@@ -89,86 +90,26 @@ pub unsafe extern "C" fn __torajs_str_concat(a: *const u8, b: *const u8) -> *mut
     // gave `undefined` the immortal sentinel cell and left NULL to
     // mean what it says. Every producer named in the old comment
     // (uncaptured capture group, `[.., undefined]` literal slot, typed
-    // OOB elem load) spells the sentinel now. Cold path: materialize
-    // the literal, recurse, drop the temp.
+    // OOB elem load) spells the sentinel now.
     if a.is_null() || b.is_null() {
-        let null_s = unsafe { crate::literals::__torajs_null_to_str() };
-        let r = if a.is_null() && b.is_null() {
-            unsafe { __torajs_str_concat(null_s, null_s) }
-        } else if a.is_null() {
-            unsafe { __torajs_str_concat(null_s, b) }
-        } else {
-            unsafe { __torajs_str_concat(a, null_s) }
-        };
-        unsafe { crate::str_drop::__torajs_str_drop(null_s) };
-        return r;
+        return unsafe { concat_null(a, b) };
     }
-    let a_len = unsafe { str_len(a) };
-    let b_len = unsafe { str_len(b) };
-    let total_len = a_len + b_len;
-    let a_is_latin1 = unsafe { str_is_latin1(a) };
-    let b_is_latin1 = unsafe { str_is_latin1(b) };
-    let out_is_latin1 = a_is_latin1 && b_is_latin1;
-    // Known-ASCII on both sides is known-ASCII joined.
-    let ascii = unsafe { (*(a as *const HeapHeader)).flags & (*(b as *const HeapHeader)).flags }
-        & STR_FLAG_IS_ASCII;
-    let mut block = StrBlock::alloc_with_flags(total_len, out_is_latin1, ascii);
-    if total_len == 0 {
-        return block.into_raw();
-    }
-    let a_byte_cnt = if a_is_latin1 {
-        a_len as usize
-    } else {
-        (a_len as usize) * 2
-    };
-    let b_byte_cnt = if b_is_latin1 {
-        b_len as usize
-    } else {
-        (b_len as usize) * 2
-    };
-    let out_byte_cnt = if out_is_latin1 {
-        total_len as usize
-    } else {
-        (total_len as usize) * 2
-    };
-    let a_out_byte_cnt = if out_is_latin1 {
-        a_len as usize
-    } else {
-        (a_len as usize) * 2
-    };
-    let b_out_byte_cnt = if out_is_latin1 {
-        b_len as usize
-    } else {
-        (b_len as usize) * 2
-    };
-    let dst = unsafe { block.as_bytes_mut(out_byte_cnt as u32) };
-    if a_byte_cnt > 0 {
-        let a_payload = unsafe { str_payload(a, a_byte_cnt) };
-        if a_is_latin1 == out_is_latin1 {
-            dst[..a_out_byte_cnt].copy_from_slice(a_payload);
-        } else {
-            // a is Latin-1 but output is UTF-16 — widen.
-            widen_latin1_into_utf16(a_payload, &mut dst[..a_out_byte_cnt]);
-        }
-    }
-    if b_byte_cnt > 0 {
-        let b_payload = unsafe { str_payload(b, b_byte_cnt) };
-        let b_slot = &mut dst[a_out_byte_cnt..a_out_byte_cnt + b_out_byte_cnt];
-        if b_is_latin1 == out_is_latin1 {
-            b_slot.copy_from_slice(b_payload);
-        } else {
-            // b is Latin-1 but output is UTF-16 — widen.
-            widen_latin1_into_utf16(b_payload, b_slot);
-        }
-    }
-    block.into_raw()
+    unsafe { join(Side::of_str(a), Side::of_str(b)) }
+}
+
+/// `__torajs_str_concat` with a null operand: it reads as the text
+/// "null".
+#[cold]
+#[inline(never)]
+unsafe fn concat_null(a: *const u8, b: *const u8) -> *mut u8 {
+    unsafe { join_general(Side::of_nullable_str(a), Side::of_nullable_str(b)) }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::block::__torajs_str_free;
-    use crate::layout::byte_capacity;
+    use crate::block::{__torajs_str_free, StrBlock};
+    use crate::layout::{STR_FLAG_IS_ASCII, byte_capacity};
     use alloc::vec::Vec;
 
     fn make_latin1(payload: &[u8]) -> *mut u8 {

@@ -66,7 +66,10 @@ pub fn pop(class: usize) -> Option<NonNull<u8>> {
         return None;
     }
     let new_count = count - 1;
-    let slot = SLOTS.get(class)?.get(new_count)?;
+    // `push` keeps every count within the slot array; the mask says
+    // so in a form that needs no bounds test
+    const _: () = assert!(STR_POOL_SLOTS.is_power_of_two());
+    let slot = &SLOTS.get(class)?[new_count & (STR_POOL_SLOTS - 1)];
     counter.store(new_count, Ordering::Relaxed);
     // the slot keeps its pointer: the count alone says what the pool
     // holds, and the next push overwrites it
