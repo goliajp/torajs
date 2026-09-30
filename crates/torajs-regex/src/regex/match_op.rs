@@ -240,8 +240,9 @@ pub(crate) unsafe fn match_walk(
     let global = re.flags & RE_FLAG_G != 0;
     let sticky = re.flags & RE_FLAG_Y != 0;
     // The global walk ends on `Set(R, "lastIndex", 0)` (§22.2.6.8 via
-    // §22.2.7.2), which a non-writable lastIndex refuses.
-    if global && unsafe { super::lifecycle::tracked_store_refuses(re) } {
+    // §22.2.7.2) and a sticky exec stores its end or 0 (§22.2.7.2
+    // step 12.a / 15); a non-writable lastIndex refuses either.
+    if (global || sticky) && unsafe { super::lifecycle::tracked_store_refuses(re) } {
         return;
     }
 

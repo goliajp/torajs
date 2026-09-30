@@ -32,6 +32,9 @@ pub(crate) fn emit_search(
         Type::I64,
         None,
     );
+    // §22.2.7.2 writes lastIndex under `g` / `y`; a frozen one is a
+    // recorded TypeError
+    ctx.emit_throw_check(None);
     Operand::Value(v)
 }
 
@@ -81,6 +84,7 @@ pub(crate) fn emit_match(
             Type::I64,
             None,
         );
+        ctx.emit_throw_check(None);
         return Operand::Value(held);
     }
     let v = ctx.f.append_inst(
@@ -92,6 +96,9 @@ pub(crate) fn emit_match(
         Type::Arr(arr_id),
         None,
     );
+    // the walk writes lastIndex under `g` / `y`; a frozen one is a
+    // recorded TypeError and the kernel answers the miss (null)
+    ctx.emit_throw_check(None);
     Operand::Value(v)
 }
 
@@ -365,8 +372,16 @@ pub(crate) fn emit_replace(
     // exited uncaught with the `try` standing right there. An explicit
     // `throw` in the same callback was caught, which is what made it
     // read as a regex bug rather than a missing check.
-    if any_repl || opt_extras.is_some() || method == "replaceAll" {
+    //
+    // - and the fourth, on every lane: §22.2.7.2's lastIndex store
+    //   under `g` / `y`, which a frozen lastIndex refuses.
+    //
+    // The string-replacement kernels answer a fresh copy of the
+    // subject on their throw paths, so the check owns that copy.
+    if any_repl || opt_extras.is_some() {
         ctx.emit_throw_check(None);
+    } else {
+        ctx.emit_throw_check_owned(None, Operand::Value(v), Type::Str);
     }
     Operand::Value(v)
 }

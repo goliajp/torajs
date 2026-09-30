@@ -251,8 +251,14 @@ pub unsafe extern "C" fn __torajs_str_replace_regex(
     if re.rejected != 0 {
         abort_unsupported(re);
     }
-    // §22.2.6.11 step 10 — see `replace_fn_inner`.
-    if re.flags & RE_FLAG_G != 0 && !unsafe { super::lifecycle::global_replace_start(re) } {
+    // §22.2.6.11 step 10 — see `replace_fn_inner`. A sticky-only
+    // replace stores lastIndex through its one exec (§22.2.7.2 step
+    // 12.a / 15), which a frozen lastIndex refuses the same way.
+    let global = re.flags & RE_FLAG_G != 0;
+    let sticky_only = !global && re.flags & RE_FLAG_Y != 0;
+    if (global && !unsafe { super::lifecycle::global_replace_start(re) })
+        || (sticky_only && unsafe { super::lifecycle::tracked_store_refuses(re) })
+    {
         let s = unsafe { str_units(str_ptr) };
         return unsafe { str_from_bytes(&s) as *mut c_void };
     }
@@ -278,7 +284,6 @@ pub unsafe extern "C" fn __torajs_str_replace_regex(
             (&repl_owned, false)
         }
     };
-    let global = re.flags & RE_FLAG_G != 0;
     if haystack_is_ascii
         && repl_is_ascii
         && re.flags & RE_FLAG_Y == 0

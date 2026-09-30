@@ -89,8 +89,13 @@ pub(crate) fn try_lower(
                 Type::Bool,
                 None,
             );
+            // a frozen lastIndex under `g` / `y` is a recorded
+            // TypeError, same as exec
             if s_owned {
+                ctx.emit_throw_check_owned(None, s, Type::Str);
                 ctx.emit_drop_value(s, Type::Str);
+            } else {
+                ctx.emit_throw_check(None);
             }
             Some(Operand::Value(v))
         }

@@ -127,6 +127,13 @@ pub unsafe extern "C" fn __torajs_str_search_regex(
         return -1;
     }
     let re = unsafe { super::as_regex(re_ptr) };
+    // §22.2.6.12 runs RegExpExec, whose `g` / `y` lastIndex store a
+    // frozen lastIndex refuses; the saved value is restored either way
+    if re.flags & (RE_FLAG_G | RE_FLAG_Y) != 0
+        && unsafe { super::lifecycle::tracked_store_refuses(re) }
+    {
+        return -1;
+    }
     let s = unsafe { haystack(re, str_ptr) };
     let hit = if (re.flags & RE_FLAG_Y) != 0 {
         match_anchor(&re.prog, &s, 0, re.flags)
