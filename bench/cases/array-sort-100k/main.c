@@ -23,8 +23,8 @@ static I64Vec build(size_t n, int64_t seed) {
     I64Vec xs = {0};
     int32_t s = (int32_t)seed;
     for (size_t i = 0; i < n; i++) {
-        /* (s * 48271) | 0: the product stays below 2^53, then wraps to int32 */
-        s = (int32_t)(uint32_t)((int64_t)s * 48271) & 0x7fffffff;
+        /* the minimal standard generator; the product stays below 2^47 */
+        s = (int32_t)(((int64_t)s * 48271) % 2147483647);
         if (s == 0) {
             s = 1;
         }

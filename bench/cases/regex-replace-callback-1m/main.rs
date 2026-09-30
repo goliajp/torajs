@@ -1,5 +1,5 @@
 fn next(s: i64) -> i64 {
-    let t = ((s * 48271) as i32 & 0x7fffffff) as i64;
+    let t = (s * 48271) % 2147483647;
     if t == 0 {
         1
     } else {

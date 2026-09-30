@@ -1,5 +1,5 @@
 function next(s: number): number {
-  const t = ((s * 48271) | 0) & 0x7fffffff
+  const t = (s * 48271) % 2147483647
   return t === 0 ? 1 : t
 }
 

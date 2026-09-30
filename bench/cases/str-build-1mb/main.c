@@ -38,9 +38,9 @@ static void append(StrBuf *b, const char *s, size_t len) {
     b->len = need;
 }
 
-/* the product stays below 2^53, so the low 31 bits are what | 0 then & keeps */
+/* the minimal standard generator; the product stays below 2^47 */
 static int64_t next(int64_t s) {
-    int64_t t = (int64_t)((uint64_t)(s * 48271) & 0x7fffffff);
+    int64_t t = (s * 48271) % 2147483647;
     return t == 0 ? 1 : t;
 }
 

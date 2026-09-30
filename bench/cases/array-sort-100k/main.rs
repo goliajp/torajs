@@ -2,8 +2,8 @@ fn build(n: usize, seed: i64) -> Vec<i64> {
     let mut xs: Vec<i64> = Vec::new();
     let mut s = seed as i32;
     for _ in 0..n {
-        // (s * 48271) | 0: the product stays below 2^53, then wraps to int32
-        s = ((s as i64 * 48271) as i32) & 0x7fffffff;
+        // the minimal standard generator; the product stays below 2^47
+        s = ((s as i64 * 48271) % 2147483647) as i32;
         if s == 0 {
             s = 1;
         }

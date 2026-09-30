@@ -1,13 +1,12 @@
-// Sort a 1000-element pseudo-random array 100 times. The RNG step
-// stays inside int32 to keep f64-vs-i64 multiplication semantics
-// out of the bench surface (tora i64 multiply diverges from JS f64
-// when the intermediate product crosses 2^53 — bench would then
-// be measuring two different programs).
+// Sort a 1000-element pseudo-random array 100 times. The RNG is the
+// minimal standard generator: its product stays below 2^47, so f64
+// and i64 multiplication agree and every runtime sorts the same
+// numbers.
 function build(n: number, seed: number): number[] {
   const xs: number[] = []
   let s = seed | 0
   for (let i = 0; i < n; i = i + 1) {
-    s = ((s * 48271) | 0) & 0x7fffffff
+    s = (s * 48271) % 2147483647
     if (s === 0) s = 1
     xs.push(s)
   }

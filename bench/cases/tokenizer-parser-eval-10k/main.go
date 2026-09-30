@@ -7,7 +7,7 @@ import (
 )
 
 func next(s int64) int64 {
-	t := int64(int32(s*48271)) & 0x7fffffff
+	t := (s * 48271) % 2147483647
 	if t == 0 {
 		return 1
 	}
