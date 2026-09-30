@@ -19,9 +19,6 @@ vendor/
 # Per-developer IDE config (nudo)
 .nudo.toml
 
-# hardev — local development tooling and its data, not part of the product
-hardev/
-
 # python bytecode caches (cluster_incompat.py et al)
 __pycache__/
 *.pyc
