@@ -127,9 +127,11 @@ pub unsafe extern "C" fn __torajs_str_search_regex(
         return -1;
     }
     let re = unsafe { super::as_regex(re_ptr) };
-    // §22.2.6.12 runs RegExpExec, whose `g` / `y` lastIndex store a
-    // frozen lastIndex refuses; the saved value is restored either way
-    if re.flags & (RE_FLAG_G | RE_FLAG_Y) != 0
+    // §22.2.6.12 stores lastIndex twice: step 4 resets anything that is
+    // not SameValue +0 before the match, and RegExpExec writes it under
+    // `g` / `y`. a frozen lastIndex refuses either
+    let at_zero = re.last_index_boxed == 0 && re.last_index.to_bits() == 0;
+    if (re.flags & (RE_FLAG_G | RE_FLAG_Y) != 0 || !at_zero)
         && unsafe { super::lifecycle::tracked_store_refuses(re) }
     {
         return -1;
