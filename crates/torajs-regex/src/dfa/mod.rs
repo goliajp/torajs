@@ -145,7 +145,7 @@ impl DfaEligibility {
 /// A single fixed-position matcher at the head of an alternation branch
 /// — as far as a positional prefix comparison can reach.
 enum Atom {
-    Ch(u8),
+    Ch(u32),
     Cls(crate::charclass::CharClass),
     /// `.` — overlaps every other atom, so treated as compatible with
     /// anything (over-approximates: only ever costs the DFA fast path,
@@ -435,7 +435,7 @@ mod tests {
 
     fn char_node(b: u8) -> alloc::boxed::Box<Node> {
         let mut n = Node::new(NodeKind::Char);
-        n.ch = b;
+        n.ch = u32::from(b);
         n
     }
 

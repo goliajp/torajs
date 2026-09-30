@@ -235,7 +235,7 @@ pub(crate) fn classify_kproperty_shape(
             continue;
         };
         match Op::from_u8(ins.op) {
-            Some(Op::Char) if ins.ch >= 0x80 => return KPropertyVerdict::Unserveable,
+            Some(Op::Char) if ins.byte() >= 0x80 => return KPropertyVerdict::Unserveable,
             Some(Op::AnyChar) => return KPropertyVerdict::Unserveable,
             Some(Op::Class) => {
                 let Some(cc) = prog.classes.get(ins.a as usize) else {

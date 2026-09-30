@@ -102,7 +102,8 @@ mod tests {
             assert!(matcher_ir(r"(a)", "y", wide).unwrap().anchored);
             assert!(matcher_ir(r"\bword\b", "i", wide).is_some());
             assert!(matcher_ir(r"(?:^a|a)b", "", wide).is_none());
-            assert!(matcher_ir("(\u{e9}+)=", "", wide).is_none());
+            assert!(matcher_ir("(\u{e9}+)=", "", wide).is_some());
+            assert!(matcher_ir("(\u{65e5}+)=", "", wide).is_none());
             assert!(matcher_ir(r"[", "", wide).is_none());
             assert!(matcher_ir(r"a", "uv", wide).is_none());
         }

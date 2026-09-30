@@ -142,7 +142,7 @@ pub unsafe extern "C" fn __torajs_regex_compile_from_static_dfa(
         }
         0u8
     } else {
-        prog.emit(Inst::char_lit(0xff));
+        prog.emit(Inst::char_lit(0xffu8));
         prog.emit(Inst::match_accept());
         1u8
     };

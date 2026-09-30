@@ -41,8 +41,7 @@ use crate::program::{Inst, Op, Program};
 /// under `flags`) over Latin-1 code units, or over UTF-16 code units
 /// when `wide`. `None` when the program is not one-pass, or uses a
 /// shape this walk does not serve: lookaround, backreferences, a
-/// literal above 0x7F (the parser spells it as UTF-8 bytes), a
-/// property class or a range past U+00FF.
+/// literal, a property class or a range past U+00FF.
 pub fn build(prog: &Program, flags: u8, wide: bool) -> Option<MatcherIr> {
     if !servable(prog) {
         return None;
@@ -116,7 +115,7 @@ fn servable(prog: &Program) -> bool {
     prog.insts.iter().enumerate().all(|(i, ins)| {
         let falls_through = i + 1 < n;
         match Op::from_u8(ins.op) {
-            Some(Op::Char) => falls_through && ins.ch < 0x80,
+            Some(Op::Char) => falls_through && ins.cp() <= UNIT_MAX_NARROW,
             Some(Op::AnyChar) => falls_through,
             Some(Op::Class) => {
                 falls_through
@@ -174,7 +173,7 @@ fn admits(prog: &Program, ins: Inst, u: u32, unicode: bool) -> bool {
     let ci = ins.pad as u8 & RE_FLAG_I != 0;
     match Op::from_u8(ins.op) {
         Some(Op::Char) => {
-            let c = ins.ch as u32;
+            let c = ins.cp();
             c == u || (ci && canonicalize(c, unicode) == canonicalize(u, unicode))
         }
         Some(Op::AnyChar) => ins.pad as u8 & RE_FLAG_S != 0 || !super::ir::is_line_terminator(u),

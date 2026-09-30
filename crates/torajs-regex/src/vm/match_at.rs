@@ -101,7 +101,7 @@ pub fn vm_match_at(
             };
             match op {
                 Op::Char => {
-                    if pos < slen && char_eq(ins.ch, s[pos as usize], ins.pad as u8) {
+                    if pos < slen && char_eq(ins.byte(), s[pos as usize], ins.pad as u8) {
                         add_thread(
                             &mut ws.nxt,
                             &mut ws.vn,

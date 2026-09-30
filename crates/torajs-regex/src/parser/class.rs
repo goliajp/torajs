@@ -22,7 +22,6 @@
 use super::{Parser, apply_property_name, unicode_mode};
 use crate::node::{Node, NodeKind};
 use crate::ucd::UPropRange;
-use crate::utf8::utf8_decode_cp;
 use alloc::boxed::Box;
 
 impl<'p> Parser<'p> {
@@ -140,20 +139,8 @@ impl<'p> Parser<'p> {
             let c = self.read_class_escape_char(e)?;
             Some(ClassItem::Char(c))
         } else {
-            Some(ClassItem::Char(self.read_class_literal_cp()))
+            Some(ClassItem::Char(self.read_literal_cp()))
         }
-    }
-
-    /// One literal class member — a full UTF-8 code point, so a
-    /// multi-byte character is one member rather than a set of its
-    /// own encoding bytes.
-    fn read_class_literal_cp(&mut self) -> u32 {
-        let (cp, len) = utf8_decode_cp(&self.p[self.i..]);
-        // A malformed byte decodes as itself with length 1, which is
-        // the pre-existing byte behaviour and keeps `[\xE9]`-style
-        // raw patterns doing what they did.
-        self.i += len.max(1);
-        cp as u32
     }
 
     /// Shared escape-char reader for both class items and class-range
@@ -334,7 +321,7 @@ impl<'p> Parser<'p> {
             }
             self.read_class_escape_char(e)
         } else {
-            Some(self.read_class_literal_cp())
+            Some(self.read_literal_cp())
         }
     }
 }

@@ -244,6 +244,22 @@ fn flags_fold_into_the_edges() {
 }
 
 #[test]
+fn a_latin1_literal_is_one_unit() {
+    let ir = matcher("(\u{e9}+)=", 0).unwrap();
+    let mut out = vec![-1i64; 4];
+    assert_eq!(ir.exec(b"\xe9\xe9=22", 0, &mut out), 3);
+    assert_eq!(out, [0, 3, 0, 2]);
+    assert_eq!(
+        wide_agrees("(\u{e9}+)=", 0, &utf16("x\u{e9}\u{e9}=22 \u{65e5}")),
+        3
+    );
+    assert_eq!(
+        wide_agrees("\u{e9}*z|\\xe8", RE_FLAG_U, &utf16("\u{e9}\u{e9}z\u{e8}")),
+        4
+    );
+}
+
+#[test]
 fn latin1_units_take_the_negated_class() {
     let ir = matcher("([^a]+)", 0).unwrap();
     let mut out = vec![-1i64; 4];
@@ -426,7 +442,7 @@ fn refuses_what_it_cannot_walk() {
         ("(a)\\1", 0),
         ("a(?=b)", 0),
         ("(?<!a)b", 0),
-        ("(\u{e9}+)=", 0),
+        ("(\u{65e5}+)=", 0),
         ("[\u{4e2d}]", 0),
         ("(\\p{L}+)", RE_FLAG_U),
         ("(?:^a|a)b", 0),

@@ -217,7 +217,7 @@ impl Walker<'_> {
         let ul = utf8_len_for(b) as i64;
         let whole_char = ul >= 1 && pos + ul <= slen;
         match ins.op {
-            OP_CHAR => char_eq(ins.ch, b, ins.pad as u8).then_some(1),
+            OP_CHAR => char_eq(ins.byte(), b, ins.pad as u8).then_some(1),
             OP_ANY_CHAR => {
                 if ins.pad as u8 & RE_FLAG_S == 0 && b == b'\n' {
                     return None;

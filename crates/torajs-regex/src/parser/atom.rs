@@ -72,10 +72,7 @@ impl<'p> Parser<'p> {
                 self.set_err();
                 None
             }
-            _ => {
-                self.get();
-                Some(super::char_node(c))
-            }
+            _ => Some(super::char_node(self.read_literal_cp())),
         }
     }
 

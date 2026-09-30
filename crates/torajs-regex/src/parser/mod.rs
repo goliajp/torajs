@@ -198,6 +198,21 @@ impl<'p> Parser<'p> {
         }
     }
 
+    /// One literal pattern character — a full UTF-8 sequence, so a
+    /// multi-byte character is one atom or one class member rather
+    /// than the bytes of its own encoding. A byte that starts no
+    /// complete sequence reads as itself.
+    pub(super) fn read_literal_cp(&mut self) -> u32 {
+        let rest = &self.p[self.i..];
+        if rest.len() < crate::utf8::utf8_len_for(rest[0]) {
+            self.i += 1;
+            return u32::from(rest[0]);
+        }
+        let (cp, len) = crate::utf8::utf8_decode_cp(rest);
+        self.i += len;
+        cp as u32
+    }
+
     pub(super) fn remaining(&self) -> usize {
         self.p.len() - self.i
     }
@@ -470,7 +485,27 @@ mod tests {
         assert_eq!(r.kind, NodeKind::Concat);
         assert_eq!(r.kids.len(), 1);
         assert_eq!(r.kids[0].kind, NodeKind::Char);
-        assert_eq!(r.kids[0].ch, b'a');
+        assert_eq!(r.kids[0].ch, u32::from(b'a'));
+    }
+
+    #[test]
+    fn a_multibyte_literal_is_one_char() {
+        let r = parse_ok("\u{e9}+\u{65e5}\u{1f600}", RE_FLAG_U);
+        assert_eq!(r.kids.len(), 3);
+        assert_eq!(r.kids[0].kind, NodeKind::Repeat);
+        assert_eq!(r.kids[0].child.as_ref().unwrap().ch, 0xE9);
+        assert_eq!(r.kids[1].ch, 0x65E5);
+        assert_eq!(r.kids[2].ch, 0x1F600);
+        let r = parse_ok("\\xe9\\u65e5\\u{1f600}\\ud83d\\ude00", RE_FLAG_U);
+        assert_eq!(
+            r.kids.iter().map(|k| k.ch).collect::<Vec<_>>(),
+            vec![0xE9, 0x65E5, 0x1F600, 0x1F600]
+        );
+        let r = parse_ok("\\ud83d\\ude00", 0);
+        assert_eq!(
+            r.kids.iter().map(|k| k.ch).collect::<Vec<_>>(),
+            vec![0xD83D, 0xDE00]
+        );
     }
 
     #[test]
@@ -479,7 +514,7 @@ mod tests {
         assert_eq!(r.kids.len(), 3);
         assert_eq!(
             r.kids.iter().map(|k| k.ch).collect::<Vec<_>>(),
-            vec![b'a', b'b', b'c']
+            b"abc".map(u32::from).to_vec()
         );
     }
 
@@ -525,9 +560,9 @@ mod tests {
         // then `}`. Pattern length = 3 literal chars + leading `a`.
         let r = parse_ok("a{o}", 0);
         assert_eq!(r.kids.len(), 4);
-        assert_eq!(r.kids[1].ch, b'{');
-        assert_eq!(r.kids[2].ch, b'o');
-        assert_eq!(r.kids[3].ch, b'}');
+        assert_eq!(r.kids[1].ch, u32::from(b'{'));
+        assert_eq!(r.kids[2].ch, u32::from(b'o'));
+        assert_eq!(r.kids[3].ch, u32::from(b'}'));
     }
 
     #[test]

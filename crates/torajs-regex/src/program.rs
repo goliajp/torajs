@@ -9,14 +9,13 @@
 //!
 //! ```text
 //!   op : u8     opcode (see Op)
-//!   ch : u8     OP_CHAR literal
 //!   pad: u16    low byte = effective i/m/s bits at this atom
 //!               (RE_FLAG_I / RE_FLAG_M / RE_FLAG_S positions; ES
 //!               regexp-modifiers `(?ims-ims:…)` merged with the
 //!               global flags at parse time). Consumers: CHAR /
 //!               CLASS / BACKREF read the i bit, ANYCHAR the s bit,
 //!               ANCHOR_B/E the m bit. High byte reserved (0).
-//!   a  : i32    OP_CLASS=cls_idx, OP_JMP=target, OP_SPLIT=t1,
+//!   a  : i32    OP_CHAR=literal, OP_CLASS=cls_idx, OP_JMP=target, OP_SPLIT=t1,
 //!               OP_SAVE=slot, OP_LOOK*=sub_prog_idx, OP_BACKREF=cap_idx
 //!   b  : i32    OP_SPLIT=t2
 //! ```
@@ -79,40 +78,50 @@ impl Op {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Inst {
     pub op: u8,
-    pub ch: u8,
     pub pad: u16,
     pub a: i32,
     pub b: i32,
 }
 
 impl Inst {
-    /// Construct an instruction with `ch=0 a=0 b=0`. For ops whose
+    /// Construct an instruction with `a=0 b=0`. For ops whose
     /// only payload is the opcode (`AnyChar`, `AnchorB/E`, `WBound`,
     /// `NWBound`, `Match`).
     pub fn simple(op: Op) -> Self {
         Self {
             op: op as u8,
-            ch: 0,
             pad: 0,
             a: 0,
             b: 0,
         }
     }
 
-    pub fn char_lit(ch: u8) -> Self {
+    pub fn char_lit(lit: impl Into<u32>) -> Self {
         Self {
             op: Op::Char as u8,
-            ch,
             pad: 0,
-            a: 0,
+            a: lit.into() as i32,
             b: 0,
         }
+    }
+
+    /// `Char` — the literal as a code point (a program compiled with
+    /// [`Program::raw_classes`]).
+    #[inline]
+    pub fn cp(&self) -> u32 {
+        self.a as u32
+    }
+
+    /// `Char` — the literal as a haystack byte (every other program:
+    /// the compiler spells a literal past 0x7F as its UTF-8 bytes).
+    #[inline]
+    pub fn byte(&self) -> u8 {
+        self.a as u8
     }
 
     pub fn class_ref(cls_idx: i32) -> Self {
         Self {
             op: Op::Class as u8,
-            ch: 0,
             pad: 0,
             a: cls_idx,
             b: 0,
@@ -122,7 +131,6 @@ impl Inst {
     pub fn jmp(target: i32) -> Self {
         Self {
             op: Op::Jmp as u8,
-            ch: 0,
             pad: 0,
             a: target,
             b: 0,
@@ -132,7 +140,6 @@ impl Inst {
     pub fn split(a: i32, b: i32) -> Self {
         Self {
             op: Op::Split as u8,
-            ch: 0,
             pad: 0,
             a,
             b,
@@ -142,7 +149,6 @@ impl Inst {
     pub fn save(slot: i32) -> Self {
         Self {
             op: Op::Save as u8,
-            ch: 0,
             pad: 0,
             a: slot,
             b: 0,
@@ -156,7 +162,6 @@ impl Inst {
     pub fn backref(cap_idx: i32) -> Self {
         Self {
             op: Op::Backref as u8,
-            ch: 0,
             pad: 0,
             a: cap_idx,
             b: 0,
@@ -170,7 +175,6 @@ impl Inst {
         ));
         Self {
             op: op as u8,
-            ch: 0,
             pad: 0,
             a: sub_idx,
             b: 0,
@@ -368,14 +372,14 @@ mod tests {
         let idx = p.add_sub(sub1);
         assert_eq!(idx, 0);
         assert_eq!(p.sub_progs[0].len(), 1);
-        assert_eq!(p.sub_progs[0].insts[0].ch, b'x');
+        assert_eq!(p.sub_progs[0].insts[0].byte(), b'x');
     }
 
     #[test]
     fn inst_factories_match_layout() {
         let i = Inst::char_lit(b'A');
         assert_eq!(i.op, Op::Char as u8);
-        assert_eq!(i.ch, b'A');
+        assert_eq!(i.byte(), b'A');
 
         let s = Inst::split(3, 7);
         assert_eq!(s.op, Op::Split as u8);

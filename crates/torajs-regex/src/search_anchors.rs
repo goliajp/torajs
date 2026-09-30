@@ -25,8 +25,8 @@ impl Program {
     /// `prefix_byte`: walk forward over zero-width bookkeeping ops
     /// (`Save`, `AnchorB` / `AnchorE`, `WBound` / `NWBound`) to the
     /// first byte-consuming op; a plain `Char` there is the anchor,
-    /// any other shape leaves none. The u flag is fine — `Char` ops
-    /// only carry ASCII bytes; non-ASCII literals decode to `Class`.
+    /// any other shape leaves none. A literal past ASCII is a run
+    /// of `Char` ops, one per UTF-8 byte, so its lead byte anchors too.
     ///
     /// `literal`: the program is `Char+ Match` and nothing else, every
     /// `Char` plain and ASCII.
@@ -36,7 +36,7 @@ impl Program {
                 Some(Op::Save | Op::AnchorB | Op::AnchorE | Op::WBound | Op::NWBound) => continue,
                 Some(Op::Char) => {
                     if is_plain_char(inst) {
-                        self.prefix_byte = Some(inst.ch);
+                        self.prefix_byte = Some(inst.byte());
                     }
                     break;
                 }
@@ -48,9 +48,9 @@ impl Program {
         };
         let is_run = Op::from_u8(last.op) == Some(Op::Match)
             && !chars.is_empty()
-            && chars.iter().all(|i| is_plain_char(i) && i.ch < 0x80);
+            && chars.iter().all(|i| is_plain_char(i) && i.byte() < 0x80);
         if is_run {
-            self.literal = Some(chars.iter().map(|i| i.ch).collect::<Vec<u8>>());
+            self.literal = Some(chars.iter().map(|i| i.byte()).collect::<Vec<u8>>());
         }
     }
 }

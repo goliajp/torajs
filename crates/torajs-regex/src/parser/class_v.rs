@@ -37,7 +37,7 @@ use super::class_v_set::{
 use super::{Parser, apply_property_name};
 use crate::cpset::CpRangeSet;
 use crate::node::{Node, NodeKind};
-use crate::utf8::{utf8_decode_cp, utf8_encode_cp};
+use crate::utf8::utf8_decode_cp;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 
@@ -114,14 +114,10 @@ impl<'p> Parser<'p> {
             let mut concat = Node::new(NodeKind::Concat);
             concat.eff_ims = self.eff_ims;
             for &cp in s {
-                let mut buf = [0u8; 4];
-                let blen = utf8_encode_cp(cp as i32, &mut buf);
-                for &byte in &buf[..blen] {
-                    let mut ch = Node::new(NodeKind::Char);
-                    ch.ch = byte;
-                    ch.eff_ims = self.eff_ims;
-                    concat.push_kid(ch);
-                }
+                let mut ch = Node::new(NodeKind::Char);
+                ch.ch = cp;
+                ch.eff_ims = self.eff_ims;
+                concat.push_kid(ch);
             }
             alt.push_kid(concat);
         }
@@ -640,12 +636,12 @@ mod tests {
             "single string folds to its Concat"
         );
         assert_eq!(n.kids.len(), 2);
-        assert_eq!(n.kids[0].ch, b'c');
+        assert_eq!(n.kids[0].ch, u32::from(b'c'));
         // [\q{ab|cd}--\q{cd}] → only "ab".
         let r = parse_set("[\\q{ab|cd}--\\q{cd}]");
         let n = &r.kids[0];
         assert_eq!(n.kind, NodeKind::Concat);
-        assert_eq!(n.kids[0].ch, b'a');
+        assert_eq!(n.kids[0].ch, u32::from(b'a'));
         // cps and strings mix: union keeps both sides.
         let r = parse_set("[[0-9]\\q{ab}]");
         let alt = &r.kids[0];

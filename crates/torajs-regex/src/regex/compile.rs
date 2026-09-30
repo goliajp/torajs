@@ -147,7 +147,7 @@ pub(crate) fn compile_bytes(pat: Vec<u8>, fl: Vec<u8>) -> *mut c_void {
         }
         0u8
     } else {
-        prog.emit(Inst::char_lit(0xff));
+        prog.emit(Inst::char_lit(0xffu8));
         prog.emit(Inst::match_accept());
         1u8
     };

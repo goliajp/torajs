@@ -24,7 +24,6 @@
 
 use crate::node::{Node, NodeKind};
 use crate::parser::unicode_mode;
-use crate::utf8::utf8_encode_cp;
 use alloc::vec::Vec;
 
 /// Walk `node` recursively, validating + resolving every Backref.
@@ -70,15 +69,15 @@ fn resolve_one(node: &mut Node, names: &[Vec<u8>], n_captures: usize, flags: u8)
 
 /// Annex B §B.1.4 — rewrite an out-of-range decimal backref in
 /// place as its LegacyOctalEscapeSequence / IdentityEscape reading:
-/// the longest octal prefix of the digit run becomes one code point
-/// (UTF-8 encoded like `\uHHHH`), every remaining digit a literal
+/// the longest octal prefix of the digit run becomes one code point,
+/// every remaining digit a literal
 /// char. `\8` / `\9` have no octal prefix, so the whole run is
 /// literal digits.
 fn demote_annexb(node: &mut Node) {
     let digits = core::mem::take(&mut node.backref_name);
     node.capture_idx = -1;
     let d0 = digits[0] - b'0';
-    let mut bytes: Vec<u8> = Vec::new();
+    let mut chars: Vec<u32> = Vec::new();
     let mut rest_start = 0;
     if d0 <= 7 {
         // Longest legacy octal prefix: first digit 0-3 → up to 3
@@ -94,21 +93,19 @@ fn demote_annexb(node: &mut Node) {
             val = val * 8 + u32::from(d);
             k += 1;
         }
-        let mut buf = [0u8; 4];
-        let blen = utf8_encode_cp(val as i32, &mut buf);
-        bytes.extend_from_slice(&buf[..blen]);
+        chars.push(val);
         rest_start = k;
     }
-    bytes.extend_from_slice(&digits[rest_start..]);
-    if bytes.len() == 1 {
+    chars.extend(digits[rest_start..].iter().map(|&d| u32::from(d)));
+    if chars.len() == 1 {
         node.kind = NodeKind::Char;
-        node.ch = bytes[0];
+        node.ch = chars[0];
         return;
     }
     node.kind = NodeKind::Concat;
-    for &b in &bytes {
+    for &c in &chars {
         let mut kid = Node::new(NodeKind::Char);
-        kid.ch = b;
+        kid.ch = c;
         // Synthesized literals inherit the demoted backref's effective
         // i/m/s scope (regexp-modifiers) — `(?i:(\12))`-style bodies
         // keep case-insensitivity on the demoted chars.
@@ -165,7 +162,7 @@ mod tests {
         assert_eq!(n.kind, NodeKind::Concat);
         assert_eq!(n.kids.len(), 2);
         assert_eq!(n.kids[0].ch, 0o123);
-        assert_eq!(n.kids[1].ch, b'4');
+        assert_eq!(n.kids[1].ch, u32::from(b'4'));
     }
 
     #[test]
@@ -176,7 +173,7 @@ mod tests {
         let n = &root.kids[0];
         assert_eq!(n.kind, NodeKind::Concat);
         assert_eq!(n.kids[0].ch, 0o77);
-        assert_eq!(n.kids[1].ch, b'7');
+        assert_eq!(n.kids[1].ch, u32::from(b'7'));
     }
 
     #[test]
@@ -185,7 +182,7 @@ mod tests {
         assert!(resolve_backrefs(&mut root, &names, nc, 0));
         let n = &root.kids[1];
         assert_eq!(n.kind, NodeKind::Char);
-        assert_eq!(n.ch, b'9');
+        assert_eq!(n.ch, u32::from(b'9'));
     }
 
     #[test]

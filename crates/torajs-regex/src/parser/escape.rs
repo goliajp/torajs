@@ -1,18 +1,16 @@
 //! Escape-form parsing — extracted from `runtime_regex.c` L470-681.
 //!
 //! Handles `\X` after the leading `\` has been consumed by
-//! `parse_atom`. Produces either a single `Char` node (literal byte
-//! escapes), a `Class` node (shorthand classes `\d`/`\w`/`\s` and
-//! their inverses + Unicode property `\p{}`), a `Backref` node (`\N`
-//! or `\k<name>`), or a `Concat` of `Char` nodes (multi-byte UTF-8
-//! encoding of `\uHHHH` / `\u{HHHH..}`).
+//! `parse_atom`. Produces a single `Char` node (a literal code point:
+//! control escapes, `\xHH`, `\uHHHH`, `\u{HHHH..}`), a `Class` node
+//! (shorthand classes `\d`/`\w`/`\s`, their inverses, and the Unicode
+//! property `\p{}`), or a `Backref` node (`\N` or `\k<name>`).
 
 use super::{
     Parser, apply_property_name, char_node, class_node, control_letter_value, hex_value,
     is_regex_syntax_char, unicode_mode,
 };
 use crate::node::{Node, NodeKind};
-use crate::utf8::utf8_encode_cp;
 use alloc::boxed::Box;
 
 impl<'p> Parser<'p> {
@@ -51,8 +49,8 @@ impl<'p> Parser<'p> {
             b'n' => Some(char_node(b'\n')),
             b't' => Some(char_node(b'\t')),
             b'r' => Some(char_node(b'\r')),
-            b'f' => Some(char_node(0x0C)),
-            b'v' => Some(char_node(0x0B)),
+            b'f' => Some(char_node(0x0Cu8)),
+            b'v' => Some(char_node(0x0Bu8)),
             b'0' => {
                 // §22.2.1.1 DecimalEscape Early Error: under u/v the
                 // `\0` NUL escape must not be followed by a decimal
@@ -62,7 +60,7 @@ impl<'p> Parser<'p> {
                     self.set_err();
                     return None;
                 }
-                Some(char_node(0))
+                Some(char_node(0u8))
             }
             b'd' => Some(class_node(|cc| cc.add_digit())),
             b'D' => Some(class_node(|cc| {
@@ -96,7 +94,7 @@ impl<'p> Parser<'p> {
                     && let Some(v) = control_letter_value(self.peek(), false)
                 {
                     self.get();
-                    return Some(char_node(v as u8));
+                    return Some(char_node(v));
                 }
                 if unicode_mode(self.flags) {
                     self.set_err();
@@ -175,27 +173,42 @@ impl<'p> Parser<'p> {
         let cp = if !self.eof() && self.peek() == b'{' && unicode_mode(self.flags) {
             self.parse_braced_unicode()?
         } else {
-            self.parse_4digit_unicode()
+            self.parse_4digit_unicode().map(|lead| {
+                if unicode_mode(self.flags)
+                    && (0xD800..=0xDBFF).contains(&lead)
+                    && let Some(trail) = self.parse_trail_surrogate_escape()
+                {
+                    0x10000 + ((lead - 0xD800) << 10) + (trail - 0xDC00)
+                } else {
+                    lead
+                }
+            })
         };
         let Some(cp) = cp else {
             // Lenient fallback: bare `\u` not followed by valid form
             // → literal `u` (matches the legacy non-u-mode default).
             return Some(char_node(b'u'));
         };
-        let mut buf = [0u8; 4];
-        let blen = utf8_encode_cp(cp, &mut buf);
-        if blen == 0 {
-            self.set_err();
+        Some(char_node(cp as u32))
+    }
+
+    /// The trail half of `\uHHHH\uHHHH` when the cursor sits on one:
+    /// under `u` / `v` a lead surrogate escape followed by a trail
+    /// surrogate escape is one code point (§22.2.1
+    /// RegExpUnicodeEscapeSequence).
+    fn parse_trail_surrogate_escape(&mut self) -> Option<i32> {
+        if self.remaining() < 6 || self.peek() != b'\\' || self.peek_at(1) != b'u' {
             return None;
         }
-        if blen == 1 {
-            return Some(char_node(buf[0]));
+        let save = self.i;
+        self.i += 2;
+        match self.parse_4digit_unicode() {
+            Some(trail) if (0xDC00..=0xDFFF).contains(&trail) => Some(trail),
+            _ => {
+                self.i = save;
+                None
+            }
         }
-        let mut seq = Node::new(NodeKind::Concat);
-        for &b in &buf[..blen] {
-            seq.push_kid(char_node(b));
-        }
-        Some(seq)
     }
 
     /// `\u{HHHH..}` extended form (u flag only). Returns `Some(Some(cp))`
@@ -347,28 +360,28 @@ mod tests {
     fn parses_hex_escape() {
         let r = parse_ok("\\x41", 0);
         assert_eq!(r.kids[0].kind, NodeKind::Char);
-        assert_eq!(r.kids[0].ch, b'A');
+        assert_eq!(r.kids[0].ch, u32::from(b'A'));
     }
 
     #[test]
     fn parses_unicode_4digit_escape() {
         let r = parse_ok("\\u0041", 0);
         assert_eq!(r.kids[0].kind, NodeKind::Char);
-        assert_eq!(r.kids[0].ch, b'A');
+        assert_eq!(r.kids[0].ch, u32::from(b'A'));
     }
 
     #[test]
-    fn parses_unicode_4digit_multibyte_emits_concat() {
-        let r = parse_ok("\\u4E2D", 0); // 中 → 3 UTF-8 bytes
-        assert_eq!(r.kids[0].kind, NodeKind::Concat);
-        assert_eq!(r.kids[0].kids.len(), 3);
+    fn parses_unicode_4digit_multibyte_as_one_char() {
+        let r = parse_ok("\\u4E2D", 0);
+        assert_eq!(r.kids[0].kind, NodeKind::Char);
+        assert_eq!(r.kids[0].ch, 0x4E2D);
     }
 
     #[test]
     fn parses_unicode_braced_under_u_flag() {
-        let r = parse_ok("\\u{1F600}", RE_FLAG_U); // 😀 → 4 bytes
-        assert_eq!(r.kids[0].kind, NodeKind::Concat);
-        assert_eq!(r.kids[0].kids.len(), 4);
+        let r = parse_ok("\\u{1F600}", RE_FLAG_U);
+        assert_eq!(r.kids[0].kind, NodeKind::Char);
+        assert_eq!(r.kids[0].ch, 0x1F600);
     }
 
     #[test]
@@ -457,7 +470,7 @@ mod tests {
     fn property_without_u_flag_is_literal() {
         let r = parse_ok("\\p", 0);
         assert_eq!(r.kids[0].kind, NodeKind::Char);
-        assert_eq!(r.kids[0].ch, b'p');
+        assert_eq!(r.kids[0].ch, u32::from(b'p'));
     }
 
     #[test]
@@ -479,7 +492,7 @@ mod tests {
         ] {
             let r = parse_ok(pat, 0);
             assert_eq!(r.kids[0].kind, NodeKind::Char);
-            assert_eq!(r.kids[0].ch, expect);
+            assert_eq!(r.kids[0].ch, u32::from(expect));
         }
     }
 
@@ -488,6 +501,6 @@ mod tests {
         // `\.` → literal `.`, not Any.
         let r = parse_ok("\\.", 0);
         assert_eq!(r.kids[0].kind, NodeKind::Char);
-        assert_eq!(r.kids[0].ch, b'.');
+        assert_eq!(r.kids[0].ch, u32::from(b'.'));
     }
 }

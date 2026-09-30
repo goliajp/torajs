@@ -48,9 +48,9 @@ pub(crate) fn is_regex_syntax_char(b: u8) -> bool {
     )
 }
 
-pub(crate) fn char_node(ch: u8) -> Box<Node> {
+pub(crate) fn char_node(cp: impl Into<u32>) -> Box<Node> {
     let mut n = Node::new(NodeKind::Char);
-    n.ch = ch;
+    n.ch = cp.into();
     n
 }
 

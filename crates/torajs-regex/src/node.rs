@@ -48,8 +48,9 @@ pub enum NodeKind {
 pub struct Node {
     pub kind: NodeKind,
 
-    /// `Char` — the literal byte.
-    pub ch: u8,
+    /// `Char` — the literal code point: a code unit without `u` / `v`
+    /// (a lone surrogate included), a full code point with them.
+    pub ch: u32,
 
     /// `Class` — owned character class.
     pub cc: CharClass,
@@ -139,12 +140,12 @@ mod tests {
         let mut parent = Node::new(NodeKind::Concat);
         for i in 0..10 {
             let mut kid = Node::new(NodeKind::Char);
-            kid.ch = b'a' + i;
+            kid.ch = u32::from(b'a') + i;
             parent.push_kid(kid);
         }
         assert_eq!(parent.kids.len(), 10);
         for (i, kid) in parent.kids.iter().enumerate() {
-            assert_eq!(kid.ch, b'a' + i as u8);
+            assert_eq!(kid.ch, u32::from(b'a') + i as u32);
         }
     }
 
@@ -154,7 +155,7 @@ mod tests {
         let mut left = Node::new(NodeKind::Concat);
         for c in [b'a', b'b', b'c'] {
             let mut leaf = Node::new(NodeKind::Char);
-            leaf.ch = c;
+            leaf.ch = u32::from(c);
             left.push_kid(leaf);
         }
         let mut right = Node::new(NodeKind::Repeat);

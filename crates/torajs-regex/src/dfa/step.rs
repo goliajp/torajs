@@ -60,7 +60,7 @@ pub fn byte_step_full(
         };
         match op {
             Op::Char => {
-                if crate::vm::char_eq(ins.ch, byte, ins.pad as u8) {
+                if crate::vm::char_eq(ins.byte(), byte, ins.pad as u8) {
                     let n = pc + 1;
                     if n < plen {
                         ready.insert(n);

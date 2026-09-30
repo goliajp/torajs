@@ -91,7 +91,7 @@ pub fn vm_match_at_rev(
             };
             match op {
                 Op::Char => {
-                    if pos > 0 && char_eq(ins.ch, s[(pos - 1) as usize], ins.pad as u8) {
+                    if pos > 0 && char_eq(ins.byte(), s[(pos - 1) as usize], ins.pad as u8) {
                         add_thread(
                             &mut ws.nxt,
                             &mut ws.vn,

@@ -19,6 +19,7 @@
 use crate::node::{Node, NodeKind};
 use crate::parser::unicode_mode;
 use crate::program::{Inst, Op, Program};
+use crate::utf8::utf8_encode_cp;
 use crate::utf8_class_expand::expand_unsafe_class;
 use alloc::{boxed::Box, vec::Vec};
 
@@ -47,7 +48,20 @@ pub fn compile_rev(prog: &mut Program, node: &Node, flags: u8) {
 fn compile_dir(prog: &mut Program, node: &Node, flags: u8, rev: bool) {
     match node.kind {
         NodeKind::Char => {
-            emit_with_ims(prog, Inst::char_lit(node.ch), node);
+            if prog.raw_classes || node.ch < 0x80 {
+                emit_with_ims(prog, Inst::char_lit(node.ch), node);
+            } else {
+                // the haystack is UTF-8: one instruction per byte of the
+                // literal, last byte first for the reverse VM
+                let mut buf = [0u8; 4];
+                let len = utf8_encode_cp(node.ch as i32, &mut buf);
+                let mut emit = |b: u8| emit_with_ims(prog, Inst::char_lit(b), node);
+                if rev {
+                    buf[..len].iter().rev().copied().for_each(&mut emit);
+                } else {
+                    buf[..len].iter().copied().for_each(&mut emit);
+                }
+            }
         }
         NodeKind::Any => {
             emit_with_ims(prog, Inst::simple(Op::AnyChar), node);
@@ -323,6 +337,29 @@ mod tests {
         prog
     }
 
+    #[test]
+    fn a_literal_past_ascii_is_its_utf8_bytes_unless_raw() {
+        // `é+`: the loop covers both bytes of the character
+        let prog = compile_pattern("\u{e9}+");
+        let bytes: Vec<u8> = prog.insts[..2].iter().map(Inst::byte).collect();
+        assert_eq!(bytes, [0xC3, 0xA9]);
+        assert_eq!(prog.insts[2], Inst::split(3, 6));
+        assert_eq!(prog.insts[5], Inst::jmp(2));
+
+        let mut p = Parser::new("\u{65e5}".as_bytes(), 0);
+        let root = p.parse().unwrap();
+        let mut rev = Program::new();
+        compile_rev(&mut rev, &root, 0);
+        let bytes: Vec<u8> = rev.insts.iter().map(Inst::byte).collect();
+        assert_eq!(bytes, [0xA5, 0x97, 0xE6]);
+
+        let mut raw = Program::new();
+        raw.raw_classes = true;
+        compile(&mut raw, &root, 0);
+        assert_eq!(raw.insts.len(), 1);
+        assert_eq!(raw.insts[0].cp(), 0x65E5);
+    }
+
     fn compile_pattern_uflag(pat: &str) -> Program {
         let flags = crate::parser::RE_FLAG_U;
         let mut p = Parser::new(pat.as_bytes(), flags);
@@ -344,7 +381,7 @@ mod tests {
     fn literal_char_emits_char_then_match() {
         let prog = compile_pattern("a");
         assert_eq!(ops(&prog), vec![Op::Char, Op::Match]);
-        assert_eq!(prog.insts[0].ch, b'a');
+        assert_eq!(prog.insts[0].byte(), b'a');
     }
 
     #[test]
@@ -469,7 +506,7 @@ mod tests {
         let sub = &prog.sub_progs[0];
         assert_eq!(sub.insts.len(), 2);
         assert_eq!(sub.insts[0].op, Op::Char as u8);
-        assert_eq!(sub.insts[0].ch, b'a');
+        assert_eq!(sub.insts[0].byte(), b'a');
         assert_eq!(sub.insts[1].op, Op::Match as u8);
     }
 
@@ -487,9 +524,9 @@ mod tests {
         assert_eq!(prog.insts[0].op, Op::Lookbehind as u8);
         let sub = &prog.sub_progs[0];
         assert_eq!(sub.insts[0].op, Op::Char as u8);
-        assert_eq!(sub.insts[0].ch, b'b');
+        assert_eq!(sub.insts[0].byte(), b'b');
         assert_eq!(sub.insts[1].op, Op::Char as u8);
-        assert_eq!(sub.insts[1].ch, b'a');
+        assert_eq!(sub.insts[1].byte(), b'a');
         assert_eq!(sub.insts[2].op, Op::Match as u8);
     }
 
@@ -502,10 +539,10 @@ mod tests {
         let behind = &prog.sub_progs[0];
         // Reversed body: [Lookahead, Char a, Match].
         assert_eq!(behind.insts[0].op, Op::Lookahead as u8);
-        assert_eq!(behind.insts[1].ch, b'a');
+        assert_eq!(behind.insts[1].byte(), b'a');
         let ahead = &behind.sub_progs[behind.insts[0].a as usize];
-        assert_eq!(ahead.insts[0].ch, b'b');
-        assert_eq!(ahead.insts[1].ch, b'c');
+        assert_eq!(ahead.insts[0].byte(), b'b');
+        assert_eq!(ahead.insts[1].byte(), b'c');
     }
 
     #[test]
@@ -555,9 +592,9 @@ mod tests {
     fn rev_concat_emits_reversed_sequence() {
         let prog = compile_pattern_rev("abc");
         assert_eq!(ops(&prog), vec![Op::Char, Op::Char, Op::Char, Op::Match]);
-        assert_eq!(prog.insts[0].ch, b'c');
-        assert_eq!(prog.insts[1].ch, b'b');
-        assert_eq!(prog.insts[2].ch, b'a');
+        assert_eq!(prog.insts[0].byte(), b'c');
+        assert_eq!(prog.insts[1].byte(), b'b');
+        assert_eq!(prog.insts[2].byte(), b'a');
     }
 
     #[test]
@@ -579,9 +616,9 @@ mod tests {
             o,
             vec![Op::Split, Op::Char, Op::Char, Op::Jmp, Op::Char, Op::Match]
         );
-        assert_eq!(prog.insts[1].ch, b'b');
-        assert_eq!(prog.insts[2].ch, b'a');
-        assert_eq!(prog.insts[4].ch, b'c');
+        assert_eq!(prog.insts[1].byte(), b'b');
+        assert_eq!(prog.insts[2].byte(), b'a');
+        assert_eq!(prog.insts[4].byte(), b'c');
     }
 
     #[test]
@@ -591,8 +628,8 @@ mod tests {
         let o = ops(&prog);
         assert_eq!(o, vec![Op::Split, Op::Char, Op::Char, Op::Jmp, Op::Match]);
         assert_eq!(prog.insts[0].a, 1); // greedy: body first
-        assert_eq!(prog.insts[1].ch, b'b');
-        assert_eq!(prog.insts[2].ch, b'a');
+        assert_eq!(prog.insts[1].byte(), b'b');
+        assert_eq!(prog.insts[2].byte(), b'a');
     }
 
     #[test]
