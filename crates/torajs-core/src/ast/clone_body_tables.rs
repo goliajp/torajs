@@ -101,6 +101,7 @@ pub(crate) fn migrate(cloner: &mut BodyCloner<'_>) {
     }
     copy_set!(stack_array_literals);
     copy_set!(regex_result_props_unread);
+    copy_map!(regex_exec_record_callees);
 }
 
 fn resolve_value(cloner: &mut BodyCloner<'_>, v: ExprId) -> ExprId {

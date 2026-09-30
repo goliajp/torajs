@@ -32,6 +32,7 @@ pub(crate) struct InitD {
     pub math: crate::ssa_lower_intrinsics_math::MathIds,
     pub json_misc: crate::ssa_lower_intrinsics_json_misc::JsonMiscIds,
     pub throw: crate::ssa_lower_intrinsics_throw::ThrowIds,
+    pub exec_record: crate::ssa_lower_intrinsics_exec_record::ExecRecordIds,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> InitD {
@@ -44,6 +45,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
     let math = crate::ssa_lower_intrinsics_math::declare(module, fn_table);
     let json_misc = crate::ssa_lower_intrinsics_json_misc::declare(module, fn_table);
     let throw = crate::ssa_lower_intrinsics_throw::declare(module, fn_table);
+    let exec_record = crate::ssa_lower_intrinsics_exec_record::declare(module, fn_table);
     InitD {
         promise,
         substr,
@@ -58,5 +60,6 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         math,
         json_misc,
         throw,
+        exec_record,
     }
 }

@@ -64,6 +64,11 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId, name: &str
     if let Some(op) = crate::ssa_lower_member_builtin_namespace::try_lower(ctx, eid, obj, name) {
         return op;
     }
+    // Before the match-length lane: a record binding wears the same
+    // (array-typed name, I64 slot) pair, and `m[0].length` is its own.
+    if let Some(op) = crate::ssa_lower_exec_record::try_member(ctx, eid, obj, name) {
+        return op;
+    }
     if let Some(op) = crate::ssa_lower_match_len::first_length(ctx, obj, name) {
         return op;
     }

@@ -77,6 +77,11 @@ pub(crate) fn check(
         nullable_recv::Decay::AnyLane => return Ok(Type::Any),
         nullable_recv::Decay::To(t) => t,
     };
+    // `index` / `input` on a binding the exec-record lane holds as
+    // spans — the two names the record answers typed; see the sibling.
+    if let Some(t) = crate::check_exec_record::member_type(checker, ast, *obj, &obj_ty, name) {
+        return Ok(t);
+    }
     enforce_visibility(checker, ast, obj, name)?;
     // Struct field access is the most general path — look up
     // the named field; type is whatever it was declared as.

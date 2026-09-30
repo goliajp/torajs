@@ -181,6 +181,7 @@ pub(crate) fn lower_fn(
         dynobj_degraded: std::collections::HashSet::new(),
         cross_type_widened: std::collections::HashSet::new(),
         nullable_arr_lets: std::collections::HashSet::new(),
+        exec_records: HashMap::new(),
         ret_ann_nullable: return_type.is_some_and(|r| r.starts_with("__nullable(")),
         nullable_str_lets: std::collections::HashSet::new(),
         undefable_f64_lets: std::collections::HashSet::new(),

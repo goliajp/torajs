@@ -191,6 +191,9 @@ pub(crate) struct Intrinsics {
     pub(crate) str_split_no_sep: FuncId,
     pub(crate) str_split_any_sep: FuncId,
     pub(crate) str_split_any_sep_lim: FuncId,
+    /// The exec-record lane's kernels (`ssa_lower_exec_record`).
+    pub(crate) regex_exec_span: FuncId,
+    pub(crate) str_group_span: FuncId,
     /// Phase Substr.A — substring view runtime helpers.
     pub(crate) substr_create: FuncId,
     pub(crate) substr_drop: FuncId,

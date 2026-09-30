@@ -65,6 +65,7 @@ pub(crate) fn check(
                 borrowed: false,
                 declared_class: None,
                 builtin_mv: false,
+                exec_result: false,
             },
         );
     }

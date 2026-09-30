@@ -136,6 +136,7 @@ pub(crate) fn synthesize_main(
                 Some(expr_types),
             ),
             nullable_arr_lets: std::collections::HashSet::new(),
+            exec_records: HashMap::new(),
             nullable_str_lets: std::collections::HashSet::new(),
             // Main has no return annotation.
             ret_ann_nullable: false,

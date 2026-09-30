@@ -47,6 +47,7 @@ pub(crate) fn check_arrow_fn(
                 borrowed: false,
                 declared_class: None,
                 builtin_mv: false,
+                exec_result: false,
             },
         ) {
             checker.errors.push_err(e);
@@ -271,6 +272,7 @@ pub(crate) fn check_closure_body(
                 borrowed: false,
                 declared_class: None,
                 builtin_mv: false,
+                exec_result: false,
             },
         );
         active = Some(sn.clone());
@@ -286,6 +288,7 @@ pub(crate) fn check_closure_body(
                 borrowed: false,
                 declared_class: None,
                 builtin_mv: false,
+                exec_result: false,
             },
         );
     }
@@ -307,6 +310,7 @@ pub(crate) fn check_closure_body(
                 borrowed: false,
                 declared_class: None,
                 builtin_mv: false,
+                exec_result: false,
             },
         );
     }

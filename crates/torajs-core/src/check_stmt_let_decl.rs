@@ -197,6 +197,7 @@ pub(crate) fn check(
     // s.slice`): their `.call`/`.apply`/`.bind` admit any-dispatched
     // (route_early), sidestepping the member table's fixed-arity sig.
     let builtin_mv = is_builtin_mv_init(checker, ast, init);
+    let exec_result = crate::check_exec_record::init_is_record(checker, ast, type_ann, init);
     if !matches!(self_ref_closure, SelfRef::None) {
         // Drop the provisional entry the pre-declare pushed — it existed
         // only so the init's own capture could resolve. The real
@@ -217,6 +218,7 @@ pub(crate) fn check(
             borrowed: is_alias_init,
             declared_class,
             builtin_mv,
+            exec_result,
         },
     ) {
         checker.errors.push_err(e);

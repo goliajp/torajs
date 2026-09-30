@@ -27,3 +27,11 @@ pub const STR_FLAGS_OFF: usize = 6;
 /// `flags` bit 1 — payload encoding: 1 = Latin-1 (1 byte / code
 /// unit), 0 = UTF-16 LE (2 bytes / code unit).
 pub const STR_FLAG_IS_LATIN1: u16 = 0x0002;
+
+/// `flags` bit 10 — the block is a Substr view (`torajs-str`
+/// `FLAG_SUBSTR_VIEW`): `len u64 @8` code units of the parent Str at
+/// `*(ptr*)(p + 16)`, starting `*(u64*)(p + 24)` code units in. The
+/// parent carries the encoding.
+pub const FLAG_SUBSTR_VIEW: u16 = 1 << 10;
+pub const SUBSTR_PARENT_OFF: usize = 16;
+pub const SUBSTR_OFFSET_OFF: usize = 24;

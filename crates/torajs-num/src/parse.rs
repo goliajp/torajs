@@ -15,7 +15,10 @@
 //! invalid digit, returns the parsed prefix as f64). Rust's
 //! `from_str_radix` rejects any trailing junk.
 
-use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_FLAGS_OFF, STR_LEN_OFF};
+use crate::layout::{
+    FLAG_SUBSTR_VIEW, STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_FLAGS_OFF, STR_LEN_OFF,
+    SUBSTR_OFFSET_OFF, SUBSTR_PARENT_OFF,
+};
 
 // ============================================================
 // Layout-aware FFI helpers (sub-module-local)
@@ -35,6 +38,31 @@ unsafe fn str_is_latin1(p: *const u8) -> bool {
 #[inline]
 unsafe fn str_bytes<'a>(p: *const u8, byte_cnt: usize) -> &'a [u8] {
     unsafe { core::slice::from_raw_parts(p.add(STR_DATA_OFF), byte_cnt) }
+}
+
+/// The text behind `p` as `(payload, is_latin1)`: a Str's own
+/// payload, or the slice of its parent a Substr view covers (a split
+/// product's element, a string index, a for-of character).
+#[inline]
+unsafe fn text<'a>(p: *const u8) -> (&'a [u8], bool) {
+    let flags = unsafe { (p.add(STR_FLAGS_OFF) as *const u16).read() };
+    if flags & FLAG_SUBSTR_VIEW != 0 {
+        let parent = unsafe { (p.add(SUBSTR_PARENT_OFF) as *const *const u8).read() };
+        let offset = unsafe { (p.add(SUBSTR_OFFSET_OFF) as *const u64).read() } as usize;
+        let len = unsafe { (p.add(STR_LEN_OFF) as *const u64).read() } as usize;
+        let is_latin1 = unsafe { str_is_latin1(parent) };
+        let stride = if is_latin1 { 1 } else { 2 };
+        let bytes = unsafe {
+            core::slice::from_raw_parts(parent.add(STR_DATA_OFF + offset * stride), len * stride)
+        };
+        return (bytes, is_latin1);
+    }
+    let len = unsafe { str_len(p) };
+    let is_latin1 = unsafe { str_is_latin1(p) };
+    (
+        unsafe { str_bytes(p, if is_latin1 { len } else { len * 2 }) },
+        is_latin1,
+    )
 }
 
 // ============================================================
@@ -235,16 +263,14 @@ fn parse_prefix(prefix: &[u8]) -> f64 {
 ///
 /// # Safety
 ///
-/// `s` must be a valid Str heap block.
+/// `s` must be a valid Str or Substr heap block.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_num_parse_int(s: *const u8, radix: i64) -> f64 {
-    let len = unsafe { str_len(s) };
-    if unsafe { str_is_latin1(s) } {
-        let bytes = unsafe { str_bytes(s, len) };
+    let (bytes, is_latin1) = unsafe { text(s) };
+    if is_latin1 {
         parse_int(bytes, radix)
     } else {
-        let payload = unsafe { str_bytes(s, len * 2) };
-        parse_int(&narrow_utf16_prefix(payload), radix)
+        parse_int(&narrow_utf16_prefix(bytes), radix)
     }
 }
 
@@ -253,22 +279,44 @@ pub unsafe extern "C" fn __torajs_num_parse_int(s: *const u8, radix: i64) -> f64
 ///
 /// # Safety
 ///
-/// `s` must be a valid Str heap block.
+/// `s` must be a valid Str or Substr heap block.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_num_parse_float(s: *const u8) -> f64 {
-    let len = unsafe { str_len(s) };
-    if unsafe { str_is_latin1(s) } {
-        let bytes = unsafe { str_bytes(s, len) };
+    let (bytes, is_latin1) = unsafe { text(s) };
+    if is_latin1 {
         parse_float(bytes)
     } else {
-        let payload = unsafe { str_bytes(s, len * 2) };
-        parse_float(&narrow_utf16_prefix(payload))
+        parse_float(&narrow_utf16_prefix(bytes))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A Latin-1 Str block and a Substr view of `[2, 6)` over it,
+    /// laid out by hand: header, `len`, payload / parent, offset.
+    fn str_and_view(text: &[u8]) -> (Vec<u8>, Vec<u8>) {
+        let mut s = vec![0u8; STR_DATA_OFF + text.len()];
+        s[STR_FLAGS_OFF..STR_FLAGS_OFF + 2].copy_from_slice(&STR_FLAG_IS_LATIN1.to_le_bytes());
+        s[STR_LEN_OFF..STR_LEN_OFF + 4].copy_from_slice(&(text.len() as u32).to_le_bytes());
+        s[STR_DATA_OFF..].copy_from_slice(text);
+        let mut v = vec![0u8; 32];
+        v[STR_FLAGS_OFF..STR_FLAGS_OFF + 2].copy_from_slice(&FLAG_SUBSTR_VIEW.to_le_bytes());
+        v[STR_LEN_OFF..STR_LEN_OFF + 8].copy_from_slice(&4u64.to_le_bytes());
+        v[SUBSTR_PARENT_OFF..SUBSTR_PARENT_OFF + 8]
+            .copy_from_slice(&(s.as_ptr() as u64).to_le_bytes());
+        v[SUBSTR_OFFSET_OFF..SUBSTR_OFFSET_OFF + 8].copy_from_slice(&2u64.to_le_bytes());
+        (s, v)
+    }
+
+    #[test]
+    fn parse_int_and_float_read_a_view_of_the_parent() {
+        let (s, v) = str_and_view(b"a,12.5,b");
+        assert!(unsafe { __torajs_num_parse_int(s.as_ptr(), 10) }.is_nan());
+        assert_eq!(unsafe { __torajs_num_parse_int(v.as_ptr(), 10) }, 12.0);
+        assert_eq!(unsafe { __torajs_num_parse_float(v.as_ptr()) }, 12.5);
+    }
 
     #[test]
     fn parse_int_decimal() {

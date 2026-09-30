@@ -154,6 +154,11 @@ pub(crate) fn lower(
         }
         return lower_immutable_write_throw(ctx, value);
     }
+    // `m = re.exec(t)` over a binding held as an exec record refills
+    // the record (`ssa_lower_exec_record`).
+    if let Some(v) = crate::ssa_lower_exec_record::try_assign(ctx, &name, value) {
+        return v;
+    }
     let v = if ctx.locals.get(&name).is_none()
         && let Some(slot_ty) = ctx.globals.get(&name).copied()
     {

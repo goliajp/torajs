@@ -106,6 +106,7 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, name: &str, params: &[Para
                     borrowed: false,
                     declared_class: None,
                     builtin_mv: false,
+                    exec_result: false,
                 },
             )
             .ok();
@@ -148,6 +149,7 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, name: &str, params: &[Para
                 borrowed: false,
                 declared_class,
                 builtin_mv: false,
+                exec_result: false,
             },
         ) {
             checker.errors.push_err(e);

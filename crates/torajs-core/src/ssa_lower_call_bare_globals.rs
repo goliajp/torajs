@@ -211,6 +211,9 @@ pub(crate) fn lower_parse_int(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operan
         Type::F64,
         None,
     );
+    // the kernel borrows the text; an owned argument (a concat, an
+    // exec record's group) is this site's to release
+    ctx.release_owned_temp(args[0], &raw);
     Operand::Value(v)
 }
 
@@ -249,6 +252,7 @@ fn lower_parse_float(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
         Type::F64,
         None,
     );
+    ctx.release_owned_temp(args[0], &raw);
     Operand::Value(v)
 }
 

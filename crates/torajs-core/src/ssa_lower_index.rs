@@ -52,6 +52,9 @@ pub(crate) use crate::ssa_lower_index_any_key::{
 };
 
 pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId, index: ExprId) -> Operand {
+    if let Some(op) = crate::ssa_lower_exec_record::try_index(ctx, eid) {
+        return op;
+    }
     // Chunk 745 — struct receiver + compile-time literal index:
     // `g[0]` ≡ `g."0"` per ES ToPropertyKey (§7.1.19); the full
     // member-read dispatcher handles the field load (struct layout /

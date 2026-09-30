@@ -114,8 +114,13 @@ pub(crate) fn try_lower(
                 Type::Arr(arr_id),
                 None,
             );
+            // a frozen lastIndex under `g` / `y` is a recorded
+            // TypeError; the miss it answers owns nothing
             if s_owned {
+                ctx.emit_throw_check_owned(None, s, Type::Str);
                 ctx.emit_drop_value(s, Type::Str);
+            } else {
+                ctx.emit_throw_check(None);
             }
             Some(Operand::Value(v))
         }
@@ -188,7 +193,7 @@ fn lower_haystack_or_undefined(ctx: &mut LowerCtx<'_>, arg: Option<ExprId>) -> (
     }
 }
 
-fn lower_haystack(ctx: &mut LowerCtx<'_>, arg: ExprId) -> (Operand, bool) {
+pub(crate) fn lower_haystack(ctx: &mut LowerCtx<'_>, arg: ExprId) -> (Operand, bool) {
     let s = ctx.lower_expr(arg);
     let ty = ctx.operand_ty(&s);
     match ty {

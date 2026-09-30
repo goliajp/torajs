@@ -139,6 +139,7 @@ fn declare_provisional(checker: &mut Checker, name: &str, ty: Type, verdict: Sel
         borrowed: false,
         declared_class: None,
         builtin_mv: false,
+        exec_result: false,
     };
     match checker.declare(name.to_string(), info) {
         Ok(_) => verdict,

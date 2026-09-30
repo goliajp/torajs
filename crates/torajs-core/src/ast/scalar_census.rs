@@ -1,11 +1,12 @@
 //! The walk shared by the censuses that replace a non-escaping
 //! aggregate by a scalar: `split_length_only` (a split product only
-//! ever measured is its token count) and `regex_match_len_only` (a
+//! ever measured is its token count), `regex_match_len_only` (a
 //! match result only ever null-tested or asked `m[0].length` is that
-//! length). Each lane supplies two answers — which call produces its
-//! aggregate, and which uses of a bound one are its own — and this
-//! module owns everything else: the reference counts, the scope rules
-//! and the uses every lane refuses.
+//! length) and `regex_exec_record` (an exec result read through a
+//! few constant indices is its spans). Each lane supplies two answers
+//! — which call produces its aggregate, and which uses of a bound one
+//! are its own — and this module owns everything else: the reference
+//! counts, the scope rules and the uses every lane refuses.
 //!
 //! ## Scope rules
 //!
@@ -38,6 +39,26 @@ pub(super) trait Lane {
     fn bare_condition_ok(&self) -> bool {
         false
     }
+    /// Record a binding whose every use in `window` (the statements
+    /// after its declaration) the lane owns. The default records the
+    /// producing call's key; a lane whose binding is re-assigned, or
+    /// that needs a fact from the whole window, answers here.
+    // the walk's whole state, handed once; a struct for it would be
+    // built and taken apart at this one call
+    #[allow(clippy::too_many_arguments)]
+    fn accept(
+        &self,
+        _ast: &Ast,
+        _name: &str,
+        _init: ExprId,
+        call: ExprId,
+        key: ExprId,
+        _window: &[&Stmt],
+        census: &Census,
+        found: &mut HashSet<ExprId>,
+    ) {
+        census.accept(call, key, found);
+    }
 }
 
 /// The arena facts every lane's decision reads.
@@ -58,9 +79,14 @@ impl Census {
 
     /// Record `key` when `call` and `key` each have exactly one parent.
     pub(super) fn accept(&self, call: ExprId, key: ExprId, found: &mut HashSet<ExprId>) {
-        if self.refs.get(&call) == Some(&1) && self.refs.get(&key) == Some(&1) {
+        if self.single_use(call, key) {
             found.insert(key);
         }
+    }
+
+    /// `call` and `key` each have exactly one parent.
+    pub(super) fn single_use(&self, call: ExprId, key: ExprId) -> bool {
+        self.refs.get(&call) == Some(&1) && self.refs.get(&key) == Some(&1)
     }
 }
 
@@ -224,7 +250,7 @@ fn check_list(
                 .iter()
                 .all(|t| stmt_uses_ok(ast, t, name, lane, census))
         {
-            census.accept(call, key, found);
+            lane.accept(ast, name, *init, call, key, &flat[i + 1..], census, found);
         }
     }
 }

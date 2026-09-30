@@ -30,6 +30,8 @@
 use core::ffi::c_void;
 
 use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_LEN_OFF};
+use crate::substr::FLAG_SUBSTR_VIEW;
+use crate::substr_methods::substr_view;
 use crate::transform::trim::{is_trim_ws, is_trim_ws_u16};
 use torajs_rc::HeapHeader;
 
@@ -147,20 +149,30 @@ pub fn parse_number_utf16(payload: &[u8]) -> f64 {
 /// Mirrors the pre-rewrite C `__torajs_str_to_number(const void *p)
 /// -> double`. Null input returns 0.0 (matches the C guard).
 /// Encoding-aware: a Latin-1 payload parses in place; a UTF-16 LE
-/// payload routes through [`parse_number_utf16`].
+/// payload routes through [`parse_number_utf16`]. A Substr view (a
+/// split product's element, a string index, a for-of character)
+/// reads the slice of its parent it covers.
 ///
 /// # Safety
 ///
-/// `p` must be null or point at a valid Str block whose layout
-/// matches [`crate::layout`].
+/// `p` must be null or point at a valid Str or Substr block whose
+/// layout matches [`crate::layout`] / [`crate::substr`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_to_number(p: *const c_void) -> f64 {
     if p.is_null() {
         return 0.0;
     }
     // SAFETY: caller's invariant.
-    let len = unsafe { (p.cast::<u8>().add(STR_LEN_OFF) as *const u32).read() } as usize;
     let header = unsafe { &*(p as *const HeapHeader) };
+    if (header.flags & FLAG_SUBSTR_VIEW) != 0 {
+        let (payload, _, is_latin1) = unsafe { substr_view(p.cast::<u8>()) };
+        return if is_latin1 {
+            parse_number(payload)
+        } else {
+            parse_number_utf16(payload)
+        };
+    }
+    let len = unsafe { (p.cast::<u8>().add(STR_LEN_OFF) as *const u32).read() } as usize;
     if (header.flags & STR_FLAG_IS_LATIN1) != 0 {
         // SAFETY: Latin-1 payload is `len` bytes.
         let bytes = unsafe { core::slice::from_raw_parts(p.cast::<u8>().add(STR_DATA_OFF), len) };

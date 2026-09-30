@@ -397,6 +397,8 @@ pub(crate) struct LowerCtx<'a> {
     /// loads on these receivers emit the `arr_null_check` guard so
     /// a miss (null) is a catchable TypeError, not a SIGSEGV.
     pub(crate) nullable_arr_lets: std::collections::HashSet<String>,
+    /// The bindings held as exec records, by slot (`ssa_lower_exec_record`).
+    pub(crate) exec_records: HashMap<ValueId, crate::ssa_lower_exec_record::ExecRecord>,
     /// Whether this function's RETURN annotation admits `undefined`
     /// (`string | undefined`). Storage drops the nullable bit, so the
     /// return boundary reads it here — see `coerce_to_ret`.

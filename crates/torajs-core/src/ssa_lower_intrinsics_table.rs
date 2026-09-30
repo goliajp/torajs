@@ -168,6 +168,8 @@ pub(crate) fn build(
         str_split_no_sep: init_a.str_b.str_split_no_sep,
         str_split_any_sep: init_a.str_b.str_split_any_sep,
         str_split_any_sep_lim: init_a.str_b.str_split_any_sep_lim,
+        regex_exec_span: init_d.exec_record.regex_exec_span,
+        str_group_span: init_d.exec_record.str_group_span,
         substr_create: init_d.substr.substr_create,
         substr_drop: init_d.substr.substr_drop,
         arr_drop_str_elems: init_d.substr.arr_drop_str_elems,

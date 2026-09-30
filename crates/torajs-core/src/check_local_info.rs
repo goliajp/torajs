@@ -50,4 +50,10 @@ pub(crate) struct LocalInfo {
     /// step 2 is ToUint16, a coercion, not a shape test), and it has
     /// to stay "A" when the function arrives through a binding.
     pub(crate) builtin_mv: bool,
+    /// This binding holds a `re.exec(s)` result the exec-record lane
+    /// keeps as spans (`crate::check_exec_record`): `index` reads a
+    /// number and `input` a string, because nothing can reach the
+    /// binding to make them anything else. Every other member reads
+    /// as on any `string[] | null`.
+    pub(crate) exec_result: bool,
 }

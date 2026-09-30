@@ -4,6 +4,7 @@
 use alloc::vec::Vec;
 use core::ffi::c_void;
 
+use super::exec_find::exec_find;
 use super::groups::build_groups;
 use super::match_indices::attach_indices;
 use super::static_keys::{K_GROUPS, K_INDEX, K_INPUT, cached_static_key};
@@ -328,8 +329,9 @@ pub(crate) unsafe fn match_walk(
 }
 
 /// `re.exec(s)` — Phase 1c.1 spec-shape result `[match, g1, g2,
-/// ...]` with named-capture `.groups` attached. Sticky / global
-/// lastIndex bookkeeping matches spec §22.2.5.2.2.
+/// ...]` with named-capture `.groups` attached. The search and the
+/// sticky / global lastIndex bookkeeping (spec §22.2.5.2.2) are
+/// [`exec_find`]'s, shared with the span kernel.
 ///
 /// # Safety
 ///
@@ -343,103 +345,40 @@ pub unsafe extern "C" fn __torajs_regex_exec(
 ) -> *mut c_void {
     // Spec §22.2.7.2 step 9.a: no match → null. The array is
     // allocated only after a hit so the null path owns nothing.
-    if re_ptr.is_null() || str_ptr.is_null() {
-        return core::ptr::null_mut();
-    }
-    let re = unsafe { as_regex_mut(re_ptr as *mut c_void) };
-    if re.rejected != 0 {
-        abort_unsupported(re);
-    }
-    // chunk 7.7 v2 step 12 C2 Phase B-1 attack #A — zero-copy ASCII
-    // Latin-1 view; mirrors `__torajs_str_match_regex` rationale.
-    let _s_owned: Vec<u8>;
-    let (s, haystack_is_ascii): (&[u8], bool) = match unsafe { str_slice_ascii_view(str_ptr) } {
-        Some(view) => (view, true),
-        None => {
-            _s_owned = unsafe { haystack(re, str_ptr) };
-            (&_s_owned, false)
-        }
+    let out = unsafe {
+        exec_find(re_ptr, str_ptr, |re, s, haystack_is_ascii, m| {
+            // Round 5 attack #6 — pre-size to the exec shape (see match
+            // loop above); the pushes below fill exactly 1 + n_cap_lim
+            // slots.
+            let n_cap_lim = (re.n_captures as usize).min(REGEX_MAX_CAPTURES - 1);
+            let whole = span_str(str_ptr, s, m.start, m.end, haystack_is_ascii);
+            let mut out = __torajs_arr_alloc_with(1 + n_cap_lim as u64, whole as i64);
+            for i in 1..=n_cap_lim {
+                let gs = save_slot(m.saves(), 2 * i);
+                let ge = save_slot(m.saves(), 2 * i + 1);
+                if gs < 0 || ge < 0 {
+                    // Non-participating group = JS undefined (RFC
+                    // 20260707 chunk 2: the sentinel cell, not NULL).
+                    out = __torajs_arr_push(out, __torajs_str_undef() as i64);
+                } else {
+                    let grp = span_str(str_ptr, s, gs, ge, haystack_is_ascii);
+                    out = __torajs_arr_push(out, grp as i64);
+                }
+            }
+            if want_exec != 0 {
+                attach_exec_all(
+                    out,
+                    re,
+                    s,
+                    str_ptr,
+                    m.start,
+                    m.end,
+                    m.saves(),
+                    haystack_is_ascii,
+                );
+            }
+            out
+        })
     };
-    let slen = s.len() as i64;
-
-    let sticky = re.flags & RE_FLAG_Y != 0;
-    let global = re.flags & RE_FLAG_G != 0;
-    let track = sticky || global;
-    if track && unsafe { super::lifecycle::tracked_store_refuses(re) } {
-        return core::ptr::null_mut();
-    }
-    // lastIndex is spec'd in UTF-16 code units (§22.2.7.2 step 4);
-    // map to a byte offset in the transcoded haystack. Out-of-range
-    // maps to slen + 1 so the `start > slen` guard below fires.
-    let start = if track {
-        utf16_units_to_byte(s, re.last_index_i64(), haystack_is_ascii)
-    } else {
-        0
-    };
-
-    // Phase C-3 — single-shot exec hits the same baked-DFA short-circuit.
-    // Round 3 Phase B sub-batch 7.2 — runtime-baked DFA fallback.
-    let dfa_view = re.baked_dfa_view();
-    let dfa_ref = dfa_view.as_ref().or(re.dfa_runtime.as_ref());
-    let m = if track && start > slen {
-        None
-    } else if sticky {
-        match_anchor(&re.prog, &s, start, re.flags)
-    } else {
-        // the per-RegExp workspace: a capturing pattern's second pass
-        // reuses its thread lists and arena instead of building and
-        // freeing them on every call
-        let ws = unsafe { &mut *re.workspace_cache.get() };
-        search_from_with_ws(
-            &re.prog,
-            s,
-            start,
-            re.flags,
-            ws,
-            dfa_ref,
-            haystack_is_ascii,
-            true,
-        )
-    };
-    let Some(m) = m else {
-        if track {
-            re.set_last_index_num(0.0);
-        }
-        return core::ptr::null_mut();
-    };
-    if track {
-        re.set_last_index_num(byte_to_utf16_units(s, m.end, haystack_is_ascii) as f64);
-    }
-    // Round 5 attack #6 — pre-size to the exec shape (see match loop
-    // above); the pushes below fill exactly 1 + n_cap_lim slots.
-    let n_cap_lim = (re.n_captures as usize).min(REGEX_MAX_CAPTURES - 1);
-    let whole = unsafe { span_str(str_ptr, s, m.start, m.end, haystack_is_ascii) };
-    let mut out = unsafe { __torajs_arr_alloc_with(1 + n_cap_lim as u64, whole as i64) };
-    for i in 1..=n_cap_lim {
-        let gs = save_slot(m.saves(), 2 * i);
-        let ge = save_slot(m.saves(), 2 * i + 1);
-        if gs < 0 || ge < 0 {
-            // Non-participating group = JS undefined (RFC 20260707
-            // chunk 2: the sentinel cell, not NULL).
-            out = unsafe { __torajs_arr_push(out, __torajs_str_undef() as i64) };
-        } else {
-            let grp = unsafe { span_str(str_ptr, s, gs, ge, haystack_is_ascii) };
-            out = unsafe { __torajs_arr_push(out, grp as i64) };
-        }
-    }
-    if want_exec != 0 {
-        unsafe {
-            attach_exec_all(
-                out,
-                re,
-                s,
-                str_ptr,
-                m.start,
-                m.end,
-                m.saves(),
-                haystack_is_ascii,
-            );
-        }
-    }
-    out
+    out.unwrap_or(core::ptr::null_mut())
 }

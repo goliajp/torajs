@@ -34,6 +34,10 @@ pub(crate) fn try_sub_siblings(
     if ctx.forward_capture_boxes.contains_key(name) {
         return false;
     }
+    // A `re.exec(s)` result the census proved never needs its array.
+    if crate::ssa_lower_exec_record::try_lower_let(ctx, name, type_ann, init) {
+        return true;
+    }
     // T-19.d — `let X: T = await Bun.file(p).json()`.
     if crate::ssa_lower_stmt_let_decl_bun_json::try_lower(ctx, name, type_ann, init) {
         return true;

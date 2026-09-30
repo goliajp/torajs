@@ -1422,6 +1422,14 @@ pub struct Ast {
     /// `analyze_regex_match_len_only`; the lowering holds the first
     /// match's length instead of building the array.
     pub regex_match_len_callees: std::collections::HashSet<ExprId>,
+    /// The `.exec` member ExprIds — of the declaration and of each
+    /// re-assignment — whose `let m = re.exec(s)` result is only
+    /// null-tested, read as `m.index` / `m.input`, indexed by a
+    /// constant or measured as `m[k].length`, each mapped to the
+    /// group slots the record needs. Populated by
+    /// `analyze_regex_exec_record`; the lowering holds the match as
+    /// spans in a stack record instead of building the array.
+    pub regex_exec_record_callees: std::collections::HashMap<ExprId, u32>,
     /// v0.3 #4 DWARF — per-Expr source byte ranges. Indexed by
     /// ExprId.0; `Span { start: 0, end: 0 }` is the sentinel for
     /// "not set" (parser fills these on key Expr-emit sites; fallback
