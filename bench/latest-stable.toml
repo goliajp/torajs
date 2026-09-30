@@ -14,10 +14,9 @@
 #   IS the git HEAD, not a downloaded toolchain.
 # - The runner key matches `Runner.name` from bench/runners/<name>.toml.
 #
-# Last review: 2026-09-29 (rust floor 1.98.1 and the channel check: every
+# Last review: 2026-09-30 (deno 2.9.7 joins; 2026-09-29: rust floor 1.98.1 and the channel check: every
 # earlier rust ratio was recorded against a pinned July nightly; node
-# 26.10.0 and go 1.27.1 from the same review). hardev/autorun/
-# comparator_latest_check.sh holds these floors against upstream.
+# 26.10.0 and go 1.27.1 from the same review).
 
 [runners.node-v8]
 floor = "26.10.0"
@@ -30,6 +29,14 @@ hint  = "bun upgrade"
 [runners.bun-aot]
 floor = "1.4.0"
 hint  = "bun upgrade"
+
+[runners.deno-v8]
+floor = "2.9.7"
+hint  = "deno upgrade"
+
+[runners.deno-aot]
+floor = "2.9.7"
+hint  = "deno upgrade"
 
 [runners.go]
 floor = "1.27.1"

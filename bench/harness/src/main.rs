@@ -31,16 +31,9 @@ fn print_usage() {
     println!("COMMANDS:");
     println!("    list                          list cases and runners (with detected versions)");
     println!("    run [case]                    run all cases (or one case)");
-    println!(
-        "                                  default runtimes (AOT-only): torajs · torajs-run ·"
-    );
-    println!(
-        "                                                              rust · bun-aot (4 of 8)"
-    );
-    println!(
-        "        --all                     also include go · node-v8 · python · bun-jsc (full"
-    );
-    println!("                                  8-runner matrix; ~5× slower from python alone)");
+    println!("                                  default runtimes: torajs · torajs-run · rust · c · go ·");
+    println!("                                  bun-aot · bun-jsc · node-v8 · deno-aot · deno-v8");
+    println!("        --all                     also include python (several times slower alone)");
     println!("        --runtime r1,r2           explicit comma-separated runtime list (overrides");
     println!("                                  both --all and the default set)");
     println!("        --head-sha SHA            stamp results with this source id (the runner's");
@@ -54,7 +47,7 @@ fn print_usage() {
         "        --self                    per-commit fast path: torajs runtimes only (~3-4×;"
     );
     println!(
-        "                                  phase-close must still run the full 8-runner matrix)"
+        "                                  phase-close must still run the default matrix)"
     );
     println!(
         "        --vs <baseline.json>      artifact-precheck: skip timed runs if every torajs"
@@ -92,15 +85,23 @@ fn print_usage() {
 /// rides along as the dev-loop view (steady-state cache-hit; matches
 /// `tr run` ergonomics).
 ///
-/// The historical 4 (go · node-v8 · python · bun-jsc) are dropped
-/// from default because:
-/// - python alone is ~50% of full wall-clock and not a true peer
-/// - node-v8 + bun-jsc are interpreter/JIT — separate question from AOT
-/// - go is a third-language reference, not the L1 vision target
-///
-/// `--all` opts back into the historical full 8-runner matrix for
-/// phase-close / public-comparison reporting.
-const DEFAULT_RUNTIMES: &[&str] = &["torajs", "torajs-run", "rust", "c", "bun-aot"];
+/// The JS runtimes appear in both of their modes — standalone
+/// executable (bun-aot, deno-aot) and JIT from source (bun-jsc,
+/// node-v8, deno-v8) — so a reader can compare against whichever one
+/// they would otherwise have used. python stays behind `--all`: it is
+/// half of the full wall-clock on its own and not a peer.
+const DEFAULT_RUNTIMES: &[&str] = &[
+    "torajs",
+    "torajs-run",
+    "rust",
+    "c",
+    "go",
+    "bun-aot",
+    "bun-jsc",
+    "node-v8",
+    "deno-aot",
+    "deno-v8",
+];
 
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().skip(1).collect();
@@ -264,34 +265,26 @@ fn run_cmd(bench_dir: &Path, args: &[String]) -> Result<bool> {
     // SOTA cross-runtime comparison, a phase-close concern, not a
     // per-commit regression gate). ~3–4× faster per-commit. Does NOT
     // reduce coverage: the regression target is torajs vs its own
-    // baseline; phase-close still runs the full 8-runner matrix
+    // baseline; phase-close still runs the default matrix
     // (first hard rule). An explicit `--runtime` always wins.
     if self_only && runtime_filter.is_none() {
         runtime_filter = Some(vec!["torajs".to_string(), "torajs-run".to_string()]);
         eprintln!(
             "→ hardev B2: --self per-commit scope (torajs only; \
-             phase-close must run the full 8-runner matrix)"
+             phase-close must run the default matrix)"
         );
     }
 
-    // hardev bench B3 — default runtime set is the AOT-mode-only
-    // comparison (torajs · torajs-run · rust · bun-aot). `--all` opts
-    // into the full 8-runner matrix. Explicit `--runtime` always wins
-    // over both; `--self` already pinned the filter above so it skips
-    // this branch.
+    // `--all` adds python to the default set. Explicit `--runtime`
+    // always wins over both; `--self` already pinned the filter above
+    // so it skips this branch.
     if runtime_filter.is_none() {
         if all_runtimes {
-            eprintln!(
-                "→ hardev B3: --all full 8-runner matrix \
-                 (default is {} of 8: {})",
-                DEFAULT_RUNTIMES.len(),
-                DEFAULT_RUNTIMES.join(" · ")
-            );
+            eprintln!("→ --all: every runner (default set plus python)");
         } else {
             runtime_filter = Some(DEFAULT_RUNTIMES.iter().map(|s| s.to_string()).collect());
             eprintln!(
-                "→ hardev B3: default AOT-only scope ({}; pass --all for \
-                 full 8-runner matrix incl. go · node-v8 · python · bun-jsc)",
+                "→ default runtimes: {} (pass --all to add python)",
                 DEFAULT_RUNTIMES.join(" · ")
             );
         }

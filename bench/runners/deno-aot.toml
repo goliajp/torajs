@@ -1,0 +1,8 @@
+# `deno compile` embeds the script in a copy of the deno runtime, the way
+# `bun build --compile` does for bun: the standalone-executable row for
+# deno, timed end to end like `bun-aot` and `torajs`.
+name = "deno-aot"
+detect = "deno --version"
+src_filename = "main.ts"
+compile = "deno compile --output {out} {src}"
+run = "{out}"

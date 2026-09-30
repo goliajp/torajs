@@ -1,0 +1,6 @@
+# Deno runs on V8, as node does, with its own runtime around it. Labeled
+# `deno-v8` beside `node-v8` and `bun-jsc`: the three JIT-mode rows.
+name = "deno-v8"
+detect = "deno --version"
+src_filename = "main.ts"
+run = "deno run {src}"
