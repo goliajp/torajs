@@ -27,6 +27,7 @@
 mod compile;
 pub mod compile_any;
 pub mod compile_aot;
+pub mod compile_matcher;
 pub mod escape;
 pub mod exec_find;
 pub mod exec_span;
@@ -75,6 +76,13 @@ pub struct HeapHeader {
 
 /// `__TORAJS_TAG_REGEX` from runtime_regex.c L66.
 pub const TAG_REGEX: u16 = 4;
+
+/// A matcher the compiler synthesized for a literal whose program is
+/// one-pass (`torajs_regex::onepass`), walking the string's own code
+/// units: `(units, len, start, out) -> end`, the end of the
+/// leftmost-first match from `start` with the Pike VM's row in
+/// `out[..matcher_stride]`, or -1.
+pub type MatcherFn = unsafe extern "C" fn(*const u8, i64, i64, *mut i64) -> i64;
 
 /// Byte offset of [`RegExp::props`] — mirrored by torajs-anyvalue
 /// (`member_get_layout::REGEX_PROPS_OFF`) and torajs-meta, the same
@@ -210,6 +218,15 @@ pub struct RegExp {
     /// the chunk-7.6 / chunk-7.7 SIGBUS (see `dfa_cache` doc above
     /// for the trail).
     pub baked_dfa: Option<core::ptr::NonNull<crate::dfa::BakedDfaMeta>>,
+    /// The literal's synthesized one-pass matcher over a Latin-1
+    /// payload, and over a UTF-16 payload; `None` on every RegExp
+    /// the runtime compiled and wherever the lane declined the
+    /// pattern. Set by [`compile_matcher`]; the exec kernels take
+    /// them before the transcoding search.
+    pub matcher_latin1: Option<MatcherFn>,
+    pub matcher_utf16: Option<MatcherFn>,
+    /// row width the matchers write: highest save slot + 1, at least 2
+    pub matcher_stride: u32,
     /// V0.2 P14 chunk 7.7 v2 step 12 C2 Round 3 Phase B sub-batch 7.2
     /// (2026-06-25) — runtime-baked DFA cache. The `__torajs_regex_compile`
     /// constructor eager-builds `build_dfa(&prog, flag_bits)` once when the

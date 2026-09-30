@@ -76,7 +76,7 @@ pub fn build(prog: &Program) -> Option<MatcherIr> {
     }
     Some(MatcherIr {
         states,
-        stride: stride(prog),
+        stride: crate::vm::saves_arena::detect_stride(prog) as u32,
     })
 }
 
@@ -190,17 +190,6 @@ fn coalesce(table: &[Option<(u32, Vec<u32>)>]) -> Vec<Edge> {
         });
     }
     edges
-}
-
-fn stride(prog: &Program) -> u32 {
-    let max_slot = prog
-        .insts
-        .iter()
-        .filter(|ins| ins.op == Op::Save as u8)
-        .map(|ins| ins.a)
-        .max()
-        .unwrap_or(-1);
-    (max_slot + 1).max(2) as u32
 }
 
 #[cfg(test)]

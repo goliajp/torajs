@@ -19,7 +19,52 @@
 //! DFA-ineligible (lookaround / backref), or contains opcodes the DFA
 //! substrate explicitly rejects.
 
+pub(crate) mod matcher;
+
 use crate::ssa::BakedRegexEntry;
+
+/// `/pattern/flags` parsed the way the runtime's compile entries parse
+/// it, backreferences resolved.
+pub(crate) struct Literal {
+    pub root: Box<torajs_regex::node::Node>,
+    pub flag_bits: u8,
+    pub n_captures: usize,
+}
+
+/// `None` wherever the runtime would reject the literal.
+pub(crate) fn parse_literal(pattern: &str, flags: &str) -> Option<Literal> {
+    use torajs_regex::parser::{Parser, RE_FLAG_U, RE_FLAG_V};
+
+    // duplicate or unknown letters, and `u` with `v`, are SyntaxErrors
+    let flag_bits = torajs_regex::flags::parse_flags(flags.as_bytes())?;
+    if flag_bits & RE_FLAG_U != 0 && flag_bits & RE_FLAG_V != 0 {
+        return None;
+    }
+    // The literal is UTF-8 (code points); without `u` / `v` the
+    // pattern is a code-unit sequence, so a supplementary character
+    // becomes its two surrogate forms — the same form the runtime
+    // haystack transcodes to (§22.2.2.1; `str_helpers::str_units`).
+    let pattern_bytes = if torajs_regex::flags::unicode_mode(flag_bits) {
+        pattern.as_bytes().to_vec()
+    } else {
+        torajs_regex::utf8::split_surrogate_pairs(pattern.as_bytes())
+    };
+    let mut parser = Parser::new(&pattern_bytes, flag_bits);
+    let mut root = parser.parse()?;
+    if parser.err() {
+        return None;
+    }
+    let names = parser.names.clone();
+    let n_captures = parser.n_captures;
+    if !torajs_regex::resolve::resolve_backrefs(&mut root, &names, n_captures, flag_bits) {
+        return None;
+    }
+    Some(Literal {
+        root,
+        flag_bits,
+        n_captures,
+    })
+}
 
 /// Try to host-build a baked DFA payload for the literal pattern.
 ///
@@ -37,48 +82,19 @@ pub(crate) fn try_bake_regex_dfa(
 ) -> Option<u32> {
     use torajs_regex::compiler::compile;
     use torajs_regex::dfa::{DfaState, analyze, build_dfa, prog_ops_dfa_safe};
-    use torajs_regex::flags::parse_flags;
-    use torajs_regex::parser::Parser;
     use torajs_regex::program::{Inst, Program};
-    use torajs_regex::resolve::resolve_backrefs;
 
-    // Strict flag parse (Option): `None` = SyntaxError from duplicate
-    // or unknown letter — no bake, runtime `regex_compile` will hit
-    // the same `None` and route through the rejected-stub path.
-    let flag_bits = parse_flags(flags.as_bytes())?;
-    // ES §22.2.3.1 — `u` + `v` is a SyntaxError; a baked table
-    // would be dead weight.
-    if flag_bits & torajs_regex::parser::RE_FLAG_U != 0
-        && flag_bits & torajs_regex::parser::RE_FLAG_V != 0
-    {
-        return None;
-    }
-    // The literal is UTF-8 (code points); without `u` / `v` the
-    // pattern is a code-unit sequence, so a supplementary character
-    // becomes its two surrogate forms — the same form the runtime
-    // haystack transcodes to (§22.2.2.1; `str_helpers::str_units`).
-    let pattern_bytes = if torajs_regex::flags::unicode_mode(flag_bits) {
-        pattern.as_bytes().to_vec()
-    } else {
-        torajs_regex::utf8::split_surrogate_pairs(pattern.as_bytes())
-    };
-    let mut parser = Parser::new(&pattern_bytes, flag_bits);
-    let mut root = parser.parse()?;
-    if parser.err() {
-        return None;
-    }
+    let Literal {
+        root,
+        flag_bits,
+        n_captures,
+    } = parse_literal(pattern, flags)?;
 
     // Capture-using literals route through __torajs_regex_compile
     // (runtime DFA-then-Pike pair); the baked path is capture-free
     // only — DFA loses save info by construction and the Pike second
     // pass needs a runtime Program anyway.
-    if parser.n_captures > 0 {
-        return None;
-    }
-
-    let names = parser.names.clone();
-    let n_caps = parser.n_captures;
-    if !resolve_backrefs(&mut root, &names, n_caps, flag_bits) {
+    if n_captures > 0 {
         return None;
     }
 

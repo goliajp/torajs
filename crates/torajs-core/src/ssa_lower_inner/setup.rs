@@ -49,6 +49,7 @@ pub(super) fn build_intrinsics_and_boxed_entries(
         init_c,
         init_d,
     );
+    crate::ssa_lower_regex_bake::matcher::synthesize(ast, module, fn_table, fn_sigs, fn_sig_ids);
     let boxed_entries = crate::ssa_lower_boxed_entry::synthesize_boxed_entries(
         ast,
         call_retargets,

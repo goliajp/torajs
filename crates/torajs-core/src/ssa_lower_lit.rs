@@ -121,14 +121,64 @@ pub(crate) fn lower_regex(ctx: &mut LowerCtx<'_>, pattern: &str, flags: &str) ->
     let flag_v = ctx.intern_string_literal(flags);
     let baked_idx =
         crate::ssa_lower_regex_bake::try_bake_regex_dfa(ctx.baked_regex_buf, pattern, flags);
-    let v = if let Some(idx) = baked_idx {
-        emit_baked_dfa_compile(ctx, idx, pat_v, flag_v)
-    } else {
-        emit_regex_compile(ctx, pat_v, flag_v)
+    let matcher = ctx
+        .fn_table
+        .get(&crate::ssa_lower_regex_bake::matcher::matcher_key(
+            pattern, flags,
+        ))
+        .copied();
+    let v = match (matcher, baked_idx) {
+        (Some(fid), _) => emit_matcher_compile(ctx, fid, baked_idx, pat_v, flag_v),
+        (None, Some(idx)) => emit_baked_dfa_compile(ctx, idx, pat_v, flag_v),
+        (None, None) => emit_regex_compile(ctx, pat_v, flag_v),
     };
     ctx.cur_block = saved_block;
     ctx.regex_lit_cache.insert(key, v);
     Operand::Value(v)
+}
+
+/// A literal with a synthesized one-pass matcher: its address, no
+/// UTF-16 matcher yet, and the baked DFA table when the literal has
+/// one too.
+fn emit_matcher_compile(
+    ctx: &mut LowerCtx<'_>,
+    fid: ssa::FuncId,
+    baked_idx: Option<u32>,
+    pat_v: ssa::ValueId,
+    flag_v: ssa::ValueId,
+) -> ssa::ValueId {
+    let cur_block = ctx.cur_block;
+    let sig = ctx.fn_sig_ids[&fid];
+    let latin1 = ctx
+        .f
+        .append_inst(cur_block, InstKind::FnAddr(fid), Type::FnSig(sig), None);
+    let meta = match baked_idx {
+        Some(idx) => Operand::Value(baked_meta_ref(ctx, idx)),
+        None => Operand::ConstPtrNull,
+    };
+    let entry = ctx.fn_table[crate::ssa_lower_regex_bake::matcher::COMPILE_ENTRY];
+    ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(
+            entry,
+            vec![
+                Operand::Value(latin1),
+                Operand::ConstPtrNull,
+                meta,
+                Operand::Value(pat_v),
+                Operand::Value(flag_v),
+            ],
+        ),
+        Type::RegExp,
+        None,
+    )
+}
+
+fn baked_meta_ref(ctx: &mut LowerCtx<'_>, idx: u32) -> ssa::ValueId {
+    let meta_sym = format!("___torajs_baked_regex_{idx}");
+    let cur_block = ctx.cur_block;
+    ctx.f
+        .append_inst(cur_block, InstKind::GlobalRef(meta_sym), Type::Ptr, None)
 }
 
 fn emit_baked_dfa_compile(
@@ -137,11 +187,7 @@ fn emit_baked_dfa_compile(
     pat_v: ssa::ValueId,
     flag_v: ssa::ValueId,
 ) -> ssa::ValueId {
-    let meta_sym = format!("___torajs_baked_regex_{idx}");
-    let cur_block = ctx.cur_block;
-    let meta_ptr = ctx
-        .f
-        .append_inst(cur_block, InstKind::GlobalRef(meta_sym), Type::Ptr, None);
+    let meta_ptr = baked_meta_ref(ctx, idx);
     let cur_block = ctx.cur_block;
     ctx.f.append_inst(
         cur_block,

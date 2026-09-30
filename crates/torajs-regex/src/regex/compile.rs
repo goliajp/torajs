@@ -218,6 +218,9 @@ pub(crate) fn compile_bytes(pat: Vec<u8>, fl: Vec<u8>) -> *mut c_void {
         // when the user binary's AOT pipeline emitted a
         // `BakedDfaMeta` for this literal regex.
         baked_dfa: None,
+        matcher_latin1: None,
+        matcher_utf16: None,
+        matcher_stride: 0,
         dfa_runtime,
     });
     Box::into_raw(re) as *mut c_void

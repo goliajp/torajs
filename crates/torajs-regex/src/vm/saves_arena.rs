@@ -80,7 +80,7 @@ impl SavesArena {
 /// them); the true minimum useful stride is 0 but a non-zero stride
 /// keeps `alloc_*` from degenerating into no-op rows for the
 /// never-takes-this-branch case.
-pub(super) fn detect_stride(prog: &Program) -> usize {
+pub fn detect_stride(prog: &Program) -> usize {
     let max_slot = max_save_slot(prog);
     let stride = if max_slot < 0 {
         2
