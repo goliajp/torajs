@@ -5,6 +5,7 @@
 //! Pike-VM second pass for captures, and the Pike-VM-only fallback for
 //! programs the DFA gate refuses (backref / lookaround).
 
+use super::backtrack::{self, Outcome};
 use super::{Workspace, match_at, prog_has_save};
 use crate::program::Program;
 use crate::vm::MatchResult;
@@ -156,10 +157,10 @@ fn dfa_probe(dfa: &crate::dfa::DfaProgram, prog: &Program, s: &[u8], st: i64) ->
 /// The DFA itself is capture-blind (chunk 9: `Op::Save` is a no-op ε
 /// in the closure), so the byte-step traversal found `[st..end]`
 /// without populating saves. When the pattern emitted any `Op::Save`
-/// ops we run a second-pass Pike VM at the same start with
-/// `end_target = end` — its leftmost-first semantics under that length
-/// restriction match the DFA's leftmost-longest hit, and the winning
-/// thread's snapshot is the JS-spec capture set. Patterns with no SAVE
+/// ops we run a second pass ([`window_captures`]) at the same start
+/// restricted to end at `end` — its leftmost-first semantics under that
+/// length restriction match the DFA's leftmost-longest hit, and the
+/// winning path's row is the JS-spec capture set. Patterns with no SAVE
 /// ops skip the second pass — saves stay all-`-1`.
 ///
 /// Round 3 Phase B sub-batch 5 attack #R-A3 — split the no-saves fast
@@ -182,33 +183,39 @@ fn dfa_hit_result(
     let stride = ws_ref.arena.stride;
     if stride <= INLINE_SLOTS {
         let mut row = [-1i64; INLINE_SLOTS];
-        let nfa_end =
-            match_at::vm_match_at(prog, s, st, flags, ws_ref, Some(&mut row[..stride]), end);
-        if nfa_end != end {
-            row.fill(-1);
-        }
+        window_captures(prog, s, st, end, flags, ws_ref, &mut row[..stride]);
         return MatchResult::with_saves_row(st, end, &row[..stride]);
     }
     let mut saves = vec![-1i64; stride];
-    // Second-pass NFA at exactly the DFA-found window to
-    // pull captures out. If the NFA disagrees with the DFA
-    // boundary we leave saves all-`-1` rather than report
-    // a phantom — this should not happen since the DFA's
-    // accept set is derived from the same NFA's `Op::Match`
-    // PCs.
-    let nfa_end = match_at::vm_match_at(
-        prog,
-        s,
-        st,
-        flags,
-        ws.get_or_insert_with(|| Workspace::for_program(prog)),
-        Some(&mut saves),
-        end,
-    );
-    if nfa_end != end {
-        saves.fill(-1);
-    }
+    window_captures(prog, s, st, end, flags, ws_ref, &mut saves);
     MatchResult::with_saves(st, end, saves)
+}
+
+/// Second pass over exactly the DFA-found window `[st, end)`: fill
+/// `row` (all `-1` on entry) with the captures. The bounded
+/// backtracker serves every window it is eligible for and that fits
+/// its budget; the Pike VM serves the rest. If the pass disagrees
+/// with the DFA boundary the row is left all `-1` rather than
+/// reporting a phantom — this should not happen since the DFA's
+/// accept set is derived from the same program's `Op::Match` PCs.
+fn window_captures(
+    prog: &Program,
+    s: &[u8],
+    st: i64,
+    end: i64,
+    flags: u8,
+    ws: &mut Workspace,
+    row: &mut [i64],
+) {
+    if ws.bt.eligible && backtrack::fits(prog, st, end) {
+        match backtrack::captures_at(prog, s, st, end, flags, &mut ws.bt, row) {
+            Outcome::Match | Outcome::NoMatch => return,
+            Outcome::WideStep => row.fill(-1),
+        }
+    }
+    if match_at::vm_match_at(prog, s, st, flags, ws, Some(row), end) != end {
+        row.fill(-1);
+    }
 }
 
 /// Pike-VM-only probe at `st` (DFA gate refused). When the program has

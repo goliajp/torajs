@@ -21,11 +21,14 @@
 //!   prefix anchor + DFA fast path + Pike-VM fallback).
 //! - [`dispatch`] — `add_thread` (epsilon expansion) + `sub_probe`
 //!   (lookahead) + `sub_probe_rev` (lookbehind, reverse-compiled).
+//! - [`backtrack`] — bounded backtracker (capture extraction over a
+//!   DFA-found window).
 //! - [`match_at`] — `vm_match_at` inner loop (operand dispatch on
 //!   the input-consuming op set).
 //! - [`match_at_rev`] — `vm_match_at_rev` reverse inner loop
 //!   (lookbehind bodies, reverse-compiled; ES §22.2.2 MatchReverse).
 
+pub mod backtrack;
 pub mod dispatch;
 pub mod match_at;
 pub mod match_at_rev;
@@ -169,6 +172,7 @@ pub struct Workspace {
     pub vc: VisitedTable,
     pub vn: VisitedTable,
     pub arena: SavesArena,
+    pub bt: backtrack::Backtrack,
     pub step_id: u32,
 }
 
@@ -182,6 +186,7 @@ impl Workspace {
             vc: VisitedTable::with_size(n),
             vn: VisitedTable::with_size(n),
             arena: SavesArena::with_capacity_and_stride(n, stride),
+            bt: backtrack::Backtrack::for_program(prog),
             step_id: 0,
         }
     }
