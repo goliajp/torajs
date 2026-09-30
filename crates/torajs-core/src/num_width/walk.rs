@@ -390,6 +390,9 @@ impl<'a> Analysis<'a> {
     /// container slot's by position), then the member-call effects and
     /// the operands themselves.
     fn walk_call(&mut self, eid: ExprId, callee: ExprId, args: &[ExprId], scope: &Scope) {
+        if self.char_code_in_bounds(callee, args) {
+            self.char_code_proven.insert(eid);
+        }
         let callee_name: Option<String> = self.retargets.get(&eid).cloned().or_else(|| match self
             .ast
             .get_expr(callee)

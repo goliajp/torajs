@@ -92,6 +92,14 @@ pub fn ldrb_w_reg(rt: Gpr, rn: Gpr, rm: Gpr) -> u32 {
     0x3860_6800 | (rm.idx() << 16) | (rn.idx() << 5) | rt.idx()
 }
 
+/// LDRH Wt, [Xn, Xm, LSL #1] — load one halfword at `Xn + Xm*2`,
+/// zero-extended into Wt (S = 1 folds the scale into the AGU).
+/// ARM ARM C6.2.157 (LDRH register). clang: `ldrh w0, [x1, x2,
+/// lsl #1]` = 0x7862_7820.
+pub fn ldrh_w_reg_lsl1(rt: Gpr, rn: Gpr, rm: Gpr) -> u32 {
+    0x7860_7800 | (rm.idx() << 16) | (rn.idx() << 5) | rt.idx()
+}
+
 /// LDR Xt, [Xn, Xm, LSL #3] — load 64-bit, register-indexed with
 /// the scale folded into the AGU (S = 1). clang: `ldr x0, [x1, x2,
 /// lsl #3]` = 0xF862_7820.
@@ -217,6 +225,12 @@ mod tests {
     fn ldrb_w_reg_w0_x1_x2_matches_clang() {
         // clang -c: `ldrb w0, [x1, x2]` = 0x3862_6820
         assert_eq!(ldrb_w_reg(Gpr::X0, Gpr::X1, Gpr::X2), 0x3862_6820);
+    }
+
+    #[test]
+    fn ldrh_w_reg_lsl1_w0_x1_x2_matches_clang() {
+        // clang -c: `ldrh w0, [x1, x2, lsl #1]` = 0x7862_7820
+        assert_eq!(ldrh_w_reg_lsl1(Gpr::X0, Gpr::X1, Gpr::X2), 0x7862_7820);
     }
 
     #[test]

@@ -339,6 +339,8 @@ pub fn eval_inst(
         },
         InstKind::ZExtBoolToI64(_) => AbsVal::Fact(NumFact::new(0, 1)),
         InstKind::ZExtI32ToI64(_) => AbsVal::Fact(NumFact::new(0, u32::MAX as i128)),
+        InstKind::LoadU8Dyn(_, _) => AbsVal::Fact(NumFact::new(0, u8::MAX as i128)),
+        InstKind::LoadU16Dyn(_, _) => AbsVal::Fact(NumFact::new(0, u16::MAX as i128)),
         // i64 population count — at most 64 set bits regardless of
         // the operand (branch_fold uses this to prove the count-cell
         // growth guards float_demote inserted always-false once

@@ -257,6 +257,12 @@ impl Function {
                 write!(w, " +")?;
                 self.write_operand(w, idx)?;
             }
+            InstKind::LoadU16Dyn(ptr, idx) => {
+                write!(w, "load_u16_dyn ")?;
+                self.write_operand(w, ptr)?;
+                write!(w, " + 2*")?;
+                self.write_operand(w, idx)?;
+            }
             InstKind::StoreDynScaled8(val, ptr, idx) => {
                 write!(w, "store_dyn_s8 ")?;
                 self.write_operand(w, val)?;

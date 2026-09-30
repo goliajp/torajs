@@ -274,6 +274,10 @@ pub(super) struct Analysis<'a> {
     /// element widths below are only sound under this proof (the
     /// field's doc on `WidthTable` says why).
     pub(super) proven_reads: HashSet<ExprId>,
+    /// The `s.charCodeAt(i)` calls walked under a pair that settles
+    /// both ends (`bounds_walk::char_code_in_bounds`): their width
+    /// is an integer, and lowering drops their NaN arm.
+    pub(super) char_code_proven: HashSet<ExprId>,
     /// Member reads that carry the sentinel with no container key to
     /// carry it for them (`sentinel_member_reads`). Filled after the
     /// sentinel tables close and before the walk, because `width.rs`
@@ -329,6 +333,7 @@ pub(crate) fn analyze(
         bounds_stack: Vec::new(),
         lower_settled: bounds_lower::settled_guards(ast),
         proven_reads: HashSet::new(),
+        char_code_proven: HashSet::new(),
         sentinel_member_reads: HashSet::new(),
     };
 
@@ -454,6 +459,7 @@ pub(crate) fn analyze(
         tables.fields,
         objlit_shape_f64,
         a.proven_reads,
+        a.char_code_proven,
         a.by_name,
     )
 }

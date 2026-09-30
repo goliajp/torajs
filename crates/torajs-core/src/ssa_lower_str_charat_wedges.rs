@@ -181,9 +181,8 @@ pub(crate) fn try_dispatch(
 ///   which resolves the parent header even for OOB indices);
 /// - Latin-1 parent → `LDRB` at `parent_data + offset + i`,
 ///   `SiToFp` to the same f64 the kernel answers;
-/// - UTF-16 parent → the pre-existing kernel call (no u16 load
-///   instruction exists, and the mixed-encoding shape is off every
-///   measured hot path).
+/// - UTF-16 parent → `LDRH` at `parent_data + (offset + i) * 2`,
+///   the same `SiToFp`.
 ///
 /// The old pre-P11.1-S2 inline was dropped as "encoding branch is
 /// no cheaper than the call" — that held for a per-call header
@@ -248,7 +247,7 @@ pub(crate) fn try_inline_substr_char_code_at(
     let inb_blk = ctx.f.add_block();
     let oob_blk = ctx.f.add_block();
     let lat_blk = ctx.f.add_block();
-    let slow_blk = ctx.f.add_block();
+    let wide_blk = ctx.f.add_block();
     let join_blk = ctx.f.add_block();
     ctx.f.set_term(
         cur,
@@ -294,48 +293,38 @@ pub(crate) fn try_inline_substr_char_code_at(
         Type::Bool,
         None,
     );
+    // code-unit position inside the parent, computed once before
+    // the encoding split; each arm scales it by its own stride
+    let off = ctx.f.append_inst(
+        inb_blk,
+        InstKind::Load(Type::I64, recv_op.clone(), 24),
+        Type::I64,
+        None,
+    );
+    let j = ctx.f.append_inst(
+        inb_blk,
+        InstKind::BinOp(SsaBinOp::Add, Operand::Value(off), idx),
+        Type::I64,
+        None,
+    );
     ctx.f.set_term(
         inb_blk,
         Terminator::CondBr {
             cond: Operand::Value(is_lat),
             then_blk: lat_blk,
-            else_blk: slow_blk,
+            else_blk: wide_blk,
         },
     );
 
-    let off = ctx.f.append_inst(
+    let jb = ctx.f.append_inst(
         lat_blk,
-        InstKind::Load(Type::I64, recv_op.clone(), 24),
-        Type::I64,
-        None,
-    );
-    let p_int = ctx.f.append_inst(
-        lat_blk,
-        InstKind::PtrToInt(Operand::Value(parent)),
-        Type::I64,
-        None,
-    );
-    let base_i = ctx.f.append_inst(
-        lat_blk,
-        InstKind::BinOp(SsaBinOp::Add, Operand::Value(p_int), Operand::ConstI64(16)),
-        Type::I64,
-        None,
-    );
-    let base = ctx.f.append_inst(
-        lat_blk,
-        InstKind::IntToPtr(Operand::Value(base_i)),
-        Type::Ptr,
-        None,
-    );
-    let j = ctx.f.append_inst(
-        lat_blk,
-        InstKind::BinOp(SsaBinOp::Add, Operand::Value(off), idx.clone()),
+        InstKind::BinOp(SsaBinOp::Add, Operand::Value(j), Operand::ConstI64(16)),
         Type::I64,
         None,
     );
     let b = ctx.f.append_inst(
         lat_blk,
-        InstKind::LoadU8Dyn(Operand::Value(base), Operand::Value(j)),
+        InstKind::LoadU8Dyn(Operand::Value(parent), Operand::Value(jb)),
         Type::I64,
         None,
     );
@@ -351,20 +340,30 @@ pub(crate) fn try_inline_substr_char_code_at(
     );
     ctx.f.set_term(lat_blk, Terminator::Br(join_blk));
 
-    let v = ctx.f.append_inst(
-        slow_blk,
-        InstKind::Call(
-            ctx.intrinsics.substr_char_code_at,
-            vec![recv_op.clone(), idx],
-        ),
+    // the halfword load scales by 2, so the 16-byte header is 8 units
+    let jh = ctx.f.append_inst(
+        wide_blk,
+        InstKind::BinOp(SsaBinOp::Add, Operand::Value(j), Operand::ConstI64(8)),
+        Type::I64,
+        None,
+    );
+    let u = ctx.f.append_inst(
+        wide_blk,
+        InstKind::LoadU16Dyn(Operand::Value(parent), Operand::Value(jh)),
+        Type::I64,
+        None,
+    );
+    let f = ctx.f.append_inst(
+        wide_blk,
+        InstKind::SiToFp(Operand::Value(u)),
         Type::F64,
         None,
     );
     ctx.f.append_void(
-        slow_blk,
-        InstKind::Store(Operand::Value(v), Operand::Value(result_slot), 0),
+        wide_blk,
+        InstKind::Store(Operand::Value(f), Operand::Value(result_slot), 0),
     );
-    ctx.f.set_term(slow_blk, Terminator::Br(join_blk));
+    ctx.f.set_term(wide_blk, Terminator::Br(join_blk));
 
     ctx.cur_block = join_blk;
     let out = ctx.f.append_inst(

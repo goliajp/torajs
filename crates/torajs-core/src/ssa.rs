@@ -214,6 +214,11 @@ pub enum InstKind {
     /// reads the 8/4-byte `LoadDyn` family can't express. Result
     /// type is always I64.
     LoadU8Dyn(Operand, Operand),
+    /// `%v = load_u16_dyn <base> + <idx>*2` — load one UTF-16 code
+    /// unit at `base + idx*2` and zero-extend to i64 (`LDRH Wd, [Xn,
+    /// Xm, LSL #1]`, the scale inside the AGU). The wide-string arm
+    /// of the inline `charCodeAt` read. Result type is always I64.
+    LoadU16Dyn(Operand, Operand),
     /// `%v = sitofp <i64-operand>` — signed integer to f64 cast. Used to
     /// promote i64 operands when mixed with f64 in arithmetic / comparisons.
     SiToFp(Operand),

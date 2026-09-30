@@ -335,7 +335,8 @@ pub(crate) fn is_pure(kind: &InstKind) -> bool {
         InstKind::Load(_, _, _)
         | InstKind::LoadDyn(_, _, _)
         | InstKind::LoadDynScaled8(_, _, _)
-        | InstKind::LoadU8Dyn(_, _) => false,
+        | InstKind::LoadU8Dyn(_, _)
+        | InstKind::LoadU16Dyn(_, _) => false,
         // Skeleton: writes and calls.
         InstKind::Store(_, _, _)
         | InstKind::StoreDyn(_, _, _)

@@ -44,7 +44,7 @@ pub fn visit_value_operands(kind: &InstKind, mut f: impl FnMut(ValueId)) {
             v(ptr);
             v(idx);
         }
-        InstKind::LoadU8Dyn(ptr, idx) => {
+        InstKind::LoadU8Dyn(ptr, idx) | InstKind::LoadU16Dyn(ptr, idx) => {
             v(ptr);
             v(idx);
         }
@@ -128,7 +128,7 @@ pub fn rewrite_value_operands(kind: &mut InstKind, mut f: impl FnMut(ValueId) ->
             v(ptr);
             v(idx);
         }
-        InstKind::LoadU8Dyn(ptr, idx) => {
+        InstKind::LoadU8Dyn(ptr, idx) | InstKind::LoadU16Dyn(ptr, idx) => {
             v(ptr);
             v(idx);
         }

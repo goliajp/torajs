@@ -74,4 +74,34 @@ impl Analysis<'_> {
         }
         both
     }
+
+    /// `xs.charCodeAt(i)` on a string under a standing pair that
+    /// settles both ends: the index is inside `[0, length)`, so the
+    /// code unit exists and the call never answers NaN (§22.1.3.2
+    /// step 5). `width.rs` asks it for the value's width and
+    /// `walk.rs` to record the call for lowering; both read the same
+    /// stack within the same statement, so they agree.
+    pub(super) fn char_code_in_bounds(&self, callee: ExprId, args: &[ExprId]) -> bool {
+        if self.bounds_stack.is_empty() || args.len() != 1 {
+            return false;
+        }
+        let ast = self.ast;
+        let Expr::Member { obj, name } = ast.get_expr(callee) else {
+            return false;
+        };
+        if name != "charCodeAt"
+            || !matches!(self.expr_types.get(obj), Some(crate::check::Type::String))
+        {
+            return false;
+        }
+        let Expr::Ident(xs) = ast.get_expr(*obj) else {
+            return false;
+        };
+        let Expr::Ident(i) = ast.get_expr(args[0]) else {
+            return false;
+        };
+        self.bounds_stack
+            .iter()
+            .any(|(pi, pxs, lower)| *lower && pi == i && pxs == xs)
+    }
 }

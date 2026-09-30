@@ -18,8 +18,9 @@ use super::{
 };
 use crate::enc::{
     ldr_d_imm12, ldr_d_reg, ldr_d_reg_lsl3, ldr_w_imm12, ldr_w_reg, ldr_x_imm12, ldr_x_reg,
-    ldr_x_reg_lsl3, ldrb_w_reg, ldur_w_imm9, ldur_x_imm9, str_d_imm12, str_d_reg, str_d_reg_lsl3,
-    str_w_imm12, str_w_reg, str_x_imm12, str_x_reg, str_x_reg_lsl3, stur_w_imm9, stur_x_imm9,
+    ldr_x_reg_lsl3, ldrb_w_reg, ldrh_w_reg_lsl1, ldur_w_imm9, ldur_x_imm9, str_d_imm12, str_d_reg,
+    str_d_reg_lsl3, str_w_imm12, str_w_reg, str_x_imm12, str_x_reg, str_x_reg_lsl3, stur_w_imm9,
+    stur_x_imm9,
 };
 use crate::reg::Gpr;
 use crate::regalloc::Assignment;
@@ -252,6 +253,23 @@ pub fn emit_load_u8_dyn(
     let rm = materialize_operand_gpr(bytes, idx, OP_SCRATCH_RHS, alloc);
     let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
     write_u32(bytes, ldrb_w_reg(dst, rn, rm));
+    write_def_spill_gpr(bytes, spill_off, dst);
+}
+
+/// Emit `LDRH Wd, [Xn, Xm, LSL #1]` — one UTF-16 code unit at
+/// `base + idx*2`, zero-extended to the full Xd.
+pub fn emit_load_u16_dyn(
+    bytes: &mut Vec<u8>,
+    inst: &Inst,
+    base: &Operand,
+    idx: &Operand,
+    alloc: &Assignment,
+) {
+    let result_vid = inst.result.expect("LoadU16Dyn must have result");
+    let rn = materialize_operand_gpr(bytes, base, OP_SCRATCH_LHS, alloc);
+    let rm = materialize_operand_gpr(bytes, idx, OP_SCRATCH_RHS, alloc);
+    let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
+    write_u32(bytes, ldrh_w_reg_lsl1(dst, rn, rm));
     write_def_spill_gpr(bytes, spill_off, dst);
 }
 

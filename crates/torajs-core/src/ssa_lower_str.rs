@@ -61,6 +61,8 @@ use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
+pub(crate) mod charcode_inline;
+
 /// Load the `length` field off a Str / Substr operand and widen to
 /// `i64` so the resulting [`Operand`] can flow into the i64-shaped
 /// `Type::Number` lane that downstream SSA code expects.
@@ -210,7 +212,9 @@ pub(crate) fn try_lower_method_call(
         && let Some(v) =
             crate::ssa_lower_stmt_for_of_split_iter::try_view_char_code_at(ctx, obj_eid, args)
     {
-        return Some(v);
+        return Some(crate::ssa_lower_str::charcode_inline::narrow_proven(
+            ctx, call_eid, v,
+        ));
     }
     let recv_op = ctx.lower_expr(obj_eid);
     let recv_ty = ctx.operand_ty(&recv_op);
@@ -255,6 +259,11 @@ pub(crate) fn try_lower_method_call(
     // receiver's own ref is released after the dispatch.
     ctx.unpark_owned_temp(recv_tok);
     ctx.release_owned_temp(obj_eid, &recv_op);
+    if method == "charCodeAt" {
+        return Some(crate::ssa_lower_str::charcode_inline::narrow_proven(
+            ctx, call_eid, result,
+        ));
+    }
     Some(result)
 }
 
@@ -301,20 +310,9 @@ fn dispatch_method(
     // anything that needs string-shaped output goes
     // through to_owned + Str path (Phase D would add
     // direct-on-Substr variants for slice/substring).
-    // P11.1-S2.4 — the pre-S2 `s.charCodeAt(LITERAL)` inline
-    // (LoadDyn byte + mask 0xff + zext) assumed a Latin-1 byte-
-    // stream payload. Post-S2 a UTF-16 Str's code unit is a
-    // little-endian u16 at byte offset `idx × 2`, so the inline
-    // would only return the low byte (e.g. 0x2D for `"中"`
-    // instead of 0x4E2D). Re-introducing it as an
-    // encoding-aware inline would need either a build-time
-    // narrowing (Type::Str doesn't tell us the underlying
-    // encoding) or a runtime header-flag read + branch — at
-    // which point it's no cheaper than calling
-    // `__torajs_str_char_code_at` directly. So the inline arm
-    // is dropped and every charCodeAt / codePointAt routes
-    // through the runtime intrinsic, which already does the
-    // encoding-aware load.
+    // `s.charCodeAt(i)` on an owned Str reads inline, keyed on the
+    // header's encoding flag (`charcode_inline`);
+    // codePointAt still routes through the runtime intrinsic.
     // S240 widens the 1-arg detection to 2-arg so the
     // charAt(idx, trailing) shape still routes through this fast
     // path; args[1] is never lowered (trailing-arg ignore).
@@ -325,6 +323,14 @@ fn dispatch_method(
     }
     if let Some(v) =
         crate::ssa_lower_str_charat_wedges::try_dispatch(ctx, method, args, recv_op, recv_ty)
+    {
+        return Some(v);
+    }
+    if method == "charCodeAt"
+        && recv_ty == Type::Str
+        && let Some(v) = crate::ssa_lower_str::charcode_inline::try_inline_str_char_code_at(
+            ctx, call_eid, args, recv_op,
+        )
     {
         return Some(v);
     }

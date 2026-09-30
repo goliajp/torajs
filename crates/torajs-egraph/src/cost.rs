@@ -134,7 +134,8 @@ pub fn cost_of_kind(kind: &InstKind) -> Cost {
         InstKind::Load(_, _, _)
         | InstKind::LoadDyn(_, _, _)
         | InstKind::LoadDynScaled8(_, _, _)
-        | InstKind::LoadU8Dyn(_, _) => LOAD_COST,
+        | InstKind::LoadU8Dyn(_, _)
+        | InstKind::LoadU16Dyn(_, _) => LOAD_COST,
         InstKind::Store(_, _, _)
         | InstKind::StoreDyn(_, _, _)
         | InstKind::StoreDynScaled8(_, _, _)

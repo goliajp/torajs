@@ -179,7 +179,16 @@ fn expr_taints(ast: &Ast, eid: ExprId, i: &str, xs: &str) -> bool {
         | Expr::Spread { expr }
         | Expr::As { expr, .. } => expr_taints(ast, *expr, i, xs),
         Expr::Call { callee, args } => {
-            expr_taints(ast, *callee, i, xs) || args.iter().any(|a| expr_taints(ast, *a, i, xs))
+            // `xs.charCodeAt(…)` reads xs without letting it go
+            // anywhere: the receiver of the one method the proof also
+            // serves, not an escape.
+            let callee_safe = matches!(
+                ast.get_expr(*callee),
+                Expr::Member { obj, name }
+                    if name == "charCodeAt" && matches!(ast.get_expr(*obj), Expr::Ident(n) if n == xs)
+            );
+            (!callee_safe && expr_taints(ast, *callee, i, xs))
+                || args.iter().any(|a| expr_taints(ast, *a, i, xs))
         }
         Expr::Array(elems) => elems.iter().any(|e| expr_taints(ast, *e, i, xs)),
         Expr::Ternary {

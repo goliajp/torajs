@@ -149,7 +149,7 @@ impl<'a> Analysis<'a> {
                 UnaryOp::BitNot => W::Num(Vec::new()),
                 UnaryOp::Not => W::NotNum,
             },
-            Expr::Call { callee, .. } => self.width_of_call(eid, *callee, scope),
+            Expr::Call { callee, args } => self.width_of_call(eid, *callee, args, scope),
             Expr::Ternary {
                 then_branch,
                 else_branch,
@@ -360,7 +360,7 @@ impl<'a> Analysis<'a> {
     /// their Ret key; named fns read `Ret(f)`; Math.* is libm-shaped
     /// f64; other member calls and indirect fn-value calls read
     /// through the container lattice.
-    fn width_of_call(&self, eid: ExprId, callee: ExprId, scope: &Scope) -> W {
+    fn width_of_call(&self, eid: ExprId, callee: ExprId, args: &[ExprId], scope: &Scope) -> W {
         if let Some(mono) = self.retargets.get(&eid) {
             return W::Num(vec![(SlotKey::Ret(mono.clone()), false)]);
         }
@@ -380,7 +380,18 @@ impl<'a> Analysis<'a> {
             // always a sound width for a Number, and a too-narrow
             // answer here is not a slow program but a broken build
             // (an FPR value reaching a GPR-only consumer).
-            Expr::Member { name: m, .. } if m == "charCodeAt" => W::F64,
+            //
+            // Under a guard that proves the index in range the NaN
+            // answer is unreachable and the code unit is an integer;
+            // the lowering reads the same proof and drops that arm
+            // (`bounds_walk::char_code_in_bounds`).
+            Expr::Member { name: m, .. } if m == "charCodeAt" => {
+                if self.char_code_in_bounds(callee, args) {
+                    W::Num(Vec::new())
+                } else {
+                    W::F64
+                }
+            }
             // §19.2.4 / §19.2.5 / §21.1.1 — the three global
             // functions that answer a Number. Same reasoning as
             // `charCodeAt` one line up, and the same failure when it

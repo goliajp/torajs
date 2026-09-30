@@ -70,6 +70,13 @@ pub(crate) struct WidthTable {
     /// can reach the widths can therefore always reach the proof they
     /// were taken under, and cannot substitute another.
     index_read_proven: HashSet<ExprId>,
+    /// The `s.charCodeAt(i)` calls the walk proved in range — the
+    /// same guard pair with both ends settled — and therefore gave
+    /// an integer width instead of the F64 a NaN answer needs. Rides
+    /// here for the same reason as the index reads: the lowering
+    /// that drops the NaN arm has to read the proof the width was
+    /// taken under.
+    char_code_at_proven: HashSet<ExprId>,
     /// The pre-walk slot-name registry (`analyze_tables::
     /// collect_slot_registry`): every binding's spellings by name —
     /// `Param(f, n)` / `Local(f, n)` per top-level fn, `Global(n)` for
@@ -95,6 +102,7 @@ impl WidthTable {
         sentinel_fields: HashSet<PropKey>,
         objlit_shape_f64: HashMap<Vec<PropKey>, HashSet<PropKey>>,
         index_read_proven: HashSet<ExprId>,
+        char_code_at_proven: HashSet<ExprId>,
         by_name: HashMap<String, Vec<SlotKey>>,
     ) -> Self {
         WidthTable {
@@ -109,6 +117,7 @@ impl WidthTable {
             sentinel_fields,
             objlit_shape_f64,
             index_read_proven,
+            char_code_at_proven,
             by_name,
         }
     }
@@ -148,6 +157,12 @@ impl WidthTable {
     /// element widths were decided under.
     pub(crate) fn index_read_proven(&self, eid: ExprId) -> bool {
         self.index_read_proven.contains(&eid)
+    }
+
+    /// See the field's doc — the `charCodeAt` calls whose width was
+    /// narrowed to an integer under the bounds proof.
+    pub(crate) fn char_code_at_proven(&self, eid: ExprId) -> bool {
+        self.char_code_at_proven.contains(&eid)
     }
 
     /// W4 shape-join query — true when `name` floats on any literal

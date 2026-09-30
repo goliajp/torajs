@@ -74,8 +74,8 @@ pub use cast::{
 pub use cmp::{emit_fcmp, emit_icmp, emit_select};
 pub use ctpop_range_sum::emit_ctpop_range_sum;
 pub use mem::{
-    emit_alloca, emit_load, emit_load_dyn, emit_load_dyn_scaled8, emit_load_u8_dyn, emit_store,
-    emit_store_dyn, emit_store_dyn_scaled8,
+    emit_alloca, emit_load, emit_load_dyn, emit_load_dyn_scaled8, emit_load_u8_dyn,
+    emit_load_u16_dyn, emit_store, emit_store_dyn, emit_store_dyn_scaled8,
 };
 pub use operand::{
     emit_copy, materialize_const_i64, materialize_operand_fpr, materialize_operand_gpr,

@@ -34,12 +34,15 @@
 //! The third is answered two ways. A `for (let i = …; …)` counter is
 //! bound BY the loop, so nothing outside it can name that binding and
 //! the induction already sees every write there is. Otherwise — a
-//! `while` over a counter declared before it — the loop has to hold
-//! every write to that NAME in the module, which is coarse (a sibling
-//! loop's own `let i` blocks it) but sound. That census reads the
-//! whole expression arena rather than walking, because a walk would
-//! have to know every statement and expression shape to be complete,
-//! and being incomplete here is silent-wrong.
+//! `while` over a counter declared before it — every write to that
+//! NAME in the module has to be one the loop holds or a non-negative
+//! step (`i = i + k`, `i++`): whichever binding such a write hits, it
+//! keeps a non-negative integer non-negative, so the invariant
+//! survives it wherever it runs. That is coarse (a sibling loop
+//! stepping its own `i` by `-1` blocks it) but sound. The census
+//! reads the whole expression arena rather than walking, because a
+//! walk would have to know every statement and expression shape to
+//! be complete, and being incomplete here is silent-wrong.
 //!
 //! Miss any of them and the guard is simply not settled: the element
 //! keeps its F64 seed and the program keeps answering `undefined`.
@@ -59,9 +62,11 @@ type Env = HashMap<String, bool>;
 const NO_ARRAY: &str = "\u{0}";
 
 /// The census of §3: every `Ident`-targeted write in the module by
-/// name, plus the names some closure captured.
+/// name, the ones among them that are non-negative steps of the name
+/// they write, plus the names some closure captured.
 struct Writes {
     sites: HashMap<String, HashSet<ExprId>>,
+    steps: HashSet<ExprId>,
     captured: HashSet<String>,
 }
 
@@ -80,20 +85,36 @@ pub(super) fn settled_guards(ast: &Ast) -> HashSet<ExprId> {
 /// incomplete here is silent-wrong, not a lost optimization.
 fn census(ast: &Ast) -> Writes {
     let mut sites: HashMap<String, HashSet<ExprId>> = HashMap::new();
+    let mut steps: HashSet<ExprId> = HashSet::new();
     let mut captured: HashSet<String> = HashSet::new();
     for (i, e) in ast.exprs.iter().enumerate() {
         let eid = ExprId(i as u32);
         match e {
-            Expr::Assign { target, .. } | Expr::PostIncr { target, .. } => {
+            Expr::Assign { target, value } => {
                 if let Expr::Ident(n) = ast.get_expr(*target) {
                     sites.entry(n.clone()).or_default().insert(eid);
+                    if step_value(ast, *value, n) {
+                        steps.insert(eid);
+                    }
+                }
+            }
+            Expr::PostIncr { target, is_inc, .. } => {
+                if let Expr::Ident(n) = ast.get_expr(*target) {
+                    sites.entry(n.clone()).or_default().insert(eid);
+                    if *is_inc {
+                        steps.insert(eid);
+                    }
                 }
             }
             Expr::Closure { captures, .. } => captured.extend(captures.iter().cloned()),
             _ => {}
         }
     }
-    Writes { sites, captured }
+    Writes {
+        sites,
+        steps,
+        captured,
+    }
 }
 
 fn scan_seq(ast: &Ast, stmts: &[Stmt], env: &mut Env, w: &Writes, out: &mut HashSet<ExprId>) {
@@ -213,11 +234,11 @@ fn settled(
     }
     // A binding the loop owns is out of everyone else's reach; any
     // other one has to have all of its writes among the steps just
-    // checked.
+    // checked, or be non-negative steps wherever they are.
     loop_owns(&i)
         || w.sites
             .get(&i)
-            .is_none_or(|all| all.iter().all(|e| seen.contains(e)))
+            .is_none_or(|all| all.iter().all(|e| seen.contains(e) || w.steps.contains(e)))
 }
 
 /// A non-negative integer literal.

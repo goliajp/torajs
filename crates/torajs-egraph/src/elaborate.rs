@@ -338,6 +338,9 @@ fn canonicalize_operands(kind: &InstKind, egraph: &mut Egraph) -> InstKind {
         InstKind::LoadU8Dyn(addr, idx) => {
             InstKind::LoadU8Dyn(map_operand(addr, egraph), map_operand(idx, egraph))
         }
+        InstKind::LoadU16Dyn(addr, idx) => {
+            InstKind::LoadU16Dyn(map_operand(addr, egraph), map_operand(idx, egraph))
+        }
         InstKind::StoreDynScaled8(val, addr, idx) => InstKind::StoreDynScaled8(
             map_operand(val, egraph),
             map_operand(addr, egraph),

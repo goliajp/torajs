@@ -299,7 +299,7 @@ pub(crate) fn visit_inst_operands(kind: &InstKind, mut f: impl FnMut(ValueId)) {
             visit(base);
             visit(idx);
         }
-        InstKind::LoadU8Dyn(base, idx) => {
+        InstKind::LoadU8Dyn(base, idx) | InstKind::LoadU16Dyn(base, idx) => {
             visit(base);
             visit(idx);
         }

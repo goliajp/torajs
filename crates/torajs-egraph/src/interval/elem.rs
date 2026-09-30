@@ -417,7 +417,8 @@ fn operands(kind: &InstKind) -> Vec<Operand> {
         | InstKind::FCmp(_, a, b)
         | InstKind::LoadDyn(_, a, b)
         | InstKind::LoadDynScaled8(_, a, b)
-        | InstKind::LoadU8Dyn(a, b) => vec![a.clone(), b.clone()],
+        | InstKind::LoadU8Dyn(a, b)
+        | InstKind::LoadU16Dyn(a, b) => vec![a.clone(), b.clone()],
         InstKind::Call(_, args) => args.clone(),
         InstKind::CallIndirect(_, callee, args) => {
             let mut v = vec![callee.clone()];
