@@ -180,7 +180,11 @@ pub(super) fn clone_blocks(func: &mut Function, region: &[BlockId]) -> FastCopy 
 }
 
 /// The loop's cells, in id order.
-fn cells_of(func: &Function, region: &[BlockId], cells: &HashSet<ValueId>) -> Vec<ValueId> {
+pub(super) fn cells_of(
+    func: &Function,
+    region: &[BlockId],
+    cells: &HashSet<ValueId>,
+) -> Vec<ValueId> {
     let mut own: Vec<ValueId> = region
         .iter()
         .flat_map(|b| func.blocks[b.0 as usize].insts.iter())
@@ -233,10 +237,6 @@ pub(super) fn seed_cells(
     copy: &FastCopy,
 ) {
     let in_region: HashSet<BlockId> = region.iter().copied().collect();
-    let entering: Vec<usize> = (0..outside)
-        .filter(|bi| !in_region.contains(&BlockId(*bi as u32)))
-        .filter(|bi| successors(&func.blocks[*bi].term).any(|s| s == header))
-        .collect();
     for cell in cells_of(func, region, cells) {
         // a cell only the loop stores holds nothing on the way in
         let stored_outside = (0..outside)
@@ -245,12 +245,8 @@ pub(super) fn seed_cells(
         if !stored_outside {
             continue;
         }
-        let mut given = entering.iter().map(|bi| stored(func, *bi, cell, cells));
-        let first = given.next().flatten();
-        let from = match first {
-            Some(op) if given.all(|g| g == Some(op)) => op,
-            _ => Operand::Value(cell),
-        };
+        let from = entry_value_in(func, &in_region, header, outside, cell, cells)
+            .unwrap_or(Operand::Value(cell));
         let ty = func.values[cell.0 as usize].ty;
         func.blocks[pass.0 as usize].insts.push(Inst {
             result: Some(copy.values[&cell]),
@@ -258,6 +254,34 @@ pub(super) fn seed_cells(
             origin: None,
         });
     }
+}
+
+/// What every block entering the loop last stored into `cell`, when
+/// they all stored the same thing.
+pub(super) fn entry_value(
+    func: &Function,
+    region: &HashSet<BlockId>,
+    header: BlockId,
+    cell: ValueId,
+    cells: &HashSet<ValueId>,
+) -> Option<Operand> {
+    entry_value_in(func, region, header, func.blocks.len(), cell, cells)
+}
+
+fn entry_value_in(
+    func: &Function,
+    region: &HashSet<BlockId>,
+    header: BlockId,
+    outside: usize,
+    cell: ValueId,
+    cells: &HashSet<ValueId>,
+) -> Option<Operand> {
+    let mut given = (0..outside)
+        .filter(|bi| !region.contains(&BlockId(*bi as u32)))
+        .filter(|bi| successors(&func.blocks[*bi].term).any(|s| s == header))
+        .map(|bi| stored(func, bi, cell, cells));
+    let first = given.next().flatten()?;
+    given.all(|g| g == Some(first)).then_some(first)
 }
 
 /// Mint the out cells, point the readers at them, and store into

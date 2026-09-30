@@ -405,3 +405,58 @@ fn a_value_read_after_the_loop_keeps_it_unversioned() {
     assert_eq!(stats.loops_versioned, 0);
     assert_eq!(stats.skipped_escaping, 1);
 }
+
+#[test]
+fn a_cell_started_from_a_source_runs_on_its_image() {
+    // `seed = (seed * 48271) % 2147483647` each trip, `seed` started
+    // from a second opaque f64 in the entry block
+    let extra = vec![
+        inst(
+            7,
+            InstKind::BinOp(BinOp::FMul, v(10), Operand::ConstF64(48271.0)),
+        ),
+        inst(
+            11,
+            InstKind::BinOp(BinOp::FRem, v(7), Operand::ConstF64(2147483647.0)),
+        ),
+        inst(10, InstKind::Copy(Type::F64, v(11))),
+    ];
+    let mut m = counting_loop(FPred::Olt, extra);
+    let f = &mut m.funcs[1];
+    f.values[7].ty = Type::F64;
+    for _ in 9..12 {
+        f.values.push(ValueInfo {
+            ty: Type::F64,
+            name: None,
+        });
+    }
+    f.blocks[0].insts.insert(
+        1,
+        inst(9, InstKind::Call(torajs_core::ssa::FuncId(0), vec![])),
+    );
+    f.blocks[0]
+        .insts
+        .insert(2, inst(10, InstKind::Copy(Type::F64, v(9))));
+    let stats = version_loops(&mut m);
+    assert_eq!(stats.loops_versioned, 1);
+    assert_eq!(stats.values_converted, 1);
+    let f = &m.funcs[1];
+    // the copy's cell starts from the image of the source
+    let seeded = f.blocks.iter().flat_map(|b| b.insts.iter()).any(
+        |i| matches!(&i.kind, InstKind::Copy(Type::F64, from) if image_of(f, ValueId(9), from)),
+    );
+    assert!(seeded);
+    // the window keeps the product inside 2^53 and the dividend at or above 0
+    let top = EXACT_VALUE_MAX / 48271;
+    let checks: Vec<i64> = f
+        .blocks
+        .iter()
+        .flat_map(|b| b.insts.iter())
+        .filter_map(|i| match i.kind {
+            InstKind::ICmp(IPred::Sgt | IPred::Slt, _, Operand::ConstI64(c)) => Some(c),
+            _ => None,
+        })
+        .collect();
+    assert!(checks.contains(&top), "{checks:?}");
+    assert!(checks.contains(&0), "{checks:?}");
+}

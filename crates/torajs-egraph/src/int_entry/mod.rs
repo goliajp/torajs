@@ -31,6 +31,7 @@
 
 mod guard;
 mod region;
+mod window;
 
 use std::collections::{HashMap, HashSet};
 
@@ -92,7 +93,7 @@ struct Plan {
     header: BlockId,
     region: Vec<BlockId>,
     uses: Vec<BoundUse>,
-    /// sources the loop reads as values
+    /// sources the loop reads as values, or starts a cell from
     values: Vec<ValueId>,
     needs: Vec<Need>,
     /// loop cells read after the loop, and the blocks reading them
@@ -147,7 +148,21 @@ fn plan_function(func: &Function, stats: &mut IntEntryStats) -> Vec<Plan> {
         let region: HashSet<BlockId> = l.body.iter().copied().collect();
         let mut uses = bound_uses(func, &region, &defs);
         let matched: HashSet<(BlockId, usize)> = uses.iter().map(|u| (u.block, u.inst)).collect();
-        let values = value_sources(func, &region, &defs, &matched);
+        let mut values = value_sources(func, &region, &defs, &matched);
+        // a cell every way into the loop starts from one source: the
+        // loop reads the source through the cell
+        let mut seeded: Vec<(ValueId, ValueId)> = Vec::new();
+        for cell in region::cells_of(func, &l.body, &cells) {
+            if let Some(Operand::Value(from)) =
+                region::entry_value(func, &region, l.header, cell, &cells)
+                && is_source(func, &region, &defs, from)
+            {
+                seeded.push((from, cell));
+                if !values.contains(&from) {
+                    values.push(from);
+                }
+            }
+        }
         // a bound the loop also reads is taken as it is, not rounded
         for u in &mut uses {
             if values.contains(&u.source) {
@@ -174,7 +189,9 @@ fn plan_function(func: &Function, stats: &mut IntEntryStats) -> Vec<Plan> {
         let int32 = does_int32_work(func, &region);
         let mut needs = needs_of(&uses, int32);
         for &source in &values {
-            let (lo, hi) = value_window(func, &region, source, int32);
+            let mut starts = vec![source];
+            starts.extend(seeded.iter().filter(|(s, _)| *s == source).map(|(_, c)| *c));
+            let (lo, hi) = window::value_window(func, &region, &starts, int32);
             join_need(&mut needs, source, Round::Exact, lo, hi);
         }
         taken.extend(region);
@@ -251,55 +268,6 @@ fn value_sources(
         }
     }
     out
-}
-
-/// What the region's readers of `source` ask of it, through the
-/// copies (its cells included) that carry it: a divisor must not be
-/// 0, a dividend must not be negative for the integer `%` to answer
-/// what the float one does. A narrower window sends more inputs to
-/// the slow copy; it never changes an answer.
-fn value_window(
-    func: &Function,
-    region: &HashSet<BlockId>,
-    source: ValueId,
-    int32: bool,
-) -> (i64, i64) {
-    let (mut lo, hi) = if int32 {
-        (INT32_MIN, INT32_MAX)
-    } else {
-        (-EXACT_VALUE_MAX, EXACT_VALUE_MAX)
-    };
-    let mut reach: HashSet<ValueId> = HashSet::from([source]);
-    loop {
-        let mut grew = false;
-        for b in region {
-            for inst in &func.blocks[b.0 as usize].insts {
-                if let (Some(r), InstKind::Copy(_, Operand::Value(from))) =
-                    (inst.result, &inst.kind)
-                    && reach.contains(from)
-                {
-                    grew |= reach.insert(r);
-                }
-            }
-        }
-        if !grew {
-            break;
-        }
-    }
-    let reached = |op: &Operand| matches!(op, Operand::Value(v) if reach.contains(v));
-    for b in region {
-        for inst in &func.blocks[b.0 as usize].insts {
-            if let InstKind::BinOp(BinOp::FRem, dividend, divisor) = &inst.kind {
-                if reached(dividend) {
-                    lo = lo.max(0);
-                }
-                if reached(divisor) {
-                    lo = lo.max(1);
-                }
-            }
-        }
-    }
-    (lo, hi)
 }
 
 fn bound_uses(
@@ -437,6 +405,10 @@ fn apply(func: &mut Function, plan: &Plan) {
         .map(|s| (*s, Operand::Value(chain.values[s])))
         .collect();
     if !images.is_empty() {
+        // the copy's cells start from the image too
+        for inst in &mut func.blocks[chain.pass.0 as usize].insts {
+            rewrite_operands(&mut inst.kind, &images);
+        }
         for b in &plan.region {
             let block = &mut func.blocks[copy.blocks[b].0 as usize];
             for inst in &mut block.insts {
