@@ -44,6 +44,8 @@ pub mod replace;
 pub mod replace_fn;
 pub mod replace_fn_dispatch;
 mod replace_fn_typed;
+mod replace_fn_units;
+mod replace_fn_walk;
 pub mod replace_iter;
 mod replace_splice;
 pub mod split;
