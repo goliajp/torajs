@@ -53,6 +53,19 @@ pub struct ThrowCheckFoldStats {
     pub loop_entry_probes: u32,
 }
 
+/// The two folds in pipeline order: a repeated nullish check leaves a
+/// probe with no call in front of it, which the probe fold then takes.
+/// `TORAJS_NULL_CHECK_FOLD_OFF=1` / `TORAJS_THROW_CHECK_FOLD_OFF=1`
+/// skip either (bisect gates).
+pub(crate) fn run(module: &mut Module) {
+    crate::gated_pass(
+        "NULL_CHECK_FOLD",
+        module,
+        crate::null_check_fold::fold_null_checks,
+    );
+    crate::gated_pass("THROW_CHECK_FOLD", module, fold_throw_checks);
+}
+
 pub fn fold_throw_checks(module: &mut Module) -> ThrowCheckFoldStats {
     let mut stats = ThrowCheckFoldStats::default();
     for func in module.funcs.iter_mut() {
@@ -63,11 +76,11 @@ pub fn fold_throw_checks(module: &mut Module) -> ThrowCheckFoldStats {
 
 /// A block ending in a flag probe: the flag's load sits at `load` and
 /// no call follows it in the block, so the else edge means "zero".
-struct Probe {
-    load: usize,
+pub(crate) struct Probe {
+    pub(crate) load: usize,
     values: [ValueId; 3],
-    then_blk: BlockId,
-    else_blk: BlockId,
+    pub(crate) then_blk: BlockId,
+    pub(crate) else_blk: BlockId,
 }
 
 fn fold_in_function(func: &mut Function, stats: &mut ThrowCheckFoldStats) {
@@ -168,18 +181,29 @@ fn guardable_probe(func: &Function, lp: &NaturalLoop, dom: &DominatorTree) -> Op
             return None;
         }
     }
+    propagate_path_leaves_loop(func, &body, probe.then_blk).then_some(probe.then_blk)
+}
+
+/// Does the path from `then_blk` stay outside the loop `body` and read
+/// no value the loop defines? Then it runs the same from an edge into
+/// the loop as from inside it.
+pub(crate) fn propagate_path_leaves_loop(
+    func: &Function,
+    body: &HashSet<usize>,
+    then_blk: BlockId,
+) -> bool {
     let defined: HashSet<ValueId> = body
         .iter()
         .flat_map(|&b| func.blocks[b].insts.iter().filter_map(|i| i.result))
         .collect();
     let mut seen: HashSet<usize> = HashSet::new();
-    let mut stack = vec![probe.then_blk.0 as usize];
+    let mut stack = vec![then_blk.0 as usize];
     while let Some(b) = stack.pop() {
         if !seen.insert(b) {
             continue;
         }
         if body.contains(&b) {
-            return None;
+            return false;
         }
         let block = &func.blocks[b];
         let mut reads_loop_value = false;
@@ -195,15 +219,19 @@ fn guardable_probe(func: &Function, lp: &NaturalLoop, dom: &DominatorTree) -> Op
             reads_loop_value |= defined.contains(v);
         }
         if reads_loop_value {
-            return None;
+            return false;
         }
         stack.extend(successors(&block.term).map(|s| s.0 as usize));
     }
-    Some(probe.then_blk)
+    true
 }
 
 /// A new block probing the flag on every edge into `lp`'s header.
-fn insert_entry_probe(func: &mut Function, lp: &NaturalLoop, then_blk: BlockId) {
+pub(crate) fn insert_entry_probe(
+    func: &mut Function,
+    lp: &NaturalLoop,
+    then_blk: BlockId,
+) -> BlockId {
     let header = lp.header;
     let entry = func.add_block();
     let p = func.append_inst(
@@ -252,9 +280,10 @@ fn insert_entry_probe(func: &mut Function, lp: &NaturalLoop, then_blk: BlockId) 
             _ => {}
         }
     }
+    entry
 }
 
-fn successors(term: &Terminator) -> impl Iterator<Item = BlockId> + '_ {
+pub(crate) fn successors(term: &Terminator) -> impl Iterator<Item = BlockId> + '_ {
     let (a, b) = match term {
         Terminator::Br(t) => (Some(*t), None),
         Terminator::CondBr {
@@ -266,7 +295,7 @@ fn successors(term: &Terminator) -> impl Iterator<Item = BlockId> + '_ {
 }
 
 /// The probe that ends block `b`, if it ends in one.
-fn probe_of(func: &Function, b: usize) -> Option<Probe> {
+pub(crate) fn probe_of(func: &Function, b: usize) -> Option<Probe> {
     let block = &func.blocks[b];
     let Terminator::CondBr {
         cond: Operand::Value(c),
@@ -306,7 +335,7 @@ fn probe_of(func: &Function, b: usize) -> Option<Probe> {
 
 /// The only instructions that can change the flag (a release may
 /// call into the runtime's drop walk).
-fn is_clobber(kind: &InstKind) -> bool {
+pub(crate) fn is_clobber(kind: &InstKind) -> bool {
     matches!(
         kind,
         InstKind::Call(..) | InstKind::CallIndirect(..) | InstKind::RcDecAny(_)
