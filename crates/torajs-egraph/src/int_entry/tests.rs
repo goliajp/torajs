@@ -269,8 +269,35 @@ fn an_inclusive_compare_rounds_the_bound_down() {
     assert_eq!(floors, 1, "one floor adjustment, in the chain");
 }
 
+/// The value the copy reads in a source's place: the `sitofp` of the
+/// integer the chain passed.
+fn image_of(f: &Function, source: ValueId, op: &Operand) -> bool {
+    let Operand::Value(x) = op else {
+        return false;
+    };
+    if *x == source {
+        return false;
+    }
+    let def = |v: ValueId| {
+        f.blocks
+            .iter()
+            .flat_map(|b| b.insts.iter())
+            .find(|i| i.result == Some(v))
+            .map(|i| i.kind.clone())
+    };
+    match def(*x) {
+        Some(InstKind::SiToFp(Operand::Value(pi))) => match def(pi) {
+            Some(InstKind::Copy(Type::I64, Operand::Value(t))) => {
+                matches!(def(t), Some(InstKind::FpToSi(_)))
+            }
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
 #[test]
-fn a_bound_the_loop_also_adds_is_left_alone() {
+fn a_bound_the_loop_also_adds_is_taken_as_it_is() {
     let extra = vec![inst(
         7,
         InstKind::BinOp(BinOp::FAdd, v(0), Operand::ConstF64(1.0)),
@@ -278,11 +305,95 @@ fn a_bound_the_loop_also_adds_is_left_alone() {
     let mut m = counting_loop(FPred::Olt, extra);
     // value 7 is an f64 here
     m.funcs[1].values[7].ty = Type::F64;
-    let before = m.funcs[1].blocks.len();
     let stats = version_loops(&mut m);
-    assert_eq!(stats.loops_versioned, 0);
-    assert_eq!(stats.skipped_value_use, 1);
-    assert_eq!(m.funcs[1].blocks.len(), before);
+    assert_eq!(stats.loops_versioned, 1);
+    assert_eq!(stats.bounds_converted, 1);
+    assert_eq!(stats.values_converted, 1);
+    let f = &m.funcs[1];
+    // the copy compares with the integer itself, no rounding in the chain
+    let (_, bound) = fast_compare(f, IPred::Slt);
+    assert_eq!(f.values[bound.0 as usize].ty, Type::I64);
+    let rounds = f
+        .blocks
+        .iter()
+        .flat_map(|b| b.insts.iter())
+        .filter(|i| matches!(i.kind, InstKind::FCmp(FPred::Olt | FPred::Ogt, ..)))
+        .count();
+    assert_eq!(rounds, 1, "only the loop's own compare");
+    // the chain compares the bit patterns of the value and its round trip
+    let bit_compares = f
+        .blocks
+        .iter()
+        .flat_map(|b| b.insts.iter())
+        .filter(|i| matches!(i.kind, InstKind::BitCastF64ToI64(_)))
+        .count();
+    assert_eq!(bit_compares, 2);
+    // the copy adds the image, the loop as it was still adds the source
+    let adds: Vec<&Operand> = f
+        .blocks
+        .iter()
+        .flat_map(|b| b.insts.iter())
+        .filter_map(|i| match &i.kind {
+            InstKind::BinOp(BinOp::FAdd, a, _) => Some(a),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(adds.len(), 2);
+    assert!(adds.iter().any(|a| **a == v(0)));
+    assert!(adds.iter().any(|a| image_of(f, ValueId(0), a)));
+}
+
+#[test]
+fn a_value_the_loop_divides_by_gets_the_divisor_window() {
+    // `total = total + (i % m)` with `m` a second opaque f64
+    let extra = vec![inst(7, InstKind::BinOp(BinOp::FRem, v(3), v(9)))];
+    let mut m = counting_loop(FPred::Olt, extra);
+    m.funcs[1].values[7].ty = Type::F64;
+    m.funcs[1].values.push(ValueInfo {
+        ty: Type::F64,
+        name: None,
+    });
+    m.funcs[1].blocks[0].insts.insert(
+        1,
+        inst(9, InstKind::Call(torajs_core::ssa::FuncId(0), vec![])),
+    );
+    let stats = version_loops(&mut m);
+    assert_eq!(stats.loops_versioned, 1);
+    assert_eq!(stats.values_converted, 1);
+    let f = &m.funcs[1];
+    let rems: Vec<&Operand> = f
+        .blocks
+        .iter()
+        .flat_map(|b| b.insts.iter())
+        .filter_map(|i| match &i.kind {
+            InstKind::BinOp(BinOp::FRem, _, d) => Some(d),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(rems.len(), 2);
+    assert!(rems.iter().any(|d| image_of(f, ValueId(9), d)));
+    // the window's floor is 1: a divisor of 0 takes the loop as it was
+    let floor_one = f
+        .blocks
+        .iter()
+        .flat_map(|b| b.insts.iter())
+        .any(|i| matches!(i.kind, InstKind::ICmp(IPred::Slt, _, Operand::ConstI64(1))));
+    assert!(floor_one);
+    // and the image has that fact
+    let image = f
+        .blocks
+        .iter()
+        .flat_map(|b| b.insts.iter())
+        .find_map(|i| match (&i.kind, i.result) {
+            (InstKind::SiToFp(Operand::Value(pi)), Some(r)) if image_of(f, ValueId(9), &v(r.0)) => {
+                Some(*pi)
+            }
+            _ => None,
+        })
+        .expect("the image");
+    let facts = interval::analyze_function(f);
+    let fact = facts.get(&image).expect("the integer has a fact");
+    assert_eq!((fact.lo, fact.hi), (1, EXACT_VALUE_MAX as i128));
 }
 
 #[test]

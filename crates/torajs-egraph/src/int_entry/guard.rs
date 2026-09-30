@@ -13,6 +13,15 @@
 //! A failed check leaves for the loop as it was; the chain falls
 //! through into the copy.
 //!
+//! A bound the loop also reads as a value, or a value it only reads,
+//! is not rounded: it passes when truncating it and converting back
+//! gives the same bits — which NaN, -0, a fraction, an infinity and
+//! anything past 2^63 do not — and the copy reads the converted
+//! integer back as an f64 wherever it read the value. That f64 is
+//! bit-identical to the value on the passing path, and it is a
+//! `sitofp` of an integer with a fact, which is what every consumer
+//! downstream wants to see.
+//!
 //! Each rounded bound leaves the chain through a `copy`. The window
 //! comparisons refine the rounded value only along the passing path;
 //! the copy is evaluated on that path, so what it stores is the
@@ -32,6 +41,8 @@ use crate::float_demote::push_value;
 pub(super) enum Round {
     Ceil,
     Floor,
+    /// the value itself, when it is an integer
+    Exact,
 }
 
 /// One rounded bound the chain must produce.
@@ -95,6 +106,9 @@ pub(super) struct Built {
     /// the last block, entered only when every check passed
     pub(super) pass: BlockId,
     pub(super) rounded: HashMap<(ValueId, Round), ValueId>,
+    /// source → the f64 the copy reads in its place: `sitofp` of the
+    /// exact integer's `copy`
+    pub(super) values: HashMap<ValueId, ValueId>,
 }
 
 /// Build the chain; `needs` holds each (source, round) once.
@@ -126,15 +140,26 @@ pub(super) fn build_chain(
                 (t, b)
             }
         };
-        // truncation went toward zero: a bound with a fraction sits
-        // above it when positive, below it when negative
-        let (pred, op) = match need.round {
-            Round::Ceil => (FPred::Olt, BinOp::Add),
-            Round::Floor => (FPred::Ogt, BinOp::Sub),
+        let value = match need.round {
+            Round::Exact => {
+                let bits = chain.emit(Type::I64, InstKind::BitCastF64ToI64(v));
+                let back_bits = chain.emit(Type::I64, InstKind::BitCastF64ToI64(back));
+                let differs = chain.emit(Type::Bool, InstKind::ICmp(IPred::Ne, bits, back_bits));
+                chain.leave_when(differs, false);
+                truncated
+            }
+            // truncation went toward zero: a bound with a fraction sits
+            // above it when positive, below it when negative
+            Round::Ceil | Round::Floor => {
+                let (pred, op) = match need.round {
+                    Round::Ceil => (FPred::Olt, BinOp::Add),
+                    _ => (FPred::Ogt, BinOp::Sub),
+                };
+                let off = chain.emit(Type::Bool, InstKind::FCmp(pred, back, v));
+                let off = chain.emit(Type::I64, InstKind::ZExtBoolToI64(off));
+                chain.emit(Type::I64, InstKind::BinOp(op, truncated, off))
+            }
         };
-        let off = chain.emit(Type::Bool, InstKind::FCmp(pred, back, v));
-        let off = chain.emit(Type::I64, InstKind::ZExtBoolToI64(off));
-        let value = chain.emit(Type::I64, InstKind::BinOp(op, truncated, off));
         // both ends, always: a saturated truncation wraps on the
         // adjustment and lands at the opposite end
         let above = chain.emit(
@@ -150,11 +175,19 @@ pub(super) fn build_chain(
         rounded.push((need.source, need.round, value));
     }
     let mut out = HashMap::new();
+    let mut values = HashMap::new();
     for (source, round, value) in rounded {
         let Operand::Value(pi) = chain.emit(Type::I64, InstKind::Copy(Type::I64, value)) else {
             unreachable!("emit answers a value");
         };
         out.insert((source, round), pi);
+        if round == Round::Exact {
+            let Operand::Value(vs) = chain.emit(Type::F64, InstKind::SiToFp(Operand::Value(pi)))
+            else {
+                unreachable!("emit answers a value");
+            };
+            values.insert(source, vs);
+        }
     }
     let pass = chain.open;
     chain.func.blocks[pass.0 as usize].term = Terminator::Br(fast);
@@ -162,5 +195,6 @@ pub(super) fn build_chain(
         head,
         pass,
         rounded: out,
+        values,
     }
 }
