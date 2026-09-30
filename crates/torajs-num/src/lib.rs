@@ -29,6 +29,7 @@
 
 pub mod format;
 pub mod format_ffi;
+mod int_digits;
 pub mod layout;
 pub mod math;
 pub mod object_is;

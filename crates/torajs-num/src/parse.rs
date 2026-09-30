@@ -15,6 +15,7 @@
 //! invalid digit, returns the parsed prefix as f64). Rust's
 //! `from_str_radix` rejects any trailing junk.
 
+use crate::int_digits;
 use crate::layout::{
     FLAG_SUBSTR_VIEW, STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_FLAGS_OFF, STR_LEN_OFF,
     SUBSTR_OFFSET_OFF, SUBSTR_PARENT_OFF,
@@ -127,7 +128,7 @@ fn narrow_utf16_prefix(payload: &[u8]) -> Vec<u8> {
 /// Decode one ASCII digit byte to its base-36 value, or `None` if
 /// the byte isn't `0..=9 / a..=z / A..=Z`.
 #[inline]
-fn digit_value(c: u8) -> Option<u32> {
+pub(crate) fn digit_value(c: u8) -> Option<u32> {
     match c {
         b'0'..=b'9' => Some((c - b'0') as u32),
         b'a'..=b'z' => Some((c - b'a' + 10) as u32),
@@ -169,78 +170,32 @@ pub fn parse_int(s: &[u8], radix: i64) -> f64 {
         return f64::NAN;
     }
     let digits_start = i;
-    while i < s.len() && digit_value(s[i]).is_some_and(|d| (d as i32) < rdx) {
+    // exact while it fits: every step below 2^53 is an integer the u64 holds, and
+    // one conversion of what the walk ends on rounds once
+    let mut exact = 0u64;
+    while i < s.len() && exact < (1u64 << 53) {
+        let Some(d) = digit_value(s[i]) else {
+            break;
+        };
+        if (d as i32) >= rdx {
+            break;
+        }
+        exact = exact * rdx as u64 + d as u64;
         i += 1;
     }
     if i == digits_start {
         return f64::NAN;
     }
-    let v = int_digits_value(&s[digits_start..i], rdx as u32);
-    if sign < 0 { -v } else { v }
-}
-
-/// The Number nearest the mathematical integer `digits` spell in
-/// `radix`. While the running value stays below 2^53 every step is
-/// exact; past that, a Horner accumulation in f64 rounds once per
-/// digit. Radix 10 and the power-of-two radices must round once, from
-/// the exact value; the other radices may approximate.
-fn int_digits_value(digits: &[u8], radix: u32) -> f64 {
-    let mut exact = 0u64;
-    let mut at = 0usize;
-    while at < digits.len() && exact < (1u64 << 53) {
-        exact = exact * radix as u64 + digit_at(digits, at) as u64;
-        at += 1;
-    }
-    if at == digits.len() && exact <= (1u64 << 53) {
-        return exact as f64;
-    }
-    if radix == 10 {
-        return parse_prefix(digits);
-    }
-    if radix.is_power_of_two() {
-        return pow2_digits_value(digits, radix.trailing_zeros());
-    }
-    let mut v = exact as f64;
-    while at < digits.len() {
-        v = v * radix as f64 + digit_at(digits, at) as f64;
-        at += 1;
-    }
-    v
-}
-
-#[inline]
-fn digit_at(digits: &[u8], at: usize) -> u32 {
-    digits.get(at).copied().and_then(digit_value).unwrap_or(0)
-}
-
-/// Digits of a power-of-two radix are a bit string: keep its leading
-/// 64 bits, fold everything below into a sticky bit so the one
-/// conversion to f64 rounds to nearest-even on the exact value, then
-/// scale by the bits that fell off.
-fn pow2_digits_value(digits: &[u8], bits_per_digit: u32) -> f64 {
-    let mut lead = 0u64;
-    let mut dropped = 0u32;
-    let mut sticky = false;
-    for at in 0..digits.len() {
-        let d = digit_at(digits, at);
-        for bit in (0..bits_per_digit).rev() {
-            let b = (d >> bit) & 1;
-            if lead >> 63 == 0 {
-                lead = (lead << 1) | b as u64;
-            } else {
-                dropped += 1;
-                sticky |= b != 0;
-            }
+    let more = |k: usize| k < s.len() && digit_value(s[k]).is_some_and(|d| (d as i32) < rdx);
+    let v = if more(i) {
+        while more(i) {
+            i += 1;
         }
-    }
-    let mut v = (lead | sticky as u64) as f64;
-    // exact doublings; a value past f64's range ends at infinity
-    while dropped > 0 {
-        let step = dropped.min(1000);
-        v *= f64::from_bits(((1023 + step) as u64) << 52);
-        dropped -= step;
-    }
-    v
+        int_digits::value_past_u64(&s[digits_start..i], rdx as u32)
+    } else {
+        exact as f64
+    };
+    if sign < 0 { -v } else { v }
 }
 
 /// `Number.parseFloat(s)` over a raw byte slice. Returns `NaN`
