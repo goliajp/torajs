@@ -251,6 +251,11 @@ pub struct Program {
     /// [`Program::finalize_backref_caps`]; sub-programs get their own
     /// (lookaround bodies run `add_thread` against the sub-Program).
     pub backref_caps: Vec<i32>,
+    /// Compile every class as one code-unit test (`Op::Class` over the
+    /// class as parsed) instead of the UTF-8 byte expansion the VM's
+    /// transcoded haystack needs. Set before `compile` by the one-pass
+    /// matcher builder, whose walk reads the string's own code units.
+    pub raw_classes: bool,
 }
 
 impl Program {

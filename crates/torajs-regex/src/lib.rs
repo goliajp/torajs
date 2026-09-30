@@ -59,6 +59,7 @@ pub mod cpset;
 pub mod dfa;
 pub mod flags;
 pub mod node;
+pub mod onepass;
 pub mod parser;
 pub mod program;
 pub mod regex;
