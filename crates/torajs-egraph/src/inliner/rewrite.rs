@@ -57,6 +57,7 @@ pub(super) fn rewrite_inst_kind(kind: &InstKind, map: &HashMap<ValueId, Operand>
         }
         InstKind::SiToFp(o) => InstKind::SiToFp(r(o)),
         InstKind::FpToSi(o) => InstKind::FpToSi(r(o)),
+        InstKind::FpToInt32(o) => InstKind::FpToInt32(r(o)),
         InstKind::ZExtBoolToI64(o) => InstKind::ZExtBoolToI64(r(o)),
         InstKind::ZExtI32ToI64(o) => InstKind::ZExtI32ToI64(r(o)),
         InstKind::BitCastF64ToI64(o) => InstKind::BitCastF64ToI64(r(o)),

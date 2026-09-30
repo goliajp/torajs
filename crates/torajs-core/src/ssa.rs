@@ -228,6 +228,14 @@ pub enum InstKind {
     /// integer parameter (Math.imul, Math.clz32, anywhere accepting a
     /// "numeric integer index" the user might have written as 0.5).
     FpToSi(Operand),
+    /// `%v = fptoint32 <f64-operand>` — ECMA-262 §7.1.6 ToInt32 as a
+    /// sign-extended i64: truncate toward zero, modulo 2^32, low 32
+    /// bits read signed; NaN / ±Inf → 0. Not `FpToSi`: that saturates
+    /// at |x| ≥ 2^63 and on ±Inf, so its low 32 bits are wrong there
+    /// (`1e20 | 0` is 1661992960, `Infinity | 0` is 0). The bitwise
+    /// operators' operand step and the `Math.imul` / `Math.clz32`
+    /// int32 sink. One FJCVTZS Wd, Dn plus a SXTW on aarch64.
+    FpToInt32(Operand),
     /// `%v = zext <bool-operand>` — zero-extend an i1 / Bool value to i64.
     /// Needed when storing booleans into uniform 8-byte slots (`Array<bool>`,
     /// `Object` fields with bool type, etc.) and when passing them to

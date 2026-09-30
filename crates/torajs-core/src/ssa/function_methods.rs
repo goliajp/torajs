@@ -271,42 +271,6 @@ impl Function {
                 write!(w, " + 8*")?;
                 self.write_operand(w, idx)?;
             }
-            InstKind::SiToFp(op) => {
-                write!(w, "sitofp ")?;
-                self.write_operand(w, op)?;
-            }
-            InstKind::FpToSi(op) => {
-                write!(w, "fptosi ")?;
-                self.write_operand(w, op)?;
-            }
-            InstKind::ZExtBoolToI64(op) => {
-                write!(w, "zext_bool ")?;
-                self.write_operand(w, op)?;
-            }
-            InstKind::ZExtI32ToI64(op) => {
-                write!(w, "zext_i32 ")?;
-                self.write_operand(w, op)?;
-            }
-            InstKind::BitCastF64ToI64(op) => {
-                write!(w, "bitcast_f64_to_i64 ")?;
-                self.write_operand(w, op)?;
-            }
-            InstKind::BitCastI64ToF64(op) => {
-                write!(w, "bitcast_i64_to_f64 ")?;
-                self.write_operand(w, op)?;
-            }
-            InstKind::IntToPtr(op) => {
-                write!(w, "inttoptr ")?;
-                self.write_operand(w, op)?;
-            }
-            InstKind::PtrToInt(op) => {
-                write!(w, "ptrtoint ")?;
-                self.write_operand(w, op)?;
-            }
-            InstKind::TruncI64ToBool(op) => {
-                write!(w, "trunc_i64_to_bool ")?;
-                self.write_operand(w, op)?;
-            }
             InstKind::StringRef(s) => {
                 write!(w, "string_ref @str{}", s.0)?;
             }
@@ -334,18 +298,6 @@ impl Function {
                 }
                 write!(w, ")")?;
             }
-            InstKind::Identity(op) => {
-                write!(w, "id ")?;
-                self.write_operand(w, op)?;
-            }
-            InstKind::Neg(op) => {
-                write!(w, "neg ")?;
-                self.write_operand(w, op)?;
-            }
-            InstKind::Ctpop(op) => {
-                write!(w, "ctpop ")?;
-                self.write_operand(w, op)?;
-            }
             InstKind::Copy(ty, op) => {
                 write!(w, "copy {} ", ty.as_str())?;
                 self.write_operand(w, op)?;
@@ -369,7 +321,20 @@ impl Function {
             InstKind::RcInc(v)
             | InstKind::RcIncAny(v)
             | InstKind::RcDecAny(v)
-            | InstKind::BoxAny(_, v) => {
+            | InstKind::BoxAny(_, v)
+            | InstKind::SiToFp(v)
+            | InstKind::FpToSi(v)
+            | InstKind::FpToInt32(v)
+            | InstKind::ZExtBoolToI64(v)
+            | InstKind::ZExtI32ToI64(v)
+            | InstKind::BitCastF64ToI64(v)
+            | InstKind::BitCastI64ToF64(v)
+            | InstKind::IntToPtr(v)
+            | InstKind::PtrToInt(v)
+            | InstKind::TruncI64ToBool(v)
+            | InstKind::Identity(v)
+            | InstKind::Neg(v)
+            | InstKind::Ctpop(v) => {
                 write!(w, "{} ", one_operand_mnemonic(&inst.kind))?;
                 self.write_operand(w, v)?;
             }
@@ -408,6 +373,19 @@ fn one_operand_mnemonic(kind: &InstKind) -> String {
         InstKind::RcIncAny(_) => "rc_inc_any".into(),
         InstKind::RcDecAny(_) => "rc_dec_any".into(),
         InstKind::BoxAny(tag, _) => format!("box_any {tag}"),
-        other => unreachable!("not a one-operand refcount / box instruction: {other:?}"),
+        InstKind::SiToFp(_) => "sitofp".into(),
+        InstKind::FpToSi(_) => "fptosi".into(),
+        InstKind::FpToInt32(_) => "fptoint32".into(),
+        InstKind::ZExtBoolToI64(_) => "zext_bool".into(),
+        InstKind::ZExtI32ToI64(_) => "zext_i32".into(),
+        InstKind::BitCastF64ToI64(_) => "bitcast_f64_to_i64".into(),
+        InstKind::BitCastI64ToF64(_) => "bitcast_i64_to_f64".into(),
+        InstKind::IntToPtr(_) => "inttoptr".into(),
+        InstKind::PtrToInt(_) => "ptrtoint".into(),
+        InstKind::TruncI64ToBool(_) => "trunc_i64_to_bool".into(),
+        InstKind::Identity(_) => "id".into(),
+        InstKind::Neg(_) => "neg".into(),
+        InstKind::Ctpop(_) => "ctpop".into(),
+        other => unreachable!("not a one-operand instruction: {other:?}"),
     }
 }

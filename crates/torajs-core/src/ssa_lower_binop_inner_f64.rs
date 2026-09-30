@@ -28,10 +28,9 @@ pub(crate) fn lower_float_path(
 ) -> Operand {
     // V3-18 m1.h.40 / L3a-8 — JS spec §7.1.6 ToInt32 / §13.12.x:
     // bitwise ops on Number first ToInt32 each operand. The
-    // shared int32-semantics helper truncates f64 via FpToSi
-    // then sign-extends the low 32 bits (NaN / out-of-i64-range
-    // land as poison — same as the integer bitwise idioms v8 /
-    // jsc compile to).
+    // shared int32-semantics helper converts f64 via FpToInt32
+    // (modulo 2^32, NaN / ±Inf → 0) and sign-extends the low 32
+    // bits.
     //
     // V3-18 m1.h.41 — Mod with f64 operands maps to
     // LLVM frem (IEEE fmod-shaped), matching JS spec

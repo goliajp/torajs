@@ -262,6 +262,7 @@ fn canonicalize_operands(kind: &InstKind, egraph: &mut Egraph) -> InstKind {
         }
         InstKind::SiToFp(v) => InstKind::SiToFp(map_op(v, egraph)),
         InstKind::FpToSi(v) => InstKind::FpToSi(map_op(v, egraph)),
+        InstKind::FpToInt32(v) => InstKind::FpToInt32(map_op(v, egraph)),
         InstKind::ZExtBoolToI64(v) => InstKind::ZExtBoolToI64(map_op(v, egraph)),
         InstKind::ZExtI32ToI64(v) => InstKind::ZExtI32ToI64(map_op(v, egraph)),
         InstKind::Identity(v) => InstKind::Identity(map_op(v, egraph)),
@@ -294,6 +295,7 @@ pub(crate) fn is_pure(kind: &InstKind) -> bool {
         | InstKind::FCmp(_, _, _)
         | InstKind::SiToFp(_)
         | InstKind::FpToSi(_)
+        | InstKind::FpToInt32(_)
         | InstKind::ZExtBoolToI64(_)
         | InstKind::ZExtI32ToI64(_) => true,
         // `Identity(op)` is a placeholder rewrite-rule output that the

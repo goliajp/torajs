@@ -90,6 +90,7 @@ pub(super) fn can_speculate(kind: &InstKind) -> bool {
         | InstKind::Ctpop(_)
         | InstKind::SiToFp(_)
         | InstKind::FpToSi(_)
+        | InstKind::FpToInt32(_)
         | InstKind::ZExtBoolToI64(_)
         | InstKind::ZExtI32ToI64(_)
         | InstKind::BitCastF64ToI64(_)

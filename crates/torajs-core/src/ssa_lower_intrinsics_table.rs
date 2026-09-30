@@ -129,7 +129,6 @@ pub(crate) fn build(
         num_to_locale_f: init_a.num.num_to_locale_f,
         num_to_locale_i: init_a.num.num_to_locale_i,
         num_to_index: init_a.num.num_to_index,
-        num_to_int32: init_a.num.num_to_int32,
         num_parse_int: init_a.num.num_parse_int,
         num_parse_float: init_a.num.num_parse_float,
         num_is_integer_f: init_a.num.num_is_integer_f,

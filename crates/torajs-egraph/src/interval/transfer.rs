@@ -337,6 +337,12 @@ pub fn eval_inst(
             AbsVal::Bottom => AbsVal::Bottom,
             _ => opaque(),
         },
+        // ToInt32 lands in i32 whatever the float was; a Bottom operand
+        // is still unevaluated, not unbounded
+        InstKind::FpToInt32(a) => match env(a) {
+            AbsVal::Bottom => AbsVal::Bottom,
+            _ => AbsVal::Fact(NumFact::new(i32::MIN as i128, i32::MAX as i128)),
+        },
         InstKind::ZExtBoolToI64(_) => AbsVal::Fact(NumFact::new(0, 1)),
         InstKind::ZExtI32ToI64(_) => AbsVal::Fact(NumFact::new(0, u32::MAX as i128)),
         InstKind::LoadU8Dyn(_, _) => AbsVal::Fact(NumFact::new(0, u8::MAX as i128)),

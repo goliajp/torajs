@@ -65,6 +65,7 @@ pub fn visit_value_operands(kind: &InstKind, mut f: impl FnMut(ValueId)) {
         }
         InstKind::SiToFp(o)
         | InstKind::FpToSi(o)
+        | InstKind::FpToInt32(o)
         | InstKind::ZExtBoolToI64(o)
         | InstKind::ZExtI32ToI64(o)
         | InstKind::BitCastF64ToI64(o)
@@ -149,6 +150,7 @@ pub fn rewrite_value_operands(kind: &mut InstKind, mut f: impl FnMut(ValueId) ->
         }
         InstKind::SiToFp(o)
         | InstKind::FpToSi(o)
+        | InstKind::FpToInt32(o)
         | InstKind::ZExtBoolToI64(o)
         | InstKind::ZExtI32ToI64(o)
         | InstKind::BitCastF64ToI64(o)

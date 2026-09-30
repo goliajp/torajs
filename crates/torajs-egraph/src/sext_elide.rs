@@ -27,6 +27,12 @@
 //!   results — `ToInt32(INT32_MIN - 1)` must wrap) are never in this
 //!   pass's own lattice (the interval seed proves range, which is
 //!   strictly stronger).
+//! * **Conversion (R3)** — `fptoint32(a)` where `a` is an f64 the
+//!   lattice proves integer-valued inside i32: the modulo-2^32 step
+//!   is redundant, so it becomes the one-instruction `fptosi(a)`, and
+//!   its result is sext-32. Over `sitofp(x)` of a sext-32 `x` (the
+//!   int-versioned loop's bitwise operand), `fptoint32` / `fptosi`
+//!   collapse to `x` itself, and the orphaned `sitofp` is swept.
 //!
 //! Runs after `phi_promote` (final canonical shape, right before the
 //! SSA dump / rc_peephole). Orphaned shift insts left by either
@@ -51,6 +57,13 @@ pub struct SextElideStats {
     pub pairs_elided: u32,
     /// Orphaned shl/ashr insts swept after the rewrites.
     pub dead_shifts_removed: u32,
+    /// `fptoint32` over a provably-in-i32 f64 rewritten to `fptosi`.
+    pub int32_to_trunc: u32,
+    /// `fptoint32` / `fptosi` over `sitofp` of a sext-32 source
+    /// collapsed to the source.
+    pub round_trips_elided: u32,
+    /// Orphaned sitofp insts swept after the rewrites.
+    pub dead_casts_removed: u32,
 }
 
 /// Run sext-pair elimination over every function body. `seeds` is
@@ -71,12 +84,28 @@ pub fn elide_sext_pairs(module: &mut Module, seeds: &[HashSet<ValueId>]) -> Sext
 }
 
 /// Operand is a compile-time-provable sext-32 value: a ConstI64 whose
-/// i64 form equals its own low-32 sign extension, or a lattice fact.
+/// i64 form equals its own low-32 sign extension, or a lattice fact
+/// (an f64 value in the set is integer-valued inside i32).
 fn op_sext32(op: &Operand, facts: &HashSet<ValueId>) -> bool {
     match op {
         Operand::ConstI64(c) => *c >= i32::MIN as i64 && *c <= i32::MAX as i64,
         Operand::Value(v) => facts.contains(v),
         _ => false,
+    }
+}
+
+/// The sext-32 integer a conversion's operand is `sitofp` of, if any.
+fn sitofp_src(
+    op: &Operand,
+    defs: &HashMap<ValueId, InstKind>,
+    facts: &HashSet<ValueId>,
+) -> Option<Operand> {
+    let Operand::Value(a) = op else {
+        return None;
+    };
+    match defs.get(a) {
+        Some(InstKind::SiToFp(x)) if op_sext32(x, facts) => Some(*x),
+        _ => None,
     }
 }
 
@@ -150,6 +179,25 @@ fn elide_in_function(func: &mut Function, seed: &HashSet<ValueId>, stats: &mut S
                         }
                         // un-elidable pair still produces a sext-32 value
                         facts.insert(r);
+                        out.push(inst);
+                        continue;
+                    }
+                }
+            }
+            // R3 — conversions over a provably-in-i32 source.
+            if !multi.contains(&r) {
+                if let InstKind::FpToInt32(a) | InstKind::FpToSi(a) = inst.kind {
+                    if let Some(x) = sitofp_src(&a, &defs, &facts) {
+                        replace.insert(r, x);
+                        facts.insert(r);
+                        stats.round_trips_elided += 1;
+                        continue;
+                    }
+                    if matches!(inst.kind, InstKind::FpToInt32(_)) && op_sext32(&a, &facts) {
+                        let mut inst = inst;
+                        inst.kind = InstKind::FpToSi(a);
+                        facts.insert(r);
+                        stats.int32_to_trunc += 1;
                         out.push(inst);
                         continue;
                     }
@@ -233,6 +281,9 @@ fn elide_in_function(func: &mut Function, seed: &HashSet<ValueId>, stats: &mut S
                     InstKind::Copy(_, a) | InstKind::Identity(a) if op_sext32(a, &facts) => {
                         facts.insert(r);
                     }
+                    InstKind::FpToInt32(_) => {
+                        facts.insert(r);
+                    }
                     _ => {}
                 }
             }
@@ -254,8 +305,13 @@ fn elide_in_function(func: &mut Function, seed: &HashSet<ValueId>, stats: &mut S
         }
     }
 
-    // DCE — orphaned pure shifts left behind by either rewrite. A dead
-    // ashr frees its shl on the next round; loop until stable.
+    sweep_dead(func, stats);
+}
+
+/// DCE — orphaned pure shifts and sitofps left behind by the
+/// rewrites. A dead ashr frees its shl on the next round; loop
+/// until stable.
+fn sweep_dead(func: &mut Function, stats: &mut SextElideStats) {
     loop {
         let mut used: HashSet<ValueId> = HashSet::new();
         for block in &func.blocks {
@@ -277,24 +333,34 @@ fn elide_in_function(func: &mut Function, seed: &HashSet<ValueId>, stats: &mut S
                 _ => {}
             }
         }
-        let mut removed = 0u32;
+        let mut removed_shifts = 0u32;
+        let mut removed_casts = 0u32;
         for block in func.blocks.iter_mut() {
             block.insts.retain(|inst| {
-                let dead = matches!(
-                    (&inst.result, &inst.kind),
-                    (Some(r), InstKind::BinOp(BinOp::Shl | BinOp::AShr, _, _))
-                        if !used.contains(r)
-                );
-                if dead {
-                    removed += 1;
+                let Some(r) = inst.result else {
+                    return true;
+                };
+                if used.contains(&r) {
+                    return true;
                 }
-                !dead
+                match inst.kind {
+                    InstKind::BinOp(BinOp::Shl | BinOp::AShr, _, _) => {
+                        removed_shifts += 1;
+                        false
+                    }
+                    InstKind::SiToFp(_) => {
+                        removed_casts += 1;
+                        false
+                    }
+                    _ => true,
+                }
             });
         }
-        if removed == 0 {
+        if removed_shifts + removed_casts == 0 {
             break;
         }
-        stats.dead_shifts_removed += removed;
+        stats.dead_shifts_removed += removed_shifts;
+        stats.dead_casts_removed += removed_casts;
     }
 }
 
@@ -348,6 +414,95 @@ mod tests {
 
     fn body(m: &Module) -> &[Inst] {
         &m.funcs[0].blocks[0].insts
+    }
+
+    fn typed(result: u32, ty: Type, kind: InstKind, values: &mut Vec<ValueInfo>) -> Inst {
+        assert_eq!(values.len(), result as usize);
+        values.push(ValueInfo { ty, name: None });
+        Inst {
+            result: Some(ValueId(result)),
+            kind,
+            origin: None,
+        }
+    }
+
+    #[test]
+    fn fptoint32_over_sitofp_of_seeded_int_collapses_to_it() {
+        // %0 = add 1, 2 (seeded in i32) ; %1 = sitofp %0 ;
+        // %2 = fptoint32 %1 ; ret %2  →  ret %0, both casts gone
+        let mut vals = Vec::new();
+        let insts = vec![
+            typed(0, Type::I64, binop(BinOp::Add, c(1), c(2)), &mut vals),
+            typed(1, Type::F64, InstKind::SiToFp(v(0)), &mut vals),
+            typed(2, Type::I64, InstKind::FpToInt32(v(1)), &mut vals),
+        ];
+        let mut m = module_one_block(insts, vals, Terminator::Ret(Some(v(2))));
+        let seed: HashSet<ValueId> = [ValueId(0)].into_iter().collect();
+        let stats = elide_sext_pairs(&mut m, &[seed]);
+        assert_eq!(stats.round_trips_elided, 1);
+        assert_eq!(stats.dead_casts_removed, 1);
+        assert_eq!(body(&m).len(), 1);
+        assert!(matches!(
+            m.funcs[0].blocks[0].term,
+            Terminator::Ret(Some(Operand::Value(ValueId(0))))
+        ));
+    }
+
+    #[test]
+    fn fptoint32_over_in_range_f64_becomes_fptosi_and_seeds_its_pair() {
+        // %0 = fadd 1.0, 2.0 (seeded integer-valued in i32) ;
+        // %1 = fptoint32 %0 ; %2 = shl %1, 32 ; %3 = ashr %2, 32 ; ret %3
+        let mut vals = Vec::new();
+        let insts = vec![
+            typed(
+                0,
+                Type::F64,
+                binop(BinOp::FAdd, Operand::ConstF64(1.0), Operand::ConstF64(2.0)),
+                &mut vals,
+            ),
+            typed(1, Type::I64, InstKind::FpToInt32(v(0)), &mut vals),
+            typed(2, Type::I64, binop(BinOp::Shl, v(1), c(32)), &mut vals),
+            typed(3, Type::I64, binop(BinOp::AShr, v(2), c(32)), &mut vals),
+        ];
+        let mut m = module_one_block(insts, vals, Terminator::Ret(Some(v(3))));
+        let seed: HashSet<ValueId> = [ValueId(0)].into_iter().collect();
+        let stats = elide_sext_pairs(&mut m, &[seed]);
+        assert_eq!(stats.int32_to_trunc, 1);
+        assert_eq!(stats.pairs_elided, 1);
+        assert_eq!(body(&m).len(), 2);
+        assert!(matches!(
+            body(&m)[1].kind,
+            InstKind::FpToSi(Operand::Value(ValueId(0)))
+        ));
+        assert!(matches!(
+            m.funcs[0].blocks[0].term,
+            Terminator::Ret(Some(Operand::Value(ValueId(1))))
+        ));
+    }
+
+    #[test]
+    fn fptoint32_without_a_fact_keeps_its_modulo_step() {
+        let mut vals = Vec::new();
+        let insts = vec![
+            typed(
+                0,
+                Type::F64,
+                binop(BinOp::FAdd, Operand::ConstF64(1.0), Operand::ConstF64(2.0)),
+                &mut vals,
+            ),
+            typed(1, Type::I64, InstKind::FpToInt32(v(0)), &mut vals),
+            typed(2, Type::I64, binop(BinOp::Shl, v(1), c(32)), &mut vals),
+            typed(3, Type::I64, binop(BinOp::AShr, v(2), c(32)), &mut vals),
+        ];
+        let mut m = module_one_block(insts, vals, Terminator::Ret(Some(v(3))));
+        let stats = elide_sext_pairs(&mut m, &[]);
+        assert_eq!(stats.int32_to_trunc, 0);
+        // the conversion's own result is sext-32, so only the pair goes
+        assert_eq!(stats.pairs_elided, 1);
+        assert!(matches!(
+            body(&m)[1].kind,
+            InstKind::FpToInt32(Operand::Value(ValueId(0)))
+        ));
     }
 
     #[test]

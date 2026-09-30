@@ -258,7 +258,7 @@ pub(crate) fn visit_inst_operands(kind: &InstKind, mut f: impl FnMut(ValueId)) {
             visit(b);
         }
         InstKind::BitCastF64ToI64(a) | InstKind::BitCastI64ToF64(a) => visit(a),
-        InstKind::SiToFp(a) | InstKind::FpToSi(a) => visit(a),
+        InstKind::SiToFp(a) | InstKind::FpToSi(a) | InstKind::FpToInt32(a) => visit(a),
         InstKind::ZExtBoolToI64(a) | InstKind::ZExtI32ToI64(a) | InstKind::TruncI64ToBool(a) => {
             visit(a)
         }

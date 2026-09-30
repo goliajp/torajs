@@ -164,6 +164,15 @@ pub fn fcvtzs_x_d(rd: Gpr, rn: Fpr) -> u32 {
     0x9E78_0000 | (rn.idx() << 5) | rd.idx()
 }
 
+/// FJCVTZS Wd, Dn — f64 → int32 with ECMA-262 ToInt32 semantics:
+/// truncate toward zero, then modulo 2^32 (NaN / ±Inf → 0), where
+/// FCVTZS would saturate. FEAT_JSCVT, on every Apple silicon core.
+/// ARM ARM C7.2.106. Base = 0x1E7E_0000 (sf=0, ftype=01, rmode=11,
+/// opcode=110).
+pub fn fjcvtzs_w_d(rd: Gpr, rn: Fpr) -> u32 {
+    0x1E7E_0000 | (rn.idx() << 5) | rd.idx()
+}
+
 /// LDR Dt, [Xn, #imm12] — load 64-bit FP, unsigned offset, scaled
 /// by 8. ARM ARM C7.2.181 (LDR SIMD&FP imm, unsigned offset, 64-bit
 /// form). Base = 0xFD40_0000 (size=11, V=1, opc=01).
@@ -354,6 +363,14 @@ mod tests {
     #[test]
     fn fcvtzs_x0_from_d16_matches_arm_arm() {
         assert_eq!(fcvtzs_x_d(Gpr::X0, Fpr::V16), 0x9E78_0200);
+    }
+
+    #[test]
+    fn fjcvtzs_w0_from_d16_matches_arm_arm() {
+        // FJCVTZS w0, d16 → Rn = 16, Rd = 0
+        assert_eq!(fjcvtzs_w_d(Gpr::X0, Fpr::V16), 0x1E7E_0200);
+        // FJCVTZS w9, d1 → 0x1E7E_0000 | (1 << 5) | 9
+        assert_eq!(fjcvtzs_w_d(Gpr::X9, Fpr::V1), 0x1E7E_0029);
     }
 
     #[test]

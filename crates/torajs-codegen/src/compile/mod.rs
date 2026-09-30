@@ -67,8 +67,8 @@ use terminator::{BranchFixup, BranchKind, emit_terminator, patch_branch};
 pub use binop::{emit_binop, emit_ctpop, emit_neg};
 pub use call::{emit_call, emit_call_indirect};
 pub use cast::{
-    emit_bitcast_f64_to_i64, emit_bitcast_i64_to_f64, emit_fp_to_si, emit_int_to_ptr,
-    emit_ptr_to_int, emit_si_to_fp, emit_trunc_i64_to_bool, emit_zext_bool_to_i64,
+    emit_bitcast_f64_to_i64, emit_bitcast_i64_to_f64, emit_fp_to_int32, emit_fp_to_si,
+    emit_int_to_ptr, emit_ptr_to_int, emit_si_to_fp, emit_trunc_i64_to_bool, emit_zext_bool_to_i64,
     emit_zext_i32_to_i64,
 };
 pub use cmp::{emit_fcmp, emit_icmp, emit_select};

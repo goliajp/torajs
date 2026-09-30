@@ -9,8 +9,11 @@
 //! - `coerce_bool_to_i64(op)` — Bool → i64 slot (uniform helper ABI).
 //! - `coerce_to_i64(op)` — F64/Bool/I64 → i64 with spec ToInteger
 //!   folding on non-finite constants (NaN→0, ±∞→i64::{MIN,MAX}).
-//! - `coerce_f64_to_i64_for_bitwise(op)` — bitwise-path variant of
-//!   the above, treating any non-finite constant as 0 per spec.
+//! - `coerce_to_i64_toint32(op)` — §7.1.6 ToInt32 as a sink: ToNumber
+//!   (throw-checked) then `FpToInt32`.
+//! - `coerce_f64_to_i64_for_bitwise(op)` — the bitwise operators'
+//!   operand step: constants fold (non-finite → 0), SSA f64 values
+//!   emit `FpToInt32`.
 //! - `emit_to_int32(op)` — normalize an i64 to sign-extended int32
 //!   via `shl 32; ashr 32` (LLVM folds to a single `sxtw` on arm64).
 //! - `emit_shift_count(op)` — spec §13.9 shift-count masking
@@ -110,12 +113,10 @@ impl<'a> LowerCtx<'a> {
     /// already an integer skips both steps: sign-extending its low 32
     /// bits IS ToInt32, and it keeps `Math.imul(1, 2)` a constant.
     ///
-    /// There is deliberately no compile-time fold for an f64 constant.
-    /// Folding means writing the modulo-2^32 walk a second time, and
-    /// two copies of a spec step that have to agree is how `1n > true`
-    /// answered `true` for a rotation (r676). The kernel is the one
-    /// implementation; `Math.clz32(Infinity)` pays one call, which is
-    /// not a shape anybody writes in a loop.
+    /// Step 2 is one `FpToInt32` (FJCVTZS), for a constant operand
+    /// too: the machine instruction is the one implementation of the
+    /// modulo-2^32 walk, and a second copy of a spec step that has to
+    /// agree with it is how `1n > true` answered `true` once.
     pub(crate) fn coerce_to_i64_toint32(&mut self, op: Operand) -> Operand {
         match self.operand_ty(&op) {
             Type::I64 => return self.emit_to_int32(op),
@@ -126,20 +127,18 @@ impl<'a> LowerCtx<'a> {
             _ => {}
         }
         let n = self.coerce_to_f64_tonumber(op);
-        Operand::Value(self.f.append_inst(
-            self.cur_block,
-            InstKind::Call(self.intrinsics.num_to_int32, vec![n]),
-            Type::I64,
-            None,
-        ))
+        Operand::Value(
+            self.f
+                .append_inst(self.cur_block, InstKind::FpToInt32(n), Type::I64, None),
+        )
     }
 
-    /// V3-18 m1.h.40 — JS spec §7.1.6 ToInt32 for the bitwise-on-Number
-    /// path. Constants fold at compile time (NaN / ±Inf → 0; finite
-    /// truncates towards zero); SSA values use FpToSi (matching the
-    /// finite-in-i32-range behavior LLVM gives, with NaN / OOB
-    /// landing as poison — same as v8 / jsc in practice for the
-    /// integer bitwise idioms we exercise).
+    /// JS spec §7.1.6 ToInt32 for the bitwise-on-Number path. Constants
+    /// fold at compile time (NaN / ±Inf → 0; a finite value truncates
+    /// toward zero, and `emit_to_int32` downstream takes its low 32
+    /// bits); SSA values emit `FpToInt32`, whose result is already the
+    /// sign-extended int32, so the pair `emit_to_int32` adds after it
+    /// is elided by sext_elide.
     pub(crate) fn coerce_f64_to_i64_for_bitwise(&mut self, op: Operand) -> Operand {
         match self.operand_ty(&op) {
             Type::I64 => op,
@@ -152,12 +151,12 @@ impl<'a> LowerCtx<'a> {
                         Operand::ConstI64(n as i64)
                     }
                 }
-                Operand::Value(_) => {
-                    let v =
-                        self.f
-                            .append_inst(self.cur_block, InstKind::FpToSi(op), Type::I64, None);
-                    Operand::Value(v)
-                }
+                Operand::Value(_) => Operand::Value(self.f.append_inst(
+                    self.cur_block,
+                    InstKind::FpToInt32(op),
+                    Type::I64,
+                    None,
+                )),
                 _ => op,
             },
             // §7.1.6 ToInt32(null) and ToInt32(undefined) are both 0

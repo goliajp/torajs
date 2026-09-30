@@ -150,6 +150,8 @@ pub fn cost_of_kind(kind: &InstKind) -> Cost {
 
         // Cross-pipeline numeric casts.
         InstKind::SiToFp(_) | InstKind::FpToSi(_) => CAST_COST,
+        // fjcvtzs plus the sxtw that widens its W result
+        InstKind::FpToInt32(_) => CAST_COST.add(ALU_COST),
 
         // Bit-width zero-extends collapse to a `mov` on aarch64.
         InstKind::ZExtBoolToI64(_) | InstKind::ZExtI32ToI64(_) => ALU_COST,
@@ -283,6 +285,10 @@ mod tests {
         // Casts cross the integer↔fp pipeline.
         assert_eq!(cost_of_kind(&InstKind::SiToFp(dummy)), CAST_COST);
         assert_eq!(cost_of_kind(&InstKind::FpToSi(dummy)), CAST_COST);
+        assert_eq!(
+            cost_of_kind(&InstKind::FpToInt32(dummy)),
+            CAST_COST.add(ALU_COST)
+        );
     }
 
     #[test]

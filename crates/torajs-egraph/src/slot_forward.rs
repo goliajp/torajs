@@ -217,6 +217,7 @@ pub(crate) fn rewrite_operands(kind: &mut InstKind, replace: &HashMap<ValueId, O
         }
         InstKind::SiToFp(a)
         | InstKind::FpToSi(a)
+        | InstKind::FpToInt32(a)
         | InstKind::ZExtBoolToI64(a)
         | InstKind::ZExtI32ToI64(a)
         | InstKind::BitCastF64ToI64(a)

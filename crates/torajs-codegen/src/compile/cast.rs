@@ -1,4 +1,4 @@
-//! Cast lowering — BitCast (S2-B2), int↔fp (SCVTF/FCVTZS), ZExt
+//! Cast lowering — BitCast (S2-B2), int↔fp (SCVTF/FCVTZS/FJCVTZS), ZExt
 //! Bool/I32→I64 (AND-imm-#1 / MOV Wd,Wn auto-zero-extend), Trunc
 //! I64→Bool (AND-imm-#1), and Ptr↔Int (MOV Xd,Xn).
 //!
@@ -13,7 +13,8 @@ use super::{
     write_def_spill_gpr, write_u32,
 };
 use crate::enc::{
-    and_imm_one, fcvtzs_x_d, fmov_d_from_x, fmov_x_from_d, mov_w_reg, mov_x_reg, scvtf_d_x,
+    and_imm_one, fcvtzs_x_d, fjcvtzs_w_d, fmov_d_from_x, fmov_x_from_d, mov_w_reg, mov_x_reg,
+    scvtf_d_x, sxtw_x_w,
 };
 use crate::regalloc::Assignment;
 
@@ -58,6 +59,18 @@ pub fn emit_fp_to_si(bytes: &mut Vec<u8>, inst: &Inst, src: &Operand, alloc: &As
     let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
     let src_fpr = materialize_operand_fpr(bytes, src, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
     write_u32(bytes, fcvtzs_x_d(dst, src_fpr));
+    write_def_spill_gpr(bytes, spill_off, dst);
+}
+
+/// FpToInt32 Operand → Gpr: FJCVTZS Wd, Dn (ToInt32 into the low 32
+/// bits, upper 32 zeroed) then SXTW Xd, Wd so the i64 carries the
+/// sign-extended int32 every bitwise consumer expects.
+pub fn emit_fp_to_int32(bytes: &mut Vec<u8>, inst: &Inst, src: &Operand, alloc: &Assignment) {
+    let result_vid = inst.result.expect("FpToInt32 must have a result");
+    let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
+    let src_fpr = materialize_operand_fpr(bytes, src, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
+    write_u32(bytes, fjcvtzs_w_d(dst, src_fpr));
+    write_u32(bytes, sxtw_x_w(dst, dst));
     write_def_spill_gpr(bytes, spill_off, dst);
 }
 

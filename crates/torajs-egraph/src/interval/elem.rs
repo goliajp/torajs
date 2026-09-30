@@ -437,6 +437,7 @@ fn operands(kind: &InstKind) -> Vec<Operand> {
         InstKind::Select(_, a, b, c) => vec![a.clone(), b.clone(), c.clone()],
         InstKind::SiToFp(a)
         | InstKind::FpToSi(a)
+        | InstKind::FpToInt32(a)
         | InstKind::ZExtBoolToI64(a)
         | InstKind::ZExtI32ToI64(a)
         | InstKind::BitCastF64ToI64(a)

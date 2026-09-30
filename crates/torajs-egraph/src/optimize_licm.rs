@@ -148,6 +148,7 @@ fn operands_loop_invariant(
         InstKind::FCmp(_, l, r) => check(l) && check(r),
         InstKind::SiToFp(v)
         | InstKind::FpToSi(v)
+        | InstKind::FpToInt32(v)
         | InstKind::ZExtBoolToI64(v)
         | InstKind::ZExtI32ToI64(v)
         | InstKind::Neg(v)

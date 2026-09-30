@@ -348,6 +348,7 @@ fn canonicalize_operands(kind: &InstKind, egraph: &mut Egraph) -> InstKind {
         ),
         InstKind::SiToFp(v) => InstKind::SiToFp(map_operand(v, egraph)),
         InstKind::FpToSi(v) => InstKind::FpToSi(map_operand(v, egraph)),
+        InstKind::FpToInt32(v) => InstKind::FpToInt32(map_operand(v, egraph)),
         InstKind::ZExtBoolToI64(v) => InstKind::ZExtBoolToI64(map_operand(v, egraph)),
         InstKind::ZExtI32ToI64(v) => InstKind::ZExtI32ToI64(map_operand(v, egraph)),
         InstKind::Identity(v) => InstKind::Identity(map_operand(v, egraph)),

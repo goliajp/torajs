@@ -6,11 +6,11 @@ use super::slot;
 use super::{
     emit_alloca, emit_binop, emit_bitcast_f64_to_i64, emit_bitcast_i64_to_f64,
     emit_boxed_entry_addr, emit_call, emit_call_indirect, emit_copy, emit_ctpop,
-    emit_ctpop_range_sum, emit_fcmp, emit_fn_addr, emit_fp_to_si, emit_global_ref, emit_icmp,
-    emit_int_to_ptr, emit_load, emit_load_dyn, emit_load_dyn_scaled8, emit_load_u8_dyn,
-    emit_load_u16_dyn, emit_neg, emit_ptr_to_int, emit_select, emit_si_to_fp, emit_static_str_ref,
-    emit_store, emit_store_dyn, emit_store_dyn_scaled8, emit_string_ref, emit_trunc_i64_to_bool,
-    emit_zext_bool_to_i64, emit_zext_i32_to_i64,
+    emit_ctpop_range_sum, emit_fcmp, emit_fn_addr, emit_fp_to_int32, emit_fp_to_si,
+    emit_global_ref, emit_icmp, emit_int_to_ptr, emit_load, emit_load_dyn, emit_load_dyn_scaled8,
+    emit_load_u8_dyn, emit_load_u16_dyn, emit_neg, emit_ptr_to_int, emit_select, emit_si_to_fp,
+    emit_static_str_ref, emit_store, emit_store_dyn, emit_store_dyn_scaled8, emit_string_ref,
+    emit_trunc_i64_to_bool, emit_zext_bool_to_i64, emit_zext_i32_to_i64,
 };
 use crate::reg::Reg;
 use crate::regalloc::Assignment;
@@ -32,6 +32,7 @@ fn emit_inst(
         InstKind::BitCastI64ToF64(src) => emit_bitcast_i64_to_f64(bytes, inst, src, alloc),
         InstKind::SiToFp(src) => emit_si_to_fp(bytes, inst, src, alloc),
         InstKind::FpToSi(src) => emit_fp_to_si(bytes, inst, src, alloc),
+        InstKind::FpToInt32(src) => emit_fp_to_int32(bytes, inst, src, alloc),
         InstKind::ZExtBoolToI64(src) => emit_zext_bool_to_i64(bytes, inst, src, alloc),
         InstKind::ZExtI32ToI64(src) => emit_zext_i32_to_i64(bytes, inst, src, alloc),
         InstKind::TruncI64ToBool(src) => emit_trunc_i64_to_bool(bytes, inst, src, alloc),

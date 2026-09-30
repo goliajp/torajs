@@ -294,7 +294,7 @@ fn plan_narrows(
                         stats.cmps_narrowed += 1;
                     }
                 }
-                InstKind::FpToSi(Operand::Value(v)) => {
+                InstKind::FpToSi(Operand::Value(v)) | InstKind::FpToInt32(Operand::Value(v)) => {
                     let mut tree: HashMap<ValueId, (BinOp, Operand, Operand)> = HashMap::new();
                     if collect_trunc_tree(v, defs, multi, uses, &mut tree) {
                         stats.tree_interior_narrowed += (tree.len() as u32) - 1;
@@ -345,7 +345,9 @@ fn rewrite_blocks(func: &mut Function, plan: &NarrowPlan) {
                 InstKind::FCmp(..) => {
                     rewrite_fcmp(&mut inst, &plan.cmp_results, values, &mut new_insts);
                 }
-                InstKind::FpToSi(Operand::Value(v)) if plan.trunc_results.contains(v) => {
+                InstKind::FpToSi(Operand::Value(v)) | InstKind::FpToInt32(Operand::Value(v))
+                    if plan.trunc_results.contains(v) =>
+                {
                     inst.kind = InstKind::Copy(Type::I64, Operand::Value(*v));
                 }
                 _ => {}

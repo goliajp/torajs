@@ -211,6 +211,12 @@ pub fn and_imm_one(rd: Gpr, rn: Gpr) -> u32 {
     0x9240_0000 | (rn.idx() << 5) | rd.idx()
 }
 
+/// SXTW Xd, Wn — sign-extend the low 32 bits of Xn into Xd (alias
+/// of SBFM Xd, Xn, #0, #31). ARM ARM C6.2.335. Base = 0x9340_7C00.
+pub fn sxtw_x_w(rd: Gpr, rn: Gpr) -> u32 {
+    0x9340_7C00 | (rn.idx() << 5) | rd.idx()
+}
+
 /// CMP Xn, Wm, SXTW — SUBS XZR, Xn, Wm, SXTW (extended register):
 /// equal exactly when `Xn` is the sign extension of its low 32 bits,
 /// i.e. fits in an i32. ARM ARM C6.2.61.
@@ -455,6 +461,13 @@ mod tests {
     fn cmp_x_w_sxtw_matches_the_runtime() {
         // otool of ___torajs_anyv_box_i64: cmp x1, w1, sxtw
         assert_eq!(cmp_x_w_sxtw(Gpr::X1, Gpr::X1), 0xEB21_C03F);
+    }
+
+    #[test]
+    fn sxtw_x0_w1_matches_arm_arm() {
+        // SBFM x0, x1, #0, #31 → 0x9340_7C00 | (1 << 5) | 0
+        assert_eq!(sxtw_x_w(Gpr::X0, Gpr::X1), 0x9340_7C20);
+        assert_eq!(sxtw_x_w(Gpr::X9, Gpr::X9), 0x9340_7D29);
     }
 
     #[test]

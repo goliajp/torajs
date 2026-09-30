@@ -320,6 +320,7 @@ fn is_removable(kind: &InstKind) -> bool {
             | InstKind::TruncI64ToBool(_)
             | InstKind::SiToFp(_)
             | InstKind::FpToSi(_)
+            | InstKind::FpToInt32(_)
             | InstKind::BitCastF64ToI64(_)
             | InstKind::BitCastI64ToF64(_)
     )

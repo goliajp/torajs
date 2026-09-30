@@ -74,11 +74,15 @@ pub fn analyze_module(module: &Module) -> Vec<HashMap<ValueId, NumFact>> {
         .collect()
 }
 
-/// The i64-typed values whose fact proves them sign-extended-from-32.
+/// The numeric values whose fact proves them inside i32: an i64 one
+/// equals its own sign-extended low 32 bits, an f64 one is
+/// integer-valued and truncates to an i32 exactly.
 pub fn sext32_set(facts: &HashMap<ValueId, NumFact>, func: &Function) -> HashSet<ValueId> {
     facts
         .iter()
-        .filter(|(v, f)| func.values[v.0 as usize].ty == Type::I64 && f.is_sext32())
+        .filter(|(v, f)| {
+            matches!(func.values[v.0 as usize].ty, Type::I64 | Type::F64) && f.is_sext32()
+        })
         .map(|(v, _)| *v)
         .collect()
 }
@@ -181,6 +185,7 @@ pub fn analyze_function_with(
                             | InstKind::BinOp(..)
                             | InstKind::SiToFp(_)
                             | InstKind::FpToSi(_)
+                            | InstKind::FpToInt32(_)
                     ) {
                     opaque_for(ty)
                 } else {
