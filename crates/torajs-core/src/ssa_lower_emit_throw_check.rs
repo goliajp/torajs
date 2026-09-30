@@ -116,7 +116,6 @@ impl<'a> LowerCtx<'a> {
         // parked on `temps.throw_live` (rotation 549) — release
         // them first (result, then parked temps newest-first).
         let live: Vec<ThrowTemp> = self.temps.throw_live.iter().flatten().cloned().collect();
-        let outer = std::mem::replace(&mut self.temps.on_throw_path, true);
         if let Some(catch) = self.try_stack.last().copied() {
             // RFC 20260901-scope-exit-drops — the jump into the catch
             // also leaves every frame opened since the try body began
@@ -193,7 +192,6 @@ impl<'a> LowerCtx<'a> {
             };
             self.f.set_term(cb2, term);
         }
-        self.temps.on_throw_path = outer;
         self.cur_block = normal_blk;
     }
 

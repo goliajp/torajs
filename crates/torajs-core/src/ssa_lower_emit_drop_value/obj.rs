@@ -26,14 +26,6 @@ pub(super) fn emit_drop_obj(ctx: &mut LowerCtx, val: Operand, sid: crate::ssa::S
         );
         return;
     }
-    let is_class_sid = is_class_sid(ctx, sid);
-    if is_class_sid && ctx.temps.on_throw_path {
-        ctx.f.append_void(
-            ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.value_drop_heap, vec![val]),
-        );
-        return;
-    }
     ctx.drop_inline_stack.insert(sid.0);
     let layout = ctx.struct_layouts[sid.0 as usize].clone();
     let dec_blk = ctx.f.add_block();
@@ -56,6 +48,11 @@ pub(super) fn emit_drop_obj(ctx: &mut LowerCtx, val: Operand, sid: crate::ssa::S
         Type::Bool,
         None,
     );
+    let is_class_sid = ctx
+        .ast
+        .class_parents
+        .keys()
+        .any(|cn| matches!(ctx.aliases.get(cn), Some(Type::Obj(s)) if s.0 == sid.0));
     let buffer_blk = if is_class_sid {
         ctx.f.add_block()
     } else {
@@ -183,53 +180,6 @@ pub(super) fn emit_drop_obj(ctx: &mut LowerCtx, val: Operand, sid: crate::ssa::S
     ctx.f.set_term(ctx.cur_block, Terminator::Br(after));
     ctx.cur_block = after;
     ctx.drop_inline_stack.remove(&sid.0);
-}
-
-fn is_class_sid(ctx: &LowerCtx, sid: crate::ssa::StructId) -> bool {
-    ctx.ast
-        .class_parents
-        .keys()
-        .any(|cn| matches!(ctx.aliases.get(cn), Some(Type::Obj(s)) if s.0 == sid.0))
-}
-
-/// Release the value a constructor's `this.f = v` overwrites. Outside
-/// a loop that slot holds what the factory put there, nearly always
-/// null, so a class instance in it is released through the
-/// tag-dispatched drop behind the inline nullish test: the constructor
-/// stays small enough to inline, and once it is, the test reads the
-/// factory's own store and folds away.
-pub(crate) fn emit_drop_overwritten_field(
-    ctx: &mut LowerCtx,
-    obj: crate::ast::ExprId,
-    old: Operand,
-    ty: Type,
-) {
-    let in_ctor = ctx.f.name.starts_with("__cm_") && ctx.f.name.contains("__ctor");
-    let on_this = matches!(ctx.ast.get_expr(obj), crate::ast::Expr::Ident(n) if n == "__this");
-    match ty {
-        Type::Obj(sid)
-            if in_ctor && on_this && ctx.loop_stack.is_empty() && is_class_sid(ctx, sid) =>
-        {
-            let drop_blk = ctx.f.add_block();
-            let after = ctx.f.add_block();
-            let skip = nullish_skip_cond(ctx, &old);
-            ctx.f.set_term(
-                ctx.cur_block,
-                Terminator::CondBr {
-                    cond: skip,
-                    then_blk: after,
-                    else_blk: drop_blk,
-                },
-            );
-            ctx.f.append_void(
-                drop_blk,
-                InstKind::Call(ctx.intrinsics.value_drop_heap, vec![old]),
-            );
-            ctx.f.set_term(drop_blk, Terminator::Br(after));
-            ctx.cur_block = after;
-        }
-        _ => ctx.emit_drop_value(old, ty),
-    }
 }
 
 /// A class instance the cycle collector holds as a candidate root

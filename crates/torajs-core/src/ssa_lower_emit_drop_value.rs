@@ -44,7 +44,6 @@ use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::{ARR_LEN_OFF, CLOSURE_DROP_FN_OFF, LowerCtx, intern_fn_sig};
 
 mod obj;
-pub(crate) use obj::emit_drop_overwritten_field;
 
 /// RFC 20260710 C2b — nullish skip condition for the inline drop
 /// stations: a refcounted pointer slot legitimately holds NULL (JS

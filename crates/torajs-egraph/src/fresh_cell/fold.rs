@@ -43,10 +43,8 @@ fn reachable(func: &Function) -> Vec<usize> {
 /// Pure chains longer than a guard's `and; icmp` are not the shape.
 const MAX_DEPTH: u32 = 8;
 
-/// `op` as a constant, evaluating integer and boolean arithmetic and
-/// compares over constant operands, a null pointer among them (the
-/// nullish test in front of releasing a field the factory wrote null
-/// into). Every value whose def was evaluated is
+/// `op` as a constant, evaluating integer arithmetic and compares
+/// over constant operands. Every value whose def was evaluated is
 /// pushed onto `chain`, so the defs can go once the branch that read
 /// them is decided.
 pub(super) fn const_eval(
@@ -85,23 +83,8 @@ fn eval(
         }
         InstKind::ICmp(p, a, b) => {
             let a = sub(a, chain)?;
-            // a null against a global's address: never equal
-            let global = match resolve(b, replace) {
-                Operand::Value(g) => defs.get(&g).and_then(|&(bi, ii)| {
-                    matches!(func.blocks[bi].insts[ii].kind, InstKind::GlobalRef(_)).then_some(g)
-                }),
-                _ => None,
-            };
-            match (global, p) {
-                (Some(g), IPred::Eq | IPred::Ne) if a == Operand::ConstPtrNull => {
-                    chain.push(g);
-                    Operand::ConstBool(matches!(p, IPred::Ne))
-                }
-                _ => {
-                    let b = sub(b, chain)?;
-                    fold_icmp(*p, a, b)?
-                }
-            }
+            let b = sub(b, chain)?;
+            fold_icmp(*p, a, b)?
         }
         _ => return None,
     };
@@ -111,12 +94,6 @@ fn eval(
 
 fn fold_binop(op: BinOp, a: Operand, b: Operand) -> Option<Operand> {
     match (a, b) {
-        (Operand::ConstBool(x), Operand::ConstBool(y)) => Some(Operand::ConstBool(match op {
-            BinOp::And => x & y,
-            BinOp::Or => x | y,
-            BinOp::Xor => x ^ y,
-            _ => return None,
-        })),
         (Operand::ConstI64(x), Operand::ConstI64(y)) => Some(Operand::ConstI64(bits(op, x, y)?)),
         // the low 32 bits of the wrapping i64 result are the i32 result
         (Operand::ConstI32(x), Operand::ConstI32(y)) => {
@@ -142,7 +119,6 @@ fn fold_icmp(pred: IPred, a: Operand, b: Operand) -> Option<Operand> {
     // sign extension keeps both the signed and the unsigned order of
     // two i32 values
     let (x, y) = match (a, b) {
-        (Operand::ConstPtrNull, Operand::ConstPtrNull) => (0, 0),
         (Operand::ConstI64(x), Operand::ConstI64(y)) => (x, y),
         (Operand::ConstI32(x), Operand::ConstI32(y)) => (x as i64, y as i64),
         _ => return None,

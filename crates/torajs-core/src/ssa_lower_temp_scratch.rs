@@ -33,12 +33,6 @@ pub(crate) struct TempScratch {
     /// badDesc) } catch {}` churned 175MB against a 1.9MB flat
     /// baseline.
     pub(crate) throw_live: Vec<Option<ThrowTemp>>,
-    /// True while a check's throw path is being emitted. That path
-    /// runs once per raised exception, so a class instance it releases
-    /// goes through the tag-dispatched drop rather than the inline
-    /// sequence, which would otherwise be copied after every call that
-    /// can raise.
-    pub(crate) on_throw_path: bool,
     /// An owned temporary array receiver of `pop` / `shift` /
     /// `unshift` (`[1, 2].pop()`, `mk().shift()`), lowered once by the
     /// dispatcher so the receiver resolver can hand it to the arm and
