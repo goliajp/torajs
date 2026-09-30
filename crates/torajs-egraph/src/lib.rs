@@ -21,6 +21,7 @@
 pub mod block_chain;
 pub mod block_layout;
 pub mod branch_fold;
+pub mod cell_access;
 pub mod cmp_fact_fold;
 pub mod concat_num_fuse;
 pub mod cost;
@@ -34,6 +35,7 @@ pub mod fconst_hoist;
 pub mod float_demote;
 pub mod frem_int;
 pub mod frem_narrow;
+pub mod fresh_cell;
 pub mod heap_to_stack;
 pub mod iconst_hoist;
 pub mod inliner;
@@ -230,6 +232,9 @@ fn inline_and_forward(module: &mut Module) {
     // cleared, slots possibly DSE'd), before the egraph pass.
     // `TORAJS_MEM2REG_OFF=1` skips (bisect gate).
     gated_pass("MEM2REG", module, mem2reg::promote_slots);
+    // after the slot passes (the ctor's `this` reaches the cell through
+    // a param spill), before heap_to_stack; `TORAJS_FRESH_CELL_OFF=1` skips
+    gated_pass("FRESH_CELL", module, fresh_cell::forward_fresh_cells);
     // Heap-to-stack — a header cell whose every use now sits in this
     // function becomes an alloca. After the slot passes above (the
     // cell pointer often reaches its uses through an inlined local's

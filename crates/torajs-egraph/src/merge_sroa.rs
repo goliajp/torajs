@@ -36,6 +36,8 @@ use torajs_core::ssa::{
     visit_value_operands,
 };
 
+use crate::cell_access::{fits, load_width, operand_ty, store_width};
+
 #[derive(Debug, Default)]
 pub struct MergeSroaStats {
     pub merges_replaced: u32,
@@ -86,36 +88,6 @@ fn replace_fn(func: &mut Function, stats: &mut MergeSroaStats) {
         if let Some(plan) = plan_merge(func, &defs, m) {
             apply(func, m, &plan, stats);
         }
-    }
-}
-
-/// Bytes a store of `val` writes (the backend's `w32` rule).
-fn store_width(func: &Function, val: &Operand) -> u64 {
-    let w32 = match val {
-        Operand::ConstI32(_) => true,
-        Operand::Value(v) => func.value_type(*v) == Type::I32,
-        _ => false,
-    };
-    if w32 { 4 } else { 8 }
-}
-
-fn operand_ty(func: &Function, op: &Operand) -> Option<Type> {
-    match op {
-        Operand::Value(v) => Some(func.value_type(*v)),
-        Operand::ConstI64(_) => Some(Type::I64),
-        Operand::ConstI32(_) => Some(Type::I32),
-        Operand::ConstF64(_) => Some(Type::F64),
-        Operand::ConstBool(_) => Some(Type::Bool),
-        Operand::ConstPtrNull => None,
-    }
-}
-
-/// A value of `op` read back as `ty` is the same value: same type, or
-/// null into a pointer-shaped field.
-fn fits(func: &Function, op: &Operand, ty: Type) -> bool {
-    match operand_ty(func, op) {
-        Some(t) => t == ty,
-        None => ty.is_pointer_shaped(),
     }
 }
 
@@ -205,9 +177,8 @@ fn plan_merge(
     if fields.is_empty() {
         return None;
     }
-    let width = |t: Type| if t == Type::I32 { 4 } else { 8 };
     for (&off, &ty) in &fields {
-        let (lo, hi) = (off, off + width(ty));
+        let (lo, hi) = (off, off + load_width(ty));
         for &(o, w, _, _) in &writes {
             if o != off && o < hi && lo < o + w {
                 return None;
