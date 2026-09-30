@@ -288,15 +288,20 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
         // (§22.1.3.19 GetSubstitution). The regex-lane cb-sig check
         // accepts exactly `[Str; C+1] -> Str` (match + C captures) or
         // `[Str; C+1, number, string] -> Str` (…+ offset + input), so
-        // shape the annotations by the literal's capture count `C`
-        // (same counter the lane uses). A non-literal (variable) regex
-        // has an unknown C — annotate only the match (user param 0),
-        // which is always a String; the lane then accepts the common
-        // `(m) => …` shape and loud-rejects anything else (never
-        // mis-typed).
+        // shape the annotations by the pattern's capture count `C`
+        // (same counter the lane uses), the pattern being the literal
+        // the call spells or the one a top-level const it names holds.
+        // A regex known only at run time has an unknown C — annotate
+        // only the match (user param 0), which is always a String; the
+        // lane then accepts the common `(m) => …` shape and hands the
+        // rest to the boxed entry (never mis-typed).
         if ann == "string" && matches!(name.as_str(), "replace" | "replaceAll") {
             let n_caps = match args.first().map(|a| ast.get_expr(*a)) {
                 Some(Expr::Regex { pattern, .. }) => Some(count_capture_groups(pattern)),
+                Some(Expr::Ident(re_name)) => {
+                    super::regex_bound_name::toplevel_regex_literal(ast, re_name)
+                        .map(|(pattern, _)| count_capture_groups(pattern))
+                }
                 _ => None,
             };
             for (_arg_idx, fn_name) in &closure_args {

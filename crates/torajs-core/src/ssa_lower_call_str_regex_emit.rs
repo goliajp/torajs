@@ -238,14 +238,36 @@ pub(crate) fn emit_replace(
         repl = ctx.box_to_any(repl);
         repl_ty = Type::Any;
     }
-    // A regex that is not written at the call has a capture count only
-    // the run time knows, and the typed callback ABI fixes the argument
-    // list at compile time. A callback that names more than the match
-    // goes through the boxed entry instead, which hands it what the
-    // match produced.
+    // the pattern, when the call spells it or names a top-level
+    // binding that does; a regex known only at run time has a capture
+    // count only the run time knows, and the typed callback ABI fixes
+    // the argument list at compile time, so a callback that names more
+    // than the match then goes through the boxed entry, which hands it
+    // what the match produced
+    let ast = ctx.ast;
+    let static_pattern: Option<&str> = match ast.get_expr(args[0]) {
+        Expr::Regex { pattern, .. } => Some(pattern.as_str()),
+        Expr::Ident(name) => crate::ast::toplevel_regex_literal(ast, name).map(|(p, _)| p),
+        _ => None,
+    };
     if let Type::Closure(sig_id) = repl_ty
-        && !matches!(ctx.ast.get_expr(args[0]), Expr::Regex { .. })
+        && static_pattern.is_none()
         && ctx.fn_sigs[sig_id.0 as usize].0.len() > 1
+    {
+        repl = ctx.box_to_any(repl);
+        repl_ty = Type::Any;
+    }
+    // the typed callback ABI hands over «matched, captures…» or that
+    // plus «position, string»; a callback shaped otherwise — one that
+    // names the groups object, or more captures than the pattern has —
+    // takes the boxed entry, which builds §22.2.6.11 step 14.j's
+    // argument list from what the match produced
+    if let Type::Closure(sig_id) = repl_ty
+        && typed_callback_shape(
+            &ctx.fn_sigs[sig_id.0 as usize].0,
+            static_pattern.map_or(0, count_capture_groups),
+        )
+        .is_none()
     {
         repl = ctx.box_to_any(repl);
         repl_ty = Type::Any;
@@ -270,68 +292,12 @@ pub(crate) fn emit_replace(
             if ret_ty != Type::Str {
                 panic!("ssa-lower: P9.5 s.{m_name}(re, fn) — fn ret must be Str, got {ret_ty:?}");
             }
-            // Detect cb shape:
-            //  - A1.1: [Str; N+1]            → has_off_input=0
-            //  - A1.2: [Str; N+1, I64, Str]  → has_off_input=1
-            // (A1.2 trailing slots are (offset:number, input:string) per
-            //  ES spec.)
-            // §22.2.6.11 step 14.j calls the replacer with
-            // `Call(replaceValue, undefined, «matched, captures…,
-            // position, string»)`, and a function that declares fewer
-            // parameters than that simply never sees the rest. So how
-            // many arguments to build is the REGEX's to decide; what
-            // the callback declares only has to be no MORE than that.
-            let (declared, has_off_input) = if params.len() >= 3
-                && params[params.len() - 2] == Type::I64
-                && params[params.len() - 1] == Type::Str
-                && params[..params.len() - 2].iter().all(|t| t == &Type::Str)
-            {
-                (params.len() - 3, true)
-            } else if params.iter().all(|t| t == &Type::Str) {
-                // An empty list lands here on purpose: `function () {
-                // … }` declares nothing at all, which is legal and is
-                // how t262 spells a replacer that only needs a
-                // constant.
-                (params.len().saturating_sub(1), false)
-            } else {
-                panic!(
-                    "ssa-lower: P9.5 s.{m_name}(re, fn) — fn must have shape \
-                         `(Str, ..., Str) => Str` (A1.1) or `(Str, ..., Str, number, \
-                         string) => Str` (A1.2), got params={params:?} ret={ret_ty:?}"
-                );
+            // a regex known only at run time reaches this arm only with
+            // a callback that names the match alone
+            let n_caps_actual = static_pattern.map_or(0, count_capture_groups);
+            let Some((_, has_off_input)) = typed_callback_shape(&params, n_caps_actual) else {
+                unreachable!("a callback the typed ABI cannot serve was boxed above");
             };
-            // a regex not written here reaches this arm only with a
-            // callback that names the match alone
-            let n_caps_actual = match ctx.ast.get_expr(args[0]) {
-                Expr::Regex { pattern, .. } => count_capture_groups(pattern),
-                _ => 0,
-            };
-            if n_caps_actual > 9 {
-                panic!(
-                    "ssa-lower: P9.5-A1.1 s.{m_name}(re, fn) — max 9 capture-group \
-                         cb args, regex has {n_caps_actual}. Use the Str-repl form \
-                         for this case."
-                );
-            }
-            // Naming the offset / input tail pins every position, so a
-            // callback that names them while declaring fewer captures
-            // than the regex has would read a capture Str as the
-            // number — that one keeps the loud reject rather than
-            // being handed the wrong argument.
-            let short = if has_off_input {
-                declared != n_caps_actual
-            } else {
-                declared > n_caps_actual
-            };
-            if short {
-                panic!(
-                    "ssa-lower: P9.5-A1.1 s.{m_name}(re, fn) — regex has \
-                         {n_caps_actual} capture group(s) but cb takes \
-                         {declared} capture arg(s). A cb may take FEWER than the \
-                         regex has, but not more, and the (number, string) tail \
-                         has to name every capture before it."
-                );
-            }
             let fid = if m_name == "replace" {
                 ctx.intrinsics.regex_replace_fn
             } else {
@@ -394,4 +360,33 @@ pub(crate) fn emit_replace(
         ctx.emit_throw_check(None);
     }
     Operand::Value(v)
+}
+
+/// The shape the typed callback ABI serves — `[Str; N+1]` (the match
+/// and N captures) or `[Str; N+1, number, string]` (plus position and
+/// input) — as (captures declared, names the tail). §22.2.6.11 step
+/// 14.j calls the replacer with «matched, captures…, position, string»
+/// and a function declaring fewer parameters never sees the rest, so a
+/// callback may name fewer captures than the pattern has; naming the
+/// tail pins every position, so it must then name them all. A capture
+/// is a Str slot (the undefined sentinel for a group that did not
+/// take part). Nine captures is the ABI's width.
+fn typed_callback_shape(params: &[Type], n_caps: usize) -> Option<(usize, bool)> {
+    if n_caps > 9 {
+        return None;
+    }
+    let n = params.len();
+    if n >= 3
+        && params[n - 2] == Type::I64
+        && params[n - 1] == Type::Str
+        && params[..n - 2].iter().all(|t| t == &Type::Str)
+    {
+        return (n - 3 == n_caps).then_some((n_caps, true));
+    }
+    // an empty list is a replacer that only needs a constant
+    if params.iter().all(|t| t == &Type::Str) {
+        let declared = n.saturating_sub(1);
+        return (declared <= n_caps).then_some((declared, false));
+    }
+    None
 }
