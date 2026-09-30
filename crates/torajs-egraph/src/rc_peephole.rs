@@ -46,9 +46,10 @@
 //! * both insts must be result-less (`append_void` shape) so removal
 //!   can never orphan a `ValueId` use.
 //! * the drop must be one of the single-inst NULL-safe runtime drop
-//!   helpers (`DROP_INTRINSICS`) or the inline `rc_dec_any`. Obj
-//!   drops are inline CFG expansions and Closure drops are
-//!   `CallIndirect` — both out of scope.
+//!   helpers (`DROP_INTRINSICS`) or the inline `rc_dec_any`. A class
+//!   instance's drop is an inline CFG expansion, paired in
+//!   `rc_obj_pair` under the same guards; Closure drops are
+//!   `CallIndirect` and out of scope.
 //!
 //! The scan runs to a fixpoint so nested pairs
 //! (`inc inc drop drop`) collapse fully.
@@ -75,6 +76,10 @@ const DROP_INTRINSICS: [&str; 5] = [
     // discarded `m.set(k, v)` result is the retain it pairs with.
     "__torajs_map_drop",
 ];
+
+/// The candidate-root calls an inline class-instance release makes
+/// while references remain (`rc_obj_pair`).
+const OBJ_BUFFER_INTRINSICS: [&str; 2] = ["__torajs_cycle_buffer", "__torajs_obj_buffer_slow"];
 
 /// Runtime intrinsics that provably cannot change any refcount,
 /// free any object, or read a refcount field: they only read
@@ -131,11 +136,20 @@ pub fn elide_rc_pairs(module: &mut Module) -> RcPeepholeStats {
         .iter()
         .filter_map(|name| find_func(module, name))
         .collect();
+    let buffer_fids: HashSet<u32> = OBJ_BUFFER_INTRINSICS
+        .iter()
+        .filter_map(|name| find_func(module, name))
+        .collect();
     for func in module.funcs.iter_mut() {
         if func.is_declaration() {
             continue;
         }
         let slots = collect_unescaped_slots(func);
+        stats.pairs_elided += crate::rc_obj_pair::elide_obj_pairs(
+            func,
+            |kind| rc_transparent(kind, &readonly_fids, &slots),
+            &buffer_fids,
+        );
         for block in func.blocks.iter_mut() {
             loop {
                 let removed = elide_in_insts(

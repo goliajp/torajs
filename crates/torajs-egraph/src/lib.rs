@@ -55,6 +55,7 @@ pub mod phi_promote;
 pub mod phi_thread;
 pub mod print_narrow;
 pub mod rc_dec_immediate;
+mod rc_obj_pair;
 pub mod rc_peephole;
 pub mod rewrite;
 pub mod scaled_addr;

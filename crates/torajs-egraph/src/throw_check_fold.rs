@@ -384,7 +384,7 @@ fn out_edges(term: &Terminator, at_end: bool, probe: Option<&Probe>) -> Vec<(Blo
 
 /// Drop the folded probes' compare / load / global_ref where nothing
 /// else reads them (a load can still feed another use: keep it then).
-fn remove_unused(func: &mut Function, candidates: &[ValueId]) {
+pub(crate) fn remove_unused(func: &mut Function, candidates: &[ValueId]) {
     let mut left: HashSet<ValueId> = candidates.iter().copied().collect();
     loop {
         let mut used: HashSet<ValueId> = HashSet::new();
