@@ -8,11 +8,12 @@ use super::exec_find::exec_find;
 use super::groups::build_groups;
 use super::match_indices::attach_indices;
 use super::static_keys::{K_GROUPS, K_INDEX, K_INPUT, cached_static_key};
+use super::str_helpers::subject::Subject;
 use super::{
     __torajs_arr_alloc_with, __torajs_arr_push, __torajs_arrprops_attach_exec3,
     __torajs_arrprops_set, __torajs_rc_inc, __torajs_str_undef, ANY_HEAP, ANY_I64, ANY_UNDEF,
-    RegExp, abort_unsupported, as_regex_mut, byte_to_utf16_units, haystack, span_str,
-    str_slice_ascii_view, utf16_units_to_byte,
+    RegExp, abort_unsupported, as_regex_mut, byte_to_utf16_units, haystack, str_slice_ascii_view,
+    utf16_units_to_byte,
 };
 use crate::node::REGEX_MAX_CAPTURES;
 use crate::parser::{RE_FLAG_G, RE_FLAG_Y};
@@ -50,18 +51,17 @@ use crate::vm::{Workspace, match_anchor, save_slot, search_from_with_ws};
 pub unsafe fn attach_exec_all(
     arr: *mut c_void,
     re: &RegExp,
-    s: &[u8],
-    str_ptr: *const c_void,
+    subject: &Subject,
     m_start: i64,
     m_end: i64,
     saves: &[i64],
-    haystack_is_ascii: bool,
 ) {
     // `.index` is spec'd in UTF-16 code units; `m_start` / `m_end`
-    // are byte offsets in the transcoded haystack (`attach_indices`
-    // needs the byte span for slot 0's pair, so the mapping happens
-    // here instead of at the call sites).
-    let index = byte_to_utf16_units(s, m_start, haystack_is_ascii);
+    // are offsets of the searched text (`attach_indices` needs the
+    // span for slot 0's pair, so the mapping happens here instead of
+    // at the call sites).
+    let index = subject.units_at(m_start);
+    let str_ptr = subject.str_ptr();
     if re.n_named_captures == 0 || re.capture_names.is_empty() {
         unsafe {
             let k_index = cached_static_key(&K_INDEX, b"index");
@@ -82,11 +82,11 @@ pub unsafe fn attach_exec_all(
     } else {
         unsafe {
             attach_exec_props(arr, str_ptr, index);
-            attach_groups(arr, re, s, saves);
+            attach_groups(arr, re, subject, saves);
         }
     }
     unsafe {
-        attach_indices(arr, re, s, m_start, m_end, saves, haystack_is_ascii);
+        attach_indices(arr, re, subject, m_start, m_end, saves);
     }
 }
 
@@ -109,11 +109,11 @@ pub unsafe fn attach_exec_props(arr: *mut c_void, str_ptr: *const c_void, index:
 /// # Safety
 ///
 /// Calls cross-tier extern allocators; `arr` must be a live tora
-/// Array. `re` and `s` must outlive the call.
-pub unsafe fn attach_groups(arr: *mut c_void, re: &RegExp, s: &[u8], saves: &[i64]) {
+/// Array. `re` and `subject` must outlive the call.
+pub unsafe fn attach_groups(arr: *mut c_void, re: &RegExp, subject: &Subject, saves: &[i64]) {
     // Round 4 wire-back Phase B chunk 1 — cached static "groups" key.
     let outer_key = unsafe { cached_static_key(&K_GROUPS, b"groups") };
-    let (tag, groups) = match unsafe { build_groups(re, s, saves) } {
+    let (tag, groups) = match unsafe { build_groups(re, subject, saves) } {
         Some(groups) => (ANY_HEAP, groups as i64),
         None => (ANY_UNDEF, 0),
     };
@@ -143,7 +143,8 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
     let mut out: *mut c_void = core::ptr::null_mut();
     unsafe {
         match_walk(str_ptr, re_ptr, |re, s, haystack_is_ascii, m| {
-            let seg = span_str(str_ptr, s, m.start, m.end, haystack_is_ascii);
+            let subject = Subject::bytes(str_ptr, s, haystack_is_ascii);
+            let seg = subject.span(m.start, m.end);
             out = if out.is_null() {
                 // Round 5 attack #6 — pre-size to the exec shape
                 // (m[0] + capture groups) so no push on it takes the
@@ -168,7 +169,7 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
                     // 20260707 chunk 2: the sentinel cell, not NULL).
                     out = __torajs_arr_push(out, __torajs_str_undef() as i64);
                 } else {
-                    let grp = span_str(str_ptr, s, gs, ge, haystack_is_ascii);
+                    let grp = subject.span(gs, ge);
                     out = __torajs_arr_push(out, grp as i64);
                 }
             }
@@ -176,16 +177,7 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
             // index / input / groups (+ `/d` indices) attach in
             // print order; byte→UTF-16 mapping happens inside.
             if want_exec != 0 {
-                attach_exec_all(
-                    out,
-                    re,
-                    s,
-                    str_ptr,
-                    m.start,
-                    m.end,
-                    m.saves(),
-                    haystack_is_ascii,
-                );
+                attach_exec_all(out, re, &subject, m.start, m.end, m.saves());
             }
             false
         });
@@ -346,12 +338,12 @@ pub unsafe extern "C" fn __torajs_regex_exec(
     // Spec §22.2.7.2 step 9.a: no match → null. The array is
     // allocated only after a hit so the null path owns nothing.
     let out = unsafe {
-        exec_find(re_ptr, str_ptr, |re, s, haystack_is_ascii, m| {
+        exec_find(re_ptr, str_ptr, |re, subject, m| {
             // Round 5 attack #6 — pre-size to the exec shape (see match
             // loop above); the pushes below fill exactly 1 + n_cap_lim
             // slots.
             let n_cap_lim = (re.n_captures as usize).min(REGEX_MAX_CAPTURES - 1);
-            let whole = span_str(str_ptr, s, m.start, m.end, haystack_is_ascii);
+            let whole = subject.span(m.start, m.end);
             let mut out = __torajs_arr_alloc_with(1 + n_cap_lim as u64, whole as i64);
             for i in 1..=n_cap_lim {
                 let gs = save_slot(m.saves(), 2 * i);
@@ -361,21 +353,12 @@ pub unsafe extern "C" fn __torajs_regex_exec(
                     // 20260707 chunk 2: the sentinel cell, not NULL).
                     out = __torajs_arr_push(out, __torajs_str_undef() as i64);
                 } else {
-                    let grp = span_str(str_ptr, s, gs, ge, haystack_is_ascii);
+                    let grp = subject.span(gs, ge);
                     out = __torajs_arr_push(out, grp as i64);
                 }
             }
             if want_exec != 0 {
-                attach_exec_all(
-                    out,
-                    re,
-                    s,
-                    str_ptr,
-                    m.start,
-                    m.end,
-                    m.saves(),
-                    haystack_is_ascii,
-                );
+                attach_exec_all(out, re, subject, m.start, m.end, m.saves());
             }
             out
         })

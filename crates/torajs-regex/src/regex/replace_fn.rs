@@ -17,7 +17,9 @@
 use alloc::vec::Vec;
 use core::ffi::c_void;
 
+use super::exec_find::run_matcher;
 use super::replace_fn_typed::typed_invoke;
+use super::str_helpers::subject::{Subject, UnitsView};
 use super::{
     __torajs_str_drop, __torajs_throw_type_error, RegExp, abort_unsupported, as_regex,
     as_regex_mut, byte_to_utf16_units, haystack, str_from_bytes, str_from_bytes_ascii,
@@ -70,19 +72,24 @@ const TAG_UNDEF: i64 = 5;
 
 /// Shared match walk — find/anchor per the pattern's flags, hand
 /// each match to `invoke`, splice its returned Str over the matched
-/// span. `invoke` receives `(match_str, saves, s_bytes, offset_cu)`
+/// span. `invoke` receives `(match_str, saves, subject, offset_cu)`
 /// borrowed (the walk drops `match_str` after the call) and answers
 /// the freshly-owned replacement Str; `Err(())` means the callback
 /// raised a pending throw — the walk aborts and hands back a
-/// placeholder copy the caller's throw-check discards. The two
+/// placeholder copy the caller's throw check discards. The two
 /// invoke strategies differ only in dispatch: the typed lanes
 /// transmute to the callback's statically-declared arity, the boxed
 /// lane rides the closure's boxed entry.
+///
+/// An ASCII subject is searched in place — through the literal's
+/// compiled matcher when it has one, whose units are these bytes —
+/// and the result is built as bytes; every other subject is
+/// transcoded once for the engine and built back the same way.
 unsafe fn replace_fn_inner(
     str_ptr: *const c_void,
     re_ptr: *const c_void,
     global: bool,
-    mut invoke: impl FnMut(*mut c_void, &[i64], &[u8], i64) -> Result<*mut c_void, ()>,
+    mut invoke: impl FnMut(*mut c_void, &[i64], &Subject, i64) -> Result<*mut c_void, ()>,
 ) -> *mut c_void {
     if re_ptr.is_null() {
         let s = unsafe { str_units(str_ptr) };
@@ -121,6 +128,8 @@ unsafe fn replace_fn_inner(
         }
     };
     let slen = s.len() as i64;
+    let subject = Subject::bytes(str_ptr, s, is_ascii);
+    let matcher = if is_ascii { re.matcher_latin1 } else { None };
     let mut out_ascii = is_ascii;
     // Phase C-3 — baked DFA view bound once. See match_all.rs.
     // Round 3 Phase B sub-batch 7.2 — AOT then runtime-baked fallback.
@@ -136,7 +145,9 @@ unsafe fn replace_fn_inner(
     // bytes of `s` already in `out`; the sticky walk starts past 0
     let mut copied: usize = 0;
     while pos <= slen {
-        let m = if sticky {
+        let m = if let Some(f) = matcher {
+            unsafe { run_matcher(f, re.matcher_stride as usize, &UnitsView::Narrow(s), pos) }
+        } else if sticky {
             match_anchor(&re.prog, s, pos, re.flags)
         } else {
             // the per-RegExp workspace, taken for this search alone:
@@ -161,10 +172,10 @@ unsafe fn replace_fn_inner(
         let ret = invoke(
             match_str as *mut c_void,
             m.saves(),
-            s,
+            &subject,
             // ES §22.1.3.18 — the cb offset arg is in UTF-16
             // code units of the input, not transcoded bytes.
-            byte_to_utf16_units(s, m.start, is_ascii),
+            subject.units_at(m.start),
         );
         unsafe { __torajs_str_drop(match_str as *mut c_void) };
         let ret_str = match ret {
@@ -226,7 +237,7 @@ unsafe fn boxed_invoke(
     re: &RegExp,
     m: *mut c_void,
     saves: &[i64],
-    s: &[u8],
+    subject: &Subject,
     off: i64,
     input: *const c_void,
 ) -> Result<*mut c_void, ()> {
@@ -240,7 +251,7 @@ unsafe fn boxed_invoke(
         );
         let undef = __torajs_anyv_box_from_pair(TAG_UNDEF, 0);
         let n_caps = re.n_captures.max(0) as usize;
-        let groups = super::groups::build_groups(re, s, saves);
+        let groups = super::groups::build_groups(re, subject, saves);
         let live = shift + 1 + n_caps + 2 + usize::from(groups.is_some());
         let mut argv: Vec<u64> = Vec::with_capacity(live.max(BOXED_ARGV_MIN));
         // Receiver-first shift — argv[0] stays the undefined
@@ -256,7 +267,7 @@ unsafe fn boxed_invoke(
             if gs < 0 || ge < 0 {
                 argv.push(undef);
             } else {
-                let p = str_from_bytes(&s[gs as usize..ge as usize]) as *mut c_void;
+                let p = subject.span(gs, ge) as *mut c_void;
                 cap_strs.push(p);
                 argv.push(__torajs_anyv_box_from_pair(TAG_HEAP, p as i64));
             }
@@ -317,7 +328,7 @@ pub unsafe extern "C" fn __torajs_str_replace_regex_fn(
         false
     };
     unsafe {
-        replace_fn_inner(str_ptr, re_ptr, global, |m, saves, s, off| {
+        replace_fn_inner(str_ptr, re_ptr, global, |m, saves, subject, off| {
             typed_invoke(
                 closure_env,
                 n_caps,
@@ -325,7 +336,7 @@ pub unsafe extern "C" fn __torajs_str_replace_regex_fn(
                 str_ptr,
                 m,
                 saves,
-                s,
+                subject,
                 off,
             )
         })
@@ -364,7 +375,7 @@ pub unsafe extern "C" fn __torajs_str_replace_all_regex_fn(
             str_ptr,
             re_ptr,
             /* global */ true,
-            |m, saves, s, off| {
+            |m, saves, subject, off| {
                 typed_invoke(
                     closure_env,
                     n_caps,
@@ -372,7 +383,7 @@ pub unsafe extern "C" fn __torajs_str_replace_all_regex_fn(
                     str_ptr,
                     m,
                     saves,
-                    s,
+                    subject,
                     off,
                 )
             },
@@ -415,8 +426,8 @@ pub unsafe extern "C" fn __torajs_str_replace_regex_fn_boxed(
             return str_from_bytes(&s) as *mut c_void;
         }
         let global = all != 0 || re.flags & RE_FLAG_G != 0;
-        replace_fn_inner(str_ptr, re_ptr, global, |m, saves, s, off| {
-            boxed_invoke(closure, re, m, saves, s, off, str_ptr)
+        replace_fn_inner(str_ptr, re_ptr, global, |m, saves, subject, off| {
+            boxed_invoke(closure, re, m, saves, subject, off, str_ptr)
         })
     }
 }

@@ -11,6 +11,8 @@
 //! `static_keys`) keep their `use super::{haystack, ...}` imports
 //! byte-for-byte unchanged.
 
+pub mod subject;
+
 use core::ffi::c_void;
 
 use alloc::vec::Vec;

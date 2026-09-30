@@ -17,10 +17,11 @@ use alloc::vec::Vec;
 use core::ffi::c_void;
 
 use super::static_keys::{K_GROUPS, K_INDICES, cached_static_key};
+use super::str_helpers::subject::Subject;
 use super::{
     __torajs_arr_alloc_any, __torajs_arr_push_any, __torajs_arrprops_set, __torajs_dynobj_alloc,
     __torajs_dynobj_mark_null_proto, __torajs_dynobj_set, __torajs_rc_inc, __torajs_str_drop,
-    ANY_HEAP, ANY_I64, ANY_UNDEF, RegExp, byte_to_utf16_units, str_from_bytes,
+    ANY_HEAP, ANY_I64, ANY_UNDEF, RegExp, str_from_bytes,
 };
 use crate::node::REGEX_MAX_CAPTURES;
 use crate::parser::RE_FLAG_D;
@@ -43,11 +44,10 @@ use crate::vm::save_slot;
 pub(super) unsafe fn attach_indices(
     arr: *mut c_void,
     re: &RegExp,
-    s: &[u8],
+    subject: &Subject,
     m_start: i64,
     m_end: i64,
     saves: &[i64],
-    haystack_is_ascii: bool,
 ) {
     if re.flags & RE_FLAG_D == 0 {
         return;
@@ -79,8 +79,8 @@ pub(super) unsafe fn attach_indices(
         let pair: *mut c_void = if gs < 0 || ge < 0 {
             core::ptr::null_mut()
         } else {
-            let st = byte_to_utf16_units(s, gs, haystack_is_ascii);
-            let en = byte_to_utf16_units(s, ge, haystack_is_ascii);
+            let st = subject.units_at(gs);
+            let en = subject.units_at(ge);
             let mut p = unsafe { __torajs_arr_alloc_any(2) };
             unsafe {
                 p = __torajs_arr_push_any(p, ANY_I64, st as u64);

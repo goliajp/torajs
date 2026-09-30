@@ -121,37 +121,49 @@ pub(crate) fn lower_regex(ctx: &mut LowerCtx<'_>, pattern: &str, flags: &str) ->
     let flag_v = ctx.intern_string_literal(flags);
     let baked_idx =
         crate::ssa_lower_regex_bake::try_bake_regex_dfa(ctx.baked_regex_buf, pattern, flags);
-    let matcher = ctx
-        .fn_table
-        .get(&crate::ssa_lower_regex_bake::matcher::matcher_key(
-            pattern, flags,
-        ))
-        .copied();
-    let v = match (matcher, baked_idx) {
-        (Some(fid), _) => emit_matcher_compile(ctx, fid, baked_idx, pat_v, flag_v),
-        (None, Some(idx)) => emit_baked_dfa_compile(ctx, idx, pat_v, flag_v),
-        (None, None) => emit_regex_compile(ctx, pat_v, flag_v),
+    let matcher = |wide: bool| {
+        ctx.fn_table
+            .get(&crate::ssa_lower_regex_bake::matcher::matcher_key(
+                pattern, flags, wide,
+            ))
+            .copied()
+    };
+    let matchers = (matcher(false), matcher(true));
+    let v = match (matchers, baked_idx) {
+        ((None, None), Some(idx)) => emit_baked_dfa_compile(ctx, idx, pat_v, flag_v),
+        ((None, None), None) => emit_regex_compile(ctx, pat_v, flag_v),
+        ((narrow, wide), _) => emit_matcher_compile(ctx, narrow, wide, baked_idx, pat_v, flag_v),
     };
     ctx.cur_block = saved_block;
     ctx.regex_lit_cache.insert(key, v);
     Operand::Value(v)
 }
 
-/// A literal with a synthesized one-pass matcher: its address, no
-/// UTF-16 matcher yet, and the baked DFA table when the literal has
-/// one too.
+/// A literal with a synthesized one-pass matcher: the address of its
+/// Latin-1 walk and of its UTF-16 walk (null where the lane declined
+/// one encoding), and the baked DFA table when the literal has one
+/// too.
 fn emit_matcher_compile(
     ctx: &mut LowerCtx<'_>,
-    fid: ssa::FuncId,
+    narrow: Option<ssa::FuncId>,
+    wide: Option<ssa::FuncId>,
     baked_idx: Option<u32>,
     pat_v: ssa::ValueId,
     flag_v: ssa::ValueId,
 ) -> ssa::ValueId {
     let cur_block = ctx.cur_block;
-    let sig = ctx.fn_sig_ids[&fid];
-    let latin1 = ctx
-        .f
-        .append_inst(cur_block, InstKind::FnAddr(fid), Type::FnSig(sig), None);
+    let mut addr = |fid: Option<ssa::FuncId>| match fid {
+        Some(fid) => {
+            let sig = ctx.fn_sig_ids[&fid];
+            let v = ctx
+                .f
+                .append_inst(cur_block, InstKind::FnAddr(fid), Type::FnSig(sig), None);
+            Operand::Value(v)
+        }
+        None => Operand::ConstPtrNull,
+    };
+    let latin1 = addr(narrow);
+    let utf16 = addr(wide);
     let meta = match baked_idx {
         Some(idx) => Operand::Value(baked_meta_ref(ctx, idx)),
         None => Operand::ConstPtrNull,
@@ -162,8 +174,8 @@ fn emit_matcher_compile(
         InstKind::Call(
             entry,
             vec![
-                Operand::Value(latin1),
-                Operand::ConstPtrNull,
+                latin1,
+                utf16,
                 meta,
                 Operand::Value(pat_v),
                 Operand::Value(flag_v),

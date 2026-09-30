@@ -8,7 +8,6 @@
 
 use core::ffi::c_void;
 
-use super::byte_to_utf16_units;
 use super::exec_find::exec_find;
 use crate::node::REGEX_MAX_CAPTURES;
 use crate::vm::save_slot;
@@ -33,7 +32,7 @@ pub unsafe extern "C" fn __torajs_regex_exec_span(
 ) -> i64 {
     let n = n_slots.max(0) as usize;
     let hit = unsafe {
-        exec_find(re_ptr, str_ptr, |re, s, is_ascii, m| {
+        exec_find(re_ptr, str_ptr, |re, subject, m| {
             let n_cap = (re.n_captures as usize).min(REGEX_MAX_CAPTURES - 1);
             for k in 0..n {
                 let (gs, ge) = if k == 0 {
@@ -46,10 +45,7 @@ pub unsafe extern "C" fn __torajs_regex_exec_span(
                 let (a, b) = if gs < 0 || ge < 0 {
                     (-1, -1)
                 } else {
-                    (
-                        byte_to_utf16_units(s, gs, is_ascii),
-                        byte_to_utf16_units(s, ge, is_ascii),
-                    )
+                    (subject.units_at(gs), subject.units_at(ge))
                 };
                 *out.add(2 * k) = a;
                 *out.add(2 * k + 1) = b;

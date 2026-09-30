@@ -12,35 +12,50 @@
 //! itself. Without `g` there is one RegExpBuiltinExec (§22.2.7.2):
 //! a sticky pattern anchors at lastIndex and stores the match end, or
 //! 0 on a miss, before the callback runs; a plain one never reads it.
+//!
+//! A literal with a compiled matcher for the subject's encoding walks
+//! the subject's own code units, so its spans need no mapping; the
+//! engine walks the ASCII payload in place or a transcoded copy.
 
 use alloc::vec::Vec;
 use core::ffi::c_void;
 
+use super::exec_find::{matcher_for, run_matcher, search_start};
 use super::lifecycle::{global_replace_start, tracked_store_refuses};
-use super::{RegExp, abort_unsupported, as_regex_mut, haystack, str_slice_ascii_view};
+use super::str_helpers::subject::{UnitsView, str_units_view};
+use super::{MatcherFn, RegExp, abort_unsupported, as_regex_mut, haystack, str_slice_ascii_view};
+use crate::flags::unicode_mode;
 use crate::node::REGEX_MAX_CAPTURES;
+use crate::onepass::ir::{is_high_surrogate, is_low_surrogate};
 use crate::parser::{RE_FLAG_G, RE_FLAG_Y};
 use crate::regex::offset_map::utf16_units_to_byte;
-use crate::vm::{match_anchor, save_slot, search_from_with_ws};
+use crate::vm::{MatchResult, match_anchor, save_slot, search_from_with_ws};
 
 /// Bytes the caller reserves for a [`ReplaceIter`]; the lowering
 /// allocates this many on its stack.
-pub const REPLACE_ITER_SIZE: usize = 80;
+pub const REPLACE_ITER_SIZE: usize = 96;
 
 pub struct ReplaceIter {
     re: *mut RegExp,
-    /// The searched bytes: the subject's own payload when it is ASCII,
+    /// The searched text: the subject's own payload under a matcher
+    /// (`s_len` code units, 16-bit when `wide`) or when it is ASCII,
     /// else the transcoded copy in `owned`.
     s_ptr: *const u8,
     s_len: usize,
     owned: Option<Vec<u8>>,
-    /// Byte position the next search starts at.
+    /// The literal's matcher for the subject's encoding, if any.
+    matcher: Option<MatcherFn>,
+    /// Position the next search starts at: a byte of the engine's
+    /// text, a code unit under a matcher.
     pos: i64,
     /// The UTF-16 unit count at byte `unit_byte`, so a span's units
     /// are counted from the previous match rather than from 0.
     unit_byte: i64,
     unit_at: i64,
-    is_ascii: bool,
+    /// Offsets of the searched text are UTF-16 code units already:
+    /// under a matcher, or over the ASCII payload.
+    unit_offsets: bool,
+    wide: bool,
     global: bool,
     sticky: bool,
     done: bool,
@@ -71,12 +86,19 @@ pub unsafe extern "C" fn __torajs_regex_replace_iter_init(
     }
     let global = re.flags & RE_FLAG_G != 0;
     let sticky = re.flags & RE_FLAG_Y != 0;
-    // an ASCII subject is matched in place; the rest transcode once
-    let (s_ptr, s_len, is_ascii, owned) = match unsafe { str_slice_ascii_view(str_ptr) } {
-        Some(view) => (view.as_ptr(), view.len(), true, None),
-        None => {
-            let o = unsafe { haystack(re, str_ptr) };
-            (o.as_ptr(), o.len(), false, Some(o))
+    let units = unsafe { str_units_view(str_ptr) };
+    let matcher = matcher_for(re, &units);
+    // a matcher walks the payload; the engine matches an ASCII
+    // subject in place and transcodes the rest once
+    let (s_ptr, s_len, unit_offsets, owned) = if matcher.is_some() {
+        (units.as_ptr(), units.len(), true, None)
+    } else {
+        match unsafe { str_slice_ascii_view(str_ptr) } {
+            Some(view) => (view.as_ptr(), view.len(), true, None),
+            None => {
+                let o = unsafe { haystack(re, str_ptr) };
+                (o.as_ptr(), o.len(), false, Some(o))
+            }
         }
     };
     let mut pos = 0;
@@ -87,10 +109,15 @@ pub unsafe extern "C" fn __torajs_regex_replace_iter_init(
         if unsafe { tracked_store_refuses(re) } {
             done = true;
         } else {
-            // SAFETY: `s_ptr` / `s_len` describe a live buffer.
-            let s = unsafe { core::slice::from_raw_parts(s_ptr, s_len) };
-            pos = utf16_units_to_byte(s, re.last_index_i64(), is_ascii);
-            if pos > s_len as i64 {
+            let last = re.last_index_i64();
+            pos = if matcher.is_some() {
+                search_start(&units, re.flags, last)
+            } else {
+                // SAFETY: `s_ptr` / `s_len` describe a live buffer.
+                let s = unsafe { core::slice::from_raw_parts(s_ptr, s_len) };
+                utf16_units_to_byte(s, last, unit_offsets)
+            };
+            if last > units.len() as i64 {
                 re.set_last_index_num(0.0);
                 done = true;
             }
@@ -102,10 +129,12 @@ pub unsafe extern "C" fn __torajs_regex_replace_iter_init(
             s_ptr,
             s_len,
             owned,
+            matcher,
             pos,
             unit_byte: 0,
             unit_at: 0,
-            is_ascii,
+            unit_offsets,
+            wide: units.wide(),
             global,
             sticky,
             done,
@@ -122,9 +151,9 @@ pub unsafe extern "C" fn __torajs_regex_replace_iter_init(
 ///
 /// An empty match advances the cursor past one element of the
 /// haystack (§22.2.6.11 step 11.c.iv AdvanceStringIndex: a code unit,
-/// or a code point under `u` / `v`, which is one UTF-8 sequence of the
-/// transcoded form either way). Without `g` the first hit ends the
-/// walk.
+/// or a code point under `u` / `v` — one UTF-8 sequence of the
+/// transcoded form, or a surrogate pair of the payload). Without `g`
+/// the first hit ends the walk.
 ///
 /// # Safety
 ///
@@ -142,12 +171,13 @@ pub unsafe extern "C" fn __torajs_regex_replace_iter_next(
     }
     // SAFETY: `init` bound a live regex and a live buffer.
     let re = unsafe { &*it.re };
-    let s = unsafe { core::slice::from_raw_parts(it.s_ptr, it.s_len) };
-    let slen = s.len() as i64;
+    let slen = it.s_len as i64;
     let m = if it.pos > slen {
         None
+    } else if let Some(f) = it.matcher {
+        unsafe { run_matcher(f, re.matcher_stride as usize, &it.units(), it.pos) }
     } else if it.sticky {
-        match_anchor(&re.prog, s, it.pos, re.flags)
+        match_anchor(&re.prog, it.bytes(), it.pos, re.flags)
     } else {
         let dfa_view = re.baked_dfa_view();
         let dfa_ref = dfa_view.as_ref().or(re.dfa_runtime.as_ref());
@@ -156,12 +186,12 @@ pub unsafe extern "C" fn __torajs_regex_replace_iter_next(
         let ws = unsafe { &mut *re.workspace_cache.get() };
         search_from_with_ws(
             &re.prog,
-            s,
+            it.bytes(),
             it.pos,
             re.flags,
             ws,
             dfa_ref,
-            it.is_ascii,
+            it.unit_offsets,
             true,
         )
     };
@@ -184,22 +214,18 @@ pub unsafe extern "C" fn __torajs_regex_replace_iter_next(
         let (a, b) = if gs < 0 || ge < 0 {
             (-1, -1)
         } else {
-            (it.units_at(s, gs), it.units_at(s, ge))
+            (it.units_at(gs), it.units_at(ge))
         };
         unsafe {
             *out.add(2 * k) = a;
             *out.add(2 * k + 1) = b;
         }
     }
-    let end_units = it.units_at(s, m.end);
+    let end_units = it.units_at(m.end);
     it.unit_byte = m.end;
     it.unit_at = end_units;
     it.pos = if m.end == m.start {
-        let mut p = m.end + 1;
-        while p < slen && s[p as usize] & 0xC0 == 0x80 {
-            p += 1;
-        }
-        p
+        it.advance(&m)
     } else {
         m.end
     };
@@ -224,14 +250,61 @@ pub unsafe extern "C" fn __torajs_regex_replace_iter_close(iter: *mut ReplaceIte
 }
 
 impl ReplaceIter {
-    /// The UTF-16 unit offset of byte `b` of the haystack. Matches
-    /// come in order, so most spans are counted from the previous
-    /// match end; a capture inside a lookbehind can sit before it and
-    /// is counted from the start.
-    fn units_at(&self, s: &[u8], b: i64) -> i64 {
-        if self.is_ascii {
+    /// The engine's text.
+    fn bytes(&self) -> &[u8] {
+        // SAFETY: `init` bound a live buffer of `s_len` bytes.
+        unsafe { core::slice::from_raw_parts(self.s_ptr, self.s_len) }
+    }
+
+    /// The payload a matcher walks.
+    fn units(&self) -> UnitsView<'_> {
+        // SAFETY: `init` bound the live payload of `s_len` units.
+        unsafe {
+            if self.wide {
+                UnitsView::Wide(core::slice::from_raw_parts(
+                    self.s_ptr as *const u16,
+                    self.s_len,
+                ))
+            } else {
+                UnitsView::Narrow(core::slice::from_raw_parts(self.s_ptr, self.s_len))
+            }
+        }
+    }
+
+    /// The position after an empty match at `m.end`.
+    fn advance(&self, m: &MatchResult) -> i64 {
+        let mut p = m.end + 1;
+        let len = self.s_len as i64;
+        if self.matcher.is_some() {
+            // SAFETY: `init` bound a live regex.
+            let flags = unsafe { &*self.re }.flags;
+            let units = self.units();
+            if self.wide
+                && unicode_mode(flags)
+                && p < len
+                && is_high_surrogate(units.unit(m.end as usize))
+                && is_low_surrogate(units.unit(p as usize))
+            {
+                p += 1;
+            }
+            return p;
+        }
+        let s = self.bytes();
+        while p < len && s[p as usize] & 0xC0 == 0x80 {
+            p += 1;
+        }
+        p
+    }
+
+    /// The UTF-16 unit offset of position `b` of the searched text.
+    /// Matches come in order, so most spans are counted from the
+    /// previous match end; a capture inside a lookbehind can sit
+    /// before it and is counted from the start.
+    fn units_at(&self, b: i64) -> i64 {
+        if self.unit_offsets {
             return b;
         }
+        let s = self.bytes();
         let (from, base) = if b >= self.unit_byte {
             (self.unit_byte, self.unit_at)
         } else {
@@ -342,6 +415,55 @@ mod tests {
         }
     }
 
+    /// The walk through a matcher: the reference interpreter over the
+    /// program, bound to the regex the way the compiler's function is.
+    fn bind_matcher(re: &Re, wide: bool) -> Box<crate::onepass::MatcherIr> {
+        let cell = re.cell();
+        let mut prog = crate::program::Program::new();
+        prog.raw_classes = true;
+        let flags = cell.flags;
+        let mut p = crate::parser::Parser::new(&cell.src_bytes, flags);
+        let root = p.parse().unwrap();
+        crate::compiler::compile(&mut prog, &root, flags);
+        prog.emit(crate::program::Inst::match_accept());
+        let ir = Box::new(crate::onepass::build(&prog, flags, wide).expect("one-pass"));
+        cell.matcher_stride = ir.stride;
+        ir
+    }
+
+    /// A `MatcherFn` over the interpreter: the IR rides in a static
+    /// slot because the extern signature has no closure environment.
+    static mut TEST_IR: Option<Box<crate::onepass::MatcherIr>> = None;
+
+    unsafe extern "C" fn interp_narrow(
+        units: *const u8,
+        len: i64,
+        start: i64,
+        out: *mut i64,
+    ) -> i64 {
+        let ir = unsafe { (*core::ptr::addr_of!(TEST_IR)).as_ref().unwrap() };
+        let s = unsafe { core::slice::from_raw_parts(units, len as usize) };
+        let row = unsafe { core::slice::from_raw_parts_mut(out, ir.stride as usize) };
+        ir.exec(s, start as usize, row)
+    }
+
+    unsafe extern "C" fn interp_wide(units: *const u8, len: i64, start: i64, out: *mut i64) -> i64 {
+        let ir = unsafe { (*core::ptr::addr_of!(TEST_IR)).as_ref().unwrap() };
+        let s = unsafe { core::slice::from_raw_parts(units as *const u16, len as usize) };
+        let row = unsafe { core::slice::from_raw_parts_mut(out, ir.stride as usize) };
+        ir.exec(s, start as usize, row)
+    }
+
+    fn with_matcher(re: &Re, wide: bool) {
+        let ir = bind_matcher(re, wide);
+        unsafe { *core::ptr::addr_of_mut!(TEST_IR) = Some(ir) };
+        if wide {
+            re.cell().matcher_utf16 = Some(interp_wide);
+        } else {
+            re.cell().matcher_latin1 = Some(interp_narrow);
+        }
+    }
+
     #[test]
     fn a_global_walk_stores_zero_once_and_never_reads_last_index() {
         let re = Re::new(b"a", b"g");
@@ -441,5 +563,48 @@ mod tests {
         let mut it = Iter::open(&re, &s);
         assert_eq!(it.all(1), vec![vec![(1, 2)]]);
         assert_eq!(re.cell().last_index, 2.0);
+    }
+
+    #[test]
+    fn a_matcher_walks_the_payload_of_every_encoding() {
+        // "x=é;y=中" through a matcher: spans in units, no transcoding
+        let re = Re::new(b"(\\w)=([^;])", b"g");
+        with_matcher(&re, false);
+        let lat = Cell::latin1(&[b'x', b'=', 0xE9, b';', b'y', b'=', 0xFF]);
+        let mut it = Iter::open(&re, &lat);
+        assert_eq!(
+            it.all(3),
+            vec![vec![(0, 3), (0, 1), (2, 3)], vec![(4, 7), (4, 5), (6, 7)]]
+        );
+        with_matcher(&re, true);
+        let wide = Cell::utf16(&[
+            b'x' as u16,
+            b'=' as u16,
+            0x4E2D,
+            b';' as u16,
+            b'y' as u16,
+            b'=' as u16,
+            0xD83D,
+            0xDE00,
+        ]);
+        let mut it = Iter::open(&re, &wide);
+        assert_eq!(
+            it.all(3),
+            vec![vec![(0, 3), (0, 1), (2, 3)], vec![(4, 7), (4, 5), (6, 7)]]
+        );
+        // under `u` the pair is one unit of the class, two of the span
+        let re = Re::new(b"(\\w)=([^;])", b"gu");
+        with_matcher(&re, true);
+        let mut it = Iter::open(&re, &wide);
+        assert_eq!(
+            it.all(3),
+            vec![vec![(0, 3), (0, 1), (2, 3)], vec![(4, 8), (4, 5), (6, 8)]]
+        );
+        // an empty match under `u` steps over the pair
+        let re = Re::new(b"x*", b"gu");
+        with_matcher(&re, true);
+        let s = Cell::utf16(&[0xD834, 0xDD1E, 0x62]);
+        let mut it = Iter::open(&re, &s);
+        assert_eq!(it.all(1), vec![vec![(0, 0)], vec![(2, 2)], vec![(3, 3)]]);
     }
 }

@@ -4,6 +4,7 @@
 use alloc::vec::Vec;
 use core::ffi::c_void;
 
+use super::str_helpers::subject::Subject;
 use super::{
     __torajs_dynobj_alloc, __torajs_dynobj_mark_null_proto, __torajs_dynobj_set, __torajs_str_drop,
     ANY_HEAP, ANY_UNDEF, RegExp, str_from_bytes,
@@ -17,9 +18,9 @@ use crate::vm::save_slot;
 ///
 /// # Safety
 ///
-/// Calls cross-tier extern allocators. `re` and `s` must outlive the
-/// call.
-pub unsafe fn build_groups(re: &RegExp, s: &[u8], saves: &[i64]) -> Option<*mut c_void> {
+/// Calls cross-tier extern allocators. `re` and `subject` must
+/// outlive the call.
+pub unsafe fn build_groups(re: &RegExp, subject: &Subject, saves: &[i64]) -> Option<*mut c_void> {
     if re.n_named_captures == 0 || re.capture_names.is_empty() {
         return None;
     }
@@ -56,7 +57,7 @@ pub unsafe fn build_groups(re: &RegExp, s: &[u8], saves: &[i64]) -> Option<*mut 
             }
         } else {
             defined_names.push(name.as_slice());
-            let val_str = unsafe { str_from_bytes(&s[gs as usize..ge as usize]) };
+            let val_str = unsafe { subject.span(gs, ge) };
             unsafe {
                 __torajs_dynobj_set(
                     &mut groups,

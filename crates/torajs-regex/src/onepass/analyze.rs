@@ -9,28 +9,36 @@
 //! `Op::Match`: threads behind it are lower priority than a match
 //! the VM has already committed to, so they never consume.
 //!
-//! The program is one-pass when no byte is claimed by two consuming
+//! The program is one-pass when no unit is claimed by two consuming
 //! instructions of the same state unless both lead to the same
 //! `(target, saves)` pair.
+//!
+//! Units are claimed segment by segment: every unit up to `0xFF` on
+//! its own, and above that the ranges between the points where an
+//! instruction's answer can change — the line terminators `.` skips.
+//! Every instruction the lane serves is constant between them.
 
 use alloc::collections::BTreeMap;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use super::ir::{Edge, MatcherIr, State};
+use super::ir::{Edge, MatcherIr, State, UNIT_MAX_NARROW, UNIT_MAX_WIDE};
+use crate::flags::unicode_mode;
 use crate::parser::RE_FLAG_S;
 use crate::program::{Inst, Op, Program};
 use crate::vm::char_eq;
 
-/// Build the matcher for `prog` (compiled with `Program::raw_classes`)
-/// over Latin-1 code units. `None` when the program is not one-pass,
-/// or uses a shape this walk does not serve: assertions, lookaround,
+/// Build the matcher for `prog` (compiled with `Program::raw_classes`
+/// under `flags`) over Latin-1 code units, or over UTF-16 code units
+/// when `wide`. `None` when the program is not one-pass, or uses a
+/// shape this walk does not serve: assertions, lookaround,
 /// backreferences, a literal above 0x7F (the parser spells it as
 /// UTF-8 bytes), a property class or a range past U+00FF.
-pub fn build(prog: &Program) -> Option<MatcherIr> {
+pub fn build(prog: &Program, flags: u8, wide: bool) -> Option<MatcherIr> {
     if !servable(prog) {
         return None;
     }
+    let segments = segments(wide);
     let mut states: Vec<State> = Vec::new();
     let mut by_seed: BTreeMap<usize, u32> = BTreeMap::new();
     let mut queue: Vec<usize> = vec![0];
@@ -44,7 +52,7 @@ pub fn build(prog: &Program) -> Option<MatcherIr> {
             });
         }
         let Closure { consuming, accept } = closure(prog, seed);
-        let mut table: Vec<Option<(u32, Vec<u32>)>> = vec![None; 256];
+        let mut table: Vec<Option<(u32, Vec<u32>)>> = vec![None; segments.len()];
         for (pc, saves) in consuming {
             let next = pc + 1;
             let target = match by_seed.get(&next) {
@@ -57,26 +65,28 @@ pub fn build(prog: &Program) -> Option<MatcherIr> {
                 }
             };
             let ins = prog.insts[pc];
-            for b in 0..=255u8 {
-                if !steps(prog, ins, b) {
+            for (k, &(lo, _)) in segments.iter().enumerate() {
+                if !admits(prog, ins, lo) {
                     continue;
                 }
                 let want = (target, saves.clone());
-                match &table[b as usize] {
-                    None => table[b as usize] = Some(want),
+                match &table[k] {
+                    None => table[k] = Some(want),
                     Some(have) if *have == want => {}
                     Some(_) => return None,
                 }
             }
         }
         states[id] = State {
-            edges: coalesce(&table),
+            edges: coalesce(&segments, &table),
             accept,
         };
     }
     Some(MatcherIr {
         states,
         stride: crate::vm::saves_arena::detect_stride(prog) as u32,
+        wide,
+        pairs: wide && unicode_mode(flags),
     })
 }
 
@@ -114,13 +124,44 @@ fn single_unit_class(c: &crate::charclass::CharClass) -> bool {
     c.u_prop_tables.is_empty() && c.owned_ranges.is_empty() && !c.byte_only
 }
 
-fn steps(prog: &Program, ins: Inst, b: u8) -> bool {
+/// Units above `0xFF` where a served instruction's answer can change:
+/// the LineTerminators `.` skips (§12.3), each on its own.
+const HIGH_POINTS: [u32; 2] = [0x2028, 0x2029];
+
+/// `(lo, hi)` ranges covering every unit the walk can read, each
+/// answered alike by every served instruction.
+fn segments(wide: bool) -> Vec<(u32, u32)> {
+    let mut segs: Vec<(u32, u32)> = (0..=UNIT_MAX_NARROW).map(|u| (u, u)).collect();
+    if !wide {
+        return segs;
+    }
+    let mut cuts: Vec<u32> = vec![UNIT_MAX_NARROW + 1];
+    for &p in &HIGH_POINTS {
+        cuts.push(p);
+        cuts.push(p + 1);
+    }
+    cuts.sort_unstable();
+    cuts.dedup();
+    for (i, &lo) in cuts.iter().enumerate() {
+        let hi = cuts.get(i + 1).map_or(UNIT_MAX_WIDE, |&next| next - 1);
+        segs.push((lo, hi));
+    }
+    segs
+}
+
+/// Whether `ins` consumes the code unit `u` (`§22.2.2.7.3`: a `.` skips
+/// the four LineTerminators unless `s`; a class is tested as a unit,
+/// which under `u` / `v` is the code point for everything the lane
+/// serves, a lone surrogate included).
+fn admits(prog: &Program, ins: Inst, u: u32) -> bool {
     match Op::from_u8(ins.op) {
-        Some(Op::Char) => char_eq(ins.ch, b, ins.pad as u8),
-        Some(Op::AnyChar) => ins.pad as u8 & RE_FLAG_S != 0 || b != b'\n',
+        Some(Op::Char) => u <= 0xFF && char_eq(ins.ch, u as u8, ins.pad as u8),
+        Some(Op::AnyChar) => {
+            ins.pad as u8 & RE_FLAG_S != 0 || !matches!(u, 0x0A | 0x0D | 0x2028 | 0x2029)
+        }
         Some(Op::Class) => {
             let ci = ins.pad as u8 & crate::parser::RE_FLAG_I != 0;
-            prog.classes[ins.a as usize].test_cp_fold(b as i32, ci)
+            prog.classes[ins.a as usize].test_cp_fold(u as i32, ci)
         }
         _ => false,
     }
@@ -168,23 +209,23 @@ fn closure(prog: &Program, seed: usize) -> Closure {
     Closure { consuming, accept }
 }
 
-fn coalesce(table: &[Option<(u32, Vec<u32>)>]) -> Vec<Edge> {
+fn coalesce(segments: &[(u32, u32)], table: &[Option<(u32, Vec<u32>)>]) -> Vec<Edge> {
     let mut edges: Vec<Edge> = Vec::new();
-    for (b, cell) in table.iter().enumerate() {
+    for (&(lo, hi), cell) in segments.iter().zip(table) {
         let Some((target, saves)) = cell else {
             continue;
         };
         if let Some(last) = edges.last_mut()
-            && last.hi as usize + 1 == b
+            && last.hi + 1 == lo
             && last.target == *target
             && last.saves == *saves
         {
-            last.hi = b as u8;
+            last.hi = hi;
             continue;
         }
         edges.push(Edge {
-            lo: b as u8,
-            hi: b as u8,
+            lo,
+            hi,
             saves: saves.clone(),
             target: *target,
         });
@@ -193,177 +234,4 @@ fn coalesce(table: &[Option<(u32, Vec<u32>)>]) -> Vec<Edge> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::compiler::compile;
-    use crate::parser::{Parser, RE_FLAG_I, RE_FLAG_U};
-    use crate::vm::Workspace;
-    use crate::vm::match_at::vm_match_at;
-
-    /// the program the Pike VM runs (UTF-8 haystack) and the one the
-    /// matcher is built from (code units); they differ only where a
-    /// class is unsafe for the byte walk
-    fn programs(pat: &str, flags: u8) -> (Program, Program) {
-        let mut p = Parser::new(pat.as_bytes(), flags);
-        let root = p.parse().expect("parse failed");
-        let mut vm = Program::new();
-        compile(&mut vm, &root, flags);
-        vm.emit(Inst::match_accept());
-        vm.has_save = vm.any_save();
-        vm.finalize_backref_caps();
-        let mut raw = Program::new();
-        raw.raw_classes = true;
-        compile(&mut raw, &root, flags);
-        raw.emit(Inst::match_accept());
-        (vm, raw)
-    }
-
-    fn matcher(pat: &str, flags: u8) -> Option<MatcherIr> {
-        build(&programs(pat, flags).1)
-    }
-
-    /// the Pike VM's leftmost-first answer from `from`: start, end, row
-    fn pike(prog: &Program, s: &[u8], from: usize, flags: u8) -> Option<(i64, i64, Vec<i64>)> {
-        let mut ws = Workspace::for_program(prog);
-        for st in from..=s.len() {
-            let mut row = vec![-1i64; ws.arena.stride];
-            let end = vm_match_at(prog, s, st as i64, flags, &mut ws, Some(&mut row), -1);
-            if end >= 0 {
-                row[0] = st as i64;
-                row[1] = end;
-                return Some((st as i64, end, row));
-            }
-        }
-        None
-    }
-
-    /// every search start over `hay` answers exactly what the Pike VM
-    /// answers; returns how many of them hit
-    fn agrees(pat: &str, flags: u8, hay: &str) -> usize {
-        let (prog, raw) = programs(pat, flags);
-        let ir = build(&raw).unwrap_or_else(|| panic!("{pat}: not one-pass"));
-        assert_eq!(
-            ir.stride as usize,
-            Workspace::for_program(&prog).arena.stride
-        );
-        let s = hay.as_bytes();
-        let mut hits = 0;
-        for from in 0..=s.len() {
-            let want = pike(&prog, s, from, flags);
-            let mut out = vec![-1i64; ir.stride as usize];
-            let end = ir.exec(s, from, &mut out);
-            match want {
-                Some((st, wend, row)) => {
-                    assert_eq!(end, wend, "{pat} from {from}: end");
-                    assert_eq!(out[0], st, "{pat} from {from}: start");
-                    assert_eq!(out, row, "{pat} from {from}: row");
-                    hits += 1;
-                }
-                None => assert_eq!(end, -1, "{pat} from {from}: expected miss"),
-            }
-        }
-        hits
-    }
-
-    /// some search starts hit, some miss
-    fn same(pat: &str, flags: u8, hay: &str) {
-        let hits = agrees(pat, flags, hay);
-        assert!(hits > 0, "{pat}: nothing matched in {hay:?}");
-        assert!(
-            hits <= hay.len(),
-            "{pat}: no search start missed in {hay:?}"
-        );
-    }
-
-    /// every search start hits (a pattern that matches empty)
-    fn always(pat: &str, flags: u8, hay: &str) {
-        assert_eq!(agrees(pat, flags, hay), hay.len() + 1, "{pat} over {hay:?}");
-    }
-
-    #[test]
-    fn bench_pattern() {
-        same("([a-z]+)=(\\d+)", 0, "kq=17;=3;abc=905;zz12;");
-        assert_eq!(agrees("([a-z]+)=(\\d+)", 0, "aaaaaaaa;bbbb="), 0);
-        let ir = matcher("([a-z]+)=(\\d+)", 0).unwrap();
-        // one state per seed pc: the loop body's class and the first
-        // one share a closure shape but not a seed
-        assert_eq!(ir.states.len(), 6);
-        assert_eq!(ir.stride, 6);
-        assert_eq!(ir.states[0].edges.len(), 1);
-        assert_eq!(ir.states[0].edges[0].saves, [2]);
-        assert!(ir.states[0].accept.is_none());
-        let mut out = vec![-1i64; 6];
-        assert_eq!(ir.exec(b"..ab=12;", 0, &mut out), 7);
-        assert_eq!(out, [2, 7, 2, 4, 5, 7]);
-        assert_eq!(ir.slots_written_past_accept(), [5]);
-    }
-
-    #[test]
-    fn groups_alternation_and_optionals() {
-        same("(a)?(b)", 0, "abb");
-        same("(?:(a)|(b))c", 0, "acbc");
-        same("(a)|(b)", 0, "xba");
-        same("(cat|dog)s?", 0, "cats dog cow");
-        same("((a)(b))c", 0, "xabcab");
-        same("(?:(a)|b)+", 0, "abab c");
-        same("(?:(\\d)(\\w)?,)+", 0, "1a,2,3b,");
-        same("(x)(y)(z)(w)", 0, "xyzw");
-    }
-
-    #[test]
-    fn empty_matches_and_loops() {
-        always("(a*)", 0, "baa");
-        always("(a*)*", 0, "aab");
-        same("(a|)*b", 0, "aab");
-        always("()|(a)", 0, "ab");
-        always("x*", 0, "yxx");
-        always("(a*?)", 0, "aa");
-        always("(a+?)?", 0, "aa");
-        let ir = matcher("(a*)", 0).unwrap();
-        assert!(ir.states[0].accept.is_some() && !ir.states[0].edges.is_empty());
-    }
-
-    #[test]
-    fn flags_fold_into_the_edges() {
-        same("(He)(l+)o", RE_FLAG_I, "xHELLo hello");
-        same("([a-c]+)([X-Z]*)", RE_FLAG_I, "AbCxYz.");
-        same("(a.)(.b)?", RE_FLAG_S, "a\n\nb");
-        same("(a.)(.b)?", 0, "a\nab.b");
-        same("([^=;]+)=([^;]*);?", 0, "k=v;=x;ab=;q");
-        same("(\\w+)@(\\w+)", RE_FLAG_U, "a@b c@d");
-    }
-
-    #[test]
-    fn latin1_units_take_the_negated_class() {
-        let ir = matcher("([^a]+)", 0).unwrap();
-        let mut out = vec![-1i64; 4];
-        assert_eq!(ir.exec(b"a\xe9\xffa", 0, &mut out), 3);
-        assert_eq!(out, [1, 3, 1, 3]);
-        let ir = matcher("(a)", RE_FLAG_I).unwrap();
-        assert_eq!(ir.exec(b"\xc1\xe1A", 0, &mut out), 3);
-        let ir = matcher("([\u{e9}-\u{ff}]+)", 0).unwrap();
-        assert_eq!(ir.exec(b"a\xe9\xffa", 0, &mut out), 3);
-        assert_eq!(out, [1, 3, 1, 3]);
-        assert_eq!(ir.exec(b"\xe8", 0, &mut out), -1);
-    }
-
-    #[test]
-    fn refuses_what_it_cannot_walk() {
-        for (pat, flags) in [
-            ("(a|ab)(c|bcd)", 0),
-            ("(a+)(a*)b", 0),
-            ("\\d|\\d\\d", 0),
-            ("(a)\\1", 0),
-            ("a(?=b)", 0),
-            ("(?<!a)b", 0),
-            ("^(a)", 0),
-            ("(a)$", 0),
-            ("\\b(\\w+)", 0),
-            ("(\u{e9}+)=", 0),
-            ("[\u{4e2d}]", 0),
-            ("(\\p{L}+)", RE_FLAG_U),
-        ] {
-            assert!(matcher(pat, flags).is_none(), "{pat}");
-        }
-    }
-}
+mod tests;

@@ -38,7 +38,7 @@ use crate::ssa_lower::{LowerCtx, count_capture_groups};
 use crate::ssa_lower_intrinsics_substr::SUBSTR_UNDEF_CELL_SYM;
 
 /// `REPLACE_ITER_SIZE` of `torajs-regex/src/regex/replace_iter.rs`.
-const REPLACE_ITER_SIZE: u64 = 80;
+const REPLACE_ITER_SIZE: u64 = 96;
 /// `FLAG_STATIC_LITERAL << 48` — the packed header of a stack view,
 /// the word the split loop writes; the drop of such a view is a no-op.
 const HDR_STATIC_LITERAL: i64 = 0x0004i64 << 48;

@@ -93,6 +93,12 @@ pub unsafe extern "C" fn __torajs_rc_inc(_p: *mut core::ffi::c_void) {
 
 #[cfg(test)]
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_slice(_s: *const u8, _start: i64, _end: i64) -> *mut u8 {
+    panic!("torajs-regex test stub: __torajs_str_slice should not be called from cargo test");
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_cycle_buffer(_p: *mut core::ffi::c_void) {
     panic!("torajs-regex test stub: __torajs_cycle_buffer should not be called from cargo test");
 }

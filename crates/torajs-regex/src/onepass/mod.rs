@@ -8,9 +8,10 @@
 //! Pike VM would have made on its ε path, and whose accepts carry the
 //! writes on the path to `Op::Match`.
 //!
-//! - [`analyze`] decides one-passness and produces the [`ir::MatcherIr`].
+//! - [`analyze`] decides one-passness and produces the [`ir::MatcherIr`]
+//!   for one payload encoding: Latin-1 code units or UTF-16 ones.
 //! - [`ir`] is the matcher's shape plus a reference interpreter over
-//!   Latin-1 code units; the AOT compiler emits the same walk as a
+//!   the code units; the AOT compiler emits the same walk as a
 //!   native function.
 
 pub mod analyze;

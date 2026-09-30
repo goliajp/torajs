@@ -6,7 +6,8 @@
 use core::ffi::c_void;
 
 use super::replace_fn_dispatch::invoke_replace_cb;
-use super::{__torajs_str_drop, __torajs_str_undef, str_from_bytes};
+use super::str_helpers::subject::Subject;
+use super::{__torajs_str_drop, __torajs_str_undef};
 use crate::vm::save_slot;
 
 unsafe extern "C" {
@@ -33,12 +34,12 @@ unsafe extern "C" {
 ///
 /// # Safety
 ///
-/// `s` must outlive the returned pointers; `out_caps` is sized for
-/// at least `n_caps` entries (max 9).
+/// `subject` must outlive the returned pointers; `out_caps` is sized
+/// for at least `n_caps` entries (max 9).
 unsafe fn build_capture_strs(
     n_caps: i64,
     saves: &[i64],
-    s: &[u8],
+    subject: &Subject,
     out_caps: &mut [*mut c_void; 9],
 ) {
     for i in 0..(n_caps as usize) {
@@ -47,7 +48,7 @@ unsafe fn build_capture_strs(
         let p = if gs < 0 || ge < 0 {
             unsafe { __torajs_str_undef() }
         } else {
-            unsafe { str_from_bytes(&s[gs as usize..ge as usize]) }
+            unsafe { subject.span(gs, ge) }
         };
         out_caps[i] = p as *mut c_void;
     }
@@ -61,7 +62,7 @@ unsafe fn build_capture_strs(
 /// # Safety
 ///
 /// `closure_env` is a live closure heap block (env+8 holds the cb fn
-/// pointer); `m` is a live Str; `s` outlives the call.
+/// pointer); `m` is a live Str; `subject` outlives the call.
 #[allow(clippy::too_many_arguments)]
 pub(super) unsafe fn typed_invoke(
     closure_env: *mut c_void,
@@ -70,14 +71,14 @@ pub(super) unsafe fn typed_invoke(
     str_ptr: *const c_void,
     m: *mut c_void,
     saves: &[i64],
-    s: &[u8],
+    subject: &Subject,
     off: i64,
 ) -> Result<*mut c_void, ()> {
     // Load fn_addr from env+8 — same closure ABI as
     // promise_then_closure.
     let fn_ptr = unsafe { *((closure_env as *mut u8).add(8) as *mut *mut c_void) };
     let mut caps: [*mut c_void; 9] = [core::ptr::null_mut(); 9];
-    unsafe { build_capture_strs(n_caps, saves, s, &mut caps) };
+    unsafe { build_capture_strs(n_caps, saves, subject, &mut caps) };
     let ret_str = unsafe {
         invoke_replace_cb(
             n_caps,

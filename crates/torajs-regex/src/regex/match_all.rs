@@ -9,6 +9,7 @@
 use core::ffi::c_void;
 
 use super::match_op::attach_exec_all;
+use super::str_helpers::subject::Subject;
 use super::{
     __torajs_arr_alloc, __torajs_arr_push, __torajs_throw_type_error, abort_unsupported, as_regex,
     haystack, str_from_bytes,
@@ -115,7 +116,7 @@ unsafe fn append_inner(
     // mapping down the slow correct path for `.index` and `/d`
     // `.indices` alike).
     unsafe {
-        attach_exec_all(inner, re, s, str_ptr, st, en, saves, false);
+        attach_exec_all(inner, re, &Subject::bytes(str_ptr, s, false), st, en, saves);
     }
     unsafe { __torajs_arr_push(outer, inner as i64) }
 }

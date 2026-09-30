@@ -1,11 +1,15 @@
-//! The one-pass walk (`MatcherIr::exec`) as an SSA function over a
-//! Latin-1 payload: `(units, len, start, out) -> end | -1`.
+//! The one-pass walk (`MatcherIr::exec`) as an SSA function over the
+//! payload's code units: `(units, len, start, out) -> end | -1`. A
+//! narrow matcher reads bytes (`LoadU8Dyn`), a wide one 16-bit units
+//! (`LoadU16Dyn`); the walk is the same.
 //!
-//! One block per state. A state reads its byte once and dispatches it
+//! One block per state. A state reads its unit once and dispatches it
 //! through a chain of unsigned range compares; an edge's saves are
 //! stores into `out` at the current position; the scan over start
 //! positions and the loop-carried cursor live in stack slots the
-//! mid-end promotes.
+//! mid-end promotes. Under `u` / `v` over UTF-16 an edge that admits
+//! a high surrogate steps over the low one that follows it, and so
+//! does the start scan.
 //!
 //! The row is written in place. An accept that has edges may be
 //! followed by writes the walk later abandons, so the slots such a
@@ -16,7 +20,7 @@
 use crate::ssa::{BinOp, BlockId, Function, IPred, InstKind, Operand, Terminator, Type, ValueId};
 use torajs_regex::onepass::MatcherIr;
 
-pub(crate) fn latin1(name: &str, ir: &MatcherIr) -> Function {
+pub(crate) fn walk(name: &str, ir: &MatcherIr) -> Function {
     let mut f = Function::new(name, Type::I64);
     let units = f.add_param(Type::Ptr, "units");
     let len = f.add_param(Type::I64, "len");
@@ -79,10 +83,7 @@ pub(crate) fn latin1(name: &str, ir: &MatcherIr) -> Function {
     e.store(attempt, Operand::Value(st), pos_slot, 0);
     e.f.set_term(attempt, Terminator::Br(e.states[0]));
 
-    let st = e.load(next_st, st_slot, 0);
-    let bumped = e.binop(next_st, BinOp::Add, st, Operand::ConstI64(1));
-    e.store(next_st, Operand::Value(bumped), st_slot, 0);
-    e.f.set_term(next_st, Terminator::Br(scan));
+    e.scan_advance(scan);
 
     // dead: the walk found no edge; the last accept answers if there was one
     let last = e.load(dead, last_slot, 0);
@@ -159,6 +160,41 @@ impl Emit<'_> {
         )
     }
 
+    fn cond_br(&mut self, blk: BlockId, cond: ValueId, then_blk: BlockId, else_blk: BlockId) {
+        self.f.set_term(
+            blk,
+            Terminator::CondBr {
+                cond: Operand::Value(cond),
+                then_blk,
+                else_blk,
+            },
+        );
+    }
+
+    /// the code unit at `pos`
+    fn unit(&mut self, blk: BlockId, pos: ValueId) -> ValueId {
+        let kind = if self.ir.wide {
+            InstKind::LoadU16Dyn(Operand::Value(self.units), Operand::Value(pos))
+        } else {
+            InstKind::LoadU8Dyn(Operand::Value(self.units), Operand::Value(pos))
+        };
+        self.f.append_inst(blk, kind, Type::I64, None)
+    }
+
+    /// `lo <= u <= hi`
+    fn in_range(&mut self, blk: BlockId, u: ValueId, lo: u32, hi: u32) -> ValueId {
+        let span = hi as i64 - lo as i64 + 1;
+        if span == 1 {
+            return self.icmp(blk, IPred::Eq, u, Operand::ConstI64(lo as i64));
+        }
+        let rel = if lo == 0 {
+            u
+        } else {
+            self.binop(blk, BinOp::Sub, u, Operand::ConstI64(lo as i64))
+        };
+        self.icmp(blk, IPred::Ult, rel, Operand::ConstI64(span))
+    }
+
     /// `out[0] = st; out[1] = end; return end`
     fn answer(&mut self, blk: BlockId, end: Operand) {
         let st = self.load(blk, self.st_slot, 0);
@@ -173,6 +209,56 @@ impl Emit<'_> {
             self.store(blk, Operand::ConstI64(-1), self.out, 8 * slot as u64);
         }
         self.store(blk, Operand::ConstI64(-1), self.last_slot, 0);
+    }
+
+    /// Store `pos + 1` — or `pos + 2` when the unit `u` read at `pos`
+    /// is a high surrogate followed by a low one — into `slot`, then
+    /// branch to `target`. Answers the block that stores the single
+    /// step, for a caller that already knows it is at the end.
+    fn pair_advance(
+        &mut self,
+        blk: BlockId,
+        pos: ValueId,
+        u: ValueId,
+        slot: ValueId,
+        target: BlockId,
+    ) -> BlockId {
+        let one = self.f.add_block();
+        let next1 = self.binop(one, BinOp::Add, pos, Operand::ConstI64(1));
+        self.store(one, Operand::Value(next1), slot, 0);
+        self.f.set_term(one, Terminator::Br(target));
+        let two = self.f.add_block();
+        let next2 = self.binop(two, BinOp::Add, pos, Operand::ConstI64(2));
+        self.store(two, Operand::Value(next2), slot, 0);
+        self.f.set_term(two, Terminator::Br(target));
+        let check = self.f.add_block();
+        let read = self.f.add_block();
+        let is_high = self.in_range(blk, u, 0xD800, 0xDBFF);
+        self.cond_br(blk, is_high, check, one);
+        let next1 = self.binop(check, BinOp::Add, pos, Operand::ConstI64(1));
+        let at_end = self.icmp(check, IPred::Eq, next1, Operand::Value(self.len));
+        self.cond_br(check, at_end, one, read);
+        let u2 = self.unit(read, next1);
+        let is_low = self.in_range(read, u2, 0xDC00, 0xDFFF);
+        self.cond_br(read, is_low, two, one);
+        one
+    }
+
+    /// `next_st`: the next start position of the scan
+    fn scan_advance(&mut self, scan: BlockId) {
+        let next_st = self.next_st;
+        let st = self.load(next_st, self.st_slot, 0);
+        if !self.ir.pairs {
+            let bumped = self.binop(next_st, BinOp::Add, st, Operand::ConstI64(1));
+            self.store(next_st, Operand::Value(bumped), self.st_slot, 0);
+            self.f.set_term(next_st, Terminator::Br(scan));
+            return;
+        }
+        let read = self.f.add_block();
+        let u = self.unit(read, st);
+        let one = self.pair_advance(read, st, u, self.st_slot, scan);
+        let at_end = self.icmp(next_st, IPred::Eq, st, Operand::Value(self.len));
+        self.cond_br(next_st, at_end, one, read);
     }
 
     fn state(&mut self, i: usize) {
@@ -215,20 +301,8 @@ impl Emit<'_> {
         }
         let read = self.f.add_block();
         let at_end = self.icmp(blk, IPred::Eq, pos, Operand::Value(self.len));
-        self.f.set_term(
-            blk,
-            Terminator::CondBr {
-                cond: Operand::Value(at_end),
-                then_blk: fail,
-                else_blk: read,
-            },
-        );
-        let b = self.f.append_inst(
-            read,
-            InstKind::LoadU8Dyn(Operand::Value(self.units), Operand::Value(pos)),
-            Type::I64,
-            None,
-        );
+        self.cond_br(blk, at_end, fail, read);
+        let u = self.unit(read, pos);
         let mut cur = read;
         let edges = &node.edges;
         for (j, edge) in edges.iter().enumerate() {
@@ -238,28 +312,11 @@ impl Emit<'_> {
             } else {
                 self.f.add_block()
             };
-            if edge.lo == 0 && edge.hi == 255 {
+            if edge.lo == 0 && edge.hi == ir.unit_max() {
                 self.f.set_term(cur, Terminator::Br(taken));
             } else {
-                let span = edge.hi as i64 - edge.lo as i64 + 1;
-                let cond = if span == 1 {
-                    self.icmp(cur, IPred::Eq, b, Operand::ConstI64(edge.lo as i64))
-                } else {
-                    let rel = if edge.lo == 0 {
-                        b
-                    } else {
-                        self.binop(cur, BinOp::Sub, b, Operand::ConstI64(edge.lo as i64))
-                    };
-                    self.icmp(cur, IPred::Ult, rel, Operand::ConstI64(span))
-                };
-                self.f.set_term(
-                    cur,
-                    Terminator::CondBr {
-                        cond: Operand::Value(cond),
-                        then_blk: taken,
-                        else_blk: next,
-                    },
-                );
+                let cond = self.in_range(cur, u, edge.lo, edge.hi);
+                self.cond_br(cur, cond, taken, next);
             }
             if fresh_on_edge {
                 self.begin_attempt(taken);
@@ -267,10 +324,14 @@ impl Emit<'_> {
             for &slot in &edge.saves {
                 self.store(taken, Operand::Value(pos), out, 8 * slot as u64);
             }
-            let advanced = self.binop(taken, BinOp::Add, pos, Operand::ConstI64(1));
-            self.store(taken, Operand::Value(advanced), self.pos_slot, 0);
             let target = self.states[edge.target as usize];
-            self.f.set_term(taken, Terminator::Br(target));
+            if ir.pairs && edge.hi >= 0xD800 && edge.lo <= 0xDBFF {
+                self.pair_advance(taken, pos, u, self.pos_slot, target);
+            } else {
+                let advanced = self.binop(taken, BinOp::Add, pos, Operand::ConstI64(1));
+                self.store(taken, Operand::Value(advanced), self.pos_slot, 0);
+                self.f.set_term(taken, Terminator::Br(target));
+            }
             cur = next;
         }
     }
