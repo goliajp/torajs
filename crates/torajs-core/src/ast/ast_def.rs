@@ -1430,6 +1430,14 @@ pub struct Ast {
     /// `analyze_regex_exec_record`; the lowering holds the match as
     /// spans in a stack record instead of building the array.
     pub regex_exec_record_callees: std::collections::HashMap<ExprId, u32>,
+    /// The `.replace` / `.replaceAll` member ExprIds whose walk the
+    /// lowering runs in the program's own code, each mapped to the
+    /// view twin of its callback. Populated by
+    /// `analyze_regex_replace_inline`.
+    pub regex_replace_inline_callees: std::collections::HashMap<ExprId, String>,
+    /// Lifted callback name → its view twin: the clone whose string
+    /// parameters are Substr views, called only by that lane.
+    pub regex_replace_view_fns: std::collections::HashMap<String, String>,
     /// v0.3 #4 DWARF — per-Expr source byte ranges. Indexed by
     /// ExprId.0; `Span { start: 0, end: 0 }` is the sentinel for
     /// "not set" (parser fills these on key Expr-emit sites; fallback

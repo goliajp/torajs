@@ -199,7 +199,13 @@ pub(crate) fn check_closure(
     checker
         .closure_captures
         .insert(fn_name.clone(), cap_tys.clone());
-    check_closure_body(checker, ast, eid, &fn_name, cap_tys)
+    let ty = check_closure_body(checker, ast, eid, &fn_name, cap_tys)?;
+    // the replace lane's view twin is a clone of this body with no
+    // construction site of its own: checked here, in the same scope
+    if let Some(twin) = ast.regex_replace_view_fns.get(&fn_name).cloned() {
+        check_closure(checker, ast, eid, &twin, &captures)?;
+    }
+    Ok(ty)
 }
 
 /// The body half of [`check_closure`]: check lifted body `fn_name` with

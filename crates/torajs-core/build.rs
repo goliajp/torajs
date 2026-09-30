@@ -55,6 +55,7 @@ const COMPILER_SOURCE_FILES: &[&str] = &[
     "src/ssa_lower_intrinsics_regex.rs",
     "src/ssa_lower_intrinsics_exec_record.rs",
     "src/ssa_lower_exec_record.rs",
+    "src/ssa_lower_call_str_regex_emit/replace_inline.rs",
     "src/ssa_lower_intrinsics_print_freeze.rs",
     "src/ssa_lower_member_regexp_props.rs",
     "src/ssa_lower_str_arr_sort.rs",

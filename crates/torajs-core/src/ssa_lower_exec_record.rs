@@ -163,7 +163,7 @@ fn emit_exec(ctx: &mut LowerCtx<'_>, rec: ExecRecord, obj: ExprId, arg: ExprId) 
     let hit = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(
-            ctx.intrinsics.regex_exec_span,
+            ctx.intrinsics.exec_record.regex_exec_span,
             vec![
                 recv,
                 s,
@@ -260,7 +260,10 @@ pub(crate) fn try_index(ctx: &mut LowerCtx<'_>, eid: ExprId) -> Option<Operand> 
     let subject = load_subject(ctx, rec);
     let v = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Call(ctx.intrinsics.str_group_span, vec![subject, start, end]),
+        InstKind::Call(
+            ctx.intrinsics.exec_record.str_group_span,
+            vec![subject, start, end],
+        ),
         Type::Str,
         None,
     );

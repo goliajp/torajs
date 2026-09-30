@@ -203,15 +203,15 @@ pub(crate) fn monomorphize_and_check(c: &mut Checker, ast: &Ast) -> MonoOutput {
         &mut generic_fn_names,
     );
     owned_ast.stmts.extend(mono_decls);
-    // Blade 3 — the checker's per-group lane verdicts (top-level ones
-    // from the main pipeline, specialization ones from the body checks
-    // above) ride to the lowerer on the AST it already reads.
+    // the checker's per-group lane verdicts (top-level and from the
+    // body checks above) ride to the lowerer on the AST it already reads
     owned_ast.iter_destr_srcs = std::mem::take(&mut c.iter_destr_srcs);
     owned_ast.undeclared_reads = std::mem::take(&mut c.undeclared_reads);
     owned_ast.self_name_writes = std::mem::take(&mut c.self_name_writes);
     owned_ast.const_writes = std::mem::take(&mut c.const_writes);
     owned_ast.spec_throws = std::mem::take(&mut c.spec_throws);
-    owned_ast.widen_clone_origin = std::mem::take(&mut c.widen_clone_origin);
+    let origins = std::mem::take(&mut c.widen_clone_origin);
+    owned_ast.widen_clone_origin.extend(origins);
     crate::check_monomorph_closures::prune_unresolved_captures(c, &mut owned_ast);
     MonoOutput {
         mono_ast: owned_ast,

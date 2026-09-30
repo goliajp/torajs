@@ -19,9 +19,11 @@
 //! numerous per-call-site invocations from the various lower_expr call
 //! arms need zero edits.
 
+mod temp_drop;
+
 use crate::ast::ExprId;
 use crate::ssa::{FuncId, IPred, InstKind, Operand, THROW_ACTIVE_SYM, Terminator, Type, ValueId};
-use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx};
+use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_temp_scratch::ThrowTemp;
 
 impl<'a> LowerCtx<'a> {
@@ -236,54 +238,6 @@ impl<'a> LowerCtx<'a> {
             .throw_live
             .push(Some(ThrowTemp::ArrSlotDeferLen(slot, ty, len_slot)));
         Some(self.temps.throw_live.len() - 1)
-    }
-
-    /// Throw-path release of one parked temp — the value's typed drop,
-    /// or the slot's live pointee through the tag-dispatched heap drop.
-    fn emit_drop_throw_temp(&mut self, t: ThrowTemp) {
-        match t {
-            ThrowTemp::Value(op, ty) => self.emit_drop_value(op, ty),
-            ThrowTemp::Slot(slot, ty) => {
-                let v = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Load(ty.clone(), Operand::Value(slot), 0),
-                    ty.clone(),
-                    None,
-                );
-                self.emit_drop_value(Operand::Value(v), ty);
-            }
-            ThrowTemp::ArrSlotDeferLen(slot, ty, len_slot) => {
-                let v = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Load(ty.clone(), Operand::Value(slot), 0),
-                    ty.clone(),
-                    None,
-                );
-                let len = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Load(Type::I64, Operand::Value(len_slot), 0),
-                    Type::I64,
-                    None,
-                );
-                self.f.append_void(
-                    self.cur_block,
-                    InstKind::Store(Operand::Value(len), Operand::Value(v), ARR_LEN_OFF),
-                );
-                self.emit_drop_value(Operand::Value(v), ty);
-            }
-            ThrowTemp::DynobjSlot(slot) => {
-                let p = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Load(Type::Ptr, Operand::Value(slot), 0),
-                    Type::Ptr,
-                    None,
-                );
-                self.f.append_void(
-                    self.cur_block,
-                    InstKind::Call(self.intrinsics.value_drop_heap, vec![Operand::Value(p)]),
-                );
-            }
-        }
     }
 
     /// Unpark — the temp's normal-path release site takes over from

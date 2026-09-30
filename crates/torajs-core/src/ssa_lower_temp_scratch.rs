@@ -3,7 +3,7 @@
 //! helper call, a may-throw lower of a sibling subexpression), moved
 //! out of `ssa_lower_ctx_struct.rs` as their own state family.
 
-use crate::ssa::{Operand, Type, ValueId};
+use crate::ssa::{FuncId, Operand, Type, ValueId};
 
 #[derive(Default)]
 pub(crate) struct TempScratch {
@@ -50,6 +50,10 @@ pub(crate) struct TempScratch {
 pub(crate) enum ThrowTemp {
     Value(Operand, Type),
     DynobjSlot(ValueId),
+    /// A stack record a kernel holds resources through (the replace
+    /// walk's transcoded subject): the throw path calls its close
+    /// kernel on the record, the normal path calls it at the exit.
+    Close(FuncId, ValueId),
     /// Rotation 550 — a typed alloca whose current pointee is the
     /// temp (a HOF loop's growing dst array, a reduce accumulator):
     /// the throw path loads it with its type and runs the typed drop.

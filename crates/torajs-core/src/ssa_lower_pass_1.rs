@@ -215,6 +215,11 @@ pub(crate) fn run(
                     struct_layouts,
                     fn_sigs,
                 );
+                // the replace lane's view twin takes Substr views where
+                // the original takes strings (`setup_fn_params` twin)
+                if pty == Type::Str && ast.is_replace_view_fn(name) {
+                    pty = Type::Substr;
+                }
                 param_tys.push(pty);
             }
             // RFC 20260810-indirect-argc-abi S1 — every `__env`-first

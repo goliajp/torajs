@@ -116,7 +116,11 @@ pub(super) fn collect_boxed_targets(tables: &TargetTables<'_>) -> Vec<BoxedEntry
                     let c = &name["__new_".len()..];
                     c.strip_suffix("$$anywv").unwrap_or(c)
                 }));
-        if !first_is_env && !first_is_this && !is_static && !is_factory && !is_twin {
+        // the replace lane's view twin is entered only by that lane's
+        // direct call: no fn value carries it, so no adapter
+        if (!first_is_env && !first_is_this && !is_static && !is_factory && !is_twin)
+            || ast.is_replace_view_fn(name)
+        {
             continue;
         }
         if let Some(t) = target_facts(tables, name, params, (first_is_env, first_is_this)) {

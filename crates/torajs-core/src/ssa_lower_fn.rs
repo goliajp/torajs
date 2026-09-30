@@ -33,6 +33,8 @@
 //! 6. Walk body statements; emit drops + implicit ret on fall-
 //!    through.
 
+mod undef_params;
+
 use crate::ast::PropKey;
 use std::collections::HashMap;
 
@@ -104,6 +106,7 @@ pub(crate) fn lower_fn(
         &mut f,
         name,
         params,
+        ast.is_replace_view_fn(name),
         crate::ssa_lower_pass_1::hidden_argc_pos(ast, name, params),
         ast.argv_boxed_params.get(name),
         aliases,
@@ -210,7 +213,7 @@ pub(crate) fn lower_fn(
     ctx.emit_closure_env_preamble(name, params);
     ctx.emit_gen_env_preamble(name);
 
-    seed_undef_sentinel_params(&mut ctx, name, params);
+    undef_params::seed_undef_sentinel_params(&mut ctx, name, params);
 
     // Mutually recursive closure bindings need each other's boxes open
     // before the first of them mints.
@@ -270,6 +273,7 @@ fn setup_fn_params(
     f: &mut ssa::Function,
     name: &str,
     params: &[ast::Param],
+    view_twin: bool,
     hidden_argc_pos: Option<usize>,
     argv_boxed: Option<&std::collections::HashSet<String>>,
     aliases: &HashMap<String, Type>,
@@ -303,7 +307,7 @@ fn setup_fn_params(
         {
             variadic_locals.insert(p.name.clone());
         }
-        let pty = promote_and_widen(
+        let mut pty = promote_and_widen(
             parse_type(
                 p.type_ann.as_deref(),
                 aliases,
@@ -320,6 +324,11 @@ fn setup_fn_params(
             struct_layouts,
             fn_sigs,
         );
+        // the replace lane's view twin reads its strings as views of
+        // the subject; Pass 1 gives its signature the same slots
+        if view_twin && pty == Type::Str {
+            pty = Type::Substr;
+        }
         let pid = f.add_param(pty, &p.name);
         param_setup.push((p.name.clone(), pid, pty));
         // RFC 20260810-indirect-argc-abi S1 — def-side twin of the
@@ -409,57 +418,4 @@ fn promote_and_widen(
         struct_layouts,
         fn_sigs,
     )
-}
-
-/// Record the parameters that a call site hands an answer meaning
-/// `undefined`, so the consumers in this body know to check.
-fn seed_undef_sentinel_params(ctx: &mut LowerCtx<'_>, name: &str, params: &[ast::Param]) {
-    // A parameter some call site hands an out-of-range read (or a
-    // `find` miss, or a `pop` off an empty array) carries that
-    // answer's sentinel, exactly like a binding initialized from the
-    // same shape. A binding gets recorded at its let-decl; a
-    // parameter's value arrives from a caller lowered separately, so
-    // without this the consumers in this body read the sentinel as a
-    // plain number: `h(xs[7])` printed NaN where `console.log(xs[7])`
-    // printed `undefined`.
-    //
-    // Which set to record it in follows the slot, because each family
-    // spells the answer its own way and each has its own consumers
-    // reading its own set. The collector itself is shape-only, so it
-    // has always named these parameters; only `number` was being
-    // told. `ts(ss[7])` answered "string" and `td(ds[7])` "object"
-    // for want of these three lines.
-    for p in params {
-        // A WRITTEN `T | null` / `T | undefined` says the same thing
-        // the call-site collector infers, and says it directly — the
-        // annotation is the one piece of evidence neither this gate
-        // nor the let-decl twin was reading. Without it `typeof s` on
-        // `function k(s: string | null)` answered "string" for a null.
-        let annotated_nullable = p
-            .type_ann
-            .as_deref()
-            .is_some_and(|a| a.starts_with("__nullable("));
-        if !annotated_nullable && !ctx.num_f64_slots.param_takes_undef_sentinel(name, &p.name) {
-            continue;
-        }
-        let slot_ty = ctx.locals.get(&p.name).map(|l| l.ty);
-        match slot_ty {
-            Some(Type::Str) => {
-                ctx.nullable_str_lets.insert(p.name.clone());
-            }
-            Some(Type::Substr) => {
-                ctx.undefable_substr_lets.insert(p.name.clone());
-            }
-            Some(t) if t.spells_undef_with_generic_cell() => {
-                ctx.undefable_heap_lets.insert(p.name.clone());
-            }
-            // F64 stays the default rather than an arm of its own: a
-            // slot type that is not on this list costs nothing by
-            // being in the number set, since every consumer of it
-            // gates on an F64 operand as well.
-            _ => {
-                ctx.undefable_f64_lets.insert(p.name.clone());
-            }
-        }
-    }
 }

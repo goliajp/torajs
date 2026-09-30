@@ -432,7 +432,9 @@ pub(crate) fn try_lower(
         "match" => emit_match(ctx, recv_op.clone(), re_op.clone(), args, arr_id, callee),
         "matchAll" => emit_match_all(ctx, recv_op.clone(), re_op.clone(), args, arr_id),
         "split" => emit_split(ctx, recv_op.clone(), re_op.clone(), args, arr_id),
-        "replace" | "replaceAll" => emit_replace(ctx, recv_op.clone(), re_op.clone(), &name, args),
+        "replace" | "replaceAll" => {
+            emit_replace(ctx, recv_op.clone(), re_op.clone(), &name, args, callee)
+        }
         "search" => emit_search(ctx, recv_op.clone(), re_op.clone(), args),
         _ => unreachable!(),
     };

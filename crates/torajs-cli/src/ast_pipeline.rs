@@ -481,6 +481,7 @@ pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) -> Result<(), ()> {
     ast::analyze_split_length_only(ast);
     ast::analyze_regex_match_len_only(ast);
     ast::analyze_regex_exec_record(ast);
+    ast::analyze_regex_replace_inline(ast);
     // Truly last: it reads TOP-LEVEL STATEMENT POSITION, so it has to
     // see the order the lowerer will walk. Every pass above may append
     // or lift a declaration, and a mark taken before one of them could
@@ -502,7 +503,11 @@ mod tests {
         ast.warm_newline_cache();
         super::run_ast_prelude(&mut ast).expect("prelude");
         super::run_ast_desugar_pipeline(&mut ast).expect("desugar");
-        ast.contextual_ret_fns.len()
+        // a callback's view twin (`$$rview`) carries the seed too
+        ast.contextual_ret_fns
+            .iter()
+            .filter(|n| !n.contains("$$"))
+            .count()
     }
 
     #[test]

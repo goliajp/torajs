@@ -4,9 +4,12 @@
 //! lane grew the parent past 500 prod lines). One fn per method
 //! family; every body is exactly the parent's pre-split text.
 
+pub(crate) mod replace_inline;
+
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, count_capture_groups, intern_arr_layout};
+use replace_inline::typed_callback_shape;
 
 /// `s.search(re)` — ES §22.1.3.19 (chunk 800). The runtime helper
 /// anchors sticky at 0 / scans from 0 and never touches lastIndex
@@ -215,6 +218,7 @@ pub(crate) fn emit_replace(
     re_op: Operand,
     method: &str,
     args: &[ExprId],
+    callee: ExprId,
 ) -> Operand {
     let mut repl = ctx.lower_expr(args[1]);
     // S321 — ES §22.1.3.{18,19} silently ignore args past (regex,
@@ -225,6 +229,11 @@ pub(crate) fn emit_replace(
     // to S286 (match / matchAll) on the same regex-receiver dispatch family.
     for &a in args.iter().skip(2) {
         let _ = ctx.lower_expr(a);
+    }
+    // a census-admitted callback runs the walk in this function's own
+    // code, on views of the subject; anything else is the kernel's
+    if let Some(v) = replace_inline::try_lower(ctx, callee, &recv_op, &re_op, args, &repl) {
+        return v;
     }
     let mut repl_ty = ctx.operand_ty(&repl);
     // A callback whose return is not a Str (`(): any => …`) cannot use
@@ -360,33 +369,4 @@ pub(crate) fn emit_replace(
         ctx.emit_throw_check(None);
     }
     Operand::Value(v)
-}
-
-/// The shape the typed callback ABI serves — `[Str; N+1]` (the match
-/// and N captures) or `[Str; N+1, number, string]` (plus position and
-/// input) — as (captures declared, names the tail). §22.2.6.11 step
-/// 14.j calls the replacer with «matched, captures…, position, string»
-/// and a function declaring fewer parameters never sees the rest, so a
-/// callback may name fewer captures than the pattern has; naming the
-/// tail pins every position, so it must then name them all. A capture
-/// is a Str slot (the undefined sentinel for a group that did not
-/// take part). Nine captures is the ABI's width.
-fn typed_callback_shape(params: &[Type], n_caps: usize) -> Option<(usize, bool)> {
-    if n_caps > 9 {
-        return None;
-    }
-    let n = params.len();
-    if n >= 3
-        && params[n - 2] == Type::I64
-        && params[n - 1] == Type::Str
-        && params[..n - 2].iter().all(|t| t == &Type::Str)
-    {
-        return (n - 3 == n_caps).then_some((n_caps, true));
-    }
-    // an empty list is a replacer that only needs a constant
-    if params.iter().all(|t| t == &Type::Str) {
-        let declared = n.saturating_sub(1);
-        return (declared <= n_caps).then_some((declared, false));
-    }
-    None
 }
