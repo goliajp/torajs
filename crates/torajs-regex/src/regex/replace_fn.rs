@@ -17,11 +17,11 @@
 use alloc::vec::Vec;
 use core::ffi::c_void;
 
-use super::replace_fn_dispatch::invoke_replace_cb;
+use super::replace_fn_typed::typed_invoke;
 use super::{
-    __torajs_str_drop, __torajs_str_undef, __torajs_throw_type_error, RegExp, abort_unsupported,
-    as_regex, as_regex_mut, byte_to_utf16_units, haystack, str_from_bytes, str_from_bytes_ascii,
-    str_slice_ascii_view, str_units,
+    __torajs_str_drop, __torajs_throw_type_error, RegExp, abort_unsupported, as_regex,
+    as_regex_mut, byte_to_utf16_units, haystack, str_from_bytes, str_from_bytes_ascii,
+    str_slice_ascii_view, str_units, utf16_units_to_byte,
 };
 use crate::parser::{RE_FLAG_G, RE_FLAG_Y};
 use crate::vm::{match_anchor, save_slot, search_from_with_ws};
@@ -68,45 +68,6 @@ const TAG_I64: i64 = 2;
 const TAG_HEAP: i64 = 4;
 const TAG_UNDEF: i64 = 5;
 
-/// Build N capture Strs from saves[]. Each cap slot reads
-/// `saves[2*(i+1)] / saves[2*(i+1)+1]` (group 0 = whole match is
-/// handled separately).
-///
-/// A group that did not participate is `undefined` per §22.2.6.11
-/// step 14.g, and it reaches the callback as the immortal undefined
-/// sentinel — the same cell the `match` / `exec` array lanes already
-/// push for exactly this case. The empty Str this used to build made
-/// `"xz".replace(/x(y)?(z)/, (m, p1) => "<" + p1 + ">")` answer
-/// `<>` where every engine answers `<undefined>`, silently. (The
-/// `$1` expansion in the string-replacement lane is NOT this case:
-/// §22.2.6.11's GetSubstitution really does substitute "" for an
-/// undefined capture.)
-///
-/// Caller owns the returned Strs and must drop them; the sentinel
-/// carries `FLAG_STATIC_LITERAL`, so its drop is a no-op.
-///
-/// # Safety
-///
-/// `s` must outlive the returned pointers; `out_caps` is sized for
-/// at least `n_caps` entries (max 9).
-unsafe fn build_capture_strs(
-    n_caps: i64,
-    saves: &[i64],
-    s: &[u8],
-    out_caps: &mut [*mut c_void; 9],
-) {
-    for i in 0..(n_caps as usize) {
-        let gs = save_slot(saves, 2 * (i + 1));
-        let ge = save_slot(saves, 2 * (i + 1) + 1);
-        let p = if gs < 0 || ge < 0 {
-            unsafe { __torajs_str_undef() }
-        } else {
-            unsafe { str_from_bytes(&s[gs as usize..ge as usize]) }
-        };
-        out_caps[i] = p as *mut c_void;
-    }
-}
-
 /// Shared match walk — find/anchor per the pattern's flags, hand
 /// each match to `invoke`, splice its returned Str over the matched
 /// span. `invoke` receives `(match_str, saves, s_bytes, offset_cu)`
@@ -139,6 +100,16 @@ unsafe fn replace_fn_inner(
         let s = unsafe { str_units(str_ptr) };
         return unsafe { str_from_bytes(&s) as *mut c_void };
     }
+    let sticky = re.flags & RE_FLAG_Y != 0;
+    // without `g` the walk is one RegExpBuiltinExec (§22.2.7.2): a
+    // sticky pattern anchors at lastIndex and stores the match end,
+    // or 0 on a miss — a store a read-only lastIndex refuses up front
+    let sticky_once = sticky && !global;
+    if sticky_once && unsafe { super::lifecycle::tracked_store_refuses(re) } {
+        let s = unsafe { str_units(str_ptr) };
+        return unsafe { str_from_bytes(&s) as *mut c_void };
+    }
+    let re_cell = re_ptr as *mut RegExp;
     let re: &RegExp = re;
     // an ASCII subject is matched in place; the rest transcode once
     let s_owned: Vec<u8>;
@@ -156,8 +127,14 @@ unsafe fn replace_fn_inner(
     let dfa_view = re.baked_dfa_view();
     let dfa_ref = dfa_view.as_ref().or(re.dfa_runtime.as_ref());
     let mut out: Vec<u8> = Vec::with_capacity(s.len() + 16);
-    let mut pos: i64 = 0;
-    let sticky = re.flags & RE_FLAG_Y != 0;
+    let mut pos: i64 = if sticky_once {
+        utf16_units_to_byte(s, re.last_index_i64(), is_ascii)
+    } else {
+        0
+    };
+    let mut matched = false;
+    // bytes of `s` already in `out`; the sticky walk starts past 0
+    let mut copied: usize = 0;
     while pos <= slen {
         let m = if sticky {
             match_anchor(&re.prog, s, pos, re.flags)
@@ -168,7 +145,13 @@ unsafe fn replace_fn_inner(
             search_from_with_ws(&re.prog, s, pos, re.flags, ws, dfa_ref, is_ascii, true)
         };
         let Some(m) = m else { break };
-        out.extend_from_slice(&s[pos as usize..m.start as usize]);
+        matched = true;
+        if sticky_once {
+            // §22.2.7.2 step 15, before the callback runs (step 14)
+            let end = byte_to_utf16_units(s, m.end, is_ascii) as f64;
+            unsafe { (*re_cell).set_last_index_num(end) };
+        }
+        out.extend_from_slice(&s[copied..m.start as usize]);
         let matched = &s[m.start as usize..m.end as usize];
         let match_str = if is_ascii {
             unsafe { str_from_bytes_ascii(matched) }
@@ -212,74 +195,21 @@ unsafe fn replace_fn_inner(
         } else {
             pos = m.end;
         }
+        // pos can overshoot after an empty match at end-of-string
+        copied = (pos as usize).min(s.len());
         if !global {
             break;
         }
     }
-    // Clamp pos to s.len() — pos can overshoot after an empty match
-    // at end-of-string (pos = m.end + 1).
-    let tail = (pos as usize).min(s.len());
-    out.extend_from_slice(&s[tail..]);
+    if sticky_once && !matched {
+        // §22.2.7.2 step 12.a.i
+        unsafe { (*re_cell).set_last_index_num(0.0) };
+    }
+    out.extend_from_slice(&s[copied..]);
     if out_ascii {
         return unsafe { str_from_bytes_ascii(&out) as *mut c_void };
     }
     unsafe { str_from_bytes(&out) as *mut c_void }
-}
-
-/// The typed lanes' invoke strategy — build the callback's declared
-/// `n_caps` capture Strs and transmute-dispatch through
-/// [`invoke_replace_cb`]. `Err` on a callback that left a pending
-/// throw, which ends the walk the way the boxed lane's does.
-unsafe fn typed_invoke(
-    closure_env: *mut c_void,
-    n_caps: i64,
-    has_off_input: bool,
-    str_ptr: *const c_void,
-    m: *mut c_void,
-    saves: &[i64],
-    s: &[u8],
-    off: i64,
-) -> Result<*mut c_void, ()> {
-    // Load fn_addr from env+8 — same closure ABI as
-    // promise_then_closure.
-    let fn_ptr = unsafe { *((closure_env as *mut u8).add(8) as *mut *mut c_void) };
-    let mut caps: [*mut c_void; 9] = [core::ptr::null_mut(); 9];
-    unsafe { build_capture_strs(n_caps, saves, s, &mut caps) };
-    let ret_str = unsafe {
-        invoke_replace_cb(
-            n_caps,
-            has_off_input,
-            closure_env,
-            fn_ptr,
-            m,
-            &caps,
-            off,
-            str_ptr as *mut c_void,
-        )
-    };
-    for cap in caps.iter().take(n_caps as usize) {
-        unsafe { __torajs_str_drop(*cap) };
-    }
-    // §22.2.6.11 step 14.j — a callback that throws ends the walk
-    // right there. The typed lane used to let the pending throw ride
-    // all the way to the caller's check after the WHOLE walk, with
-    // three visible consequences: the remaining matches still ran the
-    // callback (`"axbxc".replace(/(y)?x/g, cb)` called it twice where
-    // the spec calls it once), the throwing replace's result was
-    // spliced and returned, and the throw surfaced so late that the
-    // `try` around the replace no longer covered it — it exited the
-    // program uncaught. A throw the callback raised itself was always
-    // caught; only one the KERNEL raised inside it (a method-call
-    // guard on the `string | undefined` an unmatched capture group
-    // binds) took this path, which is why it read as a regex bug.
-    //
-    // `ret_str` is deliberately not released here, matching the boxed
-    // lane: on the throw path the callback never returned a value to
-    // own.
-    if unsafe { __torajs_throw_check() } != 0 {
-        return Err(());
-    }
-    Ok(ret_str)
 }
 
 /// The boxed lane's invoke strategy — §22.2.6.11 step 14.j's full
