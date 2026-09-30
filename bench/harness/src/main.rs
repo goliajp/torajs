@@ -31,7 +31,9 @@ fn print_usage() {
     println!("COMMANDS:");
     println!("    list                          list cases and runners (with detected versions)");
     println!("    run [case]                    run all cases (or one case)");
-    println!("                                  default runtimes: torajs · torajs-run · rust · c · go ·");
+    println!(
+        "                                  default runtimes: torajs · torajs-run · rust · c · go ·"
+    );
     println!("                                  bun-aot · bun-jsc · node-v8 · deno-aot · deno-v8");
     println!("        --all                     also include python (several times slower alone)");
     println!("        --runtime r1,r2           explicit comma-separated runtime list (overrides");
@@ -46,9 +48,7 @@ fn print_usage() {
     println!(
         "        --self                    per-commit fast path: torajs runtimes only (~3-4×;"
     );
-    println!(
-        "                                  phase-close must still run the default matrix)"
-    );
+    println!("                                  phase-close must still run the default matrix)");
     println!(
         "        --vs <baseline.json>      artifact-precheck: skip timed runs if every torajs"
     );
