@@ -4,19 +4,21 @@
 //! (`fn_throw_info` and the stmt / expr scans), this one closes the
 //! per-fn answers over the call graph.
 
-use crate::ast::{Ast, ExprId, Stmt};
+use crate::ast::{Ast, Expr, ExprId, Stmt};
 use crate::ast_throw_info::fn_throw_info;
 use std::collections::{HashMap, HashSet};
 
 /// M4.3.b — the transitive may-throw set: collect each FnDecl's
 /// `(direct_throw, called_names)` then iterate to fixed-point — a fn
 /// is may_throw if it throws directly OR calls any may_throw fn.
-pub fn compute_may_throw_fns(
+pub(crate) fn compute_may_throw_fns(
     ast: &Ast,
     expr_types: &HashMap<ExprId, crate::check::Type>,
+    widths: &crate::num_width::WidthTable,
 ) -> HashSet<String> {
     let mut may_throw: HashSet<String> = HashSet::new();
     let mut decl_throw_info: Vec<(String, bool, Vec<String>)> = Vec::new();
+    let assigned = assigned_names(ast);
     // Rotation 550 (550-01) — a call through a let-bound arrow
     // (`const boom = () => { throw … }; boom()`) records the BINDING
     // name, but the body lives in the lifted `__closure_N` FnDecl;
@@ -34,7 +36,8 @@ pub fn compute_may_throw_fns(
             name, params, body, ..
         } = stmt
         {
-            let (mut direct, mut called) = fn_throw_info(ast, params, body, expr_types);
+            let (mut direct, mut called) =
+                fn_throw_info(ast, name, params, body, expr_types, widths, &assigned);
             // RFC 20260922 S0 — a checked cast can raise at any typed
             // boundary, which this scan does not model; the measurement
             // gate keeps every caller's check instead.
@@ -94,6 +97,27 @@ pub fn compute_may_throw_fns(
         }
     }
     may_throw
+}
+
+/// Names some assignment or `++` / `--` anywhere in the program
+/// writes. A narrowing (`if (t === undefined) return; t.k`) holds only
+/// for a binding whose value the test saw is the value the read
+/// sees, and a name written anywhere — later in the sequence, in a
+/// loop body, inside a closure the binding is captured by — is not
+/// one; program-wide by name is the conservative side.
+fn assigned_names(ast: &Ast) -> HashSet<String> {
+    ast.exprs
+        .iter()
+        .filter_map(|e| match e {
+            Expr::Assign { target, .. } | Expr::PostIncr { target, .. } => {
+                match ast.get_expr(*target) {
+                    Expr::Ident(n) => Some(n.clone()),
+                    _ => None,
+                }
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 /// Rotation 552 (551-04) — fn-typed `let`s whose init is NOT a closure

@@ -72,6 +72,9 @@ impl Analysis<'_> {
         if any {
             self.proven_reads.insert(eid);
         }
+        if both {
+            self.settled_reads.insert(eid);
+        }
         both
     }
 

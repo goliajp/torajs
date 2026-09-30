@@ -274,6 +274,9 @@ pub(super) struct Analysis<'a> {
     /// element widths below are only sound under this proof (the
     /// field's doc on `WidthTable` says why).
     pub(super) proven_reads: HashSet<ExprId>,
+    /// The subset of those whose pair settles both ends: the read is
+    /// inside `[0, length)` and never answers `undefined`.
+    pub(super) settled_reads: HashSet<ExprId>,
     /// The `s.charCodeAt(i)` calls walked under a pair that settles
     /// both ends (`bounds_walk::char_code_in_bounds`): their width
     /// is an integer, and lowering drops their NaN arm.
@@ -333,6 +336,7 @@ pub(crate) fn analyze(
         bounds_stack: Vec::new(),
         lower_settled: bounds_lower::settled_guards(ast),
         proven_reads: HashSet::new(),
+        settled_reads: HashSet::new(),
         char_code_proven: HashSet::new(),
         sentinel_member_reads: HashSet::new(),
     };
@@ -459,6 +463,7 @@ pub(crate) fn analyze(
         tables.fields,
         objlit_shape_f64,
         a.proven_reads,
+        a.settled_reads,
         a.char_code_proven,
         a.by_name,
     )

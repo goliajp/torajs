@@ -47,170 +47,37 @@
 //! never-throwing hot surfaces instead, because the two directions
 //! fail differently: an over-wide exempt entry swallows, an
 //! over-narrow default costs one cold TLS-load check.
+//!
+//! `direct_throw` is ALSO set for a member or index read off a
+//! receiver that may be nullish (`scan.rs`, `nullish.rs`): the
+//! lowering guards such a read with a runtime null check that records
+//! a TypeError, and a fn whose only raise was that guard was pruned at
+//! its callers — the throw surfaced at exit, not in the caller's
+//! `try`. The receiver sources mirror the lowering's own, and a
+//! narrowing on the path (`if (t === undefined) return`) keeps the
+//! check off the callers of a fn that cannot reach the raise.
 
 use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
 use std::collections::{HashMap, HashSet};
 
-pub use crate::ast_throw_info_fixpoint::compute_may_throw_fns;
+mod nullish;
+mod scan;
 
-pub fn fn_throw_info(
+pub(crate) use crate::ast_throw_info_fixpoint::compute_may_throw_fns;
+pub(crate) use scan::Scan;
+
+pub(crate) fn fn_throw_info(
     ast: &Ast,
+    name: &str,
     params: &[Param],
     body: &[Stmt],
     expr_types: &HashMap<ExprId, crate::check::Type>,
+    widths: &crate::num_width::WidthTable,
+    assigned: &HashSet<String>,
 ) -> (bool, Vec<String>) {
-    let mut direct = false;
-    let mut called: Vec<String> = Vec::new();
-    // Fn-valued bindings visible to calls in this body: every param
-    // name (a call through one is necessarily fn-typed — the checker
-    // rejects calling a number), plus body `let`s as the stmt scan
-    // encounters them (declaration-before-use holds post-var-hoist).
-    let mut fn_values: HashSet<String> = params.iter().map(|p| p.name.clone()).collect();
-    for s in body {
-        scan_stmt(ast, s, &mut direct, &mut called, &mut fn_values, expr_types);
-    }
-    (direct, called)
-}
-
-fn scan_stmt(
-    ast: &Ast,
-    s: &Stmt,
-    direct: &mut bool,
-    called: &mut Vec<String>,
-    fn_values: &mut HashSet<String>,
-    expr_types: &HashMap<ExprId, crate::check::Type>,
-) {
-    match s {
-        Stmt::Throw(eid) => {
-            *direct = true;
-            scan_expr(ast, *eid, called, direct, fn_values, expr_types);
-        }
-        Stmt::Expr(eid) | Stmt::Return(Some(eid)) | Stmt::Yield(eid) => {
-            scan_expr(ast, *eid, called, direct, fn_values, expr_types)
-        }
-        Stmt::YieldInto { value, .. } => {
-            scan_expr(ast, *value, called, direct, fn_values, expr_types)
-        }
-        Stmt::Return(None) | Stmt::Break(_) | Stmt::Continue(_) => {}
-        Stmt::Labeled { body, .. } => {
-            scan_stmt(ast, body, direct, called, fn_values, expr_types);
-        }
-        Stmt::LetDecl { name, init, .. } | Stmt::UsingDecl { name, init, .. } => {
-            scan_expr(ast, *init, called, direct, fn_values, expr_types);
-            fn_values.insert(name.clone());
-        }
-        Stmt::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            scan_expr(ast, *cond, called, direct, fn_values, expr_types);
-            scan_stmt(ast, then_branch, direct, called, fn_values, expr_types);
-            if let Some(eb) = else_branch {
-                scan_stmt(ast, eb, direct, called, fn_values, expr_types);
-            }
-        }
-        Stmt::While { cond, body } => {
-            scan_expr(ast, *cond, called, direct, fn_values, expr_types);
-            scan_stmt(ast, body, direct, called, fn_values, expr_types);
-        }
-        Stmt::DoWhile { body, cond } => {
-            scan_stmt(ast, body, direct, called, fn_values, expr_types);
-            scan_expr(ast, *cond, called, direct, fn_values, expr_types);
-        }
-        Stmt::Switch {
-            scrutinee,
-            cases,
-            default,
-            ..
-        } => {
-            scan_expr(ast, *scrutinee, called, direct, fn_values, expr_types);
-            for c in cases {
-                scan_expr(ast, c.value, called, direct, fn_values, expr_types);
-                for s in &c.body {
-                    scan_stmt(ast, s, direct, called, fn_values, expr_types);
-                }
-            }
-            if let Some(db) = default {
-                for s in db {
-                    scan_stmt(ast, s, direct, called, fn_values, expr_types);
-                }
-            }
-        }
-        Stmt::For {
-            init,
-            cond,
-            step,
-            body,
-        } => {
-            if let Some(i) = init {
-                scan_stmt(ast, i, direct, called, fn_values, expr_types);
-            }
-            if let Some(c) = cond {
-                scan_expr(ast, *c, called, direct, fn_values, expr_types);
-            }
-            if let Some(st) = step {
-                scan_expr(ast, *st, called, direct, fn_values, expr_types);
-            }
-            scan_stmt(ast, body, direct, called, fn_values, expr_types);
-        }
-        Stmt::Block(stmts) | Stmt::Multi(stmts) => {
-            for st in stmts {
-                scan_stmt(ast, st, direct, called, fn_values, expr_types);
-            }
-        }
-        Stmt::ForOfSplitIter {
-            parent, sep, body, ..
-        } => {
-            scan_expr(ast, *parent, called, direct, fn_values, expr_types);
-            scan_expr(ast, *sep, called, direct, fn_values, expr_types);
-            scan_stmt(ast, body, direct, called, fn_values, expr_types);
-        }
-        // A `for..of` iterates its source under the same §7.4.2
-        // protocol a spread does and has the same blind spot
-        // (`scan_spread`'s doc). The source is the receiver of the
-        // parser-minted element read (`src[i]`, see the variant doc).
-        Stmt::ForOf {
-            elem_expr, body, ..
-        } => {
-            if let Expr::Index { obj, .. } = ast.get_expr(*elem_expr) {
-                crate::ast_throw_info_call::scan_spread(
-                    ast, *obj, called, direct, fn_values, expr_types,
-                );
-            }
-            scan_expr(ast, *elem_expr, called, direct, fn_values, expr_types);
-            scan_stmt(ast, body, direct, called, fn_values, expr_types);
-        }
-        Stmt::Try {
-            body,
-            catch_body,
-            finally_body,
-            ..
-        } => {
-            for st in body {
-                scan_stmt(ast, st, direct, called, fn_values, expr_types);
-            }
-            for st in catch_body {
-                scan_stmt(ast, st, direct, called, fn_values, expr_types);
-            }
-            if let Some(fb) = finally_body {
-                for st in fb {
-                    scan_stmt(ast, st, direct, called, fn_values, expr_types);
-                }
-            }
-        }
-        Stmt::FnDecl { .. } | Stmt::TypeDecl { .. } => {}
-        Stmt::ClassDecl { .. } => {
-            // desugar_classes runs before throw analysis; classes split
-            // into FnDecls each get their own throw-info pass.
-        }
-        Stmt::ImportDecl { .. } => {}
-        Stmt::ExportDecl { inner, .. } => {
-            if let Some(inner) = inner {
-                scan_stmt(ast, inner, direct, called, fn_values, expr_types);
-            }
-        }
-    }
+    let mut sc = Scan::new(ast, name, params, expr_types, widths, assigned);
+    sc.stmts(body);
+    (sc.direct, sc.called)
 }
 
 /// A property STORE target (`o.k = v`, `o.k++`, `xs[i] = v`, `xs[i]++`)
@@ -263,192 +130,193 @@ pub(crate) fn ident_read_raises(ast: &Ast, eid: ExprId) -> bool {
     ast.undeclared_reads.contains_key(&eid) || ast.tdz_reads.contains(&eid)
 }
 
-pub(crate) fn scan_expr(
-    ast: &Ast,
-    eid: ExprId,
-    out: &mut Vec<String>,
-    direct: &mut bool,
-    fn_values: &HashSet<String>,
-    expr_types: &HashMap<ExprId, crate::check::Type>,
-) {
-    match ast.get_expr(eid) {
-        Expr::Elision => {}
-        Expr::Call { callee, args } => {
-            crate::ast_throw_info_call::scan_call(
-                ast, *callee, args, out, direct, fn_values, expr_types,
-            );
-        }
-        Expr::BinOp { op, left, right } => {
-            // Band B — the checker decided this pair can only throw
-            // (`Ast::spec_throws`), and the lowering emits that raise
-            // unconditionally. Both operands are typed primitives
-            // (BigInt against Number is the shape), so the any-lane
-            // test does NOT catch it: without this line a named fn
-            // whose only raise is `1n & 1` is M4.3.b-skipped at its
-            // caller and the throw is swallowed crossing the fn
-            // boundary. Same reason `ident_read_raises` exists.
-            if ast.spec_throws.contains_key(&eid) {
-                *direct = true;
+impl Scan<'_> {
+    pub(crate) fn expr(&mut self, eid: ExprId) {
+        let ast = self.ast;
+        match ast.get_expr(eid) {
+            Expr::Elision => {}
+            Expr::Call { callee, args } => {
+                crate::ast_throw_info_call::scan_call(self, *callee, args);
             }
-            if crate::ast_throw_info_binop::binop_raises(
-                *op,
-                expr_types.get(left),
-                expr_types.get(right),
-            ) {
-                *direct = true;
-            }
-            scan_expr(ast, *left, out, direct, fn_values, expr_types);
-            scan_expr(ast, *right, out, direct, fn_values, expr_types);
-        }
-        Expr::Unary { expr, .. } => {
-            // Band B, same reason as the BinOp arm above.
-            if ast.spec_throws.contains_key(&eid) {
-                *direct = true;
-            }
-            scan_expr(ast, *expr, out, direct, fn_values, expr_types)
-        }
-        Expr::Member { obj, .. } => {
-            // RFC 20260713 blade 6 — an any-receiver member READ lowers
-            // to __torajs_any_member_get_tag, which records a pending
-            // TypeError on a null/undefined receiver. Before this rule
-            // a named fn whose only throw source was `p.x` (p: any) was
-            // M4.3.b-skipped at the caller: the pending throw was
-            // silently dropped, the read answered garbage NaN-box bits
-            // (`[unknown-any-tag]`), and a later drop walk could
-            // SIGSEGV. Mirrors the chunk-701 method-call rule; typed
-            // receivers stay unmarked (no hot-path throw-check cost).
-            if matches!(expr_types.get(obj), Some(crate::check::Type::Any)) {
-                *direct = true;
-            }
-            scan_expr(ast, *obj, out, direct, fn_values, expr_types)
-        }
-        Expr::Assign { target, value } => {
-            // Every member store can raise — see `is_member_store`
-            // for why the receiver's type cannot tell us otherwise,
-            // and for the three whitelist arms this one replaces.
-            if is_property_store(ast, *target) {
-                *direct = true;
-            }
-            scan_expr(ast, *target, out, direct, fn_values, expr_types);
-            scan_expr(ast, *value, out, direct, fn_values, expr_types);
-        }
-        Expr::Index { obj, index } => {
-            // Same as the Member arm: any-receiver index reads throw on
-            // null/undefined via __torajs_any_index.
-            if matches!(expr_types.get(obj), Some(crate::check::Type::Any)) {
-                *direct = true;
-            }
-            scan_expr(ast, *obj, out, direct, fn_values, expr_types);
-            scan_expr(ast, *index, out, direct, fn_values, expr_types);
-        }
-        Expr::Array(elems) => {
-            for e in elems {
-                scan_expr(ast, *e, out, direct, fn_values, expr_types);
-            }
-        }
-        Expr::ObjectLit { fields } => {
-            for (_, e) in fields {
-                scan_expr(ast, *e, out, direct, fn_values, expr_types);
-            }
-        }
-        // ArrowFn / Closure bodies are walked separately (their own
-        // FnDecls — lifted by lift_arrow_fns); from this fn's
-        // perspective the closure body's calls don't propagate to the
-        // outer fn's may_throw bit until the outer fn actually invokes
-        // the closure (which is itself a Call → tracked above). Same
-        // reasoning applies to the bigint-throw bit: a throwing bigint
-        // op INSIDE the closure belongs to the closure's own lifted
-        // FnDecl, not the enclosing fn.
-        Expr::ArrowFn { .. } | Expr::Closure { .. } => {}
-        Expr::New { args, .. } | Expr::Super { args } => {
-            for a in args {
-                scan_expr(ast, *a, out, direct, fn_values, expr_types);
-            }
-        }
-        Expr::NewDynamic { callee, args } => {
-            scan_expr(ast, *callee, out, direct, fn_values, expr_types);
-            for a in args {
-                scan_expr(ast, *a, out, direct, fn_values, expr_types);
-            }
-        }
-        Expr::Ternary {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            scan_expr(ast, *cond, out, direct, fn_values, expr_types);
-            scan_expr(ast, *then_branch, out, direct, fn_values, expr_types);
-            scan_expr(ast, *else_branch, out, direct, fn_values, expr_types);
-        }
-        Expr::Spread { expr } => {
-            crate::ast_throw_info_call::scan_spread(ast, *expr, out, direct, fn_values, expr_types)
-        }
-        Expr::TypeOf { expr } | Expr::Delete { expr } | Expr::As { expr, .. } => {
-            scan_expr(ast, *expr, out, direct, fn_values, expr_types)
-        }
-        Expr::InstanceOf { expr, rhs } => {
-            scan_expr(ast, *expr, out, direct, fn_values, expr_types);
-            scan_expr(ast, *rhs, out, direct, fn_values, expr_types);
-        }
-        Expr::Sequence { left, right } => {
-            scan_expr(ast, *left, out, direct, fn_values, expr_types);
-            scan_expr(ast, *right, out, direct, fn_values, expr_types);
-        }
-        Expr::Nullish { lhs, rhs } => {
-            scan_expr(ast, *lhs, out, direct, fn_values, expr_types);
-            scan_expr(ast, *rhs, out, direct, fn_values, expr_types);
-        }
-        Expr::OptChain { obj, .. } => scan_expr(ast, *obj, out, direct, fn_values, expr_types),
-        Expr::OptIndex { obj, index } => {
-            scan_expr(ast, *obj, out, direct, fn_values, expr_types);
-            scan_expr(ast, *index, out, direct, fn_values, expr_types);
-        }
-        // `f?.(…)` — the callee is a dynamic value (any_call raises a
-        // catchable TypeError on non-callables; a statically-plain
-        // callee delegates to the Call lowering): conservative
-        // may-throw, same as the Index/OptChain-callee rule above.
-        Expr::OptCall { callee, args } => {
-            *direct = true;
-            scan_expr(ast, *callee, out, direct, fn_values, expr_types);
-            for a in args {
-                if let Expr::Closure { fn_name, .. } = ast.get_expr(*a)
-                    && !out.contains(fn_name)
-                {
-                    out.push(fn_name.clone());
+            Expr::BinOp { op, left, right } => {
+                // Band B — the checker decided this pair can only throw
+                // (`Ast::spec_throws`), and the lowering emits that raise
+                // unconditionally. Both operands are typed primitives
+                // (BigInt against Number is the shape), so the any-lane
+                // test does NOT catch it: without this line a named fn
+                // whose only raise is `1n & 1` is M4.3.b-skipped at its
+                // caller and the throw is swallowed crossing the fn
+                // boundary. Same reason `ident_read_raises` exists.
+                if ast.spec_throws.contains_key(&eid) {
+                    self.direct = true;
                 }
-                scan_expr(ast, *a, out, direct, fn_values, expr_types);
+                if crate::ast_throw_info_binop::binop_raises(
+                    *op,
+                    self.expr_types.get(left),
+                    self.expr_types.get(right),
+                ) {
+                    self.direct = true;
+                }
+                self.expr(*left);
+                // the right operand only runs when the left decided it
+                match op {
+                    crate::ast::BinOp::LAnd => self.under(*left, true, |sc| sc.expr(*right)),
+                    crate::ast::BinOp::LOr => self.under(*left, false, |sc| sc.expr(*right)),
+                    _ => self.expr(*right),
+                }
             }
-        }
-        Expr::PostIncr { target, .. } => {
-            // `o.k++` reads, adds and STORES, so it is on the same
-            // rule as the Assign arm above (this arm only ever named
-            // `xs.length--`).
-            //
-            // Measured, so it is not claimed as a fix: `o.hit++` on a
-            // FROZEN class instance still answers "after" with this
-            // marking in place, while the plain `o.hit = 5` spelling
-            // of it throws. The `++` store lane does not consult the
-            // §10.1.9 writable gate at all, so there is no pending
-            // throw for a caller check to find — the gap is in the
-            // lowering, one layer below this file, and is registered
-            // separately. Marking is still right here: when that lane
-            // does raise, the caller must not have pruned its check.
-            if is_property_store(ast, *target) {
-                *direct = true;
+            Expr::Unary { expr, .. } => {
+                // Band B, same reason as the BinOp arm above.
+                if ast.spec_throws.contains_key(&eid) {
+                    self.direct = true;
+                }
+                self.expr(*expr)
             }
-            scan_expr(ast, *target, out, direct, fn_values, expr_types)
+            Expr::Member { obj, .. } => {
+                // RFC 20260713 blade 6 — an any-receiver member READ lowers
+                // to __torajs_any_member_get_tag, which records a pending
+                // TypeError on a null/undefined receiver. Before this rule
+                // a named fn whose only throw source was `p.x` (p: any) was
+                // M4.3.b-skipped at the caller: the pending throw was
+                // silently dropped, the read answered garbage NaN-box bits
+                // (`[unknown-any-tag]`), and a later drop walk could
+                // SIGSEGV. Mirrors the chunk-701 method-call rule. A typed
+                // receiver raises only through the nullish guard, which
+                // `receiver_raises` answers from the lowering's sources.
+                if matches!(self.expr_types.get(obj), Some(crate::check::Type::Any))
+                    || self.receiver_raises(*obj)
+                {
+                    self.direct = true;
+                }
+                self.expr(*obj)
+            }
+            Expr::Assign { target, value } => {
+                // Every member store can raise — see `is_member_store`
+                // for why the receiver's type cannot tell us otherwise,
+                // and for the three whitelist arms this one replaces.
+                if is_property_store(ast, *target) {
+                    self.direct = true;
+                }
+                self.expr(*target);
+                self.expr(*value);
+            }
+            Expr::Index { obj, index } => {
+                // Same as the Member arm: any-receiver index reads throw on
+                // null/undefined via __torajs_any_index, typed ones through
+                // the nullish guard in front of the element load.
+                if matches!(self.expr_types.get(obj), Some(crate::check::Type::Any))
+                    || self.receiver_raises(*obj)
+                {
+                    self.direct = true;
+                }
+                self.expr(*obj);
+                self.expr(*index);
+            }
+            Expr::Array(elems) => {
+                for e in elems {
+                    self.expr(*e);
+                }
+            }
+            Expr::ObjectLit { fields } => {
+                for (_, e) in fields {
+                    self.expr(*e);
+                }
+            }
+            // ArrowFn / Closure bodies are walked separately (their own
+            // FnDecls — lifted by lift_arrow_fns); from this fn's
+            // perspective the closure body's calls don't propagate to the
+            // outer fn's may_throw bit until the outer fn actually invokes
+            // the closure (which is itself a Call → tracked above). Same
+            // reasoning applies to the bigint-throw bit: a throwing bigint
+            // op INSIDE the closure belongs to the closure's own lifted
+            // FnDecl, not the enclosing fn.
+            Expr::ArrowFn { .. } | Expr::Closure { .. } => {}
+            Expr::New { args, .. } | Expr::Super { args } => {
+                for a in args {
+                    self.expr(*a);
+                }
+            }
+            Expr::NewDynamic { callee, args } => {
+                self.expr(*callee);
+                for a in args {
+                    self.expr(*a);
+                }
+            }
+            Expr::Ternary {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                self.expr(*cond);
+                self.under(*cond, true, |sc| sc.expr(*then_branch));
+                self.under(*cond, false, |sc| sc.expr(*else_branch));
+            }
+            Expr::Spread { expr } => crate::ast_throw_info_call::scan_spread(self, *expr),
+            Expr::TypeOf { expr } | Expr::Delete { expr } | Expr::As { expr, .. } => {
+                self.expr(*expr)
+            }
+            Expr::InstanceOf { expr, rhs } => {
+                self.expr(*expr);
+                self.expr(*rhs);
+            }
+            Expr::Sequence { left, right }
+            | Expr::Nullish {
+                lhs: left,
+                rhs: right,
+            } => {
+                self.expr(*left);
+                self.expr(*right);
+            }
+            Expr::OptChain { obj, .. } => self.expr(*obj),
+            Expr::OptIndex { obj, index } => {
+                self.expr(*obj);
+                self.expr(*index);
+            }
+            // `f?.(…)` — the callee is a dynamic value (any_call raises a
+            // catchable TypeError on non-callables; a statically-plain
+            // callee delegates to the Call lowering): conservative
+            // may-throw, same as the Index/OptChain-callee rule above.
+            Expr::OptCall { callee, args } => {
+                self.direct = true;
+                self.expr(*callee);
+                for a in args {
+                    if let Expr::Closure { fn_name, .. } = ast.get_expr(*a) {
+                        self.record(fn_name);
+                    }
+                    self.expr(*a);
+                }
+            }
+            Expr::PostIncr { target, .. } => {
+                // `o.k++` reads, adds and STORES, so it is on the same
+                // rule as the Assign arm above (this arm only ever named
+                // `xs.length--`).
+                //
+                // Measured, so it is not claimed as a fix: `o.hit++` on a
+                // FROZEN class instance still answers "after" with this
+                // marking in place, while the plain `o.hit = 5` spelling
+                // of it throws. The `++` store lane does not consult the
+                // §10.1.9 writable gate at all, so there is no pending
+                // throw for a caller check to find — the gap is in the
+                // lowering, one layer below this file, and is registered
+                // separately. Marking is still right here: when that lane
+                // does raise, the caller must not have pruned its check.
+                if is_property_store(ast, *target) {
+                    self.direct = true;
+                }
+                self.expr(*target)
+            }
+            Expr::This | Expr::NewTarget => {}
+            Expr::Ident(_) if ident_read_raises(ast, eid) => {
+                self.direct = true;
+            }
+            Expr::Ident(_)
+            | Expr::String(_)
+            | Expr::Number(_)
+            | Expr::BigInt { .. }
+            | Expr::Bool(_)
+            | Expr::Null
+            | Expr::Uninit
+            | Expr::Regex { .. } => {}
         }
-        Expr::This | Expr::NewTarget => {}
-        Expr::Ident(_) if ident_read_raises(ast, eid) => {
-            *direct = true;
-        }
-        Expr::Ident(_)
-        | Expr::String(_)
-        | Expr::Number(_)
-        | Expr::BigInt { .. }
-        | Expr::Bool(_)
-        | Expr::Null
-        | Expr::Uninit
-        | Expr::Regex { .. } => {}
     }
 }

@@ -5,44 +5,33 @@
 //! extraction moved verbatim, one directory level of visibility wider
 //! so its single caller can still reach it.
 
-use crate::ast::{Ast, Expr, ExprId};
-use crate::ast_throw_info::scan_expr;
-use std::collections::{HashMap, HashSet};
+use crate::ast::{Expr, ExprId};
+use crate::ast_throw_info::Scan;
 
-/// `Expr::Call` arm of [`scan_expr`] (chunk 773 extraction) — the
+/// `Expr::Call` arm of [`Scan::expr`] (chunk 773 extraction) — the
 /// callee-shape dispatch deciding between named-target recording
 /// and the conservative may-throw bit, plus the callback-argument
 /// closure recording.
-pub(crate) fn scan_call(
-    ast: &Ast,
-    callee: ExprId,
-    args: &[ExprId],
-    out: &mut Vec<String>,
-    direct: &mut bool,
-    fn_values: &HashSet<String>,
-    expr_types: &HashMap<ExprId, crate::check::Type>,
-) {
-    match ast.get_expr(callee) {
+pub(crate) fn scan_call(sc: &mut Scan<'_>, callee: ExprId, args: &[ExprId]) {
+    match sc.ast.get_expr(callee) {
         Expr::Ident(name) => {
-            if !out.contains(name) {
-                out.push(name.clone());
-            }
+            sc.record(name);
             // A callee that is an unresolvable / TDZ name raises at the
             // read (§6.2.5.5), and what the global object answers for
             // it goes through the any-call dispatch, whose non-callable
             // arm raises too (`ssa_lower_call::dispatch`). Without this
             // bit `function u() { hh() }` was judged never-throwing and
             // its caller's catch never ran (rotation 639).
-            if crate::ast_throw_info::ident_read_raises(ast, callee) {
-                *direct = true;
+            if crate::ast_throw_info::ident_read_raises(sc.ast, callee) {
+                sc.direct = true;
             }
             // A call through an `any`-typed callee is the runtime
             // any-call dispatch (`ssa_lower_any_call`): the value may
             // not be callable (TypeError), and whatever it is may
             // throw. `function u() { hh() }` with `hh` an implicit
             // global was judged never-throwing (rotation 639).
-            if matches!(expr_types.get(&callee), Some(crate::check::Type::Any)) {
-                *direct = true;
+            if matches!(sc.expr_types.get(&callee), Some(crate::check::Type::Any)) {
+                sc.direct = true;
             }
             // P7.4-a-b — `BigInt(x)` throws a real RangeError on a
             // non-integer / non-finite argument (runtime_bigint.c →
@@ -54,7 +43,7 @@ pub(crate) fn scan_call(
             // boundary. `BigInt` is a global ctor, not user-named,
             // so it never enters `out` (called user-fn names).
             if name == "BigInt" {
-                *direct = true;
+                sc.direct = true;
             }
             // §19.2.6 — the URI kernels raise URIError on a
             // malformed input (lone surrogate / bad escape run).
@@ -64,7 +53,7 @@ pub(crate) fn scan_call(
                 name.as_str(),
                 "encodeURI" | "encodeURIComponent" | "decodeURI" | "decodeURIComponent"
             ) {
-                *direct = true;
+                sc.direct = true;
             }
             // `Number(x)` / `String(x)` over an Any/object argument
             // run OrdinaryToPrimitive at runtime, which records a
@@ -78,7 +67,7 @@ pub(crate) fn scan_call(
             if (name == "Number" || name == "String")
                 && args.first().is_some_and(|a| {
                     !matches!(
-                        expr_types.get(a),
+                        sc.expr_types.get(a),
                         Some(
                             crate::check::Type::Number
                                 | crate::check::Type::String
@@ -87,7 +76,7 @@ pub(crate) fn scan_call(
                     )
                 })
             {
-                *direct = true;
+                sc.direct = true;
             }
             // RFC 20260718-error-message-own-prop 刀 3 — the
             // no-super ReferenceError raiser the class desugar
@@ -97,7 +86,7 @@ pub(crate) fn scan_call(
             // throw is silently stranded.
             // So does an exotic subclass's `super(v)` kernel (the builtin ctor's checks).
             if name == "__torajs_ctor_no_super_throw" || name.contains("_subclass_super") {
-                *direct = true;
+                sc.direct = true;
             }
             // RFC 20260820-ctor-return-override — §10.2.2 step 13.c:
             // the pick records a TypeError when a DERIVED constructor
@@ -107,7 +96,7 @@ pub(crate) fn scan_call(
             // (`ret 0`) hands the caller a zero that reads back as an
             // unknown any tag while the `catch` never runs.
             if name == "__torajs_ctor_ret_value" {
-                *direct = true;
+                sc.direct = true;
             }
             // §10.4.4.6 step 21 — the strict `arguments.callee`
             // thrower the arguments desugar mints (read / write /
@@ -117,7 +106,7 @@ pub(crate) fn scan_call(
             // check, and the pending throw strands into the next
             // read (the S10.6_A3_T4 SIGSEGV).
             if name == "__torajs_arguments_callee" {
-                *direct = true;
+                sc.direct = true;
             }
             // Rotation 297 — the parser's synthetic relational calls
             // throw: `in` records a §13.10.1 step-5 TypeError on a
@@ -129,12 +118,12 @@ pub(crate) fn scan_call(
             // return (probe answered `false` for a receiver that
             // carries the field).
             if name == "__torajs_in_op" || name == "__torajs_priv_in_op" {
-                *direct = true;
+                sc.direct = true;
             }
             // RFC 20260805 blade 1 — the driver's intrinsic PromiseResolve
             // reads a thenable's `then` (user code), so it may throw.
             if name == crate::ssa_lower_call_await_resolve::NAME {
-                *direct = true;
+                sc.direct = true;
             }
             // RFC 20260912-global-var-cell knife 5 — a Script inside
             // a function: its preflight kernels record §16.1.7's
@@ -144,13 +133,24 @@ pub(crate) fn scan_call(
             // every caller prunes its check, and the refusal strands
             // (probe: `try { v() } catch` printed nothing, exit 0).
             if crate::check_type_of_call_script_decl::is_script_decl_synthetic(name, args.len()) {
-                *direct = true;
+                sc.direct = true;
             }
             // bug-327 C2.5 — indirect call through a fn-valued
             // binding: the target is statically unknown, so the
             // fn must conservatively count as may-throw.
-            if fn_values.contains(name) {
-                *direct = true;
+            if sc.fn_values.contains(name) {
+                sc.direct = true;
+            }
+            // A generic call hands a null-able array argument to a bare
+            // `Arr` parameter through a null guard at the call site
+            // (`lower_call_terminal`'s retarget arm), which raises here,
+            // in the caller.
+            if args.iter().any(|a| {
+                matches!(sc.expr_types.get(a), Some(crate::check::Type::Nullable(inner))
+                    if matches!(**inner, crate::check::Type::Array(_)))
+                    && sc.form(*a) != 0
+            }) {
+                sc.direct = true;
             }
         }
         // RC-4 arguments-object — IIFE: the callee closure is its
@@ -160,16 +160,12 @@ pub(crate) fn scan_call(
         // a throw inside `(function () { throw x; })()` nested in
         // a named fn was swallowed at the caller's caller (the
         // caller's emit_throw_check was M4.3.b-skipped).
-        Expr::Closure { fn_name, .. } => {
-            if !out.contains(fn_name) {
-                out.push(fn_name.clone());
-            }
-        }
+        Expr::Closure { fn_name, .. } => sc.record(fn_name),
         // Chained call `f(0)(5)` / direct arrow-IIFE — the target
         // is statically unknown: conservative may-throw (mirrors
         // the fn-valued-binding rule above).
         Expr::Call { .. } | Expr::ArrowFn { .. } => {
-            *direct = true;
+            sc.direct = true;
         }
         // Chunk 701 — method calls: many method lowerings bottom
         // out in runtime helpers that record pending throws
@@ -185,19 +181,19 @@ pub(crate) fn scan_call(
         // fns (fib / gcd / mandelbrot) have no method calls and
         // keep the M4.3.b skip.
         Expr::Member { obj, .. } => {
-            let exempt = matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "console");
+            let exempt = matches!(sc.ast.get_expr(*obj), Expr::Ident(n) if n == "console");
             if !exempt {
-                *direct = true;
+                sc.direct = true;
             }
         }
         // `xs[i]()` / `a?.b()` — fn-valued targets that are
         // statically unknown, same conservatism as chained calls.
         Expr::Index { .. } | Expr::OptChain { .. } | Expr::OptIndex { .. } => {
-            *direct = true;
+            sc.direct = true;
         }
         _ => {}
     }
-    scan_expr(ast, callee, out, direct, fn_values, expr_types);
+    sc.expr(callee);
     for a in args {
         // RC-4 replace A1_T4 — a closure literal passed as a
         // call argument is a callback the callee invokes
@@ -206,12 +202,10 @@ pub(crate) fn scan_call(
         // propagates into this fn. A callee that never
         // invokes it over-approximates by at most one
         // cold-path throw-check.
-        if let Expr::Closure { fn_name, .. } = ast.get_expr(*a)
-            && !out.contains(fn_name)
-        {
-            out.push(fn_name.clone());
+        if let Expr::Closure { fn_name, .. } = sc.ast.get_expr(*a) {
+            sc.record(fn_name);
         }
-        scan_expr(ast, *a, out, direct, fn_values, expr_types);
+        sc.expr(*a);
     }
 }
 
@@ -227,17 +221,10 @@ pub(crate) fn scan_call(
 /// super/call-spread-err-*-itr-* family). Typed array / string / Map /
 /// Set / iterator-cell sources walk their own lanes with no user code
 /// in the loop and stay unmarked.
-pub(crate) fn scan_spread(
-    ast: &Ast,
-    expr: ExprId,
-    out: &mut Vec<String>,
-    direct: &mut bool,
-    fn_values: &HashSet<String>,
-    expr_types: &HashMap<ExprId, crate::check::Type>,
-) {
+pub(crate) fn scan_spread(sc: &mut Scan<'_>, expr: ExprId) {
     use crate::check::Type;
     if !matches!(
-        expr_types.get(&expr),
+        sc.expr_types.get(&expr),
         Some(
             Type::Array(_)
                 | Type::String
@@ -247,7 +234,7 @@ pub(crate) fn scan_spread(
                 | Type::ArrIter
         )
     ) {
-        *direct = true;
+        sc.direct = true;
     }
-    crate::ast_throw_info::scan_expr(ast, expr, out, direct, fn_values, expr_types);
+    sc.expr(expr);
 }
