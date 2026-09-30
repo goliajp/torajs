@@ -14,10 +14,15 @@ pub(crate) const SUBSTR_CONCAT_STR_SUBSTR: FuncId = FuncId(4);
 pub(crate) const SUBSTR_CONCAT_SUBSTR_SUBSTR: FuncId = FuncId(5);
 pub(crate) const STR_APPEND_SUBSTR: FuncId = FuncId(6);
 pub(crate) const SUBSTR_DROP: FuncId = FuncId(7);
+pub(crate) const STR_CONCAT_LIT: FuncId = FuncId(8);
+pub(crate) const STR_PREPEND_LIT: FuncId = FuncId(9);
+pub(crate) const STR_APPEND_LIT: FuncId = FuncId(10);
+pub(crate) const SUBSTR_CONCAT_LIT: FuncId = FuncId(11);
+pub(crate) const SUBSTR_PREPEND_LIT: FuncId = FuncId(12);
 /// Index of the body function in `module_with`.
-pub(crate) const BODY: usize = 8;
+pub(crate) const BODY: usize = 13;
 
-const KERNELS: [&str; 8] = [
+const KERNELS: [&str; 13] = [
     "__torajs_str_concat",
     "__torajs_str_drop",
     "__torajs_str_append",
@@ -26,6 +31,11 @@ const KERNELS: [&str; 8] = [
     "__torajs_substr_concat_substr_substr",
     "__torajs_str_append_substr",
     "__torajs_substr_drop",
+    "__torajs_str_concat_lit",
+    "__torajs_str_prepend_lit",
+    "__torajs_str_append_lit",
+    "__torajs_substr_concat_lit",
+    "__torajs_substr_prepend_lit",
 ];
 
 pub(crate) fn v(id: u32) -> Operand {

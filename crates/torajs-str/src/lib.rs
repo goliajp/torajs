@@ -120,6 +120,7 @@ pub mod block_ffi;
 pub mod case_table;
 pub mod code_point;
 pub mod concat;
+pub mod concat_lit;
 pub mod concat_num;
 pub mod eq;
 pub mod escape;

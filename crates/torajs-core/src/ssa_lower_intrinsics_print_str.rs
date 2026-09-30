@@ -39,6 +39,25 @@ pub(crate) struct PrintStrIds {
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> PrintStrIds {
+    // Never emitted by the lowering: torajs-egraph's `str_append` pass
+    // moves a short static operand of a concat kernel onto these as
+    // two immediates (payload bytes, then length and flags), and finds
+    // them by name.
+    for (name, side) in [
+        ("__torajs_str_concat_lit", Type::Str),
+        ("__torajs_str_prepend_lit", Type::Str),
+        ("__torajs_str_append_lit", Type::Str),
+        ("__torajs_substr_concat_lit", Type::Ptr),
+        ("__torajs_substr_prepend_lit", Type::Ptr),
+    ] {
+        declare_intrinsic(
+            module,
+            fn_table,
+            name,
+            &[side, Type::I64, Type::I64],
+            Type::Str,
+        );
+    }
     PrintStrIds {
         print_i64: declare_intrinsic(module, fn_table, "print_i64", &[Type::I64], Type::Void),
         print_f64: declare_intrinsic(module, fn_table, "print_f64", &[Type::F64], Type::Void),

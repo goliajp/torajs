@@ -1,0 +1,52 @@
+ab1 ab12 ab123 ab1234 ab12345 ab123456 ab1234567 ab12345678 ab123456789 1cde 12cde 123cde 1234cde 12345cde 123456cde 1234567cde 12345678cde 123456789cde
+null+lit 5 "null," 6e 75 6c 6c 2c 
+lit+null 5 ",null" 2c 6e 75 6c 6c 
+undef+lit 10 "undefined!" 75 6e 64 65 66 69 6e 65 64 21 
+lit+undef 10 "!undefined" 21 75 6e 64 65 66 69 6e 65 64 
+hole+lit 10 "undefined;" 75 6e 64 65 66 69 6e 65 64 3b 
+lit+hole 10 ";undefined" 3b 75 6e 64 65 66 69 6e 65 64 
+chain 12 "ab,null;cde\n" 61 62 2c 6e 75 6c 6c 3b 63 64 65 a 
+chain-undef 24 "cde<undefined>undefined." 63 64 65 3c 75 6e 64 65 66 69 6e 65 64 3e 75 6e 64 65 66 69 6e 65 64 2e 
+wide+lit 3 "中, " 4e2d 2c 20 
+lit+wide 4 ", 文字" 2c 20 6587 5b57 
+wide+8 10 "文字12345678" 6587 5b57 31 32 33 34 35 36 37 38 
+8+wide 9 "12345678中" 31 32 33 34 35 36 37 38 4e2d 
+narrow+wide-lit 3 "ab中" 61 62 4e2d 
+wide-lit+narrow 5 "文字cde" 6587 5b57 63 64 65 
+narrow+4 7 "cde中文测试" 63 64 65 4e2d 6587 6d4b 8bd5 
+5-units 8 "cde中文测试字" 63 64 65 4e2d 6587 6d4b 8bd5 5b57 
+wide+wide-lit 3 "文字测" 6587 5b57 6d4b 
+astral 4 "ab😀" 61 62 d83d de00 
+astral-pair 5 "😀😀中" d83d de00 d83d de00 4e2d 
+latin1-lit 3 "abé" 61 62 e9 
+lit-latin1 5 "ÿ¡cde" ff a1 63 64 65 
+latin1+wide 2 "中é" 4e2d e9 
+ABÉ 1
+empty-right 3 "cde" 63 64 65 
+empty-left 3 "cde" 63 64 65 
+empty-null 4 "null" 6e 75 6c 6c 
+empty-wide 2 "文字" 6587 5b57 
+num 11 "9:cde=13.5;" 39 3a 63 64 65 3d 31 33 2e 35 3b 
+num 9 "10:ab=15;" 31 30 3a 61 62 3d 31 35 3b 
+num 12 "11:cde=16.5;" 31 31 3a 63 64 65 3d 31 36 2e 35 3b 
+lit+lit-cell 3 "---" 2d 2d 2d 
+view 6 "alpha|" 61 6c 70 68 61 7c 
+weiv 6 "|alpha" 7c 61 6c 70 68 61 
+v-wide 6 "alpha终" 61 6c 70 68 61 7ec8 
+wide-v 6 "始alpha" 59cb 61 6c 70 68 61 
+view 5 "beta|" 62 65 74 61 7c 
+weiv 5 "|beta" 7c 62 65 74 61 
+v-wide 5 "beta终" 62 65 74 61 7ec8 
+wide-v 5 "始beta" 59cb 62 65 74 61 
+view 1 "|" 7c 
+weiv 1 "|" 7c 
+v-wide 1 "终" 7ec8 
+wide-v 1 "始" 59cb 
+view 3 "中文|" 4e2d 6587 7c 
+weiv 3 "|中文" 7c 4e2d 6587 
+v-wide 3 "中文终" 4e2d 6587 7ec8 
+wide-v 3 "始中文" 59cb 4e2d 6587 
+view 2 "é|" e9 7c 
+weiv 2 "|é" 7c e9 
+v-wide 2 "é终" e9 7ec8 
+wide-v 2 "始é" 59cb e9 

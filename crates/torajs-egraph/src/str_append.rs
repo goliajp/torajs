@@ -49,25 +49,30 @@
 //! becomes `__torajs_str_append_substr`, and they sit inside a window
 //! like any other string kernel. Once the pairs are rewritten,
 //! `chain` flattens a chain whose result is only appended onto
-//! another cell and dropped, so the intermediate cell is never built.
+//! another cell and dropped, so the intermediate cell is never built,
+//! and `literal` then hands every short static operand to its kernel
+//! by value.
 //!
 //! Runs late, after the inliner and the egraph loop, so the pairs
 //! spliced in from inlined callee bodies are visible too.
 //! `TORAJS_STR_APPEND_OFF=1` skips it.
 
-// chain flattening and the kernel table live beside this file
+// chain flattening, the literal forms and the kernel table live
+// beside this file
 mod chain;
 mod kernels;
+mod literal;
 #[cfg(test)]
 pub(crate) mod test_support;
 
 use std::collections::{HashMap, HashSet};
 
 use torajs_core::ssa::{
-    Function, Inst, InstKind, Module, Operand, Terminator, ValueId, visit_value_operands,
+    Function, Inst, InstKind, Module, Operand, StringId, Terminator, ValueId, visit_value_operands,
 };
 
 use kernels::{Kernels, Kind};
+use literal::LiteralForms;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct StrAppendStats {
@@ -83,15 +88,19 @@ pub struct StrAppendStats {
     /// Chains whose pieces went straight onto the cell they were
     /// appended to.
     pub flattened: u32,
+    /// Kernel calls whose short static operand became immediates.
+    pub by_value: u32,
 }
 
-/// Rewrite every `concat` + `drop-left` pair in the module, then
-/// flatten the chains that only feed an append.
+/// Rewrite every `concat` + `drop-left` pair in the module, flatten
+/// the chains that only feed an append, then pass short static
+/// operands by value.
 pub fn rewrite_str_appends(module: &mut Module) -> StrAppendStats {
     let mut stats = StrAppendStats::default();
     let Some(kernels) = Kernels::find(module) else {
         return stats; // program concatenates no strings at all
     };
+    let forms = LiteralForms::find(module);
     for func in module.funcs.iter_mut() {
         if func.is_declaration() {
             continue;
@@ -104,6 +113,7 @@ pub fn rewrite_str_appends(module: &mut Module) -> StrAppendStats {
         for block in func.blocks.iter_mut() {
             stats.flattened += chain::flatten_block(block, &mut func.values, &kernels, &mut uses);
         }
+        stats.by_value += forms.apply(func, &kernels, &statics);
     }
     stats
 }
@@ -111,7 +121,7 @@ pub fn rewrite_str_appends(module: &mut Module) -> StrAppendStats {
 fn rewrite_pairs(
     insts: &mut Vec<Inst>,
     kernels: &Kernels,
-    statics: &HashSet<ValueId>,
+    statics: &HashMap<ValueId, StringId>,
     stats: &mut StrAppendStats,
 ) {
     let mut i = 0;
@@ -141,20 +151,25 @@ fn rewrite_pairs(
     }
 }
 
-/// Values whose only definition is a static string: immortal cells no
-/// binding's buffer can be.
-fn static_strings(func: &Function) -> HashSet<ValueId> {
-    let mut statics = HashSet::new();
+/// Values whose only definition is one static string — immortal cells
+/// no binding's buffer can be — with the literal each names.
+fn static_strings(func: &Function) -> HashMap<ValueId, StringId> {
+    let mut statics = HashMap::new();
     let mut others = HashSet::new();
     for inst in func.blocks.iter().flat_map(|b| b.insts.iter()) {
         let Some(result) = inst.result else { continue };
-        if matches!(inst.kind, InstKind::StaticStrRef(_)) {
-            statics.insert(result);
-        } else {
-            others.insert(result);
+        match inst.kind {
+            InstKind::StaticStrRef(sid) => {
+                if statics.insert(result, sid).is_some_and(|prev| prev != sid) {
+                    others.insert(result);
+                }
+            }
+            _ => {
+                others.insert(result);
+            }
         }
     }
-    statics.retain(|v| !others.contains(v));
+    statics.retain(|v, _| !others.contains(v));
     statics
 }
 
@@ -165,16 +180,21 @@ fn use_counts(func: &Function) -> HashMap<ValueId, u32> {
         for inst in &block.insts {
             visit_value_operands(&inst.kind, |v| *uses.entry(v).or_insert(0) += 1);
         }
-        match &block.term {
-            Terminator::CondBr {
-                cond: Operand::Value(v),
-                ..
-            }
-            | Terminator::Ret(Some(Operand::Value(v))) => *uses.entry(*v).or_insert(0) += 1,
-            _ => {}
-        }
+        visit_terminator_values(&block.term, |v| *uses.entry(v).or_insert(0) += 1);
     }
     uses
+}
+
+/// The value a terminator reads, if any.
+fn visit_terminator_values(term: &Terminator, mut f: impl FnMut(ValueId)) {
+    match term {
+        Terminator::CondBr {
+            cond: Operand::Value(v),
+            ..
+        }
+        | Terminator::Ret(Some(Operand::Value(v))) => f(*v),
+        _ => {}
+    }
 }
 
 /// Index of the `str_drop` of `left` that follows the concat at `at`,
@@ -186,7 +206,7 @@ fn closing_drop(
     at: usize,
     left: &Operand,
     kernels: &Kernels,
-    statics: &HashSet<ValueId>,
+    statics: &HashMap<ValueId, StringId>,
 ) -> Option<usize> {
     let Operand::Value(left_id) = *left else {
         return None;
@@ -206,7 +226,7 @@ fn closing_drop(
         }
         let mut foreign = false;
         visit_value_operands(&inst.kind, |v| {
-            foreign |= !fresh.contains(&v) && !statics.contains(&v);
+            foreign |= !fresh.contains(&v) && !statics.contains_key(&v);
         });
         if foreign {
             return None;
