@@ -169,22 +169,78 @@ pub fn parse_int(s: &[u8], radix: i64) -> f64 {
         return f64::NAN;
     }
     let digits_start = i;
-    let mut v = 0.0f64;
-    while i < s.len() {
-        let c = s[i];
-        let Some(d) = digit_value(c) else {
-            break;
-        };
-        if (d as i32) >= rdx {
-            break;
-        }
-        v = v * (rdx as f64) + (d as f64);
+    while i < s.len() && digit_value(s[i]).is_some_and(|d| (d as i32) < rdx) {
         i += 1;
     }
     if i == digits_start {
         return f64::NAN;
     }
+    let v = int_digits_value(&s[digits_start..i], rdx as u32);
     if sign < 0 { -v } else { v }
+}
+
+/// The Number nearest the mathematical integer `digits` spell in
+/// `radix`. While the running value stays below 2^53 every step is
+/// exact; past that, a Horner accumulation in f64 rounds once per
+/// digit. Radix 10 and the power-of-two radices must round once, from
+/// the exact value; the other radices may approximate.
+fn int_digits_value(digits: &[u8], radix: u32) -> f64 {
+    let mut exact = 0u64;
+    let mut at = 0usize;
+    while at < digits.len() && exact < (1u64 << 53) {
+        exact = exact * radix as u64 + digit_at(digits, at) as u64;
+        at += 1;
+    }
+    if at == digits.len() && exact <= (1u64 << 53) {
+        return exact as f64;
+    }
+    if radix == 10 {
+        return parse_prefix(digits);
+    }
+    if radix.is_power_of_two() {
+        return pow2_digits_value(digits, radix.trailing_zeros());
+    }
+    let mut v = exact as f64;
+    while at < digits.len() {
+        v = v * radix as f64 + digit_at(digits, at) as f64;
+        at += 1;
+    }
+    v
+}
+
+#[inline]
+fn digit_at(digits: &[u8], at: usize) -> u32 {
+    digits.get(at).copied().and_then(digit_value).unwrap_or(0)
+}
+
+/// Digits of a power-of-two radix are a bit string: keep its leading
+/// 64 bits, fold everything below into a sticky bit so the one
+/// conversion to f64 rounds to nearest-even on the exact value, then
+/// scale by the bits that fell off.
+fn pow2_digits_value(digits: &[u8], bits_per_digit: u32) -> f64 {
+    let mut lead = 0u64;
+    let mut dropped = 0u32;
+    let mut sticky = false;
+    for at in 0..digits.len() {
+        let d = digit_at(digits, at);
+        for bit in (0..bits_per_digit).rev() {
+            let b = (d >> bit) & 1;
+            if lead >> 63 == 0 {
+                lead = (lead << 1) | b as u64;
+            } else {
+                dropped += 1;
+                sticky |= b != 0;
+            }
+        }
+    }
+    let mut v = (lead | sticky as u64) as f64;
+    // exact doublings; a value past f64's range ends at infinity
+    while dropped > 0 {
+        let step = dropped.min(1000);
+        v *= f64::from_bits(((1023 + step) as u64) << 52);
+        dropped -= step;
+    }
+    v
 }
 
 /// `Number.parseFloat(s)` over a raw byte slice. Returns `NaN`
@@ -339,6 +395,33 @@ mod tests {
     fn parse_int_other_radix() {
         assert_eq!(parse_int(b"1010", 2), 10.0);
         assert_eq!(parse_int(b"zz", 36), 35.0 * 36.0 + 35.0);
+    }
+
+    #[test]
+    fn parse_int_rounds_once_past_2_pow_53() {
+        // one rounding of the exact integer, not one per digit
+        assert_eq!(parse_int(b"9007199254740993", 10), 9007199254740992.0);
+        assert_eq!(parse_int(b"9007199254740995", 10), 9007199254740996.0);
+        assert_eq!(parse_int(b"18014398509481987", 10), 18014398509481988.0);
+        assert_eq!(
+            parse_int(b"123456789012345678901234567890", 10),
+            1.2345678901234568e29
+        );
+        assert_eq!(parse_int(b"-9007199254740993", 10), -9007199254740992.0);
+        assert_eq!(parse_int(b"0x20000000000001", 16), 9007199254740992.0);
+        assert_eq!(parse_int(b"0x20000000000003", 16), 9007199254740996.0);
+        assert_eq!(parse_int(b"0x200000000000011", 16), 144115188075855904.0);
+        assert_eq!(
+            parse_int(b"0xffffffffffffffffffff", 16),
+            1.2089258196146292e24
+        );
+        assert_eq!(parse_int(&[b'1'; 1100], 2), f64::INFINITY);
+        assert_eq!(
+            parse_int(b"100000000000000000000000000000000000000000000000000001", 2),
+            9007199254740992.0
+        );
+        assert_eq!(parse_int(b"9007199254740992", 10), 9007199254740992.0);
+        assert_eq!(parse_int(b"00000000000000000000042", 10), 42.0);
     }
 
     #[test]
