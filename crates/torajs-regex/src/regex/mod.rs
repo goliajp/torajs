@@ -43,6 +43,7 @@ pub mod print;
 pub mod replace;
 pub mod replace_fn;
 pub mod replace_fn_dispatch;
+pub mod replace_iter;
 mod replace_splice;
 pub mod split;
 pub mod static_keys;

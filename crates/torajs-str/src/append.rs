@@ -51,7 +51,7 @@ use crate::substr::{FLAG_SUBSTR_INLINE, FLAG_SUBSTR_VIEW};
 /// would corrupt a parent's payload. `__torajs_str_drop` dispatches
 /// on the same two bits for the same reason.
 #[inline]
-unsafe fn is_solely_ours(header: &HeapHeader) -> bool {
+pub(crate) unsafe fn is_solely_ours(header: &HeapHeader) -> bool {
     header.refcount == 1
         && header.flags & (FLAG_STATIC_LITERAL | FLAG_SUBSTR_VIEW | FLAG_SUBSTR_INLINE) == 0
 }
@@ -101,24 +101,47 @@ pub unsafe extern "C" fn __torajs_str_append(a: *mut u8, b: *const u8) -> *mut u
         unsafe { __torajs_str_drop(a) };
         return r;
     }
-    let a_len = unsafe { (a.add(STR_LEN_OFF) as *const u32).read() };
-    let b_len = unsafe { (b.add(STR_LEN_OFF) as *const u32).read() };
-    if b_len == 0 {
-        return a;
-    }
-    let a_flags = header.flags;
-    let a_is_latin1 = a_flags & STR_FLAG_IS_LATIN1 != 0;
     // SAFETY: same contract for `b`.
     let b_header = unsafe { &*(b as *const HeapHeader) };
+    let b_len = unsafe { (b.add(STR_LEN_OFF) as *const u32).read() };
     let b_is_latin1 = b_header.flags & STR_FLAG_IS_LATIN1 != 0;
-    let out_is_latin1 = a_is_latin1 && b_is_latin1;
-    let total_len = a_len + b_len;
-    let need = byte_capacity(total_len, out_is_latin1);
-    let a_bytes = byte_capacity(a_len, a_is_latin1) as usize;
     let b_bytes = byte_capacity(b_len, b_is_latin1) as usize;
     // SAFETY: `b`'s payload is `b_bytes` long by its own length and
     // encoding fields.
     let b_payload = unsafe { core::slice::from_raw_parts(b.add(STR_DATA_OFF), b_bytes) };
+    let b_is_ascii = b_header.flags & STR_FLAG_IS_ASCII != 0;
+    unsafe { append_payload(a, b_payload, b_len, b_is_latin1, b_is_ascii) }
+}
+
+/// The append itself, once `a` is known to be a plain cell this call
+/// alone holds: `b_payload` is `b_len` code units in the encoding
+/// `b_is_latin1` names, and `b_is_ascii` says its producer marked them
+/// ASCII. Shared with the Substr right-hand side, whose payload is read
+/// off its parent.
+///
+/// # Safety
+///
+/// `a` is a valid Str block with refcount 1 that the caller owns, and
+/// `b_payload` does not alias its payload.
+pub(crate) unsafe fn append_payload(
+    a: *mut u8,
+    b_payload: &[u8],
+    b_len: u32,
+    b_is_latin1: bool,
+    b_is_ascii: bool,
+) -> *mut u8 {
+    if b_len == 0 {
+        return a;
+    }
+    // SAFETY: caller's contract is a valid Str block at `a`.
+    let header = unsafe { &*(a as *const HeapHeader) };
+    let a_len = unsafe { (a.add(STR_LEN_OFF) as *const u32).read() };
+    let a_flags = header.flags;
+    let a_is_latin1 = a_flags & STR_FLAG_IS_LATIN1 != 0;
+    let out_is_latin1 = a_is_latin1 && b_is_latin1;
+    let total_len = a_len + b_len;
+    let need = byte_capacity(total_len, out_is_latin1);
+    let a_bytes = byte_capacity(a_len, a_is_latin1) as usize;
     let mut block = unsafe { StrBlock::from_raw(a) };
 
     if a_is_latin1 == out_is_latin1 && unsafe { block.payload_capacity() } >= need {
@@ -136,7 +159,7 @@ pub unsafe extern "C" fn __torajs_str_append(a: *mut u8, b: *const u8) -> *mut u
         // through `total_len` code units.
         unsafe { block.set_length(total_len) };
         // `a` stays known-ASCII only if what landed on it is too.
-        if a_flags & !b_header.flags & STR_FLAG_IS_ASCII != 0 {
+        if a_flags & STR_FLAG_IS_ASCII != 0 && !b_is_ascii {
             unsafe { block.header().flags &= !STR_FLAG_IS_ASCII };
         }
         return a;
