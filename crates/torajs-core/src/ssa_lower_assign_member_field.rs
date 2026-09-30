@@ -278,7 +278,12 @@ pub(crate) fn lower_struct_field_store(
             field_ty,
             None,
         );
-        ctx.emit_drop_value(Operand::Value(old), field_ty);
+        crate::ssa_lower_emit_drop_value::emit_drop_overwritten_field(
+            ctx,
+            obj,
+            Operand::Value(old),
+            field_ty,
+        );
     }
     // L3b #6 crash fix — mirror the ObjectLit field-store mark: a
     // typed Array entering a struct field must carry its elem kind

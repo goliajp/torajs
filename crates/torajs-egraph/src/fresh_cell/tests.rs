@@ -295,3 +295,72 @@ fn join_block_is_not_on_the_path() {
     let (stats, _) = run(blocks);
     assert_eq!(stats.loads_forwarded, 0);
 }
+
+/// bb0: the cell with `field` at +48, its nullish test → (bb2, bb1)
+/// bb1: release the old value → bb2 · bb2: store the new one
+fn overwrite_shape(field: Operand) -> Vec<Block> {
+    let old = Operand::Value(ValueId(4));
+    vec![
+        block(
+            0,
+            vec![
+                alloc(),
+                store(field, 48),
+                load(4, Type::Ptr, 48),
+                val(5, InstKind::ICmp(IPred::Eq, old, Operand::ConstPtrNull)),
+                val(6, InstKind::GlobalRef("cell".into())),
+                val(
+                    7,
+                    InstKind::ICmp(IPred::Eq, old, Operand::Value(ValueId(6))),
+                ),
+                val(
+                    3,
+                    InstKind::BinOp(
+                        BinOp::Or,
+                        Operand::Value(ValueId(5)),
+                        Operand::Value(ValueId(7)),
+                    ),
+                ),
+            ],
+            Terminator::CondBr {
+                cond: Operand::Value(ValueId(3)),
+                then_blk: BlockId(2),
+                else_blk: BlockId(1),
+            },
+        ),
+        block(
+            1,
+            vec![void(InstKind::Call(FuncId(1), vec![old]))],
+            Terminator::Br(BlockId(2)),
+        ),
+        block(
+            2,
+            vec![store(Operand::ConstI64(9), 48)],
+            Terminator::Ret(None),
+        ),
+    ]
+}
+
+#[test]
+fn nullish_test_over_a_field_written_null_folds() {
+    let (stats, f) = run(overwrite_shape(Operand::ConstPtrNull));
+    assert_eq!(
+        (
+            stats.loads_forwarded,
+            stats.stores_removed,
+            stats.branches_folded
+        ),
+        (1, 1, 1)
+    );
+    assert_eq!(kinds(&f, 0).len(), 1);
+    assert!(matches!(f.blocks[0].term, Terminator::Br(BlockId(2))));
+    assert!(f.blocks[1].insts.is_empty());
+}
+
+#[test]
+fn nullish_test_over_a_field_written_a_value_stays() {
+    let (stats, f) = run(overwrite_shape(Operand::Value(ValueId(1))));
+    assert_eq!(stats.branches_folded, 0);
+    assert!(matches!(f.blocks[0].term, Terminator::CondBr { .. }));
+    assert_eq!(f.blocks[1].insts.len(), 1);
+}
