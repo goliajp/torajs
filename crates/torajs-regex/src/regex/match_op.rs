@@ -15,7 +15,7 @@ use super::{
 };
 use crate::node::REGEX_MAX_CAPTURES;
 use crate::parser::{RE_FLAG_G, RE_FLAG_Y};
-use crate::vm::{Workspace, match_anchor, save_slot, search_from, search_from_with_ws};
+use crate::vm::{Workspace, match_anchor, save_slot, search_from_with_ws};
 
 /// Attach the spec §22.2.7.8 match-result properties `index` (match
 /// start; UTF-8 byte domain — same domain note as lastIndex) and
@@ -386,7 +386,20 @@ pub unsafe extern "C" fn __torajs_regex_exec(
     } else if sticky {
         match_anchor(&re.prog, &s, start, re.flags)
     } else {
-        search_from(&re.prog, &s, start, re.flags, dfa_ref)
+        // the per-RegExp workspace: a capturing pattern's second pass
+        // reuses its thread lists and arena instead of building and
+        // freeing them on every call
+        let ws = unsafe { &mut *re.workspace_cache.get() };
+        search_from_with_ws(
+            &re.prog,
+            s,
+            start,
+            re.flags,
+            ws,
+            dfa_ref,
+            haystack_is_ascii,
+            true,
+        )
     };
     let Some(m) = m else {
         if track {

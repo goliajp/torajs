@@ -8,6 +8,7 @@
 use super::{Workspace, match_at, prog_has_save};
 use crate::program::Program;
 use crate::vm::MatchResult;
+use crate::vm::result::INLINE_SLOTS;
 use alloc::vec;
 
 /// Search for a match starting at any position `>= from_pos`. Returns
@@ -178,7 +179,17 @@ fn dfa_hit_result(
         return MatchResult::no_saves(st, end);
     }
     let ws_ref = ws.get_or_insert_with(|| Workspace::for_program(prog));
-    let mut saves = vec![-1i64; ws_ref.arena.stride];
+    let stride = ws_ref.arena.stride;
+    if stride <= INLINE_SLOTS {
+        let mut row = [-1i64; INLINE_SLOTS];
+        let nfa_end =
+            match_at::vm_match_at(prog, s, st, flags, ws_ref, Some(&mut row[..stride]), end);
+        if nfa_end != end {
+            row.fill(-1);
+        }
+        return MatchResult::with_saves_row(st, end, &row[..stride]);
+    }
+    let mut saves = vec![-1i64; stride];
     // Second-pass NFA at exactly the DFA-found window to
     // pull captures out. If the NFA disagrees with the DFA
     // boundary we leave saves all-`-1` rather than report

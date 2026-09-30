@@ -20,10 +20,11 @@ use core::ffi::c_void;
 use super::replace_fn_dispatch::invoke_replace_cb;
 use super::{
     __torajs_str_drop, __torajs_str_undef, __torajs_throw_type_error, RegExp, abort_unsupported,
-    as_regex, as_regex_mut, byte_to_utf16_units, haystack, str_from_bytes, str_units,
+    as_regex, as_regex_mut, byte_to_utf16_units, haystack, str_from_bytes, str_from_bytes_ascii,
+    str_slice_ascii_view, str_units,
 };
 use crate::parser::{RE_FLAG_G, RE_FLAG_Y};
-use crate::vm::{Workspace, match_anchor, save_slot, search_from_with_ws};
+use crate::vm::{match_anchor, save_slot, search_from_with_ws};
 
 unsafe extern "C" {
     /// torajs-rc — the one boxed-entry reader (link-judged; see
@@ -139,12 +140,17 @@ unsafe fn replace_fn_inner(
         return unsafe { str_from_bytes(&s) as *mut c_void };
     }
     let re: &RegExp = re;
-    let s = unsafe { haystack(re, str_ptr) };
+    // an ASCII subject is matched in place; the rest transcode once
+    let s_owned: Vec<u8>;
+    let (s, is_ascii): (&[u8], bool) = match unsafe { str_slice_ascii_view(str_ptr) } {
+        Some(view) => (view, true),
+        None => {
+            s_owned = unsafe { haystack(re, str_ptr) };
+            (&s_owned, false)
+        }
+    };
     let slen = s.len() as i64;
-
-    // Lazy-init Workspace — sticky branch uses match_anchor's own
-    // Workspace; outer ws only needed in non-sticky branch.
-    let mut ws: Option<Workspace> = None;
+    let mut out_ascii = is_ascii;
     // Phase C-3 — baked DFA view bound once. See match_all.rs.
     // Round 3 Phase B sub-batch 7.2 — AOT then runtime-baked fallback.
     let dfa_view = re.baked_dfa_view();
@@ -154,25 +160,28 @@ unsafe fn replace_fn_inner(
     let sticky = re.flags & RE_FLAG_Y != 0;
     while pos <= slen {
         let m = if sticky {
-            match_anchor(&re.prog, &s, pos, re.flags)
+            match_anchor(&re.prog, s, pos, re.flags)
         } else {
-            // Round 3 Phase B attack #R-A1 — replace_fn currently
-            // routes through `haystack` (transcodes to owned bytes),
-            // so the ASCII-view shortcut isn't on this path. Pass
-            // `false`; semantics preserved. Round 5 attack #1 —
-            // Workspace materialises lazily inside the vm.
-            search_from_with_ws(&re.prog, &s, pos, re.flags, &mut ws, dfa_ref, false, true)
+            // the per-RegExp workspace, taken for this search alone:
+            // the callback may run the same regex before the next one
+            let ws = unsafe { &mut *re.workspace_cache.get() };
+            search_from_with_ws(&re.prog, s, pos, re.flags, ws, dfa_ref, is_ascii, true)
         };
         let Some(m) = m else { break };
         out.extend_from_slice(&s[pos as usize..m.start as usize]);
-        let match_str = unsafe { str_from_bytes(&s[m.start as usize..m.end as usize]) };
+        let matched = &s[m.start as usize..m.end as usize];
+        let match_str = if is_ascii {
+            unsafe { str_from_bytes_ascii(matched) }
+        } else {
+            unsafe { str_from_bytes(matched) }
+        };
         let ret = invoke(
             match_str as *mut c_void,
             m.saves(),
-            &s,
+            s,
             // ES §22.1.3.18 — the cb offset arg is in UTF-16
             // code units of the input, not transcoded bytes.
-            byte_to_utf16_units(&s, m.start, false),
+            byte_to_utf16_units(s, m.start, is_ascii),
         );
         unsafe { __torajs_str_drop(match_str as *mut c_void) };
         let ret_str = match ret {
@@ -186,8 +195,13 @@ unsafe fn replace_fn_inner(
             }
         };
         if !ret_str.is_null() {
-            let ret_bytes = unsafe { str_units(ret_str) };
-            out.extend_from_slice(&ret_bytes);
+            match unsafe { str_slice_ascii_view(ret_str) } {
+                Some(view) => out.extend_from_slice(view),
+                None => {
+                    out_ascii = false;
+                    out.extend_from_slice(&unsafe { str_units(ret_str) });
+                }
+            }
             unsafe { __torajs_str_drop(ret_str) };
         }
         if m.end == m.start {
@@ -206,6 +220,9 @@ unsafe fn replace_fn_inner(
     // at end-of-string (pos = m.end + 1).
     let tail = (pos as usize).min(s.len());
     out.extend_from_slice(&s[tail..]);
+    if out_ascii {
+        return unsafe { str_from_bytes_ascii(&out) as *mut c_void };
+    }
     unsafe { str_from_bytes(&out) as *mut c_void }
 }
 

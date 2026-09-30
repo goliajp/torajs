@@ -51,8 +51,17 @@ pub struct MatchResult {
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum MatchSaves {
     None,
+    /// a row of at most [`INLINE_SLOTS`] slots — three capture groups
+    /// and the whole match — lives in the result: no allocation per hit
+    Inline {
+        row: [i64; INLINE_SLOTS],
+        len: u8,
+    },
     Some(Box<[i64]>),
 }
+
+/// The widest row a [`MatchResult`] carries in place.
+pub const INLINE_SLOTS: usize = 8;
 
 impl MatchResult {
     /// Hot-path constructor for a program with `prog.has_save == false`
@@ -80,6 +89,21 @@ impl MatchResult {
         }
     }
 
+    /// A row of at most [`INLINE_SLOTS`] slots, copied into the result.
+    #[inline]
+    pub fn with_saves_row(start: i64, end: i64, saves: &[i64]) -> Self {
+        let mut row = [-1i64; INLINE_SLOTS];
+        row[..saves.len()].copy_from_slice(saves);
+        Self {
+            start,
+            end,
+            saves_repr: MatchSaves::Inline {
+                row,
+                len: saves.len() as u8,
+            },
+        }
+    }
+
     /// Read the saves row. Returns the live stride-sized row for
     /// `WithSaves`, or an empty slice for `NoSaves` — consumers
     /// index through [`save_slot`], which answers `-1` for every
@@ -88,6 +112,7 @@ impl MatchResult {
     pub fn saves(&self) -> &[i64] {
         match &self.saves_repr {
             MatchSaves::None => &[],
+            MatchSaves::Inline { row, len } => &row[..*len as usize],
             MatchSaves::Some(s) => s,
         }
     }
