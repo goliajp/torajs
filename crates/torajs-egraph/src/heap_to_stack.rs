@@ -18,6 +18,9 @@
 //! * `icmp eq|ne %b, x` against anything but `%b` — a fresh
 //!   allocation equals no other pointer, so it folds to a constant
 //! * the paired `obj_drop_sized(%b, N)` — the free itself, deleted
+//! * the paired `obj_free_cell(%b)` — the same free for a cell whose
+//!   static slot cannot size it (an open sid, pass 2.5's settlement):
+//!   the cell says what it is at run time, so no size needs to agree
 //! * a runtime seam that is a no-op for a cell the runtime never saw:
 //!   the unbuffer seams check `FLAG_BUFFERED` (only `cycle_buffer`
 //!   sets it, and `%b` never reaches it), `weakref_target_dying`
@@ -58,6 +61,7 @@ mod owners;
 
 const OBJ_ALLOC: &str = "__torajs_obj_alloc";
 const OBJ_DROP_SIZED: &str = "__torajs_obj_drop_sized";
+const OBJ_FREE_CELL: &str = "__torajs_obj_free_cell";
 const FIELD_GUARD: &str = "__torajs_obj_check_field_writable";
 /// Seams that only touch runtime state `%b` cannot be in.
 const INERT_SEAMS: &[&str] = &["__torajs_weakref_target_dying"];
@@ -91,6 +95,7 @@ pub struct HeapToStackStats {
 struct Fids {
     alloc: FuncId,
     drop_sized: Option<FuncId>,
+    free_cell: Option<FuncId>,
     guard: Option<FuncId>,
     inert: HashSet<FuncId>,
     props: HashSet<FuncId>,
@@ -111,6 +116,7 @@ pub fn promote_module(module: &mut Module) -> HeapToStackStats {
     let fids = Fids {
         alloc,
         drop_sized: fid(OBJ_DROP_SIZED),
+        free_cell: fid(OBJ_FREE_CELL),
         guard: fid(FIELD_GUARD),
         inert: INERT_SEAMS.iter().filter_map(|n| fid(n)).collect(),
         props: PROPS_SEAMS.iter().filter_map(|n| fid(n)).collect(),
@@ -180,6 +186,7 @@ fn promote_in_function(func: &mut Function, fids: &Fids, stats: &mut HeapToStack
                             && own(b).is_some_and(|c| {
                                 members[&c].iter().all(|m| cands.get(m) == Some(n))
                             }) => {}
+                    [b] if Some(*f) == fids.free_cell && own(b).is_some() => {}
                     [Operand::Value(_)] if fids.inert.contains(f) => {}
                     [b] if fids.props.contains(f) => props_seam_users.extend(own(b)),
                     [b, name] if Some(*f) == fids.guard && own(b).is_some() => mark(name, &mut bad),
@@ -311,7 +318,7 @@ mod tests {
     const B: Operand = Operand::Value(ValueId(0));
 
     /// fids: 0 obj_alloc · 1 obj_drop_sized · 2 closure_drop_props_slow
-    /// · 3 weakref_target_dying · 4 an unrelated callee
+    /// · 3 weakref_target_dying · 4 an unrelated callee · 6 obj_free_cell
     fn module_with(body: Vec<Inst>) -> Module {
         let main = Function {
             name: "main".into(),
@@ -339,6 +346,7 @@ mod tests {
                 decl("__torajs_weakref_target_dying"),
                 decl("__torajs_other"),
                 main,
+                decl(OBJ_FREE_CELL),
             ],
             ..Default::default()
         }
@@ -367,6 +375,19 @@ mod tests {
         assert_eq!(stats.promoted, 1);
         assert_eq!(stats.cmps_folded, 1);
         assert_eq!(stats.calls_removed, 3);
+        let insts = &m.funcs[5].blocks[0].insts;
+        assert!(matches!(insts[0].kind, InstKind::AllocaBytes(56)));
+        assert!(!insts.iter().any(|i| matches!(i.kind, InstKind::Call(..))));
+    }
+
+    #[test]
+    fn a_release_by_the_cell_promotes_too() {
+        let mut body = cell(Operand::ConstPtrNull, vec![]);
+        body.pop();
+        body.push(void(InstKind::Call(FuncId(6), vec![B])));
+        let mut m = module_with(body);
+        let stats = promote_module(&mut m);
+        assert_eq!((stats.promoted, stats.calls_removed), (1, 3));
         let insts = &m.funcs[5].blocks[0].insts;
         assert!(matches!(insts[0].kind, InstKind::AllocaBytes(56)));
         assert!(!insts.iter().any(|i| matches!(i.kind, InstKind::Call(..))));
