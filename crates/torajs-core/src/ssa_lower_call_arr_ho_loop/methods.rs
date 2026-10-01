@@ -353,11 +353,18 @@ pub(super) fn map_product_holes(ctx: &LowerCtx<'_>, dst_arr_ty: Type) -> Option<
     .then_some(elem)
 }
 
+/// `seam` picks the mark's entry: the link-judged seam
+/// (`arr_map_hole_slow`) for an arm the loop reaches only after the
+/// source's header said it can have an absent index — the exotic,
+/// slot-hole and sparse-tail bits, each with one writer entry the
+/// judgment reads — or the writer itself (`arr_mark_last_hole`) for an
+/// arm a loop that read no such bit can reach (a shortened length).
 pub(super) fn emit_map_hole_block(
     ctx: &mut LowerCtx<'_>,
     dst_slot: Option<ValueId>,
     dst_arr_ty: Type,
     step_blk: BlockId,
+    seam: bool,
 ) -> Option<BlockId> {
     let Some(elem_ty) = map_product_holes(ctx, dst_arr_ty) else {
         return None;
@@ -390,12 +397,14 @@ pub(super) fn emit_map_hole_block(
             vec![Operand::Value(cur_dst), slot_arg],
         ),
     );
+    let mark = if seam {
+        ctx.intrinsics.arr_map_hole_slow
+    } else {
+        ctx.intrinsics.arr_mark_last_hole
+    };
     ctx.f.append_void(
         hole_blk,
-        InstKind::Call(
-            ctx.intrinsics.arr_mark_last_hole,
-            vec![Operand::Value(cur_dst)],
-        ),
+        InstKind::Call(mark, vec![Operand::Value(cur_dst)]),
     );
     ctx.f.set_term(hole_blk, Terminator::Br(step_blk));
     ctx.cur_block = saved;

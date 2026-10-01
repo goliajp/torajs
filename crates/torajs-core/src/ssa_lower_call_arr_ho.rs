@@ -272,6 +272,7 @@ fn emit_hof_loop(ctx: &mut LowerCtx<'_>, p: &HofLoop<'_>, holes: bool) -> Operan
     } else {
         p.dense_gate
     };
+    frame.holey = holes;
     // 550-01 — the growing dst (map / filter) is ours until the exit
     // loads it out; a callback that throws mid-loop releases it
     // through the slot (push relocates, so the pointer itself cannot

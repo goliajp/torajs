@@ -50,6 +50,10 @@ pub(crate) struct LoopFrame {
     /// runs its own gate). The caller sets it; `begin_loop` leaves it
     /// off.
     pub(crate) gate: TypedGate,
+    /// This is the copy of a TYPED source's loop the preheader picks
+    /// once the header says an index can be absent. The caller sets
+    /// it; only here is `map`'s hole arm behind the link seam.
+    pub(crate) holey: bool,
 }
 
 /// Set up i_slot + init_i, fast-path `arr_reserve(dst, len)` for
@@ -210,6 +214,7 @@ pub(crate) fn begin_loop(
         owned_flag,
         dst_fast,
         gate: TypedGate::None,
+        holey: false,
     }
 }
 
@@ -257,8 +262,17 @@ pub(crate) fn emit_per_method_body(
     // rather than a shorter product or a corrupt slot. Recorded
     // boundary; it lifts when a typed product can express absence,
     // which is the same day the typed `delete` does.
+    //
+    // The mark sits behind a link seam where the arm is reached only
+    // after the source's header said an index can be absent: the holey
+    // typed copy and a boxed source's exotic arm. The dense typed copy
+    // never read such a bit — its gate, `Len` or `Present`, is a guess
+    // from the program text, and a shortened length alone takes it to
+    // the arm — so it marks through the writer itself, as a boxed
+    // source's dense arm does.
     let map_hole_blk = if method == "map" {
-        emit_map_hole_block(ctx, dst_slot, dst_arr_ty, frame.step_blk)
+        let seam = frame.holey || frame.elem_slot.is_some();
+        emit_map_hole_block(ctx, dst_slot, dst_arr_ty, frame.step_blk, seam)
     } else {
         Some(frame.step_blk)
     };
@@ -274,7 +288,13 @@ pub(crate) fn emit_per_method_body(
         map_hole_blk,
     ) {
         (Some(es), Some(os), Some(of), Some(skip_blk)) => {
-            ctx.emit_hof_present_gate(src_arr, i_now2, skip_blk, es, os, of);
+            let dense_skip = if method == "map" {
+                emit_map_hole_block(ctx, dst_slot, dst_arr_ty, frame.step_blk, false)
+                    .expect("the gated map has a hole arm")
+            } else {
+                skip_blk
+            };
+            ctx.emit_hof_present_gate(src_arr, i_now2, dense_skip, skip_blk, es, os, of);
             Some(es)
         }
         // A `map` whose product cannot hole still reads through the
@@ -284,7 +304,7 @@ pub(crate) fn emit_per_method_body(
         // boundary above: the product has no way to say hole).
         (Some(es), Some(os), Some(of), None) => {
             let absent_blk = ctx.f.add_block();
-            ctx.emit_hof_present_gate(src_arr, i_now2, absent_blk, es, os, of);
+            ctx.emit_hof_present_gate(src_arr, i_now2, absent_blk, absent_blk, es, os, of);
             let work_blk = ctx.cur_block;
             ctx.cur_block = absent_blk;
             let undef = dispatch::emit_undef_any_box(ctx);

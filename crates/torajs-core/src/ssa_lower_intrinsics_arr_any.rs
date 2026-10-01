@@ -42,6 +42,10 @@ pub(crate) struct ArrAnyIds {
     pub arr_index_get: FuncId,
     /// Elision hole marking — see `__torajs_arr_mark_last_hole`.
     pub arr_mark_last_hole: FuncId,
+    /// The static `map` lane's hole arm behind a link seam: the same
+    /// mark, judged away when no array can have an absent index
+    /// (`torajs-dispatch` default, `cmd_build_elide` fam 54).
+    pub arr_map_hole_slow: FuncId,
     /// §23.1.3.32 per-element toLocaleString join.
     pub arr_any_to_locale_string: FuncId,
     /// Typed-lane toLocaleString patch gate (RFC 20260721 刀 11 G13).
@@ -142,6 +146,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         arr_push_any: decl!("__torajs_arr_push_any", [Ptr, I64, I64], Ptr),
         arr_index_get: decl!("__torajs_arr_index_get", [Ptr, I64], Any),
         arr_mark_last_hole: decl!("__torajs_arr_mark_last_hole", [Ptr], Void),
+        arr_map_hole_slow: decl!("__torajs_arr_map_hole_slow", [Ptr], Void),
         arr_any_to_locale_string: decl!("__torajs_arr_any_to_locale_string", [Ptr], Str),
         arr_typed_to_locale_string: decl!("__torajs_arr_typed_to_locale_string", [Ptr, I64], Str),
         arr_any_index_of: decl!("__torajs_arr_any_index_of", [Ptr, Any, I64], I64),

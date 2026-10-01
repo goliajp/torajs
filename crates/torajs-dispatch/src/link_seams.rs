@@ -25,6 +25,7 @@ unsafe extern "C" {
     fn __torajs_anyv_rc_dec(v: u64);
     fn __torajs_obj_check_field_writable_impl(p: *const u8, name: *const u8);
     fn __torajs_arr_sort_exotic_impl(arr: *mut core::ffi::c_void, cmp: u64) -> u64;
+    fn __torajs_arr_mark_last_hole(arr: *mut core::ffi::c_void);
     fn __torajs_arr_typed_nonint_f64_impl(arr: *mut core::ffi::c_void, key: f64) -> f64;
     fn __torajs_arr_typed_nonint_str_impl(
         arr: *mut core::ffi::c_void,
@@ -60,6 +61,24 @@ pub unsafe extern "C" fn __torajs_arr_typed_nonint_str_slow(
     key: f64,
 ) -> *mut core::ffi::c_void {
     unsafe { __torajs_arr_typed_nonint_str_impl(arr, key) }
+}
+
+/// Default resolution of the static `map` lane's hole arm: an absent
+/// source index arrives in the product as a hole of its own
+/// (§23.1.3.21 step 6.c), marked by torajs-arr's elision writer. The
+/// loop copy that calls it runs only after a header probe found the
+/// source exotic, slot-holey or sparse-tailed, so the link judgment
+/// stubs it (fam 54) when none of `__torajs_arr_flag_exotic`,
+/// `__torajs_arr_flag_any_holey` and `__torajs_arr_flag_sparse_tail`
+/// has live text. The dense copy reaches the writer directly, not
+/// through this seam.
+///
+/// # Safety
+/// `arr` is a live `Tag::Arr` product cell whose last slot was just
+/// pushed.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_map_hole_slow(arr: *mut core::ffi::c_void) {
+    unsafe { __torajs_arr_mark_last_hole(arr) }
 }
 
 /// Default resolution of the typed sort lane's exotic divert: the

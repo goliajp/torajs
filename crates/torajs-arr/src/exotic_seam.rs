@@ -41,7 +41,7 @@
 
 use core::ffi::c_void;
 
-use torajs_rc::{FLAG_ARR_ANY_HOLEY, FLAG_ARR_EXOTIC_INDEX};
+use torajs_rc::{FLAG_ARR_ANY_HOLEY, FLAG_ARR_EXOTIC_INDEX, FLAG_ARR_SPARSE_TAIL};
 
 unsafe extern "C" {
     fn __torajs_dynobj_alloc() -> *mut c_void;
@@ -154,6 +154,23 @@ pub unsafe extern "C" fn __torajs_arr_flag_exotic(arr: *mut c_void) {
 pub unsafe extern "C" fn __torajs_arr_flag_any_holey(arr: *mut c_void) {
     let p = unsafe { (arr as *mut u8).add(6) as *mut u16 };
     unsafe { p.write(p.read() | FLAG_ARR_ANY_HOLEY) };
+}
+
+/// Raise the header's sparse-tail bit. The ONE writer of
+/// `FLAG_ARR_SPARSE_TAIL` — the giant `length` grow on an Any cell
+/// (`set_length`) — so its text liveness is the third enabler of the
+/// callback methods' absent-index gate: that gate reads the exotic,
+/// slot-hole and sparse-tail bits in the preheader, and `map`'s hole
+/// arm behind it (`__torajs_arr_map_hole_slow`) is judged on the three
+/// writers together.
+///
+/// # Safety
+/// `arr` is a live `FLAG_ARR_ANY` `Tag::Arr` heap block.
+#[inline(never)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_flag_sparse_tail(arr: *mut c_void) {
+    let p = unsafe { (arr as *mut u8).add(6) as *mut u16 };
+    unsafe { p.write(p.read() | FLAG_ARR_SPARSE_TAIL) };
 }
 
 /// The array's props slot, with the bag allocated on first use. The

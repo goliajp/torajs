@@ -250,7 +250,7 @@ fn emit_body_and_step(
     // block is minted here so the gate has somewhere to jump.
     let next_blk = ctx.f.add_block();
     if let Some((es, os, of)) = gate {
-        ctx.emit_hof_present_gate(src_arr, i_now2, next_blk, es, os, of);
+        ctx.emit_hof_present_gate(src_arr, i_now2, next_blk, next_blk, es, os, of);
     } else if typed_gate != TypedGate::None && (method == "some" || method == "every") {
         // A typed source its predicate may shorten (`hof_len_shrink`),
         // or — in the loop copy a holey array runs — one with holes.

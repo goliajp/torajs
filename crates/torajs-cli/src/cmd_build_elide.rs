@@ -67,6 +67,19 @@
 //! in that state: the props-bag creators, the builtin-prototype mint
 //! and the Array subclass allocator.
 //!
+//! **The static `map` lane's hole arm** — a skipped source index
+//! arrives in the product as a hole (§23.1.3.21 step 6.c), and the
+//! mark (`__torajs_arr_mark_last_hole`) is itself a writer of the
+//! exotic flag and the props bag, so the one call rooted the species
+//! probe's and the join's slow paths in every map whose product can
+//! say hole. The loop copy a holey source runs reaches that arm only
+//! after its header probe found the source exotic, slot-holey or
+//! sparse-tailed — three bits, three `#[inline(never)]` writer
+//! entries — so there the arm calls the `__torajs_arr_map_hole_slow`
+//! seam (fam 54), judged on those three. The dense copy read no
+//! header bit (a shortened length alone takes it to the arm) and
+//! calls the writer directly.
+//!
 //! **Uncaught reporter's Error rendering** (r501, 刀 4 A6) — the
 //! name / prototype-chain resolver is the reporter's only edge into
 //! the generic value world; a program that injected no error class
@@ -140,7 +153,7 @@ const SITES: [(&str, &str, &[&str], u32); 3] = [
 /// entries whose text liveness un-assumes the stub, landing-pad fam
 /// id). The join seam's enabler is the exotic-flag writer; the
 /// species probe's enablers are the two props-bag creators.
-const SYMBOL_STUBS: [(&str, &[&str], u32); 12] = [
+const SYMBOL_STUBS: [(&str, &[&str], u32); 13] = [
     (
         "___torajs_arr_join_exotic",
         &["___torajs_arr_flag_exotic"],
@@ -234,6 +247,18 @@ const SYMBOL_STUBS: [(&str, &[&str], u32); 12] = [
         "___torajs_arr_typed_nonint_str_slow",
         &NAMED_PROP_WRITERS,
         53,
+    ),
+    // the static map lane's hole arm in the loop copy a holey source
+    // runs: reached only after the header probe found the exotic,
+    // slot-hole or sparse-tail bit, one writer entry each.
+    (
+        "___torajs_arr_map_hole_slow",
+        &[
+            "___torajs_arr_flag_exotic",
+            "___torajs_arr_flag_any_holey",
+            "___torajs_arr_flag_sparse_tail",
+        ],
+        54,
     ),
 ];
 
@@ -481,7 +506,18 @@ mod tests {
     #[test]
     fn exotic_slow_path_stubs_are_symbol_guarded_loud_rejects() {
         let stubs = guarded_stubs();
-        assert_eq!(stubs.len(), 13);
+        assert_eq!(stubs.len(), 14);
+        let map_hole = &stubs[13];
+        assert_eq!(map_hole.sym, "___torajs_arr_map_hole_slow");
+        assert_eq!(
+            map_hole.guard.to_string(),
+            "syms:___torajs_arr_flag_exotic|___torajs_arr_flag_any_holey|\
+             ___torajs_arr_flag_sparse_tail"
+        );
+        assert_eq!(
+            &map_hole.bytes[..4],
+            &(0xD280_0000u32 | (54 << 5) | 7).to_le_bytes()
+        );
         for (i, sym) in [
             "___torajs_arr_typed_nonint_f64_slow",
             "___torajs_arr_typed_nonint_str_slow",

@@ -295,9 +295,7 @@ unsafe fn set_length_any_impl(arr: *mut u8, tag: i64, value: i64, throw_on_refus
             // `[0, old)` has a slot (cap >= len always holds for a
             // dense cell), so the extent is exactly `old`.
             unsafe { *(arr.add(ARR_HDR_CAP_OFF) as *mut u32) = old as u32 };
-            unsafe {
-                (*(arr as *mut torajs_rc::HeapHeader)).flags |= torajs_rc::FLAG_ARR_SPARSE_TAIL;
-            }
+            unsafe { crate::exotic_seam::__torajs_arr_flag_sparse_tail(arr as *mut c_void) };
         }
         // Already-sparse: `cap` is the live extent — only `len`
         // moves.

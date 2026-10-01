@@ -278,13 +278,17 @@ impl LowerCtx<'_> {
     /// the accessor-aware read (`arr_index_get`, +1-owned for cells),
     /// remembered in `owned_slot` / `owned_flag` for the step block to
     /// release. Either way the element lands in `elem_slot`, and
-    /// `cur_block` is left where the visit is emitted; `skip_blk` takes
-    /// an absent index.
+    /// `cur_block` is left where the visit is emitted; an absent index
+    /// goes to `skip_dense` from the dense arm (the length shrank) and
+    /// to `skip_exotic` from the other (a hole, or an index past a
+    /// sparse tail) — the two are told apart because only the second
+    /// is announced by a header bit with a writer entry.
     pub(crate) fn emit_hof_present_gate(
         &mut self,
         arr: ValueId,
         i: ValueId,
-        skip_blk: BlockId,
+        skip_dense: BlockId,
+        skip_exotic: BlockId,
         elem_slot: ValueId,
         owned_slot: ValueId,
         owned_flag: ValueId,
@@ -336,7 +340,7 @@ impl LowerCtx<'_> {
             Terminator::CondBr {
                 cond: Operand::Value(in_range),
                 then_blk: dense_read_blk,
-                else_blk: skip_blk,
+                else_blk: skip_dense,
             },
         );
         self.cur_block = dense_read_blk;
@@ -379,7 +383,7 @@ impl LowerCtx<'_> {
             Terminator::CondBr {
                 cond: Operand::Value(ok),
                 then_blk: exotic_read_blk,
-                else_blk: skip_blk,
+                else_blk: skip_exotic,
             },
         );
         self.cur_block = exotic_read_blk;

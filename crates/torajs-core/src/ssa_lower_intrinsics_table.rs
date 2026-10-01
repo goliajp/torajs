@@ -301,6 +301,7 @@ pub(crate) fn build(
         arr_push_any: init_b.arr_any.arr_push_any,
         arr_index_get: init_b.arr_any.arr_index_get,
         arr_mark_last_hole: init_b.arr_any.arr_mark_last_hole,
+        arr_map_hole_slow: init_b.arr_any.arr_map_hole_slow,
         arr_any_to_locale_string: init_b.arr_any.arr_any_to_locale_string,
         arr_typed_to_locale_string: init_b.arr_any.arr_typed_to_locale_string,
         arr_any_index_of: init_b.arr_any.arr_any_index_of,
