@@ -97,7 +97,8 @@ pub(crate) enum Node {
 /// why-live diag asks for it. First-wins makes every chain terminate:
 /// a node's pred was visited strictly before the node itself.
 pub(crate) enum Pred {
-    /// Seeded by a user-function reloc naming this symbol.
+    /// Seeded by a user-function reloc naming this symbol: the symbol
+    /// and the user fn the reloc sits in.
     UserFn(String),
     /// Seeded by a section flag root (no-dead-strip / mod-init / TLV).
     FlagRoot,
@@ -163,7 +164,9 @@ pub(crate) fn compute_reachability<'a>(
                 && let Some(node) = node_for_global_name(name, merged, &reach)
             {
                 if record_preds {
-                    preds.entry(node).or_insert(Pred::UserFn(name.to_string()));
+                    preds
+                        .entry(node)
+                        .or_insert_with(|| Pred::UserFn(format!("{name} (in {})", f.name)));
                 }
                 worklist.push(node);
             }
