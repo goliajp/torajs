@@ -63,6 +63,7 @@ use crate::optimize::classify_pure;
 /// Name of the retain helper `ssa_lower::emit_rc_inc` calls for `Any`
 /// values (typed values retain through the inline `InstKind::RcInc`).
 const RC_INC: &str = "__torajs_rc_inc";
+const OBJ_ALLOC: &str = "__torajs_obj_alloc";
 
 /// Single-inst void drop helpers whose semantics are exactly
 /// "dec refcount, free on zero, NULL passes through". Inline-expanded
@@ -140,6 +141,7 @@ pub fn elide_rc_pairs(module: &mut Module) -> RcPeepholeStats {
         .iter()
         .filter_map(|name| find_func(module, name))
         .collect();
+    let alloc_fid = find_func(module, OBJ_ALLOC);
     for func in module.funcs.iter_mut() {
         if func.is_declaration() {
             continue;
@@ -149,6 +151,7 @@ pub fn elide_rc_pairs(module: &mut Module) -> RcPeepholeStats {
             func,
             |kind| rc_transparent(kind, &readonly_fids, &slots),
             &buffer_fids,
+            alloc_fid,
         );
         for block in func.blocks.iter_mut() {
             loop {

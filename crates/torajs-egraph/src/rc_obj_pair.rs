@@ -45,44 +45,77 @@ const UNDEF_CELL: &str = "___TORAJS_UNDEF_CELL";
 const OBJ_PROPS_OFF: u64 = 24;
 /// `buf` is one call, or the leaf form's test and its call block.
 const MAX_BUFFER_BLOCKS: usize = 3;
+/// Where an instance's fields start; everything below is header.
+const OBJ_FIELDS_OFF: u64 = 32;
+/// How far up a straight chain a release looks for its retain.
+const MAX_CHAIN_HOPS: usize = 8;
 
 /// Elide every retain paired with an inline class-instance release in
 /// `func`. `transparent` is the window predicate of the caller;
-/// `buffer_fids` are the candidate-root calls `buf` may make.
+/// `buffer_fids` are the candidate-root calls `buf` may make and
+/// `alloc_fid` the class-instance allocator.
+///
+/// Runs in rounds: an elided pair turns its block's branch into a
+/// jump and strands the release's blocks, which can put a later
+/// release in line with a retain several blocks up (`new C(a, b)`
+/// retains both arguments into the instance, then the caller's
+/// bindings are released one after the other).
 pub(crate) fn elide_obj_pairs(
     func: &mut Function,
     transparent: impl Fn(&InstKind) -> bool,
     buffer_fids: &HashSet<u32>,
+    alloc_fid: Option<u32>,
 ) -> u32 {
-    let mut pred_count = vec![0u32; func.blocks.len()];
-    for block in &func.blocks {
+    let mut elided = 0;
+    loop {
+        let round = elide_round(func, &transparent, buffer_fids, alloc_fid);
+        if round == 0 {
+            return elided;
+        }
+        elided += round;
+    }
+}
+
+fn elide_round(
+    func: &mut Function,
+    transparent: &impl Fn(&InstKind) -> bool,
+    buffer_fids: &HashSet<u32>,
+    alloc_fid: Option<u32>,
+) -> u32 {
+    let mut preds: Vec<Vec<usize>> = vec![Vec::new(); func.blocks.len()];
+    for (b, block) in func.blocks.iter().enumerate() {
         for s in successors(&block.term) {
-            pred_count[s.0 as usize] += 1;
+            preds[s.0 as usize].push(b);
         }
     }
+    let pred_count: Vec<u32> = preds.iter().map(|p| p.len() as u32).collect();
+    // the instances this function minted: a store past the header of
+    // one writes a field, never a count
+    let cells: HashSet<ValueId> = func
+        .blocks
+        .iter()
+        .flat_map(|b| b.insts.iter())
+        .filter_map(|i| match (&i.kind, i.result) {
+            (InstKind::Call(f, _), Some(r)) if Some(f.0) == alloc_fid => Some(r),
+            _ => None,
+        })
+        .collect();
     let mut elided = 0;
     let mut dead: Vec<ValueId> = Vec::new();
     for b in 0..func.blocks.len() {
         let Some(release) = release_at_end(func, b, &pred_count, buffer_fids) else {
             continue;
         };
-        let insts = &func.blocks[b].insts;
-        let retain = insts.iter().enumerate().rev().find_map(|(i, inst)| {
-            matches!(&inst.kind, InstKind::RcInc(Operand::Value(v)) if *v == release.value)
-                .then_some(i)
-        });
-        let Some(retain) = retain else {
-            continue;
-        };
-        let between = &insts[retain + 1..];
         let keeps_window = |i: &Inst| {
             i.result != Some(release.value)
-                && (transparent(&i.kind) || matches!(i.kind, InstKind::GlobalRef(_)))
+                && (transparent(&i.kind)
+                    || matches!(i.kind, InstKind::GlobalRef(_))
+                    || keeps_counts(&i.kind, &cells))
         };
-        if !between.iter().all(keeps_window) {
+        let Some((rb, ri)) = retain_before(func, b, release.value, &preds, keeps_window) else {
             continue;
-        }
-        func.blocks[b].insts.remove(retain);
+        };
+        func.blocks[rb].insts.remove(ri);
         func.blocks[b].term = Terminator::Br(release.after);
         dead.extend(release.test);
         elided += 1;
@@ -92,6 +125,58 @@ pub(crate) fn elide_obj_pairs(
         sweep_unreachable_blocks(func);
     }
     elided
+}
+
+/// The retain of `x` that reaches the end of block `b` through a
+/// window `keeps_window` accepts: in `b` itself, or up the chain of
+/// blocks each of which is the only way into the next. Predecessors
+/// are those of the round's start; a pair elided since only removed
+/// edges, so a chain found here is still one.
+fn retain_before(
+    func: &Function,
+    b: usize,
+    x: ValueId,
+    preds: &[Vec<usize>],
+    keeps_window: impl Fn(&Inst) -> bool,
+) -> Option<(usize, usize)> {
+    let mut cur = b;
+    let mut hops = 0;
+    loop {
+        let insts = &func.blocks[cur].insts;
+        let retain = insts
+            .iter()
+            .rposition(|i| matches!(&i.kind, InstKind::RcInc(Operand::Value(v)) if *v == x));
+        if let Some(ri) = retain {
+            return insts[ri + 1..]
+                .iter()
+                .all(&keeps_window)
+                .then_some((cur, ri));
+        }
+        if !insts.iter().all(&keeps_window) || hops == MAX_CHAIN_HOPS {
+            return None;
+        }
+        let [p] = preds[cur].as_slice() else {
+            return None;
+        };
+        if !matches!(func.blocks[*p].term, Terminator::Br(t) if t.0 as usize == cur) {
+            return None;
+        }
+        cur = *p;
+        hops += 1;
+    }
+}
+
+/// Instructions that move counts only upward or write a field of an
+/// instance this function minted: neither can free anything or lower
+/// the count the paired release is about to read.
+fn keeps_counts(kind: &InstKind, cells: &HashSet<ValueId>) -> bool {
+    match kind {
+        InstKind::RcInc(_) | InstKind::RcIncAny(_) => true,
+        InstKind::Store(_, Operand::Value(base), off) => {
+            *off >= OBJ_FIELDS_OFF && cells.contains(base)
+        }
+        _ => false,
+    }
 }
 
 struct Release {
@@ -214,50 +299,52 @@ mod tests {
 
     const BUFFER: FuncId = FuncId(7);
     const OTHER: FuncId = FuncId(8);
+    const ALLOC: FuncId = FuncId(9);
 
     /// entry: [retain x] [extra] nullish(x) → (after, dec)
     /// dec → (walk, buf) · buf: buffer(x) → after · walk: free → after
     fn pair(retain: bool, extra: Option<InstKind>, buf_call: FuncId) -> (Function, BlockId) {
         let mut f = Function::new("t", Type::I64);
         let x = f.add_param(Type::Ptr, "x");
-        let px = Operand::Value(x);
         let entry = f.add_block();
-        let dec = f.add_block();
-        let buf = f.add_block();
-        let walk = f.add_block();
-        let after = f.add_block();
         if retain {
-            f.append_void(entry, InstKind::RcInc(px));
+            f.append_void(entry, InstKind::RcInc(Operand::Value(x)));
         }
         if let Some(kind) = extra {
             f.append_void(entry, kind);
         }
+        let dec = release_in(&mut f, entry, x, buf_call);
+        (f, dec)
+    }
+
+    /// End `blk` with the inline release of `x`; answers its `dec`.
+    fn release_in(f: &mut Function, blk: BlockId, x: ValueId, buf_call: FuncId) -> BlockId {
+        let px = Operand::Value(x);
+        let dec = f.add_block();
+        let buf = f.add_block();
+        let walk = f.add_block();
+        let after = f.add_block();
         let is_null = f.append_inst(
-            entry,
+            blk,
             InstKind::ICmp(IPred::Eq, px, Operand::ConstPtrNull),
             Type::Bool,
             None,
         );
-        let cell = f.append_inst(
-            entry,
-            InstKind::GlobalRef(UNDEF_CELL.into()),
-            Type::Ptr,
-            None,
-        );
+        let cell = f.append_inst(blk, InstKind::GlobalRef(UNDEF_CELL.into()), Type::Ptr, None);
         let is_undef = f.append_inst(
-            entry,
+            blk,
             InstKind::ICmp(IPred::Eq, px, Operand::Value(cell)),
             Type::Bool,
             None,
         );
         let n = f.append_inst(
-            entry,
+            blk,
             InstKind::BinOp(BinOp::Or, Operand::Value(is_null), Operand::Value(is_undef)),
             Type::Bool,
             None,
         );
         f.set_term(
-            entry,
+            blk,
             Terminator::CondBr {
                 cond: Operand::Value(n),
                 then_blk: after,
@@ -291,12 +378,48 @@ mod tests {
         f.append_void(walk, InstKind::Call(OTHER, vec![px]));
         f.set_term(walk, Terminator::Br(after));
         f.set_term(after, Terminator::Ret(Some(Operand::ConstI64(0))));
-        (f, dec)
+        dec
+    }
+
+    /// entry: cell = alloc() · retain x · store x into `base + off` ·
+    /// retain cell · release x
+    fn stored(into_cell: bool, off: u64) -> Function {
+        let mut f = Function::new("t", Type::I64);
+        let x = f.add_param(Type::Ptr, "x");
+        let other = f.add_param(Type::Ptr, "other");
+        let entry = f.add_block();
+        let cell = f.append_inst(entry, InstKind::Call(ALLOC, Vec::new()), Type::Ptr, None);
+        let base = if into_cell { cell } else { other };
+        f.append_void(entry, InstKind::RcInc(Operand::Value(x)));
+        f.append_void(
+            entry,
+            InstKind::Store(Operand::Value(x), Operand::Value(base), off),
+        );
+        f.append_void(entry, InstKind::RcInc(Operand::Value(cell)));
+        release_in(&mut f, entry, x, BUFFER);
+        f
+    }
+
+    /// entry: retain x → mid: [extra] → last: release x
+    fn chained(extra: Option<InstKind>) -> (Function, BlockId) {
+        let mut f = Function::new("t", Type::I64);
+        let x = f.add_param(Type::Ptr, "x");
+        let entry = f.add_block();
+        let mid = f.add_block();
+        let last = f.add_block();
+        f.append_void(entry, InstKind::RcInc(Operand::Value(x)));
+        f.set_term(entry, Terminator::Br(mid));
+        if let Some(kind) = extra {
+            f.append_void(mid, kind);
+        }
+        f.set_term(mid, Terminator::Br(last));
+        release_in(&mut f, last, x, BUFFER);
+        (f, mid)
     }
 
     fn run(f: &mut Function) -> u32 {
         let buffers: HashSet<u32> = [BUFFER.0].into();
-        elide_obj_pairs(f, crate::optimize::classify_pure, &buffers)
+        elide_obj_pairs(f, crate::optimize::classify_pure, &buffers, Some(ALLOC.0))
     }
 
     #[test]
@@ -333,6 +456,40 @@ mod tests {
     #[test]
     fn an_unknown_call_on_the_still_referenced_path_keeps_both() {
         let (mut f, _) = pair(true, None, OTHER);
+        assert_eq!(run(&mut f), 0);
+    }
+
+    #[test]
+    fn a_store_into_a_minted_instance_and_another_retain_keep_the_window() {
+        let mut f = stored(true, OBJ_FIELDS_OFF + 16);
+        assert_eq!(run(&mut f), 1);
+        assert!(
+            !f.blocks[0].insts.iter().any(
+                |i| matches!(&i.kind, InstKind::RcInc(Operand::Value(v)) if *v == f.params[0])
+            )
+        );
+    }
+
+    #[test]
+    fn a_store_through_an_unknown_pointer_or_into_a_header_keeps_both() {
+        assert_eq!(run(&mut stored(false, OBJ_FIELDS_OFF + 16)), 0);
+        assert_eq!(run(&mut stored(true, 0)), 0);
+    }
+
+    #[test]
+    fn a_retain_up_a_straight_chain_pairs_with_the_release() {
+        let (mut f, _) = chained(None);
+        assert_eq!(run(&mut f), 1);
+        assert!(f.blocks[0].insts.is_empty());
+    }
+
+    #[test]
+    fn a_call_or_a_second_way_in_along_the_chain_keeps_both() {
+        let (mut f, _) = chained(Some(InstKind::Call(OTHER, Vec::new())));
+        assert_eq!(run(&mut f), 0);
+        let (mut f, mid) = chained(None);
+        let side = f.add_block();
+        f.set_term(side, Terminator::Br(mid));
         assert_eq!(run(&mut f), 0);
     }
 }
