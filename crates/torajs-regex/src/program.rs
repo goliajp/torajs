@@ -220,7 +220,9 @@ pub struct Program {
     /// future chunks wire a DFA fast path in
     /// `vm::search_from_with_ws` when this flag is set. Default
     /// `false` keeps the never-match stub (rejected case) safely
-    /// out of any future fast path.
+    /// out of any future fast path. Cleared again by the constructor
+    /// when the eager build comes back poisoned, so no search
+    /// rebuilds a table every consumer discards.
     pub can_dfa: bool,
     /// chunk 7.7 v2 step 12 C2 Phase B-1 attack #J — true iff
     /// `insts` contains any [`Op::Save`]. Set once at compile time by

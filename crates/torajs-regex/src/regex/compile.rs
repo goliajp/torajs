@@ -183,8 +183,17 @@ pub(crate) fn compile_bytes(pat: Vec<u8>, fl: Vec<u8>) -> *mut c_void {
     // interior-mutable cache shapes.
     let dfa_runtime = if rejected == 0 && prog.can_dfa && crate::dfa::prog_ops_dfa_safe(&prog) {
         // RFC 20260711 chunk B — a poisoned build (unserveable
-        // K-PROPERTY shape) is discarded; the Pike VM serves.
-        Some(crate::dfa::build_dfa(&prog, flag_bits)).filter(|d| !d.poisoned)
+        // K-PROPERTY shape) is discarded; the Pike VM serves. Poison
+        // is a property of the program, so the gate is closed here
+        // for good: `resolve_dfa` used to rebuild (and re-discard)
+        // the table on every search of such a RegExp.
+        let dfa = crate::dfa::build_dfa(&prog, flag_bits);
+        if dfa.poisoned {
+            prog.can_dfa = false;
+            None
+        } else {
+            Some(dfa)
+        }
     } else {
         None
     };
