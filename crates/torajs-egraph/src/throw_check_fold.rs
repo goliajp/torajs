@@ -37,8 +37,8 @@
 use std::collections::{HashMap, HashSet};
 
 use torajs_core::ssa::{
-    BlockId, Function, IPred, InstKind, Module, Operand, THROW_ACTIVE_SYM, Terminator, Type,
-    ValueId, visit_value_operands,
+    BlockId, FuncId, Function, IPred, InstKind, Module, Operand, THROW_ACTIVE_SYM, Terminator,
+    Type, ValueId, visit_value_operands,
 };
 
 use crate::branch_fold::sweep_unreachable_blocks;
@@ -68,8 +68,9 @@ pub(crate) fn run(module: &mut Module) {
 
 pub fn fold_throw_checks(module: &mut Module) -> ThrowCheckFoldStats {
     let mut stats = ThrowCheckFoldStats::default();
+    let nothrow = &module.nothrow_fns;
     for func in module.funcs.iter_mut() {
-        fold_in_function(func, &mut stats);
+        fold_in_function(func, nothrow, &mut stats);
     }
     stats
 }
@@ -83,16 +84,24 @@ pub(crate) struct Probe {
     pub(crate) else_blk: BlockId,
 }
 
-fn fold_in_function(func: &mut Function, stats: &mut ThrowCheckFoldStats) {
-    fold_known_zero(func, stats);
-    let guarded = guard_loop_entries(func);
+fn fold_in_function(
+    func: &mut Function,
+    nothrow: &HashSet<FuncId>,
+    stats: &mut ThrowCheckFoldStats,
+) {
+    fold_known_zero(func, nothrow, stats);
+    let guarded = guard_loop_entries(func, nothrow);
     if guarded > 0 {
         stats.loop_entry_probes += guarded;
-        fold_known_zero(func, stats);
+        fold_known_zero(func, nothrow, stats);
     }
 }
 
-fn fold_known_zero(func: &mut Function, stats: &mut ThrowCheckFoldStats) {
+fn fold_known_zero(
+    func: &mut Function,
+    nothrow: &HashSet<FuncId>,
+    stats: &mut ThrowCheckFoldStats,
+) {
     let probes: HashMap<usize, Probe> = (0..func.blocks.len())
         .filter_map(|b| probe_of(func, b).map(|p| (b, p)))
         .collect();
@@ -100,11 +109,11 @@ fn fold_known_zero(func: &mut Function, stats: &mut ThrowCheckFoldStats) {
         return;
     }
     stats.probes += probes.len() as u32;
-    let known_zero = known_zero_on_entry(func, &probes);
+    let known_zero = known_zero_on_entry(func, &probes, nothrow);
     let mut folded_values: Vec<ValueId> = Vec::new();
     for (&b, probe) in &probes {
         let insts = &func.blocks[b].insts[..probe.load];
-        if known_zero[b] && !insts.iter().any(|i| is_clobber(&i.kind)) {
+        if known_zero[b] && !insts.iter().any(|i| moves_flag(&i.kind, nothrow)) {
             func.blocks[b].term = Terminator::Br(probe.else_blk);
             folded_values.extend(probe.values);
             stats.folded += 1;
@@ -134,7 +143,7 @@ fn fold_known_zero(func: &mut Function, stats: &mut ThrowCheckFoldStats) {
 /// `dst.push(src[i])` probes after the read, stores after that). A
 /// loop that runs zero times now probes once; that can differ only if
 /// the flag was already set on entry, which no caller allows.
-fn guard_loop_entries(func: &mut Function) -> u32 {
+fn guard_loop_entries(func: &mut Function, nothrow: &HashSet<FuncId>) -> u32 {
     let mut guarded: HashSet<BlockId> = HashSet::new();
     loop {
         let dom = DominatorTree::compute(func);
@@ -143,7 +152,7 @@ fn guard_loop_entries(func: &mut Function) -> u32 {
             if guarded.contains(&lp.header) || lp.header.0 == 0 {
                 return None;
             }
-            guardable_probe(func, lp, &dom).map(|then_blk| (lp.clone(), then_blk))
+            guardable_probe(func, lp, &dom, nothrow).map(|then_blk| (lp.clone(), then_blk))
         });
         let Some((lp, then_blk)) = next else {
             return guarded.len() as u32;
@@ -154,7 +163,12 @@ fn guard_loop_entries(func: &mut Function) -> u32 {
 }
 
 /// The propagate block of `lp`'s only probe, when the loop qualifies.
-fn guardable_probe(func: &Function, lp: &NaturalLoop, dom: &DominatorTree) -> Option<BlockId> {
+fn guardable_probe(
+    func: &Function,
+    lp: &NaturalLoop,
+    dom: &DominatorTree,
+    nothrow: &HashSet<FuncId>,
+) -> Option<BlockId> {
     let body: HashSet<usize> = lp.body.iter().map(|b| b.0 as usize).collect();
     let mut probes = body
         .iter()
@@ -172,7 +186,7 @@ fn guardable_probe(func: &Function, lp: &NaturalLoop, dom: &DominatorTree) -> Op
     };
     for &b in &body {
         let insts = &func.blocks[b].insts;
-        if insts.iter().any(|i| is_clobber(&i.kind)) {
+        if insts.iter().any(|i| moves_flag(&i.kind, nothrow)) {
             return None;
         }
         let id = func.blocks[b].id;
@@ -342,17 +356,34 @@ pub(crate) fn is_clobber(kind: &InstKind) -> bool {
     )
 }
 
+/// [`is_clobber`], seeing through a direct call to a function the
+/// lowering vouched never sets the flag (`Module::nothrow_fns`).
+fn moves_flag(kind: &InstKind, nothrow: &HashSet<FuncId>) -> bool {
+    match kind {
+        InstKind::Call(fid, _) => !nothrow.contains(fid),
+        _ => is_clobber(kind),
+    }
+}
+
 /// Per block: is the flag known to be zero when control enters it?
 /// Optimistic start (every block but the entry known zero), lowered to
 /// the greatest fixpoint.
-fn known_zero_on_entry(func: &Function, probes: &HashMap<usize, Probe>) -> Vec<bool> {
+fn known_zero_on_entry(
+    func: &Function,
+    probes: &HashMap<usize, Probe>,
+    nothrow: &HashSet<FuncId>,
+) -> Vec<bool> {
     let n = func.blocks.len();
     let mut known = vec![true; n];
     known[0] = false;
     loop {
         let mut changed = false;
         for b in 0..n {
-            let at_end = known[b] && !func.blocks[b].insts.iter().any(|i| is_clobber(&i.kind));
+            let at_end = known[b]
+                && !func.blocks[b]
+                    .insts
+                    .iter()
+                    .any(|i| moves_flag(&i.kind, nothrow));
             for (succ, zero) in out_edges(&func.blocks[b].term, at_end, probes.get(&b)) {
                 let s = succ.0 as usize;
                 if known[s] && !zero {
@@ -421,7 +452,6 @@ pub(crate) fn remove_unused(func: &mut Function, candidates: &[ValueId]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use torajs_core::ssa::FuncId;
 
     /// Append a flag probe to `b` branching to `(then_blk, else_blk)`.
     fn probe(f: &mut Function, b: BlockId, then_blk: BlockId, else_blk: BlockId) {
@@ -458,8 +488,12 @@ mod tests {
     }
 
     fn run(f: &mut Function) -> ThrowCheckFoldStats {
+        run_with(f, &HashSet::new())
+    }
+
+    fn run_with(f: &mut Function, nothrow: &HashSet<FuncId>) -> ThrowCheckFoldStats {
         let mut stats = ThrowCheckFoldStats::default();
-        fold_in_function(f, &mut stats);
+        fold_in_function(f, nothrow, &mut stats);
         stats
     }
 
@@ -481,6 +515,15 @@ mod tests {
         f.set_term(throw1, Terminator::Ret(Some(Operand::ConstI64(0))));
         f.set_term(exit, Terminator::Ret(Some(Operand::ConstI64(1))));
         f
+    }
+
+    #[test]
+    fn a_call_the_lowering_vouched_for_keeps_the_flag_known() {
+        let mut f = two_probes(true);
+        assert_eq!(run(&mut f).folded, 0);
+        let mut f = two_probes(true);
+        let stats = run_with(&mut f, &HashSet::from([FuncId(0)]));
+        assert_eq!(stats.folded, 1);
     }
 
     #[test]
