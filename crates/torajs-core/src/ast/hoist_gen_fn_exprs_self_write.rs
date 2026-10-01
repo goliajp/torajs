@@ -17,7 +17,8 @@
 //!
 //! A nested function or arrow that rebinds the name (param, var,
 //! let, function) owns the writes inside it; a block that declares
-//! the name owns the writes inside it. Those are left alone.
+//! the name, and a `for` whose head does, owns the writes inside it.
+//! Those are left alone.
 
 use super::desugar_with::walk::{expr_children, stmt_children_ref, stmt_exprs};
 use super::free_vars_hoisted_names::hoist_var_names;
@@ -106,6 +107,9 @@ fn collect_stmt_fns_only(ast: &Ast, s: &Stmt, sn: &str, out: &mut Vec<Site>) {
         Stmt::ForOf { var_name, .. } | Stmt::ForOfSplitIter { var_name, .. } if var_name == sn => {
             return;
         }
+        Stmt::For {
+            init: Some(init), ..
+        } if for_head_declares(init, sn) => return,
         Stmt::Try {
             catch_param: Some(c),
             ..
@@ -145,6 +149,16 @@ fn list_declares(list: &[Stmt], sn: &str) -> bool {
         })
 }
 
+/// §14.7.4.2 — a `for` head's declaration scopes the test, the step
+/// and the body: `for (let i = 0; …; i = i + 1)` steps its own `i`.
+fn for_head_declares(init: &Stmt, sn: &str) -> bool {
+    match init {
+        Stmt::LetDecl { name, .. } => name == sn,
+        Stmt::Block(list) | Stmt::Multi(list) => list.iter().any(|s| for_head_declares(s, sn)),
+        _ => false,
+    }
+}
+
 fn rebinds(params: &[Param], body: &[Stmt], sn: &str) -> bool {
     params.iter().any(|p| p.name == sn) || list_declares(body, sn)
 }
@@ -168,6 +182,9 @@ fn collect_stmt(ast: &Ast, s: &Stmt, sn: &str, out: &mut Vec<Site>) {
         Stmt::ForOf { var_name, .. } | Stmt::ForOfSplitIter { var_name, .. } if var_name == sn => {
             return;
         }
+        Stmt::For {
+            init: Some(init), ..
+        } if for_head_declares(init, sn) => return,
         Stmt::Try {
             catch_param: Some(c),
             ..
