@@ -14,9 +14,10 @@
 #   IS the git HEAD, not a downloaded toolchain.
 # - The runner key matches `Runner.name` from bench/runners/<name>.toml.
 #
-# Last review: 2026-09-30 (deno 2.9.7 joins; 2026-09-29: rust floor 1.98.1 and the channel check: every
-# earlier rust ratio was recorded against a pinned July nightly; node
-# 26.10.0 and go 1.27.1 from the same review).
+# Last review: 2026-10-02 (rust floor 1.99.0, the stable released on
+# 2026-09-28; 2026-09-30: deno 2.9.7 joins; 2026-09-29: rust floor 1.98.1
+# and the channel check: every earlier rust ratio was recorded against a
+# pinned July nightly; node 26.10.0 and go 1.27.1 from the same review).
 
 [runners.node-v8]
 floor = "26.10.0"
@@ -43,7 +44,7 @@ floor = "1.27.1"
 hint  = "brew upgrade go  (or `asdf install golang latest && asdf global golang latest`)"
 
 [runners.rust]
-floor = "1.98.1"
+floor = "1.99.0"
 hint  = "rustup update stable"
 
 [runners.c]
