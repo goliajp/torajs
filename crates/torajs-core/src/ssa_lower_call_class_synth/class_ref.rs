@@ -45,11 +45,12 @@ pub(super) fn try_lower_my_class_ref(ctx: &mut LowerCtx<'_>, args: &[ExprId]) ->
         );
         return Some(Operand::Value(v));
     }
-    // No tag (or nobody reads new.target) → the ANY_UNDEF Any-box.
-    let any_box = ctx.intrinsics.any_box;
+    // No tag (or nobody reads new.target) → the ANY_UNDEF box, encoded
+    // in place: a call here ran once per `new`, and after the ctor
+    // inlined it was also what kept the probe behind it from folding.
     let v = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(any_box, vec![Operand::ConstI64(5), Operand::ConstI64(0)]),
+        InstKind::BoxAny(5, Operand::ConstI64(0)),
         Type::Any,
         None,
     );
