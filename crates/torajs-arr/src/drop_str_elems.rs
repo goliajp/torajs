@@ -23,11 +23,14 @@
 
 use core::ffi::c_void;
 
-use torajs_rc::{ARR_KIND_UNSET, FLAG_SPLIT_BLOCK, FLAG_STATIC_LITERAL, HeapHeader};
+use torajs_rc::{
+    ARR_KIND_UNSET, DropPolicy, FLAG_ARR_ANY, FLAG_SPLIT_BLOCK, FLAG_STATIC_LITERAL,
+    FLAG_SUBCLASSED, HeapHeader,
+};
 use torajs_str::substr::{FLAG_SUBSTR_INLINE, FLAG_SUBSTR_VIEW, SUBSTR_PARENT_OFF};
 
 use crate::drop::__torajs_arr_drop;
-use crate::layout::{ARR_CAP_OFF, arr_data, arr_live_extent};
+use crate::layout::{ARR_CAP_OFF, ARR_PROPS_OFF, arr_data, arr_live_extent};
 
 unsafe extern "C" {
     /// The definition of correct for a single element; this module
@@ -107,6 +110,17 @@ unsafe fn pristine_split_block(header: &HeapHeader, first: *mut u8) -> bool {
 /// keeps the per-slot release, which is what hands its references
 /// back.
 ///
+/// A shared block (`refcount > 1`) is acyclic by its element type: a
+/// string holds no references and a view points only at its parent
+/// string, so the slots cannot lead back to the array. The cycle
+/// collector's own array predicate agrees — it enumerates such a
+/// block only through the props bag. The release therefore skips the
+/// root buffer unless the cell has a bag or a subclass envelope, or
+/// has crossed into `any` (its slots are then whatever the any world
+/// stored). Every other shared release of a `string[]` used to buffer
+/// the block as a cycle candidate and unbuffer it on the final drop,
+/// and every 1024th one ran a collection.
+///
 /// # Safety
 ///
 /// `p` is null or a live array cell whose slots hold `Str`-tagged
@@ -119,6 +133,14 @@ pub unsafe extern "C" fn __torajs_arr_drop_str_elems(p: *mut c_void) {
     let cell = p as *mut u8;
     // SAFETY: caller contract — live array cell, universal header @0.
     let header = unsafe { &*(cell as *const HeapHeader) };
+    if header.refcount != 1
+        && header.flags & (FLAG_STATIC_LITERAL | FLAG_ARR_ANY | FLAG_SUBCLASSED) == 0
+        && unsafe { *(cell.add(ARR_PROPS_OFF) as *const *mut c_void) }.is_null()
+    {
+        let policy = unsafe { (*(cell as *mut HeapHeader)).dec_ref() };
+        debug_assert!(matches!(policy, DropPolicy::Keep));
+        return;
+    }
     if header.refcount == 1 {
         let extent = unsafe { arr_live_extent(cell) };
         if extent != 0 {
