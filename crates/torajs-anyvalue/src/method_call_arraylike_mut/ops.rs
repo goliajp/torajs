@@ -188,19 +188,28 @@ pub(crate) unsafe fn arr_needs_index_mop(arr: *const c_void) -> bool {
     flags & torajs_rc::FLAG_ARR_EXOTIC_INDEX != 0 || flags & HOLEY == HOLEY
 }
 
-/// `__torajs_arr_sort_exotic(arr, cmp)` — `Array.prototype.sort` over
-/// an Array cell that carries a hole shadow or an accessor index
-/// (`FLAG_ARR_EXOTIC_INDEX`). §23.1.3.30 SortIndexedProperties reads
-/// every index through `HasProperty` / `Get` and writes back through
-/// `Set` / `DeletePropertyOrThrow`, which is exactly [`do_sort`]; the
-/// raw-slot merge sort cannot answer it (a hole's shadow stays where
-/// it was, and an accessor never runs). Answers the receiver +1, or
-/// undefined with a pending throw.
+/// `Array.prototype.sort` over an Array cell that carries a hole
+/// (shadow or slot) or an accessor index. §23.1.3.30
+/// SortIndexedProperties reads every index through `HasProperty` /
+/// `Get` and writes back through `Set` / `DeletePropertyOrThrow`,
+/// which is exactly [`do_sort`]; the raw-slot merge sort cannot
+/// answer it (a hole's shadow stays where it was, and an accessor
+/// never runs). Answers the receiver +1, or undefined with a pending
+/// throw.
+///
+/// The typed sort lane reaches this through the
+/// `__torajs_arr_sort_exotic` seam (default in `torajs-dispatch`),
+/// which the link judgment stubs when no writer of
+/// `FLAG_ARR_EXOTIC_INDEX` / `FLAG_ARR_ANY_HOLEY` is live; the any
+/// lane's own sort calls the impl directly.
 ///
 /// # Safety
 /// `arr` is a live `Tag::Arr` cell; `cmp` is borrowed.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_arr_sort_exotic(arr: *mut c_void, cmp: AnyValue) -> AnyValue {
+pub unsafe extern "C" fn __torajs_arr_sort_exotic_impl(
+    arr: *mut c_void,
+    cmp: AnyValue,
+) -> AnyValue {
     unsafe {
         if (*(arr as *const torajs_rc::HeapHeader)).flags & torajs_rc::FLAG_ARR_ANY == 0 {
             return sort_typed_holes(arr, cmp);

@@ -430,8 +430,8 @@ unsafe fn arr_method_callback(
             // A hole shadow or an accessor index needs the per-index
             // Has / Get / Set / Delete walk; the kernel permutes raw slots.
             if crate::method_call_arraylike_mut::ops::arr_needs_index_mop(arr) {
-                use crate::method_call_arraylike_mut::ops::__torajs_arr_sort_exotic;
-                return Some(__torajs_arr_sort_exotic(arr, arg_at(0)));
+                use crate::method_call_arraylike_mut::ops::__torajs_arr_sort_exotic_impl;
+                return Some(__torajs_arr_sort_exotic_impl(arr, arg_at(0)));
             }
             // §23.1.3.30 step 1 — an undefined comparator is the
             // ToString default; a present non-callable throws.

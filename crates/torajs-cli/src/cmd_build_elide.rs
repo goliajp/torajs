@@ -48,6 +48,15 @@
 //! silent answer: a writer added later without routing through the
 //! entries would surface as a named TypeError under the gate.
 //!
+//! **Typed sort's exotic divert** — the typed `sort(cb)` lane
+//! branches to the any-world SortIndexedProperties walk
+//! (`__torajs_arr_sort_exotic`, default in torajs-dispatch) when the
+//! receiver carries FLAG_ARR_EXOTIC_INDEX or FLAG_ARR_ANY |
+//! FLAG_ARR_ANY_HOLEY, and that one branch links 840 KB into a
+//! `number[]` sort. Each bit has one `#[inline(never)]` writer in
+//! torajs-arr (`__torajs_arr_flag_exotic`, `__torajs_arr_flag_any_
+//! holey`), so the pair's text liveness is the guard (fam 51).
+//!
 //! **Uncaught reporter's Error rendering** (r501, 刀 4 A6) — the
 //! name / prototype-chain resolver is the reporter's only edge into
 //! the generic value world; a program that injected no error class
@@ -121,7 +130,7 @@ const SITES: [(&str, &str, &[&str], u32); 3] = [
 /// entries whose text liveness un-assumes the stub, landing-pad fam
 /// id). The join seam's enabler is the exotic-flag writer; the
 /// species probe's enablers are the two props-bag creators.
-const SYMBOL_STUBS: [(&str, &[&str], u32); 9] = [
+const SYMBOL_STUBS: [(&str, &[&str], u32); 10] = [
     (
         "___torajs_arr_join_exotic",
         &["___torajs_arr_flag_exotic"],
@@ -192,6 +201,15 @@ const SYMBOL_STUBS: [(&str, &[&str], u32); 9] = [
         "___torajs_obj_check_field_writable",
         &["___torajs_obj_freeze", "___torajs_obj_flag_exotic_field"],
         50,
+    ),
+    // the typed sort lane's exotic divert: taken only under
+    // FLAG_ARR_EXOTIC_INDEX (`__torajs_arr_flag_exotic` alone) or
+    // FLAG_ARR_ANY | FLAG_ARR_ANY_HOLEY (`__torajs_arr_flag_any_holey`
+    // alone); the kernel behind it is the whole any-world sort walk.
+    (
+        "___torajs_arr_sort_exotic",
+        &["___torajs_arr_flag_exotic", "___torajs_arr_flag_any_holey"],
+        51,
     ),
 ];
 
@@ -432,7 +450,17 @@ mod tests {
     #[test]
     fn exotic_slow_path_stubs_are_symbol_guarded_loud_rejects() {
         let stubs = guarded_stubs();
-        assert_eq!(stubs.len(), 10);
+        assert_eq!(stubs.len(), 11);
+        let sort = &stubs[10];
+        assert_eq!(sort.sym, "___torajs_arr_sort_exotic");
+        assert_eq!(
+            sort.guard.to_string(),
+            "syms:___torajs_arr_flag_exotic|___torajs_arr_flag_any_holey"
+        );
+        assert_eq!(
+            &sort.bytes[..4],
+            &(0xD280_0000u32 | (51 << 5) | 7).to_le_bytes()
+        );
         let guard = &stubs[9];
         assert_eq!(guard.sym, "___torajs_obj_check_field_writable");
         assert_eq!(

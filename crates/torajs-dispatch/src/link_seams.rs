@@ -24,6 +24,27 @@ unsafe extern "C" {
     fn __torajs_uncaught_error_render_impl(p: *const u8);
     fn __torajs_anyv_rc_dec(v: u64);
     fn __torajs_obj_check_field_writable_impl(p: *const u8, name: *const u8);
+    fn __torajs_arr_sort_exotic_impl(arr: *mut core::ffi::c_void, cmp: u64) -> u64;
+}
+
+/// Default resolution of the typed sort lane's exotic divert: the
+/// §23.1.3.30 SortIndexedProperties walk in torajs-anyvalue for a
+/// receiver carrying a hole or an accessor index. The link judgment
+/// stubs it (fam 51) when neither `__torajs_arr_flag_exotic` nor
+/// `__torajs_arr_flag_any_holey` has live text — no array in the
+/// artifact can take the divert.
+///
+/// The kernel answers the receiver +1 (the any lane's method result);
+/// the typed caller still holds its own reference, so that stake is
+/// released here rather than in the user `.o`, whose generic any
+/// drop would root the cycle and weak worlds in every sorting
+/// program.
+///
+/// # Safety
+/// `arr` is a live `Tag::Arr` cell; `cmp` is a borrowed AnyValue.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_sort_exotic(arr: *mut core::ffi::c_void, cmp: u64) {
+    unsafe { __torajs_anyv_rc_dec(__torajs_arr_sort_exotic_impl(arr, cmp)) }
 }
 
 /// Default resolution of the typed field-write guard (r503): the

@@ -239,20 +239,19 @@ pub(super) fn emit_exotic_divert(
             );
             Operand::Value(v)
         });
-    let r = ctx.f.append_inst(
+    // The seam's default releases the kernel's +1 on the receiver
+    // itself (a generic any drop here would root the cycle and weak
+    // worlds in every sorting program); the caller mints its own
+    // chaining stake. The comparator's box is a pure encoding
+    // (`box_to_any` moves no stake), so it is not released here —
+    // `release_cmp_temp` owns the comparator's.
+    ctx.f.append_void(
         ctx.cur_block,
         InstKind::Call(
             ctx.intrinsics.arr_sort_exotic,
             vec![Operand::Value(arr_ptr), cmp_arg],
         ),
-        Type::Any,
-        None,
     );
-    // The kernel answers the receiver +1 (or undefined after a throw);
-    // the caller mints its own chaining stake. The comparator's box is
-    // a pure encoding (`box_to_any` moves no stake), so it is not
-    // released here — `release_cmp_temp` owns the comparator's.
-    ctx.emit_drop_value(Operand::Value(r), Type::Any);
     ctx.emit_throw_check(None);
     ctx.f.set_term(ctx.cur_block, Terminator::Br(join));
     ctx.cur_block = fast;

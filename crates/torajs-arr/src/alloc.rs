@@ -292,7 +292,7 @@ pub unsafe extern "C" fn __torajs_arr_alloc_any_holes(n: u64) -> *mut u8 {
         let p = calloc(1, ARR_CELL_SIZE + (n as usize) * ANY_SLOT_BYTES) as *mut u8;
         write_header_any(p, n, n as u32);
         if n > 0 {
-            (*(p as *mut HeapHeader)).flags |= torajs_rc::FLAG_ARR_ANY_HOLEY;
+            crate::exotic_seam::__torajs_arr_flag_any_holey(p as *mut c_void);
         }
         p
     }

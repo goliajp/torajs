@@ -193,7 +193,7 @@ pub unsafe extern "C" fn __torajs_arr_mark_last_hole(arr: *mut c_void) {
         unsafe {
             let p = arr.cast::<u8>();
             *(crate::layout::arr_data(p).add(idx as usize * 8) as *mut u64) = 0;
-            (*(p as *mut torajs_rc::HeapHeader)).flags |= torajs_rc::FLAG_ARR_ANY_HOLEY;
+            crate::exotic_seam::__torajs_arr_flag_any_holey(arr);
         }
         return;
     }

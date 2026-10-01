@@ -385,7 +385,9 @@ pub unsafe extern "C" fn __torajs_arr_any_splice(
             *(p.add(ARR_LEN_OFF) as *mut u64) = actual_delete as u64;
             // A transferred slot hole stays a hole (§23.1.3.31 step 11
             // copies only present indices), so the product can hold one.
-            *(p.add(6) as *mut u16) |= header.flags & torajs_rc::FLAG_ARR_ANY_HOLEY;
+            if header.flags & torajs_rc::FLAG_ARR_ANY_HOLEY != 0 {
+                crate::exotic_seam::__torajs_arr_flag_any_holey(p as *mut c_void);
+            }
             p
         } else {
             let p = crate::slice::arr_alloc_fresh(actual_delete as u64, actual_delete as u64);

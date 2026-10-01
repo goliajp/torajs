@@ -255,7 +255,7 @@ unsafe fn any_slice(arr: *const u8, start: i64, end: i64, holes: Holes) -> *mut 
                         == 0
                 {
                     *(arr_data(p).add(i * ANY_SLOT_BYTES) as *mut u64) = 0;
-                    (*(p as *mut HeapHeader)).flags |= torajs_rc::FLAG_ARR_ANY_HOLEY;
+                    crate::exotic_seam::__torajs_arr_flag_any_holey(p as *mut c_void);
                     continue;
                 }
                 let av = if exotic {

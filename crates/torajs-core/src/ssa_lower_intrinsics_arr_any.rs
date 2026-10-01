@@ -164,8 +164,9 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         // stays one flag test).
         arr_has_index: decl!("__torajs_arr_has_index", [Ptr, I64], I64),
         // §23.1.3.30 SortIndexedProperties over a receiver with a hole
-        // shadow or an accessor index (HasProperty / Get / Set / Delete).
-        arr_sort_exotic: decl!("__torajs_arr_sort_exotic", [Ptr, Any], Any),
+        // shadow or an accessor index (HasProperty / Get / Set / Delete);
+        // a link-judged seam whose default releases the kernel's +1.
+        arr_sort_exotic: decl!("__torajs_arr_sort_exotic", [Ptr, Any], Void),
         // concat's seed: the receiver as item 0 of §23.1.3.1 step 5.
         arr_any_concat: decl!("__torajs_arr_any_concat", [Ptr, Ptr, I64], Ptr),
         // reduce's seed: the first present index (§23.1.3.24 step 8).

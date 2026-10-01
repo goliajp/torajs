@@ -41,7 +41,7 @@
 
 use core::ffi::c_void;
 
-use torajs_rc::FLAG_ARR_EXOTIC_INDEX;
+use torajs_rc::{FLAG_ARR_ANY_HOLEY, FLAG_ARR_EXOTIC_INDEX};
 
 unsafe extern "C" {
     fn __torajs_dynobj_alloc() -> *mut c_void;
@@ -116,6 +116,25 @@ pub(crate) unsafe fn __torajs_arr_drop_subclass_slow(arr: *mut c_void) {
 pub unsafe extern "C" fn __torajs_arr_flag_exotic(arr: *mut c_void) {
     let p = unsafe { (arr as *mut u8).add(6) as *mut u16 };
     unsafe { p.write(p.read() | FLAG_ARR_EXOTIC_INDEX) };
+}
+
+/// Raise the header's slot-hole bit on an Any cell. The ONE writer of
+/// `FLAG_ARR_ANY_HOLEY` — the `new Array(n)` mint, the last-index
+/// hole mark, and the slice / splice products that carry a source
+/// hole all come through here (a header-bits copy such as
+/// `layout::copy_elem_desc_bits` only propagates a bit this entry
+/// raised). Together with [`__torajs_arr_flag_exotic`] it is the
+/// whole enabler set of `layout::needs_index_mop`, so the two
+/// entries' text liveness is the link-time evidence for the typed
+/// sort kernel's exotic divert (`__torajs_arr_sort_exotic`).
+///
+/// # Safety
+/// `arr` is a live `FLAG_ARR_ANY` `Tag::Arr` heap block.
+#[inline(never)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_flag_any_holey(arr: *mut c_void) {
+    let p = unsafe { (arr as *mut u8).add(6) as *mut u16 };
+    unsafe { p.write(p.read() | FLAG_ARR_ANY_HOLEY) };
 }
 
 /// The array's props slot, with the bag allocated on first use. The
