@@ -23,7 +23,6 @@ use torajs_rc::{FLAG_ARR_ARGUMENTS, arr_flags_are_arguments};
 use crate::define::{header_flags, props_slot};
 
 unsafe extern "C" {
-    fn __torajs_dynobj_alloc() -> *mut c_void;
     fn __torajs_dynobj_has(dynobj: *const c_void, key: *const c_void) -> i32;
     /// torajs-dynobj — HOLE sentinel upsert / probe (chunk C). The
     /// upsert is a no-op on a NULL bag — the delete below allocates
@@ -173,10 +172,12 @@ pub unsafe extern "C" fn __torajs_arr_arguments_length_set(
             // and refuses a non-writable one.
             _ => P_VALUE,
         };
-        let slot = props_slot(arr);
-        if (*slot).is_null() {
-            *slot = __torajs_dynobj_alloc();
-        } else if flags_byte & F_ENUMERABLE != 0 {
+        // the bag comes from the one attach entry the link guard
+        // lists as a props-bag creator; a direct alloc here left a
+        // program whose only bag was this one with the bag seams
+        // stubbed out
+        let slot = crate::exotic_seam::__torajs_arr_props_attach(arr);
+        if flags_byte & F_ENUMERABLE != 0 {
             // State 2: the tombstone is an absence, not an entry the
             // fresh create should merge with.
             __torajs_dynobj_delete(*slot, key as *const c_void);
@@ -261,10 +262,7 @@ pub unsafe extern "C" fn __torajs_arr_arguments_length_delete(
         if !arr_flags_are_arguments(header_flags(arr as *const c_void)) {
             return 0;
         }
-        let slot = props_slot(arr);
-        if (*slot).is_null() {
-            *slot = __torajs_dynobj_alloc();
-        }
+        let slot = crate::exotic_seam::__torajs_arr_props_attach(arr);
         __torajs_dynobj_set_entry_hole(slot, key);
         1
     }
