@@ -142,17 +142,6 @@ pub extern "C" fn __torajs_str_is_undef(p: *const u8) -> i64 {
     (is_undef(p) || is_substr_undef(p)) as i64
 }
 
-/// `p == null || p == undefined` for a Str- or Substr-typed value —
-/// the loose-eq `s == null` / `s == undefined` runtime probe
-/// (§7.2.13 steps 2-3: nullish loose-equals nullish only) and the
-/// ToBoolean falsy pre-probe. One probe covers both reprs: a Str
-/// slot holds NULL or the Str cell, a Substr slot holds the Substr
-/// cell.
-#[unsafe(no_mangle)]
-pub extern "C" fn __torajs_str_is_nullish(p: *const u8) -> i64 {
-    (p.is_null() || is_undef(p) || is_substr_undef(p)) as i64
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -171,14 +160,6 @@ mod tests {
         assert!(is_undef(undef_ptr()));
         let other = *b"undefined";
         assert!(!is_undef(other.as_ptr()));
-    }
-
-    #[test]
-    fn nullish_probe_covers_both() {
-        assert_eq!(__torajs_str_is_nullish(core::ptr::null()), 1);
-        assert_eq!(__torajs_str_is_nullish(undef_ptr()), 1);
-        let x: u64 = 0;
-        assert_eq!(__torajs_str_is_nullish(&x as *const u64 as *const u8), 0);
     }
 
     #[test]
@@ -228,11 +209,6 @@ mod tests {
         };
         assert!(is_substr_undef(substr_undef_ptr()));
         assert_eq!(__TORAJS_SUBSTR_UNDEF_CELL.length, 9);
-    }
-
-    #[test]
-    fn nullish_probe_covers_substr_sentinel() {
-        assert_eq!(__torajs_str_is_nullish(substr_undef_ptr()), 1);
     }
 
     #[test]

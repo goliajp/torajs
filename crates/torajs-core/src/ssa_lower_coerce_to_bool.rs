@@ -38,14 +38,9 @@ impl LowerCtx<'_> {
                 // undefined sentinel cell (missed exec/match capture,
                 // RFC 20260707 chunk 2 — its payload is "undefined"
                 // so the len>0 walk would wrongly answer true); the
-                // runtime nullish probe covers both before the
-                // length load.
-                let is_null = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Call(self.intrinsics.str_is_nullish, vec![op.clone()]),
-                    Type::Bool,
-                    None,
-                );
+                // inline nullish test covers both before the length
+                // load.
+                let is_null = self.str_is_nullish(op.clone());
                 let null_blk = self.f.add_block();
                 let nn_blk = self.f.add_block();
                 let merge = self.f.add_block();
@@ -54,7 +49,7 @@ impl LowerCtx<'_> {
                 self.f.set_term(
                     cb,
                     Terminator::CondBr {
-                        cond: Operand::Value(is_null),
+                        cond: is_null,
                         then_blk: null_blk,
                         else_blk: nn_blk,
                     },

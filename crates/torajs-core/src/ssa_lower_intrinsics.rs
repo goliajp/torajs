@@ -180,7 +180,6 @@ pub(crate) struct Intrinsics {
     /// per ES §22.1.4 (index chars enumerable, `length` NOT).
     pub(crate) str_prop_enumerable: FuncId,
     pub(crate) str_null_check: FuncId,
-    pub(crate) str_is_nullish: FuncId,
     pub(crate) str_is_undef: FuncId,
     pub(crate) is_undef_cell: FuncId,
     pub(crate) heap_nullish_check: FuncId,

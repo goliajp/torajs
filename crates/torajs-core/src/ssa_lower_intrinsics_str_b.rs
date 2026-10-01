@@ -64,7 +64,6 @@ pub(crate) struct StrBIds {
     /// per §22.1.5.1 so this returns 0 for it (unlike `str_prop_has`).
     pub str_prop_enumerable: FuncId,
     pub str_null_check: FuncId,
-    pub str_is_nullish: FuncId,
     pub str_is_undef: FuncId,
     pub is_undef_cell: FuncId,
     /// RFC 20260722-find-miss chunk B — nullish guard for pointer-
@@ -195,13 +194,6 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_str_null_check",
             &[Type::Ptr],
             Type::Void,
-        ),
-        str_is_nullish: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_str_is_nullish",
-            &[Type::Str],
-            Type::Bool,
         ),
         // Undefined-ONLY probe (either sentinel repr; NULL answers
         // false) — the JSON object key-skip lane (§25.5.2.4 8.b).

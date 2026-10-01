@@ -203,6 +203,34 @@ impl<'a> LowerCtx<'a> {
         );
         Some(Operand::Value(v))
     }
+
+    /// `v == null || v == undefined` for a Str- or Substr-typed value
+    /// (§7.2.13 steps 2-3; the ToBoolean falsy pre-probe), inline: NULL,
+    /// then the two immortal sentinel addresses (RFC 20260707), each an
+    /// ADRP+ADD and a compare. Both sentinels are tested whatever the
+    /// slot's static type: a Str slot holds NULL or the Str cell, a
+    /// Substr slot the Substr view, and the probe this replaces
+    /// (`__torajs_str_is_nullish`) answered both for either.
+    pub(crate) fn str_is_nullish(&mut self, v: Operand) -> Operand {
+        let ty = self.operand_ty(&v);
+        let mut acc = self.cmp(IPred::Eq, v.clone(), Operand::ConstPtrNull);
+        for sym in [STR_UNDEF_CELL_SYM, SUBSTR_UNDEF_CELL_SYM] {
+            let cell = self.f.append_inst(
+                self.cur_block,
+                InstKind::GlobalRef(sym.to_string()),
+                ty,
+                None,
+            );
+            let is_cell = self.cmp(IPred::Eq, v.clone(), Operand::Value(cell));
+            acc = Operand::Value(self.f.append_inst(
+                self.cur_block,
+                InstKind::BinOp(SsaBinOp::Or, acc, is_cell),
+                Type::Bool,
+                None,
+            ));
+        }
+        acc
+    }
 }
 
 pub(crate) fn try_lower(

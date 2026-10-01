@@ -110,26 +110,20 @@ pub(crate) fn try_lower(
         // sentinel cell (missed exec/match capture); a Substr slot
         // has the Substr-shaped sentinel (string index OOB read).
         // `s == null` / `s == undefined` is true for all of them
-        // (§7.2.13 steps 2-3) — probe via the runtime
-        // `str_is_nullish` (ptr==0 || either sentinel address).
+        // (§7.2.13 steps 2-3): ptr==0 || either sentinel address,
+        // inline.
         if matches!(ptr_ty, Type::Str | Type::Substr) {
-            let cur_block = ctx.cur_block;
-            let v = ctx.f.append_inst(
-                cur_block,
-                InstKind::Call(ctx.intrinsics.str_is_nullish, vec![ptr_op]),
-                Type::Bool,
-                None,
-            );
+            let v = ctx.str_is_nullish(ptr_op);
             if matches!(op, AstBinOp::LooseNeq) {
                 let r = ctx.f.append_inst(
-                    cur_block,
-                    InstKind::BinOp(SsaBinOp::Xor, Operand::Value(v), Operand::ConstBool(true)),
+                    ctx.cur_block,
+                    InstKind::BinOp(SsaBinOp::Xor, v, Operand::ConstBool(true)),
                     Type::Bool,
                     None,
                 );
                 return Some(Operand::Value(r));
             }
-            return Some(Operand::Value(v));
+            return Some(v);
         }
         if is_heap_ref(&ptr_ty) {
             // RFC 20260722 chunk C — a sentinel-capable slot

@@ -157,7 +157,6 @@ pub(crate) fn build(
         str_prop_has: init_a.str_b.str_prop_has,
         str_prop_enumerable: init_a.str_b.str_prop_enumerable,
         str_null_check: init_a.str_b.str_null_check,
-        str_is_nullish: init_a.str_b.str_is_nullish,
         str_is_undef: init_a.str_b.str_is_undef,
         is_undef_cell: init_a.str_b.is_undef_cell,
         heap_nullish_check: init_a.str_b.heap_nullish_check,

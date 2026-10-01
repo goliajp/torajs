@@ -159,13 +159,7 @@ pub(crate) fn emit_nullish_cond(
         Operand::Value(nullish)
     } else if matches!(obj_ty, Type::Str) {
         // Both string sentinels (null, the undefined cell / view).
-        let cond = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.str_is_nullish, vec![obj_op.clone()]),
-            Type::Bool,
-            None,
-        );
-        Operand::Value(cond)
+        ctx.str_is_nullish(obj_op.clone())
     } else {
         let is_null = ctx.f.append_inst(
             ctx.cur_block,
