@@ -32,20 +32,13 @@ use core::ffi::c_void;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::buffer;
+use crate::cell_free::free_obj_cell;
 use crate::children::{clear_child_slot, for_each_child};
 use crate::layout::{
     CLASS_LAYOUT_FLAG_NAMED, COLOR_BLACK, COLOR_GRAY, COLOR_PURPLE, COLOR_WHITE, FLAG_BUFFERED,
     FLAG_STATIC_LITERAL, HeapHeader, TAG_CLOSURE, color_of, has_walkable_children, is_class_obj,
     layout_for_class_obj, set_color,
 };
-
-unsafe extern "C" {
-    /// torajs-mmalloc libc-compat free: the allocator behind
-    /// `obj_alloc`, so also the one that takes back a class instance
-    /// or closure env that died while buffered.
-    #[link_name = "__torajs_libc_free"]
-    fn free(p: *mut c_void);
-}
 
 /// Set while a collect runs. A drop inside pass 3 that pushes the
 /// 1024th candidate would otherwise start a nested collect, and the
@@ -272,7 +265,9 @@ pub unsafe extern "C" fn __torajs_cycle_collect() {
         if unsafe { (*h).refcount } == 0 {
             if color_of(h) == COLOR_BLACK {
                 buffer::clear_slot(i);
-                unsafe { free(p) };
+                // A class instance or closure env that died while
+                // buffered; both came from `obj_alloc`.
+                unsafe { free_obj_cell(p) };
             }
             return;
         }

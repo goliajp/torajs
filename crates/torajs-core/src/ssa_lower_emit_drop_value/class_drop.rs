@@ -195,14 +195,17 @@ fn emit_release(
     if is_class {
         cur = emit_defer_if_buffered(f, cur, val, after);
     }
+    // A class sid's tag set names classes of this very layout, so a
+    // cell past the tag test has this size. An anonymous sid's set
+    // holds 0, a cell minted without a stamp, which says nothing of
+    // its layout: the sid rides along and `cell_size::settle` decides
+    // the free once every layout is known, as for the inline drop.
     let size = OBJ_HEADER_SIZE + layout.len() as u64 * 8;
-    f.append_void(
-        cur,
-        InstKind::Call(
-            cx.intr.obj_drop_sized,
-            vec![val, Operand::ConstI64(size as i64)],
-        ),
-    );
+    let mut args = vec![val, Operand::ConstI64(size as i64)];
+    if !is_class {
+        args.push(Operand::ConstI64(sid as i64));
+    }
+    f.append_void(cur, InstKind::Call(cx.intr.obj_drop_sized, args));
     f.set_term(cur, Terminator::Br(after));
     after
 }

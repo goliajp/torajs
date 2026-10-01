@@ -32,8 +32,8 @@ use crate::ssa_lower_body_returns_closure::body_returns_closure;
 ///     aware); every other non-Copy type is a universal-header cell →
 ///     `value_drop_heap` (tag-dispatched, rc-aware, NULL/NaN-box
 ///     gated in the runtime).
-///   - Free the env block itself with `obj_drop_sized(env,
-///     CLOSURE_CAP_BASE_OFF + N_captures * 8)`.
+///   - Free the env block itself with `obj_drop_sized(env, size)`: the
+///     header, the captures, a named fn-expression's `self_slot`.
 ///
 /// All called intrinsics are runtime-provided. The fn signature is
 /// `(env: ptr) -> void` and matches the FuncId pre-registered at
@@ -41,6 +41,7 @@ use crate::ssa_lower_body_returns_closure::body_returns_closure;
 pub(crate) fn synthesize_env_drop(
     name: &str,
     cap_meta: &[(Type, bool)],
+    self_slot: bool,
     intrinsics: &Intrinsics,
 ) -> ssa::Function {
     let mut f = ssa::Function::new(name, Type::Void);
@@ -98,9 +99,8 @@ pub(crate) fn synthesize_env_drop(
             f.append_void(entry, InstKind::Call(drop_fid, vec![Operand::Value(cap_v)]));
         }
     }
-    // Free the env block itself. Size = closure header
-    // (`CLOSURE_CAP_BASE_OFF`) + N_captures * 8.
-    let env_block_size = CLOSURE_CAP_BASE_OFF + (cap_meta.len() as u64) * 8;
+    let env_slots = cap_meta.len() as u64 + u64::from(self_slot);
+    let env_block_size = CLOSURE_CAP_BASE_OFF + env_slots * 8;
     emit_env_free_or_defer(
         &mut f,
         entry,

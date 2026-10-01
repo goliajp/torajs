@@ -63,6 +63,21 @@ pub unsafe extern "C" fn __torajs_free(ptr: *mut c_void, size: usize) {
     unsafe { crate::core::free_sized(ptr as *mut u8, size) };
 }
 
+/// torajs free without a size — the span registry recovers the size
+/// class (`core::free`, a lock plus a binary search). For the cold
+/// paths that take back a sized block whose size nothing records:
+/// the cycle collector freeing a closure env or an untagged object
+/// cell that died while buffered.
+///
+/// # Safety
+///
+/// `ptr` is null or a pointer returned by `__torajs_malloc`, not
+/// already freed.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_free_lookup(ptr: *mut c_void) {
+    unsafe { crate::core::free(ptr as *mut u8) };
+}
+
 /// torajs calloc — zero-initialized alloc. Routes to
 /// `__torajs_malloc(size) + ptr::write_bytes(0)`. Caller passes
 /// total byte count (no `nmemb * size` overflow check needed at

@@ -51,6 +51,7 @@ use std::collections::HashMap;
 use crate::ast::Ast;
 use crate::check_monomorph::MonoOutput;
 use crate::ssa::{self, FuncId, Module, Type};
+use crate::ssa_lower_pass_2_5::cell_size;
 
 pub(crate) fn lower_inner(
     expr_types: &HashMap<crate::ast::ExprId, crate::check::Type>,
@@ -248,7 +249,7 @@ pub(crate) fn lower_inner(
         &anon_stamp_pool,
         struct_layouts_pass15_len,
     );
-
+    cell_size::settle(&mut module, &closure_captures, &ast.widen_clone_origin);
     module
 }
 

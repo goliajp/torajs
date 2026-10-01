@@ -10,9 +10,9 @@
 //!   default-NaN mode and calls `___torajs_argv_init` before user
 //!   main.
 //! - `synthesize_obj_drop_sized` — `___torajs_obj_drop_sized` tail-call
-//!   to `___torajs_libc_free`.
+//!   to `___torajs_free`.
 //! - `synthesize_obj_alloc` — `___torajs_obj_alloc` tail-call to
-//!   `___torajs_libc_malloc`.
+//!   `___torajs_malloc`.
 //!
 //! The two entry symbol names (`_main` / `_main_user`) also live here
 //! since they identify the entry pair this module emits. `cmd_build`
@@ -217,21 +217,16 @@ fn synthesize_main_plain_wrapper() -> CompiledFunction {
     }
 }
 
-/// SD-4c-prereq swap-2d — `__torajs_obj_drop_sized(user_ptr, size) -> void`.
-/// The LLVM-era `obj_builders::define_obj_drop_sized` inlined a TLAB
-/// fast path mirroring `define_obj_alloc`'s TLAB pop. The new pipeline
-/// has no LLVM-IR emit backend; emit the intrinsic directly as a
-/// hand-rolled CompiledFunction that tail-calls `___torajs_libc_free`
-/// (the slow path). Loses the TLAB hot-loop optimization until a real
-/// port lands (swap-3+ backlog: TLAB.push fast path in native ARM64);
-/// gains correct drop semantics — every block makes it back to the
-/// allocator instead of leaking.
+/// `__torajs_obj_drop_sized(ptr, size) -> void` — the sized free of
+/// an object cell. Every cell `___torajs_obj_alloc` hands out is a
+/// bare mmalloc block (no size header in front of it), so the size
+/// the lowering already carries as a constant is what the allocator
+/// needs back; the runtime-side frees of the same cells recover it
+/// from the class layout table or the span registry.
 ///
 /// ARM64 body:
-///   `B ___torajs_libc_free`   ; tail call — x0 = user_ptr is already in
-///                              ; the right register, x1 = size is
-///                              ; discarded by libc_free's signature
-///                              ; (which is `void(ptr)`).
+///   `B ___torajs_free`   ; tail call — x0 = ptr, x1 = size are
+///                         ; already in the right registers.
 pub(crate) fn synthesize_obj_drop_sized() -> CompiledFunction {
     let mut bytes = Vec::with_capacity(4);
     let reloc_offset = bytes.len() as u32;
@@ -242,29 +237,21 @@ pub(crate) fn synthesize_obj_drop_sized() -> CompiledFunction {
         relocs: vec![Reloc {
             byte_offset: reloc_offset,
             kind: RelocKind::CallSite {
-                target: CallTarget::Extern("___torajs_libc_free".into()),
+                target: CallTarget::Extern("___torajs_free".into()),
             },
         }],
         frame: FrameLayout::leaf_no_spill(),
     }
 }
 
-/// SD-4c-prereq swap-2h — `__torajs_obj_alloc(size) -> ptr`.
-/// The LLVM-era `obj_builders::define_obj_alloc` inlined a TLAB
-/// fast path (size-class bucket → TLAB.pop → return slot+16) with a
-/// fallback to `___torajs_libc_malloc(size)`. The new pipeline has no
-/// LLVM-IR emit backend; emit the intrinsic directly as a hand-rolled
-/// CompiledFunction that tail-calls the fallback. Loses the TLAB
-/// hot-loop optimization until a native ARM64 TLAB.pop port lands
-/// (swap-3+ backlog, paired with `synthesize_obj_drop_sized`'s
-/// TLAB.push); gains correct alloc semantics — `___torajs_libc_malloc`
-/// already produces the 16-byte-header layout `obj_alloc` returns, so
-/// the tail call is byte-for-byte the inline fallback path.
+/// `__torajs_obj_alloc(size) -> ptr` — the sized allocation of an
+/// object cell: a bare mmalloc block of exactly `size` bytes, freed
+/// back through `__torajs_obj_drop_sized` with the same constant.
 ///
 /// ARM64 body:
-///   `B ___torajs_libc_malloc`  ; tail call — x0 = size is already in
-///                              ; the right register, return ptr in x0
-///                              ; flows straight back to the caller.
+///   `B ___torajs_malloc`  ; tail call — x0 = size is already in the
+///                          ; right register, return ptr in x0 flows
+///                          ; straight back to the caller.
 pub(crate) fn synthesize_obj_alloc() -> CompiledFunction {
     let mut bytes = Vec::with_capacity(4);
     let reloc_offset = bytes.len() as u32;
@@ -275,7 +262,7 @@ pub(crate) fn synthesize_obj_alloc() -> CompiledFunction {
         relocs: vec![Reloc {
             byte_offset: reloc_offset,
             kind: RelocKind::CallSite {
-                target: CallTarget::Extern("___torajs_libc_malloc".into()),
+                target: CallTarget::Extern("___torajs_malloc".into()),
             },
         }],
         frame: FrameLayout::leaf_no_spill(),

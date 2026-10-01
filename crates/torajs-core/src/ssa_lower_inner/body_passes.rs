@@ -183,6 +183,7 @@ pub(crate) fn run(
     crate::ssa_lower_pass_2_5::populate_env_drop_bodies(
         env_drop_fids,
         closure_captures,
+        &ast.closure_self_names,
         intrinsics,
         module,
     );

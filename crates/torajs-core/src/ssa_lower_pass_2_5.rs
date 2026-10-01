@@ -9,6 +9,10 @@
 //! module-metadata siblings in chunks 328-331). Pure mechanical move:
 //! substrate codegen invariant.
 
+pub(crate) mod any_holds;
+pub(crate) mod cell_size;
+pub(crate) mod cell_slot_flow;
+
 use std::collections::HashMap;
 
 use crate::ssa::{self, FuncId, Module, Type};
@@ -18,6 +22,7 @@ use crate::ssa_lower_env_trace::synthesize_env_trace;
 pub(crate) fn populate_env_drop_bodies(
     env_drop_fids: &[(String, FuncId, ssa::SigId)],
     closure_captures: &HashMap<String, Vec<(String, Type, bool)>>,
+    closure_self_names: &HashMap<String, String>,
     intrinsics: &Intrinsics,
     module: &mut Module,
 ) {
@@ -26,7 +31,12 @@ pub(crate) fn populate_env_drop_bodies(
             .get(closure_name)
             .map(|caps| caps.iter().map(|(_, t, b)| (*t, *b)).collect())
             .unwrap_or_default();
-        let f = synthesize_env_drop(&format!("__env_drop_{closure_name}"), &cap_meta, intrinsics);
+        let f = synthesize_env_drop(
+            &format!("__env_drop_{closure_name}"),
+            &cap_meta,
+            closure_self_names.contains_key(closure_name),
+            intrinsics,
+        );
         module.funcs[drop_fid.0 as usize] = f;
     }
 }

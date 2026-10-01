@@ -21,25 +21,23 @@
 //!   structs too), then `free` — unless the block sits in the cycle
 //!   root buffer, where it stays allocated, coloured black, for the
 //!   next collect's root walk to free (a buffer entry leaves in O(1)).
+//!   The free is sized from the layout row (`cell_free`).
 //! - `class_tag == 0` (anonymous struct interned too late for a
 //!   layout — see `torajs-structmeta`'s graceful-degradation note)
-//!   has no walkable metadata: outer block frees, field refs leak
-//!   (documented residue, same as the pre-L3b-#4 fallback).
+//!   has no walkable metadata: outer block frees through the span
+//!   registry lookup, field refs leak (documented residue, same as
+//!   the pre-L3b-#4 fallback).
 
 use core::ffi::c_void;
 
 use crate::buffer::__torajs_cycle_buffer;
+use crate::cell_free::{free_class_cell, free_unsized_cell};
 use crate::layout::{
     CLASS_LAYOUT_FLAG_NAMED, COLOR_BLACK, FLAG_BUFFERED, HeapHeader, OBJ_PROPS_OFF, is_class_obj,
     layout_for_class_obj, set_color,
 };
 
 unsafe extern "C" {
-    /// torajs-mmalloc libc-compat free (the Obj allocator is mmalloc
-    /// via `obj_alloc`'s `___torajs_libc_malloc` tail call).
-    #[link_name = "__torajs_libc_free"]
-    fn free(p: *mut c_void);
-
     /// torajs-rc refcount decrement — returns 1 on hit-zero (Free),
     /// 0 while refs remain / for static literals (Keep).
     fn __torajs_rc_dec(p: *mut c_void) -> i32;
@@ -90,8 +88,10 @@ pub unsafe extern "C" fn __torajs_obj_drop_rc(p: *mut c_void) {
     let h = p as *mut HeapHeader;
     if unsafe { (*h).flags } & FLAG_BUFFERED != 0 {
         unsafe { set_color(h, COLOR_BLACK) };
+    } else if classy {
+        unsafe { free_class_cell(p) };
     } else {
-        unsafe { free(p) };
+        unsafe { free_unsized_cell(p) };
     }
 }
 

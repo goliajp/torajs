@@ -169,12 +169,20 @@ pub(super) fn emit_drop_obj(ctx: &mut LowerCtx, val: Operand, sid: crate::ssa::S
     if is_class_sid {
         emit_defer_free_if_buffered(ctx, val.clone(), after);
     }
+    // The static layout sizes the free only if no wider cell can sit
+    // in this slot, which takes the whole module's layouts to say:
+    // the sid rides along as a third operand and
+    // `ssa_lower_pass_2_5::cell_size` decides once lowering is done.
     let obj_block_size = OBJ_HEADER_SIZE + (layout.len() as u64) * 8;
     ctx.f.append_void(
         ctx.cur_block,
         InstKind::Call(
             ctx.intrinsics.obj_drop_sized,
-            vec![val, Operand::ConstI64(obj_block_size as i64)],
+            vec![
+                val,
+                Operand::ConstI64(obj_block_size as i64),
+                Operand::ConstI64(sid.0 as i64),
+            ],
         ),
     );
     ctx.f.set_term(ctx.cur_block, Terminator::Br(after));

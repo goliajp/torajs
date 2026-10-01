@@ -24,6 +24,7 @@
 //! ```text
 //! __torajs_malloc(size)           → *mut u8 | null on OOM
 //! __torajs_free(ptr, size)        → void
+//! __torajs_free_lookup(ptr)       → void (size from the span registry)
 //! __torajs_realloc(ptr, old, new) → *mut u8 | null
 //! __torajs_memcpy(dst, src, n)    → *mut u8 (dst)
 //! __torajs_memmove(dst, src, n)   → *mut u8 (dst)  — overlap-safe

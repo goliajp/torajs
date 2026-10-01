@@ -29,17 +29,19 @@ use core::ptr;
 use std::sync::atomic::{AtomicPtr, AtomicU32, Ordering};
 
 use crate::arr::arr_spilled_data;
+use crate::cell_free::free_obj_cell;
 use crate::children::{clear_child_slot, for_each_child};
 use crate::dynobj::{
     DYNOBJ_HEADER_BYTES, dynobj_entries_len, dynobj_key_at, dynobj_store_bytes, dynobj_store_ptr,
 };
 use crate::layout::{
     CLOSURE_DROP_FN_OFF, HeapHeader, STRING_WRAPPER_CELL_OFF, TAG_BOOLEAN_WRAPPER, TAG_CLOSURE,
-    TAG_DYNOBJ, TAG_NUMBER_WRAPPER, TAG_STRING_WRAPPER, TAG_SYMBOL_WRAPPER, is_class_obj,
+    TAG_DYNOBJ, TAG_NUMBER_WRAPPER, TAG_OBJ, TAG_STRING_WRAPPER, TAG_SYMBOL_WRAPPER,
 };
 
 unsafe extern "C" {
-    /// See `collect.rs` — the same mmalloc trio.
+    /// torajs-mmalloc libc-compat free — arrays and wrappers still
+    /// carry the size header in front of the block.
     #[link_name = "__torajs_libc_free"]
     fn free(p: *mut c_void);
     #[link_name = "__torajs_free"]
@@ -188,12 +190,13 @@ pub(crate) unsafe fn finalize_all() {
                 (*(p as *mut HeapHeader)).refcount = 1;
                 __torajs_value_drop_heap(p);
             }
+        } else if tag == TAG_OBJ {
+            unsafe { free_obj_cell(p) };
         } else {
             if !matches!(
                 tag,
                 TAG_NUMBER_WRAPPER | TAG_STRING_WRAPPER | TAG_BOOLEAN_WRAPPER | TAG_SYMBOL_WRAPPER
-            ) && !unsafe { is_class_obj(p) }
-            {
+            ) {
                 // TAG_ARR — a grown array spilled its slots to an
                 // independent buffer; release it alongside the cell.
                 let spill = unsafe { arr_spilled_data(p) };
