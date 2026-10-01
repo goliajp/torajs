@@ -3,14 +3,19 @@
 //! The lowering allocates every object cell and closure env as a bare
 //! sized block (`__torajs_obj_alloc(32 + 8·n_fields)`) and frees it
 //! with the same constant. The collector reaches the same cells
-//! without that constant; a class instance recovers it from its
+//! without that constant: a class instance recovers it from its
 //! layout row — the field-metadata header carries the field count
-//! the allocation was sized by — and everything else (a closure env,
-//! an object whose tag never got a row) asks the span registry.
+//! the allocation was sized by — and every `Tag::Obj` cell is a class
+//! instance, since no cell is minted without a tag. A closure env that
+//! died while buffered left its block size behind ([`free_parked`]).
+//! Only the lowering's free of an open slot ([`__torajs_obj_free_cell`])
+//! can meet a cell nothing sizes, and it alone asks the span registry.
 
 use core::ffi::c_void;
 
-use crate::layout::{ClassLayout, is_class_obj, layout_for_class_obj};
+use crate::layout::{
+    CLOSURE_DROP_FN_OFF, ClassLayout, HeapHeader, TAG_CLOSURE, is_class_obj, layout_for_class_obj,
+};
 
 /// Mirror of `ssa_lower::OBJ_HEADER_SIZE` — header 8 + class_tag 8 +
 /// vtable 8 + props 8.
@@ -51,43 +56,48 @@ unsafe fn block_size_of(lay: *const ClassLayout) -> usize {
 /// Free a class instance by the size its layout row gives.
 ///
 /// # Safety
-/// `p` satisfies `is_class_obj` and its children have already been
-/// released.
+/// `p` is a live non-literal `Tag::Obj` cell whose children have
+/// already been released.
 pub(crate) unsafe fn free_class_cell(p: *mut c_void) {
     unsafe { free_sized(p, block_size_of(layout_for_class_obj(p))) };
 }
 
-/// Free an `__torajs_obj_alloc` block no layout row sizes — a
-/// closure env, an object whose tag has no row.
+/// Free a cell that died while the collector held it as a candidate
+/// root: its drop ran to completion, found FLAG_BUFFERED set and
+/// returned without freeing, leaving the cell black at rc 0 for the
+/// next root walk. Two shapes park this way. A class instance is
+/// sized by its row. A closure env has no row; its drop wrote the env
+/// block size over the drop-fn slot on the way out (the fn is never
+/// called again), the one size record a parked env carries.
 ///
 /// # Safety
-/// `p` is such a live block whose children have already been
-/// released.
-pub(crate) unsafe fn free_unsized_cell(p: *mut c_void) {
-    unsafe { free_lookup(p) };
+/// `p` is such a parked cell.
+pub(crate) unsafe fn free_parked(p: *mut c_void) {
+    if unsafe { (*(p as *const HeapHeader)).type_tag } == TAG_CLOSURE {
+        let size = unsafe { *((p as *const u8).add(CLOSURE_DROP_FN_OFF) as *const usize) };
+        unsafe { free_sized(p, size) };
+    } else {
+        unsafe { free_class_cell(p) };
+    }
 }
 
-/// Free an object cell or closure env the collector owns outright.
+/// The lowering's free of a typed slot whose static layout cannot size
+/// the cell it holds: a class instance by its tag's row, anything else
+/// — a heap cell that is not a struct, admitted by an `any` crossing —
+/// by the span registry. The only caller of `__torajs_free_lookup`,
+/// which the link stubs when this entry has no live text
+/// (`cmd_build_elide`).
 ///
 /// # Safety
 /// `p` is a live block from `__torajs_obj_alloc` whose children have
 /// already been released.
-pub(crate) unsafe fn free_obj_cell(p: *mut c_void) {
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_obj_free_cell(p: *mut c_void) {
     if unsafe { is_class_obj(p) } {
         unsafe { free_class_cell(p) };
     } else {
-        unsafe { free_unsized_cell(p) };
+        unsafe { free_lookup(p) };
     }
-}
-
-/// [`free_obj_cell`] for the lowering: the free of a typed slot whose
-/// static layout cannot size the cell it holds.
-///
-/// # Safety
-/// As [`free_obj_cell`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_obj_free_cell(p: *mut c_void) {
-    unsafe { free_obj_cell(p) };
 }
 
 #[cfg(test)]

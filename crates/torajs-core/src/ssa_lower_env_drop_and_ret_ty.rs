@@ -15,7 +15,7 @@
 
 use crate::ast::{Ast, Expr, Param, Stmt};
 use crate::ssa::{self, BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type};
-use crate::ssa_lower::{CLOSURE_CAP_BASE_OFF, CLOSURE_PROPS_OFF, Intrinsics};
+use crate::ssa_lower::{CLOSURE_CAP_BASE_OFF, CLOSURE_DROP_FN_OFF, CLOSURE_PROPS_OFF, Intrinsics};
 use crate::ssa_lower_body_returns_closure::body_returns_closure;
 
 /// Build the per-closure env-drop SSA fn:
@@ -115,8 +115,12 @@ pub(crate) fn synthesize_env_drop(
 /// collector holds it as a candidate root. Then it stays allocated,
 /// coloured black with rc 0, and the next collect's root walk frees
 /// it, so the buffer entry leaves in O(1) and this path makes no call.
-/// Only `cycle_buffer` sets FLAG_BUFFERED, so an unbuffered env pays
-/// one load. Both legs return.
+/// Nothing in front of the block records its size and the collector
+/// has no layout row for an env, so the parked env carries the size
+/// itself: this leg writes `env_block_size` over the drop-fn slot,
+/// which nothing reads again once the drop has run
+/// (`torajs_cycle::cell_free::free_parked`). Only `cycle_buffer` sets
+/// FLAG_BUFFERED, so an unbuffered env pays one load. Both legs return.
 pub(crate) fn emit_env_free_or_defer(
     f: &mut ssa::Function,
     blk: ssa::BlockId,
@@ -174,6 +178,14 @@ pub(crate) fn emit_env_free_or_defer(
     f.append_void(
         defer_blk,
         InstKind::Store(Operand::Value(black), env_op.clone(), 4),
+    );
+    f.append_void(
+        defer_blk,
+        InstKind::Store(
+            Operand::ConstI64(env_block_size as i64),
+            env_op.clone(),
+            CLOSURE_DROP_FN_OFF,
+        ),
     );
     f.set_term(defer_blk, Terminator::Ret(None));
     f.append_void(

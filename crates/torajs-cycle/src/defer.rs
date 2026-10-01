@@ -29,7 +29,7 @@ use core::ptr;
 use std::sync::atomic::{AtomicPtr, AtomicU32, Ordering};
 
 use crate::arr::arr_spilled_data;
-use crate::cell_free::free_obj_cell;
+use crate::cell_free::free_class_cell;
 use crate::children::{clear_child_slot, for_each_child};
 use crate::dynobj::{
     DYNOBJ_HEADER_BYTES, dynobj_entries_len, dynobj_key_at, dynobj_store_bytes, dynobj_store_ptr,
@@ -191,7 +191,8 @@ pub(crate) unsafe fn finalize_all() {
                 __torajs_value_drop_heap(p);
             }
         } else if tag == TAG_OBJ {
-            unsafe { free_obj_cell(p) };
+            // every Tag::Obj cell is a class instance, sized by its row
+            unsafe { free_class_cell(p) };
         } else {
             if !matches!(
                 tag,

@@ -123,7 +123,7 @@ const STATUS_REJECTED_LIT: &[u8] = b"rejected";
 /// `boxed` is an OWNED AnyValue: its stake (or the fresh Str a
 /// ShortStr materializes into under `unbox_value`) transfers into
 /// the entry, so the caller neither incs nor drops it after this.
-pub(crate) unsafe fn alloc_settled_dynobj(state: u8, boxed: u64) -> *mut c_void {
+unsafe fn alloc_settled_dynobj(state: u8, boxed: u64) -> *mut c_void {
     unsafe {
         let mut obj = __torajs_dynobj_alloc();
         let fulfilled = state == STATE_FULFILLED;
@@ -166,11 +166,26 @@ unsafe fn make_settled_str(literal: &[u8]) -> *mut c_void {
     s as *mut c_void
 }
 
+/// The record for one settled element. A site that named a tag pair
+/// gets the class-shape cell its typed reads address by offset. A
+/// tag-less site — the dyn / recv-first lanes, or a typed site whose
+/// result element the checker did not type as a struct — reads its
+/// records through the any lane and gets a dynobj, so no `Tag::Obj`
+/// cell is ever minted without a layout row (the collector sizes
+/// every such cell from its row). Every kernel pairs `record_tags ==
+/// 0` with `REPR_ANY`, so `value` is a box here when `tags` is 0.
+pub(crate) unsafe fn alloc_settled_record(state: u8, value: i64, tags: u64) -> *mut c_void {
+    if tags == 0 {
+        unsafe { alloc_settled_dynobj(state, value as u64) }
+    } else {
+        unsafe { alloc_settled_struct(state, value, tags) }
+    }
+}
+
 /// Allocate a `{status: string, value: T}` Obj: header(8) +
 /// class_tag(8) + vtable(8 zeroed) + props(8 zeroed, blade 1)
-/// + status_ptr(8) + value(8) = 48 bytes.
-/// `pub(crate)` — the any-lane sibling packs boxed AnyValue bits
-/// into the same value slot.
+/// + status_ptr(8) + value(8) = 48 bytes. The any-lane sibling packs
+/// boxed AnyValue bits into the same value slot.
 ///
 /// `class_tag` is what makes the record a real object rather than 48
 /// anonymous bytes. With the 0 it used to carry, nothing could look a
@@ -198,9 +213,9 @@ unsafe fn make_settled_str(literal: &[u8]) -> *mut c_void {
 /// is itself still leaking, since the walk never runs. Recorded as
 /// measured rather than as a fix.
 ///
-/// `0` stays honest for a site with no layout to point at, and keeps
-/// the old posture.
-pub(crate) unsafe fn alloc_settled_struct(state: u8, value: i64, tags: u64) -> *mut c_void {
+/// `tags` is never 0: [`alloc_settled_record`] routes a tag-less site
+/// to a dynobj.
+unsafe fn alloc_settled_struct(state: u8, value: i64, tags: u64) -> *mut c_void {
     // Low word tags the fulfilled shape, high word the rejected one.
     // A site that could only name one (or none) leaves the high word
     // clear and both outcomes share it — the pre-two-tag posture.
@@ -246,7 +261,13 @@ pub unsafe extern "C" fn __torajs_promise_allsettled_sync(
     value_repr: i64,
 ) -> *mut c_void {
     let record_tags = record_tags as u64;
-    let value_repr = value_repr as u8;
+    // a site that named no record tag reads its records through the
+    // any lane: dynobj records holding boxes (`alloc_settled_record`)
+    let value_repr = if record_tags == 0 {
+        REPR_ANY
+    } else {
+        value_repr as u8
+    };
     if promises_arr.is_null() {
         return unsafe { defer_settle(STATE_REJECTED, 0, 0, REPR_VOID) };
     }
@@ -292,12 +313,17 @@ pub unsafe extern "C" fn __torajs_promise_allsettled_sync(
     for i in 0..len {
         let pp = unsafe { arr_slot_ptr(promises_arr, i) };
         if pp.is_null() {
-            let s = unsafe { alloc_settled_struct(STATE_REJECTED, 0, record_tags) };
+            let v = if record_tags == 0 {
+                unsafe { crate::combinator_any::box_undefined() as i64 }
+            } else {
+                0
+            };
+            let s = unsafe { alloc_settled_record(STATE_REJECTED, v, record_tags) };
             result_arr = unsafe { __torajs_arr_push(result_arr, s as i64) };
             continue;
         }
         let (v, owed) = unsafe { record_slot((*pp).value_repr, value_repr, (*pp).value) };
-        let s = unsafe { alloc_settled_struct((*pp).state, v, record_tags) };
+        let s = unsafe { alloc_settled_record((*pp).state, v, record_tags) };
         // T-17.c-A3 — the record co-owns a heap-typed inner value, so
         // inc to pair the drop its layout walk will perform. An `any`
         // field has already settled its own share inside `record_slot`.

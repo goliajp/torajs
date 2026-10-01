@@ -22,16 +22,17 @@
 //!   root buffer, where it stays allocated, coloured black, for the
 //!   next collect's root walk to free (a buffer entry leaves in O(1)).
 //!   The free is sized from the layout row (`cell_free`).
-//! - `class_tag == 0` (anonymous struct interned too late for a
-//!   layout — see `torajs-structmeta`'s graceful-degradation note)
-//!   has no walkable metadata: outer block frees through the span
-//!   registry lookup, field refs leak (documented residue, same as
-//!   the pre-L3b-#4 fallback).
+//!
+//! Every `Tag::Obj` cell carries a class tag with a layout row — the
+//! compiler stamps each literal out of the anon pool, the runtime's
+//! only `Tag::Obj` mint (an `allSettled` record) builds a dynobj where
+//! the call site named no tag — so past the hit-zero test the layout
+//! walk is unconditional.
 
 use core::ffi::c_void;
 
 use crate::buffer::__torajs_cycle_buffer;
-use crate::cell_free::{free_class_cell, free_unsized_cell};
+use crate::cell_free::free_class_cell;
 use crate::layout::{
     CLASS_LAYOUT_FLAG_NAMED, COLOR_BLACK, FLAG_BUFFERED, HeapHeader, OBJ_PROPS_OFF, is_class_obj,
     layout_for_class_obj, set_color,
@@ -57,9 +58,9 @@ pub unsafe extern "C" fn __torajs_obj_drop_rc(p: *mut c_void) {
     if p.is_null() {
         return;
     }
-    let classy = unsafe { is_class_obj(p) };
-    let named =
-        classy && unsafe { (*layout_for_class_obj(p)).flags } & CLASS_LAYOUT_FLAG_NAMED != 0;
+    // a static literal is never a cycle root and its dec is a no-op
+    let named = unsafe { is_class_obj(p) }
+        && unsafe { (*layout_for_class_obj(p)).flags } & CLASS_LAYOUT_FLAG_NAMED != 0;
     if unsafe { __torajs_rc_dec(p) } == 0 {
         // Still referenced — named-class instances are potential
         // cycle roots (typed path buffers here too).
@@ -68,30 +69,23 @@ pub unsafe extern "C" fn __torajs_obj_drop_rc(p: *mut c_void) {
         }
         return;
     }
-    if classy {
-        // weak observers were already told by dec_ref on the way to zero
-        let lay = unsafe { layout_for_class_obj(p) };
-        let n = unsafe { (*lay).n_children } as usize;
-        for i in 0..n {
-            let off = unsafe { *(*lay).child_offsets.add(i) } as usize;
-            let child = unsafe { *((p as *mut u8).add(off) as *mut *mut c_void) };
-            unsafe { __torajs_value_drop_heap(child) };
-        }
+    // weak observers were already told by dec_ref on the way to zero
+    let lay = unsafe { layout_for_class_obj(p) };
+    let n = unsafe { (*lay).n_children } as usize;
+    for i in 0..n {
+        let off = unsafe { *(*lay).child_offsets.add(i) } as usize;
+        let child = unsafe { *((p as *mut u8).add(off) as *mut *mut c_void) };
+        unsafe { __torajs_value_drop_heap(child) };
     }
     // +24 expando props dict (RFC 20260714-struct-dynamic-props
-    // blade 1) — fixed offset, so it is released OUTSIDE the layout
-    // gate: an anonymous struct (class_tag 0, no walkable layout)
-    // still frees its props even though its layout fields cannot be
-    // walked (that residue is documented above). NULL-safe kernel.
+    // blade 1), a fixed slot outside the layout. NULL-safe kernel.
     let props = unsafe { *((p as *mut u8).add(OBJ_PROPS_OFF) as *mut *mut c_void) };
     unsafe { __torajs_value_drop_heap(props) };
     let h = p as *mut HeapHeader;
     if unsafe { (*h).flags } & FLAG_BUFFERED != 0 {
         unsafe { set_color(h, COLOR_BLACK) };
-    } else if classy {
-        unsafe { free_class_cell(p) };
     } else {
-        unsafe { free_unsized_cell(p) };
+        unsafe { free_class_cell(p) };
     }
 }
 

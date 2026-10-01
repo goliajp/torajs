@@ -54,16 +54,13 @@ pub(crate) unsafe fn store_element(b: *mut AllBlock, index: u64, ep: *mut Promis
                 (*b).record_value_repr,
                 (*ep).value,
             );
-            // A tag-less any-form site (dyn / recv-first — the block
-            // carries no layout stamp, and `record_slot`'s REPR_ANY
-            // lane just answered a box) gets the readable dynobj
-            // record; the box's stake transfers.
-            let rec = if (*b).record_tags == 0 && (*b).record_value_repr == crate::layout::REPR_ANY
-            {
-                crate::combinator_allsettled::alloc_settled_dynobj((*ep).state, v as u64)
-            } else {
-                crate::combinator_allsettled::alloc_settled_struct((*ep).state, v, (*b).record_tags)
-            };
+            // a tag-less block holds REPR_ANY, so `v` is a box and the
+            // record a dynobj; the box's stake transfers
+            let rec = crate::combinator_allsettled::alloc_settled_record(
+                (*ep).state,
+                v,
+                (*b).record_tags,
+            );
             // The record co-owns a heap-typed inner value, exactly as
             // the synchronous allSettled kernel's inc does.
             if owned && v != 0 {
@@ -243,17 +240,12 @@ pub(crate) unsafe fn store_plain(b: *mut AllBlock, index: u64, bits: u64) {
     unsafe {
         if (*b).mode == MODE_ALLSETTLED {
             crate::combinator_any::box_share(bits);
-            // Tag-less site → readable dynobj record (the fresh
-            // share transfers); stamped site → class-shape record.
-            let rec = if (*b).record_tags == 0 {
-                crate::combinator_allsettled::alloc_settled_dynobj(STATE_FULFILLED, bits)
-            } else {
-                crate::combinator_allsettled::alloc_settled_struct(
-                    STATE_FULFILLED,
-                    bits as i64,
-                    (*b).record_tags,
-                )
-            };
+            // the fresh share transfers into the record
+            let rec = crate::combinator_allsettled::alloc_settled_record(
+                STATE_FULFILLED,
+                bits as i64,
+                (*b).record_tags,
+            );
             store_slot((*b).result_arr, index, rec as i64);
             return;
         }

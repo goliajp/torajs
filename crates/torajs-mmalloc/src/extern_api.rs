@@ -64,10 +64,12 @@ pub unsafe extern "C" fn __torajs_free(ptr: *mut c_void, size: usize) {
 }
 
 /// torajs free without a size — the span registry recovers the size
-/// class (`core::free`, a lock plus a binary search). For the cold
-/// paths that take back a sized block whose size nothing records:
-/// the cycle collector freeing a closure env or an untagged object
-/// cell that died while buffered.
+/// class (`core::free`, a lock plus a binary search). For the one
+/// cold path that takes back a sized block whose size nothing
+/// records: the lowering's free of a typed slot holding a heap cell
+/// that is not a class instance (`torajs_cycle::__torajs_obj_free_cell`,
+/// its only caller; the link stubs this entry when that one has no
+/// live text).
 ///
 /// # Safety
 ///

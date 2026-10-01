@@ -121,8 +121,10 @@ fn admits_wider_cell(layouts: &[Vec<(PropKey, Type)>], sid: usize) -> bool {
 /// instance's field stores already address the row's layout, so the
 /// smaller constant was a cell written past its end. Answers the sids
 /// whose constant moved: their typed drops carry the same early
-/// constant and free by the cell instead. A tag with no row is left
-/// alone: the runtime frees such a cell through the span registry.
+/// constant and free by the cell instead. Every stamp names a row: the
+/// runtime sizes a `Tag::Obj` cell it reaches without a static type
+/// from its row, so a cell stamped 0 could never be freed, and a
+/// stamp past the table is a row that was never emitted.
 fn settle_alloc_sizes_to_rows(module: &mut Module) -> HashSet<usize> {
     let mut unsettled = HashSet::new();
     let Some(alloc) = module.funcs.iter().position(|f| f.name == OBJ_ALLOC) else {
@@ -159,7 +161,10 @@ fn settle_alloc_sizes_to_rows(module: &mut Module) -> HashSet<usize> {
                 continue;
             };
             let Some(&by_row) = (*tag as usize).checked_sub(1).and_then(|i| rows.get(i)) else {
-                continue;
+                panic!(
+                    "{}: object cell stamped with class tag {tag}, which has no layout row",
+                    f.name
+                );
             };
             let Type::Obj(sid) = f.value_type(*p) else {
                 continue;

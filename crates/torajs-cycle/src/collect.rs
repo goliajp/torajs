@@ -32,7 +32,7 @@ use core::ffi::c_void;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::buffer;
-use crate::cell_free::free_obj_cell;
+use crate::cell_free::free_parked;
 use crate::children::{clear_child_slot, for_each_child};
 use crate::layout::{
     CLASS_LAYOUT_FLAG_NAMED, COLOR_BLACK, COLOR_GRAY, COLOR_PURPLE, COLOR_WHITE, FLAG_BUFFERED,
@@ -265,9 +265,11 @@ pub unsafe extern "C" fn __torajs_cycle_collect() {
         if unsafe { (*h).refcount } == 0 {
             if color_of(h) == COLOR_BLACK {
                 buffer::clear_slot(i);
-                // A class instance or closure env that died while
-                // buffered; both came from `obj_alloc`.
-                unsafe { free_obj_cell(p) };
+                // a class instance or closure env that died while
+                // buffered, each carrying its own size record
+                #[cfg(torajs_census)]
+                census::parked(unsafe { (*h).type_tag } == TAG_CLOSURE);
+                unsafe { free_parked(p) };
             }
             return;
         }
@@ -336,6 +338,8 @@ mod census {
 
     static COLLECTS: AtomicU64 = AtomicU64::new(0);
     static ROOTS: AtomicU64 = AtomicU64::new(0);
+    static PARKED_CELLS: AtomicU64 = AtomicU64::new(0);
+    static PARKED_ENVS: AtomicU64 = AtomicU64::new(0);
     static TICKS: AtomicU64 = AtomicU64::new(0);
     static MAX_TICKS: AtomicU64 = AtomicU64::new(0);
 
@@ -355,6 +359,14 @@ mod census {
         f
     }
 
+    /// A cell the root walk freed because it died while buffered.
+    pub fn parked(env: bool) {
+        PARKED_CELLS.fetch_add(1, Ordering::Relaxed);
+        if env {
+            PARKED_ENVS.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
     pub fn record(roots: u64, start: u64) {
         let dt = now().wrapping_sub(start);
         COLLECTS.fetch_add(1, Ordering::Relaxed);
@@ -371,6 +383,8 @@ mod census {
     pub unsafe extern "C" fn __torajs_cycle_census_dump() {
         emit(b"cycle.collects", COLLECTS.load(Ordering::Relaxed));
         emit(b"cycle.roots", ROOTS.load(Ordering::Relaxed));
+        emit(b"cycle.parked_cells", PARKED_CELLS.load(Ordering::Relaxed));
+        emit(b"cycle.parked_envs", PARKED_ENVS.load(Ordering::Relaxed));
         emit(b"cycle.ticks", TICKS.load(Ordering::Relaxed));
         emit(b"cycle.max_ticks", MAX_TICKS.load(Ordering::Relaxed));
         emit(b"cycle.tick_hz", freq());
