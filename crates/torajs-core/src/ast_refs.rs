@@ -392,14 +392,19 @@ pub(crate) fn idents_in_expr(
         // of a top-level binding can only resolve through the
         // globals table, and the binding must promote exactly like
         // a directly-read one ("closure capture not in scope"
-        // otherwise). A capture that names a fn-local shadows
-        // through the capture filter's locals-first order, so the
+        // otherwise). A capture that names a fn-local `let` shadows
+        // through the capture filter's locals-first order, so that
         // over-approximation stays safe (an extra reader-less slot).
+        // A capture that names a PARAM is the param, exactly as a
+        // bare ident is: counting it promoted a same-named top-level
+        // binding into a global slot nobody in the fn reads, and a
+        // slot whose initializer is a call is `any` — every read of
+        // the top-level binding then went through the any lane.
         // Top-level-positioned closures are NOT walked here (their
         // lifted FnDecls carry `__env` and the loop skips them) and
         // keep the main-local capture-box machinery.
         Expr::Closure { captures, .. } => {
-            out.extend(captures.iter().cloned());
+            out.extend(captures.iter().filter(|c| !shadow.contains(*c)).cloned());
         }
         // Literals / This / NewTarget / Uninit carry no idents.
         _ => {}
