@@ -57,6 +57,16 @@
 //! torajs-arr (`__torajs_arr_flag_exotic`, `__torajs_arr_flag_any_
 //! holey`), so the pair's text liveness is the guard (fam 51).
 //!
+//! **Typed non-integral index reads** — `xs[1.5]` on a `number[]` /
+//! `string[]` names the property "1.5" (§7.1.19); the keyed read
+//! that answers it roots the any world (array-copy-1m: 909 KB for
+//! one `dst[n - 1]` with an F64 `n`). torajs-arr answers undefined
+//! itself for a cell that cannot carry a named property and calls
+//! the `__torajs_arr_typed_nonint_{f64,str}_slow` seams (fam 52 /
+//! 53) otherwise; they are judged on every entry that can put a cell
+//! in that state: the props-bag creators, the builtin-prototype mint
+//! and the Array subclass allocator.
+//!
 //! **Uncaught reporter's Error rendering** (r501, 刀 4 A6) — the
 //! name / prototype-chain resolver is the reporter's only edge into
 //! the generic value world; a program that injected no error class
@@ -130,7 +140,7 @@ const SITES: [(&str, &str, &[&str], u32); 3] = [
 /// entries whose text liveness un-assumes the stub, landing-pad fam
 /// id). The join seam's enabler is the exotic-flag writer; the
 /// species probe's enablers are the two props-bag creators.
-const SYMBOL_STUBS: [(&str, &[&str], u32); 10] = [
+const SYMBOL_STUBS: [(&str, &[&str], u32); 12] = [
     (
         "___torajs_arr_join_exotic",
         &["___torajs_arr_flag_exotic"],
@@ -211,6 +221,27 @@ const SYMBOL_STUBS: [(&str, &[&str], u32); 10] = [
         &["___torajs_arr_flag_exotic", "___torajs_arr_flag_any_holey"],
         51,
     ),
+    // a typed array's read at a non-integral index, slow leg: taken
+    // only for a cell with a props bag (the two bag creators), under
+    // a minted builtin prototype (the one mint entry) or wearing
+    // FLAG_SUBCLASSED (`__torajs_arr_subclass_alloc` alone).
+    (
+        "___torajs_arr_typed_nonint_f64_slow",
+        &NAMED_PROP_WRITERS,
+        52,
+    ),
+    (
+        "___torajs_arr_typed_nonint_str_slow",
+        &NAMED_PROP_WRITERS,
+        53,
+    ),
+];
+
+const NAMED_PROP_WRITERS: [&str; 4] = [
+    "___torajs_arr_props_attach",
+    "___torajs_arrprops_attach_exec3",
+    "___torajs_get_builtin_prototype",
+    "___torajs_arr_subclass_alloc",
 ];
 
 fn guard(prefix: &str, ignore: &[&str]) -> Guard {
@@ -450,7 +481,26 @@ mod tests {
     #[test]
     fn exotic_slow_path_stubs_are_symbol_guarded_loud_rejects() {
         let stubs = guarded_stubs();
-        assert_eq!(stubs.len(), 11);
+        assert_eq!(stubs.len(), 13);
+        for (i, sym) in [
+            "___torajs_arr_typed_nonint_f64_slow",
+            "___torajs_arr_typed_nonint_str_slow",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let read = &stubs[11 + i];
+            assert_eq!(read.sym, sym);
+            assert_eq!(
+                read.guard.to_string(),
+                "syms:___torajs_arr_props_attach|___torajs_arrprops_attach_exec3|\
+                 ___torajs_get_builtin_prototype|___torajs_arr_subclass_alloc"
+            );
+            assert_eq!(
+                &read.bytes[..4],
+                &(0xD280_0000u32 | ((52 + i as u32) << 5) | 7).to_le_bytes()
+            );
+        }
         let sort = &stubs[10];
         assert_eq!(sort.sym, "___torajs_arr_sort_exotic");
         assert_eq!(

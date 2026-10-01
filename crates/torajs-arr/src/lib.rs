@@ -70,6 +70,7 @@ pub mod method_any_hof;
 pub mod method_any_predicate;
 pub mod method_any_search;
 pub mod method_any_transform;
+pub mod nonint_read;
 pub mod null_guard;
 pub mod ops;
 pub mod pool;

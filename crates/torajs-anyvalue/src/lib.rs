@@ -127,6 +127,7 @@ mod index_any_keyed;
 mod index_any_method_call;
 mod index_any_set;
 mod index_any_struct;
+mod index_typed_nonint;
 mod instanceof_dynamic;
 mod is_regexp;
 mod iter_any;

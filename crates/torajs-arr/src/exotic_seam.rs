@@ -75,6 +75,12 @@ unsafe extern "C" {
     /// Scalar-array drop, subclass leg — the dying array wears
     /// `FLAG_SUBCLASSED` (`__torajs_subclass_drop_entry`).
     pub(crate) fn __torajs_arr_drop_subclass_slow(arr: *mut c_void);
+    /// Typed read at a non-integral index, slow leg — the cell can
+    /// carry a named property, so the keyed any-world read answers
+    /// (in the F64 slot's shape).
+    pub(crate) fn __torajs_arr_typed_nonint_f64_slow(arr: *mut c_void, key: f64) -> f64;
+    /// `string[]` twin: an owned Str cell, or NULL for undefined.
+    pub(crate) fn __torajs_arr_typed_nonint_str_slow(arr: *mut c_void, key: f64) -> *mut c_void;
 }
 
 #[cfg(test)]
@@ -103,6 +109,19 @@ pub(crate) unsafe fn __torajs_arr_drop_subclass_slow(arr: *mut c_void) {
         fn __torajs_subclass_drop_entry(p: *mut c_void);
     }
     unsafe { __torajs_subclass_drop_entry(arr) }
+}
+
+#[cfg(test)]
+pub(crate) unsafe fn __torajs_arr_typed_nonint_f64_slow(_arr: *mut c_void, _key: f64) -> f64 {
+    panic!("torajs-arr unit-test stub: the keyed read lives in torajs-anyvalue");
+}
+
+#[cfg(test)]
+pub(crate) unsafe fn __torajs_arr_typed_nonint_str_slow(
+    _arr: *mut c_void,
+    _key: f64,
+) -> *mut c_void {
+    panic!("torajs-arr unit-test stub: the keyed read lives in torajs-anyvalue");
 }
 
 /// Raise the header's exotic-index bit. The ONE writer of that bit —

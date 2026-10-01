@@ -216,18 +216,20 @@ struct cycle buffering\
 struct unbuffer\
 struct field-write guard\
 typed-array exotic sort\
+typed-array keyed read\
+typed-array keyed str read\
 method family";
-/// `SUBJECTS[OFF[i]..OFF[i + 1]]` is subject `i` (u16: the string is 367 B).
-const OFF: [u16; 31] = [
+/// `SUBJECTS[OFF[i]..OFF[i + 1]]` is subject `i` (u16: the string is 415 B).
+const OFF: [u16; 33] = [
     0, 3, 6, 12, 18, 24, 28, 34, 38, 45, 51, 57, 63, 70, 74, 77, 99, 113, 130, 149, 172, 198, 216,
-    232, 253, 270, 292, 307, 331, 354, 367,
+    232, 253, 270, 292, 307, 331, 354, 376, 402, 415,
 ];
 const ARM_FAMILY_COUNT: u64 = 15;
 /// Subject indices past the arm families.
 const SUBJ_NS_STATIC: usize = 15;
 const SUBJ_PRINTER: usize = 16;
 const SUBJ_LINK_FIRST: usize = 17;
-const SUBJ_FALLBACK: usize = 29;
+const SUBJ_FALLBACK: usize = 31;
 
 const REJECT_METHOD_FAMILY: &str = " method family";
 const REJECT_DISPATCH_TAIL: &str = " stripped (dispatch judgment bug)";
@@ -259,7 +261,7 @@ fn reject_message(fam_id: u64, buf: &mut [u8; REJECT_MSG_CAP]) -> usize {
         n if n < ARM_FAMILY_COUNT => (n as usize, REJECT_METHOD_FAMILY, REJECT_DISPATCH_TAIL),
         15 => (SUBJ_NS_STATIC, "", REJECT_DISPATCH_TAIL),
         16..40 => (SUBJ_PRINTER, "", REJECT_DISPATCH_TAIL),
-        40..=51 => (
+        40..=53 => (
             SUBJ_LINK_FIRST + (fam_id - 40) as usize,
             "",
             REJECT_LINK_TAIL,
@@ -325,7 +327,12 @@ mod tests {
         );
         assert_line(50, "struct field-write guard stripped (link judgment bug)");
         assert_line(51, "typed-array exotic sort stripped (link judgment bug)");
-        assert_line(52, "method family stripped (dispatch judgment bug)");
+        assert_line(52, "typed-array keyed read stripped (link judgment bug)");
+        assert_line(
+            53,
+            "typed-array keyed str read stripped (link judgment bug)",
+        );
+        assert_line(54, "method family stripped (dispatch judgment bug)");
         assert_line(u64::MAX, "method family stripped (dispatch judgment bug)");
     }
 

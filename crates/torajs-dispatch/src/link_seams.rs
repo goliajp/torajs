@@ -25,6 +25,41 @@ unsafe extern "C" {
     fn __torajs_anyv_rc_dec(v: u64);
     fn __torajs_obj_check_field_writable_impl(p: *const u8, name: *const u8);
     fn __torajs_arr_sort_exotic_impl(arr: *mut core::ffi::c_void, cmp: u64) -> u64;
+    fn __torajs_arr_typed_nonint_f64_impl(arr: *mut core::ffi::c_void, key: f64) -> f64;
+    fn __torajs_arr_typed_nonint_str_impl(
+        arr: *mut core::ffi::c_void,
+        key: f64,
+    ) -> *mut core::ffi::c_void;
+}
+
+/// Default resolution of a typed `number[]` read at a non-integral
+/// index, slow leg (§7.1.19 names the property "1.5"): the keyed
+/// any-world read in torajs-anyvalue. torajs-arr calls it only for a
+/// cell that can carry a named property; the link judgment stubs it
+/// (fam 52) when no array can grow a props bag, no builtin prototype
+/// can be minted and no Array subclass is allocated.
+///
+/// # Safety
+/// `arr` is a live `Tag::Arr` cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_typed_nonint_f64_slow(
+    arr: *mut core::ffi::c_void,
+    key: f64,
+) -> f64 {
+    unsafe { __torajs_arr_typed_nonint_f64_impl(arr, key) }
+}
+
+/// The `string[]` twin of [`__torajs_arr_typed_nonint_f64_slow`]
+/// (fam 53).
+///
+/// # Safety
+/// `arr` is a live `Tag::Arr` cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_typed_nonint_str_slow(
+    arr: *mut core::ffi::c_void,
+    key: f64,
+) -> *mut core::ffi::c_void {
+    unsafe { __torajs_arr_typed_nonint_str_impl(arr, key) }
 }
 
 /// Default resolution of the typed sort lane's exotic divert: the

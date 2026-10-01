@@ -246,6 +246,10 @@ pub unsafe extern "C" fn __torajs_peek_builtin_prototype(tag: i64) -> *mut c_voi
     SLOTS[idx].load(Ordering::Acquire) as *mut c_void
 }
 
+// `#[inline(never)]`: the one mint of a builtin prototype, so its
+// text liveness is the link-time evidence that a prototype can
+// carry a user property (the typed non-integral read seams).
+#[inline(never)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_get_builtin_prototype(tag: i64) -> *mut c_void {
     let idx = tag as usize;
