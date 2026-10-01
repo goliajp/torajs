@@ -63,6 +63,31 @@ try {
 } catch (e) {
   console.log("captured threw:", e instanceof TypeError)
 }
+class Setter {
+  k: number = 0
+  set v(n: number) {
+    if (n > 1) throw new RangeError("too big")
+    this.k = n
+  }
+  constructor(n: number) {
+    this.v = n
+  }
+}
+try {
+  console.log("setter small:", new Setter(1).k)
+  new Setter(2)
+  console.log("setter no throw")
+} catch (e) {
+  console.log("setter threw:", e instanceof RangeError)
+}
+function viaCtor(n: number): number {
+  return new Setter(n).k
+}
+try {
+  console.log("via ctor:", viaCtor(1), viaCtor(3))
+} catch (e) {
+  console.log("via ctor threw:", e instanceof RangeError)
+}
 class Base {
   p: Leaf | null
   q: any

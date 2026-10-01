@@ -202,6 +202,7 @@ mod free_vars_decls;
 mod free_vars_expr;
 mod free_vars_globals;
 mod free_vars_hoisted_names;
+pub(crate) mod fresh_this;
 mod gen_fn_expr;
 mod globalthis_member;
 mod heritage;

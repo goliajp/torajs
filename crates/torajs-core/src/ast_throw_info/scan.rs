@@ -38,6 +38,9 @@ pub(crate) struct Scan<'a> {
     pub(crate) safe: HashSet<String>,
     /// Names some assignment anywhere in the program writes.
     assigned: &'a HashSet<String>,
+    /// Receivers of a constructor's leading field writes, which no
+    /// integrity level can refuse yet (`ast::fresh_this`).
+    pub(crate) fresh_recv: HashSet<ExprId>,
 }
 
 impl<'a> Scan<'a> {
@@ -74,6 +77,7 @@ impl<'a> Scan<'a> {
             nullish,
             safe: HashSet::new(),
             assigned,
+            fresh_recv: HashSet::new(),
         }
     }
 

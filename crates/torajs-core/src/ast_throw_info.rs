@@ -76,6 +76,7 @@ pub(crate) fn fn_throw_info(
     assigned: &HashSet<String>,
 ) -> (bool, Vec<String>) {
     let mut sc = Scan::new(ast, name, params, expr_types, widths, assigned);
+    sc.fresh_recv = crate::ast::fresh_this::fresh_this_writes(ast, name, params, body).recv;
     sc.stmts(body);
     (sc.direct, sc.called)
 }
@@ -131,6 +132,12 @@ pub(crate) fn ident_read_raises(ast: &Ast, eid: ExprId) -> bool {
 }
 
 impl Scan<'_> {
+    /// `this.f` where `this` is a fresh receiver the lowering stores
+    /// without a guard.
+    fn fresh_store(&self, target: ExprId) -> bool {
+        matches!(self.ast.get_expr(target), Expr::Member { obj, .. } if self.fresh_recv.contains(obj))
+    }
+
     pub(crate) fn expr(&mut self, eid: ExprId) {
         let ast = self.ast;
         match ast.get_expr(eid) {
@@ -194,7 +201,11 @@ impl Scan<'_> {
                 // Every member store can raise — see `is_member_store`
                 // for why the receiver's type cannot tell us otherwise,
                 // and for the three whitelist arms this one replaces.
-                if is_property_store(ast, *target) {
+                // The one exception is positional too: a constructor's
+                // leading write to a declared field of an instance
+                // nothing has seen yet, which the lowering stores
+                // unguarded on the same proof.
+                if is_property_store(ast, *target) && !self.fresh_store(*target) {
                     self.direct = true;
                 }
                 self.expr(*target);
