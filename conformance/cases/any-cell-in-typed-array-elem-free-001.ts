@@ -1,7 +1,7 @@
 // An `any` entering a typed array's element slot puts a cell of
 // ANOTHER layout behind every read of that element: a literal typed
-// by its annotation, an indexed assignment, and an `any` array
-// converted at a typed declaration. A typed binding of the element
+// by its annotation, an indexed assignment, and an `any` or `any[]`
+// product converted at a typed declaration. A typed binding of the element
 // read back, outliving the array, then drops the cell by the element
 // class's layout. Each channel has a class of its own, so each has to
 // be caught on its own. The wide cells minted afterwards reuse
@@ -30,6 +30,14 @@ class BigSet {
   f: number = 0
 }
 class BigConv {
+  a: number = 0
+  b: number = 0
+  c: number = 0
+  d: number = 0
+  e: number = 0
+  f: number = 0
+}
+class BigFromAnyArr {
   a: number = 0
   b: number = 0
   c: number = 0
@@ -72,6 +80,11 @@ function takeOut(i: number): any {
 function anyArr(i: number): any {
   return [takeOut(i)]
 }
+// the same product typed as `any[]`: the declaration below converts
+// the array itself, not an `any`
+function anyArrTyped(i: number): any[] {
+  return [takeOut(i)]
+}
 
 let acc = 0
 for (let i = 0; i < 64; i++) {
@@ -102,6 +115,16 @@ for (let i = 0; i < 64; i++) {
     {
       const xs: BigConv[] = anyArr(i)
       const t: BigConv = xs[0]
+      b = t
+    }
+    acc += b!.a
+  }
+  {
+    // an `any[]` converted at a typed declaration
+    let b: BigFromAnyArr | null = null
+    {
+      const xs: BigFromAnyArr[] = anyArrTyped(i)
+      const t: BigFromAnyArr = xs[0]
       b = t
     }
     acc += b!.a

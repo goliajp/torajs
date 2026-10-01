@@ -256,9 +256,11 @@ impl Scan<'_> {
     }
 
     /// A value typed as an array of cells is born here. A runtime
-    /// call that takes an `any` builds the array out of it, and the
-    /// cells it holds are of any layout (`__torajs_arr_any_to_typed`);
-    /// one that takes none (an allocation, a slice of a typed array)
+    /// call that takes an `any`, or an array whose elements do not fit
+    /// this array's, builds the array out of it and the cells it holds
+    /// are of any layout (`__torajs_arr_any_to_typed` takes the `any[]`
+    /// itself, typed `Arr` of `Any` elements, not an `Any`); one whose
+    /// arguments all fit (an allocation, a slice of a typed array)
     /// holds what typed arrays held.
     fn defined_arr(&mut self, a: ArrId, kind: &InstKind) {
         let elem = self.module.arr_layouts[a.0 as usize];
@@ -268,7 +270,11 @@ impl Scan<'_> {
         let exact = match kind {
             InstKind::Call(fid, args) => {
                 !self.module.funcs[fid.0 as usize].blocks.is_empty()
-                    || !args.iter().any(|v| self.ty(v) == Type::Any)
+                    || args.iter().all(|v| match self.ty(v) {
+                        Type::Any => false,
+                        Type::Arr(_) => self.fits_slot(Type::Arr(a), v),
+                        _ => true,
+                    })
             }
             InstKind::Alloca(_)
             | InstKind::AllocaBytes(_)
@@ -593,19 +599,37 @@ mod tests {
             );
         });
         assert_eq!(open(&m), vec![false, false, true]);
-        // a typed array built by a runtime call out of an `any`
+        // a typed array built by a runtime call out of an `any[]`:
+        // the argument is the array of `any` elements itself, as the
+        // typed declaration's conversion passes it
         let mut m = module();
         let arr = arr_of(&mut m, 2);
+        let any_arr = ArrId(m.arr_layouts.len() as u32);
+        m.arr_layouts.push(Type::Any);
         body(&mut m, |f, entry| {
-            let v = any(f, entry);
+            let v = f.append_inst(entry, InstKind::AllocaBytes(8), Type::Arr(any_arr), None);
             f.append_inst(
                 entry,
-                InstKind::Call(FuncId(3), vec![v, Operand::ConstI64(4)]),
+                InstKind::Call(FuncId(3), vec![Operand::Value(v), Operand::ConstI64(4)]),
                 Type::Arr(arr),
                 None,
             );
         });
         assert_eq!(open(&m), vec![false, false, true]);
+        // the same call handed a fitting typed array (a slice) keeps
+        // the element layout exact
+        let mut m = module();
+        let arr = arr_of(&mut m, 2);
+        body(&mut m, |f, entry| {
+            let v = f.append_inst(entry, InstKind::AllocaBytes(8), Type::Arr(arr), None);
+            f.append_inst(
+                entry,
+                InstKind::Call(FuncId(3), vec![Operand::Value(v), Operand::ConstI64(4)]),
+                Type::Arr(arr),
+                None,
+            );
+        });
+        assert_eq!(open(&m), vec![false, false, false]);
         // an array of another layout stored into an array-typed slot
         let mut m = module();
         let arr = arr_of(&mut m, 2);
