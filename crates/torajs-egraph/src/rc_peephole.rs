@@ -66,8 +66,10 @@ const RC_INC: &str = "__torajs_rc_inc";
 const OBJ_ALLOC: &str = "__torajs_obj_alloc";
 
 /// Single-inst void drop helpers whose semantics are exactly
-/// "dec refcount, free on zero, NULL passes through". Inline-expanded
-/// drops (Obj) and indirect drops (Closure) are intentionally absent.
+/// "dec refcount, free on zero, NULL passes through". The synthesized
+/// per-class release fns (`Module::class_drop_fns`) join them by fid at
+/// run time; inline-expanded drops (Obj without one) and indirect
+/// drops (Closure) are intentionally absent.
 const DROP_INTRINSICS: [&str; 5] = [
     "__torajs_str_drop",
     "__torajs_substr_drop",
@@ -129,9 +131,11 @@ pub fn elide_rc_pairs(module: &mut Module) -> RcPeepholeStats {
     // typed values retain through the inline `RcInc`; `Any` values
     // still call the helper, which may then be the only retain form
     let inc_fid = find_func(module, RC_INC);
+    let class_drop_fids: HashSet<u32> = module.class_drop_fns.iter().map(|f| f.0).collect();
     let drop_fids: HashSet<u32> = DROP_INTRINSICS
         .iter()
         .filter_map(|name| find_func(module, name))
+        .chain(class_drop_fids.iter().copied())
         .collect();
     let readonly_fids: HashSet<u32> = READONLY_INTRINSICS
         .iter()
@@ -152,6 +156,7 @@ pub fn elide_rc_pairs(module: &mut Module) -> RcPeepholeStats {
             |kind| rc_transparent(kind, &readonly_fids, &slots),
             &buffer_fids,
             alloc_fid,
+            &class_drop_fids,
         );
         for block in func.blocks.iter_mut() {
             loop {

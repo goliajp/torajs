@@ -36,6 +36,7 @@ pub(crate) struct ObjCaptureIds {
     pub obj_alloc: FuncId,
     pub obj_drop_sized: FuncId,
     pub value_drop_heap: FuncId,
+    pub obj_drop_rc: FuncId,
     pub cycle_unbuffer: FuncId,
     pub closure_drop_props_slow: FuncId,
     pub obj_props_drop_slow: FuncId,
@@ -70,6 +71,16 @@ pub(crate) fn declare(
             module,
             fn_table,
             "__torajs_value_drop_heap",
+            &[Type::Ptr],
+            Type::Void,
+        ),
+        // the runtime's layout-table release of a class instance: the
+        // synthesized `__drop_<C>` hands over a cell whose tag is not
+        // its sid's (a derived instance in a base-typed slot)
+        obj_drop_rc: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_obj_drop_rc",
             &[Type::Ptr],
             Type::Void,
         ),

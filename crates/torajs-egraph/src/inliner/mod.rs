@@ -152,6 +152,13 @@ pub enum SkipReason {
     /// own fn. Inlining it would put the whole dynobj / anyvalue
     /// world back into main on every class program.
     LinkJudgedUnit,
+    /// The callee is a synthesized per-class release fn
+    /// (`Module::class_drop_fns`): lowering made it a
+    /// unit so every site is one call, the self-referential field's
+    /// release is a direct call to it, and the retain/release
+    /// peephole pairs it by fid. Spliced back per site it would be
+    /// the inline expansion it replaced.
+    ClassDropUnit,
 }
 
 /// Sum `cost_of_kind` over every instruction in every block of `func`.
@@ -210,6 +217,14 @@ fn classify_caller_sites(
                             blk_idx,
                             site_idx,
                             InlineDecision::Skip(SkipReason::LinkJudgedUnit),
+                        ));
+                        continue;
+                    }
+                    if module.class_drop_fns.contains(callee_id) {
+                        decisions.push((
+                            blk_idx,
+                            site_idx,
+                            InlineDecision::Skip(SkipReason::ClassDropUnit),
                         ));
                         continue;
                     }
@@ -333,6 +348,10 @@ pub fn inline_module_with_budget(module: &mut Module, budget: InlineBudget) -> I
                     SkipReason::LinkJudgedUnit => {
                         stats.candidates += 1;
                         stats.skipped_link_judged_unit += 1;
+                    }
+                    SkipReason::ClassDropUnit => {
+                        stats.candidates += 1;
+                        stats.skipped_class_drop_unit += 1;
                     }
                 },
             }

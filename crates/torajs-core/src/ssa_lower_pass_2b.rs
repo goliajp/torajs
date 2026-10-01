@@ -120,6 +120,7 @@ pub(crate) fn run(
     contextual_any: &std::collections::HashSet<ExprId>,
     num_f64_slots: &WidthTable,
     promise_thunks: &crate::ssa_lower_promise_thunk::PromiseThunks,
+    class_drop_fids: &std::collections::HashMap<u32, crate::ssa::FuncId>,
     boxed_entries: &HashMap<FuncId, (FuncId, ssa::SigId)>,
 ) {
     let named_eval = collect_named_eval(ast);
@@ -186,6 +187,7 @@ pub(crate) fn run(
                 contextual_any,
                 num_f64_slots,
                 promise_thunks,
+                class_drop_fids,
                 boxed_entries,
             );
             module.funcs[fid.0 as usize] = f;

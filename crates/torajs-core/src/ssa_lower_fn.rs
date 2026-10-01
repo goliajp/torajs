@@ -77,6 +77,7 @@ pub(crate) fn lower_fn(
     contextual_any: &std::collections::HashSet<ExprId>,
     num_f64_slots: &crate::num_width::WidthTable,
     promise_thunks: &crate::ssa_lower_promise_thunk::PromiseThunks,
+    class_drop_fids: &std::collections::HashMap<u32, crate::ssa::FuncId>,
     boxed_entries: &HashMap<FuncId, (FuncId, ssa::SigId)>,
 ) -> (ssa::Function, Vec<ssa::StringLiteral>) {
     let ret_ty = promote_and_widen(
@@ -135,6 +136,7 @@ pub(crate) fn lower_fn(
         contextual_any,
         num_f64_slots,
         promise_thunks,
+        class_drop_fids,
         boxed_entries,
         arr_layouts,
         baked_regex_buf,

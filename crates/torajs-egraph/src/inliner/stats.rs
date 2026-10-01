@@ -43,6 +43,8 @@ pub struct InlinerStats {
     pub skipped_recursion: u32,
     /// Sites rejected by `SkipReason::LinkJudgedUnit`.
     pub skipped_link_judged_unit: u32,
+    /// Sites rejected by `SkipReason::ClassDropUnit`.
+    pub skipped_class_drop_unit: u32,
     /// Indirect call sites observed. Tracked separately from
     /// `candidates` because at Phase 0 they are categorically out of
     /// scope rather than a per-site cost-benefit miss.

@@ -31,6 +31,14 @@
 //! and everything between is rc-transparent. `dec` must have no other
 //! way in, and every path out of `buf` must reach `after` through the
 //! buffer calls alone.
+//!
+//! A class with a synthesized `__drop_<C>` releases through one call
+//! instead (`call __drop_C(%x)`, the same dec / buffer / walk inside
+//! the callee). That call pairs with a retain under the same window
+//! rules, up the same chain of blocks: `rc_peephole`'s own pairing
+//! sees a block at a time, and the chain is what `new C(a, b)` leaves
+//! behind when the caller's bindings are released after the ctor
+//! retained them.
 
 use std::collections::HashSet;
 
@@ -51,9 +59,10 @@ const OBJ_FIELDS_OFF: u64 = 32;
 const MAX_CHAIN_HOPS: usize = 8;
 
 /// Elide every retain paired with an inline class-instance release in
-/// `func`. `transparent` is the window predicate of the caller;
-/// `buffer_fids` are the candidate-root calls `buf` may make and
-/// `alloc_fid` the class-instance allocator.
+/// `func`, or with a call to one of the synthesized per-class release
+/// fns `drop_fids`. `transparent` is the window predicate of the
+/// caller; `buffer_fids` are the candidate-root calls `buf` may make
+/// and `alloc_fid` the class-instance allocator.
 ///
 /// Runs in rounds: an elided pair turns its block's branch into a
 /// jump and strands the release's blocks, which can put a later
@@ -65,10 +74,11 @@ pub(crate) fn elide_obj_pairs(
     transparent: impl Fn(&InstKind) -> bool,
     buffer_fids: &HashSet<u32>,
     alloc_fid: Option<u32>,
+    drop_fids: &HashSet<u32>,
 ) -> u32 {
     let mut elided = 0;
     loop {
-        let round = elide_round(func, &transparent, buffer_fids, alloc_fid);
+        let round = elide_round(func, &transparent, buffer_fids, alloc_fid, drop_fids);
         if round == 0 {
             return elided;
         }
@@ -81,6 +91,7 @@ fn elide_round(
     transparent: &impl Fn(&InstKind) -> bool,
     buffer_fids: &HashSet<u32>,
     alloc_fid: Option<u32>,
+    drop_fids: &HashSet<u32>,
 ) -> u32 {
     let mut preds: Vec<Vec<usize>> = vec![Vec::new(); func.blocks.len()];
     for (b, block) in func.blocks.iter().enumerate() {
@@ -102,17 +113,41 @@ fn elide_round(
         .collect();
     let mut elided = 0;
     let mut dead: Vec<ValueId> = Vec::new();
+    let cells = &cells;
+    let window = |x: ValueId| {
+        move |i: &Inst| {
+            i.result != Some(x)
+                && (transparent(&i.kind)
+                    || matches!(i.kind, InstKind::GlobalRef(_))
+                    || keeps_counts(&i.kind, cells))
+        }
+    };
     for b in 0..func.blocks.len() {
+        // one call-form release per block per round: a removal shifts
+        // the indices after it, and the next round sees the rest
+        let calls: Vec<(usize, ValueId)> = func.blocks[b]
+            .insts
+            .iter()
+            .enumerate()
+            .filter_map(|(i, inst)| Some((i, call_release(inst, drop_fids)?)))
+            .collect();
+        if let Some((i, ri, rb)) = calls.iter().find_map(|&(i, x)| {
+            let (rb, ri) = retain_before(func, b, i, x, &preds, window(x))?;
+            Some((i, ri, rb))
+        }) {
+            // the retain sits before the call when both share a block
+            func.blocks[b].insts.remove(i);
+            func.blocks[rb].insts.remove(ri);
+            elided += 1;
+            continue;
+        }
         let Some(release) = release_at_end(func, b, &pred_count, buffer_fids) else {
             continue;
         };
-        let keeps_window = |i: &Inst| {
-            i.result != Some(release.value)
-                && (transparent(&i.kind)
-                    || matches!(i.kind, InstKind::GlobalRef(_))
-                    || keeps_counts(&i.kind, &cells))
-        };
-        let Some((rb, ri)) = retain_before(func, b, release.value, &preds, keeps_window) else {
+        let end = func.blocks[b].insts.len();
+        let Some((rb, ri)) =
+            retain_before(func, b, end, release.value, &preds, window(release.value))
+        else {
             continue;
         };
         func.blocks[rb].insts.remove(ri);
@@ -127,22 +162,37 @@ fn elide_round(
     elided
 }
 
-/// The retain of `x` that reaches the end of block `b` through a
-/// window `keeps_window` accepts: in `b` itself, or up the chain of
-/// blocks each of which is the only way into the next. Predecessors
-/// are those of the round's start; a pair elided since only removed
-/// edges, so a chain found here is still one.
+/// `call __drop_C(%x)` — the call-form release of `x`, if `inst` is one.
+fn call_release(inst: &Inst, drop_fids: &HashSet<u32>) -> Option<ValueId> {
+    match &inst.kind {
+        InstKind::Call(f, args) if inst.result.is_none() && drop_fids.contains(&f.0) => {
+            match args.as_slice() {
+                [Operand::Value(x)] => Some(*x),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// The retain of `x` that reaches instruction `end` of block `b`
+/// through a window `keeps_window` accepts: in `b` itself, or up the
+/// chain of blocks each of which is the only way into the next.
+/// Predecessors are those of the round's start; a pair elided since
+/// only removed edges, so a chain found here is still one.
 fn retain_before(
     func: &Function,
     b: usize,
+    end: usize,
     x: ValueId,
     preds: &[Vec<usize>],
     keeps_window: impl Fn(&Inst) -> bool,
 ) -> Option<(usize, usize)> {
     let mut cur = b;
+    let mut end = end;
     let mut hops = 0;
     loop {
-        let insts = &func.blocks[cur].insts;
+        let insts = &func.blocks[cur].insts[..end];
         let retain = insts
             .iter()
             .rposition(|i| matches!(&i.kind, InstKind::RcInc(Operand::Value(v)) if *v == x));
@@ -162,6 +212,7 @@ fn retain_before(
             return None;
         }
         cur = *p;
+        end = func.blocks[cur].insts.len();
         hops += 1;
     }
 }
@@ -417,9 +468,71 @@ mod tests {
         (f, mid)
     }
 
+    const DROP: FuncId = FuncId(10);
+
     fn run(f: &mut Function) -> u32 {
         let buffers: HashSet<u32> = [BUFFER.0].into();
-        elide_obj_pairs(f, crate::optimize::classify_pure, &buffers, Some(ALLOC.0))
+        let drops: HashSet<u32> = [DROP.0].into();
+        elide_obj_pairs(
+            f,
+            crate::optimize::classify_pure,
+            &buffers,
+            Some(ALLOC.0),
+            &drops,
+        )
+    }
+
+    /// entry: retain x → mid: [extra] → last: call release(x) · ret
+    fn chained_call(extra: Option<InstKind>, release: FuncId) -> Function {
+        let mut f = Function::new("t", Type::I64);
+        let x = f.add_param(Type::Ptr, "x");
+        let entry = f.add_block();
+        let mid = f.add_block();
+        let last = f.add_block();
+        f.append_void(entry, InstKind::RcInc(Operand::Value(x)));
+        f.set_term(entry, Terminator::Br(mid));
+        if let Some(kind) = extra {
+            f.append_void(mid, kind);
+        }
+        f.set_term(mid, Terminator::Br(last));
+        f.append_void(last, InstKind::Call(release, vec![Operand::Value(x)]));
+        f.append_void(last, InstKind::Call(OTHER, Vec::new()));
+        f.set_term(last, Terminator::Ret(Some(Operand::ConstI64(0))));
+        f
+    }
+
+    #[test]
+    fn a_retain_up_a_straight_chain_pairs_with_the_call_release() {
+        let mut f = chained_call(None, DROP);
+        assert_eq!(run(&mut f), 1);
+        assert!(f.blocks[0].insts.is_empty());
+        assert_eq!(f.blocks[2].insts.len(), 1);
+        assert!(matches!(&f.blocks[2].insts[0].kind, InstKind::Call(c, _) if *c == OTHER));
+    }
+
+    #[test]
+    fn a_call_along_the_chain_or_an_unknown_callee_keeps_both() {
+        let mut f = chained_call(Some(InstKind::Call(OTHER, Vec::new())), DROP);
+        assert_eq!(run(&mut f), 0);
+        let mut f = chained_call(None, OTHER);
+        assert_eq!(run(&mut f), 0);
+        assert!(matches!(f.blocks[0].insts[0].kind, InstKind::RcInc(_)));
+    }
+
+    #[test]
+    fn a_retain_and_a_call_release_in_one_block_pair_in_place() {
+        let mut f = Function::new("t", Type::I64);
+        let x = f.add_param(Type::Ptr, "x");
+        let entry = f.add_block();
+        f.append_void(entry, InstKind::Call(OTHER, Vec::new()));
+        f.append_void(entry, InstKind::RcInc(Operand::Value(x)));
+        f.append_void(entry, InstKind::Call(DROP, vec![Operand::Value(x)]));
+        f.append_void(entry, InstKind::Call(DROP, vec![Operand::Value(x)]));
+        f.set_term(entry, Terminator::Ret(Some(Operand::ConstI64(0))));
+        assert_eq!(run(&mut f), 1);
+        assert_eq!(f.blocks[0].insts.len(), 2);
+        assert!(matches!(&f.blocks[0].insts[0].kind, InstKind::Call(c, _) if *c == OTHER));
+        assert!(matches!(&f.blocks[0].insts[1].kind, InstKind::Call(c, _) if *c == DROP));
     }
 
     #[test]

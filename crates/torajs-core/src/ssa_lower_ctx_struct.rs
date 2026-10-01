@@ -2,10 +2,8 @@
 //! chunk 370.
 //!
 //! The god-context struct threaded through every LowerCtx method (see
-//! `impl<'a> LowerCtx<'a>` in `ssa_lower.rs`). Kept as a bare-bones move
-//! — visibility, field layout, and doc comments are byte-for-byte
-//! preserved from the source. Methods and construction sites stay
-//! outside; siblings and ssa_lower.rs address it via
+//! `impl<'a> LowerCtx<'a>` in `ssa_lower.rs`). Methods and construction
+//! sites stay outside; siblings and ssa_lower.rs address it via
 //! `crate::ssa_lower::LowerCtx` through the pub(crate) re-export.
 
 use std::collections::HashMap;
@@ -70,6 +68,8 @@ pub(crate) struct LowerCtx<'a> {
     /// ②.6b — synthesized promise-callback ABI thunks (bits-adapters
     /// the `.then` / `.catch` lowering wraps f64-faced handlers in).
     pub(crate) promise_thunks: &'a crate::ssa_lower_promise_thunk::PromiseThunks,
+    /// the per-class release fn of every sid that has one
+    pub(crate) class_drop_fids: &'a HashMap<u32, FuncId>,
     /// C3a-2 — lifted-closure body fid → boxed dual-entry adapter
     /// (fid, sig) for the construction site's boxed_entry store.
     pub(crate) boxed_entries: &'a HashMap<FuncId, (FuncId, ssa::SigId)>,

@@ -30,17 +30,20 @@
 //!
 //! 2026-07-03 fn-debt decomp: Passes 2 / 3 / 2B / 2.5 →
 //! [`body_passes`] (dir submodule); mono+num-width / intrinsic
-//! batches / env-drop+promise+signatures / top-level globals /
-//! module finalize become file-local sub-fns below.
+//! batches / top-level globals / module finalize become file-local
+//! sub-fns below; env-drop+class-drop+promise+signatures live in
+//! [`callable_infra`].
 
 pub(crate) mod body_passes;
 pub(crate) mod body_passes_fn_name;
+mod callable_infra;
 mod setup;
 
 use crate::ast::PropKey;
 pub(crate) use body_passes_fn_name::{
     intern_fn_source, register_fn_name, strip_static_method_name,
 };
+use callable_infra::{CallableInfra, setup_callable_infra};
 use setup::{build_anon_stamp_pool_with_snapshot, build_intrinsics_and_boxed_entries};
 
 use std::collections::HashMap;
@@ -116,16 +119,25 @@ pub(crate) fn lower_inner(
     let (decl_indices, closure_decls) =
         crate::ssa_lower_closure_order::partition_closure_decls(ast, pass1.decl_indices);
 
-    let (env_drop_fids, env_drop_trivial_fid, env_trace_fids, promise_thunks, signatures) =
-        setup_callable_infra(
-            ast,
-            &mut module,
-            &mut fn_table,
-            &mut fn_sigs,
-            &mut fn_sig_ids,
-            &init_a,
-            &num_f64_slots,
-        );
+    let infra = setup_callable_infra(
+        ast,
+        &mut module,
+        &mut fn_table,
+        &mut fn_sigs,
+        &mut fn_sig_ids,
+        &init_a,
+        &num_f64_slots,
+        &aliases,
+        &struct_layouts,
+    );
+    let CallableInfra {
+        env_drop_fids,
+        env_drop_trivial_fid,
+        env_trace_fids,
+        class_drops,
+        promise_thunks,
+        signatures,
+    } = infra;
 
     // (struct_layouts already detached from module at top of lower(),
     // see M3.4 block above; write-back happens at the end.)
@@ -182,11 +194,14 @@ pub(crate) fn lower_inner(
         &init_d,
     );
 
+    let class_drop_fids: HashMap<u32, FuncId> =
+        class_drops.iter().map(|d| (d.sid.0, d.fid)).collect();
     body_passes::run(
         decl_indices,
         closure_decls,
         &env_drop_fids,
         &env_trace_fids,
+        &class_drops,
         ast,
         &mut module,
         &fn_table,
@@ -214,6 +229,7 @@ pub(crate) fn lower_inner(
         contextual_any,
         &num_f64_slots,
         &promise_thunks,
+        &class_drop_fids,
         &boxed_entries,
     );
 
@@ -281,66 +297,6 @@ fn declare_intrinsic_batches(
     // batch). After this Pass 0 is fully drained from `lower_inner`.
     let init_d = crate::ssa_lower_intrinsics_init_d::declare(module, fn_table);
     (init_a, init_b, init_c, init_d)
-}
-
-/// Env-drop fn infrastructure + promise-callback ABI thunks + the
-/// callables return-type snapshot. Split 2026-07-03 (fn-debt
-/// decomp); bodies verbatim.
-#[allow(clippy::too_many_arguments)]
-fn setup_callable_infra(
-    ast: &Ast,
-    module: &mut Module,
-    fn_table: &mut HashMap<String, FuncId>,
-    fn_sigs: &mut Vec<(Vec<Type>, Type)>,
-    fn_sig_ids: &mut HashMap<FuncId, ssa::SigId>,
-    init_a: &crate::ssa_lower_intrinsics_init_a::InitA,
-    num_f64_slots: &crate::num_width::WidthTable,
-) -> (
-    Vec<(String, FuncId, ssa::SigId)>,
-    (FuncId, ssa::SigId),
-    Vec<(String, FuncId)>,
-    crate::ssa_lower_promise_thunk::PromiseThunks,
-    HashMap<FuncId, Type>,
-) {
-    // Env-drop fn infrastructure (per-closure pre-allocate + trivial
-    // wrapper) — see [`crate::ssa_lower_env_drop_setup`].
-    let env_drop_setup =
-        crate::ssa_lower_env_drop_setup::run(ast, module, fn_table, fn_sigs, fn_sig_ids, init_a);
-    let env_drop_fids = env_drop_setup.env_drop_fids;
-    let env_drop_trivial_fid = env_drop_setup.env_drop_trivial_fid;
-    let env_trace_fids = env_drop_setup.env_trace_fids;
-
-    // ②.6b — promise callback ABI thunks (bits-adapters for f64-faced
-    // `.then` / `.catch` handlers). Synthesized here because the fn
-    // list freezes at the signatures snapshot below; modules without
-    // a promise chain synthesize nothing.
-    let promise_thunks = crate::ssa_lower_promise_thunk::synthesize_promise_thunks(
-        ast,
-        num_f64_slots,
-        module,
-        fn_table,
-        fn_sigs,
-        fn_sig_ids,
-        init_a.obj_capture.obj_drop_sized,
-        init_a.obj_capture.value_drop_heap,
-        init_a.obj_capture.cycle_unbuffer,
-    );
-
-    // Snapshot every callable's return type — used inside lower_fn to type
-    // call-site results correctly.
-    let signatures: HashMap<FuncId, Type> = module
-        .funcs
-        .iter()
-        .enumerate()
-        .map(|(i, f)| (FuncId(i as u32), f.ret))
-        .collect();
-    (
-        env_drop_fids,
-        env_drop_trivial_fid,
-        env_trace_fids,
-        promise_thunks,
-        signatures,
-    )
 }
 
 /// Pass 1.5 (K.3) — collect + register top-level data globals.

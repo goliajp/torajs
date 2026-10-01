@@ -15,6 +15,13 @@ use super::{ArrId, FuncId, Function, SigId, StringId, StructId, Type};
 #[derive(Debug, Clone, Default)]
 pub struct Module {
     pub funcs: Vec<Function>,
+    /// The per-class release fns lowering synthesized (`__drop_<C>`,
+    /// one per class sid holding an `Obj` field): "dec, free on zero,
+    /// NULL passes through" as one call. The e-graph's inliner keeps
+    /// them out of line and its retain/release pairing treats a call
+    /// to one as a release. Identified by fid, never by name — a user
+    /// fn may spell the same one.
+    pub class_drop_fns: Vec<FuncId>,
     /// Interned string literals. StringId = index. Backend emits each
     /// as a raw-byte `[N x i8]` global (consumed by `InstKind::StringRef`)
     /// and a Str-shaped global with header / length / encoding flag bit

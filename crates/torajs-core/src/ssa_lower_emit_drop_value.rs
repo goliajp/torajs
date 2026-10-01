@@ -43,6 +43,9 @@
 use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::{ARR_LEN_OFF, CLOSURE_DROP_FN_OFF, LowerCtx, intern_fn_sig};
 
+pub(crate) mod class_drop;
+pub(crate) mod class_drop_arr;
+pub(crate) mod class_drop_setup;
 mod obj;
 
 /// RFC 20260710 C2b — nullish skip condition for the inline drop
@@ -88,7 +91,14 @@ pub(crate) fn emit(ctx: &mut LowerCtx, val: Operand, ty: Type) {
     // three structural shapes get their own emit fn; everything else
     // is a single type-specific `__torajs_*_drop` helper call.
     let drop_fid = match ty {
-        Type::Obj(sid) => return obj::emit_drop_obj(ctx, val, sid),
+        // a class sid with an `Obj` field releases through its
+        // synthesized `__drop_<C>` (the callee makes the nullish test)
+        Type::Obj(sid) => {
+            match crate::ssa_lower_emit_drop_value::class_drop_setup::class_drop_fid(ctx, sid) {
+                Some(fid) => fid,
+                None => return obj::emit_drop_obj(ctx, val, sid),
+            }
+        }
         Type::Arr(arr_id) => return emit_drop_arr(ctx, val, arr_id),
         Type::Closure(_) => return emit_drop_closure(ctx, val),
         Type::Str => ctx.intrinsics.str_drop,
