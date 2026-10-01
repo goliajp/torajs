@@ -21,6 +21,8 @@
 //! - array literal `[a, X, b]` / object literal `{f: X}` — heap
 //!   storage
 //! - `...X` spread — copy into a heap container
+//! - `Y = <anything>` — the store drops Y's previous cell, which
+//!   must then be one the allocator can take back
 //! - `let Y = X` / `Y = X` — alias propagates (mark both X and Y;
 //!   conservative — no per-binding precision); value-transparent
 //!   wrappers are looked through (`cond ? X : Z` / `X ?? Z` /
@@ -201,12 +203,12 @@ fn collect_escape_obj_let_names_in_expr(ast: &Ast, eid: ExprId, out: &mut HashSe
                     collect_value_flow_idents(ast, *value, out);
                 }
                 Expr::Ident(name) => {
-                    let mut sources = HashSet::new();
-                    collect_value_flow_idents(ast, *value, &mut sources);
-                    if !sources.is_empty() {
-                        out.insert(name.clone());
-                        out.extend(sources);
-                    }
+                    // The assignment releases the binding's previous
+                    // value, and the release frees a cell at rc 0: a
+                    // reassigned binding's first cell cannot be a
+                    // stack slot, whatever the new value is.
+                    out.insert(name.clone());
+                    collect_value_flow_idents(ast, *value, out);
                 }
                 _ => {}
             }
