@@ -25,7 +25,7 @@ typedef struct {
 static void append(StrBuf *b, const char *s, size_t len) {
     size_t need = b->len + len;
     if (need > b->cap) {
-        size_t cap = b->cap ? b->cap : 8;
+        size_t cap = b->cap ? b->cap : 16;
         while (cap < need) {
             cap *= 2;
         }

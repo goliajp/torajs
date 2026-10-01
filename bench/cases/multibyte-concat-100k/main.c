@@ -16,7 +16,7 @@ typedef struct {
 static void append(U16Str *a, const uint16_t *b, size_t b_len) {
     size_t need = a->len + b_len;
     if (need > a->cap) {
-        size_t cap = a->cap ? a->cap : 8;
+        size_t cap = a->cap ? a->cap : 16;
         while (cap < need) {
             cap *= 2;
         }

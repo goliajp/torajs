@@ -67,6 +67,7 @@ cases = [
   "str-concat-ascii-100k",
   "i64-to-str-100k",
   "split-materialize-1m",
+  "split-materialize-escape-1m",
   "str-build-1mb",
 ]
 
