@@ -5,6 +5,7 @@
 use std::collections::{HashMap, HashSet};
 use torajs_core::ssa::{BinOp, Function, InstKind, Terminator, Type, ValueId};
 
+use crate::compile::CellOps;
 use crate::reg::{Fpr, Gpr, Reg};
 
 /// Per-function register assignment.
@@ -197,10 +198,14 @@ pub(crate) fn inst_emits_bl(kind: &InstKind) -> bool {
 
 /// How often a call site's `bl` actually runs, as a divisor of its
 /// slot frequency: a release calls only on its slow arm (the last
-/// reference, or a cell that may need buffering as a cycle root).
-pub(crate) fn call_site_rarity(kind: &InstKind) -> u64 {
+/// reference, or a cell that may need buffering as a cycle root), a
+/// cell allocation or free only when the thread cache's row is empty
+/// or full.
+pub(crate) fn call_site_rarity(kind: &InstKind, cells: Option<CellOps>) -> u64 {
+    let slow_arm = (1.0 / torajs_core::ssa::branch_prob::P_SLOW_PATH) as u64;
     match kind {
-        InstKind::RcDecAny(_) => (1.0 / torajs_core::ssa::branch_prob::P_SLOW_PATH) as u64,
+        InstKind::RcDecAny(_) => slow_arm,
+        _ if cells.is_some_and(|c| c.inline_class(kind).is_some()) => slow_arm,
         _ => 1,
     }
 }

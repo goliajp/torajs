@@ -36,6 +36,7 @@ mod brfuse;
 mod call;
 mod call_args;
 mod cast;
+mod cell;
 mod cmp;
 mod ctpop_range_sum;
 mod entry;
@@ -54,7 +55,7 @@ pub(crate) mod test_fixtures;
 
 use std::collections::HashMap;
 
-use torajs_core::ssa::{Function, InstKind, Type};
+use torajs_core::ssa::{Function, InstKind, Module, Type};
 
 use crate::frame::FrameLayout;
 use crate::reg::{Fpr, Gpr};
@@ -71,6 +72,7 @@ pub use cast::{
     emit_int_to_ptr, emit_ptr_to_int, emit_si_to_fp, emit_trunc_i64_to_bool, emit_zext_bool_to_i64,
     emit_zext_i32_to_i64,
 };
+pub use cell::CellOps;
 pub use cmp::{emit_fcmp, emit_icmp, emit_select};
 pub use ctpop_range_sum::emit_ctpop_range_sum;
 pub use mem::{
@@ -123,27 +125,46 @@ pub struct CompiledFunction {
 ///
 /// Test convenience: callers without a module's cross-fn sig table
 /// pass nothing. Production builds must use
-/// [`compile_function_with_sigs`] so call sites can coerce f64 args
+/// [`compile_function_in`] so call sites can coerce f64 args
 /// flowing into i64 params (substr / parseInt-with-fractional-radix
 /// etc.); without that table, mismatched-type Calls silently send
 /// the raw f64 bits into the int reg lane.
 pub fn compile_function(func: &Function) -> CompiledFunction {
-    compile_function_with_sigs(func, &[])
+    compile_function_in(func, &ModuleFacts::default())
 }
 
-/// Production entry: same as [`compile_function`] but with a
-/// `fn_sigs[fid] = Vec<Type>` table for callee param types. Used by
-/// [`call::emit_call`] to coerce each arg's actual SSA type to the
-/// declared param type — emits FCVTZS for f64→i64 and SCVTF for
-/// i64→f64 at the call boundary, mirroring `ssa_inkwell::lower_inst`'s
-/// `build_float_to_signed_int` / `build_signed_int_to_float` step on
-/// the LLVM-backed pipeline.
-pub fn compile_function_with_sigs(func: &Function, fn_sigs: &[Vec<Type>]) -> CompiledFunction {
+/// Production entry: [`compile_function`] with the module's facts.
+pub fn compile_function_in(func: &Function, facts: &ModuleFacts) -> CompiledFunction {
     compile_function_with(
         func,
-        crate::linear_scan::allocate_linear_scan(func),
-        fn_sigs,
+        crate::linear_scan::allocate_linear_scan_with(func, facts.cells),
+        facts,
     )
+}
+
+/// What a function's codegen reads of the module around it.
+#[derive(Debug, Clone, Default)]
+pub struct ModuleFacts {
+    /// Per-FuncId param types, declarations (extern intrinsics)
+    /// included. [`call::emit_call`] reads `fn_sigs[callee]` to
+    /// coerce each arg's actual SSA type to the declared param type
+    /// — FCVTZS for f64→i64, SCVTF for i64→f64 at the call boundary.
+    pub(crate) fn_sigs: Vec<Vec<Type>>,
+    /// The object-cell intrinsics, whose calls open inline
+    /// ([`CellOps`]). The allocator and the emitter both read it: it
+    /// decides which call sites are rare.
+    pub(crate) cells: Option<CellOps>,
+}
+
+impl ModuleFacts {
+    pub fn of(module: &Module) -> ModuleFacts {
+        let param_types =
+            |f: &Function| f.params.iter().map(|v| f.values[v.0 as usize].ty).collect();
+        ModuleFacts {
+            fn_sigs: module.funcs.iter().map(param_types).collect(),
+            cells: CellOps::of_module(module),
+        }
+    }
 }
 
 /// Compile one SSA Function to aarch64 bytes using a pre-computed
@@ -151,7 +172,7 @@ pub fn compile_function_with_sigs(func: &Function, fn_sigs: &[Vec<Type>]) -> Com
 pub fn compile_function_with(
     func: &Function,
     alloc: Assignment,
-    fn_sigs: &[Vec<Type>],
+    facts: &ModuleFacts,
 ) -> CompiledFunction {
     // Frame carves alloca + spill + callee-save area in one sp
     // adjustment. `used_callee_*_mask` is 0 for leaf / non-crossing
@@ -250,7 +271,7 @@ pub fn compile_function_with(
                 continue;
             }
             let site = block_slot + ii as u32;
-            emit_inst_at(&mut bytes, &mut relocs, func, inst, &alloc, fn_sigs, site);
+            emit_inst_at(&mut bytes, &mut relocs, func, inst, &alloc, facts, site);
         }
         block_slot += block.insts.len() as u32 + 1;
         // The layout successor's final identity — a branch resolving
@@ -594,7 +615,7 @@ mod tests {
             alloc.total_spill_bytes
         );
 
-        let compiled = compile_function_with(&func, alloc, &[]);
+        let compiled = compile_function_with(&func, alloc, &ModuleFacts::default());
 
         // Frame carves 16-rounded (alloca + spill) and saves FP/LR.
         assert!(

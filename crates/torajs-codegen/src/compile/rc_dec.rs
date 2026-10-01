@@ -27,7 +27,7 @@ const _: () = assert!(offset_of!(HeapHeader, type_tag) == 4);
 const _: () = assert!(Tag::Str as u16 == 0);
 const DROP_SYM: &str = "___torajs_value_drop_heap";
 
-enum Fix {
+pub(super) enum Fix {
     Cbnz(Gpr),
     Cbz(Gpr),
     Tbnz(Gpr, u32),
@@ -128,7 +128,7 @@ pub fn emit_rc_dec_any(
     }
 }
 
-fn store(bytes: &mut Vec<u8>, reg: Reg, off: u32, save: bool) {
+pub(super) fn store(bytes: &mut Vec<u8>, reg: Reg, off: u32, save: bool) {
     match (reg, save) {
         (Reg::Gpr(g), true) => slot::sp_str_x(bytes, g, off),
         (Reg::Gpr(g), false) => slot::sp_ldr_x(bytes, g, off),
@@ -139,13 +139,13 @@ fn store(bytes: &mut Vec<u8>, reg: Reg, off: u32, save: bool) {
 }
 
 /// Reserve a branch word; [`patch`] encodes it once the target is known.
-fn place(bytes: &mut Vec<u8>, fix: Fix) -> (usize, Fix) {
+pub(super) fn place(bytes: &mut Vec<u8>, fix: Fix) -> (usize, Fix) {
     let at = bytes.len();
     write_u32(bytes, 0);
     (at, fix)
 }
 
-fn patch(bytes: &mut [u8], (at, fix): (usize, Fix), target: usize) {
+pub(super) fn patch(bytes: &mut [u8], (at, fix): (usize, Fix), target: usize) {
     let off = (target - at) as i32;
     let word = match fix {
         Fix::Cbnz(r) => cbnz_x(r, off),

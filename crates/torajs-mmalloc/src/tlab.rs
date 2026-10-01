@@ -48,11 +48,11 @@ pub const TLAB_CACHE_DEPTH: usize = 16;
 /// * sizeof(*mut u8)` ≈ 1.2 KB.
 ///
 /// `#[repr(C)]` (Phase 2e item 13 prerequisite): layout is
-/// codegen-visible. The LLVM-era backend inlined TLAB.pop / push
-/// at user-binary alloc/free sites using the offset constants
-/// below (native ARM64 re-port = swap-3+ backlog) —
-/// eliminates extern "C" call overhead, parity with libc
-/// nano-allocator inline thread-cache.
+/// codegen-visible. torajs-codegen's `compile::cell` inlines
+/// TLAB.pop / push at user-binary object-cell alloc/free sites
+/// using the offset constants below — eliminates extern "C" call
+/// overhead, parity with libc nano-allocator inline thread-cache.
+/// It leans on `depth[c] <= TLAB_CACHE_DEPTH`, which `push` keeps.
 #[repr(C)]
 pub struct TlabCache {
     /// `slots[class][0..depth[class]]` hold cached pointers; rest

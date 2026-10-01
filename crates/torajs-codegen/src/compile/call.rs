@@ -83,8 +83,8 @@ pub fn emit_call_indirect(
     // CallIndirect (param_types: None below) — the surface S4-C
     // exercises (closure dispatch in typed form) hasn't surfaced an
     // f64-into-i64 mismatch yet. When it does, plumb `module.sigs[
-    // sig_id.0]` here the same way `compile_function_with_sigs`
-    // plumbs fn_sigs for direct Calls.
+    // sig_id.0]` here the same way `ModuleFacts` carries fn_sigs
+    // for direct Calls.
     // A fn pointer living in an argument register would be overwritten
     // by the argument setup: park it first.
     let parked = match fn_ptr {

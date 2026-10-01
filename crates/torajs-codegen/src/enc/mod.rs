@@ -52,7 +52,8 @@ pub use int::{
 };
 pub use mem::{
     ldp_post_index, ldp_x_off, ldr_w_imm12, ldr_w_reg, ldr_x_imm12, ldr_x_reg, ldr_x_reg_lsl3,
-    ldrb_w_reg, ldrh_w_reg_lsl1, ldur_w_imm9, ldur_x_imm9, stp_pre_index, stp_x_off, str_w_imm12,
-    str_w_reg, str_x_imm12, str_x_reg, str_x_reg_lsl3, stur_w_imm9, stur_x_imm9,
+    ldrb_w_imm12, ldrb_w_reg, ldrh_w_reg_lsl1, ldur_w_imm9, ldur_x_imm9, stp_pre_index, stp_x_off,
+    str_w_imm12, str_w_reg, str_x_imm12, str_x_reg, str_x_reg_lsl3, strb_w_imm12, stur_w_imm9,
+    stur_x_imm9,
 };
 pub use sys::{mrs_fpcr, msr_fpcr, orr_imm_bit};

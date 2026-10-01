@@ -2,6 +2,7 @@
 
 use torajs_core::ssa::{Function, InstKind, Operand, Type};
 
+use super::ModuleFacts;
 use super::slot;
 use super::{
     emit_alloca, emit_binop, emit_bitcast_f64_to_i64, emit_bitcast_i64_to_f64,
@@ -109,7 +110,7 @@ pub(super) fn emit_inst_at(
     func: &Function,
     inst: &torajs_core::ssa::Inst,
     alloc: &Assignment,
-    fn_sigs: &[Vec<Type>],
+    facts: &ModuleFacts,
     site: u32,
 ) {
     // a call-defined member of a coalesced class sits inside the class
@@ -133,6 +134,12 @@ pub(super) fn emit_inst_at(
         super::rc_dec::emit_rc_dec_any(bytes, relocs, v, alloc, &saves);
         return;
     }
+    // likewise a cell allocation or free served by the thread cache
+    if let Some(cells) = facts.cells
+        && super::cell::try_emit(bytes, relocs, inst, alloc, &saves, cells)
+    {
+        return;
+    }
     for &(reg, off) in &saves {
         match reg {
             Reg::Gpr(g) => slot::sp_str_x(bytes, g, off),
@@ -140,7 +147,7 @@ pub(super) fn emit_inst_at(
             other => unreachable!("saved value not in a register: {other:?}"),
         }
     }
-    emit_inst(bytes, relocs, func, inst, alloc, fn_sigs);
+    emit_inst(bytes, relocs, func, inst, alloc, &facts.fn_sigs);
     for &(reg, off) in &saves {
         match reg {
             Reg::Gpr(g) => slot::sp_ldr_x(bytes, g, off),
@@ -155,7 +162,7 @@ mod tests {
     use std::collections::HashMap;
 
     use super::emit_inst_at;
-    use crate::compile::slot;
+    use crate::compile::{ModuleFacts, slot};
     use crate::enc::bl_imm26;
     use crate::reg::{Gpr, Reg};
     use crate::regalloc::Assignment;
@@ -184,7 +191,8 @@ mod tests {
         };
         let mut bytes = Vec::new();
         let func = Function::new("f", Type::I64);
-        emit_inst_at(&mut bytes, &mut Vec::new(), &func, &inst, &alloc, &[], 7);
+        let facts = ModuleFacts::default();
+        emit_inst_at(&mut bytes, &mut Vec::new(), &func, &inst, &alloc, &facts, 7);
 
         let mut expect = Vec::new();
         slot::sp_str_x(&mut expect, Gpr::X6, 24);

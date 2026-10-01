@@ -19,9 +19,9 @@ use crate::cmd_build_synthesize::{
     synthesize_obj_drop_sized,
 };
 use torajs_codegen::CompiledFunction;
-use torajs_codegen::compile_function_with_sigs;
 use torajs_codegen::frame::FrameLayout;
 use torajs_codegen::reloc::{CallTarget, RelocKind};
+use torajs_codegen::{ModuleFacts, compile_function_in};
 use torajs_core::ssa::Module;
 use torajs_core::{TORAJS_STATICLIBS, check, lexer, modules, parser, ssa_lower};
 use torajs_link::archive_emit::link_to_exec_with_archives;
@@ -230,24 +230,8 @@ pub(crate) fn lower_to_ssa(input: &str) -> Result<Module, ExitCode> {
 /// (`___torajs_*` with Apple's `_` prefix). Mirrors how LLVM/clang
 /// distinguishes external declarations from internal definitions.
 fn compile_module_funcs(ssa_module: &Module) -> Vec<CompiledFunction> {
-    // Per-FuncId param-type table. Indexes line up with the
-    // `funcs` vec below (and with the FuncId space ssa_lower hands
-    // out), so emit_call can read `fn_sigs[target_func.0]` to
-    // discover the declared param types and coerce f64↔i64 args at
-    // the call boundary. Mirrors `ssa_inkwell`'s
-    // `callee.get_type().get_param_types()` lookup on the OLD
-    // pipeline. Declarations (extern intrinsics) carry their sig
-    // through `params + values[vid].ty` the same way as real fns.
-    let fn_sigs: Vec<Vec<torajs_core::ssa::Type>> = ssa_module
-        .funcs
-        .iter()
-        .map(|f| {
-            f.params
-                .iter()
-                .map(|vid| f.values[vid.0 as usize].ty)
-                .collect()
-        })
-        .collect();
+    // Indexed by FuncId, like the `funcs` vec below.
+    let facts = ModuleFacts::of(ssa_module);
     let mut funcs: Vec<_> = ssa_module
         .funcs
         .iter()
@@ -262,7 +246,7 @@ fn compile_module_funcs(ssa_module: &Module) -> Vec<CompiledFunction> {
                     frame: FrameLayout::leaf_no_spill(),
                 }
             } else {
-                compile_function_with_sigs(f, &fn_sigs)
+                compile_function_in(f, &facts)
             }
         })
         .collect::<Vec<_>>();

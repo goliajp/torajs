@@ -92,6 +92,21 @@ pub fn ldrb_w_reg(rt: Gpr, rn: Gpr, rm: Gpr) -> u32 {
     0x3860_6800 | (rm.idx() << 16) | (rn.idx() << 5) | rt.idx()
 }
 
+/// LDRB Wt, [Xn, #imm12] — load one byte, unsigned offset (unscaled
+/// for a byte), zero-extended into Wt. clang: `ldrb w10, [x9,
+/// #1153]` = 0x3952_052A.
+pub fn ldrb_w_imm12(rt: Gpr, rn: Gpr, byte_offset: u32) -> u32 {
+    debug_assert!(byte_offset < 4096, "offset must fit in 12 bits");
+    0x3940_0000 | (byte_offset << 10) | (rn.idx() << 5) | rt.idx()
+}
+
+/// STRB Wt, [Xn, #imm12] — store the low byte of Wt, unsigned offset.
+/// clang: `strb w10, [x9, #1153]` = 0x3912_052A.
+pub fn strb_w_imm12(rt: Gpr, rn: Gpr, byte_offset: u32) -> u32 {
+    debug_assert!(byte_offset < 4096, "offset must fit in 12 bits");
+    0x3900_0000 | (byte_offset << 10) | (rn.idx() << 5) | rt.idx()
+}
+
 /// LDRH Wt, [Xn, Xm, LSL #1] — load one halfword at `Xn + Xm*2`,
 /// zero-extended into Wt (S = 1 folds the scale into the AGU).
 /// ARM ARM C6.2.157 (LDRH register). clang: `ldrh w0, [x1, x2,
@@ -225,6 +240,16 @@ mod tests {
     fn ldrb_w_reg_w0_x1_x2_matches_clang() {
         // clang -c: `ldrb w0, [x1, x2]` = 0x3862_6820
         assert_eq!(ldrb_w_reg(Gpr::X0, Gpr::X1, Gpr::X2), 0x3862_6820);
+    }
+
+    #[test]
+    fn byte_imm12_forms_match_clang() {
+        // clang -c: ldrb w10, [x9, #1153] / strb w10, [x9, #1153]
+        // ldrb w0, [x1] / strb w0, [x1]
+        assert_eq!(ldrb_w_imm12(Gpr::X10, Gpr::X9, 1153), 0x3952_052A);
+        assert_eq!(strb_w_imm12(Gpr::X10, Gpr::X9, 1153), 0x3912_052A);
+        assert_eq!(ldrb_w_imm12(Gpr::X0, Gpr::X1, 0), 0x3940_0020);
+        assert_eq!(strb_w_imm12(Gpr::X0, Gpr::X1, 0), 0x3900_0020);
     }
 
     #[test]

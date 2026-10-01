@@ -28,7 +28,12 @@ use crate::reloc::{Reloc, RelocKind};
 
 /// Emit `ADRP Xd, page(sym); ADD Xd, Xd, #pageoff(sym)` into `bytes`
 /// and record the matching `Page21` + `PageOff12` reloc entries.
-fn emit_adrp_add_pair(bytes: &mut Vec<u8>, relocs: &mut Vec<Reloc>, dst: Gpr, target_sym: String) {
+pub(super) fn emit_adrp_add_pair(
+    bytes: &mut Vec<u8>,
+    relocs: &mut Vec<Reloc>,
+    dst: Gpr,
+    target_sym: String,
+) {
     let adrp_byte_offset = bytes.len() as u32;
     relocs.push(Reloc {
         byte_offset: adrp_byte_offset,

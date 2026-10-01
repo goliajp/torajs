@@ -16,4 +16,5 @@ workspace = true
 [dependencies]
 torajs-anyvalue = { path = "../torajs-anyvalue" }
 torajs-core = { path = "../torajs-core" }
+torajs-mmalloc = { path = "../torajs-mmalloc" }
 torajs-rc = { path = "../torajs-rc" }

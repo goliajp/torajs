@@ -36,6 +36,7 @@
 use torajs_core::ssa::{Function, Type};
 
 use crate::coalesce::build_copy_classes;
+use crate::compile::CellOps;
 use crate::linear_scan_calls::{
     CallCosts, FrameScan, collect_call_saves, crosses_call, crosses_call_from_entry, scan_frame,
 };
@@ -49,6 +50,12 @@ use crate::spill_weight::compute_spill_weights;
 /// Linear-Scan register allocator with call-crossing awareness and
 /// stack spill (see module docs).
 pub fn allocate_linear_scan(func: &Function) -> Assignment {
+    allocate_linear_scan_with(func, None)
+}
+
+/// [`allocate_linear_scan`] for a function whose cell calls
+/// `compile` opens inline: those sites call only on their slow arm.
+pub fn allocate_linear_scan_with(func: &Function, cells: Option<CellOps>) -> Assignment {
     let (mut intervals, blocks) = compute_liveness(func);
     let ret_vids = collect_ret_value_ids(func);
 
@@ -58,7 +65,7 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
         has_calls,
         call_sites,
         call_rarity,
-    } = scan_frame(func);
+    } = scan_frame(func, cells);
 
     let (param_arg_reg, stack_params) = param_lanes(func);
 
