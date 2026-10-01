@@ -44,10 +44,6 @@ unsafe extern "C" {
     /// 0 while refs remain / for static literals (Keep).
     fn __torajs_rc_dec(p: *mut c_void) -> i32;
 
-    /// torajs-weak — clear WeakRefs pointing at a dying target
-    /// (typed path's T-26 class-instance hook).
-    fn __torajs_weakref_target_dying(target: *mut c_void);
-
     /// Universal drop dispatch (torajs-value-drop) — releases one
     /// reference per child slot, tag-routed.
     fn __torajs_value_drop_heap(p: *mut c_void);
@@ -75,9 +71,7 @@ pub unsafe extern "C" fn __torajs_obj_drop_rc(p: *mut c_void) {
         return;
     }
     if classy {
-        if named {
-            unsafe { __torajs_weakref_target_dying(p) };
-        }
+        // weak observers were already told by dec_ref on the way to zero
         let lay = unsafe { layout_for_class_obj(p) };
         let n = unsafe { (*lay).n_children } as usize;
         for i in 0..n {
