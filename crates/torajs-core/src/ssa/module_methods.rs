@@ -15,10 +15,6 @@ use super::{ArrId, FuncId, Function, SigId, StringId, StructId, Type};
 #[derive(Debug, Clone, Default)]
 pub struct Module {
     pub funcs: Vec<Function>,
-    /// The functions that never set the pending-throw flag (runtime
-    /// intrinsics and declared functions the throw census cleared):
-    /// a probe of the flag sees through calls to them.
-    pub nothrow_fns: std::collections::HashSet<FuncId>,
     /// Interned string literals. StringId = index. Backend emits each
     /// as a raw-byte `[N x i8]` global (consumed by `InstKind::StringRef`)
     /// and a Str-shaped global with header / length / encoding flag bit

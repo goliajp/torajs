@@ -217,9 +217,6 @@ pub(crate) fn lower_inner(
         &boxed_entries,
     );
 
-    module.nothrow_fns =
-        crate::ssa_lower_fn_meta::nothrow_fns(&module, &intrinsics, ast, &may_throw);
-
     finalize_module(
         &mut module,
         ast,
