@@ -9,8 +9,13 @@
 //! - The runtime reaches a class instance without a static type and
 //!   sizes it from its tag's layout row,
 //!   `OBJ_HEADER_SIZE + 8 · n_fields`. The allocation constant comes
-//!   from the literal being lowered, the row from the module metadata
-//!   builders; [`assert_cell_sizes_match_rows`] pins the two together.
+//!   from the layout as the factory was lowered, the row from the
+//!   final layout; a generator or async frame class gains fields
+//!   after its factory is lowered (the state machine's spilled
+//!   bindings), so [`settle_alloc_sizes_to_rows`] rewrites the
+//!   constant to the row and the typed drops of such a sid free by
+//!   the cell, since their constants were read at the same early
+//!   point.
 //! - A typed drop sizes the cell from the slot's static layout, and
 //!   the slot may hold a wider cell: struct assignability is prefix
 //!   subtyping (a subclass instance in a base-typed slot, `{a, b}` in
@@ -22,7 +27,7 @@
 //!   class instance by its tag's row, anything else by the span
 //!   registry (`__torajs_obj_free_cell`).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use torajs_mmalloc::Allocator;
 
@@ -49,8 +54,8 @@ pub(crate) fn settle(
     clone_origin: &HashMap<String, String>,
 ) {
     let envs = env_layouts(module, captures, clone_origin);
-    settle_typed_frees(module, &envs);
-    assert_cell_sizes_match_rows(module);
+    let unsettled = settle_alloc_sizes_to_rows(module);
+    settle_typed_frees(module, &envs, &unsettled);
 }
 
 /// A typed object drop leaves lowering as `obj_drop_sized(p, size,
@@ -58,7 +63,7 @@ pub(crate) fn settle(
 /// lands in the size class of `sid`'s own; where a wider layout
 /// would not, or where the slot can hold a cell of any layout, free
 /// by what the cell says of itself instead.
-fn settle_typed_frees(module: &mut Module, envs: &EnvLayouts) {
+fn settle_typed_frees(module: &mut Module, envs: &EnvLayouts, unsettled: &HashSet<usize>) {
     let find = |name: &str| {
         let at = module.funcs.iter().position(|f| f.name == name)?;
         Some(FuncId(at as u32))
@@ -84,7 +89,7 @@ fn settle_typed_frees(module: &mut Module, envs: &EnvLayouts) {
             let wider = *admits_wider
                 .entry(sid)
                 .or_insert_with(|| admits_wider_cell(layouts, sid as usize));
-            if wider || open[sid as usize] {
+            if wider || open[sid as usize] || unsettled.contains(&(sid as usize)) {
                 args.truncate(1);
                 *fid = by_cell;
             } else {
@@ -108,50 +113,70 @@ fn admits_wider_cell(layouts: &[Vec<(PropKey, Type)>], sid: usize) -> bool {
     })
 }
 
-/// Panics on the first `obj_alloc(n)` whose result is stamped with a
-/// class tag whose row sizes the instance differently. A tag with no
-/// row is left alone: the runtime frees such a cell through the span
-/// registry, not by a computed size.
-fn assert_cell_sizes_match_rows(module: &Module) {
+/// Every `obj_alloc(n)` whose result is stamped with a class tag ends
+/// up allocating what the tag's row sizes the instance at. The two
+/// disagree when the class gained fields after its factory was
+/// lowered — a generator or async frame class, whose state machine
+/// spills bindings into the frame while the body is lowered — and the
+/// instance's field stores already address the row's layout, so the
+/// smaller constant was a cell written past its end. Answers the sids
+/// whose constant moved: their typed drops carry the same early
+/// constant and free by the cell instead. A tag with no row is left
+/// alone: the runtime frees such a cell through the span registry.
+fn settle_alloc_sizes_to_rows(module: &mut Module) -> HashSet<usize> {
+    let mut unsettled = HashSet::new();
     let Some(alloc) = module.funcs.iter().position(|f| f.name == OBJ_ALLOC) else {
-        return;
+        return unsettled;
     };
-    for f in &module.funcs {
-        let mut sized: HashMap<ValueId, i64> = HashMap::new();
-        for inst in f.blocks.iter().flat_map(|b| &b.insts) {
-            if let (Some(v), InstKind::Call(fid, args)) = (inst.result, &inst.kind)
-                && fid.0 as usize == alloc
-                && let [Operand::ConstI64(n)] = args.as_slice()
-            {
-                sized.insert(v, *n);
+    let rows: Vec<i64> = module
+        .class_layouts
+        .iter()
+        .map(|row| cell_bytes(row.field_metadata.len()) as i64)
+        .collect();
+    for f in &mut module.funcs {
+        let mut allocs: HashMap<ValueId, (usize, usize)> = HashMap::new();
+        for (bi, b) in f.blocks.iter().enumerate() {
+            for (ii, inst) in b.insts.iter().enumerate() {
+                if let (Some(v), InstKind::Call(fid, args)) = (inst.result, &inst.kind)
+                    && fid.0 as usize == alloc
+                    && let [Operand::ConstI64(_)] = args.as_slice()
+                {
+                    allocs.insert(v, (bi, ii));
+                }
             }
         }
-        if sized.is_empty() {
+        if allocs.is_empty() {
             continue;
         }
+        let mut moves: Vec<(usize, usize, i64, usize)> = Vec::new();
         for inst in f.blocks.iter().flat_map(|b| &b.insts) {
             let InstKind::Store(Operand::ConstI64(tag), Operand::Value(p), OBJ_CLASS_TAG_OFF) =
                 &inst.kind
             else {
                 continue;
             };
-            let Some(&n) = sized.get(p) else { continue };
-            let Some(row) = (*tag as usize)
-                .checked_sub(1)
-                .and_then(|i| module.class_layouts.get(i))
-            else {
+            let Some(&(bi, ii)) = allocs.get(p) else {
                 continue;
             };
-            let by_row = cell_bytes(row.field_metadata.len()) as i64;
-            assert!(
-                n == by_row,
-                "ssa-lower: `{}` allocates {n} bytes for a cell of class tag {tag} (`{}`), \
-                 whose layout row sizes it at {by_row}",
-                f.name,
-                row.class_name,
-            );
+            let Some(&by_row) = (*tag as usize).checked_sub(1).and_then(|i| rows.get(i)) else {
+                continue;
+            };
+            let Type::Obj(sid) = f.value_type(*p) else {
+                continue;
+            };
+            moves.push((bi, ii, by_row, sid.0 as usize));
+        }
+        for (bi, ii, by_row, sid) in moves {
+            let InstKind::Call(_, args) = &mut f.blocks[bi].insts[ii].kind else {
+                continue;
+            };
+            if args[0] != Operand::ConstI64(by_row) {
+                args[0] = Operand::ConstI64(by_row);
+                unsettled.insert(sid);
+            }
         }
     }
+    unsettled
 }
 
 #[cfg(test)]
