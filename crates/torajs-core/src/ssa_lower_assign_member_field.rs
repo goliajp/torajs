@@ -264,20 +264,25 @@ pub(crate) fn lower_struct_field_store(
     // value is parked as a throw temp so either refusal releases the
     // stake it took above. The nullish test is self-gating: a receiver
     // that cannot be absent emits nothing.
+    // A ctor's leading writes reach an instance nothing has seen yet
+    // (`ssa_lower_fn::fresh_this`): no guard, and the first write to a
+    // nullish-default field has nothing to release.
     let v_ty = ctx.operand_ty(&v);
     let parked = (!v_ty.is_copy()).then(|| ctx.push_throw_temp(v.clone(), v_ty));
     crate::ssa_lower_nullable_guard_emit::emit_undefable_heap_guard(ctx, obj, &obj_val);
-    crate::ssa_lower_assign_member_field::guard::emit_field_writable_guard(
-        ctx,
-        obj,
-        obj_val.clone(),
-        field,
-    );
+    if !ctx.proofs.fresh_this_recv.contains(&obj) {
+        crate::ssa_lower_assign_member_field::guard::emit_field_writable_guard(
+            ctx,
+            obj,
+            obj_val.clone(),
+            field,
+        );
+    }
     if let Some(token) = parked {
         ctx.pop_throw_temp(token);
     }
     // Drop the old field value if non-Copy.
-    if !field_ty.is_copy() {
+    if !field_ty.is_copy() && !ctx.proofs.fresh_this_first_write.contains(&obj) {
         let cur_block = ctx.cur_block;
         let old = ctx.f.append_inst(
             cur_block,

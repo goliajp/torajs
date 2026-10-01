@@ -15,6 +15,11 @@
 //!   `undefined`).
 //! - The whole-program answer to "can any array carry a shifted deque
 //!   head", from [`crate::ssa_lower_pass_0_5::arr_head_census`].
+//! - The receivers of a constructor's leading `this.f = v` writes,
+//!   where the instance the factory just minted has not escaped yet
+//!   (`ssa_lower_fn::fresh_this`): nothing can have frozen it or
+//!   redefined a field, so the store needs no writable guard, and a
+//!   field's first write finds the factory's nullish default.
 
 use std::collections::{HashMap, HashSet};
 
@@ -31,6 +36,12 @@ pub(crate) struct Proofs {
     pub(crate) recv_field: HashMap<ExprId, String>,
     /// Expressions the lane that produced them proved non-nullish.
     pub(crate) nonnull_exprs: HashSet<ExprId>,
+    /// `this` receivers of a ctor's field writes reached before the
+    /// instance escapes: unfrozen, no field redefined.
+    pub(crate) fresh_this_recv: HashSet<ExprId>,
+    /// The subset whose field holds the factory's null / undefined
+    /// default at that point, so there is no old value to release.
+    pub(crate) fresh_this_first_write: HashSet<ExprId>,
     /// Fn-local bindings whose current value passed a nullish guard on
     /// every path reaching the point being lowered.
     nonnull_lets: HashSet<String>,

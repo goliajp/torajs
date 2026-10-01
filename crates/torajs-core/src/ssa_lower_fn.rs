@@ -33,6 +33,7 @@
 //! 6. Walk body statements; emit drops + implicit ret on fall-
 //!    through.
 
+mod fresh_this;
 mod undef_params;
 
 use crate::ast::PropKey;
@@ -213,11 +214,7 @@ pub(crate) fn lower_fn(
     ctx.emit_closure_env_preamble(name, params);
     ctx.emit_gen_env_preamble(name);
 
-    undef_params::seed_undef_sentinel_params(&mut ctx, name, params);
-
-    // Mutually recursive closure bindings need each other's boxes open
-    // before the first of them mints.
-    crate::ssa_lower_stmt_let_decl_recursive::hoist_forward_boxes(&mut ctx, body.iter());
+    seed_body_facts(&mut ctx, name, params, body);
 
     let mut prev: Option<&Stmt> = None;
     for s in body {
@@ -244,6 +241,15 @@ pub(crate) fn lower_fn(
     }
 
     (f, new_strings)
+}
+
+/// What the body's statements can rely on before the first is lowered.
+fn seed_body_facts(ctx: &mut LowerCtx<'_>, name: &str, params: &[ast::Param], body: &[Stmt]) {
+    undef_params::seed_undef_sentinel_params(ctx, name, params);
+    fresh_this::seed_fresh_this(ctx, name, params, body);
+    // Mutually recursive closure bindings need each other's boxes open
+    // before the first of them mints.
+    crate::ssa_lower_stmt_let_decl_recursive::hoist_forward_boxes(ctx, body.iter());
 }
 
 /// r505 (A12) — at the class prologue's fall-through exit, its class

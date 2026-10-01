@@ -78,7 +78,7 @@ mod desugar_async_sm_methods;
 mod desugar_async_sm_rewrite;
 mod desugar_async_sm_this;
 mod desugar_async_sm_values;
-mod desugar_async_sm_walk;
+pub(crate) mod desugar_async_sm_walk;
 mod twin_exprs;
 pub(crate) use twin_exprs::twin_body_exprs;
 mod desugar_classes;
