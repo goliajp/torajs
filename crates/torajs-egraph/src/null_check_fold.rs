@@ -36,7 +36,7 @@ use torajs_core::ssa::loop_analysis::{LoopAnalysis, NaturalLoop};
 use torajs_core::ssa::{BlockId, FuncId, Function, Inst, InstKind, Module, Operand, ValueId};
 
 use crate::throw_check_fold::{
-    insert_entry_probe, is_clobber, probe_of, propagate_path_leaves_loop, successors,
+    insert_entry_probe, is_clobber, probe_of, propagate_path_reads, successors,
 };
 
 const STR_NULL_CHECK: &str = "__torajs_str_null_check";
@@ -204,8 +204,9 @@ fn loop_to_guard(
         let redefined = body
             .iter()
             .any(|&b| defines(&func.blocks[b].insts, site.value));
-        (!redefined && propagate_path_leaves_loop(func, &body, site.raised))
-            .then(|| (lp.clone(), h))
+        (!redefined
+            && propagate_path_reads(func, &body, site.raised).is_some_and(|read| read.is_empty()))
+        .then(|| (lp.clone(), h))
     })
 }
 

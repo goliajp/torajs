@@ -563,6 +563,30 @@ mod tests {
     }
 
     #[test]
+    fn a_conversion_is_checked_before_the_add_that_reads_it() {
+        // the loop block opens `sitofp; fadd`: the conversion's check
+        // ends the block's head and the copy follows it — a check left
+        // behind the add would also land behind whatever else the
+        // block holds
+        let (m, _) = run(accumulator_loop(BinOp::FAdd));
+        let f = &m.funcs[0];
+        assert!(
+            !f.blocks[2]
+                .insts
+                .iter()
+                .any(|i| i.result == Some(ValueId(4))),
+            "the conversion runs after its check"
+        );
+        let Terminator::CondBr { else_blk, .. } = f.blocks[2].term else {
+            panic!("the block's head ends in the conversion's check");
+        };
+        assert_eq!(
+            f.blocks[else_blk.0 as usize].insts[0].result,
+            Some(ValueId(4))
+        );
+    }
+
+    #[test]
     fn mixed_preheader_splits_and_fires() {
         // the loopSum shape: the sum-init block also allocates an
         // env-like slot read after the loop. The planner requests a

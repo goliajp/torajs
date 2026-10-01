@@ -37,7 +37,7 @@
 use std::collections::{HashMap, HashSet};
 
 use torajs_core::ssa::{
-    BlockId, Function, IPred, InstKind, Module, Operand, THROW_ACTIVE_SYM, Terminator, Type,
+    BlockId, Function, IPred, Inst, InstKind, Module, Operand, THROW_ACTIVE_SYM, Terminator, Type,
     ValueId, visit_value_operands,
 };
 
@@ -126,14 +126,16 @@ fn fold_known_zero(func: &mut Function, stats: &mut ThrowCheckFoldStats) {
 /// zero on every path and the fold above removes it.
 ///
 /// Taken only when the loop holds exactly one probe, its propagate
-/// path lies wholly outside the loop, that path reads no value the
-/// loop defines, and every store in the loop sits in a block the probe
-/// block strictly dominates — so the first iteration writes nothing
-/// before its probe, and the propagate path run before that iteration
-/// sees exactly the memory it saw from the first probe (the copy loop
-/// `dst.push(src[i])` probes after the read, stores after that). A
-/// loop that runs zero times now probes once; that can differ only if
-/// the flag was already set on entry, which no caller allows.
+/// path lies wholly outside the loop, and every store in the loop —
+/// and every loop def of a value that path reads — sits in a block
+/// the probe block strictly dominates. The first iteration then
+/// writes nothing before its probe, and the propagate path run before
+/// that iteration sees exactly the memory and the cells it saw from
+/// the first probe (the copy loop `dst.push(src[i])` probes after the
+/// read, stores after that; a versioned loop hands its accumulator to
+/// the propagate path, and steps it only after the probe). A loop
+/// that runs zero times now probes once; that can differ only if the
+/// flag was already set on entry, which no caller allows.
 fn guard_loop_entries(func: &mut Function) -> u32 {
     let mut guarded: HashSet<BlockId> = HashSet::new();
     loop {
@@ -170,32 +172,35 @@ fn guardable_probe(func: &Function, lp: &NaturalLoop, dom: &DominatorTree) -> Op
             InstKind::Store(..) | InstKind::StoreDyn(..) | InstKind::StoreDynScaled8(..)
         )
     };
+    let read = propagate_path_reads(func, &body, probe.then_blk)?;
     for &b in &body {
         let insts = &func.blocks[b].insts;
         if insts.iter().any(|i| is_clobber(&i.kind)) {
             return None;
         }
         let id = func.blocks[b].id;
-        if insts.iter().any(|i| store(&i.kind)) && (id == probe_id || !dom.dominates(probe_id, id))
-        {
+        let writes = |i: &Inst| store(&i.kind) || i.result.is_some_and(|r| read.contains(&r));
+        if insts.iter().any(writes) && (id == probe_id || !dom.dominates(probe_id, id)) {
             return None;
         }
     }
-    propagate_path_leaves_loop(func, &body, probe.then_blk).then_some(probe.then_blk)
+    Some(probe.then_blk)
 }
 
-/// Does the path from `then_blk` stay outside the loop `body` and read
-/// no value the loop defines? Then it runs the same from an edge into
-/// the loop as from inside it.
-pub(crate) fn propagate_path_leaves_loop(
+/// The values the loop `body` defines that the path from `then_blk`
+/// reads; `None` when the path comes back into the loop. A path that
+/// reads none runs the same from an edge into the loop as from inside
+/// it.
+pub(crate) fn propagate_path_reads(
     func: &Function,
     body: &HashSet<usize>,
     then_blk: BlockId,
-) -> bool {
+) -> Option<HashSet<ValueId>> {
     let defined: HashSet<ValueId> = body
         .iter()
         .flat_map(|&b| func.blocks[b].insts.iter().filter_map(|i| i.result))
         .collect();
+    let mut read: HashSet<ValueId> = HashSet::new();
     let mut seen: HashSet<usize> = HashSet::new();
     let mut stack = vec![then_blk.0 as usize];
     while let Some(b) = stack.pop() {
@@ -203,27 +208,28 @@ pub(crate) fn propagate_path_leaves_loop(
             continue;
         }
         if body.contains(&b) {
-            return false;
+            return None;
         }
         let block = &func.blocks[b];
-        let mut reads_loop_value = false;
         for i in &block.insts {
-            visit_value_operands(&i.kind, |v| reads_loop_value |= defined.contains(&v));
+            visit_value_operands(&i.kind, |v| {
+                if defined.contains(&v) {
+                    read.insert(v);
+                }
+            });
         }
         if let Terminator::CondBr {
             cond: Operand::Value(v),
             ..
         }
         | Terminator::Ret(Some(Operand::Value(v))) = &block.term
+            && defined.contains(v)
         {
-            reads_loop_value |= defined.contains(v);
-        }
-        if reads_loop_value {
-            return false;
+            read.insert(*v);
         }
         stack.extend(successors(&block.term).map(|s| s.0 as usize));
     }
-    true
+    Some(read)
 }
 
 /// A new block probing the flag on every edge into `lp`'s header.
@@ -591,6 +597,70 @@ mod tests {
         f.set_term(exit, Terminator::Ret(Some(Operand::ConstI64(1))));
         let stats = run(&mut f);
         assert_eq!((stats.loop_entry_probes, stats.folded), (1, 1));
+    }
+
+    /// entry: call; acc = 0 → head · head → (body, exit)
+    /// body: [acc += 1?] probe → (throw, tail) · tail: [acc += 1?] → head
+    /// throw: ret acc
+    fn accumulator_loop(step_before_probe: bool) -> Function {
+        let mut f = Function::new("t", Type::I64);
+        let entry = f.add_block();
+        let head = f.add_block();
+        let body = f.add_block();
+        let throw = f.add_block();
+        let tail = f.add_block();
+        let exit = f.add_block();
+        call(&mut f, entry);
+        let acc = f.append_inst(
+            entry,
+            InstKind::Copy(Type::I64, Operand::ConstI64(0)),
+            Type::I64,
+            None,
+        );
+        f.set_term(entry, Terminator::Br(head));
+        f.set_term(
+            head,
+            Terminator::CondBr {
+                cond: Operand::ConstBool(true),
+                then_blk: body,
+                else_blk: exit,
+            },
+        );
+        let step_at = if step_before_probe { body } else { tail };
+        let next = f.append_inst(
+            step_at,
+            InstKind::BinOp(
+                torajs_core::ssa::BinOp::Add,
+                Operand::Value(acc),
+                Operand::ConstI64(1),
+            ),
+            Type::I64,
+            None,
+        );
+        f.blocks[step_at.0 as usize].insts.push(Inst {
+            result: Some(acc),
+            kind: InstKind::Copy(Type::I64, Operand::Value(next)),
+            origin: None,
+        });
+        probe(&mut f, body, throw, tail);
+        f.set_term(tail, Terminator::Br(head));
+        f.set_term(throw, Terminator::Ret(Some(Operand::Value(acc))));
+        f.set_term(exit, Terminator::Ret(Some(Operand::ConstI64(1))));
+        f
+    }
+
+    #[test]
+    fn a_cell_stepped_after_the_probe_may_be_read_by_the_propagate_path() {
+        let mut f = accumulator_loop(false);
+        let stats = run(&mut f);
+        assert_eq!((stats.loop_entry_probes, stats.folded), (1, 1));
+    }
+
+    #[test]
+    fn a_cell_stepped_before_the_probe_keeps_the_probe_in_the_loop() {
+        let mut f = accumulator_loop(true);
+        let stats = run(&mut f);
+        assert_eq!((stats.loop_entry_probes, stats.folded), (0, 0));
     }
 
     #[test]

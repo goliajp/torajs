@@ -189,9 +189,11 @@ pub(crate) fn install_guards(
         }
     }
     let mut guards = 0u32;
-    for (b, placed) in fast_groups {
+    for (b, mut placed) in fast_groups {
+        // `plan.growth` lists a re-classified `sitofp` entry after the
+        // block's growth sites, wherever it sits in the block
+        placed.sort_by_key(|(at, _)| *at);
         let idxs: Vec<usize> = placed.iter().map(|(at, _)| *at).collect();
-        debug_assert!(idxs.is_sorted(), "mutation preserves inst order");
         let sites: Vec<&GuardSite> = placed.iter().map(|(_, s)| *s).collect();
         let conts = split_block_at(func, b, &idxs);
         let mut prev = b;
@@ -220,9 +222,11 @@ pub(crate) fn install_guards(
 
 /// Split `block` before each inst index (ascending); continuation
 /// blocks append (chained head → c0 → c1 → … → original terminator).
-/// Returns the continuation starting at each index. An index equal
-/// to `insts.len()` splits AFTER the last instruction: its
-/// continuation is an empty block carrying only the terminator. A
+/// Returns the continuation starting at each index; a repeated index
+/// opens an empty continuation in front of the one holding the
+/// instruction (a post-op site followed at once by a pre-op one). An
+/// index equal to `insts.len()` splits AFTER the last instruction:
+/// its continuation is an empty block carrying only the terminator. A
 /// post-op growth site whose op ends its block asks for exactly that
 /// split, and the old loop never produced it — the site's guard was
 /// silently skipped while the loop still went out as "versioned",
@@ -237,7 +241,7 @@ pub(super) fn split_block_at(func: &mut Function, block: BlockId, idxs: &[usize]
     let mut cur: Vec<Inst> = Vec::new();
     let mut next_split = 0usize;
     for (i, inst) in insts.into_iter().enumerate() {
-        if next_split < idxs.len() && i == idxs[next_split] {
+        while next_split < idxs.len() && i == idxs[next_split] {
             segments.push(std::mem::take(&mut cur));
             next_split += 1;
         }
@@ -480,6 +484,21 @@ mod tests {
         assert!(matches!(f.blocks[0].term, Terminator::Br(BlockId(2))));
         assert!(f.blocks[2].insts.is_empty());
         assert!(matches!(f.blocks[2].term, Terminator::Br(BlockId(1))));
+    }
+
+    /// A post-op site at inst 0 and a pre-op site at inst 1 both
+    /// split before inst 1: the first continuation is empty, the
+    /// second holds the instruction.
+    #[test]
+    fn a_repeated_index_opens_an_empty_continuation_first() {
+        let mut f = two_inst_block_fn();
+        let conts = split_block_at(&mut f, BlockId(0), &[1, 1]);
+        assert_eq!(conts, vec![BlockId(2), BlockId(3)]);
+        assert_eq!(f.blocks[0].insts.len(), 1);
+        assert!(f.blocks[2].insts.is_empty());
+        assert!(matches!(f.blocks[2].term, Terminator::Br(BlockId(3))));
+        assert_eq!(f.blocks[3].insts.len(), 1);
+        assert!(matches!(f.blocks[3].term, Terminator::Br(BlockId(1))));
     }
 
     #[test]
