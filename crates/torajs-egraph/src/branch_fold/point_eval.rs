@@ -91,6 +91,14 @@ impl<'a> PointEval<'a> {
         }
     }
 
+    /// The one def site of `v`, when it has exactly one.
+    pub(crate) fn single_def(&self, v: ValueId) -> Option<Point> {
+        match self.defs.get(&v)?.as_slice() {
+            [p] => Some(*p),
+            _ => None,
+        }
+    }
+
     /// The flow-insensitive lattice's fact for `v`, sound at every
     /// point of the function.
     pub(crate) fn flow_fact(&self, v: ValueId) -> Option<NumFact> {

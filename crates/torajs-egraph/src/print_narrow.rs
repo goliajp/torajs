@@ -22,7 +22,6 @@ use torajs_core::ssa::{FuncId, Function, InstKind, Module, Operand, Type, ValueI
 
 use crate::branch_fold::accum::cell_bound_after_loop;
 use crate::branch_fold::point_eval::PointEval;
-use crate::branch_fold::single_def;
 use crate::interval::transfer::NumFact;
 use torajs_core::ssa::dominator::DominatorTree;
 use torajs_core::ssa::loop_analysis::LoopAnalysis;
@@ -92,7 +91,7 @@ fn narrow_in_function(
             let [Operand::Value(v)] = args.as_slice() else {
                 continue;
             };
-            let Some(vd) = single_def(func, *v) else {
+            let Some(vd) = pe.single_def(*v) else {
                 continue;
             };
             let InstKind::SiToFp(Operand::Value(w)) = &func.blocks[vd.0].insts[vd.1].kind else {

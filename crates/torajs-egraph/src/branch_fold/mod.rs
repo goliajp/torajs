@@ -105,7 +105,7 @@ fn fold_in_function(func: &mut Function, names: &[String], stats: &mut BranchFol
         else {
             continue;
         };
-        let Some(cd) = single_def(func, *cv) else {
+        let Some(cd) = pe.single_def(*cv) else {
             continue;
         };
         let InstKind::ICmp(pred, a, b) = &func.blocks[cd.0].insts[cd.1].kind else {
@@ -153,9 +153,9 @@ fn eval_side(src: &Sources<'_>, op: &Operand, at: (usize, usize)) -> Option<NumF
     // but fall back to the other side).
     let pf = pe.eval_operand(op, at);
     let af = match op {
-        Operand::Value(v) => {
-            single_def(func, *v).and_then(|vd| accum::accum_bound(func, la, pe, *v, vd))
-        }
+        Operand::Value(v) => pe
+            .single_def(*v)
+            .and_then(|vd| accum::accum_bound(func, la, pe, *v, vd)),
         _ => None,
     };
     let ff = match op {
@@ -167,7 +167,7 @@ fn eval_side(src: &Sources<'_>, op: &Operand, at: (usize, usize)) -> Option<NumF
         _ => None,
     };
     let sf = match op {
-        Operand::Value(v) => single_def(func, *v).and_then(|vd| shifted_bound(src, vd)),
+        Operand::Value(v) => pe.single_def(*v).and_then(|vd| shifted_bound(src, vd)),
         _ => None,
     };
     [pf, af, ff, ef, sf]
@@ -194,7 +194,7 @@ fn shifted_bound(src: &Sources<'_>, vd: (usize, usize)) -> Option<NumFact> {
 /// edge and the compare).
 fn edge_range(src: &Sources<'_>, v: ValueId, bi: usize) -> Option<NumFact> {
     let func = src.func;
-    single_def(func, v)?;
+    src.pe.single_def(v)?;
     let edges = src.edges.get_or_init(|| {
         let mut defs: HashMap<ValueId, InstKind> = HashMap::new();
         let mut multi: HashSet<ValueId> = HashSet::new();
@@ -246,21 +246,6 @@ fn decide_ordered(always: bool, never: bool) -> Option<bool> {
 
 fn disjoint(a: NumFact, b: NumFact) -> bool {
     a.hi < b.lo || a.lo > b.hi
-}
-
-pub(crate) fn single_def(func: &Function, v: ValueId) -> Option<(usize, usize)> {
-    let mut found: Option<(usize, usize)> = None;
-    for (bi, block) in func.blocks.iter().enumerate() {
-        for (ii, inst) in block.insts.iter().enumerate() {
-            if inst.result == Some(v) {
-                if found.is_some() {
-                    return None;
-                }
-                found = Some((bi, ii));
-            }
-        }
-    }
-    found
 }
 
 /// Remove pure instructions whose results are no longer read

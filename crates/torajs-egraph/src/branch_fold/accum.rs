@@ -101,7 +101,7 @@ pub(crate) fn accum_bound(
     let entry = entry_fact(func, lp, pe, acc)?;
     let inc = match pe.eval_operand_with_flow(inc_op, x_def) {
         Some(f) => f,
-        None if resolves_to(func, inc_op, counter.cell) => counter.body_range(),
+        None if resolves_to(func, pe, inc_op, counter.cell) => counter.body_range(),
         None => return None,
     };
     // After k <= trip additions the checked (post-add) value is
@@ -164,7 +164,7 @@ pub(crate) fn cell_bound_after_loop(
             return None;
         }
     }
-    let x_def = single_def(func, x)?;
+    let x_def = pe.single_def(x)?;
     let grown = accum_bound(func, la, pe, x, x_def)?;
     let entry = entry_fact(func, lp, pe, cell)?;
     Some(entry.join(grown))
@@ -222,7 +222,7 @@ impl LoopCounter {
 
 /// Does `op` name `cell`, directly or through single-def `copy`s
 /// (the post-φ form reads a loop cell through a block-tail copy)?
-fn resolves_to(func: &Function, op: &Operand, cell: ValueId) -> bool {
+fn resolves_to(func: &Function, pe: &PointEval, op: &Operand, cell: ValueId) -> bool {
     let mut cur = match op {
         Operand::Value(v) => *v,
         _ => return false,
@@ -231,7 +231,7 @@ fn resolves_to(func: &Function, op: &Operand, cell: ValueId) -> bool {
         if cur == cell {
             return true;
         }
-        let Some((bi, ii)) = single_def(func, cur) else {
+        let Some((bi, ii)) = pe.single_def(cur) else {
             return false;
         };
         let InstKind::Copy(_, Operand::Value(src)) = &func.blocks[bi].insts[ii].kind else {
@@ -260,7 +260,7 @@ fn loop_counter(func: &Function, lp: &NaturalLoop, pe: &PointEval) -> Option<Loo
     if !lp.body.contains(then_blk) || lp.body.contains(else_blk) {
         return None;
     }
-    let cond_def = single_def(func, *cv)?;
+    let cond_def = pe.single_def(*cv)?;
     let InstKind::ICmp(pred @ (IPred::Slt | IPred::Sle), Operand::Value(counter), k_op) =
         &func.blocks[cond_def.0].insts[cond_def.1].kind
     else {
@@ -286,7 +286,7 @@ fn loop_counter(func: &Function, lp: &NaturalLoop, pe: &PointEval) -> Option<Loo
             let InstKind::Copy(_, Operand::Value(sv)) = &inst.kind else {
                 return None;
             };
-            let sdef = single_def(func, *sv)?;
+            let sdef = pe.single_def(*sv)?;
             let InstKind::BinOp(torajs_core::ssa::BinOp::Add, sa, sb) =
                 &func.blocks[sdef.0].insts[sdef.1].kind
             else {
@@ -337,21 +337,6 @@ fn entry_fact(func: &Function, lp: &NaturalLoop, pe: &PointEval, cell: ValueId) 
         });
     }
     if saw_pred { entry } else { None }
-}
-
-fn single_def(func: &Function, v: ValueId) -> Option<(usize, usize)> {
-    let mut found: Option<(usize, usize)> = None;
-    for (bi, block) in func.blocks.iter().enumerate() {
-        for (ii, inst) in block.insts.iter().enumerate() {
-            if inst.result == Some(v) {
-                if found.is_some() {
-                    return None;
-                }
-                found = Some((bi, ii));
-            }
-        }
-    }
-    found
 }
 
 #[cfg(test)]
