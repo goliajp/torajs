@@ -469,7 +469,10 @@ impl<'a> LowerCtx<'a> {
         }
         let prev = self.f.current_origin;
         self.f.current_origin = Some(eid);
-        let result = lower(self, eid);
+        let mut result = lower(self, eid);
+        if matches!(self.ast.get_expr(eid), Expr::Call { .. }) {
+            result = crate::ssa_lower_assign_slot_fit::settle_escaping_views(self, eid, result);
+        }
         self.f.current_origin = prev;
         result
     }

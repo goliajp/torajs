@@ -1411,6 +1411,12 @@ pub struct Ast {
     /// into owned strings for the ones listed here and types the
     /// binding `Arr<Str>`. Empty before the pass runs.
     pub let_owned_elem_inits: std::collections::HashSet<ExprId>,
+    /// The ExprIds whose value is consumed where it is produced — a
+    /// binding's init, a member or index read's object, a discarded
+    /// statement value. A split product keeps its views only in one
+    /// of these; anywhere else it is handed on as owned strings.
+    /// Populated by `analyze_let_owned_elems`.
+    pub view_home_exprs: std::collections::HashSet<ExprId>,
     /// Rotation 672 — the separator ExprIds of the one-argument
     /// `R.split(S)` calls whose product is only ever measured
     /// (`R.split(S).length`, or a binding read only as `x.length`).

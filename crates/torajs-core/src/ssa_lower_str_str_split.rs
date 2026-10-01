@@ -181,20 +181,7 @@ pub(crate) fn lower_split(
             Type::I64,
             None,
         );
-        let v = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(
-                ctx.intrinsics.arr_slice,
-                vec![
-                    Operand::Value(no_sep_v),
-                    Operand::ConstI64(0),
-                    Operand::Value(take),
-                ],
-            ),
-            Type::Arr(arr_id),
-            None,
-        );
-        return Operand::Value(v);
+        return copy_prefix(ctx, no_sep_v, Operand::Value(take), arr_id);
     }
     // S282 — widen from `args.len() == 2` to `args.len() >= 2` so the
     // 3+ arg trailing-widen shape still drives the limit-clamp branch.
@@ -288,18 +275,35 @@ fn emit_limit_clamp_slice(
         Type::I64,
         None,
     );
+    copy_prefix(ctx, split_v, Operand::Value(take), arr_id)
+}
+
+/// The first `take` slots of `src` as a fresh array, with `src`
+/// released. The copy adopts what it copied — a view becomes an owned
+/// string, since the split block it reads through goes away with
+/// `src` — so a view product's prefix is `Arr<Str>`. The product used
+/// to be sliced and left alive: 200k `s.split(",", 2)` held 100 MB.
+fn copy_prefix(
+    ctx: &mut LowerCtx<'_>,
+    src: crate::ssa::ValueId,
+    take: Operand,
+    arr_id: crate::ssa::ArrId,
+) -> Operand {
+    let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
+    let out_id = ctx.copied_arr_layout(arr_id);
     let v = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(
             ctx.intrinsics.arr_slice,
-            vec![
-                Operand::Value(split_v),
-                Operand::ConstI64(0),
-                Operand::Value(take),
-            ],
+            vec![Operand::Value(src), Operand::ConstI64(0), take.clone()],
         ),
-        Type::Arr(arr_id),
+        Type::Arr(out_id),
         None,
     );
+    ctx.emit_adopt_copied_range(Operand::Value(v), elem_ty, Operand::ConstI64(0), take);
+    // the copy took the source's element-kind bits, which say
+    // nothing for a fresh split block; its slots are owned now
+    ctx.emit_arr_mark_kind(&Operand::Value(v));
+    ctx.emit_drop_value(Operand::Value(src), Type::Arr(arr_id));
     Operand::Value(v)
 }
