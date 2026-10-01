@@ -61,11 +61,11 @@ fn compute_pending_class_for(
         KPropertyVerdict::NoKProperty => return PendingClass::INERT,
         KPropertyVerdict::Unserveable => {
             // RFC 20260711 chunk B — K-PROPERTY present but not
-            // serveable by the single-class pending slot. The state
-            // still byte-steps (so the build completes), but the
-            // whole DFA is marked poisoned: every consumer
-            // (`resolve_dfa` / eager `dfa_runtime` / AOT bake) drops
-            // it and the cp-aware Pike VM serves the program.
+            // serveable by the single-class pending slot. The whole
+            // DFA is marked poisoned: every consumer (`resolve_dfa` /
+            // eager `dfa_runtime` / AOT bake) drops it and the
+            // cp-aware Pike VM serves the program, so `build_dfa`
+            // stops the BFS at the first poisoned intern.
             *poisoned = true;
             return PendingClass::INERT;
         }
@@ -278,6 +278,13 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
     let start = seed(LeftByteAttr::TextStart);
     let start_mid_word = seed(LeftByteAttr::Word);
     let start_mid_nonword = seed(LeftByteAttr::NonWord);
+    // A poisoned table is discarded by every consumer, so nothing
+    // past the first unserveable intern is worth building: the
+    // strings-property patterns (`\p{RGI_Emoji}`, ~10k states) poison
+    // on their very first state.
+    if poisoned {
+        return finish_dfa(states, start, start_mid_word, start_mid_nonword, true);
+    }
 
     let mut cur_seeds: Vec<usize> = Vec::new();
     let mut merged_seeds: Vec<usize> = Vec::new();
@@ -287,7 +294,7 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
     // fresh BTreeSet / Vec per byte (was 256× per state).
     let mut closed_with_right: BTreeSet<usize> = BTreeSet::new();
     let mut closure_work: Vec<usize> = Vec::new();
-    while let Some((cur_ready, cur_deferred, cur_attr, cur_idx)) = work.pop() {
+    'bfs: while let Some((cur_ready, cur_deferred, cur_attr, cur_idx)) = work.pop() {
         let mut transitions = [0u32; 256];
         let mut accept_before_byte = [0u32; 8];
         let ctx_at_cursor = ctx_for(cur_attr);
@@ -345,6 +352,9 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
                 &mut poisoned,
             );
             transitions[byte as usize] = next_idx;
+            if poisoned {
+                break 'bfs;
+            }
         }
         states[cur_idx as usize].transitions = transitions;
         // The executor reads this mask to answer "is there a zero-width
