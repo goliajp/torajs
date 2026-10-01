@@ -7,6 +7,8 @@
 
 use core::ffi::c_void;
 
+use crate::word::{cp_small, cp16, ld8, st8};
+
 /// `memmove(dst, src, n)` — overlap-safe copy.
 ///
 /// Signature matches the libc prototype exactly (`c_void`
@@ -21,28 +23,35 @@ use core::ffi::c_void;
 pub unsafe extern "C" fn memmove(dst: *mut c_void, src: *const c_void, n: usize) -> *mut c_void {
     let d = dst.cast::<u8>();
     let s = src.cast::<u8>();
-    if d as *const u8 == s || n == 0 {
-        return dst;
-    }
-    // Standard overlap-safe pattern: if dst is BELOW src in
-    // memory, forward copy is safe (writing destination won't
-    // clobber yet-to-read source bytes). If dst is ABOVE src,
-    // reverse copy is needed.
-    if (d as usize) < (s as usize) {
-        let mut i = 0;
-        while i < n {
-            unsafe {
-                *d.add(i) = *s.add(i);
-            }
-            i += 1;
+    unsafe {
+        if n < 16 {
+            cp_small(d, s, n);
+            return dst;
         }
-    } else {
-        let mut i = n;
-        while i > 0 {
-            i -= 1;
-            unsafe {
-                *d.add(i) = *s.add(i);
+        // The block loop reads 16 bytes and then writes 16, walking
+        // away from the overlap: ascending when `dst` is below `src`
+        // (a write lands below everything still to be read),
+        // descending otherwise. The one block that may straddle bytes
+        // the loop has already written — the last partial one — is
+        // read up front.
+        if (d as usize) < (s as usize) {
+            let (ta, tb) = (ld8(s.add(n - 16)), ld8(s.add(n - 8)));
+            let mut i = 0;
+            while n - i >= 16 {
+                cp16(d.add(i), s.add(i));
+                i += 16;
             }
+            st8(d.add(n - 16), ta);
+            st8(d.add(n - 8), tb);
+        } else {
+            let (ha, hb) = (ld8(s), ld8(s.add(8)));
+            let mut i = n;
+            while i >= 16 {
+                i -= 16;
+                cp16(d.add(i), s.add(i));
+            }
+            st8(d, ha);
+            st8(d.add(8), hb);
         }
     }
     dst
@@ -101,5 +110,34 @@ mod tests {
         let p = buf.as_mut_ptr();
         unsafe { memmove(p.cast(), p.cast(), 3) };
         assert_eq!(buf, [1, 2, 3]);
+    }
+
+    /// Every length at every overlap distance in both directions,
+    /// against a copy made through a scratch buffer.
+    #[test]
+    fn every_length_and_overlap() {
+        for n in 0..=200usize {
+            for dist in 0..=40usize {
+                for forward in [true, false] {
+                    let mut buf: [u8; 320] = core::array::from_fn(|i| (i * 13 + 1) as u8);
+                    let (s, d) = if forward {
+                        (40 + dist, 40)
+                    } else {
+                        (40, 40 + dist)
+                    };
+                    let mut want = buf;
+                    let moved: [u8; 200] = core::array::from_fn(|i| buf[s + i]);
+                    want[d..d + n].copy_from_slice(&moved[..n]);
+                    unsafe {
+                        memmove(
+                            buf.as_mut_ptr().add(d).cast(),
+                            buf.as_ptr().add(s).cast(),
+                            n,
+                        )
+                    };
+                    assert_eq!(buf, want, "n={n} dist={dist} forward={forward}");
+                }
+            }
+        }
     }
 }

@@ -28,12 +28,14 @@
 //! - **0 deps**: this crate is pure `core` with no other Cargo
 //!   path dep. Sits as a sibling to torajs-io / torajs-fmt /
 //!   torajs-syscall in the Layer-0 metal-tier.
-//! - **LLVM auto-vectorization**: byte-loop implementations are
-//!   recognized by LLVM's idiom-matching pass; auto-emitted as
-//!   NEON `ldp`/`stp` on aarch64 + AVX2 on x86_64. Same code
-//!   gen as compiler_builtins' own implementations (which Rust
-//!   uses as the fallback when libc is unavailable in no_std
-//!   builds).
+//! - **Word-wise kernels**: the copy / fill / compare loops move 16
+//!   bytes per step through explicit unaligned word loads and stores
+//!   (`word.rs`). A byte loop is not vectorized here — the compiler
+//!   cannot fold a loop into the very libcall it is compiling — and
+//!   costs three instructions a byte. `#![no_builtins]` keeps the
+//!   word loops from being folded into calls to themselves.
+
+#![no_builtins]
 
 // Not yet `#![no_std]` — Step 16-a leaves std on so the test
 // binary has a panic_handler. The fns below are
@@ -49,6 +51,7 @@ mod memmove;
 mod memset;
 mod memset_pattern16;
 mod strlen;
+mod word;
 
 pub use bzero::bzero;
 pub use memcmp::memcmp;

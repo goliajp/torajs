@@ -30,8 +30,8 @@
 //! to the optimizer. That blocks LTO from inlining `memset`'s loop
 //! back into `bzero` (which would re-form the zero-fill loop and
 //! re-trigger the trap). `bzero` itself stays loop-free → no idiom
-//! recognition → no self-call; `memset` runs its own NEON-vectorized
-//! zero-fill at full speed.
+//! recognition → no self-call; `memset` runs its own word-wise
+//! zero-fill.
 
 /// `bzero(s, n)` — write `n` zero bytes at `s`.
 ///
