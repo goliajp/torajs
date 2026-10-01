@@ -1411,6 +1411,16 @@ pub struct Ast {
     /// into owned strings for the ones listed here and types the
     /// binding `Arr<Str>`. Empty before the pass runs.
     pub let_owned_elem_inits: std::collections::HashSet<ExprId>,
+    /// The init ExprIds of the bindings whose alias class holds a
+    /// split product as VIEWS in every member — bindings that only
+    /// ever rebind or re-bind each other (`last = parts`, `let b =
+    /// a`) with one of them a split call — each mapped to its whole
+    /// class, itself included. The binding lane gives the `[]` and
+    /// alias inits among them the `Arr<Substr>` layout at declaration
+    /// once the checker's types confirm every split in the class
+    /// answers views (`ssa_lower_stmt_let_decl_view`). Populated by
+    /// `analyze_let_owned_elems`; disjoint from `let_owned_elem_inits`.
+    pub view_slot_inits: std::collections::HashMap<ExprId, Vec<ExprId>>,
     /// The ExprIds whose value is consumed where it is produced — a
     /// binding's init, a member or index read's object, a discarded
     /// statement value. A split product keeps its views only in one

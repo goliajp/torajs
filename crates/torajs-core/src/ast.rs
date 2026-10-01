@@ -243,6 +243,7 @@ mod inject_disposable_stack;
 mod inject_promise_finally;
 mod legacy_octal_sites;
 mod let_owned_elems;
+mod let_owned_elems_alias;
 mod let_owned_elems_writes;
 mod lift_arrow_fns;
 mod module_ns_members;

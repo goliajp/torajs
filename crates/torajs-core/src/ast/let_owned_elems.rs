@@ -60,9 +60,21 @@
 //! on as owned strings (`pre.push(line.split(","))` then `pre[i][0]`
 //! printed garbage).
 
+//!
+//! ## Aliases
+//!
+//! A bare rebind or re-binding between two such bindings (`last =
+//! parts`, `let b = a`) is an escape only when the two slots would
+//! disagree on the layout. [`super::let_owned_elems_alias`] connects
+//! the names into classes and rules per class: an unpoisoned class
+//! fed by a split call carries views in every member — the `[]` and
+//! alias inits among them get the view layout at their declaration
+//! (`view_slot_inits`) — and is listed here in neither set.
+
 use std::collections::HashSet;
 
-use super::let_owned_elems_writes::stmt_writes;
+use super::let_owned_elems_alias::{self as alias, AliasNames, Decl};
+use super::let_owned_elems_writes::{Query, stmt_writes};
 use super::view_homes;
 use super::{Ast, ExprId, Stmt};
 
@@ -72,76 +84,106 @@ use super::{Ast, ExprId, Stmt};
 /// pipeline for the siblings' reason: the census has to see the final
 /// shape of every use of the binding.
 pub fn analyze_let_owned_elems(ast: &mut Ast) {
+    let names = alias::collect_names(ast);
     let mut found = Found::default();
     let stmts = ast.stmts.clone();
-    low_walk_stmts(ast, &stmts, true, &mut found);
+    low_walk_stmts(ast, &stmts, true, &names, &mut found);
     view_homes::mark_read_objects(ast, &mut found.homes);
-    ast.let_owned_elem_inits = found.owned;
+    let (owned, view_slots) = alias::settle(ast, &names, &found.decls);
+    ast.let_owned_elem_inits = owned;
+    ast.view_slot_inits = view_slots;
     ast.view_home_exprs = found.homes;
 }
 
 #[derive(Default)]
 struct Found {
-    owned: HashSet<ExprId>,
+    decls: Vec<Decl>,
     homes: HashSet<ExprId>,
 }
 
-fn low_walk_stmts(ast: &Ast, stmts: &[Stmt], top_level: bool, found: &mut Found) {
+fn low_walk_stmts(
+    ast: &Ast,
+    stmts: &[Stmt],
+    top_level: bool,
+    names: &AliasNames,
+    found: &mut Found,
+) {
     for (i, s) in stmts.iter().enumerate() {
         view_homes::mark_stmt_homes(ast, s, &mut found.homes);
-        if let Stmt::LetDecl { name, init, .. } = s {
+        if let Stmt::LetDecl {
+            name,
+            init,
+            type_ann,
+            ..
+        } = s
+        {
             // The trailing statements are every place the binding
             // can be written — and a hoisted fn decl anywhere in the
             // block can reach it too. At top level every function
             // body can reach the binding, so the whole program is the
             // window.
-            let written = if top_level {
-                stmts.iter().any(|t| stmt_writes(ast, t, name))
-            } else {
-                stmts[i + 1..].iter().any(|t| stmt_writes(ast, t, name))
-                    || stmts
-                        .iter()
-                        .any(|t| matches!(t, Stmt::FnDecl { .. }) && stmt_writes(ast, t, name))
+            let window = |q: &Query<'_>| {
+                if top_level {
+                    stmts.iter().any(|t| stmt_writes(ast, t, q))
+                } else {
+                    stmts[i + 1..].iter().any(|t| stmt_writes(ast, t, q))
+                        || stmts
+                            .iter()
+                            .any(|t| matches!(t, Stmt::FnDecl { .. }) && stmt_writes(ast, t, q))
+                }
             };
-            if written {
-                found.owned.insert(*init);
-            }
+            found.decls.push(Decl {
+                name: name.clone(),
+                init: *init,
+                candidate: alias::is_candidate(ast, names, name, type_ann.as_deref(), *init),
+                written: window(&Query {
+                    x: name,
+                    aliases: None,
+                }),
+                poisoned: window(&Query {
+                    x: name,
+                    aliases: Some(names),
+                }),
+            });
         }
     }
     for s in stmts {
-        low_recurse_into(ast, s, found);
+        low_recurse_into(ast, s, names, found);
     }
 }
 
-fn low_recurse_into(ast: &Ast, s: &Stmt, found: &mut Found) {
+fn low_recurse_into(ast: &Ast, s: &Stmt, names: &AliasNames, found: &mut Found) {
+    let walk = |inner: &[Stmt], found: &mut Found| low_walk_stmts(ast, inner, false, names, found);
     match s {
-        Stmt::Block(inner) | Stmt::Multi(inner) => low_walk_stmts(ast, inner, false, found),
+        Stmt::Block(inner) | Stmt::Multi(inner) => walk(inner, found),
         Stmt::If {
             then_branch,
             else_branch,
             ..
         } => {
-            low_recurse_into(ast, then_branch, found);
+            low_recurse_into(ast, then_branch, names, found);
             if let Some(eb) = else_branch {
-                low_recurse_into(ast, eb, found);
+                low_recurse_into(ast, eb, names, found);
             }
         }
-        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => low_recurse_into(ast, body, found),
+        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
+            low_recurse_into(ast, body, names, found)
+        }
         Stmt::For { init, body, .. } => {
             if let Some(i) = init {
-                low_recurse_into(ast, i, found);
+                low_recurse_into(ast, i, names, found);
             }
-            low_recurse_into(ast, body, found);
+            low_recurse_into(ast, body, names, found);
         }
         Stmt::ForOfSplitIter { body, .. } | Stmt::ForOf { body, .. } => {
-            low_recurse_into(ast, body, found)
+            low_recurse_into(ast, body, names, found)
         }
         Stmt::Switch { cases, default, .. } => {
             for c in cases {
-                low_walk_stmts(ast, &c.body, false, found);
+                walk(&c.body, found);
             }
             if let Some(db) = default {
-                low_walk_stmts(ast, db, false, found);
+                walk(db, found);
             }
         }
         Stmt::Try {
@@ -150,24 +192,22 @@ fn low_recurse_into(ast: &Ast, s: &Stmt, found: &mut Found) {
             finally_body,
             ..
         } => {
-            low_walk_stmts(ast, body, false, found);
-            low_walk_stmts(ast, catch_body, false, found);
+            walk(body, found);
+            walk(catch_body, found);
             if let Some(fb) = finally_body {
-                low_walk_stmts(ast, fb, false, found);
+                walk(fb, found);
             }
         }
-        Stmt::FnDecl { body, .. } => low_walk_stmts(ast, body, false, found),
+        Stmt::FnDecl { body, .. } => walk(body, found),
         Stmt::ClassDecl { methods, .. } => {
             for m in methods {
-                low_walk_stmts(ast, &m.body, false, found);
+                walk(&m.body, found);
             }
         }
-        Stmt::ExportDecl { inner, .. } => {
-            if let Some(inner) = inner {
-                low_recurse_into(ast, inner, found);
-            }
-        }
-        Stmt::Labeled { body, .. } => low_recurse_into(ast, body, found),
+        Stmt::ExportDecl {
+            inner: Some(inner), ..
+        } => low_recurse_into(ast, inner, names, found),
+        Stmt::Labeled { body, .. } => low_recurse_into(ast, body, names, found),
         _ => {}
     }
 }

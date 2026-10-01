@@ -34,7 +34,8 @@ use crate::ssa_lower::parse_type;
 mod gate;
 mod write_through;
 use gate::{mutable_promotes, slot_type_supported, stays_main_local};
-use write_through::{binding_written_through, init_is_static_string_split};
+use write_through::binding_written_through;
+pub(crate) use write_through::init_is_static_string_split;
 
 /// `global_spellings` is the checker's record of the annotation spelling
 /// each un-annotated binding registered from (`Checker::global_spellings`);

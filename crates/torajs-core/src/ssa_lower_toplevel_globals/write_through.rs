@@ -28,7 +28,7 @@ use crate::ast::{Ast, Expr, ExprId, Stmt};
 /// route to the Any-product or fresh-Str kernels). Anything the
 /// dispatcher would NOT send to the view kernel answers false here,
 /// so the slot keeps the annotation's layout for it.
-pub(super) fn init_is_static_string_split(
+pub(crate) fn init_is_static_string_split(
     init: ExprId,
     ast: &Ast,
     expr_types: &HashMap<ExprId, crate::check::Type>,

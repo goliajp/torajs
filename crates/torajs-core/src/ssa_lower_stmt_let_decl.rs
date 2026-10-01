@@ -125,6 +125,15 @@ pub(crate) fn lower(
     {
         ctx.let_declared_obj_layout = Some(sid);
     }
+    // A member of an alias class that holds a split product as views
+    // (`let last: string[] = []` later rebound to a split product,
+    // `let b = a`) declares the view layout outright: the `[]` arm
+    // then mints an empty block at that layout and the rebind stores
+    // the same block both slots agree on, so nothing is materialized.
+    let view_slot = crate::ssa_lower_stmt_let_decl_view::view_slot_verdict(ctx, init);
+    if view_slot == Some(true) {
+        ty = crate::ssa_lower_stmt_let_decl_view::view_slot_ty(ctx, ty);
+    }
     let init_val = lower_let_init_val(ctx, ty, init);
     ctx.let_stack_alloc_hint = None;
     ctx.let_declared_obj_layout = None;
@@ -305,7 +314,8 @@ fn finalize_and_bind(
         ty = Type::Substr;
     } else if let Type::Arr(init_id) = init_ty
         && ctx.arr_layouts[init_id.0 as usize] == Type::Substr
-        && ctx.ast.let_owned_elem_inits.contains(&init)
+        && (ctx.ast.let_owned_elem_inits.contains(&init)
+            || crate::ssa_lower_stmt_let_decl_view::view_slot_verdict(ctx, init) == Some(false))
         && ctx.expr_transfers_ownership(init)
     {
         // A split product something in scope writes an owned value
