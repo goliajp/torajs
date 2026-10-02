@@ -30,6 +30,9 @@ pub struct Edge {
     pub hi: u32,
     /// slots written (at the current position) when the edge is taken
     pub saves: Vec<u32>,
+    /// slots unset when the edge is taken (a quantified atom's groups
+    /// at the top of an iteration); disjoint from `saves`
+    pub clears: Vec<u32>,
     pub target: u32,
 }
 
@@ -42,6 +45,9 @@ pub struct Variant {
     /// once, and an accept with edges is the fallback for a walk
     /// that dies later
     pub accept: Option<Vec<u32>>,
+    /// slots unset at the accept, beside `accept`'s writes; empty when
+    /// there is no accept
+    pub accept_clears: Vec<u32>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -152,6 +158,9 @@ impl MatcherIr {
                     for &slot in acc {
                         out[slot as usize] = pos as i64;
                     }
+                    for &slot in &v.accept_clears {
+                        out[slot as usize] = -1;
+                    }
                     last = pos as i64;
                     if v.edges.is_empty() {
                         break;
@@ -171,6 +180,9 @@ impl MatcherIr {
                 };
                 for &slot in &e.saves {
                     work[slot as usize] = pos as i64;
+                }
+                for &slot in &e.clears {
+                    work[slot as usize] = -1;
                 }
                 pos += step;
                 state = e.target as usize;
@@ -217,6 +229,7 @@ impl MatcherIr {
                 if v.accept.is_some() && !v.edges.is_empty() {
                     for e in &v.edges {
                         slots.extend_from_slice(&e.saves);
+                        slots.extend_from_slice(&e.clears);
                         stack.push(e.target as usize);
                     }
                 }
@@ -230,9 +243,11 @@ impl MatcherIr {
             for v in &self.states[i].variants {
                 if let Some(acc) = &v.accept {
                     slots.extend_from_slice(acc);
+                    slots.extend_from_slice(&v.accept_clears);
                 }
                 for e in &v.edges {
                     slots.extend_from_slice(&e.saves);
+                    slots.extend_from_slice(&e.clears);
                     stack.push(e.target as usize);
                 }
             }

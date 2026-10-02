@@ -66,8 +66,8 @@ pub fn build(prog: &Program, flags: u8, wide: bool) -> Option<MatcherIr> {
         for index in 0..1usize << probes.count_ones() {
             let ctx = unpack(probes, index);
             let Closure { consuming, accept } = closure(prog, seed, ctx, unicode);
-            let mut table: Vec<Option<(u32, Vec<u32>)>> = vec![None; segments.len()];
-            for (pc, saves) in consuming {
+            let mut table: Vec<Option<(u32, Writes)>> = vec![None; segments.len()];
+            for (pc, writes) in consuming {
                 let next = past_jumps(prog, pc + 1);
                 let target = match by_seed.get(&next) {
                     Some(&t) => t,
@@ -83,7 +83,7 @@ pub fn build(prog: &Program, flags: u8, wide: bool) -> Option<MatcherIr> {
                     if !admits(prog, ins, lo, unicode) {
                         continue;
                     }
-                    let want = (target, saves.clone());
+                    let want = (target, writes.clone());
                     match &table[k] {
                         None => table[k] = Some(want),
                         Some(have) if *have == want => {}
@@ -91,9 +91,14 @@ pub fn build(prog: &Program, flags: u8, wide: bool) -> Option<MatcherIr> {
                     }
                 }
             }
+            let (accept, accept_clears) = match accept {
+                Some(w) => (Some(w.saves), w.clears),
+                None => (None, Vec::new()),
+            };
             variants.push(Variant {
                 edges: coalesce(&segments, &table),
                 accept,
+                accept_clears,
             });
         }
         states[id] = State { probes, variants };
@@ -126,6 +131,7 @@ fn servable(prog: &Program) -> bool {
                         .is_some_and(|c| !c.byte_only && (!folds(ins) || latin1_class(c)))
             }
             Some(Op::Save) => falls_through && ins.a >= 0,
+            Some(Op::SaveReset) => falls_through && ins.a >= 0 && ins.a <= ins.b,
             Some(Op::AnchorB | Op::AnchorE | Op::WBound | Op::NWBound) => falls_through,
             Some(Op::Jmp) => in_range(ins.a),
             Some(Op::Split) => in_range(ins.a) && in_range(ins.b),
@@ -179,7 +185,7 @@ fn probes(prog: &Program, seed: usize, unicode: bool) -> u8 {
                 stack.push(ins.a as usize);
                 stack.push(ins.b as usize);
             }
-            Some(Op::Save) => stack.push(pc + 1),
+            Some(Op::Save | Op::SaveReset) => stack.push(pc + 1),
             Some(Op::AnchorB) => {
                 probes |= if multiline { LINE_START } else { INPUT_START };
                 stack.push(pc + 1);
@@ -236,16 +242,43 @@ fn holds(ins: Inst, ctx: u8, unicode: bool) -> bool {
     }
 }
 
+/// The slot writes of an ε path: `saves` take the position, `clears`
+/// unset; the last write to a slot decides which list holds it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct Writes {
+    saves: Vec<u32>,
+    clears: Vec<u32>,
+}
+
+impl Writes {
+    fn save(&mut self, slot: u32) {
+        move_slot(&mut self.clears, &mut self.saves, slot);
+    }
+
+    fn clear(&mut self, slot: u32) {
+        move_slot(&mut self.saves, &mut self.clears, slot);
+    }
+}
+
+fn move_slot(from: &mut Vec<u32>, to: &mut Vec<u32>, slot: u32) {
+    if let Ok(at) = from.binary_search(&slot) {
+        from.remove(at);
+    }
+    if let Err(at) = to.binary_search(&slot) {
+        to.insert(at, slot);
+    }
+}
+
 struct Closure {
-    /// consuming pcs in priority order, each with the slots written on
+    /// consuming pcs in priority order, each with the slot writes on
     /// its ε path from the seed
-    consuming: Vec<(usize, Vec<u32>)>,
-    accept: Option<Vec<u32>>,
+    consuming: Vec<(usize, Writes)>,
+    accept: Option<Writes>,
 }
 
 fn closure(prog: &Program, seed: usize, ctx: u8, unicode: bool) -> Closure {
     let mut visited = vec![false; prog.len()];
-    let mut stack: Vec<(usize, Vec<u32>)> = vec![(seed, Vec::new())];
+    let mut stack: Vec<(usize, Writes)> = vec![(seed, Writes::default())];
     let mut consuming = Vec::new();
     let mut accept = None;
     while let Some((pc, saves)) = stack.pop() {
@@ -261,10 +294,14 @@ fn closure(prog: &Program, seed: usize, ctx: u8, unicode: bool) -> Closure {
                 stack.push((ins.a as usize, saves));
             }
             Some(Op::Save) => {
-                let slot = ins.a as u32;
                 let mut saves = saves;
-                if let Err(at) = saves.binary_search(&slot) {
-                    saves.insert(at, slot);
+                saves.save(ins.a as u32);
+                stack.push((pc + 1, saves));
+            }
+            Some(Op::SaveReset) => {
+                let mut saves = saves;
+                for slot in ins.a..ins.b {
+                    saves.clear(slot as u32);
                 }
                 stack.push((pc + 1, saves));
             }
@@ -283,16 +320,17 @@ fn closure(prog: &Program, seed: usize, ctx: u8, unicode: bool) -> Closure {
     Closure { consuming, accept }
 }
 
-fn coalesce(segments: &[(u32, u32)], table: &[Option<(u32, Vec<u32>)>]) -> Vec<Edge> {
+fn coalesce(segments: &[(u32, u32)], table: &[Option<(u32, Writes)>]) -> Vec<Edge> {
     let mut edges: Vec<Edge> = Vec::new();
     for (&(lo, hi), cell) in segments.iter().zip(table) {
-        let Some((target, saves)) = cell else {
+        let Some((target, writes)) = cell else {
             continue;
         };
         if let Some(last) = edges.last_mut()
             && last.hi + 1 == lo
             && last.target == *target
-            && last.saves == *saves
+            && last.saves == writes.saves
+            && last.clears == writes.clears
         {
             last.hi = hi;
             continue;
@@ -300,7 +338,8 @@ fn coalesce(segments: &[(u32, u32)], table: &[Option<(u32, Vec<u32>)>]) -> Vec<E
         edges.push(Edge {
             lo,
             hi,
-            saves: saves.clone(),
+            saves: writes.saves.clone(),
+            clears: writes.clears.clone(),
             target: *target,
         });
     }

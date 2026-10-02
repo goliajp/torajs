@@ -73,6 +73,9 @@ pub mod utf8;
 pub mod utf8_class_expand;
 pub mod vm;
 
+#[cfg(test)]
+mod repeat_reset_tests;
+
 // Cross-tier extern "C" stubs for cargo unit tests — real symbols
 // live in sibling staticlibs (torajs-rc, torajs-str, torajs-arr,
 // torajs-dynobj, torajs-throw) at `tr build` link time. cargo test

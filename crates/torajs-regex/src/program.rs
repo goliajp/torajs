@@ -16,16 +16,17 @@
 //!               CLASS / BACKREF read the i bit, ANYCHAR the s bit,
 //!               ANCHOR_B/E the m bit. High byte reserved (0).
 //!   a  : i32    OP_CHAR=literal, OP_CLASS=cls_idx, OP_JMP=target, OP_SPLIT=t1,
-//!               OP_SAVE=slot, OP_LOOK*=sub_prog_idx, OP_BACKREF=cap_idx
-//!   b  : i32    OP_SPLIT=t2
+//!               OP_SAVE=slot, OP_LOOK*=sub_prog_idx, OP_BACKREF=cap_idx,
+//!               OP_SAVE_RESET=first slot
+//!   b  : i32    OP_SPLIT=t2, OP_SAVE_RESET=one past the last slot
 //! ```
 //!
 //! Multiple `Inst`s form a Thompson NFA: thread fork (`SPLIT`),
 //! unconditional hop (`JMP`), input consume (`CHAR` / `ANYCHAR` /
 //! `CLASS`), zero-width (`ANCHOR_B/E` / `WBOUND` / `NWBOUND` /
 //! `LOOKAHEAD` / `NEG_LOOKAHEAD` / `LOOKBEHIND` / `NEG_LOOKBEHIND`),
-//! capture-slot write (`SAVE`), accept (`MATCH`), and capture
-//! re-consume (`BACKREF`).
+//! capture-slot write (`SAVE`), capture-slot clear (`SAVE_RESET`),
+//! accept (`MATCH`), and capture re-consume (`BACKREF`).
 
 use crate::charclass::CharClass;
 use alloc::{boxed::Box, vec::Vec};
@@ -49,6 +50,10 @@ pub enum Op {
     Lookbehind = 14,
     NegLookbehind = 15,
     Backref = 16,
+    /// set the slots `a..b` to unset: the top of each iteration of a
+    /// quantified atom that contains capture groups (ES §22.2.2.3.1
+    /// RepeatMatcher step 4)
+    SaveReset = 17,
 }
 
 impl Op {
@@ -70,6 +75,7 @@ impl Op {
             14 => Some(Op::Lookbehind),
             15 => Some(Op::NegLookbehind),
             16 => Some(Op::Backref),
+            17 => Some(Op::SaveReset),
             _ => None,
         }
     }
@@ -152,6 +158,16 @@ impl Inst {
             pad: 0,
             a: slot,
             b: 0,
+        }
+    }
+
+    /// clear the slots `first..end`
+    pub fn save_reset(first: i32, end: i32) -> Self {
+        Self {
+            op: Op::SaveReset as u8,
+            pad: 0,
+            a: first,
+            b: end,
         }
     }
 
@@ -411,11 +427,12 @@ mod tests {
             Op::Lookbehind,
             Op::NegLookbehind,
             Op::Backref,
+            Op::SaveReset,
         ] {
             assert_eq!(Op::from_u8(op as u8), Some(op));
         }
         assert_eq!(Op::from_u8(0), None);
-        assert_eq!(Op::from_u8(17), None);
+        assert_eq!(Op::from_u8(18), None);
     }
 
     #[test]

@@ -91,6 +91,10 @@ pub(super) fn add_thread(
             }
             add_thread(tl, vt, arena, pc + 1, prog, s, pos, flags, new_id);
         }
+        Op::SaveReset => {
+            let reset = reset_slots(arena, saves_id, ins.a, ins.b);
+            add_thread(tl, vt, arena, pc + 1, prog, s, pos, flags, reset);
+        }
         Op::AnchorB => {
             // multiline is the instruction's baked `pad` m-bit
             // (regexp-modifiers), not the global flag word.
@@ -173,6 +177,22 @@ pub(super) fn add_thread(
             });
         }
     }
+}
+
+/// `saves_id` with the slots `first..end` unset, forking a row only
+/// when one of them is set: the first iteration of a loop finds them
+/// unset and forwards the handle.
+fn reset_slots(arena: &mut SavesArena, saves_id: u32, first: i32, end: i32) -> u32 {
+    let end = (end.max(0) as usize).min(arena.stride);
+    let first = (first.max(0) as usize).min(end);
+    if arena.get(saves_id)[first..end].iter().all(|&v| v < 0) {
+        return saves_id;
+    }
+    let new_id = arena.alloc_clone(saves_id);
+    for slot in first..end {
+        arena.write_slot(new_id, slot, -1);
+    }
+    new_id
 }
 
 /// `sub_probe` — does the sub-program have ANY match starting at

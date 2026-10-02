@@ -112,6 +112,7 @@ mod tests {
             lo: b'='.into(),
             hi: b'='.into(),
             saves: alloc::vec::Vec::new(),
+            clears: alloc::vec::Vec::new(),
             target: 1,
         };
         ir.states[3].variants[0].edges.insert(0, back);

@@ -150,7 +150,7 @@ pub fn epsilon_closure_with_ctx(
                     }
                 }
             }
-            Op::Save => {
+            Op::Save | Op::SaveReset => {
                 let t = pc + 1;
                 if t < prog.len() && closure.insert(t) {
                     work.push(t);
@@ -269,7 +269,7 @@ pub fn epsilon_closure_full_into(
                     None
                 }
             }
-            Op::Save => Some(pc + 1),
+            Op::Save | Op::SaveReset => Some(pc + 1),
             _ => None,
         };
         if let Some(t) = next

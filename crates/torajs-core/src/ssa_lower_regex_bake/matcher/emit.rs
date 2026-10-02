@@ -277,6 +277,9 @@ impl Emit<'_> {
             for &slot in acc {
                 self.store(blk, Operand::Value(pos), out, 8 * slot as u64);
             }
+            for &slot in &v.accept_clears {
+                self.store(blk, Operand::ConstI64(-1), out, 8 * slot as u64);
+            }
             if v.edges.is_empty() {
                 self.answer(blk, Operand::Value(pos));
                 return;
@@ -304,7 +307,9 @@ impl Emit<'_> {
             // state share one body
             let mut taken: Vec<BlockId> = Vec::with_capacity(v.edges.len());
             for (k, edge) in v.edges.iter().enumerate() {
-                let same = |e: &Edge| e.target == edge.target && e.saves == edge.saves;
+                let same = |e: &Edge| {
+                    e.target == edge.target && e.saves == edge.saves && e.clears == edge.clears
+                };
                 let blk = match v.edges[..k].iter().position(same) {
                     Some(first) => taken[first],
                     None => {
@@ -337,7 +342,7 @@ impl Emit<'_> {
     }
 
     /// The body of an edge of state `i` from `blk`: its saves at
-    /// `pos`, the cursor past the unit, and the branch to its target.
+    /// `pos` and its clears, the cursor past the unit, and the branch to its target.
     fn take_edge(&mut self, blk: BlockId, pos: ValueId, edge: &Edge, step: Operand, i: usize) {
         if self.fresh_on_edge(i) {
             self.begin_attempt(blk);
@@ -345,6 +350,9 @@ impl Emit<'_> {
         self.note_run_end(blk, i, edge.target as usize, pos);
         for &slot in &edge.saves {
             self.store(blk, Operand::Value(pos), self.out, 8 * slot as u64);
+        }
+        for &slot in &edge.clears {
+            self.store(blk, Operand::ConstI64(-1), self.out, 8 * slot as u64);
         }
         let advanced = self.binop(blk, BinOp::Add, pos, step);
         self.store(blk, Operand::Value(advanced), self.pos_slot, 0);

@@ -202,28 +202,87 @@ fn compile_alt(prog: &mut Program, node: &Node, flags: u8, rev: bool) {
 /// - For unbounded (`max == -1`), a SPLIT-loop Kleene star tail.
 /// - For bounded (`max - min` extras), a chain of `SPLIT (body, skip)`
 ///   wrappers — each loop iteration may exit early via `skip`.
+///
+/// When `child` contains capture groups every iteration but the first
+/// unrolled one opens with a `SAVE_RESET` of their slots (ES
+/// §22.2.2.3.1 RepeatMatcher step 4). The first copy is entered once
+/// per entry into the repeat, and nothing outside the atom writes its
+/// groups, so they are still unset there.
 fn compile_repeat(prog: &mut Program, node: &Node, flags: u8, rev: bool) {
     let Some(child) = node.child.as_deref() else {
         return;
     };
+    let reset = capture_slots(child);
     // Unrolled mandatory prefix.
-    for _ in 0..node.min {
-        compile_dir(prog, child, flags, rev);
+    for k in 0..node.min {
+        compile_iteration(prog, child, reset.filter(|_| k > 0), flags, rev);
     }
+    let reset_first = reset.filter(|_| node.min > 0);
     if node.max == -1 {
-        compile_kleene_tail(prog, child, node.lazy, flags, rev);
+        compile_kleene_tail(prog, child, node.lazy, reset, flags, rev);
     } else {
         let extra = node.max - node.min;
-        compile_bounded_extras(prog, child, extra, node.lazy, flags, rev);
+        let iter = Iteration { reset, reset_first };
+        compile_bounded_extras(prog, child, extra, node.lazy, iter, flags, rev);
     }
+}
+
+/// The capture slots of the groups inside `node`, lookaround bodies
+/// included, as `[first, end)`. Group indices inside one atom are
+/// consecutive, so the span is exactly the atom's groups.
+fn capture_slots(node: &Node) -> Option<(i32, i32)> {
+    fn walk(node: &Node, span: &mut Option<(i32, i32)>) {
+        if node.kind == NodeKind::Group && node.capture_idx > 0 {
+            let (lo, hi) = (2 * node.capture_idx, 2 * node.capture_idx + 2);
+            *span = Some(span.map_or((lo, hi), |(a, b)| (a.min(lo), b.max(hi))));
+        }
+        if let Some(child) = node.child.as_deref() {
+            walk(child, span);
+        }
+        for kid in &node.kids {
+            walk(kid, span);
+        }
+    }
+    let mut span = None;
+    walk(node, &mut span);
+    span
+}
+
+/// One copy of the repeated atom, opened by a reset of its groups.
+fn compile_iteration(
+    prog: &mut Program,
+    child: &Node,
+    reset: Option<(i32, i32)>,
+    flags: u8,
+    rev: bool,
+) {
+    if let Some((first, end)) = reset {
+        prog.emit(Inst::save_reset(first, end));
+    }
+    compile_dir(prog, child, flags, rev);
+}
+
+/// The resets of the bounded copies: `reset_first` for the first one,
+/// `reset` for the rest.
+#[derive(Clone, Copy)]
+struct Iteration {
+    reset: Option<(i32, i32)>,
+    reset_first: Option<(i32, i32)>,
 }
 
 /// SPLIT-loop tail for unbounded repeats (`*` / `+` / `{n,}`).
 /// Greedy: `SPLIT body, after`; lazy: targets swapped.
-fn compile_kleene_tail(prog: &mut Program, child: &Node, lazy: bool, flags: u8, rev: bool) {
+fn compile_kleene_tail(
+    prog: &mut Program,
+    child: &Node,
+    lazy: bool,
+    reset: Option<(i32, i32)>,
+    flags: u8,
+    rev: bool,
+) {
     let split_idx = prog.emit(Inst::split(0, 0));
     let body_start = prog.next_idx();
-    compile_dir(prog, child, flags, rev);
+    compile_iteration(prog, child, reset, flags, rev);
     prog.emit(Inst::jmp(split_idx));
     let after = prog.next_idx();
     if lazy {
@@ -243,6 +302,7 @@ fn compile_bounded_extras(
     child: &Node,
     extra: i32,
     lazy: bool,
+    iter: Iteration,
     flags: u8,
     rev: bool,
 ) {
@@ -250,11 +310,12 @@ fn compile_bounded_extras(
         return;
     }
     let mut splits = Vec::with_capacity(extra as usize);
-    for _ in 0..extra {
+    for k in 0..extra {
         let sidx = prog.emit(Inst::split(0, 0));
         splits.push(sidx as usize);
         let body_start = prog.next_idx();
-        compile_dir(prog, child, flags, rev);
+        let reset = if k == 0 { iter.reset_first } else { iter.reset };
+        compile_iteration(prog, child, reset, flags, rev);
         if lazy {
             prog.insts[sidx as usize].a = -1; // skip — patched below
             prog.insts[sidx as usize].b = body_start;

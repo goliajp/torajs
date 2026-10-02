@@ -29,6 +29,7 @@ const OP_JMP: u8 = Op::Jmp as u8;
 const OP_SPLIT: u8 = Op::Split as u8;
 const OP_MATCH: u8 = Op::Match as u8;
 const OP_SAVE: u8 = Op::Save as u8;
+const OP_SAVE_RESET: u8 = Op::SaveReset as u8;
 
 #[derive(Clone, Copy, Debug)]
 enum Job {
@@ -85,6 +86,7 @@ pub fn can_backtrack(prog: &Program) -> bool {
         }
         OP_CLASS => falls_through(i) && ins.a >= 0 && (ins.a as usize) < prog.classes.len(),
         OP_SAVE => falls_through(i) && ins.a >= 0,
+        OP_SAVE_RESET => falls_through(i) && ins.a >= 0 && ins.a <= ins.b,
         OP_JMP => in_range(ins.a),
         OP_SPLIT => in_range(ins.a) && in_range(ins.b),
         OP_MATCH => true,
@@ -182,6 +184,18 @@ impl Walker<'_> {
                         old: row[slot],
                     });
                     row[slot] = pos;
+                }
+                OP_SAVE_RESET => {
+                    let end = (ins.b as usize).min(row.len());
+                    for slot in (ins.a as usize).min(end)..end {
+                        if row[slot] >= 0 {
+                            bt.stack.push(Job::Restore {
+                                slot: slot as u32,
+                                old: row[slot],
+                            });
+                            row[slot] = -1;
+                        }
+                    }
                 }
                 OP_MATCH => {
                     if pos == self.end {
