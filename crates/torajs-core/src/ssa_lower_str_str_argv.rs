@@ -173,15 +173,11 @@ pub(crate) fn populate_argv(
             // with that admit per the 605-era note here.
             let u = str_sub(ctx);
             argv.push(u);
-        } else if u.undef_to_zero && arg_undef {
-            argv.push(Operand::ConstI64(0));
-        } else if u.undef_zero_at_arg1 && arg_undef && i == 1 {
+        } else if (u.undef_to_zero || (u.undef_zero_at_arg1 && i == 1)) && arg_undef {
             argv.push(Operand::ConstI64(0));
         } else if u.undef_max_at_arg1 && arg_undef && i == 1 {
             argv.push(Operand::ConstI64(i64::MAX));
-        } else if u.undef_zero_at_arg0_idx && arg_undef && i == 0 {
-            argv.push(Operand::ConstI64(0));
-        } else if u.undef_zero_at_arg0_pad && arg_undef && i == 0 {
+        } else if (u.undef_zero_at_arg0_idx || u.undef_zero_at_arg0_pad) && arg_undef && i == 0 {
             argv.push(Operand::ConstI64(0));
         } else if u.undef_space_at_arg1_pad && arg_undef && i == 1 {
             let space = ctx.intern_string_literal(" ");
