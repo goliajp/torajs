@@ -225,7 +225,9 @@ pub unsafe extern "C" fn __torajs_bigint_to_string_radix(a_: *const c_void, radi
     if !(2..=36).contains(&radix) {
         unsafe {
             __torajs_throw_range_error(
-                b"toString() radix argument must be between 2 and 36\0".as_ptr(),
+                c"toString() radix argument must be between 2 and 36"
+                    .as_ptr()
+                    .cast(),
             );
         }
         return alloc_str(b"");

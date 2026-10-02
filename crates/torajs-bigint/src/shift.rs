@@ -128,12 +128,12 @@ unsafe fn to_i64_for_shift(n: *const u8) -> i64 {
             return 0;
         }
         if len > 1 {
-            __torajs_throw_range_error(b"BigInt shift amount too large\0".as_ptr());
+            __torajs_throw_range_error(c"BigInt shift amount too large".as_ptr().cast());
             return 0;
         }
         let v = *words_ptr(n);
         if v > i64::MAX as u64 {
-            __torajs_throw_range_error(b"BigInt shift amount too large\0".as_ptr());
+            __torajs_throw_range_error(c"BigInt shift amount too large".as_ptr().cast());
             return 0;
         }
         let s = v as i64;

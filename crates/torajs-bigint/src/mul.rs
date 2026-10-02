@@ -72,7 +72,7 @@ unsafe fn mag_split_at(a: *const u8, m: u32) -> (*mut u8, *mut u8) {
     unsafe {
         let alen = read_len(a);
         let lo_len = alen.min(m);
-        let hi_len = if alen > m { alen - m } else { 0 };
+        let hi_len = alen.saturating_sub(m);
 
         let lo = alloc_raw(lo_len);
         if lo_len > 0 {
@@ -161,7 +161,7 @@ unsafe fn mag_mul_karatsuba(a: *const u8, b: *const u8) -> *mut u8 {
         let na = read_len(a);
         let nb = read_len(b);
         let n = na.max(nb);
-        let m = (n + 1) / 2;
+        let m = n.div_ceil(2);
 
         let (al, ah) = mag_split_at(a, m);
         let (bl, bh) = mag_split_at(b, m);

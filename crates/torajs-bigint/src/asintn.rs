@@ -5,8 +5,7 @@
 //!
 //! - `asUintN(bits, x)`  = `x mod 2^bits`                 (unsigned)
 //! - `asIntN(bits, x)`   = `((x + 2^(bits-1)) mod 2^bits) - 2^(bits-1)`
-//!                       = `asUintN(bits, x)` reinterpreted as
-//!                         two's-complement signed.
+//!   = `asUintN(bits, x)` reinterpreted as two's-complement signed.
 //!
 //! Arbitrary `bits` is supported via word-level masking + multi-limb
 //! two's-complement propagation. Fast path: when the input magnitude
@@ -144,7 +143,7 @@ pub unsafe extern "C" fn __torajs_bigint_as_uint_n(bits: i64, value: *const c_vo
     unsafe {
         let p = value as *const u8;
         if bits < 0 {
-            __torajs_throw_range_error(b"number of bits cannot be negative\0".as_ptr());
+            __torajs_throw_range_error(c"number of bits cannot be negative".as_ptr().cast());
             return alloc_raw(0);
         }
         if bits == 0 {
@@ -157,7 +156,7 @@ pub unsafe extern "C" fn __torajs_bigint_as_uint_n(bits: i64, value: *const c_vo
         }
         if neg && bits > MAX_BITS {
             // Result genuinely needs `bits` bits (2^bits - low).
-            __torajs_throw_range_error(b"Maximum BigInt size exceeded\0".as_ptr());
+            __torajs_throw_range_error(c"Maximum BigInt size exceeded".as_ptr().cast());
             return alloc_raw(0);
         }
         let b = alloc_trunc(p, bits);
@@ -183,7 +182,7 @@ pub unsafe extern "C" fn __torajs_bigint_as_int_n(bits: i64, value: *const c_voi
     unsafe {
         let p = value as *const u8;
         if bits < 0 {
-            __torajs_throw_range_error(b"number of bits cannot be negative\0".as_ptr());
+            __torajs_throw_range_error(c"number of bits cannot be negative".as_ptr().cast());
             return alloc_raw(0);
         }
         if bits == 0 {

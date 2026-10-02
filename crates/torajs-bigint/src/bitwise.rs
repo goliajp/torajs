@@ -180,6 +180,9 @@ unsafe extern "C" {
 /// `~a` ≡ `-(a + 1n)` — universal identity, no sign-case dispatch
 /// needed. Costs one tiny intermediate 1n alloc + the existing add /
 /// neg externs.
+///
+/// # Safety
+/// `a_` is a live BigInt cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_bigint_not(a_: *const c_void) -> *mut u8 {
     unsafe {
@@ -195,6 +198,9 @@ pub unsafe extern "C" fn __torajs_bigint_not(a_: *const c_void) -> *mut u8 {
 }
 
 /// `a & b` with two's-complement semantics.
+///
+/// # Safety
+/// `a_` and `b_` are live BigInt cells.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_bigint_and(a_: *const c_void, b_: *const c_void) -> *mut u8 {
     let a = a_ as *const u8;
@@ -230,6 +236,9 @@ pub unsafe extern "C" fn __torajs_bigint_and(a_: *const c_void, b_: *const c_voi
 }
 
 /// `a | b` with two's-complement semantics.
+///
+/// # Safety
+/// `a_` and `b_` are live BigInt cells.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_bigint_or(a_: *const c_void, b_: *const c_void) -> *mut u8 {
     let a = a_ as *const u8;
@@ -270,6 +279,9 @@ pub unsafe extern "C" fn __torajs_bigint_or(a_: *const c_void, b_: *const c_void
 }
 
 /// `a ^ b` with two's-complement semantics.
+///
+/// # Safety
+/// `a_` and `b_` are live BigInt cells.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_bigint_xor(a_: *const c_void, b_: *const c_void) -> *mut u8 {
     let a = a_ as *const u8;

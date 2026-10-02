@@ -195,7 +195,7 @@ pub unsafe extern "C" fn __torajs_bigint_div(a_: *const c_void, b_: *const c_voi
     let b = b_ as *const u8;
     unsafe {
         if read_len(b) == 0 {
-            __torajs_throw_range_error(b"0 is an invalid divisor value.\0".as_ptr());
+            __torajs_throw_range_error(c"0 is an invalid divisor value.".as_ptr().cast());
             return core::ptr::null_mut();
         }
         let (q, r) = mag_divmod(a, b);
@@ -211,13 +211,16 @@ pub unsafe extern "C" fn __torajs_bigint_div(a_: *const c_void, b_: *const c_voi
 
 /// `a % b` for BigInt. Truncated remainder; result sign = a.sign.
 /// Throws RangeError on `b == 0n`.
+///
+/// # Safety
+/// `a_` and `b_` are live BigInt cells.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_bigint_mod(a_: *const c_void, b_: *const c_void) -> *mut u8 {
     let a = a_ as *const u8;
     let b = b_ as *const u8;
     unsafe {
         if read_len(b) == 0 {
-            __torajs_throw_range_error(b"0 is an invalid divisor value.\0".as_ptr());
+            __torajs_throw_range_error(c"0 is an invalid divisor value.".as_ptr().cast());
             return core::ptr::null_mut();
         }
         let (q, r) = mag_divmod(a, b);
@@ -237,13 +240,16 @@ pub unsafe extern "C" fn __torajs_bigint_mod(a_: *const c_void, b_: *const c_voi
 /// - `base ** 0n` always 1n (including `0n ** 0n` per spec — V8 / bun
 ///   agree)
 /// - sign of result: only negative iff base is negative AND exp is odd
+///
+/// # Safety
+/// `base_` and `exp_` are live BigInt cells.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_bigint_pow(base_: *const c_void, exp_: *const c_void) -> *mut u8 {
     let base = base_ as *const u8;
     let exp = exp_ as *const u8;
     unsafe {
         if read_sign(exp) != 0 {
-            __torajs_throw_range_error(b"BigInt negative exponent\0".as_ptr());
+            __torajs_throw_range_error(c"BigInt negative exponent".as_ptr().cast());
             return core::ptr::null_mut();
         }
         // Result starts at 1n.
@@ -303,6 +309,9 @@ pub unsafe extern "C" fn __torajs_bigint_pow(base_: *const c_void, exp_: *const 
 
 /// `-a` for BigInt. Fresh `+1`-rc clone with sign flipped. Zero stays
 /// positive (BigInt has no signed zero).
+///
+/// # Safety
+/// `a_` is a live BigInt cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_bigint_neg(a_: *const c_void) -> *mut u8 {
     let a = a_ as *const u8;

@@ -35,7 +35,7 @@
 //!
 //! Same reason as [`torajs-rc`] / [`torajs-str`] / [`torajs-num`]:
 //! cargo's `cargo test` + dual `crate-type = ["rlib", "staticlib"]`
-//! + `no_std` combination triggers a precompiled-core panic-strategy
+//! plus `no_std` combination triggers a precompiled-core panic-strategy
 //! mismatch that has no clean fix on stable. `std` staticlibs link
 //! cleanly at `tr build` time.
 
@@ -83,6 +83,8 @@ pub use tostring::{__torajs_bigint_print_inline, __torajs_bigint_to_string};
 // `tr build` link time. cargo unit tests of torajs-bigint don't link
 // torajs-str's staticlib — provide a panicking stub so the test
 // binary still links. Same pattern as torajs-num.
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_alloc_pooled(_len: u64) -> *mut u8 {
@@ -98,6 +100,8 @@ pub unsafe extern "C" fn __torajs_str_alloc_pooled(_len: u64) -> *mut u8 {
 // exercise NULL-path early returns that never actually call into
 // `__torajs_rc_dec`, but the linker resolves the symbol unconditionally.
 // Same pattern as torajs-num's `__torajs_str_alloc_pooled` stub.
+/// # Safety
+/// Test stub; reads nothing through `_p`.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_rc_dec(_p: *mut core::ffi::c_void) -> i32 {
@@ -114,6 +118,8 @@ pub unsafe extern "C" fn __torajs_rc_dec(_p: *mut core::ffi::c_void) -> i32 {
 // tests of asintn / construct / divmod / shift never invoke throw
 // paths in their inputs (in-range only) so this is unreachable; the
 // linker resolves the symbol unconditionally so we need it to satisfy.
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_throw_range_error(_msg: *const u8) {

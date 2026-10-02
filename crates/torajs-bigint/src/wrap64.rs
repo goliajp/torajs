@@ -15,6 +15,9 @@ use crate::internal::{alloc_raw, read_len, read_sign, words_mut, words_ptr, writ
 /// `BigInt(<u64>)` — the unsigned mint `from_i64` cannot express
 /// above `i64::MAX`, which is exactly the half of `BigUint64Array`'s
 /// range that matters.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_bigint_from_u64(v: u64) -> *mut u8 {
     if v == 0 {

@@ -47,7 +47,7 @@ pub unsafe extern "C" fn __torajs_bigint_from_decimal(s: *const c_void, n: u64) 
     let bytes = unsafe { (s as *const u8).add(STR_HDR_SIZE) };
     for i in 0..n {
         let c = unsafe { *bytes.add(i as usize) };
-        if !(b'0'..=b'9').contains(&c) {
+        if !c.is_ascii_digit() {
             continue;
         }
         unsafe {
@@ -66,6 +66,9 @@ pub unsafe extern "C" fn __torajs_bigint_from_decimal(s: *const c_void, n: u64) 
 
 /// `BigInt(<hex-digit-string>)`. `s` is a Str pointer; `n` is
 /// the digit count (excluding any `0x` prefix).
+///
+/// # Safety
+/// `s` is NULL or a live Str holding at least `n` bytes of payload.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_bigint_from_hex(s: *const c_void, n: u64) -> *mut u8 {
     let mut b = unsafe { alloc_raw(0) };
@@ -76,7 +79,7 @@ pub unsafe extern "C" fn __torajs_bigint_from_hex(s: *const c_void, n: u64) -> *
     let bytes = unsafe { (s as *const u8).add(STR_HDR_SIZE) };
     for i in 0..n {
         let c = unsafe { *bytes.add(i as usize) };
-        let d = if (b'0'..=b'9').contains(&c) {
+        let d = if c.is_ascii_digit() {
             (c - b'0') as u32
         } else if (b'a'..=b'f').contains(&c) {
             10 + (c - b'a') as u32
@@ -105,12 +108,15 @@ pub unsafe extern "C" fn __torajs_bigint_from_hex(s: *const c_void, n: u64) -> *
 /// §7.1.14 parser; a grammar reject records a pending SyntaxError
 /// (message matches bun/JSC) and answers a `0n` sentinel for the
 /// caller's throw check to unwind past.
+///
+/// # Safety
+/// `s` is a live Str.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_bigint_from_str(s: *const c_void) -> *mut u8 {
     let r = unsafe { crate::from_str_strict::__torajs_bigint_from_str_strict(s) };
     if r.is_null() {
         unsafe {
-            __torajs_throw_syntax_error(b"Failed to parse String to BigInt\0".as_ptr());
+            __torajs_throw_syntax_error(c"Failed to parse String to BigInt".as_ptr().cast());
         }
         return unsafe { alloc_raw(0) };
     }
@@ -124,6 +130,9 @@ pub unsafe extern "C" fn __torajs_bigint_from_str(s: *const c_void) -> *mut u8 {
 
 /// `BigInt(<i64>)`. Returns a 0-limb BigInt for `v == 0`, otherwise
 /// 1-limb with the magnitude.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_bigint_from_i64(v: i64) -> *mut u8 {
     if v == 0 {
@@ -148,6 +157,9 @@ pub unsafe extern "C" fn __torajs_bigint_from_i64(v: i64) -> *mut u8 {
 // ============================================================
 
 /// `BigInt(<bigint>)` — clone.
+///
+/// # Safety
+/// `a` is a live BigInt cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_bigint_clone(a: *const c_void) -> *mut u8 {
     let a = a as *const u8;
@@ -191,7 +203,7 @@ pub unsafe extern "C" fn __torajs_bigint_clone(a: *const c_void) -> *mut u8 {
 pub unsafe extern "C" fn __torajs_bigint_from_number(v: f64) -> *mut u8 {
     unsafe {
         if !v.is_finite() || v.floor() != v {
-            __torajs_throw_range_error(b"BigInt() expects a finite integer Number\0".as_ptr());
+            __torajs_throw_range_error(c"BigInt() expects a finite integer Number".as_ptr().cast());
             return core::ptr::null_mut();
         }
         if v == 0.0 {
