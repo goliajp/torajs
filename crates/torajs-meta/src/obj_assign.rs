@@ -127,8 +127,7 @@ pub unsafe extern "C" fn __torajs_dynobj_spread_from(
     source: u64,
     excluded: *const c_void,
 ) {
-    let mut t_anyv =
-        unsafe { __torajs_anyv_box_from_pair(ANY_HEAP_TAG as i64, (*obj_slot) as i64) };
+    let mut t_anyv = unsafe { __torajs_anyv_box_from_pair(ANY_HEAP_TAG, (*obj_slot) as i64) };
     unsafe { copy_own_into(&mut t_anyv, source, excluded) };
     unsafe { *obj_slot = __torajs_anyv_unbox_value(t_anyv) as *mut c_void };
 }
@@ -154,7 +153,7 @@ pub unsafe extern "C" fn __torajs_anyv_obj_rest(
 ) -> u64 {
     unsafe {
         let obj = __torajs_dynobj_alloc();
-        let mut slot = __torajs_anyv_box_from_pair(ANY_HEAP_TAG as i64, obj as i64);
+        let mut slot = __torajs_anyv_box_from_pair(ANY_HEAP_TAG, obj as i64);
         copy_own_into_ex(&mut slot, source, excluded, keys);
         slot
     }
@@ -342,6 +341,6 @@ unsafe fn copy_keys(
             unsafe { __torajs_value_drop_heap(key) };
         }
     }
-    unsafe { __torajs_value_drop_heap(keys as *mut c_void) };
+    unsafe { __torajs_value_drop_heap(keys) };
     threw
 }

@@ -17,9 +17,8 @@
 //! appends '\n' at the top-level boundary):
 //! - empty:           `Name {}`
 //! - non-empty:       `Name {\n  k: v,\n  k2: v2,\n}`
-//! - anonymous /      missing layout (class_tag 0 / lookup miss /
-//!                    A1 anon-stamp gap): no name prefix —
-//!                    `{}` / `{\n  k: v,\n}`.
+//! - anonymous / missing layout (class_tag 0 / lookup miss / A1
+//!   anon-stamp gap): no name prefix — `{}` / `{\n  k: v,\n}`.
 //!
 //! Key emission: declared field names live as raw `__torajs_class_field_name_<i>_<j>`
 //! rodata, fetched via `__torajs_struct_field_name`. Unquoted (matches

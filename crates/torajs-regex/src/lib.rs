@@ -79,36 +79,54 @@ pub mod vm;
 // test binary linking clean. Same pattern as torajs-promise /
 // torajs-cycle / torajs-weak / torajs-collections test stubs.
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_rc_dec(_p: *mut core::ffi::c_void) -> i32 {
     panic!("torajs-regex test stub: __torajs_rc_dec should not be called from cargo test");
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_rc_inc(_p: *mut core::ffi::c_void) {
     panic!("torajs-regex test stub: __torajs_rc_inc should not be called from cargo test");
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_slice(_s: *const u8, _start: i64, _end: i64) -> *mut u8 {
     panic!("torajs-regex test stub: __torajs_str_slice should not be called from cargo test");
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_cycle_buffer(_p: *mut core::ffi::c_void) {
     panic!("torajs-regex test stub: __torajs_cycle_buffer should not be called from cargo test");
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_cycle_unbuffer(_p: *mut core::ffi::c_void) {
     panic!("torajs-regex test stub: __torajs_cycle_unbuffer should not be called from cargo test");
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_subclass_drop_entry(_p: *mut core::ffi::c_void) {
@@ -119,47 +137,74 @@ pub unsafe extern "C" fn __torajs_subclass_drop_entry(_p: *mut core::ffi::c_void
 
 // RFC 20260730 blade 2 — subclass mint/super kernel dep stubs
 // (torajs-meta registry + torajs-anyvalue NaN-box faces).
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_subclass_register(_c: *mut core::ffi::c_void, _t: i64, _p: u64) {
     panic!("torajs-regex test stub: __torajs_subclass_register");
 }
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_proto_cell_raw(_t: i64) -> u64 {
     panic!("torajs-regex test stub: __torajs_proto_cell_raw");
 }
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_box_from_pair(_tag: i64, _value: i64) -> u64 {
     panic!("torajs-regex test stub: __torajs_anyv_box_from_pair");
 }
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_cell_ptr(_v: u64) -> i64 {
     panic!("torajs-regex test stub: __torajs_anyv_cell_ptr");
 }
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_unbox_value(_v: u64) -> i64 {
     panic!("torajs-regex test stub: __torajs_anyv_unbox_value");
 }
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_to_str(_v: u64) -> *mut core::ffi::c_void {
     panic!("torajs-regex test stub: __torajs_anyv_to_str");
 }
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_unbox_tag(_v: u64) -> i64 {
     panic!("torajs-regex test stub: __torajs_anyv_unbox_tag");
 }
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_throw_check() -> i64 {
     panic!("torajs-regex test stub: __torajs_throw_check");
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_dynobj_mark_null_proto(_obj: *mut core::ffi::c_void) {
@@ -168,6 +213,9 @@ pub unsafe extern "C" fn __torajs_dynobj_mark_null_proto(_obj: *mut core::ffi::c
     );
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_alloc_pooled(_len: u64) -> *mut u8 {
@@ -176,18 +224,27 @@ pub unsafe extern "C" fn __torajs_str_alloc_pooled(_len: u64) -> *mut u8 {
     );
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_drop(_s: *mut core::ffi::c_void) {
     panic!("torajs-regex test stub: __torajs_str_drop should not be called from cargo test");
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_alloc(_cap: u64) -> *mut core::ffi::c_void {
     panic!("torajs-regex test stub: __torajs_arr_alloc should not be called from cargo test");
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_push(
@@ -197,12 +254,18 @@ pub unsafe extern "C" fn __torajs_arr_push(
     panic!("torajs-regex test stub: __torajs_arr_push should not be called from cargo test");
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_alloc_any(_cap: u64) -> *mut core::ffi::c_void {
     panic!("torajs-regex test stub: __torajs_arr_alloc_any should not be called from cargo test");
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_push_any(
@@ -213,12 +276,18 @@ pub unsafe extern "C" fn __torajs_arr_push_any(
     panic!("torajs-regex test stub: __torajs_arr_push_any should not be called from cargo test");
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_dynobj_alloc() -> *mut core::ffi::c_void {
     panic!("torajs-regex test stub: __torajs_dynobj_alloc should not be called from cargo test");
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_dynobj_set(
@@ -230,6 +299,9 @@ pub unsafe extern "C" fn __torajs_dynobj_set(
     panic!("torajs-regex test stub: __torajs_dynobj_set should not be called from cargo test");
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arrprops_set(
@@ -241,6 +313,9 @@ pub unsafe extern "C" fn __torajs_arrprops_set(
     panic!("torajs-regex test stub: __torajs_arrprops_set should not be called from cargo test");
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_throw_type_error(_msg: *const u8) {
@@ -249,6 +324,9 @@ pub unsafe extern "C" fn __torajs_throw_type_error(_msg: *const u8) {
     );
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_throw_syntax_error(_msg: *const u8) {
@@ -257,6 +335,9 @@ pub unsafe extern "C" fn __torajs_throw_syntax_error(_msg: *const u8) {
     );
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_to_number(_v: u64) -> f64 {
@@ -265,6 +346,9 @@ pub unsafe extern "C" fn __torajs_anyv_to_number(_v: u64) -> f64 {
     );
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_value_drop_heap(_child: *mut core::ffi::c_void) {

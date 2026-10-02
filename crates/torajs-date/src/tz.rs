@@ -201,11 +201,11 @@ static mut TZ_ENV_TRIED: bool = false;
 /// or `None` when unset / empty / not valid UTF-8.
 fn tz_env_zone() -> Option<&'static str> {
     unsafe {
-        if !*(&raw const TZ_ENV_TRIED) {
-            *(&raw mut TZ_ENV_TRIED) = true;
-            *(&raw mut TZ_ENV) = read_tz_env();
+        if !(&raw const TZ_ENV_TRIED).read() {
+            (&raw mut TZ_ENV_TRIED).write(true);
+            (&raw mut TZ_ENV).write(read_tz_env());
         }
-        *(&raw const TZ_ENV)
+        (&raw const TZ_ENV).read()
     }
 }
 
@@ -223,12 +223,12 @@ fn read_tz_env() -> Option<&'static str> {
 
 fn cached() -> Option<&'static Tz> {
     unsafe {
-        if !*(&raw const TZ_TRIED) {
-            *(&raw mut TZ_TRIED) = true;
+        if !(&raw const TZ_TRIED).read() {
+            (&raw mut TZ_TRIED).write(true);
             let parsed = read_zone_data().and_then(|buf| parse_tzif(&buf));
-            *(&raw mut TZ_CACHE) = parsed;
+            (&raw mut TZ_CACHE).write(parsed);
         }
-        (*(&raw const TZ_CACHE)).as_ref()
+        (&raw const TZ_CACHE).as_ref()?.as_ref()
     }
 }
 
@@ -237,16 +237,17 @@ fn cached() -> Option<&'static Tz> {
 /// anything else — unset TZ, traversal-shaped ids, missing files —
 /// falls back to `/etc/localtime`.
 fn read_zone_data() -> Option<Vec<u8>> {
-    if let Some(id) = tz_env_zone() {
-        if !id.contains("..") && !id.starts_with('/') {
-            for dir in ["/var/db/timezone/zoneinfo/", "/usr/share/zoneinfo/"] {
-                let mut path = String::with_capacity(dir.len() + id.len() + 1);
-                path.push_str(dir);
-                path.push_str(id);
-                path.push('\0');
-                if let Some(buf) = read_file(path.as_bytes()) {
-                    return Some(buf);
-                }
+    if let Some(id) = tz_env_zone()
+        && !id.contains("..")
+        && !id.starts_with('/')
+    {
+        for dir in ["/var/db/timezone/zoneinfo/", "/usr/share/zoneinfo/"] {
+            let mut path = String::with_capacity(dir.len() + id.len() + 1);
+            path.push_str(dir);
+            path.push_str(id);
+            path.push('\0');
+            if let Some(buf) = read_file(path.as_bytes()) {
+                return Some(buf);
             }
         }
     }
@@ -300,11 +301,11 @@ static mut ZONE_ID_TRIED: bool = false;
 /// a symlink, or has no `zoneinfo/` segment.
 pub fn zone_id() -> Option<&'static str> {
     unsafe {
-        if !*(&raw const ZONE_ID_TRIED) {
-            *(&raw mut ZONE_ID_TRIED) = true;
-            *(&raw mut ZONE_ID) = read_zone_id();
+        if !(&raw const ZONE_ID_TRIED).read() {
+            (&raw mut ZONE_ID_TRIED).write(true);
+            (&raw mut ZONE_ID).write(read_zone_id());
         }
-        *(&raw const ZONE_ID)
+        (&raw const ZONE_ID).read()
     }
 }
 
@@ -312,19 +313,20 @@ fn read_zone_id() -> Option<&'static str> {
     // TZ env wins when it names a resolvable zone file — the same
     // gate `read_zone_data` applies, so the display name can never
     // disagree with the offsets in use.
-    if let Some(id) = tz_env_zone() {
-        if !id.contains("..") && !id.starts_with('/') {
-            for dir in ["/var/db/timezone/zoneinfo/", "/usr/share/zoneinfo/"] {
-                let mut path = String::with_capacity(dir.len() + id.len() + 1);
-                path.push_str(dir);
-                path.push_str(id);
-                path.push('\0');
-                if let Ok(fd) =
-                    unsafe { torajs_syscall::open(path.as_ptr(), torajs_syscall::sysno::O_RDONLY) }
-                {
-                    let _ = torajs_syscall::close(fd);
-                    return Some(id);
-                }
+    if let Some(id) = tz_env_zone()
+        && !id.contains("..")
+        && !id.starts_with('/')
+    {
+        for dir in ["/var/db/timezone/zoneinfo/", "/usr/share/zoneinfo/"] {
+            let mut path = String::with_capacity(dir.len() + id.len() + 1);
+            path.push_str(dir);
+            path.push_str(id);
+            path.push('\0');
+            if let Ok(fd) =
+                unsafe { torajs_syscall::open(path.as_ptr(), torajs_syscall::sysno::O_RDONLY) }
+            {
+                let _ = torajs_syscall::close(fd);
+                return Some(id);
             }
         }
     }

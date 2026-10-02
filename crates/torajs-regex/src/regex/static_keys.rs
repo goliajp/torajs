@@ -80,7 +80,7 @@ pub(super) unsafe fn cached_static_key(slot: &AtomicPtr<c_void>, bytes: &[u8]) -
             unsafe {
                 let flags_ptr = (fresh as *mut u8).add(6) as *mut u16;
                 *flags_ptr &= !FLAG_STATIC_LITERAL;
-                __torajs_str_drop(fresh as *mut c_void);
+                __torajs_str_drop(fresh);
             }
             other as *const c_void
         }

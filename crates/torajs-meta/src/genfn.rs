@@ -292,6 +292,11 @@ unsafe fn cell(kind: i64, idx: usize) -> u64 {
 /// `%GeneratorFunction.prototype%` (kind 0) /
 /// `%AsyncGeneratorFunction.prototype%` (kind 1) as an owned
 /// AnyValue — what `Object.getPrototypeOf(<generator fn>)` answers.
+///
+/// # Safety
+/// No preconditions: any `kind` other than 1 selects the generator
+/// family, and the cells are minted on first use. Unsafe for the
+/// uniform extern signature of the runtime surface.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_genfn_proto(kind: i64) -> u64 {
     unsafe { cell(kind, 0) }
@@ -303,6 +308,12 @@ pub unsafe extern "C" fn __torajs_genfn_proto(kind: i64) -> u64 {
 /// [`PROTO_SLOT_KEY`] entry the `get_proto_of_any` dynobj arm reads.
 /// Non-cell / null input is a no-op (misordered toolchain
 /// resilience, mirrors classmeta).
+///
+/// # Safety
+/// `proto_anyv`, when its bits are cell-shaped, is a live dynobj cell.
+/// The define goes through a local copy of the pointer, so a bag that
+/// grows into a fresh block is not written back to the caller's
+/// binding.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_genfn_chain(proto_anyv: u64, kind: i64) -> u64 {
     if !is_cell_imm(proto_anyv) {

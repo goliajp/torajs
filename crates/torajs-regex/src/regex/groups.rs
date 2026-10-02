@@ -47,7 +47,7 @@ pub unsafe fn build_groups(re: &RegExp, subject: &Subject, saves: &[i64]) -> Opt
         let gs = save_slot(saves, 2 * i);
         let ge = save_slot(saves, 2 * i + 1);
         if gs < 0 || ge < 0 {
-            if defined_names.iter().any(|n| *n == name.as_slice()) {
+            if defined_names.contains(&name.as_slice()) {
                 unsafe { __torajs_str_drop(name_key as *mut c_void) };
                 continue;
             }

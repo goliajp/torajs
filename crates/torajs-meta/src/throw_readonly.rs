@@ -24,6 +24,10 @@ unsafe extern "C" {
 
 /// The message matches the `any`-lane member-write kernel
 /// (`torajs-anyvalue`'s `member_set`), which bun words identically.
+///
+/// # Safety
+/// No preconditions: records the pending throw and returns. Unsafe for
+/// the uniform extern signature of the runtime surface.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_throw_readonly_assign() {
     // SAFETY: NUL-terminated static C string.

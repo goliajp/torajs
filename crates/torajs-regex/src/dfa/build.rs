@@ -35,6 +35,15 @@ type StateKey = (BTreeSet<usize>, [BTreeSet<usize>; 3], LeftByteAttr);
 /// onto `TextStart` for dedup when `needs_attr_split` is false).
 type WorkItem = (BTreeSet<usize>, [BTreeSet<usize>; 3], LeftByteAttr, u32);
 
+/// The BFS builder state every intern shares: the state pool, its
+/// dedup map, the work queue and the poison flag.
+struct Pool {
+    states: Vec<DfaState>,
+    set_to_idx: BTreeMap<StateKey, u32>,
+    work: Vec<WorkItem>,
+    poisoned: bool,
+}
+
 /// Round 3 Phase B sub-batch 4 attack #R-J v3 option A — compute the
 /// `PendingClass` triple for a `(ready, deferred)` state being interned.
 /// Pure-predicate analysis (does the ready set qualify as K-PROPERTY-
@@ -44,7 +53,6 @@ type WorkItem = (BTreeSet<usize>, [BTreeSet<usize>; 3], LeftByteAttr, u32);
 /// Returns `PendingClass::INERT` for any ready set the classifier
 /// rejects → caller falls back to the ordinary 256-way transitions
 /// path.
-#[allow(clippy::too_many_arguments)]
 fn compute_pending_class_for(
     prog: &Program,
     ready: &BTreeSet<usize>,
@@ -52,10 +60,7 @@ fn compute_pending_class_for(
     attr: LeftByteAttr,
     needs_attr_split: bool,
     flags: u8,
-    states: &mut Vec<DfaState>,
-    set_to_idx: &mut BTreeMap<StateKey, u32>,
-    work: &mut Vec<WorkItem>,
-    poisoned: &mut bool,
+    pool: &mut Pool,
 ) -> PendingClass {
     let shape = match classify_kproperty_shape(prog, ready, deferred, flags) {
         KPropertyVerdict::NoKProperty => return PendingClass::INERT,
@@ -66,7 +71,7 @@ fn compute_pending_class_for(
             // eager `dfa_runtime` / AOT bake) drops it and the
             // cp-aware Pike VM serves the program, so `build_dfa`
             // stops the BFS at the first poisoned intern.
-            *poisoned = true;
+            pool.poisoned = true;
             return PendingClass::INERT;
         }
         KPropertyVerdict::Shape(s) => s,
@@ -83,10 +88,7 @@ fn compute_pending_class_for(
         attr,
         needs_attr_split,
         flags,
-        states,
-        set_to_idx,
-        work,
-        poisoned,
+        pool,
     );
     PendingClass {
         active: 1,
@@ -98,7 +100,7 @@ fn compute_pending_class_for(
 }
 
 /// Look up `(ready, deferred, attr)` in the BFS interning map; insert
-/// + enqueue a new DFA state if absent. States with empty ready and
+/// and enqueue a new DFA state if absent. States with empty ready and
 /// empty deferred map to state 0 (dead). Used by [`build_dfa`] for
 /// both initial-seed and successor-state insertion. The attr (chunk
 /// 8.6b) is part of the dedup key so states reached via different
@@ -113,10 +115,7 @@ fn intern_state(
     attr: LeftByteAttr,
     needs_attr_split: bool,
     flags: u8,
-    states: &mut Vec<DfaState>,
-    set_to_idx: &mut BTreeMap<StateKey, u32>,
-    work: &mut Vec<WorkItem>,
-    poisoned: &mut bool,
+    pool: &mut Pool,
 ) -> u32 {
     if ready.is_empty() && deferred.iter().all(|d| d.is_empty()) {
         return 0;
@@ -133,7 +132,7 @@ fn intern_state(
         LeftByteAttr::TextStart
     };
     let key: StateKey = (ready, deferred, effective_attr);
-    if let Some(&i) = set_to_idx.get(&key) {
+    if let Some(&i) = pool.set_to_idx.get(&key) {
         return i;
     }
     let (ready, deferred, _) = key;
@@ -146,8 +145,8 @@ fn intern_state(
     // INERT pending_class is patched in below after the recursive
     // intern completes; the dedup map insert here ensures the cycle
     // hits the cache instead of recursing forever.
-    let i = states.len() as u32;
-    states.push(DfaState {
+    let i = pool.states.len() as u32;
+    pool.states.push(DfaState {
         transitions: [0u32; 256],
         is_accept: pc_set_is_accept(prog, &ready),
         is_accept_at_end: pc_set_is_accept_at_end(prog, &ready, attr),
@@ -169,7 +168,8 @@ fn intern_state(
         // field on `states[i]` before this function returns.
         pending_class: PendingClass::INERT,
     });
-    set_to_idx.insert((ready.clone(), deferred.clone(), effective_attr), i);
+    pool.set_to_idx
+        .insert((ready.clone(), deferred.clone(), effective_attr), i);
 
     // Round 3 Phase B sub-batch 4 attack #R-J v3 option A — compute
     // the pending_class triple if the ready set is a "K-PROPERTY
@@ -188,22 +188,12 @@ fn intern_state(
     // was caused by v2 declining to emit pending_class for these
     // multi-PC sets and falling back to byte_step_full's
     // `class.test(byte)` ASCII-only path. v3 closes that gap.
-    let pending_class = compute_pending_class_for(
-        prog,
-        &ready,
-        &deferred,
-        attr,
-        needs_attr_split,
-        flags,
-        states,
-        set_to_idx,
-        work,
-        poisoned,
-    );
+    let pending_class =
+        compute_pending_class_for(prog, &ready, &deferred, attr, needs_attr_split, flags, pool);
     // Patch the pending_class field on the reserved slot. Until here
     // `states[i].pending_class == INERT` so any recursive dedup hit
     // already returned `i` safely.
-    states[i as usize].pending_class = pending_class;
+    pool.states[i as usize].pending_class = pending_class;
 
     // v4 (regex-024 regression fix) — ALWAYS enqueue for BFS, even
     // when pending_class.active != 0. The executor (v4 `dfa_search_
@@ -225,7 +215,7 @@ fn intern_state(
     // transitions[ASCII-letter] = yes_target (consistent) and
     // transitions[non-ASCII-byte] = 0 (the pending handler will fire
     // there); no behavioural change versus v3-A.
-    work.push((ready, deferred, attr, i));
+    pool.work.push((ready, deferred, attr, i));
     i
 }
 
@@ -243,38 +233,28 @@ fn intern_state(
 /// classes (chunk 8.6b) and in-flight u-flag multi-byte sequences
 /// don't conflate with ready PCs (chunk 10b). State 0 = dead.
 pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
-    let mut states: Vec<DfaState> = Vec::new();
+    let mut pool = Pool {
+        states: Vec::new(),
+        set_to_idx: BTreeMap::new(),
+        work: Vec::new(),
+        poisoned: false,
+    };
     // state 0: dead state, all transitions self-loop to 0.
-    states.push(DfaState::default());
+    pool.states.push(DfaState::default());
 
-    let mut set_to_idx: BTreeMap<StateKey, u32> = BTreeMap::new();
     let empty_def: [BTreeSet<usize>; 3] = Default::default();
     for attr in [
         LeftByteAttr::TextStart,
         LeftByteAttr::Word,
         LeftByteAttr::NonWord,
     ] {
-        set_to_idx.insert((BTreeSet::new(), empty_def.clone(), attr), 0);
+        pool.set_to_idx
+            .insert((BTreeSet::new(), empty_def.clone(), attr), 0);
     }
-
-    let mut work: Vec<WorkItem> = Vec::new();
 
     let needs_attr_split = prog_uses_word_boundary(prog);
 
-    let mut poisoned = false;
-
-    let mut seed = |attr: LeftByteAttr| {
-        seed_start(
-            prog,
-            attr,
-            needs_attr_split,
-            flags,
-            &mut states,
-            &mut set_to_idx,
-            &mut work,
-            &mut poisoned,
-        )
-    };
+    let mut seed = |attr: LeftByteAttr| seed_start(prog, attr, needs_attr_split, flags, &mut pool);
     let start = seed(LeftByteAttr::TextStart);
     let start_mid_word = seed(LeftByteAttr::Word);
     let start_mid_nonword = seed(LeftByteAttr::NonWord);
@@ -282,8 +262,8 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
     // past the first unserveable intern is worth building: the
     // strings-property patterns (`\p{RGI_Emoji}`, ~10k states) poison
     // on their very first state.
-    if poisoned {
-        return finish_dfa(states, start, start_mid_word, start_mid_nonword, true);
+    if pool.poisoned {
+        return finish_dfa(pool.states, start, start_mid_word, start_mid_nonword, true);
     }
 
     let mut cur_seeds: Vec<usize> = Vec::new();
@@ -294,7 +274,7 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
     // fresh BTreeSet / Vec per byte (was 256× per state).
     let mut closed_with_right: BTreeSet<usize> = BTreeSet::new();
     let mut closure_work: Vec<usize> = Vec::new();
-    'bfs: while let Some((cur_ready, cur_deferred, cur_attr, cur_idx)) = work.pop() {
+    'bfs: while let Some((cur_ready, cur_deferred, cur_attr, cur_idx)) = pool.work.pop() {
         let mut transitions = [0u32; 256];
         let mut accept_before_byte = [0u32; 8];
         let ctx_at_cursor = ctx_for(cur_attr);
@@ -346,17 +326,14 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
                 next_attr,
                 needs_attr_split,
                 flags,
-                &mut states,
-                &mut set_to_idx,
-                &mut work,
-                &mut poisoned,
+                &mut pool,
             );
             transitions[byte as usize] = next_idx;
-            if poisoned {
+            if pool.poisoned {
                 break 'bfs;
             }
         }
-        states[cur_idx as usize].transitions = transitions;
+        pool.states[cur_idx as usize].transitions = transitions;
         // The executor reads this mask to answer "is there a zero-width
         // accept sitting at this cursor, before the byte is stepped".
         // On a state that ALREADY accepts the answer is yes for every
@@ -368,12 +345,18 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
         // reachable accepting state, i.e. all of them, so attack #R-E's
         // hoist has never once fired. Only non-accepting states carry a
         // mask the executor cannot already infer.
-        if !states[cur_idx as usize].is_accept {
-            states[cur_idx as usize].accept_before_byte = accept_before_byte;
+        if !pool.states[cur_idx as usize].is_accept {
+            pool.states[cur_idx as usize].accept_before_byte = accept_before_byte;
         }
     }
 
-    finish_dfa(states, start, start_mid_word, start_mid_nonword, poisoned)
+    finish_dfa(
+        pool.states,
+        start,
+        start_mid_word,
+        start_mid_nonword,
+        pool.poisoned,
+    )
 }
 
 /// Seed one BFS start state: ε-close PC 0 under `attr`'s cursor ctx
@@ -381,16 +364,12 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
 /// `closure_full(.., None)`; see the closure-API role split note at
 /// the top of dfa/mod.rs) and intern. The three start entries
 /// (text-start / mid-word / mid-nonword) differ only in attr.
-#[allow(clippy::too_many_arguments)]
 fn seed_start(
     prog: &Program,
     attr: LeftByteAttr,
     needs_attr_split: bool,
     flags: u8,
-    states: &mut Vec<DfaState>,
-    set_to_idx: &mut BTreeMap<StateKey, u32>,
-    work: &mut Vec<WorkItem>,
-    poisoned: &mut bool,
+    pool: &mut Pool,
 ) -> u32 {
     let initial = epsilon_closure_with_ctx(prog, &[0], ctx_for(attr));
     intern_state(
@@ -400,10 +379,7 @@ fn seed_start(
         attr,
         needs_attr_split,
         flags,
-        states,
-        set_to_idx,
-        work,
-        poisoned,
+        pool,
     )
 }
 

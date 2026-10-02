@@ -190,9 +190,7 @@ pub(crate) unsafe fn expando_key_declared(
         return false;
     }
     let key = unsafe { __torajs_dynobj_iter_key(props, pi) };
-    !key.is_null()
-        && unsafe { __torajs_obj_declared_field_attrs(cell as *mut c_void, key as *mut c_void) }
-            >= 0
+    !key.is_null() && unsafe { __torajs_obj_declared_field_attrs(cell as *mut c_void, key) } >= 0
 }
 
 /// What a value-reading face decodes for a declared field: the

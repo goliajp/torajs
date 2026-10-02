@@ -38,7 +38,9 @@ pub unsafe extern "C" fn __torajs_str_match_all_regex(
     if re.flags & RE_FLAG_G == 0 {
         unsafe {
             __torajs_throw_type_error(
-                b"String.prototype.matchAll called with a non-global RegExp argument\0".as_ptr(),
+                c"String.prototype.matchAll called with a non-global RegExp argument"
+                    .as_ptr()
+                    .cast(),
             );
         }
         return outer;

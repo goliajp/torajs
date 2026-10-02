@@ -84,7 +84,7 @@ pub unsafe extern "C" fn __torajs_date_to_iso_string(d_ptr: *const c_void) -> *m
         // invalid time value → RangeError (§21.4.4.36 step 3); the
         // call-site emit_throw_check propagates before the value is
         // consumed. Message matches bun/JSC ("Invalid Date").
-        unsafe { __torajs_throw_range_error(b"Invalid Date\0".as_ptr()) };
+        unsafe { __torajs_throw_range_error(c"Invalid Date".as_ptr().cast()) };
         return alloc_str("");
     };
     let (y, m, d, hour, minute, second, milli) = decompose(ms);

@@ -67,6 +67,12 @@ pub const STDERR_FD: i32 = 2;
 /// `extern "C"` entry points have no `self`.
 unsafe impl Sync for LineBuf {}
 
+impl Default for LineBuf {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LineBuf {
     /// Construct a fresh empty line buffer bound to `fd` (1 for
     /// stdout, 2 for stderr). `const fn` so the global static

@@ -382,6 +382,11 @@ pub(crate) fn proto_anyv_borrowed(tag: i64) -> u64 {
 /// out-of-range tag or unregistered class. rc_inc's the heap
 /// payload when the stored value is a cell so the caller owns
 /// the returned reference.
+///
+/// # Safety
+/// No preconditions: `tag` is range-checked and only the registry
+/// tables are read. Unsafe for the uniform extern signature of the
+/// runtime surface.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_proto_get(tag: i64) -> u64 {
     obj_proto::share_proto(proto_anyv_borrowed(tag))
@@ -390,6 +395,9 @@ pub unsafe extern "C" fn __torajs_anyv_proto_get(tag: i64) -> u64 {
 /// `new.target` lookup — AnyValue-immediate variant. Returns
 /// `VALUE_UNDEFINED_IMM` (NaN-box `undefined` sentinel) on
 /// out-of-range / unregistered class.
+///
+/// # Safety
+/// No preconditions, as [`__torajs_anyv_proto_get`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_class_get(tag: i64) -> u64 {
     // SAFETY: as above.

@@ -272,10 +272,11 @@ pub fn epsilon_closure_full_into(
             Op::Save => Some(pc + 1),
             _ => None,
         };
-        if let Some(t) = next {
-            if t < prog.len() && closure.insert(t) {
-                work.push(t);
-            }
+        if let Some(t) = next
+            && t < prog.len()
+            && closure.insert(t)
+        {
+            work.push(t);
         }
     }
 }

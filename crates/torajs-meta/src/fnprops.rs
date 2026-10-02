@@ -164,6 +164,11 @@ fn cell_props_slot(cell: usize) -> *mut *mut c_void {
 /// into the cell's (still empty at mint) props slot, so earlier
 /// writes stay visible. Idempotent — the canonical cell is a per-fn
 /// singleton, so a repeat bind carries the same cell.
+///
+/// # Safety
+/// `fn_ptr` is only hashed, never dereferenced. `cell` is null (a
+/// no-op, as is a null `fn_ptr`) or a live closure forward cell whose
+/// props slot the migrating bag is written into.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_fnprops_bind_cell(fn_ptr: *mut c_void, cell: *mut c_void) {
     if fn_ptr.is_null() || cell.is_null() {
@@ -191,6 +196,12 @@ pub unsafe extern "C" fn __torajs_fnprops_bind_cell(fn_ptr: *mut c_void, cell: *
 /// authoritative props slot: the canonical cell's when bound, the
 /// node's own bag otherwise. `dynobj_set` may grow and reassign the
 /// bag; the slot it wrote through keeps the fresh pointer either way.
+///
+/// # Safety
+/// `fn_ptr` is only hashed, never dereferenced. `key` is a live Str
+/// cell. A cell previously bound through [`__torajs_fnprops_bind_cell`]
+/// is still live. `value` is owned by the bag after the call when `tag`
+/// marks a heap payload.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_fnprops_set(
     fn_ptr: *mut c_void,
@@ -212,10 +223,7 @@ pub unsafe extern "C" fn __torajs_fnprops_set(
             // first, through the same entry the migrate path uses.
             let slot = cell_props_slot((*node).cell);
             if (*slot).is_null() {
-                __torajs_closure_props_attach(
-                    (*node).cell as *mut u8,
-                    __torajs_dynobj_alloc() as *mut c_void,
-                );
+                __torajs_closure_props_attach((*node).cell as *mut u8, __torajs_dynobj_alloc());
             }
             __torajs_dynobj_set(slot, key as *const u8, tag as u64, value as u64);
         } else {
@@ -255,6 +263,10 @@ fn lookup_bag(fn_ptr: *mut c_void) -> *mut c_void {
 /// per-fn singleton that lives for the program. A FnSig slot is a
 /// bare code address; this is the only way from it to the function
 /// OBJECT whose own properties a ToPrimitive walk has to consult.
+///
+/// # Safety
+/// No preconditions: `fn_ptr` is only hashed, never dereferenced.
+/// Unsafe for the uniform extern signature of the runtime surface.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_fnprops_cell(fn_ptr: *mut c_void) -> *mut c_void {
     let _g = FNPROPS_LOCK.lock();
@@ -269,6 +281,11 @@ pub unsafe extern "C" fn __torajs_fnprops_cell(fn_ptr: *mut c_void) -> *mut c_vo
 
 /// `fn.x` — return the slot's tag, or `ANY_UNDEF` if no fnprops
 /// entry / no key.
+///
+/// # Safety
+/// `fn_ptr` is only hashed, never dereferenced. `key` is a live Str
+/// cell. A cell previously bound through [`__torajs_fnprops_bind_cell`]
+/// is still live.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_fnprops_get_tag(fn_ptr: *mut c_void, key: *const c_void) -> u64 {
     let dynobj = lookup_bag(fn_ptr);
@@ -279,6 +296,9 @@ pub unsafe extern "C" fn __torajs_fnprops_get_tag(fn_ptr: *mut c_void, key: *con
 }
 
 /// `fn.x` — return the slot's value half (i64 bits / heap ptr).
+///
+/// # Safety
+/// As [`__torajs_fnprops_get_tag`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_fnprops_get_value(
     fn_ptr: *mut c_void,
@@ -315,10 +335,7 @@ mod tests {
     fn table_lookup_empty_returns_undef_tag() {
         // ANY_UNDEF_TAG (5) is the unregistered-fn fallback.
         let result = unsafe {
-            __torajs_fnprops_get_tag(
-                0x1234 as *mut c_void,
-                b"missing\0".as_ptr() as *const c_void,
-            )
+            __torajs_fnprops_get_tag(0x1234 as *mut c_void, c"missing".as_ptr() as *const c_void)
         };
         assert_eq!(result, ANY_UNDEF_TAG);
     }
@@ -326,7 +343,7 @@ mod tests {
     #[test]
     fn table_lookup_empty_returns_zero_value() {
         let result = unsafe {
-            __torajs_fnprops_get_value(0x5678 as *mut c_void, b"x\0".as_ptr() as *const c_void)
+            __torajs_fnprops_get_value(0x5678 as *mut c_void, c"x".as_ptr() as *const c_void)
         };
         assert_eq!(result, 0);
     }

@@ -29,8 +29,8 @@ pub use super::state::DfaState;
 ///   no-WBound case where `left_byte = None` had been the BFS seed).
 ///
 /// Patterns without `Op::AnchorB` / `Op::WBound` / `Op::NWBound` dedup
-/// all four start states down. Caller must gate via `prog.can_dfa`
-/// + [`super::prog_ops_dfa_safe`].
+/// all four start states down. Caller must gate via `prog.can_dfa` and
+/// [`super::prog_ops_dfa_safe`].
 /// V0.2 P14 chunk 7.7 v2 step 12 C2 Phase B (2026-06-24) — prep for
 /// AOT-precompile DFA. Wraps `DfaProgram::states` so the same struct
 /// supports both:

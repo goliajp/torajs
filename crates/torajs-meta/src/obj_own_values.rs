@@ -288,7 +288,7 @@ pub unsafe extern "C" fn __torajs_anyv_own_values(v: u64) -> *mut c_void {
     if v >> 48 == SHORT_STR_TOP16 {
         let cell = unsafe { __torajs_anyv_to_str(v) };
         let out = unsafe { str_cell_values(cell) };
-        unsafe { __torajs_value_drop_heap(cell as *mut c_void) };
+        unsafe { __torajs_value_drop_heap(cell) };
         return out;
     }
     if crate::reflect::is_cell_imm(v) {
@@ -407,7 +407,7 @@ pub unsafe extern "C" fn __torajs_anyv_own_entries(v: u64) -> *mut c_void {
     if v >> 48 == SHORT_STR_TOP16 {
         let cell = unsafe { __torajs_anyv_to_str(v) };
         let out = unsafe { str_cell_entries(cell) };
-        unsafe { __torajs_value_drop_heap(cell as *mut c_void) };
+        unsafe { __torajs_value_drop_heap(cell) };
         return out;
     }
     if crate::reflect::is_cell_imm(v) {

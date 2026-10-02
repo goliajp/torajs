@@ -102,48 +102,72 @@ pub use throw_readonly::__torajs_throw_readonly_assign;
 // crate only exercise pure-Rust logic (hash distribution,
 // fixed-array bounds) that never reaches these symbols.
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_alloc_pooled(_len: u64) -> *mut u8 {
     panic!("torajs-meta test stub: __torajs_str_alloc_pooled should not be called from cargo test");
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_alloc(_src: *const u8, _len: i64) -> *mut u8 {
     panic!("torajs-meta test stub: __torajs_str_alloc should not be called from cargo test");
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_drop(_s: *mut u8) {
     panic!("torajs-meta test stub: __torajs_str_drop should not be called from cargo test");
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_wtf8_into(_s: *const u8, _buf: *mut u8, _cap: u32) -> u32 {
     panic!("torajs-meta test stub: __torajs_str_wtf8_into should not be called from cargo test");
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_rc_inc(_p: *mut core::ffi::c_void) {
     panic!("torajs-meta test stub: __torajs_rc_inc should not be called from cargo test");
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_value_drop_heap(_p: *mut core::ffi::c_void) {
     panic!("torajs-meta test stub: __torajs_value_drop_heap should not be called from cargo test");
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_dynobj_alloc() -> *mut core::ffi::c_void {
     panic!("torajs-meta test stub: __torajs_dynobj_alloc should not be called from cargo test");
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_dynobj_set(
@@ -155,6 +179,9 @@ pub unsafe extern "C" fn __torajs_dynobj_set(
     panic!("torajs-meta test stub: __torajs_dynobj_set should not be called from cargo test");
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_builtin_method_cell(_mid: i64) -> *mut u8 {
@@ -163,6 +190,9 @@ pub unsafe extern "C" fn __torajs_builtin_method_cell(_mid: i64) -> *mut u8 {
     );
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_accessor_pair_new(
@@ -175,6 +205,9 @@ pub unsafe extern "C" fn __torajs_accessor_pair_new(
     );
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_dynobj_define_plain(
@@ -189,6 +222,9 @@ pub unsafe extern "C" fn __torajs_dynobj_define_plain(
     );
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_dynobj_define(
@@ -201,6 +237,9 @@ pub unsafe extern "C" fn __torajs_dynobj_define(
     panic!("torajs-meta test stub: __torajs_dynobj_define should not be called from cargo test");
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_dynobj_has(
@@ -210,6 +249,9 @@ pub unsafe extern "C" fn __torajs_dynobj_has(
     panic!("torajs-meta test stub: __torajs_dynobj_has should not be called from cargo test");
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_dynobj_get_tag(
@@ -219,6 +261,9 @@ pub unsafe extern "C" fn __torajs_dynobj_get_tag(
     panic!("torajs-meta test stub: __torajs_dynobj_get_tag should not be called from cargo test");
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_dynobj_get_value(
@@ -228,6 +273,9 @@ pub unsafe extern "C" fn __torajs_dynobj_get_value(
     panic!("torajs-meta test stub: __torajs_dynobj_get_value should not be called from cargo test");
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_dynobj_get_flags(
@@ -237,6 +285,9 @@ pub unsafe extern "C" fn __torajs_dynobj_get_flags(
     panic!("torajs-meta test stub: __torajs_dynobj_get_flags should not be called from cargo test");
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_builtin_proto_own_method_cell(
@@ -248,6 +299,9 @@ pub unsafe extern "C" fn __torajs_builtin_proto_own_method_cell(
     );
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_ctor_wellknown_symbol(
@@ -259,6 +313,9 @@ pub unsafe extern "C" fn __torajs_ctor_wellknown_symbol(
     );
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_builtin_proto_own_meta(
@@ -272,6 +329,9 @@ pub unsafe extern "C" fn __torajs_builtin_proto_own_meta(
     );
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_regex_get_last_index(_re: *const core::ffi::c_void) -> f64 {
@@ -280,6 +340,9 @@ pub unsafe extern "C" fn __torajs_regex_get_last_index(_re: *const core::ffi::c_
     );
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_regex_last_index_raw(_re: *const core::ffi::c_void) -> u64 {
@@ -288,6 +351,9 @@ pub unsafe extern "C" fn __torajs_regex_last_index_raw(_re: *const core::ffi::c_
     );
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_builtin_proto_own_accessor_getter(
@@ -299,6 +365,9 @@ pub unsafe extern "C" fn __torajs_builtin_proto_own_accessor_getter(
     );
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_get_builtin_prototype(_tag: i64) -> *mut core::ffi::c_void {
@@ -307,6 +376,9 @@ pub unsafe extern "C" fn __torajs_get_builtin_prototype(_tag: i64) -> *mut core:
     );
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_builtin_proto_tag_of(_p: *const core::ffi::c_void) -> i64 {
@@ -315,18 +387,27 @@ pub unsafe extern "C" fn __torajs_builtin_proto_tag_of(_p: *const core::ffi::c_v
     );
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_closure_name_str(_p: *mut core::ffi::c_void) -> *mut u8 {
     panic!("torajs-meta test stub: __torajs_closure_name_str should not be called from cargo test");
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_closure_length(_p: *mut core::ffi::c_void) -> i64 {
     panic!("torajs-meta test stub: __torajs_closure_length should not be called from cargo test");
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_builtin_proto_is_deleted(_tag: i64, _mid: i64) -> i64 {
@@ -335,6 +416,9 @@ pub unsafe extern "C" fn __torajs_builtin_proto_is_deleted(_tag: i64, _mid: i64)
     );
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_any_member_get_tag(
@@ -346,6 +430,9 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(
     );
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_any_member_get_value(

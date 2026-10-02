@@ -102,7 +102,7 @@ impl<'p> Parser<'p> {
         // by construction). Equal lengths are mutually exclusive so
         // their relative order is free.
         let mut strings: Vec<&Vec<u32>> = set.strings.iter().collect();
-        strings.sort_by(|a, b| b.len().cmp(&a.len()));
+        strings.sort_by_key(|s| core::cmp::Reverse(s.len()));
         let mut alt = Node::new(NodeKind::Alt);
         alt.eff_ims = self.eff_ims;
         let mut saw_empty = false;

@@ -42,7 +42,7 @@ unsafe fn build_capture_strs(
     subject: &Subject,
     out_caps: &mut [*mut c_void; 9],
 ) {
-    for i in 0..(n_caps as usize) {
+    for (i, slot) in out_caps.iter_mut().enumerate().take(n_caps as usize) {
         let gs = save_slot(saves, 2 * (i + 1));
         let ge = save_slot(saves, 2 * (i + 1) + 1);
         let p = if gs < 0 || ge < 0 {
@@ -50,7 +50,7 @@ unsafe fn build_capture_strs(
         } else {
             unsafe { subject.span(gs, ge) }
         };
-        out_caps[i] = p as *mut c_void;
+        *slot = p as *mut c_void;
     }
 }
 

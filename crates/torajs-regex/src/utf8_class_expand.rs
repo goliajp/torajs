@@ -615,7 +615,7 @@ mod tests {
         cc.add(b'b');
         cc.negate = true;
         let folded = cp_ranges_of(&cc, true);
-        for cp in [b'a', b'b', b'A', b'B'] {
+        for cp in *b"abAB" {
             assert!(
                 !folded
                     .iter()

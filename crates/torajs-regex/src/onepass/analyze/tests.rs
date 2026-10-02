@@ -84,9 +84,9 @@ fn transcode(units: &[u16], merge: bool) -> (Vec<u8>, Vec<i64>) {
         };
         let mut buf = [0u8; 4];
         let n = crate::utf8::utf8_encode_cp(cp as i32, &mut buf);
-        for k in 0..n {
+        for (k, &b) in buf[..n].iter().enumerate() {
             unit_of.push(if k == 0 { i as i64 } else { -1 });
-            out.push(buf[k]);
+            out.push(b);
         }
         i += w;
     }

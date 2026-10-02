@@ -153,7 +153,7 @@ mod tests {
     fn drop_recursively_frees_nested_tree() {
         let mut root = Node::new(NodeKind::Alt);
         let mut left = Node::new(NodeKind::Concat);
-        for c in [b'a', b'b', b'c'] {
+        for c in *b"abc" {
             let mut leaf = Node::new(NodeKind::Char);
             leaf.ch = u32::from(c);
             left.push_kid(leaf);

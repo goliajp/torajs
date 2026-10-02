@@ -3,8 +3,8 @@
 //! module had drifted to 519 LOC over the descriptor-family chunk
 //! wave (rotation 185 audit); this pulls the 200 LOC extern fn +
 //! its 35 LOC `builtin_proto_descriptor` helper into a sibling so
-//! `reflect.rs` returns to a "constants + shared descriptor builders
-//! + `Object.getPrototypeOf`" shape while the ~248 LOC descriptor
+//! `reflect.rs` returns to a "constants + shared descriptor builders +
+//! `Object.getPrototypeOf`" shape while the ~248 LOC descriptor
 //! dispatch cascade lives here.
 //!
 //! Nothing about the dispatch is refactored — arms retain their
@@ -314,12 +314,13 @@ pub unsafe extern "C" fn __torajs_anyv_get_property_descriptor(
         // than a `(tag, immediate)` pair, we delegate to the shared
         // char-index helper in `str_descriptor.rs` which owns the alloc
         // + slot-set sequence for that case.
-        if let Some(idx) = crate::arr_reflect::canonical_index(bytes) {
-            if !inner_ptr.is_null() && idx < inner_len {
-                return unsafe {
-                    crate::str_descriptor::__torajs_anyv_str_index_descriptor(inner_ptr, idx as i64)
-                };
-            }
+        if let Some(idx) = crate::arr_reflect::canonical_index(bytes)
+            && !inner_ptr.is_null()
+            && idx < inner_len
+        {
+            return unsafe {
+                crate::str_descriptor::__torajs_anyv_str_index_descriptor(inner_ptr, idx as i64)
+            };
         }
         // Expando entries + proto walk still deferred (L3b).
         return VALUE_UNDEFINED_IMM;

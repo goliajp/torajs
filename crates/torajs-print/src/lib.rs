@@ -60,6 +60,11 @@ fn write_all(buf: &[u8]) {
 /// `_print_bool(b)` — writes `"true\n"` for `true` and
 /// `"false\n"` for `false`. Same byte sequence as
 /// `console.log(true | false)` per the ES spec.
+///
+/// # Safety
+/// No preconditions: `b` is passed by value and the bytes go to the
+/// shared sink. Unsafe for the uniform extern signature of the runtime
+/// surface.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn print_bool(b: bool) {
     let bytes: &[u8] = if b { b"true\n" } else { b"false\n" };
@@ -72,6 +77,9 @@ pub unsafe extern "C" fn print_bool(b: bool) {
 /// / substr) is what keeps a typed multi-arg log off the any-value
 /// printer — that printer roots every inspectable world (98 KB on
 /// `console.log(1, 2)`).
+///
+/// # Safety
+/// No preconditions, as [`print_bool`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn print_bool_inline(b: bool) {
     let bytes: &[u8] = if b { b"true" } else { b"false" };
@@ -94,6 +102,11 @@ pub unsafe extern "C" fn print_bool_inline(b: bool) {
 /// is bounded by the write behind it, so this entry is compiled for
 /// size and LLVM leaves the two-digit loop as a loop (the inlined
 /// copies in the string-building kernels keep their own tuning).
+///
+/// # Safety
+/// No preconditions: `n` is passed by value and rendered into an
+/// on-stack buffer. Unsafe for the uniform extern signature of the
+/// runtime surface.
 #[unsafe(no_mangle)]
 #[optimize(size)]
 pub unsafe extern "C" fn print_i64(n: i64) {
@@ -104,6 +117,9 @@ pub unsafe extern "C" fn print_i64(n: i64) {
 
 /// `print_i64` without the newline (see [`print_bool_inline`]): the
 /// same rendered line, minus its last byte.
+///
+/// # Safety
+/// No preconditions, as [`print_i64`].
 #[unsafe(no_mangle)]
 #[optimize(size)]
 pub unsafe extern "C" fn print_i64_inline(n: i64) {
@@ -140,12 +156,20 @@ fn render_i64_line(n: i64, out: &mut [u8; I64_LINE_LEN]) -> usize {
 /// `libtorajs_num.a`. Keeps ES spec NaN / Infinity / signed-zero
 /// formatting in a single source-of-truth implementation rather
 /// than duplicating Ryū / dtoa logic.
+///
+/// # Safety
+/// No preconditions: `d` is passed by value to the linked
+/// `__torajs_print_f64_js`. Unsafe for the uniform extern signature of
+/// the runtime surface.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn print_f64(d: f64) {
     unsafe { __torajs_print_f64_js(d) }
 }
 
 /// `print_f64` without the newline (see [`print_bool_inline`]).
+///
+/// # Safety
+/// No preconditions, as [`print_f64`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn print_f64_inline(d: f64) {
     unsafe { __torajs_print_f64_js_inline(d) }

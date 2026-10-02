@@ -21,24 +21,37 @@ use crate::node::REGEX_MAX_CAPTURES;
 use crate::parser::{RE_FLAG_G, RE_FLAG_Y};
 use crate::vm::{match_anchor, save_slot, search_from_with_ws};
 
-/// Expand `repl` into `out`, dereferencing `$N` against the
+/// The match a replacement pattern expands against: the subject `s`,
+/// the matched span `st..en`, the capture `saves` pairs, and the
+/// pattern's capture table. `capture_names` is the `(?<name>...)` table
+/// (index 0 unused; empty `Vec` at positional groups) and `has_named`
+/// its non-empty-entry count gate — `$<name>` is only interpreted when
+/// the pattern has at least one named group (namedCaptures ≠ undefined
+/// per GetSubstitution).
+#[derive(Clone, Copy)]
+pub struct ReplMatch<'a> {
+    pub s: &'a [u8],
+    pub st: i64,
+    pub en: i64,
+    pub saves: &'a [i64],
+    pub n_captures: i32,
+    pub capture_names: &'a [Vec<u8>],
+    pub has_named: bool,
+}
+
+/// Expand `repl` into `out`, dereferencing `$N` against the match's
 /// captured `saves[]` pairs. Unparticipating groups substitute the
-/// empty string. `capture_names` is the pattern's `(?<name>...)`
-/// table (index 0 unused; empty `Vec` at positional groups) and
-/// `has_named` its non-empty-entry count gate — `$<name>` is only
-/// interpreted when the pattern has at least one named group
-/// (namedCaptures ≠ undefined per GetSubstitution).
-pub fn expand_repl(
-    repl: &[u8],
-    s: &[u8],
-    st: i64,
-    en: i64,
-    saves: &[i64],
-    n_captures: i32,
-    capture_names: &[Vec<u8>],
-    has_named: bool,
-    out: &mut Vec<u8>,
-) {
+/// empty string.
+pub fn expand_repl(repl: &[u8], m: ReplMatch<'_>, out: &mut Vec<u8>) {
+    let ReplMatch {
+        s,
+        st,
+        en,
+        saves,
+        n_captures,
+        capture_names,
+        has_named,
+    } = m;
     let mut i = 0;
     while i < repl.len() {
         let c = repl[i];
@@ -78,7 +91,7 @@ pub fn expand_repl(
                 // indices carrying the name and take the first with
                 // written slots. Unknown name / no participant → empty.
                 for (gi, gn) in capture_names.iter().enumerate() {
-                    if gi >= 1 && gi < REGEX_MAX_CAPTURES && gn.as_slice() == name {
+                    if (1..REGEX_MAX_CAPTURES).contains(&gi) && gn.as_slice() == name {
                         let gs = save_slot(saves, 2 * gi);
                         let ge = save_slot(saves, 2 * gi + 1);
                         if gs >= 0 && ge >= 0 {
@@ -176,11 +189,11 @@ fn replace_inner<'a>(
     let dfa_ref = dfa_view.as_ref().or(re.dfa_runtime.as_ref());
     while pos <= slen {
         let m = if sticky {
-            match_anchor(&re.prog, &s, pos, re.flags)
+            match_anchor(&re.prog, s, pos, re.flags)
         } else {
             search_from_with_ws(
                 &re.prog,
-                &s,
+                s,
                 pos,
                 re.flags,
                 ws,
@@ -194,13 +207,15 @@ fn replace_inner<'a>(
         if want_saves {
             expand_repl(
                 repl,
-                s,
-                m.start,
-                m.end,
-                m.saves(),
-                re.n_captures,
-                &re.capture_names,
-                re.n_named_captures > 0,
+                ReplMatch {
+                    s,
+                    st: m.start,
+                    en: m.end,
+                    saves: m.saves(),
+                    n_captures: re.n_captures,
+                    capture_names: &re.capture_names,
+                    has_named: re.n_named_captures > 0,
+                },
                 out,
             );
         } else {
@@ -328,7 +343,9 @@ pub unsafe extern "C" fn __torajs_str_replace_all_regex(
     if re.flags & RE_FLAG_G == 0 {
         unsafe {
             __torajs_throw_type_error(
-                b"String.prototype.replaceAll called with a non-global RegExp argument\0".as_ptr(),
+                c"String.prototype.replaceAll called with a non-global RegExp argument"
+                    .as_ptr()
+                    .cast(),
             );
         }
         let s = unsafe { str_units(str_ptr) };
@@ -370,14 +387,23 @@ pub unsafe extern "C" fn __torajs_str_replace_all_regex(
 
 #[cfg(test)]
 mod tests {
-    use super::expand_repl;
+    use super::{ReplMatch, expand_repl};
     use alloc::vec;
     use alloc::vec::Vec;
 
     // s = "abcd", match = "bc" (st 1, en 3), no captures.
     fn expand_plain(repl: &[u8]) -> Vec<u8> {
         let mut out = Vec::new();
-        expand_repl(repl, b"abcd", 1, 3, &[1, 3], 0, &[], false, &mut out);
+        let m = ReplMatch {
+            s: b"abcd",
+            st: 1,
+            en: 3,
+            saves: &[1, 3],
+            n_captures: 0,
+            capture_names: &[],
+            has_named: false,
+        };
+        expand_repl(repl, m, &mut out);
         out
     }
 
@@ -410,17 +436,16 @@ mod tests {
 
     fn expand_named(repl: &[u8], saves: &[i64]) -> Vec<u8> {
         let mut out = Vec::new();
-        expand_repl(
-            repl,
-            b"abcd",
-            0,
-            2,
+        let m = ReplMatch {
+            s: b"abcd",
+            st: 0,
+            en: 2,
             saves,
-            2,
-            &named_names(),
-            true,
-            &mut out,
-        );
+            n_captures: 2,
+            capture_names: &named_names(),
+            has_named: true,
+        };
+        expand_repl(repl, m, &mut out);
         out
     }
 
@@ -455,17 +480,16 @@ mod tests {
         // group 2 participated.
         let names = vec![Vec::new(), b"x".to_vec(), b"x".to_vec()];
         let mut out = Vec::new();
-        expand_repl(
-            b"[$<x>]",
-            b"ba",
-            0,
-            1,
-            &[0, 1, -1, -1, 0, 1],
-            2,
-            &names,
-            true,
-            &mut out,
-        );
+        let m = ReplMatch {
+            s: b"ba",
+            st: 0,
+            en: 1,
+            saves: &[0, 1, -1, -1, 0, 1],
+            n_captures: 2,
+            capture_names: &names,
+            has_named: true,
+        };
+        expand_repl(b"[$<x>]", m, &mut out);
         assert_eq!(out, b"[b]");
     }
 }

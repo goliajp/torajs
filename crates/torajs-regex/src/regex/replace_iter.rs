@@ -366,7 +366,7 @@ mod tests {
             ))
         }
 
-        fn cell(&self) -> &mut RegExp {
+        fn cell(&mut self) -> &mut RegExp {
             unsafe { as_regex_mut(self.0) }
         }
     }
@@ -417,7 +417,7 @@ mod tests {
 
     /// The walk through a matcher: the reference interpreter over the
     /// program, bound to the regex the way the compiler's function is.
-    fn bind_matcher(re: &Re, wide: bool) -> Box<crate::onepass::MatcherIr> {
+    fn bind_matcher(re: &mut Re, wide: bool) -> Box<crate::onepass::MatcherIr> {
         let cell = re.cell();
         let mut prog = crate::program::Program::new();
         prog.raw_classes = true;
@@ -454,7 +454,7 @@ mod tests {
         ir.exec(s, start as usize, row)
     }
 
-    fn with_matcher(re: &Re, wide: bool) {
+    fn with_matcher(re: &mut Re, wide: bool) {
         let ir = bind_matcher(re, wide);
         unsafe { *core::ptr::addr_of_mut!(TEST_IR) = Some(ir) };
         if wide {
@@ -466,7 +466,7 @@ mod tests {
 
     #[test]
     fn a_global_walk_stores_zero_once_and_never_reads_last_index() {
-        let re = Re::new(b"a", b"g");
+        let mut re = Re::new(b"a", b"g");
         let s = Cell::latin1(b"banana");
         re.cell().set_last_index_num(3.0);
         let mut it = Iter::open(&re, &s);
@@ -532,7 +532,7 @@ mod tests {
 
     #[test]
     fn a_sticky_walk_without_g_anchors_at_last_index_and_stores_the_end() {
-        let re = Re::new(b"a", b"y");
+        let mut re = Re::new(b"a", b"y");
         let s = Cell::latin1(b"baa");
         re.cell().set_last_index_num(1.0);
         let mut it = Iter::open(&re, &s);
@@ -557,7 +557,7 @@ mod tests {
 
     #[test]
     fn a_plain_walk_leaves_last_index_alone() {
-        let re = Re::new(b"a", b"");
+        let mut re = Re::new(b"a", b"");
         let s = Cell::latin1(b"baa");
         re.cell().set_last_index_num(2.0);
         let mut it = Iter::open(&re, &s);
@@ -568,15 +568,15 @@ mod tests {
     #[test]
     fn a_matcher_walks_the_payload_of_every_encoding() {
         // "x=é;y=中" through a matcher: spans in units, no transcoding
-        let re = Re::new(b"(\\w)=([^;])", b"g");
-        with_matcher(&re, false);
+        let mut re = Re::new(b"(\\w)=([^;])", b"g");
+        with_matcher(&mut re, false);
         let lat = Cell::latin1(&[b'x', b'=', 0xE9, b';', b'y', b'=', 0xFF]);
         let mut it = Iter::open(&re, &lat);
         assert_eq!(
             it.all(3),
             vec![vec![(0, 3), (0, 1), (2, 3)], vec![(4, 7), (4, 5), (6, 7)]]
         );
-        with_matcher(&re, true);
+        with_matcher(&mut re, true);
         let wide = Cell::utf16(&[
             b'x' as u16,
             b'=' as u16,
@@ -593,16 +593,16 @@ mod tests {
             vec![vec![(0, 3), (0, 1), (2, 3)], vec![(4, 7), (4, 5), (6, 7)]]
         );
         // under `u` the pair is one unit of the class, two of the span
-        let re = Re::new(b"(\\w)=([^;])", b"gu");
-        with_matcher(&re, true);
+        let mut re = Re::new(b"(\\w)=([^;])", b"gu");
+        with_matcher(&mut re, true);
         let mut it = Iter::open(&re, &wide);
         assert_eq!(
             it.all(3),
             vec![vec![(0, 3), (0, 1), (2, 3)], vec![(4, 8), (4, 5), (6, 8)]]
         );
         // an empty match under `u` steps over the pair
-        let re = Re::new(b"x*", b"gu");
-        with_matcher(&re, true);
+        let mut re = Re::new(b"x*", b"gu");
+        with_matcher(&mut re, true);
         let s = Cell::utf16(&[0xD834, 0xDD1E, 0x62]);
         let mut it = Iter::open(&re, &s);
         assert_eq!(it.all(1), vec![vec![(0, 0)], vec![(2, 2)], vec![(3, 3)]]);

@@ -121,7 +121,7 @@ pub unsafe extern "C" fn __torajs_object_group_by(items: u64, cb: u64) -> u64 {
         let key = unsafe { __torajs_any_call(cb, argv.as_ptr(), 2) };
         if unsafe { __torajs_throw_check() } != 0 {
             unsafe { drop_owned_any(key) };
-            unsafe { __torajs_value_drop_heap(result as *mut c_void) };
+            unsafe { __torajs_value_drop_heap(result) };
             return VALUE_UNDEFINED_IMM;
         }
         // ToPropertyKey — string coercion (owned Str temp).
@@ -129,7 +129,7 @@ pub unsafe extern "C" fn __torajs_object_group_by(items: u64, cb: u64) -> u64 {
         unsafe { drop_owned_any(key) };
         if unsafe { __torajs_throw_check() } != 0 {
             unsafe { __torajs_str_drop(key_str as *mut u8) };
-            unsafe { __torajs_value_drop_heap(result as *mut c_void) };
+            unsafe { __torajs_value_drop_heap(result) };
             return VALUE_UNDEFINED_IMM;
         }
         // Lookup / mint bucket. dynobj_get_tag answers UNDEF (5) for

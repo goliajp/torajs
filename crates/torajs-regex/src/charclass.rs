@@ -89,10 +89,11 @@ impl CharClass {
     /// Shared by the DFA byte-step and the Pike VM class dispatch.
     pub fn test_fold(&self, ch: u8, ci: bool) -> bool {
         let mut in_raw = self.raw_test(ch);
-        if !in_raw && ci {
-            if let Some(p) = ascii_case_pair(ch) {
-                in_raw = self.raw_test(p);
-            }
+        if !in_raw
+            && ci
+            && let Some(p) = ascii_case_pair(ch)
+        {
+            in_raw = self.raw_test(p);
         }
         if self.negate { !in_raw } else { in_raw }
     }
@@ -102,10 +103,12 @@ impl CharClass {
     /// recorded gap (no Unicode fold tables anywhere in the crate).
     pub fn test_cp_fold(&self, cp: i32, ci: bool) -> bool {
         let mut in_raw = self.raw_test_cp(cp);
-        if !in_raw && ci && (0..128).contains(&cp) {
-            if let Some(p) = ascii_case_pair(cp as u8) {
-                in_raw = self.raw_test(p);
-            }
+        if !in_raw
+            && ci
+            && (0..128).contains(&cp)
+            && let Some(p) = ascii_case_pair(cp as u8)
+        {
+            in_raw = self.raw_test(p);
         }
         if self.negate { !in_raw } else { in_raw }
     }

@@ -188,6 +188,9 @@ pub unsafe extern "C" fn __torajs_fs_write_file_sync(
 /// `fs.appendFileSync(path, data)` — append-mode write. Creates
 /// the file if it does not exist. Aborts on open / short-write
 /// failure.
+///
+/// # Safety
+/// `path_str` and `data_str` are live `*const Str`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_fs_append_file_sync(
     path_str: *const c_void,
@@ -230,6 +233,9 @@ pub unsafe extern "C" fn __torajs_fs_append_file_sync(
 /// missing / permission-denied / non-regular all return `false`,
 /// matching the pre-port `fopen(..., "rb")` semantics where any
 /// failure is "doesn't exist for read purposes".
+///
+/// # Safety
+/// `path_str` is a live `*const Str`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_fs_exists_sync(path_str: *const c_void) -> bool {
     let mut buf = [0u8; PATH_MAX_LEN];
@@ -248,6 +254,9 @@ pub unsafe extern "C" fn __torajs_fs_exists_sync(path_str: *const c_void) -> boo
 
 /// `fs.unlinkSync(path)` — delete a regular file or symlink.
 /// Aborts on failure.
+///
+/// # Safety
+/// `path_str` is a live `*const Str`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_fs_unlink_sync(path_str: *const c_void) {
     let mut buf = [0u8; PATH_MAX_LEN];
@@ -265,6 +274,9 @@ pub unsafe extern "C" fn __torajs_fs_unlink_sync(path_str: *const c_void) {
 /// process umask, typically 0o022 → 0o755 on disk). Spec is to throw
 /// on existing dir unless `recursive: true`; we mirror by aborting
 /// (typed-throw is Phase v0.3.b).
+///
+/// # Safety
+/// `path_str` is a live `*const Str`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_fs_mkdir_sync(path_str: *const c_void) {
     let mut buf = [0u8; PATH_MAX_LEN];
@@ -287,6 +299,9 @@ pub unsafe extern "C" fn __torajs_fs_mkdir_sync(path_str: *const c_void) {
 /// price the syscall API has no plumbing for `st_mode` yet, and it
 /// happens to be more spec-true. Fixtures only exercise regular files
 /// (`async-016`), so this is a no-op for the gate.
+///
+/// # Safety
+/// `path_str` is a live `*const Str`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_fs_size_sync(path_str: *const c_void) -> i64 {
     let mut buf = [0u8; PATH_MAX_LEN];

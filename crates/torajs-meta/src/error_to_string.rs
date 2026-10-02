@@ -50,8 +50,8 @@ unsafe fn str_len(s: *const u8) -> u32 {
 }
 
 /// `Error.prototype.toString` (§20.5.3.4) for a `FLAG_ERROR` OBJ
-/// instance at `p`. Returns a Str the caller owns: a fresh `name + ": "
-/// + message` in the common case, or an rc-inc'd view of the existing
+/// instance at `p`. Returns a Str the caller owns: a fresh
+/// `name + ": " + message` in the common case, or an rc-inc'd view of the existing
 /// `name` / `message` field when the other side is empty (§20.5.3.4's
 /// empty-name / empty-message special cases). The `name` / `message`
 /// operands are borrowed — `__torajs_str_concat` reads them read-only

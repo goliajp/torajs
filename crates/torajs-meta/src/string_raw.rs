@@ -1,7 +1,7 @@
 //! `String.raw(template, ...substitutions)` per ES §22.1.2.4.
 //!
-//! Concatenates `template.raw[0] + subs[0] + template.raw[1] + subs[1]
-//! + ... + template.raw[n-1]`. Every value coerces through ToString.
+//! Concatenates `template.raw[0] + subs[0] + template.raw[1] + subs[1] +
+//! ... + template.raw[n-1]`. Every value coerces through ToString.
 //! The runtime call path is the direct-fn shape
 //! (`String.raw({raw:['a','b']}, 1)`); the tagged-template literal
 //! surface (`String.raw`...``) is a separate parser/emitter substrate

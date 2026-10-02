@@ -104,36 +104,54 @@ unsafe extern "C" {
     pub fn __torajs_cycle_unbuffer(p: *mut c_void);
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_rc_dec(_p: *mut c_void) -> i32 {
     panic!("torajs-date test stub: __torajs_rc_dec should not be called from cargo test");
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_value_drop_heap(_p: *mut c_void) {
     panic!("torajs-date test stub: __torajs_value_drop_heap should not be called from cargo test");
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_cycle_buffer(_p: *mut c_void) {
     panic!("torajs-date test stub: __torajs_cycle_buffer should not be called from cargo test");
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_cycle_unbuffer(_p: *mut c_void) {
     panic!("torajs-date test stub: __torajs_cycle_unbuffer should not be called from cargo test");
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_alloc_pooled(_len: u64) -> *mut u8 {
     panic!("torajs-date test stub: __torajs_str_alloc_pooled should not be called from cargo test");
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_throw_range_error(_msg: *const u8) {
@@ -145,6 +163,8 @@ pub unsafe extern "C" fn __torajs_throw_range_error(_msg: *const u8) {
 // tz.rs's TZ probe (torajs-process at link time) — the cargo-test
 // stub answers "TZ unset" so the tests exercise the /etc/localtime
 // path exactly as before.
+/// # Safety
+/// No preconditions: ignores its arguments and answers null (TZ unset).
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_env_lookup_raw(

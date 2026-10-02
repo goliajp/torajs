@@ -105,7 +105,7 @@ pub(super) unsafe fn attach_indices(
             _ => continue,
         };
         if pair.is_null() {
-            if defined_names.iter().any(|n| *n == name.as_slice()) {
+            if defined_names.contains(&name.as_slice()) {
                 continue;
             }
             let name_key = unsafe { str_from_bytes(name) };

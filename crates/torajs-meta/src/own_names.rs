@@ -177,6 +177,12 @@ pub unsafe extern "C" fn __torajs_arr_keys_only_of(arr: *const c_void) -> *mut c
     out as *mut c_void
 }
 
+/// `["0", ..., "<len-1>"]` as a fresh `Arr<Str>`; a negative `len`
+/// answers the empty array.
+///
+/// # Safety
+/// No preconditions. Unsafe for the uniform extern signature of the
+/// runtime surface.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_keys_only(len: i64) -> *mut c_void {
     let mut out = unsafe { __torajs_arr_alloc(len.max(0) as u64) };

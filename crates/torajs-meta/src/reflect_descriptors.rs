@@ -37,6 +37,10 @@ unsafe extern "C" {
 /// `AnySlotTag::I64=2` keeps small lengths as number imms and lets
 /// `__torajs_dynobj_set` NaN-box overflowing values to f64 wrappers
 /// transparently.
+///
+/// # Safety
+/// No preconditions: `len` is a plain number. Unsafe for the uniform
+/// extern signature of the runtime surface.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_arr_length_descriptor(len: u64) -> u64 {
     // tag value mirrors AnySlotTag::I64 = 2 (numeric).

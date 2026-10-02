@@ -205,6 +205,11 @@ unsafe fn dynobj_keys_walk(obj: *const c_void, include_nonenum: i64) -> *mut c_v
     unsafe { dynobj_keys_append(obj, include_nonenum, arr, false, false) as *mut c_void }
 }
 
+/// # Safety
+/// `obj` is null or a live heap cell. `static_names` is an owned,
+/// freshly minted `Arr<Str>` (the typed keys emit's private list): it
+/// is filtered in place and either returned or dropped here, so the
+/// caller must not touch it again.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_obj_own_keys(
     obj: *const c_void,
@@ -305,6 +310,9 @@ unsafe fn strip_key(arr: *mut c_void, name: &[u8]) {
 /// - every other receiver (Num imm / Bool / BigInt / Map / Set /
 ///   boxed primitives) → empty array: their ToObject wrappers carry
 ///   no own enumerable string keys.
+///
+/// # Safety
+/// A cell payload of `v` is a live heap cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_own_keys(v: u64, include_nonenum: i64) -> *mut c_void {
     // Cell-imm check mirrors `struct_enum::is_cell_imm` — the tag

@@ -207,7 +207,9 @@ pub unsafe extern "C" fn __torajs_str_replace_all_regex_fn(
         // discard; the closure env is released by the caller's temp drop.
         if !re_ptr.is_null() && as_regex(re_ptr).flags & RE_FLAG_G == 0 {
             __torajs_throw_type_error(
-                b"String.prototype.replaceAll called with a non-global RegExp argument\0".as_ptr(),
+                c"String.prototype.replaceAll called with a non-global RegExp argument"
+                    .as_ptr()
+                    .cast(),
             );
             let s = str_units(str_ptr);
             return str_from_bytes(&s) as *mut c_void;
@@ -265,7 +267,9 @@ pub unsafe extern "C" fn __torajs_str_replace_regex_fn_boxed(
         let re = as_regex(re_ptr);
         if all != 0 && re.flags & RE_FLAG_G == 0 {
             __torajs_throw_type_error(
-                b"String.prototype.replaceAll called with a non-global RegExp argument\0".as_ptr(),
+                c"String.prototype.replaceAll called with a non-global RegExp argument"
+                    .as_ptr()
+                    .cast(),
             );
             let s = str_units(str_ptr);
             return str_from_bytes(&s) as *mut c_void;

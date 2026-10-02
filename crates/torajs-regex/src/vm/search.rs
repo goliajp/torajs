@@ -299,10 +299,7 @@ pub fn search_from_with_ws(
             if st >= slen {
                 return None;
             }
-            match s[st as usize..].iter().position(|&c| c == b) {
-                Some(off) => st += off as i64,
-                None => return None,
-            }
+            st += s[st as usize..].iter().position(|&c| c == b)? as i64;
         } else if st > slen {
             return None;
         }
@@ -363,10 +360,7 @@ pub(crate) fn dfa_find_from(
             if st >= slen {
                 return None;
             }
-            match s[st as usize..].iter().position(|&c| c == b) {
-                Some(off) => st += off as i64,
-                None => return None,
-            }
+            st += s[st as usize..].iter().position(|&c| c == b)? as i64;
         } else if st > slen {
             return None;
         }

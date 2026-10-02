@@ -422,7 +422,7 @@ mod tests {
         let r = parse_ok("[abc]", 0);
         let class = &r.kids[0];
         assert_eq!(class.kind, NodeKind::Class);
-        for c in [b'a', b'b', b'c'] {
+        for c in *b"abc" {
             assert!(class.cc.test(c));
         }
         assert!(!class.cc.test(b'd'));

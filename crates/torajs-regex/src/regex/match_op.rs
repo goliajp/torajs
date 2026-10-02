@@ -92,6 +92,11 @@ pub unsafe fn attach_exec_all(
     }
 }
 
+/// Attach the `index` / `input` own properties of an exec result.
+///
+/// # Safety
+/// `arr` is a live Arr cell (the result array); `str_ptr` is a live Str
+/// cell, of which the `input` entry takes an rc share.
 pub unsafe fn attach_exec_props(arr: *mut c_void, str_ptr: *const c_void, index: i64) {
     unsafe {
         let k_index = cached_static_key(&K_INDEX, b"index");
@@ -275,17 +280,17 @@ pub(crate) unsafe fn match_walk(
         let hit = if !global && sticky {
             // lastIndex is spec'd in UTF-16 code units; the engine
             // works in transcoded UTF-8 bytes — map on read + write.
-            let start = utf16_units_to_byte(&s, re.last_index_i64(), haystack_is_ascii);
+            let start = utf16_units_to_byte(s, re.last_index_i64(), haystack_is_ascii);
             let h = if start > slen {
                 None
             } else {
-                match_anchor(&re.prog, &s, start, re.flags)
+                match_anchor(&re.prog, s, start, re.flags)
             };
             // Disjoint field write (the boxed form was normalized
             // above the dfa_view borrow, so no drop is needed here).
             re.last_index = h
                 .as_ref()
-                .map(|m| byte_to_utf16_units(&s, m.end, haystack_is_ascii) as f64)
+                .map(|m| byte_to_utf16_units(s, m.end, haystack_is_ascii) as f64)
                 .unwrap_or(0.0);
             h
         } else if sticky {
@@ -296,7 +301,7 @@ pub(crate) unsafe fn match_walk(
             // Pre-fix this fell into the free-search arm below and
             // collected non-contiguous matches / matched past a
             // leading miss.
-            match_anchor(&re.prog, &s, pos, re.flags)
+            match_anchor(&re.prog, s, pos, re.flags)
         } else {
             // Round 5 attack #1 — Workspace materialisation is sunk
             // into the vm's `vm_match_at` call sites: DFA-resident +
@@ -304,7 +309,7 @@ pub(crate) unsafe fn match_walk(
             // alloc/free cycle disappears from this hot loop.
             search_from_with_ws(
                 &re.prog,
-                &s,
+                s,
                 pos,
                 re.flags,
                 &mut ws,

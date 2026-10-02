@@ -54,6 +54,8 @@ pub(super) fn main_tag_of(tag: i64) -> Option<usize> {
     }
     // SAFETY: single-threaded JS runtime (module doc); plain indexed
     // reads, no reference to the mutable static is formed.
+    // an iterator over the static mut would form that reference
+    #[allow(clippy::needless_range_loop)]
     unsafe {
         for i in 0..CACHE_LEN {
             let (spec, main) = MAIN_TAG_CACHE[i];

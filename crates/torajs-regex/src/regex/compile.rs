@@ -412,8 +412,9 @@ pub unsafe extern "C" fn __torajs_regex_compile_inplace(
         let (p_bytes, f_bytes) = if let Some(src) = anyv_regexp_cell(pat) {
             if __torajs_anyv_unbox_tag(flags) != ANYTAG_UNDEF {
                 super::__torajs_throw_type_error(
-                    b"RegExp.prototype.compile: cannot supply flags when compiling a RegExp\0"
-                        .as_ptr(),
+                    c"RegExp.prototype.compile: cannot supply flags when compiling a RegExp"
+                        .as_ptr()
+                        .cast(),
                 );
                 return core::ptr::null_mut();
             }
@@ -440,9 +441,9 @@ pub unsafe extern "C" fn __torajs_regex_compile_inplace(
         // own refcount + subclass flag. The old body — old boxed
         // lastIndex stake included — rides out on the fresh cell's
         // rc=1 header through the ordinary drop.
-        let old = &mut *(re_ptr as *mut RegExp);
-        core::mem::swap(old, &mut *fresh);
-        core::mem::swap(&mut old.header, &mut (*fresh).header);
+        let old = re_ptr as *mut RegExp;
+        core::ptr::swap(old, fresh);
+        core::ptr::swap(&raw mut (*old).header, &raw mut (*fresh).header);
         super::lifecycle::__torajs_regex_drop(fresh as *mut c_void);
         __torajs_rc_inc(re_ptr);
         re_ptr

@@ -310,27 +310,27 @@ pub fn tree_contains_ml_anchor_end(root: &Node) -> bool {
     root.kids.iter().any(|k| tree_contains_ml_anchor_end(k))
 }
 
-/// Compute the ε-closure of `seeds` under `prog` — the set of all PCs
-/// reachable from any `seeds[i]` via pure-ε transitions.
-///
-/// ε ops handled in this chunk: [`Op::Jmp`] (unconditional), [`Op::Split`]
-/// (both branches). Everything else (`Save`, the anchors, `WBound` /
-/// `NWBound`, the lookaround variants, every byte-consuming op) is
-/// terminal — its PC is recorded in the closure if it was reached, but
-/// the walk does not follow its successor.
-///
-/// Save / Anchor / WBound are kept terminal here because they carry
-/// state that a flat PC-set cannot represent: `Save` mutates a capture
-/// slot (future chunk: track per-state save-mask), the anchors depend on
-/// `pos` relative to text start / line boundaries (future chunk:
-/// position-context DFA states tracking left-byte / at-start / at-end),
-/// `WBound` / `NWBound` depend on the surrounding bytes. The subset
-/// construction will revisit these once the per-state context is added.
-///
-/// PCs are deduped via the returned `BTreeSet`, so a circular `JMP`
-/// chain terminates in O(n) where n = `prog.len()`. Out-of-range or
-/// unknown-opcode PCs are silently dropped (defensive — mirrors
-/// `vm/dispatch.rs::add_thread`).
+// Compute the ε-closure of `seeds` under `prog` — the set of all PCs
+// reachable from any `seeds[i]` via pure-ε transitions.
+//
+// ε ops handled in this chunk: [`Op::Jmp`] (unconditional), [`Op::Split`]
+// (both branches). Everything else (`Save`, the anchors, `WBound` /
+// `NWBound`, the lookaround variants, every byte-consuming op) is
+// terminal — its PC is recorded in the closure if it was reached, but
+// the walk does not follow its successor.
+//
+// Save / Anchor / WBound are kept terminal here because they carry
+// state that a flat PC-set cannot represent: `Save` mutates a capture
+// slot (future chunk: track per-state save-mask), the anchors depend on
+// `pos` relative to text start / line boundaries (future chunk:
+// position-context DFA states tracking left-byte / at-start / at-end),
+// `WBound` / `NWBound` depend on the surrounding bytes. The subset
+// construction will revisit these once the per-state context is added.
+//
+// PCs are deduped via the returned `BTreeSet`, so a circular `JMP`
+// chain terminates in O(n) where n = `prog.len()`. Out-of-range or
+// unknown-opcode PCs are silently dropped (defensive — mirrors
+// `vm/dispatch.rs::add_thread`).
 
 // chunk 10c split — `dfa/build.rs` owns the subset-construction
 // builder + `LeftByteAttr` / `pc_set_is_accept_at_end` / `intern_state`
@@ -480,7 +480,7 @@ mod tests {
     #[test]
     fn alt_of_concats_is_eligible() {
         let mut alt = Node::new(NodeKind::Alt);
-        for c in [b'a', b'b'] {
+        for c in *b"ab" {
             let mut concat = Node::new(NodeKind::Concat);
             concat.push_kid(char_node(c));
             alt.push_kid(concat);
@@ -969,6 +969,9 @@ mod tests {
         }
     }
 
+    /// A program builder paired with the flags it is folded under.
+    type FoldCase<'a> = (&'a dyn Fn(&mut Program), u8);
+
     /// Round 5 attack #9 — every packed transition word's top two
     /// bits must mirror the destination state's `is_accept` /
     /// `monotone_accept` fields exactly, and the masked index must be
@@ -978,7 +981,7 @@ mod tests {
     /// executor path hits (`a.+c` under `s`).
     #[test]
     fn fold_accept_bits_mirrors_target_flags() {
-        let progs: [(&dyn Fn(&mut Program), u8); 3] = [
+        let progs: [FoldCase; 3] = [
             (
                 &|p: &mut Program| {
                     // /a+/: CHAR a; SPLIT 0, 2; MATCH
@@ -1864,7 +1867,7 @@ mod tests {
             "start + 'a' must accept under the m-bit (text_start ctx)"
         );
         // start_mid (no left_byte) blocks AnchorB — all bytes dead.
-        for b in [b'a', b'\n', b'x'] {
+        for b in *b"a\nx" {
             assert_eq!(
                 dfa.states[dfa.start_mid as usize].transitions[b as usize], 0,
                 "byte {b:02x} from start_mid must be dead (wire re-enters at line-start)"

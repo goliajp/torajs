@@ -1,10 +1,10 @@
 //! torajs-io — 0-libc buffered stdout/stderr writer.
 //!
 //! Replaces every `extern "C" putchar` call site in the print
-//! family (torajs-str / torajs-arr / torajs-anyvalue / torajs-num
-//! + torajs-print's `print_*` helpers). Buffers per-byte
-//! pushes in a thread-local line buffer; flushes on newline,
-//! buffer full, or explicit `__torajs_io_flush()` call.
+//! family (torajs-str / torajs-arr / torajs-anyvalue / torajs-num and
+//! torajs-print's `print_*` helpers). Buffers per-byte pushes in a
+//! thread-local line buffer; flushes on newline, buffer full, or
+//! explicit `__torajs_io_flush()` call.
 //!
 //! ## Layering
 //!

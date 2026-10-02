@@ -129,26 +129,24 @@ pub fn vm_match_at(
                     };
                     handle_backref(prog, s, pos, flags, &t, ins.a, ws);
                 }
-                Op::Match => {
-                    // Normal mode: leftmost-first wins; stop scanning
-                    // this step. Length-restricted (DFA capture
-                    // extraction): only commit if pos meets
-                    // end_target; otherwise the thread is dead but
-                    // keep scanning — other threads may extend
-                    // further via nxt and MATCH later.
-                    if end_target < 0 || pos == end_target {
-                        saw_match_this_step = true;
-                        end_pos = pos;
-                        if let Some(ref mut o) = out_saves {
-                            // Arena row and caller buffer are both
-                            // `stride`-wide (chunk 801 — the caller
-                            // allocates `vec![-1; stride]`); min-len
-                            // copy keeps any tail slots at the
-                            // caller's sentinel value.
-                            let row = ws.arena.get(t_saves_id);
-                            let n = row.len().min(o.len());
-                            (*o)[..n].copy_from_slice(&row[..n]);
-                        }
+                // Normal mode: leftmost-first wins; stop scanning
+                // this step. Length-restricted (DFA capture
+                // extraction): only commit if pos meets
+                // end_target; otherwise the thread is dead but
+                // keep scanning — other threads may extend
+                // further via nxt and MATCH later.
+                Op::Match if end_target < 0 || pos == end_target => {
+                    saw_match_this_step = true;
+                    end_pos = pos;
+                    if let Some(ref mut o) = out_saves {
+                        // Arena row and caller buffer are both
+                        // `stride`-wide (chunk 801 — the caller
+                        // allocates `vec![-1; stride]`); min-len
+                        // copy keeps any tail slots at the
+                        // caller's sentinel value.
+                        let row = ws.arena.get(t_saves_id);
+                        let n = row.len().min(o.len());
+                        (*o)[..n].copy_from_slice(&row[..n]);
                     }
                 }
                 _ => {}

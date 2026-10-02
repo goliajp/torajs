@@ -204,7 +204,7 @@ pub(crate) const ACC_SETTER: u8 = 1;
 /// reflection consumer in this crate (keys / entries / print / gOPD)
 /// resolves slot names through [`accessor_slot_name`], so the spelling
 /// lives in exactly one place.
-
+///
 /// Split a layout slot name into `(kind, plain-name)` when it is an
 /// accessor slot (`__getter_v` → `(ACC_GETTER, "v")`); a data field
 /// answers `None`.
@@ -386,7 +386,7 @@ pub(crate) unsafe fn struct_cell_descriptor(cell: *const c_void, key: *const c_v
     // descriptor holding the getter function, for a key `Object.keys`
     // does not list and `o.__getter_v` reads as undefined. Only the
     // expando face can own that name legitimately, so route there.
-    if unsafe { __torajs_accessor_name_kind(key_bytes, key_len as u32) } != 255 {
+    if unsafe { __torajs_accessor_name_kind(key_bytes, key_len) } != 255 {
         return unsafe { expando_descriptor(cell, key) };
     }
     let idx = unsafe { __torajs_struct_field_find(layout, key_bytes, key_len) };
@@ -404,9 +404,8 @@ pub(crate) unsafe fn struct_cell_descriptor(cell: *const c_void, key: *const c_v
 
     // RFC 20260915 — a deleted declared field owns nothing (the slot's
     // bits are stale; the sidecar is the record).
-    if unsafe {
-        crate::struct_field_attrs::__torajs_obj_field_is_deleted(cell, key_bytes, key_len as u32)
-    } != 0
+    if unsafe { crate::struct_field_attrs::__torajs_obj_field_is_deleted(cell, key_bytes, key_len) }
+        != 0
     {
         return VALUE_UNDEFINED_IMM;
     }
@@ -415,12 +414,7 @@ pub(crate) unsafe fn struct_cell_descriptor(cell: *const c_void, key: *const c_v
     // enumerable / configurable); the slot's bits are not the property.
     let mut shadow = 0u64;
     if unsafe {
-        crate::struct_field_attrs::__torajs_obj_field_shadow(
-            cell,
-            key_bytes,
-            key_len as u32,
-            &mut shadow,
-        )
+        crate::struct_field_attrs::__torajs_obj_field_shadow(cell, key_bytes, key_len, &mut shadow)
     } != 0
         && is_accessor_pair_box(shadow)
     {
