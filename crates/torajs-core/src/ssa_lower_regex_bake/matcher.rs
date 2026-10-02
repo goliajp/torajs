@@ -73,18 +73,32 @@ pub(crate) fn synthesize(
     }
 }
 
+/// Largest matcher the lane synthesizes: states, and edges summed
+/// over every state's variants. A matcher is straight-line code per
+/// state, so past this the function only costs text and build time
+/// where the baked DFA already serves the literal.
+const MATCHER_MAX_STATES: usize = 256;
+const MATCHER_MAX_EDGES: usize = 2048;
+
 /// The one-pass matcher of `/pattern/flags` over one payload encoding,
 /// or `None` where the lane declines it: a pattern the runtime would
-/// reject, or a program `onepass::build` refuses. A sticky pattern's
-/// matcher tries `start` alone; the lastIndex flow around it is the
-/// exec kernel's.
+/// reject, a program `onepass::build` refuses, or a matcher past the
+/// size budget. A sticky pattern's matcher tries `start` alone; the
+/// lastIndex flow around it is the exec kernel's.
 pub(crate) fn matcher_ir(pattern: &str, flags: &str, wide: bool) -> Option<MatcherIr> {
     let lit = crate::ssa_lower_regex_bake::parse_literal(pattern, flags)?;
     let mut prog = Program::new();
     prog.raw_classes = true;
     torajs_regex::compiler::compile(&mut prog, &lit.root, lit.flag_bits);
     prog.emit(Inst::match_accept());
-    torajs_regex::onepass::build(&prog, lit.flag_bits, wide)
+    let ir = torajs_regex::onepass::build(&prog, lit.flag_bits, wide)?;
+    let edges: usize = ir
+        .states
+        .iter()
+        .flat_map(|s| s.variants.iter())
+        .map(|v| v.edges.len())
+        .sum();
+    (ir.states.len() <= MATCHER_MAX_STATES && edges <= MATCHER_MAX_EDGES).then_some(ir)
 }
 
 #[cfg(test)]
@@ -110,6 +124,10 @@ mod tests {
             assert!(matcher_ir(r"\p{L}+", "iu", wide).is_none());
             assert!(matcher_ir(r"[", "", wide).is_none());
             assert!(matcher_ir(r"a", "uv", wide).is_none());
+            // one-pass string tries: 259 two-cp flags fit the budget,
+            // 665 modifier sequences do not
+            assert!(matcher_ir(r"^\p{RGI_Emoji_Flag_Sequence}+$", "v", wide).is_some());
+            assert!(matcher_ir(r"^\p{RGI_Emoji_Modifier_Sequence}+$", "v", wide).is_none());
         }
         assert!(matcher_ir(r"[^a]", "u", true).unwrap().pairs);
         assert!(!matcher_ir(r"[^a]", "u", false).unwrap().pairs);
