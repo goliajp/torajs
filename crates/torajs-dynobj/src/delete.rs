@@ -1,7 +1,7 @@
 //! DynObj key deletion.
 //!
 //! Spec §10.1.10 OrdinaryDelete. Drops the entry's owning key cell
-//! + any ANY_HEAP value, turns the dense entry into a hole
+//! and any ANY_HEAP value, turns the dense entry into a hole
 //! (`key_ptr_tagged = 0`, skipped by iteration / drop / compact) and
 //! the index slot into [`IDX_TOMBSTONE`] (probe walks past), then
 //! decrements `count`. The hole is reclaimed when the dense array

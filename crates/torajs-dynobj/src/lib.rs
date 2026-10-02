@@ -88,6 +88,8 @@ pub use set::__torajs_dynobj_set;
 // stubs here let the test binary link cleanly. Same pattern as
 // torajs-arr's `__torajs_throw_range_error` / `__torajs_str_alloc_pooled`
 // test stubs.
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_rc_inc(_p: *mut core::ffi::c_void) {
@@ -96,6 +98,8 @@ pub unsafe extern "C" fn __torajs_rc_inc(_p: *mut core::ffi::c_void) {
     );
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_throw_reference_error_tdz(_name: *mut core::ffi::c_void) {
@@ -105,6 +109,8 @@ pub unsafe extern "C" fn __torajs_throw_reference_error_tdz(_name: *mut core::ff
     );
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_regex_last_index_define(
@@ -122,6 +128,8 @@ pub unsafe extern "C" fn __torajs_regex_last_index_define(
 // defineProperties walk reach two more anyvalue / meta kernels; no
 // unit test builds a Date-shaped descriptor, so these panic like the
 // stubs above.
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_own_keys(
@@ -133,6 +141,8 @@ pub unsafe extern "C" fn __torajs_anyv_own_keys(
     );
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_cell_expando_bag(
@@ -143,6 +153,8 @@ pub unsafe extern "C" fn __torajs_cell_expando_bag(
     );
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_throw_type_error(_msg: *const u8) {
@@ -153,6 +165,8 @@ pub unsafe extern "C" fn __torajs_throw_type_error(_msg: *const u8) {
 
 // Faithful no-op double (the real note is a no-op too until some
 // `<Ctor>.prototype` singleton is minted, which no unit test does).
+/// # Safety
+/// Test stub; dereferences none of its arguments.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_builtin_proto_note_own_write(
@@ -164,6 +178,8 @@ pub unsafe extern "C" fn __torajs_builtin_proto_note_own_write(
 
 // Faithful double for the same reason: no unit test mints a
 // `<Ctor>.prototype` singleton, so the real probe answers 0 here too.
+/// # Safety
+/// Test stub; dereferences none of its arguments.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_builtin_proto_own_method_cell(
@@ -181,6 +197,8 @@ pub unsafe extern "C" fn __torajs_builtin_proto_own_method_cell(
 // sole unit-test caller; anything else reaching here is still a
 // contract break worth failing loudly on, which the drop_fn == 0
 // fall-through below surfaces as a no-op the asserting test catches.
+/// # Safety
+/// `child` is NULL or a live test cell: a u32 refcount at +0 and, at +16, either 0 or an `extern "C" fn(*mut c_void)` drop hook.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_value_drop_heap(child: *mut core::ffi::c_void) {
@@ -204,6 +222,8 @@ pub unsafe extern "C" fn __torajs_value_drop_heap(child: *mut core::ffi::c_void)
 // the `accessor::tests` drop path legitimately exercises dec here, so
 // the stub mirrors the real semantics — decrement the header u32,
 // return 1 on the transition to zero (caller should free), 0 otherwise.
+/// # Safety
+/// `p` is NULL or points at a live u32 refcount.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_rc_dec(p: *mut core::ffi::c_void) -> i32 {
@@ -217,6 +237,8 @@ pub unsafe extern "C" fn __torajs_rc_dec(p: *mut core::ffi::c_void) -> i32 {
     }
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_wtf8_into(_s: *const u8, _buf: *mut u8, _cap: u32) -> u32 {
@@ -225,6 +247,8 @@ pub unsafe extern "C" fn __torajs_str_wtf8_into(_s: *const u8, _buf: *mut u8, _c
     );
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_drop(_s: *mut core::ffi::c_void) {
@@ -233,6 +257,8 @@ pub unsafe extern "C" fn __torajs_str_drop(_s: *mut core::ffi::c_void) {
     );
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_symbol_drop(_s: *mut core::ffi::c_void) {
@@ -247,18 +273,24 @@ pub unsafe extern "C" fn __torajs_symbol_drop(_s: *mut core::ffi::c_void) {
 // consistent (box → unbox round-trips) — structural correctness of
 // the entries is what the tests assert, byte-level encoding parity
 // is covered end-to-end by the conformance gate.
+/// # Safety
+/// Takes no pointer arguments.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64 {
     ((tag as u64) << 48) | ((value as u64) & 0x0000_FFFF_FFFF_FFFF)
 }
 
+/// # Safety
+/// Takes no pointer arguments.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_unbox_tag(v: u64) -> i64 {
     (v >> 48) as i64
 }
 
+/// # Safety
+/// Takes no pointer arguments.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_unbox_value(v: u64) -> i64 {
@@ -268,6 +300,8 @@ pub unsafe extern "C" fn __torajs_anyv_unbox_value(v: u64) -> i64 {
 // Third member of the faithful pair above: a heap-tagged box (tag 4)
 // answers its pointer bits, every immediate answers 0 — the borrow-
 // shaped read the global-cell and accessor predicates gate on.
+/// # Safety
+/// Takes no pointer arguments.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_cell_ptr(v: u64) -> i64 {
@@ -281,12 +315,16 @@ pub unsafe extern "C" fn __torajs_anyv_cell_ptr(v: u64) -> i64 {
 // Accessor-pair builtin-face probe stubs — unit tests exercise
 // ordinary-closure faces only, so the probe always answers "not a
 // builtin cell" and the dispatch is unreachable.
+/// # Safety
+/// Test stub; dereferences none of its arguments.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_builtin_method_face_mid(_p: *const core::ffi::c_void) -> i64 {
     -1
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_builtin_method_face_dispatch(
@@ -298,12 +336,16 @@ pub unsafe extern "C" fn __torajs_builtin_method_face_dispatch(
     panic!("torajs-dynobj unit-test stub: builtin-face dispatch should not run under cargo test")
 }
 
+/// # Safety
+/// Test stub; dereferences none of its arguments.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_class_face_adapter(_p: *const core::ffi::c_void) -> u64 {
     0
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_class_face_invoke(
@@ -315,6 +357,8 @@ pub unsafe extern "C" fn __torajs_class_face_invoke(
     panic!("torajs-dynobj unit-test stub: class-face invoke should not run under cargo test")
 }
 
+/// # Safety
+/// Test stub; dereferences none of its arguments.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_class_accessor_face_invoke(
@@ -326,6 +370,8 @@ pub unsafe extern "C" fn __torajs_class_accessor_face_invoke(
     0
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_struct_put_own_rows_at(
@@ -338,6 +384,8 @@ pub unsafe extern "C" fn __torajs_struct_put_own_rows_at(
     panic!("torajs-dynobj unit-test stub: struct rows should not print under cargo test")
 }
 
+/// # Safety
+/// Test stub; dereferences none of its arguments.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_class_object_print(_cell: *const core::ffi::c_void) -> i32 {

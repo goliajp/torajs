@@ -72,12 +72,11 @@ pub unsafe extern "C" fn __torajs_dynobj_drop(obj: *mut c_void) {
     // header's store pointer; the allocator re-inits header / counts
     // / index on pop). Grown objects carry a different-size store and
     // take the plain free path.
-    if obj_cap == crate::layout::DYNOBJ_INITIAL_CAP {
-        if let Some(nn) = core::ptr::NonNull::new(obj as *mut u8) {
-            if crate::pool::push(nn) {
-                return;
-            }
-        }
+    if obj_cap == crate::layout::DYNOBJ_INITIAL_CAP
+        && let Some(nn) = core::ptr::NonNull::new(obj as *mut u8)
+        && crate::pool::push(nn)
+    {
+        return;
     }
     unsafe {
         free(store_ptr(obj) as *mut c_void, store_bytes(obj_cap));

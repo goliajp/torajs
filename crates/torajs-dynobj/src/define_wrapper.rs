@@ -173,16 +173,16 @@ pub(crate) unsafe fn wrapper_define(
                 validate_immutable_slot(tag, value, flags_byte, cur, false, throw_on_refusal)
             };
         }
-        if let Some(idx) = canonical_index(key_bytes) {
-            if idx < len {
-                let ch = unsafe { __torajs_str_at(inner, idx as i64) };
-                let cur = unsafe { __torajs_anyv_box_from_pair(ANY_HEAP as i64, ch as i64) };
-                let ok = unsafe {
-                    validate_immutable_slot(tag, value, flags_byte, cur, true, throw_on_refusal)
-                };
-                unsafe { __torajs_value_drop_heap(ch as *mut c_void) };
-                return ok;
-            }
+        if let Some(idx) = canonical_index(key_bytes)
+            && idx < len
+        {
+            let ch = unsafe { __torajs_str_at(inner, idx as i64) };
+            let cur = unsafe { __torajs_anyv_box_from_pair(ANY_HEAP as i64, ch as i64) };
+            let ok = unsafe {
+                validate_immutable_slot(tag, value, flags_byte, cur, true, throw_on_refusal)
+            };
+            unsafe { __torajs_value_drop_heap(ch as *mut c_void) };
+            return ok;
         }
     }
     // Expando lane — fresh keys on a non-extensible wrapper refuse
