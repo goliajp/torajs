@@ -13,6 +13,7 @@
 //! helpers (`rewrite_this_in_ann`); Rust's sub-module privacy rule
 //! grants the access without widening visibility.
 
+use super::desugar_classes_generic_twin::TwinSource;
 use super::{
     AccessorKind, Ast, BinOp, ClassMethod, Expr, ExprId, Param, PropKey, Stmt, UnaryOp, mangle_key,
     rewrite_this_in_ann,
@@ -167,6 +168,8 @@ fn maybe_rewrite_async_method_body(
 /// suffix and an entry in the accessor record vectors so the
 /// dispatch maps in check.rs / ssa_lower can recover the synth
 /// name from the user-written `c.prop` / `c.prop = v`.
+// class facts plus the pass output vectors, separate locals of the caller
+#[allow(clippy::too_many_arguments)]
 pub(in crate::ast) fn emit_class_instance_methods(
     ast: &mut Ast,
     tables: &TypeAliasTables,
@@ -272,9 +275,14 @@ pub(in crate::ast) fn emit_class_instance_methods(
         // reads fields at one specialization's offsets), and without
         // a twin the accessor row was dropped outright — `b.value`
         // through `any` answered a silent undefined.
-        super::desugar_classes_generic_twin::mint_generic_twin(
-            ast, tables, &fn_name, &params, &body, &fn_tp, m.span, appended,
-        );
+        let src = TwinSource {
+            mono_name: &fn_name,
+            params: &params,
+            body: &body,
+            type_params: &fn_tp,
+            span: m.span,
+        };
+        super::desugar_classes_generic_twin::mint_generic_twin(ast, tables, src, appended);
         appended.push(Stmt::FnDecl {
             name: fn_name,
             type_params: fn_tp,
@@ -376,8 +384,15 @@ pub(in crate::ast) fn emit_class_static_methods(
         // their reify lane (recorded RFC residue), so only plain
         // static methods mint; a this-free body mints nothing.
         if sm.accessor_kind.is_none() && !is_unit {
+            let src = TwinSource {
+                mono_name: &fn_name,
+                params: &params,
+                body: &body,
+                type_params: &fn_tp,
+                span: sm.span,
+            };
             super::desugar_classes_generic_twin::mint_static_generic_twin(
-                ast, tables, &fn_name, &params, &body, &fn_tp, sm.span, appended,
+                ast, tables, src, appended,
             );
         }
         appended.push(Stmt::FnDecl {

@@ -283,6 +283,8 @@ impl LowerCtx<'_> {
     /// to `skip_exotic` from the other (a hole, or an index past a
     /// sparse tail) — the two are told apart because only the second
     /// is announced by a header bit with a writer entry.
+    // the loop block and slot ids, each a distinct SSA value
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn emit_hof_present_gate(
         &mut self,
         arr: ValueId,

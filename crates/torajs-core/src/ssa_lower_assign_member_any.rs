@@ -229,6 +229,8 @@ pub(crate) fn emit_any_member_set(
 /// was a one-line reproduction: rc underflow on %Error.prototype%.
 /// The drop reads the slot (not the pre-call operand) because the
 /// dynobj-resize arm writes the relocated cell back into it.
+// operands of one kernel call plus the receiver ownership facts
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_any_member_set_dyn(
     ctx: &mut LowerCtx<'_>,
     kernel: crate::ssa::FuncId,

@@ -207,6 +207,8 @@ fn resolve_field(
 /// out when the step 8.b runtime verdict pushed the loop body past
 /// the 200-line function limit. Body verbatim from the pre-split
 /// loop apart from that probe.
+// per-field operands of the serialization loop
+#[allow(clippy::too_many_arguments)]
 fn emit_field(
     ctx: &mut LowerCtx,
     obj_ptr: crate::ssa::ValueId,

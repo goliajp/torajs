@@ -313,6 +313,8 @@ pub(super) fn seed_entry_requests(
 /// reject) — and every entry-side write to an import binding
 /// rewrites into its runtime TypeError
 /// ([`reject_import_binding_writes`]).
+// separate resolver result tables, each owned by a different stage
+#[allow(clippy::too_many_arguments)]
 pub(super) fn finalize(
     ast: &mut Ast,
     seed: &EntrySeed,

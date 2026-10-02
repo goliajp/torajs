@@ -22,6 +22,8 @@ use crate::ssa::{FuncId, Module};
 /// grow once per-fn lowering starts. Adapters never appear as
 /// static call sites, so the `signatures` snapshot above staying
 /// adapter-free is fine (their FnAddr refs carry their own sig).
+// disjoint borrows of the lowering state under construction
+#[allow(clippy::too_many_arguments)]
 pub(super) fn build_intrinsics_and_boxed_entries(
     ast: &Ast,
     call_retargets: &crate::ssa_lower::CallRetargets,

@@ -18,6 +18,8 @@ use super::{Ast, Expr, ExprId};
 /// Returns true if `name` matched one of the four arms — caller
 /// `continue`s in that case to skip the trailing per-method
 /// (param, return) table below.
+// read-only tables plus the two update maps of the caller loop
+#[allow(clippy::too_many_arguments)]
 pub(super) fn apply_hof_param_only_arm(
     ast: &Ast,
     name: &str,

@@ -42,6 +42,8 @@ fn spread_rides_array(argc_mode: ArgcMode, is_argv_fn: bool) -> bool {
 /// directly); named-fn / declared-pair bodies expand the spread inline
 /// as `f(p0, p1, ...)` — declared == actual there. Handles arbitrary
 /// mix of regular args and the spread.
+// the call pieces plus the rewrite state threaded through the recursion
+#[allow(clippy::too_many_arguments)]
 pub(super) fn rewrite_call_arm(
     ast: &mut Ast,
     eid: ExprId,

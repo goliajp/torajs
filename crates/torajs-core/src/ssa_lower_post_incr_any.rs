@@ -65,6 +65,8 @@ pub(crate) fn lower_any_slot(
 /// refusal semantics (write-back included for a named Any receiver).
 /// The expression answers the coerced OLD value — owned, so the
 /// PostIncr eid joins `owned_member_reads` and consumers release it.
+// operands of one member update plus the receiver ownership facts
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_member_any(
     ctx: &mut LowerCtx<'_>,
     eid: ExprId,

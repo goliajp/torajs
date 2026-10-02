@@ -60,6 +60,8 @@ pub(super) struct MethodPatch {
     pub(super) field: String,
 }
 
+// disjoint borrows of separate Ast side tables; a struct would borrow the whole Ast
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn run(
     stmts: &mut Vec<Stmt>,
     exprs: &mut Vec<Expr>,

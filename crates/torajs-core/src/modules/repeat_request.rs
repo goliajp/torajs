@@ -20,7 +20,8 @@ use super::{NamedImport, default_binding};
 /// "./self"`, a lib's `export { x } from "./entry"`), which
 /// evaluates nothing extra: the entry is the program, and a walk
 /// would splice a second copy of its whole body in front of it.
-#[allow(clippy::type_complexity)]
+// the import request fields plus the resolver state
+#[allow(clippy::too_many_arguments)]
 pub(super) fn align_and_filter(
     ast: &mut Ast,
     target_path: &Path,
@@ -30,7 +31,7 @@ pub(super) fn align_and_filter(
     mut namespace_alias: Option<String>,
     side_effect_only: bool,
     st: &mut super::resolve_state::ResolveState,
-) -> Result<Option<(Vec<NamedImport>, Option<String>, Option<String>, bool)>, String> {
+) -> Result<Option<super::resolve_helpers::ImportRequest>, String> {
     if side_effect_only && entry_path == Some(target_path) {
         return Ok(None);
     }
@@ -212,6 +213,8 @@ pub(super) fn close_walk(
 /// field (the binding already exists, only the claim is owed) and
 /// snapshot this walk's fields so a dyn revisit can inline them —
 /// claim before snapshot, so the snapshot carries the field.
+// per-walk facts plus separate resolver maps updated together
+#[allow(clippy::too_many_arguments)]
 fn record_ns_walk(
     namespace_alias: &Option<String>,
     repeat_default_field: Option<String>,

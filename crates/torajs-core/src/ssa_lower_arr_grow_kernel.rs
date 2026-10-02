@@ -28,6 +28,8 @@ use crate::ssa_lower::LowerCtx;
 ///
 /// Returns the (possibly-realloc'd) array; the caller loads the new
 /// length from it exactly as before.
+// operands of one kernel call plus their ownership facts
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_grow_kernel_checked(
     ctx: &mut LowerCtx<'_>,
     fid: crate::ssa::FuncId,

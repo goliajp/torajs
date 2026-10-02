@@ -36,16 +36,28 @@ use super::stmt::Stmt;
 use crate::check_pipeline::TypeAliasTables;
 use crate::check_type_ann::struct_shaped_ann;
 
+/// The desugared method a twin is minted from.
+pub(in crate::ast) struct TwinSource<'s> {
+    pub(in crate::ast) mono_name: &'s str,
+    pub(in crate::ast) params: &'s [Param],
+    pub(in crate::ast) body: &'s [Stmt],
+    pub(in crate::ast) type_params: &'s [String],
+    pub(in crate::ast) span: crate::lexer::Span,
+}
+
 pub(in crate::ast) fn mint_generic_twin(
     ast: &mut Ast,
     tables: &TypeAliasTables,
-    mono_name: &str,
-    params: &[Param],
-    body: &[Stmt],
-    type_params: &[String],
-    span: crate::lexer::Span,
+    src: TwinSource<'_>,
     appended: &mut Vec<Stmt>,
 ) {
+    let TwinSource {
+        mono_name,
+        params,
+        body,
+        type_params,
+        span,
+    } = src;
     let mut cloner = BodyCloner::new(ast);
     let cloned_body = cloner.clone_stmts(body);
     let cloned_params: Vec<Param> = params
@@ -122,13 +134,16 @@ pub(in crate::ast) fn mint_generic_twin(
 pub(in crate::ast) fn mint_static_generic_twin(
     ast: &mut Ast,
     tables: &TypeAliasTables,
-    mono_name: &str,
-    params: &[Param],
-    body: &[Stmt],
-    type_params: &[String],
-    span: crate::lexer::Span,
+    src: TwinSource<'_>,
     appended: &mut Vec<Stmt>,
 ) {
+    let TwinSource {
+        mono_name,
+        params,
+        body,
+        type_params,
+        span,
+    } = src;
     let mut cloner = BodyCloner::new(ast);
     let cloned_body = cloner.clone_stmts(body);
     let reads_this = rebind_this_sites(&mut cloner);

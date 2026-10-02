@@ -86,6 +86,8 @@ fn class_iter_elem_ty(checker: &Checker, ast: &Ast, src: &Type) -> Option<Type> 
         .map(|(_, t)| t.clone())
 }
 
+// mirrors the fields of the desugared for-of statement
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn check(
     checker: &mut Checker,
     ast: &Ast,

@@ -219,6 +219,8 @@ fn emit_face_name(ctx: &mut LowerCtx, face: &Operand, key: &Operand, prefix: i64
     );
 }
 
+// mirrors the fields of a property descriptor
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_accessor_define_into(
     ctx: &mut LowerCtx,
     slot: ValueId,

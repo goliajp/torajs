@@ -167,6 +167,8 @@ fn collect_generator_fn_decls(ast: &Ast) -> Vec<(usize, String)> {
 /// new stmts into `appended`. The heavy pipeline stays byte-for-byte
 /// from the pre-chunk-4 driver — this helper just carves the loop
 /// body out so `desugar_generators` reads as a thin orchestrator.
+// the generator decl fields moved out of the stmt plus the pass outputs
+#[allow(clippy::too_many_arguments)]
 fn desugar_one_generator(
     ast: &mut Ast,
     idx: usize,

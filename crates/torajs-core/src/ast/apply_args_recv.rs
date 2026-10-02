@@ -94,6 +94,8 @@ pub(super) fn collect_factory_classes(ast: &Ast) -> HashMap<String, String> {
 ///    padding (honest beats a wrong default).
 /// 3. **The name-keyed table**, for receivers neither of the above
 ///    can pin down.
+// five independent lookup tables built by the caller pass
+#[allow(clippy::too_many_arguments)]
 pub(super) fn member_call_defaults(
     ast: &Ast,
     obj: ExprId,

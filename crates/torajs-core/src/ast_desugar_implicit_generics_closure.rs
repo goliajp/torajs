@@ -19,6 +19,8 @@ use crate::ast::{
 };
 use crate::ast_desugar_implicit_generics::is_synth_closure_name;
 
+// per-fn fields plus disjoint borrows of separate Ast side tables
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn desugar_closure_shape_fn(
     first_kind: Option<&str>,
     name: &str,

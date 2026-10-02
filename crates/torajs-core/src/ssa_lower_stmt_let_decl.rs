@@ -250,6 +250,8 @@ pub(crate) fn lower(
 ///   `bind_let_slot`. Kept in one flat sequence (not a chain of `let
 /// init_val = ...` shadow rebindings) so the ownership hand-off through
 ///   each stage stays inspectable.
+// the let-decl lowering intermediate state, handed off in one step
+#[allow(clippy::too_many_arguments)]
 fn finalize_and_bind(
     ctx: &mut LowerCtx,
     name: &str,

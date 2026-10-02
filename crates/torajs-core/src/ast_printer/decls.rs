@@ -15,6 +15,8 @@ pub(super) fn fmt_fields(fields: &[(PropKey, String)]) -> String {
     parts.join(", ")
 }
 
+// mirrors the fields of Stmt::ClassDecl
+#[allow(clippy::too_many_arguments)]
 pub(super) fn print_class_decl(
     ast: &Ast,
     pad: &str,

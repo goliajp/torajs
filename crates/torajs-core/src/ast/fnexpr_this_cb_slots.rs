@@ -78,6 +78,8 @@ pub(super) fn collect_json_face(
 /// Fail-safe: this shape was an unconditional unclaimed loud
 /// reject before, so admitting it can only turn a compile error
 /// into the spec answer.
+// the call-site pieces plus the walk output vectors
+#[allow(clippy::too_many_arguments)]
 pub(super) fn collect_replace_face(
     stmts: &[Stmt],
     exprs: &[Expr],

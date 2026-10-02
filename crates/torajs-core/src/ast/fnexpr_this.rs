@@ -57,6 +57,8 @@ use super::fnexpr_this_recvs::{
 use super::fnexpr_this_routed::promote_variable_routed;
 use super::{Expr, ExprId, Stmt};
 
+// disjoint borrows of separate Ast side tables; a struct would borrow the whole Ast
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn run(
     stmts: &mut [Stmt],
     exprs: &mut Vec<Expr>,
