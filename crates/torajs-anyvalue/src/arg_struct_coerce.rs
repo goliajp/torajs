@@ -212,8 +212,13 @@ pub unsafe extern "C" fn __torajs_anyv_struct_fits(av: AnyValue, class_tag: u32)
 /// same offset, same type — so a body reading `p` through `layout`
 /// reads its own fields, and a slot of that layout can size it?
 ///
+/// Inlined into both callers: with two of them LLVM outlines it into
+/// an atom of its own, and a program that links only one caller then
+/// carries a call and a prologue where it had straight-line code.
+///
 /// # Safety
 /// `p` is a live `Tag::Obj` cell; `layout` a live lookup result.
+#[inline(always)]
 unsafe fn cell_fits(p: *mut c_void, class_tag: u32, layout: *const c_void) -> bool {
     let cell_tag = unsafe { (p.cast::<u8>().add(OBJ_CLASS_TAG_OFF) as *const u32).read() };
     if cell_tag == class_tag {
