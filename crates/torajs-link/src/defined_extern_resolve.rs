@@ -32,8 +32,8 @@ use crate::non_text_layout::NonTextSectionLayout;
 ///
 /// - `n_sect` matches a non-text section (`__cstring` / `__const`) →
 ///   `layout.final_vaddr + (n_value - layout.member_addr)`. swap-2k:
-///   multi-section staticlibs (e.g. `libtorajs_fmt.a` packs `__text`
-///   + `__const` + `__cstring` + `__DATA,__const`) place `__cstring`
+///   multi-section staticlibs (e.g. `libtorajs_fmt.a` packs `__text` +
+///   `__const` + `__cstring` + `__DATA,__const`) place `__cstring`
 ///   at object-file `section.addr = 0x3814`; the LLVM-emit local sym
 ///   `l_anon.*` has `n_value = section.addr + intra_offset`. Without
 ///   the subtraction the ADRP+ADD target overshoots into the next

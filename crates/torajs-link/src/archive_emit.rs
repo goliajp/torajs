@@ -285,6 +285,7 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
 
 /// Concatenate header + LCs + __text + __LINKEDIT (nlist, strtab,
 /// codesign blob). Pure byte assembly — layout from `ArchiveLayout`.
+#[allow(clippy::too_many_arguments)] // one payload slice per output region, assembled in order
 fn emit_binary(
     cfg: &LinkConfig,
     layout: &ArchiveLayout,
@@ -436,7 +437,7 @@ mod tests {
         header[59] = b'\n';
         archive.extend_from_slice(&header);
         archive.extend_from_slice(data);
-        if data.len() % 2 != 0 {
+        if !data.len().is_multiple_of(2) {
             archive.push(0);
         }
         archive

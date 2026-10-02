@@ -238,7 +238,7 @@ mod tests {
         header[59] = b'\n';
         archive.extend_from_slice(&header);
         archive.extend_from_slice(data);
-        if data.len() % 2 != 0 {
+        if !data.len().is_multiple_of(2) {
             archive.push(0);
         }
         archive

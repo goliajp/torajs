@@ -29,8 +29,8 @@
 //! externs resolve. The table is sorted by `fn_addr` ascending at
 //! emit time so the runtime can binary-search.
 //!
-//! Placement: `__DATA_CONST` segment, after class_layouts
-//! + `user_class_layouts_layout`. The two chain-fixup-target slots
+//! Placement: `__DATA_CONST` segment, after class_layouts +
+//! `user_class_layouts_layout`. The two chain-fixup-target slots
 //! (`fn_addr`, `name_ptr`) require dyld rebase at load time, which
 //! invalidates the codesigned `__TEXT` page hash if placed in
 //! `__TEXT,__cstring` — the same reason `user_vtables_layout`
@@ -167,123 +167,6 @@ pub fn compute_fn_name_table_layout(
         // total_size includes the leading 8-align pad + entries +
         // count global. Already 8-aligned (24 × N + 8 stays 8-aligned).
         total_size: align_pad + entries_total + COUNT_SIZE,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn entry(fid: u32, sid: u32, name_len: u32) -> FnNameTableEntryLayout {
-        FnNameTableEntryLayout {
-            fn_addr_sym: format!("__torajs_fn_{fid}"),
-            name_ptr_sym: format!("__user_string_{sid}"),
-            name_len,
-            arity: 0,
-            src_ptr_sym: None,
-            src_len: 0,
-        }
-    }
-
-    #[test]
-    fn empty_input_zero_total() {
-        let layout = compute_fn_name_table_layout(Vec::new(), 0x4000, 0x1_0000_4000, false);
-        assert!(layout.entries.is_empty());
-        assert_eq!(layout.total_size, 0);
-    }
-
-    #[test]
-    fn single_entry_layout() {
-        let layout =
-            compute_fn_name_table_layout(vec![entry(0, 0, 3)], 0x4000, 0x1_0000_4000, false);
-        assert_eq!(layout.entries.len(), 1);
-        assert_eq!(layout.table_vaddr, 0x1_0000_4000);
-        assert_eq!(layout.table_file_offset, 0x4000);
-        // count is placed right after the single 40-byte entry.
-        assert_eq!(layout.count_vaddr, 0x1_0000_4028);
-        assert_eq!(layout.count_file_offset, 0x4028);
-        // total = 40 entry + 8 count = 48 bytes.
-        assert_eq!(layout.total_size, 48);
-    }
-
-    #[test]
-    fn multi_entry_layout() {
-        let entries = vec![entry(0, 0, 3), entry(1, 1, 5), entry(2, 2, 7)];
-        let layout = compute_fn_name_table_layout(entries, 0x4000, 0x1_0000_4000, false);
-        assert_eq!(layout.entries.len(), 3);
-        assert_eq!(layout.table_vaddr, 0x1_0000_4000);
-        // count placed right after 3 × 40 = 120 byte entries.
-        assert_eq!(layout.count_vaddr, 0x1_0000_4078);
-        assert_eq!(layout.count_file_offset, 0x4078);
-        // total = 120 entries + 8 count = 128 bytes.
-        assert_eq!(layout.total_size, 128);
-    }
-
-    #[test]
-    fn unaligned_cursor_gets_pad() {
-        // Cursor 0x4001 needs +7 align pad → entries start at 0x4008.
-        let layout =
-            compute_fn_name_table_layout(vec![entry(0, 0, 3)], 0x4001, 0x1_0000_4001, false);
-        assert_eq!(layout.table_vaddr, 0x1_0000_4008);
-        assert_eq!(layout.table_file_offset, 0x4008);
-        assert_eq!(layout.count_vaddr, 0x1_0000_4030);
-        // total includes the 7-byte pad + 40 entry + 8 count = 55.
-        assert_eq!(layout.total_size, 55);
-    }
-
-    #[test]
-    fn payload_writes_null_src_slot_without_link_value() {
-        // One src-less + one src-carrying entry: the src-less row
-        // consumes 2 link values and writes a literal 0 src_ptr; the
-        // src row consumes 3.
-        let mut with_src = entry(1, 1, 5);
-        with_src.src_ptr_sym = Some("__user_string_9".into());
-        with_src.src_len = 21;
-        let layout = compute_fn_name_table_layout(
-            vec![entry(0, 0, 3), with_src],
-            0x4000,
-            0x1_0000_4000,
-            false,
-        );
-        let payload = build_fn_name_table_payload(&layout, &[0xA1, 0xA2, 0xB1, 0xB2, 0xB3]);
-        // Entry 0: fn_addr=A1, name_ptr=A2, src_ptr=NULL, src_len=0.
-        assert_eq!(payload[0..8], 0xA1u64.to_le_bytes());
-        assert_eq!(payload[8..16], 0xA2u64.to_le_bytes());
-        assert_eq!(payload[24..32], 0u64.to_le_bytes());
-        assert_eq!(payload[32..36], 0u32.to_le_bytes());
-        // Entry 1: fn_addr=B1, name_ptr=B2, src_ptr=B3, src_len=21.
-        assert_eq!(payload[40..48], 0xB1u64.to_le_bytes());
-        assert_eq!(payload[48..56], 0xB2u64.to_le_bytes());
-        assert_eq!(payload[64..72], 0xB3u64.to_le_bytes());
-        assert_eq!(payload[72..76], 21u32.to_le_bytes());
-        // Trailing count global.
-        assert_eq!(payload[80..88], 2u64.to_le_bytes());
-    }
-
-    #[test]
-    fn rebase_targets_skip_null_src_slot() {
-        let mut with_src = entry(1, 1, 5);
-        with_src.src_ptr_sym = Some("__user_string_9".into());
-        with_src.src_len = 21;
-        let layout = compute_fn_name_table_layout(
-            vec![entry(0, 0, 3), with_src],
-            0x4000,
-            0x1_0000_4000,
-            false,
-        );
-        let mut sym_table = SymTable::new();
-        sym_table.insert("__torajs_fn_0".into(), 0x1_0000_1000);
-        sym_table.insert("__torajs_fn_1".into(), 0x1_0000_1100);
-        sym_table.insert("__user_string_0".into(), 0x1_0000_2000);
-        sym_table.insert("__user_string_1".into(), 0x1_0000_2100);
-        sym_table.insert("__user_string_9".into(), 0x1_0000_2900);
-        let targets =
-            compute_fn_name_table_rebase_targets(&layout, &sym_table, 0x1_0000_0000, 0x1_0000_0000);
-        // 2 slots for the src-less entry + 3 for the src entry.
-        assert_eq!(targets.len(), 5);
-        // The 5th target is the src slot at entry1 + 24 = 0x4028 + 24.
-        assert_eq!(targets[4].0, 0x4040);
-        assert_eq!(targets[4].1, 0x2900);
     }
 }
 
@@ -530,4 +413,121 @@ pub fn fn_name_table_rebase_targets_from_layouts(
         }
     }
     compute_fn_name_table_rebase_targets(layout, &sym_table, seg_vmaddr_base, image_vmaddr_base)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(fid: u32, sid: u32, name_len: u32) -> FnNameTableEntryLayout {
+        FnNameTableEntryLayout {
+            fn_addr_sym: format!("__torajs_fn_{fid}"),
+            name_ptr_sym: format!("__user_string_{sid}"),
+            name_len,
+            arity: 0,
+            src_ptr_sym: None,
+            src_len: 0,
+        }
+    }
+
+    #[test]
+    fn empty_input_zero_total() {
+        let layout = compute_fn_name_table_layout(Vec::new(), 0x4000, 0x1_0000_4000, false);
+        assert!(layout.entries.is_empty());
+        assert_eq!(layout.total_size, 0);
+    }
+
+    #[test]
+    fn single_entry_layout() {
+        let layout =
+            compute_fn_name_table_layout(vec![entry(0, 0, 3)], 0x4000, 0x1_0000_4000, false);
+        assert_eq!(layout.entries.len(), 1);
+        assert_eq!(layout.table_vaddr, 0x1_0000_4000);
+        assert_eq!(layout.table_file_offset, 0x4000);
+        // count is placed right after the single 40-byte entry.
+        assert_eq!(layout.count_vaddr, 0x1_0000_4028);
+        assert_eq!(layout.count_file_offset, 0x4028);
+        // total = 40 entry + 8 count = 48 bytes.
+        assert_eq!(layout.total_size, 48);
+    }
+
+    #[test]
+    fn multi_entry_layout() {
+        let entries = vec![entry(0, 0, 3), entry(1, 1, 5), entry(2, 2, 7)];
+        let layout = compute_fn_name_table_layout(entries, 0x4000, 0x1_0000_4000, false);
+        assert_eq!(layout.entries.len(), 3);
+        assert_eq!(layout.table_vaddr, 0x1_0000_4000);
+        // count placed right after 3 × 40 = 120 byte entries.
+        assert_eq!(layout.count_vaddr, 0x1_0000_4078);
+        assert_eq!(layout.count_file_offset, 0x4078);
+        // total = 120 entries + 8 count = 128 bytes.
+        assert_eq!(layout.total_size, 128);
+    }
+
+    #[test]
+    fn unaligned_cursor_gets_pad() {
+        // Cursor 0x4001 needs +7 align pad → entries start at 0x4008.
+        let layout =
+            compute_fn_name_table_layout(vec![entry(0, 0, 3)], 0x4001, 0x1_0000_4001, false);
+        assert_eq!(layout.table_vaddr, 0x1_0000_4008);
+        assert_eq!(layout.table_file_offset, 0x4008);
+        assert_eq!(layout.count_vaddr, 0x1_0000_4030);
+        // total includes the 7-byte pad + 40 entry + 8 count = 55.
+        assert_eq!(layout.total_size, 55);
+    }
+
+    #[test]
+    fn payload_writes_null_src_slot_without_link_value() {
+        // One src-less + one src-carrying entry: the src-less row
+        // consumes 2 link values and writes a literal 0 src_ptr; the
+        // src row consumes 3.
+        let mut with_src = entry(1, 1, 5);
+        with_src.src_ptr_sym = Some("__user_string_9".into());
+        with_src.src_len = 21;
+        let layout = compute_fn_name_table_layout(
+            vec![entry(0, 0, 3), with_src],
+            0x4000,
+            0x1_0000_4000,
+            false,
+        );
+        let payload = build_fn_name_table_payload(&layout, &[0xA1, 0xA2, 0xB1, 0xB2, 0xB3]);
+        // Entry 0: fn_addr=A1, name_ptr=A2, src_ptr=NULL, src_len=0.
+        assert_eq!(payload[0..8], 0xA1u64.to_le_bytes());
+        assert_eq!(payload[8..16], 0xA2u64.to_le_bytes());
+        assert_eq!(payload[24..32], 0u64.to_le_bytes());
+        assert_eq!(payload[32..36], 0u32.to_le_bytes());
+        // Entry 1: fn_addr=B1, name_ptr=B2, src_ptr=B3, src_len=21.
+        assert_eq!(payload[40..48], 0xB1u64.to_le_bytes());
+        assert_eq!(payload[48..56], 0xB2u64.to_le_bytes());
+        assert_eq!(payload[64..72], 0xB3u64.to_le_bytes());
+        assert_eq!(payload[72..76], 21u32.to_le_bytes());
+        // Trailing count global.
+        assert_eq!(payload[80..88], 2u64.to_le_bytes());
+    }
+
+    #[test]
+    fn rebase_targets_skip_null_src_slot() {
+        let mut with_src = entry(1, 1, 5);
+        with_src.src_ptr_sym = Some("__user_string_9".into());
+        with_src.src_len = 21;
+        let layout = compute_fn_name_table_layout(
+            vec![entry(0, 0, 3), with_src],
+            0x4000,
+            0x1_0000_4000,
+            false,
+        );
+        let mut sym_table = SymTable::new();
+        sym_table.insert("__torajs_fn_0".into(), 0x1_0000_1000);
+        sym_table.insert("__torajs_fn_1".into(), 0x1_0000_1100);
+        sym_table.insert("__user_string_0".into(), 0x1_0000_2000);
+        sym_table.insert("__user_string_1".into(), 0x1_0000_2100);
+        sym_table.insert("__user_string_9".into(), 0x1_0000_2900);
+        let targets =
+            compute_fn_name_table_rebase_targets(&layout, &sym_table, 0x1_0000_0000, 0x1_0000_0000);
+        // 2 slots for the src-less entry + 3 for the src entry.
+        assert_eq!(targets.len(), 5);
+        // The 5th target is the src slot at entry1 + 24 = 0x4028 + 24.
+        assert_eq!(targets[4].0, 0x4040);
+        assert_eq!(targets[4].1, 0x2900);
+    }
 }

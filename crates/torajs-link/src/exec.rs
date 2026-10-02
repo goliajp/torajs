@@ -92,8 +92,8 @@ pub struct LinkConfig {
     /// `vaddr-of-fn - table-vaddr` (relative, no fixup); `None` → 0.
     pub vtable_globals: Vec<UserVtableEntry>,
     /// SD-4c-prereq+e8 — per-class `child_offsets` for the cycle
-    /// collector (T-26.C); materializes the `__torajs_class_layouts`
-    /// + `__torajs_n_class_layouts` pair (LLVM-era ABI).
+    /// collector (T-26.C); materializes the `__torajs_class_layouts` +
+    /// `__torajs_n_class_layouts` pair (LLVM-era ABI).
     /// Empty default keeps pre-e8 callers byte-identical.
     pub class_layouts: Vec<UserClassLayoutEntry>,
     /// e8-2c — `true` emits the 4-byte count global + registers both
@@ -125,8 +125,8 @@ pub struct LinkConfig {
     /// walker + future reflection consumers. Empty default keeps
     /// pre-A3c byte streams unchanged.
     pub class_names: Vec<UserClassNameEntry>,
-    /// W-J Phase A3c — `true` emits the 8-byte count global (= 0)
-    /// + registers both `__torajs_class_name_table` syms even on
+    /// W-J Phase A3c — `true` emits the 8-byte count global (= 0) +
+    /// registers both `__torajs_class_name_table` syms even on
     /// class-name-free programs. `tr build` sets this because
     /// `libtorajs_structmeta.a` references the table externs
     /// unconditionally (same rationale as
@@ -309,8 +309,8 @@ pub fn compute_layout(cfg: &LinkConfig) -> ExecLayout {
 ///     final virtual addresses.
 ///
 /// Output: a complete runnable Mach-O `MH_EXECUTE` image. 9 load
-/// commands (3 LC_SEGMENT_64 + LC_LOAD_DYLINKER + LC_BUILD_VERSION
-/// + LC_MAIN + LC_SYMTAB + LC_DYSYMTAB + LC_CODE_SIGNATURE).
+/// commands (3 LC_SEGMENT_64 + LC_LOAD_DYLINKER + LC_BUILD_VERSION +
+/// LC_MAIN + LC_SYMTAB + LC_DYSYMTAB + LC_CODE_SIGNATURE).
 /// macOS 14+ kernel + dyld accept the binary directly — no
 /// external `codesign` tool needed.
 pub fn link_to_exec(cfg: &LinkConfig) -> Vec<u8> {

@@ -264,10 +264,10 @@ fn render_report(
         rows.push((mt_tot - mt_live, mt_tot, r.member_name));
         live_rows.push((m_live_all, mt_live, r.member_name));
     }
-    rows.sort_unstable_by(|a, b| b.0.cmp(&a.0));
-    live_rows.sort_unstable_by(|a, b| b.0.cmp(&a.0));
+    rows.sort_unstable_by_key(|r| core::cmp::Reverse(r.0));
+    live_rows.sort_unstable_by_key(|r| core::cmp::Reverse(r.0));
     let mut out = String::new();
-    let pct = |l: u64, t: u64| if t > 0 { l * 100 / t } else { 0 };
+    let pct = |l: u64, t: u64| (l * 100).checked_div(t).unwrap_or(0);
     let _ = writeln!(
         out,
         "[deadstrip-diag] members={} text_live={}/{} ({}%) other_live={}/{} ({}%) \
@@ -295,7 +295,7 @@ fn render_report(
         let _ = writeln!(out, "[deadstrip-diag]   {live:>9} / {tl:>9}  {name}");
     }
     let mut sect_rows: Vec<(&String, &(u64, u64))> = by_sect.iter().collect();
-    sect_rows.sort_unstable_by(|a, b| b.1.0.cmp(&a.1.0));
+    sect_rows.sort_unstable_by_key(|r| core::cmp::Reverse(r.1.0));
     let _ = writeln!(out, "[deadstrip-diag] live by section (live/total):");
     for (name, (live, tot)) in sect_rows {
         let _ = writeln!(out, "[deadstrip-diag]   {live:>9} / {tot:>9}  {name}");

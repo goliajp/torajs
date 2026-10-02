@@ -270,6 +270,7 @@ pub fn encode_rebase_link(target_offset_in_image: u64, next_stride: u32, high8: 
 /// `data_seg_idx` is the 0-based index of `__DATA` inside the
 /// segment-ordered LC chain (= 2 in our PAGEZERO+TEXT+DATA+LINKEDIT
 /// order).
+#[allow(clippy::too_many_arguments)] // one flat input per chained-fixups table the blob spans
 pub fn build_chained_fixups(
     la_ptr_imports: &BTreeMap<String, u8>,
     data_segment_vmaddr_offset: u64,
@@ -478,7 +479,7 @@ fn import_tables(imports_seq: &[(&str, u8)]) -> (Vec<u8>, Vec<u8>) {
         sym_blob.extend_from_slice(name.as_bytes());
         sym_blob.push(0);
     }
-    while sym_blob.len() % 8 != 0 {
+    while !sym_blob.len().is_multiple_of(8) {
         sym_blob.push(0);
     }
     let mut imports_blob: Vec<u8> = Vec::with_capacity(4 * imports_seq.len());

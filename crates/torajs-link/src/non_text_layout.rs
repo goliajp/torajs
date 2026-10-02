@@ -272,7 +272,7 @@ mod tests {
         header[59] = b'\n';
         archive.extend_from_slice(&header);
         archive.extend_from_slice(data);
-        if data.len() % 2 != 0 {
+        if !data.len().is_multiple_of(2) {
             archive.push(0);
         }
         archive
@@ -618,6 +618,7 @@ mod tests {
     ///   2. __TEXT,__cstring    (8 B,    S_CSTRING_LITERALS)
     ///   3. __DATA,__data       (16 B,   S_REGULAR)
     ///   4. __DATA,__common     (2 KB virtual, S_ZEROFILL — offset 0)
+    ///
     /// Verifies fix-c1's segname + flags-based admission rule.
     fn build_mixed_seg_member() -> Vec<u8> {
         use torajs_obj::{

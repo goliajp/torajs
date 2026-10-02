@@ -377,7 +377,7 @@ mod tests {
         header[59] = b'\n';
         archive.extend_from_slice(&header);
         archive.extend_from_slice(data);
-        if data.len() % 2 != 0 {
+        if !data.len().is_multiple_of(2) {
             archive.push(0);
         }
         archive
@@ -617,8 +617,8 @@ mod tests {
         out
     }
 
-    /// 4-section member exercising `section_64.align`: `__text` (TEXT)
-    /// + `__data` (DATA file 8B, align 0) + `__const` (DATA file 4B,
+    /// 4-section member exercising `section_64.align`: `__text` (TEXT) +
+    /// `__data` (DATA file 8B, align 0) + `__const` (DATA file 4B,
     /// align 4) + `__common` (DATA zerofill 16B, align 3). Drives the
     /// `sections_round_up_to_declared_alignment` test.
     fn build_data_aligned_member() -> Vec<u8> {
@@ -729,7 +729,7 @@ mod tests {
         );
 
         out.extend_from_slice(&RET_BYTES);
-        out.extend(std::iter::repeat(0xCD).take(data_size as usize));
+        out.extend(std::iter::repeat_n(0xCD, data_size as usize));
         out
     }
 

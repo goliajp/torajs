@@ -131,7 +131,7 @@ pub fn compute_user_regex_baked_layout(
     }
     // Phase 2: outer BakedDfaMeta structs, aligned to OUTER_META_ALIGN.
     running = align_up(running, OUTER_META_ALIGN);
-    for (e, (states_vaddr, states_file_offset)) in entries.iter().zip(inner_vaddrs.into_iter()) {
+    for (e, (states_vaddr, states_file_offset)) in entries.iter().zip(inner_vaddrs) {
         let meta_vaddr = vaddr_base + u64::from(running);
         let meta_file_offset = file_offset_base + running;
         placements.push(UserBakedRegexEntryLayout {
@@ -465,8 +465,8 @@ mod tests {
             Some(&layout.entries[1].meta_vaddr),
         );
         // states_sym must not be in the public table.
-        assert!(sym_table.get("___torajs_baked_regex_states_0").is_none());
-        assert!(sym_table.get("___torajs_baked_regex_states_1").is_none());
+        assert!(!sym_table.contains_key("___torajs_baked_regex_states_0"));
+        assert!(!sym_table.contains_key("___torajs_baked_regex_states_1"));
     }
 
     #[test]

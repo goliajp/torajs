@@ -79,8 +79,8 @@ pub(super) const OUTER_METHOD_TABLE_PTR_OFFSET_IN_ENTRY: u32 = 24;
 /// `u32 _pad`), mirroring the FieldMeta header shape.
 pub(super) const INNER_METHOD_META_HEADER_SIZE: u32 = 8;
 /// 刀 4 — on-disk size of one MethodMeta entry:
-///   `ptr name (8)` + `u32 name_len (4)` + `u32 flags (4)`
-///   + `ptr adapter (8)` + `ptr twin (8)` = 32 bytes (blade 3
+///   `ptr name (8)` + `u32 name_len (4)` + `u32 flags (4)` +
+///   `ptr adapter (8)` + `ptr twin (8)` = 32 bytes (blade 3
 ///   appended the `__cmany_` twin adapter slot; 0 = no twin).
 pub(super) const INNER_METHOD_META_ELEM_SIZE: u32 = 32;
 /// 刀 4 — alignment of the inner MethodMeta global.

@@ -82,8 +82,8 @@ pub struct ArchiveLayout {
     /// non-empty OR the program carries user data globals: a macOS
     /// userland executable links libSystem by platform contract
     /// (ld64 enforces the same), so a fully-specialized program
-    /// whose member closure needs zero libc keeps the LC_LOAD_DYLIB
-    /// + `__DATA` scaffolding with an empty bind set rather than
+    /// whose member closure needs zero libc keeps the LC_LOAD_DYLIB +
+    /// `__DATA` scaffolding with an empty bind set rather than
     /// degrading to the probe-only no-dyld shape. Emit-side
     /// consumers read THIS field instead of re-deriving from
     /// `dyld_imports` (the re-derivations disagreed once the
@@ -178,8 +178,8 @@ pub struct ArchiveLayout {
     /// are relative (`target - table_base`), so the region needs no
     /// dyld fixup; see `user_vtables_layout`.
     pub user_vtables_layout: UserVtablesLayout,
-    /// Fn-name registry Phase 2 Step 3b.3 — `__torajs_fn_name_table[]`
-    /// + `__torajs_fn_name_table_count` placement inside `__DATA_CONST`,
+    /// Fn-name registry Phase 2 Step 3b.3 — `__torajs_fn_name_table[]` +
+    /// `__torajs_fn_name_table_count` placement inside `__DATA_CONST`,
     /// after class_layouts. Mirror of
     /// `data_const_layout.fn_name_table_layout` for the
     /// `apply_fn_name_table_overrides` / `build_fn_name_table_payload`

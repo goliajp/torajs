@@ -5,8 +5,8 @@
 //! the function bytes.
 //!
 //! Inputs:
-//! - `funcs: &[CompiledFunction]` — codegen output (bytes + relocs
-//!   + name). The convention `FuncId(i) == funcs[i]` mirrors
+//! - `funcs: &[CompiledFunction]` — codegen output (bytes + relocs +
+//!   name). The convention `FuncId(i) == funcs[i]` mirrors
 //!   `torajs_core::ssa::Module::funcs`.
 //! - `fn_vaddrs: &[u64]` — pre-computed final virtual address for
 //!   each function (one entry per `funcs[i]`, same indexing). This

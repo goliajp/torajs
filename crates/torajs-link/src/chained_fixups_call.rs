@@ -81,13 +81,15 @@ pub struct ChainedFixupsInputs<'a> {
     pub data_seg_rebase_targets: &'a [RebaseTarget],
 }
 
+/// `(blob, la_ptr_slot_values, tlv_thunk_link_values,
+/// text_rebase_link_values, data_rebase_link_values)`
+pub type ChainedFixupsOutputs = (Vec<u8>, Vec<u64>, Vec<u64>, Vec<u64>, Vec<u64>);
+
 /// Returns `(blob, la_ptr_slot_values, tlv_thunk_link_values,
 /// text_rebase_link_values, data_rebase_link_values)`. Short-circuits
 /// to five empty vecs when no la-ptr / TLV / `__DATA_CONST` rebase /
 /// data rebase participants exist.
-pub fn compute_chained_fixups_outputs(
-    input: ChainedFixupsInputs<'_>,
-) -> (Vec<u8>, Vec<u64>, Vec<u64>, Vec<u64>, Vec<u64>) {
+pub fn compute_chained_fixups_outputs(input: ChainedFixupsInputs<'_>) -> ChainedFixupsOutputs {
     let has_dyld = !input.dyld_imports.is_empty();
     let has_data_const_rebase = !input.data_const_rebase_targets.is_empty();
     let has_data_rebase = !input.data_seg_rebase_targets.is_empty();

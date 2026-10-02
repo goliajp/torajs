@@ -167,8 +167,8 @@ fn apply_overrides_skips_empty_input() {
     let layout = compute_user_class_layouts_layout(&[], 0x4000, 0x1_0000_4000, false);
     let mut sym_table = SymTable::new();
     apply_user_class_layouts_overrides(&layout, &mut sym_table);
-    assert!(sym_table.get(CLASS_LAYOUTS_SYM).is_none());
-    assert!(sym_table.get(N_CLASS_LAYOUTS_SYM).is_none());
+    assert!(!sym_table.contains_key(CLASS_LAYOUTS_SYM));
+    assert!(!sym_table.contains_key(N_CLASS_LAYOUTS_SYM));
 }
 
 #[test]

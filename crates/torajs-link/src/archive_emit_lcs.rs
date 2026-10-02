@@ -208,7 +208,7 @@ pub(crate) fn write_symtab_and_strtab(buf: &mut Vec<u8>, cfg: &LinkConfig, layou
         nlist.write_to(buf);
     }
     for (mi, m) in layout.member_layouts.iter().enumerate() {
-        let data_layouts = member_data_layouts(&layout, mi);
+        let data_layouts = member_data_layouts(layout, mi);
         for (si, (_name, n_value, n_sect)) in m.defined_syms.iter().enumerate() {
             let vaddr = section_vaddr_for_sym(
                 *n_sect,

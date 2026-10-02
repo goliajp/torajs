@@ -26,8 +26,8 @@
 //! - **S3** — `MH_EXECUTE` layout: `__PAGEZERO` + `__TEXT` (RX) +
 //!   `__LINKEDIT` (R), virtual-address assignment from
 //!   `0x100000000` upward.
-//! - **S4** — `LC_MAIN` + `LC_BUILD_VERSION` + `LC_LOAD_DYLINKER`
-//!   + `LC_LOAD_DYLIB libSystem` + `LC_SYMTAB` + `LC_DYSYMTAB` +
+//! - **S4** — `LC_MAIN` + `LC_BUILD_VERSION` + `LC_LOAD_DYLINKER` +
+//!   `LC_LOAD_DYLIB libSystem` + `LC_SYMTAB` + `LC_DYSYMTAB` +
 //!   `LC_DYLD_CHAINED_FIXUPS` (or `LC_DYLD_INFO_ONLY` fallback).
 //! - **S5** — ad-hoc `LC_CODE_SIGNATURE` (`codesign -s -` in
 //!   Rust); macOS 14+ refuses to load unsigned binaries.

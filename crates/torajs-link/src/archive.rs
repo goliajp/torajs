@@ -434,7 +434,7 @@ fn parse_decimal(bytes: &[u8]) -> Option<usize> {
     }
     let mut n: usize = 0;
     for &b in bytes {
-        if !(b'0'..=b'9').contains(&b) {
+        if !b.is_ascii_digit() {
             return None;
         }
         n = n.checked_mul(10)?.checked_add(usize::from(b - b'0'))?;
@@ -468,7 +468,7 @@ mod tests {
         header[59] = b'\n';
         archive.extend_from_slice(&header);
         archive.extend_from_slice(data);
-        if data.len() % 2 != 0 {
+        if !data.len().is_multiple_of(2) {
             archive.push(0);
         }
         archive
@@ -492,7 +492,7 @@ mod tests {
         archive.extend_from_slice(&header);
         archive.extend_from_slice(name.as_bytes());
         archive.extend_from_slice(data);
-        if total_payload % 2 != 0 {
+        if !total_payload.is_multiple_of(2) {
             archive.push(0);
         }
         archive

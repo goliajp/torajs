@@ -130,8 +130,8 @@ pub(crate) fn build_data_segment(
 /// byte-stream byte-identical to SD-1.
 ///
 /// SD-3 — `__la_symbol_ptr` no longer holds zero bytes. Each slot
-/// now carries the `dyld_chained_ptr_64_bind` encoding (ordinal
-/// + next + bind bit) from `layout.la_ptr_slot_values`, so dyld
+/// now carries the `dyld_chained_ptr_64_bind` encoding (ordinal +
+/// next + bind bit) from `layout.la_ptr_slot_values`, so dyld
 /// can walk the chain at load time and overwrite the encoded
 /// link with the real libSystem fn address.
 pub(crate) fn write_stubs_section(buf: &mut Vec<u8>, layout: &ArchiveLayout) {

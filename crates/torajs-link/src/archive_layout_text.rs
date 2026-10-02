@@ -178,7 +178,7 @@ pub(crate) fn compute_text_region_plan(
     // __texts and `__TEXT,__stubs`; folds into text_size auto-shift.
     let non_text_region_file_offset = text_file_offset + text_placement.size;
     let non_text_result =
-        compute_non_text_layouts(&merged, &member_keys, non_text_region_file_offset).map_err(
+        compute_non_text_layouts(merged, member_keys, non_text_region_file_offset).map_err(
             |NonTextLayoutError {
                  archive_idx,
                  member_idx,
@@ -257,7 +257,7 @@ fn text_shift() -> u32 {
         .and_then(|s| s.parse().ok())
         .expect("TORAJS_LINK_TEXT_SHIFT is a byte count");
     assert!(
-        shift % 4 == 0 && shift < TEXT_FN_ALIGN,
+        shift.is_multiple_of(4) && shift < TEXT_FN_ALIGN,
         "TORAJS_LINK_TEXT_SHIFT must be a multiple of 4 below {TEXT_FN_ALIGN}"
     );
     shift

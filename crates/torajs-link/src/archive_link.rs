@@ -246,7 +246,7 @@ mod tests {
         header[59] = b'\n';
         archive.extend_from_slice(&header);
         archive.extend_from_slice(data);
-        if data.len() % 2 != 0 {
+        if !data.len().is_multiple_of(2) {
             archive.push(0);
         }
         archive
@@ -400,7 +400,7 @@ mod tests {
         assert_eq!(layout.data_vmaddr, TEXT_VMADDR_BASE + layout.text_vmsize);
         assert_eq!(layout.la_ptr_section_vaddr, layout.data_vmaddr);
         assert!(layout.data_vmsize >= APPLE_SILICON_PAGE_SIZE);
-        assert!(layout.data_vmsize % APPLE_SILICON_PAGE_SIZE == 0);
+        assert!(layout.data_vmsize.is_multiple_of(APPLE_SILICON_PAGE_SIZE));
 
         // __LINKEDIT follows __DATA, not __TEXT.
         assert_eq!(

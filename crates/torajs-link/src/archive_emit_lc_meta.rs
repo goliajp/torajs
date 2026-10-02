@@ -1,5 +1,5 @@
-//! Mach-O load-command meta — per-cfg flag set + extra LC count/size
-//! + `MH_*` flag bits. Derived purely from `ArchiveLayout`; lifted out
+//! Mach-O load-command meta — per-cfg flag set + extra LC count/size +
+//! `MH_*` flag bits. Derived purely from `ArchiveLayout`; lifted out
 //! of `emit_binary` so the prelude block stays one self-contained
 //! computation step.
 

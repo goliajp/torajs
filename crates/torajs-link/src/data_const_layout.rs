@@ -51,8 +51,8 @@ pub struct DataConstLayout {
     /// SD-4c-prereq+e8 — per-class `child_offsets` tables for the
     /// cycle collector, at the segment base.
     pub class_layouts_layout: UserClassLayoutsLayout,
-    /// Fn-name registry Phase 2 Step 3b.3 — `__torajs_fn_name_table[]`
-    /// + `__torajs_fn_name_table_count` placed after class_layouts
+    /// Fn-name registry Phase 2 Step 3b.3 — `__torajs_fn_name_table[]` +
+    /// `__torajs_fn_name_table_count` placed after class_layouts
     /// inside the same `__DATA_CONST` segment. Two chain-fixup slots
     /// per entry (`fn_addr`, `name_ptr`) need dyld rebase at load
     /// time, so the same `SG_READ_ONLY` post-mprotect path that hosts
@@ -116,6 +116,7 @@ pub fn data_const_present(cfg: &crate::exec::LinkConfig) -> bool {
 /// `text_vmaddr + text_vmsize`. With every table empty the returned
 /// layout has `has_data_const = false` and `segment_vmsize = 0`;
 /// callers skip every `__DATA_CONST` emit path in that case.
+#[allow(clippy::too_many_arguments)] // one table and its force-emit flag per `__DATA_CONST` section
 pub fn compute_data_const_layout(
     class_layouts: &[crate::exec::UserClassLayoutEntry],
     force_emit_class_layouts_globals: bool,

@@ -93,7 +93,7 @@ pub(crate) fn compute_data_region_plan(
     ) = if tp.has_dyld {
         let file_start = data_file_offset + tp.la_ptr_section_size as u32;
         let vaddr_start = data_vmaddr + tp.la_ptr_section_size;
-        let res = compute_data_section_layouts(&merged, &member_keys, file_start, vaddr_start)
+        let res = compute_data_section_layouts(merged, member_keys, file_start, vaddr_start)
             .map_err(
                 |NonTextLayoutError {
                      archive_idx,
@@ -121,7 +121,7 @@ pub(crate) fn compute_data_region_plan(
     // b1/c — member __DATA,__thread_vars TLV descriptors for chain
     // per-thunk-slot binds. has_dyld=false → no __DATA → no TLVs.
     let tlv_descriptors = if tp.has_dyld {
-        compute_tlv_descriptor_layouts(&member_keys, &data_non_text_layouts)
+        compute_tlv_descriptor_layouts(member_keys, &data_non_text_layouts)
             .expect("TLV descriptor layout cannot fail when inputs are zipped from compute_data_section_layouts")
             .descriptors
     } else {

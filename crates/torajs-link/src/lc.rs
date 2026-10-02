@@ -149,8 +149,8 @@ pub fn write_load_dylib_libsystem(buf: &mut Vec<u8>) {
 }
 
 /// SD-4b — append `LC_LOAD_DYLIB /usr/lib/libcurl.4.dylib`. Same
-/// dylib_command wire format as the libSystem writer; only path
-/// + version constants differ. dyld uses the position in the LC
+/// dylib_command wire format as the libSystem writer; only path +
+/// version constants differ. dyld uses the position in the LC
 /// chain to assign `lib_ordinal` (libSystem = 1, libcurl = 2),
 /// which the chained-fixups encoder must mirror.
 pub fn write_load_dylib_libcurl(buf: &mut Vec<u8>) {
@@ -195,8 +195,8 @@ pub fn write_build_version(buf: &mut Vec<u8>) {
     buf.extend_from_slice(&LC_BUILD_VERSION.to_le_bytes());
     buf.extend_from_slice(&BUILD_VERSION_CMDSIZE.to_le_bytes());
     buf.extend_from_slice(&PLATFORM_MACOS.to_le_bytes());
-    buf.extend_from_slice(&((14u32 << 16) | (0u32 << 8) | 0u32).to_le_bytes()); // minos 14.0
-    buf.extend_from_slice(&((14u32 << 16) | (0u32 << 8) | 0u32).to_le_bytes()); // sdk 14.0
+    buf.extend_from_slice(&(14u32 << 16).to_le_bytes()); // minos 14.0
+    buf.extend_from_slice(&(14u32 << 16).to_le_bytes()); // sdk 14.0
     buf.extend_from_slice(&0u32.to_le_bytes()); // ntools = 0
     debug_assert_eq!(buf.len() - start, BUILD_VERSION_CMDSIZE as usize);
 }
@@ -303,8 +303,8 @@ mod tests {
         // … NUL-terminated …
         assert_eq!(buf[24 + LIBSYSTEM_PATH.len()], 0);
         // … and zero-padded to the 8-byte boundary.
-        for off in (24 + LIBSYSTEM_PATH.len() + 1)..(LOAD_DYLIB_LIBSYSTEM_CMDSIZE as usize) {
-            assert_eq!(buf[off], 0);
+        for &b in &buf[(24 + LIBSYSTEM_PATH.len() + 1)..(LOAD_DYLIB_LIBSYSTEM_CMDSIZE as usize)] {
+            assert_eq!(b, 0);
         }
     }
 
@@ -313,7 +313,7 @@ mod tests {
         assert_eq!(LOAD_DYLIB_LIBSYSTEM_CMDSIZE % 8, 0);
         // dylib_command header (24 B) + path "/usr/lib/libSystem.B.dylib" (26 B)
         // + NUL (1 B) = 51 → round up to 56.
-        assert!(LOAD_DYLIB_LIBSYSTEM_CMDSIZE as usize >= 24 + LIBSYSTEM_PATH.len() + 1);
+        assert!(LOAD_DYLIB_LIBSYSTEM_CMDSIZE as usize > 24 + LIBSYSTEM_PATH.len());
     }
 
     #[test]

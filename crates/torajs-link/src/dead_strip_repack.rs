@@ -221,7 +221,7 @@ fn write_archive(members: &[ArMember<'_>], replaced: &BTreeMap<usize, Vec<u8>>) 
         out.extend_from_slice(name);
         out.resize(out.len() + (name_padded - name.len()), 0);
         out.extend_from_slice(data);
-        if total % 2 != 0 {
+        if !total.is_multiple_of(2) {
             out.push(b'\n');
         }
     }

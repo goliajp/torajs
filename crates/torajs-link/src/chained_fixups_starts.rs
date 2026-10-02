@@ -144,7 +144,7 @@ pub(crate) fn build_starts_in_segment(
             let next_stride = if k + 1 < j {
                 let delta = slots[k + 1].0 - slots[k].0;
                 debug_assert!(
-                    delta % 4 == 0,
+                    delta.is_multiple_of(4),
                     "intra-page chain slots must be 4-byte aligned (delta {delta})",
                 );
                 let stride = delta / 4;

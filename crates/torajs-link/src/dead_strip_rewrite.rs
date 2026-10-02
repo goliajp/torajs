@@ -191,16 +191,14 @@ pub(crate) fn strip_member_section(
             let group = addend_group_len(&entries, i);
             let last = &entries[i + group - 1];
             let r_address = u32::from_le_bytes(last[0..4].try_into().unwrap());
-            match remap(sect_addr + u64::from(r_address)) {
-                Some(new_abs) => {
-                    let new_rel = new_abs - sect_addr;
-                    for e in &entries[i..i + group] {
-                        let mut ne = *e;
-                        ne[0..4].copy_from_slice(&(new_rel as u32).to_le_bytes());
-                        kept.push(ne);
-                    }
+            // a site in a dead atom remaps to None and is dropped
+            if let Some(new_abs) = remap(sect_addr + u64::from(r_address)) {
+                let new_rel = new_abs - sect_addr;
+                for e in &entries[i..i + group] {
+                    let mut ne = *e;
+                    ne[0..4].copy_from_slice(&(new_rel as u32).to_le_bytes());
+                    kept.push(ne);
                 }
-                None => {} // site is in a dead atom — drop
             }
             i += group;
         }

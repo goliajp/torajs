@@ -14,8 +14,8 @@ use crate::archive::ArMember;
 use crate::data_section_layout::DataSectionLayout;
 use crate::non_text_layout::NonTextSectionLayout;
 
-/// Sub-view of a parsed `LC_SYMTAB`, the four absolute file offsets
-/// + counts the symbol-name resolver needs. `pub(crate)` so
+/// Sub-view of a parsed `LC_SYMTAB`, the four absolute file offsets +
+/// counts the symbol-name resolver needs. `pub(crate)` so
 /// `member_apply::parse_member_symtab` (still owns the parse) and
 /// `resolve_local_nsect` (this module) share the struct.
 #[derive(Debug, Clone, Copy)]

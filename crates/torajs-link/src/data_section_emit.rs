@@ -38,8 +38,8 @@ use crate::archive_link::ArchiveLayout;
 /// zerofill, file size for regular). `offset` is the file offset
 /// for file-storage sections, `0` for zerofill per Mach-O spec.
 ///
-/// `flags` is copied verbatim from the source `section_64` so type
-/// + attribute bits both round-trip. `align_log2` is copied from the
+/// `flags` is copied verbatim from the source `section_64` so type +
+/// attribute bits both round-trip. `align_log2` is copied from the
 /// source `section_64.align` (swap-2i): the layout pass already
 /// rounded `final_vaddr` to `1 << align`, so the emitted entry must
 /// advertise the same alignment — e.g. the mmalloc `__common`/`__bss`

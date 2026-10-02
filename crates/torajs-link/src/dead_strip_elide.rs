@@ -158,8 +158,8 @@ pub(crate) struct Assumed {
     pub(crate) fn_name_globals: Option<Vec<UserFnNameEntry>>,
 }
 
-/// Run the fix-point over `cfg.elidable_sites` + `cfg.guarded_stubs`
-/// + the twin column; answer the assumed shape (sites rewritten,
+/// Run the fix-point over `cfg.elidable_sites` + `cfg.guarded_stubs` +
+/// the twin column; answer the assumed shape (sites rewritten,
 /// surviving stubs appended, column dropped) when any of it
 /// survived, `None` when nothing changes.
 pub(crate) fn judge_and_patch(

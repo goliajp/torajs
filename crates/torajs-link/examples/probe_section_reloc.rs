@@ -150,7 +150,7 @@ fn scan_archive(stats: &mut ProbeStats, ar_path: &Path) {
                     .entry(r.r_symbolnum)
                     .or_insert(0) += 1;
                 if stats.sample_dumps.len() < SAMPLE_LIMIT {
-                    push_sample_dump(stats, &name, &m.name, r, text_slice);
+                    push_sample_dump(stats, &name, m.name, r, text_slice);
                 }
             }
             *stats.r_type_counts.entry(r.r_type).or_insert(0) += 1;
@@ -205,7 +205,7 @@ fn print_report(stats: &ProbeStats) {
         .iter()
         .map(|(k, v)| (*k, *v))
         .collect();
-    idx_vec.sort_by(|a, b| b.1.cmp(&a.1));
+    idx_vec.sort_by_key(|e| std::cmp::Reverse(e.1));
     for (idx, c) in idx_vec.iter().take(8) {
         println!("  sec_ordinal={idx}: {c}");
     }

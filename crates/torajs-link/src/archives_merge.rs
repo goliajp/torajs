@@ -161,8 +161,8 @@ pub enum ArchiveLinkError {
 /// `merged.index`:
 ///
 ///   - hit  → mark that `(archive_idx, member_idx)` as required,
-///            then parse the member's `LC_SYMTAB` and enqueue
-///            every undefined extern it references in turn.
+///     then parse the member's `LC_SYMTAB` and enqueue
+///     every undefined extern it references in turn.
 ///   - miss → record as unresolved.
 ///
 /// Visited-names set prevents revisiting symbols; visited-members
@@ -417,7 +417,7 @@ mod tests {
         header[59] = b'\n';
         archive.extend_from_slice(&header);
         archive.extend_from_slice(data);
-        if data.len() % 2 != 0 {
+        if !data.len().is_multiple_of(2) {
             archive.push(0);
         }
         archive

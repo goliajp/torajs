@@ -28,6 +28,9 @@ use crate::member_sections::is_tlv_descriptor;
 use crate::resolve::SymTable;
 use crate::tlv_descriptor_layout::{TLV_DESCRIPTOR_SIZE, TlvDescriptorLayout};
 
+/// A member's `LC_SYMTAB` as `(symoff, nsyms, strtab)`
+type MemberSymtab<'a> = (usize, usize, &'a [u8]);
+
 /// Parse one member's Mach-O header + load commands and return its
 /// `LC_SYMTAB` as `(symoff, nsyms, strtab)` with bounds already
 /// validated. `Ok(None)` = member isn't a 64-bit Mach-O or carries
@@ -36,7 +39,7 @@ use crate::tlv_descriptor_layout::{TLV_DESCRIPTOR_SIZE, TlvDescriptorLayout};
 fn parse_member_symtab<'a>(
     bytes: &'a [u8],
     key: &(usize, usize),
-) -> Result<Option<(usize, usize, &'a [u8])>, TlvSymOverrideError> {
+) -> Result<Option<MemberSymtab<'a>>, TlvSymOverrideError> {
     if bytes.len() < 32 {
         return Err(TlvSymOverrideError::Symtab {
             archive_idx: key.0,
@@ -137,7 +140,7 @@ fn descriptor_vaddr_for_sym(
         });
     }
     let offset_in_section = n_value - section_member_addr;
-    if offset_in_section % u64::from(TLV_DESCRIPTOR_SIZE) != 0 {
+    if !offset_in_section.is_multiple_of(u64::from(TLV_DESCRIPTOR_SIZE)) {
         return Err(TlvSymOverrideError::MisalignedTlvSymValue {
             archive_idx: key.0,
             member_idx: key.1,

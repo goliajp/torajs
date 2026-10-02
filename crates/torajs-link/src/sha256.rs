@@ -67,7 +67,7 @@ pub fn sha256(bytes: &[u8]) -> [u8; DIGEST_LEN] {
 
     // Process each 64-byte block.
     debug_assert_eq!(buf.len() % BLOCK_LEN, 0);
-    for chunk in buf.chunks_exact(BLOCK_LEN) {
+    for chunk in buf.as_chunks::<BLOCK_LEN>().0 {
         process_block(&mut h, chunk);
     }
 
