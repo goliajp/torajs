@@ -81,6 +81,9 @@ fn valid_weak_key(av: u64) -> *mut c_void {
 
 /// Extraction for `has` / `get` / `delete` — illegal key reads as
 /// absent (NULL), never throws.
+///
+/// # Safety
+/// `av` is a NaN-boxed value whose heap payload, if any, is live.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_weak_key_from_any(av: u64) -> *mut c_void {
     valid_weak_key(av)
@@ -89,6 +92,9 @@ pub unsafe extern "C" fn __torajs_weak_key_from_any(av: u64) -> *mut c_void {
 /// Extraction for `set` / `add` — illegal key records a pending
 /// TypeError and returns NULL (kernels no-op on NULL key; the
 /// caller's throw-check propagates).
+///
+/// # Safety
+/// `av` is a NaN-boxed value whose heap payload, if any, is live.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_weak_key_from_any_or_throw(av: u64) -> *mut c_void {
     let p = valid_weak_key(av);

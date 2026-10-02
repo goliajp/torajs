@@ -151,6 +151,9 @@ unsafe fn grow(s: *mut WeakSet) {
 // ============================================================
 
 /// `new WeakSet()` — allocate a fresh empty set.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_weakset_create() -> *mut c_void {
     let s = unsafe { malloc(core::mem::size_of::<WeakSet>()) } as *mut WeakSet;
@@ -173,6 +176,9 @@ pub unsafe extern "C" fn __torajs_weakset_create() -> *mut c_void {
 
 /// `s.add(key)` — idempotent insert (second add on the same key is a
 /// silent no-op; matches WeakSet spec semantics).
+///
+/// # Safety
+/// `p` is NULL or a live WeakSet; `key` is NULL or a live heap cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_weakset_add(p: *mut c_void, key: *mut c_void) {
     if p.is_null() || key.is_null() {
@@ -198,6 +204,9 @@ pub unsafe extern "C" fn __torajs_weakset_add(p: *mut c_void, key: *mut c_void) 
 }
 
 /// `s.has(key)` — 1 / 0 as i64.
+///
+/// # Safety
+/// `p` is NULL or a live WeakSet; `key` is NULL or a heap cell pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_weakset_has(p: *mut c_void, key: *mut c_void) -> i64 {
     if p.is_null() || key.is_null() {
@@ -214,6 +223,9 @@ pub unsafe extern "C" fn __torajs_weakset_has(p: *mut c_void, key: *mut c_void) 
 
 /// `s.delete(key)` — 1 if key was present. Frees the entry +
 /// deregisters from the observer registry.
+///
+/// # Safety
+/// `p` is NULL or a live WeakSet; `key` is NULL or a heap cell pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_weakset_delete(p: *mut c_void, key: *mut c_void) -> i64 {
     if p.is_null() || key.is_null() {
@@ -241,6 +253,9 @@ pub unsafe extern "C" fn __torajs_weakset_delete(p: *mut c_void, key: *mut c_voi
 /// Called by the shared registry's `target_dying` broadcast when a
 /// key registered against this WeakSet is being reclaimed. Removes
 /// the entry without deregistering (cell is torn down by the caller).
+///
+/// # Safety
+/// `p` is a live WeakSet; `dying_key` is only compared, never dereferenced.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_weakset_invalidate_key(p: *mut c_void, dying_key: *mut c_void) {
     if p.is_null() || dying_key.is_null() {
@@ -267,6 +282,9 @@ pub unsafe extern "C" fn __torajs_weakset_invalidate_key(p: *mut c_void, dying_k
 /// when a WeakSet's refcount transitions to zero. Walks every entry,
 /// deregisters from the registry, frees the entry, then bucket array,
 /// then the set.
+///
+/// # Safety
+/// `p` is NULL or a WeakSet whose refcount just reached zero; it is freed and must not be used again.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_weakset_drop(p: *mut c_void) {
     if p.is_null() {

@@ -228,6 +228,9 @@ pub unsafe extern "C" fn __torajs_weakref_registry_register(
 /// `target`'s cell. Tolerant: NULL target / missing cell / missing
 /// (kind, owner) tuple all silently no-op. After removal, if the cell
 /// has no observers left, it's unlinked from its bucket and freed.
+///
+/// # Safety
+/// `target` and `owner` are only hashed and compared, never dereferenced; the registry itself must not be torn down concurrently.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_weakref_registry_deregister(
     target: *mut c_void,

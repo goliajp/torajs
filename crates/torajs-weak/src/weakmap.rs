@@ -173,6 +173,9 @@ unsafe fn grow(m: *mut WeakMap) {
 
 /// `new WeakMap()` — allocate a fresh empty map. Initial `n_buckets`
 /// = 16; buckets array zero-init via `calloc`.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_weakmap_create() -> *mut c_void {
     let m = unsafe { malloc(core::mem::size_of::<WeakMap>()) } as *mut WeakMap;
@@ -201,6 +204,9 @@ pub unsafe extern "C" fn __torajs_weakmap_create() -> *mut c_void {
 /// defensive silent no-op (callers guard keys; the any lane and the
 /// typed lowering both throw for a primitive key per spec before
 /// reaching here).
+///
+/// # Safety
+/// `p` is NULL or a live WeakMap; `key` is NULL or a live heap cell; a heap `value` is live.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_weakmap_set(p: *mut c_void, key: *mut c_void, value: u64) {
     if p.is_null() || key.is_null() {
@@ -240,6 +246,9 @@ pub unsafe extern "C" fn __torajs_weakmap_set(p: *mut c_void, key: *mut c_void, 
 /// `m.get(key)` — return the value AnyValue (cells handed out with a
 /// fresh strong ref the caller owns), or the `undefined` sentinel
 /// when absent (spec §24.3.3.3 — miss is undefined, not null).
+///
+/// # Safety
+/// `p` is NULL or a live WeakMap; `key` is NULL or a heap cell pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_weakmap_get(p: *mut c_void, key: *mut c_void) -> u64 {
     if p.is_null() || key.is_null() {
@@ -259,6 +268,9 @@ pub unsafe extern "C" fn __torajs_weakmap_get(p: *mut c_void, key: *mut c_void) 
 }
 
 /// `m.has(key)` — 1 / 0 as i64 (SSA-side bool widens to i64).
+///
+/// # Safety
+/// `p` is NULL or a live WeakMap; `key` is NULL or a heap cell pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_weakmap_has(p: *mut c_void, key: *mut c_void) -> i64 {
     if p.is_null() || key.is_null() {
@@ -276,6 +288,9 @@ pub unsafe extern "C" fn __torajs_weakmap_has(p: *mut c_void, key: *mut c_void) 
 /// `m.delete(key)` — returns 1 if key was present. Drops the value's
 /// strong ref + frees the entry + deregisters from the observer
 /// registry (so a later dying-key broadcast skips this map).
+///
+/// # Safety
+/// `p` is NULL or a live WeakMap; `key` is NULL or a heap cell pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_weakmap_delete(p: *mut c_void, key: *mut c_void) -> i64 {
     if p.is_null() || key.is_null() {
@@ -308,6 +323,9 @@ pub unsafe extern "C" fn __torajs_weakmap_delete(p: *mut c_void, key: *mut c_voi
 /// key registered against this WeakMap is being reclaimed. Removes
 /// the entry **without** deregistering (the registry cell is being
 /// torn down anyway, so re-touching it would be wasted work).
+///
+/// # Safety
+/// `p` is a live WeakMap; `dying_key` is only compared, never dereferenced.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_weakmap_invalidate_key(p: *mut c_void, dying_key: *mut c_void) {
     if p.is_null() || dying_key.is_null() {
@@ -338,6 +356,9 @@ pub unsafe extern "C" fn __torajs_weakmap_invalidate_key(p: *mut c_void, dying_k
 /// when a WeakMap's refcount transitions to zero. Walks every entry,
 /// drops its value's strong ref + deregisters from the observer
 /// registry, frees the entry, then the buckets array, then the map.
+///
+/// # Safety
+/// `p` is NULL or a WeakMap whose refcount just reached zero; it is freed and must not be used again.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_weakmap_drop(p: *mut c_void) {
     if p.is_null() {

@@ -97,6 +97,8 @@ pub use weakset::{
 // come from `runtime_weakmap.c` / `runtime_weakset.c` at `tr build`
 // link time — stubbed here. Will be removed when P4.3'-c / P4.3'-d
 // port those into this crate.
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_rc_inc(_p: *mut core::ffi::c_void) {
@@ -129,6 +131,8 @@ pub extern "C" fn __torajs_kept_clear_install(_clear: unsafe extern "C" fn()) {}
 // `__torajs_value_drop_heap` comes from `runtime_str.c` at `tr build`
 // link time — stubbed for cargo test (used by weakmap::set/delete/
 // invalidate_key/drop paths).
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_value_drop_heap(_p: *mut core::ffi::c_void) {
@@ -141,6 +145,8 @@ pub unsafe extern "C" fn __torajs_value_drop_heap(_p: *mut core::ffi::c_void) {
 // `tr build` link time — stubbed for cargo test (used by
 // key::__torajs_weak_key_from_any_or_throw; the key tests only
 // exercise the non-throwing classification path).
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_throw_type_error(_msg: *const core::ffi::c_char) {
@@ -154,6 +160,8 @@ pub unsafe extern "C" fn __torajs_throw_type_error(_msg: *const core::ffi::c_cha
 // so key.rs unit tests can classify a fake Symbol cell (the
 // registered-rejection path is covered by the conformance fixture,
 // which exercises the real registry).
+/// # Safety
+/// Test stub; always reports "not registered" and reads nothing.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_symbol_is_registered(_sym: *const core::ffi::c_void) -> i32 {
