@@ -28,6 +28,9 @@ unsafe extern "C" {
     /// 0=Null, 1=Bool, 2=I64, 3=F64 (bits), 4=Heap, 5=Undef.
     fn __torajs_anyv_unbox_tag(v: u64) -> i64;
     fn __torajs_anyv_unbox_value(v: u64) -> i64;
+    /// A heap cell's pointer, 0 for every immediate (a ShortStr
+    /// included — nothing materializes).
+    fn __torajs_anyv_cell_ptr(v: u64) -> i64;
     /// Cross-tier — torajs-rc refcount bump (NaN-box-safe).
     fn __torajs_rc_inc(p: *mut c_void);
     /// Cross-tier — torajs-throw catchable error (record + return).
@@ -170,6 +173,51 @@ unsafe fn throw_mismatch() -> *mut u8 {
         __torajs_throw_type_error(
             c"array element does not match the annotated element type".as_ptr(),
         );
+    }
+    core::ptr::null_mut()
+}
+
+/// `__torajs_arr_from_any_typed(v, kind)` — the same conversion for
+/// a NaN-boxed value meeting a typed `Array<T>` slot (`a = o` with
+/// `o: any`): a boxed `Tag::Arr` cell decode-copies through
+/// [`__torajs_arr_any_to_typed`]; every other value is a catchable
+/// TypeError, answered as NULL. The box is borrowed — the caller keeps
+/// its own stake and releases it after the copy.
+///
+/// # Safety
+///
+/// `v` is a valid NaN-box.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_from_any_typed(v: u64, kind: i64) -> *mut u8 {
+    let cell = unsafe { __torajs_anyv_cell_ptr(v) } as *mut u8;
+    if !cell.is_null() && unsafe { (*(cell as *const HeapHeader)).tag() } == torajs_rc::Tag::Arr {
+        return unsafe { __torajs_arr_any_to_typed(cell, kind) };
+    }
+    unsafe {
+        __torajs_throw_type_error(c"value is not an array".as_ptr());
+    }
+    core::ptr::null_mut()
+}
+
+/// `__torajs_arr_cell_from_any(v)` — a NaN-boxed value meeting an
+/// `Array<Any>` slot (`a = o` with `a: any[]`, `o: any`): the boxed
+/// `Tag::Arr` cell itself, shared as it is — an ANY-flavor block or a
+/// typed block carrying its element kind, both of which the slot's
+/// kind-aware readers decode. Every other value is a catchable
+/// TypeError, answered as NULL. The box's stake passes to the caller
+/// with the cell (a heap box is the cell's pointer).
+///
+/// # Safety
+///
+/// `v` is a valid NaN-box.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_cell_from_any(v: u64) -> *mut u8 {
+    let cell = unsafe { __torajs_anyv_cell_ptr(v) } as *mut u8;
+    if !cell.is_null() && unsafe { (*(cell as *const HeapHeader)).tag() } == torajs_rc::Tag::Arr {
+        return cell;
+    }
+    unsafe {
+        __torajs_throw_type_error(c"value is not an array".as_ptr());
     }
     core::ptr::null_mut()
 }

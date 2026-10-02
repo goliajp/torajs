@@ -138,6 +138,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
     // Chunk 698 `__torajs_arr_any_to_typed` — fn_table-only (the
     // let-decl assign-boundary conversion resolves it by name).
     let _ = decl!("__torajs_arr_any_to_typed", [Ptr, I64], Ptr);
+    // The same conversion for a NaN-boxed value meeting a typed array
+    // slot (`a = o`, `o: any`) — fn_table-only, resolved by name in
+    // the assignment lanes (`ssa_lower_assign_slot_fit`).
+    let _ = decl!("__torajs_arr_from_any_typed", [Any, I64], Ptr);
+    // Its `Array<Any>`-slot sibling: the boxed array cell itself,
+    // shared, or a TypeError.
+    let _ = decl!("__torajs_arr_cell_from_any", [Any], Ptr);
     ArrAnyIds {
         arr_alloc_any,
         arr_any_push: decl!("__torajs_arr_any_push", [Ptr, Ptr, I64, Ptr], I64),

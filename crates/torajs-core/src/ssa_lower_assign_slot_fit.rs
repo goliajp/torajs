@@ -23,6 +23,128 @@ pub(crate) fn arr_views_into_owned_slot(ctx: &LowerCtx<'_>, slot_ty: Type, v_ty:
             && ctx.arr_layouts[v.0 as usize] == Type::Substr)
 }
 
+/// A typed array (`Arr<Str>`, `Arr<F64>`, a split product's views …)
+/// meeting an `Arr<Any>` slot — an `any[]` annotation, or a `string[]`
+/// one the width table widened because its alias class flows into an
+/// `any` slot. The block keeps its raw-slot layout and is shared as it
+/// is; the slot's kind-aware readers rebox each element on read once
+/// the header carries the element kind (`emit_arr_mark_kind`), which
+/// is how the binding lane has admitted the same crossing since RFC
+/// 20260707 chunk 621. Before this the assignment lanes refused it
+/// (`let a: any[] = []; a = typed` died at compile time where bun runs
+/// it).
+pub(crate) fn arr_typed_into_any_slot(ctx: &LowerCtx<'_>, slot_ty: Type, v_ty: Type) -> bool {
+    matches!((slot_ty, v_ty), (Type::Arr(s), Type::Arr(v))
+        if ctx.arr_layouts[s.0 as usize] == Type::Any
+            && ctx.arr_layouts[v.0 as usize] != Type::Any)
+}
+
+/// The share for [`arr_typed_into_any_slot`]. A split product's views
+/// never leave their block — the readers behind an `any`-element slot
+/// would hand the inline views on — so an `Arr<Substr>` value is copied
+/// out as owned strings first; then the block carries its element kind.
+fn share_typed_into_any_slot(
+    ctx: &mut LowerCtx<'_>,
+    v_ty: Type,
+    v: Operand,
+    value: ExprId,
+) -> Operand {
+    let v = match v_ty {
+        Type::Arr(id) if ctx.arr_layouts[id.0 as usize] == Type::Substr => {
+            let owned_ty = Type::Arr(crate::ssa_lower::intern_arr_layout(
+                ctx.arr_layouts,
+                Type::Str,
+            ));
+            coerce_arr_views_to_owned(ctx, owned_ty, v_ty, v, value)
+        }
+        _ => v,
+    };
+    ctx.emit_arr_mark_kind(&v);
+    v
+}
+
+/// An `any` value meeting a typed `Arr<T>` slot (`a = o` with `o:
+/// any`, a split on an `any` receiver rebound into a `string[]`): the
+/// box is decode-copied into a fresh typed block at the boundary, the
+/// crossing the binding lane makes for an `Array<Any>` init under a
+/// typed annotation (chunk 698); a non-array, or an element the kind
+/// cannot carry, is a catchable TypeError. Answers the target kind.
+/// Not for a view-layout slot: an `Arr<Substr>` block holds inline
+/// views, which no copy of owned strings can be.
+///
+/// A slot whose class meets an `any`-annotated binding is widened to
+/// an `any` element by the width table and takes the cell itself
+/// ([`arr_any_slot_takes_any`]), so a borrowed rhs reaches this copy
+/// only when its `any` type is the checker's alone (an unannotated
+/// binding holding a split on an `any` receiver). The copy then
+/// detaches the slot from the source — a later write to the source is
+/// not seen through the slot, and the two are not `===` — where the
+/// runtime semantics share one array; the alternative was the
+/// compile-time refusal this replaces. Pinned by
+/// `arr-any-slot-from-any-002`.
+pub(crate) fn arr_slot_takes_any(ctx: &LowerCtx<'_>, slot_ty: Type, v_ty: Type) -> Option<i64> {
+    let Type::Arr(s) = slot_ty else {
+        return None;
+    };
+    if v_ty != Type::Any {
+        return None;
+    }
+    let elem = ctx.arr_layouts[s.0 as usize];
+    if elem == Type::Any || elem == Type::Substr {
+        return None;
+    }
+    crate::ssa_lower_stmt_let_decl_convert::arr_elem_kind_const(&elem)
+}
+
+/// An `any` value meeting an `Arr<Any>` slot (`a = o` with `a: any[]`,
+/// or a `string[]` slot the width table widened): the boxed array cell
+/// is shared as it is — an ANY-flavor block or a kind-marked typed one,
+/// both of which the slot's readers decode — and a non-array is a
+/// catchable TypeError. The box's stake passes into the slot with the
+/// cell (a heap box is the cell's pointer).
+pub(crate) fn arr_any_slot_takes_any(ctx: &LowerCtx<'_>, slot_ty: Type, v_ty: Type) -> bool {
+    matches!(slot_ty, Type::Arr(s) if ctx.arr_layouts[s.0 as usize] == Type::Any)
+        && v_ty == Type::Any
+}
+
+fn share_any_into_arr_any_slot(ctx: &mut LowerCtx<'_>, slot_ty: Type, v: Operand) -> Operand {
+    let fid = *ctx
+        .fn_table
+        .get("__torajs_arr_cell_from_any")
+        .expect("__torajs_arr_cell_from_any intrinsic missing");
+    let cur_block = ctx.cur_block;
+    let out = ctx
+        .f
+        .append_inst(cur_block, InstKind::Call(fid, vec![v]), slot_ty, None);
+    ctx.emit_throw_check(None);
+    Operand::Value(out)
+}
+
+/// The copy for [`arr_slot_takes_any`]. The box's stake — the borrow
+/// inc the assignment took, or a fresh temp's own — is released once
+/// the copy holds its own shares.
+fn coerce_any_into_arr_slot(
+    ctx: &mut LowerCtx<'_>,
+    slot_ty: Type,
+    kind: i64,
+    v: Operand,
+) -> Operand {
+    let fid = *ctx
+        .fn_table
+        .get("__torajs_arr_from_any_typed")
+        .expect("__torajs_arr_from_any_typed intrinsic missing");
+    let cur_block = ctx.cur_block;
+    let out = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(fid, vec![v.clone(), Operand::ConstI64(kind)]),
+        slot_ty,
+        None,
+    );
+    ctx.emit_throw_check(None);
+    ctx.emit_drop_value(v, Type::Any);
+    Operand::Value(out)
+}
+
 /// A fresh split product (the expression transfers ownership — the
 /// site holds the only reference) is materialized in place: every
 /// view becomes an owned string and the same cell is stored. Answers
@@ -126,6 +248,9 @@ pub(super) fn coerce_arr_views_to_owned(
 pub(super) fn global_coercion_compatible(ctx: &LowerCtx<'_>, slot_ty: Type, v_ty: Type) -> bool {
     v_ty == slot_ty
         || arr_views_into_owned_slot(ctx, slot_ty, v_ty)
+        || arr_typed_into_any_slot(ctx, slot_ty, v_ty)
+        || arr_slot_takes_any(ctx, slot_ty, v_ty).is_some()
+        || arr_any_slot_takes_any(ctx, slot_ty, v_ty)
         // chunk 809 — an Any slot admits everything (boxed at the caller)
         || slot_ty == Type::Any
         || (slot_ty == Type::F64 && v_ty == Type::I64)
@@ -156,6 +281,12 @@ pub(super) fn coerce_for_global(
 ) -> Operand {
     if arr_views_into_owned_slot(ctx, slot_ty, v_ty) {
         coerce_arr_views_to_owned(ctx, slot_ty, v_ty, v, value)
+    } else if arr_typed_into_any_slot(ctx, slot_ty, v_ty) {
+        share_typed_into_any_slot(ctx, v_ty, v, value)
+    } else if let Some(kind) = arr_slot_takes_any(ctx, slot_ty, v_ty) {
+        coerce_any_into_arr_slot(ctx, slot_ty, kind, v)
+    } else if arr_any_slot_takes_any(ctx, slot_ty, v_ty) {
+        share_any_into_arr_any_slot(ctx, slot_ty, v)
     } else if slot_ty == Type::F64 && v_ty == Type::I64 {
         ctx.coerce_to_f64(v)
     } else if let Some(cast) = ctx.checked_cast(
@@ -199,7 +330,10 @@ pub(super) fn check_local_coercion(ctx: &LowerCtx<'_>, name: &str, snap_ty: Type
         || (snap_ty == Type::Str && v_ty == Type::Any)
         || (snap_ty == Type::Bool && v_ty == Type::Any)
         || (snap_ty == Type::Str && v_ty == Type::Substr)
-        || arr_views_into_owned_slot(ctx, snap_ty, v_ty);
+        || arr_views_into_owned_slot(ctx, snap_ty, v_ty)
+        || arr_typed_into_any_slot(ctx, snap_ty, v_ty)
+        || arr_slot_takes_any(ctx, snap_ty, v_ty).is_some()
+        || arr_any_slot_takes_any(ctx, snap_ty, v_ty);
     if direct_compatible {
         return;
     }
@@ -251,6 +385,12 @@ pub(super) fn coerce_for_local(
 ) -> Operand {
     if arr_views_into_owned_slot(ctx, snap_ty, v_ty) {
         coerce_arr_views_to_owned(ctx, snap_ty, v_ty, v, value)
+    } else if arr_typed_into_any_slot(ctx, snap_ty, v_ty) {
+        share_typed_into_any_slot(ctx, v_ty, v, value)
+    } else if let Some(kind) = arr_slot_takes_any(ctx, snap_ty, v_ty) {
+        coerce_any_into_arr_slot(ctx, snap_ty, kind, v)
+    } else if arr_any_slot_takes_any(ctx, snap_ty, v_ty) {
+        share_any_into_arr_any_slot(ctx, snap_ty, v)
     } else if snap_ty == Type::Any && v_ty != Type::Any {
         // S2.28 (RFC 20260727-dstr-assignment) — the eid-aware box,
         // same as the global lane and the let-init lane: a typed OOB
