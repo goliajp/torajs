@@ -208,13 +208,14 @@ impl Walker<'_> {
                 }
                 OP_SAVE_RESET => {
                     let end = (ins.b as usize).min(row.len());
-                    for slot in (ins.a as usize).min(end)..end {
-                        if row[slot] >= 0 {
+                    let start = (ins.a as usize).min(end);
+                    for (slot, cell) in row.iter_mut().enumerate().take(end).skip(start) {
+                        if *cell >= 0 {
                             bt.stack.push(Job::Restore {
                                 slot: slot as u32,
-                                old: row[slot],
+                                old: *cell,
                             });
-                            row[slot] = -1;
+                            *cell = -1;
                         }
                     }
                 }
