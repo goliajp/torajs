@@ -140,7 +140,7 @@ mod tests {
         Function {
             name: name.into(),
             params: Vec::new(),
-            ret: ret_ty.clone(),
+            ret: ret_ty,
             values: vec![ValueInfo {
                 ty: ret_ty,
                 name: Some("v0".into()),

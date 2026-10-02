@@ -141,10 +141,10 @@ pub fn compute_liveness(func: &Function) -> (HashMap<u32, Interval>, BlockLivene
             // the trivial allocator never does, but a real allocator
             // might) sees the operand as "still alive at idx".
             visit_inst_operands(&inst.kind, |v| {
-                if let Some(it) = out.get_mut(&v.0) {
-                    if idx > it.end {
-                        it.end = idx;
-                    }
+                if let Some(it) = out.get_mut(&v.0)
+                    && idx > it.end
+                {
+                    it.end = idx;
                 }
                 // Operand references a value the lowerer never defined?
                 // Likely an upstream bug, but liveness is best-effort —
@@ -172,10 +172,10 @@ pub fn compute_liveness(func: &Function) -> (HashMap<u32, Interval>, BlockLivene
         // it; Br / Unreachable contribute none, Ret/CondBr each
         // contribute one.
         visit_terminator_operands(&block.term, |v| {
-            if let Some(it) = out.get_mut(&v.0) {
-                if idx > it.end {
-                    it.end = idx;
-                }
+            if let Some(it) = out.get_mut(&v.0)
+                && idx > it.end
+            {
+                it.end = idx;
             }
         });
         idx += 1;

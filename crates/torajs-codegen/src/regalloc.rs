@@ -12,7 +12,7 @@ use crate::reg::{Fpr, Gpr, Reg};
 #[derive(Debug, Clone)]
 pub struct Assignment {
     /// Map from SSA `ValueId` (debug-stable u32) to the register class
-    /// + slot it lives in for its entire lifetime. Spilled values
+    /// and slot it lives in for its entire lifetime. Spilled values
     /// carry a `Reg::SpillGpr(off)` / `Reg::SpillFpr(off)` whose
     /// `off` is sp-relative (already includes the alloca region
     /// offset; see `linear_scan::allocate_linear_scan`).

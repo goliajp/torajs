@@ -177,7 +177,10 @@ pub fn fjcvtzs_w_d(rd: Gpr, rn: Fpr) -> u32 {
 /// by 8. ARM ARM C7.2.181 (LDR SIMD&FP imm, unsigned offset, 64-bit
 /// form). Base = 0xFD40_0000 (size=11, V=1, opc=01).
 pub fn ldr_d_imm12(rt: Fpr, rn: Gpr, byte_offset: u32) -> u32 {
-    debug_assert!(byte_offset % 8 == 0, "byte offset must be 8-byte aligned");
+    debug_assert!(
+        byte_offset.is_multiple_of(8),
+        "byte offset must be 8-byte aligned"
+    );
     let imm12 = byte_offset / 8;
     debug_assert!(imm12 < 4096, "scaled offset must fit in 12 bits");
     0xFD40_0000 | (imm12 << 10) | (rn.idx() << 5) | rt.idx()
@@ -187,7 +190,10 @@ pub fn ldr_d_imm12(rt: Fpr, rn: Gpr, byte_offset: u32) -> u32 {
 /// by 8. ARM ARM C7.2.391 (STR SIMD&FP imm, unsigned offset, 64-bit
 /// form). Base = 0xFD00_0000 (size=11, V=1, opc=00).
 pub fn str_d_imm12(rt: Fpr, rn: Gpr, byte_offset: u32) -> u32 {
-    debug_assert!(byte_offset % 8 == 0, "byte offset must be 8-byte aligned");
+    debug_assert!(
+        byte_offset.is_multiple_of(8),
+        "byte offset must be 8-byte aligned"
+    );
     let imm12 = byte_offset / 8;
     debug_assert!(imm12 < 4096, "scaled offset must fit in 12 bits");
     0xFD00_0000 | (imm12 << 10) | (rn.idx() << 5) | rt.idx()

@@ -295,6 +295,7 @@ mod tests {
 
     /// The value the MOVZ / MOVN / MOVK words in `bytes` leave in the
     /// register, as the core computes it.
+    #[allow(clippy::unusual_byte_groupings)] // sf_opc_opcode groups mirror the A64 encoding
     fn decode_mov_chain(bytes: &[u8]) -> u64 {
         let mut acc = 0u64;
         for w in bytes.chunks(4) {

@@ -234,7 +234,7 @@ pub fn compile_function_with(
     let mut block_slot: u32 = 0;
     for (bi, block) in func.blocks.iter().enumerate() {
         if !falls_in {
-            while bytes.len() % BRANCH_TARGET_ALIGN != 0 {
+            while !bytes.len().is_multiple_of(BRANCH_TARGET_ALIGN) {
                 write_u32(&mut bytes, crate::enc::nop());
             }
         }
@@ -260,18 +260,18 @@ pub fn compile_function_with(
                 continue; // the CSINC downstream emits this add / compare
             }
             if let Some(plan) = select_incs.plan(block.id.0, ii as u32) {
-                cmp::emit_select_inc(&mut bytes, inst, plan, &alloc);
+                cmp::emit_select_inc(&mut bytes, inst, plan, alloc);
                 continue;
             }
             if let InstKind::Select(ty, _, then_op, else_op) = &inst.kind
                 && ii > 0
                 && let Some(fc) = select_fused.get(&(block.id.0, ii as u32 - 1))
             {
-                cmp::emit_select_fused(&mut bytes, inst, ty, fc, then_op, else_op, &alloc);
+                cmp::emit_select_fused(&mut bytes, inst, ty, fc, then_op, else_op, alloc);
                 continue;
             }
             let site = block_slot + ii as u32;
-            emit_inst_at(&mut bytes, &mut relocs, func, inst, &alloc, facts, site);
+            emit_inst_at(&mut bytes, &mut relocs, func, inst, alloc, facts, site);
         }
         block_slot += block.insts.len() as u32 + 1;
         // The layout successor's final identity — a branch resolving
@@ -285,8 +285,8 @@ pub fn compile_function_with(
             &mut bytes,
             &mut fixups,
             &block.term,
-            &frame,
-            &alloc,
+            frame,
+            alloc,
             fused,
             &blocks_by_id,
             next_resolved,
@@ -555,6 +555,7 @@ mod tests {
     ///     (the spilled value's def write-back + its later use load),
     ///   - epilogue releases the same frame size,
     ///   - end with RET.
+    ///
     /// This is the headline acceptance test for LS-3: it proves the
     /// def-side `def_gpr` + write_def_spill_gpr machinery and the
     /// operand-side LDR-from-spill machinery wire up correctly when
@@ -634,8 +635,8 @@ mod tests {
         // OP_SCRATCH_RESULT_GPR (X12) writes/reads we expect Rn=SP.
         let mut str_to_sp = 0;
         let mut ldr_from_sp = 0;
-        for chunk in compiled.bytes.chunks_exact(4) {
-            let w = u32::from_le_bytes(chunk.try_into().unwrap());
+        for chunk in compiled.bytes.as_chunks::<4>().0 {
+            let w = u32::from_le_bytes(*chunk);
             if (w & 0xFFC0_03E0) == (enc::str_x_imm12(Gpr::X12, Gpr::SP, 0) & 0xFFC0_03E0)
                 && ((w >> 5) & 0x1F) == 31
             {
@@ -654,8 +655,8 @@ mod tests {
         // bit 22 set: base = 0xF940_0000.
         let mut strs = 0;
         let mut ldrs = 0;
-        for chunk in compiled.bytes.chunks_exact(4) {
-            let w = u32::from_le_bytes(chunk.try_into().unwrap());
+        for chunk in compiled.bytes.as_chunks::<4>().0 {
+            let w = u32::from_le_bytes(*chunk);
             let rn = (w >> 5) & 0x1F;
             if rn != 31 {
                 continue;

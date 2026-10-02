@@ -5,7 +5,10 @@ use crate::reg::Gpr;
 /// LDR Xt, [Xn, #imm12] — load 64-bit, unsigned offset, scaled by 8.
 /// ARM ARM C6.2.131.
 pub fn ldr_x_imm12(rt: Gpr, rn: Gpr, byte_offset: u32) -> u32 {
-    debug_assert!(byte_offset % 8 == 0, "byte offset must be 8-byte aligned");
+    debug_assert!(
+        byte_offset.is_multiple_of(8),
+        "byte offset must be 8-byte aligned"
+    );
     let imm12 = byte_offset / 8;
     debug_assert!(imm12 < 4096, "scaled offset must fit in 12 bits");
     0xF940_0000 | (imm12 << 10) | (rn.idx() << 5) | rt.idx()
@@ -14,7 +17,10 @@ pub fn ldr_x_imm12(rt: Gpr, rn: Gpr, byte_offset: u32) -> u32 {
 /// STR Xt, [Xn, #imm12] — store 64-bit, unsigned offset, scaled by 8.
 /// ARM ARM C6.2.395.
 pub fn str_x_imm12(rt: Gpr, rn: Gpr, byte_offset: u32) -> u32 {
-    debug_assert!(byte_offset % 8 == 0, "byte offset must be 8-byte aligned");
+    debug_assert!(
+        byte_offset.is_multiple_of(8),
+        "byte offset must be 8-byte aligned"
+    );
     let imm12 = byte_offset / 8;
     debug_assert!(imm12 < 4096, "scaled offset must fit in 12 bits");
     0xF900_0000 | (imm12 << 10) | (rn.idx() << 5) | rt.idx()
@@ -23,7 +29,10 @@ pub fn str_x_imm12(rt: Gpr, rn: Gpr, byte_offset: u32) -> u32 {
 /// STR Wt, [Xn, #imm12] — store 32-bit, unsigned offset, scaled by 4.
 /// ARM ARM C6.2.395.
 pub fn str_w_imm12(rt: Gpr, rn: Gpr, byte_offset: u32) -> u32 {
-    debug_assert!(byte_offset % 4 == 0, "byte offset must be 4-byte aligned");
+    debug_assert!(
+        byte_offset.is_multiple_of(4),
+        "byte offset must be 4-byte aligned"
+    );
     let imm12 = byte_offset / 4;
     debug_assert!(imm12 < 4096, "scaled offset must fit in 12 bits");
     0xB900_0000 | (imm12 << 10) | (rn.idx() << 5) | rt.idx()
@@ -32,7 +41,10 @@ pub fn str_w_imm12(rt: Gpr, rn: Gpr, byte_offset: u32) -> u32 {
 /// LDR Wt, [Xn, #imm12] — load 32-bit zero-extended, unsigned
 /// offset, scaled by 4. ARM ARM C6.2.131.
 pub fn ldr_w_imm12(rt: Gpr, rn: Gpr, byte_offset: u32) -> u32 {
-    debug_assert!(byte_offset % 4 == 0, "byte offset must be 4-byte aligned");
+    debug_assert!(
+        byte_offset.is_multiple_of(4),
+        "byte offset must be 4-byte aligned"
+    );
     let imm12 = byte_offset / 4;
     debug_assert!(imm12 < 4096, "scaled offset must fit in 12 bits");
     0xB940_0000 | (imm12 << 10) | (rn.idx() << 5) | rt.idx()
@@ -158,7 +170,7 @@ pub fn stur_x_imm9(rt: Gpr, rn: Gpr, byte_offset: i32) -> u32 {
 /// Used in prologue as `STP x29, x30, [SP, #-16]!`.
 pub fn stp_pre_index(rt: Gpr, rt2: Gpr, rn: Gpr, byte_offset: i32) -> u32 {
     debug_assert!(byte_offset % 8 == 0, "byte offset must be 8-byte aligned");
-    let imm7 = ((byte_offset / 8) as i32 & 0x7F) as u32;
+    let imm7 = ((byte_offset / 8) & 0x7F) as u32;
     0xA980_0000 | (imm7 << 15) | (rt2.idx() << 10) | (rn.idx() << 5) | rt.idx()
 }
 
@@ -166,7 +178,7 @@ pub fn stp_pre_index(rt: Gpr, rt2: Gpr, rn: Gpr, byte_offset: i32) -> u32 {
 /// ARM ARM C6.2.151. Mirror of `stp_pre_index` for the epilogue.
 pub fn ldp_post_index(rt: Gpr, rt2: Gpr, rn: Gpr, byte_offset: i32) -> u32 {
     debug_assert!(byte_offset % 8 == 0, "byte offset must be 8-byte aligned");
-    let imm7 = ((byte_offset / 8) as i32 & 0x7F) as u32;
+    let imm7 = ((byte_offset / 8) & 0x7F) as u32;
     0xA8C0_0000 | (imm7 << 15) | (rt2.idx() << 10) | (rn.idx() << 5) | rt.idx()
 }
 

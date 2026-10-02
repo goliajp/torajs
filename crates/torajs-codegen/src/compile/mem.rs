@@ -45,7 +45,7 @@ pub fn emit_alloca(bytes: &mut Vec<u8>, inst: &Inst, alloc: &Assignment) {
 /// at offsets up to 524 KiB. Answers the index register, or `None`
 /// when an immediate form fits.
 fn wide_offset(bytes: &mut Vec<u8>, offset: u64, scale: u64) -> Option<Gpr> {
-    let fits = if offset % scale == 0 {
+    let fits = if offset.is_multiple_of(scale) {
         offset < 4095 * scale
     } else {
         offset < 256
@@ -99,7 +99,7 @@ const W_STORE: GprForms = GprForms {
 fn emit_gpr_access(bytes: &mut Vec<u8>, f: &GprForms, rt: Gpr, rn: Gpr, offset: u64) {
     let word = match wide_offset(bytes, offset, f.scale) {
         Some(rm) => (f.reg)(rt, rn, rm),
-        None if offset % f.scale == 0 => (f.imm12)(rt, rn, offset as u32),
+        None if offset.is_multiple_of(f.scale) => (f.imm12)(rt, rn, offset as u32),
         None => (f.imm9)(rt, rn, offset as i32),
     };
     write_u32(bytes, word);
@@ -419,8 +419,10 @@ mod tests {
         let compiled = compile_function(&func);
         let words: Vec<u32> = compiled
             .bytes
-            .chunks_exact(4)
-            .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|c| u32::from_le_bytes(*c))
             .collect();
         let movz = enc::movz_imm(Gpr::X11, (off & 0xFFFF) as u16, 0);
         assert!(words.contains(&movz), "offset materializes into X11");
@@ -474,7 +476,7 @@ mod tests {
                         },
                         Inst {
                             result: None,
-                            kind: InstKind::Store(zero.clone(), Operand::Value(v0), 0),
+                            kind: InstKind::Store(zero, Operand::Value(v0), 0),
                             origin: None,
                         },
                         Inst {

@@ -38,7 +38,7 @@ const _: () = assert!(TLAB_ROW_STRIDE == 16 && TLAB_ROW_LEN_OFF == 8);
 // every row is one ldp / stp signed offset from the cache
 const _: () = assert!((N_CLASSES - 1) * TLAB_ROW_STRIDE <= 504);
 // the link word is one scaled ldr / str offset from the block
-const _: () = assert!(FREE_LINK_OFF % 8 == 0 && FREE_LINK_OFF < 8 * 4096);
+const _: () = assert!(FREE_LINK_OFF.is_multiple_of(8) && FREE_LINK_OFF < 8 * 4096);
 
 /// The module's two object-cell intrinsics.
 #[derive(Debug, Clone, Copy)]
@@ -237,11 +237,7 @@ mod tests {
             Some(1)
         );
         assert_eq!(
-            class(&call(
-                CELLS.free,
-                vec![p.clone(), Operand::ConstI64(64)],
-                None
-            )),
+            class(&call(CELLS.free, vec![p, Operand::ConstI64(64)], None)),
             Some(2)
         );
         // no size class: zero, and past the largest
@@ -254,7 +250,7 @@ mod tests {
             None
         );
         // a size only known at run time
-        assert_eq!(class(&call(CELLS.alloc, vec![p.clone()], Some(1))), None);
+        assert_eq!(class(&call(CELLS.alloc, vec![p], Some(1))), None);
         // another callee
         assert_eq!(
             class(&call(FuncId(9), vec![Operand::ConstI64(48)], Some(1))),

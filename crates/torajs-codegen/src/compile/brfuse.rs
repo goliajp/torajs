@@ -384,8 +384,10 @@ mod tests {
 
     fn words_of(bytes: &[u8]) -> Vec<u32> {
         bytes
-            .chunks_exact(4)
-            .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|c| u32::from_le_bytes(*c))
             .collect()
     }
 
@@ -553,7 +555,7 @@ mod tests {
             insts: vec![],
             term: Terminator::Br(BlockId(t)),
         };
-        let blocks = vec![empty_br(0, 1), empty_br(1, 2), empty_br(2, 2)];
+        let blocks = [empty_br(0, 1), empty_br(1, 2), empty_br(2, 2)];
         let by_id: HashMap<u32, &Block> = blocks.iter().map(|b| (b.id.0, b)).collect();
         // 0 → 1 → 2; 2 self-loops so the walk parks there
         assert_eq!(resolve_forwarded_target(&by_id, BlockId(0)), BlockId(2));
