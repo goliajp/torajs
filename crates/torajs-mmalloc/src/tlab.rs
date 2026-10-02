@@ -154,12 +154,21 @@ impl TlabCache {
         true
     }
 
-    /// Make a chain of `len` blocks the row of `class`, which must be
-    /// empty. `len <= SPILL_AT`.
+    /// Make a chain of `len` blocks the row of `class`, replacing
+    /// whatever the row held. `len <= SPILL_AT`.
     pub(crate) fn splice(&mut self, class: usize, head: *mut u8, len: usize) {
         if let Some(row) = self.rows.get_mut(class) {
             row.head = head;
             row.len = len;
+        }
+    }
+
+    /// The row of `class` as `(head, len)`; `(null, 0)` out of range.
+    #[inline]
+    pub(crate) fn row(&self, class: usize) -> (*mut u8, usize) {
+        match self.rows.get(class) {
+            Some(r) => (r.head, r.len),
+            None => (ptr::null_mut(), 0),
         }
     }
 

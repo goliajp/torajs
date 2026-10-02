@@ -16,14 +16,19 @@
 
 use core::ptr;
 
-use crate::arena::{ARENA_LEN, Arena};
+use crate::arena::{ARENA_LEN, ARENA_PAGE, Arena};
 use crate::region_registry::{RegionKind, with_registry};
 use crate::size_class::class_size;
 use crate::span::{SpanMeta, SpanState};
-use crate::tlab::{SPILL_AT, TlabCache};
+use crate::tlab::{FREE_LINK_OFF, SPILL_AT, TlabCache};
 
 /// Blocks a spill moves out of a full row.
 const SPILL_COUNT: usize = SPILL_AT / 2;
+
+#[inline]
+unsafe fn link(p: *mut u8) -> *mut *mut u8 {
+    unsafe { p.add(FREE_LINK_OFF) as *mut *mut u8 }
+}
 
 impl TlabCache {
     /// Refill the empty row of `class` and hand one block out. Null
@@ -65,19 +70,23 @@ impl TlabCache {
     pub(crate) unsafe fn spill(&mut self, class: usize, ptr: *mut u8) {
         #[cfg(torajs_census)]
         crate::core::census::SPILLS.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-        let mut out = [ptr::null_mut(); SPILL_COUNT + 1];
-        out[0] = ptr;
-        let mut n = 1;
-        while n <= SPILL_COUNT {
-            let Some(p) = self.pop(class) else {
-                break;
-            };
-            // SAFETY: n <= SPILL_COUNT < out.len()
-            unsafe { *out.get_unchecked_mut(n) = p };
-            n += 1;
+        // ptr joins the row's chain in front; the chain's first
+        // SPILL_COUNT + 1 blocks go back, the rest stays the row
+        let (head, len) = self.row(class);
+        // a full row's push refuses before it looks at the row, so
+        // a block already on it would close the chain into a ring
+        #[cfg(torajs_alloc_guard)]
+        {
+            let mut q = head;
+            while !q.is_null() {
+                assert!(q != ptr, "block freed twice (row)");
+                q = unsafe { *link(q) };
+            }
         }
-        // SAFETY: n <= out.len()
-        unsafe { self.release_run(class, out.get_unchecked(..n)) };
+        unsafe { *link(ptr) = head };
+        let n = SPILL_COUNT.min(len);
+        let rest = unsafe { self.release_chain(class, ptr, n + 1) };
+        self.splice(class, rest, len - n);
     }
 
     /// One block back to its span, by the owner's or the foreign path.
@@ -86,45 +95,78 @@ impl TlabCache {
     /// As [`TlabCache::spill`].
     #[cfg(test)]
     pub(crate) unsafe fn release_block(&mut self, class: usize, p: *mut u8) {
-        unsafe { self.release_run(class, &[p]) };
+        unsafe { self.release_chain(class, p, 1) };
     }
 
-    /// Blocks back to their spans. A run of neighbours on the same
-    /// span settles that span's count once; blocks of another heap's
-    /// arena take the atomic path one by one.
+    /// The first `n` blocks of the chain at `head` go back to their
+    /// spans; returns the block after them. A run of neighbours on
+    /// the same span keeps its links and moves onto that span's free
+    /// list in one splice, settling the span's count once; a block of
+    /// another heap's arena takes the atomic path by itself.
     ///
     /// # Safety
-    /// As [`TlabCache::spill`], for every block.
-    unsafe fn release_run(&mut self, class: usize, blocks: &[*mut u8]) {
+    /// As [`TlabCache::spill`], for every block; the chain holds at
+    /// least `n` blocks.
+    unsafe fn release_chain(&mut self, class: usize, head: *mut u8, n: usize) -> *mut u8 {
+        // the open run: its span, the span's byte range, and the
+        // chain segment collected so far
         let mut cur: *mut SpanMeta = ptr::null_mut();
-        let mut run = 0;
+        let mut lo = 0usize;
+        let mut len = 0usize;
         let mut was_full = false;
-        for &p in blocks {
-            let arena = Arena::containing(p);
-            let meta = unsafe { (*arena).meta_of(p) };
-            #[cfg(torajs_alloc_guard)]
-            assert!(
-                unsafe { (*meta).class() } == class,
-                "block released at another size class"
-            );
-            if !ptr::eq(unsafe { (*arena).owner }, self) {
-                unsafe { (*meta).release_remote(p) };
-                continue;
-            }
-            if meta != cur {
+        let mut seg_head = ptr::null_mut();
+        let mut seg_last = ptr::null_mut();
+        let mut run = 0;
+        let mut p = head;
+        for _ in 0..n {
+            let next = unsafe { *link(p) };
+            if (p as usize).wrapping_sub(lo) >= len {
                 if run > 0 {
-                    unsafe { self.settle(class, cur, run, was_full) };
+                    unsafe { self.settle_chain(class, cur, seg_head, seg_last, run, was_full) };
+                    run = 0;
+                }
+                let arena = Arena::containing(p);
+                let meta = unsafe { (*arena).meta_of(p) };
+                #[cfg(torajs_alloc_guard)]
+                assert!(
+                    unsafe { (*meta).class() } == class,
+                    "block released at another size class"
+                );
+                if !ptr::eq(unsafe { (*arena).owner }, self) {
+                    unsafe { (*meta).release_remote(p) };
+                    len = 0;
+                    p = next;
+                    continue;
                 }
                 cur = meta;
-                run = 0;
+                lo = unsafe { (*arena).span_base(meta) } as usize;
+                len = unsafe { (*meta).pages() } * ARENA_PAGE;
                 was_full = unsafe { (*meta).state() } == SpanState::Full;
+                seg_head = p;
             }
-            unsafe { (*meta).push_free(p) };
+            seg_last = p;
             run += 1;
+            p = next;
         }
         if run > 0 {
-            unsafe { self.settle(class, cur, run, was_full) };
+            unsafe { self.settle_chain(class, cur, seg_head, seg_last, run, was_full) };
         }
+        p
+    }
+
+    /// A chain segment of `run` blocks goes onto `meta`'s free list,
+    /// then the span's count is settled.
+    unsafe fn settle_chain(
+        &mut self,
+        class: usize,
+        meta: *mut SpanMeta,
+        head: *mut u8,
+        last: *mut u8,
+        run: usize,
+        was_full: bool,
+    ) {
+        unsafe { (*meta).push_chain(head, last, run) };
+        unsafe { self.settle(class, meta, run, was_full) };
     }
 
     /// `run` blocks went back on `meta`'s free list: count them, and
@@ -532,6 +574,121 @@ mod tests {
         assert_eq!(unsafe { (*m).used() }, 255);
         assert_eq!(unsafe { (*m).n_free() }, 1);
         let _ = alloc(&mut other, C64);
+    }
+
+    /// Walk a row's chain from its head, collecting the blocks.
+    fn row_chain(h: &TlabCache, class: usize) -> Vec<*mut u8> {
+        let mut v = Vec::new();
+        let (mut p, _) = h.row(class);
+        while !p.is_null() {
+            v.push(p);
+            p = unsafe { *link(p) };
+        }
+        v
+    }
+
+    /// A spill whose chain changes span twice and crosses a block of
+    /// another heap: every segment lands on its own span with the
+    /// counts right, the foreign block goes on its atomic list, and
+    /// the row keeps exactly its older half.
+    #[test]
+    fn spill_splits_the_chain_where_the_span_changes() {
+        let mut h = heap();
+        let mut other = heap();
+        let n = slots_per_span(C64);
+        let s_blocks: Vec<_> = (0..n).map(|_| alloc(&mut h, C64)).collect();
+        let t_blocks: Vec<_> = (0..n).map(|_| alloc(&mut h, C64)).collect();
+        let s = meta_of(s_blocks[0]);
+        let t = meta_of(t_blocks[0]);
+        assert!(!ptr::eq(s, t) && h.is_empty());
+        assert_eq!(unsafe { (*s).state() }, SpanState::Full);
+        assert_eq!(unsafe { (*t).state() }, SpanState::Cur);
+        let r = alloc(&mut other, C64);
+        let rm = meta_of(r);
+        // the row, oldest first: SPILL_COUNT of s that stay, then
+        // the SPILL_COUNT that a spill takes, pushed so the chain
+        // reads  a(s) c(t) b(s) r d(s) ... s  from the head
+        let (a, b, c, d) = (s_blocks[0], s_blocks[1], t_blocks[0], s_blocks[2]);
+        // the last s block stays in hand, so s never empties
+        let stay = &s_blocks[3..3 + SPILL_COUNT];
+        let go = &s_blocks[3 + SPILL_COUNT..n - 1];
+        assert_eq!(go.len(), SPILL_COUNT - 4);
+        for &p in stay.iter().chain(go.iter().rev()) {
+            assert!(unsafe { h.push(C64, p) });
+        }
+        for &p in &[d, r, b, c] {
+            assert!(unsafe { h.push(C64, p) });
+        }
+        assert_eq!(h.row_len(C64), SPILL_AT);
+        assert!(!unsafe { h.push(C64, a) }, "a full row refuses");
+        unsafe { h.spill(C64, a) };
+        // s: a, b and the d run came back in three segments
+        assert_eq!(unsafe { (*s).n_free() }, SPILL_COUNT - 1);
+        assert_eq!(unsafe { (*s).used() }, n - (SPILL_COUNT - 1));
+        assert_eq!(unsafe { (*s).state() }, SpanState::Partial);
+        assert_eq!(h.partial[C64], s);
+        // t: only c, and it stays the current span
+        assert_eq!(unsafe { (*t).n_free() }, 1);
+        assert_eq!(unsafe { (*t).used() }, n - 1);
+        assert_eq!(unsafe { (*t).state() }, SpanState::Cur);
+        assert_eq!(h.cur(C64), t);
+        // r went to the other heap's span by the atomic path
+        assert_eq!(unsafe { (*rm).used() }, n);
+        assert_eq!(unsafe { (*rm).collect_remote() }, 1);
+        // the row is its older half, s blocks, terminated
+        assert_eq!(h.row_len(C64), SPILL_AT - SPILL_COUNT);
+        let row = row_chain(&h, C64);
+        assert_eq!(row.len(), SPILL_AT - SPILL_COUNT);
+        let mut expect: Vec<_> = stay.to_vec();
+        expect.reverse();
+        assert_eq!(row, expect);
+        // s's free list is walkable and holds exactly the released
+        // s blocks, newest segment first
+        let base = unsafe { (*Arena::containing(s as *mut u8)).span_base(s) };
+        let (fh, fn_) = unsafe { (*s).take_chain(base, class_size(C64)) };
+        assert_eq!(fn_, SPILL_COUNT - 1);
+        let mut free = Vec::new();
+        let mut p = fh;
+        while !p.is_null() {
+            free.push(p);
+            p = unsafe { *link(p) };
+        }
+        let mut want = vec![d];
+        want.extend(go.iter());
+        want.push(b);
+        want.push(a);
+        assert_eq!(free, want);
+        let _ = alloc(&mut other, C64);
+    }
+
+    /// Spill count of a row oscillating across the threshold: one
+    /// spill per SPILL_COUNT + 1 frees past a full row, as the trigger
+    /// and the amount a spill moves are unchanged.
+    #[test]
+    fn spills_once_per_half_row_of_frees_past_full() {
+        let mut h = heap();
+        let n = slots_per_span(C64);
+        let blocks: Vec<_> = (0..4 * n).map(|_| alloc(&mut h, C64)).collect();
+        let mut spills = 0;
+        for &p in &blocks {
+            if !unsafe { h.push(C64, p) } {
+                unsafe { h.spill(C64, p) };
+                spills += 1;
+            }
+        }
+        // the first SPILL_AT frees fill the row; the next one spills
+        // and leaves SPILL_COUNT, and every SPILL_COUNT + 1 after that
+        // spill once more
+        assert_eq!(spills, (4 * n - SPILL_AT + SPILL_COUNT) / (SPILL_COUNT + 1));
+        // free / alloc alternating: the row moves by one and back,
+        // so the pair never spills
+        let p = alloc(&mut h, C64);
+        let len = h.row_len(C64);
+        for _ in 0..1000 {
+            assert!(unsafe { h.push(C64, p) });
+            assert_eq!(h.pop(C64), Some(p));
+        }
+        assert_eq!(h.row_len(C64), len);
     }
 
     #[test]

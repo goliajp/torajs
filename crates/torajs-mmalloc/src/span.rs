@@ -195,24 +195,36 @@ impl SpanMeta {
         (first, n)
     }
 
-    /// Owner path: link a block of this span onto `free`. The caller
-    /// settles `used` for the whole run with [`SpanMeta::take_back`].
+    /// Owner path: a chain of `n` blocks of this span, `head` through
+    /// `last` linked at `FREE_LINK_OFF`, goes onto `free` in one
+    /// splice. The caller settles `used` with [`SpanMeta::take_back`].
     ///
     /// # Safety
-    /// `p` is a block carved from this span, not already on a list.
+    /// Every block on the chain was carved from this span and is on
+    /// no other list.
     #[inline]
-    pub unsafe fn push_free(&mut self, p: *mut u8) {
+    pub unsafe fn push_chain(&mut self, head: *mut u8, last: *mut u8, n: usize) {
         #[cfg(torajs_alloc_guard)]
         {
-            let mut q = self.free;
-            while !q.is_null() {
-                assert!(q != p, "block freed twice (span)");
-                q = unsafe { *link(q) };
+            let mut p = head;
+            let mut left = n;
+            while left > 0 {
+                let mut q = self.free;
+                while !q.is_null() {
+                    assert!(q != p, "block freed twice (span)");
+                    q = unsafe { *link(q) };
+                }
+                if left > 1 {
+                    p = unsafe { *link(p) };
+                } else {
+                    assert!(p == last, "chain length does not match");
+                }
+                left -= 1;
             }
         }
-        unsafe { *link(p) = self.free };
-        self.free = p;
-        self.n_free += 1;
+        unsafe { *link(last) = self.free };
+        self.free = head;
+        self.n_free += n as u16;
     }
 
     /// `n` blocks are back on `free`.
@@ -229,7 +241,7 @@ impl SpanMeta {
     /// Foreign path: another heap pushes a block of this span.
     ///
     /// # Safety
-    /// As [`SpanMeta::push_free`].
+    /// `p` is a block carved from this span, not already on a list.
     pub unsafe fn release_remote(&self, p: *mut u8) {
         let mut cur = self.thread_free.load(Ordering::Acquire);
         loop {
@@ -297,7 +309,7 @@ mod tests {
     }
 
     unsafe fn release(m: &mut SpanMeta, p: *mut u8) {
-        unsafe { m.push_free(p) };
+        unsafe { m.push_chain(p, p, 1) };
         m.take_back(1);
     }
 
@@ -395,7 +407,7 @@ mod tests {
     /// The link word sits past the block's first word, which keeps
     /// whatever header the block carried.
     #[test]
-    fn push_free_writes_only_the_link_word() {
+    fn push_chain_writes_only_the_link_word() {
         let mut buf = [0xaau8; SLOT * SLOTS];
         let base = buf.as_mut_ptr();
         let mut m = meta(SLOTS);
