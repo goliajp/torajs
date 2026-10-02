@@ -129,10 +129,10 @@ impl StructLayoutEntry {
         let n = self.n_methods();
         let mut i = 0;
         while i < n {
-            if let Some(m) = self.method(i) {
-                if m.name_bytes() == name {
-                    return Some(m);
-                }
+            if let Some(m) = self.method(i)
+                && m.name_bytes() == name
+            {
+                return Some(m);
             }
             i += 1;
         }

@@ -1,8 +1,8 @@
 //! Custom panic infrastructure for torajs AOT user binaries.
 //!
 //! Layer-0 substrate (v0.7 Step 9b, 2026-05-27) — replaces std's
-//! default `rust_begin_unwind` + `rust_panic` + `__rust_start_panic`
-//! + `__rust_alloc_error_handler` with minimal banner+abort impls.
+//! default `rust_begin_unwind`, `rust_panic`, `__rust_start_panic`
+//! and `__rust_alloc_error_handler` with minimal banner+abort impls.
 //! Strips ~250 KiB of `backtrace_rs` / `gimli` / `rustc_demangle` /
 //! `std::path` / `std::io::error` / `std::thread::Thread` /
 //! `std::panicking::*hook` from every user binary.
@@ -13,9 +13,9 @@
 //! `torajs_panic_runtime_active` cfg flag (set by
 //! `scripts/release-build.sh` via `RUSTFLAGS=--cfg=...`):
 //!
-//! - **Active mode** (release-build.sh, polish-A4.1) — `#![no_std]` +
-//!   `#![panic_runtime]` + `#[panic_handler]` + `#[alloc_error_handler]`
-//!   + `rustc_std_internal_symbol` overrides. Produces a staticlib
+//! - **Active mode** (release-build.sh, polish-A4.1) — `#![no_std]`,
+//!   `#![panic_runtime]`, `#[panic_handler]`, `#[alloc_error_handler]`
+//!   and `rustc_std_internal_symbol` overrides. Produces a staticlib
 //!   that, when `-Wl,-force_load`'ed first, wins every panic-routing
 //!   symbol in the binary and dead-strips std's panic tree.
 //!

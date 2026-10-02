@@ -135,6 +135,11 @@ pub unsafe extern "C" fn __torajs_uncaught_error_render_impl(p: *const u8) {
     }
 }
 
+/// # Safety
+///
+/// No preconditions: the entry reads the throw slots and writes the
+/// uncaught banner to stderr. Unsafe for the uniform extern signature
+/// of the runtime surface.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_uncaught_exit_code() -> i32 {
     if THROW_ACTIVE.load(Ordering::Relaxed) == 0 {

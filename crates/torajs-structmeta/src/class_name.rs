@@ -57,7 +57,7 @@ static __torajs_class_name_table: ClassNameTableEntry = ClassNameTableEntry {
 fn class_name_table() -> (*const ClassNameTableEntry, u64) {
     let table: *const ClassNameTableEntry = &raw const __torajs_class_name_table;
     // SAFETY: count global is a plain `u64` in both build paths.
-    let n = unsafe { *(&raw const __torajs_n_class_names) };
+    let n = unsafe { (&raw const __torajs_n_class_names).read() };
     (table, n)
 }
 

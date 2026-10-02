@@ -111,7 +111,7 @@ pub fn d2d(bits: u64) -> Decimal64 {
         if q <= 21 {
             // Tracking trailing zeros: vr/vp/vm divide cleanly by
             // 5 only if mv/mv+2/mm do.
-            if mv % 5 == 0 {
+            if mv.is_multiple_of(5) {
                 vr_is_trailing_zeros = multiple_of_power_of_5(mv, q);
             } else if accept_bounds {
                 vm_is_trailing_zeros = multiple_of_power_of_5(mv - 1 - mm_shift as u64, q);
@@ -151,9 +151,8 @@ pub fn d2d(bits: u64) -> Decimal64 {
     // ----------------------------------------------------------
     let mut last_removed_digit: u8 = 0;
     let mut removed: u32 = 0;
-    let output;
 
-    if vm_is_trailing_zeros || vr_is_trailing_zeros {
+    let output = if vm_is_trailing_zeros || vr_is_trailing_zeros {
         // Rare path (~0.01%): need to track trailing zeros for
         // correct rounding.
         loop {
@@ -186,7 +185,7 @@ pub fn d2d(bits: u64) -> Decimal64 {
         }
         let round_up =
             (vr == vm && (!accept_bounds || !vm_is_trailing_zeros)) || last_removed_digit >= 5;
-        output = vr + round_up as u64;
+        vr + round_up as u64
     } else {
         // Common path (~99.99%): no trailing-zero tracking
         // needed. Use a do-while-style loop so the final vp/vm
@@ -204,8 +203,8 @@ pub fn d2d(bits: u64) -> Decimal64 {
             vm = vm_div10;
             removed += 1;
         }
-        output = vr + ((vr == vm || last_removed_digit >= 5) as u64);
-    }
+        vr + ((vr == vm || last_removed_digit >= 5) as u64)
+    };
 
     Decimal64 {
         mantissa: output,
@@ -318,7 +317,7 @@ fn mul_pow5_div_pow2(m: u64, i: u32, j: i32) -> u64 {
 fn pow5_factor(mut value: u64) -> u32 {
     let mut count = 0;
     while value > 0 {
-        if value % 5 != 0 {
+        if !value.is_multiple_of(5) {
             return count;
         }
         value /= 5;
@@ -336,6 +335,8 @@ fn multiple_of_power_of_2(value: u64, p: u32) -> bool {
     (value & ((1u64 << p) - 1)) == 0
 }
 
+// the test inputs are digit strings, not the constants they resemble
+#[allow(clippy::approx_constant, clippy::excessive_precision)]
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -371,7 +372,7 @@ mod tests {
         // shortest-roundtrip (-6 ≤ E < n_digits + d.exponent), but
         // for the unit-test convenience we mimic Rust's `{}`
         // (slightly different threshold).
-        if abs_exponent >= -4 && abs_exponent < 16 {
+        if (-4..16).contains(&abs_exponent) {
             // Plain decimal form.
             if d.exponent >= 0 {
                 out.push_str(&digits);

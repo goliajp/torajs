@@ -87,18 +87,30 @@ pub unsafe fn syscall6_raw(
 
 /// 3-argument raw syscall — convenience for the dominant case
 /// (`write` / `read` / `lseek` etc).
+///
+/// # Safety
+///
+/// Same contract as [`syscall6`].
 #[inline]
 pub unsafe fn syscall3(sysno: u32, a0: i64, a1: i64, a2: i64) -> i64 {
     unsafe { syscall6(sysno, a0, a1, a2, 0, 0, 0) }
 }
 
 /// 1-argument raw syscall — `exit` / `close` / `getpid`-style.
+///
+/// # Safety
+///
+/// Same contract as [`syscall6`].
 #[inline]
 pub unsafe fn syscall1(sysno: u32, a0: i64) -> i64 {
     unsafe { syscall6(sysno, a0, 0, 0, 0, 0, 0) }
 }
 
 /// 0-argument raw syscall — `getpid` etc.
+///
+/// # Safety
+///
+/// Same contract as [`syscall6`].
 #[inline]
 pub unsafe fn syscall0(sysno: u32) -> i64 {
     unsafe { syscall6(sysno, 0, 0, 0, 0, 0, 0) }

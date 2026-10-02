@@ -37,6 +37,25 @@
 #[cfg(not(target_os = "wasi"))]
 mod native;
 
+// ---- Public constants shared with the native impl module ----
+
+/// `__TORAJS_TAG_RESPONSE` — heap header type tag for Response.
+/// Matches torajs-value-drop's `value_drop_heap` dispatch on tag=9.
+pub const TAG_RESPONSE: u16 = 9;
+
+/// Total Response heap block size in bytes.
+pub const RESPONSE_SIZE: usize = 24;
+
+/// Byte offset of `status` (i64) within the Response block.
+pub const RESPONSE_STATUS_OFF: usize = 8;
+
+/// Byte offset of `body` (*Str) within the Response block.
+pub const RESPONSE_BODY_OFF: usize = 16;
+
+// wasm32-wasi target — fetch is intentionally absent (the
+// pre-rewrite C had the same `#ifndef __wasi__` gate). T-21.b lands the
+// browser-API routing later.
+
 // Cross-tier extern stubs for cargo unit tests — real symbols
 // live in sibling staticlibs (torajs-str + torajs-rc) at
 // `tr build` link time. cargo test for
@@ -44,6 +63,10 @@ mod native;
 // test binary linking clean. Same pattern as torajs-promise /
 // torajs-regex / torajs-cycle test stubs.
 
+/// # Safety
+///
+/// cargo test link stub: never called, panics if reached. No
+/// precondition.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_alloc_pooled(_len: u64) -> *mut u8 {
@@ -52,12 +75,20 @@ pub unsafe extern "C" fn __torajs_str_alloc_pooled(_len: u64) -> *mut u8 {
     );
 }
 
+/// # Safety
+///
+/// cargo test link stub: never called, panics if reached. No
+/// precondition.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_rc_dec(_p: *mut core::ffi::c_void) -> i32 {
     panic!("torajs-fetch test stub: __torajs_rc_dec should not be called from cargo test");
 }
 
+/// # Safety
+///
+/// cargo test link stub: never called, panics if reached. No
+/// precondition.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_value_drop_heap(_p: *mut core::ffi::c_void) {
@@ -80,22 +111,3 @@ mod tests {
         assert_eq!(TAG_RESPONSE, 9);
     }
 }
-
-// ---- Public constants shared with the native impl module ----
-
-/// `__TORAJS_TAG_RESPONSE` — heap header type tag for Response.
-/// Matches torajs-value-drop's `value_drop_heap` dispatch on tag=9.
-pub const TAG_RESPONSE: u16 = 9;
-
-/// Total Response heap block size in bytes.
-pub const RESPONSE_SIZE: usize = 24;
-
-/// Byte offset of `status` (i64) within the Response block.
-pub const RESPONSE_STATUS_OFF: usize = 8;
-
-/// Byte offset of `body` (*Str) within the Response block.
-pub const RESPONSE_BODY_OFF: usize = 16;
-
-// wasm32-wasi target — fetch is intentionally absent (the
-// pre-rewrite C had the same `#ifndef __wasi__` gate). T-21.b lands the
-// browser-API routing later.

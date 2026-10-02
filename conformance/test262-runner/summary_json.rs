@@ -9,32 +9,54 @@
 use std::io::Write;
 use std::path::Path;
 
+/// One sweep's summary, in the field order the JSON writes.
+pub struct Summary<'a> {
+    pub ran_at: &'a str,
+    pub head_sha: &'a str,
+    pub elapsed_sec: f64,
+    pub workers: usize,
+    pub limit: Option<usize>,
+    pub total_cases: usize,
+    pub ran: usize,
+    pub pass: usize,
+    pub pass_no_oracle: usize,
+    pub pass_negative: usize,
+    pub bug: usize,
+    pub incompatible: usize,
+    pub bun_fail: usize,
+    pub harness_error: usize,
+    pub in_scope: usize,
+    pub tr_accepted: usize,
+    pub pass_rate_in_scope: f64,
+    pub pass_rate_tr_accepted: f64,
+}
+
 /// Minimal hand-rolled JSON object writer (test262-runner is zero-dep).
 /// Escapes `"` and `\` in strings; everything else assumed ASCII-safe.
-pub fn write_summary_json(
-    out: &Path,
-    ran_at: &str,
-    head_sha: &str,
-    elapsed_sec: f64,
-    workers: usize,
-    limit: Option<usize>,
-    total_cases: usize,
-    ran: usize,
-    pass: usize,
-    pass_no_oracle: usize,
-    pass_negative: usize,
-    bug: usize,
-    incompatible: usize,
-    bun_fail: usize,
-    harness_error: usize,
-    in_scope: usize,
-    tr_accepted: usize,
-    pass_rate_in_scope: f64,
-    pass_rate_tr_accepted: f64,
-) -> std::io::Result<()> {
+pub fn write_summary_json(out: &Path, summary: &Summary) -> std::io::Result<()> {
     fn esc(s: &str) -> String {
         s.replace('\\', "\\\\").replace('"', "\\\"")
     }
+    let Summary {
+        ran_at,
+        head_sha,
+        elapsed_sec,
+        workers,
+        limit,
+        total_cases,
+        ran,
+        pass,
+        pass_no_oracle,
+        pass_negative,
+        bug,
+        incompatible,
+        bun_fail,
+        harness_error,
+        in_scope,
+        tr_accepted,
+        pass_rate_in_scope,
+        pass_rate_tr_accepted,
+    } = *summary;
     let limit_json = match limit {
         Some(n) => n.to_string(),
         None => "null".to_string(),

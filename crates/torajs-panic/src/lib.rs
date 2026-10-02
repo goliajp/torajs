@@ -175,7 +175,7 @@ unsafe fn emit_macos_backtrace(self_path: &[u8], frames: &[*mut c_void]) {
         snprintf(
             cmd.as_mut_ptr() as *mut c_char,
             cmd.len(),
-            b"atos -o '%.*s' -arch arm64\0".as_ptr(),
+            c"atos -o '%.*s' -arch arm64".as_ptr().cast(),
             self_path.len() as i32,
             self_path.as_ptr(),
         )
@@ -193,7 +193,7 @@ unsafe fn emit_macos_backtrace(self_path: &[u8], frames: &[*mut c_void]) {
             snprintf(
                 cmd.as_mut_ptr().add(off as usize) as *mut c_char,
                 cmd.len() - off as usize,
-                b" 0x%lx\0".as_ptr(),
+                c" 0x%lx".as_ptr().cast(),
                 static_pc,
             )
         };
@@ -206,7 +206,7 @@ unsafe fn emit_macos_backtrace(self_path: &[u8], frames: &[*mut c_void]) {
         snprintf(
             cmd.as_mut_ptr().add(off as usize) as *mut c_char,
             cmd.len() - off as usize,
-            b" 1>&2\0".as_ptr(),
+            c" 1>&2".as_ptr().cast(),
         )
     };
     unsafe { system(cmd.as_ptr() as *const c_char) };

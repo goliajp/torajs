@@ -300,11 +300,11 @@ pub fn stats() -> (usize, u64) {
     let mut n = 0usize;
     let mut bytes = 0u64;
     for e in entries.flatten() {
-        if let Ok(meta) = e.metadata() {
-            if meta.is_file() {
-                n += 1;
-                bytes += meta.len();
-            }
+        if let Ok(meta) = e.metadata()
+            && meta.is_file()
+        {
+            n += 1;
+            bytes += meta.len();
         }
     }
     (n, bytes)

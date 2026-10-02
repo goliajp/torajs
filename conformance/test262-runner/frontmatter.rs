@@ -143,11 +143,12 @@ pub fn parse(src: &str) -> Frontmatter {
             }
             continue;
         }
-        if in_includes_list && indented {
-            if let Some(item) = trimmed.strip_prefix('-') {
-                push_include(&mut fm.includes, item);
-                continue;
-            }
+        if in_includes_list
+            && indented
+            && let Some(item) = trimmed.strip_prefix('-')
+        {
+            push_include(&mut fm.includes, item);
+            continue;
         }
 
         if let Some(rest) = trimmed.strip_prefix("flags:") {

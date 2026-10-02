@@ -72,13 +72,13 @@ pub fn expand(src: &str) -> Option<String> {
             i = end;
             continue;
         }
-        if ident_boundary(bytes, i) {
-            if let Some((name, after)) = helper_name_at(src, i) {
-                let expanded = expand_call(src, name, after)?;
-                out.push_str(&expanded.0);
-                i = expanded.1;
-                continue;
-            }
+        if ident_boundary(bytes, i)
+            && let Some((name, after)) = helper_name_at(src, i)
+        {
+            let expanded = expand_call(src, name, after)?;
+            out.push_str(&expanded.0);
+            i = expanded.1;
+            continue;
         }
         out.push(b as char);
         i += 1;

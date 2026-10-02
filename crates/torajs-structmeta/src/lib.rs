@@ -242,7 +242,7 @@ static __torajs_class_layouts: StructLayoutEntry = StructLayoutEntry {
 fn class_layouts_table() -> (*const StructLayoutEntry, u32) {
     let table: *const StructLayoutEntry = &raw const __torajs_class_layouts;
     // SAFETY: the count global is a plain `u32` in both build paths.
-    let n = unsafe { *(&raw const __torajs_n_class_layouts) };
+    let n = unsafe { (&raw const __torajs_n_class_layouts).read() };
     (table, n)
 }
 
@@ -302,10 +302,10 @@ impl StructLayoutEntry {
         let n = self.n_fields();
         let mut i = 0;
         while i < n {
-            if let Some(f) = self.field(i) {
-                if f.name_bytes() == name {
-                    return Some(i);
-                }
+            if let Some(f) = self.field(i)
+                && f.name_bytes() == name
+            {
+                return Some(i);
             }
             i += 1;
         }
@@ -352,6 +352,11 @@ pub unsafe extern "C" fn __torajs_struct_layout_lookup(class_tag: u32) -> *const
 /// these rows: a non-generic tag with an empty registry slot must
 /// keep the null answer — consumer termination logic depends on it
 /// (the rotation-408 Iterator-helper hang).
+///
+/// # Safety
+///
+/// Any `class_tag` is accepted; an unknown tag answers false. Reads the
+/// linked layout table.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_struct_row_is_generic(class_tag: u32) -> bool {
     match lookup_layout(class_tag) {

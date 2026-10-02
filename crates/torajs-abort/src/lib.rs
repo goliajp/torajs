@@ -64,7 +64,7 @@ unsafe extern "C" {
 /// `bl abort_with` at the failure point and inline the success
 /// path tightly.
 ///
-/// # Safety contract
+/// # Safety
 ///
 /// `msg` must be a valid byte slice (the static-lifetime bound is
 /// a hint to call sites; not enforced — `&[u8]` borrow is checked

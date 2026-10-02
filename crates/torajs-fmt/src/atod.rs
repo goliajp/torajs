@@ -22,7 +22,7 @@
 //! that doesn't require a UTF-8 string conversion step. Public
 //! extern API stays stable across the swap.
 
-use core::str::from_utf8;
+use core::str::from_utf8_unchecked;
 
 /// `__torajs_fmt_atod(s, len, endp) -> f64`.
 ///
@@ -75,7 +75,7 @@ fn parse_f64_span(bytes: &[u8], endp: *mut usize) -> f64 {
         return f64::NAN;
     }
     // SAFETY: ascii-restricted by find_numeric_span_end above.
-    let s = unsafe { from_utf8(&bytes[..span_end]).unwrap_unchecked() };
+    let s = unsafe { from_utf8_unchecked(&bytes[..span_end]) };
     match s.parse::<f64>() {
         Ok(v) => {
             if !endp.is_null() {
@@ -141,6 +141,8 @@ fn find_numeric_span_end(bytes: &[u8]) -> usize {
     if i == after_sign { 0 } else { i }
 }
 
+// the test inputs are digit strings, not the constants they resemble
+#[allow(clippy::approx_constant, clippy::excessive_precision)]
 #[cfg(test)]
 mod tests {
     use super::*;

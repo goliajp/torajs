@@ -245,6 +245,8 @@ fn at(buf: &[u8], i: usize) -> u8 {
     buf.get(i).copied().unwrap_or(0)
 }
 
+// the test inputs are digit strings, not the constants they resemble
+#[allow(clippy::approx_constant, clippy::excessive_precision)]
 #[cfg(test)]
 mod tests {
     use super::*;

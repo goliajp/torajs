@@ -1,9 +1,9 @@
 //! Catchable-throw infrastructure for the torajs AOT TypeScript
 //! runtime — slot machinery + native-error factory registry.
 //!
-//! Layer-1 substrate (no upstream deps). Companion to `torajs-rc`
-//! + `torajs-anyvalue` in P2 of the architecture rewrite. Replaces
-//! the C-side native-error registry + `__torajs_throw_range_error`
+//! Layer-1 substrate (no upstream deps). Companion to `torajs-rc` and
+//! `torajs-anyvalue` in P2 of the architecture rewrite. Replaces the
+//! C-side native-error registry and the `__torajs_throw_range_error`
 //! / `__torajs_throw_type_error` wrappers in the pre-rewrite
 //! `runtime_str.c`.
 //!
@@ -159,6 +159,11 @@ pub unsafe extern "C" fn __torajs_throw_set(tag: i64, value: i64) {
 /// Used by ssa_lower's `emit_throw_check` after every runtime-
 /// intrinsic call that may raise (bigint div-by-zero, dynobj
 /// frozen-set, etc.).
+///
+/// # Safety
+///
+/// No preconditions: the entry only reads the throw slots. Unsafe for
+/// the uniform extern signature of the runtime surface.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_throw_check() -> i64 {
     THROW_ACTIVE.load(Ordering::Relaxed)
@@ -168,6 +173,11 @@ pub unsafe extern "C" fn __torajs_throw_check() -> i64 {
 /// the user-fn's catch block (or fn boundary propagation) to
 /// consume the throw — pairs with `__torajs_throw_take_tag` when
 /// the catch is `: any`-typed.
+///
+/// # Safety
+///
+/// No preconditions: the entry only reads the throw slots. Unsafe for
+/// the uniform extern signature of the runtime surface.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_throw_take() -> i64 {
     let v = THROW_VALUE.load(Ordering::Relaxed);
@@ -182,6 +192,11 @@ pub unsafe extern "C" fn __torajs_throw_take() -> i64 {
 /// is captured (take clears active as a side effect but leaves
 /// the tag slot untouched). Typed-tier catches skip this and
 /// let the cast helper widen the i64 value.
+///
+/// # Safety
+///
+/// No preconditions: the entry only reads the throw slots. Unsafe for
+/// the uniform extern signature of the runtime surface.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_throw_take_tag() -> i64 {
     THROW_TAG.load(Ordering::Relaxed)
@@ -266,27 +281,28 @@ unsafe fn throw_native_str(slot: i64, err: *mut u8) {
         unsafe { __torajs_str_drop(err) };
         return;
     }
-    if slot >= 0 && (slot as usize) < SLOT_COUNT {
-        if let Some(factory) = lookup_factory(slot as usize) {
-            // SAFETY: factory is a valid NativeErrorFactory per the
-            // safety contract of __torajs_register_native_error;
-            // err is a valid freshly-allocated Str.
-            let inst = unsafe { factory(err as *mut c_void, ANY_VALUE_UNDEFINED) };
-            // The factory is a codegen'd TS-level `__new_<C>` fn:
-            // its `message` param follows the standard borrow
-            // convention and the ctor's `this.message = message`
-            // field store takes its own retained reference (rc 1→2
-            // measured). Release our mint stake — the instance's
-            // field is now the sole owner. Without this every
-            // native throw stranded one msg Str per call.
-            // SAFETY: err is a valid non-view Str block; rc ≥ 1.
-            unsafe { __torajs_str_drop(err) };
-            // P2.4-b — direct call to the local Rust impl of
-            // __torajs_throw_set (no extern hop). Same observable
-            // semantics as the LLVM-IR-emitted version it replaces.
-            unsafe { __torajs_throw_set(ANY_TAG_HEAP, inst as i64) };
-            return;
-        }
+    if slot >= 0
+        && (slot as usize) < SLOT_COUNT
+        && let Some(factory) = lookup_factory(slot as usize)
+    {
+        // SAFETY: factory is a valid NativeErrorFactory per the
+        // safety contract of __torajs_register_native_error;
+        // err is a valid freshly-allocated Str.
+        let inst = unsafe { factory(err as *mut c_void, ANY_VALUE_UNDEFINED) };
+        // The factory is a codegen'd TS-level `__new_<C>` fn:
+        // its `message` param follows the standard borrow
+        // convention and the ctor's `this.message = message`
+        // field store takes its own retained reference (rc 1→2
+        // measured). Release our mint stake — the instance's
+        // field is now the sole owner. Without this every
+        // native throw stranded one msg Str per call.
+        // SAFETY: err is a valid non-view Str block; rc ≥ 1.
+        unsafe { __torajs_str_drop(err) };
+        // P2.4-b — direct call to the local Rust impl of
+        // __torajs_throw_set (no extern hop). Same observable
+        // semantics as the LLVM-IR-emitted version it replaces.
+        unsafe { __torajs_throw_set(ANY_TAG_HEAP, inst as i64) };
+        return;
     }
     // Unregistered slot or out-of-range — bare-string fallback. The
     // uncaught reporter prints a Str payload verbatim, so the class

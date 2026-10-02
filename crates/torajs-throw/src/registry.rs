@@ -49,8 +49,8 @@ pub(crate) const SLOT_COUNT: usize = 7;
 /// prints a Str payload verbatim) shows the same first line the
 /// instance path renders (RFC 20260825-injection-reachability 刀 A).
 /// Index-lockstep with the `SLOT_*` constants above.
-/// The slot names, one byte string: `SLOT_NAME_OFF[i]..SLOT_NAME_OFF[i
-/// + 1]` is slot `i`. r505 — not a `[&[u8]; N]`: seven fat pointers
+/// The slot names, one byte string: slot `i` is
+/// `SLOT_NAME_OFF[i]..SLOT_NAME_OFF[i + 1]`. r505 — not a `[&[u8]; N]`: seven fat pointers
 /// were 112 B of `__DATA,__const` (each needs a rebase fixup), the
 /// last file-backed data in every program and so the whole `__DATA`
 /// page's reason to exist. Offsets into one string are plain rodata.

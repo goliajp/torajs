@@ -18,9 +18,9 @@
 //!      not a pass, and bun printing the failure marker demotes it
 //!      from oracle to the no-oracle path.
 //!   5. Categorize (see verdict.rs for the full table):
-//!     - pass / pass-no-oracle / pass-negative
-//!     - bug: unexpected divergence (real-bug bucket)
-//!     - incompatible: documented subset-boundary rejects
+//!      - pass / pass-no-oracle / pass-negative
+//!      - bug: unexpected divergence (real-bug bucket)
+//!      - incompatible: documented subset-boundary rejects
 //!
 //! Concurrency: spawns N worker threads (default 8) that pull from a
 //! shared queue. Each worker writes a temp file under
@@ -52,7 +52,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
 use crate::args::parse_args;
-use crate::summary_json::{detect_head_sha, now_rfc3339, write_summary_json};
+use crate::summary_json::{Summary, detect_head_sha, now_rfc3339, write_summary_json};
 
 const TEST262_ROOT: &str = "vendor/test262";
 /// Typed harness path (relative to repo root). Replaces test262's
@@ -118,8 +118,8 @@ fn read_harness() -> Result<String, String> {
 ///   - `assert.sameValue(`     → `__t262_sameValue(`
 ///   - `assert.notSameValue(`  → `__t262_notSameValue(`
 ///   - `assert.throws(<id>, `  → `__t262_throws_runtime(`  (the class
-///                              arg is KEPT and compared for real —
-///                              see the shim note in the harness)
+///     arg is KEPT and compared for real — see the shim note in the
+///     harness)
 ///   - bare `assert(`          → `__t262_assert(`
 ///
 /// `var` passes through UNCHANGED. A `var ` → `let ` rewrite lived here
@@ -950,11 +950,11 @@ fn main() {
     );
 
     let dump_src = args.dump_src.as_deref().map(Path::new);
-    if let Some(dir) = dump_src {
-        if let Err(e) = std::fs::create_dir_all(dir) {
-            eprintln!("error: create --dump-src dir {}: {e}", dir.display());
-            std::process::exit(2);
-        }
+    if let Some(dir) = dump_src
+        && let Err(e) = std::fs::create_dir_all(dir)
+    {
+        eprintln!("error: create --dump-src dir {}: {e}", dir.display());
+        std::process::exit(2);
     }
 
     let queue = Mutex::new(0usize);
@@ -1211,27 +1211,27 @@ fn main() {
     if let Some(out_path) = args.json_out.as_deref() {
         let ran_at = now_rfc3339();
         let head_sha = args.head_sha.clone().unwrap_or_else(detect_head_sha);
-        if let Err(e) = write_summary_json(
-            Path::new(out_path),
-            &ran_at,
-            &head_sha,
-            elapsed,
-            args.workers,
-            args.limit,
-            total,
-            cases.len(),
+        let summary = Summary {
+            ran_at: &ran_at,
+            head_sha: &head_sha,
+            elapsed_sec: elapsed,
+            workers: args.workers,
+            limit: args.limit,
+            total_cases: total,
+            ran: cases.len(),
             pass,
             pass_no_oracle,
             pass_negative,
-            bugs.len(),
-            incompat_total,
+            bug: bugs.len(),
+            incompatible: incompat_total,
             bun_fail,
-            harness_err.len(),
+            harness_error: harness_err.len(),
             in_scope,
             tr_accepted,
             pass_rate_in_scope,
             pass_rate_tr_accepted,
-        ) {
+        };
+        if let Err(e) = write_summary_json(Path::new(out_path), &summary) {
             eprintln!("warn: --json write to {out_path}: {e}");
         } else {
             println!("\njson summary: {out_path}");

@@ -242,6 +242,10 @@ pub unsafe extern "C" fn __torajs_fn_name_lookup(
     core::ptr::null()
 }
 
+/// # Safety
+///
+/// `fn_addr` is 0, a nullish sentinel cell, or a function address the
+/// name table knows.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_fn_print_inline(fn_addr: u64) {
     // RFC 20260710 C2a — a Nullable fn-typed slot's nullish reprs

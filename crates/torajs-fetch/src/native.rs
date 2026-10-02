@@ -48,7 +48,7 @@ const CURLOPT_USERAGENT: i32 = 10018;
 const CURLINFO_RESPONSE_CODE: i32 = 0x200002;
 
 #[repr(C)]
-struct CURL {
+struct Curl {
     _opaque: [u8; 0],
 }
 
@@ -62,11 +62,11 @@ unsafe extern "C" {
 /// `RTLD_LAZY` on darwin.
 const RTLD_LAZY: i32 = 0x1;
 
-type CurlInit = unsafe extern "C" fn() -> *mut CURL;
-type CurlCleanup = unsafe extern "C" fn(*mut CURL);
-type CurlPerform = unsafe extern "C" fn(*mut CURL) -> i32;
-type CurlSetopt = unsafe extern "C" fn(*mut CURL, i32, ...) -> i32;
-type CurlGetinfo = unsafe extern "C" fn(*mut CURL, i32, ...) -> i32;
+type CurlInit = unsafe extern "C" fn() -> *mut Curl;
+type CurlCleanup = unsafe extern "C" fn(*mut Curl);
+type CurlPerform = unsafe extern "C" fn(*mut Curl) -> i32;
+type CurlSetopt = unsafe extern "C" fn(*mut Curl, i32, ...) -> i32;
+type CurlGetinfo = unsafe extern "C" fn(*mut Curl, i32, ...) -> i32;
 
 struct CurlApi {
     init: CurlInit,
@@ -287,11 +287,7 @@ pub unsafe extern "C" fn __torajs_fetch_sync(url_str_ptr: *mut c_void) -> *mut c
         (curl.setopt)(handle, CURLOPT_TIMEOUT, 30 as c_long);
         (curl.setopt)(handle, CURLOPT_CONNECTTIMEOUT, 10 as c_long);
         // User-Agent matches `bun` to avoid origins gating on torajs.
-        (curl.setopt)(
-            handle,
-            CURLOPT_USERAGENT,
-            b"torajs/0.6 (libcurl)\0".as_ptr() as *const c_char,
-        );
+        (curl.setopt)(handle, CURLOPT_USERAGENT, c"torajs/0.6 (libcurl)".as_ptr());
     }
     let rc = unsafe { (curl.perform)(handle) };
     let mut http_status: c_long = 0;
@@ -324,7 +320,7 @@ pub unsafe extern "C" fn __torajs_fetch_sync(url_str_ptr: *mut c_void) -> *mut c
 /// Drop hook — called from runtime_str.c's
 /// `__torajs_value_drop_heap` via the `TAG_RESPONSE` case. Releases
 /// the body Str (via the generic value_drop_heap path so substrings
-/// + interned strings drop correctly) then deallocates the Response
+/// and interned strings drop correctly) then deallocates the Response
 /// block itself.
 ///
 /// # Safety
