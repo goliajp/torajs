@@ -28,7 +28,7 @@ pub(crate) fn try_lower(
         return None;
     }
     let ops = crate::ssa_lower_new::lower_borrowed_any_pair(ctx, args);
-    let argv: Vec<Operand> = ops.iter().map(|(op, _, _)| op.clone()).collect();
+    let argv: Vec<Operand> = ops.iter().map(|(op, _, _)| *op).collect();
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur_block,

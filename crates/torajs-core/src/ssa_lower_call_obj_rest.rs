@@ -36,9 +36,9 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Opera
     }
     let src_raw = ctx.lower_expr(args[0]);
     let src = if matches!(ctx.operand_ty(&src_raw), Type::Any) {
-        src_raw.clone()
+        src_raw
     } else {
-        ctx.box_to_any(src_raw.clone())
+        ctx.box_to_any(src_raw)
     };
     let names = match ctx.ast.get_expr(args[1]) {
         crate::ast::Expr::String(s) if s.is_empty() => Operand::ConstPtrNull,
@@ -47,9 +47,9 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Opera
     let keys_raw = ctx.lower_expr(args[2]);
     let keys_ty = ctx.operand_ty(&keys_raw);
     let keys = if matches!(keys_ty, Type::Any) {
-        keys_raw.clone()
+        keys_raw
     } else {
-        ctx.box_to_any(keys_raw.clone())
+        ctx.box_to_any(keys_raw)
     };
     let out = ctx.f.append_inst(
         ctx.cur_block,

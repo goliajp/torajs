@@ -68,10 +68,7 @@ pub(crate) fn try_lower_error_proto_install(
     let install = ctx.intrinsics.error_proto_install;
     ctx.f.append_void(
         cur_block,
-        InstKind::Call(
-            install,
-            vec![Operand::ConstI64(tag as i64), name_op.clone()],
-        ),
+        InstKind::Call(install, vec![Operand::ConstI64(tag as i64), name_op]),
     );
     // The lowered Str literal is a caller-owned temp — the runtime
     // entries take their own stakes (rc_inc on the name value).

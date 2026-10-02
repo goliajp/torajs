@@ -47,14 +47,14 @@ pub(crate) fn coerce_args(
     if ctx.is_math_unary(target) {
         debug_assert_eq!(argv.len(), 1, "Math.* unary takes 1 arg");
         argv[0] = ctx.coerce_to_f64_tonumber(argv[0]);
-        argv[0] = canon_math_arg(ctx, argv[0].clone(), args.first().copied());
+        argv[0] = canon_math_arg(ctx, argv[0], args.first().copied());
         return Vec::new();
     }
     if ctx.is_math_binary(target) {
         debug_assert_eq!(argv.len(), 2, "Math.* binary takes 2 args");
         for i in 0..2 {
             argv[i] = ctx.coerce_to_f64_tonumber(argv[i]);
-            argv[i] = canon_math_arg(ctx, argv[i].clone(), args.get(i).copied());
+            argv[i] = canon_math_arg(ctx, argv[i], args.get(i).copied());
         }
         return Vec::new();
     }

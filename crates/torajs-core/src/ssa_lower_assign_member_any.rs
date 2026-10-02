@@ -27,7 +27,7 @@ pub(crate) fn lower_dynobj_assign(
     // surplus reference after the store.
     let transfers = ctx.expr_transfers_ownership(value);
     let v_ty = ctx.operand_ty(&v_raw);
-    let v_keep = v_raw.clone();
+    let v_keep = v_raw;
     // `o.u = undefined` — the rhs reaches here as ConstPtrNull, which
     // is also what null lowers to; only the checker's type separates
     // them. The stored tag already does (5 vs 0); the expression's
@@ -103,7 +103,7 @@ pub(crate) fn lower_dynobj_assign(
             // `finish_assign_value` for why mint-then-release is not
             // an equivalent spelling.
             if !transfers {
-                ctx.emit_owned_result_inc(r.clone(), Type::Any);
+                ctx.emit_owned_result_inc(r, Type::Any);
             }
             ctx.owned_member_reads.insert(eid);
             return r;
@@ -160,7 +160,7 @@ pub(crate) fn lower_dynobj_assign(
     }
     if v_ty.is_refcounted() {
         if !transfers {
-            ctx.emit_owned_result_inc(v_keep.clone(), v_ty);
+            ctx.emit_owned_result_inc(v_keep, v_ty);
         }
         ctx.owned_member_reads.insert(eid);
     }

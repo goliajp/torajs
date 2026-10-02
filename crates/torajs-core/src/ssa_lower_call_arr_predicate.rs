@@ -82,7 +82,7 @@ pub(crate) fn try_lower(
     let this_arg: Option<Operand> = if promoted {
         if let Some(&t) = args.get(1) {
             let op = ctx.lower_expr(t);
-            let boxed = ctx.box_to_any_from_expr(t, op.clone());
+            let boxed = ctx.box_to_any_from_expr(t, op);
             this_tok = ctx.park_owned_temp(t, &op);
             this_temp = Some((t, op));
             Some(boxed)
@@ -129,7 +129,7 @@ pub(crate) fn try_lower(
             &name,
             src_arr,
             elem_ty,
-            fn_val.clone(),
+            fn_val,
             fn_ty,
             this_arg.as_ref(),
             result_ty,

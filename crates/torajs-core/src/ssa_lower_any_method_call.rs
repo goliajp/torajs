@@ -109,7 +109,7 @@ pub(crate) fn try_lower(
         Operand::ConstPtrNull
     };
 
-    let result = emit_any_method_call(ctx, recv.clone(), &name, recv_slot, args);
+    let result = emit_any_method_call(ctx, recv, &name, recv_slot, args);
     ctx.unpark_owned_temp(recv_tok);
     // A Call-shaped receiver (`s.bold().italics()`) is an owned Any
     // temp the runtime only borrowed — release it or every chained
@@ -364,7 +364,7 @@ pub(crate) fn pack_any_argv_padded(
             let slot_val = ctx.box_to_any(dynobj);
             ctx.f.append_void(
                 ctx.cur_block,
-                InstKind::Store(slot_val.clone(), Operand::Value(argv), (i * 8) as u64),
+                InstKind::Store(slot_val, Operand::Value(argv), (i * 8) as u64),
             );
             packed.push_slot(ctx, Some(slot_val));
             continue;
@@ -411,7 +411,7 @@ pub(crate) fn pack_any_argv_padded(
             (raw, owned)
         } else {
             if is_borrow && raw_ty.is_refcounted() {
-                ctx.emit_rc_inc(raw.clone());
+                ctx.emit_rc_inc(raw);
             }
             // Frontend-type-aware boxing — an `undefined` literal
             // argument must ride as ANY_UNDEF, not the ANY_NULL the
@@ -421,7 +421,7 @@ pub(crate) fn pack_any_argv_padded(
         };
         ctx.f.append_void(
             ctx.cur_block,
-            InstKind::Store(slot_val.clone(), Operand::Value(argv), (i * 8) as u64),
+            InstKind::Store(slot_val, Operand::Value(argv), (i * 8) as u64),
         );
         packed.push_slot(ctx, if we_boxed { Some(slot_val) } else { None });
     }

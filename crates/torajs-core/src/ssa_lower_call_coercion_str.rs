@@ -90,7 +90,7 @@ pub(crate) fn emit_to_string_inner(
             // once the result's owner dropped it, reuse-window probe).
             // Owned temps (concat results) transfer their fresh ref.
             if !ctx.expr_transfers_ownership(arg_eid) {
-                ctx.emit_rc_inc(arg_op.clone());
+                ctx.emit_rc_inc(arg_op);
             }
             arg_op
         }
@@ -167,7 +167,7 @@ pub(crate) fn emit_to_string_inner(
             };
             let v = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(fid, vec![arg_op.clone()]),
+                InstKind::Call(fid, vec![arg_op]),
                 Type::Str,
                 None,
             );
@@ -273,7 +273,7 @@ fn emit_symbol_to_string(
     implicit_tostring: bool,
 ) -> Operand {
     if implicit_tostring {
-        let boxed = ctx.box_to_any(arg_op.clone());
+        let boxed = ctx.box_to_any(arg_op);
         let v = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Call(ctx.intrinsics.any_to_str_box, vec![boxed]),
@@ -286,7 +286,7 @@ fn emit_symbol_to_string(
     }
     let v = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Call(ctx.intrinsics.symbol_to_str, vec![arg_op.clone()]),
+        InstKind::Call(ctx.intrinsics.symbol_to_str, vec![arg_op]),
         Type::Str,
         None,
     );
@@ -313,7 +313,7 @@ fn emit_boxed_to_string(
     // answering "undefined". The guarded box re-encodes the sentinel
     // as ANY_UNDEF, which is what every other any-boundary in the
     // lowering already hands the runtime.
-    let boxed = ctx.box_to_any_from_expr(arg_eid, arg_op.clone());
+    let boxed = ctx.box_to_any_from_expr(arg_eid, arg_op);
     let fid = if implicit_tostring {
         ctx.intrinsics.any_to_str_box
     } else {
@@ -345,12 +345,9 @@ fn emit_boxed_to_string(
 /// is the one that knows, and it costs a call on a path nobody's hot
 /// loop runs.
 fn emit_struct_to_string(ctx: &mut LowerCtx<'_>, arg_eid: ExprId, arg_op: Operand) -> Operand {
-    let raw = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::PtrToInt(arg_op.clone()),
-        Type::I64,
-        None,
-    );
+    let raw = ctx
+        .f
+        .append_inst(ctx.cur_block, InstKind::PtrToInt(arg_op), Type::I64, None);
     let s = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(

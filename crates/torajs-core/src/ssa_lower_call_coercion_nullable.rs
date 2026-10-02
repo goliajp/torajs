@@ -49,7 +49,7 @@ pub(crate) fn emit_nullable_to_string(
     let merge = ctx.f.add_block();
     let is_null = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::ICmp(IPred::Eq, arg_op.clone(), Operand::ConstPtrNull),
+        InstKind::ICmp(IPred::Eq, arg_op, Operand::ConstPtrNull),
         Type::Bool,
         None,
     );

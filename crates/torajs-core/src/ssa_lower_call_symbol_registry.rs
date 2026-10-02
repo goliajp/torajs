@@ -104,15 +104,15 @@ pub(crate) fn try_lower(
     if arg_is_any || for_non_str || m_name == "keyFor" {
         let (fid, arg_any) = if m_name == "for" {
             let key = if arg_is_any {
-                arg_op.clone()
+                arg_op
             } else {
-                ctx.box_to_any_from_expr(args[0], arg_op.clone())
+                ctx.box_to_any_from_expr(args[0], arg_op)
             };
             (ctx.intrinsics.symbol_for_any, key)
         } else if arg_is_any {
-            (ctx.intrinsics.symbol_key_for_any, arg_op.clone())
+            (ctx.intrinsics.symbol_key_for_any, arg_op)
         } else {
-            let boxed = ctx.box_to_any(arg_op.clone());
+            let boxed = ctx.box_to_any(arg_op);
             (ctx.intrinsics.symbol_key_for_any, boxed)
         };
         let cur_block = ctx.cur_block;
@@ -146,12 +146,9 @@ pub(crate) fn try_lower(
     }
     let (fid, ret_ty) = (ctx.intrinsics.symbol_for, Type::Symbol);
     let cur_block = ctx.cur_block;
-    let v = ctx.f.append_inst(
-        cur_block,
-        InstKind::Call(fid, vec![arg_op.clone()]),
-        ret_ty,
-        None,
-    );
+    let v = ctx
+        .f
+        .append_inst(cur_block, InstKind::Call(fid, vec![arg_op]), ret_ty, None);
     // `symbol_for` shares the key on registry miss (delegates to
     // symbol_alloc's internal inc) and borrows on hit; `symbol_key_for`
     // borrows the sym. Either way the caller keeps its stake — the old

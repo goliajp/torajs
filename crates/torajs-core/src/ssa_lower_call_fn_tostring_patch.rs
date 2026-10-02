@@ -87,9 +87,9 @@ pub(crate) fn names_top_level_fn(ctx: &LowerCtx<'_>, obj: ExprId) -> bool {
 pub(crate) fn dispatch(ctx: &mut LowerCtx<'_>, obj: ExprId) -> Operand {
     let recv = ctx.lower_expr(obj);
     let boxed = if ctx.operand_ty(&recv) == Type::Any {
-        recv.clone()
+        recv
     } else {
-        ctx.box_to_any(recv.clone())
+        ctx.box_to_any(recv)
     };
     let out = crate::ssa_lower_any_method_call::emit_any_method_call(
         ctx,

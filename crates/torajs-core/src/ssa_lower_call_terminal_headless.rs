@@ -228,7 +228,7 @@ pub(crate) fn pack_headless_argv(
         Some("__hl_argv"),
     );
     for i in 0..n {
-        let op = ops[skip + i].clone();
+        let op = ops[skip + i];
         let slot = if ctx.operand_ty(&op) == Type::Any {
             op
         } else {
@@ -253,7 +253,7 @@ pub(crate) fn rest_packed_argc(
     argv: &[Operand],
 ) -> Option<Operand> {
     let given = *ctx.ast.rest_packed_sites.get(&eid)?;
-    let arr = argv.last()?.clone();
+    let arr = *argv.last()?;
     let b = ctx.cur_block;
     let len = ctx.f.append_inst(
         b,

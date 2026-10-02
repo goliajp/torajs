@@ -78,7 +78,7 @@ pub(crate) fn try_lower(
     // `Object.keys` lane's `arg_raw` snapshot, taken before the
     // Closure / Error box because that box is rc-neutral and the
     // release wants the receiver's own type.
-    let arg_raw = arg_op.clone();
+    let arg_raw = arg_op;
     // Cluster #4 follow-up (rotation 235) — a typed Closure receiver
     // boxes to any and rides the runtime own-values walk (the
     // `anyv_own_values` TAG_CLOSURE_CELL arm answers the expando
@@ -231,7 +231,7 @@ pub(crate) fn try_lower(
     // fast precisely because it is not boxed. It emits the same unfold
     // instead, asking per member whether it is hidden right now.
     let layout_hidden = layout.clone();
-    let arg_hidden = arg_op.clone();
+    let arg_hidden = arg_op;
     // a getter under either arm can throw at a check inside the arm
     let parked = ctx.park_owned_temp(args[0], &arg_raw);
     let out = crate::ssa_lower_struct_exotic_gate::with_exotic_field_gate(
@@ -287,7 +287,7 @@ fn emit_values_unfold(
                 ctx.cur_block,
                 InstKind::Call(
                     ctx.intrinsics.obj_key_is_nonenumerable,
-                    vec![arg_op.clone(), Operand::Value(key)],
+                    vec![*arg_op, Operand::Value(key)],
                 ),
                 Type::I64,
                 None,

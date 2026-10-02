@@ -95,12 +95,7 @@ pub(crate) fn try_lower(
         let _ = ctx.lower_expr(a);
     }
     if is_reflect {
-        crate::ssa_lower_object_define::emit_receiver_typecheck(
-            ctx,
-            args[0],
-            &obj_raw,
-            obj_ty.clone(),
-        );
+        crate::ssa_lower_object_define::emit_receiver_typecheck(ctx, args[0], &obj_raw, obj_ty);
     }
     let key_expr = ctx.ast.get_expr(args[1]);
     let cur_block = ctx.cur_block;
@@ -111,7 +106,7 @@ pub(crate) fn try_lower(
     {
         let v = ctx.f.append_inst(
             cur_block,
-            InstKind::Call(ctx.intrinsics.str_length_descriptor, vec![obj_raw.clone()]),
+            InstKind::Call(ctx.intrinsics.str_length_descriptor, vec![obj_raw]),
             Type::Any,
             None,
         );
@@ -129,7 +124,7 @@ pub(crate) fn try_lower(
             cur_block,
             InstKind::Call(
                 ctx.intrinsics.str_index_descriptor,
-                vec![obj_raw.clone(), Operand::ConstI64(idx)],
+                vec![obj_raw, Operand::ConstI64(idx)],
             ),
             Type::Any,
             None,
@@ -143,9 +138,9 @@ pub(crate) fn try_lower(
     // FLAG_ARR_LENGTH_RO writable bit, which the len-only helper
     // cannot see.
     let obj_op = if matches!(obj_ty, Type::Any) {
-        obj_raw.clone()
+        obj_raw
     } else {
-        ctx.box_to_any_from_expr(args[0], obj_raw.clone())
+        ctx.box_to_any_from_expr(args[0], obj_raw)
     };
     // RFC 20260716 刀 17 — ToPropertyKey coerce the key arg (checker
     // 刀 17 relaxed the sig from Type::String to Type::Any). This used
@@ -160,10 +155,7 @@ pub(crate) fn try_lower(
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(
-            ctx.intrinsics.get_property_descriptor,
-            vec![obj_op, key_op.clone()],
-        ),
+        InstKind::Call(ctx.intrinsics.get_property_descriptor, vec![obj_op, key_op]),
         Type::Any,
         None,
     );
@@ -201,9 +193,9 @@ fn lower_plural(ctx: &mut LowerCtx<'_>, callee: ExprId, args: &[ExprId]) -> Opti
         let _ = ctx.lower_expr(a);
     }
     let obj_op = if matches!(obj_ty, Type::Any) {
-        obj_raw.clone()
+        obj_raw
     } else {
-        ctx.box_to_any_from_expr(args[0], obj_raw.clone())
+        ctx.box_to_any_from_expr(args[0], obj_raw)
     };
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
@@ -215,7 +207,7 @@ fn lower_plural(ctx: &mut LowerCtx<'_>, callee: ExprId, args: &[ExprId]) -> Opti
     // the receiver temp is released after the call on both edges
     let parked = ctx
         .expr_owned_shape(args[0])
-        .then(|| ctx.push_throw_temp(obj_raw.clone(), obj_ty.clone()));
+        .then(|| ctx.push_throw_temp(obj_raw, obj_ty));
     ctx.emit_throw_check(None);
     if let Some(t) = parked {
         ctx.pop_throw_temp(t);

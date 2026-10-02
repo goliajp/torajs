@@ -123,7 +123,7 @@ pub(crate) fn finish_assign_value(
             // A borrow-shape rhs: the consumer's reference is a fresh
             // stake, type-aware (an Any operand is NaN-box bits — a
             // raw header inc would treat them as an address).
-            ctx.emit_owned_result_inc(v.clone(), v_ty);
+            ctx.emit_owned_result_inc(v, v_ty);
         }
         // An owned temp TRANSFERS: the stake the lanes used to
         // release after the store is the very reference the consumer
@@ -149,7 +149,7 @@ fn lower_fnsig_props_assign(
     // Chunk 566 — SHARE, mirror of the closure-props arm above.
     let transfers = ctx.expr_transfers_ownership(value);
     let v_ty = ctx.operand_ty(&v_raw);
-    let (tag, val_op) = ctx.box_to_tag_value(v_raw.clone());
+    let (tag, val_op) = ctx.box_to_tag_value(v_raw);
     let key_str = ctx.intern_string_literal(field);
     let cur_block = ctx.cur_block;
     ctx.f.append_void(
@@ -218,7 +218,7 @@ fn lower_regex_last_index_assign(
     // happens at the regex kernels' consumption sites. An Any RHS
     // goes through ToNumber for the f64 slot.
     let v_ty = ctx.operand_ty(&v_raw);
-    let v_keep = v_raw.clone();
+    let v_keep = v_raw;
     let v_f64 = if v_ty == Type::Any {
         let cur_block = ctx.cur_block;
         let f = ctx.f.append_inst(
@@ -234,10 +234,7 @@ fn lower_regex_last_index_assign(
     let cur_block = ctx.cur_block;
     ctx.f.append_void(
         cur_block,
-        InstKind::Call(
-            ctx.intrinsics.regex_set_last_index,
-            vec![obj_val, v_f64.clone()],
-        ),
+        InstKind::Call(ctx.intrinsics.regex_set_last_index, vec![obj_val, v_f64]),
     );
     if transfers && v_ty.is_refcounted() {
         ctx.emit_drop_value(v_keep, v_ty);
@@ -255,24 +252,13 @@ fn lower_obj_assign(
     value: ExprId,
 ) -> Operand {
     if let Some(v) = crate::ssa_lower_assign_member_field::try_lower_setter_call(
-        ctx,
-        eid,
-        obj,
-        obj_val.clone(),
-        sid,
-        field,
-        value,
+        ctx, eid, obj, obj_val, sid, field, value,
     ) {
         return v;
     }
-    if let Some(v) = crate::ssa_lower_assign_member_objlit::try_lower(
-        ctx,
-        eid,
-        obj_val.clone(),
-        sid,
-        field,
-        value,
-    ) {
+    if let Some(v) =
+        crate::ssa_lower_assign_member_objlit::try_lower(ctx, eid, obj_val, sid, field, value)
+    {
         return v;
     }
     // Rotation 373 — the checker admitted a name the layout never

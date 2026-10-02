@@ -50,16 +50,16 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx<'_>, name: &str, args: &[ExprId]) -> 
         let raw = ctx.lower_expr(a);
         let raw_ty = ctx.operand_ty(&raw);
         if raw_ty == Type::Any {
-            any_temps.push((a, raw.clone()));
+            any_temps.push((a, raw));
             ops.push(raw);
         } else {
             if matches!(ctx.ast.get_expr(a), Expr::Ident(_) | Expr::Member { .. })
                 && raw_ty.is_refcounted()
             {
-                ctx.emit_rc_inc(raw.clone());
+                ctx.emit_rc_inc(raw);
             }
             let b = ctx.box_to_any_from_expr(a, raw);
-            ops.push(b.clone());
+            ops.push(b);
             boxed.push(b);
         }
     }

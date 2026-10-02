@@ -89,7 +89,7 @@ pub(super) fn try_lower_static_method_reify(
             define,
             vec![
                 Operand::ConstI64(tag as i64),
-                name_op.clone(),
+                name_op,
                 Operand::Value(adapter),
                 Operand::ConstI64(i64::from(this_free)),
                 twin_op,
@@ -160,7 +160,7 @@ pub(super) fn try_lower_unit_static_method_reify(
             define,
             vec![
                 unit_op,
-                name_op.clone(),
+                name_op,
                 Operand::Value(adapter),
                 Operand::ConstI64(flags),
             ],
@@ -218,7 +218,7 @@ pub(super) fn try_lower_unit_static_accessor_reify(
     let define = ctx.intrinsics.class_unit_static_accessor_define;
     ctx.f.append_void(
         cur_block,
-        InstKind::Call(define, vec![unit_op, name_op.clone(), get_op, set_op]),
+        InstKind::Call(define, vec![unit_op, name_op, get_op, set_op]),
     );
     let ty = ctx.operand_ty(&name_op);
     ctx.emit_drop_value(name_op, ty);
@@ -244,7 +244,7 @@ pub(super) fn try_lower_unit_static_field_define(
     let cur_block = ctx.cur_block;
     ctx.f.append_void(
         cur_block,
-        InstKind::Call(define, vec![unit_op, name_op.clone(), vtag, vvalue]),
+        InstKind::Call(define, vec![unit_op, name_op, vtag, vvalue]),
     );
     let ty = ctx.operand_ty(&name_op);
     ctx.emit_drop_value(name_op, ty);
@@ -284,7 +284,7 @@ pub(super) fn try_lower_static_own_move_to_end(
     let mv = ctx.intrinsics.class_static_own_move_to_end;
     ctx.f.append_void(
         cur_block,
-        InstKind::Call(mv, vec![Operand::ConstI64(tag as i64), name_op.clone()]),
+        InstKind::Call(mv, vec![Operand::ConstI64(tag as i64), name_op]),
     );
     // The lowered Str literal is a caller-owned temp — the move
     // carries the entry's OWN key cell across, never this one.
@@ -323,7 +323,7 @@ pub(super) fn try_lower_static_field_reify(
         cur_block,
         InstKind::Call(
             define,
-            vec![Operand::ConstI64(tag as i64), name_op.clone(), vtag, vvalue],
+            vec![Operand::ConstI64(tag as i64), name_op, vtag, vvalue],
         ),
     );
     // The lowered Str literal is a caller-owned temp — the runtime
@@ -472,12 +472,7 @@ pub(super) fn try_lower_class_accessor_reify(
         ctx.cur_block,
         InstKind::Call(
             define,
-            vec![
-                Operand::ConstI64(tag as i64),
-                name_op.clone(),
-                get_op,
-                set_op,
-            ],
+            vec![Operand::ConstI64(tag as i64), name_op, get_op, set_op],
         ),
     );
     // The lowered Str literal is a caller-owned temp — the runtime

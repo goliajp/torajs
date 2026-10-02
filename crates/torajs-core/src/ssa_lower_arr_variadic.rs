@@ -97,8 +97,8 @@ fn hold_arg(ctx: &mut LowerCtx<'_>, eid: ExprId) -> Held {
     let op = ctx.lower_expr(eid);
     let ty = ctx.operand_ty(&op);
     let owns = ctx.expr_transfers_ownership(eid) || ctx.expr_minted_closure(eid, &op);
-    let owned = (owns && !ty.is_copy()).then(|| ctx.push_throw_temp(op.clone(), ty));
-    ctx.pins.operands.insert(eid, op.clone());
+    let owned = (owns && !ty.is_copy()).then(|| ctx.push_throw_temp(op, ty));
+    ctx.pins.operands.insert(eid, op);
     Held { eid, op, owned }
 }
 
@@ -125,14 +125,14 @@ fn store_one(
 ) -> Operand {
     if matches!(elem_ty, Type::Any) {
         return if unshift {
-            ctx.emit_arr_any_unshift_at_value(recv.clone(), arg, arr_ty)
+            ctx.emit_arr_any_unshift_at_value(*recv, arg, arr_ty)
         } else {
-            ctx.emit_arr_any_push_at_value(recv.clone(), arg, arr_ty)
+            ctx.emit_arr_any_push_at_value(*recv, arg, arr_ty)
         };
     }
     let (val, owned_from_substr) =
         crate::ssa_lower_call_arr_push::coerce_push_value(ctx, arg, elem_ty);
-    let slot = ctx.raw_slot_arg(val.clone());
+    let slot = ctx.raw_slot_arg(val);
     let fid = if unshift {
         ctx.intrinsics.arr_unshift
     } else {
@@ -141,7 +141,7 @@ fn store_one(
     let new_arr = crate::ssa_lower_arr_grow_kernel::emit_grow_kernel_checked(
         ctx,
         fid,
-        recv.clone(),
+        *recv,
         slot,
         arg,
         val,

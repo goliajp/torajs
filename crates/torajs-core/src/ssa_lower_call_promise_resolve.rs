@@ -48,7 +48,7 @@ pub(crate) fn lower_resolve_reject(
         return if zero_shaped(ctx, method, args) {
             lower_zero_arg(ctx, method)
         } else {
-            lower_one_plus_op(ctx, eid, method, args[0], arg_ops[0].clone())
+            lower_one_plus_op(ctx, eid, method, args[0], arg_ops[0])
         };
     }
     let name_id: i64 = if method == "resolve" { 0 } else { 1 };
@@ -78,7 +78,7 @@ pub(crate) fn lower_resolve_reject(
     let fast_val = if zero_shaped {
         lower_zero_arg(ctx, method)
     } else {
-        lower_one_plus_op(ctx, eid, method, args[0], arg_ops[0].clone())
+        lower_one_plus_op(ctx, eid, method, args[0], arg_ops[0])
     };
     let fast_end = ctx.cur_block;
     ctx.f.append_void(
@@ -163,9 +163,9 @@ fn lower_patched_call(
         let ty = ctx.operand_ty(op);
         let slot_val = if ty == Type::Any {
             if ctx.expr_is_fresh_owned(aid) {
-                drops.push(op.clone());
+                drops.push(*op);
             }
-            op.clone()
+            *op
         } else {
             // Same question the Any arm above already asks the
             // shared way — and the shared answer reads through the
@@ -176,10 +176,10 @@ fn lower_patched_call(
                     Expr::Regex { .. }
                 );
             if is_borrow && ty.is_refcounted() {
-                ctx.emit_rc_inc(op.clone());
+                ctx.emit_rc_inc(*op);
             }
-            let boxed = ctx.box_to_any_from_expr(aid, op.clone());
-            drops.push(boxed.clone());
+            let boxed = ctx.box_to_any_from_expr(aid, *op);
+            drops.push(boxed);
             boxed
         };
         let cur_block = ctx.cur_block;
@@ -296,7 +296,7 @@ fn lower_one_plus_op(
     // stamped over.
     if matches!(arg_ty, Type::Promise | Type::Any) && method == "resolve" {
         if !ctx.expr_transfers_ownership(arg0) {
-            ctx.emit_owned_result_inc(arg_op.clone(), arg_ty.clone());
+            ctx.emit_owned_result_inc(arg_op, arg_ty);
         }
         let boxed = if arg_ty == Type::Any {
             arg_op
@@ -318,7 +318,7 @@ fn lower_one_plus_op(
     // non-thenable here, at compile time, and keeps the direct mint.
     if method == "resolve" && typed_shape_has_then(ctx, arg0, &arg_ty) {
         if !ctx.expr_transfers_ownership(arg0) {
-            ctx.emit_owned_result_inc(arg_op.clone(), arg_ty.clone());
+            ctx.emit_owned_result_inc(arg_op, arg_ty);
         }
         let boxed = ctx.box_to_any(arg_op);
         let cur_block = ctx.cur_block;
@@ -362,7 +362,7 @@ fn lower_one_plus_op(
     let (arg_op, arg_ty, minted) = if arg_ty == Type::Substr {
         let owned = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.substr_to_owned, vec![arg_op.clone()]),
+            InstKind::Call(ctx.intrinsics.substr_to_owned, vec![arg_op]),
             Type::Str,
             None,
         );
@@ -374,7 +374,7 @@ fn lower_one_plus_op(
         (arg_op, arg_ty, false)
     };
     if is_heap && !minted && !ctx.expr_transfers_ownership(arg0) {
-        ctx.emit_owned_result_inc(arg_op.clone(), arg_ty.clone());
+        ctx.emit_owned_result_inc(arg_op, arg_ty);
     }
     // RFC 20260720-anylane-promise-methods knife 1 — the repr stamp
     // mirrors the STORED form this site emits (the I64→f64-slot

@@ -40,7 +40,7 @@ pub(super) fn cb_args(
 ) -> Vec<Operand> {
     let mut a: Vec<Operand> = Vec::with_capacity(4);
     if let Some(t) = this_arg {
-        a.push(t.clone());
+        a.push(*t);
     }
     a.push(Operand::Value(elem));
     if user_arity >= 2 {
@@ -104,7 +104,7 @@ pub(crate) fn emit_argv_face_call(
     }
     let r = crate::ssa_lower_call_closure_local::emit_variadic_call_conv(
         ctx,
-        fn_val.clone(),
+        *fn_val,
         this_arg,
         crate::ssa_lower_any_argv::AnyArgv::borrowed(argv),
         spec_argc,
@@ -167,10 +167,8 @@ pub(super) fn emit_do_call(
         })
         .collect::<Vec<_>>();
     let r = match known_fid {
-        Some(fid) => {
-            ctx.call_fn_value_devirt(fid, fn_val.clone(), fn_ty, args, sig_skip, spec_argc)
-        }
-        None => ctx.call_fn_value(fn_val.clone(), fn_ty, args, sig_skip, spec_argc),
+        Some(fid) => ctx.call_fn_value_devirt(fid, *fn_val, fn_ty, args, sig_skip, spec_argc),
+        None => ctx.call_fn_value(*fn_val, fn_ty, args, sig_skip, spec_argc),
     };
     // §23.1.3.15 step 5.c ReturnIfAbrupt — a throwing callback ends
     // the iteration; without this the loop ran every remaining

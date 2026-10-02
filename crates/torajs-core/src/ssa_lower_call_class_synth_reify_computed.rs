@@ -89,7 +89,7 @@ pub(super) fn try_lower_class_computed_reify(
                 ctx.intrinsics.class_computed_method_define,
                 vec![
                     Operand::ConstI64(tag as i64),
-                    key_op.clone(),
+                    key_op,
                     Operand::Value(vaddr),
                     Operand::ConstI64(is_static),
                     Operand::ConstI64(i64::from(this_free)),
@@ -105,7 +105,7 @@ pub(super) fn try_lower_class_computed_reify(
                 ctx.intrinsics.class_computed_accessor_define,
                 vec![
                     Operand::ConstI64(tag as i64),
-                    key_op.clone(),
+                    key_op,
                     g,
                     s,
                     Operand::ConstI64(is_static),
@@ -161,7 +161,7 @@ pub(super) fn try_lower_class_computed_key(
     if !key_owned {
         // Borrowed from the source binding — the global outlives the
         // expression, so it needs a stake rather than a view.
-        ctx.emit_rc_inc(key_op.clone());
+        ctx.emit_rc_inc(key_op);
     }
     let cur_block = ctx.cur_block;
     let raw = ctx

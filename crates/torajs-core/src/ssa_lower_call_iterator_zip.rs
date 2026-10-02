@@ -68,7 +68,7 @@ pub(crate) fn try_lower(
             }
             _ => {
                 if !ctx.expr_transfers_ownership(eid) && ty.is_refcounted() {
-                    ctx.emit_rc_inc(raw.clone());
+                    ctx.emit_rc_inc(raw);
                 }
                 (ctx.box_to_any(raw), true)
             }
@@ -79,7 +79,7 @@ pub(crate) fn try_lower(
     for &a in args.iter().skip(2) {
         let _ = ctx.lower_expr(a);
     }
-    let argv: Vec<Operand> = ops.iter().map(|(op, _, _)| op.clone()).collect();
+    let argv: Vec<Operand> = ops.iter().map(|(op, _, _)| *op).collect();
     let result = ctx
         .f
         .append_inst(ctx.cur_block, InstKind::Call(target, argv), Type::Any, None);

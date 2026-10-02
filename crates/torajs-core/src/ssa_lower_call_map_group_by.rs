@@ -38,12 +38,12 @@ pub(crate) fn try_lower(
     let items_raw = ctx.lower_expr(items_eid);
     let items_ty = ctx.operand_ty(&items_raw);
     let items_op: Operand = match items_ty {
-        Type::Any => items_raw.clone(),
+        Type::Any => items_raw,
         Type::Arr(_) => {
             ctx.emit_arr_mark_kind(&items_raw);
             let as_i64 = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::PtrToInt(items_raw.clone()),
+                InstKind::PtrToInt(items_raw),
                 Type::I64,
                 None,
             );
@@ -65,7 +65,7 @@ pub(crate) fn try_lower(
         (cb_raw, false)
     } else {
         if !ctx.expr_transfers_ownership(cb_eid) && cb_ty.is_refcounted() {
-            ctx.emit_rc_inc(cb_raw.clone());
+            ctx.emit_rc_inc(cb_raw);
         }
         (ctx.box_to_any(cb_raw), true)
     };
@@ -78,10 +78,7 @@ pub(crate) fn try_lower(
     // encoding — IntToPtr in reverse of the fromEntries bridge).
     let any_bits = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Call(
-            ctx.intrinsics.map_group_by,
-            vec![items_op.clone(), cb_op.clone()],
-        ),
+        InstKind::Call(ctx.intrinsics.map_group_by, vec![items_op, cb_op]),
         Type::Any,
         None,
     );

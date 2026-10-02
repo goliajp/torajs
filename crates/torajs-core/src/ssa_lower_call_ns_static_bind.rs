@@ -35,7 +35,7 @@ pub(crate) fn try_lower(
     let id = *id as i64;
     let f_op = ctx.lower_expr(args[1]);
     let f_ty = ctx.operand_ty(&f_op);
-    let boxed = ctx.box_to_any_from_expr(args[1], f_op.clone());
+    let boxed = ctx.box_to_any_from_expr(args[1], f_op);
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur_block,

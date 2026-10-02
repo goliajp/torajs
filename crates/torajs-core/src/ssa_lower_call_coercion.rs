@@ -103,7 +103,7 @@ pub(crate) fn try_lower(
     Some(match n_kind.as_str() {
         "Number" => emit_to_number(ctx, args[0], arg_op, arg_ty),
         "Boolean" => {
-            let v = ctx.coerce_to_bool(arg_op.clone());
+            let v = ctx.coerce_to_bool(arg_op);
             ctx.release_owned_temp(args[0], &arg_op);
             v
         }
@@ -142,7 +142,7 @@ pub(crate) fn emit_to_number(
     // a live pointer boxes exactly as the heap arm below boxes it.
     // Self-gating on the checker's nullable typing.
     if crate::ssa_lower_nullable_guard::holds_undef_cell(ctx, arg_eid, arg_ty) {
-        let boxed = ctx.box_to_any_from_expr(arg_eid, arg_op.clone());
+        let boxed = ctx.box_to_any_from_expr(arg_eid, arg_op);
         let n = ctx.coerce_any_to_number(boxed, Type::F64);
         // A user `valueOf` on the live side can throw.
         ctx.emit_throw_check_releasing(arg_eid, &arg_op);
@@ -173,7 +173,7 @@ pub(crate) fn emit_to_number(
             // temp arg after the read.
             let v = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.str_to_number, vec![arg_op.clone()]),
+                InstKind::Call(ctx.intrinsics.str_to_number, vec![arg_op]),
                 Type::F64,
                 None,
             );
@@ -187,7 +187,7 @@ pub(crate) fn emit_to_number(
         Type::BigInt => {
             let v = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.bigint_to_number, vec![arg_op.clone()]),
+                InstKind::Call(ctx.intrinsics.bigint_to_number, vec![arg_op]),
                 Type::F64,
                 None,
             );
@@ -202,7 +202,7 @@ pub(crate) fn emit_to_number(
         Type::Any => {
             let v = Operand::Value(ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.number_ctor_any, vec![arg_op.clone()]),
+                InstKind::Call(ctx.intrinsics.number_ctor_any, vec![arg_op]),
                 Type::F64,
                 None,
             ));
@@ -241,7 +241,7 @@ pub(crate) fn emit_to_number(
         | Type::Promise => {
             // A user `valueOf` can throw: the coercion's own check
             // takes the throw edge, so the temp is parked across it.
-            let boxed = ctx.box_to_any(arg_op.clone());
+            let boxed = ctx.box_to_any(arg_op);
             let parked = ctx.park_owned_temp(arg_eid, &arg_op);
             let n = ctx.coerce_any_to_number(boxed, Type::F64);
             ctx.unpark_owned_temp(parked);

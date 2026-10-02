@@ -165,7 +165,7 @@ fn try_value_of(
         }
         // RFC 20260705 owned-result invariant: identity result
         // carries its own ref.
-        ctx.emit_rc_inc(recv_op.clone());
+        ctx.emit_rc_inc(recv_op);
         return Some(recv_op);
     }
     if !(is_prim || is_obj) {
@@ -183,7 +183,7 @@ fn try_value_of(
     // results (Str / Substr / BigInt / Symbol) carry their own
     // ref; Copy primitives need none.
     if recv_ty.is_refcounted() {
-        ctx.emit_rc_inc(recv_op.clone());
+        ctx.emit_rc_inc(recv_op);
     }
     Some(recv_op)
 }
@@ -269,31 +269,31 @@ fn try_str_prop_check(
     let key_str = if key_ty == Type::Substr {
         let owned = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.substr_to_owned, vec![key_op.clone()]),
+            InstKind::Call(ctx.intrinsics.substr_to_owned, vec![key_op]),
             Type::Str,
             None,
         );
         Operand::Value(owned)
     } else if key_ty == Type::Str {
-        key_op.clone()
+        key_op
     } else {
         // Non-Str key (Number literal etc.): coerce first so
         // the runtime helper sees a live Str block. Uses the
         // shared `coerce_to_str` (Substr/I64/F64/Bool/Any all
         // covered). A borrowed Str stays borrowed; a fresh
         // owned Str drops after the call.
-        ctx.coerce_to_str(key_op.clone(), key_ty)
+        ctx.coerce_to_str(key_op, key_ty)
     };
     let recv_str = if recv_ty == Type::Substr {
         let owned = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.substr_to_owned, vec![recv_op.clone()]),
+            InstKind::Call(ctx.intrinsics.substr_to_owned, vec![recv_op]),
             Type::Str,
             None,
         );
         Operand::Value(owned)
     } else {
-        recv_op.clone()
+        recv_op
     };
     let intrinsic = if m_name == "propertyIsEnumerable" {
         ctx.intrinsics.str_prop_enumerable
@@ -302,7 +302,7 @@ fn try_str_prop_check(
     };
     let hit_i64 = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Call(intrinsic, vec![recv_str.clone(), key_str.clone()]),
+        InstKind::Call(intrinsic, vec![recv_str, key_str]),
         Type::I64,
         None,
     );

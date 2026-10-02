@@ -95,7 +95,7 @@ pub(crate) fn try_lower(
     // `Object.keys` lane's `arg_raw` snapshot, taken here for the same
     // reason — before the Closure / Error box, because that box is
     // rc-neutral and the release wants the receiver's own type.
-    let arg_raw = arg_op.clone();
+    let arg_raw = arg_op;
     // Cluster #4 follow-up (rotation 235) — a typed Closure receiver
     // boxes to any and rides the runtime own-entries walk (mirror of
     // the keys / values arms; a plain fn answers []). Borrow-shaped
@@ -196,8 +196,8 @@ pub(crate) fn try_lower(
     };
     let inner_arr_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
     let outer_ty = Type::Arr(intern_arr_layout(ctx.arr_layouts, Type::Arr(inner_arr_id)));
-    let walk_arg = arg_op.clone();
-    let walk_ty = outer_ty.clone();
+    let walk_arg = arg_op;
+    let walk_ty = outer_ty;
     // a getter under either arm can throw at a check inside the arm
     let parked = ctx.park_owned_temp(args[0], &arg_raw);
     let out = crate::ssa_lower_struct_exotic_gate::with_exotic_field_gate(
@@ -333,11 +333,11 @@ fn emit_one_pair(
     // ShortStr's unbox_value mints the fresh stake the push adopts.
     if fty == Type::Any {
         if !owned {
-            ctx.emit_rc_inc(val_op.clone());
+            ctx.emit_rc_inc(val_op);
         }
         let tag = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.any_unbox_tag, vec![val_op.clone()]),
+            InstKind::Call(ctx.intrinsics.any_unbox_tag, vec![val_op]),
             Type::I64,
             None,
         );
@@ -383,7 +383,7 @@ fn emit_one_pair(
         }
         t if t.is_refcounted() => {
             if !owned {
-                ctx.emit_rc_inc(val_op.clone());
+                ctx.emit_rc_inc(val_op);
             }
             (4, val_op)
         }

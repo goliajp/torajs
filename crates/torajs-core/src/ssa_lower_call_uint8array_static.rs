@@ -34,7 +34,7 @@ pub(crate) fn try_lower(
     // `undefined`, which is exactly what an absent options bag is.
     // `fromHex` reads only the first.
     let ops = crate::ssa_lower_new::lower_borrowed_any_pair(ctx, args);
-    let (a0, a1) = (ops[0].0.clone(), ops[1].0.clone());
+    let (a0, a1) = (ops[0].0, ops[1].0);
     let (f, argv) = if hex {
         (ctx.intrinsics.uint8array_from_hex, vec![a0])
     } else {

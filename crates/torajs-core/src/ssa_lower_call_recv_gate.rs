@@ -49,7 +49,7 @@ pub(crate) fn emit_recv_first_test(ctx: &mut LowerCtx<'_>, cell: &Operand) -> Op
     let mask = (torajs_rc::FLAG_CLOSURE_RECV_FIRST as i64) << FLAGS_SHIFT;
     let hdr = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Load(Type::I64, cell.clone(), 0),
+        InstKind::Load(Type::I64, *cell, 0),
         Type::I64,
         None,
     );
@@ -109,7 +109,7 @@ pub(crate) fn emit_indirect_call_recv_gated(
     let out_slot = if ret_ty == Type::Void {
         None
     } else {
-        Some(ctx.alloca(ret_ty.clone(), None))
+        Some(ctx.alloca(ret_ty, None))
     };
     ctx.f.set_term(
         ctx.cur_block,
@@ -163,17 +163,12 @@ pub(crate) fn emit_indirect_call_recv_gated(
         ctx.cur_block,
         InstKind::Call(
             ctx.intrinsics.closure_call_with_this,
-            vec![
-                argv[0].clone(),
-                boxed_seed,
-                Operand::Value(buf),
-                argv[1].clone(),
-            ],
+            vec![argv[0], boxed_seed, Operand::Value(buf), argv[1]],
         ),
         Type::Any,
         None,
     );
-    let conv = crate::ssa_lower_call_closure_local::coerce_any_result(ctx, result, ret_ty.clone());
+    let conv = crate::ssa_lower_call_closure_local::coerce_any_result(ctx, result, ret_ty);
     if let Some(slot) = out_slot {
         ctx.f.append_void(
             ctx.cur_block,
@@ -194,7 +189,7 @@ pub(crate) fn emit_indirect_call_recv_gated(
         let v = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::CallIndirect(plain_sig, fn_ptr, argv),
-            ret_ty.clone(),
+            ret_ty,
             None,
         );
         if let Some(slot) = out_slot {
@@ -210,7 +205,7 @@ pub(crate) fn emit_indirect_call_recv_gated(
     let slot = out_slot?;
     let v = ctx.f.append_inst(
         done_blk,
-        InstKind::Load(ret_ty.clone(), Operand::Value(slot), 0),
+        InstKind::Load(ret_ty, Operand::Value(slot), 0),
         ret_ty,
         None,
     );

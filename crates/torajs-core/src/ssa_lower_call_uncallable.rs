@@ -42,12 +42,12 @@ pub(crate) fn try_lower(
             Expr::Regex { .. }
         );
     if is_borrow && raw_ty.is_refcounted() {
-        ctx.emit_rc_inc(raw.clone());
+        ctx.emit_rc_inc(raw);
     }
     let recv = ctx.box_to_any_from_expr(callee, raw);
     // Rotation 550 — the box is ours; park it across the arguments'
     // lowers so their throw paths release it.
-    let recv_tok = ctx.push_throw_temp(recv.clone(), SsaType::Any);
+    let recv_tok = ctx.push_throw_temp(recv, SsaType::Any);
     let packed = pack_any_argv(ctx, args);
     let argv = packed.argv;
     let result = ctx.f.append_inst(
@@ -55,7 +55,7 @@ pub(crate) fn try_lower(
         InstKind::Call(
             ctx.intrinsics.any_call,
             vec![
-                recv.clone(),
+                recv,
                 Operand::Value(argv),
                 Operand::ConstI64(args.len() as i64),
             ],

@@ -92,7 +92,7 @@ pub(crate) fn emit(
         InstKind::Call(
             ctx.intrinsics.any_call,
             vec![
-                recv.clone(),
+                recv,
                 Operand::Value(argv),
                 Operand::ConstI64(args.len() as i64),
             ],

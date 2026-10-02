@@ -137,7 +137,7 @@ pub(crate) fn try_lower(
     // value throws here instead of answering the Object-flavor
     // wrapper proto / null-box.
     if is_reflect {
-        crate::ssa_lower_object_define::emit_receiver_typecheck(ctx, args[0], &v, v_ty.clone());
+        crate::ssa_lower_object_define::emit_receiver_typecheck(ctx, args[0], &v, v_ty);
     }
     let arg_is_ident = matches!(ctx.ast.get_expr(args[0]), Expr::Ident(_));
     let proto = match v_ty {
@@ -152,7 +152,7 @@ pub(crate) fn try_lower(
         // spelling proved it on class instances too), so the typed
         // spelling reads the same answer off the same kernel.
         Type::Obj(_) => {
-            let boxed = ctx.box_to_any(v.clone());
+            let boxed = ctx.box_to_any(v);
             ctx.f.append_inst(
                 ctx.cur_block,
                 InstKind::Call(ctx.intrinsics.get_proto_of_any, vec![boxed]),
@@ -162,7 +162,7 @@ pub(crate) fn try_lower(
         }
         Type::Any => ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.get_proto_of_any, vec![v.clone()]),
+            InstKind::Call(ctx.intrinsics.get_proto_of_any, vec![v]),
             Type::Any,
             None,
         ),
@@ -173,7 +173,7 @@ pub(crate) fn try_lower(
         // [1]) === Array.prototype`). box_to_any is a pure pointer
         // encode for heap values — no rc traffic.
         t if t.is_refcounted() => {
-            let boxed = ctx.box_to_any(v.clone());
+            let boxed = ctx.box_to_any(v);
             ctx.f.append_inst(
                 ctx.cur_block,
                 InstKind::Call(ctx.intrinsics.get_proto_of_any, vec![boxed]),
@@ -194,7 +194,7 @@ pub(crate) fn try_lower(
         // The any lane has always been right here, so the typed
         // spelling reads the same answer off the same classifier.
         _ => {
-            let boxed = ctx.box_to_any(v.clone());
+            let boxed = ctx.box_to_any(v);
             ctx.f.append_inst(
                 ctx.cur_block,
                 InstKind::Call(ctx.intrinsics.get_proto_of_any, vec![boxed]),

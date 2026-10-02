@@ -77,7 +77,7 @@ impl<'a> LowerCtx<'a> {
             }
             _ => match &self.temps.mutator_recv {
                 Some((id, op)) if *id == recv_id => {
-                    let op = op.clone();
+                    let op = *op;
                     let ty = self.operand_ty(&op);
                     Some((op, ty))
                 }

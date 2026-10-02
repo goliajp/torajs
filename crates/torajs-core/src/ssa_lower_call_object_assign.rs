@@ -114,9 +114,9 @@ pub(crate) fn try_lower(
             // keeps the answer owned (a fresh wrapper, or +1 on a
             // heap cell), so the result needs no second inc.
             let boxed = if matches!(target_ty, Type::Any) {
-                target_op.clone()
+                target_op
             } else {
-                ctx.box_to_any(target_op.clone())
+                ctx.box_to_any(target_op)
             };
             let to = ctx.f.append_inst(
                 ctx.cur_block,
@@ -129,7 +129,7 @@ pub(crate) fn try_lower(
         };
         assign_any_sources(ctx, &args[1..], &walk_target, target_is_fresh);
         if !target_is_fresh {
-            ctx.emit_owned_result_inc(walk_target.clone(), Type::Any);
+            ctx.emit_owned_result_inc(walk_target, Type::Any);
         }
         return Some(walk_target);
     }
@@ -171,7 +171,7 @@ pub(crate) fn try_lower(
             ctx.f.set_term(
                 ctx.cur_block,
                 Terminator::CondBr {
-                    cond: exotic.clone(),
+                    cond: exotic,
                     then_blk: probe_blk,
                     else_blk: copy_blk,
                 },
@@ -183,7 +183,7 @@ pub(crate) fn try_lower(
                 probe_blk,
                 InstKind::Call(
                     ctx.intrinsics.obj_key_is_nonenumerable,
-                    vec![source_op.clone(), Operand::Value(key)],
+                    vec![source_op, Operand::Value(key)],
                 ),
                 Type::I64,
                 None,
@@ -213,7 +213,7 @@ pub(crate) fn try_lower(
     // RFC 20260705 owned-result invariant: ES answers the target;
     // the pass-through result carries its own ref (dedicated path,
     // bypasses integrity's lower_noop).
-    ctx.emit_owned_result_inc(target_op.clone(), target_ty);
+    ctx.emit_owned_result_inc(target_op, target_ty);
     Some(target_op)
 }
 
@@ -226,7 +226,7 @@ fn assign_any_sources(
     walk_target: &Operand,
     target_is_fresh: bool,
 ) {
-    let parked = target_is_fresh.then(|| ctx.push_throw_temp(walk_target.clone(), Type::Any));
+    let parked = target_is_fresh.then(|| ctx.push_throw_temp(*walk_target, Type::Any));
     for src_eid in sources {
         let s_raw = ctx.lower_expr(*src_eid);
         let s_ty = ctx.operand_ty(&s_raw);
@@ -234,16 +234,13 @@ fn assign_any_sources(
             (s_raw, false)
         } else {
             if !ctx.expr_transfers_ownership(*src_eid) && s_ty.is_refcounted() {
-                ctx.emit_rc_inc(s_raw.clone());
+                ctx.emit_rc_inc(s_raw);
             }
             (ctx.box_to_any(s_raw), true)
         };
         ctx.f.append_void(
             ctx.cur_block,
-            InstKind::Call(
-                ctx.intrinsics.anyv_assign,
-                vec![walk_target.clone(), s_op.clone()],
-            ),
+            InstKind::Call(ctx.intrinsics.anyv_assign, vec![*walk_target, s_op]),
         );
         if we_boxed {
             ctx.emit_drop_value(s_op, Type::Any);

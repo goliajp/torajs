@@ -46,7 +46,7 @@ pub(crate) fn try_lower(
     let b_nullish =
         b_is_null || ctx.binop.right_undef_id.is_some() || ctx.binop.right_null_id.is_some();
     if a_nullish ^ b_nullish
-        && let Some(v) = try_lower_any_loose_eq_null(ctx, op, a.clone(), b.clone(), a_nullish)
+        && let Some(v) = try_lower_any_loose_eq_null(ctx, op, a, b, a_nullish)
     {
         return Some(v);
     }
@@ -57,7 +57,7 @@ pub(crate) fn try_lower(
     // every case, while the static cross-type-false fold below is
     // only sound for value types.
     if a_nullish ^ b_nullish {
-        let ptr_op = if a_nullish { b.clone() } else { a.clone() };
+        let ptr_op = if a_nullish { b } else { a };
         let ptr_ty = ctx.operand_ty(&ptr_op);
         // RFC 20260722 chunk D — an undefable F64 side (number[]
         // find miss / index OOB / alias) vs a nullish literal: the
@@ -136,7 +136,7 @@ pub(crate) fn try_lower(
             let cur_block = ctx.cur_block;
             let eq_null = ctx.f.append_inst(
                 cur_block,
-                InstKind::ICmp(IPred::Eq, ptr_op.clone(), Operand::ConstPtrNull),
+                InstKind::ICmp(IPred::Eq, ptr_op, Operand::ConstPtrNull),
                 Type::Bool,
                 None,
             );

@@ -21,7 +21,7 @@ fn resolve_proto_link(
         // link below releases.
         if matches!(ctx.ast.get_expr(proto_eid), Expr::ObjectLit { .. }) {
             let boxed = crate::ssa_lower_object_define::lower_anylane_object_arg(ctx, proto_eid);
-            return Some((proto_eid, boxed.clone(), boxed, true));
+            return Some((proto_eid, boxed, boxed, true));
         }
         let proto_op = ctx.lower_expr(proto_eid);
         let proto_ty = ctx.operand_ty(&proto_op);
@@ -33,27 +33,24 @@ fn resolve_proto_link(
         // every other primitive throws — for a typed primitive the
         // post-throw-check block is unreachable, so box_to_any's
         // payload inc cannot accumulate).
-        if !crate::ssa_lower_object_define::is_typed_object(proto_ty.clone()) {
+        if !crate::ssa_lower_object_define::is_typed_object(proto_ty) {
             let boxed = if matches!(proto_ty, Type::Any) {
-                proto_op.clone()
+                proto_op
             } else {
-                ctx.box_to_any_from_expr(proto_eid, proto_op.clone())
+                ctx.box_to_any_from_expr(proto_eid, proto_op)
             };
             ctx.f.append_void(
                 ctx.cur_block,
-                InstKind::Call(
-                    ctx.intrinsics.object_create_check_proto,
-                    vec![boxed.clone()],
-                ),
+                InstKind::Call(ctx.intrinsics.object_create_check_proto, vec![boxed]),
             );
             if proto_owned {
-                ctx.emit_throw_check_owned(None, proto_op.clone(), proto_ty);
+                ctx.emit_throw_check_owned(None, proto_op, proto_ty);
             } else {
                 ctx.emit_throw_check(None);
             }
             proto_link = Some((proto_eid, proto_op, boxed, proto_owned));
         } else {
-            let boxed = ctx.box_to_any_from_expr(proto_eid, proto_op.clone());
+            let boxed = ctx.box_to_any_from_expr(proto_eid, proto_op);
             proto_link = Some((proto_eid, proto_op, boxed, proto_owned));
         }
     }
@@ -205,7 +202,7 @@ pub(crate) fn lower_create(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     // gates, props walk, extra-arg lowers) drops it.
     let proto_tok = if let Some((_, ref p_op, _, true)) = proto_link {
         let p_ty = ctx.operand_ty(p_op);
-        let p = p_op.clone();
+        let p = *p_op;
         Some(ctx.push_throw_temp(p, p_ty))
     } else {
         None
@@ -215,7 +212,7 @@ pub(crate) fn lower_create(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     // product) lives across the gates and the walk — park it too.
     let props_tok = props.as_ref().and_then(|(p_eid, p_op, is_literal)| {
         if *is_literal {
-            let p = p_op.clone();
+            let p = *p_op;
             Some(ctx.push_throw_temp(p, Type::Any))
         } else {
             ctx.throw_temp_of(*p_eid, p_op)
@@ -284,9 +281,9 @@ pub(crate) fn lower_create(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
             // operand IS the cell ptr; the kernel's walkable-source
             // dispatch owns the per-tag walk (mirror of
             // defineProperties' widened lane).
-            let props_ptr = match p_op.clone() {
+            let props_ptr = match p_op {
                 Operand::Value(v) => v,
-                _ => ctx.any_unbox_value_as_ptr(p_op.clone()),
+                _ => ctx.any_unbox_value_as_ptr(p_op),
             };
             (dynobj, dynobj_tok) = walk_reparked(ctx, dynobj, dynobj_tok, props_ptr);
             if let Some(t) = props_tok {
@@ -309,7 +306,7 @@ pub(crate) fn lower_create(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
                 ctx.cur_block,
                 InstKind::Call(
                     ctx.intrinsics.throw_typeerror_if_props_null_only,
-                    vec![p_op.clone()],
+                    vec![p_op],
                 ),
             );
             ctx.emit_throw_check(None);
@@ -322,7 +319,7 @@ pub(crate) fn lower_create(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
             // SIGSEGV'd).
             let props_ptr = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.define_props_source_gate, vec![p_op.clone()]),
+                InstKind::Call(ctx.intrinsics.define_props_source_gate, vec![p_op]),
                 Type::Ptr,
                 None,
             );
@@ -347,8 +344,8 @@ pub(crate) fn lower_create(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
             // already stripped in `resolve_props`, and a typed
             // `undefined` boxes to ANY_UNDEF which the gate no-ops —
             // both spec-correct without a nullish pre-gate.
-            if !crate::ssa_lower_object_define::is_typed_object(p_ty.clone()) {
-                let boxed = ctx.box_to_any_from_expr(p_eid, p_op.clone());
+            if !crate::ssa_lower_object_define::is_typed_object(p_ty) {
+                let boxed = ctx.box_to_any_from_expr(p_eid, p_op);
                 ctx.f.append_inst(
                     ctx.cur_block,
                     InstKind::Call(ctx.intrinsics.define_props_source_gate, vec![boxed]),

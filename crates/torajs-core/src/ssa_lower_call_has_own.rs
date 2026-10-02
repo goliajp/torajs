@@ -137,7 +137,7 @@ pub(crate) fn try_lower(
                 // property that is there.
                 let k = ctx.f.append_inst(
                     ctx.cur_block,
-                    InstKind::Call(ctx.intrinsics.anyv_to_property_key, vec![k_raw.clone()]),
+                    InstKind::Call(ctx.intrinsics.anyv_to_property_key, vec![k_raw]),
                     Type::Ptr,
                     None,
                 );
@@ -147,9 +147,9 @@ pub(crate) fn try_lower(
                 (k, None)
             } else {
                 let key_op = if k_ty == Type::Symbol {
-                    k_raw.clone()
+                    k_raw
                 } else {
-                    ctx.coerce_to_str(k_raw.clone(), k_ty)
+                    ctx.coerce_to_str(k_raw, k_ty)
                 };
                 let Operand::Value(key_v) = key_op else {
                     panic!("ssa-lower: hasOwn key lowered to a non-value operand");

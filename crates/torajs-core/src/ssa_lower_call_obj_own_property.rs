@@ -31,7 +31,7 @@ fn emit_expando_probe(
     key: Operand,
     is_enumerable_probe: bool,
 ) -> Operand {
-    let boxed = ctx.box_to_any(recv_op.clone());
+    let boxed = ctx.box_to_any(*recv_op);
     let target = if is_enumerable_probe {
         ctx.intrinsics.any_prop_enumerable
     } else {
@@ -90,7 +90,7 @@ pub(crate) fn emit_obj_has_own_property(
         let cur_block = ctx.cur_block;
         let v = ctx.f.append_inst(
             cur_block,
-            InstKind::Call(target, vec![recv_op.clone()]),
+            InstKind::Call(target, vec![*recv_op]),
             Type::Bool,
             None,
         );

@@ -53,8 +53,7 @@ impl ArgTemps {
     /// temp parked, then unpark and release them on the normal path.
     pub(crate) fn check_and_release(mut self, ctx: &mut LowerCtx<'_>) {
         for (op, ty) in &self.coerce {
-            self.parked
-                .push(ctx.push_throw_temp(op.clone(), ty.clone()));
+            self.parked.push(ctx.push_throw_temp(*op, *ty));
         }
         ctx.emit_throw_check(None);
         for t in self.parked {

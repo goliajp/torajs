@@ -79,12 +79,12 @@ impl<'a> LowerCtx<'a> {
             if let Expr::Array(inner_ids) = self.ast.get_expr(eid) {
                 let inner_eids: Vec<ExprId> = inner_ids.clone();
                 let inner_arr = self.lower_array_any_literal(&inner_eids);
-                self.emit_rc_inc(inner_arr.clone());
+                self.emit_rc_inc(inner_arr);
                 arr = self.f.append_inst(
                     self.cur_block,
                     InstKind::Call(
                         self.intrinsics.arr_push_any,
-                        vec![Operand::Value(arr), Operand::ConstI64(4), inner_arr.clone()],
+                        vec![Operand::Value(arr), Operand::ConstI64(4), inner_arr],
                     ),
                     Type::Arr(arr_id),
                     None,
@@ -125,7 +125,7 @@ impl<'a> LowerCtx<'a> {
             }
             let val = self.lower_expr(eid);
             let val_ty = self.operand_ty(&val);
-            let (tag_op, value_op) = self.pack_any_elem(val.clone(), val_ty, Some(eid));
+            let (tag_op, value_op) = self.pack_any_elem(val, val_ty, Some(eid));
             arr = self.f.append_inst(
                 self.cur_block,
                 InstKind::Call(
@@ -176,7 +176,7 @@ impl<'a> LowerCtx<'a> {
         // Arr<Any> the existing arr_extend_any path can splice.
         let mut src_is_owned_temp = false;
         if matches!(src_ty, Type::Set) {
-            let set_src = src_op.clone();
+            let set_src = src_op;
             src_op = crate::ssa_lower_arr_from_set::emit(self, src_op);
             self.release_owned_temp(inner_eid, &set_src);
             src_ty = self.operand_ty(&src_op);
@@ -189,8 +189,8 @@ impl<'a> LowerCtx<'a> {
         // iteration protocol. The result is an owned temp —
         // extend copies + rc_incs the slots, so drop after.
         if matches!(src_ty, Type::Any) {
-            let any_src = src_op.clone();
-            src_op = crate::ssa_lower_arr_from_any::emit(self, any_src.clone());
+            let any_src = src_op;
+            src_op = crate::ssa_lower_arr_from_any::emit(self, any_src);
             // The owned any source itself (Call-shaped product)
             // is only borrowed by the materialization — release
             // it here; the drop below covers the materialized
@@ -229,7 +229,7 @@ impl<'a> LowerCtx<'a> {
             self.cur_block,
             InstKind::Call(
                 self.intrinsics.arr_extend_any,
-                vec![Operand::Value(arr), src_op.clone()],
+                vec![Operand::Value(arr), src_op],
             ),
             Type::Arr(arr_id),
             None,
@@ -262,7 +262,7 @@ impl<'a> LowerCtx<'a> {
     ) -> (Operand, Operand) {
         let tag_v = self.f.append_inst(
             self.cur_block,
-            InstKind::Call(tag_fid, vec![val.clone()]),
+            InstKind::Call(tag_fid, vec![val]),
             Type::I64,
             None,
         );
@@ -365,7 +365,7 @@ impl<'a> LowerCtx<'a> {
                 // it and leaked).
                 let tag_v = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Call(self.intrinsics.any_unbox_tag, vec![val.clone()]),
+                    InstKind::Call(self.intrinsics.any_unbox_tag, vec![val]),
                     Type::I64,
                     None,
                 );
@@ -417,7 +417,7 @@ impl<'a> LowerCtx<'a> {
                 // readers (index / print / drop walkers) don't
                 // NaN-box-walk raw scalar slots. No-op for non-Arr.
                 self.emit_arr_mark_kind(&val);
-                self.emit_rc_inc(val.clone());
+                self.emit_rc_inc(val);
                 // RFC 20260722 chunk B — a possibly-undef-cell heap
                 // elem (Nullable field read / find miss, `[u]` into
                 // an any[] slot) packs ANY_UNDEF via the runtime tag

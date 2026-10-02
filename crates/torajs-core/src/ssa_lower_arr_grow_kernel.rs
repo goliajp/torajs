@@ -40,7 +40,7 @@ pub(crate) fn emit_grow_kernel_checked(
     ret_ty: Type,
 ) -> ValueId {
     let token = if val_owned_from_substr {
-        Some(ctx.push_throw_temp(val.clone(), elem_ty))
+        Some(ctx.push_throw_temp(val, elem_ty))
     } else {
         ctx.park_owned_temp(arg_eid, &val)
     };
@@ -53,7 +53,7 @@ pub(crate) fn emit_grow_kernel_checked(
     ctx.emit_throw_check(None);
     ctx.unpark_owned_temp(token);
     if elem_ty.is_refcounted() && !val_owned_from_substr {
-        ctx.emit_rc_inc(val.clone());
+        ctx.emit_rc_inc(val);
         // Chunk 733 — an owned-shape arg hands its +1 to the array:
         // the inc above is the array's stake, so the temp's own must
         // release. Borrow shapes are a no-op through the predicate;

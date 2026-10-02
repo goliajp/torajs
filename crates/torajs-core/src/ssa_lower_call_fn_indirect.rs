@@ -193,7 +193,7 @@ fn try_lower_call_or_closure_callee(
                 ) =>
         {
             let op = ctx.lower_expr(obj);
-            ctx.redispatch_lowered = Some((obj, op.clone()));
+            ctx.redispatch_lowered = Some((obj, op));
             Some(op)
         }
         _ => None,
@@ -231,17 +231,9 @@ fn try_lower_call_or_closure_callee(
                 }
                 _ => false,
             };
-            let parked =
-                minted.then(|| ctx.push_throw_temp(callee_op.clone(), Type::Closure(user_sig_id)));
-            let result = emit_closure_arm(
-                ctx,
-                eid,
-                callee,
-                callee_op.clone(),
-                user_sig_id,
-                args,
-                recv_base,
-            );
+            let parked = minted.then(|| ctx.push_throw_temp(callee_op, Type::Closure(user_sig_id)));
+            let result =
+                emit_closure_arm(ctx, eid, callee, callee_op, user_sig_id, args, recv_base);
             if let Some(t) = parked {
                 ctx.pop_throw_temp(t);
                 ctx.release_owned_temp(callee, &callee_op);

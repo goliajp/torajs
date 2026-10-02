@@ -41,10 +41,10 @@ pub(crate) fn try_lower(
                 Expr::Ident(_) | Expr::Member { .. }
             ) && ctx.operand_ty(&raw).is_refcounted()
             {
-                ctx.emit_rc_inc(raw.clone());
+                ctx.emit_rc_inc(raw);
             }
             let b = ctx.box_to_any_from_expr(args[0], raw);
-            (b.clone(), Some(b))
+            (b, Some(b))
         };
         let cur_block = ctx.cur_block;
         let kernel = ctx.intrinsics.heritage_check;
@@ -75,10 +75,10 @@ pub(crate) fn try_lower(
             if matches!(ctx.ast.get_expr(a), Expr::Ident(_) | Expr::Member { .. })
                 && raw_ty.is_refcounted()
             {
-                ctx.emit_rc_inc(raw.clone());
+                ctx.emit_rc_inc(raw);
             }
             let b = ctx.box_to_any_from_expr(a, raw);
-            ops.push(b.clone());
+            ops.push(b);
             boxed.push(Some(b));
         }
     }

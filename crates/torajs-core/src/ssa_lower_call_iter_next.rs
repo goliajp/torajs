@@ -91,11 +91,7 @@ pub(crate) fn try_lower(
         cur_block,
         InstKind::Call(
             step_fid,
-            vec![
-                recv_op.clone(),
-                Operand::Value(tag_slot),
-                Operand::Value(val_slot),
-            ],
+            vec![recv_op, Operand::Value(tag_slot), Operand::Value(val_slot)],
         ),
         Type::I64,
         None,

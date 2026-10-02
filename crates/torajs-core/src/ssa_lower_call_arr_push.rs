@@ -111,13 +111,13 @@ fn try_lower_index(ctx: &mut LowerCtx<'_>, recv_id: ExprId, args: &[ExprId]) -> 
     let tok = ctx.park_owned_temp(recv_id, &recv_val);
     let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
     if matches!(elem_ty, Type::Any) {
-        let n = ctx.emit_arr_any_push_at_value(recv_val.clone(), args[0], recv_ty);
+        let n = ctx.emit_arr_any_push_at_value(recv_val, args[0], recv_ty);
         ctx.unpark_owned_temp(tok);
         ctx.release_owned_temp(recv_id, &recv_val);
         return Some(n);
     }
     let (val, val_owned_from_substr) = coerce_push_value(ctx, args[0], elem_ty);
-    let push_arg = ctx.raw_slot_arg(val.clone());
+    let push_arg = ctx.raw_slot_arg(val);
     // Chunk 733's stake dance (owned-shape arg hands its +1 to the
     // array; probes P1 closure-push 30.5MB / P6 nested-arr 44.9MB /
     // P7 owned-str 16MB vs 6.3MB flat) lives in the helper now, on
@@ -125,7 +125,7 @@ fn try_lower_index(ctx: &mut LowerCtx<'_>, recv_id: ExprId, args: &[ExprId]) -> 
     let new_arr = emit_grow_kernel_checked(
         ctx,
         ctx.intrinsics.arr_push,
-        recv_val.clone(),
+        recv_val,
         push_arg,
         args[0],
         val,
@@ -186,10 +186,10 @@ fn try_lower_ident_local(
     // the hoisted data pointer; the reserve guarantees it stays valid).
     if let Some(state) = ctx.prereserve.unchecked_for.get(recv_name).copied() {
         if state.gate_per_append {
-            let owned = val_owned_from_substr.then(|| (val.clone(), elem_ty));
+            let owned = val_owned_from_substr.then(|| (val, elem_ty));
             ctx.emit_prereserve_append_gate(state, owned);
         }
-        let len_next = ctx.emit_prereserved_push(state, val.clone());
+        let len_next = ctx.emit_prereserved_push(state, val);
         if elem_ty.is_refcounted() && !val_owned_from_substr {
             ctx.emit_rc_inc(val);
             // Chunk 733 — owned-shape arg hand-off (see try_lower_index).
@@ -199,7 +199,7 @@ fn try_lower_ident_local(
         // as `len_next`, mirrors arr[#8]).
         return Some(Operand::Value(len_next));
     }
-    let push_arg = ctx.raw_slot_arg(val.clone());
+    let push_arg = ctx.raw_slot_arg(val);
     let new_arr = emit_grow_kernel_checked(
         ctx,
         ctx.intrinsics.arr_push,
@@ -265,7 +265,7 @@ fn try_lower_ident_global(
         None,
     );
     let (val, val_owned_from_substr) = coerce_push_value(ctx, args[0], elem_ty);
-    let push_arg = ctx.raw_slot_arg(val.clone());
+    let push_arg = ctx.raw_slot_arg(val);
     let new_arr = emit_grow_kernel_checked(
         ctx,
         ctx.intrinsics.arr_push,
@@ -330,7 +330,7 @@ fn try_lower_field(ctx: &mut LowerCtx<'_>, recv_id: ExprId, args: &[ExprId]) -> 
     // inline copy lacked the Substr and Any arms, so an admitted Any
     // arg would have raw-written box bits into the typed slot.
     let (val, val_owned_from_substr) = coerce_push_value(ctx, args[0], elem_ty);
-    let push_arg = ctx.raw_slot_arg(val.clone());
+    let push_arg = ctx.raw_slot_arg(val);
     let new_arr = emit_grow_kernel_checked(
         ctx,
         ctx.intrinsics.arr_push,
@@ -378,7 +378,7 @@ pub(crate) fn coerce_push_value(
     val = ctx.coerce_bool_to_i64(val);
     let mut val_owned_from_substr = false;
     let cast = ctx.checked_cast(
-        val.clone(),
+        val,
         elem_ty,
         crate::ssa_lower_checked_cast::CastSlot::Store,
         crate::ssa_lower_checked_cast::CastScope::Inferred,
@@ -401,7 +401,7 @@ pub(crate) fn coerce_push_value(
         // (any-arith result), while borrow shapes stay with their
         // binding.
         (t @ (Type::F64 | Type::I64), Type::Any) => {
-            let n = ctx.coerce_any_to_number(val.clone(), t);
+            let n = ctx.coerce_any_to_number(val, t);
             if ctx.expr_transfers_ownership(arg_eid) {
                 ctx.emit_drop_value(val, Type::Any);
             }
@@ -415,7 +415,7 @@ pub(crate) fn coerce_push_value(
         (Type::Bool, Type::Any) => {
             let b = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.any_to_bool, vec![val.clone()]),
+                InstKind::Call(ctx.intrinsics.any_to_bool, vec![val]),
                 Type::Bool,
                 None,
             );
@@ -425,7 +425,7 @@ pub(crate) fn coerce_push_value(
             Operand::Value(b)
         }
         (Type::Str, Type::Any) => {
-            let s = ctx.coerce_to_str(val.clone(), Type::Any);
+            let s = ctx.coerce_to_str(val, Type::Any);
             if ctx.expr_transfers_ownership(arg_eid) {
                 ctx.emit_drop_value(val, Type::Any);
             }
@@ -439,7 +439,7 @@ pub(crate) fn coerce_push_value(
         (Type::Str, Type::Substr) => {
             let owned = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.substr_to_owned, vec![val.clone()]),
+                InstKind::Call(ctx.intrinsics.substr_to_owned, vec![val]),
                 Type::Str,
                 None,
             );

@@ -107,10 +107,7 @@ pub(crate) fn try_lower(
                 let cur_block = ctx.cur_block;
                 let cat = ctx.f.append_inst(
                     cur_block,
-                    InstKind::Call(
-                        ctx.intrinsics.str_concat,
-                        vec![prev.clone(), one_op.clone()],
-                    ),
+                    InstKind::Call(ctx.intrinsics.str_concat, vec![prev, one_op]),
                     Type::Str,
                     None,
                 );

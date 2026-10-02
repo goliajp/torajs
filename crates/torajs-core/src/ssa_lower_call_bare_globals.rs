@@ -117,13 +117,13 @@ fn decode_any_to_str(ctx: &mut LowerCtx<'_>, raw: Operand) -> Operand {
     }
     let tag = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Call(ctx.intrinsics.any_unbox_tag, vec![raw.clone()]),
+        InstKind::Call(ctx.intrinsics.any_unbox_tag, vec![raw]),
         Type::I64,
         None,
     );
     let val = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Call(ctx.intrinsics.any_unbox_value, vec![raw.clone()]),
+        InstKind::Call(ctx.intrinsics.any_unbox_value, vec![raw]),
         Type::I64,
         None,
     );
@@ -310,7 +310,7 @@ fn lower_is_nan_or_finite(ctx: &mut LowerCtx<'_>, name: &str, args: &[ExprId]) -
             // the Number() ctor and S327/S330/S336/S342 family use.
             let f = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.any_to_number, vec![arg_op.clone()]),
+                InstKind::Call(ctx.intrinsics.any_to_number, vec![arg_op]),
                 Type::F64,
                 None,
             );
@@ -335,7 +335,7 @@ fn lower_is_nan_or_finite(ctx: &mut LowerCtx<'_>, name: &str, args: &[ExprId]) -
             // ledger #3, 32B/iter probe).
             let v = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.str_to_number, vec![arg_op.clone()]),
+                InstKind::Call(ctx.intrinsics.str_to_number, vec![arg_op]),
                 Type::F64,
                 None,
             );
@@ -360,7 +360,7 @@ fn lower_is_nan_or_finite(ctx: &mut LowerCtx<'_>, name: &str, args: &[ExprId]) -
             // matches the prior static fold (isFinite = false / isNaN
             // = true).
             if crate::ssa_lower_object_define::is_typed_object(arg_ty) {
-                let boxed = ctx.box_to_any_from_expr(args[0], arg_op.clone());
+                let boxed = ctx.box_to_any_from_expr(args[0], arg_op);
                 let f = ctx.f.append_inst(
                     ctx.cur_block,
                     InstKind::Call(ctx.intrinsics.any_to_number, vec![boxed]),

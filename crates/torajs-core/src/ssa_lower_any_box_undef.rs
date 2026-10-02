@@ -25,7 +25,7 @@ impl<'a> LowerCtx<'a> {
             .expect("heap_slot_tag_value: a slot type with an undefined cell");
         let is_undef = self.f.append_inst(
             self.cur_block,
-            InstKind::ICmp(IPred::Eq, val.clone(), sentinel),
+            InstKind::ICmp(IPred::Eq, val, sentinel),
             Type::Bool,
             None,
         );

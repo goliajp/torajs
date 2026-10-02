@@ -113,7 +113,7 @@ pub(crate) fn lower_accessor_face(ctx: &mut LowerCtx, eid: ExprId, is_get: bool)
     // its faces).
     if ctx.ast.fnexpr_recv_faces.contains(&eid) {
         if matches!(ctx.operand_ty(&op), Type::Closure(_)) {
-            ctx.emit_rc_inc(op.clone());
+            ctx.emit_rc_inc(op);
         }
         return (op, 5 | 0x40);
     }
@@ -147,7 +147,7 @@ pub(crate) fn lower_accessor_face(ctx: &mut LowerCtx, eid: ExprId, is_get: bool)
     if matches!(ctx.ast.get_expr(eid), crate::ast::Expr::Ident(_))
         && matches!(ctx.operand_ty(&op), Type::Closure(_))
     {
-        ctx.emit_rc_inc(op.clone());
+        ctx.emit_rc_inc(op);
     }
     let k = if is_get {
         accessor_ret_kind(ctx, &op)
@@ -207,7 +207,7 @@ fn canonical_named_fn_cell(ctx: &mut LowerCtx, fid: crate::ssa::FuncId, name: &s
     let minted = mint_named_fn_env(ctx, fid);
     ctx.f.append_void(
         ctx.cur_block,
-        InstKind::Store(minted.clone(), Operand::Value(gref), 0),
+        InstKind::Store(minted, Operand::Value(gref), 0),
     );
     ctx.f.append_void(
         ctx.cur_block,

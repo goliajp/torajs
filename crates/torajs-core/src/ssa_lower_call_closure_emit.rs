@@ -77,7 +77,7 @@ pub(crate) fn emit_closure_callee_with_this(
         env_first.push(Type::Any);
     }
     env_first.extend(user_params.iter().copied());
-    let env_first_sig = intern_fn_sig(ctx.fn_sigs, env_first, ret_ty.clone());
+    let env_first_sig = intern_fn_sig(ctx.fn_sigs, env_first, ret_ty);
     // 398-06 — a ClosureThis::None callee VALUE may still be a
     // promoted closure at runtime (a field read, an alias, a slot the
     // value flowed through), so the receiverless call runs behind the

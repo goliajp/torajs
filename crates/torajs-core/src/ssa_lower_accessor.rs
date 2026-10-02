@@ -46,7 +46,7 @@ pub(crate) fn emit_any_get_result(
     tag: ValueId,
     value: ValueId,
 ) -> Operand {
-    emit_get_result(ctx, tag, value, recv.clone(), key)
+    emit_get_result(ctx, tag, value, *recv, key)
 }
 
 /// The two-arm emit behind [`emit_any_get_result`]. (The dynobj-only
@@ -214,7 +214,7 @@ fn emit_face_name(ctx: &mut LowerCtx, face: &Operand, key: &Operand, prefix: i64
         cur_block,
         InstKind::Call(
             ctx.intrinsics.fn_computed_name_define,
-            vec![face.clone(), key.clone(), Operand::ConstI64(prefix)],
+            vec![*face, *key, Operand::ConstI64(prefix)],
         ),
     );
 }
@@ -233,7 +233,7 @@ pub(crate) fn emit_accessor_define_into(
     // Rotation 549 — a coerced key is alive across the face lowers;
     // park it for any throw path in between.
     let key_tok = if key_owned {
-        Some(ctx.push_throw_temp(key_op.clone(), crate::ssa::Type::Str))
+        Some(ctx.push_throw_temp(key_op, crate::ssa::Type::Str))
     } else {
         None
     };
@@ -298,7 +298,7 @@ pub(crate) fn emit_accessor_define_into(
             ctx.intrinsics.dynobj_define,
             vec![
                 Operand::Value(slot),
-                key_op.clone(),
+                key_op,
                 Operand::ConstI64(4), // ANY_HEAP — the pair stored as a cell
                 Operand::Value(pair),
                 Operand::ConstI64(flags),

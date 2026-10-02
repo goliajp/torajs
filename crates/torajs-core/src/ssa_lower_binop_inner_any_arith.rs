@@ -108,7 +108,7 @@ pub(crate) fn try_lower(
         && numeric(&a_ty)
         && numeric(&b_ty)
     {
-        let sides = ((a.clone(), a_ty), (b.clone(), b_ty));
+        let sides = ((a, a_ty), (b, b_ty));
         return Some(crate::ssa_lower_anyv_number::number_add(
             ctx,
             sides.0,
@@ -142,13 +142,13 @@ fn lower_via_kernel(
                 // layout-decoupling rationale).
                 let tag = this.f.append_inst(
                     this.cur_block,
-                    InstKind::Call(this.intrinsics.any_unbox_tag, vec![op_v.clone()]),
+                    InstKind::Call(this.intrinsics.any_unbox_tag, vec![op_v]),
                     Type::I64,
                     None,
                 );
                 let value = this.f.append_inst(
                     this.cur_block,
-                    InstKind::Call(this.intrinsics.any_unbox_value, vec![op_v.clone()]),
+                    InstKind::Call(this.intrinsics.any_unbox_value, vec![op_v]),
                     Type::I64,
                     None,
                 );
@@ -196,7 +196,7 @@ fn lower_via_kernel(
     if ctx.binop.right_undef_id.is_some() && matches!(rt, Operand::ConstI64(0)) {
         rt = Operand::ConstI64(5);
     }
-    let settles = [(l_src, lv.clone()), (r_src, rv.clone())];
+    let settles = [(l_src, lv), (r_src, rv)];
     let r = match op {
         AstBinOp::Add => ctx.f.append_inst(
             ctx.cur_block,

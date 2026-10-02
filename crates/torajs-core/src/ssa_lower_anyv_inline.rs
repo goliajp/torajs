@@ -135,21 +135,17 @@ fn arr_get_any_inline(
     branch(ctx, non_null, len_blk, slow_blk);
 
     ctx.cur_block = len_blk;
-    let len = inst(
-        ctx,
-        InstKind::Load(Type::I64, arr.clone(), ARR_LEN_OFF),
-        Type::I64,
-    );
+    let len = inst(ctx, InstKind::Load(Type::I64, arr, ARR_LEN_OFF), Type::I64);
     let in_range = inst(
         ctx,
-        InstKind::ICmp(IPred::Ult, idx.clone(), Operand::Value(len)),
+        InstKind::ICmp(IPred::Ult, idx, Operand::Value(len)),
         Type::Bool,
     );
     branch(ctx, in_range, hdr_blk, slow_blk);
 
     // flags are the header word's top 16 bits
     ctx.cur_block = hdr_blk;
-    let word = inst(ctx, InstKind::Load(Type::I64, arr.clone(), 0), Type::I64);
+    let word = inst(ctx, InstKind::Load(Type::I64, arr, 0), Type::I64);
     let mask = ((FLAG_ARR_ANY | FLAG_ARR_SPARSE_TAIL | slow_flags) as i64) << 48;
     let flags = inst(
         ctx,
@@ -170,12 +166,12 @@ fn arr_get_any_inline(
     ctx.cur_block = elem_blk;
     let data = inst(
         ctx,
-        InstKind::Load(Type::Ptr, arr.clone(), ARR_DATA_PTR_OFF),
+        InstKind::Load(Type::Ptr, arr, ARR_DATA_PTR_OFF),
         Type::Ptr,
     );
     let off = inst(
         ctx,
-        InstKind::BinOp(BinOp::Shl, idx.clone(), Operand::ConstI64(3)),
+        InstKind::BinOp(BinOp::Shl, idx, Operand::ConstI64(3)),
         Type::I64,
     );
     let v = inst(
@@ -203,7 +199,7 @@ fn arr_get_any_inline(
 }
 
 pub(crate) fn emit_bits(ctx: &mut LowerCtx<'_>, v: &Operand) -> ValueId {
-    inst(ctx, InstKind::PtrToInt(v.clone()), Type::I64)
+    inst(ctx, InstKind::PtrToInt(*v), Type::I64)
 }
 
 /// `bits` is a heap cell: non-zero with the top 16 bits and

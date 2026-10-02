@@ -282,7 +282,7 @@ fn lower_aggregate(ctx: &mut LowerCtx<'_>, eid: ExprId, method: &str, args: &[Ex
         _ => false,
     };
     if !sync_elem_form {
-        let boxed = ctx.box_to_any_from_expr(args[0], arr_op.clone());
+        let boxed = ctx.box_to_any_from_expr(args[0], arr_op);
         let fid = match method {
             "all" => ctx.intrinsics.promise_all_dyn,
             "race" => ctx.intrinsics.promise_race_dyn,
@@ -314,7 +314,7 @@ fn lower_aggregate(ctx: &mut LowerCtx<'_>, eid: ExprId, method: &str, args: &[Ex
     // `all` and `allSettled` each need one word only the call site can
     // supply. race / any forward a single settled value, so the
     // awaiting site's own repr decode already covers them.
-    let mut call_args = vec![arr_op.clone()];
+    let mut call_args = vec![arr_op];
     match method {
         "all" => call_args.push(Operand::ConstI64(all_result_elem_repr(ctx, eid))),
         "allSettled" => {

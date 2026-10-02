@@ -151,7 +151,7 @@ impl<'a> LowerCtx<'a> {
         // NaN with our payload.
         if val_ty == Type::F64 && crate::ssa_lower_undef_f64_source::is_undef_f64_source(self, eid)
         {
-            let (tag, v) = self.tag_value_f64_or_undef(val.clone());
+            let (tag, v) = self.tag_value_f64_or_undef(val);
             return (tag, v, val, val_ty);
         }
         // RFC 20260710 C2b + 20260722 chunk B — an undefable heap
@@ -162,12 +162,12 @@ impl<'a> LowerCtx<'a> {
         // +1); the inc and the kind mark both no-op on the sentinel
         // through the runtime static gates.
         if crate::ssa_lower_nullable_guard::holds_undef_cell(self, eid, val_ty) {
-            self.emit_rc_inc(val.clone());
+            self.emit_rc_inc(val);
             self.emit_arr_mark_kind(&val);
-            let (tag, v) = self.heap_slot_tag_value(val.clone());
+            let (tag, v) = self.heap_slot_tag_value(val);
             return (tag, v, val, val_ty);
         }
-        let (tag, v) = self.box_to_tag_value(val.clone());
+        let (tag, v) = self.box_to_tag_value(val);
         (tag, v, val, val_ty)
     }
 
@@ -237,7 +237,7 @@ impl<'a> LowerCtx<'a> {
             Type::Any => {
                 let tag_v = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Call(self.intrinsics.any_unbox_tag, vec![val.clone()]),
+                    InstKind::Call(self.intrinsics.any_unbox_tag, vec![val]),
                     Type::I64,
                     None,
                 );
@@ -257,7 +257,7 @@ impl<'a> LowerCtx<'a> {
             Type::Str => {
                 let tag_v = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Call(self.intrinsics.anyv_str_slot_tag, vec![val.clone()]),
+                    InstKind::Call(self.intrinsics.anyv_str_slot_tag, vec![val]),
                     Type::I64,
                     None,
                 );
@@ -279,7 +279,7 @@ impl<'a> LowerCtx<'a> {
             Type::Substr => {
                 let tag_v = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Call(self.intrinsics.anyv_substr_slot_tag, vec![val.clone()]),
+                    InstKind::Call(self.intrinsics.anyv_substr_slot_tag, vec![val]),
                     Type::I64,
                     None,
                 );
@@ -292,7 +292,7 @@ impl<'a> LowerCtx<'a> {
                 (Operand::Value(tag_v), Operand::Value(val_v))
             }
             _ if val_ty.is_refcounted() => {
-                self.emit_rc_inc(val.clone());
+                self.emit_rc_inc(val);
                 // RFC 20260704 S1 — typed arr crossing into `any`
                 // records its element kind on the heap header.
                 self.emit_arr_mark_kind(&val);

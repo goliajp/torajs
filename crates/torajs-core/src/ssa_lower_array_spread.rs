@@ -84,7 +84,7 @@ fn release_spread_sources(ctx: &mut LowerCtx<'_>, lowered: &[LoweredItem]) {
         }
         let ty = ctx.operand_ty(&li.op);
         if li.minted {
-            ctx.emit_drop_value(li.op.clone(), ty);
+            ctx.emit_drop_value(li.op, ty);
         } else {
             ctx.release_owned_temp(li.src_eid, &li.op);
         }
@@ -141,7 +141,7 @@ fn lower_spread_elements(
             let (v, v_ty) = if v_ty == Type::Substr {
                 let owned = ctx.f.append_inst(
                     ctx.cur_block,
-                    InstKind::Call(ctx.intrinsics.substr_to_owned, vec![v.clone()]),
+                    InstKind::Call(ctx.intrinsics.substr_to_owned, vec![v]),
                     Type::Str,
                     None,
                 );
@@ -230,7 +230,7 @@ fn lower_spread_source(ctx: &mut LowerCtx<'_>, inner: ExprId) -> (Operand, Type,
         let cur_block = ctx.cur_block;
         let owned = ctx.f.append_inst(
             cur_block,
-            InstKind::Call(ctx.intrinsics.substr_to_owned, vec![v.clone()]),
+            InstKind::Call(ctx.intrinsics.substr_to_owned, vec![v]),
             Type::Str,
             None,
         );
@@ -254,7 +254,7 @@ fn lower_spread_source(ctx: &mut LowerCtx<'_>, inner: ExprId) -> (Operand, Type,
         && matches!(v_ty, Type::Arr(_) | Type::Str | Type::Set)
     {
         let arr_any_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
-        let boxed = ctx.box_to_any(v.clone());
+        let boxed = ctx.box_to_any(v);
         let materialized = crate::ssa_lower_arr_from_any::emit(ctx, boxed);
         ctx.release_owned_temp(inner, &v);
         return (materialized, Type::Arr(arr_any_id), true, minted);
@@ -267,7 +267,7 @@ fn lower_spread_source(ctx: &mut LowerCtx<'_>, inner: ExprId) -> (Operand, Type,
         let cur_block = ctx.cur_block;
         let arr = ctx.f.append_inst(
             cur_block,
-            InstKind::Call(ctx.intrinsics.arr_from_string, vec![v.clone()]),
+            InstKind::Call(ctx.intrinsics.arr_from_string, vec![v]),
             Type::Arr(str_arr_id),
             None,
         );
@@ -285,7 +285,7 @@ fn lower_spread_source(ctx: &mut LowerCtx<'_>, inner: ExprId) -> (Operand, Type,
     }
     if matches!(v_ty, Type::Set) {
         let arr_any_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
-        let src = v.clone();
+        let src = v;
         v = crate::ssa_lower_arr_from_set::emit(ctx, v);
         ctx.release_owned_temp(inner, &src);
         v_ty = Type::Arr(arr_any_id);
@@ -302,7 +302,7 @@ fn lower_spread_source(ctx: &mut LowerCtx<'_>, inner: ExprId) -> (Operand, Type,
     // (owned `m.keys()` call → dropped; borrowed Ident/Member → not).
     if matches!(v_ty, Type::Map | Type::MapIter | Type::ArrIter) {
         let arr_any_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
-        let boxed = ctx.box_to_any(v.clone());
+        let boxed = ctx.box_to_any(v);
         let materialized = crate::ssa_lower_arr_from_any::emit(ctx, boxed);
         ctx.release_owned_temp(inner, &v);
         v = materialized;
@@ -340,7 +340,7 @@ fn lower_spread_source(ctx: &mut LowerCtx<'_>, inner: ExprId) -> (Operand, Type,
             | Type::WeakSet
     ) {
         let arr_any_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
-        let boxed = ctx.box_to_any(v.clone());
+        let boxed = ctx.box_to_any(v);
         let materialized = crate::ssa_lower_arr_from_any::emit(ctx, boxed);
         ctx.release_owned_temp(inner, &v);
         v = materialized;
@@ -352,7 +352,7 @@ fn lower_spread_source(ctx: &mut LowerCtx<'_>, inner: ExprId) -> (Operand, Type,
     // (the assembler drops it after the extend).
     if matches!(v_ty, Type::Any) {
         let arr_any_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
-        let materialized = crate::ssa_lower_arr_from_any::emit(ctx, v.clone());
+        let materialized = crate::ssa_lower_arr_from_any::emit(ctx, v);
         // An owned any source (`[...s.split("b")]` — Call / New /
         // OptCall shapes) is only borrowed by the iteration protocol;
         // release it after the materialization or every spread strands

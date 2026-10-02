@@ -41,7 +41,7 @@ pub(crate) fn lower_reflect_set(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Oper
         ctx.lower_expr(args[0])
     };
     let obj_ty = ctx.operand_ty(&obj_op);
-    crate::ssa_lower_object_define::emit_receiver_typecheck(ctx, args[0], &obj_op, obj_ty.clone());
+    crate::ssa_lower_object_define::emit_receiver_typecheck(ctx, args[0], &obj_op, obj_ty);
     let any_op = if matches!(obj_ty, Type::Any) {
         obj_op
     } else {
@@ -64,7 +64,7 @@ pub(crate) fn lower_reflect_set(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Oper
     let cur_block = ctx.cur_block;
     let tag_v = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(ctx.intrinsics.any_unbox_tag, vec![v_any.clone()]),
+        InstKind::Call(ctx.intrinsics.any_unbox_tag, vec![v_any]),
         Type::I64,
         None,
     );
@@ -95,11 +95,7 @@ pub(crate) fn lower_reflect_set(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Oper
     let slot = ctx.alloca(Type::Any, Some("__any_recv_slot"));
     ctx.f.append_void(
         ctx.cur_block,
-        InstKind::Store(
-            recv_any.clone().unwrap_or_else(|| any_op.clone()),
-            Operand::Value(slot),
-            0,
-        ),
+        InstKind::Store(recv_any.unwrap_or_else(|| any_op), Operand::Value(slot), 0),
     );
     let cur_block = ctx.cur_block;
     let ans = if recv_any.is_some() {
@@ -109,7 +105,7 @@ pub(crate) fn lower_reflect_set(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Oper
                 ctx.intrinsics.any_member_set_with_receiver,
                 vec![
                     any_op,
-                    key_op.clone(),
+                    key_op,
                     Operand::Value(tag_v),
                     Operand::Value(val_v),
                     Operand::Value(slot),
@@ -125,7 +121,7 @@ pub(crate) fn lower_reflect_set(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Oper
                 ctx.intrinsics.any_member_set_soft,
                 vec![
                     Operand::Value(slot),
-                    key_op.clone(),
+                    key_op,
                     Operand::Value(tag_v),
                     Operand::Value(val_v),
                     Operand::ConstI64(-1),

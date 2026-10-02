@@ -214,9 +214,9 @@ pub(crate) fn lower_has_property(
         // `true in o` was a compile error.
         {
             let key_any = if matches!(key_ty, Type::Any) {
-                key_op.clone()
+                key_op
             } else {
-                ctx.box_to_any(key_op.clone())
+                ctx.box_to_any(key_op)
             };
             let k = ctx.f.append_inst(
                 ctx.cur_block,
@@ -283,18 +283,18 @@ pub(crate) fn try_lower_priv(
     let obj_op = ctx.lower_expr(args[1]);
     let obj_ty = ctx.operand_ty(&obj_op);
     let boxed = if matches!(obj_ty, Type::Any) {
-        obj_op.clone()
+        obj_op
     } else {
         // Borrow'd NaN-box (no rc traffic) — same face the `in`
         // struct arm takes.
-        ctx.box_to_any(obj_op.clone())
+        ctx.box_to_any(obj_op)
     };
     let cur_block = ctx.cur_block;
     let r = ctx.f.append_inst(
         cur_block,
         InstKind::Call(
             ctx.intrinsics.any_member_priv_has,
-            vec![boxed.clone(), Operand::Value(key_str)],
+            vec![boxed, Operand::Value(key_str)],
         ),
         Type::Bool,
         None,
@@ -312,7 +312,7 @@ pub(crate) fn try_lower_priv(
             let unit_op = ctx.lower_expr(*unit);
             let same = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::ICmp(IPred::Eq, boxed.clone(), unit_op),
+                InstKind::ICmp(IPred::Eq, boxed, unit_op),
                 Type::Bool,
                 None,
             );

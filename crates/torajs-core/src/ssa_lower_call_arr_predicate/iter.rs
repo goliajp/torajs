@@ -291,7 +291,7 @@ fn emit_body_and_step(
     // (knife-4 protocol, cb_args mirror).
     let mut pred_args = Vec::with_capacity(4);
     if let Some(t) = this_arg {
-        pred_args.push(t.clone());
+        pred_args.push(*t);
     }
     let elem_arg = pred_elem_arg(ctx, elem, elem_ty, fn_ty, argv_face);
     pred_args.push(elem_arg);
@@ -340,7 +340,7 @@ fn emit_body_and_step(
         let raw = Operand::Value(pred_v);
         let ret_ty = ctx.operand_ty(&raw);
 
-        let b = ctx.coerce_to_bool(raw.clone());
+        let b = ctx.coerce_to_bool(raw);
         if ret_ty.is_refcounted() {
             ctx.emit_drop_value(raw, ret_ty);
         }

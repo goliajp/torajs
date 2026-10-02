@@ -106,13 +106,13 @@ impl<'a> LowerCtx<'a> {
                  * owned ref. */
                 let tag = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Call(self.intrinsics.any_unbox_tag, vec![val.clone()]),
+                    InstKind::Call(self.intrinsics.any_unbox_tag, vec![val]),
                     Type::I64,
                     None,
                 );
                 let raw = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Call(self.intrinsics.any_unbox_value, vec![val.clone()]),
+                    InstKind::Call(self.intrinsics.any_unbox_value, vec![val]),
                     Type::I64,
                     None,
                 );
@@ -214,7 +214,7 @@ impl<'a> LowerCtx<'a> {
             .expect("BigInt spells undefined with the generic cell");
         let is_undef = self.f.append_inst(
             self.cur_block,
-            InstKind::ICmp(crate::ssa::IPred::Eq, val.clone(), sentinel),
+            InstKind::ICmp(crate::ssa::IPred::Eq, val, sentinel),
             Type::Bool,
             None,
         );

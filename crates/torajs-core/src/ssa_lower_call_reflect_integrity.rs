@@ -23,7 +23,7 @@ pub(crate) fn lower_reflect_extensible(
 ) -> Operand {
     let obj_op = ctx.lower_expr(args[0]);
     let obj_ty = ctx.operand_ty(&obj_op);
-    crate::ssa_lower_object_define::emit_receiver_typecheck(ctx, args[0], &obj_op, obj_ty.clone());
+    crate::ssa_lower_object_define::emit_receiver_typecheck(ctx, args[0], &obj_op, obj_ty);
     let any_op = if matches!(obj_ty, Type::Any) {
         obj_op
     } else {
@@ -57,7 +57,7 @@ pub(crate) fn lower_reflect_extensible(
 pub(crate) fn lower_reflect_set_prototype_of(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     let obj_op = ctx.lower_expr(args[0]);
     let obj_ty = ctx.operand_ty(&obj_op);
-    crate::ssa_lower_object_define::emit_receiver_typecheck(ctx, args[0], &obj_op, obj_ty.clone());
+    crate::ssa_lower_object_define::emit_receiver_typecheck(ctx, args[0], &obj_op, obj_ty);
     let any_op = if matches!(obj_ty, Type::Any) {
         obj_op
     } else {
@@ -68,9 +68,9 @@ pub(crate) fn lower_reflect_set_prototype_of(ctx: &mut LowerCtx<'_>, args: &[Exp
     let proto_op = crate::ssa_lower_object_define::lower_anylane_object_arg(ctx, args[1]);
     let proto_ty = ctx.operand_ty(&proto_op);
     let proto_any = if matches!(proto_ty, Type::Any) {
-        proto_op.clone()
+        proto_op
     } else {
-        ctx.box_to_any_from_expr(args[1], proto_op.clone())
+        ctx.box_to_any_from_expr(args[1], proto_op)
     };
     for a in args.iter().skip(2) {
         let _ = ctx.lower_expr(*a);
@@ -113,7 +113,7 @@ pub(crate) fn lower_reflect_set_prototype_of(ctx: &mut LowerCtx<'_>, args: &[Exp
 pub(crate) fn lower_reflect_delete_property(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     let obj_op = ctx.lower_expr(args[0]);
     let obj_ty = ctx.operand_ty(&obj_op);
-    crate::ssa_lower_object_define::emit_receiver_typecheck(ctx, args[0], &obj_op, obj_ty.clone());
+    crate::ssa_lower_object_define::emit_receiver_typecheck(ctx, args[0], &obj_op, obj_ty);
     let any_op = if matches!(obj_ty, Type::Any) {
         obj_op
     } else {
@@ -129,10 +129,7 @@ pub(crate) fn lower_reflect_delete_property(ctx: &mut LowerCtx<'_>, args: &[Expr
     let cur_block = ctx.cur_block;
     let ans = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(
-            ctx.intrinsics.any_prop_delete_soft,
-            vec![any_op, key_op.clone()],
-        ),
+        InstKind::Call(ctx.intrinsics.any_prop_delete_soft, vec![any_op, key_op]),
         Type::I64,
         None,
     );
@@ -247,7 +244,7 @@ pub(crate) fn lower_reflect_construct(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -
         ctx.release_owned_temp(*a, &op);
     }
     if boxed.len() == 2 {
-        boxed.push(boxed[0].clone());
+        boxed.push(boxed[0]);
     }
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
@@ -289,26 +286,26 @@ pub(crate) fn lower_reflect_define_property(ctx: &mut LowerCtx<'_>, args: &[Expr
     let recv_tok = ctx
         .throw_temp_of(args[0], &obj_op)
         .map(|(op, ty)| ctx.push_throw_temp(op, ty));
-    crate::ssa_lower_object_define::emit_receiver_typecheck(ctx, args[0], &obj_op, obj_ty.clone());
+    crate::ssa_lower_object_define::emit_receiver_typecheck(ctx, args[0], &obj_op, obj_ty);
     let obj_ptr: Operand = match &obj_ty {
-        Type::Any => Operand::Value(ctx.any_unbox_value_as_ptr(obj_op.clone())),
+        Type::Any => Operand::Value(ctx.any_unbox_value_as_ptr(obj_op)),
         Type::Arr(_) => {
             // Kernel element writes are kind-aware — mark at the
             // reflection boundary (mirror of the Object-flavor arm).
             ctx.emit_arr_mark_kind(&obj_op);
-            obj_op.clone()
+            obj_op
         }
         // A class instance rides the same kernel dispatch as the
         // Closure receiver: §10.1.6 into its `+24` expando dict, with
         // a declared field refused there rather than shadowed here.
-        Type::Closure(_) | Type::FnSig(_) | Type::Obj(_) => obj_op.clone(),
+        Type::Closure(_) | Type::FnSig(_) | Type::Obj(_) => obj_op,
         // Every other shape whose ordinary own face IS a property bag
         // rides the same dispatch — the kernel defines into that bag,
         // and the `any` spelling of the identical receiver has always
         // reached it. `Reflect.defineProperty(new Map(), …)` answered
         // false and defined nothing while `(m as any)` answered true
         // and defined.
-        t if crate::ssa_lower_index::shape_has_expando_bag(t) => obj_op.clone(),
+        t if crate::ssa_lower_index::shape_has_expando_bag(t) => obj_op,
         // What is left carries no bag to define into. `false` is the
         // honest spelling (the prop_delete Tag::Obj precedent; the
         // runtime kernel's non-dynobj arm answers the same).
@@ -327,7 +324,7 @@ pub(crate) fn lower_reflect_define_property(ctx: &mut LowerCtx<'_>, args: &[Expr
         &crate::ssa_lower_object_define::DefineKey::Expr(args[1]),
     );
     let key_tok = if key_owned {
-        Some(ctx.push_throw_temp(key_op.clone(), Type::Str))
+        Some(ctx.push_throw_temp(key_op, Type::Str))
     } else {
         None
     };
@@ -351,12 +348,9 @@ pub(crate) fn lower_reflect_define_property(ctx: &mut LowerCtx<'_>, args: &[Expr
         Option<usize>,
     ) = if matches!(ctx.ast.get_expr(desc_eid), Expr::ObjectLit { .. }) {
         let minted = ctx.lower_dynobj_init(desc_eid);
-        let as_any = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::PtrToInt(minted.clone()),
-            Type::Any,
-            None,
-        );
+        let as_any = ctx
+            .f
+            .append_inst(ctx.cur_block, InstKind::PtrToInt(minted), Type::Any, None);
         let tok = Some(ctx.push_throw_temp(Operand::Value(as_any), Type::Any));
         (minted, true, None, tok)
     } else {
@@ -366,15 +360,15 @@ pub(crate) fn lower_reflect_define_property(ctx: &mut LowerCtx<'_>, args: &[Expr
             .throw_temp_of(desc_eid, &desc_op)
             .map(|(o, ty)| ctx.push_throw_temp(o, ty));
         let desc_any = if matches!(desc_ty, Type::Any) {
-            desc_op.clone()
+            desc_op
         } else {
-            ctx.box_to_any_from_expr(desc_eid, desc_op.clone())
+            ctx.box_to_any_from_expr(desc_eid, desc_op)
         };
         ctx.f.append_void(
             ctx.cur_block,
             InstKind::Call(
                 ctx.intrinsics.throw_typeerror_if_not_desc_object,
-                vec![desc_any.clone()],
+                vec![desc_any],
             ),
         );
         ctx.emit_throw_check(None);
@@ -395,7 +389,7 @@ pub(crate) fn lower_reflect_define_property(ctx: &mut LowerCtx<'_>, args: &[Expr
         cur_block,
         InstKind::Call(
             ctx.intrinsics.dynobj_define_from_desc_soft,
-            vec![Operand::Value(slot), key_op.clone(), desc_ptr.clone()],
+            vec![Operand::Value(slot), key_op, desc_ptr],
         ),
         Type::I64,
         None,

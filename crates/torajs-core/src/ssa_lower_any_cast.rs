@@ -91,7 +91,7 @@ impl crate::ssa_lower::LowerCtx<'_> {
                 _ => Type::Void,
             };
             if let Some(v) = self.checked_cast(
-                inner_op.clone(),
+                inner_op,
                 target,
                 CastSlot::Cast,
                 CastScope::Annotated,

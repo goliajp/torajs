@@ -331,7 +331,7 @@ fn coerce_object_operands(
 
 fn coerce_operand_to_f64(ctx: &mut LowerCtx, v: Operand, is_obj: bool) -> Operand {
     if is_obj {
-        let boxed = ctx.box_to_any(v.clone());
+        let boxed = ctx.box_to_any(v);
         let n = ctx.coerce_any_to_number(boxed, Type::F64);
         ctx.emit_throw_check(None);
         return n;

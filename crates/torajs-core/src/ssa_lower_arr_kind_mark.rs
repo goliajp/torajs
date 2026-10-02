@@ -15,14 +15,14 @@ impl<'a> LowerCtx<'a> {
     pub(crate) fn emit_arr_mark_kind(&mut self, val: &Operand) {
         let val_ty = self.operand_ty(val);
         let Type::Arr(id) = val_ty else { return };
-        let elem = self.arr_layouts[id.0 as usize].clone();
+        let elem = self.arr_layouts[id.0 as usize];
         let chain = self.arr_kind_chain(&elem, 0);
         if chain != 0 {
             self.f.append_void(
                 self.cur_block,
                 InstKind::Call(
                     self.intrinsics.arr_mark_kind,
-                    vec![val.clone(), Operand::ConstI64(chain as i64)],
+                    vec![*val, Operand::ConstI64(chain as i64)],
                 ),
             );
         }
@@ -59,7 +59,7 @@ pub(crate) fn arr_kind_chain_of(arr_layouts: &[Type], elem: &Type, depth: u32) -
         // Arr<Any> carries FLAG_ARR_ANY — self-describing, no mark.
         Type::Any => 0,
         Type::Arr(id) => {
-            let inner = arr_layouts[id.0 as usize].clone();
+            let inner = arr_layouts[id.0 as usize];
             4 | (arr_kind_chain_of(arr_layouts, &inner, depth + 1) << 3)
         }
         t if t.is_refcounted() => 4,

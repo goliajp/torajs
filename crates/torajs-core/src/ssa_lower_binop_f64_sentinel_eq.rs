@@ -31,7 +31,7 @@ pub(crate) fn strict_eq_f64(
     b_armed: bool,
     neq: bool,
 ) -> Operand {
-    let numeric = ctx.fcmp(FPred::Oeq, a.clone(), b.clone());
+    let numeric = ctx.fcmp(FPred::Oeq, a, b);
     let eq = eq_with_sentinel(ctx, numeric, a, b, a_armed, b_armed);
     if neq { bool_not(ctx, eq) } else { eq }
 }
@@ -61,7 +61,7 @@ pub(crate) fn eq_with_sentinel(
     } else {
         Operand::ConstBool(false)
     };
-    let both = bool_op(ctx, SsaBinOp::And, a_undef.clone(), b_undef.clone());
+    let both = bool_op(ctx, SsaBinOp::And, a_undef, b_undef);
     let either = bool_op(ctx, SsaBinOp::Or, a_undef, b_undef);
     let neither = bool_not(ctx, either);
     let numeric_eq = bool_op(ctx, SsaBinOp::And, neither, numeric);

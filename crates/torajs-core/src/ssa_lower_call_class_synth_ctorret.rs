@@ -118,10 +118,7 @@ fn try_lower_new_target_register(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Opt
     let cur_block = ctx.cur_block;
     ctx.f.append_void(
         cur_block,
-        InstKind::Call(
-            ctx.intrinsics.new_target_register,
-            vec![v.clone(), c.clone()],
-        ),
+        InstKind::Call(ctx.intrinsics.new_target_register, vec![v, c]),
     );
     for op in [v, c] {
         let ty = ctx.operand_ty(&op);

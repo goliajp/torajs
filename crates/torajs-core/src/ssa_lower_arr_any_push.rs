@@ -75,7 +75,7 @@ impl<'a> LowerCtx<'a> {
     ) -> Operand {
         let cur_arr = self.f.append_inst(
             self.cur_block,
-            InstKind::Load(arr_ty, base.clone(), offset),
+            InstKind::Load(arr_ty, base, offset),
             arr_ty,
             None,
         );

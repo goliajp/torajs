@@ -107,7 +107,7 @@ pub(crate) fn try_lower(
 fn emit_kernel_route(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     let src_op = ctx.lower_expr(args[0]);
     let src_ty = ctx.operand_ty(&src_op);
-    let src_boxed = ctx.box_to_any_from_expr(args[0], src_op.clone());
+    let src_boxed = ctx.box_to_any_from_expr(args[0], src_op);
     // `Array.from(src)` reaches here too when the module installs a
     // `Symbol.iterator` (see [`try_lower`]); its mapFn is absent, and
     // §23.1.2.1 spells that `mapping = false` — which the kernel reads
@@ -117,7 +117,7 @@ fn emit_kernel_route(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
         Some(a) => {
             let op = ctx.lower_expr(a);
             let ty = ctx.operand_ty(&op);
-            let boxed = ctx.box_to_any_from_expr(a, op.clone());
+            let boxed = ctx.box_to_any_from_expr(a, op);
             (op, ty, boxed)
         }
         None => (
@@ -130,7 +130,7 @@ fn emit_kernel_route(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     let this_boxed = if let Some(&t) = args.get(2) {
         let op = ctx.lower_expr(t);
         let ty = ctx.operand_ty(&op);
-        let boxed = ctx.box_to_any_from_expr(t, op.clone());
+        let boxed = ctx.box_to_any_from_expr(t, op);
         this_temp = Some((op, ty));
         boxed
     } else {
@@ -258,7 +258,7 @@ fn materialize_src(
         // 刀 3 retires the undefined-filled stub the array-like side
         // used to mint (it never read the index properties —
         // `Array.from({'0': 41, length: 1})` answered `[undefined]`).
-        let boxed = ctx.box_to_any(arg_op.clone());
+        let boxed = ctx.box_to_any(arg_op);
         let materialized = crate::ssa_lower_arr_from_any::emit_for_array_from(ctx, boxed);
         ctx.release_owned_temp(arg_eid, &arg_op);
         return materialized;
@@ -269,7 +269,7 @@ fn materialize_src(
         // the arm below boxes FOR. Which lane it lands in is §7.4.2
         // GetIterator's call at runtime: a user `@@iterator`, else a
         // string / array / collection / class instance.
-        let materialized = crate::ssa_lower_arr_from_any::emit_for_array_from(ctx, arg_op.clone());
+        let materialized = crate::ssa_lower_arr_from_any::emit_for_array_from(ctx, arg_op);
         ctx.release_owned_temp(arg_eid, &arg_op);
         return materialized;
     }
@@ -281,7 +281,7 @@ fn materialize_src(
         ctx.expr_types.get(&arg_eid),
         Some(crate::check::Type::Null | crate::check::Type::Undefined)
     ) {
-        let boxed = ctx.box_to_any_from_expr(arg_eid, arg_op.clone());
+        let boxed = ctx.box_to_any_from_expr(arg_eid, arg_op);
         let materialized = crate::ssa_lower_arr_from_any::emit_for_array_from(ctx, boxed);
         ctx.release_owned_temp(arg_eid, &arg_op);
         return materialized;
@@ -296,7 +296,7 @@ fn materialize_src(
         // owned-temp source (`m.keys()` call) and no-ops a borrow.
         // A nullish source rides the same walk to §23.1.2.1 step 5's
         // RUNTIME TypeError (B6 刀 3, items-is-null-throws).
-        let boxed = ctx.box_to_any(arg_op.clone());
+        let boxed = ctx.box_to_any(arg_op);
         let materialized = crate::ssa_lower_arr_from_any::emit_for_array_from(ctx, boxed);
         ctx.release_owned_temp(arg_eid, &arg_op);
         return materialized;

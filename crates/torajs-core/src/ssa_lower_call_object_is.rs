@@ -105,14 +105,14 @@ pub(crate) fn try_lower(
     let nullish_pair = matches!(a_ty, Type::Ptr) || matches!(b_ty, Type::Ptr);
     if a_ty == Type::Any || b_ty == Type::Any || nullish_pair {
         let a_any = if a_ty == Type::Any {
-            a_op.clone()
+            a_op
         } else {
-            ctx.box_to_any_from_expr(args[0], a_op.clone())
+            ctx.box_to_any_from_expr(args[0], a_op)
         };
         let b_any = if b_ty == Type::Any {
-            b_op.clone()
+            b_op
         } else {
-            ctx.box_to_any_from_expr(args[1], b_op.clone())
+            ctx.box_to_any_from_expr(args[1], b_op)
         };
         let cur_block = ctx.cur_block;
         let r = ctx.f.append_inst(
@@ -165,7 +165,7 @@ pub(crate) fn try_lower(
         // === yields false on differing types; same for Object.is.
         // Drop only fresh args; borrows stay owned by their source.
         if !a_borrow {
-            ctx.emit_drop_value(a_op.clone(), a_ty);
+            ctx.emit_drop_value(a_op, a_ty);
         }
         if !b_borrow {
             ctx.emit_drop_value(b_op, b_ty);
@@ -189,10 +189,7 @@ pub(crate) fn try_lower(
         Type::F64 => {
             let plain = ctx.f.append_inst(
                 cur_block,
-                InstKind::Call(
-                    ctx.intrinsics.object_is_f64,
-                    vec![a_op.clone(), b_op.clone()],
-                ),
+                InstKind::Call(ctx.intrinsics.object_is_f64, vec![a_op, b_op]),
                 Type::Bool,
                 None,
             );
@@ -200,8 +197,8 @@ pub(crate) fn try_lower(
                 let folded = crate::ssa_lower_binop_f64_sentinel_eq::eq_with_sentinel(
                     ctx,
                     Operand::Value(plain),
-                    a_op.clone(),
-                    b_op.clone(),
+                    a_op,
+                    b_op,
                     a_armed,
                     b_armed,
                 );
@@ -215,13 +212,13 @@ pub(crate) fn try_lower(
         }
         Type::Str => ctx.f.append_inst(
             cur_block,
-            InstKind::Call(ctx.intrinsics.str_eq, vec![a_op.clone(), b_op.clone()]),
+            InstKind::Call(ctx.intrinsics.str_eq, vec![a_op, b_op]),
             Type::Bool,
             None,
         ),
         _ => ctx.f.append_inst(
             cur_block,
-            InstKind::ICmp(IPred::Eq, a_op.clone(), b_op.clone()),
+            InstKind::ICmp(IPred::Eq, a_op, b_op),
             Type::Bool,
             None,
         ),
@@ -251,9 +248,9 @@ fn lower_single_arg(ctx: &mut LowerCtx<'_>, arg: ExprId) -> Operand {
     let a_op = ctx.lower_expr(arg);
     let a_ty = ctx.operand_ty(&a_op);
     let a_any = if a_ty == Type::Any {
-        a_op.clone()
+        a_op
     } else {
-        ctx.box_to_any_from_expr(arg, a_op.clone())
+        ctx.box_to_any_from_expr(arg, a_op)
     };
     let cur_block = ctx.cur_block;
     let undef = ctx.f.append_inst(

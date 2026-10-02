@@ -21,7 +21,7 @@ impl<'a> LowerCtx<'a> {
         // already evaluated once (§13.15.2 evaluates the Reference
         // once); reuse the value instead of re-running the expression.
         let raw = match &self.pins.compound_key {
-            Some((mid, mop)) if *mid == index => mop.clone(),
+            Some((mid, mop)) if *mid == index => *mop,
             _ => self.lower_expr(index),
         };
         self.coerce_to_i64(raw)
@@ -146,12 +146,9 @@ impl<'a> LowerCtx<'a> {
         // A popped / shifted hole is `undefined`, but its slot word is 0
         // (`null`); pointer-shaped elements answer their undefined cell.
         if let Some(cell) = self.str_undef_sentinel_for(elem_ty) {
-            let bits = self.f.append_inst(
-                self.cur_block,
-                InstKind::PtrToInt(elem.clone()),
-                Type::I64,
-                None,
-            );
+            let bits =
+                self.f
+                    .append_inst(self.cur_block, InstKind::PtrToInt(elem), Type::I64, None);
             let hole = self.f.append_inst(
                 self.cur_block,
                 InstKind::ICmp(IPred::Eq, Operand::Value(bits), Operand::ConstI64(0)),
@@ -250,7 +247,7 @@ impl<'a> LowerCtx<'a> {
                     )),
                     _ => unreachable!(),
                 };
-                self.emit_arr_len_lock_guard(arr_op.clone(), lock);
+                self.emit_arr_len_lock_guard(arr_op, lock);
                 // Chunk 628 — static Arr<Any> receivers go through the
                 // kind-aware runtime pop (typed-behind-any blocks rebox
                 // per elem kind; empty → undefined built in). The old
@@ -302,7 +299,7 @@ impl<'a> LowerCtx<'a> {
                 );
                 let elem = self.f.append_inst(
                     self.cur_block,
-                    InstKind::LoadDyn(elem_ty, off_base.clone(), off),
+                    InstKind::LoadDyn(elem_ty, off_base, off),
                     elem_ty,
                     None,
                 );
@@ -351,7 +348,7 @@ impl<'a> LowerCtx<'a> {
                 let elem_ty = self.arr_layouts[arr_id.0 as usize];
                 // RFC 20260713 blade 4 — length-write lock, pop's twin;
                 // the sealed refusal (the spec's partial move) is the raiser's.
-                self.emit_arr_len_lock_guard(arr_op.clone(), ArrLenLock::ShiftDown);
+                self.emit_arr_len_lock_guard(arr_op, ArrLenLock::ShiftDown);
                 // Chunk 628 — static Arr<Any> receivers go through the
                 // kind-aware runtime shift (pop's deque twin; see the
                 // pop arm above).
@@ -447,7 +444,7 @@ impl<'a> LowerCtx<'a> {
             // garbage.
             let (val, val_owned_from_substr) =
                 crate::ssa_lower_call_arr_push::coerce_push_value(self, args[0], elem_ty);
-            let unshift_arg = self.raw_slot_arg(val.clone());
+            let unshift_arg = self.raw_slot_arg(val);
             // Chunk 742's stake dance (push twin of chunk 733; churn
             // probes closure-unshift 30.4MB / nested-arr 44.8MB /
             // owned-str 16MB vs 6.3MB flat) lives in the shared

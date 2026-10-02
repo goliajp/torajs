@@ -136,7 +136,7 @@ fn coerce_any_into_arr_slot(
     let cur_block = ctx.cur_block;
     let out = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(fid, vec![v.clone(), Operand::ConstI64(kind)]),
+        InstKind::Call(fid, vec![v, Operand::ConstI64(kind)]),
         slot_ty,
         None,
     );
@@ -190,7 +190,7 @@ pub(crate) fn settle_escaping_views(ctx: &mut LowerCtx<'_>, eid: ExprId, v: Oper
     if is_split {
         return materialize_fresh_views(ctx, owned_ty, v);
     }
-    let copy = copy_views_out(ctx, owned_ty, v.clone());
+    let copy = copy_views_out(ctx, owned_ty, v);
     ctx.emit_drop_value(v, v_ty);
     copy
 }
@@ -204,7 +204,7 @@ pub(crate) fn copy_views_out(ctx: &mut LowerCtx<'_>, slot_ty: Type, v: Operand) 
     let cur_block = ctx.cur_block;
     let len = ctx.f.append_inst(
         cur_block,
-        InstKind::Load(Type::I64, v.clone(), ARR_LEN_OFF),
+        InstKind::Load(Type::I64, v, ARR_LEN_OFF),
         Type::I64,
         None,
     );
@@ -240,7 +240,7 @@ pub(super) fn coerce_arr_views_to_owned(
     if ctx.expr_transfers_ownership(value) {
         return materialize_fresh_views(ctx, slot_ty, v);
     }
-    let copy = copy_views_out(ctx, slot_ty, v.clone());
+    let copy = copy_views_out(ctx, slot_ty, v);
     ctx.emit_drop_value(v, v_ty);
     copy
 }
@@ -290,7 +290,7 @@ pub(super) fn coerce_for_global(
     } else if slot_ty == Type::F64 && v_ty == Type::I64 {
         ctx.coerce_to_f64(v)
     } else if let Some(cast) = ctx.checked_cast(
-        v.clone(),
+        v,
         slot_ty,
         crate::ssa_lower_checked_cast::CastSlot::Assign,
         crate::ssa_lower_checked_cast::CastScope::Inferred,
@@ -307,7 +307,7 @@ pub(super) fn coerce_for_global(
         let cur_block = ctx.cur_block;
         let owned = ctx.f.append_inst(
             cur_block,
-            InstKind::Call(ctx.intrinsics.substr_to_owned, vec![v.clone()]),
+            InstKind::Call(ctx.intrinsics.substr_to_owned, vec![v]),
             Type::Str,
             None,
         );
@@ -404,7 +404,7 @@ pub(super) fn coerce_for_local(
     } else if snap_ty == Type::F64 && v_ty == Type::I64 {
         ctx.coerce_to_f64(v)
     } else if let Some(cast) = ctx.checked_cast(
-        v.clone(),
+        v,
         snap_ty,
         crate::ssa_lower_checked_cast::CastSlot::Assign,
         crate::ssa_lower_checked_cast::CastScope::Inferred,
@@ -426,7 +426,7 @@ pub(super) fn coerce_for_local(
         let cur_block = ctx.cur_block;
         let owned = ctx.f.append_inst(
             cur_block,
-            InstKind::Call(ctx.intrinsics.substr_to_owned, vec![v.clone()]),
+            InstKind::Call(ctx.intrinsics.substr_to_owned, vec![v]),
             Type::Str,
             None,
         );

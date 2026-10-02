@@ -83,7 +83,7 @@ pub(crate) fn try_lower(
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(target, vec![recv_op.clone()]),
+        InstKind::Call(target, vec![recv_op]),
         Type::ArrIter,
         None,
     );

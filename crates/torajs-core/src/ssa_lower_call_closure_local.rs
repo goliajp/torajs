@@ -129,7 +129,7 @@ pub(crate) fn try_lower_with_this(
         env_first_params.push(Type::Any);
     }
     env_first_params.extend(user_params.iter().copied());
-    let env_first_sig = intern_fn_sig(ctx.fn_sigs, env_first_params, ret_ty.clone());
+    let env_first_sig = intern_fn_sig(ctx.fn_sigs, env_first_params, ret_ty);
 
     // P0.5 mirror — Type::Any param boxes the concrete arg.
     // S126-3 see direct fn-call P0.9 in ssa_lower.

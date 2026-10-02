@@ -60,7 +60,7 @@ pub(crate) fn emit_map_for_each(
             // box_to_any is a pure encoding — an owned-shape thisArg
             // temp keeps its stake in `op`; release after the loop
             // (arr_ho mirror), else iteration 2 reads freed memory.
-            let boxed = ctx.box_to_any_from_expr(t, op.clone());
+            let boxed = ctx.box_to_any_from_expr(t, op);
             this_temp = Some((t, op));
             Some(boxed)
         } else {
@@ -168,7 +168,7 @@ pub(crate) fn emit_map_for_each(
             ctx,
             &fn_val,
             fn_ty,
-            vec![v_arg.clone(), Operand::Value(k_box), recv_op],
+            vec![v_arg, Operand::Value(k_box), recv_op],
             0,
             3,
         );
@@ -181,13 +181,13 @@ pub(crate) fn emit_map_for_each(
         // no matching release anywhere, so every walk that reached
         // its callback once leaked the whole receiver (387MB / 600k
         // single-entry maps, throw or no throw).
-        let mut cb_args = vec![v_arg.clone(), Operand::Value(k_box), recv_op];
+        let mut cb_args = vec![v_arg, Operand::Value(k_box), recv_op];
         if let Some(t) = &this_arg {
-            cb_args.insert(0, t.clone());
+            cb_args.insert(0, *t);
         }
         let sig_skip = usize::from(this_arg.is_some());
         let _ = match known_fid {
-            Some(fid) => ctx.call_fn_value_devirt(fid, fn_val.clone(), fn_ty, cb_args, sig_skip, 3),
+            Some(fid) => ctx.call_fn_value_devirt(fid, fn_val, fn_ty, cb_args, sig_skip, 3),
             None => ctx.call_fn_value(fn_val, fn_ty, cb_args, sig_skip, 3),
         };
     }

@@ -100,18 +100,18 @@ pub(crate) fn lower(
     // is this chain (`String(a) + "b" + String(boom())`).
     let a_ty = ctx.operand_ty(&a);
     let a_owned = a_ty.is_refcounted() && ctx.expr_is_fresh_owned(left);
-    let a_tok = a_owned.then(|| ctx.push_throw_temp(a.clone(), a_ty.clone()));
+    let a_tok = a_owned.then(|| ctx.push_throw_temp(a, a_ty));
     let b = lower_operand(ctx, right);
     let b_ty = ctx.operand_ty(&b);
     let b_owned = b_ty.is_refcounted() && ctx.expr_is_fresh_owned(right);
-    let b_tok = b_owned.then(|| ctx.push_throw_temp(b.clone(), b_ty.clone()));
+    let b_tok = b_owned.then(|| ctx.push_throw_temp(b, b_ty));
     // TS-shape: `a + b` (string concat) does NOT consume the
     // operands — both `a` and `b` keep their heaps and remain
     // readable + droppable afterwards. The concat runtime produces
     // a fresh allocation without freeing inputs.
     // P1.5/P1.8 — pass the operand ExprIds so the Eq/Neq Any-side
     // packing can pick ANY_UNDEF=5 vs ANY_NULL=0.
-    let result = ctx.lower_binop_with_ids(op, a.clone(), b.clone(), Some(left), Some(right));
+    let result = ctx.lower_binop_with_ids(op, a, b, Some(left), Some(right));
     ctx.unpark_owned_temp(b_tok);
     ctx.unpark_owned_temp(a_tok);
     // Drop fresh-owned refcounted operands left over from BinOp on

@@ -33,7 +33,7 @@ pub(crate) fn emit_register(ctx: &mut LowerCtx<'_>, fn_name: &str, boxed_op: &Op
         cur_block,
         InstKind::Call(
             ctx.intrinsics.new_target_register_entries,
-            vec![boxed_op.clone(), Operand::Value(face_addr)],
+            vec![*boxed_op, Operand::Value(face_addr)],
         ),
     );
 }

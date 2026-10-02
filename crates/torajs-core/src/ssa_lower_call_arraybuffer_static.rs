@@ -30,7 +30,7 @@ pub(crate) fn try_lower(
     // first, and the second is the `undefined` a missing argument
     // always is — which answers `false`, exactly as it should.
     let ops = crate::ssa_lower_new::lower_borrowed_any_pair(ctx, args);
-    let arg = ops[0].0.clone();
+    let arg = ops[0].0;
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur_block,

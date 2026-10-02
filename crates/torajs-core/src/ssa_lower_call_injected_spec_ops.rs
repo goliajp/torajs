@@ -51,12 +51,12 @@ pub(crate) fn try_lower(
     }
     let v_op = ctx.lower_expr(args[0]);
     let v_ty = ctx.operand_ty(&v_op);
-    let boxed = ctx.box_to_any_from_expr(args[0], v_op.clone());
+    let boxed = ctx.box_to_any_from_expr(args[0], v_op);
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur_block,
         InstKind::Call(intrinsic, vec![boxed]),
-        ret_ty.clone(),
+        ret_ty,
         None,
     );
     if v_ty.is_refcounted() && ctx.expr_is_fresh_owned(args[0]) {

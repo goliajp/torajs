@@ -75,7 +75,7 @@ pub(crate) fn try_lower(
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(ctx.intrinsics.symbol_alloc, vec![desc_op.clone()]),
+        InstKind::Call(ctx.intrinsics.symbol_alloc, vec![desc_op]),
         Type::Symbol,
         None,
     );
@@ -89,7 +89,7 @@ pub(crate) fn try_lower(
     if !args.is_empty() && !arg0_undef {
         let desc_ty = ctx.operand_ty(&desc_op);
         if !desc_ty.is_copy() {
-            ctx.emit_drop_value(desc_op.clone(), desc_ty);
+            ctx.emit_drop_value(desc_op, desc_ty);
         }
     }
     Some(Operand::Value(v))

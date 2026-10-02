@@ -38,7 +38,7 @@ pub(super) fn emit_relation_predicate(
             None,
         )
     } else {
-        let other_any = ctx.box_to_any_from_expr(args[0], other_op.clone());
+        let other_any = ctx.box_to_any_from_expr(args[0], other_op);
         let r = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Call(
@@ -93,7 +93,7 @@ pub(super) fn emit_setop(
         );
         return Operand::Value(v);
     }
-    let other_any = ctx.box_to_any_from_expr(args[0], other_op.clone());
+    let other_any = ctx.box_to_any_from_expr(args[0], other_op);
     let v = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(

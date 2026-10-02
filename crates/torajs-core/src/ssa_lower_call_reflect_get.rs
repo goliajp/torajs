@@ -155,7 +155,7 @@ pub(crate) fn try_lower(
 /// already assumed to be, so there is nothing extra to record.
 fn lower_general(ctx: &mut LowerCtx<'_>, args: &[ExprId], obj_op: Operand) -> Operand {
     let obj_ty = ctx.operand_ty(&obj_op);
-    crate::ssa_lower_object_define::emit_receiver_typecheck(ctx, args[0], &obj_op, obj_ty.clone());
+    crate::ssa_lower_object_define::emit_receiver_typecheck(ctx, args[0], &obj_op, obj_ty);
     let any_op = if matches!(obj_ty, Type::Any) {
         obj_op
     } else {
@@ -175,7 +175,7 @@ fn lower_general(ctx: &mut LowerCtx<'_>, args: &[ExprId], obj_op: Operand) -> Op
             ctx.box_to_any_from_expr(args[2], raw)
         }
     } else {
-        any_op.clone()
+        any_op
     };
     for &a in args.iter().skip(3) {
         let _ = ctx.lower_expr(a);
@@ -185,7 +185,7 @@ fn lower_general(ctx: &mut LowerCtx<'_>, args: &[ExprId], obj_op: Operand) -> Op
         cur_block,
         InstKind::Call(
             ctx.intrinsics.any_member_get_with_receiver,
-            vec![any_op, key_op.clone(), recv_op.clone()],
+            vec![any_op, key_op, recv_op],
         ),
         Type::Any,
         None,

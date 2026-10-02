@@ -21,12 +21,9 @@ use crate::ssa_lower::LowerCtx;
 /// "undefined" is a no-op, the fresh `f64_to_str` Str needs it.
 pub(crate) fn coerce_undefable_f64(ctx: &mut LowerCtx, v: Operand) -> (Operand, bool) {
     use crate::ssa::{IPred, Terminator};
-    let bits = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::BitCastF64ToI64(v.clone()),
-        Type::I64,
-        None,
-    );
+    let bits = ctx
+        .f
+        .append_inst(ctx.cur_block, InstKind::BitCastF64ToI64(v), Type::I64, None);
     let is_undef = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::ICmp(
@@ -103,7 +100,7 @@ pub(super) fn coerce_nullable_ptr_to_str(ctx: &mut LowerCtx, v: Operand) -> (Ope
     let merge = ctx.f.add_block();
     let is_null = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::ICmp(IPred::Eq, v.clone(), Operand::ConstPtrNull),
+        InstKind::ICmp(IPred::Eq, v, Operand::ConstPtrNull),
         Type::Bool,
         None,
     );
@@ -145,7 +142,7 @@ pub(super) fn coerce_nullable_ptr_to_str(ctx: &mut LowerCtx, v: Operand) -> (Ope
         let live_blk = ctx.f.add_block();
         let is_undef = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::ICmp(IPred::Eq, v.clone(), sentinel),
+            InstKind::ICmp(IPred::Eq, v, sentinel),
             Type::Bool,
             None,
         );
@@ -304,7 +301,7 @@ pub(crate) fn coerce_to_str(ctx: &mut LowerCtx, v: Operand, undefable: bool) -> 
         | Type::Closure(_) => {
             let raw = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::PtrToInt(v.clone()),
+                InstKind::PtrToInt(v),
                 Type::I64,
                 None,
             );
@@ -340,7 +337,7 @@ pub(crate) fn coerce_to_str(ctx: &mut LowerCtx, v: Operand, undefable: bool) -> 
         Type::Obj(_) => {
             let raw = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::PtrToInt(v.clone()),
+                InstKind::PtrToInt(v),
                 Type::I64,
                 None,
             );

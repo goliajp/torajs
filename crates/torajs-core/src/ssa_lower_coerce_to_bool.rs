@@ -40,7 +40,7 @@ impl LowerCtx<'_> {
                 // so the len>0 walk would wrongly answer true); the
                 // inline nullish test covers both before the length
                 // load.
-                let is_null = self.str_is_nullish(op.clone());
+                let is_null = self.str_is_nullish(op);
                 let null_blk = self.f.add_block();
                 let nn_blk = self.f.add_block();
                 let merge = self.f.add_block();
@@ -114,7 +114,7 @@ impl LowerCtx<'_> {
             // yet (Symbol / RegExp / Date / ...) keep the plain
             // null check.
             _ => {
-                let ne_null = self.cmp(IPred::Ne, op.clone(), Operand::ConstPtrNull);
+                let ne_null = self.cmp(IPred::Ne, op, Operand::ConstPtrNull);
                 let Some(sentinel) = self.str_undef_sentinel_for(ty) else {
                     return ne_null;
                 };
@@ -147,8 +147,8 @@ impl LowerCtx<'_> {
         let sentinel = self
             .str_undef_sentinel_for(Type::BigInt)
             .expect("BigInt spells undefined with the generic cell");
-        let ne_null = self.cmp(IPred::Ne, op.clone(), Operand::ConstPtrNull);
-        let ne_undef = self.cmp(IPred::Ne, op.clone(), sentinel);
+        let ne_null = self.cmp(IPred::Ne, op, Operand::ConstPtrNull);
+        let ne_undef = self.cmp(IPred::Ne, op, sentinel);
         let live = self.f.append_inst(
             self.cur_block,
             InstKind::BinOp(crate::ssa::BinOp::And, ne_null, ne_undef),

@@ -85,13 +85,13 @@ fn lower_parse_float(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     let s = if raw_ty == Type::Any {
         let tag = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.any_unbox_tag, vec![raw.clone()]),
+            InstKind::Call(ctx.intrinsics.any_unbox_tag, vec![raw]),
             Type::I64,
             None,
         );
         let val = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.any_unbox_value, vec![raw.clone()]),
+            InstKind::Call(ctx.intrinsics.any_unbox_value, vec![raw]),
             Type::I64,
             None,
         );
@@ -156,18 +156,18 @@ fn lower_is_predicate(ctx: &mut LowerCtx<'_>, m_name: &str, args: &[ExprId]) -> 
     if matches!(arg_ty, Type::Any) {
         let tag = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.any_unbox_tag, vec![arg_op.clone()]),
+            InstKind::Call(ctx.intrinsics.any_unbox_tag, vec![arg_op]),
             Type::I64,
             None,
         );
         let val = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.any_unbox_value, vec![arg_op.clone()]),
+            InstKind::Call(ctx.intrinsics.any_unbox_value, vec![arg_op]),
             Type::I64,
             None,
         );
         if ctx.expr_is_fresh_owned(args[0]) {
-            ctx.emit_drop_value(arg_op.clone(), Type::Any);
+            ctx.emit_drop_value(arg_op, Type::Any);
         }
         let target = match m_name {
             "isInteger" => ctx.intrinsics.num_is_integer_any,
@@ -218,7 +218,7 @@ fn lower_is_predicate(ctx: &mut LowerCtx<'_>, m_name: &str, args: &[ExprId]) -> 
     };
     let v = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Call(target, vec![arg_op.clone()]),
+        InstKind::Call(target, vec![arg_op]),
         Type::Bool,
         None,
     );

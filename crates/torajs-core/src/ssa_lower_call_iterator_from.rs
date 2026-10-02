@@ -43,7 +43,7 @@ pub(crate) fn try_lower(
             ctx.emit_arr_mark_kind(&value_raw);
             let as_i64 = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::PtrToInt(value_raw.clone()),
+                InstKind::PtrToInt(value_raw),
                 Type::I64,
                 None,
             );
@@ -57,7 +57,7 @@ pub(crate) fn try_lower(
         }
         _ => {
             if !ctx.expr_transfers_ownership(value_eid) && value_ty.is_refcounted() {
-                ctx.emit_rc_inc(value_raw.clone());
+                ctx.emit_rc_inc(value_raw);
             }
             (ctx.box_to_any(value_raw), true)
         }
@@ -69,7 +69,7 @@ pub(crate) fn try_lower(
     }
     let result = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Call(ctx.intrinsics.iterator_from, vec![value_op.clone()]),
+        InstKind::Call(ctx.intrinsics.iterator_from, vec![value_op]),
         Type::Any,
         None,
     );

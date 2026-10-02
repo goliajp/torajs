@@ -31,7 +31,7 @@ pub(crate) fn bytes_per_element(name: &str) -> Option<i64> {
 pub(crate) fn lower(ctx: &mut LowerCtx<'_>, kind: i64, args: &[ExprId]) -> Operand {
     let ops = lower_borrowed_any_triple(ctx, args);
     let mut argv = vec![Operand::ConstI64(kind)];
-    argv.extend(ops.iter().map(|(op, _, _)| op.clone()));
+    argv.extend(ops.iter().map(|(op, _, _)| *op));
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur_block,
@@ -50,7 +50,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, kind: i64, args: &[ExprId]) -> Opera
 /// DataView.
 pub(crate) fn lower_dataview(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     let ops = lower_borrowed_any_triple(ctx, args);
-    let argv: Vec<Operand> = ops.iter().map(|(op, _, _)| op.clone()).collect();
+    let argv: Vec<Operand> = ops.iter().map(|(op, _, _)| *op).collect();
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur_block,
@@ -95,7 +95,7 @@ fn lower_borrowed_any_triple(
             continue;
         }
         if !ctx.expr_transfers_ownership(eid) && ty.is_refcounted() {
-            ctx.emit_rc_inc(raw.clone());
+            ctx.emit_rc_inc(raw);
         }
         ops.push((ctx.box_to_any(raw), true, None));
     }

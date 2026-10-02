@@ -182,7 +182,7 @@ pub(crate) fn emit(
     // The coerce-minted temps live across the callee too.
     let coerce_toks: Vec<usize> = coerce_owned
         .iter()
-        .map(|(op, ty)| ctx.push_throw_temp(op.clone(), ty.clone()))
+        .map(|(op, ty)| ctx.push_throw_temp(*op, *ty))
         .collect();
     // H1 — the synthetic slots move in LAST, after every positional
     // zip above has run against the user-aligned argv.

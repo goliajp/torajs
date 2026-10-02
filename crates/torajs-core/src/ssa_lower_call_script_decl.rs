@@ -63,10 +63,10 @@ pub(crate) fn try_lower(
                     Expr::Ident(_) | Expr::Member { .. }
                 ) && ctx.operand_ty(&raw).is_refcounted()
                 {
-                    ctx.emit_rc_inc(raw.clone());
+                    ctx.emit_rc_inc(raw);
                 }
                 let b = ctx.box_to_any_from_expr(args[1], raw);
-                (b.clone(), Some(b))
+                (b, Some(b))
             };
             let kernel = ctx.intrinsics.global_fn_declare;
             let cur_block = ctx.cur_block;

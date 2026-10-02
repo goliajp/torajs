@@ -53,7 +53,7 @@ impl AnyArgv {
     /// throw edges between here and the call.
     pub(crate) fn push_slot(&mut self, ctx: &mut LowerCtx<'_>, slot: Option<Operand>) {
         if let Some(op) = &slot {
-            self.parked.push(ctx.push_throw_temp(op.clone(), Type::Any));
+            self.parked.push(ctx.push_throw_temp(*op, Type::Any));
         }
         self.boxed.push(slot);
     }

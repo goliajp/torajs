@@ -146,7 +146,7 @@ pub(crate) fn lower_log_args(ctx: &mut LowerCtx, arg_ids: &[ExprId]) {
             if !ctx.expr_owned_shape(aid) {
                 let retained = ctx.f.append_inst(
                     ctx.cur_block,
-                    InstKind::Call(ctx.intrinsics.anyv_retain, vec![arg.clone()]),
+                    InstKind::Call(ctx.intrinsics.anyv_retain, vec![arg]),
                     Type::Any,
                     None,
                 );
@@ -156,7 +156,7 @@ pub(crate) fn lower_log_args(ctx: &mut LowerCtx, arg_ids: &[ExprId]) {
         } else if arg_ty.is_refcounted() && is_borrow {
             // Phase-1 inc: keeps the value alive across later args'
             // side effects and pins print-as-evaluated semantics.
-            ctx.emit_rc_inc(arg.clone());
+            ctx.emit_rc_inc(arg);
             true
         } else {
             // Fresh refcounted temps carry their own stake (the box
@@ -180,7 +180,7 @@ pub(crate) fn lower_log_args(ctx: &mut LowerCtx, arg_ids: &[ExprId]) {
         if i > 0 {
             ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.io_putc_out, vec![space_op.clone()]),
+                InstKind::Call(ctx.intrinsics.io_putc_out, vec![space_op]),
                 Type::I64,
                 None,
             );
@@ -212,7 +212,7 @@ fn print_one(ctx: &mut LowerCtx, la: LoweredArg) {
         let boxed = ctx.box_to_any(Operand::Value(lit));
         ctx.f.append_void(
             ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.print_any_inline_top, vec![boxed.clone()]),
+            InstKind::Call(ctx.intrinsics.print_any_inline_top, vec![boxed]),
         );
         ctx.emit_drop_value(boxed, Type::Any);
         return;
@@ -239,7 +239,7 @@ fn print_one(ctx: &mut LowerCtx, la: LoweredArg) {
         };
         if let Some(target) = typed_target {
             ctx.f
-                .append_void(ctx.cur_block, InstKind::Call(target, vec![arg.clone()]));
+                .append_void(ctx.cur_block, InstKind::Call(target, vec![arg]));
             // Chunk 808 — release the phase-1 borrow inc; fresh
             // temps (not staked) keep the pre-808 ledger.
             if staked {
@@ -273,7 +273,7 @@ fn print_one(ctx: &mut LowerCtx, la: LoweredArg) {
     };
     if let Some(target) = typed_inline {
         ctx.f
-            .append_void(ctx.cur_block, InstKind::Call(target, vec![arg.clone()]));
+            .append_void(ctx.cur_block, InstKind::Call(target, vec![arg]));
         if staked || owned {
             ctx.emit_drop_value(arg, ty);
         }
@@ -290,7 +290,7 @@ fn print_one(ctx: &mut LowerCtx, la: LoweredArg) {
         let boxed = ctx.box_to_any(Operand::Value(s));
         ctx.f.append_void(
             ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.print_any_inline_top, vec![boxed.clone()]),
+            InstKind::Call(ctx.intrinsics.print_any_inline_top, vec![boxed]),
         );
         ctx.emit_drop_value(boxed, Type::Any);
         ctx.emit_drop_value(Operand::Value(s), Type::Str);
@@ -329,7 +329,7 @@ fn print_one(ctx: &mut LowerCtx, la: LoweredArg) {
     };
     ctx.f.append_void(
         ctx.cur_block,
-        InstKind::Call(ctx.intrinsics.print_any_inline_top, vec![any_op.clone()]),
+        InstKind::Call(ctx.intrinsics.print_any_inline_top, vec![any_op]),
     );
     if drop_after {
         ctx.emit_drop_value(any_op, Type::Any);
@@ -352,7 +352,7 @@ fn open_boxed_sentinel_branch(
     }
     let is_undef = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Call(ctx.intrinsics.is_undef_cell, vec![arg.clone()]),
+        InstKind::Call(ctx.intrinsics.is_undef_cell, vec![*arg]),
         Type::Bool,
         None,
     );
@@ -372,7 +372,7 @@ fn open_boxed_sentinel_branch(
     let boxed = ctx.box_to_any(Operand::Value(lit));
     ctx.f.append_void(
         ctx.cur_block,
-        InstKind::Call(ctx.intrinsics.print_any_inline_top, vec![boxed.clone()]),
+        InstKind::Call(ctx.intrinsics.print_any_inline_top, vec![boxed]),
     );
     ctx.emit_drop_value(boxed, Type::Any);
     ctx.f.set_term(ctx.cur_block, Terminator::Br(join_blk));

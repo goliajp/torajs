@@ -31,7 +31,7 @@ pub(crate) fn try_lower_register(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Opt
         cur_block,
         InstKind::Call(
             ctx.intrinsics.class_computed_field_register,
-            vec![Operand::ConstI64(tag as i64), after_op.clone(), key_op],
+            vec![Operand::ConstI64(tag as i64), after_op, key_op],
         ),
     );
     // The kernel keeps its own share of the key and reads the anchor

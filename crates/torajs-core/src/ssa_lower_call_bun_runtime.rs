@@ -99,7 +99,7 @@ fn try_lower_bun_file(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand
     }
     let arg_op = ctx.lower_expr(args[0]);
     if !ctx.expr_transfers_ownership(args[0]) {
-        ctx.emit_rc_inc(arg_op.clone());
+        ctx.emit_rc_inc(arg_op);
     }
     Some(arg_op)
 }
@@ -130,7 +130,7 @@ fn try_lower_fetch(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
     let promise_alloc_fulfilled_heap = ctx.intrinsics.promise_alloc_fulfilled_heap;
     let resp_v = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(fetch_sync, vec![url_op.clone()]),
+        InstKind::Call(fetch_sync, vec![url_op]),
         Type::Ptr,
         None,
     );

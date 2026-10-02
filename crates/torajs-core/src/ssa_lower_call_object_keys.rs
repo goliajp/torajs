@@ -111,7 +111,7 @@ pub(crate) fn try_lower(
     // lower time where the spec wants a catchable TypeError. The gate
     // is the one every other strict-family surface already uses, and
     // it runs after the argument is evaluated (§13.3.6.1).
-    let arg_raw = arg_op.clone();
+    let arg_raw = arg_op;
     if ns == "Reflect"
         && let Some(dead) = reflect_is_object_gate(ctx, args[0], &arg_op, &arg_raw)
     {
@@ -238,7 +238,7 @@ pub(crate) fn try_lower(
         let off = (i as u64) * 8;
         ctx.f.append_void(
             ctx.cur_block,
-            InstKind::Store(Operand::Value(str_v), data.clone(), off),
+            InstKind::Store(Operand::Value(str_v), data, off),
         );
     }
     // RC-4 F1c — Object.defineProperty converts a struct receiver to
@@ -285,8 +285,8 @@ fn reflect_is_object_gate(
     arg_raw: &Operand,
 ) -> Option<Operand> {
     let recv_ty = ctx.operand_ty(arg_op);
-    let is_object_shape = matches!(recv_ty, Type::Any)
-        || crate::ssa_lower_object_define::is_typed_object(recv_ty.clone());
+    let is_object_shape =
+        matches!(recv_ty, Type::Any) || crate::ssa_lower_object_define::is_typed_object(recv_ty);
     crate::ssa_lower_object_define::emit_receiver_typecheck(ctx, recv_eid, arg_op, recv_ty);
     if is_object_shape {
         return None;
@@ -332,11 +332,11 @@ fn lower_symbols_arm(
         Some(crate::check::Type::Null) | Some(crate::check::Type::Undefined)
     );
     let runtime_arg = if matches!(arg_ty, Type::Any) {
-        Some(arg_op.clone())
+        Some(arg_op)
     } else if recv_is_nullish {
         // null and undefined differ in tag but not here: the helper
         // tests both with one comparison and raises one message.
-        Some(ctx.box_to_any(arg_op.clone()))
+        Some(ctx.box_to_any(arg_op))
     } else {
         None
     };

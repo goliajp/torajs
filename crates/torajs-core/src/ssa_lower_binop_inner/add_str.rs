@@ -144,7 +144,7 @@ pub(crate) fn try_lower(
         };
         let v = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(target, vec![a.clone(), b.clone()]),
+            InstKind::Call(target, vec![a, b]),
             Type::Str,
             None,
         );
@@ -155,7 +155,7 @@ pub(crate) fn try_lower(
         let concat = ctx.intrinsics.str_concat;
         let v = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(concat, vec![a.clone(), b.clone()]),
+            InstKind::Call(concat, vec![a, b]),
             Type::Str,
             None,
         );
@@ -183,7 +183,7 @@ pub(crate) fn try_lower(
         let concat = ctx.intrinsics.str_concat;
         let v = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(concat, vec![a_str.clone(), b_str.clone()]),
+            InstKind::Call(concat, vec![a_str, b_str]),
             Type::Str,
             None,
         );

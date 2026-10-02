@@ -115,7 +115,7 @@ fn pin(ctx: &mut LowerCtx<'_>, obj: ExprId, index: Option<ExprId>) -> SharedTarg
     let mut one = |ctx: &mut LowerCtx<'_>, eid: ExprId| {
         let op = ctx.lower_expr(eid);
         let owned = ctx.expr_transfers_ownership(eid) || ctx.expr_minted_closure(eid, &op);
-        ctx.pins.operands.insert(eid, op.clone());
+        ctx.pins.operands.insert(eid, op);
         entries.push((eid, op, owned));
     };
     one(ctx, obj);
@@ -151,7 +151,7 @@ pub(crate) fn unpin(
     if receiver_owned {
         let ty = ctx.operand_ty(result);
         if ty.is_refcounted() && !ctx.expr_is_fresh_owned(result_eid) {
-            ctx.emit_owned_result_inc(result.clone(), ty);
+            ctx.emit_owned_result_inc(*result, ty);
             ctx.owned_member_reads.insert(result_eid);
         }
     }

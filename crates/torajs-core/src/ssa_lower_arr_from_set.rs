@@ -53,7 +53,7 @@ pub(crate) fn emit(ctx: &mut LowerCtx, set_op: Operand) -> Operand {
         InstKind::Call(
             ctx.intrinsics.map_iter_next,
             vec![
-                set_op.clone(),
+                set_op,
                 Operand::Value(i_slot),
                 Operand::Value(kt_slot),
                 Operand::Value(kv_slot),

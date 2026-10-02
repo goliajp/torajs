@@ -314,7 +314,7 @@ fn lower_weak_key(ctx: &mut LowerCtx<'_>, eid: ExprId, is_setter: bool) -> (Oper
             | Type::Map
             | Type::Set
     ) {
-        return (raw.clone(), raw);
+        return (raw, raw);
     }
     // A Symbol key is legal only while NOT in the `Symbol.for`
     // registry (`CanBeHeldWeakly` — a registered symbol lives
@@ -331,7 +331,7 @@ fn lower_weak_key(ctx: &mut LowerCtx<'_>, eid: ExprId, is_setter: bool) -> (Oper
         };
         let p = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(helper, vec![raw.clone()]),
+            InstKind::Call(helper, vec![raw]),
             Type::Ptr,
             None,
         );
@@ -339,7 +339,7 @@ fn lower_weak_key(ctx: &mut LowerCtx<'_>, eid: ExprId, is_setter: bool) -> (Oper
     }
     let cur_block = ctx.cur_block;
     let av = if matches!(ty, Type::Any) {
-        raw.clone()
+        raw
     } else {
         // Chunk 630 — the classifier only READS the key (a legal
         // key it keeps is the fast-path early return above; every
@@ -350,9 +350,9 @@ fn lower_weak_key(ctx: &mut LowerCtx<'_>, eid: ExprId, is_setter: bool) -> (Oper
         let (tag, val) = if is_undef && matches!(ty, Type::Ptr) {
             (Operand::ConstI64(5), Operand::ConstI64(0))
         } else if ty.is_refcounted() {
-            (Operand::ConstI64(4), raw.clone())
+            (Operand::ConstI64(4), raw)
         } else {
-            ctx.box_to_tag_value(raw.clone())
+            ctx.box_to_tag_value(raw)
         };
         let v = ctx.f.append_inst(
             cur_block,

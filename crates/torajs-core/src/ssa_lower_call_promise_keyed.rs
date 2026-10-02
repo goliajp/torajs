@@ -19,7 +19,7 @@ pub(crate) fn lower_keyed(ctx: &mut LowerCtx<'_>, method: &str, args: &[ExprId])
         let _ = ctx.lower_expr(a);
     }
     let arg_ty = ctx.operand_ty(&arg_op);
-    let boxed = ctx.box_to_any_from_expr(args[0], arg_op.clone());
+    let boxed = ctx.box_to_any_from_expr(args[0], arg_op);
     let fid = match method {
         "allKeyed" => ctx.intrinsics.promise_all_keyed_dyn,
         "allSettledKeyed" => ctx.intrinsics.promise_allsettled_keyed_dyn,

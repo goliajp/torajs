@@ -110,7 +110,7 @@ fn emit_int32_pair_add(
         );
         let is_int = inst(
             ctx,
-            InstKind::ICmp(IPred::Eq, Operand::Value(top), int_tag.clone()),
+            InstKind::ICmp(IPred::Eq, Operand::Value(top), int_tag),
             Type::Bool,
         );
         (bits, is_int)
@@ -185,9 +185,9 @@ fn emit_number_side(
     slow: BlockId,
 ) -> (Operand, IntShaped) {
     match ty {
-        Type::F64 => (v.clone(), IntShaped::No),
+        Type::F64 => (*v, IntShaped::No),
         Type::I64 => {
-            let f = inst(ctx, InstKind::SiToFp(v.clone()), Type::F64);
+            let f = inst(ctx, InstKind::SiToFp(*v), Type::F64);
             (Operand::Value(f), IntShaped::Yes)
         }
         _ => {

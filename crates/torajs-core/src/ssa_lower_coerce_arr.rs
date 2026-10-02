@@ -123,7 +123,7 @@ pub(crate) fn emit_to_string(
         } else {
             ctx.intrinsics.any_to_display_str
         };
-        let boxed = ctx.box_to_any(arg_op.clone());
+        let boxed = ctx.box_to_any(arg_op);
         let v = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Call(fid, vec![boxed]),
@@ -134,7 +134,7 @@ pub(crate) fn emit_to_string(
         ctx.emit_throw_check(None);
         return Operand::Value(v);
     };
-    let s = emit_join_comma(ctx, arg_op.clone(), join);
+    let s = emit_join_comma(ctx, arg_op, join);
     ctx.release_owned_temp(arg_eid, &arg_op);
     s
 }
@@ -150,7 +150,7 @@ pub(crate) fn emit_to_number(
 ) -> Operand {
     let Some(join) = kernel_join(ctx, elem_arr_id) else {
         stand_down_prelude(ctx, &arg_op);
-        let boxed = ctx.box_to_any(arg_op.clone());
+        let boxed = ctx.box_to_any(arg_op);
         let v = Operand::Value(ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Call(ctx.intrinsics.number_ctor_any, vec![boxed]),
@@ -161,11 +161,11 @@ pub(crate) fn emit_to_number(
         ctx.release_owned_temp(arg_eid, &arg_op);
         return v;
     };
-    let s = emit_join_comma(ctx, arg_op.clone(), join);
+    let s = emit_join_comma(ctx, arg_op, join);
     ctx.release_owned_temp(arg_eid, &arg_op);
     let n = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Call(ctx.intrinsics.str_to_number, vec![s.clone()]),
+        InstKind::Call(ctx.intrinsics.str_to_number, vec![s]),
         Type::F64,
         None,
     );

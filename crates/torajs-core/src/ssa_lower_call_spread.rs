@@ -63,18 +63,15 @@ pub(crate) fn lower_bare_spread(
     }
     let raw = ctx.lower_expr(callee);
     let recv = if matches!(ctx.operand_ty(&raw), Type::Any) {
-        raw.clone()
+        raw
     } else {
-        ctx.box_to_any(raw.clone())
+        ctx.box_to_any(raw)
     };
     let args_arr = build_args_arr(ctx, args);
     let arr_any_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
     let result = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Call(
-            ctx.intrinsics.any_call_spread,
-            vec![recv.clone(), args_arr.clone()],
-        ),
+        InstKind::Call(ctx.intrinsics.any_call_spread, vec![recv, args_arr]),
         Type::Any,
         None,
     );
@@ -150,14 +147,14 @@ fn try_lower_headless_argv_spread(
     // call, and the post-call check keyed on the target may be
     // elided for a target that cannot throw. Check here, releasing
     // the list on the way out.
-    ctx.emit_throw_check_owned(None, args_arr.clone(), Type::Arr(arr_any_id));
+    ctx.emit_throw_check_owned(None, args_arr, Type::Arr(arr_any_id));
     let argc = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Load(Type::I64, args_arr.clone(), crate::ssa_lower::ARR_LEN_OFF),
+        InstKind::Load(Type::I64, args_arr, crate::ssa_lower::ARR_LEN_OFF),
         Type::I64,
         None,
     );
-    let argv = ctx.emit_arr_data_ptr(args_arr.clone());
+    let argv = ctx.emit_arr_data_ptr(args_arr);
     let ret_ty = ctx.f_ret_type_hint(target);
     let call_args = vec![Operand::Value(argc), argv];
     let result = if ret_ty == Type::Void {
@@ -214,14 +211,14 @@ fn lower_this_first_argv_spread(
     // declares and reads nothing cannot throw, so the post-call check
     // is elided for it — and `super(...gen())`'s own throw was lost
     // (the test262 call-spread-err-mult-err family).
-    ctx.emit_throw_check_owned(None, args_arr.clone(), Type::Arr(arr_any_id));
+    ctx.emit_throw_check_owned(None, args_arr, Type::Arr(arr_any_id));
     let argc = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Load(Type::I64, args_arr.clone(), crate::ssa_lower::ARR_LEN_OFF),
+        InstKind::Load(Type::I64, args_arr, crate::ssa_lower::ARR_LEN_OFF),
         Type::I64,
         None,
     );
-    let argv = ctx.emit_arr_data_ptr(args_arr.clone());
+    let argv = ctx.emit_arr_data_ptr(args_arr);
     let mut call_args = head_ops;
     call_args.push(Operand::Value(argc));
     call_args.push(argv);
@@ -239,7 +236,7 @@ fn lower_this_first_argv_spread(
     for (i, pty) in declared.into_iter().enumerate() {
         let slot = crate::ssa_lower_anyv_inline::arr_get_any_borrowed(
             ctx,
-            args_arr.clone(),
+            args_arr,
             Operand::ConstI64(i as i64),
         );
         let v = crate::ssa_lower_call_arg_conv::emit_arg_conv(
@@ -286,9 +283,9 @@ fn lower_method_spread(
     let raw = ctx.lower_expr(obj);
     ctx.emit_arr_mark_kind(&raw);
     let recv = if matches!(ctx.operand_ty(&raw), Type::Any) {
-        raw.clone()
+        raw
     } else {
-        ctx.box_to_any(raw.clone())
+        ctx.box_to_any(raw)
     };
     // Ident receivers ride their variable slot along so
     // growth-relocating methods write the fresh pointer back (the
@@ -315,12 +312,12 @@ fn lower_method_spread(
         InstKind::Call(
             ctx.intrinsics.any_method_call_spread,
             vec![
-                recv.clone(),
+                recv,
                 Operand::ConstI64(mid),
                 Operand::Value(name_str),
                 Operand::ConstI64(0),
                 recv_slot,
-                args_arr.clone(),
+                args_arr,
             ],
         ),
         Type::Any,
@@ -398,7 +395,7 @@ pub(crate) fn build_args_arr(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand
                 );
                 src = Operand::Value(a);
                 src_ty = Type::Arr(str_arr_id);
-                str_arr_temp = Some(src.clone());
+                str_arr_temp = Some(src);
             }
             // The direct extend reads the backing store; §13.2.4.1
             // reads the iterator. A module that installs a
@@ -410,7 +407,7 @@ pub(crate) fn build_args_arr(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand
             if src_is_any_arr {
                 arr = Operand::Value(ctx.f.append_inst(
                     ctx.cur_block,
-                    InstKind::Call(ctx.intrinsics.arr_extend_any, vec![arr, src.clone()]),
+                    InstKind::Call(ctx.intrinsics.arr_extend_any, vec![arr, src]),
                     Type::Arr(arr_any_id),
                     None,
                 ));
@@ -418,9 +415,9 @@ pub(crate) fn build_args_arr(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand
                 continue;
             }
             let boxed = if matches!(src_ty, Type::Any) {
-                src.clone()
+                src
             } else {
-                ctx.box_to_any(src.clone())
+                ctx.box_to_any(src)
             };
             let materialized = crate::ssa_lower_arr_from_any::emit(ctx, boxed);
             // An owned source temp (a call's product) was only
@@ -430,10 +427,7 @@ pub(crate) fn build_args_arr(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand
             ctx.release_owned_temp(inner, &src);
             arr = Operand::Value(ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(
-                    ctx.intrinsics.arr_extend_any,
-                    vec![arr, materialized.clone()],
-                ),
+                InstKind::Call(ctx.intrinsics.arr_extend_any, vec![arr, materialized]),
                 Type::Arr(arr_any_id),
                 None,
             ));

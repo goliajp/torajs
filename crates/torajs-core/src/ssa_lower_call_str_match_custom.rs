@@ -77,8 +77,8 @@ pub(crate) fn lower_symbol_dispatch_pattern(
         InstKind::Call(
             ctx.intrinsics.any_str_symbol_try,
             vec![
-                recv_op.clone(),
-                raw_arg.clone(),
+                recv_op,
+                raw_arg,
                 extra_any,
                 Operand::ConstI64(1),
                 Operand::ConstI64(wk_idx),
@@ -116,19 +116,14 @@ pub(crate) fn lower_symbol_dispatch_pattern(
     // the join.
     ctx.cur_block = coerce_blk;
     let arg_ty = ctx.operand_ty(&raw_arg);
-    let pat_op = crate::ssa_lower_call_coercion::emit_to_string(
-        ctx,
-        args[0],
-        raw_arg.clone(),
-        arg_ty,
-        false,
-    );
+    let pat_op =
+        crate::ssa_lower_call_coercion::emit_to_string(ctx, args[0], raw_arg, arg_ty, false);
     let flags_v = ctx.intern_string_literal("");
     let re_v = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(
             ctx.intrinsics.regex_compile,
-            vec![pat_op.clone(), Operand::Value(flags_v)],
+            vec![pat_op, Operand::Value(flags_v)],
         ),
         Type::RegExp,
         None,
@@ -145,7 +140,7 @@ pub(crate) fn lower_symbol_dispatch_pattern(
                     // runtime from a value the caller may hand on
                     // anywhere; no static reader picture, so it keeps
                     // the full §22.2.7.8 exec shape.
-                    vec![recv_op.clone(), Operand::Value(re_v), Operand::ConstI64(1)],
+                    vec![recv_op, Operand::Value(re_v), Operand::ConstI64(1)],
                 ),
                 Type::Arr(arr_id),
                 None,
@@ -157,7 +152,7 @@ pub(crate) fn lower_symbol_dispatch_pattern(
                 ctx.cur_block,
                 InstKind::Call(
                     ctx.intrinsics.regex_search,
-                    vec![recv_op.clone(), Operand::Value(re_v)],
+                    vec![recv_op, Operand::Value(re_v)],
                 ),
                 Type::I64,
                 None,
@@ -215,7 +210,7 @@ pub(crate) fn lower_replace_any_pattern(
     // rc-neutral, the operand's stake stays with this frame until the
     // join's release), so building it ahead of the branch is free.
     let extra_any = match &repl_op {
-        Some(op) => ctx.box_to_any(op.clone()),
+        Some(op) => ctx.box_to_any(*op),
         None => undef_any(ctx),
     };
     let handled = ctx.f.append_inst(
@@ -223,8 +218,8 @@ pub(crate) fn lower_replace_any_pattern(
         InstKind::Call(
             ctx.intrinsics.any_str_symbol_try,
             vec![
-                recv_op.clone(),
-                raw_arg.clone(),
+                recv_op,
+                raw_arg,
                 extra_any,
                 Operand::ConstI64(2),
                 Operand::ConstI64(8),
@@ -260,16 +255,11 @@ pub(crate) fn lower_replace_any_pattern(
     // literal substring kernels the string-pattern spelling uses.
     ctx.cur_block = coerce_blk;
     let arg_ty = ctx.operand_ty(&raw_arg);
-    let pat_op = crate::ssa_lower_call_coercion::emit_to_string(
-        ctx,
-        args[0],
-        raw_arg.clone(),
-        arg_ty,
-        false,
-    );
+    let pat_op =
+        crate::ssa_lower_call_coercion::emit_to_string(ctx, args[0], raw_arg, arg_ty, false);
     let (fid, repl_arg) = match (&repl_op, &repl_ty) {
-        (Some(op), Some(Type::Closure(_))) => (ctx.intrinsics.str_replace_fn, op.clone()),
-        (Some(op), _) => (ctx.intrinsics.str_replace, op.clone()),
+        (Some(op), Some(Type::Closure(_))) => (ctx.intrinsics.str_replace_fn, *op),
+        (Some(op), _) => (ctx.intrinsics.str_replace, *op),
         // ToString(undefined) — the absent replaceValue substitutes
         // the literal text per the string-replacer path.
         (None, _) => {
@@ -279,7 +269,7 @@ pub(crate) fn lower_replace_any_pattern(
     };
     let v = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Call(fid, vec![recv_op.clone(), pat_op.clone(), repl_arg]),
+        InstKind::Call(fid, vec![recv_op, pat_op, repl_arg]),
         Type::Str,
         None,
     );
@@ -325,7 +315,7 @@ pub(crate) fn lower_split_any_pattern(ctx: &mut LowerCtx<'_>, argv: Vec<Operand>
     // kernel runs the ToUint32 itself. Absent = undefined (ANY_UNDEF
     // = 5, payload ignored).
     let limit_any = match argv.get(2) {
-        Some(op) => ctx.box_to_any(op.clone()),
+        Some(op) => ctx.box_to_any(*op),
         None => {
             let u = ctx.f.append_inst(
                 ctx.cur_block,
@@ -341,9 +331,9 @@ pub(crate) fn lower_split_any_pattern(ctx: &mut LowerCtx<'_>, argv: Vec<Operand>
         InstKind::Call(
             ctx.intrinsics.any_str_symbol_try,
             vec![
-                argv[0].clone(),
-                argv[1].clone(),
-                limit_any.clone(),
+                argv[0],
+                argv[1],
+                limit_any,
                 Operand::ConstI64(2),
                 Operand::ConstI64(11),
                 Operand::Value(result_slot),
@@ -384,7 +374,7 @@ pub(crate) fn lower_split_any_pattern(ctx: &mut LowerCtx<'_>, argv: Vec<Operand>
         ctx.cur_block,
         InstKind::Call(
             ctx.intrinsics.str_split_any_sep_lim,
-            vec![argv[0].clone(), argv[1].clone(), limit_any],
+            vec![argv[0], argv[1], limit_any],
         ),
         Type::Any,
         None,

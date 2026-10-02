@@ -178,7 +178,7 @@ pub(crate) fn assemble_any_spread(
         && li.is_spread
         && li.was_any
     {
-        return li.op.clone();
+        return li.op;
     }
     let mut arr = ctx.f.append_inst(
         ctx.cur_block,
@@ -227,7 +227,7 @@ pub(crate) fn assemble_any_spread(
                 ctx.cur_block,
                 InstKind::Call(
                     ctx.intrinsics.arr_extend_any,
-                    vec![Operand::Value(arr), li.op.clone()],
+                    vec![Operand::Value(arr), li.op],
                 ),
                 Type::Arr(arr_id),
                 None,

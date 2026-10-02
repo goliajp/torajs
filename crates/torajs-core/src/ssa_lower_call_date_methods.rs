@@ -116,7 +116,7 @@ pub(crate) fn try_lower(
     // had no release site in this file at all — 200k churn peaked at
     // 14.37 MB RSS against 1.52 MB for the same loop over a bound
     // receiver. Snapshot before `build_arg_ops` takes the operand.
-    let recv_raw = recv_op.clone();
+    let recv_raw = recv_op;
 
     let arg_ops = build_arg_ops(ctx, &method, recv_op, args);
     let (target, ret_ty) = resolve_intrinsic(ctx, &method);

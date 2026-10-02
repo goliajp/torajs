@@ -111,7 +111,7 @@ fn lower_single_arg(ctx: &mut LowerCtx<'_>, method: &'static str, arg_id: ExprId
         let substr_to_owned = ctx.intrinsics.substr_to_owned;
         let owned = ctx.f.append_inst(
             cur_block,
-            InstKind::Call(substr_to_owned, vec![arg.clone()]),
+            InstKind::Call(substr_to_owned, vec![arg]),
             Type::Str,
             None,
         );
@@ -143,7 +143,7 @@ fn lower_single_arg(ctx: &mut LowerCtx<'_>, method: &'static str, arg_id: ExprId
     if target == ctx.intrinsics.print_any && matches!(arg_ty, Type::Arr(_)) {
         ctx.emit_arr_mark_kind(&arg);
     }
-    ctx.emit_console_print(method, target, arg.clone());
+    ctx.emit_console_print(method, target, arg);
     close_console_sentinel_branch(ctx, sentinel_join);
     if !is_borrow {
         if is_str {
@@ -183,7 +183,7 @@ fn lower_multi_arg(ctx: &mut LowerCtx<'_>, method: &'static str, args: &[ExprId]
     for (i, &aid) in args.iter().enumerate() {
         let arg = ctx.lower_expr(aid);
         let arg_ty = ctx.operand_ty(&arg);
-        let s_op = ctx.console_display_str(arg.clone(), arg_ty);
+        let s_op = ctx.console_display_str(arg, arg_ty);
         // Chunk 717 — an owned any-member read consumed by the join:
         // the Str coercion mints a fresh cell (borrowing the box), so
         // the read's own stake releases here. Chunk 721 widened the
@@ -215,7 +215,7 @@ fn lower_multi_arg(ctx: &mut LowerCtx<'_>, method: &'static str, args: &[ExprId]
     }
     let target = ctx.console_print_target(Type::Str);
     let final_str = acc.unwrap();
-    ctx.emit_console_print(method, target, final_str.clone());
+    ctx.emit_console_print(method, target, final_str);
     ctx.emit_drop_value(final_str, Type::Str);
     Operand::ConstI64(0)
 }
@@ -232,7 +232,7 @@ pub(crate) fn lower_print_f64_or_undef(
     use crate::ssa::{IPred, Terminator};
     let bits = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::BitCastF64ToI64(arg.clone()),
+        InstKind::BitCastF64ToI64(arg),
         Type::I64,
         None,
     );
@@ -298,7 +298,7 @@ pub(crate) fn open_console_sentinel_branch(
     }
     let is_undef = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Call(ctx.intrinsics.is_undef_cell, vec![arg.clone()]),
+        InstKind::Call(ctx.intrinsics.is_undef_cell, vec![*arg]),
         Type::Bool,
         None,
     );
@@ -329,7 +329,7 @@ pub(crate) fn open_console_sentinel_branch(
     ctx.cur_block = live_blk;
     let is_null = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::ICmp(IPred::Eq, arg.clone(), Operand::ConstPtrNull),
+        InstKind::ICmp(IPred::Eq, *arg, Operand::ConstPtrNull),
         Type::Bool,
         None,
     );

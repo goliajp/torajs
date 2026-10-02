@@ -52,7 +52,7 @@ pub(crate) fn try_lower(
         return None;
     }
     if !ctx.expr_transfers_ownership(arg0) {
-        ctx.emit_owned_result_inc(arg_op.clone(), arg_ty);
+        ctx.emit_owned_result_inc(arg_op, arg_ty);
     }
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(

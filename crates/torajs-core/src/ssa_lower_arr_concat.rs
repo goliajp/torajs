@@ -62,7 +62,7 @@ fn extend_any_acc_with_args(
         // fold owns; a later argument's lower can raise
         // (`a(i).concat(boom())` stranded the seed per caught throw,
         // 79MB / 600k), so it parks across the lower.
-        let acc_tok = ctx.push_throw_temp(acc.clone(), Type::Arr(arr_id));
+        let acc_tok = ctx.push_throw_temp(acc, Type::Arr(arr_id));
         let other = ctx.lower_expr(a);
         ctx.pop_throw_temp(acc_tok);
         let other_ty = ctx.operand_ty(&other);
@@ -74,7 +74,7 @@ fn extend_any_acc_with_args(
                     // A boxed-element array can carry holes, accessor
                     // indices or an `@@isConcatSpreadable` — the any-arg
                     // kernel asks, and only then leaves the slot copy.
-                    concat_boxed_arg(ctx, arr_id, acc, other.clone())
+                    concat_boxed_arg(ctx, arr_id, acc, other)
                 } else {
                     // Rotation 545 — a typed arg's elements cross
                     // into the any world here; when they are
@@ -88,7 +88,7 @@ fn extend_any_acc_with_args(
                         ctx.cur_block,
                         InstKind::Call(
                             ctx.intrinsics.arr_extend_typed_into_any,
-                            vec![acc, other.clone(), Operand::ConstI64(elem_tag)],
+                            vec![acc, other, Operand::ConstI64(elem_tag)],
                         ),
                         Type::Arr(arr_id),
                         None,
@@ -101,19 +101,19 @@ fn extend_any_acc_with_args(
             // per slot. This arm previously fell to the packed
             // single-element append below — a silent wrong for an
             // Any holding an array.
-            Type::Any => concat_any_arg(ctx, arr_id, acc, other.clone()),
+            Type::Any => concat_any_arg(ctx, arr_id, acc, other),
             // An object may carry `@@isConcatSpreadable` (§7.3.22) —
             // same runtime question as an Any argument.
             t if t.is_refcounted()
                 && !matches!(t, Type::Str | Type::Substr | Type::Symbol | Type::BigInt) =>
             {
-                concat_boxed_arg(ctx, arr_id, acc, other.clone())
+                concat_boxed_arg(ctx, arr_id, acc, other)
             }
             _ => {
                 // ES §23.1.3.2 — non-array arg appends as a single
                 // element. pack_any_elem incs refcounted values /
                 // unboxes Any pairs; arr_push_any adopts the pair.
-                let (tag_op, value_op) = ctx.pack_any_elem(other.clone(), other_ty, Some(a));
+                let (tag_op, value_op) = ctx.pack_any_elem(other, other_ty, Some(a));
                 ctx.f.append_inst(
                     ctx.cur_block,
                     InstKind::Call(ctx.intrinsics.arr_push_any, vec![acc, tag_op, value_op]),
@@ -192,7 +192,7 @@ fn lower_concat_mixed(
     let any_id = crate::ssa_lower::intern_arr_layout(ctx.arr_layouts, Type::Any);
     let len = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Load(Type::I64, recv_op.clone(), ARR_LEN_OFF),
+        InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
         Type::I64,
         None,
     );
@@ -233,7 +233,7 @@ pub(crate) fn lower_arr_concat(
 ) -> Operand {
     // §23.1.3.1 step 2 ArraySpeciesCreate — constructor-face
     // guard before the derive (RFC 20260713 blade 3).
-    ctx.emit_arr_species_guard(recv_op.clone());
+    ctx.emit_arr_species_guard(recv_op);
     // Any receiver — every step must stay FLAG_ARR_ANY-aware
     // (raw arr_slice / arr_concat products are flag-blind and a
     // scalar arg would be deref'd as an array pointer). Dedicated
@@ -299,7 +299,7 @@ fn lower_concat_typed(
     let recv_elem = ctx.arr_layouts[arr_id.0 as usize];
     let out_id = ctx.copied_arr_layout(arr_id);
     let out_elem = ctx.arr_layouts[out_id.0 as usize];
-    let recv_len = load_len(ctx, recv_op.clone());
+    let recv_len = load_len(ctx, recv_op);
     if args.is_empty() {
         // 0-arg form ≡ shallow copy (holes stay holes, like the array
         // arguments below); the copied slots own nothing yet.
@@ -332,7 +332,7 @@ fn lower_concat_typed(
         let (op, ty, minted) = if other_ty == Type::Substr && out_elem == Type::Str {
             let owned = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.substr_to_owned, vec![other.clone()]),
+                InstKind::Call(ctx.intrinsics.substr_to_owned, vec![other]),
                 Type::Str,
                 None,
             );
@@ -346,7 +346,7 @@ fn lower_concat_typed(
             (other, other_ty, false)
         };
         let tok = if minted {
-            Some(ctx.push_throw_temp(op.clone(), ty))
+            Some(ctx.push_throw_temp(op, ty))
         } else {
             ctx.park_owned_temp(a, &op)
         };
@@ -363,7 +363,7 @@ fn lower_concat_typed(
     let mut total = Operand::Value(recv_len);
     for s in &srcs {
         let add = match s.ty {
-            Type::Arr(_) => Operand::Value(load_len(ctx, s.op.clone())),
+            Type::Arr(_) => Operand::Value(load_len(ctx, s.op)),
             _ => Operand::ConstI64(1),
         };
         let summed = ctx.f.append_inst(
@@ -391,22 +391,19 @@ fn lower_concat_typed(
         match s.ty {
             Type::Arr(sid) => {
                 let src_elem = ctx.arr_layouts[sid.0 as usize];
-                copy_arr_range(ctx, &dst, s.op.clone(), src_elem, owned_slots);
+                copy_arr_range(ctx, &dst, s.op, src_elem, owned_slots);
             }
             _ => {
-                let push_arg = ctx.raw_slot_arg(s.op.clone());
+                let push_arg = ctx.raw_slot_arg(s.op);
                 ctx.f.append_void(
                     ctx.cur_block,
-                    InstKind::Call(
-                        ctx.intrinsics.arr_push_unchecked,
-                        vec![dst.clone(), push_arg],
-                    ),
+                    InstKind::Call(ctx.intrinsics.arr_push_unchecked, vec![dst, push_arg]),
                 );
                 // The slot needs a stake: an owned temp's (or a minted
                 // copy's) moves in, a borrow's owner keeps its own so
                 // the slot incs.
                 if owned_slots && !s.minted && !ctx.expr_transfers_ownership(s.eid) {
-                    ctx.emit_owned_result_inc(s.op.clone(), out_elem);
+                    ctx.emit_owned_result_inc(s.op, out_elem);
                 }
             }
         }
@@ -442,18 +439,13 @@ fn copy_arr_range(
     src_elem: Type,
     owned_slots: bool,
 ) {
-    let old_len = owned_slots.then(|| load_len(ctx, dst.clone()));
+    let old_len = owned_slots.then(|| load_len(ctx, *dst));
     ctx.f.append_void(
         ctx.cur_block,
-        InstKind::Call(ctx.intrinsics.arr_extend_keep_holes, vec![dst.clone(), src]),
+        InstKind::Call(ctx.intrinsics.arr_extend_keep_holes, vec![*dst, src]),
     );
     if let Some(old) = old_len {
-        let new_len = load_len(ctx, dst.clone());
-        ctx.emit_adopt_copied_range(
-            dst.clone(),
-            src_elem,
-            Operand::Value(old),
-            Operand::Value(new_len),
-        );
+        let new_len = load_len(ctx, *dst);
+        ctx.emit_adopt_copied_range(*dst, src_elem, Operand::Value(old), Operand::Value(new_len));
     }
 }

@@ -72,7 +72,7 @@ impl<'a> LowerCtx<'a> {
         };
         let hdr = self.f.append_inst(
             self.cur_block,
-            InstKind::Load(Type::I64, arr.clone(), 0),
+            InstKind::Load(Type::I64, arr, 0),
             Type::I64,
             None,
         );
@@ -188,7 +188,7 @@ impl<'a> LowerCtx<'a> {
         stride_log2: i64,
         is_non_deque: bool,
     ) -> (Operand, Operand) {
-        let data = self.emit_arr_data_ptr(arr.clone());
+        let data = self.emit_arr_data_ptr(arr);
         if is_non_deque {
             // 11-A1 fast-path: head ≡ 0 by escape analysis.
             let scaled = self.f.append_inst(
@@ -264,7 +264,7 @@ impl<'a> LowerCtx<'a> {
         // T-13.5 deque: hoist head_x8 + data ptr out of the loop
         // (cur_block is the pre-loop block; neither changes during an
         // element-walk — drop calls never grow this array).
-        let head_x8 = self.emit_arr_head_x8(arr.clone());
+        let head_x8 = self.emit_arr_head_x8(arr);
         let data = self.emit_arr_data_ptr(arr);
         let header = self.f.add_block();
         let body = self.f.add_block();
@@ -301,13 +301,13 @@ impl<'a> LowerCtx<'a> {
         // off = scaled + head_x8 (relative to the hoisted data ptr)
         let off = self.f.append_inst(
             self.cur_block,
-            InstKind::BinOp(SsaBinOp::Add, Operand::Value(scaled), head_x8.clone()),
+            InstKind::BinOp(SsaBinOp::Add, Operand::Value(scaled), head_x8),
             Type::I64,
             None,
         );
         let elem = self.f.append_inst(
             self.cur_block,
-            InstKind::LoadDyn(elem_ty, data.clone(), Operand::Value(off)),
+            InstKind::LoadDyn(elem_ty, data, Operand::Value(off)),
             elem_ty,
             None,
         );
@@ -401,7 +401,7 @@ impl<'a> LowerCtx<'a> {
             InstKind::Store(start, Operand::Value(i_slot), 0),
         );
         // T-13.5 deque: hoist head_x8 + data ptr out of the loop.
-        let head_x8 = self.emit_arr_head_x8(arr.clone());
+        let head_x8 = self.emit_arr_head_x8(arr);
         let data = self.emit_arr_data_ptr(arr);
         let header = self.f.add_block();
         let body = self.f.add_block();
@@ -440,7 +440,7 @@ impl<'a> LowerCtx<'a> {
         // off = scaled + head_x8 (relative to the hoisted data ptr)
         let off = self.f.append_inst(
             self.cur_block,
-            InstKind::BinOp(SsaBinOp::Add, Operand::Value(scaled), head_x8.clone()),
+            InstKind::BinOp(SsaBinOp::Add, Operand::Value(scaled), head_x8),
             Type::I64,
             None,
         );
@@ -451,7 +451,7 @@ impl<'a> LowerCtx<'a> {
         };
         let elem = self.f.append_inst(
             self.cur_block,
-            InstKind::LoadDyn(load_ty, data.clone(), Operand::Value(off)),
+            InstKind::LoadDyn(load_ty, data, Operand::Value(off)),
             load_ty,
             None,
         );

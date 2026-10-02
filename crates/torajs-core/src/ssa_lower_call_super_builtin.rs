@@ -30,9 +30,9 @@ pub(crate) fn try_lower(
     // borrows the receiver).
     let recv_raw = ctx.lower_expr(args[0]);
     let recv = if matches!(ctx.operand_ty(&recv_raw), Type::Any) {
-        recv_raw.clone()
+        recv_raw
     } else {
-        ctx.box_to_any(recv_raw.clone())
+        ctx.box_to_any(recv_raw)
     };
     // A name outside the builtin id space passes mid 0 — the kernel
     // answers the spec not-a-function TypeError.
@@ -50,10 +50,7 @@ pub(crate) fn try_lower(
         let arr_any_id = crate::ssa_lower::intern_arr_layout(ctx.arr_layouts, Type::Any);
         let result = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(
-                fid_spread,
-                vec![recv, Operand::ConstI64(mid), args_arr.clone()],
-            ),
+            InstKind::Call(fid_spread, vec![recv, Operand::ConstI64(mid), args_arr]),
             Type::Any,
             None,
         );

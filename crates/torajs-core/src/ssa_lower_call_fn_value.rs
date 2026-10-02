@@ -112,7 +112,7 @@ impl<'a> LowerCtx<'a> {
                 && crate::ssa_lower_assign_slot_fit::arr_views_into_owned_slot(self, exp, actual)
             {
                 let copy = crate::ssa_lower_assign_slot_fit::copy_views_out(self, exp, a);
-                out.push(copy.clone());
+                out.push(copy);
                 drops.push((copy, exp));
                 continue;
             }
@@ -142,7 +142,7 @@ impl<'a> LowerCtx<'a> {
                     // (box_void_ptr is a pure encode; the sentinel/null
                     // shapes carry no rc at all).
                     if actual.is_refcounted() {
-                        self.emit_rc_inc(a.clone());
+                        self.emit_rc_inc(a);
                     }
                     let boxed = self.box_to_any(a);
                     out.push(boxed);

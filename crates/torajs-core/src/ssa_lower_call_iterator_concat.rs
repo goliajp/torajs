@@ -46,14 +46,14 @@ pub(crate) fn try_lower(
         let av = match ty {
             Type::Any => {
                 if !ctx.expr_transfers_ownership(a) {
-                    ctx.emit_rc_inc(raw.clone());
+                    ctx.emit_rc_inc(raw);
                 }
                 raw
             }
             Type::Arr(_) => {
                 ctx.emit_arr_mark_kind(&raw);
                 if !ctx.expr_transfers_ownership(a) {
-                    ctx.emit_rc_inc(raw.clone());
+                    ctx.emit_rc_inc(raw);
                 }
                 let as_i64 =
                     ctx.f
@@ -68,14 +68,14 @@ pub(crate) fn try_lower(
             }
             _ => {
                 if !ctx.expr_transfers_ownership(a) && ty.is_refcounted() {
-                    ctx.emit_rc_inc(raw.clone());
+                    ctx.emit_rc_inc(raw);
                 }
                 ctx.box_to_any(raw)
             }
         };
         let tag = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.any_unbox_tag, vec![av.clone()]),
+            InstKind::Call(ctx.intrinsics.any_unbox_tag, vec![av]),
             Type::I64,
             None,
         );

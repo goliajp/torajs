@@ -214,7 +214,7 @@ fn lower_member_receiver(
                 callee_op,
                 sig,
                 rest,
-                crate::ssa_lower_call_closure_emit::ClosureThis::Base(t_op.clone()),
+                crate::ssa_lower_call_closure_emit::ClosureThis::Base(t_op),
             ),
         ),
         crate::ssa::Type::FnSig(sig) => Some(crate::ssa_lower_call_fn_indirect::emit_fnsig_callee(

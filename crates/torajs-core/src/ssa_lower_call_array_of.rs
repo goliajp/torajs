@@ -72,7 +72,7 @@ pub(crate) fn try_lower(
     for (i, val) in elem_vals.iter().enumerate() {
         let off = (i as u64) * 8;
         ctx.f
-            .append_void(cur_block, InstKind::Store(*val, data.clone(), off));
+            .append_void(cur_block, InstKind::Store(*val, data, off));
     }
     Some(Operand::Value(arr_ptr))
 }

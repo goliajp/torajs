@@ -169,7 +169,7 @@ pub(crate) fn emit_split(
     let take_slot = ctx.alloca(Type::I64, Some("__regex_split_take"));
     let lt = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::ICmp(IPred::Slt, limit_op.clone(), Operand::Value(len)),
+        InstKind::ICmp(IPred::Slt, limit_op, Operand::Value(len)),
         Type::Bool,
         None,
     );

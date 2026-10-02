@@ -50,26 +50,26 @@ pub(crate) fn try_lower(
     let v = match arg_ty {
         Type::BigInt => ctx.f.append_inst(
             cur_block,
-            InstKind::Call(ctx.intrinsics.bigint_clone, vec![arg_op.clone()]),
+            InstKind::Call(ctx.intrinsics.bigint_clone, vec![arg_op]),
             Type::BigInt,
             None,
         ),
         Type::Str => ctx.f.append_inst(
             cur_block,
-            InstKind::Call(ctx.intrinsics.bigint_from_str, vec![arg_op.clone()]),
+            InstKind::Call(ctx.intrinsics.bigint_from_str, vec![arg_op]),
             Type::BigInt,
             None,
         ),
         Type::F64 => ctx.f.append_inst(
             cur_block,
-            InstKind::Call(ctx.intrinsics.bigint_from_number, vec![arg_op.clone()]),
+            InstKind::Call(ctx.intrinsics.bigint_from_number, vec![arg_op]),
             Type::BigInt,
             None,
         ),
         Type::I64 => {
             let f = ctx
                 .f
-                .append_inst(cur_block, InstKind::SiToFp(arg_op.clone()), Type::F64, None);
+                .append_inst(cur_block, InstKind::SiToFp(arg_op), Type::F64, None);
             ctx.f.append_inst(
                 cur_block,
                 InstKind::Call(ctx.intrinsics.bigint_from_number, vec![Operand::Value(f)]),
@@ -82,7 +82,7 @@ pub(crate) fn try_lower(
         // the §7.1.13 dispatch. The kernel records its own throws.
         Type::Any => ctx.f.append_inst(
             cur_block,
-            InstKind::Call(ctx.intrinsics.bigint_ctor_any, vec![arg_op.clone()]),
+            InstKind::Call(ctx.intrinsics.bigint_ctor_any, vec![arg_op]),
             Type::BigInt,
             None,
         ),

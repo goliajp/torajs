@@ -40,7 +40,7 @@ impl<'a> LowerCtx<'a> {
         // surplus and drops after the fill.
         let transfers = self.expr_transfers_ownership(args[0]);
         let v_ty = self.operand_ty(&v_raw);
-        let v_keep = v_raw.clone();
+        let v_keep = v_raw;
         let (tag_op, val_op): (Operand, Operand) = match v_ty {
             Type::I64 | Type::I32 => (Operand::ConstI64(2), v_raw),
             Type::F64 => {
@@ -67,13 +67,13 @@ impl<'a> LowerCtx<'a> {
             Type::Any => {
                 let tag_v = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Call(self.intrinsics.any_unbox_tag, vec![v_raw.clone()]),
+                    InstKind::Call(self.intrinsics.any_unbox_tag, vec![v_raw]),
                     Type::I64,
                     None,
                 );
                 let val_v = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Call(self.intrinsics.any_unbox_value, vec![v_raw.clone()]),
+                    InstKind::Call(self.intrinsics.any_unbox_value, vec![v_raw]),
                     Type::I64,
                     None,
                 );
@@ -97,7 +97,7 @@ impl<'a> LowerCtx<'a> {
         };
         let len_for_norm = self.f.append_inst(
             self.cur_block,
-            InstKind::Load(Type::I64, recv_op.clone(), ARR_LEN_OFF),
+            InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
             Type::I64,
             None,
         );
@@ -124,7 +124,7 @@ impl<'a> LowerCtx<'a> {
             let _ = self.lower_expr(a);
         }
         let settle_raw = if matches!(v_ty, Type::Any) {
-            Some(val_op.clone())
+            Some(val_op)
         } else {
             None
         };
@@ -143,7 +143,7 @@ impl<'a> LowerCtx<'a> {
         if let Some(raw) = settle_raw {
             self.f.append_void(
                 self.cur_block,
-                InstKind::Call(self.intrinsics.any_unbox_settle, vec![v_keep.clone(), raw]),
+                InstKind::Call(self.intrinsics.any_unbox_settle, vec![v_keep, raw]),
             );
         }
         // An owned-temp fill value has served its purpose — the

@@ -60,7 +60,7 @@ pub(crate) fn try_lower(
     // A number / string argument self-gates out (Copy, and a string
     // literal is not an owned shape), which is why only the composite
     // spellings leaked.
-    let arg_raw = arg_op.clone();
+    let arg_raw = arg_op;
     let arg_ty = ctx.operand_ty(&arg_op);
     // The checker's type for the argument rides along: SSA folds
     // `undefined` and `null` into one pointer-shaped slot, while
@@ -80,8 +80,8 @@ pub(crate) fn try_lower(
     for (n, &a) in args.iter().enumerate().skip(1) {
         let op = ctx.lower_expr(a);
         if n == 1 && serves_as_replacer(ctx, a) {
-            replacer_raw = Some((a, op.clone()));
-            replacer_op = Some(ctx.box_to_any_from_expr(a, op.clone()));
+            replacer_raw = Some((a, op));
+            replacer_op = Some(ctx.box_to_any_from_expr(a, op));
         }
         if n == 2 {
             let ty = ctx.operand_ty(&op);
@@ -89,7 +89,7 @@ pub(crate) fn try_lower(
             // spelling of "no indent" — step 8 leaves the gap empty,
             // so the static lane already answers byte-identically.
             if !matches!(ty, Type::Ptr) {
-                space_raw = Some((a, op.clone()));
+                space_raw = Some((a, op));
                 space_op = Some((op, ty));
             }
         }
@@ -119,7 +119,7 @@ pub(crate) fn try_lower(
     // into the any lane the kernel serializes.
     if let Some(rep) = replacer_op {
         let boxed = ctx.box_to_any_from_expr(args[0], arg_op);
-        let gap_arg = gap.clone().unwrap_or(Operand::ConstPtrNull);
+        let gap_arg = gap.unwrap_or(Operand::ConstPtrNull);
         let out = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Call(
@@ -184,7 +184,7 @@ pub(crate) fn try_lower(
     if crate::ssa_lower_nullable_guard::holds_undef_cell(ctx, args[0], arg_ty) {
         let boxed = ctx.box_to_any_from_expr(args[0], arg_op);
         let parked = ctx.park_owned_temp(args[0], &arg_raw);
-        let out = crate::ssa_lower_json_stringify::emit_any_walk(ctx, boxed, gap.clone(), 0);
+        let out = crate::ssa_lower_json_stringify::emit_any_walk(ctx, boxed, gap, 0);
         ctx.unpark_owned_temp(parked);
         if let Some(g) = gap {
             ctx.emit_drop_value(g, Type::Str);
@@ -194,7 +194,7 @@ pub(crate) fn try_lower(
         return Some(out);
     }
     let parked = ctx.park_owned_temp(args[0], &arg_raw);
-    let out = crate::ssa_lower_json_stringify::lower_top(ctx, arg_op, arg_ty, arg_fe, gap.clone());
+    let out = crate::ssa_lower_json_stringify::lower_top(ctx, arg_op, arg_ty, arg_fe, gap);
     ctx.unpark_owned_temp(parked);
     if let Some(g) = gap {
         ctx.emit_drop_value(g, Type::Str);

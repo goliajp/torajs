@@ -301,7 +301,7 @@ fn emit_set_for_each(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) 
             // box_to_any is a pure encoding — an owned-shape thisArg
             // temp keeps its stake in `op`; release after the loop
             // (arr_ho mirror), else iteration 2 reads freed memory.
-            let boxed = ctx.box_to_any_from_expr(t, op.clone());
+            let boxed = ctx.box_to_any_from_expr(t, op);
             this_temp = Some((t, op));
             Some(boxed)
         } else {
@@ -400,7 +400,7 @@ fn emit_set_for_each(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) 
             ctx,
             &fn_val,
             fn_ty,
-            vec![a0.clone(), a1.clone(), recv_op],
+            vec![a0, a1, recv_op],
             0,
             3,
         );
@@ -410,11 +410,11 @@ fn emit_set_for_each(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) 
         // receiver per walk).
         let mut cb_args = vec![a0, a1, recv_op];
         if let Some(t) = &this_arg {
-            cb_args.insert(0, t.clone());
+            cb_args.insert(0, *t);
         }
         let sig_skip = usize::from(this_arg.is_some());
         let _ = match known_fid {
-            Some(fid) => ctx.call_fn_value_devirt(fid, fn_val.clone(), fn_ty, cb_args, sig_skip, 3),
+            Some(fid) => ctx.call_fn_value_devirt(fid, fn_val, fn_ty, cb_args, sig_skip, 3),
             None => ctx.call_fn_value(fn_val, fn_ty, cb_args, sig_skip, 3),
         };
     }

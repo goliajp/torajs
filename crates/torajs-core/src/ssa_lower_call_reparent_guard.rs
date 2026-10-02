@@ -45,16 +45,16 @@ pub(crate) fn try_lower(
         ctx.redispatch_lowered = Some((recv_eid, recv));
         return None;
     }
-    let owned_recv = recv.clone();
+    let owned_recv = recv;
     Some(split_join(
         ctx,
         &recv,
         |ctx| {
-            ctx.redispatch_lowered = Some((recv_eid, recv.clone()));
+            ctx.redispatch_lowered = Some((recv_eid, recv));
             crate::ssa_lower_call::dispatch(ctx, eid, callee, args)
         },
         |ctx| {
-            let boxed = ctx.box_to_any(owned_recv.clone());
+            let boxed = ctx.box_to_any(owned_recv);
             let r = crate::ssa_lower_any_method_call::emit_any_method_call(
                 ctx,
                 boxed,
@@ -79,7 +79,7 @@ pub(crate) fn guarded_getter(
     name: &str,
     static_read: impl FnOnce(&mut LowerCtx<'_>) -> Operand,
 ) -> Operand {
-    let recv = obj_val.clone();
+    let recv = obj_val;
     split_join(ctx, &obj_val, static_read, |ctx| {
         let boxed = ctx.box_to_any(recv);
         crate::ssa_lower_any_member::lower_any_member_read(ctx, eid, boxed, name)
@@ -104,7 +104,7 @@ pub(crate) fn guarded_setter(
     ctx.cur_block = dyn_blk;
     // The member write takes the caller's +1 on a heap payload.
     let ty = ctx.operand_ty(&v);
-    ctx.emit_owned_result_inc(v.clone(), ty);
+    ctx.emit_owned_result_inc(v, ty);
     let (tag, val) = ctx.box_to_tag_value(v);
     let boxed = ctx.box_to_any(obj_val);
     crate::ssa_lower_assign_member_any::emit_any_member_set(
@@ -217,7 +217,7 @@ fn split_on_user_proto(
 ) {
     let hdr = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Load(Type::I32, recv.clone(), 4),
+        InstKind::Load(Type::I32, *recv, 4),
         Type::I32,
         None,
     );
@@ -262,17 +262,17 @@ fn fit_any_result(ctx: &mut LowerCtx<'_>, v: Operand, ty: Type) -> Operand {
             Operand::ConstI64(0)
         }
         Type::I64 | Type::F64 | Type::I32 => {
-            let n = ctx.coerce_any_to_number(v.clone(), ty);
+            let n = ctx.coerce_any_to_number(v, ty);
             ctx.emit_drop_value(v, Type::Any);
             n
         }
         Type::Bool => {
-            let b = ctx.coerce_to_bool(v.clone());
+            let b = ctx.coerce_to_bool(v);
             ctx.emit_drop_value(v, Type::Any);
             b
         }
         Type::Str => {
-            let s = ctx.coerce_to_str(v.clone(), Type::Any);
+            let s = ctx.coerce_to_str(v, Type::Any);
             ctx.emit_drop_value(v, Type::Any);
             s
         }

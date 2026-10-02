@@ -137,7 +137,7 @@ pub(crate) fn emit_arg_conv(
             return crate::ssa_lower_assign_slot_fit::materialize_fresh_views(ctx, expected, op);
         }
         let copy = crate::ssa_lower_assign_slot_fit::copy_views_out(ctx, expected, op);
-        owned.push((copy.clone(), expected));
+        owned.push((copy, expected));
         return copy;
     }
     if heap_into_primitive(expected, actual) {
@@ -167,7 +167,7 @@ pub(crate) fn emit_arg_conv(
         || ctx.ast.spread_filled_args.contains(&arg);
     if !synthetic_edge
         && let Some(v) = ctx.checked_cast(
-            op.clone(),
+            op,
             expected,
             CastSlot::Pass,
             CastScope::Annotated,
@@ -175,7 +175,7 @@ pub(crate) fn emit_arg_conv(
         )
     {
         if expected == Type::Str {
-            owned.push((v.clone(), Type::Str));
+            owned.push((v, Type::Str));
         }
         return v;
     }

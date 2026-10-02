@@ -68,7 +68,7 @@ fn lower_install(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
 fn lower_install_inline(ctx: &mut LowerCtx<'_>, recv: Operand, from: i64, to: i64) {
     let slot = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Load(Type::I64, recv.clone(), OBJ_CLASS_TAG_OFF),
+        InstKind::Load(Type::I64, recv, OBJ_CLASS_TAG_OFF),
         Type::I64,
         None,
     );
@@ -86,7 +86,7 @@ fn lower_install_inline(ctx: &mut LowerCtx<'_>, recv: Operand, from: i64, to: i6
     );
     let flags_word = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Load(Type::I32, recv.clone(), 4),
+        InstKind::Load(Type::I32, recv, 4),
         Type::I32,
         None,
     );
@@ -134,7 +134,7 @@ fn lower_install_inline(ctx: &mut LowerCtx<'_>, recv: Operand, from: i64, to: i6
     );
     ctx.f.append_void(
         ctx.cur_block,
-        InstKind::Store(Operand::Value(moved), recv.clone(), OBJ_CLASS_TAG_OFF),
+        InstKind::Store(Operand::Value(moved), recv, OBJ_CLASS_TAG_OFF),
     );
     ctx.f.set_term(ctx.cur_block, Terminator::Br(cont));
     ctx.cur_block = slow;
@@ -166,12 +166,11 @@ fn lower_check(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
     let class = class.to_string_lossy_owned();
     let pos = const_u32(ctx, *pos)?;
     let recv = ctx.lower_expr(*obj);
-    let is_instance =
-        crate::ssa_lower_instanceof::lower_class_membership(ctx, recv.clone(), &class);
+    let is_instance = crate::ssa_lower_instanceof::lower_class_membership(ctx, recv, &class);
     let cursor = if matches!(ctx.operand_ty(&recv), Type::Obj(_)) {
         let slot = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Load(Type::I64, recv.clone(), OBJ_CLASS_TAG_OFF),
+            InstKind::Load(Type::I64, recv, OBJ_CLASS_TAG_OFF),
             Type::I64,
             None,
         );
@@ -183,9 +182,9 @@ fn lower_check(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
         )
     } else {
         let boxed = if matches!(ctx.operand_ty(&recv), Type::Any) {
-            recv.clone()
+            recv
         } else {
-            ctx.box_to_any(recv.clone())
+            ctx.box_to_any(recv)
         };
         let f = ctx.intrinsics.priv_cursor;
         ctx.f.append_inst(
@@ -255,16 +254,16 @@ pub(crate) fn unit_word(ctx: &mut LowerCtx<'_>, recv: &Operand, off: u64) -> Ope
     if matches!(ctx.operand_ty(recv), Type::Obj(_)) {
         let v = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Load(Type::I64, recv.clone(), off),
+            InstKind::Load(Type::I64, *recv, off),
             Type::I64,
             None,
         );
         return Operand::Value(v);
     }
     let boxed = if matches!(ctx.operand_ty(recv), Type::Any) {
-        recv.clone()
+        *recv
     } else {
-        ctx.box_to_any(recv.clone())
+        ctx.box_to_any(*recv)
     };
     let f = ctx.intrinsics.priv_unit_word;
     let v = ctx.f.append_inst(
@@ -330,7 +329,7 @@ pub(crate) fn same_unit(
     let slot = ctx.alloca_in_entry(Type::Bool, Some("__unit_same"));
     let eq = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::ICmp(IPred::Eq, mine.clone(), theirs.clone()),
+        InstKind::ICmp(IPred::Eq, mine, theirs),
         Type::Bool,
         None,
     );

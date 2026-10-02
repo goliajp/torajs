@@ -68,7 +68,7 @@ pub(super) fn emit_map(
             // it (rotation 468; the product is typed `Arr<Str>`).
             let owned = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.substr_to_owned, vec![mapped.clone()]),
+                InstKind::Call(ctx.intrinsics.substr_to_owned, vec![mapped]),
                 Type::Str,
                 None,
             );
@@ -155,7 +155,7 @@ pub(super) fn emit_filter(
     // is this trio loop, which kept the raw CondBr.)
     let raw = Operand::Value(keep);
     let ret_ty = ctx.operand_ty(&raw);
-    let keep_b = ctx.coerce_to_bool(raw.clone());
+    let keep_b = ctx.coerce_to_bool(raw);
     if ret_ty.is_refcounted() {
         ctx.emit_drop_value(raw, ret_ty);
     }

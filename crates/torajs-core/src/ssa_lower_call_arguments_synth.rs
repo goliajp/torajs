@@ -30,7 +30,7 @@ pub(crate) fn try_lower_materialize(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> 
     let arr_id = crate::ssa_lower::intern_arr_layout(ctx.arr_layouts, Type::Any);
     let arr = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Call(ctx.intrinsics.arr_alloc_any, vec![argc.clone()]),
+        InstKind::Call(ctx.intrinsics.arr_alloc_any, vec![argc]),
         Type::Arr(arr_id),
         None,
     );

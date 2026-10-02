@@ -123,7 +123,7 @@ pub(crate) fn try_lower(
         Type::Closure(_) => {
             let s = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.closure_source_str, vec![op.clone()]),
+                InstKind::Call(ctx.intrinsics.closure_source_str, vec![op]),
                 Type::Str,
                 None,
             );

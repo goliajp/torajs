@@ -36,7 +36,7 @@ fn lower_promoted_this(
     }
     if let Some(&t) = args.get(2) {
         let op = ctx.lower_expr(t);
-        let boxed = ctx.box_to_any_from_expr(t, op.clone());
+        let boxed = ctx.box_to_any_from_expr(t, op);
         (Some(boxed), Some((t, op)))
     } else {
         (
@@ -195,7 +195,7 @@ pub(crate) fn emit_map_loop(
     );
     let elem = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::LoadDyn(src_elem_ty, off_base.clone(), off),
+        InstKind::LoadDyn(src_elem_ty, off_base, off),
         src_elem_ty,
         None,
     );
@@ -216,7 +216,7 @@ pub(crate) fn emit_map_loop(
     // every parameter — spelling it here too would only repeat it.
     let mut call_args: Vec<Operand> = Vec::with_capacity(3);
     if let Some(t) = &this_arg {
-        call_args.push(t.clone());
+        call_args.push(*t);
     }
     call_args.push(Operand::Value(elem));
     // An argv-face mapFn takes the FULL spec pair — its sig's params
@@ -231,10 +231,8 @@ pub(crate) fn emit_map_loop(
         )
     } else {
         match known_fid {
-            Some(fid) => {
-                ctx.call_fn_value_devirt(fid, fn_val.clone(), fn_ty, call_args, sig_skip, 2)
-            }
-            None => ctx.call_fn_value(fn_val.clone(), fn_ty, call_args, sig_skip, 2),
+            Some(fid) => ctx.call_fn_value_devirt(fid, fn_val, fn_ty, call_args, sig_skip, 2),
+            None => ctx.call_fn_value(fn_val, fn_ty, call_args, sig_skip, 2),
         }
     };
     let cur_dst = ctx.f.append_inst(

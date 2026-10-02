@@ -90,7 +90,7 @@ pub(crate) fn lower_any_member_read(
     // int immediates back as dereferenceable "pointer" bits for the
     // class-tag load. Immediates decode to NULL and take the
     // dynobj_blk fallback like any non-Obj cell.
-    let dynobj = ctx.any_cell_ptr_as_ptr(obj_val.clone());
+    let dynobj = ctx.any_cell_ptr_as_ptr(obj_val);
 
     // Sort by class_tag for deterministic dispatch order.
     candidates.sort_by_key(|(t, _, _, _)| *t);
@@ -363,7 +363,7 @@ fn emit_member_fallback(
             ctx.cur_block,
             InstKind::Call(
                 ctx.intrinsics.any_member_get_priv_tag,
-                vec![obj_val.clone(), Operand::Value(key_str)],
+                vec![*obj_val, Operand::Value(key_str)],
             ),
             Type::I64,
             None,
@@ -372,7 +372,7 @@ fn emit_member_fallback(
             ctx.cur_block,
             InstKind::Call(
                 ctx.intrinsics.any_member_get_priv_value,
-                vec![obj_val.clone(), Operand::Value(key_str)],
+                vec![*obj_val, Operand::Value(key_str)],
             ),
             Type::I64,
             None,
@@ -381,7 +381,7 @@ fn emit_member_fallback(
         return crate::ssa_lower_accessor::emit_any_get_result(ctx, obj_val, key_str, tag, value);
     }
     if name == "length" {
-        return crate::ssa_lower_anyv_inline::lower_any_length(ctx, obj_val.clone());
+        return crate::ssa_lower_anyv_inline::lower_any_length(ctx, *obj_val);
     }
     if name == "__proto__" {
         // Annex B §B.2.2.1 — `o.__proto__` IS the [[Prototype]]
@@ -392,7 +392,7 @@ fn emit_member_fallback(
         // that never got one. Owned return, the `.length` shape.
         let v = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.proto_member_get, vec![obj_val.clone()]),
+            InstKind::Call(ctx.intrinsics.proto_member_get, vec![*obj_val]),
             Type::Any,
             None,
         );
@@ -406,7 +406,7 @@ fn emit_member_fallback(
         // `.length` shape.
         let v = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.any_name_get, vec![obj_val.clone()]),
+            InstKind::Call(ctx.intrinsics.any_name_get, vec![*obj_val]),
             Type::Any,
             None,
         );
@@ -419,7 +419,7 @@ fn emit_member_fallback(
         // length-only (a Map has no length, matching bun).
         let v = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.any_size_get, vec![obj_val.clone()]),
+            InstKind::Call(ctx.intrinsics.any_size_get, vec![*obj_val]),
             Type::Any,
             None,
         );
@@ -435,11 +435,7 @@ fn emit_member_fallback(
             ctx.cur_block,
             InstKind::Call(
                 ctx.intrinsics.any_regexp_prop,
-                vec![
-                    obj_val.clone(),
-                    Operand::ConstI64(prop),
-                    Operand::Value(key_str),
-                ],
+                vec![*obj_val, Operand::ConstI64(prop), Operand::Value(key_str)],
             ),
             Type::Any,
             None,
@@ -466,7 +462,7 @@ pub(crate) fn emit_any_member_probe(
         ctx.cur_block,
         InstKind::Call(
             ctx.intrinsics.any_member_get_tag,
-            vec![obj_val.clone(), Operand::Value(key_str)],
+            vec![*obj_val, Operand::Value(key_str)],
         ),
         Type::I64,
         None,
@@ -475,7 +471,7 @@ pub(crate) fn emit_any_member_probe(
         ctx.cur_block,
         InstKind::Call(
             ctx.intrinsics.any_member_get_value,
-            vec![obj_val.clone(), Operand::Value(key_str)],
+            vec![*obj_val, Operand::Value(key_str)],
         ),
         Type::I64,
         None,

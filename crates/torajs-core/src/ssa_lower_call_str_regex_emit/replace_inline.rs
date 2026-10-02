@@ -158,7 +158,7 @@ fn write_view(
     let fields = [
         (Operand::ConstI64(HDR_STATIC_LITERAL), 0),
         (len, 8),
-        (parent.clone(), 16),
+        (*parent, 16),
         (offset, 24),
     ];
     for (v, off) in fields {
@@ -235,7 +235,7 @@ fn emit_walk(
     re_op: &Operand,
     env: &Operand,
 ) -> Operand {
-    let subject = recv_op.clone();
+    let subject = *recv_op;
     let init = ctx.intrinsics.exec_record.regex_replace_iter_init;
     let next = ctx.intrinsics.exec_record.regex_replace_iter_next;
     let close = ctx.intrinsics.exec_record.regex_replace_iter_close;
@@ -243,8 +243,8 @@ fn emit_walk(
     let append = ctx.intrinsics.str_append;
     // the loop's own share of the subject: every view borrows it, and
     // the callback may release the binding it was read from
-    ctx.emit_rc_inc(subject.clone());
-    let subject_tok = ctx.push_throw_temp(subject.clone(), Type::Str);
+    ctx.emit_rc_inc(subject);
+    let subject_tok = ctx.push_throw_temp(subject, Type::Str);
     let env_tok = ctx.park_owned_temp(plan.cb, env);
     let iter = alloca_bytes(ctx, REPLACE_ITER_SIZE, "__replace_iter");
     let spans = alloca_bytes(ctx, 16 * plan.n_slots as u64, "__replace_spans");
@@ -263,20 +263,17 @@ fn emit_walk(
 
     ctx.f.append_void(
         ctx.cur_block,
-        InstKind::Call(
-            init,
-            vec![Operand::Value(iter), re_op.clone(), subject.clone()],
-        ),
+        InstKind::Call(init, vec![Operand::Value(iter), *re_op, subject]),
     );
     // a frozen lastIndex under `g` / `y` is a recorded TypeError
     ctx.emit_throw_check(None);
-    let slen = crate::ssa_lower_str::load_str_or_substr_length(ctx, subject.clone(), Type::Str);
+    let slen = crate::ssa_lower_str::load_str_or_substr_length(ctx, subject, Type::Str);
     if let Some(iv) = input_view {
-        write_view(ctx, iv, &subject, Operand::ConstI64(0), slen.clone());
+        write_view(ctx, iv, &subject, Operand::ConstI64(0), slen);
     }
     let cap = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::BinOp(SsaBinOp::Add, slen.clone(), Operand::ConstI64(16)),
+        InstKind::BinOp(SsaBinOp::Add, slen, Operand::ConstI64(16)),
         Type::I64,
         None,
     );
@@ -334,15 +331,15 @@ fn emit_walk(
     let start = load_i64(ctx, spans, 0);
     let end = load_i64(ctx, spans, 8);
     let tail = load_i64(ctx, tail_slot, 0);
-    let gap_len = sub(ctx, start.clone(), tail.clone());
+    let gap_len = sub(ctx, start, tail);
     write_view(ctx, gap, &subject, tail, gap_len);
     append_into(ctx, out_slot, append_substr, Operand::Value(gap));
-    let mut argv: Vec<Operand> = vec![env.clone(), Operand::ConstI64(plan.argc)];
+    let mut argv: Vec<Operand> = vec![*env, Operand::ConstI64(plan.argc)];
     for (k, &view) in views.iter().enumerate() {
         let gs = load_i64(ctx, spans, 16 * k as u64);
         let ge = load_i64(ctx, spans, 16 * k as u64 + 8);
-        let len = sub(ctx, ge, gs.clone());
-        write_view(ctx, view, &subject, gs.clone(), len);
+        let len = sub(ctx, ge, gs);
+        write_view(ctx, view, &subject, gs, len);
         if k == 0 {
             argv.push(Operand::Value(view));
             continue;
@@ -379,7 +376,7 @@ fn emit_walk(
     );
     ctx.pop_throw_temp(close_tok);
     let tail = load_i64(ctx, tail_slot, 0);
-    let rest = sub(ctx, slen, tail.clone());
+    let rest = sub(ctx, slen, tail);
     write_view(ctx, gap, &subject, tail, rest);
     append_into(ctx, out_slot, append_substr, Operand::Value(gap));
     ctx.pop_throw_temp(out_tok);

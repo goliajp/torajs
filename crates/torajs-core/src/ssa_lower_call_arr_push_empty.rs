@@ -40,11 +40,11 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx<'_>, recv_id: ExprId) -> Option<Opera
     let guard = ctx.intrinsics.arr_len_write_guard;
     let cur_block = ctx.cur_block;
     ctx.f
-        .append_void(cur_block, InstKind::Call(guard, vec![recv_op.clone()]));
+        .append_void(cur_block, InstKind::Call(guard, vec![recv_op]));
     ctx.emit_throw_check(None);
     let len = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Load(Type::I64, recv_op.clone(), ARR_LEN_OFF),
+        InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
         Type::I64,
         None,
     );

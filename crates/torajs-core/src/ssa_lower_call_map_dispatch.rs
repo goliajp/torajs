@@ -154,7 +154,7 @@ fn emit_map_set(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) -> Op
     let key = args.first().map(|&a| lower_map_key(ctx, a));
     let str_key = matches!(key, Some(MapKey::Str(_)));
     let (k_tag, k_val, k_raw) = match key {
-        Some(MapKey::Str(s)) => (Operand::ConstI64(-1), s.clone(), Some(s)),
+        Some(MapKey::Str(s)) => (Operand::ConstI64(-1), s, Some(s)),
         Some(MapKey::Pair(tag, val, raw)) => (tag, val, Some(raw)),
         None => (Operand::ConstI64(5), Operand::ConstI64(0), None),
     };
@@ -170,11 +170,11 @@ fn emit_map_set(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) -> Op
     let call = match str_key {
         true => InstKind::Call(
             ctx.intrinsics.map_set_str,
-            vec![recv_op.clone(), k_val, k_tag, v_tag, v_val],
+            vec![recv_op, k_val, k_tag, v_tag, v_val],
         ),
         false => InstKind::Call(
             ctx.intrinsics.map_set,
-            vec![recv_op.clone(), k_tag, k_val, v_tag, v_val],
+            vec![recv_op, k_tag, k_val, v_tag, v_val],
         ),
     };
     ctx.f.append_void(ctx.cur_block, call);
@@ -268,7 +268,7 @@ fn emit_map_get(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) -> Op
     let tag_slot = ctx.alloca(Type::I64, Some("map_get_tag"));
     let val_slot = ctx.alloca(Type::I64, Some("map_get_val"));
     let (t, v) = (Operand::Value(tag_slot), Operand::Value(val_slot));
-    match emit_find_index(ctx, recv_op.clone(), args) {
+    match emit_find_index(ctx, recv_op, args) {
         Ok(idx) => ctx.f.append_void(
             ctx.cur_block,
             InstKind::Call(ctx.intrinsics.map_entry_get, vec![recv_op, idx, t, v]),
@@ -326,7 +326,7 @@ fn lower_map_key(ctx: &mut LowerCtx<'_>, key: ExprId) -> MapKey {
     if ctx.operand_ty(&s) == Type::Str {
         return MapKey::Str(s);
     }
-    let (tag, val) = ctx.box_to_tag_value(s.clone());
+    let (tag, val) = ctx.box_to_tag_value(s);
     MapKey::Pair(tag, val, s)
 }
 
@@ -349,7 +349,7 @@ pub(crate) fn emit_find_index(
     };
     let idx = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Call(ctx.intrinsics.map_find_str, vec![recv_op, s.clone()]),
+        InstKind::Call(ctx.intrinsics.map_find_str, vec![recv_op, s]),
         Type::I64,
         None,
     );
@@ -360,7 +360,7 @@ pub(crate) fn emit_find_index(
 /// `m.has(k)`: for a string key the found index compared `>= 0`;
 /// otherwise the generic `__torajs_map_has` over the pair.
 fn emit_has(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) -> Operand {
-    let idx = match emit_find_index(ctx, recv_op.clone(), args) {
+    let idx = match emit_find_index(ctx, recv_op, args) {
         Ok(idx) => idx,
         Err((k_tag, k_val, k_raw)) => {
             let r = ctx.f.append_inst(

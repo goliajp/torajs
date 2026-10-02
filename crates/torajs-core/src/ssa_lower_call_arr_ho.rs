@@ -114,7 +114,7 @@ fn lower_higher_order(
             // iteration. Releasing here freed the payload after the
             // first iteration (`this.mul` read garbage); the release
             // rides the after-loop settlement below instead.
-            let boxed = ctx.box_to_any_from_expr(t, op.clone());
+            let boxed = ctx.box_to_any_from_expr(t, op);
             this_tok = ctx.park_owned_temp(t, &op);
             this_temp = Some((t, op));
             Some(boxed)

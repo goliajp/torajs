@@ -265,7 +265,7 @@ fn try_lower_is_constructor(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<O
         (raw, false)
     } else {
         if is_borrow && raw_ty.is_refcounted() {
-            ctx.emit_rc_inc(raw.clone());
+            ctx.emit_rc_inc(raw);
         }
         (ctx.box_to_any_from_expr(args[0], raw), true)
     };
@@ -273,7 +273,7 @@ fn try_lower_is_constructor(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<O
     let probe = ctx.intrinsics.is_constructor;
     let v = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(probe, vec![v_op.clone()]),
+        InstKind::Call(probe, vec![v_op]),
         Type::Bool,
         None,
     );
@@ -395,7 +395,7 @@ fn try_lower_class_register(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<O
                 InstKind::Call(mark, vec![Operand::ConstI64(tag as i64)]),
             );
         }
-        emit_ctor_register(ctx, &cname, class_op.clone());
+        emit_ctor_register(ctx, &cname, class_op);
         // rotation 186 — the register kernel defines `constructor`
         // + reified methods onto the PROTOTYPE dynobj, which may
         // resize (fresh block + free old); refresh the module
@@ -438,7 +438,7 @@ fn emit_ctor_register(ctx: &mut LowerCtx<'_>, cname: &str, class_op: Operand) {
     let ctor_register = ctx.intrinsics.ctor_register;
     ctx.f.append_void(
         cur_block,
-        InstKind::Call(ctor_register, vec![class_op.clone(), Operand::Value(addr)]),
+        InstKind::Call(ctor_register, vec![class_op, Operand::Value(addr)]),
     );
     // RFC 20260815 knife 2b — the ctor-twin registration beside it,
     // so a value-shaped parent's `super(…)` can reach this class's

@@ -213,7 +213,7 @@ impl<'a> LowerCtx<'a> {
     /// (`__torajs_str_is_nullish`) answered both for either.
     pub(crate) fn str_is_nullish(&mut self, v: Operand) -> Operand {
         let ty = self.operand_ty(&v);
-        let mut acc = self.cmp(IPred::Eq, v.clone(), Operand::ConstPtrNull);
+        let mut acc = self.cmp(IPred::Eq, v, Operand::ConstPtrNull);
         for sym in [STR_UNDEF_CELL_SYM, SUBSTR_UNDEF_CELL_SYM] {
             let cell = self.f.append_inst(
                 self.cur_block,
@@ -221,7 +221,7 @@ impl<'a> LowerCtx<'a> {
                 ty,
                 None,
             );
-            let is_cell = self.cmp(IPred::Eq, v.clone(), Operand::Value(cell));
+            let is_cell = self.cmp(IPred::Eq, v, Operand::Value(cell));
             acc = Operand::Value(self.f.append_inst(
                 self.cur_block,
                 InstKind::BinOp(SsaBinOp::Or, acc, is_cell),

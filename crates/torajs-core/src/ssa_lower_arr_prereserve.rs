@@ -241,7 +241,7 @@ impl LowerCtx<'_> {
                 self.cur_block,
                 InstKind::ICmp(
                     IPred::Sgt,
-                    bound.clone(),
+                    bound,
                     Operand::ConstI64(RESERVE_SCALE_MAX_BOUND),
                 ),
                 Type::Bool,
@@ -251,7 +251,7 @@ impl LowerCtx<'_> {
             let keep = self.emit_i64(InstKind::BinOp(SsaBinOp::Sub, Operand::ConstI64(1), huge));
             let scaled = self.emit_i64(InstKind::BinOp(
                 SsaBinOp::Mul,
-                bound.clone(),
+                bound,
                 Operand::ConstI64(per_trip),
             ));
             let scaled = self.emit_i64(InstKind::BinOp(SsaBinOp::Mul, scaled, keep));

@@ -129,7 +129,7 @@ pub(crate) fn try_lower(
     // `sig_skip` starts positional alignment after it (knife-4).
     let mut call_args: Vec<Operand> = Vec::with_capacity(4);
     if let Some(t) = &this_arg {
-        call_args.push(t.clone());
+        call_args.push(*t);
     }
     call_args.push(Operand::Value(elem));
     if cb_arity >= 2 {
@@ -144,7 +144,7 @@ pub(crate) fn try_lower(
             ctx, &fn_val, fn_ty, call_args, sig_skip, 3,
         )
     } else {
-        let r = ctx.call_fn_value(fn_val.clone(), fn_ty, call_args, sig_skip, 3);
+        let r = ctx.call_fn_value(fn_val, fn_ty, call_args, sig_skip, 3);
         // 550-01 — §23.1.3.13 step 6.d ReturnIfAbrupt: a throwing
         // callback ends the iteration. This lane had no check at
         // all, so it walked the callee's ret sentinel as an array
@@ -336,7 +336,7 @@ fn lower_promoted_this(
     let this_arg: Option<Operand> = if promoted {
         if let Some(&t) = args.get(1) {
             let op = ctx.lower_expr(t);
-            let boxed = ctx.box_to_any_from_expr(t, op.clone());
+            let boxed = ctx.box_to_any_from_expr(t, op);
             this_temp = Some((t, op));
             Some(boxed)
         } else {

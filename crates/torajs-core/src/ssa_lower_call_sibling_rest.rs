@@ -60,14 +60,14 @@ pub(crate) fn pack(
     let any_arr = ctx.lower_array_any_literal(tail);
     let any_ty = ctx.operand_ty(&any_arr);
     let (Some(Type::Arr(id)), Type::Arr(_)) = (slot, any_ty) else {
-        return (any_arr.clone(), (any_arr, any_ty));
+        return (any_arr, (any_arr, any_ty));
     };
     let elem = ctx.arr_layouts[id.0 as usize];
     if elem == Type::Any {
-        return (any_arr.clone(), (any_arr, any_ty));
+        return (any_arr, (any_arr, any_ty));
     }
     let Some(kind) = arr_elem_kind_const(&elem) else {
-        return (any_arr.clone(), (any_arr, any_ty));
+        return (any_arr, (any_arr, any_ty));
     };
     let fid = *ctx
         .fn_table
@@ -76,7 +76,7 @@ pub(crate) fn pack(
     let slot_ty = Type::Arr(id);
     let typed = ctx.f.append_inst(
         ctx.cur_block,
-        crate::ssa::InstKind::Call(fid, vec![any_arr.clone(), Operand::ConstI64(kind)]),
+        crate::ssa::InstKind::Call(fid, vec![any_arr, Operand::ConstI64(kind)]),
         slot_ty,
         None,
     );
@@ -87,5 +87,5 @@ pub(crate) fn pack(
     // this lane minted is done.
     ctx.emit_drop_value(any_arr, any_ty);
     let typed = Operand::Value(typed);
-    (typed.clone(), (typed, slot_ty))
+    (typed, (typed, slot_ty))
 }

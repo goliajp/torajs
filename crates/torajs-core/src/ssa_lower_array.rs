@@ -146,7 +146,7 @@ fn lower_no_spread(ctx: &mut LowerCtx<'_>, element_ids: &[ExprId], eid: ExprId) 
     for (i, &elem_eid) in element_ids.iter().enumerate() {
         let (mut val, mut inc_after) = match &probed {
             Some((p_idx, p_op)) if *p_idx == i => {
-                let op = p_op.clone();
+                let op = *p_op;
                 let inc = elem_needs_inc(ctx, elem_eid, &op);
                 (op, inc)
             }
@@ -180,10 +180,8 @@ fn lower_no_spread(ctx: &mut LowerCtx<'_>, element_ids: &[ExprId], eid: ExprId) 
             val = Operand::Value(u);
         }
         let cur_block = ctx.cur_block;
-        ctx.f.append_void(
-            cur_block,
-            InstKind::Store(val, data.clone(), (i as u64) * 8),
-        );
+        ctx.f
+            .append_void(cur_block, InstKind::Store(val, data, (i as u64) * 8));
         if !on_stack {
             ctx.f.append_void(
                 cur_block,
@@ -331,7 +329,7 @@ fn materialize_substr_elem(ctx: &mut LowerCtx<'_>, view: Operand, eid: ExprId) -
     let cur_block = ctx.cur_block;
     let owned = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(ctx.intrinsics.substr_to_owned, vec![view.clone()]),
+        InstKind::Call(ctx.intrinsics.substr_to_owned, vec![view]),
         Type::Str,
         None,
     );

@@ -49,7 +49,7 @@ pub(crate) fn try_lower(
         (tmpl_raw, false)
     } else {
         if !ctx.expr_transfers_ownership(tmpl_eid) && tmpl_ty.is_refcounted() {
-            ctx.emit_rc_inc(tmpl_raw.clone());
+            ctx.emit_rc_inc(tmpl_raw);
         }
         (ctx.box_to_any(tmpl_raw), true)
     };
@@ -59,7 +59,7 @@ pub(crate) fn try_lower(
     // Rotation 550 — the template we hold (our box, or an owned temp
     // released below) is live across the subs' lowers; park it.
     let tmpl_tok = if we_boxed_tmpl {
-        Some(ctx.push_throw_temp(tmpl_op.clone(), Type::Any))
+        Some(ctx.push_throw_temp(tmpl_op, Type::Any))
     } else {
         ctx.park_owned_temp(tmpl_eid, &tmpl_op)
     };
@@ -71,7 +71,7 @@ pub(crate) fn try_lower(
         InstKind::Call(
             ctx.intrinsics.string_raw,
             vec![
-                tmpl_op.clone(),
+                tmpl_op,
                 Operand::Value(subs_argv),
                 Operand::ConstI64(subs_argc),
             ],

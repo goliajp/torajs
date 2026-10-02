@@ -39,7 +39,7 @@ pub(crate) fn try_lower(
     // assignment's value (not whatever the setter body returned).
     let op = ctx.lower_expr(value);
     let user_params = ctx.fn_sigs[sig_id.0 as usize].0.clone();
-    let mut argv = [op.clone()];
+    let mut argv = [op];
     let coerce_owned = crate::ssa_lower_call_terminal_coerce::coerce_args_by_param_tys(
         ctx,
         &user_params,

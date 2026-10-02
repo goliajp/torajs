@@ -115,7 +115,7 @@ pub(crate) fn try_lower(
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(target, vec![bits_i64, val_op.clone()]),
+        InstKind::Call(target, vec![bits_i64, val_op]),
         Type::BigInt,
         None,
     );
@@ -124,7 +124,7 @@ pub(crate) fn try_lower(
     // the old consume path orphaned that stake (RFC 20260705 ledger
     // #3). Owned temps release here.
     if coerced {
-        ctx.emit_drop_value(val_op.clone(), Type::BigInt);
+        ctx.emit_drop_value(val_op, Type::BigInt);
     } else {
         ctx.release_owned_temp(args[1], &val_op);
     }
