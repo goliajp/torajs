@@ -4,7 +4,7 @@
 use torajs_core::ssa::Operand;
 
 use super::write_u32;
-use crate::enc::{fmov_d_from_x, movk_imm, movz_imm};
+use crate::enc::{fmov_d_from_x, movk_imm, movn_imm, movz_imm};
 use crate::reg::{Fpr, Gpr, Reg};
 use crate::regalloc::Assignment;
 
@@ -110,31 +110,37 @@ pub fn materialize_operand_fpr(
     }
 }
 
-/// Emit MOVZ + up to 3 MOVK to materialize an arbitrary i64 into
-/// `dst`. Negative i64 is handled via its `as u64` bit pattern
-/// (all-ones quadrants → 4-instruction chain). MOVN-shortcut for
-/// dense-ones constants is left for S3+ (RFC L3b "const-pool /
-/// peephole" backlog).
-///
-/// Always emits at least one MOVZ (for v == 0 that single MOVZ #0
-/// is correct). MOVK for higher quadrants only when their 16-bit
-/// slice is non-zero — `MOVZ scratch, #0` followed by `MOVK scratch,
-/// #0, LSL #16` would be a no-op but a wasted instruction.
+/// Materialize an arbitrary i64 into `dst` as one MOVZ or MOVN
+/// followed by a MOVK per quadrant the first instruction leaves
+/// wrong. Whichever of the all-zero and all-ones quadrants are more
+/// numerous picks the base — MOVZ fills the rest with zeros, MOVN
+/// with ones — so `-1` and other dense-ones constants are one
+/// instruction, the same choice LLVM's `expandMOVImm` makes; the tie
+/// goes to MOVZ, and `0` is `MOVZ dst, #0`.
 pub fn materialize_const_i64(bytes: &mut Vec<u8>, dst: Gpr, value: i64) {
     let u = value as u64;
-    let q0 = (u & 0xFFFF) as u16;
-    let q1 = ((u >> 16) & 0xFFFF) as u16;
-    let q2 = ((u >> 32) & 0xFFFF) as u16;
-    let q3 = ((u >> 48) & 0xFFFF) as u16;
-    write_u32(bytes, movz_imm(dst, q0, 0));
-    if q1 != 0 {
-        write_u32(bytes, movk_imm(dst, q1, 1));
+    let quads: [u16; 4] = core::array::from_fn(|i| (u >> (16 * i)) as u16);
+    let zeros = quads.iter().filter(|&&q| q == 0).count();
+    let ones = quads.iter().filter(|&&q| q == 0xFFFF).count();
+    let (skip, first): (u16, fn(Gpr, u16, u8) -> u32) = if ones > zeros {
+        (0xFFFF, |rd, q, hw| movn_imm(rd, !q, hw))
+    } else {
+        (0, movz_imm)
+    };
+    let mut placed = false;
+    for (hw, &q) in quads.iter().enumerate() {
+        if q == skip {
+            continue;
+        }
+        if placed {
+            write_u32(bytes, movk_imm(dst, q, hw as u8));
+        } else {
+            write_u32(bytes, first(dst, q, hw as u8));
+            placed = true;
+        }
     }
-    if q2 != 0 {
-        write_u32(bytes, movk_imm(dst, q2, 2));
-    }
-    if q3 != 0 {
-        write_u32(bytes, movk_imm(dst, q3, 3));
+    if !placed {
+        write_u32(bytes, first(dst, skip, 0));
     }
 }
 
@@ -239,12 +245,10 @@ mod tests {
     #[test]
     fn copy_const_f64_rides_fpr_path() {
         // %0 = copy f64 #1.5; ret %0 — 1.5 bits = 0x3FF8 << 48:
-        // MOVZ x9,#0 / MOVK x9,#0x3FF8,lsl#48 / FMOV d16,x9 /
-        // FMOV d0,d16 / RET
+        // MOVZ x9,#0x3FF8,lsl#48 / FMOV d16,x9 / FMOV d0,d16 / RET
         let compiled = compile_function(&copy_ret_fixture(Type::F64, Operand::ConstF64(1.5)));
         let expected: Vec<u8> = [
-            enc::movz_imm(Gpr::X9, 0, 0),
-            enc::movk_imm(Gpr::X9, 0x3FF8, 3),
+            enc::movz_imm(Gpr::X9, 0x3FF8, 3),
             enc::fmov_d_from_x(Fpr::V16, Gpr::X9),
             enc::mov_d_reg(Fpr::V0, Fpr::V16),
             enc::ret(Gpr::X30),
@@ -289,11 +293,59 @@ mod tests {
         assert_eq!(w3, movk_imm(Gpr::X9, 0x1234, 3));
     }
 
+    /// The value the MOVZ / MOVN / MOVK words in `bytes` leave in the
+    /// register, as the core computes it.
+    fn decode_mov_chain(bytes: &[u8]) -> u64 {
+        let mut acc = 0u64;
+        for w in bytes.chunks(4) {
+            let word = u32::from_le_bytes(w.try_into().unwrap());
+            let imm = ((word >> 5) & 0xFFFF) as u64;
+            let shift = ((word >> 21) & 3) * 16;
+            match word >> 23 {
+                0b1_00_100101 => acc = !(imm << shift),
+                0b1_10_100101 => acc = imm << shift,
+                0b1_11_100101 => acc = (acc & !(0xFFFF << shift)) | (imm << shift),
+                _ => panic!("not a wide-immediate move: {word:#010x}"),
+            }
+        }
+        acc
+    }
+
     #[test]
-    fn const_neg_one_emits_full_chain() {
+    fn const_picks_the_denser_base_and_decodes_back() {
+        for (value, words) in [
+            (-1i64, 1usize),
+            (-2, 1),
+            (-0x1_0000, 1),
+            (0xFFFF_FFFF_0000_FFFF_u64 as i64, 1),
+            (0xFFFF_0000_FFFF_FFFF_u64 as i64, 1),
+            (0xFFFF_0000_FFFF_1234_u64 as i64, 2),
+            (0x0000_FFFF_0000_1234_u64 as i64, 2),
+            (0x1234_FFFF_0000_0000_u64 as i64, 2),
+            (0x1234_5678_9ABC_DEF0, 4),
+            (0, 1),
+            (0xABCD, 1),
+            (i64::MIN, 1),
+        ] {
+            let mut bytes = Vec::new();
+            materialize_const_i64(&mut bytes, Gpr::X9, value);
+            assert_eq!(bytes.len(), 4 * words, "{value:#x}");
+            assert_eq!(decode_mov_chain(&bytes), value as u64, "{value:#x}");
+        }
+    }
+
+    #[test]
+    fn const_neg_one_is_one_movn() {
         let mut bytes = Vec::new();
         materialize_const_i64(&mut bytes, Gpr::X9, -1);
-        assert_eq!(bytes.len(), 16);
+        assert_eq!(bytes, movn_imm(Gpr::X9, 0, 0).to_le_bytes());
+    }
+
+    #[test]
+    fn const_high_quadrant_only_is_one_shifted_movz() {
+        let mut bytes = Vec::new();
+        materialize_const_i64(&mut bytes, Gpr::X9, 0x3FF8_0000_0000_0000);
+        assert_eq!(bytes, movz_imm(Gpr::X9, 0x3FF8, 3).to_le_bytes());
     }
 
     #[test]

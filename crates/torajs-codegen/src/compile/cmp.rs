@@ -385,11 +385,9 @@ mod tests {
         let func = build_fcmp_const(name, pred, lhs, rhs);
         let compiled = compile_function(&func);
         let expected = words_to_le_bytes(&[
-            enc::movz_imm(Gpr::X9, 0, 0),
-            enc::movk_imm(Gpr::X9, lhs_q3, 3),
+            enc::movz_imm(Gpr::X9, lhs_q3, 3),
             enc::fmov_d_from_x(Fpr::V16, Gpr::X9),
-            enc::movz_imm(Gpr::X10, 0, 0),
-            enc::movk_imm(Gpr::X10, rhs_q3, 3),
+            enc::movz_imm(Gpr::X10, rhs_q3, 3),
             enc::fmov_d_from_x(Fpr::V17, Gpr::X10),
             enc::fcmp_d(Fpr::V16, Fpr::V17),
             enc::cset_cond(Gpr::X0, expected_cond),
@@ -496,11 +494,9 @@ mod tests {
         let func = build_fcmp_const("fcmp_one_2_3", FPred::One, 2.0, 3.0);
         let compiled = compile_function(&func);
         let expected = words_to_le_bytes(&[
-            enc::movz_imm(Gpr::X9, 0, 0),
-            enc::movk_imm(Gpr::X9, 0x4000, 3),
+            enc::movz_imm(Gpr::X9, 0x4000, 3),
             enc::fmov_d_from_x(Fpr::V16, Gpr::X9),
-            enc::movz_imm(Gpr::X10, 0, 0),
-            enc::movk_imm(Gpr::X10, 0x4008, 3),
+            enc::movz_imm(Gpr::X10, 0x4008, 3),
             enc::fmov_d_from_x(Fpr::V17, Gpr::X10),
             enc::fcmp_d(Fpr::V16, Fpr::V17),
             enc::cset_cond(Gpr::X11, cond::MI),

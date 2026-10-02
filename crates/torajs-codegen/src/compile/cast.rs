@@ -207,18 +207,16 @@ mod tests {
         // reserved V18 for FP_SCRATCH_RESULT), v1 → X0 (ret).
         // FP_SCRATCH_LHS/RHS (V16/V17) materialize the ConstF64 args.
         let expected = words_to_le_bytes(&[
-            enc::movz_imm(Gpr::X9, 0, 0),
-            enc::movk_imm(Gpr::X9, 0x3FF8, 3),
+            enc::movz_imm(Gpr::X9, 0x3FF8, 3),
             enc::fmov_d_from_x(Fpr::V16, Gpr::X9),
-            enc::movz_imm(Gpr::X10, 0, 0),
-            enc::movk_imm(Gpr::X10, 0x4004, 3),
+            enc::movz_imm(Gpr::X10, 0x4004, 3),
             enc::fmov_d_from_x(Fpr::V17, Gpr::X10),
             enc::fadd_d(Fpr::V19, Fpr::V16, Fpr::V17),
             enc::fmov_x_from_d(Gpr::X0, Fpr::V19),
             enc::ret(Gpr::X30),
         ]);
         assert_eq!(compiled.bytes, expected);
-        assert_eq!(compiled.bytes.len(), 36);
+        assert_eq!(compiled.bytes.len(), 28);
     }
 
     /// SiToFp: `fn() -> f64 { 42 as f64 }`.

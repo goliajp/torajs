@@ -11,6 +11,14 @@ pub fn movz_imm(rd: Gpr, imm16: u16, hw: u8) -> u32 {
     0xD280_0000 | ((hw as u32) << 21) | ((imm16 as u32) << 5) | rd.idx()
 }
 
+/// MOVN Xd, #imm16, LSL #(hw*16) — move the inverse of the shifted
+/// 16-bit immediate: every other quadrant comes out all-ones. ARM
+/// ARM C6.2.185.
+pub fn movn_imm(rd: Gpr, imm16: u16, hw: u8) -> u32 {
+    debug_assert!(hw < 4, "hw must be 0..=3");
+    0x9280_0000 | ((hw as u32) << 21) | ((imm16 as u32) << 5) | rd.idx()
+}
+
 /// MOVK Xd, #imm16, LSL #(hw*16) — keep other bits, overwrite the
 /// hw-quadrant. ARM ARM C6.2.186.
 pub fn movk_imm(rd: Gpr, imm16: u16, hw: u8) -> u32 {
@@ -330,6 +338,13 @@ mod tests {
     #[test]
     fn movk_x0_one_matches_arm_arm() {
         assert_eq!(movk_imm(Gpr::X0, 1, 0), 0xF280_0020);
+    }
+
+    #[test]
+    fn movn_matches_arm_arm() {
+        // MOVN x0, #0 = `mov x0, #-1`; MOVN x9, #1, LSL #16
+        assert_eq!(movn_imm(Gpr::X0, 0, 0), 0x9280_0000);
+        assert_eq!(movn_imm(Gpr::X9, 1, 1), 0x92A0_0029);
     }
 
     #[test]

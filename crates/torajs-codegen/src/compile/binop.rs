@@ -492,12 +492,10 @@ mod tests {
             enc::stp_pre_index(Gpr::X29, Gpr::X30, Gpr::SP, -16),
             enc::add_imm(Gpr::X29, Gpr::SP, 0),
             // lhs 5.0 → V16.
-            enc::movz_imm(Gpr::X9, 0, 0),
-            enc::movk_imm(Gpr::X9, 0x4014, 3),
+            enc::movz_imm(Gpr::X9, 0x4014, 3),
             enc::fmov_d_from_x(Fpr::V16, Gpr::X9),
             // rhs 3.0 → V17.
-            enc::movz_imm(Gpr::X10, 0, 0),
-            enc::movk_imm(Gpr::X10, 0x4008, 3),
+            enc::movz_imm(Gpr::X10, 0x4008, 3),
             enc::fmov_d_from_x(Fpr::V17, Gpr::X10),
             // arg setup: V16/V17 → D0/D1 (AAPCS64 §5.1.2 FP args).
             enc::mov_d_reg(Fpr::V0, Fpr::V16),
@@ -515,11 +513,11 @@ mod tests {
             compiled.bytes
         );
 
-        // BL site lives at the start of the 11th instruction (after
-        // 2-inst prologue + 8-inst arg setup = 10 inst × 4 = 40 bytes).
+        // BL site lives at the start of the 9th instruction (after
+        // 2-inst prologue + 6-inst arg setup = 8 inst × 4 = 32 bytes).
         assert_eq!(compiled.relocs.len(), 1, "exactly one extern reloc");
         let reloc = &compiled.relocs[0];
-        assert_eq!(reloc.byte_offset, 40);
+        assert_eq!(reloc.byte_offset, 32);
         match &reloc.kind {
             RelocKind::CallSite {
                 target: CallTarget::Extern(sym),
@@ -544,11 +542,9 @@ mod tests {
         // 2.5_f64.to_bits() = 0x4004_0000_0000_0000 (q3 = 0x4004)
         // 2.0_f64.to_bits() = 0x4000_0000_0000_0000 (q3 = 0x4000)
         let expected = words_to_le_bytes(&[
-            enc::movz_imm(Gpr::X9, 0, 0),
-            enc::movk_imm(Gpr::X9, 0x4004, 3),
+            enc::movz_imm(Gpr::X9, 0x4004, 3),
             enc::fmov_d_from_x(Fpr::V16, Gpr::X9),
-            enc::movz_imm(Gpr::X10, 0, 0),
-            enc::movk_imm(Gpr::X10, 0x4000, 3),
+            enc::movz_imm(Gpr::X10, 0x4000, 3),
             enc::fmov_d_from_x(Fpr::V17, Gpr::X10),
             enc::fmul_d(Fpr::V0, Fpr::V16, Fpr::V17),
             enc::ret(Gpr::X30),
