@@ -436,11 +436,13 @@ mod tests {
             words.iter().any(|w| (w & !0x1F) == ldr_shape),
             "LDR rides [Xn, X11]"
         );
+        // the offset is past the scaled imm12 reach, so no STR / LDR
+        // (unsigned offset) may address the slot's base register
         assert!(
             !words
                 .iter()
-                .any(|w| (w >> 22) == (0xF900_0000u32 >> 22) && (w >> 10) & 0xFFF >= 4096),
-            "no overflowed scaled immediate"
+                .any(|w| (w & 0xFF80_0000) == 0xF900_0000 && (w >> 5) & 0x1F == Gpr::X13 as u32),
+            "no scaled-immediate access off X13"
         );
     }
 
