@@ -42,7 +42,7 @@ pub(crate) fn try_match(
     checker: &mut Checker,
     ast: &Ast,
     callee: &ExprId,
-    args: &Vec<ExprId>,
+    args: &[ExprId],
 ) -> Option<Result<Type, String>> {
     if let Expr::Ident(name) = ast.get_expr(*callee) {
         // A module that writes this property of the global object

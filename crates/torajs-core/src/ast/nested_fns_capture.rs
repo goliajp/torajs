@@ -130,7 +130,7 @@ pub fn desugar_capturing_nested_fns(ast: &mut Ast) {
 /// one a local binding has rebound (RFC 20260828 knife 3).
 fn walk_list(
     ast: &mut Ast,
-    stmts: &mut Vec<Stmt>,
+    stmts: &mut [Stmt],
     globals: &[String],
     scope: &mut Vec<String>,
     in_block: bool,

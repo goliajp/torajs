@@ -31,7 +31,7 @@ pub(super) fn bind_passthrough_returns(ast: &mut Ast) {
     ast.stmts = stmts;
 }
 
-fn rewrite_list(ast: &mut Ast, stmts: &mut Vec<Stmt>) {
+fn rewrite_list(ast: &mut Ast, stmts: &mut [Stmt]) {
     for s in stmts.iter_mut() {
         rewrite_stmt(ast, s);
     }

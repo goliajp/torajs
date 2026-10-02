@@ -51,7 +51,7 @@ pub(crate) fn try_match(
     checker: &mut Checker,
     ast: &Ast,
     callee: &ExprId,
-    args: &Vec<ExprId>,
+    args: &[ExprId],
 ) -> Option<Result<Type, String>> {
     // S230 — Date.parse(undefined) → NaN.
     if let Expr::Member { obj, name: m } = ast.get_expr(*callee)

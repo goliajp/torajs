@@ -100,7 +100,7 @@ pub fn widen_rebound_fn_decls(ast: &mut Ast) {
 /// where the block binding is split off.
 fn walk_list(
     ast: &mut Ast,
-    stmts: &mut Vec<Stmt>,
+    stmts: &mut [Stmt],
     in_block: bool,
     scope: &mut Vec<String>,
     counter: &mut u32,

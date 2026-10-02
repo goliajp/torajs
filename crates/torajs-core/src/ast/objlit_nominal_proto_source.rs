@@ -53,7 +53,7 @@ use std::collections::HashSet;
 use super::objlit_nominal_anylane::widen_inner;
 use super::{Expr, ExprId, Stmt};
 
-pub(super) fn widen_prototype_source_objlits(stmts: &mut [Stmt], exprs: &mut Vec<Expr>) {
+pub(super) fn widen_prototype_source_objlits(stmts: &mut [Stmt], exprs: &mut [Expr]) {
     let names = prototype_source_names(exprs);
     if names.is_empty() {
         return;

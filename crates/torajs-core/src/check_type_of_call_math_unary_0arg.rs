@@ -24,7 +24,7 @@ pub(crate) fn try_match(
     _checker: &mut Checker,
     ast: &Ast,
     callee: &ExprId,
-    args: &Vec<ExprId>,
+    args: &[ExprId],
 ) -> Option<Result<Type, String>> {
     if let Expr::Member { obj, name: m } = ast.get_expr(*callee)
         && let Expr::Ident(ns) = ast.get_expr(*obj)

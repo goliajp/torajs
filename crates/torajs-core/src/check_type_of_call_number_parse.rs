@@ -38,7 +38,7 @@ pub(crate) fn try_match(
     checker: &mut Checker,
     ast: &Ast,
     callee: &ExprId,
-    args: &Vec<ExprId>,
+    args: &[ExprId],
 ) -> Option<Result<Type, String>> {
     // V3-18 wedge — `Number.parseInt(s)` and
     // `Number.parseInt(s, radix)`. Per JS spec §21.1.2.13

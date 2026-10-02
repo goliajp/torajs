@@ -292,7 +292,7 @@ fn backfill_closure_typed_lets(
 /// reaching here).
 fn desugar_user_fn(
     name: &str,
-    params: &mut Vec<Param>,
+    params: &mut [Param],
     return_type: &mut Option<String>,
     type_params: &mut Vec<String>,
     body: &[Stmt],

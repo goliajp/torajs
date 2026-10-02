@@ -22,7 +22,7 @@ use crate::ast_desugar_implicit_generics::is_synth_closure_name;
 pub(crate) fn desugar_closure_shape_fn(
     first_kind: Option<&str>,
     name: &str,
-    params: &mut Vec<Param>,
+    params: &mut [Param],
     return_type: &mut Option<String>,
     body: &[Stmt],
     ast_exprs_view: AstExprsView,
@@ -170,7 +170,7 @@ fn receiver_fields_of<'a>(
 /// `__env`-first shape) — default un-annotated params to `any` and
 /// infer / `any`-fallback the return type.
 pub(crate) fn desugar_lifted_closure_fn(
-    params: &mut Vec<Param>,
+    params: &mut [Param],
     return_type: &mut Option<String>,
     body: &[Stmt],
     ast_exprs_view: AstExprsView,

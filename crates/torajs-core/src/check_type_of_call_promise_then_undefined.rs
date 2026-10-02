@@ -41,7 +41,7 @@ pub(crate) fn try_then_undefined(
     checker: &mut Checker,
     ast: &Ast,
     callee: &ExprId,
-    args: &Vec<ExprId>,
+    args: &[ExprId],
 ) -> Option<Result<Type, String>> {
     if let Expr::Member {
         obj: src_id,

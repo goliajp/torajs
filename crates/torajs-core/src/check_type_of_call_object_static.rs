@@ -176,7 +176,7 @@ fn try_match_assign(
     ast: &Ast,
     eid: ExprId,
     callee: &ExprId,
-    args: &Vec<ExprId>,
+    args: &[ExprId],
 ) -> Option<Result<Type, String>> {
     // `Object.assign(target, ...sources)` per §20.1.2.1 —
     // copy own enumerable properties from each source into

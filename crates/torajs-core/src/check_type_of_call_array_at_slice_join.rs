@@ -43,7 +43,7 @@ pub(crate) fn try_match(
     checker: &mut Checker,
     ast: &Ast,
     callee: &ExprId,
-    args: &Vec<ExprId>,
+    args: &[ExprId],
 ) -> Option<Result<Type, String>> {
     let Expr::Member {
         obj: src_id,

@@ -220,7 +220,7 @@ pub(super) fn wrap_iife(i: usize, body: Vec<Stmt>, ast: &mut Ast) {
 /// the hoist gives it the eval flavour (§19.2.1.3: a deletable global).
 /// A call site inside a function keeps the sealed frame — the
 /// function's own var scope is not reachable from here (registered).
-fn hoist_sloppy_vars_to_script(body: &mut Vec<Stmt>, ast: &mut Ast) {
+fn hoist_sloppy_vars_to_script(body: &mut [Stmt], ast: &mut Ast) {
     let mut counts = std::collections::HashMap::new();
     super::super::var_hoist::count_var_names(body, &mut counts);
     if counts.is_empty() {
