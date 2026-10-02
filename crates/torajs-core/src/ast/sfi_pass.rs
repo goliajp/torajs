@@ -339,10 +339,10 @@ fn rewrite_sfi_walk_stmt(ast: &mut Ast, s: &mut Stmt, ctx: &mut SplitForICtx) {
                 rewrite_sfi_walk_list(ast, &mut m.body, ctx);
             }
         }
-        Stmt::ExportDecl { inner, .. } => {
-            if let Some(inner) = inner {
-                rewrite_sfi_walk_stmt(ast, inner, ctx);
-            }
+        Stmt::ExportDecl {
+            inner: Some(inner), ..
+        } => {
+            rewrite_sfi_walk_stmt(ast, inner, ctx);
         }
         _ => {}
     }

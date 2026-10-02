@@ -147,10 +147,10 @@ fn rrp_recurse_into(ast: &Ast, s: &Stmt, found: &mut std::collections::HashSet<E
                 rrp_walk_stmts(ast, &m.body, found);
             }
         }
-        Stmt::ExportDecl { inner, .. } => {
-            if let Some(inner) = inner {
-                rrp_recurse_into(ast, inner, found);
-            }
+        Stmt::ExportDecl {
+            inner: Some(inner), ..
+        } => {
+            rrp_recurse_into(ast, inner, found);
         }
         Stmt::Labeled { body, .. } => rrp_recurse_into(ast, body, found),
         _ => {}

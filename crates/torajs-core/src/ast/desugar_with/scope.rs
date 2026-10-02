@@ -135,10 +135,11 @@ fn collect_binders_stmt(s: &Stmt, vars_bind: bool, out: &mut HashSet<String>) {
         Stmt::ForOfSplitIter { var_name, .. } => {
             out.insert(var_name.clone());
         }
-        Stmt::Try { catch_param, .. } => {
-            if let Some(p) = catch_param {
-                out.insert(p.clone());
-            }
+        Stmt::Try {
+            catch_param: Some(p),
+            ..
+        } => {
+            out.insert(p.clone());
         }
         _ => {}
     }

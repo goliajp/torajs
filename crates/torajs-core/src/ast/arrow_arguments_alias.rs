@@ -162,10 +162,8 @@ fn scan_stmt(ast: &mut Ast, s: &mut Stmt, mode: Mode, hits: &mut Hits) {
             *body = b;
         }
         Stmt::Expr(e) | Stmt::Throw(e) | Stmt::Yield(e) => scan_expr(ast, *e, mode, hits),
-        Stmt::Return(opt) => {
-            if let Some(e) = opt {
-                scan_expr(ast, *e, mode, hits);
-            }
+        Stmt::Return(Some(e)) => {
+            scan_expr(ast, *e, mode, hits);
         }
         Stmt::LetDecl { init, .. } | Stmt::UsingDecl { init, .. } => {
             scan_expr(ast, *init, mode, hits);

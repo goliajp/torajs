@@ -166,10 +166,11 @@ fn count_bindings(s: &Stmt, count: &mut HashMap<String, u32>) {
                 bump(count, &p.name);
             }
         }
-        Stmt::Try { catch_param, .. } => {
-            if let Some(cp) = catch_param {
-                bump(count, cp);
-            }
+        Stmt::Try {
+            catch_param: Some(cp),
+            ..
+        } => {
+            bump(count, cp);
         }
         Stmt::ForOf { var_name, .. } | Stmt::ForOfSplitIter { var_name, .. } => {
             bump(count, var_name)

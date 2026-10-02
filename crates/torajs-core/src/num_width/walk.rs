@@ -15,17 +15,15 @@ impl<'a> Analysis<'a> {
                 init,
                 ..
             } => self.walk_let_decl(name, type_ann.as_deref(), *init, scope),
-            Stmt::Return(maybe) => {
-                if let Some(e) = maybe {
-                    if !scope.fn_name.is_empty() {
-                        let w = self.width_of(*e, scope);
-                        let rk = SlotKey::Ret(scope.fn_name.to_string());
-                        self.add_constraint(rk.clone(), w);
-                        self.alias_guarded(rk.clone(), *e, scope);
-                        self.fn_value_flow(&rk, *e, scope);
-                    }
-                    self.walk_expr(*e, scope);
+            Stmt::Return(Some(e)) => {
+                if !scope.fn_name.is_empty() {
+                    let w = self.width_of(*e, scope);
+                    let rk = SlotKey::Ret(scope.fn_name.to_string());
+                    self.add_constraint(rk.clone(), w);
+                    self.alias_guarded(rk.clone(), *e, scope);
+                    self.fn_value_flow(&rk, *e, scope);
                 }
+                self.walk_expr(*e, scope);
             }
             Stmt::Throw(e) => {
                 // The thrown value goes through the one pending-throw

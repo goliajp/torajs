@@ -160,10 +160,11 @@ fn collect_bindings(
                 blocked.insert(p.name.clone());
             }
         }
-        Stmt::Try { catch_param, .. } => {
-            if let Some(cp) = catch_param {
-                blocked.insert(cp.clone());
-            }
+        Stmt::Try {
+            catch_param: Some(cp),
+            ..
+        } => {
+            blocked.insert(cp.clone());
         }
         Stmt::ForOf { var_name, .. } | Stmt::ForOfSplitIter { var_name, .. } => {
             blocked.insert(var_name.clone());

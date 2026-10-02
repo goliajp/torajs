@@ -168,10 +168,8 @@ fn walk_stmt(s: &Stmt, ast: &Ast, errors: &mut Vec<String>) {
                 }
             }
         }
-        Stmt::ExportDecl { inner, .. } => {
-            if let Some(i) = inner {
-                walk_stmt(i, ast, errors);
-            }
+        Stmt::ExportDecl { inner: Some(i), .. } => {
+            walk_stmt(i, ast, errors);
         }
         _ => {}
     }

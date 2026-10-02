@@ -143,10 +143,10 @@ fn process_stmt(ast: &mut Ast, s: &mut Stmt, counter: &mut u32) {
                 process_list(ast, fb, counter);
             }
         }
-        Stmt::ExportDecl { inner, .. } => {
-            if let Some(inner) = inner {
-                process_stmt(ast, inner, counter);
-            }
+        Stmt::ExportDecl {
+            inner: Some(inner), ..
+        } => {
+            process_stmt(ast, inner, counter);
         }
         _ => {}
     }

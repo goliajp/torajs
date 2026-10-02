@@ -98,10 +98,8 @@ fn push_child_stmts_mut<'a>(s: &'a mut Stmt, stack: &mut Vec<&'a mut Stmt>) {
         }
         Stmt::Block(inner) | Stmt::Multi(inner) => stack.extend(inner.iter_mut()),
         Stmt::FnDecl { body, .. } => stack.extend(body.iter_mut()),
-        Stmt::ExportDecl { inner, .. } => {
-            if let Some(i) = inner {
-                stack.push(i);
-            }
+        Stmt::ExportDecl { inner: Some(i), .. } => {
+            stack.push(i);
         }
         _ => {}
     }

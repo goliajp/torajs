@@ -303,10 +303,11 @@ pub(super) fn collect_bound_names<'a>(s: &'a Stmt, out: &mut HashSet<&'a str>) {
         Stmt::ForOf { var_name, .. } | Stmt::ForOfSplitIter { var_name, .. } => {
             out.insert(var_name.as_str());
         }
-        Stmt::Try { catch_param, .. } => {
-            if let Some(p) = catch_param {
-                out.insert(p.as_str());
-            }
+        Stmt::Try {
+            catch_param: Some(p),
+            ..
+        } => {
+            out.insert(p.as_str());
         }
         _ => {}
     }

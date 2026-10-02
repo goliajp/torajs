@@ -107,10 +107,8 @@ fn rewrite_params_in_stmt(
         Stmt::YieldInto { value, .. } => {
             rewrite_params_in_expr(ast, *value, pset, visited);
         }
-        Stmt::Return(maybe) => {
-            if let Some(eid) = maybe {
-                rewrite_params_in_expr(ast, *eid, pset, visited);
-            }
+        Stmt::Return(Some(eid)) => {
+            rewrite_params_in_expr(ast, *eid, pset, visited);
         }
         Stmt::LetDecl { init, .. } => rewrite_params_in_expr(ast, *init, pset, visited),
         Stmt::If {

@@ -327,10 +327,8 @@ impl Walk<'_> {
                 }
             }
             Stmt::Labeled { body, .. } => self.walk_stmt(ast, body),
-            Stmt::ExportDecl { inner, .. } => {
-                if let Some(i) = inner {
-                    self.walk_stmt(ast, i);
-                }
+            Stmt::ExportDecl { inner: Some(i), .. } => {
+                self.walk_stmt(ast, i);
             }
             _ => {}
         }

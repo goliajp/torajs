@@ -249,10 +249,8 @@ impl<'a> Linter<'a> {
                     self.lint_block(fb, refs, scopes);
                 }
             }
-            Stmt::ExportDecl { inner, .. } => {
-                if let Some(s) = inner {
-                    self.lint_stmt(s, refs, scopes);
-                }
+            Stmt::ExportDecl { inner: Some(s), .. } => {
+                self.lint_stmt(s, refs, scopes);
             }
             _ => {}
         }

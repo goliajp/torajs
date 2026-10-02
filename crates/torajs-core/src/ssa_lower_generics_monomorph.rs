@@ -81,10 +81,11 @@ pub(crate) fn substitute_in_ann(ann: &str, subst: &[(String, String)]) -> String
 /// `type_ann` Some(...) string encountered.
 pub(crate) fn substitute_in_stmt(stmt: &mut Stmt, subst: &[(String, String)]) {
     match stmt {
-        Stmt::LetDecl { type_ann, .. } => {
-            if let Some(ann) = type_ann {
-                *ann = substitute_in_ann(ann, subst);
-            }
+        Stmt::LetDecl {
+            type_ann: Some(ann),
+            ..
+        } => {
+            *ann = substitute_in_ann(ann, subst);
         }
         Stmt::If {
             then_branch,

@@ -395,10 +395,8 @@ pub(crate) fn push_child_stmts<'a>(s: &'a Stmt, stack: &mut Vec<&'a Stmt>) {
         }
         Stmt::Block(inner) | Stmt::Multi(inner) => stack.extend(inner.iter()),
         Stmt::FnDecl { body, .. } => stack.extend(body.iter()),
-        Stmt::ExportDecl { inner, .. } => {
-            if let Some(i) = inner {
-                stack.push(i);
-            }
+        Stmt::ExportDecl { inner: Some(i), .. } => {
+            stack.push(i);
         }
         _ => {}
     }

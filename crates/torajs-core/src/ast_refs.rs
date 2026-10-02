@@ -252,10 +252,8 @@ pub(crate) fn idents_in_stmt(
                 idents_in_stmt(ast, bs, &inner, out);
             }
         }
-        Stmt::Return(maybe) => {
-            if let Some(e) = maybe {
-                idents_in_expr(ast, *e, shadow, out);
-            }
+        Stmt::Return(Some(e)) => {
+            idents_in_expr(ast, *e, shadow, out);
         }
         Stmt::YieldInto { value, .. } => idents_in_expr(ast, *value, shadow, out),
         Stmt::ExportDecl {

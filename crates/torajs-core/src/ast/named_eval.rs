@@ -112,10 +112,8 @@ fn walk(ast: &Ast, s: &Stmt, map: &mut HashMap<ExprId, String>) {
                 walk(ast, bs, map);
             }
         }
-        Stmt::ExportDecl { inner, .. } => {
-            if let Some(i) = inner {
-                walk(ast, i, map);
-            }
+        Stmt::ExportDecl { inner: Some(i), .. } => {
+            walk(ast, i, map);
         }
         _ => {}
     }

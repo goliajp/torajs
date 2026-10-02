@@ -15,10 +15,8 @@ use crate::ast::{Ast, Expr, ExprId, Stmt};
 pub(crate) fn rewrite_tvdefault_in_stmt(ast: &mut Ast, s: &Stmt, subst: &[(String, String)]) {
     match s {
         Stmt::Expr(eid) | Stmt::Throw(eid) => rewrite_tvdefault_in_expr(ast, *eid, subst),
-        Stmt::Return(maybe) => {
-            if let Some(eid) = maybe {
-                rewrite_tvdefault_in_expr(ast, *eid, subst);
-            }
+        Stmt::Return(Some(eid)) => {
+            rewrite_tvdefault_in_expr(ast, *eid, subst);
         }
         Stmt::LetDecl { init, .. } => rewrite_tvdefault_in_expr(ast, *init, subst),
         Stmt::If {

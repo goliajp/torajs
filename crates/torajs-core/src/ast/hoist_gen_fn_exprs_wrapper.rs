@@ -89,10 +89,8 @@ fn captures_snapshot_safe(ast: &Ast, captures: &[String]) -> bool {
                     stack.extend(m.body.iter());
                 }
             }
-            Stmt::ExportDecl { inner, .. } => {
-                if let Some(i) = inner {
-                    stack.push(i);
-                }
+            Stmt::ExportDecl { inner: Some(i), .. } => {
+                stack.push(i);
             }
             _ => {}
         }

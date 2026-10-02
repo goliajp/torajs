@@ -174,10 +174,10 @@ fn eal_recurse_into(
                 eal_walk_stmts(ast, &m.body, found, named_fn_refs, true);
             }
         }
-        Stmt::ExportDecl { inner, .. } => {
-            if let Some(inner) = inner {
-                eal_recurse_into(ast, inner, found, named_fn_refs, in_fn_body);
-            }
+        Stmt::ExportDecl {
+            inner: Some(inner), ..
+        } => {
+            eal_recurse_into(ast, inner, found, named_fn_refs, in_fn_body);
         }
         Stmt::Labeled { body, .. } => eal_recurse_into(ast, body, found, named_fn_refs, in_fn_body),
         _ => {}

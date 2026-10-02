@@ -86,10 +86,8 @@ fn collect_stmt(ast: &Ast, s: &Stmt, out: &mut Vec<ExprId>) {
         Stmt::Expr(e) | Stmt::Throw(e) | Stmt::Yield(e) => collect_expr(ast, *e, out),
         Stmt::LetDecl { init, .. } => collect_expr(ast, *init, out),
         Stmt::YieldInto { value, .. } => collect_expr(ast, *value, out),
-        Stmt::Return(e) => {
-            if let Some(e) = e {
-                collect_expr(ast, *e, out);
-            }
+        Stmt::Return(Some(e)) => {
+            collect_expr(ast, *e, out);
         }
         Stmt::If {
             cond,

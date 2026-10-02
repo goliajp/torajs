@@ -450,10 +450,8 @@ fn collect_stmt_taint(stmts: &[Stmt], out: &mut HashSet<String>) {
                     collect_stmt_taint(d, out);
                 }
             }
-            Stmt::ExportDecl { inner, .. } => {
-                if let Some(i) = inner {
-                    collect_stmt_taint(std::slice::from_ref(i), out);
-                }
+            Stmt::ExportDecl { inner: Some(i), .. } => {
+                collect_stmt_taint(std::slice::from_ref(i), out);
             }
             _ => {}
         }
