@@ -7,6 +7,7 @@
 
 use super::backtrack::{self, Outcome};
 use super::{Workspace, match_at, prog_has_save};
+use crate::dfa::{Table, dfa_search_at};
 use crate::program::Program;
 use crate::vm::MatchResult;
 use crate::vm::result::INLINE_SLOTS;
@@ -100,7 +101,7 @@ fn resolve_dfa<'a>(
     if dfa_cached.is_some() {
         return dfa_cached;
     }
-    if !(prog.can_dfa && crate::dfa::prog_ops_dfa_safe(prog)) {
+    if !(prog.can_dfa && crate::dfa::prog_ops_dfa_safe(prog)) || prog.dfa_lazy.is_set() {
         return None;
     }
     // RFC 20260711 chunk B — drop poisoned builds (unserveable
@@ -132,22 +133,23 @@ fn resolve_dfa<'a>(
 /// first step sees the correct left-byte class. Word class = ASCII
 /// `[A-Za-z0-9_]`, mirroring `at_word_boundary`. Patterns without
 /// `\b` / `\B` dedup the two mid states down.
-fn dfa_probe(dfa: &crate::dfa::DfaProgram, prog: &Program, s: &[u8], st: i64) -> Option<usize> {
+fn dfa_probe<T: Table>(t: T, prog: &Program, s: &[u8], st: i64) -> Option<usize> {
+    let dfa = t.dfa();
     let hay_suffix = &s[st as usize..];
     if dfa.all_starts_equal {
-        return crate::dfa::dfa_search(dfa, prog, hay_suffix);
+        return dfa_search_at(t, prog, hay_suffix, dfa.start);
     }
     let at_line_start =
         st == 0 || (prog.has_ml_anchor_b && st > 0 && s[(st - 1) as usize] == b'\n');
     if at_line_start {
-        crate::dfa::dfa_search(dfa, prog, hay_suffix)
+        dfa_search_at(t, prog, hay_suffix, dfa.start)
     } else {
         let prev = s[(st - 1) as usize];
         let prev_is_word = prev.is_ascii_alphanumeric() || prev == b'_';
         if prev_is_word {
-            crate::dfa::dfa_search_mid_word(dfa, prog, hay_suffix)
+            dfa_search_at(t, prog, hay_suffix, dfa.start_mid_word)
         } else {
-            crate::dfa::dfa_search_mid_nonword(dfa, prog, hay_suffix)
+            dfa_search_at(t, prog, hay_suffix, dfa.start_mid_nonword)
         }
     }
 }
@@ -294,6 +296,16 @@ pub fn search_from_with_ws(
         return Some(dfa_hit_result(prog, s, st, end, flags, ws, want_saves));
     }
     let mut st = from_pos;
+    if let Some(lazy) = prog.dfa_lazy.table()
+        && lazy.begin_search()
+    {
+        // a lazy search that gave up has tried every start before the
+        // one it stopped at; the Pike VM goes on from there
+        if let Some((st, end)) = dfa_find_from(prog, lazy, s, from_pos, flags, haystack_is_ascii) {
+            return Some(dfa_hit_result(prog, s, st, end, flags, ws, want_saves));
+        }
+        st = lazy.gave_up_at()?;
+    }
     loop {
         if let Some(b) = prog.prefix_byte {
             if st >= slen {
@@ -344,9 +356,9 @@ fn skips_continuation_byte(s: &[u8], st: i64, flags: u8, haystack_is_ascii: bool
 /// state has no transition for; it is off whenever the u-flag
 /// code-point guard could fire, since it would step over that guard.
 #[inline(always)]
-pub(crate) fn dfa_find_from(
+pub(crate) fn dfa_find_from<T: Table>(
     prog: &Program,
-    dfa: &crate::dfa::DfaProgram,
+    t: T,
     s: &[u8],
     from_pos: i64,
     flags: u8,
@@ -369,10 +381,13 @@ pub(crate) fn dfa_find_from(
             continue;
         }
         if can_skip_dead_starts {
-            st = crate::dfa::first_viable_start(dfa, prog, s, st as usize) as i64;
+            st = crate::dfa::first_viable_start(t.dfa(), prog, s, st as usize) as i64;
         }
-        if let Some(n) = dfa_probe(dfa, prog, s, st) {
+        if let Some(n) = dfa_probe(t, prog, s, st) {
             return Some((st, st + n as i64));
+        }
+        if T::LAZY && t.stop_at(st) {
+            return None;
         }
         st += 1;
     }

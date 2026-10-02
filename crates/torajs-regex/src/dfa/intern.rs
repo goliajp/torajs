@@ -1,6 +1,7 @@
 //! State interning for the subset construction: dedup a `(ready,
 //! deferred, attr)` triple against the pool, or reserve a new state
-//! for it and queue its row for expansion.
+//! for it and queue its row for expansion. Shared by the eager build
+//! ([`super::build`]) and the lazily filled table ([`super::lazy`]).
 
 use crate::dfa::build_helpers::{LeftByteAttr, ctx_for, pc_set_is_accept, pc_set_is_accept_at_end};
 use crate::dfa::pending_class::{KPropertyVerdict, PendingClass, classify_kproperty_shape};
@@ -74,7 +75,8 @@ fn fresh_row(prog: &Program, ready: &[u32], attr: LeftByteAttr, pool: &mut Pool)
         ),
         // Round 3 Phase B sub-batch 6 attack #R-G — patched once every
         // row is known (`compute_monotone_accept`); `false` keeps the
-        // executor's monotone fast path off until then.
+        // executor's monotone fast path off until then, and for good
+        // on a lazily filled table.
         monotone_accept: false,
         _pad: 0,
         accept_before_byte: [0u32; 8],

@@ -67,6 +67,7 @@ mod build;
 mod build_helpers;
 mod expand;
 mod intern;
+mod lazy;
 mod pending_class;
 mod pool;
 mod program;
@@ -77,14 +78,16 @@ mod state;
 mod step;
 
 pub use build::{
-    CappedDfa, DFA_EAGER_MAX_INSTS, DFA_EAGER_MAX_STATES, build_dfa, build_dfa_capped,
+    CappedDfa, DFA_EAGER_MAX_INSTS, DFA_EAGER_MAX_STATES, PartialDfa, build_dfa, build_dfa_capped,
 };
+pub use lazy::{LAZY_BUDGET_BYTES, LazySlot};
 pub use pending_class::PendingClass;
 pub use program::{BakedDfaMeta, DfaProgram, DfaStates};
 pub use search::{
     DfaState, TX_ACCEPT_BIT, TX_MONOTONE_BIT, TX_STATE_MASK, dfa_search, dfa_search_mid,
     dfa_search_mid_nonword, dfa_search_mid_word,
 };
+pub(crate) use search::{Table, dfa_search_at};
 pub use start_scan::first_viable_start;
 pub use step::{byte_step, byte_step_full};
 

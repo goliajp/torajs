@@ -214,7 +214,8 @@ pub(crate) fn compile_bytes(pat: Vec<u8>, fl: Vec<u8>) -> *mut c_void {
 
 /// The DFA a runtime-compiled RegExp searches with, decided once at
 /// construction (Round 3 Phase B sub-batch 7.2): an eager table when it
-/// fits the cap, else none and the Pike VM serves.
+/// fits the cap, else a lazily filled one parked in `prog.dfa_lazy`, else
+/// none.
 ///
 /// Storage `Option<DfaProgram>` (no `UnsafeCell`) — populated once here,
 /// immutable for the RegExp's lifetime; the interior-mutable cache shapes
@@ -226,15 +227,19 @@ fn runtime_dfa(prog: &mut Program, flag_bits: u8) -> Option<crate::dfa::DfaProgr
     }
     // RFC 20260711 chunk B — a poisoned build (unserveable K-PROPERTY
     // shape) is discarded and the Pike VM serves. Poison is a property
-    // of the program, so the gate closes here for good.
+    // of the program, so the gate closes here for good. Poison met past
+    // the cap disables the lazy table at the search that meets it.
     match crate::dfa::build_dfa_capped(prog, flag_bits) {
         crate::dfa::CappedDfa::Table(dfa) if dfa.poisoned => {
             prog.can_dfa = false;
             None
         }
         crate::dfa::CappedDfa::Table(dfa) => Some(dfa),
-        crate::dfa::CappedDfa::Over => {
-            prog.can_dfa = false;
+        crate::dfa::CappedDfa::Over(part) => {
+            match crate::dfa::LazySlot::from_partial(prog, flag_bits, part) {
+                Some(slot) => prog.dfa_lazy = slot,
+                None => prog.can_dfa = false,
+            }
             None
         }
     }

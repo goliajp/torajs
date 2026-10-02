@@ -1,7 +1,7 @@
 //! One transition of the subset construction: from a state's item and
 //! a byte, the target state (interned) and whether a zero-width accept
-//! sits before the byte. The builder runs it for all 256 bytes of a
-//! row.
+//! sits before the byte. The eager build runs it for all 256 bytes of
+//! a row; the lazily filled table runs it for one `(state, byte)`.
 
 use alloc::vec::Vec;
 

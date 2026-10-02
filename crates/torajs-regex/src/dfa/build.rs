@@ -1,8 +1,9 @@
 //! DFA builder — the eager subset construction that materialises the
 //! [`super::search::DfaProgram`] consumed by
 //! [`super::search::dfa_search`], and its capped form: a program whose
-//! table would outgrow [`DFA_EAGER_MAX_STATES`] states gets none.
-//! Interning lives in [`super::intern`], the per-byte step in
+//! table would outgrow [`DFA_EAGER_MAX_STATES`] states hands the
+//! partly built pool to the lazily filled table in [`super::lazy`]
+//! instead. Interning lives in [`super::intern`], the per-byte step in
 //! [`super::expand`].
 
 use crate::dfa::DfaProgram;
@@ -15,8 +16,7 @@ use crate::program::Program;
 
 /// Most states an eagerly built table may have, the dead state
 /// included. A table that would grow past it is never completed: the
-/// runtime serves the program with the Pike VM and the AOT pipeline
-/// bakes nothing.
+/// runtime fills it lazily and the AOT pipeline bakes nothing.
 pub const DFA_EAGER_MAX_STATES: usize = 256;
 
 /// Most instructions a program may have and still be built eagerly.
@@ -29,13 +29,21 @@ pub const DFA_EAGER_MAX_INSTS: usize = 1024;
 /// non-word byte.
 pub(super) type Starts = [u32; 3];
 
+/// A capped build that stopped short: the pool with every row expanded
+/// so far, its entry states and the program's attr-split bit.
+pub struct PartialDfa {
+    pub(super) pool: Pool,
+    pub(super) starts: Starts,
+    pub(super) split: bool,
+}
+
 /// What [`build_dfa_capped`] produced.
 pub enum CappedDfa {
     /// The complete table (possibly poisoned, which every consumer
     /// discards).
     Table(DfaProgram),
-    /// The table outgrew the cap.
-    Over,
+    /// The table outgrew the cap; the pool goes on lazily.
+    Over(PartialDfa),
 }
 
 /// Subset-construction NFA → DFA builder (chunks 8.5/8.6a/8.6b/8.7/
@@ -52,7 +60,7 @@ pub enum CappedDfa {
 pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
     match build(prog, flags, usize::MAX) {
         CappedDfa::Table(dfa) => dfa,
-        CappedDfa::Over => unreachable!("an uncapped build always completes"),
+        CappedDfa::Over(_) => unreachable!("an uncapped build always completes"),
     }
 }
 
@@ -89,7 +97,11 @@ fn build(prog: &Program, flags: u8, cap: usize) -> CappedDfa {
     let mut exp = Expander::new(prog);
     while let Some(&i) = pool.work.last() {
         if pool.states.len() > cap {
-            return CappedDfa::Over;
+            return CappedDfa::Over(PartialDfa {
+                pool,
+                starts,
+                split,
+            });
         }
         pool.work.pop();
         expand_row(prog, i, split, flags, &mut pool, &mut exp);
@@ -104,8 +116,10 @@ fn finish(pool: Pool, starts: Starts) -> DfaProgram {
     finish_dfa(pool.states, starts[0], starts[1], starts[2], pool.poisoned)
 }
 
-/// Seed the three entry states in their fixed order.
-fn seed_starts(prog: &Program, split: bool, flags: u8, pool: &mut Pool) -> Starts {
+/// Seed the three entry states in their fixed order. The order fixes
+/// their indices, which is what lets a lazily filled table reseed
+/// after a clear and land on the same ones.
+pub(super) fn seed_starts(prog: &Program, split: bool, flags: u8, pool: &mut Pool) -> Starts {
     [
         seed_start(prog, LeftByteAttr::TextStart, split, flags, pool),
         seed_start(prog, LeftByteAttr::Word, split, flags, pool),
@@ -176,7 +190,10 @@ mod tests {
         let prog = compile("[a-c]x[a-c]y|ab+c");
         let n = build_dfa(&prog, 0).states.len();
         assert!(matches!(build_with_cap(&prog, 0, n), CappedDfa::Table(_)));
-        assert!(matches!(build_with_cap(&prog, 0, n - 1), CappedDfa::Over));
+        assert!(matches!(
+            build_with_cap(&prog, 0, n - 1),
+            CappedDfa::Over(..)
+        ));
         let CappedDfa::Table(capped) = build_dfa_capped(&prog, 0) else {
             panic!("a small table stays eager");
         };
@@ -187,6 +204,6 @@ mod tests {
     fn past_the_cap_stays_unbuilt() {
         let prog = compile("(a|b)*a(a|b){9}");
         assert!(build_dfa(&prog, 0).states.len() > DFA_EAGER_MAX_STATES);
-        assert!(matches!(build_dfa_capped(&prog, 0), CappedDfa::Over));
+        assert!(matches!(build_dfa_capped(&prog, 0), CappedDfa::Over(..)));
     }
 }

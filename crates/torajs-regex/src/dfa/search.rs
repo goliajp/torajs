@@ -53,6 +53,56 @@ pub const TX_MONOTONE_BIT: u32 = 1 << 30;
 /// packed transition word.
 pub const TX_STATE_MASK: u32 = TX_MONOTONE_BIT - 1;
 
+/// The table an executor walks: an eager [`DfaProgram`], or the lazily
+/// filled one ([`super::lazy::LazyTable`]). `LAZY` is a constant, so the
+/// eager instance carries none of the lazy-only steps.
+pub(crate) trait Table: Copy {
+    const LAZY: bool;
+    fn dfa(&self) -> &DfaProgram;
+    /// Whether `(state, byte)` is filled. Always true for an eager table.
+    fn known(&self, state: u32, byte: u8) -> bool;
+    /// Fill `(state, byte)`; answers the state's index (a clear may
+    /// renumber it) or `None` when the search must give up.
+    fn fill(
+        &self,
+        prog: &crate::program::Program,
+        state: u32,
+        byte: u8,
+        cursor: usize,
+    ) -> Option<u32>;
+    /// Bytes one probe walked, for the give-up heuristic.
+    fn note_walked(&self, bytes: usize);
+    /// After a probe at `st` found nothing: true when it gave up
+    /// rather than missed, recording `st` as where the search stopped.
+    fn stop_at(&self, st: i64) -> bool;
+}
+
+impl Table for &DfaProgram {
+    const LAZY: bool = false;
+
+    #[inline(always)]
+    fn dfa(&self) -> &DfaProgram {
+        self
+    }
+
+    #[inline(always)]
+    fn known(&self, _: u32, _: u8) -> bool {
+        true
+    }
+
+    fn fill(&self, _: &crate::program::Program, _: u32, _: u8, _: usize) -> Option<u32> {
+        unreachable!("an eager table has every transition")
+    }
+
+    #[inline(always)]
+    fn note_walked(&self, _: usize) {}
+
+    #[inline(always)]
+    fn stop_at(&self, _: i64) -> bool {
+        false
+    }
+}
+
 /// Read bit `byte` of a 256-bit packed mask.
 #[inline]
 pub(super) fn mask_get(mask: &[u32; 8], byte: u8) -> bool {
@@ -76,6 +126,17 @@ pub(super) fn mask_set(mask: &mut [u32; 8], byte: u8) {
 /// graph). Enters at [`DfaProgram::start`] (text-start ctx).
 pub fn dfa_search(dfa: &DfaProgram, prog: &crate::program::Program, hay: &[u8]) -> Option<usize> {
     dfa_search_from(dfa, prog, hay, dfa.start)
+}
+
+/// [`dfa_search`] over either kind of table, entering at `start`.
+#[inline]
+pub(crate) fn dfa_search_at<T: Table>(
+    t: T,
+    prog: &crate::program::Program,
+    hay: &[u8],
+    start: u32,
+) -> Option<usize> {
+    dfa_search_from(t, prog, hay, start)
 }
 
 /// Like [`dfa_search`] but enters at `dfa.start_mid_nonword` — back-
@@ -240,12 +301,17 @@ fn pending_class_step(
     (next, cursor + utf8_len, false)
 }
 
-fn dfa_search_from(
-    dfa: &DfaProgram,
+/// The byte walk. On a lazy table a transition is filled the first
+/// time it is read, after which the walk takes the rows afresh (a fill
+/// may grow, or after a clear renumber, them); a fill that gives up
+/// ends the walk with `None` and `Table::stop_at` tells the caller.
+fn dfa_search_from<T: Table>(
+    t: T,
     prog: &crate::program::Program,
     hay: &[u8],
     start: u32,
 ) -> Option<usize> {
+    let dfa = t.dfa();
     // Rotation 470 — two shapes the byte loop used to carry per step.
     // `dfa.states[state]` was written out three times, so LLVM had to
     // prove the three indexes equal and the bounds checks redundant;
@@ -255,7 +321,7 @@ fn dfa_search_from(
     // for "none" — a haystack can never be `usize::MAX` bytes long, so
     // the sentinel is unreachable as a real position.
     const NO_ACCEPT: usize = usize::MAX;
-    let states: &[DfaState] = &dfa.states;
+    let mut states: &[DfaState] = &dfa.states;
     let mut state = start;
     let mut last_accept = NO_ACCEPT;
     if states[state as usize].is_accept {
@@ -281,6 +347,10 @@ fn dfa_search_from(
     let mut cursor: usize = 0;
     while cursor < hay.len() {
         let byte = hay[cursor];
+        if T::LAZY && !t.known(state, byte) {
+            state = t.fill(prog, state, byte, cursor)?;
+            states = &t.dfa().states;
+        }
         let st = &states[state as usize];
         // chunk 8.6b — zero-width accept before stepping byte at
         // `cursor`. Patterns like `/\bword\b/`: the trailing `\b`
@@ -392,6 +462,9 @@ fn dfa_search_from(
     // the last `is_accept`-ish observation.
     if alive && states[state as usize].is_accept_at_end {
         last_accept = hay.len();
+    }
+    if T::LAZY {
+        t.note_walked(cursor);
     }
     (last_accept != NO_ACCEPT).then_some(last_accept)
 }

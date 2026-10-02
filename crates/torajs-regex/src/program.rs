@@ -298,6 +298,10 @@ pub struct Program {
     /// transcoded haystack needs. Set before `compile` by the one-pass
     /// matcher builder, whose walk reads the string's own code units.
     pub raw_classes: bool,
+    /// The lazily filled DFA, set by the RegExp constructor when the
+    /// eager table would outgrow its cap; the search reaches it here
+    /// when no eager table is passed in.
+    pub dfa_lazy: crate::dfa::LazySlot,
 }
 
 impl Program {

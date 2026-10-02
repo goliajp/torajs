@@ -142,7 +142,8 @@ pub(crate) fn try_bake_regex_dfa(
     // run-time reader reconstructs `&[DfaState]` from the same byte
     // sequence (see `RegExp::baked_dfa_view`).
     // Only a table the runtime constructor would build eagerly is
-    // baked; past the cap the literal compiles at run time.
+    // baked; past the cap the literal compiles at run time and its
+    // table is filled lazily.
     let CappedDfa::Table(dfa) = build_dfa_capped(&prog, flag_bits) else {
         return None;
     };
