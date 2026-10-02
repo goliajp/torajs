@@ -23,12 +23,22 @@
 use core::ptr;
 use core::sync::atomic::{AtomicPtr, Ordering};
 
+use crate::arena::ARENA_PAGE;
 use crate::tlab::{FREE_LINK_OFF, SPILL_AT};
 
-/// Virgin slots a refill carves into a chain at once: enough that a
-/// program growing a class pays the carve per 64 blocks, not more
-/// than a row's spill returns.
-const CARVE: usize = 64;
+/// Virgin slots a refill carves into a chain at once: one arena page
+/// of them, capped at what a row holds. Linking a slot touches it, so
+/// the carve stays inside the page the first slot faults in anyway;
+/// a program growing a small class then pays one refill per page.
+#[inline]
+const fn carve_for(slot_size: usize) -> usize {
+    let per_page = ARENA_PAGE / slot_size;
+    if per_page < SPILL_AT {
+        per_page
+    } else {
+        SPILL_AT
+    }
+}
 
 /// Where a span is, as the owner's lists see it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -138,7 +148,7 @@ impl SpanMeta {
 
     /// Detach a chain of slots for the owner's row: the whole local
     /// free list when it fits a row, its first `SPILL_AT` blocks when
-    /// it does not, else up to `CARVE` virgin slots linked together.
+    /// it does not, else up to a page of virgin slots linked together.
     /// Returns `(head, len)`; `len == 0` means the span has nothing
     /// of its own left.
     ///
@@ -171,7 +181,7 @@ impl SpanMeta {
         if left == 0 {
             return (ptr::null_mut(), 0);
         }
-        let n = left.min(CARVE);
+        let n = left.min(carve_for(slot_size));
         let first = unsafe { base.add(self.bump as usize * slot_size) };
         let mut p = first;
         for _ in 1..n {
@@ -318,7 +328,10 @@ mod tests {
     }
 
     #[test]
-    fn take_chain_carves_at_most_carve_slots_at_a_time() {
+    fn take_chain_carves_at_most_a_page_at_a_time() {
+        // 64 B slots: a page is 256, exactly a row
+        const CARVE: usize = ARENA_PAGE / SLOT;
+        assert_eq!(CARVE, SPILL_AT);
         const BIG: usize = CARVE * 2 + 5;
         let mut buf = vec![0u8; SLOT * BIG];
         let base = buf.as_mut_ptr();
@@ -329,6 +342,21 @@ mod tests {
         assert_eq!((n1, n2, n3), (CARVE, CARVE, 5));
         assert_eq!(chain(h3).len(), 5);
         assert_eq!(m.used(), BIG);
+    }
+
+    /// A page of 4 KiB slots is 4 of them; a page of 16 B slots is
+    /// more than a row, so the row's cap wins.
+    #[test]
+    fn carve_is_a_page_capped_at_a_row() {
+        assert_eq!(carve_for(4096), 4);
+        assert_eq!(carve_for(1024), 16);
+        assert_eq!(carve_for(128), 128);
+        assert_eq!(carve_for(64), SPILL_AT);
+        assert_eq!(carve_for(16), SPILL_AT);
+        let mut buf = vec![0u8; 4096 * 8];
+        let mut m = meta(8);
+        let (_, n) = unsafe { m.take_chain(buf.as_mut_ptr(), 4096) };
+        assert_eq!(n, 4);
     }
 
     #[test]

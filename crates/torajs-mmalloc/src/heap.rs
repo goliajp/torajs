@@ -342,7 +342,7 @@ mod tests {
         unsafe { (*Arena::containing(p)).meta_of(p) }
     }
 
-    // class 2: 64 B blocks, one page, 256 slots, carved 64 at a time
+    // class 2: 64 B blocks, one page, 256 slots, carved in one go
     const C64: usize = 2;
     // class 8: 4 KiB blocks, 8 pages, 32 slots
     const C4K: usize = 8;
@@ -352,9 +352,9 @@ mod tests {
         let mut h = heap();
         let p = h.refill(C64);
         assert!(!p.is_null());
-        assert_eq!(h.total_cached(), 63);
+        assert_eq!(h.total_cached(), 255);
         let m = meta_of(p);
-        assert_eq!(unsafe { (*m).used() }, 64);
+        assert_eq!(unsafe { (*m).used() }, 256);
         assert_eq!(unsafe { (*m).state() }, SpanState::Cur);
         assert_eq!(h.cur(C64), m);
         assert_eq!(h.listed_arenas(), 1);
@@ -371,10 +371,10 @@ mod tests {
         let first: Vec<_> = (0..n).map(|_| alloc(&mut h, C64)).collect();
         let a = meta_of(first[0]);
         assert!(first.iter().all(|&p| ptr::eq(meta_of(p), a)));
-        assert!(h.is_empty(), "256 allocs are exactly four carves");
-        // one carve from the second span leaves the row empty again
+        assert!(h.is_empty(), "256 allocs are exactly one carve");
+        // the second span's carve, taken whole, leaves the row empty again
         let extra = alloc(&mut h, C64);
-        for _ in 1..64 {
+        for _ in 1..n {
             alloc(&mut h, C64);
         }
         assert!(h.is_empty());
@@ -398,11 +398,10 @@ mod tests {
         assert_eq!(unsafe { (*a).used() }, n - SPILL_COUNT);
         assert_eq!(unsafe { (*a).n_free() }, SPILL_COUNT);
         assert_eq!(unsafe { (*b).n_free() }, 1);
-        // the row, then b's one free block and its three carves, then
-        // the class goes back to a's free list in one splice, not to
-        // a third span
+        // the row, then b's one free block, then the class goes back
+        // to a's free list in one splice, not to a third span
         let pages_before = unsafe { (*Arena::containing(extra)).free_page_count() };
-        for _ in 0..(SPILL_AT - SPILL_COUNT) + 1 + 3 * 64 {
+        for _ in 0..(SPILL_AT - SPILL_COUNT) + 1 {
             alloc(&mut h, C64);
         }
         assert!(h.is_empty());
@@ -528,9 +527,9 @@ mod tests {
         let p = alloc(&mut owner, C64);
         let m = meta_of(p);
         unsafe { other.release_block(C64, p) };
-        assert_eq!(unsafe { (*m).used() }, 64, "used is the owner's");
+        assert_eq!(unsafe { (*m).used() }, 256, "used is the owner's");
         assert_eq!(unsafe { (*m).collect_remote() }, 1);
-        assert_eq!(unsafe { (*m).used() }, 63);
+        assert_eq!(unsafe { (*m).used() }, 255);
         assert_eq!(unsafe { (*m).n_free() }, 1);
         let _ = alloc(&mut other, C64);
     }
