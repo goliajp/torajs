@@ -16,11 +16,12 @@
 //!     first; undefined externs (everything `relocs[]` references
 //!     that isn't a defined function) come after.
 //!   * `RelocKind → RelocationInfo` translation:
-//!       `CallSite::Func(fid)`     → `branch26 (sym_idx = fid.0)`
-//!       `CallSite::Extern(name)`  → `branch26 (sym_idx = extern_map[name])`
-//!       `Page21 { target_sym }`   → `page21`
-//!       `PageOff12 { target_sym }`→ `pageoff12`
-//!       `AbsPtr64 { target_sym }` → `unsigned64`
+//!     - `CallSite::Func(fid)`     → `branch26 (sym_idx = fid.0)`
+//!     - `CallSite::Extern(name)`  → `branch26 (sym_idx = extern_map[name])`
+//!     - `Page21 { target_sym }`   → `page21`
+//!     - `PageOff12 { target_sym }`→ `pageoff12`
+//!     - `AbsPtr64 { target_sym }` → `unsigned64`
+//!
 //!     `r_address = fn_offsets[i] + reloc.byte_offset` is section-
 //!     relative.
 //!
@@ -100,10 +101,10 @@ fn collect_externs(funcs: &[CompiledFunction]) -> Vec<String> {
                 | RelocKind::PageOff12 { target_sym }
                 | RelocKind::AbsPtr64 { target_sym } => Some(target_sym.as_str()),
             };
-            if let Some(name) = target_name {
-                if !defined.contains(name) {
-                    externs.insert(name.to_owned(), ());
-                }
+            if let Some(name) = target_name
+                && !defined.contains(name)
+            {
+                externs.insert(name.to_owned(), ());
             }
         }
     }
@@ -302,8 +303,8 @@ pub fn write_object(funcs: &[CompiledFunction]) -> Vec<u8> {
     }
     // Undefined externs second, in lexicographic order (matches
     // `extern_names` build above).
-    for j in 0..extern_names.len() {
-        let entry = Nlist64::undefined_extern(extern_strx[j]);
+    for &strx in &extern_strx {
+        let entry = Nlist64::undefined_extern(strx);
         entry.write_to(&mut buf);
     }
     debug_assert_eq!(buf.len() as u32, stroff);

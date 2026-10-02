@@ -115,8 +115,8 @@ pub struct RelocationInfo {
 
 impl RelocationInfo {
     /// 4-byte BL branch reloc — `ARM64_RELOC_BRANCH26`. `r_length`
-    /// = 2 (4-byte instruction word), `r_pcrel` = 1, `r_extern` =
-    /// 1. `r_address` is the byte offset within `__TEXT,__text`
+    /// = 2 (4-byte instruction word), `r_pcrel` = 1, `r_extern`
+    /// = 1. `r_address` is the byte offset within `__TEXT,__text`
     /// where the BL instruction sits.
     pub fn branch26(r_address: u32, sym_idx: u32) -> Self {
         Self::new_extern(r_address, sym_idx, ARM64_RELOC_BRANCH26, 1, 2)
