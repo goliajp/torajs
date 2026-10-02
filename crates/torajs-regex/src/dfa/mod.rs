@@ -15,7 +15,7 @@
 //! - **subset construction** (`build_dfa`) — BFS subset construction
 //!   driver that composes `epsilon_closure` + `byte_step` into a
 //!   [`DfaProgram`]: dense 256-way transitions per state, deduped via
-//!   `BTreeMap<BTreeSet<usize>, u32>`, state 0 reserved as the dead
+//!   a hash map over the sorted PC-list key, state 0 reserved as the dead
 //!   state (empty PC set). Builder presumes caller already verified
 //!   `prog.can_dfa` (see [`analyze`]); SAVE / Anchor / WBound are
 //!   currently treated as terminal in [`epsilon_closure`], so the
@@ -66,8 +66,10 @@ pub use ctx::{PositionCtx, epsilon_closure_full, epsilon_closure_with_ctx};
 mod build;
 mod build_helpers;
 mod pending_class;
+mod pool;
 mod program;
 mod search;
+mod sparse;
 mod start_scan;
 mod state;
 mod step;

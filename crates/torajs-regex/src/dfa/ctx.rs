@@ -11,6 +11,7 @@
 use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 
+use crate::dfa::sparse::PcSet;
 use crate::program::{Op, Program};
 
 /// Position-aware context for [`epsilon_closure_with_ctx`].
@@ -106,59 +107,14 @@ pub fn epsilon_closure_with_ctx(
 ) -> BTreeSet<usize> {
     let mut closure: BTreeSet<usize> = BTreeSet::new();
     let mut work: Vec<usize> = Vec::new();
-    for &seed in seeds {
-        if seed < prog.len() && closure.insert(seed) {
-            work.push(seed);
-        }
-    }
-    while let Some(pc) = work.pop() {
-        let ins = prog.insts[pc];
-        let op = match Op::from_u8(ins.op) {
-            Some(o) => o,
-            None => continue,
-        };
-        match op {
-            Op::Jmp => {
-                let t = ins.a as usize;
-                if t < prog.len() && closure.insert(t) {
-                    work.push(t);
-                }
-            }
-            Op::Split => {
-                let t1 = ins.a as usize;
-                let t2 = ins.b as usize;
-                if t1 < prog.len() && closure.insert(t1) {
-                    work.push(t1);
-                }
-                if t2 < prog.len() && closure.insert(t2) {
-                    work.push(t2);
-                }
-            }
-            Op::AnchorB => {
-                if anchor_b_advances(ctx, ins.pad as u8) {
-                    let t = pc + 1;
-                    if t < prog.len() && closure.insert(t) {
-                        work.push(t);
-                    }
-                }
-            }
-            Op::AnchorE => {
-                if ctx.is_text_end {
-                    let t = pc + 1;
-                    if t < prog.len() && closure.insert(t) {
-                        work.push(t);
-                    }
-                }
-            }
-            Op::Save | Op::SaveReset | Op::IterStart | Op::IterCheck => {
-                let t = pc + 1;
-                if t < prog.len() && closure.insert(t) {
-                    work.push(t);
-                }
-            }
-            _ => {}
-        }
-    }
+    closure_into(
+        prog,
+        seeds.iter().copied(),
+        ctx,
+        None,
+        &mut closure,
+        &mut work,
+    );
     closure
 }
 
@@ -201,11 +157,8 @@ pub fn epsilon_closure_full(
     closure
 }
 
-/// chunk 7.7 v2 step 12 Round 2 polish — `epsilon_closure_full` 的
-/// fill-into 变体。Caller 提供 `closure` + `work` 两个 scratch buffer
-/// 复用,避免 256-byte BFS 内循环每次 allocate。`closure` 在 enter 时
-/// 被 `clear()`(保留 capacity),`work` 同理。语义跟
-/// [`epsilon_closure_full`] 完全等价 — 后者是 thin wrapper。
+/// Fill-into variant of [`epsilon_closure_full`]: the caller owns the
+/// `closure` + `work` scratch buffers, both cleared on entry.
 pub fn epsilon_closure_full_into(
     prog: &Program,
     seeds: &[usize],
@@ -215,13 +168,29 @@ pub fn epsilon_closure_full_into(
     work: &mut Vec<usize>,
 ) {
     closure.clear();
+    let at_wb = ctx.at_word_boundary(right_byte);
+    closure_into(prog, seeds.iter().copied(), ctx, Some(at_wb), closure, work);
+}
+
+/// The one ε-walk behind every closure above and the DFA builder.
+/// `wbound` is `None` to leave `Op::WBound` / `Op::NWBound` terminal
+/// (the with-ctx shape, no right byte in hand) or `Some(at_wb)` to
+/// resolve them. `work` is cleared on entry; `closure` is not, so a
+/// caller can grow an existing set.
+pub(super) fn closure_into<S: PcSet>(
+    prog: &Program,
+    seeds: impl Iterator<Item = usize>,
+    ctx: PositionCtx,
+    wbound: Option<bool>,
+    closure: &mut S,
+    work: &mut Vec<usize>,
+) {
     work.clear();
-    for &seed in seeds {
-        if seed < prog.len() && closure.insert(seed) {
+    for seed in seeds {
+        if seed < prog.len() && closure.insert_pc(seed) {
             work.push(seed);
         }
     }
-    let at_wb = ctx.at_word_boundary(right_byte);
     while let Some(pc) = work.pop() {
         let ins = prog.insts[pc];
         let op = match Op::from_u8(ins.op) {
@@ -233,10 +202,10 @@ pub fn epsilon_closure_full_into(
             Op::Split => {
                 let t1 = ins.a as usize;
                 let t2 = ins.b as usize;
-                if t1 < prog.len() && closure.insert(t1) {
+                if t1 < prog.len() && closure.insert_pc(t1) {
                     work.push(t1);
                 }
-                if t2 < prog.len() && closure.insert(t2) {
+                if t2 < prog.len() && closure.insert_pc(t2) {
                     work.push(t2);
                 }
                 None
@@ -256,14 +225,14 @@ pub fn epsilon_closure_full_into(
                 }
             }
             Op::WBound => {
-                if at_wb {
+                if wbound == Some(true) {
                     Some(pc + 1)
                 } else {
                     None
                 }
             }
             Op::NWBound => {
-                if !at_wb {
+                if wbound == Some(false) {
                     Some(pc + 1)
                 } else {
                     None
@@ -274,7 +243,7 @@ pub fn epsilon_closure_full_into(
         };
         if let Some(t) = next
             && t < prog.len()
-            && closure.insert(t)
+            && closure.insert_pc(t)
         {
             work.push(t);
         }

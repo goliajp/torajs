@@ -16,7 +16,6 @@
 //! one logical surface.
 
 use crate::program::{Op, Program};
-use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 
 /// Round 3 Phase B sub-batch 4 attack #R-J v2 (§2.5.E) — fixed-size
@@ -159,13 +158,14 @@ pub(crate) struct KPropertyShape {
 
 pub(crate) fn classify_kproperty_shape(
     prog: &Program,
-    ready: &BTreeSet<usize>,
-    deferred: &[BTreeSet<usize>; 3],
+    ready: &[u32],
+    deferred: &[Vec<u32>; 3],
     flags: u8,
 ) -> KPropertyVerdict {
     let mut kp_pcs: Vec<usize> = Vec::new();
     let mut kp_class_idx: Option<usize> = None;
     for &pc in ready.iter() {
+        let pc = pc as usize;
         if let Some(cidx) = kproperty_pc_for(prog, pc, flags) {
             match kp_class_idx {
                 None => kp_class_idx = Some(cidx),
@@ -228,6 +228,7 @@ pub(crate) fn classify_kproperty_shape(
     // serves the program. The v4 digit case (ASCII-only consumers)
     // stays DFA-resident.
     for &pc in ready.iter() {
+        let pc = pc as usize;
         if kproperty_pc_for(prog, pc, flags).is_some() {
             continue;
         }

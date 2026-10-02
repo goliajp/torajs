@@ -14,12 +14,12 @@
 //! - [`prog_uses_word_boundary`] — scanner driving the `needs_attr_split`
 //!   decision in `build_dfa`.
 
-use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 
 use crate::dfa::DfaProgram;
-use crate::dfa::ctx::{PositionCtx, epsilon_closure_full};
+use crate::dfa::ctx::{PositionCtx, closure_into};
 use crate::dfa::search::DfaState;
+use crate::dfa::sparse::SparseSet;
 use crate::program::{Op, Program};
 
 /// chunk 8.6b — left-byte class carried as part of a DFA state's
@@ -67,9 +67,11 @@ pub(super) fn attr_to_left_byte(attr: LeftByteAttr) -> Option<u8> {
 }
 
 /// True iff `set` contains any [`Op::Match`] PC.
-pub(super) fn pc_set_is_accept(prog: &Program, set: &BTreeSet<usize>) -> bool {
-    set.iter()
-        .any(|&pc| pc < prog.len() && matches!(Op::from_u8(prog.insts[pc].op), Some(Op::Match)))
+pub(super) fn pc_set_is_accept(prog: &Program, set: &[u32]) -> bool {
+    set.iter().any(|&pc| {
+        (pc as usize) < prog.len()
+            && matches!(Op::from_u8(prog.insts[pc as usize].op), Some(Op::Match))
+    })
 }
 
 /// chunk 8.6a — true iff re-closing `set` under an at-end ctx
@@ -87,17 +89,21 @@ pub(super) fn pc_set_is_accept(prog: &Program, set: &BTreeSet<usize>) -> bool {
 /// the per-inst m-bit and `attr_to_left_byte` never answers `\n`).
 pub(super) fn pc_set_is_accept_at_end(
     prog: &Program,
-    set: &BTreeSet<usize>,
+    set: &[u32],
     attr: LeftByteAttr,
+    closed: &mut SparseSet,
+    work: &mut Vec<usize>,
 ) -> bool {
-    let seeds: Vec<usize> = set.iter().copied().collect();
     let at_end_ctx = PositionCtx {
         left_byte: attr_to_left_byte(attr),
         is_text_start: matches!(attr, LeftByteAttr::TextStart),
         is_text_end: true,
     };
-    let closed = epsilon_closure_full(prog, &seeds, at_end_ctx, None);
-    pc_set_is_accept(prog, &closed)
+    closed.clear();
+    let at_wb = at_end_ctx.at_word_boundary(None);
+    let seeds = set.iter().map(|&pc| pc as usize);
+    closure_into(prog, seeds, at_end_ctx, Some(at_wb), closed, work);
+    pc_set_is_accept(prog, closed.as_slice())
 }
 
 /// Round 3 Phase B sub-batch 4 attack #R-J v2 — shared `PositionCtx`

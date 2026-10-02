@@ -2,7 +2,7 @@
 //! and materialises the [`super::search::DfaProgram`] consumed by
 //! [`super::search::dfa_search`].
 //!
-//! Owns the BFS state-pool key types ([`StateKey`] / [`WorkItem`]),
+//! Owns the BFS driver over the pool in [`super::pool`],
 //! the [`LeftByteAttr`] enum that distinguishes left-byte cursor
 //! classes (chunk 8.6b), the per-state accept analysers
 //! ([`pc_set_is_accept`] / [`pc_set_is_accept_at_end`]) and the
@@ -10,7 +10,6 @@
 //! search executor because the build-time substrate is much larger
 //! than the read-only consumer.
 
-use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 
 use crate::dfa::DfaProgram;
@@ -18,31 +17,13 @@ use crate::dfa::build_helpers::{
     LeftByteAttr, attr_of_byte, ctx_for, finish_dfa, pc_set_is_accept, pc_set_is_accept_at_end,
     prog_uses_word_boundary,
 };
-use crate::dfa::byte_step_full;
-use crate::dfa::ctx::{PositionCtx, epsilon_closure_full_into, epsilon_closure_with_ctx};
+use crate::dfa::ctx::{PositionCtx, closure_into};
 use crate::dfa::pending_class::{KPropertyVerdict, PendingClass, classify_kproperty_shape};
+use crate::dfa::pool::{PcList, Pool, flatten_key};
 use crate::dfa::search::{DfaState, mask_set};
+use crate::dfa::sparse::SparseSet;
+use crate::dfa::step::byte_step_into;
 use crate::program::Program;
-
-/// State-pool key: ready PCs (u_skip=0) + per-u_skip deferred PCs +
-/// LeftByteAttr. `deferred[i]` holds PCs that become ready in `i + 1`
-/// continuation bytes (chunk 10b).
-type StateKey = (BTreeSet<usize>, [BTreeSet<usize>; 3], LeftByteAttr);
-
-/// BFS work-queue entry: same shape as the pool key plus the assigned
-/// state index. Carries the original attr so `pc_set_is_accept_at_end`
-/// sees the true left-byte class (the pool key may have folded attr
-/// onto `TextStart` for dedup when `needs_attr_split` is false).
-type WorkItem = (BTreeSet<usize>, [BTreeSet<usize>; 3], LeftByteAttr, u32);
-
-/// The BFS builder state every intern shares: the state pool, its
-/// dedup map, the work queue and the poison flag.
-struct Pool {
-    states: Vec<DfaState>,
-    set_to_idx: BTreeMap<StateKey, u32>,
-    work: Vec<WorkItem>,
-    poisoned: bool,
-}
 
 /// Round 3 Phase B sub-batch 4 attack #R-J v3 option A — compute the
 /// `PendingClass` triple for a `(ready, deferred)` state being interned.
@@ -55,8 +36,8 @@ struct Pool {
 /// path.
 fn compute_pending_class_for(
     prog: &Program,
-    ready: &BTreeSet<usize>,
-    deferred: &[BTreeSet<usize>; 3],
+    ready: &[u32],
+    deferred: &[PcList; 3],
     attr: LeftByteAttr,
     needs_attr_split: bool,
     flags: u8,
@@ -80,7 +61,8 @@ fn compute_pending_class_for(
     // pc) and intern recursively. The recursive intern may push
     // additional states; that's fine — they fill the states vec at
     // indices < the pending state we are about to push.
-    let post_ready = epsilon_closure_with_ctx(prog, &shape.yes_seeds, ctx_for(attr));
+    let yes_seeds: PcList = shape.yes_seeds.iter().map(|&pc| pc as u32).collect();
+    let post_ready = pool.closure_sorted(prog, &yes_seeds, ctx_for(attr));
     let yes_target = intern_state(
         prog,
         post_ready,
@@ -110,8 +92,8 @@ fn compute_pending_class_for(
 /// tail without conflating them with ready PCs at the same cursor.
 fn intern_state(
     prog: &Program,
-    ready: BTreeSet<usize>,
-    deferred: [BTreeSet<usize>; 3],
+    ready: PcList,
+    deferred: [PcList; 3],
     attr: LeftByteAttr,
     needs_attr_split: bool,
     flags: u8,
@@ -131,11 +113,11 @@ fn intern_state(
     } else {
         LeftByteAttr::TextStart
     };
-    let key: StateKey = (ready, deferred, effective_attr);
-    if let Some(&i) = pool.set_to_idx.get(&key) {
-        return i;
-    }
-    let (ready, deferred, _) = key;
+    flatten_key(&mut pool.key_scratch, &ready, &deferred, effective_attr);
+    let slot = match pool.set_to_idx.find(&pool.keys, &pool.key_scratch) {
+        Ok(i) => return i,
+        Err(slot) => slot,
+    };
     // Round 3 Phase B sub-batch 4 attack #R-J v3 option A — reserve
     // the state slot BEFORE computing pending_class so the recursive
     // intern of yes_target can dedup against this very state. v3-A's
@@ -149,7 +131,13 @@ fn intern_state(
     pool.states.push(DfaState {
         transitions: [0u32; 256],
         is_accept: pc_set_is_accept(prog, &ready),
-        is_accept_at_end: pc_set_is_accept_at_end(prog, &ready, attr),
+        is_accept_at_end: pc_set_is_accept_at_end(
+            prog,
+            &ready,
+            attr,
+            &mut pool.closed,
+            &mut pool.closure_work,
+        ),
         // Round 3 Phase B sub-batch 6 attack #R-G — patched by
         // `compute_monotone_accept` after the BFS completes and all
         // `transitions[b]` slots are populated. `false` here keeps
@@ -168,8 +156,8 @@ fn intern_state(
         // field on `states[i]` before this function returns.
         pending_class: PendingClass::INERT,
     });
-    pool.set_to_idx
-        .insert((ready.clone(), deferred.clone(), effective_attr), i);
+    pool.keys.push(pool.key_scratch.clone());
+    pool.set_to_idx.insert_at(slot, i);
 
     // Round 3 Phase B sub-batch 4 attack #R-J v3 option A — compute
     // the pending_class triple if the ready set is a "K-PROPERTY
@@ -233,24 +221,11 @@ fn intern_state(
 /// classes (chunk 8.6b) and in-flight u-flag multi-byte sequences
 /// don't conflate with ready PCs (chunk 10b). State 0 = dead.
 pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
-    let mut pool = Pool {
-        states: Vec::new(),
-        set_to_idx: BTreeMap::new(),
-        work: Vec::new(),
-        poisoned: false,
-    };
-    // state 0: dead state, all transitions self-loop to 0.
+    let mut pool = Pool::new(prog);
+    // state 0: dead state, all transitions self-loop to 0. Its key is
+    // never looked up — `intern_state` answers empty sets directly.
     pool.states.push(DfaState::default());
-
-    let empty_def: [BTreeSet<usize>; 3] = Default::default();
-    for attr in [
-        LeftByteAttr::TextStart,
-        LeftByteAttr::Word,
-        LeftByteAttr::NonWord,
-    ] {
-        pool.set_to_idx
-            .insert((BTreeSet::new(), empty_def.clone(), attr), 0);
-    }
+    pool.keys.push(PcList::new());
 
     let needs_attr_split = prog_uses_word_boundary(prog);
 
@@ -266,36 +241,33 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
         return finish_dfa(pool.states, start, start_mid_word, start_mid_nonword, true);
     }
 
-    let mut cur_seeds: Vec<usize> = Vec::new();
-    let mut merged_seeds: Vec<usize> = Vec::new();
-    // chunk 7.7 v2 step 12 Round 2 polish — hoist epsilon_closure_full
-    // 的 closure + work scratch buffers across the entire BFS so the
-    // 256-byte inner loop reuses one allocation instead of allocating
-    // fresh BTreeSet / Vec per byte (was 256× per state).
-    let mut closed_with_right: BTreeSet<usize> = BTreeSet::new();
+    // Scratch for the 256-byte loop: the right-byte closure, the
+    // byte-step output and the merged seeds, each allocated once.
+    let mut closed_with_right = SparseSet::new(prog.len());
     let mut closure_work: Vec<usize> = Vec::new();
+    let mut ready_from_step: PcList = PcList::new();
+    let mut deferred_from_step: [PcList; 3] = Default::default();
+    let mut merged_seeds: PcList = PcList::new();
     'bfs: while let Some((cur_ready, cur_deferred, cur_attr, cur_idx)) = pool.work.pop() {
         let mut transitions = [0u32; 256];
         let mut accept_before_byte = [0u32; 8];
         let ctx_at_cursor = ctx_for(cur_attr);
-        // chunk 7.7 v2 step 12 polish — hoist cur_seeds Vec materialise
-        // outside the 256-byte loop; cur_ready is invariant within this
-        // BFS step so the same Vec contents apply to every byte.
-        cur_seeds.clear();
-        cur_seeds.extend(cur_ready.iter().copied());
+        let cur_seeds = || cur_ready.iter().map(|&pc| pc as usize);
         // The right byte only reaches the closure through WBound /
         // NWBound, so without them one closure per state serves all
         // 256 bytes and the accept-before-byte mask is all or nothing.
         if !needs_attr_split {
-            epsilon_closure_full_into(
+            closed_with_right.clear();
+            let at_wb = ctx_at_cursor.at_word_boundary(None);
+            closure_into(
                 prog,
-                &cur_seeds,
+                cur_seeds(),
                 ctx_at_cursor,
-                None,
+                Some(at_wb),
                 &mut closed_with_right,
                 &mut closure_work,
             );
-            if pc_set_is_accept(prog, &closed_with_right) {
+            if pc_set_is_accept(prog, closed_with_right.as_slice()) {
                 accept_before_byte = [u32::MAX; 8];
             }
         }
@@ -309,11 +281,13 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
                 // unresolved; this re-closure resolves them per-byte.
                 // Closure is idempotent for already-advanced PCs, so the
                 // re-run never shrinks the set.
-                epsilon_closure_full_into(
+                closed_with_right.clear();
+                let at_wb = ctx_at_cursor.at_word_boundary(Some(byte));
+                closure_into(
                     prog,
-                    &cur_seeds,
+                    cur_seeds(),
                     ctx_at_cursor,
-                    Some(byte),
+                    Some(at_wb),
                     &mut closed_with_right,
                     &mut closure_work,
                 );
@@ -322,19 +296,29 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
                 // byte is stepped (else `byte_step` drops Match since
                 // it's not byte-consuming). The executor reads
                 // `accept_before_byte` ahead of consuming `hay[i]`.
-                if pc_set_is_accept(prog, &closed_with_right) {
+                if pc_set_is_accept(prog, closed_with_right.as_slice()) {
                     mask_set(&mut accept_before_byte, byte);
                 }
             }
-            let (ready_from_step, deferred_from_step) =
-                byte_step_full(prog, &closed_with_right, byte);
+            ready_from_step.clear();
+            for d in deferred_from_step.iter_mut() {
+                d.clear();
+            }
+            byte_step_into(
+                prog,
+                closed_with_right.as_slice().iter().map(|&pc| pc as usize),
+                byte,
+                &mut ready_from_step,
+                &mut deferred_from_step,
+            );
             let (next_ready, next_deferred) = advance_deferred(
                 prog,
                 byte,
                 &cur_deferred,
-                ready_from_step,
-                deferred_from_step,
+                &ready_from_step,
+                &deferred_from_step,
                 &mut merged_seeds,
+                &mut pool,
             );
             let next_attr = attr_of_byte(byte);
             let next_idx = intern_state(
@@ -389,7 +373,7 @@ fn seed_start(
     flags: u8,
     pool: &mut Pool,
 ) -> u32 {
-    let initial = epsilon_closure_with_ctx(prog, &[0], ctx_for(attr));
+    let initial = pool.closure_sorted(prog, &[0], ctx_for(attr));
     intern_state(
         prog,
         initial,
@@ -407,52 +391,55 @@ fn seed_start(
 /// seed); any other byte breaks an in-flight multi-byte sequence and
 /// kills the deferred PCs (matches the NFA: an incomplete UTF-8
 /// sequence never commits). The promoted PCs merge with the byte-
-/// step's fresh ready set (through the hoisted `merged_seeds` buffer
-/// — chunk 7.7 v2 step 12 polish: `.clear()` drops length to 0
-/// without freeing capacity) and ε-close under the post-consume ctx.
+/// step's fresh ready set and ε-close under the post-consume ctx.
 fn advance_deferred(
     prog: &Program,
     byte: u8,
-    cur_deferred: &[BTreeSet<usize>; 3],
-    ready_from_step: BTreeSet<usize>,
-    mut deferred_from_step: [BTreeSet<usize>; 3],
-    merged_seeds: &mut Vec<usize>,
-) -> (BTreeSet<usize>, [BTreeSet<usize>; 3]) {
+    cur_deferred: &[PcList; 3],
+    ready_from_step: &[u32],
+    deferred_from_step: &[PcList; 3],
+    merged_seeds: &mut PcList,
+    pool: &mut Pool,
+) -> (PcList, [PcList; 3]) {
     let is_continuation = (0x80..=0xBF).contains(&byte);
-    let (promoted, mut next_deferred): (BTreeSet<usize>, [BTreeSet<usize>; 3]) = if is_continuation
-    {
-        let [d0, d1, d2] = cur_deferred.clone();
-        (d0, [d1, d2, BTreeSet::new()])
+    let mut next_deferred: [PcList; 3] = if is_continuation {
+        [
+            cur_deferred[1].clone(),
+            cur_deferred[2].clone(),
+            PcList::new(),
+        ]
     } else {
-        (BTreeSet::new(), Default::default())
+        Default::default()
     };
     // Merge the byte-step's fresh deferred PCs into the carry-
-    // forward array.
+    // forward array; the lists stay sorted and duplicate-free.
     for i in 0..3 {
         if !deferred_from_step[i].is_empty() {
-            let extra = core::mem::take(&mut deferred_from_step[i]);
-            next_deferred[i].extend(extra);
+            next_deferred[i].extend_from_slice(&deferred_from_step[i]);
+            next_deferred[i].sort_unstable();
+            next_deferred[i].dedup();
         }
     }
     merged_seeds.clear();
-    merged_seeds.extend(ready_from_step.iter().copied());
-    merged_seeds.extend(promoted.iter().copied());
+    merged_seeds.extend_from_slice(ready_from_step);
+    if is_continuation {
+        merged_seeds.extend_from_slice(&cur_deferred[0]);
+    }
     let next_ready = if merged_seeds.is_empty() {
-        BTreeSet::new()
+        PcList::new()
     } else {
         // Post-step ctx (cursor k+1): left = the byte we just
         // consumed. Mid-pattern `Op::AnchorB` re-fires after `\n`
         // when the instruction's baked m-bit is set (per-inst
         // multiline, regexp-modifiers). WBound stays unresolved
-        // here — `closure_with_ctx` leaves it terminal so the
-        // next BFS step can resolve it under the upcoming
-        // right_byte.
+        // here — the closure leaves it terminal so the next BFS
+        // step can resolve it under the upcoming right_byte.
         let ctx_after = PositionCtx {
             left_byte: Some(byte),
             is_text_start: false,
             is_text_end: false,
         };
-        epsilon_closure_with_ctx(prog, merged_seeds, ctx_after)
+        pool.closure_sorted(prog, merged_seeds, ctx_after)
     };
     (next_ready, next_deferred)
 }

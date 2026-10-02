@@ -16,6 +16,7 @@
 //! BFS driver in [`super::build`].
 
 use alloc::collections::BTreeSet;
+use alloc::vec::Vec;
 
 use crate::program::{Op, Program};
 
@@ -48,8 +49,45 @@ pub fn byte_step_full(
 ) -> (BTreeSet<usize>, [BTreeSet<usize>; 3]) {
     let mut ready: BTreeSet<usize> = BTreeSet::new();
     let mut deferred: [BTreeSet<usize>; 3] = Default::default();
+    byte_step_into(
+        prog,
+        states.iter().copied(),
+        byte,
+        &mut ready,
+        &mut deferred,
+    );
+    (ready, deferred)
+}
+
+/// Where a byte-step deposits the advanced PCs.
+pub(super) trait PcSink {
+    fn push_pc(&mut self, pc: usize);
+}
+
+impl PcSink for BTreeSet<usize> {
+    fn push_pc(&mut self, pc: usize) {
+        self.insert(pc);
+    }
+}
+
+impl PcSink for Vec<u32> {
+    fn push_pc(&mut self, pc: usize) {
+        self.push(pc as u32);
+    }
+}
+
+/// The byte-step proper, shared by [`byte_step_full`] and the DFA
+/// builder. Distinct source PCs advance to distinct `pc + 1`, so a
+/// plain `Vec` sink never sees a duplicate.
+pub(super) fn byte_step_into<S: PcSink>(
+    prog: &Program,
+    states: impl Iterator<Item = usize>,
+    byte: u8,
+    ready: &mut S,
+    deferred: &mut [S; 3],
+) {
     let plen = prog.len();
-    for &pc in states.iter() {
+    for pc in states {
         if pc >= plen {
             continue;
         }
@@ -63,7 +101,7 @@ pub fn byte_step_full(
                 if crate::vm::char_eq(ins.byte(), byte, ins.pad as u8) {
                     let n = pc + 1;
                     if n < plen {
-                        ready.insert(n);
+                        ready.push_pc(n);
                     }
                 }
             }
@@ -94,9 +132,9 @@ pub fn byte_step_full(
                     _ => 0,
                 };
                 if u_skip == 0 {
-                    ready.insert(n);
+                    ready.push_pc(n);
                 } else {
-                    deferred[u_skip - 1].insert(n);
+                    deferred[u_skip - 1].push_pc(n);
                 }
             }
             Op::Class => {
@@ -107,7 +145,7 @@ pub fn byte_step_full(
                     if class.test_fold(byte, ci) {
                         let n = pc + 1;
                         if n < plen {
-                            ready.insert(n);
+                            ready.push_pc(n);
                         }
                     }
                 }
@@ -115,5 +153,4 @@ pub fn byte_step_full(
             _ => {}
         }
     }
-    (ready, deferred)
 }
