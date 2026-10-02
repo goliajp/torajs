@@ -271,7 +271,7 @@ pub unsafe extern "C" fn __torajs_anyv_unbox_tag(_v: u64) -> i64 {
     panic!("torajs-arr unit-test stub: __torajs_anyv_unbox_tag (ANY sort mode) unexpected");
 }
 /// # Safety
-/// `v` is a live boxed value.
+/// Never reached: a link-time stand-in that only satisfies the linker.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_to_number(_v: u64) -> f64 {
@@ -285,7 +285,7 @@ pub unsafe extern "C" fn __torajs_anyv_to_str(_v: u64) -> *mut core::ffi::c_void
     panic!("torajs-arr unit-test stub: __torajs_anyv_to_str (ANY sort mode) unexpected");
 }
 /// # Safety
-/// Both pointers are live Str cells.
+/// Never reached: a link-time stand-in that only satisfies the linker.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_sort_cmp(_a: *const u8, _b: *const u8) -> i64 {

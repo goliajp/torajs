@@ -240,7 +240,7 @@ pub unsafe extern "C" fn __torajs_jsb_push_str_raw(sb: *mut JsonBuilder, str_ptr
 /// bit-for-bit.
 ///
 /// # Safety
-/// `sb` came from `__torajs_jsb_new` and is not yet finalized. `str_ptr` is a live Str cell.
+/// `sb` came from `__torajs_jsb_new` and is not yet finalized. `str_ptr` is null, the undefined sentinel or a live Str cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_jsb_push_str_quoted(sb: *mut JsonBuilder, str_ptr: *const u8) {
     // Nullish Str slot — the undefined sentinel (missed exec/match

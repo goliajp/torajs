@@ -391,7 +391,7 @@ pub(crate) unsafe fn shrink_purge_shadows(arr: *mut c_void, new_len: u64, old_le
 /// about an index (≈800 KB of a release `forEach` product).
 ///
 /// # Safety
-/// `arr` is a live Arr cell.
+/// `arr` is null or a live Arr cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_has_index(arr: *mut c_void, idx: i64) -> i64 {
     unsafe {

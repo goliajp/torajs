@@ -288,7 +288,7 @@ pub unsafe extern "C" fn __torajs_arr_extend_any(dst: *mut u8, src: *const u8) -
 /// index property.)
 ///
 /// # Safety
-/// `arr` is a live Arr<any> cell.
+/// `arr` is null or a live Arr<any> cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_set_any(arr: *mut c_void, i: u64, tag: u64, value: u64) {
     if arr.is_null() {

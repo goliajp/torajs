@@ -82,7 +82,7 @@ pub unsafe extern "C" fn __torajs_str_drop(s: *mut u8) {
 /// `.rodata` Str literals must never be freed.
 ///
 /// # Safety
-/// `p` is a heap Str cell this call frees; never a `.rodata` literal.
+/// `p` is null or a Str cell; a static literal is a no-op.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_free(p: *mut u8) {
     if p.is_null() {

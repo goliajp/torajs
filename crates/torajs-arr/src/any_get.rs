@@ -32,7 +32,7 @@ unsafe extern "C" {
 /// answer boxed `undefined` (ES §10.4.2.1).
 ///
 /// # Safety
-/// `arr` is a live Arr<any> cell.
+/// `arr` is null or a live Arr<any> cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_get_any_boxed(arr: *const c_void, i: u64) -> u64 {
     unsafe {
@@ -115,7 +115,7 @@ pub unsafe extern "C" fn __torajs_arr_get_any_owned(arr: *const c_void, i: u64) 
 /// getter, refreshing the cache.
 ///
 /// # Safety
-/// `arr` is a live Arr<any> cell.
+/// `arr` is null or a live Arr<any> cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_get_any_tag(arr: *const c_void, i: u64) -> u64 {
     if arr.is_null() {
@@ -206,7 +206,7 @@ pub unsafe extern "C" fn __torajs_arr_get_any_tag(arr: *const c_void, i: u64) ->
 /// the pair stays coherent across the swap.
 ///
 /// # Safety
-/// `arr` is a live Arr<any> cell.
+/// `arr` is null or a live Arr<any> cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_get_any_value(arr: *const c_void, i: u64) -> u64 {
     if arr.is_null() {

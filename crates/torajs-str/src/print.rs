@@ -270,7 +270,7 @@ pub unsafe extern "C" fn __torajs_str_print(s: *const u8) {
 /// always did.
 ///
 /// # Safety
-/// `s` is a live Str cell.
+/// `s` is null or a live Str cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_print_inline(s: *const u8) {
     if s.is_null() {
@@ -331,7 +331,7 @@ pub unsafe extern "C" fn __torajs_substr_print(v: *const u8) {
 /// [`__torajs_str_print_inline`]).
 ///
 /// # Safety
-/// `v` is a live Substr cell.
+/// `v` is null or a live Substr cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_substr_print_inline(v: *const u8) {
     if v.is_null() {

@@ -67,7 +67,7 @@ pub extern "C" fn __torajs_str_sort_undef_pre(a: *const u8, b: *const u8) -> i64
 /// and participates normally.
 ///
 /// # Safety
-/// Both pointers are live Str cells.
+/// Each pointer is null or a live Str cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_sort_cmp(a: *const u8, b: *const u8) -> i64 {
     let a_undef = crate::undef_sentinel::is_undef(a) || crate::undef_sentinel::is_substr_undef(a);
