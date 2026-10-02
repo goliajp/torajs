@@ -237,6 +237,11 @@ static SLOTS: [AtomicUsize; NUM_BUILTIN_PROTOS] = [SLOT_INIT; NUM_BUILTIN_PROTOS
 /// (`Number.prototype.split = …`) necessarily minted the singleton
 /// first, so NULL ⇔ the prototype cannot carry a patch; the
 /// dispatch-miss consult uses this to stay alloc-free.
+///
+/// # Safety
+///
+/// Any `tag` is accepted; an out-of-range tag answers null. The slot
+/// table is process-global.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_peek_builtin_prototype(tag: i64) -> *mut c_void {
     let idx = tag as usize;
@@ -249,6 +254,11 @@ pub unsafe extern "C" fn __torajs_peek_builtin_prototype(tag: i64) -> *mut c_voi
 // `#[inline(never)]`: the one mint of a builtin prototype, so its
 // text liveness is the link-time evidence that a prototype can
 // carry a user property (the typed non-integral read seams).
+/// # Safety
+///
+/// Any `tag` is accepted; an out-of-range tag answers null. The slot
+/// table is process-global.
+/// The allocator externs a miss calls must be linked in.
 #[inline(never)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_get_builtin_prototype(tag: i64) -> *mut c_void {

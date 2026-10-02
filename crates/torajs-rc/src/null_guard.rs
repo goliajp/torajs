@@ -22,15 +22,19 @@ unsafe extern "C" {
 /// Arm a TypeError when `p` is nullish — NULL (JS null) or the
 /// generic undefined sentinel cell (bun/JSC wording per shape).
 /// Any live heap cell passes through untouched.
+///
+/// # Safety
+///
+/// `p` is null, the undefined sentinel cell, or a live heap cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_heap_nullish_check(p: *const c_void) {
     if p.is_null() {
         unsafe {
-            __torajs_throw_type_error(b"null is not an object\0".as_ptr());
+            __torajs_throw_type_error(c"null is not an object".as_ptr().cast());
         }
     } else if crate::undef_cell::is_undef_cell(p as *const u8) {
         unsafe {
-            __torajs_throw_type_error(b"undefined is not an object\0".as_ptr());
+            __torajs_throw_type_error(c"undefined is not an object".as_ptr().cast());
         }
     }
 }

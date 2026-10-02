@@ -68,6 +68,11 @@ unsafe fn header(p: *const c_void) -> &'static HeapHeader {
 /// (`__torajs_obj_check_field_writable`) is stubbed when this atom
 /// and the exotic-field writer are both dead. `inline(never)` keeps
 /// the atom (and its symbol) whole under the in-crate callers.
+///
+/// # Safety
+///
+/// `p` is null or points at a live heap block with the universal
+/// heap header prefix.
 #[inline(never)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_obj_freeze(p: *mut c_void) -> *mut c_void {
@@ -94,6 +99,11 @@ pub unsafe extern "C" fn __torajs_obj_freeze(p: *mut c_void) -> *mut c_void {
 
 /// `Object.isFrozen(p)` — read the FROZEN bit. Static-literal
 /// blocks report `true` (conceptually immutable `.rodata`).
+///
+/// # Safety
+///
+/// `p` is null or points at a live heap block with the universal
+/// heap header prefix.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_obj_is_frozen(p: *const c_void) -> bool {
     if p.is_null() {
@@ -115,6 +125,11 @@ pub unsafe extern "C" fn __torajs_obj_is_frozen(p: *const c_void) -> bool {
 /// Per ES2015+ §19.1.2.6 step 1: non-Object input is returned
 /// unchanged; Object input gets the FROZEN bit and the same box
 /// back.
+///
+/// # Safety
+///
+/// `v` is a NaN-boxed any value; a heap tag must carry a live cell
+/// pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_obj_freeze_any(v: i64) -> i64 {
     const ANY_TAG_HEAP: i64 = 4;
@@ -148,6 +163,11 @@ pub unsafe extern "C" fn __torajs_obj_freeze_any(v: i64) -> i64 {
 ///
 /// NULL is treated as "not frozen" — defensive pass-through; the
 /// null-deref panic lands elsewhere.
+///
+/// # Safety
+///
+/// `p` is null or points at a live heap block with the universal
+/// heap header prefix.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_obj_check_not_frozen(p: *const c_void) {
     if p.is_null() {
@@ -156,7 +176,7 @@ pub unsafe extern "C" fn __torajs_obj_check_not_frozen(p: *const c_void) {
     let h = unsafe { header(p) };
     if h.flags & FLAG_FROZEN != 0 {
         unsafe {
-            __torajs_throw_type_error(b"Attempted to assign to readonly property.\0".as_ptr())
+            __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr().cast())
         };
     }
 }

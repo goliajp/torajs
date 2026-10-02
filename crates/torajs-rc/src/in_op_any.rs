@@ -163,7 +163,11 @@ unsafe fn key_cell_is_symbol(key: *const u8) -> bool {
 pub unsafe fn require_object_rhs(v: i64) -> Option<(*const c_void, u16)> {
     let reject = || {
         unsafe {
-            __torajs_throw_type_error(b"Right hand side of 'in' should be an object\0".as_ptr());
+            __torajs_throw_type_error(
+                c"Right hand side of 'in' should be an object"
+                    .as_ptr()
+                    .cast(),
+            );
         }
         None
     };
@@ -188,6 +192,13 @@ pub unsafe fn require_object_rhs(v: i64) -> Option<(*const c_void, u16)> {
     Some((ptr, type_tag))
 }
 
+/// `in` with a number key on an any rhs; arms a TypeError when the rhs
+/// is not an object.
+///
+/// # Safety
+///
+/// `v` is a NaN-boxed any value; a heap tag must carry a live cell
+/// pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_in_op_any_num(v: i64, key: i64) -> bool {
     let Some((ptr, type_tag)) = (unsafe { require_object_rhs(v) }) else {
@@ -347,7 +358,7 @@ pub unsafe extern "C" fn __torajs_in_op_any_str(v: i64, key: *const u8) -> bool 
     // Int8Array`). The parent is an immortal ctor cell (a heap box is
     // its pointer bits).
     if type_tag == crate::Tag::Closure as u16 {
-        let parent = unsafe { __torajs_builtin_ctor_parent_value(ptr as *const c_void) };
+        let parent = unsafe { __torajs_builtin_ctor_parent_value(ptr) };
         if parent != 0 {
             return unsafe { __torajs_in_op_any_str(parent as i64, key) };
         }
@@ -380,13 +391,8 @@ pub unsafe extern "C" fn __torajs_in_op_any_str(v: i64, key: *const u8) -> bool 
         || type_tag == crate::Tag::TypedArray as u16
         || type_tag == crate::Tag::DataView as u16
     {
-        if unsafe {
-            __torajs_buffer_family_proto_key(
-                ptr as *const c_void,
-                type_tag as i64,
-                key as *const c_void,
-            )
-        } != 0
+        if unsafe { __torajs_buffer_family_proto_key(ptr, type_tag as i64, key as *const c_void) }
+            != 0
         {
             return true;
         }
@@ -452,7 +458,7 @@ mod tests {
         STRUCT_PROTO_RESULT.with(|r| r.set(1));
         let block = make_heap_block(Tag::Obj as u16);
         let boxed = boxed_cell(&block);
-        assert!(unsafe { __torajs_in_op_any_str(boxed, b"m\0".as_ptr()) });
+        assert!(unsafe { __torajs_in_op_any_str(boxed, c"m".as_ptr().cast()) });
         // The class link answered before the Object-root probe ran.
         assert_eq!(CHAIN_SEEN_FAMILY.with(|f| f.get()), -1);
     }
@@ -465,7 +471,7 @@ mod tests {
         STRUCT_PROTO_RESULT.with(|r| r.set(1));
         let block = make_heap_block(Tag::DynObj as u16);
         let boxed = boxed_cell(&block);
-        assert!(!unsafe { __torajs_in_op_any_str(boxed, b"m\0".as_ptr()) });
+        assert!(!unsafe { __torajs_in_op_any_str(boxed, c"m".as_ptr().cast()) });
     }
 
     #[test]
@@ -527,7 +533,7 @@ mod tests {
         set_faces(1, 0);
         let block = make_heap_block(Tag::DynObj as u16);
         let boxed = boxed_cell(&block);
-        assert!(unsafe { __torajs_in_op_any_str(boxed, b"foo\0".as_ptr()) });
+        assert!(unsafe { __torajs_in_op_any_str(boxed, c"foo".as_ptr().cast()) });
     }
 
     #[test]
@@ -535,7 +541,7 @@ mod tests {
         set_faces(0, 1);
         let block = make_heap_block(Tag::Closure as u16);
         let boxed = boxed_cell(&block);
-        assert!(unsafe { __torajs_in_op_any_str(boxed, b"call\0".as_ptr()) });
+        assert!(unsafe { __torajs_in_op_any_str(boxed, c"call".as_ptr().cast()) });
         // The closure routed to the Function family.
         assert_eq!(
             CHAIN_SEEN_FAMILY.with(|f| f.get()),
@@ -548,7 +554,7 @@ mod tests {
         set_faces(0, 0);
         let block = make_heap_block(Tag::DynObj as u16);
         let boxed = boxed_cell(&block);
-        assert!(!unsafe { __torajs_in_op_any_str(boxed, b"foo\0".as_ptr()) });
+        assert!(!unsafe { __torajs_in_op_any_str(boxed, c"foo".as_ptr().cast()) });
     }
 
     #[test]
@@ -563,7 +569,7 @@ mod tests {
         set_faces(0, 1);
         let block = make_heap_block(Tag::Response as u16);
         let boxed = boxed_cell(&block);
-        assert!(!unsafe { __torajs_in_op_any_str(boxed, b"foo\0".as_ptr()) });
+        assert!(!unsafe { __torajs_in_op_any_str(boxed, c"foo".as_ptr().cast()) });
         assert_eq!(CHAIN_SEEN_FAMILY.with(|f| f.get()), -1);
     }
 
@@ -588,7 +594,7 @@ mod tests {
             set_faces(0, 0);
             let block = make_heap_block(heap_tag);
             let boxed = boxed_cell(&block);
-            assert!(!unsafe { __torajs_in_op_any_str(boxed, b"x\0".as_ptr()) });
+            assert!(!unsafe { __torajs_in_op_any_str(boxed, c"x".as_ptr().cast()) });
             assert_eq!(
                 CHAIN_SEEN_FAMILY.with(|f| f.get()),
                 family,
@@ -601,7 +607,7 @@ mod tests {
     fn str_non_heap_tag_throws() {
         let boxed = nan_box(2, 0x1234_5678);
         assert_eq!(
-            thrown_by(|| unsafe { __torajs_in_op_any_str(boxed, b"foo\0".as_ptr()) }),
+            thrown_by(|| unsafe { __torajs_in_op_any_str(boxed, c"foo".as_ptr().cast()) }),
             (false, true)
         );
     }
@@ -610,7 +616,7 @@ mod tests {
     fn str_null_ptr_throws() {
         let boxed = nan_box(ANY_TAG_HEAP, 0);
         assert_eq!(
-            thrown_by(|| unsafe { __torajs_in_op_any_str(boxed, b"foo\0".as_ptr()) }),
+            thrown_by(|| unsafe { __torajs_in_op_any_str(boxed, c"foo".as_ptr().cast()) }),
             (false, true)
         );
     }
@@ -625,7 +631,7 @@ mod tests {
             let block = make_heap_block(tag);
             let boxed = boxed_cell(&block);
             assert_eq!(
-                thrown_by(|| unsafe { __torajs_in_op_any_str(boxed, b"foo\0".as_ptr()) }),
+                thrown_by(|| unsafe { __torajs_in_op_any_str(boxed, c"foo".as_ptr().cast()) }),
                 (false, true),
                 "type_tag {tag}"
             );
@@ -640,7 +646,7 @@ mod tests {
         let block = make_heap_block(Tag::DynObj as u16);
         let boxed = boxed_cell(&block);
         assert_eq!(
-            thrown_by(|| unsafe { __torajs_in_op_any_str(boxed, b"foo\0".as_ptr()) }),
+            thrown_by(|| unsafe { __torajs_in_op_any_str(boxed, c"foo".as_ptr().cast()) }),
             (false, false)
         );
     }

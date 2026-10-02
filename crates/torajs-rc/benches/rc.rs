@@ -24,6 +24,10 @@ use torajs_rc::{__torajs_rc_dec, __torajs_rc_inc, FLAG_STATIC_LITERAL, HeapHeade
 // bench binary needs the WeakRef hook; runtime_weakref.c would
 // provide it in the real binary. No-op stub matches the runtime
 // behavior when no WeakRef is alive (single untaken branch).
+/// # Safety
+///
+/// Link stub for this binary: no WeakRef is alive, so there is no
+/// precondition.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_weakref_target_dying(_target: *mut c_void) {}
 

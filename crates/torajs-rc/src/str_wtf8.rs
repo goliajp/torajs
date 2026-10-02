@@ -97,4 +97,9 @@ impl StrWtf8 {
     pub fn len(&self) -> u32 {
         self.as_bytes().len() as u32
     }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.as_bytes().is_empty()
+    }
 }

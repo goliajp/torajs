@@ -114,6 +114,11 @@ const DYNOBJ_NULL_PROTO: u16 = 1 << 6;
 /// out-of-range tag) all collapse to `false` rather than UB. This
 /// matches ssa_lower's `Type::Obj`-path discipline of never panic-
 /// crashing on an unexpected runtime layout.
+///
+/// # Safety
+///
+/// `v` is a NaN-boxed any value; a heap tag must carry a live cell
+/// pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_instanceof_class_any_tag(v: i64, expected_tag: i64) -> bool {
     // SAFETY: extern entries are wired to the runtime NaN-box

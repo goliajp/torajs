@@ -46,12 +46,16 @@ const HDR_TYPE_TAG_OFF: usize = 4;
 /// poor way to learn that invariant was wrong.
 const MAX_PROXY_DEPTH: usize = 1000;
 
-/// §7.2.2. `Ok(true)` / `Ok(false)`, or `Err(())` with the step 3.a
-/// TypeError already in flight.
+/// The step 3.a TypeError is in flight: the walk met a revoked proxy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Revoked;
+
+/// §7.2.2. `Ok(true)` / `Ok(false)`, or `Err(Revoked)` with the step
+/// 3.a TypeError already in flight.
 ///
 /// # Safety
 /// `v` is an unconstrained i64; every step is defensive.
-pub unsafe fn is_array_spec(v: i64) -> Result<bool, ()> {
+pub unsafe fn is_array_spec(v: i64) -> Result<bool, Revoked> {
     let mut cur = v;
     for _ in 0..MAX_PROXY_DEPTH {
         if unsafe { __torajs_anyv_unbox_tag(cur) } != ANY_TAG_HEAP {
@@ -71,10 +75,12 @@ pub unsafe fn is_array_spec(v: i64) -> Result<bool, ()> {
         if handler == ANY_VALUE_NULL {
             unsafe {
                 __torajs_throw_type_error(
-                    b"Cannot perform 'IsArray' on a proxy that has been revoked\0".as_ptr(),
+                    c"Cannot perform 'IsArray' on a proxy that has been revoked"
+                        .as_ptr()
+                        .cast(),
                 )
             };
-            return Err(());
+            return Err(Revoked);
         }
         cur = unsafe { *((ptr as *const u8).add(PROXY_TARGET_OFF) as *const i64) };
     }
@@ -91,7 +97,7 @@ pub unsafe extern "C" fn __torajs_any_is_array_spec(v: i64) -> i64 {
     match unsafe { is_array_spec(v) } {
         Ok(true) => 1,
         Ok(false) => 0,
-        Err(()) => -1,
+        Err(Revoked) => -1,
     }
 }
 
@@ -217,6 +223,6 @@ mod tests {
     fn revoked_proxy_throws_rather_than_answering() {
         let arr = block(TAG_ARR, 0);
         let revoked = proxy_block(boxed(&arr), ANY_VALUE_NULL);
-        assert_eq!(unsafe { is_array_spec(boxed(&revoked)) }, Err(()));
+        assert_eq!(unsafe { is_array_spec(boxed(&revoked)) }, Err(Revoked));
     }
 }

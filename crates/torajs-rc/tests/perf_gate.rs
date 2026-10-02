@@ -16,6 +16,10 @@ use torajs_rc::{
 
 // As in benches/rc.rs — perf_gate is a stand-alone integration
 // test binary, so we provide the WeakRef hook stub here too.
+/// # Safety
+///
+/// Link stub for this binary: no WeakRef is alive, so there is no
+/// precondition.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_weakref_target_dying(_target: *mut c_void) {}
 

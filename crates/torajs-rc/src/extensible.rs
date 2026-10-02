@@ -52,6 +52,11 @@ unsafe fn header(p: *const c_void) -> &'static HeapHeader {
 /// blocks pass through without bit-flip (writing to `.rodata` would
 /// SIGBUS); they already read as non-extensible via
 /// [`__torajs_obj_is_extensible`].
+///
+/// # Safety
+///
+/// `p` is null or points at a live heap block with the universal
+/// heap header prefix.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_obj_prevent_extensions(p: *mut c_void) -> *mut c_void {
     if p.is_null() {
@@ -73,6 +78,11 @@ pub unsafe extern "C" fn __torajs_obj_prevent_extensions(p: *mut c_void) -> *mut
 /// extensible per spec §7.3.15 default; callers that want primitive
 /// (Str/Symbol/BigInt cell) non-Object semantics gate on the heap
 /// tag at the anyv layer above.
+///
+/// # Safety
+///
+/// `p` is null or points at a live heap block with the universal
+/// heap header prefix.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_obj_is_extensible(p: *const c_void) -> bool {
     if p.is_null() {
@@ -94,6 +104,11 @@ pub unsafe extern "C" fn __torajs_obj_is_extensible(p: *const c_void) -> bool {
 /// NULL and static-literal blocks short-circuit per the same SIGBUS
 /// constraint that gates `prevent_extensions`. Returns `p` so the
 /// caller can chain the AnyValue cell return through.
+///
+/// # Safety
+///
+/// `p` is null or points at a live heap block with the universal
+/// heap header prefix.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_obj_seal_mark(p: *mut c_void) -> *mut c_void {
     if p.is_null() {
@@ -115,6 +130,11 @@ pub unsafe extern "C" fn __torajs_obj_seal_mark(p: *mut c_void) -> *mut c_void {
 ///
 /// Static-literal blocks report `true` (they were sealed in `.rodata`
 /// at allocation time).
+///
+/// # Safety
+///
+/// `p` is null or points at a live heap block with the universal
+/// heap header prefix.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_obj_is_sealed_marked(p: *const c_void) -> bool {
     if p.is_null() {

@@ -6,6 +6,7 @@
 
 use core::ffi::c_void;
 
+use torajs_rc::is_array::Revoked;
 use torajs_rc::{ANY_METHOD_HAS_OWN_PROPERTY, ANY_METHOD_PROPERTY_IS_ENUMERABLE, AnySlotTag, Tag};
 
 use crate::nanbox::{
@@ -210,7 +211,7 @@ pub(crate) unsafe fn arr_to_string_borrowed(recv: AnyValue) -> AnyValue {
 ///
 /// # Safety
 /// `recv` carries a valid AnyValue bit pattern.
-unsafe fn is_array_spec(recv: AnyValue) -> Result<bool, ()> {
+unsafe fn is_array_spec(recv: AnyValue) -> Result<bool, Revoked> {
     unsafe { torajs_rc::is_array::is_array_spec(recv as i64) }
 }
 
@@ -222,7 +223,7 @@ pub(crate) unsafe fn object_proto_to_string(recv: AnyValue) -> AnyValue {
         false
     } else {
         match unsafe { is_array_spec(recv) } {
-            Err(()) => return VALUE_UNDEFINED,
+            Err(Revoked) => return VALUE_UNDEFINED,
             Ok(b) => b,
         }
     };

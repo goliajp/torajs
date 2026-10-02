@@ -39,6 +39,11 @@ static DELETED_MIDS: [[AtomicU64; DELETED_MASK_WORDS]; NUM_BUILTIN_PROTOS] =
 /// Mark `<proto tag>`'s interned method `mid` as deleted. Idempotent;
 /// out-of-range inputs are ignored (defensive — callers gate on the
 /// family-owns check first).
+///
+/// # Safety
+///
+/// Any `tag` / `mid` pair is accepted; out-of-range inputs are ignored
+/// or answer 0. The masks are process-global atomics.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_builtin_proto_mark_deleted(tag: i64, mid: i64) {
     let (t, m) = (tag as usize, mid as usize);
@@ -51,6 +56,11 @@ pub unsafe extern "C" fn __torajs_builtin_proto_mark_deleted(tag: i64, mid: i64)
 /// 1 = `<proto tag>`'s interned method `mid` was deleted (and no
 /// dynobj own entry has since shadowed the question — the caller
 /// probes entries first). Out-of-range inputs answer 0.
+///
+/// # Safety
+///
+/// Any `tag` / `mid` pair is accepted; out-of-range inputs are ignored
+/// or answer 0. The masks are process-global atomics.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_builtin_proto_is_deleted(tag: i64, mid: i64) -> i64 {
     let (t, m) = (tag as usize, mid as usize);
@@ -118,6 +128,11 @@ pub unsafe extern "C" fn __torajs_builtin_proto_note_own_write(
 /// 1 = a user own entry was written on `<proto tag>`'s singleton
 /// under interned method `mid` at some point (see the sticky note
 /// above). The primitive fast-arm pre-gate's single load.
+///
+/// # Safety
+///
+/// Any `tag` / `mid` pair is accepted; out-of-range inputs are ignored
+/// or answer 0. The masks are process-global atomics.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_builtin_proto_has_patch(tag: i64, mid: i64) -> i64 {
     let (t, m) = (tag as usize, mid as usize);
@@ -136,6 +151,11 @@ pub unsafe extern "C" fn __torajs_builtin_proto_has_patch(tag: i64, mid: i64) ->
 /// to take the slow path to find out which. Keeping them as one
 /// front gate is what lets the unpatched, undeleted program pay two
 /// relaxed loads and nothing else per method call.
+///
+/// # Safety
+///
+/// Any `tag` / `mid` pair is accepted; out-of-range inputs are ignored
+/// or answer 0. The masks are process-global atomics.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_builtin_proto_is_shadowed(tag: i64, mid: i64) -> i64 {
     let (t, m) = (tag as usize, mid as usize);

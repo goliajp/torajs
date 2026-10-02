@@ -178,17 +178,11 @@ pub fn any_method_families(mid: i64) -> u16 {
         }
         // ---- iterator protocol / helpers ----
         ANY_METHOD_NEXT => FAM_ITER,
-        m if matches!(
-            m,
-            it::ANY_METHOD_TAKE
-                | it::ANY_METHOD_DROP
-                | it::ANY_METHOD_TO_ARRAY
-                | it::ANY_METHOD_ITER_SELF
-                | it::ANY_METHOD_ITER_DISPOSE
-        ) =>
-        {
-            FAM_ITER
-        }
+        it::ANY_METHOD_TAKE
+        | it::ANY_METHOD_DROP
+        | it::ANY_METHOD_TO_ARRAY
+        | it::ANY_METHOD_ITER_SELF
+        | it::ANY_METHOD_ITER_DISPOSE => FAM_ITER,
         // gen return rides the closure family's step cells too
         ANY_METHOD_ITER_RETURN => FAM_ITER | FAM_CLOSURE,
         ANY_METHOD_STR_ITERATOR => FAM_STR | FAM_ITER,
