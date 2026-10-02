@@ -345,7 +345,7 @@ mod tests {
     #[test]
     fn every_line_fits_the_buffer() {
         for id in 0..64u64 {
-            assert!(line(id).1 + 1 <= REJECT_MSG_CAP, "id {id}");
+            assert!(line(id).1 < REJECT_MSG_CAP, "id {id}");
         }
     }
 }

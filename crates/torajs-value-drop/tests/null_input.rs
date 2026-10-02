@@ -20,6 +20,8 @@ use torajs_value_drop::__torajs_value_drop_heap;
 // test failure by construction.
 macro_rules! per_tag_drop_stub {
     ($($name:ident),+ $(,)?) => {$(
+        /// # Safety
+        /// Never called; any call panics.
         #[unsafe(no_mangle)]
         pub unsafe extern "C" fn $name(_p: *mut std::ffi::c_void) {
             panic!(concat!(
@@ -78,6 +80,8 @@ per_tag_drop_stub!(
 // registry on death. No-op stub (not panicking) — same convention as
 // torajs-anyvalue's unit-test stub: a future test legitimately
 // reaching rc_dec must not trip over the notification hook.
+/// # Safety
+/// No-op; accepts any pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_weakref_target_dying(_target: *mut std::ffi::c_void) {}
 

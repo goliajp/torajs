@@ -83,9 +83,9 @@ unsafe extern "C" {
     fn __torajs_cycle_unbuffer(p: *mut c_void);
 }
 
-/// Byte layout constants — mirror-referenced by ssa_lower emit sites
-/// (`__torajs_wrapper::*_OFF`). Every offset is `usize` so LLVM constant-
-/// folds them into the generated `getelementptr` sequences.
+// byte layout constants — mirror-referenced by ssa_lower emit sites
+// (`__torajs_wrapper::*_OFF`). every offset is `usize` so LLVM constant-
+// folds them into the generated `getelementptr` sequences
 
 pub const WRAPPER_HDR_SIZE: usize = 8;
 
@@ -321,7 +321,8 @@ pub unsafe extern "C" fn __torajs_boolean_wrapper_new(val: u8) -> *mut u8 {
     let ptr = unsafe { libc_malloc(BOOLEAN_WRAPPER_SIZE) } as *mut u8;
     unsafe {
         init_wrapper_header(ptr, Tag::BooleanWrapper);
-        (ptr.add(BOOLEAN_WRAPPER_VALUE_OFF) as *mut u8).write(if val != 0 { 1 } else { 0 });
+        ptr.add(BOOLEAN_WRAPPER_VALUE_OFF)
+            .write(if val != 0 { 1 } else { 0 });
         // Zero the remaining 7 pad bytes so tag inspectors reading
         // wider than a byte see stable content.
         for i in 1..8 {
@@ -582,14 +583,14 @@ mod tests {
     #[test]
     fn number_wrapper_new_and_read() {
         unsafe {
-            let p = __torajs_number_wrapper_new(3.14);
+            let p = __torajs_number_wrapper_new(2.5);
             assert!(!p.is_null());
             let hdr = &*(p as *const HeapHeader);
             assert_eq!(hdr.refcount, 1);
             assert_eq!(hdr.type_tag, Tag::NumberWrapper as u16);
             assert_eq!(hdr.flags, 0);
             let v = number_wrapper_value(p);
-            assert!((v - 3.14).abs() < 1e-9);
+            assert!((v - 2.5).abs() < 1e-9);
             __torajs_number_wrapper_drop_rc(p as *mut c_void);
         }
     }

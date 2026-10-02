@@ -167,7 +167,8 @@ pub unsafe extern "C" fn __torajs_boolean_wrapper_subclass_super(this_av: u64, v
         if p.is_null() {
             return this_av;
         }
-        (p.add(BOOLEAN_WRAPPER_VALUE_OFF) as *mut u8).write(if b { 1 } else { 0 });
+        p.add(BOOLEAN_WRAPPER_VALUE_OFF)
+            .write(if b { 1 } else { 0 });
         __torajs_rc_inc(p as *mut c_void);
     }
     this_av
