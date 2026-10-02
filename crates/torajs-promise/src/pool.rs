@@ -290,6 +290,21 @@ pub unsafe extern "C" fn __torajs_promise_resolve_thenable(p: *mut c_void) -> *m
     unsafe { __torajs_promise_alloc_rejected(0) }
 }
 
+/// Can the cycle collector descend into this cell? Mirror of
+/// torajs-cycle `layout_bag::is_visitable_bag`'s TAG_PROMISE answer
+/// (the only arm of `has_walkable_children` a promise can take):
+/// not a static literal, and either a live expando bag or an owned
+/// settled heap value (`torajs-cycle/src/promise.rs::promise_value`).
+/// Must move in lockstep with both.
+#[inline]
+pub(crate) unsafe fn cycle_candidate(pp: *const Promise) -> bool {
+    unsafe {
+        (*pp).header.flags & FLAG_STATIC_LITERAL == 0
+            && (!(*pp).props.is_null()
+                || ((*pp).value_is_heap != 0 && (*pp).state != STATE_PENDING && (*pp).value != 0))
+    }
+}
+
 /// rc-aware drop. Called from `value_drop_heap`'s TAG_PROMISE case.
 /// On last owner: free residual cb list, drop heap value if any,
 /// return Promise to pool (or free if pool full).
@@ -301,14 +316,17 @@ pub unsafe extern "C" fn __torajs_promise_drop(p: *mut c_void) {
     if p.is_null() {
         return;
     }
+    let pp = as_promise(p);
     if unsafe { __torajs_rc_dec(p) } == 0 {
-        // Still referenced. A live own-property bag makes this cell a
-        // potential cycle root — the shape rotation 528 taught the
-        // collector to walk, and the reason it can now be reached.
-        unsafe { __torajs_cycle_buffer(p) };
+        // Still referenced. Only a cell the collector can descend
+        // into is a candidate root; `cycle_buffer` would ask the same
+        // question and answer no for the common bagless pending /
+        // primitive-valued promise, so the call is skipped here.
+        if unsafe { cycle_candidate(pp) } {
+            unsafe { __torajs_cycle_buffer(p) };
+        }
         return;
     }
-    let pp = as_promise(p);
     unsafe {
         // Defensive: STATIC_LITERAL Promise (none in practice today;
         // the universal drop dispatch sees the bit and skips, but
@@ -344,5 +362,49 @@ pub unsafe extern "C" fn __torajs_promise_drop(p: *mut c_void) {
         // leave a dangling candidate. No-op when never buffered.
         __torajs_cycle_unbuffer(p);
         promise_release_(pp);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cell(flags: u16, state: u8, is_heap: u8, value: i64, props: *mut c_void) -> Promise {
+        Promise {
+            header: HeapHeader {
+                refcount: 1,
+                type_tag: TAG_PROMISE,
+                flags,
+            },
+            state,
+            value_is_heap: is_heap,
+            has_handler: 0,
+            value_repr: 0,
+            _pad: [0; 4],
+            value,
+            callbacks: ptr::null_mut(),
+            props,
+        }
+    }
+
+    // truth table of torajs-cycle's `is_visitable_bag` for TAG_PROMISE
+    #[test]
+    fn cycle_candidate_matches_the_collector_predicate() {
+        let bag = 0x1000 as *mut c_void;
+        let heap = 0x2000;
+        // bagless, primitive-valued or pending: never a root
+        assert!(!unsafe { cycle_candidate(&cell(0, STATE_PENDING, 0, 0, ptr::null_mut())) });
+        assert!(!unsafe { cycle_candidate(&cell(0, STATE_FULFILLED, 0, 7, ptr::null_mut())) });
+        assert!(!unsafe { cycle_candidate(&cell(0, STATE_PENDING, 1, heap, ptr::null_mut())) });
+        assert!(!unsafe { cycle_candidate(&cell(0, STATE_FULFILLED, 1, 0, ptr::null_mut())) });
+        // owned settled heap value, either state
+        assert!(unsafe { cycle_candidate(&cell(0, STATE_FULFILLED, 1, heap, ptr::null_mut())) });
+        assert!(unsafe { cycle_candidate(&cell(0, STATE_REJECTED, 1, heap, ptr::null_mut())) });
+        // a live bag alone qualifies
+        assert!(unsafe { cycle_candidate(&cell(0, STATE_PENDING, 0, 0, bag)) });
+        // a static literal never does
+        assert!(!unsafe {
+            cycle_candidate(&cell(FLAG_STATIC_LITERAL, STATE_FULFILLED, 1, heap, bag))
+        });
     }
 }
