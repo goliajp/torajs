@@ -25,6 +25,29 @@ use crate::parser::{RE_FLAG_G, RE_FLAG_Y};
 use crate::vm::result::INLINE_SLOTS;
 use crate::vm::{MatchResult, match_anchor, search_from_with_ws};
 
+/// The argument checks of one exec: `None` for a null argument, else
+/// the regex and the view of its subject's payload. A rejected
+/// pattern aborts here.
+///
+/// # Safety
+///
+/// `re_ptr` is null or a live `*RegExp`; `str_ptr` is null or a
+/// live `*Str`.
+#[inline]
+pub(crate) unsafe fn exec_open<'a>(
+    re_ptr: *const c_void,
+    str_ptr: *const c_void,
+) -> Option<(&'a mut RegExp, UnitsView<'a>)> {
+    if re_ptr.is_null() || str_ptr.is_null() {
+        return None;
+    }
+    let re = unsafe { as_regex_mut(re_ptr as *mut c_void) };
+    if re.rejected != 0 {
+        abort_unsupported(re);
+    }
+    Some((re, unsafe { str_units_view(str_ptr) }))
+}
+
 /// Run one exec search and hand the hit to `on_hit(re, subject, m)`.
 /// `None` for a null argument, a refused lastIndex store (the
 /// TypeError is already recorded) and a miss; lastIndex is updated
@@ -39,17 +62,32 @@ pub(crate) unsafe fn exec_find<R>(
     str_ptr: *const c_void,
     on_hit: impl FnOnce(&RegExp, &Subject, &MatchResult) -> R,
 ) -> Option<R> {
-    if re_ptr.is_null() || str_ptr.is_null() {
-        return None;
-    }
-    let re = unsafe { as_regex_mut(re_ptr as *mut c_void) };
-    if re.rejected != 0 {
-        abort_unsupported(re);
-    }
-    let view = unsafe { str_units_view(str_ptr) };
+    let (re, view) = unsafe { exec_open(re_ptr, str_ptr) }?;
     if let Some(f) = matcher_for(re, &view) {
-        return unsafe { exec_matcher(re, str_ptr, &view, f, on_hit) };
+        let stride = re.matcher_stride as usize;
+        let mut m = None;
+        unsafe {
+            exec_matcher(re, &view, |from| {
+                m = run_matcher(f, stride, &view, from);
+                m.as_ref().map_or(-1, |m| m.end)
+            })
+        }?;
+        return m.map(|m| on_hit(re, &Subject::units(str_ptr, view.len()), &m));
     }
+    unsafe { exec_engine(re, str_ptr, on_hit) }
+}
+
+/// The search through the runtime engine over the ASCII payload in
+/// place or a transcoded copy; the lastIndex flow is the spec's.
+///
+/// # Safety
+///
+/// `re` is the regex of a live `*Str` at `str_ptr`.
+pub(crate) unsafe fn exec_engine<R>(
+    re: &mut RegExp,
+    str_ptr: *const c_void,
+    on_hit: impl FnOnce(&RegExp, &Subject, &MatchResult) -> R,
+) -> Option<R> {
     // zero-copy ASCII Latin-1 view; transcode fallback for the rest
     let _s_owned: Vec<u8>;
     let (s, haystack_is_ascii): (&[u8], bool) = match unsafe { str_slice_ascii_view(str_ptr) } {
@@ -170,43 +208,43 @@ pub(crate) fn search_start(view: &UnitsView<'_>, flags: u8, start: i64) -> i64 {
     }
 }
 
-/// The search through the literal's own matcher over the string's
-/// payload: offsets are code units already, and the row it fills is
-/// the Pike VM's, so `on_hit` sees the same `MatchResult`. `g` and
-/// `y` decide the lastIndex flow; the anchoring a sticky pattern
-/// needs is compiled into its matcher.
+/// The lastIndex flow of one exec through the literal's matcher:
+/// `search(from)` runs it over the string's payload and answers the
+/// match end or -1. Offsets are code units already, and the anchoring
+/// a sticky pattern needs is compiled into its matcher; `g` and `y`
+/// decide whether lastIndex is read and stored. Answers the end on a
+/// hit; `None` for a refused store and a miss, lastIndex reset as
+/// the spec's exec does.
 ///
 /// # Safety
 ///
-/// `view` is the payload of `str_ptr` and `f` was synthesized for its
-/// encoding.
-unsafe fn exec_matcher<R>(
+/// `view` is the payload the matcher `search` runs was synthesized
+/// for.
+#[inline(always)]
+pub(crate) unsafe fn exec_matcher(
     re: &mut RegExp,
-    str_ptr: *const c_void,
     view: &UnitsView<'_>,
-    f: MatcherFn,
-    on_hit: impl FnOnce(&RegExp, &Subject, &MatchResult) -> R,
-) -> Option<R> {
+    search: impl FnOnce(i64) -> i64,
+) -> Option<i64> {
     let track = re.flags & (RE_FLAG_G | RE_FLAG_Y) != 0;
     if track && unsafe { super::lifecycle::tracked_store_refuses(re) } {
         return None;
     }
     let len = view.len() as i64;
     let start = if track { re.last_index_i64() } else { 0 };
-    let m = if start > len {
-        None
+    let end = if start > len {
+        -1
     } else {
-        let from = search_start(view, re.flags, start);
-        unsafe { run_matcher(f, re.matcher_stride as usize, view, from) }
+        search(search_start(view, re.flags, start))
     };
-    let Some(m) = m else {
+    if end < 0 {
         if track {
             re.set_last_index_num(0.0);
         }
         return None;
-    };
-    if track {
-        re.set_last_index_num(m.end as f64);
     }
-    Some(on_hit(re, &Subject::units(str_ptr, view.len()), &m))
+    if track {
+        re.set_last_index_num(end as f64);
+    }
+    Some(end)
 }
