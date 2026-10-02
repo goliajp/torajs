@@ -21,9 +21,14 @@
 //! walk can still touch (`slots_written_past_accept`) are copied
 //! aside at the accept and put back when the walk dies with that
 //! accept as its answer.
+//!
+//! When the start state enters one state on a class that state loops
+//! on (`leading_run_state`), a dead attempt resumes the scan past the
+//! run it began (`resume.rs`) instead of one unit after its start.
 
 mod dispatch;
 mod probes;
+mod resume;
 
 use crate::ssa::{BinOp, BlockId, Function, IPred, InstKind, Operand, Terminator, Type, ValueId};
 use torajs_regex::onepass::{Edge, MatcherIr, Variant};
@@ -43,6 +48,11 @@ pub(crate) fn walk(name: &str, ir: &MatcherIr) -> Function {
     let miss = f.add_block();
     let states: Vec<BlockId> = ir.states.iter().map(|_| f.add_block()).collect();
     let held = ir.slots_written_past_accept();
+    let run = if ir.anchored {
+        None
+    } else {
+        ir.leading_run_state()
+    };
 
     let st_slot = f.append_inst(entry, InstKind::Alloca(Type::I64), Type::Ptr, Some("st"));
     let pos_slot = f.append_inst(entry, InstKind::Alloca(Type::I64), Type::Ptr, Some("pos"));
@@ -52,6 +62,15 @@ pub(crate) fn walk(name: &str, ir: &MatcherIr) -> Function {
             f.append_inst(entry, InstKind::Alloca(Type::I64), Type::Ptr, Some("cp")),
             f.append_inst(entry, InstKind::Alloca(Type::I64), Type::Ptr, Some("step")),
         )
+    });
+    let resume = run.map(|s| {
+        let slot = f.append_inst(
+            entry,
+            InstKind::Alloca(Type::I64),
+            Type::Ptr,
+            Some("resume"),
+        );
+        (s as usize, slot)
     });
     let backup = (!held.is_empty()).then(|| {
         f.append_inst(
@@ -79,6 +98,7 @@ pub(crate) fn walk(name: &str, ir: &MatcherIr) -> Function {
         pair_slots,
         backup,
         held,
+        resume,
         states,
         next_st,
         dead,
@@ -100,7 +120,8 @@ pub(crate) fn walk(name: &str, ir: &MatcherIr) -> Function {
     // dead: the walk found no edge; the last accept answers if there was one
     let last = e.load(dead, last_slot, 0);
     let hit = e.icmp(dead, IPred::Sge, last, Operand::ConstI64(0));
-    e.cond_br(dead, hit, restore, next_st);
+    let again = e.resume_scan();
+    e.cond_br(dead, hit, restore, again);
     if let Some(backup) = e.backup {
         for (k, &slot) in e.held.clone().iter().enumerate() {
             let v = e.load(restore, backup, 8 * k as u64);
@@ -129,6 +150,8 @@ struct Emit<'a> {
     pair_slots: Option<(ValueId, ValueId)>,
     backup: Option<ValueId>,
     held: Vec<u32>,
+    /// the run state and the slot holding the position its run ended at
+    resume: Option<(usize, ValueId)>,
     states: Vec<BlockId>,
     next_st: BlockId,
     dead: BlockId,
@@ -224,25 +247,29 @@ impl Emit<'_> {
         // the start state is never an edge target, so an attempt begins
         // either at its top (it can accept before consuming) or on the
         // edge it takes
-        let accepts = node.accepts_anywhere();
-        let fresh_on_edge = i == 0 && !accepts;
-        if i == 0 && accepts {
+        if i == 0 && node.accepts_anywhere() {
             self.begin_attempt(blk);
         }
         let pos = self.load(blk, self.pos_slot, 0);
         if node.probes == 0 {
-            self.variant(blk, pos, &node.variants[0], fresh_on_edge);
+            self.variant(blk, pos, &node.variants[0], i);
             return;
         }
         let leaves: Vec<BlockId> = node.variants.iter().map(|_| self.f.add_block()).collect();
         self.probe_tree(blk, pos, node.probes, 0, 0, &leaves);
         for (v, &leaf) in node.variants.iter().zip(&leaves) {
-            self.variant(leaf, pos, v, fresh_on_edge);
+            self.variant(leaf, pos, v, i);
         }
     }
 
-    /// The body of one variant from `blk`, at `pos`.
-    fn variant(&mut self, blk: BlockId, pos: ValueId, v: &Variant, fresh_on_edge: bool) {
+    /// an attempt that begins on state 0's edge has no row to clear
+    /// before the edge is taken
+    fn fresh_on_edge(&self, i: usize) -> bool {
+        i == 0 && !self.ir.states[0].accepts_anywhere()
+    }
+
+    /// The body of one variant of state `i` from `blk`, at `pos`.
+    fn variant(&mut self, blk: BlockId, pos: ValueId, v: &Variant, i: usize) {
         let ir = self.ir;
         let out = self.out;
         if let Some(acc) = &v.accept {
@@ -261,11 +288,7 @@ impl Emit<'_> {
             }
             self.store(blk, Operand::Value(pos), self.last_slot, 0);
         }
-        let fail = if fresh_on_edge {
-            self.next_st
-        } else {
-            self.dead
-        };
+        let fail = self.fail_block(i, pos);
         if v.edges.is_empty() {
             self.f.set_term(blk, Terminator::Br(fail));
             return;
@@ -285,7 +308,7 @@ impl Emit<'_> {
                     Some(first) => taken[first],
                     None => {
                         let blk = self.f.add_block();
-                        self.take_edge(blk, pos, edge, step, fresh_on_edge);
+                        self.take_edge(blk, pos, edge, step, i);
                         blk
                     }
                 };
@@ -307,24 +330,18 @@ impl Emit<'_> {
                 let cond = self.in_range(cur, u, edge.lo, edge.hi);
                 self.cond_br(cur, cond, taken, next);
             }
-            self.take_edge(taken, pos, edge, step, fresh_on_edge);
+            self.take_edge(taken, pos, edge, step, i);
             cur = next;
         }
     }
 
-    /// The body of an edge from `blk`: its saves at `pos`, the cursor
-    /// past the unit, and the branch to its target.
-    fn take_edge(
-        &mut self,
-        blk: BlockId,
-        pos: ValueId,
-        edge: &Edge,
-        step: Operand,
-        fresh_on_edge: bool,
-    ) {
-        if fresh_on_edge {
+    /// The body of an edge of state `i` from `blk`: its saves at
+    /// `pos`, the cursor past the unit, and the branch to its target.
+    fn take_edge(&mut self, blk: BlockId, pos: ValueId, edge: &Edge, step: Operand, i: usize) {
+        if self.fresh_on_edge(i) {
             self.begin_attempt(blk);
         }
+        self.note_run_end(blk, i, edge.target as usize, pos);
         for &slot in &edge.saves {
             self.store(blk, Operand::Value(pos), self.out, 8 * slot as u64);
         }

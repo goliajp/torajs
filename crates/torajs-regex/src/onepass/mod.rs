@@ -17,6 +17,7 @@
 pub mod analyze;
 pub mod fold;
 pub mod ir;
+mod shape;
 mod units;
 
 pub use analyze::build;
