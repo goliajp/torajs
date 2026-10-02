@@ -1,7 +1,7 @@
 # torajs-microtask performance budgets
 
 `torajs-microtask` runs every Promise reaction + every `queueMicrotask`
-in user code. For Promise-heavy workloads (promise-chain-1k, promise-
+in user code. For Promise-heavy workloads (promise-chain-1m, promise-
 then-100k) the per-task enqueue + dispatch cost shows up directly in
 bench numbers. Latency budget per op is in low-ns territory.
 

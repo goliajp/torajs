@@ -92,7 +92,7 @@ cases = [
 
 [categories.multibyte_string]
 weight = 6
-cases = ["multibyte-concat-100k"]
+cases = ["multibyte-concat-5m"]
 
 [categories.json]
 weight = 14
@@ -106,9 +106,9 @@ cases = ["class-method-100k", "tokenizer-parser-eval-10k"]
 weight = 10
 cases = [
   "async-fn-call-100k",
-  "promise-all-1k",
+  "promise-all-1m",
   "promise-await-100k",
-  "promise-chain-1k",
+  "promise-chain-1m",
   "promise-then-100k",
 ]
 

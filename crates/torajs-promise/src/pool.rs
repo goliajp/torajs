@@ -3,8 +3,8 @@
 //!
 //! Port of the P-PERF.A6 pool + T-15.a alloc + T-19.f thenable
 //! absorption + T-15.g.7 drop sections of `runtime_promise.c`
-//! (P6.1, 2026-05-24). Hot Promise benchmarks (promise-chain-1k,
-//! promise-all-1k, promise-await-100k, promise-then-100k) allocate
+//! (P6.1, 2026-05-24). Hot Promise benchmarks (promise-chain-1m,
+//! promise-all-1m, promise-await-100k, promise-then-100k) allocate
 //! + free hundreds-of-thousands of Promises in tight loops — the
 //! pool turns each pair into a head-only LIFO pop/push instead of
 //! a libc malloc/free pair (~10× faster on hot paths).

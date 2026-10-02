@@ -449,7 +449,7 @@ impl<'a> FnToClosureCollector<'a> {
     /// Rotation 652 — a top-FnDecl handler of a `.then` / `.catch` /
     /// `.finally` call gets a FORWARDER but keeps its raw FnSig at
     /// the site: the typed chain lane dispatches the bare address
-    /// (`promise-then-100k` / `promise-chain-1k` are exactly
+    /// (`promise-then-100k` / `promise-chain-1m` are exactly
     /// `.then(add1)`), and only the own-`then` split's patched block
     /// (`ssa_lower_promise_chain_own_then`) needs a closure cell —
     /// which it builds from `__forward_<f>` by name. Target only, no

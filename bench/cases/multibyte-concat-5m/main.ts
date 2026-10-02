@@ -1,5 +1,6 @@
-// Stress UTF-16 internal representation: concat 100 BMP CJK chars
-// 1000 times, then measure the result's code-unit length. Pre-P11.1
+// Stress UTF-16 internal representation: concat a 4-char BMP CJK piece
+// argv[3] times per round for argv[2] rounds, then measure the result's
+// code-unit length. Pre-P11.1
 // tora would have stored the result as byte-Str so .length would
 // have diverged from bun (returning UTF-8 byte count instead of code
 // units).

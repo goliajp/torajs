@@ -1,5 +1,5 @@
 //! Micro-harness for the concat kernel alone — the `acc = acc + piece`
-//! string-builder loop that `multibyte-concat-100k` runs 1000 times
+//! string-builder loop that `multibyte-concat-5m` runs once per round
 //! (rotation 471). Each round starts from an empty accumulator and
 //! appends a 4-code-unit UTF-16 piece 100 times, so the accumulator
 //! walks 0 → 400 code units and the loop pays one alloc + one

@@ -13,8 +13,8 @@ It serves the hot alloc path
 for fixed-size heap structs — `Promise`, `Closure env`, `capture
 box`, etc. Hot paths sit at µs / ns budget. Both gated paths below
 run once per allocation; for
-torajs's Promise-heavy benchmarks (promise-chain-1k allocates
-~3000 Promises, promise-await-100k allocates ~100k) this is the
+torajs's Promise-heavy benchmarks (promise-chain-1m allocates
+~3M Promises, promise-await-100k allocates ~100k) this is the
 single hottest line of code in the runtime.
 
 ## Budgets
