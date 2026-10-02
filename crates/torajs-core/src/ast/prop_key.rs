@@ -23,6 +23,11 @@ use super::{Ast, Expr, ExprId};
 #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
 pub struct PropKey(Wtf8Buf);
 
+/// Generic struct declaration index: name → (type-param names, field
+/// annotation pairs).
+pub type GenericStructDecls =
+    std::collections::HashMap<String, (Vec<String>, Vec<(PropKey, String)>)>;
+
 impl PropKey {
     /// `prefix` + `key`: the synthetic-name spelling (`__getter_x`).
     pub fn prefixed(prefix: &str, key: &Wtf8) -> PropKey {

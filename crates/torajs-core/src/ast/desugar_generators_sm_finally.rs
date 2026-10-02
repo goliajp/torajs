@@ -23,6 +23,9 @@ use super::{Expr, ExprId, Stmt};
 /// try has smaller states) must run F on the way out too: it gotos
 /// a per-(kind, label) F copy whose terminal RE-LOWERS the jump,
 /// chaining outer frames exactly like the return copy.
+/// An escaping jump's identity: `(is_break, label)`.
+pub(super) type JumpKey = (bool, Option<String>);
+
 pub(super) struct FinallyRetFrame {
     pub(super) try_entry: usize,
     pub(super) slot: String,
@@ -30,7 +33,7 @@ pub(super) struct FinallyRetFrame {
     /// Escaping-jump placeholders keyed by (is_break, label): one F
     /// copy is minted per distinct key, its terminal re-lowering
     /// exactly that jump.
-    pub(super) jump_gotos: Vec<((bool, Option<String>), super::ExprId)>,
+    pub(super) jump_gotos: Vec<(JumpKey, super::ExprId)>,
 }
 
 impl GenSm<'_> {
@@ -127,8 +130,8 @@ impl GenSm<'_> {
     /// (unchanged) loop stack again and either gotos the real target
     /// or routes through the next enclosing frame — nested finally
     /// chains run inside-out for free, the D3a return-copy pattern.
-    fn mint_jump_copies(&mut self, f: &[Stmt], jump_gotos: Vec<((bool, Option<String>), ExprId)>) {
-        let mut grouped: Vec<((bool, Option<String>), Vec<ExprId>)> = Vec::new();
+    fn mint_jump_copies(&mut self, f: &[Stmt], jump_gotos: Vec<(JumpKey, ExprId)>) {
+        let mut grouped: Vec<(JumpKey, Vec<ExprId>)> = Vec::new();
         for (key, eid) in jump_gotos {
             match grouped.iter_mut().find(|(k, _)| *k == key) {
                 Some((_, v)) => v.push(eid),

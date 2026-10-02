@@ -183,6 +183,10 @@ enum Conv {
     TypedNarrow(ExprId, String),
 }
 
+/// Param patch entries: `(param index, pad ExprId, TypedNarrow
+/// carrier name)`.
+type ParamPads = Vec<(usize, ExprId, Option<String>)>;
+
 /// Build one fn's guard block and param patch list from its sorted
 /// conversion plan. Guards run in PARAM ORDER with each TypedNarrow
 /// param's `let` immediately after its guard, so a later default
@@ -192,9 +196,9 @@ enum Conv {
 fn build_guards_and_pads(
     ast: &mut Ast,
     conv: Vec<(usize, String, Conv)>,
-) -> (Vec<Stmt>, Vec<(usize, ExprId, Option<String>)>) {
+) -> (Vec<Stmt>, ParamPads) {
     let mut guards: Vec<Stmt> = Vec::new();
-    let mut pads: Vec<(usize, ExprId, Option<String>)> = Vec::new();
+    let mut pads: ParamPads = Vec::new();
     for (pi, name, kind) in conv {
         let pad_undef = ast.add_expr(Expr::Ident("undefined".into()));
         match kind {

@@ -15,7 +15,7 @@
 //! by name, substrate codegen is invariant (binary byte-identical with
 //! chunk-326 baseline 59444912).
 
-use crate::ast::PropKey;
+use crate::ast::{GenericStructDecls, PropKey};
 use std::collections::{HashMap, HashSet};
 
 pub(crate) mod arr_head_census;
@@ -32,7 +32,7 @@ pub(crate) struct Pass05 {
     pub fn_sigs: Vec<(Vec<Type>, Type)>,
     pub may_throw: HashSet<String>,
     pub arr_head_pinned: bool,
-    pub generic_struct_decls: HashMap<String, (Vec<String>, Vec<(PropKey, String)>)>,
+    pub generic_struct_decls: GenericStructDecls,
     pub struct_layouts: Vec<Vec<(PropKey, Type)>>,
     pub inst_memo: HashMap<String, ssa::StructId>,
     pub class_name_to_tag: HashMap<String, u32>,
@@ -51,8 +51,7 @@ pub(crate) fn run(
     let may_throw = crate::ast_throw_info::compute_may_throw_fns(ast, expr_types, num_f64_slots);
     let arr_head_pinned = arr_head_census::program_pins_arr_head(ast, expr_types);
 
-    let mut generic_struct_decls: HashMap<String, (Vec<String>, Vec<(PropKey, String)>)> =
-        HashMap::new();
+    let mut generic_struct_decls: GenericStructDecls = HashMap::new();
     let mut struct_layouts: Vec<Vec<(PropKey, Type)>> = std::mem::take(&mut module.struct_layouts);
     let mut inst_memo: HashMap<String, ssa::StructId> = HashMap::new();
     let mut class_sids: std::collections::HashMap<String, ssa::StructId> =

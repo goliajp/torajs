@@ -2,7 +2,7 @@
 //! [`super::parse_type`], split out 2026-07-03 (fn-debt decomp).
 //! Bodies verbatim; recursion goes back through `super::parse_type`.
 
-use crate::ast::PropKey;
+use crate::ast::{GenericStructDecls, PropKey};
 use std::collections::HashMap;
 
 use crate::ssa::{self, Type};
@@ -19,7 +19,7 @@ pub(super) fn parse_struct(
     aliases: &HashMap<String, Type>,
     arr_layouts: &mut Vec<Type>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
-    generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(PropKey, String)>)>,
+    generic_struct_decls: &GenericStructDecls,
     struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
     inst_memo: &mut HashMap<String, ssa::StructId>,
 ) -> Type {
@@ -63,7 +63,7 @@ pub(super) fn parse_cls(
     aliases: &HashMap<String, Type>,
     arr_layouts: &mut Vec<Type>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
-    generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(PropKey, String)>)>,
+    generic_struct_decls: &GenericStructDecls,
     struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
     inst_memo: &mut HashMap<String, ssa::StructId>,
 ) -> Type {

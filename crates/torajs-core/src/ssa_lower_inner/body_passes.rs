@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 
 use super::body_passes_fn_name::register_fn_name;
-use crate::ast::{Ast, ExprId, PropKey, Stmt};
+use crate::ast::{Ast, ExprId, GenericStructDecls, PropKey, Stmt};
 use crate::num_width::WidthTable;
 use crate::ssa::{self, BakedRegexEntry, FuncId, Module, Type};
 use crate::ssa_lower::Intrinsics;
@@ -33,7 +33,7 @@ pub(crate) fn run(
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
     struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
     inst_memo: &mut HashMap<String, ssa::StructId>,
-    generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(PropKey, String)>)>,
+    generic_struct_decls: &GenericStructDecls,
     closure_captures: &mut HashMap<String, Vec<(String, Type, bool)>>,
     closure_variadic_captures: &mut HashMap<String, Vec<String>>,
     call_retargets: &HashMap<ExprId, String>,

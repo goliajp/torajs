@@ -20,6 +20,10 @@
 
 use super::*;
 
+/// `(params, [(param index, visibility, is_readonly)], destr lets)`,
+/// see [`Parser::parse_ctor_param_list`].
+type CtorParamList = (Vec<Param>, Vec<(usize, ast::Visibility, bool)>, Vec<Stmt>);
+
 /// What the param loop does after probing for a TS this-parameter —
 /// see [`Parser::try_consume_this_param`].
 pub(super) enum ThisParamStep {
@@ -40,9 +44,7 @@ impl<'a> Parser<'a> {
     /// Visibility / readonly modifiers can't combine with a destr
     /// pattern at the same param position (a binding pattern has no
     /// single field-name to promote).
-    pub(super) fn parse_ctor_param_list(
-        &mut self,
-    ) -> Result<(Vec<Param>, Vec<(usize, ast::Visibility, bool)>, Vec<Stmt>), String> {
+    pub(super) fn parse_ctor_param_list(&mut self) -> Result<CtorParamList, String> {
         match self.peek() {
             Token::LParen => self.pos += 1,
             t => return Err(format!("expected `(`, got {t:?} at {}", self.at())),

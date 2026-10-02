@@ -45,11 +45,14 @@
 use super::desugar_with::walk::{expr_children, stmt_children_ref, stmt_exprs};
 use super::{Ast, Expr, ExprId, Param, Stmt};
 
+/// User fn name → its (params, body), or `None` once the census has
+/// disqualified it.
+type UserFnDecls<'a> = std::collections::HashMap<&'a str, Option<(&'a [Param], &'a [Stmt])>>;
+
 /// The argument positions of `f(a…)` whose parameter the callee only
 /// ever calls — the no-receiver slots this module proves.
 pub(super) fn userfn_thunk_slots(ast: &Ast) -> Vec<ExprId> {
-    let mut decls: std::collections::HashMap<&str, Option<(&[Param], &[Stmt])>> =
-        std::collections::HashMap::new();
+    let mut decls: UserFnDecls = std::collections::HashMap::new();
     collect_decls(&ast.stmts, &mut decls);
     drop_reassigned(ast, &mut decls);
     if decls.is_empty() {
@@ -101,10 +104,7 @@ pub(super) fn userfn_thunk_slots(ast: &Ast) -> Vec<ExprId> {
 /// rather than a user declaration — its call sites do not spell the
 /// env argument, so the index alignment this module keys on would be
 /// off by one.
-fn collect_decls<'a>(
-    stmts: &'a [Stmt],
-    out: &mut std::collections::HashMap<&'a str, Option<(&'a [Param], &'a [Stmt])>>,
-) {
+fn collect_decls<'a>(stmts: &'a [Stmt], out: &mut UserFnDecls<'a>) {
     for s in stmts {
         match s {
             Stmt::FnDecl {
@@ -128,10 +128,7 @@ fn collect_decls<'a>(
 
 /// A function declaration's binding is writable, so `f = other` would
 /// leave the name pointing at a body this census never read.
-fn drop_reassigned(
-    ast: &Ast,
-    decls: &mut std::collections::HashMap<&str, Option<(&[Param], &[Stmt])>>,
-) {
+fn drop_reassigned(ast: &Ast, decls: &mut UserFnDecls) {
     for e in &ast.exprs {
         if let Expr::Assign { target, .. } = e
             && let Expr::Ident(n) = &ast.exprs[target.0 as usize]

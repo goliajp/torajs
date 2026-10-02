@@ -293,6 +293,15 @@ pub(super) fn build_ann_table(ast: &Ast) -> (HashMap<String, String>, HashMap<St
     (all_anns, closure_hints)
 }
 
+/// `(fn_param_pos_anns, fn_type_params, fn_user_param_count,
+/// fn_ret_anns)`, see [`collect_fn_decl_metadata`].
+pub(super) type FnDeclMetadata = (
+    HashMap<String, Vec<Option<String>>>,
+    HashMap<String, Vec<String>>,
+    HashMap<String, usize>,
+    HashMap<String, Option<String>>,
+);
+
 /// Walk `ast.stmts` for FnDecls and pre-compute the four per-FnDecl side
 /// channels the main call-site loop reads:
 ///   - `fn_param_pos_anns`: name → positional param annotations (chunk-554
@@ -303,14 +312,7 @@ pub(super) fn build_ann_table(ast: &Ast) -> (HashMap<String, String>, HashMap<St
 ///     (`<string>.replace(re, cb)` shape).
 ///   - `fn_ret_anns`: name → resolved (or sniffed) return ann (Promise
 ///     chain propagation for `.then(prev_cb).then(next_cb)`).
-pub(super) fn collect_fn_decl_metadata(
-    ast: &Ast,
-) -> (
-    HashMap<String, Vec<Option<String>>>,
-    HashMap<String, Vec<String>>,
-    HashMap<String, usize>,
-    HashMap<String, Option<String>>,
-) {
+pub(super) fn collect_fn_decl_metadata(ast: &Ast) -> FnDeclMetadata {
     let mut fn_param_pos_anns: HashMap<String, Vec<Option<String>>> = HashMap::new();
     let mut fn_type_params: HashMap<String, Vec<String>> = HashMap::new();
     let mut fn_user_param_count: HashMap<String, usize> = HashMap::new();

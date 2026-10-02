@@ -24,14 +24,18 @@ use super::desugar_classes_super::ClassIndexEntry;
 use super::*;
 use std::collections::HashMap;
 
+/// Per class: field default-init pairs, and the extra statements
+/// those inits need hoisted ahead of the ctor body.
+type ClassFieldDefaultInits = (
+    HashMap<String, Vec<(PropKey, ExprId)>>,
+    HashMap<String, Vec<Stmt>>,
+);
+
 pub(super) fn compute_class_field_default_inits(
     ast: &mut Ast,
     class_index: &[ClassIndexEntry],
     full_fields: &HashMap<String, Vec<(PropKey, String)>>,
-) -> (
-    HashMap<String, Vec<(PropKey, ExprId)>>,
-    HashMap<String, Vec<Stmt>>,
-) {
+) -> ClassFieldDefaultInits {
     // Build a snapshot of every TypeDecl's field layout. Used by the
     // default-init helper below so a class field whose type is a type
     // alias (`type Step = { value: number, done: boolean }`) gets a

@@ -8,7 +8,7 @@
 //!   escape-obj sets, walks each top-level stmt, and drains microtasks +
 //!   cycle-collector before returning.
 
-use crate::ast::PropKey;
+use crate::ast::{GenericStructDecls, PropKey};
 use std::collections::HashMap;
 
 use crate::ast::{Ast, ExprId, Stmt};
@@ -48,7 +48,7 @@ pub(crate) fn synthesize_main(
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
     struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
     inst_memo: &mut HashMap<String, ssa::StructId>,
-    generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(PropKey, String)>)>,
+    generic_struct_decls: &GenericStructDecls,
     string_id_base: usize,
     closure_captures: &mut HashMap<String, Vec<(String, Type, bool)>>,
     closure_variadic_captures: &mut HashMap<String, Vec<String>>,

@@ -158,7 +158,7 @@ pub(crate) fn compute_arg_anns(
     eid: crate::ast::ExprId,
     callee_name: &str,
     type_args: &[check_mod::Type],
-    generics: &HashMap<String, (Vec<String>, Vec<Param>, Option<String>, Vec<Stmt>)>,
+    generics: &Generics,
     param_env: &HashMap<String, String>,
 ) -> Vec<String> {
     let widths: Vec<crate::num_width::NumWidth> = crate::num_width::compute_typevar_widths(

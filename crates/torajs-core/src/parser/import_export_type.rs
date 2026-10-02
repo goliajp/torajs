@@ -94,13 +94,9 @@ mod tests {
         parse(src, &tokens).expect_err("a parse error")
     }
 
-    fn import_parts(
-        s: Stmt,
-    ) -> (
-        bool,
-        Vec<(String, Option<String>)>,
-        Vec<(String, Option<String>)>,
-    ) {
+    type ImportSpecs = Vec<(String, Option<String>)>;
+
+    fn import_parts(s: Stmt) -> (bool, ImportSpecs, ImportSpecs) {
         match s {
             Stmt::ImportDecl {
                 type_only,

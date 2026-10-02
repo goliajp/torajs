@@ -9,7 +9,7 @@
 //! initializer is an integer literal, so a `const step = 3` counter
 //! reads as the same small-step counter a literal `3` does.
 
-use crate::ast::PropKey;
+use crate::ast::{GenericStructDecls, PropKey};
 use std::collections::{HashMap, HashSet};
 
 use super::{Analysis, SlotKey, container, let_names};
@@ -218,9 +218,7 @@ pub(super) fn collect_objlit_shape_f64(
 
 /// Every generic `type` declaration by name, as `(type params, fields)`
 /// — the shapes the alias hookups instantiate per use site.
-pub(super) fn collect_generic_decls(
-    ast: &Ast,
-) -> HashMap<String, (Vec<String>, Vec<(PropKey, String)>)> {
+pub(super) fn collect_generic_decls(ast: &Ast) -> GenericStructDecls {
     let mut out = HashMap::new();
     for stmt in &ast.stmts {
         if let Stmt::TypeDecl {

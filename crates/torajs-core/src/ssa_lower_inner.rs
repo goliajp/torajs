@@ -39,7 +39,7 @@ pub(crate) mod body_passes_fn_name;
 mod callable_infra;
 mod setup;
 
-use crate::ast::PropKey;
+use crate::ast::{GenericStructDecls, PropKey};
 pub(crate) use body_passes_fn_name::{
     intern_fn_source, register_fn_name, strip_static_method_name,
 };
@@ -310,7 +310,7 @@ fn register_toplevel_globals(
     aliases: &HashMap<String, Type>,
     arr_layouts: &mut Vec<Type>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
-    generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(PropKey, String)>)>,
+    generic_struct_decls: &GenericStructDecls,
     struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
     inst_memo: &mut HashMap<String, ssa::StructId>,
     num_f64_slots: &crate::num_width::WidthTable,

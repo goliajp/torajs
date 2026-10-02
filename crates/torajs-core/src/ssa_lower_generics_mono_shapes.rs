@@ -10,8 +10,9 @@
 
 use std::collections::HashMap;
 
-use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
+use crate::ast::{Ast, Expr, ExprId, Stmt};
 use crate::check as check_mod;
+use crate::ssa_lower_generics_monomorph::Generics;
 
 /// Per type-param: does the call-site arg instantiating it hold a
 /// CLOSURE value (env-block ptr) rather than a bare fn ptr? Mirrors
@@ -39,7 +40,7 @@ pub(crate) fn compute_typevar_closure_shapes(
     call_eid: ExprId,
     _callee_name: &str,
     type_args: &[check_mod::Type],
-    generics: &HashMap<String, (Vec<String>, Vec<Param>, Option<String>, Vec<Stmt>)>,
+    generics: &Generics,
     param_env: &HashMap<String, String>,
 ) -> Vec<ClsShape> {
     let arg_eids: Vec<ExprId> = match ast.get_expr(call_eid) {

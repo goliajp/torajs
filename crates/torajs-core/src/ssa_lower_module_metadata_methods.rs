@@ -47,11 +47,15 @@ fn is_generic_method_decl(ast: &crate::ast::Ast, name: &str) -> bool {
     })
 }
 
+/// Class name → its own method rows `(key, fid, receiver-polymorphic
+/// twin fid)`, in declaration order.
+pub(crate) type OwnMethods = HashMap<String, Vec<(PropKey, ssa::FuncId, Option<ssa::FuncId>)>>;
+
 pub(crate) fn collect_own_class_methods(
     ast: &crate::ast::Ast,
     fn_table: &HashMap<String, ssa::FuncId>,
     class_names: &[&String],
-) -> HashMap<String, Vec<(PropKey, ssa::FuncId, Option<ssa::FuncId>)>> {
+) -> OwnMethods {
     let mut accessor_slots: HashMap<&str, PropKey> = HashMap::new();
     for ((_, prop), fname) in &ast.accessor_getters {
         accessor_slots.insert(fname.as_str(), PropKey::prefixed("__getter_", prop));
@@ -59,7 +63,7 @@ pub(crate) fn collect_own_class_methods(
     for ((_, prop), fname) in &ast.accessor_setters {
         accessor_slots.insert(fname.as_str(), PropKey::prefixed("__setter_", prop));
     }
-    let mut own: HashMap<String, Vec<(PropKey, ssa::FuncId, Option<ssa::FuncId>)>> = HashMap::new();
+    let mut own: OwnMethods = HashMap::new();
     // 563-04 — where each member was DECLARED, recorded from the
     // original FnDecl whether or not it lowered. Inside a generic
     // class none of them do (only the `$$anywv` monos reach
@@ -208,7 +212,7 @@ pub(crate) struct MethodFidFacts<'a> {
 
 pub(crate) fn resolve_class_methods(
     ast: &crate::ast::Ast,
-    own_methods: &HashMap<String, Vec<(PropKey, ssa::FuncId, Option<ssa::FuncId>)>>,
+    own_methods: &OwnMethods,
     boxed_entries: &HashMap<ssa::FuncId, (ssa::FuncId, ssa::SigId)>,
     facts: &MethodFidFacts<'_>,
     cname: &str,

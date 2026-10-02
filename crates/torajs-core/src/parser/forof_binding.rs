@@ -13,6 +13,10 @@ use super::*;
 
 use super::destr_shape::PatShape;
 
+/// `(destructuring pattern, loop-local name, assign-form target name,
+/// assign-form target expression)`.
+type ForOfBinding = (Option<PatShape>, String, Option<String>, Option<ExprId>);
+
 impl<'a> Parser<'a> {
     /// Scan the loop-variable position: destructuring pattern (array
     /// `[a,b]` / object `{x,y}`, recursive) → `__forof_destr_N` fresh
@@ -27,7 +31,7 @@ impl<'a> Parser<'a> {
         saved: usize,
         is_var_decl: Option<bool>,
         bare_form: bool,
-    ) -> Option<(Option<PatShape>, String, Option<String>, Option<ExprId>)> {
+    ) -> Option<ForOfBinding> {
         // §14.7.5 — a bare head is a LeftHandSideExpression, not only
         // a name: `for (x.y of …)`, `for (o[k] in …)`, `for ((x) of …)`
         // (the parenthesized cover), `for (this.#p of …)`,

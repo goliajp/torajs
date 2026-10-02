@@ -4,7 +4,7 @@
 //! matched, caller falls through to the primitive match (mirror of
 //! `check_type_ann/generic.rs` on the checker side).
 
-use crate::ast::PropKey;
+use crate::ast::{GenericStructDecls, PropKey};
 use std::collections::HashMap;
 
 use crate::ssa::{self, Type};
@@ -19,7 +19,7 @@ pub(super) fn parse_generic(
     aliases: &HashMap<String, Type>,
     arr_layouts: &mut Vec<Type>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
-    generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(PropKey, String)>)>,
+    generic_struct_decls: &GenericStructDecls,
     struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
     inst_memo: &mut HashMap<String, ssa::StructId>,
 ) -> Option<Type> {

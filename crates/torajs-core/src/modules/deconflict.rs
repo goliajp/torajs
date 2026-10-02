@@ -52,6 +52,9 @@ use std::collections::{HashMap, HashSet};
 /// (the mangle, or the original name when the census declined on a
 /// rebind with no collision — no rewrite happens, so the references
 /// already match).
+/// `(orig → mangled, [(mangled, field spelling)])`.
+type RenamePlan = (HashMap<String, String>, Vec<(String, String)>);
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn deconflict_lib_section(
     ast: &mut Ast,
@@ -69,7 +72,7 @@ pub(super) fn deconflict_lib_section(
     hidden_inject: &mut HashSet<String>,
     delta: &class_rename::LibTableDelta,
     visibles: &HashMap<&str, Vec<&str>>,
-) -> Result<(HashMap<String, String>, Vec<(String, String)>), String> {
+) -> Result<RenamePlan, String> {
     // orig → mangled (drives the arena rewrite) and mangled → FIELD
     // spelling (what the namespace accumulator shows the importer —
     // the export FACE for a bare export, the decl name otherwise).

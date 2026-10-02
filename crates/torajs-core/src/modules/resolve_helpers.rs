@@ -80,13 +80,17 @@ impl NsAccum {
 /// back into a module collide with the first request's reservation
 /// and the chain died as "does not resolve". A true cycle repeats the
 /// same (name, spelling) at the same module and still stops here.
+/// An import request: (named, default alias, namespace alias,
+/// side-effect only).
+pub(super) type ImportRequest = (Vec<NamedImport>, Option<String>, Option<String>, bool);
+
 pub(super) fn filter_request(
     entry: &mut HashSet<String>,
     named: Vec<NamedImport>,
     default_alias: Option<String>,
     namespace_alias: Option<String>,
     side_effect_only: bool,
-) -> Option<(Vec<NamedImport>, Option<String>, Option<String>, bool)> {
+) -> Option<ImportRequest> {
     // A request is answered when the same (name, spelling) was asked
     // before, or when a declaration already landed under the spelling
     // (the walks record a landing by its bare name); a request that

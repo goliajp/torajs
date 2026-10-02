@@ -17,11 +17,11 @@
 //!   Pass-2-fresh sids still lives in `ssa_lower_anon_stamp` —
 //!   `lower_inner` calls it directly after this sibling returns.
 
-use crate::ast::PropKey;
 use std::collections::HashMap;
 
 use crate::ssa::{self, ClassLayoutMeta, FieldMetaSpec, Module, Type, VtableGlobal};
 use crate::ssa_lower::OBJ_HEADER_SIZE;
+use crate::ssa_lower_module_metadata_methods::OwnMethods;
 
 pub(crate) fn populate_vtables(
     ast: &crate::ast::Ast,
@@ -244,7 +244,7 @@ pub(crate) fn populate_class_layouts(
 fn collect_touches_private_fids(
     ast: &crate::ast::Ast,
     module: &ssa::Module,
-    own_methods: &HashMap<String, Vec<(PropKey, ssa::FuncId, Option<ssa::FuncId>)>>,
+    own_methods: &OwnMethods,
 ) -> std::collections::HashSet<ssa::FuncId> {
     own_methods
         .values()
@@ -265,7 +265,7 @@ fn collect_touches_private_fids(
 fn collect_this_free_fids(
     ast: &crate::ast::Ast,
     module: &Module,
-    own_methods: &HashMap<String, Vec<(PropKey, ssa::FuncId, Option<ssa::FuncId>)>>,
+    own_methods: &OwnMethods,
     boxed_entries: &HashMap<ssa::FuncId, (ssa::FuncId, ssa::SigId)>,
 ) -> std::collections::HashSet<ssa::FuncId> {
     // S2.38 — `__cm_` bodies proven safe to run through the boxed
@@ -378,7 +378,7 @@ fn generic_class_placeholder_row(
     ast: &crate::ast::Ast,
     fn_table: &HashMap<String, ssa::FuncId>,
     boxed_entries: &HashMap<ssa::FuncId, (ssa::FuncId, ssa::SigId)>,
-    own_methods: &HashMap<String, Vec<(PropKey, ssa::FuncId, Option<ssa::FuncId>)>>,
+    own_methods: &OwnMethods,
     facts: &crate::ssa_lower_module_metadata_methods::MethodFidFacts<'_>,
     cname: &str,
 ) -> ClassLayoutMeta {

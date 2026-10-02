@@ -57,8 +57,8 @@ pub(crate) use fnsig::{fn_type_canon, split_fn_type};
 pub(crate) use mono::{NumWidth, compute_typevar_widths};
 pub(crate) use width_table::WidthTable;
 
-use crate::ast::PropKey;
 use crate::ast::{Ast, ExprId, Stmt};
+use crate::ast::{GenericStructDecls, PropKey};
 use fallthrough::{alias_fallthrough_closures, seed_and_walk_fn};
 use sentinel_tables::close_sentinel_tables;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -253,7 +253,7 @@ pub(super) struct Analysis<'a> {
     pub(super) nominal_aliases: HashSet<String>,
     /// Generic TypeDecl bodies by name (`Rec` → (["T"], fields)),
     /// for the lazy instantiation-key registration above.
-    pub(super) generic_decls: HashMap<String, (Vec<String>, Vec<(PropKey, String)>)>,
+    pub(super) generic_decls: GenericStructDecls,
     /// W4 — an element write through a receiver the analysis cannot
     /// resolve to a container class. Never expected to fire (assign
     /// receivers are idents / members / indexes / calls); if it does,

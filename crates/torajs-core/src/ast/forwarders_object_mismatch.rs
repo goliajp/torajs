@@ -222,11 +222,14 @@ pub(super) fn collect_fnsig_mismatch_bindings(
 /// init is not a resolvable function face is not in the map at all,
 /// and one whose init face is rest-shaped stays out too (that route
 /// is variadic already).
+/// A function face: (param annotations, return annotation).
+type Face<'a> = (Vec<&'a str>, &'a str);
+
 fn collect_inferred_sites<'a>(
     ast: &'a Ast,
     stmts: &'a [Stmt],
-    face_of: &dyn Fn(&str) -> Option<(Vec<&'a str>, &'a str)>,
-    out: &mut HashMap<&'a str, (Vec<&'a str>, &'a str)>,
+    face_of: &dyn Fn(&str) -> Option<Face<'a>>,
+    out: &mut HashMap<&'a str, Face<'a>>,
 ) {
     for s in stmts {
         if let Stmt::LetDecl {

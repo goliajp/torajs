@@ -28,10 +28,13 @@ use std::collections::{HashMap, HashSet};
 /// main lowers, so closure bodies that depend on top-level captures
 /// must lower AFTER main, not just after user fns. Pipeline now:
 /// Pass 2A user fns → Pass 3 main → Pass 2B closure bodies (reverse).
+/// `(stmt index, fid)` pairs for top-level FnDecls.
+type DeclIndices = Vec<(usize, FuncId)>;
+
 pub(crate) fn partition_closure_decls(
     ast: &Ast,
-    decl_indices: Vec<(usize, FuncId)>,
-) -> (Vec<(usize, FuncId)>, Vec<(usize, FuncId)>) {
+    decl_indices: DeclIndices,
+) -> (DeclIndices, DeclIndices) {
     let (user_decls, mut closure_decls): (Vec<_>, Vec<_>) =
         decl_indices
             .into_iter()

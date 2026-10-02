@@ -38,7 +38,7 @@
 //!   declared list with no unknown names and no spread — anything
 //!   else was already a checker reject and stays one.
 
-use crate::ast::PropKey;
+use crate::ast::{GenericStructDecls, PropKey};
 use std::collections::HashMap;
 
 use crate::check_type_ann_substitute::ann_substitute;
@@ -55,7 +55,7 @@ mod collect;
 /// same dance as the checker's `resolve_generic`.
 struct AliasEnv {
     plain: HashMap<String, Vec<(PropKey, String)>>,
-    generic: HashMap<String, (Vec<String>, Vec<(PropKey, String)>)>,
+    generic: GenericStructDecls,
 }
 
 pub fn fill_optional_fields(ast: &mut Ast) {

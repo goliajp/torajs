@@ -133,16 +133,19 @@ fn collect_bindings_matching(
     });
 }
 
+/// Binding visitor: `(name, ann, init, is_var)`.
+type BindingVisitor<'f> = dyn FnMut(&str, Option<&str>, crate::ast::ExprId, bool) + 'f;
+
 /// Visit every annotated `let`/`const`/`var` binding (name, ann)
 /// recursing through fn bodies and statement containers — the shared
 /// walker behind the set collections (chunk 783 rework).
-fn walk_bindings(stmts: &[Stmt], f: &mut dyn FnMut(&str, Option<&str>, crate::ast::ExprId, bool)) {
+fn walk_bindings(stmts: &[Stmt], f: &mut BindingVisitor<'_>) {
     for s in stmts {
         walk_bindings_stmt(s, f);
     }
 }
 
-fn walk_bindings_stmt(s: &Stmt, f: &mut dyn FnMut(&str, Option<&str>, crate::ast::ExprId, bool)) {
+fn walk_bindings_stmt(s: &Stmt, f: &mut BindingVisitor<'_>) {
     match s {
         Stmt::LetDecl {
             name,
