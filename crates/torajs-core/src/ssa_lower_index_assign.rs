@@ -188,7 +188,6 @@ impl<'a> LowerCtx<'a> {
                 self.emit_nonintegral_index_expando_store(
                     expando_blk,
                     raw,
-                    eid,
                     value,
                     &v_raw,
                     &arr_val,
@@ -202,6 +201,15 @@ impl<'a> LowerCtx<'a> {
         // path).
         let v = self.lower_expr(value);
         let v_raw = v;
+        // An F64 index splits the store in two arms, and the expando
+        // arm's kernel takes the value as an owned stake of the
+        // assignment's: mint it here, ahead of the split, so the
+        // element arm hands the consumer the same owned value instead
+        // of the slot's only reference.
+        let split = nonint.is_some();
+        if split {
+            mint_index_assign_value(self, eid, &v_raw);
+        }
         let expando_arm = self.emit_nonintegral_store_split(nonint);
         // Chunk 575 — an array value entering a container slot must
         // be self-describing for the cycle walker: field-store /
@@ -242,16 +250,15 @@ impl<'a> LowerCtx<'a> {
             .append_void(self.cur_block, InstKind::StoreDyn(v, offset_base, offset));
         self.emit_hole_revive_branch(&arr_val, &idx_val, join_blk);
         if let Some((expando_blk, _join_unused, raw)) = expando_arm {
-            self.emit_nonintegral_index_expando_store(
-                expando_blk,
-                raw,
-                eid,
-                value,
-                &v_raw,
-                &arr_val,
-            );
+            self.emit_nonintegral_index_expando_store(expando_blk, raw, value, &v_raw, &arr_val);
         }
-        v
+        // the minted value is the rhs itself, not the element arm's
+        // fitted copy; a Copy value minted nothing and keeps the fit
+        if split && self.operand_ty(&v_raw).is_refcounted() {
+            v_raw
+        } else {
+            v
+        }
     }
 
     /// Chunk B (RFC 20260721-typed-grow-on-write) — an in-bounds

@@ -139,13 +139,14 @@ impl<'a> LowerCtx<'a> {
     /// an integer: `xs[1.5] = v` names the property "1.5" (§7.1.19),
     /// and the keyed kernel makes that expando the way it does for an
     /// `any` receiver. Entered from `lower_index_assign`'s flag branch
-    /// with the value already lowered (evaluation order); leaves
-    /// `cur_block` where the typed arm's join left it.
+    /// with the value already lowered (evaluation order) and the
+    /// assignment's own stake already minted ahead of the split, so
+    /// both arms answer the consumer alike; leaves `cur_block` where
+    /// the typed arm's join left it.
     pub(crate) fn emit_nonintegral_index_expando_store(
         &mut self,
         expando_blk: BlockId,
         raw_key: Operand,
-        eid: ExprId,
         value: ExprId,
         v_raw: &Operand,
         arr_val: &Operand,
@@ -154,7 +155,6 @@ impl<'a> LowerCtx<'a> {
         self.cur_block = expando_blk;
         let v_ty = self.operand_ty(v_raw);
         let (tag_op, value_op) = self.pack_any_slot_value_shared(value, v_raw, v_ty);
-        crate::ssa_lower_index_assign::mint_index_assign_value(self, eid, v_raw);
         let boxed_arr = self.box_to_any(*arr_val);
         let boxed_key = self.box_to_any(raw_key);
         crate::ssa_lower_index_any_key::AnyNumericKey::Boxed(boxed_key).emit_set(
