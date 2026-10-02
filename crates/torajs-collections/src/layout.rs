@@ -188,6 +188,9 @@ pub const STR_LEN_OFF: usize = 8;
 pub const STR_DATA_OFF: usize = 16;
 
 /// Cast a `*mut c_void` heap pointer to a `*mut Map`.
+///
+/// # Safety
+/// Only reinterprets the pointer; callers dereferencing the result need `p` to be a live Map cell.
 #[inline]
 pub unsafe fn as_map(p: *mut c_void) -> *mut Map {
     p as *mut Map

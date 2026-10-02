@@ -91,6 +91,8 @@ pub use value_lane::{
 // provided by their respective lib*.a at `tr build` link time; the
 // test binary doesn't link those, so panicking stubs keep cargo test
 // linking clean. Same pattern as torajs-arr / torajs-dynobj test stubs.
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_eq(_a: *const u8, _b: *const u8) -> i64 {
@@ -119,6 +121,8 @@ pub extern "C" fn __torajs_anyv_unbox_value(_v: u64) -> i64 {
     );
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_hash(_s: *const u8) -> u64 {
@@ -127,6 +131,8 @@ pub unsafe extern "C" fn __torajs_str_hash(_s: *const u8) -> u64 {
     );
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_rc_inc(_p: *mut core::ffi::c_void) {
@@ -135,6 +141,8 @@ pub unsafe extern "C" fn __torajs_rc_inc(_p: *mut core::ffi::c_void) {
     );
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_throw_type_error(_msg: *const core::ffi::c_char) {
@@ -143,6 +151,8 @@ pub unsafe extern "C" fn __torajs_throw_type_error(_msg: *const core::ffi::c_cha
     );
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_value_drop_heap(_p: *mut core::ffi::c_void) {
@@ -151,6 +161,8 @@ pub unsafe extern "C" fn __torajs_value_drop_heap(_p: *mut core::ffi::c_void) {
     );
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_cycle_buffer(_p: *mut core::ffi::c_void) {
@@ -159,6 +171,8 @@ pub unsafe extern "C" fn __torajs_cycle_buffer(_p: *mut core::ffi::c_void) {
     );
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_cycle_unbuffer(_p: *mut core::ffi::c_void) {
@@ -167,6 +181,8 @@ pub unsafe extern "C" fn __torajs_cycle_unbuffer(_p: *mut core::ffi::c_void) {
     );
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_rc_dec(_p: *mut core::ffi::c_void) -> i32 {
@@ -175,6 +191,8 @@ pub unsafe extern "C" fn __torajs_rc_dec(_p: *mut core::ffi::c_void) -> i32 {
     );
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_alloc_any(_cap: u64) -> *mut core::ffi::c_void {
@@ -183,6 +201,8 @@ pub unsafe extern "C" fn __torajs_arr_alloc_any(_cap: u64) -> *mut core::ffi::c_
     );
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_push_any(

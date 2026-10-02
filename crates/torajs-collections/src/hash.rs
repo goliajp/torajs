@@ -2,7 +2,7 @@
 //!
 //! Port of `runtime_map.c::{map_mix_u64, map_hash_bytes, map_hash_key}`
 //! (P4.3-b, 2026-05-23). Pure-Rust internals shared by [`crate::probe`]
-//! + the upcoming get/has/set/delete extern ports. C-side copies stay
+//! and the upcoming get/has/set/delete extern ports. C-side copies stay
 //! `static` until their consumer fns port — algorithm duplicated.
 //!
 //! Hash invariant: the return value is **always `>= 1`**. Value 0 is
@@ -59,7 +59,7 @@ pub(crate) unsafe fn map_hash_bytes(bytes: *const u8, len: u64) -> u32 {
 /// so it must NOT take the i64 path (its value exceeds i64::MAX).
 #[inline]
 pub(crate) fn f64_as_exact_i64(d: f64) -> Option<i64> {
-    if d >= -9_223_372_036_854_775_808.0 && d < 9_223_372_036_854_775_808.0 && d.trunc() == d {
+    if (-9_223_372_036_854_775_808.0..9_223_372_036_854_775_808.0).contains(&d) && d.trunc() == d {
         Some(d as i64)
     } else {
         None

@@ -16,7 +16,7 @@
 
 use core::ffi::c_void;
 
-use crate::layout::{ANY_F64, ANY_HEAP, Map, MapEntry};
+use crate::layout::{ANY_F64, ANY_HEAP, Map};
 use crate::probe::{map_lookup_slot, map_rehash, map_slot_insert, slot_load_exceeded};
 
 unsafe extern "C" {
@@ -118,7 +118,7 @@ pub unsafe extern "C" fn __torajs_map_set(
     };
 
     unsafe {
-        let e = (*m).entries.add(new_idx as usize) as *mut MapEntry;
+        let e = (*m).entries.add(new_idx as usize);
         (*e).hash = hash;
         (*e).key_anyv = __torajs_anyv_box_from_pair(kt as i64, kp as i64);
         (*e).value_anyv = __torajs_anyv_box_from_pair(vt as i64, vp as i64);
