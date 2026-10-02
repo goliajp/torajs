@@ -33,7 +33,7 @@ use crate::ssa::{FuncId, Module, Type};
 use crate::ssa_lower::declare_intrinsic;
 
 /// torajs-cycle's free of an object cell by what the cell itself
-/// says: its class tag's layout row, or the span registry. Reached
+/// says: its class tag's layout row, or its own tag's drop. Reached
 /// by name: `ssa_lower_pass_2_5::cell_size` routes a typed object
 /// drop through it where the static layout cannot size the cell.
 pub(crate) const OBJ_FREE_CELL_SYM: &str = "__torajs_obj_free_cell";

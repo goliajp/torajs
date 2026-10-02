@@ -222,7 +222,7 @@ fn synthesize_main_plain_wrapper() -> CompiledFunction {
 /// bare mmalloc block (no size header in front of it), so the size
 /// the lowering already carries as a constant is what the allocator
 /// needs back; the runtime-side frees of the same cells recover it
-/// from the class layout table or the span registry.
+/// from the class layout table or the cell's own tag.
 ///
 /// ARM64 body:
 ///   `B ___torajs_free`   ; tail call — x0 = ptr, x1 = size are

@@ -66,24 +66,6 @@ pub unsafe extern "C" fn __torajs_free(ptr: *mut c_void, size: usize) {
     unsafe { crate::core::free_sized(ptr as *mut u8, size) };
 }
 
-/// torajs free without a size — the region registry finds the arena
-/// and the arena names the class (`core::free`, a lock plus a binary
-/// search and two table reads). For the one cold path that takes back
-/// a sized block whose size nothing records: the lowering's free of a
-/// typed slot holding a heap cell
-/// that is not a class instance (`torajs_cycle::__torajs_obj_free_cell`,
-/// its only caller; the link stubs this entry when that one has no
-/// live text).
-///
-/// # Safety
-///
-/// `ptr` is null or a pointer returned by `__torajs_malloc`, not
-/// already freed.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_free_lookup(ptr: *mut c_void) {
-    unsafe { crate::core::free(ptr as *mut u8) };
-}
-
 /// torajs calloc — zero-initialized alloc. Routes to
 /// `__torajs_malloc(size) + ptr::write_bytes(0)`. Caller passes
 /// total byte count (no `nmemb * size` overflow check needed at

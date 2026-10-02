@@ -153,7 +153,7 @@ const SITES: [(&str, &str, &[&str], u32); 3] = [
 /// entries whose text liveness un-assumes the stub, landing-pad fam
 /// id). The join seam's enabler is the exotic-flag writer; the
 /// species probe's enablers are the two props-bag creators.
-const SYMBOL_STUBS: [(&str, &[&str], u32); 14] = [
+const SYMBOL_STUBS: [(&str, &[&str], u32); 13] = [
     (
         "___torajs_arr_join_exotic",
         &["___torajs_arr_flag_exotic"],
@@ -260,13 +260,6 @@ const SYMBOL_STUBS: [(&str, &[&str], u32); 14] = [
         ],
         54,
     ),
-    // the allocator's free without a size (the span registry walk,
-    // ~640 B of mmalloc text): object cells and closure envs are bare
-    // blocks freed by the size their allocation named, and the only
-    // free that can meet a cell nothing sizes is the lowering's free
-    // of an open slot — `__torajs_obj_free_cell`, emitted only where a
-    // typed slot can hold a cell of another layout.
-    ("___torajs_free_lookup", &["___torajs_obj_free_cell"], 55),
 ];
 
 const NAMED_PROP_WRITERS: [&str; 4] = [
@@ -513,14 +506,7 @@ mod tests {
     #[test]
     fn exotic_slow_path_stubs_are_symbol_guarded_loud_rejects() {
         let stubs = guarded_stubs();
-        assert_eq!(stubs.len(), 15);
-        let lookup = &stubs[14];
-        assert_eq!(lookup.sym, "___torajs_free_lookup");
-        assert_eq!(lookup.guard.to_string(), "syms:___torajs_obj_free_cell");
-        assert_eq!(
-            &lookup.bytes[..4],
-            &(0xD280_0000u32 | (55 << 5) | 7).to_le_bytes()
-        );
+        assert_eq!(stubs.len(), 14);
         let map_hole = &stubs[13];
         assert_eq!(map_hole.sym, "___torajs_arr_map_hole_slow");
         assert_eq!(

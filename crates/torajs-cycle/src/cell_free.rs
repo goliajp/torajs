@@ -9,7 +9,8 @@
 //! instance, since no cell is minted without a tag. A closure env that
 //! died while buffered left its block size behind ([`free_parked`]).
 //! Only the lowering's free of an open slot ([`__torajs_obj_free_cell`])
-//! can meet a cell nothing sizes, and it alone asks the span registry.
+//! can meet a cell that is not a struct at all, and that one goes
+//! back to its own tag's drop.
 
 use core::ffi::c_void;
 
@@ -24,8 +25,8 @@ const OBJ_HEADER_SIZE: usize = 32;
 unsafe extern "C" {
     #[link_name = "__torajs_free"]
     fn free_sized(p: *mut c_void, size: usize);
-    #[link_name = "__torajs_free_lookup"]
-    fn free_lookup(p: *mut c_void);
+    /// torajs-value-drop — the tag-routed release of one reference.
+    fn __torajs_value_drop_heap(p: *mut c_void);
 }
 
 /// Head of the `.__class_fields_<i>` rodata a layout row's
@@ -82,21 +83,33 @@ pub(crate) unsafe fn free_parked(p: *mut c_void) {
 }
 
 /// The lowering's free of a typed slot whose static layout cannot size
-/// the cell it holds: a class instance by its tag's row, anything else
-/// — a heap cell that is not a struct, admitted by an `any` crossing —
-/// by the span registry. The only caller of `__torajs_free_lookup`,
-/// which the link stubs when this entry has no live text
-/// (`cmd_build_elide`).
+/// the cell it holds. A class instance is sized by its tag's row.
+/// Anything else is a heap cell that is not a struct, admitted by an
+/// `any` crossing — a literal promoted to a dynobj by
+/// `Object.defineProperty`, say — and only its own tag's drop knows
+/// what it owns: the dynobj's store block and entries, the root buffer
+/// entry its runtime drop pushed while other references were alive.
+/// The typed walk brought its rc to zero without releasing any of
+/// that, so hand the cell the one reference its destructor consumes
+/// (the collector's corpse pass does the same for shapes it does not
+/// walk). A header-only free here left the buffer entry dangling into
+/// the exit drain.
 ///
 /// # Safety
-/// `p` is a live block from `__torajs_obj_alloc` whose children have
-/// already been released.
+/// `p` is a live block from `__torajs_obj_alloc` at rc 0 whose slot's
+/// static layout has already been walked. For a foreign cell that walk
+/// read the slot's offsets, not the cell's: a dynobj's fields lie
+/// outside its 32-byte header and `+24` is its store, so the lowering
+/// side still owes the open slot a drop by the cell's own tag.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_obj_free_cell(p: *mut c_void) {
     if unsafe { is_class_obj(p) } {
         unsafe { free_class_cell(p) };
     } else {
-        unsafe { free_lookup(p) };
+        unsafe {
+            (*(p as *mut HeapHeader)).refcount = 1;
+            __torajs_value_drop_heap(p);
+        }
     }
 }
 

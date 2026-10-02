@@ -24,8 +24,8 @@
 //!   [`settle_typed_frees`] decides each such free here. The slot may
 //!   also hold a cell of any layout at all where `any` crossed into
 //!   it (`cell_slot_flow`). Either way the cell says what it is: a
-//!   class instance by its tag's row, anything else by the span
-//!   registry (`__torajs_obj_free_cell`).
+//!   class instance by its tag's row, anything else by its own tag's
+//!   drop (`__torajs_obj_free_cell`).
 
 use std::collections::{HashMap, HashSet};
 
