@@ -447,7 +447,7 @@ impl crate::ssa_lower::LowerCtx<'_> {
         if !src_is_borrow {
             self.emit_drop_value(src_op, Type::Promise);
         }
-        return Some(Operand::Value(v));
+        Some(Operand::Value(v))
     }
 
     /// The builtin lane of a chain call over already-lowered handler

@@ -122,15 +122,15 @@ fn rewrite_stmt(s: &mut Stmt, ast: &mut Ast, in_fn: bool, home: bool, strict: &[
         // shape rewrites.
         if let Some(Expr::Assign { target, value }) = ast.exprs.get(eid.0 as usize) {
             let (target, value) = (*target, *value);
-            if matches!(ast.exprs.get(target.0 as usize), Some(Expr::Ident(_))) {
-                if let Some((src, form)) = literal_eval_call(value, ast) {
-                    let sw = eval_strictness(form, value.0 as usize, strict);
-                    if parse_eval_source(&src, ast, form == CallForm::Direct && home, sw).is_err() {
-                        // Same orphan story as the inline above.
-                        ast.exprs[value.0 as usize] = Expr::Ident("undefined".to_string());
-                        *s = syntax_error_throw(format!("eval: {}", first_line(&src)), ast);
-                        return;
-                    }
+            if matches!(ast.exprs.get(target.0 as usize), Some(Expr::Ident(_)))
+                && let Some((src, form)) = literal_eval_call(value, ast)
+            {
+                let sw = eval_strictness(form, value.0 as usize, strict);
+                if parse_eval_source(&src, ast, form == CallForm::Direct && home, sw).is_err() {
+                    // Same orphan story as the inline above.
+                    ast.exprs[value.0 as usize] = Expr::Ident("undefined".to_string());
+                    *s = syntax_error_throw(format!("eval: {}", first_line(&src)), ast);
+                    return;
                 }
             }
         }

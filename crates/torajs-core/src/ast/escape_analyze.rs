@@ -219,7 +219,7 @@ fn eal_stmt_safe(ast: &Ast, s: &Stmt, x_name: &str) -> bool {
                 && eal_stmt_safe(ast, then_branch, x_name)
                 && else_branch
                     .as_deref()
-                    .map_or(true, |e| eal_stmt_safe(ast, e, x_name))
+                    .is_none_or(|e| eal_stmt_safe(ast, e, x_name))
         }
         Stmt::While { cond, body } | Stmt::DoWhile { body, cond } => {
             eal_expr_safe(ast, *cond, x_name) && eal_stmt_safe(ast, body, x_name)
@@ -231,9 +231,9 @@ fn eal_stmt_safe(ast: &Ast, s: &Stmt, x_name: &str) -> bool {
             body,
         } => {
             init.as_deref()
-                .map_or(true, |i| eal_stmt_safe(ast, i, x_name))
-                && cond.map_or(true, |c| eal_expr_safe(ast, c, x_name))
-                && step.map_or(true, |st| eal_expr_safe(ast, st, x_name))
+                .is_none_or(|i| eal_stmt_safe(ast, i, x_name))
+                && cond.is_none_or(|c| eal_expr_safe(ast, c, x_name))
+                && step.is_none_or(|st| eal_expr_safe(ast, st, x_name))
                 && eal_stmt_safe(ast, body, x_name)
         }
         Stmt::ForOfSplitIter {
@@ -259,7 +259,7 @@ fn eal_stmt_safe(ast: &Ast, s: &Stmt, x_name: &str) -> bool {
                 })
                 && default
                     .as_ref()
-                    .map_or(true, |db| db.iter().all(|s| eal_stmt_safe(ast, s, x_name)))
+                    .is_none_or(|db| db.iter().all(|s| eal_stmt_safe(ast, s, x_name)))
         }
         Stmt::Try {
             body,
@@ -271,7 +271,7 @@ fn eal_stmt_safe(ast: &Ast, s: &Stmt, x_name: &str) -> bool {
                 && catch_body.iter().all(|s| eal_stmt_safe(ast, s, x_name))
                 && finally_body
                     .as_ref()
-                    .map_or(true, |fb| fb.iter().all(|s| eal_stmt_safe(ast, s, x_name)))
+                    .is_none_or(|fb| fb.iter().all(|s| eal_stmt_safe(ast, s, x_name)))
         }
         Stmt::Block(stmts) | Stmt::Multi(stmts) => {
             stmts.iter().all(|s| eal_stmt_safe(ast, s, x_name))
@@ -282,7 +282,7 @@ fn eal_stmt_safe(ast: &Ast, s: &Stmt, x_name: &str) -> bool {
         | Stmt::ImportDecl { .. } => true,
         Stmt::ExportDecl { inner, .. } => inner
             .as_deref()
-            .map_or(true, |s| eal_stmt_safe(ast, s, x_name)),
+            .is_none_or(|s| eal_stmt_safe(ast, s, x_name)),
     }
 }
 

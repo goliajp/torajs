@@ -110,9 +110,11 @@ fn collect_decls<'a>(
             Stmt::FnDecl {
                 name, params, body, ..
             } => {
-                let sig = (params.first().is_some_and(|p| p.name == "__env"))
-                    .then_some(None)
-                    .unwrap_or(Some((params.as_slice(), body.as_slice())));
+                let sig = if params.first().is_some_and(|p| p.name == "__env") {
+                    None
+                } else {
+                    Some((params.as_slice(), body.as_slice()))
+                };
                 out.entry(name.as_str())
                     .and_modify(|e| *e = None)
                     .or_insert(sig);

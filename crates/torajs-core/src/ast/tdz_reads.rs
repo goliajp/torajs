@@ -233,10 +233,10 @@ fn mark_list(ast: &Ast, flat: &[&Stmt], marks: &mut HashSet<ExprId>) {
             ..
         } = s
             && !name.starts_with("__")
+            && decl_at.insert(name.as_str(), i).is_none()
+            && *mutable
         {
-            if decl_at.insert(name.as_str(), i).is_none() && *mutable {
-                mutable_decl.insert(name.as_str());
-            }
+            mutable_decl.insert(name.as_str());
         }
     }
     if decl_at.is_empty() {

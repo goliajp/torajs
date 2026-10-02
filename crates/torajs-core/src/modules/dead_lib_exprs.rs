@@ -65,16 +65,16 @@ pub(super) fn sweep(ast: &mut Ast, entry_expr_len: usize) {
 /// a dead copy's own side-table entries stay untombstoned, which is
 /// the harmless "stray gets rewritten, never materialized" class.
 fn mark_side_table_roots(ast: &Ast, live: &mut [bool]) {
-    for (_, v) in &ast.speculative_cm_rewrites {
+    for v in ast.speculative_cm_rewrites.values() {
         mark_expr(ast, *v, live);
     }
-    for (_, v) in &ast.cm_this_static_calls {
+    for v in ast.cm_this_static_calls.values() {
         mark_expr(ast, *v, live);
     }
-    for (_, v) in &ast.objlit_computed_keys {
+    for v in ast.objlit_computed_keys.values() {
         mark_expr(ast, *v, live);
     }
-    for (_, v) in &ast.class_computed_keys {
+    for v in ast.class_computed_keys.values() {
         mark_expr(ast, *v, live);
     }
     for (_, _, v) in &ast.class_computed_static_fields {

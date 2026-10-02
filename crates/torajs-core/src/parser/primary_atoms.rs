@@ -102,10 +102,10 @@ impl<'a> Parser<'a> {
             .add_expr(Expr::Ident("__torajs_dyn_import".to_string()));
         let options =
             options.unwrap_or_else(|| self.ast.add_expr(Expr::Ident("undefined".to_string())));
-        return Ok(self.ast.add_expr(Expr::Call {
+        Ok(self.ast.add_expr(Expr::Call {
             callee,
             args: vec![spec, options],
-        }));
+        }))
     }
 
     pub(super) fn parse_primary_paren(&mut self) -> Result<ExprId, String> {
@@ -146,7 +146,7 @@ impl<'a> Parser<'a> {
             }
         }
         self.in_for_init = saved_in_for_init;
-        return Ok(last);
+        Ok(last)
     }
 
     // P8.5 — class expression in expression position

@@ -139,14 +139,14 @@ fn rewrite_one_body(
         decl_params,
         &params,
         super::arguments_object_stages::ArgcTiers {
-            iife_static_argv: iife_static_argv,
-            uses_real_argc: uses_real_argc,
-            method_argv_fns: method_argv_fns,
-            iife_real_argc: iife_real_argc,
-            value_real_argc: value_real_argc,
-            value_argv_fns: value_argv_fns,
-            env_fns: env_fns,
-            this_first_argc_fns: this_first_argc_fns,
+            iife_static_argv,
+            uses_real_argc,
+            method_argv_fns,
+            iife_real_argc,
+            value_real_argc,
+            value_argv_fns,
+            env_fns,
+            this_first_argc_fns,
         },
     );
     // T-11 — pre-pass: detect any dynamic `arguments[<non-

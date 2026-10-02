@@ -44,20 +44,20 @@ pub fn apply_rest_args(ast: &mut Ast) {
     for s in &ast.stmts {
         if let Stmt::FnDecl { name, params, .. } = s {
             let user_params: &[Param] = peel_hidden_params(params);
-            if let Some(last) = user_params.last() {
-                if last.is_rest {
-                    let fixed = user_params.len() - 1;
-                    fn_rest.insert(
-                        name.clone(),
-                        RestShape {
-                            fixed,
-                            ann: last.type_ann.clone().unwrap_or_else(|| "any[]".into()),
-                            defaults: user_params[..fixed].iter().map(|p| p.default).collect(),
-                        },
-                    );
-                    let this_led = user_params.first().is_some_and(|p| p.name == "__this");
-                    arg_prefix.insert(name.clone(), fixed.saturating_sub(usize::from(this_led)));
-                }
+            if let Some(last) = user_params.last()
+                && last.is_rest
+            {
+                let fixed = user_params.len() - 1;
+                fn_rest.insert(
+                    name.clone(),
+                    RestShape {
+                        fixed,
+                        ann: last.type_ann.clone().unwrap_or_else(|| "any[]".into()),
+                        defaults: user_params[..fixed].iter().map(|p| p.default).collect(),
+                    },
+                );
+                let this_led = user_params.first().is_some_and(|p| p.name == "__this");
+                arg_prefix.insert(name.clone(), fixed.saturating_sub(usize::from(this_led)));
             }
         }
     }

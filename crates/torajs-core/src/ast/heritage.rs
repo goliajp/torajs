@@ -163,14 +163,13 @@ fn extract_one(
         // recognises it by name AFTER this pass), a binding this pass
         // already minted, or `undefined` (a shape no lane claims —
         // extracting it would only trade one loud error for another).
-        Expr::Ident(n) => {
-            if class_names.contains(n)
+        Expr::Ident(n)
+            if (class_names.contains(n)
                 || super::desugar_classes_builtin_heritage::is_subclassable_builtin(n)
                 || ast.es5_value_parents.contains(n)
-                || n == "undefined"
-            {
-                return None;
-            }
+                || n == "undefined") =>
+        {
+            return None;
         }
         _ => {}
     }

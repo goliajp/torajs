@@ -318,43 +318,43 @@ impl<'a> LowerCtx<'a> {
         // holds the cell (mint-site self-store; borrowed edge, no
         // stake to release at exit). A same-named param shadows the
         // binding (§15.5.5), so an existing local wins.
-        if let Some(sn) = self_name {
-            if !self.locals.contains_key(&sn) {
-                let closure_ty = crate::ssa_lower_closure::closure_value_ty(self, fn_name);
-                let env_ptr = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Load(Type::Ptr, Operand::Value(env_slot), 0),
-                    Type::Ptr,
-                    None,
-                );
-                let offset = CLOSURE_CAP_BASE_OFF + (cap_meta.len() as u64) * 8;
-                let v = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Load(closure_ty, Operand::Value(env_ptr), offset),
-                    closure_ty,
-                    None,
-                );
-                let local = self.alloca(closure_ty, Some(&sn));
-                self.f.append_void(
-                    self.cur_block,
-                    InstKind::Store(Operand::Value(v), Operand::Value(local), 0),
-                );
-                self.locals.insert(
-                    sn.clone(),
-                    LocalInfo {
-                        slot: local,
-                        ty: closure_ty,
-                        moved: true,
-                        borrowed: true,
-                        boxed: false,
-                        scope_depth: 0,
-                    },
-                );
-                // 403-02 — the call lane's self-recursion proof reads
-                // this slot identity (see the field doc).
-                self.self_name_slot = Some(local);
-                self.scope_stack[0].push(sn);
-            }
+        if let Some(sn) = self_name
+            && !self.locals.contains_key(&sn)
+        {
+            let closure_ty = crate::ssa_lower_closure::closure_value_ty(self, fn_name);
+            let env_ptr = self.f.append_inst(
+                self.cur_block,
+                InstKind::Load(Type::Ptr, Operand::Value(env_slot), 0),
+                Type::Ptr,
+                None,
+            );
+            let offset = CLOSURE_CAP_BASE_OFF + (cap_meta.len() as u64) * 8;
+            let v = self.f.append_inst(
+                self.cur_block,
+                InstKind::Load(closure_ty, Operand::Value(env_ptr), offset),
+                closure_ty,
+                None,
+            );
+            let local = self.alloca(closure_ty, Some(&sn));
+            self.f.append_void(
+                self.cur_block,
+                InstKind::Store(Operand::Value(v), Operand::Value(local), 0),
+            );
+            self.locals.insert(
+                sn.clone(),
+                LocalInfo {
+                    slot: local,
+                    ty: closure_ty,
+                    moved: true,
+                    borrowed: true,
+                    boxed: false,
+                    scope_depth: 0,
+                },
+            );
+            // 403-02 — the call lane's self-recursion proof reads
+            // this slot identity (see the field doc).
+            self.self_name_slot = Some(local);
+            self.scope_stack[0].push(sn);
         }
     }
 

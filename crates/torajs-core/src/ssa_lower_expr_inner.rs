@@ -36,21 +36,17 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
         Expr::New {
             class_name, args, ..
         } if matches!(class_name.as_str(), "WeakRef" | "WeakMap" | "WeakSet") => {
-            return crate::ssa_lower_new::try_lower(ctx, class_name, args)
-                .expect("ssa-lower: weakref/weakmap/weakset sibling miss");
+            crate::ssa_lower_new::try_lower(ctx, class_name, args)
+                .expect("ssa-lower: weakref/weakmap/weakset sibling miss")
         }
         Expr::New {
             class_name, args, ..
-        } if class_name == "Map" => {
-            return crate::ssa_lower_new::try_lower(ctx, class_name, args)
-                .expect("ssa-lower: Map sibling miss");
-        }
+        } if class_name == "Map" => crate::ssa_lower_new::try_lower(ctx, class_name, args)
+            .expect("ssa-lower: Map sibling miss"),
         Expr::New {
             class_name, args, ..
-        } if class_name == "Set" => {
-            return crate::ssa_lower_new::try_lower(ctx, class_name, args)
-                .expect("ssa-lower: Set sibling miss");
-        }
+        } if class_name == "Set" => crate::ssa_lower_new::try_lower(ctx, class_name, args)
+            .expect("ssa-lower: Set sibling miss"),
         // P0.10 — `new Array(n)` 1-arg form. Allocates an
         // Array<Any> of length n with all slots set to ANY_NULL
         // when the arg is a Number; an Any arg goes through a
@@ -62,8 +58,8 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
         Expr::New {
             class_name, args, ..
         } if class_name == "Array" && args.len() == 1 => {
-            return crate::ssa_lower_new::try_lower(ctx, class_name, args)
-                .expect("ssa-lower: Array sibling miss");
+            crate::ssa_lower_new::try_lower(ctx, class_name, args)
+                .expect("ssa-lower: Array sibling miss")
         }
         // RFC 20260716 刀 2 — `new Number(x)` / `new String(x)` wrapper
         // substrate. 0-arg forms are pre-desugared to primitive
@@ -71,58 +67,52 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
         Expr::New {
             class_name, args, ..
         } if class_name == "Number" && !args.is_empty() => {
-            return crate::ssa_lower_new::try_lower(ctx, class_name, args)
-                .expect("ssa-lower: Number wrapper sibling miss");
+            crate::ssa_lower_new::try_lower(ctx, class_name, args)
+                .expect("ssa-lower: Number wrapper sibling miss")
         }
         Expr::New {
             class_name, args, ..
         } if class_name == "String" && !args.is_empty() => {
-            return crate::ssa_lower_new::try_lower(ctx, class_name, args)
-                .expect("ssa-lower: String wrapper sibling miss");
+            crate::ssa_lower_new::try_lower(ctx, class_name, args)
+                .expect("ssa-lower: String wrapper sibling miss")
         }
         Expr::New {
             class_name, args, ..
         } if class_name == "Boolean" && !args.is_empty() => {
-            return crate::ssa_lower_new::try_lower(ctx, class_name, args)
-                .expect("ssa-lower: Boolean wrapper sibling miss");
+            crate::ssa_lower_new::try_lower(ctx, class_name, args)
+                .expect("ssa-lower: Boolean wrapper sibling miss")
         }
         // RFC 20260730-iterator-global 刀 1 — §27.1.3.1 abstract
         // ctor: direct `new Iterator()` throws at runtime.
         Expr::New {
             class_name, args, ..
-        } if class_name == "Iterator" => {
-            return crate::ssa_lower_new::try_lower(ctx, class_name, args)
-                .expect("ssa-lower: Iterator ctor sibling miss");
-        }
+        } if class_name == "Iterator" => crate::ssa_lower_new::try_lower(ctx, class_name, args)
+            .expect("ssa-lower: Iterator ctor sibling miss"),
         // RFC 20260823-proxy-substrate 刀 1 — §10.5.14 ProxyCreate.
         Expr::New {
             class_name, args, ..
-        } if class_name == "Proxy" => {
-            return crate::ssa_lower_new::try_lower(ctx, class_name, args)
-                .expect("ssa-lower: Proxy ctor sibling miss");
-        }
+        } if class_name == "Proxy" => crate::ssa_lower_new::try_lower(ctx, class_name, args)
+            .expect("ssa-lower: Proxy ctor sibling miss"),
         // RFC 20260823-typedarray-substrate 刀 1 — §25.1.4.1
         // AllocateArrayBuffer.
         Expr::New {
             class_name, args, ..
-        } if class_name == "ArrayBuffer" => {
-            return crate::ssa_lower_new::try_lower(ctx, class_name, args)
-                .expect("ssa-lower: ArrayBuffer ctor sibling miss");
-        }
+        } if class_name == "ArrayBuffer" => crate::ssa_lower_new::try_lower(ctx, class_name, args)
+            .expect("ssa-lower: ArrayBuffer ctor sibling miss"),
         // RFC 20260823-typedarray-substrate 刀 2 — the eleven §23.2
         // constructors.
         Expr::New {
             class_name, args, ..
         } if crate::ssa_lower_call_typedarray::kind_of_name(class_name).is_some() => {
-            return crate::ssa_lower_new::try_lower(ctx, class_name, args)
-                .expect("ssa-lower: TypedArray ctor sibling miss");
+            crate::ssa_lower_new::try_lower(ctx, class_name, args)
+                .expect("ssa-lower: TypedArray ctor sibling miss")
         }
         // 刀 7 — §25.3.2 the DataView constructor.
         Expr::New {
             class_name, args, ..
         } if class_name == "DataView" || class_name == "FinalizationRegistry" => {
-            return crate::ssa_lower_new::try_lower(ctx, class_name, args)
-                .expect("ssa-lower: any-result ctor sibling miss");
+            crate::ssa_lower_new::try_lower(ctx, class_name, args)
+                .expect("ssa-lower: any-result ctor sibling miss")
         }
         // Number literals coerce to i64 — type inference lifts them to
         // f64 once we wire numeric-mode detection into the lowerer.
@@ -152,7 +142,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
         // [`crate::ssa_lower_new_dynamic::lower`].
         Expr::NewDynamic { callee, args } => {
             let (callee, args) = (*callee, args.clone());
-            return crate::ssa_lower_new_dynamic::lower(ctx, callee, &args);
+            crate::ssa_lower_new_dynamic::lower(ctx, callee, &args)
         }
         Expr::NewTarget => {
             // P4.5 — Load + rc_inc from __new_target slot
@@ -160,7 +150,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
             // by end-of-scope drop); ANY_UNDEF box outside
             // ctors per spec §13.3.10. See
             // [`crate::ssa_lower_lit::lower_new_target`].
-            return crate::ssa_lower_lit::lower_new_target(ctx);
+            crate::ssa_lower_lit::lower_new_target(ctx)
         }
         Expr::String(s) => {
             // Intern the literal body and yield the
@@ -194,10 +184,8 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
         // and arg types.
         Expr::New {
             class_name, args, ..
-        } if class_name == "RegExp" => {
-            return crate::ssa_lower_new::try_lower(ctx, class_name, args)
-                .expect("ssa-lower: RegExp sibling miss");
-        }
+        } if class_name == "RegExp" => crate::ssa_lower_new::try_lower(ctx, class_name, args)
+            .expect("ssa-lower: RegExp sibling miss"),
         // v0.2 #1 — regex literal `/pat/flags`. Lower to a runtime
         // call to `__torajs_regex_compile(pat_str, flags_str)`
         // returning a freshly allocated RegExp. Pattern + flags are
@@ -244,7 +232,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
         Expr::Assign { target, value } => {
             // Ident / Member / Index target dispatch — see
             // [`crate::ssa_lower_assign::lower`].
-            return crate::ssa_lower_assign::lower(ctx, eid, *target, *value);
+            crate::ssa_lower_assign::lower(ctx, eid, *target, *value)
         }
         Expr::BinOp { op, left, right } => {
             // M1.5 — `&&` / `||` short-circuit + AST-level fold
@@ -253,7 +241,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
             // fresh-owned refcount drop dance + P7.4-a-b bigint
             // throw-check. See
             // [`crate::ssa_lower_binop::lower`].
-            return crate::ssa_lower_binop::lower(ctx, eid, *op, *left, *right);
+            crate::ssa_lower_binop::lower(ctx, eid, *op, *left, *right)
         }
         Expr::Unary { op, expr } => {
             // Band B, one operand — see `ssa_lower_spec_throw`.

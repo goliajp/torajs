@@ -233,12 +233,12 @@ pub(crate) fn record_binding_flags(
     if type_ann.is_some_and(|a| a.starts_with("__nullable(")) {
         match crate::ssa_lower_parse_type::parse_type(
             type_ann.map(|s| s.as_str()),
-            &ctx.aliases,
-            &mut ctx.arr_layouts,
-            &mut ctx.fn_sigs,
+            ctx.aliases,
+            ctx.arr_layouts,
+            ctx.fn_sigs,
             ctx.generic_struct_decls,
-            &mut ctx.struct_layouts,
-            &mut ctx.inst_memo,
+            ctx.struct_layouts,
+            ctx.inst_memo,
         ) {
             Type::Str => {
                 ctx.nullable_str_lets.insert(name.to_string());

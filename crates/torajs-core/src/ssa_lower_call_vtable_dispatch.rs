@@ -216,7 +216,7 @@ fn devirt_target(
         {
             return Some(*fid);
         }
-        if owners.iter().any(|o| *o == name) {
+        if owners.contains(&name) {
             // This level DECLARES the method yet neither spelling
             // resolves — a generic declarer whose specialization
             // this call's suffix can't name (the dispatcher's

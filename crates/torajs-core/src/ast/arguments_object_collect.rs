@@ -54,17 +54,16 @@ pub(super) fn collect_value_argc(
     let mut value_real_argc: HashSet<String> = HashSet::new();
     // binding name → source lifted-closure fn name (aliases share
     // the source fn).
-    let argc_candidates: Vec<(String, String)>;
+
     for s in &ast.stmts {
-        if let Stmt::FnDecl { name, body, .. } = s {
-            if env_fns.contains(name)
-                && !iife_real_argc.contains(name)
-                && !excluded.contains(name)
-                && body_has_arguments_length(ast, body)
-                && !body_has_non_length_arguments_touch(ast, body)
-            {
-                value_real_argc.insert(name.clone());
-            }
+        if let Stmt::FnDecl { name, body, .. } = s
+            && env_fns.contains(name)
+            && !iife_real_argc.contains(name)
+            && !excluded.contains(name)
+            && body_has_arguments_length(ast, body)
+            && !body_has_non_length_arguments_touch(ast, body)
+        {
+            value_real_argc.insert(name.clone());
         }
     }
     // RFC chunk 2 (mono track) — a length-only closure passed
@@ -137,9 +136,10 @@ pub(super) fn collect_value_argc(
 
     // Direct bindings + alias closure + kill fixpoint — the shared
     // safety walk (also used by the argv-face tier below).
-    argc_candidates = super::arguments_object_chain::safe_binding_chain(ast, |fn_name| {
-        value_real_argc.contains(fn_name)
-    });
+    let argc_candidates: Vec<(String, String)> =
+        super::arguments_object_chain::safe_binding_chain(ast, |fn_name| {
+            value_real_argc.contains(fn_name)
+        });
     // Only fns whose closure value is consumed EXCLUSIVELY through a
     // surviving binding chain get the argc injection — plus the
     // RFC-chunk-2 mono-track form below. A closure stored in a

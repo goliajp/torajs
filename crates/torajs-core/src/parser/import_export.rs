@@ -475,7 +475,7 @@ mod tests {
 
     fn parse_err(src: &str) -> String {
         let tokens = tokenize(src).expect("tokenize");
-        parse(src, &tokens).err().expect("a parse error")
+        parse(src, &tokens).expect_err("a parse error")
     }
 
     #[test]

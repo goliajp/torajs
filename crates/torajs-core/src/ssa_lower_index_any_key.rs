@@ -268,7 +268,8 @@ pub(crate) fn emit_any_elem_pair(
     // the tag read runs an accessor element's getter, which may throw
     ctx.emit_throw_check(None);
     let cur_block = ctx.cur_block;
-    let box_v = ctx.f.append_inst(
+
+    ctx.f.append_inst(
         cur_block,
         InstKind::Call(
             ctx.intrinsics.any_box,
@@ -276,8 +277,7 @@ pub(crate) fn emit_any_elem_pair(
         ),
         Type::Any,
         None,
-    );
-    box_v
+    )
 }
 
 /// Dynamic string key on an `any` receiver — probe by the runtime
@@ -417,5 +417,5 @@ pub(crate) fn lower_struct_like_index(
     // any-index churn probe). The boxed receiver itself is a
     // borrow (chunk 753 pure-encoding note above), no release.
     ctx.owned_member_reads.insert(eid);
-    return Operand::Value(v);
+    Operand::Value(v)
 }

@@ -264,9 +264,7 @@ pub(super) fn positional_static_method_sites(
                 let Expr::Member { obj, name } = e else {
                     continue;
                 };
-                if PropKey::from(name) != sm.name
-                    || !matches!(ast.get_expr(*obj), Expr::Ident(c) if c == cname)
-                {
+                if *name != sm.name || !matches!(ast.get_expr(*obj), Expr::Ident(c) if c == cname) {
                     continue;
                 }
                 let eid = i as u32;

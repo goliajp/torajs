@@ -210,7 +210,7 @@ fn proto_index_write(exprs: &[Expr], e: &Expr) -> bool {
 }
 
 /// TS casts are static assertions — look at the value underneath.
-fn peel_as<'e>(exprs: &'e [Expr], mut e: ExprId) -> &'e Expr {
+fn peel_as(exprs: &[Expr], mut e: ExprId) -> &Expr {
     loop {
         match &exprs[e.0 as usize] {
             Expr::As { expr, .. } => e = *expr,

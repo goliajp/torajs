@@ -55,10 +55,8 @@ pub(crate) fn fn_type_canon(ann: &str) -> Option<String> {
     }
     if t.starts_with("__fn(") {
         Some(t.to_string())
-    } else if let Some(rest) = t.strip_prefix("__cls(") {
-        Some(format!("__fn({rest}"))
     } else {
-        None
+        t.strip_prefix("__cls(").map(|rest| format!("__fn({rest}"))
     }
 }
 

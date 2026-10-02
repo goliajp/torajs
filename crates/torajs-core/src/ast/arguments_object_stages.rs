@@ -191,7 +191,7 @@ pub(super) fn classify_argc_mode(
         {
             ArgcMode::LiveLength(LiveSeed::Static(n))
         } else if non_simple
-            || super::arguments_object_mutation::body_mutates_args_view(ast, body, &params)
+            || super::arguments_object_mutation::body_mutates_args_view(ast, body, params)
         {
             // S3 — the sloppy goal's simple-param face keeps
             // the substitution WITH its aliasing (that IS
@@ -199,7 +199,7 @@ pub(super) fn classify_argc_mode(
             // materialized array (see ArgcMode::Mapped).
             if ast.body_is_sloppy(body)
                 && !non_simple
-                && !super::arguments_object_mutation::body_has_mapped_blockers(ast, body, &params)
+                && !super::arguments_object_mutation::body_has_mapped_blockers(ast, body, params)
             {
                 ArgcMode::Mapped(n)
             } else {
@@ -272,7 +272,7 @@ pub(super) fn classify_argc_mode(
         // is the declared arity: this tier has no argc to read.
         ArgcMode::LiveLength(LiveSeed::Static(params.len()))
     } else if super::arguments_object_walkers::body_has_any_arguments_touch(ast, body)
-        && super::arguments_object_mutation::body_mutates_args_view(ast, body, &params)
+        && super::arguments_object_mutation::body_mutates_args_view(ast, body, params)
     {
         // FoldArity tier (no static argc), mutating body —
         // the literal-index substitution wrote through

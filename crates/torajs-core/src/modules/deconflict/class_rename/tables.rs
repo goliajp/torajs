@@ -204,10 +204,10 @@ pub(super) fn migrate_name_keyed_tables(
             if let Some(v) = ast.member_visibility.insert(k.clone(), *orig) {
                 ast.member_visibility.insert((new.to_string(), new_m), v);
             }
-        } else if has_member(&k.1) {
-            if let Some(v) = ast.member_visibility.get(&k).copied() {
-                ast.member_visibility.insert((new.to_string(), new_m), v);
-            }
+        } else if has_member(&k.1)
+            && let Some(v) = ast.member_visibility.get(&k).copied()
+        {
+            ast.member_visibility.insert((new.to_string(), new_m), v);
         }
     }
     let ro_keys: Vec<(String, PropKey)> = ast

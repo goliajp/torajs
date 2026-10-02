@@ -58,18 +58,18 @@ impl<'a> Parser<'a> {
         // Per TS spec §3.10.2 the modifier is type-side and has no
         // runtime effect; the subset treats it as an identity skip.
         // Common in fn-param positions like `xs: readonly number[]`.
-        if let Token::Ident(s) = self.peek() {
-            if s == "readonly" {
-                let next = self.tokens.get(self.pos + 1).map(|t| &t.token);
-                if matches!(
-                    next,
-                    Some(Token::Ident(_))
-                        | Some(Token::Void)
-                        | Some(Token::LBrace)
-                        | Some(Token::LParen)
-                ) {
-                    self.pos += 1;
-                }
+        if let Token::Ident(s) = self.peek()
+            && s == "readonly"
+        {
+            let next = self.tokens.get(self.pos + 1).map(|t| &t.token);
+            if matches!(
+                next,
+                Some(Token::Ident(_))
+                    | Some(Token::Void)
+                    | Some(Token::LBrace)
+                    | Some(Token::LParen)
+            ) {
+                self.pos += 1;
             }
         }
         // Function type: `(p: T, ...) => R`.

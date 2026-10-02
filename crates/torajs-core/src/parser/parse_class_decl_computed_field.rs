@@ -42,7 +42,7 @@ impl<'a> Parser<'a> {
             // as receiver (§15.7.14); an instance one runs in ctor
             // scope, where `this` is already the instance.
             let saved_static_this = if is_static {
-                std::mem::replace(&mut self.static_this_class, Some(name.to_string()))
+                self.static_this_class.replace(name.to_string())
             } else {
                 self.static_this_class.take()
             };

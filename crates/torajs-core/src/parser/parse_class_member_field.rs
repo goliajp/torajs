@@ -110,8 +110,7 @@ impl<'a> Parser<'a> {
                 // class object too (§15.7.14 runs it with the class as
                 // receiver), so register the token the way a static
                 // method body's is.
-                let saved_static_this =
-                    std::mem::replace(&mut self.static_this_class, Some(name.to_string()));
+                let saved_static_this = self.static_this_class.replace(name.to_string());
                 let init = self.parse_assign();
                 self.static_this_class = saved_static_this;
                 let init = init?;

@@ -136,7 +136,7 @@ fn rewrite_for(
     };
     if !prefix.is_empty() {
         let old = std::mem::replace(body.as_mut(), Stmt::Multi(Vec::new()));
-        *body = Box::new(head_tested_body(ast, prefix, c, old));
+        **body = head_tested_body(ast, prefix, c, old);
         *cond = None;
     }
     true

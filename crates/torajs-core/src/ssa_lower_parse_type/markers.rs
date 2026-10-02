@@ -117,5 +117,5 @@ pub(super) fn parse_cls(
         inst_memo,
     );
     let id = intern_fn_sig(fn_sigs, params, ret);
-    return Type::Closure(id);
+    Type::Closure(id)
 }

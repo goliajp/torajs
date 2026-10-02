@@ -58,7 +58,8 @@ pub(super) fn emit_map(
         // any other site widens the class). Convert rather than store the
         // integer's bits into an f64 slot.
         let mapped = Operand::Value(mapped);
-        let mapped = if ctx.operand_ty(&mapped) == Type::I64
+
+        if ctx.operand_ty(&mapped) == Type::I64
             && matches!(dst_arr_ty, Type::Arr(id) if ctx.arr_layouts[id.0 as usize] == Type::F64)
         {
             ctx.coerce_to_f64(mapped)
@@ -76,8 +77,7 @@ pub(super) fn emit_map(
             Operand::Value(owned)
         } else {
             mapped
-        };
-        mapped
+        }
     };
     // S7-b — `begin_loop` reserved the product, so the append is a slot
     // store and an add, with the running length in a register.

@@ -87,14 +87,13 @@ pub(super) fn split_block_binding(
         if let Stmt::LetDecl {
             name: n, mutable, ..
         } = it
+            && n == name
         {
-            if n == name {
-                *n = mangled.clone();
-                // §B.3.3 makes an ordinary let-like binding, and
-                // test262's `block-scoping` family assigns to it from
-                // inside the declaration's own body.
-                *mutable = true;
-            }
+            *n = mangled.clone();
+            // §B.3.3 makes an ordinary let-like binding, and
+            // test262's `block-scoping` family assigns to it from
+            // inside the declaration's own body.
+            *mutable = true;
         }
     }
     items.push(Stmt::LetDecl {

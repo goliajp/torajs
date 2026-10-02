@@ -41,8 +41,7 @@ impl<'a> Parser<'a> {
         // reached `desugar_classes` pass 2 unregistered and became the
         // instance receiver `__this`: `static { this.x = 1 }` threw
         // where it should have written an own property on the class.
-        let saved_static_this =
-            std::mem::replace(&mut self.static_this_class, Some(name.to_string()));
+        let saved_static_this = self.static_this_class.replace(name.to_string());
         let mut block_stmts: Vec<Stmt> = Vec::new();
         while !matches!(self.peek(), Token::RBrace | Token::Eof) {
             let s = match self.parse_stmt() {

@@ -95,7 +95,7 @@ pub(crate) fn lower_reflect_set(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Oper
     let slot = ctx.alloca(Type::Any, Some("__any_recv_slot"));
     ctx.f.append_void(
         ctx.cur_block,
-        InstKind::Store(recv_any.unwrap_or_else(|| any_op), Operand::Value(slot), 0),
+        InstKind::Store(recv_any.unwrap_or(any_op), Operand::Value(slot), 0),
     );
     let cur_block = ctx.cur_block;
     let ans = if recv_any.is_some() {

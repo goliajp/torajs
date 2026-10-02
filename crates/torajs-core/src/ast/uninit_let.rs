@@ -151,11 +151,11 @@ fn rewrite_uninit_in_stmts(stmts: &mut Vec<Stmt>, ast: &mut Ast, undef_eid: Expr
                 // bare pop would DROP all but the last declarator.
                 // Rewrap; a Multi carries the same flat-sequence
                 // semantics the label's body had.
-                *body = Box::new(if tmp.len() == 1 {
+                **body = if tmp.len() == 1 {
                     tmp.pop().unwrap()
                 } else {
                     Stmt::Multi(tmp)
-                });
+                };
             }
             Stmt::Try {
                 body,

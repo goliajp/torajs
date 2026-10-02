@@ -78,10 +78,10 @@ impl<'a> Parser<'a> {
         }
         // Special-case all-literal templates → emit a single
         // Expr::String. Common case `\`hello\`` skips the chain entirely.
-        if parts.len() == 1 {
-            if let lexer::TemplatePart::Lit { cooked: s, .. } = &parts[0] {
-                return Ok(self.ast.add_expr(Expr::String(s.clone())));
-            }
+        if parts.len() == 1
+            && let lexer::TemplatePart::Lit { cooked: s, .. } = &parts[0]
+        {
+            return Ok(self.ast.add_expr(Expr::String(s.clone())));
         }
         let mut acc: Option<ExprId> = None;
         for p in parts {

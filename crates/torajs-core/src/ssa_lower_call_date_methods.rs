@@ -92,7 +92,7 @@ pub(crate) fn try_lower(
     let Expr::Member { obj, name } = ctx.ast.get_expr(callee) else {
         return None;
     };
-    if !DATE_METHOD_ALLOWLIST.iter().any(|m| *m == name.as_str()) {
+    if !DATE_METHOD_ALLOWLIST.contains(&name.as_str()) {
         return None;
     }
     let recv_id = *obj;

@@ -187,11 +187,11 @@ impl<'a> Parser<'a> {
                 break;
             }
         }
-        return Ok(if decls.len() == 1 {
+        Ok(if decls.len() == 1 {
             decls.into_iter().next().unwrap()
         } else {
             Stmt::Multi(decls)
-        });
+        })
     }
 
     /// Step past one declarator: `true` after a `,` (another follows).

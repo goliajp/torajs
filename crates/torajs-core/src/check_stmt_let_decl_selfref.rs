@@ -75,7 +75,7 @@ pub(crate) fn predeclare_self_ref_closure(
         // and then the signature already says `any`).
         let mut nested: Vec<&str> = Vec::new();
         crate::ast::nested_closure_captures::collect(ast, init, &mut nested);
-        if !nested.iter().any(|c| *c == name) {
+        if !nested.contains(&name) {
             return SelfRef::None;
         }
         let (ty, verdict) = match type_ann {

@@ -43,10 +43,10 @@ pub(crate) fn check(
             Err(e) => checker.errors.push_err(e),
         }
     }
-    if let Some(st) = step {
-        if let Err(e) = checker.type_of(ast, *st) {
-            checker.errors.push_err(e);
-        }
+    if let Some(st) = step
+        && let Err(e) = checker.type_of(ast, *st)
+    {
+        checker.errors.push_err(e);
     }
     checker.check_stmt(ast, body);
     checker.scopes.pop();

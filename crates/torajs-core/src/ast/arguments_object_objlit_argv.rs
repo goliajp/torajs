@@ -269,16 +269,16 @@ fn scan_arena_refs<'a>(
         match e {
             Expr::Ident(n) => *ident_refs.entry(n).or_insert(0) += 1,
             Expr::Closure { fn_name, .. } => *closure_refs.entry(fn_name).or_insert(0) += 1,
-            Expr::Member { obj, name } | Expr::OptChain { obj, name } => {
-                if !spread_call_callees.contains(&(i as u32)) {
-                    let benign = (matches!(name.as_str(), "next" | "return" | "throw")
-                        && matches!(ast.get_expr(*obj), Expr::Ident(n)
+            Expr::Member { obj, name } | Expr::OptChain { obj, name }
+                if !spread_call_callees.contains(&(i as u32)) =>
+            {
+                let benign = (matches!(name.as_str(), "next" | "return" | "throw")
+                    && matches!(ast.get_expr(*obj), Expr::Ident(n)
                             if gen_instances.contains(n.as_str()) || n.starts_with("__")))
-                        || matches!(ast.get_expr(*obj), Expr::Ident(n)
+                    || matches!(ast.get_expr(*obj), Expr::Ident(n)
                             if any_only.contains(n.as_str()));
-                    if !benign {
-                        member_names.insert(name);
-                    }
+                if !benign {
+                    member_names.insert(name);
                 }
             }
             _ => {}

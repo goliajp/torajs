@@ -44,9 +44,9 @@ impl Parser<'_> {
             return Ok(id);
         }
         let undef = self.ast.add_expr(Expr::Ident("undefined".into()));
-        return Ok(self.ast.add_expr(Expr::Sequence {
+        Ok(self.ast.add_expr(Expr::Sequence {
             left: inner,
             right: undef,
-        }));
+        }))
     }
 }

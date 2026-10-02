@@ -204,10 +204,9 @@ pub(super) fn collect_decls_by_name(
             init,
             ..
         } = s
+            && dn == name
         {
-            if dn == name {
-                out.push((*mutable, *init));
-            }
+            out.push((*mutable, *init));
         }
         super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
             collect_decls_by_name(inner, name, out)

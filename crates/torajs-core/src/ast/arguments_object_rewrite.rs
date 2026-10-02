@@ -125,7 +125,7 @@ pub(super) fn rewrite_arguments_in_expr(
             if o == obj {
                 return eid;
             }
-            return ast.add_expr(Expr::Member { obj: o, name });
+            ast.add_expr(Expr::Member { obj: o, name })
         }
         // `arguments.length` — T-31: when this fn carries a real
         // argc, route to the S1 hidden `__torajs_argc`. Otherwise

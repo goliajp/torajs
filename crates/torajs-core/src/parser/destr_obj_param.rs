@@ -345,13 +345,11 @@ impl<'a> Parser<'a> {
         // §14.3.3.1 — a rest element is always last; the
         // pattern must close here.
         match self.peek() {
-            Token::RBrace => return Ok(true),
-            t => {
-                return Err(format!(
-                    "rest element must be last in object param destructuring, got {t:?} at {}",
-                    self.at()
-                ));
-            }
+            Token::RBrace => Ok(true),
+            t => Err(format!(
+                "rest element must be last in object param destructuring, got {t:?} at {}",
+                self.at()
+            )),
         }
     }
 }

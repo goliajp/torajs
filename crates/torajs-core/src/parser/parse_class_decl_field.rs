@@ -194,7 +194,7 @@ impl<'a> Parser<'a> {
         // receiver (§15.7.14). This is the untyped-field arm; the
         // annotated one lives in `parse_class_member_field`.
         let saved_static_this = if is_static {
-            std::mem::replace(&mut self.static_this_class, Some(name.to_string()))
+            self.static_this_class.replace(name.to_string())
         } else {
             self.static_this_class.take()
         };

@@ -226,7 +226,7 @@ fn route_list(
         // the BLOCK binding, and a var-scoped one is owed as well. The
         // name an enclosing scope already binds is step 1.a.ii's early
         // error, where the extension does not apply.
-        if in_block && !scope.iter().any(|b| *b == name) {
+        if in_block && !scope.contains(&name) {
             split_block_binding(ast, stmts, i, &name, span, counter);
         }
     }

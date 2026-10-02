@@ -237,11 +237,7 @@ impl<'a> FnToClosureCollector<'a> {
         // the lowerer off the immutable-only fn_addr_let
         // direct-dispatch lane naturally. Variadic anns keep
         // their own boxed-dual route (chunk-4 axis mirror).
-        if mutable
-            && type_ann
-                .as_deref()
-                .is_some_and(|a| is_fn_like_ann(a) && !a.contains("__rest("))
-        {
+        if mutable && type_ann.is_some_and(|a| is_fn_like_ann(a) && !a.contains("__rest(")) {
             self.try_mark(init);
         }
         // Rotation 599 — the identity axis. `const h = t` (and the

@@ -451,7 +451,7 @@ fn dst_shape(ctx: &mut LowerCtx<'_>, eid: ExprId, cb_ret_ty: Type) -> (bool, Typ
             // not leave its split block (rotation 468).
             if inner == Type::Substr {
                 let dst_id =
-                    crate::ssa_lower_interners::intern_arr_layout(&mut ctx.arr_layouts, Type::Str);
+                    crate::ssa_lower_interners::intern_arr_layout(ctx.arr_layouts, Type::Str);
                 (false, Type::Str, Type::Arr(dst_id))
             } else {
                 (false, inner, cb_ret_ty)
@@ -463,8 +463,7 @@ fn dst_shape(ctx: &mut LowerCtx<'_>, eid: ExprId, cb_ret_ty: Type) -> (bool, Typ
         // `undefined`). The dst takes the Any flavor; the push value
         // is minted by the caller (`emit_undef_any_box`).
         Type::Void => {
-            let dst_id =
-                crate::ssa_lower_interners::intern_arr_layout(&mut ctx.arr_layouts, Type::Any);
+            let dst_id = crate::ssa_lower_interners::intern_arr_layout(ctx.arr_layouts, Type::Any);
             (true, Type::Any, Type::Arr(dst_id))
         }
         Type::I64 | Type::F64 | Type::Str | Type::Substr | Type::Bool | Type::Any => {
@@ -488,7 +487,7 @@ fn dst_shape(ctx: &mut LowerCtx<'_>, eid: ExprId, cb_ret_ty: Type) -> (bool, Typ
             } else {
                 cb_ret_ty
             };
-            let dst_id = crate::ssa_lower_interners::intern_arr_layout(&mut ctx.arr_layouts, elem);
+            let dst_id = crate::ssa_lower_interners::intern_arr_layout(ctx.arr_layouts, elem);
             (true, elem, Type::Arr(dst_id))
         }
         other => panic!("flatMap callback must return an array or primitive scalar, got {other:?}"),

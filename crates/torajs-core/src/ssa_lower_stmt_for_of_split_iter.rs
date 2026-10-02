@@ -157,7 +157,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, var_name: &str, parent: ExprId, sep: Exp
             crate::ssa_lower_stmt_for_of_split_iter_fast::emit_versioned_header(
                 ctx,
                 &crate::ssa_lower_stmt_for_of_split_iter_fast::SplitLoop {
-                    parent_op: parent_op,
+                    parent_op,
                     sep_op,
                     iter_slot,
                     sub_slot,

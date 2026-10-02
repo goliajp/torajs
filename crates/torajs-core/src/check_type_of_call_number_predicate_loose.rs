@@ -63,10 +63,10 @@ pub(crate) fn try_match(
     // still surfaces, but we don't require it to be Number —
     // non-Number args route through the lower's static-false
     // path.
-    if let Some(arg0) = args.first() {
-        if let Err(e) = checker.type_of(ast, *arg0) {
-            return Some(Err(e));
-        }
+    if let Some(arg0) = args.first()
+        && let Err(e) = checker.type_of(ast, *arg0)
+    {
+        return Some(Err(e));
     }
     for &arg in args.iter().skip(1) {
         if let Err(e) = checker.type_of(ast, arg) {

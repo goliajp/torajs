@@ -94,10 +94,9 @@ pub fn cold_arms(func: &Function) -> Vec<(BlockId, BlockId, f64)> {
             Some((if ends_unreachable(t) { t } else { e }, P_NEVER))
         } else if one_calls && cond.is_some_and(|c| is_flag_guard(c, &defs)) {
             Some((calling_arm(), P_SLOW_PATH))
-        } else if let Some(oob) = cond.and_then(|c| out_of_bounds_arm(c, &defs, t, e)) {
-            Some((oob, P_SLOW_PATH))
         } else {
-            None
+            cond.and_then(|c| out_of_bounds_arm(c, &defs, t, e))
+                .map(|oob| (oob, P_SLOW_PATH))
         };
         if let Some((cold, p)) = arm {
             out.push((b.id, cold, p));

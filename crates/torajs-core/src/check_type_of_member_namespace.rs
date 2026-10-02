@@ -179,13 +179,7 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
         // `try_match_buffer` the way `Math` was, and for the same
         // reason: this fn sits at the 200-line hard limit, so an arm
         // moves out before one moves in.
-        (Type::Object(ns), _) if is_buffer_ns(ns) => {
-            if let Some(t) = try_match_buffer(ns, name) {
-                t
-            } else {
-                return None;
-            }
-        }
+        (Type::Object(ns), _) if is_buffer_ns(ns) => try_match_buffer(ns, name)?,
         (Type::Object("Proxy"), "revocable") => {
             Type::Function(vec![Type::Any, Type::Any], Box::new(Type::Any))
         }

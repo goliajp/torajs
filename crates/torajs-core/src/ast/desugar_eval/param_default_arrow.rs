@@ -121,10 +121,10 @@ fn collect_declaring_evals(ast: &mut Ast, owned: &[bool]) -> HashMap<usize, (Str
         let eid = ExprId(i as u32);
         if let Some((src, CallForm::Direct)) = literal_eval_call(eid, ast) {
             let strict = eval_strictness(CallForm::Direct, i, &caller_strict);
-            if let Ok(stmts) = parse_eval_source(&src, ast, false, strict) {
-                if declares_var_arguments(&stmts) {
-                    found.insert(i, (src, stmts));
-                }
+            if let Ok(stmts) = parse_eval_source(&src, ast, false, strict)
+                && declares_var_arguments(&stmts)
+            {
+                found.insert(i, (src, stmts));
             }
         }
     }

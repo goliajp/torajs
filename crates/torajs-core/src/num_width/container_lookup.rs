@@ -74,7 +74,7 @@ impl<'a> Analysis<'a> {
                         && ns == "Array"
                         && self.resolve(ns, scope).is_none()
                     {
-                        return (name == "from").then(|| SlotKey::Anon(eid.0));
+                        return (name == "from").then_some(SlotKey::Anon(eid.0));
                     }
                     let recv = self.container_key_lookup(*obj, scope)?;
                     return self.method_result_key_pure(eid, recv, name, args);

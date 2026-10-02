@@ -153,10 +153,10 @@ pub(crate) fn try_match(
                 // 0-arg form skips the typecheck entirely;
                 // ssa_lower returns the spec constant
                 // (isNaN→true / isFinite→false).
-                if let Some(arg0) = args.first() {
-                    if let Err(e) = checker.type_of(ast, *arg0) {
-                        return Some(Err(e));
-                    }
+                if let Some(arg0) = args.first()
+                    && let Err(e) = checker.type_of(ast, *arg0)
+                {
+                    return Some(Err(e));
                 }
                 Some(Ok(Type::Boolean))
             }

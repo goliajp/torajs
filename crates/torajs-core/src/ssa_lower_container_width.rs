@@ -155,7 +155,7 @@ pub(crate) fn widen_fn_sig(
         let pk = SlotKey::Field(Box::new(ck.clone()), PropKey::from(format!("__p{i}")));
         if *pt == Type::I64
             && param_anns.get(i).copied() == Some("number")
-            && table.field_is_f64(&ck, &format!("__p{i}"))
+            && table.field_is_f64(&ck, format!("__p{i}"))
         {
             *pt = Type::F64;
         } else {
@@ -211,7 +211,7 @@ pub(crate) fn widen_fn_sig_by_key(
     let mut new_params = param_tys.clone();
     for (i, pt) in new_params.iter_mut().enumerate() {
         let pk = SlotKey::Field(Box::new(key.clone()), PropKey::from(format!("__p{i}")));
-        if *pt == Type::I64 && table.field_is_f64(key, &format!("__p{i}")) {
+        if *pt == Type::I64 && table.field_is_f64(key, format!("__p{i}")) {
             *pt = Type::F64;
         } else {
             *pt = widen_face(*pt, None, &pk, table, arr_layouts, fn_sigs);

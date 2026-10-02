@@ -108,21 +108,21 @@ pub(crate) fn rewrite_tvdefault_in_stmt(ast: &mut Ast, s: &Stmt, subst: &[(Strin
 
 fn rewrite_tvdefault_in_expr(ast: &mut Ast, eid: ExprId, subst: &[(String, String)]) {
     // First detect the marker; rewrite in place if found.
-    if let Expr::Ident(name) = ast.get_expr(eid) {
-        if let Some(tv) = name.strip_prefix("__tvdefault__") {
-            // Find the substituted concrete type for this TypeVar.
-            for (tp_name, ann) in subst {
-                if tp_name == tv {
-                    let new_expr = match ann.as_str() {
-                        "number" | "i64" => Expr::Number(0.0),
-                        "f64" => Expr::Number(0.5), // forces fract() != 0 → ConstF64
-                        "boolean" => Expr::Bool(false),
-                        "string" => Expr::String(String::new().into()),
-                        _ => Expr::Number(0.0),
-                    };
-                    ast.exprs[eid.0 as usize] = new_expr;
-                    return;
-                }
+    if let Expr::Ident(name) = ast.get_expr(eid)
+        && let Some(tv) = name.strip_prefix("__tvdefault__")
+    {
+        // Find the substituted concrete type for this TypeVar.
+        for (tp_name, ann) in subst {
+            if tp_name == tv {
+                let new_expr = match ann.as_str() {
+                    "number" | "i64" => Expr::Number(0.0),
+                    "f64" => Expr::Number(0.5), // forces fract() != 0 → ConstF64
+                    "boolean" => Expr::Bool(false),
+                    "string" => Expr::String(String::new().into()),
+                    _ => Expr::Number(0.0),
+                };
+                ast.exprs[eid.0 as usize] = new_expr;
+                return;
             }
         }
     }

@@ -55,10 +55,10 @@ pub(crate) fn collect_shadowed_builtin_methods(ast: &Ast) -> ShadowSet {
                 }
             }
             Expr::Member { obj, name } => {
-                if name == "prototype" {
-                    if let Some(f) = builtin_named_by(ast, *obj) {
-                        proto_exprs.insert(eid, f);
-                    }
+                if name == "prototype"
+                    && let Some(f) = builtin_named_by(ast, *obj)
+                {
+                    proto_exprs.insert(eid, f);
                 }
                 if name == "constructor" {
                     match literal_family(ast, *obj) {

@@ -134,8 +134,8 @@ pub(crate) fn lower(
         }
     }
     let sid = crate::ssa_lower_objlit_layout::resolve_objlit_layout(
-        &mut ctx.struct_layouts,
-        &mut ctx.f,
+        ctx.struct_layouts,
+        ctx.f,
         ctx.cur_block,
         &mut field_tys,
         &mut field_vals,

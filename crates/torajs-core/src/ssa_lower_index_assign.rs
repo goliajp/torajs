@@ -458,6 +458,6 @@ impl<'a> LowerCtx<'a> {
         mint_index_assign_value(self, eid, &v_raw);
         key.emit_set(self, arr_val, tag_op, value_op, recv_slot);
         self.emit_throw_check(None);
-        return v_raw;
+        v_raw
     }
 }

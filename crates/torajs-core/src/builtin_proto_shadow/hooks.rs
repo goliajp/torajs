@@ -186,13 +186,13 @@ pub(super) fn scan_symbol_hooks(ast: &Ast, set: &mut ShadowSet) {
                             set.add_symbol_hook(p);
                         }
                     }
-                    "defineProperties" => {
+                    "defineProperties"
                         if args.get(1).is_some_and(|&d| {
                             matches!(ast.get_expr(d), Expr::ObjectLit { fields }
                                 if fields.iter().any(|(n, _)| n.starts_with("__computed_")))
-                        }) {
-                            set.set_symbol_hook_opaque();
-                        }
+                        }) =>
+                    {
+                        set.set_symbol_hook_opaque();
                     }
                     _ => {}
                 }

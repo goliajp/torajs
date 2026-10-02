@@ -121,12 +121,12 @@ pub(crate) fn try_dispatch(
     // instead of the f64-ABI kernel call; the wedge falls back to
     // that call itself for UTF-16 parents, and declines (`None`)
     // for 2+-arg shapes so the pre-existing path below keeps them.
-    if method == "charCodeAt" && args.len() <= 1 {
-        if let Some(v) =
+    if method == "charCodeAt"
+        && args.len() <= 1
+        && let Some(v) =
             crate::ssa_lower_str_charat_wedges::try_inline_substr_char_code_at(ctx, args, &recv_op)
-        {
-            return Some(v);
-        }
+    {
+        return Some(v);
     }
     // View-aware fast paths — read bytes from
     // parent + offset directly, no per-call malloc.
@@ -190,10 +190,10 @@ pub(crate) fn try_dispatch(
                 Type::Str,
                 None,
             );
-            if matches!(method, "toLocaleUpperCase" | "toLocaleLowerCase") {
-                if let Some(v) = lower_owned_to_locale_case(ctx, method, args, owned) {
-                    return Some(v);
-                }
+            if matches!(method, "toLocaleUpperCase" | "toLocaleLowerCase")
+                && let Some(v) = lower_owned_to_locale_case(ctx, method, args, owned)
+            {
+                return Some(v);
             }
             let mut argv = Vec::with_capacity(args.len() + 1);
             argv.push(Operand::Value(owned));

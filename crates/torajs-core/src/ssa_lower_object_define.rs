@@ -320,7 +320,7 @@ fn emit_define_objlit_runtime(
         Type::Closure(_) | Type::FnSig(_) | Type::Obj(_) => obj_op,
         // Same dispatch for every shape whose ordinary own face is a
         // property bag — see the twin in `reflect_integrity`.
-        ref t if crate::ssa_lower_index::shape_has_expando_bag(t) => obj_op,
+        t if crate::ssa_lower_index::shape_has_expando_bag(t) => obj_op,
         // What is left carries no bag to define into. Handled (no-op).
         _ => return true,
     };

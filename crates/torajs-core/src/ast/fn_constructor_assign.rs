@@ -103,11 +103,10 @@ fn assign_bound_bindings(ast: &Ast) -> Vec<AssignBound> {
         // Top-level order: the binding exists before anything that
         // can construct through it.
         let factory = format!("__new_{name}");
-        let first_construct = ast.stmts.iter().position(|s| {
-            free_vars_of_body(ast, &[], std::slice::from_ref(s))
-                .iter()
-                .any(|v| *v == factory)
-        });
+        let first_construct = ast
+            .stmts
+            .iter()
+            .position(|s| free_vars_of_body(ast, &[], std::slice::from_ref(s)).contains(&factory));
         if let Some(c_idx) = first_construct
             && c_idx <= assign_idx
         {

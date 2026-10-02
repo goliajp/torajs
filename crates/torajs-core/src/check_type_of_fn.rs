@@ -320,12 +320,12 @@ pub(crate) fn check_closure_body(
             },
         );
     }
-    if active.is_none() {
-        if let Some(sn) = &saved_self_name {
-            if cap_tys.iter().any(|(n, _)| n == sn) && !real_params.iter().any(|p| p.name == *sn) {
-                active = Some(sn.clone());
-            }
-        }
+    if active.is_none()
+        && let Some(sn) = &saved_self_name
+        && cap_tys.iter().any(|(n, _)| n == sn)
+        && !real_params.iter().any(|p| p.name == *sn)
+    {
+        active = Some(sn.clone());
     }
     checker.self_name_active = active;
     for s in &body {

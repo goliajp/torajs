@@ -55,7 +55,7 @@ fn sfi_stmt_x_safe(ast: &Ast, s: &Stmt, x_name: &str, shape: XShape<'_>) -> bool
                 && sfi_stmt_x_safe(ast, then_branch, x_name, shape)
                 && else_branch
                     .as_deref()
-                    .map_or(true, |eb| sfi_stmt_x_safe(ast, eb, x_name, shape))
+                    .is_none_or(|eb| sfi_stmt_x_safe(ast, eb, x_name, shape))
         }
         Stmt::While { cond, body } | Stmt::DoWhile { body, cond } => {
             sfi_expr_x_safe(ast, *cond, x_name, shape) && sfi_stmt_x_safe(ast, body, x_name, shape)
@@ -67,9 +67,9 @@ fn sfi_stmt_x_safe(ast: &Ast, s: &Stmt, x_name: &str, shape: XShape<'_>) -> bool
             body,
         } => {
             init.as_deref()
-                .map_or(true, |i| sfi_stmt_x_safe(ast, i, x_name, shape))
-                && cond.map_or(true, |c| sfi_expr_x_safe(ast, c, x_name, shape))
-                && step.map_or(true, |st| sfi_expr_x_safe(ast, st, x_name, shape))
+                .is_none_or(|i| sfi_stmt_x_safe(ast, i, x_name, shape))
+                && cond.is_none_or(|c| sfi_expr_x_safe(ast, c, x_name, shape))
+                && step.is_none_or(|st| sfi_expr_x_safe(ast, st, x_name, shape))
                 && sfi_stmt_x_safe(ast, body, x_name, shape)
         }
         Stmt::ForOfSplitIter {
@@ -98,9 +98,9 @@ fn sfi_stmt_x_safe(ast: &Ast, s: &Stmt, x_name: &str, shape: XShape<'_>) -> bool
                             .iter()
                             .all(|s| sfi_stmt_x_safe(ast, s, x_name, shape))
                 })
-                && default.as_ref().map_or(true, |db| {
-                    db.iter().all(|s| sfi_stmt_x_safe(ast, s, x_name, shape))
-                })
+                && default
+                    .as_ref()
+                    .is_none_or(|db| db.iter().all(|s| sfi_stmt_x_safe(ast, s, x_name, shape)))
         }
         Stmt::Try {
             body,
@@ -112,9 +112,9 @@ fn sfi_stmt_x_safe(ast: &Ast, s: &Stmt, x_name: &str, shape: XShape<'_>) -> bool
                 && catch_body
                     .iter()
                     .all(|s| sfi_stmt_x_safe(ast, s, x_name, shape))
-                && finally_body.as_ref().map_or(true, |fb| {
-                    fb.iter().all(|s| sfi_stmt_x_safe(ast, s, x_name, shape))
-                })
+                && finally_body
+                    .as_ref()
+                    .is_none_or(|fb| fb.iter().all(|s| sfi_stmt_x_safe(ast, s, x_name, shape)))
         }
         Stmt::Block(stmts) | Stmt::Multi(stmts) => {
             stmts.iter().all(|s| sfi_stmt_x_safe(ast, s, x_name, shape))
@@ -126,7 +126,7 @@ fn sfi_stmt_x_safe(ast: &Ast, s: &Stmt, x_name: &str, shape: XShape<'_>) -> bool
         | Stmt::ImportDecl { .. } => true,
         Stmt::ExportDecl { inner, .. } => inner
             .as_deref()
-            .map_or(true, |s| sfi_stmt_x_safe(ast, s, x_name, shape)),
+            .is_none_or(|s| sfi_stmt_x_safe(ast, s, x_name, shape)),
     }
 }
 

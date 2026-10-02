@@ -84,7 +84,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId) -> Operand {
                 InstKind::Call(raiser, vec![Operand::Value(name_str)]),
             );
             ctx.emit_throw_check(None);
-            return Operand::ConstPtrNull;
+            Operand::ConstPtrNull
         }
         Expr::Ident(name) => {
             let v = lower_ident(ctx, eid, name.clone(), Step { is_inc, is_prefix });

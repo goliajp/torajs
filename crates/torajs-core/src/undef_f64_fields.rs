@@ -149,10 +149,10 @@ fn collect(
                 }
             }
             Expr::Assign { target, value } => {
-                if let Expr::Member { name, .. } = ctx.ast.get_expr(*target) {
-                    if is_source(ctx, *value) {
-                        out.insert(PropKey::from(name));
-                    }
+                if let Expr::Member { name, .. } = ctx.ast.get_expr(*target)
+                    && is_source(ctx, *value)
+                {
+                    out.insert(PropKey::from(name));
                 }
             }
             _ => {}

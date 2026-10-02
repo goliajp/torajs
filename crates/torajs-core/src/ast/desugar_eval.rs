@@ -269,15 +269,13 @@ fn rewrite_value_position_evals(ast: &mut Ast) {
                     let fv = free_vars::free_vars_of_body(ast, &[], &parsed);
                     fv.is_empty() || (at_toplevel && fv.iter().all(|n| !nested_lexical.contains(n)))
                 };
-                if closed {
-                    if let Some(e) = ast.exprs.get(inner.0 as usize).cloned() {
-                        ast.exprs[i] = e;
-                        // Do not advance: the expression just written
-                        // in may itself be an `eval("…")` that came out
-                        // of a nested literal, and it now occupies this
-                        // slot.
-                        continue;
-                    }
+                if closed && let Some(e) = ast.exprs.get(inner.0 as usize).cloned() {
+                    ast.exprs[i] = e;
+                    // Do not advance: the expression just written
+                    // in may itself be an `eval("…")` that came out
+                    // of a nested literal, and it now occupies this
+                    // slot.
+                    continue;
                 }
             }
             // A "use strict" prologue makes the eval code strict

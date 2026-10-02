@@ -75,17 +75,15 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, elements: &[ExprId]) -> Re
         };
         if let Some(ty) = ty
             && !heterogeneous
-        {
-            if !is_assignable_to_resolved(
+            && (!is_assignable_to_resolved(
                 &first_ty,
                 &ty,
                 &checker.class_structs,
                 &checker.aliases,
                 &checker.generic_alias_decls,
-            ) || repr_disagrees(&first_ty, &ty)
-            {
-                heterogeneous = true;
-            }
+            ) || repr_disagrees(&first_ty, &ty))
+        {
+            heterogeneous = true;
         }
     }
     if let Some(e) = first_err {

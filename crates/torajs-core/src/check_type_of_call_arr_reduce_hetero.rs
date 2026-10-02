@@ -50,7 +50,7 @@ pub(crate) fn try_match(
     let Type::Function(ps, ret) = &cb_ty else {
         return None;
     };
-    if ps.len() < 1 || ps.len() > 4 {
+    if ps.is_empty() || ps.len() > 4 {
         return None;
     }
     // Second cb param (when present) must be elem-typed or Any —

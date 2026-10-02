@@ -186,7 +186,7 @@ fn try_lower_ident_local(
     // the hoisted data pointer; the reserve guarantees it stays valid).
     if let Some(state) = ctx.prereserve.unchecked_for.get(recv_name).copied() {
         if state.gate_per_append {
-            let owned = val_owned_from_substr.then(|| (val, elem_ty));
+            let owned = val_owned_from_substr.then_some((val, elem_ty));
             ctx.emit_prereserve_append_gate(state, owned);
         }
         let len_next = ctx.emit_prereserved_push(state, val);
