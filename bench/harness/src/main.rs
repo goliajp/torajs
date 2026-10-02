@@ -32,9 +32,12 @@ fn print_usage() {
     println!("    list                          list cases and runners (with detected versions)");
     println!("    run [case]                    run all cases (or one case)");
     println!(
-        "                                  default runtimes: torajs · torajs-run · rust · c · go ·"
+        "                                  default runtimes: torajs · torajs-run · rust · rust-fast ·"
     );
-    println!("                                  bun-aot · bun-jsc · node-v8 · deno-aot · deno-v8");
+    println!(
+        "                                  c · c-fast · go · go-fast · bun-aot · bun-aot-fast ·"
+    );
+    println!("                                  bun-jsc · node-v8 · deno-aot · deno-v8");
     println!("        --all                     also include python (several times slower alone)");
     println!("        --runtime r1,r2           explicit comma-separated runtime list (overrides");
     println!("                                  both --all and the default set)");
@@ -90,13 +93,22 @@ fn print_usage() {
 /// node-v8, deno-v8) — so a reader can compare against whichever one
 /// they would otherwise have used. python stays behind `--all`: it is
 /// half of the full wall-clock on its own and not a peer.
+///
+/// Every compiled comparator is run in two tiers, its default build
+/// and its fastest (`<name>-fast`: the same toolchain with every
+/// codegen option a user could turn on), so a ratio against it can be
+/// read against either and never rests on an untuned comparator.
 const DEFAULT_RUNTIMES: &[&str] = &[
     "torajs",
     "torajs-run",
     "rust",
+    "rust-fast",
     "c",
+    "c-fast",
     "go",
+    "go-fast",
     "bun-aot",
+    "bun-aot-fast",
     "bun-jsc",
     "node-v8",
     "deno-aot",

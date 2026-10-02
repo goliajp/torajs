@@ -1,0 +1,11 @@
+name = "c-fast"
+# The c comparator for the bench machine's own core. `c` is -O3 for the
+# generic aarch64 baseline; this row adds -march=native, which on
+# arm64 clang resolves to the host cpu (23.1.2 on an M4: `-###` shows
+# `-target-cpu apple-m4` and `+v8.7a`; -mcpu=native resolves the same,
+# probed 2026-10-02). Both rows are reported so a tr/c ratio is never
+# read against a comparator built for a cpu it does not run on.
+detect = "/opt/homebrew/opt/llvm/bin/clang --version"
+src_filename = "main.c"
+compile = "/opt/homebrew/opt/llvm/bin/clang -O3 -march=native -std=c17 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk {src} -o {out}"
+run = "{out}"

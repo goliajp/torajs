@@ -1,0 +1,20 @@
+# The rust comparator with every release codegen option on: the same
+# stable rustc as `rust`, which stays the default tier (what
+# `cargo build --release` gives). Both rows are reported and read per
+# cell: "all options on" is not "fastest" on every program. Measured
+# 2026-10-02 on mini, fib40 ran slower here than under `rust` (208 ms
+# against 175 ms; codegen-units=1 changes the inlining of the
+# recursion), str-build-1mb read the same.
+#
+# codegen-units=1  one unit, so LLVM sees the whole crate when inlining
+# lto=fat          whole-program LTO across the crate and std; on a
+#                  single-file `rustc` call this is accepted and links
+#                  (probed 2026-10-02 on mini, rustc 1.99.0: compiles,
+#                  runs, exit 0)
+# target-cpu=native  schedule and select for the bench machine's own
+#                  core instead of the generic aarch64 baseline
+name = "rust-fast"
+detect = "rustup run stable rustc --version"
+src_filename = "main.rs"
+compile = "rustup run stable rustc -C opt-level=3 -C codegen-units=1 -C lto=fat -C target-cpu=native {src} -o {out}"
+run = "{out}"

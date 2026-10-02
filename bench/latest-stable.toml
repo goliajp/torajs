@@ -13,6 +13,7 @@
 # - In-tree runners (`torajs`, `torajs-run`) have no entry — their version
 #   IS the git HEAD, not a downloaded toolchain.
 # - The runner key matches `Runner.name` from bench/runners/<name>.toml.
+#   A `-fast` runner shares its base runner's toolchain and floor.
 #
 # Last review: 2026-10-02 (rust floor 1.99.0, the stable released on
 # 2026-09-28; 2026-09-30: deno 2.9.7 joins; 2026-09-29: rust floor 1.98.1
@@ -31,6 +32,10 @@ hint  = "bun upgrade"
 floor = "1.4.0"
 hint  = "bun upgrade"
 
+[runners.bun-aot-fast]
+floor = "1.4.0"
+hint  = "bun upgrade"
+
 [runners.deno-v8]
 floor = "2.9.7"
 hint  = "deno upgrade"
@@ -43,11 +48,23 @@ hint  = "deno upgrade"
 floor = "1.27.1"
 hint  = "brew upgrade go  (or `asdf install golang latest && asdf global golang latest`)"
 
+[runners.go-fast]
+floor = "1.27.1"
+hint  = "brew upgrade go  (or `asdf install golang latest && asdf global golang latest`)"
+
 [runners.rust]
 floor = "1.99.0"
 hint  = "rustup update stable"
 
+[runners.rust-fast]
+floor = "1.99.0"
+hint  = "rustup update stable"
+
 [runners.c]
+floor = "23.1.2"
+hint  = "brew upgrade llvm"
+
+[runners.c-fast]
 floor = "23.1.2"
 hint  = "brew upgrade llvm"
 

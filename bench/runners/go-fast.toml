@@ -1,0 +1,14 @@
+name = "go-fast"
+# go has no optimisation levels; its one codegen knob on arm64 is
+# GOARM64, which defaults to v8.0 and may be raised to the host's
+# architecture level plus the lse (atomics) and crypto extensions. The
+# bench machine's core is v8.7a by clang's reading (see c-fast), so
+# this row builds for v8.7,lse,crypto; the binary differs from the
+# default build (probed 2026-10-02 on mini, go 1.27.1). PGO is the
+# other knob but needs a profile per program, so it is not a flag tier.
+# The compile command is not run through a shell, so the variable is
+# set with `env`.
+detect = "/opt/homebrew/bin/go version"
+src_filename = "main.go"
+compile = "/usr/bin/env GOARM64=v8.7,lse,crypto /opt/homebrew/bin/go build -o {out} {src}"
+run = "{out}"
