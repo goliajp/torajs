@@ -177,7 +177,7 @@ mod tests {
             for offset in 0..align {
                 let raw = 0x1000 + offset;
                 let aligned = align_up_with_header(raw, align);
-                assert!(aligned % align == 0);
+                assert!(aligned.is_multiple_of(align));
                 assert!(aligned >= raw + HEADER);
             }
         }

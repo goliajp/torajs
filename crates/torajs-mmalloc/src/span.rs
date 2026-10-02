@@ -1,296 +1,418 @@
-//! Span — a contiguous mmap'd region serving one size class.
+//! `SpanMeta` — the bookkeeping of one span: a run of arena pages
+//! carved into equal slots of one size class.
 //!
-//! Phase 2a substep 1 of the metal-tier allocator redesign.
-//! Spans are the unit of allocation
-//! ownership in the redesigned allocator: each span belongs to a
-//! single size class, has N fixed-size slots, and tracks its own
-//! free list inline (LIFO via 8-byte next pointers in unused slots).
+//! The metadata lives in the arena header, never inside the span, so
+//! a freed block's bytes are the only thing a free list writes: the
+//! link word at [`FREE_LINK_OFF`], past the block's first word.
 //!
-//! This file is data-structure scaffolding only — no `extern_api`
-//! caller yet. Subsequent Phase 2a commits will (a) migrate
-//! `size_class::Allocator` to be span-backed, and (b) introduce the
-//! Layer 0/1 `core` API that does ptr→span lookup via a registry
-//! built on this type.
+//! Two free lists. `free` belongs to the owning heap, is read and
+//! written without atomics, and carries its length so the heap can
+//! take the whole chain in one splice; `thread_free` is where another
+//! thread's heap pushes a block it released, with a compare-and-swap,
+//! and the owner takes the whole list in one exchange when it refills.
 //!
-//! Design references (per the 正统 design pillar):
-//! - Go runtime `src/runtime/mheap.go::mspan` — span-per-size-class
-//! - mimalloc `src/page.c` — page-as-span concept
-//! - snmalloc slab.h — fixed-size slot iteration
+//! `used` counts the slots the owner carved out and has not yet taken
+//! back onto `free`: blocks in the user's hands, blocks on the owner's
+//! row, and blocks on `thread_free` that the owner has not collected.
+//! Only the owner touches it, so a span is known empty exactly when
+//! the owner sees `used == 0`.
+//!
+//! Shape after mimalloc `mi_page_t` (local + thread free list, `used`)
+//! and Go `mspan` (metadata off-span, state machine).
 
-use core::mem::size_of;
-use core::ptr::{self, NonNull};
+use core::ptr;
+use core::sync::atomic::{AtomicPtr, Ordering};
 
-use torajs_syscall::{Errno, mmap_anon_rw, munmap};
+use crate::tlab::{FREE_LINK_OFF, SPILL_AT};
 
-/// Default span byte length. Same 16 KB as the legacy `PageBump`
-/// so existing fit / coverage characteristics are preserved when
-/// the next commit switches `Allocator` to span-backed.
-pub const SPAN_LEN: usize = 16 * 1024;
+/// Virgin slots a refill carves into a chain at once: enough that a
+/// program growing a class pays the carve per 64 blocks, not more
+/// than a row's spill returns.
+const CARVE: usize = 64;
 
-/// Minimum slot size — must hold an in-place freelist `next`
-/// pointer (8 bytes on 64-bit targets). All size classes are
-/// constrained to be ≥ this.
-pub const MIN_SLOT: usize = size_of::<*mut u8>();
+/// Where a span is, as the owner's lists see it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(u8)]
+pub enum SpanState {
+    /// Pages back in the arena's bitmap; the metadata slot is reusable.
+    Free = 0,
+    /// The span the owner currently refills from for its class.
+    Cur = 1,
+    /// Has free slots and sits in the owner's partial list for its class.
+    Partial = 2,
+    /// Every slot carved and none on `free`; in no list.
+    Full = 3,
+}
 
-/// Embedded freelist node — overlays an unused slot. When a slot is
-/// free, its first 8 bytes hold the pointer to the next free slot
-/// (or null at the end). When a slot is in use, those bytes are
-/// the caller's data — the freelist invariant is "the head pointer
-/// is the only reader of the next field, and it only reads when
-/// the slot is on the free list".
+/// Per-span bookkeeping, 48 bytes, kept in the arena header.
 #[repr(C)]
-struct FreeNode {
-    next: Option<NonNull<FreeNode>>,
-}
-
-/// A single span — 16 KB region carved into `slot_count` slots of
-/// `slot_size` bytes each, serving one size class.
-///
-/// Invariants:
-/// - `slot_size >= MIN_SLOT`
-/// - `slot_size * slot_count <= SPAN_LEN`
-/// - `free_count <= slot_count`
-/// - Every slot at index `>= bump_high` is owned by `freelist` xor
-///   "live" (= handed out and not freed back); slots at index
-///   `< bump_high` are not yet handed out (the bump cursor hasn't
-///   reached them) and live virgin in the mmap'd region.
-pub struct Span {
-    /// Base address of the mmap'd region (length = `SPAN_LEN`).
-    base: NonNull<u8>,
-    /// Size of one slot, in bytes. Constant for the span lifetime.
-    slot_size: u16,
-    /// Total slots in this span = `SPAN_LEN / slot_size as usize`.
+pub struct SpanMeta {
+    /// Owner-local free list head; links at `FREE_LINK_OFF`.
+    free: *mut u8,
+    /// Blocks released by other threads, pushed with a CAS.
+    thread_free: AtomicPtr<u8>,
+    /// Partial-list links.
+    pub next: *mut SpanMeta,
+    pub prev: *mut SpanMeta,
+    /// Slots carved so far from the span's virgin tail.
+    bump: u16,
+    /// Total slots in the span.
     slot_count: u16,
-    /// Slots currently available (free + virgin).
-    free_count: u16,
-    /// Bump cursor: index of the next never-handed-out slot. When
-    /// the freelist is empty and `bump_high < slot_count`, the next
-    /// `alloc_slot` peels from the virgin region. After `bump_high`
-    /// reaches `slot_count`, allocation is freelist-only.
-    bump_high: u16,
-    /// Head of the recycled-slot LIFO. `None` = no recycled slots.
-    freelist: Option<NonNull<FreeNode>>,
-    /// Size class index (0..N). Allows ptr→span→class lookup; the
-    /// `core` API uses this to dispatch free without a caller-
-    /// supplied size.
-    pub class_idx: u8,
+    /// Carved slots not on `free`; see the module doc.
+    used: u16,
+    /// Blocks on `free`.
+    n_free: u16,
+    /// Size class index.
+    class: u8,
+    /// Arena pages the span covers.
+    pages: u8,
+    state: SpanState,
+    _pad: [u8; 5],
 }
 
-impl Span {
-    /// Allocate a new span from the kernel, sliced for slots of
-    /// `slot_size` bytes. `slot_size` must be ≥ `MIN_SLOT` and ≤
-    /// `SPAN_LEN`; returns an error on bad input or mmap failure.
-    pub fn new_for_class(slot_size: usize, class_idx: u8) -> Result<Self, Errno> {
-        debug_assert!(slot_size >= MIN_SLOT, "slot_size < MIN_SLOT");
-        debug_assert!(slot_size <= SPAN_LEN, "slot_size > SPAN_LEN");
-        let p = mmap_anon_rw(SPAN_LEN)?;
-        // SAFETY: mmap_anon_rw returned Ok ⇒ p is non-null and points
-        // to SPAN_LEN bytes of writable memory.
-        let base = unsafe { NonNull::new_unchecked(p) };
-        let slot_count = (SPAN_LEN / slot_size) as u16;
-        Ok(Span {
-            base,
-            slot_size: slot_size as u16,
-            slot_count,
-            free_count: slot_count,
-            bump_high: 0,
-            freelist: None,
-            class_idx,
-        })
+const _: () = assert!(size_of::<SpanMeta>() == 48);
+
+#[inline]
+unsafe fn link(p: *mut u8) -> *mut *mut u8 {
+    unsafe { p.add(FREE_LINK_OFF) as *mut *mut u8 }
+}
+
+impl SpanMeta {
+    /// Begin a span of `slot_count` slots of class `class` over
+    /// `pages` pages, with nothing carved yet.
+    pub fn init(&mut self, class: usize, pages: usize, slot_count: usize) {
+        self.free = ptr::null_mut();
+        self.thread_free.store(ptr::null_mut(), Ordering::Relaxed);
+        self.next = ptr::null_mut();
+        self.prev = ptr::null_mut();
+        self.bump = 0;
+        self.slot_count = slot_count as u16;
+        self.used = 0;
+        self.n_free = 0;
+        self.class = class as u8;
+        self.pages = pages as u8;
+        self.state = SpanState::Cur;
     }
 
-    /// Pop one slot. Returns `None` if the span is fully used.
-    /// LIFO order — recently freed slots are handed out first
-    /// (cache-friendly).
-    pub fn alloc_slot(&mut self) -> Option<*mut u8> {
-        if let Some(node) = self.freelist.take() {
-            // SAFETY: freelist head was written by a prior `free_slot`,
-            // which only pushes pointers it received from `alloc_slot`
-            // (= slots within this span). Reading `next` is sound.
-            self.freelist = unsafe { node.as_ref().next };
-            self.free_count -= 1;
-            return Some(node.as_ptr() as *mut u8);
-        }
-        if self.bump_high < self.slot_count {
-            let offset = self.bump_high as usize * self.slot_size as usize;
-            // SAFETY: offset is bounded by slot_count * slot_size ≤
-            // SPAN_LEN; base is a valid SPAN_LEN-byte region.
-            let p = unsafe { self.base.as_ptr().add(offset) };
-            self.bump_high += 1;
-            self.free_count -= 1;
-            return Some(p);
-        }
-        None
+    #[inline]
+    pub fn class(&self) -> usize {
+        self.class as usize
     }
 
-    /// Push a slot back onto the freelist.
+    #[inline]
+    pub fn pages(&self) -> usize {
+        self.pages as usize
+    }
+
+    #[inline]
+    pub fn state(&self) -> SpanState {
+        self.state
+    }
+
+    #[inline]
+    pub fn set_state(&mut self, s: SpanState) {
+        self.state = s;
+    }
+
+    #[inline]
+    pub fn used(&self) -> usize {
+        self.used as usize
+    }
+
+    #[inline]
+    pub fn n_free(&self) -> usize {
+        self.n_free as usize
+    }
+
+    #[inline]
+    pub fn slot_count(&self) -> usize {
+        self.slot_count as usize
+    }
+
+    /// Slots the span can still hand out without a refill from
+    /// another thread: on `free` plus never carved.
+    #[inline]
+    pub fn has_local(&self) -> bool {
+        self.n_free != 0 || self.bump < self.slot_count
+    }
+
+    /// Detach a chain of slots for the owner's row: the whole local
+    /// free list when it fits a row, its first `SPILL_AT` blocks when
+    /// it does not, else up to `CARVE` virgin slots linked together.
+    /// Returns `(head, len)`; `len == 0` means the span has nothing
+    /// of its own left.
     ///
     /// # Safety
-    ///
-    /// `ptr` must be a slot pointer originally returned by
-    /// `alloc_slot` on **this** span, and not already freed. The
-    /// caller is responsible for span-ownership routing (the metal-
-    /// tier `core` API does this via a `SpanRegistry` lookup).
-    pub unsafe fn free_slot(&mut self, ptr: *mut u8) {
-        debug_assert!(self.contains(ptr), "free_slot: ptr not in span");
-        let node = ptr as *mut FreeNode;
-        // SAFETY: ptr is a slot in this span (debug_assert above);
-        // we overwrite the first 8 bytes with the freelist `next`
-        // pointer per the embedded-LIFO invariant.
-        unsafe {
-            ptr::write(
-                node,
-                FreeNode {
-                    next: self.freelist,
-                },
-            );
-            self.freelist = Some(NonNull::new_unchecked(node));
+    /// `base` is the span's first byte and `slot_size` its class size.
+    pub unsafe fn take_chain(&mut self, base: *mut u8, slot_size: usize) -> (*mut u8, usize) {
+        let n_free = self.n_free as usize;
+        if n_free != 0 {
+            let head = self.free;
+            let n = if n_free <= SPILL_AT {
+                self.free = ptr::null_mut();
+                n_free
+            } else {
+                // cut after the first SPILL_AT blocks
+                let mut last = head;
+                for _ in 1..SPILL_AT {
+                    last = unsafe { *link(last) };
+                }
+                unsafe {
+                    self.free = *link(last);
+                    *link(last) = ptr::null_mut();
+                }
+                SPILL_AT
+            };
+            self.n_free -= n as u16;
+            self.used += n as u16;
+            return (head, n);
         }
-        self.free_count += 1;
+        let left = (self.slot_count - self.bump) as usize;
+        if left == 0 {
+            return (ptr::null_mut(), 0);
+        }
+        let n = left.min(CARVE);
+        let first = unsafe { base.add(self.bump as usize * slot_size) };
+        let mut p = first;
+        for _ in 1..n {
+            let next = unsafe { p.add(slot_size) };
+            unsafe { *link(p) = next };
+            p = next;
+        }
+        unsafe { *link(p) = ptr::null_mut() };
+        self.bump += n as u16;
+        self.used += n as u16;
+        (first, n)
     }
 
-    /// Check whether `ptr` falls within this span's mmap'd region.
-    /// O(1). Used by `SpanRegistry` ptr→span lookup and by debug
-    /// assertions in `free_slot`.
+    /// Owner path: link a block of this span onto `free`. The caller
+    /// settles `used` for the whole run with [`SpanMeta::take_back`].
+    ///
+    /// # Safety
+    /// `p` is a block carved from this span, not already on a list.
     #[inline]
-    pub fn contains(&self, ptr: *mut u8) -> bool {
-        let base = self.base.as_ptr() as usize;
-        let p = ptr as usize;
-        p >= base && p < base + SPAN_LEN
+    pub unsafe fn push_free(&mut self, p: *mut u8) {
+        #[cfg(torajs_alloc_guard)]
+        {
+            let mut q = self.free;
+            while !q.is_null() {
+                assert!(q != p, "block freed twice (span)");
+                q = unsafe { *link(q) };
+            }
+        }
+        unsafe { *link(p) = self.free };
+        self.free = p;
+        self.n_free += 1;
     }
 
-    /// Base address of the mmap'd region. Diagnostic / registry use.
+    /// `n` blocks are back on `free`.
     #[inline]
-    pub fn base(&self) -> *mut u8 {
-        self.base.as_ptr()
+    pub fn take_back(&mut self, n: usize) {
+        #[cfg(torajs_alloc_guard)]
+        assert!(
+            self.used as usize >= n,
+            "span takes back more than it gave out"
+        );
+        self.used -= n as u16;
     }
 
-    /// True iff all slots are on the freelist (or never handed out).
-    /// Phase 2c will use this to return empty spans to the central
-    /// pool for cross-class recycling.
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.free_count == self.slot_count
+    /// Foreign path: another heap pushes a block of this span.
+    ///
+    /// # Safety
+    /// As [`SpanMeta::push_free`].
+    pub unsafe fn release_remote(&self, p: *mut u8) {
+        let mut cur = self.thread_free.load(Ordering::Acquire);
+        loop {
+            unsafe { *link(p) = cur };
+            match self.thread_free.compare_exchange_weak(
+                cur,
+                p,
+                Ordering::Release,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => return,
+                Err(now) => cur = now,
+            }
+        }
     }
 
-    /// True iff no slots are available — every slot is live.
-    /// Phase 2b TLAB refill will skip full spans.
-    #[inline]
-    pub fn is_full(&self) -> bool {
-        self.free_count == 0
-    }
-
-    /// Slot size for this span, in bytes.
-    #[inline]
-    pub fn slot_size(&self) -> usize {
-        self.slot_size as usize
-    }
-}
-
-impl Drop for Span {
-    fn drop(&mut self) {
-        // SAFETY: base was mmap'd via mmap_anon_rw with SPAN_LEN
-        // bytes; munmap with the same (addr, len) is well-formed.
-        // Ignore munmap errors at Drop time — there's no recovery.
-        let _ = unsafe { munmap(self.base.as_ptr(), SPAN_LEN) };
+    /// Owner path: move everything on `thread_free` onto `free`.
+    /// Returns how many blocks came back.
+    pub fn collect_remote(&mut self) -> usize {
+        let head = self.thread_free.swap(ptr::null_mut(), Ordering::Acquire);
+        if head.is_null() {
+            return 0;
+        }
+        let mut n = 1;
+        let mut tail = head;
+        loop {
+            let next = unsafe { *link(tail) };
+            if next.is_null() {
+                break;
+            }
+            tail = next;
+            n += 1;
+        }
+        unsafe { *link(tail) = self.free };
+        self.free = head;
+        self.n_free += n as u16;
+        self.used -= n as u16;
+        n
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::mem::MaybeUninit;
 
-    #[test]
-    fn new_for_class_sizes_slot_count_correctly() {
-        let s = Span::new_for_class(16, 0).expect("alloc span");
-        assert_eq!(s.slot_size(), 16);
-        assert_eq!(s.slot_count, SPAN_LEN as u16 / 16);
-        assert_eq!(s.free_count, s.slot_count);
-        assert!(s.is_empty());
-        assert!(!s.is_full());
+    const SLOT: usize = 64;
+    const SLOTS: usize = 8;
+
+    fn meta(slots: usize) -> SpanMeta {
+        let mut m: MaybeUninit<SpanMeta> = MaybeUninit::zeroed();
+        unsafe { m.assume_init_mut() }.init(2, 1, slots);
+        unsafe { m.assume_init() }
+    }
+
+    /// Walk a chain, collecting its blocks.
+    fn chain(head: *mut u8) -> Vec<*mut u8> {
+        let mut v = Vec::new();
+        let mut p = head;
+        while !p.is_null() {
+            v.push(p);
+            p = unsafe { *link(p) };
+        }
+        v
+    }
+
+    unsafe fn release(m: &mut SpanMeta, p: *mut u8) {
+        unsafe { m.push_free(p) };
+        m.take_back(1);
     }
 
     #[test]
-    fn alloc_slot_bumps_then_recycles() {
-        let mut s = Span::new_for_class(64, 1).expect("alloc span");
-        // First N allocs bump from virgin region — addresses should
-        // be monotone-increasing in slot_size strides.
-        let p0 = s.alloc_slot().expect("alloc 0");
-        let p1 = s.alloc_slot().expect("alloc 1");
-        assert_eq!(p1 as usize - p0 as usize, 64);
-        // Free p0; next alloc should re-hand it (LIFO).
-        unsafe { s.free_slot(p0) };
-        let p2 = s.alloc_slot().expect("alloc 2");
-        assert_eq!(p0, p2, "freelist not recycling LIFO");
+    fn take_chain_carves_the_tail_in_order_then_recycles_lifo() {
+        let mut buf = [0u8; SLOT * SLOTS];
+        let base = buf.as_mut_ptr();
+        let mut m = meta(SLOTS);
+        let (head, n) = unsafe { m.take_chain(base, SLOT) };
+        assert_eq!(n, SLOTS, "a small span carves whole");
+        let blocks = chain(head);
+        assert_eq!(blocks.len(), SLOTS);
+        for (i, &p) in blocks.iter().enumerate() {
+            assert_eq!(p as usize - base as usize, i * SLOT);
+        }
+        assert_eq!(m.used(), SLOTS);
+        assert!(!m.has_local());
+        assert_eq!(unsafe { m.take_chain(base, SLOT) }, (ptr::null_mut(), 0));
+        unsafe { release(&mut m, blocks[0]) };
+        unsafe { release(&mut m, blocks[3]) };
+        assert_eq!(m.n_free(), 2);
+        assert_eq!(m.used(), SLOTS - 2);
+        let (head, n) = unsafe { m.take_chain(base, SLOT) };
+        assert_eq!(n, 2);
+        assert_eq!(chain(head), vec![blocks[3], blocks[0]]);
+        assert_eq!(m.n_free(), 0);
+        assert_eq!(m.used(), SLOTS);
     }
 
     #[test]
-    fn alloc_slot_returns_none_when_full() {
-        let mut s = Span::new_for_class(4096, 3).expect("alloc span");
-        // 16 KB / 4096 = 4 slots.
-        let mut ptrs = vec![];
-        for _ in 0..4 {
-            ptrs.push(s.alloc_slot().expect("alloc"));
-        }
-        assert!(s.is_full());
-        assert!(s.alloc_slot().is_none(), "5th alloc should fail");
-        // Free one — span should report not-full.
-        unsafe { s.free_slot(ptrs[0]) };
-        assert!(!s.is_full());
-        assert!(s.alloc_slot().is_some(), "alloc after free should succeed");
+    fn take_chain_carves_at_most_carve_slots_at_a_time() {
+        const BIG: usize = CARVE * 2 + 5;
+        let mut buf = vec![0u8; SLOT * BIG];
+        let base = buf.as_mut_ptr();
+        let mut m = meta(BIG);
+        let (_, n1) = unsafe { m.take_chain(base, SLOT) };
+        let (_, n2) = unsafe { m.take_chain(base, SLOT) };
+        let (h3, n3) = unsafe { m.take_chain(base, SLOT) };
+        assert_eq!((n1, n2, n3), (CARVE, CARVE, 5));
+        assert_eq!(chain(h3).len(), 5);
+        assert_eq!(m.used(), BIG);
     }
 
     #[test]
-    fn contains_classifies_addresses() {
-        let s = Span::new_for_class(32, 0).expect("alloc span");
-        let base = s.base() as usize;
-        assert!(s.contains(base as *mut u8));
-        assert!(s.contains((base + SPAN_LEN - 1) as *mut u8));
-        assert!(!s.contains((base - 1) as *mut u8));
-        assert!(!s.contains((base + SPAN_LEN) as *mut u8));
+    fn take_chain_cuts_a_long_free_list_at_spill_at() {
+        const BIG: usize = SPILL_AT + 40;
+        let mut buf = vec![0u8; SLOT * BIG];
+        let base = buf.as_mut_ptr();
+        let mut m = meta(BIG);
+        let mut all = Vec::new();
+        loop {
+            let (h, n) = unsafe { m.take_chain(base, SLOT) };
+            if n == 0 {
+                break;
+            }
+            all.extend(chain(h));
+        }
+        assert_eq!(all.len(), BIG);
+        for &p in &all {
+            unsafe { release(&mut m, p) };
+        }
+        assert_eq!(m.n_free(), BIG);
+        let (h, n) = unsafe { m.take_chain(base, SLOT) };
+        assert_eq!(n, SPILL_AT);
+        let first = chain(h);
+        assert_eq!(first.len(), SPILL_AT);
+        assert_eq!(first[0], all[BIG - 1], "newest release first");
+        assert_eq!(m.n_free(), 40);
+        assert_eq!(m.used(), SPILL_AT);
+        let (h, n) = unsafe { m.take_chain(base, SLOT) };
+        assert_eq!(n, 40);
+        assert_eq!(chain(h).len(), 40);
+        assert_eq!(m.used(), BIG);
+        assert!(!m.has_local());
+    }
+
+    /// The link word sits past the block's first word, which keeps
+    /// whatever header the block carried.
+    #[test]
+    fn push_free_writes_only_the_link_word() {
+        let mut buf = [0xaau8; SLOT * SLOTS];
+        let base = buf.as_mut_ptr();
+        let mut m = meta(SLOTS);
+        let (h, _) = unsafe { m.take_chain(base, SLOT) };
+        let p = chain(h)[0];
+        buf.fill(0xaa);
+        unsafe { release(&mut m, p) };
+        assert_eq!(buf[0..FREE_LINK_OFF], [0xaa; FREE_LINK_OFF]);
+        assert_eq!(
+            buf[FREE_LINK_OFF + 8..SLOT],
+            [0xaa; SLOT - FREE_LINK_OFF - 8]
+        );
+        let word = usize::from_ne_bytes(buf[FREE_LINK_OFF..FREE_LINK_OFF + 8].try_into().unwrap());
+        assert_eq!(word, 0, "first release links to null");
     }
 
     #[test]
-    fn slot_writes_are_isolated() {
-        // Stress: alloc all slots, write a per-slot magic, verify no
-        // bleed-through. Catches accidental slot overlap / off-by-one.
-        let mut s = Span::new_for_class(256, 4).expect("alloc span");
-        let mut allocs = vec![];
-        for i in 0..s.slot_count {
-            let p = s.alloc_slot().expect("alloc");
-            // Write i as u64 at slot start; remaining bytes untouched.
-            unsafe { ptr::write(p as *mut u64, i as u64) };
-            allocs.push((p, i));
-        }
-        for (p, i) in &allocs {
-            let v = unsafe { ptr::read(*p as *const u64) };
-            assert_eq!(v, *i as u64, "slot {} overwritten", i);
-        }
+    fn remote_releases_collect_onto_the_local_list() {
+        let mut buf = [0u8; SLOT * SLOTS];
+        let base = buf.as_mut_ptr();
+        let mut m = meta(SLOTS);
+        let (h, _) = unsafe { m.take_chain(base, SLOT) };
+        let blocks = chain(h);
+        let (a, b, c) = (blocks[0], blocks[1], blocks[2]);
+        unsafe { m.release_remote(a) };
+        unsafe { m.release_remote(b) };
+        assert_eq!(m.used(), SLOTS, "remote releases leave used alone");
+        unsafe { release(&mut m, c) };
+        assert_eq!(m.collect_remote(), 2);
+        assert_eq!(m.used(), SLOTS - 3);
+        assert_eq!(m.n_free(), 3);
+        assert_eq!(m.collect_remote(), 0);
+        // collected blocks go in front of the local list
+        let (h, n) = unsafe { m.take_chain(base, SLOT) };
+        assert_eq!(n, 3);
+        assert_eq!(chain(h), vec![b, a, c]);
     }
 
     #[test]
-    fn freelist_roundtrip_stress() {
-        let mut s = Span::new_for_class(64, 1).expect("alloc span");
-        // Fill the span, free in reverse, alloc again — LIFO order
-        // should hand back the most-recently-freed slot first.
-        let mut ptrs = vec![];
-        for _ in 0..s.slot_count {
-            ptrs.push(s.alloc_slot().expect("alloc"));
-        }
-        for p in ptrs.iter().rev() {
-            unsafe { s.free_slot(*p) };
-        }
-        assert!(s.is_empty());
-        // Reverse-of-reverse = original order on re-alloc.
-        for expected in ptrs.iter() {
-            let p = s.alloc_slot().expect("realloc");
-            assert_eq!(p, *expected, "LIFO order violated");
-        }
-    }
-
-    #[test]
-    fn class_idx_is_preserved() {
-        let s = Span::new_for_class(128, 42).expect("alloc span");
-        assert_eq!(s.class_idx, 42);
+    fn init_sets_the_geometry_and_state() {
+        let m = meta(SLOTS);
+        assert_eq!(m.class(), 2);
+        assert_eq!(m.pages(), 1);
+        assert_eq!(m.slot_count(), SLOTS);
+        assert_eq!(m.state(), SpanState::Cur);
+        assert!(m.has_local());
     }
 }

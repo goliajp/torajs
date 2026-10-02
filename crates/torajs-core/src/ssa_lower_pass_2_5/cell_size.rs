@@ -29,7 +29,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use torajs_mmalloc::Allocator;
+use torajs_mmalloc::size_class::bucket_for;
 
 use crate::ast::PropKey;
 use crate::ssa::{FuncId, InstKind, Module, Operand, Type, ValueId};
@@ -105,10 +105,10 @@ fn settle_typed_frees(module: &mut Module, envs: &EnvLayouts, unsettled: &HashSe
 /// that only widens the answer.
 fn admits_wider_cell(layouts: &[Vec<(PropKey, Type)>], sid: usize) -> bool {
     let base = &layouts[sid];
-    let class = Allocator::bucket_for(cell_bytes(base.len()));
+    let class = bucket_for(cell_bytes(base.len()));
     layouts.iter().any(|wide| {
         wide.len() > base.len()
-            && (class.is_none() || Allocator::bucket_for(cell_bytes(wide.len())) != class)
+            && (class.is_none() || bucket_for(cell_bytes(wide.len())) != class)
             && is_prefix(base, wide)
     })
 }

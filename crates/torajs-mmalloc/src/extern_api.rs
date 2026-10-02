@@ -45,6 +45,9 @@ use core::ffi::c_void;
 /// function; one string-scan routine grew from 110 to 741
 /// instructions and str-replace-100k lost 5%, while one shared copy
 /// keeps the small frame and the class-method gain.
+///
+/// # Safety
+/// Always sound to call; `unsafe` only because it is `extern "C"`.
 #[unsafe(no_mangle)]
 #[inline(never)]
 pub unsafe extern "C" fn __torajs_malloc(size: usize) -> *mut c_void {
@@ -52,7 +55,7 @@ pub unsafe extern "C" fn __torajs_malloc(size: usize) -> *mut c_void {
 }
 
 /// torajs free — caller provides original size. Routes to
-/// `core::free_sized`; no SpanRegistry lookup cost.
+/// `core::free_sized`; no registry lookup.
 ///
 /// # Safety
 ///
@@ -63,10 +66,11 @@ pub unsafe extern "C" fn __torajs_free(ptr: *mut c_void, size: usize) {
     unsafe { crate::core::free_sized(ptr as *mut u8, size) };
 }
 
-/// torajs free without a size — the span registry recovers the size
-/// class (`core::free`, a lock plus a binary search). For the one
-/// cold path that takes back a sized block whose size nothing
-/// records: the lowering's free of a typed slot holding a heap cell
+/// torajs free without a size — the region registry finds the arena
+/// and the arena names the class (`core::free`, a lock plus a binary
+/// search and two table reads). For the one cold path that takes back
+/// a sized block whose size nothing records: the lowering's free of a
+/// typed slot holding a heap cell
 /// that is not a class instance (`torajs_cycle::__torajs_obj_free_cell`,
 /// its only caller; the link stubs this entry when that one has no
 /// live text).
@@ -85,6 +89,9 @@ pub unsafe extern "C" fn __torajs_free_lookup(ptr: *mut c_void) {
 /// total byte count (no `nmemb * size` overflow check needed at
 /// this layer; sub-crates compute the product). Returns NULL on
 /// OOM.
+///
+/// # Safety
+/// Always sound to call; `unsafe` only because it is `extern "C"`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_calloc(size: usize) -> *mut c_void {
     let p = unsafe { __torajs_malloc(size) };
@@ -148,6 +155,9 @@ const SHIM_HEADER: usize = 16;
 /// libc-compat malloc. Allocates `size + SHIM_HEADER` bytes,
 /// writes the size into the first 8 bytes, returns ptr offset by
 /// `SHIM_HEADER`.
+///
+/// # Safety
+/// Always sound to call; `unsafe` only because it is `extern "C"`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_libc_malloc(size: usize) -> *mut c_void {
     let total = size + SHIM_HEADER;
@@ -161,6 +171,10 @@ pub unsafe extern "C" fn __torajs_libc_malloc(size: usize) -> *mut c_void {
 
 /// libc-compat free. Reads size from prepended header, calls
 /// `__torajs_free` with recovered size.
+///
+/// # Safety
+/// `ptr` is null or came from `__torajs_libc_malloc` and is not
+/// already freed.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_libc_free(ptr: *mut c_void) {
     if ptr.is_null() {
@@ -178,6 +192,9 @@ pub unsafe extern "C" fn __torajs_libc_free(ptr: *mut c_void) {
 /// shortcut.
 ///
 /// Returns NULL on `n*sz` overflow or OOM.
+///
+/// # Safety
+/// Always sound to call; `unsafe` only because it is `extern "C"`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_libc_calloc(nmemb: usize, size: usize) -> *mut c_void {
     let Some(total) = nmemb.checked_mul(size) else {
@@ -193,6 +210,10 @@ pub unsafe extern "C" fn __torajs_libc_calloc(nmemb: usize, size: usize) -> *mut
 
 /// libc-compat realloc. Reads old size from header, calls inner
 /// `__torajs_realloc`, returns new user-visible pointer.
+///
+/// # Safety
+/// `ptr` is null or came from `__torajs_libc_malloc` and is not
+/// already freed.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_libc_realloc(ptr: *mut c_void, new_size: usize) -> *mut c_void {
     if ptr.is_null() {
@@ -222,6 +243,9 @@ pub unsafe extern "C" fn __torajs_libc_realloc(ptr: *mut c_void, new_size: usize
 /// two names: `__torajs_memcpy` (historical) +
 /// `__torajs_libc_memcpy` (post-v0.7-A2 step 6b — IR codegen +
 /// sub-crate externs both target this name now).
+///
+/// # Safety
+/// `dst` and `src` are valid for `n` bytes.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_libc_memcpy(
     dst: *mut c_void,
@@ -236,6 +260,9 @@ pub unsafe extern "C" fn __torajs_libc_memcpy(
 
 /// Historical alias — kept so existing call sites (some sub-crates,
 /// older fixture-cache .o files) still resolve.
+///
+/// # Safety
+/// `dst` and `src` are valid for `n` bytes.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_memcpy(
     dst: *mut c_void,
@@ -246,6 +273,9 @@ pub unsafe extern "C" fn __torajs_memcpy(
 }
 
 /// libc-compatible memmove — overlap-safe.
+///
+/// # Safety
+/// `dst` and `src` are valid for `n` bytes.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_libc_memmove(
     dst: *mut c_void,
@@ -258,6 +288,8 @@ pub unsafe extern "C" fn __torajs_libc_memmove(
     dst
 }
 
+/// # Safety
+/// `dst` and `src` are valid for `n` bytes.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_memmove(
     dst: *mut c_void,
@@ -268,6 +300,9 @@ pub unsafe extern "C" fn __torajs_memmove(
 }
 
 /// libc-compatible memcmp.
+///
+/// # Safety
+/// `a` and `b` are valid for `n` bytes.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_libc_memcmp(a: *const c_void, b: *const c_void, n: usize) -> i32 {
     let a = unsafe { core::slice::from_raw_parts(a as *const u8, n) };
@@ -279,6 +314,8 @@ pub unsafe extern "C" fn __torajs_libc_memcmp(a: *const c_void, b: *const c_void
     }
 }
 
+/// # Safety
+/// `a` and `b` are valid for `n` bytes.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_memcmp(a: *const c_void, b: *const c_void, n: usize) -> i32 {
     unsafe { __torajs_libc_memcmp(a, b, n) }
@@ -451,6 +488,9 @@ mod tests {
 
 /// Census lines for the allocator; the compiler calls this at main's
 /// exit only when it was itself built with `--cfg torajs_census`.
+///
+/// # Safety
+/// Always sound to call; `unsafe` only because it is `extern "C"`.
 #[cfg(torajs_census)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_mmalloc_census_dump() {

@@ -3,10 +3,9 @@
 //! constant `n` that has a size class.
 
 use torajs_core::ssa::{FuncId, Inst, InstKind, Module, Operand};
-use torajs_mmalloc::Allocator;
-use torajs_mmalloc::size_class::SIZE_CLASSES;
+use torajs_mmalloc::size_class::{N_CLASSES, bucket_for};
 use torajs_mmalloc::tlab::{
-    TLAB_CACHE_DEPTH, TLAB_CLASS_SLOTS_STRIDE, TLAB_DEPTH_OFFSET, TLAB_SLOTS_OFFSET,
+    FREE_LINK_OFF, SPILL_AT, TLAB_ROW_LEN_OFF, TLAB_ROW_STRIDE, TLAB_ROWS_OFFSET,
 };
 
 use super::rc_dec::{Fix, patch, place, store};
@@ -16,28 +15,30 @@ use super::{
     materialize_operand_gpr, write_def_spill_gpr, write_u32,
 };
 use crate::enc::{
-    add_imm, add_w_imm, bl_imm26, ldr_x_reg_lsl3, ldrb_w_imm12, mov_x_reg, str_x_reg_lsl3,
-    strb_w_imm12, sub_w_imm,
+    add_imm, bl_imm26, ldp_x_off, ldr_x_imm12, mov_x_reg, stp_x_off, str_x_imm12, sub_imm,
 };
 use crate::reg::{Gpr, Reg};
 use crate::regalloc::Assignment;
 use crate::reloc::{CallTarget, Reloc, RelocKind};
 
 /// `torajs_mmalloc::core::__torajs_core_tlab` by its Mach-O name: per
-/// size class, a stack of free slots every sized allocation pops
-/// first and every sized free pushes first.
+/// size class, a `{head, len}` stack of free blocks linked through
+/// the blocks, which every sized allocation pops first and every
+/// sized free pushes first.
 const TLAB_SYM: &str = "___torajs_core_tlab";
 const ALLOC_NAME: &str = "__torajs_obj_alloc";
 const FREE_NAME: &str = "__torajs_obj_drop_sized";
 
-// a row never holds more than TLAB_CACHE_DEPTH slots, so its count
-// has this bit set exactly when it is full
-const FULL_BIT: u32 = TLAB_CACHE_DEPTH.trailing_zeros();
-const _: () = assert!(TLAB_CACHE_DEPTH.is_power_of_two());
-const _: () = assert!(TLAB_SLOTS_OFFSET == 0);
-// every row base and every count byte is one imm12 from the cache
-const _: () = assert!(TLAB_DEPTH_OFFSET + SIZE_CLASSES.len() <= 4096);
-const _: () = assert!((SIZE_CLASSES.len() - 1) * TLAB_CLASS_SLOTS_STRIDE < 4096);
+// a row never holds more than SPILL_AT blocks, so its length has
+// this bit set exactly when it is full
+const FULL_BIT: u32 = SPILL_AT.trailing_zeros();
+const _: () = assert!(SPILL_AT.is_power_of_two());
+const _: () = assert!(TLAB_ROWS_OFFSET == 0);
+const _: () = assert!(TLAB_ROW_STRIDE == 16 && TLAB_ROW_LEN_OFF == 8);
+// every row is one ldp / stp signed offset from the cache
+const _: () = assert!((N_CLASSES - 1) * TLAB_ROW_STRIDE <= 504);
+// the link word is one scaled ldr / str offset from the block
+const _: () = assert!(FREE_LINK_OFF % 8 == 0 && FREE_LINK_OFF < 8 * 4096);
 
 /// The module's two object-cell intrinsics.
 #[derive(Debug, Clone, Copy)]
@@ -78,7 +79,7 @@ impl CellOps {
             _ => return None,
         };
         let n = usize::try_from(n).ok().filter(|&n| n != 0)?;
-        Allocator::bucket_for(n).map(|c| c as u32)
+        bucket_for(n).map(|c| c as u32)
     }
 }
 
@@ -87,12 +88,11 @@ impl CellOps {
 /// ```text
 /// alloc:                              free:
 ///     adrp+add x9, tlab                   adrp+add x9, tlab
-///     ldrb  w10, [x9, #count[c]]          ldrb  w10, [x9, #count[c]]
-///     cbz   x10, slow                     tbnz  w10, #FULL_BIT, slow
-///     sub   w10, w10, #1                  add   x11, x9, #row[c]
-///     add   x11, x9, #row[c]              str   xP, [x11, x10, lsl #3]
-///     ldr   xD, [x11, x10, lsl #3]        add   w10, w10, #1
-///     strb  w10, [x9, #count[c]]          strb  w10, [x9, #count[c]]
+///     ldp   xD, x10, [x9, #row[c]]        ldp   x10, x11, [x9, #row[c]]
+///     cbz   xD, slow                      tbnz  x11, #FULL_BIT, slow
+///     ldr   x11, [xD, #link]              str   x10, [xP, #link]
+///     sub   x10, x10, #1                  add   x11, x11, #1
+///     stp   x11, x10, [x9, #row[c]]       stp   xP, x11, [x9, #row[c]]
 ///     b     done                          b     done
 /// slow:                               slow:
 ///     <store the call saves>              <store the call saves>
@@ -119,20 +119,18 @@ pub(super) fn try_emit(
     let InstKind::Call(fid, args) = &inst.kind else {
         return false;
     };
-    let (tlab, count, row) = (OP_SCRATCH_LHS, OP_SCRATCH_RHS, OP_SCRATCH_TMP);
-    let count_off = TLAB_DEPTH_OFFSET as u32 + class;
-    let row_off = (class * TLAB_CLASS_SLOTS_STRIDE as u32) as u16;
+    let (tlab, len, link) = (OP_SCRATCH_LHS, OP_SCRATCH_RHS, OP_SCRATCH_TMP);
+    let row_off = (class as usize * TLAB_ROW_STRIDE) as i32;
     match args.as_slice() {
         [Operand::ConstI64(n)] => {
             let result = inst.result.expect("obj_alloc must have a result");
             let (dst, spill_off) = alloc.def_gpr(result, OP_SCRATCH_RESULT_GPR);
             emit_adrp_add_pair(bytes, relocs, tlab, TLAB_SYM.to_string());
-            write_u32(bytes, ldrb_w_imm12(count, tlab, count_off));
-            let to_slow = place(bytes, Fix::Cbz(count));
-            write_u32(bytes, sub_w_imm(count, count, 1));
-            write_u32(bytes, add_imm(row, tlab, row_off));
-            write_u32(bytes, ldr_x_reg_lsl3(dst, row, count));
-            write_u32(bytes, strb_w_imm12(count, tlab, count_off));
+            write_u32(bytes, ldp_x_off(dst, len, tlab, row_off));
+            let to_slow = place(bytes, Fix::Cbz(dst));
+            write_u32(bytes, ldr_x_imm12(link, dst, FREE_LINK_OFF as u32));
+            write_u32(bytes, sub_imm(len, len, 1));
+            write_u32(bytes, stp_x_off(link, len, tlab, row_off));
             let to_done = place(bytes, Fix::B);
             let slow_at = bytes.len();
             patch(bytes, to_slow, slow_at);
@@ -150,13 +148,14 @@ pub(super) fn try_emit(
         }
         [p, Operand::ConstI64(n)] => {
             let ptr = materialize_operand_gpr(bytes, p, OP_SCRATCH_RESULT_GPR, alloc);
+            let head = len;
+            let len = link;
             emit_adrp_add_pair(bytes, relocs, tlab, TLAB_SYM.to_string());
-            write_u32(bytes, ldrb_w_imm12(count, tlab, count_off));
-            let to_slow = place(bytes, Fix::Tbnz(count, FULL_BIT));
-            write_u32(bytes, add_imm(row, tlab, row_off));
-            write_u32(bytes, str_x_reg_lsl3(ptr, row, count));
-            write_u32(bytes, add_w_imm(count, count, 1));
-            write_u32(bytes, strb_w_imm12(count, tlab, count_off));
+            write_u32(bytes, ldp_x_off(head, len, tlab, row_off));
+            let to_slow = place(bytes, Fix::Tbnz(len, FULL_BIT));
+            write_u32(bytes, str_x_imm12(head, ptr, FREE_LINK_OFF as u32));
+            write_u32(bytes, add_imm(len, len, 1));
+            write_u32(bytes, stp_x_off(ptr, len, tlab, row_off));
             let to_done = place(bytes, Fix::B);
             let slow_at = bytes.len();
             patch(bytes, to_slow, slow_at);
@@ -207,8 +206,8 @@ mod tests {
     };
     // 48 B: the 64 class
     const CLASS: u32 = 2;
-    const COUNT_OFF: u32 = TLAB_DEPTH_OFFSET as u32 + CLASS;
-    const ROW_OFF: u16 = (CLASS * TLAB_CLASS_SLOTS_STRIDE as u32) as u16;
+    const ROW_OFF: i32 = (CLASS as usize * TLAB_ROW_STRIDE) as i32;
+    const LINK: u32 = FREE_LINK_OFF as u32;
 
     fn words(bytes: &[u8]) -> Vec<u32> {
         bytes
@@ -279,17 +278,16 @@ mod tests {
             CELLS
         ));
 
-        let (tlab, count, row) = (Gpr::X9, Gpr::X10, Gpr::X11);
+        let (tlab, len, link) = (Gpr::X9, Gpr::X10, Gpr::X11);
         let mut expect: Vec<u8> = Vec::new();
         let mut w = |word: u32| expect.extend_from_slice(&word.to_le_bytes());
         w(adrp(tlab, 0));
         w(add_imm(tlab, tlab, 0));
-        w(ldrb_w_imm12(count, tlab, COUNT_OFF));
-        w(cbz_x(count, 6 * 4));
-        w(sub_w_imm(count, count, 1));
-        w(add_imm(row, tlab, ROW_OFF));
-        w(ldr_x_reg_lsl3(Gpr::X5, row, count));
-        w(strb_w_imm12(count, tlab, COUNT_OFF));
+        w(ldp_x_off(Gpr::X5, len, tlab, ROW_OFF));
+        w(cbz_x(Gpr::X5, 5 * 4));
+        w(ldr_x_imm12(link, Gpr::X5, LINK));
+        w(sub_imm(len, len, 1));
+        w(stp_x_off(link, len, tlab, ROW_OFF));
         w(b_imm26(6 * 4));
         slot::sp_str_x(&mut expect, Gpr::X6, 24);
         let mut w = |word: u32| expect.extend_from_slice(&word.to_le_bytes());
@@ -301,7 +299,7 @@ mod tests {
 
         // tlab page + pageoff, then the slow arm's call
         assert_eq!(relocs.len(), 3);
-        assert_eq!(relocs[2].byte_offset, 11 * 4);
+        assert_eq!(relocs[2].byte_offset, 10 * 4);
         assert!(matches!(
             &relocs[2].kind,
             RelocKind::CallSite { target: CallTarget::Func(f) } if *f == CELLS.alloc
@@ -322,22 +320,28 @@ mod tests {
         let (mut bytes, mut relocs) = (Vec::new(), Vec::new());
         assert!(try_emit(&mut bytes, &mut relocs, &inst, &alloc, &[], CELLS));
 
-        let (tlab, count, row) = (Gpr::X9, Gpr::X10, Gpr::X11);
+        let (tlab, head, len) = (Gpr::X9, Gpr::X10, Gpr::X11);
         let expect = [
             adrp(tlab, 0),
             add_imm(tlab, tlab, 0),
-            ldrb_w_imm12(count, tlab, COUNT_OFF),
-            tbnz(count, 4, 6 * 4),
-            add_imm(row, tlab, ROW_OFF),
-            str_x_reg_lsl3(Gpr::X19, row, count),
-            add_w_imm(count, count, 1),
-            strb_w_imm12(count, tlab, COUNT_OFF),
+            ldp_x_off(head, len, tlab, ROW_OFF),
+            tbnz(len, 8, 5 * 4),
+            str_x_imm12(head, Gpr::X19, LINK),
+            add_imm(len, len, 1),
+            stp_x_off(Gpr::X19, len, tlab, ROW_OFF),
             b_imm26(4 * 4),
             mov_x_reg(Gpr::X0, Gpr::X19),
             movz_imm(Gpr::X1, 48, 0),
             bl_imm26(0),
         ];
         assert_eq!(words(&bytes), expect);
-        assert_eq!(relocs[2].byte_offset, 11 * 4);
+        assert_eq!(relocs[2].byte_offset, 10 * 4);
+    }
+
+    /// The template's row test is one bit, so the allocator's spill
+    /// mark must be the power of two the bit names.
+    #[test]
+    fn full_bit_names_spill_at() {
+        assert_eq!(1usize << FULL_BIT, SPILL_AT);
     }
 }

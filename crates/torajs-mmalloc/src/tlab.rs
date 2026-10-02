@@ -1,95 +1,91 @@
-//! TLAB — Thread-Local Allocation Buffer.
-//!
-//! Phase 2b item 6 of the metal-tier allocator redesign. Provides
-//! a per-thread (currently
-//! single-global, multi-thread upgrade in Phase 2c) cache of
-//! recently-freed slots, indexed by size class, accessed via
-//! cycle-cheap non-atomic push/pop. Hot path becomes:
+//! TLAB — the heap's thread-local front: one row of free blocks per
+//! size class, a singly linked stack through the blocks themselves,
+//! which every sized allocation pops first and every sized free
+//! pushes first, without atomics.
 //!
 //! ```text
-//! alloc(size):
-//!   class_idx = SIZE_CLASSES.bucket_for(size)
-//!   if let Some(p) = TLAB.pop(class_idx) { return p }   // ~3 cycles fast path
-//!   fall through to CORE_ALLOC.alloc(size)              // central, slower
-//!
-//! free(ptr, size):
-//!   class_idx = SIZE_CLASSES.bucket_for(size)
-//!   if TLAB.push(class_idx, ptr) { return }             // ~3 cycles fast path
-//!   fall through to CORE_ALLOC.dealloc(ptr, size)       // TLAB full
+//! alloc(size):  class = bucket_for(size)
+//!               TLAB.pop(class) or refill: the class's span hands
+//!               over its whole free list in one splice
+//! free(ptr, size): class = bucket_for(size)
+//!               TLAB.push(class, ptr) or spill: half the row goes
+//!               back to the blocks' spans
 //! ```
 //!
-//! This matches the libc nano-allocator thread-cache cycle count
-//! (the perf delta that A2 Phase 1 bench regression surfaced).
-//! After Phase 2b ships + integrates, alloc-heavy benches should
-//! recover to baseline-or-better.
+//! A row is `{head, len}`, 16 bytes, one `ldp` / `stp` pair. The rows
+//! come first in the struct and their layout is fixed by the constants
+//! below: the toolchain inlines pop and push at object-cell sites
+//! (`torajs-codegen` `compile::cell`) against the Mach-O symbol
+//! `___torajs_core_tlab`, testing the row's length against
+//! [`SPILL_AT`] with a single `tbnz`, so a row never holds more than
+//! `SPILL_AT` blocks. Behind the rows sits the slow path's state, one
+//! current span and one partial list per class and the heap's arenas;
+//! `heap.rs` drives it.
 //!
-//! **Scaffolding only at this commit (item 6).** Item 7 will
-//! integrate TlabCache into `core::alloc_sized` / `core::free_sized`
-//! as a TLAB.pop/push fast path with refill-from-Allocator on
-//! pop-miss / drain-to-Allocator on push-overflow.
-//!
-//! Design references (正统):
-//! - mimalloc `mi_heap_t` per-page free lists with deferred frees
-//! - tcmalloc `ThreadCache` size-class cache (default 32-slot)
-//! - Go runtime `mcache.alloc` `*mspan` array per size class
+//! References: tcmalloc `ThreadCache` (per-class linked free lists
+//! with a length), mimalloc `mi_heap_t`, Go `mcache`.
 
 use core::ptr;
 
-use crate::size_class::SIZE_CLASSES;
+use crate::arena::Arena;
+use crate::size_class::N_CLASSES;
+use crate::span::SpanMeta;
 
-/// Maximum cached slots per size class. Larger = fewer central-
-/// fetch roundtrips, more memory held in cache. Sized per
-/// tcmalloc/mimalloc defaults; tunable in Phase 2b item 7
-/// integration once cycle bench data is in.
-pub const TLAB_CACHE_DEPTH: usize = 16;
+/// Row length at which a push spills. A power of two, so the inline
+/// template tests one bit; a row's length never exceeds it.
+pub const SPILL_AT: usize = 256;
 
-/// Per-thread cache of recently-freed slots, indexed by size
-/// class. Total static cost: `SIZE_CLASSES.len() * TLAB_CACHE_DEPTH
-/// * sizeof(*mut u8)` ≈ 1.2 KB.
-///
-/// `#[repr(C)]` (Phase 2e item 13 prerequisite): layout is
-/// codegen-visible. torajs-codegen's `compile::cell` inlines
-/// TLAB.pop / push at user-binary object-cell alloc/free sites
-/// using the offset constants below — eliminates extern "C" call
-/// overhead, parity with libc nano-allocator inline thread-cache.
-/// It leans on `depth[c] <= TLAB_CACHE_DEPTH`, which `push` keeps.
+/// Byte offset inside a free block where every free list keeps its
+/// link: the rows, the spans' local lists and their atomic lists.
+/// Past the block's first word, so a block's header word is left as
+/// the program last wrote it.
+pub const FREE_LINK_OFF: usize = 8;
+
+/// One class's stack of free blocks.
 #[repr(C)]
-pub struct TlabCache {
-    /// `slots[class][0..depth[class]]` hold cached pointers; rest
-    /// is uninitialized (depth gates iteration).
-    /// Layout offset = 0 (first field).
-    slots: [[*mut u8; TLAB_CACHE_DEPTH]; SIZE_CLASSES.len()],
-    /// Per-class occupied count.
-    /// Layout offset = `TLAB_CACHE_DEPTH * SIZE_CLASSES.len() * 8`.
-    depth: [u8; SIZE_CLASSES.len()],
+pub struct Row {
+    /// Most recently pushed block, linked at `FREE_LINK_OFF`; null
+    /// when empty.
+    head: *mut u8,
+    /// Blocks on the stack, `<= SPILL_AT`.
+    len: usize,
 }
 
-// ============================================================
-// Codegen layout constants — exposed for toolchain inline emit
-// ============================================================
+/// The heap: rows in front, span state behind.
+#[repr(C)]
+pub struct TlabCache {
+    /// Offset 0, `TLAB_ROW_STRIDE` bytes per class.
+    rows: [Row; N_CLASSES],
+    /// The span each class refills from; null between spans.
+    pub(crate) cur: [*mut SpanMeta; N_CLASSES],
+    /// Head of each class's doubly linked list of partial spans.
+    pub(crate) partial: [*mut SpanMeta; N_CLASSES],
+    /// Doubly linked list of this heap's arenas that have free pages.
+    pub(crate) arenas: *mut Arena,
+    /// One empty arena kept back from the kernel, so a program that
+    /// oscillates around an arena boundary does not map and unmap it
+    /// every time.
+    pub(crate) spare: *mut Arena,
+}
 
-/// Byte offset of `slots` field within `TlabCache`. Equal to 0
-/// (first field of #[repr(C)] struct).
-pub const TLAB_SLOTS_OFFSET: usize = 0;
+/// Byte offset of `rows`: the first field.
+pub const TLAB_ROWS_OFFSET: usize = 0;
 
-/// Byte offset of `depth` field within `TlabCache`. Equal to size
-/// of the `slots` field = TLAB_CACHE_DEPTH * SIZE_CLASSES.len() *
-/// sizeof::<*mut u8>() (8 bytes per ptr on 64-bit targets).
-pub const TLAB_DEPTH_OFFSET: usize =
-    TLAB_CACHE_DEPTH * SIZE_CLASSES.len() * core::mem::size_of::<*mut u8>();
+/// Bytes per row.
+pub const TLAB_ROW_STRIDE: usize = size_of::<Row>();
 
-/// Total size of `TlabCache` struct in bytes (rounded up to
-/// alignment by Rust layout rules). Sanity-checked by
-/// `ir_layout_constants_match_actual_struct` test; inline-emit
-/// codegen sizes its accesses with this.
-pub const TLAB_TOTAL_SIZE: usize = core::mem::size_of::<TlabCache>();
+/// Byte offset of `len` inside a row; `head` is at 0.
+pub const TLAB_ROW_LEN_OFF: usize = size_of::<*mut u8>();
 
-/// Per-slot stride (= bytes per cached pointer). 8 on 64-bit.
-pub const TLAB_SLOT_STRIDE: usize = core::mem::size_of::<*mut u8>();
+const _: () = assert!(TLAB_ROW_STRIDE == 16);
+const _: () = assert!(SPILL_AT.is_power_of_two());
+// every row is one ldp / stp signed offset from the cache
+const _: () = assert!((N_CLASSES - 1) * TLAB_ROW_STRIDE <= 504);
 
-/// Per-class slots stride (= bytes per `slots[class]` row).
-/// = `TLAB_CACHE_DEPTH * TLAB_SLOT_STRIDE`.
-pub const TLAB_CLASS_SLOTS_STRIDE: usize = TLAB_CACHE_DEPTH * TLAB_SLOT_STRIDE;
+#[inline]
+unsafe fn link(p: *mut u8) -> *mut *mut u8 {
+    unsafe { p.add(FREE_LINK_OFF) as *mut *mut u8 }
+}
 
 impl Default for TlabCache {
     fn default() -> Self {
@@ -100,84 +96,108 @@ impl Default for TlabCache {
 impl TlabCache {
     pub const fn new() -> Self {
         TlabCache {
-            slots: [[ptr::null_mut(); TLAB_CACHE_DEPTH]; SIZE_CLASSES.len()],
-            depth: [0; SIZE_CLASSES.len()],
+            rows: [const {
+                Row {
+                    head: ptr::null_mut(),
+                    len: 0,
+                }
+            }; N_CLASSES],
+            cur: [ptr::null_mut(); N_CLASSES],
+            partial: [ptr::null_mut(); N_CLASSES],
+            arenas: ptr::null_mut(),
+            spare: ptr::null_mut(),
         }
     }
 
-    /// Pop a cached slot for `class_idx`. Returns `None` if the
-    /// TLAB has no slots cached for this class — caller falls
-    /// back to the central `Allocator`. ~3 cycles when hit
-    /// (single load + single subtract + single load).
-    // Every class / depth index below is `get`, never `[]` (r502):
-    // the callers pass a `bucket_for` answer and a depth this cache
-    // kept below `TLAB_CACHE_DEPTH`, but the compiler cannot see
-    // either, and a `[]` links `panic_bounds_check` — through it
-    // `Display for usize` and `Formatter::pad_integral`, 5 KB of
-    // `core` text every program carries for the allocator alone.
-    // The compare-and-branch is the one the check already made; an
-    // out-of-range index answers "cache miss".
+    /// Pop the row of `class`; `None` on an empty row.
+    // Every class index below is `get`, never `[]`: the callers pass
+    // a `bucket_for` answer, but the compiler cannot see it, and a
+    // `[]` links `panic_bounds_check` and through it the integer
+    // formatter, 5 KB of `core` text every program would carry for
+    // the allocator alone. An out-of-range index answers "miss".
     #[inline(always)]
-    pub fn pop(&mut self, class_idx: usize) -> Option<*mut u8> {
-        let depth = self.depth.get_mut(class_idx)?;
-        let d = *depth;
-        if d == 0 {
+    pub fn pop(&mut self, class: usize) -> Option<*mut u8> {
+        let row = self.rows.get_mut(class)?;
+        let p = row.head;
+        if p.is_null() {
             return None;
         }
-        let new_depth = d - 1;
-        let p = *self.slots.get(class_idx)?.get(new_depth as usize)?;
-        *depth = new_depth;
+        row.head = unsafe { *link(p) };
+        row.len -= 1;
         Some(p)
     }
 
-    /// Push a slot into the TLAB cache for `class_idx`. Returns
-    /// `false` if the cache is full — caller must dispatch the
-    /// slot back to the central `Allocator`. ~3 cycles when not
-    /// full (single load + compare + single store + single store).
+    /// Push a block onto the row of `class`; `false` when the row is
+    /// at `SPILL_AT`.
+    ///
+    /// # Safety
+    /// `p` is a live block of `class`: its link word is written.
     #[inline(always)]
-    pub fn push(&mut self, class_idx: usize, ptr: *mut u8) -> bool {
-        let Some(depth) = self.depth.get_mut(class_idx) else {
+    pub unsafe fn push(&mut self, class: usize, p: *mut u8) -> bool {
+        let Some(row) = self.rows.get_mut(class) else {
             return false;
         };
-        let d = *depth as usize;
-        let Some(slot) = self.slots.get_mut(class_idx).and_then(|s| s.get_mut(d)) else {
+        if row.len & SPILL_AT != 0 {
             return false;
-        };
-        *slot = ptr;
-        *depth = (d + 1) as u8;
+        }
+        #[cfg(torajs_alloc_guard)]
+        {
+            let mut q = row.head;
+            while !q.is_null() {
+                assert!(q != p, "block freed twice (row)");
+                q = unsafe { *link(q) };
+            }
+        }
+        unsafe { *link(p) = row.head };
+        row.head = p;
+        row.len += 1;
         true
     }
 
-    /// Drain all cached slots for `class_idx`, invoking `f(ptr)`
-    /// for each. Used by Phase 2c TLAB destruction / cross-thread
-    /// spillover and by the integration layer's "flush to
-    /// central when TLAB grows too large" path.
-    pub fn drain<F: FnMut(*mut u8)>(&mut self, class_idx: usize, mut f: F) {
-        let (Some(depth), Some(slots)) = (self.depth.get_mut(class_idx), self.slots.get(class_idx))
-        else {
-            return;
-        };
-        for &p in slots.iter().take(*depth as usize) {
-            f(p);
+    /// Make a chain of `len` blocks the row of `class`, which must be
+    /// empty. `len <= SPILL_AT`.
+    pub(crate) fn splice(&mut self, class: usize, head: *mut u8, len: usize) {
+        if let Some(row) = self.rows.get_mut(class) {
+            row.head = head;
+            row.len = len;
         }
-        *depth = 0;
     }
 
-    /// Total cached slot count across all classes. Diagnostic.
+    /// Blocks on the row of `class`.
+    #[inline]
+    pub fn row_len(&self, class: usize) -> usize {
+        match self.rows.get(class) {
+            Some(r) => r.len,
+            None => 0,
+        }
+    }
+
+    /// Cached blocks across all classes. Diagnostic.
     pub fn total_cached(&self) -> usize {
-        self.depth.iter().map(|&d| d as usize).sum()
+        self.rows.iter().map(|r| r.len).sum()
     }
 
-    /// True iff every class has zero cached slots.
+    /// True iff every row is empty.
     #[inline(always)]
     pub fn is_empty(&self) -> bool {
-        self.depth.iter().all(|&d| d == 0)
+        self.rows.iter().all(|r| r.head.is_null())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const BLOCK: usize = 16;
+
+    /// Real blocks: a push writes the link word into the block.
+    fn blocks(n: usize) -> (Vec<u8>, Vec<*mut u8>) {
+        let mut buf = vec![0u8; BLOCK * n];
+        let ptrs = (0..n)
+            .map(|i| unsafe { buf.as_mut_ptr().add(i * BLOCK) })
+            .collect();
+        (buf, ptrs)
+    }
 
     #[test]
     fn fresh_tlab_is_empty() {
@@ -189,109 +209,111 @@ mod tests {
     #[test]
     fn pop_on_empty_returns_none() {
         let mut t = TlabCache::new();
-        for c in 0..SIZE_CLASSES.len() {
+        for c in 0..N_CLASSES {
             assert_eq!(t.pop(c), None, "class {} pop on empty", c);
         }
     }
 
     #[test]
     fn push_then_pop_lifo() {
+        let (_buf, p) = blocks(3);
         let mut t = TlabCache::new();
-        let p1 = 0x1000usize as *mut u8;
-        let p2 = 0x2000usize as *mut u8;
-        let p3 = 0x3000usize as *mut u8;
-        assert!(t.push(2, p1));
-        assert!(t.push(2, p2));
-        assert!(t.push(2, p3));
+        assert!(unsafe { t.push(2, p[0]) });
+        assert!(unsafe { t.push(2, p[1]) });
+        assert!(unsafe { t.push(2, p[2]) });
         assert_eq!(t.total_cached(), 3);
-        assert_eq!(t.pop(2), Some(p3));
-        assert_eq!(t.pop(2), Some(p2));
-        assert_eq!(t.pop(2), Some(p1));
+        assert_eq!(t.row_len(2), 3);
+        assert_eq!(t.pop(2), Some(p[2]));
+        assert_eq!(t.pop(2), Some(p[1]));
+        assert_eq!(t.pop(2), Some(p[0]));
         assert_eq!(t.pop(2), None);
         assert!(t.is_empty());
     }
 
     #[test]
-    fn push_until_full_returns_false() {
+    fn push_refuses_at_spill_at() {
+        let (_buf, p) = blocks(SPILL_AT + 1);
         let mut t = TlabCache::new();
-        for i in 0..TLAB_CACHE_DEPTH {
-            assert!(t.push(0, (i + 1) as *mut u8), "push {} fits", i);
+        for (i, &b) in p.iter().take(SPILL_AT).enumerate() {
+            assert!(unsafe { t.push(0, b) }, "push {} fits", i);
         }
-        // Cache full → push should return false; depth unchanged.
         assert!(
-            !t.push(0, 0xdead as *mut u8),
-            "overflow push must return false"
+            !unsafe { t.push(0, p[SPILL_AT]) },
+            "push at SPILL_AT must refuse"
         );
-        assert_eq!(t.total_cached(), TLAB_CACHE_DEPTH);
+        assert_eq!(t.total_cached(), SPILL_AT);
+        // one pop makes room for one push
+        assert_eq!(t.pop(0), Some(p[SPILL_AT - 1]));
+        assert!(unsafe { t.push(0, p[SPILL_AT]) });
+        assert_eq!(t.row_len(0), SPILL_AT);
     }
 
     #[test]
     fn classes_are_independent() {
+        let (_buf, p) = blocks(3);
         let mut t = TlabCache::new();
-        assert!(t.push(0, 0x100 as *mut u8));
-        assert!(t.push(5, 0x500 as *mut u8));
-        assert!(t.push(8, 0x800 as *mut u8));
-        // Pop from each class — each independent LIFO.
-        assert_eq!(t.pop(0), Some(0x100 as *mut u8));
-        assert_eq!(t.pop(5), Some(0x500 as *mut u8));
-        assert_eq!(t.pop(8), Some(0x800 as *mut u8));
+        assert!(unsafe { t.push(0, p[0]) });
+        assert!(unsafe { t.push(5, p[1]) });
+        assert!(unsafe { t.push(8, p[2]) });
+        assert_eq!(t.pop(0), Some(p[0]));
+        assert_eq!(t.pop(5), Some(p[1]));
+        assert_eq!(t.pop(8), Some(p[2]));
         assert!(t.is_empty());
     }
 
     #[test]
-    fn drain_iterates_all_in_class() {
+    fn splice_installs_a_chain_the_pops_walk() {
+        let (_buf, p) = blocks(4);
+        unsafe {
+            *link(p[0]) = p[1];
+            *link(p[1]) = p[2];
+            *link(p[2]) = p[3];
+            *link(p[3]) = ptr::null_mut();
+        }
         let mut t = TlabCache::new();
-        let ptrs = [0x10, 0x20, 0x30, 0x40].map(|n| n as *mut u8);
-        for p in ptrs.iter() {
-            assert!(t.push(3, *p));
+        t.splice(3, p[0], 4);
+        assert_eq!(t.row_len(3), 4);
+        for &b in &p {
+            assert_eq!(t.pop(3), Some(b));
         }
-        let mut seen = vec![];
-        t.drain(3, |p| seen.push(p));
-        assert_eq!(seen.len(), 4);
-        // drain doesn't preserve order; assert set membership.
-        for p in ptrs.iter() {
-            assert!(seen.contains(p));
-        }
-        // Class is empty after drain.
         assert_eq!(t.pop(3), None);
+        assert_eq!(t.row_len(3), 0);
     }
 
+    /// The link word sits past the block's first word.
     #[test]
-    fn drain_empty_class_is_noop() {
+    fn push_writes_only_the_link_word() {
+        let mut buf = [0xaau8; BLOCK];
         let mut t = TlabCache::new();
-        let mut count = 0;
-        t.drain(0, |_| count += 1);
-        assert_eq!(count, 0);
+        assert!(unsafe { t.push(0, buf.as_mut_ptr()) });
+        assert_eq!(buf[..FREE_LINK_OFF], [0xaa; FREE_LINK_OFF]);
+        assert_eq!(
+            usize::from_ne_bytes(buf[FREE_LINK_OFF..FREE_LINK_OFF + 8].try_into().unwrap()),
+            0
+        );
     }
 
-    /// Pin TlabCache layout for toolchain inline emit (Phase 2e).
-    /// If these constants drift from actual struct layout, emitted
-    /// TLAB.pop / push reads/writes wrong fields → memory corruption.
-    /// Test catches drift at `cargo test` time before any user binary
-    /// is built with the stale offsets baked in.
+    /// The inline-emit constants must match the real layout: a drift
+    /// means emitted pop / push reads the wrong field.
     #[test]
     fn ir_layout_constants_match_actual_struct() {
         let t = TlabCache::new();
         let base = &t as *const _ as usize;
-        let slots_addr = &t.slots as *const _ as usize;
-        let depth_addr = &t.depth as *const _ as usize;
-        assert_eq!(
-            slots_addr - base,
-            TLAB_SLOTS_OFFSET,
-            "TLAB_SLOTS_OFFSET drift"
-        );
-        assert_eq!(
-            depth_addr - base,
-            TLAB_DEPTH_OFFSET,
-            "TLAB_DEPTH_OFFSET drift"
-        );
-        assert_eq!(
-            core::mem::size_of::<TlabCache>(),
-            TLAB_TOTAL_SIZE,
-            "TLAB_TOTAL_SIZE drift"
-        );
-        // Sanity: depth offset should equal slots field size.
-        let expected_depth_off = SIZE_CLASSES.len() * TLAB_CACHE_DEPTH * 8;
-        assert_eq!(TLAB_DEPTH_OFFSET, expected_depth_off);
+        let rows = &t.rows as *const _ as usize;
+        assert_eq!(rows - base, TLAB_ROWS_OFFSET, "TLAB_ROWS_OFFSET drift");
+        let r1 = &t.rows[1] as *const _ as usize;
+        assert_eq!(r1 - rows, TLAB_ROW_STRIDE, "TLAB_ROW_STRIDE drift");
+        let len1 = &t.rows[1].len as *const _ as usize;
+        assert_eq!(len1 - r1, TLAB_ROW_LEN_OFF, "TLAB_ROW_LEN_OFF drift");
+        // the span state sits behind the rows, where the template
+        // never looks
+        let cur_addr = &t.cur as *const _ as usize;
+        assert!(cur_addr - base >= N_CLASSES * TLAB_ROW_STRIDE);
+    }
+
+    /// Every free block has room for the link word.
+    #[test]
+    fn free_link_fits_the_smallest_class() {
+        assert!(FREE_LINK_OFF + size_of::<*mut u8>() <= crate::size_class::SIZE_CLASSES[0]);
     }
 }

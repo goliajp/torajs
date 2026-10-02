@@ -1,52 +1,51 @@
-//! v0.7-A2 — mmap-backed allocator for torajs user binary.
+//! mmap-backed allocator for the torajs user binary.
 //!
 //! Replaces libc `malloc / free / realloc / memcpy / memmove` for the
-//! AOT-emitted user binary. All memory comes from `mmap`
-//! (via [`torajs_syscall::mmap_anon_rw`]) — no `brk` / no
-//! `libSystem.dylib` involvement.
+//! AOT-emitted program. All memory comes from `mmap` (via
+//! [`torajs_syscall::mmap_anon_rw`]): no `brk`, no `libSystem.dylib`.
 //!
-//! ## Layered structure
+//! ## Structure
 //!
-//! 1. **Page bump** ([`page::PageBump`]) — fixed-size page (16 KB)
-//!    allocated via mmap; sub-allocations bump-allocate from it
-//!    until full, then a new page is requested. Fastest path for
-//!    small temporaries; no per-allocation header.
-//! 2. **Size-class free list** ([`size_class::SizeClassPool`]) —
-//!    one LIFO free-list per power-of-two bucket (16/32/64/128/
-//!    256/512/1024/2048/4096). Recycles freed blocks. Layer 2/3.
-//! 3. **Direct mmap fallback** ([`large::large_alloc`]) — for
-//!    `size > 4096` bytes, mmap a fresh page-aligned region and
-//!    return it. `large_free` munmaps. No pooling; large allocs
-//!    are assumed infrequent.
+//! 1. **Rows** ([`tlab::TlabCache`]) — per size class, a stack
+//!    of free blocks the fast path pops and pushes without atomics;
+//!    the toolchain inlines both at object-cell sites.
+//! 2. **Spans** ([`span::SpanMeta`]) — a run of arena pages carved
+//!    into equal slots of one class, with an owner-local free list,
+//!    an atomic list for other threads' releases, and a `used` count
+//!    that tells when every slot is back.
+//! 3. **Arenas** ([`arena::Arena`]) — 1 MiB aligned mappings whose
+//!    header page holds the span metadata and a page bitmap; a block
+//!    names its arena by address and its span by one table read. An
+//!    empty arena goes back to the kernel.
+//! 4. **Large** ([`large::large_alloc`]) — `size > 4096` maps a region
+//!    of its own, tracked in the [`region_registry`].
 //!
-//! ## Public API (v0.7-A2 scope)
+//! ## Public API
 //!
 //! ```text
 //! __torajs_malloc(size)           → *mut u8 | null on OOM
 //! __torajs_free(ptr, size)        → void
-//! __torajs_free_lookup(ptr)       → void (size from the span registry)
+//! __torajs_free_lookup(ptr)       → void (class from the arena)
 //! __torajs_realloc(ptr, old, new) → *mut u8 | null
 //! __torajs_memcpy(dst, src, n)    → *mut u8 (dst)
 //! __torajs_memmove(dst, src, n)   → *mut u8 (dst)  — overlap-safe
 //! __torajs_memcmp(a, b, n)        → i32 (lex compare)
 //! ```
 //!
-//! The `size` parameter on `free`/`realloc` is required (no header
-//! overhead) — caller must remember the original allocation size.
-//! Sub-crates that need C-malloc-compatible behavior (auto-size-
-//! tracking) sit a thin shim on top.
+//! The `size` parameter on `free` / `realloc` is required (no header
+//! overhead): the caller remembers the allocation size. Sub-crates
+//! that need C-malloc-compatible behavior sit a thin shim on top.
 
-pub mod central;
+pub mod arena;
 pub mod core;
 pub mod extern_api;
 pub mod global_alloc;
+pub mod heap;
 pub mod large;
-pub mod page;
+pub mod region_registry;
 pub mod size_class;
 pub mod span;
-pub mod span_registry;
 pub mod tlab;
 
 pub use global_alloc::TorajsAllocator;
-pub use size_class::Allocator;
-pub use span::Span;
+pub use size_class::bucket_for;
