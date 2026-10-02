@@ -114,6 +114,9 @@ pub const TAG_DATAVIEW: u16 = 29;
 /// a corpse's slot is cleared; `collect_white`'s second sweep and
 /// `defer`'s pass A both already carry the `rc > 0` gate that makes
 /// that safe.
+///
+/// # Safety
+/// `p` is NULL or a live heap cell with a valid `HeapHeader`.
 #[inline]
 pub unsafe fn is_visitable_bag(p: *mut c_void) -> bool {
     if p.is_null() {

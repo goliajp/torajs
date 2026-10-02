@@ -97,7 +97,7 @@ pub fn for_each<F: FnMut(*mut c_void)>(mut f: F) {
 }
 
 /// Walk EVERY slot — including NULLs — exposing the raw pointer
-/// + index. Needed by `cycle_collect`'s third pass which must read
+/// and index. Needed by `cycle_collect`'s third pass which must read
 /// each slot's pointer to look at its color flag and possibly clear
 /// the `FLAG_BUFFERED` bit before potentially recursing into
 /// `collect_white`. Same snapshot-len + reload-base discipline as
@@ -154,6 +154,9 @@ pub fn len() -> u32 {
 ///
 /// Auto-triggers `cycle_collect` when the buffer length crosses
 /// the auto-collect threshold (V3-10 behavior).
+///
+/// # Safety
+/// `p` is NULL or a live heap cell with a valid `HeapHeader`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_cycle_buffer(p: *mut c_void) {
     if !unsafe { has_walkable_children(p) } {
@@ -185,6 +188,9 @@ pub unsafe extern "C" fn __torajs_cycle_buffer(p: *mut c_void) {
 /// `value_drop_heap` when this body is inlined cross-TU. Keep the
 /// call as a real function boundary until the upstream issue is
 /// narrowed.
+///
+/// # Safety
+/// `p` is NULL or a heap cell with a valid `HeapHeader` that has not been freed yet.
 #[unsafe(no_mangle)]
 #[inline(never)]
 pub unsafe extern "C" fn __torajs_cycle_unbuffer(p: *mut c_void) {

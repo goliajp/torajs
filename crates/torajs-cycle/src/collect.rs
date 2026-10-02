@@ -70,7 +70,7 @@ unsafe fn mark_gray(p: *mut c_void) {
         return;
     }
     let h = p as *mut HeapHeader;
-    if color_of(h) == COLOR_GRAY {
+    if unsafe { color_of(h) } == COLOR_GRAY {
         return;
     }
     unsafe { set_color(h, COLOR_GRAY) };
@@ -98,7 +98,7 @@ unsafe fn scan(p: *mut c_void) {
         return;
     }
     let h = p as *mut HeapHeader;
-    if color_of(h) != COLOR_GRAY {
+    if unsafe { color_of(h) } != COLOR_GRAY {
         return;
     }
     if unsafe { (*h).refcount } > 0 {
@@ -152,7 +152,7 @@ unsafe fn collect_white(p: *mut c_void) {
         return;
     }
     let h = p as *mut HeapHeader;
-    if color_of(h) != COLOR_WHITE {
+    if unsafe { color_of(h) } != COLOR_WHITE {
         return;
     }
     // Recolor BLACK + clear BUFFERED first so re-entry from a
@@ -237,6 +237,9 @@ unsafe fn collect_white(p: *mut c_void) {
 /// `cycle_buffer`'s auto-collect threshold also calls this path —
 /// keep the early-out (`len == 0`) at the top so the no-op case
 /// stays cheap.
+///
+/// # Safety
+/// Every pointer in the root buffer is a cell that has not been freed; callers keep that by unbuffering cells before freeing them.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_cycle_collect() {
     if buffer::len() == 0 || IN_COLLECT.swap(true, Ordering::Relaxed) {
@@ -263,7 +266,7 @@ pub unsafe extern "C" fn __torajs_cycle_collect() {
             return;
         }
         if unsafe { (*h).refcount } == 0 {
-            if color_of(h) == COLOR_BLACK {
+            if unsafe { color_of(h) } == COLOR_BLACK {
                 buffer::clear_slot(i);
                 // a class instance or closure env that died while
                 // buffered, each carrying its own size record
@@ -273,7 +276,7 @@ pub unsafe extern "C" fn __torajs_cycle_collect() {
             }
             return;
         }
-        if color_of(h) == COLOR_PURPLE {
+        if unsafe { color_of(h) } == COLOR_PURPLE {
             unsafe { mark_gray(p) };
         }
         // If already gray (visited transitively in another root's
@@ -294,7 +297,7 @@ pub unsafe extern "C" fn __torajs_cycle_collect() {
         }
         let h = p as *mut HeapHeader;
         unsafe { (*h).flags &= !FLAG_BUFFERED };
-        if color_of(h) == COLOR_WHITE {
+        if unsafe { color_of(h) } == COLOR_WHITE {
             unsafe { collect_white(p) };
         }
     });
@@ -318,6 +321,9 @@ pub unsafe extern "C" fn __torajs_cycle_collect() {
 /// rationale: a destructor runs after libc's atexit pipeline,
 /// which on macOS has already torn down some thread-local state —
 /// calls into the runtime that touch malloc/free can crash.
+///
+/// # Safety
+/// Same as [`__torajs_cycle_collect`]; call once, after every top-level drop has run.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_cycle_at_exit_drain() {
     // Pass-3 drops can re-buffer surviving candidates (kept by the

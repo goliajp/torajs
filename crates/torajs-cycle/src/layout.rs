@@ -221,11 +221,15 @@ pub static __torajs_class_layouts: ClassLayout = ClassLayout {
     method_table_ptr: core::ptr::null(),
 };
 
+/// # Safety
+/// `h` points at a live `HeapHeader`.
 #[inline]
-pub fn color_of(h: *const HeapHeader) -> u16 {
+pub unsafe fn color_of(h: *const HeapHeader) -> u16 {
     unsafe { (*h).flags & COLOR_MASK }
 }
 
+/// # Safety
+/// `h` points at a live, writable `HeapHeader`.
 #[inline]
 pub unsafe fn set_color(h: *mut HeapHeader, color: u16) {
     unsafe { (*h).flags = ((*h).flags & !COLOR_MASK) | color };
@@ -262,6 +266,8 @@ pub unsafe fn is_class_obj(p: *mut c_void) -> bool {
     // test) and regular statics (cfg test); the deref is what needs
     // the unsafe block. Unified access keeps `unused_unsafe` happy
     // across both build paths.
+    #[allow(clippy::deref_addrof)]
+    // the raw read keeps one spelling for the extern and the test static
     let n_layouts = unsafe { *(&raw const __torajs_n_class_layouts) };
     if tag > n_layouts {
         return false;
@@ -336,6 +342,9 @@ pub fn arr_elems_walkable(header: &HeapHeader) -> bool {
 /// to false once a corpse's slot is cleared; the `rc > 0` gates in
 /// `collect_white`'s second sweep and `defer`'s pass A are what make
 /// that safe.
+///
+/// # Safety
+/// `p` is NULL or a live heap cell with a valid `HeapHeader`.
 #[inline]
 pub unsafe fn is_visitable_wrapper(p: *mut c_void) -> bool {
     if p.is_null() {
@@ -360,6 +369,9 @@ pub unsafe fn is_visitable_wrapper(p: *mut c_void) -> bool {
 /// dict. Immortal interned method cells carry FLAG_STATIC_LITERAL —
 /// skipped wholesale (CPython-immortal shape), their rc traffic
 /// no-ops so they can never be cycle members.
+///
+/// # Safety
+/// `p` is NULL or a live heap cell with a valid `HeapHeader`.
 #[inline]
 pub unsafe fn is_visitable_closure(p: *mut c_void) -> bool {
     if p.is_null() {
@@ -396,6 +408,9 @@ pub(crate) fn nan_box_is_cell_like(p: *mut c_void) -> bool {
 /// walk (RFC 20260717-cycle-walk-dynobj blade 2). Entry values are
 /// NaN-boxes; `dynobj_child_at`'s cell-like gate filters immediates
 /// per slot, mirroring the Arr<Any> shape.
+///
+/// # Safety
+/// `p` is NULL or a live heap cell with a valid `HeapHeader`.
 #[inline]
 pub unsafe fn is_visitable_dynobj(p: *mut c_void) -> bool {
     if p.is_null() {
@@ -420,6 +435,9 @@ pub unsafe fn is_visitable_dynobj(p: *mut c_void) -> bool {
 /// header (wild read) and decremented (wild write). It only ever
 /// fired once a program crossed the 1024-candidate auto-collect
 /// threshold, so it read as a mysterious SIGSEGV at scale.
+///
+/// # Safety
+/// `p` is NULL or a live heap cell with a valid `HeapHeader`.
 #[inline]
 pub unsafe fn has_walkable_children(p: *mut c_void) -> bool {
     if !nan_box_is_cell_like(p) {
@@ -532,13 +550,13 @@ mod tests {
             flags: 0,
         };
         unsafe { set_color(&mut h, COLOR_PURPLE) };
-        assert_eq!(color_of(&h), COLOR_PURPLE);
+        assert_eq!(unsafe { color_of(&h) }, COLOR_PURPLE);
         unsafe { set_color(&mut h, COLOR_GRAY) };
-        assert_eq!(color_of(&h), COLOR_GRAY);
+        assert_eq!(unsafe { color_of(&h) }, COLOR_GRAY);
         // Other flag bits preserved across color writes:
         h.flags |= FLAG_BUFFERED;
         unsafe { set_color(&mut h, COLOR_WHITE) };
-        assert_eq!(color_of(&h), COLOR_WHITE);
+        assert_eq!(unsafe { color_of(&h) }, COLOR_WHITE);
         assert_ne!(h.flags & FLAG_BUFFERED, 0);
     }
 
