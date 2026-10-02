@@ -43,11 +43,11 @@ impl<'a> LowerCtx<'a> {
     /// `x.foo` reads/writes route through the dynobj substrate.
     /// Empty `{}` produces a zero-entry dynobj (allocates the header
     /// + initial bucket array but no entries).
-    /// Lower one non-special field's value and store it into the
-    /// dynobj bucket. The `Any` and `Str` arms complete the store
-    /// themselves (their owned-unbox fuses the payload inc into the
-    /// decode), so they return early rather than yielding a
-    /// `(tag, slot)` pair to the shared tail.
+    ///   Lower one non-special field's value and store it into the
+    ///   dynobj bucket. The `Any` and `Str` arms complete the store
+    ///   themselves (their owned-unbox fuses the payload inc into the
+    ///   decode), so they return early rather than yielding a
+    ///   `(tag, slot)` pair to the shared tail.
     pub(crate) fn emit_dynobj_field_value(
         &mut self,
         slot: ValueId,

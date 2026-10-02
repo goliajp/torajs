@@ -36,16 +36,16 @@ use crate::ast::PropKey;
 ///   - expand a class- or alias-typed field into an ObjectLit of
 ///     recursively-defaulted children (looked up in `class_layouts`
 ///     and `alias_layouts`)
-/// V3-18 wedge — rewrite the placeholder `"this"` in a class
-/// method's return-type annotation to the enclosing class's
-/// `this_ann` (e.g., `C` or `C<T|U>` for generic classes), per
-/// TS spec §3.6.3 polymorphic-this semantics. Standard usage:
-///   class Builder { add(...): this { return this } }
-/// The parser stores the literal `"this"` in `m.return_type`;
-/// desugar_classes substitutes it here before emit so check.rs
-/// and ssa_lower see the concrete class type at every method's
-/// return boundary. Also handles the `__nullable(this)` wrapper
-/// case for the rare `: this | null` shape.
+///     V3-18 wedge — rewrite the placeholder `"this"` in a class
+///     method's return-type annotation to the enclosing class's
+///     `this_ann` (e.g., `C` or `C<T|U>` for generic classes), per
+///     TS spec §3.6.3 polymorphic-this semantics. Standard usage:
+///     class Builder { add(...): this { return this } }
+///     The parser stores the literal `"this"` in `m.return_type`;
+///     desugar_classes substitutes it here before emit so check.rs
+///     and ssa_lower see the concrete class type at every method's
+///     return boundary. Also handles the `__nullable(this)` wrapper
+///     case for the rare `: this | null` shape.
 pub(crate) fn rewrite_this_in_ann(ann: &Option<String>, this_ann: &str) -> Option<String> {
     let a = ann.as_deref()?;
     if a == "this" {

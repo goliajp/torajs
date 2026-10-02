@@ -31,15 +31,15 @@
 //! 9. **Str/Substr.length** — read u64 length at STR_LEN_OFF
 //!    (offset 8) via `ssa_lower_str::load_str_or_substr_length`.
 //! 10. **Type::Any** — RFC 20260613 any-class-member-read
-//!    dispatch.
+//!     dispatch.
 //! 11. **Type::Closure** (T-27) — Function-as-Object read. Loads
-//!    the closure's lazy props_dynobj at CLOSURE_PROPS_OFF.
-//!    NULL → undef box per ECMAScript missing-prop semantics.
+//!     the closure's lazy props_dynobj at CLOSURE_PROPS_OFF.
+//!     NULL → undef box per ECMAScript missing-prop semantics.
 //! 12. **T-27.b + T-29** — FnSig-as-Object + Array-as-Object
-//!    Member read via side-table-keyed-by-ptr storage
-//!    (NULL/missing key → ANY_UNDEF).
+//!     Member read via side-table-keyed-by-ptr storage
+//!     (NULL/missing key → ANY_UNDEF).
 //! 13. **Type::Obj(sid) terminal** (P8.2) — accessor read +
-//!    struct-field-layout fallback.
+//!     struct-field-layout fallback.
 
 use crate::ast::ExprId;
 use crate::ssa::{InstKind, Operand, Type};

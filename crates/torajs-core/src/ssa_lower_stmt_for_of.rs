@@ -17,7 +17,7 @@
 //! 3. **String** (P11.4) → `lower_for_of_str` (still inline). Per-iter
 //!    code-point Substr views, advance 1 or 2 code units via
 //!    `__torajs_str_code_point_at` per ES §22.1.5.
-//! 3b. **Any** (RFC 20260704 S5+) → `lower_for_of_any_iter`
+//!    3b. **Any** (RFC 20260704 S5+) → `lower_for_of_any_iter`
 //!    (sibling): unified runtime iteration protocol
 //!    (`__torajs_any_iter_next` tag-dispatch over strings / arrays /
 //!    MapIter / ArrIter cells).

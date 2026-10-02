@@ -30,9 +30,9 @@ use crate::check::Type;
 /// - NON-empty anonymous Struct keeps the loud reject: its fields ARE
 ///   statically known, so a miss is overwhelmingly a typo (recorded
 ///   diagnostic-posture boundary).
-/// The three yes/no facts the terminal answer needs from the checker.
-/// One struct rather than three bools: the call takes four arguments
-/// instead of six, and a caller cannot transpose them.
+///   The three yes/no facts the terminal answer needs from the checker.
+///   One struct rather than three bools: the call takes four arguments
+///   instead of six, and a caller cannot transpose them.
 pub(crate) struct MissFacts {
     /// The receiver's family says a miss is not an error here.
     pub(crate) lenient_missing: bool,

@@ -53,12 +53,12 @@
 //!     live chain's setter runs, a null base is the TypeError, the
 //!     store lands on the receiver (rotation 628; the receiver-write
 //!     fallback stays for the static lane).
-//! Recorded silent boundaries: a RUNTIME-defined accessor on the base
-//! (defineProperty after class definition) reads through the plain
-//! member path with the prototype as receiver — for the NAME form
-//! only; the computed form takes the kernel and is exact; a setter shadowed by
-//! the subclass's own same-name setter resolves via `this` on the
-//! fallback write path.
+//!     Recorded silent boundaries: a RUNTIME-defined accessor on the base
+//!     (defineProperty after class definition) reads through the plain
+//!     member path with the prototype as receiver — for the NAME form
+//!     only; the computed form takes the kernel and is exact; a setter shadowed by
+//!     the subclass's own same-name setter resolves via `this` on the
+//!     fallback write path.
 //!
 //! Consumed marker nodes are overwritten with `Expr::Null` so no
 //! orphan `__superbase__` survives in the arena for later

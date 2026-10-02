@@ -23,7 +23,7 @@ use super::{Ast, BinOp, Expr, Stmt};
 /// When the SM recorded regions, the dispatch if-chain is wrapped in
 /// the region-routing try/catch and the `throw()` injection prologue
 /// + fields are added; region-free generators keep the exact pre-RFC
-/// shape.
+///   shape.
 pub(super) fn build_state_machine_next_body(
     ast: &mut Ast,
     gen_body: Vec<Stmt>,

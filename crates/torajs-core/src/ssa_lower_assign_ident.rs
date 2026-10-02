@@ -35,9 +35,9 @@
 //!    - `slot Str + value Any` → `coerce_to_str` (catch-block
 //!      `saved = e` shape)
 //!    - `slot I64 + value I32` / `slot I32 + value I64` / Ptr-free
-//!    Drop old slot value if non-Copy AND not moved out by RHS
-//!    consume. Store new value; clear `moved` flag so subsequent
-//!    reads work and end-of-fn drop fires.
+//!      Drop old slot value if non-Copy AND not moved out by RHS
+//!      consume. Store new value; clear `moved` flag so subsequent
+//!      reads work and end-of-fn drop fires.
 //!
 //! Returns `Operand` directly (TS assignment-as-expression yields
 //! the assigned value).

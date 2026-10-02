@@ -66,11 +66,11 @@ pub(super) fn mapset_foreach_expected(ann: &str, method: &str) -> Option<(Vec<St
 /// - Inferred-from-init shape: `let arr = [<lit>, ...]` infers
 ///   arr's annotation as `<lit_ty>[]` so .map / .filter on
 ///   unannotated lets still get param inference.
-/// Read `ann` as a fn-type canonical spelling, chasing bare type
-/// aliases to get there: `type F = (n: number) => number` parks its RHS
-/// under an `__alias__` sentinel field, so the annotation on `const g:
+///   Read `ann` as a fn-type canonical spelling, chasing bare type
+///   aliases to get there: `type F = (n: number) => number` parks its RHS
+///   under an `__alias__` sentinel field, so the annotation on `const g:
 /// F` is the bare name `F` and canonicalizes to nothing on its own.
-/// Bounded so a `type A = B; type B = A` pair cannot spin.
+///   Bounded so a `type A = B; type B = A` pair cannot spin.
 pub(super) fn resolve_fn_type_ann(ast: &Ast, ann: &str) -> Option<String> {
     let mut cur = ann.to_string();
     for _ in 0..8 {

@@ -20,7 +20,7 @@ use super::{Ast, Expr, ExprId, Stmt};
 ///
 ///   - `X.length`         (read)
 ///   - `X[i] / X[i] = v`  (read or write — i may be any expression
-///                         that doesn't itself escape X)
+///     that doesn't itself escape X)
 ///
 /// Anything else — bare `X` reference (return, fn arg, store to
 /// outer slot, alias to another let, throw, container element),

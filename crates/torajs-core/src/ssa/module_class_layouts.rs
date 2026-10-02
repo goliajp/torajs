@@ -131,9 +131,9 @@ pub struct ClassLayoutMeta {
 /// W-J Phase A3 — coarse `Type` → 8-bit `type_tag` for [`FieldMetaSpec`].
 /// Discriminator values are kept stable across builds so the link layer
 /// + runtime helper can decode in lockstep. Unknown variants fold to
-/// `0` (Any) — reflection sees them as opaque NaN-box cells and the
-/// downstream consumer can do its own second-lookup via the heap
-/// header's `type_tag` if it needs precision.
+///   `0` (Any) — reflection sees them as opaque NaN-box cells and the
+///   downstream consumer can do its own second-lookup via the heap
+///   header's `type_tag` if it needs precision.
 pub fn field_type_tag_of(ty: super::Type) -> u8 {
     use super::Type;
     match ty {

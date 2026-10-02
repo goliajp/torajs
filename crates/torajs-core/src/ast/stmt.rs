@@ -353,7 +353,7 @@ pub enum Stmt {
     ///   - `export type T = ...`       → `inner: Some(<the TypeDecl>)`
     ///   - `export { a, b }`           → `named: [(a, None), (b, Some(c))]`
     ///   - `export { a } from "./b"`   → `named: [(a, None)], source: Some("./b")`
-    ///                                    (P13-S4 re-export)
+    ///     (P13-S4 re-export)
     ///   - `export * from "./b"`       → `star: Some(All), source: Some("./b")`
     ///   - `export * as ns from "./b"` → `star: Some(AsNamespace("ns"))`
     ///   - `export default <expr>`     → `default_expr: Some(...)`

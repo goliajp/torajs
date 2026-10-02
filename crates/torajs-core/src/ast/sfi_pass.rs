@@ -11,8 +11,8 @@
 //! `match_split_call_with_lit_sep`, `is_zero_lit`, `is_i_plus_eq_1`) +
 //! the two walkers (`rewrite_sfi_walk_list`, `rewrite_sfi_walk_stmt`)
 //! + the `SplitForICtx` counter live here. The pub entry stays
-//! reachable at `torajs_core::ast::rewrite_split_for_i_to_iter` via the
-//! `pub use` in ast.rs.
+//!   reachable at `torajs_core::ast::rewrite_split_for_i_to_iter` via the
+//!   `pub use` in ast.rs.
 
 use super::{Ast, BinOp, Expr, ExprId, Stmt};
 

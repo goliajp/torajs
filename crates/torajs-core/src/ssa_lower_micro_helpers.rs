@@ -77,9 +77,9 @@ impl<'a> LowerCtx<'a> {
 
     /// Phase 2B refcount: write the universal heap header (refcount=1
     /// + type_tag=OBJ + flags=0) at offset 0 of a freshly-alloc'd
-    /// object. Lowerer emits this at every ObjectLit alloc site since
-    /// `__torajs_obj_alloc` stays a plain malloc (re-used by box / env
-    /// paths that don't want a refcount header).
+    ///   object. Lowerer emits this at every ObjectLit alloc site since
+    ///   `__torajs_obj_alloc` stays a plain malloc (re-used by box / env
+    ///   paths that don't want a refcount header).
     pub(crate) fn emit_obj_header_init(&mut self, obj_op: Operand) {
         // refcount @ +0 = 1
         self.f.append_void(

@@ -54,7 +54,7 @@ pub(crate) struct AnySubstrateIds {
     pub any_to_bigint: FuncId,
     /// RFC 20260716 刀 4 — `Object(v)` callable coercion (ES §20.1.1.1
     /// + ToObject §7.1.18). Primitives mint a fresh wrapper; heap
-    /// cells identity (rc_inc + return recv); null/undef fresh {}.
+    ///   cells identity (rc_inc + return recv); null/undef fresh {}.
     pub any_to_object: FuncId,
     pub any_add: FuncId,
     pub any_arith: FuncId,

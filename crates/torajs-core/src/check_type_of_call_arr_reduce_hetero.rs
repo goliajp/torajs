@@ -10,9 +10,9 @@
 //! - cb `(U, T) => U` — accumulator = U, element = T
 //! - cb `(any, T) => R` — Any-param widening (contravariance);
 //!   result follows the cb's actual return
-//! for U ∈ {Number, String, Boolean, Any}. Homogeneous
-//! `(T, T) => T` stays with the method-table arm; a Void-ret
-//! reduce keeps the sister [`arr_pred_void_cb`] Any-fold lane.
+//!   for U ∈ {Number, String, Boolean, Any}. Homogeneous
+//!   `(T, T) => T` stays with the method-table arm; a Void-ret
+//!   reduce keeps the sister [`arr_pred_void_cb`] Any-fold lane.
 
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type};

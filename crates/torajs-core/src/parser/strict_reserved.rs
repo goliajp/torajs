@@ -200,12 +200,12 @@ impl Parser<'_> {
     ///   `"use strict"` and — the cell that settles the axis —
     ///   **`catch ({ let })`** all reject, while `catch ({ yield })`
     ///   binds.
-    /// The reserved word a token SPELLS — bare, or written with a
-    /// unicode escape. §12.7.2 makes the escaped form never the
-    /// keyword, but a BindingIdentifier is judged on its StringValue,
-    /// so `\u0079ield` may name something exactly where `yield` may
-    /// and `\u0069f` may nowhere. Every admission site asks through
-    /// here so the two spellings cannot drift apart.
+    ///   The reserved word a token SPELLS — bare, or written with a
+    ///   unicode escape. §12.7.2 makes the escaped form never the
+    ///   keyword, but a BindingIdentifier is judged on its StringValue,
+    ///   so `\u0079ield` may name something exactly where `yield` may
+    ///   and `\u0069f` may nowhere. Every admission site asks through
+    ///   here so the two spellings cannot drift apart.
     pub(super) fn reserved_word_of(t: &Token) -> Option<&str> {
         match t {
             Token::Let => Some("let"),

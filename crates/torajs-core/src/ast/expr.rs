@@ -87,9 +87,9 @@ pub enum Expr {
     Uninit,
     /// `/pattern/flags` regex literal. Lexer carries the raw pattern
     /// + flag bytes; the parser wraps them here so check.rs can give
-    /// a clean roadmap-phase rejection. Actual matching engine is
-    /// future work — the typechecker today rejects regex use with a
-    /// "regex literals not yet implemented (planned)" message.
+    ///   a clean roadmap-phase rejection. Actual matching engine is
+    ///   future work — the typechecker today rejects regex use with a
+    ///   "regex literals not yet implemented (planned)" message.
     Regex {
         pattern: String,
         flags: String,

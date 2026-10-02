@@ -35,12 +35,12 @@ impl<'a> LowerCtx<'a> {
     ///     a float-flavored op is emitted (FAdd/FSub/FMul, FCmp).
     ///   - Bitwise ops + Mod stay integer-only; mixing them with f64 is a
     ///     type error (caught at lower-time, not tolerated).
-    /// P1.5/P1.8 — peek a binop operand's source ExprId to see if its
-    /// frontend type is Type::Undefined. Set by callers that have
-    /// the AST in hand (currently the Eq/Neq path in lower_expr).
-    /// None means "no info — treat as null per old behavior". The
-    /// pair is `(left_id, right_id)`. Cleared after each lower_binop
-    /// call so it doesn't leak across unrelated dispatches.
+    ///     P1.5/P1.8 — peek a binop operand's source ExprId to see if its
+    ///     frontend type is Type::Undefined. Set by callers that have
+    ///     the AST in hand (currently the Eq/Neq path in lower_expr).
+    ///     None means "no info — treat as null per old behavior". The
+    ///     pair is `(left_id, right_id)`. Cleared after each lower_binop
+    ///     call so it doesn't leak across unrelated dispatches.
     pub(crate) fn lower_binop_with_ids(
         &mut self,
         op: AstBinOp,

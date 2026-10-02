@@ -12,35 +12,35 @@
 //! Subset boundary (P13 sub-step ship chain progressively lifts these):
 //!   - `import { a, b as c } from "./y"`     — supported (K.2 baseline)
 //!   - `import x from "./y"`                  — supported (P13-S1; pairs with
-//!                                              `export default <expr>`)
+//!     `export default <expr>`)
 //!   - `import * as ns from "./y"`            — supported (P13-S2; lib's
-//!                                              every value export injects
-//!                                              under its original name and a
-//!                                              synthetic `let ns = { … }`
-//!                                              object literal lands after)
+//!     every value export injects
+//!     under its original name and a
+//!     synthetic `let ns = { … }`
+//!     object literal lands after)
 //!   - `import "./y"`                         — supported (P13-S3; lib's
-//!                                              top-level stmts inject in
-//!                                              source order, no symbols
-//!                                              bound on the importer side)
+//!     top-level stmts inject in
+//!     source order, no symbols
+//!     bound on the importer side)
 //!   - `export { a, b } from "./y"`           — supported (P13-S4; lib b's
-//!                                              re-export pushes a nested BFS
-//!                                              load of y with the request
-//!                                              translated through the lib's
-//!                                              optional alias clause)
+//!     re-export pushes a nested BFS
+//!     load of y with the request
+//!     translated through the lib's
+//!     optional alias clause)
 //!   - `export * from "./y"`                  — supported; a star preserves
-//!                                              names, so the importer's own
-//!                                              request forwards to y minus
-//!                                              whatever b exports itself, and
-//!                                              a namespace request walks y
-//!                                              into the SAME namespace
-//!                                              accumulator
+//!     names, so the importer's own
+//!     request forwards to y minus
+//!     whatever b exports itself, and
+//!     a namespace request walks y
+//!     into the SAME namespace
+//!     accumulator
 //!   - `export * as ns from "./y"`            — supported; exposes exactly one
-//!                                              name, whose value is y's
-//!                                              namespace object
+//!     name, whose value is y's
+//!     namespace object
 //!   - `export { a, b }` (inline, no source)  — rejected (no module
-//!                                              relationship; a plain re-bind
-//!                                              of in-scope names; out of K.2
-//!                                              scope)
+//!     relationship; a plain re-bind
+//!     of in-scope names; out of K.2
+//!     scope)
 //!
 //! Behaviour notes:
 //!   - A module body runs once (§16.2.1.5). The first named / default /

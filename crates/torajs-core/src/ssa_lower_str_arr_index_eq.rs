@@ -38,14 +38,14 @@ use crate::ssa_lower::LowerCtx;
 /// - `elem`     SSA value carrying the loaded element (Type = `elem_ty`).
 /// - `elem_ty`  receiver-array element type.
 /// - `needle`   already-coerced needle operand (caller resolves needle ↔
-///              elem-ty mismatch + const-fold short-circuits before
-///              calling).
+///   elem-ty mismatch + const-fold short-circuits before
+///   calling).
 /// - `needle_ty` original needle type, used by the Any arm to pick
-///              the packed `(tag, value-as-i64)` shape.
+///   the packed `(tag, value-as-i64)` shape.
 /// - `want_bool` true when called from `.includes()`; widens F64
-///              equality to SameValueZero.
+///   equality to SameValueZero.
 /// - `needle_eid` original needle ExprId, only consulted for the
-///              S127-1 `undefined` literal recovery in the Any arm.
+///   S127-1 `undefined` literal recovery in the Any arm.
 pub(crate) fn emit_compare(
     ctx: &mut LowerCtx<'_>,
     elem: ValueId,

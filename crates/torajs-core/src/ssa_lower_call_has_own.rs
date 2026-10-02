@@ -4,11 +4,11 @@
 //! decomp (chunks 1-23 = Arr higher-order + Map dispatch + Set
 //! dispatch + Arr.push + Number instance methods + bare-name globals
 //! + Str regex methods + Number namespace + Array.from + Arr
-//! predicate iter + Arr.flatMap + Object.entries + fn-indirect +
-//! Number/String/Boolean coercion + universal methods + closure-local
+//!   predicate iter + Arr.flatMap + Object.entries + fn-indirect +
+//!   Number/String/Boolean coercion + universal methods + closure-local
 //! + Object.values + Object.keys + Object.getPrototypeOf +
-//! Object.assign + Bun runtime cluster + Reflect.get +
-//! Symbol.for/keyFor).
+//!   Object.assign + Bun runtime cluster + Reflect.get +
+//!   Symbol.for/keyFor).
 //!
 //! v0.2 #3 — `Object.hasOwn(obj, key)` (ES §20.1.2.4) folds to a
 //! constant Bool when the target lowers to `Type::Obj(sid)` and the

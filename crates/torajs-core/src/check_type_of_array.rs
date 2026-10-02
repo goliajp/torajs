@@ -14,8 +14,8 @@
 //!      wires str_split + materialize)
 //!    - `Set` (S141) → `Any` (Array.from(set) shape)
 //!    - other → spread-source error.
-//!    Empty inner array literals `[]` yield `None` so the outer
-//!    typecheck can defer typing to a non-empty sibling.
+//!      Empty inner array literals `[]` yield `None` so the outer
+//!      typecheck can defer typing to a non-empty sibling.
 //! 3. **Anchor type** — first non-empty element's type.
 //! 4. **Heterogeneous widening** (T-10.c v0.4.0) — when any later
 //!    element isn't assignable to the anchor, widen to `Array<Any>`

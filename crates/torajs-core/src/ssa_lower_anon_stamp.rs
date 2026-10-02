@@ -10,7 +10,7 @@
 //! - `__torajs_struct_layout_lookup(0) → NULL`
 //!   → `__torajs_struct_field_count(NULL) → 0`
 //!   → `struct_print.rs` Tag::Obj walker emits `{}` instead of bun's
-//!     `{\n  x: 1,\n  y: 2,\n}` form.
+//!   `{\n  x: 1,\n  y: 2,\n}` form.
 //!
 //! [`AnonStampPool`] swaps that fall-through for in-flight tag
 //! assignment: every Pass 2 stamp call routes through
@@ -34,7 +34,7 @@ use crate::ssa::Type;
 pub struct AnonStampPool {
     /// Pass 1.5 snapshot mappings (named tags `[1..=n_named]` excluded)
     /// + Pass 2 fresh insertions. Lookup-on-miss falls into
-    /// `assign_or_get` which allocates `next_tag` + records `fresh_sids`.
+    ///   `assign_or_get` which allocates `next_tag` + records `fresh_sids`.
     sid_to_tag: HashMap<ssa::StructId, u32>,
     /// Sids that didn't appear in the snapshot — Pass 2 fresh stamps.
     /// `lower_module` walks this after Pass 2 to append matching

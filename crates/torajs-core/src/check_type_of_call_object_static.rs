@@ -293,10 +293,10 @@ fn try_match_assign(
 /// * a get-only accessor accepts nothing (`None`) — ES §10.1.9 makes
 ///   the write a strict-mode `TypeError`, which SSA-lower emits, so it
 ///   must typecheck rather than be rejected.
-/// Band B for a nullish argument where the spec's first step is
-/// ToObject — §20.1.2.1 (`Object.assign`) and §20.1.2.23
-/// (`Object.values`) both begin there, and §7.1.18 answers null and
-/// undefined with a TypeError.
+///   Band B for a nullish argument where the spec's first step is
+///   ToObject — §20.1.2.1 (`Object.assign`) and §20.1.2.23
+///   (`Object.values`) both begin there, and §7.1.18 answers null and
+///   undefined with a TypeError.
 ///
 /// The remaining arguments are still TYPED here even though the call
 /// throws: §13.3.6.1 evaluates them before the call, so their side

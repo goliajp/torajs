@@ -419,10 +419,10 @@ pub(crate) fn pass_2_register_globals_and_check_stmts(c: &mut Checker, ast: &Ast
 ///   shape (`ast_refs::infer_toplevel_slot_shape`);
 /// - a call result or literal no shape names, but the `any` slot can
 ///   hold (the test262 IIFE-iterator idiom), is `any`.
-/// `var` stays main-local in every arm but the scalar shape (the hoist
-/// escape hatch converts it first): the lowerer's promote loop only
-/// takes `is_var: false`, and a checker-only registration would
-/// typecheck programs whose lowering still aborts.
+///   `var` stays main-local in every arm but the scalar shape (the hoist
+///   escape hatch converts it first): the lowerer's promote loop only
+///   takes `is_var: false`, and a checker-only registration would
+///   typecheck programs whose lowering still aborts.
 fn synthesized_spelling(
     c: &Checker,
     ast: &Ast,

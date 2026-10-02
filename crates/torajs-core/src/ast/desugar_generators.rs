@@ -49,7 +49,7 @@ use super::{Ast, ClassCtor, ClassMethod, Expr, Param, Stmt, default_init_for_typ
 ///      `Stmt::TypeDecl` (fields preserved verbatim), then append:
 ///      - `function __new_C(args): C { let __this: C = {field0: 0, ...}; C__ctor(__this, args); return __this; }`
 ///        (ctor params copied; factory return type is C; if no ctor declared,
-///         the factory just constructs the default-initialized object)
+///        the factory just constructs the default-initialized object)
 ///      - `function C__ctor(__this: C, ctor_params...): void { body }`
 ///      - `function C__methodName(__this: C, params...): R { body }` for each method
 ///

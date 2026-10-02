@@ -16,19 +16,19 @@ use super::{Ast, Expr, ExprId, Param, Stmt};
 /// - `new.target` — the generator is called plainly;
 /// - a dynamic `import()` — the imported module's top-level await
 ///   and the driver's resumption do not agree yet (642-15);
-/// (`for await` and `await using` used to be listed here — RFC
-/// 20260915 blades 4 / 5. `await using` is a `__usenv_N` dispose stack
+///   (`for await` and `await using` used to be listed here — RFC
+///   20260915 blades 4 / 5. `await using` is a `__usenv_N` dispose stack
 /// + try/catch/finally by this pass, whose finally awaits the async
-/// dispose — a statement-level await the `Try` arm turns into a
-/// suspend inside the machine's finally copies; the one defect the
-/// refusal hid was the machine's labeled-block gap. `for await` — and
-/// a sync `for…of` whose body awaits — become the manual iterator
-/// protocol in `desugar_generators_forof`, the step itself a suspend.)
-/// (`let xs: T[] = await e` used to be listed here: through `yield`
-/// the width analysis lost the link between the binding and the
-/// awaited literal. The expansion now records the `this.__sent` init's
-/// await origin — `Ast::yield_into_await_origins` — and the analysis
-/// reads it as `e.value`, so the binding moves like any other.)
+///   dispose — a statement-level await the `Try` arm turns into a
+///   suspend inside the machine's finally copies; the one defect the
+///   refusal hid was the machine's labeled-block gap. `for await` — and
+///   a sync `for…of` whose body awaits — become the manual iterator
+///   protocol in `desugar_generators_forof`, the step itself a suspend.)
+///   (`let xs: T[] = await e` used to be listed here: through `yield`
+///   the width analysis lost the link between the binding and the
+///   awaited literal. The expansion now records the `this.__sent` init's
+///   await origin — `Ast::yield_into_await_origins` — and the analysis
+///   reads it as `e.value`, so the binding moves like any other.)
 ///
 /// (`this` used to be listed here for a declaration and a value: the
 /// generator is called plainly by the driver's thunk. Every blade now

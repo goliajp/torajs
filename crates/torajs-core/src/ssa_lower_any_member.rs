@@ -16,9 +16,9 @@
 //! here; the member key is a String literal so candidate enumeration
 //! is a compile-time loop. Each candidate emits one `class_tag` cmp
 //! + direct field load + `box_to_any` (which bumps the refcount for
-//! Heap-typed fields). Non-OBJ header tags + classes whose layout
-//! omits the field fall through to the original dynobj dispatch —
-//! preserving plain `{}`-shape Any semantics.
+//!   Heap-typed fields). Non-OBJ header tags + classes whose layout
+//!   omits the field fall through to the original dynobj dispatch —
+//!   preserving plain `{}`-shape Any semantics.
 //!
 //! Hot path = 1 cmp + 1 load + 1 box for the common monomorphic
 //! case; ceiling matches what a JIT hidden-class inline cache

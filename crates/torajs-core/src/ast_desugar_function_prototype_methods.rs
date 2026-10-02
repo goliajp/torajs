@@ -16,18 +16,18 @@
 //! - **`.apply(thisArg, [a, b])`** → `f(a, b)` (array-literal 2nd
 //!   arg unpacks; absent / `undefined` / `null` argArray is `f()`
 //!   per §22.2.3.1; dynamic arrays stay unsupported here).
-//! `.bind` is NOT one of them. It used to be: the pass synthesized a
-//! `__bound_<id>` wrapper plus a `__bind_create_<id>` factory and
-//! replaced the call with the factory invocation. That product is a
-//! second bound-function implementation, and it answered three things
-//! the spec reads off the TARGET at bind time — it had no
-//! [[Construct]] (`new f.bind(null)()` threw where bun constructs),
-//! and its `length` / `name` came from the declaration the compiler
-//! saw rather than from `Get(Target, "length"/"name")`, so a
-//! `defineProperty`'d length was invisible. The runtime kernel
-//! (`torajs_anyvalue::method_bind`) gets all three right for the any
-//! lane already, so every `.bind` goes there now and this pass leaves
-//! the member call alone.
+//!   `.bind` is NOT one of them. It used to be: the pass synthesized a
+//!   `__bound_<id>` wrapper plus a `__bind_create_<id>` factory and
+//!   replaced the call with the factory invocation. That product is a
+//!   second bound-function implementation, and it answered three things
+//!   the spec reads off the TARGET at bind time — it had no
+//!   [[Construct]] (`new f.bind(null)()` threw where bun constructs),
+//!   and its `length` / `name` came from the declaration the compiler
+//!   saw rather than from `Get(Target, "length"/"name")`, so a
+//!   `defineProperty`'d length was invisible. The runtime kernel
+//!   (`torajs_anyvalue::method_bind`) gets all three right for the any
+//!   lane already, so every `.bind` goes there now and this pass leaves
+//!   the member call alone.
 //!
 //! Skips fn sources whose first param is `__env` (closure-shaped
 //! sources need env-forwarding — the runtime kernel owns those).

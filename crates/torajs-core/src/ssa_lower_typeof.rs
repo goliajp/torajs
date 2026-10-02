@@ -19,10 +19,10 @@
 //!    `undefined` → `"undefined"`; `Math` / `JSON` / `Reflect` /
 //!    `globalThis` / `console` → `"object"`; constructor cluster
 //!    + `parseInt`/`parseFloat`/`isNaN`/`isFinite`/`encodeURI`
-//!    family → `"function"`. P4.6: `__class_<NAME>` prefix
-//!    (Phase A1 `synthesize_class_globals` rewrite) → `"function"`
-//!    (matches both user classes AND injected builtins like
-//!    `Error`).
+//!      family → `"function"`. P4.6: `__class_<NAME>` prefix
+//!      (Phase A1 `synthesize_class_globals` rewrite) → `"function"`
+//!      (matches both user classes AND injected builtins like
+//!      `Error`).
 //! 3. **V3-18 m2.c / m2.d** — `typeof <expr>.<Object-prototype-
 //!    method>` → `"function"` (`.constructor`, `.hasOwnProperty`,
 //!    `.propertyIsEnumerable`, `.isPrototypeOf`, `.valueOf`,
@@ -37,8 +37,8 @@
 //!      species, unscopables).
 //!    - Math constants (PI/E/LN2/LN10/LOG2E/LOG10E/SQRT2/SQRT1_2)
 //!      + Number constants (MAX_VALUE/MIN_VALUE/MAX_SAFE_INTEGER/
-//!      MIN_SAFE_INTEGER/EPSILON/POSITIVE_INFINITY/
-//!      NEGATIVE_INFINITY/NaN) + `.length` → `"number"`.
+//!        MIN_SAFE_INTEGER/EPSILON/POSITIVE_INFINITY/
+//!        NEGATIVE_INFINITY/NaN) + `.length` → `"number"`.
 //!    - `.prototype` → `"object"` (V3-18 m2.c).
 //!    - `.name` → `"string"`.
 //!    - Else → `"function"`.

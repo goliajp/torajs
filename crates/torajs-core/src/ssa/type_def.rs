@@ -24,9 +24,9 @@ pub enum Type {
     ///   - drop emission (P2.2.b) knows which slots need free()
     ///   - future inline-small-string layout can change the codegen
     ///     without touching the SSA shape
-    /// Step 2.2.a: only static-pointer (literal) backed strings — the
-    /// pointer is a `[N x i8]` global; drop is a no-op. Concat + true
-    /// heap allocation lands in 2.2.b/c.
+    ///     Step 2.2.a: only static-pointer (literal) backed strings — the
+    ///     pointer is a `[N x i8]` global; drop is a no-op. Concat + true
+    ///     heap allocation lands in 2.2.b/c.
     Str,
     /// Substring view — non-owning slice of an owned `Str`. Layout:
     /// `[header:8][len:8][parent_ptr:8][offset:8]` (32 bytes). The
@@ -115,8 +115,8 @@ pub enum Type {
     /// T-25 (v0.7) — `Type::BigInt`. Sign-magnitude heap struct
     /// `runtime_bigint.c`: universal heap header + sign u32 + len u32
     /// + words u64[len]. Lowers to a single pointer at the SSA layer.
-    /// Drop routes through `__torajs_value_drop_heap`'s TAG_BIGINT
-    /// case (rc-aware free).
+    ///   Drop routes through `__torajs_value_drop_heap`'s TAG_BIGINT
+    ///   case (rc-aware free).
     BigInt,
     /// T-26 (v0.7) — `Type::WeakRef`. 16-byte heap struct
     /// `runtime_weakref.c`: universal heap header + target ptr.
@@ -173,6 +173,6 @@ pub enum Type {
     /// via the universal heap header's `type_tag` field). T-10.a only
     /// wires the type-system plumbing — `let xs: any[] = []` accepted
     /// + length() works. T-10.b lands the tagged-slot Array<Any>
-    /// runtime; T-10.c the codegen for heterogeneous Array literals.
+    ///   runtime; T-10.c the codegen for heterogeneous Array literals.
     Any,
 }

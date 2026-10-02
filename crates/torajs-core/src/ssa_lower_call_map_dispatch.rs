@@ -11,12 +11,12 @@
 //!   intrinsic then ICmp != 0 → Bool).
 //! - `emit_iter_create`: keys / values / entries (all return `MapIter`
 //!   from a 1-arg `Call(intrinsic, [recv])`).
-//! `forEach` is the only big body (~190 LOC iterator loop). It is not
-//! split into a helper — that would not reduce LOC and would force
-//! threading 4 stack slots through a signature — but rotation 597
-//! moved the whole family to the sibling
-//! [`crate::ssa_lower_call_map_foreach`], which is a different move
-//! and does reduce this file.
+//!   `forEach` is the only big body (~190 LOC iterator loop). It is not
+//!   split into a helper — that would not reduce LOC and would force
+//!   threading 4 stack slots through a signature — but rotation 597
+//!   moved the whole family to the sibling
+//!   [`crate::ssa_lower_call_map_foreach`], which is a different move
+//!   and does reduce this file.
 //!
 //! Returns `Some(result)` when the callee matches `<Map-typed>.{Map-method}`;
 //! `None` lets the caller fall through to the Set / RegExp / Date / generic

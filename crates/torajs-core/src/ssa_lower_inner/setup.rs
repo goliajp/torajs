@@ -96,8 +96,8 @@ pub(super) fn build_intrinsics_and_boxed_entries(
 /// .enumerate().filter(|(idx,_)| !named_sids.contains(idx))`):
 ///   - [1 .. n_named]                                = named classes
 ///   - [n_named+1 .. n_named+n_anon] (per anon_idx)  = anonymous structs
-/// Cycle visitor indexes class_layouts via `class_tag - 1`, so the
-/// vec push order must mirror this enumeration.
+///     Cycle visitor indexes class_layouts via `class_tag - 1`, so the
+///     vec push order must mirror this enumeration.
 ///
 /// P1 rc bug 2026-07-23 fix — also return the Pass-1.5 snapshot boundary
 /// so populate_class_layouts stays in sync with pool tag assignments.

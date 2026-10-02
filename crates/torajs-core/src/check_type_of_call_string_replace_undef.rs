@@ -8,16 +8,16 @@
 //! fewer-than-2 args per ES §22.1.3.18 / §22.1.3.19 step 4
 //! + step 6a:
 //!   searchString = ToString(searchValue ?? undefined)
-//!                = "undefined"
+//!   = "undefined"
 //!   replaceValue = ToString(replaceValue ?? undefined)
-//!                = "undefined"
-//! Pre-S207 the declared `(Any, Any) -> String` sig
-//! rejected 0/1-arg shapes at the strict-arity gate; widen
-//! here and let ssa_lower_str push the missing "undefined"
-//! interns so the helper sees a valid Str needle /
-//! replacement. Bun-aligned: 0-arg → identity unless
-//! haystack contains "undefined"; 1-arg → first match of
-//! needle replaced by the literal "undefined".
+//!   = "undefined"
+//!   Pre-S207 the declared `(Any, Any) -> String` sig
+//!   rejected 0/1-arg shapes at the strict-arity gate; widen
+//!   here and let ssa_lower_str push the missing "undefined"
+//!   interns so the helper sees a valid Str needle /
+//!   replacement. Bun-aligned: 0-arg → identity unless
+//!   haystack contains "undefined"; 1-arg → first match of
+//!   needle replaced by the literal "undefined".
 //!
 //! Note: every present arg is `type_of`'d so its result is
 //! populated in `expr_types`. ssa_lower_str detects typed-

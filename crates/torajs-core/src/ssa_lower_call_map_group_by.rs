@@ -3,8 +3,8 @@
 //!
 //! Sister to [`crate::ssa_lower_call_object_group_by`]; same items
 //! + cb boxing shape, dispatches to `__torajs_map_group_by`
-//! (torajs-meta) which walks the array + accumulates into a Map
-//! with SameValueZero-keyed `Array<Any>` buckets.
+//!   (torajs-meta) which walks the array + accumulates into a Map
+//!   with SameValueZero-keyed `Array<Any>` buckets.
 //!
 //! Return is a fresh Map (kernel owned +1) — surfaces as
 //! `Type::Map` from the checker wedge.

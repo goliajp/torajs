@@ -28,9 +28,9 @@
 //!        array type.
 //!      - **Direct struct field** (V3-05) — `is_assignable_to_resolved`
 //!        on field_ty vs value_ty.
-//!      Return the assigned-to type (no rhs consume since chunk
-//!      566 — member stores share, mirroring chunk 564's
-//!      assign-ident contract).
+//!        Return the assigned-to type (no rhs consume since chunk
+//!        566 — member stores share, mirroring chunk 564's
+//!        assign-ident contract).
 //! - **`arr[i] = value` (Index-target)** — M1.4: obj must be
 //!   `Array<T>`; index must be Number; value type must match elem.
 //!   `Array<Any>[i] = <concrete>` allowed per TS spec (box at

@@ -7,23 +7,23 @@
 //! rewrite per §13.3.7 / §9.1.9:
 //!
 //!   - `Read`        — `super.x` in read position (getter dispatch or
-//!                     a plain read off the super base)
+//!     a plain read off the super base)
 //!   - `IndexRead`   — `super[k]` in read position
 //!   - `AssignName`  — `super.x = v` (setter dispatch or a write to
-//!                     the `this` receiver); `stmt_pos` records whether
-//!                     the Assign is a whole expression statement (the
-//!                     only place a Void setter call can replace it)
+//!     the `this` receiver); `stmt_pos` records whether
+//!     the Assign is a whole expression statement (the
+//!     only place a Void setter call can replace it)
 //!   - `AssignIndex` — `super[k] = v` (write to the `this` receiver)
 //!
 //!   - `CallIndex`   — `super[k](args)`, whose callee is NOT a
-//!                     readable value: §13.3.6 invokes the Super
-//!                     Reference with the CURRENT `this` as receiver,
-//!                     so the site travels whole to a kernel that
-//!                     gets-then-calls rather than being split
-//!                     (rewriting just the callee read would hand the
-//!                     super base to the callee — right answer for
-//!                     `super.toString()`, silently wrong for
-//!                     anything that reads `this`)
+//!     readable value: §13.3.6 invokes the Super
+//!     Reference with the CURRENT `this` as receiver,
+//!     so the site travels whole to a kernel that
+//!     gets-then-calls rather than being split
+//!     (rewriting just the callee read would hand the
+//!     super base to the callee — right answer for
+//!     `super.toString()`, silently wrong for
+//!     anything that reads `this`)
 //!
 //! `super.x?.()` optional-call forms are still NOT collected: the
 //! nullish short-circuit is not representable by rewriting the call

@@ -9,8 +9,8 @@
 //!   - `Type::Str`    → `bigint_from_str`
 //!   - `Type::F64`    → `bigint_from_number`
 //!   - `Type::I64`    → SiToFp → `bigint_from_number` (the helper
-//!                      rejects non-integer + non-finite Numbers with
-//!                      RangeError per spec)
+//!     rejects non-integer + non-finite Numbers with
+//!     RangeError per spec)
 //!
 //! S308 — trailing args[1..] lowered-and-dropped per S272 idiom so
 //! step()-style side-effect exprs fire per ES §21.2.1 trailing-arg

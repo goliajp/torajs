@@ -59,11 +59,11 @@ use super::{Ast, Expr, Stmt};
 ///   wanted subclass (subclasses extend it). Nothing is injected for
 ///   programs that never mention the error hierarchy (compile-time
 ///   neutral).
-/// Injection-reachability gate override — `true` keeps every program
-/// on today's full injection (see the 刀 B comment at the use site).
-/// Held open through rotation 496 while the RFC's dependency list
-/// (seven latent bugs the injected hierarchy had been masking, plus a
-/// gate-open sweep) was driven to zero; released in rotation 497.
+///   Injection-reachability gate override — `true` keeps every program
+///   on today's full injection (see the 刀 B comment at the use site).
+///   Held open through rotation 496 while the RFC's dependency list
+///   (seven latent bugs the injected hierarchy had been masking, plus a
+///   gate-open sweep) was driven to zero; released in rotation 497.
 const GATE_HELD_OPEN: bool = false;
 
 /// Does the program declare `name` at module top level itself? The

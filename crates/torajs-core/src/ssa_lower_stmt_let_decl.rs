@@ -247,9 +247,9 @@ pub(crate) fn lower(
 /// slot is F64-only → the RFC 20260707 chunk 621 Arr<Any> kind-mark for
 /// a typed-array init shared into an any-elem annotation → Str/Substr
 /// + Arr<Str>/Arr<Substr> annotation-widen convergence → hand off to
-/// `bind_let_slot`. Kept in one flat sequence (not a chain of `let
+///   `bind_let_slot`. Kept in one flat sequence (not a chain of `let
 /// init_val = ...` shadow rebindings) so the ownership hand-off through
-/// each stage stays inspectable.
+///   each stage stays inspectable.
 fn finalize_and_bind(
     ctx: &mut LowerCtx,
     name: &str,

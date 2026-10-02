@@ -16,11 +16,11 @@
 //! - **Explicit undefined** — `array_splice_2arg_undef` rewrites the
 //!   two-argument shape, which for splice means deleteCount 0 rather
 //!   than "to the end". It is in neither of the other groups.
-//! Extra trailing args used to be a third group here, one wedge for
-//! Math / Date receivers and one for a bare-Ident or IIFE callee.
-//! [`drop_extra_args`] below says the same thing for every callee and
-//! runs right after this chain, so both were doing its work over a
-//! subset; they are gone.
+//!   Extra trailing args used to be a third group here, one wedge for
+//!   Math / Date receivers and one for a bare-Ident or IIFE callee.
+//!   [`drop_extra_args`] below says the same thing for every callee and
+//!   runs right after this chain, so both were doing its work over a
+//!   subset; they are gone.
 
 use crate::ast::{Ast, ExprId};
 use crate::check::{Checker, Type};

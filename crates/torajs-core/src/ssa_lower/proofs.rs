@@ -46,7 +46,7 @@ pub(crate) struct Proofs {
     /// every path reaching the point being lowered.
     nonnull_lets: HashSet<String>,
     /// > 0 while lowering a sub-expression that runs on one branch of
-    /// a join (`a && b`, `c ? x : y`, `o?.p`, `a ?? b`).
+    /// > a join (`a && b`, `c ? x : y`, `o?.p`, `a ?? b`).
     cond_depth: u32,
 }
 

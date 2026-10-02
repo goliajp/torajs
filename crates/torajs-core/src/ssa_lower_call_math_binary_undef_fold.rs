@@ -7,7 +7,7 @@
 //!   than 2 args per ES §21.3.2.{5,19,26}:
 //!     - `pow` / `atan2`: `ToNumber(undefined) = NaN` → NaN
 //!     - `imul`: `ToUint32(undefined) = 0` → `imul = 0` (as f64)
-//!   Skips the helper Call entirely, emits the static result.
+//!       Skips the helper Call entirely, emits the static result.
 //! - **S228** — same fold extended to the 2-arg shape when either
 //!   operand is statically `Undefined`. The `check::S228` carve-out
 //!   admits the call; folding here avoids lowering the `ConstPtrNull`

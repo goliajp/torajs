@@ -12,17 +12,17 @@
 //!       [`crate::ssa_lower_pass_0_5`]).
 //!   1. Pre-allocate user-fn FuncIds + record return types (see
 //!      [`crate::ssa_lower_pass_1`]).
-//!   1.5 Top-level data-global promotion (see
-//!       [`crate::ssa_lower_toplevel_globals`]).
+//!      1.5 Top-level data-global promotion (see
+//!      [`crate::ssa_lower_toplevel_globals`]).
 //!   2. User FnDecl body lowering (see [`crate::ssa_lower_fn::lower_fn`]).
 //!   3. Synthesize main from top-level non-FnDecl stmts (see
 //!      [`crate::ssa_lower_pass_3`]).
-//!   2B. Lifted-closure body lowering — reversed (see
-//!       [`crate::ssa_lower_pass_2b`]).
-//!   2.5 Populate pre-registered env-drop bodies (see
-//!       [`crate::ssa_lower_pass_2_5`]).
-//!   T-24 / T-26.C vtable + ClassLayoutMeta emit (see
-//!   [`crate::ssa_lower_module_metadata`]).
+//!      2B. Lifted-closure body lowering — reversed (see
+//!      [`crate::ssa_lower_pass_2b`]).
+//!      2.5 Populate pre-registered env-drop bodies (see
+//!      [`crate::ssa_lower_pass_2_5`]).
+//!      T-24 / T-26.C vtable + ClassLayoutMeta emit (see
+//!      [`crate::ssa_lower_module_metadata`]).
 //!
 //! Called through `crate::ssa_lower::lower_with_arity` — the sibling only
 //! exposes `pub(crate) fn lower_inner`; downstream ordering knobs stay

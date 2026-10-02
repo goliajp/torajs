@@ -29,9 +29,9 @@ impl<'a> LowerCtx<'a> {
     /// `console.log(<expr>)` dispatches on the lowered operand's type:
     ///   - Type::Str → `call print_str(<ptr>)`
     ///   - Type::I64 / others → `call print_i64(<value>)`
-    /// Same dispatch handles literal strings (`Expr::String`) and string
-    /// bindings — the literal path interns through `lower_expr`'s general
-    /// `Expr::String` arm and gets the same Type::Str operand.
+    ///     Same dispatch handles literal strings (`Expr::String`) and string
+    ///     bindings — the literal path interns through `lower_expr`'s general
+    ///     `Expr::String` arm and gets the same Type::Str operand.
     pub(crate) fn lower_top_stmt(&mut self, s: &Stmt) {
         if let Stmt::Expr(eid) = s
             && let Expr::Call { callee, args } = self.ast.get_expr(*eid)

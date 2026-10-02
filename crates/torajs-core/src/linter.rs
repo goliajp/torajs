@@ -1,20 +1,20 @@
 //! T-06 (v0.3.0) — `tr lint` MVP. Five starting rules:
 //!
 //!   - `unused-let`            — top-level `let X` / `const X` declared
-//!                                but never referenced anywhere
+//!     but never referenced anywhere
 //!   - `dead-code-after-return` — statements following `return` /
-//!                                `throw` / `break` / `continue` in
-//!                                the same block
+//!     `throw` / `break` / `continue` in
+//!     the same block
 //!   - `unreachable-catch`     — `catch` block on a `try` whose body
-//!                                contains zero `throw` (and zero
-//!                                `Call` to anything possibly-throwing
-//!                                — for MVP we under-approximate to
-//!                                "no throw and no Call at all" to
-//!                                avoid false positives on standard
-//!                                library calls that may throw)
+//!     contains zero `throw` (and zero
+//!     `Call` to anything possibly-throwing
+//!     — for MVP we under-approximate to
+//!     "no throw and no Call at all" to
+//!     avoid false positives on standard
+//!     library calls that may throw)
 //!   - `shadowed-let`          — inner-scope `let` / `const` with the
-//!                                same name as one declared in an
-//!                                enclosing scope
+//!     same name as one declared in an
+//!     enclosing scope
 //!   - `unused-import`         — named import that's never referenced
 //!
 //! Reuses the lex+parse+AST pipeline; emits warnings via the T-04

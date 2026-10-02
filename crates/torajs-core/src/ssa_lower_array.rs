@@ -34,10 +34,10 @@
 //!      Substr source first materializes to owned Str.
 //!    - **Set spread**: `[...set]` reuses `arr_from_set::emit`
 //!      to walk map-iter bucket chain into a fresh Arr<Any>.
-//!    Element type from first non-spread literal OR first spread
-//!    source's element type. Array<Any> spread re-routes through
-//!    `lower_array_any_literal` (the 8-byte slot path here would
-//!    mis-stride the 16-byte tagged layout).
+//!      Element type from first non-spread literal OR first spread
+//!      source's element type. Array<Any> spread re-routes through
+//!      `lower_array_any_literal` (the 8-byte slot path here would
+//!      mis-stride the 16-byte tagged layout).
 //! 5. **Refcount discipline** — for refcounted element types,
 //!    `emit_rc_inc` per literal AND per appended spread element
 //!    (via `emit_arr_rc_inc_range` over `old_len..new_len`); leave
