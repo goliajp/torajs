@@ -16,6 +16,8 @@ use crate::ast::{Expr, ExprId};
 use crate::ssa::{FuncId, IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_binop_null_undef::UNDEF_CELL_SYM;
+use crate::ssa_lower_intrinsics_str_b::STR_UNDEF_CELL_SYM;
+use crate::ssa_lower_intrinsics_substr::SUBSTR_UNDEF_CELL_SYM;
 use crate::ssa_lower_nullable_guard::{
     is_nullable_arr_source, is_nullable_str_source, is_undefable_heap_source,
     is_undefable_substr_source,
@@ -31,7 +33,7 @@ pub(crate) fn emit_nullable_arr_guard(ctx: &mut LowerCtx<'_>, obj: ExprId, arr_v
         return;
     }
     let raiser = ctx.intrinsics.arr_null_check;
-    emit_proven_nullish_guard(ctx, obj, arr_val, raiser);
+    emit_proven_nullish_guard(ctx, obj, arr_val, raiser, &[UNDEF_CELL_SYM]);
 }
 
 /// Emit the heap nullish guard when `obj` is an undefable-heap
@@ -45,14 +47,21 @@ pub(crate) fn emit_undefable_heap_guard(ctx: &mut LowerCtx<'_>, obj: ExprId, obj
         return;
     }
     let raiser = ctx.intrinsics.heap_nullish_check;
-    emit_proven_nullish_guard(ctx, obj, obj_val, raiser);
+    emit_proven_nullish_guard(ctx, obj, obj_val, raiser, &[UNDEF_CELL_SYM]);
 }
 
 /// The guard, minus what is already proven: nothing for a value its
 /// producing lane proved live or a binding an earlier guard on this
-/// path settled; otherwise the inline test, after which a provable
-/// binding is settled for the rest of the path.
-fn emit_proven_nullish_guard(ctx: &mut LowerCtx<'_>, obj: ExprId, v: &Operand, raiser: FuncId) {
+/// path settled; otherwise the inline test against NULL and the
+/// `sentinels` the slot family spells `undefined` with, after which
+/// a provable binding is settled for the rest of the path.
+fn emit_proven_nullish_guard(
+    ctx: &mut LowerCtx<'_>,
+    obj: ExprId,
+    v: &Operand,
+    raiser: FuncId,
+    sentinels: &[&str],
+) {
     if ctx.proofs.nonnull_exprs.contains(&obj) {
         return;
     }
@@ -63,7 +72,7 @@ fn emit_proven_nullish_guard(ctx: &mut LowerCtx<'_>, obj: ExprId, v: &Operand, r
     {
         return;
     }
-    emit_inline_nullish_guard(ctx, v, raiser);
+    emit_inline_nullish_guard(ctx, v, raiser, sentinels);
     if let Some(n) = binding {
         ctx.proofs.note_let_nonnull(&n);
     }
@@ -90,36 +99,43 @@ fn provable_binding(ctx: &LowerCtx<'_>, eid: ExprId) -> Option<String> {
     }
 }
 
-/// `v` is NULL or the generic undefined cell → `raiser(v)` arms the
-/// TypeError with the wording for that spelling and the throw check
-/// diverts; a live cell continues. The two compares stay inline so
-/// the hot path carries no call and no throw-flag load.
-pub(crate) fn emit_inline_nullish_guard(ctx: &mut LowerCtx<'_>, v: &Operand, raiser: FuncId) {
+/// `v` is NULL or one of the `sentinels` (the immortal cells a slot
+/// family spells `undefined` with) → `raiser(v)` arms the TypeError
+/// with the wording for that spelling and the throw check diverts; a
+/// live cell continues. The compares stay inline so the hot path
+/// carries no call and no throw-flag load, and the guard on a
+/// loop-invariant receiver is a branch the loop optimizer can hoist.
+pub(crate) fn emit_inline_nullish_guard(
+    ctx: &mut LowerCtx<'_>,
+    v: &Operand,
+    raiser: FuncId,
+    sentinels: &[&str],
+) {
     let cold = ctx.f.add_block();
-    let cell_test = ctx.f.add_block();
     let live = ctx.f.add_block();
-    let is_null = ctx.cmp(IPred::Eq, v.clone(), Operand::ConstPtrNull);
+    let mut cond = ctx.cmp(IPred::Eq, v.clone(), Operand::ConstPtrNull);
+    for sym in sentinels {
+        let next = ctx.f.add_block();
+        let cb = ctx.cur_block;
+        ctx.f.set_term(
+            cb,
+            Terminator::CondBr {
+                cond,
+                then_blk: cold,
+                else_blk: next,
+            },
+        );
+        ctx.cur_block = next;
+        let cell = ctx
+            .f
+            .append_inst(next, InstKind::GlobalRef(sym.to_string()), Type::Ptr, None);
+        cond = ctx.cmp(IPred::Eq, v.clone(), Operand::Value(cell));
+    }
     let cb = ctx.cur_block;
     ctx.f.set_term(
         cb,
         Terminator::CondBr {
-            cond: is_null,
-            then_blk: cold,
-            else_blk: cell_test,
-        },
-    );
-    ctx.cur_block = cell_test;
-    let cell = ctx.f.append_inst(
-        cell_test,
-        InstKind::GlobalRef(UNDEF_CELL_SYM.to_string()),
-        Type::Ptr,
-        None,
-    );
-    let is_cell = ctx.cmp(IPred::Eq, v.clone(), Operand::Value(cell));
-    ctx.f.set_term(
-        cell_test,
-        Terminator::CondBr {
-            cond: is_cell,
+            cond,
             then_blk: cold,
             else_blk: live,
         },
@@ -163,17 +179,20 @@ pub(crate) fn emit_undef_cell_guard(ctx: &mut LowerCtx<'_>, eid: ExprId, v: &Ope
 /// an undefable-substr source (string index read — its slot may
 /// hold the Substr-shaped sentinel); no-op otherwise. `str_val`
 /// must be the already-lowered receiver. Same shape as
-/// [`emit_nullable_arr_guard`]: `str_null_check` arms a catchable
-/// TypeError on any nullish repr, the throw-check right after
-/// diverts before the inline `.length` load dereferences.
+/// [`emit_nullable_arr_guard`], against the two cells a string slot
+/// spells `undefined` with (the Str sentinel, and the Substr-shaped
+/// one an out-of-range index read answers): `str_null_check` arms the
+/// catchable TypeError on the cold path only.
 pub(crate) fn emit_nullable_str_guard(ctx: &mut LowerCtx<'_>, obj: ExprId, str_val: &Operand) {
     if !is_nullable_str_source(ctx, obj) && !is_undefable_substr_source(ctx, obj) {
         return;
     }
-    let cur_block = ctx.cur_block;
-    ctx.f.append_void(
-        cur_block,
-        InstKind::Call(ctx.intrinsics.str_null_check, vec![str_val.clone()]),
+    let raiser = ctx.intrinsics.str_null_check;
+    emit_proven_nullish_guard(
+        ctx,
+        obj,
+        str_val,
+        raiser,
+        &[STR_UNDEF_CELL_SYM, SUBSTR_UNDEF_CELL_SYM],
     );
-    ctx.emit_throw_check(None);
 }
