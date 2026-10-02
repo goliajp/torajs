@@ -30,7 +30,7 @@ fn print_usage() {
     println!();
     println!("COMMANDS:");
     println!("    list                          list cases and runners (with detected versions)");
-    println!("    run [case]                    run all cases (or one case)");
+    println!("    run [case ...]                run all cases (or the named ones)");
     println!(
         "                                  default runtimes: torajs · torajs-run · rust · rust-fast ·"
     );
@@ -178,7 +178,7 @@ fn list(bench_dir: &Path) -> Result<()> {
 }
 
 fn run_cmd(bench_dir: &Path, args: &[String]) -> Result<bool> {
-    let mut case_filter: Option<String> = None;
+    let mut case_filter: Vec<String> = Vec::new();
     let mut runtime_filter: Option<Vec<String>> = None;
     let mut no_save = false;
     let mut runs: usize = 1;
@@ -243,10 +243,7 @@ fn run_cmd(bench_dir: &Path, args: &[String]) -> Result<bool> {
             }
             s if s.starts_with("--") => anyhow::bail!("unknown flag: {s}"),
             s => {
-                if case_filter.is_some() {
-                    anyhow::bail!("only one case name is supported per run");
-                }
-                case_filter = Some(s.to_string());
+                case_filter.push(s.to_string());
                 i += 1;
             }
         }
@@ -261,15 +258,16 @@ fn run_cmd(bench_dir: &Path, args: &[String]) -> Result<bool> {
         .map(|c| c.args.clone())
         .unwrap_or_default();
 
-    let cases: Vec<_> = match &case_filter {
-        Some(name) => cases_all.into_iter().filter(|c| &c.name == name).collect(),
-        None => cases_all,
+    let cases: Vec<_> = if case_filter.is_empty() {
+        cases_all
+    } else {
+        cases_all
+            .into_iter()
+            .filter(|c| case_filter.contains(&c.name))
+            .collect()
     };
     if cases.is_empty() {
-        anyhow::bail!(
-            "no cases match{}",
-            case_filter.map(|n| format!(" `{n}`")).unwrap_or_default()
-        );
+        anyhow::bail!("no cases match `{}`", case_filter.join(" "));
     }
 
     // hardev bench B2 — `--self` is the per-commit fast path: only the
