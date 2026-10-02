@@ -203,7 +203,8 @@ pub fn op_const_int(op: &Operand) -> Option<i128> {
         Operand::ConstI64(c) => Some(*c as i128),
         Operand::ConstI32(c) => Some(*c as i128),
         Operand::ConstF64(f) => {
-            (f.is_finite() && f.fract() == 0.0 && f.abs() < (1u64 << 63) as f64).then(|| *f as i128)
+            (f.is_finite() && f.fract() == 0.0 && f.abs() < (1u64 << 63) as f64)
+                .then_some(*f as i128)
         }
         _ => None,
     }

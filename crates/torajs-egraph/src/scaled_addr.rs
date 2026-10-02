@@ -65,7 +65,7 @@ fn fold_function(func: &mut Function, stats: &mut ScaledAddrStats) {
             if let Some(x) = scaled_idx
                 && let Some(result) = inst.result
             {
-                shl3_defs.insert(result, (bi, ii, x.clone()));
+                shl3_defs.insert(result, (bi, ii, *x));
             }
         }
         match &block.term {
@@ -96,11 +96,11 @@ fn fold_function(func: &mut Function, stats: &mut ScaledAddrStats) {
             }
             match &inst.kind {
                 InstKind::LoadDyn(ty, base, _) => {
-                    inst.kind = InstKind::LoadDynScaled8(*ty, base.clone(), x.clone());
+                    inst.kind = InstKind::LoadDynScaled8(*ty, *base, *x);
                     stats.folded_loads += 1;
                 }
                 InstKind::StoreDyn(val, base, _) => {
-                    inst.kind = InstKind::StoreDynScaled8(val.clone(), base.clone(), x.clone());
+                    inst.kind = InstKind::StoreDynScaled8(*val, *base, *x);
                     stats.folded_stores += 1;
                 }
                 _ => unreachable!(),

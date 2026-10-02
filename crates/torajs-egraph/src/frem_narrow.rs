@@ -181,10 +181,10 @@ fn collect_defs(func: &Function) -> (HashMap<ValueId, InstKind>, HashSet<ValueId
     let mut multi: HashSet<ValueId> = HashSet::new();
     for block in &func.blocks {
         for inst in &block.insts {
-            if let Some(r) = inst.result {
-                if defs.insert(r, inst.kind.clone()).is_some() {
-                    multi.insert(r);
-                }
+            if let Some(r) = inst.result
+                && defs.insert(r, inst.kind.clone()).is_some()
+            {
+                multi.insert(r);
             }
         }
     }
@@ -324,22 +324,17 @@ fn rewrite_blocks(func: &mut Function, plan: &NarrowPlan) {
         let old_insts = std::mem::take(&mut block.insts);
         let mut new_insts = Vec::with_capacity(old_insts.len() + 2);
         for mut inst in old_insts {
-            if let Some(r) = inst.result {
-                if let Some((iop, xi, yi)) = plan.narrow.get(&r) {
-                    if matches!(
-                        inst.kind,
-                        InstKind::BinOp(
-                            BinOp::FRem | BinOp::FMul | BinOp::FSub | BinOp::FAdd,
-                            _,
-                            _
-                        )
-                    ) {
-                        inst.kind = InstKind::BinOp(*iop, *xi, *yi);
-                        values[r.0 as usize].ty = Type::I64;
-                        new_insts.push(inst);
-                        continue;
-                    }
-                }
+            if let Some(r) = inst.result
+                && let Some((iop, xi, yi)) = plan.narrow.get(&r)
+                && matches!(
+                    inst.kind,
+                    InstKind::BinOp(BinOp::FRem | BinOp::FMul | BinOp::FSub | BinOp::FAdd, _, _)
+                )
+            {
+                inst.kind = InstKind::BinOp(*iop, *xi, *yi);
+                values[r.0 as usize].ty = Type::I64;
+                new_insts.push(inst);
+                continue;
             }
             match &inst.kind {
                 InstKind::FCmp(..) => {

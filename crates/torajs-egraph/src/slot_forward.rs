@@ -366,15 +366,16 @@ mod tests {
     fn cross_block_load_not_forwarded() {
         // store in bb0, load in bb1 — out of scope for the
         // block-local pass, slot must survive untouched.
-        let mut vals = vec![];
-        vals.push(ValueInfo {
-            ty: Type::Ptr,
-            name: None,
-        });
-        vals.push(ValueInfo {
-            ty: Type::I64,
-            name: None,
-        });
+        let vals = vec![
+            ValueInfo {
+                ty: Type::Ptr,
+                name: None,
+            },
+            ValueInfo {
+                ty: Type::I64,
+                name: None,
+            },
+        ];
         let m_funcs = Function {
             name: "main".into(),
             params: vec![],
@@ -455,19 +456,20 @@ mod tests {
         // one load forwards (same block), another sits in a second
         // block — stores must NOT be deleted (cross-block load still
         // reads them).
-        let mut vals = vec![];
-        vals.push(ValueInfo {
-            ty: Type::Ptr,
-            name: None,
-        });
-        vals.push(ValueInfo {
-            ty: Type::I64,
-            name: None,
-        });
-        vals.push(ValueInfo {
-            ty: Type::I64,
-            name: None,
-        });
+        let vals = vec![
+            ValueInfo {
+                ty: Type::Ptr,
+                name: None,
+            },
+            ValueInfo {
+                ty: Type::I64,
+                name: None,
+            },
+            ValueInfo {
+                ty: Type::I64,
+                name: None,
+            },
+        ];
         let f = Function {
             name: "main".into(),
             params: vec![],

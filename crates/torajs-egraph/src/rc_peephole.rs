@@ -195,10 +195,10 @@ pub(crate) fn collect_unescaped_slots(func: &Function) -> HashSet<ValueId> {
     let mut slots: HashSet<ValueId> = HashSet::new();
     for block in &func.blocks {
         for inst in &block.insts {
-            if matches!(inst.kind, InstKind::Alloca(_) | InstKind::AllocaBytes(_)) {
-                if let Some(v) = inst.result {
-                    slots.insert(v);
-                }
+            if matches!(inst.kind, InstKind::Alloca(_) | InstKind::AllocaBytes(_))
+                && let Some(v) = inst.result
+            {
+                slots.insert(v);
             }
         }
     }
@@ -207,10 +207,10 @@ pub(crate) fn collect_unescaped_slots(func: &Function) -> HashSet<ValueId> {
     }
     let mut escaped: HashSet<ValueId> = HashSet::new();
     let mark = |op: &Operand, escaped: &mut HashSet<ValueId>| {
-        if let Operand::Value(v) = op {
-            if slots.contains(v) {
-                escaped.insert(*v);
-            }
+        if let Operand::Value(v) = op
+            && slots.contains(v)
+        {
+            escaped.insert(*v);
         }
     };
     for block in &func.blocks {

@@ -113,10 +113,9 @@ fn sitofp_src(
 fn sxpair_src(v: ValueId, defs: &HashMap<ValueId, InstKind>) -> Option<Operand> {
     if let Some(InstKind::BinOp(BinOp::AShr, Operand::Value(u), Operand::ConstI64(32))) =
         defs.get(&v)
+        && let Some(InstKind::BinOp(BinOp::Shl, src, Operand::ConstI64(32))) = defs.get(u)
     {
-        if let Some(InstKind::BinOp(BinOp::Shl, src, Operand::ConstI64(32))) = defs.get(u) {
-            return Some(*src);
-        }
+        return Some(*src);
     }
     None
 }
@@ -138,10 +137,10 @@ fn elide_in_function(func: &mut Function, seed: &HashSet<ValueId>, stats: &mut S
     let mut multi: HashSet<ValueId> = HashSet::new();
     for block in &func.blocks {
         for inst in &block.insts {
-            if let Some(r) = inst.result {
-                if defs.insert(r, inst.kind.clone()).is_some() {
-                    multi.insert(r);
-                }
+            if let Some(r) = inst.result
+                && defs.insert(r, inst.kind.clone()).is_some()
+            {
+                multi.insert(r);
             }
         }
     }
@@ -161,46 +160,42 @@ fn elide_in_function(func: &mut Function, seed: &HashSet<ValueId>, stats: &mut S
                 continue;
             };
             // R2 — the inst is itself the ashr half of a sext pair.
-            if !multi.contains(&r) {
-                if let InstKind::BinOp(BinOp::AShr, Operand::Value(u), Operand::ConstI64(32)) =
+            if !multi.contains(&r)
+                && let InstKind::BinOp(BinOp::AShr, Operand::Value(u), Operand::ConstI64(32)) =
                     inst.kind
-                {
-                    if let Some(InstKind::BinOp(BinOp::Shl, src, Operand::ConstI64(32))) =
-                        defs.get(&u)
-                    {
-                        let src = *src;
-                        if op_sext32(&src, &facts) {
-                            // pair collapses to its source; the orphan
-                            // shl is swept by the DCE below.
-                            replace.insert(r, src);
-                            facts.insert(r);
-                            stats.pairs_elided += 1;
-                            continue;
-                        }
-                        // un-elidable pair still produces a sext-32 value
-                        facts.insert(r);
-                        out.push(inst);
-                        continue;
-                    }
+                && let Some(InstKind::BinOp(BinOp::Shl, src, Operand::ConstI64(32))) = defs.get(&u)
+            {
+                let src = *src;
+                if op_sext32(&src, &facts) {
+                    // pair collapses to its source; the orphan
+                    // shl is swept by the DCE below.
+                    replace.insert(r, src);
+                    facts.insert(r);
+                    stats.pairs_elided += 1;
+                    continue;
                 }
+                // un-elidable pair still produces a sext-32 value
+                facts.insert(r);
+                out.push(inst);
+                continue;
             }
             // R3 — conversions over a provably-in-i32 source.
-            if !multi.contains(&r) {
-                if let InstKind::FpToInt32(a) | InstKind::FpToSi(a) = inst.kind {
-                    if let Some(x) = sitofp_src(&a, &defs, &facts) {
-                        replace.insert(r, x);
-                        facts.insert(r);
-                        stats.round_trips_elided += 1;
-                        continue;
-                    }
-                    if matches!(inst.kind, InstKind::FpToInt32(_)) && op_sext32(&a, &facts) {
-                        let mut inst = inst;
-                        inst.kind = InstKind::FpToSi(a);
-                        facts.insert(r);
-                        stats.int32_to_trunc += 1;
-                        out.push(inst);
-                        continue;
-                    }
+            if !multi.contains(&r)
+                && let InstKind::FpToInt32(a) | InstKind::FpToSi(a) = inst.kind
+            {
+                if let Some(x) = sitofp_src(&a, &defs, &facts) {
+                    replace.insert(r, x);
+                    facts.insert(r);
+                    stats.round_trips_elided += 1;
+                    continue;
+                }
+                if matches!(inst.kind, InstKind::FpToInt32(_)) && op_sext32(&a, &facts) {
+                    let mut inst = inst;
+                    inst.kind = InstKind::FpToSi(a);
+                    facts.insert(r);
+                    stats.int32_to_trunc += 1;
+                    out.push(inst);
+                    continue;
                 }
             }
             // R1 — transpose operand-side pairs into one result-side pair.
@@ -212,10 +207,10 @@ fn elide_in_function(func: &mut Function, seed: &HashSet<ValueId>, stats: &mut S
                 // recreate the pair R2 just removed.
                 let qualify = |op: &Operand| -> Option<(Operand, bool)> {
                     let op = resolve(op, &replace);
-                    if let Operand::Value(v) = op {
-                        if let Some(src) = sxpair_src(v, &defs) {
-                            return Some((src, true));
-                        }
+                    if let Operand::Value(v) = op
+                        && let Some(src) = sxpair_src(v, &defs)
+                    {
+                        return Some((src, true));
                     }
                     if op_sext32(&op, &facts) {
                         return Some((op, false));

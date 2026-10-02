@@ -555,7 +555,7 @@ mod tests {
     fn cold_call_arm_leaves_the_hot_path() {
         let cond = Operand::Value(ValueId(0));
         let cbr = |t: u32, e: u32| Terminator::CondBr {
-            cond: cond.clone(),
+            cond,
             then_blk: BlockId(t),
             else_blk: BlockId(e),
         };

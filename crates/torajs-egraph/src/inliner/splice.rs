@@ -120,7 +120,7 @@ pub fn inline_single_block_leaf(
     // had written them inline. Both enum variants are kept as
     // unreachable surface.
     let ret_operand = match &callee_blk.term {
-        Terminator::Ret(opt) => opt.clone(),
+        Terminator::Ret(opt) => *opt,
         _ => return Err(SpliceError::NotRetTerminator),
     };
     if ret_operand.is_some() != result_value.is_some() {
@@ -152,7 +152,7 @@ pub fn inline_single_block_leaf(
     // dropped to avoid namespace collisions in error messages.
     let mut mapping: HashMap<ValueId, Operand> = HashMap::new();
     for (i, param_id) in callee.params.iter().enumerate() {
-        mapping.insert(*param_id, args[i].clone());
+        mapping.insert(*param_id, args[i]);
     }
     let param_set: std::collections::HashSet<u32> = callee.params.iter().map(|v| v.0).collect();
     for cv in 0..callee.values.len() as u32 {

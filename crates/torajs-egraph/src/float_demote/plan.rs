@@ -92,10 +92,10 @@ pub(crate) fn plan_regions(
             continue;
         }
         for d in defs {
-            if let Some((len, h)) = innermost_loop(&loops, *d) {
-                if !headers.iter().any(|(_, eh)| *eh == h) {
-                    headers.push((len, h));
-                }
+            if let Some((len, h)) = innermost_loop(&loops, *d)
+                && !headers.iter().any(|(_, eh)| *eh == h)
+            {
+                headers.push((len, h));
             }
         }
     }
@@ -271,12 +271,11 @@ fn plan_one(
         }
         let renamed = set.contains(v) || !cells.contains(v);
         if renamed && !escapes.contains(v) && uses.iter().any(|b| !region.contains(b)) {
-            if let Some(&d) = defs.iter().find(|b| region.contains(b)) {
-                if let Some(p) =
+            if let Some(&d) = defs.iter().find(|b| region.contains(b))
+                && let Some(p) =
                     tail_split_point(func, set, &cells, value_blocks, &region, &body, d)
-                {
-                    return PlanOutcome::Split(d, p);
-                }
+            {
+                return PlanOutcome::Split(d, p);
             }
             return PlanOutcome::Fail;
         }
@@ -355,8 +354,8 @@ fn plan_one(
 /// it pays per iteration are covered by the f64 ops it removes.
 /// Weights are coarse op-cost classes: `frem`/`fdiv` rewrite away a
 /// libcall / hard division (4), `sitofp` a domain crossing (2), the
-/// remaining f64 arithmetic 1 each; every per-iteration check costs
-/// 1. Only loop-body defs count — pre-chain rewrites and entry
+/// remaining f64 arithmetic 1 each; every per-iteration check
+/// costs 1. Only loop-body defs count — pre-chain rewrites and entry
 /// guards run once. An unprofitable region (the unbounded-load
 /// accumulator that swaps two f64 ops for four checks) evicts its
 /// guarded values: the f64 baseline IS the cheaper correct form.

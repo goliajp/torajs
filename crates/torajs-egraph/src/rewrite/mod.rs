@@ -19,9 +19,9 @@
 //!
 //! - `canon`              — `CommutativeCanon` (must run first).
 //! - `arith_identity`     — `AddZero` / `MulOne` / `MulZero` /
-//!                          `SubZero`.
+//!   `SubZero`.
 //! - `bitwise_identity`   — `XorZero` / `OrZero` / `AndAllOnes` /
-//!                          `AndZero` / `OrAllOnes`.
+//!   `AndZero` / `OrAllOnes`.
 //! - `self_fold`          — `SubSelf` / `XorSelf`.
 //! - `strength_reduction` — `MulPow2ToShl`.
 //!

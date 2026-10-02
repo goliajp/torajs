@@ -79,10 +79,10 @@ pub(crate) fn multi_def_values(func: &Function) -> HashSet<ValueId> {
     let mut multi: HashSet<ValueId> = HashSet::new();
     for block in &func.blocks {
         for inst in &block.insts {
-            if let Some(r) = inst.result {
-                if !seen.insert(r) {
-                    multi.insert(r);
-                }
+            if let Some(r) = inst.result
+                && !seen.insert(r)
+            {
+                multi.insert(r);
             }
         }
     }
@@ -99,10 +99,10 @@ pub(super) fn touched_values(
     for b in region {
         let block = &func.blocks[b.0 as usize];
         for inst in &block.insts {
-            if let Some(r) = inst.result {
-                if set.contains(&r) {
-                    touched.insert(r);
-                }
+            if let Some(r) = inst.result
+                && set.contains(&r)
+            {
+                touched.insert(r);
             }
             visit_value_operands(&inst.kind, |v| {
                 if set.contains(&v) {
@@ -110,10 +110,10 @@ pub(super) fn touched_values(
                 }
             });
         }
-        if let Some(v) = term_operand_value(&block.term) {
-            if set.contains(&v) {
-                touched.insert(v);
-            }
+        if let Some(v) = term_operand_value(&block.term)
+            && set.contains(&v)
+        {
+            touched.insert(v);
         }
     }
     touched
@@ -132,10 +132,10 @@ pub(super) fn block_touches(func: &Function, b: BlockId, fresh: &HashSet<ValueId
             }
         });
     }
-    if let Some(v) = term_operand_value(&block.term) {
-        if fresh.contains(&v) {
-            hit = true;
-        }
+    if let Some(v) = term_operand_value(&block.term)
+        && fresh.contains(&v)
+    {
+        hit = true;
     }
     hit
 }

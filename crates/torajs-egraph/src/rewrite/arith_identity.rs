@@ -6,7 +6,7 @@
 //! - `(mul x 0) → 0`            — zero annihilator on Mul.
 //! - `(sub x 0) → Identity(x)`  — subtractive zero identity.
 //! - `(sub 0 x) → Neg(x)`       — subtract-from-zero negate
-//!                                 (chunk 11b, sister to SubZero).
+//!   (chunk 11b, sister to SubZero).
 //!
 //! AddZero / MulOne / MulZero rely on `CommutativeCanon`
 //! (registry first) to land the const on the RHS, so each rule

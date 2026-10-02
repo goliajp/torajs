@@ -242,16 +242,13 @@ fn promote_loop(
     let write_back = || {
         inst(
             None,
-            InstKind::Store(Operand::Value(cell), root.clone(), ARR_LEN_OFF),
+            InstKind::Store(Operand::Value(cell), root, ARR_LEN_OFF),
         )
     };
 
     let t = fresh(func);
     let pre_insts = &mut func.blocks[pre.0 as usize].insts;
-    pre_insts.push(inst(
-        Some(t),
-        InstKind::Load(Type::I64, root.clone(), ARR_LEN_OFF),
-    ));
+    pre_insts.push(inst(Some(t), InstKind::Load(Type::I64, root, ARR_LEN_OFF)));
     pre_insts.push(inst(
         Some(cell),
         InstKind::Copy(Type::I64, Operand::Value(t)),
@@ -299,10 +296,7 @@ fn promote_loop(
             out.push(i);
             if reread {
                 let r = fresh(func);
-                out.push(inst(
-                    Some(r),
-                    InstKind::Load(Type::I64, root.clone(), ARR_LEN_OFF),
-                ));
+                out.push(inst(Some(r), InstKind::Load(Type::I64, root, ARR_LEN_OFF)));
                 out.push(inst(
                     Some(cell),
                     InstKind::Copy(Type::I64, Operand::Value(r)),

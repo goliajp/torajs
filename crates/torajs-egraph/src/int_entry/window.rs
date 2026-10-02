@@ -53,10 +53,10 @@ pub(super) fn value_window(
                     }
                 }
                 InstKind::BinOp(BinOp::FMul | BinOp::FAdd | BinOp::FSub | BinOp::FRem, a, b)
-                | InstKind::Select(_, _, a, b) => {
-                    if within(&derived, a) || within(&derived, b) {
-                        grew |= derived.insert(r);
-                    }
+                | InstKind::Select(_, _, a, b)
+                    if within(&derived, a) || within(&derived, b) =>
+                {
+                    grew |= derived.insert(r);
                 }
                 _ => {}
             }

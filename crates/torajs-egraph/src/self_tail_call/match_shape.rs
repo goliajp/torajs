@@ -167,24 +167,22 @@ fn tail_probe(insts: &[Inst], throw_fid: Option<FuncId>) -> Option<(usize, Value
     let n = insts.len();
     if n >= 4 {
         let (g, ld) = (&insts[n - 3], &insts[n - 2]);
-        if let (InstKind::GlobalRef(sym), Some(gv)) = (&g.kind, g.result) {
-            if sym == THROW_ACTIVE_SYM {
-                if let (InstKind::Load(Type::I64, Operand::Value(p), 0), Some(t)) =
-                    (&ld.kind, ld.result)
-                {
-                    if *p == gv {
-                        return Some((n - 4, t));
-                    }
-                }
-            }
+        if let (InstKind::GlobalRef(sym), Some(gv)) = (&g.kind, g.result)
+            && sym == THROW_ACTIVE_SYM
+            && let (InstKind::Load(Type::I64, Operand::Value(p), 0), Some(t)) =
+                (&ld.kind, ld.result)
+            && *p == gv
+        {
+            return Some((n - 4, t));
         }
     }
     if n >= 3 {
         let tc = &insts[n - 2];
-        if let (InstKind::Call(f, a), Some(t)) = (&tc.kind, tc.result) {
-            if Some(*f) == throw_fid && a.is_empty() {
-                return Some((n - 3, t));
-            }
+        if let (InstKind::Call(f, a), Some(t)) = (&tc.kind, tc.result)
+            && Some(*f) == throw_fid
+            && a.is_empty()
+        {
+            return Some((n - 3, t));
         }
     }
     None

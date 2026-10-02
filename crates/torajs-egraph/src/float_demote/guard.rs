@@ -134,7 +134,7 @@ pub(crate) fn entry_checks(
     let Operand::Value(v) = x else {
         return None;
     };
-    let f = facts.get(&v)?;
+    let f = facts.get(v)?;
     Some(window_checks(*x, f, -MAX_SITOFP, MAX_SITOFP))
 }
 

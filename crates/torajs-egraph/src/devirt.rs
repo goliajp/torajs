@@ -342,10 +342,10 @@ fn count_uses(func: &Function, v: ValueId) -> u32 {
             Terminator::CondBr { cond, .. } => Some(cond),
             _ => None,
         };
-        if let Some(Operand::Value(u)) = term_op {
-            if *u == v {
-                n += 1;
-            }
+        if let Some(Operand::Value(u)) = term_op
+            && *u == v
+        {
+            n += 1;
         }
     }
     n

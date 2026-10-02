@@ -137,13 +137,13 @@ impl LiteralForms {
                     (Kind::Str, true) => self.append,
                     (Kind::Substr, _) => self.substr_concat,
                 };
-                form.map(|fid| (fid, args[0].clone(), v, imm))
+                form.map(|fid| (fid, args[0], v, imm))
             } else if let Some((v, imm)) = left {
                 let form = match k.right {
                     Kind::Str => self.prepend,
                     Kind::Substr => self.substr_prepend,
                 };
-                form.map(|fid| (fid, args[1].clone(), v, imm))
+                form.map(|fid| (fid, args[1], v, imm))
             } else {
                 None
             };

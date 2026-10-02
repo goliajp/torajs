@@ -19,8 +19,8 @@ use torajs_core::ssa::{InstKind, Operand, ValueId};
 /// All non-Value operands (constants, etc.) pass through verbatim.
 pub(super) fn rewrite_operand(op: &Operand, map: &HashMap<ValueId, Operand>) -> Operand {
     match op {
-        Operand::Value(v) => map.get(v).cloned().unwrap_or_else(|| op.clone()),
-        _ => op.clone(),
+        Operand::Value(v) => map.get(v).cloned().unwrap_or(*op),
+        _ => *op,
     }
 }
 
@@ -39,15 +39,15 @@ pub(super) fn rewrite_inst_kind(kind: &InstKind, map: &HashMap<ValueId, Operand>
         InstKind::CallIndirect(sig, ptr, args) => {
             InstKind::CallIndirect(*sig, r(ptr), args.iter().map(r).collect())
         }
-        InstKind::Alloca(ty) => InstKind::Alloca(ty.clone()),
+        InstKind::Alloca(ty) => InstKind::Alloca(*ty),
         InstKind::AllocaBytes(n) => InstKind::AllocaBytes(*n),
-        InstKind::Load(ty, ptr, off) => InstKind::Load(ty.clone(), r(ptr), *off),
+        InstKind::Load(ty, ptr, off) => InstKind::Load(*ty, r(ptr), *off),
         InstKind::RcInc(ptr) => InstKind::RcInc(r(ptr)),
         InstKind::RcIncAny(v) => InstKind::RcIncAny(r(v)),
         InstKind::BoxAny(t, v) => InstKind::BoxAny(*t, r(v)),
         InstKind::RcDecAny(v) => InstKind::RcDecAny(r(v)),
         InstKind::Store(val, ptr, off) => InstKind::Store(r(val), r(ptr), *off),
-        InstKind::LoadDyn(ty, ptr, off) => InstKind::LoadDyn(ty.clone(), r(ptr), r(off)),
+        InstKind::LoadDyn(ty, ptr, off) => InstKind::LoadDyn(*ty, r(ptr), r(off)),
         InstKind::StoreDyn(val, ptr, off) => InstKind::StoreDyn(r(val), r(ptr), r(off)),
         InstKind::LoadDynScaled8(ty, ptr, idx) => InstKind::LoadDynScaled8(*ty, r(ptr), r(idx)),
         InstKind::LoadU8Dyn(ptr, idx) => InstKind::LoadU8Dyn(r(ptr), r(idx)),

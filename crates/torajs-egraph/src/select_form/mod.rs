@@ -126,7 +126,7 @@ pub(super) fn plan_arm(func: &Function, blks: &[usize]) -> Option<ArmPlan> {
                 if copies.iter().any(|(v, _, _)| *v == vid) {
                     return None; // duplicate def in one arm — not our shape
                 }
-                copies.push((vid, *ty, src.clone()));
+                copies.push((vid, *ty, *src));
             }
             kind if can_speculate(kind) && inst.result.is_some() => {
                 // hoisted ahead of the selects, it would read the value
@@ -184,11 +184,11 @@ fn form_once(func: &mut Function, stats: &mut SelectFormStats) -> bool {
         else {
             continue;
         };
-        let (cond, t_id, e_id) = (cond.clone(), *then_blk, *else_blk);
+        let (cond, t_id, e_id) = (*cond, *then_blk, *else_blk);
         if t_id == e_id || t_id == func.blocks[h].id || e_id == func.blocks[h].id {
             continue;
         }
-        if try_form_pure(func, h, &cond, t_id, e_id, &pred_count, &def_count, stats) {
+        if try_form_pure(func, h, &cond, t_id, e_id, pred_count, def_count, stats) {
             return true;
         }
     }
@@ -308,10 +308,10 @@ fn try_form_pure(
             .expect("pairing verified above");
         // both arms merge the same value: no choice left to make
         let kind = if t_src == e_src {
-            InstKind::Copy(*ty, t_src.clone())
+            InstKind::Copy(*ty, *t_src)
         } else {
             stats.selects_formed += 1;
-            InstKind::Select(*ty, cond.clone(), t_src.clone(), e_src.clone())
+            InstKind::Select(*ty, *cond, *t_src, *e_src)
         };
         appended.push(Inst {
             result: Some(*vid),

@@ -134,18 +134,15 @@ pub(crate) fn cell_bound_after_loop(
             if inst.result != Some(cell) {
                 continue;
             }
-            match innermost_loop(la, block.id) {
-                Some(l) => {
-                    if rec.is_some() {
-                        return None;
-                    }
-                    let InstKind::Copy(_, Operand::Value(x)) = &inst.kind else {
-                        return None;
-                    };
-                    rec = Some((*x, block.id));
-                    lp = Some(l);
+            if let Some(l) = innermost_loop(la, block.id) {
+                if rec.is_some() {
+                    return None;
                 }
-                None => {}
+                let InstKind::Copy(_, Operand::Value(x)) = &inst.kind else {
+                    return None;
+                };
+                rec = Some((*x, block.id));
+                lp = Some(l);
             }
         }
     }

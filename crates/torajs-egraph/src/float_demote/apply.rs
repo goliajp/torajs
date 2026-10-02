@@ -79,10 +79,10 @@ pub(crate) fn clone_region(
             .insts
             .into_iter()
             .map(|mut inst| {
-                if let Some(r) = inst.result {
-                    if let Some(nr) = value_map.get(&r) {
-                        inst.result = Some(*nr);
-                    }
+                if let Some(r) = inst.result
+                    && let Some(nr) = value_map.get(&r)
+                {
+                    inst.result = Some(*nr);
                 }
                 rewrite_operands(&mut inst.kind, &op_map);
                 inst
@@ -306,10 +306,10 @@ fn slow_liveness(func: &Function, clone: &RegionClone) -> HashMap<BlockId, HashS
                     live.extend(li.iter().copied());
                 }
             }
-            if let Some(v) = term_operand_value(&block.term) {
-                if fresh.contains(&v) {
-                    live.insert(v);
-                }
+            if let Some(v) = term_operand_value(&block.term)
+                && fresh.contains(&v)
+            {
+                live.insert(v);
             }
             for inst in block.insts.iter().rev() {
                 if let Some(r) = inst.result {

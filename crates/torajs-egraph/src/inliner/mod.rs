@@ -56,6 +56,10 @@ mod stats;
 use crate::cost::{Cost, cost_of_kind};
 use torajs_core::ssa::{FuncId, Function, InstKind, Module, Operand, ValueId};
 
+/// `(block index, site index, callee, call args, call result)` of one
+/// call site the inliner splices
+type InlineTarget = (usize, usize, FuncId, Vec<Operand>, Option<ValueId>);
+
 pub use splice::{SpliceError, inline_single_block_leaf};
 pub use splice2::{SpliceMultiError, inline_multi_block_leaf};
 pub use stats::InlinerStats;
@@ -360,7 +364,7 @@ pub fn inline_module_with_budget(module: &mut Module, budget: InlineBudget) -> I
             continue;
         }
         // Pass B — collect Inline targets with full splice payload.
-        let mut targets: Vec<(usize, usize, FuncId, Vec<Operand>, Option<ValueId>)> = Vec::new();
+        let mut targets: Vec<InlineTarget> = Vec::new();
         for (blk_idx, site_idx, dec) in &decisions {
             if matches!(dec, InlineDecision::Inline { .. }) {
                 let inst = &module.funcs[caller_idx].blocks[*blk_idx].insts[*site_idx];
@@ -551,9 +555,10 @@ mod tests {
     }
 
     fn module_of(funcs: Vec<Function>) -> Module {
-        let mut m = Module::default();
-        m.funcs = funcs;
-        m
+        Module {
+            funcs,
+            ..Default::default()
+        }
     }
 
     #[test]

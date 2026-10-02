@@ -110,12 +110,9 @@ pub(super) fn plan_cell(
             match &inst.kind {
                 InstKind::Load(_, Operand::Value(s), o) if *s == slot && *o == off => {
                     let r = inst.result?;
-                    match reaching {
-                        Some(v) => {
-                            replace.insert(r, v);
-                        }
-                        None => return None, // uninitialized read — abort
-                    }
+                    // uninitialized read — abort
+                    let v = reaching?;
+                    replace.insert(r, v);
                 }
                 InstKind::Store(val, Operand::Value(s), o) if *s == slot && *o == off => {
                     // chase through loads of THIS cell already renamed
@@ -128,10 +125,9 @@ pub(super) fn plan_cell(
         // feed CFG successors' φs with this block's exit def.
         for succ in term_succs(&func.blocks[bid.0 as usize].term) {
             if let Some(&pi) = phi_at.get(&succ) {
-                match reaching {
-                    Some(v) => phis[pi].incoming.push((bid, v)),
-                    None => return None, // φ incoming undef — abort
-                }
+                // φ incoming undef — abort
+                let v = reaching?;
+                phis[pi].incoming.push((bid, v));
             }
         }
         for &child in domtree.children(bid) {
@@ -180,12 +176,10 @@ pub(super) fn trivial_phi_elim(plan: &mut CellPlan) -> u32 {
                     }
                 }
             }
-            if trivial {
-                if let Some(u) = unique {
-                    plan.replace.insert(vid, u);
-                    removed += 1;
-                    changed = true;
-                }
+            if trivial && let Some(u) = unique {
+                plan.replace.insert(vid, u);
+                removed += 1;
+                changed = true;
             }
         }
         if !changed {
@@ -207,10 +201,10 @@ pub(super) fn mark_live_phis(plan: &mut CellPlan) {
     let mut work: Vec<ValueId> = Vec::new();
     for op in plan.replace.values() {
         let r = resolve(op, &plan.replace);
-        if let Operand::Value(v) = r {
-            if by_vid.contains_key(&v) {
-                work.push(v);
-            }
+        if let Operand::Value(v) = r
+            && by_vid.contains_key(&v)
+        {
+            work.push(v);
         }
     }
     while let Some(v) = work.pop() {
@@ -221,10 +215,11 @@ pub(super) fn mark_live_phis(plan: &mut CellPlan) {
         plan.phis[i].live = true;
         for (_, op) in plan.phis[i].incoming.clone() {
             let r = resolve(&op, &plan.replace);
-            if let Operand::Value(u) = r {
-                if by_vid.contains_key(&u) && !plan.phis[by_vid[&u]].live {
-                    work.push(u);
-                }
+            if let Operand::Value(u) = r
+                && by_vid.contains_key(&u)
+                && !plan.phis[by_vid[&u]].live
+            {
+                work.push(u);
             }
         }
     }

@@ -165,7 +165,7 @@ fn share_in_function(func: &mut Function, fids: &Fids, stats: &mut MapFindCseSta
             while let Operand::Value(x) = op
                 && let Some(next) = replace.get(&x)
             {
-                op = next.clone();
+                op = *next;
             }
             (*v, op)
         })
@@ -182,7 +182,7 @@ fn share_in_function(func: &mut Function, fids: &Fids, stats: &mut MapFindCseSta
                 if let Operand::Value(v) = op
                     && let Some(n) = resolved.get(v)
                 {
-                    *op = n.clone();
+                    *op = *n;
                 }
             }
             _ => {}

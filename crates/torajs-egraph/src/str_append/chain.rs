@@ -157,8 +157,8 @@ fn expand(
 ) -> Option<()> {
     let (k, args) = kernels.call(&insts[i])?;
     let slots = [
-        (args[0].clone(), k.left, k.consumes_left),
-        (args[1].clone(), k.right, false),
+        (args[0], k.left, k.consumes_left),
+        (args[1], k.right, false),
     ];
     for (op, kind, consumed) in slots {
         let inner = match op {
@@ -168,7 +168,7 @@ fn expand(
         let Some((v, j)) = inner else {
             let drop = consumed.then(|| Inst {
                 result: None,
-                kind: InstKind::Call(kernels.str_drop, vec![op.clone()]),
+                kind: InstKind::Call(kernels.str_drop, vec![op]),
                 origin: insts[i].origin,
             });
             plan.pieces.push(Piece { op, kind, drop });
@@ -190,17 +190,19 @@ fn expand(
 /// nothing but chain definitions, static strings and drops; a drop of
 /// a leaf there becomes that leaf's own release.
 fn claim_window_drops(insts: &[Inst], kernels: &Kernels, plan: &mut Plan) -> Option<()> {
-    for i in plan.first..plan.sink {
-        if plan.delete.contains(&i) || matches!(insts[i].kind, InstKind::StaticStrRef(_)) {
+    let (first, sink) = (plan.first, plan.sink);
+    for (k, inst) in insts[first..sink].iter().enumerate() {
+        let i = first + k;
+        if plan.delete.contains(&i) || matches!(inst.kind, InstKind::StaticStrRef(_)) {
             continue;
         }
-        let dropped = kernels.dropped(&insts[i])?;
+        let dropped = kernels.dropped(inst)?;
         let mut owners = plan.pieces.iter_mut().filter(|p| p.op == *dropped);
         let piece = owners.next()?;
         if owners.next().is_some() || piece.drop.is_some() {
             return None;
         }
-        piece.drop = Some(insts[i].clone());
+        piece.drop = Some(inst.clone());
         plan.delete.push(i);
     }
     Some(())
@@ -232,7 +234,7 @@ fn apply(
     };
     let (sink_result, origin) = (sink.result, sink.origin);
     let last = plan.pieces.len() - 1;
-    let mut acc = sink_args[0].clone();
+    let mut acc = sink_args[0];
     let mut seq = Vec::with_capacity(plan.pieces.len() * 2);
     for (idx, (piece, fid)) in plan.pieces.into_iter().zip(plan.fids).enumerate() {
         let result = if idx == last {

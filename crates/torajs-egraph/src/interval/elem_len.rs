@@ -19,6 +19,9 @@ use torajs_core::ssa::{Function, InstKind, Operand, Type, ValueId};
 use super::elem;
 use super::elem_kernels::*;
 
+/// A length def and its `(block index, inst index)` position
+pub(crate) type LenDefAt = ((usize, usize), LenDef);
+
 /// What one def leaves in the length field.
 pub(crate) enum LenDef {
     /// The operand's value as read at the def's point.
@@ -31,7 +34,7 @@ pub(crate) enum LenDef {
 #[derive(Default)]
 pub(crate) struct LenCells {
     /// Root → its length defs at `(block index, inst index)`.
-    pub(crate) defs: HashMap<ValueId, Vec<((usize, usize), LenDef)>>,
+    pub(crate) defs: HashMap<ValueId, Vec<LenDefAt>>,
     /// Length-load result → root.
     pub(crate) reads: HashMap<ValueId, ValueId>,
 }
@@ -82,7 +85,7 @@ pub(crate) fn len_cells(func: &Function, callee_names: &[String]) -> LenCells {
                             .defs
                             .entry(rep)
                             .or_default()
-                            .push((at, LenDef::Known(value.clone())));
+                            .push((at, LenDef::Known(*value)));
                     }
                 }
                 InstKind::Load(Type::I64, ptr, ARR_LEN_OFF) => {

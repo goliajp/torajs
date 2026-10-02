@@ -139,12 +139,12 @@ fn to_str_result(
     if let Some((to_str, target)) = i64_pair
         && *fid == to_str
     {
-        return Some((t, args[0].clone(), target, true));
+        return Some((t, args[0], target, true));
     }
     if let Some((to_str, target)) = f64_pair
         && *fid == to_str
     {
-        return Some((t, args[0].clone(), target, false));
+        return Some((t, args[0], target, false));
     }
     None
 }

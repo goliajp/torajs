@@ -260,7 +260,7 @@ fn apply(func: &mut Function, m: ValueId, plan: &Plan, stats: &mut MergeSroaStat
                 InstKind::Store(val, p, off) if named(p) => match cells.get(off) {
                     Some(&c) => out.push(Inst {
                         result: Some(c),
-                        kind: InstKind::Copy(plan.fields[off], val.clone()),
+                        kind: InstKind::Copy(plan.fields[off], *val),
                         origin: inst.origin,
                     }),
                     None => stats.stores_removed += 1,

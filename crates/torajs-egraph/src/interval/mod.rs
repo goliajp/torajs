@@ -123,10 +123,10 @@ pub fn analyze_function_with(
     let mut cells: HashSet<ValueId> = HashSet::new();
     for block in &func.blocks {
         for inst in &block.insts {
-            if let Some(r) = inst.result {
-                if single.insert(r, inst.kind.clone()).is_some() {
-                    cells.insert(r);
-                }
+            if let Some(r) = inst.result
+                && single.insert(r, inst.kind.clone()).is_some()
+            {
+                cells.insert(r);
             }
         }
     }
@@ -136,10 +136,10 @@ pub fn analyze_function_with(
     let mut block_defs: Vec<HashSet<ValueId>> = vec![HashSet::new(); func.blocks.len()];
     for (bi, block) in func.blocks.iter().enumerate() {
         for inst in &block.insts {
-            if let Some(r) = inst.result {
-                if cells.contains(&r) {
-                    block_defs[bi].insert(r);
-                }
+            if let Some(r) = inst.result
+                && cells.contains(&r)
+            {
+                block_defs[bi].insert(r);
             }
         }
     }

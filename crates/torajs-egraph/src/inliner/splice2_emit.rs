@@ -74,7 +74,7 @@ pub(super) fn splice_body(
             0,
             Inst {
                 result: Some(r),
-                kind: InstKind::Load(callee.ret.clone(), Operand::Value(slot), 0),
+                kind: InstKind::Load(callee.ret, Operand::Value(slot), 0),
                 origin: None,
             },
         );
@@ -99,7 +99,7 @@ fn map_callee_values(
 ) -> HashMap<ValueId, Operand> {
     let mut value_map: HashMap<ValueId, Operand> = HashMap::new();
     for (i, param_id) in callee.params.iter().enumerate() {
-        value_map.insert(*param_id, args[i].clone());
+        value_map.insert(*param_id, args[i]);
     }
     let param_set: std::collections::HashSet<u32> = callee.params.iter().map(|v| v.0).collect();
     for cv in 0..callee.values.len() as u32 {
@@ -136,7 +136,7 @@ fn alloc_ret_slot(
         let slot = ValueId((caller.values.len() - 1) as u32);
         caller.blocks[caller_blk_idx].insts.push(Inst {
             result: Some(slot),
-            kind: InstKind::Alloca(callee.ret.clone()),
+            kind: InstKind::Alloca(callee.ret),
             origin: None,
         });
         Some(slot)
@@ -418,7 +418,7 @@ pub(crate) mod fixtures {
         Function {
             name: "main".into(),
             params: vec![],
-            ret: ret_ty.clone(),
+            ret: ret_ty,
             blocks: vec![Block {
                 id: BlockId(0),
                 insts: vec![call],

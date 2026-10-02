@@ -158,10 +158,10 @@ fn match_loop(func: &Function, header: BlockId, body: BlockId) -> Option<Matched
         return None;
     }
     let (copy_n_idx, m) = bb.insts.iter().enumerate().find_map(|(i, inst)| {
-        if inst.result == Some(n_cell) {
-            if let InstKind::Copy(Type::I64, Operand::Value(src)) = inst.kind {
-                return Some((i, src));
-            }
+        if inst.result == Some(n_cell)
+            && let InstKind::Copy(Type::I64, Operand::Value(src)) = inst.kind
+        {
+            return Some((i, src));
         }
         None
     })?;

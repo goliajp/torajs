@@ -202,11 +202,12 @@ pub fn elaborate(
                             stats.gvn_skipped += 1;
                             continue;
                         }
-                        if let Some(target) = egraph.available_block(canon) {
-                            if target != bid && dom.dominates(target, bid) {
-                                emit_block = target;
-                                stats.licm_relocated += 1;
-                            }
+                        if let Some(target) = egraph.available_block(canon)
+                            && target != bid
+                            && dom.dominates(target, bid)
+                        {
+                            emit_block = target;
+                            stats.licm_relocated += 1;
                         }
                         elaborated.insert(canon, emit_block);
                     }
@@ -260,15 +261,15 @@ pub fn elaborate(
     // canonicalise dead-block contents — a verbatim clone leaks
     // un-elaborated Identity insts straight into liveness, which
     // rejects them by contract.
-    for bi in 1..n {
+    for (bi, blk) in out_blocks.iter_mut().enumerate().take(n).skip(1) {
         let bid = BlockId(bi as u32);
         if dom.immediate_dominator(bid).is_none() {
             // Never visited by the DFS: insts is still the empty
             // prealloc (LICM redirects only target dominators, which
             // are reachable by definition). Pin the terminator so the
             // detached block carries no operand uses either.
-            out_blocks[bi].insts.clear();
-            out_blocks[bi].term = Terminator::Unreachable;
+            blk.insts.clear();
+            blk.term = Terminator::Unreachable;
         }
     }
 

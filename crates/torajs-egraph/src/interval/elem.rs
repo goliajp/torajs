@@ -400,7 +400,7 @@ fn scan_inst(
 
 fn record_write(writes: &mut HashMap<ValueId, Vec<Operand>>, rep: ValueId, op: Option<&Operand>) {
     match op {
-        Some(o) => writes.entry(rep).or_default().push(o.clone()),
+        Some(o) => writes.entry(rep).or_default().push(*o),
         // A write whose value is not spelled out is a value nothing
         // can bound.
         None => {
@@ -418,10 +418,10 @@ fn operands(kind: &InstKind) -> Vec<Operand> {
         | InstKind::LoadDyn(_, a, b)
         | InstKind::LoadDynScaled8(_, a, b)
         | InstKind::LoadU8Dyn(a, b)
-        | InstKind::LoadU16Dyn(a, b) => vec![a.clone(), b.clone()],
+        | InstKind::LoadU16Dyn(a, b) => vec![*a, *b],
         InstKind::Call(_, args) => args.clone(),
         InstKind::CallIndirect(_, callee, args) => {
-            let mut v = vec![callee.clone()];
+            let mut v = vec![*callee];
             v.extend(args.iter().cloned());
             v
         }
@@ -429,12 +429,12 @@ fn operands(kind: &InstKind) -> Vec<Operand> {
         | InstKind::RcInc(a)
         | InstKind::RcIncAny(a)
         | InstKind::RcDecAny(a)
-        | InstKind::BoxAny(_, a) => vec![a.clone()],
-        InstKind::Store(a, b, _) => vec![a.clone(), b.clone()],
+        | InstKind::BoxAny(_, a) => vec![*a],
+        InstKind::Store(a, b, _) => vec![*a, *b],
         InstKind::StoreDyn(a, b, c)
         | InstKind::StoreDynScaled8(a, b, c)
-        | InstKind::CtpopRangeSum(a, b, c) => vec![a.clone(), b.clone(), c.clone()],
-        InstKind::Select(_, a, b, c) => vec![a.clone(), b.clone(), c.clone()],
+        | InstKind::CtpopRangeSum(a, b, c) => vec![*a, *b, *c],
+        InstKind::Select(_, a, b, c) => vec![*a, *b, *c],
         InstKind::SiToFp(a)
         | InstKind::FpToSi(a)
         | InstKind::FpToInt32(a)
@@ -448,7 +448,7 @@ fn operands(kind: &InstKind) -> Vec<Operand> {
         | InstKind::Identity(a)
         | InstKind::Neg(a)
         | InstKind::Ctpop(a)
-        | InstKind::Copy(_, a) => vec![a.clone()],
+        | InstKind::Copy(_, a) => vec![*a],
         InstKind::Alloca(_)
         | InstKind::AllocaBytes(_)
         | InstKind::StringRef(_)

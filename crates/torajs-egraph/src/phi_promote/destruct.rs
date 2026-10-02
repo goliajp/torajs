@@ -12,6 +12,9 @@ use torajs_core::ssa::{
 use super::{CellPlan, PhiPromoteStats, term_succs};
 use crate::slot_forward::{resolve, rewrite_operands};
 
+/// One parallel copy `dest <- src` of type `ty` placed on a CFG edge
+type EdgeCopy = (ValueId, Operand, Type);
+
 /// Apply every successful plan at once: rewrite loads through the
 /// merged replace map, delete forwarded loads and promoted cells'
 /// stores, DSE empty slots, then destruct live φs into predecessor
@@ -96,8 +99,7 @@ fn destruct_phis(
     replace: &HashMap<ValueId, Operand>,
     stats: &mut PhiPromoteStats,
 ) {
-    let mut edge_copies: HashMap<(BlockId, BlockId), Vec<(ValueId, Operand, Type)>> =
-        HashMap::new();
+    let mut edge_copies: HashMap<(BlockId, BlockId), Vec<EdgeCopy>> = HashMap::new();
     for plan in plans {
         for phi in &plan.phis {
             if !phi.live {

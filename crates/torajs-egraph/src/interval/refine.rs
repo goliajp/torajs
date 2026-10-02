@@ -247,10 +247,9 @@ pub(super) fn edge_constraints(
         InstKind::FCmp(FPred::Oeq, Operand::Value(r), z) if taken && op_const_int(z) == Some(0) => {
             if let Some(InstKind::BinOp(torajs_core::ssa::BinOp::FRem, Operand::Value(n), two)) =
                 defs.get(r)
+                && op_const_int(two) == Some(2)
             {
-                if op_const_int(two) == Some(2) {
-                    return Some(vec![Constraint::Even(*n)]);
-                }
+                return Some(vec![Constraint::Even(*n)]);
             }
             None
         }

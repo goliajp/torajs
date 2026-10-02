@@ -213,15 +213,15 @@ fn compute_demote_set(
                     });
                     continue;
                 }
-                if let InstKind::FCmp(_, a, b) = &inst.kind {
-                    if fit::fcmp_convertible(a, b, &set) {
-                        for op in [a, b] {
-                            if let Operand::Value(v) = op {
-                                useful.insert(*v);
-                            }
+                if let InstKind::FCmp(_, a, b) = &inst.kind
+                    && fit::fcmp_convertible(a, b, &set)
+                {
+                    for op in [a, b] {
+                        if let Operand::Value(v) = op {
+                            useful.insert(*v);
                         }
-                        continue;
                     }
+                    continue;
                 }
                 visit_value_operands(&inst.kind, |v| {
                     if set.contains(&v) && !nz.contains(&v) {
@@ -229,10 +229,11 @@ fn compute_demote_set(
                     }
                 });
             }
-            if let Terminator::Ret(Some(Operand::Value(v))) = &block.term {
-                if set.contains(v) && !nz.contains(v) {
-                    bad.insert(*v);
-                }
+            if let Terminator::Ret(Some(Operand::Value(v))) = &block.term
+                && set.contains(v)
+                && !nz.contains(v)
+            {
+                bad.insert(*v);
             }
         }
         for v in &set {
@@ -313,14 +314,13 @@ fn mutate_function(
                 out.push(inst);
                 continue;
             }
-            if let InstKind::FCmp(p, a, b) = &inst.kind {
-                if fit::fcmp_convertible(a, b, set) {
-                    inst.kind =
-                        InstKind::ICmp(fit::fpred_to_ipred(*p), fit::int_op(a), fit::int_op(b));
-                    stats.fcmp_converted += 1;
-                    out.push(inst);
-                    continue;
-                }
+            if let InstKind::FCmp(p, a, b) = &inst.kind
+                && fit::fcmp_convertible(a, b, set)
+            {
+                inst.kind = InstKind::ICmp(fit::fpred_to_ipred(*p), fit::int_op(a), fit::int_op(b));
+                stats.fcmp_converted += 1;
+                out.push(inst);
+                continue;
             }
             let mut bridge_ops: Vec<ValueId> = Vec::new();
             visit_value_operands(&inst.kind, |v| {
@@ -342,17 +342,18 @@ fn mutate_function(
             }
             out.push(inst);
         }
-        if let Terminator::Ret(Some(Operand::Value(v))) = &block.term {
-            if set.contains(v) && *ret == Type::F64 {
-                let b = push_value(values, Type::F64);
-                out.push(Inst {
-                    result: Some(b),
-                    kind: InstKind::SiToFp(Operand::Value(*v)),
-                    origin: None,
-                });
-                block.term = Terminator::Ret(Some(Operand::Value(b)));
-                stats.bridges_inserted += 1;
-            }
+        if let Terminator::Ret(Some(Operand::Value(v))) = &block.term
+            && set.contains(v)
+            && *ret == Type::F64
+        {
+            let b = push_value(values, Type::F64);
+            out.push(Inst {
+                result: Some(b),
+                kind: InstKind::SiToFp(Operand::Value(*v)),
+                origin: None,
+            });
+            block.term = Terminator::Ret(Some(Operand::Value(b)));
+            stats.bridges_inserted += 1;
         }
         block.insts = out;
     }

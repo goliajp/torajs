@@ -240,7 +240,7 @@ fn closing_drop(
 /// is a concat that borrows a Str left operand.
 fn borrowed_str_left(inst: &Inst, kernels: &Kernels) -> Option<(Kind, Operand)> {
     let (k, args) = kernels.call(inst)?;
-    (k.left == Kind::Str && !k.consumes_left).then(|| (k.right, args[0].clone()))
+    (k.left == Kind::Str && !k.consumes_left).then(|| (k.right, args[0]))
 }
 
 /// True when `inst` is a result-less `str_drop` of exactly `left`.
