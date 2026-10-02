@@ -8,6 +8,7 @@
 
 use super::BoxedEntryIntrinsics;
 use crate::ssa::{self, FuncId, InstKind, Operand, Type};
+use crate::ssa_lower_rc_emit::emit_rc_inc_in_fn;
 
 /// S2.36 — the struct-param coercion trio threaded into one adapter
 /// build: the kernel + release FuncIds and the per-user-param
@@ -27,18 +28,26 @@ pub(super) struct BoxedCoerceIntrinsics<'a> {
     /// a non-fitting struct slot hands the call to (`build_reroute`);
     /// `None` = no lossy slot, or no twin to hand it to.
     pub(super) twin_reroute: Option<super::build_reroute::TwinReroute>,
+    /// Per user slot, the argument the reroute test loaded and proved
+    /// to fit its struct layout (`__torajs_anyv_struct_fits` answered
+    /// 1 on the path that reaches the unboxes); `None` for every
+    /// other slot. Such a slot passes the cell through as it is.
+    pub(super) fit: Vec<Option<ssa::ValueId>>,
 }
 
 /// The adapter's per-param unbox walk (module-doc ABI): load each
 /// argv slot and convert to the body's static param type, pushing
 /// the call operand and recording owned temps for the post-call
-/// releases.
+/// releases. `user_tys` and `dflt_lits` are the window's own slice;
+/// `first` is the user index of its first slot, for the tables
+/// indexed by user slot (`coerce.obj_tags`, `coerce.fit`).
 #[allow(clippy::too_many_arguments)]
 pub(super) fn unbox_args(
     f: &mut ssa::Function,
     module: &mut ssa::Module,
     entry: ssa::BlockId,
     argv: ssa::ValueId,
+    first: usize,
     user_tys: &[Type],
     intr: &BoxedEntryIntrinsics,
     anyv_to_str: FuncId,
@@ -147,6 +156,26 @@ pub(super) fn unbox_args(
                 str_temps.push(s);
                 Operand::Value(s)
             }
+            // A struct slot the reroute test proved to fit: the cell
+            // has the layout or one extending it, so its pointer
+            // bits pass through typed, under the same +1 stake the
+            // kernel below takes on a pass-through (released after
+            // the call like every obj temp). The kernel's is_cell /
+            // tag / layout walk would only repeat the test's.
+            Type::Obj(_) if coerce.fit[first + i].is_some() => {
+                let av = coerce.fit[first + i].expect("checked above");
+                let bits = f.append_inst(
+                    entry,
+                    InstKind::PtrToInt(Operand::Value(av)),
+                    Type::I64,
+                    None,
+                );
+                let ptr =
+                    f.append_inst(entry, InstKind::IntToPtr(Operand::Value(bits)), *pty, None);
+                emit_rc_inc_in_fn(f, entry, Operand::Value(ptr), *pty);
+                obj_temps.push(av);
+                Operand::Value(ptr)
+            }
             // S2.36 — struct params ride the coercion kernel: an
             // inline-objlit argument arrives as a DYNOBJ box (the
             // any-lane packing contract) while the body reads the
@@ -154,7 +183,7 @@ pub(super) fn unbox_args(
             // materializes the right repr (or stakes a pass-through)
             // and the owned answer releases after the call.
             Type::Obj(_) => {
-                let tag = coerce.obj_tags[i].expect("obj_tags aligns with user_tys");
+                let tag = coerce.obj_tags[first + i].expect("obj_tags aligns with user_tys");
                 let coerced = f.append_inst(
                     entry,
                     InstKind::Call(

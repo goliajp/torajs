@@ -10,6 +10,8 @@
 //! - `emit_any_rc_inc_in(blk, op)` — `RcIncAny` for NaN-box values
 //! - `emit_any_rc_dec(op)`     — `RcDecAny` for NaN-box values
 //! - `emit_rc_inc_in(blk, op)` — inc in an explicit block (branch tails)
+//! - `emit_rc_inc_in_fn(f, blk, op, ty)` — the same split for a
+//!   function built outside a `LowerCtx` (the boxed adapters)
 //! - `emit_rc_dec_inline(hdr)` — inline Load-Sub-Store dec, returns new rc
 //! - `emit_drop_value(v, ty)`  — thin proxy into `ssa_lower_emit_drop_value`
 //!
@@ -21,7 +23,7 @@
 //! `impl<'a> super::LowerCtx<'a>`, so call sites need zero edits.
 
 use crate::ast::{BinOp as AstBinOp, Expr, ExprId};
-use crate::ssa::{BinOp as SsaBinOp, BlockId, InstKind, Operand, Type};
+use crate::ssa::{BinOp as SsaBinOp, BlockId, Function, InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
 impl<'a> LowerCtx<'a> {
@@ -45,15 +47,8 @@ impl<'a> LowerCtx<'a> {
     /// build a fresh `then_end` / `else_blk` and need to inc in a
     /// branch tail (e.g. Nullish-coalescing `??`).
     pub(crate) fn emit_rc_inc_in(&mut self, block: BlockId, op: Operand) {
-        // a statically typed heap value is a real pointer or null, so
-        // `RcInc` needs no cell test; `Any` and untyped pointers may
-        // hold NaN-box immediates
         let ty = self.operand_ty(&op);
-        if ty.is_refcounted() && ty != Type::Any {
-            self.f.append_void(block, InstKind::RcInc(op));
-        } else {
-            self.emit_any_rc_inc_in(block, op);
-        }
+        emit_rc_inc_in_fn(self.f, block, op, ty);
     }
 
     /// Retain a value that may be a NaN-box immediate (only a cell is
@@ -333,5 +328,19 @@ impl<'a> LowerCtx<'a> {
             Expr::String(_) => true,
             _ => false,
         }
+    }
+}
+
+/// [`LowerCtx::emit_rc_inc_in`] for a function built outside a
+/// `LowerCtx` — the boxed adapters of Pass 1 — with the operand's
+/// type supplied by the caller. A statically typed heap value is a
+/// real pointer or null, so `RcInc` needs no cell test; `Any` and
+/// untyped pointers may hold NaN-box immediates. Every refcount inc
+/// the lowering emits ends here (§6.2).
+pub(crate) fn emit_rc_inc_in_fn(f: &mut Function, block: BlockId, op: Operand, ty: Type) {
+    if ty.is_refcounted() && ty != Type::Any {
+        f.append_void(block, InstKind::RcInc(op));
+    } else {
+        f.append_void(block, InstKind::RcIncAny(op));
     }
 }

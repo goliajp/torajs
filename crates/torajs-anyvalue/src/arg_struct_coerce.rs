@@ -52,9 +52,10 @@
 //! parameter is read through the generic [[Get]] (§13.3.2.1), which
 //! is what an array, a Proxy, a getter-bearing literal or a `3`
 //! means for `p.x`, and the argument keeps its identity (§10.2.1.3).
-//! The materializing arm above then only serves the targets no twin
-//! reaches (a nested closure escaping through `any`, a receiver or
-//! argv channel).
+//! A slot that fits passes its cell through under the adapter's own
+//! stake, without this kernel. The materializing arm above then only
+//! serves the targets no twin reaches (a nested closure escaping
+//! through `any`, a receiver or argv channel).
 
 use core::ffi::c_void;
 

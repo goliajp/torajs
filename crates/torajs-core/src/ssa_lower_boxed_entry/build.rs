@@ -24,7 +24,7 @@ pub(super) fn build_boxed_entry(
     fn_sig_ids: &mut HashMap<FuncId, ssa::SigId>,
     intr: &BoxedEntryIntrinsics,
     anyv_to_str: FuncId,
-    coerce: BoxedCoerceIntrinsics<'_>,
+    mut coerce: BoxedCoerceIntrinsics<'_>,
     body_name: &str,
     body_fid: FuncId,
     user_tys: &[Type],
@@ -89,9 +89,12 @@ pub(super) fn build_boxed_entry(
     // (receiver, and a construct face's new.target).
     let skip = lead.max(usize::from(recv_slot));
     let shifted = (skip > 0).then(|| shifted_argv(&mut f, entry, argv, skip));
+    let window = shifted.unwrap_or(argv);
+    // User slot i is argv[i] behind a lead (lead slots are user
+    // params too) and window[i] behind a bare receiver slot.
     if let Some(rr) = coerce.twin_reroute {
-        let base = shifted.unwrap_or(argv);
-        entry = emit_twin_reroute(
+        let base = if lead > 0 { argv } else { window };
+        (entry, coerce.fit) = emit_twin_reroute(
             &mut f, entry, intr, &coerce, rr, env, argv, argc, base, user_tys, dflt_lits,
             recv_slot, feeds_env,
         );
@@ -106,6 +109,7 @@ pub(super) fn build_boxed_entry(
             module,
             entry,
             argv,
+            0,
             &user_tys[..lead],
             intr,
             anyv_to_str,
@@ -117,36 +121,16 @@ pub(super) fn build_boxed_entry(
             &dflt_lits[..lead.min(dflt_lits.len())],
         );
     }
-    // User-argument count the body-side slots receive: a recv-slot
-    // body (RFC 20260808 knife 2) gets the window SHIFTED past
-    // argv[0] — the receiver riding there feeds `__this`, not
-    // `arguments` (§10.4.4) — so the count drops by one.
-    let user_argc = if skip > 0 {
-        Operand::Value(f.append_inst(
-            entry,
-            InstKind::BinOp(
-                ssa::BinOp::Sub,
-                Operand::Value(argc),
-                Operand::ConstI64(skip as i64),
-            ),
-            Type::I64,
-            None,
-        ))
-    } else {
-        Operand::Value(argc)
-    };
-    // RFC 20260810-indirect-argc-abi S1 — the body's sig carries the
-    // hidden I64 `__torajs_argc` at position 1 (`__env`-first, and
-    // since S1-T1 the this-first method_argv family too); forward
-    // the adapter's real argc there (any-lane calls thereby get the
-    // true-argc channel for free). Sits BEFORE the injected
-    // real_argc/argv slots — same order as the sig.
-    if hidden_argc {
-        args.push(user_argc);
-    }
-    if has_argv {
-        args.push(Operand::Value(shifted.unwrap_or(argv)));
-    }
+    push_hidden_slots(
+        &mut f,
+        entry,
+        &mut args,
+        argc,
+        window,
+        skip,
+        hidden_argc,
+        has_argv,
+    );
     // Rest split — the fixed prefix unboxes positionally; the rest
     // slot itself is fed below from the trailing argv window.
     let n_fixed = if rest {
@@ -164,6 +148,7 @@ pub(super) fn build_boxed_entry(
         module,
         entry,
         base,
+        lead,
         &user_tys[lead..n_fixed],
         intr,
         anyv_to_str,
@@ -217,6 +202,51 @@ pub(super) fn build_boxed_entry(
     f.set_term(entry, Terminator::Ret(Some(Operand::Value(boxed))));
     module.funcs.push(f);
     (fid, own_sig)
+}
+
+/// The hidden argc / argv slots of the body's sig, in sig order.
+///
+/// User-argument count the body-side slots receive: a recv-slot
+/// body (RFC 20260808 knife 2) gets the window SHIFTED past
+/// argv[0] — the receiver riding there feeds `__this`, not
+/// `arguments` (§10.4.4) — so the count drops by one.
+/// RFC 20260810-indirect-argc-abi S1 — the body's sig carries the
+/// hidden I64 `__torajs_argc` at position 1 (`__env`-first, and
+/// since S1-T1 the this-first method_argv family too); forward
+/// the adapter's real argc there (any-lane calls thereby get the
+/// true-argc channel for free). Sits BEFORE the injected
+/// real_argc/argv slots — same order as the sig.
+#[allow(clippy::too_many_arguments)]
+fn push_hidden_slots(
+    f: &mut ssa::Function,
+    entry: ssa::BlockId,
+    args: &mut Vec<Operand>,
+    argc: ssa::ValueId,
+    window: ssa::ValueId,
+    skip: usize,
+    hidden_argc: bool,
+    has_argv: bool,
+) {
+    let user_argc = if skip > 0 {
+        Operand::Value(f.append_inst(
+            entry,
+            InstKind::BinOp(
+                ssa::BinOp::Sub,
+                Operand::Value(argc),
+                Operand::ConstI64(skip as i64),
+            ),
+            Type::I64,
+            None,
+        ))
+    } else {
+        Operand::Value(argc)
+    };
+    if hidden_argc {
+        args.push(user_argc);
+    }
+    if has_argv {
+        args.push(Operand::Value(window));
+    }
 }
 
 /// Box the body's typed return into the adapter's `AnyValue` result.

@@ -232,6 +232,7 @@ pub(crate) fn synthesize_boxed_entries(
                     invoke: invoke_recv_first,
                     same_face,
                 }),
+                fit: vec![None; t.user_tys.len()],
             },
             &t.name,
             t.body_fid,

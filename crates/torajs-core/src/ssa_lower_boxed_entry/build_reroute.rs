@@ -13,7 +13,9 @@
 //! exactly; with every argument fitting, the typed body runs as
 //! before. The test is one tag compare per lossy scalar slot and one
 //! `__torajs_anyv_struct_fits` call per struct slot, ahead of every
-//! unbox.
+//! unbox; a struct slot that passed hands its loaded argument on
+//! (`BoxedCoerceIntrinsics::fit`) so the unbox passes the cell
+//! through instead of asking the coercion kernel the same question.
 
 use crate::ssa::{self, FuncId, IPred, InstKind, Operand, Terminator, Type};
 
@@ -45,7 +47,8 @@ pub(super) fn lossy_slot(ty: Type, dflt: Option<&super::DfltLit>) -> bool {
 /// Test every lossy slot of the window at `base`; on the first
 /// undefined scalar or non-fitting struct argument, call the twin
 /// adapter and return its answer. Returns the block the adapter
-/// continues in.
+/// continues in and, per user slot, the loaded argument of a struct
+/// slot that fits (`BoxedCoerceIntrinsics::fit`).
 #[allow(clippy::too_many_arguments)]
 pub(super) fn emit_twin_reroute(
     f: &mut ssa::Function,
@@ -61,12 +64,13 @@ pub(super) fn emit_twin_reroute(
     dflt_lits: &[Option<super::DfltLit>],
     recv_slot: bool,
     feeds_env: bool,
-) -> ssa::BlockId {
+) -> (ssa::BlockId, Vec<Option<ssa::ValueId>>) {
+    let mut fit = vec![None; user_tys.len()];
     let lossy: Vec<usize> = (0..user_tys.len())
         .filter(|&i| lossy_slot(user_tys[i], dflt_lits.get(i).and_then(|d| d.as_ref())))
         .collect();
     if lossy.is_empty() {
-        return entry;
+        return (entry, fit);
     }
     let reroute = f.add_block();
     for i in lossy {
@@ -88,6 +92,7 @@ pub(super) fn emit_twin_reroute(
                     Type::I64,
                     None,
                 );
+                fit[i] = Some(av);
                 f.append_inst(
                     entry,
                     InstKind::ICmp(IPred::Eq, Operand::Value(fits), Operand::ConstI64(0)),
@@ -197,5 +202,5 @@ pub(super) fn emit_twin_reroute(
         )
     };
     f.set_term(reroute, Terminator::Ret(Some(Operand::Value(answer))));
-    entry
+    (entry, fit)
 }
