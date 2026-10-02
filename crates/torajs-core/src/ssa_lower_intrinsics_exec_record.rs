@@ -11,6 +11,8 @@
 //! - `str_group_span(subject, start, end) -> Str` — the string value
 //!   of one span: a fresh Str of the subject's code units, or the Str
 //!   `undefined` sentinel for a group that did not participate.
+//! - `num_parse_int_span(subject, start, end, radix) -> F64` —
+//!   `parseInt` of that same value read in place, no Str cut.
 //! - `regex_replace_iter_init(iter, re, subject)` /
 //!   `_next(iter, out, n_slots) -> hit` / `_close(iter)` — the
 //!   replace-callback walk driven one match at a time; `init` may
@@ -29,6 +31,7 @@ use crate::ssa_lower::declare_intrinsic;
 pub(crate) struct ExecRecordIds {
     pub regex_exec_span: FuncId,
     pub str_group_span: FuncId,
+    pub num_parse_int_span: FuncId,
     pub regex_replace_iter_init: FuncId,
     pub regex_replace_iter_next: FuncId,
     pub regex_replace_iter_close: FuncId,
@@ -48,6 +51,7 @@ pub(crate) fn declare(
     ExecRecordIds {
         regex_exec_span: decl!("__torajs_regex_exec_span", [RegExp, Str, Ptr, I64], I64),
         str_group_span: decl!("__torajs_str_group_span", [Str, I64, I64], Str),
+        num_parse_int_span: decl!("__torajs_num_parse_int_span", [Str, I64, I64, I64], F64),
         regex_replace_iter_init: decl!(
             "__torajs_regex_replace_iter_init",
             [Ptr, RegExp, Str],

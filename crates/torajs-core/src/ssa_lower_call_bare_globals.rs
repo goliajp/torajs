@@ -172,6 +172,10 @@ pub(crate) fn lower_parse_int(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operan
         }
         return Operand::ConstF64(f64::NAN);
     }
+    // an exec record's group is parsed in place, without the Str cut
+    if let Some(v) = crate::ssa_lower_exec_record::try_parse_int(ctx, args) {
+        return v;
+    }
     // S337 — bare-name parseInt accepts Any per check.rs widen: decode Any
     // str via anyv_to_str_pair (tag + value) → any_to_str so the helper's
     // (Str, i64) -> F64 ABI receives a concrete Str. Sister to S336

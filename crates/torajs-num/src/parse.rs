@@ -45,7 +45,7 @@ unsafe fn str_bytes<'a>(p: *const u8, byte_cnt: usize) -> &'a [u8] {
 /// payload, or the slice of its parent a Substr view covers (a split
 /// product's element, a string index, a for-of character).
 #[inline]
-unsafe fn text<'a>(p: *const u8) -> (&'a [u8], bool) {
+pub(crate) unsafe fn text<'a>(p: *const u8) -> (&'a [u8], bool) {
     let flags = unsafe { (p.add(STR_FLAGS_OFF) as *const u16).read() };
     if flags & FLAG_SUBSTR_VIEW != 0 {
         let parent = unsafe { (p.add(SUBSTR_PARENT_OFF) as *const *const u8).read() };
@@ -106,7 +106,7 @@ fn is_trim_ws_u16(u: u16) -> bool {
 /// stop at the first non-ASCII character anyway (digits, sign,
 /// exponent and `Infinity` are all ASCII), so truncating there is
 /// semantics-preserving prefix parsing.
-fn narrow_utf16_prefix(payload: &[u8]) -> Vec<u8> {
+pub(crate) fn narrow_utf16_prefix(payload: &[u8]) -> Vec<u8> {
     let unit_at = |i: usize| u16::from_le_bytes([payload[i], payload[i + 1]]);
     let end = payload.len() & !1;
     let mut i = 0usize;

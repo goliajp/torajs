@@ -34,6 +34,7 @@ pub mod layout;
 pub mod math;
 pub mod object_is;
 pub mod parse;
+pub mod parse_span;
 pub mod predicates;
 pub mod str_bridge;
 pub mod to_index;
@@ -82,6 +83,7 @@ pub use math::{
 };
 pub use object_is::__torajs_object_is_f64;
 pub use parse::{__torajs_num_parse_float, __torajs_num_parse_int};
+pub use parse_span::__torajs_num_parse_int_span;
 pub use predicates::{
     __torajs_num_is_finite_any, __torajs_num_is_finite_f, __torajs_num_is_finite_i,
     __torajs_num_is_integer_any, __torajs_num_is_integer_f, __torajs_num_is_integer_i,

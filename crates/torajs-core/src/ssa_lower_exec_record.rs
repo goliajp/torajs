@@ -271,6 +271,47 @@ pub(crate) fn try_index(ctx: &mut LowerCtx<'_>, eid: ExprId) -> Option<Operand> 
     Some(Operand::Value(v))
 }
 
+/// `parseInt(m[k], radix)` over a record binding, from `lower_parse_int`
+/// — which both spellings of the callee share, and which only gets the
+/// call once the name is known to still mean the builtin (a module
+/// writing the global never reaches it). The group is parsed in place
+/// from the subject's span:
+/// no Str is cut for it and none is dropped after. Order is the array
+/// lane's: the read and its miss guard, the radix, the extra
+/// arguments. A group that did not participate is the value
+/// `undefined`, so the kernel parses the string `"undefined"` under
+/// the radix given — NaN below radix 31, a number from there on.
+pub(crate) fn try_parse_int(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
+    let (rec, m, k) = record_index(ctx, args[0])?;
+    emit_hit_guard(ctx, m);
+    let (start, end) = load_span(ctx, rec, k);
+    let subject = load_subject(ctx, rec);
+    let radix_undef = args.len() >= 2
+        && matches!(
+            ctx.expr_types.get(&args[1]),
+            Some(crate::check::Type::Undefined)
+        );
+    let r = if args.len() >= 2 && !radix_undef {
+        let raw_r = ctx.lower_expr(args[1]);
+        crate::ssa_lower_parse_int_radix::to_int32(ctx, args[1], raw_r)
+    } else {
+        Operand::ConstI64(0)
+    };
+    for &a in args.iter().skip(2) {
+        let _ = ctx.lower_expr(a);
+    }
+    let v = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.exec_record.num_parse_int_span,
+            vec![subject, start, end, r],
+        ),
+        Type::F64,
+        None,
+    );
+    Some(Operand::Value(v))
+}
+
 fn load_span(ctx: &mut LowerCtx<'_>, rec: ExecRecord, k: u32) -> (Operand, Operand) {
     let at = |ctx: &mut LowerCtx<'_>, off: u64| {
         let v = ctx.f.append_inst(
