@@ -92,8 +92,8 @@ pub(super) fn build_boxed_entry(
     if let Some(rr) = coerce.twin_reroute {
         let base = shifted.unwrap_or(argv);
         entry = emit_twin_reroute(
-            &mut f, entry, intr, rr, env, argv, argc, base, user_tys, dflt_lits, recv_slot,
-            feeds_env,
+            &mut f, entry, intr, &coerce, rr, env, argv, argc, base, user_tys, dflt_lits,
+            recv_slot, feeds_env,
         );
     }
     // A twin on the this-first argv lane: its `__this` is user param

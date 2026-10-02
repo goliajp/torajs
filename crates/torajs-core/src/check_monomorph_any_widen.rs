@@ -29,6 +29,8 @@ use crate::check_monomorph::{
 };
 use crate::ssa_lower_generics_monomorph::Generics;
 
+pub(crate) mod struct_escape;
+
 /// Fixpoint driver — called by `monomorphize_and_check` after its
 /// first generic drain. Every `any_widen_mono_sites` entry ends up in
 /// `call_retargets` (the admit gate guarantees a clonable FnDecl).
@@ -47,6 +49,15 @@ pub(crate) fn run(
     // function expressions reading `new.target`, same post-check clone
     // lane as the widened bodies below.
     crate::check_monomorph_ctor_face::run(c, owned_ast, generics, cache, worklist, call_retargets);
+    struct_escape::run(
+        c,
+        owned_ast,
+        generics,
+        cache,
+        worklist,
+        call_retargets,
+        mono_decls,
+    );
     loop {
         while let Some(item) = worklist.pop_front() {
             process_one_generic(
@@ -180,11 +191,26 @@ fn escape_widen_one(
             &mono_name,
             "$$anywv",
             &idxs,
-            true,
+            RetFace::EraseTypeVar,
         );
     }
     call_retargets.insert(init_eid, mono_name);
     true
+}
+
+/// What a clone's return face becomes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RetFace {
+    /// The declared return: widening a param says nothing about what
+    /// the fn hands back (a call-site clone).
+    Declared,
+    /// A TypeVar return erases to `any` — the value-escape clone has
+    /// no type params left to bind it to.
+    EraseTypeVar,
+    /// `any`: the body re-types under `any` params, so what it hands
+    /// back is whatever it computed, not a cast of it to the declared
+    /// type (`struct_escape`).
+    Any,
 }
 
 /// What a widened param slot becomes: the array channel rewrites
@@ -285,7 +311,7 @@ fn widen_one(
             &mono_name,
             &suffix,
             &idxs,
-            false,
+            RetFace::Declared,
         );
     }
     call_retargets.insert(call_eid, mono_name);
@@ -294,15 +320,10 @@ fn widen_one(
 
 /// Materialize the widened specialization: deep-clone the original
 /// decl's body (fresh ExprIds), rewrite each widened param's ann to
-/// its own target (`any[]` / `any`), register the signature, clone
-/// referenced lifted closures, check the body (diagnostics suppressed
-/// — same waterline stance as the generic channel), and seed whatever
-/// the check recorded.
-///
-/// `erase_typevar_return` belongs to the value-escape channel alone:
-/// that clone has no type params left to bind a TypeVar return to.
-/// A call-site clone keeps its declared return — widening a param
-/// says nothing about what the fn hands back.
+/// its own target (`any[]` / `any`) and the return per `ret`,
+/// register the signature, clone referenced lifted closures, check
+/// the body (diagnostics suppressed — same waterline stance as the
+/// generic channel), and seed whatever the check recorded.
 #[allow(clippy::too_many_arguments)]
 fn emit_widened_spec(
     c: &mut Checker,
@@ -316,7 +337,7 @@ fn emit_widened_spec(
     mono_name: &str,
     suffix: &str,
     idxs: &[(usize, WidenTarget)],
-    erase_typevar_return: bool,
+    ret: RetFace,
 ) {
     let Some((params, return_type, body)) = owned_ast.stmts.iter().find_map(|s| match s {
         Stmt::FnDecl {
@@ -359,12 +380,12 @@ fn emit_widened_spec(
     }
     // Value-escape clone: a TypeVar return ANN (the AST-side `__T`)
     // erases to `any` too — the spec has no type params to bind it.
-    let new_return_type = match &new_return_type {
-        Some(rt)
-            if erase_typevar_return
-                && c.generic_type_params
-                    .get(fn_name)
-                    .is_some_and(|tvs| tvs.contains(rt)) =>
+    let new_return_type = match (&new_return_type, ret) {
+        (_, RetFace::Any) => Some("any".to_string()),
+        (Some(rt), RetFace::EraseTypeVar)
+            if c.generic_type_params
+                .get(fn_name)
+                .is_some_and(|tvs| tvs.contains(rt)) =>
         {
             Some("any".to_string())
         }
@@ -380,10 +401,10 @@ fn emit_widened_spec(
         // The value-escape channel also erases a TypeVar RETURN (the
         // clone's body re-infers under any params; a leftover TypeVar
         // face would re-reject the binding's call).
-        let rty = if erase_typevar_return && matches!(*rty, Type::TypeVar(_)) {
-            Box::new(Type::Any)
-        } else {
-            rty
+        let rty = match ret {
+            RetFace::Any => Box::new(Type::Any),
+            RetFace::EraseTypeVar if matches!(*rty, Type::TypeVar(_)) => Box::new(Type::Any),
+            _ => rty,
         };
         c.globals
             .insert(mono_name.to_string(), Type::Function(spec_ptys, rty));

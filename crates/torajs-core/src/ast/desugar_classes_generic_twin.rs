@@ -200,13 +200,20 @@ pub(in crate::ast) fn mint_static_generic_twin(
 /// `number` without a default stays out: a method read as a value
 /// already seeds its number parameters F64. A static method has no
 /// such seed (`num_width::method_value` walks `__cm_` bodies only),
-/// so its integer-valued `number` slot is an I64 and counts.
+/// so its integer-valued `number` slot is an I64 and counts. A
+/// struct-typed slot counts too: the mono body reads it through the
+/// layout, which only a fitting struct cell has, and the adapter
+/// sends every other argument — an array, a Proxy, a `3` — to the
+/// twin, where `p.x` is the generic [[Get]] (§13.3.2.1).
 fn has_lossy_param(ast: &Ast, params: &[Param], is_static: bool) -> bool {
     params.iter().any(|p| match p.default {
         None => match p.type_ann.as_deref() {
             Some("boolean" | "i64" | "i32") => true,
             Some("number") => is_static,
-            _ => false,
+            // the receiver head carries the class's own annotation
+            // and is the mono adapter's env, not an argv slot
+            Some(ann) => p.name != "__this" && !p.is_rest && struct_ann(ast, ann),
+            None => false,
         },
         // a default that reads `arguments` stays on the direct lane:
         // the adapter's argv carries the declared arity only, so the
@@ -216,6 +223,23 @@ fn has_lossy_param(ast: &Ast, params: &[Param], is_static: bool) -> bool {
                 && !super::desugar_async_nested_fns::expr_names_arguments(ast, d)
         }
     })
+}
+
+/// A struct-shaped annotation as the desugar sees it: an inline
+/// object type, a class (hoisted into `class_parents` ahead of this
+/// pass), or a field-bearing non-generic type alias. A generic
+/// instantiation (`Pair<number, string>`) and an alias of another
+/// name are not recognized here and keep the mono dispatch.
+fn struct_ann(ast: &Ast, ann: &str) -> bool {
+    let ann = ann.trim();
+    ann.starts_with('{')
+        || ast.class_parents.contains_key(ann)
+        || ast.stmts.iter().any(|s| {
+            matches!(s, Stmt::TypeDecl { name, type_params, fields }
+                if name == ann
+                    && type_params.is_empty()
+                    && fields.first().is_none_or(|(k, _)| *k != "__alias__"))
+        })
 }
 
 /// Point every cloned counterpart of a static-`this` site at the

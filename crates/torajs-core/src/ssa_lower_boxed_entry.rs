@@ -155,6 +155,13 @@ pub(crate) fn synthesize_boxed_entries(
         &[Type::Any, Type::I64],
         Type::Any,
     );
+    let struct_fits = crate::ssa_lower_synthesize_main::declare_intrinsic(
+        module,
+        fn_table,
+        "__torajs_anyv_struct_fits",
+        &[Type::Any, Type::I64],
+        Type::I64,
+    );
     let anyv_rc_dec = crate::ssa_lower_synthesize_main::declare_intrinsic(
         module,
         fn_table,
@@ -178,8 +185,8 @@ pub(crate) fn synthesize_boxed_entries(
     // it too; a second lazy declare here would push a same-named
     // duplicate declaration into the module).
     let anyv_or_default = intr.anyv_or_default;
-    // A mono adapter that hands an under-supplied call to its twin
-    // names the twin's adapter, so the twins build first.
+    // A mono adapter that hands a non-fitting call to its twin names
+    // the twin's adapter, so the twins build first.
     let invoke_recv_first = crate::ssa_lower_synthesize_main::declare_intrinsic(
         module,
         fn_table,
@@ -187,7 +194,9 @@ pub(crate) fn synthesize_boxed_entries(
         &[Type::Ptr, Type::I64, Type::Any, Type::Ptr, Type::I64],
         Type::Any,
     );
-    let (twins, monos): (Vec<_>, Vec<_>) = targets.into_iter().partition(|t| is_twin_name(&t.name));
+    let (twins, monos): (Vec<_>, Vec<_>) = targets.into_iter().partition(|t| {
+        is_twin_name(&t.name) || crate::check_monomorph_any_widen::struct_escape::is_twin(&t.name)
+    });
     for t in twins.into_iter().chain(monos) {
         let twin_reroute = twin_adapter_of(ast, fn_table, &entries, &t.name).filter(|_| {
             t.user_tys
@@ -195,6 +204,7 @@ pub(crate) fn synthesize_boxed_entries(
                 .enumerate()
                 .any(|(i, ty)| lossy_slot(*ty, t.dflt_lits.get(i).and_then(|d| d.as_ref())))
         });
+        let same_face = crate::ast::is_shell(&t.name);
         let obj_tags: Vec<Option<u32>> = t
             .user_tys
             .iter()
@@ -212,6 +222,7 @@ pub(crate) fn synthesize_boxed_entries(
             anyv_to_str,
             BoxedCoerceIntrinsics {
                 arg_to_struct,
+                struct_fits,
                 anyv_rc_dec,
                 anyv_or_default,
                 obj_tags: &obj_tags,
@@ -219,6 +230,7 @@ pub(crate) fn synthesize_boxed_entries(
                     adapter,
                     sig,
                     invoke: invoke_recv_first,
+                    same_face,
                 }),
             },
             &t.name,
@@ -246,28 +258,36 @@ fn is_twin_name(name: &str) -> bool {
     name.starts_with("__cmany_") || name.starts_with("__smany_") || name.starts_with("__ctorany_")
 }
 
-/// The boxed adapter of the receiver-polymorphic twin minted beside
-/// the mono `name` (`__cm_` / `__sm_`, a `$$` specialization looked up
-/// by its base), when both the twin and its adapter exist.
+/// The boxed adapter of the all-`any` twin minted beside the mono
+/// `name`: the receiver-polymorphic twin of a `__cm_` / `__sm_`
+/// method (a `$$` specialization looked up by its base), or the
+/// all-`any` relay shell behind a struct-parameter value escape
+/// (`check_monomorph_any_widen::struct_escape`), when both the twin
+/// and its adapter exist.
 pub(crate) fn twin_adapter_of(
     ast: &Ast,
     fn_table: &HashMap<String, FuncId>,
     entries: &HashMap<FuncId, (FuncId, ssa::SigId)>,
     name: &str,
 ) -> Option<(FuncId, ssa::SigId)> {
-    let table = if name.starts_with("__cm_") {
-        &ast.cmany_twins
-    } else if name.starts_with("__sm_") {
-        &ast.smany_twins
+    use crate::check_monomorph_any_widen::struct_escape;
+    let fid = if crate::ast::is_shell(name) {
+        *fn_table.get(&struct_escape::twin_name(name))?
     } else {
-        return None;
+        let table = if name.starts_with("__cm_") {
+            &ast.cmany_twins
+        } else if name.starts_with("__sm_") {
+            &ast.smany_twins
+        } else {
+            return None;
+        };
+        let base = name.split_once("$$").map_or(name, |(b, _)| b);
+        let twin = table.get(base)?;
+        *fn_table
+            .get(twin.as_str())
+            .or_else(|| fn_table.get(format!("{twin}$$anywv").as_str()))?
     };
-    let base = name.split_once("$$").map_or(name, |(b, _)| b);
-    let twin = table.get(base)?;
-    let fid = fn_table
-        .get(twin.as_str())
-        .or_else(|| fn_table.get(format!("{twin}$$anywv").as_str()))?;
-    entries.get(fid).copied()
+    entries.get(&fid).copied()
 }
 
 mod admit;

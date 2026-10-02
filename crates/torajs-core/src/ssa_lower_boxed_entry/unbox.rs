@@ -14,14 +14,18 @@ use crate::ssa::{self, FuncId, InstKind, Operand, Type};
 /// class_tag (`Some` only for `Type::Obj` params).
 pub(super) struct BoxedCoerceIntrinsics<'a> {
     pub(super) arg_to_struct: FuncId,
+    /// `__torajs_anyv_struct_fits(v, class_tag) -> i64` — the mono
+    /// adapter's struct-slot test ahead of its unboxes
+    /// (`build_reroute`).
+    pub(super) struct_fits: FuncId,
     pub(super) anyv_rc_dec: FuncId,
     /// S2.39 — `__torajs_anyv_or_default(v, tag, bits)`: the
     /// literal-default substitution kernel.
     pub(super) anyv_or_default: FuncId,
     pub(super) obj_tags: &'a [Option<u32>],
-    /// The twin adapter an under-supplied boolean / integer slot
-    /// hands the call to (`build_reroute`); `None` = no lossy slot,
-    /// or no twin to hand it to.
+    /// The twin adapter an under-supplied boolean / integer slot or
+    /// a non-fitting struct slot hands the call to (`build_reroute`);
+    /// `None` = no lossy slot, or no twin to hand it to.
     pub(super) twin_reroute: Option<super::build_reroute::TwinReroute>,
 }
 

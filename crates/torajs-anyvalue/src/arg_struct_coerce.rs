@@ -45,6 +45,16 @@
 //! The adapter releases the answer after the body call with
 //! `__torajs_anyv_rc_dec` — balancing the stake / freeing the fresh
 //! cell through the universal heap drop (per-field walk).
+//!
+//! An adapter whose function has an all-`any` twin asks
+//! [`__torajs_anyv_struct_fits`] first and hands the whole call to
+//! the twin when a struct slot's argument does not fit: there the
+//! parameter is read through the generic [[Get]] (§13.3.2.1), which
+//! is what an array, a Proxy, a getter-bearing literal or a `3`
+//! means for `p.x`, and the argument keeps its identity (§10.2.1.3).
+//! The materializing arm above then only serves the targets no twin
+//! reaches (a nested closure escaping through `any`, a receiver or
+//! argv channel).
 
 use core::ffi::c_void;
 
@@ -165,6 +175,34 @@ pub unsafe extern "C" fn __torajs_anyv_arg_to_struct(av: AnyValue, class_tag: u3
             (cell.add(info.field_byte_offset as usize) as *mut u64).write(slot);
         }
         crate::nanbox_encode::__torajs_anyv_box_from_pair(ANY_HEAP as i64, cell as i64)
+    }
+}
+
+/// Does `av` fit a struct slot of `class_tag` as it is — a `Tag::Obj`
+/// cell of that class, or of a class whose layout extends it field
+/// for field (see [`cell_fits`])? 1 when it does; 0 for a non-cell, a
+/// dynobj, a struct of another layout and every other heap cell. The
+/// boxed adapter branches on it ahead of its unboxes: a 0 sends the
+/// call to the function's all-`any` twin instead of through the
+/// coercion above.
+///
+/// # Safety
+/// `av`, when a cell, points at a live heap cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_struct_fits(av: AnyValue, class_tag: u32) -> i64 {
+    if !is_cell(av) {
+        return 0;
+    }
+    let p = as_void_ptr(av);
+    unsafe {
+        if (p.cast::<u8>().add(OBJ_TAG_OFF) as *const u16).read() != Tag::Obj as u16 {
+            return 0;
+        }
+        if (p.cast::<u8>().add(OBJ_CLASS_TAG_OFF) as *const u32).read() == class_tag {
+            return 1;
+        }
+        let layout = __torajs_struct_layout_lookup(class_tag);
+        i64::from(!layout.is_null() && cell_fits(p, class_tag, layout))
     }
 }
 

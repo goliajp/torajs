@@ -33,17 +33,17 @@ use std::collections::HashMap;
 /// row through it. Ctor bodies, accessor bodies (their face carries
 /// its own name/length meta), and adapter-less dropouts stay out.
 /// A monomorphized instance's symbol carries a `$$` suffix — the
-/// all-`any` clone is `$$anywv` (`check_monomorph_any_widen`), a
-/// typed instance `$$_<type>`. The ES name is the source spelling,
-/// so the suffix comes off before the row is written: a generic
-/// class's method printed `[Function: get2$$anywv]` and answered
-/// that from `.name`, where bun answers `get2`. Only a real
-/// instance suffix is stripped — a property key may itself contain
-/// `$$` (`class C { "a$$b"() {} }`), and its tail is neither
-/// `anywv` nor `_`-led.
+/// all-`any` clones are `$$anywv` and `$$anyws`
+/// (`check_monomorph_any_widen`), a typed instance `$$_<type>`. The
+/// ES name is the source spelling, so the suffix comes off before
+/// the row is written: a generic class's method printed `[Function:
+/// get2$$anywv]` and answered that from `.name`, where bun answers
+/// `get2`. Only a real instance suffix is stripped — a property key
+/// may itself contain `$$` (`class C { "a$$b"() {} }`), and its tail
+/// is neither of those nor `_`-led.
 pub(crate) fn strip_mono_suffix(name: &str) -> &str {
     match name.rsplit_once("$$") {
-        Some((base, tail)) if tail == "anywv" || tail.starts_with('_') => base,
+        Some((base, tail)) if tail == "anywv" || tail == "anyws" || tail.starts_with('_') => base,
         _ => name,
     }
 }
