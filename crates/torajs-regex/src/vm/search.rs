@@ -353,8 +353,10 @@ fn skips_continuation_byte(s: &[u8], st: i64, flags: u8, haystack_is_ascii: bool
 /// (a program with such an anchor must consume a byte, so there is no
 /// zero-width match at end of input). Rotation 470 —
 /// `first_viable_start` skips starts whose first byte the DFA entry
-/// state has no transition for; it is off whenever the u-flag
-/// code-point guard could fire, since it would step over that guard.
+/// state has no transition for; it runs only without a literal prefix
+/// (the prefix scan already found the start byte), and it is off
+/// whenever the u-flag code-point guard could fire, since it would
+/// step over that guard.
 #[inline(always)]
 pub(crate) fn dfa_find_from<T: Table>(
     prog: &Program,
@@ -372,16 +374,25 @@ pub(crate) fn dfa_find_from<T: Table>(
             if st >= slen {
                 return None;
             }
+            // the memchr already lands on the only byte the entry state
+            // can leave on, so asking `first_viable_start` about it again
+            // would read the same byte a second time to learn nothing
             st += s[st as usize..].iter().position(|&c| c == b)? as i64;
-        } else if st > slen {
-            return None;
-        }
-        if skips_continuation_byte(s, st, flags, haystack_is_ascii) {
-            st += 1;
-            continue;
-        }
-        if can_skip_dead_starts {
-            st = crate::dfa::first_viable_start(t.dfa(), prog, s, st as usize) as i64;
+            if skips_continuation_byte(s, st, flags, haystack_is_ascii) {
+                st += 1;
+                continue;
+            }
+        } else {
+            if st > slen {
+                return None;
+            }
+            if skips_continuation_byte(s, st, flags, haystack_is_ascii) {
+                st += 1;
+                continue;
+            }
+            if can_skip_dead_starts {
+                st = crate::dfa::first_viable_start(t.dfa(), prog, s, st as usize) as i64;
+            }
         }
         if let Some(n) = dfa_probe(t, prog, s, st) {
             return Some((st, st + n as i64));
