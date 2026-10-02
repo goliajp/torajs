@@ -64,7 +64,7 @@ pub unsafe extern "C" fn __torajs_to_index(n: f64) -> i64 {
         Some(i) => i,
         None => {
             unsafe {
-                __torajs_throw_range_error(b"Invalid index\0".as_ptr());
+                __torajs_throw_range_error(c"Invalid index".as_ptr().cast());
             }
             0
         }

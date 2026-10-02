@@ -386,7 +386,7 @@ fn insert_grouping(raw: &[u8]) -> Vec<u8> {
     }
     for (i, &b) in int_part.iter().enumerate() {
         let remaining = n - i;
-        if i > 0 && remaining % 3 == 0 {
+        if i > 0 && remaining.is_multiple_of(3) {
             out.push(b',');
         }
         out.push(b);
@@ -469,6 +469,7 @@ mod tests {
     // ---- to_fixed ----
 
     #[test]
+    #[allow(clippy::approx_constant)] // the 3.14 digits are the input under test, not pi
     fn to_fixed_basic() {
         assert_eq!(to_fixed_f(3.14, 2), b"3.14".to_vec());
         assert_eq!(to_fixed_f(3.14159, 4), b"3.1416".to_vec());
@@ -491,6 +492,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)] // the 3.14 digits are the input under test, not pi
     fn to_fixed_clamps() {
         // digits < 0 → 0 (defensive clamp inside the pure-Rust core;
         // extern wrappers route negatives to RangeError before
@@ -695,7 +697,7 @@ mod tests {
         // 1.0 at precision 100: %f form, 99 digits after decimal —
         // "1." + 99 zeros (JS spec emits the full precision).
         let mut expected = b"1.".to_vec();
-        expected.extend(core::iter::repeat(b'0').take(99));
+        expected.extend(core::iter::repeat_n(b'0', 99));
         assert_eq!(r, expected);
     }
 }

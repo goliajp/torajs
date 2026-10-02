@@ -32,6 +32,7 @@ pub mod format_ffi;
 mod int_digits;
 pub mod layout;
 pub mod math;
+mod math_trig;
 pub mod object_is;
 pub mod parse;
 pub mod parse_span;
@@ -47,6 +48,8 @@ pub mod tostring;
 // test binary still links — torajs-num's unit tests only exercise
 // pure-Rust cores (Vec<u8>-returning fns), never the extern
 // wrappers that allocate Str.
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_alloc_pooled(_len: u64) -> *mut u8 {
@@ -55,6 +58,8 @@ pub unsafe extern "C" fn __torajs_str_alloc_pooled(_len: u64) -> *mut u8 {
     );
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_throw_range_error(_msg: *const u8) {

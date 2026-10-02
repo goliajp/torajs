@@ -24,11 +24,18 @@ unsafe extern "C" {
 /// `digits.clamp(0, 20)` so `(1.5).toFixed(-1)` returned `"2"`
 /// instead of throwing. Throws propagate non-locally via TLS — the
 /// SSA arm calls `emit_throw_check(None)` after every toFixed Call.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_num_to_fixed_f(n: f64, digits: i64) -> *mut u8 {
     if !(0..=100).contains(&digits) {
         unsafe {
-            __torajs_throw_range_error(b"toFixed() argument must be between 0 and 100\0".as_ptr());
+            __torajs_throw_range_error(
+                c"toFixed() argument must be between 0 and 100"
+                    .as_ptr()
+                    .cast(),
+            );
         }
         return alloc_str(b"");
     }
@@ -37,11 +44,18 @@ pub unsafe extern "C" fn __torajs_num_to_fixed_f(n: f64, digits: i64) -> *mut u8
 
 /// `n.toFixed(digits)` for i64 receivers. Same RangeError gate as
 /// the f64 variant.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_num_to_fixed_i(n: i64, digits: i64) -> *mut u8 {
     if !(0..=100).contains(&digits) {
         unsafe {
-            __torajs_throw_range_error(b"toFixed() argument must be between 0 and 100\0".as_ptr());
+            __torajs_throw_range_error(
+                c"toFixed() argument must be between 0 and 100"
+                    .as_ptr()
+                    .cast(),
+            );
         }
         return alloc_str(b"");
     }
@@ -57,6 +71,9 @@ pub unsafe extern "C" fn __torajs_num_to_fixed_i(n: i64, digits: i64) -> *mut u8
 /// `digits < 0` branch. Every other negative / oversized value
 /// reaches the RangeError gate. SSA-side `emit_throw_check(None)`
 /// propagates the pending throw.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_num_to_exp_f(n: f64, digits: i64) -> *mut u8 {
     // ES §21.1.3.3 step 4 — "If x is not finite, return
@@ -71,7 +88,9 @@ pub unsafe extern "C" fn __torajs_num_to_exp_f(n: f64, digits: i64) -> *mut u8 {
     if digits != i64::MIN && !(0..=100).contains(&digits) {
         unsafe {
             __torajs_throw_range_error(
-                b"toExponential() argument must be between 0 and 100\0".as_ptr(),
+                c"toExponential() argument must be between 0 and 100"
+                    .as_ptr()
+                    .cast(),
             );
         }
         return alloc_str(b"");
@@ -81,12 +100,17 @@ pub unsafe extern "C" fn __torajs_num_to_exp_f(n: f64, digits: i64) -> *mut u8 {
 
 /// `n.toExponential(digits)` for i64 receivers. Same RangeError
 /// gate as the f64 variant.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_num_to_exp_i(n: i64, digits: i64) -> *mut u8 {
     if digits != i64::MIN && !(0..=100).contains(&digits) {
         unsafe {
             __torajs_throw_range_error(
-                b"toExponential() argument must be between 0 and 100\0".as_ptr(),
+                c"toExponential() argument must be between 0 and 100"
+                    .as_ptr()
+                    .cast(),
             );
         }
         return alloc_str(b"");
@@ -102,6 +126,9 @@ pub unsafe extern "C" fn __torajs_num_to_exp_i(n: i64, digits: i64) -> *mut u8 {
 /// short-circuits in `ssa_lower.rs` to plain `Number.toString`
 /// before reaching this entry point, so the gate doesn't need a
 /// sentinel carve-out.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_num_to_precision_f(n: f64, digits: i64) -> *mut u8 {
     // ES §21.1.3.5 step 4 — "If x is not finite, return
@@ -115,7 +142,9 @@ pub unsafe extern "C" fn __torajs_num_to_precision_f(n: f64, digits: i64) -> *mu
     if !(1..=100).contains(&digits) {
         unsafe {
             __torajs_throw_range_error(
-                b"toPrecision() argument must be between 1 and 100\0".as_ptr(),
+                c"toPrecision() argument must be between 1 and 100"
+                    .as_ptr()
+                    .cast(),
             );
         }
         return alloc_str(b"");
@@ -125,12 +154,17 @@ pub unsafe extern "C" fn __torajs_num_to_precision_f(n: f64, digits: i64) -> *mu
 
 /// `n.toPrecision(digits)` for i64 receivers. Same RangeError gate
 /// as the f64 variant.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_num_to_precision_i(n: i64, digits: i64) -> *mut u8 {
     if !(1..=100).contains(&digits) {
         unsafe {
             __torajs_throw_range_error(
-                b"toPrecision() argument must be between 1 and 100\0".as_ptr(),
+                c"toPrecision() argument must be between 1 and 100"
+                    .as_ptr()
+                    .cast(),
             );
         }
         return alloc_str(b"");
@@ -139,12 +173,18 @@ pub unsafe extern "C" fn __torajs_num_to_precision_i(n: i64, digits: i64) -> *mu
 }
 
 /// `n.toLocaleString()` en-US default for f64 receivers.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_num_to_locale_f(n: f64) -> *mut u8 {
     alloc_str(&to_locale_f(n))
 }
 
 /// `n.toLocaleString()` en-US default for i64 receivers.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_num_to_locale_i(n: i64) -> *mut u8 {
     alloc_str(&to_locale_i(n))

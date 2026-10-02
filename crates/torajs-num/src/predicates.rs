@@ -24,12 +24,18 @@ const MAX_SAFE_INTEGER_I: i64 = 9_007_199_254_740_991;
 /// `Number.isNaN(n)` for f64 receivers. `true` iff n is NaN.
 /// Distinct from global `isNaN(value)` which coerces non-numbers;
 /// `Number.isNaN` does NOT coerce.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_num_is_nan_f(n: f64) -> i64 {
     if n.is_nan() { 1 } else { 0 }
 }
 
 /// i64 variant — i64 is never NaN, so always `false`.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_num_is_nan_i(_n: i64) -> i64 {
     0
@@ -41,12 +47,18 @@ pub unsafe extern "C" fn __torajs_num_is_nan_i(_n: i64) -> i64 {
 
 /// `Number.isFinite(n)` for f64 receivers. `true` iff n is finite
 /// (not NaN, not ±Infinity).
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_num_is_finite_f(n: f64) -> i64 {
     if n.is_finite() { 1 } else { 0 }
 }
 
 /// i64 variant — i64 is always finite.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_num_is_finite_i(_n: i64) -> i64 {
     1
@@ -58,6 +70,9 @@ pub unsafe extern "C" fn __torajs_num_is_finite_i(_n: i64) -> i64 {
 
 /// `Number.isInteger(n)` for f64 receivers. `true` iff n is finite
 /// AND has no fractional part. ECMA-262 §20.1.2.3.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_num_is_integer_f(n: f64) -> i64 {
     if n.is_finite() && n.floor() == n {
@@ -68,6 +83,9 @@ pub unsafe extern "C" fn __torajs_num_is_integer_f(n: f64) -> i64 {
 }
 
 /// i64 variant — i64 is always an integer.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_num_is_integer_i(_n: i64) -> i64 {
     1
@@ -80,6 +98,9 @@ pub unsafe extern "C" fn __torajs_num_is_integer_i(_n: i64) -> i64 {
 /// `Number.isSafeInteger(n)` for f64 receivers. `true` iff n is an
 /// integer-valued number within `[-(2^53 - 1), 2^53 - 1]`. "Safe"
 /// means a round-trip through f64 preserves the value exactly.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_num_is_safe_integer_f(n: f64) -> i64 {
     if !n.is_finite() {
@@ -88,7 +109,7 @@ pub unsafe extern "C" fn __torajs_num_is_safe_integer_f(n: f64) -> i64 {
     if n.floor() != n {
         return 0;
     }
-    if n >= -MAX_SAFE_INTEGER_F && n <= MAX_SAFE_INTEGER_F {
+    if (-MAX_SAFE_INTEGER_F..=MAX_SAFE_INTEGER_F).contains(&n) {
         1
     } else {
         0
@@ -98,9 +119,12 @@ pub unsafe extern "C" fn __torajs_num_is_safe_integer_f(n: f64) -> i64 {
 /// i64 variant — i64 is always an integer; the only check is range
 /// against [-(2^53 - 1), 2^53 - 1]. i64 outside that range still
 /// "is an integer" but isn't representable lossless in f64.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_num_is_safe_integer_i(n: i64) -> i64 {
-    if n >= -MAX_SAFE_INTEGER_I && n <= MAX_SAFE_INTEGER_I {
+    if (-MAX_SAFE_INTEGER_I..=MAX_SAFE_INTEGER_I).contains(&n) {
         1
     } else {
         0
@@ -125,6 +149,9 @@ const ANY_I64: i64 = 2;
 const ANY_F64: i64 = 3;
 
 /// `Number.isNaN(any)` — tag-dispatch on the AnyValue (tag, val) pair.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_num_is_nan_any(tag: i64, val: i64) -> i64 {
     match tag {
@@ -134,6 +161,9 @@ pub unsafe extern "C" fn __torajs_num_is_nan_any(tag: i64, val: i64) -> i64 {
 }
 
 /// `Number.isFinite(any)` — tag-dispatch on the AnyValue (tag, val) pair.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_num_is_finite_any(tag: i64, val: i64) -> i64 {
     match tag {
@@ -144,6 +174,9 @@ pub unsafe extern "C" fn __torajs_num_is_finite_any(tag: i64, val: i64) -> i64 {
 }
 
 /// `Number.isInteger(any)` — tag-dispatch on the AnyValue (tag, val) pair.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_num_is_integer_any(tag: i64, val: i64) -> i64 {
     match tag {
@@ -154,6 +187,9 @@ pub unsafe extern "C" fn __torajs_num_is_integer_any(tag: i64, val: i64) -> i64 
 }
 
 /// `Number.isSafeInteger(any)` — tag-dispatch on the AnyValue (tag, val) pair.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_num_is_safe_integer_any(tag: i64, val: i64) -> i64 {
     match tag {

@@ -388,6 +388,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)] // the 3.14 digits are the input under test, not pi
     fn parse_float_basic() {
         assert_eq!(parse_float(b"3.14"), 3.14);
         assert_eq!(parse_float(b"  3.14  "), 3.14);
@@ -399,6 +400,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)] // the 3.14 digits are the input under test, not pi
     fn parse_float_partial_prefix() {
         assert_eq!(parse_float(b"3.14xyz"), 3.14);
         assert_eq!(parse_float(b"42abc"), 42.0);
@@ -437,6 +439,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)] // the 3.14 digits are the input under test, not pi
     fn parse_float_long_input_no_truncation() {
         // C version capped at 64 bytes; Rust version handles arbitrary.
         // 1234567890.0987654321 × 1e5 ≈ 1.23456789009876544e+14

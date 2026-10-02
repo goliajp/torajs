@@ -104,7 +104,7 @@ pub fn to_string_radix_f(d: f64, radix: i64) -> Vec<u8> {
     if frac > 0.0 {
         let next_d = f64::from_bits(abs_d.to_bits() + 1);
         let mut delta = (next_d - abs_d) * 0.5;
-        if !(delta > 0.0) {
+        if delta <= 0.0 || delta.is_nan() {
             delta = f64::MIN_POSITIVE;
         }
         loop {
@@ -116,11 +116,9 @@ pub fn to_string_radix_f(d: f64, radix: i64) -> Vec<u8> {
             frac -= digit_d;
 
             // Round-up check: banker's tie-break + over-boundary carry.
-            if frac > 0.5 || (frac == 0.5 && (digit & 1) != 0) {
-                if frac + delta > 1.0 {
-                    carry_propagate(&mut frac_buf, &mut int_buf, radix_u);
-                    break;
-                }
+            if (frac > 0.5 || (frac == 0.5 && (digit & 1) != 0)) && frac + delta > 1.0 {
+                carry_propagate(&mut frac_buf, &mut int_buf, radix_u);
+                break;
             }
             if frac <= delta || frac_buf.len() >= 1100 {
                 break;
@@ -143,7 +141,7 @@ pub fn to_string_radix_f(d: f64, radix: i64) -> Vec<u8> {
 /// Propagate a +1 carry through the fractional digit buffer right-to-left;
 /// if it overflows past the radix point, propagate further through the
 /// integer buffer; if it overflows past that, prepend `'1'`.
-fn carry_propagate(frac_buf: &mut Vec<u8>, int_buf: &mut Vec<u8>, radix: usize) {
+fn carry_propagate(frac_buf: &mut [u8], int_buf: &mut Vec<u8>, radix: usize) {
     let radix_u8 = radix as u8;
     for i in (0..frac_buf.len()).rev() {
         let c = frac_buf[i];
@@ -186,12 +184,17 @@ fn carry_propagate(frac_buf: &mut Vec<u8>, int_buf: &mut Vec<u8>, radix: usize) 
 /// `RangeError`. Pre-fix the pure-Rust core silently clamped via
 /// `.clamp(2, 36)` so `(10).toString(1)` returned `"10"`. SSA-side
 /// `emit_throw_check(None)` propagates the pending throw.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_num_to_string_radix_i(n: i64, radix: i64) -> *mut u8 {
     if !(2..=36).contains(&radix) {
         unsafe {
             __torajs_throw_range_error(
-                b"toString() radix argument must be between 2 and 36\0".as_ptr(),
+                c"toString() radix argument must be between 2 and 36"
+                    .as_ptr()
+                    .cast(),
             );
         }
         return alloc_str(b"");
@@ -202,12 +205,17 @@ pub unsafe extern "C" fn __torajs_num_to_string_radix_i(n: i64, radix: i64) -> *
 
 /// `n.toString(radix)` for f64 receivers. NaN / ±Infinity preserved.
 /// Same RangeError gate as the i64 variant.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_num_to_string_radix_f(d: f64, radix: i64) -> *mut u8 {
     if !(2..=36).contains(&radix) {
         unsafe {
             __torajs_throw_range_error(
-                b"toString() radix argument must be between 2 and 36\0".as_ptr(),
+                c"toString() radix argument must be between 2 and 36"
+                    .as_ptr()
+                    .cast(),
             );
         }
         return alloc_str(b"");

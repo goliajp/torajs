@@ -53,18 +53,26 @@
 // Unary — f64 → f64
 // ============================================================
 
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_sqrt(x: f64) -> f64 {
     x.sqrt()
 }
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_abs(x: f64) -> f64 {
     x.abs()
 }
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_floor(x: f64) -> f64 {
     x.floor()
 }
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_ceil(x: f64) -> f64 {
     x.ceil()
@@ -83,6 +91,9 @@ pub unsafe extern "C" fn __torajs_math_ceil(x: f64) -> f64 {
 /// dropping the sign bit. Spec requires the sign of the half-zero
 /// rounding to follow the input (Math.round(-0.3) === -0 via
 /// Object.is). bun matches the spec; pre-fix tr produced +0.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_round(x: f64) -> f64 {
     // Preserve signed-zero edge: Math.round(-0) === -0 per spec
@@ -95,101 +106,78 @@ pub unsafe extern "C" fn __torajs_math_round(x: f64) -> f64 {
     }
     // ES §20.2.2.28 — x in (-0.5, 0) returns -0, not the +0 that
     // `floor(x + 0.5)` would produce.
-    if x < 0.0 && x >= -0.5 {
+    if (-0.5..0.0).contains(&x) {
         return -0.0;
     }
     (x + 0.5).floor()
 }
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_trunc(x: f64) -> f64 {
     x.trunc()
 }
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_cbrt(x: f64) -> f64 {
     torajs_math::cbrt(x)
 }
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_exp(x: f64) -> f64 {
     torajs_math::exp(x)
 }
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_expm1(x: f64) -> f64 {
     torajs_math::expm1(x)
 }
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_log(x: f64) -> f64 {
     torajs_math::log(x)
 }
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_log2(x: f64) -> f64 {
     torajs_math::log2(x)
 }
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_log10(x: f64) -> f64 {
     torajs_math::log10(x)
 }
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_log1p(x: f64) -> f64 {
     torajs_math::log1p(x)
 }
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_math_sin(x: f64) -> f64 {
-    torajs_math::sin(x)
-}
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_math_cos(x: f64) -> f64 {
-    torajs_math::cos(x)
-}
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_math_tan(x: f64) -> f64 {
-    torajs_math::tan(x)
-}
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_math_asin(x: f64) -> f64 {
-    torajs_math::asin(x)
-}
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_math_acos(x: f64) -> f64 {
-    torajs_math::acos(x)
-}
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_math_atan(x: f64) -> f64 {
-    torajs_math::atan(x)
-}
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_math_sinh(x: f64) -> f64 {
-    torajs_math::sinh(x)
-}
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_math_cosh(x: f64) -> f64 {
-    torajs_math::cosh(x)
-}
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_math_tanh(x: f64) -> f64 {
-    torajs_math::tanh(x)
-}
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_math_asinh(x: f64) -> f64 {
-    torajs_math::asinh(x)
-}
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_math_acosh(x: f64) -> f64 {
-    torajs_math::acosh(x)
-}
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_math_atanh(x: f64) -> f64 {
-    torajs_math::atanh(x)
-}
+pub use crate::math_trig::{
+    __torajs_math_acos, __torajs_math_acosh, __torajs_math_asin, __torajs_math_asinh,
+    __torajs_math_atan, __torajs_math_atanh, __torajs_math_cos, __torajs_math_cosh,
+    __torajs_math_sin, __torajs_math_sinh, __torajs_math_tan, __torajs_math_tanh,
+};
 
 // ============================================================
 // Binary — f64 × f64 → f64
 // ============================================================
 
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_pow(x: f64, y: f64) -> f64 {
     torajs_math::pow(x, y)
 }
 
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_min(x: f64, y: f64) -> f64 {
     // ES §20.2.2.25: if any arg is NaN, the result is NaN. Rust's
@@ -201,6 +189,8 @@ pub unsafe extern "C" fn __torajs_math_min(x: f64, y: f64) -> f64 {
     x.min(y)
 }
 
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_max(x: f64, y: f64) -> f64 {
     // ES §20.2.2.24: if any arg is NaN, the result is NaN. Rust's
@@ -214,6 +204,9 @@ pub unsafe extern "C" fn __torajs_math_max(x: f64, y: f64) -> f64 {
 
 /// **Arg order**: ES `Math.atan2(y, x)` — i.e. `y` is first.
 /// Matches `f64::atan2(self=y, other=x)` Rust convention.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_atan2(y: f64, x: f64) -> f64 {
     torajs_math::atan2(y, x)
@@ -224,6 +217,9 @@ pub unsafe extern "C" fn __torajs_math_atan2(y: f64, x: f64) -> f64 {
 /// the C runtime had its own implementation. Rust `f64::signum`
 /// returns `1.0` for `+0.0` and `-1.0` for `-0.0` (wrong); we
 /// preserve the JS spec form: zero (any sign) returns itself.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_sign(x: f64) -> f64 {
     if x > 0.0 {
@@ -294,6 +290,9 @@ fn seed_rng_state() -> (u64, u64) {
 ///
 /// JS spec wording is "implementation-defined" so the seed choice
 /// is conformant; only the [0, 1) range is mandatory.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_random() -> f64 {
     let p = &raw mut RNG_STATE;
@@ -313,6 +312,9 @@ pub unsafe extern "C" fn __torajs_math_random() -> f64 {
 
 /// `Math.imul(a, b)` — 32-bit signed integer multiplication, low 32
 /// bits, sign-extended. ES spec form.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_imul(a: i64, b: i64) -> i64 {
     let r = (a as i32).wrapping_mul(b as i32);
@@ -324,6 +326,9 @@ pub unsafe extern "C" fn __torajs_math_imul(a: i64, b: i64) -> i64 {
 /// already handles this case natively — no special branch needed
 /// vs the pre-port C version that had to guard against
 /// `__builtin_clz(0)` being UB).
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_clz32(x: i64) -> i64 {
     let v = x as i32 as u32;
@@ -331,6 +336,9 @@ pub unsafe extern "C" fn __torajs_math_clz32(x: i64) -> i64 {
 }
 
 /// `Math.fround(x)` — round x to the nearest f32 then back to f64.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_fround(x: f64) -> f64 {
     x as f32 as f64
@@ -345,6 +353,9 @@ pub unsafe extern "C" fn __torajs_math_fround(x: f64) -> f64 {
 /// `#[feature(f16)]` is the only zero-LOC path), and torajs-num's
 /// runtime crate has a 0-external-dep policy, so the conversion is
 /// open-coded against the IEEE-754 binary32 layout.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_f16round(x: f64) -> f64 {
     let f32_val = x as f32;

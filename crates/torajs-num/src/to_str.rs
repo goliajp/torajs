@@ -44,7 +44,7 @@ unsafe extern "C" {
 /// v0.7-A4 Step 15-d: delegated to `__torajs_fmt_dtoa` in
 /// torajs-fmt (0-libc; core::fmt's Grisu3 + JS-spec post-process).
 /// Replaces the prior libc `snprintf` %.*g try-precisions loop
-/// + `strtod` round-trip verifier with a single shortest-by-
+/// and `strtod` round-trip verifier with a single shortest-by-
 /// construction call.
 pub fn f64_shortest(d: f64, buf: &mut [u8]) -> i32 {
     unsafe { __torajs_fmt_dtoa(d, buf.as_mut_ptr(), buf.len()) }
@@ -61,6 +61,9 @@ pub fn f64_shortest(d: f64, buf: &mut [u8]) -> i32 {
 /// `core::fmt` too. The digits were never the cost — `Formatter`
 /// and `pad_integral` around them were. `torajs_fmt::itoa` writes
 /// the same bytes with neither.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_i64_to_str(n: i64) -> *mut u8 {
     use torajs_fmt::itoa::{ITOA_BUF_LEN, itoa_into};
@@ -125,6 +128,9 @@ pub unsafe extern "C" fn __torajs_f64_js_digits(d: f64, out: *mut u8) -> i64 {
 
 /// `String(d)` for f64. NaN / ±Infinity → spec strings. `-0` →
 /// `"0"` (sign stripped). Digits via [`__torajs_f64_js_digits`].
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_f64_to_str(d: f64) -> *mut u8 {
     let mut buf = [0u8; 32];
@@ -133,6 +139,9 @@ pub unsafe extern "C" fn __torajs_f64_to_str(d: f64) -> *mut u8 {
 }
 
 /// `String(b)` for booleans. 1 → "true", 0 → "false".
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_bool_to_str(b: i32) -> *mut u8 {
     if b != 0 {
@@ -147,6 +156,9 @@ pub unsafe extern "C" fn __torajs_bool_to_str(b: i32) -> *mut u8 {
 /// `__torajs_io_putc_out` (shared 0-libc buffered writer with
 /// `print_i64` / `print_bool` / `str_print` and IR-emitted print
 /// family). NaN / ±Infinity special-cased.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_print_f64_js(d: f64) {
     unsafe {
@@ -158,6 +170,9 @@ pub unsafe extern "C" fn __torajs_print_f64_js(d: f64) {
 /// [`__torajs_print_f64_js`] without the newline — one argument of a
 /// multi-arg `console.log` (r505; the lowering writes the separators
 /// and the line end).
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_print_f64_js_inline(d: f64) {
     let special: Option<&[u8]> = if d.is_nan() {

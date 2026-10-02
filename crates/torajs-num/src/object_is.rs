@@ -7,6 +7,9 @@
 
 /// `Object.is(a, b)` for two f64 arguments. Returns 1 on
 /// SameValue-equal, 0 otherwise.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_object_is_f64(a: f64, b: f64) -> i64 {
     if a.is_nan() && b.is_nan() {
