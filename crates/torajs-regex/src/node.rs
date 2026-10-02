@@ -28,6 +28,10 @@ pub enum NodeKind {
     NWBound,
     Concat,
     Alt,
+    /// The multi-cp strings of a v-mode class — `kids` are `Concat`s
+    /// of `Char` (each ≥ 2 cp); lowered as one shared-prefix trie by
+    /// [`crate::string_trie`].
+    StringSet,
     Repeat,
     /// Group — either capturing (`capture_idx >= 1`) or non-capturing
     /// `(?:...)` (`capture_idx == -1`).

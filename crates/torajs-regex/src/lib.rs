@@ -65,6 +65,7 @@ pub mod program;
 pub mod regex;
 pub mod resolve;
 pub mod search_anchors;
+pub mod string_trie;
 pub mod ucd;
 pub mod ucd_emoji_seq;
 pub mod ucd_tables;

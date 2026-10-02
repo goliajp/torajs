@@ -19,6 +19,7 @@
 use crate::node::{Node, NodeKind};
 use crate::parser::unicode_mode;
 use crate::program::{Inst, Op, Program};
+use crate::string_trie::compile_string_set;
 use crate::utf8::utf8_encode_cp;
 use crate::utf8_class_expand::expand_unsafe_class;
 use alloc::{boxed::Box, vec::Vec};
@@ -125,6 +126,7 @@ fn compile_dir(prog: &mut Program, node: &Node, flags: u8, rev: bool) {
             }
         }
         NodeKind::Alt => compile_alt(prog, node, flags, rev),
+        NodeKind::StringSet => compile_string_set(prog, node, rev),
         NodeKind::Repeat => compile_repeat(prog, node, flags, rev),
         NodeKind::Group => compile_group(prog, node, flags, rev),
         NodeKind::Backref => {

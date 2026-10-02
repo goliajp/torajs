@@ -25,10 +25,10 @@
 //! A class whose value may contain strings cannot be complemented
 //! (`[^…\q{ab}]` / `[^…]` over a strings-carrying nested class is
 //! the spec's MayContainStrings early error). Classes with strings
-//! desugar at parse time into an [`Alt`](NodeKind::Alt): string
-//! alternatives sorted by descending length (leftmost-first Pike
-//! priority == leftmost-longest string preference, matching the
-//! DFA), then the cp-set class, then the empty string if present.
+//! desugar at parse time into an [`Alt`](NodeKind::Alt): one
+//! [`StringSet`](NodeKind::StringSet) holding every multi-cp string
+//! (lowered as a shared-prefix trie, longer strings before their
+//! prefixes), then the cp-set class, then the empty string if present.
 
 use super::class_v_set::{
     ClassSetV, class_to_set, fold_set_into_class, is_class_set_syntax_char,
@@ -96,17 +96,16 @@ impl<'p> Parser<'p> {
         if set.strings.is_empty() {
             return class_node;
         }
-        // Descending length: longer strings win over shorter ones and
-        // over single-cp class matches (Pike leftmost-first == the
-        // spec's longest-string preference; the DFA is longest-match
-        // by construction). Equal lengths are mutually exclusive so
-        // their relative order is free.
-        let mut strings: Vec<&Vec<u32>> = set.strings.iter().collect();
-        strings.sort_by_key(|s| core::cmp::Reverse(s.len()));
+        // Spec order (§22.2.2.7 CompileAtom): the multi-cp strings
+        // by descending length, then the single-cp class, then the
+        // empty string. The strings go into one StringSet whose trie
+        // lowering keeps the length order among prefix pairs.
         let mut alt = Node::new(NodeKind::Alt);
         alt.eff_ims = self.eff_ims;
+        let mut strings = Node::new(NodeKind::StringSet);
+        strings.eff_ims = self.eff_ims;
         let mut saw_empty = false;
-        for s in strings {
+        for s in &set.strings {
             if s.is_empty() {
                 saw_empty = true;
                 continue;
@@ -119,7 +118,10 @@ impl<'p> Parser<'p> {
                 ch.eff_ims = self.eff_ims;
                 concat.push_kid(ch);
             }
-            alt.push_kid(concat);
+            strings.push_kid(concat);
+        }
+        if !strings.kids.is_empty() {
+            alt.push_kid(strings);
         }
         if !set.cps.is_empty() {
             alt.push_kid(class_node);
@@ -601,12 +603,12 @@ mod tests {
         let r = parse_ok("[\\q{ab|c|xyz}]");
         let alt = &r.kids[0];
         assert_eq!(alt.kind, NodeKind::Alt);
-        // xyz (3) before ab (2) before the cp class holding 'c'.
-        assert_eq!(alt.kids.len(), 3);
-        assert_eq!(alt.kids[0].kids.len(), 3);
-        assert_eq!(alt.kids[1].kids.len(), 2);
-        assert_eq!(alt.kids[2].kind, NodeKind::Class);
-        assert!(alt.kids[2].cc.test_cp('c' as i32));
+        // One StringSet over {ab, xyz}, then the cp class holding 'c'.
+        assert_eq!(alt.kids.len(), 2);
+        assert_eq!(alt.kids[0].kind, NodeKind::StringSet);
+        assert_eq!(alt.kids[0].kids.len(), 2);
+        assert_eq!(alt.kids[1].kind, NodeKind::Class);
+        assert!(alt.kids[1].cc.test_cp('c' as i32));
 
         // Empty alternative → trailing epsilon Concat branch.
         let r = parse_ok("[\\q{ab|}]");
@@ -630,18 +632,15 @@ mod tests {
         // [\q{ab|cd}&&\q{cd|ef}] → only "cd" survives.
         let r = parse_set("[\\q{ab|cd}&&\\q{cd|ef}]");
         let n = &r.kids[0];
-        assert_eq!(
-            n.kind,
-            NodeKind::Concat,
-            "single string folds to its Concat"
-        );
-        assert_eq!(n.kids.len(), 2);
-        assert_eq!(n.kids[0].ch, u32::from(b'c'));
+        assert_eq!(n.kind, NodeKind::StringSet);
+        assert_eq!(n.kids.len(), 1);
+        assert_eq!(n.kids[0].kids[0].ch, u32::from(b'c'));
         // [\q{ab|cd}--\q{cd}] → only "ab".
         let r = parse_set("[\\q{ab|cd}--\\q{cd}]");
         let n = &r.kids[0];
-        assert_eq!(n.kind, NodeKind::Concat);
-        assert_eq!(n.kids[0].ch, u32::from(b'a'));
+        assert_eq!(n.kind, NodeKind::StringSet);
+        assert_eq!(n.kids.len(), 1);
+        assert_eq!(n.kids[0].kids[0].ch, u32::from(b'a'));
         // cps and strings mix: union keeps both sides.
         let r = parse_set("[[0-9]\\q{ab}]");
         let alt = &r.kids[0];
