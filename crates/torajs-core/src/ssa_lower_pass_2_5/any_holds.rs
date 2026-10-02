@@ -15,11 +15,17 @@
 //! of a function whose address is taken — by an instruction, or by a
 //! method table, a vtable or the fn-name registry, which the runtime
 //! calls through — or that no call in the module reaches, holds
-//! anything.
+//! anything. A boxed adapter nothing references is never entered: the
+//! runtime reaches an adapter only through an address stored for it,
+//! so what such a body hands on reaches nobody ([`dead_adapters`]).
 
 use std::collections::{HashMap, HashSet};
 
 use crate::ssa::{FuncId, Function, InstKind, Module, Operand, StructId, Type, ValueId};
+
+mod reach;
+use reach::dead_adapters;
+use reach::reached_and_taken;
 
 const UNBOX_VALUE: &str = "__torajs_anyv_unbox_value";
 const ARG_TO_STRUCT: &str = "__torajs_anyv_arg_to_struct";
@@ -63,6 +69,10 @@ pub(crate) struct AnyHolds<'a> {
     params: HashMap<(FuncId, usize), Holds>,
     unbox_value: Option<usize>,
     arg_to_struct: Option<usize>,
+    dead: Vec<bool>,
+    /// Functions entered through an address: an instruction takes it
+    /// or a table holds it.
+    taken: HashSet<FuncId>,
 }
 
 struct FnFacts<'a> {
@@ -84,6 +94,8 @@ impl<'a> AnyHolds<'a> {
             params: HashMap::new(),
             unbox_value: find(UNBOX_VALUE),
             arg_to_struct: find(ARG_TO_STRUCT),
+            dead: dead_adapters(module),
+            taken: HashSet::new(),
         };
         holds.seed_params();
         while holds.pass() {}
@@ -94,21 +106,7 @@ impl<'a> AnyHolds<'a> {
     /// nothing; one of an address-taken or uncalled function starts
     /// at [`Holds::Unknown`].
     fn seed_params(&mut self) {
-        let mut reached: HashSet<FuncId> = HashSet::new();
-        let mut taken: HashSet<FuncId> = table_held_fns(self.module);
-        for f in &self.module.funcs {
-            for inst in f.blocks.iter().flat_map(|b| &b.insts) {
-                match &inst.kind {
-                    InstKind::Call(fid, _) => {
-                        reached.insert(*fid);
-                    }
-                    InstKind::FnAddr(fid) | InstKind::BoxedEntryAddr(fid) => {
-                        taken.insert(*fid);
-                    }
-                    _ => {}
-                }
-            }
-        }
+        let (reached, taken) = reached_and_taken(self.module, &self.dead);
         for (i, f) in self.module.funcs.iter().enumerate() {
             let fid = FuncId(i as u32);
             let start = if reached.contains(&fid) && !taken.contains(&fid) {
@@ -122,6 +120,7 @@ impl<'a> AnyHolds<'a> {
                 }
             }
         }
+        self.taken = taken;
     }
 
     /// One pass over every instruction of the module; `true` when
@@ -129,6 +128,9 @@ impl<'a> AnyHolds<'a> {
     fn pass(&mut self) -> bool {
         let mut changed = false;
         for (i, f) in self.module.funcs.iter().enumerate() {
+            if self.dead[i] {
+                continue;
+            }
             let fid = FuncId(i as u32);
             for inst in f.blocks.iter().flat_map(|b| &b.insts) {
                 if let Some(v) = inst.result
@@ -192,6 +194,18 @@ impl<'a> AnyHolds<'a> {
             }
             _ => Holds::Unknown,
         }
+    }
+
+    /// A boxed adapter nothing references ([`dead_adapters`]).
+    pub(crate) fn is_dead(&self, fid: FuncId) -> bool {
+        self.dead[fid.0 as usize]
+    }
+
+    /// Every function entered through an address, in module order.
+    pub(crate) fn address_taken(&self) -> Vec<FuncId> {
+        let mut fids: Vec<FuncId> = self.taken.iter().copied().collect();
+        fids.sort_by_key(|f| f.0);
+        fids
     }
 
     pub(crate) fn eval(&self, fid: FuncId, op: &Operand) -> Holds {
@@ -259,22 +273,6 @@ impl<'a> FnFacts<'a> {
     }
 }
 
-/// Functions the runtime calls through a table: vtable slots, the
-/// method rows' boxed adapters, the fn-name registry.
-fn table_held_fns(module: &Module) -> HashSet<FuncId> {
-    let vtables = module
-        .vtable_globals
-        .iter()
-        .flat_map(|v| v.fn_ids.iter().flatten().copied());
-    let adapters = module.class_layouts.iter().flat_map(|c| {
-        c.methods
-            .iter()
-            .flat_map(|m| std::iter::once(m.adapter_fid).chain(m.twin_adapter_fid))
-    });
-    let named = module.fn_name_globals.iter().map(|e| e.fn_id);
-    vtables.chain(adapters).chain(named).collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -338,6 +336,44 @@ mod tests {
             holds.eval(ctor, &Operand::Value(read)),
             Holds::Cells(vec![StructId(1)])
         );
+    }
+
+    /// What an adapter nobody references hands on reaches no
+    /// parameter; once something takes its address, it does.
+    #[test]
+    fn an_unreferenced_adapter_reaches_no_parameter() {
+        let mut m = module();
+        let mut callee = Function::new("ctor", Type::Void);
+        let p = callee.add_param(Type::Any, "l");
+        callee.add_block();
+        let ctor = push(&mut m, callee);
+        let mut adapter = Function::new("__boxed_ctor", Type::Void);
+        let entry = adapter.add_block();
+        let num = boxed(&mut adapter, entry, 2, Operand::ConstI64(7));
+        adapter.append_void(entry, InstKind::Call(ctor, vec![num]));
+        adapter.set_term(entry, Terminator::Ret(None));
+        let a = push(&mut m, adapter);
+        let mut caller = Function::new("f", Type::Void);
+        let entry = caller.add_block();
+        let c = cell(&mut caller, entry, 1);
+        let b = boxed(&mut caller, entry, BOX_HEAP, c);
+        caller.append_void(entry, InstKind::Call(ctor, vec![b]));
+        caller.set_term(entry, Terminator::Ret(None));
+        push(&mut m, caller);
+        let holds = AnyHolds::of(&m);
+        assert!(holds.is_dead(a));
+        assert_eq!(
+            holds.eval(ctor, &Operand::Value(p)),
+            Holds::Cells(vec![StructId(1)])
+        );
+        let mut taker = Function::new("g", Type::Void);
+        let entry = taker.add_block();
+        taker.append_inst(entry, InstKind::FnAddr(a), Type::Ptr, None);
+        taker.set_term(entry, Terminator::Ret(None));
+        push(&mut m, taker);
+        let holds = AnyHolds::of(&m);
+        assert!(!holds.is_dead(a));
+        assert_eq!(holds.eval(ctor, &Operand::Value(p)), Holds::Unknown);
     }
 
     #[test]

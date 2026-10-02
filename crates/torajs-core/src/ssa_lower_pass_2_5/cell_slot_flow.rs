@@ -22,7 +22,13 @@
 //! pointer (a capture box, a frame reached through a closure env) has
 //! the type the function loads from it, or the type the closure's
 //! capture list gives the box, and what is stored there must fit that.
+//!
+//! Every place a cell changes static type (it fits a slot of a prefix
+//! of its layout, or one slot is read under two types) must go through
+//! `Scan::lays`, which records the path (`paths`); one that does not is
+//! a slot left closed while it holds a foreign cell.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 
 use crate::ast::PropKey;
@@ -32,17 +38,23 @@ use crate::ssa::{
 use crate::ssa_lower::{ARR_DATA_PTR_OFF, CLOSURE_FN_ADDR_OFF, OBJ_HEADER_SIZE};
 
 mod env;
+mod fit;
+mod paths;
 
-use super::any_holds::{AnyHolds, Holds};
+use super::any_holds::AnyHolds;
 pub(crate) use env::{EnvLayouts, env_layouts};
+use paths::Paths;
 
 const OBJ_ALLOC: &str = "__torajs_obj_alloc";
 /// A capture box answers the pointer to its value slot; the payload
 /// goes in as the call's argument.
 const BOX_ALLOC: &str = "__torajs_capture_box_alloc";
 
-/// of that sid. Closed under prefix subtyping: an open sid's cells go
-/// wherever its prefixes' do.
+/// Per sid, whether a slot of that sid can hold a cell of another
+/// layout. A slot of a prefix of an open sid is open too once a cell
+/// read out of an open slot can reach it (`paths`). A boxed adapter
+/// nothing references never runs, and what its body hands on reaches
+/// no slot.
 pub(crate) fn open_sids(module: &Module, envs: &EnvLayouts) -> Vec<bool> {
     let layouts = &module.struct_layouts;
     let globals: HashMap<&str, Type> = module
@@ -54,7 +66,17 @@ pub(crate) fn open_sids(module: &Module, envs: &EnvLayouts) -> Vec<bool> {
     let box_alloc = module.funcs.iter().position(|f| f.name == BOX_ALLOC);
     let holds = AnyHolds::of(module);
     let mut open = vec![false; layouts.len()];
+    let paths = RefCell::new(Paths::default());
+    for fid in holds.address_taken() {
+        for p in &module.funcs[fid.0 as usize].params {
+            let ty = module.funcs[fid.0 as usize].value_type(*p);
+            paths.borrow_mut().entered_blind(module, ty);
+        }
+    }
     for (i, f) in module.funcs.iter().enumerate() {
+        if holds.is_dead(FuncId(i as u32)) {
+            continue;
+        }
         let mut scan = Scan {
             module,
             f,
@@ -71,19 +93,11 @@ pub(crate) fn open_sids(module: &Module, envs: &EnvLayouts) -> Vec<bool> {
             env_of: HashMap::new(),
             loaded: HashMap::new(),
             open: &mut open,
+            paths: &paths,
         };
         scan.run();
     }
-    for sid in 0..layouts.len() {
-        if !open[sid] {
-            continue;
-        }
-        for (base, lay) in layouts.iter().enumerate() {
-            if lay.len() < layouts[sid].len() && is_prefix(lay, &layouts[sid]) {
-                open[base] = true;
-            }
-        }
-    }
+    paths.into_inner().settle(&mut open);
     open
 }
 
@@ -112,6 +126,7 @@ struct Scan<'a> {
     /// offset)` that no declaration types.
     loaded: HashMap<(ValueId, u64), StructId>,
     open: &'a mut Vec<bool>,
+    paths: &'a RefCell<Paths>,
 }
 
 impl Scan<'_> {
@@ -237,9 +252,13 @@ impl Scan<'_> {
     fn defined(&mut self, sid: StructId, kind: &InstKind) {
         let exact = match kind {
             InstKind::Call(fid, _) => {
+                let callee = &self.module.funcs[fid.0 as usize];
                 Some(fid.0 as usize) == self.alloc
-                    || !self.module.funcs[fid.0 as usize].blocks.is_empty()
+                    || (!callee.blocks.is_empty() && self.answered_as(sid, callee.ret))
             }
+            InstKind::Load(_, Operand::Value(p), off) => self.read_as(sid, *p, *off),
+            InstKind::LoadDyn(_, Operand::Value(p), _)
+            | InstKind::LoadDynScaled8(_, Operand::Value(p), _) => self.read_as(sid, *p, 0),
             InstKind::Alloca(_)
             | InstKind::AllocaBytes(_)
             | InstKind::GlobalRef(_)
@@ -307,87 +326,6 @@ impl Scan<'_> {
         }
     }
 
-    /// Two layouts read through one untyped slot: the wider one is
-    /// what a store there has to fit, and unrelated ones open each
-    /// other.
-    fn read_through(&mut self, base: ValueId, off: u64, sid: StructId) {
-        let layouts = &self.module.struct_layouts;
-        let lay = |s: StructId| &layouts[s.0 as usize];
-        match self.loaded.get(&(base, off)).copied() {
-            None => {
-                self.loaded.insert((base, off), sid);
-            }
-            Some(seen) if seen == sid || is_prefix(lay(sid), lay(seen)) => {}
-            Some(seen) if is_prefix(lay(seen), lay(sid)) => {
-                self.loaded.insert((base, off), sid);
-            }
-            Some(seen) => {
-                self.open[seen.0 as usize] = true;
-                self.open[sid.0 as usize] = true;
-            }
-        }
-    }
-
-    /// A null, a cell of the slot's own layout, or one that extends
-    /// it by prefix (the subclass in a base slot the sized free
-    /// already accounts for); an `any` fits when everything it can
-    /// hold does.
-    fn fits(&self, sid: StructId, v: &Operand) -> bool {
-        match v {
-            Operand::ConstPtrNull | Operand::ConstI64(0) => true,
-            Operand::Value(id) => match self.f.value_type(*id) {
-                Type::Obj(t) => self.lays(sid, t),
-                _ => match self.holds.eval(self.fid, v) {
-                    Holds::Cells(ts) => ts.into_iter().all(|t| self.lays(sid, t)),
-                    Holds::Unknown => false,
-                },
-            },
-            _ => false,
-        }
-    }
-
-    /// [`fits`](Self::fits) for a slot of type `ty`: an array slot
-    /// takes a null or an array of the same depth whose cells fit.
-    fn fits_slot(&self, ty: Type, v: &Operand) -> bool {
-        match ty {
-            Type::Obj(sid) => self.fits(sid, v),
-            Type::Arr(a) => match v {
-                Operand::ConstPtrNull | Operand::ConstI64(0) => true,
-                Operand::Value(id) => match self.f.value_type(*id) {
-                    Type::Arr(b) => {
-                        let (x, y) = (
-                            self.module.arr_layouts[a.0 as usize],
-                            self.module.arr_layouts[b.0 as usize],
-                        );
-                        match (self.elem_obj(x), self.elem_obj(y)) {
-                            (Some(s), Some(t)) => {
-                                depth(self.module, x) == depth(self.module, y) && self.lays(s, t)
-                            }
-                            _ => false,
-                        }
-                    }
-                    _ => false,
-                },
-                _ => false,
-            },
-            _ => true,
-        }
-    }
-
-    fn lays(&self, sid: StructId, t: StructId) -> bool {
-        let layouts = &self.module.struct_layouts;
-        t == sid || is_prefix(&layouts[sid.0 as usize], &layouts[t.0 as usize])
-    }
-
-    /// The cell layout at the bottom of a (nested) array type.
-    fn elem_obj(&self, ty: Type) -> Option<StructId> {
-        match ty {
-            Type::Obj(sid) => Some(sid),
-            Type::Arr(a) => self.elem_obj(self.module.arr_layouts[a.0 as usize]),
-            _ => None,
-        }
-    }
-
     fn slot(&self, p: &Operand, off: u64) -> Option<Type> {
         let Operand::Value(id) = p else { return None };
         self.declared_slot(*id, off)
@@ -429,382 +367,7 @@ impl Scan<'_> {
     }
 }
 
-fn depth(module: &Module, ty: Type) -> usize {
-    match ty {
-        Type::Arr(a) => 1 + depth(module, module.arr_layouts[a.0 as usize]),
-        _ => 0,
-    }
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::ssa::{BlockId, DataGlobal, FuncId};
-    use crate::ssa_lower::CLOSURE_CAP_BASE_OFF;
-
-    fn layout(names: &[&str]) -> Vec<(PropKey, Type)> {
-        names
-            .iter()
-            .map(|n| (PropKey::from(*n), Type::I64))
-            .collect()
-    }
-
-    /// Layouts 0 `{a}`, 1 `{a, b}` (extends 0), 2 `{x, y}`; funcs 0
-    /// and 1 are the cell and capture-box allocator declarations, 2 a
-    /// declaration answering `any`, 3 one answering a pointer.
-    fn module() -> Module {
-        let mut m = Module::default();
-        m.struct_layouts = vec![layout(&["a"]), layout(&["a", "b"]), layout(&["x", "y"])];
-        for name in [OBJ_ALLOC, BOX_ALLOC] {
-            let mut alloc = Function::new(name, Type::Ptr);
-            alloc.add_param(Type::I64, "n");
-            m.funcs.push(alloc);
-        }
-        m.funcs.push(Function::new("opaque", Type::Any));
-        let mut helper = Function::new("helper", Type::Ptr);
-        helper.add_param(Type::Ptr, "p");
-        helper.add_param(Type::I64, "v");
-        m.funcs.push(helper);
-        m
-    }
-
-    fn open(m: &Module) -> Vec<bool> {
-        open_sids(m, &EnvLayouts::new())
-    }
-
-    fn body(m: &mut Module, build: impl FnOnce(&mut Function, BlockId)) -> FuncId {
-        let mut f = Function::new("f", Type::Void);
-        let entry = f.add_block();
-        build(&mut f, entry);
-        f.set_term(entry, Terminator::Ret(None));
-        let id = FuncId(m.funcs.len() as u32);
-        m.funcs.push(f);
-        id
-    }
-
-    /// An `any` nothing in the module accounts for: a declaration's
-    /// answer.
-    fn any(f: &mut Function, entry: BlockId) -> Operand {
-        Operand::Value(f.append_inst(entry, InstKind::Call(FuncId(2), vec![]), Type::Any, None))
-    }
-
-    fn cell(f: &mut Function, entry: BlockId, sid: u32) -> Operand {
-        Operand::Value(f.append_inst(
-            entry,
-            InstKind::Call(FuncId(0), vec![Operand::ConstI64(40)]),
-            Type::Obj(StructId(sid)),
-            None,
-        ))
-    }
-
-    /// An array cell of `arr` and its data pointer, read as lowering
-    /// reads it.
-    fn arr_data(f: &mut Function, entry: BlockId, arr: ArrId) -> (ValueId, Operand) {
-        let xs = f.append_inst(entry, InstKind::AllocaBytes(8), Type::Arr(arr), None);
-        let data = f.append_inst(
-            entry,
-            InstKind::Load(Type::Ptr, Operand::Value(xs), ARR_DATA_PTR_OFF),
-            Type::Ptr,
-            None,
-        );
-        (xs, Operand::Value(data))
-    }
-
-    #[test]
-    fn an_any_stored_into_a_typed_let_slot_opens_it_and_its_prefixes() {
-        let mut m = module();
-        body(&mut m, |f, entry| {
-            let slot = f.append_inst(
-                entry,
-                InstKind::Alloca(Type::Obj(StructId(1))),
-                Type::Ptr,
-                None,
-            );
-            let v = any(f, entry);
-            f.append_void(entry, InstKind::Store(v, Operand::Value(slot), 0));
-        });
-        assert_eq!(open(&m), vec![true, true, false]);
-    }
-
-    #[test]
-    fn a_cell_of_the_slots_own_or_wider_layout_keeps_it_closed() {
-        let mut m = module();
-        body(&mut m, |f, entry| {
-            let slot = f.append_inst(
-                entry,
-                InstKind::Alloca(Type::Obj(StructId(0))),
-                Type::Ptr,
-                None,
-            );
-            let wide = cell(f, entry, 1);
-            f.append_void(entry, InstKind::Store(wide, Operand::Value(slot), 0));
-            f.append_void(
-                entry,
-                InstKind::Store(Operand::ConstPtrNull, Operand::Value(slot), 0),
-            );
-        });
-        assert_eq!(open(&m), vec![false, false, false]);
-    }
-
-    #[test]
-    fn a_foreign_layout_in_a_field_a_global_and_an_element_opens_each() {
-        let mut m = module();
-        m.struct_layouts
-            .push(vec![(PropKey::from("child"), Type::Obj(StructId(2)))]);
-        m.data_globals.push(DataGlobal {
-            name: "g".into(),
-            ty: Type::Obj(StructId(1)),
-        });
-        let arr = m.intern_arr(Type::Obj(StructId(0)));
-        body(&mut m, |f, entry| {
-            let holder = cell(f, entry, 3);
-            let foreign = cell(f, entry, 1);
-            f.append_void(
-                entry,
-                InstKind::Store(foreign.clone(), holder, OBJ_HEADER_SIZE),
-            );
-            let g = f.append_inst(entry, InstKind::GlobalRef("g".into()), Type::Ptr, None);
-            let v = any(f, entry);
-            f.append_void(entry, InstKind::Store(v, Operand::Value(g), 0));
-            let (_, data) = arr_data(f, entry, arr);
-            let v = any(f, entry);
-            f.append_void(entry, InstKind::StoreDyn(v, data, Operand::ConstI64(0)));
-        });
-        assert_eq!(open(&m), vec![true, true, true, false]);
-    }
-
-    #[test]
-    fn the_four_element_channels_open_the_element_layout() {
-        let arr_of = |m: &mut Module, sid: u32| m.intern_arr(Type::Obj(StructId(sid)));
-        // a literal's element store, through the data pointer
-        let mut m = module();
-        let arr = arr_of(&mut m, 2);
-        body(&mut m, |f, entry| {
-            let (_, data) = arr_data(f, entry, arr);
-            let v = any(f, entry);
-            f.append_void(entry, InstKind::Store(v, data, 8));
-        });
-        assert_eq!(open(&m), vec![false, false, true]);
-        // a runtime push of an `any` into a typed array
-        let mut m = module();
-        let arr = arr_of(&mut m, 2);
-        body(&mut m, |f, entry| {
-            let (xs, _) = arr_data(f, entry, arr);
-            let v = any(f, entry);
-            f.append_inst(
-                entry,
-                InstKind::Call(FuncId(3), vec![Operand::Value(xs), v]),
-                Type::Ptr,
-                None,
-            );
-        });
-        assert_eq!(open(&m), vec![false, false, true]);
-        // a typed array built by a runtime call out of an `any[]`:
-        // the argument is the array of `any` elements itself, as the
-        // typed declaration's conversion passes it
-        let mut m = module();
-        let arr = arr_of(&mut m, 2);
-        let any_arr = ArrId(m.arr_layouts.len() as u32);
-        m.arr_layouts.push(Type::Any);
-        body(&mut m, |f, entry| {
-            let v = f.append_inst(entry, InstKind::AllocaBytes(8), Type::Arr(any_arr), None);
-            f.append_inst(
-                entry,
-                InstKind::Call(FuncId(3), vec![Operand::Value(v), Operand::ConstI64(4)]),
-                Type::Arr(arr),
-                None,
-            );
-        });
-        assert_eq!(open(&m), vec![false, false, true]);
-        // the same call handed a fitting typed array (a slice) keeps
-        // the element layout exact
-        let mut m = module();
-        let arr = arr_of(&mut m, 2);
-        body(&mut m, |f, entry| {
-            let v = f.append_inst(entry, InstKind::AllocaBytes(8), Type::Arr(arr), None);
-            f.append_inst(
-                entry,
-                InstKind::Call(FuncId(3), vec![Operand::Value(v), Operand::ConstI64(4)]),
-                Type::Arr(arr),
-                None,
-            );
-        });
-        assert_eq!(open(&m), vec![false, false, false]);
-        // an array of another layout stored into an array-typed slot
-        let mut m = module();
-        let arr = arr_of(&mut m, 2);
-        let other = arr_of(&mut m, 0);
-        body(&mut m, |f, entry| {
-            let slot = f.append_inst(entry, InstKind::Alloca(Type::Arr(arr)), Type::Ptr, None);
-            let ys = f.append_inst(entry, InstKind::AllocaBytes(8), Type::Arr(other), None);
-            f.append_void(
-                entry,
-                InstKind::Store(Operand::Value(ys), Operand::Value(slot), 0),
-            );
-        });
-        assert_eq!(open(&m), vec![false, false, true]);
-    }
-
-    #[test]
-    fn a_runtime_call_over_typed_arrays_and_scalars_keeps_them_closed() {
-        let mut m = module();
-        let arr = m.intern_arr(Type::Obj(StructId(0)));
-        body(&mut m, |f, entry| {
-            let (xs, _) = arr_data(f, entry, arr);
-            let wide = cell(f, entry, 1);
-            f.append_inst(
-                entry,
-                InstKind::Call(FuncId(3), vec![Operand::Value(xs), wide]),
-                Type::Ptr,
-                None,
-            );
-            let n = f.append_inst(
-                entry,
-                InstKind::Call(FuncId(3), vec![Operand::Value(xs), Operand::ConstI64(3)]),
-                Type::I64,
-                None,
-            );
-            f.append_inst(
-                entry,
-                InstKind::Call(FuncId(3), vec![Operand::Value(xs), Operand::Value(n)]),
-                Type::Arr(arr),
-                None,
-            );
-        });
-        assert_eq!(open(&m), vec![false, false, false]);
-    }
-
-    #[test]
-    fn a_typed_parameter_and_a_declared_return_open_on_an_any() {
-        let mut m = module();
-        let mut callee = Function::new("take", Type::Obj(StructId(2)));
-        callee.add_param(Type::Obj(StructId(1)), "b");
-        let entry = callee.add_block();
-        let v = any(&mut callee, entry);
-        callee.set_term(entry, Terminator::Ret(Some(v)));
-        let take = FuncId(m.funcs.len() as u32);
-        m.funcs.push(callee);
-        body(&mut m, |f, entry| {
-            let v = any(f, entry);
-            f.append_void(entry, InstKind::Call(take, vec![v]));
-        });
-        assert_eq!(open(&m), vec![true, true, true]);
-    }
-
-    #[test]
-    fn a_decode_out_of_any_typed_as_a_struct_opens_it() {
-        let mut m = module();
-        body(&mut m, |f, entry| {
-            f.append_inst(
-                entry,
-                InstKind::IntToPtr(Operand::ConstI64(0)),
-                Type::Obj(StructId(2)),
-                None,
-            );
-        });
-        assert_eq!(open(&m), vec![false, false, true]);
-    }
-
-    #[test]
-    fn a_slot_behind_a_pointer_is_typed_by_what_is_loaded_from_it() {
-        let mut m = module();
-        body(&mut m, |f, entry| {
-            let v = any(f, entry);
-            let bx = f.append_inst(entry, InstKind::Call(FuncId(1), vec![v]), Type::Ptr, None);
-            f.append_inst(
-                entry,
-                InstKind::Load(Type::Obj(StructId(2)), Operand::Value(bx), 0),
-                Type::Obj(StructId(2)),
-                None,
-            );
-            let frame = f.append_inst(entry, InstKind::AllocaBytes(16), Type::Ptr, None);
-            f.append_inst(
-                entry,
-                InstKind::Load(Type::Obj(StructId(0)), Operand::Value(frame), 8),
-                Type::Obj(StructId(0)),
-                None,
-            );
-            let own = cell(f, entry, 1);
-            f.append_void(entry, InstKind::Store(own, Operand::Value(frame), 8));
-        });
-        assert_eq!(open(&m), vec![false, false, true]);
-        body(&mut m, |f, entry| {
-            let frame = f.append_inst(entry, InstKind::AllocaBytes(16), Type::Ptr, None);
-            f.append_inst(
-                entry,
-                InstKind::Load(Type::Obj(StructId(1)), Operand::Value(frame), 0),
-                Type::Obj(StructId(1)),
-                None,
-            );
-            let v = any(f, entry);
-            f.append_void(entry, InstKind::Store(v, Operand::Value(frame), 0));
-        });
-        assert_eq!(open(&m), vec![true, true, true]);
-    }
-
-    /// A boxed capture of layout 2 neither function reads as a cell:
-    /// the box is typed by the closure's capture list on both sides.
-    #[test]
-    fn a_capture_box_is_typed_by_the_closures_capture_list() {
-        let mut m = module();
-        // the closure body: loads the box from its env and writes an
-        // `any` into it
-        let mut clo = Function::new("__closure_0", Type::Void);
-        let p0 = clo.add_param(Type::Ptr, "__env");
-        let entry = clo.add_block();
-        let slot = clo.append_inst(entry, InstKind::Alloca(Type::Ptr), Type::Ptr, None);
-        clo.append_void(
-            entry,
-            InstKind::Store(Operand::Value(p0), Operand::Value(slot), 0),
-        );
-        let env = clo.append_inst(
-            entry,
-            InstKind::Load(Type::Ptr, Operand::Value(slot), 0),
-            Type::Ptr,
-            None,
-        );
-        let bx = clo.append_inst(
-            entry,
-            InstKind::Load(Type::Ptr, Operand::Value(env), CLOSURE_CAP_BASE_OFF),
-            Type::Ptr,
-            None,
-        );
-        let v = any(&mut clo, entry);
-        clo.append_void(entry, InstKind::Store(v, Operand::Value(bx), 0));
-        clo.set_term(entry, Terminator::Ret(None));
-        let clo_id = FuncId(m.funcs.len() as u32);
-        m.funcs.push(clo);
-        let mut envs = EnvLayouts::new();
-        envs.insert(clo_id, vec![(Type::Obj(StructId(2)), true)]);
-        assert_eq!(open_sids(&m, &envs), vec![false, false, true]);
-        // the declaring side: boxes an `any` payload and stores the
-        // box into the env it builds for the closure
-        let mut m = module();
-        m.funcs.push(Function::new("__closure_0", Type::Void));
-        body(&mut m, |f, entry| {
-            let v = any(f, entry);
-            let bx = f.append_inst(entry, InstKind::Call(FuncId(1), vec![v]), Type::Ptr, None);
-            let env = f.append_inst(
-                entry,
-                InstKind::Call(FuncId(0), vec![Operand::ConstI64(56)]),
-                Type::Ptr,
-                None,
-            );
-            let fa = f.append_inst(entry, InstKind::FnAddr(clo_id), Type::Ptr, None);
-            f.append_void(
-                entry,
-                InstKind::Store(Operand::Value(fa), Operand::Value(env), CLOSURE_FN_ADDR_OFF),
-            );
-            f.append_void(
-                entry,
-                InstKind::Store(
-                    Operand::Value(bx),
-                    Operand::Value(env),
-                    CLOSURE_CAP_BASE_OFF,
-                ),
-            );
-        });
-        assert_eq!(open_sids(&m, &envs), vec![false, false, true]);
-        assert_eq!(open(&m), vec![false, false, false]);
-    }
-}
+mod tests;
+#[cfg(test)]
+mod tests_paths;
