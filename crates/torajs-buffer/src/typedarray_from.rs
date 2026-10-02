@@ -145,12 +145,12 @@ unsafe fn from_list(kind: Kind, object: AnyValue) -> AnyValue {
 unsafe fn alloc_view(kind: Kind, len: i64) -> Option<AnyValue> {
     unsafe {
         let Some(bytes) = len.checked_mul(kind.element_size()) else {
-            __torajs_throw_range_error(b"Invalid typed array length\0".as_ptr());
+            __torajs_throw_range_error(c"Invalid typed array length".as_ptr().cast());
             return None;
         };
         let buf_cell = allocate(bytes, NOT_RESIZABLE);
         if buf_cell.is_null() {
-            __torajs_throw_range_error(b"Invalid typed array length\0".as_ptr());
+            __torajs_throw_range_error(c"Invalid typed array length".as_ptr().cast());
             return None;
         }
         let buffer = __torajs_anyv_box_pointer(buf_cell);

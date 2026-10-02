@@ -214,13 +214,15 @@ pub unsafe extern "C" fn __torajs_arraybuffer_create(
         }
         if max != NOT_RESIZABLE && len > max {
             __torajs_throw_range_error(
-                b"ArrayBuffer length exceeds the specified maxByteLength\0".as_ptr(),
+                c"ArrayBuffer length exceeds the specified maxByteLength"
+                    .as_ptr()
+                    .cast(),
             );
             return VALUE_UNDEFINED;
         }
         let cell = allocate(len, max);
         if cell.is_null() {
-            __torajs_throw_range_error(b"ArrayBuffer allocation failed\0".as_ptr());
+            __torajs_throw_range_error(c"ArrayBuffer allocation failed".as_ptr().cast());
             return VALUE_UNDEFINED;
         }
         __torajs_anyv_box_pointer(cell)

@@ -100,7 +100,9 @@ pub unsafe extern "C" fn __torajs_arraybuffer_resize(av: AnyValue, new_length: A
         }
         if new_len > max {
             __torajs_throw_range_error(
-                b"ArrayBuffer.prototype.resize: newLength exceeds maxByteLength\0".as_ptr(),
+                c"ArrayBuffer.prototype.resize: newLength exceeds maxByteLength"
+                    .as_ptr()
+                    .cast(),
             );
             return;
         }
@@ -216,7 +218,7 @@ unsafe fn slice_product(av: AnyValue, new_len: i64) -> AnyValue {
         if ctor == VALUE_UNDEFINED {
             let cell = allocate(new_len, NOT_RESIZABLE);
             if cell.is_null() {
-                __torajs_throw_range_error(b"ArrayBuffer allocation failed\0".as_ptr());
+                __torajs_throw_range_error(c"ArrayBuffer allocation failed".as_ptr().cast());
                 return VALUE_UNDEFINED;
             }
             return __torajs_anyv_box_pointer(cell);
@@ -245,28 +247,6 @@ unsafe fn slice_product(av: AnyValue, new_len: i64) -> AnyValue {
             return VALUE_UNDEFINED;
         }
         product
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn clamp_counts_from_the_end_and_stays_in_range() {
-        assert_eq!(clamp_relative(-2.0, 8), 6);
-        assert_eq!(clamp_relative(-99.0, 8), 0);
-        assert_eq!(clamp_relative(3.0, 8), 3);
-        assert_eq!(clamp_relative(99.0, 8), 8);
-        assert_eq!(clamp_relative(f64::INFINITY, 8), 8);
-        assert_eq!(clamp_relative(f64::NEG_INFINITY, 8), 0);
-    }
-
-    #[test]
-    fn nan_is_zero_and_truncation_is_toward_zero() {
-        assert_eq!(to_integer_or_infinity(f64::NAN), 0.0);
-        assert_eq!(to_integer_or_infinity(-3.9), -3.0);
-        assert_eq!(to_integer_or_infinity(3.9), 3.0);
     }
 }
 
@@ -338,14 +318,18 @@ pub unsafe extern "C" fn __torajs_arraybuffer_transfer(
         };
         if new_max != NOT_RESIZABLE && new_len > new_max {
             __torajs_throw_range_error(
-                b"ArrayBuffer.prototype.transfer: newLength exceeds maxByteLength\0".as_ptr(),
+                c"ArrayBuffer.prototype.transfer: newLength exceeds maxByteLength"
+                    .as_ptr()
+                    .cast(),
             );
             return VALUE_UNDEFINED;
         }
         let fresh = allocate(new_len, new_max);
         if fresh.is_null() {
             __torajs_throw_range_error(
-                b"ArrayBuffer.prototype.transfer: allocation failed\0".as_ptr(),
+                c"ArrayBuffer.prototype.transfer: allocation failed"
+                    .as_ptr()
+                    .cast(),
             );
             return VALUE_UNDEFINED;
         }
@@ -357,5 +341,27 @@ pub unsafe extern "C" fn __torajs_arraybuffer_transfer(
         }
         crate::arraybuffer::detach(ptr);
         __torajs_anyv_box_pointer(fresh)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clamp_counts_from_the_end_and_stays_in_range() {
+        assert_eq!(clamp_relative(-2.0, 8), 6);
+        assert_eq!(clamp_relative(-99.0, 8), 0);
+        assert_eq!(clamp_relative(3.0, 8), 3);
+        assert_eq!(clamp_relative(99.0, 8), 8);
+        assert_eq!(clamp_relative(f64::INFINITY, 8), 8);
+        assert_eq!(clamp_relative(f64::NEG_INFINITY, 8), 0);
+    }
+
+    #[test]
+    fn nan_is_zero_and_truncation_is_toward_zero() {
+        assert_eq!(to_integer_or_infinity(f64::NAN), 0.0);
+        assert_eq!(to_integer_or_infinity(-3.9), -3.0);
+        assert_eq!(to_integer_or_infinity(3.9), 3.0);
     }
 }

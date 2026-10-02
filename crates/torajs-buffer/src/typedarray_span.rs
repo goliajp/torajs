@@ -45,19 +45,14 @@ pub(crate) struct Span {
 /// `av` is a live AnyValue.
 pub(crate) unsafe fn validate(av: AnyValue) -> Option<Span> {
     if !is_typedarray(av) {
-        unsafe {
-            __torajs_throw_type_error(
-                b"this is not a typed array\0".as_ptr() as *const core::ffi::c_char
-            )
-        };
+        unsafe { __torajs_throw_type_error(c"this is not a typed array".as_ptr()) };
         return None;
     }
     unsafe {
         let ptr = as_void_ptr(av);
         let Some((base, len)) = resolve(ptr) else {
             __torajs_throw_type_error(
-                b"the typed array's buffer is detached or out of bounds\0".as_ptr()
-                    as *const core::ffi::c_char,
+                c"the typed array's buffer is detached or out of bounds".as_ptr(),
             );
             return None;
         };
@@ -80,8 +75,7 @@ pub(crate) unsafe fn revalidate(av: AnyValue) -> Option<Span> {
         let ptr = as_void_ptr(av);
         let Some((base, len)) = resolve(ptr) else {
             __torajs_throw_type_error(
-                b"the typed array's buffer is detached or out of bounds\0".as_ptr()
-                    as *const core::ffi::c_char,
+                c"the typed array's buffer is detached or out of bounds".as_ptr(),
             );
             return None;
         };

@@ -61,7 +61,7 @@ pub unsafe extern "C" fn __torajs_typedarray_set(
             return VALUE_UNDEFINED;
         };
         if off < 0.0 {
-            __torajs_throw_range_error(b"offset is out of bounds\0".as_ptr());
+            __torajs_throw_range_error(c"offset is out of bounds".as_ptr().cast());
             return VALUE_UNDEFINED;
         }
         if is_typedarray(source) {
@@ -97,7 +97,7 @@ unsafe fn target_span(target: AnyValue) -> Option<(*mut u8, i64, Kind)> {
 /// single element moves.
 unsafe fn fits(off: f64, src_len: i64, target_len: i64) -> Option<i64> {
     if off.is_infinite() || src_len as f64 + off > target_len as f64 {
-        unsafe { __torajs_throw_range_error(b"offset is out of bounds\0".as_ptr()) };
+        unsafe { __torajs_throw_range_error(c"offset is out of bounds".as_ptr().cast()) };
         return None;
     }
     Some(off as i64)

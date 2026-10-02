@@ -146,12 +146,12 @@ pub unsafe extern "C" fn __torajs_typedarray_create(
 pub(crate) unsafe fn create_same_type(kind: Kind, len: i64) -> AnyValue {
     unsafe {
         let Some(bytes) = len.checked_mul(kind.element_size()) else {
-            __torajs_throw_range_error(b"Invalid typed array length\0".as_ptr());
+            __torajs_throw_range_error(c"Invalid typed array length".as_ptr().cast());
             return VALUE_UNDEFINED;
         };
         let buf_cell = allocate(bytes, NOT_RESIZABLE);
         if buf_cell.is_null() {
-            __torajs_throw_range_error(b"Invalid typed array length\0".as_ptr());
+            __torajs_throw_range_error(c"Invalid typed array length".as_ptr().cast());
             return VALUE_UNDEFINED;
         }
         let buffer = __torajs_anyv_box_pointer(buf_cell);
@@ -213,7 +213,9 @@ unsafe fn from_buffer(kind: Kind, buffer: AnyValue, a1: AnyValue, a2: AnyValue) 
         };
         if offset % esize != 0 {
             __torajs_throw_range_error(
-                b"start offset is not a multiple of BYTES_PER_ELEMENT\0".as_ptr(),
+                c"start offset is not a multiple of BYTES_PER_ELEMENT"
+                    .as_ptr()
+                    .cast(),
             );
             return VALUE_UNDEFINED;
         }
@@ -246,7 +248,9 @@ unsafe fn from_buffer(kind: Kind, buffer: AnyValue, a1: AnyValue, a2: AnyValue) 
             None if tracking => {
                 if offset > buf_len {
                     __torajs_throw_range_error(
-                        b"start offset is outside the bounds of the buffer\0".as_ptr(),
+                        c"start offset is outside the bounds of the buffer"
+                            .as_ptr()
+                            .cast(),
                     );
                     return VALUE_UNDEFINED;
                 }
@@ -257,13 +261,17 @@ unsafe fn from_buffer(kind: Kind, buffer: AnyValue, a1: AnyValue, a2: AnyValue) 
             None => {
                 if buf_len % esize != 0 {
                     __torajs_throw_range_error(
-                        b"byte length is not a multiple of BYTES_PER_ELEMENT\0".as_ptr(),
+                        c"byte length is not a multiple of BYTES_PER_ELEMENT"
+                            .as_ptr()
+                            .cast(),
                     );
                     return VALUE_UNDEFINED;
                 }
                 if offset > buf_len {
                     __torajs_throw_range_error(
-                        b"start offset is outside the bounds of the buffer\0".as_ptr(),
+                        c"start offset is outside the bounds of the buffer"
+                            .as_ptr()
+                            .cast(),
                     );
                     return VALUE_UNDEFINED;
                 }
@@ -272,11 +280,11 @@ unsafe fn from_buffer(kind: Kind, buffer: AnyValue, a1: AnyValue, a2: AnyValue) 
             // Step 10.
             Some(len) => {
                 let Some(bytes) = len.checked_mul(esize) else {
-                    __torajs_throw_range_error(b"Invalid typed array length\0".as_ptr());
+                    __torajs_throw_range_error(c"Invalid typed array length".as_ptr().cast());
                     return VALUE_UNDEFINED;
                 };
                 if offset + bytes > buf_len {
-                    __torajs_throw_range_error(b"Invalid typed array length\0".as_ptr());
+                    __torajs_throw_range_error(c"Invalid typed array length".as_ptr().cast());
                     return VALUE_UNDEFINED;
                 }
                 len

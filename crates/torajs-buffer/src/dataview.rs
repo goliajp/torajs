@@ -235,7 +235,9 @@ pub unsafe extern "C" fn __torajs_dataview_create(
         let buf_len = byte_len(bptr);
         if offset > buf_len {
             __torajs_throw_range_error(
-                b"start offset is outside the bounds of the buffer\0".as_ptr(),
+                c"start offset is outside the bounds of the buffer"
+                    .as_ptr()
+                    .cast(),
             );
             return VALUE_UNDEFINED;
         }
@@ -248,7 +250,9 @@ pub unsafe extern "C" fn __torajs_dataview_create(
             Some(l) => {
                 if offset + l > buf_len {
                     __torajs_throw_range_error(
-                        b"length is outside the bounds of the buffer\0".as_ptr(),
+                        c"length is outside the bounds of the buffer"
+                            .as_ptr()
+                            .cast(),
                     );
                     return VALUE_UNDEFINED;
                 }

@@ -64,7 +64,7 @@ unsafe fn access_ptr(recv: AnyValue, index: i64, size: i64) -> Option<*mut u8> {
             return None;
         };
         if index + size > view_len {
-            __torajs_throw_range_error(b"Out of bounds access\0".as_ptr());
+            __torajs_throw_range_error(c"Out of bounds access".as_ptr().cast());
             return None;
         }
         Some(data.add(index as usize))

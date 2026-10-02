@@ -53,9 +53,7 @@ pub unsafe extern "C" fn __torajs_typedarray_subarray(
 ) -> AnyValue {
     unsafe {
         if !is_typedarray(recv) {
-            __torajs_throw_type_error(
-                b"this is not a typed array\0".as_ptr() as *const core::ffi::c_char
-            );
+            __torajs_throw_type_error(c"this is not a typed array".as_ptr());
             return VALUE_UNDEFINED;
         }
         let ptr = as_void_ptr(recv);
@@ -232,7 +230,7 @@ pub unsafe extern "C" fn __torajs_typedarray_with(
             return VALUE_UNDEFINED;
         };
         if actual < 0.0 || actual >= span.len as f64 || actual.trunc() != actual {
-            __torajs_throw_range_error(b"Invalid typed array index\0".as_ptr());
+            __torajs_throw_range_error(c"Invalid typed array index".as_ptr().cast());
             return VALUE_UNDEFINED;
         }
         let actual = actual as i64;
