@@ -1,0 +1,31 @@
+use std::hint::black_box;
+
+#[inline(never)]
+fn loop_sum(xs: &[i64], f: &dyn Fn(i64) -> i64) -> i64 {
+    let mut sum: i64 = 0;
+    for &x in xs {
+        sum = sum + f(x);
+    }
+    sum
+}
+
+fn main() {
+    let mut args = std::env::args().skip(1);
+    let count: i64 = args.next().unwrap().parse().unwrap();
+    let mut xs: Vec<i64> = Vec::new();
+    for i in 0..count {
+        xs.push(i);
+    }
+    let offset: i64 = args.next().unwrap().parse().unwrap();
+    // Box::new(move |x| x + offset) is the rust equivalent of a
+    // capturing arrow with heap-allocated env; the &dyn Fn vtable
+    // dispatch matches torajs's load-fn_ptr-from-env + indirect call.
+    // #[inline(never)] on loop_sum + black_box on the &dyn Fn together
+    // prevent rustc from devirtualizing the call back to a direct fn
+    // pointer (without these, LLVM monomorphizes through the only
+    // concrete closure type and the indirect-call cost vanishes).
+    let delta = offset;
+    let f: Box<dyn Fn(i64) -> i64> = Box::new(move |x| x + delta);
+    let f_ref: &dyn Fn(i64) -> i64 = black_box(&*f);
+    println!("{}", loop_sum(&xs, f_ref));
+}

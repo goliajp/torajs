@@ -68,6 +68,7 @@ cases = [
   "i64-to-str-100k",
   "split-materialize-1m",
   "split-materialize-escape-1m",
+  "split-materialize-store-1m",
   "str-build-1mb",
 ]
 
@@ -113,7 +114,7 @@ cases = [
 
 [categories.closure]
 weight = 4
-cases = ["closure-counter", "closure-pipeline-1m"]
+cases = ["closure-counter", "closure-counter-renamed", "closure-pipeline-1m"]
 
 [categories.generator]
 weight = 4
