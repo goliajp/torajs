@@ -1,14 +1,15 @@
 # bun's standalone executable with its one ahead-of-time option on:
 # `--bytecode` embeds JavaScriptCore bytecode for the bundled modules,
 # so the binary skips parsing and bytecode generation at startup (the
-# help text of bun 1.4.2 lists it next to --compile; `--format` defaults
-# to cjs with it, which is what --compile uses anyway). Probed
-# 2026-10-02 on mini with fib40's main.ts: the two binaries differ and a
-# bare `bun build --bytecode --target=bun` of the same file writes a
-# `.jsc` next to the .js, so the flag applies to a single .ts entry.
+# help text of bun 1.4.2 lists it next to --compile). With --bytecode
+# `--format` defaults to cjs, and a cjs bundle cannot hold a top-level
+# await: the five promise / async cases fail to compile with
+# `Expected ";" but found ")"`. bun 1.4.2 accepts esm bytecode only
+# together with --compile ("ESM bytecode requires --compile"), which
+# is the mode used here, so every case is built as esm.
 # `bun-aot` stays the default tier; both are reported.
 name = "bun-aot-fast"
 detect = "bun --version"
 src_filename = "main.ts"
-compile = "bun build --compile --bytecode {src} --outfile {out}"
+compile = "bun build --compile --bytecode --format=esm {src} --outfile {out}"
 run = "{out}"
