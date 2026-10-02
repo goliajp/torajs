@@ -283,30 +283,48 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
         // BFS step so the same Vec contents apply to every byte.
         cur_seeds.clear();
         cur_seeds.extend(cur_ready.iter().copied());
-        for byte_u16 in 0u16..=255 {
-            let byte = byte_u16 as u8;
-            // chunk 8.6b — re-close cur_ready with right=byte to
-            // resolve WBound/NWBound at the cursor given left=cur_attr
-            // and right=class_of(byte). The cur_ready entered the BFS
-            // with right=None, so any WBound PCs are present-but-
-            // unresolved; this re-closure resolves them per-byte.
-            // Closure is idempotent for already-advanced PCs, so the
-            // re-run never shrinks the set.
+        // The right byte only reaches the closure through WBound /
+        // NWBound, so without them one closure per state serves all
+        // 256 bytes and the accept-before-byte mask is all or nothing.
+        if !needs_attr_split {
             epsilon_closure_full_into(
                 prog,
                 &cur_seeds,
                 ctx_at_cursor,
-                Some(byte),
+                None,
                 &mut closed_with_right,
                 &mut closure_work,
             );
-            // chunk 8.6b — if the per-byte re-closure reaches Match,
-            // record a zero-width accept at this cursor before the
-            // byte is stepped (else `byte_step` drops Match since
-            // it's not byte-consuming). The executor reads
-            // `accept_before_byte` ahead of consuming `hay[i]`.
             if pc_set_is_accept(prog, &closed_with_right) {
-                mask_set(&mut accept_before_byte, byte);
+                accept_before_byte = [u32::MAX; 8];
+            }
+        }
+        for byte_u16 in 0u16..=255 {
+            let byte = byte_u16 as u8;
+            if needs_attr_split {
+                // chunk 8.6b — re-close cur_ready with right=byte to
+                // resolve WBound/NWBound at the cursor given left=cur_attr
+                // and right=class_of(byte). The cur_ready entered the BFS
+                // with right=None, so any WBound PCs are present-but-
+                // unresolved; this re-closure resolves them per-byte.
+                // Closure is idempotent for already-advanced PCs, so the
+                // re-run never shrinks the set.
+                epsilon_closure_full_into(
+                    prog,
+                    &cur_seeds,
+                    ctx_at_cursor,
+                    Some(byte),
+                    &mut closed_with_right,
+                    &mut closure_work,
+                );
+                // chunk 8.6b — if the per-byte re-closure reaches Match,
+                // record a zero-width accept at this cursor before the
+                // byte is stepped (else `byte_step` drops Match since
+                // it's not byte-consuming). The executor reads
+                // `accept_before_byte` ahead of consuming `hay[i]`.
+                if pc_set_is_accept(prog, &closed_with_right) {
+                    mask_set(&mut accept_before_byte, byte);
+                }
             }
             let (ready_from_step, deferred_from_step) =
                 byte_step_full(prog, &closed_with_right, byte);
