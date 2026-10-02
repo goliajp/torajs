@@ -11,7 +11,7 @@
 //! names by an edge and rules on the whole class at once.
 //!
 //! A class holds views when every member is a candidate (its init is
-//! a one-or-two-argument `.split(..)` call, an empty `[]`, or a bare
+//! a one-argument `.split(sep)` call, an empty `[]`, or a bare
 //! alias of other members, under no annotation or an owned-string
 //! array one), no member is written or escapes other than along an
 //! edge, and at least one member's init is a split call — otherwise
@@ -249,12 +249,15 @@ pub(super) fn alias_edge<'a>(
         .then_some(leaves)
 }
 
-/// A one-or-two-argument `.split(..)` call: the shape the lowering
-/// answers views for when the checker types both sides `string`.
+/// A one-argument `.split(sep)` call: the shape the lowering answers
+/// views for when the checker types both sides `string`. A limit
+/// argument copies the prefix out as owned strings and releases the
+/// block (`ssa_lower_str_str_split::copy_prefix`), so that product is
+/// an `Arr<Str>` and can never share a view slot.
 pub(super) fn is_split_call(ast: &Ast, eid: ExprId) -> bool {
     matches!(ast.get_expr(eid), Expr::Call { callee, args }
         if matches!(ast.get_expr(*callee), Expr::Member { name, .. } if name == "split")
-            && (1..=2).contains(&args.len()))
+            && args.len() == 1)
 }
 
 /// May this declaration carry views: an owned-string array annotation

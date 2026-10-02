@@ -94,7 +94,7 @@ pub(super) fn binding_written_through(ast: &Ast, name: &str) -> bool {
                 target_is_through_x || expr_writes(ast, *target, x) || expr_writes(ast, *value, x)
             }
             Expr::PostIncr { target, .. } => {
-                matches!(ast.get_expr(*target), Expr::Index { obj, .. } if is_x(*obj))
+                matches!(ast.get_expr(*target), Expr::Index { obj, .. } | Expr::Member { obj, .. } if is_x(*obj))
                     || expr_writes(ast, *target, x)
             }
             // Anything that can hide a write we have not modelled

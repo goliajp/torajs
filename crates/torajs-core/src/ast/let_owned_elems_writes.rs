@@ -70,8 +70,15 @@ fn expr_writes(ast: &Ast, eid: ExprId, q: &Query<'_>) -> bool {
             expr_writes(ast, *callee, q) || args.iter().any(|a| expr_writes(ast, *a, q))
         }
         Expr::Assign { target, value } => {
-            let target_is_through_x =
-                matches!(ast.get_expr(*target), Expr::Index { obj, .. } if is_x(*obj));
+            // an element or a property of the binding written
+            // (`x[i] = v`, `x.length = n`): a length store resizes the
+            // block — grown slots are holes, which a view-typed read
+            // has no undefined for — so, like the global lane, every
+            // write through the binding keeps its elements owned
+            let target_is_through_x = match ast.get_expr(*target) {
+                Expr::Index { obj, .. } | Expr::Member { obj, .. } => is_x(*obj),
+                _ => false,
+            };
             // the binding itself reassigned (`x = [...]` / `x = other`):
             // its slot has to take whatever the program stores later,
             // and an `Arr<Substr>` slot takes only a fresh split
@@ -92,7 +99,7 @@ fn expr_writes(ast: &Ast, eid: ExprId, q: &Query<'_>) -> bool {
                 || expr_writes(ast, *value, q)
         }
         Expr::PostIncr { target, .. } => {
-            matches!(ast.get_expr(*target), Expr::Index { obj, .. } if is_x(*obj))
+            matches!(ast.get_expr(*target), Expr::Index { obj, .. } | Expr::Member { obj, .. } if is_x(*obj))
                 || expr_writes(ast, *target, q)
         }
         // Anything that can hide a write we have not modelled

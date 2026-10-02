@@ -110,7 +110,7 @@ pub(crate) fn lower_log_args(ctx: &mut LowerCtx, arg_ids: &[ExprId]) {
             continue;
         }
         let mut arg = ctx.lower_expr(aid);
-        let arg_ty = ctx.operand_ty(&arg);
+        let mut arg_ty = ctx.operand_ty(&arg);
         // Shared borrow judgement with `lower_single_arg`
         // (`console_arg_is_borrow`): Ident / This / Member /
         // OptChain / container Index lower to borrowed operands the
@@ -119,7 +119,22 @@ pub(crate) fn lower_log_args(ctx: &mut LowerCtx, arg_ids: &[ExprId]) {
         // statement owns. The judgement runs AFTER the lowering so
         // `owned_member_reads`-recorded reads answer owned (their
         // box transfer consumes the read's stake).
-        let is_borrow = crate::ssa_lower_call_console::console_arg_is_borrow(ctx, aid);
+        let mut is_borrow = crate::ssa_lower_call_console::console_arg_is_borrow(ctx, aid);
+        // A borrowed view (`log(n, parts[i])`) prints through an owned
+        // copy, as the single-arg lane does: an inline view's own
+        // count is never read by its drop, so the share-then-release
+        // below returned its parent's reference twice.
+        if arg_ty == Type::Substr && is_borrow {
+            let owned = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.substr_to_owned, vec![arg]),
+                Type::Str,
+                None,
+            );
+            arg = Operand::Value(owned);
+            arg_ty = Type::Str;
+            is_borrow = false;
+        }
         let staked = if arg_ty == Type::Any {
             // Chunk 721 — an owned Any temp (Call / OptCall results,
             // recorded member reads: `expr_owned_shape`) releases
