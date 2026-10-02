@@ -339,17 +339,20 @@ pub(crate) fn infer_expr_ann_with(
         Expr::BinOp { op, left, right } => {
             super::implicit_generics_infer_binop::binop_ann(op, &|| recur(*left), &|| recur(*right))
         }
-        Expr::Unary { op, .. } if matches!(op, UnaryOp::Not) => Some("boolean".into()),
+        Expr::Unary {
+            op: UnaryOp::Not, ..
+        } => Some("boolean".into()),
         // §13.5.5 / §13.5.7 — `-x` and `~x` over a BigInt answer a
         // BigInt. (`+x` on a BigInt is a TypeError per §13.5.4, so it
         // keeps the Number answer and the checker refuses the pair.)
-        Expr::Unary { op, expr } if matches!(op, UnaryOp::Neg | UnaryOp::BitNot) => {
-            match recur(*expr) {
-                Some(t) if t == "bigint" => Some("bigint".into()),
-                Some(t) if unnameable_arith_operand(&t) => None,
-                _ => Some("number".into()),
-            }
-        }
+        Expr::Unary {
+            op: UnaryOp::Neg | UnaryOp::BitNot,
+            expr,
+        } => match recur(*expr) {
+            Some(t) if t == "bigint" => Some("bigint".into()),
+            Some(t) if unnameable_arith_operand(&t) => None,
+            _ => Some("number".into()),
+        },
         Expr::Unary { .. } => Some("number".into()),
         Expr::Ident(name) => params
             .iter()

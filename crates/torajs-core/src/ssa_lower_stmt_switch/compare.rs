@@ -11,7 +11,7 @@ use crate::ssa_lower::LowerCtx;
 /// boundary makes (`box_to_any_from_expr`).
 fn is_undefined_literal(ctx: &LowerCtx, value: crate::ast::ExprId) -> bool {
     matches!(ctx.ast.get_expr(value), Expr::Ident(n) if n == "undefined")
-        && ctx.locals.get("undefined").is_none()
+        && !ctx.locals.contains_key("undefined")
 }
 
 /// One clause's IsStrictlyEqual compare against the scrutinee

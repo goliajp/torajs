@@ -261,7 +261,6 @@ fn emit_if_nonnull_call_arg(ctx: &mut LowerCtx, ptr: ValueId, fid: FuncId, arg: 
 
 /// `if (hdr.flags & flag) fid(hdr)` — the u16 `flags` at +6 read as
 /// the high half of the u32 at +4; leaves `cur_block` on the join.
-
 fn emit_cond_call(ctx: &mut LowerCtx, cond: ValueId, fid: FuncId, arg: Operand) {
     let call_blk = ctx.f.add_block();
     let join_blk = ctx.f.add_block();

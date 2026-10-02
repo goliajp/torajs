@@ -468,7 +468,6 @@ pub struct Function {
 /// LLVM-gate spike (labs/0002, removed with the inkwell backend)
 /// emitted as LLVM IR. Used by `tr ssa-demo` to validate the IR types
 /// + pretty printer before the lowerer (step 2) existed.
-
 #[cfg(test)]
 mod tests {
     use super::*;

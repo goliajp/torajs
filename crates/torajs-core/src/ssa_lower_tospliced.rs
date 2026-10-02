@@ -113,7 +113,7 @@ fn try_lower_global(ctx: &mut LowerCtx, callee_eid: ExprId, args: &[ExprId]) -> 
     let Expr::Ident(recv_name) = ctx.ast.get_expr(*recv_id) else {
         return None;
     };
-    if ctx.locals.get(recv_name).is_some() {
+    if ctx.locals.contains_key(recv_name) {
         return None;
     }
     let slot_ty = ctx.globals.get(recv_name).copied()?;

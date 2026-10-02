@@ -366,9 +366,7 @@ pub(super) fn emit_map_hole_block(
     step_blk: BlockId,
     seam: bool,
 ) -> Option<BlockId> {
-    let Some(elem_ty) = map_product_holes(ctx, dst_arr_ty) else {
-        return None;
-    };
+    let elem_ty = map_product_holes(ctx, dst_arr_ty)?;
     let hole_blk = ctx.f.add_block();
     let saved = ctx.cur_block;
     ctx.cur_block = hole_blk;

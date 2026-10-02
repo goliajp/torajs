@@ -39,8 +39,7 @@ use super::{Expr, ExprId, Stmt};
 /// `ident_cands` once per clone. The use-vs-face parity below
 /// compares against the arena's UNIQUE Ident nodes, so the face
 /// list must be unique too (the pre-2W per-entry `uses == 1` check
-/// tolerated duplicates implicitly).
-
+/// tolerated duplicates implicitly).///
 /// The BY-NAME candidate seeding — every profile that enters the
 /// promote loop with an empty face list, injected before the parity
 /// walk. Returns `(no_static_seed, hoisted_inits)`.

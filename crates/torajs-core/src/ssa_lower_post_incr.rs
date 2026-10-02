@@ -157,7 +157,7 @@ pub(crate) struct Step {
 }
 
 fn lower_ident(ctx: &mut LowerCtx<'_>, eid: ExprId, name: String, step: Step) -> Operand {
-    if ctx.locals.get(&name).is_none()
+    if !ctx.locals.contains_key(&name)
         && let Some(slot_ty) = ctx.globals.get(&name).copied()
     {
         return lower_ident_global(ctx, eid, name, slot_ty, step);

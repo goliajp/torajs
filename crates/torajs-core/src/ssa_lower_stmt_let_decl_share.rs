@@ -156,9 +156,10 @@ pub(crate) fn init_shares_source_stake(
                 && pre_ty.is_refcounted()
                 && !(ty == Type::Any && pre_ty != Type::Any)
         }
-        Expr::BinOp { op, .. }
-            if matches!(op, crate::ast::BinOp::LAnd | crate::ast::BinOp::LOr) =>
-        {
+        Expr::BinOp {
+            op: crate::ast::BinOp::LAnd | crate::ast::BinOp::LOr,
+            ..
+        } => {
             !converted
                 && !ctx.owned_member_reads.contains(&init)
                 && pre_ty.is_refcounted()

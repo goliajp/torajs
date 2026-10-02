@@ -270,7 +270,7 @@ fn sentinel_capable(inner: &str, env: &AliasEnv, depth: u32) -> bool {
     false
 }
 
-/// Split `s` on `sep` at paren depth 0.
+// /// Split `s` on `sep` at paren depth 0.
 // Chunk 794 — the `>` of a fn-type return arrow (`__fn(a|b)->r` /
 // `__cls(...)->r`) is NOT a generic closer: counting it dropped the
 // depth below zero right after the fn's `)` closed, so every later
@@ -280,7 +280,6 @@ fn sentinel_capable(inner: &str, env: &AliasEnv, depth: u32) -> bool {
 // one bogus field and the fill stayed a loud checker reject). `-`
 // only precedes `>` in the return-arrow spelling of these
 // encodings, so skip exactly that pair.
-
 fn split_depth0(s: &str, sep: char) -> Vec<&str> {
     let mut parts = Vec::new();
     let mut depth = 0i32;

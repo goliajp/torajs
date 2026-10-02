@@ -218,13 +218,11 @@ pub(super) fn collect_any_arraylit_inits(
                 type_ann,
                 init,
                 ..
-            } => {
-                if type_ann.as_deref() == Some("any")
-                    && any_recvs.contains(name)
-                    && matches!(&exprs[init.0 as usize], Expr::Array(_))
-                {
-                    out.insert(*init);
-                }
+            } if type_ann.as_deref() == Some("any")
+                && any_recvs.contains(name)
+                && matches!(&exprs[init.0 as usize], Expr::Array(_)) =>
+            {
+                out.insert(*init);
             }
             _ => {}
         }
@@ -322,10 +320,8 @@ fn collect_gen_fn_names(stmts: &[Stmt], out: &mut std::collections::HashSet<Stri
                 name,
                 return_type: Some(rt),
                 ..
-            } => {
-                if rt.starts_with("__Gen_") {
-                    out.insert(name.clone());
-                }
+            } if rt.starts_with("__Gen_") => {
+                out.insert(name.clone());
             }
             _ => {}
         }
@@ -437,24 +433,22 @@ fn collect_strwrapper_names_inner(
     other: &mut std::collections::HashSet<String>,
 ) {
     for s in stmts {
-        match s {
-            Stmt::LetDecl {
-                name,
-                type_ann,
-                init,
-                ..
-            } => {
-                if is_string_mint(exprs, super::fnexpr_this_names::peel_as(exprs, *init)) {
-                    decl_mint.insert(name.clone());
-                } else if type_ann.as_deref() == Some("any")
-                    && matches!(&exprs[init.0 as usize], Expr::Uninit)
-                {
-                    neutral.insert(name.clone());
-                } else {
-                    other.insert(name.clone());
-                }
+        if let Stmt::LetDecl {
+            name,
+            type_ann,
+            init,
+            ..
+        } = s
+        {
+            if is_string_mint(exprs, super::fnexpr_this_names::peel_as(exprs, *init)) {
+                decl_mint.insert(name.clone());
+            } else if type_ann.as_deref() == Some("any")
+                && matches!(&exprs[init.0 as usize], Expr::Uninit)
+            {
+                neutral.insert(name.clone());
+            } else {
+                other.insert(name.clone());
             }
-            _ => {}
         }
         super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
             collect_strwrapper_names_inner(inner, exprs, decl_mint, neutral, other)

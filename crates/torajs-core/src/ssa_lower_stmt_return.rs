@@ -129,7 +129,7 @@ fn lower_return_value(ctx: &mut LowerCtx, eid: crate::ast::ExprId) -> Operand {
             // discarded `f()` freed the cell under the live slot
             // (Symbol probe e1b SIGSEGV; the Str shape was the
             // same double-dec that only happened not to crash).
-            || (ctx.locals.get(name).is_none()
+            || (!ctx.locals.contains_key(name)
                 && ctx
                     .globals
                     .get(name)

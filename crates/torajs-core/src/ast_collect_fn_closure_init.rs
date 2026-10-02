@@ -246,12 +246,11 @@ pub(crate) fn ident_census(ast: &Ast) -> IdentCensus {
     };
     for e in &ast.exprs {
         match e {
-            Expr::BinOp { op, left, right }
-                if matches!(
-                    op,
-                    BinOp::Eq | BinOp::Neq | BinOp::LooseEq | BinOp::LooseNeq
-                ) =>
-            {
+            Expr::BinOp {
+                op: BinOp::Eq | BinOp::Neq | BinOp::LooseEq | BinOp::LooseNeq,
+                left,
+                right,
+            } => {
                 for side in [*left, *right] {
                     if let Expr::Ident(n) = ast.get_expr(strip_as(side)) {
                         out.eq_operands.insert(n.clone());

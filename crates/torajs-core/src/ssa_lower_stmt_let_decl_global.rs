@@ -373,7 +373,7 @@ pub(crate) fn try_lower_fn_addr_let(ctx: &mut LowerCtx, name: &str, init: ExprId
     let Expr::Ident(src_name) = ctx.ast.get_expr(init) else {
         return false;
     };
-    if ctx.locals.get(src_name).is_some() {
+    if ctx.locals.contains_key(src_name) {
         return false;
     }
     let Some(fid) = ctx.fn_table.get(src_name).copied() else {

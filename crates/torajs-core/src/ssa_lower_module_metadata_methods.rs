@@ -434,12 +434,13 @@ pub(crate) fn fn_ignores_receiver(f: &ssa::Function) -> bool {
             }
         }
         match &b.term {
-            ssa::Terminator::CondBr { cond, .. } if matches!(cond, ssa::Operand::Value(v) if spill_slots.contains(v)) =>
-            {
+            ssa::Terminator::CondBr {
+                cond: ssa::Operand::Value(v),
+                ..
+            } if spill_slots.contains(v) => {
                 return false;
             }
-            ssa::Terminator::Ret(Some(op)) if matches!(op, ssa::Operand::Value(v) if spill_slots.contains(v)) =>
-            {
+            ssa::Terminator::Ret(Some(ssa::Operand::Value(v))) if spill_slots.contains(v) => {
                 return false;
             }
             _ => {}

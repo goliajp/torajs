@@ -12,8 +12,7 @@ impl<'a> LowerCtx<'a> {
     /// mark the block's elem kind so the callee's kind-aware
     /// `Arr<Any>` readers can decode the raw layout. No-op when the
     /// arg is already `Arr<Any>` (chain 0), boxed `Any`, or not an
-    /// array — `emit_arr_mark_kind` self-gates on the value's type.
-
+    /// array — `emit_arr_mark_kind` self-gates on the value's type.    ///
     /// Chunk 641 — contextual empty-array-literal call arg. An empty
     /// `[]` has no element to infer from; when the callee's param is
     /// a typed `Arr(T)`, alloc the empty block with the PARAM's

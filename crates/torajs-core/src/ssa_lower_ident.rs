@@ -55,7 +55,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: crate::ast::ExprId, name: &str)
     {
         return op;
     }
-    if ctx.locals.get(name).is_none() {
+    if !ctx.locals.contains_key(name) {
         if let Some(op) = crate::ssa_lower_ident_global::try_undeclared_read_throw(ctx, eid, name) {
             return op;
         }

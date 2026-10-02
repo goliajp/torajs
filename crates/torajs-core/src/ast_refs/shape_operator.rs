@@ -49,21 +49,18 @@ pub(super) fn infer_operator_shape(ast: &Ast, init: ExprId, depth: u32) -> Optio
         // The comparisons and `!` answer a boolean whatever they are
         // handed (§13.10, §13.11, §13.5.7), so no operand needs to be
         // known at all.
-        Expr::BinOp { op, .. }
-            if matches!(
-                op,
+        Expr::BinOp {
+            op:
                 BinOp::Lt
-                    | BinOp::Gt
-                    | BinOp::Le
-                    | BinOp::Ge
-                    | BinOp::Eq
-                    | BinOp::Neq
-                    | BinOp::LooseEq
-                    | BinOp::LooseNeq
-            ) =>
-        {
-            Some(GlobalSlotShape::Bool)
-        }
+                | BinOp::Gt
+                | BinOp::Le
+                | BinOp::Ge
+                | BinOp::Eq
+                | BinOp::Neq
+                | BinOp::LooseEq
+                | BinOp::LooseNeq,
+            ..
+        } => Some(GlobalSlotShape::Bool),
         Expr::Unary {
             op: UnaryOp::Not, ..
         } => Some(GlobalSlotShape::Bool),

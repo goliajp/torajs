@@ -36,7 +36,7 @@ impl<'a> LowerCtx<'a> {
             self.expr_types.get(&eid),
             Some(crate::check::Type::Undefined)
         ) || (matches!(self.ast.get_expr(eid), Expr::Ident(n) if n == "undefined")
-            && self.locals.get("undefined").is_none());
+            && !self.locals.contains_key("undefined"));
         // A call whose checker type is `Void` answers `undefined` — the
         // method's own "return undefined" step. Its lowering may hand
         // back a placeholder operand of some other SSA type
@@ -186,13 +186,11 @@ impl<'a> LowerCtx<'a> {
     /// destination slot's static view: a typed array shared into an
     /// `Arr<Any>` slot (T-11 container widen) keeps its raw-slot
     /// layout, and the slot-typed chain (Any → 0) skipped the mark
-    /// the kind-aware readers rely on.
-
+    /// the kind-aware readers rely on.    ///
     /// Kind values mirror `torajs_rc::ARR_KIND_*` (1=I64 raw, 2=F64
     /// raw, 3=Bool raw, 4=heap cell ptr; 0=UNSET/no-mark). Depth is
     /// capped at 21 levels (u64 / 3 bits) — deeper nests leave the
-    /// tail UNSET, which consumers treat as the pre-RFC fallback.
-
+    /// tail UNSET, which consumers treat as the pre-RFC fallback.    ///
     /// Extract `(tag_op, value_op)` for a freshly-lowered value, matching
     /// `box_to_any`'s tag scheme. Used by sites that need the unboxed
     /// pair instead of an Any-box (e.g. dynobj_set / arrprops_set

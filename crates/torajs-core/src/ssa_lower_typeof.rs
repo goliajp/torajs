@@ -118,7 +118,7 @@ fn try_ident_global_typeof(ctx: &LowerCtx<'_>, expr: ExprId) -> Option<&'static 
     // `eval` — `var parseInt = 3` reads the same way — so the test is
     // the general one, the same three scopes the sibling
     // `try_undeclared_ident_typeof` consults for the opposite question.
-    if ctx.locals.get(name).is_some()
+    if ctx.locals.contains_key(name)
         || ctx.globals.contains_key(name)
         || ctx.fn_table.contains_key(name)
     {
@@ -201,7 +201,7 @@ fn try_undeclared_ident_typeof(ctx: &mut LowerCtx<'_>, expr: ExprId) -> Option<O
     // does carry, and a bare read of it raises — `typeof` must not.
     let marked = ctx.ast.undeclared_reads.contains_key(&expr);
     if !marked
-        && (ctx.locals.get(name).is_some()
+        && (ctx.locals.contains_key(name)
             || ctx.globals.contains_key(name)
             || ctx.fn_table.contains_key(name)
             || matches!(name.as_str(), "NaN" | "Infinity"))

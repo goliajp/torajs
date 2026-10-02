@@ -159,7 +159,7 @@ pub(crate) fn lower(
     if let Some(v) = crate::ssa_lower_exec_record::try_assign(ctx, &name, value) {
         return v;
     }
-    let v = if ctx.locals.get(&name).is_none()
+    let v = if !ctx.locals.contains_key(&name)
         && let Some(slot_ty) = ctx.globals.get(&name).copied()
     {
         lower_global_assign(ctx, name, slot_ty, value)
@@ -484,11 +484,10 @@ fn apply_borrow_rc_inc(ctx: &mut LowerCtx<'_>, v: &Operand, value: ExprId) {
         // (`y = cond ? ys : xs; y.shift()` stole xs's stake at y's
         // scope end; census array-019-deque).
         Expr::Ternary { .. } | Expr::Nullish { .. } => !ctx.owned_member_reads.contains(&value),
-        Expr::BinOp { op, .. }
-            if matches!(op, crate::ast::BinOp::LAnd | crate::ast::BinOp::LOr) =>
-        {
-            !ctx.owned_member_reads.contains(&value)
-        }
+        Expr::BinOp {
+            op: crate::ast::BinOp::LAnd | crate::ast::BinOp::LOr,
+            ..
+        } => !ctx.owned_member_reads.contains(&value),
         _ => false,
     };
     if needs_inc {

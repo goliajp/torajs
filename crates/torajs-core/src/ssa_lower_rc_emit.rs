@@ -182,9 +182,10 @@ impl<'a> LowerCtx<'a> {
             // (an owned any-member read rode into the slot — see
             // lower_logical_and); those joins record their eid on
             // the same track the Ternary / Nullish joins use.
-            Expr::BinOp { op, .. } if matches!(op, AstBinOp::LAnd | AstBinOp::LOr) => {
-                self.owned_member_reads.contains(&eid)
-            }
+            Expr::BinOp {
+                op: AstBinOp::LAnd | AstBinOp::LOr,
+                ..
+            } => self.owned_member_reads.contains(&eid),
             Expr::BinOp { .. } => true,
             Expr::As { expr, .. } => self.expr_owned_shape(*expr),
             // Chunk 640 — array / object literals mint a fresh heap

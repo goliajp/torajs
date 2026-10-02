@@ -239,7 +239,7 @@ fn try_lower_ident_global(
         Expr::Ident(n) => n,
         _ => return None,
     };
-    if ctx.locals.get(recv_name).is_some() {
+    if ctx.locals.contains_key(recv_name) {
         return None;
     }
     let slot_ty = ctx.globals.get(recv_name).copied()?;

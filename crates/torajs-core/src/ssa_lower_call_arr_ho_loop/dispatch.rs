@@ -119,7 +119,6 @@ pub(crate) fn emit_argv_face_call(
 /// W4 / devirt dispatch — align arg widths with callback sig (f64-param
 /// must not get raw i64 elem bits) then route through devirt direct call
 /// when `known_fid` is set, else the indirect env+8 fn_ptr path.
-
 pub(super) fn emit_do_call(
     ctx: &mut LowerCtx<'_>,
     known_fid: Option<FuncId>,

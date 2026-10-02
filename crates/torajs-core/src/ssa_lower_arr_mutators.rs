@@ -208,9 +208,7 @@ impl<'a> LowerCtx<'a> {
             && name == "pop"
         {
             let recv_id = *recv_id;
-            let Some((arr_op, arr_ty)) = self.resolve_mutator_arr_receiver(recv_id) else {
-                return None;
-            };
+            let (arr_op, arr_ty) = self.resolve_mutator_arr_receiver(recv_id)?;
             // S288 — accept any trailing operands per ES §23.1.3.20
             // trailing-arg ignore; lower-and-drop before the in-place
             // pop emit so step()-style side-effect exprs fire (S272
@@ -330,9 +328,7 @@ impl<'a> LowerCtx<'a> {
             && name == "shift"
         {
             let recv_id = *recv_id;
-            let Some((arr_op, arr_ty)) = self.resolve_mutator_arr_receiver(recv_id) else {
-                return None;
-            };
+            let (arr_op, arr_ty) = self.resolve_mutator_arr_receiver(recv_id)?;
             // S288 — accept any trailing operands per ES §23.1.3.24
             // trailing-arg ignore; lower-and-drop before the head-
             // bump emit so step()-style side-effect exprs fire (S272
@@ -420,9 +416,7 @@ impl<'a> LowerCtx<'a> {
             && args.len() == 1
         {
             let recv_id = *recv_id;
-            let Some((arr_op, arr_ty)) = self.resolve_mutator_arr_receiver(recv_id) else {
-                return None;
-            };
+            let (arr_op, arr_ty) = self.resolve_mutator_arr_receiver(recv_id)?;
             let arr_id = match arr_ty {
                 Type::Arr(id) => id,
                 _ => unreachable!(),

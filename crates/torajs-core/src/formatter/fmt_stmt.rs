@@ -388,7 +388,6 @@ impl<'a> Formatter<'a> {
 
     /// `Stmt::Switch` arm body — case bodies are indented one level
     /// under their `case x:` label, no braces.
-
     fn fmt_for_init(&mut self, s: &Stmt) {
         // `for (init; ...)` accepts a LetDecl or an ExprStmt as init.
         // Reuse the regular Stmt formatter but with indent suppressed.
