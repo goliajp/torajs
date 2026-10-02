@@ -17,7 +17,7 @@
 //!               ANCHOR_B/E the m bit. High byte reserved (0).
 //!   a  : i32    OP_CHAR=literal, OP_CLASS=cls_idx, OP_JMP=target, OP_SPLIT=t1,
 //!               OP_SAVE=slot, OP_LOOK*=sub_prog_idx, OP_BACKREF=cap_idx,
-//!               OP_SAVE_RESET=first slot
+//!               OP_SAVE_RESET=first slot, OP_ITER_CHECK=its ITER_START pc
 //!   b  : i32    OP_SPLIT=t2, OP_SAVE_RESET=one past the last slot
 //! ```
 //!
@@ -26,7 +26,8 @@
 //! `CLASS`), zero-width (`ANCHOR_B/E` / `WBOUND` / `NWBOUND` /
 //! `LOOKAHEAD` / `NEG_LOOKAHEAD` / `LOOKBEHIND` / `NEG_LOOKBEHIND`),
 //! capture-slot write (`SAVE`), capture-slot clear (`SAVE_RESET`),
-//! accept (`MATCH`), and capture re-consume (`BACKREF`).
+//! empty-iteration check (`ITER_START` / `ITER_CHECK`), accept
+//! (`MATCH`), and capture re-consume (`BACKREF`).
 
 use crate::charclass::CharClass;
 use alloc::{boxed::Box, vec::Vec};
@@ -54,6 +55,13 @@ pub enum Op {
     /// quantified atom that contains capture groups (ES §22.2.2.3.1
     /// RepeatMatcher step 4)
     SaveReset = 17,
+    /// the top of an iteration that [`Op::IterCheck`] closes
+    IterStart = 18,
+    /// the bottom of an iteration past the quantifier's minimum whose
+    /// atom can match empty: the path fails when the iteration began
+    /// at this position, i.e. when the `IterStart` at `a` lies on its
+    /// ε path (ES §22.2.2.3.1 RepeatMatcher step 2.b)
+    IterCheck = 19,
 }
 
 impl Op {
@@ -76,6 +84,8 @@ impl Op {
             15 => Some(Op::NegLookbehind),
             16 => Some(Op::Backref),
             17 => Some(Op::SaveReset),
+            18 => Some(Op::IterStart),
+            19 => Some(Op::IterCheck),
             _ => None,
         }
     }
@@ -168,6 +178,16 @@ impl Inst {
             pad: 0,
             a: first,
             b: end,
+        }
+    }
+
+    /// close the iteration opened by the `IterStart` at `start`
+    pub fn iter_check(start: i32) -> Self {
+        Self {
+            op: Op::IterCheck as u8,
+            pad: 0,
+            a: start,
+            b: 0,
         }
     }
 
@@ -428,11 +448,13 @@ mod tests {
             Op::NegLookbehind,
             Op::Backref,
             Op::SaveReset,
+            Op::IterStart,
+            Op::IterCheck,
         ] {
             assert_eq!(Op::from_u8(op as u8), Some(op));
         }
         assert_eq!(Op::from_u8(0), None);
-        assert_eq!(Op::from_u8(18), None);
+        assert_eq!(Op::from_u8(20), None);
     }
 
     #[test]

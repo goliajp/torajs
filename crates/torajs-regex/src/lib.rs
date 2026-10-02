@@ -74,6 +74,8 @@ pub mod utf8_class_expand;
 pub mod vm;
 
 #[cfg(test)]
+mod empty_iteration_tests;
+#[cfg(test)]
 mod repeat_reset_tests;
 
 // Cross-tier extern "C" stubs for cargo unit tests — real symbols

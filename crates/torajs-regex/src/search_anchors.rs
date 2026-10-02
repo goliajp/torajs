@@ -23,9 +23,10 @@ impl Program {
     /// Fill `prefix_byte` and `literal` from the emitted bytecode.
     ///
     /// `prefix_byte`: walk forward over zero-width bookkeeping ops
-    /// (`Save` / `SaveReset`, `AnchorB` / `AnchorE`, `WBound` / `NWBound`) to the
-    /// first byte-consuming op; a plain `Char` there is the anchor,
-    /// any other shape leaves none. A literal past ASCII is a run
+    /// (`Save` / `SaveReset`, `IterStart` / `IterCheck`, `AnchorB` /
+    /// `AnchorE`, `WBound` / `NWBound`) to the first byte-consuming
+    /// op; a plain `Char` there is the anchor, any other shape leaves
+    /// none. A literal past ASCII is a run
     /// of `Char` ops, one per UTF-8 byte, so its lead byte anchors too.
     ///
     /// `literal`: the program is `Char+ Match` and nothing else, every
@@ -34,7 +35,14 @@ impl Program {
         for inst in &self.insts {
             match Op::from_u8(inst.op) {
                 Some(
-                    Op::Save | Op::SaveReset | Op::AnchorB | Op::AnchorE | Op::WBound | Op::NWBound,
+                    Op::Save
+                    | Op::SaveReset
+                    | Op::IterStart
+                    | Op::IterCheck
+                    | Op::AnchorB
+                    | Op::AnchorE
+                    | Op::WBound
+                    | Op::NWBound,
                 ) => continue,
                 Some(Op::Char) => {
                     if is_plain_char(inst) {

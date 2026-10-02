@@ -8,11 +8,18 @@
 //! `BoundedBacktracker`). The first path to reach `Op::Match` at `end`
 //! is the one the Pike VM's highest-priority thread takes, so the row
 //! it leaves is the same row.
+//!
+//! `Op::IterCheck` also reads where its iteration began, which the
+//! bitset does not key on. That stays sound: when the first visitor of
+//! `(pc, pos)` began its iteration at `pos`, it passed the loop's split
+//! at `pos`, and every continuation a later visitor could take from
+//! there is mirrored, at higher priority, by a path through that split.
 
 use super::char_eq;
 use crate::parser::{RE_FLAG_I, RE_FLAG_M, RE_FLAG_S, is_word_byte, unicode_mode};
 use crate::program::{Inst, Op, Program};
 use crate::utf8::{utf8_decode_cp, utf8_len_for};
+use alloc::vec;
 use alloc::vec::Vec;
 
 /// visited-bitset budget: 256 KiB
@@ -30,6 +37,8 @@ const OP_SPLIT: u8 = Op::Split as u8;
 const OP_MATCH: u8 = Op::Match as u8;
 const OP_SAVE: u8 = Op::Save as u8;
 const OP_SAVE_RESET: u8 = Op::SaveReset as u8;
+const OP_ITER_START: u8 = Op::IterStart as u8;
+const OP_ITER_CHECK: u8 = Op::IterCheck as u8;
 
 #[derive(Clone, Copy, Debug)]
 enum Job {
@@ -37,6 +46,8 @@ enum Job {
     Step { pc: u32, off: u32 },
     /// undo a capture write made on an abandoned path
     Restore { slot: u32, old: i64 },
+    /// undo the start position an abandoned path gave an iteration
+    RestoreIter { pc: u32, old: i64 },
 }
 
 /// Per-RegExp buffers, reused across matches.
@@ -46,6 +57,9 @@ pub struct Backtrack {
     pub eligible: bool,
     stack: Vec<Job>,
     visited: Vec<u64>,
+    /// by `Op::IterStart` pc: where the path's current iteration of
+    /// that loop began
+    iter_pos: Vec<i64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -63,10 +77,12 @@ pub enum Outcome {
 
 impl Backtrack {
     pub fn for_program(prog: &Program) -> Self {
+        let loops = prog.insts.iter().any(|i| i.op == OP_ITER_START);
         Self {
             eligible: can_backtrack(prog),
             stack: Vec::new(),
             visited: Vec::new(),
+            iter_pos: vec![-1; if loops { prog.len() } else { 0 }],
         }
     }
 }
@@ -87,6 +103,10 @@ pub fn can_backtrack(prog: &Program) -> bool {
         OP_CLASS => falls_through(i) && ins.a >= 0 && (ins.a as usize) < prog.classes.len(),
         OP_SAVE => falls_through(i) && ins.a >= 0,
         OP_SAVE_RESET => falls_through(i) && ins.a >= 0 && ins.a <= ins.b,
+        OP_ITER_START => falls_through(i),
+        OP_ITER_CHECK => {
+            falls_through(i) && in_range(ins.a) && prog.insts[ins.a as usize].op == OP_ITER_START
+        }
         OP_JMP => in_range(ins.a),
         OP_SPLIT => in_range(ins.a) && in_range(ins.b),
         OP_MATCH => true,
@@ -131,6 +151,7 @@ pub fn captures_at(
     while let Some(job) = bt.stack.pop() {
         match job {
             Job::Restore { slot, old } => row[slot as usize] = old,
+            Job::RestoreIter { pc, old } => bt.iter_pos[pc as usize] = old,
             Job::Step { pc, off } => match walker.walk(pc as usize, st + off as i64, bt, row) {
                 Outcome::NoMatch => {}
                 done => return done,
@@ -197,6 +218,16 @@ impl Walker<'_> {
                         }
                     }
                 }
+                OP_ITER_START => {
+                    bt.stack.push(Job::RestoreIter {
+                        pc: pc as u32,
+                        old: bt.iter_pos[pc],
+                    });
+                    bt.iter_pos[pc] = pos;
+                }
+                // the iteration began here: it is empty, and fails
+                OP_ITER_CHECK if bt.iter_pos[ins.a as usize] == pos => return Outcome::NoMatch,
+                OP_ITER_CHECK => {}
                 OP_MATCH => {
                     if pos == self.end {
                         return Outcome::Match;

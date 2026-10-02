@@ -132,6 +132,8 @@ fn servable(prog: &Program) -> bool {
             }
             Some(Op::Save) => falls_through && ins.a >= 0,
             Some(Op::SaveReset) => falls_through && ins.a >= 0 && ins.a <= ins.b,
+            Some(Op::IterStart) => falls_through,
+            Some(Op::IterCheck) => falls_through && in_range(ins.a),
             Some(Op::AnchorB | Op::AnchorE | Op::WBound | Op::NWBound) => falls_through,
             Some(Op::Jmp) => in_range(ins.a),
             Some(Op::Split) => in_range(ins.a) && in_range(ins.b),
@@ -185,7 +187,7 @@ fn probes(prog: &Program, seed: usize, unicode: bool) -> u8 {
                 stack.push(ins.a as usize);
                 stack.push(ins.b as usize);
             }
-            Some(Op::Save | Op::SaveReset) => stack.push(pc + 1),
+            Some(Op::Save | Op::SaveReset | Op::IterStart | Op::IterCheck) => stack.push(pc + 1),
             Some(Op::AnchorB) => {
                 probes |= if multiline { LINE_START } else { INPUT_START };
                 stack.push(pc + 1);
@@ -278,36 +280,47 @@ struct Closure {
 
 fn closure(prog: &Program, seed: usize, ctx: u8, unicode: bool) -> Closure {
     let mut visited = vec![false; prog.len()];
-    let mut stack: Vec<(usize, Writes)> = vec![(seed, Writes::default())];
+    // each path carries its slot writes and the `IterStart` pcs on it
+    let mut stack: Vec<(usize, Writes, Vec<usize>)> = vec![(seed, Writes::default(), Vec::new())];
     let mut consuming = Vec::new();
     let mut accept = None;
-    while let Some((pc, saves)) = stack.pop() {
+    while let Some((pc, saves, iters)) = stack.pop() {
         if visited[pc] {
             continue;
         }
         visited[pc] = true;
         let ins = prog.insts[pc];
         match Op::from_u8(ins.op) {
-            Some(Op::Jmp) => stack.push((ins.a as usize, saves)),
+            Some(Op::Jmp) => stack.push((ins.a as usize, saves, iters)),
             Some(Op::Split) => {
-                stack.push((ins.b as usize, saves.clone()));
-                stack.push((ins.a as usize, saves));
+                stack.push((ins.b as usize, saves.clone(), iters.clone()));
+                stack.push((ins.a as usize, saves, iters));
             }
             Some(Op::Save) => {
                 let mut saves = saves;
                 saves.save(ins.a as u32);
-                stack.push((pc + 1, saves));
+                stack.push((pc + 1, saves, iters));
             }
             Some(Op::SaveReset) => {
                 let mut saves = saves;
                 for slot in ins.a..ins.b {
                     saves.clear(slot as u32);
                 }
-                stack.push((pc + 1, saves));
+                stack.push((pc + 1, saves, iters));
+            }
+            Some(Op::IterStart) => {
+                let mut iters = iters;
+                iters.push(pc);
+                stack.push((pc + 1, saves, iters));
+            }
+            Some(Op::IterCheck) => {
+                if !iters.contains(&(ins.a as usize)) {
+                    stack.push((pc + 1, saves, iters));
+                }
             }
             Some(Op::AnchorB | Op::AnchorE | Op::WBound | Op::NWBound) => {
                 if holds(ins, ctx, unicode) {
-                    stack.push((pc + 1, saves));
+                    stack.push((pc + 1, saves, iters));
                 }
             }
             Some(Op::Match) => {

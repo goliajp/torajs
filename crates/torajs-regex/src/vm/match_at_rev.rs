@@ -65,8 +65,7 @@ pub fn vm_match_at_rev(
         ws.vn.begin_step();
         let mut saw_match_this_step = false;
         let mut ti = 0;
-        // Iterate cur via index — body may push into cur (BACKREF
-        // epsilon hop on empty capture) and we want to see those.
+        // Iterate cur via index: the arms borrow `ws` mutably.
         while ti < ws.cur.list.len() && !saw_match_this_step {
             let t_pc = ws.cur.list[ti].pc;
             let t_br_offset = ws.cur.list[ti].br_offset;
@@ -227,10 +226,10 @@ fn dispatch_class_rev(
 
 /// OP_BACKREF reverse dispatch — the captured text must END at the
 /// cursor, so bytes compare tail-first: `br_offset` counts matched
-/// bytes from the capture's END. Undefined / empty captures hop
-/// epsilon-style exactly like the forward VM (a lookbehind body
-/// executes right-to-left, so `(?<=(\w)\1)`'s backref runs BEFORE
-/// its group captures — undefined ⇒ trivially matches, the V8
+/// bytes from the capture's END. Undefined / empty captures never park
+/// here: `add_thread` steps over them in both directions (a lookbehind
+/// body executes right-to-left, so `(?<=(\w)\1)`'s backref runs
+/// BEFORE its group captures — undefined ⇒ trivially matches, the V8
 /// behaviour — while `(?<=\1(\w))` sees a real capture).
 fn handle_backref_rev(
     prog: &Program,
@@ -254,21 +253,6 @@ fn handle_backref_rev(
         (-1, -1)
     };
     let cap_len = if cs < 0 || ce < 0 { 0 } else { ce - cs };
-    if cap_len == 0 {
-        // Epsilon-style — schedule pc+1 in cur at the same pos.
-        add_thread(
-            &mut ws.cur,
-            &mut ws.vc,
-            &mut ws.arena,
-            (t.pc + 1) as i32,
-            prog,
-            s,
-            pos,
-            flags,
-            t.saves_id,
-        );
-        return;
-    }
     if pos > 0
         && char_eq(
             s[(ce - 1 - t.br_offset as i64) as usize],

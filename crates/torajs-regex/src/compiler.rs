@@ -208,6 +208,10 @@ fn compile_alt(prog: &mut Program, node: &Node, flags: u8, rev: bool) {
 /// §22.2.2.3.1 RepeatMatcher step 4). The first copy is entered once
 /// per entry into the repeat, and nothing outside the atom writes its
 /// groups, so they are still unset there.
+///
+/// When `child` can match empty every iteration past `min` is
+/// bracketed by `ITER_START` / `ITER_CHECK`, which fails it when it
+/// ends where it began (step 2.b).
 fn compile_repeat(prog: &mut Program, node: &Node, flags: u8, rev: bool) {
     let Some(child) = node.child.as_deref() else {
         return;
@@ -215,15 +219,40 @@ fn compile_repeat(prog: &mut Program, node: &Node, flags: u8, rev: bool) {
     let reset = capture_slots(child);
     // Unrolled mandatory prefix.
     for k in 0..node.min {
-        compile_iteration(prog, child, reset.filter(|_| k > 0), flags, rev);
+        let iter = Iteration {
+            reset: reset.filter(|_| k > 0),
+            check: false,
+        };
+        compile_iteration(prog, child, iter, flags, rev);
     }
-    let reset_first = reset.filter(|_| node.min > 0);
+    let iter = Iteration {
+        reset,
+        check: can_match_empty(child),
+    };
     if node.max == -1 {
-        compile_kleene_tail(prog, child, node.lazy, reset, flags, rev);
+        compile_kleene_tail(prog, child, node.lazy, iter, flags, rev);
     } else {
         let extra = node.max - node.min;
-        let iter = Iteration { reset, reset_first };
-        compile_bounded_extras(prog, child, extra, node.lazy, iter, flags, rev);
+        let first = Iteration {
+            reset: reset.filter(|_| node.min > 0),
+            ..iter
+        };
+        compile_bounded_extras(prog, child, extra, node.lazy, [first, iter], flags, rev);
+    }
+}
+
+/// Can `node` match without consuming? Errs towards yes: the check
+/// on an atom that always consumes never fires.
+fn can_match_empty(node: &Node) -> bool {
+    match node.kind {
+        NodeKind::Char | NodeKind::Any | NodeKind::Class => false,
+        NodeKind::Concat => node.kids.iter().all(|k| can_match_empty(k)),
+        NodeKind::Alt | NodeKind::StringSet => {
+            node.kids.is_empty() || node.kids.iter().any(|k| can_match_empty(k))
+        }
+        NodeKind::Repeat => node.min == 0 || node.child.as_deref().is_none_or(can_match_empty),
+        NodeKind::Group => node.child.as_deref().is_none_or(can_match_empty),
+        _ => true,
     }
 }
 
@@ -248,26 +277,25 @@ fn capture_slots(node: &Node) -> Option<(i32, i32)> {
     span
 }
 
-/// One copy of the repeated atom, opened by a reset of its groups.
-fn compile_iteration(
-    prog: &mut Program,
-    child: &Node,
-    reset: Option<(i32, i32)>,
-    flags: u8,
-    rev: bool,
-) {
-    if let Some((first, end)) = reset {
+/// One copy of the repeated atom, opened by a reset of its groups and
+/// bracketed by the empty-iteration check when `iter.check`.
+fn compile_iteration(prog: &mut Program, child: &Node, iter: Iteration, flags: u8, rev: bool) {
+    let start = iter.check.then(|| prog.emit(Inst::simple(Op::IterStart)));
+    if let Some((first, end)) = iter.reset {
         prog.emit(Inst::save_reset(first, end));
     }
     compile_dir(prog, child, flags, rev);
+    if let Some(start) = start {
+        prog.emit(Inst::iter_check(start));
+    }
 }
 
-/// The resets of the bounded copies: `reset_first` for the first one,
-/// `reset` for the rest.
+/// What brackets one copy of the atom: the slots its top clears and
+/// whether it fails when empty.
 #[derive(Clone, Copy)]
 struct Iteration {
     reset: Option<(i32, i32)>,
-    reset_first: Option<(i32, i32)>,
+    check: bool,
 }
 
 /// SPLIT-loop tail for unbounded repeats (`*` / `+` / `{n,}`).
@@ -276,13 +304,13 @@ fn compile_kleene_tail(
     prog: &mut Program,
     child: &Node,
     lazy: bool,
-    reset: Option<(i32, i32)>,
+    iter: Iteration,
     flags: u8,
     rev: bool,
 ) {
     let split_idx = prog.emit(Inst::split(0, 0));
     let body_start = prog.next_idx();
-    compile_iteration(prog, child, reset, flags, rev);
+    compile_iteration(prog, child, iter, flags, rev);
     prog.emit(Inst::jmp(split_idx));
     let after = prog.next_idx();
     if lazy {
@@ -296,13 +324,13 @@ fn compile_kleene_tail(
 
 /// `extra` bounded optional iterations of `child`, each wrapped in a
 /// SPLIT that can fall through to `after_loop`. Backpatched once the
-/// extras are emitted.
+/// extras are emitted. `iters` brackets the first copy and the rest.
 fn compile_bounded_extras(
     prog: &mut Program,
     child: &Node,
     extra: i32,
     lazy: bool,
-    iter: Iteration,
+    iters: [Iteration; 2],
     flags: u8,
     rev: bool,
 ) {
@@ -314,8 +342,8 @@ fn compile_bounded_extras(
         let sidx = prog.emit(Inst::split(0, 0));
         splits.push(sidx as usize);
         let body_start = prog.next_idx();
-        let reset = if k == 0 { iter.reset_first } else { iter.reset };
-        compile_iteration(prog, child, reset, flags, rev);
+        let iter = iters[usize::from(k > 0)];
+        compile_iteration(prog, child, iter, flags, rev);
         if lazy {
             prog.insts[sidx as usize].a = -1; // skip — patched below
             prog.insts[sidx as usize].b = body_start;

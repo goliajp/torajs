@@ -48,25 +48,28 @@ pub(super) fn add_thread(
     }
     let upc = pc as usize;
     if prog.backref_caps.is_empty() {
+        // first arrival wins even though an `Op::IterCheck` verdict
+        // depends on the path (the reasoning is in `backtrack`'s doc)
         if vt.visited[upc] == tl.step_id {
             return;
         }
         vt.visited[upc] = tl.step_id;
     } else {
         // Backref-carrying program — dedup on (pc, spans of every
-        // backref-referenced group). PC-only first-write-wins would
-        // swallow viable lower-priority capture candidates whose
-        // greedy sibling dies later (`/^(a+)\1*,\1+$/`). Epsilon
-        // cycles still terminate: `Op::Save` writes the fixed
-        // current `pos`, so the key domain at one position is
-        // finite and a second lap collides here.
+        // backref-referenced group, iterations begun on this path).
+        // PC-only first-write-wins would swallow viable lower-priority
+        // capture candidates whose greedy sibling dies later
+        // (`/^(a+)\1*,\1+$/`), and an empty iteration's fate depends
+        // on whether it began here. The key domain at one position is
+        // finite, and `Op::IterCheck` cuts every ε cycle.
         let row = arena.get(saves_id);
-        let mut key = Vec::with_capacity(2 * prog.backref_caps.len());
+        let mut key = Vec::with_capacity(2 * prog.backref_caps.len() + vt.iters.len());
         for &g in &prog.backref_caps {
             let s_slot = (2 * g) as usize;
             key.push(row.get(s_slot).copied().unwrap_or(-1));
             key.push(row.get(s_slot + 1).copied().unwrap_or(-1));
         }
+        key.extend(vt.iters.iter().map(|&p| p as i64));
         if !vt.seen.insert((upc, key)) {
             return;
         }
@@ -94,6 +97,21 @@ pub(super) fn add_thread(
         Op::SaveReset => {
             let reset = reset_slots(arena, saves_id, ins.a, ins.b);
             add_thread(tl, vt, arena, pc + 1, prog, s, pos, flags, reset);
+        }
+        Op::IterStart => {
+            vt.iters.push(upc);
+            add_thread(tl, vt, arena, pc + 1, prog, s, pos, flags, saves_id);
+            vt.iters.pop();
+        }
+        Op::IterCheck => {
+            if !vt.iters.contains(&(ins.a as usize)) {
+                add_thread(tl, vt, arena, pc + 1, prog, s, pos, flags, saves_id);
+            }
+        }
+        // an empty backreference consumes nothing, so it stays on the
+        // ε path: in priority order, and inside the iteration it ends
+        Op::Backref if backref_is_empty(arena.get(saves_id), ins.a) => {
+            add_thread(tl, vt, arena, pc + 1, prog, s, pos, flags, saves_id);
         }
         Op::AnchorB => {
             // multiline is the instruction's baked `pad` m-bit
@@ -176,6 +194,16 @@ pub(super) fn add_thread(
                 saves_id,
             });
         }
+    }
+}
+
+/// Does the backreference to group `cap_idx` match empty: the group
+/// is unset or captured the empty string?
+pub(super) fn backref_is_empty(row: &[i64], cap_idx: i32) -> bool {
+    let slot = 2 * cap_idx.max(0) as usize;
+    match (row.get(slot), row.get(slot + 1)) {
+        (Some(&cs), Some(&ce)) => cap_idx < 1 || cs < 0 || ce <= cs,
+        _ => true,
     }
 }
 

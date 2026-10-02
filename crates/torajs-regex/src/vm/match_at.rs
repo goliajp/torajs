@@ -65,8 +65,7 @@ pub fn vm_match_at(
         ws.vn.begin_step();
         let mut saw_match_this_step = false;
         let mut ti = 0;
-        // Iterate cur via index — body may push into cur (BACKREF
-        // epsilon hop on empty capture) and we want to see those.
+        // Iterate cur via index: the arms borrow `ws` mutably.
         while ti < ws.cur.list.len() && !saw_match_this_step {
             // V0.2 P14-S12 — saves arena. The pre-S10 shape cloned the
             // full 528-byte Thread; S10 borrow-split removed the clone
@@ -119,8 +118,8 @@ pub fn vm_match_at(
                 Op::Class => dispatch_class(ws, prog, s, pos, flags, t_pc, t_saves_id),
                 Op::Backref => {
                     // BACKREF needs scalar Thread fields + saves_id;
-                    // handle_backref reads saves via the arena and may
-                    // schedule into ws.cur (alias-free via field-split).
+                    // handle_backref reads saves via the arena and
+                    // schedules into ws.nxt (alias-free via field-split).
                     let t = Thread {
                         pc: t_pc,
                         br_offset: t_br_offset,
@@ -329,7 +328,9 @@ fn match_at_eoi(
 }
 
 /// OP_BACKREF dispatch — extracted because the body is hairy enough
-/// to push `vm_match_at` over the 200-LOC fn limit by itself.
+/// to push `vm_match_at` over the 200-LOC fn limit by itself. A thread
+/// parks here only on a non-empty capture: `add_thread` steps over an
+/// empty one.
 fn handle_backref(
     prog: &Program,
     s: &[u8],
@@ -353,24 +354,6 @@ fn handle_backref(
         (-1, -1)
     };
     let cap_len = if cs < 0 || ce < 0 { 0 } else { ce - cs };
-    if cap_len == 0 {
-        // Epsilon-style — schedule pc+1 in cur at the same pos. The
-        // outer while-loop re-reads cur.list.len() each iteration so
-        // the freshly-pushed thread is visited; visited-table dedup
-        // prevents infinite insertion.
-        add_thread(
-            &mut ws.cur,
-            &mut ws.vc,
-            &mut ws.arena,
-            (t.pc + 1) as i32,
-            prog,
-            s,
-            pos,
-            flags,
-            t.saves_id,
-        );
-        return;
-    }
     if pos < slen
         && char_eq(
             s[(cs + t.br_offset as i64) as usize],

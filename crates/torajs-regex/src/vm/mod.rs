@@ -130,6 +130,8 @@ impl ThreadList {
 pub struct VisitedTable {
     pub visited: Vec<u32>,
     pub seen: alloc::collections::BTreeSet<(usize, Vec<i64>)>,
+    /// the `Op::IterStart` pcs on the ε path `add_thread` is walking
+    pub iters: Vec<usize>,
 }
 
 impl VisitedTable {
@@ -137,6 +139,7 @@ impl VisitedTable {
         Self {
             visited: vec![0u32; n],
             seen: alloc::collections::BTreeSet::new(),
+            iters: Vec::new(),
         }
     }
 
