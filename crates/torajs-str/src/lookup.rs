@@ -229,7 +229,10 @@ pub(crate) fn align_haystack_needle<'h, 'n>(
 /// length tie-break for free.
 pub fn code_unit_compare(a: &[u8], a_latin1: bool, b: &[u8], b_latin1: bool) -> Ordering {
     fn wide(p: &[u8]) -> impl Iterator<Item = u16> + '_ {
-        p.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]]))
+        p.as_chunks::<2>()
+            .0
+            .iter()
+            .map(|c| u16::from_le_bytes([c[0], c[1]]))
     }
     fn narrow(p: &[u8]) -> impl Iterator<Item = u16> + '_ {
         p.iter().map(|&c| c as u16)
@@ -324,7 +327,7 @@ pub fn last_index_of_from(s: &[u8], sub: &[u8], from: i64) -> Option<usize> {
     if start < 0 {
         return None;
     }
-    let mut i = start as i64;
+    let mut i = start;
     while i >= 0 {
         let idx = i as usize;
         if &s[idx..idx + sub.len()] == sub {

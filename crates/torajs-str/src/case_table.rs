@@ -3022,7 +3022,7 @@ pub(crate) static SIMPLE_LOWER: &[(u32, u32)] = &[
 ];
 
 /// 102 entries (Unconditional SpecialCasing only).
-pub(crate) static FULL_UPPER: &[(u32, &'static [u32])] = &[
+pub(crate) static FULL_UPPER: &[(u32, &[u32])] = &[
     (0x00DF, &[0x0053, 0x0053]),
     (0x0149, &[0x02BC, 0x004E]),
     (0x01F0, &[0x004A, 0x030C]),
@@ -3128,7 +3128,7 @@ pub(crate) static FULL_UPPER: &[(u32, &'static [u32])] = &[
 ];
 
 /// 28 entries (Unconditional SpecialCasing only).
-pub(crate) static FULL_LOWER: &[(u32, &'static [u32])] = &[
+pub(crate) static FULL_LOWER: &[(u32, &[u32])] = &[
     (0x0130, &[0x0069, 0x0307]),
     (0x1F88, &[0x1F80]),
     (0x1F89, &[0x1F81]),

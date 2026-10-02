@@ -285,7 +285,8 @@ static SYMBOL_REG: Mutex<Vec<usize>> = Mutex::new(Vec::new()); // sym ptrs as us
 pub unsafe extern "C" fn __torajs_symbol_for(key: *mut c_void) -> *mut c_void {
     if key.is_null() {
         unsafe {
-            __torajs_panic(b"TypeError: Symbol.for requires a string key\0".as_ptr());
+            let msg = c"TypeError: Symbol.for requires a string key";
+            __torajs_panic(msg.as_ptr().cast());
         }
     }
     let mut reg = SYMBOL_REG.lock();
@@ -300,7 +301,8 @@ pub unsafe extern "C" fn __torajs_symbol_for(key: *mut c_void) -> *mut c_void {
     }
     if reg.len() >= SYMBOL_REG_MAX {
         unsafe {
-            __torajs_panic(b"Symbol.for registry full (>256 unique keys)\0".as_ptr());
+            let msg = c"Symbol.for registry full (>256 unique keys)";
+            __torajs_panic(msg.as_ptr().cast());
         }
     }
     let sym = unsafe { __torajs_symbol_alloc(key) };

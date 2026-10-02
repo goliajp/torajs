@@ -51,7 +51,9 @@ unsafe fn quote_count(p: *const u8) -> u32 {
         payload.iter().filter(|&&b| b == b'"').count() as u32
     } else {
         payload
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .filter(|u| u[0] == b'"' && u[1] == 0)
             .count() as u32
     }
@@ -100,7 +102,7 @@ impl UnitWriter<'_> {
             }
         } else {
             // UTF-16 source implies a UTF-16 output (widest rule).
-            for u in payload.chunks_exact(2) {
+            for u in payload.as_chunks::<2>().0 {
                 if escape_quotes && u[0] == b'"' && u[1] == 0 {
                     self.put_ascii(QUOT);
                 } else {

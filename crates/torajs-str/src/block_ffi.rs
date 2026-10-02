@@ -28,6 +28,9 @@ use crate::block::StrBlock;
 /// Latin-1 — every existing caller built on byte-Str semantics
 /// (`len` = byte count) maps trivially to Latin-1 (`length` =
 /// code unit = byte for Latin-1 payloads).
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_alloc_pooled(len: u64) -> *mut u8 {
     StrBlock::alloc(len as u32).into_raw()
@@ -40,6 +43,9 @@ pub unsafe extern "C" fn __torajs_str_alloc_pooled(len: u64) -> *mut u8 {
 /// (torajs-arr's join kernels) that fold a widest-of-inputs output
 /// encoding need to allocate the wide layout directly — the legacy
 /// entry above hard-codes Latin-1.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_alloc_pooled_enc(len: u64, is_latin1: i64) -> *mut u8 {
     StrBlock::alloc_with_encoding(len as u32, is_latin1 != 0).into_raw()

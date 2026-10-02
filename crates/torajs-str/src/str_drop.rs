@@ -80,6 +80,9 @@ pub unsafe extern "C" fn __torajs_str_drop(s: *mut u8) {
 /// Null is a no-op (matches the pre-rewrite C guard). Blocks
 /// carrying [`FLAG_STATIC_LITERAL`] are also a no-op —
 /// `.rodata` Str literals must never be freed.
+///
+/// # Safety
+/// `p` is a heap Str cell this call frees; never a `.rodata` literal.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_free(p: *mut u8) {
     if p.is_null() {

@@ -35,7 +35,7 @@ pub unsafe extern "C" fn __torajs_str_hash(s: *const u8) -> u64 {
             h = h.wrapping_mul(0x100000001b3);
         }
     } else {
-        for pair in payload.chunks_exact(2) {
+        for pair in payload.as_chunks::<2>().0 {
             h ^= u16::from_le_bytes([pair[0], pair[1]]) as u64;
             h = h.wrapping_mul(0x100000001b3);
         }

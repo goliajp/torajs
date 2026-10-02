@@ -231,7 +231,7 @@ impl SubstrBlock {
     ///
     /// Single-threaded contract; caller must not alias.
     #[inline]
-    pub unsafe fn header(&self) -> &mut HeapHeader {
+    pub unsafe fn header(&mut self) -> &mut HeapHeader {
         unsafe { &mut *(self.0.as_ptr() as *mut HeapHeader) }
     }
 
@@ -244,6 +244,16 @@ impl SubstrBlock {
     #[inline]
     pub unsafe fn len(&self) -> u64 {
         unsafe { (self.0.as_ptr().add(SUBSTR_LEN_OFF) as *const u64).read() }
+    }
+
+    /// `len() == 0`.
+    ///
+    /// # Safety
+    ///
+    /// `self.0` must point at a valid Substr block.
+    #[inline]
+    pub unsafe fn is_empty(&self) -> bool {
+        unsafe { self.len() == 0 }
     }
 
     /// Owning parent Str pointer (the `parent_ptr` field at offset
@@ -273,9 +283,7 @@ impl SubstrBlock {
     /// just a `NonNull`).
     #[inline]
     pub fn into_raw(self) -> *mut u8 {
-        let p = self.0.as_ptr();
-        core::mem::forget(self);
-        p
+        self.0.as_ptr()
     }
 
     /// Rewrap an incoming raw pointer. Pure type-conversion; no
@@ -454,7 +462,7 @@ mod tests {
         let parent_ptr = parent_block.0.as_ptr() as *mut c_void;
 
         // Parent at refcount=1 from StrBlock::alloc.
-        let view = unsafe { SubstrBlock::create(parent_ptr, 2, 5) };
+        let mut view = unsafe { SubstrBlock::create(parent_ptr, 2, 5) };
         unsafe {
             let h = view.header();
             assert_eq!(h.refcount, 1);
@@ -511,7 +519,7 @@ mod tests {
         let parent_block = fresh_parent(8);
         let parent_ptr = parent_block.0.as_ptr() as *mut c_void;
 
-        let view = unsafe { SubstrBlock::create(parent_ptr, 0, 4) };
+        let mut view = unsafe { SubstrBlock::create(parent_ptr, 0, 4) };
 
         // Simulate a split-block-inline substr by flipping the bit.
         unsafe { view.header().flags |= FLAG_SUBSTR_INLINE };

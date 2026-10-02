@@ -20,14 +20,16 @@ use crate::block::StrBlock;
 pub(crate) fn alloc_units_canonical(src: &[u8], is_latin1: bool) -> *mut u8 {
     if !is_latin1 {
         let all_narrow = src
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .all(|c| u16::from_le_bytes([c[0], c[1]]) <= 0xff);
         if all_narrow {
             let length = (src.len() / 2) as u32;
             let mut block = StrBlock::alloc_with_encoding(length, true);
             if length != 0 {
                 let dst = unsafe { block.as_bytes_mut(length) };
-                for (i, c) in src.chunks_exact(2).enumerate() {
+                for (i, c) in src.as_chunks::<2>().0.iter().enumerate() {
                     dst[i] = c[0];
                 }
             }

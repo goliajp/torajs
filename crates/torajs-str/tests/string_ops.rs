@@ -12,6 +12,8 @@ use torajs_str::{
 // binary's live set. No-op stub (not panicking) — same convention as
 // torajs-value-drop's integration-test stub; the crate's own
 // `#[cfg(test)]` stub in lib.rs doesn't reach separate test binaries.
+/// # Safety
+/// No-op stand-in; the pointer is never read.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_weakref_target_dying(_target: *mut std::ffi::c_void) {}
 

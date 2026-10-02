@@ -40,7 +40,7 @@ pub unsafe extern "C" fn __torajs_str_any_pad(
         let (src, s_tmp) = owned_src(s);
         let (pd, pad_tmp) = if pad.is_null() {
             let sp = __torajs_str_alloc(b" ".as_ptr(), 1);
-            (sp as *const u8, sp as *mut u8)
+            (sp as *const u8, sp)
         } else {
             owned_src(pad)
         };
@@ -146,12 +146,12 @@ pub unsafe extern "C" fn __torajs_str_any_normalize(s: *const u8, form: *const u
         let (src, s_tmp) = owned_src(s);
         let (fm, f_tmp) = if form.is_null() {
             let nfc = __torajs_str_alloc(b"NFC".as_ptr(), 3);
-            (nfc as *const u8, nfc as *mut u8)
+            (nfc as *const u8, nfc)
         } else {
             owned_src(form)
         };
         let out = crate::normalize::__torajs_str_normalize(src, fm);
-        let out = if out == src as *mut u8 {
+        let out = if core::ptr::eq(out, src) {
             __torajs_str_alloc(core::ptr::null(), 0)
         } else {
             out
@@ -191,7 +191,7 @@ pub unsafe extern "C" fn __torajs_str_any_locale_case(
         } else {
             crate::transform::case_locale::__torajs_str_to_locale_lower(src, lc)
         };
-        let out = if out == src as *mut u8 {
+        let out = if core::ptr::eq(out, src) {
             __torajs_str_alloc(core::ptr::null(), 0)
         } else {
             out
@@ -226,7 +226,7 @@ pub unsafe extern "C" fn __torajs_str_any_locale_case_arr(
     unsafe {
         let (src, s_tmp) = owned_src(s);
         let out = __torajs_str_locale_case_arr(src, arr, upper);
-        let out = if out == src as *mut u8 {
+        let out = if core::ptr::eq(out, src) {
             __torajs_str_alloc(core::ptr::null(), 0)
         } else {
             out

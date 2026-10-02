@@ -76,8 +76,8 @@
 //! [`torajs-anyvalue`] / [`torajs-throw`]) cited a precompiled-core
 //! panic-strategy mismatch under `cargo test` + dual `crate-type =
 //! ["rlib", "staticlib"]` + `no_std`. The 16-e regex port proved the
-//! escape: `#[cfg(test)] extern crate std` pulls the libtest harness
-//! + std allocator/panic_handler for unit tests, while the staticlib
+//! escape: `#[cfg(test)] extern crate std` pulls the libtest harness +
+//! std allocator/panic_handler for unit tests, while the staticlib
 //! build defines no `#[panic_handler]` of its own and inherits the
 //! active panic-runtime's. Both rustc objections dissolve.
 
@@ -223,6 +223,8 @@ pub use undef_sentinel::{__torajs_str_undef, __torajs_substr_undef};
 // submodule's `cargo test` run — defining it per-module collides
 // at link time. Mirrors the per-test stub in `torajs-rc`'s own
 // test module.
+/// # Safety
+/// No-op stand-in; the pointer is never read.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_weakref_target_dying(_target: *mut core::ffi::c_void) {}
@@ -239,6 +241,8 @@ pub unsafe extern "C" fn __torajs_weakref_target_dying(_target: *mut core::ffi::
 #[cfg(test)]
 pub static STUB_THROW_RAISED: core::sync::atomic::AtomicBool =
     core::sync::atomic::AtomicBool::new(false);
+/// # Safety
+/// Never reached: a link-time stand-in that only satisfies the linker.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_throw_range_error(_msg: *const u8) {
@@ -246,6 +250,8 @@ pub unsafe extern "C" fn __torajs_throw_range_error(_msg: *const u8) {
 }
 // Same story for the §19.2.6 URIError raise (`uri.rs`) — the real
 // wrapper lives in torajs-throw at link time.
+/// # Safety
+/// Never reached: a link-time stand-in that only satisfies the linker.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_throw_uri_error(_msg: *const core::ffi::c_char) {

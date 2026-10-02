@@ -174,6 +174,9 @@ pub(super) unsafe fn json_src(str_ptr: *const u8) -> JsonSrc {
 // ============================================================
 
 /// Consume the next non-ws byte if it equals `want`; throw otherwise.
+///
+/// # Safety
+/// `str_ptr` is a live Str cell and `pos` a valid cursor into it.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_json_eat_char(str_ptr: *const u8, pos: *mut i64, want: i64) {
     let data = unsafe { json_src(str_ptr) };
@@ -189,6 +192,9 @@ pub unsafe extern "C" fn __torajs_json_eat_char(str_ptr: *const u8, pos: *mut i6
 
 /// Parse a JSON `true` or `false` literal — returns 1 / 0; throws
 /// on anything else.
+///
+/// # Safety
+/// `str_ptr` is a live Str cell and `pos` a valid cursor into it.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_json_parse_bool(str_ptr: *const u8, pos: *mut i64) -> i64 {
     let data = unsafe { json_src(str_ptr) };
@@ -210,6 +216,9 @@ pub unsafe extern "C" fn __torajs_json_parse_bool(str_ptr: *const u8, pos: *mut 
 
 /// After parsing an array / object element: consume `,` (returns 1)
 /// or terminator (returns 0). `-1` reserved for fatal error path.
+///
+/// # Safety
+/// `str_ptr` is a live Str cell and `pos` a valid cursor into it.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_json_arr_step(
     str_ptr: *const u8,
@@ -240,6 +249,9 @@ pub unsafe extern "C" fn __torajs_json_arr_step(
 /// Peek at the byte right after the opening bracket: terminator
 /// (empty collection — consumed) returns 0; otherwise returns 1 and
 /// leaves the cursor pointing at the value's first byte.
+///
+/// # Safety
+/// `str_ptr` is a live Str cell and `pos` a valid cursor into it.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_json_arr_first(
     str_ptr: *const u8,

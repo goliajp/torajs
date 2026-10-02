@@ -165,6 +165,9 @@ pub(crate) fn write_i64_into(dst: &mut Vec<u8>, n: i64) {
 /// capacity is a hint — the buffer grows amortized on push. Pass
 /// the SSA emitter's compile-time size estimate (sum of field key
 /// lengths + separator bytes + typical value width).
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_jsb_new(initial_cap: u32) -> *mut JsonBuilder {
     let cap = (initial_cap as usize).max(INITIAL_CAP);
@@ -188,6 +191,9 @@ pub unsafe extern "C" fn __torajs_jsb_new(initial_cap: u32) -> *mut JsonBuilder 
 }
 
 /// Append a single ASCII byte (e.g. `{`, `}`, `[`, `]`, `:`, `,`).
+///
+/// # Safety
+/// `sb` came from `__torajs_jsb_new` and is not yet finalized.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_jsb_push_byte(sb: *mut JsonBuilder, b: u8) {
     unsafe { (*sb).buf.push(b) };
@@ -197,6 +203,9 @@ pub unsafe extern "C" fn __torajs_jsb_push_byte(sb: *mut JsonBuilder, b: u8) {
 /// no escaping. Used for field-name emission where the SSA emitter
 /// has pre-quoted the key literal at intern time (`"id"`,
 /// `"\"name\""`, etc).
+///
+/// # Safety
+/// `sb` came from `__torajs_jsb_new` and is not yet finalized. `str_ptr` is a live Str cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_jsb_push_str_raw(sb: *mut JsonBuilder, str_ptr: *const u8) {
     let len = unsafe { (str_ptr.add(STR_LEN_OFF) as *const u32).read() };
@@ -229,6 +238,9 @@ pub unsafe extern "C" fn __torajs_jsb_push_str_raw(sb: *mut JsonBuilder, str_ptr
 /// Append a Str value as a JSON string (surrounding quotes + JSON
 /// escape per ES §24.5.2). Matches `__torajs_json_quote_str` output
 /// bit-for-bit.
+///
+/// # Safety
+/// `sb` came from `__torajs_jsb_new` and is not yet finalized. `str_ptr` is a live Str cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_jsb_push_str_quoted(sb: *mut JsonBuilder, str_ptr: *const u8) {
     // Nullish Str slot — the undefined sentinel (missed exec/match
@@ -289,6 +301,9 @@ pub unsafe extern "C" fn __torajs_jsb_push_str_quoted(sb: *mut JsonBuilder, str_
 }
 
 /// Append an i64 as its decimal ASCII representation.
+///
+/// # Safety
+/// `sb` came from `__torajs_jsb_new` and is not yet finalized.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_jsb_push_i64(sb: *mut JsonBuilder, n: i64) {
     let sb = unsafe { &mut *sb };
@@ -296,6 +311,9 @@ pub unsafe extern "C" fn __torajs_jsb_push_i64(sb: *mut JsonBuilder, n: i64) {
 }
 
 /// Append `"true"` / `"false"` per JS `String(b)`.
+///
+/// # Safety
+/// `sb` came from `__torajs_jsb_new` and is not yet finalized.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_jsb_push_bool(sb: *mut JsonBuilder, b: i32) {
     let sb = unsafe { &mut *sb };
@@ -308,6 +326,9 @@ pub unsafe extern "C" fn __torajs_jsb_push_bool(sb: *mut JsonBuilder, b: i32) {
 
 /// Append `"null"` (used for `null` / `undefined` JSON-stringify
 /// arms — both collapse to `null` per ES §25.5.2).
+///
+/// # Safety
+/// `sb` came from `__torajs_jsb_new` and is not yet finalized.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_jsb_push_null(sb: *mut JsonBuilder) {
     let sb = unsafe { &mut *sb };
@@ -324,6 +345,9 @@ pub unsafe extern "C" fn __torajs_jsb_push_null(sb: *mut JsonBuilder) {
 /// Open the next object field: write the `,` separator when a
 /// field was already emitted (runtime comma protocol — a skipped
 /// undefined field must not leave a stray comma, §25.5.2.4).
+///
+/// # Safety
+/// `sb` came from `__torajs_jsb_new` and is not yet finalized.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_jsb_begin_field(sb: *mut JsonBuilder) {
     let sb = unsafe { &mut *sb };
@@ -359,6 +383,8 @@ pub unsafe extern "C" fn __torajs_jsb_push_field_str(
     }
 }
 
+/// # Safety
+/// `sb` came from `__torajs_jsb_new`; this call consumes it.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_jsb_finalize(sb: *mut JsonBuilder) -> *mut u8 {
     // SAFETY: the caller's contract is one live handle from
@@ -518,7 +544,9 @@ mod tests {
                 bytes.iter().map(|&b| b as char).collect()
             } else {
                 let units: alloc::vec::Vec<u16> = bytes
-                    .chunks_exact(2)
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
                     .map(|c| u16::from_le_bytes([c[0], c[1]]))
                     .collect();
                 alloc::string::String::from_utf16(&units).unwrap()

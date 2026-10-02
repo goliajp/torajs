@@ -199,8 +199,8 @@ pub unsafe extern "C" fn __torajs_str_repeat(s: *const u8, n: i64) -> *mut u8 {
     if n < 0 || n == i64::MAX {
         unsafe {
             __torajs_throw_range_error(
-                b"String.prototype.repeat argument must be greater than or equal to 0 and not be Infinity\0"
-                    .as_ptr(),
+                c"String.prototype.repeat argument must be greater than or equal to 0 and not be Infinity"
+                    .as_ptr().cast(),
             )
         };
         // Caller's emit_throw_check picks up the TLS pending throw
@@ -302,6 +302,9 @@ pub unsafe extern "C" fn __torajs_str_at(s: *const u8, i: i64) -> *mut u8 {
 /// per ES spec §22.1.2.1 (truncate to 16-bit unsigned). Codepoints
 /// ≤ 0xFF pick the Latin-1 encoding; everything else (including
 /// surrogate halves) becomes a UTF-16 LE Str.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_from_char_code(n: i64) -> *mut u8 {
     let cu = (n & 0xFFFF) as u16;
@@ -337,11 +340,14 @@ pub unsafe extern "C" fn __torajs_str_from_char_code(n: i64) -> *mut u8 {
 /// `emit_throw_check` makes the value unreachable in well-formed
 /// programs, so the actual payload doesn't matter, only that the
 /// return is type-correct (`*mut u8`).
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_from_code_point(n: i64) -> *mut u8 {
     if !(0..=0x10FFFF).contains(&n) {
         unsafe {
-            __torajs_throw_range_error(b"Invalid code point\0".as_ptr());
+            __torajs_throw_range_error(c"Invalid code point".as_ptr().cast());
         }
         return alloc_empty_str();
     }
@@ -417,7 +423,7 @@ pub unsafe extern "C" fn __torajs_str_from_char_code_f64(n: f64) -> *mut u8 {
 pub unsafe extern "C" fn __torajs_str_from_code_point_f64(n: f64) -> *mut u8 {
     if !n.is_finite() || n.trunc() != n || !(0.0..=1114111.0).contains(&n) {
         unsafe {
-            __torajs_throw_range_error(b"Invalid code point\0".as_ptr());
+            __torajs_throw_range_error(c"Invalid code point".as_ptr().cast());
         }
         return alloc_empty_str();
     }

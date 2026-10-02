@@ -268,6 +268,9 @@ pub unsafe extern "C" fn __torajs_str_print(s: *const u8) {
 /// multi-arg `console.log` (r505; the lowering writes the separators
 /// and the line end). A null cell prints `null`, as the line form
 /// always did.
+///
+/// # Safety
+/// `s` is a live Str cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_print_inline(s: *const u8) {
     if s.is_null() {
@@ -326,6 +329,9 @@ pub unsafe extern "C" fn __torajs_substr_print(v: *const u8) {
 
 /// [`__torajs_substr_print`] without the newline (see
 /// [`__torajs_str_print_inline`]).
+///
+/// # Safety
+/// `v` is a live Substr cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_substr_print_inline(v: *const u8) {
     if v.is_null() {

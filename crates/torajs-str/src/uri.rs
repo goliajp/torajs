@@ -157,7 +157,7 @@ fn decode_units(
         // Multi-octet run: leading-ones arity, then each
         // continuation must be an escaped 10xxxxxx octet.
         let n = b0.leading_ones() as usize;
-        if n < 2 || n > 4 {
+        if !(2..=4).contains(&n) {
             return Err(());
         }
         let mut octets = [0u8; 4];

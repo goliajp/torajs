@@ -22,6 +22,8 @@ use torajs_str::{__torajs_str_append, __torajs_str_concat, __torajs_str_drop, St
 
 // rc_dec's hit-zero hook lives in torajs-weak, which this binary does
 // not link; the kernel under test never reaches it.
+/// # Safety
+/// No-op stand-in; the pointer is never read.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_weakref_target_dying(_target: *mut std::ffi::c_void) {}
 

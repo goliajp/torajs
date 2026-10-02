@@ -19,6 +19,9 @@ use crate::lookup::{
 /// `-1` / `0` / `+1`. P11.1-S2.4 stub uses plain byte-ordering on
 /// the canonical encoding; locale-aware Unicode collation lands
 /// once the normalisation tables come online in P11.5 / P11.6.
+///
+/// # Safety
+/// Both pointers are live Str cells.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_locale_compare(a: *const u8, b: *const u8) -> i64 {
     // Either operand may be a substring VIEW sharing Tag::Str (a
@@ -62,6 +65,9 @@ pub extern "C" fn __torajs_str_sort_undef_pre(a: *const u8, b: *const u8) -> i64
 /// content-compares as the text "undefined" (RFC 20260707
 /// residual). A NULL slot is JS `null`, which ToStrings to "null"
 /// and participates normally.
+///
+/// # Safety
+/// Both pointers are live Str cells.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_sort_cmp(a: *const u8, b: *const u8) -> i64 {
     let a_undef = crate::undef_sentinel::is_undef(a) || crate::undef_sentinel::is_substr_undef(a);
@@ -97,6 +103,9 @@ pub unsafe extern "C" fn __torajs_str_sort_cmp(a: *const u8, b: *const u8) -> i6
 /// mismatched encoding flag short-circuits to false under the
 /// canonical-encoding invariant; same encoding does a stride-
 /// aligned byte compare at `pos × stride`.
+///
+/// # Safety
+/// Both pointers are live Str cells.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_starts_with_from(
     s: *const u8,
@@ -125,6 +134,9 @@ pub unsafe extern "C" fn __torajs_str_starts_with_from(
 /// `s.endsWith(needle, end)` — 1 if matches, 0 otherwise. `end`
 /// is the JS code-unit anchor (clamped to `[0, s.length]`); the
 /// match window is `s[end - needle.length .. end]`.
+///
+/// # Safety
+/// Both pointers are live Str cells.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_ends_with_from(
     s: *const u8,
@@ -152,6 +164,9 @@ pub unsafe extern "C" fn __torajs_str_ends_with_from(
 }
 
 /// `s.indexOf(needle, fromIdx)` — found code-unit index or `-1`.
+///
+/// # Safety
+/// Both pointers are live Str cells.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_index_of_from(
     s: *const u8,
@@ -174,6 +189,9 @@ pub unsafe extern "C" fn __torajs_str_index_of_from(
 }
 
 /// `s.includes(needle, fromIdx)` — 1 if found, 0 otherwise.
+///
+/// # Safety
+/// Both pointers are live Str cells.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_includes_from(
     s: *const u8,
@@ -197,6 +215,9 @@ pub unsafe extern "C" fn __torajs_str_includes_from(
 }
 
 /// `s.lastIndexOf(needle, fromIdx)` — found code-unit index or `-1`.
+///
+/// # Safety
+/// Both pointers are live Str cells.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_last_index_of_from(
     s: *const u8,
@@ -219,6 +240,9 @@ pub unsafe extern "C" fn __torajs_str_last_index_of_from(
 }
 
 /// `s.lastIndexOf(needle)` — found code-unit index or `-1`.
+///
+/// # Safety
+/// Both pointers are live Str cells.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_last_index_of(s: *const u8, needle: *const u8) -> i64 {
     let (ss, s_len, s_latin1) = unsafe { str_view(s) };
@@ -243,12 +267,18 @@ pub unsafe extern "C" fn __torajs_str_last_index_of(s: *const u8, needle: *const
 // `s.len()` for `ends_with` (the natural "scan to end" anchor).
 
 /// `s.startsWith(needle)` — equivalent to `starts_with_from(s, n, 0)`.
+///
+/// # Safety
+/// Both pointers are live Str cells.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_starts_with(s: *const u8, n: *const u8) -> i64 {
     unsafe { __torajs_str_starts_with_from(s, n, 0) }
 }
 
 /// `s.endsWith(needle)` — equivalent to `ends_with_from(s, n, s.len())`.
+///
+/// # Safety
+/// Both pointers are live Str cells.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_ends_with(s: *const u8, n: *const u8) -> i64 {
     let s_len = unsafe { str_len(s) } as i64;
@@ -256,12 +286,18 @@ pub unsafe extern "C" fn __torajs_str_ends_with(s: *const u8, n: *const u8) -> i
 }
 
 /// `s.indexOf(needle)` — equivalent to `index_of_from(s, n, 0)`.
+///
+/// # Safety
+/// Both pointers are live Str cells.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_index_of(s: *const u8, n: *const u8) -> i64 {
     unsafe { __torajs_str_index_of_from(s, n, 0) }
 }
 
 /// `s.includes(needle)` — equivalent to `includes_from(s, n, 0)`.
+///
+/// # Safety
+/// Both pointers are live Str cells.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_includes(s: *const u8, n: *const u8) -> i64 {
     unsafe { __torajs_str_includes_from(s, n, 0) }

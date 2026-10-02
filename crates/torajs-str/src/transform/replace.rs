@@ -480,7 +480,7 @@ mod tests {
 
     #[test]
     fn replace_all_into_grow_and_shrink() {
-        let mut out = vec![0u8; 6];
+        let mut out = [0u8; 6];
         replace_all_into(b"aaaa", b"aa", b"b", &mut out[..2]);
         assert_eq!(&out[..2], b"bb");
         let mut out2 = vec![0u8; replace_all_out_len(3, 3, 1, 2) as usize];

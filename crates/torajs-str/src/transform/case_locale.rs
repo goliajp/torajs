@@ -65,12 +65,10 @@ fn scan_back(src: &[u32], idx: usize) -> Option<u32> {
 /// nor 230. Returns the first cp whose ccc is 0 or 230, if any.
 #[inline]
 fn scan_fwd(src: &[u32], idx: usize) -> Option<u32> {
-    for &cp in &src[idx + 1..] {
-        if is_ccc_zero(cp) || is_ccc_above(cp) {
-            return Some(cp);
-        }
-    }
-    None
+    src[idx + 1..]
+        .iter()
+        .find(|&&cp| is_ccc_zero(cp) || is_ccc_above(cp))
+        .copied()
 }
 
 /// COMBINING DOT ABOVE.

@@ -97,8 +97,8 @@ impl StrBlock {
     /// exposing the block.
     ///
     /// Pool fast-path: when `byte_capacity` lands in a pool class and
-    /// the pool has a free slot, the freshly-popped block's header
-    /// + length fields are rewritten and the block returned.
+    /// the pool has a free slot, the freshly-popped block's header +
+    /// length fields are rewritten and the block returned.
     /// Otherwise falls through to a `malloc` sized via
     /// [`block_size`].
     ///
@@ -254,10 +254,10 @@ impl StrBlock {
         // STR_LEN_OFF mirrors runtime_str.c __TORAJS_STR_LEN.
         let length = unsafe { self.length() };
         let cap = byte_capacity(length, is_latin1);
-        if let Some(class) = pool_class_of(cap) {
-            if pool::push(class, self.0) {
-                return;
-            }
+        if let Some(class) = pool_class_of(cap)
+            && pool::push(class, self.0)
+        {
+            return;
         }
         // SAFETY: block was `malloc(block_size(length, is_latin1))`-
         // allocated by `Self::alloc` (or a future caller follows the
@@ -286,10 +286,11 @@ impl StrBlock {
         // The pool hands blocks out by class, so it may only take one
         // whose payload it matches exactly — a 32-byte cell parked in
         // the 16-byte class would later be freed at 16.
-        if let Some(class) = pool_class_of(cap) {
-            if STR_POOL_PAYLOADS[class] == cap && pool::push(class, self.0) {
-                return;
-            }
+        if let Some(class) = pool_class_of(cap)
+            && STR_POOL_PAYLOADS[class] == cap
+            && pool::push(class, self.0)
+        {
+            return;
         }
         // SAFETY: `alloc_with_capacity` took the block at exactly
         // this size and recorded it.
@@ -401,9 +402,7 @@ impl StrBlock {
     /// just a `NonNull`).
     #[inline]
     pub fn into_raw(self) -> *mut u8 {
-        let p = self.0.as_ptr();
-        core::mem::forget(self);
-        p
+        self.0.as_ptr()
     }
 
     /// Wrap an FFI-incoming raw pointer back into a [`StrBlock`]

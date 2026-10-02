@@ -250,7 +250,7 @@ mod tests {
 
     #[test]
     fn float_literal() {
-        assert_to_number(b"3.14", 3.14);
+        assert_to_number(b"3.25", 3.25);
         assert_to_number(b"-0.5", -0.5);
         assert_to_number(b"1e10", 1e10);
         assert_to_number(b"-2.5e-3", -2.5e-3);
@@ -259,7 +259,7 @@ mod tests {
     #[test]
     fn surrounding_whitespace_trimmed() {
         assert_to_number(b"  42  ", 42.0);
-        assert_to_number(b"\t3.14\n", 3.14);
+        assert_to_number(b"\t3.25\n", 3.25);
         // NBSP (0xA0) is in the Latin-1 TrimString projection.
         assert_to_number(b"\xa042\xa0", 42.0);
         assert_to_number(b"\xa0\xa0", 0.0);

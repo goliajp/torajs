@@ -149,7 +149,7 @@ pub(crate) fn cp_cu_len(cp: u32) -> u32 {
 /// Simple cases) or the one-element holder slice. Caller stores the
 /// values out before reusing the holder.
 #[inline]
-fn map_cp<'a>(cp: u32, upper: bool, holder: &'a mut [u32; 1]) -> &'a [u32] {
+fn map_cp(cp: u32, upper: bool, holder: &mut [u32; 1]) -> &[u32] {
     let full_table = if upper { FULL_UPPER } else { FULL_LOWER };
     if let Some(seq) = full_lookup(full_table, cp) {
         return seq;

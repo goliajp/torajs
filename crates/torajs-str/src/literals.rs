@@ -13,12 +13,18 @@
 use crate::block::StrBlock;
 
 /// `String(null)` → fresh "null" Str.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_null_to_str() -> *mut u8 {
     alloc_literal_str(b"null")
 }
 
 /// `String(undefined)` → fresh "undefined" Str.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_undefined_to_str() -> *mut u8 {
     alloc_literal_str(b"undefined")

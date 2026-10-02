@@ -211,7 +211,10 @@ unsafe fn parent_is_static_literal(s: *const u8) -> bool {
 /// `substrs_base` / `slots_base` are the pre-computed bases inside a
 /// fresh `pool::alloc(out_count)` block; `s` is the parent Str heap
 /// ptr; encoded slice/cu/stride/sep_bytes pre-validated by the caller.
+// every leg is a caller-hoisted scalar the inner loop reads; a struct
+// would only add a load per iteration
 #[inline(always)]
+#[allow(clippy::too_many_arguments)]
 unsafe fn fill_substrs<const PARENT_RC: bool>(
     s: *const u8,
     s_payload: &[u8],
@@ -519,7 +522,7 @@ mod tests {
     /// same allocation so no separate frees). Also dec the parent
     /// rc once per inline substr to balance init's rc_inc.
     unsafe fn free_split_block(block: *mut u8, parent: *mut u8) {
-        let len = unsafe { (block.add(ARR_LEN_OFF) as *const u64).read() } as u64;
+        let len = unsafe { (block.add(ARR_LEN_OFF) as *const u64).read() };
         for _ in 0..len as usize {
             unsafe { torajs_rc::__torajs_rc_dec(parent as *mut c_void) };
         }

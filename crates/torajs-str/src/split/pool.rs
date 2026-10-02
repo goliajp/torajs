@@ -73,7 +73,7 @@ static COUNT: AtomicUsize = AtomicUsize::new(0);
 #[inline]
 pub fn block_size(cap: u64) -> usize {
     let cap_u = cap as usize;
-    ARR_HDR_SIZE + cap_u * 8 + cap_u * (SUBSTR_SIZE as usize)
+    ARR_HDR_SIZE + cap_u * 8 + cap_u * SUBSTR_SIZE
 }
 
 // ============================================================
@@ -92,8 +92,8 @@ unsafe extern "C" {
 
 /// Pop the most-recently-pushed block whose cap matches
 /// `out_count`, or allocate a fresh one if no match. Returns a
-/// raw (uninitialized) block — caller writes the Arr header + len
-/// + cap + head + N ptr slots + N inline substr structs before
+/// raw (uninitialized) block — caller writes the Arr header + len +
+/// cap + head + N ptr slots + N inline substr structs before
 /// exposing it.
 ///
 /// The cap-match scan walks from the most-recent slot down — tight

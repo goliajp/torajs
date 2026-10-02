@@ -40,7 +40,7 @@ pub(crate) const SCOUNT: u32 = LCOUNT * NCOUNT; // 11172
 
 #[inline]
 pub(crate) fn is_hangul_syllable(cp: u32) -> bool {
-    SBASE <= cp && cp < SBASE + SCOUNT
+    (SBASE..SBASE + SCOUNT).contains(&cp)
 }
 
 /// Hangul algorithmic decomposition. Pushes L+V or L+V+T into `out`.
@@ -177,11 +177,9 @@ pub(crate) fn compose(cps: &mut Vec<u32>) {
         let mut combined = false;
         if let Some(starter_w) = last_starter_w {
             let blocked = cur_ccc != 0 && max_ccc_since_starter >= cur_ccc;
-            if !blocked {
-                if let Some(composite) = primary_composite(cps[starter_w], cur) {
-                    cps[starter_w] = composite;
-                    combined = true;
-                }
+            if !blocked && let Some(composite) = primary_composite(cps[starter_w], cur) {
+                cps[starter_w] = composite;
+                combined = true;
             }
         }
         if !combined {
@@ -362,7 +360,9 @@ pub unsafe extern "C" fn __torajs_str_normalize(s: *const u8, form: *const u8) -
             // Message matches bun's so conformance diff-tests can
             // rely on `(e as Error).message`.
             __torajs_throw_range_error(
-                b"argument does not match any normalization form\0".as_ptr(),
+                c"argument does not match any normalization form"
+                    .as_ptr()
+                    .cast(),
             );
         }
         return s as *mut u8;
@@ -380,15 +380,14 @@ pub unsafe extern "C" fn __torajs_str_normalize(s: *const u8, form: *const u8) -
 #[inline]
 pub(crate) fn hangul_compose(a: u32, b: u32) -> Option<u32> {
     // L + V -> LV
-    if LBASE <= a && a < LBASE + LCOUNT && VBASE <= b && b < VBASE + VCOUNT {
+    if (LBASE..LBASE + LCOUNT).contains(&a) && (VBASE..VBASE + VCOUNT).contains(&b) {
         let l_index = a - LBASE;
         let v_index = b - VBASE;
         return Some(SBASE + (l_index * VCOUNT + v_index) * TCOUNT);
     }
     // LV + T -> LVT (a must be LV, i.e. a in syllable range with T == 0)
-    if SBASE <= a
-        && a < SBASE + SCOUNT
-        && (a - SBASE) % TCOUNT == 0
+    if (SBASE..SBASE + SCOUNT).contains(&a)
+        && (a - SBASE).is_multiple_of(TCOUNT)
         && TBASE < b
         && b < TBASE + TCOUNT
     {

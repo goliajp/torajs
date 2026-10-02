@@ -44,7 +44,9 @@ fn unpaired(units: &[u16]) -> impl Iterator<Item = usize> + '_ {
 
 fn utf16_units(payload: &[u8]) -> Vec<u16> {
     payload
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|c| u16::from_le_bytes([c[0], c[1]]))
         .collect()
 }

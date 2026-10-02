@@ -26,17 +26,20 @@ unsafe extern "C" {
 /// report every nullish as undefined. Anything else passes through
 /// untouched. The arr twin has worded it per shape since chunk B
 /// ([`torajs_arr::null_guard`]).
+///
+/// # Safety
+/// `s` is null or a live cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_null_check(s: *const c_void) {
     if s.is_null() {
         unsafe {
-            __torajs_throw_type_error(b"null is not an object\0".as_ptr() as *const _);
+            __torajs_throw_type_error(c"null is not an object".as_ptr());
         }
     } else if crate::undef_sentinel::is_undef(s as *const u8)
         || crate::undef_sentinel::is_substr_undef(s as *const u8)
     {
         unsafe {
-            __torajs_throw_type_error(b"undefined is not an object\0".as_ptr() as *const _);
+            __torajs_throw_type_error(c"undefined is not an object".as_ptr());
         }
     }
 }
