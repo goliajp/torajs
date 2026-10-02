@@ -184,7 +184,7 @@ pub(crate) unsafe fn iter_zip_step(ptr: *mut c_void, out: *mut AnyValue, keyed: 
         let p = ptr.cast::<u8>();
         let mode = (p.add(COUNTER_OFF) as *const u64).read();
         let iters_av = (p.add(UNDERLYING_OFF) as *const u64).read();
-        let iters = as_void_ptr(iters_av) as *mut c_void;
+        let iters = as_void_ptr(iters_av);
         let count = (iters.cast::<u8>().add(ARR_LEN_OFF) as *const u64).read();
         let padding_av = (p.add(FN_OFF) as *const u64).read();
         if count == 0 {

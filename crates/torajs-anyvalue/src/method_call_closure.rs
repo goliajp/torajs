@@ -275,7 +275,7 @@ pub(crate) unsafe fn dispatch(
                         return crate::nanbox::VALUE_UNDEFINED;
                     }
                     return crate::iter_helper::try_helper_chain(
-                        crate::nanbox::as_void_ptr(this_arg) as *mut c_void,
+                        crate::nanbox::as_void_ptr(this_arg),
                         *mid,
                         argv as *const AnyValue,
                         argc,

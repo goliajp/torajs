@@ -134,7 +134,7 @@ unsafe fn derive_for_park(recv: AnyValue) -> AnyValue {
             __torajs_throw_type_error(c"value is not iterable".as_ptr());
             return VALUE_UNDEFINED;
         }
-        match call_obj_method_0(as_void_ptr(recv) as *mut c_void, SYM_ITERATOR_METHOD) {
+        match call_obj_method_0(as_void_ptr(recv), SYM_ITERATOR_METHOD) {
             MethodOutcome::Ok(iter) => iter,
             MethodOutcome::Missing => {
                 __torajs_throw_type_error(c"value is not iterable".as_ptr());

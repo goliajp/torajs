@@ -175,7 +175,7 @@ unsafe fn accessor_callee(
 ) -> AnyValue {
     unsafe {
         let pair = __torajs_dynobj_get_value(props, key) as *const c_void;
-        let got = __torajs_accessor_invoke_getter(pair, recv as u64);
+        let got = __torajs_accessor_invoke_getter(pair, recv);
         if __torajs_throw_check() != 0 {
             return got;
         }

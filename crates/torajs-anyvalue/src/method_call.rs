@@ -40,8 +40,8 @@
 //!   the class-layouts metadata; a `Closure` / closure-bearing `Any`
 //!   slot invokes the same uniform ABI (`method_call_dynobj`).
 //! - `Tag::Map` / `Tag::Set` cell (C4) → get / set / has / delete /
-//!   add / clear / forEach in `method_call_mapset` (pair-ABI kernels
-//!   + the C4-2 boxed-entry forEach walk) + the keys / values /
+//!   add / clear / forEach in `method_call_mapset` (pair-ABI kernels +
+//!   the C4-2 boxed-entry forEach walk) + the keys / values /
 //!   entries iterator mints.
 //! - `Tag::MapIter` cell → iterator-protocol `next()` (IteratorResult
 //!   `{ value, done }` dynobj), same module.

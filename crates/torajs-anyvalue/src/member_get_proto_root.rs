@@ -50,11 +50,7 @@ pub(crate) unsafe fn proto_chain_expando(recv: AnyValue, key: *const c_void) -> 
         return None;
     }
     let fam = crate::method_value::family::recv_proto_family(recv);
-    let start = if fam >= 0 {
-        fam
-    } else {
-        OBJECT_PROTO_TAG as i64
-    };
+    let start = if fam >= 0 { fam } else { OBJECT_PROTO_TAG };
     unsafe { patch_slot_chain(start, key) }
 }
 

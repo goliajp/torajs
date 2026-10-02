@@ -70,7 +70,7 @@ unsafe fn date_from_primitive(prim: AnyValue) -> *mut c_void {
 pub unsafe extern "C" fn __torajs_date_from_value(v: AnyValue) -> *mut c_void {
     unsafe {
         if is_cell(v) {
-            let ptr = as_void_ptr(v) as *mut c_void;
+            let ptr = as_void_ptr(v);
             let h = &*(ptr as *const HeapHeader);
             // step 4.a — [[DateValue]] is copied without observable
             // method calls.
@@ -112,7 +112,7 @@ pub unsafe extern "C" fn __torajs_date_from_value(v: AnyValue) -> *mut c_void {
 pub unsafe extern "C" fn __torajs_date_subclass_super(this: AnyValue, v: AnyValue) -> AnyValue {
     unsafe {
         let tmp = __torajs_date_from_value(v);
-        __torajs_date_set_ms_from(as_void_ptr(this) as *mut c_void, tmp);
+        __torajs_date_set_ms_from(as_void_ptr(this), tmp);
         __torajs_date_drop(tmp);
     }
     crate::nanbox::VALUE_UNDEFINED

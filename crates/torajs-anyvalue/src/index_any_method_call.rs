@@ -83,7 +83,7 @@ pub unsafe extern "C" fn __torajs_any_index_method_call(
     }
     let r = unsafe { str_keyed_call(recv, s as *const u8, recv_slot, argv, argc) };
     // SAFETY: to_str minted the cell for us.
-    unsafe { crate::__torajs_str_drop(s as *mut c_void) };
+    unsafe { crate::__torajs_str_drop(s) };
     unsafe { settle_str_lane(r, recv, key, argv, argc) }
 }
 

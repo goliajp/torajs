@@ -124,7 +124,7 @@ pub(crate) unsafe fn any_bitwise(op: i64, lt: i64, lv: i64, rt: i64, rv: i64) ->
         BitwiseOp::BitAnd => box_int32(to_int32(l) & to_int32(r)),
         BitwiseOp::BitOr => box_int32(to_int32(l) | to_int32(r)),
         BitwiseOp::BitXor => box_int32(to_int32(l) ^ to_int32(r)),
-        BitwiseOp::Shl => box_int32((to_int32(l).wrapping_shl(shift_count)) as i32),
+        BitwiseOp::Shl => box_int32(to_int32(l).wrapping_shl(shift_count)),
         BitwiseOp::Shr => box_int32(to_int32(l) >> shift_count),
         BitwiseOp::UShr => {
             // Spec §13.12 `>>>` — LHS ToUint32, result ∈ [0, 2^32).

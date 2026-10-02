@@ -261,7 +261,7 @@ unsafe fn family_proto_index_get(recv: AnyValue, idx: i64) -> AnyValue {
     if proto.is_null() {
         return VALUE_UNDEFINED;
     }
-    unsafe { dynobj_index_get(proto as *mut c_void, idx) }
+    unsafe { dynobj_index_get(proto, idx) }
 }
 
 pub(crate) fn i64_dec(buf: &mut [u8; 20], v: i64) -> (usize, usize) {

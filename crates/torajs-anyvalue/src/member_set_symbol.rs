@@ -65,6 +65,8 @@ pub(crate) fn props_slot_off(cell_tag: u16) -> Option<usize> {
 /// the live cell `recv` boxes and `cell_tag` its `type_tag`; `key` is a
 /// live Symbol cell; `(tag, value)` carries the caller's +1 on heap
 /// payloads.
+// the list is the member-set extern's own argument legs
+#[allow(clippy::too_many_arguments)]
 pub(crate) unsafe fn symbol_member_set(
     recv_slot: *mut AnyValue,
     recv: AnyValue,

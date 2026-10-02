@@ -154,7 +154,7 @@ pub(crate) unsafe fn struct_has_own(ptr: *const c_void, key: *const c_void) -> i
     // the two faces disagreed about a key `Object.keys` would not
     // even show. An expando genuinely named `__getter_b` still
     // answers — it is probed above, before this gate.
-    if unsafe { __torajs_accessor_name_kind(name_bytes, name_len as u32) } != 255 {
+    if unsafe { __torajs_accessor_name_kind(name_bytes, name_len) } != 255 {
         return 0;
     }
     if unsafe { __torajs_struct_field_find(layout, name_bytes, name_len) } != u32::MAX {

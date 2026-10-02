@@ -83,7 +83,7 @@ pub(crate) unsafe fn array_like_length(recv: AnyValue) -> i32 {
             let payload = __torajs_any_member_get_value(recv, key);
             any_to_number(tag as i64, payload as i64)
         };
-        if !(n > 0.0) {
+        if n.is_nan() || n <= 0.0 {
             // NaN, negative and zero all answer an empty walk.
             return 0;
         }

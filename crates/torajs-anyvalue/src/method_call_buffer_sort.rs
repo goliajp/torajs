@@ -144,7 +144,7 @@ unsafe fn compare(cmp: &Cmp, a: AnyValue, b: AnyValue) -> Option<Ordering> {
 ///
 /// # Safety
 /// `items` holds live AnyValues.
-unsafe fn merge_sort(items: &mut Vec<AnyValue>, cmp: &Cmp) -> bool {
+unsafe fn merge_sort(items: &mut [AnyValue], cmp: &Cmp) -> bool {
     let n = items.len();
     if n < 2 {
         return true;

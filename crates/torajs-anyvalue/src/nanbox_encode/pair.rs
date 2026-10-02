@@ -106,8 +106,8 @@ pub unsafe extern "C" fn __torajs_anyv_unary_neg_pair(tag: i64, value: i64) -> A
     unsafe { crate::arith_bigint::any_unary_neg(tag, value) }
 }
 
-/// Immediate-vs-pair strict equality. ssa_lower's array-includes
-/// + class-tag dispatch paths produce one `AnyValue` immediate
+/// Immediate-vs-pair strict equality. ssa_lower's array-includes +
+/// class-tag dispatch paths produce one `AnyValue` immediate
 /// (the heap-stored element) and one statically-decoded
 /// `(tag, value)` pair (the literal needle). Reconstructs the
 /// needle as an immediate and delegates to

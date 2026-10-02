@@ -27,9 +27,9 @@ use crate::nanbox::AnyValue;
 /// becomes a value the program can see.
 ///
 /// # Safety
-/// `target` is a live AnyValue the caller has already staked (kind
-/// 1) or a packed builtin id (kind 0); `partials` points at `n`
-/// borrowed AnyValue slots; `name` is NULL or an owned Str.
+/// `target` is a live AnyValue the caller has already staked
+/// (kind 1) or a packed builtin id (kind 0); `partials` points at
+/// `n` borrowed AnyValue slots; `name` is NULL or an owned Str.
 pub(super) unsafe fn mint_bound(
     kind: u64,
     target: u64,

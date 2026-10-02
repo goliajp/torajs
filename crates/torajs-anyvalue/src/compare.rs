@@ -173,7 +173,10 @@ unsafe fn compare_str_lexicographic(la: i64, ra: i64) -> Ordering {
         (lb, l1, rb, r1)
     };
     fn wide(p: &[u8]) -> impl Iterator<Item = u16> + '_ {
-        p.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]]))
+        p.as_chunks::<2>()
+            .0
+            .iter()
+            .map(|c| u16::from_le_bytes([c[0], c[1]]))
     }
     fn narrow(p: &[u8]) -> impl Iterator<Item = u16> + '_ {
         p.iter().map(|&c| c as u16)

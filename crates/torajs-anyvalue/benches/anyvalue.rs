@@ -24,8 +24,12 @@ use torajs_bench::{Bench, bench_group, bench_main};
 // and torajs-rc declare. In the shipped binary they come from
 // runtime_weakref.c and torajs-rc's libtorajs_rc.a; here they
 // no-op (bench binaries DCE the rlib's dispatch fn).
+/// # Safety
+/// No-op stand-in; the pointer is never read.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_weakref_target_dying(_target: *mut c_void) {}
+/// # Safety
+/// No-op stand-in; the pointer is never read.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_value_drop_heap(_child: *mut c_void) {}
 

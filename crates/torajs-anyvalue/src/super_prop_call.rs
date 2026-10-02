@@ -139,7 +139,7 @@ pub unsafe extern "C" fn __torajs_anyv_super_prop_update(
         let mut recv = this_arg;
         let wrote = crate::member_set_receiver::__torajs_any_member_set_with_receiver(
             base,
-            kp as *mut c_void,
+            kp,
             tag as u64,
             payload as u64,
             &mut recv as *mut AnyValue,
@@ -284,7 +284,7 @@ pub unsafe extern "C" fn __torajs_anyv_super_prop_set(
         let mut recv = this_arg;
         let wrote = crate::member_set_receiver::__torajs_any_member_set_with_receiver(
             base,
-            kp as *mut c_void,
+            kp,
             tag as u64,
             payload as u64,
             &mut recv as *mut AnyValue,

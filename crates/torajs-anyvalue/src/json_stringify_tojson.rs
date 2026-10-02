@@ -125,10 +125,7 @@ pub(crate) unsafe fn apply_tojson(v: AnyValue) -> Option<AnyValue> {
         // ordinary member read instead — it reaches a layout field
         // and a class method alike.
         let entry = if tag == Tag::Obj as u16 {
-            match struct_tojson_entry(v) {
-                Some(e) => Some(e),
-                None => return None,
-            }
+            Some(struct_tojson_entry(v)?)
         } else {
             None
         };

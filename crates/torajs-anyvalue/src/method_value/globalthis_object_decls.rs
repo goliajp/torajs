@@ -149,10 +149,8 @@ pub unsafe extern "C" fn __torajs_script_preflight(kind: u64, key: *mut c_void) 
                     );
                 }
             }
-            PREFLIGHT_VAR => {
-                if !present {
-                    refuse_unless_extensible(obj);
-                }
+            PREFLIGHT_VAR if !present => {
+                refuse_unless_extensible(obj);
             }
             // The compiler spells exactly the three kinds above; an
             // ABI value outside them asks nothing.

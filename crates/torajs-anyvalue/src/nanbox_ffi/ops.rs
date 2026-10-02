@@ -72,6 +72,8 @@ pub unsafe extern "C" fn __torajs_anyv_same_value(l: AnyValue, r: AnyValue) -> b
     }
 }
 
+/// # Safety
+/// `l` and `r` are live boxed values.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_strict_eq(l: AnyValue, r: AnyValue) -> bool {
     // Identity fast path — bit-equal values are usually equal.

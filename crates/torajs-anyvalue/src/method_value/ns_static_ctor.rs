@@ -24,7 +24,7 @@ pub(super) unsafe fn date_parse(argv: *const u64, argc: i64) -> u64 {
             return VALUE_UNDEFINED;
         }
         let n = __torajs_date_parse_iso(s as *const c_void);
-        crate::__torajs_str_drop(s as *mut c_void);
+        crate::__torajs_str_drop(s);
         box_double(n)
     }
 }
@@ -418,7 +418,7 @@ pub(super) unsafe fn gopd_static(argv: *const u64, argc: i64) -> u64 {
             return VALUE_UNDEFINED;
         }
         let d = __torajs_anyv_get_property_descriptor(o, key as *const c_void);
-        crate::__torajs_str_drop(key as *mut c_void);
+        crate::__torajs_str_drop(key);
         d
     }
 }

@@ -364,7 +364,7 @@ pub(crate) unsafe fn generic_iter_step(
         // getter never fired, so a poisoned `value` getter (test262's
         // iter-val-err family) never threw and `done` never turned
         // true: an infinite loop where the spec owes an abrupt exit.
-        let step_ptr = as_void_ptr(step) as *mut c_void;
+        let step_ptr = as_void_ptr(step);
         let done = match crate::iter_any_result::iter_result_get(step, step_ptr, b"done") {
             None => {
                 __torajs_anyv_rc_dec(step);

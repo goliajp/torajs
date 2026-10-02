@@ -131,6 +131,9 @@ pub(crate) fn payload_owned(p: *mut c_void) -> *mut c_void {
 /// like [`__torajs_anyv_box_from_pair`] tag-4, which the ssa_lower
 /// `box_to_any` Str arm called before — ownership of the heap case
 /// stays whatever the call site arranged.
+///
+/// # Safety
+/// `p` is the raw Str slot value: null or a live Str cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_box_str_slot(p: *mut c_void) -> AnyValue {
     if p.is_null() {
@@ -148,6 +151,9 @@ pub unsafe extern "C" fn __torajs_anyv_box_str_slot(p: *mut c_void) -> AnyValue 
 /// sentinel view (string index OOB read), or a real heap Substr.
 /// Rc-neutral like every box-family kernel — the caller owns the
 /// stake story.
+///
+/// # Safety
+/// `p` is the raw Substr slot value: null or a live Substr cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_box_substr_slot(p: *mut c_void) -> AnyValue {
     if p.is_null() {
@@ -166,6 +172,9 @@ pub unsafe extern "C" fn __torajs_anyv_box_substr_slot(p: *mut c_void) -> AnyVal
 /// chunk 3): 0=Null for NULL, 5=Undef for the sentinel cell,
 /// 4=Heap otherwise. Pure read — the companion
 /// [`__torajs_anyv_str_slot_value`] takes the stake.
+///
+/// # Safety
+/// `p` is the raw Str slot value: null or a live Str cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_str_slot_tag(p: *mut c_void) -> i64 {
     if p.is_null() {
@@ -180,6 +189,9 @@ pub unsafe extern "C" fn __torajs_anyv_str_slot_tag(p: *mut c_void) -> i64 {
 /// `(tag, …)` half of the Substr-slot pair decode (rotation 185 —
 /// Substr mirror of [`__torajs_anyv_str_slot_tag`], identity
 /// compared against the Substr-shaped sentinel view).
+///
+/// # Safety
+/// `p` is the raw Substr slot value: null or a live Substr cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_substr_slot_tag(p: *mut c_void) -> i64 {
     if p.is_null() {
@@ -196,6 +208,9 @@ pub unsafe extern "C" fn __torajs_anyv_substr_slot_tag(p: *mut c_void) -> i64 {
 /// shapes, the pointer + rc_inc for a heap Substr view (the slot
 /// takes its +1; the sentinel's FLAG_STATIC_LITERAL makes the inc a
 /// no-op path it never reaches anyway).
+///
+/// # Safety
+/// `p` is the raw Substr slot value: null or a live Substr cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_substr_slot_value(p: *mut c_void) -> i64 {
     if p.is_null() || p == unsafe { __torajs_substr_undef() } as *mut c_void {
@@ -217,6 +232,9 @@ pub unsafe extern "C" fn __torajs_anyv_substr_slot_value(p: *mut c_void) -> i64 
 /// compares the reconstructed box bit-for-bit), the pointer +
 /// rc_inc for a heap Str (mirrors the explicit `emit_rc_inc` the
 /// ssa_lower `box_to_tag_value` arm used to emit).
+///
+/// # Safety
+/// `p` is the raw Str slot value: null or a live Str cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_str_slot_value(p: *mut c_void) -> i64 {
     if p.is_null() || p == unsafe { __torajs_str_undef() } as *mut c_void {
@@ -278,6 +296,9 @@ pub unsafe extern "C" fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> An
 /// the complete prebaked box (a ShortStr immediate the compiler
 /// encoded), not a pair to decode. Immediates only — no ownership
 /// transfer either way.
+///
+/// # Safety
+/// `v` is a live boxed value; `(tag, bits)` is a valid pair.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_or_default(v: AnyValue, tag: i64, bits: i64) -> AnyValue {
     if is_undefined(v) {
@@ -456,7 +477,7 @@ mod tests {
     fn anyv_box_helpers_match_constants() {
         assert_eq!(__torajs_anyv_box_i32(0), box_int32(0));
         assert_eq!(__torajs_anyv_box_i32(-1), box_int32(-1));
-        assert_eq!(__torajs_anyv_box_f64(3.14), box_double(3.14));
+        assert_eq!(__torajs_anyv_box_f64(3.25), box_double(3.25));
         assert_eq!(__torajs_anyv_box_bool(0i64), VALUE_FALSE);
         assert_eq!(__torajs_anyv_box_bool(1i64), VALUE_TRUE);
         assert_eq!(__torajs_anyv_box_bool(-1i64), VALUE_TRUE);
@@ -498,9 +519,9 @@ mod tests {
             let v = __torajs_anyv_box_from_pair(2, 42);
             assert!(is_int32(v));
             assert_eq!(as_int32(v), 42);
-            let v = __torajs_anyv_box_from_pair(3, 3.14f64.to_bits() as i64);
+            let v = __torajs_anyv_box_from_pair(3, 3.25f64.to_bits() as i64);
             assert!(is_double(v));
-            assert_eq!(as_double(v), 3.14);
+            assert_eq!(as_double(v), 3.25);
             assert_eq!(__torajs_anyv_box_from_pair(4, 0), VALUE_NULL);
             assert_eq!(__torajs_anyv_box_from_pair(5, 0), VALUE_UNDEFINED);
             assert_eq!(__torajs_anyv_box_from_pair(99, 0), VALUE_NULL);
@@ -524,7 +545,7 @@ mod tests {
             AnySlotTag::I64 as i64
         );
         assert_eq!(
-            __torajs_anyv_unbox_tag(box_double(3.14)),
+            __torajs_anyv_unbox_tag(box_double(3.25)),
             AnySlotTag::F64 as i64
         );
     }
@@ -537,8 +558,8 @@ mod tests {
         assert_eq!(__torajs_anyv_unbox_value(VALUE_FALSE), 0);
         assert_eq!(__torajs_anyv_unbox_value(box_int32(42)), 42);
         assert_eq!(__torajs_anyv_unbox_value(box_int32(-7)), -7);
-        let bits = __torajs_anyv_unbox_value(box_double(3.14));
-        assert_eq!(f64::from_bits(bits as u64), 3.14);
+        let bits = __torajs_anyv_unbox_value(box_double(3.25));
+        assert_eq!(f64::from_bits(bits as u64), 3.25);
     }
 
     #[test]
@@ -550,7 +571,7 @@ mod tests {
             VALUE_FALSE,
             box_int32(42),
             box_int32(-7),
-            box_double(3.14),
+            box_double(3.25),
         ] {
             assert_eq!(
                 __torajs_anyv_unbox_value_owned(v),

@@ -161,7 +161,7 @@ unsafe fn open_with_method(item: AnyValue, method: AnyValue) -> Option<AnyValue>
     unsafe {
         // Parked methods are Closure cells by construction (the eager
         // step refused everything else), so this is a live cell.
-        let cell = as_void_ptr(method) as *mut c_void;
+        let cell = as_void_ptr(method);
         let Some((env, entry)) = closure_cell_entry(cell) else {
             __torajs_throw_type_error(c"Iterator.concat argument is not iterable".as_ptr());
             return None;
@@ -254,7 +254,7 @@ pub(crate) unsafe fn iter_concat_step(ptr: *mut c_void, out: *mut AnyValue) -> i
             }
             let idx = (p.add(COUNTER_OFF) as *const u64).read();
             let items_av = (p.add(UNDERLYING_OFF) as *const u64).read();
-            let items = as_void_ptr(items_av) as *mut c_void;
+            let items = as_void_ptr(items_av);
             let len = (items.cast::<u8>().add(ARR_LEN_OFF) as *const u64).read();
             if idx >= len {
                 (p.add(ALIVE_OFF)).write(0);

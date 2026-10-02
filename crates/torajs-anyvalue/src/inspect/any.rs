@@ -206,7 +206,7 @@ pub unsafe extern "C" fn __torajs_print_anyv(v: AnyValue) {
             // Anonymous / A1-anon-stamp-miss cells fall through to
             // the no-prefix `{…}` form so empty layouts degrade
             // cleanly instead of stalling on `[object]`.
-            unsafe { __torajs_anyv_struct_print_inline(v as u64) };
+            unsafe { __torajs_anyv_struct_print_inline(v) };
             unsafe { __torajs_io_putc_out(b'\n' as i32) };
         } else if tag == Tag::WeakMap as u16 {
             // WeakMap / WeakSet are non-enumerable per spec
@@ -333,7 +333,7 @@ pub unsafe extern "C" fn __torajs_print_anyv_inline_top(v: AnyValue) {
         } else if tag == Tag::Closure as u16 {
             unsafe { put_closure_fn_name(child) };
         } else if tag == Tag::Obj as u16 {
-            unsafe { __torajs_anyv_struct_print_inline(v as u64) };
+            unsafe { __torajs_anyv_struct_print_inline(v) };
         } else if tag == Tag::WeakMap as u16 {
             unsafe { put_bytes(b"WeakMap {}") };
         } else if tag == Tag::WeakSet as u16 {

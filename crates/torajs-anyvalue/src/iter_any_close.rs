@@ -2,8 +2,6 @@
 //! iterator it stops stepping early. Split from [`crate::iter_any`]
 //! at the size cap; the body is that module's close family verbatim.
 
-use core::ffi::c_void;
-
 use torajs_rc::Tag;
 
 use crate::iter_any::SYM_ITERATOR_METHOD;
@@ -136,7 +134,7 @@ pub unsafe extern "C" fn __torajs_iter_close_value(iter: AnyValue) {
         if !is_cell(iter) {
             return;
         }
-        let iter_ptr = as_void_ptr(iter) as *mut c_void;
+        let iter_ptr = as_void_ptr(iter);
         let tag = (iter_ptr.cast::<u8>().add(4) as *const u16).read();
         // An IterHelper closes through its own §27.1.5.2 return()
         // arm directly — the generic tier below resolves `return`
@@ -239,7 +237,7 @@ unsafe fn derive_for_close(recv: AnyValue, iter_slot: *mut AnyValue) -> bool {
             __torajs_throw_type_error(c"value is not iterable".as_ptr());
             return false;
         }
-        match call_obj_method_0(as_void_ptr(recv) as *mut c_void, SYM_ITERATOR_METHOD) {
+        match call_obj_method_0(as_void_ptr(recv), SYM_ITERATOR_METHOD) {
             MethodOutcome::Ok(iter) => {
                 *iter_slot = iter;
                 true

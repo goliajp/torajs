@@ -49,7 +49,7 @@ pub(crate) unsafe fn step_derived_iterator(
             *out = VALUE_UNDEFINED;
             return 0;
         }
-        let iter_ptr = as_void_ptr(iter) as *mut c_void;
+        let iter_ptr = as_void_ptr(iter);
         if (iter_ptr.cast::<u8>().add(4) as *const u16).read() != Tag::Obj as u16 {
             return crate::iter_any_get_method::generic_iter_step(iter, out, await_mode);
         }
@@ -86,7 +86,7 @@ pub(crate) unsafe fn step_derived_iterator(
             *out = VALUE_UNDEFINED;
             return 0;
         }
-        let step_ptr = as_void_ptr(step) as *mut c_void;
+        let step_ptr = as_void_ptr(step);
         // §7.4.4 IteratorComplete — ToBoolean(Get(step, "done")). The
         // Get may run a getter that throws (forward it); the answer is
         // truthiness, not a Bool-tag check (`{done: 1}` is done).

@@ -487,6 +487,17 @@ pub unsafe extern "C" fn __torajs_proto_chain_key_owned(
     0
 }
 
+/// Does the builtin prototype singleton `ptr` carry a live virtual
+/// accessor under `key`? The probe pair then answers the accessor
+/// sentinel with a zero value channel, and `__torajs_any_accessor_get`
+/// runs the getter ONCE with the singleton as receiver.
+pub(crate) unsafe fn proto_virtual_accessor_owned(ptr: *mut c_void, key: *const c_void) -> bool {
+    unsafe {
+        let tag = torajs_rc::builtin_proto::__torajs_builtin_proto_tag_of(ptr);
+        tag >= 0 && crate::method_support_proto_accessor::live_accessor_mid(tag, key).is_some()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -527,16 +538,5 @@ mod tests {
         // Sibling tag / sibling mid unaffected.
         assert!(proto_tag_owns(2, ANY_METHOD_SLICE));
         assert!(proto_tag_owns(3, ANY_METHOD_SPLIT));
-    }
-}
-
-/// Does the builtin prototype singleton `ptr` carry a live virtual
-/// accessor under `key`? The probe pair then answers the accessor
-/// sentinel with a zero value channel, and `__torajs_any_accessor_get`
-/// runs the getter ONCE with the singleton as receiver.
-pub(crate) unsafe fn proto_virtual_accessor_owned(ptr: *mut c_void, key: *const c_void) -> bool {
-    unsafe {
-        let tag = torajs_rc::builtin_proto::__torajs_builtin_proto_tag_of(ptr);
-        tag >= 0 && crate::method_support_proto_accessor::live_accessor_mid(tag, key).is_some()
     }
 }

@@ -125,7 +125,7 @@ pub(crate) unsafe fn legacy_accessor_method(
             return VALUE_UNDEFINED;
         }
         let key_av = if argc >= 1 { *argv } else { VALUE_UNDEFINED };
-        let key = crate::nanbox_ffi::__torajs_anyv_to_str(key_av) as *mut c_void;
+        let key = crate::nanbox_ffi::__torajs_anyv_to_str(key_av);
         let out = if is_define {
             let face = as_void_ptr(*argv.add(1));
             define_face(ptr, key, face, wants_getter, recv_slot)

@@ -125,7 +125,7 @@ pub(crate) unsafe fn set_arr_member(
                 // it as a fresh default data property (chunk C;
                 // the shadow upsert clears the hole sentinel).
                 __torajs_arr_index_set(ptr, idx as i64, tag, value);
-                __torajs_arr_index_revive(ptr, key as *mut c_void);
+                __torajs_arr_index_revive(ptr, key);
                 return 1;
             }
             if flags & 0x1 == 0 {

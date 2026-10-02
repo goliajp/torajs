@@ -83,10 +83,7 @@ pub(super) fn box_bool(b: bool) -> u64 {
 pub(super) fn num_predicate(p: &NumPred, v: u64) -> bool {
     use crate::nanbox::{as_double, is_double, is_int32};
     if is_int32(v) {
-        return match p {
-            NumPred::Nan => false,
-            _ => true,
-        };
+        return !matches!(p, NumPred::Nan);
     }
     if !is_double(v) {
         return false;

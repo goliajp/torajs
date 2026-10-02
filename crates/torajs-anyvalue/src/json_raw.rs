@@ -20,8 +20,8 @@
 //!    complete scalar (string / number / `true` / `false` /
 //!    `null`) — an object or array outermost value is explicitly
 //!    rejected by the spec step itself.
-//! 4-7. OrdinaryObjectCreate(null) + CreateDataPropertyOrThrow +
-//!    SetIntegrityLevel(frozen).
+//! 4. Steps 4-7: OrdinaryObjectCreate(null) + CreateDataPropertyOrThrow
+//!    + SetIntegrityLevel(frozen).
 
 use core::ffi::c_void;
 

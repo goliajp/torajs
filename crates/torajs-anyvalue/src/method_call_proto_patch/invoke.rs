@@ -167,7 +167,7 @@ unsafe fn arraylike_over_patch(
     {
         return None;
     }
-    let ptr = as_void_ptr(recv) as *mut c_void;
+    let ptr = as_void_ptr(recv);
     // SAFETY: a cell box points at a live heap header; the tag word
     // sits at offset 4.
     let tag = unsafe { (ptr.cast::<u8>().add(4) as *const u16).read() };

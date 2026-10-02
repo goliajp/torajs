@@ -163,7 +163,7 @@ pub(crate) unsafe fn iter_helper_mint(recv: AnyValue, kind: u8, fn_av: AnyValue)
     };
     unsafe {
         if !numeric_kind {
-            torajs_rc::__torajs_rc_inc(as_void_ptr(fn_slot) as *mut c_void);
+            torajs_rc::__torajs_rc_inc(as_void_ptr(fn_slot));
         }
         let layout = core::alloc::Layout::from_size_align(CELL_SIZE, 8).unwrap();
         let cell = std::alloc::alloc_zeroed(layout);
@@ -171,14 +171,14 @@ pub(crate) unsafe fn iter_helper_mint(recv: AnyValue, kind: u8, fn_av: AnyValue)
         *(cell.add(4) as *mut u16) = Tag::IterHelper as u16;
         // flags stay 0 (multi-thread-ready shape: no single-mutator
         // assumption baked in; the header is the universal one).
-        torajs_rc::__torajs_rc_inc(as_void_ptr(recv) as *mut c_void);
+        torajs_rc::__torajs_rc_inc(as_void_ptr(recv));
         *(cell.add(UNDERLYING_OFF) as *mut u64) = recv;
         // fn-kinds stored their +1 above; numeric kinds store plain
         // f64 bits (never cell-shaped — the drop glue's anyv_rc_dec
         // no-ops on non-cell patterns).
         *(cell.add(FN_OFF) as *mut u64) = fn_slot;
-        *(cell.add(KIND_OFF) as *mut u8) = kind;
-        *(cell.add(ALIVE_OFF) as *mut u8) = 1;
+        *cell.add(KIND_OFF) = kind;
+        *cell.add(ALIVE_OFF) = 1;
         *(cell.add(INNER_OFF) as *mut u64) = VALUE_UNDEFINED;
         *(cell.add(NEXT_OFF) as *mut u64) = next_slot;
         __torajs_anyv_box_pointer(cell as *mut c_void)
@@ -196,8 +196,8 @@ pub(crate) unsafe fn iter_helper_cell_alloc(kind: u8) -> *mut u8 {
         *(cell.add(4) as *mut u16) = Tag::IterHelper as u16;
         *(cell.add(UNDERLYING_OFF) as *mut u64) = VALUE_UNDEFINED;
         *(cell.add(FN_OFF) as *mut u64) = VALUE_UNDEFINED;
-        *(cell.add(KIND_OFF) as *mut u8) = kind;
-        *(cell.add(ALIVE_OFF) as *mut u8) = 1;
+        *cell.add(KIND_OFF) = kind;
+        *cell.add(ALIVE_OFF) = 1;
         *(cell.add(INNER_OFF) as *mut u64) = VALUE_UNDEFINED;
         *(cell.add(NEXT_OFF) as *mut u64) = VALUE_UNDEFINED;
         cell

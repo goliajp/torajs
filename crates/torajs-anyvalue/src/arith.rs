@@ -322,7 +322,7 @@ pub(crate) unsafe fn any_add(lt: i64, lv: i64, rt: i64, rv: i64) -> AnyValue {
         // concat is a freshly-owned heap pointer (rc=1);
         // box_void_ptr stores it in the AnyValue cell slot.
         // Caller owns the rc.
-        return box_void_ptr(concat as *mut c_void);
+        return box_void_ptr(concat);
     }
 
     // Numeric path. ToNumber reuses the per-tag dispatch from

@@ -97,7 +97,7 @@ unsafe fn target_keys(target: AnyValue) -> Result<KeyList, ()> {
         // The Arr is unmarked, so dropping it releases only the block;
         // the element stakes move into the list.
         let keys = KeyList((0..n).map(|i| data.add(i).read() as *mut c_void).collect());
-        __torajs_value_drop_heap(arr as *mut c_void);
+        __torajs_value_drop_heap(arr);
         if __torajs_throw_check() != 0 {
             return Err(());
         }

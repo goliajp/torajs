@@ -346,7 +346,7 @@ unsafe fn arr_method_inner(
             }
             m if is_callback_method(m) => match arr_method_callback(arr, m, argv, argc) {
                 Some(v) => v,
-                None => return not_callable(),
+                None => not_callable(),
             },
             m if m == ANY_METHOD_KEYS || m == ANY_METHOD_VALUES || m == ANY_METHOD_ENTRIES => {
                 // Fresh ArrIter cell (rc=1) — the owned return

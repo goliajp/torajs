@@ -343,7 +343,7 @@ pub unsafe extern "C" fn __torajs_str_regex_replace_any_repl(
             None => {
                 let repl = __torajs_anyv_to_str(repl_av);
                 if __torajs_throw_check() != 0 {
-                    __torajs_str_drop(repl as *mut c_void);
+                    __torajs_str_drop(repl);
                     return core::ptr::null_mut();
                 }
                 let v = super::__torajs_str_any_replace_regex(
@@ -352,7 +352,7 @@ pub unsafe extern "C" fn __torajs_str_regex_replace_any_repl(
                     repl as *const u8,
                     all,
                 );
-                __torajs_str_drop(repl as *mut c_void);
+                __torajs_str_drop(repl);
                 v
             }
         };
@@ -361,6 +361,6 @@ pub unsafe extern "C" fn __torajs_str_regex_replace_any_repl(
         // that is already a string is the identity plus a stake.
         let cell = __torajs_anyv_to_str(out);
         crate::nanbox_ffi::__torajs_anyv_rc_dec(out);
-        cell as *mut c_void
+        cell
     }
 }

@@ -49,6 +49,7 @@ unsafe extern "C" {
 ///   reach the array-like generic arm;
 /// - string-shaped and nullish receivers (identity fast paths /
 ///   RequireObjectCoercible throw).
+///
 /// The family-generic re-dispatch gate every borrowed-builtin
 /// station runs before the ordinary receiver-arm redispatch:
 ///

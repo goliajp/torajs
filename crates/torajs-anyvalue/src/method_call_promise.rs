@@ -346,7 +346,7 @@ unsafe extern "C" fn then_any_dispatch(arg: i64) {
             } else if crate::method_call_promise_invoke::is_promise_cell(ret) {
                 crate::method_call_promise_invoke::finally_returned_promise(
                     src,
-                    crate::nanbox::as_void_ptr(ret) as *mut c_void,
+                    crate::nanbox::as_void_ptr(ret),
                     result,
                 );
                 handed_off = true;

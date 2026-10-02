@@ -1385,7 +1385,7 @@ mod tests {
         payload_rc_inc(0, 0);
         payload_rc_inc(1, 1);
         payload_rc_inc(2, 42);
-        payload_rc_inc(3, f64::to_bits(3.14) as i64);
+        payload_rc_inc(3, f64::to_bits(3.25) as i64);
         payload_rc_inc(5, 0);
     }
 
@@ -1469,7 +1469,7 @@ mod tests {
         assert_eq!(AnyView::I64(0).to_number(), 0.0);
         assert_eq!(AnyView::I64(42).to_number(), 42.0);
         assert_eq!(AnyView::I64(-7).to_number(), -7.0);
-        assert_eq!(AnyView::F64(3.14).to_number(), 3.14);
+        assert_eq!(AnyView::F64(3.25).to_number(), 3.25);
         // F64 NaN propagates.
         assert!(AnyView::F64(f64::NAN).to_number().is_nan());
         // Unknown defensively → NaN.

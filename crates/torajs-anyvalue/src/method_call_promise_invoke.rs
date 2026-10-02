@@ -210,7 +210,7 @@ pub unsafe extern "C" fn __torajs_promise_finally_resettle(
         }
         if is_promise_cell(answer) {
             // `answer`'s stake moves into the wait.
-            __torajs_promise_finally_wait(source, as_void_ptr(answer) as *mut c_void, result);
+            __torajs_promise_finally_wait(source, as_void_ptr(answer), result);
             return;
         }
         crate::method_call_promise::resolve_result_with(result, answer);

@@ -87,12 +87,12 @@ pub unsafe extern "C" fn __torajs_anyv_to_property_key(key: AnyValue) -> *mut c_
                     // `prim` is an owned share — it becomes the answer.
                     return as_void_ptr(prim);
                 }
-                let s = crate::nanbox_ffi::__torajs_anyv_to_str(prim) as *mut c_void;
+                let s = crate::nanbox_ffi::__torajs_anyv_to_str(prim);
                 crate::nanbox_ffi::__torajs_anyv_rc_dec(prim);
                 return s;
             }
         }
-        crate::nanbox_ffi::__torajs_anyv_to_str(key) as *mut c_void
+        crate::nanbox_ffi::__torajs_anyv_to_str(key)
     }
 }
 
@@ -231,7 +231,7 @@ unsafe fn any_index_set_keyed_impl(
             if ktag == Tag::Symbol as u16 || ktag == Tag::Str as u16 {
                 return crate::member_set::any_member_set_impl(
                     slot,
-                    ptr as *mut c_void,
+                    ptr,
                     tag,
                     value,
                     -1,

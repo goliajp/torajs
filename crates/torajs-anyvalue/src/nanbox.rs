@@ -391,8 +391,8 @@ mod tests {
         assert!(!is_false(VALUE_TRUE));
         assert!(is_true(VALUE_TRUE));
         assert!(!is_true(VALUE_FALSE));
-        assert_eq!(as_bool(VALUE_FALSE), false);
-        assert_eq!(as_bool(VALUE_TRUE), true);
+        assert!(!as_bool(VALUE_FALSE));
+        assert!(as_bool(VALUE_TRUE));
         assert!(!is_null(VALUE_TRUE));
         assert!(!is_undefined(VALUE_TRUE));
         assert!(!is_cell(VALUE_TRUE));
@@ -422,7 +422,7 @@ mod tests {
 
     #[test]
     fn box_unbox_int32_negative() {
-        for x in [-1i32, -42, i32::MIN, -0x0DEAD_BEEFi64 as i32] {
+        for x in [-1i32, -42, i32::MIN, -0xDEAD_BEEF_i64 as i32] {
             let v = box_int32(x);
             assert!(is_int32(v), "{x} encoded as {v:#x}");
             assert_eq!(as_int32(v), x);
@@ -633,7 +633,7 @@ mod tests {
             box_int32(i32::MAX),
             box_int32(i32::MIN),
             box_double(0.0),
-            box_double(3.14),
+            box_double(3.25),
             box_double(f64::NAN),
             box_double(f64::INFINITY),
             // Step 8 ShortStr coverage
@@ -716,7 +716,7 @@ mod tests {
         // values whose byte 0 has bit 1 = 0 (e.g. 'a' = 0x61,
         // ' ' = 0x20, '0' = 0x30) must NOT pass the cell predicate.
         // Pre-tighten weak check would have let them through.
-        for &b in &[b'a', b' ', b'0', b'8', b'@', b'`'] {
+        for &b in b"a 08@`" {
             let v = try_box_short_str(&[b]).unwrap();
             assert!(!is_cell(v), "byte {b:#x} ShortStr leaked as cell");
             assert!(is_short_str(v));
@@ -729,7 +729,7 @@ mod tests {
         // must be ShortStr, not cell. The bit-1 check only matters
         // for top16=0 (sentinels vs cell); top16=0x0001 makes the
         // TOP_16_MASK check fail before bit-1 is read.
-        for &b in &[b'b', b'"', b'2', b'F', b'B'] {
+        for &b in b"b\"2FB" {
             let v = try_box_short_str(&[b]).unwrap();
             assert!(!is_cell(v));
             assert!(is_short_str(v));

@@ -118,7 +118,7 @@ pub(super) unsafe fn reflect_delete_property(argv: *const u64, argc: i64) -> u64
             arg_at(argv, argc, 0),
             key as *const core::ffi::c_void,
         );
-        crate::__torajs_str_drop(key as *mut core::ffi::c_void);
+        crate::__torajs_str_drop(key);
         if deleted != 0 {
             VALUE_TRUE
         } else {
@@ -152,9 +152,8 @@ pub(super) unsafe fn reflect_define_property(argv: *const u64, argc: i64) -> u64
             as *mut core::ffi::c_void;
         let desc = crate::nanbox_encode::__torajs_anyv_cell_ptr(arg_at(argv, argc, 2))
             as *const core::ffi::c_void;
-        let ok =
-            __torajs_dynobj_define_from_desc_soft(&mut target, key as *mut core::ffi::c_void, desc);
-        crate::__torajs_str_drop(key as *mut core::ffi::c_void);
+        let ok = __torajs_dynobj_define_from_desc_soft(&mut target, key, desc);
+        crate::__torajs_str_drop(key);
         if __torajs_throw_check() != 0 {
             return VALUE_UNDEFINED;
         }
@@ -208,7 +207,7 @@ pub(super) unsafe fn reflect_set(argv: *const u64, argc: i64) -> u64 {
         } else {
             target
         };
-        let kp = key as *mut core::ffi::c_void;
+        let kp = key;
         // The receiver kernel collapses to the ordinary [[Set]] when
         // the two objects coincide, so both spellings go through it.
         let mut recv = receiver;
@@ -247,7 +246,7 @@ pub(super) unsafe fn reflect_get(argv: *const u64, argc: i64) -> u64 {
         let kp = key as *const core::ffi::c_void;
         let out =
             crate::member_get_receiver::__torajs_any_member_get_with_receiver(target, kp, receiver);
-        crate::__torajs_str_drop(key as *mut core::ffi::c_void);
+        crate::__torajs_str_drop(key);
         out
     }
 }
@@ -268,7 +267,7 @@ pub(super) unsafe fn reflect_has(argv: *const u64, argc: i64) -> u64 {
             arg_at(argv, argc, 0),
             key as *const core::ffi::c_void,
         );
-        crate::__torajs_str_drop(key as *mut core::ffi::c_void);
+        crate::__torajs_str_drop(key);
         if hit != 0 { VALUE_TRUE } else { VALUE_FALSE }
     }
 }

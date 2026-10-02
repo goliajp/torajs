@@ -89,9 +89,7 @@ pub(crate) unsafe fn derive_flattenable(v: AnyValue, allow_string: bool) -> Opti
             GetIterator::NoUserMethod | GetIterator::Absent => {}
         }
         let minted = match tag {
-            t if t == Tag::Arr as u16 => {
-                __torajs_arr_iter_create_values(as_void_ptr(v) as *mut c_void)
-            }
+            t if t == Tag::Arr as u16 => __torajs_arr_iter_create_values(as_void_ptr(v)),
             // §22.1.5 — a String exotic object is an Object whose
             // @@iterator walks code units; ride the reified
             // String.prototype[@@iterator] body (刀 5b: zip's
@@ -106,12 +104,8 @@ pub(crate) unsafe fn derive_flattenable(v: AnyValue, allow_string: bool) -> Opti
             // Map's @@iterator is entries (§24.1.3.13); Set's is
             // values, which the collections kernel serves as keys
             // (§24.2.3.8 alias).
-            t if t == Tag::Map as u16 => {
-                __torajs_map_iter_create_entries(as_void_ptr(v) as *mut c_void)
-            }
-            t if t == Tag::Set as u16 => {
-                __torajs_map_iter_create_keys(as_void_ptr(v) as *mut c_void)
-            }
+            t if t == Tag::Map as u16 => __torajs_map_iter_create_entries(as_void_ptr(v)),
+            t if t == Tag::Set as u16 => __torajs_map_iter_create_keys(as_void_ptr(v)),
             _ => {
                 // §27.1.6.2 step 2.b — no @@iterator: `v` itself is
                 // the iterator (a missing next() surfaces at the
@@ -163,7 +157,7 @@ pub(crate) unsafe fn wrap_return_forward(underlying: AnyValue) -> AnyValue {
         if is_cell(underlying)
             && (as_void_ptr(underlying).cast::<u8>().add(4) as *const u16).read() == Tag::Obj as u16
         {
-            match call_obj_method_0(as_void_ptr(underlying) as *mut c_void, b"return") {
+            match call_obj_method_0(as_void_ptr(underlying), b"return") {
                 MethodOutcome::Ok(r) => return r,
                 MethodOutcome::Threw => return VALUE_UNDEFINED,
                 MethodOutcome::Missing => {}
@@ -183,7 +177,7 @@ pub(crate) unsafe fn wrap_return_forward(underlying: AnyValue) -> AnyValue {
         }
         let method = crate::nanbox_encode::__torajs_anyv_box_from_pair(tag as i64, payload as i64);
         let entry = if is_cell(method) {
-            closure_cell_entry(as_void_ptr(method) as *mut c_void)
+            closure_cell_entry(as_void_ptr(method))
         } else {
             None
         };

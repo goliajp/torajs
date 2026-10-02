@@ -23,7 +23,7 @@ pub(super) unsafe fn ctor_symbol_call(argc: i64, arg: u64) -> u64 {
             if __torajs_throw_check() != 0 {
                 return VALUE_UNDEFINED;
             }
-            s as *mut c_void
+            s
         };
         let sym = __torajs_symbol_alloc(desc);
         if !desc.is_null() {

@@ -37,7 +37,7 @@ pub(crate) unsafe fn symbol_proto_method(recv: AnyValue, mid: i64) -> AnyValue {
         if let Some(ptr) = this_symbol_value(recv) {
             if mid == torajs_rc::ANY_METHOD_SYMBOL_VALUE_OF {
                 __torajs_rc_inc(ptr);
-                return crate::nanbox_encode::__torajs_anyv_box_pointer(ptr as *mut c_void);
+                return crate::nanbox_encode::__torajs_anyv_box_pointer(ptr);
             }
             let s = __torajs_symbol_to_str(ptr);
             return crate::nanbox_encode::__torajs_anyv_box_pointer(s as *mut c_void);

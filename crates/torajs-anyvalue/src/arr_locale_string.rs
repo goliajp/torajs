@@ -116,14 +116,14 @@ pub(crate) unsafe fn locale_join(len: u64, mut read: impl FnMut(u64) -> AnyValue
             let s = __torajs_anyv_to_str(r);
             __torajs_anyv_rc_dec(r);
             if __torajs_throw_check() != 0 {
-                __torajs_str_drop(s as *mut c_void);
+                __torajs_str_drop(s);
                 __torajs_str_drop(acc as *mut c_void);
                 __torajs_str_drop(sep as *mut c_void);
                 __torajs_str_drop(name as *mut c_void);
                 return core::ptr::null_mut();
             }
             let next = __torajs_str_concat(acc, s as *const u8) as *mut u8;
-            __torajs_str_drop(s as *mut c_void);
+            __torajs_str_drop(s);
             __torajs_str_drop(acc as *mut c_void);
             acc = next;
         }

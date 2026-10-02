@@ -140,6 +140,8 @@ pub unsafe extern "C" fn __torajs_anyv_to_f64_slot(v: AnyValue) -> f64 {
     unsafe { __torajs_anyv_to_number(v) }
 }
 
+/// # Safety
+/// `v` is a live boxed value.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_to_number(v: AnyValue) -> f64 {
     if is_int32(v) {
@@ -360,7 +362,7 @@ mod tests {
             assert_eq!(__torajs_anyv_to_number(VALUE_TRUE), 1.0);
             assert_eq!(__torajs_anyv_to_number(box_int32(42)), 42.0);
             assert_eq!(__torajs_anyv_to_number(box_int32(-7)), -7.0);
-            assert_eq!(__torajs_anyv_to_number(box_double(3.14)), 3.14);
+            assert_eq!(__torajs_anyv_to_number(box_double(3.25)), 3.25);
             assert!(__torajs_anyv_to_number(box_double(f64::NAN)).is_nan());
         }
     }
@@ -378,7 +380,7 @@ mod tests {
             assert!(!__torajs_anyv_to_bool(box_double(0.0)));
             assert!(!__torajs_anyv_to_bool(box_double(-0.0)));
             assert!(!__torajs_anyv_to_bool(box_double(f64::NAN)));
-            assert!(__torajs_anyv_to_bool(box_double(3.14)));
+            assert!(__torajs_anyv_to_bool(box_double(3.25)));
             assert!(__torajs_anyv_to_bool(box_double(f64::INFINITY)));
         }
     }
@@ -392,7 +394,7 @@ mod tests {
             assert!(__torajs_anyv_strict_eq(VALUE_TRUE, VALUE_TRUE));
             assert!(__torajs_anyv_strict_eq(VALUE_FALSE, VALUE_FALSE));
             assert!(__torajs_anyv_strict_eq(box_int32(42), box_int32(42)));
-            assert!(__torajs_anyv_strict_eq(box_double(3.14), box_double(3.14)));
+            assert!(__torajs_anyv_strict_eq(box_double(3.25), box_double(3.25)));
 
             // distinct
             assert!(!__torajs_anyv_strict_eq(VALUE_NULL, VALUE_UNDEFINED));
@@ -424,7 +426,7 @@ mod tests {
             __torajs_anyv_rc_inc(VALUE_TRUE);
             __torajs_anyv_rc_inc(VALUE_FALSE);
             __torajs_anyv_rc_inc(box_int32(42));
-            __torajs_anyv_rc_inc(box_double(3.14));
+            __torajs_anyv_rc_inc(box_double(3.25));
             __torajs_anyv_rc_dec(VALUE_NULL);
             __torajs_anyv_rc_dec(box_int32(42));
         }
@@ -438,9 +440,9 @@ mod tests {
         assert_eq!(v, 42);
 
         // F64 → F64 tag with bitcast payload.
-        let (t, v) = decode_to_tag_value(box_double(3.14));
+        let (t, v) = decode_to_tag_value(box_double(3.25));
         assert_eq!(t, AnySlotTag::F64 as i64);
-        assert_eq!(f64::from_bits(v as u64), 3.14);
+        assert_eq!(f64::from_bits(v as u64), 3.25);
 
         // Null / Undef / Bool round-trip.
         let (t, _) = decode_to_tag_value(VALUE_NULL);
@@ -537,7 +539,7 @@ mod tests {
             let s = try_box_short_str(b"abc").unwrap();
             assert!(!__torajs_anyv_strict_eq(s, box_int32(0)));
             assert!(!__torajs_anyv_strict_eq(s, box_int32(42)));
-            assert!(!__torajs_anyv_strict_eq(s, box_double(3.14)));
+            assert!(!__torajs_anyv_strict_eq(s, box_double(3.25)));
             assert!(!__torajs_anyv_strict_eq(s, VALUE_NULL));
             assert!(!__torajs_anyv_strict_eq(s, VALUE_UNDEFINED));
             assert!(!__torajs_anyv_strict_eq(s, VALUE_TRUE));
@@ -572,7 +574,7 @@ mod tests {
             VALUE_TRUE,
             VALUE_FALSE,
             box_int32(42),
-            box_double(3.14),
+            box_double(3.25),
         ];
         for v in inputs {
             // SAFETY: pure inspection — no materialize fires.

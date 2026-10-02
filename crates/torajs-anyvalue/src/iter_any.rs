@@ -122,7 +122,7 @@ pub(crate) const USER_ITERATOR_LANE: i64 = -1;
 unsafe fn map_set_derive_iter(recv: AnyValue, is_map: bool, iter_slot: *mut AnyValue) -> AnyValue {
     unsafe {
         if *iter_slot == VALUE_UNDEFINED {
-            let src = as_void_ptr(recv) as *mut c_void;
+            let src = as_void_ptr(recv);
             let it = if is_map {
                 __torajs_map_iter_create_entries(src)
             } else {
@@ -143,7 +143,6 @@ unsafe fn map_set_derive_iter(recv: AnyValue, is_map: bool, iter_slot: *mut AnyV
 /// # Safety
 /// `obj` is a live `Tag::Obj` heap pointer; `iter_slot` / `out` are
 /// valid writable pointers.
-
 unsafe fn obj_iter_step(
     obj: *mut c_void,
     iter_slot: *mut AnyValue,
@@ -378,8 +377,7 @@ pub(crate) unsafe fn iter_next_inner(
     // the shared core the next() method face wraps; owned-out
     // contract matches this fn's directly.
     if matches!(cell_tag, Some(t) if t == Tag::IterHelper as u16) {
-        let hit =
-            unsafe { crate::iter_helper::iter_helper_step(as_void_ptr(recv) as *mut c_void, out) };
+        let hit = unsafe { crate::iter_helper::iter_helper_step(as_void_ptr(recv), out) };
         if hit != 0 && await_mode {
             return unsafe { crate::iter_any_await::settle_out(out) };
         }
@@ -395,7 +393,7 @@ pub(crate) unsafe fn iter_next_inner(
         let mut tag = 0i64;
         let mut payload = 0i64;
         unsafe {
-            if step_fn(as_void_ptr(recv) as *mut c_void, &mut tag, &mut payload) == 0 {
+            if step_fn(as_void_ptr(recv), &mut tag, &mut payload) == 0 {
                 *out = VALUE_UNDEFINED;
                 return 0;
             }
@@ -414,7 +412,7 @@ pub(crate) unsafe fn iter_next_inner(
         return 1;
     }
     if matches!(cell_tag, Some(t) if t == Tag::Obj as u16) {
-        let obj = as_void_ptr(recv) as *mut c_void;
+        let obj = as_void_ptr(recv);
         if let Some(live) = unsafe { obj_iter_step(obj, iter_slot, out, await_mode) } {
             return live;
         }

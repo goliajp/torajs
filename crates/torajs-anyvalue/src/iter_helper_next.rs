@@ -74,7 +74,7 @@ pub(crate) unsafe fn resolve_next_method(recv: AnyValue) -> Result<AnyValue, ()>
         if !is_cell(recv) {
             return Ok(VALUE_UNDEFINED);
         }
-        let ptr = as_void_ptr(recv) as *mut c_void;
+        let ptr = as_void_ptr(recv);
         let tag = (ptr.cast::<u8>().add(4) as *const u16).read();
         if tag == Tag::Obj as u16 {
             // A vtable `next` wins — same order as the step tier; the
@@ -95,7 +95,7 @@ pub(crate) unsafe fn resolve_next_method(recv: AnyValue) -> Result<AnyValue, ()>
         let Some(got) = iter_result_get(recv, ptr, b"next") else {
             return Err(());
         };
-        if is_cell(got) && closure_cell_entry(as_void_ptr(got) as *mut c_void).is_some() {
+        if is_cell(got) && closure_cell_entry(as_void_ptr(got)).is_some() {
             return Ok(got);
         }
         // Non-callable / absent — the legacy driver's own step-time
@@ -119,7 +119,7 @@ pub(crate) unsafe fn step_via(iter: AnyValue, next: AnyValue, out: *mut AnyValue
             return crate::iter_any_step::step_derived_iterator(iter, out, false);
         }
         *out = VALUE_UNDEFINED;
-        let Some((env, entry)) = closure_cell_entry(as_void_ptr(next) as *mut c_void) else {
+        let Some((env, entry)) = closure_cell_entry(as_void_ptr(next)) else {
             // Unreachable by construction (resolve cached a callable)
             // — keep the legacy driver rather than UB.
             return crate::iter_any_step::step_derived_iterator(iter, out, false);
@@ -144,7 +144,7 @@ pub(crate) unsafe fn step_via(iter: AnyValue, next: AnyValue, out: *mut AnyValue
         }
         // §7.4.4 IteratorComplete / §7.4.5 IteratorValue — the shared
         // IteratorResult [[Get]], mirroring the step tier's tail.
-        let step_ptr = as_void_ptr(step) as *mut c_void;
+        let step_ptr = as_void_ptr(step);
         let done = match iter_result_get(step, step_ptr, b"done") {
             None => {
                 __torajs_anyv_rc_dec(step);

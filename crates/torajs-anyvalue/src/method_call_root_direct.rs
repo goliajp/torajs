@@ -16,8 +16,6 @@
 //! list of kernels: a new kernel needs no row. Every other cell keeps
 //! the re-dispatch.
 
-use core::ffi::c_void;
-
 use torajs_rc::builtin_proto::OBJECT_PROTO_TAG;
 use torajs_rc::{ANY_METHOD_TO_STRING, ANY_METHOD_VALUE_OF, Tag};
 
@@ -61,7 +59,7 @@ pub(crate) unsafe fn root_owned_direct(mid: i64, fam: i64, this_arg: AnyValue) -
         }
         // §23.1.3.36 — Get(join) and call it.
         (ARR_PROTO_FAMILY, ANY_METHOD_TO_STRING) if tag == Tag::Arr as u16 => {
-            Some(unsafe { crate::method_call_arr_copy::arr_to_string_direct(ptr as *mut c_void) })
+            Some(unsafe { crate::method_call_arr_copy::arr_to_string_direct(ptr) })
         }
         // §20.2.3.5 — the function's source text or native form.
         (FN_PROTO_FAMILY, ANY_METHOD_TO_STRING) if tag == Tag::Closure as u16 => {

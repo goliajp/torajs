@@ -96,7 +96,7 @@ pub(crate) unsafe fn species_replaced(proto_tag: i64, ctor_cell: *mut c_void) ->
         if props.is_null() {
             return true;
         }
-        let key = symbol_static::well_known_singleton(WK_SPECIES) as *const c_void;
+        let key = symbol_static::well_known_singleton(WK_SPECIES);
         __torajs_dynobj_get_value(props, key)
             != INSTALLED_PAIR[proto_tag as usize].load(Ordering::Relaxed)
     }

@@ -217,10 +217,10 @@ pub unsafe extern "C" fn __torajs_any_length_get(recv: AnyValue) -> AnyValue {
         }
         if tag == Tag::Arr as u16 {
             let flags = (ptr.cast::<u8>().add(6) as *const u16).read();
-            if torajs_rc::arr_flags_are_arguments(flags) {
-                if let Some(v) = arguments_written_length(ptr, recv) {
-                    return v;
-                }
+            if torajs_rc::arr_flags_are_arguments(flags)
+                && let Some(v) = arguments_written_length(ptr, recv)
+            {
+                return v;
             }
             let n = *(ptr.cast::<u8>().add(MIRROR_ARR_LEN_OFF) as *const u64);
             return crate::nanbox_encode::__torajs_anyv_box_i64(n as i64);

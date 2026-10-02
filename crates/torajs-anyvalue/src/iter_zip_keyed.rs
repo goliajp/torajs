@@ -122,8 +122,7 @@ pub unsafe extern "C" fn __torajs_iterator_zip_keyed(obj: AnyValue, options: Any
                 crate::nanbox_encode::__torajs_anyv_box_pointer(padding_arr);
         }
         *(cell.add(COUNTER_OFF) as *mut u64) = mode;
-        *(cell.add(INNER_OFF) as *mut u64) =
-            crate::nanbox_encode::__torajs_anyv_box_pointer(keys as *mut c_void);
+        *(cell.add(INNER_OFF) as *mut u64) = crate::nanbox_encode::__torajs_anyv_box_pointer(keys);
         crate::nanbox_encode::__torajs_anyv_box_pointer(cell as *mut c_void)
     }
 }

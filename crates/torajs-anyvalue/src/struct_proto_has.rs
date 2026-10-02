@@ -70,7 +70,7 @@ pub unsafe extern "C" fn __torajs_struct_proto_member_has(
     // synthetic slot names too, so the probes below matched
     // `"__getter_d" in c` — the same leak the own face had, one
     // chain link over. Both now ask the one authority.
-    if unsafe { __torajs_accessor_name_kind(name, len as u32) } != 255 {
+    if unsafe { __torajs_accessor_name_kind(name, len) } != 255 {
         return 0;
     }
     if !unsafe { __torajs_struct_method_find(layout, name, len) }.is_null() {
