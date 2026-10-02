@@ -25,7 +25,9 @@ pub(crate) unsafe fn sparse_input_rejects(arr: *mut c_void) -> bool {
     }
     unsafe {
         __torajs_throw_range_error(
-            b"sparse array tail is not yet supported in a Promise combinator\0".as_ptr(),
+            c"sparse array tail is not yet supported in a Promise combinator"
+                .as_ptr()
+                .cast(),
         )
     };
     true

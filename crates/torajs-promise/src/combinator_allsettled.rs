@@ -183,8 +183,8 @@ pub(crate) unsafe fn alloc_settled_record(state: u8, value: i64, tags: u64) -> *
 }
 
 /// Allocate a `{status: string, value: T}` Obj: header(8) +
-/// class_tag(8) + vtable(8 zeroed) + props(8 zeroed, blade 1)
-/// + status_ptr(8) + value(8) = 48 bytes. The any-lane sibling packs
+/// class_tag(8) + vtable(8 zeroed) + props(8 zeroed, blade 1) +
+/// status_ptr(8) + value(8) = 48 bytes. The any-lane sibling packs
 /// boxed AnyValue bits into the same value slot.
 ///
 /// `class_tag` is what makes the record a real object rather than 48
@@ -254,6 +254,8 @@ unsafe fn alloc_settled_struct(state: u8, value: i64, tags: u64) -> *mut c_void 
     p as *mut c_void
 }
 
+/// # Safety
+/// `promises_arr` is NULL or a live array whose elements are live Promise cells or values of the declared element lane.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_allsettled_sync(
     promises_arr: *mut c_void,

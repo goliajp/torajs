@@ -48,6 +48,9 @@ unsafe extern "C" fn queue_micro_closure_dispatch(arg: i64) {
 /// `queueMicrotask(closureCb)`. Callers pass the env block; we inc
 /// to keep it alive across the microtask delay; the dispatcher
 /// pairs that with `value_drop_heap`.
+///
+/// # Safety
+/// `env` is NULL or a live closure env cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_queue_microtask_closure(env: *mut c_void) {
     if env.is_null() {
@@ -68,6 +71,9 @@ unsafe extern "C" fn queue_micro_simple_dispatch(arg: i64) {
 /// `queueMicrotask(namedFn)`. Fn pointers aren't heap objects so no
 /// rc bookkeeping is needed — the code object lives in the binary's
 /// .text segment for the lifetime of the program.
+///
+/// # Safety
+/// `fn_ptr` is NULL or the entry of a compiled zero-argument callback.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_queue_microtask_simple(fn_ptr: *mut c_void) {
     if fn_ptr.is_null() {

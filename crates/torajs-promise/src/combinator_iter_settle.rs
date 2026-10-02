@@ -97,7 +97,7 @@ pub(crate) unsafe fn mint_resolver(
         *(cell.add(C_TRACE_FN_OFF) as *mut u64) = iter_resolver_trace as *const () as u64;
         *(cell.add(C_BLOCK_OFF) as *mut u64) = b as u64;
         *(cell.add(C_INDEX_OFF) as *mut u64) = index;
-        *(cell.add(C_ALREADY_OFF) as *mut u8) = 0;
+        *cell.add(C_ALREADY_OFF) = 0;
         (*b).jobs += 1;
         cell as *mut c_void
     }

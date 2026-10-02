@@ -128,6 +128,8 @@ pub(crate) fn unbox_target(src_repr: u8, target_repr: u8) -> Option<u8> {
     Some(target_repr)
 }
 
+/// # Safety
+/// `promises_arr` is NULL or a live array whose elements are live Promise cells or values of the declared element lane.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_all_sync(
     promises_arr: *mut c_void,
@@ -258,6 +260,8 @@ pub unsafe extern "C" fn __torajs_promise_all_sync(
 // Promise.race — first settled wins
 // ============================================================
 
+/// # Safety
+/// `promises_arr` is NULL or a live array whose elements are live Promise cells or values of the declared element lane.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_race_sync(promises_arr: *mut c_void) -> *mut c_void {
     if promises_arr.is_null() {
@@ -374,6 +378,8 @@ unsafe fn race_fan_in(promises_arr: *mut c_void, len: u64) -> *mut c_void {
 // Promise.any — first FULFILLED wins; all-rejected → last reason
 // ============================================================
 
+/// # Safety
+/// `promises_arr` is NULL or a live array whose elements are live Promise cells or values of the declared element lane.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_any_sync(promises_arr: *mut c_void) -> *mut c_void {
     if promises_arr.is_null() {

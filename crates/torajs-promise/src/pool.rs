@@ -5,7 +5,7 @@
 //! absorption + T-15.g.7 drop sections of `runtime_promise.c`
 //! (P6.1, 2026-05-24). Hot Promise benchmarks (promise-chain-1m,
 //! promise-all-1m, promise-await-100k, promise-then-100k) allocate
-//! + free hundreds-of-thousands of Promises in tight loops — the
+//! and free hundreds-of-thousands of Promises in tight loops — the
 //! pool turns each pair into a head-only LIFO pop/push instead of
 //! a libc malloc/free pair (~10× faster on hot paths).
 //!
@@ -144,16 +144,22 @@ unsafe fn promise_release_(p: *mut Promise) {
 // value × pending/fulfilled/rejected.
 // ============================================================
 
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_alloc_pending() -> *mut c_void {
     unsafe { promise_alloc_(STATE_PENDING, 0, 0) as *mut c_void }
 }
 
+/// # Safety
+/// `value` is a primitive payload; it is stored as raw bits and never dereferenced.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_alloc_fulfilled(value: i64) -> *mut c_void {
     unsafe { promise_alloc_(STATE_FULFILLED, value, 0) as *mut c_void }
 }
 
+/// # Safety
+/// `reason` is a primitive payload; it is stored as raw bits and never dereferenced.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_alloc_rejected(reason: i64) -> *mut c_void {
     let p = unsafe { promise_alloc_(STATE_REJECTED, reason, 0) as *mut c_void };
@@ -169,11 +175,16 @@ pub unsafe extern "C" fn __torajs_promise_alloc_rejected(reason: i64) -> *mut c_
 /// Heap-value variant — caller transfers ONE refcount on `value` to
 /// the Promise; drop dec's that ref via `__torajs_value_drop_heap`
 /// when the Promise itself reaches rc=0.
+///
+/// # Safety
+/// `value` is a live heap cell and the caller hands one reference to the Promise.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_alloc_fulfilled_heap(value: i64) -> *mut c_void {
     unsafe { promise_alloc_(STATE_FULFILLED, value, 1) as *mut c_void }
 }
 
+/// # Safety
+/// `reason` is a live heap cell and the caller hands one reference to the Promise.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_alloc_rejected_heap(reason: i64) -> *mut c_void {
     let p = unsafe { promise_alloc_(STATE_REJECTED, reason, 1) as *mut c_void };
@@ -195,6 +206,9 @@ pub unsafe extern "C" fn __torajs_promise_alloc_rejected_heap(reason: i64) -> *m
 /// to emit, folded here so the pass-through branch cannot be stamped
 /// over (stamping an adopted cell would overwrite the inner
 /// promise's own repr).
+///
+/// # Safety
+/// `bits` is a NaN-boxed value whose heap payload, if any, is live; the caller hands its reference over.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_resolve_any(bits: i64) -> *mut c_void {
     unsafe {
@@ -218,6 +232,9 @@ pub unsafe extern "C" fn __torajs_promise_resolve_any(bits: i64) -> *mut c_void 
 /// reason is the boxed value verbatim (step 3 rejects WITH the
 /// value; no thenable absorption, a promise reason included). The
 /// caller transfers one ref on the box — `resolve_any`'s ledger.
+///
+/// # Safety
+/// `bits` is a NaN-boxed value whose heap payload, if any, is live; the caller hands its reference over.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_reject_any(bits: i64) -> *mut c_void {
     unsafe {
@@ -231,6 +248,9 @@ pub unsafe extern "C" fn __torajs_promise_reject_any(bits: i64) -> *mut c_void {
 /// Promise, return a fresh Promise with the same state + value
 /// (per ES2015 spec). PENDING inner → rejected outer with placeholder
 /// reason (MVP; T-16 wires real callback fan-in).
+///
+/// # Safety
+/// `p` is NULL or a live Promise cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_resolve_thenable(p: *mut c_void) -> *mut c_void {
     if p.is_null() {
@@ -273,6 +293,9 @@ pub unsafe extern "C" fn __torajs_promise_resolve_thenable(p: *mut c_void) -> *m
 /// rc-aware drop. Called from `value_drop_heap`'s TAG_PROMISE case.
 /// On last owner: free residual cb list, drop heap value if any,
 /// return Promise to pool (or free if pool full).
+///
+/// # Safety
+/// `p` is NULL or a live Promise cell; the caller gives up its reference.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_drop(p: *mut c_void) {
     if p.is_null() {

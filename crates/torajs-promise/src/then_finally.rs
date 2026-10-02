@@ -207,6 +207,8 @@ unsafe extern "C" fn finally_dispatch(arg: i64) {
     }
 }
 
+/// # Safety
+/// `source` is NULL or a live Promise cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_finally(
     source: *mut c_void,
@@ -270,6 +272,8 @@ unsafe extern "C" fn finally_closure_dispatch(arg: i64) {
     }
 }
 
+/// # Safety
+/// `source` is NULL or a live Promise cell; `env` is NULL or a live closure env cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_finally_closure(
     source: *mut c_void,

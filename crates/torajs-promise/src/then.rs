@@ -166,6 +166,8 @@ unsafe extern "C" fn then_simple_dispatch(arg: i64) {
     }
 }
 
+/// # Safety
+/// `source` is NULL or a live Promise cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_then_simple(
     source: *mut c_void,
@@ -252,6 +254,8 @@ unsafe extern "C" fn then_closure_dispatch(arg: i64) {
     }
 }
 
+/// # Safety
+/// `source` is NULL or a live Promise cell; `env` is NULL or a live closure env cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_then_closure(
     source: *mut c_void,
@@ -332,6 +336,8 @@ unsafe extern "C" fn catch_simple_dispatch(arg: i64) {
     }
 }
 
+/// # Safety
+/// `source` is NULL or a live Promise cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_catch_simple(
     source: *mut c_void,
@@ -413,6 +419,8 @@ unsafe extern "C" fn catch_closure_dispatch(arg: i64) {
     }
 }
 
+/// # Safety
+/// `source` is NULL or a live Promise cell; `env` is NULL or a live closure env cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_catch_closure(
     source: *mut c_void,

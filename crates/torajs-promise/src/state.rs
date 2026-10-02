@@ -63,6 +63,8 @@ pub(crate) unsafe fn drain_callbacks(pp: *mut Promise) {
     unsafe { (*pp).callbacks = ptr::null_mut() };
 }
 
+/// # Safety
+/// `p` is NULL or a live Promise cell; `value` matches the cell's value lane.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_resolve(p: *mut c_void, value: i64) {
     if p.is_null() {
@@ -79,6 +81,8 @@ pub unsafe extern "C" fn __torajs_promise_resolve(p: *mut c_void, value: i64) {
     }
 }
 
+/// # Safety
+/// `p` is NULL or a live Promise cell; `reason` matches the cell's value lane.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_reject(p: *mut c_void, reason: i64) {
     if p.is_null() {
@@ -113,6 +117,9 @@ pub unsafe extern "C" fn __torajs_promise_reject(p: *mut c_void, reason: i64) {
 /// per spec §14.5.4.1; the rejectBinding attaches a rejection handler.
 /// Set `has_handler = 1` so the HPRT-check microtask sees the promise
 /// as observed and skips the default reporter.
+///
+/// # Safety
+/// `p` is NULL or a live Promise cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_get_value(p: *const c_void) -> i64 {
     if p.is_null() {
@@ -172,6 +179,9 @@ pub unsafe extern "C" fn __torajs_promise_get_value(p: *const c_void) -> i64 {
 ///
 /// `want_repr` of 0 means the caller has no lane in mind at all and
 /// wants the slot as-is.
+///
+/// # Safety
+/// `p` is NULL or a live Promise cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_get_value_as(p: *const c_void, want_repr: i64) -> i64 {
     unsafe { get_value_as_inner(p, want_repr, false) }
@@ -185,6 +195,9 @@ pub unsafe extern "C" fn __torajs_promise_get_value_as(p: *const c_void, want_re
 /// TypeError instead — loud, catchable, the same throw slot a
 /// rejection uses. Primitive lanes and the `any` lane keep the model's
 /// undefined answer.
+///
+/// # Safety
+/// `p` is NULL or a live Promise cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_get_value_heap(p: *const c_void, want_repr: i64) -> i64 {
     unsafe { get_value_as_inner(p, want_repr, true) }
@@ -222,6 +235,8 @@ unsafe fn get_value_as_inner(p: *const c_void, want_repr: i64, pending_throws: b
     unsafe { crate::then_box::unbox_settled(want_repr as u8, v) }
 }
 
+/// # Safety
+/// `p` is NULL or a live Promise cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_get_state(p: *const c_void) -> u8 {
     if p.is_null() {
@@ -245,6 +260,9 @@ pub unsafe extern "C" fn __torajs_promise_get_state(p: *const c_void) -> u8 {
 /// chain has taken ownership of the source's rejection; if the result
 /// itself is then unhandled, the result's own HPRT microtask reports
 /// it.
+///
+/// # Safety
+/// `source_p` is NULL or a live Promise cell; `invoke` accepts `arg` as its argument.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_attach_then(
     source_p: *mut c_void,
@@ -278,6 +296,9 @@ pub unsafe extern "C" fn __torajs_promise_attach_then(
 /// knows T, the cell keeps the storage form for the any-lane
 /// `.then`/`.catch` bridge. Idempotent: T is fixed per cell, so a
 /// re-stamp writes the same code.
+///
+/// # Safety
+/// `p` is NULL or a live Promise cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_stamp_repr(p: *mut c_void, repr: i64) {
     if p.is_null() {

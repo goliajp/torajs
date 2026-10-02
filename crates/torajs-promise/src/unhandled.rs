@@ -211,6 +211,9 @@ unsafe fn install_listener(kind: u8, ptr: *mut c_void) {
 
 /// `process.on('unhandledRejection', simpleFn)` — register a named
 /// fn (no captures). `fn_ptr` lives in `.text`, no refcount.
+///
+/// # Safety
+/// `fn_ptr` is NULL or the entry of a compiled `extern "C" fn(reason: i64)` listener.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_process_on_unhandled_rejection_register_simple(
     fn_ptr: *mut c_void,
@@ -222,6 +225,9 @@ pub unsafe extern "C" fn __torajs_process_on_unhandled_rejection_register_simple
 /// capturing lambda. Inc the env's rc so captures survive across
 /// the deferred sweep at `main` exit; `install_listener` releases
 /// the prior closure's env (if any).
+///
+/// # Safety
+/// `env` is NULL or a live closure env cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_process_on_unhandled_rejection_register_closure(
     env: *mut c_void,
@@ -401,8 +407,11 @@ unsafe fn sweep_unhandled_list() {
 /// `0` if no reporter ever fired during this process's lifetime
 /// or `1` otherwise. ssa_lower emits a call to this just before
 /// `ret` in the synthesized `main` body, after the microtask drain
-/// + cycle drain, so the process exit status matches Bun's
+/// and cycle drain, so the process exit status matches Bun's
 /// `error: <reason>` + exit-1 behaviour.
+///
+/// # Safety
+/// Takes no pointer arguments; call once, at the end of `main`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_main_exit_code() -> i32 {
     unsafe { sweep_unhandled_list() };

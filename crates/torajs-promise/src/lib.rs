@@ -97,66 +97,88 @@ pub use unhandled::{
 // any of those, so panicking stubs keep the test binary linking
 // clean. Same pattern as torajs-collections / torajs-weak /
 // torajs-cycle test stubs.
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_rc_inc(_p: *mut core::ffi::c_void) {
     panic!("torajs-promise test stub: rc_inc should not be called from cargo test");
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_rc_dec(_p: *mut core::ffi::c_void) -> i32 {
     panic!("torajs-promise test stub: rc_dec should not be called from cargo test");
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_value_drop_heap(_p: *mut core::ffi::c_void) {
     panic!("torajs-promise test stub: value_drop_heap should not be called from cargo test");
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_cycle_buffer(_p: *mut core::ffi::c_void) {
     panic!("torajs-promise test stub: cycle_buffer should not be called from cargo test");
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_cycle_unbuffer(_p: *mut core::ffi::c_void) {
     panic!("torajs-promise test stub: cycle_unbuffer should not be called from cargo test");
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_microtask_enqueue(_fn_: layout::MicrotaskFn, _arg: i64) {
     panic!("torajs-promise test stub: microtask_enqueue should not be called from cargo test");
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_throw_set(_tag: i64, _value: i64) {
     panic!("torajs-promise test stub: throw_set should not be called from cargo test");
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_throw_type_error(_msg: *const core::ffi::c_char) {
     panic!("torajs-promise test stub: throw_type_error should not be called from cargo test");
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_throw_range_error(_msg: *const u8) {
     panic!("torajs-promise test stub: throw_range_error should not be called from cargo test");
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_is_undef_cell(_p: *const u8) -> i64 {
     panic!("torajs-promise test stub: is_undef_cell should not be called from cargo test");
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_promise_settle_thenable(
@@ -169,30 +191,40 @@ pub unsafe extern "C" fn __torajs_anyv_promise_settle_thenable(
     );
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_box_from_pair(_tag: i64, _value: i64) -> u64 {
     panic!("torajs-promise test stub: anyv_box_from_pair should not be called from cargo test");
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_unbox_tag(_v: u64) -> i64 {
     panic!("torajs-promise test stub: anyv_unbox_tag should not be called from cargo test");
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_unbox_value(_v: u64) -> i64 {
     panic!("torajs-promise test stub: anyv_unbox_value should not be called from cargo test");
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_dynobj_alloc() -> *mut core::ffi::c_void {
     panic!("torajs-promise test stub: dynobj_alloc should not be called from cargo test");
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_dynobj_set(
@@ -204,24 +236,32 @@ pub unsafe extern "C" fn __torajs_dynobj_set(
     panic!("torajs-promise test stub: dynobj_set should not be called from cargo test");
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_drop(_s: *mut core::ffi::c_void) {
     panic!("torajs-promise test stub: str_drop should not be called from cargo test");
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_box_str_slot(_s: *mut core::ffi::c_void) -> u64 {
     panic!("torajs-promise test stub: anyv_box_str_slot should not be called from cargo test");
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_alloc(_cap: u64) -> *mut core::ffi::c_void {
     panic!("torajs-promise test stub: arr_alloc should not be called from cargo test");
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_push(
@@ -231,24 +271,32 @@ pub unsafe extern "C" fn __torajs_arr_push(
     panic!("torajs-promise test stub: arr_push should not be called from cargo test");
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_alloc_pooled(_len: u64) -> *mut u8 {
     panic!("torajs-promise test stub: str_alloc_pooled should not be called from cargo test");
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_syscall_write(_fd: i32, _buf: *const u8, _n: usize) -> isize {
     panic!("torajs-promise test stub: syscall_write should not be called from cargo test");
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_print_err(_s: *const u8) {
     panic!("torajs-promise test stub: str_print_err should not be called from cargo test");
 }
 
+/// # Safety
+/// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_write_err(_s: *const u8) {
