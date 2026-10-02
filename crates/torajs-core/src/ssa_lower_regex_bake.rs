@@ -81,7 +81,7 @@ pub(crate) fn try_bake_regex_dfa(
     flags: &str,
 ) -> Option<u32> {
     use torajs_regex::compiler::compile;
-    use torajs_regex::dfa::{DfaState, analyze, build_dfa, prog_ops_dfa_safe};
+    use torajs_regex::dfa::{CappedDfa, DfaState, analyze, build_dfa_capped, prog_ops_dfa_safe};
     use torajs_regex::program::{Inst, Program};
 
     let Literal {
@@ -141,7 +141,11 @@ pub(crate) fn try_bake_regex_dfa(
     // breaks before the byte emitter sees a corrupt payload. The
     // run-time reader reconstructs `&[DfaState]` from the same byte
     // sequence (see `RegExp::baked_dfa_view`).
-    let dfa = build_dfa(&prog, flag_bits);
+    // Only a table the runtime constructor would build eagerly is
+    // baked; past the cap the literal compiles at run time.
+    let CappedDfa::Table(dfa) = build_dfa_capped(&prog, flag_bits) else {
+        return None;
+    };
     // RFC 20260711 chunk B — poisoned builds (unserveable K-PROPERTY
     // shape, e.g. `\p{L}|\p{N}` disjunction) never bake; the runtime
     // Pike VM path serves those literals.

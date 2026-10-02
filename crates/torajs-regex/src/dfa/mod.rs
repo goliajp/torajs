@@ -65,6 +65,8 @@ pub use ctx::{PositionCtx, epsilon_closure_full, epsilon_closure_with_ctx};
 
 mod build;
 mod build_helpers;
+mod expand;
+mod intern;
 mod pending_class;
 mod pool;
 mod program;
@@ -74,7 +76,9 @@ mod start_scan;
 mod state;
 mod step;
 
-pub use build::build_dfa;
+pub use build::{
+    CappedDfa, DFA_EAGER_MAX_INSTS, DFA_EAGER_MAX_STATES, build_dfa, build_dfa_capped,
+};
 pub use pending_class::PendingClass;
 pub use program::{BakedDfaMeta, DfaProgram, DfaStates};
 pub use search::{

@@ -13,28 +13,46 @@ use crate::program::Program;
 /// Sorted PC list; every ready / deferred set in the pool is one.
 pub(super) type PcList = Vec<u32>;
 
-/// BFS work-queue entry: ready PCs (u_skip=0), per-u_skip deferred
-/// PCs (`deferred[i]` becomes ready in `i + 1` continuation bytes,
-/// chunk 10b), the attr and the assigned state index. Carries the
-/// original attr so `pc_set_is_accept_at_end` sees the true left-byte
-/// class (the pool key may have folded attr onto `TextStart` for
-/// dedup when `needs_attr_split` is false).
-pub(super) type WorkItem = (PcList, [PcList; 3], LeftByteAttr, u32);
+/// What expanding a state needs: ready PCs (u_skip=0), per-u_skip
+/// deferred PCs (`deferred[i]` becomes ready in `i + 1` continuation
+/// bytes, chunk 10b) and the attr. Carries the original attr so
+/// `pc_set_is_accept_at_end` and the expansion closure see the true
+/// left-byte class (the pool key may have folded attr onto
+/// `TextStart` for dedup when `needs_attr_split` is false).
+#[derive(Clone)]
+pub(super) struct StateItem {
+    pub(super) ready: PcList,
+    pub(super) deferred: [PcList; 3],
+    pub(super) attr: LeftByteAttr,
+}
+
+impl StateItem {
+    pub(super) fn empty() -> Self {
+        Self {
+            ready: PcList::new(),
+            deferred: Default::default(),
+            attr: LeftByteAttr::TextStart,
+        }
+    }
+}
 
 /// Separator inside a flattened state key; never a valid PC.
 const KEY_SEP: u32 = u32::MAX;
 
-/// The BFS builder state every intern shares: the state pool, its
-/// dedup map, the work queue, the poison flag and the closure scratch.
+/// The builder state every intern shares: the state pool, its dedup
+/// map, the work queue of states whose rows are still unexpanded, the
+/// poison flag and the closure scratch.
 pub(super) struct Pool {
     pub(super) states: Vec<DfaState>,
     /// `keys[i]` is the flattened `(ready, deferred, attr)` of state i.
     pub(super) keys: Vec<PcList>,
+    /// `items[i]` is what expanding state i's row starts from.
+    pub(super) items: Vec<StateItem>,
     pub(super) set_to_idx: KeyMap,
     pub(super) key_scratch: PcList,
     pub(super) closed: SparseSet,
     pub(super) closure_work: Vec<usize>,
-    pub(super) work: Vec<WorkItem>,
+    pub(super) work: Vec<u32>,
     pub(super) poisoned: bool,
 }
 
@@ -43,6 +61,7 @@ impl Pool {
         Self {
             states: Vec::new(),
             keys: Vec::new(),
+            items: Vec::new(),
             set_to_idx: KeyMap::new(),
             key_scratch: PcList::new(),
             closed: SparseSet::new(prog.len()),
@@ -50,6 +69,19 @@ impl Pool {
             work: Vec::new(),
             poisoned: false,
         }
+    }
+
+    /// Drop every state and push the dead state 0. Its key is never
+    /// looked up — `intern_state` answers empty sets directly.
+    pub(super) fn reset(&mut self) {
+        self.states.clear();
+        self.keys.clear();
+        self.items.clear();
+        self.set_to_idx = KeyMap::new();
+        self.work.clear();
+        self.states.push(DfaState::default());
+        self.keys.push(PcList::new());
+        self.items.push(StateItem::empty());
     }
 
     /// ε-close `seeds` under `ctx` with WBound / NWBound left terminal

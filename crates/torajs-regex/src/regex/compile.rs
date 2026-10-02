@@ -169,31 +169,8 @@ pub(crate) fn compile_bytes(pat: Vec<u8>, fl: Vec<u8>) -> *mut c_void {
         prog.derive_search_anchors();
     }
 
-    // Round 3 Phase B sub-batch 7.2 — eager-build runtime DFA at ctor
-    // time when the program is DFA-eligible, so the per-call
-    // `dfa_built_local` path in `vm::search_from_with_ws` becomes
-    // dead (deleted in sub-batch 7.3). For non-AOT-baked literal
-    // regexes hot-looped via LICM-hoisted `for i { s.match(re) }`,
-    // moves ~1-3 µs/iter of `build_dfa(...)` out of the inner loop
-    // into a one-shot RegExp constructor cost.
-    //
-    // Storage `Option<DfaProgram>` (no `UnsafeCell`) — eagerly
-    // populated once at ctor, immutable for the RegExp's lifetime;
-    // closes the chunk-7.6 SIGBUS UB family which originated from
-    // interior-mutable cache shapes.
-    let dfa_runtime = if rejected == 0 && prog.can_dfa && crate::dfa::prog_ops_dfa_safe(&prog) {
-        // RFC 20260711 chunk B — a poisoned build (unserveable
-        // K-PROPERTY shape) is discarded; the Pike VM serves. Poison
-        // is a property of the program, so the gate is closed here
-        // for good: `resolve_dfa` used to rebuild (and re-discard)
-        // the table on every search of such a RegExp.
-        let dfa = crate::dfa::build_dfa(&prog, flag_bits);
-        if dfa.poisoned {
-            prog.can_dfa = false;
-            None
-        } else {
-            Some(dfa)
-        }
+    let dfa_runtime = if rejected == 0 {
+        runtime_dfa(&mut prog, flag_bits)
     } else {
         None
     };
@@ -233,6 +210,34 @@ pub(crate) fn compile_bytes(pat: Vec<u8>, fl: Vec<u8>) -> *mut c_void {
         dfa_runtime,
     });
     Box::into_raw(re) as *mut c_void
+}
+
+/// The DFA a runtime-compiled RegExp searches with, decided once at
+/// construction (Round 3 Phase B sub-batch 7.2): an eager table when it
+/// fits the cap, else none and the Pike VM serves.
+///
+/// Storage `Option<DfaProgram>` (no `UnsafeCell`) — populated once here,
+/// immutable for the RegExp's lifetime; the interior-mutable cache shapes
+/// of chunk 7.6 SIGBUSed. A hot `for i { s.match(re) }` over a hoisted
+/// literal pays the build once instead of per iteration.
+fn runtime_dfa(prog: &mut Program, flag_bits: u8) -> Option<crate::dfa::DfaProgram> {
+    if !(prog.can_dfa && crate::dfa::prog_ops_dfa_safe(prog)) {
+        return None;
+    }
+    // RFC 20260711 chunk B — a poisoned build (unserveable K-PROPERTY
+    // shape) is discarded and the Pike VM serves. Poison is a property
+    // of the program, so the gate closes here for good.
+    match crate::dfa::build_dfa_capped(prog, flag_bits) {
+        crate::dfa::CappedDfa::Table(dfa) if dfa.poisoned => {
+            prog.can_dfa = false;
+            None
+        }
+        crate::dfa::CappedDfa::Table(dfa) => Some(dfa),
+        crate::dfa::CappedDfa::Over => {
+            prog.can_dfa = false;
+            None
+        }
+    }
 }
 
 /// `new RegExp(pattern, flags)` entry — wraps [`__torajs_regex_compile`]
