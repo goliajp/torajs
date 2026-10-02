@@ -69,7 +69,7 @@ pub fn exact_frems(module: &mut Module, facts: &[HashMap<ValueId, NumFact>]) -> 
 }
 
 /// Kind of every value with exactly one def site.
-fn single_def_kinds(func: &Function) -> HashMap<ValueId, InstKind> {
+pub(crate) fn single_def_kinds(func: &Function) -> HashMap<ValueId, InstKind> {
     let mut defs: HashMap<ValueId, Option<InstKind>> = HashMap::new();
     for block in &func.blocks {
         for inst in &block.insts {
@@ -87,7 +87,7 @@ fn single_def_kinds(func: &Function) -> HashMap<ValueId, InstKind> {
 
 /// A positive integral f64 constant `≤ 2^53`, spelled directly or
 /// through a single-def `copy f64 <const>`.
-fn positive_int_const(op: &Operand, defs: &HashMap<ValueId, InstKind>) -> Option<i64> {
+pub(crate) fn positive_int_const(op: &Operand, defs: &HashMap<ValueId, InstKind>) -> Option<i64> {
     let c = match op {
         Operand::ConstF64(c) => *c,
         Operand::Value(v) => match defs.get(v)? {

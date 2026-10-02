@@ -232,7 +232,7 @@ pub(crate) fn install_guards(
 /// silently skipped while the loop still went out as "versioned",
 /// so `t += 2**53 - 1` ran unguarded in i64 and printed the wrapped
 /// sum (r506; the same shape for an entry split at block end).
-pub(super) fn split_block_at(func: &mut Function, block: BlockId, idxs: &[usize]) -> Vec<BlockId> {
+pub(crate) fn split_block_at(func: &mut Function, block: BlockId, idxs: &[usize]) -> Vec<BlockId> {
     let src = &mut func.blocks[block.0 as usize];
     let term = std::mem::replace(&mut src.term, Terminator::Unreachable);
     let insts = std::mem::take(&mut src.insts);

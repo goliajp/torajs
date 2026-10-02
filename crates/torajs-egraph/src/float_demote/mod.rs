@@ -47,6 +47,7 @@
 //! `TORAJS_FLOAT_DEMOTE_STATS=1` dumps counters.
 
 mod apply;
+pub(crate) use apply::split_block_at;
 pub(crate) mod cfg;
 // pub(crate): frem_narrow shares fit::fpred_to_ipred (one ground
 // truth for the integral fcmp→icmp predicate mapping).
