@@ -248,6 +248,8 @@ pub unsafe extern "C" fn __torajs_arr_frozen_guard(arr: *const c_void) -> i64 {
     1
 }
 
+/// # Safety
+/// `arr` is a live Arr cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_extend_guard(arr: *const c_void) -> i64 {
     // A `defineProperty` lock on `length` refuses the append too —
@@ -322,6 +324,8 @@ pub unsafe extern "C" fn __torajs_arr_delete_tail_guard(arr: *const c_void) -> i
     0
 }
 
+/// # Safety
+/// `arr` is a live Arr cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_len_write_guard(arr: *const c_void) -> i64 {
     let locked = unsafe { header_flags(arr as *mut c_void) } & (FLAG_ARR_LENGTH_RO | FLAG_FROZEN);
@@ -351,6 +355,9 @@ pub unsafe extern "C" fn __torajs_arr_len_write_guard(arr: *const c_void) -> i64
 /// caller's `emit_throw_check` sees the pending throw immediately (the
 /// throw is non-local via TLS, not via stack unwind — see fn-level
 /// extern doc).
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_set_length_validate(tag: i64, value: i64) {
     let n: f64 = match tag {
@@ -359,14 +366,14 @@ pub unsafe extern "C" fn __torajs_arr_set_length_validate(tag: i64, value: i64) 
         3 => f64::from_bits(value as u64),
         _ => {
             unsafe {
-                __torajs_throw_range_error(b"Invalid array length\0".as_ptr());
+                __torajs_throw_range_error(c"Invalid array length".as_ptr().cast());
             }
             return;
         }
     };
     if n.is_nan() || n < 0.0 || n > 4_294_967_295.0 || n != (n as i64) as f64 {
         unsafe {
-            __torajs_throw_range_error(b"Invalid array length\0".as_ptr());
+            __torajs_throw_range_error(c"Invalid array length".as_ptr().cast());
         }
     }
 }

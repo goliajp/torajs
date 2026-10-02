@@ -89,7 +89,9 @@ pub unsafe extern "C" fn __torajs_arr_any_flat_depth(arr: *const u8, depth: i64)
         // reject.
         if crate::sparse_gate::sparse_tail_rejects(
             arr as *const c_void,
-            b"sparse array tail is not yet supported in Array.prototype.flat\0".as_ptr(),
+            c"sparse array tail is not yet supported in Array.prototype.flat"
+                .as_ptr()
+                .cast(),
         ) {
             return crate::alloc::__torajs_arr_alloc_any(0);
         }
@@ -131,14 +133,16 @@ pub unsafe extern "C" fn __torajs_arr_any_with(arr: *const u8, i: i64, v: u64) -
         // loud reject.
         if crate::sparse_gate::sparse_tail_rejects(
             arr as *const c_void,
-            b"sparse array tail is not yet supported in Array.prototype.with\0".as_ptr(),
+            c"sparse array tail is not yet supported in Array.prototype.with"
+                .as_ptr()
+                .cast(),
         ) {
             return crate::alloc::__torajs_arr_alloc_any(0);
         }
         let len = *(arr.add(ARR_LEN_OFF) as *const u64) as i64;
         let adj = if i < 0 { len + i } else { i };
         if adj < 0 || adj >= len {
-            __torajs_throw_range_error(b"Array index out of range\0".as_ptr());
+            __torajs_throw_range_error(c"Array index out of range".as_ptr().cast());
             return core::ptr::null_mut();
         }
         let p = owned_any_copy(arr);

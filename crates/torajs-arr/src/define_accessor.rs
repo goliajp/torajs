@@ -295,11 +295,9 @@ pub unsafe extern "C" fn __torajs_arr_index_accessor(arr: *const c_void, idx: u6
         return core::ptr::null_mut();
     }
     let key = unsafe { mint_index_key(idx) };
-    let tag = unsafe { __torajs_dynobj_get_tag(props as *mut c_void, key as *const c_void) };
+    let tag = unsafe { __torajs_dynobj_get_tag(props, key as *const c_void) };
     let pair = if tag == ANY_ACCESSOR {
-        unsafe {
-            __torajs_dynobj_get_value(props as *mut c_void, key as *const c_void) as *mut c_void
-        }
+        unsafe { __torajs_dynobj_get_value(props, key as *const c_void) as *mut c_void }
     } else {
         core::ptr::null_mut()
     };

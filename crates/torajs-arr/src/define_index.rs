@@ -225,6 +225,8 @@ pub(crate) unsafe fn define_index(
 ///
 /// # Safety
 /// As [`define_index`]; `len` is the array's current length.
+// the list is define_index's own argument legs plus the length it read
+#[allow(clippy::too_many_arguments)]
 unsafe fn define_fresh_index(
     arr: *mut c_void,
     key: *mut c_void,
@@ -270,8 +272,9 @@ unsafe fn define_fresh_index(
         unsafe {
             crate::define::drop_owned(tag, value);
             __torajs_throw_range_error(
-                b"array index beyond the dense-storage limit (sparse arrays are not yet supported)\0"
-                    .as_ptr(),
+                c"array index beyond the dense-storage limit (sparse arrays are not yet supported)"
+                    .as_ptr()
+                    .cast(),
             );
         }
         return 0;

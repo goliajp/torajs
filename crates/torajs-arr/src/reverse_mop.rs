@@ -80,7 +80,9 @@ pub(crate) unsafe fn reverse_mop(arr: *mut u8) -> *mut u8 {
         // unmaterialized tail; loud reject.
         if crate::sparse_gate::sparse_tail_rejects(
             arr as *const c_void,
-            b"sparse array tail is not yet supported in Array.prototype.reverse\0".as_ptr(),
+            c"sparse array tail is not yet supported in Array.prototype.reverse"
+                .as_ptr()
+                .cast(),
         ) {
             return arr;
         }

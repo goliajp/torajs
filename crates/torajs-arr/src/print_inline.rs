@@ -17,6 +17,9 @@ use core::ffi::c_void;
 use crate::print_typed::{TypedKind, print_typed_top};
 
 /// `console.log(arr: Array<I64>)` inline (no-\n) variant.
+///
+/// # Safety
+/// `arr` is a live Arr cell of the named element type.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_print_i64_inline(arr: *const c_void) {
     unsafe { print_typed_top(arr, TypedKind::I64) }
@@ -25,6 +28,9 @@ pub unsafe extern "C" fn __torajs_arr_print_i64_inline(arr: *const c_void) {
 /// `console.log(arr: Array<F64>)` inline (no-\n) variant. JS-spec
 /// NaN / Infinity / -Infinity literals, else `%g` shortest-roundtrip
 /// per parent family.
+///
+/// # Safety
+/// `arr` is a live Arr cell of the named element type.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_print_f64_inline(arr: *const c_void) {
     unsafe { print_typed_top(arr, TypedKind::F64) }
@@ -32,6 +38,9 @@ pub unsafe extern "C" fn __torajs_arr_print_f64_inline(arr: *const c_void) {
 
 /// `console.log(arr: Array<Bool>)` inline (no-\n) variant. Slots are
 /// i64 (0 / non-0).
+///
+/// # Safety
+/// `arr` is a live Arr cell of the named element type.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_print_bool_inline(arr: *const c_void) {
     unsafe { print_typed_top(arr, TypedKind::Bool) }
@@ -39,6 +48,9 @@ pub unsafe extern "C" fn __torajs_arr_print_bool_inline(arr: *const c_void) {
 
 /// `console.log(arr: Array<Str>)` inline (no-\n) variant. Each slot
 /// is a `*Str` (NULL → `undefined`).
+///
+/// # Safety
+/// `arr` is a live Arr cell of the named element type.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_print_str_inline(arr: *const c_void) {
     unsafe { print_typed_top(arr, TypedKind::Str) }
@@ -47,6 +59,9 @@ pub unsafe extern "C" fn __torajs_arr_print_str_inline(arr: *const c_void) {
 /// `console.log(arr: Array<Substr>)` inline (no-\n) variant. Each
 /// slot is a `*Substr` — layout differs from Str (parent_ptr +
 /// offset instead of inline bytes).
+///
+/// # Safety
+/// `arr` is a live Arr cell of the named element type.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_print_substr_inline(arr: *const c_void) {
     unsafe { print_typed_top(arr, TypedKind::Substr) }

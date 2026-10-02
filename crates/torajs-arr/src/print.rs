@@ -11,7 +11,7 @@
 //! Element format:
 //! - `i64`    — `%lld` (snprintf via extern, byte-equal to C)
 //! - `f64`    — JS-spec NaN/Infinity/-Infinity special cases, else `%g`
-//!              via snprintf
+//!   via snprintf
 //! - `bool`   — `true` / `false` (i64 0 vs non-0)
 //! - `str`    — `"..."` (Str layout: len@8, bytes@16)
 //! - `substr` — `"..."` (Substr layout: len@8, parent_ptr@16, offset@24)
@@ -104,6 +104,9 @@ pub(crate) unsafe fn put_snprintf_f64_g(v: f64) {
 // ============================================================
 
 /// `console.log(arr: Array<I64>)`.
+///
+/// # Safety
+/// `arr` is a live Arr cell of the named element type.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_print_i64(arr: *const c_void) {
     unsafe { print_typed_top(arr, TypedKind::I64) };
@@ -112,6 +115,9 @@ pub unsafe extern "C" fn __torajs_arr_print_i64(arr: *const c_void) {
 
 /// `console.log(arr: Array<F64>)`. JS-spec NaN / Infinity / -Infinity
 /// special cases, else shortest-roundtrip dtoa.
+///
+/// # Safety
+/// `arr` is a live Arr cell of the named element type.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_print_f64(arr: *const c_void) {
     unsafe { print_typed_top(arr, TypedKind::F64) };
@@ -119,6 +125,9 @@ pub unsafe extern "C" fn __torajs_arr_print_f64(arr: *const c_void) {
 }
 
 /// `console.log(arr: Array<Bool>)`. Slots are i64 (0 / non-0).
+///
+/// # Safety
+/// `arr` is a live Arr cell of the named element type.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_print_bool(arr: *const c_void) {
     unsafe { print_typed_top(arr, TypedKind::Bool) };
@@ -127,6 +136,9 @@ pub unsafe extern "C" fn __torajs_arr_print_bool(arr: *const c_void) {
 
 /// `console.log(arr: Array<Str>)`. Each slot is a `*Str` (NULL →
 /// `undefined` — non-participating regex capture).
+///
+/// # Safety
+/// `arr` is a live Arr cell of the named element type.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_print_str(arr: *const c_void) {
     unsafe { print_typed_top(arr, TypedKind::Str) };
@@ -136,6 +148,9 @@ pub unsafe extern "C" fn __torajs_arr_print_str(arr: *const c_void) {
 /// `console.log(arr: Array<Substr>)`. Each slot is a `*Substr` —
 /// layout differs from Str (parent + offset instead of inline
 /// bytes); without this dispatch the bytes would print as garbage.
+///
+/// # Safety
+/// `arr` is a live Arr cell of the named element type.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_print_substr(arr: *const c_void) {
     unsafe { print_typed_top(arr, TypedKind::Substr) };

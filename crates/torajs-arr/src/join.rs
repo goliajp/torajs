@@ -161,7 +161,7 @@ struct JoinElem {
 
 #[inline]
 unsafe fn join_elem(elem: *const u8) -> JoinElem {
-    if elem.is_null() || elem == unsafe { __torajs_str_undef() } as *const u8 {
+    if elem.is_null() || std::ptr::eq(elem, unsafe { __torajs_str_undef() }) {
         return JoinElem {
             data: core::ptr::null(),
             units: 0,
@@ -190,6 +190,9 @@ unsafe fn join_elem(elem: *const u8) -> JoinElem {
 
 /// `Array<Str>.join(sep)`. Each slot is a `*Str` — owned, or a view
 /// (see [`join_elem`]).
+///
+/// # Safety
+/// `arr` is a live Arr cell and `sep` a live Str cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_join(arr: *const u8, sep: *const u8) -> *mut u8 {
     unsafe {
@@ -232,6 +235,8 @@ pub unsafe extern "C" fn __torajs_arr_join(arr: *const u8, sep: *const u8) -> *m
 // arr_join_i64 — Array<I64>
 // ============================================================
 
+/// # Safety
+/// `arr` is a live Arr cell and `sep` a live Str cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_join_i64(arr: *const u8, sep: *const u8) -> *mut u8 {
     unsafe {
@@ -282,6 +287,8 @@ pub unsafe extern "C" fn __torajs_arr_join_i64(arr: *const u8, sep: *const u8) -
 // arr_join_f64 — Array<F64>
 // ============================================================
 
+/// # Safety
+/// `arr` is a live Arr cell and `sep` a live Str cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_join_f64(arr: *const u8, sep: *const u8) -> *mut u8 {
     unsafe {
@@ -352,6 +359,8 @@ pub unsafe extern "C" fn __torajs_arr_join_f64(arr: *const u8, sep: *const u8) -
 // arr_join_bool — Array<Bool>
 // ============================================================
 
+/// # Safety
+/// `arr` is a live Arr cell and `sep` a live Str cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_join_bool(arr: *const u8, sep: *const u8) -> *mut u8 {
     unsafe {

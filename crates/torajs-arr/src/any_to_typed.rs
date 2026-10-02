@@ -57,7 +57,9 @@ pub unsafe extern "C" fn __torajs_arr_any_to_typed(arr: *mut u8, kind: i64) -> *
     if unsafe {
         crate::sparse_gate::sparse_tail_rejects(
             arr as *const core::ffi::c_void,
-            b"sparse array tail is not yet supported in a typed-array conversion\0".as_ptr(),
+            c"sparse array tail is not yet supported in a typed-array conversion"
+                .as_ptr()
+                .cast(),
         )
     } {
         return unsafe { crate::alloc::__torajs_arr_alloc_any(0) };

@@ -30,6 +30,9 @@ use super::*;
 /// result owns the final bytes; the temporaries are transient.
 /// Holds the temp ptrs in a heap Vec (rather than a second pass
 /// recomputing each ToString) so each slot's ToString runs once.
+///
+/// # Safety
+/// `arr` is a live Arr cell and `sep` a live Str cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_join_any(arr: *const u8, sep: *const u8) -> *mut u8 {
     unsafe {
@@ -37,7 +40,9 @@ pub unsafe extern "C" fn __torajs_arr_join_any(arr: *const u8, sep: *const u8) -
         // slots; loud reject until join grows real sparse support.
         if crate::sparse_gate::sparse_tail_rejects(
             arr as *const c_void,
-            b"sparse array tail is not yet supported in Array.prototype.join\0".as_ptr(),
+            c"sparse array tail is not yet supported in Array.prototype.join"
+                .as_ptr()
+                .cast(),
         ) {
             return alloc_join_out(0, true);
         }
@@ -147,6 +152,8 @@ pub unsafe extern "C" fn __torajs_arr_join_any(arr: *const u8, sep: *const u8) -
 // arr_join_substr — Array<Substr>
 // ============================================================
 
+/// # Safety
+/// `arr` is a live Arr cell and `sep` a live Str cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_join_substr(arr: *const u8, sep: *const u8) -> *mut u8 {
     unsafe {

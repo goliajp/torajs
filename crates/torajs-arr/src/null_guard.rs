@@ -26,15 +26,18 @@ unsafe extern "C" {
 /// / element load through it must throw like bun instead of
 /// dereferencing past the bare static header; bun/JSC wording per
 /// shape). Any live cell passes through untouched.
+///
+/// # Safety
+/// `p` is null or a live cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_null_check(p: *const c_void) {
     if p.is_null() {
         unsafe {
-            __torajs_throw_type_error(b"null is not an object\0".as_ptr() as *const _);
+            __torajs_throw_type_error(c"null is not an object".as_ptr());
         }
     } else if torajs_rc::undef_cell::is_undef_cell(p as *const u8) {
         unsafe {
-            __torajs_throw_type_error(b"undefined is not an object\0".as_ptr() as *const _);
+            __torajs_throw_type_error(c"undefined is not an object".as_ptr());
         }
     }
 }

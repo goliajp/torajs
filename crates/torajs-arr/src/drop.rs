@@ -8,10 +8,10 @@
 //! 2. Flags has `FLAG_STATIC_LITERAL` → no-op (`.rodata`-baked arrays
 //!    don't have a refcount we own)
 //! 3. release one share (`HeapHeader::dec_ref`) → if it was the last:
-//!    a. `__torajs_arrprops_drop_entry(p)` — release any associated
-//!       key-value props (no-op for arrays that never had `arr.x = v`)
-//!    b. `__torajs_arr_free(p)` — pool-aware free (LIFO pool for
-//!       cap ≤ ARR_POOL_PAYLOAD, libc free otherwise)
+//!    - `__torajs_arrprops_drop_entry(p)` — release any associated
+//!      key-value props (no-op for arrays that never had `arr.x = v`)
+//!    - `__torajs_arr_free(p)` — pool-aware free (LIFO pool for
+//!      cap ≤ ARR_POOL_PAYLOAD, libc free otherwise)
 //!
 //! Caller (ssa_lower `emit_drop_value Type::Arr`) is responsible for
 //! walking refcounted ELEMENT types FIRST (e.g. `Arr<Str>` walks each

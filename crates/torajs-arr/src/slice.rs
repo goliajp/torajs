@@ -222,7 +222,9 @@ unsafe fn any_slice(arr: *const u8, start: i64, end: i64, holes: Holes) -> *mut 
         // tail; loud reject until slice grows real sparse support.
         if crate::sparse_gate::sparse_tail_rejects(
             arr as *const c_void,
-            b"sparse array tail is not yet supported in Array.prototype.slice\0".as_ptr(),
+            c"sparse array tail is not yet supported in Array.prototype.slice"
+                .as_ptr()
+                .cast(),
         ) {
             return crate::alloc::__torajs_arr_alloc_any(0);
         }
@@ -316,7 +318,9 @@ pub unsafe extern "C" fn __torajs_arr_any_to_reversed(arr: *const u8) -> *mut u8
         // RFC 20260810 刀 D — same loud reject as `arr_any_slice`.
         if crate::sparse_gate::sparse_tail_rejects(
             arr as *const c_void,
-            b"sparse array tail is not yet supported in Array.prototype.toReversed\0".as_ptr(),
+            c"sparse array tail is not yet supported in Array.prototype.toReversed"
+                .as_ptr()
+                .cast(),
         ) {
             return crate::alloc::__torajs_arr_alloc_any(0);
         }

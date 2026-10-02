@@ -96,7 +96,9 @@ pub unsafe extern "C" fn __torajs_arr_push_any(arr: *mut c_void, tag: u64, value
         // released to keep the pair ledger balanced).
         if crate::sparse_gate::sparse_tail_rejects(
             arr as *const c_void,
-            b"sparse array tail is not yet supported in Array.prototype.push\0".as_ptr(),
+            c"sparse array tail is not yet supported in Array.prototype.push"
+                .as_ptr()
+                .cast(),
         ) {
             if tag == ANY_HEAP {
                 __torajs_value_drop_heap(value as *mut c_void);
@@ -148,7 +150,9 @@ pub unsafe extern "C" fn __torajs_arr_push_any_boxed(arr: *mut u8, av: u64) -> *
     unsafe {
         if crate::sparse_gate::sparse_tail_rejects(
             arr as *const c_void,
-            b"sparse array tail is not yet supported in Array.prototype.push\0".as_ptr(),
+            c"sparse array tail is not yet supported in Array.prototype.push"
+                .as_ptr()
+                .cast(),
         ) {
             return arr;
         }
@@ -200,7 +204,9 @@ pub unsafe extern "C" fn __torajs_arr_extend_any(dst: *mut u8, src: *const u8) -
         // RFC 20260810 刀 D — both sides walk raw slots: dst appends
         // at `dst_len` (no slot behind a sparse dst), src reads
         // `[0, src_len)`. Loud reject on either.
-        let msg = b"sparse array tail is not yet supported in an array concat/spread\0".as_ptr();
+        let msg = c"sparse array tail is not yet supported in an array concat/spread"
+            .as_ptr()
+            .cast();
         if crate::sparse_gate::sparse_tail_rejects(dst as *const c_void, msg)
             || crate::sparse_gate::sparse_tail_rejects(src as *const c_void, msg)
         {
@@ -280,6 +286,9 @@ pub unsafe extern "C" fn __torajs_arr_extend_any(dst: *mut u8, src: *const u8) -
 /// that. `Array.prototype[0] = false` is ordinary ES §10.4.2.1
 /// OrdinarySet, and it is what test262 uses to set up an inherited
 /// index property.)
+///
+/// # Safety
+/// `arr` is a live Arr<any> cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_set_any(arr: *mut c_void, i: u64, tag: u64, value: u64) {
     if arr.is_null() {
@@ -345,7 +354,7 @@ pub unsafe extern "C" fn __torajs_arr_set_any_grow(
             if i >= extent {
                 if i >= ARR_DENSE_LIMIT {
                     __torajs_throw_range_error(
-                        b"array index beyond the dense-storage limit (sparse arrays are not yet supported)\0".as_ptr(),
+                        c"array index beyond the dense-storage limit (sparse arrays are not yet supported)".as_ptr().cast(),
                     );
                     return arr;
                 }
@@ -398,7 +407,9 @@ pub unsafe extern "C" fn __torajs_arr_set_any_grow(
         }
         if i >= ARR_DENSE_LIMIT {
             __torajs_throw_range_error(
-                b"array index beyond the dense-storage limit (sparse arrays are not yet supported)\0".as_ptr(),
+                c"array index beyond the dense-storage limit (sparse arrays are not yet supported)"
+                    .as_ptr()
+                    .cast(),
             );
             return arr;
         }

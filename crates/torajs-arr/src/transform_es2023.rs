@@ -56,6 +56,9 @@ unsafe fn arr_alloc_fresh(len: u64, cap: u64) -> *mut u8 {
 /// `hole_fill` is the element kind's `undefined`, written where the
 /// receiver has a hole (§23.1.3.33 reads each index with [[Get]]); see
 /// [`crate::define_hole::fill_hole_slots`].
+///
+/// # Safety
+/// `arr` is a live Arr cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_to_reversed(arr: *const u8, hole_fill: u64) -> *mut u8 {
     unsafe {
@@ -80,6 +83,9 @@ pub unsafe extern "C" fn __torajs_arr_to_reversed(arr: *const u8, hole_fill: u64
 
 /// `hole_fill` as for [`__torajs_arr_to_reversed`] (§23.1.3.39 step 10
 /// reads every other index with [[Get]]).
+///
+/// # Safety
+/// `arr` is a live Arr cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_with(
     arr: *const u8,
@@ -95,7 +101,7 @@ pub unsafe extern "C" fn __torajs_arr_with(
         // adjacent heap (or wrote past the alloc on small caps).
         let adj = if i < 0 { len as i64 + i } else { i };
         if adj < 0 || adj >= len as i64 {
-            __torajs_throw_range_error(b"Array index out of range\0".as_ptr());
+            __torajs_throw_range_error(c"Array index out of range".as_ptr().cast());
             return core::ptr::null_mut();
         }
         let p = arr_alloc_fresh(len, len);

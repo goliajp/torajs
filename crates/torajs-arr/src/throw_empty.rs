@@ -15,6 +15,8 @@ unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const c_char);
 }
 
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_throw_reduce_empty() {
     // SAFETY: NUL-terminated static C string.
@@ -23,6 +25,8 @@ pub unsafe extern "C" fn __torajs_arr_throw_reduce_empty() {
     }
 }
 
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_throw_reduce_right_empty() {
     // SAFETY: NUL-terminated static C string.

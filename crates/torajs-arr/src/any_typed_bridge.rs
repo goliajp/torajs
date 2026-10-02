@@ -229,8 +229,9 @@ pub(crate) unsafe fn typed_set_grow(arr: *mut u8, i: u64, tag: u64, value: u64) 
         if i >= crate::any::ARR_DENSE_LIMIT {
             drop_pair(tag, value);
             __torajs_throw_range_error(
-                b"array index beyond the dense-storage limit (sparse arrays are not yet supported)\0"
-                    .as_ptr(),
+                c"array index beyond the dense-storage limit (sparse arrays are not yet supported)"
+                    .as_ptr()
+                    .cast(),
             );
             return arr;
         }
@@ -446,9 +447,12 @@ pub unsafe extern "C" fn __torajs_arr_extend_typed_into_any(
 /// (I64 / Bool / nested-heap slots; Str answers the immortal
 /// sentinel and F64 the undefined-NaN payload instead). Records a
 /// catchable RangeError; the emit site's throw-check propagates it.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_oob_throw() {
     unsafe {
-        __torajs_throw_range_error(b"array index out of bounds\0".as_ptr());
+        __torajs_throw_range_error(c"array index out of bounds".as_ptr().cast());
     }
 }

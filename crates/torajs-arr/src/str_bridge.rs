@@ -28,6 +28,9 @@ unsafe extern "C" {
 /// Thin wrapper exposing the cross-tier `__torajs_str_alloc_pooled`
 /// to other modules within `torajs-arr` (`join.rs` for the typed
 /// `arr.join` family).
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[inline]
 pub unsafe fn str_alloc_pooled(len: u64) -> *mut u8 {
     unsafe { __torajs_str_alloc_pooled(len) }

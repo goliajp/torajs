@@ -38,7 +38,9 @@ pub unsafe extern "C" fn __torajs_arr_flat_any(outer: *const u8) -> *mut u8 {
     if unsafe {
         crate::sparse_gate::sparse_tail_rejects(
             outer as *const c_void,
-            b"sparse array tail is not yet supported in Array.prototype.flat\0".as_ptr(),
+            c"sparse array tail is not yet supported in Array.prototype.flat"
+                .as_ptr()
+                .cast(),
         )
     } {
         return unsafe { crate::alloc::__torajs_arr_alloc_any(0) };

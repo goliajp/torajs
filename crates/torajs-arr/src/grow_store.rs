@@ -110,8 +110,8 @@ pub unsafe extern "C" fn __torajs_arr_typed_set_grow(arr: *mut u8, i: i64, v: i6
                 __torajs_value_drop_heap(v as *mut c_void);
             }
             __torajs_throw_range_error(
-                b"negative array index write (string-keyed element properties are not yet supported)\0"
-                    .as_ptr(),
+                c"negative array index write (string-keyed element properties are not yet supported)"
+                    .as_ptr().cast(),
             );
             return;
         }
@@ -120,8 +120,9 @@ pub unsafe extern "C" fn __torajs_arr_typed_set_grow(arr: *mut u8, i: i64, v: i6
                 __torajs_value_drop_heap(v as *mut c_void);
             }
             __torajs_throw_range_error(
-                b"array index beyond the dense-storage limit (sparse arrays are not yet supported)\0"
-                    .as_ptr(),
+                c"array index beyond the dense-storage limit (sparse arrays are not yet supported)"
+                    .as_ptr()
+                    .cast(),
             );
             return;
         }

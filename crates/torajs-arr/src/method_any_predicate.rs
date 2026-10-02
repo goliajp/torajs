@@ -45,8 +45,9 @@ unsafe fn find_loop(
         // RFC 20260810 刀 D — same loud reject as `hof_loop`.
         if crate::sparse_gate::sparse_tail_rejects(
             arr,
-            b"sparse array tail is not yet supported in the Array.prototype find/every/some family\0"
-                .as_ptr(),
+            c"sparse array tail is not yet supported in the Array.prototype find/every/some family"
+                .as_ptr()
+                .cast(),
         ) {
             return undef();
         }

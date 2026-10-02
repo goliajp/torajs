@@ -1,5 +1,5 @@
-//! `any`-receiver Array method glue (Any-method-call RFC 20260704 C1
-//! + C2) — `a.push(v)` / `a.pop()` / `a.shift()` / `a.unshift(v)`
+//! `any`-receiver Array method glue (Any-method-call RFC 20260704 C1 +
+//! C2) — `a.push(v)` / `a.pop()` / `a.shift()` / `a.unshift(v)`
 //! where `a` crossed into the `any` world. The read-only search /
 //! join family lives in [`crate::method_any_search`].
 //!
@@ -82,7 +82,9 @@ pub unsafe extern "C" fn __torajs_arr_any_push(
         // sparse support.
         if crate::sparse_gate::sparse_tail_rejects(
             arr,
-            b"sparse array tail is not yet supported in Array.prototype.push\0".as_ptr(),
+            c"sparse array tail is not yet supported in Array.prototype.push"
+                .as_ptr()
+                .cast(),
         ) {
             return __torajs_anyv_box_from_pair(5, 0);
         }
@@ -191,7 +193,9 @@ pub unsafe extern "C" fn __torajs_arr_any_pop(arr: *mut c_void) -> u64 {
         // reject until pop grows real sparse support.
         if crate::sparse_gate::sparse_tail_rejects(
             arr,
-            b"sparse array tail is not yet supported in Array.prototype.pop\0".as_ptr(),
+            c"sparse array tail is not yet supported in Array.prototype.pop"
+                .as_ptr()
+                .cast(),
         ) {
             return __torajs_anyv_box_from_pair(5, 0);
         }
@@ -254,7 +258,9 @@ pub unsafe extern "C" fn __torajs_arr_any_shift(arr: *mut c_void) -> u64 {
         // unmaterialized tail; loud reject.
         if crate::sparse_gate::sparse_tail_rejects(
             arr,
-            b"sparse array tail is not yet supported in Array.prototype.shift\0".as_ptr(),
+            c"sparse array tail is not yet supported in Array.prototype.shift"
+                .as_ptr()
+                .cast(),
         ) {
             return __torajs_anyv_box_from_pair(5, 0);
         }
@@ -323,7 +329,9 @@ pub unsafe extern "C" fn __torajs_arr_any_unshift(
         // unmaterialized tail; loud reject.
         if crate::sparse_gate::sparse_tail_rejects(
             arr,
-            b"sparse array tail is not yet supported in Array.prototype.unshift\0".as_ptr(),
+            c"sparse array tail is not yet supported in Array.prototype.unshift"
+                .as_ptr()
+                .cast(),
         ) {
             return __torajs_anyv_box_from_pair(5, 0);
         }
@@ -416,7 +424,9 @@ pub unsafe extern "C" fn __torajs_arr_unshift_any(arr: *mut u8, tag: i64, value:
         // value on each refused call.
         if crate::sparse_gate::sparse_tail_rejects(
             arr as *const c_void,
-            b"sparse array tail is not yet supported in Array.prototype.unshift\0".as_ptr(),
+            c"sparse array tail is not yet supported in Array.prototype.unshift"
+                .as_ptr()
+                .cast(),
         ) {
             crate::any_typed_bridge::drop_pair(tag as u64, value as u64);
             return arr;

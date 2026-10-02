@@ -66,8 +66,9 @@ unsafe fn search(arr: *const c_void, needle: u64, from: i64, same_value_zero: bo
         // loud reject until the search family grows real support.
         if crate::sparse_gate::sparse_tail_rejects(
             arr,
-            b"sparse array tail is not yet supported in the Array.prototype search family\0"
-                .as_ptr(),
+            c"sparse array tail is not yet supported in the Array.prototype search family"
+                .as_ptr()
+                .cast(),
         ) {
             return -1;
         }
@@ -138,8 +139,9 @@ pub unsafe extern "C" fn __torajs_arr_any_last_index_of(
         // RFC 20260810 刀 D — same loud reject as `search`.
         if crate::sparse_gate::sparse_tail_rejects(
             arr,
-            b"sparse array tail is not yet supported in the Array.prototype search family\0"
-                .as_ptr(),
+            c"sparse array tail is not yet supported in the Array.prototype search family"
+                .as_ptr()
+                .cast(),
         ) {
             return -1;
         }

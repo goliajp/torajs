@@ -221,6 +221,9 @@ pub(crate) unsafe fn write_header_any(p: *mut u8, len: u64, cap: u32) {
 
 /// `__torajs_arr_alloc_any(cap)` — fresh empty Array<Any>.
 /// Bypasses the regular Array<T> pool (different slot stride).
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_alloc_any(cap: u64) -> *mut u8 {
     unsafe {
@@ -237,6 +240,9 @@ pub unsafe extern "C" fn __torajs_arr_alloc_any(cap: u64) -> *mut u8 {
 /// semantics densely emulated; true sparse hole would need an
 /// elem-kind-tag substrate, L3b). Mirrors the hole-fill pattern in
 /// `__torajs_arr_set_at_any`.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_alloc_any_filled(n: u64) -> *mut u8 {
     if !length_in_range(n) {
@@ -267,7 +273,9 @@ fn length_in_range(n: u64) -> bool {
     if n > MAX_ARRAY_LEN {
         unsafe {
             __torajs_throw_range_error(
-                b"Array length must be a positive integer of safe magnitude.\0".as_ptr(),
+                c"Array length must be a positive integer of safe magnitude."
+                    .as_ptr()
+                    .cast(),
             );
         }
         return false;
@@ -283,6 +291,9 @@ fn length_in_range(n: u64) -> bool {
 /// later store simply overwrites one. The Array-constructor lanes all
 /// land here; `__torajs_arr_alloc_any_filled` stays for the runtime
 /// callers that fill every slot themselves.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_alloc_any_holes(n: u64) -> *mut u8 {
     if !length_in_range(n) {
@@ -309,13 +320,18 @@ pub unsafe extern "C" fn __torajs_arr_alloc_any_holes(n: u64) -> *mut u8 {
 /// overflow to u64::MAX, all of which fail the equality or the range
 /// guards. `-0.0` passes (`-0.0 >= 0.0`, round-trips to `0.0`) per
 /// the spec's numeric (not SameValue) comparison.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_alloc_any_filled_f64(len: f64) -> *mut u8 {
     const MAX_ARRAY_LEN: f64 = u32::MAX as f64;
-    if !(len >= 0.0 && len <= MAX_ARRAY_LEN && (len as u64) as f64 == len) {
+    if !((0.0..=MAX_ARRAY_LEN).contains(&len) && (len as u64) as f64 == len) {
         unsafe {
             __torajs_throw_range_error(
-                b"Array length must be a positive integer of safe magnitude.\0".as_ptr(),
+                c"Array length must be a positive integer of safe magnitude."
+                    .as_ptr()
+                    .cast(),
             );
         }
         return core::ptr::null_mut();
@@ -335,6 +351,9 @@ pub unsafe extern "C" fn __torajs_arr_alloc_any_filled_f64(len: f64) -> *mut u8 
 /// the slot takes its own +1 via the NaN-box-safe rc_inc (no-op
 /// for immediates), and `unbox_value` is never called on this
 /// path — ShortStr stays inline instead of materializing.
+///
+/// # Safety
+/// `v` is a live boxed value.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_new_from_any(v: u64) -> *mut u8 {
     unsafe {

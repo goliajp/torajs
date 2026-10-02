@@ -30,6 +30,9 @@ unsafe extern "C" {
 /// `LoadDyn` (the slot keeps its reference — heap boxes are NOT
 /// +1'd), so emitted consumers need no rc changes. NULL / OOB
 /// answer boxed `undefined` (ES §10.4.2.1).
+///
+/// # Safety
+/// `arr` is a live Arr<any> cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_get_any_boxed(arr: *const c_void, i: u64) -> u64 {
     unsafe {
@@ -110,6 +113,9 @@ pub unsafe extern "C" fn __torajs_arr_get_any_owned(arr: *const c_void, i: u64) 
 /// [`__torajs_arr_get_any_value`] call reads the same product under
 /// the existing borrow contract. The next tag read re-invokes the
 /// getter, refreshing the cache.
+///
+/// # Safety
+/// `arr` is a live Arr<any> cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_get_any_tag(arr: *const c_void, i: u64) -> u64 {
     if arr.is_null() {
@@ -198,6 +204,9 @@ pub unsafe extern "C" fn __torajs_arr_get_any_tag(arr: *const c_void, i: u64) ->
 /// (fromEntries / gOPD / LoadDyn) then borrows a plain cell. The
 /// paired `get_any_tag` already reported Heap for the ShortStr, so
 /// the pair stays coherent across the swap.
+///
+/// # Safety
+/// `arr` is a live Arr<any> cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_get_any_value(arr: *const c_void, i: u64) -> u64 {
     if arr.is_null() {

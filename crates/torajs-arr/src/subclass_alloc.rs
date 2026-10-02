@@ -99,10 +99,12 @@ pub unsafe extern "C" fn __torajs_arr_subclass_super_len(this_av: u64, len_av: u
     }
     let len = unsafe { __torajs_anyv_to_number(len_av) };
     const MAX_ARRAY_LEN: f64 = u32::MAX as f64;
-    if !(len >= 0.0 && len <= MAX_ARRAY_LEN && (len as u64) as f64 == len) {
+    if !((0.0..=MAX_ARRAY_LEN).contains(&len) && (len as u64) as f64 == len) {
         unsafe {
             __torajs_throw_range_error(
-                b"Array length must be a positive integer of safe magnitude.\0".as_ptr(),
+                c"Array length must be a positive integer of safe magnitude."
+                    .as_ptr()
+                    .cast(),
             );
         }
         return this_av;
@@ -112,7 +114,7 @@ pub unsafe extern "C" fn __torajs_arr_subclass_super_len(this_av: u64, len_av: u
         if p.is_null() {
             return this_av;
         }
-        let undef_tag = ANY_UNDEF as u64;
+        let undef_tag = ANY_UNDEF;
         for _ in 0..len as u64 {
             crate::any::__torajs_arr_push_any(p, undef_tag, 0);
         }

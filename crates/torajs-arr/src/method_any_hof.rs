@@ -97,8 +97,9 @@ unsafe fn hof_loop(
         // iteration methods grow real sparse support.
         if crate::sparse_gate::sparse_tail_rejects(
             arr,
-            b"sparse array tail is not yet supported in Array.prototype.map/filter/forEach\0"
-                .as_ptr(),
+            c"sparse array tail is not yet supported in Array.prototype.map/filter/forEach"
+                .as_ptr()
+                .cast(),
         ) {
             return undef();
         }
@@ -277,7 +278,9 @@ pub unsafe extern "C" fn __torajs_arr_any_reduce(
         // RFC 20260810 刀 D — same loud reject as `hof_loop`.
         if crate::sparse_gate::sparse_tail_rejects(
             arr,
-            b"sparse array tail is not yet supported in Array.prototype.reduce\0".as_ptr(),
+            c"sparse array tail is not yet supported in Array.prototype.reduce"
+                .as_ptr()
+                .cast(),
         ) {
             return undef();
         }

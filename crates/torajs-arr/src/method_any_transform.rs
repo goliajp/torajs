@@ -231,7 +231,9 @@ pub unsafe extern "C" fn __torajs_arr_any_copy_within(
         // unmaterialized tail; loud reject.
         if crate::sparse_gate::sparse_tail_rejects(
             arr as *const c_void,
-            b"sparse array tail is not yet supported in Array.prototype.copyWithin\0".as_ptr(),
+            c"sparse array tail is not yet supported in Array.prototype.copyWithin"
+                .as_ptr()
+                .cast(),
         ) {
             return arr;
         }
@@ -305,7 +307,9 @@ pub unsafe extern "C" fn __torajs_arr_any_splice(
         // unmaterialized tail; loud reject.
         if crate::sparse_gate::sparse_tail_rejects(
             arr as *const c_void,
-            b"sparse array tail is not yet supported in Array.prototype.splice\0".as_ptr(),
+            c"sparse array tail is not yet supported in Array.prototype.splice"
+                .as_ptr()
+                .cast(),
         ) {
             return crate::alloc::__torajs_arr_alloc_any(0);
         }
@@ -478,7 +482,7 @@ pub unsafe extern "C" fn __torajs_arr_any_splice(
             actual_start,
             actual_delete,
             item_count,
-            len as i64,
+            len,
         );
         removed
     }

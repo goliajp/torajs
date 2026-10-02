@@ -150,7 +150,9 @@ pub(crate) unsafe fn print_any_at(arr: *const c_void, indent: u32) {
         // needs bun's `empty x N` collapsed form).
         if crate::sparse_gate::sparse_tail_rejects(
             arr,
-            b"sparse array tail is not yet supported in console.log\0".as_ptr(),
+            c"sparse array tail is not yet supported in console.log"
+                .as_ptr()
+                .cast(),
         ) {
             return;
         }

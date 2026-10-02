@@ -42,7 +42,9 @@ pub unsafe extern "C" fn __torajs_arr_fill_any(
         // unmaterialized tail; loud reject.
         if crate::sparse_gate::sparse_tail_rejects(
             arr as *const c_void,
-            b"sparse array tail is not yet supported in Array.prototype.fill\0".as_ptr(),
+            c"sparse array tail is not yet supported in Array.prototype.fill"
+                .as_ptr()
+                .cast(),
         ) {
             return arr;
         }

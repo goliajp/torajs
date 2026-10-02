@@ -52,6 +52,9 @@ const VALUE_UNDEFINED_IMM: u64 = 0x0000_0000_0000_000A;
 /// `arguments.callee` spelling to this no-arg call; the escaped
 /// keyed read answers the accessor descriptor through the gOPD
 /// arguments arm instead (torajs-meta `arr_reflect.rs`).
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arguments_callee() -> u64 {
     unsafe {

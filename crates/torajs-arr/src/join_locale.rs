@@ -57,6 +57,8 @@ unsafe fn slot_addr(arr: *const u8, i: u64) -> *const u8 {
     unsafe { arr_data(arr).wrapping_add(((arr_head_offset(arr) + i) * 8) as usize) }
 }
 
+/// # Safety
+/// `arr` is a live Arr cell and `sep` a live Str cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_join_i64_locale(arr: *const u8, sep: *const u8) -> *mut u8 {
     unsafe {
@@ -115,6 +117,8 @@ pub unsafe extern "C" fn __torajs_arr_join_i64_locale(arr: *const u8, sep: *cons
     }
 }
 
+/// # Safety
+/// `arr` is a live Arr cell and `sep` a live Str cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_join_f64_locale(arr: *const u8, sep: *const u8) -> *mut u8 {
     unsafe {

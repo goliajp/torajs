@@ -105,7 +105,7 @@ pub unsafe extern "C" fn __torajs_arr_set_length_truncate_scalar(
             let nl = crate::define_length::to_uint32(n1);
             if nl as f64 != n2 {
                 unsafe {
-                    __torajs_throw_range_error(b"Invalid array length\0".as_ptr());
+                    __torajs_throw_range_error(c"Invalid array length".as_ptr().cast());
                 }
                 return;
             }
@@ -114,7 +114,7 @@ pub unsafe extern "C" fn __torajs_arr_set_length_truncate_scalar(
     };
     if n.is_nan() || n < 0.0 || n > 4_294_967_295.0 || n != (n as i64) as f64 {
         unsafe {
-            __torajs_throw_range_error(b"Invalid array length\0".as_ptr());
+            __torajs_throw_range_error(c"Invalid array length".as_ptr().cast());
         }
         return;
     }
@@ -208,7 +208,7 @@ unsafe fn set_length_any_impl(arr: *mut u8, tag: i64, value: i64, throw_on_refus
     let new_len = crate::define_length::to_uint32(n1);
     if new_len as f64 != n2 {
         unsafe {
-            __torajs_throw_range_error(b"Invalid array length\0".as_ptr());
+            __torajs_throw_range_error(c"Invalid array length".as_ptr().cast());
         }
         return 0;
     }

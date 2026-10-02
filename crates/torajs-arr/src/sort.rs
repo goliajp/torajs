@@ -286,7 +286,9 @@ pub unsafe extern "C" fn __torajs_arr_any_sort(
         // unmaterialized tail; loud reject.
         if crate::sparse_gate::sparse_tail_rejects(
             arr as *const core::ffi::c_void,
-            b"sparse array tail is not yet supported in Array.prototype.sort\0".as_ptr(),
+            c"sparse array tail is not yet supported in Array.prototype.sort"
+                .as_ptr()
+                .cast(),
         ) {
             return arr;
         }
@@ -334,7 +336,7 @@ pub(crate) unsafe fn any_sort_slots(
             default_mode: has_cb == 0,
             recv_first: has_cb != 0
                 && !cb_env.is_null()
-                && crate::method_any_hof::recv_first_shift(cb_env as *mut c_void) != 0,
+                && crate::method_any_hof::recv_first_shift(cb_env) != 0,
             rebox_kind,
         };
         if n <= INSERTION_RUN {

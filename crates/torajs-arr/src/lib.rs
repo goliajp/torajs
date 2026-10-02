@@ -27,8 +27,8 @@
 //! ## Why `std`, not `no_std`
 //!
 //! Same reason as torajs-rc / torajs-str / torajs-num / torajs-bigint:
-//! cargo's `cargo test` + dual `crate-type = ["rlib", "staticlib"]`
-//! + `no_std` combination triggers a precompiled-core panic-strategy
+//! cargo's `cargo test` + dual `crate-type = ["rlib", "staticlib"]` +
+//! `no_std` combination triggers a precompiled-core panic-strategy
 //! mismatch with no clean fix on stable. `std` staticlibs link cleanly
 //! at `tr build` time.
 
@@ -146,6 +146,8 @@ mod test_stubs;
 // `tr build` link time. cargo unit tests don't link torajs-str's
 // staticlib — provide a panicking stub so the test binary still links.
 // Same pattern as torajs-num / torajs-bigint.
+/// # Safety
+/// Never reached: a link-time stand-in that only satisfies the linker.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_alloc_pooled(_len: u64) -> *mut u8 {
@@ -154,6 +156,8 @@ pub unsafe extern "C" fn __torajs_str_alloc_pooled(_len: u64) -> *mut u8 {
     );
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in that only satisfies the linker.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_alloc_pooled_enc(_len: u64, _is_latin1: i64) -> *mut u8 {
@@ -164,6 +168,8 @@ pub unsafe extern "C" fn __torajs_str_alloc_pooled_enc(_len: u64, _is_latin1: i6
 
 // Same pattern for torajs-throw — provided by libtorajs_throw.a at
 // `tr build` link time; stubbed for cargo test.
+/// # Safety
+/// Never reached: a link-time stand-in that only satisfies the linker.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_throw_range_error(_msg: *const u8) {
@@ -172,6 +178,8 @@ pub unsafe extern "C" fn __torajs_throw_range_error(_msg: *const u8) {
     );
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in that only satisfies the linker.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_mutate_generic(
@@ -182,17 +190,23 @@ pub unsafe extern "C" fn __torajs_arr_mutate_generic(
 ) -> u64 {
     0x0A
 }
+/// # Safety
+/// Never reached: a link-time stand-in that only satisfies the linker.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_concat_needs_spec(_av: u64) -> i64 {
     0
 }
+/// # Safety
+/// Test-binary stand-in; `dst` is handed back untouched.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_concat_spread_spec(dst: *mut u8, _av: u64) -> *mut u8 {
     dst
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in that only satisfies the linker.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_throw_type_error(_msg: *const core::ffi::c_char) {
@@ -217,6 +231,8 @@ pub unsafe extern "C" fn __torajs_throw_type_error(_msg: *const core::ffi::c_cha
 // any-slot drop path, and torajs-rc's rlib doesn't unconditionally
 // expose the symbol (no Rust call site referencing it triggers
 // DCE in the rlib path).
+/// # Safety
+/// Never reached: a link-time stand-in that only satisfies the linker.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_value_drop_heap(_p: *mut core::ffi::c_void) {
@@ -240,31 +256,43 @@ pub extern "C" fn __torajs_str_sort_undef_pre(_a: *const u8, _b: *const u8) -> i
 // the anyvalue NaN-box protocol + the str default comparator; all
 // live in their staticlibs at `tr build` link time. No sort unit
 // test sets the ANY bits — panic stubs keep misuse loud.
+/// # Safety
+/// Never reached: a link-time stand-in that only satisfies the linker.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_box_from_pair(_t: i64, _v: i64) -> u64 {
     panic!("torajs-arr unit-test stub: __torajs_anyv_box_from_pair (ANY sort mode) unexpected");
 }
+/// # Safety
+/// Never reached: a link-time stand-in that only satisfies the linker.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_unbox_tag(_v: u64) -> i64 {
     panic!("torajs-arr unit-test stub: __torajs_anyv_unbox_tag (ANY sort mode) unexpected");
 }
+/// # Safety
+/// `v` is a live boxed value.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_to_number(_v: u64) -> f64 {
     panic!("torajs-arr unit-test stub: __torajs_anyv_to_number (ANY sort mode) unexpected");
 }
+/// # Safety
+/// Never reached: a link-time stand-in that only satisfies the linker.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_to_str(_v: u64) -> *mut core::ffi::c_void {
     panic!("torajs-arr unit-test stub: __torajs_anyv_to_str (ANY sort mode) unexpected");
 }
+/// # Safety
+/// Both pointers are live Str cells.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_sort_cmp(_a: *const u8, _b: *const u8) -> i64 {
     panic!("torajs-arr unit-test stub: __torajs_str_sort_cmp (ANY sort mode) unexpected");
 }
+/// # Safety
+/// Never reached: a link-time stand-in that only satisfies the linker.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_drop(_s: *mut core::ffi::c_void) {
@@ -274,6 +302,8 @@ pub unsafe extern "C" fn __torajs_str_drop(_s: *mut core::ffi::c_void) {
 // `__torajs_split_block_free_push` (called from `__torajs_arr_free`
 // in alloc.rs) is defined in runtime_str.c at `tr build` link time;
 // no rlib provider, so a stub is required for cargo test linking.
+/// # Safety
+/// Never reached: a link-time stand-in that only satisfies the linker.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_split_block_free_push(_p: *mut u8) {
@@ -286,6 +316,8 @@ pub unsafe extern "C" fn __torajs_split_block_free_push(_p: *mut u8) {
 // drop.rs's cycle-root hooks, chunk 614) live in libtorajs_cycle.a
 // at `tr build` link time; stubbed for cargo test. The NULL-drop
 // unit tests never reach them (NULL early-outs precede the rc dec).
+/// # Safety
+/// Never reached: a link-time stand-in that only satisfies the linker.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_cycle_buffer(_p: *mut core::ffi::c_void) {
@@ -294,6 +326,8 @@ pub unsafe extern "C" fn __torajs_cycle_buffer(_p: *mut core::ffi::c_void) {
     );
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in that only satisfies the linker.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_cycle_unbuffer(_p: *mut core::ffi::c_void) {
@@ -302,6 +336,8 @@ pub unsafe extern "C" fn __torajs_cycle_unbuffer(_p: *mut core::ffi::c_void) {
     );
 }
 
+/// # Safety
+/// Never reached: a link-time stand-in that only satisfies the linker.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_subclass_drop_entry(_p: *mut core::ffi::c_void) {

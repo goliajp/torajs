@@ -37,6 +37,9 @@ use torajs_arr::{
 /// `cargo test -p torajs-arr` does not link. Every array this file
 /// builds is fresh and extensible, so the guard never fires; the stub
 /// only satisfies the linker, and panics if it ever does fire.
+///
+/// # Safety
+/// Never reached: a link-time stand-in that only satisfies the linker.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_throw_type_error(_msg: *const std::ffi::c_char) {
     panic!("perf_gate: a grow kernel refused an extensible array");
@@ -50,6 +53,8 @@ pub unsafe extern "C" fn __torajs_throw_type_error(_msg: *const std::ffi::c_char
 /// name is resolved), and panic if one is ever reached.
 macro_rules! unreachable_extern {
     ($($name:ident),*) => {$(
+        /// # Safety
+        /// Never reached: a link-time stand-in that only satisfies the linker.
         #[unsafe(no_mangle)]
         pub unsafe extern "C" fn $name() {
             panic!(concat!("perf_gate: dense arrays never reach ", stringify!($name)));
@@ -84,7 +89,7 @@ fn push_100k_under_budget() {
     // CI budget: 50 ms (5× headroom over ~10 ms observed).
     let median = time_median(
         || {
-            let mut arr = unsafe { __torajs_arr_alloc(0) as *mut u8 };
+            let mut arr = unsafe { __torajs_arr_alloc(0) };
             for i in 0..100_000i64 {
                 arr = unsafe { __torajs_arr_push(arr, i) };
             }
@@ -106,7 +111,7 @@ fn push_unchecked_100k_after_reserve_under_budget() {
     // CI budget: 25 ms.
     let median = time_median(
         || {
-            let mut arr = unsafe { __torajs_arr_alloc(0) as *mut u8 };
+            let mut arr = unsafe { __torajs_arr_alloc(0) };
             arr = unsafe { __torajs_arr_reserve(arr, 100_000) };
             for i in 0..100_000i64 {
                 unsafe { __torajs_arr_push_unchecked(arr as *mut c_void, i) };
@@ -129,7 +134,7 @@ fn shift_10k_under_budget() {
     // CI budget: 5 ms.
     let mut times = Vec::with_capacity(5);
     for _ in 0..5 {
-        let mut tmp = unsafe { __torajs_arr_alloc(0) as *mut u8 };
+        let mut tmp = unsafe { __torajs_arr_alloc(0) };
         tmp = unsafe { __torajs_arr_reserve(tmp, 10_000) };
         for i in 0..10_000i64 {
             unsafe { __torajs_arr_push_unchecked(tmp as *mut c_void, i) };
