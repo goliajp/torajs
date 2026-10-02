@@ -160,6 +160,9 @@ mod census {
 }
 
 /// `process.exit(code)` — libc exit. Does not return.
+///
+/// # Safety
+/// Takes no pointer arguments; runs process teardown and never returns.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_process_exit(code: i64) -> ! {
     #[cfg(torajs_census)]
@@ -176,10 +179,13 @@ pub unsafe extern "C" fn __torajs_process_exit(code: i64) -> ! {
 /// orthodox `open(".") + fcntl(F_GETPATH) + close` recipe, identical
 /// to the libc `getcwd(3)` impl on darwin — XNU has no `getcwd`
 /// syscall, so this is the path libc itself walks.
+///
+/// # Safety
+/// Takes no pointer arguments; the torajs-str pool must be usable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_process_cwd() -> *mut u8 {
     let mut buf = [0u8; PATH_MAX_LEN];
-    let fd = match unsafe { open(b".\0".as_ptr(), O_RDONLY) } {
+    let fd = match unsafe { open(c".".as_ptr().cast(), O_RDONLY) } {
         Ok(fd) => fd,
         Err(_) => return unsafe { __torajs_str_alloc_pooled(0) },
     };
@@ -242,6 +248,9 @@ fn env_find(name: &[u8]) -> Option<(*const u8, usize)> {
 /// kernel passes to `main` (captured in `ENVP_STATE` by
 /// `__torajs_argv_init`), avoiding the libc `getenv` / `_NSGetEnviron`
 /// dyld dep.
+///
+/// # Safety
+/// `name_str` is a live Str.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_process_getenv(name_str: *const u8) -> *mut u8 {
     let nlen = unsafe { str_len(name_str) } as usize;
@@ -291,6 +300,9 @@ pub unsafe extern "C" fn __torajs_env_lookup_raw(
 }
 
 /// `process.platform` → static-cfg string.
+///
+/// # Safety
+/// Takes no pointer arguments; the torajs-str pool must be usable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_process_platform() -> *mut u8 {
     #[cfg(target_os = "macos")]
@@ -343,6 +355,9 @@ pub unsafe extern "C" fn __torajs_argv_init(
 /// `process.argv` → fresh Array<Str>. The executable path fills both
 /// slot 0 and slot 1, so the first user argument is at index 2 as it
 /// is under a runtime that takes a script path.
+///
+/// # Safety
+/// If `__torajs_argv_init` ran, the `argv` block it captured must still be live.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_process_argv() -> *mut u8 {
     let (argc, argv_addr) = {
@@ -367,6 +382,9 @@ pub unsafe extern "C" fn __torajs_process_argv() -> *mut u8 {
 /// buffered writer (shared process-global line buffer with the
 /// print family). Caller sees the write before the next syscall
 /// via the explicit flush at the end.
+///
+/// # Safety
+/// `s` is a live Str.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_process_stdout_write(s: *const u8) -> bool {
     let dlen = unsafe { str_len(s) };
@@ -381,6 +399,9 @@ pub unsafe extern "C" fn __torajs_process_stdout_write(s: *const u8) -> bool {
 /// buffer so combined `2>&1` redirection preserves caller-order
 /// interleaving with `console.log`. Panics on short write /
 /// EBADF / EPIPE.
+///
+/// # Safety
+/// `s` is a live Str.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_process_stderr_write(s: *const u8) -> bool {
     // Drain buffered stdout writes first — write(2)-direct skips
@@ -399,7 +420,11 @@ pub unsafe extern "C" fn __torajs_process_stderr_write(s: *const u8) -> bool {
         let written = unsafe { write(STDERR_FILENO, p, n) };
         if written <= 0 {
             unsafe {
-                __torajs_panic(b"not yet supported: process.stderr.write short write\0".as_ptr())
+                __torajs_panic(
+                    c"not yet supported: process.stderr.write short write"
+                        .as_ptr()
+                        .cast(),
+                )
             };
         }
         let w = written as usize;

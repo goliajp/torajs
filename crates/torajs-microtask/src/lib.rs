@@ -243,6 +243,9 @@ pub unsafe extern "C" fn __torajs_host_jobs_run_until_idle() {
 
 /// `mt_len - mt_head` — number of pending microtasks. Returns
 /// `usize` to match the C `size_t` signature.
+///
+/// # Safety
+/// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_microtask_pending_count() -> usize {
     let head = MT_HEAD.load(Ordering::Relaxed);
