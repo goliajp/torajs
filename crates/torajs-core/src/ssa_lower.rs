@@ -25,6 +25,7 @@
 
 use std::collections::HashMap;
 
+pub(crate) mod alias_hazard;
 pub(crate) mod proofs;
 
 use crate::ast::{Ast, ExprId};

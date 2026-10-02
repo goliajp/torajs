@@ -188,11 +188,17 @@ pub(crate) fn lower(
     // value (`let b = xs[0]; for (…) if (…) b = xs[j];` 20.8 MB vs
     // 1.6 MB flat), while a path with no assignment at all reached a
     // scope drop the borrow never paid for.
+    // So is one read after something may have released its source
+    // (`const old = p.k; p.k = new N(); return old`): the borrow would
+    // name a freed cell (`crate::ssa_lower::alias_hazard`). A string
+    // view is not a cell a retain can keep alive — its bytes belong to
+    // the container — so it stays a borrow.
     let init_ty = ctx.operand_ty(&init_val);
+    let released = init_ty != Type::Substr && ctx.proofs.released_alias_inits.contains(&init);
     let owned_alias = is_alias_init
         && !boxed_any
         && init_ty.is_refcounted()
-        && ctx.prereserve.body_reassigns(name);
+        && (ctx.prereserve.body_reassigns(name) || released);
     if owned_alias {
         ctx.emit_owned_result_inc(init_val, init_ty);
     }

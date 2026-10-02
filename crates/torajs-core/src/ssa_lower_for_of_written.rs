@@ -82,7 +82,14 @@ pub(crate) fn bind_loop_var(
         bind_scoped_local(ctx, var_name, slot, v_ty, true, false, true);
         return;
     }
-    let borrowed = alias && !body_writes_var(ctx, body, var_name);
+    // An element the body may release before it reads the variable
+    // again (`xs[0] = new N(); use(x)`, `xs.length = 0`) is retained
+    // too: the borrow would name a freed cell. A string view's bytes
+    // belong to its container, so a retain cannot keep one alive.
+    let borrowed = alias
+        && !body_writes_var(ctx, body, var_name)
+        && (v_ty == Type::Substr
+            || !crate::ssa_lower::alias_hazard::loop_var_read_after_release(ctx, body, var_name));
     if alias && !borrowed {
         ctx.emit_owned_result_inc(v_val, v_ty);
     }

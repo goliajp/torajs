@@ -214,6 +214,7 @@ pub(crate) fn lower_fn(
     ctx.proto_shadow = crate::builtin_proto_shadow::collect_shadowed_builtin_methods(ctx.ast);
 
     ctx.materialize_fn_params(name, param_setup, &assigned_in_body);
+    crate::ssa_lower::alias_hazard::prime(&mut ctx, body.iter());
     ctx.emit_closure_env_preamble(name, params);
     ctx.emit_gen_env_preamble(name);
 

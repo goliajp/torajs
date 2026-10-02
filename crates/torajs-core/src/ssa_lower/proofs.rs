@@ -42,6 +42,10 @@ pub(crate) struct Proofs {
     /// The subset whose field holds the factory's null / undefined
     /// default at that point, so there is no old value to release.
     pub(crate) fresh_this_first_write: HashSet<ExprId>,
+    /// Inits of borrow-shaped lets whose binding is read after
+    /// something may have released its source
+    /// (`crate::ssa_lower::alias_hazard`): they bind owned.
+    pub(crate) released_alias_inits: HashSet<ExprId>,
     /// Fn-local bindings whose current value passed a nullish guard on
     /// every path reaching the point being lowered.
     nonnull_lets: HashSet<String>,
