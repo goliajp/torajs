@@ -83,11 +83,13 @@ pub(super) fn write_class_tag(
     // the sid-keyed anon stamp, which is what the same literal gets
     // outside a factory.
     if let Some(cname) = owner {
-        let tag = ctx
-            .class_name_to_tag
-            .get(cname)
-            .copied()
-            .unwrap_or_else(|| ctx.anon_stamp_pool.borrow_mut().assign_or_get(sid));
+        let tag = match ctx.class_name_to_tag.get(cname).copied() {
+            Some(t) => {
+                ctx.anon_stamp_pool.borrow_mut().note_class_minted(sid);
+                t
+            }
+            None => ctx.anon_stamp_pool.borrow_mut().assign_or_get(sid),
+        };
         store_class_tag(ctx, obj_ptr, tag);
         return;
     }
@@ -118,9 +120,13 @@ pub(super) fn write_class_tag(
                 .assign_generic(&ctx.f.name, sid, base.to_string()),
         )
     };
-    let tag = factory_tag
-        .or_else(generic_tag)
-        .unwrap_or_else(|| ctx.anon_stamp_pool.borrow_mut().assign_or_get(sid));
+    let tag = match factory_tag.or_else(generic_tag) {
+        Some(t) => {
+            ctx.anon_stamp_pool.borrow_mut().note_class_minted(sid);
+            t
+        }
+        None => ctx.anon_stamp_pool.borrow_mut().assign_or_get(sid),
+    };
     store_class_tag(ctx, obj_ptr, tag);
 }
 

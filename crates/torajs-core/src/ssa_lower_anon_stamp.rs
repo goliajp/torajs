@@ -58,6 +58,13 @@ pub struct AnonStampPool {
     /// stays untouched for plain object literals of that shape.
     generic_rows: Vec<(u32, ssa::StructId, String)>,
     generic_by_factory: HashMap<String, u32>,
+    /// Sids a class factory stamped a CLASS tag onto. A factory's
+    /// literal can intern to a sid other than the class's own (a
+    /// field whose declared width differs from the literal's), and
+    /// the runtime then treats that cell as a named instance — it
+    /// buffers it as a cycle root — so the inline drop of that sid
+    /// must take the class legs too, or it frees a buffered cell.
+    class_minted: HashSet<ssa::StructId>,
 }
 
 impl AnonStampPool {
@@ -71,7 +78,18 @@ impl AnonStampPool {
             next_tag: next_tag_start,
             generic_rows: Vec::new(),
             generic_by_factory: HashMap::new(),
+            class_minted: HashSet::new(),
         }
+    }
+
+    /// A class factory stamped a class tag onto a cell of `sid`.
+    pub fn note_class_minted(&mut self, sid: ssa::StructId) {
+        self.class_minted.insert(sid);
+    }
+
+    /// True when some class factory mints cells of `sid`.
+    pub fn is_class_minted(&self, sid: ssa::StructId) -> bool {
+        self.class_minted.contains(&sid)
     }
 
     /// 404-01 / 405-03 — the tag a generic mono factory's instances

@@ -73,7 +73,16 @@ pub(crate) fn populate_class_drop_bodies(
         Some(Type::Obj(s)) => Some(s.0),
         _ => None,
     };
-    let class_sids: HashSet<u32> = class_name_to_tag.keys().filter_map(sid_of).collect();
+    let mut class_sids: HashSet<u32> = class_name_to_tag.keys().filter_map(sid_of).collect();
+    // sids a factory stamped a class tag onto besides the class's own
+    for sid in 0..struct_layouts.len() as u32 {
+        if anon_stamp_pool
+            .borrow()
+            .is_class_minted(crate::ssa::StructId(sid))
+        {
+            class_sids.insert(sid);
+        }
+    }
     let drop_fids: HashMap<u32, FuncId> = class_drops.iter().map(|d| (d.sid.0, d.fid)).collect();
     let mut tags: HashMap<u32, Vec<u32>> = HashMap::new();
     for (cn, tag) in class_name_to_tag {

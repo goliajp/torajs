@@ -48,11 +48,14 @@ pub(super) fn emit_drop_obj(ctx: &mut LowerCtx, val: Operand, sid: crate::ssa::S
         Type::Bool,
         None,
     );
+    // a class's own sid, or one its factory stamps a class tag onto:
+    // the runtime buffers both as named instances
     let is_class_sid = ctx
         .ast
         .class_parents
         .keys()
-        .any(|cn| matches!(ctx.aliases.get(cn), Some(Type::Obj(s)) if s.0 == sid.0));
+        .any(|cn| matches!(ctx.aliases.get(cn), Some(Type::Obj(s)) if s.0 == sid.0))
+        || ctx.anon_stamp_pool.borrow().is_class_minted(sid);
     let buffer_blk = if is_class_sid {
         ctx.f.add_block()
     } else {
