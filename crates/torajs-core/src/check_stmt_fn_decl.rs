@@ -56,6 +56,8 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, name: &str, params: &[Para
     let new_class: Option<String> = name
         .strip_prefix("__cm_")
         .or_else(|| name.strip_prefix("__sm_"))
+        .or_else(|| name.strip_prefix("__cmany_"))
+        .or_else(|| name.strip_prefix("__smany_"))
         .and_then(|rest| {
             checker
                 .class_names
