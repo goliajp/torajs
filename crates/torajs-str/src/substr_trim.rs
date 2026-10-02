@@ -6,7 +6,7 @@
 
 use core::ffi::c_void;
 
-use torajs_rc::__torajs_rc_inc;
+use torajs_rc::{__torajs_rc_inc, FLAG_STATIC_LITERAL, HeapHeader};
 
 use crate::substr::{
     __torajs_substr_create, FLAG_SUBSTR_INLINE, SUBSTR_LEN_OFF, SUBSTR_OFFSET_OFF,
@@ -27,7 +27,11 @@ use crate::transform::trim::{is_trim_ws, is_trim_ws_u16};
 /// u16-stride scan against the full set (shared predicates from
 /// `transform::trim`). Byte indices from the scan are divided by
 /// the parent's stride to yield code-unit `(lo, hi)`.
-#[inline]
+///
+/// `inline(always)`: a plain `#[inline]` was declined at four call
+/// sites, which left `_trim_into` paying a second call per field for a
+/// scan that is usually a byte or two long.
+#[inline(always)]
 unsafe fn trim_cu_bounds(v: *const u8, do_start: bool, do_end: bool) -> (*mut c_void, u64, u64) {
     let (payload, _cu_len, is_latin1) = unsafe { substr_view(v) };
     let v_off = unsafe { substr_offset(v) };
@@ -123,6 +127,8 @@ pub unsafe extern "C" fn __torajs_substr_trim_end(v: *const u8) -> *mut c_void {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_substr_trim_into(v: *const u8, out_buf: *mut u8) {
     let (parent, off, len) = unsafe { trim_cu_bounds(v, true, true) };
+    // the scan above just read this header for the encoding bit
+    let parent_flags = unsafe { (*(parent as *const HeapHeader)).flags };
     // Header u64: refcount=0 @0..4, type_tag=Tag::Str=0 @4..6,
     // flags=FLAG_SUBSTR_INLINE @6..8 packed little-endian.
     let header_u64 = (FLAG_SUBSTR_INLINE as u64) << 48;
@@ -132,5 +138,64 @@ pub unsafe extern "C" fn __torajs_substr_trim_into(v: *const u8, out_buf: *mut u
         (out_buf.add(SUBSTR_PARENT_OFF) as *mut *mut c_void).write(parent);
         (out_buf.add(SUBSTR_OFFSET_OFF) as *mut u64).write(off);
     }
-    unsafe { __torajs_rc_inc(parent) };
+    // a static-literal parent is never counted, and the matching
+    // `__torajs_substr_drop` reads the same flag before it decrements;
+    // asking `__torajs_rc_inc` (another staticlib, so never inlined)
+    // would cost a call to learn exactly that
+    if parent_flags & FLAG_STATIC_LITERAL == 0 {
+        unsafe { __torajs_rc_inc(parent) };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::block::StrBlock;
+    use crate::substr::__torajs_substr_drop;
+
+    /// A Latin-1 parent holding `text`, with `extra` header flags.
+    fn parent(text: &[u8], extra: u16) -> *mut u8 {
+        let mut block = StrBlock::alloc_with_flags(text.len() as u32, true, extra);
+        unsafe { block.as_bytes_mut(text.len() as u32).copy_from_slice(text) };
+        block.into_raw()
+    }
+
+    /// An inline view of `parent[off..off + len]`, the shape a split
+    /// iterator hands to `trim`.
+    fn view(parent: *mut u8, off: u64, len: u64) -> [u64; 4] {
+        [(FLAG_SUBSTR_INLINE as u64) << 48, len, parent as u64, off]
+    }
+
+    fn rc(p: *mut u8) -> u32 {
+        unsafe { (*(p as *const HeapHeader)).refcount }
+    }
+
+    fn trim_into(v: &[u64; 4]) -> [u64; 4] {
+        let mut out = [0u64; 4];
+        unsafe { __torajs_substr_trim_into(v.as_ptr() as *const u8, out.as_mut_ptr() as *mut u8) };
+        out
+    }
+
+    #[test]
+    fn trim_into_counts_an_owned_parent_and_the_drop_releases_it() {
+        let p = parent(b"x  ab  y", 0);
+        let mut out = trim_into(&view(p, 1, 6));
+        assert_eq!((out[1], out[2], out[3]), (2, p as u64, 3));
+        assert_eq!(rc(p), 2);
+        unsafe { __torajs_substr_drop(out.as_mut_ptr() as *mut c_void) };
+        assert_eq!(rc(p), 1);
+        unsafe { StrBlock::from_raw(p) }.free_pool_aware();
+    }
+
+    #[test]
+    fn trim_into_leaves_a_static_parent_uncounted() {
+        let p = parent(b"  ab  ", FLAG_STATIC_LITERAL);
+        let before = rc(p);
+        let mut out = trim_into(&view(p, 0, 6));
+        assert_eq!((out[1], out[2], out[3]), (2, p as u64, 2));
+        assert_eq!(rc(p), before);
+        unsafe { __torajs_substr_drop(out.as_mut_ptr() as *mut c_void) };
+        assert_eq!(rc(p), before);
+    }
 }
