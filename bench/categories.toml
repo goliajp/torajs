@@ -92,7 +92,7 @@ cases = [
 
 [categories.multibyte_string]
 weight = 6
-cases = ["multibyte-concat-5m"]
+cases = ["multibyte-concat-5m", "multibyte-concat-flat-5m"]
 
 [categories.json]
 weight = 14

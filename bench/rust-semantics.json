@@ -37,6 +37,7 @@
   "array-sort-100k": {"kind": "same"},
   "i64-to-str-100k": {"kind": "same", "lead": "each formatted Str is popped from tr's 32-slot small-string pool and pushed back on drop; rustc's String is a libmalloc malloc and free per number"},
   "multibyte-concat-5m": {"kind": "same", "why": "Vec<u16> holds the UTF-16 code units a JS string has, so .length is len(); appended in place"},
+  "multibyte-concat-flat-5m": {"kind": "same", "why": "Vec<u16> holds the UTF-16 code units a JS string has; appended in place, then the last unit is read"},
   "class-method-100k": {"kind": "suppressed", "why": "black_box keeps both per-iteration Box allocations, which LLVM would elide"},
   "str-concat-ascii-100k": {"kind": "suppressed", "why": "black_box keeps the per-iteration String, which LLVM would elide and fold the loop"},
   "json-stringify-100k": {"kind": "different", "why": "serializer is fixed to the struct's keys and value kinds; JSON.stringify discovers both at run time"},

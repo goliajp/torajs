@@ -40,6 +40,7 @@
   "array-any-indexed-100k": {"kind": "different", "why": "fixed struct array with a length field where main.ts reads an any[] and dispatches on the tag; clang removes most of the loop (work-only 0.04 ms)"},
   "array-sort-100k": {"kind": "same", "why": "qsort with a function-pointer comparator"},
   "multibyte-concat-5m": {"kind": "same", "why": "uint16_t buffer holds the UTF-16 code units a JS string has; appended in place with doubling capacity"},
+  "multibyte-concat-flat-5m": {"kind": "same", "why": "uint16_t buffer holds the UTF-16 code units a JS string has; appended in place with doubling capacity, then the last unit is read"},
   "str-replace-100k": {"kind": "same"},
   "generator-yield-100k": {"kind": "same", "why": "hand-written resumable state struct"},
   "async-fn-call-100k": {"kind": "same", "why": "hand-written microtask queue + reaction list; enqueues and resumes as the spec orders", "caveat": "tr does not suspend at these awaits yet (P-LOOP 4): the drain runs inline in an order the spec forbids, so tr's lead here is not a ceiling reading"},
