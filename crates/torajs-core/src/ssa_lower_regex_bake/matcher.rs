@@ -145,6 +145,8 @@ mod tests {
             (r"(\p{L}+)", "u", true),
             (r"(\p{L}+)", "u", false),
             (r"([^\p{L}]+)(\p{Lu})?", "gu", true),
+            (r"(?:(a)b)*c", "g", false),
+            (r"(?:(a)b)*", "", true),
         ] {
             let ir = matcher_ir(pat, flags, wide).unwrap();
             let f = emit::walk("__regex_matcher_l1_7", &ir);

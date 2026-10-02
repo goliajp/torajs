@@ -119,4 +119,28 @@ mod tests {
         // no loop at all
         assert!(run(r"[a-z]=", 0).is_none());
     }
+
+    #[test]
+    fn a_loop_back_to_the_program_start_enters_a_state_of_its_own() {
+        for pat in [
+            r"(?:(a)b)*c",
+            r"(?:(a)b)*",
+            r"(?:(x)(y)?z)*w",
+            r"(?:[a-z]+=)*X",
+        ] {
+            for wide in [false, true] {
+                let ir = matcher(pat, 0, wide);
+                let into_start = ir.states.iter().any(|st| {
+                    st.variants
+                        .iter()
+                        .any(|v| v.edges.iter().any(|e| e.target == 0))
+                });
+                assert!(!into_start, "{pat}");
+            }
+        }
+        let ir = matcher(r"(?:(a)b)*c", 0, false);
+        let mut out = [-1i64; 4];
+        assert_eq!(ir.exec(b"ababc", 0, &mut out), 5);
+        assert_eq!(out, [0, 5, 2, 3]);
+    }
 }

@@ -244,7 +244,8 @@ impl Emit<'_> {
     fn state(&mut self, i: usize) {
         let node = &self.ir.states[i];
         let blk = self.states[i];
-        // the start state is never an edge target, so an attempt begins
+        // the start state is never an edge target (the analysis seeds a
+        // separate state for a loop back to pc 0), so an attempt begins
         // either at its top (it can accept before consuming) or on the
         // edge it takes
         if i == 0 && node.accepts_anywhere() {

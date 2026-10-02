@@ -75,7 +75,8 @@ pub const WORD_RIGHT_FOLD: u8 = 128;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MatcherIr {
-    /// state 0 is the start state; it is never an edge target
+    /// state 0 is the start state; it is never an edge target, a loop
+    /// back to the program's start enters a state of its own
     pub states: Vec<State>,
     /// row width: highest save slot + 1, at least 2
     pub stride: u32,

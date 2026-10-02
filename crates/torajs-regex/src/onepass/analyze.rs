@@ -2,7 +2,10 @@
 //!
 //! States are seeded by one program counter each: the start state by
 //! pc 0, every other state by the successor of the consuming
-//! instruction whose edge enters it. A state's body is the ε-closure
+//! instruction whose edge enters it. The start state is never an
+//! edge target: an edge back to pc 0 (a leading `*` whose body ends
+//! in a jump to it) enters a second state seeded by pc 0, so the
+//! walk can begin an attempt at the start state and only there. A state's body is the ε-closure
 //! of its seed walked in the Pike VM's priority order (a split's
 //! first target before its second, first arrival at a pc wins), with
 //! the save slots met on the way carried along. The walk stops at
@@ -47,11 +50,11 @@ pub fn build(prog: &Program, flags: u8, wide: bool) -> Option<MatcherIr> {
     let pairs = wide && unicode;
     let segments = segments(prog, wide, pairs);
     let mut states: Vec<State> = Vec::new();
+    // edge targets by seed; the start state is not among them, so a
+    // loop back to pc 0 enters a state of its own
     let mut by_seed: BTreeMap<usize, u32> = BTreeMap::new();
-    let mut queue: Vec<usize> = vec![0];
-    by_seed.insert(0, 0);
-    while let Some(seed) = queue.pop() {
-        let id = by_seed[&seed] as usize;
+    let mut queue: Vec<(usize, usize)> = vec![(0, 0)];
+    while let Some((seed, id)) = queue.pop() {
         if states.len() <= id {
             states.resize_with(id + 1, || State {
                 probes: 0,
@@ -69,9 +72,9 @@ pub fn build(prog: &Program, flags: u8, wide: bool) -> Option<MatcherIr> {
                 let target = match by_seed.get(&next) {
                     Some(&t) => t,
                     None => {
-                        let t = by_seed.len() as u32;
+                        let t = by_seed.len() as u32 + 1;
                         by_seed.insert(next, t);
-                        queue.push(next);
+                        queue.push((next, t as usize));
                         t
                     }
                 };
