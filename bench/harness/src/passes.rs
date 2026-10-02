@@ -128,10 +128,10 @@ impl Passes<'_> {
                 }
                 let cached = compile_cache[idx];
                 let outcome = bench::run_one(c, r, self.work_dir, self.workspace, cached)?;
-                if cached.is_none() {
-                    if let Some(cm) = outcome.compile_ms {
-                        compile_cache[idx] = Some(cm);
-                    }
+                if cached.is_none()
+                    && let Some(cm) = outcome.compile_ms
+                {
+                    compile_cache[idx] = Some(cm);
                 }
                 acc[idx].push(outcome);
             }

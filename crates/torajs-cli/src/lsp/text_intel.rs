@@ -113,6 +113,7 @@ pub(super) fn ident_at_byte(text: &str, byte: u32) -> Option<String> {
 ///   - `type NAME`
 ///   - `let NAME`
 ///   - `const NAME`
+///
 /// Same-name shadows: the FIRST occurrence wins, matching how the
 /// editor "jump to top of file" intuition works for most user code.
 pub(super) fn scan_top_level_symbols(text: &str) -> HashMap<String, u32> {

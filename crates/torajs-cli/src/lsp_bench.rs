@@ -185,11 +185,11 @@ fn synthesize_fixture(lines: usize) -> String {
         out.push_str(&format!("// Block {n}\n"));
         out.push_str(&format!("type T{n} = {{ x: i64, y: i64 }}\n"));
         out.push_str(&format!("function add{n}(a: i64, b: i64): i64 {{\n"));
-        out.push_str(&format!("  let s: i64 = a + b\n"));
-        out.push_str(&format!("  return s\n"));
+        out.push_str("  let s: i64 = a + b\n");
+        out.push_str("  return s\n");
         out.push_str("}\n");
         out.push_str(&format!("function mul{n}(a: i64, b: i64): i64 {{\n"));
-        out.push_str(&format!("  return a * b\n"));
+        out.push_str("  return a * b\n");
         out.push_str("}\n");
         out.push_str(&format!("let v{n}: i64 = add{n}(1, 2) + mul{n}(3, 4)\n"));
         i += 1;

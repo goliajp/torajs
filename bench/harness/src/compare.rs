@@ -190,17 +190,17 @@ pub fn compare(args: &[String]) -> Result<bool> {
                 ));
             }
         }
-        if let (Some(bf), Some(cf)) = (b.phys_footprint_kb, c.phys_footprint_kb) {
-            if cf > bf + FOOTPRINT_GATE_KB {
-                counter_regress.push((
-                    case.clone(),
-                    rt.clone(),
-                    "footprint_kb",
-                    bf,
-                    cf,
-                    allowed_counters.contains(&tag),
-                ));
-            }
+        if let (Some(bf), Some(cf)) = (b.phys_footprint_kb, c.phys_footprint_kb)
+            && cf > bf + FOOTPRINT_GATE_KB
+        {
+            counter_regress.push((
+                case.clone(),
+                rt.clone(),
+                "footprint_kb",
+                bf,
+                cf,
+                allowed_counters.contains(&tag),
+            ));
         }
         if identical {
             artifact_same += 1;
@@ -211,10 +211,11 @@ pub fn compare(args: &[String]) -> Result<bool> {
         } else {
             let justified = allowed.contains(&tag);
             artifact_delta.push((case.clone(), rt.clone(), ba, ca, justified));
-            if let (Some(br), Some(cr)) = (b.run_ms, c.run_ms) {
-                if br > 0.0 && ((cr - br) / br * 100.0).abs() > 20.0 {
-                    run_real.push((case.clone(), rt.clone(), br, cr));
-                }
+            if let (Some(br), Some(cr)) = (b.run_ms, c.run_ms)
+                && br > 0.0
+                && ((cr - br) / br * 100.0).abs() > 20.0
+            {
+                run_real.push((case.clone(), rt.clone(), br, cr));
             }
         }
     }

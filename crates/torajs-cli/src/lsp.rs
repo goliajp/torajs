@@ -33,6 +33,7 @@ use text_intel::{
 const SERVER_NAME: &str = "tr";
 const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+#[allow(clippy::mutable_key_type)] // lsp_types::Uri hashes and compares by `as_str()` only
 pub fn run() -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
     let (connection, io_threads) = Connection::stdio();
 
@@ -85,6 +86,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
     Ok(())
 }
 
+#[allow(clippy::mutable_key_type)] // lsp_types::Uri hashes and compares by `as_str()` only
 fn handle_notification(
     connection: &Connection,
     docs: &mut HashMap<Uri, String>,
@@ -370,6 +372,7 @@ fn diagnostic_from_core(text: &str, d: torajs_core::check::Diagnostic) -> Diagno
     }
 }
 
+#[allow(clippy::mutable_key_type)] // lsp_types::Uri hashes and compares by `as_str()` only
 fn handle_request(
     connection: &Connection,
     docs: &HashMap<Uri, String>,

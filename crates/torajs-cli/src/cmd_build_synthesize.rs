@@ -102,7 +102,7 @@ fn push_fpcr_default_nan(bytes: &mut Vec<u8>) {
 /// them on stack and restoring before the user-main BL. Strictly
 /// speaking only argv (x1) + envp (x2) need preservation post-init
 /// since user main takes no args; we save all three for symmetry
-/// + future-proofing. AAPCS64 §6.4 requires 16-byte sp alignment,
+/// and future-proofing. AAPCS64 §6.4 requires 16-byte sp alignment,
 /// so the frame is 48 bytes (3 × 16 = 48, holding x29/x30 + the
 /// saved triple).
 ///
