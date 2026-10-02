@@ -230,7 +230,7 @@ pub(super) fn inject_bare_exported_decl(
     want: &HashSet<&str>,
     rename: &HashMap<&str, Vec<&str>>,
     default_alias: &Option<String>,
-    ns: Option<&mut NsAccum>,
+    mut ns: Option<&mut NsAccum>,
     ns_star_feed: bool,
     injected: &mut HashSet<String>,
     demangle: &HashMap<String, String>,
@@ -265,13 +265,12 @@ pub(super) fn inject_bare_exported_decl(
             copy_fn_name_tables(ast, &dname, exported);
             rename_decl(&mut inner, exported.clone());
         }
-        let ns = ns.map(|ns| {
-            if let Some(local) = decl_name(&inner) {
-                let face = demangle.get(&local).unwrap_or(&local);
-                claim_other_faces(ns, other_faces, face, &local);
-            }
-            ns
-        });
+        if let Some(ns) = ns.as_deref_mut()
+            && let Some(local) = decl_name(&inner)
+        {
+            let face = demangle.get(&local).unwrap_or(&local);
+            claim_other_faces(ns, other_faces, face, &local);
+        }
         inject_export_inner(
             ast, injections, inner, want, rename, ns, injected, demangle, hidden, landings,
         );

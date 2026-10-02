@@ -13,7 +13,7 @@ pub(super) fn try_route(
     checker: &mut Checker,
     ast: &Ast,
     callee: &ExprId,
-    args: &Vec<ExprId>,
+    args: &[ExprId],
 ) -> Option<Result<Type, String>> {
     // Promise<T>.then / .catch early-route arms (T-19.l 2-arg
     // shape, T-19.o heterogeneous T→U + P10.7 Promise<Any>,

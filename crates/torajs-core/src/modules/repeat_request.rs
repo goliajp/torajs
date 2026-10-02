@@ -333,11 +333,11 @@ pub(super) fn follow_aliases(ast: &mut Ast, aliases: &[(String, String)]) {
     let classes: HashSet<&str> = ast
         .stmts
         .iter()
-        .filter_map(|s| match s {
+        .map(|s| match s {
             Stmt::ExportDecl {
                 inner: Some(inner), ..
-            } => Some(inner.as_ref()),
-            other => Some(other),
+            } => inner.as_ref(),
+            other => other,
         })
         .filter_map(|s| match s {
             Stmt::ClassDecl { name, .. } => Some(name.as_str()),

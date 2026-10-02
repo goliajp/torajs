@@ -61,7 +61,7 @@ pub(crate) fn apply(
         _ => false,
     };
     if trunc {
-        params.truncate(0);
+        params.clear();
     }
     Ok(())
 }

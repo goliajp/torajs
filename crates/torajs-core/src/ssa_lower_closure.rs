@@ -114,7 +114,8 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, fn_name: String, captures: Vec<Strin
     // 556-02 — a variadic binding captured HERE stays one in the body.
     let variadic: Vec<String> = eff_captures
         .iter()
-        .filter_map(|(n, _)| ctx.variadic_locals.contains(n).then(|| n.clone()))
+        .filter(|&(n, _)| ctx.variadic_locals.contains(n))
+        .map(|(n, _)| n.clone())
         .collect();
     ctx.closure_variadic_captures
         .insert(fn_name.clone(), variadic);

@@ -102,8 +102,7 @@ pub(crate) fn compute_typevar_widths(
     };
     tp_names
         .iter()
-        .enumerate()
-        .map(|(_tp_idx, tp_name)| {
+        .map(|tp_name| {
             // Only interesting if this type-arg resolved to Number.
             // Any other type collapses to Unknown — we only widen Number
             // generics to f64.

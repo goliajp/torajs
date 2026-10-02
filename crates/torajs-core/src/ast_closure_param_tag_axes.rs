@@ -115,7 +115,7 @@ pub(crate) fn backward_param_marks(
 /// the value already carries the env-first shape. (Chunk 774
 /// extraction from [`crate::ast_closure_param_tag::tag_closure_arg_params`]'s
 /// tail.)
-#[allow(clippy::too_many_arguments)]
+// separate per-fn tables built by the caller pass
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn wrap_named_fn_values(
     ast: &mut Ast,

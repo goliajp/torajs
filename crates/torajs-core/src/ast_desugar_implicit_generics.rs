@@ -271,16 +271,6 @@ fn backfill_closure_typed_lets(
     }
 }
 
-/// Main-loop closure-shape arm — a fn whose first param is `__env` /
-/// `__this`. Both synth closure namespaces (`__closure_*` lifted
-/// arrows AND `__forward_*` fn-to-closure shims) are `__env`-first
-/// closure shapes; the forwarder clones its target's params verbatim,
-/// so an untyped-param user fn (`function g(n) {}`) taken as a value
-/// used to reach build_fn_type with `n` unannotated and reject the
-/// whole program. Return-type inference seeds from the construction
-/// site's capture snapshot (`seeded_binds_for`).
-#[allow(clippy::too_many_arguments)]
-
 /// Main-loop's "plain user fn" arm — auto-generic every un-annotated
 /// param (skipping rest-params), infer / fallback the return type per
 /// chunk 613 "un-typeable value return → `any` instead of Void", and

@@ -126,20 +126,20 @@ enum Mode {
     /// "Inside a function body" — flips true at every callee scope:
     /// function bodies, arrow bodies, class member bodies, parameter
     /// defaults. The original semantics of [`fn_owned_exprs`].
-    FnOwned,
+    Fn,
     /// "Inside a class member body, through arrows only" — the
     /// §19.2.1.1 home-object question for the eval super gate (r334
     /// blade 6). Flips true at class member bodies, flips back FALSE
     /// at an ordinary `FnDecl` body (its own `this` cuts the home
     /// chain), and rides through arrows unchanged (they pierce).
-    ClassOwned,
+    Class,
     /// "Inside strict code" for a text whose OUTERMOST level is sloppy
     /// (a `Function(...)` body, §20.2.1.1 parses it non-strict). Flips
     /// true at a function body whose directive prologue opens with
     /// 'use strict' (§11.2.1) and at every class member body (§10.2.1
     /// makes all class code strict); once true it never flips back —
     /// strictness is inherited by nested functions.
-    StrictOwned,
+    Strict,
 }
 
 /// One flag per arena slot: is this expression inside a function body?
@@ -148,7 +148,7 @@ enum Mode {
 /// source's own expressions take the position of the call they replace.
 pub(crate) fn fn_owned_exprs(ast: &Ast) -> Vec<bool> {
     let mut owned = vec![false; ast.exprs.len()];
-    mark_stmts(ast, &ast.stmts, false, Mode::FnOwned, &mut owned);
+    mark_stmts(ast, &ast.stmts, false, Mode::Fn, &mut owned);
     owned
 }
 
@@ -160,7 +160,7 @@ pub(crate) fn fn_owned_exprs(ast: &Ast) -> Vec<bool> {
 /// verdict the super gate feeds to `parse_eval_source`.
 pub(super) fn class_owned_exprs(ast: &Ast) -> Vec<bool> {
     let mut owned = vec![false; ast.exprs.len()];
-    mark_stmts(ast, &ast.stmts, false, Mode::ClassOwned, &mut owned);
+    mark_stmts(ast, &ast.stmts, false, Mode::Class, &mut owned);
     owned
 }
 
@@ -170,7 +170,7 @@ pub(super) fn class_owned_exprs(ast: &Ast) -> Vec<bool> {
 /// name (its body's uses belong to the local, not the top-level
 /// binding), which needs ownership per fn rather than one global bit.
 pub(crate) fn body_owned_exprs(ast: &Ast, body: &[Stmt], owned: &mut [bool]) {
-    mark_stmts(ast, body, true, Mode::FnOwned, owned);
+    mark_stmts(ast, body, true, Mode::Fn, owned);
 }
 
 /// One flag per arena slot: is a DIRECT eval whose call sits in this
@@ -182,7 +182,7 @@ pub(crate) fn body_owned_exprs(ast: &Ast, body: &[Stmt], owned: &mut [bool]) {
 /// their own — the program prologue via `Ast::program_strict_prologue`,
 /// which is the parser's answer rather than a read of `stmts[0]` (that
 /// vector has other files in it by now); the rest is exactly what
-/// [`Mode::StrictOwned`] walks.
+/// [`Mode::Strict`] walks.
 ///
 /// Slots appended after this ran — an eval source's own expressions,
 /// including a nested eval inside one — read `false` through the
@@ -194,7 +194,7 @@ pub(super) fn caller_strict_exprs(ast: &Ast) -> Vec<bool> {
     let goal_strict = !ast.program_is_sloppy();
     let mut owned = vec![goal_strict; ast.exprs.len()];
     if !goal_strict {
-        mark_stmts(ast, &ast.stmts, false, Mode::StrictOwned, &mut owned);
+        mark_stmts(ast, &ast.stmts, false, Mode::Strict, &mut owned);
     }
     owned
 }
@@ -205,7 +205,7 @@ pub(super) fn caller_strict_exprs(ast: &Ast) -> Vec<bool> {
 /// stmt list's sub-tree is walked.
 pub(super) fn strict_owned_exprs(ast: &Ast, stmts: &[Stmt]) -> Vec<bool> {
     let mut owned = vec![false; ast.exprs.len()];
-    mark_stmts(ast, stmts, false, Mode::StrictOwned, &mut owned);
+    mark_stmts(ast, stmts, false, Mode::Strict, &mut owned);
     owned
 }
 
@@ -224,19 +224,17 @@ fn mark_params(ast: &Ast, params: &[Param], flag: bool, mode: Mode, owned: &mut 
 }
 
 fn mark_stmt(ast: &Ast, s: &Stmt, in_fn: bool, mode: Mode, owned: &mut [bool]) {
-    // The flag a callee-scope body is marked with: FnOwned flips true
-    // at any function boundary; ClassOwned flips FALSE at an ordinary
+    // The flag a callee-scope body is marked with: `Mode::Fn` flips true
+    // at any function boundary; `Mode::Class` flips FALSE at an ordinary
     // function body (own `this`, no home) — class members below flip
     // true in every mode (all class code is strict, §10.2.1);
-    // StrictOwned flips true only on a 'use strict' prologue and is
+    // `Mode::Strict` flips true only on a 'use strict' prologue and is
     // never lowered by a nested function.
-    let fn_body_flag = matches!(mode, Mode::FnOwned);
+    let fn_body_flag = matches!(mode, Mode::Fn);
     match s {
         Stmt::Expr(e) | Stmt::Throw(e) | Stmt::Yield(e) => mark_expr(ast, *e, in_fn, mode, owned),
-        Stmt::Return(e) => {
-            if let Some(e) = e {
-                mark_expr(ast, *e, in_fn, mode, owned);
-            }
+        Stmt::Return(Some(e)) => {
+            mark_expr(ast, *e, in_fn, mode, owned);
         }
         Stmt::YieldInto { value, .. } => mark_expr(ast, *value, in_fn, mode, owned),
         Stmt::LetDecl { init, .. } => mark_expr(ast, *init, in_fn, mode, owned),
@@ -319,7 +317,7 @@ fn mark_stmt(ast: &Ast, s: &Stmt, in_fn: bool, mode: Mode, owned: &mut [bool]) {
         Stmt::Block(b) | Stmt::Multi(b) => mark_stmts(ast, b, in_fn, mode, owned),
         Stmt::FnDecl { params, body, .. } => {
             let flag = match mode {
-                Mode::StrictOwned => in_fn || super::recognize::has_use_strict_prologue(body, ast),
+                Mode::Strict => in_fn || super::recognize::has_use_strict_prologue(body, ast),
                 _ => fn_body_flag,
             };
             mark_params(ast, params, flag, mode, owned);
@@ -423,17 +421,17 @@ fn mark_expr(ast: &Ast, eid: ExprId, in_fn: bool, mode: Mode, owned: &mut [bool]
                 mark_expr(ast, *v, in_fn, mode, owned);
             }
         }
-        // An arrow is a callee scope for FnOwned, but transparent for
-        // ClassOwned — it pierces `this`/`super` to its enclosure, so
+        // An arrow is a callee scope for `Mode::Fn`, but transparent for
+        // `Mode::Class` — it pierces `this`/`super` to its enclosure, so
         // its body keeps the enclosure's home verdict.
         Expr::ArrowFn { params, body, .. } => {
             let body_flag = match mode {
-                Mode::FnOwned => true,
-                Mode::ClassOwned => in_fn,
+                Mode::Fn => true,
+                Mode::Class => in_fn,
                 // A true arrow inherits its enclosure's strictness and
                 // a fn expression (desugared to this variant) is
                 // strict on its own prologue — one formula serves both.
-                Mode::StrictOwned => in_fn || super::recognize::has_use_strict_prologue(body, ast),
+                Mode::Strict => in_fn || super::recognize::has_use_strict_prologue(body, ast),
             };
             mark_params(ast, params, body_flag, mode, owned);
             mark_stmts(ast, body, body_flag, mode, owned);

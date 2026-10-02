@@ -90,7 +90,7 @@ impl<'a> Analysis<'a> {
                 // B1b — product bits memcpy from the receiver (and
                 // container args below): one repr class each.
                 self.uf.union(&anon, &recv);
-                for a in args.to_vec() {
+                for a in args.iter().copied() {
                     // F2-fix — `concat` accepts scalars too; alias the
                     // arg's element class only with candidate-side
                     // container evidence, and feed its scalar width

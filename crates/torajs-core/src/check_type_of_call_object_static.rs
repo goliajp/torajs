@@ -57,7 +57,7 @@ pub(crate) fn try_match(
     ast: &Ast,
     eid: ExprId,
     callee: &ExprId,
-    args: &Vec<ExprId>,
+    args: &[ExprId],
 ) -> Option<Result<Type, String>> {
     // `Object.assign` is its own surface with its own subset rules;
     // it lives next door so this one stays about `Object.values`.

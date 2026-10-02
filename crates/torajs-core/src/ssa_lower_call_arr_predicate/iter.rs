@@ -12,7 +12,7 @@ use crate::ssa_lower_arr_hole_gate::TypedGate;
 /// Emit the full predicate-iter loop: i_slot init + forward/reverse cmp +
 /// body (load elem → call predicate → branch hit/next) + i++ step + after-
 /// block result load. Returns the final loaded result operand.
-#[allow(clippy::too_many_arguments)]
+// one loop's operands and lane flags
 #[allow(clippy::too_many_arguments)]
 pub(super) fn emit_predicate_iter(
     ctx: &mut LowerCtx<'_>,
@@ -217,7 +217,7 @@ fn read_elem(
 /// after_blk's predecessor (no, actually we leave cur_block on whatever the
 /// final ctx.f.set_term left it — the caller resets to after_blk before
 /// loading the result).
-#[allow(clippy::too_many_arguments)]
+// one loop's blocks, slots and lane flags
 #[allow(clippy::too_many_arguments)]
 fn emit_body_and_step(
     ctx: &mut LowerCtx<'_>,

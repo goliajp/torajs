@@ -456,9 +456,9 @@ fn print_try(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 /// `Stmt::FnDecl` arm — header line (name + type params + params +
 /// return type) then the body stmts one indent deeper.
+// mirrors the fields of Stmt::FnDecl
 #[allow(clippy::too_many_arguments)]
 fn print_fn_decl(
     ast: &Ast,

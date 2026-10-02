@@ -55,8 +55,10 @@ pub(super) struct SentinelTables {
 /// answer instead of a prefix of it. Both sets only grow and the
 /// names are finite, so it terminates.
 pub(super) fn close_sentinel_tables(a: &Analysis<'_>, stmts: &[Stmt]) -> SentinelTables {
-    let mut t = SentinelTables::default();
-    t.members = super::sentinel_member_reads::collect_member_candidates(a);
+    let mut t = SentinelTables {
+        members: super::sentinel_member_reads::collect_member_candidates(a),
+        ..Default::default()
+    };
     loop {
         let n = (
             t.fns.len(),

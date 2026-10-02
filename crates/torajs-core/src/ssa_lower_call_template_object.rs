@@ -35,7 +35,7 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Opera
         _ => return None,
     };
     let pairs = &args[1..];
-    if pairs.len() % 2 != 0 {
+    if !pairs.len().is_multiple_of(2) {
         return None;
     }
     let n = (pairs.len() / 2) as i64;
@@ -47,8 +47,7 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Opera
             vec![Operand::ConstI64(site), Operand::ConstI64(n)],
         ),
     );
-    for pair in pairs.chunks_exact(2) {
-        let (c, r) = (pair[0], pair[1]);
+    for &[c, r] in pairs.as_chunks::<2>().0 {
         let Expr::String(cs) = ctx.ast.get_expr(c) else {
             return None;
         };

@@ -137,7 +137,7 @@ pub(crate) fn lower(
 /// merge block (regalloc "ValueId not allocated"; SIGSEGV with the
 /// egraph off — the L3b ① spread-fixture discovery, latent for every
 /// `cond ? typedArr[i] : undefined` join since the OOB-read RFC).
-// both arms values, end blocks and source exprs
+// both arms' values, end blocks and source exprs
 #[allow(clippy::too_many_arguments)]
 fn widen_branches(
     ctx: &mut LowerCtx<'_>,

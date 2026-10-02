@@ -41,7 +41,7 @@ pub(crate) fn body_returns_any_binding(
         .filter(|p| p.type_ann.as_deref() == Some("any"))
         .map(|p| p.name.clone())
         .collect();
-    collect_any_locals(ast, body, &mut any_names);
+    collect_any_locals(body, &mut any_names);
     // `stmt_returns_closure`'s Ident arm is exactly the membership
     // test; its Closure-literal arm answering true here is harmless
     // (that body upgrades through `body_returns_closure` regardless).
@@ -49,7 +49,7 @@ pub(crate) fn body_returns_any_binding(
         .any(|s| stmt_returns_closure(ast, s, &any_names))
 }
 
-fn collect_any_locals(ast: &Ast, body: &[Stmt], out: &mut HashSet<String>) {
+fn collect_any_locals(body: &[Stmt], out: &mut HashSet<String>) {
     for s in body {
         if let Stmt::LetDecl {
             name,
@@ -61,7 +61,7 @@ fn collect_any_locals(ast: &Ast, body: &[Stmt], out: &mut HashSet<String>) {
             out.insert(name.clone());
         }
         crate::ast::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
-            collect_any_locals(ast, inner, out)
+            collect_any_locals(inner, out)
         });
     }
 }

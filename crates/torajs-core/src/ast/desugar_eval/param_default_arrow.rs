@@ -114,8 +114,8 @@ pub(super) fn rewrite_arrow_param_default_arguments_evals(ast: &mut Ast) {
 fn collect_declaring_evals(ast: &mut Ast, owned: &[bool]) -> HashMap<usize, (String, Vec<Stmt>)> {
     let caller_strict = walk::caller_strict_exprs(ast);
     let mut found = HashMap::new();
-    for i in 0..owned.len() {
-        if !owned[i] {
+    for (i, &is_owned) in owned.iter().enumerate() {
+        if !is_owned {
             continue;
         }
         let eid = ExprId(i as u32);

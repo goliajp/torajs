@@ -208,7 +208,7 @@ impl<'a> Parser<'a> {
                 let src = self.ast.add_expr(Expr::Ident(catch_n));
                 let mut prepend: Vec<Stmt> = Vec::new();
                 self.emit_pattern_binds(&pat, src, true, false, &mut prepend);
-                prepend.extend(catch_body.drain(..));
+                prepend.append(&mut catch_body);
                 catch_body = prepend;
             }
         }

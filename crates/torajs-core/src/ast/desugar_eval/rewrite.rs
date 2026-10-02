@@ -30,10 +30,10 @@ pub(super) fn rewrite_list(
     // top-level bindings the checker then typed a `var` from
     // (rotation 638, `assignment/dstr/obj-rest-*`).
     let mut spliced: Vec<usize> = Vec::new();
-    for i in 0..stmts.len() {
-        let was_eval = matches!(&stmts[i], Stmt::Expr(e) if literal_eval_call(*e, ast).is_some());
-        rewrite_stmt(&mut stmts[i], ast, in_fn, home, strict);
-        if was_eval && matches!(stmts[i], Stmt::Multi(_)) {
+    for (i, s) in stmts.iter_mut().enumerate() {
+        let was_eval = matches!(&*s, Stmt::Expr(e) if literal_eval_call(*e, ast).is_some());
+        rewrite_stmt(s, ast, in_fn, home, strict);
+        if was_eval && matches!(s, Stmt::Multi(_)) {
             spliced.push(i);
         }
     }

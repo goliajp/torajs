@@ -72,7 +72,7 @@ pub(crate) fn try_match(
     checker: &mut Checker,
     ast: &Ast,
     callee: &ExprId,
-    args: &Vec<ExprId>,
+    args: &[ExprId],
 ) -> Option<Result<Type, String>> {
     try_then_two_arg(checker, ast, callee, args)
         .or_else(|| try_then_heterogeneous(checker, ast, callee, args))

@@ -95,10 +95,7 @@ impl<'a> Parser<'a> {
         // ordering matters less than recognizing the modifiers.
         let mut explicit_visibility: Option<Visibility> = None;
         let mut is_readonly = false;
-        loop {
-            let Token::Ident(s) = self.peek() else {
-                break;
-            };
+        while let Token::Ident(s) = self.peek() {
             let candidate = match s.as_str() {
                 "public" => Some(Visibility::Public),
                 "private" => Some(Visibility::Private),

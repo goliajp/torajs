@@ -256,8 +256,8 @@ fn defaulted_args(
         }
     }
     let padded = args.len() < defaults.len();
-    for slot in args.len().min(defaults.len())..defaults.len() {
-        match defaults[slot] {
+    for default in &defaults[args.len().min(defaults.len())..] {
+        match *default {
             Some(default_eid) => new_args.push(default_eid),
             // A fresh literal per hole, not one shared node: the
             // materialize pass mints its pad value the same way, and

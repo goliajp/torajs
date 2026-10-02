@@ -23,8 +23,7 @@ impl Parser<'_> {
     ) -> Result<(Option<ast::Visibility>, bool), String> {
         let mut vis: Option<ast::Visibility> = None;
         let mut rd = false;
-        loop {
-            let Token::Ident(s) = self.peek() else { break };
+        while let Token::Ident(s) = self.peek() {
             match s.as_str() {
                 "public" => {
                     if vis.is_some() {

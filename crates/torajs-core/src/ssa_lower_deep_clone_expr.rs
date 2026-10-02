@@ -305,7 +305,7 @@ fn clone_container_expr(
         } => {
             let params = params.clone();
             let return_type = return_type.clone();
-            let body: Vec<Stmt> = body.iter().map(|s| s.clone()).collect();
+            let body: Vec<Stmt> = body.to_vec();
             // Arrow fn body stmts may carry ExprIds — but at this point
             // arrows are already lifted by lift_arrow_fns in normal
             // pipeline. Defensive: deep-clone each stmt.

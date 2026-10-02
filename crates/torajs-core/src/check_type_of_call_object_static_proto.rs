@@ -84,11 +84,9 @@ pub(crate) fn try_match(
             return Some(Err(e));
         }
     }
-    Some(Ok(match m_name.as_str() {
-        // §20.1.2.4 / §20.1.2.5 — both answer the receiver `O`, not
-        // Void. SSA lower returns the (Any) receiver operand; the
-        // checker sig had to be Any so a `var root = defineProperty(...)`
-        // doesn't collapse to a Void slot before Object.create sees it.
-        _ => Type::Any,
-    }))
+    // §20.1.2.4 / §20.1.2.5 — both answer the receiver `O`, not
+    // Void. SSA lower returns the (Any) receiver operand; the
+    // checker sig had to be Any so a `var root = defineProperty(...)`
+    // doesn't collapse to a Void slot before Object.create sees it.
+    Some(Ok(Type::Any))
 }

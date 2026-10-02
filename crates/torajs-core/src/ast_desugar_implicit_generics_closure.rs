@@ -19,6 +19,14 @@ use crate::ast::{
 };
 use crate::ast_desugar_implicit_generics::is_synth_closure_name;
 
+/// Main-loop closure-shape arm — a fn whose first param is `__env` /
+/// `__this`. Both synth closure namespaces (`__closure_*` lifted
+/// arrows AND `__forward_*` fn-to-closure shims) are `__env`-first
+/// closure shapes; the forwarder clones its target's params verbatim,
+/// so an untyped-param user fn (`function g(n) {}`) taken as a value
+/// used to reach build_fn_type with `n` unannotated and reject the
+/// whole program. Return-type inference seeds from the construction
+/// site's capture snapshot (`seeded_binds_for`).
 // per-fn fields plus disjoint borrows of separate Ast side tables
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn desugar_closure_shape_fn(

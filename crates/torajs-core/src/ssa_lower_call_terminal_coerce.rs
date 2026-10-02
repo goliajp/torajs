@@ -52,9 +52,9 @@ pub(crate) fn coerce_args(
     }
     if ctx.is_math_binary(target) {
         debug_assert_eq!(argv.len(), 2, "Math.* binary takes 2 args");
-        for i in 0..2 {
-            argv[i] = ctx.coerce_to_f64_tonumber(argv[i]);
-            argv[i] = canon_math_arg(ctx, argv[i], args.get(i).copied());
+        for (i, a) in argv[..2].iter_mut().enumerate() {
+            *a = ctx.coerce_to_f64_tonumber(*a);
+            *a = canon_math_arg(ctx, *a, args.get(i).copied());
         }
         return Vec::new();
     }
@@ -65,8 +65,8 @@ pub(crate) fn coerce_args(
     // `Math.clz32(Infinity)` answered 0 instead of 32.
     if let Some(n) = ctx.math_int32_arity(target) {
         debug_assert_eq!(argv.len(), n, "Math.* int32 arity");
-        for i in 0..n {
-            argv[i] = ctx.coerce_to_i64_toint32(argv[i]);
+        for a in argv[..n].iter_mut() {
+            *a = ctx.coerce_to_i64_toint32(*a);
         }
         return Vec::new();
     }

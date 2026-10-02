@@ -289,7 +289,7 @@ fn emit_return_check(ast: &mut Ast, regions: &[TryRegion], yield_ty: &str) -> Op
     if regs.is_empty() {
         return None;
     }
-    regs.sort_by(|a, b| b.start.cmp(&a.start));
+    regs.sort_by_key(|r| std::cmp::Reverse(r.start));
 
     // Tail: complete directly. Value routing mirrors the D3a return
     // copy — exactly one As wrap (`as any` boxes the any lane's step
@@ -374,7 +374,7 @@ pub(super) fn wrap_dispatch_with_region_catch(
     }
     loop_body.insert(0, emit_inject_check(ast));
     let mut regs: Vec<&TryRegion> = regions.iter().collect();
-    regs.sort_by(|a, b| b.start.cmp(&a.start));
+    regs.sort_by_key(|r| std::cmp::Reverse(r.start));
 
     // Build the routing chain tail-first: else { throw __gen_exc; }.
     let exc = ast.add_expr(Expr::Ident(DISPATCH_EXC.into()));
