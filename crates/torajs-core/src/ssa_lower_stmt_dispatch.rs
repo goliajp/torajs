@@ -189,12 +189,15 @@ impl<'a> LowerCtx<'a> {
                 // call's callee is recorded — anything deeper feeds
                 // an operand that IS read.
                 let saved_discard = self.discarded_stmt_call;
+                let saved_discard_expr = self.discarded_stmt_expr;
                 self.discarded_stmt_call = match self.ast.get_expr(*eid) {
                     Expr::Call { callee, .. } => Some(*callee),
                     _ => None,
                 };
+                self.discarded_stmt_expr = Some(*eid);
                 let op = self.lower_expr(*eid);
                 self.discarded_stmt_call = saved_discard;
+                self.discarded_stmt_expr = saved_discard_expr;
                 // RFC 20260705 owned-result invariant — the shape
                 // predicate + release live in `release_owned_temp`
                 // (ssa_lower_rc_emit); Ternary/Nullish over Calls

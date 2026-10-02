@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 
-use crate::ast::{Ast, ExprId, GenericStructDecls, PropKey};
+use crate::ast::{Ast, ExprId, PropKey};
 use crate::ssa::{self, BakedRegexEntry, BlockId, FuncId, Operand, Type, ValueId};
 use crate::ssa_lower::{CallRetargets, Intrinsics, LocalInfo};
 use crate::ssa_lower_stmt_break_continue::LabelFrame;
@@ -109,7 +109,7 @@ pub(crate) struct LowerCtx<'a> {
     /// M3.4 — generic struct decls indexed by name. Used by parse_type
     /// to instantiate `Foo<arg|...>` annotations in let-decl / fn-arg /
     /// closure-construction sites.
-    pub(crate) generic_struct_decls: &'a GenericStructDecls,
+    pub(crate) generic_struct_decls: &'a HashMap<String, (Vec<String>, Vec<(PropKey, String)>)>,
     /// Phase H.1.b — `class name → runtime tag`. Keyed by name (not
     /// sid) because classes with structurally identical fields share
     /// a single sid; sid-keyed tags would alias them and silently
@@ -156,12 +156,12 @@ pub(crate) struct LowerCtx<'a> {
     /// The non-local exits a `finally` tail has to resume — one
     /// family, documented on [`crate::ssa_lower_scope_exit::PendingExits`].
     pub(crate) pending: crate::ssa_lower_scope_exit::PendingExits,
-    /// The callee of the `Stmt::Expr` currently lowering, when that
-    /// statement IS a call — the one position where an expression's
-    /// value provably cannot be observed. Set and restored by the
-    /// statement dispatcher; compared by ExprId, so a stale entry can
-    /// only ever match the site that wrote it.
+    /// The `Stmt::Expr` (or `for` step) currently lowering — the one
+    /// position where a value provably cannot be observed: its callee
+    /// when it IS a call, and the expression itself. Set and restored
+    /// by the dispatcher; keyed by ExprId, so stale entries never match.
     pub(crate) discarded_stmt_call: Option<ExprId>,
+    pub(crate) discarded_stmt_expr: Option<ExprId>,
     /// 403-02 — the named fn-expression SELF binding's slot in the fn
     /// currently lowering (bound by `emit_closure_env_preamble`; None
     /// when there is no self slot or a same-named param shadowed it).

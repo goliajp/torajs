@@ -159,7 +159,7 @@ pub(crate) fn lower(
     if let Some(v) = crate::ssa_lower_exec_record::try_assign(ctx, &name, value) {
         return v;
     }
-    let v = if !ctx.locals.contains_key(&name)
+    let v = if ctx.locals.get(&name).is_none()
         && let Some(slot_ty) = ctx.globals.get(&name).copied()
     {
         lower_global_assign(ctx, name, slot_ty, value)
@@ -172,15 +172,13 @@ pub(crate) fn lower(
 
 /// Take the `+1` that turns the stored-slot borrow into a value the
 /// consumer owns, and record `eid` so `expr_owned_shape` answers
-/// owned. See the module doc for why this belongs here rather than in
-/// each consumer's borrow whitelist.
-///
-/// Copy-typed slots (`i64`, `bool`, …) mint nothing: `emit_rc_inc`
-/// has no work to do and `release_owned_temp` drops out on
-/// `ty.is_copy()` before reaching a release site, so recording the
-/// eid stays inert for them.
+/// owned (module doc: why here and not in each consumer's whitelist).
+/// Copy-typed slots mint nothing. Neither does a statement-position
+/// assignment (`p = p.then(f);`, a `for` step): its only consumer is
+/// the discarding release, which keys off the recorded eid, so the
+/// slot alone keeps the reference — the inc/dec pair's net result.
 fn mint_consumer_stake(ctx: &mut LowerCtx<'_>, eid: ExprId, v: &Operand) {
-    if !ctx.operand_ty(v).is_refcounted() {
+    if !ctx.operand_ty(v).is_refcounted() || ctx.discarded_stmt_expr == Some(eid) {
         return;
     }
     ctx.emit_rc_inc(*v);
@@ -484,10 +482,11 @@ fn apply_borrow_rc_inc(ctx: &mut LowerCtx<'_>, v: &Operand, value: ExprId) {
         // (`y = cond ? ys : xs; y.shift()` stole xs's stake at y's
         // scope end; census array-019-deque).
         Expr::Ternary { .. } | Expr::Nullish { .. } => !ctx.owned_member_reads.contains(&value),
-        Expr::BinOp {
-            op: crate::ast::BinOp::LAnd | crate::ast::BinOp::LOr,
-            ..
-        } => !ctx.owned_member_reads.contains(&value),
+        Expr::BinOp { op, .. }
+            if matches!(op, crate::ast::BinOp::LAnd | crate::ast::BinOp::LOr) =>
+        {
+            !ctx.owned_member_reads.contains(&value)
+        }
         _ => false,
     };
     if needs_inc {

@@ -100,6 +100,7 @@ pub(crate) fn synthesize_main(
             split_views: Vec::new(),
             pending: Default::default(),
             discarded_stmt_call: None,
+            discarded_stmt_expr: None,
             self_name_slot: None,
             try_finally_loop_depth: Vec::new(),
             locals: HashMap::new(),

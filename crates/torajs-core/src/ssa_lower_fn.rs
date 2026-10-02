@@ -153,6 +153,7 @@ pub(crate) fn lower_fn(
         try_finally_loop_depth: Vec::new(),
         pending: Default::default(),
         discarded_stmt_call: None,
+        discarded_stmt_expr: None,
         self_name_slot: None,
         locals: HashMap::new(),
         variadic_locals,

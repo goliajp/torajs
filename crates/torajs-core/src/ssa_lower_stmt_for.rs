@@ -157,7 +157,16 @@ pub(crate) fn lower(
     ctx.cur_block = step_blk;
     close_per_iter_boxes(ctx, &per_iter);
     if let Some(eid) = step {
-        let _ = ctx.lower_expr(eid);
+        // The step's value is read by nobody — the `Stmt::Expr`
+        // contract: an Ident-target assignment mints no consumer
+        // stake, and an owned temp (a call answering an object or a
+        // string) is released here. Neither happened before, so a
+        // refcounted step leaked one reference per iteration.
+        let saved_discard_expr = ctx.discarded_stmt_expr;
+        ctx.discarded_stmt_expr = Some(eid);
+        let op = ctx.lower_expr(eid);
+        ctx.discarded_stmt_expr = saved_discard_expr;
+        ctx.release_owned_temp(eid, &op);
     }
     if ctx.cur_open() {
         ctx.f.set_term(ctx.cur_block, Terminator::Br(header));
