@@ -1,0 +1,41 @@
+len1 300 586702 aaaaaaaaaaaaaaaaaaaaaaaa aaaaaaaaaaaa
+len2 600 402041 bcbcbcbcbcbcbcbcbcbcbcbc bcbcbcbcbcbc
+len3 900 253058 defdefdefdefdefdefdefdef defdefdefdef
+len4 1200 569294 ghijghijghijghijghijghij ghijghijghij
+len5 1500 881740 klmnoklmnoklmnoklmnoklmn noklmnoklmno
+len6 1800 693362 pqrstupqrstupqrstupqrstu pqrstupqrstu
+len7 2100 747033 vwxyzABvwxyzABvwxyzABvwx xyzABvwxyzAB
+len8 2400 941113 CDEFGHIJCDEFGHIJCDEFGHIJ GHIJCDEFGHIJ
+mixed 3600 4712 abcdefghijklmnopqrstuvwx yzABCDEFGHIJ
+wide 2000 368978 中文字测试中中文测试中文字测试中中文测试中文字测 测试中文字测试中中文测试
+fromLit 51 604202 static-left+++++++++++++ ++++++++++++
+lit static-left
+keep 100 xyxy
+shared 101 yxyZ
+snap 0 1 q
+snap 1 21 qrq
+snap 2 41 qrq
+snap 3 61 qrq
+snap 4 81 qrq
+snap 5 101 qrq
+snap 6 121 qrq
+grown 140 540746 qrqrqrqrqrqrqrqrqrqrqrqr qrqrqrqrqrqr
+switched 272 499392 abababababababababababab efüefüefüefü
+widen 271 556083 中, ñ, ñ, ñ, ñ, ñ, ñ, ñ,  , ñ, ñ, ñ, ñ
+edge 120 120 121 eZ
+edge 124 124 125 eZ
+edge 128 128 129 eZ
+edge 132 132 133 eZ
+edge 136 136 137 eZ
+edge4 252 256 yzABCD
+edge4 253 260 yzABCD
+edge4 254 260 yzABCD
+edge4 255 260 yzABCD
+edge4 256 260 yzABCD
+edge4 257 264 yzABCD
+edge4 258 264 yzABCD
+edge4 259 264 yzABCD
+edge4 260 264 yzABCD
+marks 161 748610 okokokokokokokokokokokok okokokokokok
+marks-upper OKŸOKOKO
+fromNull null!

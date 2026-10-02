@@ -48,6 +48,7 @@ mod rc_dec;
 mod refs;
 mod selinc;
 pub(crate) mod slot;
+mod str_append;
 mod terminator;
 
 #[cfg(test)]
@@ -85,6 +86,7 @@ pub use operand::{
 pub use refs::{
     emit_boxed_entry_addr, emit_fn_addr, emit_global_ref, emit_static_str_ref, emit_string_ref,
 };
+pub use str_append::StrAppendLit;
 
 /// Code offset a non-fall-through block is padded to. Function
 /// starts are 64-aligned by the linker, so this is absolute.
@@ -137,7 +139,7 @@ pub fn compile_function(func: &Function) -> CompiledFunction {
 pub fn compile_function_in(func: &Function, facts: &ModuleFacts) -> CompiledFunction {
     compile_function_with(
         func,
-        crate::linear_scan::allocate_linear_scan_with(func, facts.cells),
+        crate::linear_scan::allocate_linear_scan_with(func, facts.inline),
         facts,
     )
 }
@@ -150,10 +152,35 @@ pub struct ModuleFacts {
     /// coerce each arg's actual SSA type to the declared param type
     /// — FCVTZS for f64→i64, SCVTF for i64→f64 at the call boundary.
     pub(crate) fn_sigs: Vec<Vec<Type>>,
-    /// The object-cell intrinsics, whose calls open inline
-    /// ([`CellOps`]). The allocator and the emitter both read it: it
-    /// decides which call sites are rare.
+    /// The intrinsic calls that open inline.
+    pub(crate) inline: InlineSites,
+}
+
+/// The intrinsics whose calls `compile` opens inline: an inline arm
+/// that does the common case and a slow arm that makes the call. The
+/// allocator and the emitter both read it: it decides which call
+/// sites are rare.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct InlineSites {
+    /// Object-cell allocation and free ([`CellOps`]).
     pub(crate) cells: Option<CellOps>,
+    /// Short-literal append ([`StrAppendLit`]).
+    pub(crate) str_append: Option<StrAppendLit>,
+}
+
+impl InlineSites {
+    pub fn of_module(module: &Module) -> InlineSites {
+        InlineSites {
+            cells: CellOps::of_module(module),
+            str_append: StrAppendLit::of_module(module),
+        }
+    }
+
+    /// Whether the call `kind` reaches its `bl` only on a slow arm.
+    pub(crate) fn opens_inline(self, kind: &InstKind) -> bool {
+        self.cells.is_some_and(|c| c.inline_class(kind).is_some())
+            || self.str_append.is_some_and(|s| s.literal(kind).is_some())
+    }
 }
 
 impl ModuleFacts {
@@ -162,7 +189,7 @@ impl ModuleFacts {
             |f: &Function| f.params.iter().map(|v| f.values[v.0 as usize].ty).collect();
         ModuleFacts {
             fn_sigs: module.funcs.iter().map(param_types).collect(),
-            cells: CellOps::of_module(module),
+            inline: InlineSites::of_module(module),
         }
     }
 }

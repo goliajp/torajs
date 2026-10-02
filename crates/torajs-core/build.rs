@@ -202,6 +202,8 @@ const COMPILER_SOURCE_FILES: &[&str] = &[
     "../torajs-egraph/src/scope_map.rs",
     "../torajs-egraph/src/sext_elide.rs",
     "../torajs-egraph/src/slot_forward.rs",
+    // torajs-codegen call sites opened inline
+    "../torajs-codegen/src/compile/str_append.rs",
 ];
 
 /// Enumerate every Layer-1+ Rust sub-crate that contributes

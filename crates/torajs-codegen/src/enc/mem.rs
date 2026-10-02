@@ -72,6 +72,17 @@ pub fn stur_w_imm9(rt: Gpr, rn: Gpr, byte_offset: i32) -> u32 {
     0xB800_0000 | (imm9 << 12) | (rn.idx() << 5) | rt.idx()
 }
 
+/// STURH Wt, [Xn, #imm9] — store the low halfword, unscaled signed
+/// offset. ARM ARM C6.2.400.
+pub fn sturh_w_imm9(rt: Gpr, rn: Gpr, byte_offset: i32) -> u32 {
+    assert!(
+        (-256..=255).contains(&byte_offset),
+        "STURH imm9 must be in -256..=255 (got {byte_offset})"
+    );
+    let imm9 = (byte_offset as u32) & 0x1FF;
+    0x7800_0000 | (imm9 << 12) | (rn.idx() << 5) | rt.idx()
+}
+
 /// LDR Wt, [Xn, Xm, LSL #0] — load 32-bit zero-extended,
 /// register-indexed. ARM ARM C6.2.137.
 pub fn ldr_w_reg(rt: Gpr, rn: Gpr, rm: Gpr) -> u32 {
@@ -287,6 +298,12 @@ mod tests {
         // multiple of 8 (where scaled STR would silently misencode
         // via floor-divide-by-8).
         assert_eq!(stur_x_imm9(Gpr::X9, Gpr::X12, 4), 0xF800_4189);
+    }
+
+    #[test]
+    fn sturh_w_imm9_odd_offset_matches_arm_arm() {
+        // STURH w12, [x11, #17]
+        assert_eq!(sturh_w_imm9(Gpr::X12, Gpr::X11, 17), 0x7801_116C);
     }
 
     #[test]

@@ -135,8 +135,14 @@ pub(super) fn emit_inst_at(
         return;
     }
     // likewise a cell allocation or free served by the thread cache
-    if let Some(cells) = facts.cells
+    if let Some(cells) = facts.inline.cells
         && super::cell::try_emit(bytes, relocs, inst, alloc, &saves, cells)
+    {
+        return;
+    }
+    // and an append that lands in the accumulator's slack
+    if let Some(op) = facts.inline.str_append
+        && super::str_append::try_emit(bytes, relocs, inst, alloc, &saves, op)
     {
         return;
     }

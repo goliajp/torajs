@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use torajs_core::ssa::{Function, InstKind};
 
-use crate::compile::CellOps;
+use crate::compile::InlineSites;
 use crate::linear_scan_sweep::Sweep;
 use crate::liveness::Interval;
 use crate::reg::Reg;
@@ -74,7 +74,7 @@ pub(crate) struct FrameScan {
 /// `compute_intervals` (one index per inst plus one for the
 /// terminator) so a call site `p` compares directly against interval
 /// bounds.
-pub(crate) fn scan_frame(func: &Function, cells: Option<CellOps>) -> FrameScan {
+pub(crate) fn scan_frame(func: &Function, inline: InlineSites) -> FrameScan {
     let mut scan = FrameScan {
         alloca_offsets: HashMap::new(),
         next_alloca_offset: outgoing_arg_bytes(func),
@@ -94,7 +94,7 @@ pub(crate) fn scan_frame(func: &Function, cells: Option<CellOps>) -> FrameScan {
             if inst_emits_bl(&inst.kind) {
                 scan.has_calls = true;
                 scan.call_sites.push(idx);
-                scan.call_rarity.push(call_site_rarity(&inst.kind, cells));
+                scan.call_rarity.push(call_site_rarity(&inst.kind, inline));
             }
             idx += 1;
         }

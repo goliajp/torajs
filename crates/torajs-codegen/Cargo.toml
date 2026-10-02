@@ -18,3 +18,6 @@ torajs-anyvalue = { path = "../torajs-anyvalue" }
 torajs-core = { path = "../torajs-core" }
 torajs-mmalloc = { path = "../torajs-mmalloc" }
 torajs-rc = { path = "../torajs-rc" }
+# Str header layout and the short-literal immediates the inline
+# append arm reads.
+torajs-str = { path = "../torajs-str" }
