@@ -17,6 +17,7 @@ use super::{
     AccessorKind, Ast, BinOp, ClassMethod, Expr, ExprId, Param, PropKey, Stmt, UnaryOp, mangle_key,
     rewrite_this_in_ann,
 };
+use crate::check_pipeline::TypeAliasTables;
 
 /// P8.2 — getter return-type inference for `get prop() { return this.x }`
 /// shape, run when the user omitted the `: T` annotation. TS spec leaves
@@ -168,6 +169,7 @@ fn maybe_rewrite_async_method_body(
 /// name from the user-written `c.prop` / `c.prop = v`.
 pub(in crate::ast) fn emit_class_instance_methods(
     ast: &mut Ast,
+    tables: &TypeAliasTables,
     methods: &[ClassMethod],
     cname: &str,
     type_params: &[String],
@@ -271,7 +273,7 @@ pub(in crate::ast) fn emit_class_instance_methods(
         // a twin the accessor row was dropped outright — `b.value`
         // through `any` answered a silent undefined.
         super::desugar_classes_generic_twin::mint_generic_twin(
-            ast, &fn_name, &params, &body, &fn_tp, m.span, appended,
+            ast, tables, &fn_name, &params, &body, &fn_tp, m.span, appended,
         );
         appended.push(Stmt::FnDecl {
             name: fn_name,
@@ -293,6 +295,7 @@ pub(in crate::ast) fn emit_class_instance_methods(
 /// on a generic class continue to work.
 pub(in crate::ast) fn emit_class_static_methods(
     ast: &mut Ast,
+    tables: &TypeAliasTables,
     static_methods: &[ClassMethod],
     cname: &str,
     type_params: &[String],
@@ -374,7 +377,7 @@ pub(in crate::ast) fn emit_class_static_methods(
         // static methods mint; a this-free body mints nothing.
         if sm.accessor_kind.is_none() && !is_unit {
             super::desugar_classes_generic_twin::mint_static_generic_twin(
-                ast, &fn_name, &params, &body, &fn_tp, sm.span, appended,
+                ast, tables, &fn_name, &params, &body, &fn_tp, sm.span, appended,
             );
         }
         appended.push(Stmt::FnDecl {

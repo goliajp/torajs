@@ -42,9 +42,9 @@ use std::collections::{HashMap, VecDeque};
 
 use super::{RetFace, WidenTarget, emit_widened_spec};
 use crate::ast::{Ast, Expr, ExprId, Param, ShellFace, Stmt};
-use crate::check::{Checker, Type};
+use crate::check::Checker;
 use crate::check_monomorph::WorkItem;
-use crate::check_type_ann::resolve_type_ann_full;
+use crate::check_type_ann::struct_shaped_ann;
 use crate::ssa_lower_generics_monomorph::Generics;
 
 const SUFFIX: &str = "$$anyws";
@@ -152,12 +152,9 @@ fn widenable_target(c: &Checker, ast: &Ast, target: &str) -> Option<Vec<Param>> 
         });
     let has_struct = params.iter().any(|p| {
         !p.is_rest
-            && p.type_ann.as_deref().is_some_and(|ann| {
-                matches!(
-                    resolve_type_ann_full(ann, &c.aliases, &[], &c.generic_alias_decls),
-                    Some(Type::Struct(_) | Type::ClassRef(_))
-                )
-            })
+            && p.type_ann
+                .as_deref()
+                .is_some_and(|ann| struct_shaped_ann(ann, &c.aliases, &c.generic_alias_decls))
     });
     (plain && has_struct).then_some(params)
 }

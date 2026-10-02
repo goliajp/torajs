@@ -280,3 +280,20 @@ fn resolve_type_ann_inner(
         other => aliases.get(other).cloned(),
     }
 }
+
+/// Does `ann` denote a struct-shaped parameter slot: a struct, a
+/// class, or either behind `| null`? The boxed adapter unboxes such a
+/// slot through the layout, so a call whose argument does not fit it
+/// has to be handed to an all-`any` twin; the class desugar and the
+/// struct-escape lane both mint their twins on this one answer.
+pub(crate) fn struct_shaped_ann(
+    ann: &str,
+    aliases: &HashMap<String, Type>,
+    generic_aliases: &GenericAliasMap,
+) -> bool {
+    match resolve_type_ann_full(ann, aliases, &[], generic_aliases) {
+        Some(Type::Struct(_) | Type::ClassRef(_)) => true,
+        Some(Type::Nullable(inner)) => matches!(*inner, Type::Struct(_) | Type::ClassRef(_)),
+        _ => false,
+    }
+}

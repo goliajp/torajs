@@ -16,25 +16,14 @@
 
 use crate::ast::PropKey;
 use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
-use crate::check::{Checker, DiagPush, Type, build_fn_type_full, resolve_type_ann};
+use crate::check::{
+    Checker, DiagPush, GenericAliasMap, Type, build_fn_type_full, resolve_type_ann,
+};
 use crate::check_type_ann::resolve_type_ann_full;
+use std::collections::HashMap;
 
-/// Pass 0 — register every `Stmt::TypeDecl` into `c.aliases` (or
-/// `c.generic_alias_decls` for generic ones). Two-phase to support
-/// self-references and forward-references:
-///
-/// - **Phase 1** inserts a `Type::ClassRef(name)` placeholder for
-///   every non-generic class TypeDecl before resolving any field
-///   types. This lets [`resolve_type_ann_full`] succeed when a
-///   class field references its own class
-///   (`class Node { next: Node | null }`) or a forward-declared
-///   sibling (`class A { b: B } class B { a: A }`) — both of which
-///   would otherwise error because the class wasn't in `c.aliases`
-///   when its field types were being resolved.
-/// - **Phase 2** replaces each placeholder with the resolved fields.
-///   Downstream consumers (`Member`-access type-of, `Assign` lhs/rhs
-///   unify, etc.) index `c.aliases` by name on every read, so they
-///   always see the post-replacement struct, not the placeholder.
+/// Pass 0 — install the alias tables read off `ast.stmts`; see
+/// [`collect_type_alias_tables`] for the two phases.
 ///
 /// Generic type aliases (`type Pair<A, B> = { ... }`) skip the
 /// placeholder pass — they go straight into
@@ -50,6 +39,54 @@ pub(crate) fn pass_0_register_type_aliases(c: &mut Checker, ast: &Ast) {
     // the `__class_<C>` / `__proto_<C>` reads resolve against it.
     c.class_names = ast.class_parents.keys().cloned().collect();
     c.source_dunder_idents = ast.source_dunder_idents.clone();
+    let tables = collect_type_alias_tables(ast);
+    c.aliases = tables.aliases;
+    c.generic_alias_decls = tables.generic_alias_decls;
+    c.class_structs = tables.class_structs;
+    for msg in tables.errors {
+        c.errors.push_err(msg);
+    }
+}
+
+/// The type tables a program's declarations alone determine — what
+/// [`pass_0_register_type_aliases`] installs on the checker, and what
+/// the class desugar reads to tell a struct-shaped parameter
+/// annotation before any checker exists.
+pub(crate) struct TypeAliasTables {
+    pub(crate) aliases: HashMap<String, Type>,
+    pub(crate) generic_alias_decls: GenericAliasMap,
+    pub(crate) class_structs: HashMap<String, Type>,
+    pub(crate) errors: Vec<String>,
+}
+
+/// Register every `Stmt::TypeDecl` into `aliases` (or
+/// `generic_alias_decls` for generic ones). Two-phase to support
+/// self-references and forward-references:
+///
+/// - **Phase 1** inserts a `Type::ClassRef(name)` placeholder for
+///   every non-generic class TypeDecl before resolving any field
+///   types. This lets [`resolve_type_ann_full`] succeed when a
+///   class field references its own class
+///   (`class Node { next: Node | null }`) or a forward-declared
+///   sibling (`class A { b: B } class B { a: A }`) — both of which
+///   would otherwise error because the class wasn't in `c.aliases`
+///   when its field types were being resolved.
+/// - **Phase 2** replaces each placeholder with the resolved fields.
+///   Downstream consumers (`Member`-access type-of, `Assign` lhs/rhs
+///   unify, etc.) index `c.aliases` by name on every read, so they
+///   always see the post-replacement struct, not the placeholder.
+///
+/// Read the tables off `ast.stmts`. A class whose `TypeDecl` is not
+/// in the list yet (the desugar reads these mid-pass, while classes
+/// behind the current one are still `ClassDecl`s) keeps its
+/// `ClassRef` placeholder from `class_parents`.
+pub(crate) fn collect_type_alias_tables(ast: &Ast) -> TypeAliasTables {
+    let mut t = TypeAliasTables {
+        aliases: HashMap::new(),
+        generic_alias_decls: GenericAliasMap::new(),
+        class_structs: HashMap::new(),
+        errors: Vec::new(),
+    };
     let mut placeholder_classes: std::collections::HashSet<String> =
         std::collections::HashSet::new();
     for stmt in &ast.stmts {
@@ -60,11 +97,24 @@ pub(crate) fn pass_0_register_type_aliases(c: &mut Checker, ast: &Ast) {
             if !type_params.is_empty() {
                 continue;
             }
-            if c.aliases.contains_key(name) || c.generic_alias_decls.contains_key(name) {
+            if t.aliases.contains_key(name) || t.generic_alias_decls.contains_key(name) {
                 continue;
             }
-            c.aliases.insert(name.clone(), Type::ClassRef(name.clone()));
+            t.aliases.insert(name.clone(), Type::ClassRef(name.clone()));
             placeholder_classes.insert(name.clone());
+        }
+    }
+    let declared: std::collections::HashSet<&String> = ast
+        .stmts
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::TypeDecl { name, .. } => Some(name),
+            _ => None,
+        })
+        .collect();
+    for name in ast.class_parents.keys() {
+        if !declared.contains(name) {
+            t.aliases.insert(name.clone(), Type::ClassRef(name.clone()));
         }
     }
 
@@ -75,14 +125,14 @@ pub(crate) fn pass_0_register_type_aliases(c: &mut Checker, ast: &Ast) {
             fields,
         } = stmt
         {
-            if (c.aliases.contains_key(name) && !placeholder_classes.contains(name))
-                || c.generic_alias_decls.contains_key(name)
+            if (t.aliases.contains_key(name) && !placeholder_classes.contains(name))
+                || t.generic_alias_decls.contains_key(name)
             {
-                c.errors.push_err(format!("redeclaration of type `{name}`"));
+                t.errors.push(format!("redeclaration of type `{name}`"));
                 continue;
             }
             if !type_params.is_empty() {
-                c.generic_alias_decls.insert(
+                t.generic_alias_decls.insert(
                     name.clone(),
                     (
                         type_params.clone(),
@@ -94,12 +144,12 @@ pub(crate) fn pass_0_register_type_aliases(c: &mut Checker, ast: &Ast) {
             }
             if fields.len() == 1 && fields[0].0 == "__alias__" {
                 let alias_ann = &fields[0].1;
-                match resolve_type_ann_full(alias_ann, &c.aliases, &[], &c.generic_alias_decls) {
+                match resolve_type_ann_full(alias_ann, &t.aliases, &[], &t.generic_alias_decls) {
                     Some(ty) => {
-                        c.aliases.insert(name.clone(), ty);
+                        t.aliases.insert(name.clone(), ty);
                     }
                     None => {
-                        c.errors.push_err(format!(
+                        t.errors.push(format!(
                             "unknown type `{alias_ann}` for type alias `{name}`"
                         ));
                     }
@@ -109,10 +159,10 @@ pub(crate) fn pass_0_register_type_aliases(c: &mut Checker, ast: &Ast) {
             let mut field_tys: Vec<(PropKey, Type)> = Vec::new();
             let mut had_err = false;
             for (fname, fty_ann) in fields {
-                match resolve_type_ann_full(fty_ann, &c.aliases, &[], &c.generic_alias_decls) {
+                match resolve_type_ann_full(fty_ann, &t.aliases, &[], &t.generic_alias_decls) {
                     Some(ty) => field_tys.push((fname.clone(), ty)),
                     None => {
-                        c.errors.push_err(format!(
+                        t.errors.push(format!(
                             "unknown type `{fty_ann}` for field `{}` of `{name}`",
                             fname.lossy()
                         ));
@@ -134,13 +184,14 @@ pub(crate) fn pass_0_register_type_aliases(c: &mut Checker, ast: &Ast) {
                 // to keep — it resolves to the struct as before.
                 let resolved = Type::Struct(field_tys);
                 if ast.class_parents.contains_key(name) {
-                    c.class_structs.insert(name.clone(), resolved);
+                    t.class_structs.insert(name.clone(), resolved);
                 } else {
-                    c.aliases.insert(name.clone(), resolved);
+                    t.aliases.insert(name.clone(), resolved);
                 }
             }
         }
     }
+    t
 }
 
 /// Pass 1 — hoist every top-level `Stmt::FnDecl`'s user-visible

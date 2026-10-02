@@ -119,6 +119,11 @@ pub(super) fn rewrite_classdecls_pass3(
     // module-top class_globals prepend). Collected during the loop,
     // spliced in reverse so earlier indices stay valid.
     let mut computed_patches: Vec<(usize, Vec<Stmt>)> = Vec::new();
+    // the method twins read parameter annotations the way the checker
+    // will; every class is still a `ClassDecl` here, so the tables
+    // carry them as `ClassRef` placeholders; the table errors are
+    // dropped here, the checker reports them on its own pass
+    let tables = crate::check_pipeline::collect_type_alias_tables(ast);
     // Pass 3 — rewrite the stmt list. Replace each ClassDecl in-place
     // with its TypeDecl (using the flattened field list so subclasses
     // carry parent fields too), and accumulate the generated FnDecls.
@@ -204,6 +209,7 @@ pub(super) fn rewrite_classdecls_pass3(
         // See `ast/desugar_classes_emit.rs`.
         emit_class_instance_methods(
             ast,
+            &tables,
             methods,
             cname,
             type_params,
@@ -266,7 +272,7 @@ pub(super) fn rewrite_classdecls_pass3(
 
         // M-OO.4 — emit `function __sm_<C>__<name>(...): R { body }`
         // for each static method. See `ast/desugar_classes_emit.rs`.
-        emit_class_static_methods(ast, static_methods, cname, type_params, appended);
+        emit_class_static_methods(ast, &tables, static_methods, cname, type_params, appended);
 
         // §15.7.14 evaluates every ClassElementName (step 27) before
         // running any static initializer (step 29), so the reifies —

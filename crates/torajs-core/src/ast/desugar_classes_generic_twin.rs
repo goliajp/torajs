@@ -33,9 +33,12 @@ use super::ast_def::Ast;
 use super::clone_body::BodyCloner;
 use super::expr::{Expr, Param};
 use super::stmt::Stmt;
+use crate::check_pipeline::TypeAliasTables;
+use crate::check_type_ann::struct_shaped_ann;
 
 pub(in crate::ast) fn mint_generic_twin(
     ast: &mut Ast,
+    tables: &TypeAliasTables,
     mono_name: &str,
     params: &[Param],
     body: &[Stmt],
@@ -58,7 +61,7 @@ pub(in crate::ast) fn mint_generic_twin(
         matches!(cloner.ast.get_expr(*old), Expr::This | Expr::NewTarget)
             || matches!(cloner.ast.get_expr(*old), Expr::Ident(n) if n == "__this")
     });
-    if !reads_receiver && !has_lossy_param(cloner.ast, params, false) {
+    if !reads_receiver && !has_lossy_param(cloner.ast, tables, params, false) {
         neutralize_clone(&mut cloner);
         return;
     }
@@ -118,6 +121,7 @@ pub(in crate::ast) fn mint_generic_twin(
 /// restore step copies back so the twin dispatches dynamically).
 pub(in crate::ast) fn mint_static_generic_twin(
     ast: &mut Ast,
+    tables: &TypeAliasTables,
     mono_name: &str,
     params: &[Param],
     body: &[Stmt],
@@ -128,7 +132,7 @@ pub(in crate::ast) fn mint_static_generic_twin(
     let mut cloner = BodyCloner::new(ast);
     let cloned_body = cloner.clone_stmts(body);
     let reads_this = rebind_this_sites(&mut cloner);
-    if !reads_this && !has_lossy_param(cloner.ast, params, true) {
+    if !reads_this && !has_lossy_param(cloner.ast, tables, params, true) {
         neutralize_clone(&mut cloner);
         return;
     }
@@ -204,15 +208,22 @@ pub(in crate::ast) fn mint_static_generic_twin(
 /// struct-typed slot counts too: the mono body reads it through the
 /// layout, which only a fitting struct cell has, and the adapter
 /// sends every other argument — an array, a Proxy, a `3` — to the
-/// twin, where `p.x` is the generic [[Get]] (§13.3.2.1).
-fn has_lossy_param(ast: &Ast, params: &[Param], is_static: bool) -> bool {
+/// twin, where `p.x` is the generic [[Get]] (§13.3.2.1). Struct-shaped
+/// is the checker's reading of the annotation (`struct_shaped_ann`),
+/// so an alias chain, an inline object type and a `P | null` all
+/// count exactly where the struct-escape lane counts them.
+fn has_lossy_param(ast: &Ast, tables: &TypeAliasTables, params: &[Param], is_static: bool) -> bool {
     params.iter().any(|p| match p.default {
         None => match p.type_ann.as_deref() {
             Some("boolean" | "i64" | "i32") => true,
             Some("number") => is_static,
             // the receiver head carries the class's own annotation
             // and is the mono adapter's env, not an argv slot
-            Some(ann) => p.name != "__this" && !p.is_rest && struct_ann(ast, ann),
+            Some(ann) => {
+                p.name != "__this"
+                    && !p.is_rest
+                    && struct_shaped_ann(ann, &tables.aliases, &tables.generic_alias_decls)
+            }
             None => false,
         },
         // a default that reads `arguments` stays on the direct lane:
@@ -223,23 +234,6 @@ fn has_lossy_param(ast: &Ast, params: &[Param], is_static: bool) -> bool {
                 && !super::desugar_async_nested_fns::expr_names_arguments(ast, d)
         }
     })
-}
-
-/// A struct-shaped annotation as the desugar sees it: an inline
-/// object type, a class (hoisted into `class_parents` ahead of this
-/// pass), or a field-bearing non-generic type alias. A generic
-/// instantiation (`Pair<number, string>`) and an alias of another
-/// name are not recognized here and keep the mono dispatch.
-fn struct_ann(ast: &Ast, ann: &str) -> bool {
-    let ann = ann.trim();
-    ann.starts_with('{')
-        || ast.class_parents.contains_key(ann)
-        || ast.stmts.iter().any(|s| {
-            matches!(s, Stmt::TypeDecl { name, type_params, fields }
-                if name == ann
-                    && type_params.is_empty()
-                    && fields.first().is_none_or(|(k, _)| *k != "__alias__"))
-        })
 }
 
 /// Point every cloned counterpart of a static-`this` site at the
