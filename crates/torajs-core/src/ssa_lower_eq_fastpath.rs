@@ -179,7 +179,7 @@ impl<'a> LowerCtx<'a> {
         // owned operand's ownership ends here. Ident / Member / Index
         // sources stay with their binding.
         if other_ty.is_refcounted() && self.expr_is_fresh_owned(other_eid) {
-            self.emit_drop_value(other.clone(), other_ty);
+            self.emit_drop_value(other, other_ty);
         }
         // For !==, flip via xor.
         if matches!(op, AstBinOp::Neq) {

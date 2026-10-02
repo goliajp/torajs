@@ -28,7 +28,7 @@ pub(crate) fn lower_any_lhs(
     let cur_block = ctx.cur_block;
     let tag = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(ctx.intrinsics.any_unbox_tag, vec![lhs_op.clone()]),
+        InstKind::Call(ctx.intrinsics.any_unbox_tag, vec![lhs_op]),
         Type::I64,
         None,
     );
@@ -61,17 +61,17 @@ pub(crate) fn lower_any_lhs(
         rhs_raw
     } else {
         if rhs_raw_ty.is_refcounted() && !ctx.expr_transfers_ownership(rhs) {
-            ctx.emit_rc_inc(rhs_raw.clone());
+            ctx.emit_rc_inc(rhs_raw);
         }
         ctx.box_to_any_from_expr(rhs, rhs_raw)
     };
     let rhs_ty = Type::Any;
     let rhs_end = ctx.cur_block;
     if rhs_raw_ty == Type::Any && !ctx.expr_transfers_ownership(rhs) {
-        ctx.emit_owned_result_inc_in(rhs_end, rhs_op.clone(), rhs_ty);
+        ctx.emit_owned_result_inc_in(rhs_end, rhs_op, rhs_ty);
     }
     ctx.cur_block = unbox_blk;
-    let unboxed = unbox_lhs_to_rhs_ty(ctx, lhs_op.clone(), rhs_ty);
+    let unboxed = unbox_lhs_to_rhs_ty(ctx, lhs_op, rhs_ty);
     let unbox_end = ctx.cur_block;
     let res_slot = ctx.alloca_in_entry(rhs_ty, Some("__nullish_any"));
     ctx.f.append_void(
@@ -129,7 +129,7 @@ fn emit_nullish_check(ctx: &mut LowerCtx<'_>, tag: crate::ssa::ValueId) -> crate
 
 fn unbox_lhs_to_rhs_ty(ctx: &mut LowerCtx<'_>, lhs_op: Operand, rhs_ty: Type) -> Operand {
     if matches!(rhs_ty, Type::Any) {
-        ctx.emit_rc_inc(lhs_op.clone());
+        ctx.emit_rc_inc(lhs_op);
         return lhs_op;
     }
     if rhs_ty.is_refcounted() {
@@ -149,7 +149,7 @@ fn unbox_lhs_to_rhs_ty(ctx: &mut LowerCtx<'_>, lhs_op: Operand, rhs_ty: Type) ->
     let cur_block = ctx.cur_block;
     let val = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(ctx.intrinsics.any_unbox_value, vec![lhs_op.clone()]),
+        InstKind::Call(ctx.intrinsics.any_unbox_value, vec![lhs_op]),
         Type::I64,
         None,
     );

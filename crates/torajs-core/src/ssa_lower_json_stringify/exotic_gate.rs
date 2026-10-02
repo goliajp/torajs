@@ -33,7 +33,7 @@ pub(super) fn lower_obj_gated(
     depth: u32,
     is_error: bool,
 ) -> Operand {
-    let gated = val_op.clone();
+    let gated = val_op;
     super::composite::with_null_gate(ctx, &gated, "__json_obj_exotic", move |ctx| {
         lower_obj_nonnull(ctx, val_op, sid, fe_fields, gap, depth, is_error)
     })
@@ -50,8 +50,8 @@ fn lower_obj_nonnull(
     depth: u32,
     is_error: bool,
 ) -> Operand {
-    let walk_val = val_op.clone();
-    let walk_gap = gap.clone();
+    let walk_val = val_op;
+    let walk_gap = gap;
     with_exotic_field_gate(
         ctx,
         &val_op.clone(),

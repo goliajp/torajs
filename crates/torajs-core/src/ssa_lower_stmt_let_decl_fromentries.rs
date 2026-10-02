@@ -63,7 +63,7 @@ pub(crate) fn try_lower(
         None,
     );
     let obj_op = Operand::Value(obj_ptr);
-    ctx.emit_obj_header_init(obj_op.clone());
+    ctx.emit_obj_header_init(obj_op);
     // `obj_alloc` is plain malloc — class_tag and vtable_ptr MUST be
     // stored explicitly (a garbage class_tag can alias a real class id
     // and hand the drop/cycle walkers the wrong ClassLayout). The
@@ -74,7 +74,7 @@ pub(crate) fn try_lower(
         ctx.cur_block,
         InstKind::Store(
             Operand::ConstI64(anon_tag as i64),
-            obj_op.clone(),
+            obj_op,
             crate::ssa_lower::OBJ_CLASS_TAG_OFF,
         ),
     );
@@ -82,16 +82,16 @@ pub(crate) fn try_lower(
         ctx.cur_block,
         InstKind::Store(
             Operand::ConstPtrNull,
-            obj_op.clone(),
+            obj_op,
             crate::ssa_lower::OBJ_VTABLE_OFF,
         ),
     );
-    let entries_data = ctx.emit_arr_data_ptr(entries_op.clone());
+    let entries_data = ctx.emit_arr_data_ptr(entries_op);
     for (idx, (_fname, fty)) in layout.iter().enumerate() {
         let inner_off = (idx as u64) * 8;
         let inner_ptr = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Load(Type::Ptr, entries_data.clone(), inner_off),
+            InstKind::Load(Type::Ptr, entries_data, inner_off),
             Type::Ptr,
             None,
         );
@@ -143,7 +143,7 @@ pub(crate) fn try_lower(
         };
         let off = OBJ_HEADER_SIZE + (idx as u64) * 8;
         ctx.f
-            .append_void(ctx.cur_block, InstKind::Store(stored, obj_op.clone(), off));
+            .append_void(ctx.cur_block, InstKind::Store(stored, obj_op, off));
         let _ = val_tag;
     }
     // Rotation 325 — same ownership settlement as the trailing args:

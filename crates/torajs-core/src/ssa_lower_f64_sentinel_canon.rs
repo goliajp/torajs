@@ -79,7 +79,7 @@ impl LowerCtx<'_> {
     /// Replace the sentinel bit pattern with a plain quiet NaN,
     /// leaving every other value — NaN or not — untouched.
     pub(crate) fn canon_f64_away_from_sentinel(&mut self, v: Operand) -> Operand {
-        let is_sentinel = self.f64_is_sentinel(v.clone());
+        let is_sentinel = self.f64_is_sentinel(v);
         let plain_blk = self.f.add_block();
         let keep_blk = self.f.add_block();
         let merge = self.f.add_block();

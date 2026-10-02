@@ -54,7 +54,7 @@ pub(crate) fn emit_exotic_field_test(ctx: &mut LowerCtx<'_>, cell: &Operand) -> 
         ((torajs_rc::FLAG_OBJ_EXOTIC_FIELD | torajs_rc::FLAG_OBJ_EXPANDO) as i64) << FLAGS_SHIFT;
     let hdr = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Load(Type::I64, cell.clone(), 0),
+        InstKind::Load(Type::I64, *cell, 0),
         Type::I64,
         None,
     );
@@ -92,7 +92,7 @@ pub(crate) fn with_exotic_field_gate(
     unfold: impl FnOnce(&mut LowerCtx<'_>) -> Operand,
 ) -> Operand {
     let exotic = emit_exotic_field_test(ctx, cell);
-    let out_slot = ctx.alloca(ty.clone(), None);
+    let out_slot = ctx.alloca(ty, None);
     let walk_blk = ctx.f.add_block();
     let unfold_blk = ctx.f.add_block();
     let done_blk = ctx.f.add_block();
@@ -125,7 +125,7 @@ pub(crate) fn with_exotic_field_gate(
     ctx.cur_block = done_blk;
     let v = ctx.f.append_inst(
         done_blk,
-        InstKind::Load(ty.clone(), Operand::Value(out_slot), 0),
+        InstKind::Load(ty, Operand::Value(out_slot), 0),
         ty,
         None,
     );

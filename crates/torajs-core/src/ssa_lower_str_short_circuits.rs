@@ -109,9 +109,9 @@ pub(crate) fn try_dispatch(
             if matches!(raw_ty, Type::Str | Type::Substr) {
                 raw
             } else {
-                let coerced = ctx.coerce_to_str(raw.clone(), raw_ty);
+                let coerced = ctx.coerce_to_str(raw, raw_ty);
                 let raw_owned = raw_ty.is_refcounted() && ctx.expr_is_fresh_owned(args[0]);
-                let raw_tok = raw_owned.then(|| ctx.push_throw_temp(raw.clone(), raw_ty));
+                let raw_tok = raw_owned.then(|| ctx.push_throw_temp(raw, raw_ty));
                 // The coerced Str is ours whether or not the user
                 // toString threw (kernel placeholder contract), so it
                 // rides the throw edge too.
@@ -119,13 +119,13 @@ pub(crate) fn try_dispatch(
                 // `normalize(null)` reaches the kernel and the kernel
                 // RAISES (invalid form), so the throw edge after the
                 // call has to drop it too.
-                let coerced_tok = ctx.push_throw_temp(coerced.clone(), Type::Str);
+                let coerced_tok = ctx.push_throw_temp(coerced, Type::Str);
                 ctx.emit_throw_check(None);
                 ctx.unpark_owned_temp(raw_tok);
                 if raw_owned {
                     ctx.emit_drop_value(raw, raw_ty);
                 }
-                form_owned = Some((coerced.clone(), coerced_tok));
+                form_owned = Some((coerced, coerced_tok));
                 coerced
             }
         };
@@ -267,7 +267,7 @@ pub(crate) fn lower_locale_case(
                 ctx.cur_block,
                 InstKind::Call(
                     ctx.intrinsics.str_locale_case_any,
-                    vec![recv_op, boxed.clone(), Operand::ConstI64(upper as i64)],
+                    vec![recv_op, boxed, Operand::ConstI64(upper as i64)],
                 ),
                 Type::Str,
                 None,

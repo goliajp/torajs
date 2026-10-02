@@ -192,7 +192,7 @@ pub(crate) fn populate_argv(
             if substring_len_op.is_none() {
                 let len = ctx.f.append_inst(
                     ctx.cur_block,
-                    InstKind::Load(Type::I64, recv_op.clone(), 8),
+                    InstKind::Load(Type::I64, recv_op, 8),
                     Type::I64,
                     None,
                 );
@@ -258,17 +258,17 @@ pub(crate) fn populate_argv(
             let raw_ty = ctx.operand_ty(&raw);
             if matches!(raw_ty, Type::Str | Type::Substr) {
                 if ctx.expr_is_fresh_owned(a) {
-                    ctx.park_argv_owned(raw.clone(), raw_ty);
+                    ctx.park_argv_owned(raw, raw_ty);
                 }
                 argv.push(raw);
-            } else if let Some(s) = ctx.try_coerce_to_str(raw.clone(), raw_ty) {
+            } else if let Some(s) = ctx.try_coerce_to_str(raw, raw_ty) {
                 // Rotation 550 — the coerced Str is ours whether or
                 // not the toString threw (kernel placeholder
                 // contract), and the raw operand is still live across
                 // the check: park both so the throw path drops them.
                 let raw_owned = raw_ty.is_refcounted() && ctx.expr_is_fresh_owned(a);
-                let raw_tok = raw_owned.then(|| ctx.push_throw_temp(raw.clone(), raw_ty));
-                ctx.park_argv_owned(s.clone(), Type::Str);
+                let raw_tok = raw_owned.then(|| ctx.push_throw_temp(raw, raw_ty));
+                ctx.park_argv_owned(s, Type::Str);
                 ctx.emit_throw_check(None);
                 ctx.unpark_owned_temp(raw_tok);
                 if raw_owned {
@@ -294,7 +294,7 @@ pub(crate) fn populate_argv(
                 // (§7.1.17 step 2). It releases the raw temp itself.
                 let s =
                     crate::ssa_lower_call_coercion_str::emit_to_string(ctx, a, raw, raw_ty, true);
-                ctx.park_argv_owned(s.clone(), Type::Str);
+                ctx.park_argv_owned(s, Type::Str);
                 argv.push(s);
             }
         } else {
@@ -304,7 +304,7 @@ pub(crate) fn populate_argv(
             let v = ctx.lower_expr(a);
             let v_ty = ctx.operand_ty(&v);
             if matches!(v_ty, Type::Str | Type::Substr) && ctx.expr_is_fresh_owned(a) {
-                ctx.park_argv_owned(v.clone(), v_ty);
+                ctx.park_argv_owned(v, v_ty);
             }
             argv.push(v);
         }

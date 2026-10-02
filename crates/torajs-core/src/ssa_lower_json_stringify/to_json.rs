@@ -134,7 +134,7 @@ pub(super) fn try_lower_hook(
     depth: u32,
 ) -> Option<Operand> {
     if takes_runtime_walk(ctx, &Type::Obj(sid), fe) {
-        let boxed = ctx.box_to_any(val_op.clone());
+        let boxed = ctx.box_to_any(*val_op);
         let out = super::emit_any_walk(ctx, boxed, gap, depth);
         ctx.emit_throw_check(None);
         return Some(out);
@@ -182,9 +182,9 @@ pub(super) fn try_lower_hook(
     // two halves as separate entries now; every other answer type
     // keeps the static unfold, which never ran step 2 to begin with.
     let out = if matches!(ret_ty, Type::Any) {
-        super::emit_any_walk_value(ctx, got.clone(), gap, depth)
+        super::emit_any_walk_value(ctx, got, gap, depth)
     } else {
-        super::lower_shape(ctx, got.clone(), ret_ty, None, gap, depth)
+        super::lower_shape(ctx, got, ret_ty, None, gap, depth)
     };
     ctx.emit_drop_value(got, ret_ty);
     Some(out)

@@ -78,7 +78,7 @@ pub(crate) fn lower(
             .push(i_ident.to_string());
     }
 
-    let length_op = crate::ssa_lower_str::load_str_or_substr_length(ctx, src_op.clone(), Type::Str);
+    let length_op = crate::ssa_lower_str::load_str_or_substr_length(ctx, src_op, Type::Str);
     let length_slot = ctx.alloca(Type::I64, Some("__forof_str_len"));
     ctx.f.append_void(
         ctx.cur_block,
@@ -128,7 +128,7 @@ pub(crate) fn lower(
         Type::I64,
         None,
     );
-    let (c_val, _adv_body) = emit_step(ctx, src_op.clone(), Operand::Value(i_body));
+    let (c_val, _adv_body) = emit_step(ctx, src_op, Operand::Value(i_body));
     let v_slot = ctx.alloca(Type::Substr, Some(var_name));
     ctx.f.append_void(
         ctx.cur_block,
@@ -209,7 +209,7 @@ pub(crate) fn lower(
         Type::I64,
         None,
     );
-    let adv_step = emit_advance(ctx, src_op.clone(), Operand::Value(i_step));
+    let adv_step = emit_advance(ctx, src_op, Operand::Value(i_step));
     let i_next = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::BinOp(
@@ -272,7 +272,7 @@ fn emit_advance(ctx: &mut LowerCtx, src_op: Operand, i_val: Operand) -> ValueId 
 /// P11.4 helper — body-side: compute adv, alloc Substr. `i_val` is
 /// the already-loaded current index. Returns (c_val, adv_val).
 fn emit_step(ctx: &mut LowerCtx, src_op: Operand, i_val: Operand) -> (ValueId, ValueId) {
-    let adv = emit_advance(ctx, src_op.clone(), i_val.clone());
+    let adv = emit_advance(ctx, src_op, i_val);
     let c = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(

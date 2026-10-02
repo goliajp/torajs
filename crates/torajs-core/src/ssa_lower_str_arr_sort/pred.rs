@@ -237,7 +237,7 @@ fn emit_user_cmp_pred(
     let cmp_ret = if route.argv_face {
         crate::ssa_lower_call_arr_ho_loop::emit_argv_face_call(ctx, cv, *ct, args, sig_skip, 2)
     } else {
-        ctx.call_fn_value(cv.clone(), *ct, args, sig_skip, 2)
+        ctx.call_fn_value(*cv, *ct, args, sig_skip, 2)
     };
     let cmp_ret_ty = ctx.f.value_type(cmp_ret);
     match cmp_ret_ty {

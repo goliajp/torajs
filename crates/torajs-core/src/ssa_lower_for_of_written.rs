@@ -73,7 +73,7 @@ pub(crate) fn bind_loop_var(
         (v_ty.is_copy() && escape && ctx.mutated_captured_lets.contains(var_name)) || boxed_noncopy;
     if escape_captured {
         if boxed_noncopy && alias {
-            ctx.emit_owned_result_inc(v_val.clone(), v_ty);
+            ctx.emit_owned_result_inc(v_val, v_ty);
         }
         let slot = ctx.emit_capture_boxed(v_ty, v_val);
         if boxed_noncopy {
@@ -84,7 +84,7 @@ pub(crate) fn bind_loop_var(
     }
     let borrowed = alias && !body_writes_var(ctx, body, var_name);
     if alias && !borrowed {
-        ctx.emit_owned_result_inc(v_val.clone(), v_ty);
+        ctx.emit_owned_result_inc(v_val, v_ty);
     }
     let slot = ctx.alloca(v_ty, Some(var_name));
     let cur_block = ctx.cur_block;

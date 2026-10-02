@@ -165,7 +165,7 @@ pub(crate) fn lower_from_value(
             // Chunk 726 convention (OptIndex already does this) —
             // owned track + release an owned-shape receiver temp,
             // mirroring the numeric lane below.
-            let v = lower_any_index_str_key(ctx, arr_val.clone(), index);
+            let v = lower_any_index_str_key(ctx, arr_val, index);
             ctx.owned_member_reads.insert(eid);
             ctx.release_owned_temp(obj, &arr_val);
             return v;
@@ -175,7 +175,7 @@ pub(crate) fn lower_from_value(
         // string-key arm; the probe borrows the key, so an Ident key
         // keeps its stake and its scope drop.
         if matches!(ctx.expr_types.get(&index), Some(crate::check::Type::Symbol)) {
-            let v = lower_any_index_symbol_key(ctx, arr_val.clone(), index);
+            let v = lower_any_index_symbol_key(ctx, arr_val, index);
             ctx.owned_member_reads.insert(eid);
             ctx.release_owned_temp(obj, &arr_val);
             return v;
@@ -194,16 +194,13 @@ pub(crate) fn lower_from_value(
             // Cluster #4 T4 — reuse a compound write lane's pinned
             // coerced key (see the boxed-struct twin above).
             let (k_raw, memoed) = match &ctx.pins.compound_key {
-                Some((mid, mop)) if *mid == index => (mop.clone(), true),
+                Some((mid, mop)) if *mid == index => (*mop, true),
                 _ => (lower_any_key(ctx, index), false),
             };
             let cur_block = ctx.cur_block;
             let v = ctx.f.append_inst(
                 cur_block,
-                InstKind::Call(
-                    ctx.intrinsics.any_index_get_keyed,
-                    vec![arr_val.clone(), k_raw.clone()],
-                ),
+                InstKind::Call(ctx.intrinsics.any_index_get_keyed, vec![arr_val, k_raw]),
                 Type::Any,
                 None,
             );
@@ -215,8 +212,8 @@ pub(crate) fn lower_from_value(
             }
             return Operand::Value(v);
         }
-        let v = crate::ssa_lower_index_any_key::AnyNumericKey::lower(ctx, index)
-            .emit_get(ctx, arr_val.clone());
+        let v =
+            crate::ssa_lower_index_any_key::AnyNumericKey::lower(ctx, index).emit_get(ctx, arr_val);
         ctx.emit_throw_check(None);
         // Kernel cells answer +1 (`__torajs_arr_index_get` doc) —
         // record the read as owned so consumers release it, and
@@ -239,7 +236,7 @@ pub(crate) fn lower_from_value(
         eid,
         obj,
         index,
-        arr_val.clone(),
+        arr_val,
         arr_ty,
         is_non_deque,
     );
@@ -286,7 +283,7 @@ pub(crate) fn lower_typed_index_checked(
     let len = (!upper_proven).then(|| {
         ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Load(Type::I64, arr_val.clone(), ARR_LEN_OFF),
+            InstKind::Load(Type::I64, arr_val, ARR_LEN_OFF),
             Type::I64,
             None,
         )
@@ -315,11 +312,7 @@ pub(crate) fn lower_typed_index_checked(
         );
         ctx.cur_block = prop_blk;
         if crate::ssa_lower_index_nonintegral::emit_nonintegral_typed_read(
-            ctx,
-            arr_val.clone(),
-            raw,
-            elem_ty,
-            slot,
+            ctx, arr_val, raw, elem_ty, slot,
         ) {
             let pb = ctx.cur_block;
             ctx.f.set_term(pb, Terminator::Br(merge));
@@ -331,8 +324,8 @@ pub(crate) fn lower_typed_index_checked(
     // one unsigned compare covers both ends (len never exceeds
     // i64::MAX); a proven upper bound leaves only the sign test
     let out = match len {
-        Some(len) => ctx.cmp(IPred::Uge, idx_val.clone(), Operand::Value(len)),
-        None => ctx.cmp(IPred::Slt, idx_val.clone(), Operand::ConstI64(0)),
+        Some(len) => ctx.cmp(IPred::Uge, idx_val, Operand::Value(len)),
+        None => ctx.cmp(IPred::Slt, idx_val, Operand::ConstI64(0)),
     };
     let cb = ctx.cur_block;
     ctx.f.set_term(

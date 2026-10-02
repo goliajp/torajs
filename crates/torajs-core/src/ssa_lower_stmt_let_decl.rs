@@ -194,7 +194,7 @@ pub(crate) fn lower(
         && init_ty.is_refcounted()
         && ctx.prereserve.body_reassigns(name);
     if owned_alias {
-        ctx.emit_owned_result_inc(init_val.clone(), init_ty);
+        ctx.emit_owned_result_inc(init_val, init_ty);
     }
     let is_alias_init = is_alias_init && !owned_alias;
     if !is_alias_init && !owned_alias {
@@ -207,7 +207,7 @@ pub(crate) fn lower(
         // expr — local refcounted Idents all take the share arm) —
         // chunk 572 removed the dead marker.
         if shares {
-            ctx.emit_rc_inc(init_val.clone());
+            ctx.emit_rc_inc(init_val);
         }
     }
     // §10.4.6 — a module namespace binding always lowers through the
@@ -284,7 +284,7 @@ fn finalize_and_bind(
     }
     if boxed_any {
         if ctx.operand_ty(&init_val).is_refcounted() && !ctx.expr_transfers_ownership(init) {
-            ctx.emit_rc_inc(init_val.clone());
+            ctx.emit_rc_inc(init_val);
         }
         init_val = ctx.box_to_any_from_expr(init, init_val);
     }

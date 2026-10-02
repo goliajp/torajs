@@ -83,8 +83,8 @@ pub(crate) fn lower(
     if lower_non_array_source(
         ctx,
         src_ref_eid,
-        src_ptr_op.clone(),
-        src_ty.clone(),
+        src_ptr_op,
+        src_ty,
         (var_name, i_ident),
         body,
         is_await,
@@ -260,7 +260,7 @@ fn emit_forin_guard(
     step_blk: crate::ssa::BlockId,
 ) {
     let obj_op = ctx.lower_expr(obj_eid);
-    let Some(has) = forin_key_live(ctx, obj_op, key_val.clone()) else {
+    let Some(has) = forin_key_live(ctx, obj_op, *key_val) else {
         return;
     };
     let cond = ctx.f.append_inst(

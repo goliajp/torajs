@@ -36,7 +36,7 @@ impl<'a> LowerCtx<'a> {
             << FLAGS_SHIFT;
         let hdr = self.f.append_inst(
             self.cur_block,
-            InstKind::Load(Type::I64, arr_val.clone(), 0),
+            InstKind::Load(Type::I64, *arr_val, 0),
             Type::I64,
             None,
         );
@@ -72,7 +72,7 @@ impl<'a> LowerCtx<'a> {
             check_blk,
             InstKind::Call(
                 self.intrinsics.arr_index_check_store,
-                vec![arr_val.clone(), idx_val.clone()],
+                vec![*arr_val, *idx_val],
             ),
         );
         // The kernel ARMS the TypeError (the `obj_check_not_frozen`
@@ -92,7 +92,7 @@ impl<'a> LowerCtx<'a> {
     ) {
         let hdr = self.f.append_inst(
             self.cur_block,
-            InstKind::Load(Type::I64, arr_val.clone(), 0),
+            InstKind::Load(Type::I64, *arr_val, 0),
             Type::I64,
             None,
         );
@@ -127,7 +127,7 @@ impl<'a> LowerCtx<'a> {
             self.cur_block,
             InstKind::Call(
                 self.intrinsics.arr_index_revive_idx,
-                vec![arr_val.clone(), idx_val.clone()],
+                vec![*arr_val, *idx_val],
             ),
         );
         let rb = self.cur_block;
@@ -155,7 +155,7 @@ impl<'a> LowerCtx<'a> {
         let v_ty = self.operand_ty(v_raw);
         let (tag_op, value_op) = self.pack_any_slot_value_shared(value, v_raw, v_ty);
         crate::ssa_lower_index_assign::mint_index_assign_value(self, eid, v_raw);
-        let boxed_arr = self.box_to_any(arr_val.clone());
+        let boxed_arr = self.box_to_any(*arr_val);
         let boxed_key = self.box_to_any(raw_key);
         crate::ssa_lower_index_any_key::AnyNumericKey::Boxed(boxed_key).emit_set(
             self,

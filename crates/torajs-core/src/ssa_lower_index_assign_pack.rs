@@ -54,14 +54,14 @@ impl<'a> LowerCtx<'a> {
         // than below.
         if crate::ssa_lower_nullable_guard::holds_undef_cell(self, value, v_ty) {
             if !transfers {
-                self.emit_rc_inc(v_raw.clone());
+                self.emit_rc_inc(*v_raw);
             }
             self.emit_arr_mark_kind(v_raw);
-            return self.heap_slot_tag_value(v_raw.clone());
+            return self.heap_slot_tag_value(*v_raw);
         }
         let (tag_op, value_op) = self.pack_any_slot_value(v_raw, v_ty, !transfers);
         if !transfers && !matches!(v_ty, Type::Any) && v_ty.is_refcounted() {
-            self.emit_rc_inc(v_raw.clone());
+            self.emit_rc_inc(*v_raw);
         }
         (tag_op, value_op)
     }
@@ -77,11 +77,11 @@ impl<'a> LowerCtx<'a> {
         any_owned: bool,
     ) -> (Operand, Operand) {
         match v_ty {
-            Type::I64 | Type::I32 => (Operand::ConstI64(2), v_raw.clone()),
+            Type::I64 | Type::I32 => (Operand::ConstI64(2), *v_raw),
             Type::F64 => {
                 let bits = self.f.append_inst(
                     self.cur_block,
-                    InstKind::BitCastF64ToI64(v_raw.clone()),
+                    InstKind::BitCastF64ToI64(*v_raw),
                     Type::I64,
                     None,
                 );
@@ -90,7 +90,7 @@ impl<'a> LowerCtx<'a> {
             Type::Bool => {
                 let zext = self.f.append_inst(
                     self.cur_block,
-                    InstKind::ZExtBoolToI64(v_raw.clone()),
+                    InstKind::ZExtBoolToI64(*v_raw),
                     Type::I64,
                     None,
                 );
@@ -102,7 +102,7 @@ impl<'a> LowerCtx<'a> {
                 // hands the pair the slot's +1 (chunk 610).
                 let tag_v = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Call(self.intrinsics.any_unbox_tag, vec![v_raw.clone()]),
+                    InstKind::Call(self.intrinsics.any_unbox_tag, vec![*v_raw]),
                     Type::I64,
                     None,
                 );
@@ -113,7 +113,7 @@ impl<'a> LowerCtx<'a> {
                 };
                 let val_v = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Call(unbox_fid, vec![v_raw.clone()]),
+                    InstKind::Call(unbox_fid, vec![*v_raw]),
                     Type::I64,
                     None,
                 );
@@ -123,8 +123,8 @@ impl<'a> LowerCtx<'a> {
             // `undefined` (an out-of-range read, a find miss): tag it
             // ANY_UNDEF, or the element reads back as the string
             // "undefined".
-            Type::Str | Type::Substr => self.heap_slot_tag_value(v_raw.clone()),
-            _ if v_ty.is_refcounted() => (Operand::ConstI64(4), v_raw.clone()),
+            Type::Str | Type::Substr => self.heap_slot_tag_value(*v_raw),
+            _ if v_ty.is_refcounted() => (Operand::ConstI64(4), *v_raw),
             Type::Ptr => {
                 // Frontend `null` lowers to Type::Ptr
                 // ConstPtrNull. Detect that constant shape and
@@ -133,7 +133,7 @@ impl<'a> LowerCtx<'a> {
                 if matches!(v_raw, Operand::ConstPtrNull) {
                     (Operand::ConstI64(0), Operand::ConstI64(0))
                 } else {
-                    (Operand::ConstI64(4), v_raw.clone())
+                    (Operand::ConstI64(4), *v_raw)
                 }
             }
             _ => panic!("ssa-lower: Array<Any>[i] = unsupported value type {v_ty:?}"),

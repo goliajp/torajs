@@ -144,13 +144,13 @@ pub(crate) fn try_dispatch(
         // the rc-ranges path below writes inline, so the guard is here.
         let nonempty = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::ICmp(IPred::Slt, start.clone(), end.clone()),
+            InstKind::ICmp(IPred::Slt, start, end),
             Type::Bool,
             None,
         );
         let in_range = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::ICmp(IPred::Slt, target.clone(), Operand::Value(len_for_norm)),
+            InstKind::ICmp(IPred::Slt, target, Operand::Value(len_for_norm)),
             Type::Bool,
             None,
         );

@@ -33,9 +33,9 @@ pub(crate) fn to_int32(ctx: &mut LowerCtx<'_>, eid: ExprId, arg: Operand) -> Ope
         return ctx.coerce_to_i64(arg);
     }
     let boxed = if ty == Type::Any {
-        arg.clone()
+        arg
     } else {
-        ctx.box_to_any(arg.clone())
+        ctx.box_to_any(arg)
     };
     let f = ctx.f.append_inst(
         ctx.cur_block,

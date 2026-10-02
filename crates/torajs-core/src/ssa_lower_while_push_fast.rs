@@ -113,7 +113,7 @@ pub(crate) fn lower_while_inner(
                 Type::I64,
                 None,
             );
-            let target_cap = ctx.emit_reserve_target(initial_len_v, bound_op.clone(), per_trip);
+            let target_cap = ctx.emit_reserve_target(initial_len_v, bound_op, per_trip);
             let reserved = ctx.f.append_inst(
                 ctx.cur_block,
                 InstKind::Call(
@@ -125,7 +125,7 @@ pub(crate) fn lower_while_inner(
             );
             // B1 — reserve never moves the cell; write-back retired.
             if !gate_per_append {
-                ctx.emit_prereserve_entry_gate(reserved, bound_op.clone());
+                ctx.emit_prereserve_entry_gate(reserved, bound_op);
             }
             let state = ctx.emit_prereserved_state(reserved, defer_len, gate_per_append);
             ctx.prereserve.unchecked_for.insert(name.clone(), state);
@@ -141,7 +141,7 @@ pub(crate) fn lower_while_inner(
 
     ctx.cur_block = header;
     let raw = ctx.lower_expr(cond);
-    let c = ctx.coerce_to_bool(raw.clone());
+    let c = ctx.coerce_to_bool(raw);
     // Chunk 636 — release an owned condition temp after the
     // truthiness test (see ssa_lower_stmt_if.rs).
     ctx.release_owned_temp(cond, &raw);

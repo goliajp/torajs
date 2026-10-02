@@ -33,7 +33,7 @@ pub(crate) fn try_dispatch(
         if args.is_empty() {
             // RFC 20260705 owned-result invariant: even the identity
             // shape answers an owned ref.
-            ctx.emit_rc_inc(recv_op.clone());
+            ctx.emit_rc_inc(recv_op);
             return Some(recv_op);
         }
         let mut acc = recv_op;
@@ -48,7 +48,7 @@ pub(crate) fn try_dispatch(
             // it for their throw paths (`s(i).concat("a",
             // String(boom()))` stranded one per caught throw, 20MB /
             // 600k).
-            let acc_tok = acc_fresh.then(|| ctx.push_throw_temp(acc.clone(), Type::Str));
+            let acc_tok = acc_fresh.then(|| ctx.push_throw_temp(acc, Type::Str));
             // S212 — explicit `undefined` arg per ES §22.1.3.4
             // step 3.a: each arg is ToString'd, undefined →
             // "undefined". Inline-substitute the interned
@@ -74,7 +74,7 @@ pub(crate) fn try_dispatch(
                     let v_tok = ctx.park_owned_temp(a, &v);
                     let s = ctx.f.append_inst(
                         ctx.cur_block,
-                        InstKind::Call(ctx.intrinsics.any_to_str_box, vec![v.clone()]),
+                        InstKind::Call(ctx.intrinsics.any_to_str_box, vec![v]),
                         Type::Str,
                         None,
                     );
@@ -100,7 +100,7 @@ pub(crate) fn try_dispatch(
             };
             let v = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(kernel, vec![acc.clone(), other.clone()]),
+                InstKind::Call(kernel, vec![acc, other]),
                 Type::Str,
                 None,
             );

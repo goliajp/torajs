@@ -24,7 +24,7 @@ pub(crate) fn lower_arr_length(
     let cur_block = ctx.cur_block;
     let old = ctx.f.append_inst(
         cur_block,
-        InstKind::Load(Type::I64, obj_val.clone(), crate::ssa_lower::ARR_LEN_OFF),
+        InstKind::Load(Type::I64, obj_val, crate::ssa_lower::ARR_LEN_OFF),
         Type::I64,
         None,
     );

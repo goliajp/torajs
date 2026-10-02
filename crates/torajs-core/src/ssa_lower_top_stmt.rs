@@ -97,9 +97,9 @@ impl<'a> LowerCtx<'a> {
              * apart. The coercer answers a fresh-owned Str (static
              * "undefined" on the sentinel arm; drop no-ops). */
             if arg_ty == Type::BigInt {
-                let owned = self.console_display_str(arg.clone(), Type::BigInt);
+                let owned = self.console_display_str(arg, Type::BigInt);
                 let target = self.console_print_target(Type::Str);
-                self.emit_console_print(method, target, owned.clone());
+                self.emit_console_print(method, target, owned);
                 self.emit_drop_value(owned, Type::Str);
                 if !is_borrow {
                     self.emit_drop_value(arg, Type::BigInt);
@@ -134,7 +134,7 @@ impl<'a> LowerCtx<'a> {
             if target == self.intrinsics.print_any && matches!(arg_ty, Type::Arr(_)) {
                 self.emit_arr_mark_kind(&arg);
             }
-            self.emit_console_print(method, target, arg.clone());
+            self.emit_console_print(method, target, arg);
             crate::ssa_lower_call_console::close_console_sentinel_branch(self, sentinel_join);
             if !is_borrow {
                 if is_str {
@@ -201,7 +201,7 @@ impl<'a> LowerCtx<'a> {
             }
             let target = self.console_print_target(Type::Str);
             let final_str = acc.unwrap();
-            self.emit_console_print(method, target, final_str.clone());
+            self.emit_console_print(method, target, final_str);
             self.emit_drop_value(final_str, Type::Str);
             return;
         }

@@ -47,7 +47,7 @@ pub(crate) fn retain_borrowed_answer(
             | Expr::Assign { .. }
     );
     if is_read && ctx.expr_owned_shape(src_eid) {
-        return Some(v.clone());
+        return Some(*v);
     }
     // A join (`?:`, `??`, `&&`, `||`) over borrows answers a borrow of
     // whichever arm ran, and the consume walk marks none of the arms'
@@ -65,9 +65,9 @@ pub(crate) fn retain_borrowed_answer(
         // here is what falling through to it did.
         if !ctx.expr_transfers_ownership(src_eid) {
             let ty = ctx.operand_ty(v);
-            ctx.emit_owned_result_inc(v.clone(), ty);
+            ctx.emit_owned_result_inc(*v, ty);
         }
-        return Some(v.clone());
+        return Some(*v);
     }
     // RFC 20260708-closure-argv-face (generalized chunk 674) —
     // `return a[i]` where `a` is a local Arr<Any> hands back a
@@ -92,7 +92,7 @@ pub(crate) fn retain_borrowed_answer(
     {
         let retained = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.anyv_retain, vec![v.clone()]),
+            InstKind::Call(ctx.intrinsics.anyv_retain, vec![*v]),
             Type::Any,
             None,
         );
@@ -116,8 +116,8 @@ pub(crate) fn retain_borrowed_answer(
             && v_ty.is_refcounted()
             && !matches!(v_ty, Type::Any | Type::Substr);
         if elem_matches {
-            ctx.emit_rc_inc(v.clone());
-            return Some(v.clone());
+            ctx.emit_rc_inc(*v);
+            return Some(*v);
         }
     }
     // A member read that is not already owned (`return this.s`,
@@ -140,8 +140,8 @@ pub(crate) fn retain_borrowed_answer(
     {
         let ty = ctx.operand_ty(v);
         if ty.is_refcounted() {
-            ctx.emit_owned_result_inc(v.clone(), ty);
-            return Some(v.clone());
+            ctx.emit_owned_result_inc(*v, ty);
+            return Some(*v);
         }
     }
     None

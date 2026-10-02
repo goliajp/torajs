@@ -72,7 +72,7 @@ pub(crate) fn lower(
     let cur_block = ctx.cur_block;
     let eq_null = ctx.f.append_inst(
         cur_block,
-        InstKind::ICmp(IPred::Eq, obj_op.clone(), Operand::ConstPtrNull),
+        InstKind::ICmp(IPred::Eq, obj_op, Operand::ConstPtrNull),
         Type::Bool,
         None,
     );
@@ -86,7 +86,7 @@ pub(crate) fn lower(
     };
     let eq_undef = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::ICmp(IPred::Eq, obj_op.clone(), sentinel),
+        InstKind::ICmp(IPred::Eq, obj_op, sentinel),
         Type::Bool,
         None,
     );

@@ -126,7 +126,7 @@ fn lower_global_ident_update(ctx: &mut LowerCtx<'_>, name: &str, step: Step) -> 
     let cur_block = ctx.cur_block;
     let new = ctx.f.append_inst(
         cur_block,
-        InstKind::BinOp(op, old_num.clone(), one),
+        InstKind::BinOp(op, old_num, one),
         Type::F64,
         None,
     );
@@ -336,10 +336,7 @@ fn lower_member(
     // plain-assign spelling of the same field threw. Same guard, one
     // definition — the `Store` below rides the block it leaves us on.
     crate::ssa_lower_assign_member_field::guard::emit_field_writable_guard(
-        ctx,
-        obj,
-        obj_val.clone(),
-        &field,
+        ctx, obj, obj_val, &field,
     );
     let store_block = ctx.cur_block;
     ctx.f.append_void(
@@ -416,12 +413,11 @@ fn lower_index(
         );
     }
     let idx_val = ctx.lower_index_operand(index);
-    let (offset_base, offset) =
-        ctx.emit_arr_slot_byte_offset(arr_val.clone(), idx_val, 3, is_non_deque);
+    let (offset_base, offset) = ctx.emit_arr_slot_byte_offset(arr_val, idx_val, 3, is_non_deque);
     let cur_block = ctx.cur_block;
     let old = ctx.f.append_inst(
         cur_block,
-        InstKind::LoadDyn(elem_ty, offset_base.clone(), offset.clone()),
+        InstKind::LoadDyn(elem_ty, offset_base, offset),
         elem_ty,
         None,
     );
@@ -435,7 +431,7 @@ fn lower_index(
     );
     ctx.f.append_void(
         cur_block,
-        InstKind::StoreDyn(Operand::Value(new_v), offset_base.clone(), offset),
+        InstKind::StoreDyn(Operand::Value(new_v), offset_base, offset),
     );
     if step.is_prefix {
         Operand::Value(new_v)

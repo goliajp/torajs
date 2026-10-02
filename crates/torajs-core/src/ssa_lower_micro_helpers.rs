@@ -84,13 +84,13 @@ impl<'a> LowerCtx<'a> {
         // refcount @ +0 = 1
         self.f.append_void(
             self.cur_block,
-            InstKind::Store(Operand::ConstI32(1), obj_op.clone(), 0),
+            InstKind::Store(Operand::ConstI32(1), obj_op, 0),
         );
         // type_tag @ +4 = OBJ (1)  (i16 stored via i32; high 16 bits are
         // flags @ +6, also 0)
         self.f.append_void(
             self.cur_block,
-            InstKind::Store(Operand::ConstI32(1), obj_op.clone(), 4),
+            InstKind::Store(Operand::ConstI32(1), obj_op, 4),
         );
         // props dynobj @ +24 = NULL (RFC 20260714-struct-dynamic-props
         // blade 1) — obj_alloc is malloc, so the lazily-allocated

@@ -113,7 +113,7 @@ pub(crate) fn emit_inline_nullish_guard(
 ) {
     let cold = ctx.f.add_block();
     let live = ctx.f.add_block();
-    let mut cond = ctx.cmp(IPred::Eq, v.clone(), Operand::ConstPtrNull);
+    let mut cond = ctx.cmp(IPred::Eq, *v, Operand::ConstPtrNull);
     for sym in sentinels {
         let next = ctx.f.add_block();
         let cb = ctx.cur_block;
@@ -129,7 +129,7 @@ pub(crate) fn emit_inline_nullish_guard(
         let cell = ctx
             .f
             .append_inst(next, InstKind::GlobalRef(sym.to_string()), Type::Ptr, None);
-        cond = ctx.cmp(IPred::Eq, v.clone(), Operand::Value(cell));
+        cond = ctx.cmp(IPred::Eq, *v, Operand::Value(cell));
     }
     let cb = ctx.cur_block;
     ctx.f.set_term(
@@ -141,7 +141,7 @@ pub(crate) fn emit_inline_nullish_guard(
         },
     );
     ctx.cur_block = cold;
-    emit_nullish_raise(ctx, raiser, v.clone());
+    emit_nullish_raise(ctx, raiser, *v);
     ctx.cur_block = live;
 }
 

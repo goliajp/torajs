@@ -105,7 +105,7 @@ pub(crate) fn try_lower(
 /// notices which ran first.
 fn lower_arraybuffer(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     let ops = lower_borrowed_any_pair(ctx, args);
-    let argv: Vec<Operand> = ops.iter().map(|(op, _, _)| op.clone()).collect();
+    let argv: Vec<Operand> = ops.iter().map(|(op, _, _)| *op).collect();
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur_block,
@@ -125,7 +125,7 @@ fn lower_arraybuffer(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
 /// rejects exactly like any other non-object.
 fn lower_proxy(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     let ops = lower_borrowed_any_pair(ctx, args);
-    let argv: Vec<Operand> = ops.iter().map(|(op, _, _)| op.clone()).collect();
+    let argv: Vec<Operand> = ops.iter().map(|(op, _, _)| *op).collect();
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur_block,
@@ -195,7 +195,7 @@ pub(crate) fn lower_borrowed_any_pair(
             }
             _ => {
                 if !ctx.expr_transfers_ownership(eid) && ty.is_refcounted() {
-                    ctx.emit_rc_inc(raw.clone());
+                    ctx.emit_rc_inc(raw);
                 }
                 (ctx.box_to_any(raw), true)
             }
@@ -268,7 +268,7 @@ fn lower_number_wrapper(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
 fn lower_boolean_wrapper(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     let arg_eid = args[0];
     let arg_op = ctx.lower_expr(arg_eid);
-    let bool_op = ctx.coerce_to_bool(arg_op.clone());
+    let bool_op = ctx.coerce_to_bool(arg_op);
     ctx.release_owned_temp(arg_eid, &arg_op);
     crate::ssa_lower_new_extra_args::lower_ignored_args(ctx, &[], &args[1..]);
     let cur_block = ctx.cur_block;
@@ -317,8 +317,8 @@ fn lower_weakref(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     } else {
         let raw = ctx.lower_expr(args[0]);
         let op = match ctx.operand_ty(&raw) {
-            Type::I64 | Type::F64 | Type::I32 | Type::Bool => ctx.box_to_any(raw.clone()),
-            _ => raw.clone(),
+            Type::I64 | Type::F64 | Type::I32 | Type::Bool => ctx.box_to_any(raw),
+            _ => raw,
         };
         (op, Some((args[0], raw)))
     };
@@ -352,7 +352,7 @@ fn lower_simple_create(
     let v = ctx.f.append_inst(
         cur_block,
         InstKind::Call(intrinsic, vec![]),
-        result_ty.clone(),
+        result_ty,
         None,
     );
     let target = Operand::Value(v);
@@ -383,18 +383,15 @@ fn lower_array_n(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
         // Any, or a statically non-Number operand: the box keeps a
         // `T | undefined` slot's undefined as undefined.
         let boxed = if arg_ty == Type::Any {
-            arg_val.clone()
+            arg_val
         } else {
-            ctx.box_to_any_from_expr(args[0], arg_val.clone())
+            ctx.box_to_any_from_expr(args[0], arg_val)
         };
         ("__torajs_arr_new_from_any", boxed)
     } else if matches!(arg_ty, Type::F64) {
-        ("__torajs_arr_alloc_any_filled_f64", arg_val.clone())
+        ("__torajs_arr_alloc_any_filled_f64", arg_val)
     } else {
-        (
-            "__torajs_arr_alloc_any_holes",
-            ctx.coerce_to_i64(arg_val.clone()),
-        )
+        ("__torajs_arr_alloc_any_holes", ctx.coerce_to_i64(arg_val))
     };
     let arr_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
     let fid = *ctx
@@ -426,7 +423,7 @@ fn lower_regexp(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     let flag_info = if args.len() >= 2 {
         let f = ctx.lower_expr(args[1]);
         let fty = ctx.operand_ty(&f);
-        let read = [(args[0], pat_op.clone()), (args[1], f.clone())];
+        let read = [(args[0], pat_op), (args[1], f)];
         crate::ssa_lower_new_extra_args::lower_ignored_args(ctx, &read, &args[2..]);
         Some((f, fty))
     } else {

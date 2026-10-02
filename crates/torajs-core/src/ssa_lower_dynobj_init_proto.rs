@@ -40,9 +40,9 @@ impl<'a> LowerCtx<'a> {
         let v_op = self.lower_expr(fval_eid);
         let v_ty = self.operand_ty(&v_op);
         let v_boxed = if matches!(v_ty, Type::Any) {
-            v_op.clone()
+            v_op
         } else {
-            self.box_to_any_from_expr(fval_eid, v_op.clone())
+            self.box_to_any_from_expr(fval_eid, v_op)
         };
         let dynobj = self.load_dynobj(slot);
         let obj_boxed = self.f.append_inst(

@@ -27,8 +27,8 @@ impl<'a> LowerCtx<'a> {
             ThrowTemp::Slot(slot, ty) => {
                 let v = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Load(ty.clone(), Operand::Value(slot), 0),
-                    ty.clone(),
+                    InstKind::Load(ty, Operand::Value(slot), 0),
+                    ty,
                     None,
                 );
                 self.emit_drop_value(Operand::Value(v), ty);
@@ -36,8 +36,8 @@ impl<'a> LowerCtx<'a> {
             ThrowTemp::ArrSlotDeferLen(slot, ty, len_slot) => {
                 let v = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Load(ty.clone(), Operand::Value(slot), 0),
-                    ty.clone(),
+                    InstKind::Load(ty, Operand::Value(slot), 0),
+                    ty,
                     None,
                 );
                 let len = self.f.append_inst(

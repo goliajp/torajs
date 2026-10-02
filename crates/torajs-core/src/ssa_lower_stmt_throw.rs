@@ -120,13 +120,13 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) {
                 // double-counted by the separate inc and leaked).
                 let tag_v = ctx.f.append_inst(
                     ctx.cur_block,
-                    InstKind::Call(ctx.intrinsics.any_unbox_tag, vec![v.clone()]),
+                    InstKind::Call(ctx.intrinsics.any_unbox_tag, vec![v]),
                     Type::I64,
                     None,
                 );
                 let val_v = ctx.f.append_inst(
                     ctx.cur_block,
-                    InstKind::Call(ctx.intrinsics.any_unbox_value_owned, vec![v.clone()]),
+                    InstKind::Call(ctx.intrinsics.any_unbox_value_owned, vec![v]),
                     Type::I64,
                     None,
                 );
@@ -159,7 +159,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) {
                 let needs_retain = matches!(ctx.ast.get_expr(src_eid), Expr::Ident(_))
                     || !ctx.expr_transfers_ownership(src_eid);
                 if needs_retain {
-                    ctx.emit_rc_inc(v.clone());
+                    ctx.emit_rc_inc(v);
                 }
                 ctx.emit_arr_mark_kind(&v);
                 ctx.heap_slot_tag_value(v)
@@ -172,7 +172,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) {
                 let needs_retain = matches!(ctx.ast.get_expr(src_eid), Expr::Ident(_))
                     || !ctx.expr_transfers_ownership(src_eid);
                 if needs_retain {
-                    ctx.emit_rc_inc(v.clone());
+                    ctx.emit_rc_inc(v);
                 }
                 // Any-dynamic-access S1 — a throw IS a boxing
                 // boundary: the catch binding re-boxes this pointer

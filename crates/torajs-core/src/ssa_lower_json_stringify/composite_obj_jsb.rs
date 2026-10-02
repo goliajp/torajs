@@ -39,7 +39,7 @@ pub(super) fn lower_obj_jsb(
         ctx.cur_block,
         InstKind::Call(
             ctx.intrinsics.jsb_push_byte,
-            vec![sb_op.clone(), Operand::ConstI64(b'{' as i64)],
+            vec![sb_op, Operand::ConstI64(b'{' as i64)],
         ),
     );
     // Chunk 658 — runtime comma protocol: an undefined Str field
@@ -62,24 +62,20 @@ pub(super) fn lower_obj_jsb(
                 ctx.cur_block,
                 InstKind::Call(
                     ctx.intrinsics.jsb_push_field_str,
-                    vec![
-                        sb_op.clone(),
-                        Operand::Value(key_str),
-                        Operand::Value(field_v),
-                    ],
+                    vec![sb_op, Operand::Value(key_str), Operand::Value(field_v)],
                 ),
             );
             continue;
         }
         ctx.f.append_void(
             ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.jsb_begin_field, vec![sb_op.clone()]),
+            InstKind::Call(ctx.intrinsics.jsb_begin_field, vec![sb_op]),
         );
         ctx.f.append_void(
             ctx.cur_block,
             InstKind::Call(
                 ctx.intrinsics.jsb_push_str_raw,
-                vec![sb_op.clone(), Operand::Value(key_str)],
+                vec![sb_op, Operand::Value(key_str)],
             ),
         );
         match fty {
@@ -88,7 +84,7 @@ pub(super) fn lower_obj_jsb(
                     ctx.cur_block,
                     InstKind::Call(
                         ctx.intrinsics.jsb_push_i64,
-                        vec![sb_op.clone(), Operand::Value(field_v)],
+                        vec![sb_op, Operand::Value(field_v)],
                     ),
                 );
             }
@@ -97,7 +93,7 @@ pub(super) fn lower_obj_jsb(
                     ctx.cur_block,
                     InstKind::Call(
                         ctx.intrinsics.jsb_push_bool,
-                        vec![sb_op.clone(), Operand::Value(field_v)],
+                        vec![sb_op, Operand::Value(field_v)],
                     ),
                 );
             }
@@ -108,7 +104,7 @@ pub(super) fn lower_obj_jsb(
         ctx.cur_block,
         InstKind::Call(
             ctx.intrinsics.jsb_push_byte,
-            vec![sb_op.clone(), Operand::ConstI64(b'}' as i64)],
+            vec![sb_op, Operand::ConstI64(b'}' as i64)],
         ),
     );
     let result = ctx.f.append_inst(

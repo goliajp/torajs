@@ -206,7 +206,7 @@ fn emit_splice_return(
     // its elements when the refusal came after the delete. Measured:
     // 300k caught frozen splices held 20.4 MB, sealed ones 48 MB, the
     // control 1.9 MB. `_owned` drops it on both throw destinations.
-    ctx.emit_throw_check_owned(None, Operand::Value(removed), arr_ty.clone());
+    ctx.emit_throw_check_owned(None, Operand::Value(removed), arr_ty);
     Operand::Value(removed)
 }
 
@@ -248,7 +248,7 @@ pub(crate) fn emit_splice_items(
             let (val, owned_from_coerce) =
                 crate::ssa_lower_call_arr_push::coerce_push_value(ctx, item_eid, elem_ty);
             if elem_ty.is_refcounted() && !owned_from_coerce {
-                ctx.emit_rc_inc(val.clone());
+                ctx.emit_rc_inc(val);
                 ctx.release_owned_temp(item_eid, &val);
             }
             val
@@ -282,7 +282,7 @@ pub(crate) fn emit_splice_items(
     // its elements when the refusal came after the delete. Measured:
     // 300k caught frozen splices held 20.4 MB, sealed ones 48 MB, the
     // control 1.9 MB. `_owned` drops it on both throw destinations.
-    ctx.emit_throw_check_owned(None, Operand::Value(removed), arr_ty.clone());
+    ctx.emit_throw_check_owned(None, Operand::Value(removed), arr_ty);
     Operand::Value(removed)
 }
 
@@ -316,13 +316,13 @@ fn emit_any_item_bits(ctx: &mut LowerCtx, item_eid: ExprId) -> Operand {
     let v_ty = ctx.operand_ty(&v_raw);
     match v_ty {
         Type::Any => {
-            ctx.emit_owned_result_inc(v_raw.clone(), Type::Any);
+            ctx.emit_owned_result_inc(v_raw, Type::Any);
             ctx.release_owned_temp(item_eid, &v_raw);
             v_raw
         }
         _ if v_ty.is_refcounted() => {
-            ctx.emit_rc_inc(v_raw.clone());
-            let bits = ctx.box_to_any_from_expr(item_eid, v_raw.clone());
+            ctx.emit_rc_inc(v_raw);
+            let bits = ctx.box_to_any_from_expr(item_eid, v_raw);
             ctx.release_owned_temp(item_eid, &v_raw);
             bits
         }

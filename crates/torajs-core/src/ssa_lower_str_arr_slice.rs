@@ -56,7 +56,7 @@ pub(crate) fn try_dispatch(
     {
         // §23.1.3.28 step 3 ArraySpeciesCreate — constructor-face
         // guard before the derive (RFC 20260713 blade 3).
-        ctx.emit_arr_species_guard(recv_op.clone());
+        ctx.emit_arr_species_guard(recv_op);
         for &a in args.iter().skip(2) {
             let _ = ctx.lower_expr(a);
         }

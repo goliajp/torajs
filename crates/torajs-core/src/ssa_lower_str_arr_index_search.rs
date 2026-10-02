@@ -282,7 +282,7 @@ fn split_undefined_needle(
     result_slot: ValueId,
     after: crate::ssa::BlockId,
 ) {
-    let is_undef = ctx.f64_is_sentinel(needle.clone());
+    let is_undef = ctx.f64_is_sentinel(*needle);
     let undef_blk = ctx.f.add_block();
     let scan_blk = ctx.f.add_block();
     let cb = ctx.cur_block;
@@ -309,12 +309,7 @@ fn split_undefined_needle(
         ctx.cur_block,
         InstKind::Call(
             ctx.intrinsics.arr_f64_index_of_undef,
-            vec![
-                recv_op.clone(),
-                start,
-                end,
-                Operand::ConstI64(want_last as i64),
-            ],
+            vec![*recv_op, start, end, Operand::ConstI64(want_last as i64)],
         ),
         Type::I64,
         None,
@@ -337,14 +332,14 @@ fn lower_any_index_of(
     want_last: bool,
 ) -> Operand {
     let needle_raw = ctx.lower_expr(args[0]);
-    let needle_box = ctx.box_to_any_from_expr(args[0], needle_raw.clone());
+    let needle_box = ctx.box_to_any_from_expr(args[0], needle_raw);
     let from = if args.len() > 1 {
         let f_raw = ctx.lower_expr(args[1]);
         match ctx.operand_ty(&f_raw) {
             Type::I64 => f_raw,
             Type::F64 => ctx.coerce_to_i64(f_raw),
             Type::Any => {
-                let len = any_arr_len(ctx, recv_op.clone());
+                let len = any_arr_len(ctx, recv_op);
                 crate::ssa_lower_str_arr_index_bounds::coerce_from_index_after_len_check(
                     ctx, len, f_raw,
                 )
@@ -369,7 +364,7 @@ fn lower_any_index_of(
                     Operand::ConstI64(0)
                 } else {
                     let boxed = ctx.box_to_any_from_expr(args[1], f_raw);
-                    let len = any_arr_len(ctx, recv_op.clone());
+                    let len = any_arr_len(ctx, recv_op);
                     crate::ssa_lower_str_arr_index_bounds::coerce_from_index_after_len_check(
                         ctx, len, boxed,
                     )
@@ -425,7 +420,7 @@ fn emit_elem_load(
             ctx.cur_block,
             InstKind::Call(
                 ctx.intrinsics.arr_get_any_tag,
-                vec![recv_op.clone(), Operand::Value(i_cur)],
+                vec![recv_op, Operand::Value(i_cur)],
             ),
             Type::I64,
             None,
@@ -434,7 +429,7 @@ fn emit_elem_load(
             ctx.cur_block,
             InstKind::Call(
                 ctx.intrinsics.arr_get_any_value,
-                vec![recv_op.clone(), Operand::Value(i_cur)],
+                vec![recv_op, Operand::Value(i_cur)],
             ),
             Type::I64,
             None,
@@ -450,7 +445,7 @@ fn emit_elem_load(
         )
     } else {
         let (off_base, off) =
-            ctx.emit_arr_slot_byte_offset(recv_op.clone(), Operand::Value(i_cur), 3, false);
+            ctx.emit_arr_slot_byte_offset(recv_op, Operand::Value(i_cur), 3, false);
         // A boolean element is compared as its raw word: a hole holds
         // 2, which a boolean load would read as `false`.
         let load_ty = if elem_ty == Type::Bool {
@@ -460,7 +455,7 @@ fn emit_elem_load(
         };
         ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::LoadDyn(load_ty, off_base.clone(), off),
+            InstKind::LoadDyn(load_ty, off_base, off),
             load_ty,
             None,
         )

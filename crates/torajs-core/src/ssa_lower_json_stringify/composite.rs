@@ -22,7 +22,7 @@ pub(super) fn with_null_gate(
     let out_slot = ctx.alloca_in_entry(Type::Str, Some(slot_name));
     let is_null_ptr = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::ICmp(IPred::Eq, val_op.clone(), Operand::ConstPtrNull),
+        InstKind::ICmp(IPred::Eq, *val_op, Operand::ConstPtrNull),
         Type::Bool,
         None,
     );
@@ -43,7 +43,7 @@ pub(super) fn with_null_gate(
     );
     let is_cell = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::ICmp(IPred::Eq, val_op.clone(), Operand::Value(sentinel)),
+        InstKind::ICmp(IPred::Eq, *val_op, Operand::Value(sentinel)),
         Type::Bool,
         None,
     );
@@ -104,7 +104,7 @@ pub(super) fn with_null_gate(
 fn coerce_sentinel_to_null(ctx: &mut LowerCtx, s: Operand) -> Operand {
     let is_undef = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Call(ctx.intrinsics.str_is_undef, vec![s.clone()]),
+        InstKind::Call(ctx.intrinsics.str_is_undef, vec![s]),
         Type::Bool,
         None,
     );
@@ -129,7 +129,7 @@ fn coerce_sentinel_to_null(ctx: &mut LowerCtx, s: Operand) -> Operand {
     // 642 ledger — this path drops the sentinel the caller would
     // otherwise have released after its concat (a static block, so
     // the drop is a no-op; the entry keeps the account explicit).
-    ctx.emit_drop_value(s.clone(), Type::Str);
+    ctx.emit_drop_value(s, Type::Str);
     ctx.f.set_term(ctx.cur_block, Terminator::Br(done_blk));
     ctx.cur_block = keep_blk;
     ctx.f
@@ -175,17 +175,14 @@ pub(super) fn concat_indent(
         ctx.cur_block,
         InstKind::Call(
             ctx.intrinsics.json_indent,
-            vec![gap.clone(), Operand::ConstI64(depth as i64)],
+            vec![*gap, Operand::ConstI64(depth as i64)],
         ),
         Type::Str,
         None,
     );
     let out = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Call(
-            ctx.intrinsics.str_concat,
-            vec![acc.clone(), Operand::Value(indent)],
-        ),
+        InstKind::Call(ctx.intrinsics.str_concat, vec![acc, Operand::Value(indent)]),
         Type::Str,
         None,
     );
@@ -211,7 +208,7 @@ pub(super) fn concat_close_indent(
         ctx.cur_block,
         InstKind::Call(
             ctx.intrinsics.json_close_indent,
-            vec![acc, gap.clone(), Operand::ConstI64(depth as i64)],
+            vec![acc, *gap, Operand::ConstI64(depth as i64)],
         ),
         Type::Str,
         None,
@@ -393,7 +390,7 @@ fn lower_arr_walk(
     };
     let elem = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::LoadDyn(load_ty, off_base.clone(), off),
+        InstKind::LoadDyn(load_ty, off_base, off),
         load_ty,
         None,
     );
@@ -419,7 +416,7 @@ fn lower_arr_walk(
             elem_ty,
             Some(Operand::Value(idx_key)),
             fe_elem.clone(),
-            gap.clone(),
+            gap,
             depth + 1,
         );
         // A nominal element whose `toJSON` hook takes the runtime
@@ -445,7 +442,7 @@ fn lower_arr_walk(
     };
     let with_elem = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Call(ctx.intrinsics.str_concat, vec![acc_now2.clone(), elem_str]),
+        InstKind::Call(ctx.intrinsics.str_concat, vec![acc_now2, elem_str]),
         Type::Str,
         None,
     );
@@ -457,7 +454,7 @@ fn lower_arr_walk(
     // element's stringified temp (every per-elem lane answers a
     // fresh Str or an interned literal whose drop is a no-op).
     ctx.emit_drop_value(acc_now2, Type::Str);
-    ctx.emit_drop_value(elem_str.clone(), Type::Str);
+    ctx.emit_drop_value(elem_str, Type::Str);
     let i_next = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::BinOp(SsaBinOp::Add, Operand::Value(i_now), Operand::ConstI64(1)),
@@ -484,7 +481,7 @@ fn lower_arr_walk(
         ctx.cur_block,
         InstKind::Call(
             ctx.intrinsics.str_concat,
-            vec![acc_final.clone(), Operand::Value(rbrack)],
+            vec![acc_final, Operand::Value(rbrack)],
         ),
         Type::Str,
         None,

@@ -137,7 +137,7 @@ impl<'a> LowerCtx<'a> {
             // unit by unit at stride 2.
             let hdr = self.f.append_inst(
                 self.cur_block,
-                InstKind::Load(Type::I64, base.clone(), 0),
+                InstKind::Load(Type::I64, base, 0),
                 Type::I64,
                 None,
             );
@@ -174,7 +174,7 @@ impl<'a> LowerCtx<'a> {
                 narrow_off => {
                     let twice = self.f.append_inst(
                         wide,
-                        InstKind::BinOp(SsaBinOp::Add, narrow_off.clone(), narrow_off.clone()),
+                        InstKind::BinOp(SsaBinOp::Add, *narrow_off, *narrow_off),
                         Type::I64,
                         None,
                     );
@@ -227,7 +227,7 @@ impl<'a> LowerCtx<'a> {
                 cur,
                 InstKind::BinOp(
                     SsaBinOp::Add,
-                    base_off.clone(),
+                    base_off,
                     Operand::ConstI64(i as i64 * stride),
                 ),
                 Type::I64,
@@ -235,7 +235,7 @@ impl<'a> LowerCtx<'a> {
             );
             let raw = self.f.append_inst(
                 cur,
-                InstKind::LoadDyn(Type::I32, c.base.clone(), Operand::Value(off_i)),
+                InstKind::LoadDyn(Type::I32, c.base, Operand::Value(off_i)),
                 Type::I32,
                 None,
             );

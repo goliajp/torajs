@@ -455,7 +455,7 @@ impl<'a> LowerCtx<'a> {
         // its target and its embedded read was lowered once by the
         // entry point; hand that back (`ssa_lower_assign` module doc).
         if let Some(op) = self.pins.operands.get(&eid) {
-            return op.clone();
+            return *op;
         }
         // RFC 20260705 chunk 555 — a dispatcher that lowered this
         // exact expr and then declined parked the operand; consume it

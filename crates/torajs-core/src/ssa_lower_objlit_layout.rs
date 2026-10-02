@@ -174,20 +174,10 @@ pub(crate) fn resolve_objlit_layout(
     for (i, (_, reg_ty)) in canon.iter().enumerate() {
         let lit_ty = field_tys[i].1;
         if lit_ty == Type::F64 && *reg_ty == Type::I64 {
-            let c = f.append_inst(
-                cur_block,
-                InstKind::FpToSi(field_vals[i].clone()),
-                Type::I64,
-                None,
-            );
+            let c = f.append_inst(cur_block, InstKind::FpToSi(field_vals[i]), Type::I64, None);
             field_vals[i] = Operand::Value(c);
         } else if lit_ty == Type::I64 && *reg_ty == Type::F64 {
-            let c = f.append_inst(
-                cur_block,
-                InstKind::SiToFp(field_vals[i].clone()),
-                Type::F64,
-                None,
-            );
+            let c = f.append_inst(cur_block, InstKind::SiToFp(field_vals[i]), Type::F64, None);
             field_vals[i] = Operand::Value(c);
         }
         field_tys[i].1 = *reg_ty;

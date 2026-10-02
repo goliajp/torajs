@@ -86,7 +86,7 @@ impl<'a> LowerCtx<'a> {
         // dst is freshly allocated above so head=0; store through its
         // data pointer at i*8.
         let (src_off_base, src_off) =
-            self.emit_arr_slot_byte_offset(src.clone(), Operand::Value(i_now), 3, false);
+            self.emit_arr_slot_byte_offset(src, Operand::Value(i_now), 3, false);
         let dst_data = self.emit_arr_data_ptr(Operand::Value(dst));
         let off = self.f.append_inst(
             self.cur_block,
@@ -96,7 +96,7 @@ impl<'a> LowerCtx<'a> {
         );
         let substr_v = self.f.append_inst(
             self.cur_block,
-            InstKind::LoadDyn(Type::Substr, src_off_base.clone(), src_off),
+            InstKind::LoadDyn(Type::Substr, src_off_base, src_off),
             Type::Substr,
             None,
         );
@@ -111,7 +111,7 @@ impl<'a> LowerCtx<'a> {
         );
         self.f.append_void(
             self.cur_block,
-            InstKind::StoreDyn(Operand::Value(owned), dst_data.clone(), Operand::Value(off)),
+            InstKind::StoreDyn(Operand::Value(owned), dst_data, Operand::Value(off)),
         );
         let i_next = self.f.append_inst(
             self.cur_block,

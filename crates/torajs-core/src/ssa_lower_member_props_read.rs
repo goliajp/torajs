@@ -85,7 +85,7 @@ fn lower_props_read(
     let cur_block = ctx.cur_block;
     let tag = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(tag_fid, vec![obj_val.clone(), Operand::Value(key_str)]),
+        InstKind::Call(tag_fid, vec![obj_val, Operand::Value(key_str)]),
         Type::I64,
         None,
     );

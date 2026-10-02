@@ -121,7 +121,7 @@ pub(crate) fn detach_from_owned_receiver(
                 None,
             ))
         } else {
-            ctx.emit_owned_result_inc(elem.clone(), vt);
+            ctx.emit_owned_result_inc(elem, vt);
             elem
         }
     } else {

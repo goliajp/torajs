@@ -87,7 +87,7 @@ pub(crate) fn lower_map_from_arr(
     let cur_block = ctx.cur_block;
     let inner_arr = ctx.f.append_inst(
         cur_block,
-        InstKind::LoadDyn(Type::Arr(inner_id), outer_off_base.clone(), outer_off),
+        InstKind::LoadDyn(Type::Arr(inner_id), outer_off_base, outer_off),
         Type::Arr(inner_id),
         None,
     );
@@ -196,7 +196,7 @@ fn emit_pair_entry(
         cur_block,
         InstKind::Call(
             ctx.intrinsics.map_set,
-            vec![map_op.clone(), k_tag, k_val, v_tag, v_val],
+            vec![*map_op, k_tag, k_val, v_tag, v_val],
         ),
     );
     let cb = ctx.cur_block;
@@ -230,7 +230,7 @@ fn emit_pair_entry(
         cur_block,
         InstKind::Call(
             ctx.intrinsics.map_set,
-            vec![map_op.clone(), k_tag, k_val, v_tag, v_val],
+            vec![*map_op, k_tag, k_val, v_tag, v_val],
         ),
     );
     let cb = ctx.cur_block;
@@ -305,7 +305,7 @@ pub(crate) fn lower_set_from_arr(
     let cur_block = ctx.cur_block;
     let elem = ctx.f.append_inst(
         cur_block,
-        InstKind::LoadDyn(elem_ty, off_base.clone(), off),
+        InstKind::LoadDyn(elem_ty, off_base, off),
         elem_ty,
         None,
     );
@@ -321,7 +321,7 @@ pub(crate) fn lower_set_from_arr(
         InstKind::Call(
             ctx.intrinsics.map_set,
             vec![
-                set_op.clone(),
+                set_op,
                 k_tag,
                 k_val,
                 Operand::ConstI64(5),

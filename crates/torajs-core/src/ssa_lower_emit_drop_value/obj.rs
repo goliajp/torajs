@@ -170,7 +170,7 @@ pub(super) fn emit_drop_obj(ctx: &mut LowerCtx, val: Operand, sid: crate::ssa::S
     // on the bag's one attach entry.
     emit_if_nonnull_call_arg(ctx, props_val, ctx.intrinsics.obj_props_drop_slow, val);
     if is_class_sid {
-        emit_defer_free_if_buffered(ctx, val.clone(), after);
+        emit_defer_free_if_buffered(ctx, val, after);
     }
     // The static layout sizes the free only if no wider cell can sit
     // in this slot, which takes the whole module's layouts to say:
@@ -201,7 +201,7 @@ pub(super) fn emit_drop_obj(ctx: &mut LowerCtx, val: Operand, sid: crate::ssa::S
 fn emit_defer_free_if_buffered(ctx: &mut LowerCtx, hdr: Operand, after: BlockId) {
     let word = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Load(Type::I32, hdr.clone(), 4),
+        InstKind::Load(Type::I32, hdr, 4),
         Type::I32,
         None,
     );

@@ -65,7 +65,7 @@ pub(crate) fn emit_versioned_header(ctx: &mut LowerCtx, sl: &SplitLoop) -> Split
     // Hoisted per-loop invariants (entry side, before the header).
     let hdr = ctx.f.append_inst(
         cur,
-        InstKind::Load(Type::I64, parent_op.clone(), 0),
+        InstKind::Load(Type::I64, *parent_op, 0),
         Type::I64,
         None,
     );
@@ -88,7 +88,7 @@ pub(crate) fn emit_versioned_header(ctx: &mut LowerCtx, sl: &SplitLoop) -> Split
     // `length u32 @8` of the Str header, the code-unit count.
     let plen32 = ctx.f.append_inst(
         cur,
-        InstKind::Load(Type::I32, parent_op.clone(), 8),
+        InstKind::Load(Type::I32, *parent_op, 8),
         Type::I32,
         None,
     );
@@ -100,7 +100,7 @@ pub(crate) fn emit_versioned_header(ctx: &mut LowerCtx, sl: &SplitLoop) -> Split
     );
     let p_int = ctx
         .f
-        .append_inst(cur, InstKind::PtrToInt(parent_op.clone()), Type::I64, None);
+        .append_inst(cur, InstKind::PtrToInt(*parent_op), Type::I64, None);
     let pbase_i = ctx.f.append_inst(
         cur,
         InstKind::BinOp(
@@ -155,7 +155,7 @@ pub(crate) fn emit_versioned_header(ctx: &mut LowerCtx, sl: &SplitLoop) -> Split
         slow_init,
         InstKind::Call(
             ctx.intrinsics.split_iter_init,
-            vec![Operand::Value(iter_slot), parent_op.clone(), sep_op.clone()],
+            vec![Operand::Value(iter_slot), *parent_op, *sep_op],
         ),
     );
     ctx.f.set_term(slow_init, Terminator::Br(header));
@@ -206,7 +206,7 @@ pub(crate) fn emit_versioned_header(ctx: &mut LowerCtx, sl: &SplitLoop) -> Split
     emit_fast_next(
         ctx,
         &FastScan {
-            parent_op: parent_op.clone(),
+            parent_op: *parent_op,
             sub_slot,
             target,
             plen,
@@ -399,7 +399,7 @@ fn emit_fast_next(ctx: &mut LowerCtx, fs: &FastScan) {
         let fields = [
             (Operand::ConstI64(HDR_STATIC_LITERAL), 0),
             (Operand::Value(len), 8),
-            (parent_op.clone(), 16),
+            (*parent_op, 16),
             (Operand::Value(pos), 24),
         ];
         for (v, off) in fields {

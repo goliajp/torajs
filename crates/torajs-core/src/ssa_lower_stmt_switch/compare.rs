@@ -134,8 +134,8 @@ pub(super) fn emit_case_compare(
             match crate::ssa_lower_binop_inner_strict_eq::try_lower(
                 ctx,
                 crate::ast::BinOp::Eq,
-                scrut_val.clone(),
-                v.clone(),
+                scrut_val,
+                v,
             ) {
                 Some(Operand::Value(vid)) => vid,
                 // That helper folds to a constant only when BOTH

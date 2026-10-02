@@ -80,7 +80,7 @@ impl LowerCtx<'_> {
             crate::ast::UnaryOp::Not => {
                 // V3-18 m1.h.2 — coerce truthy first; the
                 // existing xor-with-true path then flips.
-                let raw = v.clone();
+                let raw = v;
                 let v = self.coerce_to_bool(v);
                 // Chunk 636 — `!f()` consumes the operand by the
                 // truthiness test alone; release an owned temp
@@ -169,13 +169,13 @@ impl LowerCtx<'_> {
     fn lower_unary_any_arith(&mut self, op: UnaryOp, v: Operand) -> Operand {
         let r_tag = self.f.append_inst(
             self.cur_block,
-            InstKind::Call(self.intrinsics.any_unbox_tag, vec![v.clone()]),
+            InstKind::Call(self.intrinsics.any_unbox_tag, vec![v]),
             Type::I64,
             None,
         );
         let r_value = self.f.append_inst(
             self.cur_block,
-            InstKind::Call(self.intrinsics.any_unbox_value, vec![v.clone()]),
+            InstKind::Call(self.intrinsics.any_unbox_value, vec![v]),
             Type::I64,
             None,
         );
@@ -243,13 +243,13 @@ impl LowerCtx<'_> {
     fn lower_unary_any_bitnot(&mut self, v: Operand) -> Operand {
         let r_tag = self.f.append_inst(
             self.cur_block,
-            InstKind::Call(self.intrinsics.any_unbox_tag, vec![v.clone()]),
+            InstKind::Call(self.intrinsics.any_unbox_tag, vec![v]),
             Type::I64,
             None,
         );
         let r_value = self.f.append_inst(
             self.cur_block,
-            InstKind::Call(self.intrinsics.any_unbox_value, vec![v.clone()]),
+            InstKind::Call(self.intrinsics.any_unbox_value, vec![v]),
             Type::I64,
             None,
         );

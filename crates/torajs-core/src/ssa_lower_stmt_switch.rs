@@ -60,7 +60,7 @@ pub(crate) fn lower(
         let slot = ctx.alloca_in_entry(scrut_ty, Some(&name));
         ctx.f.append_void(
             ctx.cur_block,
-            InstKind::Store(scrut_val.clone(), Operand::Value(slot), 0),
+            InstKind::Store(scrut_val, Operand::Value(slot), 0),
         );
         ctx.locals.insert(
             name.clone(),

@@ -51,7 +51,7 @@ impl<'a> LowerCtx<'a> {
     /// it. A slot whose spec step is ToNumber wants
     /// [`Self::coerce_to_f64_tonumber`] instead — that one may branch.
     pub(crate) fn coerce_to_f64(&mut self, op: Operand) -> Operand {
-        self.try_coerce_to_f64(op.clone())
+        self.try_coerce_to_f64(op)
             .unwrap_or_else(|| panic!("ssa-lower: cannot coerce {:?} to f64", self.operand_ty(&op)))
     }
 
@@ -144,7 +144,7 @@ impl<'a> LowerCtx<'a> {
         if self.operand_ty(&op) == Type::Any {
             return self.coerce_any_to_number(op, Type::F64);
         }
-        if let Some(v) = self.try_coerce_to_f64(op.clone()) {
+        if let Some(v) = self.try_coerce_to_f64(op) {
             return v;
         }
         let boxed = self.box_to_any(op);

@@ -55,7 +55,7 @@ impl LowerCtx<'_> {
         let key_pin = self.pin_logical_assign_key(left, right);
         let a = self.lower_expr(left);
         let a_ty = self.operand_ty(&a);
-        let truthy = self.coerce_to_bool(a.clone());
+        let truthy = self.coerce_to_bool(a);
         // V3-18 m1.g mixed-Any case — when either side is typed
         // Any in check, widen the slot to Any and NaN-box the
         // non-Any operand. Pre-fix `alloca(a_ty)` truncated the
@@ -77,7 +77,7 @@ impl LowerCtx<'_> {
         let slot_ty = if widen_to_any {
             Type::Any
         } else {
-            self.class_join_repr(eid).unwrap_or(a_ty.clone())
+            self.class_join_repr(eid).unwrap_or(a_ty)
         };
         let a_for_slot = if widen_to_any && a_ty != Type::Any {
             self.box_to_any_from_expr(left, a)
@@ -102,7 +102,7 @@ impl LowerCtx<'_> {
         // condition release (chunk 636). The false arm keeps a's
         // stake riding into the slot.
         if a_owned {
-            self.emit_drop_value(a_for_slot.clone(), slot_ty.clone());
+            self.emit_drop_value(a_for_slot, slot_ty);
         }
         self.proofs.enter_cond();
         let b = self.lower_expr(right);
@@ -120,7 +120,7 @@ impl LowerCtx<'_> {
         let slot = self.alloca_in_entry(slot_ty, Some("__logic"));
         self.f.append_void(
             self.cur_block,
-            InstKind::Store(b_for_slot.clone(), Operand::Value(slot), 0),
+            InstKind::Store(b_for_slot, Operand::Value(slot), 0),
         );
         // Rotation 325 — owned unification, the chunk-722 ternary
         // contract applied to `&&`: when either arm's value is owned
@@ -135,7 +135,7 @@ impl LowerCtx<'_> {
         let b_owned = slot_ty.is_refcounted() && self.expr_owned_shape(right);
         let join_owned = slot_ty.is_refcounted() && (a_owned || b_owned);
         if join_owned && !b_owned {
-            self.emit_owned_result_inc_in(self.cur_block, b_for_slot, slot_ty.clone());
+            self.emit_owned_result_inc_in(self.cur_block, b_for_slot, slot_ty);
         }
         self.f.set_term(self.cur_block, Terminator::Br(merge));
         self.cur_block = false_blk;
@@ -143,7 +143,7 @@ impl LowerCtx<'_> {
         // a is the falsy value — return it directly (matches JS:
         // `0 && expr` returns 0, not false; `"" && expr` returns "").
         if join_owned && !a_owned {
-            self.emit_owned_result_inc_in(self.cur_block, a_for_slot.clone(), slot_ty.clone());
+            self.emit_owned_result_inc_in(self.cur_block, a_for_slot, slot_ty);
         }
         self.f.append_void(
             self.cur_block,
@@ -246,7 +246,7 @@ impl LowerCtx<'_> {
         let key_pin = self.pin_logical_assign_key(left, right);
         let a = self.lower_expr(left);
         let a_ty = self.operand_ty(&a);
-        let truthy = self.coerce_to_bool(a.clone());
+        let truthy = self.coerce_to_bool(a);
         // V3-18 m1.g mixed-Any case — mirror of `&&` above; widen
         // to Any so both short-circuit values share a uniform slot.
         let widen_to_any =
@@ -258,7 +258,7 @@ impl LowerCtx<'_> {
         let slot_ty = if widen_to_any {
             Type::Any
         } else {
-            self.class_join_repr(eid).unwrap_or(a_ty.clone())
+            self.class_join_repr(eid).unwrap_or(a_ty)
         };
         let a_for_slot = if widen_to_any && a_ty != Type::Any {
             self.box_to_any_from_expr(left, a)
@@ -282,7 +282,7 @@ impl LowerCtx<'_> {
         // lhs temp releases here; the truthy arm keeps a's stake
         // riding into the slot. Mirror of the `&&` arm above.
         if a_owned {
-            self.emit_drop_value(a_for_slot.clone(), slot_ty.clone());
+            self.emit_drop_value(a_for_slot, slot_ty);
         }
         self.proofs.enter_cond();
         let b = self.lower_expr(right);
@@ -298,14 +298,14 @@ impl LowerCtx<'_> {
         let slot = self.alloca_in_entry(slot_ty, Some("__logic"));
         self.f.append_void(
             self.cur_block,
-            InstKind::Store(b_for_slot.clone(), Operand::Value(slot), 0),
+            InstKind::Store(b_for_slot, Operand::Value(slot), 0),
         );
         // Rotation 325 — owned unification (chunk-722 ternary
         // contract): see the `&&` arm above for the rationale.
         let b_owned = slot_ty.is_refcounted() && self.expr_owned_shape(right);
         let join_owned = slot_ty.is_refcounted() && (a_owned || b_owned);
         if join_owned && !b_owned {
-            self.emit_owned_result_inc_in(self.cur_block, b_for_slot, slot_ty.clone());
+            self.emit_owned_result_inc_in(self.cur_block, b_for_slot, slot_ty);
         }
         self.f.set_term(self.cur_block, Terminator::Br(merge));
         // a is truthy — return it directly (matches JS: `5 || 0`
@@ -315,11 +315,11 @@ impl LowerCtx<'_> {
         let a_for_slot = self.coerce_arm_to_slot(a_for_slot, slot_ty);
         self.f.append_void(
             true_blk,
-            InstKind::Store(a_for_slot.clone(), Operand::Value(slot), 0),
+            InstKind::Store(a_for_slot, Operand::Value(slot), 0),
         );
         self.f.set_term(true_blk, Terminator::Br(merge));
         if join_owned && !a_owned {
-            self.emit_owned_result_inc_in(true_blk, a_for_slot, slot_ty.clone());
+            self.emit_owned_result_inc_in(true_blk, a_for_slot, slot_ty);
         }
         self.cur_block = merge;
         if let Some(owned) = key_pin {

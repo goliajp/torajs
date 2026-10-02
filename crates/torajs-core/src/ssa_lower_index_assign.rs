@@ -56,7 +56,7 @@ pub(crate) fn mint_index_assign_value(
 ) {
     let ty = ctx.operand_ty(v);
     if ty.is_refcounted() {
-        ctx.emit_owned_result_inc(v.clone(), ty);
+        ctx.emit_owned_result_inc(*v, ty);
         ctx.owned_member_reads.insert(eid);
     }
 }
@@ -177,14 +177,7 @@ impl<'a> LowerCtx<'a> {
             // An index that is not an integer names a property — the
             // same expando arm the typed tier takes below.
             let any_arm = self.emit_nonintegral_store_split(nonint);
-            self.emit_arr_set_any(
-                writeback,
-                arr_val.clone(),
-                arr_ty,
-                idx_val,
-                tag_op,
-                value_op,
-            );
+            self.emit_arr_set_any(writeback, arr_val, arr_ty, idx_val, tag_op, value_op);
             // Both entries can raise (dense-limit / temporary-receiver
             // RangeError) — propagate.
             self.emit_throw_check(None);
@@ -208,7 +201,7 @@ impl<'a> LowerCtx<'a> {
         // it (a write_blk-local def would be unreachable on the OOB
         // path).
         let v = self.lower_expr(value);
-        let v_raw = v.clone();
+        let v_raw = v;
         let expando_arm = self.emit_nonintegral_store_split(nonint);
         // Chunk 575 — an array value entering a container slot must
         // be self-describing for the cycle walker: field-store /
@@ -227,28 +220,26 @@ impl<'a> LowerCtx<'a> {
         // The slot's +1 lands inside the in-bounds write block — the
         // OOB path stores nothing and must not mint a stake.
         if !transfers && !elem_ty.is_copy() {
-            self.emit_rc_inc(v.clone());
+            self.emit_rc_inc(v);
         }
         self.emit_index_integrity_guard(&arr_val, &idx_val);
         // T-13.5: head-aware byte offset for indexed assign.
         let (offset_base, offset) =
-            self.emit_arr_slot_byte_offset(arr_val.clone(), idx_val.clone(), 3, is_non_deque);
+            self.emit_arr_slot_byte_offset(arr_val, idx_val, 3, is_non_deque);
         // Drop old elem if non-Copy. M1.2 MVP only ships i64
         // elements (Copy), so this branch currently never fires; lays
         // groundwork for non-Copy element types in a follow-up.
         if !elem_ty.is_copy() {
             let old = self.f.append_inst(
                 self.cur_block,
-                InstKind::LoadDyn(elem_ty, offset_base.clone(), offset.clone()),
+                InstKind::LoadDyn(elem_ty, offset_base, offset),
                 elem_ty,
                 None,
             );
             self.emit_drop_value(Operand::Value(old), elem_ty);
         }
-        self.f.append_void(
-            self.cur_block,
-            InstKind::StoreDyn(v.clone(), offset_base.clone(), offset),
-        );
+        self.f
+            .append_void(self.cur_block, InstKind::StoreDyn(v, offset_base, offset));
         self.emit_hole_revive_branch(&arr_val, &idx_val, join_blk);
         if let Some((expando_blk, _join_unused, raw)) = expando_arm {
             self.emit_nonintegral_index_expando_store(
@@ -329,7 +320,7 @@ impl<'a> LowerCtx<'a> {
     ) -> BlockId {
         let len = self.f.append_inst(
             self.cur_block,
-            InstKind::Load(Type::I64, arr_val.clone(), ARR_LEN_OFF),
+            InstKind::Load(Type::I64, *arr_val, ARR_LEN_OFF),
             Type::I64,
             None,
         );
@@ -337,7 +328,7 @@ impl<'a> LowerCtx<'a> {
         // sends a negative index to the out-of-range arm
         let in_bounds = self.f.append_inst(
             self.cur_block,
-            InstKind::ICmp(IPred::Ult, idx_val.clone(), Operand::Value(len)),
+            InstKind::ICmp(IPred::Ult, *idx_val, Operand::Value(len)),
             Type::Bool,
             None,
         );
@@ -358,27 +349,27 @@ impl<'a> LowerCtx<'a> {
         // same way the in-bounds arm does (the kernel's reject arms
         // drop the transferred stake so it never leaks).
         if !transfers && !elem_ty.is_copy() {
-            self.emit_rc_inc(v.clone());
+            self.emit_rc_inc(*v);
         }
         let raw_v = match elem_ty {
             Type::Bool => {
                 let z = self.f.append_inst(
                     self.cur_block,
-                    InstKind::ZExtBoolToI64(v.clone()),
+                    InstKind::ZExtBoolToI64(*v),
                     Type::I64,
                     None,
                 );
                 Operand::Value(z)
             }
-            _ => self.raw_slot_arg(v.clone()),
+            _ => self.raw_slot_arg(*v),
         };
         self.f.append_void(
             self.cur_block,
             InstKind::Call(
                 self.intrinsics.arr_typed_set_grow,
                 vec![
-                    arr_val.clone(),
-                    idx_val.clone(),
+                    *arr_val,
+                    *idx_val,
                     raw_v,
                     crate::ssa_lower_index_undef::typed_hole_raw(elem_ty),
                 ],

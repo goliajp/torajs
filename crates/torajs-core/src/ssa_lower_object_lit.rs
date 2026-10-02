@@ -181,10 +181,10 @@ pub(crate) fn lower(
                     .find(|(n, _)| n == fname)
                     .map(|(_, veid)| *veid);
                 field_vals[i] = match veid {
-                    Some(e) => ctx.box_to_any_from_expr(e, field_vals[i].clone()),
+                    Some(e) => ctx.box_to_any_from_expr(e, field_vals[i]),
                     // spread-unfolded field — no source expr; the
                     // plain box maps ConstPtrNull to ANY_NULL.
-                    None => ctx.box_to_any(field_vals[i].clone()),
+                    None => ctx.box_to_any(field_vals[i]),
                 };
             }
         } else if ctx.operand_ty(&field_vals[i]) == Type::Any {
@@ -198,11 +198,11 @@ pub(crate) fn lower(
             // str / bigint mint fresh owned values the slot takes
             // over like any other owned init.
             field_vals[i] = match slot_ty {
-                Type::F64 | Type::I64 => ctx.coerce_any_to_number(field_vals[i].clone(), *slot_ty),
-                Type::Str => ctx.coerce_to_str(field_vals[i].clone(), Type::Any),
-                Type::Bool => ctx.coerce_to_bool(field_vals[i].clone()),
-                Type::BigInt => ctx.coerce_any_to_bigint(field_vals[i].clone()),
-                _ => field_vals[i].clone(),
+                Type::F64 | Type::I64 => ctx.coerce_any_to_number(field_vals[i], *slot_ty),
+                Type::Str => ctx.coerce_to_str(field_vals[i], Type::Any),
+                Type::Bool => ctx.coerce_to_bool(field_vals[i]),
+                Type::BigInt => ctx.coerce_any_to_bigint(field_vals[i]),
+                _ => field_vals[i],
             };
         }
     }
@@ -413,7 +413,7 @@ fn apply_w4_widen(
                 || ctx.num_f64_slots.objlit_shape_field_is_f64(&shape, fname))
         {
             *fty = Type::F64;
-            let coerced = ctx.coerce_to_f64(field_vals[i].clone());
+            let coerced = ctx.coerce_to_f64(field_vals[i]);
             field_vals[i] = coerced;
         }
     }

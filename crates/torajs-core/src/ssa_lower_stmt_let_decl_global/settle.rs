@@ -42,7 +42,7 @@ pub(super) fn settle_any_read_init(
         return false;
     }
     if !ctx.owned_member_reads.contains(&init) && !ctx.expr_transfers_ownership(init) {
-        ctx.emit_owned_result_inc(init_val.clone(), Type::Any);
+        ctx.emit_owned_result_inc(*init_val, Type::Any);
     }
     read
 }
@@ -75,7 +75,7 @@ pub(super) fn settle_typed_init(
                     "ssa-lower: K.4 refcount global `{name}` requires a same-type alias init; `{got:?}` into `{slot_ty:?}` is not yet supported"
                 );
             }
-            ctx.emit_owned_result_inc(init_val.clone(), got);
+            ctx.emit_owned_result_inc(init_val, got);
         }
         Expr::Member { .. } | Expr::Index { .. } => {
             if got != slot_ty {
@@ -84,7 +84,7 @@ pub(super) fn settle_typed_init(
                 );
             }
             if !ctx.owned_member_reads.contains(&init) && !ctx.expr_transfers_ownership(init) {
-                ctx.emit_owned_result_inc(init_val.clone(), got);
+                ctx.emit_owned_result_inc(init_val, got);
             }
         }
         _ => {}
@@ -127,7 +127,7 @@ fn substr_into_str(ctx: &mut LowerCtx, init: ExprId, view: Operand) -> Operand {
     let cur_block = ctx.cur_block;
     let owned = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(ctx.intrinsics.substr_to_owned, vec![view.clone()]),
+        InstKind::Call(ctx.intrinsics.substr_to_owned, vec![view]),
         Type::Str,
         None,
     );

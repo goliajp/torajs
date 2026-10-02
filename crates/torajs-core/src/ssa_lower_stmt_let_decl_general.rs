@@ -366,7 +366,7 @@ pub(crate) fn bind_let_slot(
             // An alias-shape init carries no stake of its own — the
             // box takes a fresh share (the source binding keeps its;
             // Any payloads take the NaN-box-aware inc).
-            ctx.emit_owned_result_inc(init_val.clone(), ty);
+            ctx.emit_owned_result_inc(init_val, ty);
         }
         ctx.emit_capture_boxed(ty, init_val)
     } else {
@@ -437,7 +437,7 @@ fn fill_forward_box(
     sites: Vec<(String, usize)>,
 ) {
     if !ty.is_copy() && is_alias_init && !boxed_any {
-        ctx.emit_owned_result_inc(init_val.clone(), ty);
+        ctx.emit_owned_result_inc(init_val, ty);
     }
     // The frame releases a Copy payload's box through its own list,
     // keyed on the slot being Copy and escape-captured. `open_box` had

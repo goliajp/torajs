@@ -107,7 +107,7 @@ fn lower_inner(ctx: &mut LowerCtx<'_>, eid: ExprId, lhs: ExprId, rhs: ExprId) ->
         && ((matches!(lhs_ty, Type::Str | Type::Substr)
             && (crate::ssa_lower_nullable_guard::is_nullable_str_source(ctx, lhs)
                 || crate::ssa_lower_nullable_guard::is_undefable_substr_source(ctx, lhs)))
-            || crate::ssa_lower_nullable_guard::holds_undef_cell(ctx, lhs, lhs_ty.clone()))
+            || crate::ssa_lower_nullable_guard::holds_undef_cell(ctx, lhs, lhs_ty))
     {
         return lower_generic_ptr_lhs(ctx, eid, lhs_op, lhs_ty, lhs, rhs);
     }
@@ -181,16 +181,16 @@ fn lower_generic_ptr_lhs(
     // slot wears the ancestor's layout rather than the lhs's. No box
     // — both pointers carry its field prefix (`class_join_repr`).
     let lhs_ty = ctx.class_join_repr(eid).unwrap_or(lhs_ty);
-    let res_slot = ctx.alloca_in_entry(lhs_ty.clone(), Some("__nullish"));
+    let res_slot = ctx.alloca_in_entry(lhs_ty, Some("__nullish"));
     let cur_block = ctx.cur_block;
     ctx.f.append_void(
         cur_block,
-        InstKind::Store(lhs_op.clone(), Operand::Value(res_slot), 0),
+        InstKind::Store(lhs_op, Operand::Value(res_slot), 0),
     );
     let cur_block = ctx.cur_block;
     let eq_null = ctx.f.append_inst(
         cur_block,
-        InstKind::ICmp(IPred::Eq, lhs_op.clone(), Operand::ConstPtrNull),
+        InstKind::ICmp(IPred::Eq, lhs_op, Operand::ConstPtrNull),
         Type::Bool,
         None,
     );
@@ -204,7 +204,7 @@ fn lower_generic_ptr_lhs(
     let cond = if let Some(sentinel) = ctx.str_undef_sentinel_for(lhs_ty) {
         let eq_undef = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::ICmp(IPred::Eq, lhs_op.clone(), sentinel),
+            InstKind::ICmp(IPred::Eq, lhs_op, sentinel),
             Type::Bool,
             None,
         );
@@ -240,7 +240,7 @@ fn lower_generic_ptr_lhs(
     let then_end = ctx.cur_block;
     ctx.f.append_void(
         then_end,
-        InstKind::Store(rhs_op.clone(), Operand::Value(res_slot), 0),
+        InstKind::Store(rhs_op, Operand::Value(res_slot), 0),
     );
     // Chunk 722 — the join result is uniformly OWNED: an owned
     // shape transfers its fresh reference into the slot, a borrow
@@ -279,7 +279,7 @@ fn lower_generic_ptr_lhs(
 fn lower_f64_undefable_lhs(ctx: &mut LowerCtx<'_>, lhs_op: Operand, rhs: ExprId) -> Operand {
     let bits = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::BitCastF64ToI64(lhs_op.clone()),
+        InstKind::BitCastF64ToI64(lhs_op),
         Type::I64,
         None,
     );

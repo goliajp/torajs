@@ -262,7 +262,7 @@ impl<'a> LowerCtx<'a> {
         if ty.is_copy() {
             return None;
         }
-        Some((op.clone(), ty))
+        Some((*op, ty))
     }
 
     /// Park `eid`'s lowered value iff it is an owned temp (per
@@ -297,7 +297,7 @@ impl<'a> LowerCtx<'a> {
     /// drain (`TempScratch::argv_owned`) AND for every throw edge
     /// between here and that drain.
     pub(crate) fn park_argv_owned(&mut self, op: Operand, ty: Type) {
-        let tok = self.push_throw_temp(op.clone(), ty.clone());
+        let tok = self.push_throw_temp(op, ty);
         self.temps.argv_owned.push((op, ty, tok));
     }
 }

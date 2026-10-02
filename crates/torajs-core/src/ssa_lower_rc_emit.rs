@@ -103,7 +103,7 @@ impl<'a> LowerCtx<'a> {
     pub(crate) fn emit_rc_dec_inline(&mut self, hdr: Operand) -> Operand {
         let rc_now = self.f.append_inst(
             self.cur_block,
-            InstKind::Load(Type::I32, hdr.clone(), 0),
+            InstKind::Load(Type::I32, hdr, 0),
             Type::I32,
             None,
         );
@@ -287,7 +287,7 @@ impl<'a> LowerCtx<'a> {
         if ty.is_copy() {
             return;
         }
-        self.emit_drop_value(op.clone(), ty);
+        self.emit_drop_value(*op, ty);
     }
 
     /// True when the expression's lowered value is an owned temp

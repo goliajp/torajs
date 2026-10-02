@@ -34,7 +34,7 @@ pub(crate) fn lower(
     else_branch: Option<&Stmt>,
 ) {
     let raw = ctx.lower_expr(cond);
-    let c = ctx.coerce_to_bool(raw.clone());
+    let c = ctx.coerce_to_bool(raw);
     // Chunk 636 — the condition value is consumed by the truthiness
     // test alone; an owned temp (`if (wr.deref())`, `if (f())`) has
     // no other release site (probe l16d: the deref target stayed

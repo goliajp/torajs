@@ -84,18 +84,13 @@ pub(crate) fn try_lower(
         if substring_len_op.is_none() {
             let len = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Load(Type::I64, recv_op.clone(), 8),
+                InstKind::Load(Type::I64, *recv_op, 8),
                 Type::I64,
                 None,
             );
             *substring_len_op = Some(Operand::Value(len));
         }
-        let sel = ctx.select_on_undef_tag(
-            tag,
-            substring_len_op.clone().unwrap(),
-            idx,
-            "__str_end_slot",
-        );
+        let sel = ctx.select_on_undef_tag(tag, (*substring_len_op).unwrap(), idx, "__str_end_slot");
         return Some(sel);
     } else if matches!(method, "slice" | "substring" | "substr")
         && i < 2
@@ -203,7 +198,7 @@ fn lower_lastindexof_pos(ctx: &mut LowerCtx<'_>, a: ExprId) -> Operand {
     if !matches!(ctx.operand_ty(&n), Type::F64) {
         return ctx.coerce_to_i64(n);
     }
-    let idx = ctx.coerce_to_i64(n.clone());
+    let idx = ctx.coerce_to_i64(n);
     select_on_nan(ctx, n, Operand::ConstI64(i64::MAX), idx, "__str_pos_slot")
 }
 
@@ -220,7 +215,7 @@ fn select_on_nan(
 ) -> Operand {
     let is_nan = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::FCmp(crate::ssa::FPred::Une, n.clone(), n),
+        InstKind::FCmp(crate::ssa::FPred::Une, n, n),
         Type::Bool,
         None,
     );

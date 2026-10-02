@@ -52,7 +52,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, body: &Stmt, cond: crate::ast::ExprId) {
 
     ctx.cur_block = cond_blk;
     let raw = ctx.lower_expr(cond);
-    let c = ctx.coerce_to_bool(raw.clone());
+    let c = ctx.coerce_to_bool(raw);
     // Chunk 636 — release an owned condition temp after the
     // truthiness test (see ssa_lower_stmt_if.rs); re-evaluated
     // per iteration, so the release runs per iteration too.

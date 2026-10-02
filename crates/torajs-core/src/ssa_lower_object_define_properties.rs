@@ -72,8 +72,8 @@ pub(crate) fn try_lower_define_properties(
                 } else {
                     emit_define_one_core(
                         ctx,
-                        obj_raw.clone(),
-                        obj_ty.clone(),
+                        obj_raw,
+                        obj_ty,
                         &None,
                         DefineKey::Name(name),
                         *desc_eid,
@@ -90,7 +90,7 @@ pub(crate) fn try_lower_define_properties(
         if let Some(t) = recv_tok {
             ctx.pop_throw_temp(t);
         }
-        ctx.emit_owned_result_inc(obj_raw.clone(), obj_ty);
+        ctx.emit_owned_result_inc(obj_raw, obj_ty);
         // An owned-temp receiver (`{} as any` dynobj promote / plain
         // ObjectLit) hands its mint stake off here — the result inc
         // above is the consumer's stake, so without this release the
@@ -130,14 +130,11 @@ fn lower_props_runtime_walk(ctx: &mut LowerCtx, args: &[ExprId], obj_raw: &Opera
     // objects; the walk no-ops). Statically-typed non-object
     // props box once so the helper can throw; a runtime Any
     // gates before the walk (RFC 20260713 chunk B).
-    if !matches!(props_ty, Type::Any) && !is_typed_object(props_ty.clone()) {
-        let boxed = ctx.box_to_any_from_expr(args[1], props_op.clone());
+    if !matches!(props_ty, Type::Any) && !is_typed_object(props_ty) {
+        let boxed = ctx.box_to_any_from_expr(args[1], props_op);
         ctx.f.append_void(
             ctx.cur_block,
-            InstKind::Call(
-                ctx.intrinsics.throw_typeerror_if_props_nullish,
-                vec![boxed.clone()],
-            ),
+            InstKind::Call(ctx.intrinsics.throw_typeerror_if_props_nullish, vec![boxed]),
         );
         ctx.emit_throw_check(None);
         // §20.1.2.3.1 step 1 ToObject — the nullish gate alone
@@ -158,7 +155,7 @@ fn lower_props_runtime_walk(ctx: &mut LowerCtx, args: &[ExprId], obj_raw: &Opera
             ctx.cur_block,
             InstKind::Call(
                 ctx.intrinsics.throw_typeerror_if_props_nullish,
-                vec![props_op.clone()],
+                vec![props_op],
             ),
         );
         ctx.emit_throw_check(None);
@@ -184,9 +181,9 @@ fn lower_props_runtime_walk(ctx: &mut LowerCtx, args: &[ExprId], obj_raw: &Opera
         && (matches!(props_ty, Type::Any) || props_is_typed_cell)
     {
         let props_ptr = if props_is_typed_cell {
-            match props_op.clone() {
+            match props_op {
                 Operand::Value(v) => v,
-                _ => ctx.any_unbox_value_as_ptr(props_op.clone()),
+                _ => ctx.any_unbox_value_as_ptr(props_op),
             }
         } else {
             // §20.1.2.3.1 step 1 ToObject — the gate answers
@@ -197,10 +194,7 @@ fn lower_props_runtime_walk(ctx: &mut LowerCtx, args: &[ExprId], obj_raw: &Opera
             // kernel as a pointer (SIGSEGV on numbers).
             let gated = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(
-                    ctx.intrinsics.define_props_source_gate,
-                    vec![props_op.clone()],
-                ),
+                InstKind::Call(ctx.intrinsics.define_props_source_gate, vec![props_op]),
                 Type::Ptr,
                 None,
             );
@@ -208,12 +202,12 @@ fn lower_props_runtime_walk(ctx: &mut LowerCtx, args: &[ExprId], obj_raw: &Opera
             gated
         };
         let dynobj = if recv_is_closure {
-            match obj_raw.clone() {
+            match *obj_raw {
                 Operand::Value(v) => v,
-                _ => ctx.any_unbox_value_as_ptr(obj_raw.clone()),
+                _ => ctx.any_unbox_value_as_ptr(*obj_raw),
             }
         } else {
-            ctx.any_unbox_value_as_ptr(obj_raw.clone())
+            ctx.any_unbox_value_as_ptr(*obj_raw)
         };
         let slot = ctx.alloca(Type::Ptr, Some("__dynobj_slot"));
         ctx.f.append_void(

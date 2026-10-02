@@ -53,11 +53,11 @@ pub(crate) fn lower_typed_arr_any_key(
         .get(&index)
         .is_some_and(crate::check_type_of_index::key_needs_boxing)
     {
-        ctx.box_to_any_from_expr(index, k_raw.clone())
+        ctx.box_to_any_from_expr(index, k_raw)
     } else if k_ty == Type::Any {
-        k_raw.clone()
+        k_raw
     } else {
-        ctx.box_to_any(k_raw.clone())
+        ctx.box_to_any(k_raw)
     };
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
@@ -157,7 +157,7 @@ impl AnyNumericKey {
     /// §13.15.2 evaluates the Reference once) and pick the kernel.
     pub(crate) fn lower(ctx: &mut LowerCtx<'_>, index: ExprId) -> Self {
         let raw = match &ctx.pins.compound_key {
-            Some((mid, mop)) if *mid == index => mop.clone(),
+            Some((mid, mop)) if *mid == index => *mop,
             _ => ctx.lower_expr(index),
         };
         if matches!(ctx.operand_ty(&raw), Type::F64) {
@@ -254,10 +254,7 @@ pub(crate) fn emit_any_elem_pair(
     let cur_block = ctx.cur_block;
     let tag = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(
-            ctx.intrinsics.arr_get_any_tag,
-            vec![arr_val.clone(), idx_val.clone()],
-        ),
+        InstKind::Call(ctx.intrinsics.arr_get_any_tag, vec![arr_val, idx_val]),
         Type::I64,
         None,
     );
@@ -294,7 +291,7 @@ pub(crate) fn lower_any_index_str_key(
     let k_raw = ctx.lower_expr(index);
     let k_ty = ctx.operand_ty(&k_raw);
     let owned = k_ty == Type::Substr;
-    let key_op = ctx.coerce_to_str(k_raw.clone(), k_ty);
+    let key_op = ctx.coerce_to_str(k_raw, k_ty);
     let Operand::Value(key_v) = key_op else {
         panic!("ssa-lower: string index key lowered to a non-value operand");
     };
@@ -324,7 +321,7 @@ pub(crate) fn lower_any_index_symbol_key(
 ) -> Operand {
     let k_raw = ctx.lower_expr(index);
     let k_ty = ctx.operand_ty(&k_raw);
-    let Operand::Value(key_v) = k_raw.clone() else {
+    let Operand::Value(key_v) = k_raw else {
         panic!("ssa-lower: symbol index key lowered to a non-value operand");
     };
     let out = crate::ssa_lower_any_member::emit_any_member_probe(ctx, &obj_val, key_v);
@@ -394,16 +391,13 @@ pub(crate) fn lower_struct_like_index(
         // key for this eid: reuse it (one ToPropertyKey total), no
         // re-lower, no drop (the write lane owns the cell).
         let (k_raw, memoed) = match &ctx.pins.compound_key {
-            Some((mid, mop)) if *mid == index => (mop.clone(), true),
+            Some((mid, mop)) if *mid == index => (*mop, true),
             _ => (lower_any_key(ctx, index), false),
         };
         let cur_block = ctx.cur_block;
         let v = ctx.f.append_inst(
             cur_block,
-            InstKind::Call(
-                ctx.intrinsics.any_index_get_keyed,
-                vec![boxed, k_raw.clone()],
-            ),
+            InstKind::Call(ctx.intrinsics.any_index_get_keyed, vec![boxed, k_raw]),
             Type::Any,
             None,
         );

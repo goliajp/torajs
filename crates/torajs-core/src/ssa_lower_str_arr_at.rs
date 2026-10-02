@@ -126,11 +126,11 @@ pub(crate) fn try_dispatch(
         // undefined sentinels, other elem types record a catchable
         // RangeError (no undefined representation in the slot type).
         let v = if elem_ty == Type::Any {
-            crate::ssa_lower_index::lower_array_any_index(ctx, recv_op.clone(), Operand::Value(adj))
+            crate::ssa_lower_index::lower_array_any_index(ctx, recv_op, Operand::Value(adj))
         } else {
             crate::ssa_lower_index::lower_typed_index_checked(
                 ctx,
-                recv_op.clone(),
+                recv_op,
                 Operand::Value(adj),
                 false,
                 elem_ty,
@@ -144,7 +144,7 @@ pub(crate) fn try_dispatch(
         // of `arr.at(i)` scope-drops a ref the slot still holds. The
         // OOB sentinels are FLAG_STATIC_LITERAL — inc is a no-op there.
         if elem_ty.is_refcounted() {
-            ctx.emit_rc_inc(v.clone());
+            ctx.emit_rc_inc(v);
         }
         return Some(v);
     }

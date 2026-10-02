@@ -58,7 +58,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, a: ExprId, which: i64) -> Operand {
         // overwhelmingly common needle therefore pays nothing — no
         // box, no call, no check.
         if ctx.expr_is_fresh_owned(a) {
-            ctx.park_argv_owned(raw.clone(), raw_ty);
+            ctx.park_argv_owned(raw, raw_ty);
         }
         return raw;
     }
@@ -76,9 +76,9 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, a: ExprId, which: i64) -> Operand {
     // every shape by construction, and this is the slow path anyway:
     // a string needle returned above without boxing at all.
     let boxed = if matches!(raw_ty, Type::Any) {
-        raw.clone()
+        raw
     } else {
-        ctx.box_to_any(raw.clone())
+        ctx.box_to_any(raw)
     };
     // Rotation 550's contract, widened by one check: the raw operand
     // has to be on the throw ledger BEFORE the first check, not
@@ -87,13 +87,13 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, a: ExprId, which: i64) -> Operand {
     // (`"ab".startsWith(mk())`) unwinding out of the FIRST one has
     // nobody to drop it unless it is registered by then.
     let raw_owned = raw_ty.is_refcounted() && ctx.expr_is_fresh_owned(a);
-    let raw_tok = raw_owned.then(|| ctx.push_throw_temp(raw.clone(), raw_ty));
+    let raw_tok = raw_owned.then(|| ctx.push_throw_temp(raw, raw_ty));
     let cur = ctx.cur_block;
     let _ = ctx.f.append_inst(
         cur,
         InstKind::Call(
             ctx.intrinsics.anyv_reject_regexp_needle,
-            vec![boxed.clone(), Operand::ConstI64(which)],
+            vec![boxed, Operand::ConstI64(which)],
         ),
         Type::Void,
         None,
@@ -107,7 +107,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, a: ExprId, which: i64) -> Operand {
     // The coerced Str is ours whether or not the toString threw
     // (kernel placeholder contract), so it joins the ledger too.
     let s = ctx.coerce_to_str(boxed, Type::Any);
-    ctx.park_argv_owned(s.clone(), Type::Str);
+    ctx.park_argv_owned(s, Type::Str);
     ctx.emit_throw_check(None);
     ctx.unpark_owned_temp(raw_tok);
     if raw_owned {

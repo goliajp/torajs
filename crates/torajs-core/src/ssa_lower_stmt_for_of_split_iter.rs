@@ -87,7 +87,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, var_name: &str, parent: ExprId, sep: Exp
     let (parent_op, minted) = if ctx.operand_ty(&parent_op) == Type::Substr {
         let owned = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.substr_to_owned, vec![parent_op.clone()]),
+            InstKind::Call(ctx.intrinsics.substr_to_owned, vec![parent_op]),
             Type::Str,
             None,
         );
@@ -105,12 +105,12 @@ pub(crate) fn lower(ctx: &mut LowerCtx, var_name: &str, parent: ExprId, sep: Exp
     ctx.shadow_stack.push(Vec::new());
     if parent_ty.is_refcounted() && (minted || !source_outlives_loop(ctx, parent, body)) {
         if !minted && !ctx.expr_transfers_ownership(parent) {
-            ctx.emit_owned_result_inc(parent_op.clone(), parent_ty);
+            ctx.emit_owned_result_inc(parent_op, parent_ty);
         }
         let hold = ctx.alloca(parent_ty, Some(PARENT_HOLD));
         ctx.f.append_void(
             ctx.cur_block,
-            InstKind::Store(parent_op.clone(), Operand::Value(hold), 0),
+            InstKind::Store(parent_op, Operand::Value(hold), 0),
         );
         bind_scoped_local(ctx, PARENT_HOLD, hold, parent_ty, false, false, false);
     }
@@ -157,7 +157,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, var_name: &str, parent: ExprId, sep: Exp
             crate::ssa_lower_stmt_for_of_split_iter_fast::emit_versioned_header(
                 ctx,
                 &crate::ssa_lower_stmt_for_of_split_iter_fast::SplitLoop {
-                    parent_op: parent_op.clone(),
+                    parent_op: parent_op,
                     sep_op,
                     iter_slot,
                     sub_slot,
@@ -175,7 +175,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, var_name: &str, parent: ExprId, sep: Exp
             ctx.cur_block,
             InstKind::Call(
                 ctx.intrinsics.split_iter_init,
-                vec![Operand::Value(iter_slot), parent_op.clone(), sep_op],
+                vec![Operand::Value(iter_slot), parent_op, sep_op],
             ),
         );
         ctx.f.set_term(ctx.cur_block, Terminator::Br(header));
@@ -325,7 +325,7 @@ pub(crate) fn try_view_char_code_at(
         .append_inst(cur, InstKind::Alloca(Type::F64), Type::Ptr, None);
     let in_bounds = ctx.f.append_inst(
         cur,
-        InstKind::ICmp(IPred::Ult, idx.clone(), Operand::Value(len)),
+        InstKind::ICmp(IPred::Ult, idx, Operand::Value(len)),
         Type::Bool,
         None,
     );
@@ -360,7 +360,7 @@ pub(crate) fn try_view_char_code_at(
     let off = load_slot(ctx, view.off_slot);
     let j = ctx.f.append_inst(
         lat_blk,
-        InstKind::BinOp(SsaBinOp::Add, Operand::Value(off), idx.clone()),
+        InstKind::BinOp(SsaBinOp::Add, Operand::Value(off), idx),
         Type::I64,
         None,
     );

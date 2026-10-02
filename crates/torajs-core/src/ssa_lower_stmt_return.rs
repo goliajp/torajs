@@ -138,7 +138,7 @@ fn lower_return_value(ctx: &mut LowerCtx, eid: crate::ast::ExprId) -> Operand {
         false
     };
     if needs_retain {
-        ctx.emit_rc_inc(v.clone());
+        ctx.emit_rc_inc(v);
     }
     if let Some(answer) = crate::ssa_lower_return_borrow::retain_borrowed_answer(ctx, src_eid, &v) {
         return answer;
@@ -354,13 +354,7 @@ fn coerce_to_ret(ctx: &mut LowerCtx, op: Operand, maybe: Option<crate::ast::Expr
         } else {
             Admits::Exact
         };
-        if let Some(v) = ctx.checked_cast(
-            op.clone(),
-            ret,
-            CastSlot::Return,
-            CastScope::Annotated,
-            admits,
-        ) {
+        if let Some(v) = ctx.checked_cast(op, ret, CastSlot::Return, CastScope::Annotated, admits) {
             if ret == Type::Str {
                 ctx.emit_drop_value(op, Type::Any);
             }

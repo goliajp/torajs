@@ -28,7 +28,7 @@ pub(crate) fn lower_any_slot(
     let cur_block = ctx.cur_block;
     let old = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(fid, vec![slot.clone(), flag]),
+        InstKind::Call(fid, vec![slot, flag]),
         Type::Any,
         None,
     );
@@ -75,8 +75,7 @@ pub(crate) fn lower_member_any(
     field: &str,
     step: Step,
 ) -> Operand {
-    let old_box =
-        crate::ssa_lower_any_member::lower_any_member_read(ctx, target, obj_val.clone(), field);
+    let old_box = crate::ssa_lower_any_member::lower_any_member_read(ctx, target, obj_val, field);
     let old_slot = ctx.alloca(Type::Any, Some("__incr_old"));
     let flag = Operand::ConstI64(if step.is_inc { 1 } else { 0 });
     let cur_block = ctx.cur_block;
@@ -84,7 +83,7 @@ pub(crate) fn lower_member_any(
         cur_block,
         InstKind::Call(
             ctx.intrinsics.anyv_incr_value,
-            vec![old_box.clone(), flag, Operand::Value(old_slot)],
+            vec![old_box, flag, Operand::Value(old_slot)],
         ),
         Type::Any,
         None,

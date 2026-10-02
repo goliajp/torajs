@@ -30,7 +30,7 @@ impl crate::ssa_lower::LowerCtx<'_> {
         let res_slot = self.alloca_in_entry(Type::Any, Some("__optchain"));
         let tag = self.f.append_inst(
             self.cur_block,
-            InstKind::Call(self.intrinsics.any_unbox_tag, vec![obj_op.clone()]),
+            InstKind::Call(self.intrinsics.any_unbox_tag, vec![obj_op]),
             Type::I64,
             None,
         );

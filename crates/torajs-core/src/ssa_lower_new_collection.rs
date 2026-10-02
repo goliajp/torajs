@@ -29,8 +29,8 @@ pub(crate) fn lower_iterable_init(
     kind: i64,
 ) -> Operand {
     let arg_ty = ctx.operand_ty(&arg_op);
-    let target_any = ctx.box_to_any(target.clone());
-    let src_any = ctx.box_to_any(arg_op.clone());
+    let target_any = ctx.box_to_any(target);
+    let src_any = ctx.box_to_any(arg_op);
     let cur_block = ctx.cur_block;
     ctx.f.append_void(
         cur_block,
@@ -155,7 +155,7 @@ fn lower_map_clone(
     let cur_block = ctx.cur_block;
     let cloned = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(ctx.intrinsics.map_clone, vec![arg_op.clone()]),
+        InstKind::Call(ctx.intrinsics.map_clone, vec![arg_op]),
         Type::Map,
         None,
     );
@@ -256,7 +256,7 @@ fn try_set_static_init(ctx: &mut LowerCtx<'_>, set_op: &Operand, args: &[ExprId]
 /// undefined for the unpatched program, which is the direct kernel
 /// call this lane always emitted.
 fn lower_static_adder(ctx: &mut LowerCtx<'_>, target: &Operand, kind: i64) -> Operand {
-    let target_any = ctx.box_to_any(target.clone());
+    let target_any = ctx.box_to_any(*target);
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur_block,
@@ -279,7 +279,7 @@ fn emit_static_add(
     kind: i64,
     slots: [Operand; 4],
 ) {
-    let target_any = ctx.box_to_any(target.clone());
+    let target_any = ctx.box_to_any(*target);
     let [k_tag, k_val, v_tag, v_val] = slots;
     let cur_block = ctx.cur_block;
     ctx.f.append_void(
@@ -288,7 +288,7 @@ fn emit_static_add(
             ctx.intrinsics.collection_add_static,
             vec![
                 target_any,
-                adder.clone(),
+                *adder,
                 Operand::ConstI64(kind),
                 k_tag,
                 k_val,
@@ -321,7 +321,7 @@ fn lower_set_clone(
         cur_block,
         InstKind::Call(
             ctx.intrinsics.set_union,
-            vec![arg_op.clone(), Operand::ConstPtrNull],
+            vec![arg_op, Operand::ConstPtrNull],
         ),
         Type::Set,
         None,

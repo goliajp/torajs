@@ -70,7 +70,7 @@ pub(crate) fn emit_compare(
         Type::F64 if want_bool => {
             let eq_ord = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::FCmp(FPred::Oeq, Operand::Value(elem), needle.clone()),
+                InstKind::FCmp(FPred::Oeq, Operand::Value(elem), needle),
                 Type::Bool,
                 None,
             );
@@ -85,7 +85,7 @@ pub(crate) fn emit_compare(
             );
             let needle_nan = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::FCmp(FPred::Une, needle.clone(), needle),
+                InstKind::FCmp(FPred::Une, needle, needle),
                 Type::Bool,
                 None,
             );
@@ -194,11 +194,11 @@ pub(crate) fn emit_compare(
                     (5, Operand::ConstI64(0))
                 } else {
                     match needle_ty {
-                        Type::I64 | Type::I32 => (2, needle.clone()),
+                        Type::I64 | Type::I32 => (2, needle),
                         Type::F64 => {
                             let bits = ctx.f.append_inst(
                                 ctx.cur_block,
-                                InstKind::BitCastF64ToI64(needle.clone()),
+                                InstKind::BitCastF64ToI64(needle),
                                 Type::I64,
                                 None,
                             );
@@ -207,7 +207,7 @@ pub(crate) fn emit_compare(
                         Type::Bool => {
                             let zext = ctx.f.append_inst(
                                 ctx.cur_block,
-                                InstKind::ZExtBoolToI64(needle.clone()),
+                                InstKind::ZExtBoolToI64(needle),
                                 Type::I64,
                                 None,
                             );
@@ -216,7 +216,7 @@ pub(crate) fn emit_compare(
                         Type::Ptr if matches!(needle, Operand::ConstPtrNull) => {
                             (0, Operand::ConstI64(0))
                         }
-                        t if t.is_refcounted() => (4, needle.clone()),
+                        t if t.is_refcounted() => (4, needle),
                         _ => (0, Operand::ConstI64(0)),
                     }
                 };
@@ -277,7 +277,7 @@ fn same_sentinel_face(ctx: &mut LowerCtx<'_>, elem: ValueId, needle: &Operand) -
         )
     };
     let e = is_sentinel(Operand::Value(elem));
-    let n = is_sentinel(needle.clone());
+    let n = is_sentinel(*needle);
     let differ = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::BinOp(SsaBinOp::Xor, Operand::Value(e), Operand::Value(n)),

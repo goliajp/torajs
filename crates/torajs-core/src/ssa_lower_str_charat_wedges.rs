@@ -216,21 +216,18 @@ pub(crate) fn try_inline_substr_char_code_at(
     let result_slot = ctx
         .f
         .append_inst(cur, InstKind::Alloca(Type::F64), Type::Ptr, None);
-    let len = ctx.f.append_inst(
-        cur,
-        InstKind::Load(Type::I64, recv_op.clone(), 8),
-        Type::I64,
-        None,
-    );
+    let len = ctx
+        .f
+        .append_inst(cur, InstKind::Load(Type::I64, *recv_op, 8), Type::I64, None);
     let ge_zero = ctx.f.append_inst(
         cur,
-        InstKind::ICmp(IPred::Sge, idx.clone(), Operand::ConstI64(0)),
+        InstKind::ICmp(IPred::Sge, idx, Operand::ConstI64(0)),
         Type::Bool,
         None,
     );
     let lt_len = ctx.f.append_inst(
         cur,
-        InstKind::ICmp(IPred::Slt, idx.clone(), Operand::Value(len)),
+        InstKind::ICmp(IPred::Slt, idx, Operand::Value(len)),
         Type::Bool,
         None,
     );
@@ -265,7 +262,7 @@ pub(crate) fn try_inline_substr_char_code_at(
 
     let parent = ctx.f.append_inst(
         inb_blk,
-        InstKind::Load(Type::Ptr, recv_op.clone(), 16),
+        InstKind::Load(Type::Ptr, *recv_op, 16),
         Type::Ptr,
         None,
     );
@@ -297,7 +294,7 @@ pub(crate) fn try_inline_substr_char_code_at(
     // the encoding split; each arm scales it by its own stride
     let off = ctx.f.append_inst(
         inb_blk,
-        InstKind::Load(Type::I64, recv_op.clone(), 24),
+        InstKind::Load(Type::I64, *recv_op, 24),
         Type::I64,
         None,
     );

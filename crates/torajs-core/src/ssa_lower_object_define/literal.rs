@@ -303,10 +303,10 @@ fn pack_tagged_value(
         // `anyv_unbox_tag` answers in this very table, and the
         // any-aware retain is a no-op on an immediate.
         Type::Any => {
-            ctx.emit_any_rc_inc_in(ctx.cur_block, v_raw.clone());
+            ctx.emit_any_rc_inc_in(ctx.cur_block, v_raw);
             let tag = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.any_unbox_tag, vec![v_raw.clone()]),
+                InstKind::Call(ctx.intrinsics.any_unbox_tag, vec![v_raw]),
                 Type::I64,
                 None,
             );
@@ -326,7 +326,7 @@ fn pack_tagged_value(
         // drop walkers) NaN-box-walked and SIGSEGVed on (rotation
         // 561).
         _ if v_ty.is_refcounted() => {
-            ctx.emit_rc_inc(v_raw.clone());
+            ctx.emit_rc_inc(v_raw);
             ctx.emit_arr_mark_kind(&v_raw);
             (Operand::ConstI64(4), v_raw)
         }
@@ -372,7 +372,7 @@ fn emit_define_arr_prop(
     // Rotation 549 — a coerced key is alive across the value lower
     // (which may throw); park it for those throw paths.
     let key_tok = if key_owned {
-        Some(ctx.push_throw_temp(key_op.clone(), Type::Str))
+        Some(ctx.push_throw_temp(key_op, Type::Str))
     } else {
         None
     };
@@ -381,7 +381,7 @@ fn emit_define_arr_prop(
         let v_raw = ctx.lower_expr(val_eid);
         let v_ty = ctx.operand_ty(&v_raw);
         if v_ty.is_refcounted() {
-            owned_val = Some((val_eid, v_raw.clone()));
+            owned_val = Some((val_eid, v_raw));
         }
         pack_tagged_value(ctx, val_eid, v_raw, v_ty)
     } else {
@@ -391,13 +391,7 @@ fn emit_define_arr_prop(
         ctx.cur_block,
         InstKind::Call(
             ctx.intrinsics.arr_define,
-            vec![
-                obj_op,
-                key_op.clone(),
-                tag,
-                val_op,
-                Operand::ConstI64(flags_byte),
-            ],
+            vec![obj_op, key_op, tag, val_op, Operand::ConstI64(flags_byte)],
         ),
     );
     // 刀 18 — coerced key was owned Str; drop after helper borrowed it.
@@ -431,7 +425,7 @@ fn emit_define_dynobj(
     // Rotation 549 — a coerced key is alive across the value lower
     // (which may throw); park it for those throw paths.
     let key_tok = if key_owned {
-        Some(ctx.push_throw_temp(key_op.clone(), Type::Str))
+        Some(ctx.push_throw_temp(key_op, Type::Str))
     } else {
         None
     };
@@ -440,7 +434,7 @@ fn emit_define_dynobj(
         let v_raw = ctx.lower_expr(val_eid);
         let v_ty = ctx.operand_ty(&v_raw);
         if v_ty.is_refcounted() {
-            owned_val = Some((val_eid, v_raw.clone()));
+            owned_val = Some((val_eid, v_raw));
         }
         pack_tagged_value(ctx, val_eid, v_raw, v_ty)
     } else {
@@ -466,7 +460,7 @@ fn emit_define_dynobj(
             ctx.intrinsics.dynobj_define,
             vec![
                 Operand::Value(slot),
-                key_op.clone(),
+                key_op,
                 tag,
                 val_op,
                 Operand::ConstI64(flags_byte),

@@ -129,12 +129,7 @@ pub(crate) fn emit_env_free_or_defer(
     obj_drop_sized: ssa::FuncId,
 ) {
     let env_op = Operand::Value(env);
-    let tag_flags = f.append_inst(
-        blk,
-        InstKind::Load(Type::I32, env_op.clone(), 4),
-        Type::I32,
-        None,
-    );
+    let tag_flags = f.append_inst(blk, InstKind::Load(Type::I32, env_op, 4), Type::I32, None);
     let buffered_bit = f.append_inst(
         blk,
         InstKind::BinOp(
@@ -175,15 +170,12 @@ pub(crate) fn emit_env_free_or_defer(
         Type::I32,
         None,
     );
-    f.append_void(
-        defer_blk,
-        InstKind::Store(Operand::Value(black), env_op.clone(), 4),
-    );
+    f.append_void(defer_blk, InstKind::Store(Operand::Value(black), env_op, 4));
     f.append_void(
         defer_blk,
         InstKind::Store(
             Operand::ConstI64(env_block_size as i64),
-            env_op.clone(),
+            env_op,
             CLOSURE_DROP_FN_OFF,
         ),
     );
@@ -216,7 +208,7 @@ pub(crate) fn emit_env_drop_prologue(
     let env_op = Operand::Value(env);
     let props_v = f.append_inst(
         entry,
-        InstKind::Load(Type::Ptr, env_op.clone(), CLOSURE_PROPS_OFF),
+        InstKind::Load(Type::Ptr, env_op, CLOSURE_PROPS_OFF),
         Type::Ptr,
         None,
     );

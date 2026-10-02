@@ -27,20 +27,17 @@ pub(crate) fn lower_typed_read_index(
     index: ExprId,
 ) -> (Operand, Option<(Operand, Operand)>) {
     let raw = match &ctx.pins.compound_key {
-        Some((mid, mop)) if *mid == index => mop.clone(),
+        Some((mid, mop)) if *mid == index => *mop,
         _ => ctx.lower_expr(index),
     };
     if !matches!(ctx.operand_ty(&raw), Type::F64) {
         return (ctx.coerce_to_i64(raw), None);
     }
-    let idx = ctx.coerce_to_i64(raw.clone());
-    let back = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::SiToFp(idx.clone()),
-        Type::F64,
-        None,
-    );
-    let nonint = ctx.fcmp(crate::ssa::FPred::Une, Operand::Value(back), raw.clone());
+    let idx = ctx.coerce_to_i64(raw);
+    let back = ctx
+        .f
+        .append_inst(ctx.cur_block, InstKind::SiToFp(idx), Type::F64, None);
+    let nonint = ctx.fcmp(crate::ssa::FPred::Une, Operand::Value(back), raw);
     (idx, Some((nonint, raw)))
 }
 
@@ -161,11 +158,9 @@ pub(crate) fn emit_any_elem_read_split(
     // The read answers the whole (borrowed) box; the share this read
     // owns is the inc after it.
     let v = Operand::Value(crate::ssa_lower_anyv_inline::arr_get_any_elem(
-        ctx,
-        arr.clone(),
-        idx,
+        ctx, arr, idx,
     ));
-    ctx.emit_any_rc_inc_in(ctx.cur_block, v.clone());
+    ctx.emit_any_rc_inc_in(ctx.cur_block, v);
     ctx.f
         .append_void(ctx.cur_block, InstKind::Store(v, Operand::Value(slot), 0));
     let eb = ctx.cur_block;

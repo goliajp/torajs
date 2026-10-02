@@ -88,11 +88,7 @@ fn lower_member_opt(ctx: &mut LowerCtx<'_>, obj: ExprId, name: &str, args: &[Exp
         ctx.cur_block,
         InstKind::Call(
             ctx.intrinsics.any_method_probe,
-            vec![
-                recv.clone(),
-                Operand::ConstI64(mid),
-                Operand::Value(name_str),
-            ],
+            vec![recv, Operand::ConstI64(mid), Operand::Value(name_str)],
         ),
         Type::I64,
         None,
@@ -158,7 +154,7 @@ fn lower_member_opt(ctx: &mut LowerCtx<'_>, obj: ExprId, name: &str, args: &[Exp
         InstKind::Call(
             ctx.intrinsics.any_method_call_opt,
             vec![
-                recv.clone(),
+                recv,
                 Operand::ConstI64(mid),
                 Operand::Value(name_str),
                 recv_slot,
@@ -220,7 +216,7 @@ fn lower_guarded(ctx: &mut LowerCtx<'_>, callee: ExprId, args: &[ExprId]) -> Ope
         InstKind::Store(undef_box, Operand::Value(res_slot), 0),
     );
     if !matches!(v_ty, Type::Any) && transfers && v_ty.is_refcounted() {
-        ctx.emit_drop_value(v.clone(), v_ty.clone());
+        ctx.emit_drop_value(v, v_ty);
     }
     ctx.f.set_term(null_blk, Terminator::Br(after));
     // Hit path — the arguments lower HERE (short-circuit never
@@ -228,20 +224,20 @@ fn lower_guarded(ctx: &mut LowerCtx<'_>, callee: ExprId, args: &[ExprId]) -> Ope
     ctx.cur_block = hit_blk;
     ctx.proofs.enter_cond();
     let (callee_av, we_boxed) = if matches!(v_ty, Type::Any) {
-        (v.clone(), false)
+        (v, false)
     } else {
         // pack ledger: box_to_any is TRANSFER — a borrowed value
         // rc-incs first, an owned temp hands its ref to the box.
         if !transfers && v_ty.is_refcounted() {
-            ctx.emit_rc_inc(v.clone());
+            ctx.emit_rc_inc(v);
         }
-        (ctx.box_to_any(v.clone()), true)
+        (ctx.box_to_any(v), true)
     };
     // Rotation 550 — the callee we hold (the box we minted, or an
     // owned already-Any temp released at the join) is live across
     // the arguments' lowers; park it for their throw paths.
     let callee_tok = if we_boxed {
-        Some(ctx.push_throw_temp(callee_av.clone(), Type::Any))
+        Some(ctx.push_throw_temp(callee_av, Type::Any))
     } else {
         ctx.park_owned_temp(callee, &v)
     };
@@ -252,7 +248,7 @@ fn lower_guarded(ctx: &mut LowerCtx<'_>, callee: ExprId, args: &[ExprId]) -> Ope
         InstKind::Call(
             ctx.intrinsics.any_call,
             vec![
-                callee_av.clone(),
+                callee_av,
                 Operand::Value(argv),
                 Operand::ConstI64(args.len() as i64),
             ],

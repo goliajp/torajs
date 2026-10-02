@@ -63,7 +63,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, callee: ExprId, args: &[ExprId]) -> 
         (raw, false)
     } else {
         if callee_is_borrow && raw_ty.is_refcounted() {
-            ctx.emit_rc_inc(raw.clone());
+            ctx.emit_rc_inc(raw);
         }
         (ctx.box_to_any_from_expr(callee, raw), true)
     };
@@ -71,7 +71,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, callee: ExprId, args: &[ExprId]) -> 
     // Rotation 550 — the target we hold (our box, or an owned temp
     // released below) is live across the arguments' lowers; park it.
     let target_tok = if target_boxed {
-        Some(ctx.push_throw_temp(target.clone(), Type::Any))
+        Some(ctx.push_throw_temp(target, Type::Any))
     } else {
         ctx.park_owned_temp(callee, &target)
     };
@@ -84,7 +84,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, callee: ExprId, args: &[ExprId]) -> 
         InstKind::Call(
             construct,
             vec![
-                target.clone(),
+                target,
                 Operand::Value(argv),
                 Operand::ConstI64(args.len() as i64),
             ],
@@ -118,18 +118,15 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, callee: ExprId, args: &[ExprId]) -> 
 fn lower_spread(ctx: &mut LowerCtx<'_>, callee: ExprId, args: &[ExprId]) -> Operand {
     let raw = ctx.lower_expr(callee);
     let target = if matches!(ctx.operand_ty(&raw), Type::Any) {
-        raw.clone()
+        raw
     } else {
-        ctx.box_to_any(raw.clone())
+        ctx.box_to_any(raw)
     };
     let args_arr = crate::ssa_lower_call_spread::build_args_arr(ctx, args);
     let arr_any_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
     let result = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Call(
-            ctx.intrinsics.anyv_construct_spread,
-            vec![target, args_arr.clone()],
-        ),
+        InstKind::Call(ctx.intrinsics.anyv_construct_spread, vec![target, args_arr]),
         Type::Any,
         None,
     );

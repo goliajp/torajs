@@ -97,7 +97,7 @@ impl LowerCtx<'_> {
             self.cur_block,
             InstKind::Call(
                 self.intrinsics.promise_stamp_repr,
-                vec![promise.clone(), Operand::ConstI64(repr)],
+                vec![*promise, Operand::ConstI64(repr)],
             ),
         );
     }

@@ -79,9 +79,9 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId, index: Exp
         // — the box was where the answer was lost, not the predicate,
         // which names OptIndex.
         let boxed = if vt == Type::Any {
-            v.clone()
+            v
         } else {
-            ctx.box_to_any_from_expr(eid, v.clone())
+            ctx.box_to_any_from_expr(eid, v)
         };
         // The result is consumed as an owned Any. Chunk 726 — a
         // Str/Substr receiver's index read is a FRESH view (owned,
@@ -130,7 +130,7 @@ pub(crate) fn emit_nullish_cond(
     if matches!(obj_ty, Type::Any) {
         let tag = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.any_unbox_tag, vec![obj_op.clone()]),
+            InstKind::Call(ctx.intrinsics.any_unbox_tag, vec![*obj_op]),
             Type::I64,
             None,
         );
@@ -159,11 +159,11 @@ pub(crate) fn emit_nullish_cond(
         Operand::Value(nullish)
     } else if matches!(obj_ty, Type::Str) {
         // Both string sentinels (null, the undefined cell / view).
-        ctx.str_is_nullish(obj_op.clone())
+        ctx.str_is_nullish(*obj_op)
     } else {
         let is_null = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::ICmp(IPred::Eq, obj_op.clone(), Operand::ConstPtrNull),
+            InstKind::ICmp(IPred::Eq, *obj_op, Operand::ConstPtrNull),
             Type::Bool,
             None,
         );
@@ -175,7 +175,7 @@ pub(crate) fn emit_nullish_cond(
         // only against NULL, so it called the method on the sentinel.
         let is_undef = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.is_undef_cell, vec![obj_op.clone()]),
+            InstKind::Call(ctx.intrinsics.is_undef_cell, vec![*obj_op]),
             Type::Bool,
             None,
         );

@@ -181,9 +181,9 @@ impl LowerCtx<'_> {
         let k_raw = self.lower_expr(key_eid);
         let k_ty = self.operand_ty(&k_raw);
         let k_boxed = if matches!(k_ty, Type::Any) {
-            k_raw.clone()
+            k_raw
         } else {
-            self.box_to_any_from_expr(key_eid, k_raw.clone())
+            self.box_to_any_from_expr(key_eid, k_raw)
         };
         // §7.1.19 ToPropertyKey on the boxed key: a Symbol answers
         // itself, everything else its string. The set kernel takes
@@ -232,13 +232,13 @@ impl LowerCtx<'_> {
         };
         let cur_block = self.cur_block;
         let cell = match target {
-            NameTarget::Cell => v_raw.clone(),
+            NameTarget::Cell => *v_raw,
             NameTarget::ClassObject => {
                 // A class value global holds its class object
                 // Any-boxed; the kernel names a cell.
                 let bits = self.f.append_inst(
                     cur_block,
-                    InstKind::Call(self.intrinsics.any_unbox_value, vec![v_raw.clone()]),
+                    InstKind::Call(self.intrinsics.any_unbox_value, vec![*v_raw]),
                     Type::I64,
                     None,
                 );
@@ -333,7 +333,7 @@ impl LowerCtx<'_> {
         let k_raw = self.lower_expr(key_eid);
         let k_ty = self.operand_ty(&k_raw);
         let key_transfers = self.expr_transfers_ownership(key_eid) && k_ty.is_refcounted();
-        let key_keep = k_raw.clone();
+        let key_keep = k_raw;
         let Operand::Value(key_v) = k_raw else {
             panic!("ssa-lower: computed symbol key lowered to a non-value operand");
         };

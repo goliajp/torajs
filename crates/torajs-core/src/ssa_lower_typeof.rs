@@ -240,7 +240,7 @@ fn lower_by_ssa_type(ctx: &mut LowerCtx<'_>, expr: ExprId) -> Operand {
     // a refcount, so RSS stayed flat. Same predicate + drop pair the
     // BinOp operand pass uses.
     let owned = ty.is_refcounted() && ctx.expr_is_fresh_owned(expr);
-    let out = lower_by_ssa_type_inner(ctx, expr, v.clone(), ty);
+    let out = lower_by_ssa_type_inner(ctx, expr, v, ty);
     if owned {
         ctx.emit_drop_value(v, ty);
     }

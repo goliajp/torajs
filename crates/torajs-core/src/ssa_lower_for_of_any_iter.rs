@@ -130,7 +130,7 @@ pub(crate) fn lower(
         InstKind::Call(
             step_fid,
             vec![
-                src_op.clone(),
+                src_op,
                 Operand::Value(idx_slot),
                 Operand::Value(iter_slot),
                 Operand::Value(out_slot),
@@ -182,7 +182,7 @@ pub(crate) fn lower(
         crate::ssa_lower_for_of_written::LoopVarInit::Owned,
     );
     let teardown = crate::ssa_lower_for_of_teardown::ForOfTeardown::Any {
-        src: src_op.clone(),
+        src: src_op,
         iter_slot,
     };
     ctx.for_of_teardown_stack.push(teardown.clone());

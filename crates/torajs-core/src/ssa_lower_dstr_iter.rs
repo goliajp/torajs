@@ -70,7 +70,7 @@ fn park_for_field(
     let layout = &ctx.struct_layouts[sid.0 as usize];
     layout.iter().enumerate().find_map(|(i, (n, _))| {
         (n == &it_name).then(|| ParkTarget::Field {
-            obj: obj.clone(),
+            obj: *obj,
             offset: OBJ_HEADER_SIZE + (i as u64) * 8,
         })
     })
@@ -112,7 +112,7 @@ pub(crate) fn park_target_of_expr(ctx: &mut LowerCtx, e: ExprId) -> Option<ParkT
 pub(crate) fn emit_park_load(ctx: &mut LowerCtx, target: &ParkTarget) -> Operand {
     let (base, off) = match target {
         ParkTarget::Local(slot) => (Operand::Value(*slot), 0),
-        ParkTarget::Field { obj, offset } => (obj.clone(), *offset),
+        ParkTarget::Field { obj, offset } => (*obj, *offset),
     };
     let v = ctx.f.append_inst(
         ctx.cur_block,
@@ -129,7 +129,7 @@ pub(crate) fn emit_park_load(ctx: &mut LowerCtx, target: &ParkTarget) -> Operand
 pub(crate) fn emit_park_store(ctx: &mut LowerCtx, target: &ParkTarget, v: Operand) {
     let (base, off) = match target {
         ParkTarget::Local(slot) => (Operand::Value(*slot), 0),
-        ParkTarget::Field { obj, offset } => (obj.clone(), *offset),
+        ParkTarget::Field { obj, offset } => (*obj, *offset),
     };
     ctx.f
         .append_void(ctx.cur_block, InstKind::Store(v, base, off));
@@ -145,7 +145,7 @@ pub(crate) fn try_lower_group(ctx: &mut LowerCtx, name: &str, init: ExprId) -> b
     };
     let park = park_for_local(ctx, name);
     let (recv, minted) = lower_src_to_any(ctx, init);
-    let (arr, arr_ty) = emit_walk(ctx, recv.clone(), limit, park);
+    let (arr, arr_ty) = emit_walk(ctx, recv, limit, park);
     // The kernel only borrows the receiver, so the stake that reached it
     // is still ours to settle. A box minted below owns one outright; a
     // pass-through `any` source owes a release only when the expression
@@ -202,7 +202,7 @@ pub(crate) fn try_lower_field_walk(
     }
     let park = park_for_field(ctx, field, obj, sid);
     let (recv, minted) = lower_src_to_any(ctx, init);
-    let (arr, _arr_ty) = emit_walk(ctx, recv.clone(), limit, park);
+    let (arr, _arr_ty) = emit_walk(ctx, recv, limit, park);
     if minted {
         ctx.emit_drop_value(recv, Type::Any);
     } else {
@@ -224,7 +224,7 @@ fn lower_src_to_any(ctx: &mut LowerCtx, init: ExprId) -> (Operand, bool) {
         return (src, false);
     }
     if src_ty.is_refcounted() && !ctx.expr_transfers_ownership(init) {
-        ctx.emit_rc_inc(src.clone());
+        ctx.emit_rc_inc(src);
     }
     (ctx.box_to_any_from_expr(init, src), true)
 }
@@ -340,7 +340,7 @@ fn emit_walk(
         InstKind::Call(
             ctx.intrinsics.any_iter_next,
             vec![
-                recv.clone(),
+                recv,
                 Operand::Value(idx_slot),
                 Operand::Value(iter_slot),
                 Operand::Value(out_slot),

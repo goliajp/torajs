@@ -87,7 +87,7 @@ fn emit_fill_rc_loop(
 ) -> Operand {
     let len_v = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Load(Type::I64, recv_op.clone(), ARR_LEN_OFF),
+        InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
         Type::I64,
         None,
     );
@@ -125,19 +125,16 @@ fn emit_fill_rc_loop(
     );
     ctx.cur_block = body;
     // T-13.5: head-aware offset for arr.fill loop.
-    let (off_base, off) =
-        ctx.emit_arr_slot_byte_offset(recv_op.clone(), Operand::Value(i_now), 3, false);
+    let (off_base, off) = ctx.emit_arr_slot_byte_offset(recv_op, Operand::Value(i_now), 3, false);
     let old = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::LoadDyn(elem_ty, off_base.clone(), off.clone()),
+        InstKind::LoadDyn(elem_ty, off_base, off),
         elem_ty,
         None,
     );
     ctx.emit_drop_value(Operand::Value(old), elem_ty);
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::StoreDyn(value.clone(), off_base.clone(), off),
-    );
+    ctx.f
+        .append_void(ctx.cur_block, InstKind::StoreDyn(value, off_base, off));
     ctx.emit_rc_inc(value);
     let i_next = ctx.f.append_inst(
         ctx.cur_block,
@@ -200,7 +197,7 @@ pub(crate) fn try_dispatch(
         // marks a fresh rc=1 value with no caller binding — fill
         // inc's per slot, so that fresh ref settles after the loop.
         let (value, val_owned) =
-            crate::ssa_lower_call_arr_push::coerce_push_value(ctx, args[0], fill_elem.clone());
+            crate::ssa_lower_call_arr_push::coerce_push_value(ctx, args[0], fill_elem);
         let value = ctx.raw_slot_arg(value);
         // V3-18 m1.h.53 — start defaults to 0, end
         // defaults to arr.length per JS spec §22.1.3.6.
@@ -235,13 +232,13 @@ pub(crate) fn try_dispatch(
         // the rc loop below writes inline, so the guard is here.
         let writes = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::ICmp(IPred::Slt, start.clone(), end.clone()),
+            InstKind::ICmp(IPred::Slt, start, end),
             Type::Bool,
             None,
         );
         crate::ssa_lower_str_arr_inplace::emit_arr_frozen_guard(
             ctx,
-            recv_op.clone(),
+            recv_op,
             Operand::Value(writes),
         );
         if elem_ty.is_copy() {
@@ -257,7 +254,7 @@ pub(crate) fn try_dispatch(
             ctx.emit_rc_inc(Operand::Value(v));
             return Some(Operand::Value(v));
         }
-        let out = emit_fill_rc_loop(ctx, recv_op, value.clone(), start, end, elem_ty.clone());
+        let out = emit_fill_rc_loop(ctx, recv_op, value, start, end, elem_ty);
         // The coerce minted a fresh rc=1 value with no caller
         // binding (Substr→owned / Any→Str); the loop inc'd one ref
         // per slot, so the mint's own ref settles here. (Owned
@@ -265,7 +262,7 @@ pub(crate) fn try_dispatch(
         if val_owned {
             ctx.emit_drop_value(value, elem_ty);
         }
-        ctx.emit_rc_inc(out.clone());
+        ctx.emit_rc_inc(out);
         return Some(out);
     }
     None

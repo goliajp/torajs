@@ -144,7 +144,7 @@ fn lower_named(ctx: &mut LowerCtx<'_>, expr: ExprId, class_name: &str) -> Operan
     // so the operand-type early-outs (`3 instanceof Odd` is not an
     // object, so step 3 of the ordinary walk would say false) must
     // not pre-empt it either.
-    if let Some(op) = try_lower_dynamic_target(ctx, v.clone(), class_name) {
+    if let Some(op) = try_lower_dynamic_target(ctx, v, class_name) {
         return op;
     }
     // §7.3.22 step 3 — OrdinaryHasInstance answers false when V is
@@ -280,7 +280,7 @@ fn lower_any_dispatch(ctx: &mut LowerCtx<'_>, v: Operand, class_name: &str) -> O
             cur_block,
             InstKind::Call(
                 ctx.intrinsics.instanceof_generic_any,
-                vec![v.clone(), Operand::ConstI64(base_tag)],
+                vec![v, Operand::ConstI64(base_tag)],
             ),
             Type::Bool,
             None,
@@ -308,7 +308,7 @@ fn try_lower_fn_value(ctx: &mut LowerCtx<'_>, v_any: Operand, class_name: &str) 
         let cur_block = ctx.cur_block;
         let cell = ctx.f.append_inst(
             cur_block,
-            InstKind::Load(info.ty.clone(), Operand::Value(info.slot), 0),
+            InstKind::Load(info.ty, Operand::Value(info.slot), 0),
             info.ty,
             None,
         );
@@ -403,7 +403,7 @@ fn emit_any_class_or_chain(ctx: &mut LowerCtx<'_>, v: Operand, tags: &[u32]) -> 
             cur_block,
             InstKind::Call(
                 ctx.intrinsics.instanceof_class_any_tag,
-                vec![v.clone(), Operand::ConstI64(t as i64)],
+                vec![v, Operand::ConstI64(t as i64)],
             ),
             Type::Bool,
             None,

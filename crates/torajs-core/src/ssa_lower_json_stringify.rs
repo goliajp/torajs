@@ -117,8 +117,7 @@ pub(crate) fn lower_keyed(
     depth: u32,
 ) -> Operand {
     if let Type::Obj(sid) = ty
-        && let Some(out) =
-            to_json::try_lower_hook(ctx, &val_op, sid, key, fe.as_ref(), gap.clone(), depth)
+        && let Some(out) = to_json::try_lower_hook(ctx, &val_op, sid, key, fe.as_ref(), gap, depth)
     {
         return out;
     }
@@ -346,7 +345,7 @@ fn lower_shape(
 fn lower_f64(ctx: &mut LowerCtx, val_op: Operand) -> Operand {
     let is_finite = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Call(ctx.intrinsics.num_is_finite_f, vec![val_op.clone()]),
+        InstKind::Call(ctx.intrinsics.num_is_finite_f, vec![val_op]),
         Type::Bool,
         None,
     );

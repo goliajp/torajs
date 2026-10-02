@@ -43,7 +43,7 @@ pub(crate) fn lower(
     else_branch: ExprId,
 ) -> Operand {
     let raw = ctx.lower_expr(cond);
-    let cond_op = ctx.coerce_to_bool(raw.clone());
+    let cond_op = ctx.coerce_to_bool(raw);
     // Chunk 636 — release an owned condition temp after the
     // truthiness test (see ssa_lower_stmt_if.rs); emitted in the
     // pre-branch block, before the CondBr splits control flow.
@@ -83,10 +83,10 @@ pub(crate) fn lower(
         let else_owned = else_boxed || ctx.expr_owned_shape(else_branch);
         if then_owned || else_owned {
             if !then_owned {
-                ctx.emit_owned_result_inc_in(then_end, then_val.clone(), res_ty);
+                ctx.emit_owned_result_inc_in(then_end, then_val, res_ty);
             }
             if !else_owned {
-                ctx.emit_owned_result_inc_in(else_end, else_val.clone(), res_ty);
+                ctx.emit_owned_result_inc_in(else_end, else_val, res_ty);
             }
             ctx.owned_member_reads.insert(eid);
         }
@@ -283,13 +283,13 @@ fn widen_branches(
     {
         ctx.cur_block = *then_end;
         if tt.is_refcounted() && !ctx.expr_transfers_ownership(then_branch) {
-            ctx.emit_rc_inc(then_val.clone());
+            ctx.emit_rc_inc(then_val);
         }
         let t = ctx.box_to_any_from_expr(then_branch, then_val);
         *then_end = ctx.cur_block;
         ctx.cur_block = *else_end;
         if et.is_refcounted() && !ctx.expr_transfers_ownership(else_branch) {
-            ctx.emit_rc_inc(else_val.clone());
+            ctx.emit_rc_inc(else_val);
         }
         let e = ctx.box_to_any_from_expr(else_branch, else_val);
         *else_end = ctx.cur_block;
@@ -308,7 +308,7 @@ fn widen_branches(
         if tt != Type::Any {
             ctx.cur_block = *then_end;
             if tt.is_refcounted() && !ctx.expr_transfers_ownership(then_branch) {
-                ctx.emit_rc_inc(then_val.clone());
+                ctx.emit_rc_inc(then_val);
             }
             let t = ctx.box_to_any_from_expr(then_branch, then_val);
             *then_end = ctx.cur_block;
@@ -317,7 +317,7 @@ fn widen_branches(
         if et != Type::Any {
             ctx.cur_block = *else_end;
             if et.is_refcounted() && !ctx.expr_transfers_ownership(else_branch) {
-                ctx.emit_rc_inc(else_val.clone());
+                ctx.emit_rc_inc(else_val);
             }
             let e = ctx.box_to_any_from_expr(else_branch, else_val);
             *else_end = ctx.cur_block;

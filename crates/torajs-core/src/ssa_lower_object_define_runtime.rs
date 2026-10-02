@@ -26,7 +26,7 @@ pub(crate) fn emit_define_runtime_desc(
     // pair with every exit, LIFO with the receiver parked by
     // `emit_define_one`.
     let key_tok = if key_owned {
-        Some(ctx.push_throw_temp(key_op.clone(), Type::Str))
+        Some(ctx.push_throw_temp(key_op, Type::Str))
     } else {
         None
     };
@@ -53,17 +53,17 @@ pub(crate) fn emit_define_runtime_desc(
                 ctx.cur_block,
                 InstKind::Call(
                     ctx.intrinsics.throw_typeerror_if_not_desc_object,
-                    vec![desc_op.clone()],
+                    vec![desc_op],
                 ),
             );
             ctx.emit_throw_check(None);
-            Operand::Value(ctx.any_unbox_value_as_ptr(desc_op.clone()))
+            Operand::Value(ctx.any_unbox_value_as_ptr(desc_op))
         }
         // Heap cells whose shape the define_from_desc entry resolves
         // (Closure / Arr expando props dynobj at +24; a typed struct
         // reads through the kernel's `DescStore::Struct` layout walk
         // — RFC 20260721 刀 2 closed the old declined divergence).
-        Type::Closure(_) | Type::Arr(_) | Type::Obj(_) => desc_op.clone(),
+        Type::Closure(_) | Type::Arr(_) | Type::Obj(_) => desc_op,
         _ if is_typed_object(desc_ty) => {
             pop_parked(ctx);
             return false;
@@ -77,7 +77,7 @@ pub(crate) fn emit_define_runtime_desc(
         // so `defineProperty({}, "k", 5)` / an unfolded `{a: null}`
         // field throws instead of falling through.
         _ => {
-            let boxed = ctx.box_to_any_from_expr(desc_eid, desc_op.clone());
+            let boxed = ctx.box_to_any_from_expr(desc_eid, desc_op);
             ctx.f.append_void(
                 ctx.cur_block,
                 InstKind::Call(
@@ -123,7 +123,7 @@ pub(crate) fn emit_define_runtime_desc(
         ctx.cur_block,
         InstKind::Call(
             ctx.intrinsics.dynobj_define_from_desc,
-            vec![Operand::Value(slot), key_op.clone(), desc_ptr],
+            vec![Operand::Value(slot), key_op, desc_ptr],
         ),
     );
     // The helper borrows the descriptor; a fresh owned temp (call /

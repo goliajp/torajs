@@ -11,7 +11,7 @@ use crate::ssa_lower::LowerCtx;
 /// IsCallable TypeError.
 pub(crate) fn lower(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     let ops = crate::ssa_lower_new::lower_borrowed_any_pair(ctx, args);
-    let cleanup = ops[0].0.clone();
+    let cleanup = ops[0].0;
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur_block,

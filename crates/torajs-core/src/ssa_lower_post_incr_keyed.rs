@@ -40,7 +40,7 @@ pub(crate) fn lower_index_any_keyed(
         let cur_block = ctx.cur_block;
         let kp = ctx.f.append_inst(
             cur_block,
-            InstKind::Call(ctx.intrinsics.anyv_to_property_key, vec![k_raw.clone()]),
+            InstKind::Call(ctx.intrinsics.anyv_to_property_key, vec![k_raw]),
             Type::Ptr,
             None,
         );
@@ -67,7 +67,7 @@ pub(crate) fn lower_index_any_keyed(
         cur_block,
         InstKind::Call(
             ctx.intrinsics.any_index_get_keyed,
-            vec![recv.clone(), Operand::Value(k)],
+            vec![recv, Operand::Value(k)],
         ),
         Type::Any,
         None,

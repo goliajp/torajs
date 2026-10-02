@@ -365,7 +365,7 @@ impl crate::ssa_lower::LowerCtx<'_> {
         } else {
             self.chain_cb_repr_word(&cb_pre_ty) | self.chain_cb_param_repr(&cb_pre_ty)
         };
-        let mut call_args = vec![src_op.clone(), cb_op];
+        let mut call_args = vec![src_op, cb_op];
         call_args.push(Operand::ConstI64(repr_word));
         let v = self.f.append_inst(
             self.cur_block,
@@ -431,13 +431,7 @@ impl crate::ssa_lower::LowerCtx<'_> {
         // contract is skipped there (the value is dropped instead).
         let discarded = self.discarded_stmt_call == Some(callee);
         let v = crate::ssa_lower_promise_chain_own_then::lower_chain_with_own_then_probe(
-            self,
-            src_op.clone(),
-            *src_id,
-            m_name,
-            args,
-            &arg_ops,
-            discarded,
+            self, src_op, *src_id, m_name, args, &arg_ops, discarded,
         );
         // T-15.g.7 — drop fresh source after .then.
         // Now that promise_drop is rc-aware AND
@@ -478,9 +472,9 @@ impl crate::ssa_lower::LowerCtx<'_> {
                 None,
             )
         } else if m_name == "then" && arg_ops.len() == 2 {
-            self.lower_then_two_arg(src_op, args, arg_ops[0].clone(), arg_ops[1].clone())
+            self.lower_then_two_arg(src_op, args, arg_ops[0], arg_ops[1])
         } else {
-            self.lower_chain_one_arg(m_name, src_op, args[0], arg_ops[0].clone())
+            self.lower_chain_one_arg(m_name, src_op, args[0], arg_ops[0])
         }
     }
 }

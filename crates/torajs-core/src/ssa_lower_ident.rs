@@ -302,7 +302,7 @@ fn try_async_tail_undefined(ctx: &mut LowerCtx<'_>, name: &str) -> Option<Operan
         Type::FnSig(sig) => Type::Closure(sig),
         t => t,
     };
-    Some(ctx.str_undef_sentinel_for(ty.clone()).unwrap_or(match ty {
+    Some(ctx.str_undef_sentinel_for(ty).unwrap_or(match ty {
         Type::F64 => Operand::ConstF64(0.0),
         Type::I64 => Operand::ConstI64(0),
         _ => Operand::ConstPtrNull,

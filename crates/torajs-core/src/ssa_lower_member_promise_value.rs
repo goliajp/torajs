@@ -111,7 +111,7 @@ pub(crate) fn lower_any_await(ctx: &mut LowerCtx<'_>, op: Operand, obj: ExprId) 
     );
     let v = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(ctx.intrinsics.anyv_await, vec![op.clone()]),
+        InstKind::Call(ctx.intrinsics.anyv_await, vec![op]),
         Type::Any,
         None,
     );
@@ -281,7 +281,7 @@ pub(crate) fn lower_promise_get_value(ctx: &mut LowerCtx<'_>, obj: ExprId) -> Op
     };
     let raw_v = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(read, vec![obj_op.clone(), Operand::ConstI64(want_repr)]),
+        InstKind::Call(read, vec![obj_op, Operand::ConstI64(want_repr)]),
         Type::I64,
         None,
     );
@@ -298,7 +298,7 @@ pub(crate) fn lower_promise_get_value(ctx: &mut LowerCtx<'_>, obj: ExprId) -> Op
     if is_borrow {
         ctx.emit_throw_check(None);
     } else {
-        ctx.emit_throw_check_owned(None, obj_op.clone(), Type::Promise);
+        ctx.emit_throw_check_owned(None, obj_op, Type::Promise);
     }
     let v = cast_promise_value(ctx, raw_v, inner_ssa_ty);
     if !is_borrow {

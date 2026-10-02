@@ -24,7 +24,7 @@ pub(crate) fn emit_str_typeof_runtime(ctx: &mut LowerCtx<'_>, v: Operand) -> Ope
     let merge = ctx.f.add_block();
     let is_null = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::ICmp(IPred::Eq, v.clone(), Operand::ConstPtrNull),
+        InstKind::ICmp(IPred::Eq, v, Operand::ConstPtrNull),
         Type::Bool,
         None,
     );
@@ -163,7 +163,7 @@ pub(crate) fn emit_heap_typeof_runtime(
     let merge = ctx.f.add_block();
     let is_null = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::ICmp(IPred::Eq, v.clone(), Operand::ConstPtrNull),
+        InstKind::ICmp(IPred::Eq, v, Operand::ConstPtrNull),
         Type::Bool,
         None,
     );

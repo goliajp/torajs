@@ -79,7 +79,7 @@ pub(crate) fn lower_split(
             Type::I64 | Type::I32 | Type::F64 | Type::Bool
         )
     {
-        argv[1] = ctx.box_to_any(argv[1].clone());
+        argv[1] = ctx.box_to_any(argv[1]);
     }
     let sep_is_any = argv
         .get(1)
@@ -155,7 +155,7 @@ pub(crate) fn lower_split(
         ) {
             return Operand::Value(no_sep_v);
         }
-        let limit_op = ctx.coerce_to_i64(argv[2].clone());
+        let limit_op = ctx.coerce_to_i64(argv[2]);
         let is_zero = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::ICmp(IPred::Eq, limit_op, Operand::ConstI64(0)),
@@ -194,7 +194,7 @@ pub(crate) fn lower_split(
             Type::Arr(arr_id),
             None,
         );
-        return emit_limit_clamp_slice(ctx, split_v, argv[2].clone(), arr_id);
+        return emit_limit_clamp_slice(ctx, split_v, argv[2], arr_id);
     }
     // A product the census proved is only ever measured
     // (`ast::split_length_only`) is never built: count the tokens.
@@ -241,7 +241,7 @@ fn emit_limit_clamp_slice(
     let take_slot = ctx.alloca(Type::I64, Some("__split_take"));
     let lt = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::ICmp(IPred::Slt, limit_op.clone(), Operand::Value(len)),
+        InstKind::ICmp(IPred::Slt, limit_op, Operand::Value(len)),
         Type::Bool,
         None,
     );
@@ -295,7 +295,7 @@ fn copy_prefix(
         ctx.cur_block,
         InstKind::Call(
             ctx.intrinsics.arr_slice,
-            vec![Operand::Value(src), Operand::ConstI64(0), take.clone()],
+            vec![Operand::Value(src), Operand::ConstI64(0), take],
         ),
         Type::Arr(out_id),
         None,

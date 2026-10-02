@@ -68,7 +68,7 @@ impl<'a> LowerCtx<'a> {
         // orphan leak, probe-proven).
         let transfers = self.expr_transfers_ownership(fval_eid);
         let v_ty = self.operand_ty(&v_raw);
-        let v_keep = v_raw.clone();
+        let v_keep = v_raw;
         let (tag, val_op): (i64, Operand) = match v_ty {
             Type::I64 | Type::I32 => (2, v_raw),
             Type::F64 => {
@@ -107,13 +107,13 @@ impl<'a> LowerCtx<'a> {
                 // double-counted by the separate inc and leaked).
                 let tag_v = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Call(self.intrinsics.any_unbox_tag, vec![v_raw.clone()]),
+                    InstKind::Call(self.intrinsics.any_unbox_tag, vec![v_raw]),
                     Type::I64,
                     None,
                 );
                 let val_v = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Call(self.intrinsics.any_unbox_value_owned, vec![v_raw.clone()]),
+                    InstKind::Call(self.intrinsics.any_unbox_value_owned, vec![v_raw]),
                     Type::I64,
                     None,
                 );
@@ -138,13 +138,13 @@ impl<'a> LowerCtx<'a> {
             Type::Str => {
                 let tag_v = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Call(self.intrinsics.anyv_str_slot_tag, vec![v_raw.clone()]),
+                    InstKind::Call(self.intrinsics.anyv_str_slot_tag, vec![v_raw]),
                     Type::I64,
                     None,
                 );
                 let val_v = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Call(self.intrinsics.anyv_str_slot_value, vec![v_raw.clone()]),
+                    InstKind::Call(self.intrinsics.anyv_str_slot_value, vec![v_raw]),
                     Type::I64,
                     None,
                 );
@@ -170,7 +170,7 @@ impl<'a> LowerCtx<'a> {
                 // as NaN-boxes and reads undefined. No-op for
                 // non-Arr values.
                 self.emit_arr_mark_kind(&v_raw);
-                self.emit_rc_inc(v_raw.clone());
+                self.emit_rc_inc(v_raw);
                 (4, v_raw)
             }
             Type::Ptr if matches!(v_raw, Operand::ConstPtrNull) => (0, Operand::ConstI64(0)),
@@ -308,9 +308,9 @@ impl<'a> LowerCtx<'a> {
                 let src = self.lower_expr(fval_eid);
                 let src_ty = self.operand_ty(&src);
                 let src_any = if matches!(src_ty, Type::Any) {
-                    src.clone()
+                    src
                 } else {
-                    self.box_to_any_from_expr(fval_eid, src.clone())
+                    self.box_to_any_from_expr(fval_eid, src)
                 };
                 // §7.3.25 excludedItems ride to the kernel as one Str
                 // cell of comma-separated names — the same spelling the

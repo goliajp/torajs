@@ -321,7 +321,7 @@ fn emit_insertion_sort(
         ctx.emit_arr_slot_byte_offset(Operand::Value(arr_ptr), Operand::Value(i_now2), 3, false);
     let cur = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::LoadDyn(elem_ty, off_i_base.clone(), off_i),
+        InstKind::LoadDyn(elem_ty, off_i_base, off_i),
         elem_ty,
         None,
     );
@@ -359,7 +359,7 @@ fn emit_insertion_sort(
         ctx.emit_arr_slot_byte_offset(Operand::Value(arr_ptr), Operand::Value(j_final), 3, false);
     ctx.f.append_void(
         ctx.cur_block,
-        InstKind::StoreDyn(Operand::Value(cur), off_jf_base.clone(), off_jf),
+        InstKind::StoreDyn(Operand::Value(cur), off_jf_base, off_jf),
     );
     // §23.1.3.30.2 step 3 — the comparator's abrupt completion ends
     // the sort; the array is whole again at this point

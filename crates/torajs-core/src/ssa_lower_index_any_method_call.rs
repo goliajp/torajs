@@ -199,14 +199,14 @@ pub(crate) fn try_lower(
         (key_raw, false)
     } else {
         if key_is_borrow && key_ty.is_refcounted() {
-            ctx.emit_rc_inc(key_raw.clone());
+            ctx.emit_rc_inc(key_raw);
         }
         (ctx.box_to_any_from_expr(index, key_raw), true)
     };
     // The key is ours too (a box we minted, or an owned already-Any
     // temp the release below covers) — park it across the args.
     let key_tok = if key_boxed {
-        Some(ctx.push_throw_temp(key.clone(), Type::Any))
+        Some(ctx.push_throw_temp(key, Type::Any))
     } else {
         ctx.park_owned_temp(index, &key)
     };
@@ -219,8 +219,8 @@ pub(crate) fn try_lower(
         InstKind::Call(
             ctx.intrinsics.any_index_method_call,
             vec![
-                recv.clone(),
-                key.clone(),
+                recv,
+                key,
                 recv_slot,
                 Operand::Value(argv),
                 Operand::ConstI64(args.len() as i64),
@@ -267,7 +267,7 @@ pub(crate) fn emit_any_field_call(
     args: &[ExprId],
 ) -> Operand {
     let recv_tok = ctx.park_owned_temp(obj, &recv_op);
-    let boxed = ctx.box_to_any(recv_op.clone());
+    let boxed = ctx.box_to_any(recv_op);
     let result = emit_any_method_call(ctx, boxed, name, Operand::ConstPtrNull, args);
     ctx.unpark_owned_temp(recv_tok);
     ctx.release_owned_temp(obj, &recv_op);

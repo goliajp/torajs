@@ -116,13 +116,13 @@ impl<'a> LowerCtx<'a> {
         let v = self.coerce_to_i64(v);
         let is_neg = self.f.append_inst(
             self.cur_block,
-            InstKind::ICmp(IPred::Slt, v.clone(), Operand::ConstI64(0)),
+            InstKind::ICmp(IPred::Slt, v, Operand::ConstI64(0)),
             Type::Bool,
             None,
         );
         let plus_len = self.f.append_inst(
             self.cur_block,
-            InstKind::BinOp(SsaBinOp::Add, v.clone(), len.clone()),
+            InstKind::BinOp(SsaBinOp::Add, v, len),
             Type::I64,
             None,
         );

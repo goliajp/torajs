@@ -84,10 +84,7 @@ impl<'a> LowerCtx<'a> {
                 let cur_block = self.cur_block;
                 let p = self.f.append_inst(
                     cur_block,
-                    crate::ssa::InstKind::Call(
-                        self.intrinsics.anyv_to_property_key,
-                        vec![k_raw.clone()],
-                    ),
+                    crate::ssa::InstKind::Call(self.intrinsics.anyv_to_property_key, vec![k_raw]),
                     Type::Ptr,
                     None,
                 );
@@ -126,10 +123,7 @@ impl<'a> LowerCtx<'a> {
         let cur_block = self.cur_block;
         self.f.append_void(
             cur_block,
-            crate::ssa::InstKind::Call(
-                self.intrinsics.anyv_require_object_coercible,
-                vec![recv.clone()],
-            ),
+            crate::ssa::InstKind::Call(self.intrinsics.anyv_require_object_coercible, vec![*recv]),
         );
         self.emit_throw_check(None);
     }
@@ -169,7 +163,7 @@ impl<'a> LowerCtx<'a> {
         // keeps its stake; an owned-temp key (BinOp mint / Substr
         // view) releases after the call — was a 32B/iter leak.
         let key_transfers = self.expr_transfers_ownership(index) && k_ty.is_refcounted();
-        let key_raw_keep = k_raw.clone();
+        let key_raw_keep = k_raw;
         let key_owned = k_ty == Type::Substr;
         let key_op = self.coerce_to_str(k_raw, k_ty);
         let Operand::Value(key_v) = key_op else {
@@ -227,7 +221,7 @@ impl<'a> LowerCtx<'a> {
         if let Some((mid, mop)) = &self.pins.compound_key
             && *mid == index
         {
-            let k = mop.clone();
+            let k = *mop;
             let v_raw = self.lower_expr(value);
             let v_ty = self.operand_ty(&v_raw);
             let (tag_op, value_op) = self.pack_any_slot_value_shared(value, &v_raw, v_ty);
@@ -271,10 +265,7 @@ impl<'a> LowerCtx<'a> {
             let cur_block = self.cur_block;
             let p = self.f.append_inst(
                 cur_block,
-                crate::ssa::InstKind::Call(
-                    self.intrinsics.anyv_to_property_key,
-                    vec![k_raw.clone()],
-                ),
+                crate::ssa::InstKind::Call(self.intrinsics.anyv_to_property_key, vec![k_raw]),
                 Type::Ptr,
                 None,
             );
@@ -315,7 +306,7 @@ impl<'a> LowerCtx<'a> {
             self,
             strict,
             soft,
-            vec![obj_val, k_final.clone(), tag_op, value_op, recv_slot],
+            vec![obj_val, k_final, tag_op, value_op, recv_slot],
         );
         self.emit_throw_check(None);
         // The coerced cell carries the to_property_key +1 (its box is
@@ -351,7 +342,7 @@ impl<'a> LowerCtx<'a> {
         // the bucket, not adopted): a borrow-shape key keeps its
         // stake, an owned temp releases after the call.
         let key_transfers = self.expr_transfers_ownership(index) && k_ty.is_refcounted();
-        let key_raw_keep = k_raw.clone();
+        let key_raw_keep = k_raw;
         let Operand::Value(key_v) = k_raw else {
             panic!("ssa-lower: symbol index key lowered to a non-value operand");
         };

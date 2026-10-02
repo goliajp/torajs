@@ -35,8 +35,8 @@ pub(super) fn lower_obj(
         // check included); `box_to_any` is rc-neutral, so the walk
         // borrows and there is nothing extra to drop.
         if is_error {
-            let boxed = ctx.box_to_any(val_op.clone());
-            let v = super::emit_any_walk(ctx, boxed, gap.clone(), depth);
+            let boxed = ctx.box_to_any(val_op);
+            let v = super::emit_any_walk(ctx, boxed, gap, depth);
             ctx.emit_throw_check(None);
             return v;
         }
@@ -111,7 +111,7 @@ fn lower_obj_concat(
         ctx.cur_block,
         InstKind::Call(
             ctx.intrinsics.str_concat,
-            vec![acc_final.clone(), Operand::Value(rbrace)],
+            vec![acc_final, Operand::Value(rbrace)],
         ),
         Type::Str,
         None,
@@ -243,19 +243,11 @@ fn emit_field(
     // answers the same sentinel an `any` slot does, so it needs the
     // same probe below.
     let hook_walks = super::to_json::takes_runtime_walk(ctx, fty, fe.as_ref());
-    let field_str = super::lower_keyed(
-        ctx,
-        field_v.clone(),
-        *fty,
-        Some(hook_key),
-        fe,
-        gap.clone(),
-        depth + 1,
-    );
+    let field_str = super::lower_keyed(ctx, field_v, *fty, Some(hook_key), fe, *gap, depth + 1);
     // A field Load borrows the struct's slot; a getter call answers
     // a fresh +1 that nothing else owns.
     if getter_owned {
-        ctx.emit_drop_value(field_v.clone(), *fty);
+        ctx.emit_drop_value(field_v, *fty);
     }
     // The static shapes that always serialize to nothing were
     // skipped above; an `any` slot decides at runtime (undefined, a
@@ -266,7 +258,7 @@ fn emit_field(
         let merge = merge_blk.unwrap_or_else(|| ctx.f.add_block());
         let is_nothing = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.str_is_undef, vec![field_str.clone()]),
+            InstKind::Call(ctx.intrinsics.str_is_undef, vec![field_str]),
             Type::Bool,
             None,
         );
@@ -283,7 +275,7 @@ fn emit_field(
         ctx.cur_block = skip_blk;
         // 642 ledger — the segment is dropped, so is the walk's
         // answer (a static sentinel block: the drop is a no-op).
-        ctx.emit_drop_value(field_str.clone(), Type::Str);
+        ctx.emit_drop_value(field_str, Type::Str);
         ctx.f.set_term(ctx.cur_block, Terminator::Br(merge));
         ctx.cur_block = write_blk;
         Some(merge)
@@ -317,7 +309,7 @@ fn emit_field(
         ctx.cur_block,
         InstKind::Call(
             ctx.intrinsics.str_concat,
-            vec![acc_sep.clone(), Operand::Value(key_quoted)],
+            vec![acc_sep, Operand::Value(key_quoted)],
         ),
         Type::Str,
         None,
@@ -335,7 +327,7 @@ fn emit_field(
         Some(g) => {
             let c = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.json_colon, vec![g.clone()]),
+                InstKind::Call(ctx.intrinsics.json_colon, vec![*g]),
                 Type::Str,
                 None,
             );
@@ -347,7 +339,7 @@ fn emit_field(
         ctx.cur_block,
         InstKind::Call(
             ctx.intrinsics.str_concat,
-            vec![Operand::Value(v1), colon_op.clone()],
+            vec![Operand::Value(v1), colon_op],
         ),
         Type::Str,
         None,
@@ -368,7 +360,7 @@ fn emit_field(
         None,
     );
     ctx.emit_drop_value(Operand::Value(v2), Type::Str);
-    ctx.emit_drop_value(field_str.clone(), Type::Str);
+    ctx.emit_drop_value(field_str, Type::Str);
     ctx.f.append_void(
         ctx.cur_block,
         InstKind::Store(Operand::Value(v3), Operand::Value(acc_slot), 0),
@@ -411,14 +403,14 @@ fn emit_undef_skip(
         let is_undef = if let Some(probe_fid) = undef_probe {
             ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(probe_fid, vec![field_v.clone()]),
+                InstKind::Call(probe_fid, vec![*field_v]),
                 Type::Bool,
                 None,
             )
         } else {
             let bits = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::BitCastF64ToI64(field_v.clone()),
+                InstKind::BitCastF64ToI64(*field_v),
                 Type::I64,
                 None,
             );

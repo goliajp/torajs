@@ -159,24 +159,23 @@ pub(crate) fn emit_prop_store(
                 let cur = ctx.cur_block;
                 let old = ctx
                     .f
-                    .append_inst(cur, InstKind::Load(ty, obj.clone(), off), ty, None);
+                    .append_inst(cur, InstKind::Load(ty, *obj, off), ty, None);
                 ctx.emit_drop_value(Operand::Value(old), ty);
             }
             if !owned && ty.is_refcounted() {
-                ctx.emit_rc_inc(value.clone());
+                ctx.emit_rc_inc(value);
             }
             let cur = ctx.cur_block;
-            ctx.f
-                .append_void(cur, InstKind::Store(value, obj.clone(), off));
+            ctx.f.append_void(cur, InstKind::Store(value, *obj, off));
         }
         PropSink::Setter { idx, sig } => {
             let off = OBJ_HEADER_SIZE + (idx as u64) * 8;
             crate::ssa_lower_call_struct_method_dispatch::emit_receiver_closure_call_ops(
                 ctx,
-                obj.clone(),
+                *obj,
                 off,
                 sig,
-                vec![value.clone()],
+                vec![value],
             );
             ctx.emit_throw_check(None);
             if owned && val_ty.is_refcounted() {
@@ -214,7 +213,7 @@ pub(crate) fn emit_prop_value(
             let cur = ctx.cur_block;
             let v = ctx
                 .f
-                .append_inst(cur, InstKind::Load(ty, obj.clone(), off), ty, None);
+                .append_inst(cur, InstKind::Load(ty, *obj, off), ty, None);
             (Operand::Value(v), false)
         }
         // Blade 1's `(__env, __this)` ABI — a getter is a zero-arg
@@ -223,7 +222,7 @@ pub(crate) fn emit_prop_value(
             let off = OBJ_HEADER_SIZE + (idx as u64) * 8;
             let v = crate::ssa_lower_call_struct_method_dispatch::emit_receiver_closure_call(
                 ctx,
-                obj.clone(),
+                *obj,
                 off,
                 sig,
                 &[],

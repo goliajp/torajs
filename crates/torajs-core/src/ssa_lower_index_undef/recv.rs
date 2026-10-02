@@ -37,16 +37,16 @@ pub(crate) fn lower_typed_index_receiver(
     // one unsigned compare covers both ends; a proven upper bound
     // leaves only the sign test (`lower_typed_index_checked`)
     let out = if upper_proven {
-        ctx.cmp(IPred::Slt, idx_val.clone(), Operand::ConstI64(0))
+        ctx.cmp(IPred::Slt, idx_val, Operand::ConstI64(0))
     } else {
         let cb = ctx.cur_block;
         let len = ctx.f.append_inst(
             cb,
-            InstKind::Load(Type::I64, arr_val.clone(), ARR_LEN_OFF),
+            InstKind::Load(Type::I64, arr_val, ARR_LEN_OFF),
             Type::I64,
             None,
         );
-        ctx.cmp(IPred::Uge, idx_val.clone(), Operand::Value(len))
+        ctx.cmp(IPred::Uge, idx_val, Operand::Value(len))
     };
     let cb = ctx.cur_block;
     ctx.f.set_term(

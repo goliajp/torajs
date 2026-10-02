@@ -89,7 +89,7 @@ fn lower_left_boxed(
     let cell = crate::ssa_lower_closure_canonical::try_lower_canonical_cell(
         ctx, &fwd, fid, closure_ty, false,
     )?;
-    let boxed = ctx.box_to_any(cell.clone());
+    let boxed = ctx.box_to_any(cell);
     Some((boxed, Some((cell, closure_ty))))
 }
 
@@ -154,10 +154,7 @@ pub(super) fn try_lower_dynamic_target(
     let cur_block = ctx.cur_block;
     let r = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(
-            ctx.intrinsics.instanceof_dynamic,
-            vec![v_any, target_any.clone()],
-        ),
+        InstKind::Call(ctx.intrinsics.instanceof_dynamic, vec![v_any, target_any]),
         Type::Bool,
         None,
     );
@@ -327,7 +324,7 @@ pub(super) fn emit_has_instance(
     if !has_any_encoding(ctx.operand_ty(&cell)) {
         return emit_ordinary_walk(ctx, v_any, cell, release);
     }
-    let cell_any = ctx.box_to_any(cell.clone());
+    let cell_any = ctx.box_to_any(cell);
     let cur_block = ctx.cur_block;
     let r = ctx.f.append_inst(
         cur_block,
@@ -353,10 +350,7 @@ fn emit_ordinary_walk(
     let cur_block = ctx.cur_block;
     let r = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(
-            ctx.intrinsics.instanceof_fn_value,
-            vec![v_any, cell.clone()],
-        ),
+        InstKind::Call(ctx.intrinsics.instanceof_fn_value, vec![v_any, cell]),
         Type::Bool,
         None,
     );

@@ -62,10 +62,7 @@ pub(crate) fn emit_receiver_typecheck(
     if matches!(obj_ty, Type::Any) {
         ctx.f.append_void(
             ctx.cur_block,
-            InstKind::Call(
-                ctx.intrinsics.throw_typeerror_if_not_object,
-                vec![obj_op.clone()],
-            ),
+            InstKind::Call(ctx.intrinsics.throw_typeerror_if_not_object, vec![*obj_op]),
         );
         ctx.emit_throw_check(None);
         return;
@@ -73,7 +70,7 @@ pub(crate) fn emit_receiver_typecheck(
     if is_typed_object(obj_ty) {
         return;
     }
-    let boxed = ctx.box_to_any_from_expr(obj_eid, obj_op.clone());
+    let boxed = ctx.box_to_any_from_expr(obj_eid, *obj_op);
     ctx.f.append_void(
         ctx.cur_block,
         InstKind::Call(ctx.intrinsics.throw_typeerror_if_not_object, vec![boxed]),
@@ -139,7 +136,7 @@ pub(crate) fn lower_key(ctx: &mut LowerCtx, key: &DefineKey) -> (Operand, bool) 
                 Type::Any => {
                     let k = ctx.f.append_inst(
                         ctx.cur_block,
-                        InstKind::Call(ctx.intrinsics.anyv_to_property_key, vec![raw.clone()]),
+                        InstKind::Call(ctx.intrinsics.anyv_to_property_key, vec![raw]),
                         Type::Ptr,
                         None,
                     );
@@ -250,15 +247,8 @@ pub(crate) fn emit_define_one(
     let recv_tok = ctx
         .throw_temp_of(obj_eid, &obj_op)
         .map(|(op, ty)| ctx.push_throw_temp(op, ty));
-    emit_receiver_typecheck(ctx, obj_eid, &obj_op, obj_ty.clone());
-    let handled = emit_define_one_core(
-        ctx,
-        obj_op.clone(),
-        obj_ty.clone(),
-        &receiver_ident,
-        key,
-        desc_eid,
-    );
+    emit_receiver_typecheck(ctx, obj_eid, &obj_op, obj_ty);
+    let handled = emit_define_one_core(ctx, obj_op, obj_ty, &receiver_ident, key, desc_eid);
     if let Some(t) = recv_tok {
         ctx.pop_throw_temp(t);
     }
@@ -288,14 +278,7 @@ pub(crate) fn emit_define_one_core(
     // then materializes as a dynobj and takes the full runtime
     // ToPropertyDescriptor path (§6.2.6.5 ToBoolean semantics).
     if matches!(ctx.ast.get_expr(desc_eid), Expr::ObjectLit { .. }) {
-        if literal::emit_define_literal(
-            ctx,
-            obj_op.clone(),
-            obj_ty.clone(),
-            &key,
-            receiver_ident,
-            desc_eid,
-        ) {
+        if literal::emit_define_literal(ctx, obj_op, obj_ty, &key, receiver_ident, desc_eid) {
             return true;
         }
         return emit_define_objlit_runtime(ctx, obj_op, obj_ty, &key, receiver_ident, desc_eid);
@@ -352,7 +335,7 @@ fn emit_define_objlit_runtime(
         ctx.cur_block,
         InstKind::Call(
             ctx.intrinsics.dynobj_define_from_desc,
-            vec![Operand::Value(slot), key_op.clone(), desc_ptr.clone()],
+            vec![Operand::Value(slot), key_op, desc_ptr],
         ),
     );
     // Release the fresh descriptor before the throw-check (mirror of
@@ -421,7 +404,7 @@ fn try_lower_define_property(
         // inc here (defineProperties' RFC 20260705 line: the receiver
         // carries its own ref through the dedicated path, bypassing
         // integrity's lower_noop).
-        ctx.emit_owned_result_inc(obj_op.clone(), obj_ty);
+        ctx.emit_owned_result_inc(obj_op, obj_ty);
         // An owned-temp receiver (inline-ObjectLit dynobj promote /
         // fresh Call result) hands its mint stake off here — the
         // result inc above is the consumer's stake (mirror of

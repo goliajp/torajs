@@ -58,7 +58,7 @@ pub(super) fn nullish_skip_cond(ctx: &mut LowerCtx, val: &Operand) -> Operand {
     let val_ty = ctx.operand_ty(val);
     let is_null = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::ICmp(IPred::Eq, val.clone(), Operand::ConstPtrNull),
+        InstKind::ICmp(IPred::Eq, *val, Operand::ConstPtrNull),
         Type::Bool,
         None,
     );
@@ -70,7 +70,7 @@ pub(super) fn nullish_skip_cond(ctx: &mut LowerCtx, val: &Operand) -> Operand {
     );
     let is_undef = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::ICmp(IPred::Eq, val.clone(), Operand::Value(sentinel)),
+        InstKind::ICmp(IPred::Eq, *val, Operand::Value(sentinel)),
         Type::Bool,
         None,
     );
@@ -171,7 +171,7 @@ fn emit_drop_arr(ctx: &mut LowerCtx, val: Operand, arr_id: crate::ssa::ArrId) {
             // Any side's slots dangling.
             let rc_now = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Load(Type::I32, val.clone(), 0),
+                InstKind::Load(Type::I32, val, 0),
                 Type::I32,
                 None,
             );
@@ -194,16 +194,11 @@ fn emit_drop_arr(ctx: &mut LowerCtx, val: Operand, arr_id: crate::ssa::ArrId) {
             ctx.cur_block = walk_blk;
             let len_v = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Load(Type::I64, val.clone(), ARR_LEN_OFF),
+                InstKind::Load(Type::I64, val, ARR_LEN_OFF),
                 Type::I64,
                 None,
             );
-            ctx.emit_arr_rc_drop_range(
-                val.clone(),
-                elem_ty,
-                Operand::ConstI64(0),
-                Operand::Value(len_v),
-            );
+            ctx.emit_arr_rc_drop_range(val, elem_ty, Operand::ConstI64(0), Operand::Value(len_v));
             ctx.f.set_term(ctx.cur_block, Terminator::Br(walk_done));
             ctx.cur_block = walk_done;
         }
@@ -263,7 +258,7 @@ fn emit_drop_closure(ctx: &mut LowerCtx, val: Operand) {
     ctx.cur_block = flags_blk;
     let tag_flags = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Load(Type::I32, val.clone(), 4),
+        InstKind::Load(Type::I32, val, 4),
         Type::I32,
         None,
     );
@@ -292,7 +287,7 @@ fn emit_drop_closure(ctx: &mut LowerCtx, val: Operand) {
         },
     );
     ctx.cur_block = dec_blk;
-    let rc_new = ctx.emit_rc_dec_inline(val.clone());
+    let rc_new = ctx.emit_rc_dec_inline(val);
     let is_zero = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::ICmp(IPred::Eq, rc_new, Operand::ConstI32(0)),
@@ -312,7 +307,7 @@ fn emit_drop_closure(ctx: &mut LowerCtx, val: Operand) {
     ctx.cur_block = drop_blk;
     let drop_fn_ptr = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Load(Type::Ptr, val.clone(), CLOSURE_DROP_FN_OFF),
+        InstKind::Load(Type::Ptr, val, CLOSURE_DROP_FN_OFF),
         Type::Ptr,
         None,
     );

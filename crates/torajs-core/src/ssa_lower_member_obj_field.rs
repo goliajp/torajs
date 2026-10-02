@@ -78,9 +78,9 @@ pub(crate) fn try_lower(
     // Left off, every consumer took its own stake on top and the
     // call's was never released — which a getter body returning a bare
     // field used to hide by handing back no stake at all.
-    let getter = match try_accessor_getter(ctx, eid, obj, obj_val.clone(), sid, name) {
+    let getter = match try_accessor_getter(ctx, eid, obj, obj_val, sid, name) {
         Some(op) => Some(op),
-        None => try_objlit_getter(ctx, obj_val.clone(), sid, name),
+        None => try_objlit_getter(ctx, obj_val, sid, name),
     };
     if let Some(op) = getter {
         if !ctx.operand_ty(&op).is_copy() {
@@ -197,7 +197,7 @@ fn try_accessor_getter(
         }
     };
     let ret_ty = ctx.f_ret_type_hint(fid);
-    let recv = obj_val.clone();
+    let recv = obj_val;
     let call = move |ctx: &mut LowerCtx<'_>| {
         let cur_block = ctx.cur_block;
         let v = ctx

@@ -105,7 +105,7 @@ pub(crate) fn try_lower_global_let(
                     Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. }
                 )
             {
-                ctx.emit_rc_inc(init_val.clone());
+                ctx.emit_rc_inc(init_val);
             }
             (ctx.box_to_any_from_expr(init, init_val), true)
         } else {
@@ -154,7 +154,7 @@ pub(crate) fn emit_module_ns_finalize(ctx: &mut LowerCtx, name: &str, ty: Type, 
     if ty == Type::Any && ctx.ast.namespace_bindings.contains_key(name) {
         ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.module_ns_finalize, vec![val.clone()]),
+            InstKind::Call(ctx.intrinsics.module_ns_finalize, vec![*val]),
             Type::Void,
             None,
         );

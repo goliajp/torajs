@@ -52,7 +52,7 @@ pub(super) fn try_emit_sort_helper(
             );
             (Operand::Value(fp), Operand::Value(env))
         }
-        Type::FnSig(_) => (cv.clone(), Operand::ConstPtrNull),
+        Type::FnSig(_) => (*cv, Operand::ConstPtrNull),
         _ => unreachable!("sort_helper_mode gates on Closure/FnSig"),
     };
     ctx.f.append_void(
@@ -227,18 +227,15 @@ pub(super) fn emit_exotic_divert(
     if elem_ty != Type::Any {
         ctx.emit_arr_mark_kind(&Operand::Value(arr_ptr));
     }
-    let cmp_arg = cmp_val
-        .clone()
-        .map(|cv| ctx.box_to_any(cv))
-        .unwrap_or_else(|| {
-            let v = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::BoxAny(5, Operand::ConstI64(0)),
-                Type::Any,
-                None,
-            );
-            Operand::Value(v)
-        });
+    let cmp_arg = (*cmp_val).map(|cv| ctx.box_to_any(cv)).unwrap_or_else(|| {
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::BoxAny(5, Operand::ConstI64(0)),
+            Type::Any,
+            None,
+        );
+        Operand::Value(v)
+    });
     // The seam's default releases the kernel's +1 on the receiver
     // itself (a generic any drop here would root the cycle and weak
     // worlds in every sorting program); the caller mints its own

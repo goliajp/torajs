@@ -60,9 +60,9 @@ pub(crate) fn null_test(
     };
     let is_null = |e: Option<ExprId>| e.is_some_and(|e| matches!(ctx.ast.get_expr(e), Expr::Null));
     let held = if left.is_some_and(|e| is_match_len_binding(ctx, e)) && is_null(right) {
-        a.clone()
+        *a
     } else if right.is_some_and(|e| is_match_len_binding(ctx, e)) && is_null(left) {
-        b.clone()
+        *b
     } else {
         return None;
     };

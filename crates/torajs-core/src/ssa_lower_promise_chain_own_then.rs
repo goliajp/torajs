@@ -85,7 +85,7 @@ pub(crate) fn lower_chain_with_own_then_probe(
     } else {
         let bag = ctx.f.append_inst(
             entry,
-            InstKind::Load(Type::Ptr, src_op.clone(), PROMISE_PROPS_OFF),
+            InstKind::Load(Type::Ptr, src_op, PROMISE_PROPS_OFF),
             Type::Ptr,
             None,
         );
@@ -99,7 +99,7 @@ pub(crate) fn lower_chain_with_own_then_probe(
     };
 
     ctx.cur_block = fast_blk;
-    let fast_val = ctx.lower_chain_fast(m_name, src_op.clone(), args, arg_ops);
+    let fast_val = ctx.lower_chain_fast(m_name, src_op, args, arg_ops);
     let fast_end = ctx.cur_block;
     ctx.f.append_void(
         fast_end,
@@ -178,7 +178,7 @@ fn lower_own_then_invoke(
     arg_ops: &[Operand],
     discarded: bool,
 ) -> Operand {
-    ctx.emit_rc_inc(src_op.clone());
+    ctx.emit_rc_inc(src_op);
     let recv = ctx.box_to_any(src_op);
     let argc = args.len();
     let argv = ctx.f.append_inst(
@@ -198,19 +198,19 @@ fn lower_own_then_invoke(
             let fwd = handler_forwarder(ctx, aid).expect("checked by the boxable gate");
             let cell = crate::ssa_lower_closure::lower(ctx, fwd, Vec::new());
             let boxed = ctx.box_to_any(cell);
-            drops.push(boxed.clone());
+            drops.push(boxed);
             boxed
         } else if ty == Type::Any {
             if ctx.expr_is_fresh_owned(aid) {
-                drops.push(op.clone());
+                drops.push(*op);
             }
-            op.clone()
+            *op
         } else {
             if !ctx.expr_is_fresh_owned(aid) && ty.is_refcounted() {
-                ctx.emit_rc_inc(op.clone());
+                ctx.emit_rc_inc(*op);
             }
-            let boxed = ctx.box_to_any_from_expr(aid, op.clone());
-            drops.push(boxed.clone());
+            let boxed = ctx.box_to_any_from_expr(aid, *op);
+            drops.push(boxed);
             boxed
         };
         let cur_block = ctx.cur_block;
@@ -227,7 +227,7 @@ fn lower_own_then_invoke(
         InstKind::Call(
             ctx.intrinsics.any_method_call,
             vec![
-                recv.clone(),
+                recv,
                 Operand::ConstI64(mid),
                 Operand::Value(name_str),
                 Operand::ConstI64(0),

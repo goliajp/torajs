@@ -60,7 +60,7 @@ pub(crate) fn maybe_any_to_typed_scalar(
     // the init's own reference (the same step the argument position
     // has always taken), so `release_owned_temp` below still settles
     // the original.
-    let source = init_val.clone();
+    let source = init_val;
     let init_val =
         if crate::ssa_lower_call_arg_conv::heap_into_primitive(ty, ctx.operand_ty(&init_val)) {
             ctx.box_to_any(init_val)
@@ -79,16 +79,10 @@ pub(crate) fn maybe_any_to_typed_scalar(
         Some(t) if t.starts_with("__nullable(") => Admits::OrUndefined,
         _ => Admits::Exact,
     };
-    let cast = ctx.checked_cast(
-        init_val.clone(),
-        ty,
-        CastSlot::Assign,
-        CastScope::Annotated,
-        admits,
-    );
+    let cast = ctx.checked_cast(init_val, ty, CastSlot::Assign, CastScope::Annotated, admits);
     let decoded = match ty {
         _ if cast.is_some() => cast.expect("guard just tested it"),
-        Type::I64 | Type::F64 => ctx.coerce_any_to_number(init_val.clone(), ty),
+        Type::I64 | Type::F64 => ctx.coerce_any_to_number(init_val, ty),
         // A declared `string` slot, not a ToString site: `undefined`
         // keeps the Str undefined sentinel. Running the real §7.1.17
         // here spelled it as the six-letter TEXT "undefined" (and
@@ -102,7 +96,7 @@ pub(crate) fn maybe_any_to_typed_scalar(
         Type::Str => {
             let v = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.any_to_str_slot, vec![init_val.clone()]),
+                InstKind::Call(ctx.intrinsics.any_to_str_slot, vec![init_val]),
                 Type::Str,
                 None,
             );
@@ -112,7 +106,7 @@ pub(crate) fn maybe_any_to_typed_scalar(
         // row a `boolean` binding took the box's raw BITS (a `false`
         // box is a non-zero pattern — every any-held value read as
         // true, the L3b ① TypedNarrow-lane discovery).
-        Type::Bool => ctx.coerce_to_bool(init_val.clone()),
+        Type::Bool => ctx.coerce_to_bool(init_val),
         _ => return (init_val, false),
     };
     // The original reference, not the box: boxing above re-encoded it

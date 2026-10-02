@@ -52,7 +52,7 @@ fn emit_close_call(ctx: &mut LowerCtx, td: &ForOfTeardown) {
                 ctx.cur_block,
                 InstKind::Call(
                     ctx.intrinsics.any_iter_close,
-                    vec![src.clone(), Operand::Value(*iter_slot)],
+                    vec![*src, Operand::Value(*iter_slot)],
                 ),
             );
         }

@@ -112,7 +112,7 @@ impl<'a> LowerCtx<'a> {
         let cur = self.cur_block;
         let tag = self.f.append_inst(
             cur,
-            InstKind::Call(self.intrinsics.any_unbox_tag, vec![raw.clone()]),
+            InstKind::Call(self.intrinsics.any_unbox_tag, vec![raw]),
             Type::I64,
             None,
         );

@@ -31,7 +31,7 @@ impl LowerCtx<'_> {
         transfers: bool,
     ) -> (Operand, bool) {
         if let Some(cast) = self.checked_cast(
-            v.clone(),
+            v,
             elem_ty,
             crate::ssa_lower_checked_cast::CastSlot::Store,
             crate::ssa_lower_checked_cast::CastScope::Inferred,
@@ -62,14 +62,14 @@ impl LowerCtx<'_> {
             (Type::I64 | Type::F64, Type::Any) => {
                 // ToNumber only READS the box, and the decoded slot is
                 // Copy, so the source's own stake needs settling here.
-                let n = self.coerce_any_to_number(v.clone(), elem_ty);
+                let n = self.coerce_any_to_number(v, elem_ty);
                 self.release_owned_temp(value, &v);
                 (n, true)
             }
             (Type::Str, Type::Any) => {
                 // ToString mints a fresh owned Str — the slot takes
                 // exactly that reference, so this is a transfer.
-                let s = self.coerce_to_str(v.clone(), Type::Any);
+                let s = self.coerce_to_str(v, Type::Any);
                 self.release_owned_temp(value, &v);
                 (s, true)
             }
@@ -82,7 +82,7 @@ impl LowerCtx<'_> {
             (Type::Str, Type::Substr) => {
                 let owned = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Call(self.intrinsics.substr_to_owned, vec![v.clone()]),
+                    InstKind::Call(self.intrinsics.substr_to_owned, vec![v]),
                     Type::Str,
                     None,
                 );

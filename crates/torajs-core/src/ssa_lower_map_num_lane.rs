@@ -131,8 +131,7 @@ pub(crate) fn emit_get(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]
     if args.is_empty() {
         return Operand::ConstF64(f64::from_bits(F64_UNDEF_SENTINEL_BITS));
     }
-    let call = match crate::ssa_lower_call_map_dispatch::emit_find_index(ctx, recv_op.clone(), args)
-    {
+    let call = match crate::ssa_lower_call_map_dispatch::emit_find_index(ctx, recv_op, args) {
         Ok(idx) => InstKind::Call(ctx.intrinsics.map_entry_get_f64, vec![recv_op, idx]),
         Err((k_tag, k_val, k_raw)) => {
             let call = InstKind::Call(ctx.intrinsics.map_get_f64, vec![recv_op, k_tag, k_val]);

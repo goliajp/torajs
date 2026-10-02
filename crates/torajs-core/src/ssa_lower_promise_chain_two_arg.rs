@@ -36,10 +36,10 @@ impl LowerCtx<'_> {
     ) -> ValueId {
         let on_ok_pre_ty = self.operand_ty(&on_ok);
         let ok_handler = self.prepare_chain_handler(args[0], on_ok, true);
-        let on_ok = ok_handler.passed.clone();
+        let on_ok = ok_handler.passed;
         let on_err_pre_ty = self.operand_ty(&on_err);
         let err_handler = self.prepare_chain_handler(args[1], on_err, true);
-        let on_err = err_handler.passed.clone();
+        let on_err = err_handler.passed;
         let on_ok_ty = self.operand_ty(&on_ok);
         let on_err_ty = self.operand_ty(&on_err);
         let mut ok_word =
@@ -131,7 +131,7 @@ impl LowerCtx<'_> {
     /// form the any-lane bridge doesn't decode — stays loud there.
     pub(crate) fn chain_cb_ret_repr(&self, cb_ty: &Type) -> i64 {
         let ret = match cb_ty {
-            Type::Closure(sig) | Type::FnSig(sig) => self.fn_sigs[sig.0 as usize].1.clone(),
+            Type::Closure(sig) | Type::FnSig(sig) => self.fn_sigs[sig.0 as usize].1,
             _ => return 0,
         };
         let as_f64 = matches!(ret, Type::F64);
