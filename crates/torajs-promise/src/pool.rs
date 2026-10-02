@@ -11,7 +11,8 @@
 //!
 //! ## Pool layout (head-only stack, LIFO)
 //!
-//! `Promise.callbacks` doubles as the freelist `next` while parked.
+//! `Promise.callbacks` doubles as the freelist `next` while parked
+//! (an untagged link — a parked cell carries no reaction).
 //! On alloc-out the pop clears it back to NULL; on release the
 //! `callbacks` pointer is repurposed to point at the previous head.
 //! No extra storage per slot. Capacity bounded at 32 — overflow
@@ -32,8 +33,8 @@ use core::ffi::c_void;
 use core::ptr;
 
 use crate::layout::{
-    HeapHeader, PROMISE_SIZE, Promise, PromiseCb, STATE_FULFILLED, STATE_PENDING, STATE_REJECTED,
-    TAG_PROMISE, as_promise,
+    HeapHeader, PROMISE_SIZE, Promise, PromiseCb, RX_CLOSURE, RX_NONE, STATE_FULFILLED,
+    STATE_PENDING, STATE_REJECTED, TAG_PROMISE, as_promise, inline_link_derived,
 };
 
 /// Bounded freelist capacity. Matches
@@ -52,6 +53,8 @@ const FLAG_SUBCLASSED: u16 = 1;
 
 use std::sync::atomic::{AtomicI32, AtomicPtr, Ordering};
 
+use torajs_rc::rc_dec_cell;
+
 /// Freelist head — `Promise.callbacks` repurposed as `next`.
 /// AtomicPtr static pattern (same as torajs-arr::pool / torajs-weak::
 /// registry); compiles to plain load/store on x86_64 / aarch64.
@@ -65,17 +68,15 @@ unsafe extern "C" {
     #[link_name = "__torajs_free"]
     fn free(p: *mut c_void, size: usize);
 
-    /// Provided by torajs-rc (libtorajs_rc.a) at `tr build` link.
-    /// Returns 0 if rc stays positive, 1 on transition to zero.
-    fn __torajs_rc_dec(p: *mut c_void) -> i32;
-    /// torajs-rc. Bumps refcount by 1.
+    /// torajs-rc. Bumps refcount by 1 (NaN-box gated; the kernel's
+    /// own stakes on known cells use `torajs_rc::rc_inc_cell`).
     fn __torajs_rc_inc(p: *mut c_void);
     /// Universal-drop dispatcher in runtime_str.c. Routes the heap
     /// pointer to its type-specific drop helper.
     fn __torajs_value_drop_heap(p: *mut c_void);
     /// torajs-cycle — cycle-root buffer push / scrub (rationale in
-    /// `torajs-cycle::buffer`). The push is gated on
-    /// `has_walkable_children`, so a bagless cell pays a tag test.
+    /// `torajs-cycle::buffer`). The push is only made for a cell
+    /// `cycle_candidate` says the collector can descend into.
     fn __torajs_cycle_buffer(p: *mut c_void);
     fn __torajs_cycle_unbuffer(p: *mut c_void);
     /// torajs-meta — scrub a dying exotic-subclass instance's
@@ -111,13 +112,18 @@ unsafe fn promise_alloc_(state: u8, value: i64, is_heap: u8) -> *mut Promise {
         // box_to_any choke point stamps the real repr (RFC
         // 20260720-anylane-promise-methods knife 1).
         (*p).value_repr = crate::layout::REPR_UNSTAMPED;
-        // Zero `_pad` so memcmp on the whole struct is well-defined.
-        (*p)._pad = [0; 4];
+        (*p).deferred_state = 0;
+        (*p).rx_kind = RX_NONE;
+        (*p).rx_ret_repr = 0;
+        (*p).rx_param_repr = 0;
         (*p).value = value;
         (*p).callbacks = ptr::null_mut();
         // Lazy expando — drop cleared the previous tenant's before
         // release, but a fresh malloc block needs the NULL too.
         (*p).props = ptr::null_mut();
+        (*p).rx_next = ptr::null_mut();
+        (*p).rx_source = ptr::null_mut();
+        (*p).rx_cb = ptr::null_mut();
     }
     p
 }
@@ -133,8 +139,8 @@ unsafe fn promise_release_(p: *mut Promise) {
         POOL_HEAD.store(p, Ordering::Relaxed);
         POOL_COUNT.fetch_add(1, Ordering::Relaxed);
     } else {
-        // Layer 1 sized free: Promise struct is PROMISE_SIZE (40 B)
-        // — see promise/layout.rs (Step 4d).
+        // Layer 1 sized free: Promise struct is PROMISE_SIZE — see
+        // promise/layout.rs.
         unsafe { free(p as *mut c_void, crate::layout::PROMISE_SIZE) };
     }
 }
@@ -317,7 +323,7 @@ pub unsafe extern "C" fn __torajs_promise_drop(p: *mut c_void) {
         return;
     }
     let pp = as_promise(p);
-    if unsafe { __torajs_rc_dec(p) } == 0 {
+    if !unsafe { rc_dec_cell(p) } {
         // Still referenced. Only a cell the collector can descend
         // into is a candidate root; `cycle_buffer` would ask the same
         // question and answer no for the common bagless pending /
@@ -335,14 +341,45 @@ pub unsafe extern "C" fn __torajs_promise_drop(p: *mut c_void) {
         if (*pp).header.flags & FLAG_STATIC_LITERAL != 0 {
             return;
         }
-        // Free any unfired callback list nodes.
-        let mut node = (*pp).callbacks;
-        while !node.is_null() {
-            let next = (*node).next;
-            free(node as *mut c_void, core::mem::size_of::<PromiseCb>());
-            node = next;
+        // Unfired reactions in this cell's list: a heap record is
+        // freed (its `arg` block is opaque here and stays with the
+        // kernel that minted it); an inline derived cell gets its
+        // reaction stake released. Its `rx_source` can only name
+        // this dying cell, so that edge is cut first rather than
+        // charged against a count already at zero.
+        let mut link = (*pp).callbacks;
+        while !link.is_null() {
+            let derived = inline_link_derived(link);
+            if derived.is_null() {
+                let next = (*link).next;
+                free(link as *mut c_void, core::mem::size_of::<PromiseCb>());
+                link = next;
+            } else {
+                let next = (*derived).rx_next;
+                (*derived).rx_next = ptr::null_mut();
+                (*derived).rx_source = ptr::null_mut();
+                __torajs_promise_drop(derived as *mut c_void);
+                link = next;
+            }
         }
         (*pp).callbacks = ptr::null_mut();
+        // An unfired inline reaction this cell carries: release the
+        // source stake and an owned closure env.
+        if (*pp).rx_kind != RX_NONE {
+            let source = (*pp).rx_source;
+            let cb = (*pp).rx_cb;
+            let kind = (*pp).rx_kind;
+            (*pp).rx_kind = RX_NONE;
+            (*pp).rx_source = ptr::null_mut();
+            (*pp).rx_cb = ptr::null_mut();
+            (*pp).rx_next = ptr::null_mut();
+            if !source.is_null() {
+                __torajs_promise_drop(source);
+            }
+            if kind & RX_CLOSURE != 0 && !cb.is_null() {
+                __torajs_value_drop_heap(cb);
+            }
+        }
         // Heap-typed resolved value gets a type-specific drop.
         if (*pp).value_is_heap != 0 && (*pp).state != STATE_PENDING && (*pp).value != 0 {
             __torajs_value_drop_heap((*pp).value as *mut c_void);
@@ -380,10 +417,16 @@ mod tests {
             value_is_heap: is_heap,
             has_handler: 0,
             value_repr: 0,
-            _pad: [0; 4],
+            deferred_state: 0,
+            rx_kind: RX_NONE,
+            rx_ret_repr: 0,
+            rx_param_repr: 0,
             value,
             callbacks: ptr::null_mut(),
             props,
+            rx_next: ptr::null_mut(),
+            rx_source: ptr::null_mut(),
+            rx_cb: ptr::null_mut(),
         }
     }
 

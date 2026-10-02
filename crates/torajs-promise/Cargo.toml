@@ -1,6 +1,6 @@
 [package]
 name = "torajs-promise"
-description = "Promise<T> substrate for the torajs AOT TypeScript runtime. Heap layout (32B header + state + value + callbacks) + bounded free-list pool + 5 alloc variants + drop. Resolve/reject + callback chain + drain to microtask queue. .then/.catch/.finally (simple + closure variants) + Promise.all/allSettled/race/any sync combinators + queueMicrotask globals + thenable absorption. Layer-3 substrate. Pairs with torajs-microtask (queue) — Promise queues work onto that crate's enqueue API."
+description = "Promise<T> substrate for the torajs AOT TypeScript runtime. Heap layout (64B: header + state + value + callbacks + expando bag + inline reaction) + bounded free-list pool + 5 alloc variants + drop. Resolve/reject + callback chain + drain to microtask queue. .then/.catch/.finally (simple + closure variants) + Promise.all/allSettled/race/any sync combinators + queueMicrotask globals + thenable absorption. Layer-3 substrate. Pairs with torajs-microtask (queue) — Promise queues work onto that crate's enqueue API."
 keywords = ["torajs", "promise", "async", "event-loop", "runtime"]
 categories = ["concurrency", "no-std"]
 readme = "README.md"

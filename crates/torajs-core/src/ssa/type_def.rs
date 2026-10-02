@@ -102,9 +102,10 @@ pub enum Type {
     /// `__torajs_symbol_print` which formats `Symbol(<desc>)`.
     /// Lowers to a single pointer at codegen.
     Symbol,
-    /// T-15 (v0.5.0) — `Type::Promise` value. Heap-allocated 32-byte
-    /// block managed by `runtime_promise.c`: universal heap header +
-    /// state byte + i64 value slot + callbacks linked-list head.
+    /// T-15 (v0.5.0) — `Type::Promise` value. Heap-allocated 64-byte
+    /// cell owned by torajs-promise (`layout.rs`): universal heap
+    /// header + state bytes + value slot + callback list head +
+    /// expando bag + the inline reaction words.
     /// Lowers to a single pointer at codegen. T-15.f.2 ships only
     /// the type variant; T-15.g wires Promise.resolve / .then /
     /// await dispatch through ssa_lower. The element type from

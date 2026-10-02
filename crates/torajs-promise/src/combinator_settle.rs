@@ -57,7 +57,7 @@ unsafe fn result_adopted_as_thenable(p: *mut c_void, repr: u8, value: i64, is_he
 }
 
 /// Deferred-settle microtask (L3b combinator residual face ② fix).
-/// Reads the target state the mint parked in `_pad[0]`, clears it,
+/// Reads the target state the mint parked in `deferred_state`, clears it,
 /// and routes through the regular resolve/reject kernels — reject
 /// keeps its PENDING→REJECTED HPRT-check enqueue, and both drain any
 /// callbacks attached during the deferral round. The queue's stake
@@ -66,8 +66,8 @@ unsafe extern "C" fn deferred_settle_dispatch(arg: i64) {
     let p = arg as *mut c_void;
     let pp = as_promise(p);
     unsafe {
-        let target = (*pp)._pad[0];
-        (*pp)._pad[0] = 0;
+        let target = (*pp).deferred_state;
+        (*pp).deferred_state = 0;
         let v = (*pp).value;
         if target == STATE_REJECTED {
             // Rejection performs no thenable absorption (§27.2.1.3.1
@@ -87,7 +87,7 @@ unsafe extern "C" fn deferred_settle_dispatch(arg: i64) {
 /// `.then` callbacks one microtask EARLY relative to bun (output-
 /// order divergence, L3b combinator residual face ②). The final
 /// (state, value, is_heap) rides pre-written on the pending cell
-/// (`_pad[0]` carries the target state; resolve/reject never touch
+/// (`deferred_state` carries the target state; resolve/reject never touch
 /// `value_is_heap`/`value_repr`, so the pre-writes survive), and
 /// `await` still observes the settled value because its lowering
 /// drains the microtask queue before `promise_get_value`.
@@ -103,7 +103,7 @@ pub(crate) unsafe fn defer_settle(state: u8, value: i64, is_heap: u8, repr: u8) 
         (*pp).value = value;
         (*pp).value_is_heap = is_heap;
         (*pp).value_repr = repr;
-        (*pp)._pad[0] = state;
+        (*pp).deferred_state = state;
         // Queue stake — the cell must outlive the deferral even if
         // the caller discards the result; the dispatcher drops it.
         __torajs_rc_inc(p);

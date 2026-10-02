@@ -21,7 +21,7 @@ use core::ptr;
 
 use crate::layout::{
     MicrotaskFn, Promise, PromiseCb, REPR_ANY, STATE_FULFILLED, STATE_PENDING, STATE_REJECTED,
-    THROW_TAG_ANY_HEAP, THROW_TAG_I64, as_promise,
+    THROW_TAG_ANY_HEAP, THROW_TAG_I64, as_promise, inline_link_derived,
 };
 
 unsafe extern "C" {
@@ -47,17 +47,58 @@ unsafe extern "C" {
     fn __torajs_rc_inc(p: *mut c_void);
 }
 
-/// Walk + free a Promise's cb chain, enqueuing each into the
-/// microtask queue as we go. The queue copies (fn, arg) by value, so
-/// the nodes themselves are transient — drain frees as it goes.
+/// The link word that continues the list after `link`.
+#[inline]
+unsafe fn link_next(link: *mut PromiseCb) -> *mut *mut PromiseCb {
+    let derived = inline_link_derived(link);
+    if derived.is_null() {
+        unsafe { &raw mut (*link).next }
+    } else {
+        unsafe { &raw mut (*derived).rx_next }
+    }
+}
+
+/// Walk a Promise's callback list, enqueuing each reaction into the
+/// microtask queue as we go. A heap record is freed (the queue copies
+/// `(fn, arg)` by value); an inline derived cell is enqueued under the
+/// inline dispatcher with itself as the argument, and only its link
+/// word is cleared — the reaction stays parked in it until the job
+/// runs (`layout.rs`, "Callback list").
+///
+/// Attach head-pushes, so the list is in reverse registration order;
+/// §27.2.5.4.1 appends each reaction and §27.2.1.8
+/// TriggerPromiseReactions runs them in that order, so the list is
+/// reversed in place first (no allocation, one pass).
 pub(crate) unsafe fn drain_callbacks(pp: *mut Promise) {
-    let mut node = unsafe { (*pp).callbacks };
-    while !node.is_null() {
+    let mut link = unsafe { (*pp).callbacks };
+    let mut prev: *mut PromiseCb = ptr::null_mut();
+    while !link.is_null() {
         unsafe {
-            __torajs_microtask_enqueue((*node).invoke, (*node).arg);
-            let next = (*node).next;
-            free(node as *mut c_void, core::mem::size_of::<PromiseCb>());
-            node = next;
+            let slot = link_next(link);
+            let next = *slot;
+            *slot = prev;
+            prev = link;
+            link = next;
+        }
+    }
+    let mut link = prev;
+    while !link.is_null() {
+        unsafe {
+            let derived = inline_link_derived(link);
+            if derived.is_null() {
+                __torajs_microtask_enqueue((*link).invoke, (*link).arg);
+                let next = (*link).next;
+                free(link as *mut c_void, core::mem::size_of::<PromiseCb>());
+                link = next;
+            } else {
+                let next = (*derived).rx_next;
+                (*derived).rx_next = ptr::null_mut();
+                __torajs_microtask_enqueue(
+                    crate::reaction::inline_reaction_dispatch,
+                    derived as i64,
+                );
+                link = next;
+            }
         }
     }
     unsafe { (*pp).callbacks = ptr::null_mut() };
@@ -246,14 +287,16 @@ pub unsafe extern "C" fn __torajs_promise_get_state(p: *const c_void) -> u8 {
     unsafe { (*pp).state }
 }
 
-/// `.then` runtime hook — append a callback to the source Promise's
-/// chain. Two timing paths:
+/// `.then` runtime hook — append a heap callback record to the
+/// source Promise's chain (the typed then / catch kernels park their
+/// reaction inline instead — [`crate::reaction::attach_inline`]).
+/// Two timing paths:
 ///   1. source already settled → enqueue immediately.
 ///   2. source pending → head-push onto callbacks list; resolve /
 ///      reject drains the list lazily.
 ///
 /// P10.5-A3-a — any `attach_then` (including `.then(onOk)` without
-/// onRejected) marks the source as observed per spec §27.2.1.3
+/// onRejected) marks the source as observed per spec §27.2.5.4.1
 /// PerformPromiseThen step 12 (`SetPromiseIsHandled`). `.then(onOk)`
 /// without onRejected still counts because the rejection is forwarded
 /// into the result Promise via the dispatcher's REJECTED branch — the

@@ -10,30 +10,41 @@
 //! Mirror of `torajs-promise/src/layout.rs`:
 //!
 //! ```text
-//! Promise cell (40B)
+//! Promise cell (64B)
 //! offset | field
 //! -------|------
 //!   0    | universal heap header (8B)
 //!   8    | state (u8) — 0 PENDING / 1 FULFILLED / 2 REJECTED
 //!   9    | value_is_heap (u8)
-//!  10    | has_handler, value_repr, 4 pad
+//!  10    | has_handler, value_repr, deferred_state, rx_kind,
+//!       | rx_ret_repr, rx_param_repr
 //!  16    | value (i64) — a cell pointer iff value_is_heap — slot 0
-//!  24    | callbacks (*mut PromiseCb)
+//!  24    | callbacks (tagged list head: heap PromiseCb records and
+//!       | inline derived promises interleave; low bit marks inline)
 //!  32    | props (the bag)
+//!  40    | rx_next — this cell's link in its source's list
+//!  48    | rx_source — the promise this cell reacts to (owned)
+//!  56    | rx_cb — handler fn pointer, or an owned closure env
 //! ```
 //!
 //! `is_visitable_bag` is what asks whether a Promise has anything to
 //! walk — the tag is a bag shape, so its own arm there covers both
 //! the bag and the value, and this file needs no second predicate.
 //!
-//! **The callback list is deliberately not walked.** Each record
-//! packs a codegen-emitted dispatcher with an opaque `arg` word — the
-//! user closure, the source value and the result promise, encoded by
-//! the emit side. The runtime cannot read that word, and the drop
-//! kernel does not try either: it frees the record and never follows
-//! the `arg`. Reaching a cycle that runs through a pending callback
-//! needs a `trace_fn` from the emit side, the way a closure env got
-//! one; until then a missed descent under-collects, never corrupts.
+//! **Reactions are deliberately not walked**, in either form. A heap
+//! record packs a codegen-emitted dispatcher with an opaque `arg`
+//! word the runtime cannot read. An inline reaction's edges ARE
+//! readable (a derived cell's `rx_source`, a source's list of derived
+//! cells), but walking them would make every pending `then` chain a
+//! candidate ring: `p = p.then(f)` a million times leaves a million
+//! cells each holding the previous one, all buffered as the variable
+//! moves on, and every auto-collect would then traverse the whole
+//! chain from the one externally held tail — quadratic in the chain
+//! length for a structure that settles and frees itself a few
+//! microtasks later. The drop kernel owns both forms: it frees a
+//! record and never follows the `arg`, and it releases an unfired
+//! inline reaction's stakes. A ring that runs through a reaction
+//! whose source never settles is under-collected, never corrupted.
 
 use core::ffi::c_void;
 

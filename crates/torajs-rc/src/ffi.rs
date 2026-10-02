@@ -16,6 +16,40 @@ use core::ptr::NonNull;
 
 use crate::{DropPolicy, HeapHeader};
 
+/// Refcount step for a pointer the caller KNOWS is a live cell — a
+/// runtime kernel's own stake on a cell it just read, where the FFI
+/// face's NaN-box gate and call are pure overhead. `inc_ref`
+/// verbatim: a static literal never counts.
+///
+/// # Safety
+///
+/// `p` points to a live `HeapHeader`.
+#[inline]
+pub unsafe fn rc_inc_cell(p: *mut c_void) {
+    unsafe { (*(p as *mut HeapHeader)).inc_ref() };
+}
+
+/// See [`rc_inc_cell`]. Takes the Keep path inline while the count
+/// stays above one; the last reference goes through
+/// [`HeapHeader::dec_ref`], whose zero transition carries the
+/// underflow report and the WeakRef target-dying hook. Answers true
+/// when the caller must tear the cell down.
+///
+/// # Safety
+///
+/// `p` points to a live `HeapHeader`.
+#[inline]
+pub unsafe fn rc_dec_cell(p: *mut c_void) -> bool {
+    let h = p as *mut HeapHeader;
+    unsafe {
+        if !(*h).is_static_literal() && (*h).refcount > 1 {
+            (*h).refcount -= 1;
+            return false;
+        }
+        (*h).dec_ref() == DropPolicy::Free
+    }
+}
+
 /// FFI bridge to [`HeapHeader::inc_ref`]. Null-safe.
 ///
 /// # Safety
@@ -105,6 +139,25 @@ mod tests {
 
     use super::*;
     use crate::Tag;
+
+    // the cell fast paths never cross zero; dec_ref owns that step
+    #[test]
+    fn cell_fast_paths_keep_the_kernel_contract() {
+        let mut h = HeapHeader::new(Tag::Str);
+        let p = &mut h as *mut HeapHeader as *mut c_void;
+        h.refcount = 3;
+        unsafe { rc_inc_cell(p) };
+        assert_eq!(h.refcount, 4);
+        assert!(!unsafe { rc_dec_cell(p) });
+        assert!(!unsafe { rc_dec_cell(p) });
+        assert_eq!(h.refcount, 2);
+        let mut lit = HeapHeader::new(Tag::Str);
+        lit.flags |= crate::FLAG_STATIC_LITERAL;
+        let l = &mut lit as *mut HeapHeader as *mut c_void;
+        unsafe { rc_inc_cell(l) };
+        assert!(!unsafe { rc_dec_cell(l) });
+        assert_eq!(lit.refcount, 1);
+    }
 
     #[test]
     fn ffi_rc_inc_null_is_noop() {

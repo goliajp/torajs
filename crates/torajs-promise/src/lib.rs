@@ -20,9 +20,9 @@
 //!   get_state + attach_then. Hot path: drain enqueues each cb
 //!   onto the microtask queue.
 //! - [`then`] — .then/.catch (simple + closure × 2 handler kinds).
-//!   Each variant allocs a small heap arg struct + a dispatcher,
-//!   then `attach_then`s the dispatcher. Any-param boxing support
-//!   in [`then_box`]; the `.finally` pair in [`then_finally`].
+//!   Each variant mints the derived cell and parks the reaction in
+//!   it ([`reaction`], one allocation per `then`). Any-param boxing
+//!   support in [`then_box`]; the `.finally` pair in [`then_finally`].
 //! - [`combinator`] — .all/.allSettled/.race/.any sync combinators.
 //!   MVP fast path: all-already-settled inputs build result Array;
 //!   pending input → reject with placeholder reason (real fan-in
@@ -52,6 +52,7 @@ pub mod layout;
 pub mod micro;
 pub mod pool;
 pub mod print;
+pub mod reaction;
 pub mod state;
 pub mod then;
 pub mod then_adopt;

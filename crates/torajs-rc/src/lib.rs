@@ -492,7 +492,7 @@ impl HeapHeader {
 // `_dec` without rewriting import paths.
 
 pub mod ffi;
-pub use ffi::{__torajs_rc_dec, __torajs_rc_inc};
+pub use ffi::{__torajs_rc_dec, __torajs_rc_inc, rc_dec_cell, rc_inc_cell};
 
 // ============================================================
 // Tests
