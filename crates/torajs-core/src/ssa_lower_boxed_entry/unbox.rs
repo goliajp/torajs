@@ -216,7 +216,7 @@ pub(super) fn unbox_args(
             _ => {
                 let raw = f.append_inst(
                     entry,
-                    InstKind::Call(intr.any_unbox_value, vec![av.clone()]),
+                    InstKind::Call(intr.any_unbox_value, vec![av]),
                     Type::I64,
                     None,
                 );
@@ -274,7 +274,6 @@ pub(super) fn drop_obj_temps(
 /// Release the Str-param ToString temps after the body call. A body
 /// that returned one of them holds its own reference (owned-return
 /// convention), so the release never frees a live result.
-
 pub(super) fn drop_str_temps(
     f: &mut ssa::Function,
     entry: ssa::BlockId,

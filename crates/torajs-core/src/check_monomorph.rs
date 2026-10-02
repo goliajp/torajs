@@ -426,7 +426,7 @@ pub(crate) fn clone_spec_body(
     return_type: &Option<String>,
     body: &[Stmt],
     subst: &[(String, String)],
-) -> (Vec<Param>, Option<String>, Vec<Stmt>, Vec<(ExprId, ExprId)>) {
+) -> crate::ssa_lower_generics_monomorph::SubstitutedFn {
     let mut new_params: Vec<Param> = params.to_vec();
     for p in new_params.iter_mut() {
         if let Some(ann) = &mut p.type_ann {

@@ -29,6 +29,9 @@ use crate::check_monomorph::{
 };
 use crate::ssa_lower_generics_monomorph::Generics;
 
+/// A widen site's target fn name and the (param index, target) pairs it widens.
+type WidenSite = (String, Vec<(usize, WidenTarget)>);
+
 pub(crate) mod struct_escape;
 
 /// Fixpoint driver — called by `monomorphize_and_check` after its
@@ -259,7 +262,7 @@ fn widen_one(
     call_retargets: &mut HashMap<ExprId, String>,
     mono_decls: &mut Vec<Stmt>,
 ) -> bool {
-    let mut pending: Vec<(ExprId, (String, Vec<(usize, WidenTarget)>))> = c
+    let mut pending: Vec<(ExprId, WidenSite)> = c
         .any_widen_mono_sites
         .iter()
         .filter(|(eid, _)| !call_retargets.contains_key(eid))

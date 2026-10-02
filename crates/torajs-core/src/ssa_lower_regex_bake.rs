@@ -155,7 +155,7 @@ pub(crate) fn try_bake_regex_dfa(
     }
     let states_slice: &[DfaState] = &dfa.states;
     let state_size = core::mem::size_of::<DfaState>();
-    let mut payload: Vec<u8> = Vec::with_capacity(states_slice.len() * state_size);
+    let mut payload: Vec<u8> = Vec::with_capacity(std::mem::size_of_val(states_slice));
     for state in states_slice {
         // SAFETY: `DfaState` is `#[repr(C)]` POD (no pointers, no
         // drop) and has no implicit padding — every byte between

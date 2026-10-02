@@ -279,9 +279,10 @@ mod tests {
     use crate::ssa::{BlockId, Terminator};
 
     fn module() -> Module {
-        let mut m = Module::default();
-        m.struct_layouts = vec![Vec::new(), Vec::new()];
-        m
+        Module {
+            struct_layouts: vec![Vec::new(), Vec::new()],
+            ..Default::default()
+        }
     }
 
     fn push(m: &mut Module, f: Function) -> FuncId {

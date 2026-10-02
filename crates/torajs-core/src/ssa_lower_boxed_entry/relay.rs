@@ -92,6 +92,8 @@ fn ret_fits(t_ret: &Type, relay_ret: &Type) -> Option<bool> {
 /// receiver its forwarding call would have seeded, a receiver-first
 /// one leads with argv[0]), and `t`'s signature carries exactly the
 /// relay's user types and return type behind the synthetic slots.
+// each table answers a different lookup on the relay's target; a bundle would only rename them
+#[allow(clippy::too_many_arguments)]
 pub(super) fn headless_target(
     ast: &Ast,
     call_retargets: &crate::ssa_lower::CallRetargets,

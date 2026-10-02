@@ -73,18 +73,14 @@ pub(crate) fn try_lower_setter_call(
         // The `__cm_` setter's sig is receiver-first: param 0 is the
         // receiver, param 1 the user value.
         Some(sig_id) => match ctx.fn_sigs[sig_id.0 as usize].0.get(1).copied() {
-            Some(expected) => crate::ssa_lower_call_arg_conv::emit_arg_conv(
-                ctx,
-                expected,
-                value,
-                v.clone(),
-                &mut owned,
-            ),
-            None => v.clone(),
+            Some(expected) => {
+                crate::ssa_lower_call_arg_conv::emit_arg_conv(ctx, expected, value, v, &mut owned)
+            }
+            None => v,
         },
-        None => v.clone(),
+        None => v,
     };
-    let recv = obj_val.clone();
+    let recv = obj_val;
     let call = move |ctx: &mut LowerCtx<'_>| {
         let cur_block = ctx.cur_block;
         ctx.f
@@ -94,7 +90,7 @@ pub(crate) fn try_lower_setter_call(
     if ctx.ast.program_reparents {
         // RFC 20260920-struct-user-proto K4 — a re-parented instance
         // writes through its user chain's setter.
-        crate::ssa_lower_call_reparent_guard::guarded_setter(ctx, recv, field, v.clone(), call);
+        crate::ssa_lower_call_reparent_guard::guarded_setter(ctx, recv, field, v, call);
     } else {
         call(ctx);
     }
@@ -254,7 +250,7 @@ pub(crate) fn lower_struct_field_store(
         let transfers = ctx.expr_transfers_ownership(value) || minted;
         let v_ty = ctx.operand_ty(&v);
         if !transfers && !v_ty.is_copy() {
-            ctx.emit_rc_inc(v.clone());
+            ctx.emit_rc_inc(v);
         }
         v
     };
@@ -268,14 +264,11 @@ pub(crate) fn lower_struct_field_store(
     // (`ssa_lower_fn::fresh_this`): no guard, and the first write to a
     // nullish-default field has nothing to release.
     let v_ty = ctx.operand_ty(&v);
-    let parked = (!v_ty.is_copy()).then(|| ctx.push_throw_temp(v.clone(), v_ty));
+    let parked = (!v_ty.is_copy()).then(|| ctx.push_throw_temp(v, v_ty));
     crate::ssa_lower_nullable_guard_emit::emit_undefable_heap_guard(ctx, obj, &obj_val);
     if !ctx.proofs.fresh_this_recv.contains(&obj) {
         crate::ssa_lower_assign_member_field::guard::emit_field_writable_guard(
-            ctx,
-            obj,
-            obj_val.clone(),
-            field,
+            ctx, obj, obj_val, field,
         );
     }
     if let Some(token) = parked {
@@ -328,7 +321,7 @@ fn fit_to_field(
     // analysis missed this write).
     let v_ty = ctx.operand_ty(&v);
     if let Some(cast) = ctx.checked_cast(
-        v.clone(),
+        v,
         field_ty,
         crate::ssa_lower_checked_cast::CastSlot::Store,
         crate::ssa_lower_checked_cast::CastScope::Inferred,
@@ -391,7 +384,7 @@ fn fit_to_field(
         (Type::Str, Type::Substr) => {
             let owned = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.substr_to_owned, vec![v.clone()]),
+                InstKind::Call(ctx.intrinsics.substr_to_owned, vec![v]),
                 Type::Str,
                 None,
             );

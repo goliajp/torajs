@@ -205,6 +205,15 @@ pub(crate) fn compute_arg_anns(
 /// return_type, body).
 pub(crate) type Generics = HashMap<String, (Vec<String>, Vec<Param>, Option<String>, Vec<Stmt>)>;
 
+/// A specialization's params, return annotation, body and the
+/// (source, clone) expr pairs the clone renumbered.
+pub(crate) type SubstitutedFn = (
+    Vec<Param>,
+    Option<String>,
+    Vec<Stmt>,
+    Vec<(crate::ast::ExprId, crate::ast::ExprId)>,
+);
+
 /// Index the AST's generic FnDecls by name. Cloned out so callers can
 /// mutate the AST freely while holding the index.
 pub(crate) fn collect_generics(ast: &Ast) -> Generics {

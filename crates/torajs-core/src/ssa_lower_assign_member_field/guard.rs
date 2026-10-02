@@ -39,7 +39,7 @@ pub(crate) fn emit_field_writable_guard(
     }
     let hdr_word = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Load(Type::I32, obj_val.clone(), 4),
+        InstKind::Load(Type::I32, obj_val, 4),
         Type::I32,
         None,
     );
@@ -76,7 +76,7 @@ pub(crate) fn emit_field_writable_guard(
         ctx.cur_block,
         InstKind::Call(
             ctx.intrinsics.obj_check_field_writable,
-            vec![obj_val.clone(), Operand::Value(name_str)],
+            vec![obj_val, Operand::Value(name_str)],
         ),
     );
     // P7.4-frozen — obj_check_not_frozen now arms a real TypeError

@@ -93,6 +93,8 @@ pub(crate) struct BoxedEntryIntrinsics {
 /// Walk the lifted closure fns and synthesize one adapter each.
 /// Returns `body fid → (adapter fid, adapter sig)` for the closure
 /// construction sites.
+// the lowering tables it reads and the module tables it extends are separate borrows
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn synthesize_boxed_entries(
     ast: &Ast,
     call_retargets: &crate::ssa_lower::CallRetargets,

@@ -149,12 +149,8 @@ fn target_facts(
         arr_layouts,
     } = *tables;
     let feeds_env = first_is_env || first_is_this;
-    let Some(&fid) = fn_table.get(name) else {
-        return None;
-    };
-    let Some(&sig_id) = fn_sig_ids.get(&fid) else {
-        return None;
-    };
+    let &fid = fn_table.get(name)?;
+    let &sig_id = fn_sig_ids.get(&fid)?;
     let (param_tys, ret_ty) = fn_sigs[sig_id.0 as usize].clone();
     let env_count = usize::from(feeds_env);
     // RFC 20260708-closure-argv-face — a full-arguments body
@@ -189,7 +185,7 @@ fn target_facts(
     let ast_skip = env_count + usize::from(has_argv);
     let sig_skip = ast_skip + usize::from(first_is_env) + usize::from(this_hidden);
     let user_tys: Vec<Type> = if twin_argv {
-        std::iter::once(param_tys[0].clone())
+        std::iter::once(param_tys[0])
             .chain(param_tys[3..].iter().cloned())
             .collect()
     } else {
@@ -211,7 +207,7 @@ fn target_facts(
     // `[null]`, silently, for every function that returns one.
     let ret_arr_kind = match &ret_ty {
         Type::Arr(id) => {
-            let elem = arr_layouts[id.0 as usize].clone();
+            let elem = arr_layouts[id.0 as usize];
             let chain = crate::ssa_lower_arr_kind_mark::arr_kind_chain_of(arr_layouts, &elem, 0);
             (chain != 0).then_some(chain as i64)
         }
@@ -358,9 +354,7 @@ fn rest_slot_kind(
             Some(t) if t.is_refcounted() => Some(torajs_rc::ARR_KIND_HEAP as i64),
             _ => None,
         };
-        if rest_kind.is_none() {
-            return None;
-        }
+        rest_kind?;
     }
     Some((rest, rest_kind))
 }

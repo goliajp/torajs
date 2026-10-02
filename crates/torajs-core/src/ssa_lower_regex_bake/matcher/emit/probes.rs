@@ -41,7 +41,7 @@ impl Emit<'_> {
                 .set_term(blk, crate::ssa::Terminator::Br(leaves[index]));
             return;
         }
-        let bit = remaining & remaining.wrapping_neg();
+        let bit = remaining.isolate_lowest_one();
         let yes = self.f.add_block();
         let no = self.f.add_block();
         self.probe(blk, pos, bit, yes, no);

@@ -13,8 +13,10 @@ pub(super) fn layout(names: &[&str]) -> Vec<(PropKey, Type)> {
 /// and 1 are the cell and capture-box allocator declarations, 2 a
 /// declaration answering `any`, 3 one answering a pointer.
 pub(super) fn module() -> Module {
-    let mut m = Module::default();
-    m.struct_layouts = vec![layout(&["a"]), layout(&["a", "b"]), layout(&["x", "y"])];
+    let mut m = Module {
+        struct_layouts: vec![layout(&["a"]), layout(&["a", "b"]), layout(&["x", "y"])],
+        ..Default::default()
+    };
     for name in [OBJ_ALLOC, BOX_ALLOC] {
         let mut alloc = Function::new(name, Type::Ptr);
         alloc.add_param(Type::I64, "n");
@@ -196,10 +198,7 @@ fn a_foreign_layout_in_a_field_a_global_and_an_element_opens_each() {
     body(&mut m, |f, entry| {
         let holder = cell(f, entry, 3);
         let foreign = cell(f, entry, 1);
-        f.append_void(
-            entry,
-            InstKind::Store(foreign.clone(), holder, OBJ_HEADER_SIZE),
-        );
+        f.append_void(entry, InstKind::Store(foreign, holder, OBJ_HEADER_SIZE));
         let g = f.append_inst(entry, InstKind::GlobalRef("g".into()), Type::Ptr, None);
         let v = any(f, entry);
         f.append_void(entry, InstKind::Store(v, Operand::Value(g), 0));
