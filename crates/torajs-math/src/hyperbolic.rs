@@ -6,10 +6,8 @@
 //!
 //! - `sinh(x) = (eˣ − e⁻ˣ) / 2`
 //! - `cosh(x) = (eˣ + e⁻ˣ) / 2`
-//! - `tanh(x) = 1 − 2/(e²ˣ + 1)`        (numerically nicer than
-//!                                       the bare sinh/cosh ratio
-//!                                       — avoids two transcendental
-//!                                       evals + a near-1 divide)
+//! - `tanh(x) = 1 − 2/(e²ˣ + 1)` (numerically nicer than the bare
+//!   sinh/cosh ratio — avoids two transcendental evals + a near-1 divide)
 //! - `asinh(x) = ln(x + √(x² + 1))`
 //! - `acosh(x) = ln(x + √(x² − 1))`      (domain x ≥ 1)
 //! - `atanh(x) = ½ · ln((1 + x) / (1 − x))`   (domain |x| < 1)

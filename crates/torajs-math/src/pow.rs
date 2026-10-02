@@ -125,10 +125,8 @@ fn pow_es(x: f64, y: f64) -> f64 {
     // x < 0: real-valued result only when y is an integer; otherwise
     // ES says NaN. Sign of result flips on odd y.
     let sign_flip = x.is_sign_negative();
-    if sign_flip {
-        if !is_integer(y) {
-            return f64::NAN;
-        }
+    if sign_flip && !is_integer(y) {
+        return f64::NAN;
     }
 
     // y == 0.5 → sqrt: correctly rounded where the exp(y·log x)

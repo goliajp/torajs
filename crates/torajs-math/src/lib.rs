@@ -38,6 +38,12 @@
 // plain-C regardless. Workspace-wide no_std rollout flips this crate
 // when the other Layer-0 siblings do.
 
+// coefficient tables and hi/lo constant splits are kept as the
+// reference tables print them: the extra digits round to the same
+// f64 and keep the tables diffable against fdlibm, the pi splits
+// are not consts::PI, and `(x*y)/(x*y)` is the NaN-raising idiom
+#![allow(clippy::excessive_precision, clippy::approx_constant, clippy::eq_op)]
+
 mod exp;
 mod fmod;
 mod hyperbolic;

@@ -9,6 +9,7 @@
 //! 2. Kernel polynomials on `|r| ≤ π/4`:
 //!    - `sin(r) ≈ r + r³·(S1 + r²·(S2 + r²·(S3 + r²·(S4 + r²·(S5 + r²·S6)))))`
 //!    - `cos(r) ≈ 1 − r²/2 + r⁴·(C1 + r²·(C2 + r²·(C3 + r²·(C4 + r²·(C5 + r²·C6)))))`
+//!
 //!    Each ~1-2 ULP on its reduced domain.
 //! 3. Quadrant fold via `n mod 4`:
 //!    - `n=0`: `sin(x) = sin(r)`,  `cos(x) = cos(r)`

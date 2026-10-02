@@ -88,7 +88,7 @@ pub extern "C" fn exp(x: f64) -> f64 {
     // but for very large k the explicit hi − lo form keeps the last
     // few bits.
     let y = 1.0 - ((lo - r * c / (2.0 - c)) - hi);
-    if k_i >= -1022 && k_i <= 1023 {
+    if (-1022..=1023).contains(&k_i) {
         let factor = f64::from_bits(((1023 + k_i) as u64) << 52);
         factor * y
     } else if k_i > 1023 {
