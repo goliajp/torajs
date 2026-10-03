@@ -30,6 +30,7 @@
 //! copy raises the same error at the same point.
 
 mod loop_guard;
+mod str_reads;
 
 use std::collections::{HashMap, HashSet};
 
