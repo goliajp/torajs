@@ -115,6 +115,8 @@ pub(crate) struct Plan {
     /// Non-cell loop values read after the loop; lane clones redefine
     /// them under the same id.
     pub escaping: HashSet<ValueId>,
+    /// Values of `pre` and the inner loop every lane computes alike.
+    pub shared: HashSet<ValueId>,
 }
 
 impl Plan {

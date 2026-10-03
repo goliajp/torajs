@@ -136,3 +136,33 @@ fn reached_from(func: &Function, p: &Plan, sources: &[BlockId]) -> Vec<BlockId> 
     }
     seen.into_iter().collect()
 }
+
+/// Values every lane computes alike: neither the induction variable
+/// nor anything `pre` or the inner loop computes from it goes into
+/// them (a trial divisor counting up from 1, its square). In the fused
+/// part a lane past the first reads lane 0's instead of computing its
+/// own: all lanes enter the fused loop together and step it together,
+/// so such a value is the same in every lane at every point.
+pub(super) fn lane_shared(func: &Function, p: &Plan) -> HashSet<ValueId> {
+    let blocks: Vec<BlockId> = p.pre_order().into_iter().chain(p.inner_order()).collect();
+    let insts = || blocks.iter().flat_map(|&b| blk(func, b).insts.iter());
+    let mut variant: HashSet<ValueId> = HashSet::from([p.iv]);
+    loop {
+        let mut grew = false;
+        for inst in insts() {
+            let Some(r) = inst.result else { continue };
+            let mut reads = false;
+            visit_value_operands(&inst.kind, |v| reads |= variant.contains(&v));
+            if reads && variant.insert(r) {
+                grew = true;
+            }
+        }
+        if !grew {
+            break;
+        }
+    }
+    insts()
+        .filter_map(|i| i.result)
+        .filter(|r| !variant.contains(r))
+        .collect()
+}

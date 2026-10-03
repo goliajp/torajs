@@ -16,7 +16,7 @@
 use std::collections::HashMap;
 
 use torajs_core::ssa::{
-    BinOp, BlockId, Function, IPred, InstKind, Operand, Terminator, Type, ValueId,
+    BinOp, BlockId, Function, IPred, Inst, InstKind, Operand, Terminator, Type, ValueId,
 };
 
 use super::clone::{
@@ -91,15 +91,22 @@ fn pre_lanes(
             map.insert(p.iv, ij);
         }
         for &c in &p.lane_cells {
-            let fresh = clone_value(func, c);
-            map.insert(c, fresh);
+            let mine = match lanes.first() {
+                Some(lane0) if p.shared.contains(&c) => lane0[&c],
+                _ => clone_value(func, c),
+            };
+            map.insert(c, mine);
         }
         for b in p.pre_order() {
             let insts = func.blocks[b.0 as usize].insts.clone();
             for inst in insts.iter().filter(|i| i.result != p.skip) {
-                clone_into(func, cur, inst, &mut map);
+                if !reuse_shared(p, inst, lanes.first(), &mut map) {
+                    clone_into(func, cur, inst, &mut map);
+                }
             }
-            cur = lane_guard(func, p, b, cur, &map);
+            if lanes.is_empty() || !guard_shared(func, p, b) {
+                cur = lane_guard(func, p, b, cur, &map);
+            }
         }
         lanes.push(map);
     }
@@ -125,11 +132,20 @@ fn inner_heads(
     else {
         unreachable!("planned inner header ends in cond_br");
     };
-    for (j, map) in lanes.iter_mut().enumerate() {
-        let insts = func.blocks[ih.0 as usize].insts.clone();
+    let insts = func.blocks[ih.0 as usize].insts.clone();
+    let (first, rest) = lanes.split_at_mut(1);
+    let lane0 = &mut first[0];
+    for inst in &insts {
+        clone_into(func, heads[0], inst, lane0);
+    }
+    for (j, map) in rest.iter_mut().enumerate() {
         for inst in &insts {
-            clone_into(func, heads[j], inst, map);
+            if !reuse_shared(p, inst, Some(lane0), map) {
+                clone_into(func, heads[j + 1], inst, map);
+            }
         }
+    }
+    for (j, map) in lanes.iter().enumerate() {
         let stay = if j + 1 < LANES { heads[j + 1] } else { fb };
         let (then_blk, else_blk) = if p.inner_on_true {
             (stay, done)
@@ -145,7 +161,13 @@ fn inner_heads(
 }
 
 /// `FB`: every lane's inner body from `fb`. Returns the block it ends
-/// in.
+/// in. With values the lanes share, each run of a block up to a shared
+/// instruction goes lane by lane, then the shared one once: every lane
+/// still runs its own instructions in order (a compare stays next to
+/// the select reading it), and a shared value is defined before any
+/// lane reads it and updated after every lane has read the old one.
+/// The guards of a block follow all lanes' copies of it (a guard only
+/// sends the group back to the original loop, whichever fires first).
 fn fused_body(
     func: &mut Function,
     p: &Plan,
@@ -153,16 +175,73 @@ fn fused_body(
     lanes: &mut [HashMap<ValueId, ValueId>],
 ) -> BlockId {
     let mut cur = fb;
-    for map in lanes.iter_mut() {
-        for &b in &p.chain {
-            let insts = func.blocks[b.0 as usize].insts.clone();
-            for inst in &insts {
-                clone_into(func, cur, inst, map);
+    if p.shared.is_empty() {
+        for map in lanes.iter_mut() {
+            for &b in &p.chain {
+                let insts = func.blocks[b.0 as usize].insts.clone();
+                for inst in &insts {
+                    clone_into(func, cur, inst, map);
+                }
+                cur = lane_guard(func, p, b, cur, map);
             }
-            cur = lane_guard(func, p, b, cur, map);
+        }
+        return cur;
+    }
+    for &b in &p.chain {
+        let insts = func.blocks[b.0 as usize].insts.clone();
+        let is_shared = |i: &Inst| i.result.is_some_and(|r| p.shared.contains(&r));
+        for run in insts.split_inclusive(is_shared) {
+            let (own, shared) = match run.split_last() {
+                Some((last, own)) if is_shared(last) => (own, Some(last)),
+                _ => (run, None),
+            };
+            for map in lanes.iter_mut() {
+                for inst in own {
+                    clone_into(func, cur, inst, map);
+                }
+            }
+            if let Some(inst) = shared {
+                let (first, rest) = lanes.split_at_mut(1);
+                clone_into(func, cur, inst, &mut first[0]);
+                for map in rest.iter_mut() {
+                    reuse_shared(p, inst, Some(&first[0]), map);
+                }
+            }
+        }
+        let skip_rest = guard_shared(func, p, b);
+        for (j, map) in lanes.iter().enumerate() {
+            if j == 0 || !skip_rest {
+                cur = lane_guard(func, p, b, cur, map);
+            }
         }
     }
     cur
+}
+
+/// For a lane past the first: a shared `inst` is lane 0's, so the
+/// lane names lane 0's value and emits nothing.
+fn reuse_shared(
+    p: &Plan,
+    inst: &Inst,
+    lane0: Option<&HashMap<ValueId, ValueId>>,
+    map: &mut HashMap<ValueId, ValueId>,
+) -> bool {
+    match (inst.result, lane0) {
+        (Some(r), Some(lane0)) if p.shared.contains(&r) => {
+            map.insert(r, lane0[&r]);
+            true
+        }
+        _ => false,
+    }
+}
+
+/// The guard closing block `b` tests a shared value: lane 0's copy
+/// answers for every lane.
+fn guard_shared(func: &Function, p: &Plan, b: BlockId) -> bool {
+    matches!(
+        func.blocks[b.0 as usize].term,
+        Terminator::CondBr { cond: Operand::Value(c), .. } if p.shared.contains(&c)
+    )
 }
 
 /// A pre or inner-body guard leaving the loop, cloned for one lane: the

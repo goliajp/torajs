@@ -9,7 +9,7 @@ use torajs_core::ssa::{
     visit_value_operands,
 };
 
-use super::flow::{escaping, lane_cells};
+use super::flow::{escaping, lane_cells, lane_shared};
 use super::{
     LANES, MAX_CHAIN_BLOCKS, MAX_INNER_INSTS, MAX_POST_INSTS, MAX_PRE_INSTS, MAX_STEP, Plan,
 };
@@ -170,12 +170,14 @@ fn plan_loop(func: &Function, la: &LoopAnalysis, l: &NaturalLoop, ctx: &Ctx) -> 
         body,
         lane_cells: Vec::new(),
         escaping: HashSet::new(),
+        shared: HashSet::new(),
     };
     if !regions_fit(func, &plan) {
         return None;
     }
     plan.lane_cells = lane_cells(func, ctx, &plan)?;
     plan.escaping = escaping(func, ctx, &plan)?;
+    plan.shared = lane_shared(func, &plan);
     if !wrap_ok(&plan) {
         return None;
     }

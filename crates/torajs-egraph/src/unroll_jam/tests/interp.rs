@@ -27,6 +27,13 @@ pub(super) fn run(f: &Function, args: &[i64], fuel: usize) -> Option<i64> {
             left = left.checked_sub(1)?;
             let r = match &i.kind {
                 InstKind::Copy(_, a) => operand(&env, a),
+                InstKind::Select(_, c, a, bb) => {
+                    if operand(&env, c) != 0 {
+                        operand(&env, a)
+                    } else {
+                        operand(&env, bb)
+                    }
+                }
                 InstKind::BinOp(op, a, bb) => {
                     let (x, y) = (operand(&env, a), operand(&env, bb));
                     match op {

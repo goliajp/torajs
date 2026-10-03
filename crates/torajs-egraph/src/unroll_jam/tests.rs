@@ -1,4 +1,5 @@
 mod interp;
+mod shared;
 
 use super::*;
 use interp::run;
