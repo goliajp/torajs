@@ -162,3 +162,34 @@ pub(super) fn build_env_drop(
     module.funcs.push(f);
     (fid, sig)
 }
+
+/// Shared cap0 trace for closure-inner wraps (RFC 20260717 residual ①)
+/// — the knife-2 synthesis over a single by-value Closure capture
+/// yields exactly the wrap env's shape, so the trace-body contract
+/// stays single-sourced.
+pub(super) fn build_env_trace(
+    module: &mut Module,
+    fn_table: &mut HashMap<String, FuncId>,
+    fn_sigs: &mut Vec<(Vec<Type>, Type)>,
+    fn_sig_ids: &mut HashMap<FuncId, ssa::SigId>,
+) -> (FuncId, ssa::SigId) {
+    let name = "__pthunk_env_trace";
+    let fid = FuncId(module.funcs.len() as u32);
+    let sig =
+        crate::ssa_lower::intern_fn_sig(fn_sigs, vec![Type::Ptr, Type::Ptr, Type::Ptr], Type::Void);
+    fn_table.insert(name.to_string(), fid);
+    fn_sig_ids.insert(fid, sig);
+    let visit_sig = crate::ssa_lower::intern_fn_sig(
+        fn_sigs,
+        vec![Type::I64, Type::Ptr, Type::Ptr, Type::Ptr],
+        Type::Void,
+    );
+    let cap_sig = crate::ssa_lower::intern_fn_sig(fn_sigs, vec![Type::I64], Type::I64);
+    let f = crate::ssa_lower_env_trace::synthesize_env_trace(
+        name,
+        &[(Type::Closure(cap_sig), false)],
+        visit_sig,
+    );
+    module.funcs.push(f);
+    (fid, sig)
+}
