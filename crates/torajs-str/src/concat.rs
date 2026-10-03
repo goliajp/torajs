@@ -218,6 +218,23 @@ mod tests {
     }
 
     #[test]
+    fn an_empty_utf16_side_leaves_the_width_to_the_other() {
+        let empty = make_utf16(&[]);
+        let b = make_latin1(b"b");
+        unsafe { (&mut *(b as *mut HeapHeader)).flags |= STR_FLAG_IS_ASCII };
+        for r in unsafe { [__torajs_str_concat(empty, b), __torajs_str_concat(b, empty)] } {
+            assert_eq!(read_str(r), (b"b".to_vec(), true, 1));
+            assert!(unsafe { &*(r as *const HeapHeader) }.flags & STR_FLAG_IS_ASCII != 0);
+            unsafe { __torajs_str_free(r) };
+        }
+        let both = unsafe { __torajs_str_concat(empty, empty) };
+        assert_eq!(read_str(both).2, 0);
+        for p in [empty, b, both] {
+            unsafe { __torajs_str_free(p) };
+        }
+    }
+
+    #[test]
     fn concat_two_utf16_yields_utf16() {
         // "中" (U+4E2D) + "文" (U+6587) → UTF-16 LE 4 bytes,
         // length=2.

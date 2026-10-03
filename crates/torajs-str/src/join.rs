@@ -98,6 +98,23 @@ impl Side {
     pub fn is_latin1(self) -> bool {
         self.flags & STR_FLAG_IS_LATIN1 != 0
     }
+
+    /// Whether the side's code units all fit Latin-1: its width says
+    /// so, or it has none.
+    #[inline(always)]
+    pub fn fits_latin1(self) -> bool {
+        self.is_latin1() || self.len == 0
+    }
+
+    /// The side's ASCII mark, which an empty side always has.
+    #[inline(always)]
+    pub fn ascii_mark(self) -> u16 {
+        if self.len == 0 {
+            STR_FLAG_IS_ASCII
+        } else {
+            self.flags & STR_FLAG_IS_ASCII
+        }
+    }
 }
 
 /// Fresh refcount-1 Str holding `a` followed by `b`.
@@ -136,9 +153,12 @@ pub(crate) unsafe fn join(a: Side, b: Side) -> *mut u8 {
 /// Same contract as [`join`].
 #[inline(never)]
 pub(crate) unsafe extern "C" fn join_general(a: Side, b: Side) -> *mut u8 {
-    let out_latin1 = a.is_latin1() && b.is_latin1();
+    // an empty side holds no code unit to keep the width for: the
+    // other side alone picks it, or a Latin-1 payload would come out
+    // UTF-16
+    let out_latin1 = a.fits_latin1() && b.fits_latin1();
     // only a Latin-1 cell ever carries the ASCII mark
-    let ascii = a.flags & b.flags & STR_FLAG_IS_ASCII;
+    let ascii = a.ascii_mark() & b.ascii_mark();
     let block = StrBlock::alloc_with_flags(a.len + b.len, out_latin1, ascii);
     let shift = u32::from(!out_latin1);
     unsafe {

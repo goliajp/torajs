@@ -140,9 +140,9 @@ pub(crate) unsafe extern "C" fn join_lit_general(
     let lit_flags = lit_flags(meta);
     let n = lit_len(meta);
     let lit_is_latin1 = lit_flags & STR_FLAG_IS_LATIN1 != 0;
-    let out_latin1 = side.is_latin1() && lit_is_latin1;
+    let out_latin1 = side.fits_latin1() && lit_is_latin1;
     // only a Latin-1 cell ever carries the ASCII mark
-    let ascii = side.flags & lit_flags & STR_FLAG_IS_ASCII;
+    let ascii = side.ascii_mark() & lit_flags;
     let block = StrBlock::alloc_with_flags(side.len + n, out_latin1, ascii);
     let shift = u32::from(!out_latin1);
     let lit_bytes = (n << shift) as usize;
@@ -338,6 +338,19 @@ mod tests {
                 }
             }
         });
+    }
+
+    #[test]
+    fn an_empty_utf16_side_takes_the_latin1_literal_width() {
+        let empty = utf16(&[]);
+        let (bits, meta) = lit1(b"b");
+        let r = unsafe { __torajs_str_concat_lit(empty, bits, meta) };
+        let l = unsafe { __torajs_str_prepend_lit(empty, bits, meta) };
+        for p in [r, l] {
+            assert_eq!(read(p), (b"b".to_vec(), true, 1));
+            unsafe { __torajs_str_free(p) };
+        }
+        unsafe { __torajs_str_free(empty) };
     }
 
     #[test]

@@ -24,7 +24,10 @@
 //! when max codepoint ≤ 0xFF, else UTF-16 LE). That makes the
 //! encoding a canonical form: two Strs whose content is value-
 //! equal MUST share the same encoding flag — different
-//! encodings ⇒ different content. `__torajs_str_eq` exploits
+//! encodings ⇒ different content. The empty string is exempt: it
+//! has no code unit to pick a width for, so an empty cell of either
+//! width is canonical, and a kernel that merges widths lets an empty
+//! side leave the width to the other one. `__torajs_str_eq` exploits
 //! this to short-circuit on the encoding flag before walking
 //! payloads. `__torajs_str_eq_cstr` compares against a WTF-8
 //! needle by SPELLING: a pure-ASCII Latin-1 payload is its own
