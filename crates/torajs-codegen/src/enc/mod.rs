@@ -34,8 +34,8 @@ mod mem;
 mod sys;
 
 pub use ctrl::{
-    adrp, b_cond_imm19, b_imm26, bl_imm26, blr_reg, brk_imm16, cbnz_x, cbz_x, cond, csel_cond,
-    cset_cond, csinc_cond, nop, ret, tbnz,
+    adrp, b_cond_imm19, b_imm26, bl_imm26, blr_reg, brk_imm16, cb_w, cbnz_x, cbz_x, cond,
+    csel_cond, cset_cond, csinc_cond, nop, ret, tbnz,
 };
 pub use fp::{
     add_v2d, addp_d_v2d, addv_b_v8b, cnt_v8b, cnt_v16b, dup_2d_x, fadd_d, fcmp_d, fcsel_d,

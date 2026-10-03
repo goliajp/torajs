@@ -30,7 +30,7 @@ use super::{
     BranchFixup, BranchKind, FP_SCRATCH_LHS, FP_SCRATCH_RHS, OP_SCRATCH_LHS, OP_SCRATCH_RHS,
     write_u32,
 };
-use crate::enc::{b_cond_imm19, b_imm26, cbnz_x, cbz_x, fcmp_d};
+use crate::enc::{b_cond_imm19, b_imm26, cb_w, cbnz_x, cbz_x, fcmp_d};
 use crate::regalloc::Assignment;
 
 /// One compare picked to emit inside its block's CondBr — integer or
@@ -221,10 +221,9 @@ pub(crate) fn invert_ipred(pred: IPred) -> IPred {
 /// which does take on NaN, matching the SSA CondBr semantics of a
 /// false compare.
 ///
-/// `cbz`/`cbnz` fold applies only to an integer eq/ne against
-/// `ConstI64(0)` with a Value on the other side — a ConstI32 zero
-/// keeps the CMP path (its W-form compare masks the high half that an
-/// X-reg CBZ would read, see `emit_compare_nzcv`).
+/// `cbz`/`cbnz` fold applies to an integer eq/ne against a zero with
+/// a Value on the other side; a ConstI32 zero takes the W form, which
+/// reads only the half an I32 value keeps (`emit_compare_nzcv`).
 ///
 /// `else_blk: None` = the else-target is the fall-through block; the
 /// trailing unconditional B is skipped.
@@ -241,13 +240,14 @@ pub(crate) fn emit_fused_condbr(
         FusedSelPred::Int(p) => Some(if invert { invert_ipred(p) } else { p }),
         FusedSelPred::Float(_) => None,
     };
+    let zero = |op: &Operand| matches!(op, Operand::ConstI64(0) | Operand::ConstI32(0));
     let zero_test = match (int_pred, &fc.lhs, &fc.rhs) {
         _ if fc.test => None,
-        (Some(IPred::Eq | IPred::Ne), Operand::Value(_), Operand::ConstI64(0)) => Some(fc.lhs),
-        (Some(IPred::Eq | IPred::Ne), Operand::ConstI64(0), Operand::Value(_)) => Some(fc.rhs),
+        (Some(IPred::Eq | IPred::Ne), Operand::Value(_), z) if zero(z) => Some((fc.lhs, *z)),
+        (Some(IPred::Eq | IPred::Ne), z, Operand::Value(_)) if zero(z) => Some((fc.rhs, *z)),
         _ => None,
     };
-    if let Some(val) = zero_test {
+    if let Some((val, z)) = zero_test {
         let rt = materialize_operand_gpr(bytes, &val, OP_SCRATCH_LHS, alloc);
         let site = bytes.len() as u32;
         fixups.push(BranchFixup {
@@ -256,14 +256,13 @@ pub(crate) fn emit_fused_condbr(
             kind: BranchKind::Imm19,
         });
         // branch to then_blk when the cond holds: eq → value == 0 → CBZ
-        write_u32(
-            bytes,
-            match int_pred {
-                Some(IPred::Eq) => cbz_x(rt, 0),
-                Some(IPred::Ne) => cbnz_x(rt, 0),
-                _ => unreachable!("zero_test admits eq/ne only"),
-            },
-        );
+        let x = match int_pred {
+            Some(IPred::Eq) => cbz_x(rt, 0),
+            Some(IPred::Ne) => cbnz_x(rt, 0),
+            _ => unreachable!("zero_test admits eq/ne only"),
+        };
+        let narrow = matches!(z, Operand::ConstI32(_));
+        write_u32(bytes, if narrow { cb_w(x) } else { x });
     } else {
         let cond = match (int_pred, fc.pred) {
             (Some(p), _) => {
@@ -509,6 +508,17 @@ mod tests {
             !words.iter().any(|w| (*w >> 24) == 0x54),
             "no b.cond needed"
         );
+    }
+
+    #[test]
+    fn eq_i32_zero_fuses_to_the_w_form_cbz() {
+        let func = icmp_condbr_func(IPred::Eq, Operand::ConstI32(0), false);
+        let words = words_of(&compile_function(&func).bytes);
+        // an I32 value's high half is not canonical: CBNZ Wt, not Xt,
+        // and no W-form CMP against a materialized zero
+        assert!(words.iter().any(|w| (*w >> 24) == 0x35), "cbnz w present");
+        assert!(!words.iter().any(|w| (*w >> 24) == 0xB5), "no x-form cbnz");
+        assert!(!words.iter().any(|w| (*w & 0xFFE0_FC1F) == 0x6B00_001F));
     }
 
     #[test]

@@ -79,6 +79,12 @@ pub fn cbnz_x(rt: Gpr, byte_offset: i32) -> u32 {
     0xB500_0000 | (imm19 << 5) | rt.idx()
 }
 
+/// The W-register form of a CBZ / CBNZ word (sf = 0): the test reads
+/// the low 32 bits only.
+pub fn cb_w(word: u32) -> u32 {
+    word & !(1 << 31)
+}
+
 /// TBNZ Rt, #bit, label — Test bit and Branch if Nonzero. Bits 32-63
 /// test the X register (b5 = 1). ARM ARM C6.2.371.
 pub fn tbnz(rt: Gpr, bit: u32, byte_offset: i32) -> u32 {
