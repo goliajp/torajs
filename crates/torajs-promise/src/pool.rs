@@ -59,6 +59,9 @@ use torajs_rc::rc_dec_cell;
 /// AtomicPtr static pattern (same as torajs-arr::pool / torajs-weak::
 /// registry); compiles to plain load/store on x86_64 / aarch64.
 static POOL_HEAD: AtomicPtr<Promise> = AtomicPtr::new(ptr::null_mut());
+// the count moves with the list head, which is a plain load and
+// store; a read-modify-write here would buy no more than the head has
+// and costs a locked add on every promise alloc and release
 static POOL_COUNT: AtomicI32 = AtomicI32::new(0);
 
 unsafe extern "C" {
@@ -91,7 +94,7 @@ unsafe fn promise_alloc_(state: u8, value: i64, is_heap: u8) -> *mut Promise {
     let p = if !head.is_null() {
         let next = unsafe { (*head).callbacks as *mut Promise };
         POOL_HEAD.store(next, Ordering::Relaxed);
-        POOL_COUNT.fetch_sub(1, Ordering::Relaxed);
+        POOL_COUNT.store(POOL_COUNT.load(Ordering::Relaxed) - 1, Ordering::Relaxed);
         head
     } else {
         unsafe { malloc(PROMISE_SIZE) as *mut Promise }
@@ -137,7 +140,7 @@ unsafe fn promise_release_(p: *mut Promise) {
             (*p).callbacks = POOL_HEAD.load(Ordering::Relaxed) as *mut PromiseCb;
         }
         POOL_HEAD.store(p, Ordering::Relaxed);
-        POOL_COUNT.fetch_add(1, Ordering::Relaxed);
+        POOL_COUNT.store(count + 1, Ordering::Relaxed);
     } else {
         // Layer 1 sized free: Promise struct is PROMISE_SIZE — see
         // promise/layout.rs.
