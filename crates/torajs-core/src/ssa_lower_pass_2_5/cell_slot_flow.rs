@@ -27,15 +27,21 @@
 //! of its layout, or one slot is read under two types) must go through
 //! `Scan::lays`, which records the path (`paths`); one that does not is
 //! a slot left closed while it holds a foreign cell.
+//!
+//! A boxed adapter decodes an `any` argument into a cell or array
+//! slot only on the path where `__torajs_anyv_struct_fits` /
+//! `__torajs_anyv_arr_fits` answered for it (the non-fitting path
+//! goes to the all-`any` twin), so that decode is exact
+//! (`Scan::proven_fit`); every other decode out of `any` opens.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::ast::PropKey;
 use crate::ssa::{
     ArrId, FuncId, Function, InstKind, Module, Operand, StructId, Terminator, Type, ValueId,
 };
-use crate::ssa_lower::{ARR_DATA_PTR_OFF, CLOSURE_FN_ADDR_OFF, OBJ_HEADER_SIZE};
+use crate::ssa_lower::{ARR_DATA_PTR_OFF, CLOSURE_FN_ADDR_OFF};
 
 mod env;
 mod fit;
@@ -49,6 +55,8 @@ const OBJ_ALLOC: &str = "__torajs_obj_alloc";
 /// A capture box answers the pointer to its value slot; the payload
 /// goes in as the call's argument.
 const BOX_ALLOC: &str = "__torajs_capture_box_alloc";
+/// The adapter's layout tests; a decode behind one is exact.
+const FITS: [&str; 2] = ["__torajs_anyv_struct_fits", "__torajs_anyv_arr_fits"];
 
 /// Per sid, whether a slot of that sid can hold a cell of another
 /// layout. A slot of a prefix of an open sid is open too once a cell
@@ -64,6 +72,13 @@ pub(crate) fn open_sids(module: &Module, envs: &EnvLayouts) -> Vec<bool> {
         .collect();
     let alloc = module.funcs.iter().position(|f| f.name == OBJ_ALLOC);
     let box_alloc = module.funcs.iter().position(|f| f.name == BOX_ALLOC);
+    let fits: Vec<FuncId> = module
+        .funcs
+        .iter()
+        .enumerate()
+        .filter(|(_, f)| FITS.contains(&f.name.as_str()))
+        .map(|(i, _)| FuncId(i as u32))
+        .collect();
     let holds = AnyHolds::of(module);
     let mut open = vec![false; layouts.len()];
     let paths = RefCell::new(Paths::default());
@@ -86,12 +101,15 @@ pub(crate) fn open_sids(module: &Module, envs: &EnvLayouts) -> Vec<bool> {
             envs,
             alloc,
             box_alloc,
+            fits: &fits,
             allocas: HashMap::new(),
             global_refs: HashMap::new(),
             data_of: HashMap::new(),
             fn_addrs: HashMap::new(),
             env_of: HashMap::new(),
             loaded: HashMap::new(),
+            tested: HashSet::new(),
+            bits_of: HashMap::new(),
             open: &mut open,
             paths: &paths,
         };
@@ -115,6 +133,7 @@ struct Scan<'a> {
     envs: &'a EnvLayouts,
     alloc: Option<usize>,
     box_alloc: Option<usize>,
+    fits: &'a [FuncId],
     allocas: HashMap<ValueId, Type>,
     global_refs: HashMap<ValueId, &'a str>,
     /// Each array cell's data pointer, by the array it was read from.
@@ -125,6 +144,10 @@ struct Scan<'a> {
     /// The struct layout the function reads through each `(base,
     /// offset)` that no declaration types.
     loaded: HashMap<(ValueId, u64), StructId>,
+    /// The `any` values an adapter's layout test answered for, and
+    /// each `PtrToInt` result by the value it took the bits of.
+    tested: HashSet<ValueId>,
+    bits_of: HashMap<ValueId, ValueId>,
     open: &'a mut Vec<bool>,
     paths: &'a RefCell<Paths>,
 }
@@ -142,6 +165,14 @@ impl Scan<'_> {
                 }
                 (InstKind::FnAddr(fid), Some(v)) => {
                     self.fn_addrs.insert(v, *fid);
+                }
+                (InstKind::PtrToInt(Operand::Value(av)), Some(v)) => {
+                    self.bits_of.insert(v, *av);
+                }
+                (InstKind::Call(fid, args), _) if self.fits.contains(fid) => {
+                    if let Some(Operand::Value(av)) = args.first() {
+                        self.tested.insert(*av);
+                    }
                 }
                 (InstKind::Load(Type::Ptr, Operand::Value(arr), ARR_DATA_PTR_OFF), Some(v)) => {
                     if let Type::Arr(a) = f.value_type(*arr) {
@@ -267,6 +298,7 @@ impl Scan<'_> {
             | InstKind::LoadDynScaled8(..) => true,
             InstKind::Copy(_, v) | InstKind::Identity(v) => self.fits(sid, v),
             InstKind::Select(_, _, a, b) => self.fits(sid, a) && self.fits(sid, b),
+            InstKind::IntToPtr(bits) => self.proven_fit(bits),
             _ => false,
         };
         if !exact {
@@ -303,6 +335,13 @@ impl Scan<'_> {
             | InstKind::LoadDynScaled8(..) => true,
             InstKind::Copy(_, v) | InstKind::Identity(v) => self.fits_slot(elem, v),
             InstKind::Select(_, _, x, y) => self.fits_slot(elem, x) && self.fits_slot(elem, y),
+            // the test proves the elements extend this layout, not the
+            // caller's element type: align them as a blind parameter's
+            InstKind::IntToPtr(bits) if self.proven_fit(bits) => {
+                let blind = Type::Arr(a);
+                self.paths.borrow_mut().entered_blind(self.module, blind);
+                true
+            }
             _ => false,
         };
         if !exact {
@@ -323,46 +362,6 @@ impl Scan<'_> {
             && !self.fits_slot(ty, v)
         {
             self.open[sid.0 as usize] = true;
-        }
-    }
-
-    fn slot(&self, p: &Operand, off: u64) -> Option<Type> {
-        let Operand::Value(id) = p else { return None };
-        self.declared_slot(*id, off)
-            .or_else(|| self.loaded.get(&(*id, off)).map(|sid| Type::Obj(*sid)))
-    }
-
-    fn declared_slot(&self, id: ValueId, off: u64) -> Option<Type> {
-        if off == 0 {
-            if let Some(ty) = self.allocas.get(&id) {
-                return Some(*ty);
-            }
-            if let Some(name) = self.global_refs.get(&id) {
-                return self.globals.get(name).copied();
-            }
-        }
-        if let Some(a) = self.data_of.get(&id) {
-            return Some(self.module.arr_layouts[a.0 as usize]);
-        }
-        if let Type::Obj(sid) = self.f.value_type(id)
-            && off >= OBJ_HEADER_SIZE
-        {
-            let i = ((off - OBJ_HEADER_SIZE) / 8) as usize;
-            return self.module.struct_layouts[sid.0 as usize]
-                .get(i)
-                .map(|(_, ty)| *ty);
-        }
-        None
-    }
-
-    fn ty(&self, v: &Operand) -> Type {
-        match v {
-            Operand::Value(id) => self.f.value_type(*id),
-            Operand::ConstI64(_) => Type::I64,
-            Operand::ConstI32(_) => Type::I32,
-            Operand::ConstF64(_) => Type::F64,
-            Operand::ConstBool(_) => Type::Bool,
-            Operand::ConstPtrNull => Type::Ptr,
         }
     }
 }

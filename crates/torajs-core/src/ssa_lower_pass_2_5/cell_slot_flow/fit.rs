@@ -1,9 +1,11 @@
-//! Whether a value fits the slot it reaches, and the paths a fitting
-//! value of another static type records on the way ([`Scan::lays`]).
+//! Whether a value fits the slot it reaches, the type a slot has, and
+//! the paths a fitting value of another static type records on the
+//! way ([`Scan::lays`]).
 
 use super::paths::elem_obj;
 use super::{Scan, is_prefix};
 use crate::ssa::{Module, Operand, StructId, Type, ValueId};
+use crate::ssa_lower::OBJ_HEADER_SIZE;
 
 use super::super::any_holds::Holds;
 
@@ -120,6 +122,65 @@ impl Scan<'_> {
 
     pub(super) fn elem_obj(&self, ty: Type) -> Option<StructId> {
         elem_obj(self.module, ty)
+    }
+
+    /// `bits` are the bits of an `any` a boxed adapter's layout test
+    /// (`__torajs_anyv_struct_fits` / `__torajs_anyv_arr_fits`)
+    /// answered for: the adapter decodes it only on the fitting path,
+    /// so the cell has the slot's layout or one extending it, and an
+    /// array holds such cells in every element. Only an adapter emits
+    /// the test, and it branches on the answer before the decode.
+    pub(super) fn proven_fit(&self, bits: &Operand) -> bool {
+        let Operand::Value(b) = bits else {
+            return false;
+        };
+        self.f
+            .name
+            .starts_with(super::super::any_holds::BOXED_ENTRY_PREFIX)
+            && self
+                .bits_of
+                .get(b)
+                .is_some_and(|av| self.tested.contains(av))
+    }
+
+    pub(super) fn slot(&self, p: &Operand, off: u64) -> Option<Type> {
+        let Operand::Value(id) = p else { return None };
+        self.declared_slot(*id, off)
+            .or_else(|| self.loaded.get(&(*id, off)).map(|sid| Type::Obj(*sid)))
+    }
+
+    pub(super) fn declared_slot(&self, id: ValueId, off: u64) -> Option<Type> {
+        if off == 0 {
+            if let Some(ty) = self.allocas.get(&id) {
+                return Some(*ty);
+            }
+            if let Some(name) = self.global_refs.get(&id) {
+                return self.globals.get(name).copied();
+            }
+        }
+        if let Some(a) = self.data_of.get(&id) {
+            return Some(self.module.arr_layouts[a.0 as usize]);
+        }
+        if let Type::Obj(sid) = self.f.value_type(id)
+            && off >= OBJ_HEADER_SIZE
+        {
+            let i = ((off - OBJ_HEADER_SIZE) / 8) as usize;
+            return self.module.struct_layouts[sid.0 as usize]
+                .get(i)
+                .map(|(_, ty)| *ty);
+        }
+        None
+    }
+
+    pub(super) fn ty(&self, v: &Operand) -> Type {
+        match v {
+            Operand::Value(id) => self.f.value_type(*id),
+            Operand::ConstI64(_) => Type::I64,
+            Operand::ConstI32(_) => Type::I32,
+            Operand::ConstF64(_) => Type::F64,
+            Operand::ConstBool(_) => Type::Bool,
+            Operand::ConstPtrNull => Type::Ptr,
+        }
     }
 }
 

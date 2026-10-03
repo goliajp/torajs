@@ -282,8 +282,10 @@ fn resolve_type_ann_inner(
 }
 
 /// Does `ann` denote a struct-shaped parameter slot: a struct, a
-/// class, or either behind `| null`? The boxed adapter unboxes such a
-/// slot through the layout, so a call whose argument does not fit it
+/// class, an array (at any depth) of either, or any of those behind
+/// `| null`? The boxed adapter unboxes such a slot through the layout
+/// — a cell's fields at their offsets, an array's elements as cells
+/// of the element layout — so a call whose argument does not fit it
 /// has to be handed to an all-`any` twin; the class desugar and the
 /// struct-escape lane both mint their twins on this one answer.
 pub(crate) fn struct_shaped_ann(
@@ -291,9 +293,13 @@ pub(crate) fn struct_shaped_ann(
     aliases: &HashMap<String, Type>,
     generic_aliases: &GenericAliasMap,
 ) -> bool {
-    match resolve_type_ann_full(ann, aliases, &[], generic_aliases) {
-        Some(Type::Struct(_) | Type::ClassRef(_)) => true,
-        Some(Type::Nullable(inner)) => matches!(*inner, Type::Struct(_) | Type::ClassRef(_)),
+    resolve_type_ann_full(ann, aliases, &[], generic_aliases).is_some_and(|t| struct_shaped(&t))
+}
+
+fn struct_shaped(t: &Type) -> bool {
+    match t {
+        Type::Struct(_) | Type::ClassRef(_) => true,
+        Type::Nullable(inner) | Type::Array(inner) => struct_shaped(inner),
         _ => false,
     }
 }

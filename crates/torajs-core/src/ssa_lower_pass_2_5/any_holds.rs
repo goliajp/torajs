@@ -29,7 +29,7 @@ use reach::reached_and_taken;
 
 const UNBOX_VALUE: &str = "__torajs_anyv_unbox_value";
 const ARG_TO_STRUCT: &str = "__torajs_anyv_arg_to_struct";
-const BOXED_ENTRY_PREFIX: &str = "__boxed_";
+pub(super) const BOXED_ENTRY_PREFIX: &str = "__boxed_";
 const BOX_HEAP: i64 = 4;
 const BOX_NULL: i64 = 0;
 const BOX_UNDEFINED: i64 = 5;

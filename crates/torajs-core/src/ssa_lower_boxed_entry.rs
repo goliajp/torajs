@@ -164,6 +164,13 @@ pub(crate) fn synthesize_boxed_entries(
         &[Type::Any, Type::I64],
         Type::I64,
     );
+    let arr_fits = crate::ssa_lower_synthesize_main::declare_intrinsic(
+        module,
+        fn_table,
+        "__torajs_anyv_arr_fits",
+        &[Type::Any, Type::I64, Type::I64],
+        Type::I64,
+    );
     let anyv_rc_dec = crate::ssa_lower_synthesize_main::declare_intrinsic(
         module,
         fn_table,
@@ -200,21 +207,21 @@ pub(crate) fn synthesize_boxed_entries(
         is_twin_name(&t.name) || crate::check_monomorph_any_widen::struct_escape::is_twin(&t.name)
     });
     for t in twins.into_iter().chain(monos) {
-        let twin_reroute = twin_adapter_of(ast, fn_table, &entries, &t.name).filter(|_| {
-            t.user_tys
-                .iter()
-                .enumerate()
-                .any(|(i, ty)| lossy_slot(*ty, t.dflt_lits.get(i).and_then(|d| d.as_ref())))
-        });
-        let same_face = crate::ast::is_shell(&t.name);
-        let obj_tags: Vec<Option<u32>> = t
+        let fit_tags: Vec<Option<FitTag>> = t
             .user_tys
             .iter()
-            .map(|ty| match ty {
-                Type::Obj(sid) => Some(sid_tag(*sid)),
-                _ => None,
-            })
+            .map(|ty| fit_tag(*ty, arr_layouts, &sid_tag))
             .collect();
+        let twin_reroute = twin_adapter_of(ast, fn_table, &entries, &t.name).filter(|_| {
+            t.user_tys.iter().enumerate().any(|(i, ty)| {
+                lossy_slot(
+                    *ty,
+                    t.dflt_lits.get(i).and_then(|d| d.as_ref()),
+                    fit_tags[i],
+                )
+            })
+        });
+        let same_face = crate::ast::is_shell(&t.name);
         let pair = build_boxed_entry(
             module,
             fn_table,
@@ -225,9 +232,10 @@ pub(crate) fn synthesize_boxed_entries(
             BoxedCoerceIntrinsics {
                 arg_to_struct,
                 struct_fits,
+                arr_fits,
                 anyv_rc_dec,
                 anyv_or_default,
-                obj_tags: &obj_tags,
+                fit_tags: &fit_tags,
                 twin_reroute: twin_reroute.map(|(adapter, sig)| TwinReroute {
                     adapter,
                     sig,
@@ -257,42 +265,6 @@ pub(crate) fn synthesize_boxed_entries(
     entries
 }
 
-fn is_twin_name(name: &str) -> bool {
-    name.starts_with("__cmany_") || name.starts_with("__smany_") || name.starts_with("__ctorany_")
-}
-
-/// The boxed adapter of the all-`any` twin minted beside the mono
-/// `name`: the receiver-polymorphic twin of a `__cm_` / `__sm_`
-/// method (a `$$` specialization looked up by its base), or the
-/// all-`any` relay shell behind a struct-parameter value escape
-/// (`check_monomorph_any_widen::struct_escape`), when both the twin
-/// and its adapter exist.
-pub(crate) fn twin_adapter_of(
-    ast: &Ast,
-    fn_table: &HashMap<String, FuncId>,
-    entries: &HashMap<FuncId, (FuncId, ssa::SigId)>,
-    name: &str,
-) -> Option<(FuncId, ssa::SigId)> {
-    use crate::check_monomorph_any_widen::struct_escape;
-    let fid = if crate::ast::is_shell(name) {
-        *fn_table.get(&struct_escape::twin_name(name))?
-    } else {
-        let table = if name.starts_with("__cm_") {
-            &ast.cmany_twins
-        } else if name.starts_with("__sm_") {
-            &ast.smany_twins
-        } else {
-            return None;
-        };
-        let base = name.split_once("$$").map_or(name, |(b, _)| b);
-        let twin = table.get(base)?;
-        *fn_table
-            .get(twin.as_str())
-            .or_else(|| fn_table.get(format!("{twin}$$anywv").as_str()))?
-    };
-    entries.get(&fid).copied()
-}
-
 mod admit;
 pub(crate) use admit::{
     factory_always_admitted, program_constructs_from_value, promise_heir_classes,
@@ -304,8 +276,12 @@ pub(crate) use dflt_lit::{DfltLit, FnDfltLits};
 mod build;
 mod build_reroute;
 mod build_rest;
+mod fit_tag;
 use build::build_boxed_entry;
-use build_reroute::{TwinReroute, lossy_slot};
+pub(crate) use build_reroute::twin_adapter_of;
+use build_reroute::{TwinReroute, is_twin_name};
+use fit_tag::lossy_slot;
+pub(crate) use fit_tag::{FitTag, fit_tag};
 mod relay;
 mod targets;
 use targets::{TargetTables, collect_boxed_targets};

@@ -87,7 +87,9 @@ impl Paths {
     /// A function an indirect call, a table or the runtime enters is
     /// handed whatever its callers' static types say, which nothing
     /// here compares with its own: each cell parameter takes a cell of
-    /// every layout extending its own.
+    /// every layout extending its own, and each array parameter an
+    /// array of every such layout, whose elements are then slots under
+    /// both element types ([`Paths::align`]).
     pub(super) fn entered_blind(&mut self, module: &Module, param: Type) {
         let Some(narrow) = elem_obj(module, param) else {
             return;
@@ -95,8 +97,12 @@ impl Paths {
         let layouts = &module.struct_layouts;
         for wide in 0..layouts.len() {
             let w = StructId(wide as u32);
-            if w != narrow && is_prefix(&layouts[narrow.0 as usize], &layouts[wide]) {
-                self.widen(module, w, narrow);
+            if w == narrow || !is_prefix(&layouts[narrow.0 as usize], &layouts[wide]) {
+                continue;
+            }
+            match param {
+                Type::Arr(_) => self.align(module, Type::Obj(narrow), Type::Obj(w)),
+                _ => self.widen(module, w, narrow),
             }
         }
     }

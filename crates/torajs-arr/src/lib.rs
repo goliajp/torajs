@@ -44,6 +44,7 @@ pub mod any_to_typed;
 pub mod any_typed_bridge;
 pub mod arguments_index_bag;
 pub mod arguments_length;
+pub mod cell_fits;
 pub mod define;
 pub mod define_accessor;
 pub mod define_hole;

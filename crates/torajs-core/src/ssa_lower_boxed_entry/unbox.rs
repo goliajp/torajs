@@ -7,23 +7,28 @@
 //! visibility churn. Bodies verbatim.
 
 use super::BoxedEntryIntrinsics;
+use super::fit_tag::FitTag;
 use crate::ssa::{self, FuncId, InstKind, Operand, Type};
 use crate::ssa_lower_rc_emit::emit_rc_inc_in_fn;
 
 /// S2.36 — the struct-param coercion trio threaded into one adapter
 /// build: the kernel + release FuncIds and the per-user-param
-/// class_tag (`Some` only for `Type::Obj` params).
+/// layout test (`Some` only for struct-shaped params: a cell, or an
+/// array of cells at any depth).
 pub(super) struct BoxedCoerceIntrinsics<'a> {
     pub(super) arg_to_struct: FuncId,
     /// `__torajs_anyv_struct_fits(v, class_tag) -> i64` — the mono
     /// adapter's struct-slot test ahead of its unboxes
     /// (`build_reroute`).
     pub(super) struct_fits: FuncId,
+    /// `__torajs_anyv_arr_fits(v, class_tag, depth) -> i64` — the
+    /// same test for an array-of-struct slot, over every element.
+    pub(super) arr_fits: FuncId,
     pub(super) anyv_rc_dec: FuncId,
     /// S2.39 — `__torajs_anyv_or_default(v, tag, bits)`: the
     /// literal-default substitution kernel.
     pub(super) anyv_or_default: FuncId,
-    pub(super) obj_tags: &'a [Option<u32>],
+    pub(super) fit_tags: &'a [Option<FitTag>],
     /// The twin adapter an under-supplied boolean / integer slot or
     /// a non-fitting struct slot hands the call to (`build_reroute`);
     /// `None` = no lossy slot, or no twin to hand it to.
@@ -156,13 +161,14 @@ pub(super) fn unbox_args(
                 str_temps.push(s);
                 Operand::Value(s)
             }
-            // A struct slot the reroute test proved to fit: the cell
-            // has the layout or one extending it, so its pointer
-            // bits pass through typed, under the same +1 stake the
-            // kernel below takes on a pass-through (released after
-            // the call like every obj temp). The kernel's is_cell /
-            // tag / layout walk would only repeat the test's.
-            Type::Obj(_) if coerce.fit[first + i].is_some() => {
+            // A struct-shaped slot the reroute test proved to fit:
+            // the cell has the layout or one extending it (an array,
+            // such cells in every element), so its pointer bits pass
+            // through typed, under the same +1 stake the kernel below
+            // takes on a pass-through (released after the call like
+            // every obj temp). The kernel's is_cell / tag / layout
+            // walk would only repeat the test's.
+            Type::Obj(_) | Type::Arr(_) if coerce.fit[first + i].is_some() => {
                 let av = coerce.fit[first + i].expect("checked above");
                 let bits = f.append_inst(
                     entry,
@@ -183,7 +189,9 @@ pub(super) fn unbox_args(
             // materializes the right repr (or stakes a pass-through)
             // and the owned answer releases after the call.
             Type::Obj(_) => {
-                let tag = coerce.obj_tags[first + i].expect("obj_tags aligns with user_tys");
+                let tag = coerce.fit_tags[first + i]
+                    .expect("fit_tags aligns with user_tys")
+                    .tag;
                 let coerced = f.append_inst(
                     entry,
                     InstKind::Call(

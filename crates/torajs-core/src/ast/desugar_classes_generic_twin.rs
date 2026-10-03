@@ -225,8 +225,10 @@ pub(in crate::ast) fn mint_static_generic_twin(
 /// sends every other argument — an array, a Proxy, a `3` — to the
 /// twin, where `p.x` is the generic [[Get]] (§13.3.2.1). Struct-shaped
 /// is the checker's reading of the annotation (`struct_shaped_ann`),
-/// so an alias chain, an inline object type and a `P | null` all
-/// count exactly where the struct-escape lane counts them.
+/// so an alias chain, an inline object type, a `P | null` and an array
+/// of any of them (`Tok[]`, read element by element through the
+/// element layout) all count exactly where the struct-escape lane
+/// counts them.
 fn has_lossy_param(ast: &Ast, tables: &TypeAliasTables, params: &[Param], is_static: bool) -> bool {
     params.iter().any(|p| match p.default {
         None => match p.type_ann.as_deref() {

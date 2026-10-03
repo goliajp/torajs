@@ -15,7 +15,8 @@
 //! whatever it is, and §10.2.1.3 binds the argument as it is. The
 //! reading that honours both for an argument of unknown shape is the
 //! any lane, so the adapter asks `__torajs_anyv_struct_fits` per struct
-//! slot and, when a slot does not fit, hands the whole call to a twin
+//! slot (`__torajs_anyv_arr_fits` per array-of-struct slot, over every
+//! element) and, when a slot does not fit, hands the whole call to a twin
 //! of the function with every parameter `any` — the policy the
 //! direct-call wedge takes for an `any` argument against a heap-typed
 //! parameter (`check_type_of_call/any_widen.rs`). The typed body is

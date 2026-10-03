@@ -16,10 +16,24 @@
 //! unbox; a struct slot that passed hands its loaded argument on
 //! (`BoxedCoerceIntrinsics::fit`) so the unbox passes the cell
 //! through instead of asking the coercion kernel the same question.
+//!
+//! An array-of-struct slot (`Tok[]`, `Tok[][]`) is the same question
+//! over every element: the body indexes the array and reads each
+//! element through the element layout, which only a typed array of
+//! cells of that layout (or of layouts extending it) has. An `any[]`
+//! holds boxes, an `Other[]` holds cells of another layout, a string
+//! or a `null` is no array at all — each means the generic [[Get]] on
+//! every `toks[i].value`, or a TypeError on `toks.length`, and that
+//! is the twin's reading. `__torajs_anyv_arr_fits` walks the array
+//! once at the boundary; a typed call never reaches this adapter.
 
+use std::collections::HashMap;
+
+use crate::ast::Ast;
 use crate::ssa::{self, FuncId, IPred, InstKind, Operand, Terminator, Type};
 
 use super::BoxedEntryIntrinsics;
+use super::fit_tag::{FitTag, lossy_slot};
 use super::unbox::BoxedCoerceIntrinsics;
 
 /// The twin adapter a mono adapter hands a non-fitting call to.
@@ -35,13 +49,6 @@ pub(super) struct TwinReroute {
     /// directly with the same env. A receiver-polymorphic twin takes
     /// its receiver in argv[0] and goes through `invoke`.
     pub(super) same_face: bool,
-}
-
-/// A slot an argument cannot cross without loss: no literal default
-/// to substitute, and a type with no undefined of its own, or a
-/// struct layout the argument may not have.
-pub(super) fn lossy_slot(ty: Type, dflt: Option<&super::DfltLit>) -> bool {
-    dflt.is_none() && matches!(ty, Type::Bool | Type::I64 | Type::I32 | Type::Obj(_))
 }
 
 /// Test every lossy slot of the window at `base`; on the first
@@ -67,7 +74,13 @@ pub(super) fn emit_twin_reroute(
 ) -> (ssa::BlockId, Vec<Option<ssa::ValueId>>) {
     let mut fit = vec![None; user_tys.len()];
     let lossy: Vec<usize> = (0..user_tys.len())
-        .filter(|&i| lossy_slot(user_tys[i], dflt_lits.get(i).and_then(|d| d.as_ref())))
+        .filter(|&i| {
+            lossy_slot(
+                user_tys[i],
+                dflt_lits.get(i).and_then(|d| d.as_ref()),
+                coerce.fit_tags[i],
+            )
+        })
         .collect();
     if lossy.is_empty() {
         return (entry, fit);
@@ -80,18 +93,24 @@ pub(super) fn emit_twin_reroute(
             Type::Any,
             None,
         );
-        let miss = match user_tys[i] {
-            Type::Obj(_) => {
-                let tag = coerce.obj_tags[i].expect("obj_tags aligns with user_tys");
-                let fits = f.append_inst(
-                    entry,
+        let miss = match coerce.fit_tags[i] {
+            Some(FitTag { tag, depth }) => {
+                let test = if depth == 0 {
                     InstKind::Call(
                         coerce.struct_fits,
                         vec![Operand::Value(av), Operand::ConstI64(tag as i64)],
-                    ),
-                    Type::I64,
-                    None,
-                );
+                    )
+                } else {
+                    InstKind::Call(
+                        coerce.arr_fits,
+                        vec![
+                            Operand::Value(av),
+                            Operand::ConstI64(tag as i64),
+                            Operand::ConstI64(depth as i64),
+                        ],
+                    )
+                };
+                let fits = f.append_inst(entry, test, Type::I64, None);
                 fit[i] = Some(av);
                 f.append_inst(
                     entry,
@@ -100,7 +119,7 @@ pub(super) fn emit_twin_reroute(
                     None,
                 )
             }
-            _ => {
+            None => {
                 let tag = f.append_inst(
                     entry,
                     InstKind::Call(intr.any_unbox_tag, vec![Operand::Value(av)]),
@@ -203,4 +222,41 @@ pub(super) fn emit_twin_reroute(
     };
     f.set_term(reroute, Terminator::Ret(Some(Operand::Value(answer))));
     (entry, fit)
+}
+
+/// A twin minted beside a class method or constructor.
+pub(super) fn is_twin_name(name: &str) -> bool {
+    name.starts_with("__cmany_") || name.starts_with("__smany_") || name.starts_with("__ctorany_")
+}
+
+/// The boxed adapter of the all-`any` twin minted beside the mono
+/// `name`: the receiver-polymorphic twin of a `__cm_` / `__sm_`
+/// method (a `$$` specialization looked up by its base), or the
+/// all-`any` relay shell behind a struct-parameter value escape
+/// (`check_monomorph_any_widen::struct_escape`), when both the twin
+/// and its adapter exist.
+pub(crate) fn twin_adapter_of(
+    ast: &Ast,
+    fn_table: &HashMap<String, FuncId>,
+    entries: &HashMap<FuncId, (FuncId, ssa::SigId)>,
+    name: &str,
+) -> Option<(FuncId, ssa::SigId)> {
+    use crate::check_monomorph_any_widen::struct_escape;
+    let fid = if crate::ast::is_shell(name) {
+        *fn_table.get(&struct_escape::twin_name(name))?
+    } else {
+        let table = if name.starts_with("__cm_") {
+            &ast.cmany_twins
+        } else if name.starts_with("__sm_") {
+            &ast.smany_twins
+        } else {
+            return None;
+        };
+        let base = name.split_once("$$").map_or(name, |(b, _)| b);
+        let twin = table.get(base)?;
+        *fn_table
+            .get(twin.as_str())
+            .or_else(|| fn_table.get(format!("{twin}$$anywv").as_str()))?
+    };
+    entries.get(&fid).copied()
 }

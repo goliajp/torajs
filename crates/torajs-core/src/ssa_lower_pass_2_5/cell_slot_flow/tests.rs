@@ -1,6 +1,6 @@
 use super::*;
 use crate::ssa::{BlockId, DataGlobal, FuncId};
-use crate::ssa_lower::CLOSURE_CAP_BASE_OFF;
+use crate::ssa_lower::{CLOSURE_CAP_BASE_OFF, OBJ_HEADER_SIZE};
 
 pub(super) fn layout(names: &[&str]) -> Vec<(PropKey, Type)> {
     names
@@ -11,7 +11,8 @@ pub(super) fn layout(names: &[&str]) -> Vec<(PropKey, Type)> {
 
 /// Layouts 0 `{a}`, 1 `{a, b}` (extends 0), 2 `{x, y}`; funcs 0
 /// and 1 are the cell and capture-box allocator declarations, 2 a
-/// declaration answering `any`, 3 one answering a pointer.
+/// declaration answering `any`, 3 one answering a pointer, 4 and 5
+/// the adapter's struct and array layout tests.
 pub(super) fn module() -> Module {
     let mut m = Module {
         struct_layouts: vec![layout(&["a"]), layout(&["a", "b"]), layout(&["x", "y"])],
@@ -27,6 +28,12 @@ pub(super) fn module() -> Module {
     helper.add_param(Type::Ptr, "p");
     helper.add_param(Type::I64, "v");
     m.funcs.push(helper);
+    for name in FITS {
+        let mut fits = Function::new(name, Type::I64);
+        fits.add_param(Type::Any, "v");
+        fits.add_param(Type::I64, "tag");
+        m.funcs.push(fits);
+    }
     m
 }
 
@@ -137,32 +144,6 @@ fn a_narrowing_read_of_a_wider_slot_is_a_path() {
         );
     });
     assert_eq!(open(&m), vec![true, true, false]);
-}
-
-/// A boxed adapter nothing references never runs: the `any` it
-/// hands a typed parameter crosses nothing. Once its address is
-/// taken it does.
-#[test]
-fn an_unreferenced_boxed_adapter_crosses_nothing() {
-    let mut m = module();
-    let mut callee = Function::new("take", Type::Void);
-    callee.add_param(Type::Obj(StructId(2)), "b");
-    let entry = callee.add_block();
-    callee.set_term(entry, Terminator::Ret(None));
-    let take = FuncId(m.funcs.len() as u32);
-    m.funcs.push(callee);
-    let mut adapter = Function::new("__boxed_take", Type::Void);
-    let entry = adapter.add_block();
-    let v = any(&mut adapter, entry);
-    adapter.append_void(entry, InstKind::Call(take, vec![v]));
-    adapter.set_term(entry, Terminator::Ret(None));
-    let adapter_id = FuncId(m.funcs.len() as u32);
-    m.funcs.push(adapter);
-    assert_eq!(open(&m), vec![false, false, false]);
-    body(&mut m, |f, entry| {
-        f.append_inst(entry, InstKind::FnAddr(adapter_id), Type::Ptr, None);
-    });
-    assert_eq!(open(&m), vec![false, false, true]);
 }
 
 #[test]
