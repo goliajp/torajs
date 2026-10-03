@@ -8,23 +8,31 @@
 //! `inc ∈ [0, 64]` from the ctpop fact.
 //!
 //! Soundness conditions (all checked structurally):
-//! * the recurrence def (`%acc = copy %x`) is the only def of `%acc`
-//!   inside the loop, its block sits at nest depth 1 (no inner loop
-//!   re-executes it within one header visit — a body cycle avoiding
-//!   the header would be its own natural loop and deepen the nest),
-//!   and the loop header itself is not nested (so the loop runs one
-//!   episode per function entry and the entry value cannot compound
-//!   across episodes);
+//! * the recurrence def (`%acc = copy %x`, or `%acc = copy %m` of a
+//!   cell `%m` every path through the iteration sets to `%x` or
+//!   `%acc` — a conditional `if (c) s += d`) is the only def of `%acc`
+//!   inside the loop, and it and `%x` sit at the loop's own nest depth
+//!   (no inner loop re-executes them within one header visit — a body
+//!   cycle avoiding the header would be its own natural loop and
+//!   deepen the nest). The bound holds per episode of the loop: a
+//!   nested loop starts each one from what `PointEval` says of the
+//!   entry, at every entry;
 //! * the loop has a single back edge and its header exits on
 //!   `counter <slt/sle> K` with the in-loop side on `then`; `K` is a
 //!   constant or a value with a fact at the compare (a tracked array's
 //!   length read after its push loop's writeback) — a fact holds at
 //!   every header visit, so its high end bounds the trips whatever `K`
-//!   does within it;
+//!   does within it. Without such a header, a counter whose every
+//!   value the lattice bounds counts the trips instead (the trial
+//!   divisor under `d * d <= n`);
 //! * the counter's only in-loop def is `copy (add counter, s)` with
-//!   constant step `s >= 1`;
+//!   constant step `s >= 1`, in a block that dominates the latch;
 //! * entry values for both cells come from `PointEval` at every
 //!   header predecessor outside the loop (join over entries).
+//!
+//! An f64 sum (`fadd`) of integer-valued steps is bounded the same
+//! way when the whole bound lies inside ±2^53: every partial sum is
+//! then exact.
 //!
 //! The increment is evaluated at the add's point; when that read is
 //! the loop counter itself (`total += i` — through the block-tail
@@ -39,12 +47,14 @@
 //! (`sum += xs[i]`) has no def at any point; the lattice's element
 //! point is met in for it.
 
-use torajs_core::ssa::{BlockId, Function, InstKind, Operand, ValueId};
+use torajs_core::ssa::{BinOp, BlockId, Function, InstKind, Operand, ValueId};
 
 use super::counter::{entry_fact, loop_counter, resolves_to};
 use super::point_eval::PointEval;
 use crate::interval::transfer::NumFact;
 use torajs_core::ssa::loop_analysis::{LoopAnalysis, NaturalLoop};
+
+const F64_EXACT: i128 = 1 << 53;
 
 /// Bound `x` (a single-def `add cell, inc` result) via the
 /// add-recurrence argument. Returns a fact valid at every execution
@@ -57,8 +67,10 @@ pub(crate) fn accum_bound(
     x_def: (usize, usize),
 ) -> Option<NumFact> {
     let inst = &func.blocks[x_def.0].insts[x_def.1];
-    let InstKind::BinOp(torajs_core::ssa::BinOp::Add, a, b) = &inst.kind else {
-        return None;
+    let (float, a, b) = match &inst.kind {
+        InstKind::BinOp(BinOp::Add, a, b) => (false, a, b),
+        InstKind::BinOp(BinOp::FAdd, a, b) => (true, a, b),
+        _ => return None,
     };
     // One side is the accumulator cell, the other the increment.
     let (acc, inc_op) = match (a, b) {
@@ -68,14 +80,12 @@ pub(crate) fn accum_bound(
     };
     let x_block = func.blocks[x_def.0].id;
     let lp = innermost_loop(la, x_block)?;
-    if lp.back_edge_sources.len() != 1
-        || la.nest_depth(lp.header) != 1
-        || la.nest_depth(x_block) != 1
-    {
+    let depth = la.nest_depth(lp.header);
+    if lp.back_edge_sources.len() != 1 || la.nest_depth(x_block) != depth {
         return None;
     }
     // The recurrence def must be the only in-loop def of the cell,
-    // and it must live in this loop at nest depth 1.
+    // and it must live in this loop, outside any loop nested in it.
     let mut rec_def: Option<(usize, usize)> = None;
     for (bi, block) in func.blocks.iter().enumerate() {
         if !lp.body.contains(&block.id) {
@@ -86,7 +96,10 @@ pub(crate) fn accum_bound(
                 if rec_def.is_some() {
                     return None;
                 }
-                if !matches!(&i2.kind, InstKind::Copy(_, Operand::Value(src)) if *src == x) {
+                let InstKind::Copy(_, Operand::Value(src)) = &i2.kind else {
+                    return None;
+                };
+                if *src != x && !merges_step(func, la, lp, acc, x, *src, (bi, ii)) {
                     return None;
                 }
                 rec_def = Some((bi, ii));
@@ -94,7 +107,7 @@ pub(crate) fn accum_bound(
         }
     }
     let rec_def = rec_def?;
-    if la.nest_depth(func.blocks[rec_def.0].id) != 1 {
+    if la.nest_depth(func.blocks[rec_def.0].id) != depth {
         return None;
     }
     let counter = loop_counter(func, lp, pe)?;
@@ -109,6 +122,11 @@ pub(crate) fn accum_bound(
     // entry + k * inc; bound each side by the worst-signed growth.
     let hi = entry.hi.checked_add(trip.checked_mul(inc.hi.max(0))?)?;
     let lo = entry.lo.checked_add(trip.checked_mul(inc.lo.min(0))?)?;
+    // f64 sums of integers are exact, step by step, only while every
+    // partial sum stays inside ±2^53
+    if float && (lo <= -F64_EXACT || hi >= F64_EXACT) {
+        return None;
+    }
     Some(NumFact::new(lo, hi))
 }
 
@@ -168,22 +186,92 @@ pub(crate) fn cell_bound_after_loop(
     Some(entry.join(grown))
 }
 
-/// Is `cell` a multi-def value with a `copy x` def somewhere (the
-/// cheap pre-filter before the full structural walk)?
+/// Is `cell` a multi-def value with a `copy x` def somewhere, or a
+/// `copy m` of a cell `m` that has one (the cheap pre-filter before
+/// the full structural walk)?
 fn is_rec_cell(func: &Function, cell: ValueId, x: ValueId) -> bool {
-    let mut saw_rec = false;
-    let mut defs = 0u32;
-    for block in &func.blocks {
-        for inst in &block.insts {
-            if inst.result == Some(cell) {
-                defs += 1;
-                if matches!(&inst.kind, InstKind::Copy(_, Operand::Value(s)) if *s == x) {
-                    saw_rec = true;
-                }
+    let copies_of = |dst: ValueId| {
+        func.blocks
+            .iter()
+            .flat_map(|b| &b.insts)
+            .filter(move |i| i.result == Some(dst))
+            .map(|i| match &i.kind {
+                InstKind::Copy(_, Operand::Value(s)) => Some(*s),
+                _ => None,
+            })
+    };
+    let defs = copies_of(cell).count();
+    let saw_rec = copies_of(cell)
+        .flatten()
+        .any(|s| s == x || (s != cell && copies_of(s).flatten().any(|t| t == x)));
+    defs >= 2 && saw_rec
+}
+
+/// The accumulator's in-loop def `acc = copy m` takes this iteration's
+/// step or nothing: every def of the cell `m` sits in the loop outside
+/// any loop nested in it and is `copy x` or `copy acc`, and every path
+/// from the header to the def at `at` passes one of them (else `m`
+/// could hand over a value from an earlier episode).
+fn merges_step(
+    func: &Function,
+    la: &LoopAnalysis,
+    lp: &NaturalLoop,
+    acc: ValueId,
+    x: ValueId,
+    m: ValueId,
+    at: (usize, usize),
+) -> bool {
+    let depth = la.nest_depth(lp.header);
+    let mut def_blocks: Vec<usize> = Vec::new();
+    let mut saw_x = false;
+    for (bi, block) in func.blocks.iter().enumerate() {
+        for (ii, inst) in block.insts.iter().enumerate() {
+            if inst.result != Some(m) {
+                continue;
+            }
+            let src = match &inst.kind {
+                InstKind::Copy(_, Operand::Value(s)) if *s == x || *s == acc => *s,
+                _ => return false,
+            };
+            if !lp.body.contains(&block.id) || la.nest_depth(block.id) != depth {
+                return false;
+            }
+            // a def after the read in its own block covers nothing
+            if bi == at.0 && ii > at.1 {
+                return false;
+            }
+            saw_x |= src == x;
+            def_blocks.push(bi);
+        }
+    }
+    saw_x && !reaches_avoiding(func, lp, at.0, &def_blocks)
+}
+
+/// Whether block `to` is reachable from the header of `lp` inside its
+/// body without entering any of `avoid` (back edges not followed).
+fn reaches_avoiding(func: &Function, lp: &NaturalLoop, to: usize, avoid: &[usize]) -> bool {
+    let start = lp.header.0 as usize;
+    if avoid.contains(&start) {
+        return false;
+    }
+    let mut seen = vec![false; func.blocks.len()];
+    let mut work = vec![start];
+    while let Some(b) = work.pop() {
+        if b == to {
+            return true;
+        }
+        if seen[b] {
+            continue;
+        }
+        seen[b] = true;
+        for s in super::point_eval::successors(&func.blocks[b].term) {
+            let si = s.0 as usize;
+            if lp.body.contains(&s) && s != lp.header && !avoid.contains(&si) {
+                work.push(si);
             }
         }
     }
-    defs >= 2 && saw_rec
+    false
 }
 
 fn innermost_loop(la: &LoopAnalysis, b: BlockId) -> Option<&NaturalLoop> {
@@ -385,6 +473,142 @@ mod tests {
     #[test]
     fn untracked_array_keeps_the_guard() {
         let mut f = reduction(vec![]);
+        let mut stats = BranchFoldStats::default();
+        fold_in_function(&mut f, &[], &mut stats);
+        assert_eq!(stats.folded, 0, "{stats:?}");
+    }
+
+    /// `for (i = 0; i < 10; i++) { s = 0; for (d = 1; d * d <= n; d++)
+    /// if (n % d === 0) s += d }` with float_demote's `s + d < 2^53`
+    /// window check on the add, `n` = `%0`:
+    ///
+    ///   b0: n; i=0                 b5: x=s+d; x>>53 != 0 ? b10 : b11
+    ///   b1: i < 10 ? b2 : b9       b6: m=s → b7       b11: m=x → b7
+    ///   b2: s=0; d=1               b7: d++; s=m → b3
+    ///   b3: d*d <= n ? b4 : b8     b8: i++ → b1
+    ///   b4: n%d == 0 ? b5 : b6     b9, b10: ret
+    fn divisor_sums(n: i64, else_merges: bool) -> Function {
+        let mut b6 = vec![];
+        if else_merges {
+            b6.push(inst(12, InstKind::Copy(Type::I64, v(3))));
+        }
+        Function {
+            name: "f".into(),
+            params: vec![],
+            ret: Type::Void,
+            blocks: vec![
+                block(
+                    0,
+                    vec![
+                        inst(0, InstKind::Copy(Type::I64, c(n))),
+                        inst(1, InstKind::Copy(Type::I64, c(0))),
+                    ],
+                    Terminator::Br(BlockId(1)),
+                ),
+                block(
+                    1,
+                    vec![inst(2, InstKind::ICmp(IPred::Slt, v(1), c(10)))],
+                    cond(2, 2, 9),
+                ),
+                block(
+                    2,
+                    vec![
+                        inst(3, InstKind::Copy(Type::I64, c(0))),
+                        inst(4, InstKind::Copy(Type::I64, c(1))),
+                    ],
+                    Terminator::Br(BlockId(3)),
+                ),
+                block(
+                    3,
+                    vec![
+                        inst(5, InstKind::BinOp(BinOp::Mul, v(4), v(4))),
+                        inst(6, InstKind::ICmp(IPred::Sle, v(5), v(0))),
+                    ],
+                    cond(6, 4, 8),
+                ),
+                block(
+                    4,
+                    vec![
+                        inst(7, InstKind::BinOp(BinOp::SRem, v(0), v(4))),
+                        inst(8, InstKind::ICmp(IPred::Eq, v(7), c(0))),
+                    ],
+                    cond(8, 5, 6),
+                ),
+                block(
+                    5,
+                    vec![
+                        inst(9, InstKind::BinOp(BinOp::Add, v(3), v(4))),
+                        inst(10, InstKind::BinOp(BinOp::LShr, v(9), c(53))),
+                        inst(11, InstKind::ICmp(IPred::Ne, v(10), c(0))),
+                    ],
+                    cond(11, 10, 11),
+                ),
+                block(6, b6, Terminator::Br(BlockId(7))),
+                block(
+                    7,
+                    vec![
+                        inst(13, InstKind::BinOp(BinOp::Add, v(4), c(1))),
+                        inst(3, InstKind::Copy(Type::I64, v(12))),
+                        inst(4, InstKind::Copy(Type::I64, v(13))),
+                    ],
+                    Terminator::Br(BlockId(3)),
+                ),
+                block(
+                    8,
+                    vec![
+                        inst(14, InstKind::BinOp(BinOp::Add, v(1), c(1))),
+                        inst(1, InstKind::Copy(Type::I64, v(14))),
+                    ],
+                    Terminator::Br(BlockId(1)),
+                ),
+                block(9, vec![], Terminator::Ret(None)),
+                block(10, vec![], Terminator::Ret(None)),
+                block(
+                    11,
+                    vec![inst(12, InstKind::Copy(Type::I64, v(9)))],
+                    Terminator::Br(BlockId(7)),
+                ),
+            ],
+            values: (0..15)
+                .map(|_| ValueInfo {
+                    ty: Type::I64,
+                    name: None,
+                })
+                .collect(),
+            current_origin: None,
+        }
+    }
+
+    #[test]
+    fn nested_conditional_sum_under_a_square_test_folds() {
+        let mut f = divisor_sums(1_000_000, true);
+        let mut stats = BranchFoldStats::default();
+        fold_in_function(&mut f, &[], &mut stats);
+        assert_eq!(stats.folded, 1, "{stats:?}");
+        // the side exit is swept and the blocks after it renumbered:
+        // the guard now branches straight to the merge `m = x`
+        let Terminator::Br(t) = f.blocks[5].term else {
+            panic!("{:?}", f.blocks[5].term);
+        };
+        let merge = &f.blocks[t.0 as usize].insts;
+        assert_eq!(merge[0].kind, InstKind::Copy(Type::I64, v(9)));
+    }
+
+    /// The merge cell skipped on one path could hand an earlier
+    /// episode's sum to this one.
+    #[test]
+    fn a_merge_cell_one_path_skips_keeps_the_guard() {
+        let mut f = divisor_sums(1_000_000, false);
+        let mut stats = BranchFoldStats::default();
+        fold_in_function(&mut f, &[], &mut stats);
+        assert_eq!(stats.folded, 0, "{stats:?}");
+    }
+
+    /// A divisor whose square may wrap is not bounded, so neither is
+    /// the trip count.
+    #[test]
+    fn an_unbounded_divisor_keeps_the_guard() {
+        let mut f = divisor_sums(i64::MAX - 1, true);
         let mut stats = BranchFoldStats::default();
         fold_in_function(&mut f, &[], &mut stats);
         assert_eq!(stats.folded, 0, "{stats:?}");

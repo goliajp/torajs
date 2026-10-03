@@ -91,6 +91,10 @@ impl<'a> PointEval<'a> {
         }
     }
 
+    pub(crate) fn dom(&self) -> &DominatorTree {
+        self.dom
+    }
+
     /// The one def site of `v`, when it has exactly one.
     pub(crate) fn single_def(&self, v: ValueId) -> Option<Point> {
         match self.defs.get(&v)?.as_slice() {

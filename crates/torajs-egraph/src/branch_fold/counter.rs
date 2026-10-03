@@ -3,7 +3,7 @@
 //! sum by `entry + trip * inc` with these.
 
 use torajs_core::ssa::loop_analysis::NaturalLoop;
-use torajs_core::ssa::{Function, IPred, InstKind, Operand, Terminator, ValueId};
+use torajs_core::ssa::{BinOp, Function, IPred, InstKind, Operand, Terminator, ValueId};
 
 use super::point_eval::PointEval;
 use crate::interval::transfer::{NumFact, op_const_int};
@@ -55,15 +55,22 @@ pub(super) fn resolves_to(func: &Function, pe: &PointEval, op: &Operand, cell: V
     false
 }
 
-/// The counting argument from the header's `counter <slt/sle> K`
-/// exit compare and the counter's `+s` step. `K` is bounded by its
-/// fact at the compare; the counter never enters the body above the
-/// fact's high end.
+/// The loop's counting argument: the header's `counter <slt/sle> K`
+/// exit compare, or else any counter whose range the lattice bounds
+/// (a trial divisor under `d * d <= n`); the fewest trips wins.
 pub(super) fn loop_counter(
     func: &Function,
     lp: &NaturalLoop,
     pe: &PointEval,
 ) -> Option<LoopCounter> {
+    header_counter(func, lp, pe).or_else(|| ranged_counter(func, lp, pe))
+}
+
+/// The counting argument from the header's `counter <slt/sle> K`
+/// exit compare and the counter's `+s` step. `K` is bounded by its
+/// fact at the compare; the counter never enters the body above the
+/// fact's high end.
+fn header_counter(func: &Function, lp: &NaturalLoop, pe: &PointEval) -> Option<LoopCounter> {
     let hb = lp.header.0 as usize;
     let header = &func.blocks[hb];
     let Terminator::CondBr {
@@ -87,40 +94,7 @@ pub(super) fn loop_counter(
         Some(k) => k,
         None => pe.eval_operand_with_flow(k_op, cond_def)?.hi,
     };
-    // Counter: only in-loop def is `copy (add counter, s)`, s >= 1.
-    let mut step: Option<i128> = None;
-    for block in &func.blocks {
-        if !lp.body.contains(&block.id) {
-            continue;
-        }
-        for inst in &block.insts {
-            if inst.result != Some(*counter) {
-                continue;
-            }
-            if step.is_some() {
-                return None;
-            }
-            let InstKind::Copy(_, Operand::Value(sv)) = &inst.kind else {
-                return None;
-            };
-            let sdef = pe.single_def(*sv)?;
-            let InstKind::BinOp(torajs_core::ssa::BinOp::Add, sa, sb) =
-                &func.blocks[sdef.0].insts[sdef.1].kind
-            else {
-                return None;
-            };
-            let s = match (sa, sb) {
-                (Operand::Value(c2), other) if c2 == counter => op_const_int(other)?,
-                (other, Operand::Value(c2)) if c2 == counter => op_const_int(other)?,
-                _ => return None,
-            };
-            if s < 1 {
-                return None;
-            }
-            step = Some(s);
-        }
-    }
-    let step = step?;
+    let step = counter_step(func, lp, pe, *counter)?;
     let entry = entry_fact(func, lp, pe, *counter)?;
     if entry.lo <= crate::interval::transfer::NEG_INF {
         return None;
@@ -132,6 +106,88 @@ pub(super) fn loop_counter(
         last,
         entry,
     })
+}
+
+/// A counter the loop steps once per iteration whose every value the
+/// lattice bounds: iteration `k` starts at `entry + k * step`, at most
+/// the fact's high end.
+fn ranged_counter(func: &Function, lp: &NaturalLoop, pe: &PointEval) -> Option<LoopCounter> {
+    let mut best: Option<LoopCounter> = None;
+    for block in func.blocks.iter().filter(|b| lp.body.contains(&b.id)) {
+        for inst in &block.insts {
+            let (Some(cell), InstKind::Copy(..)) = (inst.result, &inst.kind) else {
+                continue;
+            };
+            let Some(step) = counter_step(func, lp, pe, cell) else {
+                continue;
+            };
+            let (Some(fact), Some(entry)) = (pe.flow_fact(cell), entry_fact(func, lp, pe, cell))
+            else {
+                continue;
+            };
+            if fact.hi >= crate::interval::transfer::POS_INF
+                || entry.lo <= crate::interval::transfer::NEG_INF
+            {
+                continue;
+            }
+            let c = LoopCounter {
+                cell,
+                step,
+                last: fact.hi,
+                entry,
+            };
+            if best.as_ref().is_none_or(|b| c.trip() < b.trip()) {
+                best = Some(c);
+            }
+        }
+    }
+    best
+}
+
+/// The counter's step when its only in-loop def is `copy (add
+/// counter, s)` with `s >= 1`, in a block every iteration runs (it
+/// dominates the latch).
+fn counter_step(
+    func: &Function,
+    lp: &NaturalLoop,
+    pe: &PointEval,
+    counter: ValueId,
+) -> Option<i128> {
+    let [latch] = lp.back_edge_sources.as_slice() else {
+        return None;
+    };
+    let mut step: Option<i128> = None;
+    for block in &func.blocks {
+        if !lp.body.contains(&block.id) {
+            continue;
+        }
+        for inst in &block.insts {
+            if inst.result != Some(counter) {
+                continue;
+            }
+            if step.is_some() || !pe.dom().dominates(block.id, *latch) {
+                return None;
+            }
+            let InstKind::Copy(_, Operand::Value(sv)) = &inst.kind else {
+                return None;
+            };
+            let sdef = pe.single_def(*sv)?;
+            let InstKind::BinOp(BinOp::Add, sa, sb) = &func.blocks[sdef.0].insts[sdef.1].kind
+            else {
+                return None;
+            };
+            let s = match (sa, sb) {
+                (Operand::Value(c2), other) if *c2 == counter => op_const_int(other)?,
+                (other, Operand::Value(c2)) if *c2 == counter => op_const_int(other)?,
+                _ => return None,
+            };
+            if s < 1 {
+                return None;
+            }
+            step = Some(s);
+        }
+    }
+    step
 }
 
 /// Join of the cell's value over every header predecessor outside the

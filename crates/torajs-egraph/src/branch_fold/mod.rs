@@ -41,6 +41,7 @@
 pub(crate) mod accum;
 mod counter;
 pub(crate) mod point_eval;
+pub mod sum_facts;
 
 use std::cell::OnceCell;
 use std::collections::{HashMap, HashSet};

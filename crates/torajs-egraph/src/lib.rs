@@ -297,6 +297,14 @@ pub fn transform_module(mut module: Module) -> Module {
     // R2 with loop cells provably inside i32 range (the popcount
     // residual-pair case). `TORAJS_INTERVAL_OFF=1` skips (bisect gate).
     let mut interval_facts = analyze_intervals(&module);
+    // Loop sums take their add-recurrence bound before float_demote
+    // reads the facts: one the bound keeps inside ±2^53 demotes with
+    // no window check. `TORAJS_SUM_FACTS_OFF=1` skips.
+    if let Some(facts) = &mut interval_facts {
+        gated_pass("SUM_FACTS", &mut module, |m| {
+            branch_fold::sum_facts::bound_sums(m, facts)
+        });
+    }
     // Float demotion (RFC 20260611 phase 1b-i) — integer-valued f64
     // closures whose every op is provably exact rewrite to i64 in
     // place (frem→srem kills the per-iteration fmod libcall). Facts
