@@ -74,6 +74,9 @@ pub fn jam_module(module: &mut Module) -> UnrollJamStats {
         if func.is_declaration() {
             continue;
         }
+        // an arm select_form emptied still branches to its join, and as
+        // a predecessor would break the straight chains planned below
+        crate::branch_fold::sweep_unreachable_blocks(func);
         // the original loop survives as the remainder path, so a
         // header once handled must not be picked again
         let mut done: HashSet<BlockId> = HashSet::new();
