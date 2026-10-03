@@ -64,7 +64,7 @@ impl<'a> LowerCtx<'a> {
                 // `PreReserve::owns_alone` needs to rule out the
                 // caller having passed the same one in twice.
                 self.proofs.kill(name);
-                if matches!(self.ast.get_expr(*init), crate::ast::Expr::Array(_)) {
+                if self.makes_fresh_array(*init) {
                     self.prereserve.note_array_literal_let(name);
                 }
                 crate::ssa_lower_stmt_let_decl::lower(
@@ -236,5 +236,43 @@ fn unimplemented_stmt_label(other: &Stmt) -> String {
             "nested class declaration `{name}` inside a block (planned: same hoisting story as nested functions)"
         ),
         _ => format!("statement shape not yet implemented: {other:?}"),
+    }
+}
+
+/// Array methods that answer an array no other name holds yet.
+const FRESH_ARRAY_METHODS: [&str; 10] = [
+    "map",
+    "filter",
+    "slice",
+    "concat",
+    "flat",
+    "flatMap",
+    "toSorted",
+    "toReversed",
+    "toSpliced",
+    "with",
+];
+
+impl LowerCtx<'_> {
+    /// `init` builds a new array: a literal, an array method that
+    /// answers a copy, or a string split. No caller and no other
+    /// binding can be holding the cell it makes.
+    fn makes_fresh_array(&self, init: crate::ast::ExprId) -> bool {
+        use crate::ast::Expr;
+        use crate::check::Type as T;
+        match self.ast.get_expr(init) {
+            Expr::Array(_) => true,
+            Expr::Call { callee, .. } => {
+                let Expr::Member { obj, name } = self.ast.get_expr(*callee) else {
+                    return false;
+                };
+                match self.expr_types.get(obj) {
+                    Some(T::Array(_)) => FRESH_ARRAY_METHODS.contains(&name.as_str()),
+                    Some(T::String) => name == "split",
+                    _ => false,
+                }
+            }
+            _ => false,
+        }
     }
 }

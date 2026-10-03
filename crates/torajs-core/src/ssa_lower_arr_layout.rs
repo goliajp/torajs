@@ -231,16 +231,16 @@ impl<'a> LowerCtx<'a> {
 
     /// 11-A1 — is the array this expression names known to have a
     /// zero deque head? Always, when the whole-program census found
-    /// no road to `shift` / `unshift` (`ssa_lower_pass_0_5::arr_head_census`);
-    /// otherwise only for an Ident receiver the fn-local escape walk
-    /// kept out of `deque_arrs` (conservative `false` for any other
-    /// shape).
+    /// no road to `shift` / `unshift`; otherwise only for an Ident
+    /// naming an array this body made that nothing else can reach (no
+    /// escape, not a parameter, another scope's binding or rebound):
+    /// those may hold an array other code has shifted.
     pub(crate) fn arr_expr_is_non_deque(&self, eid: ExprId) -> bool {
         if self.proofs.arr_head_pinned {
             return true;
         }
         if let Expr::Ident(name) = self.ast.get_expr(eid) {
-            !self.deque_arrs.contains(name)
+            self.prereserve.owns_alone(&self.deque_arrs, name)
         } else {
             false
         }

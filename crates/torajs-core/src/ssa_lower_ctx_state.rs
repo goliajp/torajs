@@ -83,6 +83,12 @@ impl<'a> LowerCtx<'a> {
                 &mut self.deque_arrs,
             );
         }
+        if self.is_main_fn {
+            // a named fn reaches a top-level array by name and may
+            // shift it between any two of main's reads
+            let refs = crate::ast_refs::toplevel_binding_refs(self.ast);
+            self.deque_arrs.extend(refs.named_fn_refs);
+        }
         for s in body {
             crate::ssa_lower_obj_escape::collect_escape_obj_let_names_in_stmt(
                 self.ast,
