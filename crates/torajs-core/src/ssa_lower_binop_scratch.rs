@@ -57,8 +57,17 @@ pub(crate) struct BinopScratch {
     pub(crate) left_nullable_str: bool,
     pub(crate) right_nullable_str: bool,
     /// S9 square carve — set when both Mul operands are the same identifier
-    /// (`x * x`): a value times itself can never be negative×zero, so -0 is
-    /// unmintable and the int path keeps (mirrors the `width_of` square
-    /// carve).
+    /// (`x * x`) and the square is an operand of an integer compare
+    /// (`square_cmp`): a value times itself can never be negative×zero, so
+    /// -0 is unmintable and the int path keeps.
     pub(crate) mul_square: bool,
+    /// The square `x * x` (its ExprId) a compare being lowered takes as
+    /// an operand; see `ssa_lower_binop::square_cmp`.
+    pub(crate) square_cmp_operand: Option<ExprId>,
+    /// Set while that square's own Mul dispatches: only it may keep the
+    /// int path.
+    pub(crate) square_armed: bool,
+    /// The int-path square just lowered for the compare: its product and
+    /// the root it squared.
+    pub(crate) square_root: Option<(crate::ssa::ValueId, crate::ssa::Operand)>,
 }

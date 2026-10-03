@@ -31,7 +31,7 @@
 //!    split before drops would strand the refcounted a/b).
 
 use crate::ast::{BinOp as AstBinOp, Expr, ExprId};
-use crate::ssa::Operand;
+use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
 pub(crate) fn lower(
@@ -89,6 +89,16 @@ pub(crate) fn lower(
         }
         ctx.lower_expr(eid)
     };
+    let square_side = square_cmp_side(ctx, op, left, right);
+    // the Mul that squares for this compare keeps the int path; see
+    // `square_cmp`
+    let armed = matches!(op, AstBinOp::Mul) && ctx.binop.square_cmp_operand == Some(eid);
+    if armed {
+        ctx.binop.square_cmp_operand = None;
+    }
+    if square_side == Some(true) {
+        ctx.binop.square_cmp_operand = Some(left);
+    }
     let a = lower_operand(ctx, left);
     // Rotation 550 — a fresh-owned left operand is live across the
     // right operand's lower and the kernel (any_add's ToPrimitive
@@ -101,6 +111,9 @@ pub(crate) fn lower(
     let a_ty = ctx.operand_ty(&a);
     let a_owned = a_ty.is_refcounted() && ctx.expr_is_fresh_owned(left);
     let a_tok = a_owned.then(|| ctx.push_throw_temp(a, a_ty));
+    if square_side == Some(false) {
+        ctx.binop.square_cmp_operand = Some(right);
+    }
     let b = lower_operand(ctx, right);
     let b_ty = ctx.operand_ty(&b);
     let b_owned = b_ty.is_refcounted() && ctx.expr_is_fresh_owned(right);
@@ -111,7 +124,23 @@ pub(crate) fn lower(
     // a fresh allocation without freeing inputs.
     // P1.5/P1.8 — pass the operand ExprIds so the Eq/Neq Any-side
     // packing can pick ANY_UNDEF=5 vs ANY_NULL=0.
-    let result = ctx.lower_binop_with_ids(op, a, b, Some(left), Some(right));
+    let square = square_side.and_then(|left_side| {
+        let (r, x) = ctx.binop.square_root.take()?;
+        let sq = if left_side { a } else { b };
+        (sq == Operand::Value(r)).then_some((left_side, x))
+    });
+    let saved_armed = std::mem::replace(&mut ctx.binop.square_armed, armed);
+    let result = match square {
+        Some((left_side, x)) => square_cmp(ctx, op, (a, b), (left, right), left_side, x),
+        None => ctx.lower_binop_with_ids(op, a, b, Some(left), Some(right)),
+    };
+    ctx.binop.square_armed = saved_armed;
+    if armed
+        && let Operand::Value(r) = result
+        && ctx.operand_ty(&result) == Type::I64
+    {
+        ctx.binop.square_root = Some((r, a));
+    }
     ctx.unpark_owned_temp(b_tok);
     ctx.unpark_owned_temp(a_tok);
     // Drop fresh-owned refcounted operands left over from BinOp on
@@ -165,4 +194,93 @@ fn try_fold_undef_null_eq(
         return Some(Operand::ConstBool(result));
     }
     None
+}
+
+/// `floor(sqrt(i64::MAX))`: for `|x|` up to this, `x * x` does not wrap.
+const SQUARE_ROOT_MAX: i64 = 3_037_000_499;
+
+/// Which operand of the relational or equality compare `op` is a square
+/// `x * x` of one identifier (`true` for the left), when the other is
+/// not one too.
+fn square_cmp_side(ctx: &LowerCtx<'_>, op: AstBinOp, left: ExprId, right: ExprId) -> Option<bool> {
+    if !matches!(
+        op,
+        AstBinOp::Lt
+            | AstBinOp::Gt
+            | AstBinOp::Le
+            | AstBinOp::Ge
+            | AstBinOp::Eq
+            | AstBinOp::Neq
+            | AstBinOp::LooseEq
+            | AstBinOp::LooseNeq
+    ) {
+        return None;
+    }
+    let is_square = |e: ExprId| {
+        matches!(ctx.ast.get_expr(e), Expr::BinOp { op: AstBinOp::Mul, left: l, right: r }
+            if matches!((ctx.ast.get_expr(*l), ctx.ast.get_expr(*r)),
+                (Expr::Ident(a), Expr::Ident(b)) if a == b))
+    };
+    match (is_square(left), is_square(right)) {
+        (true, false) => Some(true),
+        (false, true) => Some(false),
+        _ => None,
+    }
+}
+
+/// A compare of the int square `x * x` (the left operand when
+/// `left_side`). Number multiplication is f64: the product rounds past
+/// 2^53 and never wraps. Against another integer, which an i64 Number
+/// never takes past 2^53, the exact product compares as the rounded one
+/// does (a square past 2^53 rounds to at least 2^53, and none rounds
+/// onto 2^53 itself), so the integer compare stands while the product
+/// does not wrap; past `SQUARE_ROOT_MAX` the square exceeds every i64
+/// and the compare's answer is fixed. Against anything else the square
+/// is the f64 product.
+fn square_cmp(
+    ctx: &mut LowerCtx<'_>,
+    op: AstBinOp,
+    (a, b): (Operand, Operand),
+    (left, right): (ExprId, ExprId),
+    left_side: bool,
+    x: Operand,
+) -> Operand {
+    let other = if left_side { b } else { a };
+    if ctx.operand_ty(&other) != Type::I64 {
+        let xf = ctx
+            .f
+            .append_inst(ctx.cur_block, InstKind::SiToFp(x), Type::F64, None);
+        let sq = ctx.bin(
+            SsaBinOp::FMul,
+            Operand::Value(xf),
+            Operand::Value(xf),
+            Type::F64,
+        );
+        let (a, b) = if left_side { (sq, b) } else { (a, sq) };
+        return ctx.lower_binop_with_ids(op, a, b, Some(left), Some(right));
+    }
+    let c = ctx.lower_binop_with_ids(op, a, b, Some(left), Some(right));
+    // the answer when the square exceeds every i64
+    let huge = matches!(
+        (op, left_side),
+        (AstBinOp::Gt | AstBinOp::Ge, true)
+            | (AstBinOp::Lt | AstBinOp::Le, false)
+            | (AstBinOp::Neq | AstBinOp::LooseNeq, _)
+    );
+    // `|x| <= SQUARE_ROOT_MAX` as one unsigned compare; a wrapped sum
+    // lands above the span
+    let shifted = ctx.bin(
+        SsaBinOp::Add,
+        x,
+        Operand::ConstI64(SQUARE_ROOT_MAX),
+        Type::I64,
+    );
+    let span = Operand::ConstI64(2 * SQUARE_ROOT_MAX + 1);
+    let (pred, join) = if huge {
+        (IPred::Uge, SsaBinOp::Or)
+    } else {
+        (IPred::Ult, SsaBinOp::And)
+    };
+    let g = ctx.cmp(pred, shifted, span);
+    ctx.bin(join, g, c, Type::Bool)
 }

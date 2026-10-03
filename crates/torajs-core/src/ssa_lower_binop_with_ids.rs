@@ -11,7 +11,8 @@
 //!   `binop.mul_square` context flags around the inner call so nested
 //!   binops don't leak state.
 //! - Set `binop.mul_square` when both operand ExprIds resolve to the
-//!   same `Ident` (S9 square carve for `x * x`).
+//!   same `Ident` and a compare armed this Mul (S9 square carve for
+//!   `x * x`, see `ssa_lower_binop::square_cmp`).
 //! - Filter `left_id` / `right_id` by frontend `Type::Undefined`
 //!   check (P1.5/P1.8 Eq/Neq undef-vs-null distinction).
 //!
@@ -93,6 +94,7 @@ impl<'a> LowerCtx<'a> {
         let saved_right_null = self.binop.right_null_id.take();
         let saved_square = self.binop.mul_square;
         self.binop.mul_square = matches!(op, AstBinOp::Mul)
+            && self.binop.square_armed
             && matches!(
                 (
                     left_id.map(|e| self.ast.get_expr(e)),

@@ -801,14 +801,15 @@ mod tests {
     }
 
     #[test]
-    fn s9_square_keeps_int_face() {
-        // square carve — `x * x` can never be negative×zero, so -0
-        // is unmintable and the product stays narrow.
+    fn s9_square_in_a_slot_is_f64() {
+        // `x * x` mints no -0, but an integer `x` past 2^26.5 squares
+        // past 2^53, where Number multiplication rounds: a slot taking
+        // the product holds the f64 one; the factor stays narrow.
         let s = slots(
             "function sq(x: number): number {\n  let a: number = x * x;\n  return a;\n}\nconsole.log(sq(7));",
         );
         assert!(!s.contains(&param("sq", "x")));
-        assert!(!s.contains(&local("sq", "a")));
-        assert!(!s.contains(&ret("sq")));
+        assert!(s.contains(&local("sq", "a")));
+        assert!(s.contains(&ret("sq")));
     }
 }

@@ -300,10 +300,12 @@ impl<'a> Analysis<'a> {
     /// (runtime zero × runtime negative) make that
     /// reachable, so the result must stay f64 (mirrors the
     /// lower_binop float predicate). A positive literal
-    /// cofactor, a literal pair missing the zero×negative
-    /// pattern, or a square (`x * x` — a value times
-    /// itself is never negative×zero, 0*0 = +0) keeps the
-    /// int face.
+    /// cofactor or a literal pair missing the zero×negative
+    /// pattern keeps the int face. A square (`x * x`) cannot
+    /// mint -0 but is past 2^53 once `x` passes 2^26.5, which
+    /// a counter reaches in well under a second; it keeps the
+    /// int face only as a compare operand, which no slot
+    /// receives (`ssa_lower_binop::square_cmp`).
     fn width_of_mul(&self, left: ExprId, right: ExprId, scope: &Scope) -> W {
         let lit = |eid: ExprId| -> Option<i64> {
             match self.ast.get_expr(eid) {
@@ -318,14 +320,10 @@ impl<'a> Analysis<'a> {
                 _ => None,
             }
         };
-        let square = matches!(
-            (self.ast.get_expr(left), self.ast.get_expr(right)),
-            (Expr::Ident(l), Expr::Ident(r)) if l == r
-        );
         let minus_zero_risk = match (lit(left), lit(right)) {
             (Some(x), Some(y)) => (x == 0 && y < 0) || (x < 0 && y == 0),
             (Some(c), None) | (None, Some(c)) => c <= 0,
-            (None, None) => !square,
+            (None, None) => true,
         };
         if minus_zero_risk {
             W::F64
