@@ -18,7 +18,7 @@
 //! - [`match_op`] — `__torajs_str_match_regex` + `attach_groups` +
 //!   `__torajs_regex_exec`.
 //! - [`match_all`] — `__torajs_str_match_all_regex`.
-//! - [`replace`] — `expand_repl` + `__torajs_str_replace_regex` +
+//! - [`replace`] — `__torajs_str_replace_regex` +
 //!   `__torajs_str_replace_all_regex`.
 //! - [`replace_fn`] — `invoke_replace_cb` + `build_capture_strs` +
 //!   `__torajs_str_replace_regex_fn` + `__torajs_str_replace_all_regex_fn`.
@@ -48,6 +48,7 @@ mod replace_fn_units;
 mod replace_fn_walk;
 pub mod replace_iter;
 mod replace_splice;
+mod replace_subst;
 pub mod split;
 pub mod static_keys;
 pub mod str_helpers;
