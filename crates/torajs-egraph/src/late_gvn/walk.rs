@@ -4,7 +4,8 @@
 use std::collections::{HashMap, HashSet};
 
 use torajs_core::ssa::{
-    Function, InstKind, Operand, Type, ValueId, rewrite_value_operands, visit_value_operands,
+    Function, Inst, InstKind, Operand, Terminator, Type, ValueId, rewrite_value_operands,
+    visit_value_operands,
 };
 
 type Key = (Type, InstKind, Vec<u32>);
@@ -96,13 +97,16 @@ impl Walk {
     }
 
     /// A load of the address a store just wrote, in the store's own
-    /// epoch, reads the stored value: enter it as that load's twin.
-    pub(super) fn note_store(&mut self, func: &Function, kind: &InstKind) {
-        let InstKind::Store(Operand::Value(val), ptr, off) = kind else {
+    /// epoch, reads the stored value: enter it as that load's twin. A
+    /// multi-def value qualifies when no definition of it can run
+    /// after the store (the merged cell of a diamond above it): it is
+    /// then the one value everywhere the load's readers are.
+    pub(super) fn note_store(&mut self, func: &Function, bi: usize, at: usize) {
+        let InstKind::Store(Operand::Value(val), ptr, off) = &func.blocks[bi].insts[at].kind else {
             return;
         };
         let val = self.resolve(*val);
-        if self.multi.contains(&val) {
+        if self.multi.contains(&val) && defined_after(func, bi, at, val) {
             return;
         }
         let ty = func.values[val.0 as usize].ty;
@@ -118,4 +122,31 @@ impl Walk {
             frame.safe.push(key);
         }
     }
+}
+
+/// Can a definition of `v` run after instruction `at` of block `bi`?
+fn defined_after(func: &Function, bi: usize, at: usize, v: ValueId) -> bool {
+    let defines = |insts: &[Inst]| insts.iter().any(|i| i.result == Some(v));
+    let succs = |b: usize| match &func.blocks[b].term {
+        Terminator::Br(t) => [Some(t.0 as usize), None],
+        Terminator::CondBr {
+            then_blk, else_blk, ..
+        } => [Some(then_blk.0 as usize), Some(else_blk.0 as usize)],
+        Terminator::Ret(_) | Terminator::Unreachable => [None, None],
+    };
+    if defines(&func.blocks[bi].insts[at + 1..]) {
+        return true;
+    }
+    let mut seen = vec![false; func.blocks.len()];
+    let mut work: Vec<usize> = succs(bi).into_iter().flatten().collect();
+    while let Some(b) = work.pop() {
+        if std::mem::replace(&mut seen[b], true) {
+            continue;
+        }
+        if defines(&func.blocks[b].insts) {
+            return true;
+        }
+        work.extend(succs(b).into_iter().flatten());
+    }
+    false
 }

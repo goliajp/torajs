@@ -170,12 +170,12 @@ fn process_block(
     stats: &mut LateGvnStats,
 ) {
     let mut minted = minted.iter();
-    for inst in &func.blocks[bi].insts {
+    for (at, inst) in func.blocks[bi].insts.iter().enumerate() {
         let load = is_read(&inst.kind);
         let pure = classify_pure(&inst.kind);
         if may_store(&inst.kind) {
             w.epoch = *minted.next().expect("one number per storing instruction");
-            w.note_store(func, &inst.kind);
+            w.note_store(func, bi, at);
         }
         let Some(result) = inst.result else { continue };
         if w.multi.contains(&result) {
@@ -543,6 +543,50 @@ mod tests {
         let mut m = reads(between, vec![field(3)], vec![]);
         assert_eq!(dedup_pure_ops(&mut m).dedups, 2);
         assert_eq!(returned(&m), ValueId(1));
+    }
+
+    /// b0 → (b1: %1 = copy 1 | b2: %1 = copy 2) → b3: store %1, %0+8;
+    /// %4 = load %0+8; `tail`; ret %4.
+    fn merged_then_stored(tail: Vec<Inst>) -> Module {
+        let cell = |k: i64| vec![mk(1, InstKind::Copy(Type::I64, Operand::ConstI64(k)))];
+        let mut last = vec![void(InstKind::Store(v(1), v(0), 8)), field(4)];
+        last.extend(tail);
+        func_of(
+            vec![
+                vi(Type::Ptr),
+                vi(Type::I64),
+                vi(Type::I64),
+                vi(Type::I64),
+                vi(Type::I64),
+            ],
+            vec![
+                blk(
+                    0,
+                    vec![],
+                    Terminator::CondBr {
+                        cond: Operand::ConstBool(true),
+                        then_blk: BlockId(1),
+                        else_blk: BlockId(2),
+                    },
+                ),
+                blk(1, cell(1), Terminator::Br(BlockId(3))),
+                blk(2, cell(2), Terminator::Br(BlockId(3))),
+                blk(3, last, Terminator::Ret(Some(v(4)))),
+            ],
+        )
+    }
+
+    #[test]
+    fn a_load_after_a_store_of_a_merged_cell_reads_the_cell() {
+        let mut m = merged_then_stored(vec![]);
+        assert_eq!(dedup_pure_ops(&mut m).dedups, 1);
+        assert_eq!(returned(&m), ValueId(1));
+        // the cell is written again after the store: the load keeps
+        // what memory held
+        let again = mk(1, InstKind::Copy(Type::I64, Operand::ConstI64(3)));
+        let mut m = merged_then_stored(vec![again]);
+        assert_eq!(dedup_pure_ops(&mut m).dedups, 0);
+        assert_eq!(returned(&m), ValueId(4));
     }
 
     #[test]
