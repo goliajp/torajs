@@ -40,6 +40,7 @@ mod cell;
 mod cmp;
 mod ctpop_range_sum;
 mod entry;
+mod inline_sites;
 mod inst;
 mod mem;
 mod operand;
@@ -49,6 +50,7 @@ mod refs;
 mod selinc;
 pub(crate) mod slot;
 mod str_append;
+mod substr_drop;
 mod terminator;
 
 #[cfg(test)]
@@ -76,6 +78,7 @@ pub use cast::{
 pub use cell::CellOps;
 pub use cmp::{emit_fcmp, emit_icmp, emit_select};
 pub use ctpop_range_sum::emit_ctpop_range_sum;
+pub use inline_sites::InlineSites;
 pub use mem::{
     emit_alloca, emit_load, emit_load_dyn, emit_load_dyn_scaled8, emit_load_u8_dyn,
     emit_load_u16_dyn, emit_store, emit_store_dyn, emit_store_dyn_scaled8,
@@ -154,33 +157,6 @@ pub struct ModuleFacts {
     pub(crate) fn_sigs: Vec<Vec<Type>>,
     /// The intrinsic calls that open inline.
     pub(crate) inline: InlineSites,
-}
-
-/// The intrinsics whose calls `compile` opens inline: an inline arm
-/// that does the common case and a slow arm that makes the call. The
-/// allocator and the emitter both read it: it decides which call
-/// sites are rare.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct InlineSites {
-    /// Object-cell allocation and free ([`CellOps`]).
-    pub(crate) cells: Option<CellOps>,
-    /// Short-literal append ([`StrAppendLit`]).
-    pub(crate) str_append: Option<StrAppendLit>,
-}
-
-impl InlineSites {
-    pub fn of_module(module: &Module) -> InlineSites {
-        InlineSites {
-            cells: CellOps::of_module(module),
-            str_append: StrAppendLit::of_module(module),
-        }
-    }
-
-    /// Whether the call `kind` reaches its `bl` only on a slow arm.
-    pub(crate) fn opens_inline(self, kind: &InstKind) -> bool {
-        self.cells.is_some_and(|c| c.inline_class(kind).is_some())
-            || self.str_append.is_some_and(|s| s.literal(kind).is_some())
-    }
 }
 
 impl ModuleFacts {

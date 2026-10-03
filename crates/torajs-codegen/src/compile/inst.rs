@@ -146,6 +146,12 @@ pub(super) fn emit_inst_at(
     {
         return;
     }
+    // and a substring release that only takes a count off
+    if let Some(op) = facts.inline.substr_drop
+        && super::substr_drop::try_emit(bytes, relocs, inst, alloc, &saves, op)
+    {
+        return;
+    }
     for &(reg, off) in &saves {
         match reg {
             Reg::Gpr(g) => slot::sp_str_x(bytes, g, off),
