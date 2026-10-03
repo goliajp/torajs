@@ -173,9 +173,11 @@ pub(super) fn reachable(func: &Function) -> Vec<bool> {
     live
 }
 
-/// Longest straight-line chains an arm may span. A growth guard that
-/// a later pass folded away leaves its split behind as a block that
-/// only branches on (float_demote's post-op check on collatz's `3n+1`).
+/// Longest straight-line chains an arm may span, counting the blocks
+/// that hold instructions. A growth guard that a later pass folded
+/// away leaves its split behind as a block that only branches on
+/// (float_demote's post-op check on collatz's `3n+1`), and a run of
+/// folded guards leaves a run of them.
 const MAX_ARM_BLOCKS: usize = 4;
 
 /// The blocks of the arm entered at `first` (BlockId.0 == position,
@@ -195,7 +197,8 @@ pub(super) fn arm_chain(
         if pred_count(next) != 1 {
             return Some((blks, next));
         }
-        if blks.len() == MAX_ARM_BLOCKS || blks.contains(&(next.0 as usize)) {
+        let busy = blks.iter().filter(|&&b| !func.blocks[b].insts.is_empty());
+        if busy.count() == MAX_ARM_BLOCKS || blks.contains(&(next.0 as usize)) {
             return None;
         }
         blks.push(next.0 as usize);

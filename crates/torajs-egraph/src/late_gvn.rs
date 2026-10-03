@@ -21,11 +21,12 @@
 //!   redefinitions bump a per-value generation stamped into the key,
 //!   so later lookups in the same chain miss after a redef.
 //!
-//! A `Load` joins in on the risky table only, keyed by a memory epoch
-//! as well: every instruction that is neither pure nor a load takes a
-//! fresh epoch (it may write memory), and a block continues its
-//! chain's epoch, so two loads of one address fold only when nothing
-//! between them along the chain can have stored.
+//! A load, at a constant or a computed offset, is keyed by the memory
+//! epoch it runs in as well (`epochs.rs`): two loads of one address
+//! fold only when no path between them can have stored. One whose
+//! operands are single-def rides the safe table under that key; one
+//! that reads a multi-def value rides the risky table. A store enters
+//! its value as the load of its own address in the epoch it opens.
 //!
 //! Misses are always safe (a missed dedup costs a recomputation,
 //! never correctness). Hits replace the second instruction's result
@@ -33,6 +34,10 @@
 //! use stays dominated) and delete the redundant instruction — the
 //! deleted kinds are `classify_pure` or a load, so no memory or
 //! refcount effect disappears with them.
+
+mod epochs;
+mod keys;
+mod known_branch;
 
 use std::collections::{HashMap, HashSet};
 
@@ -43,6 +48,8 @@ use torajs_core::ssa::{
 
 use crate::float_demote::cfg::multi_def_values;
 use crate::optimize::classify_pure;
+use epochs::may_store;
+use keys::{global_ref_twins, is_read};
 use torajs_core::ssa::dominator::DominatorTree;
 
 #[derive(Debug, Default)]
@@ -53,6 +60,13 @@ pub struct LateGvnStats {
 }
 
 type Key = (Type, InstKind, Vec<u32>);
+
+/// The dedup, then the conditionals it left testing a value a branch
+/// above them already tested.
+pub(crate) fn run(module: &mut Module) {
+    crate::gated_pass("LATE_GVN", module, dedup_pure_ops);
+    crate::gated_pass("KNOWN_BRANCH", module, known_branch::fold_known_branches);
+}
 
 pub fn dedup_pure_ops(module: &mut Module) -> LateGvnStats {
     let mut stats = LateGvnStats::default();
@@ -84,12 +98,14 @@ struct Walk {
     barrier_depth: Vec<usize>,
     vgen: HashMap<ValueId, u32>,
     replace: HashMap<ValueId, ValueId>,
+    /// Each `global_ref` value's stand-in inside a key: the first one
+    /// naming the same symbol. The instructions themselves stay (the
+    /// probe and guard matchers read them in place); only what reads
+    /// two of them compares equal.
+    twin: HashMap<ValueId, ValueId>,
     multi: HashSet<ValueId>,
-    /// The memory epoch at the current point, the epoch each block
-    /// ended with (by id), and the next fresh one.
+    /// The memory epoch at the current point (`epochs.rs`).
     epoch: u32,
-    end_epoch: HashMap<u32, u32>,
-    next_epoch: u32,
 }
 
 impl Walk {
@@ -102,7 +118,10 @@ impl Walk {
 
     fn key_for(&self, ty: Type, kind: &InstKind) -> (Key, bool) {
         let mut resolved = kind.clone();
-        rewrite_value_operands(&mut resolved, |v| self.resolve(v));
+        rewrite_value_operands(&mut resolved, |v| {
+            let v = self.resolve(v);
+            self.twin.get(&v).copied().unwrap_or(v)
+        });
         let mut gens: Vec<u32> = Vec::new();
         let mut risky = false;
         visit_value_operands(&resolved, |v| {
@@ -140,15 +159,34 @@ impl Walk {
         }
     }
 
-    fn fresh_epoch(&mut self) -> u32 {
-        self.next_epoch += 1;
-        self.next_epoch
-    }
-
     /// A risky entry is visible only when it was inserted at or below
     /// the innermost barrier (i.e. along the unique-pred chain).
     fn risky_visible(&self, depth: usize) -> bool {
         self.barrier_depth.last().is_none_or(|&b| depth >= b)
+    }
+
+    /// A load of the address a store just wrote, in the store's own
+    /// epoch, reads the stored value: enter it as that load's twin.
+    fn note_store(&mut self, func: &Function, kind: &InstKind) {
+        let InstKind::Store(Operand::Value(val), ptr, off) = kind else {
+            return;
+        };
+        let val = self.resolve(*val);
+        if self.multi.contains(&val) {
+            return;
+        }
+        let ty = func.values[val.0 as usize].ty;
+        let (mut key, risky) = self.key_for(ty, &InstKind::Load(ty, *ptr, *off));
+        key.2.push(self.epoch);
+        let depth = self.frames.len();
+        let frame = self.frames.last_mut().expect("in scope");
+        if risky {
+            self.risky.insert(key.clone(), (val, depth));
+            frame.risky.push(key);
+        } else {
+            self.safe.insert(key.clone(), val);
+            frame.safe.push(key);
+        }
     }
 }
 
@@ -170,6 +208,7 @@ fn gvn_fn(func: &mut Function, stats: &mut LateGvnStats) {
             }
         }
     }
+    let multi = multi_def_values(func);
     let mut w = Walk {
         safe: HashMap::new(),
         risky: HashMap::new(),
@@ -177,11 +216,11 @@ fn gvn_fn(func: &mut Function, stats: &mut LateGvnStats) {
         barrier_depth: Vec::new(),
         vgen: HashMap::new(),
         replace: HashMap::new(),
-        multi: multi_def_values(func),
+        twin: global_ref_twins(func, &multi),
+        multi,
         epoch: 0,
-        end_epoch: HashMap::new(),
-        next_epoch: 1,
     };
+    let epochs = epochs::number(func, &preds);
 
     enum Visit {
         Enter(BlockId),
@@ -199,18 +238,12 @@ fn gvn_fn(func: &mut Function, stats: &mut LateGvnStats) {
                 let barrier =
                     preds[bi].len() != 1 || dom.immediate_dominator(bid) != Some(preds[bi][0]);
                 w.enter(barrier && bid.0 != 0);
-                // along the chain, memory is as the dominator left it;
-                // past a join no load entry is visible anyway
-                w.epoch = match dom.immediate_dominator(bid) {
-                    Some(d) if !barrier => w.end_epoch[&d.0],
-                    _ => w.fresh_epoch(),
-                };
+                w.epoch = epochs.entry[bi];
                 stack.push(Visit::Exit);
                 for &child in dom.children(bid) {
                     stack.push(Visit::Enter(child));
                 }
-                process_block(func, bi, &mut w, stats);
-                w.end_epoch.insert(bid.0, w.epoch);
+                process_block(func, bi, &epochs.minted[bi], &mut w, stats);
             }
         }
     }
@@ -241,12 +274,20 @@ fn gvn_fn(func: &mut Function, stats: &mut LateGvnStats) {
     }
 }
 
-fn process_block(func: &Function, bi: usize, w: &mut Walk, stats: &mut LateGvnStats) {
+fn process_block(
+    func: &Function,
+    bi: usize,
+    minted: &[u32],
+    w: &mut Walk,
+    stats: &mut LateGvnStats,
+) {
+    let mut minted = minted.iter();
     for inst in &func.blocks[bi].insts {
-        let load = matches!(inst.kind, InstKind::Load(..));
+        let load = is_read(&inst.kind);
         let pure = classify_pure(&inst.kind);
-        if !pure && !load {
-            w.epoch = w.fresh_epoch();
+        if may_store(&inst.kind) {
+            w.epoch = *minted.next().expect("one number per storing instruction");
+            w.note_store(func, &inst.kind);
         }
         let Some(result) = inst.result else { continue };
         if w.multi.contains(&result) {
@@ -262,7 +303,7 @@ fn process_block(func: &Function, bi: usize, w: &mut Walk, stats: &mut LateGvnSt
         if load {
             key.2.push(w.epoch);
         }
-        if risky || load {
+        if risky {
             match w.risky.get(&key) {
                 Some(&(existing, depth)) if w.risky_visible(depth) => {
                     w.replace.insert(result, existing);
@@ -529,5 +570,107 @@ mod tests {
             m.funcs[0].blocks[3].term,
             Terminator::Ret(Some(Operand::Value(v))) if v == ValueId(1)
         ));
+    }
+
+    fn v(i: u32) -> Operand {
+        Operand::Value(ValueId(i))
+    }
+    fn void(kind: InstKind) -> Inst {
+        Inst {
+            result: None,
+            kind,
+            origin: None,
+        }
+    }
+    fn blk(id: u32, insts: Vec<Inst>, term: Terminator) -> Block {
+        Block {
+            id: BlockId(id),
+            insts,
+            term,
+        }
+    }
+    fn field(result: u32) -> Inst {
+        mk(result, InstKind::Load(Type::I64, v(0), 8))
+    }
+
+    /// b0: %1 = load %0+8, then `between`, then `again`, and
+    /// b0 → (b1: `arm` | b2) → b3: %4 = load %0+8; ret %4.
+    fn reads(between: Vec<Inst>, again: Vec<Inst>, arm: Vec<Inst>) -> Module {
+        let mut head = vec![field(1)];
+        head.extend(between);
+        head.extend(again);
+        func_of(
+            vec![
+                vi(Type::Ptr),
+                vi(Type::I64),
+                vi(Type::I64),
+                vi(Type::I64),
+                vi(Type::I64),
+                vi(Type::Ptr),
+            ],
+            vec![
+                blk(
+                    0,
+                    head,
+                    Terminator::CondBr {
+                        cond: Operand::ConstBool(true),
+                        then_blk: BlockId(1),
+                        else_blk: BlockId(2),
+                    },
+                ),
+                blk(1, arm, Terminator::Br(BlockId(3))),
+                blk(2, vec![], Terminator::Br(BlockId(3))),
+                blk(3, vec![field(4)], Terminator::Ret(Some(v(4)))),
+            ],
+        )
+    }
+    fn returned(m: &Module) -> ValueId {
+        match m.funcs[0].blocks[3].term {
+            Terminator::Ret(Some(Operand::Value(r))) => r,
+            _ => panic!("ret of a value"),
+        }
+    }
+
+    #[test]
+    fn a_load_repeated_past_a_join_that_stored_nothing_dedups() {
+        let mut m = reads(vec![], vec![], vec![]);
+        assert_eq!(dedup_pure_ops(&mut m).dedups, 1);
+        assert_eq!(returned(&m), ValueId(1));
+    }
+
+    #[test]
+    fn a_load_past_an_arm_that_stores_stays() {
+        let arm = vec![void(InstKind::Store(Operand::ConstI64(7), v(0), 8))];
+        let mut m = reads(vec![], vec![], arm);
+        assert_eq!(dedup_pure_ops(&mut m).dedups, 0);
+        assert_eq!(returned(&m), ValueId(4));
+    }
+
+    #[test]
+    fn a_computed_offset_load_and_an_address_constant_keep_the_epoch() {
+        let between = vec![
+            mk(5, InstKind::GlobalRef("g".into())),
+            mk(2, InstKind::LoadDyn(Type::I64, v(0), v(1))),
+        ];
+        let mut m = reads(between, vec![field(3)], vec![]);
+        assert_eq!(dedup_pure_ops(&mut m).dedups, 2);
+        assert_eq!(returned(&m), ValueId(1));
+    }
+
+    #[test]
+    fn a_load_after_a_store_to_its_address_reads_the_stored_value() {
+        let between = vec![void(InstKind::Store(v(1), v(0), 8))];
+        let mut m = reads(between, vec![field(3)], vec![]);
+        assert_eq!(dedup_pure_ops(&mut m).dedups, 2);
+        assert_eq!(returned(&m), ValueId(1));
+        // another offset, or a value of another type, is not that load
+        let between = vec![void(InstKind::Store(v(1), v(0), 16))];
+        let mut m = reads(between, vec![field(3)], vec![]);
+        assert_eq!(dedup_pure_ops(&mut m).dedups, 1);
+        assert_eq!(returned(&m), ValueId(3));
+        let between = vec![void(InstKind::Store(v(5), v(0), 8))];
+        let mut m = reads(between, vec![field(3)], vec![]);
+        assert_eq!(dedup_pure_ops(&mut m).dedups, 1);
+        assert_eq!(returned(&m), ValueId(3));
     }
 }

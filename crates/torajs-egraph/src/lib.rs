@@ -278,7 +278,7 @@ pub fn transform_module(mut module: Module) -> Module {
     // re-runs a scoped GVN on the promoted form; entries touching
     // φ-web multi-def values ride a restricted EBB-chain scope (see
     // late_gvn.rs module doc). `TORAJS_LATE_GVN_OFF=1` skips.
-    gated_pass("LATE_GVN", &mut module, late_gvn::dedup_pure_ops);
+    late_gvn::run(&mut module);
     // A goto's `state = copy K; br head` jumps past the compare chain
     // its constant decides (`phi_thread`); needs the φ-destructed
     // copies, so after MEM2REG_PHI. `TORAJS_PHI_THREAD_OFF=1` skips.
