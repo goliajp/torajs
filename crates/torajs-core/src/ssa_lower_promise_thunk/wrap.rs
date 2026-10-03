@@ -8,9 +8,8 @@ use crate::ssa_lower::{
     intern_fn_sig,
 };
 
-/// The call-site half of the adapters above: wrap a callback whose
-/// negotiated signature carries an F64 face in its synthesized
-/// bits-ABI thunk.
+/// Wrap a callback whose negotiated signature carries an F64 face in
+/// the bits-ABI thunk the parent's pre-scan synthesized for it.
 ///
 /// Lives beside the synthesis rather than with the `.then` / `.catch`
 /// lowering because it is the same concern as the thunks it selects

@@ -197,6 +197,29 @@ impl<'a> Analysis<'a> {
         }
     }
 
+    /// A callback argument that names no function but reads a slot
+    /// holding function values (`p.then(o.cb)`; every local of a
+    /// generator or async body is such a read, since the state machine
+    /// keeps it as `this.<name>`): that slot's `face` projection
+    /// (`__p{i}` / `__ret`), which [`Self::fn_value_flow`] glued onto
+    /// every function stored there. Without it the callee's caller is
+    /// invisible and its parameters keep the integer default, so a
+    /// settled 0.5 reached the closure as 0.
+    pub(super) fn callback_projection(
+        &mut self,
+        cb_arg: ExprId,
+        face: &str,
+        scope: &Scope,
+    ) -> Option<SlotKey> {
+        if self.callee_fn_name(cb_arg).is_some() {
+            return None;
+        }
+        let k = self.container_key_lookup(cb_arg, scope)?;
+        let pk = SlotKey::Field(Box::new(k), PropKey::from(face));
+        self.mark_containerish(&pk);
+        Some(pk)
+    }
+
     /// A function's user-facing param names: a lifted closure's first
     /// param is the `__env` pointer — the user arity starts after it.
     /// Every positional hookup (callback acc/elem wiring, `__p{i}`

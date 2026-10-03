@@ -122,8 +122,12 @@ pub(crate) fn synthesize_promise_thunks(
     // A handler named through a closure binding resolves to every
     // closure that binding may hold — the ones the width analysis wired
     // the handler's faces through — so whichever one the call site
-    // hands over finds its adapter.
+    // hands over finds its adapter. One that names no declaration (a
+    // field read, a fn-typed param) has faces only its slot's type
+    // knows at lowering, so every variant is made; unused ones are
+    // stripped at link.
     let mut needed: Vec<(bool, bool, bool)> = Vec::new();
+    let mut unnamed = false;
     for expr in &ast.exprs {
         let Expr::Call { callee, args } = expr else {
             continue;
@@ -143,10 +147,11 @@ pub(crate) fn synthesize_promise_thunks(
                     .map(|f| f.as_str())
                     .collect(),
                 Expr::Closure { fn_name, .. } => vec![fn_name.as_str()],
-                _ => continue,
+                _ => vec![""],
             };
             for cb in cbs {
                 if !fn_user_params.contains_key(cb) {
+                    unnamed = true;
                     continue;
                 }
                 let (p_num, r_num) = fn_num_faces[cb];
@@ -160,6 +165,15 @@ pub(crate) fn synthesize_promise_thunks(
                     if !needed.contains(&key) {
                         needed.push(key);
                     }
+                }
+            }
+        }
+    }
+    if unnamed {
+        for (p, r) in [(false, true), (true, false), (true, true)] {
+            for key in [(false, p, r), (true, p, r)] {
+                if !needed.contains(&key) {
+                    needed.push(key);
                 }
             }
         }

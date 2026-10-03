@@ -197,7 +197,7 @@ impl<'a> Analysis<'a> {
             return;
         };
         if matches!(name.as_str(), "then" | "catch" | "finally") {
-            self.promise_chain_wiring(eid, &recv, &name, args);
+            self.promise_chain_wiring(eid, &recv, &name, args, scope);
         }
         self.mark_containerish(&recv);
         let ek = SlotKey::Elem(Box::new(recv.clone()));

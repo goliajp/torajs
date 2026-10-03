@@ -1,0 +1,17 @@
+then 1.5
+catch 0.75
+finally 0.5
+all 1.5 2
+big 9007199254740994
+nan NaN
+two 0.75
+later 1.5
+return 0.5
+param 2.5
+field 1.5
+rejected 0.5
+gen 0.5
+gen 1
+bump direct 1.5
+int into frac 7
+frac param 3

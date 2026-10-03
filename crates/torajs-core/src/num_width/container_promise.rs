@@ -137,6 +137,7 @@ impl Analysis<'_> {
         recv: &SlotKey,
         name: &str,
         args: &[ExprId],
+        scope: &Scope,
     ) {
         let anon = SlotKey::Anon(eid.0);
         self.mark_containerish(&anon);
@@ -156,8 +157,34 @@ impl Analysis<'_> {
                     if r_num {
                         self.uf.union(&res_pv, &SlotKey::Ret(cb));
                     }
+                } else if let Some(pk) = self.callback_projection(*a, "__p0", scope) {
+                    // a handler read out of a slot: only the any lane
+                    // converts the value through its boxed entry; a
+                    // typed lane hands raw bits through a bitcast
+                    // thunk and an inline await reads the slot raw, so
+                    // each face widens with its value point both ways.
+                    // Edges rather than a union: the slot's projection
+                    // class may hold handlers whose faces are not
+                    // numbers, which must not join the value class.
+                    self.both_ways(&src_pv, &pk);
+                    if let Some(rk) = self.callback_projection(*a, "__ret", scope) {
+                        self.both_ways(&res_pv, &rk);
+                    }
                 }
             }
         }
+    }
+
+    /// Width edges `a → b` and `b → a`, neither marked growth: a value
+    /// handed across unchanged cannot close a growth cycle.
+    fn both_ways(&mut self, a: &SlotKey, b: &SlotKey) {
+        self.c_edges
+            .entry(a.clone())
+            .or_default()
+            .push((b.clone(), false));
+        self.c_edges
+            .entry(b.clone())
+            .or_default()
+            .push((a.clone(), false));
     }
 }
