@@ -34,6 +34,8 @@
 //! `pending_sep` comma protocol, the same §25.5.2.4 step 8.b
 //! undefined-Str key skip, the same quoted-lane escape walk.
 
+mod direct;
+
 use crate::json_builder::{
     __torajs_jsb_finalize, __torajs_jsb_new, __torajs_jsb_push_str_quoted, write_i64_into,
 };
@@ -57,6 +59,9 @@ const OBJ_HEADER_SIZE: usize = 32;
 pub unsafe extern "C" fn __torajs_jsb_stringify_shape(desc: *const u8, obj: *const u8) -> *mut u8 {
     let desc_len = unsafe { (desc.add(STR_LEN_OFF) as *const u32).read() } as usize;
     let d = unsafe { core::slice::from_raw_parts(desc.add(STR_DATA_OFF), desc_len) };
+    if let Some(out) = unsafe { direct::stringify(d, obj) } {
+        return out;
+    }
     let n_fields = (d[0] - 1) as usize;
     // Static bytes + digits headroom; the builder grows on demand.
     let sb = unsafe { __torajs_jsb_new((desc_len + 2 + n_fields * 20) as u32) };
