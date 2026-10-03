@@ -17,7 +17,10 @@
 //! edge, and at least one member's init is a split call — otherwise
 //! there is nothing to keep as views and the class keeps today's
 //! verdicts. Poison is a class property: one owned member makes every
-//! edge into it a real escape again.
+//! edge into it a real escape again. The elements of an admitted
+//! `string[][]` container are one more member, under a name of their
+//! own (`rows[i] = parts`, `const row = rows[j]` —
+//! [`super::let_owned_elems_nest`]).
 //!
 //! Names are program-wide, not scoped — the same bias as the window
 //! walk. Two bindings spelled alike are one class, and a name any
@@ -38,25 +41,40 @@ use super::{Ast, BinOp, Expr, ExprId};
 
 /// The bare names a value answers one of unchanged — the forms
 /// `is_bare` sees through — or None when some leaf is anything else.
-fn alias_leaves<'a>(ast: &'a Ast, eid: ExprId, out: &mut Vec<&'a str>) -> bool {
+/// An element of an admitted container (`rows[i]`) answers the name
+/// of the container's element class.
+fn alias_leaves<'a>(
+    ast: &'a Ast,
+    names: &'a AliasNames,
+    eid: ExprId,
+    out: &mut Vec<&'a str>,
+) -> bool {
+    let leaves = |e: ExprId, out: &mut Vec<&'a str>| alias_leaves(ast, names, e, out);
     match ast.get_expr(eid) {
         Expr::Ident(n) => {
             out.push(n);
             true
         }
-        Expr::As { expr, .. } => alias_leaves(ast, *expr, out),
+        Expr::Index { .. } => match super::let_owned_elems_nest::element_class(ast, names, eid) {
+            Some(class) => {
+                out.push(class);
+                true
+            }
+            None => false,
+        },
+        Expr::As { expr, .. } => leaves(*expr, out),
         Expr::Ternary {
             then_branch,
             else_branch,
             ..
-        } => alias_leaves(ast, *then_branch, out) && alias_leaves(ast, *else_branch, out),
-        Expr::Nullish { lhs, rhs } => alias_leaves(ast, *lhs, out) && alias_leaves(ast, *rhs, out),
+        } => leaves(*then_branch, out) && leaves(*else_branch, out),
+        Expr::Nullish { lhs, rhs } => leaves(*lhs, out) && leaves(*rhs, out),
         Expr::BinOp {
             op: BinOp::LAnd | BinOp::LOr,
             left,
             right,
-        } => alias_leaves(ast, *left, out) && alias_leaves(ast, *right, out),
-        Expr::Sequence { right, .. } => alias_leaves(ast, *right, out),
+        } => leaves(*left, out) && leaves(*right, out),
+        Expr::Sequence { right, .. } => leaves(*right, out),
         _ => false,
     }
 }
@@ -65,7 +83,7 @@ fn alias_leaves<'a>(ast: &'a Ast, eid: ExprId, out: &mut Vec<&'a str>) -> bool {
 /// target and every leaf of the value are connectable names.
 pub(super) fn alias_edge<'a>(
     ast: &'a Ast,
-    names: &AliasNames,
+    names: &'a AliasNames,
     target: &str,
     value: ExprId,
 ) -> Option<Vec<&'a str>> {
@@ -73,7 +91,7 @@ pub(super) fn alias_edge<'a>(
         return None;
     }
     let mut leaves = Vec::new();
-    (alias_leaves(ast, value, &mut leaves) && leaves.iter().all(|n| names.aliasable(n)))
+    (alias_leaves(ast, names, value, &mut leaves) && leaves.iter().all(|n| names.aliasable(n)))
         .then_some(leaves)
 }
 
@@ -164,10 +182,8 @@ pub(super) fn settle(
         }
     }
     for e in &ast.exprs {
-        if let Expr::Assign { target, value } = e
-            && let Expr::Ident(t) = ast.get_expr(*target)
-        {
-            for leaf in alias_edge(ast, names, t, *value).unwrap_or_default() {
+        if let Some((t, value)) = super::let_owned_elems_nest::edge_slot(ast, names, e) {
+            for leaf in alias_edge(ast, names, t, value).unwrap_or_default() {
                 classes.union(t, leaf);
             }
         }
@@ -194,16 +210,34 @@ pub(super) fn settle(
             has_split.insert(root);
         }
     }
+    // a joined name with no declaration the walk saw (a container
+    // declared in a `for` head) leaves its class unruled on
+    let joined: HashSet<String> = classes
+        .parent
+        .iter()
+        .flat_map(|(a, b)| [a.clone(), b.clone()])
+        .collect();
+    for n in joined {
+        if seen.get(n.as_str()) != names.let_counts.get(&n) {
+            let root = classes.find(&n);
+            poisoned.insert(root);
+        }
+    }
     let mut members: HashMap<String, Vec<ExprId>> = HashMap::new();
-    let mut owned = HashSet::new();
     for d in decls {
         let root = classes.find(&d.name);
         if !poisoned.contains(&root) && has_split.contains(&root) {
             members.entry(root).or_default().push(d.init);
-        } else if d.written {
-            owned.insert(d.init);
         }
     }
+    // a container's own declaration shares its init with its element
+    // class, and the class's verdict is the one the init answers to
+    let in_view: HashSet<ExprId> = members.values().flatten().copied().collect();
+    let owned = decls
+        .iter()
+        .filter(|d| d.written && !in_view.contains(&d.init))
+        .map(|d| d.init)
+        .collect();
     let view_slots = members
         .values()
         .flat_map(|m| m.iter().map(move |i| (*i, m.clone())))

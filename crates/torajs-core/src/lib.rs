@@ -6,9 +6,8 @@
 //! downstream callers (`torajs-cli`, the conformance and bench
 //! harnesses) drive any sub-stage of the pipeline directly.
 //!
-//! Depends on `torajs-rc` (and the other Layer-1+ sub-crates via
-//! build.rs env vars) for the staticlibs that torajs-link bakes
-//! into every `tr build` user binary.
+//! Depends on `torajs-rc` and the other Layer-1+ sub-crates (build.rs env vars)
+//! for the staticlibs that torajs-link bakes into every `tr build` user binary.
 
 pub use staticlibs::{TORAJS_COMPILER_REV, TORAJS_STATICLIBS};
 

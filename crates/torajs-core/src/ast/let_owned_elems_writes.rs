@@ -5,6 +5,7 @@
 //! documented there.
 
 use super::let_owned_elems_alias::{AliasNames, alias_edge};
+use super::let_owned_elems_nest::{self as nest, Nest};
 use super::view_homes::stores_owned;
 use super::{Ast, BinOp, Expr, ExprId, Stmt};
 
@@ -12,16 +13,27 @@ use super::{Ast, BinOp, Expr, ExprId, Stmt};
 /// connectable bindings (`y = x` / `let y = x`,
 /// [`super::let_owned_elems_alias`]) counts as a write. With `None`
 /// it does, which is the verdict a poisoned alias class falls back
-/// to.
+/// to. `nest` is set when `x` is a container's element class
+/// ([`super::let_owned_elems_nest`]).
 pub(super) struct Query<'a> {
     pub x: &'a str,
     pub aliases: Option<&'a AliasNames>,
+    pub nest: Option<&'a Nest<'a>>,
 }
 
 impl Query<'_> {
     fn alias(&self, ast: &Ast, target: &str, value: ExprId) -> bool {
         self.aliases
             .is_some_and(|names| alias_edge(ast, names, target, value).is_some())
+    }
+
+    /// A store of a bare value along an alias edge: `t = v`, `C[e] = v`,
+    /// `C.push(v)`.
+    fn alias_store(&self, ast: &Ast, e: ExprId) -> bool {
+        self.aliases.is_some_and(|names| {
+            nest::edge_slot(ast, names, ast.get_expr(e))
+                .is_some_and(|(t, v)| alias_edge(ast, names, t, v).is_some())
+        })
     }
 }
 
@@ -54,6 +66,13 @@ fn is_bare(ast: &Ast, eid: ExprId, x: &str) -> bool {
 // somewhere under the node.
 fn expr_writes(ast: &Ast, eid: ExprId, q: &Query<'_>) -> bool {
     let x = q.x;
+    if let Some(n) = q.nest
+        && let Some(v) = nest::container_use(ast, eid, n, &|t, v| q.alias(ast, t, v), &|e| {
+            expr_writes(ast, e, q)
+        })
+    {
+        return v;
+    }
     let is_x = |e: ExprId| matches!(ast.get_expr(e), Expr::Ident(n) if n == x);
     match ast.get_expr(eid) {
         Expr::Call { callee, args } => {
@@ -63,8 +82,9 @@ fn expr_writes(ast: &Ast, eid: ExprId, q: &Query<'_>) -> bool {
             {
                 return true;
             }
-            // the whole array handed to a callee: an escape
-            if args.iter().any(|a| is_bare(ast, *a, x)) {
+            // the whole array handed to a callee: an escape, unless the
+            // callee is a container's push along an alias edge
+            if args.iter().any(|a| is_bare(ast, *a, x)) && !q.alias_store(ast, eid) {
                 return true;
             }
             expr_writes(ast, *callee, q) || args.iter().any(|a| expr_writes(ast, *a, q))
@@ -88,10 +108,7 @@ fn expr_writes(ast: &Ast, eid: ExprId, q: &Query<'_>) -> bool {
             // the layout. The same edge, seen from the value side, is
             // then no escape either.
             let rebound = is_x(*target);
-            let alias = match ast.get_expr(*target) {
-                Expr::Ident(t) => q.alias(ast, t, *value),
-                _ => false,
-            };
+            let alias = q.alias_store(ast, eid);
             // the whole array stored anywhere: an escape
             target_is_through_x
                 || ((rebound || is_bare(ast, *value, x)) && !alias)
@@ -175,6 +192,14 @@ pub(super) fn stmt_writes(ast: &Ast, s: &Stmt, q: &Query<'_>) -> bool {
         Stmt::Return(e) => e.is_some_and(|e| is_bare(ast, e, x) || expr_writes(ast, e, q)),
         Stmt::Break(_) | Stmt::Continue(_) => false,
         Stmt::LetDecl { name, init, .. } => {
+            if let Some(n) = q.nest
+                && let Some(v) =
+                    nest::let_use(ast, name, *init, n, &|t, v| q.alias(ast, t, v), &|e| {
+                        expr_writes(ast, e, q)
+                    })
+            {
+                return v;
+            }
             (is_bare(ast, *init, x) && !q.alias(ast, name, *init)) || expr_writes(ast, *init, q)
         }
         Stmt::UsingDecl { init, .. } => is_bare(ast, *init, x) || expr_writes(ast, *init, q),

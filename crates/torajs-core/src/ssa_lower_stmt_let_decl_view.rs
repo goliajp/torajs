@@ -32,12 +32,23 @@ pub(crate) fn view_slot_verdict(ctx: &LowerCtx<'_>, init: ExprId) -> Option<bool
 }
 
 /// The slot type a view-class member declares: an owned-string array
-/// annotation becomes the view layout the class shares.
+/// annotation becomes the view layout the class shares, and a
+/// container of them (`ast::let_owned_elems_nest`) holds that layout
+/// in every element.
 pub(crate) fn view_slot_ty(ctx: &mut LowerCtx<'_>, ty: Type) -> Type {
-    match ty {
-        Type::Arr(aid) if ctx.arr_layouts[aid.0 as usize] == Type::Str => Type::Arr(
-            crate::ssa_lower::intern_arr_layout(ctx.arr_layouts, Type::Substr),
-        ),
-        t => t,
+    let Type::Arr(aid) = ty else { return ty };
+    match ctx.arr_layouts[aid.0 as usize] {
+        Type::Str => Type::Arr(crate::ssa_lower::intern_arr_layout(
+            ctx.arr_layouts,
+            Type::Substr,
+        )),
+        Type::Arr(iid) if ctx.arr_layouts[iid.0 as usize] == Type::Str => {
+            let inner = crate::ssa_lower::intern_arr_layout(ctx.arr_layouts, Type::Substr);
+            Type::Arr(crate::ssa_lower::intern_arr_layout(
+                ctx.arr_layouts,
+                Type::Arr(inner),
+            ))
+        }
+        _ => ty,
     }
 }

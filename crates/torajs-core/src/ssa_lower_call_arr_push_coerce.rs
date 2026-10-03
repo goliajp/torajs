@@ -25,6 +25,22 @@ pub(crate) fn coerce_push_value(
     arg_eid: ExprId,
     elem_ty: Type,
 ) -> (Operand, bool) {
+    // `rows.push([])` into a container of split views: the empty block
+    // takes the view layout the container's elements share, where a
+    // bare `[]` would answer an `any` block
+    if let Type::Arr(inner) = elem_ty
+        && ctx.arr_layouts[inner.0 as usize] == Type::Substr
+        && matches!(ctx.ast.get_expr(arg_eid), crate::ast::Expr::Array(els) if els.is_empty())
+    {
+        let cur_block = ctx.cur_block;
+        let v = ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(ctx.intrinsics.arr_alloc, vec![Operand::ConstI64(0)]),
+            elem_ty,
+            None,
+        );
+        return (Operand::Value(v), true);
+    }
     let mut val = ctx.lower_expr(arg_eid);
     // Chunk 575 — an array value entering a container slot must be
     // self-describing for the cycle walker (chain mark; no-op for

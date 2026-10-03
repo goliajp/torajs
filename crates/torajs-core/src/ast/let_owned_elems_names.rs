@@ -8,7 +8,8 @@ use super::{Ast, Expr, ExprId, StaticInit, Stmt};
 
 /// Every name the program binds, by the kind of binder.
 pub(super) struct AliasNames {
-    /// How many `let` / `const` / `var` declarations spell each name.
+    /// How many `let` / `const` / `var` declarations spell each name
+    /// (an admitted container's element class counts as one).
     pub(super) let_counts: HashMap<String, usize>,
     /// Names some other binder declares.
     pub(super) foreign: HashSet<String>,
@@ -18,6 +19,12 @@ pub(super) struct AliasNames {
     /// `(declared name, init)` of every `let` declaration, for the
     /// init-side edges.
     pub(super) decls: Vec<(String, ExprId)>,
+    /// `(declared name, init)` of every declaration annotated as an
+    /// array of owned-string arrays.
+    pub(super) nest_shaped: Vec<(String, ExprId)>,
+    /// Admitted containers ([`super::let_owned_elems_nest`]): the
+    /// container's name → the name of its element class.
+    pub(super) containers: HashMap<String, String>,
 }
 
 impl AliasNames {
@@ -32,6 +39,8 @@ pub(super) fn collect_names(ast: &Ast) -> AliasNames {
         foreign: HashSet::new(),
         promoted: HashSet::new(),
         decls: Vec::new(),
+        nest_shaped: Vec::new(),
+        containers: HashMap::new(),
     };
     names_in_stmts(&ast.stmts, &mut names);
     for e in &ast.exprs {
@@ -49,6 +58,7 @@ pub(super) fn collect_names(ast: &Ast) -> AliasNames {
             names.promoted.insert(name.clone());
         }
     }
+    super::let_owned_elems_nest::admit_containers(ast, &mut names);
     names
 }
 
@@ -60,9 +70,17 @@ fn names_in_stmts(stmts: &[Stmt], names: &mut AliasNames) {
 
 fn names_in_stmt(s: &Stmt, names: &mut AliasNames) {
     match s {
-        Stmt::LetDecl { name, init, .. } => {
+        Stmt::LetDecl {
+            name,
+            init,
+            type_ann,
+            ..
+        } => {
             *names.let_counts.entry(name.clone()).or_insert(0) += 1;
             names.decls.push((name.clone(), *init));
+            if super::let_owned_elems_nest::is_nest_ann(type_ann.as_deref()) {
+                names.nest_shaped.push((name.clone(), *init));
+            }
         }
         Stmt::UsingDecl { name, .. } | Stmt::YieldInto { var: name, .. } => {
             names.foreign.insert(name.clone());

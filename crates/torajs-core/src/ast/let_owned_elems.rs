@@ -74,6 +74,7 @@
 use std::collections::HashSet;
 
 use super::let_owned_elems_alias::{self as alias, AliasNames, Decl};
+use super::let_owned_elems_nest::Nest;
 use super::let_owned_elems_writes::{Query, stmt_writes};
 use super::view_homes;
 use super::{Ast, ExprId, Stmt};
@@ -139,12 +140,36 @@ fn low_walk_stmts(
                 written: window(&Query {
                     x: name,
                     aliases: None,
+                    nest: None,
                 }),
                 poisoned: window(&Query {
                     x: name,
                     aliases: Some(names),
+                    nest: None,
                 }),
             });
+            // a container's element class is ruled on over the
+            // container's window, and every occurrence of the
+            // container must have been seen there
+            if let Some(class) = names.containers.get(name) {
+                let n = Nest {
+                    c: name,
+                    class,
+                    seen: Default::default(),
+                };
+                let poisoned = window(&Query {
+                    x: class,
+                    aliases: Some(names),
+                    nest: Some(&n),
+                }) || !n.all_seen(ast);
+                found.decls.push(Decl {
+                    name: class.clone(),
+                    init: *init,
+                    candidate: true,
+                    written: false,
+                    poisoned,
+                });
+            }
         }
     }
     for s in stmts {
