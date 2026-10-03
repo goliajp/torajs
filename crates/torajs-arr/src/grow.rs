@@ -38,6 +38,17 @@ unsafe extern "C" {
     fn malloc(n: usize) -> *mut c_void;
 }
 
+/// The capacity one growth step moves to: double, and never under 16
+/// slots. Doubling from 4 moved a pushed-to array's buffer at 4, 8, 16
+/// and 32 elements, four allocate-copy-release rounds for a list of a
+/// few dozen where two do; the price is 128 bytes instead of 32 for
+/// the buffer of an array pushed to once. Past 16 the step is the
+/// doubling it was, so a large array copies no more than before.
+#[inline]
+pub(crate) fn grown_cap(cap: u64) -> u64 {
+    (cap * 2).max(16)
+}
+
 /// RFC 20260706-arr-grow-alias-stability B1 — grow the data buffer to
 /// `new_cap` slots (8-byte stride; typed and Array<Any> share it).
 /// The CELL never moves, so every alias — caller bindings, container
@@ -103,7 +114,7 @@ pub(crate) unsafe fn grow_slots_as_holes(arr: *mut u8, old: u64, new_n: u64, fil
 /// fast path: head + len < cap → store immediately
 /// need-room:
 ///   if head > 0: memmove(data, data + head*8, len*8); head = 0  // T-13.5 compact
-///   if len == cap: grow_data_buffer(max(4, cap*2))
+///   if len == cap: grow_data_buffer(grown_cap(cap))
 /// store: *(arr_data(arr) + (head + len)*8) = val; len += 1
 /// ```
 ///
@@ -140,8 +151,7 @@ pub unsafe extern "C" fn __torajs_arr_push(arr: *mut u8, val: i64) -> *mut u8 {
             }
         }
         if len == cap {
-            let new_cap = if cap == 0 { 4 } else { cap * 2 };
-            unsafe { grow_data_buffer(arr, new_cap as u64) };
+            unsafe { grow_data_buffer(arr, grown_cap(cap as u64)) };
         }
     }
 

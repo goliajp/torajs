@@ -21,7 +21,7 @@ use core::ffi::c_void;
 
 use torajs_rc::{FLAG_ARR_ANY, FLAG_ARR_EXOTIC_INDEX, HeapHeader};
 
-use crate::grow::grow_data_buffer;
+use crate::grow::{grow_data_buffer, grown_cap};
 use crate::layout::{ARR_LEN_OFF, arr_data};
 
 /// Tag value for ANY_UNDEF — returned by OOB get to match JS spec.
@@ -122,8 +122,7 @@ pub unsafe extern "C" fn __torajs_arr_push_any(arr: *mut c_void, tag: u64, value
         let len = *(arr.add(ARR_LEN_OFF) as *const u64);
         let cap = *(arr.add(ARR_CAP_LOW32_OFF) as *const u32);
         if (len as u32) == cap {
-            let new_cap: u32 = if cap == 0 { 4 } else { cap * 2 };
-            grow_data_buffer(arr, new_cap as u64);
+            grow_data_buffer(arr, grown_cap(cap as u64));
         }
         let av = __torajs_anyv_box_from_pair(tag as i64, value as i64);
         *slot_anyvalue_ptr(arr, len) = av;
@@ -180,8 +179,7 @@ pub unsafe extern "C" fn __torajs_arr_push_any_boxed(arr: *mut u8, av: u64) -> *
         let len = *(arr.add(ARR_LEN_OFF) as *const u64);
         let cap = *(arr.add(ARR_CAP_LOW32_OFF) as *const u32);
         if (len as u32) == cap {
-            let new_cap: u32 = if cap == 0 { 4 } else { cap * 2 };
-            grow_data_buffer(arr, new_cap as u64);
+            grow_data_buffer(arr, grown_cap(cap as u64));
         }
         __torajs_rc_inc(av as *mut c_void);
         *slot_anyvalue_ptr(arr, len) = av;
@@ -240,11 +238,7 @@ pub unsafe extern "C" fn __torajs_arr_extend_any(dst: *mut u8, src: *const u8) -
         let cap = *(dst.add(ARR_CAP_LOW32_OFF) as *const u32);
         let needed = dst_len + src_len;
         if needed > cap as u64 {
-            let mut new_cap: u32 = if cap == 0 { 4 } else { cap };
-            while (new_cap as u64) < needed {
-                new_cap *= 2;
-            }
-            grow_data_buffer(dst, new_cap as u64);
+            grow_data_buffer(dst, grown_cap(cap as u64).max(needed));
         }
         for i in 0..src_len {
             // src is technically *const u8; cast via *mut for the
@@ -415,11 +409,7 @@ pub unsafe extern "C" fn __torajs_arr_set_any_grow(
         }
         let cap = *(arr.add(ARR_CAP_LOW32_OFF) as *const u32) as u64;
         if i >= cap {
-            let mut new_cap: u64 = if cap == 0 { 4 } else { cap * 2 };
-            if new_cap < i + 1 {
-                new_cap = i + 1;
-            }
-            grow_data_buffer(arr, new_cap);
+            grow_data_buffer(arr, grown_cap(cap).max(i + 1));
         }
         let undef = __torajs_anyv_box_from_pair(5, 0); // ANY_UNDEF
         for k in len..i {

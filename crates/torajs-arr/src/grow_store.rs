@@ -14,7 +14,7 @@
 
 use core::ffi::c_void;
 
-use crate::grow::grow_data_buffer;
+use crate::grow::{grow_data_buffer, grown_cap};
 use crate::layout::{ARR_CAP_OFF, ARR_LEN_OFF, arr_data};
 
 /// Offset of the `head_offset` u32 (T-13.5 deque packed cap + head).
@@ -68,11 +68,7 @@ pub(crate) unsafe fn typed_grow_store(arr: *mut u8, i: u64, raw: u64, hole: u64)
         }
         let cap = *(arr.add(ARR_CAP_OFF) as *const u32) as u64;
         if cap < i + 1 {
-            let mut new_cap: u64 = if cap == 0 { 4 } else { cap * 2 };
-            if new_cap < i + 1 {
-                new_cap = i + 1;
-            }
-            grow_data_buffer(arr, new_cap);
+            grow_data_buffer(arr, grown_cap(cap).max(i + 1));
         }
         let slots = arr_data(arr);
         for k in old..i {

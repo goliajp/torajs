@@ -27,7 +27,7 @@ use torajs_rc::{
 };
 
 use crate::any::{ANY_HEAP, ANY_SLOT_BYTES, ANY_UNDEF, slot_anyvalue_ptr};
-use crate::grow::grow_data_buffer;
+use crate::grow::{grow_data_buffer, grown_cap};
 use crate::layout::{ARR_LEN_OFF, arr_data};
 
 /// Head-offset slot (matches `any.rs` / `index_any.rs`).
@@ -401,11 +401,7 @@ pub unsafe extern "C" fn __torajs_arr_extend_typed_into_any(
         let cap = *(dst.add(ARR_CAP_LOW32_OFF) as *const u32);
         let needed = dst_len + src_len;
         if needed > cap as u64 {
-            let mut new_cap: u32 = if cap == 0 { 4 } else { cap };
-            while (new_cap as u64) < needed {
-                new_cap *= 2;
-            }
-            grow_data_buffer(dst, new_cap as u64);
+            grow_data_buffer(dst, grown_cap(cap as u64).max(needed));
         }
         // Box each typed src slot per the tag scheme. src is a typed
         // deque — fold its head offset in (a shifted src otherwise
