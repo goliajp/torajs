@@ -1,0 +1,177 @@
+//! Which values a frame cell may back: the mint sites, and the set
+//! of values joined to each by copies with every use checked against
+//! the rules in the parent module's doc.
+
+use std::collections::{HashMap, HashSet};
+
+use torajs_core::ssa::{
+    Function, Inst, InstKind, Operand, Terminator, ValueId, visit_value_operands,
+};
+
+use super::{HDR_BYTES, I64_DIGITS_MAX, Kernels, Mint};
+
+#[derive(Clone, Copy)]
+pub(super) enum Use {
+    Inst(usize, usize),
+    Term,
+}
+
+pub(super) struct Index<'f> {
+    pub(super) f: &'f Function,
+    pub(super) defs: HashMap<ValueId, Vec<(usize, usize)>>,
+    pub(super) uses: HashMap<ValueId, Vec<Use>>,
+}
+
+impl<'f> Index<'f> {
+    pub(super) fn of(f: &'f Function) -> Self {
+        let mut defs: HashMap<ValueId, Vec<(usize, usize)>> = HashMap::new();
+        let mut uses: HashMap<ValueId, Vec<Use>> = HashMap::new();
+        for (b, block) in f.blocks.iter().enumerate() {
+            for (i, inst) in block.insts.iter().enumerate() {
+                if let Some(r) = inst.result {
+                    defs.entry(r).or_default().push((b, i));
+                }
+                visit_value_operands(&inst.kind, |v| {
+                    uses.entry(v).or_default().push(Use::Inst(b, i))
+                });
+            }
+            match &block.term {
+                Terminator::Ret(Some(Operand::Value(v)))
+                | Terminator::CondBr {
+                    cond: Operand::Value(v),
+                    ..
+                } => uses.entry(*v).or_default().push(Use::Term),
+                _ => {}
+            }
+        }
+        Index { f, defs, uses }
+    }
+
+    pub(super) fn inst(&self, b: usize, i: usize) -> &'f Inst {
+        &self.f.blocks[b].insts[i]
+    }
+}
+
+/// The slot a mint call needs, or `None` when `inst` is not one.
+pub(super) fn mint_of(inst: &Inst, k: &Kernels, ix: &Index<'_>) -> Option<(u64, Mint)> {
+    let InstKind::Call(fid, args) = &inst.kind else {
+        return None;
+    };
+    inst.result?;
+    if Some(*fid) == k.to_str && args.len() == 1 {
+        let bytes = (HDR_BYTES + I64_DIGITS_MAX).next_multiple_of(8);
+        return Some((bytes, Mint::ToStr));
+    }
+    if Some(*fid) != k.concat || args.len() != 2 {
+        return None;
+    }
+    let Operand::Value(a) = args[0] else {
+        return None;
+    };
+    let [(b, i)] = ix.defs.get(&a)?.as_slice() else {
+        return None;
+    };
+    let InstKind::StaticStrRef(sid) = ix.inst(*b, *i).kind else {
+        return None;
+    };
+    Some(((*k.lit_cells.get(sid.0 as usize)?)?, Mint::Concat))
+}
+
+pub(super) enum Role {
+    Copy(ValueId),
+    Drop,
+    Read,
+    Escape,
+}
+
+pub(super) fn role(inst: &Inst, v: ValueId, k: &Kernels) -> Role {
+    let is_v = |op: &Operand| *op == Operand::Value(v);
+    match &inst.kind {
+        InstKind::Copy(_, op) if is_v(op) => inst.result.map_or(Role::Escape, Role::Copy),
+        InstKind::Call(fid, args) if *fid == k.drop => {
+            if inst.result.is_none() && args.len() == 1 {
+                Role::Drop
+            } else {
+                Role::Escape
+            }
+        }
+        InstKind::Call(fid, args) => match k.readers.get(fid) {
+            Some(slots)
+                if args
+                    .iter()
+                    .enumerate()
+                    .all(|(p, a)| !is_v(a) || slots.contains(&p)) =>
+            {
+                Role::Read
+            }
+            _ => Role::Escape,
+        },
+        InstKind::Load(_, base, _) if is_v(base) => Role::Read,
+        InstKind::LoadDyn(_, base, idx)
+        | InstKind::LoadU8Dyn(base, idx)
+        | InstKind::LoadU16Dyn(base, idx)
+            if is_v(base) && !is_v(idx) =>
+        {
+            Role::Read
+        }
+        _ => Role::Escape,
+    }
+}
+
+/// Whether the bytes behind `v` at inst `j` of block `b` are those
+/// of `v`'s own latest def: its one def is a mint, or the latest def
+/// before `j` in the block is one. Every call def of a value in the
+/// set is a mint, which [`web`] checks.
+fn reads_own_bytes(ix: &Index<'_>, b: usize, j: usize, v: ValueId) -> bool {
+    let is_call = |inst: &Inst| matches!(inst.kind, InstKind::Call(..));
+    if let Some([(db, di)]) = ix.defs.get(&v).map(|d| d.as_slice())
+        && is_call(ix.inst(*db, *di))
+    {
+        return true;
+    }
+    ix.f.blocks[b].insts[..j]
+        .iter()
+        .rev()
+        .find(|inst| inst.result == Some(v))
+        .is_some_and(is_call)
+}
+
+/// The set of values joined to the mint result `r` by copies, and
+/// whether every one of them stays readable only while its slot's
+/// bytes are the ones written.
+pub(super) fn web(r: ValueId, k: &Kernels, ix: &Index<'_>) -> (HashSet<ValueId>, bool) {
+    let mut set = HashSet::from([r]);
+    let mut queue = vec![r];
+    let mut ok = !ix.f.params.contains(&r);
+    while let Some(v) = queue.pop() {
+        let mut join = |w: ValueId, set: &mut HashSet<ValueId>| {
+            if set.insert(w) {
+                queue.push(w);
+            }
+        };
+        if ix.f.params.contains(&v) {
+            ok = false;
+        }
+        for &(b, i) in ix.defs.get(&v).map_or(&[][..], |d| d.as_slice()) {
+            let inst = ix.inst(b, i);
+            match &inst.kind {
+                InstKind::Copy(_, Operand::Value(u)) => join(*u, &mut set),
+                _ if mint_of(inst, k, ix).is_some() => {}
+                _ => ok = false,
+            }
+        }
+        for &u in ix.uses.get(&v).map_or(&[][..], |u| u.as_slice()) {
+            let Use::Inst(b, j) = u else {
+                ok = false;
+                continue;
+            };
+            match role(ix.inst(b, j), v, k) {
+                Role::Copy(w) => join(w, &mut set),
+                Role::Drop => {}
+                Role::Read => ok &= reads_own_bytes(ix, b, j, v),
+                Role::Escape => ok = false,
+            }
+        }
+    }
+    (set, ok)
+}

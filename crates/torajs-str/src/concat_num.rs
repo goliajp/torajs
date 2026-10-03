@@ -24,14 +24,18 @@
 //! sentinel in a Str-typed slot, RC-4 F1b-2) takes the cold path:
 //! mint the digits as a real Str and delegate to
 //! [`__torajs_str_concat`], which owns the undefined-text rule.
+//!
+//! The `_into` kernels write the same cells into a slot of the
+//! caller's frame; torajs-egraph places one only where nothing can
+//! keep the result.
 
 use crate::block::StrBlock;
 use crate::concat::{
     __torajs_str_concat, str_is_latin1, str_len, str_payload, widen_latin1_into_utf16,
 };
-use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_ASCII};
+use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_ASCII, STR_LEN_OFF, packed_header_init};
 use crate::str_drop::__torajs_str_drop;
-use torajs_rc::HeapHeader;
+use torajs_rc::{FLAG_STATIC_LITERAL, HeapHeader};
 
 unsafe extern "C" {
     /// JS-spec f64 → decimal digits (NaN / ±Infinity literals,
@@ -42,31 +46,43 @@ unsafe extern "C" {
     fn __torajs_f64_js_digits(d: f64, out: *mut u8) -> i64;
 }
 
-/// Shared tail: fresh Str holding `a ++ digits`, where `write` fills
+/// `a`'s length, encoding and ASCII mark. Digits are ASCII, so a
+/// result is exactly as ASCII as `a` and shares its encoding.
+///
+/// # Safety
+/// `a` must be a valid, non-NULL Str block.
+#[inline(always)]
+unsafe fn tail_shape(a: *const u8) -> (u32, bool, u16) {
+    unsafe {
+        let ascii = (*(a as *const HeapHeader)).flags & STR_FLAG_IS_ASCII;
+        (str_len(a), str_is_latin1(a), ascii)
+    }
+}
+
+/// Write `a ++ digits` into the payload of `dst`, where `write` fills
 /// the `d_len` ASCII digit bytes at the pointer it is handed. A
 /// Latin-1 `a` hands it the result's own tail, so the digits land in
 /// place; a UTF-16 `a` hands it a stack line and widens.
 ///
 /// # Safety
-/// `a` must be a valid, non-NULL Str heap block; `d_len` ≤ 32.
-unsafe fn concat_ascii_tail(a: *const u8, d_len: usize, write: impl FnOnce(*mut u8)) -> *mut u8 {
-    let a_len = unsafe { str_len(a) };
-    let a_is_latin1 = unsafe { str_is_latin1(a) };
-    let total_len = a_len + d_len as u32;
-    // Digits are ASCII, so the result is exactly as ASCII as `a`.
-    let ascii = unsafe { (*(a as *const HeapHeader)).flags } & STR_FLAG_IS_ASCII;
-    let block = StrBlock::alloc_with_flags(total_len, a_is_latin1, ascii);
-    let unit = if a_is_latin1 { 1 } else { 2 };
-    let a_byte_cnt = a_len as usize * unit;
-    // SAFETY: the block's payload holds `a_byte_cnt + d_len * unit`
-    // bytes and `a`'s holds `a_byte_cnt`
+/// `a` is a valid Str of `a_len` units in the encoding `latin1`
+/// names; `dst` has room for `a_len + d_len` units in it; `d_len` ≤ 32.
+#[inline(always)]
+unsafe fn fill_ascii_tail(
+    dst: *mut u8,
+    a: *const u8,
+    a_len: u32,
+    latin1: bool,
+    d_len: usize,
+    write: impl FnOnce(*mut u8),
+) {
+    let a_byte_cnt = a_len as usize * if latin1 { 1 } else { 2 };
     unsafe {
-        let dst = block.into_raw();
         let payload = dst.add(STR_DATA_OFF);
         let a_payload = str_payload(a, a_byte_cnt);
         core::ptr::copy_nonoverlapping(a_payload.as_ptr(), payload, a_byte_cnt);
         let d_slot = payload.add(a_byte_cnt);
-        if a_is_latin1 {
+        if latin1 {
             write(d_slot);
         } else {
             let mut line = [0u8; 32];
@@ -74,7 +90,33 @@ unsafe fn concat_ascii_tail(a: *const u8, d_len: usize, write: impl FnOnce(*mut 
             let wide = core::slice::from_raw_parts_mut(d_slot, d_len * 2);
             widen_latin1_into_utf16(&line[..d_len], wide);
         }
-        dst
+    }
+}
+
+/// Fresh heap Str holding `a ++ digits`; see [`fill_ascii_tail`].
+///
+/// # Safety
+/// `a` must be a valid, non-NULL Str block; `d_len` ≤ 32.
+unsafe fn concat_ascii_tail(a: *const u8, d_len: usize, write: impl FnOnce(*mut u8)) -> *mut u8 {
+    let (a_len, latin1, ascii) = unsafe { tail_shape(a) };
+    let dst = StrBlock::alloc_with_flags(a_len + d_len as u32, latin1, ascii).into_raw();
+    unsafe { fill_ascii_tail(dst, a, a_len, latin1, d_len, write) };
+    dst
+}
+
+/// Header of a Str cell that lives in its caller's frame. It is
+/// marked static, so every rc op and release passes over it — which
+/// is only sound because the compiler places one solely where each
+/// reader of the cell is known not to keep it.
+///
+/// # Safety
+/// `buf` is 8-aligned and holds the header and `length` units.
+#[inline(always)]
+unsafe fn stack_cell(buf: *mut u8, length: u32, latin1: bool, extra: u16) {
+    let flags = (extra | FLAG_STATIC_LITERAL) as u64;
+    unsafe {
+        (buf as *mut u64).write(packed_header_init(latin1) | flags << 48);
+        (buf.add(STR_LEN_OFF) as *mut u64).write(length as u64);
     }
 }
 
@@ -132,4 +174,45 @@ pub unsafe extern "C" fn __torajs_str_concat_f64(a: *const u8, d: f64) -> *mut u
             core::ptr::copy_nonoverlapping(digits.as_ptr(), slot, digits.len())
         })
     }
+}
+
+/// `a + String(n)` written into the caller's frame cell `buf`
+/// instead of a fresh allocation; answers `buf`. Nothing releases the
+/// cell: its header is static.
+///
+/// # Safety
+/// `a` is a valid, non-NULL Str; `buf` is 8-aligned with room for the
+/// 16-byte header and `a`'s units plus 20 more in `a`'s encoding.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_concat_i64_into(
+    a: *const u8,
+    n: i64,
+    buf: *mut u8,
+) -> *mut u8 {
+    use torajs_fmt::itoa::{itoa_len, itoa_write};
+    let d_len = itoa_len(n);
+    unsafe {
+        let (a_len, latin1, ascii) = tail_shape(a);
+        stack_cell(buf, a_len + d_len as u32, latin1, ascii);
+        fill_ascii_tail(buf, a, a_len, latin1, d_len, |slot| {
+            itoa_write(n, slot, d_len)
+        });
+    }
+    buf
+}
+
+/// `String(n)` written into the caller's frame cell `buf`; answers
+/// `buf`. Nothing releases the cell: its header is static.
+///
+/// # Safety
+/// `buf` is 8-aligned with room for 16 + 20 bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_i64_to_str_into(n: i64, buf: *mut u8) -> *mut u8 {
+    use torajs_fmt::itoa::{itoa_len, itoa_write};
+    let len = itoa_len(n);
+    unsafe {
+        stack_cell(buf, len as u32, true, STR_FLAG_IS_ASCII);
+        itoa_write(n, buf.add(STR_DATA_OFF), len);
+    }
+    buf
 }

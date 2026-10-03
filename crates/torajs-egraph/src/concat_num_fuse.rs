@@ -32,8 +32,13 @@
 //! shape (it deletes a whole cell round-trip, not just a copy), and
 //! a number-on-the-left `%t` would otherwise be claimed as that
 //! pass's drop-left operand. `TORAJS_CONCAT_NUM_FUSE_OFF=1` skips.
+//!
+//! Then [`stack`] moves the number strings that are only read into
+//! the caller's frame (`TORAJS_STR_STACK_OFF=1` skips that half).
 
 use torajs_core::ssa::{FuncId, Inst, InstKind, Module, Operand, ValueId};
+
+mod stack;
 
 const I64_TO_STR: &str = "__torajs_i64_to_str";
 const F64_TO_STR: &str = "__torajs_f64_to_str";
@@ -51,11 +56,21 @@ pub struct ConcatNumFuseStats {
     /// `to_str` results that did not sit in the exact window
     /// (different consumer, number on the left, non-adjacent drop).
     pub near_miss: u32,
+    /// Number-string mints moved into the caller's frame.
+    pub stacked: u32,
 }
 
 /// Rewrite every strict `to_str` + `concat`(right) + `drop` triple
-/// in the module.
+/// in the module, then move the read-only number strings to the stack.
 pub fn fuse_concat_nums(module: &mut Module) -> ConcatNumFuseStats {
+    let mut stats = fuse(module);
+    if std::env::var_os("TORAJS_STR_STACK_OFF").is_none_or(|v| v != "1") {
+        stats.stacked = stack::stack_temps(module);
+    }
+    stats
+}
+
+fn fuse(module: &mut Module) -> ConcatNumFuseStats {
     let mut stats = ConcatNumFuseStats::default();
     let (Some(concat_fid), Some(drop_fid)) =
         (find_func(module, STR_CONCAT), find_func(module, STR_DROP))
