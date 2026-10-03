@@ -18,7 +18,12 @@
 //! surfaces that hand out a method by a computed name, and a
 //! computed non-numeric key on a receiver that could be an array.
 //! Any hit means "not pinned"; the cost of a false hit is the
-//! head-aware address arithmetic the program paid before.
+//! head-aware address arithmetic the program paid before. The bodies
+//! of method twins no foreign receiver can enter are left out
+//! ([`twin_roads`]): their `any`-typed copies of the method's reads
+//! never run.
+
+mod twin_roads;
 
 use std::collections::HashMap;
 
@@ -26,9 +31,10 @@ use crate::ast::{Ast, Expr, ExprId};
 use crate::check::Type;
 
 pub(crate) fn program_pins_arr_head(ast: &Ast, expr_types: &HashMap<ExprId, Type>) -> bool {
-    !ast.exprs
-        .iter()
-        .any(|e| expr_may_reach_head_mutation(ast, expr_types, e))
+    let dead_twins = twin_roads::unreachable_twin_exprs(ast, expr_types);
+    !ast.exprs.iter().enumerate().any(|(i, e)| {
+        !dead_twins.contains(&ExprId(i as u32)) && expr_may_reach_head_mutation(ast, expr_types, e)
+    })
 }
 
 fn expr_may_reach_head_mutation(ast: &Ast, expr_types: &HashMap<ExprId, Type>, e: &Expr) -> bool {
