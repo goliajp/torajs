@@ -33,10 +33,12 @@ use core::ffi::c_void;
 use core::ptr;
 
 use crate::layout::{
-    HeapHeader, PROMISE_SIZE, Promise, PromiseCb, RX_CLOSURE, RX_NONE, STATE_FULFILLED,
-    STATE_PENDING, STATE_REJECTED, TAG_PROMISE, as_promise, inline_link_derived,
+    HeapHeader, PROMISE_SIZE, Promise, PromiseCb, RX_NONE, STATE_FULFILLED, STATE_PENDING,
+    STATE_REJECTED, TAG_PROMISE, as_promise,
 };
-use crate::reaction::candidate::{cycle_candidate, offer_root};
+
+mod teardown;
+pub use teardown::__torajs_promise_drop;
 
 /// Bounded freelist capacity. Matches
 /// `runtime_promise.c::__TORAJS_PROMISE_POOL_CAP = 32`.
@@ -53,8 +55,6 @@ pub(crate) const FLAG_STATIC_LITERAL: u16 = 4;
 const FLAG_SUBCLASSED: u16 = 1;
 
 use std::sync::atomic::{AtomicI32, AtomicPtr, Ordering};
-
-use torajs_rc::{FLAG_BUFFERED, rc_dec_cell};
 
 /// Freelist head — `Promise.callbacks` repurposed as `next`.
 /// AtomicPtr static pattern (same as torajs-arr::pool / torajs-weak::
@@ -75,16 +75,6 @@ unsafe extern "C" {
     /// torajs-rc. Bumps refcount by 1 (NaN-box gated; the kernel's
     /// own stakes on known cells use `torajs_rc::rc_inc_cell`).
     fn __torajs_rc_inc(p: *mut c_void);
-    /// Universal-drop dispatcher in runtime_str.c. Routes the heap
-    /// pointer to its type-specific drop helper.
-    fn __torajs_value_drop_heap(p: *mut c_void);
-    /// torajs-cycle — cycle-root buffer scrub (the push is
-    /// `reaction::candidate::offer_root`'s).
-    fn __torajs_cycle_unbuffer(p: *mut c_void);
-    /// torajs-meta — scrub a dying exotic-subclass instance's
-    /// identity entry (RFC 20260730 blade 0); gated on
-    /// `FLAG_SUBCLASSED` so plain promises never call out.
-    fn __torajs_subclass_drop_entry(p: *mut c_void);
 }
 
 /// Internal alloc — pop pool or malloc, then init fields.
@@ -296,96 +286,4 @@ pub unsafe extern "C" fn __torajs_promise_resolve_thenable(p: *mut c_void) -> *m
     // with placeholder reason so user sees clear test failure rather
     // than a silent wrong-value pass through.
     unsafe { __torajs_promise_alloc_rejected(0) }
-}
-
-/// rc-aware drop. Called from `value_drop_heap`'s TAG_PROMISE case.
-/// On last owner: free residual cb list, drop heap value if any,
-/// return Promise to pool (or free if pool full).
-///
-/// # Safety
-/// `p` is NULL or a live Promise cell; the caller gives up its reference.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_promise_drop(p: *mut c_void) {
-    if p.is_null() {
-        return;
-    }
-    let pp = as_promise(p);
-    if !unsafe { rc_dec_cell(p) } {
-        // Still referenced. Only a cell that can close a ring is a
-        // candidate root (`reaction::candidate`).
-        if unsafe { cycle_candidate(pp) } {
-            unsafe { offer_root(pp) };
-        }
-        return;
-    }
-    unsafe {
-        // Defensive: STATIC_LITERAL Promise (none in practice today;
-        // the universal drop dispatch sees the bit and skips, but
-        // re-check here to keep the invariant if dispatch path
-        // changes).
-        if (*pp).header.flags & FLAG_STATIC_LITERAL != 0 {
-            return;
-        }
-        // Unfired reactions in this cell's list: a heap record is
-        // freed, its block released when `ops` describes it (an opaque
-        // block stays with the kernel that minted it); an inline
-        // derived cell has its back-pointer to this dying cell cut
-        // and the list's stake on it released.
-        let mut link = (*pp).callbacks;
-        while !link.is_null() {
-            let derived = inline_link_derived(link);
-            if derived.is_null() {
-                let next = (*link).next;
-                if !(*link).ops.is_null() {
-                    ((*(*link).ops).release)((*link).arg);
-                }
-                free(link as *mut c_void, core::mem::size_of::<PromiseCb>());
-                link = next;
-            } else {
-                let next = (*derived).rx_next;
-                (*derived).rx_next = ptr::null_mut();
-                (*derived).rx_source = ptr::null_mut();
-                __torajs_promise_drop(derived as *mut c_void);
-                link = next;
-            }
-        }
-        (*pp).callbacks = ptr::null_mut();
-        // An unfired inline reaction this cell carries: release an
-        // owned closure env. Its `rx_source` is a back-pointer, not
-        // a stake — a queued reaction, the only kind that holds its
-        // source, cannot reach here (`reaction.rs`, "Ownership").
-        if (*pp).rx_kind != RX_NONE {
-            let cb = (*pp).rx_cb;
-            let kind = (*pp).rx_kind;
-            (*pp).rx_kind = RX_NONE;
-            (*pp).rx_source = ptr::null_mut();
-            (*pp).rx_cb = ptr::null_mut();
-            (*pp).rx_next = ptr::null_mut();
-            if kind & RX_CLOSURE != 0 && !cb.is_null() {
-                __torajs_value_drop_heap(cb);
-            }
-        }
-        // Heap-typed resolved value gets a type-specific drop.
-        if (*pp).value_is_heap != 0 && (*pp).state != STATE_PENDING && (*pp).value != 0 {
-            __torajs_value_drop_heap((*pp).value as *mut c_void);
-        }
-        if (*pp).header.flags & FLAG_SUBCLASSED != 0 {
-            __torajs_subclass_drop_entry(p);
-        }
-        // Expando props dynobj (defineProperty landings) — the
-        // universal dispatcher routes it to the dynobj drop; NULLed
-        // so a pool re-issue starts clean.
-        if !(*pp).props.is_null() {
-            __torajs_value_drop_heap((*pp).props);
-            (*pp).props = ptr::null_mut();
-        }
-        // Scrub from the root buffer before the memory goes away: a
-        // cell buffered above that later normal-drops to zero would
-        // leave a dangling candidate. The bit is read here so the
-        // common never-buffered promise skips the call.
-        if (*pp).header.flags & FLAG_BUFFERED != 0 {
-            __torajs_cycle_unbuffer(p);
-        }
-        promise_release_(pp);
-    }
 }
