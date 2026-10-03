@@ -21,6 +21,7 @@ use crate::vm::search::dfa_find_from;
 
 use super::RegExp;
 use super::STR_HDR_SIZE;
+use super::replace_fn_units::{STR_MAX_UNITS, too_long};
 
 unsafe extern "C" {
     fn __torajs_str_alloc_pooled_enc(len: u64, is_latin1: i64) -> *mut u8;
@@ -69,6 +70,9 @@ pub(super) unsafe fn replace_ascii_splice(
         }
     }
     let total = s.len() - removed + n * repl.len();
+    if total > STR_MAX_UNITS {
+        return Some(unsafe { too_long() });
+    }
     // SAFETY: the pooled allocator answers a Latin-1 block with room for
     // `total` payload bytes at STR_HDR_SIZE; every byte is written below
     // from in-bounds ranges of `s` and `repl`.

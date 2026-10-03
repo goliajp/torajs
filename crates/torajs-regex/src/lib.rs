@@ -346,6 +346,17 @@ pub unsafe extern "C" fn __torajs_throw_syntax_error(_msg: *const u8) {
 /// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_throw_range_error(_msg: *const u8) {
+    panic!(
+        "torajs-regex test stub: __torajs_throw_range_error should not be called from cargo test"
+    );
+}
+
+/// # Safety
+/// Never reached: a link-time stand-in for the cargo test binary that
+/// panics on call.
+#[cfg(test)]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_to_number(_v: u64) -> f64 {
     panic!(
         "torajs-regex test stub: __torajs_anyv_to_number should not be called from cargo test (lastIndex stays in numeric form there)"

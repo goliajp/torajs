@@ -16,6 +16,27 @@ use crate::onepass::ir::{is_high_surrogate, is_low_surrogate};
 unsafe extern "C" {
     /// torajs-str — a block of `len` code units, Latin-1 or UTF-16
     fn __torajs_str_alloc_pooled_enc(len: u64, is_latin1: i64) -> *mut u8;
+    fn __torajs_throw_range_error(msg: *const u8);
+}
+
+/// The most code units a Str holds: its length field is a u32 and a
+/// UTF-16 payload's byte count must fit one too. A longer replace
+/// result is a RangeError, the implementation limit §6.1.4 allows.
+pub(super) const STR_MAX_UNITS: usize = (u32::MAX / 2) as usize;
+
+/// Raise the RangeError for a result past [`STR_MAX_UNITS`] and answer
+/// an empty Str, which the caller's throw check discards.
+///
+/// # Safety
+///
+/// Calls the torajs-str allocator and the torajs-throw raise.
+#[cold]
+#[inline(never)]
+pub(super) unsafe fn too_long() -> *mut c_void {
+    unsafe {
+        __torajs_throw_range_error(c"Invalid string length".as_ptr().cast());
+        __torajs_str_alloc_pooled_enc(0, 1) as *mut c_void
+    }
 }
 
 /// The walk over a subject's own code units through the literal's
@@ -117,6 +138,8 @@ pub(super) fn advance_empty(view: &UnitsView<'_>, flags: u8, at: i64) -> i64 {
 pub(super) enum UnitBuf {
     Narrow(Vec<u8>),
     Wide(Vec<u16>),
+    /// past [`STR_MAX_UNITS`]: nothing more is kept
+    TooLong,
 }
 
 impl UnitBuf {
@@ -129,6 +152,15 @@ impl UnitBuf {
 
     /// Append units `from..to` of `view`.
     pub(super) fn push(&mut self, view: &UnitsView<'_>, from: usize, to: usize) {
+        let held = match self {
+            UnitBuf::Narrow(out) => out.len(),
+            UnitBuf::Wide(out) => out.len(),
+            UnitBuf::TooLong => return,
+        };
+        if held + (to - from) > STR_MAX_UNITS {
+            *self = UnitBuf::TooLong;
+            return;
+        }
         match (view, &mut *self) {
             (UnitsView::Narrow(s), UnitBuf::Narrow(out)) => out.extend_from_slice(&s[from..to]),
             (UnitsView::Narrow(s), UnitBuf::Wide(out)) => {
@@ -141,11 +173,12 @@ impl UnitBuf {
                 wide.extend_from_slice(&s[from..to]);
                 *self = UnitBuf::Wide(wide);
             }
+            (_, UnitBuf::TooLong) => unreachable!("answered above"),
         }
     }
 
     /// The string of these units, in the narrowest encoding that
-    /// holds them.
+    /// holds them; past [`STR_MAX_UNITS`], a pending RangeError.
     ///
     /// # Safety
     ///
@@ -157,6 +190,7 @@ impl UnitBuf {
             UnitBuf::Wide(units) if units.iter().all(|&u| u <= 0xFF) => {
                 units.iter().map(|&u| u as u8).collect()
             }
+            UnitBuf::TooLong => return unsafe { too_long() },
             UnitBuf::Wide(units) => unsafe {
                 let block = __torajs_str_alloc_pooled_enc(units.len() as u64, 0);
                 core::ptr::copy_nonoverlapping(

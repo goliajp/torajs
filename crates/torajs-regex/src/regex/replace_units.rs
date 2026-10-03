@@ -20,7 +20,7 @@ use core::ffi::c_void;
 use core::mem::MaybeUninit;
 
 use super::exec_find::{matcher_for, search_start};
-use super::replace_fn_units::{UnitBuf, advance_empty};
+use super::replace_fn_units::{STR_MAX_UNITS, UnitBuf, advance_empty, too_long};
 use super::replace_splice::put;
 use super::static_keys::FLAG_STATIC_LITERAL;
 use super::str_helpers::subject::{UnitsView, str_units_view};
@@ -265,6 +265,9 @@ unsafe fn splice_narrow<const SUB: bool>(
     // SAFETY: only `hits[..n]` / `rows[..n]` are read, and each was
     // written above (`rows` whenever `SUB` is set)
     *last_end = Some(unsafe { hits[n - 1].assume_init() }.1 as i64);
+    if total > STR_MAX_UNITS {
+        return Some(unsafe { too_long() });
+    }
     // SAFETY: a Latin-1 block with room for `total` payload units, each
     // written below from in-bounds ranges of `s` and `repl`, both narrow
     unsafe {
@@ -298,12 +301,15 @@ impl Sink for UnitBuf {
     }
 }
 
-/// Counts the units a substitution writes.
+/// Counts the units a substitution writes, up to one past
+/// [`STR_MAX_UNITS`].
 struct Count(usize);
 
 impl Sink for Count {
     fn span(&mut self, _: &UnitsView<'_>, from: usize, to: usize) {
-        self.0 += to - from;
+        // `$&` / `` $` `` / `$'` repeat whole spans, so an uncapped
+        // count over a long replacement and subject can pass usize
+        self.0 = (self.0 + (to - from)).min(STR_MAX_UNITS + 1);
     }
 }
 
@@ -478,7 +484,7 @@ mod tests {
         substitute(&rv, &sv, 1, 5, &saves, 2, &mut out);
         match out {
             UnitBuf::Narrow(v) => v,
-            UnitBuf::Wide(_) => unreachable!(),
+            UnitBuf::Wide(_) | UnitBuf::TooLong => unreachable!(),
         }
     }
 
