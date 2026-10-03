@@ -31,6 +31,7 @@ pub mod devirt;
 pub mod egraph;
 mod egraph_pass;
 pub mod elaborate;
+mod fact_folds;
 pub mod fconst_hoist;
 pub mod float_demote;
 pub mod frem_guard;
@@ -305,7 +306,7 @@ pub fn transform_module(mut module: Module) -> Module {
         });
     }
     if let Some(facts) = &interval_facts {
-        fact_folds(&mut module, facts);
+        fact_folds::fact_folds(&mut module, facts);
     }
     // Parity-compare strength reduction — a srem-by-2^k whose every
     // use is an eq/ne-vs-0 compare rewrites to and-by-mask (codegen
@@ -440,23 +441,6 @@ pub fn transform_module(mut module: Module) -> Module {
     );
     finish_pipeline(&mut module);
     module
-}
-
-/// Rewrites that read the interval facts after float_demote (facts
-/// stay id-valid across both).
-fn fact_folds(module: &mut Module, facts: &[HashMap<ValueId, interval::NumFact>]) {
-    // Interval-decided compare absorption — frem_narrow's fused zero
-    // guard over a divisor the facts prove non-zero collapses onto the
-    // remainder compare. `TORAJS_CMP_FACT_FOLD_OFF=1` skips.
-    gated_pass("CMP_FACT_FOLD", module, |m| {
-        cmp_fact_fold::fold_decided_cmps(m, facts)
-    });
-    // Exact float remainder — `frem(sitofp x, C)` over a dividend in
-    // [0, 2^53) becomes `sitofp(srem x, C)`, and a concat_f64 reader
-    // takes the integer. `TORAJS_FREM_INT_OFF=1` skips.
-    gated_pass("FREM_INT", module, |m| frem_int::exact_frems(m, facts));
-    // a `frem` over operands that may be integers gets a checked integer arm
-    gated_pass("FREM_GUARD", module, |m| frem_guard::guard_frems(m, facts));
 }
 
 /// The pipeline tail — rc-pair elision, then the cfg-shape passes whose

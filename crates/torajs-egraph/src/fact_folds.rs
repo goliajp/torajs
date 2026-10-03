@@ -1,0 +1,24 @@
+//! The rewrites that read the interval facts after float_demote.
+
+use std::collections::HashMap;
+
+use torajs_core::ssa::{Module, ValueId};
+
+use crate::{cmp_fact_fold, frem_guard, frem_int, gated_pass, interval};
+
+/// Rewrites that read the interval facts after float_demote (facts
+/// stay id-valid across both).
+pub(crate) fn fact_folds(module: &mut Module, facts: &[HashMap<ValueId, interval::NumFact>]) {
+    // Interval-decided compare absorption — frem_narrow's fused zero
+    // guard over a divisor the facts prove non-zero collapses onto the
+    // remainder compare. `TORAJS_CMP_FACT_FOLD_OFF=1` skips.
+    gated_pass("CMP_FACT_FOLD", module, |m| {
+        cmp_fact_fold::fold_decided_cmps(m, facts)
+    });
+    // Exact float remainder — `frem(sitofp x, C)` over a dividend in
+    // [0, 2^53) becomes `sitofp(srem x, C)`, and a concat_f64 reader
+    // takes the integer. `TORAJS_FREM_INT_OFF=1` skips.
+    gated_pass("FREM_INT", module, |m| frem_int::exact_frems(m, facts));
+    // a `frem` over operands that may be integers gets a checked integer arm
+    gated_pass("FREM_GUARD", module, |m| frem_guard::guard_frems(m, facts));
+}
