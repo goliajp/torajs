@@ -4,11 +4,11 @@ use std::collections::HashMap;
 
 use torajs_core::ssa::{Module, ValueId};
 
-use crate::{cmp_fact_fold, frem_guard, frem_int, gated_pass, interval};
+use crate::{cmp_fact_fold, frem_guard, frem_int, gated_pass, interval, srem_fquot};
 
 /// Rewrites that read the interval facts after float_demote (facts
 /// stay id-valid across both).
-pub(crate) fn fact_folds(module: &mut Module, facts: &[HashMap<ValueId, interval::NumFact>]) {
+pub(crate) fn fact_folds(module: &mut Module, facts: &mut [HashMap<ValueId, interval::NumFact>]) {
     // Interval-decided compare absorption — frem_narrow's fused zero
     // guard over a divisor the facts prove non-zero collapses onto the
     // remainder compare. `TORAJS_CMP_FACT_FOLD_OFF=1` skips.
@@ -21,4 +21,10 @@ pub(crate) fn fact_folds(module: &mut Module, facts: &[HashMap<ValueId, interval
     gated_pass("FREM_INT", module, |m| frem_int::exact_frems(m, facts));
     // a `frem` over operands that may be integers gets a checked integer arm
     gated_pass("FREM_GUARD", module, |m| frem_guard::guard_frems(m, facts));
+    // a divisibility test in a loop takes its quotient from `fdiv`; the
+    // rewritten remainders' facts are dropped (their ids now name the
+    // product), so sext32_set below reads none of them
+    gated_pass("SREM_FQUOT", module, |m| {
+        srem_fquot::float_quotient_srems(m, facts)
+    });
 }

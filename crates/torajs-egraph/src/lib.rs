@@ -67,6 +67,7 @@ pub mod self_tail_call;
 pub mod sext_elide;
 pub mod slot_cells;
 pub mod slot_forward;
+pub mod srem_fquot;
 pub mod srem_parity;
 pub mod str_append;
 pub mod throw_check_fold;
@@ -293,7 +294,7 @@ pub fn transform_module(mut module: Module) -> Module {
     // canonical shape. Feeds float demotion below and seeds sext_elide
     // R2 with loop cells provably inside i32 range (the popcount
     // residual-pair case). `TORAJS_INTERVAL_OFF=1` skips (bisect gate).
-    let interval_facts = analyze_intervals(&module);
+    let mut interval_facts = analyze_intervals(&module);
     // Float demotion (RFC 20260611 phase 1b-i) — integer-valued f64
     // closures whose every op is provably exact rewrite to i64 in
     // place (frem→srem kills the per-iteration fmod libcall). Facts
@@ -305,7 +306,7 @@ pub fn transform_module(mut module: Module) -> Module {
             float_demote::demote_floats(m, facts)
         });
     }
-    if let Some(facts) = &interval_facts {
+    if let Some(facts) = &mut interval_facts {
         fact_folds::fact_folds(&mut module, facts);
     }
     // Parity-compare strength reduction — a srem-by-2^k whose every
