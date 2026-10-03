@@ -15,7 +15,8 @@
 //! (`arr[i % pool]`) or a branch inside the loop (`if (n % d === 0) s
 //! += d`, mispredicted on the divisibility pattern) pays the latency
 //! and measured slower. With the compare as the only reader, the gcd
-//! recurrence `b = a % b` (a copy) stays out too.
+//! recurrence `b = a % b` (a copy) stays out too. Once select_form has
+//! turned that branch into a select, `select` takes the test after it.
 //!
 //! The rewritten remainder's id names the product `q * y`, so its
 //! interval fact is dropped. Constant divisors are left alone, so the
@@ -23,6 +24,9 @@
 //! `TORAJS_SREM_FQUOT_OFF=1` skips, `TORAJS_SREM_FQUOT_STATS=1` counts.
 
 mod hoist;
+mod select;
+
+pub use select::float_quotient_select_srems;
 
 use std::collections::HashMap;
 
@@ -45,6 +49,16 @@ pub struct SremFquotStats {
     pub compared: u32,
 }
 
+/// Who may read the zero compare of a rewritten remainder.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Readers {
+    /// only the branch of its block, leaving the loop
+    ExitBranch,
+    /// only selects deciding on it, off any recurrence into the
+    /// remainder's operands (`select::selects_only`)
+    Selects,
+}
+
 pub fn float_quotient_srems(
     module: &mut Module,
     facts: &mut [HashMap<ValueId, NumFact>],
@@ -52,7 +66,7 @@ pub fn float_quotient_srems(
     let mut stats = SremFquotStats::default();
     for (func, fm) in module.funcs.iter_mut().zip(facts) {
         if !func.is_declaration() {
-            for r in rewrite_function(func, fm, &mut stats) {
+            for r in rewrite_function(func, fm, &mut stats, Readers::ExitBranch) {
                 fm.remove(&r);
             }
         }
@@ -107,9 +121,8 @@ impl Uses {
     }
 }
 
-/// Every use of `r` is an eq/ne compare against 0 later in block `bi`,
-/// with no def of `x` between, whose only reader is the block's branch,
-/// and that branch leaves the loop; `r` has one def.
+/// `r`'s zero compares are each read only by the block's branch, and
+/// that branch leaves the loop.
 fn exit_tests_only(func: &Function, uses: &Uses, s: &Site, body: &[BlockId]) -> bool {
     let insts = &func.blocks[s.bi].insts;
     let leaves = match &func.blocks[s.bi].term {
@@ -125,6 +138,19 @@ fn exit_tests_only(func: &Function, uses: &Uses, s: &Site, body: &[BlockId]) -> 
         let c = insts[i].result;
         c.is_some() && c == leaves && uses.reads[&c.unwrap()] == [(s.bi, insts.len())]
     };
+    zero_tests_only(func, uses, s, exit_branch_only)
+}
+
+/// Every use of `r` is an eq/ne compare against 0 later in block `bi`,
+/// with no def of `x` between, that `reader_ok` accepts (given its
+/// index); `r` has one def.
+fn zero_tests_only(
+    func: &Function,
+    uses: &Uses,
+    s: &Site,
+    reader_ok: impl Fn(usize) -> bool,
+) -> bool {
+    let insts = &func.blocks[s.bi].insts;
     let xv = match s.x {
         Operand::Value(v) => Some(v),
         _ => None,
@@ -141,9 +167,9 @@ fn exit_tests_only(func: &Function, uses: &Uses, s: &Site, body: &[BlockId]) -> 
     };
     let reads = uses.reads.get(&s.r).map_or(&[][..], Vec::as_slice);
     uses.one_def(s.r)
-        && reads.iter().all(|&(b, i)| {
-            b == s.bi && i > s.at && i < insts.len() && zero_cmp(i) && exit_branch_only(i)
-        })
+        && reads
+            .iter()
+            .all(|&(b, i)| b == s.bi && i > s.at && i < insts.len() && zero_cmp(i) && reader_ok(i))
 }
 
 struct Site {
@@ -162,6 +188,7 @@ fn rewrite_function(
     func: &mut Function,
     facts: &HashMap<ValueId, NumFact>,
     stats: &mut SremFquotStats,
+    readers: Readers,
 ) -> Vec<ValueId> {
     let uses = Uses::of(func);
     let dom = DominatorTree::compute(func);
@@ -195,7 +222,12 @@ fn rewrite_function(
                 y: *y,
                 lp,
             };
-            if exit_tests_only(func, &uses, &site, &la.loops()[lp].body) {
+            let body = &la.loops()[lp].body;
+            let ok = match readers {
+                Readers::ExitBranch => exit_tests_only(func, &uses, &site, body),
+                Readers::Selects => select::selects_only(func, &uses, &site, body),
+            };
+            if ok {
                 sites.push(site);
             }
         }
@@ -322,13 +354,50 @@ mod tests {
     }
 
     fn run(f: &mut Function, n_hi: i128, i_lo: i128) -> SremFquotStats {
+        run_for(f, n_hi, i_lo, Readers::ExitBranch)
+    }
+
+    fn run_for(f: &mut Function, n_hi: i128, i_lo: i128, readers: Readers) -> SremFquotStats {
         let facts = HashMap::from([
             (ValueId(0), NumFact::new(0, n_hi)),
             (ValueId(1), NumFact::new(i_lo, 1 << 70)),
         ]);
         let mut stats = SremFquotStats::default();
-        rewrite_function(f, &facts, &mut stats);
+        rewrite_function(f, &facts, &mut stats, readers);
         stats
+    }
+
+    /// The trial loop with its zero test read by `%6 = select %4, %1,
+    /// %0` instead of the branch, and `latch` closing the iteration.
+    fn select_loop(latch: Vec<Inst>) -> Function {
+        let mut body = zero_test();
+        body.push(i(6, InstKind::Select(Type::I64, v(4), v(1), v(0))));
+        let mut f = trial_loop(v(1), body, latch);
+        f.blocks[2].term = Terminator::Br(BlockId(3));
+        f
+    }
+
+    #[test]
+    fn a_test_only_selects_read_takes_the_float_quotient() {
+        let mut f = select_loop(step());
+        assert_eq!(run_for(&mut f, 1000, 2, Readers::Selects).compared, 1);
+        assert!(matches!(
+            f.blocks[2].insts[1].kind,
+            InstKind::BinOp(BinOp::FDiv, _, _)
+        ));
+        // the exit-test rule leaves it to the select rule
+        let mut f = select_loop(step());
+        assert_eq!(run(&mut f, 1000, 2), NONE);
+    }
+
+    #[test]
+    fn a_select_feeding_the_divisor_keeps_srem() {
+        // `i = select(...)`: the quotient's latency would sit on the
+        // recurrence through the divisor
+        let mut latch = step();
+        latch[1] = i(1, InstKind::Copy(Type::I64, v(6)));
+        let mut f = select_loop(latch);
+        assert_eq!(run_for(&mut f, 1000, 2, Readers::Selects), NONE);
     }
 
     const NONE: SremFquotStats = SremFquotStats { compared: 0 };

@@ -2,7 +2,7 @@ use torajs_core::ssa::Module;
 
 use crate::{
     block_layout, concat_num_fuse, gated_pass, loop_rotate, map_find_cse, rc_dec_immediate,
-    rc_peephole, scaled_addr, select_form, str_append, unroll_jam,
+    rc_peephole, scaled_addr, select_form, srem_fquot, str_append, unroll_jam,
 };
 
 /// Select formation and the inst-level fusions that read its output,
@@ -15,6 +15,15 @@ pub(crate) fn form_selects_and_fuse(module: &mut Module) {
     // as rc-transparent. `TORAJS_SELECT_FORM_OFF=1` skips (bisect
     // gate, mirrors the sibling passes).
     gated_pass("SELECT_FORM", module, select_form::form_selects);
+    // A divisibility test the selects just formed decide on takes its
+    // quotient from `fdiv` as an exit test does. Before cmp_sink, which
+    // keeps the compare next to its select.
+    // `TORAJS_SREM_FQUOT_SELECT_OFF=1` skips.
+    gated_pass(
+        "SREM_FQUOT_SELECT",
+        module,
+        srem_fquot::float_quotient_select_srems,
+    );
     // Compare sink — restore ICmp/Select adjacency that the hoisted
     // speculated arms just broke, so codegen's adjacency-gated NZCV
     // fuse fires (RFC 20260719-select-formation route ③). Right after
