@@ -114,7 +114,9 @@ fn pre_lanes(
 }
 
 /// `F0…`: lane j's inner header test in `heads[j]`; the last lane goes
-/// on to `fb`, any lane done to `done`.
+/// on to `fb`, any lane done to `done`. A test on a shared value is
+/// every lane's: `heads[0]` then computes every lane's header values
+/// and tests once (the other heads are left unreached).
 fn inner_heads(
     func: &mut Function,
     p: &Plan,
@@ -132,6 +134,7 @@ fn inner_heads(
     else {
         unreachable!("planned inner header ends in cond_br");
     };
+    let one_test = p.shared.contains(&ic);
     let insts = func.blocks[ih.0 as usize].insts.clone();
     let (first, rest) = lanes.split_at_mut(1);
     let lane0 = &mut first[0];
@@ -139,14 +142,16 @@ fn inner_heads(
         clone_into(func, heads[0], inst, lane0);
     }
     for (j, map) in rest.iter_mut().enumerate() {
+        let head = if one_test { heads[0] } else { heads[j + 1] };
         for inst in &insts {
             if !reuse_shared(p, inst, Some(lane0), map) {
-                clone_into(func, heads[j + 1], inst, map);
+                clone_into(func, head, inst, map);
             }
         }
     }
-    for (j, map) in lanes.iter().enumerate() {
-        let stay = if j + 1 < LANES { heads[j + 1] } else { fb };
+    let tested = if one_test { 1 } else { LANES };
+    for (j, map) in lanes.iter().enumerate().take(tested) {
+        let stay = if j + 1 < tested { heads[j + 1] } else { fb };
         let (then_blk, else_blk) = if p.inner_on_true {
             (stay, done)
         } else {
@@ -158,6 +163,9 @@ fn inner_heads(
             else_blk,
         };
     }
+    for &h in &heads[tested..] {
+        func.blocks[h.0 as usize].term = Terminator::Br(fb);
+    }
 }
 
 /// `FB`: every lane's inner body from `fb`. Returns the block it ends
@@ -166,8 +174,11 @@ fn inner_heads(
 /// still runs its own instructions in order (a compare stays next to
 /// the select reading it), and a shared value is defined before any
 /// lane reads it and updated after every lane has read the old one.
-/// The guards of a block follow all lanes' copies of it (a guard only
-/// sends the group back to the original loop, whichever fires first).
+/// A lane's guard follows its copy of the block's last run, next to
+/// the compare it tests, or all lanes' copies when that run ends in a
+/// shared instruction (a guard only sends the group back to the
+/// original loop, whichever fires first); a shared guard is tested
+/// once.
 fn fused_body(
     func: &mut Function,
     p: &Plan,
@@ -190,14 +201,23 @@ fn fused_body(
     for &b in &p.chain {
         let insts = func.blocks[b.0 as usize].insts.clone();
         let is_shared = |i: &Inst| i.result.is_some_and(|r| p.shared.contains(&r));
-        for run in insts.split_inclusive(is_shared) {
+        let one_guard = guard_shared(func, p, b);
+        // each lane's guard right after its copy of the last run, unless
+        // a shared instruction closes the block or the guard is shared
+        let per_lane = !one_guard && insts.last().is_none_or(|i| !is_shared(i));
+        let runs: Vec<&[Inst]> = insts.split_inclusive(is_shared).collect();
+        let last = runs.len().saturating_sub(1);
+        for (k, run) in runs.iter().enumerate() {
             let (own, shared) = match run.split_last() {
-                Some((last, own)) if is_shared(last) => (own, Some(last)),
-                _ => (run, None),
+                Some((tail, own)) if is_shared(tail) => (own, Some(tail)),
+                _ => (*run, None),
             };
             for map in lanes.iter_mut() {
                 for inst in own {
                     clone_into(func, cur, inst, map);
+                }
+                if per_lane && k == last {
+                    cur = lane_guard(func, p, b, cur, map);
                 }
             }
             if let Some(inst) = shared {
@@ -208,9 +228,13 @@ fn fused_body(
                 }
             }
         }
-        let skip_rest = guard_shared(func, p, b);
-        for (j, map) in lanes.iter().enumerate() {
-            if j == 0 || !skip_rest {
+        if runs.is_empty() && per_lane {
+            for map in lanes.iter() {
+                cur = lane_guard(func, p, b, cur, map);
+            }
+        } else if !per_lane {
+            let guarded = if one_guard { 1 } else { LANES };
+            for map in lanes.iter().take(guarded) {
                 cur = lane_guard(func, p, b, cur, map);
             }
         }

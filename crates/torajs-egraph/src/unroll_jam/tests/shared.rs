@@ -117,3 +117,84 @@ fn lanes_step_one_shared_divisor() {
         .sum();
     assert_eq!(squares, 2 + LANES);
 }
+
+/// `for (k = 1; k <= n; k++) { r = 0; i = 2; while (i <= m) { r = (r
+/// + k) % i; i++ } total += r }`, params `n, m`: the inner test reads
+/// only shared values.
+fn survivors() -> Function {
+    // %0 n, %1 m, %2 total, %3 k, %4 test, %5 r, %6 i, %7 inner test,
+    // %8 r+k, %9 (r+k)%i, %10 i+1, %11 total+r, %12 k+1
+    let blocks = vec![
+        blk(0, vec![copy(2, c(0)), copy(3, c(1))], br(1)),
+        blk(
+            1,
+            vec![inst(4, InstKind::ICmp(IPred::Sle, v(3), v(0)))],
+            cbr(4, 2, 6),
+        ),
+        blk(2, vec![copy(5, c(0)), copy(6, c(2))], br(3)),
+        blk(
+            3,
+            vec![inst(7, InstKind::ICmp(IPred::Sle, v(6), v(1)))],
+            cbr(7, 4, 5),
+        ),
+        blk(
+            4,
+            vec![
+                inst(8, InstKind::BinOp(BinOp::Add, v(5), v(3))),
+                inst(9, InstKind::BinOp(BinOp::SRem, v(8), v(6))),
+                inst(10, InstKind::BinOp(BinOp::Add, v(6), c(1))),
+                copy(5, v(9)),
+                copy(6, v(10)),
+            ],
+            br(3),
+        ),
+        blk(
+            5,
+            vec![
+                inst(11, InstKind::BinOp(BinOp::Add, v(2), v(5))),
+                inst(12, InstKind::BinOp(BinOp::Add, v(3), c(1))),
+                copy(2, v(11)),
+                copy(3, v(12)),
+            ],
+            br(1),
+        ),
+        blk(6, vec![], Terminator::Ret(Some(v(2)))),
+    ];
+    Function {
+        name: "f".into(),
+        params: vec![ValueId(0), ValueId(1)],
+        ret: Type::I64,
+        blocks,
+        values: (0..13)
+            .map(|_| ValueInfo {
+                ty: Type::I64,
+                name: None,
+            })
+            .collect(),
+        current_origin: None,
+    }
+}
+
+#[test]
+fn a_shared_inner_test_is_made_once() {
+    let f = survivors();
+    let (g, n) = jam(&f);
+    assert_eq!(n, 1);
+    for (a, b) in [(0, 5), (1, 1), (3, 7), (4, 2), (5, 10), (9, 41), (13, 3)] {
+        assert_eq!(
+            run(&f, &[a, b], 1 << 22),
+            run(&g, &[a, b], 1 << 24),
+            "{a} {b}"
+        );
+    }
+    // the original header, the fused one, and once per lane finishing
+    // alone
+    let m = Operand::Value(ValueId(1));
+    let tests = g
+        .blocks
+        .iter()
+        .flat_map(|b| &b.insts)
+        .filter(|i| matches!(i.kind, InstKind::ICmp(IPred::Sle, _, b) if b == m))
+        .count();
+    assert_eq!(tests, 2 + LANES);
+}
