@@ -107,28 +107,20 @@ pub(super) fn root_range(f: NumFact, hi: i128, strict: bool) -> Option<NumFact> 
     })
 }
 
-/// The widening thresholds of one round with the roots of every
-/// square's bound as it now stands, so a squared counter stops at the
-/// root (and one past it, where the latch leaves it) before a
-/// sentinel.
-pub(super) fn with_roots(
-    thresholds: &[i128],
-    bounds: &[(SquareBound, bool)],
-    hi_of: impl Fn(ValueId) -> Option<i128>,
-) -> Vec<i128> {
-    let mut t = thresholds.to_vec();
-    for &(bound, strict) in bounds {
-        let hi = match bound {
-            SquareBound::Const(k) => Some(k),
-            SquareBound::Value(b) => hi_of(b),
-        };
-        if let Some(hi) = hi.map(|h| h - i128::from(strict))
-            && (0..POS_INF).contains(&hi)
-        {
-            let r = isqrt(hi);
-            t.extend([r, r + 1]);
-        }
-    }
+/// The thresholds a square bound's high end adds: its root, where
+/// the counter stops, and one past it, where the latch leaves it.
+pub(super) fn root_thresholds(hi: i128, strict: bool) -> Option<[i128; 2]> {
+    let hi = hi - i128::from(strict);
+    (0..POS_INF).contains(&hi).then(|| {
+        let r = isqrt(hi);
+        [r, r + 1]
+    })
+}
+
+/// One round's widening thresholds: the function's own, with the
+/// roots the previous round read.
+pub(super) fn with_roots(thresholds: &[i128], roots: &[i128]) -> Vec<i128> {
+    let mut t: Vec<i128> = thresholds.iter().chain(roots).copied().collect();
     t.sort_unstable();
     t.dedup();
     t
@@ -217,6 +209,86 @@ mod tests {
             assert_eq!(facts[&ValueId(1)], NumFact::new(1, 46_341), "left {left}");
             assert_eq!(facts[&ValueId(4)], NumFact::new(2, 46_341), "left {left}");
         }
+    }
+
+    /// The bound is an outer counter whose own fact is open (a def
+    /// after the loop sets it to i64::MAX); only the outer header's
+    /// `n <= 1000`, live through the inner loop, bounds it there.
+    #[test]
+    fn the_bound_is_read_where_the_square_test_holds() {
+        let i64c = |k: i64| Operand::ConstI64(k);
+        let block = |id: u32, insts: Vec<Inst>, term: Terminator| Block {
+            id: BlockId(id),
+            insts,
+            term,
+        };
+        let cond = |c: u32, t: u32, e: u32| Terminator::CondBr {
+            cond: v(c),
+            then_blk: BlockId(t),
+            else_blk: BlockId(e),
+        };
+        let blocks = vec![
+            block(
+                0,
+                vec![inst(5, InstKind::Copy(Type::I64, i64c(1)))],
+                Terminator::Br(BlockId(1)),
+            ),
+            block(
+                1,
+                vec![inst(6, InstKind::ICmp(IPred::Sle, v(5), i64c(1000)))],
+                cond(6, 2, 6),
+            ),
+            block(
+                2,
+                vec![inst(1, InstKind::Copy(Type::I64, i64c(1)))],
+                Terminator::Br(BlockId(3)),
+            ),
+            block(
+                3,
+                vec![
+                    inst(2, InstKind::BinOp(BinOp::Mul, v(1), v(1))),
+                    inst(3, InstKind::ICmp(IPred::Sle, v(2), v(5))),
+                ],
+                cond(3, 4, 5),
+            ),
+            block(
+                4,
+                vec![
+                    inst(4, InstKind::BinOp(BinOp::Add, v(1), i64c(1))),
+                    inst(1, InstKind::Copy(Type::I64, v(4))),
+                ],
+                Terminator::Br(BlockId(3)),
+            ),
+            block(
+                5,
+                vec![
+                    inst(7, InstKind::BinOp(BinOp::Add, v(5), i64c(1))),
+                    inst(5, InstKind::Copy(Type::I64, v(7))),
+                ],
+                Terminator::Br(BlockId(1)),
+            ),
+            block(
+                6,
+                vec![inst(5, InstKind::Copy(Type::I64, i64c(i64::MAX)))],
+                Terminator::Ret(Some(v(1))),
+            ),
+        ];
+        let f = Function {
+            name: "f".into(),
+            params: vec![],
+            ret: Type::I64,
+            blocks,
+            values: (0..8)
+                .map(|_| ValueInfo {
+                    ty: Type::I64,
+                    name: None,
+                })
+                .collect(),
+            current_origin: None,
+        };
+        let facts = super::super::analyze_function(&f);
+        assert_eq!(facts[&ValueId(5)].hi, i64::MAX as i128);
+        assert_eq!(facts[&ValueId(1)], NumFact::new(1, 32));
     }
 
     #[test]

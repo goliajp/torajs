@@ -148,7 +148,6 @@ pub fn analyze_function_with(
     let dom = DominatorTree::compute(func);
     let constraints = Constraints::compute(func, &single);
     let thresholds = collect_thresholds(func);
-    let squares = constraints.square_bounds();
     // An allocation's elements are one more multi-def cell whose defs
     // happen to be stores; it rides the same ascent below.
     let elems = elem::collect(func, callee_names);
@@ -160,24 +159,31 @@ pub fn analyze_function_with(
     }
 
     let mut stable_since = None;
+    // the roots of the square bounds the previous round read
+    let mut roots: Vec<i128> = Vec::new();
     for round in 0.. {
         let narrowing = stable_since.is_some();
         let with_roots;
-        let thresholds: &[i128] = if squares.is_empty() {
+        let thresholds: &[i128] = if roots.is_empty() {
             &thresholds
         } else {
-            with_roots = square::with_roots(&thresholds, &squares, |b| match state.get(&b) {
-                Some(AbsVal::Fact(f)) => Some(f.hi),
-                _ => None,
-            });
+            with_roots = square::with_roots(&thresholds, &roots);
             &with_roots
         };
+        roots.clear();
         let mut contrib: HashMap<ValueId, AbsVal> = HashMap::new();
         let mut changed = false;
 
         for &bid in dom.reverse_postorder() {
             let block = &func.blocks[bid.0 as usize];
             let mut live = constraints.inherited(bid, &dom, &block_defs);
+            for c in &live {
+                if let Constraint::Square { strict, bound, .. } = c
+                    && let Some(hi) = square_bound_hi(*bound, &state, &live)
+                {
+                    roots.extend(square::root_thresholds(hi, *strict).into_iter().flatten());
+                }
+            }
             for inst in &block.insts {
                 let Some(r) = inst.result else { continue };
                 let ty = func.values[r.0 as usize].ty;
@@ -218,7 +224,7 @@ pub fn analyze_function_with(
                     *e = e.join(ev);
                     // the cell's contents changed: refined facts about
                     // its previous contents no longer apply below.
-                    live.retain(|c| c.value() != r);
+                    live.retain(|c| !c.killed_by(|v| v == r));
                 } else if state.get(&r) != Some(&ev) {
                     state.insert(r, ev);
                     changed = true;
@@ -344,14 +350,7 @@ fn lookup(op: &Operand, state: &HashMap<ValueId, AbsVal>, live: &[Constraint]) -
                 strict,
                 bound,
             } if value == v => {
-                let hi = match bound {
-                    square::SquareBound::Const(k) => Some(*k),
-                    square::SquareBound::Value(b) => match state.get(b) {
-                        Some(AbsVal::Fact(k)) => Some(k.hi),
-                        _ => None,
-                    },
-                };
-                if let Some(hi) = hi
+                if let Some(hi) = square_bound_hi(*bound, state, live)
                     && let Some(r) = square::root_range(f, hi, *strict)
                     && let Some(m) = f.meet(r)
                 {
@@ -362,6 +361,31 @@ fn lookup(op: &Operand, state: &HashMap<ValueId, AbsVal>, live: &[Constraint]) -
         }
     }
     AbsVal::Fact(f)
+}
+
+/// The high end of a square's bound where the constraint is live: the
+/// bound is not redefined since the compare, so what the path says of
+/// it holds for the value compared (squares on it left out, so two
+/// squares bounding each other cannot recurse).
+fn square_bound_hi(
+    bound: square::SquareBound,
+    state: &HashMap<ValueId, AbsVal>,
+    live: &[Constraint],
+) -> Option<i128> {
+    match bound {
+        square::SquareBound::Const(k) => Some(k),
+        square::SquareBound::Value(b) => {
+            let plain: Vec<Constraint> = live
+                .iter()
+                .filter(|c| !matches!(c, Constraint::Square { .. }))
+                .copied()
+                .collect();
+            match lookup(&Operand::Value(b), state, &plain) {
+                AbsVal::Fact(k) => Some(k.hi),
+                _ => None,
+            }
+        }
+    }
 }
 
 /// Widening thresholds — every integer constant compared against in

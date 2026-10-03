@@ -77,6 +77,14 @@ impl Constraint {
             Constraint::Rel { value, .. } | Constraint::Square { value, .. } => *value,
         }
     }
+
+    /// Whether a def of a value `is_def` names ends the constraint:
+    /// it speaks of that value, or of a square compared against the
+    /// value as it was at the compare.
+    pub fn killed_by(&self, is_def: impl Fn(ValueId) -> bool) -> bool {
+        is_def(self.value())
+            || matches!(self, Constraint::Square { bound: SquareBound::Value(b), .. } if is_def(*b))
+    }
 }
 
 /// 2^53: past it `sitofp` rounds, and `sitofp(i) <= y` no longer
@@ -155,19 +163,6 @@ impl Constraints {
         Self { at_entry }
     }
 
-    /// Every square bound a path states, with its strictness.
-    pub fn square_bounds(&self) -> Vec<(SquareBound, bool)> {
-        let mut out: Vec<(SquareBound, bool)> = Vec::new();
-        for c in self.at_entry.iter().flatten() {
-            if let Constraint::Square { strict, bound, .. } = c
-                && !out.contains(&(*bound, *strict))
-            {
-                out.push((*bound, *strict));
-            }
-        }
-        out
-    }
-
     pub fn at(&self, b: BlockId) -> &[Constraint] {
         &self.at_entry[b.0 as usize]
     }
@@ -189,7 +184,7 @@ impl Constraints {
         let mut cur = b;
         loop {
             for c in self.at(cur) {
-                if !killed.contains(&c.value()) {
+                if !c.killed_by(|v| killed.contains(&v)) {
                     out.push(*c);
                 }
             }
