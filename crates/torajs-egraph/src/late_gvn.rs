@@ -38,12 +38,12 @@
 mod epochs;
 mod keys;
 mod known_branch;
+mod walk;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use torajs_core::ssa::{
-    BlockId, Function, InstKind, Module, Operand, Terminator, Type, ValueId,
-    rewrite_value_operands, visit_value_operands,
+    BlockId, Function, Module, Operand, Terminator, ValueId, rewrite_value_operands,
 };
 
 use crate::float_demote::cfg::multi_def_values;
@@ -51,6 +51,7 @@ use crate::optimize::classify_pure;
 use epochs::may_store;
 use keys::{global_ref_twins, is_read};
 use torajs_core::ssa::dominator::DominatorTree;
+use walk::Walk;
 
 #[derive(Debug, Default)]
 pub struct LateGvnStats {
@@ -58,8 +59,6 @@ pub struct LateGvnStats {
     /// dominating twin).
     pub dedups: u32,
 }
-
-type Key = (Type, InstKind, Vec<u32>);
 
 /// The dedup, then the conditionals it left testing a value a branch
 /// above them already tested.
@@ -77,117 +76,6 @@ pub fn dedup_pure_ops(module: &mut Module) -> LateGvnStats {
         gvn_fn(func, &mut stats);
     }
     stats
-}
-
-/// One dominator-walk scope frame. `barrier` marks a block whose
-/// predecessor set is not exactly its immediate dominator — risky
-/// entries above it are invisible below (see module doc).
-/// Scope-exit removal is by exact key: an inner insert that shadows
-/// an outer entry drops the outer one at inner exit — a conservative
-/// loss (later lookups miss and recompute), never a stale hit.
-struct Frame {
-    safe: Vec<Key>,
-    risky: Vec<Key>,
-    barrier: bool,
-}
-
-struct Walk {
-    safe: HashMap<Key, ValueId>,
-    risky: HashMap<Key, (ValueId, usize)>,
-    frames: Vec<Frame>,
-    barrier_depth: Vec<usize>,
-    vgen: HashMap<ValueId, u32>,
-    replace: HashMap<ValueId, ValueId>,
-    /// Each `global_ref` value's stand-in inside a key: the first one
-    /// naming the same symbol. The instructions themselves stay (the
-    /// probe and guard matchers read them in place); only what reads
-    /// two of them compares equal.
-    twin: HashMap<ValueId, ValueId>,
-    multi: HashSet<ValueId>,
-    /// The memory epoch at the current point (`epochs.rs`).
-    epoch: u32,
-}
-
-impl Walk {
-    fn resolve(&self, mut v: ValueId) -> ValueId {
-        while let Some(&n) = self.replace.get(&v) {
-            v = n;
-        }
-        v
-    }
-
-    fn key_for(&self, ty: Type, kind: &InstKind) -> (Key, bool) {
-        let mut resolved = kind.clone();
-        rewrite_value_operands(&mut resolved, |v| {
-            let v = self.resolve(v);
-            self.twin.get(&v).copied().unwrap_or(v)
-        });
-        let mut gens: Vec<u32> = Vec::new();
-        let mut risky = false;
-        visit_value_operands(&resolved, |v| {
-            if self.multi.contains(&v) {
-                risky = true;
-                gens.push(self.vgen.get(&v).copied().unwrap_or(0));
-            } else {
-                gens.push(0);
-            }
-        });
-        ((ty, resolved, gens), risky)
-    }
-
-    fn enter(&mut self, barrier: bool) {
-        self.frames.push(Frame {
-            safe: Vec::new(),
-            risky: Vec::new(),
-            barrier,
-        });
-        if barrier {
-            self.barrier_depth.push(self.frames.len());
-        }
-    }
-
-    fn exit(&mut self) {
-        let f = self.frames.pop().expect("scope underflow");
-        for k in f.safe {
-            self.safe.remove(&k);
-        }
-        for k in f.risky {
-            self.risky.remove(&k);
-        }
-        if f.barrier {
-            self.barrier_depth.pop();
-        }
-    }
-
-    /// A risky entry is visible only when it was inserted at or below
-    /// the innermost barrier (i.e. along the unique-pred chain).
-    fn risky_visible(&self, depth: usize) -> bool {
-        self.barrier_depth.last().is_none_or(|&b| depth >= b)
-    }
-
-    /// A load of the address a store just wrote, in the store's own
-    /// epoch, reads the stored value: enter it as that load's twin.
-    fn note_store(&mut self, func: &Function, kind: &InstKind) {
-        let InstKind::Store(Operand::Value(val), ptr, off) = kind else {
-            return;
-        };
-        let val = self.resolve(*val);
-        if self.multi.contains(&val) {
-            return;
-        }
-        let ty = func.values[val.0 as usize].ty;
-        let (mut key, risky) = self.key_for(ty, &InstKind::Load(ty, *ptr, *off));
-        key.2.push(self.epoch);
-        let depth = self.frames.len();
-        let frame = self.frames.last_mut().expect("in scope");
-        if risky {
-            self.risky.insert(key.clone(), (val, depth));
-            frame.risky.push(key);
-        } else {
-            self.safe.insert(key.clone(), val);
-            frame.safe.push(key);
-        }
-    }
 }
 
 fn gvn_fn(func: &mut Function, stats: &mut LateGvnStats) {
@@ -328,7 +216,7 @@ fn process_block(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use torajs_core::ssa::{BinOp, Block, Inst, ValueInfo};
+    use torajs_core::ssa::{BinOp, Block, Inst, InstKind, Type, ValueInfo};
 
     fn vi(ty: Type) -> ValueInfo {
         ValueInfo { ty, name: None }
