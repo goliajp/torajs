@@ -42,6 +42,7 @@ cases = [
   "popcount",
   "prime_count",
   "divisor-sum-200k",
+  "josephus-100k",
   "generic-id-1m",
   "generic-pair-1m",
 ]
