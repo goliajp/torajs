@@ -32,6 +32,7 @@ mod bounds_lower;
 mod bounds_walk;
 mod captures;
 mod container;
+mod container_callbacks;
 mod container_lookup;
 mod container_methods;
 mod container_namespace;
