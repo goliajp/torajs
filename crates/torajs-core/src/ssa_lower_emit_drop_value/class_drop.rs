@@ -35,7 +35,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::ast::PropKey;
-use crate::ssa::{self, BlockId, FuncId, InstKind, Module, Operand, Terminator, Type};
+use crate::ssa::{self, BlockId, FuncId, IPred, InstKind, Module, Operand, Terminator, Type};
 use crate::ssa_lower::{Intrinsics, OBJ_HEADER_SIZE};
 pub(crate) use crate::ssa_lower_emit_drop_value::class_drop_cells::{branch, emit_nullish};
 use crate::ssa_lower_emit_drop_value::class_drop_cells::{
@@ -131,7 +131,9 @@ pub(crate) fn emit_release_value(
     stack: &mut Vec<u32>,
 ) -> BlockId {
     let drop_fid = match ty {
-        Type::Obj(s) if cx.drop_fids.contains_key(&s.0) => cx.drop_fids[&s.0],
+        Type::Obj(s) if cx.drop_fids.contains_key(&s.0) => {
+            return emit_call_unless_null(f, blk, val, cx.drop_fids[&s.0]);
+        }
         Type::Obj(s) if !stack.contains(&s.0) => return emit_release(f, cx, blk, val, s.0, stack),
         Type::Arr(id) => {
             return crate::ssa_lower_emit_drop_value::class_drop_arr::emit_release_arr(
@@ -144,6 +146,29 @@ pub(crate) fn emit_release_value(
     };
     f.append_void(blk, InstKind::Call(drop_fid, vec![val]));
     blk
+}
+
+/// A field holding another class's instance: a null child (a leaf's
+/// absent subtree) skips the call outright; the callee still answers
+/// every other nullish value itself.
+fn emit_call_unless_null(
+    f: &mut ssa::Function,
+    blk: BlockId,
+    val: Operand,
+    fid: FuncId,
+) -> BlockId {
+    let call_blk = f.add_block();
+    let after = f.add_block();
+    let is_null = f.append_inst(
+        blk,
+        InstKind::ICmp(IPred::Eq, val, Operand::ConstPtrNull),
+        Type::Bool,
+        None,
+    );
+    branch(f, blk, Operand::Value(is_null), after, call_blk);
+    f.append_void(call_blk, InstKind::Call(fid, vec![val]));
+    f.set_term(call_blk, Terminator::Br(after));
+    after
 }
 
 /// Release one reference of `val`, an instance of `sid` or nullish,
