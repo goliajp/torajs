@@ -136,6 +136,9 @@ pub(crate) fn maybe_arr_any_to_typed(
         return (init_val, false);
     }
     let init_ty = ctx.operand_ty(&init_val);
+    if init_ty == Type::Any {
+        return any_box_to_typed_arr(ctx, ty, init, init_val);
+    }
     let (Type::Arr(ann_id), Type::Arr(init_id)) = (&ty, &init_ty) else {
         return (init_val, false);
     };
@@ -161,6 +164,36 @@ pub(crate) fn maybe_arr_any_to_typed(
     // A fresh owned init (Call / literal) hands its only ref off
     // here; a borrowed shape (Ident / Member) keeps the source
     // binding's stake untouched (the helper always copies).
+    ctx.release_owned_temp(init, &init_val);
+    (Operand::Value(v), true)
+}
+
+/// An owned `any` value (`xs.map(anyCb)`, whose kernel answers an
+/// `Array<Any>` block behind an `any` type) under a typed `Array<T>`
+/// annotation or return type: the same decode-copy through
+/// `__torajs_arr_from_any_typed`. Taking the box's bits as the typed
+/// block read every slot as a NaN-box (0.5 printed 1.4375).
+fn any_box_to_typed_arr(
+    ctx: &mut LowerCtx,
+    ty: Type,
+    init: ExprId,
+    init_val: Operand,
+) -> (Operand, bool) {
+    let Some(kind) = crate::ssa_lower_assign_slot_fit::arr_slot_takes_any(ctx, ty, Type::Any)
+    else {
+        return (init_val, false);
+    };
+    let fid = *ctx
+        .fn_table
+        .get("__torajs_arr_from_any_typed")
+        .expect("__torajs_arr_from_any_typed intrinsic missing");
+    let v = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(fid, vec![init_val, Operand::ConstI64(kind)]),
+        ty,
+        None,
+    );
+    ctx.emit_throw_check(None);
     ctx.release_owned_temp(init, &init_val);
     (Operand::Value(v), true)
 }

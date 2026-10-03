@@ -464,7 +464,7 @@ fn coerce_to_ret(ctx: &mut LowerCtx, op: Operand, maybe: Option<crate::ast::Expr
     {
         ctx.materialize_arr_substr_to_str(op, ctx.f.ret)
     } else if let Some(eid) = maybe
-        && let (Type::Arr(_), Type::Arr(_)) = (ctx.f.ret, actual)
+        && let (Type::Arr(_), Type::Arr(_) | Type::Any) = (ctx.f.ret, actual)
     {
         // P-SURF S8.5 — an `Arr<Any>` handed back through a typed
         // `T[]` return. The let-decl lane has converted at this
