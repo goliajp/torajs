@@ -111,7 +111,9 @@ pub(crate) fn accum_bound(
         return None;
     }
     let counter = loop_counter(func, lp, pe)?;
-    let trip = counter.trip();
+    // an add in the header runs once more than the body: on the visit
+    // that leaves too
+    let trip = counter.trip() + i128::from(x_block == lp.header);
     let entry = entry_fact(func, lp, pe, acc)?;
     let inc = match pe.eval_operand_with_flow(inc_op, x_def) {
         Some(f) => f,
