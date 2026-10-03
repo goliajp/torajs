@@ -3,9 +3,11 @@
 //! `re.exec(s)` walks the string's own code units in a synthesized
 //! loop instead of the DFA-then-capture pair. One function walks a
 //! Latin-1 payload and one a UTF-16 payload. The functions are
-//! minted before body lowering — they are address-taken only, never a
-//! static call site, so the callables snapshot stays as it is — and
-//! the literal's lowering finds its matchers through `fn_table` under
+//! minted before body lowering, so the callables snapshot stays as it
+//! is. The runtime calls them through the RegExp's bound pointer, and a
+//! match-length site may call a literal's own matcher directly once it
+//! has checked that pointer. The literal's lowering finds its matchers
+//! through `fn_table` under
 //! [`matcher_key`]; the runtime binds the pointers through
 //! [`COMPILE_ENTRY`].
 

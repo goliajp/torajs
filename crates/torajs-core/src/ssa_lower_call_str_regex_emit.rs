@@ -4,6 +4,7 @@
 //! lane grew the parent past 500 prod lines). One fn per method
 //! family; every body is exactly the parent's pre-split text.
 
+mod match_len_direct;
 pub(crate) mod replace_inline;
 
 use crate::ast::{Expr, ExprId};
@@ -68,24 +69,7 @@ pub(crate) fn emit_match(
     // `m[0].length` is never built: hold the length, +1 so that 0 is
     // null (`ssa_lower_match_len`).
     if ctx.ast.regex_match_len_callees.contains(&callee) {
-        let len = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.str_match_len, vec![recv_op, re_op]),
-            Type::I64,
-            None,
-        );
-        let held = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::BinOp(
-                crate::ssa::BinOp::Add,
-                Operand::Value(len),
-                Operand::ConstI64(1),
-            ),
-            Type::I64,
-            None,
-        );
-        ctx.emit_throw_check(None);
-        return Operand::Value(held);
+        return match_len_direct::emit(ctx, recv_op, re_op, args.first().copied());
     }
     let v = ctx.f.append_inst(
         ctx.cur_block,

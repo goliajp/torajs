@@ -93,6 +93,10 @@ pub type MatcherFn = unsafe extern "C" fn(*const u8, i64, i64, *mut i64) -> i64;
 /// narrow-ABI constant replication [`STR_HDR_SIZE`] uses.
 pub const REGEX_PROPS_OFF: usize = 8;
 
+/// Byte offset of [`RegExp::matcher_latin1`].
+pub const REGEX_MATCHER_LATIN1_OFF: usize = 24;
+const _: () = assert!(core::mem::offset_of!(RegExp, matcher_latin1) == REGEX_MATCHER_LATIN1_OFF);
+
 /// Str heap layout — must match runtime_str.c.
 pub const STR_HDR_SIZE: usize = 16;
 
@@ -136,6 +140,14 @@ pub struct RegExp {
     pub last_index_frozen: u8,
     pub _pad: [u8; 1],
     pub n_captures: i32,
+    /// The literal's synthesized one-pass matcher over a Latin-1
+    /// payload (`matcher_utf16`: over a UTF-16 one); `None` on every
+    /// RegExp the runtime compiled and wherever the lane declined the
+    /// pattern. Set by [`compile_matcher`]; the exec kernels take them
+    /// before the transcoding search. Placed ahead of `prog` so its
+    /// offset is a C one ([`REGEX_MATCHER_LATIN1_OFF`]): a compiled
+    /// call site compares it against its own literal's matcher.
+    pub matcher_latin1: Option<MatcherFn>,
     pub prog: Program,
     /// Original pattern bytes — `re.source` returns these wrapped
     /// in a fresh `Str` via `get_source`.
@@ -199,35 +211,22 @@ pub struct RegExp {
     /// freed) between calls so a hot `s.replace(re, r)` loop pays
     /// the Vec alloc/free once instead of per iteration.
     pub replace_out_cache: core::cell::UnsafeCell<alloc::vec::Vec<u8>>,
-    /// V0.2 P14 chunk 7.7 v2 step 12 C2 Phase C-2 (2026-06-24) —
-    /// optional AOT-baked DFA metadata pointer. `None` when this
+    /// Optional AOT-baked DFA metadata pointer. `None` when this
     /// `RegExp` came from `__torajs_regex_compile` (runtime literal /
     /// `new RegExp(...)` path); `Some(meta)` when it came from
     /// `__torajs_regex_compile_from_static_dfa`, in which case
     /// `meta.states_ptr` points at a `.rodata`-baked `[DfaState; N]`
     /// owned by the user binary and the four start indices are
-    /// pre-computed too.
-    ///
-    /// `NonNull<BakedDfaMeta>` is the right shape here — the pointee
-    /// lives in `.rodata` for the program's lifetime, so the slot
-    /// requires no destructor work (`Box::from_raw` drop path in
-    /// `__torajs_regex_drop` leaves the meta untouched), and the
-    /// `None` discriminant keeps the original runtime path
-    /// allocation-free.
+    /// pre-computed too. The pointee lives in `.rodata` for the
+    /// program's lifetime, so the slot needs no destructor work.
     ///
     /// Consumed by [`RegExp::baked_dfa_view`] which stack-constructs
-    /// a `DfaProgram` whose `states` is `DfaStates::Static(...)`
-    /// over the baked slice — completely sidestepping the
-    /// `UnsafeCell<Option<DfaProgram>>` borrow shape that produced
-    /// the chunk-7.6 / chunk-7.7 SIGBUS (see `dfa_cache` doc above
-    /// for the trail).
+    /// a `DfaProgram` whose `states` is `DfaStates::Static(...)` over
+    /// the baked slice, never borrowing through an `UnsafeCell`
+    /// (the shape that produced the chunk-7.6 / 7.7 SIGBUS).
     pub baked_dfa: Option<core::ptr::NonNull<crate::dfa::BakedDfaMeta>>,
-    /// The literal's synthesized one-pass matcher over a Latin-1
-    /// payload, and over a UTF-16 payload; `None` on every RegExp
-    /// the runtime compiled and wherever the lane declined the
-    /// pattern. Set by [`compile_matcher`]; the exec kernels take
-    /// them before the transcoding search.
-    pub matcher_latin1: Option<MatcherFn>,
+    /// The literal's synthesized one-pass matcher over a UTF-16
+    /// payload; see `matcher_latin1`.
     pub matcher_utf16: Option<MatcherFn>,
     /// row width the matchers write: highest save slot + 1, at least 2
     pub matcher_stride: u32,
