@@ -412,7 +412,7 @@ pub fn link_to_exec(cfg: &LinkConfig) -> Vec<u8> {
     write_build_version(&mut buf);
     write_lc_main(&mut buf, u64::from(layout.entry_file_offset));
     symtab_cmd.write_to(&mut buf);
-    write_dysymtab(&mut buf, layout.nsyms);
+    write_dysymtab(&mut buf, 0, layout.nsyms);
     write_code_signature(&mut buf, layout.codesign_dataoff, layout.codesign_datasize);
 
     debug_assert_eq!(

@@ -12,6 +12,7 @@ use crate::class_name_table_layout::{
 };
 use crate::data_section_emit::write_data_non_text_file_payloads;
 use crate::data_section_layout::DataSectionLayout;
+use crate::dead_strip_repack::DeadRows;
 use crate::defined_extern_resolve::section_vaddr_for_sym;
 use crate::dyld_emit::{write_la_ptr_section, write_stubs_section};
 use crate::exec::LinkConfig;
@@ -53,8 +54,11 @@ fn is_allocator_shim_sym(name: &str) -> bool {
 /// input-normalization pre-pass: rewrite the archives with dead
 /// `__text` atoms dropped (and, r499, the user fns with elided drain
 /// sites patched), then link the rewritten inputs through the
-/// unchanged pipeline. `None` = link the caller's config as is.
-fn dead_strip_prepass(cfg: &LinkConfig) -> Result<Option<LinkConfig>, ArchiveLayoutError> {
+/// unchanged pipeline, plus the defined externs it dropped (for
+/// `LC_SYMTAB`). `None` = link the caller's config as is.
+fn dead_strip_prepass(
+    cfg: &LinkConfig,
+) -> Result<Option<(LinkConfig, DeadRows)>, ArchiveLayoutError> {
     let enabled = match std::env::var_os("TORAJS_LINK_DEADSTRIP") {
         Some(v) if v == "0" => false,
         Some(_) => true,
@@ -72,7 +76,7 @@ fn dead_strip_prepass(cfg: &LinkConfig) -> Result<Option<LinkConfig>, ArchiveLay
     {
         return Ok(None);
     }
-    Ok(Some(LinkConfig {
+    let stripped = LinkConfig {
         archives: out.archives.unwrap_or_else(|| cfg.archives.clone()),
         funcs: out.funcs.unwrap_or_else(|| cfg.funcs.clone()),
         class_layouts: out
@@ -82,7 +86,8 @@ fn dead_strip_prepass(cfg: &LinkConfig) -> Result<Option<LinkConfig>, ArchiveLay
             .fn_name_globals
             .unwrap_or_else(|| cfg.fn_name_globals.clone()),
         ..cfg.clone()
-    }))
+    };
+    Ok(Some((stripped, out.dead_rows)))
 }
 
 /// Link an `archives`-populated `LinkConfig` into a complete
@@ -90,7 +95,10 @@ fn dead_strip_prepass(cfg: &LinkConfig) -> Result<Option<LinkConfig>, ArchiveLay
 /// relocs both resolve against one effective sym table (caller
 /// externs + every member defined-external + dyld stub vaddrs).
 pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLayoutError> {
-    let stripped_cfg = dead_strip_prepass(cfg)?;
+    let (stripped_cfg, dead_rows) = match dead_strip_prepass(cfg)? {
+        Some((c, dead)) => (Some(c), dead),
+        None => (None, DeadRows::new()),
+    };
     let cfg = stripped_cfg.as_ref().unwrap_or(cfg);
 
     // Merge once and share between layout and emit — each merge
@@ -112,7 +120,8 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
         }
         None => cfg,
     };
-    let mut layout = crate::archive_link::compute_archive_layout_with_merged(cfg, &merged)?;
+    let mut layout =
+        crate::archive_link::compute_archive_layout_with_merged(cfg, &merged, &dead_rows)?;
 
     // Effective sym table = caller externs + member defined-externs
     // (vaddr dispatched by home section) + SD-2b dyld-stub vaddrs.
@@ -301,7 +310,7 @@ fn emit_binary(
 ) -> Vec<u8> {
     let meta = compute_emit_lc_meta(layout);
     let mut buf: Vec<u8> = Vec::with_capacity(layout.total_size as usize);
-    write_header_and_load_commands(&mut buf, layout);
+    let sect_addrs = write_header_and_load_commands(&mut buf, layout);
 
     // The load-command region must END at or before where the layout
     // said `__text` begins. `pad_to` cannot repair an overrun — it
@@ -361,7 +370,7 @@ fn emit_binary(
 
     pad_to(&mut buf, layout.linkedit_file_offset as usize);
 
-    write_symtab_and_strtab(&mut buf, cfg, layout);
+    write_symtab_and_strtab(&mut buf, cfg, layout, &sect_addrs);
 
     // SD-3 + e8: chained-fixups blob lands after strtab (8-byte
     // aligned — dyld rejects unaligned chains) and before codesign.

@@ -18,9 +18,11 @@ use crate::archive_layout_text::compute_text_region_plan;
 use crate::archive_link_extra_syms::collect_extra_defined_syms;
 use crate::archive_link_member_scan::{MemberScanLayouts, scan_member_text_and_symbols};
 use crate::archives_merge::{compute_required_members, merge_archive_indexes};
+use crate::dead_strip_repack::DeadRows;
 use crate::exec::LinkConfig;
 pub use crate::layout_types::{ArchiveLayout, ArchiveLayoutError, MemberLayout};
 use crate::lc::TEXT_VMADDR_BASE;
+use crate::member_symtab_list::{MemberSymtabList, list_member_symbols};
 pub use crate::member_text::{MemberTextError, parse_member_text_section};
 
 pub(crate) fn round_up_to(value: u64, align: u64) -> u64 {
@@ -47,7 +49,7 @@ pub(crate) fn symtab_rows(
 /// an empty `member_layouts`.
 pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, ArchiveLayoutError> {
     let merged = merge_archive_indexes(&cfg.archives).map_err(ArchiveLayoutError::Merge)?;
-    compute_archive_layout_with_merged(cfg, &merged)
+    compute_archive_layout_with_merged(cfg, &merged, &DeadRows::new())
 }
 
 /// Layout against an already-merged archive index. The emit driver
@@ -57,6 +59,7 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
 pub fn compute_archive_layout_with_merged(
     cfg: &LinkConfig,
     merged: &crate::archives_merge::MergedArchives<'_>,
+    dead_rows: &DeadRows,
 ) -> Result<ArchiveLayout, ArchiveLayoutError> {
     let extra = collect_extra_defined_syms(cfg);
     let required =
@@ -106,6 +109,18 @@ pub fn compute_archive_layout_with_merged(
     let mut member_layouts: Vec<MemberLayout> = Vec::with_capacity(member_keys.len());
     for (i, &key) in member_keys.iter().enumerate() {
         let off = tp.text_placement.members[i];
+        let symtab = if cfg.strip_member_symbols {
+            MemberSymtabList::default()
+        } else {
+            let dead = dead_rows.get(&key).map_or(&[][..], Vec::as_slice);
+            list_member_symbols(merged.per_archive_members[key.0][key.1].data, dead).map_err(
+                |err| ArchiveLayoutError::MemberSymtab {
+                    archive_idx: key.0,
+                    member_idx: key.1,
+                    err,
+                },
+            )?
+        };
         member_layouts.push(MemberLayout {
             key,
             text_size: member_text_sizes[i],
@@ -113,6 +128,7 @@ pub fn compute_archive_layout_with_merged(
             vaddr: text_base + u64::from(off),
             member_text_offset_in_member: member_text_offsets[i],
             defined_syms: std::mem::take(&mut member_defined_syms[i]),
+            symtab,
             non_text_sections: Vec::new(),
         });
     }
@@ -137,7 +153,7 @@ pub fn compute_archive_layout_with_merged(
     } else {
         member_layouts
             .iter()
-            .map(|m| m.defined_syms.len() as u32)
+            .map(|m| (m.symtab.locals.len() + m.symtab.externs.len()) as u32)
             .sum()
     };
     let nsyms = user_nsyms + member_nsyms;
@@ -153,7 +169,7 @@ pub fn compute_archive_layout_with_merged(
     }
     if !cfg.strip_member_symbols {
         for m in &member_layouts {
-            for (name, _, _) in &m.defined_syms {
+            for (name, _, _) in m.symtab.locals.iter().chain(&m.symtab.externs) {
                 strsize += name.len() as u32 + 1;
             }
         }

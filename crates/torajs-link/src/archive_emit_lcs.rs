@@ -4,7 +4,7 @@
 //! (6 probes byte-count) is the ground truth for this file.
 
 use torajs_obj::{
-    CPU_SUBTYPE_ARM64_ALL, CPU_TYPE_ARM64, MH_MAGIC_64, MachHeader64, Nlist64,
+    CPU_SUBTYPE_ARM64_ALL, CPU_TYPE_ARM64, MH_MAGIC_64, MachHeader64, N_EXT, N_SECT, Nlist64,
     S_ATTR_PURE_INSTRUCTIONS, S_ATTR_SOME_INSTRUCTIONS, SECTION_64_SIZE, SEGMENT_COMMAND_64_SIZE,
     SYMTAB_COMMAND_SIZE, Section64, SegmentCommand64, StringTable, SymtabCommand, VM_PROT_EXECUTE,
     VM_PROT_READ,
@@ -27,8 +27,12 @@ use crate::lc::{
 /// Mach-O header + all load commands (segments, dylinker, dylibs,
 /// build-version, main, symtab, dysymtab, chained-fixups, codesign
 /// LCs), asserted against `layout`'s sizeofcmds. Byte order matches
-/// the original inline sequence exactly.
-pub(crate) fn write_header_and_load_commands(buf: &mut Vec<u8>, layout: &ArchiveLayout) {
+/// the original inline sequence exactly. Returns every section's
+/// start address in ordinal order (`n_sect` = index + 1).
+pub(crate) fn write_header_and_load_commands(
+    buf: &mut Vec<u8>,
+    layout: &ArchiveLayout,
+) -> Vec<u64> {
     let EmitLcMeta {
         has_dyld,
         has_chained_fixups,
@@ -159,7 +163,10 @@ pub(crate) fn write_header_and_load_commands(buf: &mut Vec<u8>, layout: &Archive
     write_build_version(buf);
     write_lc_main(buf, u64::from(layout.entry_file_offset));
     symtab_cmd.write_to(buf);
-    write_dysymtab(buf, layout.nsyms);
+    let nlocalsym: u32 = (layout.member_layouts.iter())
+        .map(|m| m.symtab.locals.len() as u32)
+        .sum();
+    write_dysymtab(buf, nlocalsym, layout.nsyms - nlocalsym);
     if has_chained_fixups {
         write_dyld_chained_fixups(
             buf,
@@ -174,51 +181,83 @@ pub(crate) fn write_header_and_load_commands(buf: &mut Vec<u8>, layout: &Archive
         header.sizeofcmds,
         "load command size mismatch",
     );
+
+    let segments = [
+        Some(&text_segment),
+        data_const_segment_opt.as_ref(),
+        data_segment_opt.as_ref(),
+    ];
+    segments
+        .into_iter()
+        .flatten()
+        .flat_map(|seg| seg.sections.iter().map(|s| s.addr))
+        .collect()
 }
 
-/// nlist + strtab: user fns first (bodies only — see
-/// [`symtab_rows`]), then every member's defined externs in
-/// member_layouts order (strings added in the same order the nlist
-/// entries are written). Under `cfg.strip_member_symbols`
-/// the member half is absent — the layout budgeted `nsyms` /
-/// `strsize` the same way, so the two halves stay in lockstep.
-pub(crate) fn write_symtab_and_strtab(buf: &mut Vec<u8>, cfg: &LinkConfig, layout: &ArchiveLayout) {
-    // nlist + strtab: user fns first, then every member's
-    // defined externs in member_layouts order.
+/// `n_sect` of the output section holding `vaddr`: the last section
+/// starting at or below it (`sect_addrs` ascend, as segments and their
+/// sections are laid out in address order).
+fn section_ordinal(sect_addrs: &[u64], vaddr: u64) -> u8 {
+    let n = sect_addrs.partition_point(|&a| a <= vaddr);
+    debug_assert!(n > 0, "symbol vaddr 0x{vaddr:x} below the first section");
+    n as u8
+}
+
+/// nlist + strtab. Under `cfg.strip_member_symbols` only the user
+/// fns (bodies only — see [`symtab_rows`]). Otherwise every member's
+/// listed locals first (`LC_DYSYMTAB` wants locals contiguous and
+/// ahead), then the user fns, then every member's listed externs, in
+/// member_layouts order; member rows carry the ordinal of the output
+/// section their address lands in. The layout budgeted `nsyms` /
+/// `strsize` from the same lists, so the two stay in lockstep.
+pub(crate) fn write_symtab_and_strtab(
+    buf: &mut Vec<u8>,
+    cfg: &LinkConfig,
+    layout: &ArchiveLayout,
+    sect_addrs: &[u64],
+) {
     if cfg.strip_member_symbols {
         write_user_symtab_only(buf, cfg, layout);
         return;
     }
     let mut strtab = StringTable::new();
-    let mut user_strx: Vec<(usize, u32)> = Vec::with_capacity(cfg.funcs.len());
-    for (i, f) in symtab_rows(cfg) {
-        user_strx.push((i, strtab.add(&f.name)));
-    }
-    let mut member_strx: Vec<Vec<u32>> = Vec::with_capacity(layout.member_layouts.len());
-    for m in &layout.member_layouts {
-        let mut row: Vec<u32> = Vec::with_capacity(m.defined_syms.len());
-        for (name, _, _) in &m.defined_syms {
-            row.push(strtab.add(name));
+    let member_row = |buf: &mut Vec<u8>,
+                      strtab: &mut StringTable,
+                      mi: usize,
+                      row: &(String, u64, u8),
+                      n_type: u8| {
+        let m = &layout.member_layouts[mi];
+        let (name, n_value, n_sect) = row;
+        let vaddr = section_vaddr_for_sym(
+            *n_sect,
+            *n_value,
+            m.vaddr,
+            &m.non_text_sections,
+            member_data_layouts(layout, mi),
+        );
+        Nlist64 {
+            n_strx: strtab.add(name),
+            n_type,
+            n_sect: section_ordinal(sect_addrs, vaddr),
+            n_desc: 0,
+            n_value: vaddr,
         }
-        member_strx.push(row);
+        .write_to(buf);
+    };
+    for (mi, m) in layout.member_layouts.iter().enumerate() {
+        for row in &m.symtab.locals {
+            member_row(buf, &mut strtab, mi, row, N_SECT);
+        }
     }
-    // Emit nlist entries in the same order strings were added.
-    for (i, strx) in &user_strx {
-        let nlist = Nlist64::defined_extern(*strx, 1, layout.fn_vaddrs[*i]);
-        nlist.write_to(buf);
+    let user: Vec<(usize, u32)> = symtab_rows(cfg)
+        .map(|(i, f)| (i, strtab.add(&f.name)))
+        .collect();
+    for (i, strx) in user {
+        Nlist64::defined_extern(strx, 1, layout.fn_vaddrs[i]).write_to(buf);
     }
     for (mi, m) in layout.member_layouts.iter().enumerate() {
-        let data_layouts = member_data_layouts(layout, mi);
-        for (si, (_name, n_value, n_sect)) in m.defined_syms.iter().enumerate() {
-            let vaddr = section_vaddr_for_sym(
-                *n_sect,
-                *n_value,
-                m.vaddr,
-                &m.non_text_sections,
-                data_layouts,
-            );
-            let nlist = Nlist64::defined_extern(member_strx[mi][si], 1, vaddr);
-            nlist.write_to(buf);
+        for row in &m.symtab.externs {
+            member_row(buf, &mut strtab, mi, row, N_SECT | N_EXT);
         }
     }
     buf.extend_from_slice(strtab.as_bytes());

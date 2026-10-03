@@ -65,18 +65,26 @@ pub(crate) struct SectHdr {
     pub(crate) nreloc: u32,
 }
 
+/// A rewritten member `.o` plus the nlist indices of the rows whose
+/// atom was dropped (still defined, clamped to the section base).
+pub(crate) struct StrippedMember {
+    pub(crate) bytes: Vec<u8>,
+    pub(crate) dead_rows: Vec<u32>,
+}
+
 /// Rewrite `bytes` (one member `.o`) keeping only the live atoms
 /// of section `strip_ord`. `atoms_rel` / `live` carry the section's
 /// atom table as section-relative `[start, end)` ranges (relative
 /// offsets survive earlier passes over other sections; absolute
 /// reach addresses do not). Returns `None` when stripping buys
-/// nothing (no dead bytes after run alignment).
+/// nothing (no dead bytes after run alignment); otherwise the new
+/// bytes plus the nlist indices of the rows whose atom was dropped.
 pub(crate) fn strip_member_section(
     bytes: &[u8],
     strip_ord: u8,
     atoms_rel: &[(u64, u64)],
     live: &[bool],
-) -> Result<Option<Vec<u8>>, String> {
+) -> Result<Option<StrippedMember>, String> {
     // Scan first — the header carries the section's CURRENT
     // addr/size (earlier strip passes over the same member shift
     // them; the reach pass's copies are stale after the first).
@@ -228,6 +236,7 @@ pub(crate) fn strip_member_section(
     // Patch nlist n_value: live stripped-section symbols remap,
     // dead ones clamp to the section base; later-section symbols
     // shift down.
+    let mut dead_rows: Vec<u32> = Vec::new();
     if let Some((symoff, nsyms)) = symtab {
         for i in 0..nsyms as usize {
             let p = symoff as usize + i * NLIST_64_SIZE as usize;
@@ -238,7 +247,10 @@ pub(crate) fn strip_member_section(
             }
             let n_value = u64::from_le_bytes(out[p + 8..p + 16].try_into().unwrap());
             let new = if n_sect == strip_ord {
-                remap(n_value).unwrap_or(sect_addr)
+                remap(n_value).unwrap_or_else(|| {
+                    dead_rows.push(i as u32);
+                    sect_addr
+                })
             } else if n_value >= old_end {
                 n_value - shift
             } else {
@@ -248,7 +260,10 @@ pub(crate) fn strip_member_section(
         }
     }
 
-    Ok(Some(out))
+    Ok(Some(StrippedMember {
+        bytes: out,
+        dead_rows,
+    }))
 }
 
 /// Merge adjacent live atoms into placement runs. Each run lands at

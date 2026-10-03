@@ -239,19 +239,18 @@ pub fn write_dyld_chained_fixups(buf: &mut Vec<u8>, dataoff: u32, datasize: u32)
     debug_assert_eq!(buf.len() - start, LINKEDIT_DATA_CMDSIZE as usize);
 }
 
-/// Append `LC_DYSYMTAB`. We emit only the extdef partition (every
-/// defined function is external); local + undef counts stay 0.
-/// `iundefsym = nextdefsym` means the undef partition starts
-/// directly after the extdefs (and is empty).
-pub fn write_dysymtab(buf: &mut Vec<u8>, nextdefsym: u32) {
+/// Append `LC_DYSYMTAB`: `nlocalsym` locals lead the symbol table,
+/// the `nextdefsym` extern definitions follow, and the undef
+/// partition starts right after them (and is empty).
+pub fn write_dysymtab(buf: &mut Vec<u8>, nlocalsym: u32, nextdefsym: u32) {
     let start = buf.len();
     buf.extend_from_slice(&LC_DYSYMTAB.to_le_bytes());
     buf.extend_from_slice(&DYSYMTAB_CMDSIZE.to_le_bytes());
     buf.extend_from_slice(&0u32.to_le_bytes()); // ilocalsym
-    buf.extend_from_slice(&0u32.to_le_bytes()); // nlocalsym
-    buf.extend_from_slice(&0u32.to_le_bytes()); // iextdefsym
+    buf.extend_from_slice(&nlocalsym.to_le_bytes());
+    buf.extend_from_slice(&nlocalsym.to_le_bytes()); // iextdefsym
     buf.extend_from_slice(&nextdefsym.to_le_bytes());
-    buf.extend_from_slice(&nextdefsym.to_le_bytes()); // iundefsym
+    buf.extend_from_slice(&(nlocalsym + nextdefsym).to_le_bytes()); // iundefsym
     buf.extend_from_slice(&0u32.to_le_bytes()); // nundefsym
     // Remaining 12 fields = toc / modtab / extrefsym / indirectsym
     // / extrel / locrel — six (off, count) u32 pairs, all zero
@@ -374,7 +373,7 @@ mod tests {
     #[test]
     fn dysymtab_lays_out_partition_indices() {
         let mut buf = Vec::new();
-        write_dysymtab(&mut buf, 3);
+        write_dysymtab(&mut buf, 0, 3);
         assert_eq!(buf.len(), DYSYMTAB_CMDSIZE as usize);
         assert_eq!(
             u32::from_le_bytes(buf[0..4].try_into().unwrap()),

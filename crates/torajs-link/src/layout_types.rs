@@ -16,6 +16,7 @@ use crate::data_section_layout::DataSectionLayout;
 use crate::fn_name_table_layout::FnNameTableLayout;
 use crate::member_apply::MemberRelocApplyError;
 use crate::member_reloc::MemberRelocError;
+use crate::member_symtab_list::MemberSymtabList;
 use crate::member_text::MemberTextError;
 use crate::non_text_layout::NonTextSectionLayout;
 use crate::tlv_descriptor_layout::{TlvDescriptorLayout, TlvSymOverrideError};
@@ -46,6 +47,11 @@ pub struct MemberLayout {
     pub member_text_offset_in_member: u32,
     /// Defined-external symbols the member exports.
     pub defined_syms: Vec<(String, u64, u8)>,
+    /// Rows `LC_SYMTAB` lists for this member; empty under
+    /// `strip_member_symbols`. Unlike `defined_syms` (resolution) it
+    /// leaves out rows the dead-strip pre-pass dropped and adds the
+    /// member's local text symbols.
+    pub symtab: MemberSymtabList,
     /// SD-4c-prereq-b2 — non-`__text` sections (cstring/const/data)
     /// with shadow final-binary placements for the SD-4c-prereq-b3
     /// SectionRef arm. See [`NonTextSectionLayout`] for the

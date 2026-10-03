@@ -92,6 +92,7 @@ pub mod member_reloc;
 pub mod member_resolve;
 pub mod member_sections;
 pub mod member_symtab;
+pub mod member_symtab_list;
 pub mod member_text;
 pub mod non_text_layout;
 pub mod patch;

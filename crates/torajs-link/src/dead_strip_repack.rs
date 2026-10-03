@@ -27,8 +27,14 @@ use crate::archive::ArMember;
 use crate::archive_link_extra_syms::collect_extra_defined_syms;
 use crate::archives_merge::{compute_required_members, merge_archive_indexes};
 use crate::dead_strip_reach::{MemberReach, SectAtoms, compute_reachability};
-use crate::dead_strip_rewrite::{scan_load_commands, strip_member_section};
+use crate::dead_strip_rewrite::{StrippedMember, scan_load_commands, strip_member_section};
 use crate::exec::{LinkConfig, UserClassLayoutEntry, UserFnNameEntry};
+
+/// nlist rows (ascending indices) whose atom the pre-pass dropped,
+/// keyed by `(archive_idx, member_idx)`. The rows stay defined
+/// (clamped to the section base) because resolution still leans on
+/// them, so `LC_SYMTAB` needs this list to leave them out.
+pub type DeadRows = BTreeMap<(usize, usize), Vec<u32>>;
 
 /// What the pre-pass rewrote: each side is `None` when that input
 /// is unchanged (the caller then links the original).
@@ -44,6 +50,9 @@ pub(crate) struct StripOutput {
     /// r502 — the fn-name registry minus the rows of fns that
     /// re-rooting stripped.
     pub(crate) fn_name_globals: Option<Vec<UserFnNameEntry>>,
+    /// Filled only when member symbols are listed
+    /// (`!cfg.strip_member_symbols`); the stripped table never needs it.
+    pub(crate) dead_rows: DeadRows,
 }
 
 /// Run the dead-strip pre-pass over `cfg.archives`: judge the
@@ -79,12 +88,20 @@ pub(crate) fn strip_archives(cfg: &LinkConfig) -> Result<StripOutput, String> {
 
     let mut out: Vec<Cow<'static, [u8]>> = Vec::with_capacity(cfg.archives.len());
     let mut any = false;
+    let mut dead_rows = DeadRows::new();
     for (a_idx, members) in merged.per_archive_members.iter().enumerate() {
         let mut replaced: BTreeMap<usize, Vec<u8>> = BTreeMap::new();
         for (m_idx, m) in members.iter().enumerate() {
             if let Some(r) = reach.members.get(&(a_idx, m_idx))
-                && let Some(new_bytes) = strip_member(m.data, r)?
+                && let Some(StrippedMember {
+                    bytes: new_bytes,
+                    dead_rows: mut dead,
+                }) = strip_member(m.data, r)?
             {
+                if !cfg.strip_member_symbols && !dead.is_empty() {
+                    dead.sort_unstable();
+                    dead_rows.insert((a_idx, m_idx), dead);
+                }
                 replaced.insert(m_idx, new_bytes);
             }
         }
@@ -100,6 +117,7 @@ pub(crate) fn strip_archives(cfg: &LinkConfig) -> Result<StripOutput, String> {
         funcs: assumed.as_ref().map(|a| a.funcs.clone()),
         class_layouts: assumed.as_ref().and_then(|a| a.class_layouts.clone()),
         fn_name_globals: assumed.and_then(|a| a.fn_name_globals),
+        dead_rows,
     })
 }
 
@@ -124,8 +142,9 @@ fn strippable(sa: &SectAtoms) -> bool {
 /// pass's shifted headers). Atom ranges are handed over
 /// section-relative — relative offsets survive earlier passes;
 /// absolute reach addresses do not.
-fn strip_member(bytes: &[u8], reach: &MemberReach<'_>) -> Result<Option<Vec<u8>>, String> {
+fn strip_member(bytes: &[u8], reach: &MemberReach<'_>) -> Result<Option<StrippedMember>, String> {
     let mut cur: Option<Vec<u8>> = None;
+    let mut dead_rows: Vec<u32> = Vec::new();
     for (i, sa) in reach.sects.iter().enumerate() {
         if !strippable(sa) {
             continue;
@@ -137,7 +156,8 @@ fn strip_member(bytes: &[u8], reach: &MemberReach<'_>) -> Result<Option<Vec<u8>>
             .collect();
         let b = cur.as_deref().unwrap_or(bytes);
         if let Some(next) = strip_member_section(b, (i + 1) as u8, &atoms_rel, &sa.live)? {
-            cur = Some(next);
+            cur = Some(next.bytes);
+            dead_rows.extend(next.dead_rows);
         }
     }
     // S2 blade 3 dead-undef cleanup: with the dead reloc sites gone,
@@ -151,7 +171,10 @@ fn strip_member(bytes: &[u8], reach: &MemberReach<'_>) -> Result<Option<Vec<u8>>
     if !stripped && neutered == 0 {
         return Ok(None);
     }
-    Ok(Some(out))
+    Ok(Some(StrippedMember {
+        bytes: out,
+        dead_rows,
+    }))
 }
 
 /// Clear `N_EXT` on undefined nlist rows that no surviving reloc
