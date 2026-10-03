@@ -420,7 +420,7 @@ fn a_lane_that_never_finishes_behind_a_lane_that_leaves_the_loop() {
     assert_eq!(n, 1);
     // lane i = 1 leaves at once (total 1 > 0); i = 2.. would spin
     let args = [10, 0, 0];
-    assert_eq!(run(&f, &args, 1 << 16), Some(1_000_003 * 0 + 1009 + 1));
+    assert_eq!(run(&f, &args, 1 << 16), Some(1009 + 1));
     assert_eq!(run(&g, &args, 1 << 16), run(&f, &args, 1 << 16));
     // with no early exit both spin at i = 2
     let args = [10, 0, i64::MAX];

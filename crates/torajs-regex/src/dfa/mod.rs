@@ -823,7 +823,7 @@ mod tests {
         for b in [b'a', 0u8, 0xff] {
             assert_eq!(byte_step(&prog, &set(&[0]), b), set(&[1]), "byte 0x{b:02x}");
         }
-        for b in [b'\n', b'\r'] {
+        for b in *b"\n\r" {
             assert!(byte_step(&prog, &set(&[0]), b).is_empty());
         }
     }
