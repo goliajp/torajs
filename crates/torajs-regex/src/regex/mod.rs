@@ -49,6 +49,7 @@ mod replace_fn_walk;
 pub mod replace_iter;
 mod replace_splice;
 mod replace_subst;
+mod replace_units;
 pub mod split;
 pub mod static_keys;
 pub mod str_helpers;

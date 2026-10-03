@@ -79,7 +79,7 @@ impl UnitsWalk<'_> {
             }
             copied = m.end as usize;
             pos = if m.end == m.start {
-                m.end + self.step(m.end)
+                m.end + advance_empty(view, self.re.flags, m.end)
             } else {
                 m.end
             };
@@ -94,35 +94,33 @@ impl UnitsWalk<'_> {
         out.push(view, copied, view.len());
         unsafe { out.into_str() }
     }
+}
 
-    /// Units an empty match at `at` advances by (§22.2.6.11 step
-    /// 11.c.iv AdvanceStringIndex): a surrogate pair is one step under
-    /// `u` / `v`.
-    fn step(&self, at: i64) -> i64 {
-        let view = &self.view;
-        let at = at as usize;
-        if view.wide()
-            && unicode_mode(self.re.flags)
-            && at + 1 < view.len()
-            && is_high_surrogate(view.unit(at))
-            && is_low_surrogate(view.unit(at + 1))
-        {
-            2
-        } else {
-            1
-        }
+/// Units an empty match at `at` advances by (§22.2.6.11 step 11.c.iv
+/// AdvanceStringIndex): a surrogate pair is one step under `u` / `v`.
+pub(super) fn advance_empty(view: &UnitsView<'_>, flags: u8, at: i64) -> i64 {
+    let at = at as usize;
+    if view.wide()
+        && unicode_mode(flags)
+        && at + 1 < view.len()
+        && is_high_surrogate(view.unit(at))
+        && is_low_surrogate(view.unit(at + 1))
+    {
+        2
+    } else {
+        1
     }
 }
 
 /// A result built in code units: Latin-1 until a unit past U+00FF
 /// arrives, UTF-16 from then on.
-enum UnitBuf {
+pub(super) enum UnitBuf {
     Narrow(Vec<u8>),
     Wide(Vec<u16>),
 }
 
 impl UnitBuf {
-    fn for_subject(view: &UnitsView<'_>) -> Self {
+    pub(super) fn for_subject(view: &UnitsView<'_>) -> Self {
         match view {
             UnitsView::Narrow(s) => UnitBuf::Narrow(Vec::with_capacity(s.len() + 16)),
             UnitsView::Wide(s) => UnitBuf::Wide(Vec::with_capacity(s.len() + 16)),
@@ -130,7 +128,7 @@ impl UnitBuf {
     }
 
     /// Append units `from..to` of `view`.
-    fn push(&mut self, view: &UnitsView<'_>, from: usize, to: usize) {
+    pub(super) fn push(&mut self, view: &UnitsView<'_>, from: usize, to: usize) {
         match (view, &mut *self) {
             (UnitsView::Narrow(s), UnitBuf::Narrow(out)) => out.extend_from_slice(&s[from..to]),
             (UnitsView::Narrow(s), UnitBuf::Wide(out)) => {
@@ -153,7 +151,7 @@ impl UnitBuf {
     ///
     /// Calls the torajs-str allocator; the answer is a fresh
     /// refcount-1 Str.
-    unsafe fn into_str(self) -> *mut c_void {
+    pub(super) unsafe fn into_str(self) -> *mut c_void {
         let narrow = match self {
             UnitBuf::Narrow(bytes) => bytes,
             UnitBuf::Wide(units) if units.iter().all(|&u| u <= 0xFF) => {

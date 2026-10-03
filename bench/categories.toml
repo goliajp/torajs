@@ -64,6 +64,7 @@ cases = [
   "split-only-100k",
   "rpn-eval-100k",
   "str-replace-100k",
+  "str-replace-argv-100k",
   "str-concat-ascii-100k",
   "i64-to-str-100k",
   "split-materialize-1m",

@@ -97,7 +97,7 @@ pub(super) unsafe fn replace_ascii_splice(
 /// # Safety
 /// `dst` has room for `src.len()` bytes and does not overlap `src`.
 #[inline(always)]
-unsafe fn put(dst: *mut u8, src: &[u8]) -> *mut u8 {
+pub(super) unsafe fn put(dst: *mut u8, src: &[u8]) -> *mut u8 {
     let n = src.len();
     let p = src.as_ptr();
     // SAFETY: every load stays inside `src[..n]` and every store

@@ -42,6 +42,7 @@
   "str-concat-ascii-100k": {"kind": "suppressed", "why": "black_box keeps the per-iteration String, which LLVM would elide and fold the loop"},
   "json-stringify-100k": {"kind": "different", "why": "serializer is fixed to the struct's keys and value kinds; JSON.stringify discovers both at run time"},
   "str-replace-100k": {"kind": "different", "why": "hand-coded forward scan for a(b+)c stands in for a regex engine"},
+  "str-replace-argv-100k": {"kind": "different", "why": "hand-coded forward scan for a(b+)c stands in for a regex engine"},
   "async-fn-call-100k": {"kind": "same", "caveat": "tr does not suspend at these awaits yet (P-LOOP 4): the drain runs inline in an order the spec forbids, so tr's lead here is not a ceiling reading"},
   "promise-all-1m": {"kind": "same", "caveat": "tr does not suspend at these awaits yet (P-LOOP 4): the drain runs inline in an order the spec forbids, so tr's lead here is not a ceiling reading"},
   "promise-await-100k": {"kind": "same", "caveat": "tr does not suspend at these awaits yet (P-LOOP 4): the drain runs inline in an order the spec forbids, so tr's lead here is not a ceiling reading"},

@@ -5,7 +5,9 @@
 use alloc::vec::Vec;
 use core::ffi::c_void;
 
+use super::offset_map::{byte_to_utf16_units, utf16_units_to_byte};
 use super::replace_subst::{ReplMatch, expand_repl};
+use super::replace_units::replace_with_matcher;
 use super::{
     __torajs_throw_type_error, RegExp, abort_unsupported, as_regex_mut, haystack, str_from_bytes,
     str_from_bytes_ascii, str_slice_ascii_view, str_units,
@@ -13,13 +15,16 @@ use super::{
 use crate::parser::{RE_FLAG_G, RE_FLAG_Y};
 use crate::vm::{match_anchor, search_from_with_ws};
 
+/// The result of replacing in `s` from byte `from` (a sticky
+/// replace's lastIndex, else 0), and the byte end of the last match.
 fn replace_inner<'a>(
     re: &'a RegExp,
     s: &[u8],
     repl: &[u8],
     global: bool,
     haystack_is_ascii: bool,
-) -> &'a [u8] {
+    from: i64,
+) -> (&'a [u8], Option<i64>) {
     let slen = s.len() as i64;
     // V0.2 P14-S8 — reuse the per-RegExp cached Pike VM
     // workspace. The Pike VM's `step_id` counter increments
@@ -42,7 +47,9 @@ fn replace_inner<'a>(
     let out: &mut Vec<u8> = unsafe { &mut *re.replace_out_cache.get() };
     out.clear();
     out.reserve(s.len() + 16);
-    let mut pos: i64 = 0;
+    out.extend_from_slice(&s[..(from.min(slen)) as usize]);
+    let mut pos: i64 = from;
+    let mut last_end = None;
     let sticky = re.flags & RE_FLAG_Y != 0;
     // Round 5 attack str-replace #1 (JSC `substituteBackreferences`
     // dollarless parity) — a replacement with no `$` provably never
@@ -78,6 +85,7 @@ fn replace_inner<'a>(
             )
         };
         let Some(m) = m else { break };
+        last_end = Some(m.end);
         out.extend_from_slice(&s[pos as usize..m.start as usize]);
         if want_saves {
             expand_repl(
@@ -120,7 +128,7 @@ fn replace_inner<'a>(
     // slen - pos < 0 (n_bytes guard inside emit_bytes).
     let tail = (pos as usize).min(s.len());
     out.extend_from_slice(&s[tail..]);
-    out
+    (out, last_end)
 }
 
 /// # Safety
@@ -152,6 +160,10 @@ pub unsafe extern "C" fn __torajs_str_replace_regex(
         let s = unsafe { str_units(str_ptr) };
         return unsafe { str_from_bytes(&s) as *mut c_void };
     }
+    if let Some(out) = unsafe { replace_with_matcher(re, str_ptr, repl_ptr, global) } {
+        return out;
+    }
+    let re_cell: *mut RegExp = re;
     let re: &RegExp = re;
     // Round 5 attacks str-replace #2/#4 — borrow the Str payload
     // directly when it's pure-ASCII Latin-1 (no transcode, no owned
@@ -183,14 +195,27 @@ pub unsafe extern "C" fn __torajs_str_replace_regex(
     {
         return out;
     }
-    let out = replace_inner(re, s, repl, global, haystack_is_ascii);
+    // §22.2.7.2 — a sticky exec starts at lastIndex and stores the
+    // match end, or 0 on a miss
+    let from = if sticky_only {
+        utf16_units_to_byte(s, re.last_index_i64(), haystack_is_ascii)
+    } else {
+        0
+    };
+    let (out, last_end) = replace_inner(re, s, repl, global, haystack_is_ascii, from);
     // Round 5 attack str-replace #5 — the output is gap-copies of `s`
     // plus expansions of `repl`; when both are ASCII the result is
     // provably ASCII, so skip the encoding re-scan in the Str alloc.
-    if haystack_is_ascii && repl_is_ascii {
-        return unsafe { str_from_bytes_ascii(out) as *mut c_void };
+    let result = if haystack_is_ascii && repl_is_ascii {
+        unsafe { str_from_bytes_ascii(out) as *mut c_void }
+    } else {
+        unsafe { str_from_bytes(out) as *mut c_void }
+    };
+    if sticky_only {
+        let end = last_end.map_or(0, |e| byte_to_utf16_units(s, e, haystack_is_ascii));
+        unsafe { (*re_cell).set_last_index_num(end as f64) };
     }
-    unsafe { str_from_bytes(out) as *mut c_void }
+    result
 }
 
 /// # Safety
@@ -231,6 +256,9 @@ pub unsafe extern "C" fn __torajs_str_replace_all_regex(
         let s = unsafe { str_units(str_ptr) };
         return unsafe { str_from_bytes(&s) as *mut c_void };
     }
+    if let Some(out) = unsafe { replace_with_matcher(re, str_ptr, repl_ptr, true) } {
+        return out;
+    }
     let re: &RegExp = re;
     // Round 5 attacks str-replace #2/#4 — same ASCII borrow shape as
     // `__torajs_str_replace_regex` above.
@@ -253,7 +281,7 @@ pub unsafe extern "C" fn __torajs_str_replace_all_regex(
     // replace_all == replace with implicit `g` (ignore the regex's
     // own g flag — JS spec actually throws TypeError if no g, but
     // tr deferred that to v0.2 #1.c per the C port comment).
-    let out = replace_inner(re, s, repl, /* global */ true, haystack_is_ascii);
+    let (out, _) = replace_inner(re, s, repl, /* global */ true, haystack_is_ascii, 0);
     if haystack_is_ascii && repl_is_ascii {
         return unsafe { str_from_bytes_ascii(out) as *mut c_void };
     }
