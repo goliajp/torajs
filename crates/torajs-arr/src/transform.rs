@@ -293,8 +293,7 @@ unsafe fn unshift_slot(arr: *mut u8, v: i64) -> *mut u8 {
         // Grow the data buffer (cell never moves — B1), then shift
         // the live range right one slot so logical slot 0 lands at
         // physical 0 for the new value.
-        let new_cap = if cap == 0 { 1 } else { cap * 2 };
-        unsafe { crate::grow::grow_data_buffer(arr, new_cap as u64) };
+        unsafe { crate::grow::grow_data_buffer(arr, crate::grow::grown_cap(cap as u64)) };
         if len > 0 {
             unsafe {
                 core::ptr::copy(data_ptr(arr), data_ptr_raw(arr, 1), len * 8);

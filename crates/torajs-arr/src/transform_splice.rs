@@ -265,8 +265,8 @@ pub unsafe extern "C" fn __torajs_arr_splice_items(
     if diff > 0 {
         let cap = unsafe { arr_cap(arr) } as i64;
         if new_len > cap {
-            let grown = if cap * 2 > new_len { cap * 2 } else { new_len };
-            unsafe { crate::grow::grow_data_buffer(arr, grown as u64) };
+            let grown = crate::grow::grown_cap(cap as u64).max(new_len as u64);
+            unsafe { crate::grow::grow_data_buffer(arr, grown) };
         }
     }
     let trailing = len - actual_start - actual_delete;

@@ -16,7 +16,7 @@ use torajs_rc::{ARR_ELEM_KIND_MASK, ARR_KIND_HEAP, FLAG_ARR_ANY, HeapHeader};
 
 use crate::any::{ANY_HEAP, ANY_UNDEF};
 use crate::any_typed_bridge::{coerce_raw_scalar, kind_to_any_tag};
-use crate::grow::grow_data_buffer;
+use crate::grow::{grow_data_buffer, grown_cap};
 use crate::layout::{ARR_LEN_OFF, TAG_ARR, arr_data};
 
 /// T-13.5 packed cap (u32) + head_offset (u32) at offset 16 —
@@ -419,8 +419,7 @@ pub unsafe extern "C" fn __torajs_arr_any_splice(
         if diff > 0 {
             let cap = *(arr.add(ARR_CAP_LOW32_OFF) as *const u32) as i64;
             if new_len > cap {
-                let grown = if cap * 2 > new_len { cap * 2 } else { new_len };
-                grow_data_buffer(arr, grown as u64);
+                grow_data_buffer(arr, grown_cap(cap as u64).max(new_len as u64));
             }
         }
         let trailing = len - actual_start - actual_delete;

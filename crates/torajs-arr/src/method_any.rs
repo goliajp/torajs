@@ -397,11 +397,14 @@ unsafe fn any_unshift_one(p: *mut u8, av: u64) -> *mut u8 {
 unsafe fn any_unshift_adopt(p: *mut u8, av: u64) -> *mut u8 {
     unsafe {
         let len = *(p.add(ARR_LEN_OFF) as *const u64);
-        let cur = crate::grow::__torajs_arr_reserve(p, (len + 1) as i64);
-        core::ptr::copy(arr_data(cur), arr_data(cur).add(8), (len as usize) * 8);
-        *(arr_data(cur) as *mut u64) = av;
-        *(cur.add(ARR_LEN_OFF) as *mut u64) = len + 1;
-        cur
+        let cap = crate::transform::arr_cap(p) as u64;
+        if len >= cap {
+            crate::grow::grow_data_buffer(p, crate::grow::grown_cap(cap));
+        }
+        core::ptr::copy(arr_data(p), arr_data(p).add(8), (len as usize) * 8);
+        *(arr_data(p) as *mut u64) = av;
+        *(p.add(ARR_LEN_OFF) as *mut u64) = len + 1;
+        p
     }
 }
 
