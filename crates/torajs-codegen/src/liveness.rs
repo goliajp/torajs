@@ -152,15 +152,14 @@ pub fn compute_liveness(func: &Function) -> (HashMap<u32, Interval>, BlockLivene
             });
 
             if let Some(result) = inst.result {
-                // `entry().or_insert(...)` rather than `insert` to
-                // tolerate SSA shapes that name the same ValueId
-                // multiple times (the SSA the lowerer produces is
-                // single-assignment, but the data structure doesn't
-                // statically enforce it — defensive).
-                out.entry(result.0).or_insert(Interval {
+                // φ cells have several defs; each writes the register, so
+                // a later dead def must stay inside the interval or it
+                // clobbers whoever holds that register at that point
+                let it = out.entry(result.0).or_insert(Interval {
                     start: idx,
                     end: idx,
                 });
+                it.end = it.end.max(idx);
                 if matches!(inst.kind, InstKind::Alloca(_) | InstKind::AllocaBytes(_)) {
                     alloca_results.push(result.0);
                 }
@@ -354,6 +353,8 @@ pub(crate) fn visit_terminator_operands(term: &Terminator, mut f: impl FnMut(Val
 
 #[cfg(test)]
 mod tests {
+    mod dead_def;
+
     use super::*;
     use torajs_core::ssa::{
         BinOp, Block, BlockId, Function, Inst, InstKind, Operand, Terminator, Type, ValueId,
