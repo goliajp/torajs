@@ -118,9 +118,9 @@ fn lanes_step_one_shared_divisor() {
     assert_eq!(squares, 2 + LANES);
 }
 
-/// `for (k = 1; k <= n; k++) { r = 0; i = 2; while (i <= m) { r = (r
-/// + k) % i; i++ } total += r }`, params `n, m`: the inner test reads
-/// only shared values.
+/// `for (k = 1; k <= n; k++) { r = 0; i = 2; while (i <= m)
+/// { r = (r + k) % i; i++ } total += r }`, params `n, m`: the inner
+/// test reads only shared values.
 fn survivors() -> Function {
     // %0 n, %1 m, %2 total, %3 k, %4 test, %5 r, %6 i, %7 inner test,
     // %8 r+k, %9 (r+k)%i, %10 i+1, %11 total+r, %12 k+1
