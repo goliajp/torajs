@@ -2,7 +2,7 @@
 //! unconditionally in the header.
 
 use torajs_core::ssa::{
-    BinOp, BlockId, Function, Inst, InstKind, Operand, Terminator, Type, ValueId,
+    BinOp, BlockId, Function, IPred, Inst, InstKind, Operand, Terminator, Type, ValueId,
 };
 
 /// Per-arm speculation cap: at most this many non-Copy defs may hoist.
@@ -10,6 +10,15 @@ use torajs_core::ssa::{
 /// ALU ops of straight-line speculation is well under that budget,
 /// fatter arms keep their branch. Bench-tunable (blade 2 validation).
 const MAX_SPECULATED_INSTS: usize = 2;
+
+/// The cap for the rest of a switch, `x === A ? a : x === B ? b : …`
+/// picking constants. Which case a datum hits is what a predictor
+/// cannot learn (a scanner's operator kind, an opcode), so every test
+/// left as a branch mispredicts at about the rate its case occurs,
+/// where a compare and a csel per case cost a fixed half cycle. Three
+/// tests under the header's own: past that the csel chain's latency
+/// and the work done for the cases that did not hit stop being small.
+const MAX_SWITCH_SPECULATED_INSTS: usize = 6;
 
 /// Instructions safe to execute unconditionally: no memory access, no
 /// calls, no trap. NOT `optimize::is_pure` — that is GVN purity, which
@@ -51,8 +60,13 @@ pub(super) struct ArmPlan {
 }
 
 /// Dissect one arm (its blocks in execution order). `None` = arm not
-/// convertible.
-pub(super) fn plan_arm(func: &Function, blks: &[usize]) -> Option<ArmPlan> {
+/// convertible. `switch_on` is the value the header tests against a
+/// constant, when that is what it branches on.
+pub(super) fn plan_arm(
+    func: &Function,
+    blks: &[usize],
+    switch_on: Option<ValueId>,
+) -> Option<ArmPlan> {
     let mut hoisted: Vec<Inst> = Vec::new();
     let mut copies: Vec<(ValueId, Type, Operand)> = Vec::new();
     for inst in blks.iter().flat_map(|&b| &func.blocks[b].insts) {
@@ -64,7 +78,7 @@ pub(super) fn plan_arm(func: &Function, blks: &[usize]) -> Option<ArmPlan> {
                 }
                 copies.push((vid, *ty, *src));
             }
-            kind if can_speculate(kind) && inst.result.is_some() => {
+            kind if (can_speculate(kind) || is_select(inst)) && inst.result.is_some() => {
                 // hoisted ahead of the selects, it would read the value
                 // from before the diamond instead of this arm's copy
                 let mut reads_copy = false;
@@ -79,10 +93,84 @@ pub(super) fn plan_arm(func: &Function, blks: &[usize]) -> Option<ArmPlan> {
             _ => return None,
         }
     }
-    if hoisted.len() > MAX_SPECULATED_INSTS {
+    // a select is speculated only as part of a switch: one formed from
+    // an inner diamond of any other kind keeps the outer branch
+    let cap = if switch_on.is_some_and(|x| is_switch_tail(&hoisted, x)) {
+        MAX_SWITCH_SPECULATED_INSTS
+    } else if hoisted.iter().any(is_select) {
         return None;
+    } else {
+        MAX_SPECULATED_INSTS
+    };
+    (hoisted.len() <= cap).then_some(ArmPlan { hoisted, copies })
+}
+
+fn is_select(inst: &Inst) -> bool {
+    matches!(inst.kind, InstKind::Select(..))
+}
+
+fn is_const(op: &Operand) -> bool {
+    !matches!(op, Operand::Value(_))
+}
+
+/// The value block `h` branches on being equal, or not, to a constant.
+pub(super) fn switch_value(func: &Function, h: usize, cond: &Operand) -> Option<ValueId> {
+    let Operand::Value(c) = cond else {
+        return None;
+    };
+    let def = func.blocks[h].insts.iter().find(|i| i.result == Some(*c))?;
+    match &def.kind {
+        InstKind::ICmp(IPred::Eq | IPred::Ne, Operand::Value(x), k) if is_const(k) => Some(*x),
+        _ => None,
     }
-    Some(ArmPlan { hoisted, copies })
+}
+
+/// `hoisted` is the rest of a switch on `x`: equality tests of `x`
+/// against constants, and the selects keyed by those tests that pick
+/// between constants or an earlier pick.
+fn is_switch_tail(hoisted: &[Inst], x: ValueId) -> bool {
+    let mut tests: Vec<ValueId> = Vec::new();
+    let mut picks: Vec<ValueId> = Vec::new();
+    hoisted.iter().all(|inst| {
+        let Some(r) = inst.result else {
+            return false;
+        };
+        match &inst.kind {
+            InstKind::ICmp(IPred::Eq, Operand::Value(v), k) if *v == x && is_const(k) => {
+                tests.push(r);
+                true
+            }
+            InstKind::Select(_, Operand::Value(c), a, b) if tests.contains(c) => {
+                let leaf = |op: &Operand| match op {
+                    Operand::Value(p) => picks.contains(p),
+                    _ => true,
+                };
+                let ok = leaf(a) && leaf(b);
+                picks.push(r);
+                ok
+            }
+            _ => false,
+        }
+    })
+}
+
+/// Per block position: whether control can reach it from the entry.
+pub(super) fn reachable(func: &Function) -> Vec<bool> {
+    let mut live = vec![false; func.blocks.len()];
+    let mut work = vec![0usize];
+    while let Some(b) = work.pop() {
+        if b >= live.len() || std::mem::replace(&mut live[b], true) {
+            continue;
+        }
+        match &func.blocks[b].term {
+            Terminator::Br(t) => work.push(t.0 as usize),
+            Terminator::CondBr {
+                then_blk, else_blk, ..
+            } => work.extend([then_blk.0 as usize, else_blk.0 as usize]),
+            Terminator::Ret(_) | Terminator::Unreachable => {}
+        }
+    }
+    live
 }
 
 /// Longest straight-line chains an arm may span. A growth guard that

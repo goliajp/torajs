@@ -42,7 +42,7 @@ use std::collections::HashMap;
 
 use torajs_core::ssa::{BlockId, Function, Inst, InstKind, Module, Operand, Terminator, ValueId};
 
-use arm::{ArmPlan, arm_chain, plan_arm};
+use arm::{ArmPlan, arm_chain, plan_arm, reachable, switch_value};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct SelectFormStats {
@@ -77,7 +77,10 @@ fn form_once(func: &mut Function, stats: &mut SelectFormStats) -> bool {
     // predecessor counts + global def counts (multi-def Copy check)
     let mut preds: HashMap<BlockId, u32> = HashMap::new();
     let mut defs: HashMap<ValueId, u32> = HashMap::new();
-    for block in &func.blocks {
+    // a converted diamond's emptied arms still `br` to its join; counted,
+    // they would keep that join from ever being part of an outer arm
+    let live = reachable(func);
+    for block in func.blocks.iter().filter(|b| live[b.id.0 as usize]) {
         match &block.term {
             Terminator::Br(t) => *preds.entry(*t).or_insert(0) += 1,
             Terminator::CondBr {
@@ -97,7 +100,7 @@ fn form_once(func: &mut Function, stats: &mut SelectFormStats) -> bool {
     let pred_count = |b: BlockId| preds.get(&b).copied().unwrap_or(0);
     let def_count = |v: ValueId| defs.get(&v).copied().unwrap_or(0);
 
-    for h in 0..func.blocks.len() {
+    for h in (0..func.blocks.len()).filter(|&h| live[h]) {
         let Terminator::CondBr {
             cond,
             then_blk,
@@ -143,7 +146,8 @@ fn try_form_pure(
         return false;
     }
     let join = t_join;
-    let (Some(tp), Some(ep)) = (plan_arm(func, &t_blks), plan_arm(func, &e_blks)) else {
+    let on = switch_value(func, h, cond);
+    let (Some(tp), Some(ep)) = (plan_arm(func, &t_blks, on), plan_arm(func, &e_blks, on)) else {
         return false;
     };
     // join values must pair up exactly: same vid set, two defs
@@ -515,5 +519,79 @@ mod tests {
         while form_once(&mut f, &mut stats) {}
         assert_eq!(stats.diamonds_converted, 1);
         assert_eq!(stats.selects_formed, 2);
+    }
+
+    /// `m = x === 40 ? 0 : x === 41 ? 1 : … : 99` as lowering leaves it:
+    /// level i is header 3i (`%1i = icmp eq x, 40+i`), case 3i+1
+    /// (`%2i = copy i`) and join 3i+2 (`%2(i-1) = copy %2i`), the last
+    /// block is the default. Level `odd` tests %1 instead of %0.
+    fn switch_chain(tests: u32, odd: Option<u32>) -> Function {
+        let mut blocks = Vec::new();
+        for i in 0..tests {
+            let x = if odd == Some(i) { v(1) } else { v(0) };
+            blocks.push(blk(
+                3 * i,
+                vec![inst(
+                    10 + i,
+                    InstKind::ICmp(IPred::Eq, x, c(40 + i64::from(i))),
+                )],
+                Terminator::CondBr {
+                    cond: v(10 + i),
+                    then_blk: BlockId(3 * i + 1),
+                    else_blk: BlockId(3 * i + 3),
+                },
+            ));
+            blocks.push(blk(
+                3 * i + 1,
+                vec![inst(20 + i, InstKind::Copy(Type::I64, c(i64::from(i))))],
+                Terminator::Br(BlockId(3 * i + 2)),
+            ));
+            blocks.push(if i == 0 {
+                blk(2, vec![], Terminator::Ret(Some(v(20))))
+            } else {
+                blk(
+                    3 * i + 2,
+                    vec![inst(20 + i - 1, InstKind::Copy(Type::I64, v(20 + i)))],
+                    Terminator::Br(BlockId(3 * i - 1)),
+                )
+            });
+        }
+        blocks.push(blk(
+            3 * tests,
+            vec![inst(20 + tests - 1, InstKind::Copy(Type::I64, c(99)))],
+            Terminator::Br(BlockId(3 * tests - 1)),
+        ));
+        func(40, blocks)
+    }
+
+    fn converted(f: &mut Function) -> u32 {
+        let mut stats = SelectFormStats::default();
+        while form_once(f, &mut stats) {}
+        stats.diamonds_converted
+    }
+
+    #[test]
+    fn a_switch_picking_constants_forms_a_select_chain() {
+        let mut f = switch_chain(4, None);
+        assert_eq!(converted(&mut f), 4);
+        assert!(matches!(f.blocks[0].term, Terminator::Br(BlockId(2))));
+        let h = &f.blocks[0].insts;
+        assert_eq!(h.len(), 8);
+        assert_eq!(h[7].kind, InstKind::Select(Type::I64, v(10), c(0), v(21)));
+    }
+
+    #[test]
+    fn a_switch_longer_than_the_cap_keeps_its_outer_tests() {
+        let mut f = switch_chain(5, None);
+        assert_eq!(converted(&mut f), 4);
+        assert!(matches!(f.blocks[0].term, Terminator::CondBr { .. }));
+        assert!(matches!(f.blocks[3].term, Terminator::Br(BlockId(5))));
+    }
+
+    #[test]
+    fn a_select_under_a_test_of_another_value_keeps_the_branch() {
+        let mut f = switch_chain(3, Some(1));
+        assert_eq!(converted(&mut f), 1);
+        assert!(matches!(f.blocks[3].term, Terminator::CondBr { .. }));
     }
 }
