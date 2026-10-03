@@ -15,6 +15,7 @@
 //!   native function.
 
 pub mod analyze;
+mod closure;
 pub mod fold;
 pub mod ir;
 mod shape;

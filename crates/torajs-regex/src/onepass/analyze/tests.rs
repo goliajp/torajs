@@ -7,7 +7,8 @@
 
 use super::*;
 use crate::compiler::compile;
-use crate::parser::{Parser, RE_FLAG_I, RE_FLAG_S, RE_FLAG_U};
+use crate::onepass::ir::{INPUT_START, WORD_LEFT, WORD_LEFT_FOLD, WORD_RIGHT, WORD_RIGHT_FOLD};
+use crate::parser::{Parser, RE_FLAG_I, RE_FLAG_M, RE_FLAG_S, RE_FLAG_U};
 use crate::vm::Workspace;
 use crate::vm::match_at::vm_match_at;
 
