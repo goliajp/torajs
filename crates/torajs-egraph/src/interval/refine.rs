@@ -19,9 +19,12 @@
 
 use std::collections::{HashMap, HashSet};
 
-use torajs_core::ssa::{BlockId, FPred, Function, IPred, InstKind, Operand, Terminator, ValueId};
+use torajs_core::ssa::{
+    Block, BlockId, FPred, Function, IPred, InstKind, Operand, Terminator, ValueId,
+};
 
 use super::refine_logic::Logic;
+use super::square::{SquareBound, root_in_block, square_constraint};
 use super::transfer::{NEG_INF, NumFact, POS_INF, op_const_int};
 use torajs_core::ssa::dominator::DominatorTree;
 
@@ -46,6 +49,13 @@ pub enum Constraint {
         /// conversion keeps exact
         via_sitofp: bool,
     },
+    /// `value * value` stands below `bound` (at or below unless
+    /// `strict`) on this path; see `square`.
+    Square {
+        value: ValueId,
+        strict: bool,
+        bound: SquareBound,
+    },
 }
 
 /// How a value stands to the comparand it was branched on.
@@ -64,7 +74,7 @@ impl Constraint {
     pub fn value(&self) -> ValueId {
         match self {
             Constraint::Range(v, _) | Constraint::Even(v) | Constraint::NonZero(v) => *v,
-            Constraint::Rel { value, .. } => *value,
+            Constraint::Rel { value, .. } | Constraint::Square { value, .. } => *value,
         }
     }
 }
@@ -138,10 +148,24 @@ impl Constraints {
                 if let Some(cs) = edge_constraints(kind, taken, defs) {
                     at_entry[target.0 as usize].extend(cs);
                 }
+                at_entry[target.0 as usize].extend(square_edge(block, kind, taken, defs));
             }
         }
         Logic::new(func, defs).extend(&mut at_entry);
         Self { at_entry }
+    }
+
+    /// Every square bound a path states, with its strictness.
+    pub fn square_bounds(&self) -> Vec<(SquareBound, bool)> {
+        let mut out: Vec<(SquareBound, bool)> = Vec::new();
+        for c in self.at_entry.iter().flatten() {
+            if let Constraint::Square { strict, bound, .. } = c
+                && !out.contains(&(*bound, *strict))
+            {
+                out.push((*bound, *strict));
+            }
+        }
+        out
     }
 
     pub fn at(&self, b: BlockId) -> &[Constraint] {
@@ -255,6 +279,27 @@ pub(super) fn edge_constraints(
         }
         _ => None,
     }
+}
+
+/// What an integer compare of a square, defined in the branching
+/// `block`, says of the square's root on the edge.
+fn square_edge(
+    block: &Block,
+    kind: &InstKind,
+    taken: bool,
+    defs: &HashMap<ValueId, InstKind>,
+) -> Option<Constraint> {
+    let InstKind::ICmp(pred, a, b) = kind else {
+        return None;
+    };
+    let rel = edge_rel(*pred, taken)?;
+    [(a, b, true), (b, a, false)]
+        .into_iter()
+        .find_map(|(sq, other, left)| {
+            let Operand::Value(m) = sq else { return None };
+            let root = root_in_block(block, *m, defs)?;
+            square_constraint(root, rel, left, other)
+        })
 }
 
 /// The signed predicate an ordered f64 compare reads as between

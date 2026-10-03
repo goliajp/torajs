@@ -27,6 +27,7 @@ mod elem_kernels;
 pub(crate) mod elem_len;
 pub mod refine;
 mod refine_logic;
+pub mod square;
 pub mod transfer;
 
 pub use transfer::{AbsVal, NumFact};
@@ -147,6 +148,7 @@ pub fn analyze_function_with(
     let dom = DominatorTree::compute(func);
     let constraints = Constraints::compute(func, &single);
     let thresholds = collect_thresholds(func);
+    let squares = constraints.square_bounds();
     // An allocation's elements are one more multi-def cell whose defs
     // happen to be stores; it rides the same ascent below.
     let elems = elem::collect(func, callee_names);
@@ -160,6 +162,16 @@ pub fn analyze_function_with(
     let mut stable_since = None;
     for round in 0.. {
         let narrowing = stable_since.is_some();
+        let with_roots;
+        let thresholds: &[i128] = if squares.is_empty() {
+            &thresholds
+        } else {
+            with_roots = square::with_roots(&thresholds, &squares, |b| match state.get(&b) {
+                Some(AbsVal::Fact(f)) => Some(f.hi),
+                _ => None,
+            });
+            &with_roots
+        };
         let mut contrib: HashMap<ValueId, AbsVal> = HashMap::new();
         let mut changed = false;
 
@@ -224,7 +236,7 @@ pub fn analyze_function_with(
             let next = if narrowing {
                 narrow(old, new)
             } else {
-                widen(old, old.join(new), round, &thresholds)
+                widen(old, old.join(new), round, thresholds)
             };
             if next != old {
                 elem_state.insert(*root, next);
@@ -237,7 +249,7 @@ pub fn analyze_function_with(
             let next = if narrowing {
                 narrow(old, new)
             } else {
-                widen(old, old.join(new), round, &thresholds)
+                widen(old, old.join(new), round, thresholds)
             };
             if next != old {
                 state.insert(cell, next);
@@ -322,6 +334,25 @@ fn lookup(op: &Operand, state: &HashMap<ValueId, AbsVal>, live: &[Constraint]) -
             } if value == v => {
                 if let Some(AbsVal::Fact(known)) = state.get(bound)
                     && let Some(r) = refine::rel_range(*rel, *known, *via_sitofp)
+                    && let Some(m) = f.meet(r)
+                {
+                    f = m;
+                }
+            }
+            Constraint::Square {
+                value,
+                strict,
+                bound,
+            } if value == v => {
+                let hi = match bound {
+                    square::SquareBound::Const(k) => Some(*k),
+                    square::SquareBound::Value(b) => match state.get(b) {
+                        Some(AbsVal::Fact(k)) => Some(k.hi),
+                        _ => None,
+                    },
+                };
+                if let Some(hi) = hi
+                    && let Some(r) = square::root_range(f, hi, *strict)
                     && let Some(m) = f.meet(r)
                 {
                     f = m;
