@@ -41,6 +41,7 @@ mod cell;
 mod cmp;
 mod ctpop_range_sum;
 mod entry;
+mod fusions;
 mod inline_sites;
 mod inst;
 mod mem;
@@ -59,7 +60,7 @@ pub(crate) mod test_fixtures;
 
 use std::collections::HashMap;
 
-use torajs_core::ssa::{Function, InstKind, Module, Type};
+use torajs_core::ssa::{Function, Module, Type};
 
 use crate::frame::FrameLayout;
 use crate::reg::{Fpr, Gpr};
@@ -214,15 +215,7 @@ pub fn compile_function_with(
         emit_stack_param_loads(&mut bytes, &alloc, &frame);
     }
 
-    // Block-tail single-use ICmp + CondBr pairs fuse into cmp+b.cond
-    // (or cbz/cbnz) — the inst loop skips the compare, the terminator
-    // emits it. See compile/brfuse.rs.
-    let fused_cmps = brfuse::fusible_cmps(func);
-    let select_fused = brfuse::fusible_select_cmps(func, &alloc);
-    // `select c, (x+1), x` collapses into one CSINC, absorbing the ADD
-    // (and the ICmp behind it, which the ADD used to keep out of
-    // fusible_select_cmps' adjacency window). See compile/selinc.rs.
-    let select_incs = selinc::fusible_select_incs(func);
+    let fusions = fusions::Fusions::of(func, &alloc);
 
     // Forwarder-resolved block map, shared by the terminator emit
     // (fall-through elision needs the next block's final identity)
@@ -252,26 +245,9 @@ pub fn compile_function_with(
             Some(sw) if sw.pre.contains(&block.id.0) => (&sw.pre_alloc, &frameless),
             _ => (&alloc, &frame),
         };
-        let fused = fused_cmps.get(&block.id.0);
+        let fused = fusions.cmp_of(block.id.0);
         for (ii, inst) in block.insts.iter().enumerate() {
-            if fused.is_some() && ii == block.insts.len() - 1 {
-                continue; // the CondBr emits this compare fused
-            }
-            if select_fused.contains_key(&(block.id.0, ii as u32)) {
-                continue; // the next Select emits this compare fused
-            }
-            if select_incs.absorbed(block.id.0, ii as u32) {
-                continue; // the CSINC downstream emits this add / compare
-            }
-            if let Some(plan) = select_incs.plan(block.id.0, ii as u32) {
-                cmp::emit_select_inc(&mut bytes, inst, plan, alloc);
-                continue;
-            }
-            if let InstKind::Select(ty, _, then_op, else_op) = &inst.kind
-                && ii > 0
-                && let Some(fc) = select_fused.get(&(block.id.0, ii as u32 - 1))
-            {
-                cmp::emit_select_fused(&mut bytes, inst, ty, fc, then_op, else_op, alloc);
+            if fusions.emit(&mut bytes, block, ii, inst, alloc) {
                 continue;
             }
             let site = block_slot + ii as u32;
