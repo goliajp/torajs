@@ -19,7 +19,9 @@ use core::ffi::c_void;
 use core::ptr;
 use std::sync::atomic::{AtomicPtr, AtomicU32, Ordering};
 
-use crate::layout::{COLOR_PURPLE, FLAG_BUFFERED, HeapHeader, has_walkable_children, set_color};
+use crate::layout::{
+    COLOR_PURPLE, FLAG_BUFFERED, HeapHeader, has_walkable_children, nan_box_is_cell_like, set_color,
+};
 
 /// Threshold at which `cycle_buffer` triggers a synchronous collect
 /// before returning. Mirrors `runtime_cycle.c::CYCLE_AUTO_COLLECT_
@@ -159,11 +161,18 @@ pub fn len() -> u32 {
 /// `p` is NULL or a live heap cell with a valid `HeapHeader`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_cycle_buffer(p: *mut c_void) {
-    if !unsafe { has_walkable_children(p) } {
+    // a long-lived cell released over and over (a function value held
+    // by its singleton slot and passed to every `then`) is buffered
+    // after its first release: one header bit answers before the
+    // walkability test reads anything else
+    if !nan_box_is_cell_like(p) {
         return;
     }
     let h = p as *mut HeapHeader;
     if unsafe { (*h).flags } & FLAG_BUFFERED != 0 {
+        return;
+    }
+    if !unsafe { has_walkable_children(p) } {
         return;
     }
     unsafe {

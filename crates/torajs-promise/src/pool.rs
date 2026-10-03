@@ -53,7 +53,7 @@ const FLAG_SUBCLASSED: u16 = 1;
 
 use std::sync::atomic::{AtomicI32, AtomicPtr, Ordering};
 
-use torajs_rc::rc_dec_cell;
+use torajs_rc::{FLAG_BUFFERED, rc_dec_cell};
 
 /// Freelist head — `Promise.callbacks` repurposed as `next`.
 /// AtomicPtr static pattern (same as torajs-arr::pool / torajs-weak::
@@ -399,8 +399,11 @@ pub unsafe extern "C" fn __torajs_promise_drop(p: *mut c_void) {
         }
         // Scrub from the root buffer before the memory goes away: a
         // cell buffered above that later normal-drops to zero would
-        // leave a dangling candidate. No-op when never buffered.
-        __torajs_cycle_unbuffer(p);
+        // leave a dangling candidate. The bit is read here so the
+        // common never-buffered promise skips the call.
+        if (*pp).header.flags & FLAG_BUFFERED != 0 {
+            __torajs_cycle_unbuffer(p);
+        }
         promise_release_(pp);
     }
 }
