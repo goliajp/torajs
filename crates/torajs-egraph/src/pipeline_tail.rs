@@ -1,6 +1,8 @@
 use torajs_core::ssa::Module;
 
-use crate::{block_layout, gated_pass, loop_rotate, map_find_cse, rc_dec_immediate, rc_peephole};
+use crate::{
+    block_layout, gated_pass, loop_rotate, map_find_cse, rc_dec_immediate, rc_peephole, unroll_jam,
+};
 
 /// The pipeline tail — rc-pair elision, then the cfg-shape passes whose
 /// output is exactly what codegen lays out.
@@ -25,6 +27,9 @@ pub(crate) fn finish_pipeline(module: &mut Module) {
     // with no Map write between reuses the earlier index; set_str takes
     // it as a checked hint. `TORAJS_MAP_FIND_CSE_OFF=1` skips.
     gated_pass("MAP_FIND_CSE", module, map_find_cse::share_map_finds);
+    // Unroll-and-jam of counted loops around a divide-bound inner loop;
+    // before loop_rotate, which then rotates the loops it builds.
+    gated_pass("UNROLL_JAM", module, unroll_jam::jam_module);
     // Loop rotation — copy each top-tested loop's exit test into its
     // latch so the loop runs one conditional branch per iteration.
     // Before block_layout, which lays out the rotated body.

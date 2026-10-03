@@ -1,0 +1,129 @@
+//! Unroll-and-jam of a counted loop around an inner `while` loop
+//! (Allen & Kennedy, *Optimizing Compilers for Modern Architectures*
+//! §8.4; LLVM `LoopUnrollAndJam`), for inner loops whose trip counts
+//! differ from one outer iteration to the next.
+//!
+//! ```text
+//! for (i = s; i <= n; i += C) { pre(i); while (c) body; post }
+//! ```
+//!
+//! While `LANES` outer iterations remain, a group runs `pre` for
+//! `i, i+C, …`, steps all `LANES` inner loops together while every one
+//! of them is still running, then lets each lane finish its own inner
+//! loop and run its own `post`, lane by lane in iteration order. The
+//! fused loop keeps `LANES` independent recurrences in flight, so an
+//! inner loop bound by one long-latency chain (a divide per step:
+//! Euclid's gcd, digit and radix loops, continued fractions) runs at
+//! the divider's throughput instead of its latency. Fewer than `LANES`
+//! remaining iterations run through the untouched original loop.
+//!
+//! Why the result cannot differ:
+//! - every lane executes exactly its own iteration's instruction
+//!   sequence; the only change is that later lanes run part of `pre`
+//!   and the inner loop before earlier lanes reach `post`. That work is
+//!   pure, trap-free, reads no memory and no value `post` writes, so it
+//!   is unobservable; if an earlier lane's `post` leaves the loop, it
+//!   is dropped.
+//! - the fused loop stops when any lane's inner loop is done, so it
+//!   never runs longer than lane 0's own inner loop: an inner loop
+//!   that does not terminate hangs at the same iteration as before.
+//! - `post` (reductions and their overflow guards, calls, stores) runs
+//!   once per lane in iteration order: sums keep their order and each
+//!   exit sees the state the original saw at that point.
+//! - a group starts only when all its iterations pass the loop test
+//!   (`i <= n - (LANES-1)·C`, the subtraction checked for wrap once
+//!   before the loop, `n` defined outside it). A guard in `pre` that
+//!   would leave the loop (an overflow bail) sends the whole group back
+//!   to the original loop when any lane's copy fires: nothing has been
+//!   written by then.
+//!
+//! The IR has no φ nodes (loop cells are multi-def `Copy`), so lane
+//! state is per-lane renamed cells in the fused part and the original
+//! cells again, copied in, when a lane finishes on its own.
+//!
+//! Before loop_rotate. `TORAJS_UNROLL_JAM_OFF=1` skips,
+//! `TORAJS_UNROLL_JAM_STATS=1` dumps counters.
+
+mod emit;
+mod flow;
+mod plan;
+#[cfg(test)]
+mod tests;
+
+use std::collections::HashSet;
+
+use torajs_core::ssa::{BlockId, IPred, Module, Operand, ValueId};
+
+/// Outer iterations in flight per group.
+pub const LANES: usize = 4;
+const MAX_PRE_INSTS: usize = 16;
+const MAX_INNER_INSTS: usize = 24;
+const MAX_POST_INSTS: usize = 64;
+const MAX_CHAIN_BLOCKS: usize = 8;
+const MAX_STEP: i64 = 1 << 20;
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct UnrollJamStats {
+    /// Outer loops given a jammed group path.
+    pub loops_jammed: u32,
+}
+
+pub fn jam_module(module: &mut Module) -> UnrollJamStats {
+    let mut stats = UnrollJamStats::default();
+    for func in module.funcs.iter_mut() {
+        if func.is_declaration() {
+            continue;
+        }
+        // the original loop survives as the remainder path, so a
+        // header once handled must not be picked again
+        let mut done: HashSet<BlockId> = HashSet::new();
+        while let Some(plan) = plan::find_plan(func, &done) {
+            done.insert(plan.header);
+            emit::apply(func, &plan);
+            stats.loops_jammed += 1;
+        }
+    }
+    stats
+}
+
+/// One outer loop the rewrite takes, with its regions named.
+pub(crate) struct Plan {
+    pub header: BlockId,
+    /// Blocks between the header and the inner header, in order.
+    pub pre_blocks: Vec<BlockId>,
+    /// The header's exit compare, when nothing but its branch reads it.
+    pub skip: Option<ValueId>,
+    pub iv: ValueId,
+    pub step: i64,
+    /// `iv <pred> bound` keeps looping; `Slt` or `Sle`.
+    pub pred: IPred,
+    pub bound: Operand,
+    pub inner_header: BlockId,
+    /// The inner header's cond keeps the inner loop going when true.
+    pub inner_on_true: bool,
+    /// Inner body blocks after the inner header, in order.
+    pub chain: Vec<BlockId>,
+    /// Everything else in the outer body, the latch included.
+    pub post: Vec<BlockId>,
+    pub body: HashSet<BlockId>,
+    /// Copy cells defined before the inner loop: one lane's state.
+    pub lane_cells: Vec<ValueId>,
+    /// Non-cell loop values read after the loop; lane clones redefine
+    /// them under the same id.
+    pub escaping: HashSet<ValueId>,
+}
+
+impl Plan {
+    /// Header then pre blocks: the part every lane runs before its
+    /// inner loop.
+    pub(crate) fn pre_order(&self) -> Vec<BlockId> {
+        std::iter::once(self.header)
+            .chain(self.pre_blocks.iter().copied())
+            .collect()
+    }
+    pub(crate) fn inner_order(&self) -> Vec<BlockId> {
+        std::iter::once(self.inner_header)
+            .chain(self.chain.iter().copied())
+            .collect()
+    }
+}

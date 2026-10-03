@@ -1,0 +1,439 @@
+//! Which outer loops the rewrite takes, and the regions it names.
+
+use std::collections::{HashMap, HashSet};
+
+use torajs_core::ssa::dominator::DominatorTree;
+use torajs_core::ssa::loop_analysis::{LoopAnalysis, NaturalLoop};
+use torajs_core::ssa::{
+    BinOp, BlockId, Function, IPred, InstKind, Operand, Terminator, Type, ValueId,
+    visit_value_operands,
+};
+
+use super::flow::{escaping, lane_cells};
+use super::{
+    LANES, MAX_CHAIN_BLOCKS, MAX_INNER_INSTS, MAX_POST_INSTS, MAX_PRE_INSTS, MAX_STEP, Plan,
+};
+
+pub(super) struct Ctx {
+    pub preds: HashMap<BlockId, Vec<BlockId>>,
+    /// Every def site of each value.
+    pub defs: HashMap<ValueId, Vec<(BlockId, usize)>>,
+    pub uses: HashMap<ValueId, u32>,
+}
+
+pub(super) fn find_plan(func: &Function, done: &HashSet<BlockId>) -> Option<Plan> {
+    let dom = DominatorTree::compute(func);
+    let la = LoopAnalysis::compute(func, &dom);
+    let ctx = context(func);
+    la.loops()
+        .iter()
+        .filter(|l| !done.contains(&l.header))
+        .find_map(|l| plan_loop(func, &la, l, &ctx))
+}
+
+fn context(func: &Function) -> Ctx {
+    let mut ctx = Ctx {
+        preds: HashMap::new(),
+        defs: HashMap::new(),
+        uses: HashMap::new(),
+    };
+    for block in &func.blocks {
+        for s in successors(&block.term) {
+            ctx.preds.entry(s).or_default().push(block.id);
+        }
+        for (i, inst) in block.insts.iter().enumerate() {
+            if let Some(r) = inst.result {
+                ctx.defs.entry(r).or_default().push((block.id, i));
+            }
+            visit_value_operands(&inst.kind, |v| *ctx.uses.entry(v).or_insert(0) += 1);
+        }
+        if let Some(v) = term_value(&block.term) {
+            *ctx.uses.entry(v).or_insert(0) += 1;
+        }
+    }
+    ctx
+}
+
+pub(super) fn successors(term: &Terminator) -> Vec<BlockId> {
+    match term {
+        Terminator::Br(t) => vec![*t],
+        Terminator::CondBr {
+            then_blk, else_blk, ..
+        } => vec![*then_blk, *else_blk],
+        Terminator::Ret(_) | Terminator::Unreachable => vec![],
+    }
+}
+
+pub(super) fn term_value(term: &Terminator) -> Option<ValueId> {
+    match term {
+        Terminator::CondBr {
+            cond: Operand::Value(v),
+            ..
+        }
+        | Terminator::Ret(Some(Operand::Value(v))) => Some(*v),
+        _ => None,
+    }
+}
+
+fn plan_loop(func: &Function, la: &LoopAnalysis, l: &NaturalLoop, ctx: &Ctx) -> Option<Plan> {
+    let h = l.header;
+    let [latch] = *l.back_edge_sources.as_slice() else {
+        return None;
+    };
+    if latch == h || !matches!(blk(func, latch).term, Terminator::Br(t) if t == h) {
+        return None;
+    }
+    let body: HashSet<BlockId> = l.body.iter().copied().collect();
+    let Terminator::CondBr {
+        cond: Operand::Value(c),
+        then_blk,
+        else_blk,
+    } = blk(func, h).term
+    else {
+        return None;
+    };
+    let (p0, on_true) = match (body.contains(&then_blk), body.contains(&else_blk)) {
+        (true, false) => (then_blk, true),
+        (false, true) => (else_blk, false),
+        _ => return None,
+    };
+    let (iv, pred, bound) = counted_test(func, h, c, on_true, ctx)?;
+    // PH, ahead of the loop, computes `bound - (LANES-1)·C`
+    if let Operand::Value(b) = bound
+        && ctx
+            .defs
+            .get(&b)
+            .is_some_and(|ds| ds.iter().any(|(d, _)| body.contains(d)))
+    {
+        return None;
+    }
+    let [inner] = la
+        .loops()
+        .iter()
+        .filter(|o| o.header != h && body.contains(&o.header))
+        .collect::<Vec<_>>()[..]
+    else {
+        return None;
+    };
+    let ih = inner.header;
+    let (pre_blocks, ih_entry) = pre_chain(func, ctx, &body, h, p0, ih)?;
+    let [il] = *inner.back_edge_sources.as_slice() else {
+        return None;
+    };
+    let mut ih_preds = ctx.preds.get(&ih)?.clone();
+    ih_preds.sort_by_key(|b| b.0);
+    let mut want = vec![ih_entry, il];
+    want.sort_by_key(|b| b.0);
+    if ih_preds != want {
+        return None;
+    }
+    let (inner_on_true, cont, px) = inner_exit(func, inner, ih)?;
+    let chain = inner_chain(func, ctx, &body, inner, ih, cont)?;
+    let mut fixed: HashSet<BlockId> = pre_blocks.iter().copied().collect();
+    fixed.insert(h);
+    if fixed.contains(&px) || !body.contains(&px) {
+        return None;
+    }
+    let mut post: Vec<BlockId> = body
+        .iter()
+        .copied()
+        .filter(|b| !fixed.contains(b) && !inner.body.contains(b))
+        .collect();
+    post.sort_by_key(|b| b.0);
+    let post_set: HashSet<BlockId> = post.iter().copied().collect();
+    for &b in &post {
+        for s in successors(&blk(func, b).term) {
+            let ok = if s == h {
+                b == latch
+            } else {
+                !body.contains(&s) || post_set.contains(&s)
+            };
+            if !ok {
+                return None;
+            }
+        }
+    }
+    let step = iv_step(func, ctx, &body, latch, iv)?;
+    let skip = (ctx.uses.get(&c) == Some(&1)).then_some(c);
+    let mut plan = Plan {
+        header: h,
+        pre_blocks,
+        skip,
+        iv,
+        step,
+        pred,
+        bound,
+        inner_header: ih,
+        inner_on_true,
+        chain,
+        post,
+        body,
+        lane_cells: Vec::new(),
+        escaping: HashSet::new(),
+    };
+    if !regions_fit(func, &plan) {
+        return None;
+    }
+    plan.lane_cells = lane_cells(func, ctx, &plan)?;
+    plan.escaping = escaping(func, ctx, &plan)?;
+    if !wrap_ok(&plan) {
+        return None;
+    }
+    Some(plan)
+}
+
+pub(super) fn blk(func: &Function, b: BlockId) -> &torajs_core::ssa::Block {
+    &func.blocks[b.0 as usize]
+}
+
+/// The header's exit test as `iv <pred> bound` with `pred` `Slt`/`Sle`.
+fn counted_test(
+    func: &Function,
+    h: BlockId,
+    c: ValueId,
+    on_true: bool,
+    ctx: &Ctx,
+) -> Option<(ValueId, IPred, Operand)> {
+    let [(db, di)] = *ctx.defs.get(&c)?.as_slice() else {
+        return None;
+    };
+    if db != h {
+        return None;
+    }
+    let InstKind::ICmp(p, a, b) = blk(func, h).insts[di].kind else {
+        return None;
+    };
+    let p = if on_true {
+        p
+    } else {
+        match p {
+            IPred::Slt => IPred::Sge,
+            IPred::Sge => IPred::Slt,
+            IPred::Sle => IPred::Sgt,
+            IPred::Sgt => IPred::Sle,
+            _ => return None,
+        }
+    };
+    let (iv, bound, pred) = match p {
+        IPred::Slt | IPred::Sle => (a, b, p),
+        IPred::Sgt => (b, a, IPred::Slt),
+        IPred::Sge => (b, a, IPred::Sle),
+        _ => return None,
+    };
+    let Operand::Value(iv) = iv else {
+        return None;
+    };
+    if func.value_type(iv) != Type::I64 {
+        return None;
+    }
+    match bound {
+        Operand::ConstI64(_) => {}
+        Operand::Value(v) if func.value_type(v) == Type::I64 => {}
+        _ => return None,
+    }
+    Some((iv, pred, bound))
+}
+
+/// The straight run of blocks from the header's body entry to the
+/// inner header; returns it and the inner header's entry predecessor.
+fn pre_chain(
+    func: &Function,
+    ctx: &Ctx,
+    body: &HashSet<BlockId>,
+    h: BlockId,
+    p0: BlockId,
+    ih: BlockId,
+) -> Option<(Vec<BlockId>, BlockId)> {
+    let mut blocks = Vec::new();
+    let (mut prev, mut cur) = (h, p0);
+    while cur != ih {
+        if !body.contains(&cur)
+            || blocks.len() >= MAX_CHAIN_BLOCKS
+            || ctx.preds.get(&cur).map(Vec::as_slice) != Some(&[prev])
+        {
+            return None;
+        }
+        let next = guarded_next(&blk(func, cur).term, |b| body.contains(&b), body)?;
+        blocks.push(cur);
+        (prev, cur) = (cur, next);
+    }
+    Some((blocks, prev))
+}
+
+/// `(stays-on-true, continue target, exit target)` of the inner header.
+fn inner_exit(
+    func: &Function,
+    inner: &NaturalLoop,
+    ih: BlockId,
+) -> Option<(bool, BlockId, BlockId)> {
+    let Terminator::CondBr {
+        cond: Operand::Value(_),
+        then_blk,
+        else_blk,
+    } = blk(func, ih).term
+    else {
+        return None;
+    };
+    let inside = |b: BlockId| inner.body.contains(&b);
+    match (inside(then_blk), inside(else_blk)) {
+        (true, false) => Some((true, then_blk, else_blk)),
+        (false, true) => Some((false, else_blk, then_blk)),
+        _ => None,
+    }
+}
+
+/// Where a chain block goes on: its `br` target, or the target `keep`
+/// accepts of a guard whose other edge leaves the outer loop (an
+/// overflow bail). A lane whose guard fires before every earlier lane
+/// has finished sends its group back to the original loop; nothing has
+/// been written by then.
+fn guarded_next(
+    term: &Terminator,
+    keep: impl Fn(BlockId) -> bool,
+    outer: &HashSet<BlockId>,
+) -> Option<BlockId> {
+    match *term {
+        Terminator::Br(next) => Some(next),
+        Terminator::CondBr {
+            cond: Operand::Value(_),
+            then_blk,
+            else_blk,
+        } => {
+            if keep(then_blk) && !outer.contains(&else_blk) {
+                Some(then_blk)
+            } else if keep(else_blk) && !outer.contains(&then_blk) {
+                Some(else_blk)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+/// The inner body as a straight run of blocks back to its header
+/// (empty when the header loops on itself).
+fn inner_chain(
+    func: &Function,
+    ctx: &Ctx,
+    body: &HashSet<BlockId>,
+    inner: &NaturalLoop,
+    ih: BlockId,
+    cont: BlockId,
+) -> Option<Vec<BlockId>> {
+    let mut chain = Vec::new();
+    let (mut prev, mut cur) = (ih, cont);
+    while cur != ih {
+        if chain.len() >= MAX_CHAIN_BLOCKS
+            || ctx.preds.get(&cur).map(Vec::as_slice) != Some(&[prev])
+        {
+            return None;
+        }
+        let next = guarded_next(&blk(func, cur).term, |b| inner.body.contains(&b), body)?;
+        chain.push(cur);
+        (prev, cur) = (cur, next);
+    }
+    (inner.body.len() == chain.len() + 1).then_some(chain)
+}
+
+/// `iv`'s only def inside the loop is the latch's copy of `iv + C`
+/// (or that add itself).
+fn iv_step(
+    func: &Function,
+    ctx: &Ctx,
+    body: &HashSet<BlockId>,
+    latch: BlockId,
+    iv: ValueId,
+) -> Option<i64> {
+    let in_loop: Vec<(BlockId, usize)> = ctx
+        .defs
+        .get(&iv)?
+        .iter()
+        .copied()
+        .filter(|(b, _)| body.contains(b))
+        .collect();
+    let [(b, i)] = in_loop[..] else {
+        return None;
+    };
+    if b != latch {
+        return None;
+    }
+    let add_of_iv = |kind: &InstKind| match *kind {
+        InstKind::BinOp(BinOp::Add, Operand::Value(x), Operand::ConstI64(c))
+        | InstKind::BinOp(BinOp::Add, Operand::ConstI64(c), Operand::Value(x))
+            if x == iv && (1..=MAX_STEP).contains(&c) =>
+        {
+            Some(c)
+        }
+        _ => None,
+    };
+    let kind = &blk(func, b).insts[i].kind;
+    if let InstKind::Copy(_, Operand::Value(x)) = kind {
+        // the step may sit anywhere in the body (an overflow guard
+        // between it and the latch); iv has no other def to read
+        let [(xb, xi)] = *ctx.defs.get(x)?.as_slice() else {
+            return None;
+        };
+        if !body.contains(&xb) || (xb == latch && xi > i) {
+            return None;
+        }
+        return add_of_iv(&blk(func, xb).insts[xi].kind);
+    }
+    add_of_iv(kind)
+}
+
+/// Pure, trap-free, reads no memory.
+fn pure(kind: &InstKind) -> bool {
+    match kind {
+        InstKind::BinOp(op, _, _) => *op != BinOp::FRem,
+        InstKind::ICmp(..)
+        | InstKind::FCmp(..)
+        | InstKind::Copy(..)
+        | InstKind::Select(..)
+        | InstKind::SiToFp(_)
+        | InstKind::FpToSi(_)
+        | InstKind::FpToInt32(_)
+        | InstKind::ZExtBoolToI64(_)
+        | InstKind::ZExtI32ToI64(_)
+        | InstKind::BitCastF64ToI64(_)
+        | InstKind::BitCastI64ToF64(_)
+        | InstKind::TruncI64ToBool(_)
+        | InstKind::Neg(_)
+        | InstKind::Ctpop(_)
+        | InstKind::Identity(_) => true,
+        _ => false,
+    }
+}
+
+/// Size limits, purity of the parts lanes run early, and a divide on
+/// the inner loop (the latency the interleaving hides).
+fn regions_fit(func: &Function, p: &Plan) -> bool {
+    let count = |bs: &[BlockId]| bs.iter().map(|b| blk(func, *b).insts.len()).sum::<usize>();
+    let early = p.pre_order().into_iter().chain(p.inner_order());
+    let all_pure = early
+        .flat_map(|b| blk(func, b).insts.iter())
+        .all(|i| i.result.is_some() && pure(&i.kind));
+    let divides = p
+        .inner_order()
+        .iter()
+        .flat_map(|b| blk(func, *b).insts.iter())
+        .any(|i| {
+            matches!(
+                i.kind,
+                InstKind::BinOp(BinOp::SDiv | BinOp::SRem | BinOp::FDiv, _, _)
+            )
+        });
+    all_pure
+        && divides
+        && count(&p.pre_order()) <= MAX_PRE_INSTS
+        && count(&p.inner_order()) <= MAX_INNER_INSTS
+        && count(&p.post) <= MAX_POST_INSTS
+}
+
+fn wrap_ok(p: &Plan) -> bool {
+    let span = p.step * (LANES as i64 - 1);
+    match p.bound {
+        Operand::ConstI64(n) => n.checked_sub(span).is_some(),
+        _ => true,
+    }
+}
