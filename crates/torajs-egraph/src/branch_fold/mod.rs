@@ -39,6 +39,7 @@
 //! `TORAJS_BRANCH_FOLD_STATS=1` dumps counters.
 
 pub(crate) mod accum;
+mod counter;
 pub(crate) mod point_eval;
 
 use std::cell::OnceCell;
