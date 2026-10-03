@@ -178,8 +178,13 @@ pub fn analyze_function_with(
             let block = &func.blocks[bid.0 as usize];
             let mut live = constraints.inherited(bid, &dom, &block_defs);
             for c in &live {
-                if let Constraint::Square { strict, bound, .. } = c
-                    && let Some(hi) = square_bound_hi(*bound, &state, &live)
+                if let Constraint::Square {
+                    strict,
+                    bound,
+                    via_sitofp,
+                    ..
+                } = c
+                    && let Some(hi) = square_bound_hi(*bound, *via_sitofp, &state, &live)
                 {
                     roots.extend(square::root_thresholds(hi, *strict).into_iter().flatten());
                 }
@@ -349,8 +354,9 @@ fn lookup(op: &Operand, state: &HashMap<ValueId, AbsVal>, live: &[Constraint]) -
                 value,
                 strict,
                 bound,
+                via_sitofp,
             } if value == v => {
-                if let Some(hi) = square_bound_hi(*bound, state, live)
+                if let Some(hi) = square_bound_hi(*bound, *via_sitofp, state, live)
                     && let Some(r) = square::root_range(f, hi, *strict)
                     && let Some(m) = f.meet(r)
                 {
@@ -366,8 +372,19 @@ fn lookup(op: &Operand, state: &HashMap<ValueId, AbsVal>, live: &[Constraint]) -
 /// The high end of a square's bound where the constraint is live: the
 /// bound is not redefined since the compare, so what the path says of
 /// it holds for the value compared (squares on it left out, so two
-/// squares bounding each other cannot recurse).
+/// squares bounding each other cannot recurse). Compared as f64, only
+/// a bound below 2^53 counts.
 fn square_bound_hi(
+    bound: square::SquareBound,
+    via_sitofp: bool,
+    state: &HashMap<ValueId, AbsVal>,
+    live: &[Constraint],
+) -> Option<i128> {
+    let hi = square_bound_hi_any(bound, state, live)?;
+    (!via_sitofp || hi < 1 << 53).then_some(hi)
+}
+
+fn square_bound_hi_any(
     bound: square::SquareBound,
     state: &HashMap<ValueId, AbsVal>,
     live: &[Constraint],

@@ -19,12 +19,10 @@
 
 use std::collections::{HashMap, HashSet};
 
-use torajs_core::ssa::{
-    Block, BlockId, FPred, Function, IPred, InstKind, Operand, Terminator, ValueId,
-};
+use torajs_core::ssa::{BlockId, FPred, Function, IPred, InstKind, Operand, Terminator, ValueId};
 
 use super::refine_logic::Logic;
-use super::square::{SquareBound, root_in_block, square_constraint};
+use super::square::{SquareBound, square_edge};
 use super::transfer::{NEG_INF, NumFact, POS_INF, op_const_int};
 use torajs_core::ssa::dominator::DominatorTree;
 
@@ -55,6 +53,9 @@ pub enum Constraint {
         value: ValueId,
         strict: bool,
         bound: SquareBound,
+        /// compared as f64 (`sitofp (x * x)`): the bound says something
+        /// only below 2^53, where the conversion is exact
+        via_sitofp: bool,
     },
 }
 
@@ -124,8 +125,12 @@ impl Constraints {
     pub fn compute(func: &Function, defs: &HashMap<ValueId, InstKind>) -> Self {
         let n = func.blocks.len();
         let mut preds: Vec<u32> = vec![0; n];
-        let mut bump = |b: BlockId| preds[b.0 as usize] += 1;
-        for block in &func.blocks {
+        let mut sole_pred: Vec<Option<usize>> = vec![None; n];
+        for (bi, block) in func.blocks.iter().enumerate() {
+            let mut bump = |b: BlockId| {
+                preds[b.0 as usize] += 1;
+                sole_pred[b.0 as usize] = Some(bi);
+            };
             match &block.term {
                 Terminator::Br(t) => bump(*t),
                 Terminator::CondBr {
@@ -137,9 +142,14 @@ impl Constraints {
                 _ => {}
             }
         }
+        for (p, s) in preds.iter().zip(sole_pred.iter_mut()) {
+            if *p != 1 {
+                *s = None;
+            }
+        }
 
         let mut at_entry: Vec<Vec<Constraint>> = vec![Vec::new(); n];
-        for block in &func.blocks {
+        for (bi, block) in func.blocks.iter().enumerate() {
             let Terminator::CondBr {
                 cond: Operand::Value(c),
                 then_blk,
@@ -156,7 +166,8 @@ impl Constraints {
                 if let Some(cs) = edge_constraints(kind, taken, defs) {
                     at_entry[target.0 as usize].extend(cs);
                 }
-                at_entry[target.0 as usize].extend(square_edge(block, kind, taken, defs));
+                at_entry[target.0 as usize]
+                    .extend(square_edge(func, bi, kind, taken, defs, &sole_pred));
             }
         }
         Logic::new(func, defs).extend(&mut at_entry);
@@ -276,30 +287,9 @@ pub(super) fn edge_constraints(
     }
 }
 
-/// What an integer compare of a square, defined in the branching
-/// `block`, says of the square's root on the edge.
-fn square_edge(
-    block: &Block,
-    kind: &InstKind,
-    taken: bool,
-    defs: &HashMap<ValueId, InstKind>,
-) -> Option<Constraint> {
-    let InstKind::ICmp(pred, a, b) = kind else {
-        return None;
-    };
-    let rel = edge_rel(*pred, taken)?;
-    [(a, b, true), (b, a, false)]
-        .into_iter()
-        .find_map(|(sq, other, left)| {
-            let Operand::Value(m) = sq else { return None };
-            let root = root_in_block(block, *m, defs)?;
-            square_constraint(root, rel, left, other)
-        })
-}
-
 /// The signed predicate an ordered f64 compare reads as between
 /// integer-valued operands.
-fn int_pred(pred: FPred) -> Option<IPred> {
+pub(super) fn int_pred(pred: FPred) -> Option<IPred> {
     match pred {
         FPred::Olt => Some(IPred::Slt),
         FPred::Ole => Some(IPred::Sle),
@@ -351,7 +341,7 @@ fn rel_pair(pred: IPred, taken: bool, x: ValueId, y: ValueId, via_sitofp: bool) 
 }
 
 /// What `value <pred> bound` says of `value` on the edge.
-fn edge_rel(pred: IPred, taken: bool) -> Option<Rel> {
+pub(super) fn edge_rel(pred: IPred, taken: bool) -> Option<Rel> {
     match (pred, taken) {
         (IPred::Ult, true) | (IPred::Uge, false) => Some(Rel::Below),
         (IPred::Ult | IPred::Uge, _) => None,

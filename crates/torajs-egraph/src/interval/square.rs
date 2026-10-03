@@ -9,12 +9,20 @@
 //! never be refined again, so the root of each square's bound joins
 //! the widening thresholds: the counter first stops there, where the
 //! refined fixpoint holds.
+//!
+//! Inside a function the test is usually made in f64, `sitofp (d * d)
+//! <= n`: a bound below 2^53 then says the same (a product at or past
+//! 2^53 converts to at least 2^53). The square may also reach the
+//! compare through copies and from a block the branching block is
+//! entered from alone, as long as `x` is not redefined on the way (a
+//! window check on the product sits between them in a loop copy that
+//! int_entry made).
 
 use std::collections::HashMap;
 
-use torajs_core::ssa::{BinOp, Block, InstKind, Operand, ValueId};
+use torajs_core::ssa::{BinOp, Function, InstKind, Operand, ValueId};
 
-use super::refine::Rel;
+use super::refine::{Constraint, Rel, edge_rel, int_pred};
 use super::transfer::{NumFact, POS_INF, op_const_int};
 
 /// `floor(sqrt(i64::MAX))`: for `|x|` up to this, `x * x` is exact.
@@ -39,24 +47,83 @@ fn isqrt(n: i128) -> i128 {
     r
 }
 
-/// The root `x` of `m = mul x, x` when `m` is defined in `block` and
-/// `x` is not redefined after it there, so the branch closing the
-/// block still speaks of the `x` live on its edges.
-pub(super) fn root_in_block(
-    block: &Block,
-    m: ValueId,
+/// What the compare closing block `bi` says, on its `taken` edge, of
+/// the root of a square it compares.
+pub(super) fn square_edge(
+    func: &Function,
+    bi: usize,
+    kind: &InstKind,
+    taken: bool,
     defs: &HashMap<ValueId, InstKind>,
-) -> Option<ValueId> {
-    let Some(InstKind::BinOp(BinOp::Mul, Operand::Value(x), Operand::Value(y))) = defs.get(&m)
-    else {
-        return None;
+    sole_pred: &[Option<usize>],
+) -> Option<Constraint> {
+    let (pred, a, b, float) = match kind {
+        InstKind::ICmp(p, a, b) => (*p, a, b, false),
+        InstKind::FCmp(p, a, b) => (int_pred(*p)?, a, b, true),
+        _ => return None,
     };
-    if x != y {
-        return None;
+    let rel = edge_rel(pred, taken)?;
+    [(a, b, true), (b, a, false)]
+        .into_iter()
+        .find_map(|(sq, other, left)| {
+            let Operand::Value(v) = sq else { return None };
+            let root = square_root(func, bi, *v, defs, float, sole_pred)?;
+            square_constraint(root, rel, left, other, float)
+        })
+}
+
+/// The root `x` of the `mul x, x` that `v` names through single-def
+/// copies (and, for an f64 compare, one `sitofp`), when `x` is not
+/// redefined between the product and the end of block `bi`.
+fn square_root(
+    func: &Function,
+    bi: usize,
+    mut v: ValueId,
+    defs: &HashMap<ValueId, InstKind>,
+    float: bool,
+    sole_pred: &[Option<usize>],
+) -> Option<ValueId> {
+    let mut converted = false;
+    for _ in 0..8 {
+        match defs.get(&v)? {
+            InstKind::Copy(_, Operand::Value(s)) => v = *s,
+            InstKind::SiToFp(Operand::Value(s)) if float && !converted => {
+                v = *s;
+                converted = true;
+            }
+            InstKind::BinOp(BinOp::Mul, Operand::Value(x), Operand::Value(y))
+                if x == y && converted == float =>
+            {
+                return root_kept(func, bi, v, *x, sole_pred);
+            }
+            _ => return None,
+        }
     }
-    let at = block.insts.iter().position(|i| i.result == Some(m))?;
-    let redefined = block.insts[at + 1..].iter().any(|i| i.result == Some(*x));
-    (!redefined).then_some(*x)
+    None
+}
+
+/// `x` when no def of it lies between `m`'s def and the end of block
+/// `bi`, walking back through blocks entered from one block only.
+fn root_kept(
+    func: &Function,
+    mut bi: usize,
+    m: ValueId,
+    x: ValueId,
+    sole_pred: &[Option<usize>],
+) -> Option<ValueId> {
+    for _ in 0..8 {
+        let insts = &func.blocks[bi].insts;
+        let at = insts.iter().position(|i| i.result == Some(m));
+        let after = at.map_or(0, |p| p + 1);
+        if insts[after..].iter().any(|i| i.result == Some(x)) {
+            return None;
+        }
+        if at.is_some() {
+            return Some(x);
+        }
+        bi = sole_pred[bi]?;
+    }
+    None
 }
 
 /// The constraint on `root` when its square is the left (`left`) or
@@ -66,7 +133,8 @@ pub(super) fn square_constraint(
     rel: Rel,
     left: bool,
     other: &Operand,
-) -> Option<super::refine::Constraint> {
+    via_sitofp: bool,
+) -> Option<Constraint> {
     let rel = if left {
         rel
     } else {
@@ -87,10 +155,11 @@ pub(super) fn square_constraint(
         Operand::Value(b) => SquareBound::Value(*b),
         c => SquareBound::Const(op_const_int(c)?),
     };
-    Some(super::refine::Constraint::Square {
+    Some(Constraint::Square {
         value: root,
         strict,
         bound,
+        via_sitofp,
     })
 }
 
@@ -129,7 +198,9 @@ pub(super) fn with_roots(thresholds: &[i128], roots: &[i128]) -> Vec<i128> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use torajs_core::ssa::{BlockId, Function, IPred, Inst, Terminator, Type, ValueInfo};
+    use torajs_core::ssa::{
+        Block, BlockId, FPred, Function, IPred, Inst, Terminator, Type, ValueInfo,
+    };
 
     fn inst(r: u32, kind: InstKind) -> Inst {
         Inst {
@@ -291,6 +362,109 @@ mod tests {
         assert_eq!(facts[&ValueId(1)], NumFact::new(1, 32));
     }
 
+    /// `d = 1; while (<square test of d against n>) d++; return d`,
+    /// `%0 n, %1 d, %2 d*d, %4 d+1`, the test's blocks given.
+    fn counter_loop(n: Operand, test: Vec<Block>, n_ty: Type) -> Function {
+        let mut blocks = vec![Block {
+            id: BlockId(0),
+            insts: vec![
+                inst(0, InstKind::Copy(n_ty, n)),
+                inst(1, InstKind::Copy(Type::I64, Operand::ConstI64(1))),
+            ],
+            term: Terminator::Br(BlockId(1)),
+        }];
+        blocks.extend(test);
+        blocks.push(Block {
+            id: BlockId(blocks.len() as u32),
+            insts: vec![
+                inst(4, InstKind::BinOp(BinOp::Add, v(1), Operand::ConstI64(1))),
+                inst(1, InstKind::Copy(Type::I64, v(4))),
+            ],
+            term: Terminator::Br(BlockId(1)),
+        });
+        blocks.push(Block {
+            id: BlockId(blocks.len() as u32),
+            insts: vec![],
+            term: Terminator::Ret(Some(v(1))),
+        });
+        Function {
+            name: "f".into(),
+            params: vec![],
+            ret: Type::I64,
+            blocks,
+            values: (0..9)
+                .map(|i| ValueInfo {
+                    ty: if i == 5 || (i == 0 && n_ty == Type::F64) {
+                        Type::F64
+                    } else {
+                        Type::I64
+                    },
+                    name: None,
+                })
+                .collect(),
+            current_origin: None,
+        }
+    }
+
+    fn cond(c: u32, t: u32, e: u32) -> Terminator {
+        Terminator::CondBr {
+            cond: v(c),
+            then_blk: BlockId(t),
+            else_blk: BlockId(e),
+        }
+    }
+
+    /// `sitofp (d * d) <= n` in f64: b1 tests, b2 steps, b3 returns.
+    fn f64_test(n: f64) -> Function {
+        let test = vec![Block {
+            id: BlockId(1),
+            insts: vec![
+                inst(2, InstKind::BinOp(BinOp::Mul, v(1), v(1))),
+                inst(5, InstKind::SiToFp(v(2))),
+                inst(3, InstKind::FCmp(FPred::Ole, v(5), v(0))),
+            ],
+            term: cond(3, 2, 3),
+        }];
+        counter_loop(Operand::ConstF64(n), test, Type::F64)
+    }
+
+    #[test]
+    fn an_f64_square_test_bounds_the_counter_below_2_pow_53() {
+        let facts = super::super::analyze_function(&f64_test(2_147_483_647.0));
+        assert_eq!(facts[&ValueId(1)], NumFact::new(1, 46_341));
+        // past 2^53 the compared bound may be a rounded one
+        let facts = super::super::analyze_function(&f64_test(2f64.powi(60)));
+        assert_eq!(facts[&ValueId(1)].hi, POS_INF);
+    }
+
+    /// int_entry's copy: the product's window check in b1, the test on
+    /// a copy of the product in b2, which only b1 enters.
+    #[test]
+    fn a_square_reaches_its_test_through_a_copy_and_a_check() {
+        let test = vec![
+            Block {
+                id: BlockId(1),
+                insts: vec![
+                    inst(2, InstKind::BinOp(BinOp::Mul, v(1), v(1))),
+                    inst(7, InstKind::BinOp(BinOp::LShr, v(2), Operand::ConstI64(53))),
+                    inst(8, InstKind::ICmp(IPred::Ne, v(7), Operand::ConstI64(0))),
+                ],
+                term: cond(8, 4, 2),
+            },
+            Block {
+                id: BlockId(2),
+                insts: vec![
+                    inst(6, InstKind::Copy(Type::I64, v(2))),
+                    inst(3, InstKind::ICmp(IPred::Sle, v(6), v(0))),
+                ],
+                term: cond(3, 3, 4),
+            },
+        ];
+        let f = counter_loop(Operand::ConstI64(1_000_000), test, Type::I64);
+        let facts = super::super::analyze_function(&f);
+        assert_eq!(facts[&ValueId(1)], NumFact::new(1, 1001));
+    }
+
     #[test]
     fn a_bound_past_the_exact_square_leaves_the_counter_open() {
         // `d * d <= i64::MAX` holds for wrapped products too
@@ -331,19 +505,19 @@ mod tests {
     #[test]
     fn only_an_upper_bound_on_the_square_bounds_the_root() {
         let (x, y) = (ValueId(1), ValueId(2));
-        let c = |rel, left| square_constraint(x, rel, left, &Operand::Value(y));
+        let c = |rel, left| square_constraint(x, rel, left, &Operand::Value(y), false);
         assert!(matches!(
             c(Rel::Le, true),
-            Some(super::super::refine::Constraint::Square { strict: false, .. })
+            Some(Constraint::Square { strict: false, .. })
         ));
         assert!(matches!(
             c(Rel::Lt, true),
-            Some(super::super::refine::Constraint::Square { strict: true, .. })
+            Some(Constraint::Square { strict: true, .. })
         ));
         // `y > x * x` written with the square on the right
         assert!(matches!(
             c(Rel::Gt, false),
-            Some(super::super::refine::Constraint::Square { strict: true, .. })
+            Some(Constraint::Square { strict: true, .. })
         ));
         assert!(c(Rel::Ge, true).is_none());
         assert!(c(Rel::Below, true).is_none());
