@@ -19,8 +19,8 @@ impl Analysis<'_> {
     /// wired the elem edge onto the env pointer (and reduce's acc
     /// feedback missed the accumulator entirely — the array-005 FPR
     /// abort).
-    pub(super) fn wire_elem_to_cb_param(&mut self, ek: &SlotKey, cb_arg: ExprId) {
-        self.wire_elem_to_cb_param_at(ek, cb_arg, 0);
+    pub(super) fn wire_elem_to_cb_param(&mut self, ek: &SlotKey, cb_arg: ExprId, scope: &Scope) {
+        self.wire_elem_to_cb_param_at(ek, cb_arg, 0, scope);
     }
 
     /// The same wiring for a callback parameter other than the first.
@@ -33,11 +33,14 @@ impl Analysis<'_> {
     /// answered "number" for a member `typeof v` reported `undefined`.
     /// An Array index and a Map key are not elements, which is why
     /// this is not folded into the arm above.
-    fn wire_elem_to_cb_param_at(&mut self, ek: &SlotKey, cb_arg: ExprId, idx: usize) {
-        if let Some(cb) = self.callee_fn_name(cb_arg)
-            && let Some(p) = self.callback_params(&cb).get(idx).cloned()
-        {
-            let pk = SlotKey::Param(cb, p);
+    fn wire_elem_to_cb_param_at(
+        &mut self,
+        ek: &SlotKey,
+        cb_arg: ExprId,
+        idx: usize,
+        scope: &Scope,
+    ) {
+        if let Some(pk) = self.cb_param_key(cb_arg, idx, scope) {
             self.c_edges
                 .entry(ek.clone())
                 .or_default()
@@ -46,12 +49,37 @@ impl Analysis<'_> {
         }
     }
 
+    /// The key of a callback's `idx`-th parameter: the named function's
+    /// own parameter, or, for a callback read out of a slot
+    /// (`a.map(o.cb)`), that slot's `__p{idx}` projection, which
+    /// [`Self::fn_value_flow`] joined with every function stored there.
+    /// Without the projection the stored function's parameter kept the
+    /// integer default and a 0.5 element reached it as 0.
+    fn cb_param_key(&mut self, cb_arg: ExprId, idx: usize, scope: &Scope) -> Option<SlotKey> {
+        match self.callee_fn_name(cb_arg) {
+            Some(cb) => {
+                let p = self.callback_params(&cb).get(idx).cloned()?;
+                Some(SlotKey::Param(cb, p))
+            }
+            None => self.callback_projection(cb_arg, &format!("__p{idx}"), scope),
+        }
+    }
+
+    /// The key of a callback's return point, by the same two spellings
+    /// as [`Self::cb_param_key`].
+    fn cb_ret_key(&mut self, cb_arg: ExprId, scope: &Scope) -> Option<SlotKey> {
+        match self.callee_fn_name(cb_arg) {
+            Some(cb) => Some(SlotKey::Ret(cb)),
+            None => self.callback_projection(cb_arg, "__ret", scope),
+        }
+    }
+
     /// `forEach`'s element wiring, which is per-receiver: a Set hands
     /// the member twice (see [`Self::wire_elem_to_cb_param_at`]).
-    fn wire_foreach_params(&mut self, ek: &SlotKey, cb_arg: ExprId, recv: ExprId) {
-        self.wire_elem_to_cb_param_at(ek, cb_arg, 0);
+    fn wire_foreach_params(&mut self, ek: &SlotKey, cb_arg: ExprId, recv: ExprId, scope: &Scope) {
+        self.wire_elem_to_cb_param_at(ek, cb_arg, 0, scope);
         if matches!(self.expr_types.get(&recv), Some(crate::check::Type::Set)) {
-            self.wire_elem_to_cb_param_at(ek, cb_arg, 1);
+            self.wire_elem_to_cb_param_at(ek, cb_arg, 1, scope);
         }
     }
 
@@ -73,9 +101,9 @@ impl Analysis<'_> {
             | "flatMap" => {
                 if let Some(a0) = args.first() {
                     if name == "forEach" {
-                        self.wire_foreach_params(ek, *a0, obj);
+                        self.wire_foreach_params(ek, *a0, obj, scope);
                     } else {
-                        self.wire_elem_to_cb_param(ek, *a0);
+                        self.wire_elem_to_cb_param(ek, *a0, scope);
                     }
                 }
             }
@@ -87,36 +115,33 @@ impl Analysis<'_> {
                 // sort call site passed f64 values — the callee then
                 // read garbage from the integer registers (probe:
                 // cmp(3.5, -1.25) received 4307779648 / 16384).
-                if let Some(cb) = args.first().and_then(|a| self.callee_fn_name(*a)) {
-                    for p in self.callback_params(&cb).iter().take(2).cloned() {
-                        let pk = SlotKey::Param(cb.clone(), p);
-                        self.c_edges
-                            .entry(ek.clone())
-                            .or_default()
-                            .push((pk.clone(), false));
-                        self.nested_unions.push((ek.clone(), pk));
+                if let Some(&cb_arg) = args.first() {
+                    for idx in 0..2 {
+                        if let Some(pk) = self.cb_param_key(cb_arg, idx, scope) {
+                            self.c_edges
+                                .entry(ek.clone())
+                                .or_default()
+                                .push((pk.clone(), false));
+                            self.nested_unions.push((ek.clone(), pk));
+                        }
                     }
                 }
             }
             "reduce" | "reduceRight" => {
-                if let Some(cb) = args.first().and_then(|a| self.callee_fn_name(*a)) {
-                    let ps = self.callback_params(&cb);
-                    if let Some(p0) = ps.first() {
+                if let Some(&cb_arg) = args.first() {
+                    if let Some(pk) = self.cb_param_key(cb_arg, 0, scope) {
                         // Accumulator: seeded by the init arg, fed back
                         // from the callback's own ret.
-                        let pk = SlotKey::Param(cb.clone(), p0.clone());
                         if let Some(init) = args.get(1).copied() {
                             let w = self.width_of(init, scope);
                             self.add_container_constraint(pk.clone(), w);
                             self.alias_guarded(pk.clone(), init, scope);
                         }
-                        self.c_edges
-                            .entry(SlotKey::Ret(cb.clone()))
-                            .or_default()
-                            .push((pk, false));
+                        if let Some(rk) = self.cb_ret_key(cb_arg, scope) {
+                            self.c_edges.entry(rk).or_default().push((pk, false));
+                        }
                     }
-                    if let Some(p1) = ps.get(1) {
-                        let pk = SlotKey::Param(cb.clone(), p1.clone());
+                    if let Some(pk) = self.cb_param_key(cb_arg, 1, scope) {
                         self.c_edges
                             .entry(ek.clone())
                             .or_default()
@@ -134,11 +159,10 @@ impl Analysis<'_> {
         // receiver. Unjoined, the receiver kept its I64 lane and the
         // write through O threw a kind TypeError.
         if let Some(o_idx) = callback_o_param_index(name)
-            && let Some(cb) = args.first().and_then(|a| self.callee_fn_name(*a))
-            && let Some(p) = self.callback_params(&cb).get(o_idx).cloned()
+            && let Some(&cb_arg) = args.first()
+            && let Some(pk) = self.cb_param_key(cb_arg, o_idx, scope)
         {
-            self.guarded_unions
-                .push((SlotKey::Param(cb, p), recv.clone()));
+            self.guarded_unions.push((pk, recv.clone()));
         }
     }
 }

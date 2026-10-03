@@ -126,7 +126,7 @@ impl<'a> Analysis<'a> {
             && let Some(cb_arg) = args.get(1).copied()
             && let Some(sk) = self.container_key_of(*a0, scope)
         {
-            self.wire_elem_to_cb_param(&SlotKey::Elem(Box::new(sk)), cb_arg);
+            self.wire_elem_to_cb_param(&SlotKey::Elem(Box::new(sk)), cb_arg, scope);
         }
     }
 
