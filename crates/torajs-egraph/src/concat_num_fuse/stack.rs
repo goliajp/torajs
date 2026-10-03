@@ -169,10 +169,16 @@ fn declare(module: &mut Module, name: &str, params: &[Type]) -> FuncId {
     FuncId(module.funcs.len() as u32 - 1)
 }
 
+/// Frame bytes one function may give its number strings: a large
+/// function with many read-only sites keeps the rest on the heap
+/// rather than growing every frame of a deep recursion.
+const FRAME_BUDGET: u64 = 2048;
+
 fn plan(f: &Function, k: &Kernels) -> Plan {
     let ix = Index::of(f);
     let mut seen: HashSet<ValueId> = HashSet::new();
     let mut p = Plan::default();
+    let mut frame_bytes = 0u64;
     for block in &f.blocks {
         for inst in &block.insts {
             let Some(r) = inst.result else { continue };
@@ -184,20 +190,29 @@ fn plan(f: &Function, k: &Kernels) -> Plan {
             if !ok {
                 continue;
             }
+            let mut mints = Vec::new();
+            let mut drops = Vec::new();
             for v in &set {
                 for &(b, i) in ix.defs.get(v).map_or(&[][..], |d| d.as_slice()) {
                     if let Some((bytes, m)) = mint_of(ix.inst(b, i), k, &ix) {
-                        p.mints.push((b, i, bytes, m));
+                        mints.push((b, i, bytes, m));
                     }
                 }
                 for &u in ix.uses.get(v).map_or(&[][..], |u| u.as_slice()) {
                     if let Use::Inst(b, j) = u
                         && matches!(role(ix.inst(b, j), *v, k), Role::Drop)
                     {
-                        p.drops.push((b, j));
+                        drops.push((b, j));
                     }
                 }
             }
+            let bytes: u64 = mints.iter().map(|m| m.2).sum();
+            if frame_bytes + bytes > FRAME_BUDGET {
+                continue;
+            }
+            frame_bytes += bytes;
+            p.mints.extend(mints);
+            p.drops.extend(drops);
         }
     }
     p
