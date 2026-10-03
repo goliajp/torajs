@@ -1,0 +1,9 @@
+616 0 7 245 87998
+195
+TypeError true
+0
+99
+enter p0|iter p0|iter p0|leave p0|enter p1|enter p2|leave p2|enter p3|iter p3|leave p3
+5 1001 1000 915 0
+6 0 1008 1010
+TypeError

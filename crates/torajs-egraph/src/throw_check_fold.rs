@@ -58,11 +58,7 @@ pub struct ThrowCheckFoldStats {
 /// `TORAJS_NULL_CHECK_FOLD_OFF=1` / `TORAJS_THROW_CHECK_FOLD_OFF=1`
 /// skip either (bisect gates).
 pub(crate) fn run(module: &mut Module) {
-    crate::gated_pass(
-        "NULL_CHECK_FOLD",
-        module,
-        crate::null_check_fold::fold_null_checks,
-    );
+    crate::null_check_fold::run(module);
     crate::gated_pass("THROW_CHECK_FOLD", module, fold_throw_checks);
 }
 

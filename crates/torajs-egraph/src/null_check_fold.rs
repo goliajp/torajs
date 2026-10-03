@@ -29,6 +29,8 @@
 //! header check before anything else on its first iteration, so the
 //! copy raises the same error at the same point.
 
+mod loop_guard;
+
 use std::collections::{HashMap, HashSet};
 
 use torajs_core::ssa::dominator::DominatorTree;
@@ -46,6 +48,14 @@ pub struct NullCheckFoldStats {
     pub checks: u32,
     pub folded: u32,
     pub loop_entry_checks: u32,
+}
+
+/// The inline guards a loop repeats, then the call-form checks.
+/// `TORAJS_LOOP_GUARD_OFF=1` / `TORAJS_NULL_CHECK_FOLD_OFF=1` skip
+/// either (bisect gates).
+pub(crate) fn run(module: &mut Module) {
+    crate::gated_pass("LOOP_GUARD", module, loop_guard::hoist_loop_guards);
+    crate::gated_pass("NULL_CHECK_FOLD", module, fold_null_checks);
 }
 
 pub fn fold_null_checks(module: &mut Module) -> NullCheckFoldStats {
