@@ -13,7 +13,7 @@
 //! over them, this one owns the call shapes that feed them.
 
 use super::Analysis;
-use crate::ast::{Ast, Expr, Stmt};
+use crate::ast::{Expr, Stmt};
 use std::collections::HashSet;
 
 use super::sentinel_tables::{SentinelTables, is_sentinel_source};
@@ -35,7 +35,6 @@ pub(super) fn collect_reduce_seed(
     t: &SentinelTables,
     callee: crate::ast::ExprId,
     args: &[crate::ast::ExprId],
-    lifted: &std::collections::HashMap<String, String>,
     out: &mut HashSet<(String, String)>,
 ) {
     let Expr::Member { name, .. } = a.ast.get_expr(callee) else {
@@ -50,34 +49,37 @@ pub(super) fn collect_reduce_seed(
     if !is_sentinel_source(a, *seed, t) {
         return;
     }
-    let Some(fn_name) = callback_fn_name(a, *cb, lifted) else {
-        return;
-    };
+    let fn_name = callback_fn_name(a, *cb);
     taint_param(a, &fn_name, 0, out);
 }
 
-/// The FnDecl an argument in callback position names. An arrow is
+/// The FnDecls an argument in callback position may name. An arrow is
 /// lifted to a `__closure_N` before this analysis runs, so a spelled
-/// binding resolves through the same alias map the positional
-/// collector uses.
-fn callback_fn_name(
-    a: &Analysis<'_>,
-    cb: crate::ast::ExprId,
-    lifted: &std::collections::HashMap<String, String>,
-) -> Option<String> {
+/// binding resolves to every closure it may hold (`bound_closures.rs`).
+pub(super) fn callback_fn_name(a: &Analysis<'_>, cb: crate::ast::ExprId) -> Vec<String> {
     match a.ast.get_expr(cb) {
-        Expr::Closure { fn_name, .. } => Some(fn_name.clone()),
-        Expr::Ident(n) => Some(lifted.get(n).cloned().unwrap_or_else(|| n.clone())),
-        _ => None,
+        Expr::Closure { fn_name, .. } => vec![fn_name.clone()],
+        Expr::Ident(n) => a
+            .bound_closures
+            .get(&cb)
+            .map_or_else(|| vec![n.clone()], |c| c.fns.clone()),
+        _ => Vec::new(),
     }
 }
 
-/// Record that parameter `idx` of `fn_name` can be handed a sentinel.
+/// Record that parameter `idx` of each of `fns` can be handed a sentinel.
 /// `user_params` skips the `__env` a capturing closure carries, so the
 /// index is the one the source spells.
-fn taint_param(a: &Analysis<'_>, fn_name: &str, idx: usize, out: &mut HashSet<(String, String)>) {
-    if let Some(p) = a.user_params(fn_name).get(idx) {
-        out.insert((fn_name.to_string(), p.clone()));
+pub(super) fn taint_param(
+    a: &Analysis<'_>,
+    fns: &[String],
+    idx: usize,
+    out: &mut HashSet<(String, String)>,
+) {
+    for f in fns {
+        if let Some(p) = a.user_params(f).get(idx) {
+            out.insert((f.clone(), p.clone()));
+        }
     }
 }
 
@@ -318,16 +320,13 @@ pub(super) fn collect_hof_elem_params(
     t: &SentinelTables,
     callee: crate::ast::ExprId,
     args: &[crate::ast::ExprId],
-    lifted: &std::collections::HashMap<String, String>,
     out: &mut HashSet<(String, String)>,
 ) {
     let Expr::Member { obj, name } = a.ast.get_expr(callee) else {
         return;
     };
     let Some(cb) = args.first() else { return };
-    let Some(fn_name) = callback_fn_name(a, *cb, lifted) else {
-        return;
-    };
+    let fn_name = callback_fn_name(a, *cb);
     // The find family reads every index below length with [[Get]]
     // (§23.1.3.9 — no HasProperty step), so a hole reaches the callback
     // as the sentinel it holds. Where the holes came from is not
@@ -379,7 +378,6 @@ pub(super) fn collect_promise_then_param(
     t: &SentinelTables,
     callee: crate::ast::ExprId,
     args: &[crate::ast::ExprId],
-    lifted: &std::collections::HashMap<String, String>,
     out: &mut HashSet<(String, String)>,
 ) {
     let Expr::Member { obj, name } = a.ast.get_expr(callee) else {
@@ -412,54 +410,6 @@ pub(super) fn collect_promise_then_param(
         return;
     }
     let Some(cb) = args.first() else { return };
-    let Some(fn_name) = callback_fn_name(a, *cb, lifted) else {
-        return;
-    };
+    let fn_name = callback_fn_name(a, *cb);
     taint_param(a, &fn_name, 0, out);
-}
-
-/// Binding name → the `__closure_N` FnDecl an arrow assigned to it was
-/// lifted into, following plain re-bindings (`const j = h`) to a
-/// fixpoint so a chain declared out of walk order still resolves.
-/// The alias direction the fall-through table needs is the reverse of
-/// this one, which is why the two are separate walks.
-pub(super) fn lifted_closure_names(ast: &Ast) -> std::collections::HashMap<String, String> {
-    fn walk(
-        ast: &Ast,
-        stmts: &[Stmt],
-        out: &mut std::collections::HashMap<String, String>,
-        grew: &mut bool,
-    ) {
-        for s in stmts {
-            match s {
-                Stmt::LetDecl { name, init, .. } => {
-                    if out.contains_key(name) {
-                        continue;
-                    }
-                    let target = match ast.get_expr(*init) {
-                        Expr::Closure { fn_name, .. } => Some(fn_name.clone()),
-                        Expr::Ident(n) => out.get(n).cloned(),
-                        _ => None,
-                    };
-                    if let Some(t) = target {
-                        out.insert(name.clone(), t);
-                        *grew = true;
-                    }
-                }
-                Stmt::FnDecl { body, .. } | Stmt::Block(body) | Stmt::Multi(body) => {
-                    walk(ast, body, out, grew)
-                }
-                _ => {}
-            }
-        }
-    }
-    let mut out = std::collections::HashMap::new();
-    loop {
-        let mut grew = false;
-        walk(ast, &ast.stmts, &mut out, &mut grew);
-        if !grew {
-            break;
-        }
-    }
-    out
 }

@@ -333,7 +333,6 @@ fn collect_undef_sentinel_params(
     a: &Analysis<'_>,
     t: &SentinelTables,
 ) -> HashSet<(String, String)> {
-    let lifted = super::sentinel_hof::lifted_closure_names(a.ast);
     let mut out = HashSet::new();
     // A class method read as a value may run bare through its boxed
     // adapter, where a missing argument is `undefined` in whatever
@@ -350,26 +349,19 @@ fn collect_undef_sentinel_params(
         let Expr::Call { callee, args } = a.ast.get_expr(crate::ast::ExprId(eid as u32)) else {
             continue;
         };
-        let Expr::Ident(f) = a.ast.get_expr(*callee) else {
-            super::sentinel_hof::collect_reduce_seed(a, t, *callee, args, &lifted, &mut out);
-            super::sentinel_hof::collect_hof_elem_params(a, t, *callee, args, &lifted, &mut out);
-            super::sentinel_hof::collect_promise_then_param(a, t, *callee, args, &lifted, &mut out);
+        let Expr::Ident(_) = a.ast.get_expr(*callee) else {
+            super::sentinel_hof::collect_reduce_seed(a, t, *callee, args, &mut out);
+            super::sentinel_hof::collect_hof_elem_params(a, t, *callee, args, &mut out);
+            super::sentinel_hof::collect_promise_then_param(a, t, *callee, args, &mut out);
             continue;
         };
         // An arrow is lifted to a `__closure_N` FnDecl before this
-        // analysis runs, so the parameter list lives under that
-        // synthetic name while the call site still spells the binding
-        // it was assigned to.
-        let f = lifted.get(f).unwrap_or(f);
-        // `user_params`, not the raw list: a capturing closure's
-        // lifted FnDecl carries `__env` first, and the call site's
-        // arguments line up with the user-facing params after it.
-        let params = a.user_params(f);
+        // analysis runs, so the call site's binding names the closures
+        // whose (user-facing, past `__env`) params take the arguments.
+        let fns = super::sentinel_hof::callback_fn_name(a, *callee);
         for (i, arg) in args.iter().enumerate() {
-            if let Some(p) = params.get(i)
-                && is_sentinel_source(a, *arg, t)
-            {
-                out.insert((f.clone(), p.clone()));
+            if is_sentinel_source(a, *arg, t) {
+                super::sentinel_hof::taint_param(a, &fns, i, &mut out);
             }
         }
     }

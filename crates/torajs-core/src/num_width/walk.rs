@@ -447,9 +447,9 @@ impl<'a> Analysis<'a> {
         }
     }
 
-    /// Constraint for a write to name `n` from inside `scope`. In
-    /// synthetic closure bodies an unresolvable name is a captured
-    /// outer binding whose defining scope is gone post-lift —
+    /// Constraint for a write to name `n` from inside `scope`. In a
+    /// synthetic body a name `resolve` cannot pin (no capture binding,
+    /// see `captures.rs`) may be any outer binding of that spelling —
     /// broadcast to every same-named slot (conservative, F64-ward).
     pub(super) fn assign_to_name(&mut self, n: &str, w: W, scope: &Scope) {
         if let Some(key) = self.resolve(n, scope) {

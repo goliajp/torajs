@@ -60,8 +60,8 @@ impl<'a> Analysis<'a> {
                 if let Some(k) = self.resolve(n, scope) {
                     return Some(k);
                 }
-                // Post-lift closure body: a captured name's defining
-                // scope is gone — alias every same-named slot through
+                // Synthetic body, name with no pinned binding
+                // (`captures.rs`) — alias every same-named slot through
                 // a shared key (conservative merge, width-only cost,
                 // mirrors the scalar by_name broadcast).
                 if scope.fn_name.starts_with("__")

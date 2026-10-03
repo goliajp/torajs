@@ -91,6 +91,11 @@ pub(crate) struct WidthTable {
     /// rather than guessing from its own slot table (where a captured
     /// top-level name sits at prologue depth like a param).
     by_name: HashMap<String, Vec<SlotKey>>,
+    /// The bindings each lifted closure's captures resolved to — the
+    /// walk's `resolve` consults it ahead of the top-level spelling, so
+    /// [`WidthTable::ident_keys`] has to as well.
+    captures: super::captures::CaptureMap,
+    bound_closures: super::bound_closures::BoundClosures,
 }
 
 impl WidthTable {
@@ -110,6 +115,8 @@ impl WidthTable {
         index_read_settled: HashSet<ExprId>,
         char_code_at_proven: HashSet<ExprId>,
         by_name: HashMap<String, Vec<SlotKey>>,
+        captures: super::captures::CaptureMap,
+        bound_closures: super::bound_closures::BoundClosures,
     ) -> Self {
         WidthTable {
             canon,
@@ -126,15 +133,18 @@ impl WidthTable {
             index_read_settled,
             char_code_at_proven,
             by_name,
+            captures,
+            bound_closures,
         }
     }
 
     /// The key the walk's `resolve` filed a read of `n` from `fn_name`
     /// under (`""` for the top level): the fn's own param, else its
-    /// own local, else the top-level binding; from a lifted closure
-    /// (`__`-prefixed) a name none of those spell is the `Captured`
-    /// key the walk unioned every same-named slot onto. Empty when the
-    /// analysis never saw the name — no class to ask.
+    /// own local, else the binding its creator handed it, else the
+    /// top-level binding; from a lifted closure (`__`-prefixed) a name
+    /// none of those pin is the `Captured` key the walk unioned every
+    /// same-named slot onto. Empty when the analysis never saw the
+    /// name — no class to ask.
     pub(crate) fn ident_keys(&self, fn_name: &str, n: &str) -> Vec<SlotKey> {
         let Some(spellings) = self.by_name.get(n) else {
             return Vec::new();
@@ -149,6 +159,12 @@ impl WidthTable {
             if has(&local) {
                 return vec![local];
             }
+            if let Some(c) = self.captures.get(fn_name).and_then(|m| m.get(n)) {
+                return vec![
+                    c.clone()
+                        .unwrap_or_else(|| SlotKey::Captured(n.to_string())),
+                ];
+            }
         }
         let global = SlotKey::Global(n.to_string());
         if has(&global) {
@@ -158,6 +174,12 @@ impl WidthTable {
             return vec![SlotKey::Captured(n.to_string())];
         }
         Vec::new()
+    }
+
+    /// Every lifted closure an identifier read may denote
+    /// (`bound_closures.rs`); empty when it names none.
+    pub(crate) fn bound_closures(&self, eid: ExprId) -> &[String] {
+        self.bound_closures.get(&eid).map_or(&[], |c| &c.fns)
     }
 
     /// See the field's doc — the guard-dominated bounds proof the

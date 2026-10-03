@@ -1,0 +1,157 @@
+//! Which lifted closures an identifier read may denote — the callback
+//! spelled through a binding (`const show = (v: number) => …;
+//! p.then(show)` / `xs.forEach(show)`), and a call through one.
+//!
+//! The callback wirings and the sentinel tables need the closure's
+//! parameter list, and the call site only spells the binding. Mapping
+//! the spelling program-wide either refused every name bound more than
+//! once (two functions each with their own `cb`: the element width
+//! never reached either closure's parameter, so `xs.map(cb)` read 1.5
+//! back as 1) or let the first binding of the name win. Each read is
+//! resolved instead in the body it sits in, to the binding it reads —
+//! the same resolution the constraint walk uses, captures included.
+//!
+//! One binding key can still hold several closures: same-named `const`s
+//! in sibling blocks of one function share their `Local` key. Such a
+//! read answers every candidate, and the candidates' parameter and
+//! return slots are joined so that wiring the first one wires them all.
+
+use super::captures::{Body, CaptureMap};
+use super::{Analysis, SlotKey};
+use crate::ast::{Ast, Expr, ExprId, Stmt};
+use std::collections::{BTreeSet, HashMap, HashSet};
+
+/// The closures a read may denote, sorted.
+#[derive(Clone, PartialEq, Debug)]
+pub(crate) struct Candidates {
+    pub(crate) fns: Vec<String>,
+    /// Every declaration of every binding on the way is an immutable
+    /// closure (or an alias of one), so the set is the whole story and
+    /// may stand in for the value at a call site. The sentinel tables
+    /// and the promise adapters, which only ever add, take a partial
+    /// set too.
+    pub(crate) exact: bool,
+}
+
+pub(super) type BoundClosures = HashMap<ExprId, Candidates>;
+
+pub(super) fn collect(
+    ast: &Ast,
+    bodies: &[Body<'_>],
+    toplevel_lets: &HashSet<String>,
+    captures: &CaptureMap,
+) -> BoundClosures {
+    // binding key → its declarations; `None` = a binding that is not a
+    // `let` / `const` (a for-of element, a catch param)
+    let mut decls: HashMap<SlotKey, Vec<Option<(ExprId, bool)>>> = HashMap::new();
+    // read → the binding it resolves to; `None` once two bodies disagree
+    let mut reads: HashMap<ExprId, Option<SlotKey>> = HashMap::new();
+    for b in bodies {
+        b.each_binding(&mut |n, decl| {
+            let d = match decl {
+                Some(Stmt::LetDecl {
+                    init,
+                    mutable,
+                    is_var,
+                    ..
+                }) => Some((*init, !*mutable && !*is_var)),
+                _ => None,
+            };
+            decls.entry(b.binding_key(n)).or_default().push(d);
+        });
+        b.each_expr(ast, &mut |eid| {
+            if let Expr::Ident(n) = ast.get_expr(eid)
+                && let Some(k) = b.resolve(toplevel_lets, captures, n)
+            {
+                let e = reads.entry(eid).or_insert_with(|| Some(k.clone()));
+                if e.as_ref() != Some(&k) {
+                    *e = None;
+                }
+            }
+        });
+    }
+    // `const j = h` reads `h` through its own entry, so the map grows
+    // one alias hop per pass; the sets only grow, bounded by the
+    // closures in the program
+    let mut out = BoundClosures::new();
+    for pass in 0.. {
+        debug_assert!(pass <= decls.len() + 1, "bound-closure fixpoint diverged");
+        let mut by_key: HashMap<&SlotKey, Candidates> = HashMap::new();
+        for (k, ds) in &decls {
+            let mut fns = BTreeSet::new();
+            let mut exact = true;
+            for d in ds {
+                let Some((init, imm)) = d else {
+                    exact = false;
+                    continue;
+                };
+                exact &= *imm;
+                match ast.get_expr(*init) {
+                    Expr::Closure { fn_name, .. } => {
+                        fns.insert(fn_name.clone());
+                    }
+                    Expr::Ident(_) if out.contains_key(init) => {
+                        fns.extend(out[init].fns.iter().cloned());
+                        exact &= out[init].exact;
+                    }
+                    _ => exact = false,
+                }
+            }
+            if !fns.is_empty() {
+                let fns = fns.into_iter().collect();
+                by_key.insert(k, Candidates { fns, exact });
+            }
+        }
+        let next: BoundClosures = reads
+            .iter()
+            .filter_map(|(eid, k)| Some((*eid, by_key.get(k.as_ref()?)?.clone())))
+            .collect();
+        if next == out {
+            break;
+        }
+        out = next;
+    }
+    out
+}
+
+impl Analysis<'_> {
+    /// The fn a callee or callback expression names: a closure literal,
+    /// a binding that holds closures (their first — [`Self::join_bound_candidates`]
+    /// made the rest share its slots), or a function declaration.
+    pub(super) fn callee_fn_name(&self, eid: ExprId) -> Option<String> {
+        if let Some(c) = self.bound_closures.get(&eid)
+            && c.exact
+        {
+            return c.fns.first().cloned();
+        }
+        match self.ast.get_expr(eid) {
+            Expr::Ident(n) if self.fn_params.contains_key(n) => Some(n.clone()),
+            Expr::Closure { fn_name, .. } => Some(fn_name.clone()),
+            _ => None,
+        }
+    }
+
+    /// Join the parameter and return slots of the closures one binding
+    /// may hold: a call through the binding reaches any of them with
+    /// the same arguments and hands back whichever one ran.
+    pub(super) fn join_bound_candidates(&mut self) {
+        let sets: HashSet<Vec<String>> = self
+            .bound_closures
+            .values()
+            .filter(|c| c.exact && c.fns.len() > 1)
+            .map(|c| c.fns.clone())
+            .collect();
+        for fns in sets {
+            let first = &fns[0];
+            let ps0 = self.callback_params(first);
+            for f in &fns[1..] {
+                self.uf
+                    .union(&SlotKey::Ret(first.clone()), &SlotKey::Ret(f.clone()));
+                for (p0, p) in ps0.iter().zip(self.callback_params(f)) {
+                    let a = SlotKey::Param(first.clone(), p0.clone());
+                    self.uf.union(&a, &SlotKey::Param(f.clone(), p));
+                }
+            }
+        }
+    }
+}

@@ -27,8 +27,10 @@
 
 mod alias;
 mod analyze_tables;
+mod bound_closures;
 mod bounds_lower;
 mod bounds_walk;
+mod captures;
 mod container;
 mod container_lookup;
 mod container_methods;
@@ -82,10 +84,8 @@ pub(crate) enum SlotKey {
     /// decisions join over all instances. `__new_C`'s ret and every
     /// `__cm_C__*` method's `__this` param union into this key.
     Class(String),
-    /// W4 — captured outer binding referenced from a lifted closure
-    /// body, where the defining scope is no longer recoverable. All
-    /// same-named slots union through this key (conservative merge —
-    /// width-only cost, mirrors the scalar by_name broadcast).
+    /// W4 — a name a lifted body reads that no binding resolves
+    /// (`captures.rs`): every same-named slot unions through it.
     Captured(String),
     /// W4 — anonymous container origin (array / object literal, or a
     /// transform-method result), keyed by the originating ExprId.
@@ -183,9 +183,7 @@ pub(super) struct Analysis<'a> {
     pub(super) demoted: &'a HashMap<ExprId, ExprId>,
     /// name → ordered param names, for call-arg → Param edges.
     pub(super) fn_params: HashMap<String, Vec<String>>,
-    /// Callback bindings resolved to their lifted closure
-    /// (`analyze_tables::collect_bound_closures`).
-    pub(super) bound_closures: HashMap<String, String>,
+    pub(super) bound_closures: bound_closures::BoundClosures,
     /// Top-level let/const names, for ident resolution at top level
     /// and inside named fns (named fns see top-level bindings via the
     /// data-global path).
@@ -196,12 +194,9 @@ pub(super) struct Analysis<'a> {
     /// stays the small-step counter the literal form is (506-06);
     /// the magnitude rule applies to both spellings alike.
     pub(super) const_ints: HashMap<SlotKey, f64>,
-    /// Every slot key in the module sharing a given name — broadcast
-    /// target for writes from closure bodies, where the defining
-    /// scope of a captured name is no longer recoverable post-lift.
-    /// Conservative (may poison an unrelated same-named slot), which
-    /// only costs width, never correctness.
+    /// Every slot key per name, for a synthetic body's unresolved names (`captures.rs`).
     pub(super) by_name: HashMap<String, Vec<SlotKey>>,
+    pub(super) captures: captures::CaptureMap,
     pub(super) seeds: Vec<SlotKey>,
     pub(super) edges: HashMap<SlotKey, Vec<Dep>>,
     /// W4 — container-channel constraints (element / field writes,
@@ -299,11 +294,11 @@ pub(crate) fn analyze(
     demoted: &HashMap<ExprId, ExprId>,
     expr_types: &HashMap<ExprId, crate::check::Type>,
 ) -> WidthTable {
-    // Pre-walk slot-name registry (doc on the collector — sibling
-    // `analyze_tables.rs`).
     let (fn_params, toplevel_lets, by_name, const_ints) =
         analyze_tables::collect_slot_registry(ast);
-    let bound_closures = analyze_tables::collect_bound_closures(ast, &fn_params, &by_name);
+    let bodies = captures::bodies(ast);
+    let captures = captures::collect_captures(ast, &bodies, &toplevel_lets);
+    let bound_closures = bound_closures::collect(ast, &bodies, &toplevel_lets, &captures);
 
     let mut classes: Vec<String> = ast.class_parents.keys().cloned().collect();
     classes.sort();
@@ -320,6 +315,7 @@ pub(crate) fn analyze(
         toplevel_lets,
         const_ints,
         by_name,
+        captures,
         seeds: Vec::new(),
         edges: HashMap::new(),
         c_seeds: Vec::new(),
@@ -379,6 +375,7 @@ pub(crate) fn analyze(
     // representative. The fixpoint runs per alias class; queries
     // canonicalize through the frozen union-find.
     container::nominal_unions(&mut a);
+    a.join_bound_candidates();
     container::objlit_ctor_unions(&mut a);
     container::generator_step_unions(&mut a);
     slot_abi::dispatch_unions(&mut a);
@@ -466,6 +463,8 @@ pub(crate) fn analyze(
         a.settled_reads,
         a.char_code_proven,
         a.by_name,
+        a.captures,
+        a.bound_closures,
     )
 }
 

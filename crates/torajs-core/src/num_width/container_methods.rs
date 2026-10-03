@@ -96,15 +96,6 @@ impl<'a> Analysis<'a> {
             .any(|c| self.fn_params.contains_key(&format!("__cm_{c}__{name}")))
     }
 
-    pub(super) fn callee_fn_name(&self, eid: ExprId) -> Option<String> {
-        match self.ast.get_expr(eid) {
-            Expr::Ident(n) if self.fn_params.contains_key(n) => Some(n.clone()),
-            Expr::Ident(n) => self.bound_closures.get(n).cloned(),
-            Expr::Closure { fn_name, .. } => Some(fn_name.clone()),
-            _ => None,
-        }
-    }
-
     /// RFC 20260726-array-elem-width knife 8 — whether a callback
     /// answers an array. `flatMap` treats a non-array answer as the
     /// element itself (ES §23.1.3.11 step 8.d), which is a different

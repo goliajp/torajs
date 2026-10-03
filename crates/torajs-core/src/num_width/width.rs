@@ -28,25 +28,6 @@ fn mark_growth(w: W) -> W {
 }
 
 impl<'a> Analysis<'a> {
-    pub(super) fn resolve(&self, n: &str, scope: &Scope) -> Option<SlotKey> {
-        if scope.fn_name.is_empty() {
-            if self.toplevel_lets.contains(n) {
-                return Some(SlotKey::Global(n.to_string()));
-            }
-            return None;
-        }
-        if scope.params.contains(n) {
-            return Some(SlotKey::Param(scope.fn_name.to_string(), n.to_string()));
-        }
-        if scope.locals.contains(n) {
-            return Some(SlotKey::Local(scope.fn_name.to_string(), n.to_string()));
-        }
-        if self.toplevel_lets.contains(n) {
-            return Some(SlotKey::Global(n.to_string()));
-        }
-        None
-    }
-
     pub(super) fn add_constraint(&mut self, target: SlotKey, w: W) {
         match w {
             W::F64 => self.seeds.push(target),
@@ -123,7 +104,7 @@ impl<'a> Analysis<'a> {
                 }
                 match self.resolve(n, scope) {
                     Some(k) => W::Num(vec![(k, false)]),
-                    None => W::NotNum,
+                    None => self.unresolved_read(n, scope),
                 }
             }
             Expr::BinOp { op, left, right } => self.width_of_binop(*op, *left, *right, scope),
