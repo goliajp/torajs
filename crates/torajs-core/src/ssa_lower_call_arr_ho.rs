@@ -291,7 +291,6 @@ fn emit_hof_loop(ctx: &mut LowerCtx<'_>, p: &HofLoop<'_>, holes: bool) -> Operan
         frame,
         p.method,
         p.src_arr,
-        p.dst_slot,
         p.acc_slot,
         p.dst_arr_ty,
         p.acc_ty,

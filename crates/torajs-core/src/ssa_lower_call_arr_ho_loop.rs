@@ -40,11 +40,10 @@ pub(crate) struct LoopFrame {
     /// the step block releases it after the visit.
     pub(crate) owned_slot: Option<ValueId>,
     pub(crate) owned_flag: Option<ValueId>,
-    /// S7-b — the product's pre-reserved append state, when this loop
-    /// can take it. `Some` puts the per-element append inline (a slot
-    /// store plus an add); `None` leaves it on the `arr_push_unchecked`
-    /// call. `begin_loop` decides, `end_loop_and_produce` settles the
-    /// length word it left stale.
+    /// S7-b — the product's pre-reserved append state: `Some` exactly
+    /// when the method builds a product (`map` / `filter`). The append
+    /// is inline (a slot store plus an add); `end_loop_and_produce`
+    /// settles the length word it left stale.
     pub(crate) dst_fast: Option<PreReserveState>,
     /// What a TYPED source checks before each visit (a boxed source
     /// runs its own gate). The caller sets it; `begin_loop` leaves it
@@ -157,20 +156,11 @@ pub(crate) fn begin_loop(
         // wants, so take it: no per-element cross-archive `bl`, and the
         // running length lives in a register instead of the cell's own
         // length word. `ssa_lower_arr_prereserve` carries the shape.
-        //
-        // The one loop that cannot have it is the `map` whose product is
-        // boxed: that is the only shape `emit_map_hole_block` exists for,
-        // and marking a hole goes through `arr_mark_last_hole`, which
-        // reads the cell's length — the very word this shape leaves
-        // stale until the exit. Same predicate as that block's own gate.
-        let dst_can_hole = method == "map" && methods::map_product_holes(ctx, dst_arr_ty).is_some();
-        if !dst_can_hole {
-            // The destination is a fresh array this lowering owns and
-            // no user code can name until `map` / `filter` answers it,
-            // so the length word may stay in a register until then —
-            // see `PreReserveState::defer_len`.
-            dst_fast = Some(ctx.emit_prereserved_state(reserved, true, false));
-        }
+        // The destination is a fresh array this lowering owns and no
+        // user code can name until `map` / `filter` answers it, so the
+        // length word may stay in a register until then (a `map` hole
+        // mark settles it first) — see `PreReserveState::defer_len`.
+        dst_fast = Some(ctx.emit_prereserved_state(reserved, true, false));
     }
     ctx.f.set_term(ctx.cur_block, Terminator::Br(header_blk));
     ctx.cur_block = header_blk;
@@ -218,6 +208,10 @@ pub(crate) fn begin_loop(
     }
 }
 
+fn map_dst(frame: LoopFrame) -> PreReserveState {
+    frame.dst_fast.expect("begin_loop reserves every product")
+}
+
 /// Emit body work: load i, head-aware byte offset → elem load, per-method
 /// dispatch through `emit_do_call`. Devirts to direct call when `known_fid`
 /// is set. Sig-mismatched arg widths (an f64 parameter reading an i64
@@ -229,7 +223,6 @@ pub(crate) fn emit_per_method_body(
     frame: LoopFrame,
     method: &str,
     src_arr: ValueId,
-    dst_slot: Option<ValueId>,
     acc_slot: Option<ValueId>,
     dst_arr_ty: Type,
     acc_ty: Type,
@@ -272,7 +265,7 @@ pub(crate) fn emit_per_method_body(
     // source's dense arm does.
     let map_hole_blk = if method == "map" {
         let seam = frame.holey || frame.elem_slot.is_some();
-        emit_map_hole_block(ctx, dst_slot, dst_arr_ty, frame.step_blk, seam)
+        emit_map_hole_block(ctx, dst_arr_ty, map_dst(frame), frame.step_blk, seam)
     } else {
         Some(frame.step_blk)
     };
@@ -289,7 +282,7 @@ pub(crate) fn emit_per_method_body(
     ) {
         (Some(es), Some(os), Some(of), Some(skip_blk)) => {
             let dense_skip = if method == "map" {
-                emit_map_hole_block(ctx, dst_slot, dst_arr_ty, frame.step_blk, false)
+                emit_map_hole_block(ctx, dst_arr_ty, map_dst(frame), frame.step_blk, false)
                     .expect("the gated map has a hole arm")
             } else {
                 skip_blk
@@ -371,9 +364,8 @@ pub(crate) fn emit_per_method_body(
     match method {
         "map" => emit_map(
             ctx,
-            dst_slot,
             dst_arr_ty,
-            frame.dst_fast,
+            map_dst(frame),
             elem,
             known_fid,
             fn_val,
@@ -386,9 +378,7 @@ pub(crate) fn emit_per_method_body(
         ),
         "filter" => emit_filter(
             ctx,
-            dst_slot,
-            dst_arr_ty,
-            frame.dst_fast,
+            map_dst(frame),
             elem,
             elem_ty,
             known_fid,

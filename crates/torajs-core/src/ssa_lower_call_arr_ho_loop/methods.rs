@@ -6,15 +6,17 @@
 //! parent, so reaching it stays a `use`, not a visibility widening.
 
 use super::dispatch::{cb_args, emit_do_call, emit_undef_any_box};
-use crate::ssa::{BlockId, FuncId, InstKind, Operand, Terminator, Type, ValueId};
+use crate::ssa::{FuncId, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::{LowerCtx, PreReserveState};
+
+mod hole;
+pub(super) use hole::emit_map_hole_block;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn emit_map(
     ctx: &mut LowerCtx<'_>,
-    dst_slot: Option<ValueId>,
     dst_arr_ty: Type,
-    dst_fast: Option<PreReserveState>,
+    dst: PreReserveState,
     elem: ValueId,
     known_fid: Option<FuncId>,
     fn_val: &Operand,
@@ -81,35 +83,13 @@ pub(super) fn emit_map(
     };
     // S7-b — `begin_loop` reserved the product, so the append is a slot
     // store and an add, with the running length in a register.
-    if let Some(state) = dst_fast {
-        let _ = ctx.emit_prereserved_push(state, mapped_val);
-        return;
-    }
-    // The call lane — a boxed product, which `map` can mark a hole in
-    // and so must keep its length word live. M6.2: dst was reserve'd
-    // above the loop, so the call is the unchecked one.
-    let mapped_arg = ctx.raw_slot_arg(mapped_val);
-    let cur_dst = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Load(dst_arr_ty, Operand::Value(dst_slot.unwrap()), 0),
-        dst_arr_ty,
-        None,
-    );
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::Call(
-            ctx.intrinsics.arr_push_unchecked,
-            vec![Operand::Value(cur_dst), mapped_arg],
-        ),
-    );
+    let _ = ctx.emit_prereserved_push(dst, mapped_val);
 }
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn emit_filter(
     ctx: &mut LowerCtx<'_>,
-    dst_slot: Option<ValueId>,
-    dst_arr_ty: Type,
-    dst_fast: Option<PreReserveState>,
+    dst: PreReserveState,
     elem: ValueId,
     elem_ty: Type,
     known_fid: Option<FuncId>,
@@ -170,15 +150,6 @@ pub(super) fn emit_filter(
         },
     );
     ctx.cur_block = push_blk;
-    // S7-b — the product's cell is only needed by the call lane.
-    let cur_dst = dst_fast.is_none().then(|| {
-        ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Load(dst_arr_ty, Operand::Value(dst_slot.unwrap()), 0),
-            dst_arr_ty,
-            None,
-        )
-    });
     // P0 chained-Array<Any>-temp bug fix (2026-07-23): the outer walker
     // loads `elem` via a borrowed read — `arr_get_any_boxed` for
     // Type::Any or a raw LoadDyn for typed heap kinds. Pushing that
@@ -204,21 +175,7 @@ pub(super) fn emit_filter(
         ctx.emit_owned_result_inc(Operand::Value(elem), elem_ty);
         Operand::Value(elem)
     };
-    if let Some(state) = dst_fast {
-        let _ = ctx.emit_prereserved_push(state, elem_val);
-    } else {
-        let elem_arg = ctx.raw_slot_arg(elem_val);
-        ctx.f.append_void(
-            ctx.cur_block,
-            InstKind::Call(
-                ctx.intrinsics.arr_push_unchecked,
-                vec![
-                    Operand::Value(cur_dst.expect("call lane loaded the cell")),
-                    elem_arg,
-                ],
-            ),
-        );
-    }
+    let _ = ctx.emit_prereserved_push(dst, elem_val);
     ctx.f.set_term(ctx.cur_block, Terminator::Br(next_blk));
     ctx.cur_block = next_blk;
 }
@@ -323,88 +280,4 @@ pub(super) fn emit_reduce(
     if acc_ty.is_refcounted() {
         ctx.emit_drop_value(Operand::Value(acc_now), acc_ty);
     }
-}
-
-/// The block `map` jumps to when §23.1.3.20's HasProperty gate says the
-/// source index is absent: the product has the source's length, so the
-/// skipped index has to arrive as a hole of its own (step 6.c leaves it
-/// uncreated) — push the undefined slot and mark it, exactly as the
-/// array-literal elision lowering does.
-///
-/// `None` = do not gate this `map` at all. Marking a hole needs a
-/// destination whose slots can SAY hole, which is the same requirement
-/// the `delete` side has: only a boxed-element product can. A callback
-/// answering a number builds a `number[]`, and marking a hole in one is
-/// the element-kind change the runtime refuses — so that shape keeps
-/// today's answer (the callback runs on the hole) rather than a shorter
-/// product or a corrupt slot. Recorded boundary; it lifts the day a
-/// typed product can express absence, which is the day the typed
-/// `delete` does.
-/// The element type of a `map` product that can hold a hole: a boxed
-/// one, or a typed one whose slots have a hole word (F64's sentinel, a
-/// boolean 2, a NULL pointer). An integer product cannot say absent.
-pub(super) fn map_product_holes(ctx: &LowerCtx<'_>, dst_arr_ty: Type) -> Option<Type> {
-    let Type::Arr(id) = dst_arr_ty else {
-        return None;
-    };
-    let elem = ctx.arr_layouts[id.0 as usize];
-    (matches!(elem, Type::Any | Type::F64 | Type::Bool)
-        || crate::ssa_lower_index_undef::has_undef_spelling(elem))
-    .then_some(elem)
-}
-
-/// `seam` picks the mark's entry: the link-judged seam
-/// (`arr_map_hole_slow`) for an arm the loop reaches only after the
-/// source's header said it can have an absent index — the exotic,
-/// slot-hole and sparse-tail bits, each with one writer entry the
-/// judgment reads — or the writer itself (`arr_mark_last_hole`) for an
-/// arm a loop that read no such bit can reach (a shortened length).
-pub(super) fn emit_map_hole_block(
-    ctx: &mut LowerCtx<'_>,
-    dst_slot: Option<ValueId>,
-    dst_arr_ty: Type,
-    step_blk: BlockId,
-    seam: bool,
-) -> Option<BlockId> {
-    let elem_ty = map_product_holes(ctx, dst_arr_ty)?;
-    let hole_blk = ctx.f.add_block();
-    let saved = ctx.cur_block;
-    ctx.cur_block = hole_blk;
-    // A boxed product takes the undefined box; a typed one its element
-    // type's hole word, which `arr_mark_last_hole` leaves in place.
-    let undef = if elem_ty == Type::Any {
-        Operand::Value(emit_undef_any_box(ctx))
-    } else {
-        crate::ssa_lower_index_undef::typed_hole_raw(elem_ty)
-    };
-    let cur_dst = ctx.f.append_inst(
-        hole_blk,
-        InstKind::Load(
-            dst_arr_ty,
-            Operand::Value(dst_slot.expect("map has a dst")),
-            0,
-        ),
-        dst_arr_ty,
-        None,
-    );
-    let slot_arg = ctx.raw_slot_arg(undef);
-    ctx.f.append_void(
-        hole_blk,
-        InstKind::Call(
-            ctx.intrinsics.arr_push_unchecked,
-            vec![Operand::Value(cur_dst), slot_arg],
-        ),
-    );
-    let mark = if seam {
-        ctx.intrinsics.arr_map_hole_slow
-    } else {
-        ctx.intrinsics.arr_mark_last_hole
-    };
-    ctx.f.append_void(
-        hole_blk,
-        InstKind::Call(mark, vec![Operand::Value(cur_dst)]),
-    );
-    ctx.f.set_term(hole_blk, Terminator::Br(step_blk));
-    ctx.cur_block = saved;
-    Some(hole_blk)
 }

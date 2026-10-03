@@ -5,7 +5,7 @@
 
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{BinOp as SsaBinOp, FuncId, IPred, InstKind, Operand, Terminator, Type};
-use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, intern_arr_layout};
+use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, PreReserveState, intern_arr_layout};
 
 /// S151 — `Array.from(iter, mapFn)` per ES §23.1.2.1. mapFn shape:
 /// `(elem) → R` or `(elem, idx) → R`. Strategy: walk `src_arr_op`, per-elem
@@ -49,7 +49,10 @@ fn lower_promoted_this(
 }
 
 /// Pre-size dst to src.length (each iteration pushes exactly one
-/// element, so capacity is exact) and answer `(src_len, dst_slot)`.
+/// element, so capacity is exact) and answer `(src_len, dst_slot)` with
+/// the reservation's inline-append state. dst is a temporary no user
+/// code can name until the call answers it, so its length word waits
+/// in a register until the exit (`PreReserveState::defer_len`).
 /// Chunk 625 precedent (flat_map) — an Any dst allocates the
 /// FLAG_ARR_ANY flavor: push_unchecked's 8B store is layout-correct
 /// (any slots ARE box bits), but the block must self-describe as Any
@@ -60,7 +63,7 @@ fn alloc_from_dst(
     src_arr_val: crate::ssa::ValueId,
     dst_elem_ty: Type,
     dst_arr_ty: Type,
-) -> (crate::ssa::ValueId, crate::ssa::ValueId) {
+) -> (crate::ssa::ValueId, crate::ssa::ValueId, PreReserveState) {
     let src_len = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(Type::I64, Operand::Value(src_arr_val), ARR_LEN_OFF),
@@ -98,8 +101,8 @@ fn alloc_from_dst(
         dst_arr_ty,
         None,
     );
-    let _ = reserved;
-    (src_len, dst_slot)
+    let fast = ctx.emit_prereserved_state(reserved, true, false);
+    (src_len, dst_slot, fast)
 }
 
 pub(crate) fn emit_map_loop(
@@ -147,7 +150,12 @@ pub(crate) fn emit_map_loop(
     };
     let dst_arr_id = intern_arr_layout(ctx.arr_layouts, dst_elem_ty);
     let dst_arr_ty = Type::Arr(dst_arr_id);
-    let (src_len, dst_slot) = alloc_from_dst(ctx, src_arr_val, dst_elem_ty, dst_arr_ty);
+    let (src_len, dst_slot, fast) = alloc_from_dst(ctx, src_arr_val, dst_elem_ty, dst_arr_ty);
+    // A throwing mapFn leaves through the throw check below; what this
+    // lowering owns until the exit is parked so that edge releases it.
+    let src_tok = ctx.push_throw_temp(Operand::Value(src_arr_val), src_arr_ty);
+    let fn_tok = ctx.park_owned_temp(args[1], &fn_val);
+    let this_tok = this_temp.and_then(|(t, op)| ctx.park_owned_temp(t, &op));
     let header_blk = ctx.f.add_block();
     let body_blk = ctx.f.add_block();
     let after_blk = ctx.f.add_block();
@@ -180,7 +188,10 @@ pub(crate) fn emit_map_loop(
         },
     );
     // body — elem = src[i]; mapped = mapFn(elem [, i]); dst.push(mapped); i++
+    // A throwing mapFn releases dst through the slot, its length
+    // settled from the running count first.
     ctx.cur_block = body_blk;
+    let dst_tok = ctx.push_throw_arr_slot(dst_slot, dst_arr_ty, Some(fast.len_slot));
     let i_body = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(Type::I64, Operand::Value(i_slot), 0),
@@ -230,25 +241,17 @@ pub(crate) fn emit_map_loop(
             ctx, &fn_val, fn_ty, call_args, sig_skip, 2,
         )
     } else {
-        match known_fid {
+        let r = match known_fid {
             Some(fid) => ctx.call_fn_value_devirt(fid, fn_val, fn_ty, call_args, sig_skip, 2),
             None => ctx.call_fn_value(fn_val, fn_ty, call_args, sig_skip, 2),
-        }
+        };
+        // §23.1.2.1 IfAbruptCloseIterator — a throwing
+        // mapFn ends the walk (the argv-face conv checks on its own).
+        ctx.emit_throw_check(known_fid);
+        r
     };
-    let cur_dst = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Load(dst_arr_ty, Operand::Value(dst_slot), 0),
-        dst_arr_ty,
-        None,
-    );
-    let mapped_arg = ctx.raw_slot_arg(Operand::Value(mapped));
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::Call(
-            ctx.intrinsics.arr_push_unchecked,
-            vec![Operand::Value(cur_dst), mapped_arg],
-        ),
-    );
+    let _ = ctx.emit_prereserved_push(fast, Operand::Value(mapped));
+    ctx.unpark_owned_temp(dst_tok);
     let i_then = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(Type::I64, Operand::Value(i_slot), 0),
@@ -270,6 +273,10 @@ pub(crate) fn emit_map_loop(
     // mapFn ownership of refcounted arg was rc_inc'd above so src elements
     // stay live until src drop here.
     ctx.cur_block = after_blk;
+    ctx.emit_prereserved_len_writeback(fast);
+    ctx.unpark_owned_temp(this_tok);
+    ctx.unpark_owned_temp(fn_tok);
+    ctx.pop_throw_temp(src_tok);
     ctx.emit_drop_value(Operand::Value(src_arr_val), src_arr_ty);
     // RFC 20260705 chunk 552 — release an inline arrow's minted env
     // after the loop consumed it.

@@ -1,0 +1,17 @@
+map num: 1000 999000 0 1998
+filter num: 334 0 999
+map holes: 10 false true false true false true
+map holes vals: 101 103 106 110
+map holes visited: 4
+map str: 4 aa false cc dd
+map obj: 4 10 40
+filter obj: 2 2 4 true
+filter str: 2 yy,zzz
+from num: 1000 500500
+from str: 5 h0e1l2l3o4
+from obj: 3 18
+map throw: 50 1 -1 4 3
+filter throw: filter stop 1 old
+from throw: 100 1 prev 1000
+hole map throw: hole map stop 1 42
+callback view: 3,3,3 3
