@@ -30,7 +30,7 @@ use alloc::vec::Vec;
 
 use super::closure::{Closure, Writes, closure, coalesce, past_jumps, probes, unpack};
 use super::ir::{MatcherIr, State, UNIT_MAX_NARROW, Variant};
-use super::units::{admits, segments};
+use super::units::{Admits, segments};
 use crate::flags::unicode_mode;
 use crate::parser::{RE_FLAG_I, RE_FLAG_Y};
 use crate::program::{Inst, Op, Program};
@@ -47,6 +47,7 @@ pub fn build(prog: &Program, flags: u8, wide: bool) -> Option<MatcherIr> {
     let unicode = unicode_mode(flags);
     let pairs = wide && unicode;
     let segments = segments(prog, wide, pairs);
+    let mut admits = Admits::new(prog, &segments, unicode);
     let mut states: Vec<State> = Vec::new();
     // edge targets by seed; the start state is not among them, so a
     // loop back to pc 0 enters a state of its own
@@ -63,7 +64,7 @@ pub fn build(prog: &Program, flags: u8, wide: bool) -> Option<MatcherIr> {
         let mut variants = Vec::with_capacity(1 << probes.count_ones());
         for index in 0..1usize << probes.count_ones() {
             let ctx = unpack(probes, index);
-            let Closure { consuming, accept } = closure(prog, seed, ctx, unicode);
+            let Closure { consuming, accept } = closure(prog, &[seed], ctx, unicode);
             let mut table: Vec<Option<(u32, Writes)>> = vec![None; segments.len()];
             for (pc, writes) in consuming {
                 let next = past_jumps(prog, pc + 1);
@@ -76,11 +77,7 @@ pub fn build(prog: &Program, flags: u8, wide: bool) -> Option<MatcherIr> {
                         t
                     }
                 };
-                let ins = prog.insts[pc];
-                for (k, &(lo, _)) in segments.iter().enumerate() {
-                    if !admits(prog, ins, lo, unicode) {
-                        continue;
-                    }
+                for &k in admits.of(pc) {
                     let want = (target, writes.clone());
                     match &table[k] {
                         None => table[k] = Some(want),
@@ -110,7 +107,7 @@ pub fn build(prog: &Program, flags: u8, wide: bool) -> Option<MatcherIr> {
     })
 }
 
-fn servable(prog: &Program) -> bool {
+pub(super) fn servable(prog: &Program) -> bool {
     if !prog.sub_progs.is_empty() {
         return false;
     }

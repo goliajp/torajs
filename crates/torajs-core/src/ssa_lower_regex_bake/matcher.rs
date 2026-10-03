@@ -1,4 +1,5 @@
-//! A literal regex whose program is one-pass gets its matcher compiled
+//! A literal regex whose program is one-pass, or has no capture group
+//! (its leftmost-first DFA, `onepass::subset`), gets its matcher compiled
 //! to a native function at build time (`torajs_regex::onepass`), so
 //! `re.exec(s)` walks the string's own code units in a synthesized
 //! loop instead of the DFA-then-capture pair. One function walks a
@@ -13,7 +14,9 @@
 
 mod emit;
 
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use crate::ast::{Ast, Expr};
 use crate::ssa::{FuncId, Module, Type};
@@ -83,18 +86,43 @@ pub(crate) fn synthesize(
 const MATCHER_MAX_STATES: usize = 256;
 const MATCHER_MAX_EDGES: usize = 2048;
 
-/// The one-pass matcher of `/pattern/flags` over one payload encoding,
-/// or `None` where the lane declines it: a pattern the runtime would
-/// reject, a program `onepass::build` refuses, or a matcher past the
-/// size budget. A sticky pattern's matcher tries `start` alone; the
+/// The matcher of `/pattern/flags` over one payload encoding: the
+/// one-pass walk, else for a capture-free program its leftmost-first
+/// DFA (`.+` / `.*?` / overlapping alternatives, with or without `s`).
+/// `None` where the lane declines it: a pattern the runtime would
+/// reject, a program both builders refuse, or a matcher past the size
+/// budget. A sticky pattern's matcher tries `start` alone; the
 /// lastIndex flow around it is the exec kernel's.
-pub(crate) fn matcher_ir(pattern: &str, flags: &str, wide: bool) -> Option<MatcherIr> {
+pub(crate) fn matcher_ir(pattern: &str, flags: &str, wide: bool) -> Option<Rc<MatcherIr>> {
+    let key = (pattern.to_string(), flags.to_string(), wide);
+    if let Some(hit) = BUILT.with(|m| m.borrow().get(&key).cloned()) {
+        return hit;
+    }
+    let ir = build_matcher_ir(pattern, flags, wide).map(Rc::new);
+    BUILT.with(|m| m.borrow_mut().insert(key, ir.clone()));
+    ir
+}
+
+type MatcherKey = (String, String, bool);
+
+thread_local! {
+    /// `matcher_ir` by `(pattern, flags, wide)`: the synthesis and every
+    /// match-length site of a literal ask the same question, and a
+    /// declined one-pass build before the subset construction is the
+    /// costly part of the answer
+    static BUILT: RefCell<HashMap<MatcherKey, Option<Rc<MatcherIr>>>> =
+        RefCell::new(HashMap::new());
+}
+
+fn build_matcher_ir(pattern: &str, flags: &str, wide: bool) -> Option<MatcherIr> {
     let lit = crate::ssa_lower_regex_bake::parse_literal(pattern, flags)?;
     let mut prog = Program::new();
     prog.raw_classes = true;
     torajs_regex::compiler::compile(&mut prog, &lit.root, lit.flag_bits);
     prog.emit(Inst::match_accept());
-    let ir = torajs_regex::onepass::build(&prog, lit.flag_bits, wide)?;
+    let ir = torajs_regex::onepass::build(&prog, lit.flag_bits, wide).or_else(|| {
+        torajs_regex::onepass::build_subset(&prog, lit.flag_bits, wide, MATCHER_MAX_STATES)
+    })?;
     let edges: usize = ir
         .states
         .iter()
@@ -114,6 +142,10 @@ mod tests {
             assert!(matcher_ir(r"([a-z]+)=(\d+)", "g", wide).is_some());
             assert!(matcher_ir(r"[^=;]+", "i", wide).is_some());
             assert!(matcher_ir(r"(a|ab)(c|bcd)", "", wide).is_none());
+            // not one-pass, but capture-free: the leftmost-first DFA
+            assert_eq!(matcher_ir(r"a.+c", "s", wide).unwrap().stride, 2);
+            assert!(matcher_ir(r"(?:a|ab)(?:c|bcd)", "", wide).is_some());
+            assert!(matcher_ir(r"(?:a|b)*a(?:a|b){9}", "", wide).is_none());
             assert!(matcher_ir(r"(a)\1", "", wide).is_none());
             assert!(matcher_ir(r"^(a)", "", wide).is_some());
             assert!(matcher_ir(r"(a)", "y", wide).unwrap().anchored);
@@ -150,6 +182,9 @@ mod tests {
             (r"([^\p{L}]+)(\p{Lu})?", "gu", true),
             (r"(?:(a)b)*c", "g", false),
             (r"(?:(a)b)*", "", true),
+            (r"a.+c", "s", false),
+            (r"a.*?c", "su", true),
+            (r"^.*b$", "m", false),
         ] {
             let ir = matcher_ir(pat, flags, wide).unwrap();
             let f = emit::walk("__regex_matcher_l1_7", &ir, &mut Vec::new());

@@ -10,6 +10,8 @@
 //!
 //! - [`analyze`] decides one-passness and produces the [`ir::MatcherIr`]
 //!   for one payload encoding: Latin-1 code units or UTF-16 ones.
+//! - [`subset`] builds the same shape for a capture-free program that
+//!   is not one-pass: its leftmost-first DFA.
 //! - [`ir`] is the matcher's shape plus a reference interpreter over
 //!   the code units; the AOT compiler emits the same walk as a
 //!   native function.
@@ -18,8 +20,12 @@ pub mod analyze;
 mod closure;
 pub mod fold;
 pub mod ir;
+#[cfg(test)]
+mod parity;
 mod shape;
+pub mod subset;
 mod units;
 
 pub use analyze::build;
 pub use ir::{Edge, MatcherIr, State, Variant};
+pub use subset::build_subset;

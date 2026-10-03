@@ -85,3 +85,36 @@ pub(super) fn admits(prog: &Program, ins: Inst, u: u32, unicode: bool) -> bool {
         _ => false,
     }
 }
+
+/// The segments each consuming instruction admits, by index, worked
+/// out the first time a state asks: a state's every variant asks of
+/// the same pcs, and under `i` one class answer scans every Latin-1
+/// unit.
+pub(super) struct Admits<'a> {
+    prog: &'a Program,
+    segments: &'a [(u32, u32)],
+    unicode: bool,
+    rows: Vec<Option<Vec<usize>>>,
+}
+
+impl<'a> Admits<'a> {
+    pub(super) fn new(prog: &'a Program, segments: &'a [(u32, u32)], unicode: bool) -> Self {
+        Self {
+            prog,
+            segments,
+            unicode,
+            rows: vec![None; prog.len()],
+        }
+    }
+
+    /// The indices of the segments `pc` consumes, ascending.
+    pub(super) fn of(&mut self, pc: usize) -> &[usize] {
+        let (prog, segments, unicode) = (self.prog, self.segments, self.unicode);
+        self.rows[pc].get_or_insert_with(|| {
+            let ins = prog.insts[pc];
+            (0..segments.len())
+                .filter(|&k| admits(prog, ins, segments[k].0, unicode))
+                .collect()
+        })
+    }
+}

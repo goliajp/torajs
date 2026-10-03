@@ -135,10 +135,17 @@ pub(super) struct Closure {
     pub(super) accept: Option<Writes>,
 }
 
-pub(super) fn closure(prog: &Program, seed: usize, ctx: u8, unicode: bool) -> Closure {
+/// The ε-closure of `seeds`, the highest-priority thread first: the
+/// stack takes them in reverse, so every path out of a seed is walked
+/// before the next seed is popped, as the Pike VM adds its threads.
+pub(super) fn closure(prog: &Program, seeds: &[usize], ctx: u8, unicode: bool) -> Closure {
     let mut visited = vec![false; prog.len()];
     // each path carries its slot writes and the `IterStart` pcs on it
-    let mut stack: Vec<(usize, Writes, Vec<usize>)> = vec![(seed, Writes::default(), Vec::new())];
+    let mut stack: Vec<(usize, Writes, Vec<usize>)> = seeds
+        .iter()
+        .rev()
+        .map(|&seed| (seed, Writes::default(), Vec::new()))
+        .collect();
     let mut consuming = Vec::new();
     let mut accept = None;
     while let Some((pc, saves, iters)) = stack.pop() {
