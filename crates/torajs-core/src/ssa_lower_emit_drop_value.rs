@@ -45,6 +45,7 @@ use crate::ssa_lower::{ARR_LEN_OFF, CLOSURE_DROP_FN_OFF, LowerCtx, intern_fn_sig
 
 pub(crate) mod class_drop;
 pub(crate) mod class_drop_arr;
+pub(crate) mod class_drop_cells;
 pub(crate) mod class_drop_setup;
 mod obj;
 
