@@ -146,7 +146,7 @@ pub fn emit_load(
 /// and keeps the FPR path.
 fn store_val_is_zero(val: &Operand) -> bool {
     match val {
-        Operand::ConstI64(0) | Operand::ConstI32(0) => true,
+        Operand::ConstI64(0) | Operand::ConstI32(0) | Operand::ConstPtrNull => true,
         Operand::ConstF64(c) => c.to_bits() == 0,
         _ => false,
     }

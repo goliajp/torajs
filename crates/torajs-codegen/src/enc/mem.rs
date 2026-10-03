@@ -209,6 +209,17 @@ pub fn stp_x_off(rt: Gpr, rt2: Gpr, rn: Gpr, byte_offset: i32) -> u32 {
     pair_off(0xA900_0000, rt.idx(), rt2.idx(), rn, byte_offset)
 }
 
+/// STP Wt, Wt2, [Xn, #byte_offset] — the 32-bit form: `imm7` scales
+/// by 4, so the offset must be 4-aligned in -256..=252.
+pub fn stp_w_off(rt: Gpr, rt2: Gpr, rn: Gpr, byte_offset: i32) -> u32 {
+    assert!(
+        byte_offset % 4 == 0 && (-256..=252).contains(&byte_offset),
+        "pair offset must be 4-aligned in -256..=252 (got {byte_offset})"
+    );
+    let imm7 = ((byte_offset / 4) as u32) & 0x7F;
+    0x2900_0000 | (imm7 << 15) | (rt2.idx() << 10) | (rn.idx() << 5) | rt.idx()
+}
+
 /// LDP Xt, Xt2, [Xn, #byte_offset] — ARM ARM C6.2.151 (signed offset).
 pub fn ldp_x_off(rt: Gpr, rt2: Gpr, rn: Gpr, byte_offset: i32) -> u32 {
     pair_off(0xA940_0000, rt.idx(), rt2.idx(), rn, byte_offset)
@@ -236,6 +247,16 @@ mod tests {
         assert_eq!(ldr_w_reg(Gpr::X0, Gpr::X1, Gpr::X2), 0xB862_6820);
         assert_eq!(str_w_reg(Gpr::X0, Gpr::X1, Gpr::X2), 0xB822_6820);
         assert_eq!(str_w_imm12(Gpr::X0, Gpr::X1, 4), 0xB900_0420);
+    }
+
+    #[test]
+    fn store_pairs_match_clang() {
+        // clang -c: stp w9, w9, [x13] / stp w9, w11, [x6, #8]
+        // stp x9, xzr, [x13, #8] / stp xzr, x9, [x0, #16]
+        assert_eq!(stp_w_off(Gpr::X9, Gpr::X9, Gpr::X13, 0), 0x2900_25A9);
+        assert_eq!(stp_w_off(Gpr::X9, Gpr::X11, Gpr::X6, 8), 0x2901_2CC9);
+        assert_eq!(stp_x_off(Gpr::X9, Gpr::XZR, Gpr::X13, 8), 0xA900_FDA9);
+        assert_eq!(stp_x_off(Gpr::XZR, Gpr::X9, Gpr::X0, 16), 0xA901_241F);
     }
 
     #[test]

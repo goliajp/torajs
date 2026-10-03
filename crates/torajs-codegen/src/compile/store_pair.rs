@@ -1,0 +1,195 @@
+//! Store pairing — two adjacent stores through one base into
+//! neighbouring words become one STP.
+//!
+//! A fresh object's header and fields are written one `store` at a
+//! time (`rc = 1`, `tag word = 1`, then each field), and each lowered
+//! to its own constant move and STR. Two stores next to each other in
+//! a block, through the same base value, of the same width (both W or
+//! both X, both in general registers), at offsets `o` and `o + width`
+//! with `o` width-aligned and in STP's reach, write exactly what one
+//! `STP lo, hi, [base, #o]` writes: nothing runs between them, and
+//! neither store's value depends on the other. A zero is stored from
+//! the zero register, and the same operand on both sides is
+//! materialized once.
+
+use std::collections::HashMap;
+
+use torajs_core::ssa::{Function, InstKind, Operand, Type};
+
+use super::operand::{materialize_operand_gpr, operand_is_f64};
+use super::{OP_SCRATCH_LHS, OP_SCRATCH_RHS, OP_SCRATCH_TMP, write_u32};
+use crate::enc::{stp_w_off, stp_x_off};
+use crate::reg::Gpr;
+use crate::regalloc::Assignment;
+
+/// One planned pair, keyed by the position of its first store; the
+/// second store is absorbed.
+pub(super) struct StorePair {
+    lo: Operand,
+    hi: Operand,
+    base: Operand,
+    offset: u64,
+    w32: bool,
+}
+
+/// Width-class of a store's value: `Some(true)` for a 32-bit store,
+/// `Some(false)` for 64-bit, `None` for one that does not pair (an f64
+/// value lives in the other register file).
+fn gpr_width(func: &Function, val: &Operand, alloc: &Assignment) -> Option<bool> {
+    if operand_is_f64(val, alloc) {
+        return None;
+    }
+    Some(match val {
+        Operand::ConstI32(_) => true,
+        Operand::Value(v) => func.value_type(*v) == Type::I32,
+        _ => false,
+    })
+}
+
+pub(super) fn plan(func: &Function, alloc: &Assignment) -> HashMap<(u32, u32), StorePair> {
+    let mut out = HashMap::new();
+    for block in &func.blocks {
+        let mut ii = 0;
+        while ii + 1 < block.insts.len() {
+            let (InstKind::Store(v1, p1, o1), InstKind::Store(v2, p2, o2)) =
+                (&block.insts[ii].kind, &block.insts[ii + 1].kind)
+            else {
+                ii += 1;
+                continue;
+            };
+            let same_base = matches!((p1, p2), (Operand::Value(a), Operand::Value(b)) if a == b);
+            let widths = (gpr_width(func, v1, alloc), gpr_width(func, v2, alloc));
+            let pair = match widths {
+                (Some(w1), Some(w2)) if same_base && w1 == w2 => {
+                    let size = if w1 { 4 } else { 8 };
+                    let (lo, hi, offset) = if o2.checked_sub(*o1) == Some(size) {
+                        (*v1, *v2, *o1)
+                    } else if o1.checked_sub(*o2) == Some(size) {
+                        (*v2, *v1, *o2)
+                    } else {
+                        (*v1, *v2, u64::MAX)
+                    };
+                    (offset.is_multiple_of(size) && offset <= 63 * size).then_some(StorePair {
+                        lo,
+                        hi,
+                        base: *p1,
+                        offset,
+                        w32: w1,
+                    })
+                }
+                _ => None,
+            };
+            match pair {
+                Some(p) => {
+                    out.insert((block.id.0, ii as u32), p);
+                    ii += 2;
+                }
+                None => ii += 1,
+            }
+        }
+    }
+    out
+}
+
+fn is_zero(op: &Operand) -> bool {
+    matches!(
+        op,
+        Operand::ConstI64(0) | Operand::ConstI32(0) | Operand::ConstPtrNull
+    )
+}
+
+fn same_operand(a: &Operand, b: &Operand) -> bool {
+    match (a, b) {
+        (Operand::Value(x), Operand::Value(y)) => x == y,
+        (Operand::ConstI64(x), Operand::ConstI64(y)) => x == y,
+        (Operand::ConstI32(x), Operand::ConstI32(y)) => x == y,
+        _ => false,
+    }
+}
+
+pub(super) fn emit(bytes: &mut Vec<u8>, p: &StorePair, alloc: &Assignment) {
+    let rt = if is_zero(&p.lo) {
+        Gpr::XZR
+    } else {
+        materialize_operand_gpr(bytes, &p.lo, OP_SCRATCH_LHS, alloc)
+    };
+    let rt2 = if is_zero(&p.hi) {
+        Gpr::XZR
+    } else if same_operand(&p.lo, &p.hi) {
+        rt
+    } else {
+        materialize_operand_gpr(bytes, &p.hi, OP_SCRATCH_TMP, alloc)
+    };
+    let rn = materialize_operand_gpr(bytes, &p.base, OP_SCRATCH_RHS, alloc);
+    let off = p.offset as i32;
+    if p.w32 {
+        write_u32(bytes, stp_w_off(rt, rt2, rn, off));
+    } else {
+        write_u32(bytes, stp_x_off(rt, rt2, rn, off));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::compile_function;
+    use crate::enc;
+    use crate::reg::Gpr;
+    use torajs_core::ssa::{Function, InstKind, Operand, Terminator, Type};
+
+    fn words(f: &Function) -> Vec<u32> {
+        compile_function(f)
+            .bytes
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|c| u32::from_le_bytes(*c))
+            .collect()
+    }
+
+    /// The pair shape with the base register field masked out.
+    fn shape(w: u32) -> u32 {
+        w & !(0x1F << 5)
+    }
+
+    fn header_init(stores: &[(Operand, u64)]) -> Function {
+        let mut f = Function::new("t", Type::I64);
+        let p = f.add_param(Type::Ptr, "p");
+        let b = f.add_block();
+        for (v, off) in stores {
+            f.append_void(b, InstKind::Store(*v, Operand::Value(p), *off));
+        }
+        f.set_term(b, Terminator::Ret(Some(Operand::ConstI64(0))));
+        f
+    }
+
+    #[test]
+    fn neighbouring_words_store_as_pairs() {
+        let f = header_init(&[
+            (Operand::ConstI32(1), 0),
+            (Operand::ConstI32(1), 4),
+            (Operand::ConstI64(3), 8),
+            (Operand::ConstPtrNull, 16),
+        ]);
+        let w = words(&f);
+        let w_pair = shape(enc::stp_w_off(Gpr::X9, Gpr::X9, Gpr::X0, 0));
+        let x_pair = shape(enc::stp_x_off(Gpr::X9, Gpr::XZR, Gpr::X0, 8));
+        assert!(
+            w.iter().any(|x| shape(*x) == w_pair),
+            "one W pair, one constant"
+        );
+        assert!(
+            w.iter().any(|x| shape(*x) == x_pair),
+            "X pair from the zero register"
+        );
+        let single_str = |x: &u32| (x & 0xBFC0_0000) == 0xB900_0000;
+        assert!(!w.iter().any(single_str), "no single STR left");
+    }
+
+    #[test]
+    fn stores_apart_stay_single() {
+        // +8 then +24: not neighbours
+        let f = header_init(&[(Operand::ConstI64(3), 8), (Operand::ConstI64(4), 24)]);
+        let w = words(&f);
+        assert!(!w.iter().any(|x| (x & 0x7FC0_0000) == 0x2900_0000));
+    }
+}

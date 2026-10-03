@@ -51,6 +51,7 @@ mod rc_dec;
 mod refs;
 mod selinc;
 pub(crate) mod slot;
+mod store_pair;
 mod str_append;
 mod substr_drop;
 mod terminator;

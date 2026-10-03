@@ -10,6 +10,7 @@ use torajs_core::ssa::{Block, Function, Inst, InstKind};
 use super::brfuse::{self, FusedCmp, FusedSelCmp};
 use super::cmp;
 use super::selinc::{self, SelectIncs};
+use super::store_pair::{self, StorePair};
 use crate::regalloc::Assignment;
 
 pub(super) struct Fusions {
@@ -22,6 +23,9 @@ pub(super) struct Fusions {
     /// (and the ICmp behind it, which the ADD used to keep out of
     /// fusible_select_cmps' adjacency window). See compile/selinc.rs.
     select_incs: SelectIncs,
+    /// Adjacent stores into neighbouring words, keyed by the first;
+    /// the second is absorbed. See compile/store_pair.rs.
+    store_pairs: HashMap<(u32, u32), StorePair>,
 }
 
 impl Fusions {
@@ -30,6 +34,7 @@ impl Fusions {
             cmps: brfuse::fusible_cmps(func),
             select_cmps: brfuse::fusible_select_cmps(func, alloc),
             select_incs: selinc::fusible_select_incs(func),
+            store_pairs: store_pair::plan(func, alloc),
         }
     }
 
@@ -62,6 +67,13 @@ impl Fusions {
         if let Some(plan) = self.select_incs.plan(b, i) {
             cmp::emit_select_inc(bytes, inst, plan, alloc);
             return true;
+        }
+        if let Some(pair) = self.store_pairs.get(&(b, i)) {
+            store_pair::emit(bytes, pair, alloc);
+            return true;
+        }
+        if ii > 0 && self.store_pairs.contains_key(&(b, i - 1)) {
+            return true; // the store before emitted this one as its pair
         }
         if let InstKind::Select(ty, _, then_op, else_op) = &inst.kind
             && ii > 0
