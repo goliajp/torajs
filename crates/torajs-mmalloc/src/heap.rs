@@ -13,6 +13,9 @@
 //! Arenas with free pages hang off the heap in a list; an arena that
 //! empties out is kept as the one spare, and the next empty arena is
 //! unmapped.
+//!
+//! The medium classes have no rows and use the same spans one slot
+//! at a time; `medium.rs` has that path.
 
 use core::ptr;
 
@@ -183,12 +186,16 @@ impl TlabCache {
 
     /// A span with nothing out: pages back to the arena, and the
     /// arena back to the kernel once it is empty and a spare exists.
-    unsafe fn retire(&mut self, class: usize, meta: *mut SpanMeta, arena: *mut Arena) {
+    pub(crate) unsafe fn retire(&mut self, class: usize, meta: *mut SpanMeta, arena: *mut Arena) {
         #[cfg(torajs_census)]
         crate::core::census::SPAN_RETIRE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         match unsafe { (*meta).state() } {
             SpanState::Partial => self.partial_unlink(class, meta),
             SpanState::Cur => self.set_cur(class, ptr::null_mut()),
+            SpanState::Kept => {
+                self.kept_unlink(meta);
+                self.set_cur(class, ptr::null_mut());
+            }
             SpanState::Full | SpanState::Free => {}
         }
         unsafe { (*meta).set_state(SpanState::Free) };
@@ -211,7 +218,7 @@ impl TlabCache {
 
     /// Make a span current for `class`: the first partial one, else a
     /// fresh one. Null when no memory can be had.
-    fn open_span(&mut self, class: usize) -> *mut SpanMeta {
+    pub(crate) fn open_span(&mut self, class: usize) -> *mut SpanMeta {
         let mut span = self.partial_pop(class);
         if span.is_null() {
             span = self.new_span(class);
@@ -257,7 +264,7 @@ impl TlabCache {
     }
 
     #[inline]
-    fn cur(&self, class: usize) -> *mut SpanMeta {
+    pub(crate) fn cur(&self, class: usize) -> *mut SpanMeta {
         match self.cur.get(class) {
             Some(&s) => s,
             None => ptr::null_mut(),
@@ -265,13 +272,13 @@ impl TlabCache {
     }
 
     #[inline]
-    fn set_cur(&mut self, class: usize, span: *mut SpanMeta) {
+    pub(crate) fn set_cur(&mut self, class: usize, span: *mut SpanMeta) {
         if let Some(slot) = self.cur.get_mut(class) {
             *slot = span;
         }
     }
 
-    fn partial_push(&mut self, class: usize, span: *mut SpanMeta) {
+    pub(crate) fn partial_push(&mut self, class: usize, span: *mut SpanMeta) {
         let Some(head) = self.partial.get_mut(class) else {
             return;
         };

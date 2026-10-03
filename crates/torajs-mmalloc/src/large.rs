@@ -1,9 +1,9 @@
 //! Large-allocation fallback — direct `mmap` per request when the
-//! size exceeds the largest size-class bucket (4096 bytes).
+//! size exceeds the largest medium class (`MAX_MEDIUM`, 896 KiB).
 //!
-//! No pooling; large allocs are assumed infrequent enough that
-//! per-request `mmap` + `munmap` cost is acceptable. Each block is
-//! page-rounded up so munmap with the same (addr, len) is valid.
+//! No pooling: a block this size is longer than the span pages an
+//! arena has, and filling it costs more than the mapping. Each block
+//! is page-rounded up so munmap with the same (addr, len) is valid.
 
 use torajs_syscall::{Errno, mmap_anon_rw, munmap};
 

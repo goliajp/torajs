@@ -27,8 +27,8 @@
 //!
 //! ## Alignment contract
 //!
-//! `core::alloc_sized` guarantees 16-byte alignment for small
-//! allocations (size_class path) and 4096-byte page alignment for
+//! `core::alloc_sized` guarantees 16-byte alignment for small and
+//! medium allocations (span paths) and 4096-byte page alignment for
 //! large allocations (mmap-direct path). Any `Layout::align()`
 //! ≤ 16 is satisfied directly. For 16 < align ≤ usize::MAX we
 //! over-allocate `size + align - 1 + sizeof(usize)`, store the

@@ -31,6 +31,9 @@ pub const SYS_GETPID: u32 = 20;
 /// `munmap(void *addr, size_t len) -> int`.
 pub const SYS_MUNMAP: u32 = 73;
 
+/// `madvise(void *addr, size_t len, int advice) -> int`.
+pub const SYS_MADVISE: u32 = 75;
+
 /// `fstat(int fd, struct stat *buf) -> int` (64-bit stat on aarch64).
 pub const SYS_FSTAT: u32 = 339;
 
@@ -143,6 +146,19 @@ pub const PROT_EXEC: i32 = 0x04;
 /// use for the bump/slab allocator in v0.7-A2.
 pub const MAP_PRIVATE: i32 = 0x0002;
 pub const MAP_ANON: i32 = 0x1000;
+
+/// `madvise` advice that takes touched pages out of the process's
+/// physical footprint at once and lets the kernel reclaim them under
+/// pressure; the pages stay mapped and a later write finds either
+/// the old bytes or zeros. `MADV_FREE` (5) and `MADV_DONTNEED` (4)
+/// leave the footprint as it was on this kernel; libmalloc uses this
+/// one for the same reason.
+pub const MADV_FREE_REUSABLE: i32 = 7;
+
+/// The counterpart: pages marked reusable are about to be written
+/// again. Without it the kernel never counts them back into the
+/// footprint, however much is written, so the reading runs low.
+pub const MADV_FREE_REUSE: i32 = 8;
 
 /// `open` flags subset. Mirrors `<fcntl.h>` constants.
 pub const O_RDONLY: i32 = 0;

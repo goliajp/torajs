@@ -7,6 +7,10 @@
 //!   `free` finds the block's region in the registry; an arena then
 //!   names the span and its class, a large region its length.
 //!
+//! By size: a small request goes through its row, a medium one to
+//! its span directly (`medium.rs`), and one past `MAX_MEDIUM` maps a
+//! region of its own.
+//!
 //! The heap itself is one process-wide `static`, `__torajs_core_tlab`,
 //! whose rows the toolchain pops and pushes inline at object-cell
 //! sites; everything behind a row miss is in `heap.rs`.
@@ -14,7 +18,7 @@
 use crate::arena::Arena;
 use crate::large::{large_alloc, large_free};
 use crate::region_registry::{RegionKind, lock_addr, with_registry};
-use crate::size_class::{MAX_SMALL, bucket_for, class_size};
+use crate::size_class::{MAX_SMALL, bucket_for, class_size, medium_class_for};
 use crate::tlab::TlabCache;
 
 // A plain `static mut`, not `#[thread_local]`: on macOS aarch64 that
@@ -49,9 +53,7 @@ pub fn alloc_sized(size: usize) -> *mut u8 {
         return zero_sentinel();
     }
     if size > MAX_SMALL {
-        #[cfg(torajs_census)]
-        census::LARGE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-        return alloc_large(size);
+        return alloc_big(size);
     }
     let class = match bucket_for(size) {
         Some(i) => i,
@@ -64,10 +66,28 @@ pub fn alloc_sized(size: usize) -> *mut u8 {
     alloc_refill(class)
 }
 
-/// Large path: a mapping of its own, registered so `free(ptr)` can
-/// recover its length.
+/// Past the small classes: a medium span slot, or a mapping of its
+/// own past `MAX_MEDIUM`.
 #[cold]
 #[inline(never)]
+fn alloc_big(size: usize) -> *mut u8 {
+    match medium_class_for(size) {
+        Some(class) => {
+            #[cfg(torajs_census)]
+            census::MEDIUM.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            let tlab = &raw mut __torajs_core_tlab;
+            unsafe { (*tlab).alloc_medium(class) }
+        }
+        None => {
+            #[cfg(torajs_census)]
+            census::LARGE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            alloc_large(size)
+        }
+    }
+}
+
+/// Large path: a mapping of its own, registered so `free(ptr)` can
+/// recover its length.
 fn alloc_large(size: usize) -> *mut u8 {
     let p = match large_alloc(size) {
         Ok(p) => p,
@@ -102,7 +122,7 @@ pub unsafe fn free_sized(ptr: *mut u8, size: usize) {
     #[cfg(torajs_census)]
     census::FREES.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     if size > MAX_SMALL {
-        unsafe { free_large(ptr, size) };
+        unsafe { free_big(ptr, size) };
         return;
     }
     let class = match bucket_for(size) {
@@ -116,12 +136,26 @@ pub unsafe fn free_sized(ptr: *mut u8, size: usize) {
     unsafe { free_spill(ptr, class) };
 }
 
+/// Past the small classes: back to the block's span, or unmapped.
+///
+/// # Safety
+/// As [`free_sized`], for a block past `MAX_SMALL`.
+#[cold]
+#[inline(never)]
+unsafe fn free_big(ptr: *mut u8, size: usize) {
+    match medium_class_for(size) {
+        Some(class) => {
+            let tlab = &raw mut __torajs_core_tlab;
+            unsafe { (*tlab).free_medium(class, ptr) }
+        }
+        None => unsafe { free_large(ptr, size) },
+    }
+}
+
 /// Large path: deregister, then unmap.
 ///
 /// # Safety
 /// As [`free_sized`], for a large allocation.
-#[cold]
-#[inline(never)]
 unsafe fn free_large(ptr: *mut u8, size: usize) {
     with_registry(|r| r.remove(ptr as usize));
     let _ = unsafe { large_free(ptr, size) };
@@ -172,6 +206,7 @@ pub unsafe fn free(ptr: *mut u8) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::size_class::MAX_MEDIUM;
 
     #[test]
     fn alloc_sized_returns_nonnull_for_nonzero() {
@@ -193,16 +228,66 @@ mod tests {
 
     #[test]
     fn alloc_sized_large_routes_to_large_alloc() {
-        let big = MAX_SMALL + 1;
+        let big = MAX_MEDIUM + 1;
         let p = alloc_sized(big);
         assert!(!p.is_null());
-        assert!(with_registry(|r| r.lookup(p as usize)).is_some());
+        assert_eq!(
+            with_registry(|r| r.lookup(p as usize)),
+            Some((RegionKind::Large, (big + 4095) & !4095))
+        );
         unsafe {
             *p = 0xbb;
             assert_eq!(*p, 0xbb);
             free_sized(p, big);
         }
         assert!(with_registry(|r| r.lookup(p as usize)).is_none());
+    }
+
+    /// A medium request lives in an arena and comes straight back on
+    /// the next request of its class, with no mapping made or undone.
+    #[test]
+    fn alloc_sized_medium_routes_to_an_arena_span() {
+        let size = MAX_SMALL + 1;
+        let p = alloc_sized(size);
+        assert!(!p.is_null());
+        assert_eq!(
+            with_registry(|r| r.lookup(p as usize)).map(|(k, _)| k),
+            Some(RegionKind::Arena)
+        );
+        let meta = unsafe { (*Arena::containing(p)).meta_of(p) };
+        assert_eq!(class_size(unsafe { (*meta).class() }), 5 << 10);
+        let regions = with_registry(|r| r.len());
+        unsafe {
+            *p.add(size - 1) = 0xcc;
+            free_sized(p, size);
+        }
+        assert_eq!(alloc_sized(5 << 10), p);
+        assert_eq!(with_registry(|r| r.len()), regions);
+        unsafe { free_sized(p, 5 << 10) };
+        let q = alloc_sized(MAX_MEDIUM);
+        assert!(!q.is_null());
+        assert_eq!(
+            with_registry(|r| r.lookup(q as usize)).map(|(k, _)| k),
+            Some(RegionKind::Arena)
+        );
+        unsafe {
+            *q.add(MAX_MEDIUM - 1) = 0xdd;
+            free_sized(q, MAX_MEDIUM);
+        }
+    }
+
+    #[test]
+    fn layer0_free_recovers_a_medium_class_through_the_arena() {
+        let size = 100 << 10;
+        let p = alloc_sized(size);
+        assert!(!p.is_null());
+        unsafe { free(p) };
+        assert_eq!(
+            alloc_sized(size),
+            p,
+            "Layer 0 free did not return the block"
+        );
+        unsafe { free_sized(p, size) };
     }
 
     #[test]
@@ -221,7 +306,7 @@ mod tests {
 
     #[test]
     fn layer0_free_unmaps_a_large_block() {
-        let big = 3 * MAX_SMALL;
+        let big = 3 * MAX_MEDIUM;
         let p = alloc_sized(big);
         unsafe { free(p) };
         assert!(with_registry(|r| r.lookup(p as usize)).is_none());
@@ -252,6 +337,7 @@ pub(crate) mod census {
     pub static REFILLS: AtomicU64 = AtomicU64::new(0);
     pub static SPILLS: AtomicU64 = AtomicU64::new(0);
     pub static SPAN_RETIRE: AtomicU64 = AtomicU64::new(0);
+    pub static MEDIUM: AtomicU64 = AtomicU64::new(0);
     pub static LARGE: AtomicU64 = AtomicU64::new(0);
 
     #[inline]
@@ -268,6 +354,7 @@ pub(crate) mod census {
         emit(b"alloc.refills", REFILLS.load(Ordering::Relaxed));
         emit(b"alloc.spills", SPILLS.load(Ordering::Relaxed));
         emit(b"alloc.span_retire", SPAN_RETIRE.load(Ordering::Relaxed));
+        emit(b"alloc.medium", MEDIUM.load(Ordering::Relaxed));
         emit(b"alloc.large", LARGE.load(Ordering::Relaxed));
     }
 }

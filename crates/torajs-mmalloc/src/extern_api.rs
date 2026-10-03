@@ -31,6 +31,9 @@
 
 use core::ffi::c_void;
 
+use crate::large::page_round_up;
+use crate::size_class::class_for;
+
 // =============================================================
 // Layer 1 — size-known fast path (route to core)
 // =============================================================
@@ -84,10 +87,11 @@ pub unsafe extern "C" fn __torajs_calloc(size: usize) -> *mut c_void {
     p
 }
 
-/// torajs realloc — `(ptr, old_size, new_size)`. Allocates a
-/// fresh block via core, copies `min(old, new)` bytes, frees the
-/// old block. Returns NULL on OOM (old block is NOT freed in that
-/// case, matching glibc).
+/// torajs realloc — `(ptr, old_size, new_size)`. A block whose class
+/// already holds `new_size` stays where it is; otherwise a fresh
+/// block via core, `min(old, new)` bytes copied, the old block freed.
+/// Returns NULL on OOM (old block is NOT freed in that case, matching
+/// glibc).
 ///
 /// # Safety
 ///
@@ -105,6 +109,9 @@ pub unsafe extern "C" fn __torajs_realloc(
         unsafe { __torajs_free(ptr, old_size) };
         return core::ptr::null_mut();
     }
+    if old_size != 0 && same_block_fits(old_size, new_size) {
+        return ptr;
+    }
     let new_ptr = unsafe { __torajs_malloc(new_size) };
     if new_ptr.is_null() {
         return core::ptr::null_mut();
@@ -115,6 +122,19 @@ pub unsafe extern "C" fn __torajs_realloc(
     }
     unsafe { __torajs_free(ptr, old_size) };
     new_ptr
+}
+
+/// Whether a block handed out for `old_size` is the very block
+/// `new_size` would get: the same span class, or the same page
+/// rounding past the classes. Such a block is freed later with
+/// `new_size`, which names the same class again.
+#[inline]
+fn same_block_fits(old_size: usize, new_size: usize) -> bool {
+    match (class_for(old_size), class_for(new_size)) {
+        (Some(a), Some(b)) => a == b,
+        (None, None) => page_round_up(old_size) == page_round_up(new_size),
+        _ => false,
+    }
 }
 
 // =============================================================
@@ -335,10 +355,38 @@ mod tests {
 
     #[test]
     fn large_malloc_roundtrips() {
-        let p = unsafe { __torajs_malloc(16384) };
-        assert!(!p.is_null());
-        unsafe { core::ptr::write(p as *mut u8, 0xbb) };
-        unsafe { __torajs_free(p, 16384) };
+        for &size in &[16384usize, 4 << 20] {
+            let p = unsafe { __torajs_malloc(size) };
+            assert!(!p.is_null());
+            unsafe { core::ptr::write((p as *mut u8).add(size - 1), 0xbb) };
+            unsafe { __torajs_free(p, size) };
+        }
+    }
+
+    /// Growing inside the block's class keeps the block; crossing a
+    /// class boundary moves it with its content.
+    #[test]
+    fn realloc_stays_put_inside_a_class() {
+        assert!(same_block_fits(17, 32));
+        assert!(!same_block_fits(16, 17));
+        assert!(same_block_fits(4097, 5 << 10));
+        assert!(!same_block_fits(5 << 10, (5 << 10) + 1));
+        assert!(same_block_fits((1 << 20) + 1, (1 << 20) + 4096));
+        assert!(!same_block_fits((1 << 20) + 4096, (1 << 20) + 4097));
+        assert!(!same_block_fits(896 << 10, (896 << 10) + 1));
+        let p = unsafe { __torajs_malloc(4097) };
+        unsafe { core::ptr::write(p as *mut u8, 0x11) };
+        let q = unsafe { __torajs_realloc(p, 4097, 5 << 10) };
+        assert_eq!(q, p);
+        let r = unsafe { __torajs_realloc(q, 5 << 10, 6 << 10) };
+        assert_ne!(r, q);
+        assert_eq!(unsafe { *(r as *const u8) }, 0x11);
+        unsafe { __torajs_free(r, 6 << 10) };
+        // the zero-size sentinel never passes for a block
+        let s = unsafe { __torajs_malloc(0) };
+        let t = unsafe { __torajs_realloc(s, 0, 8) };
+        assert_ne!(t, s);
+        unsafe { __torajs_free(t, 8) };
     }
 
     #[test]

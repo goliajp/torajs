@@ -58,6 +58,6 @@ pub mod extern_api;
 pub mod safe;
 pub use safe::{
     Errno, close, exit, fcntl_getpath, fstat_size, getdirentries64, getentropy, getpid,
-    gettimeofday, mkdir, mmap_anon_rw, munmap, open, open_mode, read, readlink, rmdir, stat_size,
-    unlink, write,
+    gettimeofday, madvise, mkdir, mmap_anon_rw, munmap, open, open_mode, read, readlink, rmdir,
+    stat_size, unlink, write,
 };

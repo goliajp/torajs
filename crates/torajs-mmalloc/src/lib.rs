@@ -17,8 +17,12 @@
 //!    header page holds the span metadata and a page bitmap; a block
 //!    names its arena by address and its span by one table read. An
 //!    empty arena goes back to the kernel.
-//! 4. **Large** ([`large::large_alloc`]) — `size > 4096` maps a region
-//!    of its own, tracked in the [`region_registry`].
+//! 4. **Medium** ([`medium`]) — `4096 < size <= 896 KiB` rounds to
+//!    one of four classes per doubling and takes a slot of a span in
+//!    the same arenas, with no row in front: the span's free list is
+//!    the cache.
+//! 5. **Large** ([`large::large_alloc`]) — past that, a block maps a
+//!    region of its own, tracked in the [`region_registry`].
 //!
 //! ## Public API
 //!
@@ -41,6 +45,7 @@ pub mod extern_api;
 pub mod global_alloc;
 pub mod heap;
 pub mod large;
+pub mod medium;
 pub mod region_registry;
 pub mod size_class;
 pub mod span;

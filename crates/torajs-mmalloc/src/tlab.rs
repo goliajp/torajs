@@ -28,7 +28,7 @@
 use core::ptr;
 
 use crate::arena::Arena;
-use crate::size_class::N_CLASSES;
+use crate::size_class::{N_ALL, N_CLASSES};
 use crate::span::SpanMeta;
 
 /// Row length at which a push spills. A power of two, so the inline
@@ -51,21 +51,27 @@ pub struct Row {
     len: usize,
 }
 
-/// The heap: rows in front, span state behind.
+/// The heap: rows in front, span state behind. The span state covers
+/// every class, small and medium; only the small classes have rows.
 #[repr(C)]
 pub struct TlabCache {
-    /// Offset 0, `TLAB_ROW_STRIDE` bytes per class.
+    /// Offset 0, `TLAB_ROW_STRIDE` bytes per small class.
     rows: [Row; N_CLASSES],
     /// The span each class refills from; null between spans.
-    pub(crate) cur: [*mut SpanMeta; N_CLASSES],
+    pub(crate) cur: [*mut SpanMeta; N_ALL],
     /// Head of each class's doubly linked list of partial spans.
-    pub(crate) partial: [*mut SpanMeta; N_CLASSES],
+    pub(crate) partial: [*mut SpanMeta; N_ALL],
     /// Doubly linked list of this heap's arenas that have free pages.
     pub(crate) arenas: *mut Arena,
     /// One empty arena kept back from the kernel, so a program that
     /// oscillates around an arena boundary does not map and unmap it
     /// every time.
     pub(crate) spare: *mut Arena,
+    /// Empty medium spans held back, newest first (`medium.rs`).
+    pub(crate) kept: *mut SpanMeta,
+    pub(crate) kept_tail: *mut SpanMeta,
+    /// Arena pages the kept spans cover.
+    pub(crate) kept_pages: usize,
 }
 
 /// Byte offset of `rows`: the first field.
@@ -102,10 +108,13 @@ impl TlabCache {
                     len: 0,
                 }
             }; N_CLASSES],
-            cur: [ptr::null_mut(); N_CLASSES],
-            partial: [ptr::null_mut(); N_CLASSES],
+            cur: [ptr::null_mut(); N_ALL],
+            partial: [ptr::null_mut(); N_ALL],
             arenas: ptr::null_mut(),
             spare: ptr::null_mut(),
+            kept: ptr::null_mut(),
+            kept_tail: ptr::null_mut(),
+            kept_pages: 0,
         }
     }
 

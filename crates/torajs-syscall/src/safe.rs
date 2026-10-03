@@ -144,6 +144,19 @@ pub unsafe fn munmap(addr: *mut u8, len: usize) -> Result<(), Errno> {
     decode(raw).map(|_| ())
 }
 
+/// `madvise(addr, len, advice)` over a page-aligned range of a
+/// mapping.
+///
+/// # Safety
+///
+/// `addr .. addr + len` lies inside a mapping this process owns; with
+/// `MADV_FREE_REUSABLE` the bytes there may read back as zeros
+/// afterwards, so nothing live may sit in the range.
+pub unsafe fn madvise(addr: *mut u8, len: usize, advice: i32) -> Result<(), Errno> {
+    let raw = unsafe { syscall3(SYS_MADVISE, addr as i64, len as i64, advice as i64) };
+    decode(raw).map(|_| ())
+}
+
 /// `getentropy(buf) -> Ok(()) | Err(errno)` — fill `buf` with
 /// `buf.len()` cryptographically-secure random bytes from the kernel
 /// CSPRNG. The kernel caps a single request at 256 bytes; larger
@@ -353,6 +366,24 @@ mod tests {
             assert_eq!(*p.add(4095), 0xcd);
         }
         unsafe { munmap(p, len) }.expect("munmap");
+    }
+
+    /// A touched page given back with `MADV_FREE_REUSABLE` is still
+    /// mapped and writable after `MADV_FREE_REUSE`; an unmapped range
+    /// is refused.
+    #[test]
+    fn madvise_reusable_then_reuse_keeps_the_mapping_writable() {
+        let len = 16384;
+        let p = mmap_anon_rw(len).expect("mmap");
+        unsafe {
+            *p = 0x11;
+            madvise(p, len, MADV_FREE_REUSABLE).expect("madvise reusable");
+            madvise(p, len, MADV_FREE_REUSE).expect("madvise reuse");
+            *p.add(len - 1) = 0x22;
+            assert_eq!(*p.add(len - 1), 0x22);
+            munmap(p, len).expect("munmap");
+            assert!(madvise(p, len, MADV_FREE_REUSABLE).is_err());
+        }
     }
 
     #[test]

@@ -29,11 +29,14 @@ use crate::tlab::{FREE_LINK_OFF, SPILL_AT};
 /// Virgin slots a refill carves into a chain at once: one arena page
 /// of them, capped at what a row holds. Linking a slot touches it, so
 /// the carve stays inside the page the first slot faults in anyway;
-/// a program growing a small class then pays one refill per page.
+/// a program growing a small class then pays one refill per page. A
+/// slot longer than a page carves alone.
 #[inline]
 const fn carve_for(slot_size: usize) -> usize {
     let per_page = ARENA_PAGE / slot_size;
-    if per_page < SPILL_AT {
+    if per_page == 0 {
+        1
+    } else if per_page < SPILL_AT {
         per_page
     } else {
         SPILL_AT
@@ -52,6 +55,9 @@ pub enum SpanState {
     Partial = 2,
     /// Every slot carved and none on `free`; in no list.
     Full = 3,
+    /// A medium class's current span with nothing out, held back
+    /// in the owner's kept list so the next block comes from it.
+    Kept = 4,
 }
 
 /// Per-span bookkeeping, 48 bytes, kept in the arena header.
@@ -139,6 +145,13 @@ impl SpanMeta {
         self.slot_count as usize
     }
 
+    /// Pages the span has written so far: those under its carved
+    /// slots, the high-water mark of what can be resident.
+    #[inline]
+    pub fn touched_pages(&self, slot_size: usize) -> usize {
+        (self.bump as usize * slot_size).div_ceil(ARENA_PAGE)
+    }
+
     /// Slots the span can still hand out without a refill from
     /// another thread: on `free` plus never carved.
     #[inline]
@@ -193,6 +206,29 @@ impl SpanMeta {
         self.bump += n as u16;
         self.used += n as u16;
         (first, n)
+    }
+
+    /// Detach one slot for a class served without a row: the newest
+    /// block on `free`, else the next virgin slot. Null when the span
+    /// has nothing of its own left.
+    ///
+    /// # Safety
+    /// `base` is the span's first byte and `slot_size` its class size.
+    pub unsafe fn take_one(&mut self, base: *mut u8, slot_size: usize) -> *mut u8 {
+        if self.n_free != 0 {
+            let p = self.free;
+            self.free = unsafe { *link(p) };
+            self.n_free -= 1;
+            self.used += 1;
+            return p;
+        }
+        if self.bump == self.slot_count {
+            return ptr::null_mut();
+        }
+        let p = unsafe { base.add(self.bump as usize * slot_size) };
+        self.bump += 1;
+        self.used += 1;
+        p
     }
 
     /// Owner path: a chain of `n` blocks of this span, `head` through
@@ -365,6 +401,8 @@ mod tests {
         assert_eq!(carve_for(128), 128);
         assert_eq!(carve_for(64), SPILL_AT);
         assert_eq!(carve_for(16), SPILL_AT);
+        assert_eq!(carve_for(ARENA_PAGE), 1);
+        assert_eq!(carve_for(4 * ARENA_PAGE), 1);
         let mut buf = vec![0u8; 4096 * 8];
         let mut m = meta(8);
         let (_, n) = unsafe { m.take_chain(buf.as_mut_ptr(), 4096) };
@@ -444,6 +482,37 @@ mod tests {
         let (h, n) = unsafe { m.take_chain(base, SLOT) };
         assert_eq!(n, 3);
         assert_eq!(chain(h), vec![b, a, c]);
+    }
+
+    /// `take_one` walks the virgin tail in order, then hands back
+    /// released slots newest first, and counts like `take_chain`.
+    #[test]
+    fn take_one_carves_singly_then_recycles_lifo() {
+        let mut buf = [0u8; SLOT * SLOTS];
+        let base = buf.as_mut_ptr();
+        let mut m = meta(SLOTS);
+        let blocks: Vec<_> = (0..SLOTS)
+            .map(|_| unsafe { m.take_one(base, SLOT) })
+            .collect();
+        for (i, &p) in blocks.iter().enumerate() {
+            assert_eq!(p as usize - base as usize, i * SLOT);
+        }
+        assert_eq!(m.used(), SLOTS);
+        assert!(!m.has_local());
+        assert!(unsafe { m.take_one(base, SLOT) }.is_null());
+        assert_eq!(m.touched_pages(SLOT), 1);
+        assert_eq!(
+            m.touched_pages(10 << 10),
+            (SLOTS * (10 << 10)).div_ceil(ARENA_PAGE)
+        );
+        assert_eq!(meta(SLOTS).touched_pages(SLOT), 0);
+        unsafe { release(&mut m, blocks[5]) };
+        unsafe { release(&mut m, blocks[1]) };
+        assert_eq!((m.n_free(), m.used()), (2, SLOTS - 2));
+        assert_eq!(unsafe { m.take_one(base, SLOT) }, blocks[1]);
+        assert_eq!(unsafe { m.take_one(base, SLOT) }, blocks[5]);
+        assert_eq!((m.n_free(), m.used()), (0, SLOTS));
+        assert!(unsafe { m.take_one(base, SLOT) }.is_null());
     }
 
     #[test]

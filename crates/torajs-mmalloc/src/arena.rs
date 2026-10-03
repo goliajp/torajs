@@ -18,7 +18,8 @@
 
 use core::ptr;
 
-use torajs_syscall::{mmap_anon_rw, munmap};
+use torajs_syscall::sysno::{MADV_FREE_REUSABLE, MADV_FREE_REUSE};
+use torajs_syscall::{madvise, mmap_anon_rw, munmap};
 
 use crate::size_class::{slots_per_span, span_pages};
 use crate::span::SpanMeta;
@@ -44,6 +45,11 @@ pub struct Arena {
     pub prev: *mut Arena,
     /// Bit `i` set when page `i` is free; bit 0 never is.
     free_pages: u64,
+    /// Bit `i` set when free page `i` was handed to the kernel as
+    /// reusable and has not been taken back: the kernel counts such
+    /// a page out of the footprint until it is told the page is in
+    /// use again, whatever is written to it.
+    advised: u64,
     /// For each page, the first page of the span covering it.
     page_span: [u8; ARENA_PAGES],
     /// Metadata of the span that starts at each page.
@@ -124,7 +130,13 @@ impl Arena {
         let Some(first) = find_run(self.free_pages, pages) else {
             return ptr::null_mut();
         };
-        self.free_pages &= !run_mask(first, pages);
+        let mask = run_mask(first, pages);
+        self.free_pages &= !mask;
+        if self.advised & mask != 0 {
+            let run = unsafe { self.base().add(first * ARENA_PAGE) };
+            let _ = unsafe { madvise(run, pages * ARENA_PAGE, MADV_FREE_REUSE) };
+            self.advised &= !mask;
+        }
         // SAFETY: first + pages <= ARENA_PAGES, the bitmap's width
         unsafe {
             for i in first..first + pages {
@@ -144,6 +156,27 @@ impl Arena {
         let first = self.index_of(meta);
         let pages = unsafe { (*meta).pages() };
         self.free_pages |= run_mask(first, pages);
+    }
+
+    /// Hand a span's pages to the kernel as reusable: out of the
+    /// footprint at once, reclaimable under pressure, still mapped.
+    /// `alloc_span` tells the kernel when it writes them again.
+    ///
+    /// # Safety
+    /// `meta` is a span of this arena with no block outstanding.
+    pub unsafe fn advise_span_reusable(&mut self, meta: *mut SpanMeta) {
+        let first = self.index_of(meta);
+        let pages = unsafe { (*meta).pages() };
+        let run = unsafe { self.base().add(first * ARENA_PAGE) };
+        if unsafe { madvise(run, pages * ARENA_PAGE, MADV_FREE_REUSABLE) }.is_ok() {
+            self.advised |= run_mask(first, pages);
+        }
+    }
+
+    /// Pages given to the kernel as reusable and not yet taken back.
+    #[inline]
+    pub fn advised_page_count(&self) -> usize {
+        self.advised.count_ones() as usize
     }
 
     /// The span holding `p`.
@@ -249,6 +282,42 @@ mod tests {
         assert_eq!(arena.free_page_count(), ARENA_PAGES - 2);
         unsafe { arena.free_span(one) };
         assert!(arena.is_empty());
+        unsafe { Arena::destroy(a) };
+    }
+
+    /// Pages advised reusable are remembered until a span takes them
+    /// again, and the block there is writable afterwards.
+    #[test]
+    fn advised_pages_are_taken_back_when_carved_again() {
+        let a = Arena::create(ptr::null_mut());
+        let arena = unsafe { &mut *a };
+        let one = arena.alloc_span(0);
+        let eight = arena.alloc_span(8);
+        unsafe { *arena.span_base(eight) = 0x5a };
+        unsafe { arena.advise_span_reusable(eight) };
+        unsafe { arena.free_span(eight) };
+        assert_eq!(arena.advised_page_count(), 8);
+        // the same run comes back, taken back from the kernel
+        let again = arena.alloc_span(8);
+        assert_eq!(again, eight);
+        assert_eq!(arena.advised_page_count(), 0);
+        unsafe {
+            *arena.span_base(again).add(8 * ARENA_PAGE - 1) = 0x33;
+            assert_eq!(*arena.span_base(again).add(8 * ARENA_PAGE - 1), 0x33);
+        }
+        // a span freed without advice adds nothing; a run partly over
+        // advised pages (a 4-page span at pages 1..=4, advised 2..=9)
+        // clears its part
+        unsafe { arena.advise_span_reusable(again) };
+        unsafe { arena.free_span(again) };
+        unsafe { arena.free_span(one) };
+        assert_eq!(arena.advised_page_count(), 8);
+        assert_eq!(span_pages(7), 4);
+        let four = arena.alloc_span(7);
+        assert_eq!(arena.span_base(four), unsafe {
+            arena.base().add(ARENA_PAGE)
+        });
+        assert_eq!(arena.advised_page_count(), 5);
         unsafe { Arena::destroy(a) };
     }
 
