@@ -1,8 +1,57 @@
 use torajs_core::ssa::Module;
 
 use crate::{
-    block_layout, gated_pass, loop_rotate, map_find_cse, rc_dec_immediate, rc_peephole, unroll_jam,
+    block_layout, concat_num_fuse, gated_pass, loop_rotate, map_find_cse, rc_dec_immediate,
+    rc_peephole, scaled_addr, select_form, str_append, unroll_jam,
 };
+
+/// Select formation and the inst-level fusions that read its output,
+/// ahead of the rc and cfg-shape tail.
+pub(crate) fn form_selects_and_fuse(module: &mut Module) {
+    // Select formation — if-convert pure CondBr diamonds into csel-
+    // shaped `Select` defs (RFC 20260719-select-formation blade 2).
+    // After ctpop so every arm-shaping rewrite (float_demote /
+    // srem_parity) is done; before rc_peephole, which treats Select
+    // as rc-transparent. `TORAJS_SELECT_FORM_OFF=1` skips (bisect
+    // gate, mirrors the sibling passes).
+    gated_pass("SELECT_FORM", module, select_form::form_selects);
+    // Compare sink — restore ICmp/Select adjacency that the hoisted
+    // speculated arms just broke, so codegen's adjacency-gated NZCV
+    // fuse fires (RFC 20260719-select-formation route ③). Right after
+    // select_form: the Selects exist, and liveness is computed later
+    // on the sunk order, which is what makes the delayed compare's
+    // operands readable by construction.
+    gated_pass("CMP_SINK", module, select_form::cmp_sink::sink_cmps);
+    // TORAJS_SSA_DUMP=1 — pretty-print the post-egraph pre-peephole
+    // SSA to stdout. Debug surface for attributing which pass shaped
+    // a given inst stream (mirrors TORAJS_INLINER_STATS).
+    if std::env::var("TORAJS_SSA_DUMP").as_deref() == Ok("1") {
+        module.print();
+    }
+    // Number-to-string concat fusion — a strict `to_str` + `concat`
+    // (right operand) + `drop` triple becomes one `concat_num` call
+    // that formats the digits straight into the result allocation
+    // (S1-A2 attack B1). Before str_append: this is the more
+    // specific shape, and a number-on-the-left temp would otherwise
+    // be claimed as str_append's drop-left operand.
+    // `TORAJS_CONCAT_NUM_FUSE_OFF=1` skips (bisect gate).
+    gated_pass("CONCAT_NUM_FUSE", module, concat_num_fuse::fuse_concat_nums);
+    // String-append ownership forwarding — an adjacent `concat` +
+    // `drop-left` pair becomes one `append`, which may then grow the
+    // left cell in place instead of reallocating it. Last of the
+    // inst-level rewrites so inlined-in and spliced pairs are already
+    // adjacent; before rc_peephole, whose window a call closes anyway.
+    // `TORAJS_STR_APPEND_OFF=1` skips (bisect gate).
+    gated_pass("STR_APPEND", module, str_append::rewrite_str_appends);
+    // Scaled-addressing fold — `LoadDyn(_, base, Shl(idx, 3))` with a
+    // single-use shift becomes `LoadDynScaled8` and the shift dies
+    // (S7 knife c2): the AGU does the ×8, taking the shift off the
+    // address dependency chain of every array-index loop iteration.
+    // After the inst-level rewrites above so spliced/inlined shapes
+    // are final; before regalloc by construction (SSA→SSA).
+    // `TORAJS_SCALED_ADDR_OFF=1` skips (bisect gate).
+    gated_pass("SCALED_ADDR", module, scaled_addr::fold_scaled_addresses);
+}
 
 /// The pipeline tail — rc-pair elision, then the cfg-shape passes whose
 /// output is exactly what codegen lays out.
