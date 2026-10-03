@@ -21,13 +21,13 @@
 //!   `Object.getPrototypeOf(0) === Number.prototype` answer false.
 //!
 //! BORROW semantics: getPrototypeOf reads the argument's class tag /
-//! `__proto__` field but does not take ownership. For Ident args, leave
-//! the binding's `moved` flag alone (end-of-scope drop handles the dec).
-//! For non-Ident temps the caller built up an owned value — dec it once
-//! we're done reading. Pre-fix `consume_if_ident + emit_drop_value` for
-//! the Ident case caused a double-decrement: the intercept dec'd the
-//! slot's value (freeing it) and subsequent reads of the ident saw a
-//! dangling pointer (UAF).
+//! `__proto__` field but does not take ownership. The argument is
+//! released only when its lowering answered an owned temp
+//! (`release_owned_temp`); a borrow — an Ident, and equally a plain
+//! field read such as the `this.p` an async function's local becomes —
+//! is left to its owner. Releasing every non-Ident argument dropped
+//! the field's only reference, and the owner's own release later ran
+//! on freed memory.
 //!
 //! S265 — ES §20.1.2.12 step 1 trailing-arg ignore: ToObject(obj)
 //! discards anything beyond the first arg; lower-and-drop them for
@@ -139,7 +139,6 @@ pub(crate) fn try_lower(
     if is_reflect {
         crate::ssa_lower_object_define::emit_receiver_typecheck(ctx, args[0], &v, v_ty);
     }
-    let arg_is_ident = matches!(ctx.ast.get_expr(args[0]), Expr::Ident(_));
     let proto = match v_ty {
         // Rotation 623 — every struct-layout receiver goes through the
         // runtime classifier, class instance or not. The class-tag
@@ -203,10 +202,7 @@ pub(crate) fn try_lower(
             )
         }
     };
-    if !arg_is_ident {
-        // Temp value — we own the refcount, dec now.
-        ctx.emit_drop_value(v, v_ty);
-    }
+    ctx.release_owned_temp(args[0], &v);
     // proto_get / get_proto_of_any / any_box(NULL) all return an OWNED
     // Any-box (rc 1+). Caller takes ownership without further rc_inc.
     Some(Operand::Value(proto))
@@ -286,7 +282,6 @@ fn lower_nullish_or_any_gate(
     // reflection path here. For nullish literal / uncaught-throw
     // the emit_throw_check either propagates or (in main) exits.
     if is_any_shape {
-        let arg_is_ident = matches!(ctx.ast.get_expr(arg0_eid), Expr::Ident(_));
         let proto = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Call(ctx.intrinsics.get_proto_of_any, vec![Operand::Value(boxed)]),
@@ -297,9 +292,7 @@ fn lower_nullish_or_any_gate(
         // getPrototypeOf trap answers a non-object, or a revoked
         // one), so the answer needs its own check.
         ctx.emit_throw_check(None);
-        if !arg_is_ident {
-            ctx.emit_drop_value(Operand::Value(boxed), Type::Any);
-        }
+        ctx.release_owned_temp(arg0_eid, &Operand::Value(boxed));
         return Some(Operand::Value(proto));
     }
     // Nullish literal path — the throw is unconditional, but we
