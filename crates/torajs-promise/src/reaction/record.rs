@@ -14,7 +14,10 @@
 //!   (`state::drain_callbacks`) or by the attach itself on a settled
 //!   source — and the dispatcher releases it;
 //! - a source dying with the record still parked hands the block to
-//!   `release`;
+//!   `release`, which gives back the derived promise's reference
+//!   instead of dropping it: the teardown lets go of it the way it
+//!   lets go of an inline derived cell, so a pending chain of records
+//!   is torn down in a loop, not in one nested call per link;
 //! - the cycle collector treats what `trace` reports as the source's
 //!   own children, and breaks an edge by zeroing the slot address
 //!   `trace` gave for it. `release` must therefore read a NULL slot
@@ -41,9 +44,10 @@ pub struct ReactionOps {
     /// Report every non-NULL cell pointer the block holds a reference
     /// on, except the source, with the address of the word holding it.
     pub trace: unsafe extern "C" fn(arg: i64, visit: TraceVisit, ctx: *mut c_void),
-    /// Release everything the block owns and free it; the source died
-    /// with the reaction parked.
-    pub release: unsafe extern "C" fn(arg: i64),
+    /// Release everything the block owns but the derived promise, free
+    /// the block, and return that promise with its reference (NULL when
+    /// the slot is empty); the source died with the reaction parked.
+    pub release: unsafe extern "C" fn(arg: i64) -> *mut c_void,
 }
 
 /// `state::__torajs_promise_attach_then` for a record described by

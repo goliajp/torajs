@@ -49,7 +49,7 @@ unsafe extern "C" {
 #[repr(C)]
 struct ReactionOps {
     trace: unsafe extern "C" fn(i64, TraceVisit, *mut c_void),
-    release: unsafe extern "C" fn(i64),
+    release: unsafe extern "C" fn(i64) -> *mut c_void,
 }
 
 type TraceVisit = unsafe extern "C" fn(i64, *mut c_void, *mut c_void, *mut c_void);
@@ -80,14 +80,13 @@ unsafe extern "C" fn then_any_trace(arg: i64, visit: TraceVisit, ctx: *mut c_voi
     }
 }
 
-/// The source died with the reaction parked: release the block. A
-/// slot the collector zeroed was accounted for there.
-unsafe extern "C" fn then_any_release(arg: i64) {
+/// The source died with the reaction parked: release the block and
+/// hand `result`'s reference back to the teardown. A slot the
+/// collector zeroed was accounted for there.
+unsafe extern "C" fn then_any_release(arg: i64) -> *mut c_void {
     let a = arg as *mut ThenAnyArg;
     unsafe {
-        if !(*a).result.is_null() {
-            __torajs_promise_drop((*a).result);
-        }
+        let result = (*a).result;
         if !(*a).on_ok.is_null() {
             __torajs_value_drop_heap((*a).on_ok);
         }
@@ -95,6 +94,7 @@ unsafe extern "C" fn then_any_release(arg: i64) {
             __torajs_value_drop_heap((*a).on_err);
         }
         free(a as *mut c_void);
+        result
     }
 }
 

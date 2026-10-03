@@ -1,12 +1,15 @@
 //! The rc-aware drop kernel: a promise losing its last reference
-//! tears down what it still owns and goes back to the pool.
+//! tears down what it still owns and goes back to the pool. The
+//! derived cells its death leaves unreferenced are torn down in a
+//! loop ([`free_chain`]), so the depth of a pending chain is never
+//! the depth of the native stack.
 
 use core::ffi::c_void;
 use core::ptr;
 
 use super::{FLAG_STATIC_LITERAL, FLAG_SUBCLASSED, free, promise_release_};
 use crate::layout::{
-    PromiseCb, RX_CLOSURE, RX_NONE, STATE_PENDING, as_promise, inline_link_derived,
+    Promise, PromiseCb, RX_CLOSURE, RX_NONE, STATE_PENDING, as_promise, inline_link_derived,
 };
 use crate::reaction::candidate::{cycle_candidate, offer_root};
 use torajs_rc::{FLAG_BUFFERED, rc_dec_cell};
@@ -37,42 +40,76 @@ pub unsafe extern "C" fn __torajs_promise_drop(p: *mut c_void) {
     }
     let pp = as_promise(p);
     if !unsafe { rc_dec_cell(p) } {
-        // Still referenced. Only a cell that can close a ring is a
-        // candidate root (`reaction::candidate`).
-        if unsafe { cycle_candidate(pp) } {
-            unsafe { offer_root(pp) };
-        }
+        unsafe { released_alive(pp) };
         return;
     }
+    unsafe { free_dead(pp) };
+}
+
+/// [`__torajs_promise_drop`] after the last reference went. Out of
+/// line, so a release that leaves the cell alive — most of them — runs
+/// without the frame the teardown needs.
+#[inline(never)]
+unsafe fn free_dead(pp: *mut Promise) {
+    // Defensive: STATIC_LITERAL Promise (none in practice today; the
+    // universal drop dispatch sees the bit and skips, but re-check
+    // here to keep the invariant if dispatch path changes).
+    if unsafe { (*pp).header.flags } & FLAG_STATIC_LITERAL != 0 {
+        return;
+    }
+    unsafe { free_cell(pp, |d| free_chain(d)) };
+}
+
+/// A release left `pp` referenced. Only a cell that can close a ring
+/// is a candidate root (`reaction::candidate`).
+#[inline(always)]
+unsafe fn released_alive(pp: *mut Promise) {
+    if unsafe { cycle_candidate(pp) } {
+        unsafe { offer_root(pp) };
+    }
+}
+
+/// Free `pp`, which just lost its last reference. A derived cell its
+/// list holds (inline, or through a record's block) that the release
+/// leaves unreferenced goes to `on_dead` instead of being freed here:
+/// [`free_dead`] hands it to [`free_chain`], which collects such cells
+/// on a stack rather than in nested calls.
+#[inline(always)]
+unsafe fn free_cell(pp: *mut Promise, mut on_dead: impl FnMut(*mut Promise)) {
     unsafe {
-        // Defensive: STATIC_LITERAL Promise (none in practice today;
-        // the universal drop dispatch sees the bit and skips, but
-        // re-check here to keep the invariant if dispatch path
-        // changes).
-        if (*pp).header.flags & FLAG_STATIC_LITERAL != 0 {
-            return;
-        }
         // Unfired reactions in this cell's list: a heap record is
-        // freed, its block released when `ops` describes it (an opaque
-        // block stays with the kernel that minted it); an inline
+        // freed, its block released when `ops` describes it (an
+        // opaque block stays with the kernel that minted it) and the
+        // block's stake on its derived promise let go here; an inline
         // derived cell has its back-pointer to this dying cell cut
-        // and the list's stake on it released.
+        // and the list's stake on it let go.
         let mut link = (*pp).callbacks;
         while !link.is_null() {
             let derived = inline_link_derived(link);
             if derived.is_null() {
                 let next = (*link).next;
-                if !(*link).ops.is_null() {
-                    ((*(*link).ops).release)((*link).arg);
+                let ops = (*link).ops;
+                if !ops.is_null() {
+                    let held = ((*ops).release)((*link).arg) as *mut Promise;
+                    if !held.is_null() {
+                        if rc_dec_cell(held as *mut c_void) {
+                            on_dead(held);
+                        } else {
+                            released_alive(held);
+                        }
+                    }
                 }
                 free(link as *mut c_void, core::mem::size_of::<PromiseCb>());
                 link = next;
             } else {
-                let next = (*derived).rx_next;
-                (*derived).rx_next = ptr::null_mut();
+                link = (*derived).rx_next;
                 (*derived).rx_source = ptr::null_mut();
-                __torajs_promise_drop(derived as *mut c_void);
-                link = next;
+                if rc_dec_cell(derived as *mut c_void) {
+                    on_dead(derived);
+                } else {
+                    (*derived).rx_next = ptr::null_mut();
+                    released_alive(derived);
+                }
             }
         }
         (*pp).callbacks = ptr::null_mut();
@@ -86,7 +123,6 @@ pub unsafe extern "C" fn __torajs_promise_drop(p: *mut c_void) {
             (*pp).rx_kind = RX_NONE;
             (*pp).rx_source = ptr::null_mut();
             (*pp).rx_cb = ptr::null_mut();
-            (*pp).rx_next = ptr::null_mut();
             if kind & RX_CLOSURE != 0 && !cb.is_null() {
                 __torajs_value_drop_heap(cb);
             }
@@ -96,7 +132,7 @@ pub unsafe extern "C" fn __torajs_promise_drop(p: *mut c_void) {
             __torajs_value_drop_heap((*pp).value as *mut c_void);
         }
         if (*pp).header.flags & FLAG_SUBCLASSED != 0 {
-            __torajs_subclass_drop_entry(p);
+            __torajs_subclass_drop_entry(pp as *mut c_void);
         }
         // Expando props dynobj (defineProperty landings) — the
         // universal dispatcher routes it to the dynobj drop; NULLed
@@ -110,8 +146,31 @@ pub unsafe extern "C" fn __torajs_promise_drop(p: *mut c_void) {
         // leave a dangling candidate. The bit is read here so the
         // common never-buffered promise skips the call.
         if (*pp).header.flags & FLAG_BUFFERED != 0 {
-            __torajs_cycle_unbuffer(p);
+            __torajs_cycle_unbuffer(pp as *mut c_void);
         }
         promise_release_(pp);
+    }
+}
+
+/// Free `first` and every derived cell its death leaves unreferenced,
+/// and theirs in turn. They wait on a stack threaded through their
+/// `rx_next` words (unused once a cell is out of its source's list,
+/// and never used by a cell a record's block holds), so a pending
+/// chain of a million links released at its head is a million
+/// iterations here, not a million nested calls.
+#[inline(never)]
+unsafe fn free_chain(first: *mut Promise) {
+    let mut dead = first;
+    unsafe { (*first).rx_next = ptr::null_mut() };
+    while !dead.is_null() {
+        let pp = dead;
+        unsafe {
+            dead = (*pp).rx_next as *mut Promise;
+            (*pp).rx_next = ptr::null_mut();
+            free_cell(pp, |d| {
+                (*d).rx_next = dead as *mut PromiseCb;
+                dead = d;
+            });
+        }
     }
 }
