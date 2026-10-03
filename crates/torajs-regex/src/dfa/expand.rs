@@ -10,7 +10,7 @@ use crate::dfa::ctx::{PositionCtx, closure_into};
 use crate::dfa::intern::intern_state;
 use crate::dfa::pool::{PcList, Pool, StateItem};
 use crate::dfa::sparse::SparseSet;
-use crate::dfa::step::byte_step_into;
+use crate::dfa::step::{LT_PENDING, byte_step_into};
 use crate::program::Program;
 
 /// Scratch for expanding transitions, allocated once per builder: the
@@ -141,7 +141,7 @@ fn advance_deferred(
     let is_continuation = (0x80..=0xBF).contains(&byte);
     let mut next_deferred: [PcList; 3] = if is_continuation {
         [
-            cur_deferred[1].clone(),
+            second_of_e2(&cur_deferred[1], byte),
             cur_deferred[2].clone(),
             PcList::new(),
         ]
@@ -160,7 +160,16 @@ fn advance_deferred(
     merged_seeds.clear();
     merged_seeds.extend_from_slice(ready_from_step);
     if is_continuation {
-        merged_seeds.extend_from_slice(&cur_deferred[0]);
+        let line_terminator = matches!(byte, 0xA8 | 0xA9);
+        for &pc in &cur_deferred[0] {
+            if pc & LT_PENDING as u32 == 0 {
+                merged_seeds.push(pc);
+            } else if !line_terminator {
+                merged_seeds.push(pc & !(LT_PENDING as u32));
+            }
+        }
+        merged_seeds.sort_unstable();
+        merged_seeds.dedup();
     }
     let next_ready = if merged_seeds.is_empty() {
         PcList::new()
@@ -179,4 +188,17 @@ fn advance_deferred(
         pool.closure_sorted(prog, merged_seeds, ctx_after)
     };
     (next_ready, next_deferred)
+}
+
+/// The PCs a `.` parked behind an `E2` lead, past the lead's second
+/// byte: only `E2 80` can still be a line terminator, so any other
+/// second byte clears the tag.
+fn second_of_e2(parked: &PcList, byte: u8) -> PcList {
+    if byte == 0x80 || parked.iter().all(|&pc| pc & LT_PENDING as u32 == 0) {
+        return parked.clone();
+    }
+    let mut out: PcList = parked.iter().map(|&pc| pc & !(LT_PENDING as u32)).collect();
+    out.sort_unstable();
+    out.dedup();
+    out
 }

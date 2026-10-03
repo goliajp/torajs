@@ -140,7 +140,7 @@ fn dfa_probe<T: Table>(t: T, prog: &Program, s: &[u8], st: i64) -> Option<usize>
         return dfa_search_at(t, prog, hay_suffix, dfa.start);
     }
     let at_line_start =
-        st == 0 || (prog.has_ml_anchor_b && st > 0 && s[(st - 1) as usize] == b'\n');
+        st == 0 || (prog.has_ml_anchor_b && super::line_terminator::before(s, st as usize));
     if at_line_start {
         dfa_search_at(t, prog, hay_suffix, dfa.start)
     } else {

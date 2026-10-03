@@ -128,7 +128,9 @@ pub(crate) fn try_bake_regex_dfa(
             }
         }
     }
-    if any_ml && any_plain {
+    if any_ml
+        && (any_plain || torajs_regex::vm::line_terminator::ml_line_start_after_consume(&prog))
+    {
         return None;
     }
     prog.has_ml_anchor_b = any_ml;

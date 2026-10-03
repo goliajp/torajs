@@ -15,7 +15,7 @@
 //! at `pos`, and every continuation a later visitor could take from
 //! there is mirrored, at higher priority, by a path through that split.
 
-use super::char_eq;
+use super::{char_eq, line_terminator};
 use crate::parser::{RE_FLAG_I, RE_FLAG_M, RE_FLAG_S, is_word_byte, unicode_mode};
 use crate::program::{Inst, Op, Program};
 use crate::utf8::{utf8_decode_cp, utf8_len_for};
@@ -265,7 +265,7 @@ impl Walker<'_> {
         match ins.op {
             OP_CHAR => char_eq(ins.byte(), b, ins.pad as u8).then_some(1),
             OP_ANY_CHAR => {
-                if ins.pad as u8 & RE_FLAG_S == 0 && b == b'\n' {
+                if ins.pad as u8 & RE_FLAG_S == 0 && line_terminator::at(self.s, pos as usize) {
                     return None;
                 }
                 Some(if whole_char { ul } else { 1 })
@@ -291,8 +291,8 @@ impl Walker<'_> {
         let slen = s.len() as i64;
         let ml = ins.pad as u8 & RE_FLAG_M != 0;
         match ins.op {
-            OP_ANCHOR_B => pos == 0 || (ml && s[(pos - 1) as usize] == b'\n'),
-            OP_ANCHOR_E => pos == slen || (ml && s[pos as usize] == b'\n'),
+            OP_ANCHOR_B => pos == 0 || (ml && line_terminator::before(s, pos as usize)),
+            OP_ANCHOR_E => pos == slen || (ml && line_terminator::at(s, pos as usize)),
             op => {
                 let left = pos > 0 && is_word_byte(s[(pos - 1) as usize]);
                 let right = pos < slen && is_word_byte(s[pos as usize]);

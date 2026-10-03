@@ -130,7 +130,7 @@ pub(crate) fn compile_bytes(pat: Vec<u8>, fl: Vec<u8>) -> *mut c_void {
         // off entirely: the four-entry scheme folds every line-start
         // position onto the text-start entry, which advances ALL
         // AnchorB pcs — wrong for a plain `^` sharing the program
-        // with a `(?m:^)`. The Pike VM resolves per instruction.
+        // with a `(?m:^)`, nor a `^` after a consumed U+2028. The VM does.
         let (mut any_ml, mut any_plain) = (false, false);
         for inst in &prog.insts {
             if inst.op == crate::program::Op::AnchorB as u8 {
@@ -142,7 +142,7 @@ pub(crate) fn compile_bytes(pat: Vec<u8>, fl: Vec<u8>) -> *mut c_void {
             }
         }
         prog.has_ml_anchor_b = any_ml;
-        if any_ml && any_plain {
+        if any_ml && (any_plain || crate::vm::line_terminator::ml_line_start_after_consume(&prog)) {
             prog.can_dfa = false;
         }
         0u8

@@ -137,7 +137,7 @@ pub unsafe extern "C" fn __torajs_regex_compile_from_static_dfa(
             }
         }
         prog.has_ml_anchor_b = any_ml;
-        if any_ml && any_plain {
+        if any_ml && (any_plain || crate::vm::line_terminator::ml_line_start_after_consume(&prog)) {
             prog.can_dfa = false;
         }
         0u8

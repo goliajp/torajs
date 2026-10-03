@@ -816,16 +816,15 @@ mod tests {
 
     #[test]
     fn byte_step_anychar_skips_newline_without_s_flag() {
-        // chunk 10a — without `s`, `.` advances on every byte except
-        // `\n` (0x0A). This honours the JS spec at the DFA level so the
-        // hot-path gate no longer needs to require the `s` flag.
+        // without `s`, `.` advances on every byte except the one-byte
+        // line terminators; the E2 lead is covered in `step`'s tests
         let mut prog = Program::new();
         prog.emit(Inst::simple(Op::AnyChar));
         prog.emit(Inst::match_accept());
-        for b in [b'a', 0u8, 0xff, b'\r'] {
+        for b in [b'a', 0u8, 0xff] {
             assert_eq!(byte_step(&prog, &set(&[0]), b), set(&[1]), "byte 0x{b:02x}");
         }
-        assert!(byte_step(&prog, &set(&[0]), b'\n').is_empty());
+        assert!([b'\n', b'\r'].iter().all(|&b| byte_step(&prog, &set(&[0]), b).is_empty()));
     }
 
     #[test]

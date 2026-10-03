@@ -10,8 +10,7 @@ use super::{Workspace, char_eq};
 use crate::parser::{RE_FLAG_S, unicode_mode};
 use crate::program::{Op, Program};
 use crate::utf8::{utf8_decode_cp, utf8_len_for};
-use crate::vm::Thread;
-use crate::vm::dispatch::add_thread;
+use crate::vm::{Thread, dispatch::add_thread, line_terminator};
 
 /// Try matching `prog` at exactly `start_pos`. Returns the end
 /// position on hit (so `start_pos..end_pos` is the matched range),
@@ -219,7 +218,7 @@ fn dispatch_anychar(
 ) {
     let slen = s.len() as i64;
     let ins = prog.insts[t_pc];
-    if pos < slen && (ins.pad as u8 & RE_FLAG_S != 0 || s[pos as usize] != b'\n') {
+    if pos < slen && (ins.pad as u8 & RE_FLAG_S != 0 || !line_terminator::at(s, pos as usize)) {
         // One character, in either mode — see the matching note in
         // `dfa::step`. Without this the non-u match boundary landed
         // inside a multi-byte character.

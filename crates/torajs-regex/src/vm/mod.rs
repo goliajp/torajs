@@ -30,6 +30,7 @@
 
 pub mod backtrack;
 pub mod dispatch;
+pub mod line_terminator;
 pub mod match_at;
 pub mod match_at_rev;
 pub mod result;

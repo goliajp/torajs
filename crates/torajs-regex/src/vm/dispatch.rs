@@ -14,7 +14,7 @@
 //! leftwards by the reverse Pike VM. All probes allocate their own
 //! workspace because they recurse — they can't share the parent's.
 
-use super::{SavesArena, ThreadList, VisitedTable, Workspace};
+use super::{SavesArena, ThreadList, VisitedTable, Workspace, line_terminator};
 use crate::parser::{RE_FLAG_M, is_word_byte};
 use crate::program::{Op, Program};
 use crate::vm::Thread;
@@ -117,14 +117,14 @@ pub(super) fn add_thread(
             // multiline is the instruction's baked `pad` m-bit
             // (regexp-modifiers), not the global flag word.
             let ml = ins.pad as u8 & RE_FLAG_M != 0;
-            let ok = pos == 0 || (ml && pos > 0 && s[(pos - 1) as usize] == b'\n');
+            let ok = pos == 0 || (ml && line_terminator::before(s, pos as usize));
             if ok {
                 add_thread(tl, vt, arena, pc + 1, prog, s, pos, flags, saves_id);
             }
         }
         Op::AnchorE => {
             let ml = ins.pad as u8 & RE_FLAG_M != 0;
-            let ok = pos == slen || (ml && pos < slen && s[pos as usize] == b'\n');
+            let ok = pos == slen || (ml && line_terminator::at(s, pos as usize));
             if ok {
                 add_thread(tl, vt, arena, pc + 1, prog, s, pos, flags, saves_id);
             }

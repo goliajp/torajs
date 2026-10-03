@@ -20,7 +20,7 @@
 
 use super::dispatch::add_thread;
 use super::match_at::add_thread_adv;
-use super::{Workspace, char_eq};
+use super::{Workspace, char_eq, line_terminator};
 use crate::parser::{RE_FLAG_S, unicode_mode};
 use crate::program::{Op, Program};
 use crate::utf8::utf8_decode_cp_before;
@@ -157,15 +157,11 @@ fn dispatch_anychar_rev(
     if pos <= 0 {
         return;
     }
-    let last = s[(pos - 1) as usize];
     let mut adv: i64 = 1;
-    let mut cp = last as i32;
     if unicode_mode(flags) {
-        let (dcp, dlen) = utf8_decode_cp_before(s, pos as usize);
-        cp = dcp;
-        adv = dlen as i64;
+        adv = utf8_decode_cp_before(s, pos as usize).1 as i64;
     }
-    if prog.insts[t_pc].pad as u8 & RE_FLAG_S == 0 && cp == '\n' as i32 {
+    if prog.insts[t_pc].pad as u8 & RE_FLAG_S == 0 && line_terminator::before(s, pos as usize) {
         return;
     }
     add_thread_adv(

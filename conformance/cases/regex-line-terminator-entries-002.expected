@@ -1,0 +1,6 @@
+true true true 0
+true true true 0
+true true true 0
+false false false -1
+[ "ab", "cd" ] ab
+5 [ "a\naab" ]

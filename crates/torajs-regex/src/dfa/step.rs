@@ -26,9 +26,9 @@ use crate::program::{Op, Program};
 /// by callers that don't model u-flag multi-byte deferral.
 ///
 /// `Op::Char` uses [`crate::vm::char_eq`] (case-pair under the
-/// inst's baked i-bit); `Op::AnyChar` advances on any byte except
-/// `\n` (0x0A) when the inst's s-bit is unset (chunk 10a — the JS
-/// spec says `.` does not match line terminators unless `s` is set);
+/// inst's baked i-bit); `Op::AnyChar` without the inst's s-bit skips
+/// the four LineTerminators (§12.3): `\n` and `\r` here, U+2028 /
+/// U+2029 once their tail is read ([`LT_PENDING`]);
 /// `Op::Class` goes through `CharClass::test_fold` (pre-negate
 /// case-pair fold). Other ops are terminal — ε via the BFS's closure pass,
 /// lookaround / backref filtered upstream in [`super::analyze`].
@@ -58,6 +58,12 @@ pub fn byte_step_full(
     );
     (ready, deferred)
 }
+
+/// Tag on a deferred PC parked behind an `E2` lead by a `.` without
+/// `s`: the character may be U+2028 / U+2029, which the `.` skips.
+/// It stays set while the tail reads `80` and drops the PC on a final
+/// `A8` / `A9` ([`super::expand`]); a tagged PC is never ready.
+pub(super) const LT_PENDING: usize = 1 << 30;
 
 /// Where a byte-step deposits the advanced PCs.
 pub(super) trait PcSink {
@@ -107,7 +113,7 @@ pub(super) fn byte_step_into<S: PcSink>(
             }
             Op::AnyChar => {
                 let s_flag = ins.pad as u8 & crate::parser::RE_FLAG_S != 0;
-                if !(s_flag || byte != b'\n') {
+                if !s_flag && matches!(byte, b'\n' | b'\r') {
                     continue;
                 }
                 let n = pc + 1;
@@ -133,6 +139,9 @@ pub(super) fn byte_step_into<S: PcSink>(
                 };
                 if u_skip == 0 {
                     ready.push_pc(n);
+                } else if byte == 0xE2 && !s_flag {
+                    // U+2028 / U+2029 lead with E2 80: the tail decides
+                    deferred[1].push_pc(n | LT_PENDING);
                 } else {
                     deferred[u_skip - 1].push_pc(n);
                 }
@@ -151,6 +160,34 @@ pub(super) fn byte_step_into<S: PcSink>(
                 }
             }
             _ => {}
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dfa::{build_dfa, dfa_search};
+    use crate::program::{Inst, Op, Program};
+    use alloc::collections::BTreeSet;
+
+    #[test]
+    fn anychar_parks_an_e2_lead_until_the_tail_rules_out_a_line_terminator() {
+        let mut prog = Program::new();
+        prog.emit(Inst::simple(Op::AnyChar));
+        prog.emit(Inst::match_accept());
+        let start: BTreeSet<usize> = [0].into_iter().collect();
+        let (ready, parked) = byte_step_full(&prog, &start, 0xE2);
+        assert!(ready.is_empty());
+        assert_eq!(parked[1], [1 | LT_PENDING].into_iter().collect());
+        let dfa = build_dfa(&prog, 0);
+        for (hay, want) in [
+            ("\u{2028}", None),
+            ("\u{2029}", None),
+            ("\u{2027}", Some(3)),
+            ("\u{20ac}", Some(3)),
+        ] {
+            assert_eq!(dfa_search(&dfa, &prog, hay.as_bytes()), want, "{hay:?}");
         }
     }
 }
