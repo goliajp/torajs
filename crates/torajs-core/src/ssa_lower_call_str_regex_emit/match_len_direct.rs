@@ -108,10 +108,10 @@ fn emit_direct(
     let present = ctx.f.add_block();
     let recv_i = ctx
         .f
-        .append_inst(entry, InstKind::PtrToInt(recv.clone()), Type::I64, None);
+        .append_inst(entry, InstKind::PtrToInt(recv), Type::I64, None);
     let re_i = ctx
         .f
-        .append_inst(entry, InstKind::PtrToInt(re.clone()), Type::I64, None);
+        .append_inst(entry, InstKind::PtrToInt(re), Type::I64, None);
     let recv_set = ctx.f.append_inst(
         entry,
         InstKind::ICmp(IPred::Ne, Operand::Value(recv_i), Operand::ConstI64(0)),
@@ -128,12 +128,9 @@ fn emit_direct(
     );
     cond_br(ctx, both, re_set, present, slow);
     let entry = present;
-    let hdr = ctx.f.append_inst(
-        entry,
-        InstKind::Load(Type::I64, recv.clone(), 0),
-        Type::I64,
-        None,
-    );
+    let hdr = ctx
+        .f
+        .append_inst(entry, InstKind::Load(Type::I64, recv, 0), Type::I64, None);
     let mask = i64::from(STR_FLAG_IS_LATIN1 | STR_FLAG_IS_ASCII) << HDR_FLAGS_SHIFT;
     let bits = ctx.f.append_inst(
         entry,
@@ -151,7 +148,7 @@ fn emit_direct(
 
     let bound = ctx.f.append_inst(
         ours,
-        InstKind::Load(Type::I64, re.clone(), REGEX_MATCHER_LATIN1_OFF as u64),
+        InstKind::Load(Type::I64, re, REGEX_MATCHER_LATIN1_OFF as u64),
         Type::I64,
         None,
     );
@@ -176,7 +173,7 @@ fn emit_direct(
     // the payload follows the header; a Latin-1 Str's length counts bytes
     let base = ctx
         .f
-        .append_inst(direct, InstKind::PtrToInt(recv.clone()), Type::I64, None);
+        .append_inst(direct, InstKind::PtrToInt(recv), Type::I64, None);
     let data = ctx.f.append_inst(
         direct,
         InstKind::BinOp(
@@ -195,7 +192,7 @@ fn emit_direct(
     );
     let n32 = ctx.f.append_inst(
         direct,
-        InstKind::Load(Type::I32, recv.clone(), STR_LEN_OFF as u64),
+        InstKind::Load(Type::I32, recv, STR_LEN_OFF as u64),
         Type::I32,
         None,
     );

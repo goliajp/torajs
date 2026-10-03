@@ -148,8 +148,8 @@ pub enum Type {
     Symbol,
     /// T-15 (v0.5.0) — built-in `Promise<T>` value. Heap-allocated
     /// 64-byte cell owned by torajs-promise (`layout.rs`); carries
-    /// state (PENDING / FULFILLED / REJECTED) + value + callback list
-    /// + the inline reaction of a derived promise.
+    /// state (PENDING / FULFILLED / REJECTED), value, callback list
+    /// and the inline reaction of a derived promise.
     /// Heap-owned, non-Copy, ARC under the universal heap header
     /// (type_tag=8). Distinct from `Type::Object("Promise")` (the
     /// constructor + static methods like Promise.resolve).

@@ -72,7 +72,7 @@ impl Emit<'_> {
             let mut cur = cur;
             for (k, class) in classes.iter().enumerate() {
                 let taken = self.f.add_block();
-                self.take_edge(taken, pos, &v.edges[class.first], step.clone(), i);
+                self.take_edge(taken, pos, &v.edges[class.first], step, i);
                 let next = if k + 1 == classes.len() {
                     fail
                 } else {
@@ -90,7 +90,7 @@ impl Emit<'_> {
                     Some(first) => taken[first],
                     None => {
                         let blk = self.f.add_block();
-                        self.take_edge(blk, pos, edge, step.clone(), i);
+                        self.take_edge(blk, pos, edge, step, i);
                         blk
                     }
                 };
@@ -113,7 +113,7 @@ impl Emit<'_> {
                 let cond = self.in_range(cur, u, edge.lo, edge.hi);
                 self.cond_br(cur, cond, taken, next);
             }
-            self.take_edge(taken, pos, edge, step.clone(), i);
+            self.take_edge(taken, pos, edge, step, i);
             cur = next;
         }
     }

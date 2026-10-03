@@ -41,7 +41,7 @@ const _: () = assert!(offset_of!(HeapHeader, refcount) == 0);
 const _: () = assert!(offset_of!(HeapHeader, type_tag) == 4);
 const FLAGS_SHIFT: u32 = offset_of!(HeapHeader, flags) as u32 * 8;
 // the expected flags are compared as a 12-bit immediate
-const _: () = assert!((STR_FLAG_HAS_CAPACITY | STR_FLAG_IS_LATIN1) < 4096);
+const _: () = assert!(STR_FLAG_HAS_CAPACITY < 4096 && STR_FLAG_IS_LATIN1 < 4096);
 // the two header words the site reads sit side by side
 const _: () = assert!(STR_PAD_OFF == STR_LEN_OFF + 4);
 // a one-byte store reaches the data with an unscaled 12-bit offset,
