@@ -333,6 +333,7 @@ pub(crate) mod ssa_lower_call_arr_ho_slots;
 pub(crate) mod ssa_lower_call_arr_iter_ctor;
 pub(crate) mod ssa_lower_call_arr_predicate;
 pub(crate) mod ssa_lower_call_arr_push;
+mod ssa_lower_call_arr_push_coerce;
 mod ssa_lower_call_arr_push_empty;
 pub(crate) mod ssa_lower_call_array_from;
 pub(crate) mod ssa_lower_call_array_from_loop;
