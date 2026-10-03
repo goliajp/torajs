@@ -20,8 +20,9 @@
 //! what it reads with it) and the header branches on unconditionally.
 //! The next test of the chain then opens the header and follows.
 //!
-//! With the null test in front of the loop the receiver is a live
-//! cell there, and what the loop reads from its header that no
+//! With the null test and every other test of the receiver in front
+//! of the loop (an `undefined` cell is one byte, with no header to
+//! read) the receiver is a live string there, and what the loop reads from its header that no
 //! instruction in the loop can change moves out too: a string's
 //! length, and the encoding bit of its flags word (masked, so the
 //! refcount in the same word does not matter). Both are written only
@@ -94,10 +95,52 @@ fn hoist_fn(func: &mut Function, stats: &mut LoopGuardStats) {
             func.set_term(pre, Terminator::Br(lp.header));
             enter_through(func, lp, pre);
             for &v in values {
-                stats.reads_hoisted += hoist_header_reads(func, lp, pre, v, &multi);
+                if !tested_in(func, lp, v) {
+                    stats.reads_hoisted += hoist_header_reads(func, lp, pre, v, &multi);
+                }
             }
         }
     }
+}
+
+/// Whether a test of `v` that leaves the loop for a raise block is
+/// still inside it. The header reads may move out only once every such
+/// test sits in front: with the `undefined` cell test left behind, `v`
+/// can still be that one-byte cell at the preheader, and its header
+/// words are not there.
+fn tested_in(func: &Function, lp: &NaturalLoop, v: ValueId) -> bool {
+    let body: HashSet<BlockId> = lp.body.iter().copied().collect();
+    lp.body.iter().any(|b| {
+        let block = &func.blocks[b.0 as usize];
+        let Terminator::CondBr {
+            cond: Operand::Value(c),
+            then_blk,
+            else_blk,
+        } = &block.term
+        else {
+            return false;
+        };
+        // the way out is a raise block: the raiser's call, then its probe
+        let raises = [then_blk, else_blk].into_iter().any(|x| {
+            !body.contains(x)
+                && func.blocks[x.0 as usize]
+                    .insts
+                    .first()
+                    .is_some_and(|i| matches!(i.kind, InstKind::Call(..)))
+                && probe_of(func, x.0 as usize).is_some()
+        });
+        if !raises {
+            return false;
+        }
+        lp.body
+            .iter()
+            .flat_map(|b| &func.blocks[b.0 as usize].insts)
+            .find(|i| i.result == Some(*c))
+            .is_some_and(|i| match &i.kind {
+                InstKind::ICmp(_, a, b) => *a == Operand::Value(v) || *b == Operand::Value(v),
+                _ => false,
+            })
+    })
 }
 
 /// One header test that can move in front of the loop.
@@ -459,6 +502,25 @@ mod tests {
         let stats = run(&mut f);
         assert_eq!((stats.guards_hoisted, stats.reads_hoisted), (2, 0));
         assert_eq!(f.blocks[4].insts.len(), 3);
+    }
+
+    #[test]
+    fn a_sentinel_test_left_in_the_loop_keeps_the_reads_in() {
+        // a call in front of the `undefined` cell test pins it inside
+        let mut f = scanner(vec![]);
+        f.blocks[3].insts.insert(
+            0,
+            Inst {
+                result: None,
+                kind: InstKind::Call(FuncId(0), vec![]),
+                origin: None,
+            },
+        );
+        let stats = run(&mut f);
+        assert_eq!((stats.guards_hoisted, stats.reads_hoisted), (1, 0));
+        assert!(matches!(f.blocks[3].term, Terminator::CondBr { .. }));
+        assert_eq!(f.blocks[4].insts.len(), 3);
+        assert_eq!(f.blocks[5].insts.len(), 3);
     }
 
     #[test]

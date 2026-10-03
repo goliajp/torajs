@@ -1,5 +1,5 @@
 //! A string's length and encoding bit, read once in front of a loop
-//! whose null test of the string already sits there
+//! whose null and `undefined` cell tests of the string already sit there
 //! (`loop_guard.rs`).
 
 use std::collections::{HashMap, HashSet};
