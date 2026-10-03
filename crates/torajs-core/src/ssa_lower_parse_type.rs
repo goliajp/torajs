@@ -81,16 +81,15 @@ pub(crate) fn parse_type(
         Some(s) => s,
         None => return Type::Void,
     };
+    // the lib.d.ts names of what exec / match answer
+    let s = match s {
+        "RegExpExecArray" | "RegExpMatchArray" => "string[]",
+        s => s,
+    };
     // A scalar `T | null` has nowhere to PUT the null: the in-band 0
-    // sentinel below is a legitimate `0` / `false`, so the slot cannot
-    // tell the two apart and every null test on it answers the value's
-    // answer — `a === null` is false, `typeof a` is "number", and an
-    // `if (a !== null)` guard runs its narrowed branch on a null.
-    // RFC 20260710-optional-undefined-repr C4 already settled the
-    // remedy for the struct-FIELD position (materialize Any, pay the
-    // 8B NaN-box tax so undefined = ANY_UNDEF / null = ANY_NULL and
-    // values box); it just never reached the let / param / return
-    // positions, which this shares with it verbatim.
+    // sentinel is a legitimate `0` / `false`, so `a === null`, `typeof`
+    // and narrowing all answer the value's answer. It boxes as Any
+    // (RFC 20260710-optional-undefined-repr C4, the struct-field rule).
     if let Some(rest) = s.strip_prefix("__nullable(")
         && let Some(inner) = rest.strip_suffix(')')
         && nullable_inner_boxes(inner)
