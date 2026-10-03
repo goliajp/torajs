@@ -25,6 +25,8 @@
 //! per-trim-variant declare boilerplate moves out of
 //! `ssa_lower.rs` entirely.
 
+mod scan;
+
 use std::collections::HashMap;
 
 use crate::ssa::{FuncId, InstKind, Module, Operand, Type};
@@ -81,8 +83,9 @@ pub(crate) fn declare_all(
 
 /// Try emitting the stack-write fast-path for `<recv>.trim()` when
 /// `recv` is a `Type::Substr` and `args` is empty. Allocates a 32-
-/// byte caller stack buffer, calls `__torajs_substr_trim_into(recv,
-/// buf)`, and returns `buf` as the resulting Substr value. The
+/// byte caller stack buffer, fills it with the trimmed view (inline
+/// scan for a Latin-1 parent, `__torajs_substr_trim_into(recv, buf)`
+/// otherwise), and returns `buf` as the resulting Substr value. The
 /// auto-emitted scope-end `__torajs_substr_drop(buf)` will follow
 /// the INLINE branch (dec parent rc, no pool push, no free).
 ///
@@ -122,12 +125,6 @@ pub(crate) fn try_emit(
     let buf = ctx
         .f
         .append_inst(ctx.cur_block, InstKind::AllocaBytes(32), Type::Substr, None);
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::Call(
-            ctx.intrinsics.substr_trim_into,
-            vec![recv_op, Operand::Value(buf)],
-        ),
-    );
+    scan::emit(ctx, recv_op, buf);
     Some(Operand::Value(buf))
 }
