@@ -26,14 +26,18 @@
 //! on (`leading_run_state`), a dead attempt resumes the scan past the
 //! run it began (`resume.rs`) instead of one unit after its start.
 
+mod class;
 mod dispatch;
 mod probes;
 mod resume;
 
+use crate::ssa::StringLiteral;
 use crate::ssa::{BinOp, BlockId, Function, IPred, InstKind, Operand, Terminator, Type, ValueId};
 use torajs_regex::onepass::{Edge, MatcherIr, Variant};
 
-pub(crate) fn walk(name: &str, ir: &MatcherIr) -> Function {
+/// `strings` is the module's string table, which takes the class maps
+/// the walk reads (`class.rs`).
+pub(crate) fn walk(name: &str, ir: &MatcherIr, strings: &mut Vec<StringLiteral>) -> Function {
     let mut f = Function::new(name, Type::I64);
     let units = f.add_param(Type::Ptr, "units");
     let len = f.add_param(Type::I64, "len");
@@ -102,6 +106,7 @@ pub(crate) fn walk(name: &str, ir: &MatcherIr) -> Function {
         states,
         next_st,
         dead,
+        maps: class::Maps::new(strings, entry),
     };
 
     // scan: every start position up to and including `len`
@@ -155,6 +160,7 @@ struct Emit<'a> {
     states: Vec<BlockId>,
     next_st: BlockId,
     dead: BlockId,
+    maps: class::Maps<'a>,
 }
 
 impl Emit<'_> {
@@ -271,7 +277,6 @@ impl Emit<'_> {
 
     /// The body of one variant of state `i` from `blk`, at `pos`.
     fn variant(&mut self, blk: BlockId, pos: ValueId, v: &Variant, i: usize) {
-        let ir = self.ir;
         let out = self.out;
         if let Some(acc) = &v.accept {
             for &slot in acc {
@@ -301,44 +306,8 @@ impl Emit<'_> {
         let at_end = self.icmp(blk, IPred::Eq, pos, Operand::Value(self.len));
         self.cond_br(blk, at_end, fail, read);
         let reaches_surrogates = v.edges.iter().any(|e| e.hi >= 0xD800);
-        let (mut cur, u, step) = self.read_unit(read, pos, ir.pairs && reaches_surrogates);
-        if v.edges.len() > dispatch::CHAIN_MAX {
-            // edges that write the same slots on the way to the same
-            // state share one body
-            let mut taken: Vec<BlockId> = Vec::with_capacity(v.edges.len());
-            for (k, edge) in v.edges.iter().enumerate() {
-                let same = |e: &Edge| {
-                    e.target == edge.target && e.saves == edge.saves && e.clears == edge.clears
-                };
-                let blk = match v.edges[..k].iter().position(same) {
-                    Some(first) => taken[first],
-                    None => {
-                        let blk = self.f.add_block();
-                        self.take_edge(blk, pos, edge, step, i);
-                        blk
-                    }
-                };
-                taken.push(blk);
-            }
-            self.search(cur, u, &v.edges, &taken, fail);
-            return;
-        }
-        for (j, edge) in v.edges.iter().enumerate() {
-            let taken = self.f.add_block();
-            let next = if j + 1 == v.edges.len() {
-                fail
-            } else {
-                self.f.add_block()
-            };
-            if edge.lo == 0 && edge.hi == ir.unit_max() {
-                self.f.set_term(cur, Terminator::Br(taken));
-            } else {
-                let cond = self.in_range(cur, u, edge.lo, edge.hi);
-                self.cond_br(cur, cond, taken, next);
-            }
-            self.take_edge(taken, pos, edge, step, i);
-            cur = next;
-        }
+        let (cur, u, step) = self.read_unit(read, pos, self.ir.pairs && reaches_surrogates);
+        self.dispatch_edges(cur, u, pos, step, v, i, fail);
     }
 
     /// The body of an edge of state `i` from `blk`: its saves at

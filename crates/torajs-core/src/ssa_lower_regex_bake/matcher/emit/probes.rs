@@ -67,28 +67,28 @@ impl Emit<'_> {
                 let at_start = self.icmp(blk, IPred::Eq, pos, Operand::ConstI64(0));
                 self.cond_br(blk, at_start, yes, read);
                 let u = self.unit_before(read, pos);
-                self.any_of(read, u, &self.line_terminators(), yes, no);
+                self.class_test(read, u, &self.line_terminators(), yes, no);
             }
             LINE_END => {
                 let read = self.f.add_block();
                 let at_end = self.icmp(blk, IPred::Eq, pos, Operand::Value(len));
                 self.cond_br(blk, at_end, yes, read);
                 let u = self.unit(read, pos);
-                self.any_of(read, u, &self.line_terminators(), yes, no);
+                self.class_test(read, u, &self.line_terminators(), yes, no);
             }
             WORD_LEFT | WORD_LEFT_FOLD => {
                 let read = self.f.add_block();
                 let at_start = self.icmp(blk, IPred::Eq, pos, Operand::ConstI64(0));
                 self.cond_br(blk, at_start, no, read);
                 let u = self.unit_before(read, pos);
-                self.any_of(read, u, &self.word(bit == WORD_LEFT_FOLD), yes, no);
+                self.class_test(read, u, &self.word(bit == WORD_LEFT_FOLD), yes, no);
             }
             WORD_RIGHT | WORD_RIGHT_FOLD => {
                 let read = self.f.add_block();
                 let at_end = self.icmp(blk, IPred::Eq, pos, Operand::Value(len));
                 self.cond_br(blk, at_end, no, read);
                 let u = self.unit(read, pos);
-                self.any_of(read, u, &self.word(bit == WORD_RIGHT_FOLD), yes, no);
+                self.class_test(read, u, &self.word(bit == WORD_RIGHT_FOLD), yes, no);
             }
             _ => unreachable!("one probe bit"),
         }
@@ -110,28 +110,5 @@ impl Emit<'_> {
             ranges.extend_from_slice(&WORD_FOLD);
         }
         ranges
-    }
-
-    /// From `blk`, branch to `yes` when `u` lies in one of `ranges`,
-    /// else to `no`.
-    fn any_of(
-        &mut self,
-        blk: BlockId,
-        u: ValueId,
-        ranges: &[(u32, u32)],
-        yes: BlockId,
-        no: BlockId,
-    ) {
-        let mut cur = blk;
-        for (j, &(lo, hi)) in ranges.iter().enumerate() {
-            let next = if j + 1 == ranges.len() {
-                no
-            } else {
-                self.f.add_block()
-            };
-            let c = self.in_range(cur, u, lo, hi);
-            self.cond_br(cur, c, yes, next);
-            cur = next;
-        }
     }
 }

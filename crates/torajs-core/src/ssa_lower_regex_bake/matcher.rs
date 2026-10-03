@@ -68,7 +68,8 @@ pub(crate) fn synthesize(
             let fid = FuncId(module.funcs.len() as u32);
             let enc = if wide { "u16" } else { "l1" };
             let name = format!("__regex_matcher_{enc}_{}", fid.0);
-            module.funcs.push(emit::walk(&name, &ir));
+            let walk = emit::walk(&name, &ir, &mut module.strings);
+            module.funcs.push(walk);
             fn_sig_ids.insert(fid, sig);
             fn_table.insert(key, fid);
         }
@@ -151,7 +152,7 @@ mod tests {
             (r"(?:(a)b)*", "", true),
         ] {
             let ir = matcher_ir(pat, flags, wide).unwrap();
-            let f = emit::walk("__regex_matcher_l1_7", &ir);
+            let f = emit::walk("__regex_matcher_l1_7", &ir, &mut Vec::new());
             assert_eq!(f.params.len(), 4);
             assert_eq!(f.ret, Type::I64);
             assert!(!f.is_declaration());
