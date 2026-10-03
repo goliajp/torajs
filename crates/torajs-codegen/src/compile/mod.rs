@@ -30,6 +30,7 @@
 //! FCmp via CMP/FCMP + CSET. S2-D pending: FRem (libm `fmod` call)
 //! and FPred::One (CCMP fold or NE+VC+AND).
 
+mod arr_push;
 mod binop;
 mod box_any;
 mod brfuse;

@@ -14,16 +14,16 @@
 use core::ffi::c_void;
 
 /// Offset of the `len` u64 within an array heap block.
-pub(crate) const ARR_HDR_LEN_OFF: usize = 8;
+pub const ARR_HDR_LEN_OFF: usize = 8;
 
 /// Offset of the `cap` u32 within an array heap block. T-13.5 packed
 /// cap (u32) + head_offset (u32) into the 8-byte slot at offset 16
 /// (formerly cap was a u64). Mirrors ssa_lower's deque-layout table.
-pub(crate) const ARR_HDR_CAP_OFF: usize = 16;
+pub const ARR_HDR_CAP_OFF: usize = 16;
 
 /// Offset of the `head_offset` u32 within an array heap block (T-13.5
 /// deque packed cap + head).
-pub(crate) const ARR_HDR_HEAD_OFF: usize = 20;
+pub const ARR_HDR_HEAD_OFF: usize = 20;
 
 use crate::layout::{ARR_DATA_PTR_OFF, arr_data, arr_data_is_inline};
 

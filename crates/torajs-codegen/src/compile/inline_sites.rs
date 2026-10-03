@@ -2,6 +2,7 @@
 
 use torajs_core::ssa::{InstKind, Module};
 
+use super::arr_push::ArrPush;
 use super::substr_drop::SubstrDrop;
 use super::{CellOps, StrAppendLit};
 
@@ -17,6 +18,8 @@ pub struct InlineSites {
     pub(crate) str_append: Option<StrAppendLit>,
     /// Substring release ([`SubstrDrop`]).
     pub(crate) substr_drop: Option<SubstrDrop>,
+    /// Typed array push ([`ArrPush`]).
+    pub(crate) arr_push: Option<ArrPush>,
 }
 
 impl InlineSites {
@@ -25,6 +28,7 @@ impl InlineSites {
             cells: CellOps::of_module(module),
             str_append: StrAppendLit::of_module(module),
             substr_drop: SubstrDrop::of_module(module),
+            arr_push: ArrPush::of_module(module),
         }
     }
 
@@ -33,5 +37,6 @@ impl InlineSites {
         self.cells.is_some_and(|c| c.inline_class(kind).is_some())
             || self.str_append.is_some_and(|s| s.literal(kind).is_some())
             || self.substr_drop.is_some_and(|d| d.matches(kind))
+            || self.arr_push.is_some_and(|p| p.matches(kind))
     }
 }

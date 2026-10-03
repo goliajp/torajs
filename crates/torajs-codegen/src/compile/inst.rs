@@ -17,7 +17,7 @@ use crate::reg::Reg;
 use crate::regalloc::Assignment;
 use crate::reloc::Reloc;
 
-fn emit_inst(
+pub(super) fn emit_plain(
     bytes: &mut Vec<u8>,
     relocs: &mut Vec<Reloc>,
     func: &Function,
@@ -146,6 +146,10 @@ pub(super) fn emit_inst_at(
     {
         return;
     }
+    // and a push into spare capacity
+    if super::arr_push::try_emit(bytes, relocs, func, inst, alloc, &saves, facts) {
+        return;
+    }
     // and a substring release that only takes a count off
     if let Some(op) = facts.inline.substr_drop
         && super::substr_drop::try_emit(bytes, relocs, inst, alloc, &saves, op)
@@ -159,7 +163,7 @@ pub(super) fn emit_inst_at(
             other => unreachable!("saved value not in a register: {other:?}"),
         }
     }
-    emit_inst(bytes, relocs, func, inst, alloc, &facts.fn_sigs);
+    emit_plain(bytes, relocs, func, inst, alloc, &facts.fn_sigs);
     for &(reg, off) in &saves {
         match reg {
             Reg::Gpr(g) => slot::sp_ldr_x(bytes, g, off),
