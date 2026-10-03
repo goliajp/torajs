@@ -210,10 +210,9 @@ fn edge_range(src: &Sources<'_>, v: ValueId, bi: usize) -> Option<NumFact> {
         defs.retain(|r, _| !multi.contains(r));
         Constraints::compute(func, &defs)
     });
-    // single-def values need no kill set
-    let no_kills = vec![HashSet::new(); func.blocks.len()];
+    // a single-def value is never redefined below its edge
     edges
-        .inherited(func.blocks[bi].id, src.dom, &no_kills)
+        .inherited(func.blocks[bi].id, src.dom)
         .into_iter()
         .filter_map(|c| match c {
             Constraint::Range(w, f) if w == v => Some(f),

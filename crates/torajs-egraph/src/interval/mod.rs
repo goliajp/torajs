@@ -26,6 +26,7 @@ mod edge;
 pub(crate) mod elem;
 mod elem_kernels;
 pub(crate) mod elem_len;
+mod merge;
 pub mod refine;
 mod refine_logic;
 pub mod square;
@@ -147,7 +148,15 @@ pub fn analyze_function_with(
     }
 
     let dom = DominatorTree::compute(func);
-    let constraints = Constraints::compute(func, &single);
+    let mut constraints = Constraints::compute(func, &single);
+    let merges = {
+        let base = constraints.inherited_all(func, &dom, &block_defs);
+        merge::Merges::collect(func, &dom, &base, &block_defs)
+    };
+    for (b, c) in merges.placeholders() {
+        constraints.add(b, c);
+    }
+    let inherited = constraints.inherited_all(func, &dom, &block_defs);
     let thresholds = collect_thresholds(func);
     // An allocation's elements are one more multi-def cell whose defs
     // happen to be stores; it rides the same ascent below.
@@ -172,12 +181,13 @@ pub fn analyze_function_with(
             &with_roots
         };
         roots.clear();
+        let merged = merges.ranges(&state);
         let mut contrib: HashMap<ValueId, AbsVal> = HashMap::new();
         let mut changed = false;
 
         for &bid in dom.reverse_postorder() {
             let block = &func.blocks[bid.0 as usize];
-            let mut live = constraints.inherited(bid, &dom, &block_defs);
+            let mut live = merge::resolve(&inherited[bid.0 as usize], &merged);
             for c in &live {
                 if let Constraint::Square {
                     strict,
@@ -464,6 +474,128 @@ mod tests {
         let seeds = sext32_set(&facts, &f);
         assert!(seeds.contains(&ValueId(2)), "n cell: {facts:?}");
         assert!(seeds.contains(&ValueId(4)), "and result: {facts:?}");
+    }
+
+    #[test]
+    fn a_def_off_the_dominator_chain_ends_a_bound() {
+        // bb0: %0 = copy 0                        ; d
+        // bb1: %1 = icmp slt %0, 10 ; cond_br %1, bb2, bb5
+        // bb2: %2 = icmp eq %0, 5   ; cond_br %2, bb3, bb4
+        // bb3: %0 = copy 1000       ; br bb4      (off bb4's idom chain)
+        // bb4: %3 = add %0, 1 ; %0 = copy %3 ; br bb1
+        // bb5: ret
+        let cbr = |c: u32, t: u32, e: u32| Terminator::CondBr {
+            cond: v(c),
+            then_blk: BlockId(t),
+            else_blk: BlockId(e),
+        };
+        let f = func(
+            vec![Type::I64, Type::Bool, Type::Bool, Type::I64],
+            vec![
+                block(
+                    0,
+                    vec![inst(0, InstKind::Copy(Type::I64, c(0)))],
+                    Terminator::Br(BlockId(1)),
+                ),
+                block(
+                    1,
+                    vec![inst(1, InstKind::ICmp(IPred::Slt, v(0), c(10)))],
+                    cbr(1, 2, 5),
+                ),
+                block(
+                    2,
+                    vec![inst(2, InstKind::ICmp(IPred::Eq, v(0), c(5)))],
+                    cbr(2, 3, 4),
+                ),
+                block(
+                    3,
+                    vec![inst(0, InstKind::Copy(Type::I64, c(1000)))],
+                    Terminator::Br(BlockId(4)),
+                ),
+                block(
+                    4,
+                    vec![
+                        inst(3, InstKind::BinOp(BinOp::Add, v(0), c(1))),
+                        inst(0, InstKind::Copy(Type::I64, v(3))),
+                    ],
+                    Terminator::Br(BlockId(1)),
+                ),
+                block(5, vec![], Terminator::Ret(None)),
+            ],
+        );
+        let facts = analyze_function(&f);
+        assert!(
+            facts.get(&ValueId(3)).is_none_or(|x| x.hi >= 1001),
+            "d + 1 past the arm: {facts:?}"
+        );
+    }
+
+    #[test]
+    fn a_def_around_a_loop_ends_a_bound_from_above_it() {
+        // bb0: %0 = copy 2                        ; d
+        // bb1: %1 = icmp slt %0, 5  ; cond_br %1, bb2, bb5
+        // bb2: %4 = copy 0          ; br bb3      ; t
+        // bb3: %5 = icmp slt %4, 4  ; cond_br %5, bb4, bb5
+        // bb4: %3 = add %0, 1 ; %6 = mul %0, 7 ; %0 = copy %6
+        //      %7 = add %4, 1 ; %4 = copy %7 ; br bb3
+        // bb5: ret
+        let cbr = |c: u32, t: u32, e: u32| Terminator::CondBr {
+            cond: v(c),
+            then_blk: BlockId(t),
+            else_blk: BlockId(e),
+        };
+        let i64_ = Type::I64;
+        let f = func(
+            vec![
+                i64_,
+                Type::Bool,
+                Type::Bool,
+                i64_,
+                i64_,
+                Type::Bool,
+                i64_,
+                i64_,
+            ],
+            vec![
+                block(
+                    0,
+                    vec![inst(0, InstKind::Copy(i64_, c(2)))],
+                    Terminator::Br(BlockId(1)),
+                ),
+                block(
+                    1,
+                    vec![inst(1, InstKind::ICmp(IPred::Slt, v(0), c(5)))],
+                    cbr(1, 2, 5),
+                ),
+                block(
+                    2,
+                    vec![inst(4, InstKind::Copy(i64_, c(0)))],
+                    Terminator::Br(BlockId(3)),
+                ),
+                block(
+                    3,
+                    vec![inst(5, InstKind::ICmp(IPred::Slt, v(4), c(4)))],
+                    cbr(5, 4, 5),
+                ),
+                block(
+                    4,
+                    vec![
+                        inst(3, InstKind::BinOp(BinOp::Add, v(0), c(1))),
+                        inst(6, InstKind::BinOp(BinOp::Mul, v(0), c(7))),
+                        inst(0, InstKind::Copy(i64_, v(6))),
+                        inst(7, InstKind::BinOp(BinOp::Add, v(4), c(1))),
+                        inst(4, InstKind::Copy(i64_, v(7))),
+                    ],
+                    Terminator::Br(BlockId(3)),
+                ),
+                block(5, vec![], Terminator::Ret(None)),
+            ],
+        );
+        let facts = analyze_function(&f);
+        assert!(
+            facts.get(&ValueId(3)).is_none_or(|x| x.hi >= 15),
+            "d + 1 after the first trip: {facts:?}"
+        );
     }
 
     #[test]

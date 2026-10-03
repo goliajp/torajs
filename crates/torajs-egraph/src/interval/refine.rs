@@ -12,9 +12,9 @@
 //! sole predecessor is the branching block (every path into it takes
 //! the edge), and is inherited by every dominated block. Loop cells
 //! (multi-def Copy) are re-defined inside the region a constraint
-//! covers, so inheritance walks the idom chain and drops any
-//! constraint whose value is re-defined on a strictly lower chain
-//! block — and block-local evaluation kills a constraint at the cell's
+//! covers, so a constraint is inherited only by the blocks no path
+//! carrying such a def reaches before passing the constraint's block
+//! again — and block-local evaluation kills a constraint at the cell's
 //! own def site (see `mod.rs`).
 
 use std::collections::{HashMap, HashSet};
@@ -25,6 +25,7 @@ use super::edge::edge_constraints;
 use super::refine_logic::Logic;
 use super::square::{SquareBound, square_edge};
 use super::transfer::{NEG_INF, NumFact, POS_INF};
+use crate::branch_fold::point_eval::successors;
 use torajs_core::ssa::dominator::DominatorTree;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,6 +59,9 @@ pub enum Constraint {
         /// only below 2^53, where the conversion is exact
         via_sitofp: bool,
     },
+    /// The cell's range where the paths into the block meet; see
+    /// `merge`. Read as a `Range` once a round has given it one.
+    Merge(ValueId, BlockId),
 }
 
 /// How a value stands to the comparand it was branched on.
@@ -75,7 +79,10 @@ pub enum Rel {
 impl Constraint {
     pub fn value(&self) -> ValueId {
         match self {
-            Constraint::Range(v, _) | Constraint::Even(v) | Constraint::NonZero(v) => *v,
+            Constraint::Range(v, _)
+            | Constraint::Even(v)
+            | Constraint::NonZero(v)
+            | Constraint::Merge(v, _) => *v,
             Constraint::Rel { value, .. } | Constraint::Square { value, .. } => *value,
         }
     }
@@ -175,36 +182,23 @@ impl Constraints {
         Self { at_entry }
     }
 
+    /// Puts `c` at `b`'s entry.
+    pub(super) fn add(&mut self, b: BlockId, c: Constraint) {
+        self.at_entry[b.0 as usize].push(c);
+    }
+
     pub fn at(&self, b: BlockId) -> &[Constraint] {
         &self.at_entry[b.0 as usize]
     }
 
-    /// Constraints valid at `b`'s entry, inherited down the idom
-    /// chain. A constraint from a chain block is dropped when its
-    /// value is re-defined in a strictly lower chain block — `b`'s
-    /// own defs do not kill (they sit after the entry; block-local
-    /// evaluation kills at the cell's def site, so a tail
-    /// `i = i + 1` still reads its loop bound at the increment).
-    pub fn inherited(
-        &self,
-        b: BlockId,
-        dom: &DominatorTree,
-        block_defs: &[HashSet<ValueId>],
-    ) -> Vec<Constraint> {
+    /// Constraints set at the entry of `b` and of every block up its
+    /// idom chain, nearest first, with no regard to defs in between:
+    /// sound only for constraints on single-def values.
+    pub fn inherited(&self, b: BlockId, dom: &DominatorTree) -> Vec<Constraint> {
         let mut out: Vec<Constraint> = Vec::new();
-        let mut killed: HashSet<ValueId> = HashSet::new();
         let mut cur = b;
         loop {
-            for c in self.at(cur) {
-                if !c.killed_by(|v| killed.contains(&v)) {
-                    out.push(*c);
-                }
-            }
-            // defs inside a strictly lower chain block kill
-            // constraints inherited from above
-            if cur != b {
-                killed.extend(block_defs[cur.0 as usize].iter().copied());
-            }
+            out.extend_from_slice(self.at(cur));
             match dom.immediate_dominator(cur) {
                 Some(p) if p != cur => cur = p,
                 _ => break,
@@ -212,6 +206,87 @@ impl Constraints {
         }
         out
     }
+
+    /// Every block's constraints valid at its entry, nearest edge
+    /// first. One set at `a`'s entry holds in a block `b` that `a`
+    /// dominates unless a value it names (`block_defs`: the cells each
+    /// block defines) is defined on some path from `a` to `b` that does
+    /// not pass `a` again (passing `a` sets it anew): in `a` itself, in
+    /// any block between, or in `b` when a cycle avoiding `a` leads
+    /// back to `b`. `b`'s defs on the way in sit after its entry:
+    /// block-local evaluation kills at the def, so a tail `i = i + 1`
+    /// still reads its loop bound at the increment.
+    pub fn inherited_all(
+        &self,
+        func: &Function,
+        dom: &DominatorTree,
+        block_defs: &[HashSet<ValueId>],
+    ) -> Vec<Vec<Constraint>> {
+        let n = self.at_entry.len();
+        let mut out: Vec<Vec<Constraint>> = vec![Vec::new(); n];
+        let mut dead = vec![false; n];
+        // nearest first: deeper blocks hand out their constraints first
+        for &a in dom.reverse_postorder().iter().rev() {
+            let cs = &self.at_entry[a.0 as usize];
+            if cs.is_empty() {
+                continue;
+            }
+            let region = dom_subtree(dom, a);
+            for c in cs {
+                let work: Vec<BlockId> = region
+                    .iter()
+                    .filter(|x| {
+                        block_defs[x.0 as usize]
+                            .iter()
+                            .any(|&v| c.killed_by(|w| w == v))
+                    })
+                    .flat_map(|x| successors(&func.blocks[x.0 as usize].term))
+                    .collect();
+                let touched = mark_reached(func, a, work, &mut dead);
+                for b in &region {
+                    if !dead[b.0 as usize] {
+                        out[b.0 as usize].push(*c);
+                    }
+                }
+                for si in touched {
+                    dead[si] = false;
+                }
+            }
+        }
+        out
+    }
+}
+
+/// `a` and every block it dominates, `a` first.
+fn dom_subtree(dom: &DominatorTree, a: BlockId) -> Vec<BlockId> {
+    let mut region = vec![a];
+    let mut k = 0;
+    while k < region.len() {
+        region.extend_from_slice(dom.children(region[k]));
+        k += 1;
+    }
+    region
+}
+
+/// Marks in `dead` every block reached from `work` without passing
+/// `a`; returns the blocks it marked.
+fn mark_reached(
+    func: &Function,
+    a: BlockId,
+    mut work: Vec<BlockId>,
+    dead: &mut [bool],
+) -> Vec<usize> {
+    let mut touched: Vec<usize> = Vec::new();
+    while let Some(s) = work.pop() {
+        let si = s.0 as usize;
+        if s == a || dead[si] {
+            continue;
+        }
+        dead[si] = true;
+        touched.push(si);
+        work.extend(successors(&func.blocks[si].term));
+    }
+    touched
 }
 
 #[cfg(test)]
