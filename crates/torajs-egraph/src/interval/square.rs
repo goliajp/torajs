@@ -319,6 +319,33 @@ mod tests {
         }
     }
 
+    /// The test as the front end writes it, under the guard that keeps
+    /// the product from wrapping: `and(icmp ult (d + R), 2R + 1, d * d
+    /// <= n)` still bounds the counter.
+    #[test]
+    fn a_guarded_square_test_bounds_the_counter() {
+        const R: i64 = 3_037_000_499;
+        let mut f = trial_loop(2_147_483_647, true);
+        f.blocks[1].insts.extend([
+            inst(5, InstKind::BinOp(BinOp::Add, v(1), Operand::ConstI64(R))),
+            inst(
+                6,
+                InstKind::ICmp(IPred::Ult, v(5), Operand::ConstI64(2 * R + 1)),
+            ),
+            inst(7, InstKind::BinOp(BinOp::And, v(6), v(3))),
+        ]);
+        f.blocks[1].term = Terminator::CondBr {
+            cond: v(7),
+            then_blk: BlockId(2),
+            else_blk: BlockId(3),
+        };
+        for ty in [Type::I64, Type::Bool, Type::Bool] {
+            f.values.push(ValueInfo { ty, name: None });
+        }
+        let facts = super::super::analyze_function(&f);
+        assert_eq!(facts[&ValueId(1)], NumFact::new(1, 46_341));
+    }
+
     /// The bound is an outer counter whose own fact is open (a def
     /// after the loop sets it to i64::MAX); only the outer header's
     /// `n <= 1000`, live through the inner loop, bounds it there.

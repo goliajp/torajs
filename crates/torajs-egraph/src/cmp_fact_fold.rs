@@ -2,7 +2,9 @@
 //! whose operands is an integer compare the interval facts already
 //! decide (`true` under `and`, `false` under `or`) collapses onto its
 //! other operand, when that operand is a single-use compare: the
-//! compare moves into the `and` / `or` slot and both originals go.
+//! compare moves into the `and` / `or` slot and both originals go, as
+//! does an add or sub only the decided compare read (the shifted root
+//! of a square's range guard).
 //!
 //! The shape comes from `frem_narrow`'s fused zero guard: `n % i ===
 //! 0` over a variable divisor narrows to `and(icmp ne i, 0, icmp eq
@@ -151,6 +153,23 @@ impl UseDef {
         let (bi, ii) = self.site[v];
         matches!(func.blocks[bi].insts[ii].kind, InstKind::ICmp(..)).then_some((*v, bi, ii))
     }
+
+    /// Site of a single-def, single-use integer add or sub (a guard's
+    /// shifted operand).
+    fn lone_arith(&self, func: &Function, v: &Operand) -> Option<(usize, usize)> {
+        let Operand::Value(v) = v else {
+            return None;
+        };
+        if self.defs.get(v) != Some(&1) || self.uses.get(v) != Some(&1) {
+            return None;
+        }
+        let (bi, ii) = self.site[v];
+        matches!(
+            func.blocks[bi].insts[ii].kind,
+            InstKind::BinOp(BinOp::Add | BinOp::Sub, ..)
+        )
+        .then_some((bi, ii))
+    }
 }
 
 fn fold_in_function(
@@ -161,6 +180,8 @@ fn fold_in_function(
     let ud = use_def(func);
     // (block, and/or index, decided cmp site, kept cmp index)
     let mut plans: Vec<(usize, usize, (usize, usize), usize)> = Vec::new();
+    // what only a decided compare read: an operand it alone used
+    let mut feeds: Vec<(usize, usize)> = Vec::new();
     for (bi, block) in func.blocks.iter().enumerate() {
         for (ii, inst) in block.insts.iter().enumerate() {
             let (Some(r), InstKind::BinOp(op @ (BinOp::And | BinOp::Or), x, y)) =
@@ -194,11 +215,12 @@ fn fold_in_function(
                     continue;
                 }
                 plans.push((bi, ii, (dbi, dii), kii));
+                feeds.extend([a, b].into_iter().filter_map(|o| ud.lone_arith(func, o)));
                 break;
             }
         }
     }
-    let mut dead: Vec<(usize, usize)> = Vec::new();
+    let mut dead: Vec<(usize, usize)> = feeds;
     for (bi, ii, dsite, kii) in plans {
         let kept = func.blocks[bi].insts[kii].kind.clone();
         func.blocks[bi].insts[ii].kind = kept;
@@ -300,6 +322,52 @@ mod tests {
         fold_in_function(&mut f, &facts, &mut stats);
         assert_eq!(stats.absorbed, 0);
         assert_eq!(f.blocks[0].insts.len(), 4);
+    }
+
+    /// A square's range guard: `%2 = mul %1,%1` · `%3 = icmp sle %2,%0` ·
+    /// `%4 = add %1, R` · `%5 = icmp ult %4, 2R+1` · `%6 = and %5,%3`.
+    #[test]
+    fn a_decided_range_guard_goes_with_its_shifted_root() {
+        const R: i64 = 3_037_000_499;
+        let mut f = guard_fn();
+        f.blocks[0].insts = vec![
+            inst(2, InstKind::BinOp(BinOp::Mul, v(1), v(1))),
+            inst(3, InstKind::ICmp(IPred::Sle, v(2), v(0))),
+            inst(4, InstKind::BinOp(BinOp::Add, v(1), Operand::ConstI64(R))),
+            inst(
+                5,
+                InstKind::ICmp(IPred::Ult, v(4), Operand::ConstI64(2 * R + 1)),
+            ),
+            inst(6, InstKind::BinOp(BinOp::And, v(5), v(3))),
+        ];
+        f.blocks[0].term = Terminator::CondBr {
+            cond: v(6),
+            then_blk: BlockId(0),
+            else_blk: BlockId(0),
+        };
+        f.values.push(ValueInfo {
+            ty: Type::Bool,
+            name: None,
+        });
+        f.values[4].ty = Type::I64;
+        let facts = HashMap::from([
+            (ValueId(1), NumFact::new(1, 46_341)),
+            (
+                ValueId(4),
+                NumFact::new(i128::from(R) + 1, i128::from(R) + 46_341),
+            ),
+        ]);
+        let mut stats = CmpFactFoldStats::default();
+        fold_in_function(&mut f, &facts, &mut stats);
+        assert_eq!(stats.absorbed, 1);
+        let kinds: Vec<&InstKind> = f.blocks[0].insts.iter().map(|i| &i.kind).collect();
+        assert_eq!(
+            kinds,
+            [
+                &InstKind::BinOp(BinOp::Mul, v(1), v(1)),
+                &InstKind::ICmp(IPred::Sle, v(2), v(0)),
+            ]
+        );
     }
 
     #[test]

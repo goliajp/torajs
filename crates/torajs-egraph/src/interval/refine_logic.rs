@@ -16,10 +16,11 @@
 
 use std::collections::{HashMap, HashSet};
 
-use torajs_core::ssa::{BlockId, Function, InstKind, Operand, Terminator, ValueId};
+use torajs_core::ssa::{BinOp, BlockId, Function, InstKind, Operand, Terminator, Type, ValueId};
 
 use super::edge::edge_constraints;
 use super::refine::Constraint;
+use super::square::square_edge;
 use super::transfer::{NEG_INF, NumFact, POS_INF, op_const_int};
 
 /// Feasibility of `op == v` on a path: `None` when the path cannot
@@ -56,6 +57,8 @@ pub(super) struct Logic<'a> {
     last_def: Vec<HashMap<ValueId, Option<Operand>>>,
     /// defining block of every single-def value
     home: HashMap<ValueId, BlockId>,
+    /// per block: its predecessor when it has exactly one
+    sole_pred: Vec<Option<usize>>,
 }
 
 impl<'a> Logic<'a> {
@@ -91,6 +94,13 @@ impl<'a> Logic<'a> {
                 last_def[bi].insert(r, copied);
             }
         }
+        let sole_pred = preds
+            .iter()
+            .map(|ps| match ps.as_slice() {
+                [p] => Some(p.0 as usize),
+                _ => None,
+            })
+            .collect();
         Self {
             func,
             defs,
@@ -98,6 +108,7 @@ impl<'a> Logic<'a> {
             cell_defs,
             last_def,
             home,
+            sole_pred,
         }
     }
 
@@ -170,7 +181,37 @@ impl<'a> Logic<'a> {
         }
         match kind {
             InstKind::ICmp(..) | InstKind::FCmp(..) => {
-                Some(edge_constraints(kind, v, self.defs).unwrap_or_default())
+                let mut cs = edge_constraints(kind, v, self.defs).unwrap_or_default();
+                let at = at.0 as usize;
+                cs.extend(square_edge(
+                    self.func,
+                    at,
+                    kind,
+                    v,
+                    self.defs,
+                    &self.sole_pred,
+                ));
+                Some(cs)
+            }
+            // a compare guarded by another (`and`) or relieved by one
+            // (`or`): both halves hold on the edge that needs both, and
+            // what the two agree on on the other
+            InstKind::BinOp(op @ (BinOp::And | BinOp::Or), l, r)
+                if self.func.values[x.0 as usize].ty == Type::Bool =>
+            {
+                let home = self.home[&x];
+                let lp = self.truth(l, v, home, walk.deeper());
+                let rp = self.truth(r, v, home, walk.deeper());
+                if (*op == BinOp::And) == v {
+                    let mut cs = lp?;
+                    cs.extend(rp?);
+                    (!contradictory(&cs)).then_some(cs)
+                } else {
+                    match (lp, rp) {
+                        (None, p) | (p, None) => p,
+                        (Some(a), Some(b)) => Some(common(&a, &b)),
+                    }
+                }
             }
             InstKind::Copy(_, o) | InstKind::Identity(o) => {
                 self.truth(o, v, self.home[&x], walk.deeper())
