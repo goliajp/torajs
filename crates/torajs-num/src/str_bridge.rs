@@ -27,10 +27,20 @@ unsafe extern "C" {
 /// toPrecision).
 #[inline]
 pub fn alloc_str(payload: &[u8]) -> *mut u8 {
-    let p = unsafe { __torajs_str_alloc_pooled(payload.len() as u64) };
-    if !payload.is_empty() {
-        let dst = unsafe { core::slice::from_raw_parts_mut(p.add(STR_DATA_OFF), payload.len()) };
-        dst.copy_from_slice(payload);
+    alloc_str_with(payload.len(), |dst| unsafe {
+        core::ptr::copy_nonoverlapping(payload.as_ptr(), dst, payload.len())
+    })
+}
+
+/// Allocate a fresh Str heap block of `len` bytes and let `write`
+/// fill the `len` payload bytes at the pointer it is handed — the
+/// formatter writes straight into the cell instead of into a stack
+/// line that is then copied.
+#[inline]
+pub fn alloc_str_with(len: usize, write: impl FnOnce(*mut u8)) -> *mut u8 {
+    let p = unsafe { __torajs_str_alloc_pooled(len as u64) };
+    if len > 0 {
+        write(unsafe { p.add(STR_DATA_OFF) });
     }
     p
 }

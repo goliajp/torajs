@@ -26,15 +26,79 @@ const DIGIT_PAIRS: &[u8; 200] = b"0001020304050607080910111213141516171819\
 /// Longest i64 rendering is `-9223372036854775808` — 20 bytes.
 pub const ITOA_BUF_LEN: usize = 24;
 
-/// Write `n`'s decimal form into the tail of `buf` and return the
-/// index it starts at; the caller reads `&buf[start..]`.
+/// `10^0 ..= 10^19`, the powers of ten a `u64` can reach.
+const POW10: [u64; 20] = {
+    let mut t = [1u64; 20];
+    let mut i = 1;
+    while i < 20 {
+        t[i] = t[i - 1] * 10;
+        i += 1;
+    }
+    t
+};
+
+/// Decimal digit count of `v` (`0` has one).
+///
+/// `bits × 1233 >> 12` is `floor(bits × log10 2)` for every bit
+/// width up to 64, and that is either the digit count or one below
+/// it; a single compare against the power of ten decides which. Zero
+/// is folded into one by `| 1`, which changes no other value's answer:
+/// every table entry past the first is even, so `v | 1` sits on the
+/// same side of it as `v`.
+#[inline]
+pub fn digit_count(v: u64) -> usize {
+    let w = v | 1;
+    let bits = (u64::BITS - w.leading_zeros()) as usize;
+    let t = (bits * 1233) >> 12;
+    t + 1 - (w < POW10[t]) as usize
+}
+
+/// Byte length of `n`'s decimal form, sign included.
+#[inline]
+pub fn itoa_len(n: i64) -> usize {
+    digit_count(n.unsigned_abs()) + (n < 0) as usize
+}
+
+/// Write `n`'s decimal form over the `len` bytes at `dst`, where
+/// `len` is [`itoa_len`]`(n)` — the caller sized its allocation by
+/// that and the digits land in place, with no scratch buffer and no
+/// copy.
 ///
 /// Filling backwards is what makes the two-at-a-time loop work
 /// without a second reversing pass: each step peels the low two
-/// digits, which are the ones that belong furthest right.
+/// digits, which are the ones that belong furthest right. The loop
+/// runs on the slots left rather than on the value, so an exact two
+/// digits end in the pair store and the odd leading digit is the one
+/// compare after it. The sign is stored unconditionally: a
+/// non-negative value's leading digit lands on the same byte.
 ///
 /// `i64::MIN` has no positive counterpart, so the magnitude is taken
 /// in `u64` via `unsigned_abs` rather than by negating.
+///
+/// # Safety
+/// `dst` is writable for `len` bytes and `len == itoa_len(n)`.
+#[inline]
+pub unsafe fn itoa_write(n: i64, dst: *mut u8, len: usize) {
+    debug_assert_eq!(len, itoa_len(n));
+    let mut v = n.unsigned_abs();
+    unsafe {
+        *dst = b'-';
+        let stop = dst.add((n < 0) as usize);
+        let mut end = dst.add(len);
+        while end.offset_from_unsigned(stop) >= 2 {
+            end = end.sub(2);
+            let pair = DIGIT_PAIRS.as_ptr().add((v % 100) as usize * 2);
+            core::ptr::copy_nonoverlapping(pair, end, 2);
+            v /= 100;
+        }
+        if end != stop {
+            *stop = b'0' + v as u8;
+        }
+    }
+}
+
+/// Write `n`'s decimal form into the tail of `buf` and return the
+/// index it starts at; the caller reads `&buf[start..]`.
 ///
 /// Compiled for size so the loop stays a loop: LLVM optimizes a
 /// callee before inlining it, and left to itself it unrolled the
@@ -45,31 +109,11 @@ pub const ITOA_BUF_LEN: usize = 24;
 #[inline]
 #[optimize(size)]
 pub fn itoa_into(n: i64, buf: &mut [u8; ITOA_BUF_LEN]) -> usize {
-    let negative = n < 0;
-    let mut v = n.unsigned_abs();
-    let mut pos = ITOA_BUF_LEN;
-
-    while v >= 100 {
-        let idx = ((v % 100) as usize) * 2;
-        v /= 100;
-        pos -= 2;
-        buf[pos] = DIGIT_PAIRS[idx];
-        buf[pos + 1] = DIGIT_PAIRS[idx + 1];
-    }
-    if v >= 10 {
-        let idx = (v as usize) * 2;
-        pos -= 2;
-        buf[pos] = DIGIT_PAIRS[idx];
-        buf[pos + 1] = DIGIT_PAIRS[idx + 1];
-    } else {
-        pos -= 1;
-        buf[pos] = b'0' + v as u8;
-    }
-    if negative {
-        pos -= 1;
-        buf[pos] = b'-';
-    }
-    pos
+    let len = itoa_len(n);
+    let start = ITOA_BUF_LEN - len;
+    // SAFETY: `start + len` is the buffer's end
+    unsafe { itoa_write(n, buf.as_mut_ptr().add(start), len) };
+    start
 }
 
 /// `__torajs_fmt_itoa(n, out_buf, out_cap) -> bytes_written | -1`.
@@ -157,6 +201,23 @@ mod tests {
                 assert_eq!(call(-n), (-n).to_string(), "n = {}", -n);
             }
         }
+    }
+
+    /// The digit count at both sides of every power of ten, which is
+    /// where the log2 estimate is one short and the compare corrects it.
+    #[test]
+    fn digit_count_at_every_power_of_ten() {
+        assert_eq!(digit_count(0), 1);
+        for p in 0..20u32 {
+            let base = 10u64.pow(p);
+            assert_eq!(digit_count(base), p as usize + 1, "10^{p}");
+            if p > 0 {
+                assert_eq!(digit_count(base - 1), p as usize, "10^{p} - 1");
+            }
+        }
+        assert_eq!(digit_count(u64::MAX), 20);
+        assert_eq!(itoa_len(i64::MIN), 20);
+        assert_eq!(itoa_len(-1), 2);
     }
 
     /// Every value core::fmt would render, rendered the same way.

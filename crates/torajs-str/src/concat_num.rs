@@ -29,7 +29,7 @@ use crate::block::StrBlock;
 use crate::concat::{
     __torajs_str_concat, str_is_latin1, str_len, str_payload, widen_latin1_into_utf16,
 };
-use crate::layout::STR_FLAG_IS_ASCII;
+use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_ASCII};
 use crate::str_drop::__torajs_str_drop;
 use torajs_rc::HeapHeader;
 
@@ -42,39 +42,40 @@ unsafe extern "C" {
     fn __torajs_f64_js_digits(d: f64, out: *mut u8) -> i64;
 }
 
-/// Shared tail: fresh Str holding `a ++ digits` (digits ASCII).
+/// Shared tail: fresh Str holding `a ++ digits`, where `write` fills
+/// the `d_len` ASCII digit bytes at the pointer it is handed. A
+/// Latin-1 `a` hands it the result's own tail, so the digits land in
+/// place; a UTF-16 `a` hands it a stack line and widens.
 ///
 /// # Safety
-/// `a` must be a valid, non-NULL Str heap block.
-unsafe fn concat_ascii_tail(a: *const u8, digits: &[u8]) -> *mut u8 {
+/// `a` must be a valid, non-NULL Str heap block; `d_len` ≤ 32.
+unsafe fn concat_ascii_tail(a: *const u8, d_len: usize, write: impl FnOnce(*mut u8)) -> *mut u8 {
     let a_len = unsafe { str_len(a) };
     let a_is_latin1 = unsafe { str_is_latin1(a) };
-    let total_len = a_len + digits.len() as u32;
+    let total_len = a_len + d_len as u32;
     // Digits are ASCII, so the result is exactly as ASCII as `a`.
     let ascii = unsafe { (*(a as *const HeapHeader)).flags } & STR_FLAG_IS_ASCII;
-    let mut block = StrBlock::alloc_with_flags(total_len, a_is_latin1, ascii);
-    let a_byte_cnt = if a_is_latin1 {
-        a_len as usize
-    } else {
-        (a_len as usize) * 2
-    };
-    let d_out_cnt = if a_is_latin1 {
-        digits.len()
-    } else {
-        digits.len() * 2
-    };
-    let dst = unsafe { block.as_bytes_mut((a_byte_cnt + d_out_cnt) as u32) };
-    if a_byte_cnt > 0 {
-        let a_payload = unsafe { str_payload(a, a_byte_cnt) };
-        dst[..a_byte_cnt].copy_from_slice(a_payload);
+    let block = StrBlock::alloc_with_flags(total_len, a_is_latin1, ascii);
+    let unit = if a_is_latin1 { 1 } else { 2 };
+    let a_byte_cnt = a_len as usize * unit;
+    // SAFETY: the block's payload holds `a_byte_cnt + d_len * unit`
+    // bytes and `a`'s holds `a_byte_cnt`
+    unsafe {
+        let dst = block.into_raw();
+        let payload = dst.add(STR_DATA_OFF);
+        let a_payload = str_payload(a, a_byte_cnt);
+        core::ptr::copy_nonoverlapping(a_payload.as_ptr(), payload, a_byte_cnt);
+        let d_slot = payload.add(a_byte_cnt);
+        if a_is_latin1 {
+            write(d_slot);
+        } else {
+            let mut line = [0u8; 32];
+            write(line.as_mut_ptr());
+            let wide = core::slice::from_raw_parts_mut(d_slot, d_len * 2);
+            widen_latin1_into_utf16(&line[..d_len], wide);
+        }
+        dst
     }
-    let d_slot = &mut dst[a_byte_cnt..a_byte_cnt + d_out_cnt];
-    if a_is_latin1 {
-        d_slot.copy_from_slice(digits);
-    } else {
-        widen_latin1_into_utf16(digits, d_slot);
-    }
-    block.into_raw()
 }
 
 /// Cold path for a NULL `a`: mint the digits as a real Str and let
@@ -100,14 +101,14 @@ unsafe fn concat_null_cold(a: *const u8, digits: &[u8]) -> *mut u8 {
 /// Returned pointer is a fresh refcount=1 Str owned by the caller.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_concat_i64(a: *const u8, n: i64) -> *mut u8 {
-    use torajs_fmt::itoa::{ITOA_BUF_LEN, itoa_into};
-    let mut buf = [0u8; ITOA_BUF_LEN];
-    let start = itoa_into(n, &mut buf);
-    let digits = &buf[start..];
+    use torajs_fmt::itoa::{itoa_len, itoa_write};
+    let d_len = itoa_len(n);
     if a.is_null() {
-        return unsafe { concat_null_cold(a, digits) };
+        let mut buf = [0u8; 32];
+        unsafe { itoa_write(n, buf.as_mut_ptr(), d_len) };
+        return unsafe { concat_null_cold(a, &buf[..d_len]) };
     }
-    unsafe { concat_ascii_tail(a, digits) }
+    unsafe { concat_ascii_tail(a, d_len, |slot| itoa_write(n, slot, d_len)) }
 }
 
 /// `a + String(d)` for f64 `d` — one allocation, no intermediate
@@ -126,5 +127,9 @@ pub unsafe extern "C" fn __torajs_str_concat_f64(a: *const u8, d: f64) -> *mut u
     if a.is_null() {
         return unsafe { concat_null_cold(a, digits) };
     }
-    unsafe { concat_ascii_tail(a, digits) }
+    unsafe {
+        concat_ascii_tail(a, digits.len(), |slot| {
+            core::ptr::copy_nonoverlapping(digits.as_ptr(), slot, digits.len())
+        })
+    }
 }

@@ -21,7 +21,7 @@
 //!   sign (so `print_f64_js` does NOT strip the leading `-`; only
 //!   `__torajs_f64_to_str` does).
 
-use crate::str_bridge::alloc_str;
+use crate::str_bridge::{alloc_str, alloc_str_with};
 
 unsafe extern "C" {
     // v0.7-A3 Step 14-b: per-byte stdout writer through torajs-io's
@@ -66,10 +66,9 @@ pub fn f64_shortest(d: f64, buf: &mut [u8]) -> i32 {
 /// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_i64_to_str(n: i64) -> *mut u8 {
-    use torajs_fmt::itoa::{ITOA_BUF_LEN, itoa_into};
-    let mut buf = [0u8; ITOA_BUF_LEN];
-    let start = itoa_into(n, &mut buf);
-    alloc_str(&buf[start..])
+    use torajs_fmt::itoa::{itoa_len, itoa_write};
+    let len = itoa_len(n);
+    alloc_str_with(len, |payload| unsafe { itoa_write(n, payload, len) })
 }
 
 /// JS-spec `String(d)` digits into a caller buffer — the single
