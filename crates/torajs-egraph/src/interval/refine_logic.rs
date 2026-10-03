@@ -18,7 +18,8 @@ use std::collections::{HashMap, HashSet};
 
 use torajs_core::ssa::{BlockId, Function, InstKind, Operand, Terminator, ValueId};
 
-use super::refine::{Constraint, edge_constraints};
+use super::edge::edge_constraints;
+use super::refine::Constraint;
 use super::transfer::{NEG_INF, NumFact, POS_INF, op_const_int};
 
 /// Feasibility of `op == v` on a path: `None` when the path cannot

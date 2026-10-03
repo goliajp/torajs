@@ -22,7 +22,8 @@ use std::collections::HashMap;
 
 use torajs_core::ssa::{BinOp, Function, InstKind, Operand, ValueId};
 
-use super::refine::{Constraint, Rel, edge_rel, int_pred};
+use super::edge::{edge_rel, int_pred};
+use super::refine::{Constraint, Rel};
 use super::transfer::{AbsVal, NumFact, POS_INF, op_const_int};
 
 /// `floor(sqrt(i64::MAX))`: for `|x|` up to this, `x * x` is exact.

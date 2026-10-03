@@ -22,6 +22,7 @@
 //! sweep re-tightens bounds the refinement can recover (the
 //! `i <= 1e6` loop-counter shape).
 
+mod edge;
 pub(crate) mod elem;
 mod elem_kernels;
 pub(crate) mod elem_len;
