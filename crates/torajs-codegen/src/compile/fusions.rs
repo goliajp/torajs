@@ -1,9 +1,10 @@
 //! The instruction fusions of one function, planned once, and the
 //! question the inst loop asks before emitting an instruction alone:
 //! is it part of a fused group, and if so, does it emit that group or
-//! is it absorbed into a neighbour?
+//! is it absorbed into a neighbour? A constant address nothing reads
+//! is answered here too: it emits nothing.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use torajs_core::ssa::{Block, Function, Inst, InstKind};
 
@@ -26,6 +27,10 @@ pub(super) struct Fusions {
     /// Adjacent stores into neighbouring words, keyed by the first;
     /// the second is absorbed. See compile/store_pair.rs.
     store_pairs: HashMap<(u32, u32), StorePair>,
+    /// `global_ref` / string / fn address materializations whose value
+    /// no instruction or terminator reads (an inlined constructor's
+    /// unused `new.target` name): an ADRP + ADD each, for nothing.
+    dead_refs: HashSet<(u32, u32)>,
 }
 
 impl Fusions {
@@ -35,6 +40,7 @@ impl Fusions {
             select_cmps: brfuse::fusible_select_cmps(func, alloc),
             select_incs: selinc::fusible_select_incs(func),
             store_pairs: store_pair::plan(func, alloc),
+            dead_refs: dead_refs(func),
         }
     }
 
@@ -55,6 +61,9 @@ impl Fusions {
         alloc: &Assignment,
     ) -> bool {
         let (b, i) = (block.id.0, ii as u32);
+        if self.dead_refs.contains(&(b, i)) {
+            return true;
+        }
         if self.cmps.contains_key(&b) && ii == block.insts.len() - 1 {
             return true; // the CondBr emits this compare fused
         }
@@ -83,5 +92,70 @@ impl Fusions {
             return true;
         }
         false
+    }
+}
+
+fn dead_refs(func: &Function) -> HashSet<(u32, u32)> {
+    let uses = brfuse::count_uses(func);
+    let mut out = HashSet::new();
+    for block in &func.blocks {
+        for (ii, inst) in block.insts.iter().enumerate() {
+            let is_ref = matches!(
+                inst.kind,
+                InstKind::GlobalRef(_)
+                    | InstKind::StringRef(_)
+                    | InstKind::StaticStrRef(_)
+                    | InstKind::FnAddr(_)
+                    | InstKind::BoxedEntryAddr(_)
+            );
+            if is_ref && inst.result.is_some_and(|r| !uses.contains_key(&r)) {
+                out.insert((block.id.0, ii as u32));
+            }
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::compile_function;
+    use torajs_core::ssa::{Function, InstKind, Operand, Terminator, Type};
+
+    /// ADRP, any register and page.
+    fn is_adrp(w: u32) -> bool {
+        w & 0x9F00_0000 == 0x9000_0000
+    }
+
+    fn with_ref(read: bool) -> Function {
+        let mut f = Function::new("t", Type::I64);
+        let b = f.add_block();
+        let g = f.append_inst(b, InstKind::GlobalRef("g".into()), Type::Ptr, None);
+        let ret = if read {
+            Operand::Value(f.append_inst(
+                b,
+                InstKind::Load(Type::I64, Operand::Value(g), 0),
+                Type::I64,
+                None,
+            ))
+        } else {
+            Operand::ConstI64(0)
+        };
+        f.set_term(b, Terminator::Ret(Some(ret)));
+        f
+    }
+
+    #[test]
+    fn an_address_nothing_reads_emits_nothing() {
+        let words = |f: &Function| -> Vec<u32> {
+            compile_function(f)
+                .bytes
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|c| u32::from_le_bytes(*c))
+                .collect()
+        };
+        assert!(!words(&with_ref(false)).into_iter().any(is_adrp));
+        assert!(words(&with_ref(true)).into_iter().any(is_adrp));
     }
 }
