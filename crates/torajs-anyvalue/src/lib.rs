@@ -2153,6 +2153,7 @@ mod tests {
         __torajs_promise_allsettled_dyn,
         __torajs_promise_any_dyn,
         __torajs_promise_attach_then,
+        __torajs_promise_attach_then_ops,
         __torajs_promise_drop,
         __torajs_promise_get_value,
         __torajs_promise_reject,

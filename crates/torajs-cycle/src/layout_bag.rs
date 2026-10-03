@@ -20,13 +20,13 @@ use crate::layout::{FLAG_STATIC_LITERAL, HeapHeader};
 /// their bag lives, which is what `clear_child_slot` and
 /// [`crate::defer`]'s teardown route ask it for.
 ///
-/// The same has since happened to four more slots: an iterator's
+/// The same has since happened to more slots: an iterator's
 /// source ([`crate::iter_src`]), a helper's four
-/// ([`crate::iter_src`] again), a promise's settled value
-/// ([`crate::promise`]) and a view's buffer
-/// ([`crate::view_buffer`]). What is still NOT walked is a
-/// Promise's callback list, whose `arg` word the runtime cannot
-/// read — it stays the shape's own destructor's, which
+/// ([`crate::iter_src`] again), a promise's settled value, reaction
+/// env and parked derived cells ([`crate::promise`]) and a view's
+/// buffer ([`crate::view_buffer`]). What is still NOT walked is a
+/// Promise's heap callback record, whose `arg` word the runtime
+/// cannot read — it stays the shape's own destructor's, which
 /// [`crate::defer`] runs on the corpse, and a missed descent
 /// under-collects a cycle, never corrupts (the
 /// `arr_elems_walkable` posture).
@@ -156,6 +156,7 @@ pub unsafe fn is_visitable_bag(p: *mut c_void) -> bool {
         return (0..unsafe { crate::finreg::finreg_child_count(p) })
             .any(|i| !unsafe { crate::finreg::finreg_child_at(p, i) }.is_null());
     }
-    // A bagless promise still owns whatever it settled with.
-    header.type_tag == TAG_PROMISE && !unsafe { crate::promise::promise_value(p) }.is_null()
+    // A bagless promise still owns whatever it settled with, and a
+    // pending one its reaction env and parked derived cells.
+    header.type_tag == TAG_PROMISE && unsafe { crate::promise::promise_has_edges(p) }
 }

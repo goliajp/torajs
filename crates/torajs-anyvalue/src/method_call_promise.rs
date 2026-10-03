@@ -30,7 +30,7 @@ use crate::nanbox::{AnyValue, VALUE_NULL, VALUE_UNDEFINED};
 use crate::nanbox_encode::{
     __torajs_anyv_box_from_pair, __torajs_anyv_box_pointer, __torajs_anyv_box_str_slot,
 };
-use then_any::{ThenAnyArg, then_any_dispatch};
+use then_any::ThenAnyArg;
 
 // ---- torajs-promise layout mirror (lockstep layout.rs) ----
 pub(crate) const P_STATE_OFF: usize = 8;
@@ -62,11 +62,6 @@ unsafe extern "C" {
     /// returned stake went with it. Implementation (shared with the
     /// typed kernels): torajs-promise `then_adopt.rs`.
     fn __torajs_promise_adopt_if_thenable(result: *mut c_void, repr: i64, value: i64) -> i64;
-    fn __torajs_promise_attach_then(
-        source: *mut c_void,
-        invoke: Option<unsafe extern "C" fn(i64)>,
-        arg: i64,
-    );
     fn __torajs_promise_drop(p: *mut c_void);
     fn __torajs_throw_check() -> i64;
     fn __torajs_throw_take() -> i64;
@@ -188,7 +183,6 @@ pub(crate) unsafe fn promise_method(
         (*a).on_err_entry = err_entry;
         (*a).result = result;
         (*a).is_finally = (mid == ANY_METHOD_FINALLY) as i64;
-        __torajs_rc_inc(ptr);
         __torajs_rc_inc(result);
         if !ok_env.is_null() {
             __torajs_rc_inc(ok_env);
@@ -196,7 +190,7 @@ pub(crate) unsafe fn promise_method(
         if !err_env.is_null() {
             __torajs_rc_inc(err_env);
         }
-        __torajs_promise_attach_then(ptr, Some(then_any_dispatch), a as i64);
+        then_any::attach(ptr, a);
         Some(__torajs_anyv_box_pointer(result))
     }
 }

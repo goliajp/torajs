@@ -23,11 +23,37 @@ use crate::layout::{
     COLOR_PURPLE, FLAG_BUFFERED, HeapHeader, has_walkable_children, nan_box_is_cell_like, set_color,
 };
 
-/// Threshold at which `cycle_buffer` triggers a synchronous collect
-/// before returning. Mirrors `runtime_cycle.c::CYCLE_AUTO_COLLECT_
-/// THRESHOLD = 1024`. Keeps long-running programs that never call
-/// `gc()` explicitly from leaking cycle roots unbounded.
+/// Floor of the buffer length at which `cycle_buffer` triggers a
+/// synchronous collect before returning (`runtime_cycle.c`'s fixed
+/// 1024). Keeps long-running programs that never call `gc()`
+/// explicitly from leaking cycle roots unbounded.
 pub const CYCLE_AUTO_COLLECT_THRESHOLD: u32 = 1024;
+
+/// The live threshold. A collect walks everything its roots reach,
+/// so with a fixed threshold a large live graph behind the roots is
+/// re-walked every 1024 pushes, quadratic over a program that keeps
+/// growing it. After each collect the threshold becomes a quarter of
+/// the cells it walked and found live, never below the floor —
+/// CPython's `long_lived_pending > long_lived_total / 4` rule — so
+/// the walk is paid for by the pushes that precede it.
+static G_THRESHOLD: AtomicU32 = AtomicU32::new(CYCLE_AUTO_COLLECT_THRESHOLD);
+
+/// Cells the running collect has proven live (`scan_black` colours
+/// each one once).
+static G_LIVE: AtomicU32 = AtomicU32::new(0);
+
+/// Count one cell a collect found externally reachable.
+#[inline]
+pub(crate) fn note_live() {
+    G_LIVE.store(G_LIVE.load(Ordering::Relaxed) + 1, Ordering::Relaxed);
+}
+
+/// Set the next collect's threshold from this one's live count.
+pub(crate) fn retune_threshold() {
+    let live = G_LIVE.swap(0, Ordering::Relaxed);
+    let next = (live / 4).max(CYCLE_AUTO_COLLECT_THRESHOLD);
+    G_THRESHOLD.store(next, Ordering::Relaxed);
+}
 
 /// Pointer to the buffer's heap-allocated backing array. NULL until
 /// first push; `realloc`'d to `g_buffer_cap` × `sizeof(*mut c_void)`
@@ -155,7 +181,7 @@ pub fn len() -> u32 {
 /// fast-path: if already buffered, return without touching anything.
 ///
 /// Auto-triggers `cycle_collect` when the buffer length crosses
-/// the auto-collect threshold (V3-10 behavior).
+/// the auto-collect threshold.
 ///
 /// # Safety
 /// `p` is NULL or a live heap cell with a valid `HeapHeader`.
@@ -180,7 +206,7 @@ pub unsafe extern "C" fn __torajs_cycle_buffer(p: *mut c_void) {
         (*h).flags |= FLAG_BUFFERED;
     }
     buffer_push(p);
-    if G_BUFFER_LEN.load(Ordering::Relaxed) >= CYCLE_AUTO_COLLECT_THRESHOLD {
+    if G_BUFFER_LEN.load(Ordering::Relaxed) >= G_THRESHOLD.load(Ordering::Relaxed) {
         unsafe { crate::collect::__torajs_cycle_collect() };
     }
 }

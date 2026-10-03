@@ -60,16 +60,15 @@
 //! `attach_then`. Each node carries:
 //!
 //! ```text
-//!   +0      : invoke (extern "C" fn(int64_t)) — codegen-emitted
-//!             dispatcher that knows how to call the user fn
+//!   +0      : invoke (extern "C" fn(int64_t)) — the dispatcher
 //!   +8      : arg (i64) — packed dispatcher state
 //!   +16     : next ptr (NULL = end of list)
+//!   +24     : ops — NULL, or how the runtime sees into `arg`
+//!             (`reaction::record`)
 //! ```
 //!
-//! On `resolve` / `reject`, `drain_callbacks` walks the list,
-//! enqueues each node onto the microtask queue, and frees the
-//! list (the queue's slot copies fn+arg by value, so nodes are
-//! transient).
+//! On `resolve` / `reject`, `drain_callbacks` enqueues each node's
+//! `(invoke, arg)` and frees the node.
 
 use core::ffi::c_void;
 
@@ -252,15 +251,14 @@ pub fn inline_link_derived(link: *mut PromiseCb) -> *mut Promise {
     }
 }
 
-/// Promise callback record. `invoke` is a codegen-emitted dispatcher
-/// (`extern "C" fn(int64_t)`) packed with the user's closure +
-/// source value + result Promise via the `arg` slot. Storing it as
-/// an opaque fn-ptr keeps the runtime free of codegen details.
+/// Promise callback record: a dispatcher and the packed state it runs
+/// on. `arg` is opaque unless `ops` describes it.
 #[repr(C)]
 pub struct PromiseCb {
     pub invoke: MicrotaskFn,
     pub arg: i64,
     pub next: *mut PromiseCb,
+    pub ops: *const crate::reaction::record::ReactionOps,
 }
 
 /// Microtask fn-ptr signature. Matches the C
@@ -315,12 +313,12 @@ mod tests {
 
     #[test]
     fn cb_struct_layout() {
-        // PromiseCb: fn-ptr (8) + i64 (8) + ptr (8) = 24B, align 8.
-        assert_eq!(core::mem::size_of::<PromiseCb>(), 24);
+        assert_eq!(core::mem::size_of::<PromiseCb>(), 32);
         assert_eq!(core::mem::align_of::<PromiseCb>(), 8);
         assert_eq!(core::mem::offset_of!(PromiseCb, invoke), 0);
         assert_eq!(core::mem::offset_of!(PromiseCb, arg), 8);
         assert_eq!(core::mem::offset_of!(PromiseCb, next), 16);
+        assert_eq!(core::mem::offset_of!(PromiseCb, ops), 24);
     }
 
     #[test]

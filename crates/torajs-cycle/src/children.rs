@@ -136,8 +136,8 @@ pub(crate) unsafe fn for_each_child(p: *mut c_void, mut f: impl FnMut(u64, *mut 
         // Date / RegExp / Promise / the buffer family / the three
         // iterator cells — the lazy expando dict at the shape's own
         // offset. What is left after the arms below (compiled
-        // program, buffer bytes, a promise's callback list) is the
-        // destructor's, which `defer::finalize_all` runs on the
+        // program, buffer bytes, a promise's callback records) is
+        // the destructor's, which `defer::finalize_all` runs on the
         // corpse.
         let props = unsafe { *((p as *const u8).add(off) as *const *mut c_void) };
         if !props.is_null() {
@@ -147,14 +147,8 @@ pub(crate) unsafe fn for_each_child(p: *mut c_void, mut f: impl FnMut(u64, *mut 
         // value are separate edges even when they are the same cell.
         let tag = unsafe { (*(p as *const HeapHeader)).type_tag };
         if tag == crate::layout_bag::TAG_PROMISE {
-            // A settled promise owns its value, and `o.p = p` on a
-            // promise resolved with `o` closes the ring. The pending
-            // callback records are NOT walked — their `arg` word is
-            // opaque to the runtime (see `promise.rs`).
-            let v = unsafe { crate::promise::promise_value(p) };
-            if !v.is_null() {
-                f(crate::promise::PROMISE_VALUE_SLOT, v);
-            }
+            // settled value, reaction env, parked derived cells
+            unsafe { crate::promise::for_each_promise_child(p, &mut f) };
         }
         if crate::iter_src::is_iter_helper(tag) {
             // §27.1.4.x helper — four owned AnyValue slots. A helper
@@ -287,10 +281,10 @@ pub(crate) unsafe fn clear_child_slot(p: *mut c_void, i: u64) {
         && crate::iter_src::is_iter_helper(unsafe { (*(p as *const HeapHeader)).type_tag })
     {
         unsafe { crate::iter_src::helper_slot_clear(p, i) };
-    } else if i == crate::promise::PROMISE_VALUE_SLOT
+    } else if i != PROPS_SLOT_INDEX
         && unsafe { (*(p as *const HeapHeader)).type_tag } == crate::layout_bag::TAG_PROMISE
     {
-        unsafe { crate::promise::promise_value_clear(p) };
+        unsafe { crate::promise::promise_slot_clear(p, i) };
     } else if i == crate::view_buffer::VIEW_BUFFER_SLOT
         && crate::view_buffer::is_view_cell(unsafe { (*(p as *const HeapHeader)).type_tag })
     {

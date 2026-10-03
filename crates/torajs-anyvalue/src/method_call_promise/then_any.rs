@@ -15,11 +15,13 @@ use crate::nanbox::VALUE_UNDEFINED;
 use crate::nanbox_encode::__torajs_anyv_box_from_pair;
 use torajs_rc::__torajs_rc_inc;
 
-/// Packed attach state for [`then_any_dispatch`]. Every cell /
-/// closure ptr in here holds its own +1 stake (taken at attach,
-/// released by the dispatcher) — including `result`: the attach
-/// site's caller may discard the returned promise before the
-/// microtask fires, so the arg keeps it alive. `is_finally`
+/// Packed attach state for [`then_any_dispatch`]. Every closure and
+/// `result` hold their own +1 stake (taken at attach, released by
+/// the dispatcher) — `result` too: the attach site's caller may
+/// discard the returned promise before the microtask fires, so the
+/// arg keeps it alive. `source` is the record's back-pointer, a
+/// stake only once the job is queued (torajs-promise
+/// `reaction::record`, which [`THEN_ANY_OPS`] opts into). `is_finally`
 /// switches the dispatcher to the §27.2.5.3 shape: `on_ok` runs on
 /// EITHER settlement, argument-free, return ignored, settlement
 /// forwarded (a callback throw still wins as the rejection).
@@ -32,6 +34,68 @@ pub(super) struct ThenAnyArg {
     pub(super) on_err_entry: u64,
     pub(super) result: *mut c_void,
     pub(super) is_finally: i64,
+}
+
+unsafe extern "C" {
+    fn __torajs_promise_attach_then_ops(
+        source: *mut c_void,
+        invoke: unsafe extern "C" fn(i64),
+        arg: i64,
+        ops: *const ReactionOps,
+    );
+}
+
+/// torajs-promise `reaction::record::ReactionOps` (lockstep).
+#[repr(C)]
+struct ReactionOps {
+    trace: unsafe extern "C" fn(i64, TraceVisit, *mut c_void),
+    release: unsafe extern "C" fn(i64),
+}
+
+type TraceVisit = unsafe extern "C" fn(i64, *mut c_void, *mut c_void, *mut c_void);
+
+static THEN_ANY_OPS: ReactionOps = ReactionOps {
+    trace: then_any_trace,
+    release: then_any_release,
+};
+
+/// Park the reaction on `source`.
+pub(super) unsafe fn attach(source: *mut c_void, a: *mut ThenAnyArg) {
+    unsafe { __torajs_promise_attach_then_ops(source, then_any_dispatch, a as i64, &THEN_ANY_OPS) }
+}
+
+/// The cells the block holds a stake on, for the cycle collector.
+unsafe extern "C" fn then_any_trace(arg: i64, visit: TraceVisit, ctx: *mut c_void) {
+    let a = arg as *mut ThenAnyArg;
+    unsafe {
+        for slot in [
+            &raw mut (*a).on_ok,
+            &raw mut (*a).on_err,
+            &raw mut (*a).result,
+        ] {
+            if !(*slot).is_null() {
+                visit(0, *slot, slot as *mut c_void, ctx);
+            }
+        }
+    }
+}
+
+/// The source died with the reaction parked: release the block. A
+/// slot the collector zeroed was accounted for there.
+unsafe extern "C" fn then_any_release(arg: i64) {
+    let a = arg as *mut ThenAnyArg;
+    unsafe {
+        if !(*a).result.is_null() {
+            __torajs_promise_drop((*a).result);
+        }
+        if !(*a).on_ok.is_null() {
+            __torajs_value_drop_heap((*a).on_ok);
+        }
+        if !(*a).on_err.is_null() {
+            __torajs_value_drop_heap((*a).on_err);
+        }
+        free(a as *mut c_void);
+    }
 }
 
 /// Handler slot empty — forward the settlement (value shared: one
@@ -51,7 +115,7 @@ unsafe fn forward_settle(result: *mut c_void, rejected: bool, repr: u8, is_heap:
     }
 }
 
-pub(super) unsafe extern "C" fn then_any_dispatch(arg: i64) {
+unsafe extern "C" fn then_any_dispatch(arg: i64) {
     let a = arg as *mut ThenAnyArg;
     unsafe {
         let src = (*a).source;

@@ -1,8 +1,7 @@
 //! Promise state transitions + value extraction + cb chain
 //! attachment.
 //!
-//! Port of `runtime_promise.c` T-15.b/d sections (P6.1, 2026-05-24).
-//! These three areas tightly couple:
+//! Port of `runtime_promise.c` T-15.b/d sections. Three areas:
 //!
 //! - `resolve` / `reject` — move a PENDING Promise to FULFILLED /
 //!   REJECTED and drain its callback list onto the microtask queue.
@@ -12,9 +11,7 @@
 //!   semantics. Rejected → routes through the throw substrate
 //!   (`__torajs_throw_set`) so `await rejected` propagates to the
 //!   innermost try/catch.
-//! - `attach_then` — append a callback to a source Promise's chain.
-//!   Already-settled source → enqueue immediately; pending → append
-//!   to head of chain. Drain happens lazily on transition.
+//! - `attach_then` — append a callback record to a source's chain.
 
 use core::ffi::c_void;
 use core::ptr;
@@ -31,10 +28,7 @@ unsafe extern "C" {
     #[link_name = "__torajs_free"]
     fn free(p: *mut c_void, size: usize);
 
-    /// Microtask queue (libtorajs_microtask.a). Pushed by
-    /// `drain_callbacks` for each cb node when a Promise settles;
-    /// pushed by `attach_then`'s fast path when source is already
-    /// settled at attach time.
+    /// Microtask queue (libtorajs_microtask.a).
     fn __torajs_microtask_enqueue(fn_: MicrotaskFn, arg: i64);
 
     /// Throw substrate (libtorajs_throw.a) — sets the per-thread
@@ -61,9 +55,9 @@ unsafe fn link_next(link: *mut PromiseCb) -> *mut *mut PromiseCb {
 /// Walk a Promise's callback list, enqueuing each reaction into the
 /// microtask queue as we go. A heap record is freed (the queue copies
 /// `(fn, arg)` by value); an inline derived cell is enqueued under the
-/// inline dispatcher with itself as the argument, and only its link
-/// word is cleared — the reaction stays parked in it until the job
-/// runs (`layout.rs`, "Callback list").
+/// inline dispatcher with itself as the argument. Either kind's job
+/// gets a stake on this cell when its back-pointer is not one already
+/// (`reaction.rs`, "Ownership").
 ///
 /// Attach head-pushes, so the list is in reverse registration order;
 /// §27.2.5.4.1 appends each reaction and §27.2.1.8
@@ -86,6 +80,10 @@ pub(crate) unsafe fn drain_callbacks(pp: *mut Promise) {
         unsafe {
             let derived = inline_link_derived(link);
             if derived.is_null() {
+                // a described block's job holds the source from here
+                if !(*link).ops.is_null() {
+                    torajs_rc::rc_inc_cell(pp as *mut c_void);
+                }
                 __torajs_microtask_enqueue((*link).invoke, (*link).arg);
                 let next = (*link).next;
                 free(link as *mut c_void, core::mem::size_of::<PromiseCb>());
@@ -93,6 +91,7 @@ pub(crate) unsafe fn drain_callbacks(pp: *mut Promise) {
             } else {
                 let next = (*derived).rx_next;
                 (*derived).rx_next = ptr::null_mut();
+                torajs_rc::rc_inc_cell(pp as *mut c_void);
                 __torajs_microtask_enqueue(
                     crate::reaction::inline_reaction_dispatch,
                     derived as i64,
@@ -289,11 +288,10 @@ pub unsafe extern "C" fn __torajs_promise_get_state(p: *const c_void) -> u8 {
 
 /// `.then` runtime hook — append a heap callback record to the
 /// source Promise's chain (the typed then / catch kernels park their
-/// reaction inline instead — [`crate::reaction::attach_inline`]).
-/// Two timing paths:
-///   1. source already settled → enqueue immediately.
-///   2. source pending → head-push onto callbacks list; resolve /
-///      reject drains the list lazily.
+/// reaction inline instead — [`crate::reaction::attach_inline`]): a
+/// settled source enqueues at once, a pending one head-pushes onto
+/// its list for resolve / reject to drain. The record's `arg` is
+/// opaque; `reaction::record` attaches one the runtime can see into.
 ///
 /// P10.5-A3-a — any `attach_then` (including `.then(onOk)` without
 /// onRejected) marks the source as observed per spec §27.2.5.4.1
@@ -329,6 +327,7 @@ pub unsafe extern "C" fn __torajs_promise_attach_then(
         (*node).invoke = invoke;
         (*node).arg = arg;
         (*node).next = (*pp).callbacks;
+        (*node).ops = ptr::null();
         (*pp).callbacks = node;
     }
 }

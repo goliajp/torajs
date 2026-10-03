@@ -36,6 +36,7 @@ use crate::layout::{
     HeapHeader, PROMISE_SIZE, Promise, PromiseCb, RX_CLOSURE, RX_NONE, STATE_FULFILLED,
     STATE_PENDING, STATE_REJECTED, TAG_PROMISE, as_promise, inline_link_derived,
 };
+use crate::reaction::candidate::{cycle_candidate, offer_root};
 
 /// Bounded freelist capacity. Matches
 /// `runtime_promise.c::__TORAJS_PROMISE_POOL_CAP = 32`.
@@ -44,7 +45,7 @@ const POOL_CAP: usize = 32;
 /// `STATIC_LITERAL` flag bit — Promise literals don't exist in
 /// practice but the drop bit-check mirrors the universal heap-header
 /// flag scheme.
-const FLAG_STATIC_LITERAL: u16 = 4;
+pub(crate) const FLAG_STATIC_LITERAL: u16 = 4;
 
 /// `FLAG_SUBCLASSED` mirror (`torajs_rc::flags` bit 0, RFC 20260730
 /// blade 0) — an exotic cell minted as a user-class instance; drop
@@ -77,10 +78,8 @@ unsafe extern "C" {
     /// Universal-drop dispatcher in runtime_str.c. Routes the heap
     /// pointer to its type-specific drop helper.
     fn __torajs_value_drop_heap(p: *mut c_void);
-    /// torajs-cycle — cycle-root buffer push / scrub (rationale in
-    /// `torajs-cycle::buffer`). The push is only made for a cell
-    /// `cycle_candidate` says the collector can descend into.
-    fn __torajs_cycle_buffer(p: *mut c_void);
+    /// torajs-cycle — cycle-root buffer scrub (the push is
+    /// `reaction::candidate::offer_root`'s).
     fn __torajs_cycle_unbuffer(p: *mut c_void);
     /// torajs-meta — scrub a dying exotic-subclass instance's
     /// identity entry (RFC 20260730 blade 0); gated on
@@ -299,21 +298,6 @@ pub unsafe extern "C" fn __torajs_promise_resolve_thenable(p: *mut c_void) -> *m
     unsafe { __torajs_promise_alloc_rejected(0) }
 }
 
-/// Can the cycle collector descend into this cell? Mirror of
-/// torajs-cycle `layout_bag::is_visitable_bag`'s TAG_PROMISE answer
-/// (the only arm of `has_walkable_children` a promise can take):
-/// not a static literal, and either a live expando bag or an owned
-/// settled heap value (`torajs-cycle/src/promise.rs::promise_value`).
-/// Must move in lockstep with both.
-#[inline]
-pub(crate) unsafe fn cycle_candidate(pp: *const Promise) -> bool {
-    unsafe {
-        (*pp).header.flags & FLAG_STATIC_LITERAL == 0
-            && (!(*pp).props.is_null()
-                || ((*pp).value_is_heap != 0 && (*pp).state != STATE_PENDING && (*pp).value != 0))
-    }
-}
-
 /// rc-aware drop. Called from `value_drop_heap`'s TAG_PROMISE case.
 /// On last owner: free residual cb list, drop heap value if any,
 /// return Promise to pool (or free if pool full).
@@ -327,12 +311,10 @@ pub unsafe extern "C" fn __torajs_promise_drop(p: *mut c_void) {
     }
     let pp = as_promise(p);
     if !unsafe { rc_dec_cell(p) } {
-        // Still referenced. Only a cell the collector can descend
-        // into is a candidate root; `cycle_buffer` would ask the same
-        // question and answer no for the common bagless pending /
-        // primitive-valued promise, so the call is skipped here.
+        // Still referenced. Only a cell that can close a ring is a
+        // candidate root (`reaction::candidate`).
         if unsafe { cycle_candidate(pp) } {
-            unsafe { __torajs_cycle_buffer(p) };
+            unsafe { offer_root(pp) };
         }
         return;
     }
@@ -345,16 +327,18 @@ pub unsafe extern "C" fn __torajs_promise_drop(p: *mut c_void) {
             return;
         }
         // Unfired reactions in this cell's list: a heap record is
-        // freed (its `arg` block is opaque here and stays with the
-        // kernel that minted it); an inline derived cell gets its
-        // reaction stake released. Its `rx_source` can only name
-        // this dying cell, so that edge is cut first rather than
-        // charged against a count already at zero.
+        // freed, its block released when `ops` describes it (an opaque
+        // block stays with the kernel that minted it); an inline
+        // derived cell has its back-pointer to this dying cell cut
+        // and the list's stake on it released.
         let mut link = (*pp).callbacks;
         while !link.is_null() {
             let derived = inline_link_derived(link);
             if derived.is_null() {
                 let next = (*link).next;
+                if !(*link).ops.is_null() {
+                    ((*(*link).ops).release)((*link).arg);
+                }
                 free(link as *mut c_void, core::mem::size_of::<PromiseCb>());
                 link = next;
             } else {
@@ -366,19 +350,17 @@ pub unsafe extern "C" fn __torajs_promise_drop(p: *mut c_void) {
             }
         }
         (*pp).callbacks = ptr::null_mut();
-        // An unfired inline reaction this cell carries: release the
-        // source stake and an owned closure env.
+        // An unfired inline reaction this cell carries: release an
+        // owned closure env. Its `rx_source` is a back-pointer, not
+        // a stake — a queued reaction, the only kind that holds its
+        // source, cannot reach here (`reaction.rs`, "Ownership").
         if (*pp).rx_kind != RX_NONE {
-            let source = (*pp).rx_source;
             let cb = (*pp).rx_cb;
             let kind = (*pp).rx_kind;
             (*pp).rx_kind = RX_NONE;
             (*pp).rx_source = ptr::null_mut();
             (*pp).rx_cb = ptr::null_mut();
             (*pp).rx_next = ptr::null_mut();
-            if !source.is_null() {
-                __torajs_promise_drop(source);
-            }
             if kind & RX_CLOSURE != 0 && !cb.is_null() {
                 __torajs_value_drop_heap(cb);
             }
@@ -405,55 +387,5 @@ pub unsafe extern "C" fn __torajs_promise_drop(p: *mut c_void) {
             __torajs_cycle_unbuffer(p);
         }
         promise_release_(pp);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn cell(flags: u16, state: u8, is_heap: u8, value: i64, props: *mut c_void) -> Promise {
-        Promise {
-            header: HeapHeader {
-                refcount: 1,
-                type_tag: TAG_PROMISE,
-                flags,
-            },
-            state,
-            value_is_heap: is_heap,
-            has_handler: 0,
-            value_repr: 0,
-            deferred_state: 0,
-            rx_kind: RX_NONE,
-            rx_ret_repr: 0,
-            rx_param_repr: 0,
-            value,
-            callbacks: ptr::null_mut(),
-            props,
-            rx_next: ptr::null_mut(),
-            rx_source: ptr::null_mut(),
-            rx_cb: ptr::null_mut(),
-        }
-    }
-
-    // truth table of torajs-cycle's `is_visitable_bag` for TAG_PROMISE
-    #[test]
-    fn cycle_candidate_matches_the_collector_predicate() {
-        let bag = 0x1000 as *mut c_void;
-        let heap = 0x2000;
-        // bagless, primitive-valued or pending: never a root
-        assert!(!unsafe { cycle_candidate(&cell(0, STATE_PENDING, 0, 0, ptr::null_mut())) });
-        assert!(!unsafe { cycle_candidate(&cell(0, STATE_FULFILLED, 0, 7, ptr::null_mut())) });
-        assert!(!unsafe { cycle_candidate(&cell(0, STATE_PENDING, 1, heap, ptr::null_mut())) });
-        assert!(!unsafe { cycle_candidate(&cell(0, STATE_FULFILLED, 1, 0, ptr::null_mut())) });
-        // owned settled heap value, either state
-        assert!(unsafe { cycle_candidate(&cell(0, STATE_FULFILLED, 1, heap, ptr::null_mut())) });
-        assert!(unsafe { cycle_candidate(&cell(0, STATE_REJECTED, 1, heap, ptr::null_mut())) });
-        // a live bag alone qualifies
-        assert!(unsafe { cycle_candidate(&cell(0, STATE_PENDING, 0, 0, bag)) });
-        // a static literal never does
-        assert!(!unsafe {
-            cycle_candidate(&cell(FLAG_STATIC_LITERAL, STATE_FULFILLED, 1, heap, bag))
-        });
     }
 }

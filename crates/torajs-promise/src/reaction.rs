@@ -10,9 +10,16 @@
 //!
 //! ## Ownership
 //!
-//! - `rx_source` holds one reference on the source, released after
+//! - `rx_source` names the source. While the reaction waits in the
+//!   source's list it is a back-pointer, not a reference: the list
+//!   entry already holds the derived cell, and a reference back would
+//!   make every pending `then` a two-cell ring only the cycle
+//!   collector could reclaim. When the reaction is queued — by the
+//!   source's settlement (`state::drain_callbacks`) or at once, here,
+//!   on a settled source — it becomes one reference, released after
 //!   the reaction ran (the dispatcher reads `source.value` across the
-//!   microtask delay).
+//!   microtask delay). A source dying with the reaction still parked
+//!   clears it.
 //! - The source's list entry holds one reference on the derived cell
 //!   (RFC 20260720-promise-any-cb): a discarding call site drops the
 //!   returned promise before the job fires, and the dispatcher would
@@ -21,10 +28,10 @@
 //! - `rx_cb` with [`RX_CLOSURE`] holds one reference on the env,
 //!   released after the call.
 //!
-//! A derived cell dying with its reaction unfired (only the cycle
-//! collector's corpse teardown can reach that: the list entry keeps
-//! it alive otherwise) releases the same stakes in
-//! `pool::__torajs_promise_drop`.
+//! A derived cell dying with its reaction unfired (its source died
+//! first, or the cycle collector tore down a ring through it)
+//! releases the env in `pool::__torajs_promise_drop`; a queued one
+//! cannot die, the queue holds it.
 
 use core::ffi::c_void;
 use core::ptr;
@@ -39,16 +46,20 @@ use crate::then::{ThenCbI64, call_handler, stamp_result_repr};
 use crate::then_box::{settle_handler_return, settle_param};
 use torajs_rc::rc_inc_cell;
 
+pub(crate) mod candidate;
+pub mod record;
+
 unsafe extern "C" {
     fn __torajs_value_drop_heap(p: *mut c_void);
     fn __torajs_microtask_enqueue(fn_: crate::layout::MicrotaskFn, arg: i64);
 }
 
-/// Park the reaction `(kind, cb)` in `derived`, take the three stakes
-/// and hook `derived` into `source`'s list — or enqueue it at once
-/// when `source` has already settled. `derived` must be a fresh
+/// Park the reaction `(kind, cb)` in `derived`, take its stakes and
+/// hook `derived` into `source`'s list — or enqueue it at once when
+/// `source` has already settled. `derived` must be a fresh
 /// pending cell with no reaction; `cb` is a `ThenCbI64` fn pointer,
 /// or a live closure env when `kind` carries [`RX_CLOSURE`].
+#[inline(always)]
 pub(crate) unsafe fn attach_inline(
     source: *mut c_void,
     derived: *mut c_void,
@@ -65,7 +76,6 @@ pub(crate) unsafe fn attach_inline(
         (*dp).rx_param_repr = param_repr;
         (*dp).rx_source = source;
         (*dp).rx_cb = cb;
-        rc_inc_cell(source);
         rc_inc_cell(derived);
         if kind & RX_CLOSURE != 0 {
             rc_inc_cell(cb);
@@ -74,11 +84,16 @@ pub(crate) unsafe fn attach_inline(
         // from here on (the derived promise is the live complaint).
         (*sp).has_handler = 1;
         if (*sp).state != STATE_PENDING {
+            rc_inc_cell(source);
             __torajs_microtask_enqueue(inline_reaction_dispatch, derived as i64);
             return;
         }
         (*dp).rx_next = (*sp).callbacks;
         (*sp).callbacks = inline_link(dp);
+        if kind & RX_CLOSURE != 0 {
+            (*dp).header.flags |= candidate::FLAG_RX_ENV;
+            candidate::mark_list_edge(sp);
+        }
     }
 }
 

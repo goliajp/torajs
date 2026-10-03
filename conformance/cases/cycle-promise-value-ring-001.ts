@@ -4,10 +4,7 @@
 // enumerated, so `const p = Promise.resolve(o); o.p = p` was a
 // two-cell ring nothing could reach.
 //
-// Not covered, deliberately: a ring running through a pending
-// callback. Each callback record packs the emit side's opaque `arg`
-// word, which the runtime cannot read and the drop kernel does not
-// follow either.
+// Rings through a pending reaction are cycle-promise-reaction-ring-001.
 //
 // Observable here: the walk crosses these rings without crashing and
 // a live one still settles to the same object. Whether the dead ones

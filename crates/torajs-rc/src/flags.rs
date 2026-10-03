@@ -28,8 +28,8 @@
 //! | 12    | [`FLAG_DYNOBJ_MODULE_NS`] | DynObj (disjoint-by-tag with Closure / Obj / Arr) |
 //! | 11    | [`FLAG_DYNOBJ_RAW_JSON`] (DynObj) / `STR_FLAG_HAS_CAPACITY` (torajs-str private, Str) | disjoint-by-tag with Closure / Arr |
 //! | 10    | [`FLAG_PROXY_CALLABLE`] | Proxy (disjoint-by-tag with DynObj / Closure / Arr) |
-//! | 11    | [`FLAG_PROXY_CONSTRUCTOR`] | Proxy (disjoint-by-tag with DynObj / Closure / Arr) |
-//! | 10    | [`FLAG_MAP_VALUES_NUMBER`] | Map (disjoint-by-tag; torajs-collections mirrors it) |
+//! | 11    | [`FLAG_PROXY_CONSTRUCTOR`] (Proxy) / `FLAG_RX_ENV` (torajs-promise private, Promise) | disjoint-by-tag with DynObj / Closure / Arr |
+//! | 10    | [`FLAG_MAP_VALUES_NUMBER`] (Map; torajs-collections mirrors it) / `FLAG_LIST_EDGE` (torajs-promise private, Promise) | disjoint-by-tag |
 //! | 13-14 | cycle-collector color field (`color.rs`) | **universal — never place a flag here** |
 //! | 15    | [`FLAG_ARR_EXOTIC_INDEX`] (Arr) / [`FLAG_FN_PROTO`] (Closure) / [`FLAG_OBJ_EXOTIC_FIELD`] (Obj) | disjoint-by-tag |
 //!

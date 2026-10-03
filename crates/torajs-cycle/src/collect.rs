@@ -122,6 +122,7 @@ unsafe fn scan_black(p: *mut c_void) {
     }
     let h = p as *mut HeapHeader;
     unsafe { set_color(h, COLOR_BLACK) };
+    buffer::note_live();
     unsafe {
         for_each_child(p, |_, child| {
             if has_walkable_children(child) {
@@ -231,12 +232,9 @@ unsafe fn collect_white(p: *mut c_void) {
     crate::defer::defer_push(p);
 }
 
-/// Public `gc()` user trigger. Runs the three phases over the
-/// current buffer contents, then resets the buffer length.
-///
-/// `cycle_buffer`'s auto-collect threshold also calls this path —
-/// keep the early-out (`len == 0`) at the top so the no-op case
-/// stays cheap.
+/// Public `gc()` user trigger, and the auto-collect path: the three
+/// phases over the current buffer contents. The `len == 0` early-out
+/// keeps the no-op case cheap.
 ///
 /// # Safety
 /// Every pointer in the root buffer is a cell that has not been freed; callers keep that by unbuffering cells before freeing them.
@@ -307,6 +305,7 @@ pub unsafe extern "C" fn __torajs_cycle_collect() {
     unsafe { crate::defer::finalize_all() };
 
     buffer::compact_from(processed);
+    buffer::retune_threshold();
     #[cfg(torajs_census)]
     census::record(processed as u64, census_start);
     IN_COLLECT.store(false, Ordering::Relaxed);
