@@ -23,7 +23,7 @@ use std::collections::HashMap;
 use torajs_core::ssa::{BinOp, Function, InstKind, Operand, ValueId};
 
 use super::refine::{Constraint, Rel, edge_rel, int_pred};
-use super::transfer::{NumFact, POS_INF, op_const_int};
+use super::transfer::{AbsVal, NumFact, POS_INF, op_const_int};
 
 /// `floor(sqrt(i64::MAX))`: for `|x|` up to this, `x * x` is exact.
 const ROOT_MAX: i128 = 3_037_000_499;
@@ -193,6 +193,42 @@ pub(super) fn with_roots(thresholds: &[i128], roots: &[i128]) -> Vec<i128> {
     t.sort_unstable();
     t.dedup();
     t
+}
+
+/// The high end of a square's bound where the constraint is live: the
+/// bound is not redefined since the compare, so what the path says of
+/// it holds for the value compared (squares on it left out, so two
+/// squares bounding each other cannot recurse). Compared as f64, only
+/// a bound below 2^53 counts.
+pub(super) fn bound_hi(
+    bound: SquareBound,
+    via_sitofp: bool,
+    state: &HashMap<ValueId, AbsVal>,
+    live: &[Constraint],
+) -> Option<i128> {
+    let hi = bound_hi_any(bound, state, live)?;
+    (!via_sitofp || hi < 1 << 53).then_some(hi)
+}
+
+fn bound_hi_any(
+    bound: SquareBound,
+    state: &HashMap<ValueId, AbsVal>,
+    live: &[Constraint],
+) -> Option<i128> {
+    match bound {
+        SquareBound::Const(k) => Some(k),
+        SquareBound::Value(b) => {
+            let plain: Vec<Constraint> = live
+                .iter()
+                .filter(|c| !matches!(c, Constraint::Square { .. }))
+                .copied()
+                .collect();
+            match super::lookup(&Operand::Value(b), state, &plain) {
+                AbsVal::Fact(k) => Some(k.hi),
+                _ => None,
+            }
+        }
+    }
 }
 
 #[cfg(test)]

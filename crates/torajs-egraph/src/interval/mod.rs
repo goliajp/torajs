@@ -29,6 +29,7 @@ pub mod refine;
 mod refine_logic;
 pub mod square;
 pub mod transfer;
+mod widen;
 
 pub use transfer::{AbsVal, NumFact};
 
@@ -39,9 +40,8 @@ use torajs_core::ssa::{Function, InstKind, Module, Operand, Type, ValueId};
 use refine::{Constraint, Constraints};
 use torajs_core::ssa::dominator::DominatorTree;
 use transfer::eval_inst;
+use widen::{collect_thresholds, narrow, widen};
 
-/// Kleene rounds before unstable cells widen to sentinel bounds.
-const WIDEN_ROUND: usize = 4;
 /// Hard cap on ascending rounds; anything still moving loses its
 /// bounds. Sized so threshold widening (one ladder step per round)
 /// can climb a realistic icmp-constant ladder before the cap.
@@ -184,7 +184,7 @@ pub fn analyze_function_with(
                     via_sitofp,
                     ..
                 } = c
-                    && let Some(hi) = square_bound_hi(*bound, *via_sitofp, &state, &live)
+                    && let Some(hi) = square::bound_hi(*bound, *via_sitofp, &state, &live)
                 {
                     roots.extend(square::root_thresholds(hi, *strict).into_iter().flatten());
                 }
@@ -356,7 +356,7 @@ fn lookup(op: &Operand, state: &HashMap<ValueId, AbsVal>, live: &[Constraint]) -
                 bound,
                 via_sitofp,
             } if value == v => {
-                if let Some(hi) = square_bound_hi(*bound, *via_sitofp, state, live)
+                if let Some(hi) = square::bound_hi(*bound, *via_sitofp, state, live)
                     && let Some(r) = square::root_range(f, hi, *strict)
                     && let Some(m) = f.meet(r)
                 {
@@ -367,108 +367,6 @@ fn lookup(op: &Operand, state: &HashMap<ValueId, AbsVal>, live: &[Constraint]) -
         }
     }
     AbsVal::Fact(f)
-}
-
-/// The high end of a square's bound where the constraint is live: the
-/// bound is not redefined since the compare, so what the path says of
-/// it holds for the value compared (squares on it left out, so two
-/// squares bounding each other cannot recurse). Compared as f64, only
-/// a bound below 2^53 counts.
-fn square_bound_hi(
-    bound: square::SquareBound,
-    via_sitofp: bool,
-    state: &HashMap<ValueId, AbsVal>,
-    live: &[Constraint],
-) -> Option<i128> {
-    let hi = square_bound_hi_any(bound, state, live)?;
-    (!via_sitofp || hi < 1 << 53).then_some(hi)
-}
-
-fn square_bound_hi_any(
-    bound: square::SquareBound,
-    state: &HashMap<ValueId, AbsVal>,
-    live: &[Constraint],
-) -> Option<i128> {
-    match bound {
-        square::SquareBound::Const(k) => Some(k),
-        square::SquareBound::Value(b) => {
-            let plain: Vec<Constraint> = live
-                .iter()
-                .filter(|c| !matches!(c, Constraint::Square { .. }))
-                .copied()
-                .collect();
-            match lookup(&Operand::Value(b), state, &plain) {
-                AbsVal::Fact(k) => Some(k.hi),
-                _ => None,
-            }
-        }
-    }
-}
-
-/// Widening thresholds — every integer constant compared against in
-/// the function (±1 for strict/inclusive edges). Standard "widening
-/// with thresholds" (Astrée/Miné): a growing bound first jumps to the
-/// nearest threshold, giving branch refinement a chance to pin loop
-/// counters (`i < 1e7` settles at `[0, 9999999]`) before chained
-/// cells (`n = i; n = n & (n-1)`) would otherwise widen to a sentinel
-/// the narrowing sweep cannot recover through self-referential joins.
-fn collect_thresholds(func: &Function) -> Vec<i128> {
-    let mut t: Vec<i128> = Vec::new();
-    for block in &func.blocks {
-        for inst in &block.insts {
-            if let InstKind::ICmp(_, a, b) | InstKind::FCmp(_, a, b) = &inst.kind {
-                for op in [a, b] {
-                    if let Some(k) = transfer::op_const_int(op) {
-                        t.extend([k - 1, k, k + 1]);
-                    }
-                }
-            }
-        }
-    }
-    t.sort_unstable();
-    t.dedup();
-    t
-}
-
-/// Ascend step: monotone join, with threshold widening once the round
-/// budget is spent — a bound still growing jumps to the next
-/// threshold, then to a sentinel.
-fn widen(old: AbsVal, joined: AbsVal, round: usize, thresholds: &[i128]) -> AbsVal {
-    if round < WIDEN_ROUND {
-        return joined;
-    }
-    let (AbsVal::Fact(o), AbsVal::Fact(j)) = (old, joined) else {
-        return joined;
-    };
-    let hi = if j.hi > o.hi {
-        thresholds
-            .iter()
-            .copied()
-            .find(|&t| t >= j.hi)
-            .unwrap_or(transfer::POS_INF)
-    } else {
-        j.hi
-    };
-    let lo = if j.lo < o.lo {
-        thresholds
-            .iter()
-            .rev()
-            .copied()
-            .find(|&t| t <= j.lo)
-            .unwrap_or(transfer::NEG_INF)
-    } else {
-        j.lo
-    };
-    AbsVal::Fact(NumFact::new(lo, hi))
-}
-
-/// Narrowing step: accept a recomputed fact only when it tightens.
-fn narrow(old: AbsVal, new: AbsVal) -> AbsVal {
-    match (old, new) {
-        (AbsVal::Top, AbsVal::Fact(_)) => new,
-        (AbsVal::Fact(o), AbsVal::Fact(n)) if o.contains(n) => new,
-        _ => old,
-    }
 }
 
 #[cfg(test)]
