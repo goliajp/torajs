@@ -147,7 +147,10 @@ fn try_form_pure(
     }
     let join = t_join;
     let on = switch_value(func, h, cond);
-    let (Some(tp), Some(ep)) = (plan_arm(func, &t_blks, on), plan_arm(func, &e_blks, on)) else {
+    let (Some(tp), Some(ep)) = (
+        plan_arm(func, &t_blks, on, &def_count),
+        plan_arm(func, &e_blks, on, &def_count),
+    ) else {
         return false;
     };
     // join values must pair up exactly: same vid set, two defs
@@ -438,6 +441,49 @@ mod tests {
         let h = &f.blocks[0].insts;
         assert!(matches!(h[1].kind, InstKind::Neg(_)));
         assert_eq!(h[2].kind, InstKind::Select(Type::I64, v(1), v(2), v(0)));
+    }
+
+    /// `if (c) { const t = d; s = s + t }`: the arm's own single-def
+    /// copy is a plain value, not a join value the other arm lacks.
+    #[test]
+    fn single_def_copy_in_arm_hoists() {
+        // %0 s, %1 d, %2 c, %3 t, %4 s+t, %5 the merged s
+        let mut f = func(
+            6,
+            vec![
+                blk(
+                    0,
+                    vec![inst(2, InstKind::ICmp(IPred::Slt, v(1), c(9)))],
+                    Terminator::CondBr {
+                        cond: v(2),
+                        then_blk: BlockId(1),
+                        else_blk: BlockId(2),
+                    },
+                ),
+                blk(
+                    1,
+                    vec![
+                        inst(3, InstKind::Copy(Type::I64, v(1))),
+                        inst(4, InstKind::BinOp(BinOp::Add, v(0), v(3))),
+                        inst(5, InstKind::Copy(Type::I64, v(4))),
+                    ],
+                    Terminator::Br(BlockId(3)),
+                ),
+                blk(
+                    2,
+                    vec![inst(5, InstKind::Copy(Type::I64, v(0)))],
+                    Terminator::Br(BlockId(3)),
+                ),
+                blk(3, vec![], Terminator::Ret(Some(v(5)))),
+            ],
+        );
+        let mut stats = SelectFormStats::default();
+        while form_once(&mut f, &mut stats) {}
+        assert_eq!(stats.diamonds_converted, 1);
+        let h = &f.blocks[0].insts;
+        assert_eq!(h[1].kind, InstKind::Copy(Type::I64, v(1)));
+        assert_eq!(h[2].kind, InstKind::BinOp(BinOp::Add, v(0), v(3)));
+        assert_eq!(h[3].kind, InstKind::Select(Type::I64, v(2), v(4), v(0)));
     }
 
     #[test]

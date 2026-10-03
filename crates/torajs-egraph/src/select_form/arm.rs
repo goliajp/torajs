@@ -61,16 +61,27 @@ pub(super) struct ArmPlan {
 
 /// Dissect one arm (its blocks in execution order). `None` = arm not
 /// convertible. `switch_on` is the value the header tests against a
-/// constant, when that is what it branches on.
+/// constant, when that is what it branches on. A `copy` with no other
+/// def anywhere is a plain value (a `const` the arm names), hoisted with
+/// the arm's defs at no cost.
 pub(super) fn plan_arm(
     func: &Function,
     blks: &[usize],
     switch_on: Option<ValueId>,
+    def_count: impl Fn(ValueId) -> u32,
 ) -> Option<ArmPlan> {
     let mut hoisted: Vec<Inst> = Vec::new();
     let mut copies: Vec<(ValueId, Type, Operand)> = Vec::new();
+    let mut plain_copies = 0usize;
     for inst in blks.iter().flat_map(|&b| &func.blocks[b].insts) {
         match &inst.kind {
+            InstKind::Copy(_, src)
+                if inst.result.is_some_and(|r| def_count(r) == 1)
+                    && !reads_join_copy(src, &copies) =>
+            {
+                hoisted.push(inst.clone());
+                plain_copies += 1;
+            }
             InstKind::Copy(ty, src) => {
                 let vid = inst.result.expect("Copy always defines a value");
                 if copies.iter().any(|(v, _, _)| *v == vid) {
@@ -102,7 +113,12 @@ pub(super) fn plan_arm(
     } else {
         MAX_SPECULATED_INSTS
     };
-    (hoisted.len() <= cap).then_some(ArmPlan { hoisted, copies })
+    (hoisted.len() - plain_copies <= cap).then_some(ArmPlan { hoisted, copies })
+}
+
+/// `src` names one of the arm's join copies made before it.
+fn reads_join_copy(src: &Operand, copies: &[(ValueId, Type, Operand)]) -> bool {
+    matches!(src, Operand::Value(v) if copies.iter().any(|(c, _, _)| c == v))
 }
 
 fn is_select(inst: &Inst) -> bool {
