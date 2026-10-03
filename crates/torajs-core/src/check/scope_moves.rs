@@ -57,7 +57,10 @@ impl Checker {
                 _ => None,
             };
             if let Some(polarity) = polarity {
-                let name = match (ast.get_expr(*left), ast.get_expr(*right)) {
+                let name = match (
+                    crate::check_assign_narrow::guard_operand(ast, *left),
+                    crate::check_assign_narrow::guard_operand(ast, *right),
+                ) {
                     (Expr::Ident(n), Expr::Null) => Some(n.clone()),
                     (Expr::Null, Expr::Ident(n)) => Some(n.clone()),
                     // Chunk 629 — `x !== undefined` narrows the same
@@ -95,13 +98,13 @@ impl Checker {
         // Other primitives (number, string, boolean, struct) on
         // their own are not Nullable here, so this hook only
         // fires when the binding's declared type is Nullable.
-        let (target, polarity) = match ast.get_expr(cond) {
+        let (target, polarity) = match crate::check_assign_narrow::guard_operand(ast, cond) {
             Expr::Ident(n) => (n.clone(), true),
             Expr::Unary {
                 op: crate::ast::UnaryOp::Not,
                 expr,
             } => {
-                if let Expr::Ident(n) = ast.get_expr(*expr) {
+                if let Expr::Ident(n) = crate::check_assign_narrow::guard_operand(ast, *expr) {
                     (n.clone(), false)
                 } else {
                     return None;

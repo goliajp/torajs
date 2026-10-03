@@ -159,3 +159,15 @@ impl Checker {
         }
     }
 }
+
+/// The expression a null / truthiness guard tests. `(x = e) !== null`
+/// and `while (x = e)` test the value just stored in `x`, so they narrow
+/// `x` exactly as `x !== null` and `while (x)` do.
+pub(crate) fn guard_operand(ast: &Ast, e: ExprId) -> &Expr {
+    match ast.get_expr(e) {
+        Expr::Assign { target, .. } if matches!(ast.get_expr(*target), Expr::Ident(_)) => {
+            ast.get_expr(*target)
+        }
+        other => other,
+    }
+}
