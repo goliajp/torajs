@@ -5,7 +5,7 @@
 use std::collections::{HashMap, HashSet};
 
 use torajs_core::ssa::{
-    Function, Inst, InstKind, Operand, Terminator, ValueId, visit_value_operands,
+    BinOp, Function, Inst, InstKind, Operand, Terminator, ValueId, visit_value_operands,
 };
 
 use super::{HDR_BYTES, I64_DIGITS_MAX, Kernels, Mint};
@@ -81,6 +81,9 @@ pub(super) enum Role {
     Copy(ValueId),
     Drop,
     Read,
+    /// The cell's address taken as an integer: a read, provided every
+    /// value derived from it is only an address loads go through.
+    Address(ValueId),
     Escape,
 }
 
@@ -106,6 +109,7 @@ pub(super) fn role(inst: &Inst, v: ValueId, k: &Kernels) -> Role {
             }
             _ => Role::Escape,
         },
+        InstKind::PtrToInt(op) if is_v(op) => inst.result.map_or(Role::Escape, Role::Address),
         InstKind::Load(_, base, _) if is_v(base) => Role::Read,
         InstKind::LoadDyn(_, base, idx)
         | InstKind::LoadU8Dyn(base, idx)
@@ -169,9 +173,53 @@ pub(super) fn web(r: ValueId, k: &Kernels, ix: &Index<'_>) -> (HashSet<ValueId>,
                 Role::Copy(w) => join(w, &mut set),
                 Role::Drop => {}
                 Role::Read => ok &= reads_own_bytes(ix, b, j, v),
+                Role::Address(a) => ok &= reads_own_bytes(ix, b, j, v) && only_loads_through(a, ix),
                 Role::Escape => ok = false,
             }
         }
     }
     (set, ok)
+}
+
+/// Every value derived from the address `a` — by adding to it or
+/// turning it back into a pointer — has one def and is used only as
+/// the base a load reads through, or compared. One def means every use sees the
+/// address taken in its own iteration, after that iteration's mint: a
+/// value carried round a loop would need a copy, which is refused.
+fn only_loads_through(a: ValueId, ix: &Index<'_>) -> bool {
+    let mut seen = HashSet::from([a]);
+    let mut queue = vec![a];
+    while let Some(v) = queue.pop() {
+        if ix.defs.get(&v).map_or(0, Vec::len) != 1 {
+            return false;
+        }
+        let is_v = |op: &Operand| *op == Operand::Value(v);
+        for &u in ix.uses.get(&v).map_or(&[][..], |u| u.as_slice()) {
+            let Use::Inst(b, j) = u else {
+                return false;
+            };
+            let inst = ix.inst(b, j);
+            let derived = match &inst.kind {
+                InstKind::BinOp(BinOp::Add, x, y) if is_v(x) != is_v(y) => inst.result,
+                InstKind::IntToPtr(op) if is_v(op) => inst.result,
+                InstKind::Load(_, base, _) if is_v(base) => None,
+                // a null test reads the address, not the bytes
+                InstKind::ICmp(_, x, y) if is_v(x) || is_v(y) => None,
+                InstKind::LoadDyn(_, base, idx)
+                | InstKind::LoadU8Dyn(base, idx)
+                | InstKind::LoadU16Dyn(base, idx)
+                    if is_v(base) && !is_v(idx) =>
+                {
+                    None
+                }
+                _ => return false,
+            };
+            if let Some(d) = derived
+                && seen.insert(d)
+            {
+                queue.push(d);
+            }
+        }
+    }
+    true
 }
