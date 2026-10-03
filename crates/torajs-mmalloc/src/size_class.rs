@@ -38,7 +38,7 @@ pub const MEDIUM_CLASSES: [usize; N_MEDIUM] = {
     let mut t = [0; N_MEDIUM];
     let mut i = 0;
     while i < N_MEDIUM {
-        let step = MAX_SMALL / MEDIUM_STEPS << (i / MEDIUM_STEPS);
+        let step = (MAX_SMALL / MEDIUM_STEPS) << (i / MEDIUM_STEPS);
         t[i] = step * (MEDIUM_STEPS + 1 + i % MEDIUM_STEPS);
         i += 1;
     }
