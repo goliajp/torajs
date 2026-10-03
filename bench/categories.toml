@@ -41,6 +41,7 @@ cases = [
   "mandelbrot",
   "popcount",
   "prime_count",
+  "divisor-sum-200k",
   "generic-id-1m",
   "generic-pair-1m",
 ]

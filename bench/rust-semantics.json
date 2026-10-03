@@ -5,6 +5,7 @@
   "gcd1m": {"kind": "same"},
   "popcount": {"kind": "same"},
   "prime_count": {"kind": "same"},
+  "divisor-sum-200k": {"kind": "same"},
   "mandelbrot": {"kind": "same"},
   "generic-id-1m": {"kind": "same"},
   "generic-pair-1m": {"kind": "same", "why": "the pair never escapes, so it is a local struct; rustc is free to reduce the loop"},
