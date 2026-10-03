@@ -2,14 +2,14 @@
 
 use torajs_core::ssa::{FPred, IPred, Inst, Operand, Type};
 
-use super::operand::{materialize_operand_fpr, materialize_operand_gpr};
+use super::operand::{compare_fpr, is_f64_zero, materialize_operand_fpr, materialize_operand_gpr};
 use super::{
     FP_SCRATCH_LHS, FP_SCRATCH_RESULT, FP_SCRATCH_RHS, OP_SCRATCH_LHS, OP_SCRATCH_RESULT_GPR,
     OP_SCRATCH_RHS, OP_SCRATCH_TMP, write_def_spill_fpr, write_def_spill_gpr, write_u32,
 };
 use crate::enc::{
-    cmp_imm, cmp_reg, cmp_w_reg, cond, csel_cond, cset_cond, csinc_cond, fcmp_d, fcsel_d,
-    logical_imm, orr_reg, tst_imm,
+    cmp_imm, cmp_reg, cmp_w_reg, cond, csel_cond, cset_cond, csinc_cond, fcsel_d, logical_imm,
+    orr_reg, tst_imm,
 };
 use crate::regalloc::Assignment;
 
@@ -138,11 +138,7 @@ pub(crate) fn emit_select_fused(
                 ipred_to_cond(*p)
             }
             FusedSelPred::Float(p) => {
-                let rn =
-                    materialize_operand_fpr(bytes, &fc.lhs, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
-                let rm =
-                    materialize_operand_fpr(bytes, &fc.rhs, FP_SCRATCH_RHS, OP_SCRATCH_RHS, alloc);
-                write_u32(bytes, fcmp_d(rn, rm));
+                compare_fpr(bytes, &fc.lhs, &fc.rhs, alloc);
                 fpred_to_cond(*p)
             }
         }
@@ -157,7 +153,8 @@ pub(crate) fn emit_select_fused(
         if let FusedSelPred::Float(_) = fc.pred {
             for op in [&fc.lhs, &fc.rhs] {
                 debug_assert!(
-                    matches!(op, Operand::Value(v)
+                    is_f64_zero(op)
+                        || matches!(op, Operand::Value(v)
                         if matches!(alloc.of(*v), crate::reg::Reg::Fpr(_))),
                     "F64-select FCmp fuse requires in-FPR compare operands (fusible gate)"
                 );
@@ -219,9 +216,7 @@ pub fn emit_fcmp(
 ) {
     let result_vid = inst.result.expect("FCmp must have a result");
     let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
-    let rn = materialize_operand_fpr(bytes, lhs, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
-    let rm = materialize_operand_fpr(bytes, rhs, FP_SCRATCH_RHS, OP_SCRATCH_RHS, alloc);
-    write_u32(bytes, fcmp_d(rn, rm));
+    compare_fpr(bytes, lhs, rhs, alloc);
     match pred {
         FPred::One => {
             // Ordered ≠ = `MI ∨ GT` (lt or gt), NaN → false.

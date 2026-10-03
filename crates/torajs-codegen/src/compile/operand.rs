@@ -3,8 +3,8 @@
 
 use torajs_core::ssa::Operand;
 
-use super::write_u32;
-use crate::enc::{fmov_d_from_x, movk_imm, movn_imm, movz_imm};
+use super::{FP_SCRATCH_LHS, FP_SCRATCH_RHS, OP_SCRATCH_LHS, OP_SCRATCH_RHS, write_u32};
+use crate::enc::{fcmp_d, fcmp_d_zero, fmov_d_from_x, movk_imm, movn_imm, movz_imm};
 use crate::reg::{Fpr, Gpr, Reg};
 use crate::regalloc::Assignment;
 
@@ -72,6 +72,23 @@ pub fn materialize_operand_gpr(
             "GPR materialization can't hold an f64 — use BitCastF64ToI64 in SSA or call materialize_operand_fpr"
         ),
     }
+}
+
+/// Set NZCV from `lhs` vs `rhs`, both f64. A zero on the right takes
+/// `fcmp dn, #0.0`: nothing to carry into an FP scratch, and a -0.0
+/// there compares exactly as +0.0 does.
+pub fn compare_fpr(bytes: &mut Vec<u8>, lhs: &Operand, rhs: &Operand, alloc: &Assignment) {
+    let rn = materialize_operand_fpr(bytes, lhs, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
+    if is_f64_zero(rhs) {
+        write_u32(bytes, fcmp_d_zero(rn));
+    } else {
+        let rm = materialize_operand_fpr(bytes, rhs, FP_SCRATCH_RHS, OP_SCRATCH_RHS, alloc);
+        write_u32(bytes, fcmp_d(rn, rm));
+    }
+}
+
+pub fn is_f64_zero(op: &Operand) -> bool {
+    matches!(op, Operand::ConstF64(z) if *z == 0.0)
 }
 
 /// Place `op`'s f64 value into an FPR. Constants land via the GPR

@@ -25,12 +25,9 @@ use torajs_core::ssa::{
 use crate::reg::Reg;
 
 use super::cmp::{emit_int_nzcv, fpred_to_cond, ipred_to_cond};
-use super::operand::{materialize_operand_fpr, materialize_operand_gpr};
-use super::{
-    BranchFixup, BranchKind, FP_SCRATCH_LHS, FP_SCRATCH_RHS, OP_SCRATCH_LHS, OP_SCRATCH_RHS,
-    write_u32,
-};
-use crate::enc::{b_cond_imm19, b_imm26, cb_w, cbnz_x, cbz_x, fcmp_d};
+use super::operand::{compare_fpr, is_f64_zero, materialize_operand_gpr};
+use super::{BranchFixup, BranchKind, OP_SCRATCH_LHS, write_u32};
+use crate::enc::{b_cond_imm19, b_imm26, cb_w, cbnz_x, cbz_x};
 use crate::regalloc::Assignment;
 
 /// One compare picked to emit inside its block's CondBr — integer or
@@ -170,7 +167,7 @@ pub(crate) fn fusible_select_cmps(
                             matches!(op, Operand::Value(v)
                                 if matches!(alloc.of(*v), Reg::Fpr(_)))
                         };
-                        if !(in_fpr(lhs) && in_fpr(rhs)) {
+                        if !(in_fpr(lhs) && (in_fpr(rhs) || is_f64_zero(rhs))) {
                             continue;
                         }
                     }
@@ -274,11 +271,7 @@ pub(crate) fn emit_fused_condbr(
                 // the Select fuse there are no value arms to clobber,
                 // so a ConstF64 operand may ride its GPR carrier into
                 // V16/V17 freely.
-                let rn =
-                    materialize_operand_fpr(bytes, &fc.lhs, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
-                let rm =
-                    materialize_operand_fpr(bytes, &fc.rhs, FP_SCRATCH_RHS, OP_SCRATCH_RHS, alloc);
-                write_u32(bytes, fcmp_d(rn, rm));
+                compare_fpr(bytes, &fc.lhs, &fc.rhs, alloc);
                 fpred_to_cond(p) ^ (invert as u8)
             }
             (None, FusedSelPred::Int(_)) => unreachable!("int_pred is Some for Int"),

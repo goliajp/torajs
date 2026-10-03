@@ -62,6 +62,12 @@ pub fn fcmp_d(rn: Fpr, rm: Fpr) -> u32 {
     0x1E60_2000 | (rm.idx() << 16) | (rn.idx() << 5)
 }
 
+/// FCMP Dn, #0.0 — set NZCV from `Dn vs +0.0`, no second register.
+/// ARM ARM C6.2.98, the zero variant (opcode2 = 01000).
+pub fn fcmp_d_zero(rn: Fpr) -> u32 {
+    0x1E60_2008 | (rn.idx() << 5)
+}
+
 /// FCSEL Dd, Dn, Dm, <cond> — Dd = cond ? Dn : Dm. ARM ARM C6.2.100.
 /// The FPR twin of `csel_cond`; the f64 `InstKind::Select` lowering.
 /// Base = 0x1E60_0C00 (ftype=01 double, bit21=1, bits 11-10 = 11).
@@ -310,6 +316,12 @@ mod tests {
     #[test]
     fn fcmp_d16_d17_matches_arm_arm() {
         assert_eq!(fcmp_d(Fpr::V16, Fpr::V17), 0x1E71_2200);
+    }
+
+    #[test]
+    fn fcmp_d16_zero_matches_arm_arm() {
+        // llvm-mc: fcmp d16, #0.0 → 08 22 60 1e
+        assert_eq!(fcmp_d_zero(Fpr::V16), 0x1E60_2208);
     }
 
     #[test]

@@ -38,10 +38,10 @@ pub use ctrl::{
     csel_cond, cset_cond, csinc_cond, nop, ret, tbnz,
 };
 pub use fp::{
-    add_v2d, addp_d_v2d, addv_b_v8b, cnt_v8b, cnt_v16b, dup_2d_x, fadd_d, fcmp_d, fcsel_d,
-    fcvtzs_x_d, fdiv_d, fjcvtzs_w_d, fmov_d_from_x, fmov_x_from_d, fmul_d, fsub_d, ins_d1_x,
-    ldr_d_imm12, ldr_d_reg, ldr_d_reg_lsl3, mov_d_reg, movi_2d_zero, scvtf_d_x, str_d_imm12,
-    str_d_reg, str_d_reg_lsl3, uadalp_2d, udot_4s,
+    add_v2d, addp_d_v2d, addv_b_v8b, cnt_v8b, cnt_v16b, dup_2d_x, fadd_d, fcmp_d, fcmp_d_zero,
+    fcsel_d, fcvtzs_x_d, fdiv_d, fjcvtzs_w_d, fmov_d_from_x, fmov_x_from_d, fmul_d, fsub_d,
+    ins_d1_x, ldr_d_imm12, ldr_d_reg, ldr_d_reg_lsl3, mov_d_reg, movi_2d_zero, scvtf_d_x,
+    str_d_imm12, str_d_reg, str_d_reg_lsl3, uadalp_2d, udot_4s,
 };
 pub use int::{
     add_imm, add_imm_lsl12, add_reg, add_reg_lsl, add_w_imm, and_imm, and_imm_one, and_reg,
