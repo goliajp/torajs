@@ -38,7 +38,7 @@
 
 use torajs_core::ssa::{FuncId, Inst, InstKind, Module, Operand, ValueId};
 
-mod stack;
+pub(crate) mod stack;
 
 const I64_TO_STR: &str = "__torajs_i64_to_str";
 const F64_TO_STR: &str = "__torajs_f64_to_str";

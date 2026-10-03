@@ -51,7 +51,8 @@
 //! `chain` flattens a chain whose result is only appended onto
 //! another cell and dropped, so the intermediate cell is never built,
 //! and `literal` then hands every short static operand to its kernel
-//! by value.
+//! by value. Last, `reserve` seeds a loop accumulator that starts as
+//! `''` and stays in its frame with an empty cell that has room.
 //!
 //! Runs late, after the inliner and the egraph loop, so the pairs
 //! spliced in from inlined callee bodies are visible too.
@@ -62,6 +63,7 @@
 mod chain;
 mod kernels;
 mod literal;
+mod reserve;
 #[cfg(test)]
 pub(crate) mod test_support;
 
@@ -90,6 +92,8 @@ pub struct StrAppendStats {
     pub flattened: u32,
     /// Kernel calls whose short static operand became immediates.
     pub by_value: u32,
+    /// Loop accumulators seeded with a reserved cell instead of `''`.
+    pub reserved: u32,
 }
 
 /// Rewrite every `concat` + `drop-left` pair in the module, flatten
@@ -115,6 +119,7 @@ pub fn rewrite_str_appends(module: &mut Module) -> StrAppendStats {
         }
         stats.by_value += forms.apply(func, &kernels, &statics);
     }
+    stats.reserved = reserve::reserve_accumulators(module);
     stats
 }
 

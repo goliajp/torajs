@@ -37,11 +37,18 @@ const _: () = assert!(cfg!(target_endian = "little"));
 /// Bit position of the literal's code-unit count inside `meta`.
 pub const LIT_META_LEN_SHIFT: u32 = 4;
 
-const _: () = assert!((STR_FLAG_IS_LATIN1 | STR_FLAG_IS_ASCII) & (0xF << LIT_META_LEN_SHIFT) == 0);
+/// The code-unit count's bits once shifted down by
+/// [`LIT_META_LEN_SHIFT`].
+pub const LIT_META_LEN_MASK: u32 = 0xF;
+
+const _: () = assert!(
+    (STR_FLAG_IS_LATIN1 | STR_FLAG_IS_ASCII) & ((LIT_META_LEN_MASK as u16) << LIT_META_LEN_SHIFT)
+        == 0
+);
 
 #[inline(always)]
 pub(crate) fn lit_len(meta: u64) -> u32 {
-    (meta >> LIT_META_LEN_SHIFT) as u32 & 0xF
+    (meta >> LIT_META_LEN_SHIFT) as u32 & LIT_META_LEN_MASK
 }
 
 /// The literal's flag bits; the length bits ride along, and every

@@ -80,11 +80,25 @@ pub unsafe extern "C" fn __torajs_str_alloc_capacity(cap: u64) -> *mut u8 {
     block.into_raw()
 }
 
+/// [`__torajs_str_alloc_capacity`] for a cell every append writes
+/// UTF-16 onto: an empty UTF-16 Str, so the first append does not
+/// reallocate to widen nothing. Not marked ASCII.
+///
+/// # Safety
+///
+/// The answer is an owned refcount-1 Str the caller releases.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_alloc_capacity_utf16(cap: u64) -> *mut u8 {
+    let cap = grow_capacity(cap.min(u32::MAX as u64) as u32);
+    StrBlock::alloc_with_capacity(0, false, cap).into_raw()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::block::__torajs_str_free;
     use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_LEN_OFF, byte_capacity};
+    use alloc::vec;
     use alloc::vec::Vec;
     use torajs_rc::FLAG_STATIC_LITERAL;
 
@@ -171,6 +185,21 @@ mod tests {
         assert_eq!(out, acc);
         assert!(unsafe { &*(out as *const HeapHeader) }.flags & STR_FLAG_IS_ASCII == 0);
         assert_eq!(read(out).0, b"abc");
+        unsafe { __torajs_str_free(out) };
+        unsafe { __torajs_str_free(parent) };
+    }
+
+    #[test]
+    fn a_utf16_capacity_cell_takes_a_utf16_view_in_place() {
+        let parent = utf16(&[0x4E2D, 0x6587]);
+        let v = view(parent, 0, 2);
+        let acc = unsafe { __torajs_str_alloc_capacity_utf16(64) };
+        assert_eq!(read(acc), (Vec::new(), false, 0));
+        assert!(unsafe { &*(acc as *const HeapHeader) }.flags & STR_FLAG_IS_ASCII == 0);
+        assert_eq!(unsafe { StrBlock::from_raw(acc).payload_capacity() }, 64);
+        let out = unsafe { __torajs_str_append_substr(acc, v.as_ptr() as *const u8) };
+        assert_eq!(out, acc, "the room is kept");
+        assert_eq!(read(out), (vec![0x2D, 0x4E, 0x87, 0x65], false, 2));
         unsafe { __torajs_str_free(out) };
         unsafe { __torajs_str_free(parent) };
     }

@@ -57,7 +57,7 @@ const CELL_CAP: u64 = 256;
 
 /// Runtime readers and the argument slots in which a string is only
 /// read: each scans the bytes and answers a number or a bool.
-const READERS: &[(&str, &[usize])] = &[
+pub(crate) const READERS: &[(&str, &[usize])] = &[
     ("__torajs_str_match_len", &[0]),
     ("__torajs_regex_test", &[1]),
     ("__torajs_str_eq", &[0, 1]),

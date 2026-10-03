@@ -180,6 +180,16 @@ mod tests {
     }
 
     #[test]
+    fn a_utf16_capacity_cell_takes_a_utf16_literal_in_place() {
+        let (bits, meta) = lit2(&[0x4E2D, 0x6587]);
+        let acc = unsafe { crate::append_substr::__torajs_str_alloc_capacity_utf16(64) };
+        let out = unsafe { __torajs_str_append_lit(acc, bits, meta) };
+        assert_eq!(out, acc, "the room is kept");
+        assert_eq!(read(out), (vec![0x2D, 0x4E, 0x87, 0x65], false, 2));
+        unsafe { __torajs_str_free(out) };
+    }
+
+    #[test]
     fn it_grows_by_doubling_and_keeps_every_byte() {
         let (bits, meta) = lit1(b"abc");
         let mut acc = latin1(b"");

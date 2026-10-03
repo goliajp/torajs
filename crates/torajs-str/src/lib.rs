@@ -168,7 +168,9 @@ pub mod wtf8_view;
 // pins the public crate API; full surface is still reachable via
 // the module paths above.
 pub use append::__torajs_str_append;
-pub use append_substr::{__torajs_str_alloc_capacity, __torajs_str_append_substr};
+pub use append_substr::{
+    __torajs_str_alloc_capacity, __torajs_str_alloc_capacity_utf16, __torajs_str_append_substr,
+};
 pub use block::{
     __torajs_str_alloc, __torajs_str_alloc_pooled, __torajs_str_drop, __torajs_str_free, StrBlock,
 };

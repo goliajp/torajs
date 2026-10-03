@@ -206,6 +206,12 @@ const COMPILER_SOURCE_FILES: &[&str] = &[
     "../torajs-egraph/src/slot_forward.rs",
     // torajs-codegen call sites opened inline
     "../torajs-codegen/src/compile/str_append.rs",
+    // the cell layout and literal encoding it stores, and the seeds it starts from
+    "../torajs-str/src/layout.rs",
+    "../torajs-str/src/concat_lit.rs",
+    "../torajs-egraph/src/str_append/reserve.rs",
+    "../torajs-egraph/src/str_append/reserve/web.rs",
+    "../torajs-egraph/src/concat_num_fuse/stack.rs",
 ];
 
 /// Enumerate every Layer-1+ Rust sub-crate that contributes

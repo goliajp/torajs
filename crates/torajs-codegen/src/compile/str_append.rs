@@ -13,7 +13,7 @@ use core::mem::offset_of;
 
 use torajs_core::ssa::{FuncId, Inst, InstKind, Module, Operand};
 use torajs_rc::HeapHeader;
-use torajs_str::concat_lit::LIT_META_LEN_SHIFT;
+use torajs_str::concat_lit::{LIT_META_LEN_MASK, LIT_META_LEN_SHIFT};
 use torajs_str::layout::{
     STR_DATA_OFF, STR_FLAG_HAS_CAPACITY, STR_FLAG_IS_ASCII, STR_FLAG_IS_LATIN1, STR_LEN_OFF,
     STR_PAD_OFF,
@@ -116,7 +116,7 @@ impl StrAppendLit {
         let lit = Lit {
             bits,
             meta,
-            units: (meta >> LIT_META_LEN_SHIFT) as u32 & 0xF,
+            units: (meta >> LIT_META_LEN_SHIFT) as u32 & LIT_META_LEN_MASK,
             latin1: flags & STR_FLAG_IS_LATIN1 != 0,
             ascii: flags & STR_FLAG_IS_ASCII != 0,
         };

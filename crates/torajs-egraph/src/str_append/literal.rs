@@ -39,7 +39,7 @@ use torajs_core::ssa::{
 use super::kernels::{Kernels, Kind};
 
 // the header flag bits a literal's cell carries (`torajs-str` layout)
-const STR_FLAG_IS_LATIN1: u64 = 1 << 1;
+pub(super) const STR_FLAG_IS_LATIN1: u64 = 1 << 1;
 const STR_FLAG_IS_ASCII: u64 = 1 << 12;
 /// Bit position of the code-unit count in the second immediate; the
 /// flag bits sit at their header positions around it.
