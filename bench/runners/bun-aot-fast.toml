@@ -8,6 +8,19 @@
 # together with --compile ("ESM bytecode requires --compile"), which
 # is the mode used here, so every case is built as esm.
 # `bun-aot` stays the default tier; both are reported.
+#
+# Known intermittent crash of bun 1.4.2 itself, both tiers: now and then
+# a start dies with SIGTRAP (wait status 0x5) before the script runs.
+# All 19 crash reports on mini 2026-09-26..10-03 (stack-pop-1m,
+# array-copy-1m, split-only-100k, multibyte-concat-5m,
+# promise-then-100k, regex-replace-callback-1m, and one plain `bun`
+# run) carry the same binary uuid and the same single-thread stack:
+# bun's crash handler re-raising after a fault in the startup
+# call_once chain, just past a pthread_jit_write_protect_np(0) call.
+# 5300 runs of promise-then-100k in the harness environment (fresh and
+# reused binaries, serial and 6-way parallel) did not repeat it. The
+# timed run fails the cell for that results file and is not retried;
+# the pooled stamp reads the other files.
 name = "bun-aot-fast"
 detect = "bun --version"
 src_filename = "main.ts"

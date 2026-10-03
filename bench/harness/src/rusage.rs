@@ -287,8 +287,14 @@ fn run_once(argv: &[String], env: &[(String, String)], timeout: Duration) -> Res
         timeout.as_secs()
     );
     anyhow::ensure!(reaped == pid, "wait4 `{}` failed", argv[0]);
-    let exited_ok = status & 0x7f == 0 && (status >> 8) & 0xff == 0;
-    anyhow::ensure!(exited_ok, "`{}` exited with status {status:#x}", argv[0]);
+    let signal = status & 0x7f;
+    anyhow::ensure!(
+        signal == 0,
+        "`{}` killed by signal {signal} (wait status {status:#x})",
+        argv[0]
+    );
+    let code = (status >> 8) & 0xff;
+    anyhow::ensure!(code == 0, "`{}` exited with code {code}", argv[0]);
     sample.max_rss_kb = if cfg!(target_os = "macos") {
         (ru.ru_maxrss as u64) / 1024
     } else {
