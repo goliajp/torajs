@@ -44,6 +44,7 @@
 //! Before loop_rotate. `TORAJS_UNROLL_JAM_OFF=1` skips,
 //! `TORAJS_UNROLL_JAM_STATS=1` dumps counters.
 
+mod clone;
 mod emit;
 mod flow;
 mod plan;
