@@ -198,3 +198,34 @@ fn a_shared_inner_test_is_made_once() {
         .count();
     assert_eq!(tests, 2 + LANES);
 }
+
+/// `divisor_sums` with `s = i + d` read between two defs of `d` in
+/// `pre`: `d = 1; s = i + d; d = 2; while (d * d <= i) ...`.
+fn divisor_redefined() -> Function {
+    let mut f = divisor_sums();
+    f.blocks[2].insts = vec![
+        copy(5, c(1)),
+        inst(15, InstKind::BinOp(BinOp::Add, v(2), v(5))),
+        copy(4, v(15)),
+        copy(5, c(2)),
+    ];
+    f.values.push(ValueInfo {
+        ty: Type::I64,
+        name: None,
+    });
+    f
+}
+
+#[test]
+fn a_cell_defined_twice_before_the_inner_loop_is_not_shared() {
+    let f = divisor_redefined();
+    let (g, n) = jam(&f);
+    assert_eq!(n, 1);
+    for bound in [0, 1, 2, 3, 4, 5, 8, 9, 16, 17, 100, 257] {
+        assert_eq!(
+            run(&f, &[bound], 1 << 22),
+            run(&g, &[bound], 1 << 24),
+            "n {bound}"
+        );
+    }
+}

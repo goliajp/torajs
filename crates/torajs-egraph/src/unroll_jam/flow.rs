@@ -1,7 +1,7 @@
 //! Value flow of a planned loop: what lanes run early may read, and
 //! which loop values the code after the loop reads.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use torajs_core::ssa::{BlockId, Function, InstKind, Terminator, ValueId, visit_value_operands};
 
@@ -143,9 +143,19 @@ fn reached_from(func: &Function, p: &Plan, sources: &[BlockId]) -> Vec<BlockId> 
 /// part a lane past the first reads lane 0's instead of computing its
 /// own: all lanes enter the fused loop together and step it together,
 /// so such a value is the same in every lane at every point.
+/// Not a cell `pre` and the inner header define more than once between
+/// them: lanes run those part by part, a whole lane at a time, so a
+/// later lane would read lane 0's last def where its own earlier one
+/// stands.
 pub(super) fn lane_shared(func: &Function, p: &Plan) -> HashSet<ValueId> {
     let blocks: Vec<BlockId> = p.pre_order().into_iter().chain(p.inner_order()).collect();
     let insts = || blocks.iter().flat_map(|&b| blk(func, b).insts.iter());
+    let mut defs_before_body: HashMap<ValueId, u32> = HashMap::new();
+    for b in p.pre_order().into_iter().chain([p.inner_header]) {
+        for r in blk(func, b).insts.iter().filter_map(|i| i.result) {
+            *defs_before_body.entry(r).or_insert(0) += 1;
+        }
+    }
     let mut variant: HashSet<ValueId> = HashSet::from([p.iv]);
     loop {
         let mut grew = false;
@@ -163,6 +173,6 @@ pub(super) fn lane_shared(func: &Function, p: &Plan) -> HashSet<ValueId> {
     }
     insts()
         .filter_map(|i| i.result)
-        .filter(|r| !variant.contains(r))
+        .filter(|r| !variant.contains(r) && defs_before_body.get(r).is_none_or(|&n| n < 2))
         .collect()
 }
