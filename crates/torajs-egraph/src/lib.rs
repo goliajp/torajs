@@ -455,8 +455,8 @@ fn fact_folds(module: &mut Module, facts: &[HashMap<ValueId, interval::NumFact>]
     // [0, 2^53) becomes `sitofp(srem x, C)`, and a concat_f64 reader
     // takes the integer. `TORAJS_FREM_INT_OFF=1` skips.
     gated_pass("FREM_INT", module, |m| frem_int::exact_frems(m, facts));
-    // a `frem` by a positive integral constant over an opaque dividend gets a roundtrip check and an `srem` arm
-    gated_pass("FREM_GUARD", module, frem_guard::guard_frems);
+    // a `frem` over operands that may be integers gets a checked integer arm
+    gated_pass("FREM_GUARD", module, |m| frem_guard::guard_frems(m, facts));
 }
 
 /// The pipeline tail — rc-pair elision, then the cfg-shape passes whose

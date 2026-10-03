@@ -218,7 +218,7 @@ fn sweep_dead_converts(func: &mut Function) {
 /// `x` still holds the value `sitofp` read when the frem at
 /// `(bi, at)` runs: the sitofp `av` sits earlier in the same block and
 /// nothing between redefines `x` (a multi-def loop cell).
-fn stable_here(func: &Function, bi: usize, at: usize, av: ValueId, x: ValueId) -> bool {
+pub(crate) fn stable_here(func: &Function, bi: usize, at: usize, av: ValueId, x: ValueId) -> bool {
     let insts = &func.blocks[bi].insts;
     let Some(conv) = insts[..at].iter().rposition(|i| i.result == Some(av)) else {
         return false;
