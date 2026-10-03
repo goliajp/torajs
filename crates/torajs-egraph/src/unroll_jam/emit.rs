@@ -52,6 +52,33 @@ pub(super) fn apply(func: &mut Function, p: &Plan) {
     let heads: Vec<BlockId> = (0..LANES).map(|_| func.add_block()).collect();
     let fb = func.add_block();
     let resumes: Vec<BlockId> = (0..LANES).map(|_| func.add_block()).collect();
+    let (mut lanes, cur) = pre_lanes(func, p, gb);
+    func.blocks[cur.0 as usize].term = Terminator::Br(heads[0]);
+    inner_heads(func, p, &heads, fb, resumes[0], &mut lanes);
+    let last = fused_body(func, p, fb, &mut lanes);
+    func.blocks[last.0 as usize].term = Terminator::Br(heads[0]);
+    for j in 0..LANES {
+        let next = if j + 1 < LANES { resumes[j + 1] } else { g };
+        let entry = tail_clone(func, p, &cells, &lanes[j], next);
+        let r = resumes[j];
+        for &c in p.lane_cells.iter().filter(|c| read_after_pre.contains(c)) {
+            let ty = func.values[c.0 as usize].ty;
+            push(func, r, c, InstKind::Copy(ty, Operand::Value(lanes[j][&c])));
+        }
+        if let Some(&ij) = lanes[j].get(&p.iv) {
+            push(func, r, p.iv, InstKind::Copy(Type::I64, Operand::Value(ij)));
+        }
+        func.blocks[r.0 as usize].term = Terminator::Br(entry);
+    }
+}
+
+/// `GB`: every lane's `pre`, lane by lane from `gb`. Returns each
+/// lane's renaming and the block the last lane ends in.
+fn pre_lanes(
+    func: &mut Function,
+    p: &Plan,
+    gb: BlockId,
+) -> (Vec<HashMap<ValueId, ValueId>>, BlockId) {
     let mut lanes: Vec<HashMap<ValueId, ValueId>> = Vec::with_capacity(LANES);
     let mut cur = gb;
     for j in 0..LANES {
@@ -76,7 +103,19 @@ pub(super) fn apply(func: &mut Function, p: &Plan) {
         }
         lanes.push(map);
     }
-    func.blocks[cur.0 as usize].term = Terminator::Br(heads[0]);
+    (lanes, cur)
+}
+
+/// `F0…`: lane j's inner header test in `heads[j]`; the last lane goes
+/// on to `fb`, any lane done to `done`.
+fn inner_heads(
+    func: &mut Function,
+    p: &Plan,
+    heads: &[BlockId],
+    fb: BlockId,
+    done: BlockId,
+    lanes: &mut [HashMap<ValueId, ValueId>],
+) {
     let ih = p.inner_header;
     let ih_term = func.blocks[ih.0 as usize].term.clone();
     let Terminator::CondBr {
@@ -93,9 +132,9 @@ pub(super) fn apply(func: &mut Function, p: &Plan) {
         }
         let stay = if j + 1 < LANES { heads[j + 1] } else { fb };
         let (then_blk, else_blk) = if p.inner_on_true {
-            (stay, resumes[0])
+            (stay, done)
         } else {
-            (resumes[0], stay)
+            (done, stay)
         };
         func.blocks[heads[j].0 as usize].term = Terminator::CondBr {
             cond: Operand::Value(map[&ic]),
@@ -103,6 +142,16 @@ pub(super) fn apply(func: &mut Function, p: &Plan) {
             else_blk,
         };
     }
+}
+
+/// `FB`: every lane's inner body from `fb`. Returns the block it ends
+/// in.
+fn fused_body(
+    func: &mut Function,
+    p: &Plan,
+    fb: BlockId,
+    lanes: &mut [HashMap<ValueId, ValueId>],
+) -> BlockId {
     let mut cur = fb;
     for map in lanes.iter_mut() {
         for &b in &p.chain {
@@ -113,20 +162,7 @@ pub(super) fn apply(func: &mut Function, p: &Plan) {
             cur = lane_guard(func, p, b, cur, map);
         }
     }
-    func.blocks[cur.0 as usize].term = Terminator::Br(heads[0]);
-    for j in 0..LANES {
-        let next = if j + 1 < LANES { resumes[j + 1] } else { g };
-        let entry = tail_clone(func, p, &cells, &lanes[j], next);
-        let r = resumes[j];
-        for &c in p.lane_cells.iter().filter(|c| read_after_pre.contains(c)) {
-            let ty = func.values[c.0 as usize].ty;
-            push(func, r, c, InstKind::Copy(ty, Operand::Value(lanes[j][&c])));
-        }
-        if let Some(&ij) = lanes[j].get(&p.iv) {
-            push(func, r, p.iv, InstKind::Copy(Type::I64, Operand::Value(ij)));
-        }
-        func.blocks[r.0 as usize].term = Terminator::Br(entry);
-    }
+    cur
 }
 
 /// A pre or inner-body guard leaving the loop, cloned for one lane: the
