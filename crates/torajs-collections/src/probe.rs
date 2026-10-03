@@ -210,6 +210,7 @@ pub(crate) unsafe fn map_rehash(m: *mut Map, new_entries_cap: u32, new_slots_cou
         (*m).slots_count = new_slots_count;
         (*m).n_used = new_used;
         (*m).n_tombstones = 0;
+        (*m).generation = (*m).generation.wrapping_add(1);
         // n_entries unchanged — live count is invariant under rehash.
     }
 }

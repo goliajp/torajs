@@ -47,7 +47,7 @@ pub unsafe extern "C" fn __torajs_map_create() -> *mut c_void {
         (*m).entries_cap = MAP_ENTRIES_INITIAL;
         (*m).slots_count = MAP_SLOTS_INITIAL;
         (*m).n_tombstones = 0;
-        (*m)._pad = 0;
+        (*m).generation = 0;
 
         let slots =
             malloc(MAP_SLOTS_INITIAL as usize * core::mem::size_of::<MapSlot>()) as *mut MapSlot;

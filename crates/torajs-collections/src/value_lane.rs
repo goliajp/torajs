@@ -92,7 +92,7 @@ pub unsafe extern "C" fn __torajs_map_entry_get_f64(p: *const c_void, idx: i64) 
         return f64::from_bits(F64_UNDEF_SENTINEL_BITS);
     }
     let m = p as *const Map;
-    value_f64(unsafe { (*(*m).entries.add(idx as usize)).value_anyv })
+    value_f64(unsafe { (*(*m).entries.add(crate::str_key::entry_index(idx))).value_anyv })
 }
 
 /// `m.get(k)` on the `(tag, payload)` key lane. The key stays owned by

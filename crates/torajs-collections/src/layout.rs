@@ -14,7 +14,7 @@
 //!   offset 16 : entries_cap  (u32)
 //!   offset 20 : slots_count  (u32)
 //!   offset 24 : n_tombstones (u32) — slot-side tombstone count
-//!   offset 28 : _pad         (u32)
+//!   offset 28 : generation   (u32) — bumped when entries move or are wiped
 //!   offset 32 : slots        (*MapSlot)
 //!   offset 40 : entries      (*MapEntry)
 //!   offset 48 : props        (*DynObj) — lazy own-property bag
@@ -163,7 +163,12 @@ pub struct Map {
     pub entries_cap: u32,
     pub slots_count: u32,
     pub n_tombstones: u32,
-    pub _pad: u32,
+    /// Bumped by every write that moves entries to new indices or
+    /// wipes them (rehash, clear); insert and delete leave existing
+    /// indices where they are. An entry index taken while it held a
+    /// value is still that key's entry as long as this has not moved
+    /// and the entry is not a tombstone.
+    pub generation: u32,
     pub slots: *mut MapSlot,
     pub entries: *mut MapEntry,
     /// Lazy own-property bag — a Map / Set instance is an ordinary

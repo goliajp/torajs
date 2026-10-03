@@ -53,7 +53,9 @@ fn str_key_pair(s: *const u8) -> (u8, u64) {
 }
 
 /// `__torajs_map_find_str(m, s)` — the entry index holding key `s`, or
-/// -1 (also for a NULL `m`).
+/// -1 (also for a NULL `m`). A hit carries the Map's generation above
+/// the index (see [`entry_index`]), so a later `set_str` can tell the
+/// entry has not moved without comparing the key again.
 ///
 /// # Safety
 /// `m` is null or a live Map; `s` is a borrowed string slot value.
@@ -64,7 +66,21 @@ pub unsafe extern "C" fn __torajs_map_find_str(p: *const c_void, s: *const u8) -
     }
     let (kt, kp) = str_key_pair(s);
     let lr = unsafe { map_lookup_slot(p as *const Map, kt, kp) };
-    if lr.found { lr.entry_idx as i64 } else { -1 }
+    if !lr.found {
+        return -1;
+    }
+    let generation = i64::from(unsafe { (*(p as *const Map)).generation } & GENERATION_MASK);
+    generation << INDEX_BITS | i64::from(lr.entry_idx)
+}
+
+const INDEX_BITS: u32 = 32;
+// the result stays non-negative: a miss is the only negative answer
+const GENERATION_MASK: u32 = u32::MAX >> 1;
+
+/// The entry index of a non-negative `find_str` answer.
+#[inline]
+pub(crate) fn entry_index(found: i64) -> usize {
+    (found as u64 & u64::from(u32::MAX)) as usize
 }
 
 /// `__torajs_map_entry_get(m, idx, out_tag, out_payload)` — the value
@@ -86,7 +102,7 @@ pub unsafe extern "C" fn __torajs_map_entry_get(
         (ANY_UNDEF, 0)
     } else {
         let m = p as *const Map;
-        let e = unsafe { (*m).entries.add(idx as usize) };
+        let e = unsafe { (*m).entries.add(entry_index(idx)) };
         let pair = crate::key_decode::stored_pair(unsafe { (*e).value_anyv });
         if pair.0 == ANY_HEAP && pair.1 != 0 {
             unsafe { __torajs_rc_inc(pair.1 as *mut c_void) };
@@ -104,12 +120,19 @@ pub unsafe extern "C" fn __torajs_map_entry_get(
 /// # Safety
 /// `m` is a live Map.
 unsafe fn hint_holds(m: *const Map, hint: i64, s: *const u8) -> bool {
-    if hint >= unsafe { (*m).n_used } as i64 {
+    let idx = entry_index(hint);
+    if idx >= unsafe { (*m).n_used } as usize {
         return false;
     }
-    let e = unsafe { &*(*m).entries.add(hint as usize) };
+    let e = unsafe { &*(*m).entries.add(idx) };
     if e.hash == ENTRY_HASH_TOMBSTONE {
         return false;
+    }
+    // nothing has moved the entries since the find that answered
+    // `hint` for this key, and the entry is still live: it is the key's
+    let generation = unsafe { (*m).generation } & GENERATION_MASK;
+    if hint >> INDEX_BITS == i64::from(generation) {
+        return true;
     }
     let (kt, kp) = str_key_pair(s);
     let (et, ep) = crate::key_decode::stored_pair(e.key_anyv);
@@ -146,7 +169,7 @@ pub unsafe extern "C" fn __torajs_map_set_str(
             return;
         }
         unsafe {
-            let e = (*m).entries.add(hint as usize);
+            let e = (*m).entries.add(entry_index(hint));
             let (old_t, old_p) = crate::key_decode::stored_pair((*e).value_anyv);
             (*e).value_anyv = __torajs_anyv_box_from_pair(value_tag, value_payload);
             if old_t == ANY_HEAP && old_p != 0 {

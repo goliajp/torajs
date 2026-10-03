@@ -141,5 +141,6 @@ pub unsafe extern "C" fn __torajs_map_clear(p: *mut c_void) {
         (*m).n_entries = 0;
         (*m).n_used = 0;
         (*m).n_tombstones = 0;
+        (*m).generation = (*m).generation.wrapping_add(1);
     }
 }
