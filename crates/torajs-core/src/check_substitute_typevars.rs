@@ -8,7 +8,8 @@
 //! against the inferred per-call type arguments.
 //!
 //! Recurses through wrapper variants `Array` / `Function` (args + ret)
-//! / `Struct` (named fields); other types pass through cloned.
+//! / `Struct` (named fields) / `Nullable` / `Promise`; other types pass
+//! through cloned.
 //! Re-exported back into `crate::check` so the canonical
 //! `crate::check::substitute_typevars` path keeps working.
 
@@ -35,6 +36,8 @@ pub(crate) fn substitute_typevars(ty: &Type, subst: &HashMap<String, Type>) -> T
                 .collect(),
         ),
         Type::Rest(inner) => Type::Rest(Box::new(substitute_typevars(inner, subst))),
+        Type::Nullable(inner) => Type::Nullable(Box::new(substitute_typevars(inner, subst))),
+        Type::Promise(inner) => Type::Promise(Box::new(substitute_typevars(inner, subst))),
         // Blade 3 (RFC 20260815-generic-nominal-identity) — a nominal
         // generic-class reference carries its type params INSIDE the
         // key string (`ClassRef("Box<T>")` from the factory's `Box<T>`
