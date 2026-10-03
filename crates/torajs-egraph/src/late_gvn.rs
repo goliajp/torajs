@@ -41,6 +41,7 @@ use torajs_core::ssa::{
     rewrite_value_operands, visit_value_operands,
 };
 
+use crate::float_demote::cfg::multi_def_values;
 use crate::optimize::classify_pure;
 use torajs_core::ssa::dominator::DominatorTree;
 
@@ -62,23 +63,6 @@ pub fn dedup_pure_ops(module: &mut Module) -> LateGvnStats {
         gvn_fn(func, &mut stats);
     }
     stats
-}
-
-/// Values defined by more than one instruction — the φ-web Copies
-/// MEM2REG_PHI leaves behind. Everything else is single-def SSA.
-fn multi_def_values(func: &Function) -> HashSet<ValueId> {
-    let mut seen: HashSet<ValueId> = HashSet::new();
-    let mut multi: HashSet<ValueId> = HashSet::new();
-    for block in &func.blocks {
-        for inst in &block.insts {
-            if let Some(r) = inst.result
-                && !seen.insert(r)
-            {
-                multi.insert(r);
-            }
-        }
-    }
-    multi
 }
 
 /// One dominator-walk scope frame. `barrier` marks a block whose
