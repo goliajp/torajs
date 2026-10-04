@@ -26,7 +26,9 @@
 use std::collections::BTreeSet;
 
 use crate::archive_link_extra_syms::collect_extra_defined_syms;
-use crate::archives_merge::{MergedArchives, compute_required_members, parse_member_undef_externs};
+use crate::archives_merge::{
+    MergedArchives, RequiredMembers, compute_required_members, parse_member_undef_externs,
+};
 use crate::exec::LinkConfig;
 use crate::layout_types::ArchiveLayoutError;
 
@@ -42,14 +44,16 @@ const CLASS_NAMES_SYMS: [&str; 2] = ["___torajs_class_name_table", "___torajs_n_
 /// structmeta, the cycle collector), so with every reader stripped
 /// the rows are a `__DATA_CONST` page nobody will open (a program with
 /// one named closure carried a one-row fn-name table and, through it,
-/// a 16 KiB segment). `None` when nothing changes.
+/// a 16 KiB segment). `None` when nothing changes. Also answers the
+/// member closure it walked when that is also the closure of the
+/// config the caller links next (the derived one, or `cfg`).
 pub(crate) fn derive_force_emit(
     cfg: &LinkConfig,
     merged: &MergedArchives<'_>,
-) -> Result<Option<LinkConfig>, ArchiveLayoutError> {
+) -> Result<(Option<LinkConfig>, Option<RequiredMembers>), ArchiveLayoutError> {
     let set = table_state(cfg);
     if set == (false, false, false) {
-        return Ok(None);
+        return Ok((None, None));
     }
     let extra = collect_extra_defined_syms(cfg);
     let required =
@@ -67,7 +71,7 @@ pub(crate) fn derive_force_emit(
     }
     let keep = derive_flags(set, &undefs);
     if keep == set {
-        return Ok(None);
+        return Ok((None, Some(required)));
     }
     let mut out = cfg.clone();
     if !keep.0 {
@@ -82,7 +86,10 @@ pub(crate) fn derive_force_emit(
         out.force_emit_class_names_globals = false;
         out.class_names.clear();
     }
-    Ok(Some(out))
+    // the fns are the same; the closure is too unless the dropped
+    // tables changed the link-defined names it skips
+    let required = (collect_extra_defined_syms(&out) == extra).then_some(required);
+    Ok((Some(out), required))
 }
 
 /// Which of the three tables the config would emit at all (forced or

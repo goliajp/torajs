@@ -5,14 +5,14 @@
 use crate::archive_emit_lc_meta::compute_emit_lc_meta;
 use crate::archive_emit_lcs::{write_header_and_load_commands, write_symtab_and_strtab};
 use crate::archive_link::{ArchiveLayout, ArchiveLayoutError};
-use crate::archives_merge::merge_archive_indexes;
+use crate::archives_merge::{MergedArchives, merge_archive_indexes};
 use crate::chained_fixups_call::recompute_chained_fixups_with_data_rebase;
 use crate::class_name_table_layout::{
     apply_class_name_table_overrides, build_class_name_table_payload,
 };
 use crate::data_section_emit::write_data_non_text_file_payloads;
 use crate::data_section_layout::DataSectionLayout;
-use crate::dead_strip_repack::DeadRows;
+use crate::dead_strip_repack::{DeadRows, StrippedMembers, swap_in_stripped};
 use crate::defined_extern_resolve::section_vaddr_for_sym;
 use crate::dyld_emit::{write_la_ptr_section, write_stubs_section};
 use crate::exec::LinkConfig;
@@ -55,10 +55,13 @@ fn is_allocator_shim_sym(name: &str) -> bool {
 /// `__text` atoms dropped (and, r499, the user fns with elided drain
 /// sites patched), then link the rewritten inputs through the
 /// unchanged pipeline, plus the defined externs it dropped (for
-/// `LC_SYMTAB`). `None` = link the caller's config as is.
+/// `LC_SYMTAB`) and the rewritten member bodies, which the caller
+/// swaps into `merged` — the returned config's `archives` stay the
+/// unstripped inputs. `None` = link the caller's config as is.
 fn dead_strip_prepass(
     cfg: &LinkConfig,
-) -> Result<Option<(LinkConfig, DeadRows)>, ArchiveLayoutError> {
+    merged: &MergedArchives<'_>,
+) -> Result<Option<(LinkConfig, DeadRows, StrippedMembers)>, ArchiveLayoutError> {
     let enabled = match std::env::var_os("TORAJS_LINK_DEADSTRIP") {
         Some(v) if v == "0" => false,
         Some(_) => true,
@@ -67,9 +70,9 @@ fn dead_strip_prepass(
     if !enabled {
         return Ok(None);
     }
-    let out =
-        crate::dead_strip_repack::strip_archives(cfg).map_err(ArchiveLayoutError::DeadStrip)?;
-    if out.archives.is_none()
+    let out = crate::dead_strip_repack::strip_archives(cfg, merged)
+        .map_err(ArchiveLayoutError::DeadStrip)?;
+    if out.members.is_empty()
         && out.funcs.is_none()
         && out.class_layouts.is_none()
         && out.fn_name_globals.is_none()
@@ -77,7 +80,6 @@ fn dead_strip_prepass(
         return Ok(None);
     }
     let stripped = LinkConfig {
-        archives: out.archives.unwrap_or_else(|| cfg.archives.clone()),
         funcs: out.funcs.unwrap_or_else(|| cfg.funcs.clone()),
         class_layouts: out
             .class_layouts
@@ -87,7 +89,7 @@ fn dead_strip_prepass(
             .unwrap_or_else(|| cfg.fn_name_globals.clone()),
         ..cfg.clone()
     };
-    Ok(Some((stripped, out.dead_rows)))
+    Ok(Some((stripped, out.dead_rows, out.members)))
 }
 
 /// Link an `archives`-populated `LinkConfig` into a complete
@@ -95,33 +97,28 @@ fn dead_strip_prepass(
 /// relocs both resolve against one effective sym table (caller
 /// externs + every member defined-external + dyld stub vaddrs).
 pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLayoutError> {
-    let (stripped_cfg, dead_rows) = match dead_strip_prepass(cfg)? {
-        Some((c, dead)) => (Some(c), dead),
-        None => (None, DeadRows::new()),
+    // Merge once: the dead-strip pre-pass reads this index, its
+    // rewritten members are swapped into it, and layout and emit share
+    // it — each merge re-parses every archive member's symtab.
+    let mut merged = merge_archive_indexes(&cfg.archives).map_err(ArchiveLayoutError::Merge)?;
+    let (stripped_cfg, dead_rows, stripped_members) = match dead_strip_prepass(cfg, &merged)? {
+        Some((c, dead, members)) => (Some(c), dead, members),
+        None => (None, DeadRows::new(), StrippedMembers::new()),
     };
+    swap_in_stripped(&mut merged, &stripped_members).map_err(ArchiveLayoutError::DeadStrip)?;
     let cfg = stripped_cfg.as_ref().unwrap_or(cfg);
 
-    // Merge once and share between layout and emit — each merge
-    // re-parses every archive member's symtab (~23ms/case).
-    let merged = merge_archive_indexes(&cfg.archives).map_err(ArchiveLayoutError::Merge)?;
     // r499 — with the archives stripped, a forced table global whose
     // readers all died drops, and an empty `__DATA_CONST` with it
     // (module doc in force_emit_derive).
-    let derived_cfg;
-    let cfg = match stripped_cfg
-        .as_ref()
-        .map(|c| crate::force_emit_derive::derive_force_emit(c, &merged))
-        .transpose()?
-        .flatten()
-    {
-        Some(c) => {
-            derived_cfg = c;
-            &derived_cfg
-        }
-        None => cfg,
+    let (derived_cfg, required) = match &stripped_cfg {
+        Some(c) => crate::force_emit_derive::derive_force_emit(c, &merged)?,
+        None => (None, None),
     };
-    let mut layout =
-        crate::archive_link::compute_archive_layout_with_merged(cfg, &merged, &dead_rows)?;
+    let cfg = derived_cfg.as_ref().unwrap_or(cfg);
+    let mut layout = crate::archive_link::compute_archive_layout_with_required(
+        cfg, &merged, &dead_rows, required,
+    )?;
 
     // Effective sym table = caller externs + member defined-externs
     // (vaddr dispatched by home section) + SD-2b dyld-stub vaddrs.

@@ -1,19 +1,13 @@
 //! S2 dead-strip blade 2b — archive repack driver (RFC
 //! 20260824-s2-dead-strip, plan C).
 //!
-//! Runs the full pre-pass: merge → member closure → atom
-//! reachability → per-member `.o` rewrite → `.a` repack. The caller
+//! Runs the full pre-pass over the caller's merged archives: member
+//! closure → atom reachability → per-member `.o` rewrite. The caller
 //! (`link_to_exec_with_archives`, gated on `TORAJS_LINK_DEADSTRIP`)
-//! swaps the stripped archives into a cloned `LinkConfig` and runs
-//! the unchanged pipeline against them.
-//!
-//! Repack notes: the writer emits BSD-style `#1/N` long-name
-//! members (NUL-padded names, 2-byte member alignment) — the same
-//! dialect `parse_archive` consumes. `__.SYMDEF` index members were
-//! already dropped at parse time and are not re-emitted; nothing in
-//! this linker reads them.
+//! swaps the rewritten members into that merged index
+//! ([`swap_in_stripped`]) and runs the unchanged pipeline against
+//! them; no archive is re-serialized or re-parsed.
 
-use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 use torajs_obj::{
@@ -23,9 +17,9 @@ use torajs_obj::{
 
 use torajs_codegen::CompiledFunction;
 
-use crate::archive::ArMember;
+use crate::archive::parse_member_defined_externs;
 use crate::archive_link_extra_syms::collect_extra_defined_syms;
-use crate::archives_merge::{compute_required_members, merge_archive_indexes};
+use crate::archives_merge::{MergedArchives, compute_required_members};
 use crate::dead_strip_reach::{MemberReach, SectAtoms, compute_reachability};
 use crate::dead_strip_rewrite::{StrippedMember, scan_load_commands, strip_member_section};
 use crate::exec::{LinkConfig, UserClassLayoutEntry, UserFnNameEntry};
@@ -36,12 +30,15 @@ use crate::exec::{LinkConfig, UserClassLayoutEntry, UserFnNameEntry};
 /// them, so `LC_SYMTAB` needs this list to leave them out.
 pub type DeadRows = BTreeMap<(usize, usize), Vec<u32>>;
 
-/// What the pre-pass rewrote: each side is `None` when that input
-/// is unchanged (the caller then links the original).
+/// Rewritten member bodies by `(archive_idx, member_idx)`.
+pub(crate) type StrippedMembers = BTreeMap<(usize, usize), Vec<u8>>;
+
+/// What the pre-pass rewrote: each side is `None` (or empty) when
+/// that input is unchanged (the caller then links the original).
 pub(crate) struct StripOutput {
-    pub(crate) archives: Option<Vec<Cow<'static, [u8]>>>,
+    pub(crate) members: StrippedMembers,
     /// r499 — user fns with elided drain sites patched
-    /// (`dead_strip_elide`); the archives above were stripped
+    /// (`dead_strip_elide`); the members above were stripped
     /// against these.
     pub(crate) funcs: Option<Vec<CompiledFunction>>,
     /// r502 — the class-layout table with the twin column dropped
@@ -55,12 +52,15 @@ pub(crate) struct StripOutput {
     pub(crate) dead_rows: DeadRows,
 }
 
-/// Run the dead-strip pre-pass over `cfg.archives`: judge the
-/// conditional call sites first, then strip against the patched fns.
-pub(crate) fn strip_archives(cfg: &LinkConfig) -> Result<StripOutput, String> {
-    let merged = merge_archive_indexes(&cfg.archives).map_err(|e| format!("merge: {e:?}"))?;
+/// Run the dead-strip pre-pass over `merged` (`cfg.archives`): judge
+/// the conditional call sites first, then strip against the patched
+/// fns.
+pub(crate) fn strip_archives(
+    cfg: &LinkConfig,
+    merged: &MergedArchives<'_>,
+) -> Result<StripOutput, String> {
     let extra = collect_extra_defined_syms(cfg);
-    let assumed = crate::dead_strip_elide::judge_and_patch(cfg, &merged, &extra)?;
+    let assumed = crate::dead_strip_elide::judge_and_patch(cfg, merged, &extra)?;
     let patched_cfg;
     let cfg = match &assumed {
         Some(a) => {
@@ -80,45 +80,65 @@ pub(crate) fn strip_archives(cfg: &LinkConfig) -> Result<StripOutput, String> {
         }
         None => cfg,
     };
-    let required = compute_required_members(&cfg.funcs, &merged, &extra)
+    let required = compute_required_members(&cfg.funcs, merged, &extra)
         .map_err(|e| format!("member closure: {e:?}"))?;
     // probes=None always: the CUT/CUT_IN what-ifs are diag-only
     // pricing probes and must never shape emitted bytes.
-    let reach = compute_reachability(cfg, &merged, &required, &extra, false, None)?;
+    let reach = compute_reachability(cfg, merged, &required, &extra, false, None)?;
 
-    let mut out: Vec<Cow<'static, [u8]>> = Vec::with_capacity(cfg.archives.len());
-    let mut any = false;
+    let mut members = StrippedMembers::new();
     let mut dead_rows = DeadRows::new();
-    for (a_idx, members) in merged.per_archive_members.iter().enumerate() {
-        let mut replaced: BTreeMap<usize, Vec<u8>> = BTreeMap::new();
-        for (m_idx, m) in members.iter().enumerate() {
-            if let Some(r) = reach.members.get(&(a_idx, m_idx))
-                && let Some(StrippedMember {
-                    bytes: new_bytes,
-                    dead_rows: mut dead,
-                }) = strip_member(m.data, r)?
-            {
-                if !cfg.strip_member_symbols && !dead.is_empty() {
-                    dead.sort_unstable();
-                    dead_rows.insert((a_idx, m_idx), dead);
-                }
-                replaced.insert(m_idx, new_bytes);
+    for (&key, r) in &reach.members {
+        let m = &merged.per_archive_members[key.0][key.1];
+        if let Some(StrippedMember {
+            bytes,
+            dead_rows: mut dead,
+        }) = strip_member(m.data, r)?
+        {
+            if !cfg.strip_member_symbols && !dead.is_empty() {
+                dead.sort_unstable();
+                dead_rows.insert(key, dead);
             }
-        }
-        if replaced.is_empty() {
-            out.push(cfg.archives[a_idx].clone());
-        } else {
-            any = true;
-            out.push(Cow::Owned(write_archive(members, &replaced)));
+            members.insert(key, bytes);
         }
     }
+    let (funcs, class_layouts, fn_name_globals) = match assumed {
+        Some(a) => (Some(a.funcs), a.class_layouts, a.fn_name_globals),
+        None => (None, None, None),
+    };
     Ok(StripOutput {
-        archives: any.then_some(out),
-        funcs: assumed.as_ref().map(|a| a.funcs.clone()),
-        class_layouts: assumed.as_ref().and_then(|a| a.class_layouts.clone()),
-        fn_name_globals: assumed.and_then(|a| a.fn_name_globals),
+        members,
+        funcs,
+        class_layouts,
+        fn_name_globals,
         dead_rows,
     })
+}
+
+/// Point `merged` at the rewritten member bodies. This is what
+/// re-merging archives repacked with them would give: the rewrite
+/// keeps every nlist row and its type (only `n_value` moves, and only
+/// undef rows lose `N_EXT`), so every defined extern keeps its owner
+/// and only an owner's rewritten `n_value` is re-read.
+pub(crate) fn swap_in_stripped<'a>(
+    merged: &mut MergedArchives<'a>,
+    stripped: &'a StrippedMembers,
+) -> Result<(), String> {
+    for (&(a, m), bytes) in stripped {
+        let member = &mut merged.per_archive_members[a][m];
+        member.data = bytes;
+        let syms = parse_member_defined_externs(member)
+            .map_err(|e| format!("{}: stripped symtab: {e:?}", member.name))?;
+        // first row wins, as in the index build
+        for &(name, n_value, _) in syms.iter().rev() {
+            if let Some(s) = merged.index.get_mut(name)
+                && (s.archive_idx, s.member_idx) == (a, m)
+            {
+                s.n_value = n_value;
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Which sections the rewriter may subset (S2 blade 3): regular
@@ -217,66 +237,4 @@ fn neuter_dead_undefs(bytes: &mut [u8]) -> Result<u32, String> {
         }
     }
     Ok(n)
-}
-
-/// Serialize an archive: every member in order, swapping in the
-/// rewritten bodies. BSD `#1/N` long names throughout.
-fn write_archive(members: &[ArMember<'_>], replaced: &BTreeMap<usize, Vec<u8>>) -> Vec<u8> {
-    let mut out: Vec<u8> = b"!<arch>\n".to_vec();
-    for (i, m) in members.iter().enumerate() {
-        let data: &[u8] = replaced.get(&i).map(|v| v.as_slice()).unwrap_or(m.data);
-        let name = m.name.as_bytes();
-        let name_padded = name.len().next_multiple_of(8);
-        let total = name_padded + data.len();
-
-        let mut hdr = [b' '; 60];
-        let n1 = format!("#1/{name_padded}");
-        hdr[..n1.len()].copy_from_slice(n1.as_bytes());
-        hdr[16] = b'0'; // mtime
-        hdr[28] = b'0'; // uid
-        hdr[34] = b'0'; // gid
-        hdr[40..46].copy_from_slice(b"100644");
-        let sz = total.to_string();
-        hdr[48..48 + sz.len()].copy_from_slice(sz.as_bytes());
-        hdr[58] = 0x60; // '`'
-        hdr[59] = b'\n';
-        out.extend_from_slice(&hdr);
-        out.extend_from_slice(name);
-        out.resize(out.len() + (name_padded - name.len()), 0);
-        out.extend_from_slice(data);
-        if !total.is_multiple_of(2) {
-            out.push(b'\n');
-        }
-    }
-    out
-}
-
-#[cfg(test)]
-mod tests {
-    use super::write_archive;
-    use crate::archive::{ArMember, parse_archive};
-    use std::collections::BTreeMap;
-
-    #[test]
-    fn roundtrip_through_parse_archive() {
-        let members = [
-            ArMember {
-                name: "alpha_with_a_rather_long_member_name.o",
-                data: &[1, 2, 3, 4, 5],
-            },
-            ArMember {
-                name: "beta.o",
-                data: &[9, 8],
-            },
-        ];
-        let mut replaced = BTreeMap::new();
-        replaced.insert(1usize, vec![7, 7, 7, 7]);
-        let bytes = write_archive(&members, &replaced);
-        let parsed = parse_archive(&bytes).expect("roundtrip parse");
-        assert_eq!(parsed.len(), 2);
-        assert_eq!(parsed[0].name, members[0].name);
-        assert_eq!(parsed[0].data, members[0].data);
-        assert_eq!(parsed[1].name, "beta.o");
-        assert_eq!(parsed[1].data, &[7, 7, 7, 7]);
-    }
 }
