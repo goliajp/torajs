@@ -123,13 +123,15 @@ fn square_cmp_side(ctx: &LowerCtx<'_>, op: AstBinOp, left: ExprId, right: ExprId
 
 /// A compare of the int square `x * x` (the left operand when
 /// `left_side`). Number multiplication is f64: the product rounds past
-/// 2^53 and never wraps. Against another integer, which an i64 Number
-/// never takes past 2^53, the exact product compares as the rounded one
-/// does (a square past 2^53 rounds to at least 2^53, and none rounds
-/// onto 2^53 itself), so the integer compare stands while the product
-/// does not wrap; past `SQUARE_ROOT_MAX` the square exceeds every i64
-/// and the compare's answer is fixed. Against anything else the square
-/// is the f64 product.
+/// 2^53 and never wraps. While the product does not wrap, the f64 compare
+/// of its conversion is the compare JS makes, and against an integer
+/// constant inside 2^53 so is the integer compare (a square past 2^53
+/// rounds to at least 2^53, and none rounds onto 2^53 itself); against
+/// any other integer, which may lie past 2^53 next to the rounded
+/// product, the compare stays f64 for float_demote to narrow where the
+/// facts allow. Past `SQUARE_ROOT_MAX` the square exceeds every i64 and
+/// the answer is fixed. Against a non-integer the square is the f64
+/// product.
 fn square_cmp(
     ctx: &mut LowerCtx<'_>,
     op: AstBinOp,
@@ -152,7 +154,7 @@ fn square_cmp(
         let (a, b) = if left_side { (sq, b) } else { (a, sq) };
         return ctx.lower_binop_with_ids(op, a, b, Some(left), Some(right));
     }
-    let c = ctx.lower_binop_with_ids(op, a, b, Some(left), Some(right));
+    let c = exact_cmp(ctx, op, (a, b), (left, right));
     // the answer when the square exceeds every i64
     let huge = matches!(
         (op, left_side),
@@ -176,4 +178,28 @@ fn square_cmp(
     };
     let g = ctx.cmp(pred, shifted, span);
     ctx.bin(join, g, c, Type::Bool)
+}
+
+/// `a op b` over two integers as JS compares them: in f64, unless both
+/// are exact there.
+fn exact_cmp(
+    ctx: &mut LowerCtx<'_>,
+    op: AstBinOp,
+    (a, b): (Operand, Operand),
+    (left, right): (ExprId, ExprId),
+) -> Operand {
+    const EXACT: i64 = 1 << 53;
+    let exact = |o: &Operand| matches!(o, Operand::ConstI64(k) if k.unsigned_abs() <= EXACT as u64);
+    if exact(&a) || exact(&b) {
+        return ctx.lower_binop_with_ids(op, a, b, Some(left), Some(right));
+    }
+    let mut to_f64 = |o: Operand| match o {
+        Operand::ConstI64(k) => Operand::ConstF64(k as f64),
+        o => Operand::Value(
+            ctx.f
+                .append_inst(ctx.cur_block, InstKind::SiToFp(o), Type::F64, None),
+        ),
+    };
+    let (af, bf) = (to_f64(a), to_f64(b));
+    ctx.lower_binop_with_ids(op, af, bf, Some(left), Some(right))
 }
