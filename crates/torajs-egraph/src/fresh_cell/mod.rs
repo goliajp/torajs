@@ -62,10 +62,11 @@ pub struct FreshCellStats {
 
 pub fn forward_fresh_cells(module: &mut Module) -> FreshCellStats {
     let mut stats = FreshCellStats::default();
-    let Some(alloc) = module.funcs.iter().position(|f| f.name == OBJ_ALLOC) else {
-        return stats;
-    };
-    let alloc = FuncId(alloc as u32);
+    let alloc = module
+        .funcs
+        .iter()
+        .position(|f| f.name == OBJ_ALLOC)
+        .map(|i| FuncId(i as u32));
     for func in module.funcs.iter_mut() {
         if func.is_declaration() {
             continue;
@@ -97,7 +98,11 @@ struct Walker {
     stats: FreshCellStats,
 }
 
-pub(crate) fn forward_in_function(func: &mut Function, alloc: FuncId, stats: &mut FreshCellStats) {
+pub(crate) fn forward_in_function(
+    func: &mut Function,
+    alloc: Option<FuncId>,
+    stats: &mut FreshCellStats,
+) {
     let mut w = Walker {
         preds: fold::reachable_preds(func),
         defs: def_sites(func),
@@ -113,7 +118,7 @@ pub(crate) fn forward_in_function(func: &mut Function, alloc: FuncId, stats: &mu
         for ii in 0..func.blocks[bi].insts.len() {
             let inst = &func.blocks[bi].insts[ii];
             let fresh = match &inst.kind {
-                InstKind::Call(f, _) => *f == alloc,
+                InstKind::Call(f, _) => Some(*f) == alloc,
                 InstKind::AllocaBytes(_) => inst.result.is_some_and(|r| frame.contains(&r)),
                 _ => false,
             };

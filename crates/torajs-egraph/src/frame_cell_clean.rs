@@ -92,7 +92,10 @@ fn plan(
     stats: &mut FrameCellCleanStats,
 ) -> HashMap<ValueId, Operand> {
     let mut replace: HashMap<ValueId, Operand> = HashMap::new();
-    let is_root = |op: &Operand, replace: &HashMap<ValueId, Operand>| matches!(resolve(op, replace), Operand::Value(v) if roots.contains(&v));
+    let is_root = |op: &Operand, replace: &HashMap<ValueId, Operand>| {
+        let op = resolve(op, replace);
+        matches!(op, Operand::Value(v) if roots.contains(&v))
+    };
     let not_frame = |op: &Operand, replace: &HashMap<ValueId, Operand>| match resolve(op, replace) {
         Operand::ConstPtrNull | Operand::ConstI64(0) => true,
         Operand::Value(v) => globals.contains(&v),

@@ -408,135 +408,154 @@ mod tests {
         assert!(matches!(args[0], Operand::ConstI64(7)));
     }
 
-    #[test]
-    fn load_after_a_join_not_forwarded() {
-        // store in bb0, load in bb1 entered along two edges — a join,
-        // out of scope; the slot must survive untouched.
-        let vals = vec![
-            ValueInfo {
-                ty: Type::Ptr,
-                name: None,
-            },
+    fn slot() -> Inst {
+        Inst {
+            result: Some(ValueId(0)),
+            kind: InstKind::Alloca(Type::I64),
+            origin: None,
+        }
+    }
+
+    fn st(k: i64) -> Inst {
+        void(InstKind::Store(
+            Operand::ConstI64(k),
+            Operand::Value(ValueId(0)),
+            0,
+        ))
+    }
+
+    fn ld(r: u32) -> Inst {
+        Inst {
+            result: Some(ValueId(r)),
+            kind: InstKind::Load(Type::I64, Operand::Value(ValueId(0)), 0),
+            origin: None,
+        }
+    }
+
+    fn cbr(t: u32, e: u32) -> Terminator {
+        Terminator::CondBr {
+            cond: Operand::ConstBool(true),
+            then_blk: BlockId(t),
+            else_blk: BlockId(e),
+        }
+    }
+
+    fn ret(r: u32) -> Terminator {
+        Terminator::Ret(Some(Operand::Value(ValueId(r))))
+    }
+
+    /// One function over blocks 0..n; value 0 is the slot, 1..4 i64.
+    fn cfg(blocks: Vec<(Vec<Inst>, Terminator)>) -> Module {
+        let mut values = vec![
             ValueInfo {
                 ty: Type::I64,
                 name: None,
-            },
+            };
+            4
         ];
-        let m_funcs = Function {
-            name: "main".into(),
-            params: vec![],
-            ret: Type::Void,
-            blocks: vec![
-                Block {
-                    id: BlockId(0),
-                    insts: vec![
-                        Inst {
-                            result: Some(ValueId(0)),
-                            kind: InstKind::Alloca(Type::I64),
-                            origin: None,
-                        },
-                        void(InstKind::Store(
-                            Operand::ConstI64(3),
-                            Operand::Value(ValueId(0)),
-                            0,
-                        )),
-                    ],
-                    term: Terminator::CondBr {
-                        cond: Operand::ConstBool(true),
-                        then_blk: BlockId(1),
-                        else_blk: BlockId(1),
-                    },
-                },
-                Block {
-                    id: BlockId(1),
-                    insts: vec![Inst {
-                        result: Some(ValueId(1)),
-                        kind: InstKind::Load(Type::I64, Operand::Value(ValueId(0)), 0),
-                        origin: None,
-                    }],
-                    term: Terminator::Ret(Some(Operand::Value(ValueId(1)))),
-                },
-            ],
-            values: vals,
-            current_origin: None,
-        };
-        let mut m = Module {
-            funcs: vec![m_funcs],
+        values[0].ty = Type::Ptr;
+        let blocks = blocks
+            .into_iter()
+            .enumerate()
+            .map(|(i, (insts, term))| Block {
+                id: BlockId(i as u32),
+                insts,
+                term,
+            })
+            .collect();
+        Module {
+            funcs: vec![Function {
+                name: "main".into(),
+                params: vec![],
+                ret: Type::I64,
+                blocks,
+                values,
+                current_origin: None,
+            }],
             ..Default::default()
-        };
+        }
+    }
+
+    fn ret_of(m: &Module, b: usize) -> Operand {
+        match m.funcs[0].blocks[b].term {
+            Terminator::Ret(Some(op)) => op,
+            _ => panic!("expected ret"),
+        }
+    }
+
+    #[test]
+    fn load_after_a_join_not_forwarded() {
+        // bb0 -> bb1 / bb2 -> bb3: the load in bb3 has two predecessors
+        let mut m = cfg(vec![
+            (vec![slot(), st(3)], cbr(1, 2)),
+            (vec![], Terminator::Br(BlockId(3))),
+            (vec![], Terminator::Br(BlockId(3))),
+            (vec![ld(1)], ret(1)),
+        ]);
         let stats = forward_slot_loads(&mut m);
         assert_eq!(stats, SlotForwardStats::default());
         assert_eq!(m.funcs[0].blocks[0].insts.len(), 2);
-        assert_eq!(m.funcs[0].blocks[1].insts.len(), 1);
+        assert_eq!(m.funcs[0].blocks[3].insts.len(), 1);
     }
 
     #[test]
     fn store_reaches_a_successor_entered_only_from_its_block() {
-        // bb0 stores 3 and branches to bb1 (sole pred bb0) and bb2;
-        // bb1 stores 4 and branches to bb3 (sole pred bb1): bb1 reads
-        // 3, bb3 reads 4, bb2 reads 3
-        let vals: Vec<ValueInfo> = [Type::Ptr, Type::I64, Type::I64, Type::I64]
-            .into_iter()
-            .map(|ty| ValueInfo { ty, name: None })
-            .collect();
-        let load = |r| Inst {
-            result: Some(ValueId(r)),
-            kind: InstKind::Load(Type::I64, Operand::Value(ValueId(0)), 0),
-            origin: None,
-        };
-        let store = |k| {
-            void(InstKind::Store(
-                Operand::ConstI64(k),
-                Operand::Value(ValueId(0)),
-                0,
-            ))
-        };
-        let block = |id, insts, term| Block {
-            id: BlockId(id),
-            insts,
-            term,
-        };
-        let ret = |r| Terminator::Ret(Some(Operand::Value(ValueId(r))));
-        let f = Function {
-            name: "main".into(),
-            params: vec![],
-            ret: Type::I64,
-            blocks: vec![
-                block(
-                    0,
-                    vec![
-                        Inst {
-                            result: Some(ValueId(0)),
-                            kind: InstKind::Alloca(Type::I64),
-                            origin: None,
-                        },
-                        store(3),
-                    ],
-                    Terminator::CondBr {
-                        cond: Operand::ConstBool(true),
-                        then_blk: BlockId(1),
-                        else_blk: BlockId(2),
-                    },
-                ),
-                block(1, vec![load(1), store(4)], Terminator::Br(BlockId(3))),
-                block(2, vec![load(2)], ret(2)),
-                block(3, vec![load(3)], ret(3)),
-            ],
-            values: vals,
-            current_origin: None,
-        };
-        let mut m = Module {
-            funcs: vec![f],
-            ..Default::default()
-        };
+        // bb1 (sole pred bb0) reads 3 and stores 4; bb3 (sole pred bb1)
+        // reads 4; bb2 (sole pred bb0) reads 3
+        let mut m = cfg(vec![
+            (vec![slot(), st(3)], cbr(1, 2)),
+            (vec![ld(1), st(4)], Terminator::Br(BlockId(3))),
+            (vec![ld(2)], ret(2)),
+            (vec![ld(3)], ret(3)),
+        ]);
         let stats = forward_slot_loads(&mut m);
         assert_eq!(stats.loads_forwarded, 3);
-        let ret_of = |b: usize| match m.funcs[0].blocks[b].term {
-            Terminator::Ret(Some(op)) => op,
-            _ => panic!("expected ret"),
-        };
-        assert!(matches!(ret_of(2), Operand::ConstI64(3)));
-        assert!(matches!(ret_of(3), Operand::ConstI64(4)));
+        assert!(matches!(ret_of(&m, 2), Operand::ConstI64(3)));
+        assert!(matches!(ret_of(&m, 3), Operand::ConstI64(4)));
+    }
+
+    #[test]
+    fn loop_header_load_not_forwarded() {
+        // bb1's predecessors are the entry and the latch bb2, which
+        // stores: the header load keeps reading memory, and so does
+        // the exit bb3 entered only from the header
+        let mut m = cfg(vec![
+            (vec![slot(), st(0)], Terminator::Br(BlockId(1))),
+            (vec![ld(1)], cbr(2, 3)),
+            (vec![st(5)], Terminator::Br(BlockId(1))),
+            (vec![ld(2)], ret(2)),
+        ]);
+        let stats = forward_slot_loads(&mut m);
+        assert_eq!(stats, SlotForwardStats::default());
+        assert!(matches!(ret_of(&m, 3), Operand::Value(ValueId(2))));
+    }
+
+    #[test]
+    fn self_loop_block_starts_empty_but_hands_its_stores_on() {
+        // bb1 branches to itself: its load sees bb0's store on the first
+        // pass and its own after that, so it stays; bb2, entered only
+        // from bb1, reads bb1's last store
+        let mut m = cfg(vec![
+            (vec![slot(), st(1)], Terminator::Br(BlockId(1))),
+            (vec![ld(1), st(2)], cbr(1, 2)),
+            (vec![ld(2)], ret(2)),
+        ]);
+        let stats = forward_slot_loads(&mut m);
+        assert_eq!(stats.loads_forwarded, 1);
+        assert!(matches!(
+            m.funcs[0].blocks[1].insts[0].kind,
+            InstKind::Load(..)
+        ));
+        assert!(matches!(ret_of(&m, 2), Operand::ConstI64(2)));
+    }
+
+    #[test]
+    fn slot_with_only_stores_is_removed_without_a_forward() {
+        let mut m = cfg(vec![(vec![slot(), st(1), st(2)], Terminator::Ret(None))]);
+        let stats = forward_slot_loads(&mut m);
+        assert_eq!(stats.loads_forwarded, 0);
+        assert_eq!((stats.stores_removed, stats.slots_removed), (2, 1));
+        assert!(m.funcs[0].blocks[0].insts.is_empty());
     }
 
     #[test]
@@ -574,74 +593,26 @@ mod tests {
     fn partial_load_keeps_slot_alive() {
         // one load forwards (same block), another sits behind a join
         // — stores must NOT be deleted (that load still reads them).
-        let vals = vec![
-            ValueInfo {
-                ty: Type::Ptr,
-                name: None,
-            },
-            ValueInfo {
-                ty: Type::I64,
-                name: None,
-            },
-            ValueInfo {
-                ty: Type::I64,
-                name: None,
-            },
-        ];
-        let f = Function {
-            name: "main".into(),
-            params: vec![],
-            ret: Type::Void,
-            blocks: vec![
-                Block {
-                    id: BlockId(0),
-                    insts: vec![
-                        Inst {
-                            result: Some(ValueId(0)),
-                            kind: InstKind::Alloca(Type::I64),
-                            origin: None,
-                        },
-                        void(InstKind::Store(
-                            Operand::ConstI64(3),
-                            Operand::Value(ValueId(0)),
-                            0,
-                        )),
-                        Inst {
-                            result: Some(ValueId(1)),
-                            kind: InstKind::Load(Type::I64, Operand::Value(ValueId(0)), 0),
-                            origin: None,
-                        },
-                        void(InstKind::Call(FuncId(0), vec![Operand::Value(ValueId(1))])),
-                    ],
-                    term: Terminator::CondBr {
-                        cond: Operand::ConstBool(true),
-                        then_blk: BlockId(1),
-                        else_blk: BlockId(1),
-                    },
-                },
-                Block {
-                    id: BlockId(1),
-                    insts: vec![Inst {
-                        result: Some(ValueId(2)),
-                        kind: InstKind::Load(Type::I64, Operand::Value(ValueId(0)), 0),
-                        origin: None,
-                    }],
-                    term: Terminator::Ret(Some(Operand::Value(ValueId(2)))),
-                },
-            ],
-            values: vals,
-            current_origin: None,
-        };
-        let mut m = Module {
-            funcs: vec![f],
-            ..Default::default()
-        };
+        let mut m = cfg(vec![
+            (
+                vec![
+                    slot(),
+                    st(3),
+                    ld(1),
+                    void(InstKind::Call(FuncId(0), vec![Operand::Value(ValueId(1))])),
+                ],
+                cbr(1, 2),
+            ),
+            (vec![], Terminator::Br(BlockId(3))),
+            (vec![], Terminator::Br(BlockId(3))),
+            (vec![ld(2)], ret(2)),
+        ]);
         let stats = forward_slot_loads(&mut m);
         assert_eq!(stats.loads_forwarded, 1);
         assert_eq!(stats.stores_removed, 0);
         assert_eq!(stats.slots_removed, 0);
-        // bb1's load survives; bb0's forwarded load is gone.
-        assert_eq!(m.funcs[0].blocks[1].insts.len(), 1);
+        // bb3's load survives; bb0's forwarded load is gone.
+        assert_eq!(m.funcs[0].blocks[3].insts.len(), 1);
         assert!(
             m.funcs[0].blocks[0]
                 .insts

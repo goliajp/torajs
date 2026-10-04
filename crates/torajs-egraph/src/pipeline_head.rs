@@ -64,6 +64,8 @@ pub(crate) fn inline_and_forward(module: &mut Module) {
         gated_pass("FRAME_CELL_ROUNDS", module, |m| {
             forward_frame_cells(m, &promoted)
         });
+        gated_pass("SLOTFWD", module, slot_forward::forward_slot_loads);
+        gated_pass("MEM2REG", module, mem2reg::promote_slots);
     }
 }
 
@@ -86,8 +88,8 @@ fn frame_cells(module: &Module) -> Vec<usize> {
 /// Rounds over a function with promoted cells until nothing changes:
 /// each round's folds and forwards hand the next one a cell with fewer
 /// uses (the release reached through a `let` slot is decided only once
-/// that slot's load forwards to the cell). Every other function gets
-/// the slot passes once more, as before the rounds existed.
+/// that slot's load forwards to the cell). Afterwards every function
+/// gets the slot passes once more, as before the rounds existed.
 const FRAME_CELL_ROUNDS: u32 = 4;
 
 #[derive(Debug, Default)]
@@ -111,16 +113,7 @@ fn forward_frame_cells(module: &mut Module, promoted: &[bool]) -> FrameCellRound
         .map(|i| FuncId(i as u32));
     let mut st = FrameCellRoundsStats::default();
     for (func, &promoted) in module.funcs.iter_mut().zip(promoted) {
-        if func.is_declaration() {
-            continue;
-        }
-        if !promoted {
-            if slotfwd_on {
-                slot_forward::forward_in_function(func, &mut SlotForwardStats::default());
-            }
-            if mem2reg_on {
-                mem2reg::promote_in_function(func, &mut Mem2RegStats::default());
-            }
+        if func.is_declaration() || !promoted {
             continue;
         }
         st.functions += 1;
@@ -142,7 +135,7 @@ fn forward_frame_cells(module: &mut Module, promoted: &[bool]) -> FrameCellRound
                 mem2reg::promote_in_function(func, &mut s);
                 changed |= s != Default::default();
             }
-            if let (true, Some(alloc)) = (fresh_on, alloc) {
+            if fresh_on {
                 let mut s = FreshCellStats::default();
                 fresh_cell::forward_in_function(func, alloc, &mut s);
                 changed |= s != Default::default();
