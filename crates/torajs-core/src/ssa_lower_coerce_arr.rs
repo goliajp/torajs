@@ -25,7 +25,7 @@
 //! prototype has an empty shadow set and emits exactly what it did.
 
 use crate::ast::ExprId;
-use crate::ssa::{ArrId, FuncId, InstKind, Operand, Type};
+use crate::ssa::{ArrId, FuncId, InstKind, Operand, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 
 /// The `__torajs_arr_join_*` kernel for this array's element type —
@@ -73,14 +73,21 @@ fn emit_join_comma(ctx: &mut LowerCtx<'_>, arr: Operand, fid: FuncId) -> Operand
         Type::Str,
         None,
     );
-    // The any kernel is the one that runs user code per element, so
-    // it is the one that can leave a throw pending (an own toString
-    // that throws, or a Symbol element, which §7.1.17 step 2 rejects
-    // by itself). The typed kernels read their slots and cannot.
+    check_join(ctx, fid, v);
+    Operand::Value(v)
+}
+
+/// The throw check after a join kernel call that answered `v`. The any
+/// kernel runs user code per element (an own toString that throws, or
+/// a Symbol element, which §7.1.17 step 2 rejects by itself); every
+/// kernel answers a result past the longest Str with a RangeError and
+/// an empty placeholder, which the throw path releases.
+pub(crate) fn check_join(ctx: &mut LowerCtx<'_>, fid: FuncId, v: ValueId) {
     if fid == ctx.intrinsics.arr_join_any {
         ctx.emit_throw_check(None);
+    } else {
+        ctx.emit_throw_check_owned(None, Operand::Value(v), Type::Str);
     }
-    Operand::Value(v)
 }
 
 /// Has this module put anything in front of the walk the join kernel

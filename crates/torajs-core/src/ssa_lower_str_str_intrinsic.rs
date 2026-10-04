@@ -109,13 +109,31 @@ pub(crate) fn dispatch_intrinsic(
     let v = ctx
         .f
         .append_inst(ctx.cur_block, InstKind::Call(target, argv), ret_ty, None);
-    // ES §22.1.3.16 step 4 — s.repeat(n < 0) throws RangeError.
-    // Runtime sets a TLS pending throw; emit_throw_check propagates.
-    if method == "repeat" {
-        ctx.emit_throw_check(None);
+    if builds_past_input(method) {
+        ctx.emit_throw_check_owned(None, Operand::Value(v), Type::Str);
     }
     drain_owned_temps(ctx, owned_base);
     Operand::Value(v)
+}
+
+/// The Str methods whose kernel can leave a RangeError pending: a
+/// negative or infinite `repeat` count (§22.1.3.16 step 4), and a
+/// result longer than the longest Str, which these can all build
+/// from inputs that fit. The kernel answers an empty placeholder,
+/// released when the check takes the throw.
+pub(crate) fn builds_past_input(method: &str) -> bool {
+    matches!(
+        method,
+        "repeat"
+            | "padStart"
+            | "padEnd"
+            | "toUpperCase"
+            | "toLowerCase"
+            | "toLocaleUpperCase"
+            | "toLocaleLowerCase"
+            | "replace"
+            | "replaceAll"
+    )
 }
 
 /// RFC 20260712 chunk B — drop the fresh-owned argv operands parked

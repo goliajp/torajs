@@ -243,11 +243,8 @@ pub(crate) fn try_dispatch(
                 ctx.cur_block,
                 InstKind::Call(ctx.intrinsics.str_drop, vec![Operand::Value(owned)]),
             );
-            // ES §22.1.3.16 step 4 — `s.repeat(n < 0)` throws
-            // RangeError. Runtime sets a TLS pending throw;
-            // emit_throw_check propagates here.
-            if method == "repeat" {
-                ctx.emit_throw_check(None);
+            if crate::ssa_lower_str_str_intrinsic::builds_past_input(method) {
+                ctx.emit_throw_check_owned(None, Operand::Value(v), Type::Str);
             }
             Some(Operand::Value(v))
         }
