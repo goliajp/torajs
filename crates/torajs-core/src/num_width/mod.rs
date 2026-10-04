@@ -49,6 +49,7 @@ mod let_names;
 mod magnitude;
 mod method_value;
 mod mono;
+mod nonzero_neg;
 mod sentinel_hof;
 mod sentinel_member_reads;
 mod sentinel_tables;
@@ -247,6 +248,8 @@ pub(super) struct Analysis<'a> {
     pub(super) sentinel_member_reads: HashSet<ExprId>,
     /// Magnitude bounds of the writes and `+ - *` the walk saw.
     mag: magnitude::MagRecord,
+    /// Operands of the `-x` that cannot answer -0 (`nonzero_neg`).
+    pub(super) nonzero_negs: HashSet<ExprId>,
 }
 
 /// Full analysis result — the F64 slot classes plus the container
@@ -301,6 +304,7 @@ pub(crate) fn analyze(
         char_code_proven: HashSet::new(),
         sentinel_member_reads: HashSet::new(),
         mag: Default::default(),
+        nonzero_negs: nonzero_neg::collect(ast, &bodies, expr_types),
     };
 
     // Top-level statements walk under the "" scope; fn bodies under
@@ -430,6 +434,7 @@ pub(crate) fn analyze(
         a.settled_reads,
         a.char_code_proven,
         arith_in_window,
+        a.nonzero_negs,
         a.by_name,
         a.captures,
         a.bound_closures,

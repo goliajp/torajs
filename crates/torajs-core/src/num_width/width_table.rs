@@ -85,6 +85,10 @@ pub(crate) struct WidthTable {
     /// The integer `+ - *` whose every result stays inside the exact
     /// window (`magnitude.rs`); the rest compute in f64.
     arith_in_window: HashSet<ExprId>,
+    /// The operands of the negations proven not to see a zero
+    /// (`nonzero_neg`): the width walk kept their integer face, so the
+    /// lowering has to emit an integer subtract for them.
+    nonzero_negs: HashSet<ExprId>,
     /// The pre-walk slot-name registry (`analyze_tables::
     /// collect_slot_registry`): every binding's spellings by name —
     /// `Param(f, n)` / `Local(f, n)` per top-level fn, `Global(n)` for
@@ -118,6 +122,7 @@ impl WidthTable {
         index_read_settled: HashSet<ExprId>,
         char_code_at_proven: HashSet<ExprId>,
         arith_in_window: HashSet<ExprId>,
+        nonzero_negs: HashSet<ExprId>,
         by_name: HashMap<String, Vec<SlotKey>>,
         captures: super::captures::CaptureMap,
         bound_closures: super::bound_closures::BoundClosures,
@@ -137,6 +142,7 @@ impl WidthTable {
             index_read_settled,
             char_code_at_proven,
             arith_in_window,
+            nonzero_negs,
             by_name,
             captures,
             bound_closures,
@@ -208,6 +214,11 @@ impl WidthTable {
     /// path.
     pub(crate) fn arith_in_window(&self, eid: ExprId) -> bool {
         self.arith_in_window.contains(&eid)
+    }
+
+    /// See the field's doc — keyed by the negation's operand.
+    pub(crate) fn neg_operand_nonzero(&self, operand: ExprId) -> bool {
+        self.nonzero_negs.contains(&operand)
     }
 
     /// W4 shape-join query — true when `name` floats on any literal

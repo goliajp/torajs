@@ -94,7 +94,10 @@ impl LowerCtx<'_> {
                 );
                 Operand::Value(r)
             }
-            crate::ast::UnaryOp::Neg => self.lower_unary_neg(v),
+            crate::ast::UnaryOp::Neg => {
+                let nonzero = self.num_f64_slots.neg_operand_nonzero(expr);
+                self.lower_unary_neg(v, nonzero)
+            }
             crate::ast::UnaryOp::BitNot => {
                 let v_ty = self.operand_ty(&v);
                 if v_ty == Type::BigInt {
@@ -373,7 +376,7 @@ impl LowerCtx<'_> {
     /// `Neg` arm — BigInt helper call / F64 const fold + FSub from
     /// -0.0 (±0 sign preservation) / I64 const fold + W3 S8
     /// sign-preserving f64 route for runtime ints.
-    fn lower_unary_neg(&mut self, v: Operand) -> Operand {
+    fn lower_unary_neg(&mut self, v: Operand, nonzero: bool) -> Operand {
         let v_ty = self.operand_ty(&v);
         match v_ty {
             Type::BigInt => {
@@ -426,17 +429,14 @@ impl LowerCtx<'_> {
                 {
                     return Operand::ConstI64(m);
                 }
-                // W3 S8 (rfc 20260611-ann-width-unification
-                // §5.3) — `-x` on a runtime int mints -0
-                // when x == 0 (JS spec §13.5.5 unary minus),
-                // which i64 cannot represent, so a
-                // non-constant negation routes through the
-                // sign-preserving f64 FSub path. The
-                // frem_narrow fptosi sink recovers
-                // `sub(0, x)` where the -0 is unobservable
-                // (i64 truncation collapses it), same
-                // playbook as Mod / Mul.
-                if self.operand_ty(&v) == Type::I64 {
+                // W3 S8 — `-x` on a runtime int mints -0
+                // when x == 0 (§13.5.5), which i64 cannot
+                // represent, so a negation the width walk did
+                // not prove zero-free (`nonzero_neg`) routes
+                // through the sign-preserving f64 FSub path.
+                // The frem_narrow fptosi sink recovers
+                // `sub(0, x)` where the -0 is unobservable.
+                if self.operand_ty(&v) == Type::I64 && !nonzero {
                     let vf = self.coerce_to_f64(v);
                     let r = self.f.append_inst(
                         self.cur_block,

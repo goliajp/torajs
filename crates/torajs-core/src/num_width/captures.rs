@@ -77,6 +77,14 @@ impl Body<'_> {
         )
     }
 
+    pub(super) fn stmts(&self) -> impl Iterator<Item = &Stmt> {
+        self.stmts.iter().copied()
+    }
+
+    pub(super) fn binds_param(&self, n: &str) -> bool {
+        self.params.contains(n)
+    }
+
     /// Every expression the body evaluates in its own frame.
     pub(super) fn each_expr(&self, ast: &Ast, f: &mut dyn FnMut(ExprId)) {
         fn visit(ast: &Ast, eid: ExprId, f: &mut dyn FnMut(ExprId)) {
