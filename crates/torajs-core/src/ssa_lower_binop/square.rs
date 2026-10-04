@@ -4,7 +4,7 @@
 //! [`square_cmp`].
 
 use crate::ast::{BinOp as AstBinOp, Expr, ExprId};
-use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Type};
+use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 
 /// One binary operator's part in a square compare: the compare that
@@ -14,6 +14,10 @@ pub(crate) struct SquareCmp {
     side: Option<bool>,
     /// On the Mul that squares for a compare: it keeps the int path.
     armed: bool,
+    /// The int-path product and root the square operand lowered to,
+    /// taken as soon as that operand is lowered: the other operand may
+    /// hold a square compare of its own.
+    root: Option<(ValueId, Operand)>,
 }
 
 impl SquareCmp {
@@ -31,21 +35,27 @@ impl SquareCmp {
         Self {
             side: square_cmp_side(ctx, op, left, right),
             armed,
+            root: None,
         }
     }
 
     /// Lowers the left (`is_left`) or right operand `e` through `lower`.
     pub(crate) fn operand<'a>(
-        &self,
+        &mut self,
         ctx: &mut LowerCtx<'a>,
         is_left: bool,
         e: ExprId,
         lower: impl FnOnce(&mut LowerCtx<'a>) -> Operand,
     ) -> Operand {
-        if self.side == Some(is_left) {
-            ctx.binop.square_cmp_operand = Some(e);
+        if self.side != Some(is_left) {
+            return lower(ctx);
         }
-        lower(ctx)
+        ctx.binop.square_cmp_operand = Some(e);
+        ctx.binop.square_root = None;
+        let v = lower(ctx);
+        ctx.binop.square_cmp_operand = None;
+        self.root = ctx.binop.square_root.take();
+        v
     }
 
     /// The operator over its lowered operands `(a, b)`.
@@ -57,7 +67,7 @@ impl SquareCmp {
         (left, right): (ExprId, ExprId),
     ) -> Operand {
         let square = self.side.and_then(|left_side| {
-            let (r, x) = ctx.binop.square_root.take()?;
+            let (r, x) = self.root?;
             let sq = if left_side { a } else { b };
             (sq == Operand::Value(r)).then_some((left_side, x))
         });

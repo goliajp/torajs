@@ -91,7 +91,7 @@ pub(crate) fn lower(
         }
         ctx.lower_expr(eid)
     };
-    let sq = square::SquareCmp::begin(ctx, eid, op, left, right);
+    let mut sq = square::SquareCmp::begin(ctx, eid, op, left, right);
     let a = sq.operand(ctx, true, left, |ctx| lower_operand(ctx, left));
     // Rotation 550 — a fresh-owned left operand is live across the
     // right operand's lower and the kernel (any_add's ToPrimitive
