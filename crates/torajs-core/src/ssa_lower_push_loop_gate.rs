@@ -37,6 +37,17 @@ pub(crate) fn push_args_cannot_call(ctx: &LowerCtx<'_>, s: &Stmt) -> bool {
         Stmt::Block(stmts) | Stmt::Multi(stmts) => {
             stmts.iter().all(|s| push_args_cannot_call(ctx, s))
         }
+        Stmt::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            expr_cannot_call(ctx, *cond)
+                && push_args_cannot_call(ctx, then_branch)
+                && else_branch
+                    .as_ref()
+                    .is_none_or(|b| push_args_cannot_call(ctx, b))
+        }
         _ => false,
     }
 }

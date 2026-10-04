@@ -3,7 +3,7 @@
 //! cell, or throw.
 
 use super::{array_is_unfilled, names_all_owned};
-use crate::ast::{Expr, ExprId, Stmt};
+use crate::ast::{Expr, ExprId, Stmt, UnaryOp};
 use crate::ssa_lower::LowerCtx;
 
 /// True when every `xs.push(arg)` in `s` has an argument that cannot
@@ -51,7 +51,41 @@ pub(crate) fn push_args_all_inert(ctx: &LowerCtx<'_>, s: &Stmt, names: &[String]
         Stmt::Block(stmts) | Stmt::Multi(stmts) => {
             stmts.iter().all(|s| push_args_all_inert(ctx, s, names))
         }
+        Stmt::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            expr_is_inert(ctx, *cond)
+                && push_args_all_inert(ctx, then_branch, names)
+                && else_branch
+                    .as_ref()
+                    .is_none_or(|b| push_args_all_inert(ctx, b, names))
+        }
         _ => false,
+    }
+}
+
+/// Every `if` condition in a fill-loop body is inert. A condition is
+/// code no push statement put there, and the reserve's facts — the
+/// cell neither moves, grows nor shrinks under the loop, and the bound
+/// read above it stays the bound — hold only while nothing in the body
+/// can call.
+pub(crate) fn branch_conds_inert(ctx: &LowerCtx<'_>, s: &Stmt) -> bool {
+    match s {
+        Stmt::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            expr_is_inert(ctx, *cond)
+                && branch_conds_inert(ctx, then_branch)
+                && else_branch
+                    .as_ref()
+                    .is_none_or(|b| branch_conds_inert(ctx, b))
+        }
+        Stmt::Block(stmts) | Stmt::Multi(stmts) => stmts.iter().all(|s| branch_conds_inert(ctx, s)),
+        _ => true,
     }
 }
 
@@ -87,12 +121,14 @@ pub(crate) fn expr_is_inert(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
         Expr::BinOp { op, left, right } => {
             is_inert_binop(*op) && expr_is_inert(ctx, *left) && expr_is_inert(ctx, *right)
         }
+        Expr::Unary { op, expr } => !matches!(op, UnaryOp::Plus) && expr_is_inert(ctx, *expr),
         _ => false,
     }
 }
 
-/// Arithmetic and comparison that cannot call, read a heap cell, or
-/// throw. Shared by the push-argument allowlist and the bound's.
+/// Arithmetic, comparison and logic that cannot call, read a heap
+/// cell, or throw once every operand is a primitive (each caller checks
+/// that). Shared by the push-argument allowlist and the bound's.
 pub(crate) fn is_inert_binop(op: crate::ast::BinOp) -> bool {
     use crate::ast::BinOp as B;
     matches!(
@@ -106,6 +142,12 @@ pub(crate) fn is_inert_binop(op: crate::ast::BinOp) -> bool {
             | B::Gt
             | B::Le
             | B::Ge
+            | B::Eq
+            | B::Neq
+            | B::LooseEq
+            | B::LooseNeq
+            | B::LAnd
+            | B::LOr
             | B::BitAnd
             | B::BitOr
             | B::BitXor

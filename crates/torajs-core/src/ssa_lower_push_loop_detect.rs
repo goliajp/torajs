@@ -24,6 +24,7 @@
 
 mod inert;
 
+use inert::branch_conds_inert;
 pub(crate) use inert::{expr_is_inert, is_inert_binop, push_args_all_inert};
 
 use crate::ast::{Ast, Expr, ExprId, Stmt};
@@ -143,7 +144,7 @@ pub(crate) fn lower_reserve_bound(
     if distinct > 1 && !all_owned {
         return None;
     }
-    if !bound_is_invariant(ctx, bound, names, all_owned) {
+    if !bound_is_invariant(ctx, bound, names, all_owned) || !branch_conds_inert(ctx, body) {
         return None;
     }
     let op = ctx.lower_expr(bound);
@@ -263,6 +264,30 @@ fn collect_push_targets_only(ast: &Ast, s: &Stmt, out: &mut Vec<String>) -> bool
         },
         Stmt::Block(stmts) | Stmt::Multi(stmts) => {
             stmts.iter().all(|s| collect_push_targets_only(ast, s, out))
+        }
+        // One trip takes one branch, so it appends to each array what
+        // the busier branch does. The condition's inertness is the
+        // install gate's to check (`lower_reserve_bound`).
+        Stmt::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            let (mut t, mut e) = (Vec::new(), Vec::new());
+            let ok = collect_push_targets_only(ast, then_branch, &mut t)
+                && else_branch
+                    .as_ref()
+                    .is_none_or(|b| collect_push_targets_only(ast, b, &mut e));
+            let mut seen: Vec<&String> = Vec::new();
+            for n in t.iter().chain(&e) {
+                if seen.contains(&n) {
+                    continue;
+                }
+                seen.push(n);
+                let sites = |v: &[String]| v.iter().filter(|m| *m == n).count();
+                out.extend(std::iter::repeat_n(n.clone(), sites(&t).max(sites(&e))));
+            }
+            ok
         }
         _ => false,
     }
@@ -533,6 +558,41 @@ mod tests {
         let result = detect_push_loop_arrays_while(&ast, "i", cond, &body);
         let (_, names) = result.expect("multi-array shape must match");
         assert_eq!(names, vec!["xs".to_string(), "ys".to_string()]);
+    }
+
+    #[test]
+    fn detect_while_counts_the_busier_branch() {
+        /* while (i < N) {
+         *   if (c) { xs.push(i); xs.push(i); } else { xs.push(i); ys.push(i); }
+         *   i = i + 1;
+         * } */
+        let mut ast = Ast::default();
+        let i_ref = mk_ident(&mut ast, "i");
+        let bound = mk_number(&mut ast, 100.0);
+        let cond = mk_lt(&mut ast, i_ref, bound);
+        let c = mk_ident(&mut ast, "c");
+        let then_branch = Stmt::Block(vec![
+            mk_push_stmt(&mut ast, "xs", "i"),
+            mk_push_stmt(&mut ast, "xs", "i"),
+        ]);
+        let else_branch = Stmt::Block(vec![
+            mk_push_stmt(&mut ast, "xs", "i"),
+            mk_push_stmt(&mut ast, "ys", "i"),
+        ]);
+        let branch = Stmt::If {
+            cond: c,
+            then_branch: Box::new(then_branch),
+            else_branch: Some(Box::new(else_branch)),
+        };
+        let step = mk_step(&mut ast, "i");
+        let body = Stmt::Block(vec![branch, step]);
+
+        let (_, names) = detect_push_loop_arrays_while(&ast, "i", cond, &body)
+            .expect("branched push shape must match");
+        assert_eq!(
+            crate::ssa_lower_arr_prereserve::push_counts(&names),
+            vec![("xs".to_string(), 2), ("ys".to_string(), 1)]
+        );
     }
 
     #[test]
