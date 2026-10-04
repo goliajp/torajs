@@ -192,7 +192,7 @@ fn try_join(
             Type::Str,
             None,
         );
-        crate::ssa_lower_coerce_arr::check_join(ctx, join_fid, v);
+        crate::ssa_lower_coerce_arr::check_join(ctx, v);
         return Some(Operand::Value(v));
     }
     None

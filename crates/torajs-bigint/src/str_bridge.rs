@@ -11,12 +11,11 @@
 //! Mirrors `torajs-num::str_bridge` exactly — same constraint, same
 //! solution. A future torajs-types Layer-1 crate would unify.
 
-use crate::layout::STR_HDR_SIZE;
-
 unsafe extern "C" {
-    /// `__torajs_str_alloc_pooled(len) -> *mut u8` — provided by
-    /// libtorajs_str.a at link time.
-    fn __torajs_str_alloc_pooled(len: u64) -> *mut u8;
+    /// `__torajs_str_alloc_latin1(src, len) -> *mut u8` — `len` bytes
+    /// as Latin-1 units, or past the longest Str a pending RangeError
+    /// and an empty placeholder; provided by libtorajs_str.a.
+    fn __torajs_str_alloc_latin1(src: *const u8, len: i64) -> *mut u8;
 }
 
 /// Allocate a fresh Str heap block and copy `payload` into it.
@@ -24,10 +23,6 @@ unsafe extern "C" {
 /// surface (toString and friends).
 #[inline]
 pub fn alloc_str(payload: &[u8]) -> *mut u8 {
-    let p = unsafe { __torajs_str_alloc_pooled(payload.len() as u64) };
-    if !payload.is_empty() {
-        let dst = unsafe { core::slice::from_raw_parts_mut(p.add(STR_HDR_SIZE), payload.len()) };
-        dst.copy_from_slice(payload);
-    }
-    p
+    // a radix-2 spelling of a large BigInt can pass the longest Str
+    unsafe { __torajs_str_alloc_latin1(payload.as_ptr(), payload.len() as i64) }
 }

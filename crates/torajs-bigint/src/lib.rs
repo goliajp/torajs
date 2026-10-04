@@ -79,7 +79,7 @@ pub use mul::__torajs_bigint_mul;
 pub use shift::{__torajs_bigint_shl, __torajs_bigint_shr};
 pub use tostring::{__torajs_bigint_print_inline, __torajs_bigint_to_string};
 
-// `__torajs_str_alloc_pooled` is provided by `libtorajs_str.a` at
+// `__torajs_str_alloc_latin1` is provided by `libtorajs_str.a` at
 // `tr build` link time. cargo unit tests of torajs-bigint don't link
 // torajs-str's staticlib — provide a panicking stub so the test
 // binary still links. Same pattern as torajs-num.
@@ -87,9 +87,9 @@ pub use tostring::{__torajs_bigint_print_inline, __torajs_bigint_to_string};
 /// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_str_alloc_pooled(_len: u64) -> *mut u8 {
+pub unsafe extern "C" fn __torajs_str_alloc_latin1(_src: *const u8, _len: i64) -> *mut u8 {
     panic!(
-        "torajs-bigint unit-test stub: __torajs_str_alloc_pooled should not be called from cargo test paths"
+        "torajs-bigint unit-test stub: __torajs_str_alloc_latin1 should not be called from cargo test paths"
     );
 }
 

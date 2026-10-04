@@ -100,7 +100,8 @@ unsafe extern "C" {
     // real fn addresses; print/ToString must not render those as
     // [Function].
     fn __torajs_str_is_undef(p: *const u8) -> i64;
-    fn __torajs_str_alloc_pooled(len: u64) -> *mut u8;
+    /// torajs-str — ASCII bytes verbatim; past the longest Str, a RangeError
+    fn __torajs_str_alloc_ascii(src: *const u8, len: i64) -> *mut u8;
     /// torajs-str — fresh Str decoded from WTF-8 bytes.
     fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8;
     /// torajs-str — a Str cell's WTF-8 spelling into `buf[..cap]`,
@@ -108,8 +109,6 @@ unsafe extern "C" {
     fn __torajs_str_wtf8_into(s: *const u8, buf: *mut u8, cap: u32) -> u32;
     fn __torajs_str_undef() -> *mut u8;
 }
-
-const STR_DATA_OFF: usize = 16;
 
 const PREFIX: &[u8] = b"[Function: ";
 const SUFFIX: &[u8] = b"]";
@@ -447,9 +446,7 @@ unsafe fn alloc_str(bytes: &[u8]) -> *mut u8 {
     if bytes.iter().any(|b| *b >= 0x80) {
         return unsafe { __torajs_str_alloc(bytes.as_ptr(), bytes.len() as i64) };
     }
-    let s = unsafe { __torajs_str_alloc_pooled(bytes.len() as u64) };
-    unsafe { core::ptr::copy_nonoverlapping(bytes.as_ptr(), s.add(STR_DATA_OFF), bytes.len()) };
-    s
+    unsafe { __torajs_str_alloc_ascii(bytes.as_ptr(), bytes.len() as i64) }
 }
 
 /// [`alloc_str`] of `prefix ++ name ++ suffix` — the framed ToString

@@ -49,6 +49,7 @@ use crate::layout::{
     STR_DATA_OFF, STR_FLAG_HAS_CAPACITY, STR_FLAG_IS_LATIN1, STR_HDR_SIZE, STR_LEN_OFF,
     STR_PAD_OFF, STR_POOL_PAYLOADS, block_size, byte_capacity, packed_header_init, pool_class_of,
 };
+use crate::max_len::STR_MAX_LEN;
 use crate::pool;
 
 unsafe extern "C" {
@@ -144,11 +145,12 @@ impl StrBlock {
         if let Some(block) = Self::pop_pooled(length, cap, flags) {
             return block;
         }
-        // SAFETY: malloc is the standard libc allocator. We then
-        // wrap the result in NonNull; libc returns null on OOM
-        // which is a hard runtime failure here (caught by
-        // `.expect`). Block size is computed by `block_size`
-        // matching the C `str_block_size_` exactly.
+        // past the pool only: a Str past the longest one would be a
+        // block shorter than its length says (the u32 byte count wraps)
+        if length > STR_MAX_LEN as u32 {
+            crate::max_len::len_past_limit();
+        }
+        // SAFETY: libc malloc; null is OOM, a hard stop here.
         let raw = unsafe { malloc(block_size(length, is_latin1)) } as *mut u8;
         let nn = NonNull::new(raw).unwrap_or_else(|| torajs_abort::abort_with(b"OOM in Str alloc"));
         Self::init_header_and_length(nn, length, is_latin1, extra);

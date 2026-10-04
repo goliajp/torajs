@@ -69,6 +69,10 @@ pub unsafe extern "C" fn __torajs_str_alloc_pooled_enc(len: u64, is_latin1: i64)
 /// it is an empty placeholder under a pending RangeError.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_alloc_ascii(src: *const u8, len: i64) -> *mut u8 {
+    // asked before the slice is formed, so a negative `len` never is
+    if str_len_of(len as usize).is_none() {
+        return unsafe { __torajs_str_too_long() };
+    }
     let bytes = if len == 0 {
         &[][..]
     } else {

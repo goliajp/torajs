@@ -73,21 +73,17 @@ fn emit_join_comma(ctx: &mut LowerCtx<'_>, arr: Operand, fid: FuncId) -> Operand
         Type::Str,
         None,
     );
-    check_join(ctx, fid, v);
+    check_join(ctx, v);
     Operand::Value(v)
 }
 
 /// The throw check after a join kernel call that answered `v`. The any
 /// kernel runs user code per element (an own toString that throws, or
 /// a Symbol element, which §7.1.17 step 2 rejects by itself); every
-/// kernel answers a result past the longest Str with a RangeError and
-/// an empty placeholder, which the throw path releases.
-pub(crate) fn check_join(ctx: &mut LowerCtx<'_>, fid: FuncId, v: ValueId) {
-    if fid == ctx.intrinsics.arr_join_any {
-        ctx.emit_throw_check(None);
-    } else {
-        ctx.emit_throw_check_owned(None, Operand::Value(v), Type::Str);
-    }
+/// kernel answers a result past the longest Str with a RangeError.
+/// Either way the answer is an empty placeholder the throw path frees.
+pub(crate) fn check_join(ctx: &mut LowerCtx<'_>, v: ValueId) {
+    ctx.emit_throw_check_owned(None, Operand::Value(v), Type::Str);
 }
 
 /// Has this module put anything in front of the walk the join kernel
