@@ -52,6 +52,7 @@ pub(crate) mod cfg;
 // pub(crate): frem_narrow shares fit::fpred_to_ipred (one ground
 // truth for the integral fcmp→icmp predicate mapping).
 pub(crate) mod fit;
+mod forward;
 mod guard;
 mod hoist;
 mod merge;
@@ -85,6 +86,8 @@ pub struct FloatDemoteStats {
     pub entry_guards: u32,
     /// escaped accumulator cells bridged at region exits (item 13).
     pub merge_cells: u32,
+    /// converted-compare operands read past their demoted copies.
+    pub copies_forwarded: u32,
 }
 
 pub fn demote_floats(module: &mut Module, facts: &[HashMap<ValueId, NumFact>]) -> FloatDemoteStats {
@@ -130,6 +133,7 @@ fn demote_in_function(
     }
     stats.loops_versioned += plans.len() as u32;
     stats.values_demoted += set.len() as u32;
+    stats.copies_forwarded += forward::forward_into_icmps(func, &set);
 }
 
 /// The demotion set plus the versioning plans its guarded defs need.
