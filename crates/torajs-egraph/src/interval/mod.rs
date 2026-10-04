@@ -24,6 +24,7 @@
 
 mod edge;
 pub(crate) mod elem;
+mod elem_alias;
 mod elem_kernels;
 pub(crate) mod elem_len;
 mod horizon;
@@ -43,7 +44,7 @@ use torajs_core::ssa::{Function, InstKind, Module, Operand, Type, ValueId};
 use refine::{Constraint, Constraints};
 use torajs_core::ssa::dominator::DominatorTree;
 use transfer::eval_inst;
-use widen::{collect_thresholds, narrow, widen};
+use widen::step;
 
 /// Hard cap on ascending rounds; anything still moving loses its
 /// bounds. Sized so threshold widening (one ladder step per round)
@@ -122,7 +123,6 @@ pub fn analyze_function_with(
     callee_names: &[String],
 ) -> HashMap<ValueId, NumFact> {
     let (single, cells, block_defs) = def_shapes(func);
-    let counters = horizon::collect(func, &single, &cells);
     let dom = DominatorTree::compute(func);
     let mut constraints = Constraints::compute(func, &single);
     let merges = {
@@ -133,10 +133,7 @@ pub fn analyze_function_with(
         constraints.add(b, c);
     }
     let inherited = constraints.inherited_all(func, &dom, &block_defs);
-    let mut thresholds = collect_thresholds(func);
-    thresholds.extend(horizon::thresholds(&counters));
-    thresholds.sort_unstable();
-    thresholds.dedup();
+    let (horizon, thresholds) = horizon::Horizon::new(func, &single, &cells);
     // An allocation's elements are one more multi-def cell whose defs
     // happen to be stores; it rides the same ascent below.
     let elems = elem::collect(func, callee_names);
@@ -223,11 +220,7 @@ pub fn analyze_function_with(
                 .iter()
                 .fold(AbsVal::Bottom, |acc, op| acc.join(lookup(op, &state, &[])));
             let old = elem_state.get(root).copied().unwrap_or(AbsVal::Bottom);
-            let next = if narrowing {
-                narrow(old, new)
-            } else {
-                widen(old, old.join(new), round, thresholds)
-            };
+            let next = step(old, new, narrowing, round, thresholds);
             if next != old {
                 elem_state.insert(*root, next);
                 changed = true;
@@ -236,15 +229,8 @@ pub fn analyze_function_with(
         }
         for (&cell, &new) in &contrib {
             let old = state.get(&cell).copied().unwrap_or(AbsVal::Bottom);
-            let next = if narrowing {
-                narrow(old, new)
-            } else {
-                widen(old, old.join(new), round, thresholds)
-            };
-            let next = match counters.get(&cell) {
-                Some(c) => horizon::cap(c, next, &state),
-                None => next,
-            };
+            let next = step(old, new, narrowing, round, thresholds);
+            let next = horizon.cap(cell, next, &state);
             if next != old {
                 state.insert(cell, next);
                 changed = true;

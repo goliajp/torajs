@@ -64,6 +64,22 @@ pub(super) fn widen(old: AbsVal, joined: AbsVal, round: usize, thresholds: &[i12
     AbsVal::Fact(NumFact::new(lo, hi))
 }
 
+/// One round's update of a cell from its old fact and the join of its
+/// defs: widen while ascending, re-tighten while narrowing.
+pub(super) fn step(
+    old: AbsVal,
+    new: AbsVal,
+    narrowing: bool,
+    round: usize,
+    thresholds: &[i128],
+) -> AbsVal {
+    if narrowing {
+        narrow(old, new)
+    } else {
+        widen(old, old.join(new), round, thresholds)
+    }
+}
+
 /// Narrowing step: accept a recomputed fact only when it tightens.
 pub(super) fn narrow(old: AbsVal, new: AbsVal) -> AbsVal {
     match (old, new) {

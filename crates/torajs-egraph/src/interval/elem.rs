@@ -53,6 +53,7 @@ use std::collections::{HashMap, HashSet};
 
 use torajs_core::ssa::{BinOp, FuncId, Function, InstKind, Operand, Terminator, ValueId};
 
+use super::elem_alias::{AliasKind, alias_source};
 use super::elem_kernels::*;
 
 /// The element points of one function.
@@ -66,11 +67,11 @@ pub(super) struct ElemPoints {
     pub(super) reads: HashMap<ValueId, ValueId>,
 }
 
-fn name_of(names: &[String], f: FuncId) -> &str {
+pub(super) fn name_of(names: &[String], f: FuncId) -> &str {
     names.get(f.0 as usize).map(String::as_str).unwrap_or("")
 }
 
-fn val(op: &Operand) -> Option<ValueId> {
+pub(super) fn val(op: &Operand) -> Option<ValueId> {
     match op {
         Operand::Value(v) => Some(*v),
         _ => None,
@@ -217,7 +218,7 @@ fn classify_values(
             let mut agreed: Option<(ValueId, bool)> = None;
             let mut ok = true;
             for d in &defs[v] {
-                let seen = match alias_source(d, names) {
+                let seen = match alias_source(d, names, defs) {
                     // A copy of a data pointer stays a data pointer;
                     // a copy of the array stays the array.
                     Some((src, AliasKind::Same)) => class
@@ -245,34 +246,6 @@ fn classify_values(
         }
     }
     (class, base)
-}
-
-enum AliasKind {
-    /// Same thing as the source operand.
-    Same,
-    /// The data pointer of the source array.
-    DataPtr,
-    /// A data pointer moved forward within its own buffer (the fill
-    /// loop's slot[0] address). Only a data pointer qualifies: the
-    /// array pointer moved forward points into the header.
-    Advanced,
-}
-
-fn alias_source(kind: &InstKind, names: &[String]) -> Option<(ValueId, AliasKind)> {
-    match kind {
-        InstKind::Copy(_, op) | InstKind::Identity(op) => val(op).map(|v| (v, AliasKind::Same)),
-        InstKind::Load(_, op, ARR_DATA_PTR_OFF) => val(op).map(|v| (v, AliasKind::DataPtr)),
-        InstKind::BinOp(BinOp::Add, op, _) => val(op).map(|v| (v, AliasKind::Advanced)),
-        InstKind::Call(f, args) => {
-            let n = name_of(names, *f);
-            if IDENTITY_CALLS.contains(&n) || IDENTITY_PUSH_CALLS.contains(&n) {
-                args.first().and_then(val).map(|v| (v, AliasKind::Same))
-            } else {
-                None
-            }
-        }
-        _ => None,
-    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -367,21 +340,13 @@ fn scan_inst(
                 record_write(writes, rep, Some(value));
             }
         }
-        InstKind::BinOp(BinOp::Add, Operand::Value(p), _) => {
-            if let Some(&rep) = base.get(p) {
-                consumed.push(*p);
-                if !lands_in(rep, base) {
-                    kill.push(rep);
-                }
-            }
-        }
         // Comparing the pointer reads neither an element nor the
         // pointer's target, and yields a bool.
         InstKind::ICmp(_, a, b) => {
             consumed.extend(val(a));
             consumed.extend(val(b));
         }
-        InstKind::Copy(_, op) | InstKind::Identity(op) => {
+        InstKind::Copy(_, op) | InstKind::Identity(op) | InstKind::BinOp(BinOp::Add, op, _) => {
             if let Some(s) = val(op) {
                 if let Some(&rep) = class.get(&s) {
                     consumed.push(s);
@@ -693,6 +658,25 @@ mod tests {
         );
         let facts = analyze_function_with(&f, &names());
         assert_eq!(facts.get(&ValueId(5)), Some(&NumFact::new(5, 300)));
+    }
+
+    #[test]
+    fn a_data_pointer_moved_back_takes_the_array_out() {
+        let f = arr_fn(
+            5,
+            200,
+            vec![
+                inst(6, InstKind::BinOp(BinOp::Add, v(1), Operand::ConstI64(-8))),
+                void(InstKind::StoreDyn(
+                    Operand::ConstI64(300),
+                    v(6),
+                    Operand::ConstI64(0),
+                )),
+            ],
+        );
+        let facts = analyze_function_with(&f, &names());
+        assert_ne!(facts.get(&ValueId(5)), Some(&NumFact::new(5, 200)));
+        assert_ne!(facts.get(&ValueId(5)), Some(&NumFact::new(5, 300)));
     }
 
     #[test]

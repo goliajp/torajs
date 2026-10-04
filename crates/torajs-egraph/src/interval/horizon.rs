@@ -32,7 +32,37 @@ const HORIZON_STEPS: i128 = 1 << 48;
 /// Largest step magnitude the horizon covers (`2^53 / 2^5 = 2^48`).
 const MAX_STEP: i64 = 1 << 5;
 
-pub(super) struct Counter {
+/// The counters of one function, keyed by cell.
+pub(super) struct Horizon {
+    counters: HashMap<ValueId, Counter>,
+}
+
+impl Horizon {
+    /// The counters of `func`, and the function's widening thresholds
+    /// with the counters' bounds among them (see [`thresholds`]).
+    pub(super) fn new(
+        func: &Function,
+        single: &HashMap<ValueId, InstKind>,
+        cells: &HashSet<ValueId>,
+    ) -> (Self, Vec<i128>) {
+        let counters = collect(func, single, cells);
+        let mut t = super::widen::collect_thresholds(func);
+        t.extend(thresholds(&counters));
+        t.sort_unstable();
+        t.dedup();
+        (Self { counters }, t)
+    }
+
+    /// `v`, the next fact of `cell`, capped when `cell` is a counter.
+    pub(super) fn cap(&self, cell: ValueId, v: AbsVal, state: &HashMap<ValueId, AbsVal>) -> AbsVal {
+        match self.counters.get(&cell) {
+            Some(c) => cap(c, v, state),
+            None => v,
+        }
+    }
+}
+
+struct Counter {
     inits: Vec<Operand>,
     /// Largest upward step, 0 when the counter never steps up.
     up: i128,
@@ -42,7 +72,7 @@ pub(super) struct Counter {
 
 /// The counters among `cells`: i64 cells whose defs are all inits or
 /// small constant steps of the cell itself.
-pub(super) fn collect(
+fn collect(
     func: &Function,
     single: &HashMap<ValueId, InstKind>,
     cells: &HashSet<ValueId>,
@@ -105,7 +135,7 @@ fn step_of(kind: &InstKind, cell: ValueId) -> Option<i64> {
 /// counter itself is still climbing, and without these it jumps past
 /// the counter's bound to the next compared constant — often 2^53 —
 /// where the narrowing rounds may run out before they bring it back.
-pub(super) fn thresholds(counters: &HashMap<ValueId, Counter>) -> Vec<i128> {
+fn thresholds(counters: &HashMap<ValueId, Counter>) -> Vec<i128> {
     let mut out = Vec::new();
     for c in counters.values() {
         let inits: Option<Vec<i128>> = c
@@ -131,7 +161,7 @@ pub(super) fn thresholds(counters: &HashMap<ValueId, Counter>) -> Vec<i128> {
 /// `v` narrowed to what the counter can reach from its inits within
 /// the horizon. Inits are read flow-insensitively: the join of every
 /// value they ever take.
-pub(super) fn cap(counter: &Counter, v: AbsVal, state: &HashMap<ValueId, AbsVal>) -> AbsVal {
+fn cap(counter: &Counter, v: AbsVal, state: &HashMap<ValueId, AbsVal>) -> AbsVal {
     let AbsVal::Fact(f) = v else { return v };
     let init = counter.inits.iter().fold(AbsVal::Bottom, |acc, op| {
         acc.join(super::lookup(op, state, &[]))

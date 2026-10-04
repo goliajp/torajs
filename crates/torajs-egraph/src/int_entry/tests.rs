@@ -180,16 +180,23 @@ fn a_cell_only_the_loop_stores_is_not_seeded() {
 #[test]
 fn the_copy_counter_is_bounded_by_the_window() {
     let mut m = counting_loop(FPred::Olt, vec![]);
+    // a step of 64 is past the small steps the interval analysis
+    // bounds by their trip horizon, so only the window bounds `i`
+    for inst in &mut m.funcs[1].blocks[2].insts {
+        if inst.result == Some(ValueId(6)) {
+            inst.kind = InstKind::BinOp(BinOp::Add, v(1), Operand::ConstI64(64));
+        }
+    }
     version_loops(&mut m);
     let f = &m.funcs[1];
     let (counter, _) = fast_compare(f, IPred::Slt);
     let facts = interval::analyze_function(f);
     let i = facts.get(&counter).expect("the counter has a fact");
-    // the window bounds it at 2^52, the trip horizon tighter still
-    assert_eq!((i.lo, i.hi), (0, 1 << 48));
-    // the loop as it was bounds its counter only by the trip horizon
+    // below the window on the test, plus the one step taken after it
+    assert_eq!((i.lo, i.hi), (0, EXACT_MAX as i128 + 63));
+    // the loop as it was bounds nothing
     let slow = facts.get(&ValueId(1)).expect("the cell has a fact");
-    assert_eq!((slow.lo, slow.hi), (0, 1 << 48));
+    assert!(slow.hi > EXACT_MAX as i128);
 }
 
 #[test]
