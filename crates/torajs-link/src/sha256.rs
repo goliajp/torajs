@@ -11,9 +11,9 @@
 //! the only place across the toolchain that needs a hash. Bringing
 //! `sha2 + digest + crypto-common + generic-array + cipher + ...`
 //! into the dep graph for one ~150-LOC algorithm violates the
-//! `0 external dep` principle. The compiler will inline / auto-
-//! vectorize this single-block implementation just fine for the
-//! codesigner workload (a handful of KB per build).
+//! `0 external dep` principle. On aarch64 the block function runs on
+//! the ARMv8 SHA-256 instructions (`core::arch`); the FIPS rounds
+//! remain for other targets and as the tests' reference.
 //!
 //! Verified against FIPS 180-2 test vectors (empty string, "abc",
 //! 56-byte boundary, 64-byte boundary, 1024-byte block) and the
@@ -52,24 +52,22 @@ const H0: [u32; 8] = [
 /// no need for a streaming `update`/`finalize` interface here.
 pub fn sha256(bytes: &[u8]) -> [u8; DIGEST_LEN] {
     let mut h = H0;
+    let (full, rest) = bytes.as_chunks::<BLOCK_LEN>();
+    compress(&mut h, full);
 
     // FIPS 180-4 §5.1.1 padding: append 0x80, then enough zeros so
     // the total length (in bytes) is ≡ 56 mod 64, then append the
     // original length in bits as a 64-bit big-endian integer.
-    let total_bits = (bytes.len() as u64) * 8;
-    let mut buf: Vec<u8> = Vec::with_capacity(bytes.len() + 72);
-    buf.extend_from_slice(bytes);
-    buf.push(0x80);
-    while buf.len() % BLOCK_LEN != 56 {
-        buf.push(0);
-    }
-    buf.extend_from_slice(&total_bits.to_be_bytes());
-
-    // Process each 64-byte block.
-    debug_assert_eq!(buf.len() % BLOCK_LEN, 0);
-    for chunk in buf.as_chunks::<BLOCK_LEN>().0 {
-        process_block(&mut h, chunk);
-    }
+    let mut tail = [0u8; 2 * BLOCK_LEN];
+    tail[..rest.len()].copy_from_slice(rest);
+    tail[rest.len()] = 0x80;
+    let n = if rest.len() < 56 {
+        BLOCK_LEN
+    } else {
+        2 * BLOCK_LEN
+    };
+    tail[n - 8..n].copy_from_slice(&((bytes.len() as u64) * 8).to_be_bytes());
+    compress(&mut h, tail[..n].as_chunks::<BLOCK_LEN>().0);
 
     // Serialize state as big-endian.
     let mut digest = [0u8; DIGEST_LEN];
@@ -79,11 +77,57 @@ pub fn sha256(bytes: &[u8]) -> [u8; DIGEST_LEN] {
     digest
 }
 
+#[cfg(all(target_arch = "aarch64", target_feature = "sha2"))]
+fn compress(h: &mut [u32; 8], blocks: &[[u8; BLOCK_LEN]]) {
+    compress_sha2(h, blocks);
+}
+
+#[cfg(not(all(target_arch = "aarch64", target_feature = "sha2")))]
+fn compress(h: &mut [u32; 8], blocks: &[[u8; BLOCK_LEN]]) {
+    for block in blocks {
+        process_block(h, block);
+    }
+}
+
+/// The ARMv8 SHA-256 instructions: each `sha256h` / `sha256h2` pair
+/// runs four rounds, `sha256su0` / `sha256su1` extend the schedule
+/// four words at a time.
+#[cfg(all(target_arch = "aarch64", target_feature = "sha2"))]
+#[allow(unsafe_code)] // the crate's one unsafe block: core::arch intrinsics are unsafe fns
+fn compress_sha2(h: &mut [u32; 8], blocks: &[[u8; BLOCK_LEN]]) {
+    use core::arch::aarch64::*;
+    // SAFETY: the build enables `sha2` (and with it neon) for the
+    // whole crate, and every load reads inside `h`, `K` or a block.
+    unsafe {
+        let mut abcd = vld1q_u32(h.as_ptr());
+        let mut efgh = vld1q_u32(h.as_ptr().add(4));
+        for block in blocks {
+            let (abcd0, efgh0) = (abcd, efgh);
+            let p = block.as_ptr();
+            let mut w =
+                [0, 16, 32, 48].map(|o| vreinterpretq_u32_u8(vrev32q_u8(vld1q_u8(p.add(o)))));
+            for i in 0..16 {
+                let t = vaddq_u32(w[i % 4], vld1q_u32(K.as_ptr().add(4 * i)));
+                let prev = abcd;
+                abcd = vsha256hq_u32(abcd, efgh, t);
+                efgh = vsha256h2q_u32(efgh, prev, t);
+                if i < 12 {
+                    let s0 = vsha256su0q_u32(w[i % 4], w[(i + 1) % 4]);
+                    w[i % 4] = vsha256su1q_u32(s0, w[(i + 2) % 4], w[(i + 3) % 4]);
+                }
+            }
+            abcd = vaddq_u32(abcd, abcd0);
+            efgh = vaddq_u32(efgh, efgh0);
+        }
+        vst1q_u32(h.as_mut_ptr(), abcd);
+        vst1q_u32(h.as_mut_ptr().add(4), efgh);
+    }
+}
+
 /// Process one 64-byte block against the state `h` per FIPS 180-4
 /// §6.2.2.
-fn process_block(h: &mut [u32; 8], block: &[u8]) {
-    debug_assert_eq!(block.len(), BLOCK_LEN);
-
+#[cfg(any(test, not(all(target_arch = "aarch64", target_feature = "sha2"))))]
+fn process_block(h: &mut [u32; 8], block: &[u8; BLOCK_LEN]) {
     // Prepare the message schedule W[0..63].
     let mut w = [0u32; 64];
     for i in 0..16 {
@@ -217,6 +261,52 @@ mod tests {
             hex(&sha256(&input)),
             "ad7facb2586fc6e966c004d7d1d16b024f5805ff7cb47c7a85dabd8b48892ca7"
         );
+    }
+
+    /// The instruction path and the FIPS pseudo-code agree on blocks
+    /// that exercise every schedule word.
+    #[test]
+    fn compress_matches_the_scalar_rounds() {
+        let mut seed = 0x9e37_79b9u32;
+        let blocks: Vec<[u8; BLOCK_LEN]> = (0..37)
+            .map(|_| {
+                core::array::from_fn(|_| {
+                    seed ^= seed << 13;
+                    seed ^= seed >> 17;
+                    seed ^= seed << 5;
+                    seed as u8
+                })
+            })
+            .collect();
+        let mut fast = H0;
+        compress(&mut fast, &blocks);
+        let mut slow = H0;
+        for b in &blocks {
+            process_block(&mut slow, b);
+        }
+        assert_eq!(fast, slow);
+    }
+
+    /// Lengths around the one- / two-block padding boundary.
+    #[test]
+    fn padding_boundaries_kat() {
+        let a = vec![b'a'; 120];
+        for (len, want) in [
+            (
+                55,
+                "9f4390f8d30c2dd92ec9f095b65e2b9ae9b0a925a5258e241c9f1e910f734318",
+            ),
+            (
+                63,
+                "7d3e74a05d7db15bce4ad9ec0658ea98e3f06eeecf16b4c6fff2da457ddc2f34",
+            ),
+            (
+                119,
+                "31eba51c313a5c08226adf18d4a359cfdfd8d2e816b13f4af952f7ea6584dcfb",
+            ),
+        ] {
+            assert_eq!(hex(&sha256(&a[..len])), want, "len {len}");
+        }
     }
 
     #[test]

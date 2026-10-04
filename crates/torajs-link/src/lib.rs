@@ -39,7 +39,9 @@
 //!   `#9 ssa_inkwell` rip-and-replace.
 //!
 //! The crate is `#![deny(unsafe_code)]` — linking is pure byte /
-//! integer arithmetic, no FFI or raw-pointer work. ARM64 is little-
+//! integer arithmetic, no FFI or raw-pointer work. The one exception
+//! is the codesigner's SHA-256 block function, which calls the ARMv8
+//! SHA instructions through `core::arch`. ARM64 is little-
 //! endian, matching the Mach-O on-disk byte order, so every emitted
 //! 32-bit instruction word lands LE without an explicit byte-order
 //! shim.
