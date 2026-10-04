@@ -18,6 +18,7 @@
   "array-copy-1m": {"kind": "suppressed", "why": "black_box(src[j]) per element blocks the memcpy the loop is"},
   "array-map-1m": {"kind": "suppressed", "why": "Box<dyn Fn> + black_box keep the callback an indirect call"},
   "array-sum-1m": {"kind": "suppressed", "why": "black_box(xs[j]) per element blocks vectorization"},
+  "array-sum-mixed-1m": {"kind": "suppressed", "why": "black_box(xs[j]) per element blocks vectorization"},
   "closure-counter": {"kind": "suppressed", "why": "Box<dyn Fn> + black_box + inline(never) forbid devirtualization"},
   "closure-counter-renamed": {"kind": "suppressed", "why": "closure-counter with the captured binding not spelled like the top-level one; Box<dyn Fn> + black_box + inline(never) forbid devirtualization"},
   "closure-pipeline-1m": {"kind": "suppressed", "why": "black_box(add1 as fn) forbids devirtualization"},

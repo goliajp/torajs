@@ -1,0 +1,3 @@
+# array-sum-1m with the sign alternating from one element to the next,
+# so the sum is not a run of non-negative integers.
+args = "10000000"

@@ -52,6 +52,7 @@ weight = 12
 cases = [
   "array-map-1m",
   "array-sum-1m",
+  "array-sum-mixed-1m",
   "array-copy-1m",
   "array-any-indexed-100k",
   "stack-pop-1m",
