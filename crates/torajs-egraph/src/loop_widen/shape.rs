@@ -439,10 +439,15 @@ impl Walk<'_> {
 fn array_of(func: &Function, defs: &DefSites, base: Operand) -> Option<Operand> {
     let Operand::Value(b) = base else { return None };
     // a cell redefined between that read and the loop would hand the
-    // length check another array
+    // length check another array: the array is defined once, or is a
+    // parameter the body never assigns
     match &defs.single_def(func, b)?.kind {
         InstKind::Load(Type::Ptr, arr @ Operand::Value(a), ARR_DATA_PTR_OFF)
-            if defs.single_def(func, *a).is_some() || func.params.contains(a) =>
+            if if func.params.contains(a) {
+                !defs.has_def(*a)
+            } else {
+                defs.single_def(func, *a).is_some()
+            } =>
         {
             Some(*arr)
         }

@@ -17,7 +17,9 @@ pub(super) enum Test {
 /// Does every value in `[0, 2^53)` pass the guard?
 pub(super) fn passes_exact_range(t: Test) -> bool {
     match t {
-        Test::HighBits(k) => k >= EXACT_BITS,
+        // a register shift takes its amount mod 64, so 64 and up is
+        // not the range test it reads as
+        Test::HighBits(k) => (EXACT_BITS..64).contains(&k),
         Test::Above(c) => c >= EXACT_MAX,
         Test::Below(c) => c <= 0,
     }

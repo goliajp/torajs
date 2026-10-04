@@ -190,3 +190,39 @@ fn counter_read_after_its_step_keeps_the_loop_scalar() {
     let (n, _) = widened(f);
     assert_eq!(n, 0);
 }
+
+#[test]
+fn entry_refuses_a_bound_below_the_counter() {
+    // with K < i the block size K - i could wrap past i64::MIN
+    let (_, f) = widened(sum_loop(high_bits_guard(), vec![]));
+    let entry = &f.blocks[7];
+    assert!(
+        entry
+            .insts
+            .iter()
+            .any(|i| i.kind == InstKind::ICmp(IPred::Slt, v(1), v(3)))
+    );
+}
+
+#[test]
+fn high_bits_guard_needs_a_shift_below_64() {
+    let shifted = |k: i64| {
+        let mut f = sum_loop(high_bits_guard(), vec![]);
+        f.blocks[2].insts[2] = def(8, InstKind::BinOp(BinOp::LShr, v(7), Operand::ConstI64(k)));
+        widened(f).0
+    };
+    assert_eq!(shifted(63), 1);
+    // the register shift takes the amount mod 64
+    assert_eq!(shifted(64), 0);
+    assert_eq!(shifted(117), 0);
+}
+
+#[test]
+fn reassigned_array_parameter_keeps_the_loop_scalar() {
+    // the length the entry would check is no longer the array read
+    let mut f = sum_loop(high_bits_guard(), vec![]);
+    f.blocks[0]
+        .insts
+        .push(def(0, InstKind::Copy(Type::Ptr, Operand::ConstPtrNull)));
+    assert_eq!(widened(f).0, 0);
+}

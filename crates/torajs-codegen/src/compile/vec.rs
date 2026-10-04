@@ -220,4 +220,36 @@ mod tests {
         func.blocks[0].insts.insert(2, call);
         allocate_linear_scan(&func);
     }
+
+    /// More f64 values live inside a vector's range than there are
+    /// FPRs, each read more often than the vector: by spill weight the
+    /// vector is the cheapest victim. The f64 values spill instead and
+    /// the vector keeps its register.
+    #[test]
+    fn fpr_pressure_spills_f64_values_not_vectors() {
+        let (mut func, [_, _, _, s, ..]) = lanes_func();
+        let floats: Vec<ValueId> = (0..30)
+            .map(|k| f64_value(&mut func, InstKind::SiToFp(Operand::ConstI64(k))))
+            .collect();
+        for _ in 0..2 {
+            let mut acc = Operand::Value(floats[0]);
+            for &f in &floats[1..] {
+                let kind = InstKind::BinOp(BinOp::FAdd, acc, Operand::Value(f));
+                acc = Operand::Value(f64_value(&mut func, kind));
+            }
+        }
+        // move the f64 code between the def of `s` and its one use
+        let insts = &mut func.blocks[0].insts;
+        let tail: Vec<Inst> = insts.drain(8..).collect();
+        insts.splice(3..3, tail);
+        let alloc = allocate_linear_scan(&func);
+        let spilled = |f: &ValueId| matches!(alloc.of(*f), Reg::SpillFpr(_));
+        assert!(floats.iter().any(spilled));
+        assert!(matches!(alloc.of(s), Reg::Fpr(_)));
+        compile_function(&func);
+    }
+
+    fn f64_value(f: &mut Function, kind: InstKind) -> ValueId {
+        f.append_inst(torajs_core::ssa::BlockId(0), kind, Type::F64, None)
+    }
 }

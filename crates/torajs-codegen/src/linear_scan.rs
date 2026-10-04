@@ -74,6 +74,7 @@ pub fn allocate_linear_scan_with(func: &Function, inline: InlineSites) -> Assign
     classes.fold_into(&mut intervals, &mut weights);
     let call_costs = CallCosts::new(&call_sites, &call_rarity, &units);
     let mut sweep = Sweep::new(next_alloca_offset, weights, call_costs);
+    sweep.unspillable = crate::vec_homes::vector_values(func);
     // `TORAJS_CALL_SAVE_OFF=1`: call-crossing values never take a
     // caller-saved register (bisect gate).
     let save_calls = std::env::var_os("TORAJS_CALL_SAVE_OFF").is_none_or(|v| v != "1");

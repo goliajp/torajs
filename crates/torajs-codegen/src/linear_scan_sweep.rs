@@ -4,7 +4,7 @@
 //! AAPCS64 stack-args blade pushed the file past the 500-line prod
 //! limit; `allocate_linear_scan` stays there and drives this.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::linear_scan_calls::CallCosts;
 use crate::liveness::Interval;
@@ -49,6 +49,10 @@ pub(crate) struct Sweep {
     /// crosses (`linear_scan_calls::collect_call_saves`).
     pub(crate) caller_crossing: Vec<u32>,
     pub(crate) call_costs: CallCosts,
+    /// Values that must keep a register: a spill slot holds 8 bytes,
+    /// a vector 16. Never chosen as a victim; an arrival among them
+    /// always takes one.
+    pub(crate) unspillable: HashSet<u32>,
 }
 
 impl Sweep {
@@ -66,6 +70,7 @@ impl Sweep {
             weights,
             caller_crossing: Vec::new(),
             call_costs,
+            unspillable: HashSet::new(),
         }
     }
 
@@ -179,7 +184,7 @@ impl Sweep {
                 // Already-spilled actives can't free a register.
                 Reg::SpillGpr(_) | Reg::SpillFpr(_) => continue,
             };
-            if !class_ok || (callee_only && !is_callee_reg) {
+            if !class_ok || (callee_only && !is_callee_reg) || self.unspillable.contains(&e.0) {
                 continue;
             }
             let key = (weight_of(&self.weights, e.0), e.1.end as i64);
@@ -194,10 +199,16 @@ impl Sweep {
         // strictly heavier, or equal weight with the shorter
         // remaining range (the original furthest-end rule).
         let new_weight = weight_of(&self.weights, new_vid);
+        let pinned = self.unspillable.contains(&new_vid);
+        assert!(
+            !pinned || victim_idx.is_some(),
+            "no register to evict for unspillable value %{new_vid}"
+        );
         let spill_off = self.alloc_spill_slot();
         match victim_idx {
             Some(i)
-                if victim_key.0 < new_weight
+                if pinned
+                    || victim_key.0 < new_weight
                     || (victim_key.0 == new_weight
                         && (self.active[i].1.end as i64) > new_interval.end as i64) =>
             {

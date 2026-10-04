@@ -115,9 +115,11 @@ fn entry_checks(e: &mut Emit<'_>, p: &Plan) -> HashMap<ValueId, ValueId> {
         }
         e.at(next);
     }
-    // the widened path reads only `[i, K)`, inside the array
+    // the widened path reads only `[i, K)`, inside the array; with
+    // `0 <= i <= K <= len` the block sizing `K - i` cannot wrap
     let i = Operand::Value(p.counter);
     let mut bad = vec![e.icmp(IPred::Slt, i, Operand::ConstI64(0))];
+    bad.push(e.icmp(IPred::Slt, p.bound, i));
     let len = e.push(InstKind::Load(Type::I64, p.arr, ARR_LEN_OFF), Type::I64);
     bad.push(e.icmp(IPred::Sgt, p.bound, len));
     for &t in &p.sum_tests {

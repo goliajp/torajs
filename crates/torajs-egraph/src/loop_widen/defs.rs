@@ -31,6 +31,10 @@ impl DefSites {
         }
     }
 
+    pub(super) fn has_def(&self, v: ValueId) -> bool {
+        self.sites.contains_key(&v)
+    }
+
     /// An i64 constant, inline or hoisted into a single-def copy.
     pub(super) fn const_i64(&self, func: &Function, op: &Operand) -> Option<i64> {
         match op {
