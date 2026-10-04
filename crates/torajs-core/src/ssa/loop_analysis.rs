@@ -42,8 +42,6 @@ pub struct NaturalLoop {
     pub back_edge_sources: Vec<BlockId>,
 }
 
-/// Loop information for a function — list of natural loops plus a
-/// per-block nest-depth vector.
 impl NaturalLoop {
     /// Whether `b` is in the body (a binary search: the body is sorted
     /// by id).
@@ -52,6 +50,8 @@ impl NaturalLoop {
     }
 }
 
+/// Loop information for a function — list of natural loops plus a
+/// per-block nest-depth vector.
 #[derive(Debug, Clone)]
 pub struct LoopAnalysis {
     loops: Vec<NaturalLoop>,
@@ -75,35 +75,13 @@ impl LoopAnalysis {
         // Step 1+2: walk every CFG edge; for each (u, v) where v
         // dominates u, that's a back-edge. Group back-edges by
         // header so a multi-back-edge loop becomes one NaturalLoop.
-        let mut headers_seen: Vec<BlockId> = Vec::new();
-        let mut per_header_back_sources: Vec<Vec<BlockId>> = Vec::new();
-        // position of each header in `headers_seen`
-        let mut header_slot: Vec<Option<usize>> = vec![None; n];
-        for blk in &func.blocks {
-            for succ in successors(&blk.term) {
-                if dom.dominates(succ, blk.id) {
-                    let si = succ.0 as usize;
-                    let idx = match header_slot.get(si).copied().flatten() {
-                        Some(i) => i,
-                        None => {
-                            headers_seen.push(succ);
-                            per_header_back_sources.push(Vec::new());
-                            if si < n {
-                                header_slot[si] = Some(headers_seen.len() - 1);
-                            }
-                            headers_seen.len() - 1
-                        }
-                    };
-                    per_header_back_sources[idx].push(blk.id);
-                }
-            }
-        }
+        let groups = back_edges(func, dom, n);
         let preds = predecessors(func, n);
         let mut in_body = vec![false; n];
 
         // For each header, collect the natural-loop body via reverse
         // BFS from each back-edge source, stopping at the header.
-        for (header, sources) in headers_seen.iter().zip(per_header_back_sources.iter()) {
+        for (header, sources) in &groups {
             let body = collect_loop_body(&preds, &mut in_body, *header, sources);
             let mut sorted_sources = sources.clone();
             sorted_sources.sort_by_key(|b| b.0);
@@ -155,6 +133,34 @@ impl LoopAnalysis {
 }
 
 // ---- internals ------------------------------------------------------------
+
+/// Back-edge sources grouped by header, headers in the order their
+/// first back-edge appears in layout.
+fn back_edges(func: &Function, dom: &DominatorTree, n: usize) -> Vec<(BlockId, Vec<BlockId>)> {
+    let mut groups: Vec<(BlockId, Vec<BlockId>)> = Vec::new();
+    // position of each header in `groups`
+    let mut slot: Vec<Option<usize>> = vec![None; n];
+    for blk in &func.blocks {
+        for succ in successors(&blk.term) {
+            if !dom.dominates(succ, blk.id) {
+                continue;
+            }
+            let si = succ.0 as usize;
+            let idx = match slot.get(si).copied().flatten() {
+                Some(i) => i,
+                None => {
+                    groups.push((succ, Vec::new()));
+                    if si < n {
+                        slot[si] = Some(groups.len() - 1);
+                    }
+                    groups.len() - 1
+                }
+            };
+            groups[idx].1.push(blk.id);
+        }
+    }
+    groups
+}
 
 fn successors(term: &Terminator) -> impl Iterator<Item = BlockId> + '_ {
     let mut out: [Option<BlockId>; 2] = [None, None];

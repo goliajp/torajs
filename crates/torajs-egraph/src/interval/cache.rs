@@ -9,6 +9,9 @@ use torajs_core::ssa::{Function, Module, ValueId};
 
 use super::NumFact;
 
+/// The facts a point evaluator can start from instead of analyzing.
+pub type Seed<'a> = Option<&'a HashMap<ValueId, NumFact>>;
+
 pub struct FactCache {
     names: Vec<String>,
     /// index-aligned with `Module::funcs`: the body analyzed and the

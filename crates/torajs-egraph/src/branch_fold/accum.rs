@@ -178,7 +178,7 @@ fn sole_rec_def(
     x: ValueId,
 ) -> Option<(usize, usize)> {
     let mut rec_def: Option<(usize, usize)> = None;
-    for &(bi, ii) in pe.def_sites(acc) {
+    for &(bi, ii) in pe.defs.get(&acc).into_iter().flatten() {
         let block = &func.blocks[bi];
         if !lp.contains(&block.id) {
             continue;

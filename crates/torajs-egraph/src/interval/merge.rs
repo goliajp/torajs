@@ -95,16 +95,16 @@ impl Merges {
             .map(|j| (j.block, Constraint::Merge(j.cell, j.block)))
     }
 
-    /// For each block's inherited constraints, the join each `Merge`
-    /// placeholder among them stands for, in list order.
-    pub(super) fn slots(&self, inherited: &[Vec<Constraint>]) -> Vec<Vec<usize>> {
+    /// Each block's inherited constraints (placeholders included), with
+    /// the join each placeholder among them stands for.
+    pub(super) fn inherited(&self, lists: Vec<Vec<Constraint>>) -> Inherited {
         let index: HashMap<(BlockId, ValueId), usize> = self
             .joins
             .iter()
             .enumerate()
             .map(|(i, j)| ((j.block, j.cell), i))
             .collect();
-        inherited
+        let slots = lists
             .iter()
             .map(|cs| {
                 cs.iter()
@@ -114,7 +114,8 @@ impl Merges {
                     })
                     .collect()
             })
-            .collect()
+            .collect();
+        Inherited { lists, slots }
     }
 
     /// Each merge's range under `state`, indexed like the joins: the
@@ -150,28 +151,33 @@ fn reachable_preds(func: &Function, dom: &DominatorTree) -> Vec<Vec<usize>> {
     preds
 }
 
-/// `live` with every merge placeholder read as the range `ranges` gives
-/// it, or dropped when it has none. `slots` names the join of each
-/// placeholder in `live`, in order.
-pub(super) fn resolve(
-    live: &[Constraint],
-    slots: &[usize],
-    ranges: &[Option<NumFact>],
-) -> Vec<Constraint> {
-    let mut out = Vec::with_capacity(live.len());
-    let mut slot = slots.iter();
-    for c in live {
-        match c {
-            Constraint::Merge(v, _) => {
-                let j = *slot.next().expect("a slot per placeholder");
-                if let Some(f) = ranges[j] {
-                    out.push(Constraint::Range(*v, f));
+/// The constraints valid at each block's entry; `slots[b]` names the
+/// join of each merge placeholder in `lists[b]`, in order.
+pub(super) struct Inherited {
+    lists: Vec<Vec<Constraint>>,
+    slots: Vec<Vec<usize>>,
+}
+
+impl Inherited {
+    /// Block `b`'s constraints with every merge placeholder read as the
+    /// range `ranges` gives its join, or dropped when it has none.
+    pub(super) fn resolve(&self, b: BlockId, ranges: &[Option<NumFact>]) -> Vec<Constraint> {
+        let live = &self.lists[b.0 as usize];
+        let mut out = Vec::with_capacity(live.len());
+        let mut slot = self.slots[b.0 as usize].iter();
+        for c in live {
+            match c {
+                Constraint::Merge(v, _) => {
+                    let j = *slot.next().expect("a slot per placeholder");
+                    if let Some(f) = ranges[j] {
+                        out.push(Constraint::Range(*v, f));
+                    }
                 }
+                other => out.push(*other),
             }
-            other => out.push(*other),
         }
+        out
     }
-    out
 }
 
 #[cfg(test)]

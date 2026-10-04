@@ -157,7 +157,7 @@ fn counter_step(
         return None;
     };
     let mut step: Option<i128> = None;
-    for &(bi, ii) in pe.def_sites(counter) {
+    for &(bi, ii) in pe.defs.get(&counter).into_iter().flatten() {
         let block = &func.blocks[bi];
         if !lp.contains(&block.id) {
             continue;

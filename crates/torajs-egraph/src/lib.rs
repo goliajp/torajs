@@ -82,6 +82,8 @@ use std::collections::{HashMap, HashSet};
 
 use torajs_core::ssa::{Module, ValueId};
 
+use branch_fold::sum_facts::bound_sums;
+
 pub use crate::egraph_pass::EgraphPass;
 
 /// Apply the Cluster E inliner (Phase 1.0b) followed by `EgraphPass`
@@ -149,21 +151,22 @@ fn dump_after(key: &str, module: &Module) {
     }
 }
 
-/// The integer range analysis, or `None` under `TORAJS_INTERVAL_OFF=1`;
-/// `TORAJS_INTERVAL_STATS=1` prints each fn's fact counts to stderr.
-fn analyze_intervals(module: &Module) -> Option<Vec<HashMap<ValueId, interval::NumFact>>> {
-    (std::env::var("TORAJS_INTERVAL_OFF").as_deref() != Ok("1")).then(|| {
-        let facts = interval::analyze_module(module);
-        if std::env::var("TORAJS_INTERVAL_STATS").as_deref() == Ok("1") {
-            for (func, fm) in module.funcs.iter().zip(&facts) {
-                if !func.is_declaration() {
-                    let st = interval::stats_for(fm, func);
-                    eprintln!("torajs-interval-stats: {} {st:?}", func.name);
-                }
-            }
-        }
-        facts
-    })
+/// Per function, the values its interval facts prove inside i32 (none
+/// when the analysis is off).
+fn sext_seeds(
+    module: &Module,
+    facts: Option<Vec<HashMap<ValueId, interval::NumFact>>>,
+) -> Vec<HashSet<ValueId>> {
+    facts
+        .map(|facts| {
+            module
+                .funcs
+                .iter()
+                .zip(&facts)
+                .map(|(func, fm)| interval::sext32_set(fm, func))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// The per-function egraph pass over every function.
@@ -249,17 +252,13 @@ pub fn transform_module(mut module: Module) -> Module {
     // canonical shape. Feeds float demotion below and seeds sext_elide
     // R2 with loop cells provably inside i32 range (the popcount
     // residual-pair case). `TORAJS_INTERVAL_OFF=1` skips (bisect gate).
-    let mut interval_facts = analyze_intervals(&module);
-    // what the later point evaluators reuse for bodies left unchanged
-    let fact_cache = interval_facts
-        .as_ref()
-        .map(|f| interval::FactCache::new(&module, f.clone()));
+    let (mut interval_facts, fact_cache) = interval::run::analyze_gated(&module);
     // Loop sums take their add-recurrence bound before float_demote
     // reads the facts: one the bound keeps inside ±2^53 demotes with
     // no window check. `TORAJS_SUM_FACTS_OFF=1` skips.
     if let Some(facts) = &mut interval_facts {
         gated_pass("SUM_FACTS", &mut module, |m| {
-            branch_fold::sum_facts::bound_sums(m, facts, fact_cache.as_ref())
+            bound_sums(m, facts, fact_cache.as_ref())
         });
     }
     // Float demotion (RFC 20260611 phase 1b-i) — integer-valued f64
@@ -282,16 +281,7 @@ pub fn transform_module(mut module: Module) -> Module {
     // GVN). After float_demote (its FRem→SRem output is the feeder).
     // `TORAJS_SREM_PARITY_OFF=1` skips (bisect gate).
     gated_pass("SREM_PARITY", &mut module, srem_parity::reduce_parity_srems);
-    let sext_seeds: Vec<HashSet<ValueId>> = interval_facts
-        .map(|facts| {
-            module
-                .funcs
-                .iter()
-                .zip(&facts)
-                .map(|(func, fm)| interval::sext32_set(fm, func))
-                .collect()
-        })
-        .unwrap_or_default();
+    let sext_seeds = sext_seeds(&module, interval_facts);
     // Redundant ToInt32 sext-pair elimination — after phi_promote so
     // it sees the final canonical shape (loop cells as multi-def Copy,
     // unknown to its own one-pass lattice but seedable from the
@@ -334,6 +324,7 @@ pub fn transform_module(mut module: Module) -> Module {
     gated_pass("PRINT_NARROW", &mut module, |m| {
         print_narrow::narrow_prints(m, fact_cache.as_ref())
     });
+    drop(fact_cache);
     hoist_loop_consts(&mut module);
     // Ctpop-range-sum reduction recognition — collapse a counted
     // `acc += ctpop(i)` loop into one `CtpopRangeSum` super-inst that

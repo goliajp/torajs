@@ -22,8 +22,8 @@ use torajs_core::ssa::{FuncId, Function, InstKind, Module, Operand, Type, ValueI
 
 use crate::branch_fold::accum::cell_bound_after_loop;
 use crate::branch_fold::point_eval::PointEval;
-use crate::interval::FactCache;
 use crate::interval::transfer::NumFact;
+use crate::interval::{FactCache, Seed};
 use torajs_core::ssa::dominator::DominatorTree;
 use torajs_core::ssa::loop_analysis::LoopAnalysis;
 
@@ -78,15 +78,12 @@ fn narrow_in_function(
     func: &mut Function,
     pairs: &[(FuncId, FuncId)],
     names: &[String],
-    seed: Option<&HashMap<ValueId, NumFact>>,
+    seed: Seed,
     stats: &mut PrintNarrowStats,
 ) {
     let dom = DominatorTree::compute(func);
     let la = LoopAnalysis::compute(func, &dom);
-    let pe = PointEval::new(func, &dom, &la, names);
-    if let Some(f) = seed {
-        pe.seed_flow(f);
-    }
+    let pe = PointEval::new(func, &dom, &la, names, seed);
     // (block, inst) → (i64 twin, integer operand)
     let mut rewrites: Vec<((usize, usize), FuncId, ValueId)> = Vec::new();
     for (bi, block) in func.blocks.iter().enumerate() {

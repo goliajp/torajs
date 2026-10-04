@@ -28,6 +28,10 @@ use super::transfer::{NEG_INF, NumFact, POS_INF};
 use crate::branch_fold::point_eval::successors;
 use torajs_core::ssa::dominator::DominatorTree;
 
+mod reach;
+
+use reach::{dom_subtree, mark_reached};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Constraint {
     /// Value lies inside the interval on this path.
@@ -272,38 +276,6 @@ impl Constraints {
         }
         out
     }
-}
-
-/// `a` and every block it dominates, `a` first.
-fn dom_subtree(dom: &DominatorTree, a: BlockId) -> Vec<BlockId> {
-    let mut region = vec![a];
-    let mut k = 0;
-    while k < region.len() {
-        region.extend_from_slice(dom.children(region[k]));
-        k += 1;
-    }
-    region
-}
-
-/// Marks in `dead` every block reached from `work` without passing
-/// `a`; returns the blocks it marked.
-fn mark_reached(
-    func: &Function,
-    a: BlockId,
-    mut work: Vec<BlockId>,
-    dead: &mut [bool],
-) -> Vec<usize> {
-    let mut touched: Vec<usize> = Vec::new();
-    while let Some(s) = work.pop() {
-        let si = s.0 as usize;
-        if s == a || dead[si] {
-            continue;
-        }
-        dead[si] = true;
-        touched.push(si);
-        work.extend(successors(&func.blocks[si].term));
-    }
-    touched
 }
 
 #[cfg(test)]

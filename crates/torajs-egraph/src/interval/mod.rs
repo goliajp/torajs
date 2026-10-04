@@ -32,11 +32,12 @@ mod horizon;
 mod merge;
 pub mod refine;
 mod refine_logic;
+pub mod run;
 pub mod square;
 pub mod transfer;
 mod widen;
 
-pub use cache::FactCache;
+pub use cache::{FactCache, Seed};
 pub use transfer::{AbsVal, NumFact};
 
 use std::collections::{HashMap, HashSet};
@@ -54,16 +55,6 @@ use widen::step;
 const MAX_ASCEND: usize = 32;
 /// Narrowing sweeps after the ascend stabilizes.
 const NARROW_ROUNDS: usize = 2;
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct IntervalStats {
-    /// Values with a finite (non-sentinel, non-full-i64) fact.
-    pub bounded: u32,
-    /// i64 values provably inside i32 range (sext_elide seeds).
-    pub sext32: u32,
-    /// f64-typed values proven integer-valued.
-    pub f64_int_valued: u32,
-}
 
 /// Analyze every function body. Index-aligned with `module.funcs`.
 pub fn analyze_module(module: &Module) -> Vec<HashMap<ValueId, NumFact>> {
@@ -94,23 +85,6 @@ pub fn sext32_set(facts: &HashMap<ValueId, NumFact>, func: &Function) -> HashSet
         .collect()
 }
 
-pub fn stats_for(facts: &HashMap<ValueId, NumFact>, func: &Function) -> IntervalStats {
-    let mut s = IntervalStats::default();
-    for (v, f) in facts {
-        let ty = func.values[v.0 as usize].ty;
-        if f != &NumFact::full_i64() && f.lo > transfer::NEG_INF && f.hi < transfer::POS_INF {
-            s.bounded += 1;
-        }
-        if ty == Type::I64 && f.is_sext32() {
-            s.sext32 += 1;
-        }
-        if ty == Type::F64 {
-            s.f64_int_valued += 1;
-        }
-    }
-    s
-}
-
 /// Analyze one function with no way to name its callees, so no array
 /// element point is tracked — the facts are the same ones this pass
 /// gave before [`elem`] existed, and still sound.
@@ -134,8 +108,7 @@ pub fn analyze_function_with(
     for (b, c) in merges.placeholders() {
         constraints.add(b, c);
     }
-    let inherited = constraints.inherited_all(func, &dom, &block_defs);
-    let merge_slots = merges.slots(&inherited);
+    let inherited = merges.inherited(constraints.inherited_all(func, &dom, &block_defs));
     let (horizon, thresholds) = horizon::Horizon::new(func, &single, &cells);
     // An allocation's elements are one more multi-def cell whose defs
     // happen to be stores; it rides the same ascent below.
@@ -166,8 +139,7 @@ pub fn analyze_function_with(
 
         for &bid in dom.reverse_postorder() {
             let block = &func.blocks[bid.0 as usize];
-            let bi = bid.0 as usize;
-            let mut live = merge::resolve(&inherited[bi], &merge_slots[bi], &merged);
+            let mut live = inherited.resolve(bid, &merged);
             square::live_roots(&live, &state, &mut roots);
             for inst in &block.insts {
                 let Some(r) = inst.result else { continue };

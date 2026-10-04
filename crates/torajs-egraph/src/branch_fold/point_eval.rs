@@ -31,14 +31,17 @@ use std::borrow::Cow;
 use std::cell::{Cell, OnceCell, RefCell};
 use std::collections::HashMap;
 
-use torajs_core::ssa::{Function, InstKind, Operand, Terminator, ValueId};
+use torajs_core::ssa::{Function, InstKind, Operand, ValueId};
 
 use super::accum::cell_bound_after_loop;
+use crate::interval::analyze_function_with;
 use crate::interval::elem_len::{LenCells, LenDef, len_cells};
 use crate::interval::transfer::{self, AbsVal, NumFact};
 use torajs_core::ssa::dominator::DominatorTree;
 use torajs_core::ssa::loop_analysis::LoopAnalysis;
 
+mod succ;
+pub(crate) use succ::successors;
 /// A program point: `(block index, inst index)`. Operand reads of the
 /// instruction at `inst_idx` see defs strictly before it; a block's
 /// terminator reads at `(block, insts.len())`.
@@ -53,7 +56,7 @@ pub(crate) struct PointEval<'a> {
     dom: &'a DominatorTree,
     la: &'a LoopAnalysis,
     /// Every def site of every value, in layout order.
-    defs: HashMap<ValueId, Vec<Point>>,
+    pub(super) defs: HashMap<ValueId, Vec<Point>>,
     len: LenCells,
     names: &'a [String],
     flow: OnceCell<Cow<'a, HashMap<ValueId, NumFact>>>,
@@ -62,14 +65,15 @@ pub(crate) struct PointEval<'a> {
 }
 
 impl<'a> PointEval<'a> {
-    /// `names` is index-aligned with `Module::funcs`; it is what lets
-    /// the length cells and the lattice's element points recognize the
-    /// array runtime (empty: neither is tracked).
+    /// `names` is index-aligned with `Module::funcs` (it lets the length
+    /// cells and element points recognize the array runtime; empty: not
+    /// tracked); `seed` is the lattice already computed for this body.
     pub(crate) fn new(
         func: &'a Function,
         dom: &'a DominatorTree,
         la: &'a LoopAnalysis,
         names: &'a [String],
+        seed: Option<&'a HashMap<ValueId, NumFact>>,
     ) -> Self {
         let mut defs: HashMap<ValueId, Vec<Point>> = HashMap::new();
         for (bi, block) in func.blocks.iter().enumerate() {
@@ -86,25 +90,14 @@ impl<'a> PointEval<'a> {
             defs,
             len: len_cells(func, names),
             names,
-            flow: OnceCell::new(),
+            flow: seed.map_or_else(OnceCell::new, |f| OnceCell::from(Cow::Borrowed(f))),
             memo: RefCell::new(HashMap::new()),
             fuel: Cell::new(FUEL),
         }
     }
 
-    /// Hand the lattice facts already computed for this very body (the
-    /// analysis would give the same ones).
-    pub(crate) fn seed_flow(&self, facts: &'a HashMap<ValueId, NumFact>) {
-        let _ = self.flow.set(Cow::Borrowed(facts));
-    }
-
     pub(crate) fn dom(&self) -> &DominatorTree {
         self.dom
-    }
-
-    /// Every def site of `v`, in layout order.
-    pub(crate) fn def_sites(&self, v: ValueId) -> &[Point] {
-        self.defs.get(&v).map_or(&[], Vec::as_slice)
     }
 
     /// The one def site of `v`, when it has exactly one.
@@ -119,11 +112,7 @@ impl<'a> PointEval<'a> {
     /// point of the function.
     pub(crate) fn flow_fact(&self, v: ValueId) -> Option<NumFact> {
         self.flow
-            .get_or_init(|| {
-                Cow::Owned(crate::interval::analyze_function_with(
-                    self.func, self.names,
-                ))
-            })
+            .get_or_init(|| Cow::Owned(analyze_function_with(self.func, self.names)))
             .get(&v)
             .copied()
     }
@@ -311,16 +300,6 @@ impl<'a> PointEval<'a> {
     }
 }
 
-pub(crate) fn successors(term: &Terminator) -> Vec<torajs_core::ssa::BlockId> {
-    match term {
-        Terminator::Br(t) => vec![*t],
-        Terminator::CondBr {
-            then_blk, else_blk, ..
-        } => vec![*then_blk, *else_blk],
-        Terminator::Ret(_) | Terminator::Unreachable => vec![],
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -407,7 +386,7 @@ mod tests {
         );
         let dom = DominatorTree::compute(&f);
         let la = LoopAnalysis::compute(&f, &dom);
-        let pe = PointEval::new(&f, &dom, &la, &[]);
+        let pe = PointEval::new(&f, &dom, &la, &[], None);
         // read of %1 at the add (bb1, idx 2): unique last def is the
         // copy-0 at idx 0 (the idx-3 redef re-passes it on loop-back).
         assert_eq!(pe.eval_value(ValueId(1), (1, 2)), Some(NumFact::new(0, 0)));
@@ -448,7 +427,7 @@ mod tests {
         );
         let dom = DominatorTree::compute(&f);
         let la = LoopAnalysis::compute(&f, &dom);
-        let pe = PointEval::new(&f, &dom, &la, &[]);
+        let pe = PointEval::new(&f, &dom, &la, &[], None);
         assert_eq!(pe.eval_value(ValueId(0), (1, 0)), None);
     }
 }

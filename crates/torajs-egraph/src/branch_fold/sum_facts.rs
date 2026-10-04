@@ -62,10 +62,7 @@ pub fn bound_sums(
         }
         let dom = DominatorTree::compute(func);
         let la = LoopAnalysis::compute(func, &dom);
-        let pe = PointEval::new(func, &dom, &la, &names);
-        if let Some(f) = cache.and_then(|c| c.get(fi, func)) {
-            pe.seed_flow(f);
-        }
+        let pe = PointEval::new(func, &dom, &la, &names, cache.and_then(|c| c.get(fi, func)));
         for (x, at) in sums {
             if pe.single_def(x).is_none() {
                 continue;

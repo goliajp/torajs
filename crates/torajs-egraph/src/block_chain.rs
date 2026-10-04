@@ -62,19 +62,7 @@ pub(crate) fn chain_loop_range(
     facts: &ChainFacts,
 ) -> bool {
     let range = &order[span.clone()];
-    // Units in current order: a child loop's run of blocks, or one block.
-    let mut units: Vec<Vec<u32>> = Vec::new();
-    for &id in range {
-        let owner = children.iter().position(|(c, _)| c.contains(&id));
-        let same = units.last().is_some_and(|u| {
-            owner.is_some() && children.iter().position(|(c, _)| c.contains(&u[0])) == owner
-        });
-        if same {
-            units.last_mut().expect("unit").push(id);
-        } else {
-            units.push(vec![id]);
-        }
-    }
+    let units = units_of(range, children);
     // A block on every path into a nested loop (its entry, a preheader,
     // a rotation guard) leads toward the loop.
     let leads_to_loop = |b: u32| {
@@ -89,18 +77,12 @@ pub(crate) fn chain_loop_range(
         .flat_map(|(u, ids)| ids.iter().map(move |&id| (id, u)))
         .collect();
     let unit_of = |id: u32| unit_index.get(&id).copied();
-    let mut placed = vec![false; units.len()];
-    // placing only ever sets a flag, so the first unplaced unit only
-    // moves forward
-    let mut first_open = 0;
+    let mut placed = Placed::new(units.len());
     let mut chain: Vec<usize> = Vec::with_capacity(units.len());
     let mut cur = unit_of(header).expect("header in its loop range");
     loop {
-        placed[cur] = true;
+        placed.place(cur);
         chain.push(cur);
-        while first_open < placed.len() && placed[first_open] {
-            first_open += 1;
-        }
         let next = hot_successor(
             func,
             facts,
@@ -108,9 +90,9 @@ pub(crate) fn chain_loop_range(
             body,
             &unit_of,
             &leads_to_loop,
-            &placed,
+            &placed.flags,
         )
-        .or_else(|| (first_open < placed.len()).then_some(first_open));
+        .or_else(|| placed.first_open());
         match next {
             Some(n) => cur = n,
             None => break,
@@ -125,6 +107,51 @@ pub(crate) fn chain_loop_range(
     }
     order[span].copy_from_slice(&new);
     true
+}
+
+/// The range in units, in current order: a child loop's run of blocks,
+/// or one block.
+fn units_of(range: &[u32], children: &[(&HashSet<u32>, u32)]) -> Vec<Vec<u32>> {
+    let mut units: Vec<Vec<u32>> = Vec::new();
+    for &id in range {
+        let owner = children.iter().position(|(c, _)| c.contains(&id));
+        let same = units.last().is_some_and(|u| {
+            owner.is_some() && children.iter().position(|(c, _)| c.contains(&u[0])) == owner
+        });
+        if same {
+            units.last_mut().expect("unit").push(id);
+        } else {
+            units.push(vec![id]);
+        }
+    }
+    units
+}
+
+/// The units placed so far. Placing only ever sets a flag, so the
+/// first unplaced unit only moves forward.
+struct Placed {
+    flags: Vec<bool>,
+    first_open: usize,
+}
+
+impl Placed {
+    fn new(n: usize) -> Self {
+        Placed {
+            flags: vec![false; n],
+            first_open: 0,
+        }
+    }
+
+    fn place(&mut self, u: usize) {
+        self.flags[u] = true;
+        while self.first_open < self.flags.len() && self.flags[self.first_open] {
+            self.first_open += 1;
+        }
+    }
+
+    fn first_open(&self) -> Option<usize> {
+        (self.first_open < self.flags.len()).then_some(self.first_open)
+    }
 }
 
 /// The unplaced unit the path through `unit` most likely continues

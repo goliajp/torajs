@@ -40,6 +40,7 @@
 
 pub(crate) mod accum;
 mod counter;
+mod decide;
 pub(crate) mod point_eval;
 pub mod sum_facts;
 
@@ -47,13 +48,13 @@ use std::cell::OnceCell;
 use std::collections::{HashMap, HashSet};
 
 use torajs_core::ssa::{
-    BinOp, BlockId, Function, IPred, InstKind, Module, Operand, Terminator, ValueId,
-    visit_value_operands,
+    BinOp, BlockId, Function, InstKind, Module, Operand, Terminator, ValueId, visit_value_operands,
 };
 
-use crate::interval::FactCache;
 use crate::interval::refine::{Constraint, Constraints};
 use crate::interval::transfer::{NumFact, POS_INF, op_const_int};
+use crate::interval::{FactCache, Seed};
+use decide::decide;
 use point_eval::{PointEval, successors};
 use torajs_core::ssa::dominator::DominatorTree;
 use torajs_core::ssa::loop_analysis::LoopAnalysis;
@@ -85,18 +86,10 @@ pub fn fold_branches(module: &mut Module, cache: Option<&FactCache>) -> BranchFo
     stats
 }
 
-fn fold_in_function(
-    func: &mut Function,
-    names: &[String],
-    seed: Option<&HashMap<ValueId, NumFact>>,
-    stats: &mut BranchFoldStats,
-) {
+fn fold_in_function(func: &mut Function, fns: &[String], seed: Seed, stats: &mut BranchFoldStats) {
     let dom = DominatorTree::compute(func);
     let la = LoopAnalysis::compute(func, &dom);
-    let pe = PointEval::new(func, &dom, &la, names);
-    if let Some(f) = seed {
-        pe.seed_flow(f);
-    }
+    let pe = PointEval::new(func, &dom, &la, fns, seed);
     // Lazily: most functions carry no ICmp-fed CondBr at all.
     let edges: OnceCell<Constraints> = OnceCell::new();
     let src = Sources {
@@ -234,34 +227,6 @@ fn edge_range(src: &Sources<'_>, v: ValueId, bi: usize) -> Option<NumFact> {
         .reduce(|a, b| a.meet(b).unwrap_or(b))
 }
 
-fn decide(pred: IPred, a: NumFact, b: NumFact) -> Option<bool> {
-    match pred {
-        IPred::Sgt => decide_ordered(a.lo > b.hi, a.hi <= b.lo),
-        IPred::Slt => decide_ordered(a.hi < b.lo, a.lo >= b.hi),
-        IPred::Sge => decide_ordered(a.lo >= b.hi, a.hi < b.lo),
-        IPred::Sle => decide_ordered(a.hi <= b.lo, a.lo > b.hi),
-        IPred::Eq => decide_ordered(a.lo == a.hi && b.lo == b.hi && a.lo == b.lo, disjoint(a, b)),
-        IPred::Ne => decide_ordered(disjoint(a, b), a.lo == a.hi && b.lo == b.hi && a.lo == b.lo),
-        // unsigned order agrees with signed only when both sides are
-        // known non-negative
-        IPred::Ult if a.lo >= 0 && b.lo >= 0 => decide(IPred::Slt, a, b),
-        IPred::Uge if a.lo >= 0 && b.lo >= 0 => decide(IPred::Sge, a, b),
-        IPred::Ult | IPred::Uge => None,
-    }
-}
-
-fn decide_ordered(always: bool, never: bool) -> Option<bool> {
-    match (always, never) {
-        (true, _) => Some(true),
-        (_, true) => Some(false),
-        _ => None,
-    }
-}
-
-fn disjoint(a: NumFact, b: NumFact) -> bool {
-    a.hi < b.lo || a.lo > b.hi
-}
-
 /// Remove pure instructions whose results are no longer read
 /// anywhere (the folded compares and their operand chains). Fixpoint
 /// loop — removing a compare frees its operands.
@@ -387,7 +352,7 @@ pub(crate) fn sweep_unreachable_blocks(func: &mut Function) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use torajs_core::ssa::{BinOp, Block, Inst, Type, ValueInfo};
+    use torajs_core::ssa::{BinOp, Block, IPred, Inst, Type, ValueInfo};
 
     fn inst(result: u32, kind: InstKind) -> Inst {
         Inst {
