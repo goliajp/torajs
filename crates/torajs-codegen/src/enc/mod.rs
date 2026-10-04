@@ -23,6 +23,7 @@
 //!     index, STP/LDP pre/post-index for prologue/epilogue.
 //!   - [`ctrl`]: control flow + immediate — RET, B/BL/BLR, B.cond,
 //!     CBZ/CBNZ, BRK, ADRP, CSET, the 4-bit `cond::*` table.
+//!   - [`simd`]: 128-bit Q-form loads / stores, ORR.16B, UMOV.
 //!   - [`sys`]: system registers — the FPCR MRS/MSR pair the program
 //!     entry uses to select default-NaN mode, and the single-bit
 //!     logical immediate that sets its bit.
@@ -31,6 +32,7 @@ mod ctrl;
 mod fp;
 mod int;
 mod mem;
+mod simd;
 mod sys;
 
 pub use ctrl::{
@@ -56,4 +58,5 @@ pub use mem::{
     stp_x_off, str_w_imm12, str_w_reg, str_x_imm12, str_x_reg, str_x_reg_lsl3, strb_w_imm12,
     stur_w_imm9, stur_x_imm9, sturh_w_imm9,
 };
+pub use simd::{ldr_q_imm12, ldur_q_imm9, orr_v16b, str_q_imm12, stur_q_imm9, umov_x_d};
 pub use sys::{mrs_fpcr, msr_fpcr, orr_imm_bit};

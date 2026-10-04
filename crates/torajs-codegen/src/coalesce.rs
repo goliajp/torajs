@@ -29,7 +29,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use torajs_core::ssa::{Function, InstKind, Operand, Type};
+use torajs_core::ssa::{Function, InstKind, Operand};
 
 use crate::linear_scan_calls::crosses_call;
 use crate::liveness::{Interval, visit_inst_operands, visit_terminator_operands};
@@ -151,7 +151,7 @@ fn collect_copies(
         }
     }
     let params: HashSet<u32> = func.params.iter().map(|p| p.0).collect();
-    let is_fp = |v: u32| matches!(func.values[v as usize].ty, Type::F64);
+    let is_fp = |v: u32| func.values[v as usize].ty.is_fpr_class();
     copies.retain(|&(w, v)| {
         w != v
             && [w, v].iter().all(|x| {

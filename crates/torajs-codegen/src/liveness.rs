@@ -275,6 +275,7 @@ pub(crate) fn visit_inst_operands(kind: &InstKind, mut f: impl FnMut(ValueId)) {
             visit(b);
             visit(a);
         }
+        InstKind::Vec(vi) => vi.operands().into_iter().flatten().for_each(visit),
         InstKind::Alloca(_) | InstKind::AllocaBytes(_) => {}
         InstKind::Load(_, ptr, _)
         | InstKind::RcInc(ptr)

@@ -77,6 +77,7 @@ pub fn visit_value_operands(kind: &InstKind, mut f: impl FnMut(ValueId)) {
         | InstKind::Neg(o)
         | InstKind::Ctpop(o)
         | InstKind::Copy(_, o) => v(o),
+        InstKind::Vec(vi) => vi.operands().into_iter().flatten().for_each(v),
         InstKind::Alloca(_)
         | InstKind::AllocaBytes(_)
         | InstKind::StringRef(_)
@@ -162,6 +163,7 @@ pub fn rewrite_value_operands(kind: &mut InstKind, mut f: impl FnMut(ValueId) ->
         | InstKind::Neg(o)
         | InstKind::Ctpop(o)
         | InstKind::Copy(_, o) => v(o),
+        InstKind::Vec(vi) => vi.operands_mut().into_iter().flatten().for_each(v),
         InstKind::Alloca(_)
         | InstKind::AllocaBytes(_)
         | InstKind::StringRef(_)

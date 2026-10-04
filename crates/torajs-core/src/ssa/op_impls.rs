@@ -37,6 +37,7 @@ impl Type {
             Type::Set => "set",
             Type::MapIter => "mapiter",
             Type::ArrIter => "arriter",
+            Type::Vec(shape) => shape.as_str(),
         }
     }
 
@@ -144,8 +145,13 @@ impl Type {
             | Type::ArrIter
             | Type::Ptr => true,
             Type::Str | Type::Substr | Type::FnSig(_) | Type::Any => false,
-            Type::I64 | Type::F64 | Type::I32 | Type::Bool | Type::Void => false,
+            Type::I64 | Type::F64 | Type::I32 | Type::Bool | Type::Void | Type::Vec(_) => false,
         }
+    }
+
+    /// Held in a SIMD&FP register rather than a general one.
+    pub fn is_fpr_class(self) -> bool {
+        matches!(self, Type::F64 | Type::Vec(_))
     }
 
     /// V3-05 — true if the SSA value is an i64-wide pointer slot

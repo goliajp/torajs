@@ -261,6 +261,7 @@ pub(crate) fn rewrite_operands(kind: &mut InstKind, replace: &HashMap<ValueId, O
             r(b);
             r(a);
         }
+        InstKind::Vec(vi) => vi.operands_mut().into_iter().flatten().for_each(r),
         InstKind::SiToFp(a)
         | InstKind::FpToSi(a)
         | InstKind::FpToInt32(a)

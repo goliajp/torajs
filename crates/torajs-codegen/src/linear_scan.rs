@@ -33,7 +33,7 @@
 //! params take their AAPCS64 lanes (`X0..X7` and `V0..V7` counted
 //! independently) from `linear_scan_lanes::param_lanes`.
 
-use torajs_core::ssa::{Function, Type};
+use torajs_core::ssa::Function;
 
 use crate::coalesce::build_copy_classes;
 use crate::compile::InlineSites;
@@ -92,7 +92,7 @@ pub fn allocate_linear_scan_with(func: &Function, inline: InlineSites) -> Assign
             .get(vid as usize)
             .map(|vi| &vi.ty)
             .expect("ValueId out of bounds");
-        let is_fp = matches!(ty, Type::F64);
+        let is_fp = ty.is_fpr_class();
         // Params def at function ENTRY — before inst slot 0 — so a
         // call at p == interval.start still clobbers their
         // caller-saved arg register. `crosses_call`'s `p == start`
@@ -239,6 +239,7 @@ pub fn allocate_linear_scan_with(func: &Function, inline: InlineSites) -> Assign
     assignment.param_entry_moves = param_entry_moves;
     assignment.stack_param_entry_loads = stack_param_entry_loads;
     assignment.call_saves = call_saves;
+    crate::vec_homes::assert_vec_homes(func, &intervals, &call_sites, &assignment);
     assignment
 }
 

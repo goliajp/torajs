@@ -55,6 +55,7 @@ mod store_pair;
 mod str_append;
 mod substr_drop;
 mod terminator;
+mod vec;
 
 #[cfg(test)]
 pub(crate) mod test_fixtures;

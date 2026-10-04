@@ -434,6 +434,7 @@ fn operands(kind: &InstKind) -> Vec<Operand> {
         InstKind::StoreDyn(a, b, c)
         | InstKind::StoreDynScaled8(a, b, c)
         | InstKind::CtpopRangeSum(a, b, c) => vec![*a, *b, *c],
+        InstKind::Vec(vi) => vi.operands().into_iter().flatten().copied().collect(),
         InstKind::Select(_, a, b, c) => vec![*a, *b, *c],
         InstKind::SiToFp(a)
         | InstKind::FpToSi(a)

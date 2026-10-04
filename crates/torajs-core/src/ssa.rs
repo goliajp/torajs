@@ -1,27 +1,13 @@
 #![allow(dead_code)] // step 1: types only; lowerer (step 2) + backend (step 3) consume the rest
 
-// SSA IR for the new codegen path (P3.5).
+// SSA IR: what the frontend (lex/parse/check) lowers into and the
+// native backend consumes.
 //
-// This is the IR that frontend (lex/parse/check) lowers into, and that the
-// LLVM backend (P3.5+) and Cranelift backend (P3.6) both consume. It exists
-// alongside the stack-machine `ir.rs` (which feeds the tree-walk interpreter
-// and is on the retirement list with the wasm-via-C path).
-//
-// Step 1 of P3.5: define the types + pretty printer + a hand-built fib40
-// demo that round-trips through `tr ssa-demo`. The lowerer (AST → SSA) is
-// step 2; the LLVM backend (SSA → Inkwell) is step 3.
-//
-// Design notes:
-// - **Operands carry constants inline** (Operand::ConstI64 etc.) rather than
-//   going through their own SSA value. Matches LLVM IR's actual textual
-//   shape and keeps the pretty-printed output readable.
-// - **Newtype IDs** for ValueId/BlockId/FuncId — cheap type safety, harder
-//   to confuse a value index with a block index.
-// - **Per-function value table** holds the type and optional debug name of
-//   each ValueId. Optional name is what makes `%n` / `%t` / `%r1` show up
-//   in the pretty output instead of `%0` / `%4` / `%7`.
-// - **No phi nodes yet** — fib40 only needs branching, not loop carry. Phis
-//   will land in step 2 when we lower `while`.
+// - Operands carry constants inline (Operand::ConstI64 etc.) rather
+//   than through their own SSA value.
+// - Newtype IDs for ValueId/BlockId/FuncId.
+// - The per-function value table holds each ValueId's type and an
+//   optional debug name the pretty printer prefers over the number.
 
 pub mod block_freq;
 pub mod branch_prob;
@@ -33,6 +19,7 @@ mod module_extras;
 mod module_methods;
 mod op_impls;
 mod type_def;
+pub mod vec;
 mod visit;
 
 /// Mach-O names of the two runtime statics user code reads INLINE
@@ -60,6 +47,7 @@ pub use module_methods::{
     BakedRegexEntry, DataGlobal, FnNameEntry, Module, StringLiteral, VtableGlobal,
 };
 pub use type_def::Type;
+pub use vec::{VecInst, VecOp, VecShape};
 pub use visit::{rewrite_value_operands, visit_value_operands};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -408,6 +396,8 @@ pub enum InstKind {
     /// `__torajs_anyv_box_from_pair(tag, v)`. A pure encode: no
     /// refcount traffic, no call — codegen expands it in place.
     BoxAny(i64, Operand),
+    /// SIMD lane arithmetic over `Type::Vec` values (see `vec`).
+    Vec(VecInst),
 }
 
 #[derive(Debug, Clone)]

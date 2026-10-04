@@ -3,7 +3,7 @@
 //! HARD limit). Re-exported at `crate::ssa::Type` so every existing
 //! caller path is unchanged.
 
-use super::{ArrId, SigId, StructId};
+use super::{ArrId, SigId, StructId, VecShape};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Type {
@@ -176,4 +176,7 @@ pub enum Type {
     /// + length() works. T-10.b lands the tagged-slot Array<Any>
     ///   runtime; T-10.c the codegen for heterogeneous Array literals.
     Any,
+    /// A 128-bit SIMD value, lanes per `VecShape`. Lives only in a
+    /// vector register: never spilled, never live across a call.
+    Vec(VecShape),
 }

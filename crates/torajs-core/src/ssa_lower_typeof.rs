@@ -304,6 +304,7 @@ fn lower_by_ssa_type_inner(ctx: &mut LowerCtx<'_>, expr: ExprId, v: Operand, ty:
         | Type::MapIter
         | Type::ArrIter => "object",
         Type::Void | Type::Ptr => "object",
+        Type::Vec(_) => unreachable!("no JS value has a vector SSA type"),
         Type::Any => {
             let cur_block = ctx.cur_block;
             let r = ctx.f.append_inst(

@@ -40,7 +40,15 @@ pub(super) fn emit_plain(
         InstKind::PtrToInt(src) => emit_ptr_to_int(bytes, inst, src, alloc),
         InstKind::IntToPtr(src) => emit_int_to_ptr(bytes, inst, src, alloc),
         InstKind::Alloca(_) | InstKind::AllocaBytes(_) => emit_alloca(bytes, inst, alloc),
+        InstKind::Load(Type::Vec(_), ptr, offset) => {
+            super::vec::emit_vec_load(bytes, inst, ptr, *offset, alloc)
+        }
         InstKind::Load(ty, ptr, offset) => emit_load(bytes, inst, ty, ptr, *offset, alloc),
+        InstKind::Store(val @ Operand::Value(v), ptr, offset)
+            if matches!(func.value_type(*v), Type::Vec(_)) =>
+        {
+            super::vec::emit_vec_store(bytes, val, ptr, *offset, alloc)
+        }
         InstKind::Store(val, ptr, offset) => {
             let w32 = match val {
                 Operand::ConstI32(_) => true,
@@ -85,7 +93,9 @@ pub(super) fn emit_plain(
         ),
         InstKind::Neg(op) => emit_neg(bytes, inst, op, alloc),
         InstKind::Ctpop(op) => emit_ctpop(bytes, inst, op, alloc),
+        InstKind::Copy(Type::Vec(_), op) => super::vec::emit_vec_copy(bytes, inst, op, alloc),
         InstKind::Copy(ty, op) => emit_copy(bytes, inst, *ty, op, alloc),
+        InstKind::Vec(vi) => super::vec::emit_vec(bytes, inst, vi, alloc),
         InstKind::Select(ty, cond, then_op, else_op) => {
             emit_select(bytes, inst, ty, cond, then_op, else_op, alloc)
         }
