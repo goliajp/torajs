@@ -11,6 +11,7 @@
 //! as the range the previous round's facts give.
 
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
 use torajs_core::ssa::dominator::DominatorTree;
 use torajs_core::ssa::{BlockId, Function, Operand, ValueId};
@@ -29,7 +30,7 @@ pub(super) struct Merges {
 struct Join {
     block: BlockId,
     cell: ValueId,
-    per_pred: Vec<Vec<Constraint>>,
+    per_pred: Rc<Vec<Vec<Constraint>>>,
 }
 
 impl Merges {
@@ -42,6 +43,8 @@ impl Merges {
         inherited: &[Vec<Constraint>],
         block_defs: &[HashSet<ValueId>],
     ) -> Self {
+        // every value some block defines: a cell, not a value fixed at its def
+        let defined: HashSet<ValueId> = block_defs.iter().flatten().copied().collect();
         let mut joins = Vec::new();
         for (bi, ps) in reachable_preds(func, dom).iter().enumerate() {
             if ps.len() < 2 {
@@ -58,23 +61,27 @@ impl Merges {
                         .collect()
                 })
                 .collect();
+            let named: Vec<HashSet<ValueId>> = at_end[1..]
+                .iter()
+                .map(|cs| cs.iter().map(Constraint::value).collect())
+                .collect();
             let mut cells: Vec<ValueId> = at_end[0]
                 .iter()
                 .map(Constraint::value)
-                .filter(|v| block_defs.iter().any(|d| d.contains(v)))
-                .filter(|v| {
-                    at_end[1..]
-                        .iter()
-                        .all(|cs| cs.iter().any(|c| c.value() == *v))
-                })
+                .filter(|v| defined.contains(v))
+                .filter(|v| named.iter().all(|n| n.contains(v)))
                 .collect();
             cells.sort_by_key(|v| v.0);
             cells.dedup();
+            if cells.is_empty() {
+                continue;
+            }
+            let per_pred = Rc::new(at_end);
             for cell in cells {
                 joins.push(Join {
                     block: BlockId(bi as u32),
                     cell,
-                    per_pred: at_end.clone(),
+                    per_pred: Rc::clone(&per_pred),
                 });
             }
         }
@@ -97,7 +104,7 @@ impl Merges {
         let mut out = HashMap::new();
         for j in &self.joins {
             let mut joined: Option<NumFact> = None;
-            for cs in &j.per_pred {
+            for cs in j.per_pred.iter() {
                 let AbsVal::Fact(f) = super::lookup(&Operand::Value(j.cell), state, cs) else {
                     joined = None;
                     break;
