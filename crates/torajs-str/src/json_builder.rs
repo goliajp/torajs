@@ -437,7 +437,7 @@ unsafe fn finalize_bytes(sb: &JsonBuilder) -> *mut u8 {
     // and every producer that can emit such content sets it — a
     // Latin-1 payload was once copied in raw, which left a lead
     // byte in the buffer that ate whatever came after it.
-    unsafe { crate::block_ffi::__torajs_str_alloc_ascii(bytes.as_ptr(), bytes.len() as i64) }
+    unsafe { crate::block_ffi::latin1_from(bytes) }
 }
 
 #[cfg(test)]

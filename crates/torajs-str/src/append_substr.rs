@@ -97,8 +97,8 @@ pub unsafe extern "C" fn __torajs_str_alloc_capacity_utf16(cap: u64) -> *mut u8 
 /// The slack for a hint of `cap` bytes: grown like an append's, and no
 /// more than a Str in that encoding holds.
 fn reserve(cap: u64, is_latin1: bool) -> u32 {
-    let max = str_max_bytes(is_latin1);
-    grow_capacity(cap.min(max as u64), is_latin1).unwrap_or(max)
+    // a hint past what a Str holds takes all it holds
+    grow_capacity(cap, is_latin1).unwrap_or(str_max_bytes(is_latin1))
 }
 
 #[cfg(test)]

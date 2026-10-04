@@ -43,25 +43,6 @@ pub const fn str_max_bytes(is_latin1: bool) -> u32 {
     byte_capacity(STR_MAX_LEN as u32, is_latin1)
 }
 
-/// `units` as the length of a Str whose caller writes the payload
-/// itself, so it cannot be handed a placeholder: past
-/// [`STR_MAX_LEN`] the process stops instead of writing past a
-/// truncated block. Builders whose length can get there check with
-/// [`str_len_of`] first and raise.
-#[inline(always)]
-pub(crate) fn str_len_or_abort(units: u64) -> u32 {
-    if units > STR_MAX_LEN as u64 {
-        len_abort();
-    }
-    units as u32
-}
-
-#[cold]
-#[inline(never)]
-fn len_abort() -> ! {
-    torajs_abort::abort_with(b"string length past STR_MAX_LEN")
-}
-
 /// Raise the RangeError for a string longer than [`STR_MAX_LEN`] and
 /// answer an empty Str, which the caller's throw check discards.
 ///

@@ -10,7 +10,7 @@
 //! mechanical pull, no semantic change.
 
 use crate::block::StrBlock;
-use crate::max_len::{__torajs_str_too_long, str_len_of, str_len_or_abort};
+use crate::max_len::{__torajs_str_too_long, str_len_of};
 
 /// Pool-aware Str allocation. Mirrors the pre-rewrite C
 /// `__torajs_str_alloc_pooled(uint64_t len) -> uint8_t *`. The
@@ -24,8 +24,8 @@ use crate::max_len::{__torajs_str_too_long, str_len_of, str_len_or_abort};
 /// rc_dec semantics aren't reached).
 ///
 /// `len` is at most [`crate::max_len::STR_MAX_LEN`]: the caller writes
-/// the payload, so a longer request stops the process rather than
-/// answer a block shorter than asked for. Encoding hard-coded to
+/// the payload, so it either takes the length from strings that exist
+/// or asks [`crate::max_len::str_len_of`] first. Encoding hard-coded to
 /// Latin-1 — every existing caller built on byte-Str semantics
 /// (`len` = byte count) maps trivially to Latin-1 (`length` =
 /// code unit = byte for Latin-1 payloads).
@@ -34,7 +34,7 @@ use crate::max_len::{__torajs_str_too_long, str_len_of, str_len_or_abort};
 /// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_alloc_pooled(len: u64) -> *mut u8 {
-    StrBlock::alloc(str_len_or_abort(len)).into_raw()
+    StrBlock::alloc(len as u32).into_raw()
 }
 
 /// Encoding-aware sibling of [`__torajs_str_alloc_pooled`] (RFC
@@ -50,7 +50,7 @@ pub unsafe extern "C" fn __torajs_str_alloc_pooled(len: u64) -> *mut u8 {
 /// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_alloc_pooled_enc(len: u64, is_latin1: i64) -> *mut u8 {
-    StrBlock::alloc_with_encoding(str_len_or_abort(len), is_latin1 != 0).into_raw()
+    StrBlock::alloc_with_encoding(len as u32, is_latin1 != 0).into_raw()
 }
 
 /// ASCII-certain variant of [`__torajs_str_alloc`] — Round 5 attack
@@ -69,17 +69,33 @@ pub unsafe extern "C" fn __torajs_str_alloc_pooled_enc(len: u64, is_latin1: i64)
 /// it is an empty placeholder under a pending RangeError.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_alloc_ascii(src: *const u8, len: i64) -> *mut u8 {
-    let len_u = len as usize;
-    let Some(length) = str_len_of(len_u) else {
+    let bytes = if len == 0 {
+        &[][..]
+    } else {
+        unsafe { core::slice::from_raw_parts(src, len as usize) }
+    };
+    unsafe { latin1_from(bytes) }
+}
+
+/// The body of [`__torajs_str_alloc_ascii`], inlined into in-crate
+/// builders that hold the bytes as a slice.
+///
+/// # Safety
+///
+/// The answer is an owned refcount-1 Str (the RangeError placeholder
+/// past [`crate::max_len::STR_MAX_LEN`]).
+#[inline(always)]
+pub(crate) unsafe fn latin1_from(bytes: &[u8]) -> *mut u8 {
+    let Some(length) = str_len_of(bytes.len()) else {
         return unsafe { __torajs_str_too_long() };
     };
     let mut block = StrBlock::alloc_with_encoding(length, true);
-    if len_u > 0 {
+    if length > 0 {
         // r503 — a raw copy, not `copy_from_slice`: the two lengths
         // are equal by construction, and the mismatch panic was one
         // of this crate's edges into the core::fmt renderer.
         let dst = unsafe { block.as_bytes_mut(length) };
-        unsafe { core::ptr::copy_nonoverlapping(src, dst.as_mut_ptr(), dst.len()) };
+        unsafe { core::ptr::copy_nonoverlapping(bytes.as_ptr(), dst.as_mut_ptr(), dst.len()) };
     }
     block.into_raw()
 }

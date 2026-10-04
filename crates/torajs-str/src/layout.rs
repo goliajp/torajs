@@ -229,11 +229,13 @@ pub const fn grow_capacity(need: u64, is_latin1: bool) -> Option<u32> {
     if need <= STR_POOL_PAYLOADS[0] as u64 {
         return Some(STR_POOL_PAYLOADS[0]);
     }
-    let bits = u64::BITS - (need - 1).leading_zeros();
-    if bits >= u32::BITS - 1 {
+    // asked of `need - 1`, which the doubling computes anyway, so the
+    // test is one mask: past 2^30 bytes
+    let below = need - 1;
+    if below >> 30 != 0 {
         return top_capacity(need, is_latin1);
     }
-    Some(1u32 << bits)
+    Some(1u32 << (u64::BITS - below.leading_zeros()))
 }
 
 /// [`grow_capacity`] past 2^30 bytes, where the last doubling would

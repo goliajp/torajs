@@ -143,8 +143,7 @@ pub(crate) unsafe fn join(a: Side, b: Side) -> *mut u8 {
             return block.into_raw();
         }
     }
-    // a short pair is far under the longest Str
-    if (a.len | b.len) >= 2 * STR_POOL_PAYLOAD && !fits_one_str(a, b) {
+    if !fits_one_str(a, b) {
         return unsafe { __torajs_str_too_long() };
     }
     unsafe { join_general(a, b) }

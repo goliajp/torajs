@@ -68,8 +68,7 @@ unsafe fn join_lit(side: Side, bits: u64, meta: u64, lit_first: bool) -> *mut u8
             return block.into_raw();
         }
     }
-    // a short side is far under the longest Str
-    if side.len > STR_POOL_PAYLOAD && !fits_with_lit(side, meta) {
+    if !fits_with_lit(side, meta) {
         return unsafe { __torajs_str_too_long() };
     }
     unsafe { join_lit_general(side, bits, meta, lit_first) }
