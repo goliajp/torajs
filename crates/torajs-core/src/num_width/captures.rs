@@ -81,8 +81,9 @@ impl Body<'_> {
         self.stmts.iter().copied()
     }
 
-    pub(super) fn binds_param(&self, n: &str) -> bool {
-        self.params.contains(n)
+    /// `n` is a `let` of this fn's own frame: a fresh binding per call.
+    pub(super) fn binds_frame_local(&self, n: &str) -> bool {
+        !self.params.contains(n) && self.locals.contains(n)
     }
 
     /// Every expression the body evaluates in its own frame.

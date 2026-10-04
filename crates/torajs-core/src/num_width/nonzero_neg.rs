@@ -22,12 +22,17 @@
 //!    eviction); a loop body starts without the facts of every name the
 //!    loop writes, because the scan already evicted them at the loop;
 //! 3. nothing the scan cannot see writes it: no closure captures the
-//!    name, the name is no parameter (`arguments` aliases those), and
-//!    every assignment to the name anywhere in the module sits in the
-//!    body being scanned. A write in another function could run inside
-//!    a call between guard and negation; a write in the same body is
-//!    already covered by 2. Coarse — a same-spelled local elsewhere
-//!    blocks it — but sound.
+//!    name, and every assignment to the name anywhere in the module
+//!    sits in the body being scanned, so no other function can write
+//!    it from inside a call between guard and negation. In a function
+//!    the name must also be a `let` of the function's own frame, never
+//!    a parameter (`arguments` aliases those) nor the spelling of a
+//!    module binding: a module binding written in this very body can
+//!    be written between guard and negation by a recursive call, or by
+//!    another running instance across an `await` / `yield`, which 2
+//!    cannot see. The module top level runs once, so its own bindings
+//!    qualify. Coarse — a same-spelled local elsewhere blocks it — but
+//!    sound.
 //!
 //! Missing any of them only keeps the F64 face, never a wrong answer.
 
@@ -57,6 +62,7 @@ struct Scan<'a> {
 pub(super) fn collect(
     ast: &Ast,
     bodies: &[Body<'_>],
+    toplevel: &HashSet<String>,
     types: &HashMap<ExprId, Type>,
 ) -> HashSet<ExprId> {
     let (sites, captured) = census(ast);
@@ -74,7 +80,9 @@ pub(super) fn collect(
         scan.eligible = sites
             .iter()
             .filter(|(n, at)| {
-                !captured.contains(*n) && !body.binds_param(n) && at.iter().all(|e| own.contains(e))
+                let frame =
+                    body.name.is_empty() || (body.binds_frame_local(n) && !toplevel.contains(*n));
+                frame && !captured.contains(*n) && at.iter().all(|e| own.contains(e))
             })
             .map(|(n, _)| n.clone())
             .collect();

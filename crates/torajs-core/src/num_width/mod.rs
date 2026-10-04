@@ -267,6 +267,7 @@ pub(crate) fn analyze(
     let bodies = captures::bodies(ast);
     let captures = captures::collect_captures(ast, &bodies, &toplevel_lets);
     let bound_closures = bound_closures::collect(ast, &bodies, &toplevel_lets, &captures);
+    let nonzero_negs = nonzero_neg::collect(ast, &bodies, &toplevel_lets, expr_types);
 
     let mut classes: Vec<String> = ast.class_parents.keys().cloned().collect();
     classes.sort();
@@ -304,7 +305,7 @@ pub(crate) fn analyze(
         char_code_proven: HashSet::new(),
         sentinel_member_reads: HashSet::new(),
         mag: Default::default(),
-        nonzero_negs: nonzero_neg::collect(ast, &bodies, expr_types),
+        nonzero_negs,
     };
 
     // Top-level statements walk under the "" scope; fn bodies under
