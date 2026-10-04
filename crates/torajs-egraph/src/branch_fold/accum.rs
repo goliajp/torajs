@@ -166,9 +166,6 @@ pub(crate) fn cell_bound_after_loop(
     Some(entry.join(grown))
 }
 
-/// Is `cell` a multi-def value with a `copy x` def somewhere, or a
-/// `copy m` of a cell `m` that has one (the cheap pre-filter before
-/// the full structural walk)?
 /// The recurrence def of the accumulator `acc` stepped by `x`: it must
 /// be the only def of the cell in the loop, copying `x` or a merge of
 /// the step.
@@ -202,6 +199,9 @@ fn sole_rec_def(
     rec_def
 }
 
+/// Is `cell` a multi-def value with a `copy x` def somewhere, or a
+/// `copy m` of a cell `m` that has one (the cheap pre-filter before
+/// the full structural walk)?
 fn is_rec_cell(func: &Function, cell: ValueId, x: ValueId) -> bool {
     let copies_of = |dst: ValueId| {
         func.blocks

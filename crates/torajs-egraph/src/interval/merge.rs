@@ -112,8 +112,6 @@ impl Merges {
     }
 }
 
-/// `live` with every merge placeholder read as the range `ranges` gives
-/// it, or dropped when it has none.
 /// Per block, the reachable blocks it is entered from.
 fn reachable_preds(func: &Function, dom: &DominatorTree) -> Vec<Vec<usize>> {
     let mut preds: Vec<Vec<usize>> = vec![Vec::new(); func.blocks.len()];
@@ -128,6 +126,8 @@ fn reachable_preds(func: &Function, dom: &DominatorTree) -> Vec<Vec<usize>> {
     preds
 }
 
+/// `live` with every merge placeholder read as the range `ranges` gives
+/// it, or dropped when it has none.
 pub(super) fn resolve(
     live: &[Constraint],
     ranges: &HashMap<(BlockId, ValueId), NumFact>,

@@ -168,17 +168,6 @@ fn inner_heads(
     }
 }
 
-/// `FB`: every lane's inner body from `fb`. Returns the block it ends
-/// in. With values the lanes share, each run of a block up to a shared
-/// instruction goes lane by lane, then the shared one once: every lane
-/// still runs its own instructions in order (a compare stays next to
-/// the select reading it), and a shared value is defined before any
-/// lane reads it and updated after every lane has read the old one.
-/// A lane's guard follows its copy of the block's last run, next to
-/// the compare it tests, or all lanes' copies when that run ends in a
-/// shared instruction (a guard only sends the group back to the
-/// original loop, whichever fires first); a shared guard is tested
-/// once.
 /// The fused body when the lanes share nothing: each lane's copy of
 /// the chain after the one before it.
 fn lane_after_lane(
@@ -216,6 +205,17 @@ fn clone_shared(
     }
 }
 
+/// `FB`: every lane's inner body from `fb`. Returns the block it ends
+/// in. With values the lanes share, each run of a block up to a shared
+/// instruction goes lane by lane, then the shared one once: every lane
+/// still runs its own instructions in order (a compare stays next to
+/// the select reading it), and a shared value is defined before any
+/// lane reads it and updated after every lane has read the old one.
+/// A lane's guard follows its copy of the block's last run, next to
+/// the compare it tests, or all lanes' copies when that run ends in a
+/// shared instruction (a guard only sends the group back to the
+/// original loop, whichever fires first); a shared guard is tested
+/// once.
 fn fused_body(
     func: &mut Function,
     p: &Plan,

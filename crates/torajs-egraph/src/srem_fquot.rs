@@ -182,8 +182,6 @@ struct Site {
     lp: usize,
 }
 
-/// Rewrites the qualifying sites of `func`; answers the remainders
-/// whose ids now name the product.
 impl Readers {
     /// Whether the zero compare of the remainder at `site` has only the
     /// readers this kind admits.
@@ -207,6 +205,8 @@ fn compare_with_dividend(insts: &mut [Inst], s: &Site) {
     }
 }
 
+/// Rewrites the qualifying sites of `func`; answers the remainders
+/// whose ids now name the product.
 fn rewrite_function(
     func: &mut Function,
     facts: &HashMap<ValueId, NumFact>,
