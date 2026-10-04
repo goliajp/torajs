@@ -24,6 +24,7 @@
 //! (user-fn reloc targets minus user-defined / link-defined /
 //! dyld-resolved names).
 
+use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
 
 use torajs_obj::{
@@ -31,10 +32,12 @@ use torajs_obj::{
     S_MOD_INIT_FUNC_POINTERS, S_TERM_FUNC_POINTERS, S_THREAD_LOCAL_VARIABLES, SECTION_TYPE,
 };
 
+use crate::archive::ArMember;
 use crate::archives_merge::{MergedArchives, RequiredMembers, reloc_target_name};
 pub(crate) use crate::dead_strip_reach_build::{build_member_reach, trim16};
 use crate::exec::LinkConfig;
 use crate::member_data_apply::parse_member_section_relocs;
+use crate::member_reloc::MemberRelocEntry;
 
 /// One parsed nlist row — just the fields reachability needs.
 pub(crate) struct NlEntry<'a> {
@@ -232,6 +235,7 @@ pub(crate) fn compute_reachability<'a>(
     // Fixpoint.
     let mut user_refs: BTreeSet<String> = BTreeSet::new();
     let mut visited: BTreeSet<Node> = BTreeSet::new();
+    let mut relocs = RelocIndex::default();
     while let Some(node) = worklist.pop() {
         if !visited.insert(node) {
             continue;
@@ -265,6 +269,7 @@ pub(crate) fn compute_reachability<'a>(
             &mut unresolved,
             &mut user_refs,
             record_preds.then_some(&mut preds),
+            &mut relocs,
         )?;
     }
 
@@ -317,6 +322,7 @@ fn expand_node(
     unresolved: &mut BTreeSet<String>,
     user_refs: &mut BTreeSet<String>,
     mut preds: Option<&mut BTreeMap<Node, Pred>>,
+    relocs: &mut RelocIndex,
 ) -> Result<(), String> {
     let (key, sect_ord, range) = match node {
         Node::Atom { key, sect, atom } => {
@@ -350,18 +356,13 @@ fn expand_node(
     if no_file {
         return Ok(()); // zerofill: no payload, no relocs
     }
-    let relocs = parse_member_section_relocs(member, sect_ord)
-        .map_err(|e| format!("sect {sect_ord} relocs: {e:?}"))?;
     // r_address is section-relative; atom ranges are object-file
     // addresses.
     let (lo, hi) = match range {
         Some((s, e)) => (s - sect_addr, e - sect_addr),
         None => (0, sect_size),
     };
-    for e in relocs
-        .iter()
-        .filter(|e| u64::from(e.r_address) >= lo && u64::from(e.r_address) < hi)
-    {
+    for e in relocs.in_range(member, key, sect_ord, lo, hi)? {
         let r = reach.get(&key).ok_or("member vanished")?;
         if e.r_extern == 1
             && let Some(en) = r.nlist.get(e.r_symbolnum as usize)
@@ -389,6 +390,51 @@ fn expand_node(
         }
     }
     Ok(())
+}
+
+/// Each expanded (member, section)'s reloc table, decoded once and
+/// sorted by `r_address` so an atom finds its relocs by binary search
+/// instead of re-decoding and filtering the whole table.
+#[derive(Default)]
+struct RelocIndex {
+    /// `(r_address, table position, entry)`, ascending.
+    tables: BTreeMap<((usize, usize), u8), Vec<(u32, u32, MemberRelocEntry)>>,
+    hits: Vec<(u32, MemberRelocEntry)>,
+}
+
+impl RelocIndex {
+    /// The section's relocs with `lo <= r_address < hi`, in table
+    /// order (the order a linear scan visits them).
+    fn in_range(
+        &mut self,
+        member: &ArMember<'_>,
+        key: (usize, usize),
+        sect: u8,
+        lo: u64,
+        hi: u64,
+    ) -> Result<impl Iterator<Item = &MemberRelocEntry>, String> {
+        let table = match self.tables.entry((key, sect)) {
+            Entry::Occupied(o) => o.into_mut(),
+            Entry::Vacant(v) => {
+                let parsed = parse_member_section_relocs(member, sect)
+                    .map_err(|e| format!("sect {sect} relocs: {e:?}"))?;
+                let mut t: Vec<(u32, u32, MemberRelocEntry)> = parsed
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, e)| (e.r_address, i as u32, e))
+                    .collect();
+                t.sort_unstable_by_key(|&(a, i, _)| (a, i));
+                v.insert(t)
+            }
+        };
+        let from = table.partition_point(|&(a, _, _)| u64::from(a) < lo);
+        let to = table.partition_point(|&(a, _, _)| u64::from(a) < hi);
+        self.hits.clear();
+        self.hits
+            .extend(table[from..to.max(from)].iter().map(|&(_, i, e)| (i, e)));
+        self.hits.sort_unstable_by_key(|&(i, _)| i);
+        Ok(self.hits.iter().map(|(_, e)| e))
+    }
 }
 
 pub(crate) use crate::dead_strip_reach_resolve::{
