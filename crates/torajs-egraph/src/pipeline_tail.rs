@@ -1,8 +1,8 @@
 use torajs_core::ssa::Module;
 
 use crate::{
-    block_layout, concat_num_fuse, gated_pass, loop_rotate, map_find_cse, rc_dec_immediate,
-    rc_peephole, scaled_addr, select_form, srem_fquot, str_append, unroll_jam,
+    block_layout, concat_num_fuse, gated_pass, iv_merge, loop_rotate, map_find_cse,
+    rc_dec_immediate, rc_peephole, scaled_addr, select_form, srem_fquot, str_append, unroll_jam,
 };
 
 /// Select formation and the inst-level fusions that read its output,
@@ -52,6 +52,12 @@ pub(crate) fn form_selects_and_fuse(module: &mut Module) {
     // adjacent; before rc_peephole, whose window a call closes anyway.
     // `TORAJS_STR_APPEND_OFF=1` skips (bisect gate).
     gated_pass("STR_APPEND", module, str_append::rewrite_str_appends);
+    // Induction-variable merging — of two counters stepped together,
+    // the one read only as a scaled access offset becomes the other
+    // plus a preheader constant folded into the access base. Before
+    // scaled_addr, which then folds the kept counter's shift into the
+    // access. `TORAJS_IV_MERGE_OFF=1` skips (bisect gate).
+    gated_pass("IV_MERGE", module, iv_merge::merge_ivs);
     // Scaled-addressing fold — `LoadDyn(_, base, Shl(idx, 3))` with a
     // single-use shift becomes `LoadDynScaled8` and the shift dies
     // (S7 knife c2): the AGU does the ×8, taking the shift off the

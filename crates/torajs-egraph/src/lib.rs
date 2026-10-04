@@ -44,6 +44,7 @@ pub mod iconst_hoist;
 pub mod inliner;
 pub mod int_entry;
 pub mod interval;
+pub mod iv_merge;
 pub mod late_gvn;
 pub mod len_promote;
 pub mod load_licm;
