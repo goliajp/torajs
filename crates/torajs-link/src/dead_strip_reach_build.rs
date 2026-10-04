@@ -21,6 +21,7 @@ pub(crate) fn build_member_reach<'a>(member: &ArMember<'a>) -> Result<MemberReac
     let bytes = member.data;
     let mut nlist: Vec<NlEntry<'a>> = Vec::new();
     let mut defined: BTreeMap<&'a str, (u8, u64)> = BTreeMap::new();
+    let mut dup_defined: Vec<&'a str> = Vec::new();
     if bytes.len() >= 32 && !sections.is_empty() {
         let st = parse_member_symtab(member).map_err(|e| format!("{}: {e:?}", member.name))?;
         let symoff = st.symoff as usize;
@@ -46,8 +47,8 @@ pub(crate) fn build_member_reach<'a>(member: &ArMember<'a>) -> Result<MemberReac
                     .unwrap_or(bytes.len());
                 std::str::from_utf8(&bytes[s..end]).unwrap_or("")
             };
-            if n_type & N_TYPE == N_SECT {
-                defined.insert(name, (n_sect, n_value));
+            if n_type & N_TYPE == N_SECT && defined.insert(name, (n_sect, n_value)).is_some() {
+                dup_defined.push(name);
             }
             nlist.push(NlEntry {
                 name,
@@ -94,11 +95,14 @@ pub(crate) fn build_member_reach<'a>(member: &ArMember<'a>) -> Result<MemberReac
         });
     }
 
+    dup_defined.sort_unstable();
+    dup_defined.dedup();
     Ok(MemberReach {
         member_name: member.name,
         sects,
         nlist,
         defined,
+        dup_defined,
     })
 }
 

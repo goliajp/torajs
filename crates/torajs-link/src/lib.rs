@@ -68,6 +68,7 @@ pub mod data_section_layout;
 mod dead_strip_diag;
 mod dead_strip_elide;
 mod dead_strip_elide_columns;
+mod dead_strip_elide_guard;
 mod dead_strip_elide_patch;
 mod dead_strip_reach;
 mod dead_strip_reach_build;

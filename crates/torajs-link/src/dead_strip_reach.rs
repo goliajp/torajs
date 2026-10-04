@@ -77,6 +77,9 @@ pub(crate) struct MemberReach<'a> {
     pub(crate) nlist: Vec<NlEntry<'a>>,
     /// Defined (N_SECT) symbols by name → (n_sect, n_value).
     pub(crate) defined: BTreeMap<&'a str, (u8, u64)>,
+    /// Sorted names `defined` holds only the last row of (more than
+    /// one `N_SECT` row carries them).
+    pub(crate) dup_defined: Vec<&'a str>,
 }
 
 /// Worklist node.
