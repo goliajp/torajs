@@ -79,6 +79,7 @@ pub(super) fn emit_twin_reroute(
                 user_tys[i],
                 dflt_lits.get(i).and_then(|d| d.as_ref()),
                 coerce.fit_tags[i],
+                coerce.rest && i + 1 == user_tys.len(),
             )
         })
         .collect();
@@ -119,7 +120,7 @@ pub(super) fn emit_twin_reroute(
                     None,
                 )
             }
-            None => scalar_miss(f, entry, intr, coerce, user_tys[i], av),
+            None => scalar_miss(f, entry, intr, coerce, i, user_tys[i], av),
         };
         let next = f.add_block();
         f.set_term(
@@ -212,29 +213,35 @@ pub(super) fn emit_twin_reroute(
 }
 
 /// The miss test of a lossy slot that is not struct-shaped. A string
-/// slot takes only a string and an array slot only an array block:
-/// ToString or a raw pointer unbox of anything else hands the body a
-/// value the caller never passed. A boolean / integer slot misses on
+/// slot takes only a string, and an array slot only an array block
+/// whose element kinds match the slot's at every level (an `any[]`
+/// slot reads any block kind-aware): ToString or a raw pointer unbox
+/// of anything else hands the body a value the caller never passed,
+/// or slots it cannot read. A boolean / integer slot misses on
 /// `undefined`, which it has no bits for.
 fn scalar_miss(
     f: &mut ssa::Function,
     entry: ssa::BlockId,
     intr: &BoxedEntryIntrinsics,
     coerce: &BoxedCoerceIntrinsics<'_>,
+    slot: usize,
     ty: Type,
     av: ssa::ValueId,
 ) -> ssa::ValueId {
-    let (test, miss_at) = match ty {
-        Type::Str => (coerce.str_fits, 0),
-        Type::Arr(_) => (coerce.arr_cell, 0),
-        _ => (intr.any_unbox_tag, 5),
+    let (test, args, miss_at) = match (ty, coerce.arr_tests[slot]) {
+        (Type::Str, _) => (coerce.str_fits, vec![Operand::Value(av)], 0),
+        (Type::Arr(_), Some((chain, str_leaf))) => (
+            coerce.arr_cell,
+            vec![
+                Operand::Value(av),
+                Operand::ConstI64(chain as i64),
+                Operand::ConstI64(i64::from(str_leaf)),
+            ],
+            0,
+        ),
+        _ => (intr.any_unbox_tag, vec![Operand::Value(av)], 5),
     };
-    let v = f.append_inst(
-        entry,
-        InstKind::Call(test, vec![Operand::Value(av)]),
-        Type::I64,
-        None,
-    );
+    let v = f.append_inst(entry, InstKind::Call(test, args), Type::I64, None);
     f.append_inst(
         entry,
         InstKind::ICmp(IPred::Eq, Operand::Value(v), Operand::ConstI64(miss_at)),

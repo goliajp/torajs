@@ -171,15 +171,17 @@ pub(crate) fn synthesize_boxed_entries(
         &[Type::Any, Type::I64, Type::I64],
         Type::I64,
     );
-    let [str_fits, arr_cell] = ["__torajs_anyv_str_fits", "__torajs_anyv_arr_cell"].map(|n| {
+    let mut declare_test = |name: &str, params: &[Type]| {
         crate::ssa_lower_synthesize_main::declare_intrinsic(
             module,
             fn_table,
-            n,
-            &[Type::Any],
+            name,
+            params,
             Type::I64,
         )
-    });
+    };
+    let str_fits = declare_test("__torajs_anyv_str_fits", &[Type::Any]);
+    let arr_cell = declare_test("__torajs_anyv_arr_cell", &[Type::Any, Type::I64, Type::I64]);
     let anyv_rc_dec = crate::ssa_lower_synthesize_main::declare_intrinsic(
         module,
         fn_table,
@@ -221,12 +223,18 @@ pub(crate) fn synthesize_boxed_entries(
             .iter()
             .map(|ty| fit_tag(*ty, arr_layouts, &sid_tag))
             .collect();
+        let arr_tests: Vec<_> = t
+            .user_tys
+            .iter()
+            .map(|ty| arr_cell_test(*ty, arr_layouts))
+            .collect();
         let twin_reroute = twin_adapter_of(ast, fn_table, &entries, &t.name).filter(|_| {
             t.user_tys.iter().enumerate().any(|(i, ty)| {
                 lossy_slot(
                     *ty,
                     t.dflt_lits.get(i).and_then(|d| d.as_ref()),
                     fit_tags[i],
+                    t.rest && i + 1 == t.user_tys.len(),
                 )
             })
         });
@@ -244,6 +252,8 @@ pub(crate) fn synthesize_boxed_entries(
                 arr_fits,
                 str_fits,
                 arr_cell,
+                arr_tests: &arr_tests,
+                rest: t.rest,
                 anyv_rc_dec,
                 anyv_or_default,
                 fit_tags: &fit_tags,
@@ -292,7 +302,7 @@ use build::build_boxed_entry;
 pub(crate) use build_reroute::twin_adapter_of;
 use build_reroute::{TwinReroute, is_twin_name};
 use fit_tag::lossy_slot;
-pub(crate) use fit_tag::{FitTag, fit_tag};
+pub(crate) use fit_tag::{FitTag, arr_cell_test, fit_tag};
 mod relay;
 mod targets;
 use targets::{TargetTables, collect_boxed_targets};

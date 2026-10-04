@@ -207,27 +207,6 @@ pub unsafe extern "C" fn __torajs_anyv_struct_fits(av: AnyValue, class_tag: u32)
     }
 }
 
-/// Does `av` fit a `string` slot as it is — a string, inline or a
-/// `Tag::Str` cell? 1 when it does. Anything else (`null`,
-/// `undefined`, a number, an object) is a value the slot cannot hold:
-/// ToString would hand the body `"null"` where §10.2.1.3 binds the
-/// parameter to the argument itself, so the adapter sends such a
-/// call to the all-`any` twin.
-///
-/// # Safety
-/// `av`, when a cell, points at a live heap cell.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_anyv_str_fits(av: AnyValue) -> i64 {
-    if crate::nanbox::is_short_str(av) {
-        return 1;
-    }
-    if !is_cell(av) {
-        return 0;
-    }
-    let p = as_void_ptr(av);
-    i64::from(unsafe { (p.cast::<u8>().add(OBJ_TAG_OFF) as *const u16).read() } == Tag::Str as u16)
-}
-
 /// Does the `Tag::Obj` cell `p` have the layout `layout` (of
 /// `class_tag`), or one that extends it field for field — same name,
 /// same offset, same type — so a body reading `p` through `layout`

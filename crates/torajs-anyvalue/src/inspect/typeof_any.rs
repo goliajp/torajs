@@ -78,3 +78,25 @@ pub unsafe extern "C" fn __torajs_anyv_typeof(v: AnyValue) -> *mut u8 {
     // it is undefined.
     alloc_literal(b"undefined")
 }
+
+/// `typeof v === "string"` as an integer — the test the boxed adapter
+/// and a direct call's run-time split ask of an `any` argument headed
+/// for a `string` parameter. 1 for an inline string or a `Tag::Str`
+/// cell; 0 for everything else (`null`, `undefined`, a number, an
+/// object), which such a parameter cannot hold: ToString would hand
+/// the body `"null"` where §10.2.1.3 binds the argument as passed.
+///
+/// # Safety
+///
+/// Cell case: the encoded pointer names a live heap cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_str_fits(v: AnyValue) -> i64 {
+    if is_short_str(v) {
+        return 1;
+    }
+    if !is_cell(v) {
+        return 0;
+    }
+    let tag = unsafe { heap_type_tag(as_void_ptr(v) as *const c_void) };
+    i64::from(tag == Tag::Str as u16)
+}

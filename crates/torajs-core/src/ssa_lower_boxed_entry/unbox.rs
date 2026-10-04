@@ -26,9 +26,13 @@ pub(super) struct BoxedCoerceIntrinsics<'a> {
     pub(super) arr_fits: FuncId,
     /// `__torajs_anyv_str_fits(v) -> i64` — a string slot's test.
     pub(super) str_fits: FuncId,
-    /// `__torajs_anyv_arr_cell(v) -> i64` — an array slot's test when
-    /// its elements are not struct-shaped.
+    /// `__torajs_anyv_arr_cell(v, chain, str_leaf) -> i64` — an array
+    /// slot's test when its elements are not struct-shaped, with the
+    /// per-slot operands in `arr_tests` (`fit_tag::arr_cell_test`).
     pub(super) arr_cell: FuncId,
+    pub(super) arr_tests: &'a [Option<(u64, bool)>],
+    /// The last user slot is a rest parameter.
+    pub(super) rest: bool,
     pub(super) anyv_rc_dec: FuncId,
     /// S2.39 — `__torajs_anyv_or_default(v, tag, bits)`: the
     /// literal-default substitution kernel.

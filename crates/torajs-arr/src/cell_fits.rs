@@ -45,19 +45,74 @@ pub unsafe extern "C" fn __torajs_anyv_arr_fits(v: u64, class_tag: u32, depth: i
     i64::from(!cell.is_null() && unsafe { arr_fits(cell, class_tag, depth) })
 }
 
-/// `__torajs_anyv_arr_cell(v)` — 1 when `v` is a `Tag::Arr` cell. The
-/// adapter of an array slot over non-struct elements asks it ahead of
-/// its pointer unbox: `null`, `undefined`, a string or a Proxy behind
-/// the slot is no array block the body could index, and the call goes
-/// to the all-`any` twin, where `xs.length` on `null` is the TypeError
-/// §13.3.2.1 asks for.
+/// `__torajs_anyv_arr_cell(v, chain, str_leaf)` — 1 when `v` is an
+/// array block a typed body over non-struct elements can index as it
+/// is. The adapter of such an array slot asks it ahead of its pointer
+/// unbox and hands every other argument to the all-`any` twin, where
+/// `xs.length` on `null` is the TypeError §13.3.2.1 asks for and an
+/// element is read through the generic [[Get]].
+///
+/// `chain` is the slot's element-kind chain, 3 bits per level, the
+/// encoding `__torajs_arr_mark_kind` stamps. A level of kind 0 is an
+/// `any[]` slot, whose body reads every block kind-aware, so any
+/// `Tag::Arr` cell fits it. Any other level needs a block stamped with
+/// exactly that kind: an `Array<Any>` block holds boxes, not raw
+/// slots, an unstamped or differently stamped block holds another
+/// representation, and an exotic index or a sparse tail is not in the
+/// slots at all. A heap level with a further level walks every element
+/// as an array of the next level; with `str_leaf`, the innermost
+/// elements must be `Tag::Str` cells.
 ///
 /// # Safety
 /// `v` is a valid NaN-box; a cell it names is live.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_anyv_arr_cell(v: u64) -> i64 {
+pub unsafe extern "C" fn __torajs_anyv_arr_cell(v: u64, chain: u64, str_leaf: i64) -> i64 {
     let cell = unsafe { __torajs_anyv_cell_ptr(v) } as *const u8;
-    i64::from(!cell.is_null() && unsafe { &*(cell as *const HeapHeader) }.tag() == Tag::Arr)
+    i64::from(!cell.is_null() && unsafe { arr_cell_fits(cell, chain, str_leaf != 0) })
+}
+
+/// # Safety
+/// `arr` is a live heap cell.
+unsafe fn arr_cell_fits(arr: *const u8, chain: u64, str_leaf: bool) -> bool {
+    const UNFIT: u16 = FLAG_ARR_ANY | FLAG_ARR_EXOTIC_INDEX | FLAG_ARR_SPARSE_TAIL;
+    let hdr = unsafe { &*(arr as *const HeapHeader) };
+    if hdr.tag() != Tag::Arr {
+        return false;
+    }
+    let kind = (chain & 0b111) as u16;
+    if kind == 0 {
+        return true;
+    }
+    if hdr.flags & UNFIT != 0 || hdr.arr_elem_kind() != kind {
+        return false;
+    }
+    let inner = chain >> 3;
+    if kind != ARR_KIND_HEAP || (inner == 0 && !str_leaf) {
+        return true;
+    }
+    unsafe { live_slots(arr) }.all(|p| {
+        if p == 0 {
+            return false;
+        }
+        let cell = p as *const u8;
+        if inner != 0 {
+            return unsafe { arr_cell_fits(cell, inner, str_leaf) };
+        }
+        unsafe { &*(cell as *const HeapHeader) }.tag() == Tag::Str
+    })
+}
+
+/// The raw words of an array block's live slots, which start at the
+/// deque head: a shifted array keeps its data pointer and moves the
+/// head instead.
+///
+/// # Safety
+/// `arr` is a live `Tag::Arr` block with raw (non-boxed) slots.
+unsafe fn live_slots(arr: *const u8) -> impl Iterator<Item = u64> {
+    let len = unsafe { *(arr.add(ARR_LEN_OFF) as *const u64) };
+    let head = unsafe { *(arr.add(ARR_HDR_HEAD_OFF) as *const u32) } as u64;
+    let data = unsafe { arr_data(arr) };
+    (head..head + len).map(move |i| unsafe { *(data.add(i as usize * 8) as *const u64) })
 }
 
 /// # Safety
@@ -68,13 +123,7 @@ unsafe fn arr_fits(arr: *const u8, class_tag: u32, depth: i64) -> bool {
     if hdr.tag() != Tag::Arr || hdr.flags & UNFIT != 0 || hdr.arr_elem_kind() != ARR_KIND_HEAP {
         return false;
     }
-    let len = unsafe { *(arr.add(ARR_LEN_OFF) as *const u64) };
-    // live slots start at the deque head: a shifted array keeps its
-    // data pointer and moves the head instead
-    let head = unsafe { *(arr.add(ARR_HDR_HEAD_OFF) as *const u32) } as u64;
-    let data = unsafe { arr_data(arr) };
-    (head..head + len).all(|i| {
-        let p = unsafe { *(data.add(i as usize * 8) as *const u64) };
+    unsafe { live_slots(arr) }.all(|p| {
         if p == 0 {
             return false;
         }
