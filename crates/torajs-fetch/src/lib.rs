@@ -81,6 +81,18 @@ pub unsafe extern "C" fn __torajs_str_alloc_pooled(_len: u64) -> *mut u8 {
 /// precondition.
 #[cfg(test)]
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_alloc_latin1(_src: *const u8, _len: i64) -> *mut u8 {
+    panic!(
+        "torajs-fetch test stub: __torajs_str_alloc_latin1 should not be called from cargo test"
+    );
+}
+
+/// # Safety
+///
+/// cargo test link stub: never called, panics if reached. No
+/// precondition.
+#[cfg(test)]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_rc_dec(_p: *mut core::ffi::c_void) -> i32 {
     panic!("torajs-fetch test stub: __torajs_rc_dec should not be called from cargo test");
 }

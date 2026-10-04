@@ -33,7 +33,7 @@
 
 use alloc::vec::Vec;
 
-use crate::block::StrBlock;
+pub(crate) use super::cp_block::build_block;
 use crate::case_table::{
     FULL_LOWER, FULL_UPPER, SIMPLE_LOWER, SIMPLE_UPPER, full_lookup, is_case_ignorable, is_cased,
     simple_lookup,
@@ -249,7 +249,7 @@ pub(crate) fn collect_mapped(
     is_latin1: bool,
     upper: bool,
     loc: super::case_locale::CaseLocale,
-) -> (Vec<u32>, u32, u32) {
+) -> (Vec<u32>, u32, usize) {
     // Pass 1 — decode source code points into a contiguous Vec so
     // the Final_Sigma check can look at adjacent source positions
     // (NOT post-mapping positions: the spec rule is over input).
@@ -263,7 +263,7 @@ pub(crate) fn collect_mapped(
 
     let mut out_cps: Vec<u32> = Vec::with_capacity(src_cps.len());
     let mut max_cp: u32 = 0;
-    let mut out_cu: u32 = 0;
+    let mut out_cu: usize = 0;
     for (idx, &cp) in src_cps.iter().enumerate() {
         let mut holder: [u32; 1] = [0];
         let tailored = if loc == super::case_locale::CaseLocale::Default {
@@ -284,36 +284,10 @@ pub(crate) fn collect_mapped(
             if mc > max_cp {
                 max_cp = mc;
             }
-            out_cu += cp_cu_len(mc);
+            out_cu += cp_cu_len(mc) as usize;
         }
     }
     (out_cps, max_cp, out_cu)
-}
-
-/// Encode `out_cps` into a fresh StrBlock. Picks Latin-1 if every
-/// cp ≤ 0xFF (canonical encoding invariant: payload bytes match
-/// the Latin-1 code-unit values 1:1); otherwise UTF-16 LE.
-pub(crate) fn build_block(out_cps: &[u32], max_cp: u32, out_cu: u32) -> *mut u8 {
-    let out_latin1 = max_cp <= 0xFF;
-    let mut block = StrBlock::alloc_with_encoding(out_cu, out_latin1);
-    if out_cu == 0 {
-        return block.into_raw();
-    }
-    let byte_cnt = if out_latin1 { out_cu } else { out_cu * 2 };
-    let dst = unsafe { block.as_bytes_mut(byte_cnt) };
-    if out_latin1 {
-        for (i, &cp) in out_cps.iter().enumerate() {
-            dst[i] = cp as u8;
-        }
-    } else {
-        let mut buf: Vec<u8> = Vec::with_capacity(byte_cnt as usize);
-        for &cp in out_cps {
-            encode_cp_utf16_le(cp, &mut buf);
-        }
-        debug_assert_eq!(buf.len(), byte_cnt as usize);
-        dst.copy_from_slice(&buf);
-    }
-    block.into_raw()
 }
 
 /// `s.toUpperCase()` per ES §22.1.3.29 — UCD Default Case Conversion
@@ -358,6 +332,7 @@ pub unsafe extern "C" fn __torajs_str_to_lower(s: *const u8) -> *mut u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::block::StrBlock;
     use alloc::vec::Vec;
 
     #[test]

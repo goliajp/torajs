@@ -8,6 +8,7 @@
 
 use alloc::vec::Vec;
 
+use super::replace_fn_units::UTF8_MAX_BYTES;
 use crate::node::REGEX_MAX_CAPTURES;
 use crate::vm::save_slot;
 
@@ -31,7 +32,8 @@ pub struct ReplMatch<'a> {
 
 /// Expand `repl` into `out`, dereferencing `$N` against the match's
 /// captured `saves[]` pairs. Unparticipating groups substitute the
-/// empty string.
+/// empty string. Stops once `out` is past [`UTF8_MAX_BYTES`]: what
+/// it holds is already too long for a string.
 pub fn expand_repl(repl: &[u8], m: ReplMatch<'_>, out: &mut Vec<u8>) {
     let ReplMatch {
         s,
@@ -43,7 +45,7 @@ pub fn expand_repl(repl: &[u8], m: ReplMatch<'_>, out: &mut Vec<u8>) {
         has_named,
     } = m;
     let mut i = 0;
-    while i < repl.len() {
+    while i < repl.len() && out.len() <= UTF8_MAX_BYTES {
         let c = repl[i];
         if c != b'$' || i + 1 >= repl.len() {
             out.push(c);

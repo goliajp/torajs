@@ -16,27 +16,31 @@ use crate::onepass::ir::{is_high_surrogate, is_low_surrogate};
 unsafe extern "C" {
     /// torajs-str — a block of `len` code units, Latin-1 or UTF-16
     fn __torajs_str_alloc_pooled_enc(len: u64, is_latin1: i64) -> *mut u8;
-    fn __torajs_throw_range_error(msg: *const u8);
+    /// torajs-str — the RangeError for a string past the longest Str,
+    /// and its empty placeholder
+    fn __torajs_str_too_long() -> *mut u8;
 }
 
-/// The most code units a Str holds: its length field is a u32 and a
-/// UTF-16 payload's byte count must fit one too. A longer replace
-/// result is a RangeError, the implementation limit §6.1.4 allows.
-pub(super) const STR_MAX_UNITS: usize = (u32::MAX / 2) as usize;
+/// The most code units a Str holds: torajs-str's `STR_MAX_LEN`,
+/// mirrored like the layout offsets. A longer replace result is a
+/// RangeError, the implementation limit §6.1.4 allows.
+pub(super) const STR_MAX_UNITS: usize = (1 << 31) - 1;
+
+/// A UTF-8 buffer longer than this holds more than [`STR_MAX_UNITS`]
+/// code units whatever its text: no code unit takes more than three
+/// bytes. The byte-haystack walks stop growing their buffer past it.
+pub(super) const UTF8_MAX_BYTES: usize = 3 * STR_MAX_UNITS;
 
 /// Raise the RangeError for a result past [`STR_MAX_UNITS`] and answer
 /// an empty Str, which the caller's throw check discards.
 ///
 /// # Safety
 ///
-/// Calls the torajs-str allocator and the torajs-throw raise.
+/// Records a pending throw.
 #[cold]
 #[inline(never)]
 pub(super) unsafe fn too_long() -> *mut c_void {
-    unsafe {
-        __torajs_throw_range_error(c"Invalid string length".as_ptr().cast());
-        __torajs_str_alloc_pooled_enc(0, 1) as *mut c_void
-    }
+    unsafe { __torajs_str_too_long() as *mut c_void }
 }
 
 /// The walk over a subject's own code units through the literal's

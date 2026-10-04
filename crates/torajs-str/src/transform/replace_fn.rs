@@ -187,7 +187,6 @@ unsafe fn replace_fn_inner(
 
     // Result encoding = widest of haystack + every replacement.
     let out_latin1 = search_latin1 && all_repl_latin1;
-    let out_stride: usize = if out_latin1 { 1 } else { 2 };
     let widen = |b: usize| {
         if search_latin1 == out_latin1 {
             b
@@ -208,24 +207,19 @@ unsafe fn replace_fn_inner(
     }
     total += s_out.len() - hits.len() * widen(n_len);
 
-    let result = build_result_with(
-        (total / out_stride) as u32,
-        total as u32,
-        out_latin1,
-        |dst| {
-            let mut src_i = 0usize;
-            let mut dst_i = 0usize;
-            for ((found, _), rb) in hits.iter().zip(r_bufs.iter()) {
-                let f = widen(*found);
-                let pre = &s_out[src_i..f];
-                let rb = rb.as_ref();
-                splice_into(&mut dst[dst_i..dst_i + pre.len() + rb.len()], pre, rb, &[]);
-                dst_i += pre.len() + rb.len();
-                src_i = f + widen(n_len);
-            }
-            dst[dst_i..].copy_from_slice(&s_out[src_i..]);
-        },
-    );
+    let result = build_result_with(total, out_latin1, |dst| {
+        let mut src_i = 0usize;
+        let mut dst_i = 0usize;
+        for ((found, _), rb) in hits.iter().zip(r_bufs.iter()) {
+            let f = widen(*found);
+            let pre = &s_out[src_i..f];
+            let rb = rb.as_ref();
+            splice_into(&mut dst[dst_i..dst_i + pre.len() + rb.len()], pre, rb, &[]);
+            dst_i += pre.len() + rb.len();
+            src_i = f + widen(n_len);
+        }
+        dst[dst_i..].copy_from_slice(&s_out[src_i..]);
+    });
     for (_, r) in &hits {
         unsafe { __torajs_str_drop(*r) };
     }

@@ -22,6 +22,13 @@ use torajs_str::{__torajs_str_alloc, __torajs_str_drop};
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_weakref_target_dying(_target: *mut std::ffi::c_void) {}
 
+// The string allocators raise a RangeError past the longest Str through
+// torajs-throw, which only a built program links; a no-op stand-in.
+/// # Safety
+/// No-op stand-in; the message is never read.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_throw_range_error(_msg: *const u8) {}
+
 const CASES: &[(&str, &str)] = &[
     ("line-ascii", "pre a\nmiddle\nc post 50000"),
     ("match-ascii", "a\nmiddle\nc"),

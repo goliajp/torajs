@@ -116,7 +116,7 @@ pub unsafe extern "C" fn __torajs_arr_join_any(arr: *const u8, sep: *const u8) -
             }
         }
         total += sep_units * (len - 1);
-        let p = alloc_join_out(total, out_latin1);
+        let p = crate::join_enc::join_out!(total, out_latin1);
         let p_data = p.add(STR_DATA_OFF);
         let sep_latin1 = str_is_latin1(sep);
         let mut cursor: u64 = 0;
@@ -176,7 +176,7 @@ pub unsafe extern "C" fn __torajs_arr_join_substr(arr: *const u8, sep: *const u8
             }
         }
         total += sep_units * (len - 1);
-        let p = alloc_join_out(total, out_latin1);
+        let p = crate::join_enc::join_out!(total, out_latin1);
         let p_data = p.add(STR_DATA_OFF);
         let sep_latin1 = str_is_latin1(sep);
         let mut cursor: u64 = 0;

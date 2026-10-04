@@ -14,9 +14,8 @@
 
 #![allow(dead_code)]
 
-use crate::block::StrBlock;
 use crate::norm_table::{lookup_ccc, lookup_composite, lookup_decomp};
-use crate::transform::case::{cp_cu_len, decode_cp_at, encode_cp_utf16_le, str_view};
+use crate::transform::case::{build_block, cp_cu_len, decode_cp_at, str_view};
 use alloc::vec::Vec;
 
 unsafe extern "C" {
@@ -282,40 +281,12 @@ pub(crate) fn parse_form(
     }
 }
 
-/// Encode `out_cps` into a fresh refcount=1 Str block, picking
-/// Latin-1 when every cp fits in `u8`, UTF-16 LE otherwise. Used by
-/// [`__torajs_str_normalize`]; mirrors `transform::case::build_block`
-/// but lives here so `normalize` does not reach into a sibling
-/// module's private API.
+/// Encode `out_cps` into a fresh refcount=1 Str block through the
+/// case mappers' encoder, which picks Latin-1 when every cp fits.
 fn build_normalized_block(out_cps: &[u32]) -> *mut u8 {
-    let mut max_cp: u32 = 0;
-    let mut out_cu: u32 = 0;
-    for &cp in out_cps {
-        if cp > max_cp {
-            max_cp = cp;
-        }
-        out_cu += cp_cu_len(cp);
-    }
-    let out_latin1 = max_cp <= 0xFF;
-    let mut block = StrBlock::alloc_with_encoding(out_cu, out_latin1);
-    if out_cu == 0 {
-        return block.into_raw();
-    }
-    let byte_cnt = if out_latin1 { out_cu } else { out_cu * 2 };
-    let dst = unsafe { block.as_bytes_mut(byte_cnt) };
-    if out_latin1 {
-        for (i, &cp) in out_cps.iter().enumerate() {
-            dst[i] = cp as u8;
-        }
-    } else {
-        let mut buf: Vec<u8> = Vec::with_capacity(byte_cnt as usize);
-        for &cp in out_cps {
-            encode_cp_utf16_le(cp, &mut buf);
-        }
-        debug_assert_eq!(buf.len(), byte_cnt as usize);
-        dst.copy_from_slice(&buf);
-    }
-    block.into_raw()
+    let max_cp = out_cps.iter().copied().max().unwrap_or(0);
+    let out_cu = out_cps.iter().map(|&cp| cp_cu_len(cp) as usize).sum();
+    build_block(out_cps, max_cp, out_cu)
 }
 
 /// Decode a Str payload into a `Vec<u32>` of code points. Handles

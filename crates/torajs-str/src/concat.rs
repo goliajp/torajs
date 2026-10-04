@@ -33,8 +33,9 @@
 //! ASCII concat stays on the all-Latin-1 fast path with the same
 //! shape as pre-S2; only mixed-encoding concats pay the widen cost.
 
-use crate::join::{Side, join, join_general};
+use crate::join::{Side, fits_one_str, join, join_general};
 use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_LEN_OFF};
+use crate::max_len::__torajs_str_too_long;
 use torajs_rc::HeapHeader;
 
 // ============================================================
@@ -102,7 +103,11 @@ pub unsafe extern "C" fn __torajs_str_concat(a: *const u8, b: *const u8) -> *mut
 #[cold]
 #[inline(never)]
 unsafe fn concat_null(a: *const u8, b: *const u8) -> *mut u8 {
-    unsafe { join_general(Side::of_nullable_str(a), Side::of_nullable_str(b)) }
+    let (a, b) = unsafe { (Side::of_nullable_str(a), Side::of_nullable_str(b)) };
+    if !fits_one_str(a, b) {
+        return unsafe { __torajs_str_too_long() };
+    }
+    unsafe { join_general(a, b) }
 }
 
 #[cfg(test)]

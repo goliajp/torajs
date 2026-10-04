@@ -12,6 +12,7 @@
 //! RFC 20260712-string-proto-cluster chunk A2.
 
 use crate::block::StrBlock;
+use crate::max_len::{__torajs_str_too_long, str_len_of};
 
 /// Allocate a fresh owned Str holding the `src` payload bytes under
 /// `is_latin1`, narrowing a UTF-16 payload to Latin-1 when every
@@ -45,6 +46,16 @@ pub(crate) fn alloc_units_canonical(src: &[u8], is_latin1: bool) -> *mut u8 {
         dst.copy_from_slice(src);
     }
     block.into_raw()
+}
+
+/// [`alloc_units_canonical`] for a payload an escaper built longer
+/// than its input: past the longest Str, the RangeError placeholder.
+/// Range carving only ever shortens, so it calls the unchecked form.
+pub(crate) fn alloc_built_units(src: &[u8], is_latin1: bool) -> *mut u8 {
+    if str_len_of(src.len() >> u32::from(!is_latin1)).is_none() {
+        return unsafe { __torajs_str_too_long() };
+    }
+    alloc_units_canonical(src, is_latin1)
 }
 
 #[cfg(test)]

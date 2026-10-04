@@ -141,6 +141,7 @@ fn curl_api() -> Option<&'static CurlApi> {
 #[cfg(not(test))]
 unsafe extern "C" {
     fn __torajs_str_alloc_pooled(len: u64) -> *mut u8;
+    fn __torajs_str_alloc_latin1(src: *const u8, len: i64) -> *mut u8;
     fn __torajs_rc_dec(p: *mut c_void) -> i32;
     fn __torajs_value_drop_heap(p: *mut c_void);
 }
@@ -148,6 +149,7 @@ unsafe extern "C" {
 #[cfg(test)]
 unsafe extern "C" {
     fn __torajs_str_alloc_pooled(len: u64) -> *mut u8;
+    fn __torajs_str_alloc_latin1(src: *const u8, len: i64) -> *mut u8;
     fn __torajs_rc_dec(p: *mut c_void) -> i32;
     fn __torajs_value_drop_heap(p: *mut c_void);
 }
@@ -304,16 +306,8 @@ pub unsafe extern "C" fn __torajs_fetch_sync(url_str_ptr: *mut c_void) -> *mut c
 
     // Build the body Str regardless of rc — on transport error
     // buf.data is empty, yielding an empty Str.
-    let body = unsafe { __torajs_str_alloc_pooled(buf.data.len() as u64) };
-    if !body.is_null() && !buf.data.is_empty() {
-        unsafe {
-            core::ptr::copy_nonoverlapping(
-                buf.data.as_ptr(),
-                body.add(STR_HDR_SIZE),
-                buf.data.len(),
-            );
-        }
-    }
+    // the bytes as Latin-1 units; past the longest Str, a RangeError
+    let body = unsafe { __torajs_str_alloc_latin1(buf.data.as_ptr(), buf.data.len() as i64) };
     unsafe { alloc_response(http_status as i64, body as *mut c_void) }
 }
 

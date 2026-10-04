@@ -30,69 +30,9 @@ use crate::block::StrBlock;
 use crate::copy::copy_short;
 use crate::join::{Side, write_side};
 use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_ASCII, STR_FLAG_IS_LATIN1, STR_POOL_PAYLOAD};
-
-// `bits` is written with plain integer stores
-const _: () = assert!(cfg!(target_endian = "little"));
-
-/// Bit position of the literal's code-unit count inside `meta`.
-pub const LIT_META_LEN_SHIFT: u32 = 4;
-
-/// The code-unit count's bits once shifted down by
-/// [`LIT_META_LEN_SHIFT`].
-pub const LIT_META_LEN_MASK: u32 = 0xF;
-
-const _: () = assert!(
-    (STR_FLAG_IS_LATIN1 | STR_FLAG_IS_ASCII) & ((LIT_META_LEN_MASK as u16) << LIT_META_LEN_SHIFT)
-        == 0
-);
-
-#[inline(always)]
-pub(crate) fn lit_len(meta: u64) -> u32 {
-    (meta >> LIT_META_LEN_SHIFT) as u32 & LIT_META_LEN_MASK
-}
-
-/// The literal's flag bits; the length bits ride along, and every
-/// reader masks with the flag it asks about.
-#[inline(always)]
-pub(crate) fn lit_flags(meta: u64) -> u16 {
-    meta as u16
-}
-
-/// Store the low `n` bytes of `bits` at `dst`, `1 <= n <= 8`.
-///
-/// # Safety
-///
-/// `dst` is writable for `n` bytes.
-#[inline(always)]
-pub(crate) unsafe fn write_low_bytes(dst: *mut u8, bits: u64, n: usize) {
-    unsafe {
-        if n == 1 {
-            dst.write(bits as u8);
-        } else if n == 8 {
-            (dst as *mut u64).write_unaligned(bits);
-        } else if n >= 4 {
-            // two overlapping 4-byte stores cover 4..=7
-            (dst as *mut u32).write_unaligned(bits as u32);
-            (dst.add(n - 4) as *mut u32).write_unaligned((bits >> ((n - 4) * 8)) as u32);
-        } else {
-            (dst as *mut u16).write_unaligned(bits as u16);
-            (dst.add(n - 2) as *mut u16).write_unaligned((bits >> ((n - 2) * 8)) as u16);
-        }
-    }
-}
-
-/// Store `n` Latin-1 code units held in `bits` at `dst` as UTF-16 LE.
-///
-/// # Safety
-///
-/// `dst` is writable for `2 * n` bytes.
-#[inline(always)]
-pub(crate) unsafe fn write_widened(dst: *mut u8, bits: u64, n: usize) {
-    for i in 0..n {
-        let unit = (bits >> (i * 8)) as u8 as u16;
-        unsafe { (dst.add(i * 2) as *mut u16).write_unaligned(unit) };
-    }
-}
+pub use crate::lit_meta::{LIT_META_LEN_MASK, LIT_META_LEN_SHIFT};
+pub(crate) use crate::lit_meta::{lit_flags, lit_len, write_low_bytes, write_widened};
+use crate::max_len::{__torajs_str_too_long, str_len_of};
 
 /// Fresh cell holding `side` and the literal, in the order `lit_first`
 /// says.
@@ -128,7 +68,19 @@ unsafe fn join_lit(side: Side, bits: u64, meta: u64, lit_first: bool) -> *mut u8
             return block.into_raw();
         }
     }
+    // a short side is far under the longest Str
+    if side.len > STR_POOL_PAYLOAD && !fits_with_lit(side, meta) {
+        return unsafe { __torajs_str_too_long() };
+    }
     unsafe { join_lit_general(side, bits, meta, lit_first) }
+}
+
+/// Whether `side` with the literal `meta` describes fits the longest
+/// Str. The side is at most [`crate::max_len::STR_MAX_LEN`], so the
+/// u32 sum cannot wrap.
+#[inline(always)]
+pub(crate) fn fits_with_lit(side: Side, meta: u64) -> bool {
+    str_len_of((side.len + lit_len(meta)) as usize).is_some()
 }
 
 /// [`join_lit`] without the short-case shortcut: either width on
@@ -136,7 +88,8 @@ unsafe fn join_lit(side: Side, bits: u64, meta: u64, lit_first: bool) -> *mut u8
 ///
 /// # Safety
 ///
-/// Same contract as [`join_lit`].
+/// Same contract as [`join_lit`], and the side with the literal
+/// [`fits_with_lit`]: the callers ask.
 #[inline(never)]
 pub(crate) unsafe extern "C" fn join_lit_general(
     side: Side,

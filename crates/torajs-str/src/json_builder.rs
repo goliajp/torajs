@@ -30,7 +30,6 @@
 use core::ptr;
 use core::sync::atomic::{AtomicPtr, Ordering};
 
-use crate::block::StrBlock;
 use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_LEN_OFF};
 use crate::print::{iter_utf16_codepoints, write_utf8_for_codepoint};
 use alloc::boxed::Box;
@@ -438,16 +437,14 @@ unsafe fn finalize_bytes(sb: &JsonBuilder) -> *mut u8 {
     // and every producer that can emit such content sets it — a
     // Latin-1 payload was once copied in raw, which left a lead
     // byte in the buffer that ate whatever came after it.
-    let mut block = StrBlock::alloc_with_encoding(bytes.len() as u32, true);
-    let dst = unsafe { block.as_bytes_mut(bytes.len() as u32) };
-    dst.copy_from_slice(bytes);
-    block.into_raw()
+    unsafe { crate::block_ffi::__torajs_str_alloc_ascii(bytes.as_ptr(), bytes.len() as i64) }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::block::__torajs_str_free;
+    use crate::block::StrBlock;
     use alloc::string::String;
 
     fn make_str(bytes: &[u8]) -> *mut u8 {

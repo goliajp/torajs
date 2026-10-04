@@ -212,7 +212,7 @@ pub unsafe extern "C" fn __torajs_arr_join(arr: *const u8, sep: *const u8) -> *m
             }
         }
         total += sep_units * (len - 1);
-        let p = alloc_join_out(total, out_latin1);
+        let p = crate::join_enc::join_out!(total, out_latin1);
         let p_data = p.add(STR_DATA_OFF);
         let sep_latin1 = str_is_latin1(sep);
         let mut cursor: u64 = 0;
@@ -265,7 +265,7 @@ pub unsafe extern "C" fn __torajs_arr_join_i64(arr: *const u8, sep: *const u8) -
             total += n.max(0) as u64;
         }
         total += sep_units * (len - 1);
-        let p = alloc_join_out(total, out_latin1);
+        let p = crate::join_enc::join_out!(total, out_latin1);
         let p_data = p.add(STR_DATA_OFF);
         let mut cursor: u64 = 0;
         for i in 0..len {
@@ -328,7 +328,7 @@ pub unsafe extern "C" fn __torajs_arr_join_f64(arr: *const u8, sep: *const u8) -
             };
         }
         total += sep_units * (len - 1);
-        let p = alloc_join_out(total, out_latin1);
+        let p = crate::join_enc::join_out!(total, out_latin1);
         let p_data = p.add(STR_DATA_OFF);
         let mut cursor: u64 = 0;
         for i in 0..len {
@@ -386,7 +386,7 @@ pub unsafe extern "C" fn __torajs_arr_join_bool(arr: *const u8, sep: *const u8) 
             total += if e != 0 { 4 } else { 5 };
         }
         total += sep_units * (len - 1);
-        let p = alloc_join_out(total, out_latin1);
+        let p = crate::join_enc::join_out!(total, out_latin1);
         let p_data = p.add(STR_DATA_OFF);
         let mut cursor: u64 = 0;
         for i in 0..len {

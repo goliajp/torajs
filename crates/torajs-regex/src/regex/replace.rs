@@ -6,6 +6,7 @@ use alloc::vec::Vec;
 use core::ffi::c_void;
 
 use super::offset_map::{byte_to_utf16_units, utf16_units_to_byte};
+use super::replace_fn_units::UTF8_MAX_BYTES;
 use super::replace_subst::{ReplMatch, expand_repl};
 use super::replace_units::replace_with_matcher;
 use super::{
@@ -69,7 +70,9 @@ fn replace_inner<'a>(
     // path becomes dead in sub-batch 7.3.
     let dfa_view = re.baked_dfa_view();
     let dfa_ref = dfa_view.as_ref().or(re.dfa_runtime.as_ref());
-    while pos <= slen {
+    // past this the result is a RangeError (raised when it is
+    // allocated), so the buffer stops growing
+    while pos <= slen && out.len() <= UTF8_MAX_BYTES {
         let m = if sticky {
             match_anchor(&re.prog, s, pos, re.flags)
         } else {

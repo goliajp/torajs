@@ -38,6 +38,8 @@
 
 use torajs_rc::Tag;
 
+use crate::max_len::{STR_MAX_LEN, str_max_bytes};
+
 /// Total bytes from `Str` block start to the first payload byte.
 /// Toolchain-emitted Str data accesses bake in this constant.
 pub const STR_HDR_SIZE: usize = 16;
@@ -218,17 +220,35 @@ pub const fn byte_capacity(length: u32, is_latin1: bool) -> u32 {
 /// which is why only cells that were actually appended to carry a
 /// capacity at all; a plain `alloc` / `concat` result still sizes to
 /// its exact length.
+///
+/// `None` when `need` bytes are more than a Str in that encoding holds
+/// ([`str_max_bytes`]); the slack never passes that either, so an
+/// append that fits it fits the longest Str.
 #[inline]
-pub const fn grow_capacity(need: u32) -> u32 {
-    if need <= STR_POOL_PAYLOADS[0] {
-        return STR_POOL_PAYLOADS[0];
+pub const fn grow_capacity(need: u64, is_latin1: bool) -> Option<u32> {
+    if need <= STR_POOL_PAYLOADS[0] as u64 {
+        return Some(STR_POOL_PAYLOADS[0]);
     }
-    let bits = u32::BITS - (need - 1).leading_zeros();
-    if bits >= u32::BITS {
-        need
-    } else {
-        1u32 << bits
+    let bits = u64::BITS - (need - 1).leading_zeros();
+    if bits >= u32::BITS - 1 {
+        return top_capacity(need, is_latin1);
     }
+    Some(1u32 << bits)
+}
+
+/// [`grow_capacity`] past 2^30 bytes, where the last doubling would
+/// pass the longest Latin-1 payload: stop there, take `need` exactly
+/// when it is already past it (a UTF-16 one), or answer `None` past
+/// the longest Str. Out of line, so the common grow pays one compare
+/// for all of it, as it did before.
+#[cold]
+#[inline(never)]
+const fn top_capacity(need: u64, is_latin1: bool) -> Option<u32> {
+    if need > str_max_bytes(is_latin1) as u64 {
+        return None;
+    }
+    let latin1_max = STR_MAX_LEN as u64;
+    Some(if need > latin1_max { need } else { latin1_max } as u32)
 }
 
 #[cfg(test)]
@@ -302,19 +322,27 @@ mod tests {
     #[test]
     fn grow_capacity_doubles_past_the_smallest_pool_class() {
         // Anything a pool class already covers takes the class.
-        assert_eq!(grow_capacity(0), 16);
-        assert_eq!(grow_capacity(16), 16);
+        let grow = |need: u64| grow_capacity(need, false).unwrap();
+        assert_eq!(grow(0), 16);
+        assert_eq!(grow(16), 16);
         // Past it: next power of two, so repeated appends reallocate
         // a logarithmic number of times.
-        assert_eq!(grow_capacity(17), 32);
-        assert_eq!(grow_capacity(64), 64);
-        assert_eq!(grow_capacity(65), 128);
-        assert_eq!(grow_capacity(800), 1024);
+        assert_eq!(grow(17), 32);
+        assert_eq!(grow(64), 64);
+        assert_eq!(grow(65), 128);
+        assert_eq!(grow(800), 1024);
         // No overflow at the top: a need past the largest power of
         // two takes its exact size (the append then cannot grow
         // again, which is correct — there is no larger block).
-        assert_eq!(grow_capacity(u32::MAX), u32::MAX);
-        assert_eq!(grow_capacity(1 << 31), 1 << 31);
+        assert_eq!(grow(u32::MAX as u64 - 1), u32::MAX - 1);
+        assert_eq!(grow(1 << 31), 1 << 31);
+        // and the last doubling stops at the longest Latin-1 Str
+        assert_eq!(grow((1 << 30) + 1), (1 << 31) - 1);
+        assert_eq!(grow(1 << 30), 1 << 30);
+        // past the longest Str in the encoding there is no capacity
+        assert_eq!(grow_capacity(u32::MAX as u64, false), None);
+        assert_eq!(grow_capacity(1 << 31, true), None);
+        assert_eq!(grow_capacity((1 << 31) - 1, true), Some((1 << 31) - 1));
     }
 
     #[test]
@@ -324,7 +352,7 @@ mod tests {
         // for every value the floor/doubling can produce below the
         // cutoff.
         for need in 0..=STR_POOL_PAYLOAD {
-            let cap = grow_capacity(need);
+            let cap = grow_capacity(need as u64, true).unwrap();
             let class = pool_class_of(cap).expect("under the cutoff");
             assert_eq!(STR_POOL_PAYLOADS[class], cap, "need {need}");
         }

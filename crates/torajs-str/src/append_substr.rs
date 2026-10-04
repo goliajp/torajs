@@ -15,6 +15,7 @@ use crate::append::{append_in_place, append_payload, is_solely_ours};
 use crate::block::StrBlock;
 use crate::join::Side;
 use crate::layout::{STR_FLAG_IS_ASCII, grow_capacity};
+use crate::max_len::str_max_bytes;
 use crate::str_drop::__torajs_str_drop;
 use crate::substr_concat::__torajs_substr_concat_str_substr;
 use crate::substr_methods::{substr_parent, substr_view};
@@ -73,7 +74,7 @@ unsafe fn append_substr_general(a: *mut u8, v: *const u8) -> *mut u8 {
 /// The answer is an owned refcount-1 Str the caller releases.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_alloc_capacity(cap: u64) -> *mut u8 {
-    let cap = grow_capacity(cap.min(u32::MAX as u64) as u32);
+    let cap = reserve(cap, true);
     let mut block = StrBlock::alloc_with_capacity(0, true, cap);
     // SAFETY: freshly allocated; the header is ours to mark.
     unsafe { block.header().flags |= STR_FLAG_IS_ASCII };
@@ -89,8 +90,15 @@ pub unsafe extern "C" fn __torajs_str_alloc_capacity(cap: u64) -> *mut u8 {
 /// The answer is an owned refcount-1 Str the caller releases.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_alloc_capacity_utf16(cap: u64) -> *mut u8 {
-    let cap = grow_capacity(cap.min(u32::MAX as u64) as u32);
+    let cap = reserve(cap, false);
     StrBlock::alloc_with_capacity(0, false, cap).into_raw()
+}
+
+/// The slack for a hint of `cap` bytes: grown like an append's, and no
+/// more than a Str in that encoding holds.
+fn reserve(cap: u64, is_latin1: bool) -> u32 {
+    let max = str_max_bytes(is_latin1);
+    grow_capacity(cap.min(max as u64), is_latin1).unwrap_or(max)
 }
 
 #[cfg(test)]

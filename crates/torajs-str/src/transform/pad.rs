@@ -25,6 +25,7 @@
 
 use crate::block::StrBlock;
 use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_LEN_OFF};
+use crate::max_len::{__torajs_str_too_long, str_len_of};
 use alloc::vec::Vec;
 use torajs_rc::HeapHeader;
 
@@ -110,16 +111,27 @@ pub fn fill_with_pad(dst: &mut [u8], pad: &[u8], stride: usize) {
     }
 }
 
-/// `i64 target_len` → optional output **code-unit** length, taking
-/// the passthrough decision into account. Returns `None` if the
-/// original `s` should be returned unchanged (negative or
-/// already-meets-target).
+/// What `target_len` asks of a pad over `s_len` code units.
+#[derive(Debug, PartialEq, Eq)]
+pub enum PadLen {
+    /// `s` already meets it (or it is negative): `s` unchanged
+    Keep,
+    /// a padded result of this many code units
+    To(u32),
+    /// a result longer than [`crate::max_len::STR_MAX_LEN`]
+    TooLong,
+}
+
+/// `i64 target_len` → the output **code-unit** length, taking the
+/// passthrough decision into account.
 #[inline]
-pub fn pad_output_len(target_len: i64, s_len: u32) -> Option<u32> {
+pub fn pad_output_len(target_len: i64, s_len: u32) -> PadLen {
     if target_len < 0 || (target_len as u64) <= s_len as u64 {
-        None
-    } else {
-        Some(target_len as u32)
+        return PadLen::Keep;
+    }
+    match str_len_of(target_len as usize) {
+        Some(len) => PadLen::To(len),
+        None => PadLen::TooLong,
     }
 }
 
@@ -140,14 +152,18 @@ unsafe fn pad_impl(s: *const u8, target_len: i64, pad: *const u8, pad_end: bool)
         }
         block.into_raw()
     };
-    let Some(out_length) = pad_output_len(target_len, s_length) else {
+    let out_length = pad_output_len(target_len, s_length);
+    if out_length == PadLen::Keep {
         return alloc_passthrough();
-    };
+    }
     let (pad_payload, _, pad_latin1) = unsafe { str_view(pad) };
     if pad_payload.is_empty() {
         // ES §22.1.3.16.5 step 6: filler is the empty String → return S.
         return alloc_passthrough();
     }
+    let PadLen::To(out_length) = out_length else {
+        return unsafe { __torajs_str_too_long() };
+    };
     let out_latin1 = s_latin1 && pad_latin1;
     let stride = if out_latin1 { 1usize } else { 2usize };
     let out_byte_cnt = (out_length as usize) * stride;
@@ -204,16 +220,18 @@ mod tests {
 
     #[test]
     fn output_len_passthrough_paths() {
-        assert_eq!(pad_output_len(-1, 5), None);
-        assert_eq!(pad_output_len(0, 5), None);
-        assert_eq!(pad_output_len(5, 5), None);
-        assert_eq!(pad_output_len(4, 5), None);
+        assert_eq!(pad_output_len(-1, 5), PadLen::Keep);
+        assert_eq!(pad_output_len(0, 5), PadLen::Keep);
+        assert_eq!(pad_output_len(5, 5), PadLen::Keep);
+        assert_eq!(pad_output_len(4, 5), PadLen::Keep);
     }
 
     #[test]
     fn output_len_extends() {
-        assert_eq!(pad_output_len(8, 5), Some(8));
-        assert_eq!(pad_output_len(100, 0), Some(100));
+        assert_eq!(pad_output_len(8, 5), PadLen::To(8));
+        assert_eq!(pad_output_len(100, 0), PadLen::To(100));
+        assert_eq!(pad_output_len(1 << 31, 1), PadLen::TooLong);
+        assert_eq!(pad_output_len(i64::MAX, 1), PadLen::TooLong);
     }
 
     // ============================================================
@@ -288,6 +306,21 @@ mod tests {
         unsafe { __torajs_str_free(s) };
         unsafe { __torajs_str_free(pad) };
         unsafe { __torajs_str_free(r) };
+    }
+
+    #[test]
+    fn ffi_pad_past_the_longest_str() {
+        let s = make_str(b"hi");
+        let empty = make_str(b"");
+        let pad = make_str(b"x");
+        // an empty filler returns `s` before any length is built
+        let kept = unsafe { __torajs_str_pad_start(s, 1 << 31, empty) };
+        let long = unsafe { __torajs_str_pad_end(s, 1 << 31, pad) };
+        assert_eq!(read_payload(kept), b"hi");
+        assert_eq!(read_payload(long), b"");
+        for p in [s, empty, pad, kept, long] {
+            unsafe { __torajs_str_free(p) };
+        }
     }
 
     #[test]

@@ -212,7 +212,7 @@ fn throw_and_empty(msg: &'static core::ffi::CStr) -> *mut u8 {
 pub unsafe extern "C" fn __torajs_str_uri_encode(s: *const u8, component: i64) -> *mut u8 {
     let (payload, len, is_latin1) = unsafe { str_view(s) };
     match encode_units(payload, len as usize, is_latin1, component != 0) {
-        Ok(bytes) => crate::alloc_canonical::alloc_units_canonical(&bytes, true),
+        Ok(bytes) => crate::alloc_canonical::alloc_built_units(&bytes, true),
         Err(()) => throw_and_empty(c"URI malformed"),
     }
 }
@@ -232,7 +232,7 @@ pub unsafe extern "C" fn __torajs_str_uri_decode(s: *const u8, component: i64) -
             for u in &units {
                 bytes.extend_from_slice(&u.to_le_bytes());
             }
-            crate::alloc_canonical::alloc_units_canonical(&bytes, false)
+            crate::alloc_canonical::alloc_built_units(&bytes, false)
         }
         Err(()) => throw_and_empty(c"URI malformed"),
     }

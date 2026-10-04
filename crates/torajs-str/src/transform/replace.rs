@@ -32,6 +32,7 @@
 
 use crate::block::StrBlock;
 use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_LEN_OFF};
+use crate::max_len::{__torajs_str_too_long, str_len_of};
 use alloc::vec::Vec;
 use torajs_rc::HeapHeader;
 
@@ -102,21 +103,20 @@ pub(super) fn coerce_payload<'a>(
     }
 }
 
-/// Build a fresh Str carrying the requested code-unit length and
-/// encoding, then write `byte_count` bytes (≤ payload capacity)
-/// via the provided closure.
-pub(super) fn build_result_with<F>(
-    length: u32,
-    byte_count: u32,
-    is_latin1: bool,
-    write: F,
-) -> *mut u8
+/// Build a fresh Str of `byte_count` payload bytes in the given
+/// encoding, written by `write`; past the longest Str, the
+/// RangeError placeholder, with `write` never called.
+pub(super) fn build_result_with<F>(byte_count: usize, is_latin1: bool, write: F) -> *mut u8
 where
     F: FnOnce(&mut [u8]),
 {
+    let shift = usize::from(!is_latin1);
+    let Some(length) = str_len_of(byte_count >> shift) else {
+        return unsafe { __torajs_str_too_long() };
+    };
     let mut block = StrBlock::alloc_with_encoding(length, is_latin1);
     if byte_count > 0 {
-        let dst = unsafe { block.as_bytes_mut(byte_count) };
+        let dst = unsafe { block.as_bytes_mut(byte_count as u32) };
         write(dst);
     }
     block.into_raw()
@@ -126,10 +126,7 @@ where
 /// Mirrors `__torajs_str_alloc`'s shape for callers that already
 /// have an encoded payload in-hand.
 pub(super) fn alloc_str_copy(s_payload: &[u8], s_latin1: bool) -> *mut u8 {
-    let stride: u32 = if s_latin1 { 1 } else { 2 };
-    let byte_cnt = s_payload.len() as u32;
-    let length = byte_cnt / stride;
-    build_result_with(length, byte_cnt, s_latin1, |dst| {
+    build_result_with(s_payload.len(), s_latin1, |dst| {
         dst.copy_from_slice(s_payload)
     })
 }
@@ -209,7 +206,7 @@ pub fn count_non_overlapping_with_stride(s: &[u8], needle: &[u8], stride: usize)
 /// Output length for `replace_all`. Computed without underflow
 /// (`hits * needle.len() <= s.len()` by construction).
 #[inline]
-pub fn replace_all_out_len(s_len: u32, hits: u32, n_len: u32, r_len: u32) -> u32 {
+pub fn replace_all_out_len(s_len: usize, hits: usize, n_len: usize, r_len: usize) -> usize {
     s_len - hits * n_len + hits * r_len
 }
 
@@ -329,16 +326,16 @@ pub unsafe extern "C" fn __torajs_str_replace(
     // dollar-free templates skip this entirely.
     if template_has_dollar(r_bytes, stride as usize) {
         let mut expanded = Vec::with_capacity(r_bytes.len());
-        expand_str_replacement(r_bytes, n_bytes, pre, post, stride as usize, &mut expanded);
+        if !expand_str_replacement(r_bytes, n_bytes, pre, post, stride as usize, &mut expanded) {
+            return unsafe { __torajs_str_too_long() };
+        }
         let total_byte_cnt = pre.len() + expanded.len() + post.len();
-        let length = (total_byte_cnt as u32) / stride;
-        return build_result_with(length, total_byte_cnt as u32, out_latin1, |dst| {
+        return build_result_with(total_byte_cnt, out_latin1, |dst| {
             splice_into(dst, pre, &expanded, post);
         });
     }
     let total_byte_cnt = s_bytes.len() + r_bytes.len() - n_bytes.len();
-    let length = (total_byte_cnt as u32) / stride;
-    build_result_with(length, total_byte_cnt as u32, out_latin1, |dst| {
+    build_result_with(total_byte_cnt, out_latin1, |dst| {
         splice_into(dst, pre, r_bytes, post);
     })
 }
@@ -374,9 +371,10 @@ pub unsafe extern "C" fn __torajs_str_replace_all(
         let r_buf = coerce_payload(r_payload, r_latin1, out_latin1);
         let s_bytes = s_buf.as_ref();
         let r_bytes = r_buf.as_ref();
-        let total_cu = (s_len_cu + 1) * r_len_cu + s_len_cu;
-        let total_byte_cnt = total_cu * stride;
-        return build_result_with(total_cu, total_byte_cnt, out_latin1, |dst| {
+        // both lengths under 2^31: the product cannot pass a usize
+        let total_cu = (s_len_cu as usize + 1) * r_len_cu as usize + s_len_cu as usize;
+        let total_byte_cnt = total_cu * stride as usize;
+        return build_result_with(total_byte_cnt, out_latin1, |dst| {
             let stride_us = stride as usize;
             let r_byte_len = r_bytes.len();
             let mut off = 0;
@@ -418,17 +416,19 @@ pub unsafe extern "C" fn __torajs_str_replace_all(
     // dollar-free templates skip this and stay on the existing zero-
     // allocation fast path.
     if template_has_dollar(r_bytes, stride as usize) {
-        let expanded = replace_all_with_substitution(s_bytes, n_bytes, r_bytes, stride as usize);
-        let total_byte_cnt = expanded.len();
-        let length = (total_byte_cnt as u32) / stride;
-        return build_result_with(length, total_byte_cnt as u32, out_latin1, |dst| {
+        let Some(expanded) =
+            replace_all_with_substitution(s_bytes, n_bytes, r_bytes, stride as usize)
+        else {
+            return unsafe { __torajs_str_too_long() };
+        };
+        return build_result_with(expanded.len(), out_latin1, |dst| {
             dst.copy_from_slice(&expanded);
         });
     }
 
+    // `hits * r_bytes.len()` is under 2^31 * 2^32: no wrap
     let total_byte_cnt = s_bytes.len() + (hits * r_bytes.len()) - (hits * n_bytes.len());
-    let length = (total_byte_cnt as u32) / stride;
-    build_result_with(length, total_byte_cnt as u32, out_latin1, |dst| {
+    build_result_with(total_byte_cnt, out_latin1, |dst| {
         replace_all_into_with_stride(s_bytes, n_bytes, r_bytes, dst, stride as usize);
     })
 }
@@ -483,7 +483,7 @@ mod tests {
         let mut out = [0u8; 6];
         replace_all_into(b"aaaa", b"aa", b"b", &mut out[..2]);
         assert_eq!(&out[..2], b"bb");
-        let mut out2 = vec![0u8; replace_all_out_len(3, 3, 1, 2) as usize];
+        let mut out2 = vec![0u8; replace_all_out_len(3, 3, 1, 2)];
         replace_all_into(b"aaa", b"a", b"BB", &mut out2);
         assert_eq!(&out2, b"BBBBBB");
     }
@@ -643,5 +643,23 @@ mod tests {
         unsafe { __torajs_str_free(n3) };
         unsafe { __torajs_str_free(r3) };
         unsafe { __torajs_str_free(out3) };
+    }
+
+    #[test]
+    fn ffi_replace_all_past_the_longest_str_answers_the_placeholder() {
+        // 2^16 hits of a 2^16-unit replacement: 2^32 units, which a
+        // u32 length used to fold to 0
+        let s = make_str(&[b'x'; 1 << 16]);
+        let r = make_str(&[b'y'; 1 << 16]);
+        let n = make_str(b"x");
+        let empty = make_str(b"");
+        for needle in [n, empty] {
+            let out = unsafe { __torajs_str_replace_all(s, needle, r) };
+            assert_eq!(read_str(out), b"");
+            unsafe { __torajs_str_free(out) };
+        }
+        for p in [s, r, n, empty] {
+            unsafe { __torajs_str_free(p) };
+        }
     }
 }

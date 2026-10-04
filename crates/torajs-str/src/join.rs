@@ -24,6 +24,7 @@ use crate::copy::{copy_bytes, copy_short, widen_latin1};
 use crate::layout::{
     STR_DATA_OFF, STR_FLAG_IS_ASCII, STR_FLAG_IS_LATIN1, STR_LEN_OFF, STR_POOL_PAYLOAD,
 };
+use crate::max_len::{__torajs_str_too_long, str_len_of};
 use crate::substr_methods::{substr_len, substr_offset, substr_parent};
 
 /// One operand of a concat: `len` code units at `ptr`, in the encoding
@@ -142,7 +143,18 @@ pub(crate) unsafe fn join(a: Side, b: Side) -> *mut u8 {
             return block.into_raw();
         }
     }
+    // a short pair is far under the longest Str
+    if (a.len | b.len) >= 2 * STR_POOL_PAYLOAD && !fits_one_str(a, b) {
+        return unsafe { __torajs_str_too_long() };
+    }
     unsafe { join_general(a, b) }
+}
+
+/// Whether `a` and `b` together fit the longest Str. Each side is at
+/// most [`crate::max_len::STR_MAX_LEN`], so the u32 sum cannot wrap.
+#[inline(always)]
+pub(crate) fn fits_one_str(a: Side, b: Side) -> bool {
+    str_len_of((a.len + b.len) as usize).is_some()
 }
 
 /// [`join`] without the short-case shortcut: any widths, any length,
@@ -150,7 +162,8 @@ pub(crate) unsafe fn join(a: Side, b: Side) -> *mut u8 {
 ///
 /// # Safety
 ///
-/// Same contract as [`join`].
+/// Same contract as [`join`], and the two sides [`fits_one_str`]: the
+/// callers ask, so the copy loops here stay as they were.
 #[inline(never)]
 pub(crate) unsafe extern "C" fn join_general(a: Side, b: Side) -> *mut u8 {
     // an empty side holds no code unit to keep the width for: the

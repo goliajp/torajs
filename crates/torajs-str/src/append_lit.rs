@@ -14,22 +14,27 @@
 
 use torajs_rc::HeapHeader;
 
-use crate::append::is_solely_ours;
+use crate::append::{append_too_long, is_solely_ours};
 use crate::block::StrBlock;
-use crate::concat_lit::{join_lit_general, lit_flags, lit_len, write_low_bytes, write_widened};
+use crate::concat_lit::{
+    fits_with_lit, join_lit_general, lit_flags, lit_len, write_low_bytes, write_widened,
+};
 use crate::copy::copy_bytes;
 use crate::join::Side;
 use crate::layout::{
-    STR_DATA_OFF, STR_FLAG_IS_ASCII, STR_FLAG_IS_LATIN1, STR_LEN_OFF, grow_capacity,
+    STR_DATA_OFF, STR_FLAG_IS_ASCII, STR_FLAG_IS_LATIN1, STR_LEN_OFF, STR_POOL_PAYLOAD,
+    grow_capacity,
 };
 use crate::str_drop::__torajs_str_drop;
 
 /// What an in-place append needs to know about the cell: its length,
-/// the payload bytes that takes, and the bytes the literal adds.
+/// the payload bytes that takes, and the bytes it takes with the
+/// literal on (a u64: on a cell at the longest Str a UTF-16 count
+/// would wrap a u32).
 struct Fit {
     len: u32,
     used: u32,
-    need: u32,
+    need: u64,
     is_latin1: bool,
 }
 
@@ -55,7 +60,7 @@ unsafe fn writable(a: *const u8, meta: u64) -> Option<Fit> {
     Some(Fit {
         len,
         used,
-        need: used + (lit_len(meta) << shift),
+        need: used as u64 + (lit_len(meta) << shift) as u64,
         is_latin1,
     })
 }
@@ -74,7 +79,7 @@ unsafe fn put(cell: *mut u8, fit: &Fit, bits: u64, meta: u64) {
     unsafe {
         let dst = cell.add(STR_DATA_OFF + fit.used as usize);
         if fit.is_latin1 == (lit_flags & STR_FLAG_IS_LATIN1 != 0) {
-            write_low_bytes(dst, bits, (fit.need - fit.used) as usize);
+            write_low_bytes(dst, bits, (fit.need - fit.used as u64) as usize);
         } else {
             write_widened(dst, bits, n as usize);
         }
@@ -99,7 +104,7 @@ unsafe fn put(cell: *mut u8, fit: &Fit, bits: u64, meta: u64) {
 pub unsafe extern "C" fn __torajs_str_append_lit(a: *mut u8, bits: u64, meta: u64) -> *mut u8 {
     if !a.is_null()
         && let Some(fit) = unsafe { writable(a, meta) }
-        && fit.need <= unsafe { StrBlock::from_raw(a).payload_capacity() }
+        && fit.need <= unsafe { StrBlock::from_raw(a).payload_capacity() } as u64
     {
         unsafe { put(a, &fit, bits, meta) };
         return a;
@@ -116,18 +121,24 @@ unsafe fn append_lit_general(a: *mut u8, bits: u64, meta: u64) -> *mut u8 {
         return unsafe { join_lit_general(Side::NULL_TEXT, bits, meta, false) };
     }
     let Some(fit) = (unsafe { writable(a, meta) }) else {
+        let side = unsafe { Side::of_str(a) };
+        if side.len > STR_POOL_PAYLOAD && !fits_with_lit(side, meta) {
+            return unsafe { append_too_long(a) };
+        }
         // copy, then release the reference this call was handed
-        let r = unsafe { join_lit_general(Side::of_str(a), bits, meta, false) };
+        let r = unsafe { join_lit_general(side, bits, meta, false) };
         unsafe { __torajs_str_drop(a) };
         return r;
     };
     let mut cell = a;
-    if fit.need > unsafe { StrBlock::from_raw(a).payload_capacity() } {
+    if fit.need > unsafe { StrBlock::from_raw(a).payload_capacity() } as u64 {
+        let Some(cap) = grow_capacity(fit.need, fit.is_latin1) else {
+            return unsafe { append_too_long(a) };
+        };
         // move into a block with slack, so the appends after this one
         // land in place
         let kept = unsafe { (*(a as *const HeapHeader)).flags } & STR_FLAG_IS_ASCII;
-        let mut grown =
-            StrBlock::alloc_with_capacity(fit.len, fit.is_latin1, grow_capacity(fit.need));
+        let mut grown = StrBlock::alloc_with_capacity(fit.len, fit.is_latin1, cap);
         unsafe {
             grown.header().flags |= kept;
             copy_bytes(

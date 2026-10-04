@@ -27,6 +27,13 @@ use torajs_str::{__torajs_str_append, __torajs_str_concat, __torajs_str_drop, St
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_weakref_target_dying(_target: *mut std::ffi::c_void) {}
 
+// The string allocators raise a RangeError past the longest Str through
+// torajs-throw, which only a built program links; a no-op stand-in.
+/// # Safety
+/// No-op stand-in; the message is never read.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_throw_range_error(_msg: *const u8) {}
+
 /// UTF-16 LE cell holding `units`, refcount 1.
 fn make_utf16(units: &[u16]) -> *mut u8 {
     let length = units.len() as u32;

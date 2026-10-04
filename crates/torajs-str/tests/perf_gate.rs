@@ -14,6 +14,13 @@ use std::time::{Duration, Instant};
 
 use torajs_str::{__torajs_str_eq, __torajs_str_free, __torajs_str_slice, StrBlock};
 
+// The string allocators raise a RangeError past the longest Str through
+// torajs-throw, which only a built program links; a no-op stand-in.
+/// # Safety
+/// No-op stand-in; the message is never read.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_throw_range_error(_msg: *const u8) {}
+
 fn make_str(payload: &[u8]) -> *mut u8 {
     let mut b = StrBlock::alloc(payload.len() as u32);
     let dst = unsafe { b.as_bytes_mut(payload.len() as u32) };

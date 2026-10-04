@@ -18,6 +18,7 @@
 
 use crate::block::StrBlock;
 use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_LEN_OFF};
+use crate::max_len::{__torajs_str_too_long, str_len_of};
 use torajs_rc::HeapHeader;
 
 const QUOT: &[u8] = b"&quot;";
@@ -145,15 +146,18 @@ unsafe fn create_html(s: *const u8, tag: &[u8], attr: &[u8], val: *const u8) -> 
     let s_len = unsafe { str_len(s) };
     let s_latin1 = unsafe { str_is_latin1(s) };
     // "<" tag ">" S "</" tag ">"
-    let mut units = 1 + tag.len() as u32 + 1 + s_len + 2 + tag.len() as u32 + 1;
+    let mut units = 1 + tag.len() + 1 + s_len as usize + 2 + tag.len() + 1;
     let mut out_latin1 = s_latin1;
     if !attr.is_empty() {
         // " " attr "=\"" V… "\"" with each `"` in V costing +5.
         let v_len = unsafe { str_len(val) };
         let v_quotes = unsafe { quote_count(val) };
-        units += 1 + attr.len() as u32 + 2 + v_len + v_quotes * (QUOT.len() as u32 - 1) + 1;
+        units += 1 + attr.len() + 2 + v_len as usize + v_quotes as usize * (QUOT.len() - 1) + 1;
         out_latin1 = out_latin1 && unsafe { str_is_latin1(val) };
     }
+    let Some(units) = str_len_of(units) else {
+        return unsafe { __torajs_str_too_long() };
+    };
     let mut block = StrBlock::alloc_with_encoding(units, out_latin1);
     let byte_cnt = if out_latin1 { units } else { units * 2 };
     let dst = unsafe { block.as_bytes_mut(byte_cnt) };

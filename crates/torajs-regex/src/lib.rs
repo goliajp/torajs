@@ -346,10 +346,8 @@ pub unsafe extern "C" fn __torajs_throw_syntax_error(_msg: *const u8) {
 /// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_throw_range_error(_msg: *const u8) {
-    panic!(
-        "torajs-regex test stub: __torajs_throw_range_error should not be called from cargo test"
-    );
+pub unsafe extern "C" fn __torajs_str_too_long() -> *mut u8 {
+    panic!("torajs-regex test stub: __torajs_str_too_long should not be called from cargo test");
 }
 
 /// # Safety

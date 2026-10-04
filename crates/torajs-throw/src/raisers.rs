@@ -10,6 +10,22 @@
 
 use super::*;
 
+/// The most code units a Str holds: torajs-str's `STR_MAX_LEN`,
+/// mirrored like the layout offsets.
+const STR_MAX_LEN: usize = (1 << 31) - 1;
+
+/// How much of the Str `s` a message can quote beside `rest` units of
+/// its own text: a quote near the longest Str is cut rather than let
+/// the message pass it.
+///
+/// # Safety
+///
+/// `s` is a valid Str block.
+pub(crate) unsafe fn quote_room(s: *const u8, rest: usize) -> usize {
+    let len = unsafe { (s.add(STR_LEN_OFF) as *const u32).read() } as usize;
+    len.min(STR_MAX_LEN - rest)
+}
+
 /// Cross-TU wrapper: torajs-bigint / torajs-regex / etc. call
 /// this to raise a catchable `RangeError` (div-by-zero,
 /// negative exponent, shift-too-large, `s.matchAll(re)` without
@@ -78,7 +94,7 @@ pub unsafe extern "C" fn __torajs_throw_reference_error_name(name: *mut c_void) 
     let name = name as *const u8;
     // SAFETY: name is a valid Str block per caller invariant; len
     // field lives at STR_LEN_OFF.
-    let name_len = unsafe { (name.add(STR_LEN_OFF) as *const u32).read() } as usize;
+    let name_len = unsafe { quote_room(name, SUFFIX.len()) };
     let total = (name_len + SUFFIX.len()) as u64;
     // SAFETY: __torajs_str_alloc_pooled returns an initialized Str
     // header with the len field set; we own the rc = 1 allocation.
@@ -114,7 +130,7 @@ pub unsafe extern "C" fn __torajs_throw_reference_error_tdz(name: *mut c_void) {
     let name = name as *const u8;
     // SAFETY: name is a valid Str block per caller invariant; len
     // field lives at STR_LEN_OFF.
-    let name_len = unsafe { (name.add(STR_LEN_OFF) as *const u32).read() } as usize;
+    let name_len = unsafe { quote_room(name, PREFIX.len() + SUFFIX.len()) };
     let total = (PREFIX.len() + name_len + SUFFIX.len()) as u64;
     // SAFETY: __torajs_str_alloc_pooled returns an initialized Str
     // header with the len field set; we own the rc = 1 allocation.

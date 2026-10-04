@@ -126,7 +126,7 @@ fn unescape_units(payload: &[u8], len: usize, is_latin1: bool) -> Vec<u16> {
 pub unsafe extern "C" fn __torajs_str_escape(s: *const u8) -> *mut u8 {
     let (payload, len, is_latin1) = unsafe { str_view(s) };
     let bytes = escape_units(payload, len as usize, is_latin1);
-    crate::alloc_canonical::alloc_units_canonical(&bytes, true)
+    crate::alloc_canonical::alloc_built_units(&bytes, true)
 }
 
 /// `unescape(s)` — §B.2.1.2.
@@ -142,7 +142,7 @@ pub unsafe extern "C" fn __torajs_str_unescape(s: *const u8) -> *mut u8 {
     for u in &units {
         bytes.extend_from_slice(&u.to_le_bytes());
     }
-    crate::alloc_canonical::alloc_units_canonical(&bytes, false)
+    crate::alloc_canonical::alloc_built_units(&bytes, false)
 }
 
 #[cfg(test)]

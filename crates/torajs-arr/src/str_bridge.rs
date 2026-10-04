@@ -41,3 +41,14 @@ pub unsafe fn str_alloc_pooled(len: u64) -> *mut u8 {
 pub(crate) unsafe fn str_alloc_pooled_enc(units: u64, is_latin1: bool) -> *mut u8 {
     unsafe { __torajs_str_alloc_pooled_enc(units, is_latin1 as i64) }
 }
+
+/// Raise the RangeError for a result longer than any Str holds and
+/// answer the placeholder the call site's throw check discards.
+///
+/// # Safety
+/// Records a pending throw.
+#[cold]
+#[inline(never)]
+pub(crate) unsafe fn str_too_long() -> *mut u8 {
+    unsafe { torajs_str::max_len::__torajs_str_too_long() }
+}

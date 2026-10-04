@@ -21,6 +21,8 @@
 
 use alloc::vec::Vec;
 
+use crate::max_len::str_max_bytes;
+
 /// Does `template` contain any `$` at a code-unit boundary? `stride`
 /// is 1 for Latin-1 / 2 for UTF-16 LE; UTF-16 LE encodes `$` as
 /// `24 00` so we only need to check the leading byte of each code
@@ -47,6 +49,11 @@ pub fn template_has_dollar(template: &[u8], stride: usize) -> bool {
 /// are all ≤ 0x7F so their leading byte is identical under Latin-1
 /// and UTF-16 LE; under UTF-16 LE the trailing 0x00 byte rides
 /// along inside the emitted code unit.
+///
+/// Answers `false`, with `out` left short, once the expansion would
+/// take `out` past the longest Str: `$&` / `` $` `` / `$'` repeat whole
+/// spans, so a long template over a long subject describes far more
+/// than any string holds, and is never spelled out.
 pub fn expand_str_replacement(
     template: &[u8],
     matched: &[u8],
@@ -54,58 +61,52 @@ pub fn expand_str_replacement(
     post: &[u8],
     stride: usize,
     out: &mut Vec<u8>,
-) {
+) -> bool {
+    let max = str_max_bytes(stride == 1) as usize;
     let mut i = 0;
     while i + stride <= template.len() {
+        let mut piece = &template[i..i + stride];
+        let mut step = stride;
         if template[i] == b'$' && i + 2 * stride <= template.len() {
-            let next = template[i + stride];
-            match next {
-                b'$' => {
-                    out.extend_from_slice(&template[i..i + stride]);
-                    i += 2 * stride;
-                    continue;
-                }
-                b'&' => {
-                    out.extend_from_slice(matched);
-                    i += 2 * stride;
-                    continue;
-                }
-                b'`' => {
-                    out.extend_from_slice(pre);
-                    i += 2 * stride;
-                    continue;
-                }
-                b'\'' => {
-                    out.extend_from_slice(post);
-                    i += 2 * stride;
-                    continue;
-                }
-                // `$N` (ASCII digit) and `$<name>` are preserved
-                // literally when the needle is a string — `captures`
-                // is empty (so `$N` is out of range) and
-                // `namedCaptures` is `undefined`. Fall through to
-                // the default arm: emit the `$` code unit and let
-                // the digit / `<...>` body get copied verbatim on
-                // subsequent iterations. bun mirrors this.
-                _ => {}
+            // `$N` (ASCII digit) and `$<name>` are preserved literally
+            // when the needle is a string — `captures` is empty (so
+            // `$N` is out of range) and `namedCaptures` is
+            // `undefined`: the `$` unit is emitted and the digit /
+            // `<...>` body copied verbatim on later iterations. bun
+            // mirrors this.
+            let named = match template[i + stride] {
+                b'$' => Some(piece),
+                b'&' => Some(matched),
+                b'`' => Some(pre),
+                b'\'' => Some(post),
+                _ => None,
+            };
+            if let Some(named) = named {
+                piece = named;
+                step = 2 * stride;
             }
         }
-        out.extend_from_slice(&template[i..i + stride]);
-        i += stride;
+        if out.len() + piece.len() > max {
+            return false;
+        }
+        out.extend_from_slice(piece);
+        i += step;
     }
+    true
 }
 
 /// Per-match substitution-aware variant of `replace_all_into`. Walks
 /// `s`, expanding `template`'s `$` references against each match's
 /// (`pre`, `matched`, `post`) window. Caller invokes only when
 /// `template_has_dollar` returned true; the dollar-free fast path
-/// in `replace.rs` stays zero-allocation.
+/// in `replace.rs` stays zero-allocation. `None` when an expansion
+/// goes past the longest Str (see [`expand_str_replacement`]).
 pub fn replace_all_with_substitution(
     s: &[u8],
     needle: &[u8],
     template: &[u8],
     stride: usize,
-) -> Vec<u8> {
+) -> Option<Vec<u8>> {
     let mut out = Vec::with_capacity(s.len());
     let n_len = needle.len();
     let mut i = 0;
@@ -115,7 +116,9 @@ pub fn replace_all_with_substitution(
             if &s[i..i + n_len] == needle {
                 let pre = &s[..i];
                 let post = &s[i + n_len..];
-                expand_str_replacement(template, needle, pre, post, stride, &mut out);
+                if !expand_str_replacement(template, needle, pre, post, stride, &mut out) {
+                    return None;
+                }
                 i += n_len;
             } else {
                 out.extend_from_slice(&s[i..i + stride]);
@@ -126,7 +129,7 @@ pub fn replace_all_with_substitution(
     if i < s.len() {
         out.extend_from_slice(&s[i..]);
     }
-    out
+    Some(out)
 }
 
 #[cfg(test)]
@@ -215,7 +218,7 @@ mod tests {
 
     #[test]
     fn replace_all_with_substitution_amp() {
-        let out = replace_all_with_substitution(b"aaa", b"a", b"$&$&", 1);
+        let out = replace_all_with_substitution(b"aaa", b"a", b"$&$&", 1).unwrap();
         assert_eq!(&out, b"aaaaaa");
     }
 
@@ -223,7 +226,7 @@ mod tests {
     fn replace_all_with_substitution_pre_post() {
         // s = "axb", needle = "x", template = "[$`|$']" → "[a|b]" at the
         // single match position.
-        let out = replace_all_with_substitution(b"axb", b"x", b"[$`|$']", 1);
+        let out = replace_all_with_substitution(b"axb", b"x", b"[$`|$']", 1).unwrap();
         assert_eq!(&out, b"a[a|b]b");
     }
 }

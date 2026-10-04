@@ -10,6 +10,7 @@
 //! mechanical pull, no semantic change.
 
 use crate::block::StrBlock;
+use crate::max_len::{__torajs_str_too_long, str_len_of, str_len_or_abort};
 
 /// Pool-aware Str allocation. Mirrors the pre-rewrite C
 /// `__torajs_str_alloc_pooled(uint64_t len) -> uint8_t *`. The
@@ -22,9 +23,9 @@ use crate::block::StrBlock;
 /// (`malloc` returning null leads to `expect` here; rc_inc /
 /// rc_dec semantics aren't reached).
 ///
-/// P11.1-S1: FFI ABI keeps `len: u64` for compatibility with the
-/// IR-emitted call sites; internally truncated to `u32` since
-/// post-S1 `length` lives in a u32 field. Encoding hard-coded to
+/// `len` is at most [`crate::max_len::STR_MAX_LEN`]: the caller writes
+/// the payload, so a longer request stops the process rather than
+/// answer a block shorter than asked for. Encoding hard-coded to
 /// Latin-1 — every existing caller built on byte-Str semantics
 /// (`len` = byte count) maps trivially to Latin-1 (`length` =
 /// code unit = byte for Latin-1 payloads).
@@ -33,13 +34,14 @@ use crate::block::StrBlock;
 /// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_alloc_pooled(len: u64) -> *mut u8 {
-    StrBlock::alloc(len as u32).into_raw()
+    StrBlock::alloc(str_len_or_abort(len)).into_raw()
 }
 
 /// Encoding-aware sibling of [`__torajs_str_alloc_pooled`] (RFC
 /// 20260711 `arr.join` follow-up). `len` counts CODE UNITS;
 /// `is_latin1 != 0` selects the 1-byte payload stride, zero selects
-/// UTF-16 LE (2 bytes per unit). Cross-staticlib consumers
+/// UTF-16 LE (2 bytes per unit); `len` is bounded the same way.
+/// Cross-staticlib consumers
 /// (torajs-arr's join kernels) that fold a widest-of-inputs output
 /// encoding need to allocate the wide layout directly — the legacy
 /// entry above hard-codes Latin-1.
@@ -48,7 +50,7 @@ pub unsafe extern "C" fn __torajs_str_alloc_pooled(len: u64) -> *mut u8 {
 /// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_alloc_pooled_enc(len: u64, is_latin1: i64) -> *mut u8 {
-    StrBlock::alloc_with_encoding(len as u32, is_latin1 != 0).into_raw()
+    StrBlock::alloc_with_encoding(str_len_or_abort(len), is_latin1 != 0).into_raw()
 }
 
 /// ASCII-certain variant of [`__torajs_str_alloc`] — Round 5 attack
@@ -63,11 +65,14 @@ pub unsafe extern "C" fn __torajs_str_alloc_pooled_enc(len: u64, is_latin1: i64)
 ///
 /// `src` must point at `len` readable bytes, ALL ≤ 0x7F (or be NULL
 /// when `len == 0`). Returned pointer is a fresh refcount=1 Str
-/// block owned by the caller.
+/// block owned by the caller; past [`crate::max_len::STR_MAX_LEN`]
+/// it is an empty placeholder under a pending RangeError.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_alloc_ascii(src: *const u8, len: i64) -> *mut u8 {
     let len_u = len as usize;
-    let length = len_u as u32;
+    let Some(length) = str_len_of(len_u) else {
+        return unsafe { __torajs_str_too_long() };
+    };
     let mut block = StrBlock::alloc_with_encoding(length, true);
     if len_u > 0 {
         // r503 — a raw copy, not `copy_from_slice`: the two lengths
@@ -77,6 +82,19 @@ pub unsafe extern "C" fn __torajs_str_alloc_ascii(src: *const u8, len: i64) -> *
         unsafe { core::ptr::copy_nonoverlapping(src, dst.as_mut_ptr(), dst.len()) };
     }
     block.into_raw()
+}
+
+/// `len` bytes copied in verbatim as Latin-1 code units — a binary
+/// read, a response body taken as bytes. The ASCII entry's copy reads
+/// no byte value, so it serves; this name carries no ASCII promise.
+///
+/// # Safety
+///
+/// `src` must point at `len` readable bytes (or be NULL when `len ==
+/// 0`). Same answer as [`__torajs_str_alloc_ascii`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_alloc_latin1(src: *const u8, len: i64) -> *mut u8 {
+    unsafe { __torajs_str_alloc_ascii(src, len) }
 }
 
 /// Str alloc + UTF-8 → canonical encoding payload write in one call.
@@ -110,7 +128,8 @@ pub unsafe extern "C" fn __torajs_str_alloc_ascii(src: *const u8, len: i64) -> *
 /// which the compiler's `Wtf8Buf` spellings and the runtime's own
 /// `StrWtf8` views carry; a lone surrogate becomes one UTF-16 unit.
 /// Returned pointer is a fresh refcount=1 Str block owned by the
-/// caller.
+/// caller; past [`crate::max_len::STR_MAX_LEN`] code units it is an
+/// empty placeholder under a pending RangeError.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8 {
     let len_u = len as usize;
@@ -133,7 +152,9 @@ pub unsafe extern "C" fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8
     // over an ASCII buffer — which is nearly all of them — paid that
     // walk in full before reaching this copy.
     if !src_slice.iter().any(|b| *b >= 0x80) {
-        let length = len_u as u32;
+        let Some(length) = str_len_of(len_u) else {
+            return unsafe { __torajs_str_too_long() };
+        };
         let mut block = StrBlock::alloc_with_encoding(length, true);
         let dst = unsafe { block.as_bytes_mut(length) };
         // r503 — raw copy; see `__torajs_str_alloc_ascii`.
@@ -169,11 +190,14 @@ pub unsafe extern "C" fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8
 #[optimize(size)]
 unsafe fn str_alloc_wide(src: &[u8]) -> *mut u8 {
     let mut max_cp: u32 = 0;
-    let mut length: u32 = 0;
+    let mut units: usize = 0;
     wtf8_codepoints(src, |cp| {
         max_cp = max_cp.max(cp);
-        length += if cp > 0xFFFF { 2 } else { 1 };
+        units += if cp > 0xFFFF { 2 } else { 1 };
     });
+    let Some(length) = str_len_of(units) else {
+        return unsafe { __torajs_str_too_long() };
+    };
     if max_cp <= 0xFF {
         // Latin-1 supplement (0x80..=0xFF): one byte per code point.
         let mut block = StrBlock::alloc_with_encoding(length, true);

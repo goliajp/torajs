@@ -13,6 +13,8 @@
 //! encoding, pass 2 emits per piece with Latin-1 → UTF-16 widening
 //! when the output is wide.
 
+use torajs_str::max_len::str_len_of;
+
 use crate::str_bridge::str_alloc_pooled_enc;
 
 // Str layout mirrors (Layer-2 cross-tier; see torajs-str layout.rs).
@@ -40,11 +42,32 @@ pub(crate) unsafe fn str_is_latin1(s: *const u8) -> bool {
 }
 
 /// Allocate the join output: `total_units` code units at the
-/// widest-of-inputs encoding the caller folded up in pass 1.
+/// widest-of-inputs encoding the caller folded up in pass 1. Only for
+/// a total known to fit; a summed one goes through [`join_out`].
 #[inline]
 pub(crate) unsafe fn alloc_join_out(total_units: u64, latin1: bool) -> *mut u8 {
     unsafe { str_alloc_pooled_enc(total_units, latin1) }
 }
+
+/// [`alloc_join_out`] for a summed total, or `None` past the longest
+/// Str.
+#[inline]
+pub(crate) unsafe fn checked_join_out(total_units: u64, latin1: bool) -> Option<*mut u8> {
+    let units = str_len_of(total_units as usize)?;
+    Some(unsafe { alloc_join_out(units as u64, latin1) })
+}
+
+/// The join output for a summed `total`, or else a return of the
+/// RangeError placeholder from the calling kernel.
+macro_rules! join_out {
+    ($total:expr, $latin1:expr) => {
+        match $crate::join_enc::checked_join_out($total, $latin1) {
+            Some(p) => p,
+            None => return $crate::str_bridge::str_too_long(),
+        }
+    };
+}
+pub(crate) use join_out;
 
 /// Append `units` code units at unit-index `cursor` of the output
 /// payload. `out_latin1 == true` implies every piece is Latin-1

@@ -7,7 +7,7 @@
 
 use torajs_syscall::{Errno, write};
 
-use crate::{__torajs_panic, __torajs_str_alloc, __torajs_str_alloc_pooled, PATH_MAX_LEN};
+use crate::{__torajs_panic, __torajs_str_alloc, __torajs_str_alloc_latin1, PATH_MAX_LEN};
 
 pub(crate) const STR_HDR_SIZE: usize = 16;
 pub(crate) const STR_LEN_OFF: usize = 8;
@@ -156,17 +156,14 @@ pub(crate) unsafe fn panic_with(prefix: &str, op_detail: &str) -> ! {
 /// into the canonical Latin-1 / UTF-16 layout — the string value is
 /// the file's characters, not its bytes (559-06: `"é"` read back
 /// as the two-unit `"Ã©"`). Anything else is kept byte for byte in
-/// the Latin-1 layout, the shape a binary read has always had.
+/// the Latin-1 layout, the shape a binary read has always had. A file
+/// longer than the longest Str is a RangeError either way.
 #[inline]
 pub(crate) unsafe fn str_alloc_with(data: &[u8]) -> *mut u8 {
     if core::str::from_utf8(data).is_ok() {
         return unsafe { __torajs_str_alloc(data.as_ptr(), data.len() as i64) };
     }
-    let s = unsafe { __torajs_str_alloc_pooled(data.len() as u64) };
-    if !data.is_empty() {
-        unsafe { core::ptr::copy_nonoverlapping(data.as_ptr(), s.add(STR_HDR_SIZE), data.len()) };
-    }
-    s
+    unsafe { __torajs_str_alloc_latin1(data.as_ptr(), data.len() as i64) }
 }
 
 /// Index of the NUL terminator in a path copy buffer (= path byte

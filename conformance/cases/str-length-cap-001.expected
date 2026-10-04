@@ -1,0 +1,12 @@
+repeat true
+repeat-wide true
+repeat-wrap true
+replaceAll-fn true
+padStart true
+padEnd true
+join true
+join-sep true
+repeat-empty built 0
+pad-empty-filler built 1
+join-small built 4194307
+replaceAll-small built 65538

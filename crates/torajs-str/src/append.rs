@@ -207,12 +207,15 @@ pub(crate) unsafe fn append_payload(
     let a_flags = header.flags;
     let a_is_latin1 = a_flags & STR_FLAG_IS_LATIN1 != 0;
     let out_is_latin1 = a_is_latin1 && b_is_latin1;
+    // each side is at most STR_MAX_LEN, so the u32 sum cannot wrap; the
+    // byte count is a u64 because past that bound a UTF-16 one would
     let total_len = a_len + b_len;
-    let need = byte_capacity(total_len, out_is_latin1);
+    let wide_need = (total_len as u64) << u32::from(!out_is_latin1);
+    let need = wide_need as u32;
     let a_bytes = byte_capacity(a_len, a_is_latin1) as usize;
     let mut block = unsafe { StrBlock::from_raw(a) };
 
-    if a_is_latin1 == out_is_latin1 && unsafe { block.payload_capacity() } >= need {
+    if a_is_latin1 == out_is_latin1 && unsafe { block.payload_capacity() } as u64 >= wide_need {
         let b_out_bytes = byte_capacity(b_len, out_is_latin1) as usize;
         // SAFETY: the capacity check above says the block owns
         // `need` payload bytes, and `a_bytes + b_out_bytes == need`.
@@ -235,7 +238,10 @@ pub(crate) unsafe fn append_payload(
 
     // Out of room (or `a` needs widening): take a cell with slack so
     // the appends after this one land in the branch above.
-    let mut grown = StrBlock::alloc_with_capacity(total_len, out_is_latin1, grow_capacity(need));
+    let Some(cap) = grow_capacity(wide_need, out_is_latin1) else {
+        return unsafe { append_too_long(a) };
+    };
+    let mut grown = StrBlock::alloc_with_capacity(total_len, out_is_latin1, cap);
     // SAFETY: freshly allocated with at least `need` payload bytes.
     let dst = unsafe { grown.as_bytes_mut(need) };
     let a_out_bytes = byte_capacity(a_len, out_is_latin1) as usize;
@@ -259,6 +265,19 @@ pub(crate) unsafe fn append_payload(
     // The reference we were handed was the only one; release it.
     block.free_pool_aware();
     grown.into_raw()
+}
+
+/// Release the left side an append was handed and raise the
+/// RangeError for a result past the longest Str.
+///
+/// # Safety
+///
+/// `a` is a valid Str block the caller owns one reference to.
+#[cold]
+#[inline(never)]
+pub(crate) unsafe fn append_too_long(a: *mut u8) -> *mut u8 {
+    unsafe { __torajs_str_drop(a) };
+    unsafe { crate::max_len::__torajs_str_too_long() }
 }
 
 #[cfg(test)]

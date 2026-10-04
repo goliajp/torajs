@@ -25,7 +25,9 @@
 pub mod case;
 pub mod case_locale;
 pub mod construct;
+pub mod cp_block;
 pub mod pad;
+pub mod repeat;
 pub mod replace;
 pub mod replace_fn;
 pub mod replace_subst;

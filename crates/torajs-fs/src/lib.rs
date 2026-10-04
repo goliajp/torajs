@@ -33,7 +33,7 @@
 //! ## Cross-tier ABI
 //!
 //! Calls into other sub-crates at `tr build` link time:
-//! - `__torajs_str_alloc_pooled(len)` from `torajs-str`
+//! - `__torajs_str_alloc_latin1(src, len)` from `torajs-str`
 //! - `__torajs_arr_alloc(initial_cap)` + `__torajs_arr_push(arr, val)`
 //!   from `torajs-arr` (readdir result accumulator)
 //! - `__torajs_panic(msg)` from `runtime_str.c` (will move to a
@@ -65,7 +65,7 @@ pub const PATH_MAX_LEN: usize = 4096;
 
 #[cfg(not(test))]
 unsafe extern "C" {
-    pub(crate) fn __torajs_str_alloc_pooled(len: u64) -> *mut u8;
+    pub(crate) fn __torajs_str_alloc_latin1(src: *const u8, len: i64) -> *mut u8;
     /// torajs-str — a Str from well-formed UTF-8 bytes (canonical
     /// Latin-1 / UTF-16 layout).
     pub(crate) fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8;
@@ -75,8 +75,8 @@ unsafe extern "C" {
 }
 
 #[cfg(test)]
-pub(crate) unsafe extern "C" fn __torajs_str_alloc_pooled(_len: u64) -> *mut u8 {
-    panic!("torajs-fs test stub: __torajs_str_alloc_pooled should not be called from cargo test");
+pub(crate) unsafe extern "C" fn __torajs_str_alloc_latin1(_src: *const u8, _len: i64) -> *mut u8 {
+    panic!("torajs-fs test stub: __torajs_str_alloc_latin1 should not be called from cargo test");
 }
 
 #[cfg(test)]
