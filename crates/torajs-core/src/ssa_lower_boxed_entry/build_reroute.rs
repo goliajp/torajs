@@ -34,6 +34,7 @@ use crate::ssa::{self, FuncId, IPred, InstKind, Operand, Terminator, Type};
 
 use super::BoxedEntryIntrinsics;
 use super::fit_tag::{FitTag, lossy_slot};
+use super::unbox::BoxedCoerceIds;
 use super::unbox::BoxedCoerceIntrinsics;
 
 /// The twin adapter a mono adapter hands a non-fitting call to.
@@ -78,7 +79,7 @@ pub(super) fn emit_twin_reroute(
             lossy_slot(
                 user_tys[i],
                 dflt_lits.get(i).and_then(|d| d.as_ref()),
-                coerce.fit_tags[i],
+                coerce.slots[i],
                 coerce.rest && i + 1 == user_tys.len(),
             )
         })
@@ -88,40 +89,41 @@ pub(super) fn emit_twin_reroute(
     }
     let reroute = f.add_block();
     for i in lossy {
-        let av = f.append_inst(
+        let rest = coerce.rest && i + 1 == user_tys.len();
+        let probe = slot_probe(&coerce.ids, intr, coerce.slots[i], user_tys[i], rest);
+        let args = match probe.on {
+            On::Arg(extra) => {
+                let av = f.append_inst(
+                    entry,
+                    InstKind::Load(Type::Any, Operand::Value(base), (i as u64) * 8),
+                    Type::Any,
+                    None,
+                );
+                if probe.passes_cell {
+                    fit[i] = Some(av);
+                }
+                std::iter::once(Operand::Value(av)).chain(extra).collect()
+            }
+            // the rest collects `argv[i..argc]` (`build_rest`), and an
+            // empty window has no slot `i` to load
+            On::Rest(shape) => vec![
+                Operand::Value(argv),
+                Operand::ConstI64(i as i64),
+                Operand::Value(argc),
+                Operand::ConstI64(shape as i64),
+            ],
+        };
+        let v = f.append_inst(entry, InstKind::Call(probe.test, args), Type::I64, None);
+        let miss = f.append_inst(
             entry,
-            InstKind::Load(Type::Any, Operand::Value(base), (i as u64) * 8),
-            Type::Any,
+            InstKind::ICmp(
+                IPred::Eq,
+                Operand::Value(v),
+                Operand::ConstI64(probe.miss_at),
+            ),
+            Type::Bool,
             None,
         );
-        let miss = match coerce.fit_tags[i] {
-            Some(FitTag { tag, depth }) => {
-                let test = if depth == 0 {
-                    InstKind::Call(
-                        coerce.struct_fits,
-                        vec![Operand::Value(av), Operand::ConstI64(tag as i64)],
-                    )
-                } else {
-                    InstKind::Call(
-                        coerce.arr_fits,
-                        vec![
-                            Operand::Value(av),
-                            Operand::ConstI64(tag as i64),
-                            Operand::ConstI64(depth as i64),
-                        ],
-                    )
-                };
-                let fits = f.append_inst(entry, test, Type::I64, None);
-                fit[i] = Some(av);
-                f.append_inst(
-                    entry,
-                    InstKind::ICmp(IPred::Eq, Operand::Value(fits), Operand::ConstI64(0)),
-                    Type::Bool,
-                    None,
-                )
-            }
-            None => scalar_miss(f, entry, intr, coerce, i, user_tys[i], av),
-        };
         let next = f.add_block();
         f.set_term(
             entry,
@@ -212,42 +214,76 @@ pub(super) fn emit_twin_reroute(
     (entry, fit)
 }
 
-/// The miss test of a lossy slot that is not struct-shaped. A string
-/// slot takes only a string, and an array slot only an array block
-/// whose element kinds match the slot's at every level (an `any[]`
-/// slot reads any block kind-aware): ToString or a raw pointer unbox
-/// of anything else hands the body a value the caller never passed,
-/// or slots it cannot read. A boolean / integer slot misses on
+/// What a lossy slot's test reads besides its loaded argument.
+enum On {
+    /// The argument, then these operands.
+    Arg(Vec<Operand>),
+    /// The argv window from the slot on, against this shape word.
+    Rest(u64),
+}
+
+/// One lossy slot's test: the kernel, what it reads, and the answer
+/// that misses.
+struct Probe {
+    test: FuncId,
+    on: On,
+    miss_at: i64,
+    /// A struct-shaped slot that passed hands its loaded cell on to the
+    /// unbox (`BoxedCoerceIntrinsics::fit`).
+    passes_cell: bool,
+}
+
+/// The test of one lossy slot. A struct-shaped slot asks its layout of
+/// the cell (of every element, for an array of structs). A string slot
+/// takes only a string, and an array slot only an array block whose
+/// element kinds and tags match the slot's at every level (an `any[]`
+/// level reads any block kind-aware); a typed rest asks that of every
+/// argument it collects. ToString, a raw pointer unbox or the rest's
+/// coercion would otherwise hand the body a value the caller never
+/// passed, or slots it cannot read. A boolean / integer slot misses on
 /// `undefined`, which it has no bits for.
-fn scalar_miss(
-    f: &mut ssa::Function,
-    entry: ssa::BlockId,
+fn slot_probe(
+    ids: &BoxedCoerceIds,
     intr: &BoxedEntryIntrinsics,
-    coerce: &BoxedCoerceIntrinsics<'_>,
-    slot: usize,
+    slot: super::fit_tag::SlotTest,
     ty: Type,
-    av: ssa::ValueId,
-) -> ssa::ValueId {
-    let (test, args, miss_at) = match (ty, coerce.arr_tests[slot]) {
-        (Type::Str, _) => (coerce.str_fits, vec![Operand::Value(av)], 0),
-        (Type::Arr(_), Some((chain, str_leaf))) => (
-            coerce.arr_cell,
-            vec![
-                Operand::Value(av),
-                Operand::ConstI64(chain as i64),
-                Operand::ConstI64(i64::from(str_leaf)),
-            ],
+    rest: bool,
+) -> Probe {
+    let probe = |test, on, miss_at| Probe {
+        test,
+        on,
+        miss_at,
+        passes_cell: false,
+    };
+    match (slot.fit, slot.shape) {
+        (Some(FitTag { tag, depth: 0 }), _) => Probe {
+            passes_cell: true,
+            ..probe(
+                ids.struct_fits,
+                On::Arg(vec![Operand::ConstI64(tag as i64)]),
+                0,
+            )
+        },
+        (Some(FitTag { tag, depth }), _) => Probe {
+            passes_cell: true,
+            ..probe(
+                ids.arr_fits,
+                On::Arg(vec![
+                    Operand::ConstI64(tag as i64),
+                    Operand::ConstI64(depth as i64),
+                ]),
+                0,
+            )
+        },
+        (None, Some(shape)) if rest => probe(ids.rest_fits, On::Rest(shape), 0),
+        (None, Some(shape)) => probe(
+            ids.arr_cell,
+            On::Arg(vec![Operand::ConstI64(shape as i64)]),
             0,
         ),
-        _ => (intr.any_unbox_tag, vec![Operand::Value(av)], 5),
-    };
-    let v = f.append_inst(entry, InstKind::Call(test, args), Type::I64, None);
-    f.append_inst(
-        entry,
-        InstKind::ICmp(IPred::Eq, Operand::Value(v), Operand::ConstI64(miss_at)),
-        Type::Bool,
-        None,
-    )
+        _ if ty == Type::Str => probe(ids.str_fits, On::Arg(Vec::new()), 0),
+        _ => probe(intr.any_unbox_tag, On::Arg(Vec::new()), 5),
+    }
 }
 
 /// A twin minted beside a class method or constructor.

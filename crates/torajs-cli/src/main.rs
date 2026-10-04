@@ -20,6 +20,8 @@ mod cmd_run;
 mod lsp;
 mod lsp_bench;
 mod repl;
+#[cfg(test)]
+mod str_split_ir_tests;
 mod util;
 
 use std::env;

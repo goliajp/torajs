@@ -37,38 +37,71 @@ pub(crate) fn fit_tag(
     }
 }
 
-/// The run-time test of an array slot whose elements are not
-/// struct-shaped: the slot's element-kind chain (3 bits per level, the
-/// encoding `__torajs_arr_mark_kind` stamps) and whether the innermost
-/// elements are strings. `None` for every other type.
-pub(crate) fn arr_cell_test(ty: Type, arr_layouts: &[Type]) -> Option<(u64, bool)> {
-    let Type::Arr(a) = ty else { return None };
-    let elem = arr_layouts[a.0 as usize];
-    let mut leaf = elem;
-    while let Type::Arr(b) = leaf {
-        leaf = arr_layouts[b.0 as usize];
+/// The run-time test one parameter slot asks of its argument.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct SlotTest {
+    /// The layout test of a struct-shaped slot.
+    pub(crate) fit: Option<FitTag>,
+    /// The shape word of an array slot over non-struct elements
+    /// (`torajs_rc::arr_kind::SLOT_LEVEL_BITS`).
+    pub(crate) shape: Option<u64>,
+}
+
+pub(crate) fn slot_test(
+    ty: Type,
+    arr_layouts: &[Type],
+    sid_tag: &dyn Fn(ssa::StructId) -> u32,
+) -> SlotTest {
+    let fit = fit_tag(ty, arr_layouts, sid_tag);
+    let shape = match ty {
+        Type::Arr(a) if fit.is_none() => Some(level(arr_layouts[a.0 as usize], arr_layouts, 0)),
+        _ => None,
+    };
+    SlotTest { fit, shape }
+}
+
+/// The shape bits of one array level whose elements are `elem`, and of
+/// every level under it. Past four levels nothing passes, and a heap
+/// element other than a string or an array names no tag, so the test
+/// sends such arguments to the twin.
+fn level(elem: Type, arr_layouts: &[Type], depth: u32) -> u64 {
+    use torajs_rc::arr_kind::{SLOT_KIND_NONE, SLOT_LEVEL_BITS, SLOT_TAG_NONE};
+    let heap = |tag: u64| u64::from(torajs_rc::ARR_KIND_HEAP) | tag << 3;
+    if depth >= 4 {
+        return SLOT_KIND_NONE;
     }
-    let chain = crate::ssa_lower_arr_kind_mark::arr_kind_chain_of(arr_layouts, &elem, 0);
-    Some((chain, leaf == Type::Str))
+    match elem {
+        Type::Any => u64::from(torajs_rc::ARR_KIND_UNSET),
+        Type::I64 | Type::I32 => u64::from(torajs_rc::ARR_KIND_I64),
+        Type::F64 => u64::from(torajs_rc::ARR_KIND_F64),
+        Type::Bool => u64::from(torajs_rc::ARR_KIND_BOOL),
+        Type::Str => heap(torajs_rc::Tag::Str as u64),
+        Type::Arr(b) => {
+            heap(torajs_rc::Tag::Arr as u64)
+                | level(arr_layouts[b.0 as usize], arr_layouts, depth + 1) << SLOT_LEVEL_BITS
+        }
+        t if t.is_refcounted() => heap(SLOT_TAG_NONE),
+        _ => SLOT_KIND_NONE,
+    }
 }
 
 /// A slot an argument cannot cross without loss: no literal default
 /// to substitute, and a type with no undefined of its own, a string
 /// or array slot that cannot hold `null` / `undefined` / another kind
 /// of value, or a struct-shaped layout (`fit`) the argument may not
-/// have. A rest slot is fed from the trailing argv window, one element
-/// per slot, so only its struct layout is asked about.
+/// have. A rest slot asks the same of every argument it collects,
+/// which an `any[]` rest takes as they are.
 pub(super) fn lossy_slot(
     ty: Type,
     dflt: Option<&super::DfltLit>,
-    fit: Option<FitTag>,
+    test: SlotTest,
     rest: bool,
 ) -> bool {
     dflt.is_none()
-        && (fit.is_some()
-            || !rest
-                && matches!(
-                    ty,
-                    Type::Bool | Type::I64 | Type::I32 | Type::Str | Type::Arr(_)
-                ))
+        && (test.fit.is_some()
+            || match ty {
+                Type::Bool | Type::I64 | Type::I32 | Type::Str => true,
+                Type::Arr(_) => !rest || test.shape != Some(0),
+                _ => false,
+            })
 }

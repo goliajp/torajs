@@ -7,15 +7,18 @@
 //! visibility churn. Bodies verbatim.
 
 use super::BoxedEntryIntrinsics;
-use super::fit_tag::FitTag;
+use super::fit_tag::SlotTest;
 use crate::ssa::{self, FuncId, InstKind, Operand, Type};
 use crate::ssa_lower_rc_emit::emit_rc_inc_in_fn;
 
-/// S2.36 — the struct-param coercion trio threaded into one adapter
-/// build: the kernel + release FuncIds and the per-user-param
-/// layout test (`Some` only for struct-shaped params: a cell, or an
-/// array of cells at any depth).
-pub(super) struct BoxedCoerceIntrinsics<'a> {
+/// The runtime kernels every adapter build calls, declared once per
+/// module.
+#[derive(Clone, Copy)]
+pub(super) struct BoxedCoerceIds {
+    /// Single-value ToString for a `string` slot; `undefined` keeps the
+    /// Str undefined sentinel (a param, not a ToString site).
+    pub(super) anyv_to_str: FuncId,
+    /// S2.36 — the struct-param coercion kernel.
     pub(super) arg_to_struct: FuncId,
     /// `__torajs_anyv_struct_fits(v, class_tag) -> i64` — the mono
     /// adapter's struct-slot test ahead of its unboxes
@@ -26,21 +29,60 @@ pub(super) struct BoxedCoerceIntrinsics<'a> {
     pub(super) arr_fits: FuncId,
     /// `__torajs_anyv_str_fits(v) -> i64` — a string slot's test.
     pub(super) str_fits: FuncId,
-    /// `__torajs_anyv_arr_cell(v, chain, str_leaf) -> i64` — an array
-    /// slot's test when its elements are not struct-shaped, with the
-    /// per-slot operands in `arr_tests` (`fit_tag::arr_cell_test`).
+    /// `__torajs_anyv_arr_cell(v, shape) -> i64` — an array slot's
+    /// test when its elements are not struct-shaped.
     pub(super) arr_cell: FuncId,
-    pub(super) arr_tests: &'a [Option<(u64, bool)>],
-    /// The last user slot is a rest parameter.
-    pub(super) rest: bool,
+    /// `__torajs_anyv_rest_fits(argv, from, argc, shape) -> i64` — the
+    /// same question of every argument a typed rest collects.
+    pub(super) rest_fits: FuncId,
+    /// The release of a coerced struct argument.
     pub(super) anyv_rc_dec: FuncId,
+    /// 刀 2 (RFC 20260815-fn-value-rest-spread) — the typed-rest
+    /// conversion kernel.
+    pub(super) arr_any_to_typed: FuncId,
+    /// The twin adapter call of a receiver-polymorphic twin.
+    pub(super) invoke_recv_first: FuncId,
+}
+
+pub(super) fn declare_coerce_intrinsics(
+    module: &mut ssa::Module,
+    fn_table: &mut std::collections::HashMap<String, FuncId>,
+) -> BoxedCoerceIds {
+    use Type::{Any, I64, Ptr};
+    let mut d = |name: &str, params: &[Type], ret: Type| {
+        crate::ssa_lower_synthesize_main::declare_intrinsic(module, fn_table, name, params, ret)
+    };
+    BoxedCoerceIds {
+        anyv_to_str: d("__torajs_anyv_to_str_param", &[Any], Ptr),
+        arg_to_struct: d("__torajs_anyv_arg_to_struct", &[Any, I64], Any),
+        struct_fits: d("__torajs_anyv_struct_fits", &[Any, I64], I64),
+        arr_fits: d("__torajs_anyv_arr_fits", &[Any, I64, I64], I64),
+        str_fits: d("__torajs_anyv_str_fits", &[Any], I64),
+        arr_cell: d("__torajs_anyv_arr_cell", &[Any, I64], I64),
+        rest_fits: d("__torajs_anyv_rest_fits", &[Ptr, I64, I64, I64], I64),
+        anyv_rc_dec: d("__torajs_anyv_rc_dec", &[Any], Type::Void),
+        arr_any_to_typed: d("__torajs_arr_any_to_typed", &[Ptr, I64], Ptr),
+        invoke_recv_first: d(
+            "__torajs_anyv_invoke_recv_first",
+            &[Ptr, I64, Any, Ptr, I64],
+            Any,
+        ),
+    }
+}
+
+/// One adapter build's coercion state: the kernels, and per user
+/// param the run-time test of its argument.
+pub(super) struct BoxedCoerceIntrinsics<'a> {
+    pub(super) ids: BoxedCoerceIds,
     /// S2.39 — `__torajs_anyv_or_default(v, tag, bits)`: the
     /// literal-default substitution kernel.
     pub(super) anyv_or_default: FuncId,
-    pub(super) fit_tags: &'a [Option<FitTag>],
+    pub(super) slots: &'a [SlotTest],
+    /// The last user slot is a rest parameter.
+    pub(super) rest: bool,
     /// The twin adapter an under-supplied boolean / integer slot or
-    /// a non-fitting struct slot hands the call to (`build_reroute`);
-    /// `None` = no lossy slot, or no twin to hand it to.
+    /// a non-fitting slot hands the call to (`build_reroute`); `None`
+    /// = no lossy slot, or no twin to hand it to.
     pub(super) twin_reroute: Option<super::build_reroute::TwinReroute>,
     /// Per user slot, the argument the reroute test loaded and proved
     /// to fit its struct layout (`__torajs_anyv_struct_fits` answered
@@ -198,13 +240,14 @@ pub(super) fn unbox_args(
             // materializes the right repr (or stakes a pass-through)
             // and the owned answer releases after the call.
             Type::Obj(_) => {
-                let tag = coerce.fit_tags[first + i]
-                    .expect("fit_tags aligns with user_tys")
+                let tag = coerce.slots[first + i]
+                    .fit
+                    .expect("a struct slot carries its layout test")
                     .tag;
                 let coerced = f.append_inst(
                     entry,
                     InstKind::Call(
-                        coerce.arg_to_struct,
+                        coerce.ids.arg_to_struct,
                         vec![av, Operand::ConstI64(tag as i64)],
                     ),
                     Type::Any,

@@ -63,7 +63,7 @@ pub(super) fn emit_rest_slot(
             );
             f.append_void(
                 entry,
-                InstKind::Call(coerce.anyv_rc_dec, vec![Operand::Value(boxed_src)]),
+                InstKind::Call(coerce.ids.anyv_rc_dec, vec![Operand::Value(boxed_src)]),
             );
             let pi = f.append_inst(
                 entry,

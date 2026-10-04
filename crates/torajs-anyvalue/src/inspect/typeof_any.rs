@@ -100,3 +100,62 @@ pub unsafe extern "C" fn __torajs_anyv_str_fits(v: AnyValue) -> i64 {
     let tag = unsafe { heap_type_tag(as_void_ptr(v) as *const c_void) };
     i64::from(tag == Tag::Str as u16)
 }
+
+unsafe extern "C" {
+    /// torajs-arr — an array block's fit to a slot shape word.
+    fn __torajs_anyv_arr_cell(v: u64, shape: u64) -> i64;
+}
+
+/// `__torajs_anyv_rest_fits(argv, from, argc, shape)` — 1 when every
+/// argument `argv[from..argc]` fits an element of a typed rest
+/// parameter whose array has the shape word `shape`
+/// (`torajs_rc::arr_kind::SLOT_LEVEL_BITS`). The adapter asks it ahead
+/// of collecting the rest, whose typed conversion would coerce a
+/// `null` into `"null"` or throw where §10.2.1.3 binds it as passed;
+/// a miss hands the call to the all-`any` twin.
+///
+/// # Safety
+///
+/// `argv` holds `argc` valid NaN-boxes; cells they name are live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_rest_fits(
+    argv: *const AnyValue,
+    from: i64,
+    argc: i64,
+    shape: u64,
+) -> i64 {
+    i64::from((from..argc).all(|i| unsafe { elem_fits(*argv.add(i as usize), shape) }))
+}
+
+/// Does `v` fit one element of an array level of `shape`? An integer
+/// level takes only integral numbers its slots can hold exactly.
+///
+/// # Safety
+///
+/// Cell case: the encoded pointer names a live heap cell.
+unsafe fn elem_fits(v: AnyValue, shape: u64) -> bool {
+    use torajs_rc::arr_kind::{SLOT_LEVEL_BITS, SLOT_TAG_NONE};
+    use torajs_rc::{ARR_KIND_BOOL, ARR_KIND_F64, ARR_KIND_HEAP, ARR_KIND_I64, ARR_KIND_UNSET};
+    let want = (shape >> 3) & SLOT_TAG_NONE;
+    let kind = (shape & 0b111) as u16;
+    if kind == ARR_KIND_UNSET {
+        true
+    } else if kind == ARR_KIND_I64 {
+        is_int32(v) || is_double(v) && integral(crate::nanbox::as_double(v))
+    } else if kind == ARR_KIND_F64 {
+        is_int32(v) || is_double(v)
+    } else if kind == ARR_KIND_BOOL {
+        is_bool(v)
+    } else if kind == ARR_KIND_HEAP && want == Tag::Str as u64 {
+        unsafe { __torajs_anyv_str_fits(v) == 1 }
+    } else if kind == ARR_KIND_HEAP && want == Tag::Arr as u64 {
+        unsafe { __torajs_anyv_arr_cell(v, shape >> SLOT_LEVEL_BITS) == 1 }
+    } else {
+        false
+    }
+}
+
+/// An integral number an `i64` slot holds without loss, `-0` excluded.
+fn integral(d: f64) -> bool {
+    d.fract() == 0.0 && d.abs() <= 9_007_199_254_740_992.0 && (d != 0.0 || d.is_sign_positive())
+}

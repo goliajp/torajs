@@ -33,6 +33,8 @@
 //!    collapsing to ConstPtrNull).
 //! 6. **Emit `Call`** with `f_ret_type_hint(target)` + `emit_throw_check`.
 
+mod str_split;
+
 use crate::ast::ExprId;
 use crate::ssa::{FuncId, InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
@@ -187,24 +189,9 @@ pub(crate) fn emit(
     // H1 — the synthetic slots move in LAST, after every positional
     // zip above has run against the user-aligned argv.
     insert_headless_slots(ctx, eid, callee, headless, args, &mut argv, headless_argv);
-    let ret_ty = ctx.f_ret_type_hint(target);
-    let cur_block = ctx.cur_block;
-    // Chunk 806 — a void callee has no return value; consuming the
-    // Call's SSA result read x0 garbage (`console.log(v("x"))`
-    // printed a residue integer). Emit for effect and answer
-    // ConstPtrNull — the payload every Undefined-typed value
-    // carries (the checker types this call Undefined), so the
-    // Undefined-aware consumers (box_to_any_from_expr's Ptr arm,
-    // strict-eq, let-init) see a real undefined. The indirect
-    // lanes answer the same.
-    let result = if ret_ty == Type::Void {
-        ctx.f.append_void(cur_block, InstKind::Call(target, argv));
-        Operand::ConstPtrNull
-    } else {
-        let v = ctx
-            .f
-            .append_inst(cur_block, InstKind::Call(target, argv), ret_ty, None);
-        Operand::Value(v)
+    let result = match str_split::emit(ctx, eid, target, &argv) {
+        Some(r) => r,
+        None => emit_direct_call(ctx, target, argv),
     };
     ctx.emit_throw_check(Some(target));
     // Unpark before the unconditional releases below.
@@ -221,6 +208,30 @@ pub(crate) fn emit(
         ctx.emit_drop_value(op, ty);
     }
     result
+}
+
+/// The `Call` of a direct call, answering its value in the callee's
+/// return type.
+fn emit_direct_call(ctx: &mut LowerCtx<'_>, target: FuncId, argv: Vec<Operand>) -> Operand {
+    let ret_ty = ctx.f_ret_type_hint(target);
+    let cur_block = ctx.cur_block;
+    // Chunk 806 — a void callee has no return value; consuming the
+    // Call's SSA result read x0 garbage (`console.log(v("x"))`
+    // printed a residue integer). Emit for effect and answer
+    // ConstPtrNull — the payload every Undefined-typed value
+    // carries (the checker types this call Undefined), so the
+    // Undefined-aware consumers (box_to_any_from_expr's Ptr arm,
+    // strict-eq, let-init) see a real undefined. The indirect
+    // lanes answer the same.
+    if ret_ty == Type::Void {
+        ctx.f.append_void(cur_block, InstKind::Call(target, argv));
+        Operand::ConstPtrNull
+    } else {
+        let v = ctx
+            .f
+            .append_inst(cur_block, InstKind::Call(target, argv), ret_ty, None);
+        Operand::Value(v)
+    }
 }
 
 fn resolve_target(ctx: &LowerCtx<'_>, eid: ExprId, callee: ExprId) -> FuncId {

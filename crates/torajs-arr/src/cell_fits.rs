@@ -19,8 +19,10 @@
 //! read is the TypeError §13.3.2.1 asks for, not a typed null
 //! dereference), a string, a `null`, an `undefined`.
 
+use torajs_rc::arr_kind::{SLOT_KIND_NONE, SLOT_LEVEL_BITS, SLOT_TAG_NONE};
 use torajs_rc::{
-    ARR_KIND_HEAP, FLAG_ARR_ANY, FLAG_ARR_EXOTIC_INDEX, FLAG_ARR_SPARSE_TAIL, HeapHeader, Tag,
+    ARR_KIND_HEAP, ARR_KIND_UNSET, FLAG_ARR_ANY, FLAG_ARR_EXOTIC_INDEX, FLAG_ARR_SPARSE_TAIL,
+    HeapHeader, Tag,
 };
 
 use crate::grow::ARR_HDR_HEAD_OFF;
@@ -45,60 +47,57 @@ pub unsafe extern "C" fn __torajs_anyv_arr_fits(v: u64, class_tag: u32, depth: i
     i64::from(!cell.is_null() && unsafe { arr_fits(cell, class_tag, depth) })
 }
 
-/// `__torajs_anyv_arr_cell(v, chain, str_leaf)` — 1 when `v` is an
-/// array block a typed body over non-struct elements can index as it
-/// is. The adapter of such an array slot asks it ahead of its pointer
-/// unbox and hands every other argument to the all-`any` twin, where
-/// `xs.length` on `null` is the TypeError §13.3.2.1 asks for and an
-/// element is read through the generic [[Get]].
+/// `__torajs_anyv_arr_cell(v, shape)` — 1 when `v` is an array block a
+/// typed body over non-struct elements can index as it is. The adapter
+/// of such an array slot asks it ahead of its pointer unbox and hands
+/// every other argument to the all-`any` twin, where `xs.length` on
+/// `null` is the TypeError §13.3.2.1 asks for and an element is read
+/// through the generic [[Get]].
 ///
-/// `chain` is the slot's element-kind chain, 3 bits per level, the
-/// encoding `__torajs_arr_mark_kind` stamps. A level of kind 0 is an
-/// `any[]` slot, whose body reads every block kind-aware, so any
-/// `Tag::Arr` cell fits it. Any other level needs a block stamped with
-/// exactly that kind: an `Array<Any>` block holds boxes, not raw
+/// `shape` is the slot's shape word (`torajs_rc::arr_kind::
+/// SLOT_LEVEL_BITS`). An `any[]` level reads every block kind-aware, so
+/// any `Tag::Arr` cell fits it. Any other level needs a block stamped
+/// with exactly its kind: an `Array<Any>` block holds boxes, not raw
 /// slots, an unstamped or differently stamped block holds another
 /// representation, and an exotic index or a sparse tail is not in the
-/// slots at all. A heap level with a further level walks every element
-/// as an array of the next level; with `str_leaf`, the innermost
-/// elements must be `Tag::Str` cells.
+/// slots at all. A heap level walks every element: each must be a cell
+/// with the level's tag, and an array element fits the next level.
 ///
 /// # Safety
 /// `v` is a valid NaN-box; a cell it names is live.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_anyv_arr_cell(v: u64, chain: u64, str_leaf: i64) -> i64 {
+pub unsafe extern "C" fn __torajs_anyv_arr_cell(v: u64, shape: u64) -> i64 {
     let cell = unsafe { __torajs_anyv_cell_ptr(v) } as *const u8;
-    i64::from(!cell.is_null() && unsafe { arr_cell_fits(cell, chain, str_leaf != 0) })
+    i64::from(!cell.is_null() && unsafe { arr_cell_fits(cell, shape) })
 }
 
 /// # Safety
 /// `arr` is a live heap cell.
-unsafe fn arr_cell_fits(arr: *const u8, chain: u64, str_leaf: bool) -> bool {
+unsafe fn arr_cell_fits(arr: *const u8, shape: u64) -> bool {
     const UNFIT: u16 = FLAG_ARR_ANY | FLAG_ARR_EXOTIC_INDEX | FLAG_ARR_SPARSE_TAIL;
     let hdr = unsafe { &*(arr as *const HeapHeader) };
     if hdr.tag() != Tag::Arr {
         return false;
     }
-    let kind = (chain & 0b111) as u16;
-    if kind == 0 {
+    let kind = shape & 0b111;
+    if kind == u64::from(ARR_KIND_UNSET) {
         return true;
     }
-    if hdr.flags & UNFIT != 0 || hdr.arr_elem_kind() != kind {
+    if kind == SLOT_KIND_NONE || hdr.flags & UNFIT != 0 || u64::from(hdr.arr_elem_kind()) != kind {
         return false;
     }
-    let inner = chain >> 3;
-    if kind != ARR_KIND_HEAP || (inner == 0 && !str_leaf) {
+    if kind != u64::from(ARR_KIND_HEAP) {
         return true;
     }
+    let want = (shape >> 3) & SLOT_TAG_NONE;
+    let next = shape >> SLOT_LEVEL_BITS;
     unsafe { live_slots(arr) }.all(|p| {
         if p == 0 {
             return false;
         }
         let cell = p as *const u8;
-        if inner != 0 {
-            return unsafe { arr_cell_fits(cell, inner, str_leaf) };
-        }
-        unsafe { &*(cell as *const HeapHeader) }.tag() == Tag::Str
+        let tag = unsafe { &*(cell as *const HeapHeader) }.type_tag;
+        u64::from(tag) == want && (tag != Tag::Arr as u16 || unsafe { arr_cell_fits(cell, next) })
     })
 }
 

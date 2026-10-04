@@ -40,6 +40,20 @@ pub const ARR_KIND_BOOL: u16 = 3;
 /// pointer and dispatch on its heap header tag.
 pub const ARR_KIND_HEAP: u16 = 4;
 
+/// Width of one array level in a slot shape word — the typed-slot
+/// test the boxed adapter asks of an array (`__torajs_anyv_arr_cell`)
+/// or of a rest parameter's arguments. Levels run from the outermost
+/// up: bits 0-2 the element kind (an `ARR_KIND_*`; [`ARR_KIND_UNSET`]
+/// for an `any[]` level, which takes any array; [`SLOT_KIND_NONE`]
+/// when nothing passes) and, for a heap level, bits 3-10 the `Tag`
+/// every element must carry ([`SLOT_TAG_NONE`] when none can). An
+/// element tag of `Tag::Arr` asks the next level of every element.
+pub const SLOT_LEVEL_BITS: u32 = 11;
+/// Slot-shape element kind no value passes.
+pub const SLOT_KIND_NONE: u64 = 7;
+/// Slot-shape element tag no element carries.
+pub const SLOT_TAG_NONE: u64 = 0xff;
+
 impl crate::HeapHeader {
     /// Read the 3-bit element-kind field (bits 10-12) — one of the
     /// `ARR_KIND_*` constants. Only meaningful on `Tag::Arr` headers

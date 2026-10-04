@@ -28,7 +28,10 @@ use crate::check::{Checker, Type, WidenTarget};
 ///
 /// A `string` param widens too: the caller-side ToString would hand
 /// the body the text "null" for a `null` argument, where §10.2.1.3
-/// binds the parameter to the value passed.
+/// binds the parameter to the value passed. The lowering splits such a
+/// call at run time, so a string argument still runs the typed body.
+/// The call checker asks this before its scalar
+/// coerce, so a callee the lane cannot clone keeps the coerce.
 ///
 /// The excluded param types are the ones that must NOT reach here:
 /// number / boolean scalars ride the caller-side coerce, `Any` needs nothing,
@@ -65,8 +68,26 @@ pub(super) fn any_into_heap_param(
     let Some(n) = clonable_callee(checker, ast, n, i) else {
         return false;
     };
+    if matches!(param_ty, Type::String) && param_has_default(ast, &n, i) {
+        return false;
+    }
     record_widen_site(checker, eid, &n, i, WidenTarget::Scalar);
     true
+}
+
+/// Does user param `i` of the decl `name` carry a default? A `string`
+/// param with one stays on the caller-side lane, which substitutes the
+/// default for a run-time `undefined`; the widened clone would not.
+fn param_has_default(ast: &Ast, name: &str, i: usize) -> bool {
+    ast.stmts.iter().any(|s| {
+        matches!(s, crate::ast::Stmt::FnDecl { name: n, params, .. }
+            if n == name
+                && params
+                    .iter()
+                    .filter(|p| p.name != "__env")
+                    .nth(i)
+                    .is_some_and(|p| p.default.is_some()))
+    })
 }
 
 /// RFC 20260802 `Array(Any)` → typed `Array(T)` wedge, the container

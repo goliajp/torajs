@@ -1,0 +1,19 @@
+pair ab1z y2ab
+size 2
+note string ab
+pair 1z y2null
+size true
+note object null
+pair a longer string1z y2a longer string
+size 15
+note string a longer string
+pair NaNz y2undefined
+size true
+note undefined undefined
+pair 1z y2
+size 0
+note string 
+pair cdecdecdecde1z y2cdecdecdecde
+size 12
+note string cdecdecdecde
+total 29

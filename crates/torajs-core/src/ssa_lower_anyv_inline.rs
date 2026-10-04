@@ -205,7 +205,7 @@ pub(crate) fn emit_bits(ctx: &mut LowerCtx<'_>, v: &Operand) -> ValueId {
 /// `bits` is a heap cell: non-zero with the top 16 bits and
 /// TAG_BIT_TYPE_OTHER clear (every number, ShortStr and sentinel
 /// encoding sets one of them).
-fn emit_is_cell(ctx: &mut LowerCtx<'_>, bits: ValueId) -> ValueId {
+pub(crate) fn emit_is_cell(ctx: &mut LowerCtx<'_>, bits: ValueId) -> ValueId {
     let mask = (TOP_16_MASK | TAG_BIT_TYPE_OTHER) as i64;
     let tagged = inst(
         ctx,

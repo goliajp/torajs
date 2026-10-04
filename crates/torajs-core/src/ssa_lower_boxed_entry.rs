@@ -35,7 +35,7 @@ use crate::ast::Ast;
 use crate::ssa::{self, FuncId, Module, Type};
 
 mod unbox;
-use unbox::BoxedCoerceIntrinsics;
+use unbox::{BoxedCoerceIntrinsics, declare_coerce_intrinsics};
 
 /// The runtime dispatcher's fixed argv width (undefined-filled).
 pub(crate) const MAX_BOXED_PARAMS: usize = 8;
@@ -137,103 +137,22 @@ pub(crate) fn synthesize_boxed_entries(
     if targets.is_empty() {
         return entries;
     }
-    // Single-value ToString (the intrinsics table only carries the
-    // pair ABI) — declared once, lazily with the first adapter.
-    // `undefined` keeps the Str undefined sentinel (a param, not a
-    // ToString site).
-    let anyv_to_str = crate::ssa_lower_synthesize_main::declare_intrinsic(
-        module,
-        fn_table,
-        "__torajs_anyv_to_str_param",
-        &[Type::Any],
-        Type::Ptr,
-    );
-    // S2.36 — struct-param coercion kernel + the release for its
-    // owned answer, declared lazily like anyv_to_str.
-    let arg_to_struct = crate::ssa_lower_synthesize_main::declare_intrinsic(
-        module,
-        fn_table,
-        "__torajs_anyv_arg_to_struct",
-        &[Type::Any, Type::I64],
-        Type::Any,
-    );
-    let struct_fits = crate::ssa_lower_synthesize_main::declare_intrinsic(
-        module,
-        fn_table,
-        "__torajs_anyv_struct_fits",
-        &[Type::Any, Type::I64],
-        Type::I64,
-    );
-    let arr_fits = crate::ssa_lower_synthesize_main::declare_intrinsic(
-        module,
-        fn_table,
-        "__torajs_anyv_arr_fits",
-        &[Type::Any, Type::I64, Type::I64],
-        Type::I64,
-    );
-    let mut declare_test = |name: &str, params: &[Type]| {
-        crate::ssa_lower_synthesize_main::declare_intrinsic(
-            module,
-            fn_table,
-            name,
-            params,
-            Type::I64,
-        )
-    };
-    let str_fits = declare_test("__torajs_anyv_str_fits", &[Type::Any]);
-    let arr_cell = declare_test("__torajs_anyv_arr_cell", &[Type::Any, Type::I64, Type::I64]);
-    let anyv_rc_dec = crate::ssa_lower_synthesize_main::declare_intrinsic(
-        module,
-        fn_table,
-        "__torajs_anyv_rc_dec",
-        &[Type::Any],
-        Type::Void,
-    );
-    // 刀 2 (RFC 20260815-fn-value-rest-spread) — the typed-rest
-    // conversion kernel, declared lazily like anyv_to_str (the
-    // intrinsics table doesn't carry it; the assign-boundary
-    // consumer declares its own).
-    let arr_any_to_typed = crate::ssa_lower_synthesize_main::declare_intrinsic(
-        module,
-        fn_table,
-        "__torajs_arr_any_to_typed",
-        &[Type::Ptr, Type::I64],
-        Type::Ptr,
-    );
-    // S2.39 — the literal-default substitution kernel rides the
-    // intrinsics table since S3.8 (the direct-call terminal consumes
-    // it too; a second lazy declare here would push a same-named
-    // duplicate declaration into the module).
-    let anyv_or_default = intr.anyv_or_default;
-    // A mono adapter that hands a non-fitting call to its twin names
-    // the twin's adapter, so the twins build first.
-    let invoke_recv_first = crate::ssa_lower_synthesize_main::declare_intrinsic(
-        module,
-        fn_table,
-        "__torajs_anyv_invoke_recv_first",
-        &[Type::Ptr, Type::I64, Type::Any, Type::Ptr, Type::I64],
-        Type::Any,
-    );
+    let ids = declare_coerce_intrinsics(module, fn_table);
     let (twins, monos): (Vec<_>, Vec<_>) = targets.into_iter().partition(|t| {
         is_twin_name(&t.name) || crate::check_monomorph_any_widen::struct_escape::is_twin(&t.name)
     });
     for t in twins.into_iter().chain(monos) {
-        let fit_tags: Vec<Option<FitTag>> = t
+        let slots: Vec<SlotTest> = t
             .user_tys
             .iter()
-            .map(|ty| fit_tag(*ty, arr_layouts, &sid_tag))
-            .collect();
-        let arr_tests: Vec<_> = t
-            .user_tys
-            .iter()
-            .map(|ty| arr_cell_test(*ty, arr_layouts))
+            .map(|ty| slot_test(*ty, arr_layouts, &sid_tag))
             .collect();
         let twin_reroute = twin_adapter_of(ast, fn_table, &entries, &t.name).filter(|_| {
             t.user_tys.iter().enumerate().any(|(i, ty)| {
                 lossy_slot(
                     *ty,
                     t.dflt_lits.get(i).and_then(|d| d.as_ref()),
-                    fit_tags[i],
+                    slots[i],
                     t.rest && i + 1 == t.user_tys.len(),
                 )
             })
@@ -245,22 +164,16 @@ pub(crate) fn synthesize_boxed_entries(
             fn_sigs,
             fn_sig_ids,
             intr,
-            anyv_to_str,
+            ids.anyv_to_str,
             BoxedCoerceIntrinsics {
-                arg_to_struct,
-                struct_fits,
-                arr_fits,
-                str_fits,
-                arr_cell,
-                arr_tests: &arr_tests,
+                ids,
+                anyv_or_default: intr.anyv_or_default,
+                slots: &slots,
                 rest: t.rest,
-                anyv_rc_dec,
-                anyv_or_default,
-                fit_tags: &fit_tags,
                 twin_reroute: twin_reroute.map(|(adapter, sig)| TwinReroute {
                     adapter,
                     sig,
-                    invoke: invoke_recv_first,
+                    invoke: ids.invoke_recv_first,
                     same_face,
                 }),
                 fit: vec![None; t.user_tys.len()],
@@ -278,7 +191,7 @@ pub(crate) fn synthesize_boxed_entries(
             &t.dflt_lits,
             t.rest,
             t.rest_kind,
-            arr_any_to_typed,
+            ids.arr_any_to_typed,
             t.ret_arr_kind,
         );
         entries.insert(t.fid, pair);
@@ -301,8 +214,7 @@ mod fit_tag;
 use build::build_boxed_entry;
 pub(crate) use build_reroute::twin_adapter_of;
 use build_reroute::{TwinReroute, is_twin_name};
-use fit_tag::lossy_slot;
-pub(crate) use fit_tag::{FitTag, arr_cell_test, fit_tag};
+use fit_tag::{SlotTest, lossy_slot, slot_test};
 mod relay;
 mod targets;
 use targets::{TargetTables, collect_boxed_targets};

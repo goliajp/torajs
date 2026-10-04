@@ -352,10 +352,6 @@ fn arg_admitted(
     {
         return true;
     }
-    // r380 — the heap-typed half of the rule below, and a `string`
-    // param, in [`any_into_heap_param`] (it records a widen site, so
-    // it wants its own frame); a callee it cannot clone keeps the
-    // caller-side coerce.
     if any_into_heap_param(checker, ast, eid, callee, arg_ty, param_ty, i) {
         return true;
     }

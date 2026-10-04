@@ -180,7 +180,7 @@ pub(super) fn build_boxed_entry(
     let boxed = if ret_ty == Type::Void {
         f.append_void(entry, InstKind::Call(body_fid, args));
         drop_str_temps(&mut f, entry, intr, &str_temps);
-        drop_obj_temps(&mut f, entry, coerce.anyv_rc_dec, &obj_temps);
+        drop_obj_temps(&mut f, entry, coerce.ids.anyv_rc_dec, &obj_temps);
         drop_settle_temps(&mut f, entry, intr.any_unbox_settle, &settle_temps);
         // undefined — tag 5.
         f.append_inst(
@@ -195,7 +195,7 @@ pub(super) fn build_boxed_entry(
     } else {
         let r = f.append_inst(entry, InstKind::Call(body_fid, args), ret_ty, None);
         drop_str_temps(&mut f, entry, intr, &str_temps);
-        drop_obj_temps(&mut f, entry, coerce.anyv_rc_dec, &obj_temps);
+        drop_obj_temps(&mut f, entry, coerce.ids.anyv_rc_dec, &obj_temps);
         drop_settle_temps(&mut f, entry, intr.any_unbox_settle, &settle_temps);
         box_return(&mut f, entry, r, ret_ty, intr, ret_arr_kind)
     };

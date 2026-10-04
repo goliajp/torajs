@@ -238,9 +238,13 @@ fn has_lossy_param(ast: &Ast, tables: &TypeAliasTables, params: &[Param], is_sta
             Some("number") => is_static,
             // the receiver head carries the class's own annotation
             // and is the mono adapter's env, not an argv slot
+            // a typed rest is collected argument by argument, and an
+            // argument it cannot hold is the twin's to bind
+            Some(ann) if p.is_rest => {
+                ann != "any[]" && str_or_arr_ann(ann, &tables.aliases, &tables.generic_alias_decls)
+            }
             Some(ann) => {
                 p.name != "__this"
-                    && !p.is_rest
                     && (struct_shaped_ann(ann, &tables.aliases, &tables.generic_alias_decls)
                         || str_or_arr_ann(ann, &tables.aliases, &tables.generic_alias_decls))
             }

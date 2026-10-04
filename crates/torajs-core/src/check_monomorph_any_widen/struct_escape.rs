@@ -156,11 +156,16 @@ fn widenable_target(c: &Checker, ast: &Ast, target: &str) -> Option<Vec<Param>> 
                 "__env" | "__this" | "__torajs_argv" | crate::ast::GEN_ARGV_PARAM
             ) && p.name != crate::ast::new_target_param::NEW_TARGET
         });
+    // the twin carries no hidden argc / argv head, so a body that reads
+    // `arguments` mints one only for the struct slots it always served
+    let headless = ast.headless_argc_fns.contains(target)
+        || ast.headless_argv_fns.contains(target)
+        || ast.this_first_argc_fns.contains_key(target);
     let has_struct = params.iter().any(|p| {
         !p.is_rest
             && p.type_ann.as_deref().is_some_and(|ann| {
                 struct_shaped_ann(ann, &c.aliases, &c.generic_alias_decls)
-                    || str_or_arr_ann(ann, &c.aliases, &c.generic_alias_decls)
+                    || !headless && str_or_arr_ann(ann, &c.aliases, &c.generic_alias_decls)
             })
     });
     (plain && has_struct).then_some(params)
