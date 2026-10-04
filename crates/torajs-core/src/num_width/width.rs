@@ -17,7 +17,7 @@ fn mark_growth(w: W) -> W {
 
 impl<'a> Analysis<'a> {
     pub(super) fn add_constraint(&mut self, target: SlotKey, (w, m): Flow) {
-        self.record_mag(target.clone(), m);
+        self.record_write(target.clone(), &w, m);
         match w {
             W::F64 => self.seeds.push(target),
             W::Num(deps) => {

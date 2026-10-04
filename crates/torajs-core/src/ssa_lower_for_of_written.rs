@@ -63,6 +63,7 @@ pub(crate) fn bind_loop_var(
     body: &Stmt,
     init: LoopVarInit,
 ) {
+    let (v_val, v_ty) = widen_to_class(ctx, var_name, v_val, v_ty);
     let alias = matches!(init, LoopVarInit::Alias);
     let escape = ctx.escape_captured_lets.contains(var_name);
     let boxed_noncopy = !v_ty.is_copy()
@@ -98,6 +99,25 @@ pub(crate) fn bind_loop_var(
     ctx.f
         .append_void(cur_block, InstKind::Store(v_val, Operand::Value(slot), 0));
     bind_scoped_local(ctx, var_name, slot, v_ty, borrowed, borrowed, false);
+}
+
+/// An integer element bound to a variable the width analysis classes
+/// F64 — a body write the element's own width does not cover — binds
+/// as an f64, so the write it is classed for fits the slot.
+fn widen_to_class(ctx: &mut LowerCtx, var_name: &str, v: Operand, ty: Type) -> (Operand, Type) {
+    let fn_name = if ctx.is_main_fn {
+        ""
+    } else {
+        ctx.f.name.as_str()
+    };
+    let keys = ctx.num_f64_slots.ident_keys(fn_name, var_name);
+    if ty != Type::I64 || !keys.iter().any(|k| ctx.num_f64_slots.slot_is_f64(k)) {
+        return (v, ty);
+    }
+    let f = ctx
+        .f
+        .append_inst(ctx.cur_block, InstKind::SiToFp(v), Type::F64, None);
+    (Operand::Value(f), Type::F64)
 }
 
 /// A loop variable off a container some write filled with the

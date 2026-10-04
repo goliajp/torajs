@@ -165,6 +165,14 @@ impl Analysis<'_> {
     /// The bound of `eid`'s value, mirroring how `width_of` resolves
     /// each read; anything it cannot bound is [`Mag::top`].
     pub(super) fn mag_of(&self, eid: ExprId, scope: &Scope) -> Mag {
+        use crate::check::Type;
+        // a value the checker types other than a number holds none
+        match self.expr_types.get(&eid) {
+            None | Some(Type::Number | Type::TypeVar(_)) => {}
+            Some(Type::Nullable(t)) if matches!(**t, Type::Number | Type::TypeVar(_)) => {}
+            Some(Type::Boolean) => return Mag::Const(1),
+            Some(_) => return Mag::Const(0),
+        }
         let bin = |f: fn(Box<Mag>, Box<Mag>) -> Mag, l: ExprId, r: ExprId| {
             f(
                 Box::new(self.mag_of(l, scope)),
@@ -242,6 +250,9 @@ impl Analysis<'_> {
                     .map_or(Mag::top(), Mag::Slot);
                 Mag::Max(vec![field, Mag::Prop(name.clone())])
             }
+            Expr::Spread { expr } => self
+                .container_key_lookup(*expr, scope)
+                .map_or(Mag::top(), |k| Mag::Slot(SlotKey::Elem(Box::new(k)))),
             Expr::Index { .. } | Expr::OptIndex { .. } => self
                 .container_key_lookup(eid, scope)
                 .map_or(Mag::top(), Mag::Slot),
@@ -253,6 +264,18 @@ impl Analysis<'_> {
     pub(super) fn record_mag(&mut self, target: SlotKey, m: Mag) {
         let at = self.mag.open.last().copied();
         self.mag.writes.push((target, m, at));
+    }
+
+    /// Record a write whose width is `w`. One the width analysis does
+    /// not take for a number carries no number, or one from a source it
+    /// does not track; either way it is held to [`UNRECORDED_REACH`],
+    /// so an object or a string written into a slot never seeds it F64.
+    pub(super) fn record_write(&mut self, target: SlotKey, w: &W, m: Mag) {
+        let m = match w {
+            W::NotNum => Mag::Min(Box::new(m), Box::new(Mag::Const(UNRECORDED_REACH))),
+            _ => m,
+        };
+        self.record_mag(target, m);
     }
 
     /// Record `++` / `--` on `target` as the write of a unit step.

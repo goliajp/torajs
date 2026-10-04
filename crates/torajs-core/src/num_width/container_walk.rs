@@ -17,7 +17,7 @@ impl<'a> Analysis<'a> {
         target: SlotKey,
         (w, m): super::magnitude::Flow,
     ) {
-        self.record_mag(target.clone(), m);
+        self.record_write(target.clone(), &w, m);
         match w {
             W::F64 => self.c_seeds.push(target),
             W::Num(deps) => {

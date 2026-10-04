@@ -2,7 +2,7 @@
 //! module AST into seeds (statically-f64 writes) and edges (slot-to-
 //! slot value flow) for the fixpoint in `mod.rs`.
 
-use super::magnitude::{Flow, Mag};
+use super::magnitude::Flow;
 use super::{Analysis, Scope, SlotKey};
 use crate::ast::PropKey;
 use crate::ast::{BinOp, Expr, ExprId, Stmt};
@@ -390,13 +390,14 @@ impl<'a> Analysis<'a> {
                     self.fn_value_flow(&pk, *arg, scope);
                 }
             }
-            // a spread hands parameters values no argument spells
-            if args
+            // a spread hands every later parameter one of its elements
+            if let Some(at) = args
                 .iter()
-                .any(|a| matches!(self.ast.get_expr(*a), Expr::Spread { .. }))
+                .position(|a| matches!(self.ast.get_expr(*a), Expr::Spread { .. }))
             {
-                for p in pnames {
-                    self.record_mag(SlotKey::Param(fname.clone(), p), Mag::top());
+                let m = self.mag_of(args[at], scope);
+                for p in pnames.into_iter().skip(at) {
+                    self.record_mag(SlotKey::Param(fname.clone(), p), m.clone());
                 }
             }
         } else if !matches!(self.ast.get_expr(callee), Expr::Member { .. })
