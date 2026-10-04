@@ -127,35 +127,42 @@ pub struct Constraints {
     at_entry: Vec<Vec<Constraint>>,
 }
 
+/// Per block: how many edges enter it, and the block it is entered
+/// from when that is one edge.
+fn pred_census(func: &Function) -> (Vec<u32>, Vec<Option<usize>>) {
+    let n = func.blocks.len();
+    let mut preds: Vec<u32> = vec![0; n];
+    let mut sole_pred: Vec<Option<usize>> = vec![None; n];
+    for (bi, block) in func.blocks.iter().enumerate() {
+        let mut bump = |b: BlockId| {
+            preds[b.0 as usize] += 1;
+            sole_pred[b.0 as usize] = Some(bi);
+        };
+        match &block.term {
+            Terminator::Br(t) => bump(*t),
+            Terminator::CondBr {
+                then_blk, else_blk, ..
+            } => {
+                bump(*then_blk);
+                bump(*else_blk);
+            }
+            _ => {}
+        }
+    }
+    for (p, s) in preds.iter().zip(sole_pred.iter_mut()) {
+        if *p != 1 {
+            *s = None;
+        }
+    }
+    (preds, sole_pred)
+}
+
 impl Constraints {
     /// Collect edge constraints for every conditional branch in `func`.
     /// `defs` maps single-def values to their defining instruction.
     pub fn compute(func: &Function, defs: &HashMap<ValueId, InstKind>) -> Self {
         let n = func.blocks.len();
-        let mut preds: Vec<u32> = vec![0; n];
-        let mut sole_pred: Vec<Option<usize>> = vec![None; n];
-        for (bi, block) in func.blocks.iter().enumerate() {
-            let mut bump = |b: BlockId| {
-                preds[b.0 as usize] += 1;
-                sole_pred[b.0 as usize] = Some(bi);
-            };
-            match &block.term {
-                Terminator::Br(t) => bump(*t),
-                Terminator::CondBr {
-                    then_blk, else_blk, ..
-                } => {
-                    bump(*then_blk);
-                    bump(*else_blk);
-                }
-                _ => {}
-            }
-        }
-        for (p, s) in preds.iter().zip(sole_pred.iter_mut()) {
-            if *p != 1 {
-                *s = None;
-            }
-        }
-
+        let (preds, sole_pred) = pred_census(func);
         let mut at_entry: Vec<Vec<Constraint>> = vec![Vec::new(); n];
         for (bi, block) in func.blocks.iter().enumerate() {
             let Terminator::CondBr {

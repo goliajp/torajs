@@ -84,29 +84,7 @@ pub(crate) fn accum_bound(
     if lp.back_edge_sources.len() != 1 || la.nest_depth(x_block) != depth {
         return None;
     }
-    // The recurrence def must be the only in-loop def of the cell,
-    // and it must live in this loop, outside any loop nested in it.
-    let mut rec_def: Option<(usize, usize)> = None;
-    for (bi, block) in func.blocks.iter().enumerate() {
-        if !lp.body.contains(&block.id) {
-            continue;
-        }
-        for (ii, i2) in block.insts.iter().enumerate() {
-            if i2.result == Some(acc) {
-                if rec_def.is_some() {
-                    return None;
-                }
-                let InstKind::Copy(_, Operand::Value(src)) = &i2.kind else {
-                    return None;
-                };
-                if *src != x && !merges_step(func, la, lp, acc, x, *src, (bi, ii)) {
-                    return None;
-                }
-                rec_def = Some((bi, ii));
-            }
-        }
-    }
-    let rec_def = rec_def?;
+    let rec_def = sole_rec_def(func, la, lp, acc, x)?;
     if la.nest_depth(func.blocks[rec_def.0].id) != depth {
         return None;
     }
@@ -191,6 +169,39 @@ pub(crate) fn cell_bound_after_loop(
 /// Is `cell` a multi-def value with a `copy x` def somewhere, or a
 /// `copy m` of a cell `m` that has one (the cheap pre-filter before
 /// the full structural walk)?
+/// The recurrence def of the accumulator `acc` stepped by `x`: it must
+/// be the only def of the cell in the loop, copying `x` or a merge of
+/// the step.
+fn sole_rec_def(
+    func: &Function,
+    la: &LoopAnalysis,
+    lp: &NaturalLoop,
+    acc: ValueId,
+    x: ValueId,
+) -> Option<(usize, usize)> {
+    let mut rec_def: Option<(usize, usize)> = None;
+    for (bi, block) in func.blocks.iter().enumerate() {
+        if !lp.body.contains(&block.id) {
+            continue;
+        }
+        for (ii, i2) in block.insts.iter().enumerate() {
+            if i2.result == Some(acc) {
+                if rec_def.is_some() {
+                    return None;
+                }
+                let InstKind::Copy(_, Operand::Value(src)) = &i2.kind else {
+                    return None;
+                };
+                if *src != x && !merges_step(func, la, lp, acc, x, *src, (bi, ii)) {
+                    return None;
+                }
+                rec_def = Some((bi, ii));
+            }
+        }
+    }
+    rec_def
+}
+
 fn is_rec_cell(func: &Function, cell: ValueId, x: ValueId) -> bool {
     let copies_of = |dst: ValueId| {
         func.blocks

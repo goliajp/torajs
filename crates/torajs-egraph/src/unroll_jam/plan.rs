@@ -155,7 +155,7 @@ fn plan_loop(func: &Function, la: &LoopAnalysis, l: &NaturalLoop, ctx: &Ctx) -> 
     }
     let step = iv_step(func, ctx, &body, latch, iv)?;
     let skip = (ctx.uses.get(&c) == Some(&1)).then_some(c);
-    let mut plan = Plan {
+    let plan = Plan {
         header: h,
         pre_blocks,
         skip,
@@ -172,16 +172,19 @@ fn plan_loop(func: &Function, la: &LoopAnalysis, l: &NaturalLoop, ctx: &Ctx) -> 
         escaping: HashSet::new(),
         shared: HashSet::new(),
     };
+    complete(func, ctx, plan)
+}
+
+/// The plan with what its lanes keep, leave and share, once its regions
+/// fit; `None` where they do not, or where the counter may wrap.
+fn complete(func: &Function, ctx: &Ctx, mut plan: Plan) -> Option<Plan> {
     if !regions_fit(func, &plan) {
         return None;
     }
     plan.lane_cells = lane_cells(func, ctx, &plan)?;
     plan.escaping = escaping(func, ctx, &plan)?;
     plan.shared = lane_shared(func, &plan);
-    if !wrap_ok(&plan) {
-        return None;
-    }
-    Some(plan)
+    wrap_ok(&plan).then_some(plan)
 }
 
 pub(super) fn blk(func: &Function, b: BlockId) -> &torajs_core::ssa::Block {

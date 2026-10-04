@@ -72,15 +72,10 @@ pub(super) fn plan_arm(
 ) -> Option<ArmPlan> {
     let mut hoisted: Vec<Inst> = Vec::new();
     let mut copies: Vec<(ValueId, Type, Operand)> = Vec::new();
-    let mut plain_copies = 0usize;
     for inst in blks.iter().flat_map(|&b| &func.blocks[b].insts) {
         match &inst.kind {
-            InstKind::Copy(_, src)
-                if inst.result.is_some_and(|r| def_count(r) == 1)
-                    && !reads_join_copy(src, &copies) =>
-            {
-                hoisted.push(inst.clone());
-                plain_copies += 1;
+            InstKind::Copy(..) if is_plain_copy(inst, &def_count, &copies) => {
+                hoisted.push(inst.clone())
             }
             InstKind::Copy(ty, src) => {
                 let vid = inst.result.expect("Copy always defines a value");
@@ -92,11 +87,7 @@ pub(super) fn plan_arm(
             kind if (can_speculate(kind) || is_select(inst)) && inst.result.is_some() => {
                 // hoisted ahead of the selects, it would read the value
                 // from before the diamond instead of this arm's copy
-                let mut reads_copy = false;
-                torajs_core::ssa::visit_value_operands(kind, |v| {
-                    reads_copy |= copies.iter().any(|(c, _, _)| *c == v);
-                });
-                if reads_copy {
+                if reads_join_copy(kind, &copies) {
                     return None;
                 }
                 hoisted.push(inst.clone());
@@ -113,12 +104,35 @@ pub(super) fn plan_arm(
     } else {
         MAX_SPECULATED_INSTS
     };
-    (hoisted.len() - plain_copies <= cap).then_some(ArmPlan { hoisted, copies })
+    (speculated(&hoisted) <= cap).then_some(ArmPlan { hoisted, copies })
 }
 
-/// `src` names one of the arm's join copies made before it.
-fn reads_join_copy(src: &Operand, copies: &[(ValueId, Type, Operand)]) -> bool {
-    matches!(src, Operand::Value(v) if copies.iter().any(|(c, _, _)| c == v))
+/// The hoisted defs that cost an instruction: the copies among them are
+/// plain ones, free once coalesced.
+fn speculated(hoisted: &[Inst]) -> usize {
+    hoisted
+        .iter()
+        .filter(|i| !matches!(i.kind, InstKind::Copy(..)))
+        .count()
+}
+
+/// `kind` reads one of the arm's join copies made before it.
+fn reads_join_copy(kind: &InstKind, copies: &[(ValueId, Type, Operand)]) -> bool {
+    let mut reads = false;
+    torajs_core::ssa::visit_value_operands(kind, |v| {
+        reads |= copies.iter().any(|(c, _, _)| *c == v);
+    });
+    reads
+}
+
+/// A copy with no other def anywhere, reading none of the arm's join
+/// copies: a plain value the arm names.
+fn is_plain_copy(
+    inst: &Inst,
+    def_count: impl Fn(ValueId) -> u32,
+    copies: &[(ValueId, Type, Operand)],
+) -> bool {
+    inst.result.is_some_and(|r| def_count(r) == 1) && !reads_join_copy(&inst.kind, copies)
 }
 
 fn is_select(inst: &Inst) -> bool {

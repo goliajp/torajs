@@ -346,31 +346,8 @@ fn lookup(op: &Operand, state: &HashMap<ValueId, AbsVal>, live: &[Constraint]) -
                     f = NumFact::new(f.lo, -1);
                 }
             }
-            // the comparand's own fact is the flow-insensitive one:
-            // the join of everything it is ever defined as
-            Constraint::Rel {
-                value,
-                rel,
-                bound,
-                via_sitofp,
-            } if value == v => {
-                if let Some(AbsVal::Fact(known)) = state.get(bound)
-                    && let Some(r) = refine::rel_range(*rel, *known, *via_sitofp)
-                    && let Some(m) = f.meet(r)
-                {
-                    f = m;
-                }
-            }
-            Constraint::Square {
-                value,
-                strict,
-                bound,
-                via_sitofp,
-            } if value == v => {
-                if let Some(hi) = square::bound_hi(*bound, *via_sitofp, state, live)
-                    && let Some(r) = square::root_range(f, hi, *strict)
-                    && let Some(m) = f.meet(r)
-                {
+            Constraint::Rel { value, .. } | Constraint::Square { value, .. } if value == v => {
+                if let Some(m) = bound_range(f, c, state, live).and_then(|r| f.meet(r)) {
                     f = m;
                 }
             }
@@ -378,6 +355,39 @@ fn lookup(op: &Operand, state: &HashMap<ValueId, AbsVal>, live: &[Constraint]) -
         }
     }
     AbsVal::Fact(f)
+}
+
+/// The range a relation to another value, or a square bound, puts on
+/// a value whose fact is `f`. The comparand's own fact is the
+/// flow-insensitive one: the join of everything it is ever defined as.
+fn bound_range(
+    f: NumFact,
+    c: &Constraint,
+    state: &HashMap<ValueId, AbsVal>,
+    live: &[Constraint],
+) -> Option<NumFact> {
+    match c {
+        Constraint::Rel {
+            rel,
+            bound,
+            via_sitofp,
+            ..
+        } => match state.get(bound) {
+            Some(AbsVal::Fact(known)) => refine::rel_range(*rel, *known, *via_sitofp),
+            _ => None,
+        },
+        Constraint::Square {
+            strict,
+            bound,
+            via_sitofp,
+            ..
+        } => square::root_range(
+            f,
+            square::bound_hi(*bound, *via_sitofp, state, live)?,
+            *strict,
+        ),
+        _ => None,
+    }
 }
 
 #[cfg(test)]

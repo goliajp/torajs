@@ -42,17 +42,8 @@ impl Merges {
         inherited: &[Vec<Constraint>],
         block_defs: &[HashSet<ValueId>],
     ) -> Self {
-        let mut preds: Vec<Vec<usize>> = vec![Vec::new(); func.blocks.len()];
-        for (bi, block) in func.blocks.iter().enumerate() {
-            if !dom.is_reachable(block.id) {
-                continue;
-            }
-            for s in successors(&block.term) {
-                preds[s.0 as usize].push(bi);
-            }
-        }
         let mut joins = Vec::new();
-        for (bi, ps) in preds.iter().enumerate() {
+        for (bi, ps) in reachable_preds(func, dom).iter().enumerate() {
             if ps.len() < 2 {
                 continue;
             }
@@ -123,6 +114,20 @@ impl Merges {
 
 /// `live` with every merge placeholder read as the range `ranges` gives
 /// it, or dropped when it has none.
+/// Per block, the reachable blocks it is entered from.
+fn reachable_preds(func: &Function, dom: &DominatorTree) -> Vec<Vec<usize>> {
+    let mut preds: Vec<Vec<usize>> = vec![Vec::new(); func.blocks.len()];
+    for (bi, block) in func.blocks.iter().enumerate() {
+        if !dom.is_reachable(block.id) {
+            continue;
+        }
+        for s in successors(&block.term) {
+            preds[s.0 as usize].push(bi);
+        }
+    }
+    preds
+}
+
 pub(super) fn resolve(
     live: &[Constraint],
     ranges: &HashMap<(BlockId, ValueId), NumFact>,

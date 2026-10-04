@@ -147,10 +147,8 @@ fn try_form_pure(
     }
     let join = t_join;
     let on = switch_value(func, h, cond);
-    let (Some(tp), Some(ep)) = (
-        plan_arm(func, &t_blks, on, &def_count),
-        plan_arm(func, &e_blks, on, &def_count),
-    ) else {
+    let plan = |blks: &[usize]| plan_arm(func, blks, on, &def_count);
+    let (Some(tp), Some(ep)) = (plan(&t_blks), plan(&e_blks)) else {
         return false;
     };
     // join values must pair up exactly: same vid set, two defs
@@ -173,7 +171,6 @@ fn try_form_pure(
     if !paired || self_ref {
         return false;
     }
-
     // convert: hoist arms, form selects (or the one range test the
     // two compares of a short-circuit fold into), collapse the branch
     let fold = range_fold::fold(func, h, cond, &tp, &ep);

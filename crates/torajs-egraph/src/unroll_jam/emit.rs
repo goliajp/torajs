@@ -179,25 +179,53 @@ fn inner_heads(
 /// shared instruction (a guard only sends the group back to the
 /// original loop, whichever fires first); a shared guard is tested
 /// once.
-fn fused_body(
+/// The fused body when the lanes share nothing: each lane's copy of
+/// the chain after the one before it.
+fn lane_after_lane(
     func: &mut Function,
     p: &Plan,
     fb: BlockId,
     lanes: &mut [HashMap<ValueId, ValueId>],
 ) -> BlockId {
     let mut cur = fb;
-    if p.shared.is_empty() {
-        for map in lanes.iter_mut() {
-            for &b in &p.chain {
-                let insts = func.blocks[b.0 as usize].insts.clone();
-                for inst in &insts {
-                    clone_into(func, cur, inst, map);
-                }
-                cur = lane_guard(func, p, b, cur, map);
+    for map in lanes.iter_mut() {
+        for &b in &p.chain {
+            let insts = func.blocks[b.0 as usize].insts.clone();
+            for inst in &insts {
+                clone_into(func, cur, inst, map);
             }
+            cur = lane_guard(func, p, b, cur, map);
         }
-        return cur;
     }
+    cur
+}
+
+/// A shared instruction, cloned once for the first lane and read by
+/// the others.
+fn clone_shared(
+    func: &mut Function,
+    p: &Plan,
+    cur: BlockId,
+    inst: &Inst,
+    lanes: &mut [HashMap<ValueId, ValueId>],
+) {
+    let (first, rest) = lanes.split_at_mut(1);
+    clone_into(func, cur, inst, &mut first[0]);
+    for map in rest.iter_mut() {
+        reuse_shared(p, inst, Some(&first[0]), map);
+    }
+}
+
+fn fused_body(
+    func: &mut Function,
+    p: &Plan,
+    fb: BlockId,
+    lanes: &mut [HashMap<ValueId, ValueId>],
+) -> BlockId {
+    if p.shared.is_empty() {
+        return lane_after_lane(func, p, fb, lanes);
+    }
+    let mut cur = fb;
     for &b in &p.chain {
         let insts = func.blocks[b.0 as usize].insts.clone();
         let is_shared = |i: &Inst| i.result.is_some_and(|r| p.shared.contains(&r));
@@ -221,11 +249,7 @@ fn fused_body(
                 }
             }
             if let Some(inst) = shared {
-                let (first, rest) = lanes.split_at_mut(1);
-                clone_into(func, cur, inst, &mut first[0]);
-                for map in rest.iter_mut() {
-                    reuse_shared(p, inst, Some(&first[0]), map);
-                }
+                clone_shared(func, p, cur, inst, lanes);
             }
         }
         if runs.is_empty() && per_lane {

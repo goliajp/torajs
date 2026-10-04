@@ -184,6 +184,29 @@ struct Site {
 
 /// Rewrites the qualifying sites of `func`; answers the remainders
 /// whose ids now name the product.
+impl Readers {
+    /// Whether the zero compare of the remainder at `site` has only the
+    /// readers this kind admits.
+    fn admit(self, func: &Function, uses: &Uses, site: &Site, body: &[BlockId]) -> bool {
+        match self {
+            Readers::ExitBranch => exit_tests_only(func, uses, site, body),
+            Readers::Selects => select::selects_only(func, uses, site, body),
+        }
+    }
+}
+
+/// The zero tests of the rewritten remainder `s.r`, which now names the
+/// product `q * y`, compare it with the dividend instead.
+fn compare_with_dividend(insts: &mut [Inst], s: &Site) {
+    for i in insts {
+        if let InstKind::ICmp(_, Operand::Value(a), c) = &mut i.kind
+            && *a == s.r
+        {
+            *c = s.x;
+        }
+    }
+}
+
 fn rewrite_function(
     func: &mut Function,
     facts: &HashMap<ValueId, NumFact>,
@@ -222,12 +245,7 @@ fn rewrite_function(
                 y: *y,
                 lp,
             };
-            let body = &la.loops()[lp].body;
-            let ok = match readers {
-                Readers::ExitBranch => exit_tests_only(func, &uses, &site, body),
-                Readers::Selects => select::selects_only(func, &uses, &site, body),
-            };
-            if ok {
+            if readers.admit(func, &uses, &site, &la.loops()[lp].body) {
                 sites.push(site);
             }
         }
@@ -264,13 +282,7 @@ fn rewrite_function(
         pre_insts.push(inst(q, InstKind::FpToSi(Operand::Value(qf))));
         let block = &mut func.blocks[s.bi];
         block.insts[s.at].kind = InstKind::BinOp(BinOp::Mul, Operand::Value(q), s.y);
-        for i in &mut block.insts[s.at + 1..] {
-            if let InstKind::ICmp(_, Operand::Value(a), c) = &mut i.kind
-                && *a == s.r
-            {
-                *c = s.x;
-            }
-        }
+        compare_with_dividend(&mut block.insts[s.at + 1..], &s);
         block.insts.splice(s.at..s.at, pre_insts);
         stats.compared += 1;
     }
