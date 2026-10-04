@@ -1,0 +1,11 @@
+// Pure Number.toString(int) substrate cost — no concat, no array,
+// no regex. Isolates `__torajs_i64_to_str` (chunk 7.7 v2 step 12
+// Round 2 attack #A2 / #A3). Expected stdout = sum of decimal-digit-counts
+// of 0..n-1 (68888890 at the bench's n = 1e7).
+let total = 0
+const n = parseInt(process.argv[2], 10)
+for (let i = 0; i < n; i = i + 1) {
+  const s = i.toString()
+  total = total + s.length
+}
+console.log(total)

@@ -1,0 +1,3 @@
+# i64-to-str-100k at 100x the iterations: at 1e5 tr kept under 0.3 ms of
+# work after startup, so the work-only ratio had no reading for it.
+args = "10000000"

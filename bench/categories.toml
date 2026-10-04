@@ -69,6 +69,7 @@ cases = [
   "str-replace-argv-100k",
   "str-concat-ascii-100k",
   "i64-to-str-100k",
+  "i64-to-str-10m",
   "split-materialize-1m",
   "split-materialize-escape-1m",
   "split-materialize-store-1m",
@@ -89,6 +90,7 @@ cases = [
   "regex-dfa-uflag-cprange-100k",
   "regex-dfa-wbound-100k",
   "regex-wireback-minlit-100k",
+  "regex-wireback-minlit-10m",
   "regex-capture-exec-1m",
   "regex-replace-callback-1m",
 ]
@@ -103,7 +105,7 @@ cases = ["json-stringify-100k"]
 
 [categories.oop]
 weight = 14
-cases = ["class-method-100k", "tokenizer-parser-eval-10k"]
+cases = ["class-method-100k", "class-method-10m", "tokenizer-parser-eval-10k"]
 
 [categories.promise]
 weight = 10

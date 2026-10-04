@@ -1,0 +1,5 @@
+# class-method-100k at 100x the iterations. The coordinates wrap at 1024
+# so the running total stays an exact integer (under 2^53) at this n, where
+# i and i + 1 would carry it past 2^53 and past the i64 the c / rust
+# programs sum in. At 1e5 tr kept under 0.3 ms of work after startup.
+args = "10000000"
