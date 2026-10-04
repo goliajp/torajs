@@ -26,6 +26,7 @@ mod edge;
 pub(crate) mod elem;
 mod elem_kernels;
 pub(crate) mod elem_len;
+mod horizon;
 mod merge;
 pub mod refine;
 mod refine_logic;
@@ -121,6 +122,7 @@ pub fn analyze_function_with(
     callee_names: &[String],
 ) -> HashMap<ValueId, NumFact> {
     let (single, cells, block_defs) = def_shapes(func);
+    let counters = horizon::collect(func, &single, &cells);
     let dom = DominatorTree::compute(func);
     let mut constraints = Constraints::compute(func, &single);
     let merges = {
@@ -131,7 +133,10 @@ pub fn analyze_function_with(
         constraints.add(b, c);
     }
     let inherited = constraints.inherited_all(func, &dom, &block_defs);
-    let thresholds = collect_thresholds(func);
+    let mut thresholds = collect_thresholds(func);
+    thresholds.extend(horizon::thresholds(&counters));
+    thresholds.sort_unstable();
+    thresholds.dedup();
     // An allocation's elements are one more multi-def cell whose defs
     // happen to be stores; it rides the same ascent below.
     let elems = elem::collect(func, callee_names);
@@ -235,6 +240,10 @@ pub fn analyze_function_with(
                 narrow(old, new)
             } else {
                 widen(old, old.join(new), round, thresholds)
+            };
+            let next = match counters.get(&cell) {
+                Some(c) => horizon::cap(c, next, &state),
+                None => next,
             };
             if next != old {
                 state.insert(cell, next);

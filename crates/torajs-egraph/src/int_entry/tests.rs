@@ -185,10 +185,11 @@ fn the_copy_counter_is_bounded_by_the_window() {
     let (counter, _) = fast_compare(f, IPred::Slt);
     let facts = interval::analyze_function(f);
     let i = facts.get(&counter).expect("the counter has a fact");
-    assert_eq!((i.lo, i.hi), (0, EXACT_MAX as i128));
-    // the loop as it was bounds nothing
+    // the window bounds it at 2^52, the trip horizon tighter still
+    assert_eq!((i.lo, i.hi), (0, 1 << 48));
+    // the loop as it was bounds its counter only by the trip horizon
     let slow = facts.get(&ValueId(1)).expect("the cell has a fact");
-    assert!(slow.hi > EXACT_MAX as i128);
+    assert_eq!((slow.lo, slow.hi), (0, 1 << 48));
 }
 
 #[test]

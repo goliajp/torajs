@@ -517,9 +517,10 @@ mod tests {
     fn an_f64_square_test_bounds_the_counter_below_2_pow_53() {
         let facts = super::super::analyze_function(&f64_test(2_147_483_647.0));
         assert_eq!(facts[&ValueId(1)], NumFact::new(1, 46_341));
-        // past 2^53 the compared bound may be a rounded one
+        // past 2^53 the compared bound may be a rounded one: only the
+        // counter's trip horizon bounds it
         let facts = super::super::analyze_function(&f64_test(2f64.powi(60)));
-        assert_eq!(facts[&ValueId(1)].hi, POS_INF);
+        assert_eq!(facts[&ValueId(1)].hi, 1 + (1 << 48));
     }
 
     /// int_entry's copy: the product's window check in b1, the test on
@@ -552,9 +553,10 @@ mod tests {
 
     #[test]
     fn a_bound_past_the_exact_square_leaves_the_counter_open() {
-        // `d * d <= i64::MAX` holds for wrapped products too
+        // `d * d <= i64::MAX` holds for wrapped products too: only the
+        // counter's trip horizon bounds it
         let facts = super::super::analyze_function(&trial_loop(i64::MAX, true));
-        assert_eq!(facts[&ValueId(1)].hi, POS_INF);
+        assert_eq!(facts[&ValueId(1)].hi, 1 + (1 << 48));
     }
 
     #[test]

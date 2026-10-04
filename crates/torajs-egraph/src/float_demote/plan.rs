@@ -477,7 +477,9 @@ mod tests {
     /// sitofp and a double-variable fadd, no escaping use: the
     /// in-region sitofp re-classifies as a per-iteration growth site
     /// and the whole closure demotes (the chunk-A shape — escape
-    /// handling is the merge-bridge step on top of this).
+    /// handling is the merge-bridge step on top of this). `i` steps by
+    /// 64, past the small steps whose counters the interval analysis
+    /// bounds by their trip horizon, so its sitofp stays unbounded.
     fn accumulator_loop(op: BinOp) -> Function {
         let mut f = func(
             Type::Void,
@@ -517,7 +519,7 @@ mod tests {
                         inst(4, InstKind::SiToFp(v(2))),
                         inst(5, InstKind::BinOp(op, v(1), v(4))),
                         inst(1, InstKind::Copy(Type::F64, v(5))),
-                        inst(6, InstKind::BinOp(BinOp::Add, v(2), Operand::ConstI64(1))),
+                        inst(6, InstKind::BinOp(BinOp::Add, v(2), Operand::ConstI64(64))),
                         inst(2, InstKind::Copy(Type::I64, v(6))),
                     ],
                     Terminator::Br(BlockId(1)),
