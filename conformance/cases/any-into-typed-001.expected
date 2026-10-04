@@ -1,0 +1,22 @@
+1 a 3 4
+count true
+first true
+nums true
+len true
+tag object:null
+count true
+first true
+nums true
+len true
+tag undefined:undefined
+count 3
+first undefined
+nums 3
+len 3
+tag string:str
+count undefined
+first true
+nums undefined
+len undefined
+tag number:7
+1 2

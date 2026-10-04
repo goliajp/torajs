@@ -1,0 +1,25 @@
+len true
+bang null!
+kind object:1
+lenOf true
+lenVal true
+bangVal null!
+size true
+slen true
+len true
+bang undefined!
+kind undefined:1
+lenOf true
+lenVal true
+bangVal undefined!
+size true
+slen true
+len 3
+bang abc!
+kind string:1
+lenOf 3
+lenVal 3
+bangVal abc!
+size 6
+slen 3
+5 typed! string:2 5

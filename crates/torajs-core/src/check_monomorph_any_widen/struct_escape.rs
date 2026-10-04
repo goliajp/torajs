@@ -33,6 +33,11 @@
 //! original shell's site and reads the original's env layout
 //! (`widen_clone_origin`).
 //!
+//! A `string` or array parameter takes the same twin: neither slot
+//! holds `null`, `undefined` or another kind of value, so the adapter
+//! tests it (`__torajs_anyv_str_fits` / `__torajs_anyv_arr_cell`) and
+//! hands such an argument to the twin as passed.
+//!
 //! Out of reach, and left on the coercion kernel: a target with a
 //! receiver or argv channel (`__this`, `__torajs_argv`, new.target),
 //! a generic, an async body, and a lifted closure with no shell (a
@@ -45,7 +50,7 @@ use super::{RetFace, WidenTarget, emit_widened_spec};
 use crate::ast::{Ast, Expr, ExprId, Param, ShellFace, Stmt};
 use crate::check::Checker;
 use crate::check_monomorph::WorkItem;
-use crate::check_type_ann::struct_shaped_ann;
+use crate::check_type_ann::{str_or_arr_ann, struct_shaped_ann};
 use crate::ssa_lower_generics_monomorph::Generics;
 
 const SUFFIX: &str = "$$anyws";
@@ -153,9 +158,10 @@ fn widenable_target(c: &Checker, ast: &Ast, target: &str) -> Option<Vec<Param>> 
         });
     let has_struct = params.iter().any(|p| {
         !p.is_rest
-            && p.type_ann
-                .as_deref()
-                .is_some_and(|ann| struct_shaped_ann(ann, &c.aliases, &c.generic_alias_decls))
+            && p.type_ann.as_deref().is_some_and(|ann| {
+                struct_shaped_ann(ann, &c.aliases, &c.generic_alias_decls)
+                    || str_or_arr_ann(ann, &c.aliases, &c.generic_alias_decls)
+            })
     });
     (plain && has_struct).then_some(params)
 }

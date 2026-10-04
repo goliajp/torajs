@@ -119,20 +119,7 @@ pub(super) fn emit_twin_reroute(
                     None,
                 )
             }
-            None => {
-                let tag = f.append_inst(
-                    entry,
-                    InstKind::Call(intr.any_unbox_tag, vec![Operand::Value(av)]),
-                    Type::I64,
-                    None,
-                );
-                f.append_inst(
-                    entry,
-                    InstKind::ICmp(IPred::Eq, Operand::Value(tag), Operand::ConstI64(5)),
-                    Type::Bool,
-                    None,
-                )
-            }
+            None => scalar_miss(f, entry, intr, coerce, user_tys[i], av),
         };
         let next = f.add_block();
         f.set_term(
@@ -222,6 +209,38 @@ pub(super) fn emit_twin_reroute(
     };
     f.set_term(reroute, Terminator::Ret(Some(Operand::Value(answer))));
     (entry, fit)
+}
+
+/// The miss test of a lossy slot that is not struct-shaped. A string
+/// slot takes only a string and an array slot only an array block:
+/// ToString or a raw pointer unbox of anything else hands the body a
+/// value the caller never passed. A boolean / integer slot misses on
+/// `undefined`, which it has no bits for.
+fn scalar_miss(
+    f: &mut ssa::Function,
+    entry: ssa::BlockId,
+    intr: &BoxedEntryIntrinsics,
+    coerce: &BoxedCoerceIntrinsics<'_>,
+    ty: Type,
+    av: ssa::ValueId,
+) -> ssa::ValueId {
+    let (test, miss_at) = match ty {
+        Type::Str => (coerce.str_fits, 0),
+        Type::Arr(_) => (coerce.arr_cell, 0),
+        _ => (intr.any_unbox_tag, 5),
+    };
+    let v = f.append_inst(
+        entry,
+        InstKind::Call(test, vec![Operand::Value(av)]),
+        Type::I64,
+        None,
+    );
+    f.append_inst(
+        entry,
+        InstKind::ICmp(IPred::Eq, Operand::Value(v), Operand::ConstI64(miss_at)),
+        Type::Bool,
+        None,
+    )
 }
 
 /// A twin minted beside a class method or constructor.

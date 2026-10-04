@@ -26,8 +26,12 @@ use crate::check::{Checker, Type, WidenTarget};
 /// throws where bun throws). Typed callers keep the original decl —
 /// zero hot-path cost.
 ///
+/// A `string` param widens too: the caller-side ToString would hand
+/// the body the text "null" for a `null` argument, where §10.2.1.3
+/// binds the parameter to the value passed.
+///
 /// The excluded param types are the ones that must NOT reach here:
-/// scalars ride the caller-side coerce above, `Any` needs nothing,
+/// number / boolean scalars ride the caller-side coerce, `Any` needs nothing,
 /// and `Rest` / `TypeVar` name shapes the clone lane cannot serve
 /// (`widenable_fn_decl` rejects rest params and generic decls
 /// anyway — the match keeps the intent readable at the gate).
@@ -46,7 +50,6 @@ pub(super) fn any_into_heap_param(
             param_ty,
             Type::Any
                 | Type::Number
-                | Type::String
                 | Type::Boolean
                 | Type::BigInt
                 | Type::Void

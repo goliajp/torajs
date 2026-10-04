@@ -38,8 +38,15 @@ pub(crate) fn fit_tag(
 }
 
 /// A slot an argument cannot cross without loss: no literal default
-/// to substitute, and a type with no undefined of its own, or a
-/// struct-shaped layout (`fit`) the argument may not have.
+/// to substitute, and a type with no undefined of its own, a string
+/// or array slot that cannot hold `null` / `undefined` / another kind
+/// of value, or a struct-shaped layout (`fit`) the argument may not
+/// have.
 pub(super) fn lossy_slot(ty: Type, dflt: Option<&super::DfltLit>, fit: Option<FitTag>) -> bool {
-    dflt.is_none() && (fit.is_some() || matches!(ty, Type::Bool | Type::I64 | Type::I32))
+    dflt.is_none()
+        && (fit.is_some()
+            || matches!(
+                ty,
+                Type::Bool | Type::I64 | Type::I32 | Type::Str | Type::Arr(_)
+            ))
 }

@@ -293,6 +293,19 @@ pub(crate) fn struct_shaped_ann(
     resolve_type_ann_full(ann, aliases, &[], generic_aliases).is_some_and(|t| struct_shaped(&t))
 }
 
+/// Does `ann` denote a `string` or array parameter slot? Neither can
+/// hold `null`, `undefined` or a value of another kind, so a call
+/// through `any` whose argument is one of those has to reach an
+/// all-`any` twin, the way a non-fitting struct argument does.
+pub(crate) fn str_or_arr_ann(
+    ann: &str,
+    aliases: &HashMap<String, Type>,
+    generic_aliases: &GenericAliasMap,
+) -> bool {
+    resolve_type_ann_full(ann, aliases, &[], generic_aliases)
+        .is_some_and(|t| matches!(t, Type::String | Type::Array(_)))
+}
+
 fn struct_shaped(t: &Type) -> bool {
     match t {
         Type::Struct(_) | Type::ClassRef(_) => true,

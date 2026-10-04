@@ -24,6 +24,11 @@ pub(super) struct BoxedCoerceIntrinsics<'a> {
     /// `__torajs_anyv_arr_fits(v, class_tag, depth) -> i64` — the
     /// same test for an array-of-struct slot, over every element.
     pub(super) arr_fits: FuncId,
+    /// `__torajs_anyv_str_fits(v) -> i64` — a string slot's test.
+    pub(super) str_fits: FuncId,
+    /// `__torajs_anyv_arr_cell(v) -> i64` — an array slot's test when
+    /// its elements are not struct-shaped.
+    pub(super) arr_cell: FuncId,
     pub(super) anyv_rc_dec: FuncId,
     /// S2.39 — `__torajs_anyv_or_default(v, tag, bits)`: the
     /// literal-default substitution kernel.

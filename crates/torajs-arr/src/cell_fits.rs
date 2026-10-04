@@ -45,6 +45,21 @@ pub unsafe extern "C" fn __torajs_anyv_arr_fits(v: u64, class_tag: u32, depth: i
     i64::from(!cell.is_null() && unsafe { arr_fits(cell, class_tag, depth) })
 }
 
+/// `__torajs_anyv_arr_cell(v)` — 1 when `v` is a `Tag::Arr` cell. The
+/// adapter of an array slot over non-struct elements asks it ahead of
+/// its pointer unbox: `null`, `undefined`, a string or a Proxy behind
+/// the slot is no array block the body could index, and the call goes
+/// to the all-`any` twin, where `xs.length` on `null` is the TypeError
+/// §13.3.2.1 asks for.
+///
+/// # Safety
+/// `v` is a valid NaN-box; a cell it names is live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_arr_cell(v: u64) -> i64 {
+    let cell = unsafe { __torajs_anyv_cell_ptr(v) } as *const u8;
+    i64::from(!cell.is_null() && unsafe { &*(cell as *const HeapHeader) }.tag() == Tag::Arr)
+}
+
 /// # Safety
 /// `arr` is a live heap cell.
 unsafe fn arr_fits(arr: *const u8, class_tag: u32, depth: i64) -> bool {

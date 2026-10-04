@@ -34,7 +34,7 @@ use super::clone_body::BodyCloner;
 use super::expr::{Expr, Param};
 use super::stmt::Stmt;
 use crate::check_pipeline::TypeAliasTables;
-use crate::check_type_ann::struct_shaped_ann;
+use crate::check_type_ann::{str_or_arr_ann, struct_shaped_ann};
 
 /// The desugared method a twin is minted from.
 pub(in crate::ast) struct TwinSource<'s> {
@@ -228,7 +228,9 @@ pub(in crate::ast) fn mint_static_generic_twin(
 /// so an alias chain, an inline object type, a `P | null` and an array
 /// of any of them (`Tok[]`, read element by element through the
 /// element layout) all count exactly where the struct-escape lane
-/// counts them.
+/// counts them. A `string` or array slot counts as well: neither holds
+/// `null`, `undefined` or another kind of value, which the twin binds
+/// as passed (§10.2.1.3).
 fn has_lossy_param(ast: &Ast, tables: &TypeAliasTables, params: &[Param], is_static: bool) -> bool {
     params.iter().any(|p| match p.default {
         None => match p.type_ann.as_deref() {
@@ -239,7 +241,8 @@ fn has_lossy_param(ast: &Ast, tables: &TypeAliasTables, params: &[Param], is_sta
             Some(ann) => {
                 p.name != "__this"
                     && !p.is_rest
-                    && struct_shaped_ann(ann, &tables.aliases, &tables.generic_alias_decls)
+                    && (struct_shaped_ann(ann, &tables.aliases, &tables.generic_alias_decls)
+                        || str_or_arr_ann(ann, &tables.aliases, &tables.generic_alias_decls))
             }
             None => false,
         },

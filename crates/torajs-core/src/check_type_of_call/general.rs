@@ -352,6 +352,13 @@ fn arg_admitted(
     {
         return true;
     }
+    // r380 — the heap-typed half of the rule below, and a `string`
+    // param, in [`any_into_heap_param`] (it records a widen site, so
+    // it wants its own frame); a callee it cannot clone keeps the
+    // caller-side coerce.
+    if any_into_heap_param(checker, ast, eid, callee, arg_ty, param_ty, i) {
+        return true;
+    }
     // RFC 20260708-spread-call chunk 2a — TS any-assignability
     // at the call boundary: an Any arg into a scalar / String
     // param is admitted, paired with a caller-side coerce at the
@@ -364,7 +371,7 @@ fn arg_admitted(
     // the original gate was missing exists now (probe: plain-fn
     // `f(u)` coerced while `new A().m(u)` stayed a loud reject —
     // bun accepts both). Heap-typed params take the monomorph lane
-    // below instead — there is still no caller-side Any→heap unbox
+    // above instead — there is still no caller-side Any→heap unbox
     // helper, and widening the CALLEE's slot removes the need for
     // one.
     if matches!(arg_ty, Type::Any)
@@ -377,12 +384,6 @@ fn arg_admitted(
             crate::ast::Expr::Ident(_) | crate::ast::Expr::Member { .. }
         )
     {
-        return true;
-    }
-    // r380 — the heap-typed half of that same rule, in
-    // [`any_into_heap_param`] (it records a widen site, so it wants
-    // its own frame).
-    if any_into_heap_param(checker, ast, eid, callee, arg_ty, param_ty, i) {
         return true;
     }
     // Chunk 762 — struct-param Nullable-field covariance wedge:

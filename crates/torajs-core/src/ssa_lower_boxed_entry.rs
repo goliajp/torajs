@@ -171,6 +171,15 @@ pub(crate) fn synthesize_boxed_entries(
         &[Type::Any, Type::I64, Type::I64],
         Type::I64,
     );
+    let [str_fits, arr_cell] = ["__torajs_anyv_str_fits", "__torajs_anyv_arr_cell"].map(|n| {
+        crate::ssa_lower_synthesize_main::declare_intrinsic(
+            module,
+            fn_table,
+            n,
+            &[Type::Any],
+            Type::I64,
+        )
+    });
     let anyv_rc_dec = crate::ssa_lower_synthesize_main::declare_intrinsic(
         module,
         fn_table,
@@ -233,6 +242,8 @@ pub(crate) fn synthesize_boxed_entries(
                 arg_to_struct,
                 struct_fits,
                 arr_fits,
+                str_fits,
+                arr_cell,
                 anyv_rc_dec,
                 anyv_or_default,
                 fit_tags: &fit_tags,
