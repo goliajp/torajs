@@ -33,6 +33,11 @@ pub(crate) const EXACT_INT_MAX: i64 = 1 << 53;
 /// trips is one loop running uninterrupted for about 20 hours.
 pub(super) const COUNTER_HORIZON: i64 = 1 << 48;
 
+/// The largest step a counter may take from 0 for [`COUNTER_HORIZON`]
+/// steps and still compute its next step inside the window: the reach
+/// `bound.rs` checks is the bound plus one more step.
+pub(super) const MAX_COUNTER_STEP: i64 = EXACT_INT_MAX / (COUNTER_HORIZON + 1);
+
 /// What a slot may hold beyond its recorded writes: an index or a
 /// length the runtime hands a callback.
 const UNRECORDED_REACH: u128 = 1 << 32;
@@ -81,6 +86,9 @@ pub(super) struct MagRecord {
     guards: Vec<Option<Guard>>,
     /// The loops enclosing the walk's current point, innermost last.
     open: Vec<usize>,
+    /// Set while walking a body that may run any number of times per
+    /// pass of the loops around it: no loop in it holds a guard.
+    opaque: bool,
 }
 
 /// A loop whose body runs only while `key < below` held at its test.
@@ -270,11 +278,23 @@ impl Analysis<'_> {
         scope: &Scope,
         inner: impl FnOnce(&mut Self),
     ) {
-        let guard = cond.and_then(|c| self.loop_guard(c, scope));
+        let guard = cond
+            .filter(|_| !self.mag.opaque)
+            .and_then(|c| self.loop_guard(c, scope));
         self.mag.open.push(self.mag.guards.len());
         self.mag.guards.push(guard);
         inner(self);
         self.mag.open.pop();
+    }
+
+    /// Walk a function body inline (`inner`): it runs whenever it is
+    /// called, outside the passes of the loops around where it is built.
+    pub(super) fn mag_opaque(&mut self, inner: impl FnOnce(&mut Self)) {
+        let open = std::mem::take(&mut self.mag.open);
+        let opaque = std::mem::replace(&mut self.mag.opaque, true);
+        inner(self);
+        self.mag.open = open;
+        self.mag.opaque = opaque;
     }
 
     /// `key < below` when `c` holds: a relational test of a binding

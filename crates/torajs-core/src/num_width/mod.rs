@@ -861,17 +861,28 @@ mod tests {
     fn window_loop_test_bounds_its_counter() {
         let src = |bound: &str| {
             format!(
-                "function f(n: number): number {{\n  let p: number = 0;\n  for (let i = 0; i < {bound}; i++) {{ p = i * 10000000; }}\n  return p;\n}}\nconsole.log(f(5));"
+                "function f(n: number): number {{\n  let p: number = 0;\n  for (let i = 0; i < {bound}; i++) {{ p = i * 10000000; }}\n  return p;\n}}\nconsole.log(f(5), [9].map(f));"
             )
         };
         assert!(!slots(&src("1000")).contains(&local("f", "p")));
-        // `n` holds whatever a caller may hand it, past 2^32 for all
-        // the analysis knows, and `i * 10^7` then passes 2^53
+        // `f` is also a callback, so `n` may be past 2^32 and `i * 10^7`
+        // past 2^53
         assert!(slots(&src("n")).contains(&local("f", "p")));
         // a negative step is not held by an upper bound
         let down = slots(
             "function g(): number {\n  let p: number = 0;\n  let i: number = 0;\n  while (i < 1000) { i = i + -1; p = i * 10000000; }\n  return p;\n}\nconsole.log(g());",
         );
         assert!(down.contains(&local("g", "p")));
+    }
+
+    #[test]
+    fn window_direct_callee_param_takes_its_arguments_bound() {
+        let src = |extra: &str| {
+            format!(
+                "function h(k: number): number {{\n  let p: number = k * 2654435761;\n  return p;\n}}\nconsole.log(h(7), h(11){extra});"
+            )
+        };
+        assert!(!slots(&src("")).contains(&local("h", "p")));
+        assert!(slots(&src(", [3].map(h)")).contains(&local("h", "p")));
     }
 }

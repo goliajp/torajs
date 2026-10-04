@@ -13,7 +13,7 @@
 //! could otherwise step a shared one between a test and its step.
 
 use super::{COUNTER_HORIZON, EXACT_INT_MAX, Guard, Lin, Mag, TOP, UNRECORDED_REACH, lin};
-use crate::ast::ExprId;
+use crate::ast::{Expr, ExprId, Stmt};
 use crate::num_width::container::{UnionFind, canon_key_frozen};
 use crate::num_width::cycle::tarjan;
 use crate::num_width::{Analysis, SlotKey};
@@ -62,7 +62,7 @@ pub(in crate::num_width) fn settle(a: &mut Analysis) -> HashSet<ExprId> {
             })
         })
         .collect();
-    let bounds = bound_slots(&writes, &guards);
+    let bounds = bound_slots(&writes, &guards, &direct_only(a));
     for (k, (_, reach)) in &bounds {
         if *reach > EXACT_INT_MAX as u128 {
             a.seeds.push(k.clone());
@@ -123,6 +123,7 @@ fn slots_of(m: &Mag, out: &mut Vec<SlotKey>) {
 fn bound_slots(
     writes: &HashMap<SlotKey, Vec<Write>>,
     guards: &[Option<Guard>],
+    direct: &HashSet<String>,
 ) -> HashMap<SlotKey, (u128, u128)> {
     let mut index: HashMap<SlotKey, usize> = HashMap::new();
     let mut nodes: Vec<SlotKey> = Vec::new();
@@ -170,7 +171,11 @@ fn bound_slots(
         let ws = |i: usize| writes.get(&nodes[i]).into_iter().flatten();
         // a binding is written only where the walk sees; anything else
         // may also hold what the runtime hands it
-        let binding = |i: &usize| matches!(nodes[*i], SlotKey::Local(..) | SlotKey::Global(_));
+        let binding = |i: &usize| match &nodes[*i] {
+            SlotKey::Local(..) | SlotKey::Global(_) => true,
+            SlotKey::Param(f, _) => direct.contains(f),
+            _ => false,
+        };
         let floor = if ms.iter().all(binding) {
             0
         } else {
@@ -243,4 +248,49 @@ fn guarded<'w>(
         below = below.max(b);
     }
     Some((below, passes.values().fold(0, |s, p| s.saturating_add(*p))))
+}
+
+/// Functions every argument of which a call the walk recorded spells:
+/// declared at the top level without a default, and named nowhere but
+/// as the callee of a call. Any other function may be handed values the
+/// walk never sees: by the runtime as a callback, through `call` or
+/// `apply`, or by a call that leaves a defaulted parameter out.
+fn direct_only(a: &Analysis) -> HashSet<String> {
+    let mut out: HashSet<String> = HashSet::new();
+    for s in &a.ast.stmts {
+        if let Stmt::FnDecl {
+            name,
+            params,
+            type_params,
+            ..
+        } = s
+            && !name.starts_with("__")
+            && type_params.is_empty()
+            && params.iter().all(|p| p.default.is_none() && !p.is_rest)
+        {
+            out.insert(name.clone());
+        }
+    }
+    let mut callees: HashSet<ExprId> = HashSet::new();
+    for i in 0..a.ast.exprs.len() {
+        if let Expr::Call { callee, .. } = a.ast.get_expr(ExprId(i as u32)) {
+            callees.insert(*callee);
+        }
+    }
+    for i in 0..a.ast.exprs.len() {
+        let eid = ExprId(i as u32);
+        match a.ast.get_expr(eid) {
+            Expr::Ident(n) if !callees.contains(&eid) => {
+                out.remove(n);
+            }
+            Expr::Closure { fn_name, .. } => {
+                out.remove(fn_name);
+            }
+            _ => {}
+        }
+    }
+    for f in a.retargets.values() {
+        out.remove(f);
+    }
+    out
 }

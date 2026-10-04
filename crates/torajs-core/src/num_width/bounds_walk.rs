@@ -9,10 +9,55 @@
 //! [`crate::ssa_lower_bounds_proven`] for what a pair is and what
 //! taints one.
 
-use super::Analysis;
+use super::{Analysis, Scope};
 use crate::ast::{Expr, ExprId, Stmt};
 
 impl Analysis<'_> {
+    /// A `while`, `do`-`while` or `for` loop. Its test runs once per
+    /// pass but before the guard it establishes holds, so a write in
+    /// it is walked as its own unguarded loop.
+    pub(super) fn walk_loop(&mut self, s: &Stmt, scope: &Scope) {
+        let test = |a: &mut Self, c: ExprId| a.mag_loop(None, scope, |a| a.walk_expr(c, scope));
+        match s {
+            Stmt::While { cond, body } => {
+                test(self, *cond);
+                self.mag_loop(Some(*cond), scope, |a| {
+                    a.bounds_guarded(Some(*cond), |a| a.walk_stmt(body, scope))
+                });
+            }
+            // A do-while's guard runs AFTER the body, so the first
+            // iteration is unguarded — no pair, whatever the
+            // condition spells. Lowering agrees by never pushing one.
+            Stmt::DoWhile { body, cond } => {
+                test(self, *cond);
+                self.mag_loop(Some(*cond), scope, |a| a.walk_stmt(body, scope));
+            }
+            Stmt::For {
+                init,
+                cond,
+                step,
+                body,
+            } => {
+                if let Some(i) = init {
+                    self.walk_stmt(i, scope);
+                }
+                if let Some(c) = cond {
+                    test(self, *c);
+                }
+                // The step is walked first, outside the window — the
+                // lowerer likewise lowers it after the pop, so its
+                // `i` write never taints the body.
+                self.mag_loop(*cond, scope, |a| {
+                    if let Some(st) = step {
+                        a.walk_expr(*st, scope);
+                    }
+                    a.bounds_guarded(*cond, |a| a.walk_stmt(body, scope));
+                });
+            }
+            _ => unreachable!("walk_loop takes a while, do-while or for"),
+        }
+    }
+
     /// Walk something with the pair `cond` proves — if it proves one
     /// — standing, then drop it again. The third component is the
     /// lower half of the proof ([`super::bounds_lower`]): whether the

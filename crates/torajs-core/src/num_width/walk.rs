@@ -50,40 +50,8 @@ impl<'a> Analysis<'a> {
             Stmt::Labeled { body, .. } => {
                 self.walk_stmt(body, scope);
             }
-            Stmt::While { cond, body } => {
-                self.walk_expr(*cond, scope);
-                self.mag_loop(Some(*cond), scope, |a| {
-                    a.bounds_guarded(Some(*cond), |a| a.walk_stmt(body, scope))
-                });
-            }
-            // A do-while's guard runs AFTER the body, so the first
-            // iteration is unguarded — no pair, whatever the
-            // condition spells. Lowering agrees by never pushing one.
-            Stmt::DoWhile { body, cond } => {
-                self.walk_expr(*cond, scope);
-                self.mag_loop(Some(*cond), scope, |a| a.walk_stmt(body, scope));
-            }
-            Stmt::For {
-                init,
-                cond,
-                step,
-                body,
-            } => {
-                if let Some(i) = init {
-                    self.walk_stmt(i, scope);
-                }
-                if let Some(c) = cond {
-                    self.walk_expr(*c, scope);
-                }
-                // The step is walked first, outside the window — the
-                // lowerer likewise lowers it after the pop, so its
-                // `i` write never taints the body.
-                self.mag_loop(*cond, scope, |a| {
-                    if let Some(st) = step {
-                        a.walk_expr(*st, scope);
-                    }
-                    a.bounds_guarded(*cond, |a| a.walk_stmt(body, scope));
-                });
+            Stmt::While { .. } | Stmt::DoWhile { .. } | Stmt::For { .. } => {
+                self.walk_loop(s, scope)
             }
             Stmt::ForOf {
                 var_name,
@@ -386,9 +354,7 @@ impl<'a> Analysis<'a> {
                 // the body must not see them. Lowering agrees by
                 // giving every function body a fresh stack.
                 let outer = std::mem::take(&mut self.bounds_stack);
-                for s in body {
-                    self.walk_stmt(s, &inner);
-                }
+                self.mag_opaque(|a| body.iter().for_each(|s| a.walk_stmt(s, &inner)));
                 self.bounds_stack = outer;
             }
             // Closure construction sites carry no inline body (the

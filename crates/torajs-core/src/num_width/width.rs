@@ -1,19 +1,13 @@
 //! Expression width classification + slot resolution for the
 //! constraint walk in `walk.rs`.
 
-use super::magnitude::{COUNTER_HORIZON, EXACT_INT_MAX, Flow};
+use super::magnitude::{Flow, MAX_COUNTER_STEP};
 use super::{Analysis, Scope, SlotKey, W, join, literal_is_f64};
 use crate::ast::{BinOp, Expr, ExprId, UnaryOp};
 
 /// Mark every slot dependency as reaching the consumer through a
 /// growth op (W5). Inside an assignment-graph cycle that marking
 /// makes the cycle non-i64-safe.
-/// Largest literal step magnitude the counter carve-out admits
-/// without a growth mark (see [`Analysis::is_int_const`]): a step
-/// whose `COUNTER_HORIZON` executions stay inside the exact window.
-/// Where the counter starts is the magnitude pass's question.
-const MAX_COUNTER_STEP: i64 = EXACT_INT_MAX / COUNTER_HORIZON;
-
 fn mark_growth(w: W) -> W {
     match w {
         W::Num(deps) => W::Num(deps.into_iter().map(|(k, _)| (k, true)).collect()),
