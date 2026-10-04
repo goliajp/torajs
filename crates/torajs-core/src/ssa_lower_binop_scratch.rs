@@ -62,7 +62,7 @@ pub(crate) struct BinopScratch {
     /// -0 is unmintable and the int path keeps.
     pub(crate) mul_square: bool,
     /// The square `x * x` (its ExprId) a compare being lowered takes as
-    /// an operand; see `ssa_lower_binop::square_cmp`.
+    /// an operand; see `ssa_lower_binop::square`.
     pub(crate) square_cmp_operand: Option<ExprId>,
     /// Set while that square's own Mul dispatches: only it may keep the
     /// int path.

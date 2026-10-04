@@ -305,7 +305,7 @@ impl<'a> Analysis<'a> {
     /// mint -0 but is past 2^53 once `x` passes 2^26.5, which
     /// a counter reaches in well under a second; it keeps the
     /// int face only as a compare operand, which no slot
-    /// receives (`ssa_lower_binop::square_cmp`).
+    /// receives (`ssa_lower_binop::square`).
     fn width_of_mul(&self, left: ExprId, right: ExprId, scope: &Scope) -> W {
         let lit = |eid: ExprId| -> Option<i64> {
             match self.ast.get_expr(eid) {

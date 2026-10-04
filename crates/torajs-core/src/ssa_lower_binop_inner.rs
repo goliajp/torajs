@@ -148,9 +148,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, op: AstBinOp, a: Operand, b: Operand) ->
     // zero and the other negative. A positive constant cofactor
     // rules that out and keeps the int path, as do two constants
     // that miss the zero×negative pattern and a square a compare
-    // reads (`x * x`, the with_ids side channel; the compare guards
-    // the product's range, `ssa_lower_binop::square_cmp`); everything
-    // else — non-positive
+    // reads (`ssa_lower_binop::square`); everything else — non-positive
     // constant cofactor (`x * -1`, `0 * x`) and variable×variable
     // (S9, runtime zero × runtime negative) — floats. The
     // frem_narrow trunc-tree recovery (chunk ②) pulls the

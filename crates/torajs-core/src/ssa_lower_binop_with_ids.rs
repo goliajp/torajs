@@ -12,7 +12,7 @@
 //!   binops don't leak state.
 //! - Set `binop.mul_square` when both operand ExprIds resolve to the
 //!   same `Ident` and a compare armed this Mul (S9 square carve for
-//!   `x * x`, see `ssa_lower_binop::square_cmp`).
+//!   `x * x`, see `ssa_lower_binop::square`).
 //! - Filter `left_id` / `right_id` by frontend `Type::Undefined`
 //!   check (P1.5/P1.8 Eq/Neq undef-vs-null distinction).
 //!
@@ -95,13 +95,7 @@ impl<'a> LowerCtx<'a> {
         let saved_square = self.binop.mul_square;
         self.binop.mul_square = matches!(op, AstBinOp::Mul)
             && self.binop.square_armed
-            && matches!(
-                (
-                    left_id.map(|e| self.ast.get_expr(e)),
-                    right_id.map(|e| self.ast.get_expr(e)),
-                ),
-                (Some(Expr::Ident(l)), Some(Expr::Ident(r))) if l == r
-            );
+            && self.same_ident(left_id, right_id);
         self.binop.left_undef_id = left_id.filter(|eid| {
             matches!(
                 self.expr_types.get(eid),
@@ -137,5 +131,16 @@ impl<'a> LowerCtx<'a> {
         self.binop.right_null_id = saved_right_null;
         self.binop.mul_square = saved_square;
         r
+    }
+
+    /// Both operands are the same identifier (`x * x`).
+    fn same_ident(&self, left_id: Option<ExprId>, right_id: Option<ExprId>) -> bool {
+        matches!(
+            (
+                left_id.map(|e| self.ast.get_expr(e)),
+                right_id.map(|e| self.ast.get_expr(e)),
+            ),
+            (Some(Expr::Ident(l)), Some(Expr::Ident(r))) if l == r
+        )
     }
 }
