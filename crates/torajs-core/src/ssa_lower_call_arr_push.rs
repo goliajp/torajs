@@ -13,7 +13,7 @@
 //!   if the enclosing for-loop's lowerer detected the canonical fill
 //!   pattern and emitted `arr_reserve(xs, len + N)`, skip the runtime
 //!   call entirely and write the slot directly at
-//!   `arr_ptr + head_off + len*8`. The Phase 2 captured-array writeback
+//!   `slot0 + len*8`. The Phase 2 captured-array writeback
 //!   then mirrors the new ptr into the env block so re-invoked closures
 //!   see the live buffer.
 //! - K.8 — Ident-receiver where the binding is a top-level refcount
@@ -182,8 +182,8 @@ fn try_lower_ident_local(
     // for-loop's lowerer detected the canonical fill pattern and emitted
     // `arr_reserve(xs, len + N)`, this push is guaranteed to fit without
     // a buffer grow. Inline the fast-path: read hoisted len, write the
-    // slot at data_ptr + head_off + len*8, bump len_slot (B1: base is
-    // the hoisted data pointer; the reserve guarantees it stays valid).
+    // slot at slot0 + len*8, bump len_slot (B1: slot0 is hoisted off
+    // the data pointer; the reserve guarantees it stays valid).
     if let Some(state) = ctx.prereserve.unchecked_for.get(recv_name).copied() {
         if state.gate_per_append {
             let owned = val_owned_from_substr.then_some((val, elem_ty));

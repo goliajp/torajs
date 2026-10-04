@@ -51,7 +51,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use torajs_core::ssa::{FuncId, Function, InstKind, Operand, Terminator, ValueId};
+use torajs_core::ssa::{BinOp, FuncId, Function, InstKind, Operand, Terminator, ValueId};
 
 use super::elem_kernels::*;
 
@@ -225,6 +225,7 @@ fn classify_values(
                         .map(|r| (*r, false))
                         .or_else(|| base.get(&src).map(|r| (*r, true))),
                     Some((src, AliasKind::DataPtr)) => class.get(&src).map(|r| (*r, true)),
+                    Some((src, AliasKind::Advanced)) => base.get(&src).map(|r| (*r, true)),
                     None => None,
                 };
                 match (seen, agreed) {
@@ -251,12 +252,17 @@ enum AliasKind {
     Same,
     /// The data pointer of the source array.
     DataPtr,
+    /// A data pointer moved forward within its own buffer (the fill
+    /// loop's slot[0] address). Only a data pointer qualifies: the
+    /// array pointer moved forward points into the header.
+    Advanced,
 }
 
 fn alias_source(kind: &InstKind, names: &[String]) -> Option<(ValueId, AliasKind)> {
     match kind {
         InstKind::Copy(_, op) | InstKind::Identity(op) => val(op).map(|v| (v, AliasKind::Same)),
         InstKind::Load(_, op, ARR_DATA_PTR_OFF) => val(op).map(|v| (v, AliasKind::DataPtr)),
+        InstKind::BinOp(BinOp::Add, op, _) => val(op).map(|v| (v, AliasKind::Advanced)),
         InstKind::Call(f, args) => {
             let n = name_of(names, *f);
             if IDENTITY_CALLS.contains(&n) || IDENTITY_PUSH_CALLS.contains(&n) {
@@ -359,6 +365,14 @@ fn scan_inst(
             {
                 consumed.push(p);
                 record_write(writes, rep, Some(value));
+            }
+        }
+        InstKind::BinOp(BinOp::Add, Operand::Value(p), _) => {
+            if let Some(&rep) = base.get(p) {
+                consumed.push(*p);
+                if !lands_in(rep, base) {
+                    kill.push(rep);
+                }
             }
         }
         // Comparing the pointer reads neither an element nor the
@@ -661,6 +675,43 @@ mod tests {
         );
         let facts = analyze_function_with(&f, &names());
         assert_eq!(facts.get(&ValueId(5)), Some(&NumFact::new(5, 200)));
+    }
+
+    #[test]
+    fn a_write_through_an_advanced_data_pointer_joins() {
+        let f = arr_fn(
+            5,
+            200,
+            vec![
+                inst(6, InstKind::BinOp(BinOp::Add, v(1), Operand::ConstI64(16))),
+                void(InstKind::StoreDynScaled8(
+                    Operand::ConstI64(300),
+                    v(6),
+                    Operand::ConstI64(1),
+                )),
+            ],
+        );
+        let facts = analyze_function_with(&f, &names());
+        assert_eq!(facts.get(&ValueId(5)), Some(&NumFact::new(5, 300)));
+    }
+
+    #[test]
+    fn an_advanced_array_pointer_takes_the_array_out() {
+        let f = arr_fn(
+            5,
+            200,
+            vec![
+                inst(6, InstKind::BinOp(BinOp::Add, v(0), Operand::ConstI64(16))),
+                void(InstKind::StoreDyn(
+                    Operand::ConstI64(300),
+                    v(6),
+                    Operand::ConstI64(0),
+                )),
+            ],
+        );
+        let facts = analyze_function_with(&f, &names());
+        assert_ne!(facts.get(&ValueId(5)), Some(&NumFact::new(5, 200)));
+        assert_ne!(facts.get(&ValueId(5)), Some(&NumFact::new(5, 300)));
     }
 
     #[test]

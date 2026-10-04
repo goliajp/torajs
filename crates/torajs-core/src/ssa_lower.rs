@@ -251,15 +251,12 @@ pub(crate) struct PreReserveState {
     /// across grow, so this stays valid; used for the post-loop
     /// len-writeback.
     pub(crate) arr_ptr: ValueId,
-    /// The data buffer pointer loaded once after `arr_reserve` — the
-    /// StoreDyn base for the fast-path slot writes. Loop-invariant
-    /// because the reserve guarantees no grow happens mid-loop (a
-    /// grow would swap the buffer and stale this).
-    pub(crate) data_ptr: ValueId,
-    /// Pre-computed `head_x8` — the byte offset from `data_ptr` to
-    /// slot[0]. Loop-invariant since the pattern detector excludes
-    /// any body that could shift/unshift the array.
-    pub(crate) head_off: ValueId,
+    /// The address of slot[0] — the data buffer loaded once after
+    /// `arr_reserve`, plus `head * 8` — and the StoreDyn base of every
+    /// fast-path slot write. Loop-invariant: the reserve guarantees no
+    /// grow (which would swap the buffer), and the pattern detector
+    /// excludes any body that could shift/unshift the array.
+    pub(crate) slot0: ValueId,
     /// Local alloca'd i64 holding the running length. Initialized
     /// to the array's len at loop entry; bumped per push; written
     /// back to the array's len field at loop exit. mem2reg promotes

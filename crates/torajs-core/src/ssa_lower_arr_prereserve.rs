@@ -56,14 +56,13 @@ pub(crate) struct PreReserve {
     /// When the for-loop lowerer detects a canonical fill loop
     /// (`for (let i = 0; i < N; i++) xs.push(_)`), it:
     ///   1. Emits `arr_reserve(xs, len + N)` once before the loop.
-    ///   2. Hoists `head_x8 + 24` (the byte offset of slot[0] from
-    ///      arr_ptr) into a loop-invariant register; allocas an i64
+    ///   2. Hoists `slot0` (the address of slot[0]: data pointer plus
+    ///      `head * 8`) into a loop-invariant register; allocas an i64
     ///      `len_slot` initialized to the array's len.
     ///   3. Inside the loop, arr.push lower emits inline IR:
-    ///      `StoreDyn val at (arr_ptr + head_off + len*8)` plus
-    ///      `len_slot++`. NO call to arr_push_unchecked, NO per-iter
-    ///      head load — head_off is hoisted, len lives in the
-    ///      mem2reg-promotable alloca.
+    ///      `StoreDyn val at (slot0 + len*8)` plus `len_slot++`. NO
+    ///      call to arr_push_unchecked, NO per-iter head load — slot0
+    ///      is hoisted, len lives in the mem2reg-promotable alloca.
     ///   4. After the loop, the final len is written back to the
     ///      array's len field at +8.
     ///
@@ -322,6 +321,19 @@ impl LowerCtx<'_> {
             Operand::Value(v) => v,
             _ => unreachable!("emit_arr_data_ptr returns a value"),
         };
+        // slot[0]'s address rather than its offset, so the per-append
+        // address is `slot0 + len * 8`, which the scaled-addressing fold
+        // turns into a single register-offset store.
+        let slot0 = self.f.append_inst(
+            self.cur_block,
+            InstKind::BinOp(
+                SsaBinOp::Add,
+                Operand::Value(data_ptr),
+                Operand::Value(head_off),
+            ),
+            Type::Ptr,
+            None,
+        );
         let len_after = self.f.append_inst(
             self.cur_block,
             InstKind::Load(Type::I64, Operand::Value(reserved), ARR_LEN_OFF),
@@ -335,8 +347,7 @@ impl LowerCtx<'_> {
         );
         PreReserveState {
             arr_ptr: reserved,
-            data_ptr,
-            head_off,
+            slot0,
             len_slot,
             gate_per_append,
             defer_len,
@@ -362,19 +373,9 @@ impl LowerCtx<'_> {
             Type::I64,
             None,
         );
-        let byte_off = self.f.append_inst(
-            self.cur_block,
-            InstKind::BinOp(
-                SsaBinOp::Add,
-                Operand::Value(st.head_off),
-                Operand::Value(len_x8),
-            ),
-            Type::I64,
-            None,
-        );
         self.f.append_void(
             self.cur_block,
-            InstKind::StoreDyn(val, Operand::Value(st.data_ptr), Operand::Value(byte_off)),
+            InstKind::StoreDyn(val, Operand::Value(st.slot0), Operand::Value(len_x8)),
         );
         let len_next = self.f.append_inst(
             self.cur_block,
