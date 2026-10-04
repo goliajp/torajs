@@ -64,6 +64,11 @@ fn source_holds(
     at: (usize, usize),
     s: ValueId,
 ) -> bool {
+    // a compare above its copy in one block reads the copy's value from
+    // the previous iteration, which `s` no longer holds
+    if copy.0 == at.0 && copy.1 > at.1 {
+        return false;
+    }
     if !multi.contains(&s) {
         return true;
     }
@@ -179,5 +184,25 @@ mod tests {
                 .iter()
                 .any(|i| i.result == Some(ValueId(2)))
         );
+    }
+
+    #[test]
+    fn a_compare_above_its_copy_keeps_reading_the_copy() {
+        let mut f = header(vec![]);
+        // `%4 = icmp %2, %3` ahead of `%2 = copy %1`: on a back edge %2 is
+        // the previous iteration's square, which %1 no longer holds
+        let insts = &mut f.blocks[0].insts;
+        let cmp = insts.remove(4);
+        insts.insert(2, cmp);
+        assert_eq!(
+            forward_into_icmps(&mut f, &[ValueId(2)].into_iter().collect()),
+            0
+        );
+        let cmp = f.blocks[0]
+            .insts
+            .iter()
+            .find(|i| i.result == Some(ValueId(4)))
+            .unwrap();
+        assert!(matches!(cmp.kind, InstKind::ICmp(_, a, _) if a == v(2)));
     }
 }
