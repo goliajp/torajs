@@ -11,10 +11,12 @@ use crate::member_reloc::MemberRelocEntry;
 /// Each expanded (member, section)'s reloc table, decoded once and
 /// sorted by `r_address` so an atom finds its relocs by binary search
 /// instead of re-decoding and filtering the whole table.
+/// `(r_address, table position, entry)`, ascending.
+type SortedRelocs = Vec<(u32, u32, MemberRelocEntry)>;
+
 #[derive(Default)]
 pub(crate) struct RelocIndex {
-    /// `(r_address, table position, entry)`, ascending.
-    tables: BTreeMap<((usize, usize), u8), Vec<(u32, u32, MemberRelocEntry)>>,
+    tables: BTreeMap<((usize, usize), u8), SortedRelocs>,
     hits: Vec<(u32, MemberRelocEntry)>,
 }
 
@@ -34,7 +36,7 @@ impl RelocIndex {
             Entry::Vacant(v) => {
                 let parsed = parse_member_section_relocs(member, sect)
                     .map_err(|e| format!("sect {sect} relocs: {e:?}"))?;
-                let mut t: Vec<(u32, u32, MemberRelocEntry)> = parsed
+                let mut t: SortedRelocs = parsed
                     .into_iter()
                     .enumerate()
                     .map(|(i, e)| (e.r_address, i as u32, e))

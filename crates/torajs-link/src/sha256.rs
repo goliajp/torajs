@@ -290,7 +290,7 @@ mod tests {
     /// Lengths around the one- / two-block padding boundary.
     #[test]
     fn padding_boundaries_kat() {
-        let a = vec![b'a'; 120];
+        let a = [b'a'; 120];
         for (len, want) in [
             (
                 55,
