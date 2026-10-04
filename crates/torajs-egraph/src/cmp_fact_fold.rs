@@ -172,6 +172,42 @@ impl UseDef {
     }
 }
 
+/// For the `and` / `or` at `(bi, ii)` over `(x, y)`: the site of the
+/// operand compare the facts decide to `absorbing` and the index of the
+/// other, a single-use compare earlier in the block that moves into the
+/// slot.
+fn absorb_site(
+    func: &Function,
+    facts: &HashMap<ValueId, NumFact>,
+    ud: &UseDef,
+    (bi, ii): (usize, usize),
+    absorbing: bool,
+    (x, y): (&Operand, &Operand),
+) -> Option<((usize, usize), usize)> {
+    for (dec, keep) in [(x, y), (y, x)] {
+        let Some((_, dbi, dii)) = ud.lone_cmp(func, dec) else {
+            continue;
+        };
+        let InstKind::ICmp(pred, a, b) = &func.blocks[dbi].insts[dii].kind else {
+            unreachable!("lone_cmp checked the kind");
+        };
+        let (Some(fa), Some(fb)) = (operand_fact(func, facts, a), operand_fact(func, facts, b))
+        else {
+            continue;
+        };
+        if decide(*pred, fa, fb) != Some(absorbing) {
+            continue;
+        }
+        let Some((_, kbi, kii)) = ud.lone_cmp(func, keep) else {
+            continue;
+        };
+        if kbi == bi && kii < ii && operands_stable(func, bi, kii, ii) {
+            return Some(((dbi, dii), kii));
+        }
+    }
+    None
+}
+
 fn fold_in_function(
     func: &mut Function,
     facts: &HashMap<ValueId, NumFact>,
@@ -193,30 +229,12 @@ fn fold_in_function(
                 continue;
             }
             let absorbing = *op == BinOp::And;
-            for (dec, keep) in [(x, y), (y, x)] {
-                let Some((_, dbi, dii)) = ud.lone_cmp(func, dec) else {
-                    continue;
-                };
-                let InstKind::ICmp(pred, a, b) = &func.blocks[dbi].insts[dii].kind else {
+            if let Some((dsite, kii)) = absorb_site(func, facts, &ud, (bi, ii), absorbing, (x, y)) {
+                plans.push((bi, ii, dsite, kii));
+                let InstKind::ICmp(_, a, b) = &func.blocks[dsite.0].insts[dsite.1].kind else {
                     unreachable!("lone_cmp checked the kind");
                 };
-                let (Some(fa), Some(fb)) =
-                    (operand_fact(func, facts, a), operand_fact(func, facts, b))
-                else {
-                    continue;
-                };
-                if decide(*pred, fa, fb) != Some(absorbing) {
-                    continue;
-                }
-                let Some((_, kbi, kii)) = ud.lone_cmp(func, keep) else {
-                    continue;
-                };
-                if kbi != bi || kii >= ii || !operands_stable(func, bi, kii, ii) {
-                    continue;
-                }
-                plans.push((bi, ii, (dbi, dii), kii));
                 feeds.extend([a, b].into_iter().filter_map(|o| ud.lone_arith(func, o)));
-                break;
             }
         }
     }

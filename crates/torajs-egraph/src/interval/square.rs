@@ -211,6 +211,27 @@ pub(super) fn bound_hi(
     (!via_sitofp || hi < 1 << 53).then_some(hi)
 }
 
+/// Add to `roots` the thresholds of every square bound live in a
+/// block whose bound `state` already caps.
+pub(super) fn live_roots(
+    live: &[Constraint],
+    state: &HashMap<ValueId, AbsVal>,
+    roots: &mut Vec<i128>,
+) {
+    for c in live {
+        if let Constraint::Square {
+            strict,
+            bound,
+            via_sitofp,
+            ..
+        } = c
+            && let Some(hi) = bound_hi(*bound, *via_sitofp, state, live)
+        {
+            roots.extend(root_thresholds(hi, *strict).into_iter().flatten());
+        }
+    }
+}
+
 fn bound_hi_any(
     bound: SquareBound,
     state: &HashMap<ValueId, AbsVal>,

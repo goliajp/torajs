@@ -180,52 +180,74 @@ impl<'a> Logic<'a> {
             return None;
         }
         match kind {
-            InstKind::ICmp(..) | InstKind::FCmp(..) => {
-                let mut cs = edge_constraints(kind, v, self.defs).unwrap_or_default();
-                let at = at.0 as usize;
-                cs.extend(square_edge(
-                    self.func,
-                    at,
-                    kind,
-                    v,
-                    self.defs,
-                    &self.sole_pred,
-                ));
-                Some(cs)
-            }
-            // a compare guarded by another (`and`) or relieved by one
-            // (`or`): both halves hold on the edge that needs both, and
-            // what the two agree on on the other
+            InstKind::ICmp(..) | InstKind::FCmp(..) => Some(self.compare(kind, v, at)),
             InstKind::BinOp(op @ (BinOp::And | BinOp::Or), l, r)
                 if self.func.values[x.0 as usize].ty == Type::Bool =>
             {
-                let home = self.home[&x];
-                let lp = self.truth(l, v, home, walk.deeper());
-                let rp = self.truth(r, v, home, walk.deeper());
-                if (*op == BinOp::And) == v {
-                    let mut cs = lp?;
-                    cs.extend(rp?);
-                    (!contradictory(&cs)).then_some(cs)
-                } else {
-                    match (lp, rp) {
-                        (None, p) | (p, None) => p,
-                        (Some(a), Some(b)) => Some(common(&a, &b)),
-                    }
-                }
+                self.logic(*op, (l, r), v, self.home[&x], walk)
             }
             InstKind::Copy(_, o) | InstKind::Identity(o) => {
                 self.truth(o, v, self.home[&x], walk.deeper())
             }
-            InstKind::Select(_, c, t, e) => {
-                let home = self.home[&x];
-                let then = self.arm((c, true), (t, v), home, walk.deeper());
-                let els = self.arm((c, false), (e, v), home, walk.deeper());
-                match (then, els) {
-                    (None, p) | (p, None) => p,
-                    (Some(a), Some(b)) => Some(common(&a, &b)),
-                }
-            }
+            InstKind::Select(_, c, t, e) => self.select((c, t, e), v, self.home[&x], walk),
             _ => Some(Vec::new()),
+        }
+    }
+
+    /// What the compare `kind` being `v` in block `at` says: the edge
+    /// ranges, and the bound a square test puts on its root.
+    fn compare(&self, kind: &InstKind, v: bool, at: BlockId) -> Vec<Constraint> {
+        let mut cs = edge_constraints(kind, v, self.defs).unwrap_or_default();
+        let at = at.0 as usize;
+        cs.extend(square_edge(
+            self.func,
+            at,
+            kind,
+            v,
+            self.defs,
+            &self.sole_pred,
+        ));
+        cs
+    }
+
+    /// A compare guarded by another (`and`) or relieved by one (`or`):
+    /// both halves hold on the edge that needs both, and what the two
+    /// agree on on the other.
+    fn logic(
+        &self,
+        op: BinOp,
+        (l, r): (&Operand, &Operand),
+        v: bool,
+        home: BlockId,
+        walk: Walk<'_>,
+    ) -> Path {
+        let lp = self.truth(l, v, home, walk.deeper());
+        let rp = self.truth(r, v, home, walk.deeper());
+        if (op == BinOp::And) == v {
+            let mut cs = lp?;
+            cs.extend(rp?);
+            (!contradictory(&cs)).then_some(cs)
+        } else {
+            match (lp, rp) {
+                (None, p) | (p, None) => p,
+                (Some(a), Some(b)) => Some(common(&a, &b)),
+            }
+        }
+    }
+
+    /// `select c, t, e` being `v`: what the feasible arms agree on.
+    fn select(
+        &self,
+        (c, t, e): (&Operand, &Operand, &Operand),
+        v: bool,
+        home: BlockId,
+        walk: Walk<'_>,
+    ) -> Path {
+        let then = self.arm((c, true), (t, v), home, walk.deeper());
+        let els = self.arm((c, false), (e, v), home, walk.deeper());
+        match (then, els) {
+            (None, p) | (p, None) => p,
+            (Some(a), Some(b)) => Some(common(&a, &b)),
         }
     }
 

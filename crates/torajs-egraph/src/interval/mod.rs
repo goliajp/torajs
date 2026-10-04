@@ -120,33 +120,7 @@ pub fn analyze_function_with(
     func: &Function,
     callee_names: &[String],
 ) -> HashMap<ValueId, NumFact> {
-    // def shapes: single-def map for constraint pattern-matching,
-    // cell def-site sets for constraint kills.
-    let mut single: HashMap<ValueId, InstKind> = HashMap::new();
-    let mut cells: HashSet<ValueId> = HashSet::new();
-    for block in &func.blocks {
-        for inst in &block.insts {
-            if let Some(r) = inst.result
-                && single.insert(r, inst.kind.clone()).is_some()
-            {
-                cells.insert(r);
-            }
-        }
-    }
-    for v in &cells {
-        single.remove(v);
-    }
-    let mut block_defs: Vec<HashSet<ValueId>> = vec![HashSet::new(); func.blocks.len()];
-    for (bi, block) in func.blocks.iter().enumerate() {
-        for inst in &block.insts {
-            if let Some(r) = inst.result
-                && cells.contains(&r)
-            {
-                block_defs[bi].insert(r);
-            }
-        }
-    }
-
+    let (single, cells, block_defs) = def_shapes(func);
     let dom = DominatorTree::compute(func);
     let mut constraints = Constraints::compute(func, &single);
     let merges = {
@@ -188,18 +162,7 @@ pub fn analyze_function_with(
         for &bid in dom.reverse_postorder() {
             let block = &func.blocks[bid.0 as usize];
             let mut live = merge::resolve(&inherited[bid.0 as usize], &merged);
-            for c in &live {
-                if let Constraint::Square {
-                    strict,
-                    bound,
-                    via_sitofp,
-                    ..
-                } = c
-                    && let Some(hi) = square::bound_hi(*bound, *via_sitofp, &state, &live)
-                {
-                    roots.extend(square::root_thresholds(hi, *strict).into_iter().flatten());
-                }
-            }
+            square::live_roots(&live, &state, &mut roots);
             for inst in &block.insts {
                 let Some(r) = inst.result else { continue };
                 let ty = func.values[r.0 as usize].ty;
@@ -309,6 +272,43 @@ pub fn analyze_function_with(
             _ => None,
         })
         .collect()
+}
+
+/// The def shapes: single-def values with their defs (what constraint
+/// pattern-matching reads), the multi-def cells, and per block the
+/// cells it writes (what kills a constraint).
+type DefShapes = (
+    HashMap<ValueId, InstKind>,
+    HashSet<ValueId>,
+    Vec<HashSet<ValueId>>,
+);
+
+fn def_shapes(func: &Function) -> DefShapes {
+    let mut single: HashMap<ValueId, InstKind> = HashMap::new();
+    let mut cells: HashSet<ValueId> = HashSet::new();
+    for block in &func.blocks {
+        for inst in &block.insts {
+            if let Some(r) = inst.result
+                && single.insert(r, inst.kind.clone()).is_some()
+            {
+                cells.insert(r);
+            }
+        }
+    }
+    for v in &cells {
+        single.remove(v);
+    }
+    let mut block_defs: Vec<HashSet<ValueId>> = vec![HashSet::new(); func.blocks.len()];
+    for (bi, block) in func.blocks.iter().enumerate() {
+        for inst in &block.insts {
+            if let Some(r) = inst.result
+                && cells.contains(&r)
+            {
+                block_defs[bi].insert(r);
+            }
+        }
+    }
+    (single, cells, block_defs)
 }
 
 fn opaque_for(ty: Type) -> AbsVal {
