@@ -327,6 +327,13 @@ pub fn eval_inst(
             },
         },
         InstKind::Copy(_, a) | InstKind::Identity(a) => env(a),
+        // `neg x` is the `sub 0, x` the egraph folded it from; an
+        // operand that can be i64::MIN wraps back onto itself
+        InstKind::Neg(a) => match env(a) {
+            AbsVal::Bottom => AbsVal::Bottom,
+            AbsVal::Fact(f) if f.lo > I64_MIN => AbsVal::Fact(sub_iv(NumFact::point(0), f)),
+            _ => opaque(),
+        },
         InstKind::SiToFp(a) => match env(a) {
             AbsVal::Fact(f) => AbsVal::Fact(clamp53(f)),
             x => x,
@@ -423,6 +430,21 @@ mod tests {
             eval_inst(&kind, Type::F64, &env, &|_| true),
             AbsVal::Fact(NumFact::new(0, 500_000))
         );
+    }
+
+    #[test]
+    fn neg_mirrors_sub_from_zero() {
+        let env = |_: &Operand| AbsVal::Fact(NumFact::new(0, POS_INF));
+        let kind = InstKind::Neg(Operand::Value(torajs_core::ssa::ValueId(0)));
+        assert_eq!(
+            eval_inst(&kind, Type::I64, &env, &|_| false),
+            AbsVal::Fact(NumFact::new(NEG_INF, 0))
+        );
+        // i64::MIN negates to itself, below any bound the arithmetic
+        // would claim
+        let full = |_: &Operand| AbsVal::Fact(NumFact::new(NEG_INF, 5));
+        let r = eval_inst(&kind, Type::I64, &full, &|_| false);
+        assert_eq!(r, AbsVal::Fact(NumFact::full_i64()));
     }
 
     #[test]
