@@ -27,6 +27,7 @@
 //! built on first use: it is the one source that knows an element load
 //! (`interval::elem`), which no point has a def for.
 
+use std::borrow::Cow;
 use std::cell::{Cell, OnceCell, RefCell};
 use std::collections::HashMap;
 
@@ -55,7 +56,7 @@ pub(crate) struct PointEval<'a> {
     defs: HashMap<ValueId, Vec<Point>>,
     len: LenCells,
     names: &'a [String],
-    flow: OnceCell<HashMap<ValueId, NumFact>>,
+    flow: OnceCell<Cow<'a, HashMap<ValueId, NumFact>>>,
     memo: RefCell<HashMap<(ValueId, usize, usize), Option<NumFact>>>,
     fuel: Cell<u32>,
 }
@@ -91,6 +92,12 @@ impl<'a> PointEval<'a> {
         }
     }
 
+    /// Hand the lattice facts already computed for this very body (the
+    /// analysis would give the same ones).
+    pub(crate) fn seed_flow(&self, facts: &'a HashMap<ValueId, NumFact>) {
+        let _ = self.flow.set(Cow::Borrowed(facts));
+    }
+
     pub(crate) fn dom(&self) -> &DominatorTree {
         self.dom
     }
@@ -107,7 +114,11 @@ impl<'a> PointEval<'a> {
     /// point of the function.
     pub(crate) fn flow_fact(&self, v: ValueId) -> Option<NumFact> {
         self.flow
-            .get_or_init(|| crate::interval::analyze_function_with(self.func, self.names))
+            .get_or_init(|| {
+                Cow::Owned(crate::interval::analyze_function_with(
+                    self.func, self.names,
+                ))
+            })
             .get(&v)
             .copied()
     }

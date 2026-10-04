@@ -51,6 +51,7 @@ use torajs_core::ssa::{
     visit_value_operands,
 };
 
+use crate::interval::FactCache;
 use crate::interval::refine::{Constraint, Constraints};
 use crate::interval::transfer::{NumFact, POS_INF, op_const_int};
 use point_eval::{PointEval, successors};
@@ -68,22 +69,34 @@ pub struct BranchFoldStats {
 }
 
 /// Fold provably-constant conditional branches in every function.
-pub fn fold_branches(module: &mut Module) -> BranchFoldStats {
+/// `cache` answers the lattice facts of bodies no pass has changed
+/// since they were analyzed.
+pub fn fold_branches(module: &mut Module, cache: Option<&FactCache>) -> BranchFoldStats {
     let names: Vec<String> = module.funcs.iter().map(|f| f.name.clone()).collect();
+    let cache = cache.and_then(|c| c.for_names(&names));
     let mut stats = BranchFoldStats::default();
-    for func in module.funcs.iter_mut() {
+    for (fi, func) in module.funcs.iter_mut().enumerate() {
         if func.is_declaration() {
             continue;
         }
-        fold_in_function(func, &names, &mut stats);
+        let seed = cache.and_then(|c| c.get(fi, func));
+        fold_in_function(func, &names, seed, &mut stats);
     }
     stats
 }
 
-fn fold_in_function(func: &mut Function, names: &[String], stats: &mut BranchFoldStats) {
+fn fold_in_function(
+    func: &mut Function,
+    names: &[String],
+    seed: Option<&HashMap<ValueId, NumFact>>,
+    stats: &mut BranchFoldStats,
+) {
     let dom = DominatorTree::compute(func);
     let la = LoopAnalysis::compute(func, &dom);
     let pe = PointEval::new(func, &dom, &la, names);
+    if let Some(f) = seed {
+        pe.seed_flow(f);
+    }
     // Lazily: most functions carry no ICmp-fed CondBr at all.
     let edges: OnceCell<Constraints> = OnceCell::new();
     let src = Sources {
@@ -516,7 +529,7 @@ mod tests {
     fn popcount_shift_guards_fold_and_sweep() {
         let mut f = popcount_guarded(true);
         let mut stats = BranchFoldStats::default();
-        fold_in_function(&mut f, &[], &mut stats);
+        fold_in_function(&mut f, &[], None, &mut stats);
         assert_eq!(stats.folded, 2, "both guards fold: {stats:?}");
         assert_eq!(stats.blocks_removed, 2, "side exits sweep: {stats:?}");
         let shifts = f
@@ -532,7 +545,7 @@ mod tests {
     fn popcount_guards_fold_and_side_exits_sweep() {
         let mut f = popcount_guarded(false);
         let mut stats = BranchFoldStats::default();
-        fold_in_function(&mut f, &[], &mut stats);
+        fold_in_function(&mut f, &[], None, &mut stats);
         assert_eq!(stats.folded, 2, "both guards fold: {stats:?}");
         assert_eq!(stats.blocks_removed, 2, "side exits sweep: {stats:?}");
         assert_eq!(f.blocks.len(), 8);
@@ -591,7 +604,7 @@ mod tests {
             current_origin: None,
         };
         let mut stats = BranchFoldStats::default();
-        fold_in_function(&mut f, &[], &mut stats);
+        fold_in_function(&mut f, &[], None, &mut stats);
         assert_eq!(stats, BranchFoldStats::default());
     }
 }

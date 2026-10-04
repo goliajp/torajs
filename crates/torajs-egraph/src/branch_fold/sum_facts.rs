@@ -17,6 +17,7 @@ use torajs_core::ssa::{BinOp, InstKind, Module, ValueId};
 
 use super::accum::accum_bound;
 use super::point_eval::PointEval;
+use crate::interval::FactCache;
 use crate::interval::transfer::NumFact;
 
 const F64_EXACT: i128 = 1 << 53;
@@ -27,10 +28,17 @@ pub struct SumFactStats {
     pub bounded: u32,
 }
 
-pub fn bound_sums(module: &Module, facts: &mut [HashMap<ValueId, NumFact>]) -> SumFactStats {
+/// `cache` holds the lattice facts as analyzed, before this pass
+/// tightens `facts`.
+pub fn bound_sums(
+    module: &Module,
+    facts: &mut [HashMap<ValueId, NumFact>],
+    cache: Option<&FactCache>,
+) -> SumFactStats {
     let names: Vec<String> = module.funcs.iter().map(|f| f.name.clone()).collect();
+    let cache = cache.and_then(|c| c.for_names(&names));
     let mut stats = SumFactStats::default();
-    for (func, fm) in module.funcs.iter().zip(facts.iter_mut()) {
+    for (fi, (func, fm)) in module.funcs.iter().zip(facts.iter_mut()).enumerate() {
         if func.is_declaration() {
             continue;
         }
@@ -55,6 +63,9 @@ pub fn bound_sums(module: &Module, facts: &mut [HashMap<ValueId, NumFact>]) -> S
         let dom = DominatorTree::compute(func);
         let la = LoopAnalysis::compute(func, &dom);
         let pe = PointEval::new(func, &dom, &la, &names);
+        if let Some(f) = cache.and_then(|c| c.get(fi, func)) {
+            pe.seed_flow(f);
+        }
         for (x, at) in sums {
             if pe.single_def(x).is_none() {
                 continue;
@@ -197,7 +208,7 @@ mod tests {
             facts[0][&ValueId(8)].hi >= F64_EXACT,
             "the lattice leaves the sum open"
         );
-        let stats = bound_sums(&m, &mut facts);
+        let stats = bound_sums(&m, &mut facts, None);
         (facts[0][&ValueId(8)], stats)
     }
 

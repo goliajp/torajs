@@ -400,7 +400,7 @@ pub enum InstKind {
     Vec(VecInst),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Inst {
     pub result: Option<ValueId>, // None for void calls
     pub kind: InstKind,
@@ -412,7 +412,7 @@ pub struct Inst {
     pub origin: Option<crate::ast::ExprId>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Terminator {
     Br(BlockId),
     CondBr {
@@ -424,14 +424,14 @@ pub enum Terminator {
     Unreachable,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Block {
     pub id: BlockId,
     pub insts: Vec<Inst>,
     pub term: Terminator,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ValueInfo {
     pub ty: Type,
     /// Debug-only display name. Pretty printer prefers this over the numeric
@@ -439,7 +439,7 @@ pub struct ValueInfo {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Function {
     pub name: String,
     pub params: Vec<ValueId>,

@@ -22,6 +22,7 @@
 //! sweep re-tightens bounds the refinement can recover (the
 //! `i <= 1e6` loop-counter shape).
 
+mod cache;
 mod edge;
 pub(crate) mod elem;
 mod elem_alias;
@@ -35,6 +36,7 @@ pub mod square;
 pub mod transfer;
 mod widen;
 
+pub use cache::FactCache;
 pub use transfer::{AbsVal, NumFact};
 
 use std::collections::{HashMap, HashSet};

@@ -22,6 +22,7 @@ use torajs_core::ssa::{FuncId, Function, InstKind, Module, Operand, Type, ValueI
 
 use crate::branch_fold::accum::cell_bound_after_loop;
 use crate::branch_fold::point_eval::PointEval;
+use crate::interval::FactCache;
 use crate::interval::transfer::NumFact;
 use torajs_core::ssa::dominator::DominatorTree;
 use torajs_core::ssa::loop_analysis::LoopAnalysis;
@@ -41,7 +42,9 @@ pub struct PrintNarrowStats {
     pub bridges_removed: u32,
 }
 
-pub fn narrow_prints(module: &mut Module) -> PrintNarrowStats {
+/// `cache` answers the lattice facts of bodies no pass has changed
+/// since they were analyzed.
+pub fn narrow_prints(module: &mut Module, cache: Option<&FactCache>) -> PrintNarrowStats {
     let mut stats = PrintNarrowStats::default();
     let mut pairs: Vec<(FuncId, FuncId)> = Vec::new();
     for (f64_name, i64_name) in PAIRS {
@@ -60,11 +63,13 @@ pub fn narrow_prints(module: &mut Module) -> PrintNarrowStats {
         return stats;
     }
     let names: Vec<String> = module.funcs.iter().map(|f| f.name.clone()).collect();
-    for func in &mut module.funcs {
+    let cache = cache.and_then(|c| c.for_names(&names));
+    for (fi, func) in module.funcs.iter_mut().enumerate() {
         if func.is_declaration() {
             continue;
         }
-        narrow_in_function(func, &pairs, &names, &mut stats);
+        let seed = cache.and_then(|c| c.get(fi, func));
+        narrow_in_function(func, &pairs, &names, seed, &mut stats);
     }
     stats
 }
@@ -73,11 +78,15 @@ fn narrow_in_function(
     func: &mut Function,
     pairs: &[(FuncId, FuncId)],
     names: &[String],
+    seed: Option<&HashMap<ValueId, NumFact>>,
     stats: &mut PrintNarrowStats,
 ) {
     let dom = DominatorTree::compute(func);
     let la = LoopAnalysis::compute(func, &dom);
     let pe = PointEval::new(func, &dom, &la, names);
+    if let Some(f) = seed {
+        pe.seed_flow(f);
+    }
     // (block, inst) → (i64 twin, integer operand)
     let mut rewrites: Vec<((usize, usize), FuncId, ValueId)> = Vec::new();
     for (bi, block) in func.blocks.iter().enumerate() {
@@ -267,7 +276,7 @@ mod tests {
     #[test]
     fn bounded_sum_prints_through_the_i64_printer() {
         let mut m = sum_loop(1000);
-        let stats = narrow_prints(&mut m);
+        let stats = narrow_prints(&mut m, None);
         assert_eq!(stats.narrowed, 1);
         assert_eq!(stats.bridges_removed, 1);
         let exit = &m.funcs[2].blocks[3].insts;
@@ -279,7 +288,7 @@ mod tests {
     fn sum_that_may_pass_2_53_keeps_the_f64_printer() {
         // trip 2^30 × inc up to 2^30 = 2^60 > 2^53
         let mut m = sum_loop(1 << 30);
-        let stats = narrow_prints(&mut m);
+        let stats = narrow_prints(&mut m, None);
         assert_eq!(stats.narrowed, 0);
         assert!(matches!(
             &m.funcs[2].blocks[3].insts[1].kind,

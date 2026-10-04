@@ -458,7 +458,7 @@ mod tests {
     fn length_bounded_reduction_guard_folds() {
         let mut f = reduction(vec![]);
         let mut stats = BranchFoldStats::default();
-        fold_in_function(&mut f, &names(), &mut stats);
+        fold_in_function(&mut f, &names(), None, &mut stats);
         assert_eq!(stats.folded, 1, "the accumulator guard folds: {stats:?}");
         assert!(
             matches!(f.blocks[5].term, Terminator::Br(BlockId(6))),
@@ -477,7 +477,7 @@ mod tests {
             vec![v(3), v(15)],
         ))]);
         let mut stats = BranchFoldStats::default();
-        fold_in_function(&mut f, &names(), &mut stats);
+        fold_in_function(&mut f, &names(), None, &mut stats);
         assert_eq!(stats.folded, 0, "{stats:?}");
     }
 
@@ -487,7 +487,7 @@ mod tests {
     fn untracked_array_keeps_the_guard() {
         let mut f = reduction(vec![]);
         let mut stats = BranchFoldStats::default();
-        fold_in_function(&mut f, &[], &mut stats);
+        fold_in_function(&mut f, &[], None, &mut stats);
         assert_eq!(stats.folded, 0, "{stats:?}");
     }
 
@@ -596,7 +596,7 @@ mod tests {
     fn nested_conditional_sum_under_a_square_test_folds() {
         let mut f = divisor_sums(1_000_000, true);
         let mut stats = BranchFoldStats::default();
-        fold_in_function(&mut f, &[], &mut stats);
+        fold_in_function(&mut f, &[], None, &mut stats);
         assert_eq!(stats.folded, 1, "{stats:?}");
         // the side exit is swept and the blocks after it renumbered:
         // the guard now branches straight to the merge `m = x`
@@ -613,7 +613,7 @@ mod tests {
     fn a_merge_cell_one_path_skips_keeps_the_guard() {
         let mut f = divisor_sums(1_000_000, false);
         let mut stats = BranchFoldStats::default();
-        fold_in_function(&mut f, &[], &mut stats);
+        fold_in_function(&mut f, &[], None, &mut stats);
         assert_eq!(stats.folded, 0, "{stats:?}");
     }
 
@@ -623,7 +623,7 @@ mod tests {
     fn an_unbounded_divisor_keeps_the_guard() {
         let mut f = divisor_sums(i64::MAX - 1, true);
         let mut stats = BranchFoldStats::default();
-        fold_in_function(&mut f, &[], &mut stats);
+        fold_in_function(&mut f, &[], None, &mut stats);
         assert_eq!(stats.folded, 0, "{stats:?}");
     }
 }
