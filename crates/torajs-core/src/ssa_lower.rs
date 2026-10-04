@@ -262,11 +262,6 @@ pub(crate) struct PreReserveState {
     /// back to the array's len field at loop exit. mem2reg promotes
     /// this to a phi-register at -O1+.
     pub(crate) len_slot: ValueId,
-    /// Whether the [[Extensible]] refusal rides every append instead of
-    /// the preheader: set when a push argument can run user code (a
-    /// call, an `any` operand) that could freeze the receiver between
-    /// appends — see `emit_prereserve_entry_gate`.
-    pub(crate) gate_per_append: bool,
     /// Whether the cell's own length word may stay behind the running
     /// count until the loop's normal exit.
     ///

@@ -160,7 +160,7 @@ pub(crate) fn begin_loop(
         // user code can name until `map` / `filter` answers it, so the
         // length word may stay in a register until then (a `map` hole
         // mark settles it first) — see `PreReserveState::defer_len`.
-        dst_fast = Some(ctx.emit_prereserved_state(reserved, true, false));
+        dst_fast = Some(ctx.emit_prereserved_state(reserved, true));
     }
     ctx.f.set_term(ctx.cur_block, Terminator::Br(header_blk));
     ctx.cur_block = header_blk;

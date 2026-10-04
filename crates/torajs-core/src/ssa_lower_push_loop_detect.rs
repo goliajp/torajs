@@ -110,10 +110,22 @@ pub(crate) fn detect_push_loop_arrays(
 ///
 /// So the bound has to be inert in the same sense a push argument has
 /// to be ([`push_args_all_inert`]): literals, numeric locals, and
-/// arithmetic over them. A body of nothing but pushes cannot write a
-/// local, so inert here really is invariant. The width is checked on
-/// the lowered operand rather than the source expression because
-/// `number` says nothing about which one it landed in.
+/// arithmetic over them. The width is checked on the lowered operand
+/// rather than the source expression because `number` says nothing
+/// about which one it landed in.
+///
+/// # Push arguments must not run code
+///
+/// Inert means invariant only if nothing in the body writes: a body of
+/// pushes still evaluates its arguments, and an argument can assign
+/// (`xs.push(n = 300)`) or call a function that does (`xs.push(bump())`
+/// moved the bound from 4 to 2000000 under a reserve of 4 and the
+/// inline stores ran off the buffer, SIGSEGV), or one that pushes to
+/// the same array (`xs.push(g(xs))` answered `1,1,1` where the answer
+/// is `99,1,99,1,99,1`: the inline stores write at a private running
+/// length the runtime push never sees). So every argument has to be
+/// one that cannot call or write (`push_args_cannot_call`); anything
+/// else takes the checked push.
 ///
 /// # The reserved arrays must be distinct
 ///
@@ -144,18 +156,16 @@ pub(crate) fn lower_reserve_bound(
     if distinct > 1 && !all_owned {
         return None;
     }
-    if !bound_is_invariant(ctx, bound, names, all_owned) || !branch_conds_inert(ctx, body) {
+    if !bound_is_invariant(ctx, bound, names, all_owned)
+        || !branch_conds_inert(ctx, body)
+        || !crate::ssa_lower_push_loop_gate::push_args_cannot_call(ctx, body)
+    {
         return None;
     }
     let op = ctx.lower_expr(bound);
     match ctx.operand_ty(&op) {
         Type::I64 => Some(op),
-        // an f64 bound past 2^53 reserves what cannot be allocated, and
-        // nothing a push argument does may run between that and the
-        // first store
-        Type::F64 if crate::ssa_lower_push_loop_gate::push_args_cannot_call(ctx, body) => {
-            Some(ctx.emit_f64_trip_count(op))
-        }
+        Type::F64 => Some(ctx.emit_f64_trip_count(op)),
         _ => None,
     }
 }

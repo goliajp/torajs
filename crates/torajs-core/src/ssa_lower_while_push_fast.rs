@@ -77,7 +77,6 @@ pub(crate) fn lower_while_inner(
         // `PreReserveState::defer_len`. The trailing counter step is
         // inert by the same reading.
         let defer_len = crate::ssa_lower_push_loop_detect::push_args_all_inert(ctx, body, &names);
-        let gate_per_append = !crate::ssa_lower_push_loop_gate::push_args_cannot_call(ctx, body);
         for (name, per_trip) in crate::ssa_lower_arr_prereserve::push_counts(&names) {
             let Some(info) = ctx.locals.get(&name).copied() else {
                 continue;
@@ -124,10 +123,8 @@ pub(crate) fn lower_while_inner(
                 None,
             );
             // B1 — reserve never moves the cell; write-back retired.
-            if !gate_per_append {
-                ctx.emit_prereserve_entry_gate(reserved, bound_op);
-            }
-            let state = ctx.emit_prereserved_state(reserved, defer_len, gate_per_append);
+            ctx.emit_prereserve_entry_gate(reserved, bound_op);
+            let state = ctx.emit_prereserved_state(reserved, defer_len);
             ctx.prereserve.unchecked_for.insert(name.clone(), state);
             reserve_emitted.push(name.clone());
         }

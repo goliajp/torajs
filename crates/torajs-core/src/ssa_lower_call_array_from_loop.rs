@@ -101,7 +101,7 @@ fn alloc_from_dst(
         dst_arr_ty,
         None,
     );
-    let fast = ctx.emit_prereserved_state(reserved, true, false);
+    let fast = ctx.emit_prereserved_state(reserved, true);
     (src_len, dst_slot, fast)
 }
 

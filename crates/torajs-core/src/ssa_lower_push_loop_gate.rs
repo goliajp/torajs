@@ -1,27 +1,26 @@
-//! Where the pre-reserved fill loop's [[Extensible]] refusal may sit —
-//! once in the preheader, or on every append — decided by whether a
-//! push argument can run user code. The sibling of
-//! [`crate::ssa_lower_push_loop_detect`], which decides whether the
-//! loop takes the inline-store lane at all; the two ask different
-//! questions of the same arguments (see [`push_args_cannot_call`]).
+//! Whether the pre-reserved fill loop may be installed over a body's
+//! push arguments at all: none of them may run user code. The sibling
+//! of [`crate::ssa_lower_push_loop_detect`], which recognizes the loop
+//! shape; this answers the question that shape leaves open (see
+//! [`push_args_cannot_call`]).
 
 use crate::ast::{Expr, ExprId, Stmt};
 use crate::ssa::Type;
 use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_push_loop_detect::{expr_is_inert, is_inert_binop};
 
-/// The wider question the [[Extensible]] gate asks of the same
-/// arguments: not "can it look at the array" but "can it run user
-/// code" — a call, or an operator over an `any` operand (`valueOf`).
-/// An argument that cannot has nothing to observe about the order
-/// between its own evaluation and the refusal, so the gate may sit
-/// once in the preheader; one that can takes the gate on every append
-/// (`emit_prereserve_entry_gate` / `emit_prereserve_append_gate`).
-/// Strictly wider than [`crate::ssa_lower_push_loop_detect::push_args_all_inert`]: a local of any type,
-/// a string literal, `a + b` over non-`any` operands and a typed
-/// array element (`dst.push(src[i])`) all qualify. `defer_len` was
-/// the first key tried and cost array-copy-1m +15% for a per-append
-/// check `src[i]` never needed.
+/// Whether no push argument (and no branch condition) can run user
+/// code — a call, an assignment, an increment, or an operator over an
+/// `any` operand (`valueOf`). Code run there could write the loop bound
+/// read once above the loop, push to the array behind the inline
+/// stores' private running length, or freeze it between appends; an
+/// argument that cannot run code has nothing to observe either, so the
+/// [[Extensible]] refusal sits once in the preheader
+/// (`emit_prereserve_entry_gate`). Strictly wider than
+/// [`crate::ssa_lower_push_loop_detect::push_args_all_inert`]: a local
+/// of any type, a string literal, `a + b` over non-`any` operands, a
+/// typed array element (`dst.push(src[i])`) and a fresh array of such
+/// elements all qualify.
 pub(crate) fn push_args_cannot_call(ctx: &LowerCtx<'_>, s: &Stmt) -> bool {
     match s {
         Stmt::Expr(eid) => match ctx.ast.get_expr(*eid) {
@@ -87,6 +86,9 @@ fn expr_cannot_call(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
             };
             ctx.arr_layouts[id.0 as usize] != Type::Any && expr_cannot_call(ctx, *index)
         }
+        // a fresh array of such elements (`rows.push([])`); a spread
+        // runs an iterator and is refused with the rest
+        Expr::Array(elems) => elems.iter().all(|e| expr_cannot_call(ctx, *e)),
         _ => false,
     }
 }
