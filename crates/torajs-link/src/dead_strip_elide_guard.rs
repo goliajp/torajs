@@ -1,7 +1,6 @@
 //! The link judgment's evidence test — is a [`Guard`]'s runtime
-//! text live in one reachability probe — split from
-//! `dead_strip_elide` (the fix-point driver) under the 500-line file
-//! rule.
+//! text live in one reachability probe. The fix-point driver is
+//! `dead_strip_elide`.
 
 use crate::dead_strip_elide::Guard;
 use crate::dead_strip_reach::{MemberReach, ReachResult};
