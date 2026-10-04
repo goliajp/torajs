@@ -5,7 +5,7 @@
 //! of `Math` and `Number`, which no container lattice holds. Split from
 //! `container_methods.rs` (file-size limit).
 
-use super::{Analysis, Scope, SlotKey, W};
+use super::{Analysis, Scope, SlotKey};
 use crate::ast::{Expr, ExprId};
 
 impl<'a> Analysis<'a> {
@@ -79,9 +79,9 @@ impl<'a> Analysis<'a> {
                 self.mark_containerish(&rk);
                 let ek = SlotKey::Elem(Box::new(rk));
                 if name == "deleteProperty" {
-                    self.add_container_constraint(ek, W::F64);
+                    self.add_container_constraint(ek, super::magnitude::f64_flow());
                 } else if let Some(v) = args.get(2).copied() {
-                    let w = self.width_of(v, scope);
+                    let w = self.flow(v, scope);
                     self.add_container_constraint(ek.clone(), w);
                     if let Some(vk) = self.container_key_of(v, scope) {
                         self.nested_unions.push((ek, vk));

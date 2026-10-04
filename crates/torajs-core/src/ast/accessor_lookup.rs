@@ -98,6 +98,33 @@ pub(crate) fn getter_fn_names<'a>(ast: &'a Ast, prop: &str) -> Vec<&'a str> {
     out
 }
 
+/// Every getter by the property name it serves, in one arena pass:
+/// [`getter_fn_names`] for all names at once.
+pub(crate) fn getter_fns_by_prop(ast: &Ast) -> HashMap<String, Vec<&str>> {
+    let mut out: HashMap<String, Vec<&str>> = HashMap::new();
+    let class = ast.accessor_getters.iter();
+    for ((_, p), f) in class.chain(ast.static_accessor_getters.iter()) {
+        let prop = p.as_wtf8().to_string_lossy().into_owned();
+        out.entry(prop).or_default().push(f.as_str());
+    }
+    for id in 0..ast.exprs.len() {
+        let super::Expr::ObjectLit { fields } = ast.get_expr(super::ExprId(id as u32)) else {
+            continue;
+        };
+        for (fname, value) in fields {
+            let name = fname.as_wtf8().to_string_lossy();
+            if let Some(prop) = name.strip_prefix("__getter_")
+                && let super::Expr::Closure { fn_name, .. } = ast.get_expr(*value)
+            {
+                out.entry(prop.to_string())
+                    .or_default()
+                    .push(fn_name.as_str());
+            }
+        }
+    }
+    out
+}
+
 pub(crate) fn accessor_getter_in_chain(
     ast: &Ast,
     cls_key: &str,

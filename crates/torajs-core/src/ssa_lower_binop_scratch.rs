@@ -70,4 +70,8 @@ pub(crate) struct BinopScratch {
     /// The int-path square just lowered for the compare: its product and
     /// the root it squared.
     pub(crate) square_root: Option<(crate::ssa::ValueId, crate::ssa::Operand)>,
+    /// Set while an integer `+ - *` whose result may leave the exact
+    /// window dispatches (`WidthTable::arith_in_window`): it computes
+    /// in f64.
+    pub(crate) arith_unbounded: bool,
 }

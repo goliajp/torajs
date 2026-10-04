@@ -12,7 +12,12 @@ impl<'a> Analysis<'a> {
     /// but lands in `c_seeds`/`c_edges`, which only the canonical
     /// fixpoint merges in. Keeps the scalar (pre-W4) fixpoint
     /// bit-identical until D2/D3 wire the consuming lowering sites.
-    pub(super) fn add_container_constraint(&mut self, target: SlotKey, w: W) {
+    pub(super) fn add_container_constraint(
+        &mut self,
+        target: SlotKey,
+        (w, m): super::magnitude::Flow,
+    ) {
+        self.record_mag(target.clone(), m);
         match w {
             W::F64 => self.c_seeds.push(target),
             W::Num(deps) => {
@@ -148,7 +153,7 @@ impl<'a> Analysis<'a> {
                         }
                         continue;
                     }
-                    let w = self.width_of(el, scope);
+                    let w = self.flow(el, scope);
                     self.add_container_constraint(ek.clone(), w);
                     // A function value as a literal element: same
                     // projection wiring as a `push` (638-13).
@@ -169,7 +174,7 @@ impl<'a> Analysis<'a> {
                 self.mark_containerish(&anon);
                 for (fname, fe) in fields.clone() {
                     let fk = SlotKey::Field(Box::new(anon.clone()), fname.clone());
-                    let w = self.width_of(fe, scope);
+                    let w = self.flow(fe, scope);
                     self.add_container_constraint(fk.clone(), w);
                     // F5 — a function value stored in a struct-literal
                     // field wires the field's `__ret` / `__p{i}`
@@ -263,7 +268,7 @@ impl<'a> Analysis<'a> {
                 Some(rk) => {
                     self.mark_containerish(&rk);
                     let ek = SlotKey::Elem(Box::new(rk));
-                    let w = self.width_of(value, scope);
+                    let w = self.flow(value, scope);
                     self.add_container_constraint(ek.clone(), w);
                     // A function value assigned into an element: same
                     // projection wiring as a `push` (638-13).
@@ -287,7 +292,7 @@ impl<'a> Analysis<'a> {
                 if let Some(rk) = self.container_key_of(*obj, scope) {
                     self.mark_containerish(&rk);
                     let fk = SlotKey::Field(Box::new(rk), PropKey::from(name));
-                    let w = self.width_of(value, scope);
+                    let w = self.flow(value, scope);
                     self.add_container_constraint(fk.clone(), w);
                     // F5 — fn value assigned into a field: same sig
                     // projection wiring as the struct-literal fill.
@@ -303,7 +308,7 @@ impl<'a> Analysis<'a> {
                     let f = format!("__cm_{c}__{name}_set");
                     if let Some(p1) = self.fn_params.get(&f).and_then(|ps| ps.get(1)).cloned() {
                         let pk = SlotKey::Param(f.clone(), p1);
-                        let w = self.width_of(value, scope);
+                        let w = self.flow(value, scope);
                         self.add_container_constraint(pk.clone(), w);
                         self.alias_guarded(pk, value, scope);
                     }

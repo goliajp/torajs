@@ -2,9 +2,10 @@
 //! module AST into seeds (statically-f64 writes) and edges (slot-to-
 //! slot value flow) for the fixpoint in `mod.rs`.
 
-use super::{Analysis, Scope, SlotKey, W};
+use super::magnitude::{Flow, Mag};
+use super::{Analysis, Scope, SlotKey};
 use crate::ast::PropKey;
-use crate::ast::{Expr, ExprId, Stmt};
+use crate::ast::{BinOp, Expr, ExprId, Stmt};
 
 impl<'a> Analysis<'a> {
     pub(super) fn walk_stmt(&mut self, s: &Stmt, scope: &Scope) {
@@ -17,7 +18,7 @@ impl<'a> Analysis<'a> {
             } => self.walk_let_decl(name, type_ann.as_deref(), *init, scope),
             Stmt::Return(Some(e)) => {
                 if !scope.fn_name.is_empty() {
-                    let w = self.width_of(*e, scope);
+                    let w = self.flow(*e, scope);
                     let rk = SlotKey::Ret(scope.fn_name.to_string());
                     self.add_constraint(rk.clone(), w);
                     self.alias_guarded(rk.clone(), *e, scope);
@@ -29,7 +30,7 @@ impl<'a> Analysis<'a> {
                 // The thrown value goes through the one pending-throw
                 // slot, so its width feeds that slot's class and comes
                 // back out at whatever catch binding reads it.
-                let w = self.width_of(*e, scope);
+                let w = self.flow(*e, scope);
                 self.add_container_constraint(SlotKey::Thrown, w);
                 self.walk_expr(*e, scope);
             }
@@ -51,14 +52,16 @@ impl<'a> Analysis<'a> {
             }
             Stmt::While { cond, body } => {
                 self.walk_expr(*cond, scope);
-                self.bounds_guarded(Some(*cond), |a| a.walk_stmt(body, scope));
+                self.mag_loop(Some(*cond), scope, |a| {
+                    a.bounds_guarded(Some(*cond), |a| a.walk_stmt(body, scope))
+                });
             }
             // A do-while's guard runs AFTER the body, so the first
             // iteration is unguarded — no pair, whatever the
             // condition spells. Lowering agrees by never pushing one.
             Stmt::DoWhile { body, cond } => {
                 self.walk_expr(*cond, scope);
-                self.walk_stmt(body, scope);
+                self.mag_loop(Some(*cond), scope, |a| a.walk_stmt(body, scope));
             }
             Stmt::For {
                 init,
@@ -72,13 +75,15 @@ impl<'a> Analysis<'a> {
                 if let Some(c) = cond {
                     self.walk_expr(*c, scope);
                 }
-                if let Some(st) = step {
-                    self.walk_expr(*st, scope);
-                }
-                // The step is walked above, outside the window — the
+                // The step is walked first, outside the window — the
                 // lowerer likewise lowers it after the pop, so its
                 // `i` write never taints the body.
-                self.bounds_guarded(*cond, |a| a.walk_stmt(body, scope));
+                self.mag_loop(*cond, scope, |a| {
+                    if let Some(st) = step {
+                        a.walk_expr(*st, scope);
+                    }
+                    a.bounds_guarded(*cond, |a| a.walk_stmt(body, scope));
+                });
             }
             Stmt::ForOf {
                 var_name,
@@ -95,7 +100,7 @@ impl<'a> Analysis<'a> {
                 } else {
                     SlotKey::Local(scope.fn_name.to_string(), var_name.clone())
                 };
-                let w = self.width_of(*elem_expr, scope);
+                let w = self.flow(*elem_expr, scope);
                 self.add_constraint(key.clone(), w);
                 // a `Map<K, number>` values() source steps an f64 on the
                 // typed lane (`ssa_lower_map_num_lane`), sentinel included
@@ -103,18 +108,18 @@ impl<'a> Analysis<'a> {
                     && matches!(self.expr_types.get(obj),
                         Some(crate::check::Type::MapIter(t)) if **t == crate::check::Type::Number)
                 {
-                    self.add_constraint(key.clone(), W::F64);
+                    self.add_constraint(key.clone(), super::magnitude::f64_flow());
                 }
                 self.alias_guarded(key, *elem_expr, scope);
                 self.walk_expr(*elem_expr, scope);
-                self.walk_stmt(body, scope);
+                self.mag_loop(None, scope, |a| a.walk_stmt(body, scope));
             }
             Stmt::ForOfSplitIter {
                 parent, sep, body, ..
             } => {
                 self.walk_expr(*parent, scope);
                 self.walk_expr(*sep, scope);
-                self.walk_stmt(body, scope);
+                self.mag_loop(None, scope, |a| a.walk_stmt(body, scope));
             }
             Stmt::Switch {
                 scrutinee,
@@ -198,7 +203,7 @@ impl<'a> Analysis<'a> {
     /// imply. Split out of `walk_stmt` — it is the one arm that
     /// touches five of the analysis's channels at once.
     fn walk_let_decl(&mut self, name: &str, type_ann: Option<&str>, init: ExprId, scope: &Scope) {
-        let w = self.width_of(init, scope);
+        let w = self.flow(init, scope);
         let key = if scope.fn_name.is_empty() {
             SlotKey::Global(name.to_string())
         } else {
@@ -234,7 +239,7 @@ impl<'a> Analysis<'a> {
             Expr::Assign { target, value } => {
                 if let Expr::Ident(n) = self.ast.get_expr(*target) {
                     let n = n.clone();
-                    let w = self.width_of(*value, scope);
+                    let w = self.flow(*value, scope);
                     self.assign_to_name(&n, w, scope);
                     if let Some(k) = self.resolve(&n, scope) {
                         self.alias_guarded(k.clone(), *value, scope);
@@ -251,8 +256,14 @@ impl<'a> Analysis<'a> {
                 self.walk_expr(*value, scope);
             }
             Expr::Call { callee, args } => self.walk_call(eid, *callee, args, scope),
-            Expr::BinOp { left, right, .. }
-            | Expr::Sequence { left, right }
+            Expr::BinOp { op, left, right } => {
+                if matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul) {
+                    self.record_arith(eid, scope);
+                }
+                self.walk_expr(*left, scope);
+                self.walk_expr(*right, scope);
+            }
+            Expr::Sequence { left, right }
             | Expr::Nullish {
                 lhs: left,
                 rhs: right,
@@ -333,7 +344,7 @@ impl<'a> Analysis<'a> {
                 let anon = SlotKey::Anon(eid.0);
                 for (fname, e) in fields {
                     let fk = SlotKey::Field(Box::new(anon.clone()), fname.clone());
-                    let w = self.width_of(*e, scope);
+                    let w = self.flow(*e, scope);
                     self.add_container_constraint(fk, w);
                     self.walk_expr(*e, scope);
                 }
@@ -352,7 +363,10 @@ impl<'a> Analysis<'a> {
                     self.walk_expr(*a, scope);
                 }
             }
-            Expr::PostIncr { target, .. } => self.walk_expr(*target, scope),
+            Expr::PostIncr { target, is_inc, .. } => {
+                self.record_step(*target, *is_inc, scope);
+                self.walk_expr(*target, scope);
+            }
             Expr::ArrowFn { params, body, .. } => {
                 // Pre-lift arrow (rare at this stage): walk its body
                 // under an extended scope so writes to outer slots
@@ -403,11 +417,20 @@ impl<'a> Analysis<'a> {
         {
             for (i, arg) in args.iter().enumerate() {
                 if let Some(pname) = pnames.get(i) {
-                    let w = self.width_of(*arg, scope);
+                    let w = self.flow(*arg, scope);
                     let pk = SlotKey::Param(fname.clone(), pname.clone());
                     self.add_constraint(pk.clone(), w);
                     self.alias_guarded(pk.clone(), *arg, scope);
                     self.fn_value_flow(&pk, *arg, scope);
+                }
+            }
+            // a spread hands parameters values no argument spells
+            if args
+                .iter()
+                .any(|a| matches!(self.ast.get_expr(*a), Expr::Spread { .. }))
+            {
+                for p in pnames {
+                    self.record_mag(SlotKey::Param(fname.clone(), p), Mag::top());
                 }
             }
         } else if !matches!(self.ast.get_expr(callee), Expr::Member { .. })
@@ -418,7 +441,7 @@ impl<'a> Analysis<'a> {
             // indirect mirror of the direct Param edges; member
             // callees keep their builtin method handling).
             for (i, arg) in args.iter().enumerate() {
-                let w = self.width_of(*arg, scope);
+                let w = self.flow(*arg, scope);
                 let pk = SlotKey::Field(Box::new(ck.clone()), PropKey::from(format!("__p{i}")));
                 self.add_constraint(pk.clone(), w);
                 // RFC 20260726-array-elem-width — a CONTAINER
@@ -451,29 +474,14 @@ impl<'a> Analysis<'a> {
     /// synthetic body a name `resolve` cannot pin (no capture binding,
     /// see `captures.rs`) may be any outer binding of that spelling —
     /// broadcast to every same-named slot (conservative, F64-ward).
-    pub(super) fn assign_to_name(&mut self, n: &str, w: W, scope: &Scope) {
+    pub(super) fn assign_to_name(&mut self, n: &str, w: Flow, scope: &Scope) {
         if let Some(key) = self.resolve(n, scope) {
             self.add_constraint(key, w);
         } else if scope.fn_name.starts_with("__")
             && let Some(keys) = self.by_name.get(n).cloned()
         {
-            match w {
-                W::F64 => {
-                    for k in keys {
-                        self.seeds.push(k);
-                    }
-                }
-                W::Num(deps) => {
-                    for (d, growth) in &deps {
-                        for k in &keys {
-                            self.edges
-                                .entry(d.clone())
-                                .or_default()
-                                .push((k.clone(), *growth));
-                        }
-                    }
-                }
-                W::NotNum => {}
+            for k in keys {
+                self.add_constraint(k, w.clone());
             }
         }
     }

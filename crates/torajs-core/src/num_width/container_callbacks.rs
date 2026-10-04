@@ -133,7 +133,7 @@ impl Analysis<'_> {
                         // Accumulator: seeded by the init arg, fed back
                         // from the callback's own ret.
                         if let Some(init) = args.get(1).copied() {
-                            let w = self.width_of(init, scope);
+                            let w = self.flow(init, scope);
                             self.add_container_constraint(pk.clone(), w);
                             self.alias_guarded(pk.clone(), init, scope);
                         }

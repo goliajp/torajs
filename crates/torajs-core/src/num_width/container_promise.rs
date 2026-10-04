@@ -71,7 +71,7 @@ impl Analysis<'_> {
         if matches!(name, "resolve" | "reject")
             && let Some(a0) = args.first()
         {
-            let w = self.width_of(*a0, scope);
+            let w = self.flow(*a0, scope);
             self.add_container_constraint(pv.clone(), w);
             if let Some(ak) = self.container_key_of(*a0, scope) {
                 // RFC 20260726-array-elem-width — which point the

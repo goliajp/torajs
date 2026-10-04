@@ -82,6 +82,9 @@ pub(crate) struct WidthTable {
     /// that drops the NaN arm has to read the proof the width was
     /// taken under.
     char_code_at_proven: HashSet<ExprId>,
+    /// The integer `+ - *` whose every result stays inside the exact
+    /// window (`magnitude.rs`); the rest compute in f64.
+    arith_in_window: HashSet<ExprId>,
     /// The pre-walk slot-name registry (`analyze_tables::
     /// collect_slot_registry`): every binding's spellings by name —
     /// `Param(f, n)` / `Local(f, n)` per top-level fn, `Global(n)` for
@@ -114,6 +117,7 @@ impl WidthTable {
         index_read_proven: HashSet<ExprId>,
         index_read_settled: HashSet<ExprId>,
         char_code_at_proven: HashSet<ExprId>,
+        arith_in_window: HashSet<ExprId>,
         by_name: HashMap<String, Vec<SlotKey>>,
         captures: super::captures::CaptureMap,
         bound_closures: super::bound_closures::BoundClosures,
@@ -132,6 +136,7 @@ impl WidthTable {
             index_read_proven,
             index_read_settled,
             char_code_at_proven,
+            arith_in_window,
             by_name,
             captures,
             bound_closures,
@@ -197,6 +202,12 @@ impl WidthTable {
     /// narrowed to an integer under the bounds proof.
     pub(crate) fn char_code_at_proven(&self, eid: ExprId) -> bool {
         self.char_code_at_proven.contains(&eid)
+    }
+
+    /// See the field's doc — an integer `+ - *` that may keep the i64
+    /// path.
+    pub(crate) fn arith_in_window(&self, eid: ExprId) -> bool {
+        self.arith_in_window.contains(&eid)
     }
 
     /// W4 shape-join query — true when `name` floats on any literal

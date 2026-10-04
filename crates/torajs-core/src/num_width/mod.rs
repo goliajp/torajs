@@ -45,6 +45,7 @@ mod fallthrough;
 mod fnsig;
 mod json_seed;
 mod let_names;
+mod magnitude;
 mod method_value;
 mod mono;
 mod sentinel_hof;
@@ -57,6 +58,7 @@ mod width_table;
 
 pub(crate) use container_promise::awaited_promise_inner_of;
 pub(crate) use fnsig::{fn_type_canon, split_fn_type};
+pub(crate) use magnitude::EXACT_INT_MAX;
 pub(crate) use mono::{NumWidth, compute_typevar_widths};
 pub(crate) use width_table::WidthTable;
 
@@ -125,6 +127,7 @@ pub(crate) enum SlotKey {
 pub(super) type Dep = (SlotKey, bool);
 
 /// Width of an expression as seen by the analysis.
+#[derive(Clone)]
 pub(super) enum W {
     /// Statically certain to be (or possibly be) a fractional /
     /// non-i64-exact f64 value.
@@ -283,6 +286,8 @@ pub(super) struct Analysis<'a> {
     /// reads it per expression and the getter half costs an arena
     /// scan to answer.
     pub(super) sentinel_member_reads: HashSet<ExprId>,
+    /// Magnitude bounds of the writes and `+ - *` the walk saw.
+    mag: magnitude::MagRecord,
 }
 
 /// Full analysis result — the F64 slot classes plus the container
@@ -336,6 +341,7 @@ pub(crate) fn analyze(
         settled_reads: HashSet::new(),
         char_code_proven: HashSet::new(),
         sentinel_member_reads: HashSet::new(),
+        mag: Default::default(),
     };
 
     // Top-level statements walk under the "" scope; fn bodies under
@@ -390,6 +396,7 @@ pub(crate) fn analyze(
     }
     container::canonicalize(&mut a);
     cycle::seed_growth_cycles(&a.edges, &mut a.seeds);
+    let arith_in_window = magnitude::settle(&mut a);
     // RFC 20260708-spread-call chunk 2a — any-face slots seed the
     // F64 fixpoint. A number slot fed from the any world (an `any[]`
     // elem read into a number param, an `any` param flowing into a
@@ -463,6 +470,7 @@ pub(crate) fn analyze(
         a.proven_reads,
         a.settled_reads,
         a.char_code_proven,
+        arith_in_window,
         a.by_name,
         a.captures,
         a.bound_closures,
@@ -811,5 +819,59 @@ mod tests {
         assert!(!s.contains(&param("sq", "x")));
         assert!(s.contains(&local("sq", "a")));
         assert!(s.contains(&ret("sq")));
+    }
+
+    #[test]
+    fn window_sum_of_large_param_is_f64() {
+        // `z + z + z` over a value near 2^53 leaves the exact window
+        let big = slots(
+            "function g(z: number): number {\n  let t: number = z + z + z;\n  return t;\n}\nconsole.log(g(9007199254740991));",
+        );
+        assert!(big.contains(&local("g", "t")));
+        assert!(!big.contains(&param("g", "z")));
+        let small =
+            slots("function g(z: number): number {\n  return z + z + z;\n}\nconsole.log(g(7));");
+        assert!(!small.contains(&ret("g")));
+    }
+
+    #[test]
+    fn window_counter_bound_counts_its_start() {
+        let src = |start: &str| {
+            format!(
+                "function f(n: number): number {{\n  let s: number = {start};\n  let i: number = 0;\n  while (i < n) {{ s += 2; i++; }}\n  return s;\n}}\nconsole.log(f(5));"
+            )
+        };
+        let big = slots(&src("9007199254740000"));
+        assert!(big.contains(&local("f", "s")));
+        assert!(!big.contains(&local("f", "i")));
+        let small = slots(&src("0"));
+        assert!(!small.contains(&local("f", "s")));
+    }
+
+    #[test]
+    fn window_const_product_of_large_literal_is_f64() {
+        let s = slots(
+            "function m(x: number): number {\n  let p: number = x * 3;\n  let q: number = x;\n  return p + q;\n}\nconsole.log(m(9007199254740991));",
+        );
+        assert!(s.contains(&local("m", "p")));
+        assert!(!s.contains(&local("m", "q")));
+    }
+
+    #[test]
+    fn window_loop_test_bounds_its_counter() {
+        let src = |bound: &str| {
+            format!(
+                "function f(n: number): number {{\n  let p: number = 0;\n  for (let i = 0; i < {bound}; i++) {{ p = i * 10000000; }}\n  return p;\n}}\nconsole.log(f(5));"
+            )
+        };
+        assert!(!slots(&src("1000")).contains(&local("f", "p")));
+        // `n` holds whatever a caller may hand it, past 2^32 for all
+        // the analysis knows, and `i * 10^7` then passes 2^53
+        assert!(slots(&src("n")).contains(&local("f", "p")));
+        // a negative step is not held by an upper bound
+        let down = slots(
+            "function g(): number {\n  let p: number = 0;\n  let i: number = 0;\n  while (i < 1000) { i = i + -1; p = i * 10000000; }\n  return p;\n}\nconsole.log(g());",
+        );
+        assert!(down.contains(&local("g", "p")));
     }
 }

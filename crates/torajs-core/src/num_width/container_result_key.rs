@@ -95,7 +95,7 @@ impl<'a> Analysis<'a> {
                     // arg's element class only with candidate-side
                     // container evidence, and feed its scalar width
                     // either way.
-                    let w = self.width_of(a, scope);
+                    let w = self.flow(a, scope);
                     self.add_container_constraint(aek.clone(), w);
                     if let Some(ak) = self.container_key_of(a, scope) {
                         self.uf.union(&anon, &ak);

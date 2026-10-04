@@ -175,7 +175,7 @@ impl<'a> Analysis<'a> {
             _ => Vec::new(),
         };
         for a in write_args {
-            let w = self.width_of(a, scope);
+            let w = self.flow(a, scope);
             self.add_container_constraint(ek.clone(), w);
             // A function value written into the element slot wires the
             // slot's signature projections onto its own (F5; 638-13).
@@ -196,7 +196,7 @@ impl<'a> Analysis<'a> {
         // (9 printed 4.4e-323). Every call site joins them here.
         if name == "concat" {
             for &a in args {
-                let w = self.width_of(a, scope);
+                let w = self.flow(a, scope);
                 self.add_container_constraint(ek.clone(), w);
                 if let Some(ak) = self.container_key_of(a, scope) {
                     self.mark_containerish(&ak);
@@ -205,7 +205,7 @@ impl<'a> Analysis<'a> {
             }
         }
         if answers_undef_sentinel(&name) {
-            self.add_container_constraint(ek.clone(), super::W::F64);
+            self.add_container_constraint(ek.clone(), super::magnitude::f64_flow());
         }
         self.callback_param_wiring(&name, args, obj, &ek, &recv, scope);
         // User class method broadcast: receiver joins every owner
@@ -222,7 +222,7 @@ impl<'a> Analysis<'a> {
                 for (i, a) in args.iter().enumerate() {
                     if let Some(p) = ps.get(i + 1) {
                         let pk = SlotKey::Param(f.clone(), p.clone());
-                        let w = self.width_of(*a, scope);
+                        let w = self.flow(*a, scope);
                         self.add_container_constraint(pk.clone(), w);
                         self.alias_guarded(pk, *a, scope);
                     }
@@ -237,7 +237,7 @@ impl<'a> Analysis<'a> {
         if !class_hit && !BUILTIN_MEMBER_METHODS.contains(&name.as_str()) {
             let fk = SlotKey::Field(Box::new(recv.clone()), PropKey::from(name));
             for (i, a) in args.iter().enumerate() {
-                let w = self.width_of(*a, scope);
+                let w = self.flow(*a, scope);
                 let pk = SlotKey::Field(Box::new(fk.clone()), PropKey::from(format!("__p{i}")));
                 self.add_constraint(pk.clone(), w);
                 // RFC 20260726-array-elem-width, member-callee half — a

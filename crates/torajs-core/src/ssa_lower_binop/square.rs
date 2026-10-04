@@ -188,8 +188,8 @@ fn exact_cmp(
     (a, b): (Operand, Operand),
     (left, right): (ExprId, ExprId),
 ) -> Operand {
-    const EXACT: i64 = 1 << 53;
-    let exact = |o: &Operand| matches!(o, Operand::ConstI64(k) if k.unsigned_abs() <= EXACT as u64);
+    const EXACT: u64 = crate::num_width::EXACT_INT_MAX as u64;
+    let exact = |o: &Operand| matches!(o, Operand::ConstI64(k) if k.unsigned_abs() <= EXACT);
     if exact(&a) || exact(&b) {
         return ctx.lower_binop_with_ids(op, a, b, Some(left), Some(right));
     }

@@ -11,7 +11,7 @@
 //! duplicates lowering's T-02 promotion — harmless overlap, one
 //! source of truth here.
 
-use super::{Analysis, SlotKey, W};
+use super::{Analysis, SlotKey};
 use crate::ast::PropKey;
 use crate::ast::{Expr, ExprId, Stmt};
 use std::collections::HashSet;
@@ -41,7 +41,7 @@ impl<'a> Analysis<'a> {
     /// target slot, walking the annotation spelling.
     pub(super) fn json_parse_seed(&mut self, key: &SlotKey, ann: Option<&str>) {
         if number_domain(ann) {
-            self.add_constraint(key.clone(), W::F64);
+            self.add_constraint(key.clone(), super::magnitude::f64_flow());
         }
         let mut seen: HashSet<String> = HashSet::new();
         self.json_seed_container(key, ann, &mut seen);
@@ -60,7 +60,7 @@ impl<'a> Analysis<'a> {
             self.mark_containerish(key);
             self.mark_containerish(&ek);
             if number_domain(Some(elem)) {
-                self.add_container_constraint(ek.clone(), W::F64);
+                self.add_container_constraint(ek.clone(), super::magnitude::f64_flow());
             }
             self.json_seed_container(&ek, Some(elem), seen);
             return;
@@ -89,7 +89,7 @@ impl<'a> Analysis<'a> {
         for (fname, fann) in fields {
             let fk = SlotKey::Field(Box::new(key.clone()), fname);
             if number_domain(Some(&fann)) {
-                self.add_container_constraint(fk.clone(), W::F64);
+                self.add_container_constraint(fk.clone(), super::magnitude::f64_flow());
             }
             self.json_seed_container(&fk, Some(&fann), seen);
         }

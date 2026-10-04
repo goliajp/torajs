@@ -112,7 +112,11 @@ pub(crate) fn lower(
     // operands — both `a` and `b` keep their heaps and remain
     // readable + droppable afterwards. The concat runtime produces
     // a fresh allocation without freeing inputs.
+    let unbounded = matches!(op, AstBinOp::Add | AstBinOp::Sub | AstBinOp::Mul)
+        && !ctx.num_f64_slots.arith_in_window(eid);
+    let saved_unbounded = std::mem::replace(&mut ctx.binop.arith_unbounded, unbounded);
     let result = sq.lower(ctx, op, (a, b), (left, right));
+    ctx.binop.arith_unbounded = saved_unbounded;
     ctx.unpark_owned_temp(b_tok);
     ctx.unpark_owned_temp(a_tok);
     // Drop fresh-owned refcounted operands left over from BinOp on

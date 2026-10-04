@@ -69,7 +69,7 @@ pub(super) fn seed_growth_cycles(edges: &HashMap<SlotKey, Vec<Dep>>, seeds: &mut
 /// Iterative Tarjan — returns the SCC id of every node. Component
 /// ids are arbitrary but equal within one SCC. Iterative because the
 /// assignment graph depth is module-sized, not stack-sized.
-fn tarjan(n: usize, adj: &[Vec<(usize, bool)>]) -> Vec<usize> {
+pub(super) fn tarjan(n: usize, adj: &[Vec<(usize, bool)>]) -> Vec<usize> {
     const UNSET: usize = usize::MAX;
     let mut index = vec![UNSET; n];
     let mut lowlink = vec![0usize; n];

@@ -161,9 +161,14 @@ pub(crate) fn lower(ctx: &mut LowerCtx, op: AstBinOp, a: Operand, b: Operand) ->
             (Operand::ConstI64(c), _) | (_, Operand::ConstI64(c)) => *c <= 0,
             _ => !ctx.binop.mul_square,
         };
+    // Number `+ - *` is f64: past the exact window it rounds where i64
+    // stays exact, so an operator not bounded inside it floats (a square
+    // a compare reads guards its own range)
+    let unbounded = std::mem::take(&mut ctx.binop.arith_unbounded) && !ctx.binop.mul_square;
     let force_float = matches!(op, AstBinOp::Div | AstBinOp::Pow)
         || (matches!(op, AstBinOp::Mod) && !mod_int_safe)
-        || mul_minus_zero_risk;
+        || mul_minus_zero_risk
+        || unbounded;
     let either_float = ctx.operand_ty(&a) == Type::F64 || ctx.operand_ty(&b) == Type::F64;
     let is_float = force_float || either_float;
 

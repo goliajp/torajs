@@ -1,6 +1,7 @@
 //! Expression width classification + slot resolution for the
 //! constraint walk in `walk.rs`.
 
+use super::magnitude::{COUNTER_HORIZON, EXACT_INT_MAX, Flow};
 use super::{Analysis, Scope, SlotKey, W, join, literal_is_f64};
 use crate::ast::{BinOp, Expr, ExprId, UnaryOp};
 
@@ -8,17 +9,10 @@ use crate::ast::{BinOp, Expr, ExprId, UnaryOp};
 /// growth op (W5). Inside an assignment-graph cycle that marking
 /// makes the cycle non-i64-safe.
 /// Largest literal step magnitude the counter carve-out admits
-/// without a growth mark (see [`Analysis::is_int_const`]).
-///
-/// The horizon behind it: a tight `t += 1` loop runs 2^31 trips in
-/// 0.54 s on the M-series bench box (rotation 507, three runs), so
-/// 2^48 trips is one loop running uninterrupted for ~20 hours — the
-/// point past which the original carve-out's "physically unreachable"
-/// claim is taken to hold. `|k| ≤ 2^5` keeps `2^53 / |k| ≥ 2^48`;
-/// the `i += 1` family that motivated the carve-out sits far inside
-/// it, and every real loop body is slower than the tight one the
-/// horizon was measured on.
-const MAX_COUNTER_STEP: i64 = 1 << 5;
+/// without a growth mark (see [`Analysis::is_int_const`]): a step
+/// whose `COUNTER_HORIZON` executions stay inside the exact window.
+/// Where the counter starts is the magnitude pass's question.
+const MAX_COUNTER_STEP: i64 = EXACT_INT_MAX / COUNTER_HORIZON;
 
 fn mark_growth(w: W) -> W {
     match w {
@@ -28,7 +22,8 @@ fn mark_growth(w: W) -> W {
 }
 
 impl<'a> Analysis<'a> {
-    pub(super) fn add_constraint(&mut self, target: SlotKey, w: W) {
+    pub(super) fn add_constraint(&mut self, target: SlotKey, (w, m): Flow) {
+        self.record_mag(target.clone(), m);
         match w {
             W::F64 => self.seeds.push(target),
             W::Num(deps) => {
@@ -243,10 +238,8 @@ impl<'a> Analysis<'a> {
             // Add/Sub with a literal int increment stays a linear
             // small-step counter (`i = i + 1`) — passes through
             // unmarked. A non-constant increment can be any size
-            // per step, so it marks growth. Known boundary: a
-            // huge-literal step (`n += 2**52`) is not marked —
-            // same physical-trip-count carve-out as counters
-            // (see rfc 20260611-ann-width-unification §5.5).
+            // per step, so it marks growth. Whether the sum leaves
+            // the exact window is the magnitude pass's question.
             BinOp::Add | BinOp::Sub => {
                 let w = join(self.width_of(left, scope), self.width_of(right, scope));
                 if self.is_int_const(left, scope) || self.is_int_const(right, scope) {
