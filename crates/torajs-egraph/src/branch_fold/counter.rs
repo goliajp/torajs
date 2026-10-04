@@ -157,35 +157,30 @@ fn counter_step(
         return None;
     };
     let mut step: Option<i128> = None;
-    for block in &func.blocks {
+    for &(bi, ii) in pe.def_sites(counter) {
+        let block = &func.blocks[bi];
         if !lp.contains(&block.id) {
             continue;
         }
-        for inst in &block.insts {
-            if inst.result != Some(counter) {
-                continue;
-            }
-            if step.is_some() || !pe.dom().dominates(block.id, *latch) {
-                return None;
-            }
-            let InstKind::Copy(_, Operand::Value(sv)) = &inst.kind else {
-                return None;
-            };
-            let sdef = pe.single_def(*sv)?;
-            let InstKind::BinOp(BinOp::Add, sa, sb) = &func.blocks[sdef.0].insts[sdef.1].kind
-            else {
-                return None;
-            };
-            let s = match (sa, sb) {
-                (Operand::Value(c2), other) if *c2 == counter => op_const_int(other)?,
-                (other, Operand::Value(c2)) if *c2 == counter => op_const_int(other)?,
-                _ => return None,
-            };
-            if s < 1 {
-                return None;
-            }
-            step = Some(s);
+        if step.is_some() || !pe.dom().dominates(block.id, *latch) {
+            return None;
         }
+        let InstKind::Copy(_, Operand::Value(sv)) = &block.insts[ii].kind else {
+            return None;
+        };
+        let sdef = pe.single_def(*sv)?;
+        let InstKind::BinOp(BinOp::Add, sa, sb) = &func.blocks[sdef.0].insts[sdef.1].kind else {
+            return None;
+        };
+        let s = match (sa, sb) {
+            (Operand::Value(c2), other) if *c2 == counter => op_const_int(other)?,
+            (other, Operand::Value(c2)) if *c2 == counter => op_const_int(other)?,
+            _ => return None,
+        };
+        if s < 1 {
+            return None;
+        }
+        step = Some(s);
     }
     step
 }

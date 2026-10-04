@@ -84,7 +84,7 @@ pub(crate) fn accum_bound(
     if lp.back_edge_sources.len() != 1 || la.nest_depth(x_block) != depth {
         return None;
     }
-    let rec_def = sole_rec_def(func, la, lp, acc, x)?;
+    let rec_def = sole_rec_def(func, pe, la, lp, acc, x)?;
     if la.nest_depth(func.blocks[rec_def.0].id) != depth {
         return None;
     }
@@ -171,30 +171,28 @@ pub(crate) fn cell_bound_after_loop(
 /// the step.
 fn sole_rec_def(
     func: &Function,
+    pe: &PointEval,
     la: &LoopAnalysis,
     lp: &NaturalLoop,
     acc: ValueId,
     x: ValueId,
 ) -> Option<(usize, usize)> {
     let mut rec_def: Option<(usize, usize)> = None;
-    for (bi, block) in func.blocks.iter().enumerate() {
+    for &(bi, ii) in pe.def_sites(acc) {
+        let block = &func.blocks[bi];
         if !lp.contains(&block.id) {
             continue;
         }
-        for (ii, i2) in block.insts.iter().enumerate() {
-            if i2.result == Some(acc) {
-                if rec_def.is_some() {
-                    return None;
-                }
-                let InstKind::Copy(_, Operand::Value(src)) = &i2.kind else {
-                    return None;
-                };
-                if *src != x && !merges_step(func, la, lp, acc, x, *src, (bi, ii)) {
-                    return None;
-                }
-                rec_def = Some((bi, ii));
-            }
+        if rec_def.is_some() {
+            return None;
         }
+        let InstKind::Copy(_, Operand::Value(src)) = &block.insts[ii].kind else {
+            return None;
+        };
+        if *src != x && !merges_step(func, la, lp, acc, x, *src, (bi, ii)) {
+            return None;
+        }
+        rec_def = Some((bi, ii));
     }
     rec_def
 }

@@ -95,14 +95,33 @@ impl Merges {
             .map(|j| (j.block, Constraint::Merge(j.cell, j.block)))
     }
 
-    /// Each merge's range under `state`: the join over its
-    /// predecessors of the cell's range at their ends.
-    pub(super) fn ranges(
-        &self,
-        state: &HashMap<ValueId, AbsVal>,
-    ) -> HashMap<(BlockId, ValueId), NumFact> {
-        let mut out = HashMap::new();
-        for j in &self.joins {
+    /// For each block's inherited constraints, the join each `Merge`
+    /// placeholder among them stands for, in list order.
+    pub(super) fn slots(&self, inherited: &[Vec<Constraint>]) -> Vec<Vec<usize>> {
+        let index: HashMap<(BlockId, ValueId), usize> = self
+            .joins
+            .iter()
+            .enumerate()
+            .map(|(i, j)| ((j.block, j.cell), i))
+            .collect();
+        inherited
+            .iter()
+            .map(|cs| {
+                cs.iter()
+                    .filter_map(|c| match c {
+                        Constraint::Merge(v, b) => Some(index[&(*b, *v)]),
+                        _ => None,
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// Each merge's range under `state`, indexed like the joins: the
+    /// join over its predecessors of the cell's range at their ends.
+    pub(super) fn ranges(&self, state: &HashMap<ValueId, AbsVal>) -> Vec<Option<NumFact>> {
+        let mut out = vec![None; self.joins.len()];
+        for (i, j) in self.joins.iter().enumerate() {
             let mut joined: Option<NumFact> = None;
             for cs in j.per_pred.iter() {
                 let AbsVal::Fact(f) = super::lookup(&Operand::Value(j.cell), state, cs) else {
@@ -111,9 +130,7 @@ impl Merges {
                 };
                 joined = Some(joined.map_or(f, |g| g.join(f)));
             }
-            if let Some(f) = joined {
-                out.insert((j.block, j.cell), f);
-            }
+            out[i] = joined;
         }
         out
     }
@@ -134,17 +151,27 @@ fn reachable_preds(func: &Function, dom: &DominatorTree) -> Vec<Vec<usize>> {
 }
 
 /// `live` with every merge placeholder read as the range `ranges` gives
-/// it, or dropped when it has none.
+/// it, or dropped when it has none. `slots` names the join of each
+/// placeholder in `live`, in order.
 pub(super) fn resolve(
     live: &[Constraint],
-    ranges: &HashMap<(BlockId, ValueId), NumFact>,
+    slots: &[usize],
+    ranges: &[Option<NumFact>],
 ) -> Vec<Constraint> {
-    live.iter()
-        .filter_map(|c| match c {
-            Constraint::Merge(v, b) => ranges.get(&(*b, *v)).map(|f| Constraint::Range(*v, *f)),
-            other => Some(*other),
-        })
-        .collect()
+    let mut out = Vec::with_capacity(live.len());
+    let mut slot = slots.iter();
+    for c in live {
+        match c {
+            Constraint::Merge(v, _) => {
+                let j = *slot.next().expect("a slot per placeholder");
+                if let Some(f) = ranges[j] {
+                    out.push(Constraint::Range(*v, f));
+                }
+            }
+            other => out.push(*other),
+        }
+    }
+    out
 }
 
 #[cfg(test)]

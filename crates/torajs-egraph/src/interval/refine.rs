@@ -230,7 +230,9 @@ impl Constraints {
         block_defs: &[HashSet<ValueId>],
     ) -> Vec<Vec<Constraint>> {
         let n = self.at_entry.len();
-        let mut out: Vec<Vec<Constraint>> = vec![Vec::new(); n];
+        // (block, constraint) in the order each block's list takes them;
+        // sized per block once all are known
+        let mut pairs: Vec<(u32, Constraint)> = Vec::new();
         let mut dead = vec![false; n];
         // nearest first: deeper blocks hand out their constraints first
         for &a in dom.reverse_postorder().iter().rev() {
@@ -252,13 +254,21 @@ impl Constraints {
                 let touched = mark_reached(func, a, work, &mut dead);
                 for b in &region {
                     if !dead[b.0 as usize] {
-                        out[b.0 as usize].push(*c);
+                        pairs.push((b.0, *c));
                     }
                 }
                 for si in touched {
                     dead[si] = false;
                 }
             }
+        }
+        let mut counts = vec![0usize; n];
+        for (b, _) in &pairs {
+            counts[*b as usize] += 1;
+        }
+        let mut out: Vec<Vec<Constraint>> = counts.into_iter().map(Vec::with_capacity).collect();
+        for (b, c) in pairs {
+            out[b as usize].push(c);
         }
         out
     }

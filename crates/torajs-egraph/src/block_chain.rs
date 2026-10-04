@@ -24,7 +24,7 @@
 //! already contiguous when their parent is chained and move as one
 //! unit, entered at their first block.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use torajs_core::ssa::{BlockId, Function, InstKind, Terminator};
 
@@ -82,13 +82,25 @@ pub(crate) fn chain_loop_range(
             .iter()
             .any(|(_, h)| facts.dom.dominates(BlockId(b), BlockId(*h)))
     };
-    let unit_of = |id: u32| units.iter().position(|u| u.contains(&id));
+    // every block of the range sits in exactly one unit
+    let unit_index: HashMap<u32, usize> = units
+        .iter()
+        .enumerate()
+        .flat_map(|(u, ids)| ids.iter().map(move |&id| (id, u)))
+        .collect();
+    let unit_of = |id: u32| unit_index.get(&id).copied();
     let mut placed = vec![false; units.len()];
+    // placing only ever sets a flag, so the first unplaced unit only
+    // moves forward
+    let mut first_open = 0;
     let mut chain: Vec<usize> = Vec::with_capacity(units.len());
     let mut cur = unit_of(header).expect("header in its loop range");
     loop {
         placed[cur] = true;
         chain.push(cur);
+        while first_open < placed.len() && placed[first_open] {
+            first_open += 1;
+        }
         let next = hot_successor(
             func,
             facts,
@@ -98,7 +110,7 @@ pub(crate) fn chain_loop_range(
             &leads_to_loop,
             &placed,
         )
-        .or_else(|| placed.iter().position(|p| !p));
+        .or_else(|| (first_open < placed.len()).then_some(first_open));
         match next {
             Some(n) => cur = n,
             None => break,
@@ -139,7 +151,8 @@ fn hot_successor(
         };
         let open: Vec<u32> = targets
             .into_iter()
-            .filter(|t| !unit.contains(t) && body.contains(t))
+            // the unit's own blocks are placed with it
+            .filter(|t| body.contains(t))
             .filter(|t| unit_of(*t).is_some_and(|u| !placed[u]))
             .collect();
         // Among warm arms, the one entering a nested loop first: the

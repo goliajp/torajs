@@ -102,6 +102,11 @@ impl<'a> PointEval<'a> {
         self.dom
     }
 
+    /// Every def site of `v`, in layout order.
+    pub(crate) fn def_sites(&self, v: ValueId) -> &[Point] {
+        self.defs.get(&v).map_or(&[], Vec::as_slice)
+    }
+
     /// The one def site of `v`, when it has exactly one.
     pub(crate) fn single_def(&self, v: ValueId) -> Option<Point> {
         match self.defs.get(&v)?.as_slice() {

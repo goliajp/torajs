@@ -135,6 +135,7 @@ pub fn analyze_function_with(
         constraints.add(b, c);
     }
     let inherited = constraints.inherited_all(func, &dom, &block_defs);
+    let merge_slots = merges.slots(&inherited);
     let (horizon, thresholds) = horizon::Horizon::new(func, &single, &cells);
     // An allocation's elements are one more multi-def cell whose defs
     // happen to be stores; it rides the same ascent below.
@@ -165,7 +166,8 @@ pub fn analyze_function_with(
 
         for &bid in dom.reverse_postorder() {
             let block = &func.blocks[bid.0 as usize];
-            let mut live = merge::resolve(&inherited[bid.0 as usize], &merged);
+            let bi = bid.0 as usize;
+            let mut live = merge::resolve(&inherited[bi], &merge_slots[bi], &merged);
             square::live_roots(&live, &state, &mut roots);
             for inst in &block.insts {
                 let Some(r) = inst.result else { continue };
