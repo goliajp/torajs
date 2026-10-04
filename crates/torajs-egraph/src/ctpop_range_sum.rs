@@ -171,7 +171,7 @@ fn match_loop(func: &Function, lp: &NaturalLoop) -> Option<Matched> {
     else {
         return None;
     };
-    if *cv != cmp || !lp.body.contains(then_blk) || lp.body.contains(else_blk) {
+    if *cv != cmp || !lp.contains(then_blk) || lp.contains(else_blk) {
         return None;
     }
     if !operand_invariant(func, lp, &bound) {
@@ -227,7 +227,7 @@ fn body_chain(func: &Function, lp: &NaturalLoop, start: BlockId) -> Option<Vec<B
     let mut seen: HashSet<BlockId> = HashSet::new();
     let mut cur = start;
     loop {
-        if !lp.body.contains(&cur) || !seen.insert(cur) {
+        if !lp.contains(&cur) || !seen.insert(cur) {
             return None;
         }
         chain.push(cur);
@@ -252,7 +252,7 @@ fn body_chain(func: &Function, lp: &NaturalLoop, start: BlockId) -> Option<Vec<B
 /// including them here only tightens the match.
 fn live_out_defs(func: &Function, lp: &NaturalLoop) -> Vec<ValueId> {
     let mut defined: HashSet<ValueId> = HashSet::new();
-    for b in func.blocks.iter().filter(|b| lp.body.contains(&b.id)) {
+    for b in func.blocks.iter().filter(|b| lp.contains(&b.id)) {
         for inst in &b.insts {
             if let Some(r) = inst.result {
                 defined.insert(r);
@@ -260,7 +260,7 @@ fn live_out_defs(func: &Function, lp: &NaturalLoop) -> Vec<ValueId> {
         }
     }
     let mut out: HashSet<ValueId> = HashSet::new();
-    for b in func.blocks.iter().filter(|b| !lp.body.contains(&b.id)) {
+    for b in func.blocks.iter().filter(|b| !lp.contains(&b.id)) {
         let mut check = |v: ValueId| {
             if defined.contains(&v) {
                 out.insert(v);
@@ -290,7 +290,7 @@ fn operand_invariant(func: &Function, lp: &NaturalLoop, op: &Operand) -> bool {
         Operand::Value(v) => !func
             .blocks
             .iter()
-            .filter(|b| lp.body.contains(&b.id))
+            .filter(|b| lp.contains(&b.id))
             .any(|b| b.insts.iter().any(|i| i.result == Some(*v))),
         _ => false,
     }

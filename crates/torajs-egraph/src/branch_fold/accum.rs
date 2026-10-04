@@ -148,11 +148,11 @@ pub(crate) fn cell_bound_after_loop(
     let (x, _) = rec?;
     let lp = lp?;
     let point_block = func.blocks[point.0].id;
-    if lp.body.contains(&point_block) || !dom.dominates(lp.header, point_block) {
+    if lp.contains(&point_block) || !dom.dominates(lp.header, point_block) {
         return None;
     }
     for block in &func.blocks {
-        if lp.body.contains(&block.id) {
+        if lp.contains(&block.id) {
             continue;
         }
         let defines = block.insts.iter().any(|i| i.result == Some(cell));
@@ -178,7 +178,7 @@ fn sole_rec_def(
 ) -> Option<(usize, usize)> {
     let mut rec_def: Option<(usize, usize)> = None;
     for (bi, block) in func.blocks.iter().enumerate() {
-        if !lp.body.contains(&block.id) {
+        if !lp.contains(&block.id) {
             continue;
         }
         for (ii, i2) in block.insts.iter().enumerate() {
@@ -246,7 +246,7 @@ fn merges_step(
                 InstKind::Copy(_, Operand::Value(s)) if *s == x || *s == acc => *s,
                 _ => return false,
             };
-            if !lp.body.contains(&block.id) || la.nest_depth(block.id) != depth {
+            if !lp.contains(&block.id) || la.nest_depth(block.id) != depth {
                 return false;
             }
             // a def after the read in its own block covers nothing
@@ -279,7 +279,7 @@ fn reaches_avoiding(func: &Function, lp: &NaturalLoop, to: usize, avoid: &[usize
         seen[b] = true;
         for s in super::point_eval::successors(&func.blocks[b].term) {
             let si = s.0 as usize;
-            if lp.body.contains(&s) && s != lp.header && !avoid.contains(&si) {
+            if lp.contains(&s) && s != lp.header && !avoid.contains(&si) {
                 work.push(si);
             }
         }
@@ -290,7 +290,7 @@ fn reaches_avoiding(func: &Function, lp: &NaturalLoop, to: usize, avoid: &[usize
 fn innermost_loop(la: &LoopAnalysis, b: BlockId) -> Option<&NaturalLoop> {
     la.loops()
         .iter()
-        .filter(|l| l.body.contains(&b))
+        .filter(|l| l.contains(&b))
         .min_by_key(|l| l.body.len())
 }
 

@@ -81,7 +81,7 @@ fn header_counter(func: &Function, lp: &NaturalLoop, pe: &PointEval) -> Option<L
     else {
         return None;
     };
-    if !lp.body.contains(then_blk) || lp.body.contains(else_blk) {
+    if !lp.contains(then_blk) || lp.contains(else_blk) {
         return None;
     }
     let cond_def = pe.single_def(*cv)?;
@@ -113,7 +113,7 @@ fn header_counter(func: &Function, lp: &NaturalLoop, pe: &PointEval) -> Option<L
 /// the fact's high end.
 fn ranged_counter(func: &Function, lp: &NaturalLoop, pe: &PointEval) -> Option<LoopCounter> {
     let mut best: Option<LoopCounter> = None;
-    for block in func.blocks.iter().filter(|b| lp.body.contains(&b.id)) {
+    for block in func.blocks.iter().filter(|b| lp.contains(&b.id)) {
         for inst in &block.insts {
             let (Some(cell), InstKind::Copy(..)) = (inst.result, &inst.kind) else {
                 continue;
@@ -158,7 +158,7 @@ fn counter_step(
     };
     let mut step: Option<i128> = None;
     for block in &func.blocks {
-        if !lp.body.contains(&block.id) {
+        if !lp.contains(&block.id) {
             continue;
         }
         for inst in &block.insts {
@@ -201,7 +201,7 @@ pub(super) fn entry_fact(
     let mut entry: Option<NumFact> = None;
     let mut saw_pred = false;
     for (bi, block) in func.blocks.iter().enumerate() {
-        if lp.body.contains(&block.id) {
+        if lp.contains(&block.id) {
             continue;
         }
         if !super::point_eval::successors(&block.term).contains(&lp.header) {

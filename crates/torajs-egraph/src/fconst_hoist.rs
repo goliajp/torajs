@@ -61,7 +61,7 @@ fn hoist_fn(func: &mut Function, stats: &mut FconstHoistStats) {
         // The CHK convention makes the entry its own idom; that and
         // any dominator inside the loop body cannot host the mint
         // (the Copy must run exactly once before the loop).
-        if pre == lp.header || lp.body.contains(&pre) || pre.0 as usize >= n {
+        if pre == lp.header || lp.contains(&pre) || pre.0 as usize >= n {
             continue;
         }
         // Pass 1 (read-only): collect the distinct constants the loop

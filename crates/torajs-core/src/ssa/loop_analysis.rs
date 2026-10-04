@@ -22,7 +22,7 @@
 //!   what we do here — single-pass back-edge collection + body
 //!   discovery + nest-depth assignment)
 
-use crate::ssa::dominator::{DominatorTree, id_span};
+use crate::ssa::dominator::{Adjacency, DominatorTree, id_span, predecessors};
 use crate::ssa::{BlockId, Function, Terminator};
 
 /// One natural loop, identified by its header block. A header may
@@ -44,6 +44,14 @@ pub struct NaturalLoop {
 
 /// Loop information for a function — list of natural loops plus a
 /// per-block nest-depth vector.
+impl NaturalLoop {
+    /// Whether `b` is in the body (a binary search: the body is sorted
+    /// by id).
+    pub fn contains(&self, b: &BlockId) -> bool {
+        self.body.binary_search_by_key(&b.0, |x| x.0).is_ok()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct LoopAnalysis {
     loops: Vec<NaturalLoop>,
@@ -69,14 +77,20 @@ impl LoopAnalysis {
         // header so a multi-back-edge loop becomes one NaturalLoop.
         let mut headers_seen: Vec<BlockId> = Vec::new();
         let mut per_header_back_sources: Vec<Vec<BlockId>> = Vec::new();
+        // position of each header in `headers_seen`
+        let mut header_slot: Vec<Option<usize>> = vec![None; n];
         for blk in &func.blocks {
             for succ in successors(&blk.term) {
                 if dom.dominates(succ, blk.id) {
-                    let idx = match headers_seen.iter().position(|h| *h == succ) {
+                    let si = succ.0 as usize;
+                    let idx = match header_slot.get(si).copied().flatten() {
                         Some(i) => i,
                         None => {
                             headers_seen.push(succ);
                             per_header_back_sources.push(Vec::new());
+                            if si < n {
+                                header_slot[si] = Some(headers_seen.len() - 1);
+                            }
                             headers_seen.len() - 1
                         }
                     };
@@ -84,11 +98,13 @@ impl LoopAnalysis {
                 }
             }
         }
+        let preds = predecessors(func, n);
+        let mut in_body = vec![false; n];
 
         // For each header, collect the natural-loop body via reverse
         // BFS from each back-edge source, stopping at the header.
         for (header, sources) in headers_seen.iter().zip(per_header_back_sources.iter()) {
-            let body = collect_loop_body(func, *header, sources);
+            let body = collect_loop_body(&preds, &mut in_body, *header, sources);
             let mut sorted_sources = sources.clone();
             sorted_sources.sort_by_key(|b| b.0);
             sorted_sources.dedup();
@@ -158,47 +174,46 @@ fn successors(term: &Terminator) -> impl Iterator<Item = BlockId> + '_ {
 /// Reverse-BFS from each back-edge source, stopping at the header.
 /// Result includes the header itself plus every block on some path
 /// from a source up to (but not crossing) the header.
-fn collect_loop_body(func: &Function, header: BlockId, sources: &[BlockId]) -> Vec<BlockId> {
-    let n = id_span(func);
-    // Pred map limited to blocks that can reach back into the loop.
-    let mut preds: Vec<Vec<BlockId>> = vec![Vec::new(); n];
-    for blk in &func.blocks {
-        for succ in successors(&blk.term) {
-            let si = succ.0 as usize;
-            if si < n {
-                preds[si].push(blk.id);
-            }
-        }
-    }
-    let mut in_body = vec![false; n];
+/// The blocks that reach a back-edge source without passing the
+/// header, plus the header, sorted by id. `in_body` is all false on
+/// entry and is left that way.
+fn collect_loop_body(
+    preds: &Adjacency,
+    in_body: &mut [bool],
+    header: BlockId,
+    sources: &[BlockId],
+) -> Vec<BlockId> {
+    let n = in_body.len();
+    let mut marked: Vec<usize> = Vec::new();
     let mut stack: Vec<BlockId> = Vec::new();
     let hi = header.0 as usize;
     if hi < n {
         in_body[hi] = true; // header is always in its own loop body
+        marked.push(hi);
     }
     for src in sources {
         let si = src.0 as usize;
         if si < n && !in_body[si] {
             in_body[si] = true;
+            marked.push(si);
             stack.push(*src);
         }
     }
     while let Some(b) = stack.pop() {
-        let bi = b.0 as usize;
-        for p in &preds[bi] {
+        for p in preds.of(b.0 as usize) {
             let pi = p.0 as usize;
             if pi < n && !in_body[pi] {
                 in_body[pi] = true;
+                marked.push(pi);
                 stack.push(*p);
             }
         }
     }
-    let mut body: Vec<BlockId> = (0..n)
-        .filter(|&i| in_body[i])
-        .map(|i| BlockId(i as u32))
-        .collect();
-    body.sort_by_key(|b| b.0);
-    body
+    marked.sort_unstable();
+    for &i in &marked {
+        in_body[i] = false;
+    }
+    marked.into_iter().map(|i| BlockId(i as u32)).collect()
 }
 
 #[cfg(test)]

@@ -36,9 +36,9 @@ pub(super) fn invariant_preheader(
     if lp.body.iter().any(|&b| defines(b)) {
         return None;
     }
-    let mut outside = (0..func.blocks.len() as u32).map(BlockId).filter(|p| {
-        !lp.body.contains(p) && succs(&func.blocks[p.0 as usize].term).contains(&lp.header)
-    });
+    let mut outside = (0..func.blocks.len() as u32)
+        .map(BlockId)
+        .filter(|p| !lp.contains(p) && succs(&func.blocks[p.0 as usize].term).contains(&lp.header));
     let (Some(pre), None) = (outside.next(), outside.next()) else {
         return None;
     };

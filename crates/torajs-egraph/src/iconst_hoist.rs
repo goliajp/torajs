@@ -59,7 +59,7 @@ fn hoist_fn(func: &mut Function, stats: &mut IconstHoistStats) {
         let Some(pre) = dom.immediate_dominator(lp.header) else {
             continue;
         };
-        if pre == lp.header || lp.body.contains(&pre) || pre.0 as usize >= n {
+        if pre == lp.header || lp.contains(&pre) || pre.0 as usize >= n {
             continue;
         }
         let mut seen: Vec<i64> = Vec::new();

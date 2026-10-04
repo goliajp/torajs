@@ -178,7 +178,7 @@ fn seeds(f: &Function, k: &Kernels, empty: &[bool]) -> Vec<Seed> {
         }
         let la = loops.get_or_insert_with(|| LoopAnalysis::compute(f, &DominatorTree::compute(f)));
         let ladder = la.loops().iter().any(|l| {
-            let inside = |blk: usize| l.body.contains(&f.blocks[blk].id);
+            let inside = |blk: usize| l.contains(&f.blocks[blk].id);
             web.appends.iter().any(|&blk| inside(blk)) && web.seeds.iter().all(|&(b, _)| !inside(b))
         });
         if ladder {

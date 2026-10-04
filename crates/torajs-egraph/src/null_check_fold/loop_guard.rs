@@ -277,7 +277,7 @@ fn plan_guard(func: &Function, lp: &NaturalLoop, multi: &HashSet<ValueId>) -> Op
 fn enter_through(func: &mut Function, lp: &NaturalLoop, through: BlockId) {
     let header = lp.header;
     for block in func.blocks.iter_mut() {
-        if block.id == through || lp.body.contains(&block.id) {
+        if block.id == through || lp.contains(&block.id) {
             continue;
         }
         match &mut block.term {

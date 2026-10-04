@@ -105,7 +105,7 @@ fn hoist_fn(
         let Some(pre) = dom.immediate_dominator(lp.header) else {
             continue;
         };
-        if pre == lp.header || lp.body.contains(&pre) || pre.0 as usize >= n {
+        if pre == lp.header || lp.contains(&pre) || pre.0 as usize >= n {
             continue;
         }
         let body: HashSet<BlockId> = lp.body.iter().copied().collect();

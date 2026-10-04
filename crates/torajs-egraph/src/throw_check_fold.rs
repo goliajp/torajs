@@ -263,7 +263,7 @@ pub(crate) fn insert_entry_probe(
         },
     );
     for block in func.blocks.iter_mut() {
-        if block.id == entry || lp.body.contains(&block.id) {
+        if block.id == entry || lp.contains(&block.id) {
             continue;
         }
         match &mut block.term {

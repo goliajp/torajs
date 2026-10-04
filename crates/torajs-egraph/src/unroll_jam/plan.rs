@@ -137,7 +137,7 @@ fn plan_loop(func: &Function, la: &LoopAnalysis, l: &NaturalLoop, ctx: &Ctx) -> 
     let mut post: Vec<BlockId> = body
         .iter()
         .copied()
-        .filter(|b| !fixed.contains(b) && !inner.body.contains(b))
+        .filter(|b| !fixed.contains(b) && !inner.contains(b))
         .collect();
     post.sort_by_key(|b| b.0);
     let post_set: HashSet<BlockId> = post.iter().copied().collect();
@@ -279,7 +279,7 @@ fn inner_exit(
     else {
         return None;
     };
-    let inside = |b: BlockId| inner.body.contains(&b);
+    let inside = |b: BlockId| inner.contains(&b);
     match (inside(then_blk), inside(else_blk)) {
         (true, false) => Some((true, then_blk, else_blk)),
         (false, true) => Some((false, else_blk, then_blk)),
@@ -334,7 +334,7 @@ fn inner_chain(
         {
             return None;
         }
-        let next = guarded_next(&blk(func, cur).term, |b| inner.body.contains(&b), body)?;
+        let next = guarded_next(&blk(func, cur).term, |b| inner.contains(&b), body)?;
         chain.push(cur);
         (prev, cur) = (cur, next);
     }

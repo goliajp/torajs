@@ -38,7 +38,7 @@ pub(super) fn innermost_loop(loops: &LoopAnalysis, b: BlockId) -> Option<(usize,
     loops
         .loops()
         .iter()
-        .filter(|l| l.body.contains(&b))
+        .filter(|l| l.contains(&b))
         .min_by_key(|l| l.body.len())
         .map(|l| (l.body.len(), l.header))
 }

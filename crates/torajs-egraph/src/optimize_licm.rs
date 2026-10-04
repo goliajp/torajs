@@ -63,7 +63,7 @@ pub(crate) fn licm_hoist(
         // CFG edge), abandon this loop — hoisting into the body is no
         // gain. Reducible CFG (the common case for compiled JS) never
         // hits this branch.
-        if lp.body.contains(&target) {
+        if lp.contains(&target) {
             continue;
         }
 
@@ -85,7 +85,7 @@ pub(crate) fn licm_hoist(
                 // it was never inside (canonical representative emitted
                 // in a dominator block by GVN-redundancy collapse).
                 match egraph.available_block(canon) {
-                    Some(b) if lp.body.contains(&b) => {}
+                    Some(b) if lp.contains(&b) => {}
                     _ => continue,
                 }
                 // Canonicalise operands through opt_value before
@@ -134,7 +134,7 @@ fn operands_loop_invariant(
                     // the loop; treat skeleton results conservatively as
                     // non-invariant.
                     None => params.contains(&canon),
-                    Some(b) => !lp.body.contains(&b),
+                    Some(b) => !lp.contains(&b),
                 }
             }
             // Constants (ConstI64, ConstBool, ConstF64, ConstPtrNull,

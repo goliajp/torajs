@@ -48,7 +48,48 @@ pub struct DominatorTree {
     /// dom-nested GVN walk) so values inserted in a dominator are
     /// visible across every descendant subtree while siblings stay
     /// isolated.
-    children: Vec<Vec<BlockId>>,
+    children: Adjacency,
+    /// Entry and exit times of each reachable block in a depth-first
+    /// walk of the tree: `a` is an ancestor of `b` exactly when
+    /// `a`'s interval encloses `b`'s. `u32::MAX` for unreachable blocks.
+    enter: Vec<u32>,
+    exit: Vec<u32>,
+}
+
+/// Per-block lists of blocks, all in one buffer: block `i`'s list is
+/// `list[start[i]..start[i + 1]]`.
+#[derive(Debug, Clone)]
+pub(crate) struct Adjacency {
+    start: Vec<u32>,
+    list: Vec<BlockId>,
+}
+
+impl Adjacency {
+    /// From `(owner, member)` pairs; each owner's list keeps the order
+    /// the pairs give it.
+    fn from_pairs(n: usize, pairs: &[(usize, BlockId)]) -> Self {
+        let mut start = vec![0u32; n + 1];
+        for &(o, _) in pairs {
+            start[o + 1] += 1;
+        }
+        for i in 0..n {
+            start[i + 1] += start[i];
+        }
+        let mut fill = start.clone();
+        let mut list = vec![BlockId(0); pairs.len()];
+        for &(o, m) in pairs {
+            list[fill[o] as usize] = m;
+            fill[o] += 1;
+        }
+        Adjacency { start, list }
+    }
+
+    pub(crate) fn of(&self, i: usize) -> &[BlockId] {
+        match (self.start.get(i), self.start.get(i + 1)) {
+            (Some(&a), Some(&b)) => &self.list[a as usize..b as usize],
+            _ => &[],
+        }
+    }
 }
 
 impl DominatorTree {
@@ -62,7 +103,9 @@ impl DominatorTree {
                 idom: Vec::new(),
                 rpo: Vec::new(),
                 rpo_index: Vec::new(),
-                children: Vec::new(),
+                children: Adjacency::from_pairs(0, &[]),
+                enter: Vec::new(),
+                exit: Vec::new(),
             };
         }
         let entry = func.blocks[0].id;
@@ -74,11 +117,14 @@ impl DominatorTree {
         let preds = predecessors(func, n);
         let idom = compute_idoms(&rpo, &rpo_index, &preds, entry);
         let children = build_children(&idom);
+        let (enter, exit) = tree_intervals(&children, entry, n);
         Self {
             idom,
             rpo,
             rpo_index,
             children,
+            enter,
+            exit,
         }
     }
 
@@ -108,21 +154,13 @@ impl DominatorTree {
         if a == b {
             return true;
         }
-        // Walk up `b`'s idom chain looking for `a`. Bounded by tree
-        // depth (≤ block count); typical fast termination because the
-        // entry's idom is itself.
-        let mut cur = b;
-        loop {
-            let i = cur.0 as usize;
-            if i >= self.idom.len() {
-                return false;
+        // an unreachable block has no interval, so it neither
+        // dominates nor is dominated
+        match (self.enter.get(a.0 as usize), self.enter.get(b.0 as usize)) {
+            (Some(&ea), Some(&eb)) if ea != u32::MAX && eb != u32::MAX => {
+                ea < eb && self.exit[b.0 as usize] < self.exit[a.0 as usize]
             }
-            match self.idom[i] {
-                None => return false,                // unreachable block — `a` cannot dominate
-                Some(d) if d == cur => return false, // hit entry's self-loop without finding `a`
-                Some(d) if d == a => return true,
-                Some(d) => cur = d,
-            }
+            _ => false,
         }
     }
 
@@ -140,12 +178,7 @@ impl DominatorTree {
     /// recursion, isolated from siblings via push/pop on the visit
     /// boundary).
     pub fn children(&self, b: BlockId) -> &[BlockId] {
-        let i = b.0 as usize;
-        if i < self.children.len() {
-            &self.children[i]
-        } else {
-            &[]
-        }
+        self.children.of(b.0 as usize)
     }
 }
 
@@ -215,19 +248,19 @@ pub(crate) fn id_span(func: &Function) -> usize {
         .unwrap_or(0)
 }
 
-/// `preds[i]` = predecessor blocks of block `i`. Computed by walking
-/// every block's terminator once.
-fn predecessors(func: &Function, n: usize) -> Vec<Vec<BlockId>> {
-    let mut preds: Vec<Vec<BlockId>> = vec![Vec::new(); n];
+/// The predecessor blocks of each block, in layout order. Computed by
+/// walking every block's terminator once.
+pub(crate) fn predecessors(func: &Function, n: usize) -> Adjacency {
+    let mut pairs: Vec<(usize, BlockId)> = Vec::with_capacity(func.blocks.len() * 2);
     for blk in &func.blocks {
         for succ in successors(&blk.term) {
             let si = succ.0 as usize;
             if si < n {
-                preds[si].push(blk.id);
+                pairs.push((si, blk.id));
             }
         }
     }
-    preds
+    Adjacency::from_pairs(n, &pairs)
 }
 
 /// Cooper-Harvey-Kennedy iterative-doms loop. Operates over the RPO
@@ -235,10 +268,10 @@ fn predecessors(func: &Function, n: usize) -> Vec<Vec<BlockId>> {
 fn compute_idoms(
     rpo: &[BlockId],
     rpo_index: &[usize],
-    preds: &[Vec<BlockId>],
+    preds: &Adjacency,
     entry: BlockId,
 ) -> Vec<Option<BlockId>> {
-    let n = preds.len();
+    let n = rpo_index.len();
     let mut doms: Vec<Option<BlockId>> = vec![None; n];
     // The CHK convention sets entry's idom to itself so `intersect`
     // can climb both fingers without a special root case.
@@ -251,7 +284,7 @@ fn compute_idoms(
         for &b in rpo.iter().skip(1) {
             let bi = b.0 as usize;
             let mut new_idom: Option<BlockId> = None;
-            for &p in &preds[bi] {
+            for &p in preds.of(bi) {
                 if doms[p.0 as usize].is_none() {
                     continue; // predecessor not yet processed in this iteration
                 }
@@ -274,18 +307,45 @@ fn compute_idoms(
 /// dominator; that self-loop is suppressed so the entry is not listed
 /// as its own child. Unreachable blocks (idom = `None`) contribute no
 /// edge. Result is keyed by block index (matching `idom.len()`).
-fn build_children(idom: &[Option<BlockId>]) -> Vec<Vec<BlockId>> {
+fn build_children(idom: &[Option<BlockId>]) -> Adjacency {
     let n = idom.len();
-    let mut children: Vec<Vec<BlockId>> = vec![Vec::new(); n];
+    let mut pairs: Vec<(usize, BlockId)> = Vec::with_capacity(n);
     for (i, parent) in idom.iter().enumerate() {
         if let Some(p) = parent {
             let pi = p.0 as usize;
             if pi != i && pi < n {
-                children[pi].push(BlockId(i as u32));
+                pairs.push((pi, BlockId(i as u32)));
             }
         }
     }
-    children
+    Adjacency::from_pairs(n, &pairs)
+}
+
+/// Depth-first entry and exit times over the tree rooted at `entry`.
+fn tree_intervals(children: &Adjacency, entry: BlockId, n: usize) -> (Vec<u32>, Vec<u32>) {
+    let mut enter = vec![u32::MAX; n];
+    let mut exit = vec![u32::MAX; n];
+    let mut clock = 0u32;
+    // (block, index of the next child to visit)
+    let mut stack: Vec<(usize, usize)> = vec![(entry.0 as usize, 0)];
+    enter[entry.0 as usize] = clock;
+    while let Some(top) = stack.last_mut() {
+        let (b, k) = *top;
+        match children.of(b).get(k) {
+            Some(c) => {
+                top.1 += 1;
+                clock += 1;
+                enter[c.0 as usize] = clock;
+                stack.push((c.0 as usize, 0));
+            }
+            None => {
+                clock += 1;
+                exit[b] = clock;
+                stack.pop();
+            }
+        }
+    }
+    (enter, exit)
 }
 
 /// Climb two RPO-numbered fingers until they meet — the meeting point

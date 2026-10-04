@@ -96,7 +96,7 @@ fn recognize_in_function(func: &mut Function, stats: &mut CtpopStats) {
         }
         let header = lp.header;
         let body = lp.back_edge_sources[0];
-        if body == header || !lp.body.contains(&body) {
+        if body == header || !lp.contains(&body) {
             continue;
         }
         if let Some(m) = match_loop(func, header, body) {
