@@ -48,6 +48,7 @@ pub mod late_gvn;
 pub mod len_promote;
 pub mod load_licm;
 pub mod loop_rotate;
+pub mod loop_widen;
 pub mod map_find_cse;
 pub mod mem2reg;
 pub mod merge_sroa;
@@ -336,6 +337,12 @@ pub fn transform_module(mut module: Module) -> Module {
         &mut module,
         ctpop_range_sum::form_ctpop_range_sums,
     );
+    // Integer sum loops run two i64 lanes per vector in front of their
+    // scalar loop, the growth guards checked once per block (see
+    // `loop_widen`). After branch_fold and the ctpop passes, which
+    // leave the guarded straight-line bodies it matches; before
+    // select_form and block_layout. `TORAJS_LOOP_WIDEN_OFF=1` skips.
+    gated_pass("LOOP_WIDEN", &mut module, loop_widen::widen_sum_loops);
     // Self-tail-call elimination — rewrite `return f(args)` self
     // recursion into parameter rebinding + a branch back to the header
     // behind a runtime cell==env guard, so 100k-deep tail recursion

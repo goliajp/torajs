@@ -51,9 +51,9 @@ pub struct LoadLicmStats {
     pub loads_hoisted: u32,
 }
 
-const ARR_LEN_OFF: u64 = 8;
+pub(crate) const ARR_LEN_OFF: u64 = 8;
 const ARR_CAP_HEAD_OFF: u64 = 16;
-const ARR_DATA_PTR_OFF: u64 = 32;
+pub(crate) const ARR_DATA_PTR_OFF: u64 = 32;
 
 /// The pop's length-lock raiser reads the flags and length, and at
 /// most deletes shadow entries inside the props dynobj; it writes no
