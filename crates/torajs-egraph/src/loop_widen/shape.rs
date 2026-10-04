@@ -122,7 +122,7 @@ pub(super) fn match_loop(func: &Function, lp: &NaturalLoop, defs: &DefSites) -> 
     else {
         return None;
     };
-    if cv != c || !lp.body.contains(&then_blk) || lp.body.contains(&else_blk) {
+    if cv != c || !lp.contains(&then_blk) || lp.contains(&else_blk) {
         return None;
     }
     let in_loop: HashSet<ValueId> = lp
@@ -186,7 +186,7 @@ pub(super) fn match_loop(func: &Function, lp: &NaturalLoop, defs: &DefSites) -> 
     }
     let entries = (0..func.blocks.len() as u32)
         .map(BlockId)
-        .filter(|b| !lp.body.contains(b))
+        .filter(|b| !lp.contains(b))
         .filter(|b| successors(&func.blocks[b.0 as usize].term).any(|s| s == lp.header))
         .collect();
     Some(Plan {
@@ -213,7 +213,7 @@ impl Walk<'_> {
         let mut seen: HashSet<BlockId> = HashSet::new();
         let mut cur = start;
         loop {
-            if cur == lp.header || !lp.body.contains(&cur) || !seen.insert(cur) {
+            if cur == lp.header || !lp.contains(&cur) || !seen.insert(cur) {
                 return None;
             }
             let block = &self.func.blocks[cur.0 as usize];
@@ -235,8 +235,8 @@ impl Walk<'_> {
                     then_blk,
                     else_blk,
                 } if self.class.get(&c) == Some(&Class::Fixed) => {
-                    let leaves_on_true = !lp.body.contains(&then_blk);
-                    if leaves_on_true == !lp.body.contains(&else_blk) {
+                    let leaves_on_true = !lp.contains(&then_blk);
+                    if leaves_on_true == !lp.contains(&else_blk) {
                         return None;
                     }
                     self.entry_exits.push((c, leaves_on_true));
@@ -246,7 +246,7 @@ impl Walk<'_> {
                     cond: Operand::Value(c),
                     then_blk,
                     else_blk,
-                } if !lp.body.contains(&then_blk) => {
+                } if !lp.contains(&then_blk) => {
                     let Some(&Class::Guard(v, test)) = self.class.get(&c) else {
                         return None;
                     };
