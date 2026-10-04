@@ -14,7 +14,7 @@ use crate::slot_forward::resolve;
 /// Predecessors of every block, counting only blocks reachable from
 /// the entry: a decided branch leaves its dropped arm in the layout
 /// with its terminator intact.
-pub(super) fn reachable_preds(func: &Function) -> Vec<Vec<BlockId>> {
+pub(crate) fn reachable_preds(func: &Function) -> Vec<Vec<BlockId>> {
     let mut preds: Vec<Vec<BlockId>> = vec![Vec::new(); func.blocks.len()];
     for b in reachable(func) {
         for s in successors(&func.blocks[b].term) {
@@ -157,7 +157,7 @@ pub(super) fn sweep_dead_chain(func: &mut Function, chain: &[ValueId]) {
     }
 }
 
-fn used_values(func: &Function) -> HashSet<ValueId> {
+pub(crate) fn used_values(func: &Function) -> HashSet<ValueId> {
     let mut used = HashSet::new();
     for block in &func.blocks {
         for inst in &block.insts {
@@ -181,7 +181,7 @@ fn used_values(func: &Function) -> HashSet<ValueId> {
 
 /// Empty every block the entry no longer reaches and pin its
 /// terminator, the shape elaboration leaves such blocks in.
-pub(super) fn detach_unreachable(func: &mut Function) {
+pub(crate) fn detach_unreachable(func: &mut Function) {
     let live: HashSet<usize> = reachable(func).into_iter().collect();
     for (bi, block) in func.blocks.iter_mut().enumerate() {
         if !live.contains(&bi) {

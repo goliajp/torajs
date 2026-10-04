@@ -295,3 +295,31 @@ fn join_block_is_not_on_the_path() {
     let (stats, _) = run(blocks);
     assert_eq!(stats.loads_forwarded, 0);
 }
+
+#[test]
+fn frame_cell_whose_address_stays_in_address_position_forwards() {
+    let (stats, f) = one_block(vec![
+        val(0, InstKind::AllocaBytes(48)),
+        store(Operand::ConstI64(5), 32),
+        load(4, Type::I64, 32),
+        void(InstKind::Call(FuncId(1), vec![Operand::Value(ValueId(4))])),
+    ]);
+    assert_eq!(stats.loads_forwarded, 1);
+    assert_eq!(
+        kinds(&f, 0)[2],
+        InstKind::Call(FuncId(1), vec![Operand::ConstI64(5)])
+    );
+}
+
+#[test]
+fn frame_cell_whose_address_escapes_anywhere_is_not_fresh() {
+    // the call after the load may hand the address to code that a later
+    // run of the alloca would see, so even the first load stays
+    let (stats, _) = one_block(vec![
+        val(0, InstKind::AllocaBytes(48)),
+        store(Operand::ConstI64(5), 32),
+        load(4, Type::I64, 32),
+        void(InstKind::Call(FuncId(1), vec![B])),
+    ]);
+    assert_eq!(stats.loads_forwarded, 0);
+}

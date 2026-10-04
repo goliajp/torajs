@@ -34,6 +34,7 @@ pub mod elaborate;
 mod fact_folds;
 pub mod fconst_hoist;
 pub mod float_demote;
+pub mod frame_cell_clean;
 pub mod frem_guard;
 pub mod frem_int;
 pub mod frem_narrow;

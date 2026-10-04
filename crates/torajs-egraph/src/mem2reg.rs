@@ -75,7 +75,7 @@ struct CellFacts {
     loads: Vec<(BlockId, ValueId)>,
 }
 
-fn promote_in_function(func: &mut Function, stats: &mut Mem2RegStats) {
+pub(crate) fn promote_in_function(func: &mut Function, stats: &mut Mem2RegStats) {
     let slots = collect_unescaped_slots(func);
     if slots.is_empty() {
         return;

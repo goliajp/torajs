@@ -1,30 +1,34 @@
-//! Block-local store→load forwarding over non-escaped stack slots —
-//! the degenerate single-block case of LLVM's mem2reg/SROA promotion
-//! (also fired by InstCombine's store-to-load forwarding). The
-//! inliner materializes callee params as `alloca + store + load`
-//! round-trips; spliced into a hot loop those cost real memory ops
+//! Store→load forwarding over non-escaped stack slots along extended
+//! basic blocks — the degenerate straight-line case of LLVM's
+//! mem2reg/SROA promotion (also fired by InstCombine's store-to-load
+//! forwarding). The inliner materializes callee params as
+//! `alloca + store + load` round-trips; spliced into a hot loop those cost real memory ops
 //! every iteration (closure-counter +6.4% attribution, fib40 +8.3%
 //! self-inline attribution — same disease). This pass forwards the
 //! stored value straight to the load and deletes the round-trip.
 //!
-//! Scope deliberately block-local: a load only forwards when a store
-//! to the same (slot, offset) appears earlier **in the same block**.
-//! Cross-block reaching stores (the loop-φ shape: `%i`/`%sum`
-//! counters, multi-ret join slots) need dominance-aware φ placement —
-//! that is the full mem2reg follow-up, not this pass.
+//! Scope is the extended basic block: a load forwards when a store to
+//! the same (slot, offset) appears earlier in its block or in the
+//! chain of blocks each entered only from the one before it — every
+//! path to the load runs that store last. Reaching stores across a
+//! join (the loop-φ shape: `%i`/`%sum` counters, multi-ret join
+//! slots) need dominance-aware φ placement — that is the full mem2reg
+//! follow-up, not this pass.
 //!
 //! Soundness:
 //!
 //! * Slots come from `rc_peephole::collect_unescaped_slots` — the
 //!   address never leaves load/store address position, so no call,
-//!   heap store, or dynamic store can alias it. Within a block the
-//!   last store to (slot, off) is therefore the value any later load
-//!   observes, with **no window-closing conditions** at all.
+//!   heap store, or dynamic store can alias it. Along an extended
+//!   basic block the last store to (slot, off) is therefore the value
+//!   any later load observes, with **no window-closing conditions**
+//!   at all.
 //! * Forwarding replaces the load's result with the stored operand
 //!   everywhere (operands + terminators). The stored value's def
-//!   dominates the store, the store precedes the load in-block, and
+//!   dominates the store, the store precedes the load on the walk, and
 //!   the load dominates all its uses — so the replacement is
-//!   SSA-valid by transitivity.
+//!   SSA-valid by transitivity (a block entered only from its
+//!   predecessor is dominated by it).
 //! * Store/alloca removal only happens for slots with **zero loads
 //!   left anywhere in the function** (any offset). Stores are pure
 //!   bit-moves (no rc traffic), so deleting them cannot change
@@ -38,6 +42,7 @@ use std::collections::{HashMap, HashSet};
 
 use torajs_core::ssa::{Function, InstKind, Module, Operand, Terminator, ValueId};
 
+use crate::branch_fold::point_eval::successors;
 use crate::rc_peephole::collect_unescaped_slots;
 use crate::slot_cells::overlapping_cells;
 
@@ -51,7 +56,7 @@ pub struct SlotForwardStats {
     pub slots_removed: u32,
 }
 
-/// Run block-local store→load forwarding over every function body.
+/// Run store→load forwarding over every function body.
 pub fn forward_slot_loads(module: &mut Module) -> SlotForwardStats {
     let mut stats = SlotForwardStats::default();
     for func in module.funcs.iter_mut() {
@@ -79,54 +84,56 @@ pub(crate) fn resolve(op: &Operand, replace: &HashMap<ValueId, Operand>) -> Oper
     cur
 }
 
-fn forward_in_function(func: &mut Function, stats: &mut SlotForwardStats) {
+pub(crate) fn forward_in_function(func: &mut Function, stats: &mut SlotForwardStats) {
     let slots = collect_unescaped_slots(func);
     if slots.is_empty() {
         return;
     }
     let shared = overlapping_cells(func, &slots);
-    // pass 1 — plan: walk each block tracking the last stored value
-    // per (slot, off); a later in-block load of the same key forwards.
+    // pass 1 — plan: walk each extended basic block tracking the last
+    // stored value per (slot, off); a later load of the same key on
+    // the walk forwards.
     let mut replace: HashMap<ValueId, Operand> = HashMap::new();
-    for block in &func.blocks {
-        let mut cur: HashMap<(ValueId, u64), Operand> = HashMap::new();
-        for inst in &block.insts {
-            match &inst.kind {
-                InstKind::Store(val, Operand::Value(s), off) if slots.contains(s) => {
-                    cur.insert((*s, *off), resolve(val, &replace));
-                }
-                InstKind::Load(_, Operand::Value(s), off)
-                    if slots.contains(s) && !shared.contains(&(*s, *off)) =>
-                {
-                    if let (Some(v), Some(r)) = (cur.get(&(*s, *off)), inst.result) {
-                        replace.insert(r, *v);
+    let only_pred = sole_predecessors(func);
+    let mut seen = vec![false; func.blocks.len()];
+    for head in 0..func.blocks.len() {
+        if only_pred[head].is_some() {
+            continue;
+        }
+        let mut work = vec![(head, HashMap::new())];
+        while let Some((bi, mut cur)) = work.pop() {
+            if std::mem::replace(&mut seen[bi], true) {
+                continue;
+            }
+            for inst in &func.blocks[bi].insts {
+                match &inst.kind {
+                    InstKind::Store(val, Operand::Value(s), off) if slots.contains(s) => {
+                        cur.insert((*s, *off), resolve(val, &replace));
                     }
+                    InstKind::Load(_, Operand::Value(s), off)
+                        if slots.contains(s) && !shared.contains(&(*s, *off)) =>
+                    {
+                        if let (Some(v), Some(r)) = (cur.get(&(*s, *off)), inst.result) {
+                            replace.insert(r, *v);
+                        }
+                    }
+                    _ => {}
                 }
-                _ => {}
+            }
+            // a successor entered only from here starts with what this
+            // block left in the slots
+            for s in successors(&func.blocks[bi].term) {
+                let s = s.0 as usize;
+                if only_pred[s] == Some(bi) {
+                    work.push((s, cur.clone()));
+                }
             }
         }
     }
-    if replace.is_empty() {
-        return;
+    if !replace.is_empty() {
+        apply_forwards(func, &replace);
+        stats.loads_forwarded += replace.len() as u32;
     }
-    // pass 2 — apply: rewrite every operand through the replacement
-    // map, then drop the forwarded load insts.
-    for block in func.blocks.iter_mut() {
-        for inst in block.insts.iter_mut() {
-            rewrite_operands(&mut inst.kind, &replace);
-        }
-        match &mut block.term {
-            Terminator::Ret(Some(op)) => *op = resolve(op, &replace),
-            Terminator::CondBr { cond, .. } => *cond = resolve(cond, &replace),
-            _ => {}
-        }
-    }
-    for block in func.blocks.iter_mut() {
-        block
-            .insts
-            .retain(|inst| !matches!(inst.result, Some(r) if replace.contains_key(&r)));
-    }
-    stats.loads_forwarded += replace.len() as u32;
     // pass 3 — DSE: slots with zero remaining loads (any offset) get
     // their stores and the alloca itself removed.
     let mut loaded: HashSet<ValueId> = HashSet::new();
@@ -156,6 +163,45 @@ fn forward_in_function(func: &mut Function, stats: &mut SlotForwardStats) {
             _ => true,
         });
     }
+}
+
+/// Rewrite every operand through the replacement map, then drop the
+/// forwarded load insts.
+fn apply_forwards(func: &mut Function, replace: &HashMap<ValueId, Operand>) {
+    for block in func.blocks.iter_mut() {
+        for inst in block.insts.iter_mut() {
+            rewrite_operands(&mut inst.kind, replace);
+        }
+        match &mut block.term {
+            Terminator::Ret(Some(op)) => *op = resolve(op, replace),
+            Terminator::CondBr { cond, .. } => *cond = resolve(cond, replace),
+            _ => {}
+        }
+    }
+    for block in func.blocks.iter_mut() {
+        block
+            .insts
+            .retain(|inst| !matches!(inst.result, Some(r) if replace.contains_key(&r)));
+    }
+}
+
+/// For each block, the one block every edge into it comes from — none
+/// for the entry, a join, or a block that only branches to itself.
+fn sole_predecessors(func: &Function) -> Vec<Option<usize>> {
+    let mut preds: Vec<Vec<usize>> = vec![Vec::new(); func.blocks.len()];
+    for (bi, block) in func.blocks.iter().enumerate() {
+        for s in successors(&block.term) {
+            preds[s.0 as usize].push(bi);
+        }
+    }
+    preds
+        .iter()
+        .enumerate()
+        .map(|(bi, p)| match p.as_slice() {
+            [p] if bi != 0 && *p != bi => Some(*p),
+            _ => None,
+        })
+        .collect()
 }
 
 /// Rewrite every value operand of `kind` through the replacement map.
@@ -363,9 +409,9 @@ mod tests {
     }
 
     #[test]
-    fn cross_block_load_not_forwarded() {
-        // store in bb0, load in bb1 — out of scope for the
-        // block-local pass, slot must survive untouched.
+    fn load_after_a_join_not_forwarded() {
+        // store in bb0, load in bb1 entered along two edges — a join,
+        // out of scope; the slot must survive untouched.
         let vals = vec![
             ValueInfo {
                 ty: Type::Ptr,
@@ -395,7 +441,11 @@ mod tests {
                             0,
                         )),
                     ],
-                    term: Terminator::Br(BlockId(1)),
+                    term: Terminator::CondBr {
+                        cond: Operand::ConstBool(true),
+                        then_blk: BlockId(1),
+                        else_blk: BlockId(1),
+                    },
                 },
                 Block {
                     id: BlockId(1),
@@ -418,6 +468,75 @@ mod tests {
         assert_eq!(stats, SlotForwardStats::default());
         assert_eq!(m.funcs[0].blocks[0].insts.len(), 2);
         assert_eq!(m.funcs[0].blocks[1].insts.len(), 1);
+    }
+
+    #[test]
+    fn store_reaches_a_successor_entered_only_from_its_block() {
+        // bb0 stores 3 and branches to bb1 (sole pred bb0) and bb2;
+        // bb1 stores 4 and branches to bb3 (sole pred bb1): bb1 reads
+        // 3, bb3 reads 4, bb2 reads 3
+        let vals: Vec<ValueInfo> = [Type::Ptr, Type::I64, Type::I64, Type::I64]
+            .into_iter()
+            .map(|ty| ValueInfo { ty, name: None })
+            .collect();
+        let load = |r| Inst {
+            result: Some(ValueId(r)),
+            kind: InstKind::Load(Type::I64, Operand::Value(ValueId(0)), 0),
+            origin: None,
+        };
+        let store = |k| {
+            void(InstKind::Store(
+                Operand::ConstI64(k),
+                Operand::Value(ValueId(0)),
+                0,
+            ))
+        };
+        let block = |id, insts, term| Block {
+            id: BlockId(id),
+            insts,
+            term,
+        };
+        let ret = |r| Terminator::Ret(Some(Operand::Value(ValueId(r))));
+        let f = Function {
+            name: "main".into(),
+            params: vec![],
+            ret: Type::I64,
+            blocks: vec![
+                block(
+                    0,
+                    vec![
+                        Inst {
+                            result: Some(ValueId(0)),
+                            kind: InstKind::Alloca(Type::I64),
+                            origin: None,
+                        },
+                        store(3),
+                    ],
+                    Terminator::CondBr {
+                        cond: Operand::ConstBool(true),
+                        then_blk: BlockId(1),
+                        else_blk: BlockId(2),
+                    },
+                ),
+                block(1, vec![load(1), store(4)], Terminator::Br(BlockId(3))),
+                block(2, vec![load(2)], ret(2)),
+                block(3, vec![load(3)], ret(3)),
+            ],
+            values: vals,
+            current_origin: None,
+        };
+        let mut m = Module {
+            funcs: vec![f],
+            ..Default::default()
+        };
+        let stats = forward_slot_loads(&mut m);
+        assert_eq!(stats.loads_forwarded, 3);
+        let ret_of = |b: usize| match m.funcs[0].blocks[b].term {
+            Terminator::Ret(Some(op)) => op,
+            _ => panic!("expected ret"),
+        };
+        assert!(matches!(ret_of(2), Operand::ConstI64(3)));
+        assert!(matches!(ret_of(3), Operand::ConstI64(4)));
     }
 
     #[test]
@@ -453,9 +572,8 @@ mod tests {
 
     #[test]
     fn partial_load_keeps_slot_alive() {
-        // one load forwards (same block), another sits in a second
-        // block — stores must NOT be deleted (cross-block load still
-        // reads them).
+        // one load forwards (same block), another sits behind a join
+        // — stores must NOT be deleted (that load still reads them).
         let vals = vec![
             ValueInfo {
                 ty: Type::Ptr,
@@ -495,7 +613,11 @@ mod tests {
                         },
                         void(InstKind::Call(FuncId(0), vec![Operand::Value(ValueId(1))])),
                     ],
-                    term: Terminator::Br(BlockId(1)),
+                    term: Terminator::CondBr {
+                        cond: Operand::ConstBool(true),
+                        then_blk: BlockId(1),
+                        else_blk: BlockId(1),
+                    },
                 },
                 Block {
                     id: BlockId(1),

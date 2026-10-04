@@ -25,11 +25,16 @@
 //! dynamic-offset store drops every pending entry, and an overlapping
 //! access of a different width drops what it overlaps.
 //!
+//! A frame cell (`alloca_bytes`, heap_to_stack's promoted cells among
+//! them) whose address never leaves address position anywhere in the
+//! function is fresh in the same sense each time its instruction runs:
+//! no pointer from an earlier run can reach it.
+//!
 //! After the slot passes (the inlined ctor's `this` reaches the cell
 //! through a param spill they forward), before heap_to_stack (fewer
 //! uses left to judge). `TORAJS_FRESH_CELL_OFF=1` skips (bisect gate).
 
-mod fold;
+pub(crate) mod fold;
 #[cfg(test)]
 mod tests;
 
@@ -40,6 +45,7 @@ use torajs_core::ssa::{
 };
 
 use crate::cell_access::{fits, load_width, store_width};
+use crate::rc_peephole::collect_unescaped_slots;
 use crate::slot_forward::{resolve, rewrite_operands};
 
 const OBJ_ALLOC: &str = "__torajs_obj_alloc";
@@ -91,7 +97,7 @@ struct Walker {
     stats: FreshCellStats,
 }
 
-fn forward_in_function(func: &mut Function, alloc: FuncId, stats: &mut FreshCellStats) {
+pub(crate) fn forward_in_function(func: &mut Function, alloc: FuncId, stats: &mut FreshCellStats) {
     let mut w = Walker {
         preds: fold::reachable_preds(func),
         defs: def_sites(func),
@@ -100,12 +106,18 @@ fn forward_in_function(func: &mut Function, alloc: FuncId, stats: &mut FreshCell
         chain: Vec::new(),
         stats: FreshCellStats::default(),
     };
+    // a frame cell is fresh only while nothing can hold its address
+    // from an earlier run of the same instruction
+    let frame = collect_unescaped_slots(func);
     for bi in 0..func.blocks.len() {
         for ii in 0..func.blocks[bi].insts.len() {
             let inst = &func.blocks[bi].insts[ii];
-            if let (Some(r), InstKind::Call(f, _)) = (inst.result, &inst.kind)
-                && *f == alloc
-            {
+            let fresh = match &inst.kind {
+                InstKind::Call(f, _) => *f == alloc,
+                InstKind::AllocaBytes(_) => inst.result.is_some_and(|r| frame.contains(&r)),
+                _ => false,
+            };
+            if let (true, Some(r)) = (fresh, inst.result) {
                 w.walk(func, r, (bi, ii + 1));
             }
         }
