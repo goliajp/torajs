@@ -195,7 +195,7 @@ pub(crate) fn general_call(
         // callee's Arr<Any> readers mis-decoded the slots.
         crate::check_stmt_let_decl::apply_contextual_array_ann(checker, ast, *arg_id, param_ty);
     }
-    Ok(*ret)
+    Ok(super::any_widen_ret::call_ret_face(checker, ast, eid, *ret))
 }
 
 /// Per-arg admit predicate — strict equality plus the accumulated

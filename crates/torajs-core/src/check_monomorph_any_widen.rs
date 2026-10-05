@@ -229,12 +229,20 @@ fn widen_one(
     };
     idxs.sort_unstable_by_key(|(i, _)| *i);
     idxs.dedup_by_key(|(i, _)| *i);
+    // a call typed `any` (`check_type_of_call::any_widen_ret`) takes
+    // a clone answering `any`, named apart from the declared-face one
+    let ret = if c.widen_ret_any.contains(&call_eid) {
+        RetFace::Any
+    } else {
+        RetFace::Declared
+    };
     let suffix = format!(
-        "$$anyw{}",
+        "$$anyw{}{}",
         idxs.iter()
             .map(|(i, t)| format!("{i}{}", t.tag()))
             .collect::<Vec<_>>()
-            .join("_")
+            .join("_"),
+        if ret == RetFace::Any { "_r" } else { "" }
     );
     let mono_name = format!("{fn_name}{suffix}");
     // H1 — mirror a head-less body's any-widened clone into the
@@ -269,7 +277,7 @@ fn widen_one(
             &mono_name,
             &suffix,
             &idxs,
-            RetFace::Declared,
+            ret,
         );
     }
     call_retargets.insert(call_eid, mono_name);

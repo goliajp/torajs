@@ -20,6 +20,7 @@
 //! the segment by cascade position, never by receiver family.
 
 mod any_widen;
+mod any_widen_ret;
 mod arity_wedges;
 mod callback_slot_throw;
 mod general;

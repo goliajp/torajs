@@ -297,6 +297,14 @@ pub(crate) struct Checker {
     /// clone — an admitted-but-not-retargeted site would hand a
     /// NaN-boxed value to a typed slot reader (silent wrong values).
     pub any_widen_mono_sites: HashMap<ExprId, (String, Vec<(usize, WidenTarget)>)>,
+    /// The `any_widen_mono_sites` calls typed `any`: their clone hands
+    /// back what its body computed from the widened params, so it
+    /// answers `any` (see `check_type_of_call::any_widen_ret`).
+    pub widen_ret_any: std::collections::HashSet<ExprId>,
+    /// Set for the run that types those calls by their declared
+    /// return instead, so a program TS rejects on that type is
+    /// rejected here too (`check_entry::check_to_fixpoint`).
+    pub widen_ret_declared: bool,
     /// L3b ③ — generic-fn VALUE escapes (`const g = f` where `f`'s
     /// sig still carries un-inferred TypeVars): key is the init
     /// Ident's ExprId, value the fn name. The binding's face is

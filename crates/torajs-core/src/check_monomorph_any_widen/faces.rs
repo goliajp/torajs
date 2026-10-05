@@ -6,8 +6,8 @@ use crate::check::Type;
 /// What a clone's return face becomes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RetFace {
-    /// The declared return: widening a param says nothing about what
-    /// the fn hands back (a call-site clone).
+    /// The declared return: a call-site clone whose return does not
+    /// read the widened params (`check_type_of_call::any_widen_ret`).
     Declared,
     /// A TypeVar return erases to `any` — the value-escape clone has
     /// no type params left to bind it to.

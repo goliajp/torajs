@@ -22,6 +22,34 @@ use crate::ast::{Ast, ExprId};
 use crate::check::{Checker, Diagnostic, GenericCallSites, Severity, Type};
 use std::collections::HashMap;
 
+/// The full pipeline to its fixpoint ([`fixpoint_with`]).
+///
+/// A call the any-widen lane types `any` (`widen_ret_any`) is still
+/// typed by its declared return in TS: `const k: number = echo(v)`
+/// against `echo(s: string): string` is a type error, and the spec
+/// gives it no run-time meaning. A second run types those calls by
+/// the declared return; its errors are the program's. A program it
+/// accepts lowers with the `any` faces, unless some position takes the
+/// declared `string` but not `any` (`for (p of echo(v).split(","))`):
+/// then it lowers from the declared run, as if no call were typed
+/// `any`.
+fn check_to_fixpoint(ast: &Ast) -> Checker {
+    let c = fixpoint_with(ast, false);
+    if c.widen_ret_any.is_empty() {
+        return c;
+    }
+    let declared = fixpoint_with(ast, true);
+    if has_errors(&c) || has_errors(&declared) {
+        declared
+    } else {
+        c
+    }
+}
+
+fn has_errors(c: &Checker) -> bool {
+    c.errors.iter().any(|d| d.severity == Severity::Error)
+}
+
 /// The full pipeline, re-run until the cross-type widen set stops
 /// growing (RFC 20260927-inferred-slot-any-widen). A binding assigned
 /// an `any` value types `any` from its declaration, which changes the
@@ -29,8 +57,9 @@ use std::collections::HashMap;
 /// with the binding widened, and that can widen the next one
 /// (`u = total`). The set only grows and is bounded by the program's
 /// mutable `let`s.
-fn check_to_fixpoint(ast: &Ast) -> Checker {
+fn fixpoint_with(ast: &Ast, widen_ret_declared: bool) -> Checker {
     let mut c = Checker::new();
+    c.widen_ret_declared = widen_ret_declared;
     c.run_full_pipeline(ast);
     loop {
         let found = crate::let_widen::collect_cross_type_widen_inits(ast, Some(&c.expr_types));
@@ -40,6 +69,7 @@ fn check_to_fixpoint(ast: &Ast) -> Checker {
         let mut seed = std::mem::take(&mut c.cross_type_widened);
         seed.extend(found);
         c = Checker::new();
+        c.widen_ret_declared = widen_ret_declared;
         c.cross_type_widened = seed;
         c.run_full_pipeline(ast);
     }

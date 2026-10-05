@@ -23,6 +23,8 @@ mod repl;
 #[cfg(test)]
 mod str_split_ir_tests;
 mod util;
+#[cfg(test)]
+mod widen_ret_tests;
 
 use std::env;
 use std::path::Path;
