@@ -23,7 +23,7 @@ use core::ffi::c_void;
 use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 use torajs_mutex::Mutex;
 
-use crate::layout::{STR_HDR_SIZE, STR_LEN_OFF};
+use crate::layout::STR_HDR_SIZE;
 use crate::max_len::{__torajs_str_too_long, str_len_of};
 
 /// `__TORAJS_TAG_SYMBOL` — heap header tag for Symbol.
@@ -140,32 +140,37 @@ pub unsafe extern "C" fn __torajs_symbol_to_str(p: *const c_void) -> *mut u8 {
     unsafe { wrap_desc(symbol_desc(p), b"Symbol(", b')') }
 }
 
-/// `open`, the description's payload bytes and `close` in a fresh
-/// pooled Str; past the longest Str, the RangeError placeholder.
+/// `open`, the description and `close` in a fresh Str; past the
+/// longest Str, the RangeError placeholder. The description may be
+/// UTF-16, so it goes through the concat join, which widens the
+/// Latin-1 brackets to its width and keeps the ASCII mark honest.
 ///
 /// # Safety
 ///
 /// `desc` is null or a live Str.
 unsafe fn wrap_desc(desc: *const c_void, open: &[u8], close: u8) -> *mut u8 {
-    let desc_len = if desc.is_null() {
-        0
+    use crate::join::{Side, join};
+    use crate::layout::{STR_FLAG_IS_ASCII, STR_FLAG_IS_LATIN1};
+    let ascii = |b: &[u8]| Side {
+        ptr: b.as_ptr(),
+        len: b.len() as u32,
+        flags: STR_FLAG_IS_LATIN1 | STR_FLAG_IS_ASCII,
+    };
+    let desc_side = if desc.is_null() {
+        ascii(b"")
     } else {
-        unsafe { *((desc as *const u8).add(STR_LEN_OFF) as *const u32) as usize }
+        unsafe { Side::of_str(desc as *const u8) }
     };
-    let Some(total) = str_len_of(open.len() + desc_len + 1) else {
+    if str_len_of(open.len() + desc_side.len as usize + 1).is_none() {
         return unsafe { __torajs_str_too_long() };
-    };
-    let r = unsafe { __torajs_str_alloc_pooled(total as u64) };
-    unsafe {
-        let dst = r.add(STR_HDR_SIZE);
-        core::ptr::copy_nonoverlapping(open.as_ptr(), dst, open.len());
-        if desc_len > 0 {
-            let src = (desc as *const u8).add(STR_HDR_SIZE);
-            core::ptr::copy_nonoverlapping(src, dst.add(open.len()), desc_len);
-        }
-        *dst.add(open.len() + desc_len) = close;
     }
-    r
+    let close = [close];
+    unsafe {
+        let head = join(ascii(open), desc_side);
+        let r = join(Side::of_str(head), ascii(&close));
+        crate::str_drop::__torajs_str_free(head);
+        r
+    }
 }
 
 /// §10.2.9 SetFunctionName's spelling of a SYMBOL property key:
@@ -241,13 +246,9 @@ pub unsafe extern "C" fn __torajs_symbol_print_inline(p: *const c_void) {
     }
     let desc = unsafe { symbol_desc(p) };
     unsafe { __torajs_io_write_out(b"Symbol(".as_ptr(), 7) };
+    // the payload is Latin-1 or UTF-16, never output bytes as stored
     if !desc.is_null() {
-        let len = unsafe { *((desc as *const u8).add(STR_LEN_OFF) as *const u32) } as u64;
-        if len > 0 {
-            unsafe {
-                __torajs_io_write_out((desc as *const u8).add(STR_HDR_SIZE), len);
-            }
-        }
+        unsafe { crate::print::__torajs_str_print_inline(desc as *const u8) };
     }
     unsafe { __torajs_io_putc_out(b')' as i32) };
 }
