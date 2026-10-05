@@ -96,6 +96,15 @@ pub(in crate::check_monomorph_any_widen) fn run(
         }) {
             continue;
         }
+        // a closure built inside a closure built in this body: the twin's
+        // clone of that grandchild loses the bindings it captures from
+        // the child (`unknown ident` at lowering), so keep the kernel
+        if inner_closures(owned_ast, &name)
+            .iter()
+            .any(|inner| !inner_closures(owned_ast, inner).is_empty())
+        {
+            continue;
+        }
         // the twin is checked at the original's construction site, whose
         // scope (an enclosing body's locals) is gone by now: bind the
         // capture types recorded there
@@ -270,4 +279,26 @@ fn replace_stays_typed(c: &Checker, ast: &Ast, args: &[ExprId]) -> bool {
         return false;
     }
     callback_stays_typed(&params, lowered(ret), n_caps)
+}
+
+/// The lifted closures constructed directly in the body of `name`.
+fn inner_closures(ast: &Ast, name: &str) -> Vec<String> {
+    use crate::ast::desugar_async_sm_walk::{visit_expr_children, visit_stmt_exprs};
+    fn walk(ast: &Ast, e: ExprId, out: &mut Vec<String>) {
+        if let Expr::Closure { fn_name, .. } = ast.get_expr(e) {
+            out.push(fn_name.clone());
+        }
+        visit_expr_children(ast, e, &mut |c| walk(ast, c, out));
+    }
+    let mut out = Vec::new();
+    for s in &ast.stmts {
+        if let Stmt::FnDecl { name: n, body, .. } = s
+            && n == name
+        {
+            for b in body {
+                visit_stmt_exprs(b, &mut |e| walk(ast, e, &mut out));
+            }
+        }
+    }
+    out
 }
