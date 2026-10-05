@@ -240,6 +240,12 @@ impl<'a> FnToClosureCollector<'a> {
         if mutable && type_ann.is_some_and(|a| is_fn_like_ann(a) && !a.contains("__rest(")) {
             self.try_mark(init);
         }
+        // An immutable one the 424-04 census marked (a named function
+        // whose parameter face differs from the annotation's) wraps
+        // the same way, so its calls can ride the cell's boxed entry.
+        if !mutable && self.ast.fnsig_mismatch_bindings.contains(name) {
+            self.try_mark(init);
+        }
         // Rotation 599 — the identity axis. `const h = t` (and the
         // fn-typed immutable spelling) keeps the raw FnSig address so
         // `h()` is a direct call, while every value SITE of `t`

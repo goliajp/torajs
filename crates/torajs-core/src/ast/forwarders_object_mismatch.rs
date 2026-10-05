@@ -324,6 +324,27 @@ fn collect_decl_sites(
         {
             out.insert(name.clone());
         }
+        // The same binding initialized with a named function whose
+        // parameter at some position is annotated otherwise
+        // (`const h: (s: any) => number = k` for `function k(s:
+        // string)`): the sig-thunk refuses that direction, so the
+        // binding wraps into a forwarder cell (`ast_collect_fn_closure`)
+        // and its calls ride the boxed entry. An arity difference alone
+        // stays the sig-thunk's.
+        if let Stmt::LetDecl {
+            mutable: false,
+            type_ann: Some(ann),
+            name,
+            init,
+            ..
+        } = s
+            && super::lift_arrow_fns::is_fn_like_ann(ann)
+            && let Expr::Ident(g) = ast.get_expr(*init)
+            && !literal_lets.contains_key(g.as_str())
+            && named_fn_param_mismatch(ast, g, ann)
+        {
+            out.insert(name.clone());
+        }
         super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
             collect_decl_sites(ast, inner, mismatches, literal_lets, decls, out)
         });
@@ -377,6 +398,42 @@ pub(super) fn collect_fn_param_mismatches(ast: &Ast) -> HashMap<String, HashSet<
         }
     }
     out
+}
+
+/// Does the plain named function `g` annotate a parameter
+/// otherwise than the fn-type `ann` does at the same position?
+fn named_fn_param_mismatch(ast: &Ast, g: &str, ann: &str) -> bool {
+    let Some(params) = ast.stmts.iter().find_map(|s| match s {
+        Stmt::FnDecl {
+            name,
+            params,
+            type_params,
+            is_generator: false,
+            ..
+        } if name == g && type_params.is_empty() => Some(params),
+        _ => None,
+    }) else {
+        return false;
+    };
+    if params.first().is_some_and(|p| p.name.starts_with("__"))
+        || ast.async_generator_fns.contains(g)
+    {
+        return false;
+    }
+    let Some((user, _)) = user_face(params, None) else {
+        return false;
+    };
+    let Some(canon) = crate::num_width::fn_type_canon(ann) else {
+        return false;
+    };
+    let Some((formal_ps, _)) = crate::num_width::split_fn_type(&canon) else {
+        return false;
+    };
+    formal_ps
+        .into_iter()
+        .filter(|p| !p.is_empty())
+        .zip(user)
+        .any(|(f, a)| f != a)
 }
 
 /// The bindings initialized from a function literal, at any depth:

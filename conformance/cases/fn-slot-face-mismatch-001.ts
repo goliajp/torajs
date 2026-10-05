@@ -27,3 +27,10 @@ function apply(f: (s: any) => any, v: any): any {
 }
 console.log(apply((s: string) => s.length, "abc"), apply((s: string) => s.length, 5));
 console.log(apply(k, "hello"), apply((n: number) => n + 1, 1));
+// a named function stored into a binding whose annotation widens a
+// parameter
+function k2(s: string) {
+  return s.length;
+}
+const viaNamed: (s: any) => any = k2;
+console.log(viaNamed("abcd"), viaNamed(5), k2("z"));
