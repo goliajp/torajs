@@ -77,7 +77,9 @@ pub fn apply_rest_args(ast: &mut Ast) {
     // helper has shape `function __empty_arr_<sanitized>(): T[] {
     //   let _e: T[] = []; return _e; }`. The let-binding's annotation
     // gives ssa-lower the typed-empty-array path.
-    let mut empty_helpers: HashMap<String, String> = HashMap::new();
+    // ordered by annotation: the helper decls are emitted in this order
+    let mut empty_helpers: std::collections::BTreeMap<String, String> =
+        std::collections::BTreeMap::new();
     for shape in fn_rest.values() {
         let rest_ann = &shape.ann;
         if !empty_helpers.contains_key(rest_ann) {

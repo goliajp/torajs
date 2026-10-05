@@ -112,13 +112,15 @@ pub(crate) fn synthesize_boxed_entries(
     // Named classes resolve through their name tag; anonymous shapes
     // through the Pass-1.5 stamp pool (same split the ObjectLit
     // alloc stamping uses).
-    let named_sid_to_tag: HashMap<ssa::StructId, u32> = class_name_to_tag
-        .iter()
-        .filter_map(|(cname, &tag)| match aliases.get(cname) {
-            Some(Type::Obj(sid)) => Some((*sid, tag)),
-            _ => None,
-        })
-        .collect();
+    // Classes with the same layout share one sid; the lowest tag
+    // answers for it, so the choice never follows hash order.
+    let mut named_sid_to_tag: HashMap<ssa::StructId, u32> = HashMap::new();
+    for (cname, &tag) in class_name_to_tag {
+        if let Some(Type::Obj(sid)) = aliases.get(cname) {
+            let t = named_sid_to_tag.entry(*sid).or_insert(tag);
+            *t = (*t).min(tag);
+        }
+    }
     let sid_tag = |sid: ssa::StructId| -> u32 {
         named_sid_to_tag
             .get(&sid)

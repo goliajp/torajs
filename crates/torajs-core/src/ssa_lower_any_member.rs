@@ -332,6 +332,8 @@ fn collect_class_field_candidates(ctx: &LowerCtx, name: &str) -> Vec<(u32, u64, 
             candidates.push((atag, offset, *fty, false));
         }
     }
+    // tag order, not hash order: the dispatch arms are emitted in this order
+    candidates.sort_unstable_by_key(|c| c.0);
     candidates
 }
 

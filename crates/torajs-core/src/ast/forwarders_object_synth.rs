@@ -22,6 +22,9 @@ pub(super) fn synthesize_forwarder_decls(
 ) -> (Vec<Stmt>, std::collections::HashMap<String, String>) {
     let mut new_decls: Vec<Stmt> = Vec::new();
     let mut renames: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    // name order, not hash order: the synthesized decls land in this order
+    let mut targets: Vec<&String> = targets.iter().collect();
+    targets.sort();
     for target in targets {
         // A declaration that already has a shell keeps it, whichever
         // face it wears: `promote_this_fn_values` mints the

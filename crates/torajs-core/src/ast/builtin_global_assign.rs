@@ -69,8 +69,11 @@ pub fn demote_assigned_builtin_globals(ast: &mut Ast) {
     if names.is_empty() {
         return;
     }
+    // name order, not hash order: the seeds run in this order
+    let mut ordered: Vec<&String> = names.iter().collect();
+    ordered.sort();
     let mut seeds: Vec<Stmt> = Vec::new();
-    for name in &names {
+    for name in ordered {
         let init = ast.add_expr(Expr::Ident(name.clone()));
         seeds.push(Stmt::LetDecl {
             mutable: true,

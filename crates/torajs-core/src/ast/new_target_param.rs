@@ -181,7 +181,9 @@ pub(crate) const REGISTER: &str = "__torajs_new_target_register";
 pub fn synthesize_new_target_ctor_faces(ast: &mut Ast) {
     let mut faces: Vec<Stmt> = Vec::new();
     let mut registers: Vec<Stmt> = Vec::new();
-    let names: Vec<String> = ast.new_target_fns.iter().cloned().collect();
+    // name order, not hash order: the faces land in this order
+    let mut names: Vec<String> = ast.new_target_fns.iter().cloned().collect();
+    names.sort();
     for name in names {
         let value_face = format!("__fwdrecv_{name}");
         if !ast

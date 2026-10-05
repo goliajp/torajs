@@ -152,7 +152,10 @@ pub(crate) fn wrap_named_fn_values(
             }
         }
     }
-    for (fname, rets) in fn_returns {
+    // name order, not hash order: the synthesized decls land in this order
+    let mut returns: Vec<_> = fn_returns.iter().collect();
+    returns.sort_by(|a, b| a.0.cmp(b.0));
+    for (fname, rets) in returns {
         if !ret_marked.contains(fname) {
             continue;
         }
@@ -260,7 +263,10 @@ pub(crate) fn wrap_ns_static_values(
             }
         }
     }
-    for (fname, rets) in fn_returns {
+    // name order, not hash order: the synthesized decls land in this order
+    let mut returns: Vec<_> = fn_returns.iter().collect();
+    returns.sort_by(|a, b| a.0.cmp(b.0));
+    for (fname, rets) in returns {
         if !ret_marked.contains(fname) {
             continue;
         }

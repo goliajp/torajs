@@ -147,6 +147,9 @@ pub fn synthesize_forwarders(ast: &mut Ast) {
     // Synthesize one forwarder per target.
     let mut new_decls: Vec<Stmt> = Vec::new();
     let mut renames: HashMap<String, String> = HashMap::new();
+    // name order, not hash order: the synthesized decls land in this order
+    let mut targets: Vec<String> = targets.into_iter().collect();
+    targets.sort();
     for target in &targets {
         let (params, return_type, target_span) = fn_sigs.get(target).unwrap().clone();
         let forward_name = format!("__forward_{target}");
