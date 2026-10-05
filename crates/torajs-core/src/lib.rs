@@ -9,7 +9,7 @@
 //! Depends on `torajs-rc` and the other Layer-1+ sub-crates (build.rs env vars)
 //! for the staticlibs that torajs-link bakes into every `tr build` user binary.
 
-pub use staticlibs::{TORAJS_COMPILER_REV, TORAJS_STATICLIBS};
+pub use staticlibs::{TORAJS_COMPILER_REV, TORAJS_RUNTIME_IMAGE};
 
 pub mod ast;
 pub mod ast_closure_param_tag;

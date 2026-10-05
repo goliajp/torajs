@@ -70,13 +70,12 @@ pub struct LinkConfig {
     /// member's when that member's guard text is dead with the stub
     /// assumed (same module). Empty = nothing conditional.
     pub guarded_stubs: Vec<GuardedStub>,
-    /// Static-library `.a` archives in Apple `ld64` search order.
-    /// S7-C1 only carries bytes; resolution + integration in C2..C5.
-    /// Empty for self-contained binaries. `Cow` so the baked
-    /// `TORAJS_STATICLIBS` statics ride in borrowed (~50MB deep-copied
-    /// per `tr run` pre-fix — ~36% of the per-case compile wall);
-    /// file-read probe/test archives stay owned.
-    pub archives: Vec<std::borrow::Cow<'static, [u8]>>,
+    /// The runtime image (`torajs_rtimage::image`): the static-library
+    /// archives in Apple `ld64` search order, preprocessed when `tr`
+    /// was compiled. An image of no archives for self-contained
+    /// binaries. `Cow` so the baked `TORAJS_RUNTIME_IMAGE` static rides
+    /// in borrowed; probe / test images stay owned.
+    pub image: std::borrow::Cow<'static, [u8]>,
     /// SD-4c-prereq+e0/e1/e2 — `ssa::Module.strings` materialized.
     /// e1/e2 emit rodata to `__TEXT,__cstring` + register sym→vaddr.
     /// Empty default keeps pre-e1 byte streams unchanged.
@@ -519,7 +518,7 @@ mod tests {
             strip_member_symbols: false,
             elidable_sites: Vec::new(),
             guarded_stubs: Vec::new(),
-            archives: Vec::new(),
+            image: torajs_rtimage::image::build(&[]).unwrap().into(),
             strings: Vec::new(),
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
@@ -587,7 +586,7 @@ mod tests {
             strip_member_symbols: false,
             elidable_sites: Vec::new(),
             guarded_stubs: Vec::new(),
-            archives: Vec::new(),
+            image: torajs_rtimage::image::build(&[]).unwrap().into(),
             strings: Vec::new(),
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
@@ -616,7 +615,7 @@ mod tests {
             strip_member_symbols: false,
             elidable_sites: Vec::new(),
             guarded_stubs: Vec::new(),
-            archives: Vec::new(),
+            image: torajs_rtimage::image::build(&[]).unwrap().into(),
             strings: Vec::new(),
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
@@ -654,7 +653,7 @@ mod tests {
             strip_member_symbols: false,
             elidable_sites: Vec::new(),
             guarded_stubs: Vec::new(),
-            archives: Vec::new(),
+            image: torajs_rtimage::image::build(&[]).unwrap().into(),
             strings: Vec::new(),
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
@@ -692,7 +691,7 @@ mod tests {
             strip_member_symbols: false,
             elidable_sites: Vec::new(),
             guarded_stubs: Vec::new(),
-            archives: Vec::new(),
+            image: torajs_rtimage::image::build(&[]).unwrap().into(),
             strings: Vec::new(),
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
@@ -825,7 +824,7 @@ mod tests {
             strip_member_symbols: false,
             elidable_sites: Vec::new(),
             guarded_stubs: Vec::new(),
-            archives: Vec::new(),
+            image: torajs_rtimage::image::build(&[]).unwrap().into(),
             strings: Vec::new(),
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),

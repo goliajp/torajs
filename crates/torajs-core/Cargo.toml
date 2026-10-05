@@ -11,6 +11,9 @@ edition = "2024"
 path = "src/lib.rs"
 
 [dependencies]
+# Builds the runtime image out of the staticlibs below at this crate's
+# compile time (staticlibs.rs).
+torajs-rtimage-macro = { path = "../torajs-rtimage-macro" }
 # v0.7-A2 metal-tier allocator. TLAB layout constants are read at
 # `tr build` time so SSA lowering can emit inline TLAB.pop / push at
 # user-binary alloc/free call sites.

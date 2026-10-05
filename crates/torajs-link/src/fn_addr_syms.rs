@@ -241,7 +241,10 @@ mod tests {
             strip_member_symbols: false,
             elidable_sites: Vec::new(),
             guarded_stubs: Vec::new(),
-            archives: archives.into_iter().map(Into::into).collect(),
+            image: {
+                let borrowed: Vec<&[u8]> = archives.iter().map(Vec::as_slice).collect();
+                torajs_rtimage::image::build(&borrowed).unwrap().into()
+            },
             strings: Vec::new(),
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),

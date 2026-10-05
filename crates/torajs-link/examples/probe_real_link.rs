@@ -84,11 +84,13 @@ fn main() {
     ];
     let archive_paths: Vec<PathBuf> = archive_names.iter().map(|n| target_dir.join(n)).collect();
 
-    let archives: Vec<std::borrow::Cow<'static, [u8]>> = archive_paths
+    let archives: Vec<Vec<u8>> = archive_paths
         .iter()
-        .map(|p| fs::read(p).expect("read archive").into())
+        .map(|p| fs::read(p).expect("read archive"))
         .collect();
     eprintln!("probing with {} archive(s)", archives.len());
+    let borrowed: Vec<&[u8]> = archives.iter().map(Vec::as_slice).collect();
+    let image = torajs_rtimage::image::build(&borrowed).expect("build image");
 
     // Pick the user-facing sym from CLI arg (defaults to the leaf
     // syscall surface so the original smoke path still runs).
@@ -107,7 +109,7 @@ fn main() {
         strip_member_symbols: false,
         elidable_sites: Vec::new(),
         guarded_stubs: Vec::new(),
-        archives,
+        image: image.into(),
         strings: Vec::new(),
         data_globals: Vec::new(),
         vtable_globals: Vec::new(),
@@ -127,7 +129,7 @@ fn main() {
             Ok(layout) => {
                 eprintln!("worklist pulled {} member(s):", layout.member_layouts.len());
                 for m in &layout.member_layouts {
-                    let merged = torajs_link::archives_merge::merge_archive_indexes(&cfg.archives)
+                    let merged = torajs_link::archives_merge::merge_archive_indexes(&cfg.image)
                         .expect("merge");
                     let member = &merged.per_archive_members[m.key.0][m.key.1];
                     eprintln!(

@@ -50,11 +50,10 @@ CLI invokes.
 
 ## Embedded staticlib chain
 
-At `tr build` time `ssa_inkwell::compile()` writes the 24 Rust
-staticlibs (embedded as `&[u8]` consts assembled at compile time
-of `torajs-core` via `build.rs` — see `TORAJS_STATICLIBS` in
-`lib.rs`) to per-build tempfiles and passes the paths to cc /
-wasm-ld alongside the per-build runtime_libc_bridge.c .o file.
+At `tr build` time the in-house linker reads the runtime image
+(the Rust staticlibs preprocessed at compile time of `torajs-core`
+— see `TORAJS_RUNTIME_IMAGE` in `staticlibs.rs`, built by
+`torajs-rtimage-macro` from the paths `build.rs` emits).
 
 ## License
 

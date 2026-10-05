@@ -101,7 +101,7 @@ fn main() {
         strip_member_symbols: false,
         elidable_sites: Vec::new(),
         guarded_stubs: Vec::new(),
-        archives: Vec::new(),
+        image: torajs_rtimage::image::build(&[]).unwrap().into(),
         strings: vec![UserStringEntry {
             sym: "__torajs_str_lit_0".into(),
             bytes: b"hello".to_vec(),

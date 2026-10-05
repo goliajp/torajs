@@ -6,10 +6,11 @@
 //! can resolve `__torajs_*` / `_libc_*` externs from `libtorajs_*.a`
 //! instead of relying on a hand-filled `SymTable`.
 //!
-//! Pipeline: `archives` → per-archive `parse_archive` (S7-A) →
-//! per-archive `build_archive_index` (S7-B) → first-archive-wins
-//! merge into a unified `name → MergedSymbol` lookup (matches Apple
-//! `ld64` search-order semantics).
+//! The parse, per-archive index and first-archive-wins merge
+//! (matching Apple `ld64` search-order semantics) run once, when `tr`
+//! is compiled, in `torajs_rtimage::image::build`; here the runtime
+//! image is only read back into the lookup shape the link pipeline
+//! consumes.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -17,10 +18,9 @@ use torajs_codegen::CompiledFunction;
 use torajs_codegen::reloc::{CallTarget, RelocKind};
 use torajs_obj::{LC_SYMTAB, MH_MAGIC_64, N_EXT, N_TYPE, N_UNDF};
 
-use crate::archive::{
-    ArMember, ArParseError, ArchiveParseError, MemberSymtabError, build_archive_index,
-    parse_archive,
-};
+use torajs_rtimage::image::{Image, ImageError};
+
+use crate::archive::{ArMember, MemberSymtabError};
 
 /// One entry in a `MergedArchives` global lookup. Tells the link
 /// driver *which* archive owns the symbol, *which* `.o` member
@@ -28,7 +28,7 @@ use crate::archive::{
 /// inside that member's `__TEXT,__text`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MergedSymbol {
-    /// Index into the `&[Vec<u8>]` passed to `merge_archive_indexes`.
+    /// Archive position in the runtime image (link search order).
     pub archive_idx: usize,
     /// Index into `per_archive_members[archive_idx]`.
     pub member_idx: usize,
@@ -41,8 +41,7 @@ pub struct MergedSymbol {
 /// `ArMember` list (so a later resolver can pull member bytes)
 /// plus the unified `name → MergedSymbol` lookup.
 ///
-/// Borrows from the `&[Vec<u8>]` that was passed in — no copying
-/// of archive payload bytes.
+/// Borrows the image bytes — no copying of member payloads.
 #[derive(Debug)]
 pub struct MergedArchives<'a> {
     /// `per_archive_members[i]` = parsed members of `archives[i]`,
@@ -57,51 +56,34 @@ pub struct MergedArchives<'a> {
     pub index: BTreeMap<&'a str, MergedSymbol>,
 }
 
-/// Failures `merge_archive_indexes` can report. Distinguishes the
-/// outer `ar` framing layer (`parse_archive`) from the per-member
-/// Mach-O layer (`build_archive_index`) so the caller can blame a
-/// specific staticlib *and* a specific layer.
+/// Failures `merge_archive_indexes` can report: the bytes are not a
+/// runtime image this linker reads.
 #[derive(Debug)]
 pub enum ArchiveMergeError {
-    /// Top-level archive bytes are malformed — bad magic, bad fmag,
-    /// truncated member etc.
-    Ar {
-        archive_idx: usize,
-        err: ArParseError,
-    },
-    /// A Mach-O member inside an archive is malformed.
-    Member {
-        archive_idx: usize,
-        err: ArchiveParseError,
-    },
+    Image(ImageError),
 }
 
-/// Parse + symbol-index every archive in `archives`, then merge
-/// the per-archive indexes into a single global lookup.
-///
-/// First-archive-wins on duplicate symbols — `archives[0]` is
-/// searched before `archives[1]`. Matches Apple `ld64` static
-/// library search order.
-pub fn merge_archive_indexes<'a>(
-    archives: &'a [std::borrow::Cow<'static, [u8]>],
-) -> Result<MergedArchives<'a>, ArchiveMergeError> {
-    let mut per_archive_members: Vec<Vec<ArMember<'_>>> = Vec::with_capacity(archives.len());
-    let mut index: BTreeMap<&'a str, MergedSymbol> = BTreeMap::new();
-
-    for (archive_idx, bytes) in archives.iter().enumerate() {
-        let members = parse_archive(bytes.as_ref())
-            .map_err(|err| ArchiveMergeError::Ar { archive_idx, err })?;
-        let per_archive_index = build_archive_index(&members)
-            .map_err(|err| ArchiveMergeError::Member { archive_idx, err })?;
-        for (name, sym) in per_archive_index {
-            index.entry(name).or_insert(MergedSymbol {
-                archive_idx,
-                member_idx: sym.member_idx,
-                n_value: sym.n_value,
-            });
-        }
-        per_archive_members.push(members);
-    }
+/// Read the runtime image back into the per-archive member lists and
+/// the merged symbol lookup. The image's symbol table is sorted by
+/// name, so the `BTreeMap` is bulk-built from it.
+pub fn merge_archive_indexes<'a>(image: &'a [u8]) -> Result<MergedArchives<'a>, ArchiveMergeError> {
+    let image = Image::parse(image).map_err(ArchiveMergeError::Image)?;
+    let per_archive_members: Vec<Vec<ArMember<'a>>> = (0..image.archive_count())
+        .map(|a| image.members(a).collect())
+        .collect();
+    let index: BTreeMap<&'a str, MergedSymbol> = image
+        .symbols()
+        .map(|s| {
+            (
+                s.name,
+                MergedSymbol {
+                    archive_idx: s.archive_idx,
+                    member_idx: s.member_idx,
+                    n_value: s.n_value,
+                },
+            )
+        })
+        .collect();
 
     Ok(MergedArchives {
         per_archive_members,
@@ -392,7 +374,7 @@ pub fn parse_member_undef_externs(member: &ArMember<'_>) -> Result<Vec<String>, 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::archive::{AR_HEADER_SIZE, AR_MAGIC};
+    use crate::archive::{AR_HEADER_SIZE, AR_MAGIC, build_archive_index, parse_archive};
     use torajs_codegen::compile_function;
     use torajs_core::ssa::{
         BinOp, Block, BlockId, Function, Inst, InstKind, Operand, Terminator, Type, ValueId,
@@ -474,7 +456,8 @@ mod tests {
 
     #[test]
     fn empty_archives_merge_to_empty_index() {
-        let merged = merge_archive_indexes(&[]).expect("empty input must merge cleanly");
+        let image = torajs_rtimage::image::build(&[]).unwrap();
+        let merged = merge_archive_indexes(&image).expect("empty input must merge cleanly");
         assert!(merged.per_archive_members.is_empty());
         assert!(merged.index.is_empty());
     }
@@ -482,10 +465,10 @@ mod tests {
     #[test]
     fn single_archive_round_trips() {
         let foo = make_ret_const_fn("_foo", 7);
-        let archives: Vec<std::borrow::Cow<'static, [u8]>> =
-            vec![wrap_fn_in_archive("a.o", &foo).into()];
+        let archive = wrap_fn_in_archive("a.o", &foo);
+        let image = torajs_rtimage::image::build(&[archive.as_slice()]).unwrap();
 
-        let merged = merge_archive_indexes(&archives).unwrap();
+        let merged = merge_archive_indexes(&image).unwrap();
         assert_eq!(merged.per_archive_members.len(), 1);
         assert_eq!(merged.per_archive_members[0].len(), 1);
         assert_eq!(merged.index.len(), 1);
@@ -510,9 +493,9 @@ mod tests {
         let shared_b = make_ret_const_fn("_shared", 4);
         let archive_b = wrap_two_fns_in_archive("b.o", &bar, &shared_b);
 
-        let archives: Vec<std::borrow::Cow<'static, [u8]>> =
-            vec![archive_a.into(), archive_b.into()];
-        let merged = merge_archive_indexes(&archives).unwrap();
+        let image =
+            torajs_rtimage::image::build(&[archive_a.as_slice(), archive_b.as_slice()]).unwrap();
+        let merged = merge_archive_indexes(&image).unwrap();
 
         // Three distinct names — _shared collapses to one entry.
         assert_eq!(merged.index.len(), 3);
@@ -553,10 +536,10 @@ mod tests {
                 "../../target/aarch64-apple-darwin/release/libtorajs_str.a",
             ),
         ];
-        let mut archives: Vec<std::borrow::Cow<'static, [u8]>> = Vec::new();
+        let mut archives: Vec<Vec<u8>> = Vec::new();
         for (a, b) in &candidates {
             match std::fs::read(a).or_else(|_| std::fs::read(b)) {
-                Ok(bytes) => archives.push(bytes.into()),
+                Ok(bytes) => archives.push(bytes),
                 Err(_) => {
                     eprintln!("skip: real libtorajs_*.a not built yet");
                     return;
@@ -564,7 +547,9 @@ mod tests {
             }
         }
 
-        let merged = merge_archive_indexes(&archives).expect("real archives must merge");
+        let borrowed: Vec<&[u8]> = archives.iter().map(Vec::as_slice).collect();
+        let image = torajs_rtimage::image::build(&borrowed).expect("real archives must build");
+        let merged = merge_archive_indexes(&image).expect("real archives must merge");
         assert_eq!(merged.per_archive_members.len(), 2);
 
         // Per-archive sym counts via build_archive_index.
@@ -594,17 +579,13 @@ mod tests {
         }
     }
 
-    /// Bad archive bytes must surface as a typed error with the
-    /// offending archive's index — not a panic, not a silently
-    /// shorter merged index.
+    /// Bytes that are not a runtime image must surface as a typed
+    /// error — not a panic, not a silently empty merged index.
     #[test]
-    fn malformed_archive_surfaces_typed_error() {
-        let bad: Vec<u8> = b"not an archive".to_vec();
-        let err = merge_archive_indexes(&[bad.into()]).unwrap_err();
-        match err {
-            ArchiveMergeError::Ar { archive_idx, .. } => assert_eq!(archive_idx, 0),
-            ArchiveMergeError::Member { .. } => panic!("expected Ar variant"),
-        }
+    fn foreign_bytes_surface_typed_error() {
+        let bad: Vec<u8> = b"not an image".to_vec();
+        let err = merge_archive_indexes(&bad).unwrap_err();
+        assert!(matches!(err, ArchiveMergeError::Image(_)), "{err:?}");
     }
 
     // ---- S7-C2 tests: compute_required_members worklist closure ----
@@ -667,7 +648,8 @@ mod tests {
     #[test]
     fn no_externs_returns_empty_required_set() {
         let user = vec![fn_leaf("_main")];
-        let merged = merge_archive_indexes(&[]).unwrap();
+        let image = torajs_rtimage::image::build(&[]).unwrap();
+        let merged = merge_archive_indexes(&image).unwrap();
         let req = compute_required_members(&user, &merged, &BTreeSet::new()).unwrap();
         assert!(req.members.is_empty());
     }
@@ -678,8 +660,8 @@ mod tests {
     fn single_hop_pulls_one_member() {
         let foo = fn_leaf("_foo");
         let archive = wrap_cfs_in_archive("a.o", std::slice::from_ref(&foo));
-        let archives: Vec<std::borrow::Cow<'static, [u8]>> = vec![archive.into()];
-        let merged = merge_archive_indexes(&archives).unwrap();
+        let image = torajs_rtimage::image::build(&[archive.as_slice()]).unwrap();
+        let merged = merge_archive_indexes(&image).unwrap();
 
         let user = vec![fn_with_extern_calls("_main", &["_foo"])];
         let req = compute_required_members(&user, &merged, &BTreeSet::new()).unwrap();
@@ -698,9 +680,13 @@ mod tests {
         let archive_a = wrap_cfs_in_archive("a.o", std::slice::from_ref(&foo));
         let archive_b = wrap_cfs_in_archive("b.o", std::slice::from_ref(&bar));
         let archive_c = wrap_cfs_in_archive("c.o", std::slice::from_ref(&baz));
-        let archives: Vec<std::borrow::Cow<'static, [u8]>> =
-            vec![archive_a.into(), archive_b.into(), archive_c.into()];
-        let merged = merge_archive_indexes(&archives).unwrap();
+        let image = torajs_rtimage::image::build(&[
+            archive_a.as_slice(),
+            archive_b.as_slice(),
+            archive_c.as_slice(),
+        ])
+        .unwrap();
+        let merged = merge_archive_indexes(&image).unwrap();
 
         let user = vec![fn_with_extern_calls("_main", &["_foo"])];
         let req = compute_required_members(&user, &merged, &BTreeSet::new()).unwrap();
@@ -719,9 +705,9 @@ mod tests {
         let bar = fn_with_extern_calls("_bar", &["_foo"]);
         let archive_a = wrap_cfs_in_archive("a.o", std::slice::from_ref(&foo));
         let archive_b = wrap_cfs_in_archive("b.o", std::slice::from_ref(&bar));
-        let archives: Vec<std::borrow::Cow<'static, [u8]>> =
-            vec![archive_a.into(), archive_b.into()];
-        let merged = merge_archive_indexes(&archives).unwrap();
+        let image =
+            torajs_rtimage::image::build(&[archive_a.as_slice(), archive_b.as_slice()]).unwrap();
+        let merged = merge_archive_indexes(&image).unwrap();
 
         let user = vec![fn_with_extern_calls("_main", &["_foo"])];
         let req = compute_required_members(&user, &merged, &BTreeSet::new()).unwrap();
@@ -735,8 +721,8 @@ mod tests {
     fn duplicate_extern_calls_dedupe_to_one_member() {
         let foo = fn_leaf("_foo");
         let archive = wrap_cfs_in_archive("a.o", std::slice::from_ref(&foo));
-        let archives: Vec<std::borrow::Cow<'static, [u8]>> = vec![archive.into()];
-        let merged = merge_archive_indexes(&archives).unwrap();
+        let image = torajs_rtimage::image::build(&[archive.as_slice()]).unwrap();
+        let merged = merge_archive_indexes(&image).unwrap();
 
         let user = vec![fn_with_extern_calls("_main", &["_foo", "_foo", "_foo"])];
         let req = compute_required_members(&user, &merged, &BTreeSet::new()).unwrap();
@@ -748,7 +734,8 @@ mod tests {
     /// sorted/deduped order — the CLI message must be reproducible.
     #[test]
     fn unresolved_extern_returns_typed_error() {
-        let merged = merge_archive_indexes(&[]).unwrap();
+        let image = torajs_rtimage::image::build(&[]).unwrap();
+        let merged = merge_archive_indexes(&image).unwrap();
         let user = vec![fn_with_extern_calls("_main", &["_qux", "_zap", "_qux"])];
         let err = compute_required_members(&user, &merged, &BTreeSet::new()).unwrap_err();
         match err {
@@ -764,7 +751,8 @@ mod tests {
     /// of being flagged as unresolved.
     #[test]
     fn libsystem_externs_route_into_dyld_imports_not_unresolved() {
-        let merged = merge_archive_indexes(&[]).unwrap();
+        let image = torajs_rtimage::image::build(&[]).unwrap();
+        let merged = merge_archive_indexes(&image).unwrap();
         let user = vec![fn_with_extern_calls(
             "_main",
             &["_malloc", "_pthread_create", "_free"],
@@ -782,7 +770,8 @@ mod tests {
     /// reporting `_qux` as unresolved.
     #[test]
     fn libsystem_and_truly_missing_externs_split_correctly() {
-        let merged = merge_archive_indexes(&[]).unwrap();
+        let image = torajs_rtimage::image::build(&[]).unwrap();
+        let merged = merge_archive_indexes(&image).unwrap();
         let user = vec![fn_with_extern_calls("_main", &["_malloc", "_qux"])];
         let err = compute_required_members(&user, &merged, &BTreeSet::new()).unwrap_err();
         match err {
@@ -800,7 +789,8 @@ mod tests {
     /// through the second `LC_LOAD_DYLIB`.
     #[test]
     fn libcurl_externs_route_into_dyld_imports_with_ordinal_2() {
-        let merged = merge_archive_indexes(&[]).unwrap();
+        let image = torajs_rtimage::image::build(&[]).unwrap();
+        let merged = merge_archive_indexes(&image).unwrap();
         let user = vec![fn_with_extern_calls(
             "_main",
             &["_curl_easy_init", "_malloc"],
@@ -820,7 +810,8 @@ mod tests {
             fn_with_extern_calls("_main", &["_helper"]),
             fn_leaf("_helper"),
         ];
-        let merged = merge_archive_indexes(&[]).unwrap();
+        let image = torajs_rtimage::image::build(&[]).unwrap();
+        let merged = merge_archive_indexes(&image).unwrap();
         let req = compute_required_members(&user, &merged, &BTreeSet::new()).unwrap();
         assert!(req.members.is_empty());
     }

@@ -16,6 +16,7 @@ workspace = true
 [dependencies]
 torajs-codegen = { path = "../torajs-codegen" }
 torajs-obj = { path = "../torajs-obj" }
+torajs-rtimage = { path = "../torajs-rtimage" }
 
 [dev-dependencies]
 # Test fixtures hand-build SSA `Function`s to exercise reloc patching

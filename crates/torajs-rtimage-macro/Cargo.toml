@@ -1,0 +1,20 @@
+[package]
+name = "torajs-rtimage-macro"
+description = "Compile-time embedding of the torajs runtime image: `runtime_image!` reads the `libtorajs_*.a` staticlibs named by build-script env vars, preprocesses them with `torajs-rtimage` and expands to the image bytes. A proc macro because it is the only cargo-ordered point that runs after every runtime crate's staticlib exists and inside the compilation of the crate that embeds the result."
+keywords = ["torajs", "aot", "proc-macro"]
+categories = ["compilers"]
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+torajs-rtimage = { path = "../torajs-rtimage" }

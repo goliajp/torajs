@@ -44,11 +44,11 @@ pub(crate) fn symtab_rows(
         .filter(|(_, f)| !f.bytes.is_empty())
 }
 
-/// File + virtual layout for an `archives`-populated `LinkConfig`.
-/// `cfg.archives.is_empty()` mirrors `exec.rs::compute_layout` with
-/// an empty `member_layouts`.
+/// File + virtual layout for a `LinkConfig` against its runtime
+/// image. An image of no archives mirrors `exec.rs::compute_layout`
+/// with an empty `member_layouts`.
 pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, ArchiveLayoutError> {
-    let merged = merge_archive_indexes(&cfg.archives).map_err(ArchiveLayoutError::Merge)?;
+    let merged = merge_archive_indexes(&cfg.image).map_err(ArchiveLayoutError::Merge)?;
     compute_archive_layout_with_merged(cfg, &merged, &DeadRows::new())
 }
 
@@ -342,7 +342,7 @@ mod tests {
             strip_member_symbols: false,
             elidable_sites: Vec::new(),
             guarded_stubs: Vec::new(),
-            archives: Vec::new(),
+            image: torajs_rtimage::image::build(&[]).unwrap().into(),
             strings: Vec::new(),
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
@@ -395,7 +395,7 @@ mod tests {
             strip_member_symbols: false,
             elidable_sites: Vec::new(),
             guarded_stubs: Vec::new(),
-            archives: Vec::new(),
+            image: torajs_rtimage::image::build(&[]).unwrap().into(),
             strings: Vec::new(),
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
@@ -463,7 +463,7 @@ mod tests {
             strip_member_symbols: false,
             elidable_sites: Vec::new(),
             guarded_stubs: Vec::new(),
-            archives: Vec::new(),
+            image: torajs_rtimage::image::build(&[]).unwrap().into(),
             strings: Vec::new(),
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
@@ -512,7 +512,9 @@ mod tests {
             strip_member_symbols: false,
             elidable_sites: Vec::new(),
             guarded_stubs: Vec::new(),
-            archives: vec![archive.into()],
+            image: torajs_rtimage::image::build(&[archive.as_slice()])
+                .unwrap()
+                .into(),
             strings: Vec::new(),
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
@@ -575,7 +577,9 @@ mod tests {
             strip_member_symbols: false,
             elidable_sites: Vec::new(),
             guarded_stubs: Vec::new(),
-            archives: vec![archive.into()],
+            image: torajs_rtimage::image::build(&[archive.as_slice()])
+                .unwrap()
+                .into(),
             strings: Vec::new(),
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
@@ -622,7 +626,7 @@ mod tests {
             strip_member_symbols: false,
             elidable_sites: Vec::new(),
             guarded_stubs: Vec::new(),
-            archives: Vec::new(),
+            image: torajs_rtimage::image::build(&[]).unwrap().into(),
             strings: Vec::new(),
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
@@ -665,7 +669,9 @@ mod tests {
             strip_member_symbols: false,
             elidable_sites: Vec::new(),
             guarded_stubs: Vec::new(),
-            archives: vec![archive_a.into(), archive_b.into()],
+            image: torajs_rtimage::image::build(&[archive_a.as_slice(), archive_b.as_slice()])
+                .unwrap()
+                .into(),
             strings: Vec::new(),
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
@@ -714,7 +720,7 @@ mod tests {
             strip_member_symbols: false,
             elidable_sites: Vec::new(),
             guarded_stubs: Vec::new(),
-            archives: Vec::new(),
+            image: torajs_rtimage::image::build(&[]).unwrap().into(),
             strings: Vec::new(),
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
@@ -753,7 +759,9 @@ mod tests {
             strip_member_symbols: false,
             elidable_sites: Vec::new(),
             guarded_stubs: Vec::new(),
-            archives: vec![archive.into()],
+            image: torajs_rtimage::image::build(&[archive.as_slice()])
+                .unwrap()
+                .into(),
             strings: Vec::new(),
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),

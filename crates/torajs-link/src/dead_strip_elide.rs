@@ -487,7 +487,7 @@ mod tests {
                 relocs: Vec::new(),
                 guard: guard(),
             }],
-            archives: Vec::new(),
+            image: torajs_rtimage::image::build(&[]).unwrap().into(),
             strings: Vec::new(),
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),

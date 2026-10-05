@@ -34,6 +34,7 @@ use torajs_obj::{
 use crate::archives_merge::{MergedArchives, RequiredMembers, reloc_target_name};
 pub(crate) use crate::dead_strip_reach_build::{build_member_reach, trim16};
 use crate::exec::LinkConfig;
+use crate::phase_timer::PhaseTimer;
 
 /// One parsed nlist row — just the fields reachability needs.
 pub(crate) struct NlEntry<'a> {
@@ -142,11 +143,13 @@ pub(crate) fn compute_reachability<'a>(
     record_preds: bool,
     probes: Option<&ReachProbes>,
 ) -> Result<ReachResult<'a>, String> {
+    let mut t = PhaseTimer::start(4);
     let mut reach: BTreeMap<(usize, usize), MemberReach<'a>> = BTreeMap::new();
     for &(a, m) in &required.members {
         let member = &merged.per_archive_members[a][m];
         reach.insert((a, m), build_member_reach(member)?);
     }
+    t.tick("reach_build_members");
 
     // Roots: the same seed set compute_required_members walked from.
     let defined_in_user: BTreeSet<&str> = cfg
@@ -268,6 +271,8 @@ pub(crate) fn compute_reachability<'a>(
             &mut relocs,
         )?;
     }
+
+    t.tick("reach_closure");
 
     Ok(ReachResult {
         members: reach,

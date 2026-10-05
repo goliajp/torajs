@@ -1528,6 +1528,7 @@ dependencies = [
  "torajs-promise",
  "torajs-rc",
  "torajs-regex",
+ "torajs-rtimage-macro",
  "torajs-str",
  "torajs-structmeta",
  "torajs-syscall",
@@ -1613,6 +1614,7 @@ dependencies = [
  "torajs-codegen",
  "torajs-core",
  "torajs-obj",
+ "torajs-rtimage",
 ]
 
 [[package]]
@@ -1746,6 +1748,17 @@ version = "0.1.0"
 dependencies = [
  "torajs-bench",
  "torajs-syscall",
+]
+
+[[package]]
+name = "torajs-rtimage"
+version = "0.1.0"
+
+[[package]]
+name = "torajs-rtimage-macro"
+version = "0.1.0"
+dependencies = [
+ "torajs-rtimage",
 ]
 
 [[package]]

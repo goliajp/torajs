@@ -197,7 +197,7 @@ mod active {
     // binaries ran on libc malloc from the linker swap until
     // 2026-08-21. Two things now make the claim true, and removing
     // either one silently reverts it:
-    //   1. `libtorajs_panic_runtime.a` leads `TORAJS_STATICLIBS`
+    //   1. `libtorajs_panic_runtime.a` leads the runtime image
     //      (`torajs-core/src/staticlibs.rs`);
     //   2. `is_allocator_shim_sym` in
     //      `torajs-link/src/archive_emit.rs` makes this symbol

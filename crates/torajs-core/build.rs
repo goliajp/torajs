@@ -160,7 +160,7 @@ const COMPILER_SOURCE_FILES: &[&str] = &[
     "src/lexer.rs",
     "src/ast.rs",
     "src/modules.rs",
-    // staticlibs.rs's TORAJS_STATICLIBS list controls which sub-crate
+    // staticlibs.rs's runtime_image! list controls which sub-crate
     // staticlibs the user binary links. Adding / removing entries
     // changes linkage; must invalidate cache.
     "src/staticlibs.rs",
@@ -218,8 +218,7 @@ const COMPILER_SOURCE_FILES: &[&str] = &[
 /// `__torajs_*` symbols to the final `tr build` user binary. New
 /// sub-crates added during the architecture rewrite go in this
 /// list, with a matching one-line entry in `staticlibs.rs`'s
-/// `TORAJS_STATICLIBS` array using `env!("TORAJS_<NAME>_STATICLIB
-/// _PATH")`.
+/// `runtime_image!` call naming `"TORAJS_<NAME>_STATICLIB_PATH"`.
 const STATICLIBS: &[&str] = &[
     "torajs_syscall",       // Layer-0: aarch64/x86_64 raw syscall trampoline (v0.7-A1)
     "torajs_io",            // Layer-0: 0-libc buffered stdout writer (v0.7-A3 Step 14-a)

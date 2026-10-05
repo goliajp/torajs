@@ -46,6 +46,8 @@ members = [
     "crates/torajs-codegen",
     "crates/torajs-egraph",
     "crates/torajs-obj",
+    "crates/torajs-rtimage",
+    "crates/torajs-rtimage-macro",
     "crates/torajs-link",
     "crates/torajs-core",
     "crates/torajs-cli",

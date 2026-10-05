@@ -1,0 +1,16 @@
+[package]
+name = "torajs-rtimage"
+description = "Runtime image for the torajs AOT TypeScript compiler. Preprocesses the `libtorajs_*.a` runtime staticlibs once, when `tr` itself is compiled, into a flat byte image: members deduplicated by content, every archive's member list as a slot table, and the merged first-archive-wins symbol index already sorted. `tr build` maps the image instead of parsing 37 archives and 280k symbol-table rows per run. Leaf crate: std only, no Mach-O dependency, so both the embedding proc macro and the linker can use it."
+keywords = ["torajs", "aot", "linker", "staticlib"]
+categories = ["compilers"]
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]

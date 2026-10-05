@@ -112,7 +112,7 @@ fn main() {
         strip_member_symbols: false,
         elidable_sites: Vec::new(),
         guarded_stubs: Vec::new(),
-        archives: Vec::new(),
+        image: torajs_rtimage::image::build(&[]).unwrap().into(),
         strings: Vec::new(),
         data_globals: vec![UserDataGlobalEntry {
             sym: "global_x".into(),

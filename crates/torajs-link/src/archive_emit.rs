@@ -93,7 +93,7 @@ fn dead_strip_prepass(
     Ok(Some((stripped, out.dead_rows, out.members)))
 }
 
-/// Link an `archives`-populated `LinkConfig` into a complete
+/// Link a `LinkConfig` against its runtime image into a complete
 /// ad-hoc-codesigned `MH_EXECUTE` byte stream. User-fn + member
 /// relocs both resolve against one effective sym table (caller
 /// externs + every member defined-external + dyld stub vaddrs).
@@ -102,7 +102,7 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
     // rewritten members are swapped into it, and layout and emit share
     // it — each merge re-parses every archive member's symtab.
     let mut t = PhaseTimer::start(1);
-    let mut merged = merge_archive_indexes(&cfg.archives).map_err(ArchiveLayoutError::Merge)?;
+    let mut merged = merge_archive_indexes(&cfg.image).map_err(ArchiveLayoutError::Merge)?;
     t.tick("merge_archive_indexes");
     let (stripped_cfg, dead_rows, stripped_members) = match dead_strip_prepass(cfg, &merged)? {
         Some((c, dead, members)) => (Some(c), dead, members),
@@ -406,8 +406,8 @@ fn insert_member_syms(layout: &ArchiveLayout, effective_sym_table: &mut crate::r
                 // `member_layouts` is ordered by `(archive_idx,
                 // member_idx)` (archive_link sorts `member_keys`),
                 // and `libtorajs_panic_runtime.a` — the one crate
-                // carrying `#[global_allocator]` — leads
-                // `TORAJS_STATICLIBS`, so first-wins here means its
+                // carrying `#[global_allocator]` — leads the
+                // runtime image, so first-wins here means its
                 // shim is the one every call site binds to. That
                 // matches what `merge_archive_indexes` already
                 // documents for the symbol index (ld64 search order);
@@ -553,7 +553,7 @@ mod tests {
             strip_member_symbols: false,
             elidable_sites: Vec::new(),
             guarded_stubs: Vec::new(),
-            archives: Vec::new(),
+            image: torajs_rtimage::image::build(&[]).unwrap().into(),
             strings: Vec::new(),
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
@@ -604,7 +604,9 @@ mod tests {
             strip_member_symbols: false,
             elidable_sites: Vec::new(),
             guarded_stubs: Vec::new(),
-            archives: vec![archive.into()],
+            image: torajs_rtimage::image::build(&[archive.as_slice()])
+                .unwrap()
+                .into(),
             strings: Vec::new(),
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
@@ -681,7 +683,9 @@ mod tests {
             strip_member_symbols: false,
             elidable_sites: Vec::new(),
             guarded_stubs: Vec::new(),
-            archives: vec![archive_a.into(), archive_b.into()],
+            image: torajs_rtimage::image::build(&[archive_a.as_slice(), archive_b.as_slice()])
+                .unwrap()
+                .into(),
             strings: Vec::new(),
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
@@ -753,7 +757,7 @@ mod tests {
             strip_member_symbols: false,
             elidable_sites: Vec::new(),
             guarded_stubs: Vec::new(),
-            archives: Vec::new(),
+            image: torajs_rtimage::image::build(&[]).unwrap().into(),
             strings: Vec::new(),
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
@@ -780,7 +784,7 @@ mod tests {
             strip_member_symbols: false,
             elidable_sites: Vec::new(),
             guarded_stubs: Vec::new(),
-            archives: Vec::new(),
+            image: torajs_rtimage::image::build(&[]).unwrap().into(),
             strings: Vec::new(),
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
@@ -893,7 +897,7 @@ mod tests {
             strip_member_symbols: false,
             elidable_sites: Vec::new(),
             guarded_stubs: Vec::new(),
-            archives: Vec::new(),
+            image: torajs_rtimage::image::build(&[]).unwrap().into(),
             strings: Vec::new(),
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
@@ -986,7 +990,9 @@ mod tests {
             strip_member_symbols: false,
             elidable_sites: Vec::new(),
             guarded_stubs: Vec::new(),
-            archives: vec![archive.into()],
+            image: torajs_rtimage::image::build(&[archive.as_slice()])
+                .unwrap()
+                .into(),
             strings: Vec::new(),
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
@@ -1032,7 +1038,9 @@ mod tests {
             strip_member_symbols: false,
             elidable_sites: Vec::new(),
             guarded_stubs: Vec::new(),
-            archives: vec![archive.into()],
+            image: torajs_rtimage::image::build(&[archive.as_slice()])
+                .unwrap()
+                .into(),
             strings: Vec::new(),
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),

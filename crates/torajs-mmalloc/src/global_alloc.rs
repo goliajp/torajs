@@ -23,7 +23,7 @@
 //! site. Fixed 2026-08-21 by `is_allocator_shim_sym` in
 //! `torajs-link/src/archive_emit.rs` (first-definition-wins for
 //! this symbol family) plus `libtorajs_panic_runtime.a` leading
-//! `TORAJS_STATICLIBS`; both halves are required.
+//! the runtime image; both halves are required.
 //!
 //! ## Alignment contract
 //!
@@ -40,7 +40,7 @@
 //! ## Why not a stand-alone crate
 //!
 //! `#[global_allocator]` must be linked into the user binary's
-//! staticlib chain. torajs-mmalloc is already in `TORAJS_STATICLIBS`
+//! staticlib chain. torajs-mmalloc is already in the runtime image
 //! (`libtorajs_mmalloc.a`), so co-locating the GlobalAlloc impl
 //! avoids adding a separate `torajs-alloc-glue` crate that would
 //! just re-export this one type.

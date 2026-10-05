@@ -23,7 +23,7 @@ use torajs_codegen::frame::FrameLayout;
 use torajs_codegen::reloc::{CallTarget, RelocKind};
 use torajs_codegen::{ModuleFacts, compile_function_in};
 use torajs_core::ssa::Module;
-use torajs_core::{TORAJS_STATICLIBS, check, lexer, modules, parser, ssa_lower};
+use torajs_core::{TORAJS_RUNTIME_IMAGE, check, lexer, modules, parser, ssa_lower};
 use torajs_link::archive_emit::link_to_exec_with_archives;
 use torajs_link::exec::LinkConfig;
 use torajs_link::phase_timer::PhaseTimer;
@@ -340,14 +340,6 @@ pub(crate) fn build_link_config(
     let vtable_globals = build_vtable_globals(ssa_module);
     let fn_name_globals = build_fn_name_globals(ssa_module);
 
-    // Borrowed straight off the baked `include_bytes` statics — the
-    // per-case `to_vec()` deep copy here was ~36% of `tr run` compile
-    // wall (~50MB memcpy; see rfcs/20260724 phase-timing.md A1).
-    let archives: Vec<std::borrow::Cow<'static, [u8]>> = TORAJS_STATICLIBS
-        .iter()
-        .map(|(_, bytes)| std::borrow::Cow::Borrowed(*bytes))
-        .collect();
-
     let mut cfg = LinkConfig {
         funcs,
         entry: ENTRY_SYM.to_string(),
@@ -357,7 +349,9 @@ pub(crate) fn build_link_config(
         strip_member_symbols,
         elidable_sites: Vec::new(),
         guarded_stubs: crate::cmd_build_elide::guarded_stubs(),
-        archives,
+        // borrowed straight off the baked static; a copy would be a
+        // per-build memcpy of the whole runtime
+        image: std::borrow::Cow::Borrowed(TORAJS_RUNTIME_IMAGE),
         strings,
         data_globals,
         vtable_globals,
