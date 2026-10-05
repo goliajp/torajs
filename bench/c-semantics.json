@@ -6,6 +6,7 @@
   "popcount": {"kind": "same", "why": "hand-rolled Kernighan loop, no hardware popcount intrinsic; tr folds the whole loop into a ctpop superinstruction"},
   "prime_count": {"kind": "same"},
   "divisor-sum-200k": {"kind": "same"},
+  "smallest-factor-1m": {"kind": "same"},
   "josephus-100k": {"kind": "same"},
   "mandelbrot": {"kind": "same", "why": "FMA contraction disabled to match rust rounding"},
   "collatz": {"kind": "different", "why": "u64 n & 1 and n >>= 1 where main.ts needs f64 % 2 and / 2"},

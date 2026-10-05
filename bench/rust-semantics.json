@@ -6,6 +6,7 @@
   "popcount": {"kind": "same"},
   "prime_count": {"kind": "same"},
   "divisor-sum-200k": {"kind": "same"},
+  "smallest-factor-1m": {"kind": "same"},
   "josephus-100k": {"kind": "same"},
   "mandelbrot": {"kind": "same"},
   "generic-id-1m": {"kind": "same"},
