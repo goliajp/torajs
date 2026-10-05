@@ -1,20 +1,21 @@
 //! `Type::Vec` values: Q-register loads, stores, copies and the lane
 //! arithmetic of `InstKind::Vec`.
 //!
-//! A vector value always has a register home — the allocator rejects
-//! a spilled or call-crossing one (`vec_homes`), since every save and
-//! spill path moves 8 bytes.
+//! A vector value always has a register home (`vec_homes`): a spill
+//! slot would hold half of it. One live across a call is stored whole
+//! around the call.
 
-use torajs_core::ssa::{Inst, Operand, ValueId, VecInst, VecOp};
+use torajs_core::ssa::{Inst, Operand, ValueId, VecInst, VecOp, VecShape};
 
-use super::operand::materialize_operand_gpr;
+use super::operand::{materialize_operand_fpr, materialize_operand_gpr};
 use super::{
-    FP_SCRATCH_RESULT, OP_SCRATCH_LHS, OP_SCRATCH_RESULT_GPR, OP_SCRATCH_TMP, write_def_spill_gpr,
-    write_u32,
+    FP_SCRATCH_LHS, FP_SCRATCH_RESULT, FP_SCRATCH_RHS, OP_SCRATCH_LHS, OP_SCRATCH_RESULT_GPR,
+    OP_SCRATCH_RHS, OP_SCRATCH_TMP, write_def_spill_gpr, write_u32,
 };
 use crate::enc::{
-    add_imm, add_v2d, addp_d_v2d, dup_2d_x, fmov_x_from_d, ldr_q_imm12, ldur_q_imm9, mov_d_reg,
-    movi_2d_zero, orr_reg, orr_v16b, str_q_imm12, stur_q_imm9, umov_x_d,
+    add_imm, add_v2d, addp_d_v2d, dup_2d_d, dup_2d_x, fcvtzs_v2d, fdiv_v2d, fmov_x_from_d,
+    ins_d1_d0, ldr_q_imm12, ldur_q_imm9, mov_d_reg, movi_2d_zero, orr_reg, orr_v16b, str_q_imm12,
+    stur_q_imm9, umov_x_d,
 };
 use crate::reg::{Fpr, Gpr, Reg};
 use crate::regalloc::Assignment;
@@ -91,9 +92,39 @@ pub(super) fn emit_vec(bytes: &mut Vec<u8>, inst: &Inst, vi: &VecInst, alloc: &A
         VecInst::Splat(_, Operand::ConstI64(0)) => {
             write_u32(bytes, movi_2d_zero(vec_home(alloc, result)));
         }
-        VecInst::Splat(_, scalar) => {
+        VecInst::Splat(VecShape::F64x2, scalar) => {
+            let src = materialize_operand_fpr(bytes, scalar, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
+            write_u32(bytes, dup_2d_d(vec_home(alloc, result), src));
+        }
+        VecInst::Splat(VecShape::I64x2, scalar) => {
             let src = materialize_operand_gpr(bytes, scalar, OP_SCRATCH_LHS, alloc);
             write_u32(bytes, dup_2d_x(vec_home(alloc, result), src));
+        }
+        // the low lane is the f64 register itself; the high lane is
+        // written after it, from a scratch when the destination is
+        // the high operand's own register
+        VecInst::Pair(lo, hi) => {
+            let dst = vec_home(alloc, result);
+            let lo = materialize_operand_fpr(bytes, lo, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
+            let mut hi = materialize_operand_fpr(bytes, hi, FP_SCRATCH_RHS, OP_SCRATCH_RHS, alloc);
+            if hi == dst {
+                write_u32(bytes, mov_d_reg(FP_SCRATCH_RHS, hi));
+                hi = FP_SCRATCH_RHS;
+            }
+            if dst != lo {
+                write_u32(bytes, mov_d_reg(dst, lo));
+            }
+            write_u32(bytes, ins_d1_d0(dst, hi));
+        }
+        VecInst::FpToSi(v) => {
+            let src = vec_operand(alloc, v);
+            write_u32(bytes, fcvtzs_v2d(vec_home(alloc, result), src));
+        }
+        VecInst::Lane(k, v) => {
+            let src = vec_operand(alloc, v);
+            let (dst, spill) = alloc.def_gpr(result, OP_SCRATCH_RESULT_GPR);
+            write_u32(bytes, umov_x_d(dst, src, u32::from(*k)));
+            write_def_spill_gpr(bytes, spill, dst);
         }
         VecInst::BinOp(op, a, b) => {
             let (ra, rb) = (vec_operand(alloc, a), vec_operand(alloc, b));
@@ -103,6 +134,7 @@ pub(super) fn emit_vec(bytes: &mut Vec<u8>, inst: &Inst, vi: &VecInst, alloc: &A
                 match op {
                     VecOp::Add => add_v2d(dst, ra, rb),
                     VecOp::Or => orr_v16b(dst, ra, rb),
+                    VecOp::FDiv => fdiv_v2d(dst, ra, rb),
                 },
             );
         }
@@ -119,6 +151,7 @@ pub(super) fn emit_vec(bytes: &mut Vec<u8>, inst: &Inst, vi: &VecInst, alloc: &A
                     write_u32(bytes, umov_x_d(dst, src, 0));
                     write_u32(bytes, orr_reg(dst, dst, OP_SCRATCH_TMP));
                 }
+                VecOp::FDiv => panic!("vec.reduce has no fdiv form"),
             }
             write_def_spill_gpr(bytes, spill, dst);
         }
@@ -131,7 +164,7 @@ mod tests {
     use crate::compile::compile_function;
     use crate::enc;
     use crate::linear_scan::allocate_linear_scan;
-    use torajs_core::ssa::{BinOp, FuncId, Function, InstKind, Terminator, Type, VecShape};
+    use torajs_core::ssa::{BinOp, FuncId, Function, InstKind, Terminator, Type};
 
     const V: Type = Type::Vec(VecShape::I64x2);
 
@@ -207,10 +240,12 @@ mod tests {
         }
     }
 
+    /// Both loaded vectors are live across the call: each has a
+    /// 16-byte slot at a 16-aligned offset, apart from the other's,
+    /// and keeps its register.
     #[test]
-    #[should_panic(expected = "live across a call")]
-    fn vector_live_across_a_call_is_refused() {
-        let (mut func, _) = lanes_func();
+    fn vectors_live_across_a_call_are_saved_whole() {
+        let (mut func, [_, a, c, ..]) = lanes_func();
         let call = Inst {
             result: None,
             kind: InstKind::Call(FuncId(0), Vec::new()),
@@ -218,7 +253,17 @@ mod tests {
         };
         // between the loads and their use
         func.blocks[0].insts.insert(2, call);
-        allocate_linear_scan(&func);
+        let alloc = allocate_linear_scan(&func);
+        let saves = &alloc.vec_call_saves[&2];
+        let mut regs: Vec<Fpr> = saves.iter().map(|s| s.0).collect();
+        regs.sort_by_key(|f| f.idx());
+        let mut want = vec![vec_home(&alloc, a), vec_home(&alloc, c)];
+        want.sort_by_key(|f| f.idx());
+        assert_eq!(regs, want);
+        let (s0, s1) = (saves[0].1, saves[1].1);
+        assert!(s0.is_multiple_of(16) && s1.is_multiple_of(16));
+        assert!(s0.abs_diff(s1) >= 16);
+        assert!(alloc.call_saves.get(&2).is_none_or(Vec::is_empty));
     }
 
     /// More f64 values live inside a vector's range than there are

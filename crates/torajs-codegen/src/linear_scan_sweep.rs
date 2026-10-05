@@ -51,7 +51,8 @@ pub(crate) struct Sweep {
     pub(crate) call_costs: CallCosts,
     /// Values that must keep a register: a spill slot holds 8 bytes,
     /// a vector 16. Never chosen as a victim; an arrival among them
-    /// always takes one.
+    /// always takes one, and is saved whole around the calls it
+    /// crosses.
     pub(crate) unspillable: HashSet<u32>,
 }
 

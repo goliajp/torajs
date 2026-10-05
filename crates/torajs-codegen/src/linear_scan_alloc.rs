@@ -76,6 +76,18 @@ impl Sweep {
         self.spill_at_active(vid, interval, is_fp, /*callee_only=*/ true)
     }
 
+    /// Allocate for a vector whose interval crosses a call: any
+    /// register, stored whole around each crossed call (a callee keeps
+    /// only the low half of V8-V15, and a slot would hold half of it).
+    pub(crate) fn alloc_crossing_vector(&mut self, vid: u32, interval: Interval) -> Reg {
+        let reg = self
+            .take_caller(true)
+            .or_else(|| self.take_callee_fpr().map(Reg::Fpr))
+            .unwrap_or_else(|| self.spill_at_active(vid, interval, true, false));
+        self.caller_crossing.push(vid);
+        reg
+    }
+
     fn take_caller(&mut self, is_fp: bool) -> Option<Reg> {
         if is_fp {
             self.free_caller_fpr.pop_front().map(Reg::Fpr)

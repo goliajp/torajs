@@ -44,6 +44,31 @@ pub fn umov_x_d(rd: Gpr, rn: Fpr, lane: u32) -> u32 {
     0x4E00_3C00 | (((lane << 4) | 0b1000) << 16) | (rn.idx() << 5) | rd.idx()
 }
 
+/// FDIV Vd.2D, Vn.2D, Vm.2D — lane-wise f64 divide. ARM ARM C7.2.106
+/// (Q=1, sz=1). Base = 0x6E60_FC00.
+pub fn fdiv_v2d(rd: Fpr, rn: Fpr, rm: Fpr) -> u32 {
+    0x6E60_FC00 | (rm.idx() << 16) | (rn.idx() << 5) | rd.idx()
+}
+
+/// FCVTZS Vd.2D, Vn.2D — each f64 lane to i64, round toward zero,
+/// saturating. ARM ARM C7.2.79 (Q=1, sz=1). Base = 0x4EE1_B800.
+pub fn fcvtzs_v2d(rd: Fpr, rn: Fpr) -> u32 {
+    0x4EE1_B800 | (rn.idx() << 5) | rd.idx()
+}
+
+/// DUP Vd.2D, Vn.D[0] — broadcast the low D lane into both lanes.
+/// ARM ARM C7.2.40 (imm5 = 01000). Base = 0x4E08_0400.
+pub fn dup_2d_d(rd: Fpr, rn: Fpr) -> u32 {
+    0x4E08_0400 | (rn.idx() << 5) | rd.idx()
+}
+
+/// INS Vd.D[1], Vn.D[0] — write the low D lane of Vn into the high D
+/// lane of Vd. ARM ARM C7.2.175 (imm5 = 11000, imm4 = 0000).
+/// Base = 0x6E18_0400.
+pub fn ins_d1_d0(rd: Fpr, rn: Fpr) -> u32 {
+    0x6E18_0400 | (rn.idx() << 5) | rd.idx()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -57,6 +82,10 @@ mod tests {
     //   orr  v1.16b, v2.16b, v3.16b  4ea31c41
     //   umov x5, v6.d[1]        4e183cc5
     //   mov  x5, v6.d[0]        4e083cc5
+    //   fdiv v1.2d, v2.2d, v3.2d  6e63fc41
+    //   fcvtzs v1.2d, v2.2d     4ee1b841
+    //   dup  v1.2d, v2.d[0]     4e080441
+    //   mov  v5.d[1], v6.d[0]   6e1804c5
     #[test]
     fn q_loads_and_stores_match_clang() {
         assert_eq!(ldr_q_imm12(Fpr::V3, Gpr::X9, 48), 0x3DC0_0D23);
@@ -71,5 +100,13 @@ mod tests {
         assert_eq!(orr_v16b(Fpr::V1, Fpr::V2, Fpr::V3), 0x4EA3_1C41);
         assert_eq!(umov_x_d(Gpr::X5, Fpr::V6, 1), 0x4E18_3CC5);
         assert_eq!(umov_x_d(Gpr::X5, Fpr::V6, 0), 0x4E08_3CC5);
+    }
+
+    #[test]
+    fn f64_lane_forms_match_clang() {
+        assert_eq!(fdiv_v2d(Fpr::V1, Fpr::V2, Fpr::V3), 0x6E63_FC41);
+        assert_eq!(fcvtzs_v2d(Fpr::V1, Fpr::V2), 0x4EE1_B841);
+        assert_eq!(dup_2d_d(Fpr::V1, Fpr::V2), 0x4E08_0441);
+        assert_eq!(ins_d1_d0(Fpr::V5, Fpr::V6), 0x6E18_04C5);
     }
 }

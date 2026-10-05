@@ -19,7 +19,10 @@
 //! shifted-pair form; the bound that remains is the pair's 16 MiB.
 
 use super::write_u32;
-use crate::enc::{add_imm, add_imm_lsl12, ldr_d_imm12, ldr_x_imm12, str_d_imm12, str_x_imm12};
+use crate::enc::{
+    add_imm, add_imm_lsl12, ldr_d_imm12, ldr_q_imm12, ldr_x_imm12, str_d_imm12, str_q_imm12,
+    str_x_imm12,
+};
 use crate::reg::{Fpr, Gpr};
 
 /// Intra-sequence base for a slot past the scaled-imm12 range.
@@ -67,6 +70,18 @@ pub(crate) fn sp_ldr_d(bytes: &mut Vec<u8>, rt: Fpr, off: u32) {
 pub(crate) fn sp_str_d(bytes: &mut Vec<u8>, rt: Fpr, off: u32) {
     let (base, imm) = base_for(bytes, off);
     write_u32(bytes, str_d_imm12(rt, base, imm));
+}
+
+/// `LDR Qt, [sp, #off]`, `off` 16-aligned.
+pub(crate) fn sp_ldr_q(bytes: &mut Vec<u8>, rt: Fpr, off: u32) {
+    let (base, imm) = base_for(bytes, off);
+    write_u32(bytes, ldr_q_imm12(rt, base, imm));
+}
+
+/// `STR Qt, [sp, #off]`, `off` 16-aligned.
+pub(crate) fn sp_str_q(bytes: &mut Vec<u8>, rt: Fpr, off: u32) {
+    let (base, imm) = base_for(bytes, off);
+    write_u32(bytes, str_q_imm12(rt, base, imm));
 }
 
 /// `ADD Xd, sp, #off` — an alloca's address. Past the ADD immediate's
@@ -118,6 +133,19 @@ mod tests {
         let mut s = Vec::new();
         sp_str_d(&mut s, Fpr::V0, 0x8010);
         assert_eq!(words(&s), vec![0x9140_23F0, 0xFD00_0A00]);
+    }
+
+    /// `str q5, [sp, #32]` / `ldr q5, [sp, #32]` (clang's words), and
+    /// the IP0 form past the scaled range.
+    #[test]
+    fn a_vector_slot_moves_sixteen_bytes() {
+        let mut b = Vec::new();
+        sp_str_q(&mut b, Fpr::V5, 32);
+        sp_ldr_q(&mut b, Fpr::V5, 32);
+        assert_eq!(words(&b), vec![0x3D80_0BE5, 0x3DC0_0BE5]);
+        let mut far = Vec::new();
+        sp_str_q(&mut far, Fpr::V0, 0x8010);
+        assert_eq!(words(&far), vec![0x9140_23F0, 0x3D80_0600]);
     }
 
     /// An alloca address past the ADD immediate: `ADD x1, sp, #1,

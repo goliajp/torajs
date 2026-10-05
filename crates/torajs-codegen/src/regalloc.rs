@@ -60,6 +60,10 @@ pub struct Assignment {
     /// value held in a caller-saved register: the compiler stores `reg`
     /// before that instruction and reloads it after.
     pub call_saves: HashMap<u32, Vec<(Reg, u32)>>,
+    /// The same for each call-crossing vector, whose slot is 16 bytes:
+    /// stored and reloaded whole around the instruction, fast paths
+    /// included.
+    pub vec_call_saves: HashMap<u32, Vec<(Fpr, u32)>>,
 }
 
 impl Assignment {
@@ -87,6 +91,7 @@ impl Assignment {
             param_entry_moves: Vec::new(),
             stack_param_entry_loads: Vec::new(),
             call_saves: HashMap::new(),
+            vec_call_saves: HashMap::new(),
         }
     }
 

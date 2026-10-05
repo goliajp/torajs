@@ -1,47 +1,36 @@
 //! The register contract of `Type::Vec` values.
 //!
-//! Spill slots, call-site saves and the callee-saved FPR convention
-//! (AAPCS64 keeps only the low 64 bits of V8-V15) all move 8 bytes,
-//! so a vector that is spilled or live across a call would lose its
-//! upper lane. The sweep never spills one (`Sweep::unspillable`,
-//! seeded here); the only producer, loop widening, emits no call
-//! inside a widened loop. Should a vector still end up live across a
-//! call, compilation stops rather than corrupt it.
+//! A spill slot holds 8 bytes and a callee keeps only the low 64 bits
+//! of V8-V15 (AAPCS64), so a vector always has a register home
+//! (`Sweep::unspillable`, seeded here) and one live across a call is
+//! stored whole before the call and reloaded after it, whichever
+//! register it sits in (`Assignment::vec_call_saves`).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use torajs_core::ssa::{Function, Type};
 
-use crate::linear_scan_calls::crosses_call;
-use crate::liveness::Interval;
+use crate::coalesce::Classes;
 use crate::reg::Reg;
 use crate::regalloc::Assignment;
 
-pub(crate) fn vector_values(func: &Function) -> HashSet<u32> {
+/// The values the sweep allocates as vectors: every vector value, as
+/// the leader of its copy class (a lane pair shares a class with its
+/// low f64 operand).
+pub(crate) fn vector_values(func: &Function, classes: &Classes) -> HashSet<u32> {
     (0..func.values.len() as u32)
         .filter(|&v| matches!(func.values[v as usize].ty, Type::Vec(_)))
+        .flat_map(|v| [v, classes.leader(v)])
         .collect()
 }
 
-pub(crate) fn assert_vec_homes(
-    func: &Function,
-    intervals: &HashMap<u32, Interval>,
-    call_sites: &[u32],
-    alloc: &Assignment,
-) {
+pub(crate) fn assert_vec_homes(func: &Function, alloc: &Assignment) {
     for (vid, info) in func.values.iter().enumerate() {
-        if !matches!(info.ty, Type::Vec(_)) {
+        let v = torajs_core::ssa::ValueId(vid as u32);
+        if !matches!(info.ty, Type::Vec(_)) || !alloc.contains(v) {
             continue;
         }
-        let Some(&interval) = intervals.get(&(vid as u32)) else {
-            continue;
-        };
-        assert!(
-            !crosses_call(interval, call_sites),
-            "{}: vector value %{vid} is live across a call",
-            func.name
-        );
-        let home = alloc.of(torajs_core::ssa::ValueId(vid as u32));
+        let home = alloc.of(v);
         assert!(
             matches!(home, Reg::Fpr(_)),
             "{}: vector value %{vid} has no vector register ({home:?})",

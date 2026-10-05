@@ -110,11 +110,36 @@ pub(super) fn emit_plain(
 }
 
 /// `emit_inst` for the instruction at slot index `site`, with every
-/// caller-saved register the allocator keeps live across this call
-/// site stored before it and reloaded after. The store precedes the
+/// register the allocator keeps live across this call site stored
+/// before it and reloaded after. A vector is stored whole around the
+/// instruction, whichever arm of it runs.
+pub(super) fn emit_inst_at(
+    bytes: &mut Vec<u8>,
+    relocs: &mut Vec<Reloc>,
+    func: &Function,
+    inst: &torajs_core::ssa::Inst,
+    alloc: &Assignment,
+    facts: &ModuleFacts,
+    site: u32,
+) {
+    let wide = alloc
+        .vec_call_saves
+        .get(&site)
+        .map_or(&[][..], Vec::as_slice);
+    for &(f, off) in wide {
+        slot::sp_str_q(bytes, f, off);
+    }
+    emit_saved(bytes, relocs, func, inst, alloc, facts, site);
+    for &(f, off) in wide {
+        slot::sp_ldr_q(bytes, f, off);
+    }
+}
+
+/// The instruction with its caller-saved scalar registers stored
+/// before the call and reloaded after. The store precedes the
 /// argument setup, which may overwrite an argument register; the
 /// reload follows the result move.
-pub(super) fn emit_inst_at(
+fn emit_saved(
     bytes: &mut Vec<u8>,
     relocs: &mut Vec<Reloc>,
     func: &Function,

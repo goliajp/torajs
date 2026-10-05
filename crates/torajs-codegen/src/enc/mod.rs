@@ -58,5 +58,8 @@ pub use mem::{
     stp_x_off, str_w_imm12, str_w_reg, str_x_imm12, str_x_reg, str_x_reg_lsl3, strb_w_imm12,
     stur_w_imm9, stur_x_imm9, sturh_w_imm9,
 };
-pub use simd::{ldr_q_imm12, ldur_q_imm9, orr_v16b, str_q_imm12, stur_q_imm9, umov_x_d};
+pub use simd::{
+    dup_2d_d, fcvtzs_v2d, fdiv_v2d, ins_d1_d0, ldr_q_imm12, ldur_q_imm9, orr_v16b, str_q_imm12,
+    stur_q_imm9, umov_x_d,
+};
 pub use sys::{mrs_fpcr, msr_fpcr, orr_imm_bit};

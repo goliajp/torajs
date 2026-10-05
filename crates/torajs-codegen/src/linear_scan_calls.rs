@@ -8,7 +8,7 @@ use torajs_core::ssa::{Function, InstKind};
 use crate::compile::InlineSites;
 use crate::linear_scan_sweep::Sweep;
 use crate::liveness::Interval;
-use crate::reg::Reg;
+use crate::reg::{Fpr, Reg};
 use crate::regalloc::{alloca_slot_size, call_site_rarity, inst_emits_bl};
 
 /// `true` iff some call site falls strictly inside `[start, end]` —
@@ -103,29 +103,46 @@ pub(crate) fn scan_frame(func: &Function, inline: InlineSites) -> FrameScan {
     scan
 }
 
+/// The saves around one call site: `(register, sp offset)`.
+type Saves<R> = HashMap<u32, Vec<(R, u32)>>;
+
 /// For every call-crossing value that ended in a caller-saved register,
 /// one stack slot and the call sites strictly inside its interval: the
 /// value is stored before each such call and reloaded after it. Keyed
-/// by call-site slot index.
+/// by call-site slot index. A vector's saves come apart, in the second
+/// map: its slot is 16 bytes at a 16-aligned offset.
 pub(crate) fn collect_call_saves(
     sweep: &mut Sweep,
     intervals: &HashMap<u32, Interval>,
     call_sites: &[u32],
-) -> HashMap<u32, Vec<(Reg, u32)>> {
-    let mut out: HashMap<u32, Vec<(Reg, u32)>> = HashMap::new();
+) -> (Saves<Reg>, Saves<Fpr>) {
+    let mut out: Saves<Reg> = HashMap::new();
+    let mut wide: Saves<Fpr> = HashMap::new();
     for vid in std::mem::take(&mut sweep.caller_crossing) {
         let reg = sweep.by_value[&vid];
         if matches!(reg, Reg::SpillGpr(_) | Reg::SpillFpr(_)) {
             continue; // evicted after the sweep handed it the register
         }
         let it = intervals[&vid];
-        let slot = sweep.alloc_spill_slot();
         let first = call_sites.partition_point(|&p| p <= it.start);
-        for &p in call_sites[first..].iter().take_while(|&&p| p < it.end) {
+        let crossed = call_sites[first..].iter().take_while(|&&p| p < it.end);
+        if let (true, Reg::Fpr(f)) = (sweep.unspillable.contains(&vid), reg) {
+            if !sweep.next_spill_offset.is_multiple_of(16) {
+                sweep.alloc_spill_slot();
+            }
+            let slot = sweep.alloc_spill_slot();
+            sweep.alloc_spill_slot();
+            for &p in crossed {
+                wide.entry(p).or_default().push((f, slot));
+            }
+            continue;
+        }
+        let slot = sweep.alloc_spill_slot();
+        for &p in crossed {
             out.entry(p).or_default().push((reg, slot));
         }
     }
-    out
+    (out, wide)
 }
 
 /// Estimated frequency of the call sites, as prefix sums: the cost of

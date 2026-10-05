@@ -29,7 +29,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use torajs_core::ssa::{Function, InstKind, Operand};
+use torajs_core::ssa::{Function, InstKind, Operand, VecInst};
 
 use crate::linear_scan_calls::crosses_call;
 use crate::liveness::{Interval, visit_inst_operands, visit_terminator_operands};
@@ -68,6 +68,11 @@ impl Classes {
             weights.insert(leader, weight);
             intervals.insert(leader, class.hull);
         }
+    }
+
+    /// The value whose home `v` shares: its class leader, or itself.
+    pub(crate) fn leader(&self, v: u32) -> u32 {
+        self.leader_of.get(&v).copied().unwrap_or(v)
     }
 
     /// Give every member its leader's final home.
@@ -147,6 +152,10 @@ fn collect_copies(
                 allocas.insert(r.0);
             }
             (InstKind::Copy(_, Operand::Value(v)), Some(w)) => copies.push((w.0, v.0)),
+            // a lane pair starts as its low operand's register
+            (InstKind::Vec(VecInst::Pair(Operand::Value(v), _)), Some(w)) => {
+                copies.push((w.0, v.0))
+            }
             _ => {}
         }
     }

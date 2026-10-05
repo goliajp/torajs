@@ -74,7 +74,7 @@ pub fn allocate_linear_scan_with(func: &Function, inline: InlineSites) -> Assign
     classes.fold_into(&mut intervals, &mut weights);
     let call_costs = CallCosts::new(&call_sites, &call_rarity, &units);
     let mut sweep = Sweep::new(next_alloca_offset, weights, call_costs);
-    sweep.unspillable = crate::vec_homes::vector_values(func);
+    sweep.unspillable = crate::vec_homes::vector_values(func, &classes);
     // `TORAJS_CALL_SAVE_OFF=1`: call-crossing values never take a
     // caller-saved register (bisect gate).
     let save_calls = std::env::var_os("TORAJS_CALL_SAVE_OFF").is_none_or(|v| v != "1");
@@ -181,7 +181,9 @@ pub fn allocate_linear_scan_with(func: &Function, inline: InlineSites) -> Assign
             }
         }
 
-        let reg = if crossing && save_calls {
+        let reg = if crossing && sweep.unspillable.contains(&vid) {
+            sweep.alloc_crossing_vector(vid, interval)
+        } else if crossing && save_calls {
             sweep.alloc_crossing_saved(vid, interval, is_fp)
         } else if crossing {
             sweep.alloc_crossing(vid, interval, is_fp)
@@ -193,7 +195,7 @@ pub fn allocate_linear_scan_with(func: &Function, inline: InlineSites) -> Assign
     }
 
     classes.fan_out(&mut sweep.by_value);
-    let call_saves = collect_call_saves(&mut sweep, &intervals, &call_sites);
+    let (call_saves, vec_call_saves) = collect_call_saves(&mut sweep, &intervals, &call_sites);
 
     let total_spill_bytes = sweep.next_spill_offset - next_alloca_offset;
     let used_callee_gpr_mask = sweep.used_callee_gpr_mask;
@@ -240,7 +242,8 @@ pub fn allocate_linear_scan_with(func: &Function, inline: InlineSites) -> Assign
     assignment.param_entry_moves = param_entry_moves;
     assignment.stack_param_entry_loads = stack_param_entry_loads;
     assignment.call_saves = call_saves;
-    crate::vec_homes::assert_vec_homes(func, &intervals, &call_sites, &assignment);
+    assignment.vec_call_saves = vec_call_saves;
+    crate::vec_homes::assert_vec_homes(func, &assignment);
     assignment
 }
 
