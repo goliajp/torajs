@@ -100,6 +100,7 @@ pub mod member_symtab_list;
 pub mod member_text;
 pub mod non_text_layout;
 pub mod patch;
+pub mod phase_timer;
 pub mod resolve;
 pub mod sha256;
 pub mod sign;

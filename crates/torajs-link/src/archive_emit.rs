@@ -21,6 +21,7 @@ use crate::fn_name_table_layout::{apply_fn_name_table_overrides, build_fn_name_t
 use crate::member_apply::apply_member_relocs;
 use crate::member_data_apply::collect_member_data_payloads;
 use crate::member_data_rebase_layout::compute_member_data_rebase_targets;
+use crate::phase_timer::PhaseTimer;
 use crate::resolve::apply_relocs;
 use crate::sign::build_adhoc_codesign_blob;
 use crate::text_payload::write_text_payload;
@@ -100,12 +101,16 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
     // Merge once: the dead-strip pre-pass reads this index, its
     // rewritten members are swapped into it, and layout and emit share
     // it — each merge re-parses every archive member's symtab.
+    let mut t = PhaseTimer::start(1);
     let mut merged = merge_archive_indexes(&cfg.archives).map_err(ArchiveLayoutError::Merge)?;
+    t.tick("merge_archive_indexes");
     let (stripped_cfg, dead_rows, stripped_members) = match dead_strip_prepass(cfg, &merged)? {
         Some((c, dead, members)) => (Some(c), dead, members),
         None => (None, DeadRows::new(), StrippedMembers::new()),
     };
+    t.tick("dead_strip_prepass");
     swap_in_stripped(&mut merged, &stripped_members).map_err(ArchiveLayoutError::DeadStrip)?;
+    t.tick("swap_in_stripped");
     let cfg = stripped_cfg.as_ref().unwrap_or(cfg);
 
     // r499 — with the archives stripped, a forced table global whose
@@ -116,46 +121,16 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
         None => (None, None),
     };
     let cfg = derived_cfg.as_ref().unwrap_or(cfg);
+    t.tick("derive_force_emit");
     let mut layout = crate::archive_link::compute_archive_layout_with_required(
         cfg, &merged, &dead_rows, required,
     )?;
+    t.tick("compute_archive_layout");
 
     // Effective sym table = caller externs + member defined-externs
     // (vaddr dispatched by home section) + SD-2b dyld-stub vaddrs.
     let mut effective_sym_table = cfg.sym_table.clone();
-    for (m_idx, m) in layout.member_layouts.iter().enumerate() {
-        let data_layouts = member_data_layouts(&layout, m_idx);
-        for (name, n_value, n_sect) in &m.defined_syms {
-            let vaddr = section_vaddr_for_sym(
-                *n_sect,
-                *n_value,
-                m.vaddr,
-                &m.non_text_sections,
-                data_layouts,
-            );
-            if is_allocator_shim_sym(name) {
-                // First definition wins for this family only. Every
-                // `libtorajs_*.a` bundles its own `core`, so the
-                // default `__rust_alloc -> __rdl_alloc` shim is
-                // defined once per archive; plain `insert` lets the
-                // last archive scanned decide, which is how user
-                // binaries ended up on libc malloc while
-                // `TorajsAllocator` sat unreferenced in the image.
-                // `member_layouts` is ordered by `(archive_idx,
-                // member_idx)` (archive_link sorts `member_keys`),
-                // and `libtorajs_panic_runtime.a` — the one crate
-                // carrying `#[global_allocator]` — leads
-                // `TORAJS_STATICLIBS`, so first-wins here means its
-                // shim is the one every call site binds to. That
-                // matches what `merge_archive_indexes` already
-                // documents for the symbol index (ld64 search order);
-                // the vaddr table was the half that disagreed.
-                effective_sym_table.entry(name.clone()).or_insert(vaddr);
-            } else {
-                effective_sym_table.insert(name.clone(), vaddr);
-            }
-        }
-    }
+    insert_member_syms(&layout, &mut effective_sym_table);
     // S2-5 blade 2 prereq — user-fn names shadow member
     // defined-externs (user-first, matching the required-members walk
     // and dead-strip reachability, which both skip member pulls for
@@ -167,6 +142,7 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
         effective_sym_table.insert(name.clone(), *stub_vaddr);
     }
 
+    t.tick("effective_sym_table");
     // SD-4c-prereq overrides for ADRP+ADD targets.
     apply_tlv_overrides(&layout, &merged, &mut effective_sym_table)?;
     apply_user_string_overrides(&layout.user_strings_layout, &mut effective_sym_table);
@@ -188,6 +164,7 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
         &mut effective_sym_table,
     );
 
+    t.tick("sym_overrides");
     // chunk 2b-4: dyld-rebase member `__DATA,*` slots under ASLR.
     let data_rebase_targets = compute_member_data_rebase_targets(
         &layout,
@@ -200,11 +177,13 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
         member_idx: 0,
         err,
     })?;
+    t.tick("data_rebase_targets");
     let data_rebase_link_values = recompute_chained_fixups_with_data_rebase(
         &mut layout,
         &data_rebase_targets,
         &cfg.codesign_ident,
     );
+    t.tick("chained_fixups");
 
     // e8-2b + Step 3b.4-5 + W-J A3c + C-5c.2c: region split of
     // text_rebase_link_values = class_layouts | fn_name_table |
@@ -237,7 +216,9 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
         &cfg.baked_regex_entries,
         baked_regex_lv,
     );
+    t.tick("table_payloads");
     let resolved = apply_relocs(&cfg.funcs, &layout.fn_vaddrs, &effective_sym_table);
+    t.tick("apply_relocs");
 
     // S7-C5 — patch each member's __text in place against effective sym table.
     let mut member_text_payloads: Vec<Vec<u8>> = Vec::with_capacity(layout.member_layouts.len());
@@ -270,8 +251,10 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
         }
     }
 
+    t.tick("member_relocs");
     let data_non_text_payloads =
         collect_member_data_payloads(&layout, &merged, &data_rebase_link_values)?;
+    t.tick("member_data_payloads");
 
     let bytes = emit_binary(
         cfg,
@@ -286,6 +269,7 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
         &class_name_table_payload,
         &user_regex_baked_payload,
     );
+    t.tick("emit_binary");
     Ok(bytes)
 }
 
@@ -396,6 +380,44 @@ fn emit_binary(
     );
 
     buf
+}
+
+/// Every member's defined externals into the vaddr table, each at the
+/// address its home section gives it.
+fn insert_member_syms(layout: &ArchiveLayout, effective_sym_table: &mut crate::resolve::SymTable) {
+    for (m_idx, m) in layout.member_layouts.iter().enumerate() {
+        let data_layouts = member_data_layouts(layout, m_idx);
+        for (name, n_value, n_sect) in &m.defined_syms {
+            let vaddr = section_vaddr_for_sym(
+                *n_sect,
+                *n_value,
+                m.vaddr,
+                &m.non_text_sections,
+                data_layouts,
+            );
+            if is_allocator_shim_sym(name) {
+                // First definition wins for this family only. Every
+                // `libtorajs_*.a` bundles its own `core`, so the
+                // default `__rust_alloc -> __rdl_alloc` shim is
+                // defined once per archive; plain `insert` lets the
+                // last archive scanned decide, which is how user
+                // binaries ended up on libc malloc while
+                // `TorajsAllocator` sat unreferenced in the image.
+                // `member_layouts` is ordered by `(archive_idx,
+                // member_idx)` (archive_link sorts `member_keys`),
+                // and `libtorajs_panic_runtime.a` — the one crate
+                // carrying `#[global_allocator]` — leads
+                // `TORAJS_STATICLIBS`, so first-wins here means its
+                // shim is the one every call site binds to. That
+                // matches what `merge_archive_indexes` already
+                // documents for the symbol index (ld64 search order);
+                // the vaddr table was the half that disagreed.
+                effective_sym_table.entry(name.clone()).or_insert(vaddr);
+            } else {
+                effective_sym_table.insert(name.clone(), vaddr);
+            }
+        }
+    }
 }
 
 /// Per-member `__DATA,*` placement slice (empty when the member has

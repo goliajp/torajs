@@ -73,6 +73,7 @@ use crate::dead_strip_elide_guard::guard_live;
 use crate::dead_strip_elide_patch::{patch_site, site_drops_user_ref};
 use crate::dead_strip_reach::{ReachResult, compute_reachability};
 use crate::exec::{LinkConfig, UserClassLayoutEntry, UserFnNameEntry};
+use crate::phase_timer::PhaseTimer;
 use crate::user_gc;
 
 /// Which runtime text is the evidence.
@@ -185,10 +186,13 @@ pub(crate) fn judge_and_patch(
     // only ride along because `___torajs_`-named user fns are always
     // rooted) — and a page-line away from costing a whole page.
     let mut referenced: Vec<bool> = vec![true; cfg.guarded_stubs.len()];
+    let mut t = PhaseTimer::start(3);
     loop {
         let assumed = assume(cfg, &elided, &applied, dropped, diag)?;
+        t.tick("elide_assume");
         let required = compute_required_members(&assumed.funcs, merged, extra_defined_syms)
             .map_err(|e| format!("member closure (elide probe): {e:?}"))?;
+        t.tick("elide_required");
         let probe_cfg = LinkConfig {
             funcs: assumed.funcs,
             class_layouts: assumed
@@ -208,6 +212,7 @@ pub(crate) fn judge_and_patch(
             diag,
             None,
         )?;
+        t.tick("elide_reach");
         let mut changed = false;
         for (i, site) in cfg.elidable_sites.iter().enumerate() {
             if elided[i] && guard_live(&reach, &site.guard) {

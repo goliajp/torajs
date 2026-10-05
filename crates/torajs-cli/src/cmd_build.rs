@@ -26,6 +26,7 @@ use torajs_core::ssa::Module;
 use torajs_core::{TORAJS_STATICLIBS, check, lexer, modules, parser, ssa_lower};
 use torajs_link::archive_emit::link_to_exec_with_archives;
 use torajs_link::exec::LinkConfig;
+use torajs_link::phase_timer::PhaseTimer;
 use torajs_link::resolve::SymTable;
 
 use crate::util::{base_dir_for, read_source, sloppy_goal_for};
@@ -83,15 +84,19 @@ pub(crate) fn run(args: &[String]) -> ExitCode {
         return ExitCode::from(2);
     };
 
+    let mut t = PhaseTimer::start(0);
     let ssa_module = match lower_to_ssa(input) {
         Ok(m) => m,
         Err(code) => return code,
     };
+    t.tick("lower_to_ssa");
 
     // Phase 0 step 8b — egraph mid-end pass. Honors TORAJS_EGRAPH_OFF=1.
     let ssa_module = torajs_egraph::transform_module(ssa_module);
+    t.tick("egraph");
 
     let cfg = build_link_config(&ssa_module, true, !no_strip);
+    t.tick("build_link_config");
 
     let bytes = match link_to_exec_with_archives(&cfg) {
         Ok(b) => b,
@@ -100,6 +105,7 @@ pub(crate) fn run(args: &[String]) -> ExitCode {
             return ExitCode::from(1);
         }
     };
+    t.tick("link_to_exec_with_archives");
 
     if let Err(e) = std::fs::write(output, &bytes) {
         eprintln!("write error: {e}");
@@ -306,7 +312,9 @@ pub(crate) fn build_link_config(
     dead_strip: bool,
     strip_member_symbols: bool,
 ) -> LinkConfig {
+    let mut t = PhaseTimer::start(1);
     let mut funcs = compile_module_funcs(ssa_module);
+    t.tick("compile_module_funcs");
     // S2-5 blade 2b: judge which dispatch families the program can
     // never enter and stub their arm seams (module docs in
     // cmd_build_dispatch_judge / cmd_build_dispatch_stubs).
@@ -324,6 +332,7 @@ pub(crate) fn build_link_config(
         );
     }
 
+    t.tick("dispatch_stubs");
     let mut strings = build_user_strings(ssa_module);
     let class_names = build_class_names(ssa_module, &mut strings);
     let data_globals = build_data_globals(ssa_module);
@@ -396,7 +405,9 @@ pub(crate) fn build_link_config(
     // r498 knife 4 — user-fn dead-strip; roots come from the
     // materialized tables in `cfg` itself (module doc in
     // torajs_link::user_gc).
+    t.tick("tables");
     torajs_link::user_gc::strip_dead_user_fns(&mut cfg);
+    t.tick("user_gc");
     // r499/r501 — the drains and the adapter mints become conditional
     // on their guards' liveness (policy in cmd_build_elide). Collected
     // AFTER the strip: a mint in a fn the artifact will not carry has
@@ -408,5 +419,6 @@ pub(crate) fn build_link_config(
         .extend(crate::cmd_build_elide_class::class_register_sites(
             &cfg.funcs, ssa_module,
         ));
+    t.tick("elidable_sites");
     cfg
 }

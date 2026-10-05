@@ -23,6 +23,7 @@ use crate::archives_merge::{MergedArchives, compute_required_members};
 use crate::dead_strip_reach::{MemberReach, SectAtoms, compute_reachability};
 use crate::dead_strip_rewrite::{StrippedMember, scan_load_commands, strip_member_section};
 use crate::exec::{LinkConfig, UserClassLayoutEntry, UserFnNameEntry};
+use crate::phase_timer::PhaseTimer;
 
 /// nlist rows (ascending indices) whose atom the pre-pass dropped,
 /// keyed by `(archive_idx, member_idx)`. The rows stay defined
@@ -59,8 +60,10 @@ pub(crate) fn strip_archives(
     cfg: &LinkConfig,
     merged: &MergedArchives<'_>,
 ) -> Result<StripOutput, String> {
+    let mut t = PhaseTimer::start(2);
     let extra = collect_extra_defined_syms(cfg);
     let assumed = crate::dead_strip_elide::judge_and_patch(cfg, merged, &extra)?;
+    t.tick("elide_judge_and_patch");
     let patched_cfg;
     let cfg = match &assumed {
         Some(a) => {
@@ -84,7 +87,9 @@ pub(crate) fn strip_archives(
         .map_err(|e| format!("member closure: {e:?}"))?;
     // probes=None always: the CUT/CUT_IN what-ifs are diag-only
     // pricing probes and must never shape emitted bytes.
+    t.tick("required_members");
     let reach = compute_reachability(cfg, merged, &required, &extra, false, None)?;
+    t.tick("reachability");
 
     let mut members = StrippedMembers::new();
     let mut dead_rows = DeadRows::new();
@@ -102,6 +107,7 @@ pub(crate) fn strip_archives(
             members.insert(key, bytes);
         }
     }
+    t.tick("strip_members");
     let (funcs, class_layouts, fn_name_globals) = match assumed {
         Some(a) => (Some(a.funcs), a.class_layouts, a.fn_name_globals),
         None => (None, None, None),
