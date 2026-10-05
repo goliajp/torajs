@@ -241,7 +241,7 @@ pub(crate) unsafe fn append_payload(
     let Some(cap) = grow_capacity(wide_need, out_is_latin1) else {
         return unsafe { append_too_long(a) };
     };
-    let mut grown = StrBlock::alloc_with_capacity(total_len, out_is_latin1, cap);
+    let mut grown = StrBlock::alloc_with_capacity(total_len, out_is_latin1, cap.get());
     // SAFETY: freshly allocated with at least `need` payload bytes.
     let dst = unsafe { grown.as_bytes_mut(need) };
     let a_out_bytes = byte_capacity(a_len, out_is_latin1) as usize;

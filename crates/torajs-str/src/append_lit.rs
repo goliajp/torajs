@@ -132,13 +132,14 @@ unsafe fn append_lit_general(a: *mut u8, bits: u64, meta: u64) -> *mut u8 {
     };
     let mut cell = a;
     if fit.need > unsafe { StrBlock::from_raw(a).payload_capacity() } as u64 {
+        // read before the early return, so it shares the load `writable` made
+        let kept = unsafe { (*(a as *const HeapHeader)).flags } & STR_FLAG_IS_ASCII;
         let Some(cap) = grow_capacity(fit.need, fit.is_latin1) else {
             return unsafe { append_too_long(a) };
         };
         // move into a block with slack, so the appends after this one
         // land in place
-        let kept = unsafe { (*(a as *const HeapHeader)).flags } & STR_FLAG_IS_ASCII;
-        let mut grown = StrBlock::alloc_with_capacity(fit.len, fit.is_latin1, cap);
+        let mut grown = StrBlock::alloc_with_capacity(fit.len, fit.is_latin1, cap.get());
         unsafe {
             grown.header().flags |= kept;
             copy_bytes(

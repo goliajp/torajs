@@ -9,6 +9,8 @@
 //! a view of `a` itself is the aliasing case `append` guards against
 //! by pointer, and is guarded the same way here through the parent.
 
+use core::num::NonZeroU32;
+
 use torajs_rc::HeapHeader;
 
 use crate::append::{append_in_place, append_payload, is_solely_ours};
@@ -98,7 +100,7 @@ pub unsafe extern "C" fn __torajs_str_alloc_capacity_utf16(cap: u64) -> *mut u8 
 /// more than a Str in that encoding holds.
 fn reserve(cap: u64, is_latin1: bool) -> u32 {
     // a hint past what a Str holds takes all it holds
-    grow_capacity(cap, is_latin1).unwrap_or(str_max_bytes(is_latin1))
+    grow_capacity(cap, is_latin1).map_or(str_max_bytes(is_latin1), NonZeroU32::get)
 }
 
 #[cfg(test)]

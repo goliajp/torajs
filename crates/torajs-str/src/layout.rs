@@ -36,6 +36,8 @@
 //!   (Latin-1 0-255 ⊇ ASCII 0-127 ⊇ every existing fixture). UTF-16
 //!   payload + build-time encoding decisions land in S2 / S3.
 
+use core::num::NonZeroU32;
+
 use torajs_rc::Tag;
 
 use crate::max_len::{STR_MAX_LEN, str_max_bytes};
@@ -225,32 +227,39 @@ pub const fn byte_capacity(length: u32, is_latin1: bool) -> u32 {
 /// ([`str_max_bytes`]); the slack never passes that either, so an
 /// append that fits it fits the longest Str.
 #[inline]
-pub const fn grow_capacity(need: u64, is_latin1: bool) -> Option<u32> {
-    if need <= STR_POOL_PAYLOADS[0] as u64 {
-        return Some(STR_POOL_PAYLOADS[0]);
-    }
+pub const fn grow_capacity(need: u64, is_latin1: bool) -> Option<NonZeroU32> {
     // asked of `need - 1`, which the doubling computes anyway, so the
-    // test is one mask: past 2^30 bytes
-    let below = need - 1;
+    // test is one mask: past 2^30 bytes, or `need == 0` wrapping
+    let below = need.wrapping_sub(1);
     if below >> 30 != 0 {
         return top_capacity(need, is_latin1);
     }
-    Some(1u32 << (u64::BITS - below.leading_zeros()))
+    // the floor rides the doubling: the low bits set below the smallest
+    // class make it the least power of two to come out
+    let floored = below | (STR_POOL_PAYLOADS[0] as u64 - 1);
+    // a NonZeroU32, so the caller's `None` test is one zero test where an
+    // `Option<u32>` would materialize and test a tag
+    NonZeroU32::new(1u32 << (u64::BITS - floored.leading_zeros()))
 }
 
-/// [`grow_capacity`] past 2^30 bytes, where the last doubling would
-/// pass the longest Latin-1 payload: stop there, take `need` exactly
-/// when it is already past it (a UTF-16 one), or answer `None` past
-/// the longest Str. Out of line, so the common grow pays one compare
-/// for all of it, as it did before.
+const _: () = assert!(STR_POOL_PAYLOADS[0].is_power_of_two());
+
+/// [`grow_capacity`] for `need == 0` and past 2^30 bytes, where the
+/// last doubling would pass the longest Latin-1 payload: stop there,
+/// take `need` exactly when it is already past it (a UTF-16 one), or
+/// answer `None` past the longest Str. Out of line, so the common grow
+/// pays one compare for all of it, as it did before.
 #[cold]
 #[inline(never)]
-const fn top_capacity(need: u64, is_latin1: bool) -> Option<u32> {
+const fn top_capacity(need: u64, is_latin1: bool) -> Option<NonZeroU32> {
+    if need == 0 {
+        return NonZeroU32::new(STR_POOL_PAYLOADS[0]);
+    }
     if need > str_max_bytes(is_latin1) as u64 {
         return None;
     }
     let latin1_max = STR_MAX_LEN as u64;
-    Some(if need > latin1_max { need } else { latin1_max } as u32)
+    NonZeroU32::new(if need > latin1_max { need } else { latin1_max } as u32)
 }
 
 #[cfg(test)]
@@ -324,7 +333,7 @@ mod tests {
     #[test]
     fn grow_capacity_doubles_past_the_smallest_pool_class() {
         // Anything a pool class already covers takes the class.
-        let grow = |need: u64| grow_capacity(need, false).unwrap();
+        let grow = |need: u64| grow_capacity(need, false).unwrap().get();
         assert_eq!(grow(0), 16);
         assert_eq!(grow(16), 16);
         // Past it: next power of two, so repeated appends reallocate
@@ -344,7 +353,10 @@ mod tests {
         // past the longest Str in the encoding there is no capacity
         assert_eq!(grow_capacity(u32::MAX as u64, false), None);
         assert_eq!(grow_capacity(1 << 31, true), None);
-        assert_eq!(grow_capacity((1 << 31) - 1, true), Some((1 << 31) - 1));
+        assert_eq!(
+            grow_capacity((1 << 31) - 1, true).map(NonZeroU32::get),
+            Some((1 << 31) - 1)
+        );
     }
 
     #[test]
@@ -354,7 +366,7 @@ mod tests {
         // for every value the floor/doubling can produce below the
         // cutoff.
         for need in 0..=STR_POOL_PAYLOAD {
-            let cap = grow_capacity(need as u64, true).unwrap();
+            let cap = grow_capacity(need as u64, true).unwrap().get();
             let class = pool_class_of(cap).expect("under the cutoff");
             assert_eq!(STR_POOL_PAYLOADS[class], cap, "need {need}");
         }
