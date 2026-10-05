@@ -1,4 +1,5 @@
-//! 424-04 — mismatch census for MUTABLE fn-typed bindings.
+//! 424-04 — mismatch census for fn-typed bindings (mutable ones,
+//! and immutable ones initialized from a function literal).
 //!
 //! A mutable fn-typed binding is a closure_bindings member, so every
 //! store site (init and assign rhs) wraps into a `__forward_*`
@@ -284,8 +285,55 @@ fn collect_decl_sites(
                 out.insert(name.clone());
             }
         }
+        // An immutable binding whose init is a function literal
+        // declaring a parameter type other than the annotation's
+        // (`const h: (s: any) => number = (s: string) => s.length`,
+        // legal because `any` is assignable to `string`): the bare
+        // indirect call passes the annotation's representation into
+        // a body that reads its own, so its calls ride the boxed
+        // entry too, whose adapter hands a non-fitting argument to
+        // the literal's any twin. The return face is contextual (the
+        // literal takes the annotation's), so only parameters
+        // compare. A named-function init has its sig-thunk instead.
+        if let Stmt::LetDecl {
+            mutable: false,
+            type_ann: Some(ann),
+            name,
+            init,
+            ..
+        } = s
+            && super::lift_arrow_fns::is_fn_like_ann(ann)
+            && let Expr::Closure { fn_name, .. } = ast.get_expr(*init)
+            && literal_params_mismatch(ast, fn_name, ann)
+        {
+            out.insert(name.clone());
+        }
         super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
             collect_decl_sites(ast, inner, mismatches, decls, out)
         });
     }
+}
+
+/// Does the lifted function literal `fn_name` declare a user
+/// parameter the fn-type `ann` does not, or one annotated otherwise?
+fn literal_params_mismatch(ast: &Ast, fn_name: &str, ann: &str) -> bool {
+    let Some(params) = ast.stmts.iter().find_map(|s| match s {
+        Stmt::FnDecl { name, params, .. } if name == fn_name => Some(params),
+        _ => None,
+    }) else {
+        return false;
+    };
+    let Some((user, _)) = user_face(params, None) else {
+        return false;
+    };
+    let Some(canon) = crate::num_width::fn_type_canon(ann) else {
+        return false;
+    };
+    let Some((formal_ps, _)) = crate::num_width::split_fn_type(&canon) else {
+        return false;
+    };
+    let formal_ps: Vec<&str> = formal_ps.into_iter().filter(|p| !p.is_empty()).collect();
+    // a literal declaring more parameters than the annotation reads
+    // registers the caller never filled
+    user.len() > formal_ps.len() || formal_ps.iter().zip(user).any(|(f, a)| *f != a)
 }

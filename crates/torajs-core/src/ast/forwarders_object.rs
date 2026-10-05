@@ -167,18 +167,19 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
 
     let (mut fn_sigs, existing_forwarders, fn_type_params) = snapshot_fn_sigs(ast);
     let block_scoped = super::namedfn_rebound_scope::refuse_rebound_names(ast, &mut fn_sigs);
-    if fn_sigs.is_empty() {
-        return;
-    }
-
-    // 424-04 — census the mutable fn-typed bindings whose store
-    // faces mismatch their annotation BEFORE the rewrites below turn
-    // those store rhs Idents into Expr::Closure (the census keys off
-    // the bare Ident). The lowering routes the marked bindings
-    // through the boxed dual entry (module doc in the sibling).
+    // 424-04 — census the fn-typed bindings whose store faces
+    // mismatch their annotation BEFORE the rewrites below turn those
+    // store rhs Idents into Expr::Closure (the census keys off the
+    // bare Ident). The lowering routes the marked bindings through
+    // the boxed dual entry (module doc in the sibling). It runs
+    // whether or not the module declares a named function: a store
+    // of a function literal needs none.
     let mismatch =
         super::forwarders_object_mismatch::collect_fnsig_mismatch_bindings(ast, &fn_sigs);
     ast.fnsig_mismatch_bindings.extend(mismatch);
+    if fn_sigs.is_empty() {
+        return;
+    }
 
     let (struct_field_anns, generic_field_anns) = snapshot_type_field_anns(ast);
 
