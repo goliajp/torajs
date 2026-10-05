@@ -20,7 +20,7 @@ fn hex_digit(c: u8) -> Option<u32> {
 }
 
 /// The code unit a `\uXXXX` escape at `i` (the backslash) denotes.
-/// Non-hex digits contribute nothing, matching the pre-port reader.
+/// The scan has already refused an escape whose four digits are not hex.
 #[inline]
 fn u_escape_unit(data: &JsonSrc, i: usize) -> u16 {
     let mut v: u32 = 0;
@@ -35,7 +35,8 @@ fn u_escape_unit(data: &JsonSrc, i: usize) -> u16 {
 
 /// Parse a JSON string literal — opens `"`, decodes escape sequences
 /// (`\"`, `\\`, `\/`, `\b`, `\f`, `\n`, `\r`, `\t`, `\uXXXX`), closes
-/// `"`. Throws on bad escape / unterminated string.
+/// `"`. Throws on a bad escape, an unescaped control character or an
+/// unterminated string.
 ///
 /// Two-pass: scan to find the closing quote, count decoded code
 /// units and find the widest one, then allocate the matching
@@ -79,19 +80,34 @@ pub unsafe extern "C" fn __torajs_json_parse_string(str_ptr: *const u8, pos: *mu
                 return unsafe { __torajs_str_alloc_pooled(0) };
             }
             if data.ascii(scan + 1) == b'u' {
-                if scan + 6 > data.len() {
-                    json_throw("JSON.parse: short \\u escape", scan as i64);
+                if scan + 6 > data.len()
+                    || (0..4).any(|k| hex_digit(data.ascii(scan + 2 + k)).is_none())
+                {
+                    json_throw("JSON.parse: bad \\u escape", scan as i64);
                     return unsafe { __torajs_str_alloc_pooled(0) };
                 }
                 widest = widest.max(u_escape_unit(&data, scan));
                 out_len += 1;
                 scan += 6;
             } else {
+                // §25.5.1.1: JSONEscapeCharacter is exactly these
+                if !matches!(
+                    data.unit(scan + 1),
+                    0x22 | 0x5C | 0x2F | 0x62 | 0x66 | 0x6E | 0x72 | 0x74
+                ) {
+                    json_throw("JSON.parse: bad escape", scan as i64);
+                    return unsafe { __torajs_str_alloc_pooled(0) };
+                }
                 widest = widest.max(data.unit(scan + 1));
                 out_len += 1;
                 scan += 2;
             }
             continue;
+        }
+        // a code unit below U+0020 must be escaped
+        if c < 0x20 {
+            json_throw("JSON.parse: bad control character in string", scan as i64);
+            return unsafe { __torajs_str_alloc_pooled(0) };
         }
         widest = widest.max(c);
         out_len += 1;

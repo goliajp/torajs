@@ -1,0 +1,13 @@
+err true
+err true
+err true
+err true
+err true
+ok "ok"
+ok ""
+err true
+err true
+ok "A\n/\b"
+err true
+err true
+err true
