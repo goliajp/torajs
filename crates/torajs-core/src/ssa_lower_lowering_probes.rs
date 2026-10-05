@@ -109,6 +109,22 @@ impl<'a> LowerCtx<'a> {
         ) {
             return self.owned_member_reads.contains(&eid);
         }
+        // A join (`c ? a : b`, `a ?? b`, `a || b`) is owned only when
+        // its lowering unified the arms to owned, which records the
+        // eid on the same track (`expr_owned_shape`); a join over
+        // borrows hands the binding's own value through, and dropping
+        // it after a concat released the binding's stake each time.
+        if matches!(
+            self.ast.get_expr(eid),
+            Expr::Ternary { .. }
+                | Expr::Nullish { .. }
+                | Expr::BinOp {
+                    op: crate::ast::BinOp::LAnd | crate::ast::BinOp::LOr,
+                    ..
+                }
+        ) {
+            return self.owned_member_reads.contains(&eid);
+        }
         // The template object is a borrow of its site cache (doc on
         // `is_template_object_call`).
         if crate::ssa_lower_call_template_object::is_template_object_call(self.ast, eid) {
