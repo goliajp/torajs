@@ -33,6 +33,7 @@ unsafe extern "C" {
     // (arr_reflect / reflect) — a second, differently typed
     // declaration of the same symbol is a hard error here.
     fn __torajs_dynobj_has(obj: *const c_void, key: *const u8) -> bool;
+    fn __torajs_obj_declared_field_shadow_clear(obj: *mut c_void, key: *mut c_void);
     fn __torajs_dynobj_get_flags(obj: *const c_void, key: *const u8) -> u64;
     fn __torajs_throw_type_error(msg: *const c_char);
     fn __torajs_dynobj_iter_len(obj: *const c_void) -> u64;
@@ -323,7 +324,11 @@ pub unsafe extern "C" fn __torajs_obj_check_field_writable_impl(
     // Redefined somewhere on this instance — is it THIS field?
     if unsafe { sidecar_attrs(p, name) }.is_some_and(|a| a & BUCKET_FLAG_WRITABLE == 0) {
         unsafe { __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr()) };
+        return;
     }
+    // the typed store that follows writes the slot, which supersedes
+    // a value the any lane parked in the field's shadow
+    unsafe { __torajs_obj_declared_field_shadow_clear(p as *mut c_void, name as *mut c_void) };
 }
 
 /// `torajs_dynobj::layout::BUCKET_FLAG_*` mirrors — the three
