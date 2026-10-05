@@ -87,6 +87,15 @@ pub(in crate::check_monomorph_any_widen) fn run(
         let Some(params) = widenable_target(c, owned_ast, &name) else {
             continue;
         };
+        // the twin's `any` values would be stored into the typed slot of
+        // a binding outside it, which lowering refuses; such a closure
+        // keeps the coercion kernel
+        if owned_ast.stmts.iter().any(|s| {
+            matches!(s, Stmt::FnDecl { name: n, .. } if *n == name)
+                && crate::ast::free_vars_write::writes_outer_binding(owned_ast, s)
+        }) {
+            continue;
+        }
         // the twin is checked at the original's construction site, whose
         // scope (an enclosing body's locals) is gone by now: bind the
         // capture types recorded there
