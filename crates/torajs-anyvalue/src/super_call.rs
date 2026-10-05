@@ -100,11 +100,11 @@ fn ctorany_entry(key: u64) -> u64 {
 /// §15.7.14 ClassDefinitionEvaluation step 5 — the class-definition-
 /// time heritage gate the capturing lane emits before a value-shaped
 /// parent's constructor binding: `null` passes (protoParent null is a
-/// legal shape of its own), a class object or a plain-`function` form
-/// passes (the only two constructor kinds this runtime mints —
-/// `FLAG_FN_PROTO` is the MakeConstructor mark, so arrows / async
-/// forms / methods / generator steps all lack it), and anything else
-/// records the spec's TypeError (JSC's spelling, which bun surfaces).
+/// legal shape of its own), so does any value IsConstructor answers
+/// true for (a class object, a plain `function`, a builtin constructor
+/// such as `Symbol`, a bound constructor, a Proxy over one), and
+/// anything else records the spec's TypeError (JSC's spelling, which
+/// bun surfaces).
 ///
 /// # Safety
 /// `parent` is a live AnyValue; borrowed for the check.
@@ -113,20 +113,8 @@ pub unsafe extern "C" fn __torajs_anyv_heritage_check(parent: AnyValue) {
     if parent == VALUE_NULL {
         return;
     }
-    if is_cell(parent) {
-        let cell = as_void_ptr(parent);
-        if !cell.is_null() {
-            // SAFETY: a live cell's header is its first HeapHeader
-            // bytes.
-            let hdr = unsafe { &*(cell as *const HeapHeader) };
-            let class_ctor =
-                hdr.type_tag == Tag::DynObj as u16 && hdr.flags & FLAG_DYNOBJ_CLASS_CTOR != 0;
-            let plain_fn =
-                hdr.type_tag == Tag::Closure as u16 && hdr.flags & torajs_rc::FLAG_FN_PROTO != 0;
-            if class_ctor || plain_fn {
-                return;
-            }
-        }
+    if unsafe { crate::construct::is_constructor(parent) } {
+        return;
     }
     unsafe {
         __torajs_throw_type_error(c"The superclass is not a constructor.".as_ptr());
@@ -237,6 +225,19 @@ pub unsafe extern "C" fn __torajs_anyv_super_call(
                 }
                 return out;
             }
+        }
+        // §20.4.1.1 / §21.2.1.1 — Symbol (5) and BigInt (6) are
+        // constructors that refuse [[Construct]]: a class may extend
+        // them, and `super()` against them throws
+        if matches!(
+            crate::method_value::ctor::ctor_tag_of_cell(cell),
+            Some(5 | 6)
+        ) {
+            release(elems);
+            unsafe {
+                __torajs_throw_type_error(c"function is not a constructor".as_ptr());
+            }
+            return VALUE_UNDEFINED;
         }
         if let Some((env, entry)) = unsafe { closure_boxed_entry(parent) } {
             // A plain-function parent reading `new.target` is entered
