@@ -159,7 +159,7 @@ pub(crate) fn synthesize_boxed_entries(
                 )
             })
         });
-        let same_face = crate::ast::is_shell(&t.name);
+        let same_face = env_faced(&t.name);
         let pair = build_boxed_entry(
             module,
             fn_table,
@@ -220,3 +220,9 @@ use fit_tag::{SlotTest, lossy_slot, slot_test};
 mod relay;
 mod targets;
 use targets::{TargetTables, collect_boxed_targets};
+
+/// A mono whose twin wears its own `(env, argv, argc)` face: a relay
+/// shell, or a lifted closure.
+fn env_faced(name: &str) -> bool {
+    crate::ast::is_shell(name) || name.starts_with("__closure_")
+}

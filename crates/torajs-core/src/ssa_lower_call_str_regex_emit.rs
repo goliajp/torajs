@@ -203,6 +203,33 @@ pub(crate) fn emit_split(
     Operand::Value(v)
 }
 
+/// The pattern of `s.replace(re, cb)` when the call spells it or names
+/// a top-level binding that does.
+pub(crate) fn static_replace_pattern(ast: &crate::ast::Ast, arg0: ExprId) -> Option<&str> {
+    match ast.get_expr(arg0) {
+        Expr::Regex { pattern, .. } => Some(pattern.as_str()),
+        Expr::Ident(name) => crate::ast::toplevel_regex_literal(ast, name).map(|(p, _)| p),
+        _ => None,
+    }
+}
+
+/// Whether the kernel lane of `s.replace(re, cb)` calls a closure of
+/// this signature through the typed callback ABI rather than its boxed
+/// entry; `n_caps` counts the groups of a static pattern. The ABI
+/// splices a returned Str as-is, so a callback answering anything else
+/// takes the boxed entry, whose any-replacement kernel runs
+/// §22.2.6.11 step 14.k ToString. It fixes the argument list at
+/// compile time, so a callback naming more than the match against a
+/// regex known only at run time takes it too, as does one shaped other
+/// than «matched, captures…[, position, string]» (one that names the
+/// groups object, or more captures than the pattern has): the boxed
+/// entry builds step 14.j's argument list from what the match produced.
+pub(crate) fn callback_stays_typed(params: &[Type], ret: Type, n_caps: Option<usize>) -> bool {
+    ret == Type::Str
+        && (n_caps.is_some() || params.len() <= 1)
+        && typed_callback_shape(params, n_caps.unwrap_or(0)).is_some()
+}
+
 pub(crate) fn emit_replace(
     ctx: &mut LowerCtx<'_>,
     recv_op: Operand,
@@ -227,50 +254,13 @@ pub(crate) fn emit_replace(
         return v;
     }
     let mut repl_ty = ctx.operand_ty(&repl);
-    // A callback whose return is not a Str (`(): any => …`) cannot use
-    // the typed callback ABI below, which splices the returned Str
-    // as-is; the any-replacement kernel calls it through the boxed
-    // entry and runs §22.2.6.11 step 14.k ToString on whatever it
-    // answers.
-    if let Type::Closure(sig_id) = repl_ty
-        && ctx.fn_sigs[sig_id.0 as usize].1 != Type::Str
-    {
-        repl = ctx.box_to_any(repl);
-        repl_ty = Type::Any;
-    }
-    // the pattern, when the call spells it or names a top-level
-    // binding that does; a regex known only at run time has a capture
-    // count only the run time knows, and the typed callback ABI fixes
-    // the argument list at compile time, so a callback that names more
-    // than the match then goes through the boxed entry, which hands it
-    // what the match produced
-    let ast = ctx.ast;
-    let static_pattern: Option<&str> = match ast.get_expr(args[0]) {
-        Expr::Regex { pattern, .. } => Some(pattern.as_str()),
-        Expr::Ident(name) => crate::ast::toplevel_regex_literal(ast, name).map(|(p, _)| p),
-        _ => None,
-    };
-    if let Type::Closure(sig_id) = repl_ty
-        && static_pattern.is_none()
-        && ctx.fn_sigs[sig_id.0 as usize].0.len() > 1
-    {
-        repl = ctx.box_to_any(repl);
-        repl_ty = Type::Any;
-    }
-    // the typed callback ABI hands over «matched, captures…» or that
-    // plus «position, string»; a callback shaped otherwise — one that
-    // names the groups object, or more captures than the pattern has —
-    // takes the boxed entry, which builds §22.2.6.11 step 14.j's
-    // argument list from what the match produced
-    if let Type::Closure(sig_id) = repl_ty
-        && typed_callback_shape(
-            &ctx.fn_sigs[sig_id.0 as usize].0,
-            static_pattern.map_or(0, count_capture_groups),
-        )
-        .is_none()
-    {
-        repl = ctx.box_to_any(repl);
-        repl_ty = Type::Any;
+    let static_pattern = static_replace_pattern(ctx.ast, args[0]);
+    if let Type::Closure(sig_id) = repl_ty {
+        let (params, ret) = &ctx.fn_sigs[sig_id.0 as usize];
+        if !callback_stays_typed(params, *ret, static_pattern.map(count_capture_groups)) {
+            repl = ctx.box_to_any(repl);
+            repl_ty = Type::Any;
+        }
     }
     // P9.5-A1 / A1.1 — fn-callback dispatch. Repl is either Str (existing
     // $&/$N expand_repl path) or Closure (env+8 ABI runtime invoke, with

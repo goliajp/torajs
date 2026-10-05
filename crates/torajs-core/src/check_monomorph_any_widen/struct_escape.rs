@@ -38,20 +38,22 @@
 //! tests it (`__torajs_anyv_str_fits` / `__torajs_anyv_arr_cell`) and
 //! hands such an argument to the twin as passed.
 //!
+//! A lifted closure needs no shell and takes one clone ([`closure`]).
 //! Out of reach, and left on the coercion kernel: a target with a
 //! receiver or argv channel (`__this`, `__torajs_argv`, new.target),
-//! a generic, an async body, and a lifted closure with no shell (a
-//! nested arrow escaping through `any`). Class methods are served by
-//! the `__cmany_` / `__smany_` twins instead.
+//! a generic, an async or generator body. Class methods are served
+//! by the `__cmany_` / `__smany_` twins instead.
 
 use std::collections::{HashMap, VecDeque};
 
-use super::{RetFace, WidenTarget, emit_widened_spec};
+pub(super) mod closure;
+use super::{RetFace, emit_widened_spec};
 use crate::ast::{Ast, Expr, ExprId, Param, ShellFace, Stmt};
 use crate::check::Checker;
 use crate::check_monomorph::WorkItem;
 use crate::check_type_ann::{str_or_arr_ann, struct_shaped_ann};
 use crate::ssa_lower_generics_monomorph::Generics;
+use closure::{INNER_SUFFIX, all_any};
 
 const SUFFIX: &str = "$$anyws";
 
@@ -97,12 +99,7 @@ pub(super) fn run(
         };
         let target_twin = twin_name(&target);
         if !c.globals.contains_key(&target_twin) {
-            let idxs: Vec<(usize, WidenTarget)> = params
-                .iter()
-                .enumerate()
-                .filter(|(_, p)| !p.is_rest)
-                .map(|(i, _)| (i, WidenTarget::Scalar))
-                .collect();
+            let idxs = all_any(&params);
             emit_widened_spec(
                 c,
                 owned_ast,
@@ -113,7 +110,7 @@ pub(super) fn run(
                 mono_decls,
                 &target,
                 &target_twin,
-                SUFFIX,
+                INNER_SUFFIX,
                 &idxs,
                 RetFace::Any,
             );
@@ -131,9 +128,10 @@ pub(super) fn run(
     }
 }
 
-/// The params of `target` when this lane can twin it: a top-level
-/// non-generic, non-generator, non-async declaration with no receiver
-/// or argv channel, declaring at least one non-rest struct parameter.
+/// The user params of `target` (past a lifted body's `__env` head)
+/// when this lane can twin it: a non-generic, non-generator, non-async
+/// declaration with no receiver or argv channel, declaring at least
+/// one non-rest struct parameter.
 fn widenable_target(c: &Checker, ast: &Ast, target: &str) -> Option<Vec<Param>> {
     let (params, type_params, is_generator) = ast.stmts.iter().find_map(|s| match s {
         Stmt::FnDecl {
@@ -145,6 +143,7 @@ fn widenable_target(c: &Checker, ast: &Ast, target: &str) -> Option<Vec<Param>> 
         } if name == target => Some((params.clone(), type_params, *is_generator)),
         _ => None,
     })?;
+    let params = params[usize::from(params.first().is_some_and(|p| p.name == "__env"))..].to_vec();
     let plain = type_params.is_empty()
         && !is_generator
         && !c.generic_type_params.contains_key(target)

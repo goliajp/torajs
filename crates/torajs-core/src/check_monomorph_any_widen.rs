@@ -97,6 +97,15 @@ pub(crate) fn run(
             worklist,
             call_retargets,
             mono_decls,
+        ) || struct_escape::closure::run(
+            c,
+            owned_ast,
+            generics,
+            cache,
+            worklist,
+            call_retargets,
+            mono_decls,
+            generic_fn_names,
         );
         if !moved && worklist.is_empty() {
             break;

@@ -294,7 +294,7 @@ pub(super) fn is_twin_name(name: &str) -> bool {
 /// The boxed adapter of the all-`any` twin minted beside the mono
 /// `name`: the receiver-polymorphic twin of a `__cm_` / `__sm_`
 /// method (a `$$` specialization looked up by its base), or the
-/// all-`any` relay shell behind a struct-parameter value escape
+/// all-`any` relay shell or lifted-closure clone behind a value escape
 /// (`check_monomorph_any_widen::struct_escape`), when both the twin
 /// and its adapter exist.
 pub(crate) fn twin_adapter_of(
@@ -304,7 +304,7 @@ pub(crate) fn twin_adapter_of(
     name: &str,
 ) -> Option<(FuncId, ssa::SigId)> {
     use crate::check_monomorph_any_widen::struct_escape;
-    let fid = if crate::ast::is_shell(name) {
+    let fid = if super::env_faced(name) {
         *fn_table.get(&struct_escape::twin_name(name))?
     } else {
         let table = if name.starts_with("__cm_") {
