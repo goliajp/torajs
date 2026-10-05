@@ -77,6 +77,7 @@ pub mod srem_parity;
 pub mod str_append;
 pub mod throw_check_fold;
 pub mod unroll_jam;
+pub mod unroll_pair;
 
 use std::collections::{HashMap, HashSet};
 
@@ -155,14 +156,14 @@ fn dump_after(key: &str, module: &Module) {
 /// when the analysis is off).
 fn sext_seeds(
     module: &Module,
-    facts: Option<Vec<HashMap<ValueId, interval::NumFact>>>,
+    facts: Option<&[HashMap<ValueId, interval::NumFact>]>,
 ) -> Vec<HashSet<ValueId>> {
     facts
         .map(|facts| {
             module
                 .funcs
                 .iter()
-                .zip(&facts)
+                .zip(facts)
                 .map(|(func, fm)| interval::sext32_set(fm, func))
                 .collect()
         })
@@ -281,7 +282,7 @@ pub fn transform_module(mut module: Module) -> Module {
     // GVN). After float_demote (its FRem→SRem output is the feeder).
     // `TORAJS_SREM_PARITY_OFF=1` skips (bisect gate).
     gated_pass("SREM_PARITY", &mut module, srem_parity::reduce_parity_srems);
-    let sext_seeds = sext_seeds(&module, interval_facts);
+    let sext_seeds = sext_seeds(&module, interval_facts.as_deref());
     // Redundant ToInt32 sext-pair elimination — after phi_promote so
     // it sees the final canonical shape (loop cells as multi-def Copy,
     // unknown to its own one-pass lattice but seedable from the
@@ -358,7 +359,7 @@ pub fn transform_module(mut module: Module) -> Module {
         self_tail_call::eliminate_self_tail_calls,
     );
     pipeline_tail::form_selects_and_fuse(&mut module);
-    pipeline_tail::finish_pipeline(&mut module);
+    pipeline_tail::finish_pipeline(&mut module, interval_facts.as_deref());
     module
 }
 

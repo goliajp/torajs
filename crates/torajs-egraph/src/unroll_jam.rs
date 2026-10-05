@@ -70,8 +70,15 @@ pub struct UnrollJamStats {
 }
 
 pub fn jam_module(module: &mut Module) -> UnrollJamStats {
-    let mut stats = UnrollJamStats::default();
-    for func in module.funcs.iter_mut() {
+    UnrollJamStats {
+        loops_jammed: jam_functions(module).iter().sum(),
+    }
+}
+
+/// Loops jammed in each function of the module, by function index.
+pub fn jam_functions(module: &mut Module) -> Vec<u32> {
+    let mut jammed = vec![0; module.funcs.len()];
+    for (func, count) in module.funcs.iter_mut().zip(&mut jammed) {
         if func.is_declaration() {
             continue;
         }
@@ -84,10 +91,10 @@ pub fn jam_module(module: &mut Module) -> UnrollJamStats {
         while let Some(plan) = plan::find_plan(func, &done) {
             done.insert(plan.header);
             emit::apply(func, &plan);
-            stats.loops_jammed += 1;
+            *count += 1;
         }
     }
-    stats
+    jammed
 }
 
 /// One outer loop the rewrite takes, with its regions named.

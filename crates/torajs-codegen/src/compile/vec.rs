@@ -13,9 +13,9 @@ use super::{
     OP_SCRATCH_RHS, OP_SCRATCH_TMP, write_def_spill_gpr, write_u32,
 };
 use crate::enc::{
-    add_imm, add_v2d, addp_d_v2d, dup_2d_d, dup_2d_x, fcvtzs_v2d, fdiv_v2d, fmov_x_from_d,
-    ins_d1_d0, ldr_q_imm12, ldur_q_imm9, mov_d_reg, movi_2d_zero, orr_reg, orr_v16b, str_q_imm12,
-    stur_q_imm9, umov_x_d,
+    add_imm, add_v2d, addp_d_v2d, dup_2d_d, dup_2d_x, fadd_v2d, fcvtzs_v2d, fdiv_v2d,
+    fmov_x_from_d, ins_d1_d0, ldr_q_imm12, ldur_q_imm9, mov_d_reg, movi_2d_zero, orr_reg, orr_v16b,
+    str_q_imm12, stur_q_imm9, umov_x_d,
 };
 use crate::reg::{Fpr, Gpr, Reg};
 use crate::regalloc::Assignment;
@@ -134,6 +134,7 @@ pub(super) fn emit_vec(bytes: &mut Vec<u8>, inst: &Inst, vi: &VecInst, alloc: &A
                 match op {
                     VecOp::Add => add_v2d(dst, ra, rb),
                     VecOp::Or => orr_v16b(dst, ra, rb),
+                    VecOp::FAdd => fadd_v2d(dst, ra, rb),
                     VecOp::FDiv => fdiv_v2d(dst, ra, rb),
                 },
             );
@@ -151,7 +152,7 @@ pub(super) fn emit_vec(bytes: &mut Vec<u8>, inst: &Inst, vi: &VecInst, alloc: &A
                     write_u32(bytes, umov_x_d(dst, src, 0));
                     write_u32(bytes, orr_reg(dst, dst, OP_SCRATCH_TMP));
                 }
-                VecOp::FDiv => panic!("vec.reduce has no fdiv form"),
+                VecOp::FAdd | VecOp::FDiv => panic!("vec.reduce has no float form"),
             }
             write_def_spill_gpr(bytes, spill, dst);
         }

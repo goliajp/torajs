@@ -1,8 +1,11 @@
-use torajs_core::ssa::Module;
+use std::collections::HashMap;
+
+use torajs_core::ssa::{Module, ValueId};
 
 use crate::{
-    block_layout, concat_num_fuse, gated_pass, iv_merge, loop_rotate, map_find_cse,
+    block_layout, concat_num_fuse, gated_pass, interval, iv_merge, loop_rotate, map_find_cse,
     rc_dec_immediate, rc_peephole, scaled_addr, select_form, srem_fquot, str_append, unroll_jam,
+    unroll_pair,
 };
 
 /// Select formation and the inst-level fusions that read its output,
@@ -70,7 +73,10 @@ pub(crate) fn form_selects_and_fuse(module: &mut Module) {
 
 /// The pipeline tail — rc-pair elision, then the cfg-shape passes whose
 /// output is exactly what codegen lays out.
-pub(crate) fn finish_pipeline(module: &mut Module) {
+pub(crate) fn finish_pipeline(
+    module: &mut Module,
+    facts: Option<&[HashMap<ValueId, interval::NumFact>]>,
+) {
     // Immediate-box release elision — `anyv_rc_dec` of a `box_from_
     // pair(<non-heap tag>, _)` is the kernel's own no-op (a `new C()`
     // site's undefined `__new_target` box). After inlining so mint
@@ -93,7 +99,22 @@ pub(crate) fn finish_pipeline(module: &mut Module) {
     gated_pass("MAP_FIND_CSE", module, map_find_cse::share_map_finds);
     // Unroll-and-jam of counted loops around a divide-bound inner loop;
     // before loop_rotate, which then rotates the loops it builds.
-    gated_pass("UNROLL_JAM", module, unroll_jam::jam_module);
+    let mut jammed = Vec::new();
+    gated_pass("UNROLL_JAM", module, |m| {
+        jammed = unroll_jam::jam_functions(m);
+        unroll_jam::UnrollJamStats {
+            loops_jammed: jammed.iter().sum(),
+        }
+    });
+    // A divide-bound inner loop unrolled by two with its quotients in
+    // one two-lane divide, in the functions the jam left alone (its
+    // lane clones are entered for a few steps each, where the pair's
+    // per-entry setup costs more than it saves); before loop_rotate.
+    // The counter cells keep their ids and ranges from the interval
+    // analysis to here, so their facts still hold.
+    gated_pass("UNROLL_PAIR", module, |m| {
+        unroll_pair::pair_module(m, facts, &jammed)
+    });
     // Loop rotation — copy each top-tested loop's exit test into its
     // latch so the loop runs one conditional branch per iteration.
     // Before block_layout, which lays out the rotated body.

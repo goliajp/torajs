@@ -50,6 +50,12 @@ pub fn fdiv_v2d(rd: Fpr, rn: Fpr, rm: Fpr) -> u32 {
     0x6E60_FC00 | (rm.idx() << 16) | (rn.idx() << 5) | rd.idx()
 }
 
+/// FADD Vd.2D, Vn.2D, Vm.2D — lane-wise f64 add. ARM ARM C7.2.49
+/// (Q=1, sz=1). Base = 0x4E60_D400.
+pub fn fadd_v2d(rd: Fpr, rn: Fpr, rm: Fpr) -> u32 {
+    0x4E60_D400 | (rm.idx() << 16) | (rn.idx() << 5) | rd.idx()
+}
+
 /// FCVTZS Vd.2D, Vn.2D — each f64 lane to i64, round toward zero,
 /// saturating. ARM ARM C7.2.79 (Q=1, sz=1). Base = 0x4EE1_B800.
 pub fn fcvtzs_v2d(rd: Fpr, rn: Fpr) -> u32 {
@@ -83,6 +89,7 @@ mod tests {
     //   umov x5, v6.d[1]        4e183cc5
     //   mov  x5, v6.d[0]        4e083cc5
     //   fdiv v1.2d, v2.2d, v3.2d  6e63fc41
+    //   fadd v1.2d, v2.2d, v3.2d  4e63d441
     //   fcvtzs v1.2d, v2.2d     4ee1b841
     //   dup  v1.2d, v2.d[0]     4e080441
     //   mov  v5.d[1], v6.d[0]   6e1804c5
@@ -105,6 +112,7 @@ mod tests {
     #[test]
     fn f64_lane_forms_match_clang() {
         assert_eq!(fdiv_v2d(Fpr::V1, Fpr::V2, Fpr::V3), 0x6E63_FC41);
+        assert_eq!(fadd_v2d(Fpr::V1, Fpr::V2, Fpr::V3), 0x4E63_D441);
         assert_eq!(fcvtzs_v2d(Fpr::V1, Fpr::V2), 0x4EE1_B841);
         assert_eq!(dup_2d_d(Fpr::V1, Fpr::V2), 0x4E08_0441);
         assert_eq!(ins_d1_d0(Fpr::V5, Fpr::V6), 0x6E18_04C5);

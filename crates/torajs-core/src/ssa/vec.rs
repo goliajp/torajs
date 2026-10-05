@@ -39,6 +39,7 @@ impl VecShape {
 pub enum VecOp {
     Add,
     Or,
+    FAdd,
     FDiv,
 }
 
@@ -47,6 +48,7 @@ impl VecOp {
         match self {
             VecOp::Add => "add",
             VecOp::Or => "or",
+            VecOp::FAdd => "fadd",
             VecOp::FDiv => "fdiv",
         }
     }
