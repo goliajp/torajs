@@ -1,7 +1,6 @@
 // A closure reached through `any` whose body builds a closure that
-// builds another: the innermost one captures a binding of the middle
-// one, so the any twin is not minted for the outer closure and the
-// program compiles and runs as before.
+// builds another: the innermost one captures bindings of the outer and
+// middle ones, and the any twin of the outer closure keeps them.
 const locales: any = ["de", "en"];
 const out: string[] = [];
 locales.forEach(function (locale: string) {

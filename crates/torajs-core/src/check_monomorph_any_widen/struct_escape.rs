@@ -53,7 +53,7 @@ use crate::check::Checker;
 use crate::check_monomorph::WorkItem;
 use crate::check_type_ann::{str_or_arr_ann, struct_shaped_ann};
 use crate::ssa_lower_generics_monomorph::Generics;
-use closure::{INNER_SUFFIX, all_any};
+use closure::{all_any, inner_suffix};
 
 const SUFFIX: &str = "$$anyws";
 
@@ -110,7 +110,7 @@ pub(super) fn run(
                 mono_decls,
                 &target,
                 &target_twin,
-                INNER_SUFFIX,
+                &inner_suffix(&target),
                 &idxs,
                 RetFace::Any,
             );

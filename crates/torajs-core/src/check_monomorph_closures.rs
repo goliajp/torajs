@@ -135,9 +135,23 @@ pub(crate) fn clone_spec_closures(
         // (inference-only; captures aren't in scope at top level, so
         // diagnostics discard — the construction-site check under the
         // spec is the real record source).
+        // The capture records of a closure built in this body go the
+        // same way: a capture of a binding from the body's own
+        // construction scope resolves nowhere here, and a record kept
+        // from this walk would prune it (`unknown ident` at lower) and
+        // overwrite the original closure's capture types.
+        let builds_closures = id_map
+            .iter()
+            .any(|&(old, _)| matches!(owned_ast.get_expr(old), Expr::Closure { .. }));
+        let saved_records =
+            builds_closures.then(|| (c.unresolved_captures.clone(), c.closure_captures.clone()));
         let saved_error_count = c.errors.len();
         c.check_stmt(owned_ast, &clone_decl);
         c.errors.truncate(saved_error_count);
+        if let Some((unresolved, captures)) = saved_records {
+            c.unresolved_captures = unresolved;
+            c.closure_captures = captures;
+        }
         // Straight into the stmt list — `closure_sig` resolves clone
         // names against `ast.stmts` during the spec's own check.
         owned_ast.stmts.push(clone_decl);
