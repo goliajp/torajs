@@ -21,7 +21,10 @@ use crate::ast::ExprId;
 
 pub(crate) fn migrate(cloner: &mut BodyCloner<'_>) {
     // ExprId-valued tables first — may extend cloner.map.
-    let seed: Vec<(ExprId, ExprId)> = cloner.map.iter().map(|(o, n)| (*o, *n)).collect();
+    // Clone order (new ids are minted in sequence), not hash order:
+    // `resolve_value` may deep-clone, and those new exprs land in this order.
+    let mut seed: Vec<(ExprId, ExprId)> = cloner.map.iter().map(|(o, n)| (*o, *n)).collect();
+    seed.sort_unstable_by_key(|(_, n)| n.0);
     for (old, new) in &seed {
         if let Some(v) = cloner.ast.speculative_cm_rewrites.get(old).copied() {
             let v2 = resolve_value(cloner, v);
@@ -37,7 +40,8 @@ pub(crate) fn migrate(cloner: &mut BodyCloner<'_>) {
         }
     }
 
-    let pairs: Vec<(ExprId, ExprId)> = cloner.map.iter().map(|(o, n)| (*o, *n)).collect();
+    let mut pairs: Vec<(ExprId, ExprId)> = cloner.map.iter().map(|(o, n)| (*o, *n)).collect();
+    pairs.sort_unstable_by_key(|(_, n)| n.0);
 
     macro_rules! copy_map {
         ($table:ident) => {

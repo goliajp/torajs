@@ -117,7 +117,9 @@ pub(in crate::ast) fn mint_ctor_generic_twin(
 /// to the same `__cm_<P>__ctor` spelling but with no `__new_target`
 /// in its args — the method twins keep their existing drop.
 fn retarget_super_ctor_twin_calls(cloner: &mut BodyCloner<'_>) {
-    let new_ids: Vec<crate::ast::ExprId> = cloner.map.values().copied().collect();
+    // clone order, not hash order: the retargeted callees are minted in this order
+    let mut new_ids: Vec<crate::ast::ExprId> = cloner.map.values().copied().collect();
+    new_ids.sort_unstable_by_key(|id| id.0);
     for id in new_ids {
         let Expr::Call { callee, args } = cloner.ast.get_expr(id) else {
             continue;

@@ -23,7 +23,8 @@ use crate::ast::ExprId;
 
 pub(crate) struct BodyCloner<'a> {
     pub(crate) ast: &'a mut Ast,
-    /// old → new for every cloned Expr node, in clone order.
+    /// old → new for every cloned Expr node. A walk over it that mints
+    /// exprs sorts by the new id first (clone order).
     pub(crate) map: HashMap<ExprId, ExprId>,
 }
 
