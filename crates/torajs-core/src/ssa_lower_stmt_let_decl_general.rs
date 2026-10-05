@@ -217,9 +217,13 @@ pub(crate) fn record_binding_flags(
     // folding: `let bare: string = (undefined as any)` compared equal
     // to undefined while `typeof bare` still said "string". The
     // nullable-annotation arm below covers the case where the program
-    // did say so.
-    if type_ann.is_some_and(|a| a.as_str() == "string")
-        && matches!(ctx.expr_types.get(&init), Some(crate::check::Type::Any))
+    // did say so. An `any` cast `as string` converts the same way.
+    let any_as_string = matches!(ctx.ast.get_expr(init), Expr::As { expr, ty_ann }
+        if ty_ann == "string"
+            && matches!(ctx.expr_types.get(expr), Some(crate::check::Type::Any)));
+    if any_as_string
+        || type_ann.is_some_and(|a| a.as_str() == "string")
+            && matches!(ctx.expr_types.get(&init), Some(crate::check::Type::Any))
     {
         ctx.nullable_str_lets.insert(name.to_string());
     }

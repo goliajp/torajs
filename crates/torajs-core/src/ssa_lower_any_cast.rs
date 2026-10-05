@@ -101,7 +101,18 @@ impl crate::ssa_lower::LowerCtx<'_> {
             }
             match ty_ann {
                 "number" => return self.coerce_any_to_number(inner_op, Type::F64),
-                "string" => return self.coerce_to_str(inner_op, Type::Any),
+                // a cast is no ToString: `null` / `undefined` keep the
+                // Str slot's own spelling of them, as at a `string`
+                // let annotation (`ssa_lower_stmt_let_decl_convert`)
+                "string" => {
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.any_to_str_slot, vec![inner_op]),
+                        Type::Str,
+                        None,
+                    );
+                    return Operand::Value(v);
+                }
                 "boolean" => return self.coerce_to_bool(inner_op),
                 "bigint" => return self.coerce_any_to_bigint(inner_op),
                 _ => {}
