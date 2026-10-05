@@ -66,6 +66,44 @@ pub(crate) fn parse_literal(pattern: &str, flags: &str) -> Option<Literal> {
     })
 }
 
+/// How many leading capture groups of the literal every match sets
+/// (`0` for a literal the runtime would reject). §22.2.2 leaves a group
+/// undefined when the alternative holding it is not taken, when its
+/// quantifier ran no iteration, and always inside a negative lookaround.
+pub(crate) fn always_set_groups(pattern: &str, flags: &str) -> usize {
+    use torajs_regex::node::{Node, NodeKind};
+    fn mark(n: &Node, unset: bool, out: &mut [bool]) {
+        let unset = unset
+            || match n.kind {
+                NodeKind::Alt => n.kids.len() > 1,
+                NodeKind::Repeat => n.min == 0,
+                NodeKind::NegLookahead | NodeKind::NegLookbehind => true,
+                _ => false,
+            };
+        if n.kind == NodeKind::Group
+            && let Some(slot) = usize::try_from(n.capture_idx)
+                .ok()
+                .and_then(|i| out.get_mut(i))
+        {
+            *slot |= unset;
+        }
+        for k in &n.kids {
+            mark(k, unset, out);
+        }
+        if let Some(c) = &n.child {
+            mark(c, unset, out);
+        }
+    }
+    let Some(lit) = parse_literal(pattern, flags) else {
+        return 0;
+    };
+    let mut maybe_unset = vec![false; lit.n_captures + 1];
+    mark(&lit.root, false, &mut maybe_unset);
+    (1..=lit.n_captures)
+        .take_while(|&i| !maybe_unset[i])
+        .count()
+}
+
 /// Try to host-build a baked DFA payload for the literal pattern.
 ///
 /// Capture-free + DFA-eligible literal regexes win — the runtime

@@ -203,19 +203,34 @@ pub(crate) fn emit_split(
     Operand::Value(v)
 }
 
-/// The pattern of `s.replace(re, cb)` when the call spells it or names
-/// a top-level binding that does.
-pub(crate) fn static_replace_pattern(ast: &crate::ast::Ast, arg0: ExprId) -> Option<&str> {
+/// The pattern and flags of `s.replace(re, cb)` when the call spells
+/// it or names a top-level binding that does.
+pub(crate) fn static_replace_pattern(ast: &crate::ast::Ast, arg0: ExprId) -> Option<(&str, &str)> {
     match ast.get_expr(arg0) {
-        Expr::Regex { pattern, .. } => Some(pattern.as_str()),
-        Expr::Ident(name) => crate::ast::toplevel_regex_literal(ast, name).map(|(p, _)| p),
+        Expr::Regex { pattern, flags } => Some((pattern.as_str(), flags.as_str())),
+        Expr::Ident(name) => crate::ast::toplevel_regex_literal(ast, name),
         _ => None,
     }
 }
 
+/// The capture groups of a static replace pattern: how many there are,
+/// and how many leading ones every match sets.
+#[derive(Clone, Copy)]
+pub(crate) struct StaticCaps {
+    pub n: usize,
+    pub set: usize,
+}
+
+pub(crate) fn static_replace_caps(ast: &crate::ast::Ast, arg0: ExprId) -> Option<StaticCaps> {
+    static_replace_pattern(ast, arg0).map(|(pattern, flags)| StaticCaps {
+        n: count_capture_groups(pattern),
+        set: crate::ssa_lower_regex_bake::always_set_groups(pattern, flags),
+    })
+}
+
 /// Whether the kernel lane of `s.replace(re, cb)` calls a closure of
 /// this signature through the typed callback ABI rather than its boxed
-/// entry; `n_caps` counts the groups of a static pattern. The ABI
+/// entry; `caps` describes the groups of a static pattern. The ABI
 /// splices a returned Str as-is, so a callback answering anything else
 /// takes the boxed entry, whose any-replacement kernel runs
 /// §22.2.6.11 step 14.k ToString. It fixes the argument list at
@@ -224,10 +239,13 @@ pub(crate) fn static_replace_pattern(ast: &crate::ast::Ast, arg0: ExprId) -> Opt
 /// than «matched, captures…[, position, string]» (one that names the
 /// groups object, or more captures than the pattern has): the boxed
 /// entry builds step 14.j's argument list from what the match produced.
-pub(crate) fn callback_stays_typed(params: &[Type], ret: Type, n_caps: Option<usize>) -> bool {
+/// So does one naming a group some match may leave unset: the typed
+/// slot is a string, and step 14.b binds `undefined` there.
+pub(crate) fn callback_stays_typed(params: &[Type], ret: Type, caps: Option<StaticCaps>) -> bool {
     ret == Type::Str
-        && (n_caps.is_some() || params.len() <= 1)
-        && typed_callback_shape(params, n_caps.unwrap_or(0)).is_some()
+        && (caps.is_some() || params.len() <= 1)
+        && typed_callback_shape(params, caps.map_or(0, |c| c.n))
+            .is_some_and(|(declared, _)| declared <= caps.map_or(0, |c| c.set))
 }
 
 pub(crate) fn emit_replace(
@@ -254,10 +272,10 @@ pub(crate) fn emit_replace(
         return v;
     }
     let mut repl_ty = ctx.operand_ty(&repl);
-    let static_pattern = static_replace_pattern(ctx.ast, args[0]);
+    let static_caps = static_replace_caps(ctx.ast, args[0]);
     if let Type::Closure(sig_id) = repl_ty {
         let (params, ret) = &ctx.fn_sigs[sig_id.0 as usize];
-        if !callback_stays_typed(params, *ret, static_pattern.map(count_capture_groups)) {
+        if !callback_stays_typed(params, *ret, static_caps) {
             repl = ctx.box_to_any(repl);
             repl_ty = Type::Any;
         }
@@ -284,7 +302,7 @@ pub(crate) fn emit_replace(
             }
             // a regex known only at run time reaches this arm only with
             // a callback that names the match alone
-            let n_caps_actual = static_pattern.map_or(0, count_capture_groups);
+            let n_caps_actual = static_caps.map_or(0, |c| c.n);
             let Some((_, has_off_input)) = typed_callback_shape(&params, n_caps_actual) else {
                 unreachable!("a callback the typed ABI cannot serve was boxed above");
             };

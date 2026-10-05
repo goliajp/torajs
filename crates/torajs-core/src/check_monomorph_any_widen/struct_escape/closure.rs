@@ -254,7 +254,7 @@ fn typed_callback_sites(c: &Checker, ast: &Ast) -> HashSet<ExprId> {
 /// the site loose.
 fn replace_stays_typed(c: &Checker, ast: &Ast, args: &[ExprId]) -> bool {
     use crate::ssa::Type as Ssa;
-    use crate::ssa_lower_call_str_regex_emit::{callback_stays_typed, static_replace_pattern};
+    use crate::ssa_lower_call_str_regex_emit::{callback_stays_typed, static_replace_caps};
     let Expr::Closure { fn_name, .. } = ast.get_expr(args[1]) else {
         return false;
     };
@@ -269,10 +269,10 @@ fn replace_stays_typed(c: &Checker, ast: &Ast, args: &[ExprId]) -> bool {
         }
     };
     let params: Vec<Ssa> = params.iter().map(lowered).collect();
-    let n_caps = static_replace_pattern(ast, args[0]).map(crate::ssa_lower::count_capture_groups);
+    let caps = static_replace_caps(ast, args[0]);
     // a pattern that is no RegExp takes the string-pattern lane
-    if n_caps.is_none() && c.expr_types.get(&args[0]) != Some(&Type::RegExp) {
+    if caps.is_none() && c.expr_types.get(&args[0]) != Some(&Type::RegExp) {
         return false;
     }
-    callback_stays_typed(&params, lowered(ret), n_caps)
+    callback_stays_typed(&params, lowered(ret), caps)
 }

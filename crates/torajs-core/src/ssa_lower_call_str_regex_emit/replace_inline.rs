@@ -30,11 +30,11 @@
 //! for the throw path, and the lastIndex contract is the kernel's
 //! (`torajs-regex` `replace_iter.rs`).
 
-use crate::ast::{Expr, ExprId};
+use crate::ast::ExprId;
 use crate::ssa::{
     BinOp as SsaBinOp, BlockId, FuncId, IPred, InstKind, Operand, Terminator, Type, ValueId,
 };
-use crate::ssa_lower::{LowerCtx, count_capture_groups};
+use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_intrinsics_substr::SUBSTR_UNDEF_CELL_SYM;
 
 /// `REPLACE_ITER_SIZE` of `torajs-regex/src/regex/replace_iter.rs`.
@@ -93,13 +93,14 @@ pub(crate) fn try_lower(
     if ret_ty != Type::Str {
         return None;
     }
-    let pattern = match ast.get_expr(args[0]) {
-        Expr::Regex { pattern, .. } => pattern.as_str(),
-        Expr::Ident(name) => crate::ast::toplevel_regex_literal(ast, name)?.0,
-        _ => return None,
-    };
-    let n_caps = count_capture_groups(pattern);
+    let caps = super::static_replace_caps(ast, args[0])?;
+    let n_caps = caps.n;
     let (declared, has_off_input) = typed_callback_shape(&params, n_caps)?;
+    // a group some match leaves unset binds `undefined` (§22.2.6.11
+    // step 14.b), which a string slot does not hold
+    if declared > caps.set {
+        return None;
+    }
     let fid = *ctx.fn_table.get(twin)?;
     let plan = Plan {
         fid,
