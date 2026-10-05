@@ -39,7 +39,7 @@ fn rets(m: &Module, prefix: &str) -> Vec<Type> {
     m.funcs
         .iter()
         .filter(|f| f.name.starts_with(prefix))
-        .map(|f| f.ret.clone())
+        .map(|f| f.ret)
         .collect()
 }
 
