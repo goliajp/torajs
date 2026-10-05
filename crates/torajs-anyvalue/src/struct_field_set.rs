@@ -73,8 +73,12 @@ pub(crate) unsafe fn struct_data_field_set(
         },
         // Str slot ← null / undefined: the slot's own spellings of
         // them (NULL, the undefined sentinel cell), the values a typed
-        // Str read already tells apart.
-        4 if tag == AnySlotTag::Null as u64 || tag == AnySlotTag::Undef as u64 => unsafe {
+        // Str read already tells apart. Not on an error object: there
+        // the sentinel in `name` / `message` means the own property is
+        // absent, which is not what an own `undefined` is.
+        4 if (tag == AnySlotTag::Null as u64 || tag == AnySlotTag::Undef as u64)
+            && !unsafe { crate::member_get::header_flag(ptr, torajs_rc::FLAG_ERROR) } =>
+        unsafe {
             let old = slot.read();
             slot.write(if tag == AnySlotTag::Null as u64 {
                 0
