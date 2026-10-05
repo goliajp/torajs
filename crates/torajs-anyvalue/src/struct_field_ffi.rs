@@ -41,7 +41,7 @@ pub unsafe extern "C" fn __torajs_struct_data_field_set(
         if frozen_data_field_refuses(ptr, key, tag, value, true) {
             return 1;
         }
-        i64::from(crate::struct_error_msg::struct_data_field_set(
+        i64::from(crate::struct_field_set::struct_data_field_set(
             ptr, key, tag, value,
         ))
     }

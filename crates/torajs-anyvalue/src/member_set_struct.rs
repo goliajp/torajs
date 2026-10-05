@@ -124,7 +124,7 @@ pub(crate) unsafe fn set_obj_member(
                 return Some(0);
             }
         }
-        if crate::struct_error_msg::struct_data_field_set(ptr, key, tag, value) {
+        if crate::struct_field_set::struct_data_field_set(ptr, key, tag, value) {
             // The slot took it; a shadow an earlier mismatch left
             // behind is superseded (free when there is none).
             __torajs_obj_declared_field_shadow_clear(ptr, key);

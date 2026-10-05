@@ -323,6 +323,14 @@ pub unsafe extern "C" fn __torajs_struct_field_read_anyv(
     } else if type_tag == 2 && raw == torajs_rc::F64_UNDEF_SENTINEL_BITS {
         // Same normalization as `struct_field_pair_bytes`' F64 arm.
         unsafe { crate::nanbox_encode::__torajs_anyv_box_from_pair(AnySlotTag::Undef as i64, 0) }
+    } else if type_tag >= 4 && raw == 0 {
+        // a heap slot's NULL is JS null, its undefined cells undefined
+        unsafe { crate::nanbox_encode::__torajs_anyv_box_from_pair(AnySlotTag::Null as i64, 0) }
+    } else if type_tag >= 4
+        && (unsafe { __torajs_str_is_undef(raw as *const u8) } != 0
+            || unsafe { __torajs_is_undef_cell(raw as *const u8) } != 0)
+    {
+        unsafe { crate::nanbox_encode::__torajs_anyv_box_from_pair(AnySlotTag::Undef as i64, 0) }
     } else {
         let slot_tag = match type_tag {
             1 => AnySlotTag::I64,

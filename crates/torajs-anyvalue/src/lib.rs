@@ -284,6 +284,7 @@ mod str_iterator;
 mod str_match_custom;
 mod struct_error_msg;
 mod struct_field_ffi;
+mod struct_field_set;
 mod struct_probe;
 mod struct_proto_has;
 mod super_call;

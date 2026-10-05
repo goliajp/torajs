@@ -1,0 +1,16 @@
+undefined true
+null true
+back 4
+null true object
+caught true
+undefined true undefined
+back null undefined null
+{"toks":null,"n":3,"s":"back","f":null}
+{"n":3,"f":null,"o":null}
+{
+  n: 3,
+  f: null,
+  o: null,
+  a: undefined,
+}
+{"m":{"n":3,"f":null,"o":null}}
