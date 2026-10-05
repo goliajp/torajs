@@ -248,7 +248,11 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
     // arity refuse (the objlit fixture caught that regression).
     let (value_argv_pre, argv_locals, argv_boxed_params) =
         collect_value_argv(ast, &env_fns, &iife_real_argc, &excluded);
-    ast.argv_boxed_params = argv_boxed_params;
+    // merged: the 424-04 census marked face-mismatched fn-typed
+    // params into the same map earlier
+    for (f, ps) in argv_boxed_params {
+        ast.argv_boxed_params.entry(f).or_default().extend(ps);
+    }
     for f in &objlit_escaped {
         if value_argv_pre.contains(f) {
             static_argv.remove(f);

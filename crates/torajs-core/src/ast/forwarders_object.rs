@@ -177,6 +177,9 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
     let mismatch =
         super::forwarders_object_mismatch::collect_fnsig_mismatch_bindings(ast, &fn_sigs);
     ast.fnsig_mismatch_bindings.extend(mismatch);
+    for (f, ps) in super::forwarders_object_mismatch::collect_fn_param_mismatches(ast) {
+        ast.argv_boxed_params.entry(f).or_default().extend(ps);
+    }
     if fn_sigs.is_empty() {
         return;
     }

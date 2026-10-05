@@ -180,7 +180,16 @@ pub(super) fn collect_fnsig_mismatch_bindings(
     // in the same walk.
     let mut decls: HashMap<String, String> = HashMap::new();
     let mut out: HashSet<String> = HashSet::new();
-    collect_decl_sites(ast, &ast.stmts, &mismatches, &mut decls, &mut out);
+    let mut literal_lets: HashMap<&str, &str> = HashMap::new();
+    collect_literal_lets(ast, &ast.stmts, &mut literal_lets);
+    collect_decl_sites(
+        ast,
+        &ast.stmts,
+        &mismatches,
+        &literal_lets,
+        &mut decls,
+        &mut out,
+    );
     // Rotation 465 — the UNANNOTATED mutable slot. Its type comes
     // from the initializer's own face, so there is no annotation
     // string to compare a later store against; the two faces compare
@@ -257,6 +266,7 @@ fn collect_decl_sites(
     ast: &Ast,
     stmts: &[Stmt],
     mismatches: &dyn Fn(&str, &str) -> bool,
+    literal_lets: &HashMap<&str, &str>,
     decls: &mut HashMap<String, String>,
     out: &mut HashSet<String>,
 ) {
@@ -294,7 +304,9 @@ fn collect_decl_sites(
         // entry too, whose adapter hands a non-fitting argument to
         // the literal's any twin. The return face is contextual (the
         // literal takes the annotation's), so only parameters
-        // compare. A named-function init has its sig-thunk instead.
+        // compare. The init may name a binding of such a literal
+        // (scope-free, the conservative direction); a named-function
+        // init has its sig-thunk instead.
         if let Stmt::LetDecl {
             mutable: false,
             type_ann: Some(ann),
@@ -303,13 +315,81 @@ fn collect_decl_sites(
             ..
         } = s
             && super::lift_arrow_fns::is_fn_like_ann(ann)
-            && let Expr::Closure { fn_name, .. } = ast.get_expr(*init)
+            && let Some(fn_name) = match ast.get_expr(*init) {
+                Expr::Closure { fn_name, .. } => Some(fn_name.as_str()),
+                Expr::Ident(n) => literal_lets.get(n.as_str()).copied(),
+                _ => None,
+            }
             && literal_params_mismatch(ast, fn_name, ann)
         {
             out.insert(name.clone());
         }
         super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
-            collect_decl_sites(ast, inner, mismatches, decls, out)
+            collect_decl_sites(ast, inner, mismatches, literal_lets, decls, out)
+        });
+    }
+}
+
+/// The fn-typed parameters some call fills with a function literal
+/// declaring a parameter the annotation does not, or one annotated
+/// otherwise (`function apply(f: (s: any) => number) { … }` called as
+/// `apply((s: string) => s.length)`): function name → parameter names.
+/// Their calls ride the boxed entry, like a mismatched binding's
+/// (the parameter is a closure cell once a literal flows in,
+/// `ast_closure_param_tag`).
+pub(super) fn collect_fn_param_mismatches(ast: &Ast) -> HashMap<String, HashSet<String>> {
+    let mut literal_lets: HashMap<&str, &str> = HashMap::new();
+    collect_literal_lets(ast, &ast.stmts, &mut literal_lets);
+    let mut decls: HashMap<&str, &[Param]> = HashMap::new();
+    for s in &ast.stmts {
+        if let Stmt::FnDecl { name, params, .. } = s {
+            decls.insert(name, params);
+        }
+    }
+    let mut out: HashMap<String, HashSet<String>> = HashMap::new();
+    for e in &ast.exprs {
+        let Expr::Call { callee, args } = e else {
+            continue;
+        };
+        let Expr::Ident(g) = ast.get_expr(*callee) else {
+            continue;
+        };
+        let Some(params) = decls.get(g.as_str()) else {
+            continue;
+        };
+        let user: Vec<&Param> = params
+            .iter()
+            .filter(|p| !p.name.starts_with("__"))
+            .collect();
+        for (arg, p) in args.iter().zip(user) {
+            let literal = match ast.get_expr(*arg) {
+                Expr::Closure { fn_name, .. } => Some(fn_name.as_str()),
+                Expr::Ident(n) => literal_lets.get(n.as_str()).copied(),
+                _ => None,
+            };
+            if let (Some(fn_name), Some(ann)) = (literal, p.type_ann.as_deref())
+                && !p.is_rest
+                && super::lift_arrow_fns::is_fn_like_ann(ann)
+                && literal_params_mismatch(ast, fn_name, ann)
+            {
+                out.entry(g.clone()).or_default().insert(p.name.clone());
+            }
+        }
+    }
+    out
+}
+
+/// The bindings initialized from a function literal, at any depth:
+/// binding name → the literal's lifted name.
+fn collect_literal_lets<'a>(ast: &'a Ast, stmts: &'a [Stmt], out: &mut HashMap<&'a str, &'a str>) {
+    for s in stmts {
+        if let Stmt::LetDecl { name, init, .. } = s
+            && let Expr::Closure { fn_name, .. } = ast.get_expr(*init)
+        {
+            out.insert(name, fn_name);
+        }
+        super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
+            collect_literal_lets(ast, inner, out)
         });
     }
 }

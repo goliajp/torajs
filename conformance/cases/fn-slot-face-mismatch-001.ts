@@ -17,3 +17,13 @@ console.log(two("x", 1), two(1, "y"));
 // a same-face binding keeps its direct call
 const same: (s: string) => number = (s: string) => s.length;
 console.log(same("four"));
+// the literal reaches the binding through another binding
+const k = (s: string) => s.length;
+const viaK: (s: any) => any = k;
+console.log(viaK("abcd"), viaK(null === null ? 3 : 4), k("xy"));
+// a fn-typed parameter filled with such a literal
+function apply(f: (s: any) => any, v: any): any {
+  return f(v);
+}
+console.log(apply((s: string) => s.length, "abc"), apply((s: string) => s.length, 5));
+console.log(apply(k, "hello"), apply((n: number) => n + 1, 1));
