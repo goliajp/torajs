@@ -131,10 +131,10 @@ pub fn check_with_arity(ast: &Ast) -> Result<CheckArtifacts, String> {
 /// diagnostics except where a specialization body left a hole.
 pub fn check_with_arity_warn(ast: &Ast) -> Result<(CheckArtifacts, Vec<String>), String> {
     let mut c = check_to_fixpoint(ast);
-    // typed 覆盖率读数(`TORAJS_TYPED_CENSUS=1` 下才打)。放在错误分支
-    // 提前返回**之前** —— 一次被拒的编译同样要有读数,否则 `refused`
+    // typed 覆盖率读数(`TORAJS_TYPED_CENSUS=1` 下才打)。在错误分支
+    // 提前返回**之前**算 —— 一次被拒的编译同样要有读数,否则 `refused`
     // 永远是 0。见 `crate::typed_census`。
-    c.emit_typed_census(ast);
+    let census = c.typed_census_line(ast);
     let error_messages: Vec<String> = c
         .errors
         .iter()
@@ -148,6 +148,9 @@ pub fn check_with_arity_warn(ast: &Ast) -> Result<(CheckArtifacts, Vec<String>),
         error_messages
     } else {
         if !error_messages.is_empty() {
+            if let Some(line) = &census {
+                eprintln!("{line}");
+            }
             return Err(error_messages.join("\n"));
         }
         Vec::new()
@@ -190,6 +193,17 @@ pub fn check_with_arity_warn(ast: &Ast) -> Result<(CheckArtifacts, Vec<String>),
         .filter(|d| d.severity == Severity::Error)
         .map(|d| d.message.clone())
         .collect();
+    // a round the driver compiles again for the generator twins it
+    // asked for is not the program's reading
+    if let Some(line) = &census
+        && (!mono_errors.is_empty()
+            || mono
+                .mono_ast
+                .generator_twin_requests
+                .is_subset(&ast.generator_twin_requests))
+    {
+        eprintln!("{line}");
+    }
     if !mono_errors.is_empty() {
         return Err(mono_errors.join("\n"));
     }

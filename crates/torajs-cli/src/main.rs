@@ -181,7 +181,9 @@ fn run_pipeline(file_arg: Option<&String>, stage: Stage) -> ExitCode {
     };
     let base_dir = base_dir_for(path);
     let entry = (path != "-").then(|| Path::new(path));
-    pipeline(&src, &base_dir, entry, stage, util::sloppy_goal_for(path))
+    let requests = std::collections::HashSet::new();
+    let sloppy_goal = util::sloppy_goal_for(path);
+    pipeline(&src, &base_dir, entry, stage, sloppy_goal, &requests)
 }
 
 fn pipeline(
@@ -190,6 +192,7 @@ fn pipeline(
     entry: Option<&Path>,
     stage: Stage,
     sloppy_goal: bool,
+    requests: &std::collections::HashSet<String>,
 ) -> ExitCode {
     // annexB §B.1.3 HTML-like comments are Script-only, and the goal is
     // knowable here — it comes from the input extension. The lexer has
@@ -230,6 +233,7 @@ fn pipeline(
     // RFC 20260810-sloppy-goal-arguments S1 — goal bit from the input
     // extension (bun mapping: `.cts` = CommonJS sloppy).
     ast.sloppy_script_goal = sloppy_goal;
+    ast.generator_twin_requests = requests.clone();
     // Goal-triage gates that must beat the resolver's diagnostics —
     // see ast_pipeline.rs.
     if ast_pipeline::run_pre_resolve_gates(&mut ast).is_err() {
@@ -264,6 +268,14 @@ fn pipeline(
             return ExitCode::from(1);
         }
     };
+    // the generator twins this check asked for: compile again with
+    // them seeded, as `tr build` does (`cmd_build::lower_to_ssa`)
+    let asked = &artifacts.5.mono_ast.generator_twin_requests;
+    if !asked.is_subset(requests) {
+        let mut seeded = requests.clone();
+        seeded.extend(asked.iter().cloned());
+        return pipeline(src, base_dir, entry, stage, sloppy_goal, &seeded);
+    }
     if matches!(stage, Stage::Check) {
         return ExitCode::SUCCESS;
     }

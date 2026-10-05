@@ -104,9 +104,14 @@ pub fn desugar_generators(ast: &mut Ast) {
     // D4 — async generators: inject the step driver, mark the bodies'
     // awaits, move the driver (its generator joins the collection).
     super::desugar_generators_async::prepare(ast);
-    let gen_indices = collect_generator_fn_decls(ast);
+    let mut gen_indices = collect_generator_fn_decls(ast);
     if gen_indices.is_empty() {
         return;
+    }
+    // every generator is top-level now, and still a `function*` the
+    // twin can be cut from; the twins join the claim
+    if super::desugar_generators_any_twin::mint_generator_any_twins(ast) {
+        gen_indices = collect_generator_fn_decls(ast);
     }
 
     let fn_sigs = super::desugar_generators_field_ann_fnsigs::collect_declared_fn_return_types(ast);

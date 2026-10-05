@@ -110,17 +110,18 @@ impl Checker {
         census
     }
 
-    /// 在 `TORAJS_TYPED_CENSUS=1` 下打一行读数到 stderr。
+    /// `TORAJS_TYPED_CENSUS=1` 下的一行读数,没开时为 `None`。
     ///
-    /// 调用点在 `check_entry::check_with_arity_warn`,紧跟
-    /// `run_full_pipeline` 之后、错误分支提前返回**之前** —— 一次被
-    /// 拒的编译同样要有读数,否则 `refused` 永远是 0。
-    pub(crate) fn emit_typed_census(&self, ast: &Ast) {
+    /// 在 `check_entry::check_with_arity_warn` 里紧跟 `run_full_pipeline`
+    /// 之后算出 —— 一次被拒的编译同样要有读数,否则 `refused` 永远是
+    /// 0。打印由调用方决定:要带着生成器孪生请求重编的那一轮不打,
+    /// 每次编译只打最后一轮的一行。
+    pub(crate) fn typed_census_line(&self, ast: &Ast) -> Option<String> {
         if std::env::var("TORAJS_TYPED_CENSUS").as_deref() != Ok("1") {
-            return;
+            return None;
         }
         let skip = crate::ast::twin_body_exprs(ast);
-        eprintln!("{}", self.typed_census(&skip).report_line());
+        Some(self.typed_census(&skip).report_line())
     }
 }
 

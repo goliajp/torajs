@@ -1384,6 +1384,12 @@ pub struct Ast {
     /// FunctionDeclarationInstantiation timing) instead of at the
     /// first `next()`.
     pub gen_param_destr_prefix: std::collections::HashMap<String, usize>,
+    /// Generator factories that need an all-`any` twin
+    /// (`desugar_generators_any_twin`) no syntactic read reveals: a
+    /// direct call handed an `any` argument, known only once checked.
+    /// The checker records them on its mono AST; the driver then
+    /// compiles the program again with this set seeded.
+    pub generator_twin_requests: std::collections::HashSet<String>,
     /// Plan A — Array literal ExprIds that the escape verifier proved
     /// safe to emit on the stack instead of `__torajs_arr_alloc_pooled`.
     /// Populated by `escape_analyze_array_literals`. ssa_lower's

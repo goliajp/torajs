@@ -208,6 +208,12 @@ fn widen_one(
     let Some((call_eid, (fn_name, mut idxs))) = pending.into_iter().next() else {
         return false;
     };
+    // a generator factory's call goes to the twin the desugar cut from
+    // its source, every widenable slot already `any`
+    if let Some(twin) = crate::ast::generator_any_twin(owned_ast, &fn_name) {
+        call_retargets.insert(call_eid, twin);
+        return true;
+    }
     idxs.sort_unstable_by_key(|(i, _)| *i);
     idxs.dedup_by_key(|(i, _)| *i);
     // a call typed `any` (`check_type_of_call::any_widen_ret`) takes

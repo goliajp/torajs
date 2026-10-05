@@ -142,6 +142,15 @@ fn captured(ty: Type) -> LocalInfo {
 /// The lifted closures, in arena order, with a construction site whose
 /// value may be called other than through its typed face.
 fn loose_closures(c: &Checker, ast: &Ast) -> Vec<String> {
+    loose_values(c, ast, "__closure_")
+}
+
+/// [`loose_closures`] over the lifted bodies named `prefix…`.
+pub(in crate::check_monomorph_any_widen) fn loose_values(
+    c: &Checker,
+    ast: &Ast,
+    prefix: &str,
+) -> Vec<String> {
     let callees: HashSet<ExprId> = ast
         .exprs
         .iter()
@@ -180,7 +189,7 @@ fn loose_closures(c: &Checker, ast: &Ast) -> Vec<String> {
         let Expr::Closure { fn_name, .. } = e else {
             continue;
         };
-        if !fn_name.starts_with("__closure_") || is_twin(fn_name) {
+        if !fn_name.starts_with(prefix) || is_twin(fn_name) {
             continue;
         }
         let id = ExprId(i as u32);

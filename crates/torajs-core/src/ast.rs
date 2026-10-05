@@ -111,6 +111,7 @@ mod desugar_classes_super_static;
 mod desugar_eval;
 mod desugar_generators;
 mod desugar_generators_alpha;
+mod desugar_generators_any_twin;
 mod desugar_generators_assemble;
 mod desugar_generators_async;
 mod desugar_generators_class;
@@ -356,6 +357,9 @@ pub(crate) use desugar_eval::body_owned_exprs;
 pub use desugar_eval::desugar_eval;
 pub use desugar_generators::desugar_generators;
 pub(crate) use desugar_generators_alpha::rebinds_in_stmt;
+pub(crate) use desugar_generators_any_twin::{
+    generator_any_twin, is_generator_any_twin_decl, minted_generator_any_twin,
+};
 pub use desugar_generators_async::inject_async_generator_driver;
 pub(crate) use desugar_generators_rewrite::GEN_SELF_ALIAS;
 pub(crate) use desugar_generators_yield_into::expand_yield_into_in_stmt;

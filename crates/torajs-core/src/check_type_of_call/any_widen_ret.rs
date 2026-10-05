@@ -31,6 +31,12 @@ pub(super) fn call_ret_face(checker: &mut Checker, ast: &Ast, eid: ExprId, ret: 
     let Some((name, idxs)) = checker.any_widen_mono_sites.get(&eid) else {
         return ret;
     };
+    // the call runs the generator's twin, whose iterator class is its own
+    if let Some(twin) = crate::ast::minted_generator_any_twin(ast, name)
+        && let Some(Type::Function(_, twin_ret)) = checker.globals.get(&twin)
+    {
+        return (**twin_ret).clone();
+    }
     if ast.async_fns.contains(name) || ast.async_generator_fns.contains(name) {
         return ret;
     }

@@ -40,17 +40,19 @@ use super::{Ast, Expr, ExprId, Param, Stmt};
 use std::collections::HashMap;
 
 /// Wrapper arena slot → the generator it wraps, for every
-/// by-reference record.
-fn wrappers_by_eid(ast: &Ast) -> HashMap<ExprId, String> {
+/// by-reference record. A generator's any twin shares its original's
+/// record and wrapper; the wrapper wraps the original.
+pub(super) fn wrappers_by_eid(ast: &Ast) -> HashMap<ExprId, String> {
     ast.gen_env_captures
         .iter()
+        .filter(|(g, _)| !super::is_generator_any_twin_decl(g))
         .map(|(g, info)| (info.wrapper, g.clone()))
         .collect()
 }
 
 /// Every by-reference wrapper arrow reachable from `body`, arrow bodies
 /// included (a blade-2 wrapper sits inside the driver thunk's arrow).
-fn nested_wrappers(
+pub(super) fn nested_wrappers(
     ast: &Ast,
     body: &[Stmt],
     by_eid: &HashMap<ExprId, String>,

@@ -1,0 +1,31 @@
+undefined number true
+threw true
+threw true
+9 object true
+3 string true
+undefined 4
+1,2,t!
+,3,4!
+2,7,null!
+undefined 5
+n=undefined 10 n=2 10
+ 2 2 3 3
+3 1  2
+bump 2
+for-of 3
+for-of object
+total 3
+undefined
+finally number
+{"value":99,"done":true}
+{"done":true}
+2
+finally string
+caught boom
+{"done":true}
+async undefined
+async number
+async 3
+async string
+async next 4
+async return {"value":1,"done":true}

@@ -39,9 +39,13 @@
 //! hands such an argument to the twin as passed.
 //!
 //! A lifted closure needs no shell and takes one clone ([`closure`]).
-//! Out of reach, and left on the coercion kernel: a target with a
-//! receiver or argv channel (`__this`, `__torajs_argv`, new.target),
-//! a generic, an async or generator body. Class methods are served
+//! A generator factory (async or not) takes the twin the desugar cut
+//! from its source (`ast::generator_any_twin`) instead of a clone. An
+//! async function's clone reaches its machine's generator through a
+//! direct call with `any` arguments, which takes that generator's
+//! twin. Out of reach, and left on the coercion kernel: a target with
+//! a receiver or argv channel (`__this`, `__torajs_argv`, new.target),
+//! a generic. Class methods are served
 //! by the `__cmany_` / `__smany_` twins instead.
 
 use std::collections::{HashMap, VecDeque};
@@ -90,15 +94,28 @@ pub(super) fn run(
             _ => None,
         })
         .collect();
+    let loose_shells = closure::loose_values(c, owned_ast, "__forward_");
     for (shell, target) in shells {
         let Some(params) = widenable_target(c, owned_ast, &target) else {
             continue;
         };
+        // a generator's twin is a class of its own, and so is the machine
+        // an async body's twin reaches: cut only for a shell whose value
+        // may be called other than through its typed face
+        if (owned_ast.generator_factory_classes.contains_key(&target)
+            || owned_ast.async_fns.contains(&target))
+            && !loose_shells.contains(&shell)
+        {
+            continue;
+        }
         let Some(site) = construction_site(owned_ast, &shell) else {
             continue;
         };
-        let target_twin = twin_name(&target);
-        if !c.globals.contains_key(&target_twin) {
+        // a generator's twin was cut from its source before the machine
+        // was built: its factory body is no body to clone
+        let generator_twin = crate::ast::generator_any_twin(owned_ast, &target);
+        let target_twin = generator_twin.clone().unwrap_or_else(|| twin_name(&target));
+        if generator_twin.is_none() && !c.globals.contains_key(&target_twin) {
             let idxs = all_any(&params);
             emit_widened_spec(
                 c,
@@ -129,9 +146,10 @@ pub(super) fn run(
 }
 
 /// The user params of `target` (past a lifted body's `__env` head)
-/// when this lane can twin it: a non-generic, non-generator, non-async
-/// declaration with no receiver or argv channel, declaring at least
-/// one non-rest struct parameter.
+/// when this lane can twin it: a non-generic, non-generator
+/// declaration (an async generator's factory only with its
+/// desugar-time twin) with no receiver or argv channel, declaring at
+/// least one non-rest struct parameter.
 fn widenable_target(c: &Checker, ast: &Ast, target: &str) -> Option<Vec<Param>> {
     let (params, type_params, is_generator) = ast.stmts.iter().find_map(|s| match s {
         Stmt::FnDecl {
@@ -147,8 +165,8 @@ fn widenable_target(c: &Checker, ast: &Ast, target: &str) -> Option<Vec<Param>> 
     let plain = type_params.is_empty()
         && !is_generator
         && !c.generic_type_params.contains_key(target)
-        && !ast.async_fns.contains(target)
-        && !ast.async_generator_fns.contains(target)
+        && (!ast.async_generator_fns.contains(target)
+            || crate::ast::minted_generator_any_twin(ast, target).is_some())
         && params.iter().all(|p| {
             !matches!(
                 p.name.as_str(),

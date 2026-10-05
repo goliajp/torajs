@@ -9,6 +9,9 @@
 //! method that gains a twin reads as a typed-coverage loss although
 //! the user's program and its typed body are unchanged. The census
 //! therefore skips them: the mono already scored the same source.
+//! A generator's all-`any` twin (`desugar_generators_any_twin`) is the
+//! same kind of clone, its factory and its iterator class's methods
+//! alike.
 
 use std::collections::HashSet;
 
@@ -26,7 +29,8 @@ pub(crate) fn twin_body_exprs(ast: &Ast) -> HashSet<ExprId> {
         };
         if !(name.starts_with("__cmany_")
             || name.starts_with("__smany_")
-            || name.starts_with("__ctorany_"))
+            || name.starts_with("__ctorany_")
+            || crate::ast::is_generator_any_twin_decl(name))
         {
             continue;
         }
