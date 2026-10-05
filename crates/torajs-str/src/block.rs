@@ -145,11 +145,12 @@ impl StrBlock {
         if let Some(block) = Self::pop_pooled(length, cap, flags) {
             return block;
         }
-        // past the pool only: a Str past the longest one would be a
-        // block shorter than its length says (the u32 byte count wraps)
-        if length > STR_MAX_LEN as u32 {
-            crate::max_len::len_past_limit();
-        }
+        // every caller sizes through `str_len_of` or from strings that
+        // exist; a Str past the longest one would be a block shorter than
+        // its length says (the u32 byte count wraps). checked in debug
+        // builds only: a release-side check here grows every inlined copy
+        // of this path and moves the hot string code that follows it
+        debug_assert!(length <= STR_MAX_LEN as u32, "Str alloc past STR_MAX_LEN");
         // SAFETY: libc malloc; null is OOM, a hard stop here.
         let raw = unsafe { malloc(block_size(length, is_latin1)) } as *mut u8;
         let nn = NonNull::new(raw).unwrap_or_else(|| torajs_abort::abort_with(b"OOM in Str alloc"));

@@ -43,15 +43,6 @@ pub const fn str_max_bytes(is_latin1: bool) -> u32 {
     byte_capacity(STR_MAX_LEN as u32, is_latin1)
 }
 
-/// Stop the process: an allocator whose caller writes the payload was
-/// asked for a Str past [`STR_MAX_LEN`], which only a caller that did
-/// not ask [`str_len_of`] first can do.
-#[cold]
-#[inline(never)]
-pub(crate) fn len_past_limit() -> ! {
-    torajs_abort::abort_with(b"string length past STR_MAX_LEN")
-}
-
 /// Raise the RangeError for a string longer than [`STR_MAX_LEN`] and
 /// answer an empty Str, which the caller's throw check discards.
 ///
