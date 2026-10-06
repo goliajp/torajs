@@ -22,8 +22,8 @@ use crate::ssa_lower::intern_arr_layout;
 /// i64/f64/bool) while non-optional slots stay raw. Param / let /
 /// return positions keep the plain [`parse_type`] strip — their ABI
 /// is unchanged. A `__nullable(<alias>)` whose alias RESOLVES to a
-/// scalar is not covered yet (keeps the pre-RFC in-band collapse);
-/// every other spelling delegates verbatim.
+/// scalar boxes the same way, through [`parse_type`]; every other
+/// spelling delegates verbatim.
 /// Does `__nullable(<inner>)` materialize as `Type::Any` rather than
 /// as the pointer-shaped in-band collapse?
 ///
@@ -31,8 +31,8 @@ use crate::ssa_lower::intern_arr_layout;
 /// sentinel is a legitimate `0` / `false` — so it pays the 8B NaN-box
 /// tax instead (RFC 20260710-optional-undefined-repr C4). A
 /// pointer-shaped T genuinely has the bit pattern to spare and stays
-/// raw. An alias RESOLVING to a scalar is not covered (it keeps the
-/// pre-RFC collapse), the same gap the field arm has.
+/// raw. This answers from the spelling alone; an alias RESOLVING to a
+/// scalar is boxed by [`parse_type`] once it has resolved it.
 ///
 /// Every position that has to spell "the absent value" for such a slot
 /// asks HERE rather than restating the list — the parser's implicit
@@ -40,6 +40,16 @@ use crate::ssa_lower::intern_arr_layout;
 /// of one rule is how the answers drift apart.
 pub(crate) fn nullable_inner_boxes(inner: &str) -> bool {
     matches!(inner, "number" | "boolean")
+}
+
+/// The slot of `T | null` once `T` has resolved: an alias resolving to
+/// a scalar has nowhere to put the null either, so it boxes like the
+/// spelled-out `number` / `boolean` ([`nullable_inner_boxes`]).
+fn nullable_slot(inner: Type) -> Type {
+    match inner {
+        Type::I64 | Type::I32 | Type::F64 | Type::Bool => Type::Any,
+        t => t,
+    }
 }
 
 pub(crate) fn parse_struct_field_type(
@@ -104,7 +114,7 @@ pub(crate) fn parse_type(
     if let Some(rest) = s.strip_prefix("__nullable(")
         && let Some(inner) = rest.strip_suffix(')')
     {
-        return parse_type(
+        return nullable_slot(parse_type(
             Some(inner),
             aliases,
             arr_layouts,
@@ -112,7 +122,7 @@ pub(crate) fn parse_type(
             generic_struct_decls,
             struct_layouts,
             inst_memo,
-        );
+        ));
     }
     if s == "null" {
         // Bare `null` annotation (rare). Pointer-shaped, value is null.

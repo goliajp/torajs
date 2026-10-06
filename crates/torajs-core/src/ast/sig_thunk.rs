@@ -138,8 +138,9 @@ fn formal_face(ann: Option<&str>) -> Option<(Vec<String>, String)> {
 /// `(formal_ps) => formal_ret` needs — and safely admits — a thunk.
 ///
 /// Needs one iff the two faces are not spelling-identical. Admits
-/// one iff every position where they DISAGREE, and every declared
-/// position past the formal arity, is `any` on the target's side
+/// one iff every position where they DISAGREE is `any` on the
+/// target's side, every declared position past the formal arity is
+/// `any` or takes undefined (an optional / nullable param)
 /// (those slots receive the undefined box / the boxed widening the
 /// direct call in the thunk body already knows how to produce), and
 /// the return faces line up (a void/undefined formal discards; any
@@ -163,7 +164,7 @@ fn thunk_plan(target: &FnFace, formal_ps: &[String], formal_ret: &str) -> bool {
         if let Some(f) = formal_ps.get(i) {
             a == f || a == "any"
         } else {
-            a == "any"
+            a == "any" || a.starts_with("__nullable(")
         }
     });
     let ret_safe = formal_ret == "void"

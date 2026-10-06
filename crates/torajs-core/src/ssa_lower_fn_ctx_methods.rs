@@ -91,8 +91,22 @@ impl<'a> LowerCtx<'a> {
     /// with the undefined box on the missing path, load back. The
     /// existing `=== undefined` body guards then fire the param's
     /// default exactly like an explicit-undefined argument.
-    fn normalize_missing_any_param(&mut self, pid: ValueId, argc: ValueId, idx: i64) -> ValueId {
-        let tmp = self.alloca(Type::Any, None);
+    /// A typed optional param (`p?: P`, pointer-shaped) takes its
+    /// slot's undefined sentinel the same way; a slot type with no
+    /// sentinel keeps the raw param.
+    fn normalize_missing_param(
+        &mut self,
+        pid: ValueId,
+        argc: ValueId,
+        idx: i64,
+        ty: Type,
+    ) -> ValueId {
+        let sentinel = matches!(ty, Type::Str | Type::Substr | Type::FnSig(_))
+            || ty.spells_undef_with_generic_cell();
+        if ty != Type::Any && !sentinel {
+            return pid;
+        }
+        let tmp = self.alloca(ty, None);
         let cb = self.cur_block;
         self.f.append_void(
             cb,
@@ -118,22 +132,26 @@ impl<'a> LowerCtx<'a> {
                 else_blk: join_blk,
             },
         );
-        let undef = self.f.append_inst(
-            fill_blk,
-            InstKind::BoxAny(5, Operand::ConstI64(0)),
-            Type::Any,
-            None,
-        );
-        self.f.append_void(
-            fill_blk,
-            InstKind::Store(Operand::Value(undef), Operand::Value(tmp), 0),
-        );
+        self.cur_block = fill_blk;
+        let undef = if ty == Type::Any {
+            Operand::Value(self.f.append_inst(
+                fill_blk,
+                InstKind::BoxAny(5, Operand::ConstI64(0)),
+                Type::Any,
+                None,
+            ))
+        } else {
+            self.str_undef_sentinel_for(ty)
+                .expect("a slot type with an undefined sentinel")
+        };
+        self.f
+            .append_void(fill_blk, InstKind::Store(undef, Operand::Value(tmp), 0));
         self.f.set_term(fill_blk, Terminator::Br(join_blk));
         self.cur_block = join_blk;
         self.f.append_inst(
             join_blk,
-            InstKind::Load(Type::Any, Operand::Value(tmp), 0),
-            Type::Any,
+            InstKind::Load(ty, Operand::Value(tmp), 0),
+            ty,
             None,
         )
     }
@@ -143,12 +161,22 @@ impl<'a> LowerCtx<'a> {
         fn_name: &str,
         param_setup: Vec<(String, ValueId, Type)>,
         assigned_in_body: &std::collections::HashSet<String>,
+        params: &[crate::ast::Param],
     ) {
+        let optional: std::collections::HashSet<&str> = params
+            .iter()
+            .filter(|p| {
+                p.type_ann
+                    .as_deref()
+                    .is_some_and(|a| a.starts_with("__nullable("))
+            })
+            .map(|p| p.name.as_str())
+            .collect();
         // S2 normalization applies only to fns carrying the hidden
         // argc (`__env`-first; since S1-T1 also the this-first
-        // method_argv family) and only to Any-repr user params — a
-        // typed slot cannot hold the undefined box, and the
-        // checker's short-call admit is gated to all-Any tails.
+        // method_argv family), to Any-repr user params and to optional
+        // ones — the checker's short-call admit is gated to tails of
+        // those two kinds.
         let argc_pid = param_setup
             .iter()
             .find(|(n, _, _)| n == "__torajs_argc")
@@ -158,7 +186,10 @@ impl<'a> LowerCtx<'a> {
             let synthetic = SYNTHETIC_PARAMS.contains(&pname.as_str());
             let pid = match (synthetic, ty, argc_pid) {
                 (false, Type::Any, Some(argc)) => {
-                    self.normalize_missing_any_param(pid, argc, user_idx)
+                    self.normalize_missing_param(pid, argc, user_idx, ty)
+                }
+                (false, _, Some(argc)) if optional.contains(pname.as_str()) => {
+                    self.normalize_missing_param(pid, argc, user_idx, ty)
                 }
                 _ => pid,
             };

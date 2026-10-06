@@ -143,7 +143,7 @@ fn matches_face(param_ty: &Type, arg_ty: &Type, call_face: bool) -> bool {
                 || (call_face
                     && actual_ps[formal_ps.len()..]
                         .iter()
-                        .all(|a| matches!(a, Type::Any)));
+                        .all(|a| matches!(a, Type::Any | Type::Nullable(_))));
             // S2 also adds the TS void-return exception: a
             // `() => void` face accepts a value-returning callback —
             // the call site lowers through the formal sig and

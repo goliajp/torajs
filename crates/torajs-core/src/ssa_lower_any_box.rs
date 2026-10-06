@@ -36,7 +36,9 @@ impl<'a> LowerCtx<'a> {
             self.expr_types.get(&eid),
             Some(crate::check::Type::Undefined)
         ) || (matches!(self.ast.get_expr(eid), Expr::Ident(n) if n == "undefined")
-            && !self.locals.contains_key("undefined"));
+            && !self.locals.contains_key("undefined"))
+            || matches!(self.ast.get_expr(eid), Expr::Ident(n)
+                if n.starts_with(crate::ast::UNDEF_SLOT_MARKER));
         // A call whose checker type is `Void` answers `undefined` — the
         // method's own "return undefined" step. Its lowering may hand
         // back a placeholder operand of some other SSA type
@@ -50,7 +52,13 @@ impl<'a> LowerCtx<'a> {
         let is_undef =
             is_undef || matches!(self.expr_types.get(&eid), Some(crate::check::Type::Void));
         let val_ty = self.operand_ty(&val);
-        if is_undef && matches!(val_ty, Type::Ptr | Type::I64 | Type::Void) {
+        // a pointer slot spells `undefined` as its sentinel cell (an
+        // optional parameter's padded `__undef_slot__T` default), which
+        // is the same value: it boxes as undefined, not as a heap cell
+        if is_undef
+            && (matches!(val_ty, Type::Ptr | Type::I64 | Type::Void)
+                || crate::ssa_lower_index_undef::has_undef_spelling(val_ty))
+        {
             // ANY_UNDEF=5, payload 0.
             let v = self.f.append_inst(
                 self.cur_block,
