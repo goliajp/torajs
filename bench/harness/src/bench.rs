@@ -4,53 +4,9 @@ use std::path::Path;
 use crate::case::Case;
 use crate::exec::{PER_EXEC_TIMEOUT, spawn_output_bounded};
 use crate::hyperfine::hyperfine_one;
+pub use crate::outcome::{RunOutcome, Status};
 use crate::runner::{Runner, TemplateContext, split_cmd};
 use crate::rusage::measure_runs;
-
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct RunOutcome {
-    pub case: String,
-    pub runtime: String,
-    pub runtime_version: Option<String>,
-    pub status: Status,
-    pub compile_ms: Option<f64>,
-    pub run_ms: Option<f64>,
-    pub run_stddev_ms: Option<f64>,
-    /// Peak resident set size of the run step, in KiB: the largest over
-    /// every measured run. `None` when not measured.
-    pub max_rss_kb: Option<u64>,
-    /// Size in bytes of the compiled artifact, for runners that produce one.
-    /// `None` for interpreted runners (bun/node/python; tr-interp).
-    pub artifact_bytes: Option<u64>,
-    /// SHA-256 (hex) of the compiled artifact's contents. The actual
-    /// "machine code unchanged" signal: equal size does NOT imply
-    /// equal code — Mach-O 16 KiB segment alignment absorbs small
-    /// text-section deltas, so a size-only comparison reports
-    /// "identical" across real codegen changes (observed: the Cluster
-    /// E inliner firing on 8 bench cases with every artifact size
-    /// unchanged). `None` for interpreted runners and for result
-    /// files written before this field existed.
-    pub artifact_sha256: Option<String>,
-    pub stdout_match: Option<bool>,
-    pub error: Option<String>,
-    /// The run step's raw wall-clock samples (ms), every pass
-    /// concatenated, so a reader can redo the statistics.
-    #[serde(default)]
-    pub run_samples_ms: Vec<f64>,
-    pub run_min_ms: Option<f64>,
-    /// Kernel resource account of the run step (macOS
-    /// `proc_pid_rusage`): medians across runs, footprint the largest.
-    pub user_ms: Option<f64>,
-    pub system_ms: Option<f64>,
-    pub instructions: Option<u64>,
-    pub cycles: Option<u64>,
-    pub pinstructions: Option<u64>,
-    pub pcycles: Option<u64>,
-    pub phys_footprint_kb: Option<u64>,
-    pub pageins: Option<u64>,
-    pub diskio_read_bytes: Option<u64>,
-    pub diskio_written_bytes: Option<u64>,
-}
 
 /// The run command with the case's arguments appended.
 fn with_args(cmd: &str, args: &[String]) -> String {
@@ -87,48 +43,6 @@ fn file_sha256_hex(path: &Path) -> Option<String> {
     Some(hex)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Status {
-    Ok,
-    Skipped,
-    Failed,
-}
-
-impl RunOutcome {
-    fn skip(case: &str, runtime: &str, reason: String) -> Self {
-        Self {
-            case: case.into(),
-            runtime: runtime.into(),
-            runtime_version: None,
-            status: Status::Skipped,
-            compile_ms: None,
-            run_ms: None,
-            run_stddev_ms: None,
-            max_rss_kb: None,
-            artifact_bytes: None,
-            artifact_sha256: None,
-            stdout_match: None,
-            error: Some(reason),
-            run_samples_ms: Vec::new(),
-            run_min_ms: None,
-            user_ms: None,
-            system_ms: None,
-            instructions: None,
-            cycles: None,
-            pinstructions: None,
-            pcycles: None,
-            phys_footprint_kb: None,
-            pageins: None,
-            diskio_read_bytes: None,
-            diskio_written_bytes: None,
-        }
-    }
-
-    pub fn is_ok(&self) -> bool {
-        self.status != Status::Failed
-    }
-}
 
 pub fn run_one(
     case: &Case,
@@ -165,32 +79,8 @@ pub fn run_one(
         workspace: workspace.to_string_lossy().to_string(),
     };
 
-    let mut outcome = RunOutcome {
-        case: case.name.clone(),
-        runtime: runner.name.clone(),
-        runtime_version: Some(version),
-        status: Status::Ok,
-        compile_ms: None,
-        run_ms: None,
-        run_stddev_ms: None,
-        max_rss_kb: None,
-        artifact_bytes: None,
-        artifact_sha256: None,
-        stdout_match: None,
-        error: None,
-        run_samples_ms: Vec::new(),
-        run_min_ms: None,
-        user_ms: None,
-        system_ms: None,
-        instructions: None,
-        cycles: None,
-        pinstructions: None,
-        pcycles: None,
-        phys_footprint_kb: None,
-        pageins: None,
-        diskio_read_bytes: None,
-        diskio_written_bytes: None,
-    };
+    let mut outcome = RunOutcome::new(&case.name, &runner.name);
+    outcome.runtime_version = Some(version);
 
     if let Some(compile_template) = &runner.compile {
         let compile_cmd = ctx.substitute(compile_template);
@@ -332,32 +222,7 @@ pub fn artifact_only(
     workspace: &Path,
 ) -> Result<RunOutcome> {
     let src_path = crate::runner::resolve_src(&case.dir, &runner.src_filename);
-    let mut outcome = RunOutcome {
-        case: case.name.clone(),
-        runtime: runner.name.clone(),
-        runtime_version: None,
-        status: Status::Ok,
-        compile_ms: None,
-        run_ms: None,
-        run_stddev_ms: None,
-        max_rss_kb: None,
-        artifact_bytes: None,
-        artifact_sha256: None,
-        stdout_match: None,
-        error: None,
-        run_samples_ms: Vec::new(),
-        run_min_ms: None,
-        user_ms: None,
-        system_ms: None,
-        instructions: None,
-        cycles: None,
-        pinstructions: None,
-        pcycles: None,
-        phys_footprint_kb: None,
-        pageins: None,
-        diskio_read_bytes: None,
-        diskio_written_bytes: None,
-    };
+    let mut outcome = RunOutcome::new(&case.name, &runner.name);
     if !src_path.exists() {
         outcome.status = Status::Skipped;
         outcome.error = Some(format!("no source file: {}", src_path.display()));

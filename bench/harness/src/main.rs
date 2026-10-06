@@ -3,6 +3,7 @@ mod case;
 mod compare;
 mod exec;
 mod hyperfine;
+mod outcome;
 mod passes;
 mod report;
 mod runner;
