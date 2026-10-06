@@ -102,3 +102,39 @@ pub(crate) fn abs_to_ns(t: u64) -> f64 {
     }
     t as f64 * tb.numer as f64 / tb.denom as f64
 }
+
+pub(crate) const PROC_PIDTASKINFO: i32 = 4;
+
+/// `struct proc_taskinfo` from `<sys/proc_info.h>`.
+#[repr(C)]
+#[derive(Default)]
+pub(crate) struct ProcTaskInfo {
+    pub pti_virtual_size: u64,
+    pub pti_resident_size: u64,
+    pub pti_total_user: u64,
+    pub pti_total_system: u64,
+    pub pti_threads_user: u64,
+    pub pti_threads_system: u64,
+    pub pti_policy: i32,
+    pub pti_faults: i32,
+    pub pti_pageins: i32,
+    pub pti_cow_faults: i32,
+    pub pti_messages_sent: i32,
+    pub pti_messages_received: i32,
+    pub pti_syscalls_mach: i32,
+    pub pti_syscalls_unix: i32,
+    pub pti_csw: i32,
+    pub pti_threadnum: i32,
+    pub pti_numrunning: i32,
+    pub pti_priority: i32,
+}
+
+unsafe extern "C" {
+    pub(crate) fn proc_pidinfo(
+        pid: i32,
+        flavor: i32,
+        arg: u64,
+        buffer: *mut c_void,
+        buffersize: i32,
+    ) -> i32;
+}

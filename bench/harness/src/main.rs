@@ -14,6 +14,7 @@ mod rusage;
 #[cfg(target_os = "macos")]
 mod rusage_darwin;
 mod score;
+mod threads;
 mod version_check;
 
 use anyhow::{Context, Result};

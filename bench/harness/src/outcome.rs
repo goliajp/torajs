@@ -56,6 +56,9 @@ pub struct RunOutcome {
     pub artifact_segments: Option<std::collections::BTreeMap<String, u64>>,
     pub artifact_sections: Option<std::collections::BTreeMap<String, u64>>,
     pub artifact_symbols: Option<u64>,
+    /// Most threads seen in the run step's process (first pass), from
+    /// one extra untimed run polled every 100 µs: a lower bound.
+    pub peak_threads: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]

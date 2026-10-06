@@ -183,6 +183,9 @@ pub fn run_one(
         return Ok(outcome);
     }
 
+    if cached_compile_ms.is_none() {
+        outcome.peak_threads = crate::threads::peak_threads(&run_cmd, PER_EXEC_TIMEOUT);
+    }
     match measure_runs(
         &run_cmd,
         case.run_warmup,
