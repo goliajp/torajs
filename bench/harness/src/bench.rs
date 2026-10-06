@@ -126,6 +126,11 @@ pub fn run_one(
                 }
             }
         }
+        if cached_compile_ms.is_none()
+            && let Some(switch) = &runner.phases_env
+        {
+            outcome.compile_phases_ms = crate::phases::compile_phases(&compile_cmd, switch);
+        }
         // Compile produced an artifact at {out}; capture its byte size.
         if let Ok(meta) = std::fs::metadata(&out_path) {
             outcome.artifact_bytes = Some(meta.len());

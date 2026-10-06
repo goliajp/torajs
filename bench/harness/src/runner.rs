@@ -15,6 +15,9 @@ pub struct Runner {
     pub compile: Option<String>,
     /// Run command; templates `{src}` and `{out}` get substituted.
     pub run: String,
+    /// Environment variable that makes the compiler print its phase
+    /// timings to stderr (`phase <indent><label> <ms>` lines).
+    pub phases_env: Option<String>,
 }
 
 impl Runner {

@@ -6,6 +6,7 @@ mod exec;
 mod hyperfine;
 mod outcome;
 mod passes;
+mod phases;
 mod report;
 mod runner;
 mod rusage;

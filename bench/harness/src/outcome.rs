@@ -48,6 +48,9 @@ pub struct RunOutcome {
     pub minor_faults: Option<u64>,
     pub major_faults: Option<u64>,
     pub ctx_switches: Option<u64>,
+    /// Compile-phase wall times (ms) from one extra untimed compile,
+    /// for runners with a `phases_env`: `label` and `parent/label`.
+    pub compile_phases_ms: Option<std::collections::BTreeMap<String, f64>>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
