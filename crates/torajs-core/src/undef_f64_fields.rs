@@ -83,7 +83,8 @@ pub(crate) fn prime(ctx: &mut LowerCtx<'_>) {
         // against ITS predicate (rotation 640): a generator step's
         // `value: string` completion is the `__undef_slot__string`
         // marker, and `typeof step.value` answered "string" for it.
-        let str_fields = collect(ctx, crate::ssa_lower_nullable_guard::is_nullable_str_source);
+        let mut str_fields = collect(ctx, crate::ssa_lower_nullable_guard::is_nullable_str_source);
+        str_fields.extend(collect_any_nullish_writes(ctx));
         let mut lets = collect_assigned_idents(ctx);
         lets.extend(collect_declared_idents(ctx));
         let grew = !fields.is_subset(&ctx.undefable_f64_fields)
@@ -156,6 +157,29 @@ fn collect(
                 }
             }
             _ => {}
+        }
+    }
+    out
+}
+
+/// Field names an `any` receiver is handed null / undefined (or a
+/// value of unknown type) for. The runtime store puts NULL or the Str
+/// sentinel straight into a `string` slot of the struct behind it, so
+/// a typed read of that field has to stay identity-aware.
+fn collect_any_nullish_writes(ctx: &LowerCtx<'_>) -> HashSet<PropKey> {
+    use crate::check::Type;
+    let mut out = HashSet::new();
+    for id in 0..ctx.ast.exprs.len() {
+        let eid = crate::ast::ExprId(id as u32);
+        if let Expr::Assign { target, value } = ctx.ast.get_expr(eid)
+            && let Expr::Member { obj, name } = ctx.ast.get_expr(*target)
+            && matches!(ctx.expr_types.get(obj), Some(Type::Any))
+            && matches!(
+                ctx.expr_types.get(value),
+                Some(Type::Null | Type::Undefined | Type::Any) | None
+            )
+        {
+            out.insert(PropKey::from(name));
         }
     }
     out
