@@ -252,6 +252,9 @@ pub fn build_snapshot_pool(
     RefCell::new(AnonStampPool::from_snapshot(snapshot, next_tag_start))
 }
 
+/// tag, layout, the generic class it re-targets, and the creation order
+type LayoutRow<'a> = (u32, ssa::StructId, Option<&'a String>, Option<&'a [u32]>);
+
 /// Append a `ClassLayoutMeta` row per Pass 2 fresh tag recorded in
 /// `pool` to `class_layouts` — plain anon sids and generic-factory
 /// rows (405-03) share one tag counter, so the two lists merge
@@ -268,7 +271,7 @@ pub fn append_fresh_class_layouts(
     class_layouts: &mut Vec<crate::ssa::ClassLayoutMeta>,
 ) {
     let p = pool.borrow();
-    let mut rows: Vec<(u32, ssa::StructId, Option<&String>, Option<&[u32]>)> = p
+    let mut rows: Vec<LayoutRow<'_>> = p
         .fresh_sids()
         .iter()
         .map(|sid| (p.sid_to_tag[sid], *sid, None, None))

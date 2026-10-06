@@ -22,11 +22,14 @@ use crate::ssa::Type;
 /// tag, so the two sides always agree on which tags exist.
 pub(crate) const MAX_COMBOS: usize = 64;
 
+/// A spread literal's fields and its storage order.
+type SpreadLit<'a> = (&'a [(PropKey, ExprId)], Vec<PropKey>);
+
 impl AnonStampPool {
     /// Record the foreign creation orders of every object literal the
     /// checker typed, keyed by the literal's storage order.
     pub fn note_objlit_orders(&mut self, ast: &Ast, expr_types: &HashMap<ExprId, CType>) {
-        let mut spread_lits: Vec<(&[(PropKey, ExprId)], Vec<PropKey>)> = Vec::new();
+        let mut spread_lits: Vec<SpreadLit<'_>> = Vec::new();
         for (eid, ty) in expr_types {
             let CType::Struct(fields) = ty else {
                 continue;

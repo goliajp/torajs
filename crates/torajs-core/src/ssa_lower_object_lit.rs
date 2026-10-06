@@ -233,16 +233,19 @@ pub(crate) fn lower(
     Operand::Value(obj_ptr)
 }
 
-fn lower_field_entries(
-    ctx: &mut LowerCtx<'_>,
-    entries: &[(PropKey, ExprId)],
-    declared_hint: Option<StructId>,
-) -> (
+/// field types, values, the indices that are undefined, and the spread sources
+type FieldEntries = (
     Vec<(PropKey, Type)>,
     Vec<Operand>,
     Vec<usize>,
     Vec<order::SpreadSrc>,
-) {
+);
+
+fn lower_field_entries(
+    ctx: &mut LowerCtx<'_>,
+    entries: &[(PropKey, ExprId)],
+    declared_hint: Option<StructId>,
+) -> FieldEntries {
     // Chunk 785 — the outer declared layout also pins NESTED object
     // literals: a field whose declared type is a struct passes its
     // StructId down through the same take-once hint channel, so
