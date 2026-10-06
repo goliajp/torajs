@@ -57,7 +57,8 @@ unsafe fn build_capture_strs(
 /// Build the callback's declared `n_caps` capture Strs and
 /// transmute-dispatch through [`invoke_replace_cb`]. `Err` on a
 /// callback that left a pending throw, which ends the walk the way
-/// the boxed lane's does.
+/// the boxed lane's does. `argc` is the spec argument count the
+/// callback's hidden argc slot receives.
 ///
 /// # Safety
 ///
@@ -68,6 +69,7 @@ pub(super) unsafe fn typed_invoke(
     closure_env: *mut c_void,
     n_caps: i64,
     has_off_input: bool,
+    argc: i64,
     str_ptr: *const c_void,
     m: *mut c_void,
     saves: &[i64],
@@ -83,6 +85,7 @@ pub(super) unsafe fn typed_invoke(
         invoke_replace_cb(
             n_caps,
             has_off_input,
+            argc,
             closure_env,
             fn_ptr,
             m,

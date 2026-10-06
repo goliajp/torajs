@@ -14,8 +14,10 @@
 use core::ffi::c_void;
 
 // S1 (RFC 20260810-indirect-argc-abi) — every shape carries the
-// hidden i64 argc right after the env (user argument count: the
-// match + the captures, plus offset and input on the -Off shapes).
+// hidden i64 argc right after the env. It is the §22.2.6.11 step 14.j
+// count the caller derives from the pattern («matched, captures…,
+// position, string[, groups]»), not the slots a shape passes: a
+// callback that reads `arguments.length` reads it.
 type Cb0 = unsafe extern "C" fn(*mut c_void, i64, *mut c_void) -> *mut c_void;
 type Cb1 = unsafe extern "C" fn(*mut c_void, i64, *mut c_void, *mut c_void) -> *mut c_void;
 type Cb2 =
@@ -212,6 +214,7 @@ type Cb9Off = unsafe extern "C" fn(
 pub(super) unsafe fn invoke_replace_cb(
     n_caps: i64,
     has_off_input: bool,
+    argc: i64,
     closure_env: *mut c_void,
     fn_ptr: *mut c_void,
     m: *mut c_void,
@@ -221,15 +224,16 @@ pub(super) unsafe fn invoke_replace_cb(
 ) -> *mut c_void {
     unsafe {
         if has_off_input {
-            invoke_off(n_caps, closure_env, fn_ptr, m, caps, off, input)
+            invoke_off(n_caps, argc, closure_env, fn_ptr, m, caps, off, input)
         } else {
-            invoke_basic(n_caps, closure_env, fn_ptr, m, caps)
+            invoke_basic(n_caps, argc, closure_env, fn_ptr, m, caps)
         }
     }
 }
 
 unsafe fn invoke_basic(
     n_caps: i64,
+    argc: i64,
     env: *mut c_void,
     fn_ptr: *mut c_void,
     m: *mut c_void,
@@ -237,27 +241,27 @@ unsafe fn invoke_basic(
 ) -> *mut c_void {
     unsafe {
         match n_caps {
-            0 => core::mem::transmute::<*mut c_void, Cb0>(fn_ptr)(env, 1, m),
-            1 => core::mem::transmute::<*mut c_void, Cb1>(fn_ptr)(env, 2, m, c[0]),
-            2 => core::mem::transmute::<*mut c_void, Cb2>(fn_ptr)(env, 3, m, c[0], c[1]),
-            3 => core::mem::transmute::<*mut c_void, Cb3>(fn_ptr)(env, 4, m, c[0], c[1], c[2]),
-            4 => {
-                core::mem::transmute::<*mut c_void, Cb4>(fn_ptr)(env, 5, m, c[0], c[1], c[2], c[3])
-            }
+            0 => core::mem::transmute::<*mut c_void, Cb0>(fn_ptr)(env, argc, m),
+            1 => core::mem::transmute::<*mut c_void, Cb1>(fn_ptr)(env, argc, m, c[0]),
+            2 => core::mem::transmute::<*mut c_void, Cb2>(fn_ptr)(env, argc, m, c[0], c[1]),
+            3 => core::mem::transmute::<*mut c_void, Cb3>(fn_ptr)(env, argc, m, c[0], c[1], c[2]),
+            4 => core::mem::transmute::<*mut c_void, Cb4>(fn_ptr)(
+                env, argc, m, c[0], c[1], c[2], c[3],
+            ),
             5 => core::mem::transmute::<*mut c_void, Cb5>(fn_ptr)(
-                env, 6, m, c[0], c[1], c[2], c[3], c[4],
+                env, argc, m, c[0], c[1], c[2], c[3], c[4],
             ),
             6 => core::mem::transmute::<*mut c_void, Cb6>(fn_ptr)(
-                env, 7, m, c[0], c[1], c[2], c[3], c[4], c[5],
+                env, argc, m, c[0], c[1], c[2], c[3], c[4], c[5],
             ),
             7 => core::mem::transmute::<*mut c_void, Cb7>(fn_ptr)(
-                env, 8, m, c[0], c[1], c[2], c[3], c[4], c[5], c[6],
+                env, argc, m, c[0], c[1], c[2], c[3], c[4], c[5], c[6],
             ),
             8 => core::mem::transmute::<*mut c_void, Cb8>(fn_ptr)(
-                env, 9, m, c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7],
+                env, argc, m, c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7],
             ),
             9 => core::mem::transmute::<*mut c_void, Cb9>(fn_ptr)(
-                env, 10, m, c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8],
+                env, argc, m, c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8],
             ),
             _ => cb_arity_panic(n_caps),
         }
@@ -266,6 +270,7 @@ unsafe fn invoke_basic(
 
 unsafe fn invoke_off(
     n_caps: i64,
+    argc: i64,
     env: *mut c_void,
     fn_ptr: *mut c_void,
     m: *mut c_void,
@@ -275,31 +280,33 @@ unsafe fn invoke_off(
 ) -> *mut c_void {
     unsafe {
         match n_caps {
-            0 => core::mem::transmute::<*mut c_void, Cb0Off>(fn_ptr)(env, 3, m, off, input),
-            1 => core::mem::transmute::<*mut c_void, Cb1Off>(fn_ptr)(env, 4, m, c[0], off, input),
+            0 => core::mem::transmute::<*mut c_void, Cb0Off>(fn_ptr)(env, argc, m, off, input),
+            1 => {
+                core::mem::transmute::<*mut c_void, Cb1Off>(fn_ptr)(env, argc, m, c[0], off, input)
+            }
             2 => core::mem::transmute::<*mut c_void, Cb2Off>(fn_ptr)(
-                env, 5, m, c[0], c[1], off, input,
+                env, argc, m, c[0], c[1], off, input,
             ),
             3 => core::mem::transmute::<*mut c_void, Cb3Off>(fn_ptr)(
-                env, 6, m, c[0], c[1], c[2], off, input,
+                env, argc, m, c[0], c[1], c[2], off, input,
             ),
             4 => core::mem::transmute::<*mut c_void, Cb4Off>(fn_ptr)(
-                env, 7, m, c[0], c[1], c[2], c[3], off, input,
+                env, argc, m, c[0], c[1], c[2], c[3], off, input,
             ),
             5 => core::mem::transmute::<*mut c_void, Cb5Off>(fn_ptr)(
-                env, 8, m, c[0], c[1], c[2], c[3], c[4], off, input,
+                env, argc, m, c[0], c[1], c[2], c[3], c[4], off, input,
             ),
             6 => core::mem::transmute::<*mut c_void, Cb6Off>(fn_ptr)(
-                env, 9, m, c[0], c[1], c[2], c[3], c[4], c[5], off, input,
+                env, argc, m, c[0], c[1], c[2], c[3], c[4], c[5], off, input,
             ),
             7 => core::mem::transmute::<*mut c_void, Cb7Off>(fn_ptr)(
-                env, 10, m, c[0], c[1], c[2], c[3], c[4], c[5], c[6], off, input,
+                env, argc, m, c[0], c[1], c[2], c[3], c[4], c[5], c[6], off, input,
             ),
             8 => core::mem::transmute::<*mut c_void, Cb8Off>(fn_ptr)(
-                env, 11, m, c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], off, input,
+                env, argc, m, c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], off, input,
             ),
             9 => core::mem::transmute::<*mut c_void, Cb9Off>(fn_ptr)(
-                env, 12, m, c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], off, input,
+                env, argc, m, c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], off, input,
             ),
             _ => cb_arity_panic(n_caps),
         }

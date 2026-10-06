@@ -151,6 +151,23 @@ unsafe fn boxed_invoke(
     }
 }
 
+/// §22.2.6.11 step 14.j's argument count for one match: «matched,
+/// p1..pn, position, string», plus the groups object when the pattern
+/// names a capture (`groups::build_groups`'s condition). `n_caps` is
+/// the call site's static count, used when there is no RegExp cell.
+///
+/// # Safety
+///
+/// `re_ptr` is null or a live `*RegExp`.
+unsafe fn spec_argc(re_ptr: *const c_void, n_caps: i64) -> i64 {
+    if re_ptr.is_null() {
+        return n_caps + 3;
+    }
+    let re = unsafe { as_regex(re_ptr) };
+    let named = re.n_named_captures != 0 && !re.capture_names.is_empty();
+    i64::from(re.n_captures.max(0)) + 3 + i64::from(named)
+}
+
 /// # Safety
 ///
 /// `re_ptr` is null or a live `*RegExp`; `closure_env` is null or
@@ -172,12 +189,14 @@ pub unsafe extern "C" fn __torajs_str_replace_regex_fn(
     } else {
         false
     };
+    let argc = unsafe { spec_argc(re_ptr, n_caps) };
     unsafe {
         replace_fn_inner(str_ptr, re_ptr, global, |m, saves, subject, off| {
             typed_invoke(
                 closure_env,
                 n_caps,
                 has_off_input != 0,
+                argc,
                 str_ptr,
                 m,
                 saves,
@@ -218,6 +237,7 @@ pub unsafe extern "C" fn __torajs_str_replace_all_regex_fn(
             let s = str_units(str_ptr);
             return str_from_bytes(&s) as *mut c_void;
         }
+        let argc = spec_argc(re_ptr, n_caps);
         replace_fn_inner(
             str_ptr,
             re_ptr,
@@ -227,6 +247,7 @@ pub unsafe extern "C" fn __torajs_str_replace_all_regex_fn(
                     closure_env,
                     n_caps,
                     has_off_input != 0,
+                    argc,
                     str_ptr,
                     m,
                     saves,

@@ -17,6 +17,7 @@ mod apply_spread_math;
 mod apply_spread_push;
 mod arguments_object;
 mod arguments_object_bodies;
+mod arguments_object_builtin_cb;
 mod arguments_object_chain;
 mod arguments_object_collect;
 mod arguments_object_ctor_argv;

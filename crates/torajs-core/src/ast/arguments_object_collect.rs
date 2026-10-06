@@ -197,6 +197,7 @@ pub(super) fn collect_value_argv(
         super::arguments_object_chain::safe_binding_chain(ast, |fn_name| full.contains(fn_name));
     let mut injected: HashSet<String> = candidates.iter().map(|(_, f)| f.clone()).collect();
     injected.extend(collect_hof_anon_argv(ast, &full));
+    injected.extend(super::arguments_object_builtin_cb::collect_builtin_cb_anon_argv(ast, &full));
     injected.extend(collect_spread_site_anon_argv(ast, &full));
     injected.extend(super::arguments_object_escape_store::collect_store_site_anon_argv(ast, &full));
     let boxed_params = collect_fn_arg_argv(ast, &full, &mut injected);

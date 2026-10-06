@@ -106,8 +106,9 @@ pub(crate) fn try_lower(
         fid,
         n_slots: declared + 1,
         has_off_input,
-        // §22.2.6.11 step 14.j: «matched, p1..pn, position, string»
-        argc: (n_caps + 3) as i64,
+        // §22.2.6.11 step 14.j: «matched, p1..pn, position, string»,
+        // and step 14.k.iv's groups object when the pattern names one
+        argc: (n_caps + 3 + usize::from(caps.named)) as i64,
         cb: args[1],
     };
     Some(emit_walk(ctx, &plan, recv_op, re_op, env))

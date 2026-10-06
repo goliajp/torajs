@@ -171,7 +171,11 @@ fn seed_objlit_aliases(
 ///   channels (inline loops, Map/Set walks, any-lane and
 ///   struct-method receivers all route argv-face callees through
 ///   the boxed variadic dispatch). `Array.from`'s callback rides
-///   the SECOND slot (§23.1.2.1); instance methods carry it first.
+///   the SECOND slot (§23.1.2.1); instance methods carry it first;
+/// * the replace-family callback slot, `as` peeled (§22.1.3.19,
+///   §22.2.6.11): every replace lane enters an argv-face callee
+///   through its boxed entry (`replace_callback_needs_boxed`); and
+///   `getOrInsertComputed`'s, whose upsert kernels box the callback.
 fn collect_boxed_arg_sites(ast: &Ast) -> std::collections::HashSet<ExprId> {
     let mut boxed_arg_sites = super::fnexpr_this_args::any_param_arg_idents(&ast.stmts, &ast.exprs);
     boxed_arg_sites
@@ -211,6 +215,12 @@ fn collect_boxed_arg_sites(ast: &Ast) -> std::collections::HashSet<ExprId> {
             }
         {
             boxed_arg_sites.insert(a0);
+        }
+        if let Expr::Call { callee, args } = e
+            && let Some(cb) =
+                super::argv_face_callback::boxed_builtin_callback_slot(ast, *callee, args)
+        {
+            boxed_arg_sites.insert(cb);
         }
     }
     boxed_arg_sites

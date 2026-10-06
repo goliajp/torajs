@@ -219,12 +219,15 @@ pub(crate) fn static_replace_pattern(ast: &crate::ast::Ast, arg0: ExprId) -> Opt
 pub(crate) struct StaticCaps {
     pub n: usize,
     pub set: usize,
+    /// some group is named, so a replacer also receives the groups object
+    pub named: bool,
 }
 
 pub(crate) fn static_replace_caps(ast: &crate::ast::Ast, arg0: ExprId) -> Option<StaticCaps> {
     static_replace_pattern(ast, arg0).map(|(pattern, flags)| StaticCaps {
         n: count_capture_groups(pattern),
         set: crate::ssa_lower_regex_bake::always_set_groups(pattern, flags),
+        named: crate::ssa_lower_free_helpers::has_named_capture(pattern),
     })
 }
 
@@ -275,7 +278,9 @@ pub(crate) fn emit_replace(
     let static_caps = static_replace_caps(ctx.ast, args[0]);
     if let Type::Closure(sig_id) = repl_ty {
         let (params, ret) = &ctx.fn_sigs[sig_id.0 as usize];
-        if !callback_stays_typed(params, *ret, static_caps) {
+        if !callback_stays_typed(params, *ret, static_caps)
+            || crate::ast::argv_face_callback::replace_callback_needs_boxed(ctx.ast, args[1])
+        {
             repl = ctx.box_to_any(repl);
             repl_ty = Type::Any;
         }

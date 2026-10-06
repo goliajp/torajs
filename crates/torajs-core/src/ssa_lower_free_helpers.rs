@@ -29,8 +29,21 @@
 ///   - `[...]` char class: parens inside don't count
 ///   - `\\` followed by any char escapes that char
 pub(crate) fn count_capture_groups(pattern: &str) -> usize {
+    scan_capture_groups(pattern).0
+}
+
+/// Whether the pattern names a capture group, which makes
+/// §22.2.6.11 step 14.k.iv append the groups object to a replacer's
+/// arguments.
+pub(crate) fn has_named_capture(pattern: &str) -> bool {
+    scan_capture_groups(pattern).1 > 0
+}
+
+/// (capture groups, named ones among them).
+fn scan_capture_groups(pattern: &str) -> (usize, usize) {
     let bytes = pattern.as_bytes();
     let mut n = 0usize;
+    let mut named = 0usize;
     let mut in_class = false;
     let mut i = 0;
     while i < bytes.len() {
@@ -67,13 +80,14 @@ pub(crate) fn count_capture_groups(pattern: &str) -> usize {
                         continue;
                     }
                     // (?<name>... — capturing named group, fall through to +1
+                    named += 1;
                 }
             }
             n += 1;
         }
         i += 1;
     }
-    n
+    (n, named)
 }
 
 /// Decode the `__env(name1|name2|...)` annotation lift_arrow_fns put on
@@ -141,5 +155,15 @@ mod count_capture_groups_tests {
         assert_eq!(count_capture_groups("(\\w+) (\\w+)"), 2);
         // Mix: 1 named + 1 positional + 1 non-capturing.
         assert_eq!(count_capture_groups("(?<key>\\w+)(?:=)(\\w+)"), 2);
+    }
+    #[test]
+    fn named_presence() {
+        use super::has_named_capture;
+        assert!(has_named_capture("(?<n>a)"));
+        assert!(has_named_capture("(a)(?<n>b)"));
+        assert!(!has_named_capture("(a)(b)"));
+        assert!(!has_named_capture("(?<=a)(?<!b)c"));
+        assert!(!has_named_capture("[(?<n>]a"));
+        assert!(!has_named_capture("\\(?<n>a\\)"));
     }
 }

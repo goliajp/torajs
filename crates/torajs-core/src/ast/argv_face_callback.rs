@@ -57,3 +57,64 @@ fn relays_to_argv_body(ast: &Ast, cb: ExprId) -> bool {
     };
     ast.headless_argv_fns.contains(target) || ast.this_first_argv_fns.contains_key(target)
 }
+
+/// The callback slot of a replace-family call — `s.replace(p, cb)`,
+/// `s.replaceAll(p, cb)` and the protocol spelling
+/// `re[Symbol.replace](s, cb)` — with any `as` suffix peeled.
+/// §22.1.3.19 / §22.2.6.11 call that slot with «matched, captures…,
+/// position, string[, groups]», a count no call site spells.
+pub(crate) fn replace_callback_slot(ast: &Ast, callee: ExprId, args: &[ExprId]) -> Option<ExprId> {
+    let named = match ast.get_expr(callee) {
+        Expr::Member { name, .. } => name == "replace" || name == "replaceAll",
+        Expr::Index { index, .. } => matches!(ast.get_expr(*index), Expr::Member { obj, name }
+            if name == "replace" && matches!(ast.get_expr(*obj), Expr::Ident(s) if s == "Symbol")),
+        _ => false,
+    };
+    let cb = args.get(1)?;
+    named.then(|| super::fnexpr_this_names::peel_as(&ast.exprs, *cb))
+}
+
+/// A builtin callback slot whose every lane enters the callee through
+/// its boxed entry with the true argument list: the replace family
+/// above, and `getOrInsertComputed(key, cb)` on Map / WeakMap (the
+/// upsert kernels box the callback and call it with «key»). `as`
+/// peeled.
+pub(crate) fn boxed_builtin_callback_slot(
+    ast: &Ast,
+    callee: ExprId,
+    args: &[ExprId],
+) -> Option<ExprId> {
+    if let Expr::Member { name, .. } = ast.get_expr(callee)
+        && name == "getOrInsertComputed"
+    {
+        let cb = args.get(1)?;
+        return Some(super::fnexpr_this_names::peel_as(&ast.exprs, *cb));
+    }
+    replace_callback_slot(ast, callee, args)
+}
+
+/// Whether a replace callback has to be entered through its boxed
+/// entry. The typed replace lanes (the inline walk and the kernel's
+/// typed transmute) hand the callback the spec argument count but
+/// only the slots its declaration names, which is all a body needs
+/// unless it reads `arguments`. An argv-face callee reads values past
+/// its declaration; a relay to a head-less or this-first target that
+/// reads `arguments` forwards its own static count, so the target
+/// would see the declared arity. The boxed entry carries the whole
+/// list on both.
+pub(crate) fn replace_callback_needs_boxed(ast: &Ast, cb: ExprId) -> bool {
+    let cb = super::fnexpr_this_names::peel_as(&ast.exprs, cb);
+    if lane_takes_argv_face(ast, cb) {
+        return true;
+    }
+    let name = match ast.get_expr(cb) {
+        Expr::Closure { fn_name, .. } => fn_name,
+        Expr::Ident(n) => n,
+        _ => return false,
+    };
+    name.strip_prefix("__forward_")
+        .or_else(|| name.strip_prefix("__fwdrecv_"))
+        .is_some_and(|t| {
+            ast.headless_argc_fns.contains(t) || ast.this_first_argc_fns.contains_key(t)
+        })
+}

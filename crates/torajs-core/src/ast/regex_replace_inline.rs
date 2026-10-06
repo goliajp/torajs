@@ -91,6 +91,11 @@ fn admitted_site(ast: &Ast, e: ExprId, console_rebound: bool) -> Option<(ExprId,
     let Expr::Closure { fn_name, .. } = ast.get_expr(args[1]) else {
         return None;
     };
+    // a callback reading `arguments` needs the whole list, which only
+    // its boxed entry carries
+    if super::argv_face_callback::replace_callback_needs_boxed(ast, args[1]) {
+        return None;
+    }
     if ast.regex_replace_view_fns.contains_key(fn_name) {
         return Some((*callee, fn_name.clone()));
     }
