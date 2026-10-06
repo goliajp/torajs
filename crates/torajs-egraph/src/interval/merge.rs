@@ -35,13 +35,13 @@ struct Join {
 }
 
 impl Merges {
-    /// `inherited` holds the constraints valid at each block's entry;
-    /// one a block's own def of a value it names ends is not valid at
-    /// the block's end.
+    /// `inherited` gives the constraints valid at a block's entry that
+    /// name a cell or a value a square bound reads; one a block's own
+    /// def of a value it names ends is not valid at the block's end.
     pub(super) fn collect(
         func: &Function,
         dom: &DominatorTree,
-        inherited: &[Vec<Constraint>],
+        mut inherited: impl FnMut(usize) -> Vec<Constraint>,
         block_defs: &[HashSet<ValueId>],
     ) -> Self {
         // every value some block defines: a cell, not a value fixed at its def
@@ -55,10 +55,9 @@ impl Merges {
                 .iter()
                 .map(|&p| {
                     let defs = &block_defs[p];
-                    inherited[p]
-                        .iter()
+                    inherited(p)
+                        .into_iter()
                         .filter(|c| !c.killed_by(|v| defs.contains(&v)))
-                        .copied()
                         .collect()
                 })
                 .collect();

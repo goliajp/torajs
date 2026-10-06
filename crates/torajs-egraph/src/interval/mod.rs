@@ -106,15 +106,8 @@ pub fn analyze_function_with(
 ) -> HashMap<ValueId, NumFact> {
     let (single, cells, block_defs) = def_shapes(func);
     let dom = DominatorTree::compute(func);
-    let mut constraints = Constraints::compute(func, &single);
-    let merges = {
-        let base = constraints.inherited_all(func, &dom, &block_defs);
-        merge::Merges::collect(func, &dom, &base, &block_defs)
-    };
-    for (b, c) in merges.placeholders() {
-        constraints.add(b, c);
-    }
-    let inherited = merges.inherited(constraints.inherited_all(func, &dom, &block_defs));
+    let constraints = Constraints::compute(func, &single);
+    let (merges, inherited) = refine::scope::inherited(func, &dom, constraints, &block_defs);
     let (horizon, thresholds) = horizon::Horizon::new(func, &single, &cells);
     // An allocation's elements are one more multi-def cell whose defs
     // happen to be stores; it rides the same ascent below.

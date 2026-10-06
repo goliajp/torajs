@@ -17,7 +17,7 @@
 //! again — and block-local evaluation kills a constraint at the cell's
 //! own def site (see `mod.rs`).
 
-use crate::id_hash::{HashMap, HashSet};
+use crate::id_hash::HashMap;
 
 use torajs_core::ssa::{BlockId, Function, InstKind, Operand, Terminator, ValueId};
 
@@ -25,12 +25,9 @@ use super::edge::edge_constraints;
 use super::refine_logic::Logic;
 use super::square::{SquareBound, square_edge};
 use super::transfer::{NEG_INF, NumFact, POS_INF};
-use crate::branch_fold::point_eval::successors;
 use torajs_core::ssa::dominator::DominatorTree;
 
-mod reach;
-
-use reach::{dom_subtree, mark_reached};
+pub(super) mod scope;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Constraint {
@@ -214,65 +211,6 @@ impl Constraints {
                 Some(p) if p != cur => cur = p,
                 _ => break,
             }
-        }
-        out
-    }
-
-    /// Every block's constraints valid at its entry, nearest edge
-    /// first. One set at `a`'s entry holds in a block `b` that `a`
-    /// dominates unless a value it names (`block_defs`: the cells each
-    /// block defines) is defined on some path from `a` to `b` that does
-    /// not pass `a` again (passing `a` sets it anew): in `a` itself, in
-    /// any block between, or in `b` when a cycle avoiding `a` leads
-    /// back to `b`. `b`'s defs on the way in sit after its entry:
-    /// block-local evaluation kills at the def, so a tail `i = i + 1`
-    /// still reads its loop bound at the increment.
-    pub fn inherited_all(
-        &self,
-        func: &Function,
-        dom: &DominatorTree,
-        block_defs: &[HashSet<ValueId>],
-    ) -> Vec<Vec<Constraint>> {
-        let n = self.at_entry.len();
-        // (block, constraint) in the order each block's list takes them;
-        // sized per block once all are known
-        let mut pairs: Vec<(u32, Constraint)> = Vec::new();
-        let mut dead = vec![false; n];
-        // nearest first: deeper blocks hand out their constraints first
-        for &a in dom.reverse_postorder().iter().rev() {
-            let cs = &self.at_entry[a.0 as usize];
-            if cs.is_empty() {
-                continue;
-            }
-            let region = dom_subtree(dom, a);
-            for c in cs {
-                let work: Vec<BlockId> = region
-                    .iter()
-                    .filter(|x| {
-                        block_defs[x.0 as usize]
-                            .iter()
-                            .any(|&v| c.killed_by(|w| w == v))
-                    })
-                    .flat_map(|x| successors(&func.blocks[x.0 as usize].term))
-                    .collect();
-                let touched = mark_reached(func, a, work, &mut dead);
-                for b in &region {
-                    if !dead[b.0 as usize] {
-                        pairs.push((b.0, *c));
-                    }
-                }
-                for si in touched {
-                    dead[si] = false;
-                }
-            }
-        }
-        let mut counts = vec![0usize; n];
-        for (b, _) in &pairs {
-            counts[*b as usize] += 1;
-        }
-        let mut out: Vec<Vec<Constraint>> = counts.into_iter().map(Vec::with_capacity).collect();
-        for (b, c) in pairs {
-            out[b as usize].push(c);
         }
         out
     }
