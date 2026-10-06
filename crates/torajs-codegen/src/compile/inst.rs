@@ -169,26 +169,8 @@ fn emit_saved(
         super::rc_dec::emit_rc_dec_any(bytes, relocs, v, alloc, &saves);
         return;
     }
-    // likewise a cell allocation or free served by the thread cache
-    if let Some(cells) = facts.inline.cells
-        && super::cell::try_emit(bytes, relocs, inst, alloc, &saves, cells)
-    {
-        return;
-    }
-    // and an append that lands in the accumulator's slack
-    if let Some(op) = facts.inline.str_append
-        && super::str_append::try_emit(bytes, relocs, inst, alloc, &saves, op)
-    {
-        return;
-    }
-    // and a push into spare capacity
-    if super::arr_push::try_emit(bytes, relocs, func, inst, alloc, &saves, facts) {
-        return;
-    }
-    // and a substring release that only takes a count off
-    if let Some(op) = facts.inline.substr_drop
-        && super::substr_drop::try_emit(bytes, relocs, inst, alloc, &saves, op)
-    {
+    // likewise an intrinsic whose common case opens inline
+    if super::inline_sites::try_emit_saved(bytes, relocs, func, inst, alloc, &saves, facts) {
         return;
     }
     for &(reg, off) in &saves {
