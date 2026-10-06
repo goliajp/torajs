@@ -11,10 +11,11 @@
 //!
 //! The shape is the IIFE knife's twin: every call site of the binding
 //! is statically known. Admit when ALL arena uses of the binding name
-//! are either direct Call callees agreeing on ONE argc (no spread) or
+//! are either direct Call callees agreeing on ONE argc (no spread),
 //! `.prototype` member reads (the factory's own §10.2.2-step-5 read
 //! plus the classic `F.prototype.m = …` pattern — reads the cell,
-//! never calls, so it cannot disturb the argc vote). Any other use is
+//! never calls, so it cannot disturb the argc vote) or `.length` /
+//! `.name` reads (the same: own data properties). Any other use is
 //! a value escape reaching call sites that know nothing about the
 //! injected extras — refuse, keep the loud reject.
 //!
@@ -67,26 +68,29 @@ pub(super) fn collect_ctor_bound_static_argv(ast: &Ast) -> HashMap<String, usize
         return HashMap::new();
     }
     // A fn-local binding reusing the name would blend foreign uses
-    // into the scan — same conservative guard as the named collector
-    // (the t262 harness's own `func` param is exactly this trap).
+    // into the scan. A same-named PARAM (the t262 harness's own
+    // `func` param is exactly this trap) is resolved per body; any
+    // other fn-local spelling still refuses by name.
     let mut fn_local_names: HashSet<String> = HashSet::new();
     for s in &ast.stmts {
-        if let Stmt::FnDecl { params, body, .. } = s {
-            for p in params {
-                fn_local_names.insert(p.name.clone());
-            }
+        if let Stmt::FnDecl { body, .. } = s {
             crate::ast_collect_bindings::collect_local_binding_names(body, &mut fn_local_names);
         }
     }
+    let meta_reads = super::arguments_object_walkers::fn_meta_read_receivers(ast);
     let mut out: HashMap<String, usize> = HashMap::new();
     for (binding, (fn_name, this_slots)) in bound {
         if fn_local_names.contains(&binding) {
             continue;
         }
+        let shadowed = super::arguments_object_walkers::param_shadowed_eids(ast, &binding);
         let eids: HashSet<u32> = (0..ast.exprs.len() as u32)
-            .filter(|&i| matches!(&ast.exprs[i as usize], Expr::Ident(n) if *n == binding))
+            .filter(|&i| {
+                matches!(&ast.exprs[i as usize], Expr::Ident(n) if *n == binding)
+                    && !shadowed[i as usize]
+            })
             .collect();
-        let mut legal: HashSet<u32> = HashSet::new();
+        let mut legal: HashSet<u32> = meta_reads.intersection(&eids).copied().collect();
         let mut argcs: HashSet<usize> = HashSet::new();
         let mut poisoned = false;
         for e in &ast.exprs {

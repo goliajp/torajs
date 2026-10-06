@@ -287,3 +287,83 @@ pub(super) fn count_user_params(_ast: &Ast, _eid: ExprId) -> usize {
 pub(crate) fn body_has_arguments_length(ast: &Ast, body: &[Stmt]) -> bool {
     body.iter().any(|s| stmt_scan(ast, s, ScanFor::Length))
 }
+
+/// Receiver eids of every `<ident>.length` / `<ident>.name` member
+/// access (a read, or the target of a write / delete). Both answer the fn object's own data properties (§10.2.10
+/// SetFunctionLength, §10.2.9 SetFunctionName) and never enter its
+/// body, so a binding read this way still has every call site in
+/// view: the reference walks that admit an arguments face treat these
+/// receivers as non-calling uses rather than as escapes.
+pub(super) fn fn_meta_read_receivers(ast: &Ast) -> std::collections::HashSet<u32> {
+    ast.exprs
+        .iter()
+        .filter_map(|e| match e {
+            Expr::Member { obj, name }
+                if (name == "length" || name == "name")
+                    && matches!(ast.get_expr(*obj), Expr::Ident(_)) =>
+            {
+                Some(obj.0)
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// Every arena slot where a by-name use of `name` reads a fn PARAM of
+/// that name rather than the top-level binding: the body of each fn
+/// declaring the param, plus — to a fixpoint — the body of every
+/// lifted closure minted inside such a region that captures `name`
+/// (its env slot holds the param). A closure minted OUTSIDE every
+/// such region captures the top-level binding, so its body's uses stay
+/// references to it. Body-`let` shadows are not resolved here; the
+/// callers keep refusing those by name.
+pub(super) fn param_shadowed_eids(ast: &Ast, name: &str) -> Vec<bool> {
+    let mut owned = vec![false; ast.exprs.len()];
+    let mut marked: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for s in &ast.stmts {
+        if let Stmt::FnDecl {
+            name: f,
+            params,
+            body,
+            ..
+        } = s
+            && params.iter().any(|p| p.name == name)
+        {
+            marked.insert(f.as_str());
+            super::desugar_eval::body_owned_exprs(ast, body, &mut owned);
+        }
+    }
+    if marked.is_empty() {
+        return owned;
+    }
+    loop {
+        let inner: Vec<&str> = ast
+            .exprs
+            .iter()
+            .enumerate()
+            .filter_map(|(i, e)| match e {
+                Expr::Closure { fn_name, captures }
+                    if owned[i]
+                        && !marked.contains(fn_name.as_str())
+                        && captures.iter().any(|c| c == name) =>
+                {
+                    Some(fn_name.as_str())
+                }
+                _ => None,
+            })
+            .collect();
+        if inner.is_empty() {
+            return owned;
+        }
+        for f in inner {
+            marked.insert(f);
+            for s in &ast.stmts {
+                if let Stmt::FnDecl { name: n, body, .. } = s
+                    && n == f
+                {
+                    super::desugar_eval::body_owned_exprs(ast, body, &mut owned);
+                }
+            }
+        }
+    }
+}

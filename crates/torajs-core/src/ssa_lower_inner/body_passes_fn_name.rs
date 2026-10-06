@@ -64,8 +64,9 @@ fn accessor_prop_of<'a>(ast: &'a Ast, name: &str) -> Option<&'a PropKey> {
 }
 
 /// ES-spec `Function.length` — leading params before the first default
-/// or rest (§10.2.10 SetFunctionLength), with the two synthetic slots
-/// dropped.
+/// or rest (§10.2.10 SetFunctionLength), with the synthetic slots
+/// dropped. The one copy of the rule: the fn-decl rows here and the
+/// lifted-closure rows of pass 2B both answer through it.
 ///
 /// `__env` is the closure environment every lowered fn value carries.
 /// `__this` is the hidden receiver `bind_this_param` inserts into a
@@ -76,7 +77,7 @@ fn accessor_prop_of<'a>(ast: &'a Ast, name: &str) -> Option<&'a PropKey> {
 /// one-parameter fn on every receiver-honouring position — the
 /// `__cm_` arm had always shed both, and this is now the one copy of
 /// that rule rather than two that could drift apart.
-fn es_arity(params: &[crate::ast::Param]) -> u32 {
+pub(crate) fn es_arity(params: &[crate::ast::Param]) -> u32 {
     params
         .iter()
         .filter(|p| {
@@ -85,6 +86,7 @@ fn es_arity(params: &[crate::ast::Param]) -> u32 {
                 // K4-1 — a unit class's static method takes the
                 // evaluation's class object the same hidden way.
                 && p.name != crate::ast::class_unit::UNIT_PARAM
+                && !crate::ssa_lower_member_fn_intro::is_arguments_face_param(&p.name)
         })
         .take_while(|p| p.default.is_none() && !p.is_rest)
         .count() as u32

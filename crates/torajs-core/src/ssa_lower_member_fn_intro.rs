@@ -77,24 +77,22 @@ fn try_generator_factory_prototype(ctx: &mut LowerCtx<'_>, fn_name_ref: &str) ->
 
 /// ES §10.2.5 ExpectedArgumentCount — `fn.length` counts params up
 /// to (not including) the first one carrying a default or the rest
-/// param, after dropping tr's synthetic prefix params. A default the
+/// param, after dropping tr's synthetic params. A default the
 /// materialize pass rewrote to the `undefined` literal still counts
-/// as a default (the param HAD an initializer in source).
+/// as a default (the param HAD an initializer in source). Same rule
+/// as the registry rows, so the compile-time fold and the runtime
+/// cell never disagree.
 pub(crate) fn expected_argument_count(params: &[crate::ast::Param]) -> usize {
-    params
-        .iter()
-        .filter(|p| {
-            p.name != "__env"
-                && p.name != "__this"
-                // S3.7 — the argv-face pointer slot never counts
-                // either. Unreachable-by-construction today (a
-                // compile-time `.length` read kills the argv-face
-                // binding chain, and the killed body goes loud), but
-                // the fold must not depend on that kill staying true.
-                && p.name != "__torajs_argv"
-        })
-        .take_while(|p| p.default.is_none() && !p.is_rest)
-        .count()
+    crate::ssa_lower_inner::es_arity(params) as usize
+}
+
+/// The slots an arguments face adds to a declaration — the argv-face
+/// pointer and the static face's over-arity `__torajs_iife_extra_*`
+/// params. Neither is a formal parameter, so neither counts toward
+/// §10.2.10 SetFunctionLength; a `.length` / `.name` read no longer
+/// keeps a fn off those faces, so both reach a length fold.
+pub(crate) fn is_arguments_face_param(name: &str) -> bool {
+    name == "__torajs_argv" || name.starts_with("__torajs_iife_extra_")
 }
 
 fn try_top_level_fn_decl(ctx: &mut LowerCtx<'_>, fn_name_ref: &str, name: &str) -> Option<Operand> {

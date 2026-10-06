@@ -116,22 +116,22 @@ pub(super) fn collect_named_static_argv(
     if cand.is_empty() {
         return HashMap::new();
     }
+    // A same-named PARAM of another fn is resolved per body by the
+    // reference walk; any other fn-local spelling still refuses.
     let mut fn_local_names: HashSet<String> = HashSet::new();
     for s in &ast.stmts {
-        if let Stmt::FnDecl { params, body, .. } = s {
-            for p in params {
-                fn_local_names.insert(p.name.clone());
-            }
+        if let Stmt::FnDecl { body, .. } = s {
             crate::ast_collect_bindings::collect_local_binding_names(body, &mut fn_local_names);
         }
     }
     let fwd_sites = forwarder_call_callee_eids(ast);
+    let meta_reads = super::arguments_object_walkers::fn_meta_read_receivers(ast);
     let mut out: HashMap<String, usize> = HashMap::new();
     for (name, this_slots) in cand {
         if fn_local_names.contains(&name) {
             continue;
         }
-        if let Some(n) = uniform_direct_call_argc(ast, &name, this_slots, &fwd_sites) {
+        if let Some(n) = uniform_direct_call_argc(ast, &name, this_slots, &fwd_sites, &meta_reads) {
             out.insert(name, n);
         }
     }
@@ -139,7 +139,9 @@ pub(super) fn collect_named_static_argv(
 }
 
 /// Shared reference analysis (knife 3a + method face): every arena
-/// `Ident(name)` must be a direct Call callee, and all sites must
+/// `Ident(name)` resolving to the fn (a same-named param's uses do
+/// not) must be a direct Call callee (or the receiver of a
+/// `.length` / `.name` metadata read), and all sites must
 /// pass ONE uniform user arg count. `this_slots` leading args are
 /// excluded from the count — 1 for `__cm_` methods (the pass-2
 /// rewrite carries the receiver at arg[0]), 0 for plain named fns.
@@ -160,16 +162,20 @@ fn uniform_direct_call_argc(
     name: &str,
     this_slots: usize,
     fwd_sites: &std::collections::HashSet<u32>,
+    meta_reads: &std::collections::HashSet<u32>,
 ) -> Option<usize> {
     use std::collections::HashSet;
+    let shadowed = super::arguments_object_walkers::param_shadowed_eids(ast, name);
     let eids: HashSet<u32> = (0..ast.exprs.len() as u32)
-        .filter(|&i| matches!(&ast.exprs[i as usize], Expr::Ident(n) if n == name))
+        .filter(|&i| {
+            matches!(&ast.exprs[i as usize], Expr::Ident(n) if n == name) && !shadowed[i as usize]
+        })
         .collect();
     if eids.is_empty() {
         return None;
     }
     let mut argcs: HashSet<usize> = HashSet::new();
-    let mut legal: HashSet<u32> = HashSet::new();
+    let mut legal: HashSet<u32> = meta_reads.intersection(&eids).copied().collect();
     for e in &ast.exprs {
         if let Expr::Call { callee, args } = e
             && eids.contains(&callee.0)
@@ -239,6 +245,7 @@ pub(super) fn forwarder_call_callee_eids(ast: &Ast) -> std::collections::HashSet
 pub(super) fn collect_method_static_argv(ast: &Ast) -> std::collections::HashMap<String, usize> {
     use std::collections::HashMap;
     let fwd_sites = forwarder_call_callee_eids(ast);
+    let meta_reads = super::arguments_object_walkers::fn_meta_read_receivers(ast);
     let mut out: HashMap<String, usize> = HashMap::new();
     for s in &ast.stmts {
         let Stmt::FnDecl {
@@ -293,8 +300,8 @@ pub(super) fn collect_method_static_argv(ast: &Ast) -> std::collections::HashMap
             .and_then(|r| r.strip_suffix("__ctor"))
             .filter(|_| recv_slots == 2)
         {
-            Some(cname) => ctor_uniform_argc(ast, name, cname, &fwd_sites),
-            None => uniform_direct_call_argc(ast, name, recv_slots, &fwd_sites),
+            Some(cname) => ctor_uniform_argc(ast, name, cname, &fwd_sites, &meta_reads),
+            None => uniform_direct_call_argc(ast, name, recv_slots, &fwd_sites, &meta_reads),
         };
         if let Some(n) = argc {
             out.insert(name.clone(), n);
@@ -326,6 +333,7 @@ fn ctor_uniform_argc(
     ctor: &str,
     cname: &str,
     fwd_sites: &std::collections::HashSet<u32>,
+    meta_reads: &std::collections::HashSet<u32>,
 ) -> Option<usize> {
     let factory = format!("__new_{cname}");
     let mut inner = vec![false; ast.exprs.len()];
@@ -342,7 +350,9 @@ fn ctor_uniform_argc(
         .iter()
         .any(|e| matches!(e, Expr::Ident(n) if *n == factory));
     if factory_used {
-        argcs.insert(uniform_direct_call_argc(ast, &factory, 0, fwd_sites)?);
+        argcs.insert(uniform_direct_call_argc(
+            ast, &factory, 0, fwd_sites, meta_reads,
+        )?);
     }
     for (i, e) in ast.exprs.iter().enumerate() {
         let Expr::Call { callee, args } = e else {

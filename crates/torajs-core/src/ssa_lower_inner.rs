@@ -41,7 +41,7 @@ mod setup;
 
 use crate::ast::{GenericStructDecls, PropKey};
 pub(crate) use body_passes_fn_name::{
-    intern_fn_source, register_fn_name, strip_static_method_name,
+    es_arity, intern_fn_source, register_fn_name, strip_static_method_name,
 };
 use callable_infra::{CallableInfra, setup_callable_infra};
 use setup::{build_anon_stamp_pool_with_snapshot, build_intrinsics_and_boxed_entries};

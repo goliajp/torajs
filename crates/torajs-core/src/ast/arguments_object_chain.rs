@@ -371,6 +371,8 @@ pub(super) fn safe_binding_chain(ast: &Ast, seed: impl Fn(&str) -> bool) -> Vec<
 ///   kernel's bound cell dispatches through the boxed dual entry. A
 ///   `.bind` member read outside a call (a stored `b.bind` value)
 ///   still kills;
+/// * `b.length` / `b.name` — the fn object's own metadata, never a
+///   call of the body;
 /// * species key 2 — `b.prototype` as a member-read receiver, ONLY
 ///   for a binding that also has an escape-store use: the read
 ///   touches the closure cell's fnprops canonical pair (RFC
@@ -416,6 +418,7 @@ pub(super) fn collect_legal_uses(
     for &t in assign_legal.intersection(b_eids) {
         legal.insert(t);
     }
+    legal.extend(super::arguments_object_walkers::fn_meta_read_receivers(ast).intersection(b_eids));
     let mut escape_stored = false;
     for e in &ast.exprs {
         if let Expr::Assign { target, value } = e
