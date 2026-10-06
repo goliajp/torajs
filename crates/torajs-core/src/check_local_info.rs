@@ -56,4 +56,18 @@ pub(crate) struct LocalInfo {
     /// binding to make them anything else. Every other member reads
     /// as on any `string[] | null`.
     pub(crate) exec_result: bool,
+    /// This binding is a fn-typed slot the face census recorded
+    /// (`Ast::fnsig_mismatch_bindings` / `Ast::argv_boxed_params`),
+    /// so its calls ride the boxed entry
+    /// (`check_type_of_call::fn_slot_ret`).
+    pub(crate) fn_slot: Option<FnSlot>,
+}
+
+/// Which declaration a census slot binding is.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum FnSlot {
+    /// a `let` / `const` / `var`, by its initializer
+    Let(crate::ast::ExprId),
+    /// a parameter of the function being checked
+    Param,
 }

@@ -140,6 +140,7 @@ fn declare_provisional(checker: &mut Checker, name: &str, ty: Type, verdict: Sel
         declared_class: None,
         builtin_mv: false,
         exec_result: false,
+        fn_slot: None,
     };
     match checker.declare(name.to_string(), info) {
         Ok(_) => verdict,

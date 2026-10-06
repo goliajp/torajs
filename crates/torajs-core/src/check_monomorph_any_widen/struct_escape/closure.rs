@@ -136,6 +136,7 @@ fn captured(ty: Type) -> LocalInfo {
         declared_class: None,
         builtin_mv: false,
         exec_result: false,
+        fn_slot: None,
     }
 }
 

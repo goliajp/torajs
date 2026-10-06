@@ -40,6 +40,7 @@ pub(crate) fn seed_captures(checker: &mut Checker, ast: &Ast, fn_name: &str) {
                 declared_class: None,
                 builtin_mv: false,
                 exec_result: false,
+                fn_slot: None,
             },
         ) {
             checker.errors.push_err(e);

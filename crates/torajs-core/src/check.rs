@@ -103,7 +103,7 @@ pub(crate) use crate::check_fn_type::{build_fn_type, build_fn_type_full, resolve
 // lives in [`crate::check_local_info`] (chunk-573 of the check.rs
 // god-file decomp). Re-exported here so callers keep the canonical
 // `crate::check::LocalInfo` import path.
-pub(crate) use crate::check_local_info::LocalInfo;
+pub(crate) use crate::check_local_info::{FnSlot, LocalInfo};
 
 /// M3 — substitution recorded at each generic call site. Keyed by the
 /// `Expr::Call`'s `ExprId`. Value: (callee fn name, ordered concrete
@@ -235,6 +235,8 @@ pub(crate) struct Checker {
     /// stmts, free fns, etc.) — those treat every member as if it
     /// were public.
     pub(crate) current_class: Option<String>,
+    /// The FnDecl whose body is being checked; `None` at top level.
+    pub(crate) current_fn: Option<String>,
     /// M2 — captures for each lifted closure FnDecl. Populated by the
     /// `Expr::Closure` arm of `type_of` (which resolves capture types in
     /// the OUTER scope at the construction site) and consumed by the
@@ -305,6 +307,10 @@ pub(crate) struct Checker {
     /// return instead, so a program TS rejects on that type is
     /// rejected here too (`check_entry::check_to_fixpoint`).
     pub widen_ret_declared: bool,
+    /// The calls through a census fn slot typed `any`, and the verdict
+    /// per slot (`check_type_of_call::fn_slot_ret`).
+    pub(crate) fn_slot_ret_any: std::collections::HashSet<ExprId>,
+    pub(crate) fn_slot_kept: HashMap<String, bool>,
     /// L3b ③ — generic-fn VALUE escapes (`const g = f` where `f`'s
     /// sig still carries un-inferred TypeVars): key is the init
     /// Ident's ExprId, value the fn name. The binding's face is

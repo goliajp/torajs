@@ -43,7 +43,7 @@ pub(crate) fn lower(
     // arguments from evaluating when the chain short-circuits, and
     // re-entering here instead would never terminate.
     if let Some(op) = crate::ssa_lower_call_optchain::try_lower(ctx, eid, callee, args) {
-        return op;
+        return crate::ssa_lower_call_closure_local::settle_slot_ret(ctx, eid, op);
     }
     // RFC 20260920-struct-user-proto K4 — same outside-the-cascade
     // shape: its static branch re-enters `dispatch` for this call.
@@ -55,7 +55,8 @@ pub(crate) fn lower(
     // list. Armed here, ahead of the cascade, because every typed
     // arm below reads the receiver as a live value of its own type.
     crate::ssa_lower_call_undef_recv::arm(ctx, callee, args);
-    dispatch(ctx, eid, callee, args)
+    let op = dispatch(ctx, eid, callee, args);
+    crate::ssa_lower_call_closure_local::settle_slot_ret(ctx, eid, op)
 }
 
 /// The dispatcher cascade proper — every lane from the undeclared-read

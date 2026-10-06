@@ -221,6 +221,9 @@ pub(crate) fn check(
             declared_class,
             builtin_mv,
             exec_result,
+            fn_slot: (ast.fnsig_mismatch_bindings.contains(name)
+                && type_ann.as_deref().is_some_and(crate::ast::is_fn_like_ann))
+            .then_some(crate::check::FnSlot::Let(init)),
         },
     ) {
         checker.errors.push_err(e);

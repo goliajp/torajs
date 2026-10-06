@@ -80,7 +80,7 @@ pub(super) fn try_lower(
         || global_variadic_value_binding(ctx, &name)
         || global_fnsig_mismatch_binding(ctx, &name);
     Some(if variadic {
-        let (_, ret_ty) = ctx.fn_sigs[user_sig_id.0 as usize].clone();
+        let ret_ty = super::slot_ret::ret_face(ctx, eid, user_sig_id);
         boxed_entry_call(ctx, Operand::Value(env_ptr), target, &mono, args, ret_ty)
     } else {
         native_call(ctx, eid, Operand::Value(env_ptr), target, args)

@@ -32,10 +32,12 @@ use crate::ssa_lower::{CLOSURE_FN_ADDR_OFF, LowerCtx, intern_fn_sig};
 
 mod bindings;
 mod retarget;
+mod slot_ret;
 use bindings::{
     global_argv_face_binding, global_fnsig_mismatch_binding, global_variadic_value_binding,
     recv_gate_reachable,
 };
+pub(crate) use slot_ret::settle as settle_slot_ret;
 
 pub(crate) fn try_lower(
     ctx: &mut LowerCtx<'_>,
@@ -83,7 +85,8 @@ pub(crate) fn try_lower_with_this(
         if this_arg.is_some() {
             return None;
         }
-        return Some(lower_variadic_call(ctx, &info, user_sig_id, args));
+        let ret_ty = slot_ret::ret_face(ctx, eid, user_sig_id);
+        return Some(lower_variadic_call(ctx, &info, ret_ty, args));
     }
 
     let env_ptr = ctx.f.append_inst(
@@ -320,7 +323,7 @@ pub(crate) fn resolve_closure_binding(
 fn lower_variadic_call(
     ctx: &mut LowerCtx<'_>,
     info: &crate::ssa_lower::LocalInfo,
-    user_sig_id: crate::ssa::SigId,
+    ret_ty: Type,
     args: &[ExprId],
 ) -> Operand {
     let env_ptr = ctx.f.append_inst(
@@ -329,7 +332,9 @@ fn lower_variadic_call(
         info.ty,
         None,
     );
-    emit_variadic_boxed_call(ctx, Operand::Value(env_ptr), user_sig_id, args)
+    let packed = crate::ssa_lower_any_method_call::pack_any_argv(ctx, args);
+    let argc = args.len() as i64;
+    emit_variadic_call_ret(ctx, Operand::Value(env_ptr), None, packed, argc, ret_ty)
 }
 
 /// Shared boxed-dual-entry emit for a variadic-annotated callable
@@ -363,6 +368,20 @@ pub(crate) fn emit_variadic_call_conv(
     argc: i64,
     user_sig_id: crate::ssa::SigId,
 ) -> Operand {
+    let (_, ret_ty) = ctx.fn_sigs[user_sig_id.0 as usize];
+    emit_variadic_call_ret(ctx, env_ptr, this_arg, packed, argc, ret_ty)
+}
+
+/// [`emit_variadic_call_conv`] with the return type to convert to
+/// given by the caller.
+fn emit_variadic_call_ret(
+    ctx: &mut LowerCtx<'_>,
+    env_ptr: Operand,
+    this_arg: Option<Operand>,
+    packed: crate::ssa_lower_any_argv::AnyArgv,
+    argc: i64,
+    ret_ty: Type,
+) -> Operand {
     let call = match this_arg {
         Some(this) => InstKind::Call(
             ctx.intrinsics.closure_call_with_this,
@@ -385,7 +404,6 @@ pub(crate) fn emit_variadic_call_conv(
     let result = ctx.f.append_inst(ctx.cur_block, call, Type::Any, None);
     packed.release(ctx);
     ctx.emit_throw_check(None);
-    let (_, ret_ty) = ctx.fn_sigs[user_sig_id.0 as usize];
     coerce_any_result(ctx, result, ret_ty)
 }
 

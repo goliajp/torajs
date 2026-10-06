@@ -451,6 +451,10 @@ pub struct Ast {
     /// instead (argc + undefined-filled argv + per-face adapter
     /// unbox, the same lane a rest-typed binding rides).
     pub fnsig_mismatch_bindings: std::collections::HashSet<String>,
+    /// The calls through such a binding (or an `argv_boxed_params`
+    /// parameter) the checker typed `any`: their boxed answer is
+    /// returned unconverted. Filled after checking.
+    pub fn_slot_ret_any: std::collections::HashSet<ExprId>,
     /// Phase H.3.b — method name → declaring classes in source order
     /// (deepest sub last). Used by ssa_lower's `__dispatch_<M>` Call
     /// interception to emit the runtime tag-switch and call the right

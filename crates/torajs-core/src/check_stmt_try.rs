@@ -66,6 +66,7 @@ pub(crate) fn check(
                 declared_class: None,
                 builtin_mv: false,
                 exec_result: false,
+                fn_slot: None,
             },
         );
     }

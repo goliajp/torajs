@@ -23,6 +23,7 @@ mod any_widen;
 mod any_widen_ret;
 mod arity_wedges;
 mod callback_slot_throw;
+mod fn_slot_ret;
 mod general;
 mod route_arity_widen;
 mod route_collections;

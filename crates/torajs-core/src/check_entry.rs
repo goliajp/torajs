@@ -181,7 +181,8 @@ pub fn check_with_arity_warn(ast: &Ast) -> Result<(CheckArtifacts, Vec<String>),
     // 干净的编译在调用方看来一模一样 —— 探针要分得清这两者。
     warnings.extend(admitted.into_iter().map(|m| format!("[s0-admit] {m}")));
     let before_mono = c.errors.len();
-    let mono = crate::check_monomorph::monomorphize_and_check(&mut c, ast);
+    let mut mono = crate::check_monomorph::monomorphize_and_check(&mut c, ast);
+    mono.mono_ast.fn_slot_ret_any = std::mem::take(&mut c.fn_slot_ret_any);
     // A specialization body's diagnostics are discarded inside the
     // pass — except when the body left a HOLE (a generic call with no
     // retarget). Those are not diagnostics about a program that
