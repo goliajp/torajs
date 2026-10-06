@@ -33,6 +33,7 @@ mod route_fn_value;
 mod route_globals;
 mod route_namespace_trailing;
 mod route_str_arr_trailing;
+mod source_array_param;
 
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type};

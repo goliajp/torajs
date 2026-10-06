@@ -154,6 +154,8 @@ pub(crate) fn general_call(
         let arg_ty = checker.type_of(ast, *arg_id)?;
         let arg_ty =
             crate::check_assignable::in_declared_order(checker, ast, param_ty, *arg_id, arg_ty);
+        let arg_ty = super::source_array_param::face_view(checker, ast, *callee, param_ty, &arg_ty)
+            .unwrap_or(arg_ty);
         if !arg_admitted(
             checker,
             ast,

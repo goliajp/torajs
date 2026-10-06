@@ -152,13 +152,24 @@ pub(super) fn emit_do_call(
         Type::Closure(s) | Type::FnSig(s) => ctx.fn_sigs[s.0 as usize].0.clone(),
         _ => Vec::new(),
     };
-    // an `any` element meeting a struct parameter has no typed repr to
-    // pass: the closure's boxed entry decides per value (a fitting cell
-    // passes through, any other value takes the generic lane)
+    // an `any` element meeting a struct parameter, or an `any[]` source
+    // meeting an element-typed one, has no typed repr to pass: the
+    // closure's boxed entry decides per value (a fitting cell passes
+    // through, any other value takes the generic lane)
     let any_into_struct = args.iter().enumerate().any(|(i, a)| {
+        let (Some(p), actual) = (params.get(i.wrapping_sub(sig_skip)), ctx.operand_ty(a)) else {
+            return false;
+        };
         i >= sig_skip
-            && ctx.operand_ty(a) == Type::Any
-            && matches!(params.get(i - sig_skip), Some(Type::Obj(_)))
+            && match (actual, *p) {
+                (Type::Any, Type::Obj(_)) => true,
+                // an `any[]` source handed to an element-typed array param
+                (Type::Arr(a), Type::Arr(p)) => {
+                    ctx.arr_layouts[a.0 as usize] == Type::Any
+                        && ctx.arr_layouts[p.0 as usize] != Type::Any
+                }
+                _ => false,
+            }
     });
     if any_into_struct && matches!(fn_ty, Type::Closure(_)) {
         let argc = (args.len() - sig_skip) as i64;
