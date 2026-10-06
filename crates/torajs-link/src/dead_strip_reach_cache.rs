@@ -1,9 +1,9 @@
 //! What the dead-strip passes parse out of a runtime member's bytes,
 //! kept for one link. The elide fix-point, the strip pass, the
 //! forced-table derivation and the layout each walk the member closure
-//! again; the atom tables, nlist, defined-name map, sorted reloc tables
-//! and undef names depend only on the member bytes, so each is parsed
-//! once per distinct byte slice. Liveness is never cached: every
+//! again; the atom tables, nlist, defined-name map, sorted reloc tables,
+//! decoded out-edges and undef names depend only on the member bytes, so
+//! each is parsed once per distinct byte slice. Liveness is never cached: every
 //! reachability pass starts from a fresh all-dead copy.
 
 use std::collections::HashMap;
@@ -14,7 +14,7 @@ use crate::archive::{ArMember, MemberSymtabError};
 use crate::archives_merge::member_undef_extern_names;
 use crate::dead_strip_reach::MemberReach;
 use crate::dead_strip_reach_build::build_member_reach;
-use crate::dead_strip_reach_relocs::RelocIndex;
+use crate::dead_strip_reach_edges::EdgeIndex;
 
 /// Member bytes compared by address and length. The runtime image
 /// hands every copy of a deduplicated member the same slice, and a
@@ -43,7 +43,7 @@ impl Hash for BytesKey<'_> {
 pub(crate) struct ReachCache<'a> {
     reach: HashMap<BytesKey<'a>, MemberReach<'a>>,
     undefs: HashMap<BytesKey<'a>, Rc<[&'a str]>>,
-    pub(crate) relocs: RelocIndex<'a>,
+    pub(crate) edges: EdgeIndex<'a>,
 }
 
 impl<'a> ReachCache<'a> {

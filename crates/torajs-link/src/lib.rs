@@ -75,6 +75,7 @@ mod dead_strip_elide_patch;
 mod dead_strip_reach;
 mod dead_strip_reach_build;
 mod dead_strip_reach_cache;
+mod dead_strip_reach_edges;
 mod dead_strip_reach_relocs;
 mod dead_strip_reach_resolve;
 mod dead_strip_repack;

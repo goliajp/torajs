@@ -28,13 +28,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
 use torajs_obj::{
-    N_NO_DEAD_STRIP, N_SECT, N_TYPE, N_UNDF, S_ATTR_LIVE_SUPPORT, S_ATTR_NO_DEAD_STRIP,
+    N_NO_DEAD_STRIP, N_SECT, N_TYPE, S_ATTR_LIVE_SUPPORT, S_ATTR_NO_DEAD_STRIP,
     S_MOD_INIT_FUNC_POINTERS, S_TERM_FUNC_POINTERS, S_THREAD_LOCAL_VARIABLES, SECTION_TYPE,
 };
 
 use crate::archives_merge::{MergedArchives, RequiredMembers, reloc_target_name};
 pub(crate) use crate::dead_strip_reach_build::trim16;
 use crate::dead_strip_reach_cache::ReachCache;
+use crate::dead_strip_reach_edges::{Edge, EdgeIndex, Seen, UndefMemo};
 use crate::exec::LinkConfig;
 use crate::phase_timer::PhaseTimer;
 
@@ -240,7 +241,8 @@ pub(crate) fn compute_reachability<'a>(
 
     // Fixpoint.
     let mut user_refs: BTreeSet<String> = BTreeSet::new();
-    let mut visited: BTreeSet<Node> = BTreeSet::new();
+    let mut visited = Seen::new(&reach);
+    let mut undefs = UndefMemo::default();
     while let Some(node) = worklist.pop() {
         if !visited.insert(node) {
             continue;
@@ -274,7 +276,8 @@ pub(crate) fn compute_reachability<'a>(
             &mut unresolved,
             &mut user_refs,
             record_preds.then_some(&mut preds),
-            &mut cache.relocs,
+            &mut cache.edges,
+            &mut undefs,
         )?;
     }
 
@@ -329,14 +332,15 @@ fn expand_node<'a>(
     unresolved: &mut BTreeSet<String>,
     user_refs: &mut BTreeSet<String>,
     mut preds: Option<&mut BTreeMap<Node, Pred>>,
-    relocs: &mut crate::dead_strip_reach_relocs::RelocIndex<'a>,
+    edges: &mut EdgeIndex<'a>,
+    undefs: &mut UndefMemo,
 ) -> Result<(), String> {
-    let (key, sect_ord, range) = match node {
+    let (key, sect_ord, atom) = match node {
         Node::Atom { key, sect, atom } => {
             let r = reach.get_mut(&key).ok_or("member vanished")?;
             let sa = r.sects.get_mut(sect as usize - 1).ok_or("bad sect")?;
             sa.live[atom] = true;
-            (key, sect, Some(sa.atoms[atom]))
+            (key, sect, Some(atom as u32))
         }
         Node::AllSect { key, sect } => {
             if sect == 0 {
@@ -355,50 +359,39 @@ fn expand_node<'a>(
     };
 
     let member = &merged.per_archive_members[key.0][key.1];
-    let (no_file, sect_addr, sect_size) = {
-        let r = reach.get(&key).ok_or("member vanished")?;
-        let sa = r.sects.get(sect_ord as usize - 1).ok_or("bad sect")?;
-        (sa.no_file_storage, sa.addr, sa.size)
-    };
-    if no_file {
+    let r = reach.get(&key).ok_or("member vanished")?;
+    if r.sects
+        .get(sect_ord as usize - 1)
+        .ok_or("bad sect")?
+        .no_file_storage
+    {
         return Ok(()); // zerofill: no payload, no relocs
     }
-    // r_address is section-relative; atom ranges are object-file
-    // addresses.
-    let (lo, hi) = match range {
-        Some((s, e)) => (s - sect_addr, e - sect_addr),
-        None => (0, sect_size),
-    };
-    for e in relocs.in_range(member, sect_ord, lo, hi)? {
-        let r = reach.get(&key).ok_or("member vanished")?;
-        if e.r_extern == 1
-            && let Some(en) = r.nlist.get(e.r_symbolnum as usize)
-            && en.n_type & N_TYPE == N_UNDF
-            && defined_in_user.contains(en.name)
-        {
-            user_refs.insert(en.name.to_string());
-        }
-        if let Some(next) = resolve_reloc_target(
-            key,
-            sect_ord,
-            e,
-            member,
-            merged,
-            r,
-            reach,
-            defined_in_user,
-            required,
-            unresolved,
-        ) {
-            if let Some(p) = preds.as_deref_mut() {
-                p.entry(next).or_insert(Pred::Node(node));
+    for &edge in edges.out_edges(member, r, sect_ord, atom)?.iter() {
+        let next = match edge {
+            Edge::Local { sect, atom } => local_node(key, sect, atom),
+            Edge::Undef(id) => {
+                let name = edges.name(id);
+                let target = undefs.get_or(id, || {
+                    if defined_in_user.contains(name) {
+                        user_refs.insert(name.to_string());
+                    }
+                    resolve_undef(name, merged, reach, defined_in_user, required, unresolved)
+                });
+                let Some(next) = target else {
+                    continue;
+                };
+                next
             }
-            worklist.push(next);
+        };
+        if let Some(p) = preds.as_deref_mut() {
+            p.entry(next).or_insert(Pred::Node(node));
         }
+        worklist.push(next);
     }
     Ok(())
 }
 
 pub(crate) use crate::dead_strip_reach_resolve::{
-    node_for_addr, node_for_global_name, resolve_reloc_target,
+    local_node, node_for_addr, node_for_global_name, resolve_reloc_target, resolve_undef,
 };
