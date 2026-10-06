@@ -117,6 +117,8 @@ pub(crate) fn check(
                 checker.errors.push_err(format!("unknown type `{ann}`"));
                 return;
             };
+            let init_ty =
+                crate::check_assignable::in_declared_order(checker, ast, &ann_ty, init, init_ty);
             // 423-03 ④ — a fn-typed LET takes the same S2 call-face
             // admit a fn-typed call ARG takes (`const slot: () =>
             // void = gb` where gb declares a defaulted param): the

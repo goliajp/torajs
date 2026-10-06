@@ -37,7 +37,10 @@ pub(super) fn lower_obj_gated(
     // a layout that reaches itself has no finite compile-time unfold;
     // the any-lane walk recurses on the live value and owns the
     // §25.5.2 cycle TypeError
-    let walk_at_runtime = is_error || layout_reaches_itself(ctx, sid);
+    // so does a layout whose cells can enumerate in a creation order
+    // other than the layout's
+    let walk_at_runtime =
+        is_error || layout_reaches_itself(ctx, sid) || ctx.obj_order_varies(&Type::Obj(sid));
     super::composite::with_null_gate(ctx, &gated, "__json_obj_exotic", move |ctx| {
         lower_obj_nonnull(ctx, val_op, sid, fe_fields, gap, depth, walk_at_runtime)
     })

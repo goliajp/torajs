@@ -41,6 +41,12 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, maybe_expr: Option<ExprId>
             }
         },
     };
+    let actual = match maybe_expr {
+        Some(eid) => {
+            crate::check_assignable::in_declared_order(checker, ast, &expected, eid, actual)
+        }
+        None => actual,
+    };
     let nullable_ok = if let Type::Nullable(inner) = &expected {
         actual == Type::Null || actual == **inner
     } else {

@@ -152,6 +152,8 @@ pub(crate) fn general_call(
     let is_class_method = crate::check_type_of_call_dispatch_flags::derive(ast, callee);
     for (i, (param_ty, arg_id)) in params.iter().zip(args.iter()).enumerate() {
         let arg_ty = checker.type_of(ast, *arg_id)?;
+        let arg_ty =
+            crate::check_assignable::in_declared_order(checker, ast, param_ty, *arg_id, arg_ty);
         if !arg_admitted(
             checker,
             ast,

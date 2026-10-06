@@ -205,6 +205,8 @@ pub(crate) fn check_member(
         return Ok(field_ty);
     }
     let value_ty = checker.type_of(ast, value)?;
+    let value_ty =
+        crate::check_assignable::in_declared_order(checker, ast, &field_ty, value, value_ty);
     // RFC 20260714-dstr-residual blade 3, field-store face (rotation
     // 455) — a generator lift turns a destructure group temp's
     // `LetDecl` into `this.<temp> = init` before check runs, so the

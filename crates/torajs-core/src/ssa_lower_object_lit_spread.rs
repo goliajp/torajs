@@ -18,14 +18,15 @@ use crate::ssa_lower::{LowerCtx, OBJ_HEADER_SIZE};
 
 /// `omit` — the destructuring-rest desugar's excluded keys
 /// (chunk 707, decoded from the `__spread_omit__:` sentinel);
-/// omitted fields are neither loaded nor rc-inc'd.
+/// omitted fields are neither loaded nor rc-inc'd. Answers the
+/// source cell and its layout.
 pub(crate) fn unfold_spread(
     ctx: &mut LowerCtx<'_>,
     eid: ExprId,
     omit: &[PropKey],
     field_tys: &mut Vec<(PropKey, Type)>,
     field_vals: &mut Vec<Operand>,
-) {
+) -> (Operand, crate::ssa::StructId) {
     let src_op = ctx.lower_expr(eid);
     let src_ty = ctx.operand_ty(&src_op);
     let Type::Obj(sid) = src_ty else {
@@ -91,4 +92,5 @@ pub(crate) fn unfold_spread(
             field_vals.push(val);
         }
     }
+    (src_op, sid)
 }

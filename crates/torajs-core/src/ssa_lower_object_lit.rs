@@ -101,7 +101,8 @@ pub(crate) fn lower(
         })
         .map(|(n, _)| n.clone())
         .collect();
-    let (mut field_tys, mut field_vals, parked) = lower_field_entries(ctx, &fields, declared_hint);
+    let (mut field_tys, mut field_vals, parked, spreads) =
+        lower_field_entries(ctx, &fields, declared_hint);
     // Every field is lowered; nothing below can throw before the
     // stores transfer the owned values into the object.
     for t in parked {
@@ -133,6 +134,7 @@ pub(crate) fn lower(
             }
         }
     }
+    let order = order::to_declared_order(ctx, eid, declared_hint, &mut field_tys, &mut field_vals);
     let sid = crate::ssa_lower_objlit_layout::resolve_objlit_layout(
         ctx.struct_layouts,
         ctx.f,
@@ -152,7 +154,10 @@ pub(crate) fn lower(
     let owner = ctx.ast.field_default_objlits.get(&eid).cloned();
     let owner = owner.as_deref();
     init_header(ctx, obj_ptr, sid, owner);
-    write_class_tag(ctx, obj_ptr, sid, owner);
+    write_class_tag(ctx, obj_ptr, sid, owner, order.as_deref());
+    if owner.is_none() && !ctx.f.name.starts_with("__new_") {
+        order::retag_for_spread_sources(ctx, obj_ptr, sid, &fields, &spreads);
+    }
     write_vtable_ptr(ctx, obj_ptr, owner);
     let layout = ctx.struct_layouts[sid.0 as usize].clone();
     for (i, (fname, slot_ty)) in layout.iter().enumerate() {
@@ -232,7 +237,12 @@ fn lower_field_entries(
     ctx: &mut LowerCtx<'_>,
     entries: &[(PropKey, ExprId)],
     declared_hint: Option<StructId>,
-) -> (Vec<(PropKey, Type)>, Vec<Operand>, Vec<usize>) {
+) -> (
+    Vec<(PropKey, Type)>,
+    Vec<Operand>,
+    Vec<usize>,
+    Vec<order::SpreadSrc>,
+) {
     // Chunk 785 — the outer declared layout also pins NESTED object
     // literals: a field whose declared type is a struct passes its
     // StructId down through the same take-once hint channel, so
@@ -250,7 +260,8 @@ fn lower_field_entries(
     // a throw there drops it (`{ a: mk(i), b: boom() }` on the struct
     // lane stranded the value per caught throw, 40MB over 600k).
     let mut parked: Vec<usize> = Vec::new();
-    for (n, eid) in entries {
+    let mut spreads: Vec<order::SpreadSrc> = Vec::new();
+    for (entry, (n, eid)) in entries.iter().enumerate() {
         // RFC 20260725-objlit-computed-key 刀 1 — a computed key has
         // no static field name, so the struct lane cannot place it;
         // only the dynobj lane (degraded / any-annotated /
@@ -266,13 +277,19 @@ fn lower_field_entries(
         }
         if let Some(omit) = crate::check_type_of_object_lit::spread_omit_set(n) {
             let omit: Vec<PropKey> = omit.iter().map(|s| PropKey::from(*s)).collect();
-            crate::ssa_lower_object_lit_spread::unfold_spread(
+            let (op, sid) = crate::ssa_lower_object_lit_spread::unfold_spread(
                 ctx,
                 *eid,
                 &omit,
                 &mut field_tys,
                 &mut field_vals,
             );
+            spreads.push(order::SpreadSrc {
+                entry,
+                op,
+                sid,
+                omit,
+            });
             continue;
         }
         let declared_field_ty = declared_fields
@@ -289,7 +306,7 @@ fn lower_field_entries(
             &mut parked,
         );
     }
-    (field_tys, field_vals, parked)
+    (field_tys, field_vals, parked, spreads)
 }
 
 fn lower_regular_field(
@@ -403,6 +420,7 @@ fn lower_regular_field(
 mod alloc;
 use alloc::{alloc_obj, init_header, write_class_tag, write_vtable_ptr};
 mod any_slot;
+mod order;
 // Phase 2, the W4 field-width widen.
 mod widen;
 use widen::apply_w4_widen;

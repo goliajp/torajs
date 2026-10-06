@@ -371,6 +371,9 @@ pub(crate) fn check_as(
             other => other,
         });
     }
-    resolve_type_ann_full(ty_ann, &checker.aliases, &[], &checker.generic_alias_decls)
-        .ok_or_else(|| format!("unknown cast target type `{ty_ann}`"))
+    let target = resolve_type_ann_full(ty_ann, &checker.aliases, &[], &checker.generic_alias_decls)
+        .ok_or_else(|| format!("unknown cast target type `{ty_ann}`"))?;
+    // a literal cast to a struct type is stored in that type's layout
+    crate::check_assignable::in_declared_order(checker, ast, &target, expr, inner_ty);
+    Ok(target)
 }

@@ -37,7 +37,16 @@ impl crate::ssa_lower::LowerCtx<'_> {
             // and kept the eval-drop leg).
             return self.box_to_any(dynobj);
         }
+        // A literal cast to a named struct type is stored in that
+        // type's layout, the same as under an annotation: the cast
+        // value is read at the declared offsets.
+        if let crate::ast::Expr::ObjectLit { .. } = self.ast.get_expr(inner)
+            && let Some(Type::Obj(sid)) = self.aliases.get(ty_ann)
+        {
+            self.let_declared_obj_layout = Some(*sid);
+        }
         let inner_op = self.lower_expr(inner);
+        self.let_declared_obj_layout = None;
         let inner_ty = self.operand_ty(&inner_op);
         if ty_ann == "any" {
             let is_primitive = matches!(inner_ty, Type::I64 | Type::I32 | Type::F64 | Type::Bool);

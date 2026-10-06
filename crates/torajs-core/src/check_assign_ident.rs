@@ -61,6 +61,8 @@ pub(crate) fn check(
         // the read side (check_type_of_ident).
         checker.undeclared_reads.remove(&target);
         let value_ty = checker.type_of(ast, value)?;
+        let value_ty =
+            crate::check_assignable::in_declared_order(checker, ast, &global_ty, value, value_ty);
         if !is_assignable_to_resolved(
             &global_ty,
             &value_ty,
@@ -185,6 +187,8 @@ pub(crate) fn check(
     // assignable surface.
     let target_ty = checker.assign_declared_ty(&name, &info.ty);
     let value_ty = checker.type_of(ast, value)?;
+    let value_ty =
+        crate::check_assignable::in_declared_order(checker, ast, &target_ty, value, value_ty);
     // 424-04 — the fn-face admit the LET position takes (423-03 ④)
     // now applies to the assign position too: a mutable fn-typed
     // binding is a closure_bindings member (the forwarder pass wraps

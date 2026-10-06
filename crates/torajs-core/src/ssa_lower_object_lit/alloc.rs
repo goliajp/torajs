@@ -75,6 +75,7 @@ pub(super) fn write_class_tag(
     obj_ptr: crate::ssa::ValueId,
     sid: StructId,
     owner: Option<&str>,
+    order: Option<&[u32]>,
 ) {
     // A nested field default names its own class, and neither the
     // factory tag nor the generic-factory pool applies to it — both
@@ -125,7 +126,13 @@ pub(super) fn write_class_tag(
             ctx.anon_stamp_pool.borrow_mut().note_class_minted(sid);
             t
         }
-        None => ctx.anon_stamp_pool.borrow_mut().assign_or_get(sid),
+        None => match order {
+            Some(order) => ctx
+                .anon_stamp_pool
+                .borrow_mut()
+                .assign_or_get_ordered(sid, order),
+            None => ctx.anon_stamp_pool.borrow_mut().assign_or_get(sid),
+        },
     };
     store_class_tag(ctx, obj_ptr, tag);
 }

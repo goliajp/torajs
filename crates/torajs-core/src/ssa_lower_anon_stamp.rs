@@ -28,6 +28,9 @@ use std::collections::{HashMap, HashSet};
 use crate::ssa;
 use crate::ssa::Type;
 
+mod objlit_orders;
+pub(crate) use objlit_orders::{MAX_COMBOS, spread_contribution};
+
 /// Pool of anonymous-ObjectLit sid → class_tag mappings. Initial
 /// contents come from the Pass 1.5 snapshot; Pass 2 stamp sites push
 /// fresh assignments in declaration order.
@@ -65,6 +68,18 @@ pub struct AnonStampPool {
     /// buffers it as a cycle root — so the inline drop of that sid
     /// must take the class legs too, or it frees a buffered cell.
     class_minted: HashSet<ssa::StructId>,
+    /// Cells of a layout whose properties were created in an order
+    /// other than the layout's: a literal under a declared type is
+    /// stored in the declared layout, but §10.1.11.1 enumerates in
+    /// creation order, so such a cell wears its own tag whose rows
+    /// list the slots in that order. Keyed by (layout, order), where
+    /// `order[k]` is the layout index of the k-th created property.
+    perm_tags: HashMap<(ssa::StructId, Vec<u32>), u32>,
+    perm_rows: Vec<(u32, ssa::StructId, Vec<u32>)>,
+    /// Creation orders other than the storage order, keyed by the
+    /// storage layout's names in order (see [`Self::note_objlit_orders`]).
+    objlit_orders: HashMap<Vec<PropKey>, Vec<Vec<PropKey>>>,
+    orders_noted: bool,
 }
 
 impl AnonStampPool {
@@ -79,7 +94,27 @@ impl AnonStampPool {
             generic_rows: Vec::new(),
             generic_by_factory: HashMap::new(),
             class_minted: HashSet::new(),
+            perm_tags: HashMap::new(),
+            perm_rows: Vec::new(),
+            objlit_orders: HashMap::new(),
+            orders_noted: false,
         }
+    }
+
+    /// The tag a cell of `sid` created in `order` wears: the plain anon
+    /// tag for the layout's own order, otherwise one tag per order.
+    pub fn assign_or_get_ordered(&mut self, sid: ssa::StructId, order: &[u32]) -> u32 {
+        if order.iter().enumerate().all(|(i, &o)| i as u32 == o) {
+            return self.assign_or_get(sid);
+        }
+        if let Some(&t) = self.perm_tags.get(&(sid, order.to_vec())) {
+            return t;
+        }
+        let tag = self.next_tag;
+        self.next_tag = self.next_tag.saturating_add(1);
+        self.perm_tags.insert((sid, order.to_vec()), tag);
+        self.perm_rows.push((tag, sid, order.to_vec()));
+        tag
     }
 
     /// A class factory stamped a class tag onto a cell of `sid`.
@@ -138,7 +173,42 @@ impl AnonStampPool {
     /// `class_name_to_tag` so anon-stamped class instances dispatch
     /// through the same monomorphic IC arm as named classes.
     pub fn sid_to_tag_iter(&self) -> impl Iterator<Item = (ssa::StructId, u32)> + '_ {
-        self.sid_to_tag.iter().map(|(&sid, &tag)| (sid, tag))
+        self.sid_to_tag
+            .iter()
+            .map(|(&sid, &tag)| (sid, tag))
+            .chain(self.perm_rows.iter().map(|(tag, sid, _)| (*sid, *tag)))
+    }
+}
+
+impl crate::ssa_lower::LowerCtx<'_> {
+    /// Whether a cell of static type `ty` can have been created in an
+    /// order its layout does not spell (see
+    /// [`AnonStampPool::foreign_orders`]): an own-property walk over it
+    /// must then read the cell's tag at run time instead of unfolding
+    /// the layout at compile time.
+    pub(crate) fn obj_order_varies(&self, ty: &Type) -> bool {
+        let Type::Obj(sid) = ty else {
+            return false;
+        };
+        !self.foreign_orders_of(*sid).is_empty()
+    }
+
+    /// [`AnonStampPool::foreign_orders`] of the layout `sid`, noting
+    /// the program's literal orders on first use (every body lowers
+    /// against the same module-wide typing).
+    pub(crate) fn foreign_orders_of(&self, sid: ssa::StructId) -> Vec<Vec<u32>> {
+        let mut pool = self.anon_stamp_pool.borrow_mut();
+        if !pool.orders_noted {
+            pool.note_objlit_orders(self.ast, self.expr_types);
+        }
+        pool.foreign_orders(&self.struct_layouts[sid.0 as usize])
+    }
+
+    /// The receivers `Object.keys` / `values` / `entries` box into the
+    /// any lane: a property-bag shape, or a struct whose cells can
+    /// enumerate in an order other than the layout's.
+    pub(crate) fn own_keys_walk_at_runtime(&self, ty: &Type) -> bool {
+        crate::ssa_lower_index::to_object_needs_boxing(ty) || self.obj_order_varies(ty)
     }
 }
 
@@ -198,24 +268,32 @@ pub fn append_fresh_class_layouts(
     class_layouts: &mut Vec<crate::ssa::ClassLayoutMeta>,
 ) {
     let p = pool.borrow();
-    let mut rows: Vec<(u32, ssa::StructId, Option<&String>)> = p
+    let mut rows: Vec<(u32, ssa::StructId, Option<&String>, Option<&[u32]>)> = p
         .fresh_sids()
         .iter()
-        .map(|sid| (p.sid_to_tag[sid], *sid, None))
+        .map(|sid| (p.sid_to_tag[sid], *sid, None, None))
         .chain(
             p.generic_rows()
                 .iter()
-                .map(|(tag, sid, base)| (*tag, *sid, Some(base))),
+                .map(|(tag, sid, base)| (*tag, *sid, Some(base), None)),
+        )
+        .chain(
+            p.perm_rows
+                .iter()
+                .map(|(tag, sid, order)| (*tag, *sid, None, Some(order.as_slice()))),
         )
         .collect();
-    rows.sort_by_key(|(tag, _, _)| *tag);
-    for (_, sid, base) in rows {
+    rows.sort_by_key(|(tag, _, _, _)| *tag);
+    for (_, sid, base, order) in rows {
         let sid_idx = sid.0 as usize;
         let layout = &struct_layouts[sid_idx];
+        let identity: Vec<u32> = (0..layout.len() as u32).collect();
         let mut child_offsets: Vec<u32> = Vec::new();
         let mut field_metadata: Vec<crate::ssa::FieldMetaSpec> = Vec::new();
-        for (i, (fname, fty)) in layout.iter().enumerate() {
-            let off = crate::ssa_lower::OBJ_HEADER_SIZE as u32 + (i as u32) * 8;
+        // rows follow the creation order; each keeps its own slot offset
+        for &i in order.unwrap_or(&identity) {
+            let (fname, fty) = &layout[i as usize];
+            let off = crate::ssa_lower::OBJ_HEADER_SIZE as u32 + i * 8;
             if fty.is_refcounted() {
                 child_offsets.push(off);
             }
@@ -271,6 +349,48 @@ mod tests {
         // Re-querying a fresh sid returns the cached tag, no new alloc.
         assert_eq!(pool.assign_or_get(ssa::StructId(7)), 5);
         assert_eq!(pool.fresh_sids().len(), 3);
+    }
+
+    #[test]
+    fn creation_orders_get_their_own_tags() {
+        let mut pool = AnonStampPool::from_snapshot(HashMap::new(), 5);
+        let plain = pool.assign_or_get(ssa::StructId(3));
+        assert_eq!(pool.assign_or_get_ordered(ssa::StructId(3), &[0, 1]), plain);
+        let swapped = pool.assign_or_get_ordered(ssa::StructId(3), &[1, 0]);
+        assert_ne!(swapped, plain);
+        assert_eq!(
+            pool.assign_or_get_ordered(ssa::StructId(3), &[1, 0]),
+            swapped
+        );
+        assert!(
+            pool.sid_to_tag_iter()
+                .any(|(sid, t)| sid == ssa::StructId(3) && t == swapped)
+        );
+    }
+
+    #[test]
+    fn foreign_orders_are_layout_indices() {
+        let mut pool = AnonStampPool::from_snapshot(HashMap::new(), 1);
+        let layout = vec![
+            (PropKey::from("b"), Type::Str),
+            (PropKey::from("x"), Type::I64),
+        ];
+        let bx = vec![PropKey::from("b"), PropKey::from("x")];
+        let xb = vec![PropKey::from("x"), PropKey::from("b")];
+        assert!(pool.foreign_orders(&layout).is_empty());
+        // a literal stored in its own order records nothing
+        assert!(!pool.add_order(bx.clone(), bx.clone()));
+        assert!(!pool.add_order(xb.clone(), xb.clone()));
+        assert!(pool.foreign_orders(&layout).is_empty());
+        // only a literal stored in another layout's order does, and
+        // only for that layout
+        assert!(pool.add_order(bx.clone(), xb.clone()));
+        assert_eq!(pool.foreign_orders(&layout), vec![vec![1, 0]]);
+        let other = vec![
+            (PropKey::from("x"), Type::I64),
+            (PropKey::from("b"), Type::Str),
+        ];
+        assert!(pool.foreign_orders(&other).is_empty());
     }
 
     #[test]

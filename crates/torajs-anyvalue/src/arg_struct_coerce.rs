@@ -229,19 +229,37 @@ unsafe fn cell_fits(p: *mut c_void, class_tag: u32, layout: *const c_void) -> bo
         return false;
     }
     let n = unsafe { __torajs_struct_field_count(layout) };
-    if unsafe { __torajs_struct_field_count(own) } < n {
+    let own_n = unsafe { __torajs_struct_field_count(own) };
+    if own_n < n {
         return false;
     }
+    // a cell created in another order than its layout wears rows in
+    // that order over the same slots, so a row that is not at the same
+    // index is looked up by name
     (0..n).all(|idx| unsafe {
-        let (a, b) = (
-            __torajs_struct_field_name(layout, idx),
-            __torajs_struct_field_name(own, idx),
-        );
-        a.len == b.len
-            && core::slice::from_raw_parts(a.ptr, a.len)
-                == core::slice::from_raw_parts(b.ptr, b.len)
-            && __torajs_struct_field_info(layout, idx) == __torajs_struct_field_info(own, idx)
+        same_row(layout, idx, own, idx)
+            || (0..own_n).any(|j| j != idx && same_row(layout, idx, own, j))
     })
+}
+
+/// Row `i` of `a` and row `j` of `b` name the same field at the same
+/// offset with the same type.
+///
+/// # Safety
+/// `a` / `b` are live lookup results with rows `i` / `j`.
+unsafe fn same_row(a: *const c_void, i: u32, b: *const c_void, j: u32) -> bool {
+    let (na, nb) = unsafe {
+        (
+            __torajs_struct_field_name(a, i),
+            __torajs_struct_field_name(b, j),
+        )
+    };
+    na.len == nb.len
+        && unsafe {
+            core::slice::from_raw_parts(na.ptr, na.len)
+                == core::slice::from_raw_parts(nb.ptr, nb.len)
+                && __torajs_struct_field_info(a, i) == __torajs_struct_field_info(b, j)
+        }
 }
 
 /// The `(any_tag, payload)` pair a layout field named `name` takes
