@@ -215,7 +215,8 @@ fn plan_fill(
 
 /// Slot types whose undefined repr has landed: Str-family (RFC
 /// 20260707 + C1), fn-type (C2a), number/boolean (C4 — the optional
-/// slot materializes as Any, absent = ANY_UNDEF box), and the
+/// slot materializes as Any, absent = ANY_UNDEF box), `any` (the same
+/// Any slot, spelled outright), and the
 /// refcounted pointer spellings (C2b — array suffix / inline object
 /// / struct / closure fields and struct-alias names take the generic
 /// Tag::Undefined cell). A bare alias resolves through the TypeDecl
@@ -234,6 +235,7 @@ fn sentinel_capable(inner: &str, env: &AliasEnv, depth: u32) -> bool {
         || inner.starts_with("__fn(")
         || inner == "number"
         || inner == "boolean"
+        || inner == "any"
         || inner.ends_with("[]")
         || inner.starts_with("__inlobj(")
         || inner.starts_with("__struct(")

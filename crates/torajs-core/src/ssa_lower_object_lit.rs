@@ -310,6 +310,7 @@ fn lower_regular_field(
     }
     let v = ctx.lower_expr(eid);
     ctx.let_declared_obj_layout = None;
+    let v = any_slot::box_heap_value(ctx, eid, v, declared_field_ty);
     if let Some((op, ty)) = ctx.throw_temp_of(eid, &v) {
         parked.push(ctx.push_throw_temp(op, ty));
     }
@@ -396,31 +397,12 @@ fn lower_regular_field(
     }
 }
 
-fn apply_w4_widen(
-    ctx: &mut LowerCtx<'_>,
-    field_tys: &mut [(PropKey, Type)],
-    field_vals: &mut [Operand],
-    eid: ExprId,
-) {
-    let key = crate::num_width::SlotKey::Anon(eid.0);
-    // W4 shape-join (rotation 371) — the literal's own verdict OR the
-    // family verdict: same-shaped literals share a layout, so the
-    // first registrant must already claim the joined slot width.
-    let shape: Vec<PropKey> = field_tys.iter().map(|(n, _)| n.clone()).collect();
-    for (i, (fname, fty)) in field_tys.iter_mut().enumerate() {
-        if *fty == Type::I64
-            && (ctx.num_f64_slots.field_is_f64(&key, fname.clone())
-                || ctx.num_f64_slots.objlit_shape_field_is_f64(&shape, fname))
-        {
-            *fty = Type::F64;
-            let coerced = ctx.coerce_to_f64(field_vals[i]);
-            field_vals[i] = coerced;
-        }
-    }
-}
-
 // The cell-construction tail (alloc dispatch / header init / class
 // tag / vtable pointer) lives in the child module at the 500-line
 // file cap; `lower` above is its only caller.
 mod alloc;
 use alloc::{alloc_obj, init_header, write_class_tag, write_vtable_ptr};
+mod any_slot;
+// Phase 2, the W4 field-width widen.
+mod widen;
+use widen::apply_w4_widen;

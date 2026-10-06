@@ -52,6 +52,16 @@ pub(crate) unsafe fn struct_data_field_set(
     if idx == u32::MAX {
         return false;
     }
+    // An AccessorPair is no data value: a declared field redefined as
+    // an accessor keeps its pair in the sidecar, where every face
+    // looks for it. An `any` slot would otherwise take the pair
+    // verbatim and answer it as the field's value.
+    if tag == AnySlotTag::Heap as u64
+        && value != 0
+        && unsafe { (value as *const u8).add(4).cast::<u16>().read() } == Tag::AccessorPair as u16
+    {
+        return false;
+    }
     let info = unsafe { __torajs_struct_field_info(layout, idx) };
     let slot = unsafe { ptr.cast::<u8>().add(info.field_byte_offset as usize) } as *mut u64;
     // The frozen gate is the CALLER's (`struct_field_ffi::

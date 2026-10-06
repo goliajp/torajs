@@ -258,6 +258,23 @@ pub unsafe extern "C" fn __torajs_accessor_invoke_setter(
     }
     let naked = raw_kind & ACC_KIND_NAKED != 0;
     let param_kind = raw_kind & !ACC_KIND_NAKED;
+    // A number parameter is an i64 or an f64 slot, and the assigned
+    // value is whichever number the program stored: handing its
+    // payload over raw read an integer's bits as a double (`set(v:
+    // number)` on an f64 slot answered 2e-323 for 4) and the reverse.
+    // The boxed dual entry converts the value to the slot its
+    // signature declares; a face without one keeps the raw call.
+    if matches!(param_kind, ACC_KIND_F64 | ACC_KIND_I64) {
+        let entry = unsafe { __torajs_closure_boxed_entry(setter as *const u8) };
+        if entry != 0 {
+            let call: unsafe extern "C" fn(*mut c_void, *const u64, i64) -> u64 =
+                unsafe { core::mem::transmute(entry as usize) };
+            let mut buf = [VALUE_UNDEFINED; 8];
+            buf[0] = value_anyv;
+            unsafe { call(setter, buf.as_ptr(), 1) };
+            return 1;
+        }
+    }
     if naked {
         // Named top-level fn — no leading env param; the value is
         // its FIRST argument.
