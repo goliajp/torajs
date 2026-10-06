@@ -13,8 +13,8 @@
 //! loop and run its own `post`, lane by lane in iteration order. The
 //! fused loop keeps `LANES` independent recurrences in flight, so an
 //! inner loop bound by one long-latency chain (a divide per step:
-//! Euclid's gcd, digit and radix loops, continued fractions) runs at
-//! the divider's throughput instead of its latency. Fewer than `LANES`
+//! Euclid's gcd, digit and radix loops; a multiply-add: Collatz steps)
+//! runs at the units' throughput instead of its latency. Fewer than `LANES`
 //! remaining iterations run through the untouched original loop.
 //!
 //! Why the result cannot differ:
@@ -46,6 +46,7 @@
 
 mod clone;
 mod emit;
+mod fit;
 mod flow;
 mod plan;
 #[cfg(test)]

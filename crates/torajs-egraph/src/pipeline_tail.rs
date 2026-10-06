@@ -103,7 +103,7 @@ pub(crate) fn finish_pipeline(
     // with no Map write between reuses the earlier index; set_str takes
     // it as a checked hint. `TORAJS_MAP_FIND_CSE_OFF=1` skips.
     gated_pass("MAP_FIND_CSE", module, map_find_cse::share_map_finds);
-    // Unroll-and-jam of counted loops around a divide-bound inner loop;
+    // Unroll-and-jam of counted loops around a latency-bound inner loop;
     // before loop_rotate, which then rotates the loops it builds.
     let mut jammed = Vec::new();
     gated_pass("UNROLL_JAM", module, |m| {

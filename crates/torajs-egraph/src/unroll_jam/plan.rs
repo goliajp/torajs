@@ -9,10 +9,9 @@ use torajs_core::ssa::{
     visit_value_operands,
 };
 
+use super::fit::regions_fit;
 use super::flow::{escaping, lane_cells, lane_shared};
-use super::{
-    LANES, MAX_CHAIN_BLOCKS, MAX_INNER_INSTS, MAX_POST_INSTS, MAX_PRE_INSTS, MAX_STEP, Plan,
-};
+use super::{LANES, MAX_CHAIN_BLOCKS, MAX_STEP, Plan};
 
 pub(super) struct Ctx {
     pub preds: HashMap<BlockId, Vec<BlockId>>,
@@ -385,54 +384,6 @@ fn iv_step(
         return add_of_iv(&blk(func, xb).insts[xi].kind);
     }
     add_of_iv(kind)
-}
-
-/// Pure, trap-free, reads no memory.
-fn pure(kind: &InstKind) -> bool {
-    match kind {
-        InstKind::BinOp(op, _, _) => *op != BinOp::FRem,
-        InstKind::ICmp(..)
-        | InstKind::FCmp(..)
-        | InstKind::Copy(..)
-        | InstKind::Select(..)
-        | InstKind::SiToFp(_)
-        | InstKind::FpToSi(_)
-        | InstKind::FpToInt32(_)
-        | InstKind::ZExtBoolToI64(_)
-        | InstKind::ZExtI32ToI64(_)
-        | InstKind::BitCastF64ToI64(_)
-        | InstKind::BitCastI64ToF64(_)
-        | InstKind::TruncI64ToBool(_)
-        | InstKind::Neg(_)
-        | InstKind::Ctpop(_)
-        | InstKind::Identity(_) => true,
-        _ => false,
-    }
-}
-
-/// Size limits, purity of the parts lanes run early, and a divide on
-/// the inner loop (the latency the interleaving hides).
-fn regions_fit(func: &Function, p: &Plan) -> bool {
-    let count = |bs: &[BlockId]| bs.iter().map(|b| blk(func, *b).insts.len()).sum::<usize>();
-    let early = p.pre_order().into_iter().chain(p.inner_order());
-    let all_pure = early
-        .flat_map(|b| blk(func, b).insts.iter())
-        .all(|i| i.result.is_some() && pure(&i.kind));
-    let divides = p
-        .inner_order()
-        .iter()
-        .flat_map(|b| blk(func, *b).insts.iter())
-        .any(|i| {
-            matches!(
-                i.kind,
-                InstKind::BinOp(BinOp::SDiv | BinOp::SRem | BinOp::FDiv, _, _)
-            )
-        });
-    all_pure
-        && divides
-        && count(&p.pre_order()) <= MAX_PRE_INSTS
-        && count(&p.inner_order()) <= MAX_INNER_INSTS
-        && count(&p.post) <= MAX_POST_INSTS
 }
 
 fn wrap_ok(p: &Plan) -> bool {

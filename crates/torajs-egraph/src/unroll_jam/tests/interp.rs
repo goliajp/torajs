@@ -41,6 +41,8 @@ pub(super) fn run(f: &Function, args: &[i64], fuel: usize) -> Option<i64> {
                         BinOp::Sub => x.wrapping_sub(y),
                         BinOp::Mul => x.wrapping_mul(y),
                         BinOp::SRem => x.checked_rem(y).unwrap_or(x),
+                        BinOp::And => x & y,
+                        BinOp::AShr => x >> (y & 63),
                         other => panic!("{other:?} outside the test subset"),
                     }
                 }
