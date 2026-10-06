@@ -267,15 +267,15 @@ fn scan_stmt(ast: &mut Ast, s: &mut Stmt, mode: Mode, hits: &mut Hits) {
 /// [`Mode::Shadowed`] under an `arguments`-named param), and put
 /// back.
 fn scan_expr(ast: &mut Ast, eid: ExprId, mode: Mode, hits: &mut Hits) {
-    // `Expr::ArrowFn` also encodes function expressions
-    // (`fn_expr_exprs` / `gen_fn_exprs`) and object-literal methods
-    // and accessors (`objlit_method_exprs`); each has its OWN
-    // `arguments` (§10.2.11), so its body is a fresh scope. Only the
-    // true arrow extends this one.
+    // `Expr::ArrowFn` is a lossy encoding (see `parser/fn_expr.rs`
+    // knife-1 note): a FUNCTION expression parses to the same node,
+    // marked in `fn_expr_exprs` / `gen_fn_exprs` — and a fn-expr has
+    // its OWN `arguments` binding, so its body is a fresh scope, not
+    // an extension of this one (the un-gated first version rewrote
+    // `const h = function () { return arguments[0] }` at the outer
+    // fn's — six gate reds). Only the true arrow stays flagged.
     if matches!(ast.get_expr(eid), Expr::ArrowFn { .. }) {
-        let own_scope = ast.fn_expr_exprs.contains(&eid)
-            || ast.gen_fn_exprs.contains_key(&eid)
-            || ast.objlit_method_exprs.contains(&eid);
+        let own_scope = ast.fn_expr_exprs.contains(&eid) || ast.gen_fn_exprs.contains_key(&eid);
         let Expr::ArrowFn { params, body, .. } = &mut ast.exprs[eid.0 as usize] else {
             unreachable!()
         };
