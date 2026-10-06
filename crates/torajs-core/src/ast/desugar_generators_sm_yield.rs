@@ -4,7 +4,8 @@
 //! for file size; consumed by [`GenSm::lower`].
 
 use super::desugar_generators_sm::GenSm;
-use super::{Expr, ExprId, Stmt};
+use super::{Ast, Expr, ExprId, Stmt};
+use crate::ast::PropKey;
 
 /// Prefix of the per-yield local that holds the evaluated operand
 /// across the resume-label store (`emit_yield_return`); the suffix is
@@ -86,25 +87,16 @@ impl GenSm<'_> {
         // annotating the local `number` gave a typed generator's I64
         // step slot an F64 (`generator-005-bidirectional`, the JIT
         // lane's `materialize_operand_gpr … holding Fpr`).
-        // An object literal (or an array of them) is the exception: held
-        // under the declared yield type, it is stored in that type's
-        // layout even when it spells the fields in another order, which
-        // the step's cast then reads as is.
+        // An object literal that spells a struct's fields in another
+        // order than the declared yield type is the exception: held under
+        // that type, it is stored in the declared layout the step's cast
+        // reads.
         let held_name = format!("{YIELD_OPERAND_LOCAL}{next}");
-        let literal = match self.ast.get_expr(val) {
-            Expr::ObjectLit { .. } => true,
-            Expr::Array(els) => {
-                !els.is_empty()
-                    && els
-                        .iter()
-                        .all(|e| matches!(self.ast.get_expr(*e), Expr::ObjectLit { .. }))
-            }
-            _ => false,
-        };
+        let reordered = spelled_in_other_order(self.ast, &self.yield_ty, val);
         let hold = Stmt::LetDecl {
             mutable: false,
             name: held_name.clone(),
-            type_ann: (literal && self.yield_ty != "any").then(|| self.yield_ty.clone()),
+            type_ann: reordered.then(|| self.yield_ty.clone()),
             init: val,
             is_var: false,
         };
@@ -124,4 +116,64 @@ impl GenSm<'_> {
         });
         vec![hold, set, Stmt::Return(Some(obj))]
     }
+}
+
+/// Does `val`, an object literal or an array of them, spell the fields
+/// of the struct type `ty` names (at any depth) in another order than
+/// its declaration? Only a type the program declares by name can tell;
+/// anything else answers no and the operand stays unannotated.
+fn spelled_in_other_order(ast: &Ast, ty: &str, val: ExprId) -> bool {
+    let ty = ty.trim();
+    // `T | null` / `T | undefined` / an optional field, as the parser
+    // spells it; the null arm stores the struct itself
+    if let Some(inner) = ty
+        .strip_prefix("__nullable(")
+        .and_then(|t| t.strip_suffix(')'))
+    {
+        return spelled_in_other_order(ast, inner, val);
+    }
+    if let Some(inner) = ty.strip_prefix('(').and_then(|t| t.strip_suffix(')')) {
+        return spelled_in_other_order(ast, inner, val);
+    }
+    if let Some(elem) = ty.strip_suffix("[]") {
+        return match ast.get_expr(val) {
+            Expr::Array(els) => els.iter().any(|e| spelled_in_other_order(ast, elem, *e)),
+            _ => false,
+        };
+    }
+    let Expr::ObjectLit { fields } = ast.get_expr(val) else {
+        return false;
+    };
+    let Some(declared) = ast.stmts.iter().find_map(|s| match s {
+        Stmt::TypeDecl {
+            name,
+            type_params,
+            fields,
+        } if name == ty && type_params.is_empty() => Some(fields),
+        _ => None,
+    }) else {
+        return false;
+    };
+    let mut created: Vec<&PropKey> = Vec::new();
+    for (n, _) in fields {
+        if !created.contains(&n) {
+            created.push(n);
+        }
+    }
+    if created.len() == declared.len()
+        && created
+            .iter()
+            .all(|n| declared.iter().any(|(d, _)| d == *n))
+        && created.iter().zip(declared).any(|(n, (d, _))| *n != d)
+    {
+        return true;
+    }
+    // the last spelling of a repeated key is the one that lands
+    declared.iter().any(|(name, ann)| {
+        fields
+            .iter()
+            .rev()
+            .find(|(n, _)| n == name)
+            .is_some_and(|(_, e)| spelled_in_other_order(ast, ann, *e))
+    })
 }

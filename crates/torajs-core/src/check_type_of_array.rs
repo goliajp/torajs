@@ -96,6 +96,26 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, elements: &[ExprId]) -> Re
     }
 }
 
+/// The element type a literal's elements unify to under the rules
+/// [`check`] applies (`None` = an empty inner literal, typed by its
+/// siblings): the first element's type, or `Any` once a later element
+/// does not fit it.
+pub(crate) fn unified_elem_ty(checker: &Checker, tys: &[Option<Type>]) -> Type {
+    let Some(first) = tys.iter().flatten().next().cloned() else {
+        return Type::Array(Box::new(Type::Any));
+    };
+    let heterogeneous = tys.iter().flatten().any(|ty| {
+        !is_assignable_to_resolved(
+            &first,
+            ty,
+            &checker.class_structs,
+            &checker.aliases,
+            &checker.generic_alias_decls,
+        ) || repr_disagrees(&first, ty)
+    });
+    if heterogeneous { Type::Any } else { first }
+}
+
 /// Does the anchor's REPR differ from this element's, in a way plain
 /// assignability cannot see?
 ///

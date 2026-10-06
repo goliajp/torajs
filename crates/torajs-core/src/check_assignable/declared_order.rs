@@ -18,8 +18,9 @@
 //! why every reordered literal records it.
 //!
 //! A value that first flows through an unannotated binding keeps its
-//! own order and is still refused: its cell is laid out in that order,
-//! and a read at the declared offsets would answer the wrong slot.
+//! own order and is still refused, an `as` cast included: its cell is
+//! laid out in that order, and a read at the declared offsets would
+//! answer the wrong slot.
 
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type};
@@ -44,6 +45,68 @@ pub(crate) fn in_declared_order(
     // the declared layout
     checker.expr_types.extend(records);
     ty
+}
+
+/// A cast of `value` to `to`, with an object literal first put in the
+/// declared order: a cell of another value created in another field
+/// order is refused, since a cast moves no slots and the typed reads
+/// behind it would answer the wrong ones.
+pub(crate) fn cast_in_declared_order(
+    checker: &mut Checker,
+    ast: &Ast,
+    to: &Type,
+    value: ExprId,
+    value_ty: Type,
+) -> Result<(), String> {
+    let ty = in_declared_order(checker, ast, to, value, value_ty);
+    if same_names_other_order(checker, to, &ty, &mut Vec::new()) {
+        return Err(format!(
+            "cannot cast {ty:?} to {to:?}: the same fields in another order"
+        ));
+    }
+    Ok(())
+}
+
+/// Does `from` hold a struct with the field names of the struct `to`
+/// expects at the same position (in a nullable slot, an array element
+/// or a field, at any depth) but in another order?
+fn same_names_other_order(
+    checker: &Checker,
+    to: &Type,
+    from: &Type,
+    seen: &mut Vec<(Type, Type)>,
+) -> bool {
+    // class types can be recursive: each class pair is walked once
+    if matches!(to, Type::ClassRef(_)) || matches!(from, Type::ClassRef(_)) {
+        let pair = (to.clone(), from.clone());
+        if seen.contains(&pair) {
+            return false;
+        }
+        seen.push(pair);
+    }
+    let resolve = |t: &Type| {
+        crate::check::resolve_class_ref(
+            t,
+            &checker.class_structs,
+            &checker.aliases,
+            &checker.generic_alias_decls,
+        )
+    };
+    match (&resolve(to), &resolve(from)) {
+        (Type::Nullable(t), Type::Nullable(f)) | (Type::Array(t), Type::Array(f)) => {
+            same_names_other_order(checker, t, f, seen)
+        }
+        (Type::Nullable(t), f) => same_names_other_order(checker, t, f, seen),
+        (Type::Struct(tf), Type::Struct(ff)) => {
+            if tf.len() != ff.len() || !tf.iter().all(|(n, _)| ff.iter().any(|(m, _)| m == n)) {
+                return false;
+            }
+            tf.iter().zip(ff).any(|((tn, tt), (fname, ft))| {
+                tn != fname || same_names_other_order(checker, tt, ft, seen)
+            })
+        }
+        _ => false,
+    }
 }
 
 fn reorder(
@@ -120,10 +183,12 @@ fn reorder_object(
 }
 
 /// An array literal under an array type: every element literal is put
-/// in the element type's order. The array takes the reordered element
-/// type only when all its elements then agree on it, the condition
-/// under which the literal's own typing would have unified them;
-/// otherwise nothing is recorded and the literal is refused as before.
+/// in the element type's order, and the array takes the element type
+/// the literal's own typing would give its elements in that order
+/// (`check_type_of_array`): the reordered struct when every element
+/// fits it, `Any` once one does not (a `null`, an `any` value). Either
+/// way each reordered element keeps its record, so it is stored in the
+/// declared layout the typed reads of it use.
 fn reorder_array(
     checker: &Checker,
     ast: &Ast,
@@ -137,15 +202,17 @@ fn reorder_array(
     };
     let mark = records.len();
     let mut changed = false;
-    let mut agreed: Option<Type> = None;
+    let mut tys: Vec<Option<Type>> = Vec::with_capacity(elems.len());
     for &e in elems {
         let ty = match ast.get_expr(e) {
+            // a spread contributes its source's element type, as the
+            // literal's own typing reads it
             Expr::Spread { expr } => match checker.expr_types.get(expr) {
-                Some(Type::Array(t)) => (**t).clone(),
-                _ => return undo(records, mark),
+                Some(src) => Some(spread_elem(src)),
+                None => return undo(records, mark),
             },
             // an empty inner literal takes its type from its siblings
-            Expr::Array(els) if els.is_empty() => continue,
+            Expr::Array(els) if els.is_empty() => None,
             _ => {
                 let Some(ety) = checker.expr_types.get(&e).cloned() else {
                     return undo(records, mark);
@@ -153,24 +220,31 @@ fn reorder_array(
                 match reorder(checker, ast, to_elem, e, &ety, records) {
                     Some(t) => {
                         changed = true;
-                        t
+                        Some(t)
                     }
-                    None => ety,
+                    None => Some(ety),
                 }
             }
         };
-        match &agreed {
-            Some(a) if *a != ty => return undo(records, mark),
-            Some(_) => {}
-            None => agreed = Some(ty),
-        }
+        tys.push(ty);
     }
     if !changed {
         return None;
     }
-    let ty = Type::Array(Box::new(agreed?));
+    let ty = Type::Array(Box::new(crate::check_type_of_array::unified_elem_ty(
+        checker, &tys,
+    )));
     records.push((value, ty.clone()));
     Some(ty)
+}
+
+fn spread_elem(src: &Type) -> Type {
+    match src {
+        Type::Nullable(inner) => spread_elem(inner),
+        Type::Array(t) => (**t).clone(),
+        Type::String => Type::String,
+        _ => Type::Any,
+    }
 }
 
 fn undo(records: &mut Vec<(ExprId, Type)>, mark: usize) -> Option<Type> {
