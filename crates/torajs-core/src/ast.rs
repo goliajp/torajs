@@ -9,6 +9,7 @@ mod annexb_names;
 mod apply_args;
 mod apply_args_materialize;
 mod apply_args_recv;
+mod apply_args_table;
 mod apply_rest_args;
 mod apply_spread;
 mod apply_spread_evidence;
