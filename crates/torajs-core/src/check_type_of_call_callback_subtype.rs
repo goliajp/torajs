@@ -174,6 +174,9 @@ fn slot_agrees(a: &Type, f: &Type) -> bool {
     match (a, f) {
         _ if a == f => true,
         (Type::Any, _) | (_, Type::Any) => true,
+        // an optional callback param (`i?: number`) takes every value
+        // the formal passes
+        (Type::Nullable(inner), _) => slot_agrees(inner, f),
         (Type::Map(ak, av), Type::Map(fk, fv)) => slot_agrees(ak, fk) && slot_agrees(av, fv),
         (Type::MapIter(ai), Type::MapIter(fi)) => slot_agrees(ai, fi),
         _ => false,
