@@ -82,7 +82,9 @@ mod tests {
     fn reads_the_harness_own_binary() {
         let exe = std::env::current_exe().expect("current_exe");
         let Some(shape) = shape_of(&exe) else {
-            assert!(!cfg!(target_os = "macos"), "a macOS test binary is Mach-O");
+            if cfg!(target_os = "macos") {
+                panic!("a macOS test binary is Mach-O");
+            }
             return;
         };
         assert!(
