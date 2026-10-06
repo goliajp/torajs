@@ -136,6 +136,13 @@ pub fn run_one(
             outcome.artifact_bytes = Some(meta.len());
             outcome.artifact_sha256 = file_sha256_hex(&out_path);
         }
+        if cached_compile_ms.is_none()
+            && let Some(shape) = crate::macho::shape_of(&out_path)
+        {
+            outcome.artifact_segments = Some(shape.segments);
+            outcome.artifact_sections = Some(shape.sections);
+            outcome.artifact_symbols = shape.symbols;
+        }
         // CRITICAL — clean up `bun build --compile`'s scratch cache
         // files (`.HEX-NNNN.bun-build`). They land in cwd regardless
         // of --outfile, no env var redirects them. Across a full

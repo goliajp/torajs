@@ -4,6 +4,7 @@ mod case;
 mod compare;
 mod exec;
 mod hyperfine;
+mod macho;
 mod outcome;
 mod passes;
 mod phases;

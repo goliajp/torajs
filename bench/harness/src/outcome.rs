@@ -51,6 +51,11 @@ pub struct RunOutcome {
     /// Compile-phase wall times (ms) from one extra untimed compile,
     /// for runners with a `phases_env`: `label` and `parent/label`.
     pub compile_phases_ms: Option<std::collections::BTreeMap<String, f64>>,
+    /// Mach-O shape of the artifact (first pass): file bytes per
+    /// segment, bytes per `__SEGMENT,__section`, symbol-table entries.
+    pub artifact_segments: Option<std::collections::BTreeMap<String, u64>>,
+    pub artifact_sections: Option<std::collections::BTreeMap<String, u64>>,
+    pub artifact_symbols: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
