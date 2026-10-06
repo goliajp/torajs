@@ -32,7 +32,11 @@ pub(crate) fn run(args: &[String]) -> ExitCode {
     // Phase 0 step 8b — egraph mid-end pass. Honors TORAJS_EGRAPH_OFF=1.
     let ssa_module = torajs_egraph::transform_module(ssa_module);
 
-    let cfg = build_link_config(&ssa_module, false, false);
+    // runtime member symbols are not written: nothing in the run reads
+    // them (crash triage builds with `tr build --no-strip`), and leaving
+    // them out takes the per-member symbol listing and the whole member
+    // string table off every run
+    let cfg = build_link_config(&ssa_module, false, true);
 
     let bytes = match link_to_exec_with_archives(&cfg) {
         Ok(b) => b,
