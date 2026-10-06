@@ -248,7 +248,7 @@ fn live_segments(
         let mut open: HashMap<u32, u32> = blocks.live_out[b]
             .iter()
             .filter(|v| cands.contains(v))
-            .map(|&v| (v, 2 * be + 1))
+            .map(|v| (v, 2 * be + 1))
             .collect();
         visit_terminator_operands(&block.term, |v| {
             if cands.contains(&v.0) {

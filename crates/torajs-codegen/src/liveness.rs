@@ -226,7 +226,7 @@ fn extend_intervals_loop_aware(blocks: &BlockLiveness, out: &mut HashMap<u32, In
         let start = blocks.start[b].saturating_sub(1);
         let end = blocks.end[b];
         for v in blocks.live_in[b].iter().chain(blocks.live_out[b].iter()) {
-            if let Some(it) = out.get_mut(v) {
+            if let Some(it) = out.get_mut(&v) {
                 if end > it.end {
                     it.end = end;
                 }

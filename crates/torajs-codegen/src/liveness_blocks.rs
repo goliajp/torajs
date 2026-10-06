@@ -9,7 +9,7 @@
 //! terminator. Interval extension and copy coalescing both read the
 //! result.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use torajs_core::ssa::{Function, Terminator};
 
@@ -22,16 +22,55 @@ pub struct BlockLiveness {
     pub start: Vec<u32>,
     /// Global slot of the block's terminator.
     pub end: Vec<u32>,
-    pub live_in: Vec<HashSet<u32>>,
-    pub live_out: Vec<HashSet<u32>>,
+    pub live_in: Vec<ValueSet>,
+    pub live_out: Vec<ValueSet>,
+}
+
+/// A set of value ids, one bit per value of the function.
+#[derive(Clone, PartialEq, Eq)]
+pub struct ValueSet {
+    words: Vec<u64>,
+}
+
+impl ValueSet {
+    fn new(values: usize) -> Self {
+        ValueSet {
+            words: vec![0; values.div_ceil(64)],
+        }
+    }
+
+    fn insert(&mut self, v: u32) {
+        self.words[v as usize / 64] |= 1 << (v % 64);
+    }
+
+    pub fn contains(&self, v: u32) -> bool {
+        self.words
+            .get(v as usize / 64)
+            .is_some_and(|w| w & (1 << (v % 64)) != 0)
+    }
+
+    /// The members, ascending.
+    pub fn iter(&self) -> impl Iterator<Item = u32> + '_ {
+        self.words.iter().enumerate().flat_map(|(i, &w)| {
+            let mut w = w;
+            std::iter::from_fn(move || {
+                (w != 0).then(|| {
+                    let bit = w.trailing_zeros();
+                    w &= w - 1;
+                    i as u32 * 64 + bit
+                })
+            })
+        })
+    }
 }
 
 pub fn compute_block_liveness(func: &Function) -> BlockLiveness {
     let n = func.blocks.len();
     let mut start: Vec<u32> = vec![0; n];
     let mut end: Vec<u32> = vec![0; n];
-    let mut uses: Vec<HashSet<u32>> = vec![HashSet::new(); n];
-    let mut defs: Vec<HashSet<u32>> = vec![HashSet::new(); n];
+    let empty = ValueSet::new(func.values.len());
+    let mut uses: Vec<ValueSet> = vec![empty.clone(); n];
+    let mut defs: Vec<ValueSet> = vec![empty.clone(); n];
     let mut succs: Vec<Vec<usize>> = vec![Vec::new(); n];
 
     // BlockId may be non-contiguous, so map it to a position.
@@ -47,7 +86,7 @@ pub fn compute_block_liveness(func: &Function) -> BlockLiveness {
         start[i] = cursor;
         for inst in &block.insts {
             visit_inst_operands(&inst.kind, |v| {
-                if !defs[i].contains(&v.0) {
+                if !defs[i].contains(v.0) {
                     uses[i].insert(v.0);
                 }
             });
@@ -57,7 +96,7 @@ pub fn compute_block_liveness(func: &Function) -> BlockLiveness {
             cursor += 1;
         }
         visit_terminator_operands(&block.term, |v| {
-            if !defs[i].contains(&v.0) {
+            if !defs[i].contains(v.0) {
                 uses[i].insert(v.0);
             }
         });
@@ -76,24 +115,18 @@ pub fn compute_block_liveness(func: &Function) -> BlockLiveness {
         }
     }
 
-    let mut live_in: Vec<HashSet<u32>> = vec![HashSet::new(); n];
-    let mut live_out: Vec<HashSet<u32>> = vec![HashSet::new(); n];
+    let mut live_in: Vec<ValueSet> = vec![empty.clone(); n];
+    let mut live_out: Vec<ValueSet> = vec![empty; n];
+    let words = live_in.first().map_or(0, |s| s.words.len());
     loop {
         let mut changed = false;
         for b in (0..n).rev() {
-            let mut new_out: HashSet<u32> = HashSet::new();
-            for &s in &succs[b] {
-                new_out.extend(live_in[s].iter().copied());
-            }
-            if new_out != live_out[b] {
-                live_out[b] = new_out;
-                changed = true;
-            }
-            let mut new_in = uses[b].clone();
-            new_in.extend(live_out[b].iter().filter(|v| !defs[b].contains(v)));
-            if new_in != live_in[b] {
-                live_in[b] = new_in;
-                changed = true;
+            for w in 0..words {
+                let out = succs[b].iter().fold(0, |acc, &s| acc | live_in[s].words[w]);
+                let inn = uses[b].words[w] | (out & !defs[b].words[w]);
+                changed |= out != live_out[b].words[w] || inn != live_in[b].words[w];
+                live_out[b].words[w] = out;
+                live_in[b].words[w] = inn;
             }
         }
         if !changed {
