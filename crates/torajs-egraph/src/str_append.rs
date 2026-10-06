@@ -61,7 +61,7 @@
 // chain flattening, the literal forms and the kernel table live
 // beside this file
 mod chain;
-mod kernels;
+pub(crate) mod kernels;
 mod literal;
 mod reserve;
 #[cfg(test)]

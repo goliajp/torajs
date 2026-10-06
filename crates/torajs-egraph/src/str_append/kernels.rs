@@ -9,13 +9,13 @@ use torajs_core::ssa::{FuncId, Inst, InstKind, Module, Operand};
 /// The static shape of a string operand: an owned or borrowed Str
 /// cell, or a Substr view.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Kind {
+pub(crate) enum Kind {
     Str,
     Substr,
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(super) struct Kernel {
+pub(crate) struct Kernel {
     pub fid: FuncId,
     pub left: Kind,
     pub right: Kind,
@@ -50,7 +50,7 @@ const STR_DROP: &str = "__torajs_str_drop";
 const SUBSTR_DROP: &str = "__torajs_substr_drop";
 
 /// The kernels a module declares.
-pub(super) struct Kernels {
+pub(crate) struct Kernels {
     binary: Vec<Kernel>,
     pub str_drop: FuncId,
     substr_drop: Option<FuncId>,

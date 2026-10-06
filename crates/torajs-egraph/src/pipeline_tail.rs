@@ -3,9 +3,9 @@ use crate::id_hash::HashMap;
 use torajs_core::ssa::{Module, ValueId};
 
 use crate::{
-    block_layout, concat_num_fuse, gated_pass, interval, iv_merge, loop_rotate, map_find_cse,
-    rc_dec_immediate, rc_peephole, scaled_addr, select_form, srem_fquot, str_append, unroll_jam,
-    unroll_pair,
+    block_layout, concat_len, concat_num_fuse, gated_pass, interval, iv_merge, loop_rotate,
+    map_find_cse, rc_dec_immediate, rc_peephole, scaled_addr, select_form, srem_fquot, str_append,
+    unroll_jam, unroll_pair,
 };
 
 /// Select formation and the inst-level fusions that read its output,
@@ -40,6 +40,12 @@ pub(crate) fn form_selects_and_fuse(module: &mut Module) {
     if std::env::var("TORAJS_SSA_DUMP").as_deref() == Ok("1") {
         module.print();
     }
+    // Concat length folding — a concat whose result is only measured
+    // and dropped becomes the sum of its operands' lengths, the kernel
+    // kept on a cold arm for the RangeError past the length bound.
+    // Before the two rewrites below, which would claim the pair as an
+    // append. `TORAJS_CONCAT_LEN_OFF=1` skips (bisect gate).
+    gated_pass("CONCAT_LEN", module, concat_len::fold_concat_lens);
     // Number-to-string concat fusion — a strict `to_str` + `concat`
     // (right operand) + `drop` triple becomes one `concat_num` call
     // that formats the digits straight into the result allocation

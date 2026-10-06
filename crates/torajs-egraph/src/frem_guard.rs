@@ -37,10 +37,10 @@ mod lane;
 use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{
-    BinOp, Block, BlockId, Function, IPred, Inst, InstKind, Module, Operand, Terminator, Type,
-    ValueId,
+    BinOp, BlockId, Function, IPred, Inst, InstKind, Module, Operand, Terminator, Type, ValueId,
 };
 
+use crate::cfg_edit::{emit, new_block, renumber};
 use crate::float_demote::{push_value, split_block_at};
 use crate::frem_int::{single_def_kinds, stable_here};
 use crate::interval::NumFact;
@@ -190,26 +190,6 @@ fn rewrite_in_place(func: &mut Function, bi: usize, site: &Site) {
     block.insts.splice(site.at..site.at, new);
 }
 
-fn new_block(func: &mut Function) -> BlockId {
-    let id = BlockId(func.blocks.len() as u32);
-    func.blocks.push(Block {
-        id,
-        insts: Vec::new(),
-        term: Terminator::Unreachable,
-    });
-    id
-}
-
-fn emit(func: &mut Function, block: BlockId, ty: Type, kind: InstKind) -> Operand {
-    let result = push_value(&mut func.values, ty);
-    func.blocks[block.0 as usize].insts.push(Inst {
-        result: Some(result),
-        kind,
-        origin: None,
-    });
-    Operand::Value(result)
-}
-
 /// head: operand checks ORed, `≠ 0` → slow | fast
 /// fast: `r = sitofp (srem ta, tb)` → join
 /// slow: `r = frem a, b` as it was → join
@@ -265,33 +245,10 @@ fn guard_site(func: &mut Function, head: BlockId, site: &Site) {
     renumber(func);
 }
 
-/// Re-establish `BlockId.0 == position` after moving blocks.
-fn renumber(func: &mut Function) {
-    let remap: HashMap<BlockId, BlockId> = func
-        .blocks
-        .iter()
-        .enumerate()
-        .map(|(pos, b)| (b.id, BlockId(pos as u32)))
-        .collect();
-    for block in func.blocks.iter_mut() {
-        block.id = remap[&block.id];
-        match &mut block.term {
-            Terminator::Br(t) => *t = remap[t],
-            Terminator::CondBr {
-                then_blk, else_blk, ..
-            } => {
-                *then_blk = remap[then_blk];
-                *else_blk = remap[else_blk];
-            }
-            Terminator::Ret(_) | Terminator::Unreachable => {}
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use torajs_core::ssa::ValueInfo;
+    use torajs_core::ssa::{Block, ValueInfo};
 
     fn inst(r: u32, kind: InstKind) -> Inst {
         Inst {
