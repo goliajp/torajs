@@ -1,0 +1,3 @@
+# Escaping twin of str-concat-ascii-100k: each `prefix + tail` is stored
+# into an 8-slot ring and read back, so no compiler can skip building it.
+args = "100000 x"

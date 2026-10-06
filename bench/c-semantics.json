@@ -27,6 +27,7 @@
   "class-method-100k": {"kind": "suppressed", "why": "volatile + asm keep both per-iteration heap objects alive"},
   "class-method-10m": {"kind": "suppressed", "why": "volatile + asm keep both per-iteration heap objects alive"},
   "str-concat-ascii-100k": {"kind": "suppressed", "why": "volatile + asm keep the per-iteration buffer, which clang would fold"},
+  "str-concat-ascii-escape-100k": {"kind": "same", "why": "each result is a fresh malloc buffer of exactly the combined length, stored into an 8-slot ring that frees the slot it replaces, and read back by index"},
   "i64-to-str-100k": {"kind": "suppressed", "why": "volatile + asm keep each formatted buffer"},
   "i64-to-str-10m": {"kind": "suppressed", "why": "volatile + asm keep each formatted buffer"},
   "json-stringify-100k": {"kind": "different", "why": "grows each record buffer from capacity 0 by realloc and escapes the key names at run time; not the fast way to write this in C"},

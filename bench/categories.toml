@@ -70,6 +70,7 @@ cases = [
   "str-replace-100k",
   "str-replace-argv-100k",
   "str-concat-ascii-100k",
+  "str-concat-ascii-escape-100k",
   "i64-to-str-100k",
   "i64-to-str-10m",
   "split-materialize-1m",
