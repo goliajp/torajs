@@ -371,6 +371,12 @@ impl Checker {
                     _ => Type::Any,
                 })
             }
+            // The Array-as-Object posture the member ladder gives
+            // `xs.k`: an own expando, or the `index` / `input` /
+            // `groups` an exec or match result carries (§22.2.7.2
+            // steps 20-22), read through the arrprops lane as Any.
+            // Missing here, `m?.index` refused what `m.index` takes.
+            (Type::Array(_), n) if !crate::check::is_array_method_name(n) => Ok(Type::Any),
             (other, _) => Err(format!("no field `{name}` accessible on type {other:?}")),
         }
     }

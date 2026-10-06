@@ -98,8 +98,18 @@ impl<'a> Analysis<'a> {
     /// in has to be F64. As a receiver-free read it had no container
     /// key and answered NotNum, and an I64 slot then held the f64's
     /// bit pattern as an integer.
+    ///
+    /// A RegExp's `lastIndex` (§22.2.6.13) is the same kind of read:
+    /// the receiver is no container either, the lowering always loads
+    /// it as a double (`ssa_lower_member_regexp_props`), and the local
+    /// holding the regex only lent it a `Field` key nothing ever
+    /// constrains — so `xs.push(re.lastIndex)` met an I64 `xs`.
     pub(super) fn namespace_number_read(&self, eid: ExprId) -> bool {
-        matches!(self.ast.get_expr(eid), Expr::Member { obj, .. }
-            if matches!(self.ast.get_expr(*obj), Expr::Ident(ns) if ns == "Math" || ns == "Number"))
+        let Expr::Member { obj, name } = self.ast.get_expr(eid) else {
+            return false;
+        };
+        matches!(self.ast.get_expr(*obj), Expr::Ident(ns) if ns == "Math" || ns == "Number")
+            || (name == "lastIndex"
+                && matches!(self.expr_types.get(obj), Some(crate::check::Type::RegExp)))
     }
 }
