@@ -1,0 +1,6 @@
+push refused true
+write refused true
+2 1 2
+[ 1, 2, 3 ]
+set refused true
+4 1

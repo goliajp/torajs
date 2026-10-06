@@ -1,15 +1,14 @@
-// A fresh Map<K, number> marks its value kind, so a non-number value
-// written through an any view is refused at the write with a
-// TypeError instead of surfacing later as a wrong number in the typed
-// read lane. bun accepts the write; this is the Map twin of the
-// number[] push backstop (escape-any-003-objfield-loud), and the
-// .expected is written by hand for that reason.
+// A Map<K, number> that reaches the any world through a cast
+// (`(m as any).set(...)`) leaves the typed number value lane, so
+// non-number values written through the any view, or through the
+// typed binding with an any value, are stored and read back as bun
+// does.
 
 const m = new Map<string, number>()
 m.set("a", 1)
 try {
   ;(m as any).set("b", "text")
-  console.log("not reached")
+  console.log("set")
 } catch (e) {
   console.log(e instanceof TypeError)
 }

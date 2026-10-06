@@ -260,24 +260,7 @@ impl<'a> Analysis<'a> {
             return true;
         }
         self.nominal_aliases.insert(key.clone());
-        let inner = &key[open + 1..key.len() - 1];
-        let mut args: Vec<&str> = Vec::new();
-        let mut d: i32 = 0;
-        let mut last = 0usize;
-        for (i, &b) in inner.as_bytes().iter().enumerate() {
-            match b {
-                b'<' | b'(' => d += 1,
-                b'>' | b')' => d -= 1,
-                b'|' if d == 0 => {
-                    args.push(&inner[last..i]);
-                    last = i + 1;
-                }
-                _ => {}
-            }
-        }
-        if !inner.is_empty() {
-            args.push(&inner[last..]);
-        }
+        let args = super::escape::split_inst_args(&key[open + 1..key.len() - 1]);
         if args.len() != tp_names.len() {
             return true; // malformed spelling; lowering rejects loudly
         }

@@ -172,6 +172,12 @@ pub(super) struct Analysis<'a> {
     /// W-ESC — any-annotated slot keys collected during the walk
     /// (escape sinks; see escape.rs).
     pub(super) any_seeds: Vec<SlotKey>,
+    /// W-ESC — escape sinks that are not number slots of the
+    /// program's: the any faces found inside struct annotations (a
+    /// field declared `any`) and the operands of casts to the any
+    /// world. They demote the containers reaching them and never seed
+    /// the F64 fixpoint (`escape.rs` `push_any_seed`, `walk_cast`).
+    pub(super) escape_only_seeds: Vec<SlotKey>,
     pub(super) c_edges: HashMap<SlotKey, Vec<Dep>>,
     /// W4 — container alias classes. Unconditional unions (element
     /// writes, literal/method plumbing, nominal class hookups) land
@@ -213,6 +219,8 @@ pub(super) struct Analysis<'a> {
     /// Generic TypeDecl bodies by name (`Rec` → (["T"], fields)),
     /// for the lazy instantiation-key registration above.
     pub(super) generic_decls: GenericStructDecls,
+    /// The non-generic ones, for struct-shaped any-escape faces.
+    pub(super) struct_decls: escape::StructDecls,
     /// W4 — an element write through a receiver the analysis cannot
     /// resolve to a container class. Never expected to fire (assign
     /// receivers are idents / members / indexes / calls); if it does,
@@ -290,6 +298,7 @@ pub(crate) fn analyze(
         c_seeds: Vec::new(),
         c_edges: HashMap::new(),
         any_seeds: Vec::new(),
+        escape_only_seeds: Vec::new(),
         uf: container::UnionFind::default(),
         guarded_unions: Vec::new(),
         nested_unions: Vec::new(),
@@ -297,6 +306,7 @@ pub(crate) fn analyze(
         classes,
         nominal_aliases,
         generic_decls,
+        struct_decls: escape::collect_struct_decls(ast),
         container_poison: false,
         bounds_stack: Vec::new(),
         lower_settled: bounds_lower::settled_guards(ast),
@@ -330,6 +340,7 @@ pub(crate) fn analyze(
     // starts, not after.
     a.sentinel_member_reads = sentinel_member_reads::freeze(&tables);
     let mut fallthrough_fns: HashSet<String> = tables.fns.clone();
+    a.seed_nominal_field_faces();
     for stmt in &ast.stmts {
         if let Stmt::FnDecl { .. } = stmt {
             seed_and_walk_fn(&mut a, stmt, &tables, &mut fallthrough_fns);
@@ -408,14 +419,13 @@ pub(crate) fn analyze(
 
     // W-ESC — escape faces resolve to frozen class reps (+ Elem-chain
     // contagion for nested containers).
-    let any_escaped = escape::propagate(&a.any_seeds, &a.uf);
-    if std::env::var_os("TORAJS_NUM_WIDTH_STATS").is_some() {
-        let mut lines: Vec<String> = any_escaped.iter().map(|k| format!("{k:?}")).collect();
-        lines.sort();
-        for l in &lines {
-            eprintln!("[num_width] any-escape class: {l}");
-        }
-    }
+    let escape_seeds: Vec<SlotKey> = a
+        .any_seeds
+        .iter()
+        .chain(a.escape_only_seeds.iter())
+        .cloned()
+        .collect();
+    let any_escaped = escape::propagate(&escape_seeds, &a.uf, &a.containerish);
     // W4 shape-join (rotation 371; doc on the collector — sibling
     // `analyze_tables.rs`).
     let objlit_shape_f64 = analyze_tables::collect_objlit_shape_f64(ast, &a, &canon_out);
