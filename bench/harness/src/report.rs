@@ -25,7 +25,40 @@ pub struct Report {
     /// the end of every pass. A pass whose two readings differ by more
     /// than 3 % ran on a machine that changed under it.
     pub calibration: Vec<Calibration>,
+    /// Sizes of the compiler that built the `torajs` rows, read when the
+    /// report is opened.
+    pub toolchain: Toolchain,
     pub rows: Vec<RunOutcome>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct Toolchain {
+    /// `target/release/tr`, which carries the runtime image inside it
+    pub tr_bytes: Option<u64>,
+    /// each `libtorajs_*.a` of the production cross-target build: the
+    /// archives the embedded runtime image is made from
+    pub runtime_archives_bytes: std::collections::BTreeMap<String, u64>,
+}
+
+impl Toolchain {
+    fn read(workspace: &Path) -> Self {
+        let size = |p: &Path| std::fs::metadata(p).ok().map(|m| m.len());
+        let dir = workspace.join("target/aarch64-apple-darwin/release");
+        let runtime_archives_bytes = std::fs::read_dir(&dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|e| {
+                let name = e.file_name().to_string_lossy().into_owned();
+                let lib = name.starts_with("libtorajs_") && name.ends_with(".a");
+                lib.then(|| Some((name, size(&e.path())?)))?
+            })
+            .collect();
+        Self {
+            tr_bytes: size(&workspace.join("target/release/tr")),
+            runtime_archives_bytes,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -47,6 +80,7 @@ impl Report {
             runs: 1,
             pass_order_seed: 0,
             calibration: Vec::new(),
+            toolchain: Toolchain::read(bench_dir.parent().context("bench_dir has no parent")?),
             rows: Vec::new(),
         })
     }
