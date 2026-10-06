@@ -34,9 +34,37 @@ pub(super) fn lower_obj_gated(
     is_error: bool,
 ) -> Operand {
     let gated = val_op;
+    // a layout that reaches itself has no finite compile-time unfold;
+    // the any-lane walk recurses on the live value and owns the
+    // §25.5.2 cycle TypeError
+    let walk_at_runtime = is_error || layout_reaches_itself(ctx, sid);
     super::composite::with_null_gate(ctx, &gated, "__json_obj_exotic", move |ctx| {
-        lower_obj_nonnull(ctx, val_op, sid, fe_fields, gap, depth, is_error)
+        lower_obj_nonnull(ctx, val_op, sid, fe_fields, gap, depth, walk_at_runtime)
     })
+}
+
+fn layout_reaches_itself(ctx: &LowerCtx, sid: StructId) -> bool {
+    let mut seen_obj = vec![false; ctx.struct_layouts.len()];
+    let mut seen_arr = vec![false; ctx.arr_layouts.len()];
+    let mut work: Vec<Type> = ctx.struct_layouts[sid.0 as usize]
+        .iter()
+        .map(|(_, t)| *t)
+        .collect();
+    while let Some(t) = work.pop() {
+        match t {
+            Type::Obj(s) if s == sid => return true,
+            Type::Obj(s) if !seen_obj[s.0 as usize] => {
+                seen_obj[s.0 as usize] = true;
+                work.extend(ctx.struct_layouts[s.0 as usize].iter().map(|(_, t)| *t));
+            }
+            Type::Arr(a) if !seen_arr[a.0 as usize] => {
+                seen_arr[a.0 as usize] = true;
+                work.push(ctx.arr_layouts[a.0 as usize]);
+            }
+            _ => {}
+        }
+    }
+    false
 }
 
 /// The gate body — reached only on a non-NULL cell.
@@ -48,7 +76,7 @@ fn lower_obj_nonnull(
     fe_fields: Option<Vec<(PropKey, check::Type)>>,
     gap: Option<Operand>,
     depth: u32,
-    is_error: bool,
+    walk_at_runtime: bool,
 ) -> Operand {
     let walk_val = val_op;
     let walk_gap = gap;
@@ -63,7 +91,15 @@ fn lower_obj_nonnull(
             walked
         },
         move |ctx| {
-            super::composite_obj::lower_obj(ctx, val_op, sid, fe_fields, gap, depth, is_error)
+            super::composite_obj::lower_obj(
+                ctx,
+                val_op,
+                sid,
+                fe_fields,
+                gap,
+                depth,
+                walk_at_runtime,
+            )
         },
     )
 }

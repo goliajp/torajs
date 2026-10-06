@@ -25,7 +25,7 @@ pub(super) fn lower_obj(
     fe_fields: Option<Vec<(PropKey, crate::check::Type)>>,
     gap: Option<Operand>,
     depth: u32,
-    is_error: bool,
+    walk_at_runtime: bool,
 ) -> Operand {
     with_null_gate(ctx, &val_op.clone(), "__json_obj_out", |ctx| {
         // §20.5 — an error instance's own `message` / `stack` are
@@ -33,8 +33,9 @@ pub(super) fn lower_obj(
         // runtime state a layout unfold cannot read. Hand the receiver
         // to the any-lane walk (the `Type::BigInt` arm's posture, throw
         // check included); `box_to_any` is rc-neutral, so the walk
-        // borrows and there is nothing extra to drop.
-        if is_error {
+        // borrows and there is nothing extra to drop. A self-reaching
+        // layout takes the same road (see `lower_obj_gated`).
+        if walk_at_runtime {
             let boxed = ctx.box_to_any(val_op);
             let v = super::emit_any_walk(ctx, boxed, gap, depth);
             ctx.emit_throw_check(None);
