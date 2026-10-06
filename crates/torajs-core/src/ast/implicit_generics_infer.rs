@@ -342,9 +342,8 @@ pub(crate) fn infer_expr_ann_with(
         Expr::Unary {
             op: UnaryOp::Not, ..
         } => Some("boolean".into()),
-        // §13.5.5 / §13.5.7 — `-x` and `~x` over a BigInt answer a
-        // BigInt. (`+x` on a BigInt is a TypeError per §13.5.4, so it
-        // keeps the Number answer and the checker refuses the pair.)
+        // §13.5.5 / §13.5.7 — `-x` and `~x` over a BigInt answer a BigInt. (`+x` on
+        // one is a TypeError per §13.5.4: it keeps Number and the checker refuses the pair.)
         Expr::Unary {
             op: UnaryOp::Neg | UnaryOp::BitNot,
             expr,
@@ -354,6 +353,7 @@ pub(crate) fn infer_expr_ann_with(
             _ => Some("number".into()),
         },
         Expr::Unary { .. } => Some("number".into()),
+        Expr::Ident(name) if name == "__torajs_argc" => Some("number".into()),
         Expr::Ident(name) => params
             .iter()
             .find(|p| &p.name == name)
