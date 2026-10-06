@@ -341,7 +341,12 @@ impl LiftCtx {
         for e in std::mem::take(&mut self.minted) {
             ast.add_expr(e);
         }
-        for (mangled, source) in std::mem::take(&mut self.source_names) {
+        for (mangled, mut source) in std::mem::take(&mut self.source_names) {
+            // a body `function arguments` renamed apart from the
+            // parameter-scope object still answers its own spelling
+            if source == super::apply_args_materialize::body_arguments::BODY_ARGUMENTS {
+                source = "arguments".to_string();
+            }
             ast.nested_fn_names.insert(mangled, source);
         }
         for (init, flavor) in std::mem::take(&mut self.eval_var_inits) {

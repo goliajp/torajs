@@ -97,6 +97,35 @@ pub(super) fn body_safe_default(
     }
 }
 
+/// Whether the default expression reads `arguments` outside any nested
+/// function literal. In a function expression's parameter list that
+/// is the function's own arguments object (§10.2.11 steps 18-22 bind
+/// it before the parameters are evaluated), which the call site
+/// cannot name — so such a default has to move into the body.
+pub(super) fn reads_arguments(ast: &Ast, d: ExprId) -> bool {
+    let rec = |a| reads_arguments(ast, a);
+    match ast.get_expr(d) {
+        Expr::Ident(n) => n == "arguments",
+        Expr::Assign { target, value } => rec(*target) || rec(*value),
+        Expr::PostIncr { target, .. } => rec(*target),
+        Expr::BinOp { left, right, .. } | Expr::Sequence { left, right } => {
+            rec(*left) || rec(*right)
+        }
+        Expr::Unary { expr, .. } | Expr::As { expr, .. } => rec(*expr),
+        Expr::Member { obj, .. } => rec(*obj),
+        Expr::Index { obj, index } => rec(*obj) || rec(*index),
+        Expr::Ternary {
+            cond,
+            then_branch,
+            else_branch,
+        } => rec(*cond) || rec(*then_branch) || rec(*else_branch),
+        Expr::Call { callee, args } => rec(*callee) || args.iter().any(|a| rec(*a)),
+        Expr::Array(elems) => elems.iter().any(|a| rec(*a)),
+        Expr::ObjectLit { fields } => fields.iter().any(|(_, v)| rec(*v)),
+        _ => false,
+    }
+}
+
 /// Whether the default expression reads a STRICTLY-PRIOR param name —
 /// the one FnDecl shape whose call-site pad is unsound (§9.2 wants
 /// the reference bound in the CALLEE's params environment; pasting it

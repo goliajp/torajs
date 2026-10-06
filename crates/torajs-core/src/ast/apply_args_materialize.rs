@@ -73,10 +73,11 @@
 
 use super::{Ast, BinOp, Expr, ExprId, Stmt};
 
+pub(crate) mod body_arguments;
 mod expr_shape;
 mod nested;
 
-use expr_shape::{body_safe_default, refs_prior_param};
+use expr_shape::{body_safe_default, reads_arguments, refs_prior_param};
 
 /// Build one `if (name === undefined) name = <default>;` guard.
 pub(super) fn build_default_guard(ast: &mut Ast, name: &str, d: ExprId) -> Stmt {
@@ -334,14 +335,26 @@ pub fn materialize_expr_defaults(ast: &mut Ast) {
         let Expr::ArrowFn { params, .. } = e else {
             continue;
         };
+        let fn_expr = ast.fn_expr_exprs.contains(&ExprId(ei as u32));
+        // once one default runs in the body, every later one has to
+        // as well: §10.2.11 evaluates them in parameter order, and a
+        // call-site pad would run before the guards
+        let mut moved = false;
         for (pi, p) in params.iter().enumerate() {
             let prior: Vec<String> = params[..pi].iter().map(|q| q.name.clone()).collect();
-            if let Some(d) = converting_default(ast, p, &global_fns, &prior, false) {
+            // a fn-expr default reading the fn's own `arguments` is
+            // meaningless at the call site, so it takes the body lane
+            // even when it assigns (the FnDecl gate)
+            let own_args = fn_expr && p.default.is_some_and(|d| reads_arguments(ast, d));
+            let body_lane = own_args || moved;
+            if let Some(d) = converting_default(ast, p, &global_fns, &prior, body_lane) {
                 arrow_sites.push((ei, pi, p.name.clone(), Conv::Any(d)));
+                moved = true;
             } else if let Some((d, ann)) =
-                converting_typed_default(ast, p, &global_fns, &prior, false)
+                converting_typed_default(ast, p, &global_fns, &prior, body_lane)
             {
                 arrow_sites.push((ei, pi, p.name.clone(), Conv::TypedNarrow(d, ann)));
+                moved = true;
             }
         }
     }
@@ -355,6 +368,7 @@ pub fn materialize_expr_defaults(ast: &mut Ast) {
     }
     for (si, mut conv) in by_stmt {
         conv.sort_by_key(|(pi, _, _)| *pi);
+        let own_args = conv_reads_arguments(ast, &conv);
         let (guards, pads) = build_guards_and_pads(ast, conv);
         let at = match &ast.stmts[si] {
             Stmt::FnDecl { name, .. } => guard_offset(ast, name),
@@ -364,7 +378,14 @@ pub fn materialize_expr_defaults(ast: &mut Ast) {
             unreachable!()
         };
         patch_params(params, pads);
-        splice_guards(body, guards, at);
+        let mut b = std::mem::take(body);
+        if own_args {
+            body_arguments::split_body_arguments(ast, &mut b);
+        }
+        splice_guards(&mut b, guards, at);
+        if let Stmt::FnDecl { body, .. } = &mut ast.stmts[si] {
+            *body = b;
+        }
     }
     // Phase B' — same conversion for arrow-fn / fn-expression values
     // still living in the expr arena (nested arrows included: the
@@ -376,16 +397,32 @@ pub fn materialize_expr_defaults(ast: &mut Ast) {
     }
     for (ei, mut conv) in by_expr {
         conv.sort_by_key(|(pi, _, _)| *pi);
+        let own_args =
+            ast.fn_expr_exprs.contains(&ExprId(ei as u32)) && conv_reads_arguments(ast, &conv);
         let (guards, pads) = build_guards_and_pads(ast, conv);
         let Expr::ArrowFn { params, body, .. } = &mut ast.exprs[ei] else {
             unreachable!()
         };
         patch_params(params, pads);
-        splice_guards(body, guards, 0);
+        let mut b = std::mem::take(body);
+        if own_args {
+            body_arguments::split_body_arguments(ast, &mut b);
+        }
+        splice_guards(&mut b, guards, 0);
+        if let Expr::ArrowFn { body, .. } = &mut ast.exprs[ei] {
+            *body = b;
+        }
     }
     // Phase C (424-04) — nested `function` declarations, in the
     // child module (see its doc for why the spine walk exists).
     nested::materialize_nested(ast, &global_fns);
+}
+
+/// Whether a guard of this plan reads the function's own `arguments`.
+fn conv_reads_arguments(ast: &Ast, conv: &[(usize, String, Conv)]) -> bool {
+    conv.iter().any(|(_, _, k)| match k {
+        Conv::Any(d) | Conv::TypedNarrow(d, _) => reads_arguments(ast, *d),
+    })
 }
 
 /// One fn's conversion plan (module doc "Guarded faces" — the FnDecl
