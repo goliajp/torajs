@@ -213,6 +213,8 @@ pub(super) struct Analysis<'a> {
     /// Generic TypeDecl bodies by name (`Rec` → (["T"], fields)),
     /// for the lazy instantiation-key registration above.
     pub(super) generic_decls: GenericStructDecls,
+    /// The non-generic ones, for struct-shaped any-escape faces.
+    pub(super) struct_decls: escape::StructDecls,
     /// W4 — an element write through a receiver the analysis cannot
     /// resolve to a container class. Never expected to fire (assign
     /// receivers are idents / members / indexes / calls); if it does,
@@ -297,6 +299,7 @@ pub(crate) fn analyze(
         classes,
         nominal_aliases,
         generic_decls,
+        struct_decls: escape::collect_struct_decls(ast),
         container_poison: false,
         bounds_stack: Vec::new(),
         lower_settled: bounds_lower::settled_guards(ast),
@@ -330,6 +333,7 @@ pub(crate) fn analyze(
     // starts, not after.
     a.sentinel_member_reads = sentinel_member_reads::freeze(&tables);
     let mut fallthrough_fns: HashSet<String> = tables.fns.clone();
+    a.seed_nominal_field_faces();
     for stmt in &ast.stmts {
         if let Stmt::FnDecl { .. } = stmt {
             seed_and_walk_fn(&mut a, stmt, &tables, &mut fallthrough_fns);
@@ -409,13 +413,6 @@ pub(crate) fn analyze(
     // W-ESC — escape faces resolve to frozen class reps (+ Elem-chain
     // contagion for nested containers).
     let any_escaped = escape::propagate(&a.any_seeds, &a.uf);
-    if std::env::var_os("TORAJS_NUM_WIDTH_STATS").is_some() {
-        let mut lines: Vec<String> = any_escaped.iter().map(|k| format!("{k:?}")).collect();
-        lines.sort();
-        for l in &lines {
-            eprintln!("[num_width] any-escape class: {l}");
-        }
-    }
     // W4 shape-join (rotation 371; doc on the collector — sibling
     // `analyze_tables.rs`).
     let objlit_shape_f64 = analyze_tables::collect_objlit_shape_f64(ast, &a, &canon_out);
