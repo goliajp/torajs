@@ -1,0 +1,4 @@
+p true 1
+p __proto__
+p __proto__
+true true

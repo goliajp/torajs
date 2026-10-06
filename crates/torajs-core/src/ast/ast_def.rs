@@ -619,6 +619,10 @@ pub struct Ast {
     /// early-error on it (check_type_of_object_lit); only a
     /// destructuring re-read may consume it.
     pub objlit_cover_init_exprs: std::collections::HashSet<ExprId>,
+    /// The second and later `__proto__: v` values of one object
+    /// literal (§B.3.1): an early error once the literal reaches
+    /// expression position, legal in a destructuring re-read.
+    pub objlit_dup_proto_exprs: std::collections::HashSet<ExprId>,
     /// Array literals whose last element is a spread followed by a
     /// trailing comma (`[...x,]`). Legal as an ArrayLiteral
     /// expression (§13.2.4 permits the trailing comma), but the

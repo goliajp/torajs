@@ -25,16 +25,20 @@ impl<'a> Parser<'a> {
     pub(super) fn parse_object_literal(&mut self) -> Result<ExprId, String> {
         self.pos += 1; // consume `{`
         let mut fields: Vec<(PropKey, ExprId)> = Vec::new();
-        if !matches!(self.peek(), Token::RBrace) {
-            fields.push(self.parse_object_field_or_spread()?);
-            while matches!(self.peek(), Token::Comma) {
-                self.pos += 1;
-                if matches!(self.peek(), Token::RBrace) {
-                    break; // trailing comma
-                }
-                fields.push(self.parse_object_field_or_spread()?);
+        let mut protos: Vec<ExprId> = Vec::new();
+        while !matches!(self.peek(), Token::RBrace) {
+            let start = self.pos;
+            let field = self.parse_object_field_or_spread()?;
+            self.note_proto_colon(start, (&field.0, field.1), &mut protos);
+            fields.push(field);
+            if !matches!(self.peek(), Token::Comma) {
+                break;
             }
+            self.pos += 1; // a trailing comma ends the loop on `}`
         }
+        self.ast
+            .objlit_dup_proto_exprs
+            .extend(protos.into_iter().skip(1));
         match self.peek() {
             Token::RBrace => self.pos += 1,
             t => {

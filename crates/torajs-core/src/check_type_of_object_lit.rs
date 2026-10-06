@@ -86,6 +86,11 @@ pub(crate) fn check(
             ));
             continue;
         }
+        if ast.objlit_dup_proto_exprs.contains(eid) {
+            first_err
+                .get_or_insert("duplicate `__proto__` fields in an object literal".to_string());
+            continue;
+        }
         if let Some(omit) = spread_omit_set(n) {
             let src_ty = match checker.type_of(ast, *eid) {
                 Ok(t) => t,
