@@ -75,6 +75,30 @@ fn is_undefined(ast: &Ast, d: ExprId) -> bool {
     matches!(ast.get_expr(d), Expr::Ident(n) if n == "undefined")
 }
 
+/// The hidden-argc value for a call whose argument list
+/// `apply_default_args` may have lengthened.
+///
+/// §10.4.4 CreateUnmappedArgumentsObject sizes `arguments` by the
+/// arguments the call actually passed; a default never changes it.
+/// The pad appends slots, so the lowered list overstates that count
+/// (`k(1)` on `function (a, b = 5)` answered `arguments.length` 2).
+///
+/// Only a trailing run of `undefined` pads drops out. A pad holding a
+/// call-site default VALUE has to stay inside the count: the callee
+/// rebinds an `any` slot at or past argc to `undefined`, and the boxed
+/// adapter reads such a slot as absent — either way the default would
+/// be lost.
+pub(crate) fn source_argc(ast: &Ast, call: ExprId, args: &[ExprId]) -> usize {
+    let Some(&written) = ast.default_padded_argc.get(&call) else {
+        return args.len();
+    };
+    let mut n = args.len();
+    while n > written && is_undefined(ast, args[n - 1]) {
+        n -= 1;
+    }
+    n
+}
+
 /// The paddable slots of a user-param list: the fixed prefix, with a
 /// trailing rest position dropped.
 ///

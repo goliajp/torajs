@@ -42,6 +42,7 @@ pub(crate) fn callee_slot_is_any(ctx: &LowerCtx<'_>, eid: crate::ast::ExprId) ->
 /// unless the callee is a non-Member expression typing as `any`.
 pub(crate) fn try_lower(
     ctx: &mut LowerCtx<'_>,
+    eid: crate::ast::ExprId,
     callee: crate::ast::ExprId,
     args: &[crate::ast::ExprId],
 ) -> Option<Operand> {
@@ -53,7 +54,7 @@ pub(crate) fn try_lower(
     {
         return None;
     }
-    Some(lower(ctx, callee, args))
+    Some(lower(ctx, eid, callee, args))
 }
 
 /// Lower `callee(args…)` through the runtime any-call dispatch,
@@ -66,11 +67,12 @@ pub(crate) fn try_lower(
 /// `dyn` (rotation 639).
 pub(crate) fn lower(
     ctx: &mut LowerCtx<'_>,
+    eid: crate::ast::ExprId,
     callee: crate::ast::ExprId,
     args: &[crate::ast::ExprId],
 ) -> Operand {
     let recv = ctx.lower_expr(callee);
-    emit(ctx, callee, recv, args)
+    emit(ctx, eid, callee, recv, args)
 }
 
 /// The call half of [`lower`], for a caller that already holds the
@@ -78,6 +80,7 @@ pub(crate) fn lower(
 /// whose lowered value is (`(0, c.m)()`, `ssa_lower_call_fn_indirect`).
 pub(crate) fn emit(
     ctx: &mut LowerCtx<'_>,
+    eid: crate::ast::ExprId,
     callee: crate::ast::ExprId,
     recv: Operand,
     args: &[crate::ast::ExprId],
@@ -94,7 +97,7 @@ pub(crate) fn emit(
             vec![
                 recv,
                 Operand::Value(argv),
-                Operand::ConstI64(args.len() as i64),
+                Operand::ConstI64(crate::ast::source_argc(ctx.ast, eid, args) as i64),
             ],
         ),
         Type::Any,

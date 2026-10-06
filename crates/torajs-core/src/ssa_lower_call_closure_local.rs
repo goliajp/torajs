@@ -71,12 +71,10 @@ pub(crate) fn try_lower_with_this(
         return None;
     };
 
-    // RFC 20260708-variadic — a `(...args: E[]) => R`-typed binding
-    // never static-dispatches: one binding serves closures of any
-    // declared arity (with or without the real-argc slot), so the
-    // call boxes its args and routes through the boxed dual entry —
-    // which has no `__this` slot, so an explicit-this replay stays
-    // loud instead of dropping the receiver.
+    // RFC 20260708-variadic — a `(...args: E[]) => R`-typed binding never static-dispatches:
+    // one binding serves closures of any declared arity (with or without the real-argc slot),
+    // so the call boxes its args and routes through the boxed dual entry — which has no
+    // `__this` slot, so an explicit-this replay stays loud instead of dropping the receiver.
     if ctx.variadic_locals.contains(callee_name)
         || global_argv_face_binding(ctx, callee_name)
         || global_variadic_value_binding(ctx, callee_name)
@@ -86,7 +84,8 @@ pub(crate) fn try_lower_with_this(
             return None;
         }
         let ret_ty = slot_ret::ret_face(ctx, eid, user_sig_id);
-        return Some(lower_variadic_call(ctx, &info, ret_ty, args));
+        let passed = &args[..crate::ast::source_argc(ctx.ast, eid, args)];
+        return Some(lower_variadic_call(ctx, &info, ret_ty, passed));
     }
 
     let env_ptr = ctx.f.append_inst(
@@ -139,8 +138,9 @@ pub(crate) fn try_lower_with_this(
     let mut argv: Vec<Operand> = Vec::with_capacity(args.len() + 4);
     argv.push(Operand::Value(env_ptr));
     // S1 argc slot — the REAL user argument count (beyond-arity args
-    // included; they're evaluated but never enter argv).
-    argv.push(Operand::ConstI64(args.len() as i64));
+    // included; they're evaluated but never enter argv; default pads not).
+    let argc = crate::ast::source_argc(ctx.ast, eid, args);
+    argv.push(Operand::ConstI64(argc as i64));
     let mut temps = crate::ssa_lower_call_arg_temps::ArgTemps::new();
     // An explicit `.call`/`.apply` thisArg evaluates unconditionally
     // (§20.2.3.3 step order) and boxes for the `__this` slot; the

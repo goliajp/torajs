@@ -14,7 +14,7 @@
 //! (`crate::ssa_lower_call_recv_gate`), leaving the ordinary emit
 //! byte-identical.
 
-use crate::ast::ExprId;
+use crate::ast::{ExprId, source_argc};
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::{CLOSURE_FN_ADDR_OFF, LowerCtx, intern_fn_sig};
 
@@ -91,7 +91,7 @@ pub(crate) fn emit_closure_callee_with_this(
     let mut argv: Vec<Operand> = Vec::with_capacity(args.len() + 3);
     argv.push(Operand::Value(env_ptr));
     // S1 argc slot — the real user argument count.
-    argv.push(Operand::ConstI64(args.len() as i64));
+    argv.push(Operand::ConstI64(source_argc(ctx.ast, eid, args) as i64));
     let mut temps = crate::ssa_lower_call_arg_temps::ArgTemps::new();
     let mut recv_base = None;
     match this_arg {

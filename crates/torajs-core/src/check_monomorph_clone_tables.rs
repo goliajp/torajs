@@ -25,6 +25,31 @@
 
 use crate::ast::{Ast, ExprId};
 
+/// A demoted speculative `__cm_` rewrite gets the ALT node's shape
+/// back at the CALL ExprId, and lowering consults the call id — so
+/// the per-call entries the alt node owns move with it.
+///
+/// * the T-28 pad count — the demoted re-check typed the alt node; a
+///   miss leaves `d.m()` with missing any-params reading garbage
+///   registers (the struct-method pad miss).
+/// * the default pad's source argc — the call's own entry counted
+///   the receiver the `__cm_` form passes as its first argument, so
+///   `o.m(1)` on `m(a, b = 5)` answered `arguments.length` 2.
+pub(crate) fn carry_demoted(
+    c: &mut crate::check::Checker,
+    owned_ast: &mut Ast,
+    call: ExprId,
+    alt: ExprId,
+) {
+    if let Some(n) = c.arity_pad_count.get(&alt).copied() {
+        c.arity_pad_count.insert(call, n);
+    }
+    match owned_ast.default_padded_argc.get(&alt).copied() {
+        Some(n) => owned_ast.default_padded_argc.insert(call, n),
+        None => owned_ast.default_padded_argc.remove(&call),
+    };
+}
+
 /// Copy every per-ExprId registry entry from the cloned-from ids to
 /// their clones.
 pub(crate) fn carry(owned_ast: &mut Ast, id_map: &[(ExprId, ExprId)]) {

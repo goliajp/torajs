@@ -80,7 +80,7 @@ pub(crate) fn dispatch(
     if matches!(ctx.ast.get_expr(callee), Expr::Ident(_))
         && ctx.ast.undeclared_reads.contains_key(&callee)
     {
-        return crate::ssa_lower_any_call::lower(ctx, callee, args);
+        return crate::ssa_lower_any_call::lower(ctx, eid, callee, args);
     }
     // Rotation 371 — `__superbuiltin__<m>` is the desugared
     // `super.m()` of a builtin-heritage subclass method; claim the
@@ -112,10 +112,10 @@ pub(crate) fn dispatch(
     if let Some(op) = crate::ssa_lower_call_injected_spec_ops::try_lower(ctx, callee, args) {
         return op;
     }
-    // Any-method-call RFC 20260704 — an `any`-typed receiver claims
-    // the call before every typed dispatcher (their name matches
-    // assume concrete receiver types).
-    if let Some(op) = crate::ssa_lower_any_method_call::try_lower(ctx, callee, args) {
+    // Any-method-call RFC 20260704 — an `any`-typed receiver claims the call before every typed
+    // dispatcher. Undefined default pads stay off its argv: the callee reads absent args itself.
+    let passed = &args[..crate::ast::source_argc(ctx.ast, eid, args)];
+    if let Some(op) = crate::ssa_lower_any_method_call::try_lower(ctx, callee, passed) {
         return op;
     }
     // RFC 20260728-gen-forof-yieldstar F0b — `recv[key](args…)` on an
@@ -127,7 +127,7 @@ pub(crate) fn dispatch(
     }
     // RFC C4+ — bare call on an `any`-typed callee (`f(1)` where f
     // erased to any) routes to the runtime closure dispatch.
-    if let Some(op) = crate::ssa_lower_any_call::try_lower(ctx, callee, args) {
+    if let Some(op) = crate::ssa_lower_any_call::try_lower(ctx, eid, callee, args) {
         return op;
     }
     // A callee statically KNOWN uncallable (`true()` / `f.length()`)

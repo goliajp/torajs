@@ -77,14 +77,7 @@ pub(crate) fn monomorphize_and_check(c: &mut Checker, ast: &Ast) -> MonoOutput {
         .collect();
     for (call_eid, alt_eid) in demoted {
         owned_ast.exprs[call_eid.0 as usize] = owned_ast.exprs[alt_eid.0 as usize].clone();
-        // The demoted re-check typed the ALT node, so its T-28
-        // trailing-Any pad count landed on alt_eid — but lowering
-        // consults the CALL ExprId it restored the shape at. Carry
-        // it over, or a demoted `d.m()` with missing any-params
-        // reads garbage registers (the struct-method pad miss).
-        if let Some(n) = c.arity_pad_count.get(&alt_eid).copied() {
-            c.arity_pad_count.insert(call_eid, n);
-        }
+        crate::check_monomorph_clone_tables::carry_demoted(c, &mut owned_ast, call_eid, alt_eid);
     }
     let generics = collect_generics(&owned_ast);
     // L3b ③, statement-position half — see `record_stmt_expr_escapes`.

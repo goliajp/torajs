@@ -23,7 +23,7 @@
 //! here — the admit gate excludes them. A retarget that does not name
 //! a lifted clone belongs to the generic lane and is left alone.
 
-use crate::ast::{Expr, ExprId};
+use crate::ast::{Expr, ExprId, source_argc};
 use crate::ssa::{FuncId, InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
@@ -80,8 +80,8 @@ pub(super) fn try_lower(
         || global_variadic_value_binding(ctx, &name)
         || global_fnsig_mismatch_binding(ctx, &name);
     Some(if variadic {
-        let ret_ty = super::slot_ret::ret_face(ctx, eid, user_sig_id);
-        boxed_entry_call(ctx, Operand::Value(env_ptr), target, &mono, args, ret_ty)
+        let ret = super::slot_ret::ret_face(ctx, eid, user_sig_id);
+        boxed_entry_call(ctx, eid, Operand::Value(env_ptr), target, &mono, args, ret)
     } else {
         native_call(ctx, eid, Operand::Value(env_ptr), target, args)
     })
@@ -101,6 +101,7 @@ fn clone_takes_rest(ctx: &LowerCtx<'_>, mono: &str) -> bool {
 /// dispatch's answer is.
 fn boxed_entry_call(
     ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
     env: Operand,
     target: FuncId,
     mono: &str,
@@ -123,7 +124,7 @@ fn boxed_entry_call(
             vec![
                 env,
                 Operand::Value(packed.argv),
-                Operand::ConstI64(args.len() as i64),
+                Operand::ConstI64(source_argc(ctx.ast, eid, args) as i64),
             ],
         ),
         Type::Any,
@@ -154,7 +155,7 @@ fn native_call(
     let user_params = &abi[2..];
     let mut argv: Vec<Operand> = Vec::with_capacity(args.len() + 2);
     argv.push(env);
-    argv.push(Operand::ConstI64(args.len() as i64));
+    argv.push(Operand::ConstI64(source_argc(ctx.ast, eid, args) as i64));
     let mut temps = crate::ssa_lower_call_arg_temps::ArgTemps::new();
     for (i, a) in args.iter().enumerate() {
         let raw = ctx

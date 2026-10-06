@@ -150,7 +150,7 @@ pub(crate) fn try_lower(
                     ctx,
                     Operand::Value(closure_env),
                     user_sig_id,
-                    args,
+                    &args[..crate::ast::source_argc(ctx.ast, eid, args)],
                 ),
             )
         }
@@ -163,7 +163,7 @@ pub(crate) fn try_lower(
                 user_sig_id,
                 args,
                 takes_recv,
-                pad_n,
+                Some(eid),
             ))
         }
         // A field typed Function that holds an Any — a class method
@@ -277,7 +277,7 @@ pub(crate) fn emit_receiver_closure_call(
     args: &[ExprId],
 ) -> Operand {
     // Accessor arity is fixed (getter 0, setter 1) — never pads.
-    emit_closure_call(ctx, recv_op, offset, user_sig_id, args, true, 0)
+    emit_closure_call(ctx, recv_op, offset, user_sig_id, args, true, None)
 }
 
 /// Same `(__env, __this, ...user)` ABI as [`emit_receiver_closure_call`],
@@ -314,10 +314,9 @@ pub(crate) fn emit_closure_call_ops(
     finish_closure_call(ctx, site)
 }
 
-/// The env / fn-ptr loads and the widened ABI signature a closure call
-/// needs, hoisted so both arg lanes (ExprId — which must lower its args
-/// BETWEEN the loads and the call — and pre-lowered Operand) share one
-/// definition of the ABI.
+/// The env / fn-ptr loads and the widened ABI signature a closure call needs, hoisted so
+/// both arg lanes (ExprId — which must lower its args BETWEEN the loads and the call — and
+/// pre-lowered Operand) share one definition of the ABI.
 struct ClosureCallSite {
     fn_ptr: Operand,
     user_params: Vec<Type>,
@@ -326,11 +325,10 @@ struct ClosureCallSite {
     /// Seeded with the fixed leading slots (env, and `__this` when the
     /// callee takes a receiver); the caller appends the user args.
     argv: Vec<Operand>,
-    /// 398-06 — with no static receiver slot (`takes_recv` false) the
-    /// field may still HOLD a promoted closure at runtime, so the call
-    /// runs behind the FLAG_CLOSURE_RECV_FIRST gate: the closure env
-    /// cell (for the header read) plus the method receiver (the
-    /// §13.3.6.2 seed the taken arm boxes).
+    /// 398-06 — with no static receiver slot (`takes_recv` false) the field may still
+    /// HOLD a promoted closure at runtime, so the call runs behind the
+    /// FLAG_CLOSURE_RECV_FIRST gate: the closure env cell (for the header read) plus the
+    /// method receiver (the §13.3.6.2 seed the taken arm boxes).
     recv_gate: Option<(Operand, Operand)>,
 }
 
@@ -450,9 +448,10 @@ fn emit_closure_call(
     user_sig_id: SigId,
     args: &[ExprId],
     takes_recv: bool,
-    pad_n: usize,
+    call: Option<ExprId>,
 ) -> Operand {
-    let mut site = prepare_closure_call(ctx, recv_op, offset, user_sig_id, takes_recv, args.len());
+    let argc = call.map_or(args.len(), |c| crate::ast::source_argc(ctx.ast, c, args));
+    let mut site = prepare_closure_call(ctx, recv_op, offset, user_sig_id, takes_recv, argc);
     let fixed = site.argv.len();
     // Same post-lower cur_block rule as emit_fnsig_call above — a
     // branching arg moves cur_block; the loads dominate the merge.
@@ -479,7 +478,8 @@ fn emit_closure_call(
         args,
         &mut site.argv[fixed..],
     );
-    crate::ssa_lower_call_terminal::pad_undef_n(ctx, pad_n, &mut site.argv);
+    let pad_n = call.and_then(|c| ctx.arity_pad_count.get(&c).copied());
+    crate::ssa_lower_call_terminal::pad_undef_n(ctx, pad_n.unwrap_or(0), &mut site.argv);
     let result = finish_closure_call(ctx, site);
     for (op, ty) in coerce_owned {
         ctx.emit_drop_value(op, ty);
