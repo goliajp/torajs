@@ -7,9 +7,11 @@
 //! the pipeline. This is the multiply-rotate hash rustc uses for its own
 //! tables (FxHash): one rotate, xor and multiply per word.
 //!
-//! Nothing the optimizer emits may depend on a map's iteration order;
-//! with std's per-process random seed that was already the case, and a
-//! fixed hash keeps it so.
+//! Nothing the optimizer emits may depend on a map's iteration order.
+//! The hash is fixed, so a pass that did would still be deterministic,
+//! but its output would change with the hash and with the keys' values;
+//! a pass that walks a map and feeds what it reads back into the same
+//! walk must take its inputs from a snapshot or sort first.
 
 use std::hash::{BuildHasherDefault, Hasher};
 

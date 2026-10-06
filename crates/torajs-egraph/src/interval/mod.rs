@@ -23,6 +23,7 @@
 //! `i <= 1e6` loop-counter shape).
 
 mod cache;
+mod def_shapes;
 mod edge;
 pub(crate) mod elem;
 mod elem_alias;
@@ -44,6 +45,7 @@ use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{Function, InstKind, Module, Operand, Type, ValueId};
 
+use def_shapes::def_shapes;
 use refine::{Constraint, Constraints};
 use torajs_core::ssa::dominator::DominatorTree;
 use transfer::eval_inst;
@@ -203,15 +205,22 @@ pub fn analyze_function_with(
                 moved_elems.push(*root);
             }
         }
-        for (&cell, &new) in &contrib {
-            let old = state.get(&cell).copied().unwrap_or(AbsVal::Bottom);
-            let next = step(old, new, narrowing, round, thresholds);
-            let next = horizon.cap(cell, next, &state);
-            if next != old {
-                state.insert(cell, next);
-                changed = true;
-                moved_cells.push(cell);
-            }
+        // every cell steps from the same state: a counter's cap reads
+        // its init cells, so updating in place would let map order
+        // decide which of them it sees
+        let stepped: Vec<(ValueId, AbsVal)> = contrib
+            .iter()
+            .filter_map(|(&cell, &new)| {
+                let old = state.get(&cell).copied().unwrap_or(AbsVal::Bottom);
+                let next = step(old, new, narrowing, round, thresholds);
+                let next = horizon.cap(cell, next, &state);
+                (next != old).then_some((cell, next))
+            })
+            .collect();
+        for (cell, next) in stepped {
+            state.insert(cell, next);
+            changed = true;
+            moved_cells.push(cell);
         }
 
         match (narrowing, changed, round) {
@@ -243,43 +252,6 @@ pub fn analyze_function_with(
             _ => None,
         })
         .collect()
-}
-
-/// The def shapes: single-def values with their defs (what constraint
-/// pattern-matching reads), the multi-def cells, and per block the
-/// cells it writes (what kills a constraint).
-type DefShapes = (
-    HashMap<ValueId, InstKind>,
-    HashSet<ValueId>,
-    Vec<HashSet<ValueId>>,
-);
-
-fn def_shapes(func: &Function) -> DefShapes {
-    let mut single: HashMap<ValueId, InstKind> = HashMap::default();
-    let mut cells: HashSet<ValueId> = HashSet::default();
-    for block in &func.blocks {
-        for inst in &block.insts {
-            if let Some(r) = inst.result
-                && single.insert(r, inst.kind.clone()).is_some()
-            {
-                cells.insert(r);
-            }
-        }
-    }
-    for v in &cells {
-        single.remove(v);
-    }
-    let mut block_defs: Vec<HashSet<ValueId>> = vec![HashSet::default(); func.blocks.len()];
-    for (bi, block) in func.blocks.iter().enumerate() {
-        for inst in &block.insts {
-            if let Some(r) = inst.result
-                && cells.contains(&r)
-            {
-                block_defs[bi].insert(r);
-            }
-        }
-    }
-    (single, cells, block_defs)
 }
 
 fn opaque_for(ty: Type) -> AbsVal {
