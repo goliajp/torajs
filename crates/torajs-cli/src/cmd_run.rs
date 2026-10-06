@@ -10,7 +10,8 @@
 use std::path::PathBuf;
 use std::process::{Command, ExitCode, Stdio};
 
-use crate::cmd_build::{build_link_config, lower_to_ssa};
+use crate::cmd_build::build_link_config;
+use crate::cmd_build_lower::lower_to_ssa;
 use crate::util::rand_suffix;
 use torajs_link::archive_emit::link_to_exec_with_archives;
 
