@@ -36,61 +36,8 @@
 use std::collections::HashMap;
 
 use crate::ast::{Ast, Expr, ExprId};
-use crate::check::{Checker, Type, resolve_class_ref, substitute_typevars};
+use crate::check::{Checker, Type, substitute_typevars};
 use crate::check_typevar::{typevar_appears_in_iter, unify_typevar};
-
-/// RC-4 — a `Nullable<Array<..>>` arg (exec/match result, chunk 598
-/// retype) decays to its inner Array against an Array-shaped generic
-/// param, mirroring the member/index decay: unification never binds
-/// a TypeVar to a Nullable wrapper. The runtime null stays guarded —
-/// ssa_lower_call_terminal emits `__torajs_arr_null_check` on
-/// nullable-arr args at retargeted call sites.
-fn decay_nullable_arr(param_ty: &Type, arg_ty: Type) -> Type {
-    if matches!(param_ty, Type::Array(_))
-        && let Type::Nullable(inner) = &arg_ty
-        && matches!(**inner, Type::Array(_))
-    {
-        return (**inner).clone();
-    }
-    arg_ty
-}
-
-/// A class instance against a struct-shaped generic param — the
-/// `ClassRef` doc's "dereference at consumer sites" applied to
-/// unification, plus width subtyping over the flattened layout.
-/// `class NumBox extends Box<number>` inherits `get()` as the
-/// generic fn `__cm_Box__get(__this: Box<T>)`: the param resolved
-/// to the parent's Struct shape, and the receiver arrives either as
-/// `ClassRef("NumBox")` (a top-level call) or as an
-/// already-structural `Wide<string>` instantiation (inside a
-/// specialization body, where the receiver param's own substituted
-/// ann resolved). Either way, when the actual is WIDER than the
-/// pattern (a subclass appended its own fields after the flattened
-/// parent prefix), unify only the pattern-width prefix — sound
-/// because a parent method reads only parent slots, and the unify's
-/// own field-NAME check still rejects unrelated shapes.
-fn decay_classref_struct(checker: &Checker, param_ty: &Type, arg_ty: Type) -> Type {
-    let Type::Struct(p_fields) = param_ty else {
-        return arg_ty;
-    };
-    let resolved = match &arg_ty {
-        Type::ClassRef(_) => resolve_class_ref(
-            &arg_ty,
-            &checker.class_structs,
-            &checker.aliases,
-            &checker.generic_alias_decls,
-        ),
-        Type::Struct(_) => arg_ty,
-        _ => return arg_ty,
-    };
-    match resolved {
-        Type::Struct(mut a_fields) if a_fields.len() > p_fields.len() => {
-            a_fields.truncate(p_fields.len());
-            Type::Struct(a_fields)
-        }
-        other => other,
-    }
-}
 
 /// The substitution the call site *stated*, before any is inferred
 /// from the arguments. `new Box<number>()` says what `T` is, and
@@ -122,34 +69,6 @@ fn explicit_type_arg_subst(
         }
     }
     subst
-}
-
-/// The type an argument pins a type PARAMETER to.
-///
-/// An arity hole the default pad wrote (`Ast::arity_hole_args`) pins
-/// `Any`, because the program passed no argument there and the T-28
-/// branch in [`try_match`] already answers that question that way for
-/// the calls it keeps — an absent trailing argument binds `Any` and
-/// pads with ANY_UNDEF. Once the pad started materializing the hole
-/// those two lanes disagreed: `function f(x, _ = 0)` called `f()`
-/// bound `x`'s implicit typevar to `Any` before the pad could reach
-/// the default behind the hole and to `Undefined` after, and an
-/// `Undefined`-typed `x` then failed to unify at any generic call
-/// taking it beside another type (`sameValue(x, 2)`) — reported by
-/// the lowerer as "unknown function", since a call the checker could
-/// not infer gets no monomorph retarget.
-///
-/// Only the UNIFICATION answer moves. The hole's expression type
-/// stays `Undefined`, which is what the call-arg conversion reads to
-/// box ANY_UNDEF into the slot; typing the expression itself `Any`
-/// handed the callee a raw null instead (`m()` on `m(x, y = 5)`
-/// printed `null`).
-fn unification_ty(ast: &Ast, arg_id: ExprId, arg_ty: Type) -> Type {
-    if ast.arity_hole_args.contains(&arg_id) {
-        Type::Any
-    } else {
-        arg_ty
-    }
 }
 
 pub(crate) fn try_match(
@@ -229,9 +148,7 @@ pub(crate) fn try_match(
                         Ok(t) => t,
                         Err(e) => return Some(Err(e)),
                     };
-                    let arg_ty = decay_nullable_arr(param_ty, arg_ty);
-                    let arg_ty = decay_classref_struct(checker, param_ty, arg_ty);
-                    let arg_ty = unification_ty(ast, *arg_id, arg_ty);
+                    let arg_ty = arg::unify_view(checker, ast, param_ty, None, *arg_id, arg_ty);
                     if let Err(e) = unify_typevar(param_ty, &arg_ty, &mut subst, &ast.class_parents)
                     {
                         return Some(Err(format!("argument {i} to `{name}`: {e}")));
@@ -283,15 +200,7 @@ pub(crate) fn try_match(
                 Ok(t) => t,
                 Err(e) => return Some(Err(e)),
             };
-            // a type argument written out (or bound by an earlier
-            // argument) is the declared type a literal is stored in
-            let declared = substitute_typevars(param_ty, &subst);
-            let arg_ty = crate::check_assignable::in_declared_order(
-                checker, ast, &declared, *arg_id, arg_ty,
-            );
-            let arg_ty = decay_nullable_arr(param_ty, arg_ty);
-            let arg_ty = decay_classref_struct(checker, param_ty, arg_ty);
-            let arg_ty = unification_ty(ast, *arg_id, arg_ty);
+            let arg_ty = arg::unify_view(checker, ast, param_ty, Some(&subst), *arg_id, arg_ty);
             if let Err(e) = unify_typevar(param_ty, &arg_ty, &mut subst, &ast.class_parents) {
                 return Some(Err(format!("argument {i} to `{name}`: {e}")));
             }
@@ -339,3 +248,5 @@ pub(crate) fn try_match(
     }
     None
 }
+
+mod arg;

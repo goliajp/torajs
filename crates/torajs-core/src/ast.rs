@@ -139,6 +139,7 @@ mod desugar_generators_sm_loops;
 mod desugar_generators_sm_return;
 mod desugar_generators_sm_rewrite;
 mod desugar_generators_sm_try;
+mod desugar_generators_sm_yield;
 mod desugar_generators_tdz;
 mod desugar_generators_tdz_flag;
 mod desugar_generators_walkers;

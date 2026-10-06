@@ -1165,7 +1165,7 @@ pub struct Ast {
     /// so that IS the value; what the program did not do is pass an
     /// argument, and the checker already has an answer for what an
     /// absent argument pins a type parameter to — the T-28 lane binds
-    /// `Any` (`check_type_of_call_generic_ident::unification_ty`
+    /// `Any` (`check_type_of_call_generic_ident::arg::unification_ty`
     /// carries it to the padded calls, which is the only reader).
     /// Padded DEFAULTS are not in here: `0` is a value the program
     /// wrote and the parameter is typed from it. Monomorph clones
