@@ -56,6 +56,7 @@ pub mod merge_sroa;
 pub mod null_check_fold;
 pub mod optimize;
 pub mod optimize_licm;
+mod pass_timer;
 pub mod phi_promote;
 pub mod phi_thread;
 mod pipeline_head;
@@ -123,7 +124,7 @@ fn gated_pass<S: std::fmt::Debug>(
     if std::env::var(format!("TORAJS_{key}_OFF")).as_deref() == Ok("1") {
         return None;
     }
-    let stats = pass(module);
+    let stats = pass_timer::timed(key, || pass(module));
     if std::env::var(format!("TORAJS_{key}_STATS")).as_deref() == Ok("1") {
         let label = key.to_lowercase().replace('_', "-");
         eprintln!("torajs-{label}-stats: {stats:?}");
@@ -216,8 +217,9 @@ pub fn transform_module(mut module: Module) -> Module {
     if std::env::var("TORAJS_EGRAPH_OFF").as_deref() == Ok("1") {
         return module;
     }
+    pass_timer::arm();
     pipeline_head::inline_and_forward(&mut module);
-    egraph_functions(&mut module);
+    pass_timer::timed("EGRAPH", || egraph_functions(&mut module));
     dump_after("EGRAPH", &module);
     // Full mem2reg φ promotion — loop-carried / join-slot cells the
     // earlier passes left behind. AFTER the egraph pass (GVN /
@@ -253,7 +255,8 @@ pub fn transform_module(mut module: Module) -> Module {
     // canonical shape. Feeds float demotion below and seeds sext_elide
     // R2 with loop cells provably inside i32 range (the popcount
     // residual-pair case). `TORAJS_INTERVAL_OFF=1` skips (bisect gate).
-    let (mut interval_facts, fact_cache) = interval::run::analyze_gated(&module);
+    let (mut interval_facts, fact_cache) =
+        pass_timer::timed("INTERVAL", || interval::run::analyze_gated(&module));
     // Loop sums take their add-recurrence bound before float_demote
     // reads the facts: one the bound keeps inside ±2^53 demotes with
     // no window check. `TORAJS_SUM_FACTS_OFF=1` skips.
@@ -282,7 +285,9 @@ pub fn transform_module(mut module: Module) -> Module {
     // GVN). After float_demote (its FRem→SRem output is the feeder).
     // `TORAJS_SREM_PARITY_OFF=1` skips (bisect gate).
     gated_pass("SREM_PARITY", &mut module, srem_parity::reduce_parity_srems);
-    let sext_seeds = sext_seeds(&module, interval_facts.as_deref());
+    let sext_seeds = pass_timer::timed("SEXT_SEEDS", || {
+        sext_seeds(&module, interval_facts.as_deref())
+    });
     // Redundant ToInt32 sext-pair elimination — after phi_promote so
     // it sees the final canonical shape (loop cells as multi-def Copy,
     // unknown to its own one-pass lattice but seedable from the

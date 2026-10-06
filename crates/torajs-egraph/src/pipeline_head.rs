@@ -5,14 +5,15 @@ use crate::fresh_cell::FreshCellStats;
 use crate::mem2reg::Mem2RegStats;
 use crate::slot_forward::SlotForwardStats;
 use crate::{
-    devirt, frame_cell_clean, fresh_cell, gated_pass, heap_to_stack, inliner, mem2reg, slot_forward,
+    devirt, frame_cell_clean, fresh_cell, gated_pass, heap_to_stack, inliner, mem2reg, pass_timer,
+    slot_forward,
 };
 
 /// What the egraph pass eats: callees inlined (a second round after
 /// devirt turns fn-pointer calls direct), then the param round-trips
 /// that splices leave forwarded and promoted.
 pub(crate) fn inline_and_forward(module: &mut Module) {
-    let inliner_stats = inliner::inline_module(module);
+    let inliner_stats = pass_timer::timed("INLINER", || inliner::inline_module(module));
     // TORAJS_INLINER_STATS=1 — dump per-compile inliner decision
     // counters to stderr for fire-rate attribution (which SkipReason
     // bucket holds the production call sites a given corpus exposes).
@@ -26,7 +27,7 @@ pub(crate) fn inline_and_forward(module: &mut Module) {
     if let Some(devirt_stats) = gated_pass("DEVIRT", module, devirt::devirtualize_module)
         && devirt_stats.rewritten > 0
     {
-        let round2 = inliner::inline_module(module);
+        let round2 = pass_timer::timed("INLINER", || inliner::inline_module(module));
         if std::env::var("TORAJS_INLINER_STATS").as_deref() == Ok("1") {
             eprintln!("torajs-inliner-stats-round2: {round2:?}");
         }
