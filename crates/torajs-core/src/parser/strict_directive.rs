@@ -260,7 +260,7 @@ impl Parser<'_> {
     /// The cooked value of `s` when it is an expression statement
     /// holding a string literal — i.e. a directive, as far as the
     /// prologue grammar is concerned.
-    fn directive_value(&self, s: &Stmt) -> Option<&str> {
+    pub(super) fn directive_value(&self, s: &Stmt) -> Option<&str> {
         let Stmt::Expr(id) = s else { return None };
         match self.ast.exprs.get(id.0 as usize) {
             Some(Expr::String(v)) => v.as_str(),

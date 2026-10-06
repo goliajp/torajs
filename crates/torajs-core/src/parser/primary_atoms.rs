@@ -279,36 +279,35 @@ impl<'a> Parser<'a> {
             .map(|t| matches!(t.token, Token::FatArrow))
             .unwrap_or(false)
             && !self.has_newline_before(pos + 1);
-        if next_is_arrow && let Some(n) = self.in_non_lexical_position(|p| p.pattern_binding_name())
+        if next_is_arrow
+            && let Some(pname) = self.in_non_lexical_position(|p| p.pattern_binding_name())
         {
-            {
-                let pname = n;
-                self.pos += 2; /* consume Ident + FatArrow */
-                // §15.3 — a non-async ArrowFunction's body is
-                // [~Await], the same context `parse_arrow_fn` gives
-                // the parenthesized form. Without it `await => await
-                // + 1` read its own parameter as an AwaitExpression
-                // and answered 1 for every argument.
-                let saved_await = std::mem::replace(&mut self.await_allowed, false);
-                let saved_await_res = std::mem::replace(&mut self.await_reserved, false);
-                let body_result = self.parse_bare_arrow_body();
-                self.await_allowed = saved_await;
-                self.await_reserved = saved_await_res;
-                let body = body_result?;
-                return Ok(Some(self.add_expr_at(
-                    pos,
-                    Expr::ArrowFn {
-                        params: vec![Param {
-                            name: pname,
-                            type_ann: None,
-                            default: None,
-                            is_rest: false,
-                        }],
-                        return_type: None,
-                        body,
-                    },
-                )));
-            }
+            self.pos += 2; /* consume Ident + FatArrow */
+            // §15.3 — a non-async ArrowFunction's body is
+            // [~Await], the same context `parse_arrow_fn` gives
+            // the parenthesized form. Without it `await => await
+            // + 1` read its own parameter as an AwaitExpression
+            // and answered 1 for every argument.
+            let saved_await = std::mem::replace(&mut self.await_allowed, false);
+            let saved_await_res = std::mem::replace(&mut self.await_reserved, false);
+            let body_result = self.parse_bare_arrow_body();
+            self.await_allowed = saved_await;
+            self.await_reserved = saved_await_res;
+            let body = body_result?;
+            self.judge_bare_arrow_param(&pname, &body)?;
+            return Ok(Some(self.add_expr_at(
+                pos,
+                Expr::ArrowFn {
+                    params: vec![Param {
+                        name: pname,
+                        type_ann: None,
+                        default: None,
+                        is_rest: false,
+                    }],
+                    return_type: None,
+                    body,
+                },
+            )));
         }
         Ok(None)
     }

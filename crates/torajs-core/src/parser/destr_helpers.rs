@@ -177,13 +177,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub(super) fn parse_destr_param(&mut self, lets: &mut Vec<Stmt>) -> Result<String, String> {
-        let id = self.mint_desugar_id();
-        let synth = format!("__param_destr_{id}");
-        self.parse_destr_into(synth.clone(), lets)?;
-        Ok(synth)
-    }
-
     /// P-PARSE.2 — recursive split for destructuring patterns of any
     /// nesting depth. Each leaf binding emits a
     /// `let leaf = <src>[i]` (array) or `let leaf = <src>.<field>`
