@@ -272,7 +272,9 @@ pub(super) fn collect_symbol_replace_face(
 ///   face is argument 1 and the receiver is anything.
 /// * `Object.defineProperty(o, k, { get: face, set: face })` — the
 ///   descriptor must be an INLINE object literal; a variable-routed
-///   descriptor aliases its faces (knife 2).
+///   descriptor aliases its faces (knife 2). `Reflect.defineProperty`
+///   is the same descriptor in the same position (§28.1.2 calls the
+///   same [[DefineOwnProperty]]), so its faces are claimed alike.
 /// * `Object.defineProperties(o, { k: { get: face } })` /
 ///   `Object.create(proto, { k: { get: face } })` — the nested
 ///   descriptor-of-descriptors form (knife 5). Both layers must be
@@ -280,7 +282,7 @@ pub(super) fn collect_symbol_replace_face(
 ///   same narrow-surface bar the flat descriptor carries.
 ///
 /// The two `Object.*` families answer nothing when the receiver is
-/// not the `Object` ident, which is what the guard did in the
+/// not the `Object` ident (`Reflect` only for `defineProperty`), which is what the guard did in the
 /// cascade: no later arm matches these member names, so declining
 /// here and ending the walk are the same thing.
 #[allow(clippy::too_many_arguments)]
@@ -304,14 +306,18 @@ pub(super) fn collect_property_definition_face(
         }
         return;
     }
-    if !matches!(&exprs[obj.0 as usize], Expr::Ident(n) if n == "Object") {
-        return;
-    }
+    let ns = match &exprs[obj.0 as usize] {
+        Expr::Ident(n) if n == "Object" || n == "Reflect" => n.as_str(),
+        _ => return,
+    };
     if name == "defineProperty" {
         let Some(&desc) = args.get(2) else { return };
         for face in literal_desc_faces(exprs, desc) {
             take(face, patches, ident_cands);
         }
+        return;
+    }
+    if ns == "Reflect" {
         return;
     }
     let Some(&props) = args.get(1) else { return };

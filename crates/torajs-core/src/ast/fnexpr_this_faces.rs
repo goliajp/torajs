@@ -115,6 +115,20 @@ pub(super) fn literal_desc_faces(exprs: &[Expr], desc: ExprId) -> Vec<ExprId> {
         .collect()
 }
 
+/// Where a receiver `__this` param goes in a lifted fn-expr's head.
+/// The boxed-entry adapter reads the head as `[__env?, __torajs_argv?,
+/// __this?]`: a body that took the argv face before its receiver was
+/// stamped must keep the argv slot ahead of the receiver, or the
+/// adapter reads it as a user param and the body derefs a boxed value
+/// as the argv pointer (SIGSEGV).
+pub(super) fn recv_param_at(params: &[super::Param]) -> usize {
+    let mut at = usize::from(params.first().is_some_and(|q| q.name == "__env"));
+    while params.get(at).is_some_and(|q| q.name == "__torajs_argv") {
+        at += 1;
+    }
+    at
+}
+
 /// Promote each `(closure eid, lifted fn name)` to the receiver-first
 /// any shape: `__this` leaves the capture list (it is a receiver, not
 /// a capture — mirror of `objlit_nominal::apply_patches`), the lifted
@@ -164,20 +178,8 @@ pub(crate) fn promote_recv_any(
                 // re-anns to `any` (typeof / member reads go dynamic).
                 t.type_ann = Some("any".to_string());
             } else {
-                // The boxed-entry adapter reads the head as
-                // `[__env?, __torajs_argv?, __this?]` (RFC 20260808
-                // knife 2's recv-slot shape) — an argv-face body
-                // promoted here AFTER the arguments pass must keep
-                // its argv slot ahead of the receiver, or the
-                // adapter reads it as a user param and the body
-                // derefs a boxed value as the argv pointer (probe:
-                // SIGSEGV).
-                let mut at = usize::from(params.first().is_some_and(|q| q.name == "__env"));
-                while params.get(at).is_some_and(|q| q.name == "__torajs_argv") {
-                    at += 1;
-                }
                 params.insert(
-                    at,
+                    recv_param_at(params),
                     Param {
                         name: "__this".to_string(),
                         type_ann: Some("any".to_string()),

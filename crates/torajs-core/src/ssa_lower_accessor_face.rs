@@ -106,6 +106,13 @@ pub(crate) fn lower_accessor_face(ctx: &mut LowerCtx, eid: ExprId, is_get: bool)
     {
         return (op, 5 | 0x40);
     }
+    // A fn-expr face on the argv face carries the hidden argv slot in
+    // its native signature; only the boxed dual entry fills it.
+    if let crate::ast::Expr::Closure { fn_name, .. } = ctx.ast.get_expr(eid)
+        && ctx.ast.closure_argv_fns.contains(fn_name)
+    {
+        return (op, 5);
+    }
     // Knife 2 — a variable-routed fn-expr face: the AST pass recorded
     // the exact face ExprId (single-use const binding, so no other
     // call path exists). The Ident borrow still takes its own stake

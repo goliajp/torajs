@@ -333,9 +333,8 @@ pub(super) fn apply_patches(
                 env.type_ann = Some(format!("__env({})", caps.join("|")));
             }
             if !params.iter().any(|q| q.name == "__this") {
-                let at = usize::from(params.first().is_some_and(|q| q.name == "__env"));
                 params.insert(
-                    at,
+                    super::fnexpr_this_faces::recv_param_at(params),
                     Param {
                         name: "__this".to_string(),
                         // The NOMINAL alias — same shape as a class
