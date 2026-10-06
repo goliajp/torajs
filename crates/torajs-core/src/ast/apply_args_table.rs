@@ -2,7 +2,7 @@
 //! leading params are hidden, and each FnDecl's paddable default list.
 //! Moved out of `apply_args.rs` (file-size limit).
 
-use super::{Ast, ExprId, Param, Stmt};
+use super::{Ast, Expr, ExprId, Param, Stmt};
 use std::collections::HashMap;
 
 /// Peel a FnDecl's hidden leading params, leaving the user-facing ones.
@@ -45,13 +45,34 @@ pub(crate) fn collect_fn_defaults(ast: &Ast) -> HashMap<String, Vec<Option<ExprI
     let mut fn_defaults: HashMap<String, Vec<Option<ExprId>>> = HashMap::new();
     for s in &ast.stmts {
         if let Stmt::FnDecl { name, params, .. } = s {
-            let user_params: &[Param] = peel_hidden_params(params);
+            let mut user_params: &[Param] = peel_hidden_params(params);
+            // A closure on the argv face leads its user params with the
+            // synthetic argv pointer, and every call reaches it through
+            // the boxed entry, which reads a missing slot as undefined.
+            // Padding it with `undefined` (a moved default's pad) would
+            // only change `arguments.length`; a default still evaluated
+            // at the call site keeps its pad, one slot past the pointer.
+            if let Some((head, rest)) = user_params.split_first()
+                && head.name == "__torajs_argv"
+            {
+                if rest
+                    .iter()
+                    .all(|p| p.default.is_none_or(|d| is_undefined(ast, d)))
+                {
+                    continue;
+                }
+                user_params = rest;
+            }
             if user_params.iter().any(|p| p.default.is_some()) {
                 fn_defaults.insert(name.clone(), paddable_defaults(user_params));
             }
         }
     }
     fn_defaults
+}
+
+fn is_undefined(ast: &Ast, d: ExprId) -> bool {
+    matches!(ast.get_expr(d), Expr::Ident(n) if n == "undefined")
 }
 
 /// The paddable slots of a user-param list: the fixed prefix, with a
