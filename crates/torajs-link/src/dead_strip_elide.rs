@@ -164,13 +164,15 @@ pub(crate) struct Assumed {
 /// Run the fix-point over `cfg.elidable_sites` + `cfg.guarded_stubs` +
 /// the twin column; answer the assumed shape (sites rewritten,
 /// surviving stubs appended, column dropped) when any of it
-/// survived, `None` when nothing changes.
+/// survived, `None` when nothing changes. The reachability of that
+/// shape comes along when the last probe computed it, so the strip
+/// does not walk the same closure again.
 pub(crate) fn judge_and_patch<'a>(
     cfg: &LinkConfig,
     merged: &MergedArchives<'a>,
     extra_defined_syms: &BTreeSet<String>,
     cache: &mut ReachCache<'a>,
-) -> Result<Option<Assumed>, String> {
+) -> Result<Option<(Assumed, Option<ReachResult<'a>>)>, String> {
     let present = columns_present(&cfg.class_layouts);
     if (cfg.elidable_sites.is_empty() && cfg.guarded_stubs.is_empty() && !present.any())
         || std::env::var_os("TORAJS_LINK_ELIDE").is_some_and(|v| v == "0")
@@ -189,7 +191,7 @@ pub(crate) fn judge_and_patch<'a>(
     // rooted) — and a page-line away from costing a whole page.
     let mut referenced: Vec<bool> = vec![true; cfg.guarded_stubs.len()];
     let mut t = PhaseTimer::start(3);
-    loop {
+    let last = loop {
         let assumed = assume(cfg, &elided, &applied, dropped, diag)?;
         t.tick("elide_assume");
         let required =
@@ -261,52 +263,72 @@ pub(crate) fn judge_and_patch<'a>(
                     || reach.user_refs.contains(&stub.sym)
                     || fn_named.contains(stub.sym.as_str());
             }
-            break;
+            break reach;
         }
-    }
+    };
+    // the last probe assumed exactly the final shape unless an applied
+    // stub drops out below; with diag its closure also carries preds
+    let last = (!diag && !applied.iter().zip(&referenced).any(|(a, r)| *a && !*r)).then_some(last);
     for (a, r) in applied.iter_mut().zip(&referenced) {
         *a = *a && *r;
     }
 
     if diag {
-        for (site, &e) in cfg.elidable_sites.iter().zip(&elided) {
-            eprintln!(
-                "elide: {}{} guard={} -> {}",
-                site.func,
-                site.shape,
-                site.guard,
-                if e { "ELIDED" } else { "KEPT" }
-            );
-        }
-        for ((stub, &a), &r) in cfg.guarded_stubs.iter().zip(&applied).zip(&referenced) {
-            eprintln!(
-                "stub: {} guard={} -> {}",
-                stub.sym,
-                stub.guard,
-                match (a, r) {
-                    (true, _) => "APPLIED",
-                    (false, false) => "UNREFERENCED",
-                    (false, true) => "DROPPED",
-                }
-            );
-        }
-        if present.twin {
-            eprintln!(
-                "twin-column: guard={twin_guard} -> {}",
-                if dropped.twin { "DROPPED" } else { "KEPT" }
-            );
-        }
-        if present.adapter {
-            eprintln!(
-                "adapter-column: guard={adapter_guard} -> {}",
-                if dropped.adapter { "DROPPED" } else { "KEPT" }
-            );
-        }
+        print_verdicts(cfg, &elided, &applied, &referenced, present, dropped);
     }
     if !elided.iter().any(|&e| e) && !applied.iter().any(|&a| a) && !dropped.any() {
         return Ok(None);
     }
-    Ok(Some(assume(cfg, &elided, &applied, dropped, false)?))
+    Ok(Some((
+        assume(cfg, &elided, &applied, dropped, false)?,
+        last,
+    )))
+}
+
+/// `TORAJS_LINK_ELIDE_DIAG`: what the judgment decided for each site,
+/// stub and column.
+fn print_verdicts(
+    cfg: &LinkConfig,
+    elided: &[bool],
+    applied: &[bool],
+    referenced: &[bool],
+    present: Columns,
+    dropped: Columns,
+) {
+    let (twin_guard, adapter_guard) = (Columns::twin_guard(), Columns::adapter_guard());
+    for (site, &e) in cfg.elidable_sites.iter().zip(elided) {
+        eprintln!(
+            "elide: {}{} guard={} -> {}",
+            site.func,
+            site.shape,
+            site.guard,
+            if e { "ELIDED" } else { "KEPT" }
+        );
+    }
+    for ((stub, &a), &r) in cfg.guarded_stubs.iter().zip(applied).zip(referenced) {
+        eprintln!(
+            "stub: {} guard={} -> {}",
+            stub.sym,
+            stub.guard,
+            match (a, r) {
+                (true, _) => "APPLIED",
+                (false, false) => "UNREFERENCED",
+                (false, true) => "DROPPED",
+            }
+        );
+    }
+    if present.twin {
+        eprintln!(
+            "twin-column: guard={twin_guard} -> {}",
+            if dropped.twin { "DROPPED" } else { "KEPT" }
+        );
+    }
+    if present.adapter {
+        eprintln!(
+            "adapter-column: guard={adapter_guard} -> {}",
+            if dropped.adapter { "DROPPED" } else { "KEPT" }
+        );
+    }
 }
 
 /// The user fn list with the chosen shapes assumed: elided sites

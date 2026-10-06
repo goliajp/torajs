@@ -64,8 +64,9 @@ pub(crate) fn strip_archives<'a>(
 ) -> Result<StripOutput, String> {
     let mut t = PhaseTimer::start(2);
     let extra = collect_extra_defined_syms(cfg);
-    let assumed = crate::dead_strip_elide::judge_and_patch(cfg, merged, &extra, cache)?;
+    let judged = crate::dead_strip_elide::judge_and_patch(cfg, merged, &extra, cache)?;
     t.tick("elide_judge_and_patch");
+    let (assumed, probed) = judged.map_or((None, None), |(a, c)| (Some(a), c));
     let patched_cfg;
     let cfg = match &assumed {
         Some(a) => {
@@ -85,12 +86,17 @@ pub(crate) fn strip_archives<'a>(
         }
         None => cfg,
     };
-    let required = compute_required_members_cached(&cfg.funcs, merged, &extra, cache)
-        .map_err(|e| format!("member closure: {e:?}"))?;
-    // probes=None always: the CUT/CUT_IN what-ifs are diag-only
-    // pricing probes and must never shape emitted bytes.
-    t.tick("required_members");
-    let reach = compute_reachability(cfg, merged, &required, &extra, false, None, cache)?;
+    let reach = match probed {
+        Some(reach) => reach,
+        None => {
+            let required = compute_required_members_cached(&cfg.funcs, merged, &extra, cache)
+                .map_err(|e| format!("member closure: {e:?}"))?;
+            // probes=None always: the CUT/CUT_IN what-ifs are diag-only
+            // pricing probes and must never shape emitted bytes.
+            t.tick("required_members");
+            compute_reachability(cfg, merged, &required, &extra, false, None, cache)?
+        }
+    };
     t.tick("reachability");
 
     let mut members = StrippedMembers::new();
