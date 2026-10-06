@@ -26,9 +26,8 @@
 use std::collections::BTreeSet;
 
 use crate::archive_link_extra_syms::collect_extra_defined_syms;
-use crate::archives_merge::{
-    MergedArchives, RequiredMembers, compute_required_members, parse_member_undef_externs,
-};
+use crate::archives_merge::{MergedArchives, RequiredMembers, compute_required_members_cached};
+use crate::dead_strip_reach_cache::ReachCache;
 use crate::exec::LinkConfig;
 use crate::layout_types::ArchiveLayoutError;
 
@@ -47,27 +46,30 @@ const CLASS_NAMES_SYMS: [&str; 2] = ["___torajs_class_name_table", "___torajs_n_
 /// a 16 KiB segment). `None` when nothing changes. Also answers the
 /// member closure it walked when that is also the closure of the
 /// config the caller links next (the derived one, or `cfg`).
-pub(crate) fn derive_force_emit(
+pub(crate) fn derive_force_emit<'a>(
     cfg: &LinkConfig,
-    merged: &MergedArchives<'_>,
+    merged: &MergedArchives<'a>,
+    cache: &mut ReachCache<'a>,
 ) -> Result<(Option<LinkConfig>, Option<RequiredMembers>), ArchiveLayoutError> {
     let set = table_state(cfg);
     if set == (false, false, false) {
         return Ok((None, None));
     }
     let extra = collect_extra_defined_syms(cfg);
-    let required =
-        compute_required_members(&cfg.funcs, merged, &extra).map_err(ArchiveLayoutError::Link)?;
-    let mut undefs: BTreeSet<String> = BTreeSet::new();
+    let required = compute_required_members_cached(&cfg.funcs, merged, &extra, cache)
+        .map_err(ArchiveLayoutError::Link)?;
+    let mut undefs: BTreeSet<&str> = BTreeSet::new();
     for &(a, m) in &required.members {
         let member = &merged.per_archive_members[a][m];
         let names =
-            parse_member_undef_externs(member).map_err(|err| ArchiveLayoutError::MemberSymtab {
-                archive_idx: a,
-                member_idx: m,
-                err,
-            })?;
-        undefs.extend(names);
+            cache
+                .undef_externs(member)
+                .map_err(|err| ArchiveLayoutError::MemberSymtab {
+                    archive_idx: a,
+                    member_idx: m,
+                    err,
+                })?;
+        undefs.extend(names.iter());
     }
     let keep = derive_flags(set, &undefs);
     if keep == set {
@@ -104,8 +106,8 @@ fn table_state(cfg: &LinkConfig) -> (bool, bool, bool) {
 
 /// A table survives iff one of its symbols is among the undefs the
 /// required members still carry.
-fn derive_flags(set: (bool, bool, bool), undefs: &BTreeSet<String>) -> (bool, bool, bool) {
-    let referenced = |syms: &[&str]| syms.iter().any(|s| undefs.contains(*s));
+fn derive_flags(set: (bool, bool, bool), undefs: &BTreeSet<&str>) -> (bool, bool, bool) {
+    let referenced = |syms: &[&str]| syms.iter().any(|s| undefs.contains(s));
     (
         set.0 && referenced(&CLASS_LAYOUTS_SYMS),
         set.1 && referenced(&FN_NAME_SYMS),
@@ -117,8 +119,8 @@ fn derive_flags(set: (bool, bool, bool), undefs: &BTreeSet<String>) -> (bool, bo
 mod tests {
     use super::*;
 
-    fn set(names: &[&str]) -> BTreeSet<String> {
-        names.iter().map(|s| (*s).to_string()).collect()
+    fn set<'a>(names: &[&'a str]) -> BTreeSet<&'a str> {
+        names.iter().copied().collect()
     }
 
     #[test]

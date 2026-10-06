@@ -67,11 +67,12 @@ use std::collections::BTreeSet;
 use torajs_codegen::CompiledFunction;
 use torajs_codegen::frame::FrameLayout;
 
-use crate::archives_merge::{MergedArchives, compute_required_members};
+use crate::archives_merge::{MergedArchives, compute_required_members_cached};
 use crate::dead_strip_elide_columns::{Columns, columns_present, without_columns};
 use crate::dead_strip_elide_guard::guard_live;
 use crate::dead_strip_elide_patch::{patch_site, site_drops_user_ref};
 use crate::dead_strip_reach::{ReachResult, compute_reachability};
+use crate::dead_strip_reach_cache::ReachCache;
 use crate::exec::{LinkConfig, UserClassLayoutEntry, UserFnNameEntry};
 use crate::phase_timer::PhaseTimer;
 use crate::user_gc;
@@ -164,10 +165,11 @@ pub(crate) struct Assumed {
 /// the twin column; answer the assumed shape (sites rewritten,
 /// surviving stubs appended, column dropped) when any of it
 /// survived, `None` when nothing changes.
-pub(crate) fn judge_and_patch(
+pub(crate) fn judge_and_patch<'a>(
     cfg: &LinkConfig,
-    merged: &MergedArchives<'_>,
+    merged: &MergedArchives<'a>,
     extra_defined_syms: &BTreeSet<String>,
+    cache: &mut ReachCache<'a>,
 ) -> Result<Option<Assumed>, String> {
     let present = columns_present(&cfg.class_layouts);
     if (cfg.elidable_sites.is_empty() && cfg.guarded_stubs.is_empty() && !present.any())
@@ -190,8 +192,9 @@ pub(crate) fn judge_and_patch(
     loop {
         let assumed = assume(cfg, &elided, &applied, dropped, diag)?;
         t.tick("elide_assume");
-        let required = compute_required_members(&assumed.funcs, merged, extra_defined_syms)
-            .map_err(|e| format!("member closure (elide probe): {e:?}"))?;
+        let required =
+            compute_required_members_cached(&assumed.funcs, merged, extra_defined_syms, cache)
+                .map_err(|e| format!("member closure (elide probe): {e:?}"))?;
         t.tick("elide_required");
         let probe_cfg = LinkConfig {
             funcs: assumed.funcs,
@@ -211,6 +214,7 @@ pub(crate) fn judge_and_patch(
             extra_defined_syms,
             diag,
             None,
+            cache,
         )?;
         t.tick("elide_reach");
         let mut changed = false;

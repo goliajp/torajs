@@ -12,6 +12,7 @@ use crate::class_name_table_layout::{
 };
 use crate::data_section_emit::write_data_non_text_file_payloads;
 use crate::data_section_layout::DataSectionLayout;
+use crate::dead_strip_reach_cache::ReachCache;
 use crate::dead_strip_repack::{DeadRows, StrippedMembers, swap_in_stripped};
 use crate::defined_extern_resolve::section_vaddr_for_sym;
 use crate::dyld_emit::{write_la_ptr_section, write_stubs_section};
@@ -59,9 +60,10 @@ fn is_allocator_shim_sym(name: &str) -> bool {
 /// `LC_SYMTAB`) and the rewritten member bodies, which the caller
 /// swaps into `merged` — the returned config's `archives` stay the
 /// unstripped inputs. `None` = link the caller's config as is.
-fn dead_strip_prepass(
+fn dead_strip_prepass<'a>(
     cfg: &LinkConfig,
-    merged: &MergedArchives<'_>,
+    merged: &MergedArchives<'a>,
+    cache: &mut ReachCache<'a>,
 ) -> Result<Option<(LinkConfig, DeadRows, StrippedMembers)>, ArchiveLayoutError> {
     let enabled = match std::env::var_os("TORAJS_LINK_DEADSTRIP") {
         Some(v) if v == "0" => false,
@@ -71,7 +73,7 @@ fn dead_strip_prepass(
     if !enabled {
         return Ok(None);
     }
-    let out = crate::dead_strip_repack::strip_archives(cfg, merged)
+    let out = crate::dead_strip_repack::strip_archives(cfg, merged, cache)
         .map_err(ArchiveLayoutError::DeadStrip)?;
     if out.members.is_empty()
         && out.funcs.is_none()
@@ -104,10 +106,13 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
     let mut t = PhaseTimer::start(1);
     let mut merged = merge_archive_indexes(&cfg.image).map_err(ArchiveLayoutError::Merge)?;
     t.tick("merge_archive_indexes");
-    let (stripped_cfg, dead_rows, stripped_members) = match dead_strip_prepass(cfg, &merged)? {
-        Some((c, dead, members)) => (Some(c), dead, members),
-        None => (None, DeadRows::new(), StrippedMembers::new()),
-    };
+    // one parse per member body for every closure walk of this link
+    let mut cache = ReachCache::default();
+    let (stripped_cfg, dead_rows, stripped_members) =
+        match dead_strip_prepass(cfg, &merged, &mut cache)? {
+            Some((c, dead, members)) => (Some(c), dead, members),
+            None => (None, DeadRows::new(), StrippedMembers::new()),
+        };
     t.tick("dead_strip_prepass");
     swap_in_stripped(&mut merged, &stripped_members).map_err(ArchiveLayoutError::DeadStrip)?;
     t.tick("swap_in_stripped");
@@ -117,13 +122,13 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
     // readers all died drops, and an empty `__DATA_CONST` with it
     // (module doc in force_emit_derive).
     let (derived_cfg, required) = match &stripped_cfg {
-        Some(c) => crate::force_emit_derive::derive_force_emit(c, &merged)?,
+        Some(c) => crate::force_emit_derive::derive_force_emit(c, &merged, &mut cache)?,
         None => (None, None),
     };
     let cfg = derived_cfg.as_ref().unwrap_or(cfg);
     t.tick("derive_force_emit");
     let mut layout = crate::archive_link::compute_archive_layout_with_required(
-        cfg, &merged, &dead_rows, required,
+        cfg, &merged, &dead_rows, required, &mut cache,
     )?;
     t.tick("compute_archive_layout");
 

@@ -21,6 +21,7 @@ use torajs_obj::{LC_SYMTAB, MH_MAGIC_64, N_EXT, N_TYPE, N_UNDF};
 use torajs_rtimage::image::{Image, ImageError};
 
 use crate::archive::{ArMember, MemberSymtabError};
+use crate::dead_strip_reach_cache::ReachCache;
 
 /// One entry in a `MergedArchives` global lookup. Tells the link
 /// driver *which* archive owns the symbol, *which* `.o` member
@@ -158,6 +159,18 @@ pub fn compute_required_members(
     merged: &MergedArchives<'_>,
     extra_defined_syms: &BTreeSet<String>,
 ) -> Result<RequiredMembers, ArchiveLinkError> {
+    let mut cache = ReachCache::default();
+    compute_required_members_cached(user_funcs, merged, extra_defined_syms, &mut cache)
+}
+
+/// [`compute_required_members`] reading each member's undef names
+/// through the link's `cache`.
+pub(crate) fn compute_required_members_cached<'a>(
+    user_funcs: &[CompiledFunction],
+    merged: &MergedArchives<'a>,
+    extra_defined_syms: &BTreeSet<String>,
+    cache: &mut ReachCache<'a>,
+) -> Result<RequiredMembers, ArchiveLinkError> {
     // SD-4c-prereq+e1 — `extra_defined_syms` carries link-defined syms
     // (e.g. `__torajs_str_lit_*` from `LinkConfig.strings`) so the
     // worklist doesn't flag them as `UnresolvedExterns` before emit.
@@ -168,8 +181,8 @@ pub fn compute_required_members(
         .collect();
 
     let mut required: BTreeSet<(usize, usize)> = BTreeSet::new();
-    let mut visited_names: BTreeSet<String> = BTreeSet::new();
-    let mut worklist: Vec<String> = Vec::new();
+    let mut visited_names: BTreeSet<&str> = BTreeSet::new();
+    let mut worklist: Vec<&str> = Vec::new();
     let mut unresolved: BTreeSet<String> = BTreeSet::new();
     let mut dyld_imports: BTreeMap<String, u8> = BTreeMap::new();
 
@@ -183,29 +196,29 @@ pub fn compute_required_members(
             if let Some(name) = reloc_target_name(&r.kind)
                 && !defined_in_user.contains(name)
             {
-                worklist.push(name.to_string());
+                worklist.push(name);
             }
         }
     }
 
     while let Some(name) = worklist.pop() {
-        if !visited_names.insert(name.clone()) {
+        if !visited_names.insert(name) {
             continue;
         }
-        if defined_in_user.contains(name.as_str()) {
+        if defined_in_user.contains(name) {
             continue;
         }
-        let Some(sym) = merged.index.get(name.as_str()) else {
+        let Some(sym) = merged.index.get(name) else {
             // SD-1 / SD-4b: dyld-class externs (libSystem or
             // libcurl) bind through `LC_LOAD_DYLIB`, not through
             // any archive's defined-extern set. Classify them out
             // of `unresolved` so the link can proceed; record the
             // resolving dylib's `lib_ordinal` so downstream
             // encoders know which LC_LOAD_DYLIB to bind against.
-            if let Some(lib) = crate::dyld_syms::dyld_lib_for(&name) {
-                dyld_imports.insert(name, lib.ordinal());
+            if let Some(lib) = crate::dyld_syms::dyld_lib_for(name) {
+                dyld_imports.insert(name.to_string(), lib.ordinal());
             } else {
-                unresolved.insert(name);
+                unresolved.insert(name.to_string());
             }
             continue;
         };
@@ -217,14 +230,15 @@ pub fn compute_required_members(
             continue;
         }
         let member = &merged.per_archive_members[sym.archive_idx][sym.member_idx];
-        let undefs =
-            parse_member_undef_externs(member).map_err(|err| ArchiveLinkError::Member {
+        let undefs = cache
+            .undef_externs(member)
+            .map_err(|err| ArchiveLinkError::Member {
                 archive_idx: sym.archive_idx,
                 member_idx: sym.member_idx,
                 err,
             })?;
-        for u in undefs {
-            if !visited_names.contains(&u) {
+        for &u in undefs.iter() {
+            if !visited_names.contains(u) {
                 worklist.push(u);
             }
         }
@@ -279,6 +293,14 @@ pub(crate) fn reloc_target_name(kind: &RelocKind) -> Option<&str> {
 /// things this returns) sit in the same `LC_SYMTAB`,
 /// distinguished only by `n_type & N_TYPE`.
 pub fn parse_member_undef_externs(member: &ArMember<'_>) -> Result<Vec<String>, MemberSymtabError> {
+    let names = member_undef_extern_names(member)?;
+    Ok(names.into_iter().map(str::to_string).collect())
+}
+
+/// [`parse_member_undef_externs`] borrowing the names from the member.
+pub(crate) fn member_undef_extern_names<'a>(
+    member: &ArMember<'a>,
+) -> Result<Vec<&'a str>, MemberSymtabError> {
     let bytes = member.data;
     if bytes.len() < 32 {
         return Err(MemberSymtabError::TruncatedHeader);
@@ -338,7 +360,7 @@ pub fn parse_member_undef_externs(member: &ArMember<'_>) -> Result<Vec<String>, 
     }
 
     let strtab = &bytes[stroff..stroff + strsize];
-    let mut out: Vec<String> = Vec::new();
+    let mut out: Vec<&'a str> = Vec::new();
     for i in 0..nsyms {
         let off = symoff + i * 16;
         let n_strx = u32::from_le_bytes(bytes[off..off + 4].try_into().unwrap()) as usize;
@@ -366,7 +388,7 @@ pub fn parse_member_undef_externs(member: &ArMember<'_>) -> Result<Vec<String>, 
         let name_bytes = &strtab[n_strx..end_off];
         let name = std::str::from_utf8(name_bytes)
             .map_err(|_| MemberSymtabError::NameNotUtf8 { sym_index: i })?;
-        out.push(name.to_string());
+        out.push(name);
     }
     Ok(out)
 }

@@ -9,17 +9,19 @@ use crate::archives_merge::{MergedArchives, RequiredMembers};
 use crate::dead_strip_reach::{
     MemberReach, Node, Pred, ReachProbes, ReachResult, compute_reachability, trim16,
 };
+use crate::dead_strip_reach_cache::ReachCache;
 use crate::exec::LinkConfig;
 
 /// Entry point — called (env-gated) by
 /// `compute_archive_layout_with_merged` after the member closure.
 /// Diagnostic only: internal failures print one warning line and
 /// return, they never fail the link.
-pub(crate) fn report(
+pub(crate) fn report<'a>(
     cfg: &LinkConfig,
-    merged: &MergedArchives<'_>,
+    merged: &MergedArchives<'a>,
     required: &RequiredMembers,
     extra_defined_syms: &BTreeSet<String>,
+    cache: &mut ReachCache<'a>,
 ) {
     let why = std::env::var("TORAJS_LINK_DEADSTRIP_WHY").ok();
     // S2-5 pricing probes (see dead_strip_reach::ReachProbes): CUT
@@ -49,6 +51,7 @@ pub(crate) fn report(
         extra_defined_syms,
         why.is_some(),
         active.then_some(&probes),
+        cache,
     ) {
         Ok(r) => {
             if active {
@@ -144,7 +147,7 @@ pub(crate) fn render_why(r: &ReachResult<'_>, pats: &str) -> String {
             if shown >= 3 {
                 break;
             }
-            for e in &m.nlist {
+            for e in m.nlist.iter() {
                 if shown >= 3 {
                     break;
                 }

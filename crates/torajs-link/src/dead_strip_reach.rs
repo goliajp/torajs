@@ -25,6 +25,7 @@
 //! dyld-resolved names).
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::rc::Rc;
 
 use torajs_obj::{
     N_NO_DEAD_STRIP, N_SECT, N_TYPE, N_UNDF, S_ATTR_LIVE_SUPPORT, S_ATTR_NO_DEAD_STRIP,
@@ -32,7 +33,8 @@ use torajs_obj::{
 };
 
 use crate::archives_merge::{MergedArchives, RequiredMembers, reloc_target_name};
-pub(crate) use crate::dead_strip_reach_build::{build_member_reach, trim16};
+pub(crate) use crate::dead_strip_reach_build::trim16;
+use crate::dead_strip_reach_cache::ReachCache;
 use crate::exec::LinkConfig;
 use crate::phase_timer::PhaseTimer;
 
@@ -49,6 +51,7 @@ pub(crate) struct NlEntry<'a> {
 /// address ranges. A leading unnamed gap (section start → first
 /// symbol) is its own atom so literal pools before the first label
 /// stay addressable.
+#[derive(Clone)]
 pub(crate) struct SectAtoms {
     pub(crate) addr: u64,
     pub(crate) size: u64,
@@ -64,22 +67,24 @@ pub(crate) struct SectAtoms {
     /// per section name for the S2-5 registration-reach accounting.
     pub(crate) sectname: [u8; 16],
     pub(crate) is_text: bool,
-    pub(crate) atoms: Vec<(u64, u64)>,
+    pub(crate) atoms: Rc<[(u64, u64)]>,
     pub(crate) live: Vec<bool>,
     pub(crate) all_live: bool,
 }
 
-/// Per-member reachability state.
+/// Per-member reachability state. Everything but the liveness bits
+/// is shared with the link's [`ReachCache`].
+#[derive(Clone)]
 pub(crate) struct MemberReach<'a> {
     pub(crate) member_name: &'a str,
     /// Indexed by 1-based section ordinal − 1.
     pub(crate) sects: Vec<SectAtoms>,
-    pub(crate) nlist: Vec<NlEntry<'a>>,
+    pub(crate) nlist: Rc<[NlEntry<'a>]>,
     /// Defined (N_SECT) symbols by name → (n_sect, n_value).
-    pub(crate) defined: BTreeMap<&'a str, (u8, u64)>,
+    pub(crate) defined: Rc<BTreeMap<&'a str, (u8, u64)>>,
     /// Sorted names `defined` holds only the last row of (more than
     /// one `N_SECT` row carries them).
-    pub(crate) dup_defined: Vec<&'a str>,
+    pub(crate) dup_defined: Rc<[&'a str]>,
 }
 
 /// Worklist node.
@@ -135,6 +140,7 @@ pub(crate) struct ReachProbes {
 
 /// Run the atom-granularity reachability closure over the required
 /// members. Pure analysis — touches nothing the emit path reads.
+/// Member parses come from (and land in) `cache`.
 pub(crate) fn compute_reachability<'a>(
     cfg: &LinkConfig,
     merged: &MergedArchives<'a>,
@@ -142,12 +148,13 @@ pub(crate) fn compute_reachability<'a>(
     extra_defined_syms: &BTreeSet<String>,
     record_preds: bool,
     probes: Option<&ReachProbes>,
+    cache: &mut ReachCache<'a>,
 ) -> Result<ReachResult<'a>, String> {
     let mut t = PhaseTimer::start(4);
     let mut reach: BTreeMap<(usize, usize), MemberReach<'a>> = BTreeMap::new();
     for &(a, m) in &required.members {
         let member = &merged.per_archive_members[a][m];
-        reach.insert((a, m), build_member_reach(member)?);
+        reach.insert((a, m), cache.member_reach(member)?);
     }
     t.tick("reach_build_members");
 
@@ -220,7 +227,7 @@ pub(crate) fn compute_reachability<'a>(
                 worklist.push(node);
             }
         }
-        for e in &r.nlist {
+        for e in r.nlist.iter() {
             if e.n_type & N_TYPE == N_SECT && e.n_desc & N_NO_DEAD_STRIP != 0 {
                 let node = node_for_addr(key, r, e.n_sect, e.n_value);
                 if record_preds {
@@ -234,7 +241,6 @@ pub(crate) fn compute_reachability<'a>(
     // Fixpoint.
     let mut user_refs: BTreeSet<String> = BTreeSet::new();
     let mut visited: BTreeSet<Node> = BTreeSet::new();
-    let mut relocs = crate::dead_strip_reach_relocs::RelocIndex::default();
     while let Some(node) = worklist.pop() {
         if !visited.insert(node) {
             continue;
@@ -268,7 +274,7 @@ pub(crate) fn compute_reachability<'a>(
             &mut unresolved,
             &mut user_refs,
             record_preds.then_some(&mut preds),
-            &mut relocs,
+            &mut cache.relocs,
         )?;
     }
 
@@ -313,17 +319,17 @@ pub(crate) fn node_is_cut(
 
 /// Mark a node live and enqueue everything it references.
 #[allow(clippy::too_many_arguments)]
-fn expand_node(
+fn expand_node<'a>(
     node: Node,
-    merged: &MergedArchives<'_>,
-    reach: &mut BTreeMap<(usize, usize), MemberReach<'_>>,
+    merged: &MergedArchives<'a>,
+    reach: &mut BTreeMap<(usize, usize), MemberReach<'a>>,
     defined_in_user: &BTreeSet<&str>,
     required: &RequiredMembers,
     worklist: &mut Vec<Node>,
     unresolved: &mut BTreeSet<String>,
     user_refs: &mut BTreeSet<String>,
     mut preds: Option<&mut BTreeMap<Node, Pred>>,
-    relocs: &mut crate::dead_strip_reach_relocs::RelocIndex,
+    relocs: &mut crate::dead_strip_reach_relocs::RelocIndex<'a>,
 ) -> Result<(), String> {
     let (key, sect_ord, range) = match node {
         Node::Atom { key, sect, atom } => {
@@ -363,7 +369,7 @@ fn expand_node(
         Some((s, e)) => (s - sect_addr, e - sect_addr),
         None => (0, sect_size),
     };
-    for e in relocs.in_range(member, key, sect_ord, lo, hi)? {
+    for e in relocs.in_range(member, sect_ord, lo, hi)? {
         let r = reach.get(&key).ok_or("member vanished")?;
         if e.r_extern == 1
             && let Some(en) = r.nlist.get(e.r_symbolnum as usize)

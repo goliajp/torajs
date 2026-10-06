@@ -1,10 +1,11 @@
-//! Each expanded (member, section)'s reloc table for one reachability
-//! pass, decoded once and kept sorted by address.
+//! Each expanded (member, section)'s reloc table, decoded once per
+//! link and kept sorted by address.
 
-use std::collections::BTreeMap;
-use std::collections::btree_map::Entry;
+use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 
 use crate::archive::ArMember;
+use crate::dead_strip_reach_cache::BytesKey;
 use crate::member_data_apply::parse_member_section_relocs;
 use crate::member_reloc::MemberRelocEntry;
 
@@ -14,24 +15,25 @@ use crate::member_reloc::MemberRelocEntry;
 /// `(r_address, table position, entry)`, ascending.
 type SortedRelocs = Vec<(u32, u32, MemberRelocEntry)>;
 
+/// Keyed by the member bytes, so every reachability pass of one link
+/// shares the tables of the members it did not rewrite.
 #[derive(Default)]
-pub(crate) struct RelocIndex {
-    tables: BTreeMap<((usize, usize), u8), SortedRelocs>,
+pub(crate) struct RelocIndex<'a> {
+    tables: HashMap<(BytesKey<'a>, u8), SortedRelocs>,
     hits: Vec<(u32, MemberRelocEntry)>,
 }
 
-impl RelocIndex {
+impl<'a> RelocIndex<'a> {
     /// The section's relocs with `lo <= r_address < hi`, in table
     /// order (the order a linear scan visits them).
     pub(crate) fn in_range(
         &mut self,
-        member: &ArMember<'_>,
-        key: (usize, usize),
+        member: &ArMember<'a>,
         sect: u8,
         lo: u64,
         hi: u64,
     ) -> Result<impl Iterator<Item = &MemberRelocEntry>, String> {
-        let table = match self.tables.entry((key, sect)) {
+        let table = match self.tables.entry((BytesKey(member.data), sect)) {
             Entry::Occupied(o) => o.into_mut(),
             Entry::Vacant(v) => {
                 let parsed = parse_member_section_relocs(member, sect)

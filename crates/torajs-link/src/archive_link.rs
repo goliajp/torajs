@@ -17,7 +17,10 @@ use crate::archive_layout_linkedit::compute_linkedit_plan;
 use crate::archive_layout_text::compute_text_region_plan;
 use crate::archive_link_extra_syms::collect_extra_defined_syms;
 use crate::archive_link_member_scan::{MemberScanLayouts, scan_member_text_and_symbols};
-use crate::archives_merge::{RequiredMembers, compute_required_members, merge_archive_indexes};
+use crate::archives_merge::{
+    MergedArchives, RequiredMembers, compute_required_members_cached, merge_archive_indexes,
+};
+use crate::dead_strip_reach_cache::ReachCache;
 use crate::dead_strip_repack::DeadRows;
 use crate::exec::LinkConfig;
 pub use crate::layout_types::{ArchiveLayout, ArchiveLayoutError, MemberLayout};
@@ -58,31 +61,36 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
 /// re-parse) was ~23ms/case, ~1/3 of the link wall.
 pub fn compute_archive_layout_with_merged(
     cfg: &LinkConfig,
-    merged: &crate::archives_merge::MergedArchives<'_>,
+    merged: &MergedArchives<'_>,
     dead_rows: &DeadRows,
 ) -> Result<ArchiveLayout, ArchiveLayoutError> {
-    compute_archive_layout_with_required(cfg, merged, dead_rows, None)
+    let mut cache = ReachCache::default();
+    compute_archive_layout_with_required(cfg, merged, dead_rows, None, &mut cache)
 }
 
 /// [`compute_archive_layout_with_merged`] given the member closure of
 /// `cfg` over `merged` when the caller already walked it.
-pub(crate) fn compute_archive_layout_with_required(
+pub(crate) fn compute_archive_layout_with_required<'a>(
     cfg: &LinkConfig,
-    merged: &crate::archives_merge::MergedArchives<'_>,
+    merged: &MergedArchives<'a>,
     dead_rows: &DeadRows,
     required: Option<RequiredMembers>,
+    cache: &mut ReachCache<'a>,
 ) -> Result<ArchiveLayout, ArchiveLayoutError> {
     let required = match required {
         Some(r) => r,
-        None => compute_required_members(&cfg.funcs, merged, &collect_extra_defined_syms(cfg))
-            .map_err(ArchiveLayoutError::Link)?,
+        None => {
+            let extra = collect_extra_defined_syms(cfg);
+            compute_required_members_cached(&cfg.funcs, merged, &extra, cache)
+                .map_err(ArchiveLayoutError::Link)?
+        }
     };
 
     // S2 dead-strip blade 1 — accounting only, env-gated, no effect
     // on the emitted binary (RFC 20260824-s2-dead-strip).
     if std::env::var_os("TORAJS_LINK_DEADSTRIP_DIAG").is_some() {
         let extra = collect_extra_defined_syms(cfg);
-        crate::dead_strip_diag::report(cfg, merged, &required, &extra);
+        crate::dead_strip_diag::report(cfg, merged, &required, &extra, cache);
     }
 
     // Sort member keys for reproducible layout.

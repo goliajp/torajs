@@ -19,8 +19,9 @@ use torajs_codegen::CompiledFunction;
 
 use crate::archive::parse_member_defined_externs;
 use crate::archive_link_extra_syms::collect_extra_defined_syms;
-use crate::archives_merge::{MergedArchives, compute_required_members};
+use crate::archives_merge::{MergedArchives, compute_required_members_cached};
 use crate::dead_strip_reach::{MemberReach, SectAtoms, compute_reachability};
+use crate::dead_strip_reach_cache::ReachCache;
 use crate::dead_strip_rewrite::{StrippedMember, scan_load_commands, strip_member_section};
 use crate::exec::{LinkConfig, UserClassLayoutEntry, UserFnNameEntry};
 use crate::phase_timer::PhaseTimer;
@@ -56,13 +57,14 @@ pub(crate) struct StripOutput {
 /// Run the dead-strip pre-pass over `merged` (`cfg.archives`): judge
 /// the conditional call sites first, then strip against the patched
 /// fns.
-pub(crate) fn strip_archives(
+pub(crate) fn strip_archives<'a>(
     cfg: &LinkConfig,
-    merged: &MergedArchives<'_>,
+    merged: &MergedArchives<'a>,
+    cache: &mut ReachCache<'a>,
 ) -> Result<StripOutput, String> {
     let mut t = PhaseTimer::start(2);
     let extra = collect_extra_defined_syms(cfg);
-    let assumed = crate::dead_strip_elide::judge_and_patch(cfg, merged, &extra)?;
+    let assumed = crate::dead_strip_elide::judge_and_patch(cfg, merged, &extra, cache)?;
     t.tick("elide_judge_and_patch");
     let patched_cfg;
     let cfg = match &assumed {
@@ -83,12 +85,12 @@ pub(crate) fn strip_archives(
         }
         None => cfg,
     };
-    let required = compute_required_members(&cfg.funcs, merged, &extra)
+    let required = compute_required_members_cached(&cfg.funcs, merged, &extra, cache)
         .map_err(|e| format!("member closure: {e:?}"))?;
     // probes=None always: the CUT/CUT_IN what-ifs are diag-only
     // pricing probes and must never shape emitted bytes.
     t.tick("required_members");
-    let reach = compute_reachability(cfg, merged, &required, &extra, false, None)?;
+    let reach = compute_reachability(cfg, merged, &required, &extra, false, None, cache)?;
     t.tick("reachability");
 
     let mut members = StrippedMembers::new();

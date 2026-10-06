@@ -151,16 +151,18 @@ mod tests {
                 flags: 0,
                 sectname: *b"__text\0\0\0\0\0\0\0\0\0\0",
                 is_text: true,
-                atoms: vec![(0x4000, 0x4800), (0x4800, 0x5000)],
+                atoms: vec![(0x4000, 0x4800), (0x4800, 0x5000)].into(),
                 live: vec![false, true],
                 all_live: false,
             }],
-            defined: nlist
-                .iter()
-                .map(|n| (n.name, (n.n_sect, n.n_value)))
-                .collect(),
-            nlist,
-            dup_defined: Vec::new(),
+            defined: std::rc::Rc::new(
+                nlist
+                    .iter()
+                    .map(|n| (n.name, (n.n_sect, n.n_value)))
+                    .collect(),
+            ),
+            nlist: nlist.into(),
+            dup_defined: Vec::new().into(),
         };
         let closure = vec!["___torajs_closure_props_attach".to_string()];
         let obj = vec!["___torajs_obj_props_attach".to_string()];
@@ -213,13 +215,13 @@ mod tests {
                 flags: 0,
                 sectname: *b"__text\0\0\0\0\0\0\0\0\0\0",
                 is_text: true,
-                atoms: vec![(0, 8), (8, 16)],
+                atoms: vec![(0, 8), (8, 16)].into(),
                 live: vec![true, false],
                 all_live: false,
             }],
-            nlist: vec![row(0), row(8)],
-            defined: [("w", (1, 8))].into_iter().collect(),
-            dup_defined: vec!["w"],
+            nlist: vec![row(0), row(8)].into(),
+            defined: std::rc::Rc::new([("w", (1, 8))].into_iter().collect()),
+            dup_defined: vec!["w"].into(),
         };
         let reach = ReachResult {
             members: [((0, 0), m)].into_iter().collect(),

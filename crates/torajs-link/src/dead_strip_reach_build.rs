@@ -90,7 +90,7 @@ pub(crate) fn build_member_reach<'a>(member: &ArMember<'a>) -> Result<MemberReac
             sectname: s.sectname,
             is_text: trim16(&s.sectname) == b"__text" && trim16(&s.segname) == b"__TEXT",
             live: vec![false; atoms.len()],
-            atoms,
+            atoms: atoms.into(),
             all_live: false,
         });
     }
@@ -100,9 +100,9 @@ pub(crate) fn build_member_reach<'a>(member: &ArMember<'a>) -> Result<MemberReac
     Ok(MemberReach {
         member_name: member.name,
         sects,
-        nlist,
-        defined,
-        dup_defined,
+        nlist: nlist.into(),
+        defined: defined.into(),
+        dup_defined: dup_defined.into(),
     })
 }
 
