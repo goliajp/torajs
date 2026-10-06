@@ -91,6 +91,7 @@ pub struct OptimizeStats {
 pub fn remove_pure_and_optimize(
     func: &Function,
     dom: &DominatorTree,
+    loop_info: &LoopAnalysis,
     egraph: &mut Egraph,
 ) -> OptimizeStats {
     let mut stats = OptimizeStats::default();
@@ -115,8 +116,7 @@ pub fn remove_pure_and_optimize(
     // inner body in a reducible CFG) gives single-pass iterative
     // LICM: an inst hoisted out of an inner loop becomes a candidate
     // for the next outer loop on the same pass.
-    let loop_info = LoopAnalysis::compute(func, dom);
-    crate::optimize_licm::licm_hoist(func, dom, &loop_info, egraph, &mut stats);
+    crate::optimize_licm::licm_hoist(func, dom, loop_info, egraph, &mut stats);
 
     stats
 }
@@ -471,7 +471,8 @@ mod tests {
         let func = fixture(values, blocks);
         let dom = DominatorTree::compute(&func);
         let mut eg = Egraph::new(func.values.len());
-        let stats = remove_pure_and_optimize(&func, &dom, &mut eg);
+        let stats =
+            remove_pure_and_optimize(&func, &dom, &LoopAnalysis::compute(&func, &dom), &mut eg);
         assert_eq!(stats.gvn_inserts, 1, "first add inserted into GVN map");
         assert_eq!(stats.gvn_hits, 1, "second add unioned with first");
         assert!(eg.equiv(ValueId(2), ValueId(3)));
@@ -494,7 +495,8 @@ mod tests {
         let func = fixture(vec![], blocks);
         let dom = DominatorTree::compute(&func);
         let mut eg = Egraph::new(0);
-        let stats = remove_pure_and_optimize(&func, &dom, &mut eg);
+        let stats =
+            remove_pure_and_optimize(&func, &dom, &LoopAnalysis::compute(&func, &dom), &mut eg);
         assert_eq!(stats.skeleton_seen, 2);
         assert_eq!(stats.gvn_hits, 0);
         assert_eq!(stats.gvn_inserts, 0);
@@ -542,7 +544,8 @@ mod tests {
         // Pre-union %0 and %1 (e.g. as if a prior rewrite proved them
         // equal). Lower id wins as UF root.
         assert!(eg.union(ValueId(0), ValueId(1)));
-        let stats = remove_pure_and_optimize(&func, &dom, &mut eg);
+        let stats =
+            remove_pure_and_optimize(&func, &dom, &LoopAnalysis::compute(&func, &dom), &mut eg);
         assert_eq!(stats.gvn_inserts, 1);
         assert_eq!(
             stats.gvn_hits, 1,
@@ -605,7 +608,8 @@ mod tests {
         let func = fixture(values, blocks);
         let dom = DominatorTree::compute(&func);
         let mut eg = Egraph::new(func.values.len());
-        let stats = remove_pure_and_optimize(&func, &dom, &mut eg);
+        let stats =
+            remove_pure_and_optimize(&func, &dom, &LoopAnalysis::compute(&func, &dom), &mut eg);
         // Strict dom-nested invariant — siblings must not GVN-dedup.
         assert_eq!(stats.gvn_inserts, 2, "each sibling inserts independently");
         assert_eq!(stats.gvn_hits, 0, "siblings must not see each other");
@@ -660,7 +664,8 @@ mod tests {
         let func = fixture(values, blocks);
         let dom = DominatorTree::compute(&func);
         let mut eg = Egraph::new(func.values.len());
-        let stats = remove_pure_and_optimize(&func, &dom, &mut eg);
+        let stats =
+            remove_pure_and_optimize(&func, &dom, &LoopAnalysis::compute(&func, &dom), &mut eg);
         assert_eq!(stats.gvn_inserts, 1, "dominator's add inserts once");
         assert_eq!(
             stats.gvn_hits, 1,
@@ -740,7 +745,8 @@ mod tests {
         let func = fixture(values, blocks);
         let dom = DominatorTree::compute(&func);
         let mut eg = Egraph::new(func.values.len());
-        let stats = remove_pure_and_optimize(&func, &dom, &mut eg);
+        let stats =
+            remove_pure_and_optimize(&func, &dom, &LoopAnalysis::compute(&func, &dom), &mut eg);
         // %4, %5, %6 each insert in their own scope; no cross-branch
         // GVN hits because block 3's idom is block 0, not block 1/2.
         assert_eq!(stats.gvn_inserts, 3);
@@ -755,7 +761,8 @@ mod tests {
         let func = fixture(vec![], vec![]);
         let dom = DominatorTree::compute(&func);
         let mut eg = Egraph::new(0);
-        let stats = remove_pure_and_optimize(&func, &dom, &mut eg);
+        let stats =
+            remove_pure_and_optimize(&func, &dom, &LoopAnalysis::compute(&func, &dom), &mut eg);
         assert_eq!(stats.gvn_hits, 0);
         assert_eq!(stats.gvn_inserts, 0);
         assert_eq!(stats.skeleton_seen, 0);
@@ -788,7 +795,8 @@ mod tests {
         let func = fixture(values, blocks);
         let dom = DominatorTree::compute(&func);
         let mut eg = Egraph::new(func.values.len());
-        let stats = remove_pure_and_optimize(&func, &dom, &mut eg);
+        let stats =
+            remove_pure_and_optimize(&func, &dom, &LoopAnalysis::compute(&func, &dom), &mut eg);
         // 1× AddZero on `add %0 0` aliases %1→%0; the `sub %1 %0`
         // then canonicalises to `sub %0 %0` and SubSelf folds it to
         // 0 — chunk 9a-3 cascade.
@@ -836,7 +844,8 @@ mod tests {
         let func = fixture(values, blocks);
         let dom = DominatorTree::compute(&func);
         let mut eg = Egraph::new(func.values.len());
-        let stats = remove_pure_and_optimize(&func, &dom, &mut eg);
+        let stats =
+            remove_pure_and_optimize(&func, &dom, &LoopAnalysis::compute(&func, &dom), &mut eg);
         assert_eq!(
             stats.identity_rewrites_fired, 1,
             "SubSelf must fire once on (sub %0 %0)"
@@ -862,7 +871,8 @@ mod tests {
         let func = fixture(values, blocks);
         let dom = DominatorTree::compute(&func);
         let mut eg = Egraph::new(func.values.len());
-        let stats = remove_pure_and_optimize(&func, &dom, &mut eg);
+        let stats =
+            remove_pure_and_optimize(&func, &dom, &LoopAnalysis::compute(&func, &dom), &mut eg);
         assert_eq!(stats.identity_rewrites_fired, 1);
         assert_eq!(eg.const_of(ValueId(1)), Some(Operand::ConstI64(0)));
     }
@@ -883,7 +893,8 @@ mod tests {
         let func = fixture(values, blocks);
         let dom = DominatorTree::compute(&func);
         let mut eg = Egraph::new(func.values.len());
-        let stats = remove_pure_and_optimize(&func, &dom, &mut eg);
+        let stats =
+            remove_pure_and_optimize(&func, &dom, &LoopAnalysis::compute(&func, &dom), &mut eg);
         assert_eq!(stats.identity_rewrites_fired, 1);
         assert_eq!(eg.opt_value(ValueId(1)), ValueId(0));
     }
@@ -971,7 +982,8 @@ mod tests {
         let func = fixture_with_params(vec![ValueId(0), ValueId(1)], values, blocks);
         let dom = DominatorTree::compute(&func);
         let mut eg = Egraph::new(func.values.len());
-        let stats = remove_pure_and_optimize(&func, &dom, &mut eg);
+        let stats =
+            remove_pure_and_optimize(&func, &dom, &LoopAnalysis::compute(&func, &dom), &mut eg);
         assert_eq!(
             stats.licm_hoisted, 1,
             "loop-invariant add must be marked for hoisting once"
@@ -1038,7 +1050,8 @@ mod tests {
         let func = fixture_with_params(vec![ValueId(0)], values, blocks);
         let dom = DominatorTree::compute(&func);
         let mut eg = Egraph::new(func.values.len());
-        let stats = remove_pure_and_optimize(&func, &dom, &mut eg);
+        let stats =
+            remove_pure_and_optimize(&func, &dom, &LoopAnalysis::compute(&func, &dom), &mut eg);
         assert_eq!(
             stats.licm_hoisted, 0,
             "add depending on loop-internal call must not hoist"
@@ -1065,7 +1078,8 @@ mod tests {
         let func = fixture_with_params(vec![ValueId(0), ValueId(1)], values, blocks);
         let dom = DominatorTree::compute(&func);
         let mut eg = Egraph::new(func.values.len());
-        let stats = remove_pure_and_optimize(&func, &dom, &mut eg);
+        let stats =
+            remove_pure_and_optimize(&func, &dom, &LoopAnalysis::compute(&func, &dom), &mut eg);
         assert_eq!(stats.licm_hoisted, 0);
     }
 }

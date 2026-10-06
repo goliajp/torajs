@@ -37,7 +37,7 @@ impl<'a> EgraphPass<'a> {
         let dom = DominatorTree::compute(self.func);
         let loop_info = LoopAnalysis::compute(self.func, &dom);
         let mut egraph = Egraph::new(self.func.values.len());
-        let _opt_stats = remove_pure_and_optimize(self.func, &dom, &mut egraph);
+        let _opt_stats = remove_pure_and_optimize(self.func, &dom, &loop_info, &mut egraph);
         let (out, _elab_stats) = elaborate(self.func, &dom, &loop_info, &mut egraph);
         out
     }

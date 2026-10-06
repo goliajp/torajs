@@ -600,7 +600,7 @@ mod tests {
         let lp = LoopAnalysis::compute(&f, &dom);
         let mut eg = Egraph::new(f.values.len());
         // Run optimize first so the GVN union is recorded.
-        let _ = remove_pure_and_optimize(&f, &dom, &mut eg);
+        let _ = remove_pure_and_optimize(&f, &dom, &LoopAnalysis::compute(&f, &dom), &mut eg);
         let (out, stats) = elaborate(&f, &dom, &lp, &mut eg);
         assert_eq!(out.blocks.len(), 1);
         assert_eq!(
@@ -876,7 +876,7 @@ mod tests {
         let dom = DominatorTree::compute(&f);
         let lp = LoopAnalysis::compute(&f, &dom);
         let mut eg = Egraph::new(f.values.len());
-        let _ = remove_pure_and_optimize(&f, &dom, &mut eg);
+        let _ = remove_pure_and_optimize(&f, &dom, &LoopAnalysis::compute(&f, &dom), &mut eg);
         let (out, _) = elaborate(&f, &dom, &lp, &mut eg);
         // The Sub itself stays in layout (no Identity inst in the
         // input IR; const propagation only fires on use-sites).
@@ -1098,7 +1098,8 @@ mod tests {
         let f = func_with_params(vec![ValueId(0), ValueId(1)], values, blocks);
         let dom = DominatorTree::compute(&f);
         let mut eg = Egraph::new(f.values.len());
-        let opt_stats = remove_pure_and_optimize(&f, &dom, &mut eg);
+        let opt_stats =
+            remove_pure_and_optimize(&f, &dom, &LoopAnalysis::compute(&f, &dom), &mut eg);
         assert_eq!(
             opt_stats.licm_hoisted, 1,
             "Phase 1 marks the add for hoisting"
@@ -1151,7 +1152,7 @@ mod tests {
         let f = func_with_params(vec![ValueId(0), ValueId(1)], values, blocks);
         let dom = DominatorTree::compute(&f);
         let mut eg = Egraph::new(f.values.len());
-        let _ = remove_pure_and_optimize(&f, &dom, &mut eg);
+        let _ = remove_pure_and_optimize(&f, &dom, &LoopAnalysis::compute(&f, &dom), &mut eg);
         let lp = LoopAnalysis::compute(&f, &dom);
         let (out, stats) = elaborate(&f, &dom, &lp, &mut eg);
         assert_eq!(stats.licm_relocated, 0);
