@@ -93,6 +93,20 @@ impl Emit<'_> {
         one
     }
 
+    /// `lo <= u <= hi`
+    pub(super) fn in_range(&mut self, blk: BlockId, u: ValueId, lo: u32, hi: u32) -> ValueId {
+        let span = hi as i64 - lo as i64 + 1;
+        if span == 1 {
+            return self.icmp(blk, IPred::Eq, u, Operand::ConstI64(lo as i64));
+        }
+        let rel = if lo == 0 {
+            u
+        } else {
+            self.binop(blk, BinOp::Sub, u, Operand::ConstI64(lo as i64))
+        };
+        self.icmp(blk, IPred::Ult, rel, Operand::ConstI64(span))
+    }
+
     /// `next_st`: the next start position of the scan
     pub(super) fn scan_advance(&mut self, scan: BlockId) {
         let next_st = self.next_st;

@@ -22,10 +22,14 @@
 //! aside at the accept and put back when the walk dies with that
 //! accept as its answer.
 //!
+//! A state that loops on itself over all but a few units skips them a
+//! word at a time before reading unit by unit (`accel.rs`).
+//!
 //! When the start state enters one state on a class that state loops
 //! on (`leading_run_state`), a dead attempt resumes the scan past the
 //! run it began (`resume.rs`) instead of one unit after its start.
 
+mod accel;
 mod class;
 mod dispatch;
 mod probes;
@@ -217,20 +221,6 @@ impl Emit<'_> {
         self.f.append_inst(blk, kind, Type::I64, None)
     }
 
-    /// `lo <= u <= hi`
-    fn in_range(&mut self, blk: BlockId, u: ValueId, lo: u32, hi: u32) -> ValueId {
-        let span = hi as i64 - lo as i64 + 1;
-        if span == 1 {
-            return self.icmp(blk, IPred::Eq, u, Operand::ConstI64(lo as i64));
-        }
-        let rel = if lo == 0 {
-            u
-        } else {
-            self.binop(blk, BinOp::Sub, u, Operand::ConstI64(lo as i64))
-        };
-        self.icmp(blk, IPred::Ult, rel, Operand::ConstI64(span))
-    }
-
     /// `out[0] = st; out[1] = end; return end`
     fn answer(&mut self, blk: BlockId, end: Operand) {
         let st = self.load(blk, self.st_slot, 0);
@@ -257,11 +247,13 @@ impl Emit<'_> {
         if i == 0 && node.accepts_anywhere() {
             self.begin_attempt(blk);
         }
-        let pos = self.load(blk, self.pos_slot, 0);
         if node.probes == 0 {
-            self.variant(blk, pos, &node.variants[0], i);
+            let body = self.accelerate(blk, i);
+            let pos = self.load(body, self.pos_slot, 0);
+            self.variant(body, pos, &node.variants[0], i);
             return;
         }
+        let pos = self.load(blk, self.pos_slot, 0);
         let leaves: Vec<BlockId> = node.variants.iter().map(|_| self.f.add_block()).collect();
         self.probe_tree(blk, pos, node.probes, 0, 0, &leaves);
         for (v, &leaf) in node.variants.iter().zip(&leaves) {

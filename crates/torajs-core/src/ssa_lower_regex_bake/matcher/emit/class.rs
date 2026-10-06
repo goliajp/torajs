@@ -158,8 +158,7 @@ impl Emit<'_> {
         }
     }
 
-    /// The address of the byte map of `ranges`, shared with every
-    /// other map of the same bytes in the module.
+    /// The address of the byte map of `ranges`.
     fn byte_map(&mut self, ranges: &[(u32, u32)]) -> ValueId {
         let mut bits = vec![0u8; 256];
         for &(lo, hi) in ranges {
@@ -167,6 +166,26 @@ impl Emit<'_> {
                 bits[b as usize] = 1;
             }
         }
+        self.rodata(bits)
+    }
+
+    /// `words` loaded once in the entry block from read-only data, so a
+    /// loop keeps them in registers instead of building each 64-bit
+    /// constant at every use.
+    pub(super) fn entry_words(&mut self, words: &[u64]) -> Vec<ValueId> {
+        let base = self.rodata(words.iter().flat_map(|w| w.to_le_bytes()).collect());
+        let entry = self.maps.entry;
+        (0..words.len())
+            .map(|k| {
+                let at = InstKind::Load(Type::I64, Operand::Value(base), 8 * k as u64);
+                self.f.append_inst(entry, at, Type::I64, None)
+            })
+            .collect()
+    }
+
+    /// The address of `bits` in read-only data, shared with every other
+    /// use of the same bytes in the module.
+    fn rodata(&mut self, bits: Vec<u8>) -> ValueId {
         let maps = &mut self.maps;
         let found = maps
             .strings
