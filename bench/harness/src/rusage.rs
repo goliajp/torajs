@@ -57,6 +57,9 @@ pub(crate) struct RunSample {
     pub pageins: Option<u64>,
     pub diskio_read_bytes: Option<u64>,
     pub diskio_written_bytes: Option<u64>,
+    pub minor_faults: Option<u64>,
+    pub major_faults: Option<u64>,
+    pub ctx_switches: Option<u64>,
 }
 
 /// The per-cell reduction of `runs` samples.
@@ -77,6 +80,9 @@ pub(crate) struct RunStats {
     pub pageins: Option<u64>,
     pub diskio_read_bytes: Option<u64>,
     pub diskio_written_bytes: Option<u64>,
+    pub minor_faults: Option<u64>,
+    pub major_faults: Option<u64>,
+    pub ctx_switches: Option<u64>,
 }
 
 /// Spawn `argv` with `env` overlaid, discard its output, and wait for
@@ -193,6 +199,10 @@ fn run_once(argv: &[String], env: &[(String, String)], timeout: Duration) -> Res
     );
     let code = (status >> 8) & 0xff;
     anyhow::ensure!(code == 0, "`{}` exited with code {code}", argv[0]);
+    // ru_minflt, ru_majflt, ru_nvcsw + ru_nivcsw
+    sample.minor_faults = Some(ru.rest[3] as u64);
+    sample.major_faults = Some(ru.rest[4] as u64);
+    sample.ctx_switches = Some((ru.rest[11] + ru.rest[12]) as u64);
     sample.max_rss_kb = if cfg!(target_os = "macos") {
         (ru.ru_maxrss as u64) / 1024
     } else {
@@ -278,6 +288,9 @@ pub(crate) fn measure_runs(
         pageins: median_of(&samples, |s| s.pageins, median_u64),
         diskio_read_bytes: median_of(&samples, |s| s.diskio_read_bytes, median_u64),
         diskio_written_bytes: median_of(&samples, |s| s.diskio_written_bytes, median_u64),
+        minor_faults: median_of(&samples, |s| s.minor_faults, median_u64),
+        major_faults: median_of(&samples, |s| s.major_faults, median_u64),
+        ctx_switches: median_of(&samples, |s| s.ctx_switches, median_u64),
     })
 }
 
@@ -291,6 +304,7 @@ mod tests {
         assert_eq!(st.samples_ms.len(), 3);
         assert!(st.median_ms > 0.0 && st.min_ms <= st.median_ms);
         assert!(st.max_rss_kb > 0);
+        assert!(st.minor_faults.unwrap_or(0) > 0, "{st:?}");
         if cfg!(target_os = "macos") {
             assert!(st.instructions.unwrap_or(0) > 0, "{st:?}");
             assert!(st.phys_footprint_kb.unwrap_or(0) > 0, "{st:?}");

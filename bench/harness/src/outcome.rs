@@ -43,6 +43,11 @@ pub struct RunOutcome {
     pub pageins: Option<u64>,
     pub diskio_read_bytes: Option<u64>,
     pub diskio_written_bytes: Option<u64>,
+    /// `wait4` account of the run step, medians across runs: minor
+    /// and major page faults, voluntary + involuntary context switches.
+    pub minor_faults: Option<u64>,
+    pub major_faults: Option<u64>,
+    pub ctx_switches: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]

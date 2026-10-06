@@ -195,6 +195,9 @@ pub fn run_one(
             outcome.pageins = stats.pageins;
             outcome.diskio_read_bytes = stats.diskio_read_bytes;
             outcome.diskio_written_bytes = stats.diskio_written_bytes;
+            outcome.minor_faults = stats.minor_faults;
+            outcome.major_faults = stats.major_faults;
+            outcome.ctx_switches = stats.ctx_switches;
         }
         Err(e) => {
             outcome.status = Status::Failed;

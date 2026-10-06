@@ -82,6 +82,9 @@ pub fn aggregate(outcomes: Vec<RunOutcome>) -> RunOutcome {
     base.pageins = med_u(|o| o.pageins);
     base.diskio_read_bytes = med_u(|o| o.diskio_read_bytes);
     base.diskio_written_bytes = med_u(|o| o.diskio_written_bytes);
+    base.minor_faults = med_u(|o| o.minor_faults);
+    base.major_faults = med_u(|o| o.major_faults);
+    base.ctx_switches = med_u(|o| o.ctx_switches);
 
     let arts: Vec<u64> = outcomes.iter().filter_map(|o| o.artifact_bytes).collect();
     base.artifact_bytes = if arts.is_empty() {
