@@ -57,6 +57,7 @@ pub mod merge_sroa;
 pub mod null_check_fold;
 pub mod optimize;
 pub mod optimize_licm;
+mod pass_gates;
 mod pass_timer;
 pub mod phi_promote;
 pub mod phi_thread;
@@ -88,71 +89,7 @@ use torajs_core::ssa::{Module, ValueId};
 use branch_fold::sum_facts::bound_sums;
 
 pub use crate::egraph_pass::EgraphPass;
-
-/// Apply the Cluster E inliner (Phase 1.0b) followed by `EgraphPass`
-/// to every function in a `Module`, returning the transformed module.
-///
-/// Order matters: the inliner runs **before** the per-function egraph
-/// pass so that any `InstKind::Identity` aliases the splice emits to
-/// bind callee `Ret(Some(_))` values to the caller's call-result
-/// `ValueId` get collapsed by `elaborate.rs`'s existing identity-
-/// dropping path.
-///
-/// Honors two independent env gates (used for bisection when
-/// validating which sub-pass is responsible for a regression):
-/// * `TORAJS_EGRAPH_OFF=1` — skip both inliner and egraph; return the
-///   module unchanged.
-/// * `TORAJS_INLINER_OFF=1` — skip only the inliner emit pass
-///   (classification stats are still produced but discarded here);
-///   `EgraphPass` still runs.
-///
-/// This is the canonical integration entry point for the `tr build` /
-/// `tr run` new-pipeline drivers; they call this between
-/// `ssa_lower::lower_with_arity` and `torajs_codegen::compile_function`.
-/// Run one module pass behind the pair of environment gates every
-/// pass in the pipeline carries: `TORAJS_<KEY>_OFF=1` skips it
-/// (bisect gate) and `TORAJS_<KEY>_STATS=1` dumps its counters as
-/// `torajs-<key>-stats:`. Returns the counters when the pass ran.
-///
-/// `key` is the screaming-snake pass name (`"BRANCH_FOLD"`); both
-/// variable names and the stats label derive from it, so a new pass
-/// can't drift into a mismatched gate/label triple.
-fn gated_pass<S: std::fmt::Debug>(
-    key: &str,
-    module: &mut Module,
-    pass: impl FnOnce(&mut Module) -> S,
-) -> Option<S> {
-    if std::env::var(format!("TORAJS_{key}_OFF")).as_deref() == Ok("1") {
-        return None;
-    }
-    let stats = pass_timer::timed(key, || pass(module));
-    if std::env::var(format!("TORAJS_{key}_STATS")).as_deref() == Ok("1") {
-        let label = key.to_lowercase().replace('_', "-");
-        eprintln!("torajs-{label}-stats: {stats:?}");
-    }
-    dump_after(key, module);
-    Some(stats)
-}
-
-/// `TORAJS_SSA_DUMP_AFTER=<KEY>` — pretty-print the whole module to
-/// stdout right after the named pass, `KEY` being the same screaming-
-/// snake name its `_OFF` / `_STATS` gates use (plus `EGRAPH` for the
-/// per-function egraph loop, which is not a `gated_pass`).
-///
-/// The end-of-pipeline `TORAJS_SSA_DUMP` answers "what shape did the
-/// pipeline produce"; this answers "which pass produced it". Diffing
-/// the dump across two runs is how a nondeterministic pass gets named:
-/// walk the keys in pipeline order and the first one whose dump varies
-/// owns the divergence. Toggling `_OFF` gates cannot do that job —
-/// passes feed each other, so several will each "fix" one source.
-///
-/// A pass gated off never reaches here, so asking to dump after a
-/// disabled pass prints nothing.
-fn dump_after(key: &str, module: &Module) {
-    if std::env::var("TORAJS_SSA_DUMP_AFTER").as_deref() == Ok(key) {
-        module.print();
-    }
-}
+use crate::pass_gates::{dump_after, gated_pass};
 
 /// Per function, the values its interval facts prove inside i32 (none
 /// when the analysis is off).
@@ -214,6 +151,26 @@ fn hoist_loop_consts(module: &mut Module) {
     gated_pass("ICONST_HOIST", module, iconst_hoist::hoist_int_consts);
 }
 
+/// Apply the Cluster E inliner (Phase 1.0b) followed by `EgraphPass`
+/// to every function in a `Module`, returning the transformed module.
+///
+/// Order matters: the inliner runs **before** the per-function egraph
+/// pass so that any `InstKind::Identity` aliases the splice emits to
+/// bind callee `Ret(Some(_))` values to the caller's call-result
+/// `ValueId` get collapsed by `elaborate.rs`'s existing identity-
+/// dropping path.
+///
+/// Honors two independent env gates (used for bisection when
+/// validating which sub-pass is responsible for a regression):
+/// * `TORAJS_EGRAPH_OFF=1` — skip both inliner and egraph; return the
+///   module unchanged.
+/// * `TORAJS_INLINER_OFF=1` — skip only the inliner emit pass
+///   (classification stats are still produced but discarded here);
+///   `EgraphPass` still runs.
+///
+/// This is the canonical integration entry point for the `tr build` /
+/// `tr run` new-pipeline drivers; they call this between
+/// `ssa_lower::lower_with_arity` and `torajs_codegen::compile_function`.
 pub fn transform_module(mut module: Module) -> Module {
     if std::env::var("TORAJS_EGRAPH_OFF").as_deref() == Ok("1") {
         return module;
