@@ -252,6 +252,11 @@ pub(crate) fn check_closure_body(
         .map(|(n, _)| n.clone())
         .collect();
     checker.toplevel_captures.push(top_caps);
+    // a captured census slot stays that slot inside the closure
+    let cap_slots: HashMap<String, crate::check::FnSlot> = cap_tys
+        .iter()
+        .filter_map(|(n, _)| Some((n.clone(), checker.lookup(n)?.fn_slot?)))
+        .collect();
     let saved_scopes = std::mem::replace(&mut checker.scopes, vec![HashMap::new()]);
     let saved_return = checker.expected_return.replace(ret_ty);
     // §15.5.5 (RFC 20260810) — the fn-expression's self-name binds
@@ -297,7 +302,7 @@ pub(crate) fn check_closure_body(
                 declared_class: None,
                 builtin_mv: false,
                 exec_result: false,
-                fn_slot: None,
+                fn_slot: cap_slots.get(cap_name).cloned(),
             },
         );
     }

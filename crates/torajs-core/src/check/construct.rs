@@ -24,7 +24,6 @@ impl Checker {
             errors: Vec::new(),
             expected_return: None,
             current_class: None,
-            current_fn: None,
             closure_captures: HashMap::new(),
             closure_fn_names: std::collections::HashSet::new(),
             dynobj_degraded: std::collections::HashSet::new(),

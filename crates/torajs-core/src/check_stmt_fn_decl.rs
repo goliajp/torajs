@@ -45,7 +45,6 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, name: &str, params: &[Para
     let saved_return = checker.expected_return.replace(*ret_ty);
     checker.toplevel_captures.push(Default::default());
     let saved_class = checker.current_class.take();
-    let saved_fn = checker.current_fn.replace(name.to_string());
     // A class name can itself contain `__`: a class EXPRESSION binds
     // under a synth name (`__ClassExpr_<id>`), so `__sm___ClassExpr_0
     // __bad` split at its FIRST `__` answered the empty string and the
@@ -158,7 +157,7 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, name: &str, params: &[Para
                     .argv_boxed_params
                     .get(name)
                     .is_some_and(|ps| ps.contains(&p.name))
-                    .then_some(crate::check::FnSlot::Param),
+                    .then(|| crate::check::FnSlot::Param(name.to_string())),
             },
         ) {
             checker.errors.push_err(e);
@@ -174,7 +173,6 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, name: &str, params: &[Para
     checker.scopes = saved_scopes;
     checker.toplevel_captures.pop();
     checker.current_class = saved_class;
-    checker.current_fn = saved_fn;
 }
 
 #[cfg(test)]

@@ -235,8 +235,6 @@ pub(crate) struct Checker {
     /// stmts, free fns, etc.) — those treat every member as if it
     /// were public.
     pub(crate) current_class: Option<String>,
-    /// The FnDecl whose body is being checked; `None` at top level.
-    pub(crate) current_fn: Option<String>,
     /// M2 — captures for each lifted closure FnDecl. Populated by the
     /// `Expr::Closure` arm of `type_of` (which resolves capture types in
     /// the OUTER scope at the construction site) and consumed by the

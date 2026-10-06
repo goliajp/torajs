@@ -51,17 +51,18 @@ pub(super) fn call_ret_face(
         None if ast.fnsig_mismatch_bindings.contains(n) => top_level_decl(ast, n),
         None => None,
     };
-    let key = match (slot, &checker.current_fn) {
-        (Some(FnSlot::Let(init)), _) => format!("let:{}", init.0),
-        (Some(FnSlot::Param), Some(f)) => format!("param:{f}:{n}"),
-        _ => return ret,
+    let key = match &slot {
+        Some(FnSlot::Let(init)) => format!("let:{}", init.0),
+        Some(FnSlot::Param(owner)) => format!("param:{owner}:{n}"),
+        None => return ret,
     };
     let kept = match checker.fn_slot_kept.get(&key) {
         Some(k) => *k,
         None => {
-            let stores = match slot {
-                Some(FnSlot::Let(init)) => let_stores(ast, n, init),
-                _ => param_stores(ast, checker.current_fn.as_deref().unwrap_or(""), n),
+            let stores = match &slot {
+                Some(FnSlot::Let(init)) => let_stores(ast, n, *init),
+                Some(FnSlot::Param(owner)) => param_stores(ast, owner, n),
+                None => None,
             };
             let k = stores.is_some_and(|stores| {
                 !stores.is_empty()

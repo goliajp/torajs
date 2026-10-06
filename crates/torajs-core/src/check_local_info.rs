@@ -64,10 +64,11 @@ pub(crate) struct LocalInfo {
 }
 
 /// Which declaration a census slot binding is.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) enum FnSlot {
     /// a `let` / `const` / `var`, by its initializer
     Let(crate::ast::ExprId),
-    /// a parameter of the function being checked
-    Param,
+    /// a parameter of the named function (reached directly, or as a
+    /// capture of a closure inside it)
+    Param(String),
 }
