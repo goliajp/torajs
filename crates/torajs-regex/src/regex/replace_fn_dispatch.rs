@@ -224,7 +224,7 @@ pub(super) unsafe fn invoke_replace_cb(
 ) -> *mut c_void {
     unsafe {
         if has_off_input {
-            invoke_off(n_caps, argc, closure_env, fn_ptr, m, caps, off, input)
+            invoke_off(n_caps, argc, (closure_env, fn_ptr), m, caps, off, input)
         } else {
             invoke_basic(n_caps, argc, closure_env, fn_ptr, m, caps)
         }
@@ -268,16 +268,17 @@ unsafe fn invoke_basic(
     }
 }
 
+/// `callee` is the closure's (env, code pointer) pair.
 unsafe fn invoke_off(
     n_caps: i64,
     argc: i64,
-    env: *mut c_void,
-    fn_ptr: *mut c_void,
+    callee: (*mut c_void, *mut c_void),
     m: *mut c_void,
     c: &[*mut c_void; 9],
     off: i64,
     input: *mut c_void,
 ) -> *mut c_void {
+    let (env, fn_ptr) = callee;
     unsafe {
         match n_caps {
             0 => core::mem::transmute::<*mut c_void, Cb0Off>(fn_ptr)(env, argc, m, off, input),
