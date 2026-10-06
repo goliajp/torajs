@@ -7,14 +7,14 @@
 //! for (i = s; i <= n; i += C) { pre(i); while (c) body; post }
 //! ```
 //!
-//! While `LANES` outer iterations remain, a group runs `pre` for
-//! `i, i+C, …`, steps all `LANES` inner loops together while every one
-//! of them is still running, then lets each lane finish its own inner
-//! loop and run its own `post`, lane by lane in iteration order. The
-//! fused loop keeps `LANES` independent recurrences in flight, so an
-//! inner loop bound by one long-latency chain (a divide per step:
+//! While `L` outer iterations remain (`L` lanes, chosen per loop), a
+//! group runs `pre` for `i, i+C, …`, steps all `L` inner loops together
+//! while every one of them is still running, then lets each lane finish
+//! its own inner loop and run its own `post`, lane by lane in iteration
+//! order. The fused loop keeps `L` independent recurrences in flight, so
+//! an inner loop bound by one long-latency chain (a divide per step:
 //! Euclid's gcd, digit and radix loops; a multiply-add: Collatz steps)
-//! runs at the units' throughput instead of its latency. Fewer than `LANES`
+//! runs at the units' throughput instead of its latency. Fewer than `L`
 //! remaining iterations run through the untouched original loop.
 //!
 //! Why the result cannot differ:
@@ -31,7 +31,7 @@
 //!   once per lane in iteration order: sums keep their order and each
 //!   exit sees the state the original saw at that point.
 //! - a group starts only when all its iterations pass the loop test
-//!   (`i <= n - (LANES-1)·C`, the subtraction checked for wrap once
+//!   (`i <= n - (L-1)·C`, the subtraction checked for wrap once
 //!   before the loop, `n` defined outside it). A guard in `pre` that
 //!   would leave the loop (an overflow bail) sends the whole group back
 //!   to the original loop when any lane's copy fires: nothing has been
@@ -56,8 +56,12 @@ use crate::id_hash::HashSet;
 
 use torajs_core::ssa::{BlockId, IPred, Module, Operand, ValueId};
 
-/// Outer iterations in flight per group.
-pub const LANES: usize = 4;
+/// Outer iterations in flight per group: at least this many, and more
+/// where the inner recurrence is long enough to keep more divides in
+/// flight (see `fit::lane_count`).
+pub const MIN_LANES: usize = 4;
+/// At most this many: each lane keeps its cells in registers.
+pub const MAX_LANES: usize = 8;
 const MAX_PRE_INSTS: usize = 16;
 const MAX_INNER_INSTS: usize = 24;
 const MAX_POST_INSTS: usize = 64;
@@ -107,6 +111,8 @@ pub(crate) struct Plan {
     pub skip: Option<ValueId>,
     pub iv: ValueId,
     pub step: i64,
+    /// Outer iterations in flight per group.
+    pub lanes: usize,
     /// `iv <pred> bound` keeps looping; `Slt` or `Sle`.
     pub pred: IPred,
     pub bound: Operand,

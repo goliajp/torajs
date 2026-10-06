@@ -4,15 +4,31 @@
 
 use crate::id_hash::HashMap;
 
-use torajs_core::ssa::{BinOp, BlockId, Function, InstKind, ValueId, visit_value_operands};
+use torajs_core::ssa::{
+    BinOp, BlockId, Function, InstKind, Operand, Terminator, ValueId, visit_value_operands,
+};
 
+use super::clone::reads_outside;
 use super::plan::blk;
-use super::{MAX_INNER_INSTS, MAX_POST_INSTS, MAX_PRE_INSTS, Plan};
+use super::{MAX_INNER_INSTS, MAX_LANES, MAX_POST_INSTS, MAX_PRE_INSTS, MIN_LANES, Plan};
 
 /// Cycles one inner step must wait on its own previous step before the
 /// interleaving pays: below this, a single lane already keeps the core
 /// busy.
 const MIN_CARRIED_LATENCY: u32 = 3;
+
+/// Cycles between two divides the core can start: the integer divider
+/// takes a new `sdiv` every 2 cycles (Apple M-series, eight independent
+/// `sdiv` chains measured at 16 cycles per round). The float divider
+/// keeps up with eight `fdiv` chains at their 13-cycle latency, so it is
+/// counted as one.
+const INT_DIV_ISSUE: u32 = 2;
+const FLOAT_DIV_ISSUE: u32 = 1;
+
+/// General registers the lanes' own cells may take, out of the ~21 the
+/// allocator hands out, leaving the rest to shared values and the outer
+/// loop.
+const LANE_GPR_BUDGET: usize = 18;
 
 /// Pure, trap-free, reads no memory.
 fn pure(kind: &InstKind) -> bool {
@@ -65,12 +81,71 @@ pub(super) fn regions_fit(func: &Function, p: &Plan) -> bool {
         && (divides || carried_latency(func, &inner) >= MIN_CARRIED_LATENCY)
 }
 
+/// Lanes for a divide-bound inner loop whose lanes step in lockstep:
+/// enough recurrences in flight to cover one step's chain while the
+/// divider starts each lane's divides back to back (`ceil(chain /
+/// issue)`), within the register budget for the lanes' cells.
+/// `r = (r + k) % i` under a shared `i <= m` (13 cycles, one divide)
+/// takes 7 lanes.
+///
+/// The rest keep the minimum. Lanes whose inner loops end apart (gcd's
+/// `b != 0`) leave the fused loop at the first lane done and finish
+/// alone at the chain's latency, so a wider group lengthens that tail:
+/// gcd1m at 6 lanes ran 7% fewer cycles but 0.7% more instructions. A
+/// multiply-add chain is short enough that more lanes only add
+/// register pressure (collatz at 8 lanes: 5% more cycles).
+pub(super) fn lane_count(func: &Function, p: &Plan) -> usize {
+    let inner = p.inner_order();
+    if !lockstep(func, p) {
+        return MIN_LANES;
+    }
+    let issue: u32 = inner
+        .iter()
+        .flat_map(|b| blk(func, *b).insts.iter())
+        .map(|i| match i.kind {
+            InstKind::BinOp(BinOp::SDiv | BinOp::SRem, _, _) => INT_DIV_ISSUE,
+            InstKind::BinOp(BinOp::FDiv, _, _) => FLOAT_DIV_ISSUE,
+            _ => 0,
+        })
+        .sum();
+    if issue == 0 {
+        return MIN_LANES;
+    }
+    let wanted = carried_latency(func, &inner).div_ceil(issue) as usize;
+    // each lane holds, across the fused loop, its counter and its own
+    // cells read past `pre`
+    let read_after_pre = reads_outside(func, &p.pre_order());
+    let per_lane = p
+        .lane_cells
+        .iter()
+        .filter(|c| !p.shared.contains(c) && read_after_pre.contains(c))
+        .count()
+        + 1;
+    wanted
+        .min(LANE_GPR_BUDGET / per_lane)
+        .clamp(MIN_LANES, MAX_LANES)
+}
+
+/// Every lane's inner loop runs as many steps as every other's: the
+/// inner test reads only values the lanes compute alike.
+fn lockstep(func: &Function, p: &Plan) -> bool {
+    match blk(func, p.inner_header).term {
+        Terminator::CondBr {
+            cond: Operand::Value(c),
+            ..
+        } => p.shared.contains(&c),
+        _ => false,
+    }
+}
+
 /// Approximate result latency in cycles of a pure instruction on a
 /// current out-of-order core; a copy is a rename.
 fn latency(kind: &InstKind) -> u32 {
     match kind {
         InstKind::Copy(..) | InstKind::Identity(_) => 0,
-        InstKind::BinOp(BinOp::SDiv | BinOp::SRem, _, _) => 8,
+        // `srem` is an `sdiv` and an `msub` (4)
+        InstKind::BinOp(BinOp::SDiv, _, _) => 8,
+        InstKind::BinOp(BinOp::SRem, _, _) => 12,
         InstKind::BinOp(BinOp::FDiv, _, _) => 10,
         InstKind::BinOp(BinOp::Mul | BinOp::FAdd | BinOp::FSub | BinOp::FMul, _, _)
         | InstKind::SiToFp(_)

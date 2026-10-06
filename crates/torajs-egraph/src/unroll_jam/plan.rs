@@ -9,9 +9,9 @@ use torajs_core::ssa::{
     visit_value_operands,
 };
 
-use super::fit::regions_fit;
+use super::fit::{lane_count, regions_fit};
 use super::flow::{escaping, lane_cells, lane_shared};
-use super::{LANES, MAX_CHAIN_BLOCKS, MAX_STEP, Plan};
+use super::{MAX_CHAIN_BLOCKS, MAX_STEP, MIN_LANES, Plan};
 
 pub(super) struct Ctx {
     pub preds: HashMap<BlockId, Vec<BlockId>>,
@@ -97,7 +97,7 @@ fn plan_loop(func: &Function, la: &LoopAnalysis, l: &NaturalLoop, ctx: &Ctx) -> 
         _ => return None,
     };
     let (iv, pred, bound) = counted_test(func, h, c, on_true, ctx)?;
-    // PH, ahead of the loop, computes `bound - (LANES-1)·C`
+    // PH, ahead of the loop, computes `bound - (lanes-1)·C`
     if let Operand::Value(b) = bound
         && ctx
             .defs
@@ -153,13 +153,13 @@ fn plan_loop(func: &Function, la: &LoopAnalysis, l: &NaturalLoop, ctx: &Ctx) -> 
         }
     }
     let step = iv_step(func, ctx, &body, latch, iv)?;
-    let skip = (ctx.uses.get(&c) == Some(&1)).then_some(c);
     let plan = Plan {
         header: h,
         pre_blocks,
-        skip,
+        skip: (ctx.uses.get(&c) == Some(&1)).then_some(c),
         iv,
         step,
+        lanes: MIN_LANES,
         pred,
         bound,
         inner_header: ih,
@@ -183,6 +183,7 @@ fn complete(func: &Function, ctx: &Ctx, mut plan: Plan) -> Option<Plan> {
     plan.lane_cells = lane_cells(func, ctx, &plan)?;
     plan.escaping = escaping(func, ctx, &plan)?;
     plan.shared = lane_shared(func, &plan);
+    plan.lanes = lane_count(func, &plan);
     wrap_ok(&plan).then_some(plan)
 }
 
@@ -286,10 +287,9 @@ fn inner_exit(
     }
 }
 
-/// Where a chain block goes on: its `br` target, or the target `keep`
-/// accepts of a guard whose other edge leaves the outer loop (an
-/// overflow bail). A lane whose guard fires before every earlier lane
-/// has finished sends its group back to the original loop; nothing has
+/// Where a chain block goes on: its `br` target, or the target `keep` accepts of a guard
+/// whose other edge leaves the outer loop (an overflow bail). A lane whose guard fires before
+/// every earlier lane has finished sends its group back to the original loop; nothing has
 /// been written by then.
 fn guarded_next(
     term: &Terminator,
@@ -387,7 +387,7 @@ fn iv_step(
 }
 
 fn wrap_ok(p: &Plan) -> bool {
-    let span = p.step * (LANES as i64 - 1);
+    let span = p.step * (p.lanes as i64 - 1);
     match p.bound {
         Operand::ConstI64(n) => n.checked_sub(span).is_some(),
         _ => true,

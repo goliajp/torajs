@@ -1,7 +1,7 @@
 //! Builds the jammed group path beside the original loop:
 //!
 //! ```text
-//! PH:  bk = bound - (LANES-1)·C ; no-wrap check     (loop entry)
+//! PH:  bk = bound - (L-1)·C ; no-wrap check        (loop entry)
 //! G:   cond_br iv <pred> bk, GB, H                  (group header)
 //! GB:  lane j: i_j = iv + j·C ; pre(i_j) on renamed cells; a pre guard
 //!      leaving the loop → H instead
@@ -19,10 +19,10 @@ use torajs_core::ssa::{
     BinOp, BlockId, Function, IPred, Inst, InstKind, Operand, Terminator, Type, ValueId,
 };
 
+use super::Plan;
 use super::clone::{
     cell_set, clone_into, clone_value, new_value, push, reads_outside, retarget, tail_clone,
 };
-use super::{LANES, Plan};
 
 pub(super) fn apply(func: &mut Function, p: &Plan) {
     let h = p.header;
@@ -49,16 +49,16 @@ pub(super) fn apply(func: &mut Function, p: &Plan) {
         then_blk: gb,
         else_blk: h,
     };
-    let heads: Vec<BlockId> = (0..LANES).map(|_| func.add_block()).collect();
+    let heads: Vec<BlockId> = (0..p.lanes).map(|_| func.add_block()).collect();
     let fb = func.add_block();
-    let resumes: Vec<BlockId> = (0..LANES).map(|_| func.add_block()).collect();
+    let resumes: Vec<BlockId> = (0..p.lanes).map(|_| func.add_block()).collect();
     let (mut lanes, cur) = pre_lanes(func, p, gb);
     func.blocks[cur.0 as usize].term = Terminator::Br(heads[0]);
     inner_heads(func, p, &heads, fb, resumes[0], &mut lanes);
     let last = fused_body(func, p, fb, &mut lanes);
     func.blocks[last.0 as usize].term = Terminator::Br(heads[0]);
-    for j in 0..LANES {
-        let next = if j + 1 < LANES { resumes[j + 1] } else { g };
+    for j in 0..p.lanes {
+        let next = if j + 1 < p.lanes { resumes[j + 1] } else { g };
         let entry = tail_clone(func, p, &cells, &lanes[j], next);
         let r = resumes[j];
         for &c in p.lane_cells.iter().filter(|c| read_after_pre.contains(c)) {
@@ -79,9 +79,9 @@ fn pre_lanes(
     p: &Plan,
     gb: BlockId,
 ) -> (Vec<HashMap<ValueId, ValueId>>, BlockId) {
-    let mut lanes: Vec<HashMap<ValueId, ValueId>> = Vec::with_capacity(LANES);
+    let mut lanes: Vec<HashMap<ValueId, ValueId>> = Vec::with_capacity(p.lanes);
     let mut cur = gb;
-    for j in 0..LANES {
+    for j in 0..p.lanes {
         let mut map: HashMap<ValueId, ValueId> = HashMap::default();
         if j > 0 {
             let ij = new_value(func, Type::I64);
@@ -149,7 +149,7 @@ fn inner_heads(
             }
         }
     }
-    let tested = if one_test { 1 } else { LANES };
+    let tested = if one_test { 1 } else { p.lanes };
     for (j, map) in lanes.iter().enumerate().take(tested) {
         let stay = if j + 1 < tested { heads[j + 1] } else { fb };
         let (then_blk, else_blk) = if p.inner_on_true {
@@ -257,7 +257,7 @@ fn fused_body(
                 cur = lane_guard(func, p, b, cur, map);
             }
         } else if !per_lane {
-            let guarded = if one_guard { 1 } else { LANES };
+            let guarded = if one_guard { 1 } else { p.lanes };
             for map in lanes.iter().take(guarded) {
                 cur = lane_guard(func, p, b, cur, map);
             }
@@ -331,7 +331,7 @@ fn lane_guard(
 /// `PH`: the group bound `bk`, and whether computing it wrapped. A
 /// constant bound was checked when planning.
 fn entry_block(func: &mut Function, p: &Plan, ph: BlockId, g: BlockId) -> Operand {
-    let span = p.step * (LANES as i64 - 1);
+    let span = p.step * (p.lanes as i64 - 1);
     match p.bound {
         Operand::ConstI64(n) => {
             func.blocks[ph.0 as usize].term = Terminator::Br(g);

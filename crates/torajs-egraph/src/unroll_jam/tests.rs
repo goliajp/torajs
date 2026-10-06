@@ -371,24 +371,6 @@ fn bound_near_i64_min_never_starts_a_group() {
 }
 
 #[test]
-fn group_path_runs_the_inner_loops_together() {
-    let (g, _) = jam(&gcd_loop(PLAIN));
-    // lane j's divide lives in the fused body block, one per lane
-    let fused = g
-        .blocks
-        .iter()
-        .filter(|b| {
-            b.insts
-                .iter()
-                .filter(|i| matches!(i.kind, InstKind::BinOp(BinOp::SRem, _, _)))
-                .count()
-                == LANES
-        })
-        .count();
-    assert_eq!(fused, 1);
-}
-
-#[test]
 fn carried_state_divide_free_or_calling_inner_loops_are_left_alone() {
     for s in [
         Shape {

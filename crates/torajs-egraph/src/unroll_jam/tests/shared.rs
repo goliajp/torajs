@@ -5,6 +5,15 @@
 use super::interp::run;
 use super::*;
 
+use crate::id_hash::HashSet;
+
+/// The lanes the plan for `f`'s first jammable loop runs.
+fn lanes_of(f: &Function) -> usize {
+    plan::find_plan(f, &HashSet::default())
+        .expect("a loop is planned")
+        .lanes
+}
+
 /// params `n`; `%1 total, %2 i, %4 s, %5 d`.
 ///
 ///   b0: total=0; i=1       b3: d*d <= i ? b4 : b5
@@ -88,10 +97,11 @@ fn lanes_step_one_shared_divisor() {
         b.insts.iter().filter(|i| pick(&i.kind)).count()
     };
     let is_srem = |k: &InstKind| matches!(k, InstKind::BinOp(BinOp::SRem, _, _));
+    let lanes = lanes_of(&divisor_sums());
     let fused = g
         .blocks
         .iter()
-        .find(|b| count(b, &is_srem) == LANES)
+        .find(|b| count(b, &is_srem) == lanes)
         .expect("one fused body");
     // every lane divides by the one divisor, stepped once
     let steps = count(fused, &|k| {
@@ -115,7 +125,7 @@ fn lanes_step_one_shared_divisor() {
         .iter()
         .map(|b| count(b, &|k| matches!(k, InstKind::BinOp(BinOp::Mul, _, _))))
         .sum();
-    assert_eq!(squares, 2 + LANES);
+    assert_eq!(squares, 2 + lanes);
 }
 
 /// `for (k = 1; k <= n; k++) { r = 0; i = 2; while (i <= m)
@@ -196,7 +206,7 @@ fn a_shared_inner_test_is_made_once() {
         .flat_map(|b| &b.insts)
         .filter(|i| matches!(i.kind, InstKind::ICmp(IPred::Sle, _, b) if b == m))
         .count();
-    assert_eq!(tests, 2 + LANES);
+    assert_eq!(tests, 2 + lanes_of(&survivors()));
 }
 
 /// `divisor_sums` with `s = i + d` read between two defs of `d` in
@@ -228,4 +238,36 @@ fn a_cell_defined_twice_before_the_inner_loop_is_not_shared() {
             "n {bound}"
         );
     }
+}
+
+#[test]
+fn group_path_runs_the_inner_loops_together() {
+    let f = gcd_loop(PLAIN);
+    let lanes = lanes_of(&f);
+    let (g, _) = jam(&f);
+    // lane j's divide lives in the fused body block, one per lane
+    let fused = g
+        .blocks
+        .iter()
+        .filter(|b| {
+            b.insts
+                .iter()
+                .filter(|i| matches!(i.kind, InstKind::BinOp(BinOp::SRem, _, _)))
+                .count()
+                == lanes
+        })
+        .count();
+    assert_eq!(fused, 1);
+}
+
+/// Lanes cover the divide chain at the divider's issue rate when they
+/// step in lockstep: `r = (r + k) % i` under a shared `i <= m` is 13
+/// cycles, two a divide. Lanes that end apart (gcd's `b != 0`) and a
+/// divide off the carried chain (`i % d` with `d` stepped by one) keep
+/// the minimum.
+#[test]
+fn lanes_follow_the_divide_chain() {
+    assert_eq!(lanes_of(&survivors()), 7);
+    assert_eq!(lanes_of(&gcd_loop(PLAIN)), MIN_LANES);
+    assert_eq!(lanes_of(&divisor_sums()), MIN_LANES);
 }
