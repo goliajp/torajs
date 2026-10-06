@@ -51,7 +51,7 @@ mod plan;
 #[cfg(test)]
 mod tests;
 
-use std::collections::HashSet;
+use crate::id_hash::HashSet;
 
 use torajs_core::ssa::{BlockId, IPred, Module, Operand, ValueId};
 
@@ -87,7 +87,7 @@ pub fn jam_functions(module: &mut Module) -> Vec<u32> {
         crate::branch_fold::sweep_unreachable_blocks(func);
         // the original loop survives as the remainder path, so a
         // header once handled must not be picked again
-        let mut done: HashSet<BlockId> = HashSet::new();
+        let mut done: HashSet<BlockId> = HashSet::default();
         while let Some(plan) = plan::find_plan(func, &done) {
             done.insert(plan.header);
             emit::apply(func, &plan);

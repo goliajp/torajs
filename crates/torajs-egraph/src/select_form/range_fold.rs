@@ -7,7 +7,7 @@
 //! compares and a select (`cmp; cset; cmp; cset; cmp; csel`) become a
 //! subtract and a compare.
 
-use std::collections::HashSet;
+use crate::id_hash::HashSet;
 
 use torajs_core::ssa::{
     BinOp, Function, IPred, Inst, InstKind, Operand, Terminator, Type, ValueId, ValueInfo,

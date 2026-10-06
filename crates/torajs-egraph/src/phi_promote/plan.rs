@@ -2,7 +2,7 @@
 //! rename, trivial-φ elimination, and live-φ marking. See the parent
 //! module doc for the full pipeline.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{BlockId, Function, InstKind, Operand, Type, ValueId, ValueInfo};
 
@@ -23,7 +23,7 @@ pub(crate) fn compute_live_in(
     (slot, off): (ValueId, u64),
     store_blocks: &HashSet<BlockId>,
 ) -> HashSet<BlockId> {
-    let mut live: HashSet<BlockId> = HashSet::new();
+    let mut live: HashSet<BlockId> = HashSet::default();
     let mut work: Vec<BlockId> = Vec::new();
     for block in &func.blocks {
         for inst in &block.insts {
@@ -63,7 +63,7 @@ pub(super) fn plan_cell(
     // joins (a non-live join inserts no φ, hence is no def and stops
     // the frontier walk there — pruned SSA form).
     let live_in = compute_live_in(func, preds, (slot, off), store_blocks);
-    let mut phi_blocks: HashSet<BlockId> = HashSet::new();
+    let mut phi_blocks: HashSet<BlockId> = HashSet::default();
     let mut work: Vec<BlockId> = store_blocks.iter().copied().collect();
     while let Some(b) = work.pop() {
         if !domtree.is_reachable(b) {
@@ -86,7 +86,7 @@ pub(super) fn plan_cell(
     let mut phi_order: Vec<BlockId> = phi_blocks.iter().copied().collect();
     phi_order.sort_by_key(|b| b.0);
     let mut phis: Vec<PhiNode> = Vec::new();
-    let mut phi_at: HashMap<BlockId, usize> = HashMap::new();
+    let mut phi_at: HashMap<BlockId, usize> = HashMap::default();
     for &b in &phi_order {
         let vid = ValueId(func.values.len() as u32);
         func.values.push(ValueInfo { ty, name: None });
@@ -98,7 +98,7 @@ pub(super) fn plan_cell(
             live: false,
         });
     }
-    let mut replace: HashMap<ValueId, Operand> = HashMap::new();
+    let mut replace: HashMap<ValueId, Operand> = HashMap::default();
     // domtree preorder DFS threading the reaching def. Explicit stack
     // of (block, reaching-at-entry).
     let mut stack: Vec<(BlockId, Option<Operand>)> = vec![(BlockId(0), None)];

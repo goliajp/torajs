@@ -27,9 +27,9 @@
 //! built on first use: it is the one source that knows an element load
 //! (`interval::elem`), which no point has a def for.
 
+use crate::id_hash::HashMap;
 use std::borrow::Cow;
 use std::cell::{Cell, OnceCell, RefCell};
-use std::collections::HashMap;
 
 use torajs_core::ssa::{Function, InstKind, Operand, ValueId};
 
@@ -75,7 +75,7 @@ impl<'a> PointEval<'a> {
         names: &'a [String],
         seed: Option<&'a HashMap<ValueId, NumFact>>,
     ) -> Self {
-        let mut defs: HashMap<ValueId, Vec<Point>> = HashMap::new();
+        let mut defs: HashMap<ValueId, Vec<Point>> = HashMap::default();
         for (bi, block) in func.blocks.iter().enumerate() {
             for (ii, inst) in block.insts.iter().enumerate() {
                 if let Some(r) = inst.result {
@@ -91,7 +91,7 @@ impl<'a> PointEval<'a> {
             len: len_cells(func, names),
             names,
             flow: seed.map_or_else(OnceCell::new, |f| OnceCell::from(Cow::Borrowed(f))),
-            memo: RefCell::new(HashMap::new()),
+            memo: RefCell::new(HashMap::default()),
             fuel: Cell::new(FUEL),
         }
     }

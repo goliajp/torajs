@@ -21,7 +21,7 @@
 //! Runs right after cmp_fact_fold (facts still id-valid).
 //! `TORAJS_FREM_INT_OFF=1` skips, `TORAJS_FREM_INT_STATS=1` counts.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{
     BinOp, FuncId, Function, Inst, InstKind, Module, Operand, Terminator, Type, ValueId, ValueInfo,
@@ -70,7 +70,7 @@ pub fn exact_frems(module: &mut Module, facts: &[HashMap<ValueId, NumFact>]) -> 
 
 /// Kind of every value with exactly one def site.
 pub(crate) fn single_def_kinds(func: &Function) -> HashMap<ValueId, InstKind> {
-    let mut defs: HashMap<ValueId, Option<InstKind>> = HashMap::new();
+    let mut defs: HashMap<ValueId, Option<InstKind>> = HashMap::default();
     for block in &func.blocks {
         for inst in &block.insts {
             if let Some(r) = inst.result {
@@ -107,7 +107,7 @@ fn rewrite_function(
 ) {
     let defs = single_def_kinds(func);
     // frem result → (int remainder value)
-    let mut remainders: HashMap<ValueId, ValueId> = HashMap::new();
+    let mut remainders: HashMap<ValueId, ValueId> = HashMap::default();
     for bi in 0..func.blocks.len() {
         let mut i = 0;
         while i < func.blocks[bi].insts.len() {
@@ -185,7 +185,7 @@ fn rewrite_function(
 /// dividend conversion it read.
 fn sweep_dead_converts(func: &mut Function) {
     loop {
-        let mut used: HashSet<ValueId> = HashSet::new();
+        let mut used: HashSet<ValueId> = HashSet::default();
         for block in &func.blocks {
             for inst in &block.insts {
                 visit_value_operands(&inst.kind, |v| {
@@ -267,7 +267,7 @@ mod tests {
     #[test]
     fn nonnegative_dividend_takes_the_integer_remainder() {
         let mut f = frem_fn();
-        let facts = HashMap::from([(ValueId(0), NumFact::new(0, 99_999))]);
+        let facts = HashMap::from_iter([(ValueId(0), NumFact::new(0, 99_999))]);
         let mut stats = FremIntStats::default();
         rewrite_function(&mut f, &facts, &[], &mut stats);
         assert_eq!(stats.frems_exact, 1);
@@ -285,7 +285,7 @@ mod tests {
     #[test]
     fn possibly_negative_dividend_keeps_the_frem() {
         let mut f = frem_fn();
-        let facts = HashMap::from([(ValueId(0), NumFact::new(-1, 99_999))]);
+        let facts = HashMap::from_iter([(ValueId(0), NumFact::new(-1, 99_999))]);
         let mut stats = FremIntStats::default();
         rewrite_function(&mut f, &facts, &[], &mut stats);
         assert_eq!(stats.frems_exact, 0);

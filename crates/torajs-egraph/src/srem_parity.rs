@@ -20,7 +20,7 @@
 //! before sext_elide / ctpop_idiom. `TORAJS_SREM_PARITY_OFF=1` skips,
 //! `TORAJS_SREM_PARITY_STATS=1` dumps counters.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{BinOp, Function, IPred, InstKind, Module, Operand, Terminator, ValueId};
 
@@ -57,7 +57,7 @@ fn is_zero_compare_of(kind: &InstKind, v: ValueId) -> bool {
 
 fn reduce_in_function(func: &mut Function, stats: &mut SremParityStats) {
     // candidate defs: %r = srem x, 2^k (k ≥ 1)
-    let mut candidates: HashMap<ValueId, (usize, usize)> = HashMap::new();
+    let mut candidates: HashMap<ValueId, (usize, usize)> = HashMap::default();
     for (bi, block) in func.blocks.iter().enumerate() {
         for (ii, inst) in block.insts.iter().enumerate() {
             if let (Some(r), InstKind::BinOp(BinOp::SRem, _, rhs)) = (&inst.result, &inst.kind)
@@ -74,7 +74,7 @@ fn reduce_in_function(func: &mut Function, stats: &mut SremParityStats) {
     }
     // disqualify every candidate with a use that is not an
     // eq/ne-vs-0 compare (terminator cond / ret uses disqualify too)
-    let mut disqualified: HashSet<ValueId> = HashSet::new();
+    let mut disqualified: HashSet<ValueId> = HashSet::default();
     for block in &func.blocks {
         for inst in &block.insts {
             visit_value_operands(&inst.kind, |v| {

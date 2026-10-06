@@ -33,7 +33,7 @@ mod guard;
 mod region;
 mod window;
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::dominator::DominatorTree;
 use torajs_core::ssa::loop_analysis::LoopAnalysis;
@@ -129,7 +129,7 @@ fn plan_function(func: &Function, stats: &mut IntEntryStats) -> Vec<Plan> {
     outermost_first.sort_by_key(|l| (std::cmp::Reverse(l.body.len()), l.header.0));
 
     let cells = multi_def_values(func);
-    let mut defs: HashMap<ValueId, (BlockId, &InstKind)> = HashMap::new();
+    let mut defs: HashMap<ValueId, (BlockId, &InstKind)> = HashMap::default();
     for block in &func.blocks {
         for inst in &block.insts {
             if let Some(r) = inst.result.filter(|r| !cells.contains(r)) {
@@ -139,7 +139,7 @@ fn plan_function(func: &Function, stats: &mut IntEntryStats) -> Vec<Plan> {
     }
 
     let mut plans = Vec::new();
-    let mut taken: HashSet<BlockId> = HashSet::new();
+    let mut taken: HashSet<BlockId> = HashSet::default();
     let mut budget = FUNCTION_INST_BUDGET;
     for l in outermost_first {
         if l.header.0 == 0 || l.body.iter().any(|b| taken.contains(b)) {

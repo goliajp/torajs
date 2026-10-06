@@ -9,7 +9,7 @@
 //! every execution of the def, so it is met into the fact the def
 //! already has. `TORAJS_SUM_FACTS_OFF=1` skips.
 
-use std::collections::HashMap;
+use crate::id_hash::HashMap;
 
 use torajs_core::ssa::dominator::DominatorTree;
 use torajs_core::ssa::loop_analysis::LoopAnalysis;

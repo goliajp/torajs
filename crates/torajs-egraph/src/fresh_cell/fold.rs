@@ -2,7 +2,7 @@
 //! cfg, the constant evaluation that decides a guard's branch from a
 //! forwarded header word, and the clean-up a decided branch leaves.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{
     BinOp, BlockId, Function, IPred, InstKind, Operand, Terminator, ValueId, visit_value_operands,
@@ -158,7 +158,7 @@ pub(super) fn sweep_dead_chain(func: &mut Function, chain: &[ValueId]) {
 }
 
 pub(crate) fn used_values(func: &Function) -> HashSet<ValueId> {
-    let mut used = HashSet::new();
+    let mut used = HashSet::default();
     for block in &func.blocks {
         for inst in &block.insts {
             visit_value_operands(&inst.kind, |v| {

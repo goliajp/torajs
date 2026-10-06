@@ -54,7 +54,7 @@
 //! The scan runs to a fixpoint so nested pairs
 //! (`inc inc drop drop`) collapse fully.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{Function, Inst, InstKind, Module, Operand, Terminator, ValueId};
 
@@ -192,7 +192,7 @@ fn find_func(module: &Module, name: &str) -> Option<u32> {
 /// after that, stores through unknown pointers could alias it and the
 /// block-local store-generation counting below would be unsound.
 pub(crate) fn collect_unescaped_slots(func: &Function) -> HashSet<ValueId> {
-    let mut slots: HashSet<ValueId> = HashSet::new();
+    let mut slots: HashSet<ValueId> = HashSet::default();
     for block in &func.blocks {
         for inst in &block.insts {
             if matches!(inst.kind, InstKind::Alloca(_) | InstKind::AllocaBytes(_))
@@ -205,7 +205,7 @@ pub(crate) fn collect_unescaped_slots(func: &Function) -> HashSet<ValueId> {
     if slots.is_empty() {
         return slots;
     }
-    let mut escaped: HashSet<ValueId> = HashSet::new();
+    let mut escaped: HashSet<ValueId> = HashSet::default();
     let mark = |op: &Operand, escaped: &mut HashSet<ValueId>| {
         if let Operand::Value(v) = op
             && slots.contains(v)
@@ -261,8 +261,8 @@ fn elide_in_insts(
 ) -> u32 {
     // pass 1 — linear walk assigning each value loaded from a tracked
     // slot its provenance key (slot, offset, store-generation)
-    let mut slot_gen: HashMap<ValueId, u32> = HashMap::new();
-    let mut prov: HashMap<ValueId, PtrKey> = HashMap::new();
+    let mut slot_gen: HashMap<ValueId, u32> = HashMap::default();
+    let mut prov: HashMap<ValueId, PtrKey> = HashMap::default();
     for inst in insts.iter() {
         match &inst.kind {
             InstKind::Load(_, Operand::Value(p), off) if slots.contains(p) => {
@@ -280,7 +280,7 @@ fn elide_in_insts(
     let key_of = |v: ValueId| prov.get(&v).copied().unwrap_or(PtrKey::Direct(v));
 
     // pass 2 — pair matching with rc-transparent windows
-    let mut to_remove: HashSet<usize> = HashSet::new();
+    let mut to_remove: HashSet<usize> = HashSet::default();
     'inc_scan: for i in 0..insts.len() {
         if to_remove.contains(&i) {
             continue;

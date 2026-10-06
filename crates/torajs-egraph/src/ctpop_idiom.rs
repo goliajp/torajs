@@ -43,7 +43,7 @@
 //! `TORAJS_CTPOP_OFF=1` skips (bisect gate),
 //! `TORAJS_CTPOP_STATS=1` dumps counters.
 
-use std::collections::HashMap;
+use crate::id_hash::HashMap;
 
 use torajs_core::ast::ExprId;
 use torajs_core::ssa::{
@@ -112,7 +112,7 @@ fn recognize_in_function(func: &mut Function, stats: &mut CtpopStats) {
 /// Count defs of each ValueId across the whole function (multi-def
 /// Copy cells count once per def site).
 fn def_counts(func: &Function) -> HashMap<ValueId, u32> {
-    let mut counts: HashMap<ValueId, u32> = HashMap::new();
+    let mut counts: HashMap<ValueId, u32> = HashMap::default();
     for block in &func.blocks {
         for inst in &block.insts {
             if let Some(r) = inst.result {

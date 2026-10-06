@@ -38,7 +38,7 @@ pub(crate) mod fold;
 #[cfg(test)]
 mod tests;
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{
     BlockId, FuncId, Function, InstKind, Module, Operand, Terminator, ValueId, visit_value_operands,
@@ -106,8 +106,8 @@ pub(crate) fn forward_in_function(
     let mut w = Walker {
         preds: fold::reachable_preds(func),
         defs: def_sites(func),
-        replace: HashMap::new(),
-        dead: HashSet::new(),
+        replace: HashMap::default(),
+        dead: HashSet::default(),
         chain: Vec::new(),
         stats: FreshCellStats::default(),
     };
@@ -131,7 +131,7 @@ pub(crate) fn forward_in_function(
 }
 
 fn def_sites(func: &Function) -> HashMap<ValueId, (usize, usize)> {
-    let mut defs = HashMap::new();
+    let mut defs = HashMap::default();
     for (bi, block) in func.blocks.iter().enumerate() {
         for (ii, inst) in block.insts.iter().enumerate() {
             if let Some(r) = inst.result {
@@ -144,9 +144,9 @@ fn def_sites(func: &Function) -> HashMap<ValueId, (usize, usize)> {
 
 impl Walker {
     fn walk(&mut self, func: &mut Function, base: ValueId, start: (usize, usize)) {
-        let mut live: HashMap<u64, Pending> = HashMap::new();
+        let mut live: HashMap<u64, Pending> = HashMap::default();
         let (mut bi, mut ii) = start;
-        let mut visited: HashSet<usize> = HashSet::new();
+        let mut visited: HashSet<usize> = HashSet::default();
         loop {
             visited.insert(bi);
             for i in ii..func.blocks[bi].insts.len() {
@@ -276,7 +276,7 @@ fn apply(func: &mut Function, w: Walker, stats: &mut FreshCellStats) {
             }
         }
     }
-    let mut by_block: HashMap<usize, HashSet<usize>> = HashMap::new();
+    let mut by_block: HashMap<usize, HashSet<usize>> = HashMap::default();
     for (bi, ii) in w.dead {
         by_block.entry(bi).or_default().insert(ii);
     }

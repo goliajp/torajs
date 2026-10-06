@@ -17,7 +17,7 @@
 //! `TORAJS_KNOWN_BRANCH_OFF=1` skips, `TORAJS_KNOWN_BRANCH_STATS=1`
 //! counts.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::dominator::DominatorTree;
 use torajs_core::ssa::{
@@ -91,7 +91,7 @@ fn fold_fn(func: &mut Function, stats: &mut KnownBranchStats) {
         Enter(BlockId),
         Exit(ValueId),
     }
-    let mut known: HashMap<ValueId, bool> = HashMap::new();
+    let mut known: HashMap<ValueId, bool> = HashMap::default();
     let mut folds: Vec<(usize, BlockId)> = Vec::new();
     let mut stack = vec![Visit::Enter(BlockId(0))];
     while let Some(visit) = stack.pop() {
@@ -135,7 +135,7 @@ fn fold_fn(func: &mut Function, stats: &mut KnownBranchStats) {
 /// became an earlier compare; one nothing reads is two dead
 /// instructions on the path.
 fn drop_unread_refs(func: &mut Function) -> u32 {
-    let mut read: HashSet<ValueId> = HashSet::new();
+    let mut read: HashSet<ValueId> = HashSet::default();
     for block in &func.blocks {
         for inst in &block.insts {
             visit_value_operands(&inst.kind, |v| {

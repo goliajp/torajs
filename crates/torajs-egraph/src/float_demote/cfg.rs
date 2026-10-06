@@ -2,7 +2,7 @@
 //! installer (`apply`): successor/predecessor maps, per-value
 //! def/use block indexes, and terminator helpers.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{BlockId, Function, Operand, Terminator, ValueId};
 
@@ -48,7 +48,7 @@ pub(super) fn innermost_loop(loops: &LoopAnalysis, b: BlockId) -> Option<(usize,
 pub(super) fn collect_value_blocks(
     func: &Function,
 ) -> HashMap<ValueId, (Vec<BlockId>, Vec<BlockId>)> {
-    let mut m: HashMap<ValueId, (Vec<BlockId>, Vec<BlockId>)> = HashMap::new();
+    let mut m: HashMap<ValueId, (Vec<BlockId>, Vec<BlockId>)> = HashMap::default();
     for block in &func.blocks {
         for inst in &block.insts {
             if let Some(r) = inst.result {
@@ -75,8 +75,8 @@ pub(super) fn collect_value_blocks(
 }
 
 pub(crate) fn multi_def_values(func: &Function) -> HashSet<ValueId> {
-    let mut seen: HashSet<ValueId> = HashSet::new();
-    let mut multi: HashSet<ValueId> = HashSet::new();
+    let mut seen: HashSet<ValueId> = HashSet::default();
+    let mut multi: HashSet<ValueId> = HashSet::default();
     for block in &func.blocks {
         for inst in &block.insts {
             if let Some(r) = inst.result
@@ -95,7 +95,7 @@ pub(super) fn touched_values(
     set: &HashSet<ValueId>,
     region: &HashSet<BlockId>,
 ) -> HashSet<ValueId> {
-    let mut touched: HashSet<ValueId> = HashSet::new();
+    let mut touched: HashSet<ValueId> = HashSet::default();
     for b in region {
         let block = &func.blocks[b.0 as usize];
         for inst in &block.insts {

@@ -40,7 +40,7 @@ mod widen;
 pub use cache::{FactCache, Seed};
 pub use transfer::{AbsVal, NumFact};
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{Function, InstKind, Module, Operand, Type, ValueId};
 
@@ -64,7 +64,7 @@ pub fn analyze_module(module: &Module) -> Vec<HashMap<ValueId, NumFact>> {
         .iter()
         .map(|f| {
             if f.is_declaration() {
-                HashMap::new()
+                HashMap::default()
             } else {
                 analyze_function_with(f, &names)
             }
@@ -113,9 +113,9 @@ pub fn analyze_function_with(
     // An allocation's elements are one more multi-def cell whose defs
     // happen to be stores; it rides the same ascent below.
     let elems = elem::collect(func, callee_names);
-    let mut elem_state: HashMap<ValueId, AbsVal> = HashMap::new();
+    let mut elem_state: HashMap<ValueId, AbsVal> = HashMap::default();
 
-    let mut state: HashMap<ValueId, AbsVal> = HashMap::new();
+    let mut state: HashMap<ValueId, AbsVal> = HashMap::default();
     for p in &func.params {
         state.insert(*p, opaque_for(func.values[p.0 as usize].ty));
     }
@@ -134,7 +134,7 @@ pub fn analyze_function_with(
         };
         roots.clear();
         let merged = merges.ranges(&state);
-        let mut contrib: HashMap<ValueId, AbsVal> = HashMap::new();
+        let mut contrib: HashMap<ValueId, AbsVal> = HashMap::default();
         let mut changed = false;
 
         for &bid in dom.reverse_postorder() {
@@ -255,8 +255,8 @@ type DefShapes = (
 );
 
 fn def_shapes(func: &Function) -> DefShapes {
-    let mut single: HashMap<ValueId, InstKind> = HashMap::new();
-    let mut cells: HashSet<ValueId> = HashSet::new();
+    let mut single: HashMap<ValueId, InstKind> = HashMap::default();
+    let mut cells: HashSet<ValueId> = HashSet::default();
     for block in &func.blocks {
         for inst in &block.insts {
             if let Some(r) = inst.result
@@ -269,7 +269,7 @@ fn def_shapes(func: &Function) -> DefShapes {
     for v in &cells {
         single.remove(v);
     }
-    let mut block_defs: Vec<HashSet<ValueId>> = vec![HashSet::new(); func.blocks.len()];
+    let mut block_defs: Vec<HashSet<ValueId>> = vec![HashSet::default(); func.blocks.len()];
     for (bi, block) in func.blocks.iter().enumerate() {
         for inst in &block.insts {
             if let Some(r) = inst.result

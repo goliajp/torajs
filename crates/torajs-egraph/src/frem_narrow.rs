@@ -38,7 +38,7 @@
 //! C1 had never floated them. `TORAJS_FREM_NARROW_OFF=1` skips,
 //! `TORAJS_FREM_NARROW_STATS=1` dumps counters.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{BinOp, Function, InstKind, Module, Operand, Terminator, Type, ValueId};
 
@@ -161,7 +161,7 @@ fn narrow_in_function(func: &mut Function, stats: &mut FremNarrowStats) {
     let (defs, multi) = collect_defs(func);
 
     // value → use count, across every inst operand and terminator.
-    let mut uses: HashMap<ValueId, u32> = HashMap::new();
+    let mut uses: HashMap<ValueId, u32> = HashMap::default();
     visit_func_uses(func, |v| {
         *uses.entry(v).or_default() += 1;
     });
@@ -177,8 +177,8 @@ fn narrow_in_function(func: &mut Function, stats: &mut FremNarrowStats) {
 /// Def summaries for single-def values; multi-def values (post-φ
 /// Copy cells) are conservatively unknown.
 fn collect_defs(func: &Function) -> (HashMap<ValueId, InstKind>, HashSet<ValueId>) {
-    let mut defs: HashMap<ValueId, InstKind> = HashMap::new();
-    let mut multi: HashSet<ValueId> = HashSet::new();
+    let mut defs: HashMap<ValueId, InstKind> = HashMap::default();
+    let mut multi: HashSet<ValueId> = HashSet::default();
     for block in &func.blocks {
         for inst in &block.insts {
             if let Some(r) = inst.result
@@ -268,9 +268,9 @@ fn plan_narrows(
     uses: &HashMap<ValueId, u32>,
     stats: &mut FremNarrowStats,
 ) -> NarrowPlan {
-    let mut narrow: HashMap<ValueId, (BinOp, Operand, Operand)> = HashMap::new();
-    let mut cmp_results: HashMap<ValueId, Option<Operand>> = HashMap::new();
-    let mut trunc_results: HashSet<ValueId> = HashSet::new();
+    let mut narrow: HashMap<ValueId, (BinOp, Operand, Operand)> = HashMap::default();
+    let mut cmp_results: HashMap<ValueId, Option<Operand>> = HashMap::default();
+    let mut trunc_results: HashSet<ValueId> = HashSet::default();
     for block in &func.blocks {
         for inst in &block.insts {
             match &inst.kind {
@@ -295,7 +295,7 @@ fn plan_narrows(
                     }
                 }
                 InstKind::FpToSi(Operand::Value(v)) | InstKind::FpToInt32(Operand::Value(v)) => {
-                    let mut tree: HashMap<ValueId, (BinOp, Operand, Operand)> = HashMap::new();
+                    let mut tree: HashMap<ValueId, (BinOp, Operand, Operand)> = HashMap::default();
                     if collect_trunc_tree(v, defs, multi, uses, &mut tree) {
                         stats.tree_interior_narrowed += (tree.len() as u32) - 1;
                         narrow.extend(tree);
@@ -437,7 +437,7 @@ fn rewrite_fcmp(
 /// DCE — sitofp insts orphaned by the operand peel.
 fn sweep_orphan_sitofps(func: &mut Function, stats: &mut FremNarrowStats) {
     loop {
-        let mut used: HashSet<ValueId> = HashSet::new();
+        let mut used: HashSet<ValueId> = HashSet::default();
         visit_func_uses(func, |v| {
             used.insert(v);
         });

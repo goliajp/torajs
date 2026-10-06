@@ -9,7 +9,7 @@
 //! when the operand is inside its window, so the head ORs them all and
 //! takes one branch.
 
-use std::collections::HashMap;
+use crate::id_hash::HashMap;
 
 use torajs_core::ssa::{BinOp, InstKind, Operand, Type, ValueId};
 

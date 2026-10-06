@@ -10,7 +10,7 @@
 //! placeholder, inherited like any edge constraint; each round reads it
 //! as the range the previous round's facts give.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 use std::rc::Rc;
 
 use torajs_core::ssa::dominator::DominatorTree;

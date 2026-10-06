@@ -18,7 +18,7 @@
 //! window check on the product sits between them in a loop copy that
 //! int_entry made).
 
-use std::collections::HashMap;
+use crate::id_hash::HashMap;
 
 use torajs_core::ssa::{BinOp, Function, InstKind, Operand, ValueId};
 

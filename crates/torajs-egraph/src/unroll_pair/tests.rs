@@ -1,6 +1,6 @@
 use super::*;
+use crate::id_hash::HashMap;
 use crate::interval::NumFact;
-use std::collections::HashMap;
 use torajs_core::ssa::{
     BinOp, Block, Function, IPred, Inst, InstKind, Terminator, Type, ValueInfo, VecInst, VecOp,
     VecShape,
@@ -118,7 +118,7 @@ fn run(f: &mut Function) -> u32 {
 fn run_with(f: &mut Function, hi: Option<i128>) -> UnrollPairStats {
     let mut m = Module::default();
     m.funcs.push(f.clone());
-    let facts = hi.map(|hi| vec![HashMap::from([(ValueId(1), NumFact::new(2, hi))])]);
+    let facts = hi.map(|hi| vec![HashMap::from_iter([(ValueId(1), NumFact::new(2, hi))])]);
     let stats = pair_module(&mut m, facts.as_deref(), &[]);
     *f = m.funcs.pop().unwrap();
     stats

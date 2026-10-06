@@ -32,7 +32,7 @@
 mod loop_guard;
 mod str_reads;
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::dominator::DominatorTree;
 use torajs_core::ssa::loop_analysis::{LoopAnalysis, NaturalLoop};
@@ -82,7 +82,7 @@ struct Site {
 
 fn fold_in_function(func: &mut Function, check: FuncId, stats: &mut NullCheckFoldStats) {
     let mut first_round = true;
-    let mut guarded: HashSet<BlockId> = HashSet::new();
+    let mut guarded: HashSet<BlockId> = HashSet::default();
     loop {
         let sites = sites_of(func, check);
         if first_round {

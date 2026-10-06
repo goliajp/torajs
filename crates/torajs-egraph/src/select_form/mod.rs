@@ -38,7 +38,7 @@ mod arm;
 pub mod cmp_sink;
 mod range_fold;
 
-use std::collections::HashMap;
+use crate::id_hash::HashMap;
 
 use torajs_core::ssa::{BlockId, Function, Inst, InstKind, Module, Operand, Terminator, ValueId};
 
@@ -75,8 +75,8 @@ pub fn form_selects(module: &mut Module) -> SelectFormStats {
 /// and report `true`, or return `false` when none is left.
 fn form_once(func: &mut Function, stats: &mut SelectFormStats) -> bool {
     // predecessor counts + global def counts (multi-def Copy check)
-    let mut preds: HashMap<BlockId, u32> = HashMap::new();
-    let mut defs: HashMap<ValueId, u32> = HashMap::new();
+    let mut preds: HashMap<BlockId, u32> = HashMap::default();
+    let mut defs: HashMap<ValueId, u32> = HashMap::default();
     // a converted diamond's emptied arms still `br` to its join; counted,
     // they would keep that join from ever being part of an outer arm
     let live = reachable(func);

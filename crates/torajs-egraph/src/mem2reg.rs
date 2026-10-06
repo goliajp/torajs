@@ -33,7 +33,7 @@
 //! may DSE whole slots first) and before the egraph pass (forwarded
 //! constants feed const-fold / GVN downstream).
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{BlockId, Function, InstKind, Module, Operand, Terminator, ValueId};
 
@@ -81,7 +81,7 @@ pub(crate) fn promote_in_function(func: &mut Function, stats: &mut Mem2RegStats)
         return;
     }
     // pass 1 — gather per-(slot, off) store/load facts.
-    let mut cells: HashMap<(ValueId, u64), CellFacts> = HashMap::new();
+    let mut cells: HashMap<(ValueId, u64), CellFacts> = HashMap::default();
     for block in &func.blocks {
         for inst in &block.insts {
             match &inst.kind {
@@ -107,7 +107,7 @@ pub(crate) fn promote_in_function(func: &mut Function, stats: &mut Mem2RegStats)
     // every load strictly dominated by B_s to the block's last store.
     let domtree = DominatorTree::compute(func);
     let shared = overlapping_cells(func, &slots);
-    let mut replace: HashMap<ValueId, Operand> = HashMap::new();
+    let mut replace: HashMap<ValueId, Operand> = HashMap::default();
     for (key, facts) in &cells {
         if facts.store_blocks.len() != 1 || shared.contains(key) {
             continue; // zero stores (undef read) or φ shape — leave alone
@@ -146,7 +146,7 @@ pub(crate) fn promote_in_function(func: &mut Function, stats: &mut Mem2RegStats)
     // pass 4 — DSE: slots with zero remaining loads (any offset) get
     // their stores and the alloca itself removed (same contract as
     // slot_forward: stores into unescaped slots are pure bit-moves).
-    let mut loaded: HashSet<ValueId> = HashSet::new();
+    let mut loaded: HashSet<ValueId> = HashSet::default();
     for block in &func.blocks {
         for inst in &block.insts {
             if let InstKind::Load(_, Operand::Value(s), _) = &inst.kind {

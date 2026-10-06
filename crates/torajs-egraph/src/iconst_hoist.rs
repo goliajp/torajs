@@ -20,7 +20,7 @@
 //! Loops whose header has no strict dominator outside the body are
 //! skipped, as in the f64 twin.
 
-use std::collections::HashMap;
+use crate::id_hash::HashMap;
 
 use torajs_core::ssa::{Function, Inst, InstKind, Module, Operand, Type, ValueId, ValueInfo};
 
@@ -81,7 +81,7 @@ fn hoist_fn(func: &mut Function, stats: &mut IconstHoistStats) {
         if seen.is_empty() {
             continue;
         }
-        let mut minted: HashMap<i64, ValueId> = HashMap::new();
+        let mut minted: HashMap<i64, ValueId> = HashMap::default();
         for c in &seen {
             let vid = ValueId(func.values.len() as u32);
             func.values.push(ValueInfo {

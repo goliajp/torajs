@@ -20,7 +20,7 @@
 //! passing the guards that S passed means every partial sum does; and
 //! `|S| <= 2^53` plus `BLOCK * 2^53` stays far from i64 overflow.
 
-use std::collections::HashMap;
+use crate::id_hash::HashMap;
 
 use torajs_core::ssa::{
     BinOp, BlockId, Function, IPred, InstKind, Operand, Terminator, Type, ValueId, VecInst, VecOp,
@@ -96,7 +96,7 @@ fn entry_checks(e: &mut Emit<'_>, p: &Plan) -> HashMap<ValueId, ValueId> {
     let h = p.header;
     // an exit the body takes on a condition no iteration changes is
     // the scalar loop's to take
-    let mut fixed: HashMap<ValueId, ValueId> = HashMap::new();
+    let mut fixed: HashMap<ValueId, ValueId> = HashMap::default();
     for inst in &p.invariant {
         let mut kind = inst.kind.clone();
         rewrite_value_operands(&mut kind, |v| fixed.get(&v).copied().unwrap_or(v));
@@ -152,7 +152,7 @@ fn setup(e: &mut Emit<'_>, p: &Plan, fixed: &HashMap<ValueId, ValueId>) -> Block
     let start = e.bin(BinOp::Add, p.base, off);
     let span = e.bin(BinOp::Shl, n, Operand::ConstI64(3));
     let stop = e.bin(BinOp::Add, start, span);
-    let mut splats: HashMap<Operand, Operand> = HashMap::new();
+    let mut splats: HashMap<Operand, Operand> = HashMap::default();
     for st in &p.steps {
         let Step::Add(_, a, b) = st else { continue };
         for op in [a, b] {
@@ -192,7 +192,7 @@ fn step(e: &mut Emit<'_>, p: &Plan, b: &BlockState) -> Operand {
     let mut sum_next: Vec<Operand> = Vec::new();
     let mut fold_next: Vec<Operand> = Vec::new();
     for k in 0..UNROLL {
-        let mut lanes: HashMap<ValueId, Operand> = HashMap::new();
+        let mut lanes: HashMap<ValueId, Operand> = HashMap::default();
         for st in &p.steps {
             let (r, v) = match st {
                 Step::Elem(r) => (*r, e.push(InstKind::Load(VEC, at, 16 * k as u64), VEC)),

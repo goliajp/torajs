@@ -16,7 +16,7 @@
 //! already swept and the bridge cell has one def.
 //! `TORAJS_PRINT_NARROW_OFF=1` skips, `_STATS=1` dumps counters.
 
-use std::collections::HashMap;
+use crate::id_hash::HashMap;
 
 use torajs_core::ssa::{FuncId, Function, InstKind, Module, Operand, Type, ValueId};
 
@@ -140,7 +140,7 @@ fn bound_at(
 
 /// Remove `sitofp` results nobody reads any more.
 fn sweep_unused_sitofp(func: &mut Function) -> u32 {
-    let mut uses: HashMap<ValueId, u32> = HashMap::new();
+    let mut uses: HashMap<ValueId, u32> = HashMap::default();
     for block in &func.blocks {
         for inst in &block.insts {
             torajs_core::ssa::visit_value_operands(&inst.kind, |v| {

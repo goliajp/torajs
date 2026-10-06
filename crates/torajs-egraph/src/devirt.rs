@@ -40,7 +40,7 @@
 //! whose only consumer was the promoted site) is swept so the hot loop
 //! does not keep paying for loads that feed nothing.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{
     FuncId, Function, InstKind, Module, Operand, SigId, Terminator, Type, ValueId,
@@ -102,11 +102,11 @@ struct FnIndex {
 impl FnIndex {
     fn build(func: &Function, obj_alloc: Option<FuncId>) -> Self {
         let slots = collect_unescaped_slots(func);
-        let mut defs = HashMap::new();
-        let mut slot_stores: HashMap<ValueId, Vec<StoreSite>> = HashMap::new();
-        let mut slot_off_disq = HashSet::new();
-        let mut obj_stores: HashMap<(ValueId, u64), Vec<StoreSite>> = HashMap::new();
-        let mut dyn_written = HashSet::new();
+        let mut defs = HashMap::default();
+        let mut slot_stores: HashMap<ValueId, Vec<StoreSite>> = HashMap::default();
+        let mut slot_off_disq = HashSet::default();
+        let mut obj_stores: HashMap<(ValueId, u64), Vec<StoreSite>> = HashMap::default();
+        let mut dyn_written = HashSet::default();
         for (bi, block) in func.blocks.iter().enumerate() {
             for (ii, inst) in block.insts.iter().enumerate() {
                 if let Some(v) = inst.result {

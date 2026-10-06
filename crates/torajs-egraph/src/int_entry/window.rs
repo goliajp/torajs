@@ -9,7 +9,7 @@
 //! inside 2^53, or the float arithmetic has already rounded where
 //! the integer one has not.
 
-use std::collections::HashSet;
+use crate::id_hash::HashSet;
 
 use torajs_core::ssa::{BinOp, BlockId, Function, InstKind, Operand, ValueId};
 

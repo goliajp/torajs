@@ -43,7 +43,7 @@
 //! through an explicit drop after the piece is on the cell — the same
 //! release, one instruction later.
 
-use std::collections::HashMap;
+use crate::id_hash::HashMap;
 
 use torajs_core::ssa::{
     Block, FuncId, Inst, InstKind, Operand, Type, ValueId, ValueInfo, visit_value_operands,

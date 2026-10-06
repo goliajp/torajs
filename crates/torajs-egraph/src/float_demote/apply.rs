@@ -14,7 +14,7 @@
 //! id. The entry guard branches straight into the slow clone with no
 //! writeback — no region state exists yet at the entry edge.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{
     BinOp, Block, BlockId, Function, IPred, Inst, InstKind, Operand, Terminator, Type, ValueId,
@@ -47,7 +47,7 @@ pub(crate) fn clone_region(
     set: &HashSet<ValueId>,
 ) -> RegionClone {
     let cells = multi_def_values(func);
-    let mut value_map: HashMap<ValueId, ValueId> = HashMap::new();
+    let mut value_map: HashMap<ValueId, ValueId> = HashMap::default();
     for b in &plan.region {
         for inst in &func.blocks[b.0 as usize].insts {
             let Some(r) = inst.result else { continue };
@@ -63,7 +63,7 @@ pub(crate) fn clone_region(
         }
     }
 
-    let mut block_map: HashMap<BlockId, BlockId> = HashMap::new();
+    let mut block_map: HashMap<BlockId, BlockId> = HashMap::default();
     let base = func.blocks.len() as u32;
     for (i, b) in plan.region.iter().enumerate() {
         block_map.insert(*b, BlockId(base + i as u32));
@@ -151,7 +151,7 @@ pub(crate) fn install_guards(
             None => by_block.push((s.block, vec![s])),
         }
     }
-    let mut slow_target: HashMap<(BlockId, usize), BlockId> = HashMap::new();
+    let mut slow_target: HashMap<(BlockId, usize), BlockId> = HashMap::default();
     for (b, sites) in &mut by_block {
         sites.sort_by_key(|s| s.inst_idx);
         let idxs: Vec<usize> = sites.iter().map(|s| s.inst_idx).collect();
@@ -294,13 +294,13 @@ fn slow_liveness(func: &Function, clone: &RegionClone) -> HashMap<BlockId, HashS
         }
     }
 
-    let mut live_in: HashMap<BlockId, HashSet<ValueId>> = HashMap::new();
+    let mut live_in: HashMap<BlockId, HashSet<ValueId>> = HashMap::default();
     let mut changed = true;
     while changed {
         changed = false;
         for &b in slow_blocks.iter().rev() {
             let block = &func.blocks[b.0 as usize];
-            let mut live: HashSet<ValueId> = HashSet::new();
+            let mut live: HashSet<ValueId> = HashSet::default();
             for s in successors(&block.term) {
                 if let Some(li) = live_in.get(&s) {
                     live.extend(li.iter().copied());

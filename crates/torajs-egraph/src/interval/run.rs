@@ -1,7 +1,7 @@
 //! The analysis as the egraph pipeline runs it: its off switch, its
 //! per-function counts, and the cache later passes read.
 
-use std::collections::HashMap;
+use crate::id_hash::HashMap;
 
 use torajs_core::ssa::{Function, Module, Type, ValueId};
 

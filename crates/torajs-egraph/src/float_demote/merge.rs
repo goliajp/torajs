@@ -8,7 +8,7 @@
 //! trajectory no matter which version ran, and an escaping use is no
 //! longer an eviction reason.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{
     Block, BlockId, Function, Inst, InstKind, Operand, Terminator, Type, ValueId,

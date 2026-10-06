@@ -18,7 +18,7 @@
 //! from overflowing. A loop with no guard on `S'` is a wrapping i64
 //! sum, the same in any order.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::loop_analysis::NaturalLoop;
 use torajs_core::ssa::{
@@ -141,7 +141,7 @@ pub(super) fn match_loop(func: &Function, lp: &NaturalLoop, defs: &DefSites) -> 
         func,
         defs,
         in_loop,
-        class: HashMap::new(),
+        class: HashMap::default(),
         counter: *counter,
         acc: None,
         sum_next: None,
@@ -210,7 +210,7 @@ impl Walk<'_> {
     /// Walk the body from `start` back to the header; the number of
     /// blocks walked, or `None` off the shape.
     fn walk_chain(&mut self, lp: &NaturalLoop, start: BlockId, latch: BlockId) -> Option<usize> {
-        let mut seen: HashSet<BlockId> = HashSet::new();
+        let mut seen: HashSet<BlockId> = HashSet::default();
         let mut cur = start;
         loop {
             if cur == lp.header || !lp.contains(&cur) || !seen.insert(cur) {

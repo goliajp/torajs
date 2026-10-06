@@ -22,7 +22,7 @@
 //! signal here rather than a silent miscompile.
 
 use super::rewrite::{rewrite_inst_kind, rewrite_operand};
-use std::collections::HashMap;
+use crate::id_hash::HashMap;
 use torajs_core::ssa::{Function, Inst, InstKind, Operand, Terminator, ValueId};
 
 /// Reason a `inline_single_block_leaf` call failed its Phase 1 narrow
@@ -150,11 +150,11 @@ pub fn inline_single_block_leaf(
     // All other callee values get a fresh `ValueId` in `caller.values`
     // whose `ValueInfo` is cloned from the callee — same type, name
     // dropped to avoid namespace collisions in error messages.
-    let mut mapping: HashMap<ValueId, Operand> = HashMap::new();
+    let mut mapping: HashMap<ValueId, Operand> = HashMap::default();
     for (i, param_id) in callee.params.iter().enumerate() {
         mapping.insert(*param_id, args[i]);
     }
-    let param_set: std::collections::HashSet<u32> = callee.params.iter().map(|v| v.0).collect();
+    let param_set: crate::id_hash::HashSet<u32> = callee.params.iter().map(|v| v.0).collect();
     for cv in 0..callee.values.len() as u32 {
         if param_set.contains(&cv) {
             continue;

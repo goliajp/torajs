@@ -23,8 +23,8 @@
 //! only; the rewrite engine that actually grows e-classes lands in
 //! `rewrite.rs` (step 7).
 
+use crate::id_hash::HashMap;
 use crate::scope_map::ScopedHashMap;
-use std::collections::HashMap;
 use torajs_core::ssa::{BlockId, InstKind, Operand, Type, ValueId};
 
 /// Max e-nodes per equivalence class. When a rewrite would push the
@@ -113,10 +113,10 @@ impl Egraph {
             leader,
             value_to_opt_value,
             available_block: vec![None; n_values],
-            eclass_size: HashMap::new(),
+            eclass_size: HashMap::default(),
             gvn_map: ScopedHashMap::new(),
-            value_to_const: HashMap::new(),
-            rewritten_kind: HashMap::new(),
+            value_to_const: HashMap::default(),
+            rewritten_kind: HashMap::default(),
         }
     }
 

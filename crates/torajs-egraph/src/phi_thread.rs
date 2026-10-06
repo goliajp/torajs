@@ -26,7 +26,7 @@
 //!
 //! `TORAJS_PHI_THREAD_OFF=1` skips, `TORAJS_PHI_THREAD_STATS=1` counts.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{
     BlockId, Function, IPred, InstKind, Module, Operand, Terminator, ValueId, visit_value_operands,
@@ -161,7 +161,7 @@ fn decide(kind: &InstKind, cell: ValueId, k: i64) -> Option<bool> {
 
 /// Operand occurrences per value, terminators included.
 fn use_counts(func: &Function) -> HashMap<ValueId, u32> {
-    let mut uses: HashMap<ValueId, u32> = HashMap::new();
+    let mut uses: HashMap<ValueId, u32> = HashMap::default();
     for block in &func.blocks {
         for inst in &block.insts {
             visit_value_operands(&inst.kind, |v| *uses.entry(v).or_insert(0) += 1);

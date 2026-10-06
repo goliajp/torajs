@@ -67,7 +67,7 @@ mod reserve;
 #[cfg(test)]
 pub(crate) mod test_support;
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{
     Function, Inst, InstKind, Module, Operand, StringId, Terminator, ValueId, visit_value_operands,
@@ -159,8 +159,8 @@ fn rewrite_pairs(
 /// Values whose only definition is one static string — immortal cells
 /// no binding's buffer can be — with the literal each names.
 fn static_strings(func: &Function) -> HashMap<ValueId, StringId> {
-    let mut statics = HashMap::new();
-    let mut others = HashSet::new();
+    let mut statics = HashMap::default();
+    let mut others = HashSet::default();
     for inst in func.blocks.iter().flat_map(|b| b.insts.iter()) {
         let Some(result) = inst.result else { continue };
         match inst.kind {
@@ -180,7 +180,7 @@ fn static_strings(func: &Function) -> HashMap<ValueId, StringId> {
 
 /// Operand occurrences per value, terminators included.
 fn use_counts(func: &Function) -> HashMap<ValueId, u32> {
-    let mut uses: HashMap<ValueId, u32> = HashMap::new();
+    let mut uses: HashMap<ValueId, u32> = HashMap::default();
     for block in &func.blocks {
         for inst in &block.insts {
             visit_value_operands(&inst.kind, |v| *uses.entry(v).or_insert(0) += 1);

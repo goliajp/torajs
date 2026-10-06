@@ -27,7 +27,7 @@
 //! the copy is evaluated on that path, so what it stores is the
 //! refined interval, and the loop reads it as the copy's own.
 
-use std::collections::HashMap;
+use crate::id_hash::HashMap;
 
 use torajs_core::ssa::{
     BinOp, Block, BlockId, FPred, Function, IPred, Inst, InstKind, Operand, Terminator, Type,
@@ -126,7 +126,7 @@ pub(super) fn build_chain(
     let head = chain.new_block();
     chain.open = head;
     let mut rounded: Vec<(ValueId, Round, Operand)> = Vec::new();
-    let mut converted: HashMap<ValueId, (Operand, Operand)> = HashMap::new();
+    let mut converted: HashMap<ValueId, (Operand, Operand)> = HashMap::default();
     for need in needs {
         let v = Operand::Value(need.source);
         let (truncated, back) = match converted.get(&need.source) {
@@ -174,8 +174,8 @@ pub(super) fn build_chain(
         chain.leave_when(below, false);
         rounded.push((need.source, need.round, value));
     }
-    let mut out = HashMap::new();
-    let mut values = HashMap::new();
+    let mut out = HashMap::default();
+    let mut values = HashMap::default();
     for (source, round, value) in rounded {
         let Operand::Value(pi) = chain.emit(Type::I64, InstKind::Copy(Type::I64, value)) else {
             unreachable!("emit answers a value");

@@ -30,7 +30,7 @@
 //!
 //! `TORAJS_LOOP_GUARD_OFF=1` skips, `TORAJS_LOOP_GUARD_STATS=1` counts.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::dominator::DominatorTree;
 use torajs_core::ssa::loop_analysis::{LoopAnalysis, NaturalLoop};
@@ -71,7 +71,7 @@ fn loops_of(func: &Function) -> Vec<NaturalLoop> {
 fn hoist_fn(func: &mut Function, stats: &mut LoopGuardStats) {
     let multi = multi_def_values(func);
     // per loop header: the receivers whose null test now sits in front
-    let mut live: HashMap<BlockId, Vec<ValueId>> = HashMap::new();
+    let mut live: HashMap<BlockId, Vec<ValueId>> = HashMap::default();
     while let Some((lp, plan)) = loops_of(func)
         .into_iter()
         .find_map(|lp| plan_guard(func, &lp, &multi).map(|p| (lp, p)))
@@ -230,7 +230,7 @@ fn plan_guard(func: &Function, lp: &NaturalLoop, multi: &HashSet<ValueId>) -> Op
         .flat_map(|&b| &func.blocks[b].insts)
         .filter_map(|i| i.result)
         .collect();
-    let mut cone: HashSet<ValueId> = HashSet::new();
+    let mut cone: HashSet<ValueId> = HashSet::default();
     let mut work = vec![cond];
     while let Some(v) = work.pop() {
         if multi.contains(&v) {

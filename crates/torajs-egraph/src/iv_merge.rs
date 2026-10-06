@@ -15,7 +15,7 @@
 //! length addresses the slot, the program's own counter is what gets
 //! stored and compared, and both step by one.
 
-use std::collections::HashMap;
+use crate::id_hash::HashMap;
 
 use torajs_core::ssa::dominator::DominatorTree;
 use torajs_core::ssa::loop_analysis::LoopAnalysis;
@@ -69,9 +69,9 @@ struct Plan {
 }
 
 fn find_merge(func: &Function) -> Option<Plan> {
-    let mut defs: HashMap<ValueId, Vec<(usize, usize)>> = HashMap::new();
-    let mut uses: HashMap<ValueId, Vec<(usize, usize)>> = HashMap::new();
-    let mut term_uses: HashMap<ValueId, usize> = HashMap::new();
+    let mut defs: HashMap<ValueId, Vec<(usize, usize)>> = HashMap::default();
+    let mut uses: HashMap<ValueId, Vec<(usize, usize)>> = HashMap::default();
+    let mut term_uses: HashMap<ValueId, usize> = HashMap::default();
     for (bi, block) in func.blocks.iter().enumerate() {
         for (ii, inst) in block.insts.iter().enumerate() {
             if let Some(r) = inst.result {
@@ -362,7 +362,7 @@ fn apply(func: &mut Function, plan: Plan) {
             Operand::Value(v)
         }
     };
-    let mut advanced: HashMap<ValueId, ValueId> = HashMap::new();
+    let mut advanced: HashMap<ValueId, ValueId> = HashMap::default();
     for (shift, access) in &offsets {
         let a = &mut func.blocks[access.0].insts[access.1].kind;
         let (InstKind::LoadDyn(_, b, _) | InstKind::StoreDyn(_, b, _)) = a else {
@@ -393,7 +393,7 @@ fn apply(func: &mut Function, plan: Plan) {
         }
     }
     // reads after the loop take `kept + d`, each just before itself
-    let mut before: HashMap<(usize, usize), Inst> = HashMap::new();
+    let mut before: HashMap<(usize, usize), Inst> = HashMap::default();
     for at in &reads_after {
         let read = match d {
             Operand::ConstI64(0) => kept.cell,

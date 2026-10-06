@@ -19,7 +19,7 @@
 //! any other way (a param, a load, a select) is kept — the safe
 //! direction.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{
     ANY_SLOT_TAG_HEAP, InstKind, Module, Operand, Terminator, ValueId, visit_value_operands,

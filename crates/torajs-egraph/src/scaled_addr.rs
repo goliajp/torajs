@@ -24,7 +24,7 @@
 //! because the operand's live range ends at the shift under the
 //! already-fixed assignment.
 
-use std::collections::HashMap;
+use crate::id_hash::HashMap;
 
 use torajs_core::ssa::{
     BinOp, Function, InstKind, Module, Operand, Terminator, ValueId, visit_value_operands,
@@ -48,8 +48,8 @@ fn fold_function(func: &mut Function, stats: &mut ScaledAddrStats) {
     // Pass 1 — use counts over every operand position, terminators
     // included (missing one would delete a shift something still
     // reads), and the `Shl(x, 3)` def sites.
-    let mut uses: HashMap<ValueId, usize> = HashMap::new();
-    let mut shl3_defs: HashMap<ValueId, (usize, usize, Operand)> = HashMap::new();
+    let mut uses: HashMap<ValueId, usize> = HashMap::default();
+    let mut shl3_defs: HashMap<ValueId, (usize, usize, Operand)> = HashMap::default();
     for (bi, block) in func.blocks.iter().enumerate() {
         for (ii, inst) in block.insts.iter().enumerate() {
             visit_value_operands(&inst.kind, |v| *uses.entry(v).or_insert(0) += 1);

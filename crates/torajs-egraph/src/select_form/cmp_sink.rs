@@ -30,7 +30,7 @@ use torajs_core::ssa::{
     visit_value_operands,
 };
 
-use std::collections::HashMap;
+use crate::id_hash::HashMap;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct CmpSinkStats {
@@ -62,7 +62,7 @@ pub fn sink_cmps(module: &mut Module) -> CmpSinkStats {
 /// codegen's `brfuse::count_uses`, whose single-use gate this pass
 /// front-runs (a cond the fuse would reject is not worth moving).
 fn count_uses(func: &Function) -> HashMap<ValueId, u32> {
-    let mut uses: HashMap<ValueId, u32> = HashMap::new();
+    let mut uses: HashMap<ValueId, u32> = HashMap::default();
     let mut bump = |v: ValueId| *uses.entry(v).or_insert(0) += 1;
     for block in &func.blocks {
         for inst in &block.insts {

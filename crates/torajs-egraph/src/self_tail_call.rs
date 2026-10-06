@@ -43,7 +43,7 @@
 //! every ret), which fails the match — no separate escape analysis
 //! needed.
 
-use std::collections::HashMap;
+use crate::id_hash::HashMap;
 
 use torajs_core::ssa::{
     Block, BlockId, FuncId, IPred, Inst, InstKind, Module, Operand, Terminator, Type, ValueId,
@@ -177,7 +177,7 @@ fn rewrite_function(
 
     // Redirect every param use to its var (env stays — it is loop
     // invariant and the guard compares against it directly).
-    let mut replace: HashMap<ValueId, Operand> = HashMap::new();
+    let mut replace: HashMap<ValueId, Operand> = HashMap::default();
     replace.insert(argc_param, Operand::Value(argc_var));
     for (p, v) in user_params.iter().zip(&param_vars) {
         replace.insert(*p, Operand::Value(*v));

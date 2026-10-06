@@ -14,7 +14,7 @@
 //! reads from an out cell instead, which every exit of either copy
 //! stores its own cell into.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::dominator::DominatorTree;
 use torajs_core::ssa::{Block, BlockId, Function, Inst, InstKind, Operand, Terminator, ValueId};
@@ -49,7 +49,7 @@ pub(super) fn escapes(
     region: &HashSet<BlockId>,
     cells: &HashSet<ValueId>,
 ) -> bool {
-    let mut own: HashSet<ValueId> = HashSet::new();
+    let mut own: HashSet<ValueId> = HashSet::default();
     for b in region {
         for inst in &func.blocks[b.0 as usize].insts {
             own.extend(inst.result.filter(|r| !cells.contains(r)));
@@ -98,7 +98,7 @@ pub(super) fn readers_after(
     let in_region: HashSet<BlockId> = region.iter().copied().collect();
     let own: HashSet<ValueId> = cells_of(func, region, cells).into_iter().collect();
     // what the exits reach without going back through the loop
-    let mut reached: HashSet<BlockId> = HashSet::new();
+    let mut reached: HashSet<BlockId> = HashSet::default();
     let mut work: Vec<BlockId> = region
         .iter()
         .flat_map(|b| successors(&func.blocks[b.0 as usize].term))
@@ -110,7 +110,7 @@ pub(super) fn readers_after(
         }
         work.extend(successors(&func.blocks[b.0 as usize].term));
     }
-    let mut out: HashSet<ValueId> = HashSet::new();
+    let mut out: HashSet<ValueId> = HashSet::default();
     let mut readers = Vec::new();
     for block in func.blocks.iter().filter(|b| reached.contains(&b.id)) {
         let after = dom.dominates(header, block.id);
@@ -137,8 +137,8 @@ pub(super) fn readers_after(
 
 /// Append the copy. Nothing enters it yet.
 pub(super) fn clone_blocks(func: &mut Function, region: &[BlockId]) -> FastCopy {
-    let mut op_map: HashMap<ValueId, Operand> = HashMap::new();
-    let mut values: HashMap<ValueId, ValueId> = HashMap::new();
+    let mut op_map: HashMap<ValueId, Operand> = HashMap::default();
+    let mut values: HashMap<ValueId, ValueId> = HashMap::default();
     for b in region {
         for i in 0..func.blocks[b.0 as usize].insts.len() {
             let Some(r) = func.blocks[b.0 as usize].insts[i].result else {

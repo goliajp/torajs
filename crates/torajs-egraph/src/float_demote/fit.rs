@@ -3,7 +3,7 @@
 //! i64 rewrite forms. Pure predicates over the interval facts — no
 //! IR is mutated here.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{BinOp, FPred, IPred, InstKind, Operand, Type, ValueId};
 

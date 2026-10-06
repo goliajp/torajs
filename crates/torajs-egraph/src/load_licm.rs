@@ -33,7 +33,7 @@
 //!
 //! `TORAJS_LOAD_LICM_OFF=1` skips, `TORAJS_LOAD_LICM_STATS=1` counts.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{
     BinOp, BlockId, Function, HEADER_FLAGS_COLLECTOR, Inst, InstKind, Module, Operand, Terminator,
@@ -91,7 +91,7 @@ fn hoist_fn(
     // inner first: an inner loop's preheader is in the outer body, so
     // what moves out of the inner loop is judged again by the outer
     loops.sort_by_key(|l| l.body.len());
-    let mut def_block: HashMap<ValueId, BlockId> = HashMap::new();
+    let mut def_block: HashMap<ValueId, BlockId> = HashMap::default();
     for (bi, block) in func.blocks.iter().enumerate() {
         for inst in &block.insts {
             if let Some(r) = inst.result {
@@ -158,7 +158,7 @@ fn flag_test_chains(
     uses: &HashMap<ValueId, u32>,
     clean: impl Fn(&ValueId) -> bool,
 ) -> HashSet<ValueId> {
-    let mut chains = HashSet::new();
+    let mut chains = HashSet::default();
     let single = |v: ValueId| uses.get(&v) == Some(&1);
     for (i, load) in insts.iter().enumerate() {
         let (InstKind::Load(Type::I64, Operand::Value(p), 0), Some(t)) = (&load.kind, load.result)
@@ -202,7 +202,7 @@ fn flag_test_chains(
 
 /// Operand occurrences per value, terminators included.
 fn use_counts(func: &Function) -> HashMap<ValueId, u32> {
-    let mut uses: HashMap<ValueId, u32> = HashMap::new();
+    let mut uses: HashMap<ValueId, u32> = HashMap::default();
     for block in &func.blocks {
         for inst in &block.insts {
             visit_value_operands(&inst.kind, |v| *uses.entry(v).or_insert(0) += 1);
@@ -249,7 +249,7 @@ fn written_headers(
     classes: &ArrayClasses,
     names: &[String],
 ) -> HashSet<(ValueId, Option<u64>)> {
-    let mut dirty = HashSet::new();
+    let mut dirty = HashSet::default();
     let mut named = |op: &Operand, with_base: bool, off: Option<u64>| {
         if let Operand::Value(v) = op {
             dirty.extend(classes.class.get(v).map(|a| (*a, off)));

@@ -24,7 +24,7 @@
 //! the loop body (entry-header or irreducible-adjacent shapes) are
 //! skipped.
 
-use std::collections::HashMap;
+use crate::id_hash::HashMap;
 
 use torajs_core::ssa::{Function, Inst, InstKind, Module, Operand, Type, ValueId, ValueInfo};
 
@@ -86,7 +86,7 @@ fn hoist_fn(func: &mut Function, stats: &mut FconstHoistStats) {
             continue;
         }
         // Mint one Copy per constant at the dominator's tail.
-        let mut minted: HashMap<u64, ValueId> = HashMap::new();
+        let mut minted: HashMap<u64, ValueId> = HashMap::default();
         for c in &seen {
             let vid = ValueId(func.values.len() as u32);
             func.values.push(ValueInfo {

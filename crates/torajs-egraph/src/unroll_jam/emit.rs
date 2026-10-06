@@ -13,7 +13,7 @@
 //!
 //! The original loop stays as it was and runs whatever a group cannot.
 
-use std::collections::HashMap;
+use crate::id_hash::HashMap;
 
 use torajs_core::ssa::{
     BinOp, BlockId, Function, IPred, Inst, InstKind, Operand, Terminator, Type, ValueId,
@@ -82,7 +82,7 @@ fn pre_lanes(
     let mut lanes: Vec<HashMap<ValueId, ValueId>> = Vec::with_capacity(LANES);
     let mut cur = gb;
     for j in 0..LANES {
-        let mut map: HashMap<ValueId, ValueId> = HashMap::new();
+        let mut map: HashMap<ValueId, ValueId> = HashMap::default();
         if j > 0 {
             let ij = new_value(func, Type::I64);
             let off = p.step * j as i64;

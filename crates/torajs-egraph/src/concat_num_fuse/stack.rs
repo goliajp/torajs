@@ -33,7 +33,7 @@
 //! heap. The prefix must be a static literal so the slot's size is
 //! known at compile time; there is no heap fallback inside the kernel.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{
     FuncId, Function, Inst, InstKind, Module, Operand, Type, ValueId, ValueInfo,
@@ -176,7 +176,7 @@ const FRAME_BUDGET: u64 = 2048;
 
 fn plan(f: &Function, k: &Kernels) -> Plan {
     let ix = Index::of(f);
-    let mut seen: HashSet<ValueId> = HashSet::new();
+    let mut seen: HashSet<ValueId> = HashSet::default();
     let mut p = Plan::default();
     let mut frame_bytes = 0u64;
     for block in &f.blocks {

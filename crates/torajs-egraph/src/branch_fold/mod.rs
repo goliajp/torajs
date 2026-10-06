@@ -44,8 +44,8 @@ mod decide;
 pub(crate) mod point_eval;
 pub mod sum_facts;
 
+use crate::id_hash::{HashMap, HashSet};
 use std::cell::OnceCell;
-use std::collections::{HashMap, HashSet};
 
 use torajs_core::ssa::{
     BinOp, BlockId, Function, InstKind, Module, Operand, Terminator, ValueId, visit_value_operands,
@@ -204,8 +204,8 @@ fn edge_range(src: &Sources<'_>, v: ValueId, bi: usize) -> Option<NumFact> {
     let func = src.func;
     src.pe.single_def(v)?;
     let edges = src.edges.get_or_init(|| {
-        let mut defs: HashMap<ValueId, InstKind> = HashMap::new();
-        let mut multi: HashSet<ValueId> = HashSet::new();
+        let mut defs: HashMap<ValueId, InstKind> = HashMap::default();
+        let mut multi: HashSet<ValueId> = HashSet::default();
         for inst in func.blocks.iter().flat_map(|b| &b.insts) {
             if let Some(r) = inst.result
                 && defs.insert(r, inst.kind.clone()).is_some()
@@ -233,7 +233,7 @@ fn edge_range(src: &Sources<'_>, v: ValueId, bi: usize) -> Option<NumFact> {
 fn sweep_dead_insts(func: &mut Function) -> u32 {
     let mut removed = 0u32;
     loop {
-        let mut uses: HashMap<ValueId, u32> = HashMap::new();
+        let mut uses: HashMap<ValueId, u32> = HashMap::default();
         let mut bump = |v: ValueId| *uses.entry(v).or_insert(0) += 1;
         for block in &func.blocks {
             for inst in &block.insts {
@@ -315,7 +315,7 @@ pub(crate) fn sweep_unreachable_blocks(func: &mut Function) -> u32 {
     if reachable.iter().all(|r| *r) {
         return 0;
     }
-    let mut remap: HashMap<u32, u32> = HashMap::new();
+    let mut remap: HashMap<u32, u32> = HashMap::default();
     let mut next = 0u32;
     for (i, r) in reachable.iter().enumerate() {
         if *r {

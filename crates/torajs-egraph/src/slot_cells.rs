@@ -8,7 +8,7 @@
 //! same slot must keep its memory — forwarding it would read the
 //! value the cell model believes in, not the bytes the machine holds.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{Function, InstKind, Operand, ValueId};
 
@@ -21,7 +21,7 @@ pub(crate) fn overlapping_cells(
     func: &Function,
     slots: &HashSet<ValueId>,
 ) -> HashSet<(ValueId, u64)> {
-    let mut offs: HashMap<ValueId, Vec<u64>> = HashMap::new();
+    let mut offs: HashMap<ValueId, Vec<u64>> = HashMap::default();
     for block in &func.blocks {
         for inst in &block.insts {
             if let InstKind::Load(_, Operand::Value(s), off)
@@ -32,7 +32,7 @@ pub(crate) fn overlapping_cells(
             }
         }
     }
-    let mut out = HashSet::new();
+    let mut out = HashSet::default();
     for (s, mut v) in offs {
         v.sort_unstable();
         v.dedup();

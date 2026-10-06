@@ -2,7 +2,7 @@
 //! every def and use checked against the rules in the parent module's
 //! doc.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{
     Function, Inst, InstKind, Operand, Terminator, ValueId, visit_value_operands,
@@ -23,9 +23,9 @@ pub(super) struct Index<'f> {
 
 impl<'f> Index<'f> {
     pub(super) fn of(f: &'f Function, empty: &[bool]) -> Self {
-        let mut defs: HashMap<ValueId, Vec<(usize, usize)>> = HashMap::new();
-        let mut uses: HashMap<ValueId, Vec<Option<(usize, usize)>>> = HashMap::new();
-        let mut lits = HashSet::new();
+        let mut defs: HashMap<ValueId, Vec<(usize, usize)>> = HashMap::default();
+        let mut uses: HashMap<ValueId, Vec<Option<(usize, usize)>>> = HashMap::default();
+        let mut lits = HashSet::default();
         for (b, block) in f.blocks.iter().enumerate() {
             for (i, inst) in block.insts.iter().enumerate() {
                 if let Some(r) = inst.result {
@@ -80,7 +80,7 @@ pub(super) struct Web {
 impl Web {
     pub(super) fn grow(r: ValueId, ix: &Index<'_>, k: &Kernels) -> Self {
         let mut web = Web {
-            set: HashSet::from([r]),
+            set: HashSet::from_iter([r]),
             seeds: Vec::new(),
             appends: Vec::new(),
             ok: true,

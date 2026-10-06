@@ -28,7 +28,7 @@ mod select;
 
 pub use select::float_quotient_select_srems;
 
-use std::collections::HashMap;
+use crate::id_hash::HashMap;
 
 use torajs_core::ssa::dominator::DominatorTree;
 use torajs_core::ssa::loop_analysis::LoopAnalysis;
@@ -251,7 +251,7 @@ fn rewrite_function(
         }
     }
     let rewritten = sites.iter().map(|s| s.r).collect();
-    let mut converted: HashMap<(ValueId, BlockId), ValueId> = HashMap::new();
+    let mut converted: HashMap<(ValueId, BlockId), ValueId> = HashMap::default();
     // last site first, so earlier positions in a block stay valid
     for s in sites.into_iter().rev() {
         let mut pre_insts: Vec<Inst> = Vec::new();
@@ -370,7 +370,7 @@ mod tests {
     }
 
     fn run_for(f: &mut Function, n_hi: i128, i_lo: i128, readers: Readers) -> SremFquotStats {
-        let facts = HashMap::from([
+        let facts = HashMap::from_iter([
             (ValueId(0), NumFact::new(0, n_hi)),
             (ValueId(1), NumFact::new(i_lo, 1 << 70)),
         ]);

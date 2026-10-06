@@ -2,7 +2,7 @@
 //! of values joined to each by copies with every use checked against
 //! the rules in the parent module's doc.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{
     BinOp, Function, Inst, InstKind, Operand, Terminator, ValueId, visit_value_operands,
@@ -24,8 +24,8 @@ pub(super) struct Index<'f> {
 
 impl<'f> Index<'f> {
     pub(super) fn of(f: &'f Function) -> Self {
-        let mut defs: HashMap<ValueId, Vec<(usize, usize)>> = HashMap::new();
-        let mut uses: HashMap<ValueId, Vec<Use>> = HashMap::new();
+        let mut defs: HashMap<ValueId, Vec<(usize, usize)>> = HashMap::default();
+        let mut uses: HashMap<ValueId, Vec<Use>> = HashMap::default();
         for (b, block) in f.blocks.iter().enumerate() {
             for (i, inst) in block.insts.iter().enumerate() {
                 if let Some(r) = inst.result {
@@ -144,7 +144,7 @@ fn reads_own_bytes(ix: &Index<'_>, b: usize, j: usize, v: ValueId) -> bool {
 /// whether every one of them stays readable only while its slot's
 /// bytes are the ones written.
 pub(super) fn web(r: ValueId, k: &Kernels, ix: &Index<'_>) -> (HashSet<ValueId>, bool) {
-    let mut set = HashSet::from([r]);
+    let mut set = HashSet::from_iter([r]);
     let mut queue = vec![r];
     let mut ok = !ix.f.params.contains(&r);
     while let Some(v) = queue.pop() {
@@ -187,7 +187,7 @@ pub(super) fn web(r: ValueId, k: &Kernels, ix: &Index<'_>) -> (HashSet<ValueId>,
 /// address taken in its own iteration, after that iteration's mint: a
 /// value carried round a loop would need a copy, which is refused.
 fn only_loads_through(a: ValueId, ix: &Index<'_>) -> bool {
-    let mut seen = HashSet::from([a]);
+    let mut seen = HashSet::from_iter([a]);
     let mut queue = vec![a];
     while let Some(v) = queue.pop() {
         if ix.defs.get(&v).map_or(0, Vec::len) != 1 {

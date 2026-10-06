@@ -50,7 +50,7 @@
 //! shape) and before `slot_forward`. `TORAJS_HEAP_TO_STACK_OFF=1`
 //! skips (bisect gate).
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{FuncId, Function, IPred, InstKind, Module, Operand, Terminator, ValueId};
 
@@ -130,7 +130,7 @@ pub fn promote_module(module: &mut Module) -> HeapToStackStats {
 }
 
 fn promote_in_function(func: &mut Function, fids: &Fids, stats: &mut HeapToStackStats) {
-    let mut cands: HashMap<ValueId, i64> = HashMap::new();
+    let mut cands: HashMap<ValueId, i64> = HashMap::default();
     for block in &func.blocks {
         for inst in &block.insts {
             if let (InstKind::Call(f, args), Some(r)) = (&inst.kind, inst.result)
@@ -155,8 +155,8 @@ fn promote_in_function(func: &mut Function, fids: &Fids, stats: &mut HeapToStack
         Operand::Value(v) => owner.get(v).copied(),
         _ => None,
     };
-    let mut props_seam_users: HashSet<ValueId> = HashSet::new();
-    let mut props_dirty: HashSet<ValueId> = HashSet::new();
+    let mut props_seam_users: HashSet<ValueId> = HashSet::default();
+    let mut props_dirty: HashSet<ValueId> = HashSet::default();
     let mark = |op: &Operand, bad: &mut HashSet<ValueId>| bad.extend(own(op));
     for block in &func.blocks {
         for inst in &block.insts {
@@ -233,7 +233,7 @@ fn apply(
     // the candidate itself against anything that does not name it: a
     // fresh frame cell equals no other pointer; an alias may be null
     let folds = |a: &Operand, b: &Operand| is_cand(a) && own(b) != own(a);
-    let mut replace: HashMap<ValueId, Operand> = HashMap::new();
+    let mut replace: HashMap<ValueId, Operand> = HashMap::default();
     for block in func.blocks.iter_mut() {
         block.insts.retain_mut(|inst| match &inst.kind {
             InstKind::Call(f, args) if *f == fids.alloc => {

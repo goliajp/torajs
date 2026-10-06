@@ -3,7 +3,7 @@
 //! pass has changed since read them here instead of recomputing; any
 //! difference in the body or the names is a miss.
 
-use std::collections::HashMap;
+use crate::id_hash::HashMap;
 
 use torajs_core::ssa::{Function, Module, ValueId};
 

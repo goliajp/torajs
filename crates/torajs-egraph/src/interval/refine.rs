@@ -17,7 +17,7 @@
 //! again — and block-local evaluation kills a constraint at the cell's
 //! own def site (see `mod.rs`).
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{BlockId, Function, InstKind, Operand, Terminator, ValueId};
 

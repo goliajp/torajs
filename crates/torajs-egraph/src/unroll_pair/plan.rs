@@ -1,6 +1,6 @@
 //! Which loops the rewrite takes.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::dominator::DominatorTree;
 use torajs_core::ssa::loop_analysis::{LoopAnalysis, NaturalLoop};
@@ -21,9 +21,9 @@ pub(super) struct Uses {
 impl Uses {
     pub fn of(func: &Function) -> Self {
         let mut u = Uses {
-            defs: HashMap::new(),
-            reads: HashMap::new(),
-            preds: HashMap::new(),
+            defs: HashMap::default(),
+            reads: HashMap::default(),
+            preds: HashMap::default(),
         };
         for block in &func.blocks {
             for s in successors(&block.term) {

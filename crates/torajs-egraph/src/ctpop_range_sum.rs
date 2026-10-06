@@ -59,7 +59,7 @@
 //! `TORAJS_CTPOP_RANGESUM_OFF=1` skips (bisect gate),
 //! `TORAJS_CTPOP_RANGESUM_STATS=1` dumps counters.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ast::ExprId;
 use torajs_core::ssa::{
@@ -224,7 +224,7 @@ fn block(func: &Function, id: BlockId) -> Option<&torajs_core::ssa::Block> {
 /// (loop body minus the header) or `None` for any branching shape.
 fn body_chain(func: &Function, lp: &NaturalLoop, start: BlockId) -> Option<Vec<BlockId>> {
     let mut chain: Vec<BlockId> = Vec::new();
-    let mut seen: HashSet<BlockId> = HashSet::new();
+    let mut seen: HashSet<BlockId> = HashSet::default();
     let mut cur = start;
     loop {
         if !lp.contains(&cur) || !seen.insert(cur) {
@@ -251,7 +251,7 @@ fn body_chain(func: &Function, lp: &NaturalLoop, start: BlockId) -> Option<Vec<B
 /// Multi-def cells count: a reader outside may observe either def, so
 /// including them here only tightens the match.
 fn live_out_defs(func: &Function, lp: &NaturalLoop) -> Vec<ValueId> {
-    let mut defined: HashSet<ValueId> = HashSet::new();
+    let mut defined: HashSet<ValueId> = HashSet::default();
     for b in func.blocks.iter().filter(|b| lp.contains(&b.id)) {
         for inst in &b.insts {
             if let Some(r) = inst.result {
@@ -259,7 +259,7 @@ fn live_out_defs(func: &Function, lp: &NaturalLoop) -> Vec<ValueId> {
             }
         }
     }
-    let mut out: HashSet<ValueId> = HashSet::new();
+    let mut out: HashSet<ValueId> = HashSet::default();
     for b in func.blocks.iter().filter(|b| !lp.contains(&b.id)) {
         let mut check = |v: ValueId| {
             if defined.contains(&v) {
@@ -306,7 +306,7 @@ fn eval_body(
     counter: ValueId,
     acc: ValueId,
 ) -> Option<HashMap<ValueId, Sym>> {
-    let mut env: HashMap<ValueId, Sym> = HashMap::new();
+    let mut env: HashMap<ValueId, Sym> = HashMap::default();
     env.insert(counter, Sym::Counter);
     env.insert(acc, Sym::Acc);
     for bid in chain {

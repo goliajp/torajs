@@ -2,7 +2,7 @@
 //! whether it reads memory, whether it can change memory at all, and
 //! which address constants name one symbol.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{Function, InstKind, ValueId};
 
@@ -33,8 +33,8 @@ pub(super) fn global_ref_twins(
     func: &Function,
     multi: &HashSet<ValueId>,
 ) -> HashMap<ValueId, ValueId> {
-    let mut first: HashMap<&str, ValueId> = HashMap::new();
-    let mut twin = HashMap::new();
+    let mut first: HashMap<&str, ValueId> = HashMap::default();
+    let mut twin = HashMap::default();
     for inst in func.blocks.iter().flat_map(|b| &b.insts) {
         if let (InstKind::GlobalRef(sym), Some(r)) = (&inst.kind, inst.result)
             && !multi.contains(&r)

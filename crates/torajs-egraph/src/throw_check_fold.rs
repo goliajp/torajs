@@ -34,7 +34,7 @@
 //! holds the call that raises the RangeError, and the probe after the
 //! read is foldable only once that arm has been folded away.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{
     BlockId, Function, IPred, Inst, InstKind, Module, Operand, THROW_ACTIVE_SYM, Terminator, Type,
@@ -133,7 +133,7 @@ fn fold_known_zero(func: &mut Function, stats: &mut ThrowCheckFoldStats) {
 /// that runs zero times now probes once; that can differ only if the
 /// flag was already set on entry, which no caller allows.
 fn guard_loop_entries(func: &mut Function) -> u32 {
-    let mut guarded: HashSet<BlockId> = HashSet::new();
+    let mut guarded: HashSet<BlockId> = HashSet::default();
     loop {
         let dom = DominatorTree::compute(func);
         let loops = LoopAnalysis::compute(func, &dom);
@@ -196,8 +196,8 @@ pub(crate) fn propagate_path_reads(
         .iter()
         .flat_map(|&b| func.blocks[b].insts.iter().filter_map(|i| i.result))
         .collect();
-    let mut read: HashSet<ValueId> = HashSet::new();
-    let mut seen: HashSet<usize> = HashSet::new();
+    let mut read: HashSet<ValueId> = HashSet::default();
+    let mut seen: HashSet<usize> = HashSet::default();
     let mut stack = vec![then_blk.0 as usize];
     while let Some(b) = stack.pop() {
         if !seen.insert(b) {
@@ -389,7 +389,7 @@ fn out_edges(term: &Terminator, at_end: bool, probe: Option<&Probe>) -> Vec<(Blo
 pub(crate) fn remove_unused(func: &mut Function, candidates: &[ValueId]) {
     let mut left: HashSet<ValueId> = candidates.iter().copied().collect();
     loop {
-        let mut used: HashSet<ValueId> = HashSet::new();
+        let mut used: HashSet<ValueId> = HashSet::default();
         for block in &func.blocks {
             for inst in &block.insts {
                 visit_value_operands(&inst.kind, |v| {

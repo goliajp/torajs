@@ -3,7 +3,7 @@
 //! splitting and parallel-copy sequentialization. See the parent
 //! module doc for the full pipeline.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{
     Block, BlockId, Function, Inst, InstKind, Operand, Terminator, Type, ValueId, ValueInfo,
@@ -25,8 +25,8 @@ pub(super) fn apply_plans(
     slots: &HashSet<ValueId>,
     stats: &mut PhiPromoteStats,
 ) {
-    let mut replace: HashMap<ValueId, Operand> = HashMap::new();
-    let mut promoted_cells: HashSet<(ValueId, u64)> = HashSet::new();
+    let mut replace: HashMap<ValueId, Operand> = HashMap::default();
+    let mut promoted_cells: HashSet<(ValueId, u64)> = HashSet::default();
     for plan in &plans {
         replace.extend(plan.replace.iter().map(|(k, v)| (*k, *v)));
         promoted_cells.insert((plan.slot, plan.off));
@@ -63,7 +63,7 @@ pub(super) fn apply_plans(
     stats.loads_forwarded += loads_dropped;
     stats.stores_removed += stores_dropped;
     // DSE: slots with zero loads anywhere lose remaining stores + alloca.
-    let mut loaded: HashSet<ValueId> = HashSet::new();
+    let mut loaded: HashSet<ValueId> = HashSet::default();
     for block in &func.blocks {
         for inst in &block.insts {
             if let InstKind::Load(_, Operand::Value(s), _) = &inst.kind {
@@ -99,7 +99,7 @@ fn destruct_phis(
     replace: &HashMap<ValueId, Operand>,
     stats: &mut PhiPromoteStats,
 ) {
-    let mut edge_copies: HashMap<(BlockId, BlockId), Vec<EdgeCopy>> = HashMap::new();
+    let mut edge_copies: HashMap<(BlockId, BlockId), Vec<EdgeCopy>> = HashMap::default();
     for plan in plans {
         for phi in &plan.phis {
             if !phi.live {

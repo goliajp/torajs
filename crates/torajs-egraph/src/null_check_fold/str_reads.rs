@@ -2,7 +2,7 @@
 //! whose null and `undefined` cell tests of the string already sit there
 //! (`loop_guard.rs`).
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::loop_analysis::NaturalLoop;
 use torajs_core::ssa::{
@@ -46,7 +46,7 @@ pub(super) fn hoist_header_reads(
     if !reads_only || body_insts().any(|i| i.result == Some(v)) {
         return 0;
     }
-    let mut uses: HashMap<ValueId, u32> = HashMap::new();
+    let mut uses: HashMap<ValueId, u32> = HashMap::default();
     for block in &func.blocks {
         for inst in &block.insts {
             visit_value_operands(&inst.kind, |o| *uses.entry(o).or_insert(0) += 1);
@@ -63,7 +63,7 @@ pub(super) fn hoist_header_reads(
     let single = |x: ValueId| uses.get(&x) == Some(&1);
 
     // what each moved or folded instruction's result is from now on
-    let mut same: HashMap<ValueId, ValueId> = HashMap::new();
+    let mut same: HashMap<ValueId, ValueId> = HashMap::default();
     let (mut len, mut wide_len, mut latin1): (Option<ValueId>, Option<ValueId>, Option<ValueId>) =
         (None, None, None);
     let mut out: Vec<Inst> = Vec::new();

@@ -27,7 +27,7 @@
 //! `TORAJS_MAP_FIND_CSE_OFF=1` skips, `TORAJS_MAP_FIND_CSE_STATS=1`
 //! counts.
 
-use std::collections::HashMap;
+use crate::id_hash::HashMap;
 
 use torajs_core::ssa::{BlockId, FuncId, Function, InstKind, Module, Operand, Terminator, ValueId};
 
@@ -91,7 +91,7 @@ struct Fids {
 }
 
 fn unique_preds(func: &Function) -> HashMap<BlockId, Option<BlockId>> {
-    let mut preds: HashMap<BlockId, Option<BlockId>> = HashMap::new();
+    let mut preds: HashMap<BlockId, Option<BlockId>> = HashMap::default();
     let mut add = |to: BlockId, from: BlockId| {
         preds
             .entry(to)
@@ -119,7 +119,7 @@ fn unique_preds(func: &Function) -> HashMap<BlockId, Option<BlockId>> {
 
 fn share_in_function(func: &mut Function, fids: &Fids, stats: &mut MapFindCseStats) {
     let preds = unique_preds(func);
-    let mut replace: HashMap<ValueId, Operand> = HashMap::new();
+    let mut replace: HashMap<ValueId, Operand> = HashMap::default();
     let mut dead: Vec<(usize, usize)> = Vec::new();
     let mut hints: Vec<(usize, usize, ValueId)> = Vec::new();
     for bi in 0..func.blocks.len() {

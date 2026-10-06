@@ -29,7 +29,7 @@
 //! Runs after the pair and chain rewrites: those decide which kernel a
 //! piece goes through, this only changes how a literal piece travels.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{
     FuncId, Function, InstKind, Module, Operand, StringId, StringLiteral, ValueId,
@@ -120,7 +120,7 @@ impl LiteralForms {
         statics: &HashMap<ValueId, StringId>,
     ) -> u32 {
         let mut rewritten = 0;
-        let mut moved: HashSet<ValueId> = HashSet::new();
+        let mut moved: HashSet<ValueId> = HashSet::default();
         for inst in func.blocks.iter_mut().flat_map(|b| b.insts.iter_mut()) {
             let Some((k, args)) = kernels.call(inst) else {
                 continue;

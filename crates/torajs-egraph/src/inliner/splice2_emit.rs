@@ -7,7 +7,7 @@
 //! validation envelope and the error surface.
 
 use super::rewrite::{rewrite_inst_kind, rewrite_operand};
-use std::collections::HashMap;
+use crate::id_hash::HashMap;
 use torajs_core::ssa::{
     Block, BlockId, Function, Inst, InstKind, Operand, Terminator, Type, ValueId, ValueInfo,
 };
@@ -31,7 +31,7 @@ pub(super) fn splice_body(
     // continuation. Caller's existing BlockIds are untouched so any
     // internal caller CFG edges stay valid.
     let base = caller.blocks.len() as u32;
-    let mut block_map: HashMap<BlockId, BlockId> = HashMap::new();
+    let mut block_map: HashMap<BlockId, BlockId> = HashMap::default();
     for (i, blk) in callee.blocks.iter().enumerate() {
         block_map.insert(blk.id, BlockId(base + i as u32));
     }
@@ -97,11 +97,11 @@ fn map_callee_values(
     callee: &Function,
     args: &[Operand],
 ) -> HashMap<ValueId, Operand> {
-    let mut value_map: HashMap<ValueId, Operand> = HashMap::new();
+    let mut value_map: HashMap<ValueId, Operand> = HashMap::default();
     for (i, param_id) in callee.params.iter().enumerate() {
         value_map.insert(*param_id, args[i]);
     }
-    let param_set: std::collections::HashSet<u32> = callee.params.iter().map(|v| v.0).collect();
+    let param_set: crate::id_hash::HashSet<u32> = callee.params.iter().map(|v| v.0).collect();
     for cv in 0..callee.values.len() as u32 {
         if param_set.contains(&cv) {
             continue;
@@ -264,7 +264,7 @@ fn clone_callee_blocks(
 /// codegen liveness then rejects with `unreachable!()`.
 fn renumber_blocks(caller: &mut Function) {
     let n = caller.blocks.len();
-    let mut block_remap: HashMap<BlockId, BlockId> = HashMap::with_capacity(n);
+    let mut block_remap = HashMap::with_capacity_and_hasher(n, Default::default());
     for (pos, blk) in caller.blocks.iter().enumerate() {
         block_remap.insert(blk.id, BlockId(pos as u32));
     }

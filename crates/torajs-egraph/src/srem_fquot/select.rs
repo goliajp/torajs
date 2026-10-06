@@ -8,7 +8,7 @@
 //! holding such a test (the passes since the pipeline's own run have
 //! rewritten instructions).
 
-use std::collections::HashSet;
+use crate::id_hash::HashSet;
 
 use torajs_core::ssa::{
     BinOp, BlockId, Function, IPred, InstKind, Module, Operand, ValueId, visit_value_operands,

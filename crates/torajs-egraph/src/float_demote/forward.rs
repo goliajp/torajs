@@ -8,7 +8,7 @@
 //! after the copy in the same block with no def of `a` between. A copy
 //! nothing reads any more goes.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{Function, InstKind, Operand, Type, ValueId};
 
@@ -20,7 +20,7 @@ use crate::rc_peephole::visit_value_operands;
 pub(super) fn forward_into_icmps(func: &mut Function, set: &HashSet<ValueId>) -> u32 {
     let multi = multi_def_values(func);
     // demoted single-def copy -> (block, index, source)
-    let mut copies: HashMap<ValueId, (usize, usize, ValueId)> = HashMap::new();
+    let mut copies: HashMap<ValueId, (usize, usize, ValueId)> = HashMap::default();
     for (bi, block) in func.blocks.iter().enumerate() {
         for (ii, inst) in block.insts.iter().enumerate() {
             if let (Some(r), InstKind::Copy(Type::I64, Operand::Value(s))) =
@@ -81,7 +81,7 @@ fn source_holds(
 
 /// Remove the copies in `copies` that nothing reads.
 fn drop_unread(func: &mut Function, copies: &HashMap<ValueId, (usize, usize, ValueId)>) {
-    let mut read: HashSet<ValueId> = HashSet::new();
+    let mut read: HashSet<ValueId> = HashSet::default();
     for block in &func.blocks {
         for inst in &block.insts {
             visit_value_operands(&inst.kind, |v| {

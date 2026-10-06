@@ -58,7 +58,7 @@ mod hoist;
 mod merge;
 mod plan;
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{
     BlockId, Function, Inst, InstKind, Module, Operand, Terminator, Type, ValueId, ValueInfo,
@@ -92,7 +92,7 @@ pub struct FloatDemoteStats {
 
 pub fn demote_floats(module: &mut Module, facts: &[HashMap<ValueId, NumFact>]) -> FloatDemoteStats {
     let mut stats = FloatDemoteStats::default();
-    let empty = HashMap::new();
+    let empty = HashMap::default();
     for (fi, func) in module.funcs.iter_mut().enumerate() {
         if func.is_declaration() {
             continue;
@@ -145,7 +145,7 @@ fn compute_demote_set(
     facts: &HashMap<ValueId, NumFact>,
 ) -> Option<(HashSet<ValueId>, Vec<plan::RegionPlan>)> {
     // def sites per value (loop cells have several).
-    let mut defs: HashMap<ValueId, Vec<InstKind>> = HashMap::new();
+    let mut defs: HashMap<ValueId, Vec<InstKind>> = HashMap::default();
     for block in &func.blocks {
         for inst in &block.insts {
             if let Some(r) = inst.result {
@@ -205,8 +205,8 @@ fn compute_demote_set(
         // and a value with no useful use at all leaves the set — a
         // demote whose every consumer bridges back is a net loss
         // (copy + sitofp where a single sitofp stood).
-        let mut bad: HashSet<ValueId> = HashSet::new();
-        let mut useful: HashSet<ValueId> = HashSet::new();
+        let mut bad: HashSet<ValueId> = HashSet::default();
+        let mut useful: HashSet<ValueId> = HashSet::default();
         for block in &func.blocks {
             for inst in &block.insts {
                 if inst.result.is_some_and(|r| set.contains(&r)) {
@@ -299,7 +299,7 @@ fn mutate_function(
     track: &HashSet<(BlockId, usize)>,
     stats: &mut FloatDemoteStats,
 ) -> HashMap<(BlockId, usize), usize> {
-    let mut fast_pos: HashMap<(BlockId, usize), usize> = HashMap::new();
+    let mut fast_pos: HashMap<(BlockId, usize), usize> = HashMap::default();
     let Function {
         blocks,
         values,
@@ -339,7 +339,7 @@ fn mutate_function(
                     kind: InstKind::SiToFp(Operand::Value(v)),
                     origin: inst.origin,
                 });
-                let mut map = HashMap::new();
+                let mut map = HashMap::default();
                 map.insert(v, Operand::Value(b));
                 rewrite_operands(&mut inst.kind, &map);
                 stats.bridges_inserted += 1;

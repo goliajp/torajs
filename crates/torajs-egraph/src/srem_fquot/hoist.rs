@@ -1,7 +1,7 @@
 //! Where a site's int-to-float converts go: an operand the loop never
 //! redefines converts once, at the end of the loop's preheader.
 
-use std::collections::HashSet;
+use crate::id_hash::HashSet;
 
 use torajs_core::ssa::loop_analysis::NaturalLoop;
 use torajs_core::ssa::{BlockId, Function, InstKind, Operand, Terminator, ValueId};
@@ -46,7 +46,7 @@ pub(super) fn invariant_preheader(
         return Some(pre);
     }
     // a path from the entry that reaches `pre` without passing a def
-    let mut seen = HashSet::new();
+    let mut seen = HashSet::default();
     let mut stack = vec![BlockId(0)];
     while let Some(b) = stack.pop() {
         if !seen.insert(b) || defines(b) {

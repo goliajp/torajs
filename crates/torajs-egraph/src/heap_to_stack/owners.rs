@@ -25,7 +25,7 @@
 //! alias across a back edge at this stage (no φ yet), so slots are the
 //! only way, and the live-in check below is complete.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{BlockId, Function, InstKind, Operand, ValueId};
 
@@ -81,9 +81,9 @@ pub(super) fn follow(func: &Function, cands: &HashMap<ValueId, i64>) -> Owners {
         .collect();
     let mut o = Owners {
         owner: cands.keys().map(|c| (*c, *c)).collect(),
-        slot_owner: HashMap::new(),
-        bad: HashSet::new(),
-        members: HashMap::new(),
+        slot_owner: HashMap::default(),
+        bad: HashSet::default(),
+        members: HashMap::default(),
     };
     let mut groups = Groups(cands.keys().map(|c| (*c, *c)).collect());
     let mut changed = true;
@@ -159,7 +159,7 @@ pub(super) fn follow(func: &Function, cands: &HashMap<ValueId, i64>) -> Owners {
 /// has been handed out again (`let last = null; for (…) last = new C()`).
 fn stale_aliases(func: &Function, o: &Owners) -> HashSet<ValueId> {
     let cands: HashSet<ValueId> = o.members.values().flatten().copied().collect();
-    let mut alloc_blocks: HashMap<ValueId, Vec<BlockId>> = HashMap::new();
+    let mut alloc_blocks: HashMap<ValueId, Vec<BlockId>> = HashMap::default();
     for block in &func.blocks {
         for inst in &block.insts {
             if let Some(r) = inst.result
@@ -170,7 +170,7 @@ fn stale_aliases(func: &Function, o: &Owners) -> HashSet<ValueId> {
         }
     }
     let preds = cfg_preds(func);
-    let mut bad = HashSet::new();
+    let mut bad = HashSet::default();
     for (&s, &c) in &o.slot_owner {
         let store_blocks: HashSet<BlockId> = func
             .blocks

@@ -24,7 +24,7 @@
 //! function it promoted a cell in, before the slot passes it feeds.
 //! `TORAJS_FRAME_CELL_CLEAN_OFF=1` skips (bisect gate).
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{BinOp, Function, IPred, InstKind, Operand, Terminator, ValueId};
 
@@ -91,7 +91,7 @@ fn plan(
     globals: &HashSet<ValueId>,
     stats: &mut FrameCellCleanStats,
 ) -> HashMap<ValueId, Operand> {
-    let mut replace: HashMap<ValueId, Operand> = HashMap::new();
+    let mut replace: HashMap<ValueId, Operand> = HashMap::default();
     let is_root = |op: &Operand, replace: &HashMap<ValueId, Operand>| {
         let op = resolve(op, replace);
         matches!(op, Operand::Value(v) if roots.contains(&v))

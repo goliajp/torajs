@@ -1,7 +1,7 @@
 //! The dominator walk's state: the two tables, their scope frames and
 //! the keys entries are filed under.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{
     Function, Inst, InstKind, Operand, Terminator, Type, ValueId, rewrite_value_operands,

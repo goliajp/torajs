@@ -49,7 +49,7 @@
 //! route to the length goes through a runtime call, and an
 //! unrecognized call takes the array out of the analysis.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{BinOp, FuncId, Function, InstKind, Operand, Terminator, ValueId};
 
@@ -85,7 +85,7 @@ pub(super) fn collect(func: &Function, callee_names: &[String]) -> ElemPoints {
     let Some(mut a) = analyze(func, callee_names) else {
         return ElemPoints {
             writes: Vec::new(),
-            reads: HashMap::new(),
+            reads: HashMap::default(),
         };
     };
     let live = &a.classes.live;
@@ -130,7 +130,7 @@ pub(super) fn analyze(func: &Function, callee_names: &[String]) -> Option<Analys
         return None;
     }
 
-    let mut defs: HashMap<ValueId, Vec<InstKind>> = HashMap::new();
+    let mut defs: HashMap<ValueId, Vec<InstKind>> = HashMap::default();
     for block in &func.blocks {
         for inst in &block.insts {
             if let Some(r) = inst.result {
@@ -156,8 +156,8 @@ pub(super) fn analyze(func: &Function, callee_names: &[String]) -> Option<Analys
 
     let (class, base) = classify_values(&defs, &roots, callee_names);
     let mut live: HashSet<ValueId> = roots.iter().copied().collect();
-    let mut writes: HashMap<ValueId, Vec<Operand>> = HashMap::new();
-    let mut reads: HashMap<ValueId, ValueId> = HashMap::new();
+    let mut writes: HashMap<ValueId, Vec<Operand>> = HashMap::default();
+    let mut reads: HashMap<ValueId, ValueId> = HashMap::default();
 
     for block in &func.blocks {
         for inst in &block.insts {
@@ -202,7 +202,7 @@ fn classify_values(
     names: &[String],
 ) -> (HashMap<ValueId, ValueId>, HashMap<ValueId, ValueId>) {
     let mut class: HashMap<ValueId, ValueId> = roots.iter().map(|r| (*r, *r)).collect();
-    let mut base: HashMap<ValueId, ValueId> = HashMap::new();
+    let mut base: HashMap<ValueId, ValueId> = HashMap::default();
     let mut ordered: Vec<ValueId> = defs.keys().copied().collect();
     ordered.sort_by_key(|v| v.0);
     let mut moving = true;

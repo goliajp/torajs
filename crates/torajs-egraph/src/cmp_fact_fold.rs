@@ -24,7 +24,7 @@
 //! and before srem_parity. `TORAJS_CMP_FACT_FOLD_OFF=1` skips,
 //! `TORAJS_CMP_FACT_FOLD_STATS=1` dumps counters.
 
-use std::collections::HashMap;
+use crate::id_hash::HashMap;
 
 use torajs_core::ssa::{
     BinOp, Function, IPred, InstKind, Module, Operand, Terminator, Type, ValueId,
@@ -117,9 +117,9 @@ struct UseDef {
 
 fn use_def(func: &Function) -> UseDef {
     let mut ud = UseDef {
-        site: HashMap::new(),
-        defs: HashMap::new(),
-        uses: HashMap::new(),
+        site: HashMap::default(),
+        defs: HashMap::default(),
+        uses: HashMap::default(),
     };
     for (bi, block) in func.blocks.iter().enumerate() {
         for (ii, inst) in block.insts.iter().enumerate() {
@@ -319,7 +319,7 @@ mod tests {
     #[test]
     fn nonzero_divisor_guard_is_absorbed() {
         let mut f = guard_fn();
-        let facts = HashMap::from([(ValueId(1), NumFact::new(2, 1 << 70))]);
+        let facts = HashMap::from_iter([(ValueId(1), NumFact::new(2, 1 << 70))]);
         let mut stats = CmpFactFoldStats::default();
         fold_in_function(&mut f, &facts, &mut stats);
         assert_eq!(stats.absorbed, 1);
@@ -335,7 +335,7 @@ mod tests {
     #[test]
     fn divisor_that_may_be_zero_keeps_the_guard() {
         let mut f = guard_fn();
-        let facts = HashMap::from([(ValueId(1), NumFact::new(0, 10))]);
+        let facts = HashMap::from_iter([(ValueId(1), NumFact::new(0, 10))]);
         let mut stats = CmpFactFoldStats::default();
         fold_in_function(&mut f, &facts, &mut stats);
         assert_eq!(stats.absorbed, 0);
@@ -368,7 +368,7 @@ mod tests {
             name: None,
         });
         f.values[4].ty = Type::I64;
-        let facts = HashMap::from([
+        let facts = HashMap::from_iter([
             (ValueId(1), NumFact::new(1, 46_341)),
             (
                 ValueId(4),

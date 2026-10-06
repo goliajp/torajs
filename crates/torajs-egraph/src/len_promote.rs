@@ -30,7 +30,7 @@
 //!
 //! `TORAJS_LEN_PROMOTE_OFF=1` skips, `TORAJS_LEN_PROMOTE_STATS=1` counts.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{
     Block, BlockId, Function, Inst, InstKind, Module, Operand, Terminator, Type, ValueId, ValueInfo,
@@ -81,7 +81,7 @@ fn promote_fn(
     let dom = DominatorTree::compute(func);
     let mut loops = LoopAnalysis::compute(func, &dom).loops().to_vec();
     loops.sort_by_key(|l| std::cmp::Reverse(l.body.len()));
-    let mut def_block: HashMap<ValueId, BlockId> = HashMap::new();
+    let mut def_block: HashMap<ValueId, BlockId> = HashMap::default();
     for (bi, block) in func.blocks.iter().enumerate() {
         for inst in &block.insts {
             if let Some(r) = inst.result {
@@ -92,7 +92,7 @@ fn promote_fn(
     let mut roots: Vec<ValueId> = classes.live.iter().copied().collect();
     roots.sort_by_key(|v| v.0);
     // blocks already covered by a promoted loop, per array
-    let mut done: HashMap<ValueId, HashSet<BlockId>> = HashMap::new();
+    let mut done: HashMap<ValueId, HashSet<BlockId>> = HashMap::default();
     for lp in &loops {
         let Some(pre) = dom.immediate_dominator(lp.header) else {
             continue;
@@ -307,7 +307,7 @@ fn promote_loop(
     }
 
     // every edge leaving the loop puts the word back
-    let mut preds: HashMap<BlockId, Vec<BlockId>> = HashMap::new();
+    let mut preds: HashMap<BlockId, Vec<BlockId>> = HashMap::default();
     for (bi, block) in func.blocks.iter().enumerate() {
         for s in succs(&block.term) {
             preds.entry(s).or_default().push(BlockId(bi as u32));
@@ -322,7 +322,7 @@ fn promote_loop(
         }
     }
     exits.sort_by_key(|(b, s)| (b.0, s.0));
-    let mut headed: HashSet<BlockId> = HashSet::new();
+    let mut headed: HashSet<BlockId> = HashSet::default();
     for (b, s) in exits {
         if preds[&s].iter().all(|p| body.contains(p)) {
             if headed.insert(s) {

@@ -1,6 +1,6 @@
 //! Which outer loops the rewrite takes, and the regions it names.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::dominator::DominatorTree;
 use torajs_core::ssa::loop_analysis::{LoopAnalysis, NaturalLoop};
@@ -33,9 +33,9 @@ pub(super) fn find_plan(func: &Function, done: &HashSet<BlockId>) -> Option<Plan
 
 fn context(func: &Function) -> Ctx {
     let mut ctx = Ctx {
-        preds: HashMap::new(),
-        defs: HashMap::new(),
-        uses: HashMap::new(),
+        preds: HashMap::default(),
+        defs: HashMap::default(),
+        uses: HashMap::default(),
     };
     for block in &func.blocks {
         for s in successors(&block.term) {
@@ -169,8 +169,8 @@ fn plan_loop(func: &Function, la: &LoopAnalysis, l: &NaturalLoop, ctx: &Ctx) -> 
         post,
         body,
         lane_cells: Vec::new(),
-        escaping: HashSet::new(),
-        shared: HashSet::new(),
+        escaping: HashSet::default(),
+        shared: HashSet::default(),
     };
     complete(func, ctx, plan)
 }

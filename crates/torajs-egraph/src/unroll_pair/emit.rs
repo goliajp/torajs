@@ -1,7 +1,7 @@
 //! The rewrite: the first copy takes both quotients, the second copy
 //! is a clone reading the second lane.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{
     BinOp, Block, BlockId, Function, Inst, InstKind, Operand, Terminator, Type, ValueId, ValueInfo,
@@ -175,7 +175,7 @@ fn clone_loop(func: &mut Function, p: &Plan, snapshot: &[Block], tv: ValueId) ->
             (*b, id)
         })
         .collect();
-    let mut map: HashMap<ValueId, ValueId> = HashMap::new();
+    let mut map: HashMap<ValueId, ValueId> = HashMap::default();
     for block in snapshot {
         for i in &block.insts {
             let r = i.result.expect("planned loops define values");

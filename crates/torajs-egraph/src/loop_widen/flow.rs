@@ -1,6 +1,6 @@
 //! Control-flow questions the widening pass asks of the scalar loop.
 
-use std::collections::HashSet;
+use crate::id_hash::HashSet;
 
 use torajs_core::ssa::{BlockId, Function, Operand, Terminator, ValueId, visit_value_operands};
 
@@ -17,7 +17,7 @@ pub(super) fn successors(term: &Terminator) -> impl Iterator<Item = BlockId> + '
 
 /// Is `v` read on some path from the top of `from` before a def of it?
 pub(super) fn live_in(func: &Function, from: BlockId, v: ValueId) -> bool {
-    let mut seen: HashSet<BlockId> = HashSet::new();
+    let mut seen: HashSet<BlockId> = HashSet::default();
     let mut work = vec![from];
     while let Some(b) = work.pop() {
         if !seen.insert(b) {

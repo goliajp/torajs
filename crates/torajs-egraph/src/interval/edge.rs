@@ -1,7 +1,7 @@
 //! What one branch edge says: the constraints taking (or not taking)
 //! a conditional branch puts on the values its compare reads.
 
-use std::collections::HashMap;
+use crate::id_hash::HashMap;
 
 use torajs_core::ssa::{FPred, IPred, InstKind, Operand, ValueId};
 

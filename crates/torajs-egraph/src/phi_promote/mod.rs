@@ -35,7 +35,7 @@
 mod destruct;
 mod plan;
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{BlockId, Function, InstKind, Module, Operand, Terminator, Type, ValueId};
 
@@ -101,21 +101,21 @@ fn promote_in_function(func: &mut Function, stats: &mut PhiPromoteStats) {
     let df = dominance_frontier(func, &domtree, &preds);
 
     // gather cells with at least one load (others are DSE food only).
-    let mut cells: HashMap<(ValueId, u64), (HashSet<BlockId>, Type)> = HashMap::new();
+    let mut cells: HashMap<(ValueId, u64), (HashSet<BlockId>, Type)> = HashMap::default();
     for block in &func.blocks {
         for inst in &block.insts {
             match &inst.kind {
                 InstKind::Store(_, Operand::Value(s), off) if slots.contains(s) => {
                     cells
                         .entry((*s, *off))
-                        .or_insert_with(|| (HashSet::new(), Type::I64))
+                        .or_insert_with(|| (HashSet::default(), Type::I64))
                         .0
                         .insert(block.id);
                 }
                 InstKind::Load(ty, Operand::Value(s), off) if slots.contains(s) => {
                     cells
                         .entry((*s, *off))
-                        .or_insert_with(|| (HashSet::new(), Type::I64))
+                        .or_insert_with(|| (HashSet::default(), Type::I64))
                         .1 = *ty;
                 }
                 _ => {}
@@ -184,7 +184,7 @@ fn dominance_frontier(
     preds: &[Vec<BlockId>],
 ) -> Vec<HashSet<BlockId>> {
     let n = func.blocks.len();
-    let mut df: Vec<HashSet<BlockId>> = vec![HashSet::new(); n];
+    let mut df: Vec<HashSet<BlockId>> = vec![HashSet::default(); n];
     for join in func.blocks.iter().map(|b| b.id) {
         let jp = &preds[join.0 as usize];
         if jp.len() < 2 {

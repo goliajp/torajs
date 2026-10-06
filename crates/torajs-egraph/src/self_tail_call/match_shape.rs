@@ -5,7 +5,7 @@
 //! when the pass file crossed the 500-line prod limit; the rewrite
 //! machinery stays in `self_tail_call.rs`.
 
-use std::collections::HashMap;
+use crate::id_hash::HashMap;
 
 use torajs_core::ssa::{
     FuncId, IPred, Inst, InstKind, Module, Operand, THROW_ACTIVE_SYM, Terminator, Type, ValueId,
@@ -51,7 +51,7 @@ pub(super) fn match_sites(
     let func = &module.funcs[fi];
     let env = func.params[0];
     // Single-def kind lookup for cell / fn-ptr provenance checks.
-    let mut defs: HashMap<ValueId, &InstKind> = HashMap::new();
+    let mut defs: HashMap<ValueId, &InstKind> = HashMap::default();
     for block in &func.blocks {
         for inst in &block.insts {
             if let Some(r) = inst.result {

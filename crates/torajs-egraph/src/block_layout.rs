@@ -24,7 +24,7 @@
 //! `TORAJS_BLOCK_LAYOUT_OFF=1` skips (bisect gate),
 //! `TORAJS_BLOCK_LAYOUT_STATS=1` dumps counters.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{Block, BlockId, Function, Module, Terminator};
 
@@ -96,7 +96,7 @@ fn thread_empty_forwarders(func: &mut Function) -> u32 {
         return 0;
     }
     let resolve = |start: u32| -> u32 {
-        let mut seen = HashSet::new();
+        let mut seen = HashSet::default();
         let mut cur = start;
         while seen.insert(cur) {
             match forwards.get(cur as usize).copied().flatten() {

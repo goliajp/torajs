@@ -1,7 +1,7 @@
 //! A small interpreter for the integer subset the tests build, so a
 //! jammed function can be run against its original.
 
-use std::collections::HashMap;
+use crate::id_hash::HashMap;
 
 use torajs_core::ssa::{BinOp, BlockId, Function, IPred, InstKind, Operand, Terminator, ValueId};
 

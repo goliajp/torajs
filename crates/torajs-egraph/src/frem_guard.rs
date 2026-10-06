@@ -34,7 +34,7 @@
 mod hoist;
 mod lane;
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{
     BinOp, Block, BlockId, Function, IPred, Inst, InstKind, Module, Operand, Terminator, Type,
@@ -88,7 +88,7 @@ pub(crate) fn guard_function(func: &mut Function, facts: &HashMap<ValueId, NumFa
         .filter(|i| matches!(i.kind, InstKind::BinOp(BinOp::FRem, _, _)))
         .filter_map(|i| i.result)
         .collect();
-    let mut hoisted = HashMap::new();
+    let mut hoisted = HashMap::default();
     let (mut sites, mut proven) = (0, 0);
     let mut bi = 0;
     // a split puts the rest of the block one position on and the slow
@@ -340,7 +340,7 @@ mod tests {
     }
 
     fn guard(f: &mut Function) -> (u32, u32) {
-        guard_function(f, &HashMap::new())
+        guard_function(f, &HashMap::default())
     }
 
     fn defs_of(func: &Function, r: ValueId) -> Vec<(BlockId, InstKind)> {
@@ -505,7 +505,7 @@ mod tests {
             name: None,
         });
         f.blocks[0].insts.insert(1, inst(4, InstKind::SiToFp(v(5))));
-        let facts = HashMap::from([
+        let facts = HashMap::from_iter([
             (ValueId(0), NumFact::new(0, 1 << 40)),
             (ValueId(5), NumFact::new(1, 100)),
         ]);
@@ -527,7 +527,7 @@ mod tests {
     #[test]
     fn a_divisor_fact_that_admits_zero_keeps_its_check() {
         let mut f = frem_fn(v(0));
-        let facts = HashMap::from([(ValueId(0), NumFact::new(0, 100))]);
+        let facts = HashMap::from_iter([(ValueId(0), NumFact::new(0, 100))]);
         assert_eq!(guard_function(&mut f, &facts), (1, 0));
     }
 
@@ -535,7 +535,7 @@ mod tests {
     fn a_dividend_fact_still_checks_the_sign_of_zero() {
         // %1 = fmul … proven in [0, 1000]: only `-0` is left to rule out
         let mut f = frem_fn(Operand::ConstF64(7.0));
-        let facts = HashMap::from([(ValueId(1), NumFact::new(0, 1000))]);
+        let facts = HashMap::from_iter([(ValueId(1), NumFact::new(0, 1000))]);
         assert_eq!(guard_function(&mut f, &facts), (1, 0));
         let head = &f.blocks[0].insts;
         assert!(!head.iter().any(|i| matches!(i.kind, InstKind::SiToFp(_))));

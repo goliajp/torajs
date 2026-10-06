@@ -14,7 +14,7 @@
 //! implies for one value do not meet — and what two feasible paths
 //! disagree on is widened to the hull, never picked from one side.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{BinOp, BlockId, Function, InstKind, Operand, Terminator, Type, ValueId};
 
@@ -65,9 +65,9 @@ impl<'a> Logic<'a> {
     pub(super) fn new(func: &'a Function, defs: &'a HashMap<ValueId, InstKind>) -> Self {
         let n = func.blocks.len();
         let mut preds: Vec<Vec<BlockId>> = vec![Vec::new(); n];
-        let mut cell_defs: Vec<HashSet<ValueId>> = vec![HashSet::new(); n];
-        let mut last_def: Vec<HashMap<ValueId, Option<Operand>>> = vec![HashMap::new(); n];
-        let mut home: HashMap<ValueId, BlockId> = HashMap::new();
+        let mut cell_defs: Vec<HashSet<ValueId>> = vec![HashSet::default(); n];
+        let mut last_def: Vec<HashMap<ValueId, Option<Operand>>> = vec![HashMap::default(); n];
+        let mut home: HashMap<ValueId, BlockId> = HashMap::default();
         for block in &func.blocks {
             let bi = block.id.0 as usize;
             match &block.term {
@@ -333,7 +333,7 @@ impl<'a> Logic<'a> {
 /// The meet of every range a path states for each value; `None` when
 /// some value has none.
 fn ranges(cs: &[Constraint]) -> Option<HashMap<ValueId, NumFact>> {
-    let mut out: HashMap<ValueId, NumFact> = HashMap::new();
+    let mut out: HashMap<ValueId, NumFact> = HashMap::default();
     for c in cs {
         let Constraint::Range(v, r) = c else { continue };
         let met = match out.get(v) {
@@ -434,8 +434,8 @@ mod tests {
     }
 
     fn constraints(f: &Function) -> Constraints {
-        let mut defs: HashMap<ValueId, InstKind> = HashMap::new();
-        let mut cells: HashSet<ValueId> = HashSet::new();
+        let mut defs: HashMap<ValueId, InstKind> = HashMap::default();
+        let mut cells: HashSet<ValueId> = HashSet::default();
         for inst in f.blocks.iter().flat_map(|b| &b.insts) {
             if let Some(r) = inst.result
                 && defs.insert(r, inst.kind.clone()).is_some()

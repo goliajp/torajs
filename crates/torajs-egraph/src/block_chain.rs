@@ -24,7 +24,7 @@
 //! already contiguous when their parent is chained and move as one
 //! unit, entered at their first block.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{BlockId, Function, InstKind, Terminator};
 

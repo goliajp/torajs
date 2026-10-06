@@ -17,7 +17,7 @@
 //! matches cranelift's design and avoids the O(stack-depth) lookup
 //! cost of a layered-HashMap-stack alternative.
 
-use std::collections::HashMap;
+use crate::id_hash::HashMap;
 use std::collections::hash_map::Entry;
 use std::hash::Hash;
 
@@ -55,7 +55,7 @@ impl<K: Eq + Hash + Clone, V> ScopedHashMap<K, V> {
     pub fn new() -> Self {
         Self {
             depth: 0,
-            entries: HashMap::new(),
+            entries: HashMap::default(),
             inserted: vec![Vec::new()],
         }
     }

@@ -1,7 +1,7 @@
 //! Where each value is defined — the widening pass asks for the one
 //! def of a loop's data pointer, array and hoisted constants.
 
-use std::collections::HashMap;
+use crate::id_hash::HashMap;
 
 use torajs_core::ssa::{Function, Inst, InstKind, Operand, ValueId};
 
@@ -13,7 +13,7 @@ pub(super) struct DefSites {
 
 impl DefSites {
     pub(super) fn of(func: &Function) -> Self {
-        let mut sites: HashMap<ValueId, Vec<(u32, u32)>> = HashMap::new();
+        let mut sites: HashMap<ValueId, Vec<(u32, u32)>> = HashMap::default();
         for (b, block) in func.blocks.iter().enumerate() {
             for (i, inst) in block.insts.iter().enumerate() {
                 if let Some(r) = inst.result {

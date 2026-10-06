@@ -33,7 +33,7 @@
 //! UTF-16 (`__torajs_str_alloc_capacity_utf16`): a Latin-1 one would
 //! reallocate on the first append only to widen nothing.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::dominator::DominatorTree;
 use torajs_core::ssa::loop_analysis::LoopAnalysis;
@@ -161,7 +161,7 @@ struct Seed {
 /// in `f`.
 fn seeds(f: &Function, k: &Kernels, empty: &[bool]) -> Vec<Seed> {
     let ix = Index::of(f, empty);
-    let mut seen: HashSet<ValueId> = HashSet::new();
+    let mut seen: HashSet<ValueId> = HashSet::default();
     let mut loops: Option<LoopAnalysis> = None;
     let mut out = Vec::new();
     for seed in f.blocks.iter().flat_map(|b| b.insts.iter()) {

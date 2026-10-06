@@ -10,7 +10,7 @@
 //! with `pool` from `parseInt`) is converted and checked once, right
 //! after its definition, instead of on every iteration: [`hoist`].
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{Function, Inst, InstKind, Operand, Terminator, Type, ValueId};
 

@@ -1,7 +1,7 @@
 //! Cloning loop regions under lane renaming, and the clone a lane
 //! finishes its iteration in alone.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{
     BlockId, Function, Inst, InstKind, Operand, Terminator, Type, ValueId, ValueInfo,
@@ -81,8 +81,8 @@ pub(super) fn tail_clone(
 /// Values every def of which is a `Copy`: the cells clones keep under
 /// their own id.
 pub(super) fn cell_set(func: &Function) -> HashSet<ValueId> {
-    let mut copy: HashSet<ValueId> = HashSet::new();
-    let mut other: HashSet<ValueId> = HashSet::new();
+    let mut copy: HashSet<ValueId> = HashSet::default();
+    let mut other: HashSet<ValueId> = HashSet::default();
     for block in &func.blocks {
         for inst in &block.insts {
             if let Some(r) = inst.result {
@@ -100,7 +100,7 @@ pub(super) fn cell_set(func: &Function) -> HashSet<ValueId> {
 /// Values read anywhere but in `blocks`: the lane cells a finishing
 /// lane needs copied back (one only `pre` reads is dead there).
 pub(super) fn reads_outside(func: &Function, blocks: &[BlockId]) -> HashSet<ValueId> {
-    let mut out = HashSet::new();
+    let mut out = HashSet::default();
     for block in func.blocks.iter().filter(|b| !blocks.contains(&b.id)) {
         for inst in &block.insts {
             visit_value_operands(&inst.kind, |v| {

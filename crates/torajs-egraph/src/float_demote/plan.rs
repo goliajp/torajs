@@ -10,7 +10,7 @@
 //! Guarded values that no region hosts are evicted and the demotion
 //! fixpoint re-runs without them — the pass never fires partially.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{BlockId, Function, Operand, ValueId};
 
@@ -102,7 +102,7 @@ pub(crate) fn plan_regions(
     headers.sort_by_key(|(len, h)| (*len, h.0));
 
     let mut plans: Vec<RegionPlan> = Vec::new();
-    let mut used: HashSet<BlockId> = HashSet::new();
+    let mut used: HashSet<BlockId> = HashSet::default();
     for (_, header) in headers {
         let body = loops
             .loops()
@@ -137,7 +137,7 @@ pub(crate) fn plan_regions(
 
     // every guarded site must be hosted; an unhosted one has no slow
     // path to fall into
-    let mut evict: HashSet<ValueId> = HashSet::new();
+    let mut evict: HashSet<ValueId> = HashSet::default();
     for s in &growth_sites {
         if !plans.iter().any(|p| p.region.contains(&s.block)) {
             evict.insert(s.result);
@@ -176,7 +176,7 @@ fn plan_one(
     // its value escaped instead — every external use of an escaped
     // value reads the merge-bridge cell, so nothing else is absorbed
     // for it.
-    let mut escapes: HashSet<ValueId> = HashSet::new();
+    let mut escapes: HashSet<ValueId> = HashSet::default();
     loop {
         let touched = touched_values(func, set, &region);
         let mut missing: Vec<(BlockId, ValueId, bool)> = Vec::new();

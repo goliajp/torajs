@@ -40,7 +40,7 @@
 //! behind when the caller's bindings are released after the ctor
 //! retained them.
 
-use std::collections::HashSet;
+use crate::id_hash::HashSet;
 
 use torajs_core::ssa::{
     BinOp, BlockId, Function, IPred, Inst, InstKind, Operand, Terminator, Type, ValueId,
@@ -471,8 +471,8 @@ mod tests {
     const DROP: FuncId = FuncId(10);
 
     fn run(f: &mut Function) -> u32 {
-        let buffers: HashSet<u32> = [BUFFER.0].into();
-        let drops: HashSet<u32> = [DROP.0].into();
+        let buffers = HashSet::from_iter([BUFFER.0]);
+        let drops = HashSet::from_iter([DROP.0]);
         elide_obj_pairs(
             f,
             crate::optimize::classify_pure,

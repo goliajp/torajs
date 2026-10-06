@@ -40,7 +40,7 @@ mod keys;
 mod known_branch;
 mod walk;
 
-use std::collections::HashMap;
+use crate::id_hash::HashMap;
 
 use torajs_core::ssa::{
     BlockId, Function, Module, Operand, Terminator, ValueId, rewrite_value_operands,
@@ -98,12 +98,12 @@ fn gvn_fn(func: &mut Function, stats: &mut LateGvnStats) {
     }
     let multi = multi_def_values(func);
     let mut w = Walk {
-        safe: HashMap::new(),
-        risky: HashMap::new(),
+        safe: HashMap::default(),
+        risky: HashMap::default(),
         frames: Vec::new(),
         barrier_depth: Vec::new(),
-        vgen: HashMap::new(),
-        replace: HashMap::new(),
+        vgen: HashMap::default(),
+        replace: HashMap::default(),
         twin: global_ref_twins(func, &multi),
         multi,
         epoch: 0,

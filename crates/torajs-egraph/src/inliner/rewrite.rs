@@ -10,7 +10,7 @@
 //! `torajs-core::ssa::InstKind`. New SSA opcodes added upstream are a
 //! compile-time signal in this single location.
 
-use std::collections::HashMap;
+use crate::id_hash::HashMap;
 use torajs_core::ssa::{InstKind, Operand, ValueId};
 
 /// Rewrite a single `Operand` through the callee→caller mapping.

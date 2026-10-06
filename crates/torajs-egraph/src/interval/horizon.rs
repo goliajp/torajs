@@ -21,7 +21,7 @@
 //! with a small constant `k` (directly, or through a copy of that
 //! single-def sum) or a copy of some other operand (an init).
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{BinOp, Function, InstKind, Operand, Type, ValueId};
 
@@ -77,8 +77,8 @@ fn collect(
     single: &HashMap<ValueId, InstKind>,
     cells: &HashSet<ValueId>,
 ) -> HashMap<ValueId, Counter> {
-    let mut out: HashMap<ValueId, Counter> = HashMap::new();
-    let mut refused: HashSet<ValueId> = HashSet::new();
+    let mut out: HashMap<ValueId, Counter> = HashMap::default();
+    let mut refused: HashSet<ValueId> = HashSet::default();
     for block in &func.blocks {
         for inst in &block.insts {
             let Some(c) = inst.result else { continue };

@@ -9,7 +9,7 @@
 //! same role for an `sitofp` whose operand bound is not statically
 //! inside ±2^53 (the conversion itself would round).
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{BinOp, BlockId, Function, InstKind, Operand, ValueId};
 
@@ -356,7 +356,7 @@ mod tests {
     fn nonneg_fact_drops_lower_check() {
         // 3n ≤ 2^53-1 → n ≤ 3002399751580330, rounded down to 2^51
         // for the shift form
-        let mut facts = HashMap::new();
+        let mut facts = HashMap::default();
         facts.insert(ValueId(1), unbounded_nonneg());
         let kind = InstKind::BinOp(
             BinOp::FMul,
@@ -371,7 +371,7 @@ mod tests {
 
     #[test]
     fn a_two_sided_window_keeps_the_compare_form() {
-        let mut facts = HashMap::new();
+        let mut facts = HashMap::default();
         facts.insert(ValueId(1), NumFact::new(NEG_INF, POS_INF));
         let kind = InstKind::BinOp(
             BinOp::FMul,
@@ -391,7 +391,7 @@ mod tests {
         // by the result fact: non-negative → upper check only, and
         // 2^53-1 is one below a power of two, so the shift form loses
         // nothing
-        let mut facts = HashMap::new();
+        let mut facts = HashMap::default();
         facts.insert(ValueId(1), unbounded_nonneg());
         facts.insert(ValueId(2), unbounded_nonneg());
         facts.insert(ValueId(9), unbounded_nonneg());
@@ -446,7 +446,7 @@ mod tests {
                 .collect(),
             current_origin: None,
         };
-        let mut facts = HashMap::new();
+        let mut facts = HashMap::default();
         facts.insert(ValueId(1), unbounded_nonneg());
         facts.insert(ValueId(2), unbounded_nonneg());
         facts.insert(ValueId(3), unbounded_nonneg());
@@ -457,7 +457,7 @@ mod tests {
     #[test]
     fn a_bounded_add_folds_onto_the_multiply_window() {
         let (func, facts) = digit_chain(Operand::Value(ValueId(4)));
-        let set: HashSet<ValueId> = [ValueId(1), ValueId(2), ValueId(3), ValueId(4)].into();
+        let set = HashSet::from_iter([ValueId(1), ValueId(2), ValueId(3), ValueId(4)]);
         let (growth, entries) = collect_guard_sites(&func, &set, &facts);
         assert!(entries.is_empty());
         assert_eq!(growth.len(), 1, "the add's post check is absorbed");
@@ -487,14 +487,14 @@ mod tests {
     fn an_unbounded_add_keeps_its_own_check() {
         let (func, mut facts) = digit_chain(Operand::Value(ValueId(4)));
         facts.insert(ValueId(4), NumFact::new(0, POS_INF));
-        let set: HashSet<ValueId> = [ValueId(1), ValueId(2), ValueId(3), ValueId(4)].into();
+        let set = HashSet::from_iter([ValueId(1), ValueId(2), ValueId(3), ValueId(4)]);
         let (growth, _) = collect_guard_sites(&func, &set, &facts);
         assert_eq!(growth.len(), 2);
     }
 
     #[test]
     fn add_result_two_sided_when_unbounded() {
-        let mut facts = HashMap::new();
+        let mut facts = HashMap::default();
         facts.insert(ValueId(1), NumFact::new(NEG_INF, POS_INF));
         facts.insert(ValueId(9), NumFact::new(NEG_INF, POS_INF));
         let kind = InstKind::BinOp(
@@ -509,7 +509,7 @@ mod tests {
 
     #[test]
     fn double_variable_mul_not_guardable() {
-        let mut facts = HashMap::new();
+        let mut facts = HashMap::default();
         facts.insert(ValueId(1), unbounded_nonneg());
         facts.insert(ValueId(2), unbounded_nonneg());
         facts.insert(ValueId(9), unbounded_nonneg());
@@ -523,7 +523,7 @@ mod tests {
 
     #[test]
     fn entry_checks_prune_by_fact() {
-        let mut facts = HashMap::new();
+        let mut facts = HashMap::default();
         facts.insert(ValueId(1), NumFact::new(0, POS_INF));
         let checks = entry_checks(&Operand::Value(ValueId(1)), &facts).unwrap();
         assert_eq!(checks.len(), 1);

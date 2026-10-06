@@ -1,7 +1,7 @@
 //! Value flow of a planned loop: what lanes run early may read, and
 //! which loop values the code after the loop reads.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{BlockId, Function, InstKind, Terminator, ValueId, visit_value_operands};
 
@@ -42,9 +42,9 @@ pub(super) fn lane_cells(func: &Function, ctx: &Ctx, p: &Plan) -> Option<Vec<Val
         .iter()
         .position(|b| matches!(blk(func, *b).term, Terminator::CondBr { .. }))
         .unwrap_or(p.chain.len());
-    let mut cells: HashSet<ValueId> = HashSet::new();
+    let mut cells: HashSet<ValueId> = HashSet::default();
     let mut pre_cells: Vec<ValueId> = Vec::new();
-    let mut temps: HashSet<ValueId> = HashSet::new();
+    let mut temps: HashSet<ValueId> = HashSet::default();
     let mut ok = true;
     for (pos, &b) in pre.iter().chain(&inner).enumerate() {
         if pos == pre.len() {
@@ -100,7 +100,7 @@ pub(super) fn escaping(func: &Function, ctx: &Ctx, p: &Plan) -> Option<HashSet<V
     }
     let sources: Vec<BlockId> = p.post.iter().chain(&p.chain).copied().collect();
     let after_post = reached_from(func, p, &sources);
-    let mut out = HashSet::new();
+    let mut out = HashSet::default();
     for block in func.blocks.iter().filter(|b| !p.body.contains(&b.id)) {
         let mut reads = Vec::new();
         for inst in &block.insts {
@@ -122,7 +122,7 @@ pub(super) fn escaping(func: &Function, ctx: &Ctx, p: &Plan) -> Option<HashSet<V
 /// Blocks outside the loop reachable from `sources`' exits before the
 /// loop is entered again.
 fn reached_from(func: &Function, p: &Plan, sources: &[BlockId]) -> Vec<BlockId> {
-    let mut seen: HashSet<BlockId> = HashSet::new();
+    let mut seen: HashSet<BlockId> = HashSet::default();
     let mut work: Vec<BlockId> = sources
         .iter()
         .flat_map(|b| successors(&blk(func, *b).term))
@@ -150,13 +150,13 @@ fn reached_from(func: &Function, p: &Plan, sources: &[BlockId]) -> Vec<BlockId> 
 pub(super) fn lane_shared(func: &Function, p: &Plan) -> HashSet<ValueId> {
     let blocks: Vec<BlockId> = p.pre_order().into_iter().chain(p.inner_order()).collect();
     let insts = || blocks.iter().flat_map(|&b| blk(func, b).insts.iter());
-    let mut defs_before_body: HashMap<ValueId, u32> = HashMap::new();
+    let mut defs_before_body: HashMap<ValueId, u32> = HashMap::default();
     for b in p.pre_order().into_iter().chain([p.inner_header]) {
         for r in blk(func, b).insts.iter().filter_map(|i| i.result) {
             *defs_before_body.entry(r).or_insert(0) += 1;
         }
     }
-    let mut variant: HashSet<ValueId> = HashSet::from([p.iv]);
+    let mut variant: HashSet<ValueId> = HashSet::from_iter([p.iv]);
     loop {
         let mut grew = false;
         for inst in insts() {

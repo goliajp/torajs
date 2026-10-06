@@ -20,7 +20,7 @@
 //!     would apply their update twice) and does not redefine the
 //!     checked operand.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{BlockId, Function, Inst, Operand, Terminator, ValueId};
 
@@ -41,8 +41,8 @@ pub(super) fn widen_targets(
     let preds = pred_map(func);
     let body: HashSet<BlockId> = plan.body.iter().copied().collect();
     let site_blocks: HashSet<BlockId> = plan.growth.iter().map(|s| s.block).collect();
-    let mut taken: HashSet<BlockId> = HashSet::new();
-    let mut out = HashMap::new();
+    let mut taken: HashSet<BlockId> = HashSet::default();
+    let mut out = HashMap::default();
     for s in &plan.growth {
         let Some(p) = target(func, &preds, &body, s, fast_pos, cells) else {
             continue;

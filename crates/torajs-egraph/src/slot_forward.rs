@@ -38,7 +38,7 @@
 //! before the egraph pass (so forwarded constants feed const-fold /
 //! GVN downstream).
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{Function, InstKind, Module, Operand, Terminator, ValueId};
 
@@ -93,14 +93,14 @@ pub(crate) fn forward_in_function(func: &mut Function, stats: &mut SlotForwardSt
     // pass 1 — plan: walk each extended basic block tracking the last
     // stored value per (slot, off); a later load of the same key on
     // the walk forwards.
-    let mut replace: HashMap<ValueId, Operand> = HashMap::new();
+    let mut replace: HashMap<ValueId, Operand> = HashMap::default();
     let only_pred = sole_predecessors(func);
     let mut seen = vec![false; func.blocks.len()];
     for head in 0..func.blocks.len() {
         if only_pred[head].is_some() {
             continue;
         }
-        let mut work = vec![(head, HashMap::new())];
+        let mut work = vec![(head, HashMap::default())];
         while let Some((bi, mut cur)) = work.pop() {
             if std::mem::replace(&mut seen[bi], true) {
                 continue;
@@ -136,7 +136,7 @@ pub(crate) fn forward_in_function(func: &mut Function, stats: &mut SlotForwardSt
     }
     // pass 3 — DSE: slots with zero remaining loads (any offset) get
     // their stores and the alloca itself removed.
-    let mut loaded: HashSet<ValueId> = HashSet::new();
+    let mut loaded: HashSet<ValueId> = HashSet::default();
     for block in &func.blocks {
         for inst in &block.insts {
             if let InstKind::Load(_, Operand::Value(s), _) = &inst.kind {

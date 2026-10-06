@@ -50,7 +50,7 @@ mod plan;
 #[cfg(test)]
 mod tests;
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{BlockId, Module, Operand, ValueId};
 
@@ -83,7 +83,7 @@ pub fn pair_module(
         crate::branch_fold::sweep_unreachable_blocks(func);
         // a paired loop's second copy is a new header the analysis
         // would list next round; a header once handled is not retaken
-        let mut done: HashSet<BlockId> = HashSet::new();
+        let mut done: HashSet<BlockId> = HashSet::default();
         while let Some(mut plan) = plan::find_plan(func, &done) {
             done.insert(plan.header);
             let reach = F64_EXACT - 2 * plan.step as i128;

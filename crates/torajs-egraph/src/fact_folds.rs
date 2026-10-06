@@ -1,6 +1,6 @@
 //! The rewrites that read the interval facts after float_demote.
 
-use std::collections::HashMap;
+use crate::id_hash::HashMap;
 
 use torajs_core::ssa::{Module, ValueId};
 

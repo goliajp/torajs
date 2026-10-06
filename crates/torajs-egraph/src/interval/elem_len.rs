@@ -12,7 +12,7 @@
 //! exactly as it does for an SSA cell, which is how a loop bounded by
 //! `i < xs.length` after a counted push loop learns its trip count.
 
-use std::collections::HashMap;
+use crate::id_hash::HashMap;
 
 use torajs_core::ssa::{Function, InstKind, Operand, Type, ValueId};
 

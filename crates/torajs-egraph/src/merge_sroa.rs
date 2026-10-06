@@ -29,7 +29,9 @@
 //!
 //! `TORAJS_MERGE_SROA_OFF=1` skips, `TORAJS_MERGE_SROA_STATS=1` counts.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::BTreeMap;
+
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{
     Function, IPred, Inst, InstKind, Module, Operand, Terminator, Type, ValueId, ValueInfo,
@@ -57,7 +59,7 @@ pub fn replace_merged_cells(module: &mut Module) -> MergeSroaStats {
 
 /// Where each value is defined (block, index), all definitions kept.
 fn defs_of(func: &Function) -> HashMap<ValueId, Vec<(usize, usize)>> {
-    let mut defs: HashMap<ValueId, Vec<(usize, usize)>> = HashMap::new();
+    let mut defs: HashMap<ValueId, Vec<(usize, usize)>> = HashMap::default();
     for (b, block) in func.blocks.iter().enumerate() {
         for (i, inst) in block.insts.iter().enumerate() {
             if let Some(r) = inst.result {
@@ -104,7 +106,7 @@ fn plan_merge(
     m: ValueId,
 ) -> Option<Plan> {
     // members: `copy <cell>` of an alloca_bytes defined once
-    let mut members: HashMap<ValueId, usize> = HashMap::new();
+    let mut members: HashMap<ValueId, usize> = HashMap::default();
     for &(b, i) in &defs[&m] {
         let InstKind::Copy(_, Operand::Value(cell)) = func.blocks[b].insts[i].kind else {
             return None;
@@ -122,7 +124,7 @@ fn plan_merge(
     // every mention of a member or of the merge, classified
     let mut fields: BTreeMap<u64, Type> = BTreeMap::new();
     let mut writes: Vec<(u64, u64, Option<Type>, bool)> = Vec::new(); // (off, width, ty, through merge)
-    let mut member_store_offs: HashMap<ValueId, HashSet<u64>> = HashMap::new();
+    let mut member_store_offs: HashMap<ValueId, HashSet<u64>> = HashMap::default();
     for (b, block) in func.blocks.iter().enumerate() {
         for (i, inst) in block.insts.iter().enumerate() {
             let mut named = false;

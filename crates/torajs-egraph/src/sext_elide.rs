@@ -40,7 +40,7 @@
 //! `TORAJS_SEXT_ELIDE_OFF=1` skips (bisect gate),
 //! `TORAJS_SEXT_ELIDE_STATS=1` dumps counters.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{
     BinOp, Function, Inst, InstKind, Module, Operand, Terminator, Type, ValueId, ValueInfo,
@@ -73,7 +73,7 @@ pub struct SextElideStats {
 /// unknown.
 pub fn elide_sext_pairs(module: &mut Module, seeds: &[HashSet<ValueId>]) -> SextElideStats {
     let mut stats = SextElideStats::default();
-    let empty = HashSet::new();
+    let empty = HashSet::default();
     for (fi, func) in module.funcs.iter_mut().enumerate() {
         if func.is_declaration() {
             continue;
@@ -133,8 +133,8 @@ fn elide_in_function(func: &mut Function, seed: &HashSet<ValueId>, stats: &mut S
     // def summaries for single-def values; multi-def values (post-φ
     // Copy cells) are excluded from the map and conservatively unknown
     // unless the interval analysis seeded them as provably sext-32.
-    let mut defs: HashMap<ValueId, InstKind> = HashMap::new();
-    let mut multi: HashSet<ValueId> = HashSet::new();
+    let mut defs: HashMap<ValueId, InstKind> = HashMap::default();
+    let mut multi: HashSet<ValueId> = HashSet::default();
     for block in &func.blocks {
         for inst in &block.insts {
             if let Some(r) = inst.result
@@ -149,7 +149,7 @@ fn elide_in_function(func: &mut Function, seed: &HashSet<ValueId>, stats: &mut S
     }
 
     let mut facts: HashSet<ValueId> = seed.clone();
-    let mut replace: HashMap<ValueId, Operand> = HashMap::new();
+    let mut replace: HashMap<ValueId, Operand> = HashMap::default();
 
     for bi in 0..func.blocks.len() {
         let old = std::mem::take(&mut func.blocks[bi].insts);
@@ -308,7 +308,7 @@ fn elide_in_function(func: &mut Function, seed: &HashSet<ValueId>, stats: &mut S
 /// until stable.
 fn sweep_dead(func: &mut Function, stats: &mut SextElideStats) {
     loop {
-        let mut used: HashSet<ValueId> = HashSet::new();
+        let mut used: HashSet<ValueId> = HashSet::default();
         for block in &func.blocks {
             for inst in &block.insts {
                 visit_value_operands(&inst.kind, |v| {

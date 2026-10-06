@@ -37,7 +37,7 @@
 //! `TORAJS_LOOP_ROTATE_OFF=1` skips, `TORAJS_LOOP_ROTATE_STATS=1`
 //! dumps counters.
 
-use std::collections::{HashMap, HashSet};
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{
     BinOp, BlockId, Function, Inst, InstKind, Module, Operand, Terminator, ValueId,
@@ -96,7 +96,7 @@ fn find_rotations(func: &Function) -> Vec<Rotation> {
     let dom = DominatorTree::compute(func);
     let la = LoopAnalysis::compute(func, &dom);
     let preds = predecessors(func);
-    let mut claimed: HashSet<BlockId> = HashSet::new();
+    let mut claimed: HashSet<BlockId> = HashSet::default();
     let mut plans = Vec::new();
     for l in la.loops() {
         let [latch] = l.back_edge_sources.as_slice() else {
@@ -126,7 +126,7 @@ fn find_rotations(func: &Function) -> Vec<Rotation> {
 }
 
 fn predecessors(func: &Function) -> HashMap<BlockId, Vec<BlockId>> {
-    let mut preds: HashMap<BlockId, Vec<BlockId>> = HashMap::new();
+    let mut preds: HashMap<BlockId, Vec<BlockId>> = HashMap::default();
     for block in &func.blocks {
         match &block.term {
             Terminator::Br(t) => preds.entry(*t).or_default().push(block.id),
@@ -223,7 +223,7 @@ fn header_values_stay_local(func: &Function, header: BlockId) -> bool {
 
 fn apply(func: &mut Function, r: Rotation) {
     let h = func.blocks[r.header.0 as usize].clone();
-    let mut rename: HashMap<ValueId, ValueId> = HashMap::new();
+    let mut rename: HashMap<ValueId, ValueId> = HashMap::default();
     let mut copies: Vec<Inst> = Vec::with_capacity(h.insts.len());
     for inst in &h.insts {
         let old = inst.result.expect("rotatable header insts define values");

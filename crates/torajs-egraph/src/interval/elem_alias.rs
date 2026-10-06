@@ -1,7 +1,7 @@
 //! Which instructions make a second name for a tracked array or for its
 //! data pointer. Split from `elem.rs` at the file-size line.
 
-use std::collections::HashMap;
+use crate::id_hash::HashMap;
 
 use torajs_core::ssa::{BinOp, InstKind, Operand, ValueId};
 
