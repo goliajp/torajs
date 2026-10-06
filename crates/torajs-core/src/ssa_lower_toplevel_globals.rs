@@ -59,6 +59,7 @@ pub(crate) fn collect_toplevel_globals(
     // needs a slot even when every direct read could inline it.
     let ns_live = crate::ast_refs::ns_live_exports(ast);
     let mut globals: HashMap<String, Type> = HashMap::new();
+    let widened = crate::let_widen::collect_cross_type_widen_inits(ast, Some(expr_types));
     // Multi-flattened walk (rotation 230) — the same flat view the
     // checker's pass_2 walks.
     for stmt in crate::ast::toplevel_stmts_flat(ast) {
@@ -152,6 +153,18 @@ pub(crate) fn collect_toplevel_globals(
             };
             let Some(ty) = slot_ty else {
                 continue;
+            };
+            let ty = match type_ann {
+                Some(_) => crate::check_stmt_let_decl::any_layout_slot::value_repr(
+                    &ty,
+                    *init,
+                    ast,
+                    expr_types,
+                    widened.contains(init),
+                    arr_layouts,
+                )
+                .unwrap_or(ty),
+                None => ty,
             };
             // RFC 20260912-global-var-cell — a script's top-level `var`
             // is the global object's property over the same storage,

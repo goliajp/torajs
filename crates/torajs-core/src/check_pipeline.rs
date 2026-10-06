@@ -348,7 +348,9 @@ pub(crate) fn pass_2_register_globals_and_check_stmts(c: &mut Checker, ast: &Ast
                 // every cross-type write). An unresolvable ann falls
                 // back to the literal's type as before.
                 (Some(lit), Some(ann)) => resolve_type_ann(ann, &c.aliases).or(Some(lit)),
-                (None, Some(ann)) => resolve_type_ann(ann, &c.aliases),
+                (None, Some(ann)) => resolve_type_ann(ann, &c.aliases).map(|t| {
+                    crate::check_stmt_let_decl::any_layout_slot::declared_face(c, ast, *init, t)
+                }),
                 (None, None) => {
                     match synthesized_spelling(c, ast, name, *init, *is_var, &binding_refs) {
                         Some((spelling, widened)) => {

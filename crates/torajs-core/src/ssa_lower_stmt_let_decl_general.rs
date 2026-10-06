@@ -94,6 +94,16 @@ pub(crate) fn initial_let_ty(
         {
             return (Type::Void, true);
         }
+        if let Some(repr) = crate::check_stmt_let_decl::any_layout_slot::value_repr(
+            &parsed,
+            init,
+            ctx.ast,
+            ctx.expr_types,
+            ctx.cross_type_widened.contains(&init),
+            ctx.arr_layouts,
+        ) {
+            return (repr, false);
+        }
         if parsed == Type::I64
             && type_ann.map(|s| s.as_str()) == Some("number")
             && ctx

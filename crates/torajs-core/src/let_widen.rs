@@ -123,7 +123,14 @@ enum Binding {
         init: ExprId,
         family: Option<Family>,
     },
-    /// Shadows without tracking (const, annotated, params, catch
+    /// An annotated mutable `let`: an array literal holding an `any`
+    /// element stored into it later keeps the dynamic layout when the
+    /// annotation resolves to a struct array
+    /// (`check_stmt_let_decl::any_layout_slot` decides on the resolved
+    /// type; for any other annotation the mark changes nothing), and
+    /// the binding has to hold it from its declaration.
+    LayoutArr { init: ExprId },
+    /// Shadows without tracking (const, other annotated, params, catch
     /// params, imports).
     Opaque,
 }
@@ -234,8 +241,10 @@ fn collect_gen_factories(ast: &Ast) -> HashSet<String> {
 }
 
 impl Walker<'_> {
-    fn register_let(&mut self, name: &str, mutable: bool, unannotated: bool, init: ExprId) {
-        let binding = if mutable && unannotated {
+    fn register_let(&mut self, name: &str, mutable: bool, ann: Option<&str>, init: ExprId) {
+        let binding = if mutable && ann.is_some() {
+            Binding::LayoutArr { init }
+        } else if mutable && ann.is_none() {
             let family = classify(self.ast, init).or_else(|| {
                 // A generator-factory call initializes a `__Gen_*`
                 // object — classifiable through the factory table.
@@ -282,14 +291,19 @@ impl Walker<'_> {
         };
         // the innermost binding of the name decides; an opaque one
         // (const, annotated, param) is never widened
-        let found = self.scopes.iter().rev().find_map(|s| {
-            s.get(name).map(|b| match b {
-                Binding::Tracked { init, family } => Some((*init, family.clone())),
-                Binding::Opaque => None,
-            })
-        });
-        let Some(Some((init, family))) = found else {
-            return;
+        let (init, family) = match self.scopes.iter().rev().find_map(|s| s.get(name).cloned()) {
+            Some(Binding::Tracked { init, family }) => (init, family),
+            Some(Binding::LayoutArr { init }) => {
+                if let Some(types) = self.types
+                    && crate::check_stmt_let_decl::any_layout_slot::has_dynamic_elem(
+                        value, self.ast, types,
+                    )
+                {
+                    self.out.insert(init);
+                }
+                return;
+            }
+            Some(Binding::Opaque) | None => return,
         };
         if let Some(types) = self.types
             && types.get(&value) == Some(&Type::Any)

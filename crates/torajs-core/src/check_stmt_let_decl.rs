@@ -29,6 +29,8 @@
 //! CPython incref / Swift strong-assignment semantics); `s` stays
 //! fully usable afterwards.
 
+pub(crate) mod any_layout_slot;
+
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, DiagPush, LocalInfo, Type};
 use crate::check_assignable::is_assignable_to_resolved;
@@ -172,7 +174,7 @@ pub(crate) fn check(
                 init_ty
             } else {
                 apply_contextual_array_ann(checker, ast, init, &ann_ty);
-                ann_ty
+                any_layout_slot::declared_face(checker, ast, init, ann_ty)
             }
         }
     };
@@ -276,7 +278,9 @@ pub(crate) fn widen_binding_ty(
         // main home would route to mono sigs the boxed slot value
         // can never satisfy.
         Type::Any
-    } else if checker.cross_type_widened.contains(&init) {
+    } else if let Some(t) = any_layout_slot::cast_face(&ty, init, ast, &checker.expr_types) {
+        t
+    } else if unannotated && checker.cross_type_widened.contains(&init) {
         // RFC 20260804-mutable-let-widen — a later reassign of a
         // different syntactic family (JS `let it = new C();
         // it = Iterator.from(it)`) makes the binding `any` from
@@ -380,6 +384,27 @@ fn map_ty_from_type_args(checker: &Checker, ast: &Ast, init: ExprId, ty: Type) -
 /// minted the typed flavor and the callee's Arr<Any> readers
 /// mis-decoded the slots.
 pub(crate) fn apply_contextual_array_ann(
+    checker: &mut Checker,
+    ast: &Ast,
+    eid: ExprId,
+    ann: &Type,
+) {
+    // an `any` element stays what it is: a struct slot would read its
+    // box at the declared offsets, so the literal keeps the dynamic
+    // layout its inference chose (`any_layout_slot`)
+    if any_layout_slot::struct_elem_array(ann)
+        && any_layout_slot::has_dynamic_elem(eid, ast, &checker.expr_types)
+    {
+        return;
+    }
+    apply_contextual_array_ann_store(checker, ast, eid, ann);
+}
+
+/// [`apply_contextual_array_ann`] for a literal stored into a binding
+/// that already exists: it takes the binding's type as it is, which
+/// is `any[]` for a struct-array `let` such a store widened
+/// (`crate::let_widen`).
+pub(crate) fn apply_contextual_array_ann_store(
     checker: &mut Checker,
     ast: &Ast,
     eid: ExprId,

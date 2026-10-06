@@ -19,7 +19,7 @@ impl Walker<'_> {
                 ..
             } => {
                 self.walk_expr(*init);
-                self.register_let(name, *mutable, type_ann.is_none(), *init);
+                self.register_let(name, *mutable, type_ann.as_deref(), *init);
             }
             // `using` is a const-natured binding (RFC 20260809); it
             // only reaches this walker if desugar_using was skipped,
@@ -31,7 +31,7 @@ impl Walker<'_> {
                 ..
             } => {
                 self.walk_expr(*init);
-                self.register_let(name, false, type_ann.is_none(), *init);
+                self.register_let(name, false, type_ann.as_deref(), *init);
             }
             Stmt::If {
                 cond,
