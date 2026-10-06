@@ -326,67 +326,67 @@ pub fn devirtualize_module(module: &mut Module) -> DevirtStats {
     stats
 }
 
-/// Count uses of `v` across every inst operand and terminator.
-fn count_uses(func: &Function, v: ValueId) -> u32 {
-    let mut n = 0;
-    for block in &func.blocks {
-        for inst in &block.insts {
-            visit_value_operands(&inst.kind, |u| {
-                if u == v {
-                    n += 1;
-                }
-            });
-        }
-        let term_op = match &block.term {
-            Terminator::Ret(Some(op)) => Some(op),
-            Terminator::CondBr { cond, .. } => Some(cond),
-            _ => None,
-        };
-        if let Some(Operand::Value(u)) = term_op
-            && *u == v
-        {
-            n += 1;
-        }
-    }
-    n
-}
-
 /// Remove now-dead `Load` / `FnAddr` insts left behind by promotion,
 /// walking each pointer chain toward its base (a swept load exposes
 /// its base address value as the next candidate). Only pure,
 /// side-effect-free kinds are eligible, so removal can never change
-/// behaviour.
+/// behaviour. Use counts (every inst operand, a `Ret` value, a
+/// `CondBr` condition) are taken once and kept current as insts go,
+/// so the sweep is linear in the function, not in roots × insts.
 fn sweep_dead_chain(func: &mut Function, roots: Vec<ValueId>) -> u32 {
-    let mut removed = 0;
-    let mut frontier = roots;
-    while let Some(v) = frontier.pop() {
-        if count_uses(func, v) != 0 {
-            continue;
-        }
-        let mut found: Option<(usize, usize, Option<ValueId>)> = None;
-        'scan: for (bi, block) in func.blocks.iter().enumerate() {
-            for (ii, inst) in block.insts.iter().enumerate() {
-                if inst.result == Some(v) {
-                    match &inst.kind {
-                        InstKind::Load(_, Operand::Value(base), _) => {
-                            found = Some((bi, ii, Some(*base)));
-                        }
-                        InstKind::FnAddr(_) => found = Some((bi, ii, None)),
-                        _ => {}
-                    }
-                    break 'scan;
-                }
+    if roots.is_empty() {
+        return 0;
+    }
+    let mut uses: HashMap<ValueId, u32> = HashMap::default();
+    let mut defs: HashMap<ValueId, (usize, usize)> = HashMap::default();
+    for (bi, block) in func.blocks.iter().enumerate() {
+        for (ii, inst) in block.insts.iter().enumerate() {
+            visit_value_operands(&inst.kind, |u| *uses.entry(u).or_default() += 1);
+            if let Some(r) = inst.result
+                && matches!(
+                    inst.kind,
+                    InstKind::Load(_, Operand::Value(_), _) | InstKind::FnAddr(_)
+                )
+            {
+                defs.insert(r, (bi, ii));
             }
         }
-        if let Some((bi, ii, base)) = found {
-            func.blocks[bi].insts.remove(ii);
-            removed += 1;
-            if let Some(b) = base {
-                frontier.push(b);
-            }
+        if let Terminator::Ret(Some(Operand::Value(u)))
+        | Terminator::CondBr {
+            cond: Operand::Value(u),
+            ..
+        } = &block.term
+        {
+            *uses.entry(*u).or_default() += 1;
         }
     }
-    removed
+    let mut dead: HashSet<(usize, usize)> = HashSet::default();
+    let mut frontier = roots;
+    while let Some(v) = frontier.pop() {
+        if uses.get(&v).copied().unwrap_or(0) != 0 {
+            continue;
+        }
+        let Some(&at) = defs.get(&v) else { continue };
+        if !dead.insert(at) {
+            continue;
+        }
+        visit_value_operands(&func.blocks[at.0].insts[at.1].kind, |u| {
+            if let Some(n) = uses.get_mut(&u) {
+                *n -= 1;
+            }
+        });
+        if let InstKind::Load(_, Operand::Value(base), _) = &func.blocks[at.0].insts[at.1].kind {
+            frontier.push(*base);
+        }
+    }
+    for (bi, block) in func.blocks.iter_mut().enumerate() {
+        let mut ii = 0;
+        block.insts.retain(|_| {
+            ii += 1;
+            !dead.contains(&(bi, ii - 1))
+        });
+    }
+    dead.len() as u32
 }
 
 #[cfg(test)]
