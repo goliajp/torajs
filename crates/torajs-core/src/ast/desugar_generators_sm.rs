@@ -247,11 +247,25 @@ impl<'a> GenSm<'a> {
         // annotating the local `number` gave a typed generator's I64
         // step slot an F64 (`generator-005-bidirectional`, the JIT
         // lane's `materialize_operand_gpr … holding Fpr`).
+        // An object literal (or an array of them) is the exception: held
+        // under the declared yield type, it is stored in that type's
+        // layout even when it spells the fields in another order, which
+        // the step's cast then reads as is.
         let held_name = format!("{YIELD_OPERAND_LOCAL}{next}");
+        let literal = match self.ast.get_expr(val) {
+            Expr::ObjectLit { .. } => true,
+            Expr::Array(els) => {
+                !els.is_empty()
+                    && els
+                        .iter()
+                        .all(|e| matches!(self.ast.get_expr(*e), Expr::ObjectLit { .. }))
+            }
+            _ => false,
+        };
         let hold = Stmt::LetDecl {
             mutable: false,
             name: held_name.clone(),
-            type_ann: None,
+            type_ann: (literal && self.yield_ty != "any").then(|| self.yield_ty.clone()),
             init: val,
             is_var: false,
         };

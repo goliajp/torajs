@@ -69,6 +69,7 @@ pub(crate) fn try_match(
             Ok(t) => t,
             Err(e) => return Some(Err(e)),
         };
+        let aty = crate::check_assignable::in_declared_order(checker, ast, &inner, *aid, aty);
         let admitted = inner == Type::Any
             || aty == Type::Any
             || crate::check_assignable::is_assignable_to(&inner, &aty);

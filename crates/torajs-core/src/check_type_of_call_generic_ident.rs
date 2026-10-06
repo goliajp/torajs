@@ -283,6 +283,12 @@ pub(crate) fn try_match(
                 Ok(t) => t,
                 Err(e) => return Some(Err(e)),
             };
+            // a type argument written out (or bound by an earlier
+            // argument) is the declared type a literal is stored in
+            let declared = substitute_typevars(param_ty, &subst);
+            let arg_ty = crate::check_assignable::in_declared_order(
+                checker, ast, &declared, *arg_id, arg_ty,
+            );
             let arg_ty = decay_nullable_arr(param_ty, arg_ty);
             let arg_ty = decay_classref_struct(checker, param_ty, arg_ty);
             let arg_ty = unification_ty(ast, *arg_id, arg_ty);
