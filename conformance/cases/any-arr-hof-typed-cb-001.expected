@@ -1,0 +1,11 @@
+number,string,object,boolean,string
+forEach number
+forEach string
+forEach object
+forEach boolean
+forEach string
+2
+number;string;object;boolean;string;
+number,string,object,boolean,string
+number,string,object,boolean,string
+2,5,6

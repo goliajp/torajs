@@ -152,25 +152,7 @@ pub(super) fn emit_do_call(
         Type::Closure(s) | Type::FnSig(s) => ctx.fn_sigs[s.0 as usize].0.clone(),
         _ => Vec::new(),
     };
-    // an `any` element meeting a struct parameter, or an `any[]` source
-    // meeting an element-typed one, has no typed repr to pass: the
-    // closure's boxed entry decides per value (a fitting cell passes
-    // through, any other value takes the generic lane)
-    let any_into_struct = args.iter().enumerate().any(|(i, a)| {
-        let (Some(p), actual) = (params.get(i.wrapping_sub(sig_skip)), ctx.operand_ty(a)) else {
-            return false;
-        };
-        i >= sig_skip
-            && match (actual, *p) {
-                (Type::Any, Type::Obj(_)) => true,
-                // an `any[]` source handed to an element-typed array param
-                (Type::Arr(a), Type::Arr(p)) => {
-                    ctx.arr_layouts[a.0 as usize] == Type::Any
-                        && ctx.arr_layouts[p.0 as usize] != Type::Any
-                }
-                _ => false,
-            }
-    });
+    let any_into_struct = needs_boxed_entry(ctx, known_fid, &args, &params, sig_skip);
     if any_into_struct && matches!(fn_ty, Type::Closure(_)) {
         let argc = (args.len() - sig_skip) as i64;
         return emit_argv_face_call(ctx, fn_val, fn_ty, args, sig_skip, argc);
@@ -200,4 +182,39 @@ pub(super) fn emit_do_call(
     // may-throw gate (verified-non-throwing fns skip the check).
     ctx.emit_throw_check(known_fid);
     r
+}
+
+/// an `any` element meeting a struct parameter, or an `any[]` source
+/// meeting an element-typed one, has no typed repr to pass: the
+/// closure's boxed entry decides per value (a fitting cell passes
+/// through, any other value takes the generic lane). A scalar
+/// parameter would bind the element converted (§10.2.1.3 binds it
+/// as it is: `typeof v` on "s" is "string"), so it takes the boxed
+/// entry too when the callback has one: a fitting value runs the
+/// typed body, any other the all-`any` twin.
+/// an `any[]` source handed to an element-typed array param
+fn needs_boxed_entry(
+    ctx: &LowerCtx<'_>,
+    known_fid: Option<FuncId>,
+    args: &[Operand],
+    params: &[Type],
+    sig_skip: usize,
+) -> bool {
+    let boxed = known_fid.is_some_and(|f| ctx.boxed_entries.contains_key(&f));
+    args.iter().enumerate().any(|(i, a)| {
+        let (Some(p), actual) = (params.get(i.wrapping_sub(sig_skip)), ctx.operand_ty(a)) else {
+            return false;
+        };
+        i >= sig_skip
+            && match (actual, *p) {
+                (Type::Any, Type::Obj(_)) => true,
+                (Type::Any, Type::F64 | Type::I64 | Type::I32 | Type::Bool | Type::Str) => boxed,
+                // an `any[]` source handed to an element-typed array param
+                (Type::Arr(a), Type::Arr(p)) => {
+                    ctx.arr_layouts[a.0 as usize] == Type::Any
+                        && ctx.arr_layouts[p.0 as usize] != Type::Any
+                }
+                _ => false,
+            }
+    })
 }
