@@ -151,7 +151,7 @@ fn collect_member_targets(
             }
             let name = read_nlist_name(member, symtab, r.r_symbolnum)?;
             let section_final_vaddr = s.final_vaddr;
-            let target_vaddr = if let Some(&v) = sym_table.get(&name) {
+            let target_vaddr = if let Some(&v) = sym_table.get(name) {
                 v
             } else if let Some(v) = resolve_local_nsect(
                 member,
@@ -163,7 +163,9 @@ fn collect_member_targets(
             ) {
                 v
             } else {
-                return Err(MemberRelocApplyError::UnresolvedSymbol { name: name.clone() });
+                return Err(MemberRelocApplyError::UnresolvedSymbol {
+                    name: name.to_string(),
+                });
             };
             let slot_vaddr = section_final_vaddr + u64::from(r.r_address);
             debug_assert!(

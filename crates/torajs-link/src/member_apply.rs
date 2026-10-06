@@ -277,7 +277,7 @@ fn resolve_reloc_target(
             });
         }
         let name = read_nlist_name(member, symtab, r.r_symbolnum)?;
-        if let Some(&v) = sym_table.get(&name) {
+        if let Some(&v) = sym_table.get(name) {
             Ok(v)
         } else if let Some(v) = resolve_local_nsect(
             member,
@@ -289,7 +289,9 @@ fn resolve_reloc_target(
         ) {
             Ok(v)
         } else {
-            Err(MemberRelocApplyError::UnresolvedSymbol { name: name.clone() })
+            Err(MemberRelocApplyError::UnresolvedSymbol {
+                name: name.to_string(),
+            })
         }
     }
 }

@@ -99,11 +99,11 @@ pub(crate) fn parse_member_symtab(
 }
 
 /// Resolve `nlist[sym_index].n_strx` to a UTF-8 symbol name.
-pub(crate) fn read_nlist_name(
-    member: &ArMember<'_>,
+pub(crate) fn read_nlist_name<'a>(
+    member: &ArMember<'a>,
     symtab: &MemberSymtab,
     sym_index: u32,
-) -> Result<String, MemberRelocApplyError> {
+) -> Result<&'a str, MemberRelocApplyError> {
     let bytes = member.data;
     let nlist_off = symtab.symoff as usize + sym_index as usize * NLIST_64_SIZE as usize;
     let n_strx = u32::from_le_bytes(bytes[nlist_off..nlist_off + 4].try_into().unwrap()) as usize;
@@ -119,7 +119,5 @@ pub(crate) fn read_nlist_name(
         .map(|p| n_strx + p)
         .ok_or(MemberRelocApplyError::UnterminatedSymName { sym_index, n_strx })?;
     let name_bytes = &strtab[n_strx..end];
-    std::str::from_utf8(name_bytes)
-        .map(|s| s.to_string())
-        .map_err(|_| MemberRelocApplyError::NameNotUtf8 { sym_index })
+    std::str::from_utf8(name_bytes).map_err(|_| MemberRelocApplyError::NameNotUtf8 { sym_index })
 }
