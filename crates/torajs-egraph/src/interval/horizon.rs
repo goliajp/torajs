@@ -54,7 +54,7 @@ impl Horizon {
     }
 
     /// `v`, the next fact of `cell`, capped when `cell` is a counter.
-    pub(super) fn cap(&self, cell: ValueId, v: AbsVal, state: &HashMap<ValueId, AbsVal>) -> AbsVal {
+    pub(super) fn cap(&self, cell: ValueId, v: AbsVal, state: &super::State) -> AbsVal {
         match self.counters.get(&cell) {
             Some(c) => cap(c, v, state),
             None => v,
@@ -161,7 +161,7 @@ fn thresholds(counters: &HashMap<ValueId, Counter>) -> Vec<i128> {
 /// `v` narrowed to what the counter can reach from its inits within
 /// the horizon. Inits are read flow-insensitively: the join of every
 /// value they ever take.
-fn cap(counter: &Counter, v: AbsVal, state: &HashMap<ValueId, AbsVal>) -> AbsVal {
+fn cap(counter: &Counter, v: AbsVal, state: &super::State) -> AbsVal {
     let AbsVal::Fact(f) = v else { return v };
     let init = counter.inits.iter().fold(AbsVal::Bottom, |acc, op| {
         acc.join(super::lookup(op, state, &[]))

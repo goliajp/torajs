@@ -204,7 +204,7 @@ pub(super) fn with_roots(thresholds: &[i128], roots: &[i128]) -> Vec<i128> {
 pub(super) fn bound_hi(
     bound: SquareBound,
     via_sitofp: bool,
-    state: &HashMap<ValueId, AbsVal>,
+    state: &super::State,
     live: &[Constraint],
 ) -> Option<i128> {
     let hi = bound_hi_any(bound, state, live)?;
@@ -213,11 +213,7 @@ pub(super) fn bound_hi(
 
 /// Add to `roots` the thresholds of every square bound live in a
 /// block whose bound `state` already caps.
-pub(super) fn live_roots(
-    live: &[Constraint],
-    state: &HashMap<ValueId, AbsVal>,
-    roots: &mut Vec<i128>,
-) {
+pub(super) fn live_roots(live: &[Constraint], state: &super::State, roots: &mut Vec<i128>) {
     for c in live {
         if let Constraint::Square {
             strict,
@@ -232,11 +228,7 @@ pub(super) fn live_roots(
     }
 }
 
-fn bound_hi_any(
-    bound: SquareBound,
-    state: &HashMap<ValueId, AbsVal>,
-    live: &[Constraint],
-) -> Option<i128> {
+fn bound_hi_any(bound: SquareBound, state: &super::State, live: &[Constraint]) -> Option<i128> {
     match bound {
         SquareBound::Const(k) => Some(k),
         SquareBound::Value(b) => {

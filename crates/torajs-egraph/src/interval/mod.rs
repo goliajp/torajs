@@ -30,11 +30,13 @@ mod elem_alias;
 mod elem_kernels;
 pub(crate) mod elem_len;
 mod horizon;
+mod live;
 mod merge;
 pub mod refine;
 mod refine_logic;
 pub mod run;
 pub mod square;
+mod state;
 pub mod transfer;
 mod widen;
 
@@ -46,7 +48,9 @@ use crate::id_hash::{HashMap, HashSet};
 use torajs_core::ssa::{Function, InstKind, Module, Operand, Type, ValueId};
 
 use def_shapes::def_shapes;
+use live::Live;
 use refine::{Constraint, Constraints};
+use state::State;
 use torajs_core::ssa::dominator::DominatorTree;
 use transfer::eval_inst;
 use widen::step;
@@ -117,11 +121,12 @@ pub fn analyze_function_with(
     let elems = elem::collect(func, callee_names);
     let mut elem_state: HashMap<ValueId, AbsVal> = HashMap::default();
 
-    let mut state: HashMap<ValueId, AbsVal> = HashMap::default();
+    let mut state = State::new(func.values.len());
     for p in &func.params {
         state.insert(*p, opaque_for(func.values[p.0 as usize].ty));
     }
 
+    let mut live = Live::new(&inherited, func.values.len());
     let mut stable_since = None;
     // the roots of the square bounds the previous round read
     let mut roots: Vec<i128> = Vec::new();
@@ -141,17 +146,14 @@ pub fn analyze_function_with(
 
         for &bid in dom.reverse_postorder() {
             let block = &func.blocks[bid.0 as usize];
-            let mut live = inherited.resolve(bid, &merged);
-            square::live_roots(&live, &state, &mut roots);
+            live.enter(bid, &merged);
+            square::live_roots(live.all(), &state, &mut roots);
             for inst in &block.insts {
                 let Some(r) = inst.result else { continue };
                 let ty = func.values[r.0 as usize].ty;
                 let ev = {
-                    let env = |op: &Operand| lookup(op, &state, &live);
-                    let is_even = |op: &Operand| {
-                        matches!(op, Operand::Value(v)
-                            if live.iter().any(|c| matches!(c, Constraint::Even(e) if e == v)))
-                    };
+                    let env = |op: &Operand| lookup(op, &state, live.for_operand(op));
+                    let is_even = |op: &Operand| live.is_even(op);
                     eval_inst(&inst.kind, ty, &env, &is_even)
                 };
                 let ev = if ev == AbsVal::Bottom
@@ -181,9 +183,7 @@ pub fn analyze_function_with(
                 if cells.contains(&r) {
                     let e = contrib.entry(r).or_insert(AbsVal::Bottom);
                     *e = e.join(ev);
-                    // the cell's contents changed: refined facts about
-                    // its previous contents no longer apply below.
-                    live.retain(|c| !c.killed_by(|v| v == r));
+                    live.kill(r);
                 } else if state.get(&r) != Some(&ev) {
                     state.insert(r, ev);
                     changed = true;
@@ -245,13 +245,7 @@ pub fn analyze_function_with(
         }
     }
 
-    state
-        .into_iter()
-        .filter_map(|(v, av)| match av {
-            AbsVal::Fact(f) => Some((v, f)),
-            _ => None,
-        })
-        .collect()
+    state.into_facts()
 }
 
 fn opaque_for(ty: Type) -> AbsVal {
@@ -261,7 +255,7 @@ fn opaque_for(ty: Type) -> AbsVal {
     }
 }
 
-fn lookup(op: &Operand, state: &HashMap<ValueId, AbsVal>, live: &[Constraint]) -> AbsVal {
+fn lookup(op: &Operand, state: &State, live: &[Constraint]) -> AbsVal {
     if let Some(k) = transfer::op_const_int(op) {
         return AbsVal::Fact(NumFact::point(k));
     }
@@ -303,12 +297,7 @@ fn lookup(op: &Operand, state: &HashMap<ValueId, AbsVal>, live: &[Constraint]) -
 /// The range a relation to another value, or a square bound, puts on
 /// a value whose fact is `f`. The comparand's own fact is the
 /// flow-insensitive one: the join of everything it is ever defined as.
-fn bound_range(
-    f: NumFact,
-    c: &Constraint,
-    state: &HashMap<ValueId, AbsVal>,
-    live: &[Constraint],
-) -> Option<NumFact> {
+fn bound_range(f: NumFact, c: &Constraint, state: &State, live: &[Constraint]) -> Option<NumFact> {
     match c {
         Constraint::Rel {
             rel,

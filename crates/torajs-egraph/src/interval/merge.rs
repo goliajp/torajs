@@ -11,7 +11,6 @@
 //! as the range the previous round's facts give.
 
 use crate::id_hash::{HashMap, HashSet};
-use std::rc::Rc;
 
 use torajs_core::ssa::dominator::DominatorTree;
 use torajs_core::ssa::{BlockId, Function, Operand, ValueId};
@@ -30,7 +29,9 @@ pub(super) struct Merges {
 struct Join {
     block: BlockId,
     cell: ValueId,
-    per_pred: Rc<Vec<Vec<Constraint>>>,
+    /// per predecessor, what [`super::lookup`] of the cell reads from
+    /// its constraints there (see [`reads_of`])
+    per_pred: Vec<Vec<Constraint>>,
 }
 
 impl Merges {
@@ -76,12 +77,11 @@ impl Merges {
             if cells.is_empty() {
                 continue;
             }
-            let per_pred = Rc::new(at_end);
             for cell in cells {
                 joins.push(Join {
                     block: BlockId(bi as u32),
                     cell,
-                    per_pred: Rc::clone(&per_pred),
+                    per_pred: at_end.iter().map(|cs| reads_of(cs, cell)).collect(),
                 });
             }
         }
@@ -120,7 +120,7 @@ impl Merges {
 
     /// Each merge's range under `state`, indexed like the joins: the
     /// join over its predecessors of the cell's range at their ends.
-    pub(super) fn ranges(&self, state: &HashMap<ValueId, AbsVal>) -> Vec<Option<NumFact>> {
+    pub(super) fn ranges(&self, state: &super::State) -> Vec<Option<NumFact>> {
         let mut out = vec![None; self.joins.len()];
         for (i, j) in self.joins.iter().enumerate() {
             let mut joined: Option<NumFact> = None;
@@ -135,6 +135,29 @@ impl Merges {
         }
         out
     }
+}
+
+/// The part of `cs` a lookup of `cell` reads: the constraints that
+/// speak of the cell, in order. A square bound reads the rest of the
+/// list for its bound, so with one present the whole list stays.
+fn reads_of(cs: &[Constraint], cell: ValueId) -> Vec<Constraint> {
+    let own = |c: &&Constraint| {
+        matches!(
+            c,
+            Constraint::Range(..)
+                | Constraint::NonZero(_)
+                | Constraint::Rel { .. }
+                | Constraint::Square { .. }
+        ) && c.value() == cell
+    };
+    if cs
+        .iter()
+        .filter(own)
+        .any(|c| matches!(c, Constraint::Square { .. }))
+    {
+        return cs.to_vec();
+    }
+    cs.iter().filter(own).copied().collect()
 }
 
 /// Per block, the reachable blocks it is entered from.
@@ -159,11 +182,28 @@ pub(super) struct Inherited {
 }
 
 impl Inherited {
+    /// Block `b`'s constraints as stored, placeholders unresolved.
+    pub(super) fn list(&self, b: BlockId) -> &[Constraint] {
+        &self.lists[b.0 as usize]
+    }
+
+    /// Whether block `b`'s list holds a merge placeholder.
+    pub(super) fn has_merges(&self, b: BlockId) -> bool {
+        !self.slots[b.0 as usize].is_empty()
+    }
+
     /// Block `b`'s constraints with every merge placeholder read as the
     /// range `ranges` gives its join, or dropped when it has none.
-    pub(super) fn resolve(&self, b: BlockId, ranges: &[Option<NumFact>]) -> Vec<Constraint> {
+    /// The list is written into `out` (cleared first), so one buffer
+    /// serves every block of a round.
+    pub(super) fn resolve(
+        &self,
+        b: BlockId,
+        ranges: &[Option<NumFact>],
+        out: &mut Vec<Constraint>,
+    ) {
         let live = &self.lists[b.0 as usize];
-        let mut out = Vec::with_capacity(live.len());
+        out.clear();
         let mut slot = self.slots[b.0 as usize].iter();
         for c in live {
             match c {
@@ -176,7 +216,6 @@ impl Inherited {
                 other => out.push(*other),
             }
         }
-        out
     }
 }
 
