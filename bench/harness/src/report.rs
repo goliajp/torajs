@@ -3,8 +3,8 @@ use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::bench::{RunOutcome, Status};
 pub use crate::aggregate::aggregate;
+use crate::bench::{RunOutcome, Status};
 
 #[derive(Debug, Serialize)]
 pub struct Report {

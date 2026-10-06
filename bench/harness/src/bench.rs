@@ -43,7 +43,6 @@ fn file_sha256_hex(path: &Path) -> Option<String> {
     Some(hex)
 }
 
-
 pub fn run_one(
     case: &Case,
     runner: &Runner,

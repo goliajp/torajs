@@ -85,8 +85,14 @@ mod tests {
             assert!(!cfg!(target_os = "macos"), "a macOS test binary is Mach-O");
             return;
         };
-        assert!(shape.segments.get("__TEXT").copied().unwrap_or(0) > 0, "{shape:?}");
-        assert!(shape.sections.get("__TEXT,__text").copied().unwrap_or(0) > 0, "{shape:?}");
+        assert!(
+            shape.segments.get("__TEXT").copied().unwrap_or(0) > 0,
+            "{shape:?}"
+        );
+        assert!(
+            shape.sections.get("__TEXT,__text").copied().unwrap_or(0) > 0,
+            "{shape:?}"
+        );
         assert!(!shape.segments.contains_key("__PAGEZERO"));
         assert!(shape.symbols.unwrap_or(0) > 0, "{shape:?}");
     }
