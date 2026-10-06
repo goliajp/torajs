@@ -52,6 +52,21 @@ impl<'a> Parser<'a> {
         let Some(t1) = self.tokens.get(self.pos + 1) else {
             return Ok(None);
         };
+        // §15.8 AsyncMethod: no LineTerminator between `async` and the
+        // name; across one, `async` is a shorthand property and the
+        // name that follows it lacks its comma
+        if let Some(t0) = self.tokens.get(self.pos)
+            && self.source[t0.span.end as usize..t1.span.start as usize].contains('\n')
+            && !matches!(
+                t1.token,
+                Token::Comma | Token::RBrace | Token::Colon | Token::LParen
+            )
+        {
+            return Err(format!(
+                "SyntaxError: no line break is allowed after `async` in a method at {}",
+                self.at()
+            ));
+        }
         // §12.7.6 PropertyName is an IdentifierName, so an async
         // shorthand may be named with a keyword (`{ async if() {} }`,
         // `{ async let() {} }`). Matching `Token::Ident` alone sent

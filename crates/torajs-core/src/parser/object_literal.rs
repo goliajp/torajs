@@ -100,6 +100,7 @@ impl<'a> Parser<'a> {
         if let Some(pair) = self.try_parse_computed_property(false)? {
             return Ok(pair);
         }
+        let (literal_key, escaped_key) = self.key_token_shape();
         let name = match self.peek() {
             Token::Ident(n) => PropKey::from(n),
             // ES §12.7.2 — an escaped ReservedWord is a legal
@@ -140,27 +141,10 @@ impl<'a> Parser<'a> {
         // name), which is where their source text starts (RFC
         // 20260719-fn-tostring-source B1).
         let member_start_pos = self.pos - 1;
-        // P-PARSE.4 — getter / setter shorthand `{ get NAME() {...} }`
-        // / `{ set NAME(v) {...} }` per ES spec §12.7.6. Pre-fix the
-        // parser saw `get` as a regular field name and bailed at the
-        // following `NAME` ident with 'expected `:` after field name
-        // `get`'. Test262's language/expressions/array/spread-obj-*
-        // suite uses these pervasively.
-        //
-        // The parser accepts the syntax and stashes the body so the
-        // surrounding obj literal still constructs. tora has no real
-        // accessor-descriptor substrate yet (P3 / P7), so the
-        // synthesised field name encodes the kind:
-        //   `get x() { ... }`   →  `__getter_x: () => { ... }`
-        //   `set x(v) { ... }`  →  `__setter_x: (v) => { ... }`
-        // This isn't spec-correct accessor semantics — `o.x` won't
-        // call the getter, the function value sits in `__getter_x`
-        // instead. But the parse succeeds and the surrounding obj
-        // literal compiles, which is what P-PARSE.4 needs. Test262
-        // cases that assert parse acceptance (vs accessor behaviour)
-        // start passing; cases that depend on the accessor semantic
-        // remain blocked until P3 / P7 lands.
+        // `{ get NAME() {...} }` / `{ set NAME(v) {...} }` (§13.2.5),
+        // stored under a synthesized `__getter_` / `__setter_` slot.
         if let Some(word) = name.as_str()
+            && !escaped_key
             && let Some(pair) = self.try_parse_accessor_shorthand(word, member_start_pos)?
         {
             return Ok(pair);
@@ -185,6 +169,9 @@ impl<'a> Parser<'a> {
         // by `(` (the method shorthand path above).
         // Both shorthand forms read the name as an IdentifierReference,
         // always a `&str` — a lone-surrogate key is never one.
+        if literal_key {
+            self.refuse_literal_shorthand()?;
+        }
         if matches!(self.peek(), Token::Comma | Token::RBrace)
             && let Some(ident) = name.as_str()
         {
@@ -266,6 +253,31 @@ impl<'a> Parser<'a> {
             self.ast.objlit_method_exprs.insert(value);
         }
         Ok((name, value))
+    }
+
+    /// The current key token: a string / numeric literal (a
+    /// PropertyName only, with no shorthand form), and whether it was
+    /// spelled with an escape (an escaped `get` / `set` is an ordinary
+    /// name, never the accessor keyword; §12.7.2, §13.2.5).
+    fn key_token_shape(&self) -> (bool, bool) {
+        let literal = matches!(self.peek(), Token::String(_) | Token::Number(_));
+        let escaped = matches!(self.peek(), Token::EscapedIdent(_))
+            || self.tokens.get(self.pos).is_some_and(|t| {
+                matches!(t.token, Token::Ident(_))
+                    && self.source[t.span.start as usize..t.span.end as usize].contains('\\')
+            });
+        (literal, escaped)
+    }
+
+    /// `{ 0 }` / `{ "a" }`: a literal key followed by `,` or `}`.
+    fn refuse_literal_shorthand(&self) -> Result<(), String> {
+        if matches!(self.peek(), Token::Comma | Token::RBrace) {
+            return Err(format!(
+                "SyntaxError: a string or numeric property name has no shorthand form at {}",
+                self.at()
+            ));
+        }
+        Ok(())
     }
 
     /// P-PARSE.4 — getter / setter shorthand `{ get NAME() {...} }` /
