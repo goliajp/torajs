@@ -15,6 +15,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use torajs_codegen::CompiledFunction;
+use torajs_codegen::id_hash::HashSet;
 use torajs_codegen::reloc::{CallTarget, RelocKind};
 use torajs_obj::{LC_SYMTAB, MH_MAGIC_64, N_EXT, N_TYPE, N_UNDF};
 
@@ -174,14 +175,14 @@ pub(crate) fn compute_required_members_cached<'a>(
     // SD-4c-prereq+e1 — `extra_defined_syms` carries link-defined syms
     // (e.g. `__torajs_str_lit_*` from `LinkConfig.strings`) so the
     // worklist doesn't flag them as `UnresolvedExterns` before emit.
-    let defined_in_user: BTreeSet<&str> = user_funcs
+    let defined_in_user: HashSet<&str> = user_funcs
         .iter()
         .map(|f| f.name.as_str())
         .chain(extra_defined_syms.iter().map(|s| s.as_str()))
         .collect();
 
     let mut required: BTreeSet<(usize, usize)> = BTreeSet::new();
-    let mut visited_names: BTreeSet<&str> = BTreeSet::new();
+    let mut visited_names: HashSet<&str> = HashSet::default();
     let mut worklist: Vec<&str> = Vec::new();
     let mut unresolved: BTreeSet<String> = BTreeSet::new();
     let mut dyld_imports: BTreeMap<String, u8> = BTreeMap::new();
