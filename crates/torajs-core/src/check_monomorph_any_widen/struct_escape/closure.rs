@@ -25,6 +25,8 @@
 //!   lowering calls directly (`ssa_lower_call_arr_ho`,
 //!   `ssa_lower_call_arr_predicate`; an `arguments`-reading callback
 //!   has an argv face and no twin anyway);
+//! - the comparator of a typed array's `sort` taking the element type:
+//!   both sort lanes hand it only elements of that kind (`sort_holes`);
 //! - the callback of `s.replace(re, cb)` on a string whose signature
 //!   the kernel lane serves through the typed callback ABI
 //!   (`ssa_lower_call_str_regex_emit::callback_stays_typed`, the same
@@ -65,8 +67,8 @@ pub(in crate::check_monomorph_any_widen) fn all_any(params: &[Param]) -> Vec<(us
 }
 
 /// Mint the twin of every lifted closure that may be called through
-/// `any` and declares a struct, string or array parameter, and has
-/// none yet. Part of the widen fixpoint: a specialization drained
+/// `any` and declares a struct, string, array, `number` or `boolean`
+/// parameter, and has none yet. Part of the widen fixpoint: a specialization drained
 /// there constructs closures of its own. `retired` are the generic
 /// originals, whose bodies never lower. True when one was minted.
 #[allow(clippy::too_many_arguments)]
@@ -89,7 +91,7 @@ pub(in crate::check_monomorph_any_widen) fn run(
         {
             continue;
         }
-        let Some(params) = widenable_target(c, owned_ast, &name) else {
+        let Some(params) = widenable_target(c, owned_ast, &name).map(|t| t.params) else {
             continue;
         };
         // the twin's `any` values would be stored into the typed slot of
@@ -243,6 +245,16 @@ fn typed_callback_sites(c: &Checker, ast: &Ast) -> HashSet<ExprId> {
             | "findLast" | "findLastIndex" | "some" | "every" => {
                 matches!(recv, Some(Type::Array(el)) if **el != Type::Any).then_some(0)
             }
+            "sort" => match (recv, args.first().map(|a| ast.get_expr(*a))) {
+                (Some(Type::Array(el)), Some(Expr::Closure { fn_name, .. }))
+                    if **el != Type::Any =>
+                {
+                    matches!(c.globals.get(fn_name), Some(Type::Function(ps, _))
+                        if ps.iter().all(|p| p == &**el))
+                    .then_some(0)
+                }
+                _ => None,
+            },
             "replace" | "replaceAll" if recv == Some(&Type::String) && args.len() >= 2 => {
                 replace_stays_typed(c, ast, args).then_some(1)
             }

@@ -213,6 +213,7 @@ mod build;
 mod build_reroute;
 mod build_rest;
 mod fit_tag;
+mod probe;
 use build::build_boxed_entry;
 pub(crate) use build_reroute::twin_adapter_of;
 use build_reroute::{TwinReroute, is_twin_name};

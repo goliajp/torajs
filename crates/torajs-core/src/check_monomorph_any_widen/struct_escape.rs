@@ -36,7 +36,10 @@
 //! A `string` or array parameter takes the same twin: neither slot
 //! holds `null`, `undefined` or another kind of value, so the adapter
 //! tests it (`__torajs_anyv_str_fits` / `__torajs_anyv_arr_cell`) and
-//! hands such an argument to the twin as passed.
+//! hands such an argument to the twin as passed. So does a `number` /
+//! `boolean` parameter handed a value of another kind, which the
+//! typed face would convert; that twin is cut only behind a shell
+//! whose value may be called through `any` ([`target`]).
 //!
 //! A lifted closure needs no shell and takes one clone ([`closure`]).
 //! A generator factory (async or not) takes the twin the desugar cut
@@ -97,9 +100,13 @@ pub(super) fn run(
         .collect();
     let loose_shells = closure::loose_values(c, owned_ast, "__forward_");
     for (shell, target) in shells {
-        let Some(params) = widenable_target(c, owned_ast, &target) else {
+        let Some(found) = widenable_target(c, owned_ast, &target) else {
             continue;
         };
+        if found.needs_escape && !loose_shells.contains(&shell) {
+            continue;
+        }
+        let params = found.params;
         // a generator's twin is a class of its own, and so is the machine
         // an async body's twin reaches: cut only for a shell whose value
         // may be called other than through its typed face

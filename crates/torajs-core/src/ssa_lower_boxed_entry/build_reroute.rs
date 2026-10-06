@@ -1,17 +1,18 @@
 //! The typed mono adapter's hand-off to its all-`any` twin when a
 //! slot's argument cannot cross the typed face as it is.
 //!
-//! A boolean / integer slot has no in-band undefined: `any_to_bool`
-//! would make the missing argument `false` and `any_to_number` +
-//! `FpToSi` would make it `0`, and `typeof b` / `b === undefined` in
-//! the body would then answer for a value nobody passed. A struct
+//! A `number` / `boolean` / integer slot binds only a value of its own
+//! kind: `any_to_bool` would make the missing argument `false` and a
+//! `1` `true`, `any_to_number` would make `"7"` the number 7, and the
+//! body would then answer for a value nobody passed (§10.2.1.3 binds
+//! the argument as it is: `n + 1` on `"7"` is `"71"`). A struct
 //! slot reads its argument through the layout, which only a cell of
 //! that layout (or one extending it) has: an array, a Proxy, a
 //! getter-bearing literal, a `3` handed over through `any` means a
 //! generic [[Get]] for every `p.x` (§13.3.2.1), not an offset read.
 //! The twin's every parameter is `any`, so it hosts such a call
 //! exactly; with every argument fitting, the typed body runs as
-//! before. The test is one tag compare per lossy scalar slot and one
+//! before. The test is one tag-set test per lossy scalar slot and one
 //! `__torajs_anyv_struct_fits` call per struct slot, ahead of every
 //! unbox; a struct slot that passed hands its loaded argument on
 //! (`BoxedCoerceIntrinsics::fit`) so the unbox passes the cell
@@ -30,11 +31,11 @@
 use std::collections::HashMap;
 
 use crate::ast::Ast;
-use crate::ssa::{self, FuncId, IPred, InstKind, Operand, Terminator, Type};
+use crate::ssa::{self, FuncId, InstKind, Operand, Terminator, Type};
 
 use super::BoxedEntryIntrinsics;
-use super::fit_tag::{FitTag, lossy_slot};
-use super::unbox::BoxedCoerceIds;
+use super::fit_tag::lossy_slot;
+use super::probe::{On, emit_miss, slot_probe};
 use super::unbox::BoxedCoerceIntrinsics;
 
 /// The twin adapter a mono adapter hands a non-fitting call to.
@@ -90,7 +91,8 @@ pub(super) fn emit_twin_reroute(
     let reroute = f.add_block();
     for i in lossy {
         let rest = coerce.rest && i + 1 == user_tys.len();
-        let probe = slot_probe(&coerce.ids, intr, coerce.slots[i], user_tys[i], rest);
+        let dflt = dflt_lits.get(i).and_then(|d| d.as_ref());
+        let probe = slot_probe(&coerce.ids, intr, coerce.slots[i], user_tys[i], dflt, rest);
         let args = match probe.on {
             On::Arg(extra) => {
                 let av = f.append_inst(
@@ -114,16 +116,7 @@ pub(super) fn emit_twin_reroute(
             ],
         };
         let v = f.append_inst(entry, InstKind::Call(probe.test, args), Type::I64, None);
-        let miss = f.append_inst(
-            entry,
-            InstKind::ICmp(
-                IPred::Eq,
-                Operand::Value(v),
-                Operand::ConstI64(probe.miss_at),
-            ),
-            Type::Bool,
-            None,
-        );
+        let miss = emit_miss(f, entry, v, probe.miss);
         let next = f.add_block();
         f.set_term(
             entry,
@@ -212,78 +205,6 @@ pub(super) fn emit_twin_reroute(
     };
     f.set_term(reroute, Terminator::Ret(Some(Operand::Value(answer))));
     (entry, fit)
-}
-
-/// What a lossy slot's test reads besides its loaded argument.
-enum On {
-    /// The argument, then these operands.
-    Arg(Vec<Operand>),
-    /// The argv window from the slot on, against this shape word.
-    Rest(u64),
-}
-
-/// One lossy slot's test: the kernel, what it reads, and the answer
-/// that misses.
-struct Probe {
-    test: FuncId,
-    on: On,
-    miss_at: i64,
-    /// A struct-shaped slot that passed hands its loaded cell on to the
-    /// unbox (`BoxedCoerceIntrinsics::fit`).
-    passes_cell: bool,
-}
-
-/// The test of one lossy slot. A struct-shaped slot asks its layout of
-/// the cell (of every element, for an array of structs). A string slot
-/// takes only a string, and an array slot only an array block whose
-/// element kinds and tags match the slot's at every level (an `any[]`
-/// level reads any block kind-aware); a typed rest asks that of every
-/// argument it collects. ToString, a raw pointer unbox or the rest's
-/// coercion would otherwise hand the body a value the caller never
-/// passed, or slots it cannot read. A boolean / integer slot misses on
-/// `undefined`, which it has no bits for.
-fn slot_probe(
-    ids: &BoxedCoerceIds,
-    intr: &BoxedEntryIntrinsics,
-    slot: super::fit_tag::SlotTest,
-    ty: Type,
-    rest: bool,
-) -> Probe {
-    let probe = |test, on, miss_at| Probe {
-        test,
-        on,
-        miss_at,
-        passes_cell: false,
-    };
-    match (slot.fit, slot.shape) {
-        (Some(FitTag { tag, depth: 0 }), _) => Probe {
-            passes_cell: true,
-            ..probe(
-                ids.struct_fits,
-                On::Arg(vec![Operand::ConstI64(tag as i64)]),
-                0,
-            )
-        },
-        (Some(FitTag { tag, depth }), _) => Probe {
-            passes_cell: true,
-            ..probe(
-                ids.arr_fits,
-                On::Arg(vec![
-                    Operand::ConstI64(tag as i64),
-                    Operand::ConstI64(depth as i64),
-                ]),
-                0,
-            )
-        },
-        (None, Some(shape)) if rest => probe(ids.rest_fits, On::Rest(shape), 0),
-        (None, Some(shape)) => probe(
-            ids.arr_cell,
-            On::Arg(vec![Operand::ConstI64(shape as i64)]),
-            0,
-        ),
-        _ if ty == Type::Str => probe(ids.str_fits, On::Arg(Vec::new()), 0),
-        _ => probe(intr.any_unbox_tag, On::Arg(Vec::new()), 5),
-    }
 }
 
 /// A twin minted beside a class method or constructor.

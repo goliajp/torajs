@@ -85,23 +85,44 @@ fn level(elem: Type, arr_layouts: &[Type], depth: u32) -> u64 {
     }
 }
 
-/// A slot an argument cannot cross without loss: no literal default
-/// to substitute, and a type with no undefined of its own, a string
-/// or array slot that cannot hold `null` / `undefined` / another kind
-/// of value, or a struct-shaped layout (`fit`) the argument may not
-/// have. A rest slot asks the same of every argument it collects,
-/// which an `any[]` rest takes as they are.
+/// A slot an argument cannot cross without loss: a `number` /
+/// `boolean` slot (or an integer one) handed a value of another kind,
+/// which ToNumber / ToBoolean would turn into one nobody passed; a
+/// string or array slot (with no literal default to substitute) that
+/// cannot hold `null` / `undefined` / another kind of value; or a
+/// struct-shaped layout (`fit`) the argument may not have. A rest slot
+/// asks the same of every argument it collects, which an `any[]` rest
+/// takes as they are.
 pub(super) fn lossy_slot(
     ty: Type,
     dflt: Option<&super::DfltLit>,
     test: SlotTest,
     rest: bool,
 ) -> bool {
-    dflt.is_none()
-        && (test.fit.is_some()
-            || match ty {
-                Type::Bool | Type::I64 | Type::I32 | Type::Str => true,
-                Type::Arr(_) => !rest || test.shape != Some(0),
-                _ => false,
-            })
+    scalar_tags(ty, dflt).is_some()
+        || dflt.is_none()
+            && (test.fit.is_some()
+                || match ty {
+                    Type::Str => true,
+                    Type::Arr(_) => !rest || test.shape != Some(0),
+                    _ => false,
+                })
+}
+
+/// The `AnySlotTag`s a scalar slot binds as they are, as a bit set
+/// over the tag: an integer slot takes an int32, a `number` slot any
+/// number or `undefined` (its slot keeps the undefined sentinel,
+/// `__torajs_anyv_to_f64_slot`), a `boolean` slot a boolean, and a slot
+/// with a literal default `undefined` as well (the default replaces
+/// it). Every other argument is the all-`any` twin's to bind.
+pub(super) fn scalar_tags(ty: Type, dflt: Option<&super::DfltLit>) -> Option<i64> {
+    use torajs_rc::AnySlotTag as T;
+    let bit = |t: T| 1i64 << (t as i64);
+    let kind = match ty {
+        Type::I64 | Type::I32 => bit(T::I64),
+        Type::F64 => bit(T::I64) | bit(T::F64) | bit(T::Undef),
+        Type::Bool => bit(T::Bool),
+        _ => return None,
+    };
+    Some(kind | if dflt.is_some() { bit(T::Undef) } else { 0 })
 }

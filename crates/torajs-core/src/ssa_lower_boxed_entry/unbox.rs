@@ -176,10 +176,11 @@ pub(super) fn unbox_args(
                 Type::F64,
                 None,
             )),
-            // Width-narrowed number params truncate toward zero —
-            // the narrowing proof can't see runtime any-calls, so a
-            // fractional argument here is the RFC's documented
-            // width-vs-any boundary (fixture keeps to integers).
+            // A width-narrowed number param: with an all-`any` twin
+            // the reroute test hands every argument but an int32 to
+            // it (`fit_tag::scalar_tags`), so this conversion is
+            // exact; without a twin a fractional or non-number
+            // argument still truncates toward zero.
             Type::I64 | Type::I32 => {
                 let d = f.append_inst(
                     entry,
