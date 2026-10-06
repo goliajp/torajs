@@ -29,7 +29,7 @@ const CLASS_MAX: usize = 4;
 /// a register.
 pub(super) struct Maps<'a> {
     strings: &'a mut Vec<StringLiteral>,
-    entry: BlockId,
+    pub(super) entry: BlockId,
     addressed: Vec<(StringId, ValueId)>,
 }
 
@@ -169,32 +169,11 @@ impl Emit<'_> {
         self.rodata(bits)
     }
 
-    /// `words` loaded once in the entry block from read-only data, so a
-    /// loop keeps them in registers instead of building each 64-bit
-    /// constant at every use.
-    pub(super) fn entry_words(&mut self, words: &[u64]) -> Vec<ValueId> {
-        let base = self.rodata(words.iter().flat_map(|w| w.to_le_bytes()).collect());
-        let entry = self.maps.entry;
-        (0..words.len())
-            .map(|k| {
-                let at = InstKind::Load(Type::I64, Operand::Value(base), 8 * k as u64);
-                self.f.append_inst(entry, at, Type::I64, None)
-            })
-            .collect()
-    }
-
-    /// The address of `bits` in read-only data, shared with every other
-    /// use of the same bytes in the module.
-    fn rodata(&mut self, bits: Vec<u8>) -> ValueId {
+    /// The address of `bits` in read-only data, taken once in the entry
+    /// block for every use in the walk.
+    pub(super) fn rodata(&mut self, bits: Vec<u8>) -> ValueId {
+        let id = self.intern(bits);
         let maps = &mut self.maps;
-        let found = maps
-            .strings
-            .iter()
-            .position(|s| s.is_latin1 && s.bytes == bits);
-        let id = StringId(found.unwrap_or_else(|| {
-            maps.strings.push(StringLiteral::from_latin1_bytes(bits));
-            maps.strings.len() - 1
-        }) as u32);
         if let Some(&(_, v)) = maps.addressed.iter().find(|&&(s, _)| s == id) {
             return v;
         }
@@ -203,6 +182,17 @@ impl Emit<'_> {
             .append_inst(maps.entry, InstKind::StringRef(id), Type::Ptr, None);
         maps.addressed.push((id, v));
         v
+    }
+
+    /// `bits` in the module's string table, shared with every other use
+    /// of the same bytes.
+    fn intern(&mut self, bits: Vec<u8>) -> StringId {
+        let strings = &mut self.maps.strings;
+        let found = strings.iter().position(|s| s.is_latin1 && s.bytes == bits);
+        StringId(found.unwrap_or_else(|| {
+            strings.push(StringLiteral::from_latin1_bytes(bits));
+            strings.len() - 1
+        }) as u32)
     }
 }
 

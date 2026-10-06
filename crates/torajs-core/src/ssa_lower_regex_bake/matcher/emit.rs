@@ -120,9 +120,11 @@ pub(crate) fn walk(name: &str, ir: &MatcherIr, strings: &mut Vec<StringLiteral>)
     e.store(attempt, Operand::Value(st), pos_slot, 0);
     e.f.set_term(attempt, Terminator::Br(e.states[0]));
 
+    // a scan that skips (`accel.rs`) is emitted after the states, off their path
+    let skips = e.start_units();
     if ir.anchored {
         e.f.set_term(next_st, Terminator::Br(miss));
-    } else {
+    } else if skips.is_none() {
         e.scan_advance(scan);
     }
 
@@ -142,6 +144,10 @@ pub(crate) fn walk(name: &str, ir: &MatcherIr, strings: &mut Vec<StringLiteral>)
 
     for i in 0..ir.states.len() {
         e.state(i);
+    }
+    if let Some(units) = skips {
+        let rescan = e.skip_scan(scan, &units);
+        e.scan_advance(rescan);
     }
     e.f
 }
@@ -229,14 +235,6 @@ impl Emit<'_> {
         self.f.set_term(blk, Terminator::Ret(Some(end)));
     }
 
-    /// a fresh attempt: every group unset, no accept yet
-    fn begin_attempt(&mut self, blk: BlockId) {
-        for slot in 2..self.ir.stride {
-            self.store(blk, Operand::ConstI64(-1), self.out, 8 * slot as u64);
-        }
-        self.store(blk, Operand::ConstI64(-1), self.last_slot, 0);
-    }
-
     fn state(&mut self, i: usize) {
         let node = &self.ir.states[i];
         let blk = self.states[i];
@@ -259,12 +257,6 @@ impl Emit<'_> {
         for (v, &leaf) in node.variants.iter().zip(&leaves) {
             self.variant(leaf, pos, v, i);
         }
-    }
-
-    /// an attempt that begins on state 0's edge has no row to clear
-    /// before the edge is taken
-    fn fresh_on_edge(&self, i: usize) -> bool {
-        i == 0 && !self.ir.states[0].accepts_anywhere()
     }
 
     /// The body of one variant of state `i` from `blk`, at `pos`.

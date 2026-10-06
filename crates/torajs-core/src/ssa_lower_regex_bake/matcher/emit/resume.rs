@@ -1,4 +1,4 @@
-//! Where a dead attempt sends the scan.
+//! How an attempt begins, and where a dead one sends the scan.
 //!
 //! An attempt that began on state 0's edge and died there moves the
 //! scan one unit. Any other death goes through `dead`, and from there
@@ -12,6 +12,20 @@ use crate::ssa::{BlockId, Operand, Terminator, ValueId};
 use super::Emit;
 
 impl Emit<'_> {
+    /// a fresh attempt: every group unset, no accept yet
+    pub(super) fn begin_attempt(&mut self, blk: BlockId) {
+        for slot in 2..self.ir.stride {
+            self.store(blk, Operand::ConstI64(-1), self.out, 8 * slot as u64);
+        }
+        self.store(blk, Operand::ConstI64(-1), self.last_slot, 0);
+    }
+
+    /// an attempt that begins on state 0's edge has no row to clear
+    /// before the edge is taken
+    pub(super) fn fresh_on_edge(&self, i: usize) -> bool {
+        i == 0 && !self.ir.states[0].accepts_anywhere()
+    }
+
     /// The block a variant of state `i` falls to when no edge takes
     /// the unit at `pos`.
     pub(super) fn fail_block(&mut self, i: usize, pos: ValueId) -> BlockId {
