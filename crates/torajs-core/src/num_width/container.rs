@@ -71,7 +71,7 @@ impl UnionFind {
         }
     }
 
-    pub(super) fn keys(&self) -> impl Iterator<Item = &SlotKey> {
+    fn keys(&self) -> impl Iterator<Item = &SlotKey> {
         self.parent.keys().chain(self.parent.values())
     }
 }

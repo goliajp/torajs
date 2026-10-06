@@ -253,8 +253,8 @@ impl<'a> Analysis<'a> {
             Expr::Unary { expr, .. }
             | Expr::Delete { expr }
             | Expr::TypeOf { expr }
-            | Expr::Spread { expr } => self.walk_expr(*expr, scope),
-            Expr::As { expr, ty_ann } => self.walk_cast(*expr, ty_ann, scope),
+            | Expr::Spread { expr }
+            | Expr::As { expr, .. } => self.walk_expr(*expr, scope),
             Expr::InstanceOf { expr, rhs } => {
                 self.walk_expr(*expr, scope);
                 self.walk_expr(*rhs, scope);

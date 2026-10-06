@@ -1,7 +1,7 @@
-set
-text 2
-8 undefined 4
+true
+undefined 1
+8 undefined 3
 stored 2.5
-stored 7
-stored {}
+refused true
+refused true
 ok
