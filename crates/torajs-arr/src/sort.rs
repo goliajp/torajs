@@ -46,7 +46,7 @@ const ARR_HDR_HEAD_OFF: usize = 20;
 use crate::layout::arr_data;
 use crate::sort_cmp::{
     AnyCmp, Cmp, MODE_ELEM_F64, MODE_HAS_ENV, MODE_NUM_DESC, MODE_NUM_NATIVE, MODE_RECV_FIRST,
-    NumCmp, SortCmp,
+    SortCmp,
 };
 
 unsafe extern "C" {
@@ -223,10 +223,10 @@ pub unsafe extern "C" fn __torajs_arr_sort_cb(
         let slots = arr_data(arr).add(head * 8) as *mut u64;
         if mode & MODE_NUM_NATIVE != 0 {
             match (mode & MODE_ELEM_F64 != 0, mode & MODE_NUM_DESC != 0) {
-                (true, false) => sort_slots(slots, len, &NumCmp::<true, false>),
-                (true, true) => sort_slots(slots, len, &NumCmp::<true, true>),
-                (false, false) => sort_slots(slots, len, &NumCmp::<false, false>),
-                (false, true) => sort_slots(slots, len, &NumCmp::<false, true>),
+                (true, false) => crate::sort_num::sort::<true, false>(slots, len),
+                (true, true) => crate::sort_num::sort::<true, true>(slots, len),
+                (false, false) => crate::sort_num::sort::<false, false>(slots, len),
+                (false, true) => crate::sort_num::sort::<false, true>(slots, len),
             }
             return;
         }
@@ -246,7 +246,7 @@ pub unsafe extern "C" fn __torajs_arr_sort_cb(
 
 /// Insertion sort for a short run, merge sort over a scratch buffer
 /// otherwise. `len >= 2`.
-unsafe fn sort_slots<C: SortCmp>(slots: *mut u64, len: usize, cmp: &C) {
+pub(crate) unsafe fn sort_slots<C: SortCmp>(slots: *mut u64, len: usize, cmp: &C) {
     unsafe {
         if len <= INSERTION_RUN {
             insertion(slots, len, cmp);

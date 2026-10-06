@@ -88,6 +88,7 @@ pub mod slice;
 pub mod sort;
 mod sort_cmp;
 pub mod sort_holes;
+mod sort_num;
 pub mod sparse_gate;
 pub mod species;
 pub mod str_bridge;
