@@ -43,7 +43,6 @@ pub mod frem_narrow;
 pub mod fresh_cell;
 pub mod heap_to_stack;
 pub mod iconst_hoist;
-pub mod id_hash;
 pub mod inliner;
 pub mod int_entry;
 pub mod interval;
@@ -84,7 +83,8 @@ pub mod throw_check_fold;
 pub mod unroll_jam;
 pub mod unroll_pair;
 
-use crate::id_hash::{HashMap, HashSet};
+use id_hash::{HashMap, HashSet};
+pub use torajs_core::ssa::id_hash;
 
 use torajs_core::ssa::{Module, ValueId};
 

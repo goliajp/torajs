@@ -31,7 +31,7 @@
 //! A guard arm predicted cold but actually hot costs a store and a
 //! reload around a call that itself costs far more.
 
-use std::collections::HashMap;
+use crate::ssa::id_hash::HashMap;
 
 use crate::ssa::{
     BinOp, BlockId, Function, IPred, InstKind, Operand, THROW_ACTIVE_SYM, Terminator, ValueId,
@@ -109,7 +109,7 @@ pub fn cold_arms(func: &Function) -> Vec<(BlockId, BlockId, f64)> {
 /// gives a merged value one `copy` per predecessor; such values match
 /// no rule.
 fn single_defs(func: &Function) -> HashMap<ValueId, &InstKind> {
-    let mut defs: HashMap<ValueId, Option<&InstKind>> = HashMap::new();
+    let mut defs: HashMap<ValueId, Option<&InstKind>> = HashMap::default();
     for b in &func.blocks {
         for i in &b.insts {
             if let Some(r) = i.result {

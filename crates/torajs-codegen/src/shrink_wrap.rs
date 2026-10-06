@@ -19,7 +19,7 @@
 //! region. The blocks before it may not define a value into an
 //! argument register a relocated param still arrives in.
 
-use std::collections::{HashMap, HashSet};
+use torajs_core::ssa::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::dominator::DominatorTree;
 use torajs_core::ssa::{BlockId, Function, InstKind, Operand, Terminator, visit_value_operands};
@@ -241,7 +241,7 @@ mod tests {
         let alloc = allocate_linear_scan(&func);
         let sw = plan(&func, &alloc).expect("the recursive arm is the save point");
         assert_eq!(sw.save, BlockId(2));
-        assert_eq!(sw.pre, HashSet::from([0, 1]));
+        assert_eq!(sw.pre, HashSet::from_iter([0, 1]));
         assert_eq!(sw.pre_alloc.of(ValueId(0)), Reg::Gpr(Gpr::X0));
         let compiled = crate::compile::compile_function(&func);
         let first = u32::from_le_bytes(compiled.bytes[..4].try_into().unwrap());

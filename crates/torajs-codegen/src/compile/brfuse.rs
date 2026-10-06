@@ -15,7 +15,7 @@
 //! Collatz decomposition A3 — every
 //! loop header / parity test in a division loop carries this shape.
 
-use std::collections::HashMap;
+use torajs_core::ssa::id_hash::HashMap;
 
 use torajs_core::ssa::{
     BlockId, FPred, Function, IPred, InstKind, Operand, Terminator, Type, ValueId,
@@ -46,7 +46,7 @@ pub(crate) struct FusedCmp {
 /// Use counts over every inst operand + terminator operand — shared by
 /// the CondBr and Select fuse pickers (single-use gates).
 pub(super) fn count_uses(func: &Function) -> HashMap<ValueId, u32> {
-    let mut uses: HashMap<ValueId, u32> = HashMap::new();
+    let mut uses: HashMap<ValueId, u32> = HashMap::default();
     let mut bump = |v: ValueId| *uses.entry(v).or_insert(0) += 1;
     for block in &func.blocks {
         for inst in &block.insts {
@@ -68,7 +68,7 @@ pub(super) fn count_uses(func: &Function) -> HashMap<ValueId, u32> {
 /// loop skips these compares; `emit_fused_condbr` re-emits them fused.
 pub(crate) fn fusible_cmps(func: &Function) -> HashMap<u32, FusedCmp> {
     let uses = count_uses(func);
-    let mut fused = HashMap::new();
+    let mut fused = HashMap::default();
     for block in &func.blocks {
         let Terminator::CondBr {
             cond: Operand::Value(v),
@@ -147,7 +147,7 @@ pub(crate) fn fusible_select_cmps(
     alloc: &Assignment,
 ) -> HashMap<(u32, u32), FusedSelCmp> {
     let uses = count_uses(func);
-    let mut fused = HashMap::new();
+    let mut fused = HashMap::default();
     for block in &func.blocks {
         for (ii, pair) in block.insts.windows(2).enumerate() {
             let InstKind::Select(sel_ty, Operand::Value(c), _, _) = &pair[1].kind else {

@@ -4,7 +4,8 @@
 //! AAPCS64 stack-args blade pushed the file past the 500-line prod
 //! limit; `allocate_linear_scan` stays there and drives this.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::VecDeque;
+use torajs_core::ssa::id_hash::{HashMap, HashSet};
 
 use crate::linear_scan_calls::CallCosts;
 use crate::liveness::Interval;
@@ -59,7 +60,7 @@ pub(crate) struct Sweep {
 impl Sweep {
     pub(crate) fn new(spill_base: u32, weights: HashMap<u32, u64>, call_costs: CallCosts) -> Self {
         Sweep {
-            by_value: HashMap::new(),
+            by_value: HashMap::default(),
             active: Vec::new(),
             free_caller_gpr: aapcs64::CALLER_SAVED_SCRATCH.iter().copied().collect(),
             free_callee_gpr: aapcs64::CALLEE_SAVED_SCRATCH.iter().copied().collect(),
@@ -71,7 +72,7 @@ impl Sweep {
             weights,
             caller_crossing: Vec::new(),
             call_costs,
-            unspillable: HashSet::new(),
+            unspillable: HashSet::default(),
         }
     }
 

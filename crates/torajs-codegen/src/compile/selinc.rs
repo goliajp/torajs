@@ -24,7 +24,7 @@
 //! single use of the absorbed result (so the skipped ADD's / CSET's
 //! value is unobservable).
 
-use std::collections::{HashMap, HashSet};
+use torajs_core::ssa::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{BinOp, Function, IPred, InstKind, Operand, Type, ValueId};
 
@@ -83,8 +83,8 @@ fn increment_base(kind: &InstKind) -> Option<&Operand> {
 
 pub(crate) fn fusible_select_incs(func: &Function) -> SelectIncs {
     let uses = count_uses(func);
-    let mut plans = HashMap::new();
-    let mut absorbed = HashSet::new();
+    let mut plans = HashMap::default();
+    let mut absorbed = HashSet::default();
 
     for block in &func.blocks {
         for (ii, inst) in block.insts.iter().enumerate() {

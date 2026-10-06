@@ -266,7 +266,7 @@ fn store_literal(bytes: &mut Vec<u8>, at: Gpr, val: Gpr, lit: Lit) {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use torajs_core::ssa::id_hash::HashMap;
 
     use torajs_core::ssa::ValueId;
 
@@ -354,8 +354,8 @@ mod tests {
     #[test]
     fn the_inline_arm_is_the_kernels_in_place_case() {
         let alloc = Assignment::from_parts(
-            [(0, Reg::Gpr(Gpr::X19)), (1, Reg::Gpr(Gpr::X19))].into(),
-            HashMap::new(),
+            HashMap::from_iter([(0, Reg::Gpr(Gpr::X19)), (1, Reg::Gpr(Gpr::X19))]),
+            HashMap::default(),
             0,
             32,
             true,
@@ -416,8 +416,8 @@ mod tests {
     #[test]
     fn an_ascii_literal_masks_the_cells_mark_and_stores_by_length() {
         let alloc = Assignment::from_parts(
-            [(0, Reg::Gpr(Gpr::X3)), (1, Reg::Gpr(Gpr::X4))].into(),
-            HashMap::new(),
+            HashMap::from_iter([(0, Reg::Gpr(Gpr::X3)), (1, Reg::Gpr(Gpr::X4))]),
+            HashMap::default(),
             0,
             0,
             true,

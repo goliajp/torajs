@@ -27,7 +27,7 @@
 //!
 //! `TORAJS_COALESCE_OFF=1` disables coalescing (bisect gate).
 
-use std::collections::{HashMap, HashSet};
+use torajs_core::ssa::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{Function, InstKind, Operand, VecInst};
 
@@ -105,8 +105,8 @@ pub(crate) fn build_copy_classes(
     let cands: HashSet<u32> = copies.iter().flat_map(|&(w, v)| [w, v]).collect();
     let mut segs = live_segments(func, blocks, &cands);
 
-    let mut leader_of: HashMap<u32, u32> = HashMap::new();
-    let mut classes: HashMap<u32, Class> = HashMap::new();
+    let mut leader_of: HashMap<u32, u32> = HashMap::default();
+    let mut classes: HashMap<u32, Class> = HashMap::default();
     let root = |leader_of: &HashMap<u32, u32>, v: u32| *leader_of.get(&v).unwrap_or(&v);
     for (w, v) in copies {
         let (rw, rv) = (root(&leader_of, w), root(&leader_of, v));
@@ -144,7 +144,7 @@ fn collect_copies(
     intervals: &HashMap<u32, Interval>,
     excluded: &HashSet<u32>,
 ) -> Vec<(u32, u32)> {
-    let mut allocas: HashSet<u32> = HashSet::new();
+    let mut allocas: HashSet<u32> = HashSet::default();
     let mut copies: Vec<(u32, u32)> = Vec::new();
     for inst in func.blocks.iter().flat_map(|b| &b.insts) {
         match (&inst.kind, inst.result) {
@@ -241,7 +241,7 @@ fn live_segments(
     blocks: &BlockLiveness,
     cands: &HashSet<u32>,
 ) -> HashMap<u32, Segments> {
-    let mut segs: HashMap<u32, Segments> = HashMap::new();
+    let mut segs: HashMap<u32, Segments> = HashMap::default();
     for (b, block) in func.blocks.iter().enumerate() {
         let (bs, be) = (blocks.start[b], blocks.end[b]);
         // live candidate → end of its currently open segment

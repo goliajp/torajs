@@ -190,7 +190,7 @@ fn emit_lane_move(bytes: &mut Vec<u8>, m: &LaneMove, alloc: &Assignment) {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use torajs_core::ssa::id_hash::HashMap;
 
     use super::pass_args;
     use crate::enc::mov_x_reg;
@@ -227,7 +227,7 @@ mod tests {
             .enumerate()
             .map(|(i, &g)| (i as u32, Reg::Gpr(g)))
             .collect();
-        let alloc = Assignment::from_parts(by_value, HashMap::new(), 0, 0, true);
+        let alloc = Assignment::from_parts(by_value, HashMap::default(), 0, 0, true);
         let args: Vec<Operand> = (0..homes.len())
             .map(|i| Operand::Value(ValueId(i as u32)))
             .collect();
@@ -268,8 +268,9 @@ mod tests {
 
     #[test]
     fn one_value_feeds_two_lanes_it_also_occupies() {
-        let by_value: HashMap<u32, Reg> = [(0, Reg::Gpr(Gpr::X1)), (1, Reg::Gpr(Gpr::X0))].into();
-        let alloc = Assignment::from_parts(by_value, HashMap::new(), 0, 0, true);
+        let by_value: HashMap<u32, Reg> =
+            HashMap::from_iter([(0, Reg::Gpr(Gpr::X1)), (1, Reg::Gpr(Gpr::X0))]);
+        let alloc = Assignment::from_parts(by_value, HashMap::default(), 0, 0, true);
         let v = |i| Operand::Value(ValueId(i));
         let mut bytes = Vec::new();
         // f(v0, v0, v1): x0 <- x1, x1 <- x1, x2 <- x0

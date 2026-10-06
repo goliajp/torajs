@@ -58,7 +58,7 @@
 //! hole rather than opening one: before this pass, *every* typed
 //! receiver missed *every* patch.
 
-use std::collections::HashSet;
+use crate::ssa::id_hash::HashSet;
 
 /// The module walk that fills a [`ShadowSet`]. A child module so it
 /// writes this one's private fields unchanged.

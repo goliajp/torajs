@@ -11,7 +11,7 @@
 //! `B` whose target is where execution lands anyway) and the CondBr
 //! predicate flip that puts the hot successor on the not-taken path.
 
-use std::collections::HashMap;
+use torajs_core::ssa::id_hash::HashMap;
 
 use torajs_core::ssa::{BlockId, Terminator};
 

@@ -6,7 +6,7 @@
 //! ancestor's private items. Split out in rotation 320 when the
 //! `.constructor` reach pushed the single file past its limit.
 
-use std::collections::{HashMap, HashSet};
+use crate::ssa::id_hash::{HashMap, HashSet};
 
 use super::{BUILTIN_CTORS, Family, ShadowSet};
 use crate::ast::{Ast, Expr, ExprId};
@@ -21,11 +21,11 @@ pub(crate) fn collect_shadowed_builtin_methods(ast: &Ast) -> ShadowSet {
     let mut set = ShadowSet::default();
 
     // Every `<expr>.prototype` occurrence, with the family it names.
-    let mut proto_exprs: HashMap<ExprId, Family> = HashMap::new();
+    let mut proto_exprs: HashMap<ExprId, Family> = HashMap::default();
     // Reverse edge: base ExprId -> the accesses naming it as object.
-    let mut bases: HashMap<ExprId, Vec<Access>> = HashMap::new();
-    let mut assign_targets: HashSet<ExprId> = HashSet::new();
-    let mut delete_targets: HashSet<ExprId> = HashSet::new();
+    let mut bases: HashMap<ExprId, Vec<Access>> = HashMap::default();
+    let mut assign_targets: HashSet<ExprId> = HashSet::default();
+    let mut delete_targets: HashSet<ExprId> = HashSet::default();
     // `Object.defineProperty(P, "m", d)` — a write that reaches the
     // prototype without naming a member of it, so the base-use rule
     // above would read it as an escape. Attribute it instead.
@@ -35,16 +35,16 @@ pub(crate) fn collect_shadowed_builtin_methods(ast: &Ast) -> ShadowSet {
     // the name. A mention outside that subset means the constructor
     // VALUE went somewhere this scan cannot follow — `const A = Array`
     // being the plain case, `f(Array)` the other one.
-    let mut ctor_idents: HashMap<ExprId, Family> = HashMap::new();
-    let mut consumed: HashSet<ExprId> = HashSet::new();
+    let mut ctor_idents: HashMap<ExprId, Family> = HashMap::default();
+    let mut consumed: HashSet<ExprId> = HashSet::default();
     // `<expr>.constructor` where the receiver's family is not
     // syntactic. Held rather than escalated on sight — see the
     // resolution loop below.
-    let mut opaque_ctors: HashSet<ExprId> = HashSet::new();
+    let mut opaque_ctors: HashSet<ExprId> = HashSet::default();
     // Operands of a comparison / arithmetic operator. Only consulted
     // for `opaque_ctors`: an operator consumes the value and answers
     // a fresh one, so nothing can be written through it.
-    let mut operands: HashSet<ExprId> = HashSet::new();
+    let mut operands: HashSet<ExprId> = HashSet::default();
 
     for (i, e) in ast.exprs.iter().enumerate() {
         let eid = ExprId(i as u32);

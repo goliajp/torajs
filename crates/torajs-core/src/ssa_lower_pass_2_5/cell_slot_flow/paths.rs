@@ -16,7 +16,7 @@
 //! crossing in both directions: every layout at the bottom of either
 //! side opens ([`Paths::align`]).
 
-use std::collections::HashSet;
+use crate::ssa::id_hash::HashSet;
 
 use super::is_prefix;
 use crate::ssa::{Module, StructId, Type};

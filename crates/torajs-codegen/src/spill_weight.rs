@@ -28,7 +28,7 @@
 //! natural loops, so a cold arm that layout sank past its loop's
 //! latch is not mistaken for another loop level.
 
-use std::collections::HashMap;
+use torajs_core::ssa::id_hash::HashMap;
 
 use torajs_core::ssa::Function;
 use torajs_core::ssa::block_freq::block_freqs;
@@ -44,7 +44,7 @@ pub fn compute_spill_weights(func: &Function) -> (HashMap<u32, u64>, Vec<u64>) {
     // accumulate the slot's unit per static use (operand reads AND the
     // defining slot itself, so a value defined in a loop counts its
     // def-site store too)
-    let mut weights: HashMap<u32, u64> = HashMap::new();
+    let mut weights: HashMap<u32, u64> = HashMap::default();
     let mut idx: usize = 0;
     for b in &func.blocks {
         for inst in &b.insts {

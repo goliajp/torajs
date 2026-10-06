@@ -1,7 +1,7 @@
 //! Call-site facts the Linear-Scan sweep consults: which intervals
 //! cross a `BL` and how much outgoing stack-arg area the frame needs.
 
-use std::collections::HashMap;
+use torajs_core::ssa::id_hash::HashMap;
 
 use torajs_core::ssa::{Function, InstKind};
 
@@ -76,7 +76,7 @@ pub(crate) struct FrameScan {
 /// bounds.
 pub(crate) fn scan_frame(func: &Function, inline: InlineSites) -> FrameScan {
     let mut scan = FrameScan {
-        alloca_offsets: HashMap::new(),
+        alloca_offsets: HashMap::default(),
         next_alloca_offset: outgoing_arg_bytes(func),
         has_calls: false,
         call_sites: Vec::new(),
@@ -116,8 +116,8 @@ pub(crate) fn collect_call_saves(
     intervals: &HashMap<u32, Interval>,
     call_sites: &[u32],
 ) -> (Saves<Reg>, Saves<Fpr>) {
-    let mut out: Saves<Reg> = HashMap::new();
-    let mut wide: Saves<Fpr> = HashMap::new();
+    let mut out: Saves<Reg> = HashMap::default();
+    let mut wide: Saves<Fpr> = HashMap::default();
     for vid in std::mem::take(&mut sweep.caller_crossing) {
         let reg = sweep.by_value[&vid];
         if matches!(reg, Reg::SpillGpr(_) | Reg::SpillFpr(_)) {

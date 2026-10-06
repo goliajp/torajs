@@ -4,7 +4,7 @@
 //! is it absorbed into a neighbour? A constant address nothing reads
 //! is answered here too: it emits nothing.
 
-use std::collections::{HashMap, HashSet};
+use torajs_core::ssa::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{Block, Function, Inst, InstKind};
 
@@ -97,7 +97,7 @@ impl Fusions {
 
 fn dead_refs(func: &Function) -> HashSet<(u32, u32)> {
     let uses = brfuse::count_uses(func);
-    let mut out = HashSet::new();
+    let mut out = HashSet::default();
     for block in &func.blocks {
         for (ii, inst) in block.insts.iter().enumerate() {
             let is_ref = matches!(

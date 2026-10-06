@@ -12,7 +12,7 @@
 //! the zero register, and the same operand on both sides is
 //! materialized once.
 
-use std::collections::HashMap;
+use torajs_core::ssa::id_hash::HashMap;
 
 use torajs_core::ssa::{Function, InstKind, Operand, Type};
 
@@ -47,7 +47,7 @@ fn gpr_width(func: &Function, val: &Operand, alloc: &Assignment) -> Option<bool>
 }
 
 pub(super) fn plan(func: &Function, alloc: &Assignment) -> HashMap<(u32, u32), StorePair> {
-    let mut out = HashMap::new();
+    let mut out = HashMap::default();
     for block in &func.blocks {
         let mut ii = 0;
         while ii + 1 < block.insts.len() {

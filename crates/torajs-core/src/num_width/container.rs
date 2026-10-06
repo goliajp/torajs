@@ -21,7 +21,7 @@
 //!   glue the copy's width back onto the source class.
 
 use super::{Analysis, SlotKey};
-use std::collections::{HashMap, HashSet};
+use crate::ssa::id_hash::{HashMap, HashSet};
 
 /// Union-find over slot keys. Walk-time access goes through the
 /// mutating path-compressing `find`; frozen post-analysis queries
@@ -194,7 +194,7 @@ pub(super) fn objlit_ctor_unions(a: &mut Analysis) {
     }
     // fn name → objlit type, off the `__this` ann objlit_nominal pinned
     // — LOAD-BEARING: re-annotating a face drops this edge (r461).
-    let mut fn_owner: HashMap<String, String> = HashMap::new();
+    let mut fn_owner: HashMap<String, String> = HashMap::default();
     for stmt in &a.ast.stmts {
         if let crate::ast::Stmt::FnDecl { name, params, .. } = stmt
             && let Some(p) = params.iter().find(|p| p.name == "__this")
@@ -300,7 +300,7 @@ fn collect_subkeys(k: &SlotKey, out: &mut HashSet<SlotKey>) {
 /// every seed / edge key onto its representative so the fixpoint
 /// propagates per alias class.
 pub(super) fn canonicalize(a: &mut Analysis) {
-    let mut keys: HashSet<SlotKey> = HashSet::new();
+    let mut keys: HashSet<SlotKey> = HashSet::default();
     for s in &a.seeds {
         collect_subkeys(s, &mut keys);
     }

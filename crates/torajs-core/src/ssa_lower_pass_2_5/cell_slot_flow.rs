@@ -34,8 +34,8 @@
 //! goes to the all-`any` twin), so that decode is exact
 //! (`Scan::proven_fit`); every other decode out of `any` opens.
 
+use crate::ssa::id_hash::{HashMap, HashSet};
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
 
 use crate::ast::PropKey;
 use crate::ssa::{
@@ -102,14 +102,14 @@ pub(crate) fn open_sids(module: &Module, envs: &EnvLayouts) -> Vec<bool> {
             alloc,
             box_alloc,
             fits: &fits,
-            allocas: HashMap::new(),
-            global_refs: HashMap::new(),
-            data_of: HashMap::new(),
-            fn_addrs: HashMap::new(),
-            env_of: HashMap::new(),
-            loaded: HashMap::new(),
-            tested: HashSet::new(),
-            bits_of: HashMap::new(),
+            allocas: HashMap::default(),
+            global_refs: HashMap::default(),
+            data_of: HashMap::default(),
+            fn_addrs: HashMap::default(),
+            env_of: HashMap::default(),
+            loaded: HashMap::default(),
+            tested: HashSet::default(),
+            bits_of: HashMap::default(),
             open: &mut open,
             paths: &paths,
         };

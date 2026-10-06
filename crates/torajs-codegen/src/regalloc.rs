@@ -2,7 +2,7 @@
 //! (`linear_scan`) and the emitters: the `Assignment` map, alloca slot
 //! sizing, and the per-instruction facts the allocator reads.
 
-use std::collections::{HashMap, HashSet};
+use torajs_core::ssa::id_hash::{HashMap, HashSet};
 use torajs_core::ssa::{BinOp, Function, InstKind, Terminator, Type, ValueId};
 
 use crate::compile::InlineSites;
@@ -90,8 +90,8 @@ impl Assignment {
             used_callee_fpr_mask: 0,
             param_entry_moves: Vec::new(),
             stack_param_entry_loads: Vec::new(),
-            call_saves: HashMap::new(),
-            vec_call_saves: HashMap::new(),
+            call_saves: HashMap::default(),
+            vec_call_saves: HashMap::default(),
         }
     }
 
@@ -252,7 +252,7 @@ fn type_size_bytes(ty: &Type) -> u32 {
 /// (x0 for int/ptr, v0 for F64). Within-block aliasing is not a concern under SSA
 /// single-assignment semantics + per-block control-flow boundary.
 pub(crate) fn collect_ret_value_ids(func: &Function) -> HashSet<u32> {
-    let mut out = HashSet::new();
+    let mut out = HashSet::default();
     for block in &func.blocks {
         if let Terminator::Ret(Some(torajs_core::ssa::Operand::Value(v))) = &block.term {
             out.insert(v.0);

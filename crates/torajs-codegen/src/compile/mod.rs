@@ -60,7 +60,7 @@ mod vec;
 #[cfg(test)]
 pub(crate) mod test_fixtures;
 
-use std::collections::HashMap;
+use torajs_core::ssa::id_hash::HashMap;
 
 use torajs_core::ssa::{Function, Module, Type};
 
@@ -198,7 +198,8 @@ pub fn compile_function_with(
 
     // Track each block's start byte offset so the branch-fixup pass
     // can compute PC-relative displacements after all blocks emit.
-    let mut block_byte_starts: HashMap<u32, u32> = HashMap::with_capacity(func.blocks.len());
+    let mut block_byte_starts: HashMap<u32, u32> =
+        HashMap::with_capacity_and_hasher(func.blocks.len(), Default::default());
 
     // With a save point the prologue opens that block instead, and the
     // blocks ahead of it run frameless (see shrink_wrap.rs).

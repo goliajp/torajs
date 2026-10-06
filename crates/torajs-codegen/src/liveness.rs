@@ -75,7 +75,7 @@
 //! the fix-point can't see (an arg used only after the loop body
 //! still needs to survive its `cset` clobber).
 
-use std::collections::HashMap;
+use torajs_core::ssa::id_hash::HashMap;
 
 use torajs_core::ssa::{Function, InstKind, Operand, Terminator, ValueId};
 
@@ -117,7 +117,7 @@ pub fn compute_intervals(func: &Function) -> HashMap<u32, Interval> {
 /// [`compute_intervals`] plus the block-level live sets it was built
 /// from (copy coalescing needs both).
 pub fn compute_liveness(func: &Function) -> (HashMap<u32, Interval>, BlockLiveness) {
-    let mut out: HashMap<u32, Interval> = HashMap::new();
+    let mut out: HashMap<u32, Interval> = HashMap::default();
     // Collected during the walk and patched at the end — see the
     // "Alloca-result carve-out" section in the module docs.
     let mut alloca_results: Vec<u32> = Vec::new();

@@ -6,7 +6,7 @@
 //! stored whole before the call and reloaded after it, whichever
 //! register it sits in (`Assignment::vec_call_saves`).
 
-use std::collections::HashSet;
+use torajs_core::ssa::id_hash::HashSet;
 
 use torajs_core::ssa::{Function, Type};
 

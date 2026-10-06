@@ -210,7 +210,7 @@ fn emit_saved(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use torajs_core::ssa::id_hash::HashMap;
 
     use super::emit_inst_at;
     use crate::compile::{ModuleFacts, slot};
@@ -232,9 +232,15 @@ mod tests {
     /// register still is.
     #[test]
     fn call_result_register_is_not_reloaded_over_the_result() {
-        let mut alloc =
-            Assignment::from_parts([(0, Reg::Gpr(Gpr::X5))].into(), HashMap::new(), 0, 32, true);
-        alloc.call_saves = [(7, vec![(Reg::Gpr(Gpr::X5), 16), (Reg::Gpr(Gpr::X6), 24)])].into();
+        let mut alloc = Assignment::from_parts(
+            HashMap::from_iter([(0, Reg::Gpr(Gpr::X5))]),
+            HashMap::default(),
+            0,
+            32,
+            true,
+        );
+        alloc.call_saves =
+            HashMap::from_iter([(7, vec![(Reg::Gpr(Gpr::X5), 16), (Reg::Gpr(Gpr::X6), 24)])]);
         let inst = Inst {
             result: Some(ValueId(0)),
             kind: InstKind::Call(FuncId(0), Vec::new()),

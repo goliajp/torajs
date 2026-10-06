@@ -9,7 +9,7 @@
 //! terminator. Interval extension and copy coalescing both read the
 //! result.
 
-use std::collections::HashMap;
+use torajs_core::ssa::id_hash::HashMap;
 
 use torajs_core::ssa::{Function, Terminator};
 

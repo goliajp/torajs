@@ -1,13 +1,13 @@
-//! The hash maps and sets the optimizer keys by SSA ids.
+//! The hash maps and sets the compiler keys by its own ids and names.
 //!
-//! Almost every key here is a dense `u32` id (value, block, function)
-//! or a small tuple of them, hashed millions of times per compile.
-//! std's default SipHash-1-3 is built to resist adversarial keys, which
-//! compiler-internal ids are not, and was the largest single cost of
-//! the pipeline. This is the multiply-rotate hash rustc uses for its own
-//! tables (FxHash): one rotate, xor and multiply per word.
+//! Almost every key here is a dense `u32` id (value, block, function),
+//! a small tuple of them or a short name, hashed millions of times per
+//! compile. std's default SipHash-1-3 is built to resist adversarial
+//! keys, which compiler-internal ids are not, and was the largest single
+//! cost of the pipeline. This is the multiply-rotate hash rustc uses for
+//! its own tables (FxHash): one rotate, xor and multiply per word.
 //!
-//! Nothing the optimizer emits may depend on a map's iteration order.
+//! Nothing the compiler emits may depend on a map's iteration order.
 //! The hash is fixed, so a pass that did would still be deterministic,
 //! but its output would change with the hash and with the keys' values;
 //! a pass that walks a map and feeds what it reads back into the same

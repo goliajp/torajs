@@ -2,7 +2,7 @@
 //! each parameter arrives in, and whether the return value may be
 //! parked in the lane it shares with the first parameter.
 
-use std::collections::HashMap;
+use torajs_core::ssa::id_hash::HashMap;
 
 use torajs_core::ssa::{Function, Type};
 
@@ -65,8 +65,8 @@ pub(crate) fn param_lanes(func: &Function) -> (HashMap<u32, Reg>, HashMap<u32, u
             .expect("ValueId(param) out of bounds");
         matches!(ty, Type::F64)
     });
-    let mut regs: HashMap<u32, Reg> = HashMap::new();
-    let mut stack: HashMap<u32, u32> = HashMap::new();
+    let mut regs: HashMap<u32, Reg> = HashMap::default();
+    let mut stack: HashMap<u32, u32> = HashMap::default();
     for (lane, &param) in classify_lanes(is_fp_seq).into_iter().zip(&func.params) {
         match lane {
             ArgLane::Reg(r) => {

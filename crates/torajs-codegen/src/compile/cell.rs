@@ -192,7 +192,7 @@ fn emit_bl(bytes: &mut Vec<u8>, relocs: &mut Vec<Reloc>, fid: FuncId) {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use torajs_core::ssa::id_hash::HashMap;
 
     use torajs_core::ssa::ValueId;
 
@@ -260,8 +260,13 @@ mod tests {
 
     #[test]
     fn alloc_pops_the_row_and_calls_only_when_it_is_empty() {
-        let alloc =
-            Assignment::from_parts([(1, Reg::Gpr(Gpr::X5))].into(), HashMap::new(), 0, 32, true);
+        let alloc = Assignment::from_parts(
+            HashMap::from_iter([(1, Reg::Gpr(Gpr::X5))]),
+            HashMap::default(),
+            0,
+            32,
+            true,
+        );
         let inst = call(CELLS.alloc, vec![Operand::ConstI64(48)], Some(1));
         let (mut bytes, mut relocs) = (Vec::new(), Vec::new());
         let saves = [(Reg::Gpr(Gpr::X6), 24)];
@@ -305,8 +310,8 @@ mod tests {
     #[test]
     fn free_pushes_the_row_and_calls_only_when_it_is_full() {
         let alloc = Assignment::from_parts(
-            [(0, Reg::Gpr(Gpr::X19))].into(),
-            HashMap::new(),
+            HashMap::from_iter([(0, Reg::Gpr(Gpr::X19))]),
+            HashMap::default(),
             0,
             32,
             true,
