@@ -1,3 +1,4 @@
+mod aggregate;
 mod bench;
 mod case;
 mod compare;
