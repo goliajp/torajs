@@ -1,0 +1,13 @@
+24979.5 17 274.5 298.5
+29850 0 undefined
+7 2 8 1
+8,9,10 8 9,10
+w5 2
+w15 3
+w25 3
+w35 w36 w37 w38 w39
+1 4 false true 5
+2 3 undefined 5 0
+TypeError 1,2,2
+TypeError 2
+1 2 1
