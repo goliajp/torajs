@@ -160,6 +160,21 @@ pub unsafe extern "C" fn __torajs_microtask_enqueue(fn_: Option<MicrotaskFn>, ar
 /// in a way that violates the single-threaded invariant.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_microtask_run_until_idle() {
+    // an empty queue with no kept-objects hook is the drain's whole
+    // work at most call sites (every `await` checkpoint); answering it
+    // here keeps that case free of the drain loop's frame
+    if KEPT_CLEAR.load(Ordering::Relaxed).is_null()
+        && MT_HEAD.load(Ordering::Relaxed) >= MT_LEN.load(Ordering::Relaxed)
+    {
+        MT_HEAD.store(0, Ordering::Relaxed);
+        MT_LEN.store(0, Ordering::Relaxed);
+        return;
+    }
+    unsafe { drain() }
+}
+
+#[inline(never)]
+unsafe fn drain() {
     // The job that called the drain is over.
     unsafe { clear_kept_objects() };
     loop {

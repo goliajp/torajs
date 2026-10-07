@@ -51,6 +51,29 @@ pub unsafe extern "C" fn __torajs_promise_drop(p: *mut c_void) {
 /// without the frame the teardown needs.
 #[inline(never)]
 unsafe fn free_dead(pp: *mut Promise) {
+    // A cell that owns nothing — no reaction list, no inline
+    // reaction, no heap value, no expando, no identity entry, never
+    // buffered — has nothing for `free_cell` to release, so it goes
+    // straight back to the pool, without the teardown's frame. The
+    // STATIC_LITERAL bit sends a cell to the general path, which
+    // keeps it.
+    let owns_nothing = unsafe {
+        (*pp).header.flags & (FLAG_STATIC_LITERAL | FLAG_SUBCLASSED | FLAG_BUFFERED) == 0
+            && (*pp).callbacks.is_null()
+            && (*pp).rx_kind == RX_NONE
+            && (*pp).props.is_null()
+            && ((*pp).value_is_heap == 0 || (*pp).state == STATE_PENDING || (*pp).value == 0)
+    };
+    if owns_nothing {
+        unsafe { promise_release_(pp) };
+        return;
+    }
+    unsafe { free_owning(pp) };
+}
+
+/// [`free_dead`] for a cell that may own something.
+#[inline(never)]
+unsafe fn free_owning(pp: *mut Promise) {
     // Defensive: STATIC_LITERAL Promise (none in practice today; the
     // universal drop dispatch sees the bit and skips, but re-check
     // here to keep the invariant if dispatch path changes).

@@ -122,6 +122,7 @@ unsafe fn promise_alloc_(state: u8, value: i64, is_heap: u8) -> *mut Promise {
 
 /// Return a Promise to the pool if there's capacity, else free.
 /// Caller must have already dropped any heap value + cb list.
+#[inline(always)]
 unsafe fn promise_release_(p: *mut Promise) {
     let count = POOL_COUNT.load(Ordering::Relaxed);
     if count < POOL_CAP as i32 {

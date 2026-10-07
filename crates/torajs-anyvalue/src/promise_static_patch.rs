@@ -86,6 +86,12 @@ pub extern "C" fn __torajs_promise_ctor_patched(name_id: i64) -> i64 {
     if props.is_null() {
         return 0;
     }
+    has_patch(props, name_id)
+}
+
+// out of line: the probe above answers most calls without a frame
+#[inline(never)]
+fn has_patch(props: *const c_void, name_id: i64) -> i64 {
     // SAFETY: props is a live dynobj; the key is an immortal Str.
     unsafe { i64::from(__torajs_dynobj_has(props, patch_key_cell(name_id)) != 0) }
 }
