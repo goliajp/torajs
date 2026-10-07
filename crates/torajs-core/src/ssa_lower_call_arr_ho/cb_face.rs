@@ -10,6 +10,7 @@
 //! (`check_monomorph_any_widen::struct_escape::escaped_cb`).
 
 use crate::ast::{Expr, ExprId};
+use crate::num_width::SlotKey;
 use crate::ssa::Type;
 use crate::ssa_lower::LowerCtx;
 
@@ -25,6 +26,48 @@ pub(crate) fn cb_takes_argv_face(
 ) -> bool {
     crate::ast::argv_face_callback::lane_takes_argv_face(ctx.ast, cb)
         || any_elems_take_boxed_entry(ctx, cb, fn_ty, src_ty)
+}
+
+/// The callback type and argv-face flag of the `method` lane at call
+/// `eid`. When `any` elements send the callback through its boxed
+/// entry, its answer is what the twin may give back in any kind
+/// (`d.map(v => v + 1)` on a "5" element answers "51"), and the
+/// declared return would convert it. A `map` / `flatMap` whose product
+/// the width analysis lowers as `Arr<Any>` (`num_width::hof_receivers`)
+/// and a `reduce` accumulator of a scalar kind keep the answer as the
+/// box it comes back in: the callback is called through a face
+/// returning `any`.
+pub(crate) fn cb_face(
+    ctx: &mut LowerCtx<'_>,
+    cb: ExprId,
+    fn_ty: Type,
+    src_ty: Type,
+    method: &str,
+    eid: ExprId,
+) -> (Type, bool) {
+    if !any_elems_take_boxed_entry(ctx, cb, fn_ty, src_ty) {
+        return (fn_ty, cb_takes_argv_face(ctx, cb, fn_ty, src_ty));
+    }
+    let Type::Closure(sig) = fn_ty else {
+        unreachable!("a boxed-entry callback is a lifted closure");
+    };
+    let (params, ret) = ctx.fn_sigs[sig.0 as usize].clone();
+    let scalar = matches!(
+        ret,
+        Type::F64 | Type::I64 | Type::I32 | Type::Bool | Type::Str
+    );
+    let keep = match method {
+        "map" | "flatMap" => {
+            ret != Type::Void && ctx.num_f64_slots.slot_escapes_any(&SlotKey::Anon(eid.0))
+        }
+        "reduce" | "reduceRight" => scalar,
+        _ => false,
+    };
+    if !keep || ret == Type::Any {
+        return (fn_ty, true);
+    }
+    let any_ret = crate::ssa_lower_interners::intern_fn_sig(ctx.fn_sigs, params, Type::Any);
+    (Type::Closure(any_ret), true)
 }
 
 /// Is `cb` a callback with a boxed entry whose typed first parameter an

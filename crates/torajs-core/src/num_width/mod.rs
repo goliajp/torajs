@@ -260,8 +260,9 @@ pub(super) struct Analysis<'a> {
     mag: magnitude::MagRecord,
     /// Operands of the `-x` that cannot answer -0 (`nonzero_neg`).
     pub(super) nonzero_negs: HashSet<ExprId>,
-    /// The arrays a callback-taking iteration walks (`hof_receivers`).
-    pub(super) hof_receivers: Vec<(ExprId, SlotKey)>,
+    /// Each callback-taking iteration with the array it walks and that
+    /// array's key (`hof_receivers`).
+    pub(super) hof_receivers: Vec<(ExprId, ExprId, SlotKey)>,
 }
 
 /// Full analysis result — the F64 slot classes plus the container

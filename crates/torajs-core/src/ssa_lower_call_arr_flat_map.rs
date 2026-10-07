@@ -69,16 +69,14 @@ pub(crate) fn try_lower(
     let this_tok = this_temp
         .as_ref()
         .and_then(|(t, op)| ctx.park_owned_temp(*t, op));
-    let fn_ty = ctx.operand_ty(&fn_val);
     // Rotation 364 — an argv-face callback (body reads `arguments`
-    // values) must not take the direct call: its reshaped sig leads
-    // with the synthetic argv pointer. The loop body routes it
-    // through the boxed variadic dispatch (`emit_argv_face_call`)
-    // with the full §23.1.3.13 «kValue, k, O» triple. The declared
-    // ret still drives `dst_shape` — the variadic conv unboxes the
-    // result back to it, so the downstream scalar / inner-walk
-    // split is unchanged.
-    let argv_face = crate::ast::argv_face_callback::lane_takes_argv_face(ctx.ast, args[0]);
+    // values, or typed slots fed `any` elements: `cb_face`) goes
+    // through the boxed variadic dispatch (`emit_argv_face_call`) with
+    // the full §23.1.3.13 «kValue, k, O» triple. The ret of the face
+    // drives `dst_shape` — the variadic conv unboxes the result to it.
+    let fn_ty = ctx.operand_ty(&fn_val);
+    let (fn_ty, argv_face) =
+        crate::ssa_lower_call_arr_ho::cb_face::cb_face(ctx, args[0], fn_ty, arr_ty, "flatMap", eid);
     let cb_ret_ty = match fn_ty {
         Type::FnSig(s) | Type::Closure(s) => ctx.fn_sigs[s.0 as usize].1,
         _ => panic!("flatMap callback must be callable"),

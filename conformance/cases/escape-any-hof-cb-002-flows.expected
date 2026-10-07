@@ -1,0 +1,23 @@
+map 51 string 511
+product 2,10,6,8 number
+chain 3,511,5,6
+flatMap 2,51,4,5 string
+flatMap elems number,string,number,number
+flatMap index number,0,string,1,number,2,number,3
+reduce 1534 string
+reduceRight 751
+reduce seedless 1534
+valueOf number
+valueOf string
+valueOf object
+valueOf number
+valueOf hits 0
+late 0 number
+late 1 string
+late 2 object
+late 3 string
+param string,number true
+field number,boolean 1
+cast object,number 1
+string elems number,string true
+boolean elems boolean,number 1

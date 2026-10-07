@@ -32,7 +32,7 @@ impl Analysis<'_> {
         if let Some(recv) = iterated_array(self.ast, callee, args)
             && let Some(k) = self.container_key_lookup(recv, scope)
         {
-            self.hof_receivers.push((recv, k));
+            self.hof_receivers.push((eid, recv, k));
         }
         self.walk_call(eid, callee, args, scope);
     }
@@ -56,8 +56,13 @@ fn iterated_array(ast: &Ast, callee: ExprId, args: &[ExprId]) -> Option<ExprId> 
     }
 }
 
-/// Propagate the escape faces `seeds` (`escape::propagate`) and pick
-/// out the recorded arrays whose class escaped. Returns both.
+/// Close the escape faces over the iterations: propagate `seeds`
+/// (`escape::propagate`), and when an array a `map` / `flatMap` walks
+/// has escaped, its product joins them. The product holds what the
+/// callback answers, and the callback's all-`any` twin answers in any
+/// kind (`d.map(v => v + 1)` on a "5" element is "51"), so the product
+/// lowers as an `Arr<Any>` too, with every alias of it. Returns the
+/// escaped classes and the recorded arrays among them.
 ///
 /// A callback over such an array, or over an `any[]`, can be handed
 /// `undefined` as its element, which a `number` slot holds as the
@@ -66,16 +71,29 @@ fn iterated_array(ast: &Ast, callee: ExprId, args: &[ExprId]) -> Option<ExprId> 
 /// (`typeof v`, printing `v`) answers `undefined`, not NaN.
 pub(super) fn settle(
     a: &Analysis<'_>,
-    seeds: Vec<SlotKey>,
+    mut seeds: Vec<SlotKey>,
     undef_params: &mut HashSet<(String, String)>,
 ) -> (HashSet<SlotKey>, HashSet<ExprId>) {
-    let any_escaped = super::escape::propagate(&seeds, &a.uf, &a.containerish);
-    let escaped: HashSet<ExprId> = a
-        .hof_receivers
-        .iter()
-        .filter(|(_, k)| any_escaped.contains(&canon_key_frozen(&a.uf, k)))
-        .map(|(recv, _)| *recv)
-        .collect();
+    let (any_escaped, escaped) = loop {
+        let any_escaped = super::escape::propagate(&seeds, &a.uf, &a.containerish);
+        let escaped: HashSet<ExprId> = a
+            .hof_receivers
+            .iter()
+            .filter(|(_, _, k)| any_escaped.contains(&canon_key_frozen(&a.uf, k)))
+            .map(|(_, recv, _)| *recv)
+            .collect();
+        let products: Vec<SlotKey> = a
+            .hof_receivers
+            .iter()
+            .filter(|(call, recv, _)| escaped.contains(recv) && builds_product(a.ast, *call))
+            .map(|(call, _, _)| SlotKey::Anon(call.0))
+            .filter(|k| !any_escaped.contains(&canon_key_frozen(&a.uf, k)))
+            .collect();
+        if products.is_empty() {
+            break (any_escaped, escaped);
+        }
+        seeds.extend(products);
+    };
     for e in &a.ast.exprs {
         let Expr::Call { callee, args } = e else {
             continue;
@@ -95,6 +113,14 @@ pub(super) fn settle(
         }
     }
     (any_escaped, escaped)
+}
+
+/// Is `call` a `map` / `flatMap`, whose product the callback fills?
+fn builds_product(ast: &Ast, call: ExprId) -> bool {
+    let Expr::Call { callee, .. } = ast.get_expr(call) else {
+        return false;
+    };
+    matches!(ast.get_expr(*callee), Expr::Member { name, .. } if name == "map" || name == "flatMap")
 }
 
 /// The callback parameter an iteration hands the element to. `sort`

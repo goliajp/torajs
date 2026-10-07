@@ -97,7 +97,12 @@ fn lower_higher_order(
     // 550-01 — a minted callback env (inline arrow) is ours until the
     // post-loop release; a callback that throws mid-loop drops it.
     let fn_tok = ctx.park_owned_temp(args[0], &fn_val);
+    // Rotation 363 — an argv-face callback (one reading `arguments`
+    // values, or typed slots fed `any` elements: `cb_face`) takes the
+    // boxed variadic dispatch (emit_argv_face_call), never a direct call.
     let fn_ty = ctx.operand_ty(&fn_val);
+    let (fn_ty, argv_face) =
+        crate::ssa_lower_call_arr_ho::cb_face::cb_face(ctx, args[0], fn_ty, arr_ty, &method, eid);
     // Knife 4 (RFC 20260717-fnexpr-this-channel) — a promoted fn-expr
     // callback takes the §23.1.3 thisArg (T) as its leading `__this`
     // arg: args[1] lowers into an Any box (undefined when absent).
@@ -170,12 +175,6 @@ fn lower_higher_order(
     // accumulators answer no token. Each loop copy parks the dst itself
     // (`emit_hof_loop`), once its pre-reserve shape is known.
     let acc_tok = acc_slot.and_then(|s| ctx.push_throw_typed_slot(s, acc_ty));
-    // Rotation 363 — an argv-face callback (one reading `arguments`
-    // values, or typed slots fed `any` elements: `cb_takes_argv_face`)
-    // takes the boxed variadic dispatch (emit_argv_face_call), never a
-    // direct / devirt call.
-    let argv_face =
-        crate::ssa_lower_call_arr_ho::cb_face::cb_takes_argv_face(ctx, args[0], fn_ty, arr_ty);
     let plan = HofLoop {
         method: &method,
         src_arr,
