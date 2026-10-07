@@ -117,6 +117,27 @@ pub unsafe extern "C" fn __torajs_microtask_enqueue(fn_: Option<MicrotaskFn>, ar
     MT_TAIL.store(tail + 1, Ordering::Relaxed);
 }
 
+/// A running job about to queue `(fn_, arg)` asks here instead. With
+/// nothing else pending and no job-boundary hook installed, the drain
+/// would pop exactly that entry once the job returns, so nothing is
+/// queued and the answer is true: the caller runs the entry itself as
+/// soon as the rest of its job is done. Otherwise the entry is queued
+/// and the answer is false.
+///
+/// # Safety
+/// As [`__torajs_microtask_enqueue`]; the caller is a job the drain
+/// popped and queues nothing more before it runs the entry.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_microtask_enqueue_or_run(fn_: MicrotaskFn, arg: i64) -> bool {
+    if MT_HEAD.load(Ordering::Relaxed) == MT_TAIL.load(Ordering::Relaxed)
+        && KEPT_CLEAR.load(Ordering::Relaxed).is_null()
+    {
+        return true;
+    }
+    unsafe { __torajs_microtask_enqueue(Some(fn_), arg) };
+    false
+}
+
 /// Drain the microtask queue to empty. Pops one task, runs it,
 /// repeats — new tasks enqueued during the callback land at the
 /// tail and get processed in this same drain (JS spec microtask
@@ -310,6 +331,22 @@ mod tests {
         assert_eq!(unsafe { __torajs_microtask_pending_count() }, 200);
         unsafe { __torajs_microtask_run_until_idle() };
         assert_eq!(unsafe { __torajs_microtask_pending_count() }, 0);
+    }
+
+    /// An idle queue leaves the entry to the caller; a pending one
+    /// takes it behind what is already there.
+    #[test]
+    fn enqueue_or_run_queues_only_behind_pending_work() {
+        let _g = TEST_LOCK.lock().unwrap();
+        reset_queue();
+        assert!(unsafe { __torajs_microtask_enqueue_or_run(add, 1) });
+        assert_eq!(unsafe { __torajs_microtask_pending_count() }, 0);
+        unsafe { __torajs_microtask_enqueue(Some(add), 2) };
+        assert!(!unsafe { __torajs_microtask_enqueue_or_run(add, 3) });
+        assert_eq!(unsafe { __torajs_microtask_pending_count() }, 2);
+        unsafe { COUNTER = 0 };
+        unsafe { __torajs_microtask_run_until_idle() };
+        assert_eq!(unsafe { COUNTER }, 2 + 3);
     }
 
     #[test]

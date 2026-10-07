@@ -54,6 +54,7 @@ pub mod record;
 unsafe extern "C" {
     fn __torajs_value_drop_heap(p: *mut c_void);
     fn __torajs_microtask_enqueue(fn_: crate::layout::MicrotaskFn, arg: i64);
+    fn __torajs_microtask_enqueue_or_run(fn_: crate::layout::MicrotaskFn, arg: i64) -> bool;
 }
 
 /// Park the reaction `(kind, cb)` in `derived`, take its stakes and
@@ -111,12 +112,49 @@ pub(crate) unsafe fn queue_inline(source: *mut Promise, derived: *mut Promise) {
 }
 
 /// PromiseReactionJob for an inline reaction: `arg` is the derived
-/// cell. The reaction words are taken out of the cell before the
-/// handler runs — a handler may attach to the derived promise or
-/// release the last outside reference to either cell, and the cell
-/// must already read as reaction-free when the stakes come off.
+/// cell. A link of a `then` chain whose reaction would be the only
+/// job pending runs here as well, one link after another, instead of
+/// going through the queue ([`settle_into_chain`]).
 pub(crate) unsafe extern "C" fn inline_reaction_dispatch(arg: i64) {
     let dp = arg as *mut Promise;
+    match unsafe { run_inline_reaction(dp) } {
+        Stake::Kept => unsafe { __torajs_promise_drop(dp as *mut c_void) },
+        Stake::Queued => {}
+        Stake::RunNext(next) => unsafe { run_chain(next) },
+    }
+}
+
+/// The rest of a chain that runs in one job: a loop of its own, so
+/// the job of a lone reaction keeps the shape of a single run.
+#[inline(never)]
+unsafe fn run_chain(mut dp: *mut Promise) {
+    loop {
+        match unsafe { run_inline_reaction(dp) } {
+            Stake::Kept => return unsafe { __torajs_promise_drop(dp as *mut c_void) },
+            Stake::Queued => return,
+            Stake::RunNext(next) => dp = next,
+        }
+    }
+}
+
+/// What settling a derived cell did with the dispatcher's stake on it.
+enum Stake {
+    /// Still the dispatcher's, to release.
+    Kept,
+    /// Handed to the queued job of the cell's sole reaction.
+    Queued,
+    /// Handed to the cell's sole reaction, which runs next, here.
+    RunNext(*mut Promise),
+}
+
+/// Run the reaction parked in `dp` and answer what became of the
+/// dispatcher's stake on `dp`. The reaction words are taken out of
+/// the cell before the handler runs — a handler may attach to the
+/// derived promise or release the last outside reference to either
+/// cell, and the cell must already read as reaction-free when the
+/// stakes come off.
+#[inline(always)]
+unsafe fn run_inline_reaction(dp: *mut Promise) -> Stake {
     unsafe {
         let source = (*dp).rx_source;
         let cb = (*dp).rx_cb;
@@ -135,8 +173,7 @@ pub(crate) unsafe extern "C" fn inline_reaction_dispatch(arg: i64) {
             RX_CATCH => rejected,
             _ => false,
         };
-        // true when the derived promise's stake went to the next job
-        let handed = if fires {
+        let stake = if fires {
             let v = settle_param(
                 (*sp).value_repr,
                 kind & RX_PARAM_ANY != 0,
@@ -162,27 +199,27 @@ pub(crate) unsafe extern "C" fn inline_reaction_dispatch(arg: i64) {
             } else {
                 __torajs_promise_resolve(derived, (*sp).value);
             }
-            false
+            Stake::Kept
         };
+        // releasing a cell or an env runs no job and queues none, so
+        // a reaction left to run next is still the next job
         __torajs_promise_drop(source);
         if kind & RX_CLOSURE != 0 {
             __torajs_value_drop_heap(cb);
         }
-        if !handed {
-            __torajs_promise_drop(derived);
-        }
+        stake
     }
 }
 
 /// Settle `dp` with its handler's return `value`. When the return is
 /// a form that can be neither adopted nor a thenable and `dp`'s list
 /// is one inline reaction — a link of a `then` chain — this fulfills
-/// `dp` and queues that reaction itself, handing the dispatcher's
-/// stake on `dp` to the job, which needs one on its source anyway:
-/// answers true, and the dispatcher must not release `dp`. Anything
-/// else goes through [`settle_handler_return`] and answers false.
+/// `dp` and hands the dispatcher's stake on `dp` to that reaction,
+/// which needs one on its source anyway: queued, or, when it would be
+/// the only job pending, left to run next in this job. Anything else
+/// goes through [`settle_handler_return`] and keeps the stake.
 #[inline(always)]
-unsafe fn settle_into_chain(dp: *mut Promise, ret_repr: u8, value: i64) -> bool {
+unsafe fn settle_into_chain(dp: *mut Promise, ret_repr: u8, value: i64) -> Stake {
     unsafe {
         let next = inline_link_derived((*dp).callbacks);
         if next.is_null()
@@ -191,10 +228,10 @@ unsafe fn settle_into_chain(dp: *mut Promise, ret_repr: u8, value: i64) -> bool 
             || (*dp).state != STATE_PENDING
         {
             settle_handler_return(dp as *mut c_void, ret_repr, value);
-            return false;
+            return Stake::Kept;
         }
         if reject_on_pending_throw(dp as *mut c_void) {
-            return false;
+            return Stake::Kept;
         }
         (*dp).value_repr = ret_repr;
         (*dp).value_is_heap = (ret_repr == REPR_STR) as u8;
@@ -202,7 +239,24 @@ unsafe fn settle_into_chain(dp: *mut Promise, ret_repr: u8, value: i64) -> bool 
         (*dp).value = value;
         (*dp).callbacks = ptr::null_mut();
         (*next).rx_next = ptr::null_mut();
-        __torajs_microtask_enqueue(inline_reaction_dispatch, next as i64);
-        true
+        if __torajs_microtask_enqueue_or_run(inline_reaction_dispatch, next as i64) {
+            Stake::RunNext(next)
+        } else {
+            Stake::Queued
+        }
+    }
+}
+
+// cargo test links no microtask archive; a stub as the crate root's
+#[cfg(test)]
+mod test_stub {
+    /// # Safety
+    /// Never called; any call panics.
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_microtask_enqueue_or_run(
+        _fn_: crate::layout::MicrotaskFn,
+        _arg: i64,
+    ) -> bool {
+        panic!("torajs-promise test stub: microtask_enqueue_or_run should not be called");
     }
 }
