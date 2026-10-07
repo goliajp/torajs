@@ -97,6 +97,17 @@ pub(crate) unsafe fn attach_inline(
     }
 }
 
+/// Queue the reaction parked in `derived`, now out of the list of
+/// `source`, which just settled: the job takes its stake on `source`.
+#[inline(always)]
+pub(crate) unsafe fn queue_inline(source: *mut Promise, derived: *mut Promise) {
+    unsafe {
+        (*derived).rx_next = ptr::null_mut();
+        rc_inc_cell(source as *mut c_void);
+        __torajs_microtask_enqueue(inline_reaction_dispatch, derived as i64);
+    }
+}
+
 /// PromiseReactionJob for an inline reaction: `arg` is the derived
 /// cell. The reaction words are taken out of the cell before the
 /// handler runs — a handler may attach to the derived promise or

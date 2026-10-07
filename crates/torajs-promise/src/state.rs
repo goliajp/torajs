@@ -62,9 +62,15 @@ unsafe fn link_next(link: *mut PromiseCb) -> *mut *mut PromiseCb {
 /// Attach head-pushes, so the list is in reverse registration order;
 /// §27.2.5.4.1 appends each reaction and §27.2.1.8
 /// TriggerPromiseReactions runs them in that order, so the list is
-/// reversed in place first (no allocation, one pass).
+/// reversed in place first (no allocation, one pass) — unless it is
+/// one inline reaction, the link of a `then` chain, which has no order.
 pub(crate) unsafe fn drain_callbacks(pp: *mut Promise) {
     let mut link = unsafe { (*pp).callbacks };
+    let sole = inline_link_derived(link);
+    if !sole.is_null() && unsafe { (*sole).rx_next.is_null() } {
+        unsafe { (*pp).callbacks = ptr::null_mut() };
+        return unsafe { crate::reaction::queue_inline(pp, sole) };
+    }
     let mut prev: *mut PromiseCb = ptr::null_mut();
     while !link.is_null() {
         unsafe {
@@ -89,14 +95,8 @@ pub(crate) unsafe fn drain_callbacks(pp: *mut Promise) {
                 free(link as *mut c_void, core::mem::size_of::<PromiseCb>());
                 link = next;
             } else {
-                let next = (*derived).rx_next;
-                (*derived).rx_next = ptr::null_mut();
-                torajs_rc::rc_inc_cell(pp as *mut c_void);
-                __torajs_microtask_enqueue(
-                    crate::reaction::inline_reaction_dispatch,
-                    derived as i64,
-                );
-                link = next;
+                link = (*derived).rx_next;
+                crate::reaction::queue_inline(pp, derived);
             }
         }
     }
