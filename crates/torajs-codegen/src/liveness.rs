@@ -58,8 +58,8 @@
 //! `ssa_lower_str::lower_array_index_of_inline_emit` (Array
 //! `indexOf` / `lastIndexOf` / `includes`) hits this canonically.
 //!
-//! Fix: after the linear pass, run a textbook live-in / live-out
-//! fix-point over the block CFG (use[B], def[B], live_in[B] =
+//! Fix: after the linear pass, solve the textbook live-in / live-out
+//! equations over the block CFG (use[B], def[B], live_in[B] =
 //! use[B] ∪ (live_out[B] \ def[B]), live_out[B] =
 //! ∪{live_in[s] : s ∈ succ(B)}). Any `ValueId` live across a block
 //! has its interval extended to that block's end. Backedges
@@ -225,14 +225,12 @@ fn extend_intervals_loop_aware(blocks: &BlockLiveness, out: &mut HashMap<u32, In
     for b in 0..blocks.start.len() {
         let start = blocks.start[b].saturating_sub(1);
         let end = blocks.end[b];
-        for v in blocks.live_in[b].iter().chain(blocks.live_out[b].iter()) {
+        let ins = blocks.live_in[b].iter().map(|v| (v, start));
+        let outs = blocks.live_out[b].iter().map(|v| (v, u32::MAX));
+        for (v, from) in ins.chain(outs) {
             if let Some(it) = out.get_mut(&v) {
-                if end > it.end {
-                    it.end = end;
-                }
-                if blocks.live_in[b].contains(v) && start < it.start {
-                    it.start = start;
-                }
+                it.end = it.end.max(end);
+                it.start = it.start.min(from);
             }
         }
     }
