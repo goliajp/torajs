@@ -18,14 +18,15 @@ bench numbers. Latency budget per op is in low-ns territory.
 | Path | Budget | Observed (dev) | Headroom | Notes |
 | --- | ---: | ---: | ---: | --- |
 | `microtask_enqueue_drain_burst_8-10k` | ≤ 5 ms | ~2 ms | 2.5× | 10k cycles × (8 enqueues + drain) = 80k task ops. ~25 ns / task amortized. |
-| `microtask_enqueue_drain_burst_64-1k` | ≤ 2 ms | ~1 ms | 2× | 1k cycles × (64 enqueues + drain) = 64k task ops. ~15 ns / task — amortizes the compaction cost across larger bursts. |
+| `microtask_enqueue_drain_burst_64-1k` | ≤ 2 ms | ~1 ms | 2× | 1k cycles × (64 enqueues + drain) = 64k task ops. ~15 ns / task. |
 
 ## Memory budget
 
-- Static globals: 1 `Vec<TaskRecord>` (24 B header + capacity-allocated
-  payload). Steady-state capacity for Promise-heavy bench corpus is
+- Static globals: one ring of 16 B task records plus three counters.
+  Steady-state capacity for Promise-heavy bench corpus is
   ~256 entries × 16 B = 4 KB resident.
-- Compaction triggers at `head > cap/2`; bounded by `O(queue_max_depth)`.
+- The ring doubles only when full, so its size is bounded by
+  `O(queue_max_depth)`.
 
 ## Integrated bench corpus impact
 

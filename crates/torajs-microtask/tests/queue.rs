@@ -122,3 +122,81 @@ fn null_fn_is_silently_skipped() {
     }
     drain_clean();
 }
+
+static BFS_SEEN: AtomicI64 = AtomicI64::new(0);
+static BFS_NEXT: AtomicI64 = AtomicI64::new(0);
+static BFS_OUT_OF_ORDER: AtomicI64 = AtomicI64::new(0);
+const BFS_TASKS: i64 = 1000;
+
+unsafe extern "C" fn bfs_step(id: i64) {
+    // each task queues the next two ids, so the backlog grows by one
+    // per task: the ring wraps, then doubles while wrapped, several
+    // times over, and the ids must still come out in order
+    if BFS_SEEN.fetch_add(1, Ordering::Relaxed) != id {
+        BFS_OUT_OF_ORDER.fetch_add(1, Ordering::Relaxed);
+    }
+    for _ in 0..2 {
+        let next = BFS_NEXT.load(Ordering::Relaxed);
+        if next < BFS_TASKS {
+            BFS_NEXT.store(next + 1, Ordering::Relaxed);
+            unsafe { __torajs_microtask_enqueue(Some(bfs_step), next) };
+        }
+    }
+}
+
+#[test]
+fn ring_keeps_fifo_order_across_wrap_and_growth() {
+    let _g = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    drain_clean();
+    BFS_SEEN.store(0, Ordering::Relaxed);
+    BFS_NEXT.store(1, Ordering::Relaxed);
+    BFS_OUT_OF_ORDER.store(0, Ordering::Relaxed);
+    unsafe {
+        __torajs_microtask_enqueue(Some(bfs_step), 0);
+        __torajs_microtask_run_until_idle();
+    }
+    assert_eq!(BFS_SEEN.load(Ordering::Relaxed), BFS_TASKS);
+    assert_eq!(
+        BFS_OUT_OF_ORDER.load(Ordering::Relaxed),
+        0,
+        "FIFO order broken"
+    );
+    drain_clean();
+}
+
+static MID_SEEN: AtomicI64 = AtomicI64::new(0);
+static MID_OUT_OF_ORDER: AtomicI64 = AtomicI64::new(0);
+
+unsafe extern "C" fn mid_step(id: i64) {
+    if MID_SEEN.fetch_add(1, Ordering::Relaxed) != id {
+        MID_OUT_OF_ORDER.fetch_add(1, Ordering::Relaxed);
+    }
+    // task 10 runs with the head in the middle of the first ring and
+    // queues enough to wrap the tail past it and double while it does
+    if id == 10 {
+        for next in 20..100 {
+            unsafe { __torajs_microtask_enqueue(Some(mid_step), next) };
+        }
+    }
+}
+
+#[test]
+fn ring_grows_with_its_head_mid_ring() {
+    let _g = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    drain_clean();
+    MID_SEEN.store(0, Ordering::Relaxed);
+    MID_OUT_OF_ORDER.store(0, Ordering::Relaxed);
+    unsafe {
+        for id in 0..20 {
+            __torajs_microtask_enqueue(Some(mid_step), id);
+        }
+        __torajs_microtask_run_until_idle();
+    }
+    assert_eq!(MID_SEEN.load(Ordering::Relaxed), 100);
+    assert_eq!(
+        MID_OUT_OF_ORDER.load(Ordering::Relaxed),
+        0,
+        "FIFO order broken"
+    );
+    drain_clean();
+}

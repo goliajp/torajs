@@ -6,8 +6,8 @@
 [![Downloads](https://img.shields.io/crates/d/torajs-microtask?style=flat-square)](https://crates.io/crates/torajs-microtask)
 
 Microtask queue for the [torajs] AOT TypeScript runtime: FIFO queue of
-`{fn_ptr, arg}` records with head-cursor pop, grow-by-doubling backing
-array, and compaction. Drains to empty (including tasks enqueued during
+`{fn_ptr, arg}` records in a power-of-two ring that doubles when
+full. Drains to empty (including tasks enqueued during
 the drain itself) — matches JS spec's microtask semantics. 0 Cargo
 deps. Auto-called from `main()` exit hook.
 
@@ -30,9 +30,11 @@ Per [JS spec](https://html.spec.whatwg.org/multipage/webappapis.html#perform-a-m
 ## Single global queue (single-threaded)
 
 torajs is single-threaded today; one global queue suffices. The queue
-backing is a `Vec<{fn: fn_ptr, arg: i64}>` with head cursor + tail
-push. Pop advances head; compaction kicks in when head/cap > 0.5 so
-the queue doesn't grow unbounded for long-lived programs.
+backing is a power-of-two ring of `{fn: fn_ptr, arg: i64}` records
+indexed by free-running head and tail counters (slot = counter masked
+by capacity − 1). Pop advances head, push advances tail; a full ring
+doubles, keeping the pending tasks in order. Its size follows the
+deepest backlog, not the number of tasks ever queued.
 
 ## ABI
 
@@ -62,9 +64,8 @@ pub unsafe extern "C" fn __torajs_microtask_pending_count() -> usize;
 ```text
 loop:
   if head == tail: break  // queue empty
-  task = queue[head]; head += 1
+  task = ring[head & (cap - 1)]; head += 1
   task.fn(task.arg)       // task may itself enqueue more
-  if head >= queue.len() / 2: compact  // bound head-cursor advance
 ```
 
 Tasks enqueued during a `fn(arg)` call land at the tail and run in

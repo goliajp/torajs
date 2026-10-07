@@ -72,7 +72,7 @@ unsafe extern "C" {
     /// the `message` slot is not enough.
     fn __torajs_str_is_undef(p: *const u8) -> i64;
     /// torajs-mmalloc libc-compat realloc / sized free — same
-    /// externs `torajs_microtask::mt_grow` and `pool.rs` use.
+    /// externs `torajs_microtask::grow_and_push` and `pool.rs` use.
     #[link_name = "__torajs_realloc"]
     fn tr_realloc(p: *mut c_void, old_size: usize, new_size: usize) -> *mut c_void;
     #[link_name = "__torajs_free"]

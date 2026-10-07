@@ -1,6 +1,6 @@
 [package]
 name = "torajs-microtask"
-description = "Microtask queue substrate for the torajs AOT TypeScript runtime. FIFO {fn,arg} queue with head-cursor pop + grow-by-doubling backing array + compaction. Single global queue (single-thread runtime; multi-thread post-v1.0 with one queue per worker). Drains to empty including tasks enqueued during the drain — matches JS spec's microtask semantics. Auto-called from main exit. Layer-3 substrate."
+description = "Microtask queue substrate for the torajs AOT TypeScript runtime. FIFO {fn,arg} queue in a power-of-two ring that doubles when full. Single global queue (single-thread runtime; multi-thread post-v1.0 with one queue per worker). Drains to empty including tasks enqueued during the drain — matches JS spec's microtask semantics. Auto-called from main exit. Layer-3 substrate."
 keywords = ["torajs", "microtask", "promise", "event-loop", "runtime"]
 categories = ["concurrency", "no-std"]
 readme = "README.md"

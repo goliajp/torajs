@@ -9,9 +9,9 @@
 //!
 //! Single global FIFO queue. Tasks pushed at the tail via
 //! `__torajs_microtask_enqueue`, popped at the head via the drain
-//! loop in `__torajs_microtask_run_until_idle`. Backing array
-//! grows by doubling (starts at 32 slots); compaction by `memmove`
-//! when the head cursor passes half-capacity.
+//! loop in `__torajs_microtask_run_until_idle`. The backing array is
+//! a power-of-two ring (starts at 32 slots) indexed by free-running
+//! head / tail counters, and doubles when the ring is full.
 //!
 //! The `fn` signature is `void (*)(int64_t arg)` — a single i64
 //! slot carries either a primitive value or a heap pointer cast
@@ -50,18 +50,18 @@ struct Microtask {
     arg: i64,
 }
 
-/// Backing array pointer. NULL until first push; `realloc`'d to
+/// Ring storage. NULL until first push; `realloc`'d to
 /// `MT_CAP × sizeof(Microtask)` on growth.
 static MT_QUEUE: AtomicPtr<Microtask> = AtomicPtr::new(ptr::null_mut());
 
-/// Head cursor — index of the next task to pop. Bumps on each
-/// drain step; compaction resets it to 0.
+/// Count of tasks popped. A task's slot is its count masked by
+/// `MT_CAP - 1`; the pending tasks are the counts `MT_HEAD..MT_TAIL`.
 static MT_HEAD: AtomicUsize = AtomicUsize::new(0);
 
-/// Live tail — `mt_queue[mt_head..mt_len]` is the pending slice.
-static MT_LEN: AtomicUsize = AtomicUsize::new(0);
+/// Count of tasks pushed.
+static MT_TAIL: AtomicUsize = AtomicUsize::new(0);
 
-/// Allocated capacity, in entries. Doubles from 32 on growth.
+/// Ring capacity in entries: 0, or a power of two from 32.
 static MT_CAP: AtomicUsize = AtomicUsize::new(0);
 
 unsafe extern "C" {
@@ -75,51 +75,31 @@ unsafe extern "C" {
 // v0.7-A2 step 6b — force-link mmalloc.
 extern crate torajs_mmalloc as _;
 
-/// Grow the backing array (double capacity, starting at 32).
-/// Single-threaded — no concurrent grow possible.
-fn mt_grow() {
+/// The ring is full: double it, then push `(fn_, arg)`. The pending
+/// tasks keep their order — the run that wrapped to the front of the
+/// old ring moves up behind its end, where the doubled mask finds it,
+/// and the counters restart from the old head slot.
+#[cold]
+#[inline(never)]
+fn grow_and_push(fn_: MicrotaskFn, arg: i64) {
     let cap = MT_CAP.load(Ordering::Relaxed);
     let new_cap = if cap == 0 { 32 } else { cap * 2 };
-    let cur = MT_QUEUE.load(Ordering::Relaxed);
     let elem = core::mem::size_of::<Microtask>();
-    let new_buf =
-        unsafe { realloc(cur as *mut c_void, cap * elem, new_cap * elem) } as *mut Microtask;
-    MT_QUEUE.store(new_buf, Ordering::Relaxed);
+    let old = MT_QUEUE.load(Ordering::Relaxed);
+    let buf = unsafe { realloc(old as *mut c_void, cap * elem, new_cap * elem) } as *mut Microtask;
+    let head = MT_HEAD.load(Ordering::Relaxed) & cap.wrapping_sub(1);
+    unsafe { ptr::copy_nonoverlapping(buf, buf.add(cap), head) };
+    let tail = head + cap;
+    unsafe { *buf.add(tail) = Microtask { fn_, arg } };
+    MT_QUEUE.store(buf, Ordering::Relaxed);
     MT_CAP.store(new_cap, Ordering::Relaxed);
-}
-
-/// Compact the queue when the head cursor wanders past half-cap.
-/// Two cases:
-///   - `head >= len`: queue is logically empty; reset both to 0
-///     so the next enqueue starts at index 0 of the existing buffer
-///     (avoids the pre-fix SIGBUS at chain length 33+ when the
-///     unconditional `mt_queue[len++]` wrote past `cap`).
-///   - `head > 0` with `live > 0`: `memmove` live slice down to
-///     index 0, reset head.
-fn mt_compact() {
-    let head = MT_HEAD.load(Ordering::Relaxed);
-    let len = MT_LEN.load(Ordering::Relaxed);
-    if head >= len {
-        MT_HEAD.store(0, Ordering::Relaxed);
-        MT_LEN.store(0, Ordering::Relaxed);
-        return;
-    }
-    if head == 0 {
-        return;
-    }
-    let live = len - head;
-    let buf = MT_QUEUE.load(Ordering::Relaxed);
-    unsafe {
-        core::ptr::copy(buf.add(head), buf, live);
-    }
-    MT_LEN.store(live, Ordering::Relaxed);
-    MT_HEAD.store(0, Ordering::Relaxed);
+    MT_HEAD.store(head, Ordering::Relaxed);
+    MT_TAIL.store(tail + 1, Ordering::Relaxed);
 }
 
 /// Enqueue `(fn, arg)` at the tail of the microtask queue. NULL
-/// `fn` is a defensive silent no-op (matches C contract). Triggers
-/// `mt_compact` first if the head has wandered past half-cap (cheap
-/// recovery); otherwise grows by doubling.
+/// `fn` is a defensive silent no-op (matches C contract). A full ring
+/// doubles first.
 ///
 /// # Safety
 /// `fn_` must be a valid C function pointer with the
@@ -127,22 +107,14 @@ fn mt_compact() {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_microtask_enqueue(fn_: Option<MicrotaskFn>, arg: i64) {
     let Some(fn_) = fn_ else { return };
-    let len = MT_LEN.load(Ordering::Relaxed);
+    let tail = MT_TAIL.load(Ordering::Relaxed);
     let cap = MT_CAP.load(Ordering::Relaxed);
-    if len == cap {
-        let head = MT_HEAD.load(Ordering::Relaxed);
-        if head > cap / 2 {
-            mt_compact();
-        } else {
-            mt_grow();
-        }
+    if tail - MT_HEAD.load(Ordering::Relaxed) == cap {
+        return grow_and_push(fn_, arg);
     }
     let buf = MT_QUEUE.load(Ordering::Relaxed);
-    let len = MT_LEN.load(Ordering::Relaxed);
-    unsafe {
-        *buf.add(len) = Microtask { fn_, arg };
-    }
-    MT_LEN.store(len + 1, Ordering::Relaxed);
+    unsafe { *buf.add(tail & (cap - 1)) = Microtask { fn_, arg } };
+    MT_TAIL.store(tail + 1, Ordering::Relaxed);
 }
 
 /// Drain the microtask queue to empty. Pops one task, runs it,
@@ -151,8 +123,8 @@ pub unsafe extern "C" fn __torajs_microtask_enqueue(fn_: Option<MicrotaskFn>, ar
 /// semantics: drain to empty before yielding to event loop / exit).
 ///
 /// Auto-called from synthesized `main` at program exit by
-/// codegen (T-15.e). After the drain, head + len are both reset
-/// to 0 so the next enqueue starts at index 0.
+/// codegen (T-15.e). After the drain, head + tail are both reset
+/// to 0 so the next enqueue starts at slot 0.
 ///
 /// # Safety
 /// Calls user-provided fn pointers; each fn must be a valid
@@ -164,10 +136,10 @@ pub unsafe extern "C" fn __torajs_microtask_run_until_idle() {
     // work at most call sites (every `await` checkpoint); answering it
     // here keeps that case free of the drain loop's frame
     if KEPT_CLEAR.load(Ordering::Relaxed).is_null()
-        && MT_HEAD.load(Ordering::Relaxed) >= MT_LEN.load(Ordering::Relaxed)
+        && MT_HEAD.load(Ordering::Relaxed) == MT_TAIL.load(Ordering::Relaxed)
     {
         MT_HEAD.store(0, Ordering::Relaxed);
-        MT_LEN.store(0, Ordering::Relaxed);
+        MT_TAIL.store(0, Ordering::Relaxed);
         return;
     }
     unsafe { drain() }
@@ -179,23 +151,18 @@ unsafe fn drain() {
     unsafe { clear_kept_objects() };
     loop {
         let head = MT_HEAD.load(Ordering::Relaxed);
-        let len = MT_LEN.load(Ordering::Relaxed);
-        if head >= len {
+        if head == MT_TAIL.load(Ordering::Relaxed) {
             break;
         }
-        let buf = MT_QUEUE.load(Ordering::Relaxed);
-        let t = unsafe { *buf.add(head) };
+        // a job may grow the ring, so its geometry is read per pop
+        let slot = head & (MT_CAP.load(Ordering::Relaxed) - 1);
+        let t = unsafe { *MT_QUEUE.load(Ordering::Relaxed).add(slot) };
         MT_HEAD.store(head + 1, Ordering::Relaxed);
         unsafe { (t.fn_)(t.arg) };
         unsafe { clear_kept_objects() };
-        let new_head = MT_HEAD.load(Ordering::Relaxed);
-        let cap = MT_CAP.load(Ordering::Relaxed);
-        if new_head > 64 && new_head > cap / 2 {
-            mt_compact();
-        }
     }
     MT_HEAD.store(0, Ordering::Relaxed);
-    MT_LEN.store(0, Ordering::Relaxed);
+    MT_TAIL.store(0, Ordering::Relaxed);
 }
 
 /// §9.10 ClearKeptObjects — torajs-weak's kept list, installed by its
@@ -256,16 +223,14 @@ pub unsafe extern "C" fn __torajs_host_jobs_run_until_idle() {
     }
 }
 
-/// `mt_len - mt_head` — number of pending microtasks. Returns
+/// `tail - head` — number of pending microtasks. Returns
 /// `usize` to match the C `size_t` signature.
 ///
 /// # Safety
 /// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_microtask_pending_count() -> usize {
-    let head = MT_HEAD.load(Ordering::Relaxed);
-    let len = MT_LEN.load(Ordering::Relaxed);
-    len - head
+    MT_TAIL.load(Ordering::Relaxed) - MT_HEAD.load(Ordering::Relaxed)
 }
 
 #[cfg(test)]
@@ -281,7 +246,7 @@ mod tests {
 
     fn reset_queue() {
         MT_HEAD.store(0, Ordering::Relaxed);
-        MT_LEN.store(0, Ordering::Relaxed);
+        MT_TAIL.store(0, Ordering::Relaxed);
     }
 
     static mut COUNTER: i64 = 0;
