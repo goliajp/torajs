@@ -2,6 +2,7 @@
 //! what one expression contributes to the slots it reaches.
 
 use super::SlotKey;
+use std::collections::{HashMap, HashSet, VecDeque};
 
 /// A slot dependency plus whether the value path from that slot to
 /// the consuming write runs through a growth op (Mul, or Add/Sub with
@@ -44,4 +45,26 @@ pub(super) fn join(a: W, b: W) -> W {
 /// that aborted repro R5).
 pub(super) fn literal_is_f64(n: f64) -> bool {
     n.fract() != 0.0 || n.abs() >= 9.223372036854776e18 || (n == 0.0 && n.is_sign_negative())
+}
+
+/// Poison flows forward along assignment edges until stable.
+/// Monotone single-direction lattice — O(edges).
+pub(super) fn fixpoint(
+    seeds: Vec<SlotKey>,
+    edges: &HashMap<SlotKey, Vec<Dep>>,
+) -> HashSet<SlotKey> {
+    let mut out: HashSet<SlotKey> = HashSet::new();
+    let mut work: VecDeque<SlotKey> = seeds.into_iter().collect();
+    while let Some(k) = work.pop_front() {
+        if out.insert(k.clone())
+            && let Some(dsts) = edges.get(&k)
+        {
+            for (d, _) in dsts {
+                if !out.contains(d) {
+                    work.push_back(d.clone());
+                }
+            }
+        }
+    }
+    out
 }

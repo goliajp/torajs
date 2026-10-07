@@ -67,9 +67,9 @@ pub(crate) use width_table::WidthTable;
 use crate::ast::{Ast, ExprId, Stmt};
 use crate::ast::{GenericStructDecls, PropKey};
 use fallthrough::{alias_fallthrough_closures, seed_and_walk_fn};
-use lattice::{Dep, W, join, literal_is_f64};
+use lattice::{Dep, W, fixpoint, join, literal_is_f64};
 use sentinel_tables::close_sentinel_tables;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 
 /// Identity of a number-typed storage slot, module-wide.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -450,25 +450,6 @@ pub(crate) fn analyze(
         a.captures,
         a.bound_closures,
     )
-}
-
-/// Poison flows forward along assignment edges until stable.
-/// Monotone single-direction lattice — O(edges).
-fn fixpoint(seeds: Vec<SlotKey>, edges: &HashMap<SlotKey, Vec<Dep>>) -> HashSet<SlotKey> {
-    let mut out: HashSet<SlotKey> = HashSet::new();
-    let mut work: VecDeque<SlotKey> = seeds.into_iter().collect();
-    while let Some(k) = work.pop_front() {
-        if out.insert(k.clone())
-            && let Some(dsts) = edges.get(&k)
-        {
-            for (d, _) in dsts {
-                if !out.contains(d) {
-                    work.push_back(d.clone());
-                }
-            }
-        }
-    }
-    out
 }
 
 #[cfg(test)]
