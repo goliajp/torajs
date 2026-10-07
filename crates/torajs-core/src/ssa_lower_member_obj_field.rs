@@ -82,7 +82,7 @@ pub(crate) fn try_lower(
     // field used to hide by handing back no stake at all.
     let getter = match try_accessor_getter(ctx, eid, obj, obj_val, sid, name) {
         Some(op) => Some(op),
-        None => try_objlit_getter(ctx, obj_val, sid, name),
+        None => try_objlit_getter(ctx, obj, obj_val, sid, name),
     };
     if let Some(op) = getter {
         if !ctx.operand_ty(&op).is_copy() {
@@ -138,6 +138,7 @@ pub(crate) fn try_lower(
 /// reverse-looks-up a class name by structural equality).
 fn try_objlit_getter(
     ctx: &mut LowerCtx<'_>,
+    obj: ExprId,
     obj_val: Operand,
     sid: StructId,
     name: &str,
@@ -152,15 +153,8 @@ fn try_objlit_getter(
         return None;
     };
     let offset = OBJ_HEADER_SIZE + idx as u64 * 8;
-    Some(
-        crate::ssa_lower_call_struct_method_dispatch::emit_receiver_closure_call(
-            ctx,
-            obj_val,
-            offset,
-            sig_id,
-            &[],
-        ),
-    )
+    let lane = crate::ssa_lower_call_struct_method_dispatch::objlit_slot::emit_getter_call;
+    Some(lane(ctx, Some(obj), obj_val, offset, sig_id))
 }
 
 fn try_accessor_getter(

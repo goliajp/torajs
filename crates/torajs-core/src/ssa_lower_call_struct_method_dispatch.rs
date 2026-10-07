@@ -40,7 +40,7 @@ use crate::ssa_lower::{CLOSURE_FN_ADDR_OFF, LowerCtx, OBJ_HEADER_SIZE, intern_fn
 
 mod fnsig_call;
 use fnsig_call::emit_fnsig_call;
-mod objlit_slot;
+pub(crate) mod objlit_slot;
 pub(crate) use objlit_slot::is_objlit_method_slot;
 
 /// Does `recv.name` name a field that holds a callable, and is its
@@ -195,6 +195,10 @@ pub(crate) fn emit_receiver_closure_call(
     user_sig_id: SigId,
     args: &[ExprId],
 ) -> Operand {
+    if objlit_slot::slot_takes_argv(ctx, None, &recv_op, offset) {
+        let ops: Vec<Operand> = args.iter().map(|a| ctx.lower_expr(*a)).collect();
+        return objlit_slot::emit_argv_slot_call(ctx, recv_op, offset, user_sig_id, &ops);
+    }
     // Accessor arity is fixed (getter 0, setter 1) — never pads.
     emit_closure_call(ctx, recv_op, offset, user_sig_id, args, true, None)
 }
@@ -212,6 +216,9 @@ pub(crate) fn emit_receiver_closure_call_ops(
     user_sig_id: SigId,
     arg_ops: Vec<Operand>,
 ) -> Operand {
+    if objlit_slot::slot_takes_argv(ctx, None, &recv_op, offset) {
+        return objlit_slot::emit_argv_slot_call(ctx, recv_op, offset, user_sig_id, &arg_ops);
+    }
     emit_closure_call_ops(ctx, recv_op, offset, user_sig_id, arg_ops, true)
 }
 

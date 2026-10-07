@@ -867,6 +867,9 @@ pub struct Ast {
     /// a same-layout class's accessor — see the RFC); this table must not
     /// repeat that.
     pub objlit_method_fields: std::collections::HashMap<String, Vec<String>>,
+    /// Object-literal accessor slots whose closure is on the argv face,
+    /// filled right after the arguments pass decides the faces.
+    pub objlit_argv_slots: super::objlit_nominal_settle::ObjlitArgvSlots,
     /// RFC 20260717-fnexpr-this-channel knife 1 — ExprIds of
     /// non-generator function EXPRESSIONS (`function (v) { ... }` in
     /// expression position). The parser desugars them to `Expr::ArrowFn`

@@ -61,13 +61,9 @@ pub(crate) fn unfold_spread(
                 let ret = ctx.fn_sigs[sig_id.0 as usize].1;
                 // Owned already — the getter returns its own value, so no
                 // rc_inc (unlike the borrowed field load below).
-                let v = crate::ssa_lower_call_struct_method_dispatch::emit_receiver_closure_call(
-                    ctx,
-                    src_op,
-                    off,
-                    sig_id,
-                    &[],
-                );
+                let lane =
+                    crate::ssa_lower_call_struct_method_dispatch::objlit_slot::emit_getter_call;
+                let v = lane(ctx, Some(eid), src_op, off, sig_id);
                 (PropKey::from(prop), ret, v)
             }
             _ => {

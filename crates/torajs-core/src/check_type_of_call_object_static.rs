@@ -247,7 +247,7 @@ fn try_match_assign(
                 "Object.assign target must be a struct, got {target_ty:?}"
             )));
         };
-        let sinks = own_property_sink_types(t_fields);
+        let sinks = own_property_sink_types((&*checker, ast), t_fields);
         for (i, src_id) in args[1..].iter().enumerate() {
             let source_ty = match checker.type_of(ast, *src_id) {
                 Ok(t) => unwrap_class(checker, t),
@@ -321,16 +321,16 @@ fn nullish_to_object(
     Ok(Type::Any)
 }
 
-pub(crate) fn own_property_sink_types(fields: &[(PropKey, Type)]) -> Vec<(PropKey, Option<Type>)> {
+pub(crate) fn own_property_sink_types(
+    cx: (&Checker, &Ast),
+    fields: &[(PropKey, Type)],
+) -> Vec<(PropKey, Option<Type>)> {
     let mut out: Vec<(PropKey, Option<Type>)> = Vec::new();
     for (name, ty) in fields {
         let (key, accepts) = match crate::check_type_of_object_lit::accessor_slot(name) {
             Some(("__setter_", prop)) => {
-                let param = match ty {
-                    Type::Function(params, _) => params.first().cloned().unwrap_or(Type::Any),
-                    _ => Type::Any,
-                };
-                (PropKey::from(prop), Some(param))
+                let p = crate::check_type_of_object_lit::setter_value_ty(cx, fields, name, ty);
+                (PropKey::from(prop), Some(p.unwrap_or(Type::Any)))
             }
             Some((_, prop)) => (PropKey::from(prop), None),
             None => (name.clone(), Some(ty.clone())),

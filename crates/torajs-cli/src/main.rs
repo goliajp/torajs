@@ -20,6 +20,8 @@ mod cmd_lint;
 mod cmd_run;
 mod lsp;
 mod lsp_bench;
+#[cfg(test)]
+mod objlit_argv_accessor_tests;
 mod repl;
 #[cfg(test)]
 mod str_split_ir_tests;

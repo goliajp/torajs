@@ -32,7 +32,7 @@ pub(super) fn try_objlit_setter(
     // 75KB test262 unicode-ident class file, rotation 268 profile).
     let setter_name = format!("__setter_{field}");
     let setter = fields.iter().find(|(n, _)| *n == setter_name);
-    let Some((_, Type::Function(params, _))) = setter else {
+    let Some((setter_key, setter_ty @ Type::Function(..))) = setter else {
         let getter_name = format!("__getter_{field}");
         if fields.iter().any(|(n, _)| *n == getter_name) {
             return Err(format!(
@@ -41,7 +41,8 @@ pub(super) fn try_objlit_setter(
         }
         return Ok(None);
     };
-    let Some(param_ty) = params.first().cloned() else {
+    let setter_param = crate::check_type_of_object_lit::setter_value_ty;
+    let Some(param_ty) = setter_param((&*checker, ast), fields, setter_key, setter_ty) else {
         return Err(format!("setter `{field}` declares no parameter"));
     };
     let value_ty = checker.type_of(ast, value)?;

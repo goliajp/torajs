@@ -35,6 +35,48 @@ pub(crate) fn accessor_slot(name: &Wtf8) -> Option<(&'static str, &Wtf8)> {
     name.strip_prefix("__setter_").map(|p| ("__setter_", p))
 }
 
+/// The value the `__setter_` slot `slot` of type `ty` takes, in a
+/// struct whose fields are `fields`: a plain setter's one param. A setter
+/// that reads `arguments` sits on the argv face, whose public type hides
+/// the declared param behind the rest tail (`(...args: any[])`, or the
+/// argv pointer ahead of it when read back from a layout annotation), so
+/// that is read off the setter closures in a literal with these field
+/// names — the declared params past the receiver and the argv pointer,
+/// as the class lane reads them. They decide only when they agree.
+pub(crate) fn setter_value_ty(
+    (checker, ast): (&Checker, &Ast),
+    fields: &[(PropKey, Type)],
+    slot: &PropKey,
+    ty: &Type,
+) -> Option<Type> {
+    let Type::Function(params, _) = ty else {
+        return None;
+    };
+    if let [t] = params.as_slice()
+        && !matches!(t, Type::Rest(_))
+    {
+        return Some(t.clone());
+    }
+    let declared: Vec<Type> = (ast.objlit_argv_slots.rows.iter())
+        .filter(|(ns, f, _)| *slot == f.as_str() && ns.len() == fields.len())
+        .filter(|(ns, _, _)| ns.iter().zip(fields).all(|(a, (b, _))| *b == a.as_str()))
+        .filter_map(|(_, _, fn_name)| {
+            let sig = crate::check_type_of_fn::closure_sig(ast, fn_name, &checker.aliases).ok()?;
+            let mut user = sig.real_params.iter().zip(sig.param_tys);
+            user.find(|(p, _)| p.name != "__this" && p.name != "__torajs_argv")
+                .map(|(_, t)| t)
+        })
+        .collect();
+    match declared.first() {
+        Some(t) if declared.iter().all(|d| d == t) => Some(t.clone()),
+        _ => match params.as_slice() {
+            [Type::Rest(elem)] => Some((**elem).clone()),
+            [_, t] => Some(t.clone()),
+            ps => ps.first().cloned(),
+        },
+    }
+}
+
 /// A private element's layout slot (`#x` is the field `__priv_<C>__<x>`,
 /// `parser/private_refs.rs`). It belongs to [[PrivateElements]], not to
 /// the object's properties (§6.2.10): every face that enumerates or

@@ -4,7 +4,7 @@
 //!
 //! The getter read lane is its mirror, in `ssa_lower_member_obj_field`.
 
-use crate::ast::ExprId;
+use crate::ast::{Expr, ExprId};
 use crate::ssa::{Operand, StructId, Type};
 use crate::ssa_lower::LowerCtx;
 
@@ -38,24 +38,15 @@ pub(crate) fn try_lower(
     // the slot. The same operand is the setter's argument and the
     // assignment's value (not whatever the setter body returned).
     let op = ctx.lower_expr(value);
-    let user_params = ctx.fn_sigs[sig_id.0 as usize].0.clone();
-    let mut argv = [op];
-    let coerce_owned = crate::ssa_lower_call_terminal_coerce::coerce_args_by_param_tys(
-        ctx,
-        &user_params,
-        std::slice::from_ref(&value),
-        &mut argv,
-    );
-    crate::ssa_lower_call_struct_method_dispatch::emit_receiver_closure_call_ops(
-        ctx,
-        obj_val,
-        offset,
-        sig_id,
-        argv.to_vec(),
-    );
-    for (o, ty) in coerce_owned {
-        ctx.emit_drop_value(o, ty);
-    }
+    let recv = match ctx.ast.get_expr(eid) {
+        Expr::Assign { target, .. } => match ctx.ast.get_expr(*target) {
+            Expr::Member { obj, .. } => Some(*obj),
+            _ => None,
+        },
+        _ => None,
+    };
+    let lane = crate::ssa_lower_call_struct_method_dispatch::objlit_slot::emit_setter_call;
+    lane(ctx, recv, obj_val, (offset, sig_id), (op, value));
     // The setter borrowed the value; the assignment's consumer gets the
     // owned stake (a fresh rhs transfers its own, a borrowed one is inc'd).
     let transfers = ctx.expr_transfers_ownership(value);
