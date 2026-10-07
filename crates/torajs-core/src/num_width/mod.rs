@@ -55,6 +55,7 @@ mod sentinel_member_reads;
 mod sentinel_tables;
 mod slot_abi;
 mod walk;
+mod walk_call;
 mod width;
 mod width_table;
 
