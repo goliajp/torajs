@@ -126,3 +126,42 @@ fn read_u32_le(bytes: &[u8], off: usize) -> u32 {
 fn write_u32_le(bytes: &mut [u8], off: usize, value: u32) {
     bytes[off..off + 4].copy_from_slice(&value.to_le_bytes());
 }
+
+/// Point a `GOT_LOAD_PAGE21` / `GOT_LOAD_PAGEOFF12` pair at the 8-byte
+/// slot `slot_vaddr` and keep the `LDR`, so the code loads the target's
+/// address from the slot at run time.
+pub(crate) fn patch_got_slot_site(
+    bytes: &mut [u8],
+    r: &MemberRelocEntry,
+    pending_addend: i64,
+    name: &str,
+    site_vaddr: u64,
+    slot_vaddr: u64,
+) -> Result<(), MemberRelocApplyError> {
+    let off = r.r_address as usize;
+    let insn = read_u32_le(bytes, off);
+    let patched = match r.r_type {
+        ARM64_RELOC_GOT_LOAD_PAGE21 if pending_addend == 0 => {
+            let disp = (slot_vaddr & !0xFFF) as i64 - (site_vaddr & !0xFFF) as i64;
+            patch_page21(insn, disp)
+        }
+        ARM64_RELOC_GOT_LOAD_PAGEOFF12 if pending_addend == 0 => {
+            if insn & 0xFFC0_0000 != 0xF940_0000 {
+                return Err(MemberRelocApplyError::GotLoadRelaxNotLdr {
+                    insn,
+                    r_address: r.r_address,
+                });
+            }
+            patch_pageoff12(insn, (slot_vaddr & 0xFFF) as u32)
+        }
+        _ => {
+            return Err(MemberRelocApplyError::GotSlotNotGotLoad {
+                name: name.to_string(),
+                r_type: r.r_type,
+                r_address: r.r_address,
+            });
+        }
+    };
+    write_u32_le(bytes, off, patched);
+    Ok(())
+}

@@ -15,7 +15,7 @@ use torajs_obj::{ARM64_RELOC_ADDEND, ARM64_RELOC_UNSIGNED};
 
 use crate::archive::ArMember;
 use crate::data_section_layout::DataSectionLayout;
-use crate::member_apply_patch::patch_reloc_site;
+use crate::member_apply_patch::{patch_got_slot_site, patch_reloc_site};
 use crate::member_reloc::{MemberRelocEntry, MemberRelocError, parse_member_text_relocs};
 use crate::member_resolve::{MemberSymtab, resolve_local_nsect};
 use crate::member_symtab::{parse_member_symtab, read_nlist_name};
@@ -103,6 +103,14 @@ pub enum MemberRelocApplyError {
     /// observed site is the standard 0xF940 LDR, so this arm firing
     /// means a codegen pattern this relaxation has never seen).
     GotLoadRelaxNotLdr { insn: u32, r_address: u32 },
+    /// A name that must stay behind a GOT slot (see
+    /// [`apply_member_relocs_with_got`]) is reached by something other
+    /// than an addend-free `GOT_LOAD_PAGE21` / `GOT_LOAD_PAGEOFF12`.
+    GotSlotNotGotLoad {
+        name: String,
+        r_type: u8,
+        r_address: u32,
+    },
     /// Patch site or 8-byte data slot would extend past the
     /// member's __text payload.
     PatchSiteOutOfRange {
@@ -155,6 +163,32 @@ pub fn apply_member_relocs(
     non_text_sections: &[NonTextSectionLayout],
     data_non_text_sections: &[DataSectionLayout],
 ) -> Result<(), MemberRelocApplyError> {
+    apply_member_relocs_with_got(
+        bytes,
+        member,
+        member_vaddr,
+        sym_table,
+        &SymTable::new(),
+        non_text_sections,
+        data_non_text_sections,
+    )
+}
+
+/// [`apply_member_relocs`], except that every name in `got_slots`
+/// (name → vaddr of an 8-byte slot holding its address) keeps its
+/// `ADRP + LDR` through that slot instead of being relaxed to a direct
+/// `ADRP + ADD`; any other reloc kind reaching such a name fails with
+/// [`MemberRelocApplyError::GotSlotNotGotLoad`]. Lets a prelinked image
+/// leave names it cannot bind at build time for a loader to fill.
+pub fn apply_member_relocs_with_got(
+    bytes: &mut [u8],
+    member: &ArMember<'_>,
+    member_vaddr: u64,
+    sym_table: &SymTable,
+    got_slots: &SymTable,
+    non_text_sections: &[NonTextSectionLayout],
+    data_non_text_sections: &[DataSectionLayout],
+) -> Result<(), MemberRelocApplyError> {
     let relocs = parse_member_text_relocs(member)?;
     if relocs.is_empty() {
         return Ok(());
@@ -184,6 +218,16 @@ pub fn apply_member_relocs(
             continue;
         }
 
+        let got = GotSite {
+            member,
+            symtab: &symtab,
+            got_slots,
+            member_vaddr,
+        };
+        if got.try_patch(bytes, r, pending_addend, text_size)? {
+            continue;
+        }
+
         let sym_vaddr = resolve_reloc_target(
             r,
             &mut pending_addend,
@@ -208,22 +252,77 @@ pub fn apply_member_relocs(
         } else {
             4
         };
-        if off
-            .checked_add(length_bytes as usize)
-            .map(|end| end > text_size)
-            .unwrap_or(true)
-        {
-            return Err(MemberRelocApplyError::PatchSiteOutOfRange {
-                r_address: r.r_address,
-                length_bytes,
-                text_size,
-            });
-        }
+        check_site(r, length_bytes, text_size)?;
 
         let site_vaddr = member_vaddr + u64::from(r.r_address);
         patch_reloc_site(bytes, r, off, site_vaddr, target_vaddr)?;
     }
     Ok(())
+}
+
+/// What a site needs to be rewritten against a GOT slot instead of
+/// relaxed.
+struct GotSite<'a, 'm> {
+    member: &'a ArMember<'m>,
+    symtab: &'a MemberSymtab,
+    got_slots: &'a SymTable,
+    member_vaddr: u64,
+}
+
+impl GotSite<'_, '_> {
+    /// Patch `r` as a load of its GOT slot when its target is one of the
+    /// slotted names. True when it did.
+    fn try_patch(
+        &self,
+        bytes: &mut [u8],
+        r: &MemberRelocEntry,
+        pending_addend: i64,
+        text_size: usize,
+    ) -> Result<bool, MemberRelocApplyError> {
+        if self.got_slots.is_empty() || r.r_extern == 0 {
+            return Ok(false);
+        }
+        let Some((name, slot_vaddr)) = got_slot_for(r, self.member, self.symtab, self.got_slots)?
+        else {
+            return Ok(false);
+        };
+        check_site(r, 4, text_size)?;
+        let site_vaddr = self.member_vaddr + u64::from(r.r_address);
+        patch_got_slot_site(bytes, r, pending_addend, name, site_vaddr, slot_vaddr)?;
+        Ok(true)
+    }
+}
+
+fn check_site(
+    r: &MemberRelocEntry,
+    length_bytes: u32,
+    text_size: usize,
+) -> Result<(), MemberRelocApplyError> {
+    match (r.r_address as usize).checked_add(length_bytes as usize) {
+        Some(end) if end <= text_size => Ok(()),
+        _ => Err(MemberRelocApplyError::PatchSiteOutOfRange {
+            r_address: r.r_address,
+            length_bytes,
+            text_size,
+        }),
+    }
+}
+
+/// The GOT slot for a named reloc whose target is in `got_slots`.
+fn got_slot_for<'a>(
+    r: &MemberRelocEntry,
+    member: &ArMember<'a>,
+    symtab: &MemberSymtab,
+    got_slots: &SymTable,
+) -> Result<Option<(&'a str, u64)>, MemberRelocApplyError> {
+    if r.r_symbolnum >= symtab.nsyms {
+        return Err(MemberRelocApplyError::SymbolnumOutOfRange {
+            r_symbolnum: r.r_symbolnum,
+            nsyms: symtab.nsyms,
+        });
+    }
+    let name = read_nlist_name(member, symtab, r.r_symbolnum)?;
+    Ok(got_slots.get(name).map(|&slot| (name, slot)))
 }
 
 /// Resolve one non-ADDEND reloc's raw symbol vaddr.
