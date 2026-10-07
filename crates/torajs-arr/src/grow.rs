@@ -114,7 +114,7 @@ pub(crate) unsafe fn grow_slots_as_holes(arr: *mut u8, old: u64, new_n: u64, fil
 /// fast path: head + len < cap → store immediately
 /// need-room:
 ///   if head > 0: memmove(data, data + head*8, len*8); head = 0  // T-13.5 compact
-///   if len == cap: grow_data_buffer(grown_cap(cap))
+///   if len * 2 >= cap: grow_data_buffer(grown_cap(cap))
 /// store: *(arr_data(arr) + (head + len)*8) = val; len += 1
 /// ```
 ///
@@ -150,7 +150,14 @@ pub unsafe extern "C" fn __torajs_arr_push(arr: *mut u8, val: i64) -> *mut u8 {
                 *(arr.add(ARR_HDR_HEAD_OFF) as *mut u32) = 0;
             }
         }
-        if len == cap {
+        // A fold that would leave the buffer half full or more grows
+        // it as well: the next fold is then more than `len` pushes
+        // away, so a queue moves at most one slot per push. A fold into
+        // a buffer just over half full came back after a handful of
+        // pushes and moved the whole queue each time. With no head
+        // (len == cap here, an empty cap-0 block included) it grows,
+        // as before.
+        if len * 2 >= cap {
             unsafe { grow_data_buffer(arr, grown_cap(cap as u64)) };
         }
     }
