@@ -102,16 +102,13 @@ pub(crate) fn try_dispatch(
             let _ = ctx.lower_expr(a);
         }
         // Rotation 364 — an argv-face comparator (body reads
-        // `arguments` values) must not take the direct call: its
-        // reshaped sig leads with the synthetic argv pointer. The
-        // predicate routes it through the boxed variadic dispatch
-        // (`emit_argv_face_call`) with the §23.1.3.30.2 «x, y» pair.
-        // The helper fast path self-excludes (its gate requires the
-        // params to equal the element type; the argv head never does).
-        let argv_face = cmp_val.is_some()
-            && args.first().is_some_and(|&a0| {
-                crate::ast::argv_face_callback::lane_takes_argv_face(ctx.ast, a0)
-            });
+        // `arguments` values, or typed slots fed `any` elements) takes
+        // the boxed variadic dispatch (`emit_argv_face_call`) with the
+        // §23.1.3.30.2 «x, y» pair, never the direct call. The helper
+        // fast path self-excludes (its gate requires the params to
+        // equal the element type; neither face has them).
+        let argv_face = matches!((args.first(), cmp_ty), (Some(&a0), Some(t))
+            if crate::ssa_lower_call_arr_ho::cb_face::cb_takes_argv_face(ctx, a0, t, recv_ty));
         // RFC 20260905 residue 1 — a promoted comparator (the same
         // static test the HOF lane makes) owns a leading `__this`;
         // §23.1.3.30.2 binds it undefined. The helper fast path reads

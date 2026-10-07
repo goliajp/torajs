@@ -43,6 +43,7 @@ mod cycle;
 mod escape;
 mod fallthrough;
 mod fnsig;
+mod hof_receivers;
 mod json_seed;
 mod lattice;
 mod let_names;
@@ -259,6 +260,8 @@ pub(super) struct Analysis<'a> {
     mag: magnitude::MagRecord,
     /// Operands of the `-x` that cannot answer -0 (`nonzero_neg`).
     pub(super) nonzero_negs: HashSet<ExprId>,
+    /// The arrays a callback-taking iteration walks (`hof_receivers`).
+    pub(super) hof_receivers: Vec<(ExprId, SlotKey)>,
 }
 
 /// Full analysis result — the F64 slot classes plus the container
@@ -317,6 +320,7 @@ pub(crate) fn analyze(
         sentinel_member_reads: HashSet::new(),
         mag: Default::default(),
         nonzero_negs,
+        hof_receivers: Vec::new(),
     };
 
     // Top-level statements walk under the "" scope; fn bodies under
@@ -334,7 +338,7 @@ pub(crate) fn analyze(
     // body hands the sentinel back, and returning a parameter that a
     // call site tainted is one of the ways it can. The two answers
     // feed each other, so they are closed together first.
-    let tables = close_sentinel_tables(&a, &ast.stmts);
+    let mut tables = close_sentinel_tables(&a, &ast.stmts);
     // Those tables answer by name; the widths the walk is about to
     // assign also need the two shapes that have no name (see
     // `sentinel_member_reads`), and they need them before the walk
@@ -426,7 +430,8 @@ pub(crate) fn analyze(
         .chain(a.escape_only_seeds.iter())
         .cloned()
         .collect();
-    let any_escaped = escape::propagate(&escape_seeds, &a.uf, &a.containerish);
+    let (any_escaped, escaped_hof_receivers) =
+        hof_receivers::settle(&a, escape_seeds, &mut tables.params);
     // W4 shape-join (rotation 371; doc on the collector — sibling
     // `analyze_tables.rs`).
     let objlit_shape_f64 = analyze_tables::collect_objlit_shape_f64(ast, &a, &canon_out);
@@ -434,6 +439,7 @@ pub(crate) fn analyze(
     WidthTable::new(
         canon_out,
         any_escaped,
+        escaped_hof_receivers,
         a.uf,
         a.container_poison,
         a.nominal_aliases,

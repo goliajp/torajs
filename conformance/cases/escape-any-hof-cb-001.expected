@@ -1,0 +1,21 @@
+map object,string,undefined,number
+forEach object {
+  k: 1,
+}
+forEach string s
+forEach undefined undefined
+forEach number 4
+filter 1
+reduce objectstringundefinednumber
+reduceRight numberundefinedstringobject
+some true
+every false
+find s
+findIndex 2
+findLast 4
+findLastIndex 0
+from object,string,undefined,number
+index object0,string1,undefined2,number3
+source 1
+bound object,string,undefined,number
+sort true number,number,object,string

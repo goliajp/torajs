@@ -83,8 +83,36 @@ pub(in crate::check_monomorph_any_widen) fn run(
     mono_decls: &mut Vec<Stmt>,
     retired: &HashSet<String>,
 ) -> bool {
+    let names = loose_closures(c, owned_ast);
+    mint(
+        c,
+        owned_ast,
+        generics,
+        cache,
+        worklist,
+        call_retargets,
+        mono_decls,
+        retired,
+        names,
+    )
+}
+
+/// Mint the twin of each of the lifted closures `names` that has none
+/// yet and can take one. True when one was minted.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn mint(
+    c: &mut Checker,
+    owned_ast: &mut Ast,
+    generics: &Generics,
+    cache: &mut HashMap<(String, Vec<String>), String>,
+    worklist: &mut VecDeque<WorkItem>,
+    call_retargets: &mut HashMap<ExprId, String>,
+    mono_decls: &mut Vec<Stmt>,
+    retired: &HashSet<String>,
+    names: Vec<String>,
+) -> bool {
     let mut minted = false;
-    for name in loose_closures(c, owned_ast) {
+    for name in names {
         let twin = twin_name(&name);
         if retired.contains(&name)
             || c.globals.contains_key(&twin)

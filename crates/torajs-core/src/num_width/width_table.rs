@@ -23,6 +23,9 @@ pub(crate) struct WidthTable {
     /// annotated slots (escape.rs); the widen site re-interns their
     /// Arr elems as Type::Any.
     any_escaped: HashSet<SlotKey>,
+    /// The arrays of callback-taking iterations whose class is in
+    /// `any_escaped` (`hof_receivers.rs`).
+    escaped_hof_receivers: HashSet<ExprId>,
     uf: UnionFind,
     container_poison: bool,
     /// D5 — cyclic plain-alias names (see `alias.rs`); the TypeDecl
@@ -110,6 +113,7 @@ impl WidthTable {
     pub(super) fn new(
         canon: HashSet<SlotKey>,
         any_escaped: HashSet<SlotKey>,
+        escaped_hof_receivers: HashSet<ExprId>,
         uf: UnionFind,
         container_poison: bool,
         nominal_aliases: HashSet<String>,
@@ -130,6 +134,7 @@ impl WidthTable {
         WidthTable {
             canon,
             any_escaped,
+            escaped_hof_receivers,
             uf,
             container_poison,
             nominal_aliases,
@@ -270,6 +275,12 @@ impl WidthTable {
     /// the `any` world (its frozen class rep carries an escape face).
     pub(crate) fn slot_escapes_any(&self, k: &SlotKey) -> bool {
         !self.any_escaped.is_empty() && self.any_escaped.contains(&canon_key_frozen(&self.uf, k))
+    }
+
+    /// Is `recv`, the array of a callback-taking iteration, one whose
+    /// class escapes into the `any` world?
+    pub(crate) fn hof_receiver_escapes(&self, recv: ExprId) -> bool {
+        self.escaped_hof_receivers.contains(&recv)
     }
 
     pub(crate) fn elem_is_f64(&self, holder: &SlotKey) -> bool {

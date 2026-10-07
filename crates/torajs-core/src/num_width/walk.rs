@@ -222,7 +222,7 @@ impl<'a> Analysis<'a> {
                 self.walk_expr(*target, scope);
                 self.walk_expr(*value, scope);
             }
-            Expr::Call { callee, args } => self.walk_call(eid, *callee, args, scope),
+            Expr::Call { callee, args } => self.walk_call_site(eid, *callee, args, scope),
             Expr::BinOp { op, left, right } => {
                 if matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul) {
                     self.record_arith(eid, scope);

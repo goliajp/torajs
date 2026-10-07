@@ -11,6 +11,8 @@
 //! M6.1 / `<recv>.<method>` path so they never enter this arm; a non-Arr
 //! receiver here is a hard type error.
 
+pub(crate) mod cb_face;
+
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{FuncId, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
@@ -168,13 +170,12 @@ fn lower_higher_order(
     // accumulators answer no token. Each loop copy parks the dst itself
     // (`emit_hof_loop`), once its pre-reserve shape is known.
     let acc_tok = acc_slot.and_then(|s| ctx.push_throw_typed_slot(s, acc_ty));
-    // Rotation 363 — an argv-face callback (the inline fn-expr
-    // whose body reads `arguments` values; collector doc at
-    // `arguments_object_collect::collect_hof_anon_argv`) must not
-    // take the direct / devirt call: its reshaped sig leads with the
-    // synthetic argv pointer. The loop body routes it through the
-    // boxed variadic dispatch instead (emit_argv_face_call).
-    let argv_face = crate::ast::argv_face_callback::lane_takes_argv_face(ctx.ast, args[0]);
+    // Rotation 363 — an argv-face callback (one reading `arguments`
+    // values, or typed slots fed `any` elements: `cb_takes_argv_face`)
+    // takes the boxed variadic dispatch (emit_argv_face_call), never a
+    // direct / devirt call.
+    let argv_face =
+        crate::ssa_lower_call_arr_ho::cb_face::cb_takes_argv_face(ctx, args[0], fn_ty, arr_ty);
     let plan = HofLoop {
         method: &method,
         src_arr,

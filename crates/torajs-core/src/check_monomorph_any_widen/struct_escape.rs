@@ -54,6 +54,7 @@
 use std::collections::{HashMap, VecDeque};
 
 pub(super) mod closure;
+pub(crate) mod escaped_cb;
 mod target;
 mod typed_sites;
 use super::{RetFace, emit_widened_spec};
