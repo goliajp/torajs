@@ -68,24 +68,27 @@
 //!   rewrites. A value use never names the declaration itself (it
 //!   names the `__forward_` relay).
 //!
-//! **Which one-slot heads.** Only the twins (`ast.smany_twins`) and
-//! the promoted declarations (`ast.this_param_fns`). A `__cm_` method
-//! is NOT admitted, measured in rotation 616 by lifting the `__ctor`
-//! restriction and rebuilding: an admitted `__cm_P__m` reached from
-//! `super.m(...xs)` answers `vtable slot 0 of hierarchy \`P\` holds
-//! two different signatures`. A method that a `super.m` site can name
-//! is by construction on an inheritance chain, and every override
-//! sharing a vtable slot has to share a signature — so the whole
-//! chain would have to move together or not at all. There was nothing
-//! to gain by widening either: an ordinary `recv.m(...xs)` is already
-//! answered, because `spread_method_demote` restores the member-call
-//! shape and the runtime any-method lane carries the count natively.
-//! A twin and a promoted declaration have no vtable slot.
+//! **Which one-slot heads.** The twins (`ast.smany_twins`), the
+//! promoted declarations (`ast.this_param_fns`), and — on the argc
+//! tier only — a single-owner `__cm_` method whose body reads nothing
+//! but `arguments.length` ([`method_admits`]). A method that some
+//! `super.m` / vtable / `__dispatch_` lane can name is excluded: every
+//! override sharing a vtable slot has to share a signature (admitting
+//! one answers `vtable slot 0 of hierarchy \`P\` holds two different
+//! signatures`), so the whole slot would have to move together. A method is also excluded when
+//! lowering calls it by its spelled name rather than through the
+//! direct-call terminal or the boxed adapter (the iterator protocol,
+//! `toJSON`, `then`, class accessors). Argc lives in the SSA
+//! signature only, so a defaulted or optional parameter composes:
+//! the terminal answers the count the source wrote
+//! (`default_padded_argc`), not the padded one.
 
+mod method;
 use super::arguments_object_walkers::{
     body_has_any_arguments_touch, body_has_non_length_arguments_touch,
 };
 use super::{Ast, Expr, Stmt};
+use method::collect_method_argc;
 
 /// Collect the this-first bodies that want a runtime argc channel
 /// (`argc`, name → head width) and the subset that also wants the
@@ -116,20 +119,8 @@ pub(super) fn collect_this_first_argv(
         if excluded.contains(name) || static_argv.contains_key(name) {
             continue;
         }
-        // The synthetic head slots must be present and in this
-        // order — the injection point and the SSA hidden-argc test
-        // are both positional. A ctor carries two; the others one.
-        if params.first().is_none_or(|p| p.name != "__this") {
+        let Some(head) = head_width(params, is_ctor) else {
             continue;
-        }
-        // A plain function reading `new.target` carries the ctor's
-        // two slots too (`new_target_param.rs`).
-        let head = if params.get(1).is_some_and(|p| p.name == "__new_target") {
-            2
-        } else if is_ctor {
-            continue;
-        } else {
-            1
         };
         if params.iter().any(|p| p.default.is_some() || p.is_rest) {
             continue;
@@ -162,7 +153,30 @@ pub(super) fn collect_this_first_argv(
             out.argv.insert(name.clone(), head);
         }
     }
+    out.argc.extend(
+        collect_method_argc(ast, excluded, static_argv)
+            .into_iter()
+            .map(|n| (n, 1)),
+    );
     out
+}
+
+/// The head a this-first declaration carries. The synthetic head
+/// slots must be present and in this order — the injection point and
+/// the SSA hidden-argc test are both positional. A ctor carries two;
+/// the others one, except that a plain function reading `new.target`
+/// carries the ctor's two slots too (`new_target_param.rs`).
+fn head_width(params: &[super::Param], is_ctor: bool) -> Option<usize> {
+    if params.first().is_none_or(|p| p.name != "__this") {
+        return None;
+    }
+    if params.get(1).is_some_and(|p| p.name == "__new_target") {
+        Some(2)
+    } else if is_ctor {
+        None
+    } else {
+        Some(1)
+    }
 }
 
 /// The two this-first tiers `collect_this_first_argv` answers.
