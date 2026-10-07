@@ -1,0 +1,16 @@
+reduce 153[object Object]
+map 2,51,4,[object Object]1 string string
+filter 2
+some/every true false
+find 5
+findIndex 3
+flatMap number,string,number,object
+from number,string,number,object
+from product 2,51,4,[object Object]1 string
+sort 1,2,3
+undefined number,undefined,number
+sum 10
+reduceRight 4321
+sum kind number 20
+doubled 2,4,6,8 20
+untyped 3,6,9,12 number

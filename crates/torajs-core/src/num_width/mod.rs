@@ -425,14 +425,7 @@ pub(crate) fn analyze(
 
     // W-ESC — escape faces resolve to frozen class reps (+ Elem-chain
     // contagion for nested containers).
-    let escape_seeds: Vec<SlotKey> = a
-        .any_seeds
-        .iter()
-        .chain(a.escape_only_seeds.iter())
-        .cloned()
-        .collect();
-    let (any_escaped, escaped_hof_receivers) =
-        hof_receivers::settle(&a, escape_seeds, &mut tables.params);
+    let (any_escaped, escaped_hof_receivers) = hof_receivers::settle(&a, &mut tables.params);
     // W4 shape-join (rotation 371; doc on the collector — sibling
     // `analyze_tables.rs`).
     let objlit_shape_f64 = analyze_tables::collect_objlit_shape_f64(ast, &a, &canon_out);

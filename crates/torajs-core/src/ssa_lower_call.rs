@@ -225,6 +225,10 @@ fn try_dispatch_a(
     if let Some(op) = crate::ssa_lower_call_array_is_array::try_lower(ctx, callee, args) {
         return Some(op);
     }
+    // `Array.from(iter, mapFn?)` — three iter shapes (string / typed Array<T> / Set).
+    if let Some(op) = crate::ssa_lower_call_array_from::try_lower(ctx, eid, callee, args) {
+        return Some(op);
+    }
     // `JSON.stringify(value, replacer?, space?)` — recursive type-aware serializer.
     if let Some(op) = crate::ssa_lower_call_json_stringify::try_lower(ctx, callee, args) {
         return Some(op);
@@ -241,23 +245,19 @@ fn try_dispatch_a(
     if let Some(op) = crate::ssa_lower_call_string_from_char_code::try_lower(ctx, callee, args) {
         return Some(op);
     }
-    // `String.raw(template, ...substitutions)` — dispatch to
-    // __torajs_string_raw kernel (walks template.raw + interleaved subs).
+    // `String.raw(template, ...subs)` — __torajs_string_raw kernel (template.raw + subs).
     if let Some(op) = crate::ssa_lower_call_string_raw::try_lower(ctx, callee, args) {
         return Some(op);
     }
-    // `Object.groupBy(items, cb)` — Array items lane, dispatch to
-    // __torajs_object_group_by kernel (walks arr + cb via any_call).
+    // `Object.groupBy(items, cb)` — __torajs_object_group_by kernel (arr + cb via any_call).
     if let Some(op) = crate::ssa_lower_call_object_group_by::try_lower(ctx, callee, args) {
         return Some(op);
     }
-    // `Map.groupBy(items, cb)` — sister to Object.groupBy;
-    // accumulator is a Map with SameValueZero keys.
+    // `Map.groupBy(items, cb)` — sister to Object.groupBy; a SameValueZero-keyed Map.
     if let Some(op) = crate::ssa_lower_call_map_group_by::try_lower(ctx, callee, args) {
         return Some(op);
     }
-    // §25.1.5.1 `ArrayBuffer.isView(arg)` — a question about the
-    // argument's heap tag.
+    // §25.1.5.1 `ArrayBuffer.isView(arg)` — a question about the argument's heap tag.
     if let Some(op) = crate::ssa_lower_call_arraybuffer_static::try_lower(ctx, callee, args) {
         return Some(op);
     }
@@ -339,10 +339,6 @@ fn try_dispatch_b(ctx: &mut LowerCtx<'_>, callee: ExprId, args: &[ExprId]) -> Op
     if let Some(op) =
         crate::ssa_lower_call_object_get_property_descriptor::try_lower(ctx, callee, args)
     {
-        return Some(op);
-    }
-    // `Array.from(iter, mapFn?)` — three iter shapes (string / typed Array<T> / Set).
-    if let Some(op) = crate::ssa_lower_call_array_from::try_lower(ctx, callee, args) {
         return Some(op);
     }
     // Class-synthesis register globals (__torajs_proto_register / class_register / ...).

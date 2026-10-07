@@ -1,0 +1,15 @@
+filter.map object,string,number,number
+slice.map object,string,number,number
+slice.filter 1
+map.map object,string,number,number
+concat.map object,string,number,number,number
+slice product [object Object]1,51,4,5 string
+filter.some true
+slice.reduce 0534
+bound object,string,number,number
+bound product [object Object]1,51,4,5
+from object,string,number,number
+from product [object Object]1,51,4,5 string
+named 4 11 2,3,11,5
+named total 28 2 true
+named for-of 28

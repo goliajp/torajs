@@ -56,13 +56,15 @@ fn iterated_array(ast: &Ast, callee: ExprId, args: &[ExprId]) -> Option<ExprId> 
     }
 }
 
-/// Close the escape faces over the iterations: propagate `seeds`
-/// (`escape::propagate`), and when an array a `map` / `flatMap` walks
-/// has escaped, its product joins them. The product holds what the
-/// callback answers, and the callback's all-`any` twin answers in any
-/// kind (`d.map(v => v + 1)` on a "5" element is "51"), so the product
-/// lowers as an `Arr<Any>` too, with every alias of it. Returns the
-/// escaped classes and the recorded arrays among them.
+/// Close the escape faces over the iterations: propagate the `any`
+/// and escape-only seeds (`escape::propagate`), and when an iteration
+/// that fills a product walks `any` elements, the product joins them.
+/// The product holds what the callback answers, and a callback fed
+/// `any` elements through a typed first parameter answers through its
+/// all-`any` twin in any kind (`d.map(v => v + 1)` on a "5" element is
+/// "51"), so the product lowers as an `Arr<Any>` too, with every alias
+/// of it. Returns the escaped classes and the recorded arrays among
+/// them.
 ///
 /// A callback over such an array, or over an `any[]`, can be handed
 /// `undefined` as its element, which a `number` slot holds as the
@@ -71,9 +73,9 @@ fn iterated_array(ast: &Ast, callee: ExprId, args: &[ExprId]) -> Option<ExprId> 
 /// (`typeof v`, printing `v`) answers `undefined`, not NaN.
 pub(super) fn settle(
     a: &Analysis<'_>,
-    mut seeds: Vec<SlotKey>,
     undef_params: &mut HashSet<(String, String)>,
 ) -> (HashSet<SlotKey>, HashSet<ExprId>) {
+    let mut seeds = [&a.any_seeds[..], &a.escape_only_seeds[..]].concat();
     let (any_escaped, escaped) = loop {
         let any_escaped = super::escape::propagate(&seeds, &a.uf, &a.containerish);
         let escaped: HashSet<ExprId> = a
@@ -85,7 +87,7 @@ pub(super) fn settle(
         let products: Vec<SlotKey> = a
             .hof_receivers
             .iter()
-            .filter(|(call, recv, _)| escaped.contains(recv) && builds_product(a.ast, *call))
+            .filter(|(call, recv, _)| any_elems(a, &escaped, *recv) && fills_any(a, *call))
             .map(|(call, _, _)| SlotKey::Anon(call.0))
             .filter(|k| !any_escaped.contains(&canon_key_frozen(&a.uf, k)))
             .collect();
@@ -101,26 +103,50 @@ pub(super) fn settle(
         let Some(recv) = iterated_array(a.ast, *callee, args) else {
             continue;
         };
-        let any_elems = escaped.contains(&recv)
-            || matches!(a.expr_types.get(&recv), Some(Type::Array(el)) if **el == Type::Any);
         let cb = if args.first() == Some(&recv) {
             args.get(1)
         } else {
             args.first()
         };
-        if any_elems && let (Some(idx), Some(&cb)) = (elem_param(a.ast, *callee), cb) {
+        if any_elems(a, &escaped, recv)
+            && let (Some(idx), Some(&cb)) = (elem_param(a.ast, *callee), cb)
+        {
             taint_param(a, &callback_fn_name(a, cb), idx, undef_params);
         }
     }
     (any_escaped, escaped)
 }
 
-/// Is `call` a `map` / `flatMap`, whose product the callback fills?
-fn builds_product(ast: &Ast, call: ExprId) -> bool {
-    let Expr::Call { callee, .. } = ast.get_expr(call) else {
+/// Does `recv` hand its callbacks `any` elements: an escaped typed
+/// array, or an `any[]`?
+fn any_elems(a: &Analysis<'_>, escaped: &HashSet<ExprId>, recv: ExprId) -> bool {
+    escaped.contains(&recv)
+        || matches!(a.expr_types.get(&recv), Some(Type::Array(el)) if **el == Type::Any)
+}
+
+/// Is `call` a `map` / `flatMap` / `Array.from` whose product a lifted
+/// closure with a typed first parameter fills? Only such a callback
+/// answers through a twin, in a kind its declared return does not
+/// spell. A function declaration passed by name has no twin, and a
+/// callback taking `any` already answers in its declared kind for
+/// every element; either leaves the product as typed as before.
+fn fills_any(a: &Analysis<'_>, call: ExprId) -> bool {
+    let Expr::Call { callee, args } = a.ast.get_expr(call) else {
         return false;
     };
-    matches!(ast.get_expr(*callee), Expr::Member { name, .. } if name == "map" || name == "flatMap")
+    let cb = match a.ast.get_expr(*callee) {
+        Expr::Member { name, .. } if name == "map" || name == "flatMap" => args.first(),
+        Expr::Member { name, .. } if name == "from" => args.get(1),
+        _ => None,
+    };
+    let Some(&cb) = cb else {
+        return false;
+    };
+    let fns = callback_fn_name(a, cb);
+    !fns.is_empty()
+        && fns.iter().all(|f| f.starts_with("__closure_"))
+        && matches!(a.expr_types.get(&cb), Some(Type::Function(ps, _))
+            if ps.first().is_some_and(|p| *p != Type::Any))
 }
 
 /// The callback parameter an iteration hands the element to. `sort`

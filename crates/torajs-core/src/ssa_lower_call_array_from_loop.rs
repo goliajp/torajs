@@ -6,6 +6,7 @@
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{BinOp as SsaBinOp, FuncId, IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, PreReserveState, intern_arr_layout};
+use crate::ssa_lower_call_arr_ho::cb_face::cb_face;
 
 /// S151 — `Array.from(iter, mapFn)` per ES §23.1.2.1. mapFn shape:
 /// `(elem) → R` or `(elem, idx) → R`. Strategy: walk `src_arr_op`, per-elem
@@ -109,6 +110,7 @@ pub(crate) fn emit_map_loop(
     ctx: &mut LowerCtx<'_>,
     src_arr_op: Operand,
     args: &[ExprId],
+    eid: ExprId,
 ) -> Operand {
     let src_arr_val = match src_arr_op {
         Operand::Value(v) => v,
@@ -119,14 +121,14 @@ pub(crate) fn emit_map_loop(
         Type::Arr(id) => ctx.arr_layouts[id.0 as usize],
         _ => unreachable!(),
     };
-    // Rotation 364 — an argv-face mapFn (body reads `arguments`
-    // values) must not take the direct / devirt call: its reshaped
-    // sig leads with the synthetic argv pointer. The loop routes it
-    // through the boxed variadic dispatch (`emit_argv_face_call`)
-    // with the full §23.1.2.1 «kValue, k» pair; the declared ret
-    // still drives the dst layout — the variadic conv unboxes the
-    // result back to it.
-    let argv_face = crate::ast::argv_face_callback::lane_takes_argv_face(ctx.ast, args[1]);
+    let fn_val = ctx.lower_expr(args[1]);
+    // Rotation 364 — an argv-face mapFn (one reading `arguments`
+    // values, or typed slots fed `any` elements: `cb_face`) takes the
+    // boxed variadic dispatch (`emit_argv_face_call`) with the full
+    // §23.1.2.1 «kValue, k» pair, never the direct / devirt call. The
+    // ret of the face drives the dst layout; the conv unboxes to it.
+    let fn_ty = ctx.operand_ty(&fn_val);
+    let (fn_ty, argv_face) = cb_face(ctx, args[1], fn_ty, src_arr_ty, "from", eid);
     let known_fid: Option<FuncId> = if argv_face {
         None
     } else {
@@ -136,8 +138,6 @@ pub(crate) fn emit_map_loop(
             _ => None,
         }
     };
-    let fn_val = ctx.lower_expr(args[1]);
-    let fn_ty = ctx.operand_ty(&fn_val);
     let (this_arg, this_temp) = lower_promoted_this(ctx, args);
     let (sig_params, dst_elem_ty) = match fn_ty {
         Type::FnSig(s) | Type::Closure(s) => {

@@ -32,11 +32,11 @@ pub(crate) fn cb_takes_argv_face(
 /// `eid`. When `any` elements send the callback through its boxed
 /// entry, its answer is what the twin may give back in any kind
 /// (`d.map(v => v + 1)` on a "5" element answers "51"), and the
-/// declared return would convert it. A `map` / `flatMap` whose product
-/// the width analysis lowers as `Arr<Any>` (`num_width::hof_receivers`)
-/// and a `reduce` accumulator of a scalar kind keep the answer as the
-/// box it comes back in: the callback is called through a face
-/// returning `any`.
+/// declared return would convert it. A `map` / `flatMap` /
+/// `Array.from` whose product the width analysis lowers as `Arr<Any>`
+/// (`num_width::hof_receivers`) and a `reduce` accumulator of a scalar
+/// kind keep the answer as the box it comes back in: the callback is
+/// called through a face returning `any`.
 pub(crate) fn cb_face(
     ctx: &mut LowerCtx<'_>,
     cb: ExprId,
@@ -57,7 +57,7 @@ pub(crate) fn cb_face(
         Type::F64 | Type::I64 | Type::I32 | Type::Bool | Type::Str
     );
     let keep = match method {
-        "map" | "flatMap" => {
+        "map" | "flatMap" | "from" => {
             ret != Type::Void && ctx.num_f64_slots.slot_escapes_any(&SlotKey::Anon(eid.0))
         }
         "reduce" | "reduceRight" => scalar,

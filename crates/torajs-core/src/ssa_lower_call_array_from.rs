@@ -29,6 +29,7 @@ use crate::ssa_lower_call_array_from_loop::{emit_map_loop, from_mapfn_promoted};
 /// Try to lower `Array.from(...)`. Returns `Some` when dispatched.
 pub(crate) fn try_lower(
     ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
     callee: ExprId,
     args: &[ExprId],
 ) -> Option<Operand> {
@@ -68,9 +69,8 @@ pub(crate) fn try_lower(
         return Some(emit_kernel_route(ctx, args));
     }
     // S275 — widen `== 1 || == 2` to `>= 1`. The 2-arg path below handles
-    // iter+mapFn; trailing args (thisArg + extras) are eval-and-dropped
-    // at the end so side-effect exprs fire per ES §23.1.2.1 trailing-arg
-    // ignore.
+    // iter+mapFn; trailing args (thisArg + extras) are eval-and-dropped at
+    // the end so side-effect exprs fire per §23.1.2.1 trailing-arg ignore.
     let arg_op = ctx.lower_expr(args[0]);
     // §23.1.2.1 step 4 is GetMethod(items, @@iterator), which reads a
     // property off `items` — a TypeError for undefined. The typed
@@ -96,7 +96,7 @@ pub(crate) fn try_lower(
     for &a in args.iter().skip(promoted_skip) {
         let _ = ctx.lower_expr(a);
     }
-    Some(emit_map_loop(ctx, src_arr_op, args))
+    Some(emit_map_loop(ctx, src_arr_op, args, eid))
 }
 
 /// The B6 刀 3 kernel route: box (src, mapFn, thisArg) and call
