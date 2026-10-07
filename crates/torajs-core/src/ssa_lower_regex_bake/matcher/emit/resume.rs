@@ -6,15 +6,25 @@
 //! leading run state, one unit past the position the run ended at:
 //! every start inside the run would have reached the run state at
 //! that same position and died the same way.
+//!
+//! An attempt clears only the slots an accept can answer with before
+//! the attempt wrote them (`slots_unset_at_accept`): every other slot
+//! is written on every path to every accept, so a dead attempt's
+//! writes never reach an answer. A resumed scan starts its attempt at
+//! state 0 like any other, so the analysis from state 0 holds for it.
 
 use crate::ssa::{BlockId, Operand, Terminator, ValueId};
 
 use super::Emit;
 
 impl Emit<'_> {
-    /// a fresh attempt: every group unset, no accept yet
+    /// A fresh attempt: every group an accept could answer with
+    /// unwritten is unset, and no accept yet. Clearing `last` here
+    /// rather than once at entry keeps it the constant -1 on every
+    /// path from an attempt's start, so the promoted walk carries no
+    /// `last` across attempts.
     pub(super) fn begin_attempt(&mut self, blk: BlockId) {
-        for slot in 2..self.ir.stride {
+        for slot in self.ir.slots_unset_at_accept() {
             self.store(blk, Operand::ConstI64(-1), self.out, 8 * slot as u64);
         }
         self.store(blk, Operand::ConstI64(-1), self.last_slot, 0);
