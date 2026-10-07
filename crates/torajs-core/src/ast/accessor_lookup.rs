@@ -5,7 +5,9 @@
 //! the program-wide getter union) that the sentinel tables ask.
 
 mod chain;
-pub(crate) use chain::{accessor_getter_in_chain, accessor_setter_in_chain, getter_may_run};
+pub(crate) use chain::{
+    accessor_getter_in_chain, accessor_setter_in_chain, declared_setter_in_chain, getter_may_run,
+};
 
 use std::collections::HashMap;
 

@@ -40,7 +40,7 @@ pub(crate) fn accessor_getter_in_chain(
         other: &ast.accessor_setters,
         suffix: "_get",
     };
-    accessor_in_chain(&faces, ast, cls_key, prop)
+    accessor_in_chain(&faces, ast, cls_key, prop, true)
 }
 
 /// The setter twin of [`accessor_getter_in_chain`]; a pair that lacks
@@ -51,7 +51,19 @@ pub(crate) fn accessor_setter_in_chain(
     cls_key: &str,
     prop: &str,
 ) -> Option<AccessorHit> {
-    accessor_in_chain(&setter_faces(ast), ast, cls_key, prop)
+    accessor_in_chain(&setter_faces(ast), ast, cls_key, prop, true)
+}
+
+/// The setter the static type `cls_key` declares for `prop`, whatever
+/// a subclass redeclares: what the checker holds a write to. A value
+/// that setter refuses is a type error whichever instance arrives at
+/// runtime; the lowering asks [`accessor_setter_in_chain`].
+pub(crate) fn declared_setter_in_chain(
+    ast: &Ast,
+    cls_key: &str,
+    prop: &str,
+) -> Option<AccessorHit> {
+    accessor_in_chain(&setter_faces(ast), ast, cls_key, prop, false)
 }
 
 fn setter_faces(ast: &Ast) -> Faces<'_> {
@@ -122,6 +134,7 @@ fn accessor_in_chain(
     ast: &Ast,
     cls_key: &str,
     prop: &str,
+    per_instance: bool,
 ) -> Option<AccessorHit> {
     let (head, mut subst) = seed_subst(ast, cls_key)?;
     let prop_key = PropKey::from(prop);
@@ -130,7 +143,7 @@ fn accessor_in_chain(
         let c = cur?;
         let key = (c.clone(), prop_key.clone());
         if let Some(f) = faces.this.get(&key) {
-            if face_varies_below(faces, ast, head, &prop_key) {
+            if per_instance && face_varies_below(faces, ast, head, &prop_key) {
                 return None;
             }
             return Some(AccessorHit {

@@ -87,48 +87,28 @@ pub(super) fn try_accessor_setter(
         _ => return Ok(None),
     };
     // Blade 2 (rotation 413) — the pair may live on an ANCESTOR
-    // (§10.1.9 walks the prototype chain). A generic declarer's hit
-    // substitutes the setter's value-param TypeVars (blade 3) so the
-    // assignability check runs against the instantiated type; the
-    // LOWERING of that hit still rides the any-lane (a setter has no
-    // recorded call site to retarget yet — RFC residual).
-    let Some(hit) = crate::ast::accessor_lookup::accessor_setter_in_chain(ast, &cls, field) else {
+    // (§10.1.9 walks the prototype chain). A subclass redeclaring the
+    // property sends the write to the any-member lane (`per_instance`
+    // false), but the value is still held to the setter the static
+    // type declares: refusing it is the type error whichever instance
+    // arrives.
+    use crate::ast::accessor_lookup::{accessor_setter_in_chain, declared_setter_in_chain};
+    let (hit, per_instance) = match accessor_setter_in_chain(ast, &cls, field) {
+        Some(hit) => (hit, true),
+        None => match declared_setter_in_chain(ast, &cls, field) {
+            Some(hit) => (hit, false),
+            None => return Ok(None),
+        },
+    };
+    let Some((setter_param_ty, type_args)) = setter_value_ty(checker, ast, &hit) else {
         return Ok(None);
     };
-    let setter_fn = hit.fn_name.clone();
-    let Some(Type::Function(params, _ret)) = checker.globals.get(&setter_fn).cloned() else {
-        return Ok(None);
-    };
-    let at = 1 + usize::from(ast.method_argv_fns.contains(&setter_fn));
-    let Some(mut setter_param_ty) = params.get(at).cloned() else {
-        return Ok(None);
-    };
-    if let Some(tps) = checker.generic_type_params.get(&setter_fn).cloned() {
-        let mut submap: std::collections::HashMap<String, Type> = std::collections::HashMap::new();
-        for (k, ann) in &hit.subst {
-            let Some(t) = crate::check_type_ann::resolve_type_ann_full(
-                ann,
-                &checker.aliases,
-                &[],
-                &checker.generic_alias_decls,
-            ) else {
-                return Ok(None);
-            };
-            submap.insert(k.clone(), t);
-        }
-        let Some(type_args) = tps
-            .iter()
-            .map(|tp| submap.get(tp).cloned())
-            .collect::<Option<Vec<_>>>()
-        else {
-            return Ok(None);
-        };
-        setter_param_ty = crate::check::substitute_typevars(&setter_param_ty, &submap);
-        // Record the write site so the mono pass emits the setter
-        // specialization and the lowering retargets its direct call.
+    // Record the write site so the mono pass emits the setter
+    // specialization and the lowering retargets its direct call.
+    if per_instance && let Some(type_args) = type_args {
         checker
             .generic_call_sites
-            .insert(site, (setter_fn.clone(), type_args));
+            .insert(site, (hit.fn_name.clone(), type_args));
     }
     let value_ty = checker.type_of(ast, value)?;
     if !is_assignable_to_resolved(
@@ -142,5 +122,48 @@ pub(super) fn try_accessor_setter(
             "type mismatch assigning to accessor `{cls}.{field}`: setter expects {setter_param_ty:?}, value is {value_ty:?}"
         ));
     }
-    Ok(Some(setter_param_ty))
+    // the any-member lane's write answers like a dynamic write's
+    Ok(Some(if per_instance {
+        setter_param_ty
+    } else {
+        Type::Any
+    }))
+}
+
+/// The value-param type of the setter `hit` names. A generic
+/// declarer's (blade 3) substitutes its TypeVars through the walk's
+/// substitution so the check runs against the instantiated type, and
+/// answers the type args the mono pass needs; `None` when either does
+/// not resolve.
+fn setter_value_ty(
+    checker: &Checker,
+    ast: &Ast,
+    hit: &crate::ast::accessor_lookup::AccessorHit,
+) -> Option<(Type, Option<Vec<Type>>)> {
+    let Some(Type::Function(params, _ret)) = checker.globals.get(&hit.fn_name) else {
+        return None;
+    };
+    let at = 1 + usize::from(ast.method_argv_fns.contains(&hit.fn_name));
+    let ty = params.get(at)?.clone();
+    let Some(tps) = checker.generic_type_params.get(&hit.fn_name) else {
+        return Some((ty, None));
+    };
+    let mut submap: std::collections::HashMap<String, Type> = std::collections::HashMap::new();
+    for (k, ann) in &hit.subst {
+        let t = crate::check_type_ann::resolve_type_ann_full(
+            ann,
+            &checker.aliases,
+            &[],
+            &checker.generic_alias_decls,
+        )?;
+        submap.insert(k.clone(), t);
+    }
+    let type_args = tps
+        .iter()
+        .map(|tp| submap.get(tp).cloned())
+        .collect::<Option<Vec<_>>>()?;
+    Some((
+        crate::check::substitute_typevars(&ty, &submap),
+        Some(type_args),
+    ))
 }

@@ -29,6 +29,7 @@ use std::collections::HashMap;
 
 use super::{Ast, Stmt};
 
+pub(crate) mod ann_eq;
 mod params;
 pub use params::join_vtable_slot_params;
 
@@ -47,10 +48,11 @@ pub use params::join_vtable_slot_params;
 /// reaches for it when a body has both a value return and a
 /// reachable fall-through.
 ///
-/// Textual disagreement, not shape disagreement, is the trigger: a
+/// Type disagreement, not shape disagreement, is the trigger: a
 /// slot whose rows say `string` and `any` passes the emitter's shape
 /// check (both are words) and still hands the caller bits it will
-/// read as the wrong thing. Rows that agree are left alone, so a
+/// read as the wrong thing. Two spellings of one type are not a
+/// disagreement ([`ann_eq`]). Rows that agree are left alone, so a
 /// hierarchy that overrides `number` with `number` keeps its narrow
 /// slot and its narrow call.
 pub fn join_vtable_slot_returns(ast: &mut Ast) {
@@ -96,6 +98,7 @@ fn collect_cm_return_anns(ast: &Ast) -> HashMap<String, String> {
 /// two passes disagree about is a slot nobody checks.
 fn plan_slot_returns(ast: &Ast, anns: &HashMap<String, String>) -> HashMap<String, String> {
     let mut plan: HashMap<String, String> = HashMap::new();
+    let eq = ann_eq::AnnEq::new(ast);
     for (m, by_root) in slot_groups_by_name(ast) {
         let stub = dispatch_stub_names(anns.keys(), &m);
         // Per ROOT: a receiver only ever wears a row from its own
@@ -106,7 +109,7 @@ fn plan_slot_returns(ast: &Ast, anns: &HashMap<String, String>) -> HashMap<Strin
         let mut split = false;
         for rows in by_root.values() {
             let head = anns[&rows[0]].clone();
-            if rows.iter().any(|r| anns[r] != head) {
+            if rows.iter().any(|r| !eq.same(&anns[r], &head)) {
                 // Rows that really answer different things: the
                 // slot's type is their join, and `any` is the
                 // spelling that holds a value and the undefined at
@@ -128,6 +131,9 @@ fn plan_slot_returns(ast: &Ast, anns: &HashMap<String, String>) -> HashMap<Strin
         // match, and the honest answer is the join.
         heads.sort();
         heads.dedup();
+        if heads.iter().all(|h| eq.same(h, &heads[0])) {
+            heads.truncate(1);
+        }
         let want = if split || heads.len() != 1 {
             "any".to_string()
         } else {

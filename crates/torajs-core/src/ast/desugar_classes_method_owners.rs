@@ -171,22 +171,36 @@ fn add_accessor_owners<'a>(
 }
 
 /// The tails no slot may carry, read off the faces' declarations: a
-/// face whose body reads `arguments`.
+/// face whose body reads `arguments`, and a setter tail whose faces
+/// spell their parameters differently. The parameter join would widen
+/// such a slot to `any`, and the checker types a write by the
+/// receiver's setter declaration — widened, `b.v = "x"` against
+/// `set v(x: number)` would pass where the program must be refused.
 fn barred_tails<'a>(ast: &Ast, faces: &[(&str, &'a str, &str)]) -> HashSet<&'a str> {
     use super::arguments_object_walkers::body_has_arguments_length as len;
     use super::arguments_object_walkers::body_has_non_length_arguments_touch as touch;
     let by_fn: HashMap<&str, &'a str> = faces.iter().map(|(_, t, f)| (*f, *t)).collect();
+    let mut params: HashMap<&str, Vec<Option<&String>>> = HashMap::new();
     let mut out = HashSet::new();
     for s in super::toplevel_stmts_flat(ast) {
-        let Stmt::FnDecl { name, body, .. } = s else {
+        let Stmt::FnDecl {
+            name,
+            body,
+            params: ps,
+            ..
+        } = s
+        else {
             continue;
         };
         let Some(tail) = by_fn.get(name.as_str()) else {
             continue;
         };
-        if len(ast, body) || touch(ast, body) {
+        let anns: Vec<Option<&String>> = ps.iter().skip(1).map(|p| p.type_ann.as_ref()).collect();
+        if len(ast, body) || touch(ast, body) || params.get(tail).is_some_and(|seen| *seen != anns)
+        {
             out.insert(*tail);
         }
+        params.entry(tail).or_insert(anns);
     }
     out
 }
