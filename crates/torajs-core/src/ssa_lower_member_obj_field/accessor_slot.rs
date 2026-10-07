@@ -22,9 +22,28 @@ pub(crate) struct AccessorSlot {
     owners: Vec<String>,
 }
 
+/// The receiver's full class key (a generic instantiation keeps its
+/// arguments) when `obj` is statically a user class instance — the
+/// key the accessor walks start from.
+pub(crate) fn class_key_of(ctx: &LowerCtx<'_>, obj: ExprId) -> Option<String> {
+    match ctx.expr_types.get(&obj)? {
+        crate::check::Type::ClassRef(n)
+            if ctx
+                .ast
+                .class_parents
+                .contains_key(n.split('<').next().unwrap_or(n.as_str())) =>
+        {
+            Some(n.clone())
+        }
+        _ => None,
+    }
+}
+
 /// The slot a site must read when a strict descendant of the
 /// receiver's static class redeclares the pair; `None` when the
-/// resolved body is the only one an instance can be wearing.
+/// resolved body is the only one an instance can be wearing, or when
+/// the method-table name belongs to a regular method rather than an
+/// accessor face.
 pub(crate) fn find(
     ctx: &LowerCtx<'_>,
     cls_key: &str,
@@ -32,6 +51,9 @@ pub(crate) fn find(
     face_suffix: &str,
 ) -> Option<AccessorSlot> {
     let name = format!("{}{face_suffix}", mangle_key(&PropKey::from(prop)));
+    if !ctx.ast.accessor_slots.contains(&name) {
+        return None;
+    }
     let idx = ctx.ast.method_index.get(&name).copied()?;
     let owners = ctx.ast.method_owners.get(&name)?;
     let static_class = cls_key.split('<').next().unwrap_or(cls_key);

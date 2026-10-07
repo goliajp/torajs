@@ -212,7 +212,7 @@ pub fn desugar_classes(ast: &mut Ast) {
     super::desugar_classes_static_route::route_static_calls(ast, &inherited_static_owners);
     rewrite_static_member_accesses(ast, &static_member_rewrites, &class_index);
     reject_abstract_new(ast, &abstract_classes);
-    finalize_side_tables(
+    super::desugar_classes_method_owners::finalize_side_tables(
         ast,
         method_owners,
         accessor_getter_records,
@@ -391,47 +391,5 @@ fn reject_abstract_new(ast: &Ast, abstract_classes: &std::collections::HashSet<S
                 "M-OO.6: cannot instantiate abstract class `{class_name}` — use a concrete subclass"
             );
         }
-    }
-}
-
-/// Tail side-table population: multi-owner `method_owners` for the
-/// `__dispatch_<M>` runtime-tag dispatch (single-owner entries are
-/// statically rewritten already), T-24 name-sorted stable vtable slots
-/// in `method_index` (every overridden name, chain or not — see
-/// `desugar_classes_method_owners::vtable_methods`), and the P8.2
-/// accessor-record drain (done last so the maps are complete before
-/// any check / lower pass runs; duplicate (class, prop) entries are
-/// overwritten — the FnDecl-level redeclaration error halts the
-/// pipeline before they're consulted).
-fn finalize_side_tables(
-    ast: &mut Ast,
-    method_owners: std::collections::HashMap<String, Vec<String>>,
-    accessor_getter_records: Vec<(String, PropKey, String)>,
-    accessor_setter_records: Vec<(String, PropKey, String)>,
-) {
-    let mut method_owners = method_owners;
-    super::desugar_classes_method_owners::add_accessor_owners(
-        &mut method_owners,
-        accessor_getter_records
-            .iter()
-            .chain(accessor_setter_records.iter()),
-    );
-    let slots =
-        super::desugar_classes_method_owners::vtable_methods(&method_owners, &ast.class_parents);
-    ast.method_index = slots
-        .into_iter()
-        .enumerate()
-        .map(|(i, n)| (n, i as u32))
-        .collect();
-    ast.method_owners = method_owners
-        .into_iter()
-        .filter(|(_, owners)| owners.len() > 1)
-        .collect();
-
-    for (cname, prop, fn_name) in accessor_getter_records {
-        ast.accessor_getters.insert((cname, prop), fn_name);
-    }
-    for (cname, prop, fn_name) in accessor_setter_records {
-        ast.accessor_setters.insert((cname, prop), fn_name);
     }
 }

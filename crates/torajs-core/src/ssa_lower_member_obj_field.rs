@@ -174,17 +174,7 @@ fn try_accessor_getter(
     // this site in generic_call_sites, so the mono retarget names the
     // specialization (blade 3/4); no record means the read stays on
     // the any-lane via the final `?`.
-    let cls_key = match ctx.expr_types.get(&obj)? {
-        crate::check::Type::ClassRef(n)
-            if ctx
-                .ast
-                .class_parents
-                .contains_key(n.split('<').next().unwrap_or(n.as_str())) =>
-        {
-            n.clone()
-        }
-        _ => return None,
-    };
+    let cls_key = accessor_slot::class_key_of(ctx, obj)?;
     let hit = crate::ast::accessor_lookup::accessor_getter_in_chain(ctx.ast, &cls_key, name)?;
     let fid = match ctx.fn_table.get(&hit.fn_name).copied() {
         Some(f) => f,

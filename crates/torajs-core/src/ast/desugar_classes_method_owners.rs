@@ -10,8 +10,10 @@
 //!
 //! Phase I.1 rules enforced here:
 //!   * accessor methods (`get X` / `set X`) skipped — they route
-//!     through `__cm_<C>__X_get` / `_set` directly, not through
-//!     `__dispatch_<M>`.
+//!     through `__cm_<C>__X_get` / `_set` directly, never through
+//!     `__dispatch_<M>`. After the dispatchers and the call rewrite,
+//!     [`finalize_side_tables`] enters each face under `X_get` /
+//!     `X_set` so an overridden face takes a vtable slot.
 //!   * a method name is "chain" (gets `__dispatch_<M>`) iff
 //!     `owners[0]` (source-first) is an ancestor of every other
 //!     owner; otherwise sibling-class case stays Member-shape.
@@ -25,11 +27,11 @@
 //!     chain-only slot set left `(b: Base = new Leaf()).name()` on
 //!     `Base`'s body as soon as an unrelated `Alone.name()` existed).
 //!
-//! No `&mut Ast` mutation — same lowest-risk pure-fn extraction
-//! pattern as chunks 177/178/179.
+//! Only [`finalize_side_tables`] writes the `Ast`, as the desugar's
+//! last step.
 
 use super::desugar_classes_super::ClassIndexEntry;
-use super::{PropKey, mangle_key, method_owner_is_in_chain};
+use super::{Ast, PropKey, Stmt, mangle_key, method_owner_is_in_chain};
 use std::collections::{HashMap, HashSet};
 
 pub(super) fn compute_method_owners_and_chain_methods(
@@ -85,32 +87,108 @@ pub(super) fn compute_method_owners_and_chain_methods(
     (method_owners, chain_methods)
 }
 
+/// Tail side-table population: multi-owner `method_owners` for the
+/// `__dispatch_<M>` runtime-tag dispatch (single-owner entries are
+/// statically rewritten already), name-sorted stable vtable slots in
+/// `method_index` (every overridden name, chain or not — see
+/// [`vtable_methods`]), the accessor slots, and the accessor-record
+/// drain (done last so the maps are complete before any check / lower
+/// pass runs; duplicate (class, prop) entries are overwritten — the
+/// FnDecl-level redeclaration error halts the pipeline before they're
+/// consulted).
+pub(super) fn finalize_side_tables(
+    ast: &mut Ast,
+    mut method_owners: HashMap<String, Vec<String>>,
+    accessor_getter_records: Vec<(String, PropKey, String)>,
+    accessor_setter_records: Vec<(String, PropKey, String)>,
+) {
+    let faces = accessor_getter_records
+        .iter()
+        .chain(&accessor_setter_records);
+    ast.accessor_slots = add_accessor_owners(ast, &mut method_owners, faces);
+    let slots = vtable_methods(&method_owners, &ast.class_parents);
+    ast.method_index = slots
+        .into_iter()
+        .enumerate()
+        .map(|(i, n)| (n, i as u32))
+        .collect();
+    ast.method_owners = method_owners
+        .into_iter()
+        .filter(|(_, owners)| owners.len() > 1)
+        .collect();
+    for (cname, prop, fn_name) in accessor_getter_records {
+        ast.accessor_getters.insert((cname, prop), fn_name);
+    }
+    for (cname, prop, fn_name) in accessor_setter_records {
+        ast.accessor_setters.insert((cname, prop), fn_name);
+    }
+}
+
 /// Enter each instance accessor face under its symbol tail
 /// (`<key>_get` / `<key>_set`, the part of `__cm_<C>__<key>_get` after
 /// the class), so an overridden face takes a vtable slot like any
-/// overridden method. This runs after the dispatcher stubs and the
-/// call rewrite have read the table: nothing calls a face by name, so
-/// neither may see it. A face whose tail a regular method also spells
-/// stays out — the slot would mix the two — and its sites keep to the
-/// accessor walk, which routes a receiver with a redeclaring
-/// descendant through the any-member lane.
-pub(super) fn add_accessor_owners<'a>(
+/// overridden method; answers the tails entered. This runs after the
+/// dispatcher stubs and the call rewrite have read the table: nothing
+/// calls a face by name, so neither may see it.
+///
+/// A whole tail stays out when a regular method also spells it (the
+/// slot would mix the two) or when [`barred_tails`] bars it — a face
+/// reading `arguments` among them: the arguments-object faces size a
+/// method's argv from its direct calls and refuse every slot row. A
+/// barred face keeps its direct call, and a receiver with a
+/// redeclaring descendant takes the any-member lane, whose boxed call
+/// carries the real argv. Per tail, not per face: a slot missing one
+/// redeclaring class would hand that class's instances its ancestor's
+/// row.
+fn add_accessor_owners<'a>(
+    ast: &Ast,
     method_owners: &mut HashMap<String, Vec<String>>,
     records: impl Iterator<Item = &'a (String, PropKey, String)>,
-) {
-    let regular: HashSet<String> = method_owners.keys().cloned().collect();
-    for (cname, _, fn_name) in records {
-        let Some(tail) = fn_name.strip_prefix(&format!("__cm_{cname}__")) else {
-            continue;
-        };
-        if regular.contains(tail) {
+) -> HashSet<String> {
+    let faces: Vec<(&str, &str, &str)> = records
+        .filter_map(|(c, _, f)| {
+            let tail = f.strip_prefix(&format!("__cm_{c}__"))?;
+            Some((c.as_str(), tail, f.as_str()))
+        })
+        .collect();
+    let mut kept: HashSet<String> = HashSet::new();
+    let mut barred: HashSet<&str> = barred_tails(ast, &faces);
+    barred.extend(
+        faces
+            .iter()
+            .map(|f| f.1)
+            .filter(|t| method_owners.contains_key(*t)),
+    );
+    for (cname, tail, _) in faces {
+        if barred.contains(tail) {
             continue;
         }
-        method_owners
-            .entry(tail.to_string())
-            .or_default()
-            .push(cname.clone());
+        let owners = method_owners.entry(tail.to_string()).or_default();
+        owners.push(cname.to_string());
+        kept.insert(tail.to_string());
     }
+    kept
+}
+
+/// The tails no slot may carry, read off the faces' declarations: a
+/// face whose body reads `arguments`.
+fn barred_tails<'a>(ast: &Ast, faces: &[(&str, &'a str, &str)]) -> HashSet<&'a str> {
+    use super::arguments_object_walkers::body_has_arguments_length as len;
+    use super::arguments_object_walkers::body_has_non_length_arguments_touch as touch;
+    let by_fn: HashMap<&str, &'a str> = faces.iter().map(|(_, t, f)| (*f, *t)).collect();
+    let mut out = HashSet::new();
+    for s in super::toplevel_stmts_flat(ast) {
+        let Stmt::FnDecl { name, body, .. } = s else {
+            continue;
+        };
+        let Some(tail) = by_fn.get(name.as_str()) else {
+            continue;
+        };
+        if len(ast, body) || touch(ast, body) {
+            out.insert(*tail);
+        }
+    }
+    out
 }
 
 /// Name-sorted method names that need a vtable slot: every name some

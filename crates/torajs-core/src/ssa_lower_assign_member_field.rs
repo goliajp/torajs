@@ -20,33 +20,15 @@ pub(crate) fn try_lower_setter_call(
     field: &str,
     value: ExprId,
 ) -> Option<Operand> {
-    // P8.2 — accessor write: `c.value = v` where C declares
-    // `set value(n: T)`. desugar_classes renamed the setter's FnDecl
-    // to `__cm_<C>__<name>_set` and recorded
-    // `(C, name) → fn_name` in `ast.accessor_setters`. Emit a Call
-    // to the setter with `[obj_val, value]` and return the value
-    // (parallel to a normal Store which also evaluates to the
-    // value). Skips the struct field lookup + Store path below.
-    // RFC 20260715-nominal-class-identity — the setter's class comes
-    // from the receiver's NAME, not from whichever class shares its
-    // layout id.
-    // Blade 2 (rotation 413) — the pair may live on an ANCESTOR;
-    // walk the chain the way [[Set]] would, starting from the
-    // receiver's FULL ClassRef key. A generic declarer's setter has
-    // no fn_table entry under its bare name — the checker recorded
-    // this assign site in generic_call_sites, so the mono retarget
-    // names the specialization (blade 3/4).
-    let cls_key = match ctx.expr_types.get(&obj)? {
-        crate::check::Type::ClassRef(n)
-            if ctx
-                .ast
-                .class_parents
-                .contains_key(n.split('<').next().unwrap_or(n.as_str())) =>
-        {
-            n.clone()
-        }
-        _ => return None,
-    };
+    // P8.2 — accessor write `c.value = v`: call the setter
+    // `__cm_<C>__<name>_set` (recorded in `ast.accessor_setters`) with
+    // `[obj_val, value]` and evaluate to the value. The setter's class
+    // comes from the receiver's NAME, not its layout id, and may be an
+    // ANCESTOR (the [[Set]] walk starts from the full ClassRef key); a
+    // generic declarer's setter is reached through the mono retarget
+    // the checker recorded for this site.
+    use crate::ssa_lower_member_obj_field::accessor_slot;
+    let cls_key = accessor_slot::class_key_of(ctx, obj)?;
     let hit = crate::ast::accessor_lookup::accessor_setter_in_chain(ctx.ast, &cls_key, field)?;
     let fid = match ctx.fn_table.get(&hit.fn_name).copied() {
         Some(f) => f,
@@ -60,29 +42,13 @@ pub(crate) fn try_lower_setter_call(
     // as a +0 borrow; the setter body's own field store takes the
     // field's +1 (struct-field share below).
     let transfers = ctx.expr_transfers_ownership(value);
-    // F2-fix, generalized (rotation 240) — this is a direct Call, so
-    // the argument crosses the same lane boundary as any direct
-    // call's; the hand-written I64→F64 widen that sat here knew one
-    // direction and handed every other mismatch verbatim. The killer
-    // was the untyped setter (`set p(v)` — Any param): an i64 rhs
-    // arrived as raw bits, the body stored them as a NaN-box, and the
-    // bare-field slot held a garbage box (p25g SIGSEGV / silent
-    // no-output). Route through the one `arg_conv` contract instead.
     let mut owned: Vec<(Operand, Type)> = Vec::new();
-    use crate::ssa_lower_member_obj_field::accessor_argv as acc;
-    let arg = match acc::class_setter_value_ty(ctx, fid, &hit.fn_name) {
-        Some(expected) => {
-            crate::ssa_lower_call_arg_conv::emit_arg_conv(ctx, expected, value, v, &mut owned)
-        }
-        None => v,
-    };
-    let args = acc::class_accessor_call_args(ctx, &hit.fn_name, obj_val, &[(arg, Some(value))]);
+    let args = setter_args(ctx, fid, &hit.fn_name, obj_val, (value, v), &mut owned);
     let recv = obj_val;
-    let slot = crate::ssa_lower_member_obj_field::accessor_slot::find(ctx, &cls_key, field, "_set");
+    let slot = accessor_slot::find(ctx, &cls_key, field, "_set");
     let call = move |ctx: &mut LowerCtx<'_>| {
         if let Some(slot) = &slot {
-            use crate::ssa_lower_member_obj_field::accessor_slot::emit_call;
-            emit_call(ctx, slot, obj, fid, &hit.fn_name, args);
+            accessor_slot::emit_call(ctx, slot, obj, fid, &hit.fn_name, args);
             return;
         }
         let cur_block = ctx.cur_block;
@@ -106,6 +72,30 @@ pub(crate) fn try_lower_setter_call(
     Some(crate::ssa_lower_assign_member::finish_assign_value(
         ctx, eid, v, v_ty, transfers,
     ))
+}
+
+/// The setter call's argument list for the lowered `value`. F2-fix,
+/// generalized (rotation 240) — this is a direct Call, so the argument
+/// crosses the same lane boundary as any direct call's: the untyped
+/// setter (`set p(v)` — Any param) handed an i64 rhs verbatim stored
+/// raw bits as a NaN-box (p25g SIGSEGV / silent no-output), so the
+/// value goes through the one `arg_conv` contract.
+fn setter_args(
+    ctx: &mut LowerCtx<'_>,
+    fid: crate::ssa::FuncId,
+    fn_name: &str,
+    obj_val: Operand,
+    (value, v): (ExprId, Operand),
+    owned: &mut Vec<(Operand, Type)>,
+) -> Vec<Operand> {
+    use crate::ssa_lower_member_obj_field::accessor_argv as acc;
+    let arg = match acc::class_setter_value_ty(ctx, fid, fn_name) {
+        Some(expected) => {
+            crate::ssa_lower_call_arg_conv::emit_arg_conv(ctx, expected, value, v, owned)
+        }
+        None => v,
+    };
+    acc::class_accessor_call_args(ctx, fn_name, obj_val, &[(arg, Some(value))])
 }
 
 pub(crate) fn lower_struct_field_store(

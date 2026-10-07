@@ -561,20 +561,16 @@ pub struct Ast {
     /// and that check runs after the fold — so the position has to be
     /// written down while it is still visible.
     pub class_field_init_roots: Vec<ExprId>,
-    /// P8.2 — accessor descriptor side-channel maps (ES §10.1.7).
-    /// `(class_name, property_name) → return_type` for getters and
-    /// `(class_name, property_name) → param_type` for setters. Populated
-    /// by `desugar_classes` while walking ClassDecl members tagged
-    /// with `accessor_kind = Some(...)`. The desugared FnDecl is named
-    /// `__cm_<class>__<prop>_get` / `__cm_<class>__<prop>_set` so it
-    /// can't collide with a same-named regular method or with a
-    /// pair of get/set on the same property. check.rs reads the
-    /// getter map at Member type resolution (read side) and the
-    /// setter map at Assign-Member typecheck (write side); ssa_lower
-    /// reads both to emit a Call to the synthesised method instead of
-    /// a direct field Load / Store at offset.
+    /// P8.2 — accessor faces (ES §10.1.7): `(class, prop)` → the
+    /// desugared `__cm_<class>__<prop>_get` / `_set` FnDecl, filled by
+    /// `desugar_classes`. The checker reads them to type a Member read
+    /// / an Assign-Member write; ssa_lower calls the face instead of a
+    /// field Load / Store.
     pub accessor_getters: std::collections::HashMap<(String, PropKey), String>,
     pub accessor_setters: std::collections::HashMap<(String, PropKey), String>,
+    /// Method-table names (`<key>_get` / `<key>_set`) whose owners are
+    /// accessor faces, as opposed to a regular method spelled the same.
+    pub accessor_slots: std::collections::HashSet<String>,
     /// RFC 20260718-accessor-reify 刀 3 — static-accessor twins of
     /// the instance maps above (`(ClassName, prop) → __sm_<C>__<p>_get
     /// / _set`). Reads/writes were already rewritten to face calls in

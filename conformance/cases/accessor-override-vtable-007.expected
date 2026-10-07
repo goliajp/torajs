@@ -1,0 +1,11 @@
+true function true
+function true true
+constructor,v
+wrap get
+1 2
+wrap set
+3 4
+wrap get
+7
+wrap set
+8

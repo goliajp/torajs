@@ -1,7 +1,7 @@
 //! Which single operations may release a slot another binding still
 //! borrows from, or run user code that may.
 
-use crate::ast::accessor_lookup::{accessor_getter_in_chain, getter_fn_names};
+use crate::ast::accessor_lookup::{getter_fn_names, getter_may_run};
 use crate::ast::{Expr, ExprId};
 use crate::check::Type as CT;
 use crate::ssa::Type;
@@ -79,8 +79,9 @@ impl Scan<'_, '_> {
     /// A member read runs user code through a getter. A data field of a
     /// known class layout, a built-in receiver, and a closed literal
     /// shape no getter is declared for cannot; a class instance can only
-    /// through an accessor in its chain; an untyped receiver may hold
-    /// anything (a `defineProperty` getter, a proxy).
+    /// through a getter its class, an ancestor or a descendant declares
+    /// (the instance may be wearing the descendant's); an untyped
+    /// receiver may hold anything (a `defineProperty` getter, a proxy).
     pub(super) fn read_may_run_getter(&self, member: ExprId, name: &str) -> bool {
         let ast = self.env.ast;
         let (Expr::Member { obj, .. } | Expr::OptChain { obj, .. }) = ast.get_expr(member) else {
@@ -109,7 +110,7 @@ impl Scan<'_, '_> {
                 | CT::Object(_)
                 | CT::Function(..),
             ) => false,
-            Some(CT::ClassRef(c)) => accessor_getter_in_chain(ast, c, name).is_some(),
+            Some(CT::ClassRef(c)) => getter_may_run(ast, c, name),
             Some(CT::Struct(_)) => !getter_fn_names(ast, name).is_empty(),
             _ => true,
         }
