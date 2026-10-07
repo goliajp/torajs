@@ -187,7 +187,7 @@ pub unsafe extern "C" fn __torajs_promise_adopt_if_thenable(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_then_passthrough(src: *mut c_void) -> *mut c_void {
     unsafe {
-        let d = crate::pool::__torajs_promise_alloc_pending();
+        let d = crate::pool::alloc_pending();
         let sp = as_promise(src);
         let dp = as_promise(d);
         // The derived settles with the source's own value form, so

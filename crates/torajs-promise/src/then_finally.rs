@@ -24,7 +24,7 @@ use core::ffi::c_void;
 use core::ptr;
 
 use crate::layout::{REPR_ANY, REPR_HEAP, REPR_STR, REPR_VOID, STATE_FULFILLED, as_promise};
-use crate::pool::{__torajs_promise_alloc_pending, __torajs_promise_drop};
+use crate::pool::{__torajs_promise_drop, alloc_pending};
 use crate::state::{
     __torajs_promise_attach_then, __torajs_promise_reject, __torajs_promise_resolve,
 };
@@ -219,7 +219,7 @@ pub unsafe extern "C" fn __torajs_promise_finally(
         return ptr::null_mut();
     }
     let Some(cb) = cb else { return ptr::null_mut() };
-    let result = unsafe { __torajs_promise_alloc_pending() };
+    let result = unsafe { alloc_pending() };
     // Pre-stamp from the source — finally forwards the settlement,
     // so the source's current form is the best attach-time answer
     // (the dispatcher re-copies after the source settles).
@@ -283,7 +283,7 @@ pub unsafe extern "C" fn __torajs_promise_finally_closure(
     if source.is_null() || env.is_null() {
         return ptr::null_mut();
     }
-    let result = unsafe { __torajs_promise_alloc_pending() };
+    let result = unsafe { alloc_pending() };
     // Pre-stamp from the source — finally forwards the settlement,
     // so the source's current form is the best attach-time answer
     // (the dispatcher re-copies after the source settles).

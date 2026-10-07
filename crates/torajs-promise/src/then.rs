@@ -26,7 +26,7 @@ use core::ffi::c_void;
 use core::ptr;
 
 use crate::layout::{RX_CATCH, RX_CLOSURE, RX_PARAM_ANY, RX_THEN, as_promise};
-use crate::pool::__torajs_promise_alloc_pending;
+use crate::pool::alloc_pending;
 use crate::reaction::attach_inline;
 use crate::then_box::{PARAM_ANY_FLAG, PARAM_REPR_SHIFT, refuse_unstamped};
 
@@ -109,7 +109,7 @@ unsafe fn then_kernel(
     }
     let ret_repr = (ret_repr & 0xff) as u8;
     let kind = if param_any { kind | RX_PARAM_ANY } else { kind };
-    let result = unsafe { __torajs_promise_alloc_pending() };
+    let result = unsafe { alloc_pending() };
     unsafe {
         stamp_result_repr(result, ret_repr);
         attach_inline(source, result, kind, cb, ret_repr, param_repr);

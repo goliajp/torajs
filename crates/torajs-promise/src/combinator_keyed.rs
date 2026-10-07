@@ -150,7 +150,7 @@ unsafe fn keyed_dyn(v: u64, sync: unsafe extern "C" fn(*mut c_void) -> *mut c_vo
         }
         let source = sync(values as *mut c_void);
         __torajs_value_drop_heap(values as *mut c_void);
-        let outer = crate::pool::__torajs_promise_alloc_pending();
+        let outer = crate::pool::alloc_pending();
         // Pre-stamp at create (the fan-in's posture): the any-lane
         // `.then` bridge refuses an UNSTAMPED receiver at attach
         // time, and this outer always fulfills boxed (the null-proto

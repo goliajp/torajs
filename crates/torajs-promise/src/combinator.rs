@@ -348,7 +348,7 @@ pub unsafe extern "C" fn __torajs_promise_race_sync(promises_arr: *mut c_void) -
 /// winning adopt job overwrites the stamp with what actually settled.
 unsafe fn race_fan_in(promises_arr: *mut c_void, len: u64) -> *mut c_void {
     unsafe {
-        let result = crate::pool::__torajs_promise_alloc_pending();
+        let result = crate::pool::alloc_pending();
         // An empty iterable leaves the loop below with nothing to stamp
         // from, and the cell can never settle — so no value exists to
         // mis-box and the any-param attach gate has nothing to protect.

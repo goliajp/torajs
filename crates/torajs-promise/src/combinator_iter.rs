@@ -258,7 +258,7 @@ pub(crate) unsafe fn dyn_iter(
 /// everything else runs the sentinel protocol from the module doc.
 unsafe fn activate(mode: u8, items: &mut Vec<u64>, next_index: &mut u64) -> *mut AllBlock {
     unsafe {
-        let result = crate::pool::__torajs_promise_alloc_pending();
+        let result = crate::pool::alloc_pending();
         let rp = as_promise(result);
         // Everything the interleaved lane settles with is boxed —
         // race / any forward one boxed value, all / allSettled

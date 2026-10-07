@@ -24,7 +24,7 @@ use core::ffi::c_void;
 use core::ptr;
 
 use crate::layout::{REPR_VOID, STATE_REJECTED, as_promise};
-use crate::pool::{__torajs_promise_alloc_pending, __torajs_promise_drop};
+use crate::pool::{__torajs_promise_drop, alloc_pending};
 use crate::state::__torajs_promise_attach_then;
 use crate::then::{ThenCbI64, stamp_result_repr};
 use crate::then_box::{
@@ -157,7 +157,7 @@ pub unsafe extern "C" fn __torajs_promise_then2(
     if (ok_flags | err_flags) & FLAG_PARAM_ANY != 0 && unsafe { refuse_unstamped(source) } {
         return ptr::null_mut();
     }
-    let result = unsafe { __torajs_promise_alloc_pending() };
+    let result = unsafe { alloc_pending() };
     // Pre-stamp with the fulfilled leg's form — a chained attach
     // lands before this cell settles and its any-lane gate must see
     // a known form; the dispatcher overwrites per the taken leg.

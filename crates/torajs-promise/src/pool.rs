@@ -75,17 +75,66 @@ unsafe extern "C" {
     fn free(p: *mut c_void, size: usize);
 }
 
-/// Internal alloc — pop pool or malloc, then init fields.
+/// Internal alloc — pop pool or malloc, then init fields. Inlined
+/// into runtime callers that already keep a frame, where the malloc
+/// call costs no more than the pool pop around it.
+#[inline(always)]
 unsafe fn promise_alloc_(state: u8, value: i64, is_heap: u8) -> *mut Promise {
     let head = POOL_HEAD.load(Ordering::Relaxed);
-    let p = if !head.is_null() {
+    let p = if head.is_null() {
+        unsafe { malloc(PROMISE_SIZE) as *mut Promise }
+    } else {
         let next = unsafe { (*head).callbacks as *mut Promise };
         POOL_HEAD.store(next, Ordering::Relaxed);
         POOL_COUNT.store(POOL_COUNT.load(Ordering::Relaxed) - 1, Ordering::Relaxed);
         head
-    } else {
-        unsafe { malloc(PROMISE_SIZE) as *mut Promise }
     };
+    unsafe { init_cell(p, state, value, is_heap) };
+    p
+}
+
+/// The leaf C entry points' alloc: the pool pop needs no frame, and
+/// an empty pool tail-calls a malloc path instantiated per state, so
+/// it keeps only the registers its own entry point needs.
+#[inline(always)]
+unsafe fn promise_alloc_leaf<const STATE: u8, const IS_HEAP: u8>(value: i64) -> *mut c_void {
+    let head = POOL_HEAD.load(Ordering::Relaxed);
+    if head.is_null() {
+        return unsafe { promise_alloc_fresh::<STATE, IS_HEAP>(value) };
+    }
+    let next = unsafe { (*head).callbacks as *mut Promise };
+    POOL_HEAD.store(next, Ordering::Relaxed);
+    POOL_COUNT.store(POOL_COUNT.load(Ordering::Relaxed) - 1, Ordering::Relaxed);
+    unsafe { init_cell(head, STATE, value, IS_HEAP) };
+    head as *mut c_void
+}
+
+#[inline(never)]
+unsafe fn promise_alloc_fresh<const STATE: u8, const IS_HEAP: u8>(value: i64) -> *mut c_void {
+    let p = unsafe { malloc(PROMISE_SIZE) as *mut Promise };
+    unsafe { init_cell(p, STATE, value, IS_HEAP) };
+    p as *mut c_void
+}
+
+/// In-runtime twins of the leaf C entry points below, for callers that
+/// already keep a frame.
+#[inline(always)]
+pub(crate) unsafe fn alloc_pending() -> *mut c_void {
+    unsafe { promise_alloc_(STATE_PENDING, 0, 0) as *mut c_void }
+}
+
+#[inline(always)]
+pub(crate) unsafe fn alloc_fulfilled(value: i64) -> *mut c_void {
+    unsafe { promise_alloc_(STATE_FULFILLED, value, 0) as *mut c_void }
+}
+
+#[inline(always)]
+pub(crate) unsafe fn alloc_fulfilled_heap(value: i64) -> *mut c_void {
+    unsafe { promise_alloc_(STATE_FULFILLED, value, 1) as *mut c_void }
+}
+
+#[inline(always)]
+unsafe fn init_cell(p: *mut Promise, state: u8, value: i64, is_heap: u8) {
     unsafe {
         (*p).header = HeapHeader {
             refcount: 1,
@@ -115,7 +164,6 @@ unsafe fn promise_alloc_(state: u8, value: i64, is_heap: u8) -> *mut Promise {
         (*p).rx_source = ptr::null_mut();
         (*p).rx_cb = ptr::null_mut();
     }
-    p
 }
 
 /// Return a Promise to the pool if there's capacity, else free.
@@ -145,14 +193,14 @@ unsafe fn promise_release_(p: *mut Promise) {
 /// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_alloc_pending() -> *mut c_void {
-    unsafe { promise_alloc_(STATE_PENDING, 0, 0) as *mut c_void }
+    unsafe { promise_alloc_leaf::<STATE_PENDING, 0>(0) }
 }
 
 /// # Safety
 /// `value` is a primitive payload; it is stored as raw bits and never dereferenced.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_alloc_fulfilled(value: i64) -> *mut c_void {
-    unsafe { promise_alloc_(STATE_FULFILLED, value, 0) as *mut c_void }
+    unsafe { promise_alloc_leaf::<STATE_FULFILLED, 0>(value) }
 }
 
 /// # Safety
@@ -177,7 +225,7 @@ pub unsafe extern "C" fn __torajs_promise_alloc_rejected(reason: i64) -> *mut c_
 /// `value` is a live heap cell and the caller hands one reference to the Promise.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_alloc_fulfilled_heap(value: i64) -> *mut c_void {
-    unsafe { promise_alloc_(STATE_FULFILLED, value, 1) as *mut c_void }
+    unsafe { promise_alloc_leaf::<STATE_FULFILLED, 1>(value) }
 }
 
 /// # Safety
@@ -219,7 +267,7 @@ pub unsafe extern "C" fn __torajs_promise_resolve_any(bits: i64) -> *mut c_void 
         {
             return bits as *mut c_void;
         }
-        let p = __torajs_promise_alloc_fulfilled_heap(bits);
+        let p = alloc_fulfilled_heap(bits);
         (*as_promise(p)).value_repr = crate::layout::REPR_ANY;
         p
     }

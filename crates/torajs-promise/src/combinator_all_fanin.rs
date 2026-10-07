@@ -205,7 +205,7 @@ pub(crate) unsafe fn fan_in(
         } else {
             absorb_inputs(promises_arr);
         }
-        let result = crate::pool::__torajs_promise_alloc_pending();
+        let result = crate::pool::alloc_pending();
         if mode == MODE_ANY {
             // `any` forwards a single settled value rather than an
             // array, so its pre-stamp comes from the same place
@@ -347,7 +347,7 @@ pub(crate) unsafe fn wrap_plain(bits: u64) -> *mut Promise {
         // The wrapper owns what it carries; the input array keeps its
         // own stake.
         crate::combinator_any::box_share(bits);
-        let p = crate::pool::__torajs_promise_alloc_fulfilled_heap(bits as i64);
+        let p = crate::pool::alloc_fulfilled_heap(bits as i64);
         let pp = as_promise(p);
         (*pp).value_repr = crate::layout::REPR_ANY;
         pp

@@ -3,8 +3,8 @@
 use core::ffi::c_void;
 
 use super::{
-    __torajs_promise_alloc_fulfilled, __torajs_promise_alloc_fulfilled_heap,
-    __torajs_promise_alloc_rejected, __torajs_promise_alloc_rejected_heap,
+    __torajs_promise_alloc_rejected, __torajs_promise_alloc_rejected_heap, alloc_fulfilled,
+    alloc_fulfilled_heap,
 };
 use crate::layout::{STATE_FULFILLED, STATE_REJECTED, as_promise};
 
@@ -24,7 +24,7 @@ unsafe extern "C" {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_resolve_thenable(p: *mut c_void) -> *mut c_void {
     if p.is_null() {
-        return unsafe { __torajs_promise_alloc_fulfilled(0) };
+        return unsafe { alloc_fulfilled(0) };
     }
     let pp = as_promise(p);
     let state = unsafe { (*pp).state };
@@ -37,9 +37,9 @@ pub unsafe extern "C" fn __torajs_promise_resolve_thenable(p: *mut c_void) -> *m
     if state == STATE_FULFILLED {
         let out = if value_is_heap != 0 && value != 0 {
             unsafe { __torajs_rc_inc(value as *mut c_void) };
-            unsafe { __torajs_promise_alloc_fulfilled_heap(value) }
+            unsafe { alloc_fulfilled_heap(value) }
         } else {
-            unsafe { __torajs_promise_alloc_fulfilled(value) }
+            unsafe { alloc_fulfilled(value) }
         };
         unsafe { (*as_promise(out)).value_repr = value_repr };
         return out;

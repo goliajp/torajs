@@ -98,7 +98,7 @@ unsafe extern "C" fn deferred_settle_dispatch(arg: i64) {
 /// reject(0) legs answer undefined (REPR_VOID).
 pub(crate) unsafe fn defer_settle(state: u8, value: i64, is_heap: u8, repr: u8) -> *mut c_void {
     unsafe {
-        let p = crate::pool::__torajs_promise_alloc_pending();
+        let p = crate::pool::alloc_pending();
         let pp = as_promise(p);
         (*pp).value = value;
         (*pp).value_is_heap = is_heap;
@@ -148,7 +148,7 @@ pub(crate) unsafe fn settle_result(
         // no callbacks attached is the same transition
         // `alloc_fulfilled` performs.
         if state != STATE_REJECTED && is_heap != 0 && matches!(repr, REPR_HEAP | REPR_ANY) {
-            let p = crate::pool::__torajs_promise_alloc_pending();
+            let p = crate::pool::alloc_pending();
             let pp = as_promise(p);
             (*pp).value_repr = repr;
             (*pp).value_is_heap = is_heap;
@@ -161,8 +161,8 @@ pub(crate) unsafe fn settle_result(
         let p = match (state, is_heap) {
             (STATE_REJECTED, 0) => crate::pool::__torajs_promise_alloc_rejected(value),
             (STATE_REJECTED, _) => crate::pool::__torajs_promise_alloc_rejected_heap(value),
-            (_, 0) => crate::pool::__torajs_promise_alloc_fulfilled(value),
-            (_, _) => crate::pool::__torajs_promise_alloc_fulfilled_heap(value),
+            (_, 0) => crate::pool::alloc_fulfilled(value),
+            (_, _) => crate::pool::alloc_fulfilled_heap(value),
         };
         (*as_promise(p)).value_repr = repr;
         p

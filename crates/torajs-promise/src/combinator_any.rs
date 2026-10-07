@@ -367,7 +367,7 @@ pub(crate) unsafe fn race_sync_any(promises_arr: *mut c_void) -> *mut c_void {
         // does (see `combinator::race_fan_in`): one adopt job per
         // element, first settlement wins, an empty iterable answers a
         // forever-pending promise per §27.2.4.5 step 3.
-        let result = crate::pool::__torajs_promise_alloc_pending();
+        let result = crate::pool::alloc_pending();
         let rp = crate::layout::as_promise(result);
         // Empty iterable — never settles, so nothing to mis-box; see
         // the typed sibling's note on why VOID and not UNSTAMPED.
