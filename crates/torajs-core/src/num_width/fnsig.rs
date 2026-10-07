@@ -184,7 +184,7 @@ impl<'a> Analysis<'a> {
             }
             _ => return,
         };
-        let user_params = self.user_params(&fname);
+        let user_params = self.closure_arg_params(&fname, eid);
         self.mark_containerish(key);
         let rk = SlotKey::Field(Box::new(key.clone()), "__ret".into());
         self.mark_containerish(&rk);

@@ -301,7 +301,7 @@ impl<'a> Analysis<'a> {
                         self.uf.union(&fk, &vk);
                     }
                 }
-                self.feed_setter_value(name, value, scope);
+                self.feed_setter_value(*obj, name, value, scope);
             }
             _ => {}
         }

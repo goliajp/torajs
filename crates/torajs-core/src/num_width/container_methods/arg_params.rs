@@ -3,7 +3,7 @@
 //! synthetic pointer, an accessor write that spells no call at all.
 
 use super::super::{Analysis, Scope, SlotKey};
-use crate::ast::ExprId;
+use crate::ast::{ExprId, PropKey};
 
 impl Analysis<'_> {
     /// A `__cm_` body's params without the argv face's synthetic
@@ -18,14 +18,36 @@ impl Analysis<'_> {
         )
     }
 
+    /// The params of closure `fname` (the value `eid`) a call's arguments
+    /// land in. An object-literal method or accessor is called with its
+    /// receiver threaded apart and, on the argv face, the argv pointer
+    /// filled by the ABI: `__p{i}` is the i-th argument the caller
+    /// writes, which neither of those is.
+    pub(in crate::num_width) fn closure_arg_params(&self, fname: &str, eid: ExprId) -> Vec<String> {
+        let objlit_method = self.ast.objlit_method_exprs.contains(&eid);
+        let mut ps = self.user_params(fname);
+        ps.retain(|p| !objlit_method || (p != "__this" && p != "__torajs_argv"));
+        ps
+    }
+
     /// Accessor route: `q.X = v` may lower to `__cm_<C>__X_set(q, v)` —
-    /// feed the value param of every owner's setter.
+    /// feed the value param of every owner's setter — or, on an object
+    /// literal, call the closure in its `__setter_X` slot, whose first
+    /// argument projection the literal's fill glued to that param.
     pub(in crate::num_width) fn feed_setter_value(
         &mut self,
+        obj: ExprId,
         name: &str,
         value: ExprId,
         scope: &Scope,
     ) {
+        if let Some(rk) = self.container_key_of(obj, scope) {
+            let slot = SlotKey::Field(Box::new(rk), PropKey::from(format!("__setter_{name}")));
+            let pk = SlotKey::Field(Box::new(slot), PropKey::from("__p0"));
+            self.mark_containerish(&pk);
+            let w = self.flow(value, scope);
+            self.add_container_constraint(pk, w);
+        }
         for c in self.classes.clone() {
             let f = format!("__cm_{c}__{name}_set");
             if let Some(p1) = self.method_arg_params(&f).and_then(|ps| ps.get(1).cloned()) {
