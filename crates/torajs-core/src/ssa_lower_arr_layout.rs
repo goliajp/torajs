@@ -9,7 +9,7 @@
 
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type};
-use crate::ssa_lower::{ARR_DATA_PTR_OFF, LowerCtx};
+use crate::ssa_lower::{ARR_CAP_HEAD_OFF, ARR_DATA_PTR_OFF, LowerCtx};
 
 /// Which length-lock a mutator answers to. Both refuse `FROZEN |
 /// LENGTH_RO | SEALED` — `pop` deletes the last element and a sealed
@@ -138,7 +138,7 @@ impl<'a> LowerCtx<'a> {
     pub(crate) fn emit_arr_head_x8(&mut self, arr: Operand) -> Operand {
         let packed = self.f.append_inst(
             self.cur_block,
-            InstKind::Load(Type::I64, arr, 16),
+            InstKind::Load(Type::I64, arr, ARR_CAP_HEAD_OFF),
             Type::I64,
             None,
         );

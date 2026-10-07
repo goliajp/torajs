@@ -115,6 +115,8 @@ pub(crate) const PROMISE_PROPS_OFF: u64 = 32;
 /// operate on freshly-allocated arrays (literal init, freshly-built dst
 /// in concat/slice/spread) can skip the head load since head=0 there.
 pub(crate) const ARR_LEN_OFF: u64 = 8;
+/// The packed `cap: u32, head: u32` word; `torajs_arr::grow::ARR_HDR_CAP_OFF`.
+pub(crate) const ARR_CAP_HEAD_OFF: u64 = 16;
 const ARR_HEAD_OFF: u64 = 20;
 /// Inline `props_dynobj` slot (Round 4 chunk 5a). Mirrors
 /// `torajs_arr::layout::ARR_PROPS_OFF`. NULL when no `arr.x = v`

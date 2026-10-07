@@ -2,12 +2,8 @@
 
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type, ValueId};
-use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx};
+use crate::ssa_lower::{ARR_CAP_HEAD_OFF, ARR_LEN_OFF, LowerCtx};
 use crate::ssa_lower_arr_layout::ArrLenLock;
-
-/// Byte offset of the packed `cap: u32, head: u32` word in an array
-/// cell (`torajs_arr::grow::ARR_HDR_CAP_OFF`).
-const ARR_CAP_HEAD_OFF: u64 = 16;
 
 impl LowerCtx<'_> {
     /// `xs.shift()` — deque head-bump via the runtime helper.
@@ -101,30 +97,7 @@ impl LowerCtx<'_> {
     /// both paths, as it does for pop.
     fn emit_arr_shift_head(&mut self, arr: ValueId, len: ValueId, raw_ty: Type) -> ValueId {
         let out = self.alloca(raw_ty, Some("__shift_head"));
-        let hdr = self.f.append_inst(
-            self.cur_block,
-            InstKind::Load(Type::I64, Operand::Value(arr), 0),
-            Type::I64,
-            None,
-        );
-        // the flags are the header word's top 16 bits; testing the bit
-        // in place lets the branch be one `tst`
-        let marks = self.f.append_inst(
-            self.cur_block,
-            InstKind::BinOp(
-                SsaBinOp::And,
-                Operand::Value(hdr),
-                Operand::ConstI64((u64::from(torajs_rc::FLAG_ARR_EXOTIC_INDEX) << 48) as i64),
-            ),
-            Type::I64,
-            None,
-        );
-        let marked = self.f.append_inst(
-            self.cur_block,
-            InstKind::ICmp(IPred::Ne, Operand::Value(marks), Operand::ConstI64(0)),
-            Type::Bool,
-            None,
-        );
+        let marked = self.emit_arr_exotic_index_test(arr);
         let slow_blk = self.f.add_block();
         let fast_blk = self.f.add_block();
         let join_blk = self.f.add_block();
@@ -137,7 +110,6 @@ impl LowerCtx<'_> {
                 else_blk: fast_blk,
             },
         );
-
         self.cur_block = slow_blk;
         let v = self.f.append_inst(
             self.cur_block,
@@ -152,65 +124,7 @@ impl LowerCtx<'_> {
         self.f.set_term(slow_blk, Terminator::Br(join_blk));
 
         self.cur_block = fast_blk;
-        // the u64 at 16 packs cap (low half) and head (high half), so
-        // adding 1 << 32 moves the head without touching the cap
-        let packed = self.f.append_inst(
-            self.cur_block,
-            InstKind::Load(Type::I64, Operand::Value(arr), ARR_CAP_HEAD_OFF),
-            Type::I64,
-            None,
-        );
-        let head = self.f.append_inst(
-            self.cur_block,
-            InstKind::BinOp(
-                SsaBinOp::LShr,
-                Operand::Value(packed),
-                Operand::ConstI64(32),
-            ),
-            Type::I64,
-            None,
-        );
-        let off = self.f.append_inst(
-            self.cur_block,
-            InstKind::BinOp(SsaBinOp::Shl, Operand::Value(head), Operand::ConstI64(3)),
-            Type::I64,
-            None,
-        );
-        let data = self.emit_arr_data_ptr(Operand::Value(arr));
-        let v = self.f.append_inst(
-            self.cur_block,
-            InstKind::LoadDyn(raw_ty, data, Operand::Value(off)),
-            raw_ty,
-            None,
-        );
-        let bumped = self.f.append_inst(
-            self.cur_block,
-            InstKind::BinOp(
-                SsaBinOp::Add,
-                Operand::Value(packed),
-                Operand::ConstI64(1 << 32),
-            ),
-            Type::I64,
-            None,
-        );
-        self.f.append_void(
-            self.cur_block,
-            InstKind::Store(
-                Operand::Value(bumped),
-                Operand::Value(arr),
-                ARR_CAP_HEAD_OFF,
-            ),
-        );
-        let new_len = self.f.append_inst(
-            self.cur_block,
-            InstKind::BinOp(SsaBinOp::Sub, Operand::Value(len), Operand::ConstI64(1)),
-            Type::I64,
-            None,
-        );
-        self.f.append_void(
-            self.cur_block,
-            InstKind::Store(Operand::Value(new_len), Operand::Value(arr), ARR_LEN_OFF),
-        );
+        let v = self.emit_arr_shift_bump(arr, len, raw_ty);
         self.f.append_void(
             self.cur_block,
             InstKind::Store(Operand::Value(v), Operand::Value(out), 0),
@@ -222,6 +136,71 @@ impl LowerCtx<'_> {
             self.cur_block,
             InstKind::Load(raw_ty, Operand::Value(out), 0),
             raw_ty,
+            None,
+        )
+    }
+
+    /// Whether the array carries shadow hole marks. The flags are the
+    /// header word's top 16 bits; testing the bit in place lets the
+    /// branch be one `tst`.
+    fn emit_arr_exotic_index_test(&mut self, arr: ValueId) -> ValueId {
+        let hdr = self.f.append_inst(
+            self.cur_block,
+            InstKind::Load(Type::I64, Operand::Value(arr), 0),
+            Type::I64,
+            None,
+        );
+        let mask = (u64::from(torajs_rc::FLAG_ARR_EXOTIC_INDEX) << 48) as i64;
+        let marks = self.emit_i64_binop(SsaBinOp::And, hdr, mask);
+        self.f.append_inst(
+            self.cur_block,
+            InstKind::ICmp(IPred::Ne, Operand::Value(marks), Operand::ConstI64(0)),
+            Type::Bool,
+            None,
+        )
+    }
+
+    /// The unmarked bump: load logical[0], add 1 << 32 to the packed
+    /// cap/head word (the head is its high half, so the cap is
+    /// untouched), store len - 1. Stays in the current block.
+    fn emit_arr_shift_bump(&mut self, arr: ValueId, len: ValueId, raw_ty: Type) -> ValueId {
+        let packed = self.f.append_inst(
+            self.cur_block,
+            InstKind::Load(Type::I64, Operand::Value(arr), ARR_CAP_HEAD_OFF),
+            Type::I64,
+            None,
+        );
+        let head = self.emit_i64_binop(SsaBinOp::LShr, packed, 32);
+        let off = self.emit_i64_binop(SsaBinOp::Shl, head, 3);
+        let data = self.emit_arr_data_ptr(Operand::Value(arr));
+        let v = self.f.append_inst(
+            self.cur_block,
+            InstKind::LoadDyn(raw_ty, data, Operand::Value(off)),
+            raw_ty,
+            None,
+        );
+        let bumped = self.emit_i64_binop(SsaBinOp::Add, packed, 1 << 32);
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(
+                Operand::Value(bumped),
+                Operand::Value(arr),
+                ARR_CAP_HEAD_OFF,
+            ),
+        );
+        let new_len = self.emit_i64_binop(SsaBinOp::Sub, len, 1);
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(Operand::Value(new_len), Operand::Value(arr), ARR_LEN_OFF),
+        );
+        v
+    }
+
+    fn emit_i64_binop(&mut self, op: SsaBinOp, lhs: ValueId, rhs: i64) -> ValueId {
+        self.f.append_inst(
+            self.cur_block,
+            InstKind::BinOp(op, Operand::Value(lhs), Operand::ConstI64(rhs)),
+            Type::I64,
             None,
         )
     }
