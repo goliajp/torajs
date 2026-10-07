@@ -13,6 +13,7 @@
   "generic-id-1m": {"kind": "suppressed", "why": "noinline loop_sum keeps the sum out of the push loop"},
   "generic-pair-1m": {"kind": "same", "why": "the pair never escapes, so it is a local struct; clang is free to reduce the loop"},
   "fifo-queue-100k": {"kind": "same", "why": "growable ring buffer, mirrors VecDeque"},
+  "fifo-queue-10m": {"kind": "same", "why": "growable ring buffer, mirrors VecDeque"},
   "stack-pop-1m": {"kind": "same"},
   "startup": {"kind": "same"},
   "split-only-100k": {"kind": "different", "why": "materialises the slice array every iteration; tr proves the array is only measured and answers a count"},

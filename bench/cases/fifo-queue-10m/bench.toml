@@ -1,0 +1,5 @@
+# fifo-queue-100k at 100x the pushes, same programs. The total is
+# n * (n - 1) / 2 = 49999995000000, under 2^53 and under i64, so every
+# runtime still prints it exactly. At 1e5 tr kept under 0.3 ms of work
+# after startup.
+args = "10000000 16"
