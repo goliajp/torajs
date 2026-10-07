@@ -115,7 +115,9 @@ fn any_elems_take_boxed_entry(ctx: &LowerCtx<'_>, cb: ExprId, fn_ty: Type, src_t
     // a binding names every lifted closure it may hold
     match ctx.ast.get_expr(cb) {
         Expr::Closure { fn_name, .. } => boxed(fn_name),
-        Expr::Ident(name) if ctx.fn_table.contains_key(name) => boxed(name),
+        Expr::Ident(name) if !ctx.locals.contains_key(name) && ctx.fn_table.contains_key(name) => {
+            boxed(name)
+        }
         Expr::Ident(_) => {
             let fns = ctx.num_f64_slots.bound_closures(cb);
             !fns.is_empty() && fns.iter().all(boxed)

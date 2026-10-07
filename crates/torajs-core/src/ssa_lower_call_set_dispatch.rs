@@ -273,7 +273,7 @@ fn emit_set_for_each(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) 
     debug_assert!(!args.is_empty());
     let known_fid: Option<FuncId> = match ctx.ast.get_expr(args[0]) {
         Expr::Closure { fn_name, .. } => ctx.fn_table.get(fn_name).copied(),
-        Expr::Ident(name) => ctx.fn_table.get(name).copied(),
+        Expr::Ident(name) if !ctx.locals.contains_key(name) => ctx.fn_table.get(name).copied(),
         _ => None,
     };
     let fn_val = ctx.lower_expr(args[0]);

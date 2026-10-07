@@ -134,7 +134,7 @@ pub(crate) fn emit_map_loop(
     } else {
         match ctx.ast.get_expr(args[1]) {
             Expr::Closure { fn_name, .. } => ctx.fn_table.get(fn_name).copied(),
-            Expr::Ident(name) => ctx.fn_table.get(name).copied(),
+            Expr::Ident(name) if !ctx.locals.contains_key(name) => ctx.fn_table.get(name).copied(),
             _ => None,
         }
     };
