@@ -18,9 +18,10 @@
 # bun's crash handler re-raising after a fault in the startup
 # call_once chain, just past a pthread_jit_write_protect_np(0) call.
 # 5300 runs of promise-then-100k in the harness environment (fresh and
-# reused binaries, serial and 6-way parallel) did not repeat it. The
-# timed run fails the cell for that results file and is not retried;
-# the pooled stamp reads the other files.
+# reused binaries, serial and 6-way parallel) did not repeat it. A run
+# step of a comparator that dies to a signal is run again up to twice,
+# each retry recorded in the row's `retries`; a third death fails the
+# cell for that results file.
 name = "bun-aot-fast"
 detect = "bun --version"
 src_filename = "main.ts"

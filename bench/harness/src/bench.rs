@@ -6,7 +6,6 @@ use crate::exec::{PER_EXEC_TIMEOUT, spawn_output_bounded};
 use crate::hyperfine::hyperfine_one;
 pub use crate::outcome::{RunOutcome, Status};
 use crate::runner::{Runner, TemplateContext, split_cmd};
-use crate::rusage::measure_runs;
 
 /// The run command with the case's arguments appended.
 fn with_args(cmd: &str, args: &[String]) -> String {
@@ -49,6 +48,7 @@ pub fn run_one(
     work_dir: &Path,
     workspace: &Path,
     cached_compile_ms: Option<f64>,
+    pass: usize,
 ) -> Result<RunOutcome> {
     let src_path = crate::runner::resolve_src(&case.dir, &runner.src_filename);
     if !src_path.exists() {
@@ -163,62 +163,14 @@ pub fn run_one(
 
     let run_cmd = with_args(&ctx.substitute(&runner.run), &case.args);
 
-    let actual_stdout = match exec_capture(&run_cmd) {
-        Ok(s) => s,
-        Err(e) => {
-            outcome.status = Status::Failed;
-            outcome.error = Some(format!("run failed: {e:#}"));
-            return Ok(outcome);
-        }
-    };
-    outcome.stdout_match = Some(crate::case::stdout_matches(case, &actual_stdout));
-    if !outcome.stdout_match.unwrap() {
-        outcome.status = Status::Failed;
-        outcome.error = Some(format!(
-            "stdout mismatch: got {:?}, want {:?} (tolerance={})",
-            preview(&actual_stdout),
-            preview(&case.expected_stdout),
-            case.tolerance
-        ));
-        return Ok(outcome);
-    }
-
-    if cached_compile_ms.is_none() {
-        outcome.peak_threads = crate::threads::peak_threads(&run_cmd, PER_EXEC_TIMEOUT);
-    }
-    match measure_runs(
+    crate::run_step::run_cell(
+        case,
+        &runner.name,
         &run_cmd,
-        case.run_warmup,
-        case.run_runs,
-        &[],
-        PER_EXEC_TIMEOUT,
-    ) {
-        Ok(stats) => {
-            outcome.run_ms = Some(stats.median_ms);
-            outcome.run_stddev_ms = Some(stats.stddev_ms);
-            outcome.run_min_ms = Some(stats.min_ms);
-            outcome.run_samples_ms = stats.samples_ms;
-            outcome.max_rss_kb = Some(stats.max_rss_kb);
-            outcome.user_ms = stats.user_ms;
-            outcome.system_ms = stats.system_ms;
-            outcome.instructions = stats.instructions;
-            outcome.cycles = stats.cycles;
-            outcome.pinstructions = stats.pinstructions;
-            outcome.pcycles = stats.pcycles;
-            outcome.phys_footprint_kb = stats.phys_footprint_kb;
-            outcome.pageins = stats.pageins;
-            outcome.diskio_read_bytes = stats.diskio_read_bytes;
-            outcome.diskio_written_bytes = stats.diskio_written_bytes;
-            outcome.minor_faults = stats.minor_faults;
-            outcome.major_faults = stats.major_faults;
-            outcome.ctx_switches = stats.ctx_switches;
-        }
-        Err(e) => {
-            outcome.status = Status::Failed;
-            outcome.error = Some(format!("timed run: {e:#}"));
-        }
-    }
-
+        pass,
+        cached_compile_ms.is_none(),
+        &mut outcome,
+    );
     Ok(outcome)
 }
 
@@ -317,21 +269,6 @@ fn exec_capture_status(
             preview(&stderr)
         )))
     }
-}
-
-fn exec_capture(cmd: &str) -> Result<String> {
-    let parts = split_cmd(cmd);
-    anyhow::ensure!(!parts.is_empty(), "empty command");
-    let args: Vec<&str> = parts[1..].iter().map(String::as_str).collect();
-    let output = spawn_output_bounded(&parts[0], &args, &[], PER_EXEC_TIMEOUT)
-        .map_err(|e| anyhow::anyhow!("spawning `{cmd}`: {e}"))?;
-    anyhow::ensure!(
-        output.status.success(),
-        "{} stderr={:?}",
-        output.status,
-        preview(&String::from_utf8_lossy(&output.stderr))
-    );
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
 pub(crate) fn preview(s: &str) -> String {

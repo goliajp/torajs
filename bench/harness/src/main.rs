@@ -9,6 +9,7 @@ mod outcome;
 mod passes;
 mod phases;
 mod report;
+mod run_step;
 mod runner;
 mod rusage;
 #[cfg(target_os = "macos")]
@@ -236,7 +237,6 @@ fn run_cmd(bench_dir: &Path, args: &[String]) -> Result<bool> {
                 let v = args.get(i + 1).context("--head-sha requires a value")?;
                 head_sha = Some(v.clone());
                 i += 2;
-                continue;
             }
             "--runtime" => {
                 let v = args.get(i + 1).context("--runtime requires a value")?;

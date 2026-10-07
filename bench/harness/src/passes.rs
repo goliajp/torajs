@@ -127,7 +127,7 @@ impl Passes<'_> {
                     eprintln!("→ {} × {}", c.name, r.name);
                 }
                 let cached = compile_cache[idx];
-                let outcome = bench::run_one(c, r, self.work_dir, self.workspace, cached)?;
+                let outcome = bench::run_one(c, r, self.work_dir, self.workspace, cached, pass)?;
                 if cached.is_none()
                     && let Some(cm) = outcome.compile_ms
                 {

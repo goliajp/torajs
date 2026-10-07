@@ -191,12 +191,9 @@ fn run_once(argv: &[String], env: &[(String, String)], timeout: Duration) -> Res
         timeout.as_secs()
     );
     anyhow::ensure!(reaped == pid, "wait4 `{}` failed", argv[0]);
-    let signal = status & 0x7f;
-    anyhow::ensure!(
-        signal == 0,
-        "`{}` killed by signal {signal} (wait status {status:#x})",
-        argv[0]
-    );
+    if status & 0x7f != 0 {
+        return Err(crate::run_step::KilledBySignal::from_wait(&argv[0], status).into());
+    }
     let code = (status >> 8) & 0xff;
     anyhow::ensure!(code == 0, "`{}` exited with code {code}", argv[0]);
     // ru_minflt, ru_majflt, ru_nvcsw + ru_nivcsw

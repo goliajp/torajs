@@ -110,6 +110,11 @@ pub fn aggregate(outcomes: Vec<RunOutcome>) -> RunOutcome {
         None
     };
 
+    base.retries = outcomes
+        .iter()
+        .flat_map(|o| o.retries.iter().cloned())
+        .collect();
+
     // surface the first error if the aggregate failed; clear it otherwise
     base.error = if base.status == Status::Failed {
         outcomes.iter().find_map(|o| o.error.clone())

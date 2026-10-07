@@ -59,6 +59,10 @@ pub struct RunOutcome {
     /// Most threads seen in the run step's process (first pass), from
     /// one extra untimed run polled every 100 µs: a lower bound.
     pub peak_threads: Option<u32>,
+    /// Run-step attempts of a comparator that died to a signal and
+    /// were run again; a row that still failed after the last retry
+    /// carries the final error in `error`.
+    pub retries: Vec<crate::run_step::Retry>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
