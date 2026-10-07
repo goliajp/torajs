@@ -168,30 +168,7 @@ fn scan_expr(ast: &mut Ast, eid: ExprId, mode: Mode, hits: &mut Hits) {
     // fn's — six gate reds). Only the true arrow stays flagged.
     if matches!(ast.get_expr(eid), Expr::ArrowFn { .. }) {
         let own_scope = ast.fn_expr_exprs.contains(&eid) || ast.gen_fn_exprs.contains_key(&eid);
-        let Expr::ArrowFn { params, body, .. } = &mut ast.exprs[eid.0 as usize] else {
-            unreachable!()
-        };
-        let shadowed = params_shadow(params);
-        let mut b = std::mem::take(body);
-        if own_scope {
-            process_scope(ast, &mut b, shadowed);
-        } else {
-            // A shadow anywhere up the arrow chain covers the whole
-            // subtree; otherwise this is (or stays) the flagged walk.
-            let inner = if shadowed || mode == Mode::Shadowed {
-                Mode::Shadowed
-            } else {
-                Mode::Arrow
-            };
-            for s in b.iter_mut() {
-                scan_stmt(ast, s, inner, hits);
-            }
-        }
-        let Expr::ArrowFn { body, .. } = &mut ast.exprs[eid.0 as usize] else {
-            unreachable!()
-        };
-        *body = b;
-        return;
+        return scan_fn_value(ast, eid, own_scope, mode, hits);
     }
     if mode == Mode::Arrow && matches!(ast.get_expr(eid), Expr::Ident(n) if n == "arguments") {
         hits.reads.push(eid);
@@ -244,7 +221,58 @@ fn scan_expr(ast: &mut Ast, eid: ExprId, mode: Mode, hits: &mut Hits) {
         }
         _ => Vec::new(),
     };
+    let accessors = objlit_accessor_values(ast, eid);
     for c in children {
-        scan_expr(ast, c, mode, hits);
+        if accessors.contains(&c) {
+            scan_fn_value(ast, c, true, mode, hits);
+        } else {
+            scan_expr(ast, c, mode, hits);
+        }
     }
+}
+
+/// The getter / setter values of an object literal that get an
+/// `arguments` of their own (§15.4.4): exactly those the boxed-only
+/// admission takes after the lift, so none is left without one.
+fn objlit_accessor_values(ast: &Ast, eid: ExprId) -> Vec<ExprId> {
+    let Expr::ObjectLit { fields } = ast.get_expr(eid) else {
+        return Vec::new();
+    };
+    use super::arguments_object_objlit_argv::fields::accessor_owns_arguments;
+    fields
+        .iter()
+        .filter(|(k, e)| {
+            matches!(ast.get_expr(*e), Expr::ArrowFn { params, .. }
+                if accessor_owns_arguments(ast, k, *e, params))
+        })
+        .map(|(_, e)| *e)
+        .collect()
+}
+
+/// Walk a function value's body: a fresh scope when it has its own
+/// `arguments`, else (a true arrow) the flagged walk of this one.
+fn scan_fn_value(ast: &mut Ast, eid: ExprId, own_scope: bool, mode: Mode, hits: &mut Hits) {
+    let Expr::ArrowFn { params, body, .. } = &mut ast.exprs[eid.0 as usize] else {
+        return scan_expr(ast, eid, mode, hits);
+    };
+    let shadowed = params_shadow(params);
+    let mut b = std::mem::take(body);
+    if own_scope {
+        process_scope(ast, &mut b, shadowed);
+    } else {
+        // A shadow anywhere up the arrow chain covers the whole
+        // subtree; otherwise this is (or stays) the flagged walk.
+        let inner = if shadowed || mode == Mode::Shadowed {
+            Mode::Shadowed
+        } else {
+            Mode::Arrow
+        };
+        for s in b.iter_mut() {
+            scan_stmt(ast, s, inner, hits);
+        }
+    }
+    let Expr::ArrowFn { body, .. } = &mut ast.exprs[eid.0 as usize] else {
+        unreachable!()
+    };
+    *body = b;
 }

@@ -1,0 +1,17 @@
+ret 0:object
+ret set 1 9
+arg 0:object
+arg set 1 5
+assign local undefined:0
+assign 0:object
+nested 0:object
+nested set 1 7
+cond 0:object
+elem 0:object
+computed 0:object
+gen 0:object
+ctor 0:object
+generic 0:object 0:object
+typeof object
+arg 0:object
+top elem 0

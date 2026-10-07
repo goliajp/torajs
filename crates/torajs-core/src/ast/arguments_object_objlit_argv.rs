@@ -49,6 +49,8 @@ use super::arguments_object_walkers::{
 };
 use super::{Ast, Expr, Stmt};
 
+pub(super) mod fields;
+
 pub(super) fn collect_objlit_boxed_only_argv(
     ast: &Ast,
     excluded: &std::collections::HashSet<String>,
@@ -57,21 +59,7 @@ pub(super) fn collect_objlit_boxed_only_argv(
     std::collections::HashSet<String>,
 ) {
     use std::collections::{HashMap, HashSet};
-    // (object binding, field) → lifted closure fn name.
-    let mut fields: HashMap<(String, String), String> = HashMap::new();
-    for s in &ast.stmts {
-        let Stmt::LetDecl { name, init, .. } = s else {
-            continue;
-        };
-        let Expr::ObjectLit { fields: fs } = ast.get_expr(*init) else {
-            continue;
-        };
-        for (fname, feid) in fs.iter().filter_map(|(f, e)| f.as_str().map(|f| (f, e))) {
-            if let Expr::Closure { fn_name, .. } = ast.get_expr(*feid) {
-                fields.insert((name.clone(), fname.to_string()), fn_name.clone());
-            }
-        }
-    }
+    let fields = fields::objlit_fields(ast);
     // Reference discipline over the whole arena. (No early return on
     // an empty field map — the store arm below seeds independently.)
     //

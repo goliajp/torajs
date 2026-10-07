@@ -1,0 +1,15 @@
+set 1 5
+get 0
+set 3 1
+get out 2
+fn set 1 6
+fn get 0
+fn set 2 7
+w.val 50
+w compound 53 530
+w float 5.5
+spread {"n":5.5,"val":55}
+json {"n":5.5,"val":55}
+w get out 58
+w set out 3
+plain 4
