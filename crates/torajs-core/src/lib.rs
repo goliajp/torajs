@@ -291,6 +291,7 @@ pub(crate) mod ssa_lower_arr_layout;
 pub(crate) mod ssa_lower_arr_mutator_recv;
 pub(crate) mod ssa_lower_arr_mutators;
 pub(crate) mod ssa_lower_arr_prereserve;
+pub(crate) mod ssa_lower_arr_shift;
 pub(crate) mod ssa_lower_arr_variadic;
 pub(crate) mod ssa_lower_array;
 pub(crate) mod ssa_lower_array_alloc;
