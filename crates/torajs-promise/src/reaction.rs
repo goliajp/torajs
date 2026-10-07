@@ -163,6 +163,10 @@ unsafe fn run_chain(mut dp: *mut Promise) {
     }
 }
 
+// the dispatcher picks the interest a settlement fires by adding the
+// rejected bit to RX_THEN
+const _: () = assert!(RX_CATCH == RX_THEN + 1);
+
 /// What settling a derived cell did with the dispatcher's stake on it.
 enum Stake {
     /// Still the dispatcher's, to release.
@@ -194,11 +198,8 @@ unsafe fn run_inline_reaction(dp: *mut Promise) -> Stake {
         let sp = as_promise(source);
         let derived = dp as *mut c_void;
         let rejected = (*sp).state == STATE_REJECTED;
-        let fires = match kind & RX_INTEREST_MASK {
-            RX_THEN => !rejected,
-            RX_CATCH => rejected,
-            _ => false,
-        };
+        // `.then` fires on a fulfillment, `.catch` on a rejection
+        let fires = kind & RX_INTEREST_MASK == RX_THEN + rejected as u8;
         let stake = if fires {
             let v = settle_param(
                 (*sp).value_repr,

@@ -14,6 +14,7 @@
 //! LOUDLY at attach time — never a silent mis-box.
 
 use core::ffi::c_void;
+use core::sync::atomic::{AtomicI64, Ordering};
 
 use crate::layout::{
     REPR_ANY, REPR_BOOL, REPR_F64, REPR_HEAP, REPR_I64, REPR_NULL, REPR_STR, REPR_UNSTAMPED,
@@ -50,7 +51,9 @@ unsafe extern "C" {
     fn __torajs_anyv_unbox_tag(v: u64) -> i64;
     fn __torajs_anyv_unbox_value(v: u64) -> i64;
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
-    fn __torajs_throw_check() -> i64;
+    /// torajs-throw — the in-flight flag, read in place as user code
+    /// reads it rather than through `__torajs_throw_check`
+    static __torajs_throw_active: AtomicI64;
     fn __torajs_throw_take() -> i64;
     fn __torajs_throw_take_tag() -> i64;
     /// torajs-rc — is this pointer the immortal undefined cell?
@@ -86,7 +89,7 @@ unsafe extern "C" {
 /// throw's stake into the box.
 pub(crate) unsafe fn reject_on_pending_throw(result: *mut c_void) -> bool {
     unsafe {
-        if __torajs_throw_check() == 0 {
+        if __torajs_throw_active.load(Ordering::Relaxed) == 0 {
             return false;
         }
         let tag = __torajs_throw_take_tag();
