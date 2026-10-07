@@ -152,6 +152,8 @@ pub(super) struct Analysis<'a> {
     /// name → ordered param names, for call-arg → Param edges.
     pub(super) fn_params: HashMap<String, Vec<String>>,
     pub(super) bound_closures: bound_closures::BoundClosures,
+    /// Reads of a function declaration's name a binding answers instead.
+    pub(super) shadowing_reads: HashSet<ExprId>,
     /// Top-level let/const names, for ident resolution at top level
     /// and inside named fns (named fns see top-level bindings via the
     /// data-global path).
@@ -281,7 +283,8 @@ pub(crate) fn analyze(
         analyze_tables::collect_slot_registry(ast);
     let bodies = captures::bodies(ast);
     let captures = captures::collect_captures(ast, &bodies, &toplevel_lets);
-    let bound_closures = bound_closures::collect(ast, &bodies, &toplevel_lets, &captures);
+    let (bound_closures, shadowing_reads) =
+        bound_closures::collect(ast, &bodies, &toplevel_lets, &captures);
     let nonzero_negs = nonzero_neg::collect(ast, &bodies, &toplevel_lets, expr_types);
 
     let mut classes: Vec<String> = ast.class_parents.keys().cloned().collect();
@@ -296,6 +299,7 @@ pub(crate) fn analyze(
         demoted,
         fn_params,
         bound_closures,
+        shadowing_reads,
         toplevel_lets,
         const_ints,
         by_name,

@@ -35,12 +35,15 @@ pub(crate) struct Candidates {
 
 pub(super) type BoundClosures = HashMap<ExprId, Candidates>;
 
+/// The closures each read may denote, and the reads of a function
+/// declaration's name that a binding answers instead
+/// ([`shadowing_reads`]).
 pub(super) fn collect(
     ast: &Ast,
     bodies: &[Body<'_>],
     toplevel_lets: &HashSet<String>,
     captures: &CaptureMap,
-) -> BoundClosures {
+) -> (BoundClosures, HashSet<ExprId>) {
     // binding key → its declarations; `None` = a binding that is not a
     // `let` / `const` (a for-of element, a catch param)
     let mut decls: HashMap<SlotKey, Vec<Option<(ExprId, bool)>>> = HashMap::new();
@@ -111,19 +114,47 @@ pub(super) fn collect(
         }
         out = next;
     }
-    out
+    (out, shadowing_reads(ast, &reads))
+}
+
+/// The reads of a function declaration's name that resolve to a binding
+/// of the same name in a function body: a parameter, a local, or a
+/// capture of one. Lowering calls that binding (§9.1.2.1: the innermost
+/// environment wins), so such a read names no declaration. A top-level
+/// `let` keeps the declaration's reading, as the lowering's identifier
+/// read does (`ssa_lower_ident::lower` takes the function before a
+/// top-level data slot).
+fn shadowing_reads(ast: &Ast, reads: &HashMap<ExprId, Option<SlotKey>>) -> HashSet<ExprId> {
+    let decls: HashSet<&str> = ast
+        .stmts
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::FnDecl { name, .. } => Some(name.as_str()),
+            _ => None,
+        })
+        .collect();
+    reads
+        .iter()
+        .filter(|(eid, k)| {
+            !matches!(k, Some(SlotKey::Global(_)))
+                && matches!(ast.get_expr(**eid), Expr::Ident(n) if decls.contains(n.as_str()))
+        })
+        .map(|(eid, _)| *eid)
+        .collect()
 }
 
 /// The FnDecls an argument in callback position may name. An arrow is
 /// lifted to a `__closure_N` before this analysis runs, so a spelled
-/// binding resolves to every closure it may hold.
+/// binding resolves to every closure it may hold, and a binding
+/// shadowing a declaration with none names no FnDecl.
 pub(super) fn callback_fn_name(a: &Analysis<'_>, cb: ExprId) -> Vec<String> {
     match a.ast.get_expr(cb) {
         Expr::Closure { fn_name, .. } => vec![fn_name.clone()],
-        Expr::Ident(n) => a
-            .bound_closures
-            .get(&cb)
-            .map_or_else(|| vec![n.clone()], |c| c.fns.clone()),
+        Expr::Ident(n) => match a.bound_closures.get(&cb) {
+            Some(c) => c.fns.clone(),
+            None if a.shadowing_reads.contains(&cb) => Vec::new(),
+            None => vec![n.clone()],
+        },
         _ => Vec::new(),
     }
 }
@@ -131,7 +162,8 @@ pub(super) fn callback_fn_name(a: &Analysis<'_>, cb: ExprId) -> Vec<String> {
 impl Analysis<'_> {
     /// The fn a callee or callback expression names: a closure literal,
     /// a binding that holds closures (their first — [`Self::join_bound_candidates`]
-    /// made the rest share its slots), or a function declaration.
+    /// made the rest share its slots), or a function declaration no
+    /// binding shadows at `eid`.
     pub(super) fn callee_fn_name(&self, eid: ExprId) -> Option<String> {
         if let Some(c) = self.bound_closures.get(&eid)
             && c.exact
@@ -139,7 +171,11 @@ impl Analysis<'_> {
             return c.fns.first().cloned();
         }
         match self.ast.get_expr(eid) {
-            Expr::Ident(n) if self.fn_params.contains_key(n) => Some(n.clone()),
+            Expr::Ident(n)
+                if self.fn_params.contains_key(n) && !self.shadowing_reads.contains(&eid) =>
+            {
+                Some(n.clone())
+            }
             Expr::Closure { fn_name, .. } => Some(fn_name.clone()),
             _ => None,
         }
