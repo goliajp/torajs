@@ -114,6 +114,20 @@ pub(super) fn collect(
     out
 }
 
+/// The FnDecls an argument in callback position may name. An arrow is
+/// lifted to a `__closure_N` before this analysis runs, so a spelled
+/// binding resolves to every closure it may hold.
+pub(super) fn callback_fn_name(a: &Analysis<'_>, cb: ExprId) -> Vec<String> {
+    match a.ast.get_expr(cb) {
+        Expr::Closure { fn_name, .. } => vec![fn_name.clone()],
+        Expr::Ident(n) => a
+            .bound_closures
+            .get(&cb)
+            .map_or_else(|| vec![n.clone()], |c| c.fns.clone()),
+        _ => Vec::new(),
+    }
+}
+
 impl Analysis<'_> {
     /// The fn a callee or callback expression names: a closure literal,
     /// a binding that holds closures (their first — [`Self::join_bound_candidates`]

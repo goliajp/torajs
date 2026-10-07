@@ -68,3 +68,16 @@ pub(super) fn fixpoint(
     }
     out
 }
+
+/// `TORAJS_NUM_WIDTH_STATS=1` — dump the canonical F64 class set (one
+/// line per poisoned representative), the same diagnostic shape as the
+/// SSA-pass `*_STATS` switches.
+pub(super) fn dump_f64_classes(canon_out: &HashSet<SlotKey>) {
+    if std::env::var_os("TORAJS_NUM_WIDTH_STATS").is_some() {
+        let mut lines: Vec<String> = canon_out.iter().map(|k| format!("{k:?}")).collect();
+        lines.sort();
+        for l in &lines {
+            eprintln!("[num_width] f64 class: {l}");
+        }
+    }
+}

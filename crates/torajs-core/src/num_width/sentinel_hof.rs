@@ -13,6 +13,7 @@
 //! over them, this one owns the call shapes that feed them.
 
 use super::Analysis;
+use super::bound_closures::callback_fn_name;
 use crate::ast::{Expr, Stmt};
 use std::collections::HashSet;
 
@@ -51,20 +52,6 @@ pub(super) fn collect_reduce_seed(
     }
     let fn_name = callback_fn_name(a, *cb);
     taint_param(a, &fn_name, 0, out);
-}
-
-/// The FnDecls an argument in callback position may name. An arrow is
-/// lifted to a `__closure_N` before this analysis runs, so a spelled
-/// binding resolves to every closure it may hold (`bound_closures.rs`).
-pub(super) fn callback_fn_name(a: &Analysis<'_>, cb: crate::ast::ExprId) -> Vec<String> {
-    match a.ast.get_expr(cb) {
-        Expr::Closure { fn_name, .. } => vec![fn_name.clone()],
-        Expr::Ident(n) => a
-            .bound_closures
-            .get(&cb)
-            .map_or_else(|| vec![n.clone()], |c| c.fns.clone()),
-        _ => Vec::new(),
-    }
 }
 
 /// Record that parameter `idx` of each of `fns` can be handed a sentinel.

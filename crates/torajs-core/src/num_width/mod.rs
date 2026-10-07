@@ -71,7 +71,7 @@ pub(crate) use width_table::WidthTable;
 use crate::ast::{Ast, ExprId, Stmt};
 use crate::ast::{GenericStructDecls, PropKey};
 use fallthrough::{alias_fallthrough_closures, seed_and_walk_fn};
-use lattice::{Dep, W, fixpoint, join, literal_is_f64};
+use lattice::{Dep, W, dump_f64_classes, fixpoint, join, literal_is_f64};
 use sentinel_tables::close_sentinel_tables;
 use std::collections::{HashMap, HashSet};
 
@@ -413,17 +413,7 @@ pub(crate) fn analyze(
         a.seeds.extend(poisoned);
     }
     let canon_out = fixpoint(std::mem::take(&mut a.seeds), &a.edges);
-
-    // TORAJS_NUM_WIDTH_STATS=1 — dump the canonical F64 class set
-    // (one line per poisoned representative), the same diagnostic
-    // shape as the SSA-pass *_STATS switches.
-    if std::env::var_os("TORAJS_NUM_WIDTH_STATS").is_some() {
-        let mut lines: Vec<String> = canon_out.iter().map(|k| format!("{k:?}")).collect();
-        lines.sort();
-        for l in &lines {
-            eprintln!("[num_width] f64 class: {l}");
-        }
-    }
+    dump_f64_classes(&canon_out);
 
     // W-ESC — escape faces on frozen class reps, Elem chains included
     let escapes = hof_receivers::settle(&a, &mut tables.params);

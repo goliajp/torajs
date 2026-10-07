@@ -13,8 +13,9 @@
 
 use std::collections::HashSet;
 
+use super::bound_closures::callback_fn_name;
 use super::container::canon_key_frozen;
-use super::sentinel_hof::{callback_fn_name, taint_param};
+use super::sentinel_hof::taint_param;
 use super::{Analysis, Scope, SlotKey};
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::Type;

@@ -358,7 +358,7 @@ fn collect_undef_sentinel_params(
         // An arrow is lifted to a `__closure_N` FnDecl before this
         // analysis runs, so the call site's binding names the closures
         // whose (user-facing, past `__env`) params take the arguments.
-        let fns = super::sentinel_hof::callback_fn_name(a, *callee);
+        let fns = super::bound_closures::callback_fn_name(a, *callee);
         for (i, arg) in args.iter().enumerate() {
             if is_sentinel_source(a, *arg, t) {
                 super::sentinel_hof::taint_param(a, &fns, i, &mut out);
