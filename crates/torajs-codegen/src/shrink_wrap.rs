@@ -17,7 +17,8 @@
 //! and no block it dominates branches back out of its region. That
 //! also keeps every callee-saved value's whole live range inside the
 //! region. The blocks before it may not define a value into an
-//! argument register a relocated param still arrives in.
+//! argument register a relocated param still arrives in, except a block
+//! that leaves the function, once the param's last read in it is past.
 
 use torajs_core::ssa::id_hash::{HashMap, HashSet};
 
@@ -82,14 +83,11 @@ pub(crate) fn plan(func: &Function, alloc: &Assignment) -> Option<ShrinkWrap> {
             }
         }
     }
-    let arrival_regs: Vec<Reg> = arrivals.values().copied().collect();
     let clobbers_arrival = func
         .blocks
         .iter()
         .filter(|b| pre.contains(&b.id.0))
-        .flat_map(|b| &b.insts)
-        .filter_map(|i| i.result)
-        .any(|r| alloc.contains(r) && arrival_regs.contains(&alloc.of(r)));
+        .any(|b| block_clobbers_arrival(b, alloc, &arrivals));
     if clobbers_arrival {
         return None;
     }
@@ -128,6 +126,49 @@ fn needs_frame(
         _ => None,
     };
     hit || term_reads.is_some_and(|v| framed(v) && !arrivals.contains_key(&v.0))
+}
+
+/// Whether a frameless block writes a register a relocated param still
+/// arrives in while that param can be read afterwards. A block that
+/// leaves the function (no successors) may reuse the register once the
+/// param's last read in it has passed: the save point never runs after
+/// it, so nothing downstream expects the param there. The defining inst
+/// itself must not read the param either — the allocator never hands an
+/// inst a result register equal to one of its operands, and emitters
+/// rely on that. The usual case is a base case returning a fresh value
+/// in x0 / d0, the first param's own register. Reads are judged by SSA
+/// index: a fusion that emits an absorbed inst's operand reads at a
+/// later inst must read them before it writes its result register.
+fn block_clobbers_arrival(
+    block: &torajs_core::ssa::Block,
+    alloc: &Assignment,
+    arrivals: &HashMap<u32, Reg>,
+) -> bool {
+    let terminal = successors(&block.term).next().is_none();
+    block.insts.iter().enumerate().any(|(i, inst)| {
+        let Some(r) = inst.result.filter(|r| alloc.contains(*r)) else {
+            return false;
+        };
+        let home = alloc.of(r);
+        arrivals
+            .iter()
+            .filter(|(_, reg)| **reg == home)
+            .any(|(p, _)| !terminal || read_from(block, i, *p))
+    })
+}
+
+/// Whether value `p` is read by the inst at index `i`, a later inst, or
+/// the terminator.
+fn read_from(block: &torajs_core::ssa::Block, i: usize, p: u32) -> bool {
+    let mut hit = false;
+    for inst in &block.insts[i..] {
+        visit_value_operands(&inst.kind, |v| hit |= v.0 == p);
+    }
+    let term_reads = match &block.term {
+        Terminator::Ret(Some(Operand::Value(v))) => Some(v.0),
+        _ => None,
+    };
+    hit || term_reads == Some(p)
 }
 
 fn frame_home(r: Reg) -> bool {
@@ -250,6 +291,72 @@ mod tests {
             cmp_imm(Gpr::X0, 2),
             "entry compares n in x0, no prologue"
         );
+    }
+
+    /// %0 arrives in x0 and %1 in x1; %7 is homed in x0.
+    fn arrival_case(insts: Vec<Inst>, term: Terminator) -> bool {
+        let block = Block {
+            id: BlockId(1),
+            insts,
+            term,
+        };
+        let homes = [
+            (0, Reg::Gpr(Gpr::X19)),
+            (1, Reg::Gpr(Gpr::X20)),
+            (7, Reg::Gpr(Gpr::X0)),
+        ];
+        let alloc =
+            Assignment::from_parts(homes.into_iter().collect(), HashMap::default(), 0, 0, true);
+        let arrivals = HashMap::from_iter([(0, Reg::Gpr(Gpr::X0)), (1, Reg::Gpr(Gpr::X1))]);
+        block_clobbers_arrival(&block, &alloc, &arrivals)
+    }
+
+    fn add1(r: u32, of: u32) -> Inst {
+        inst(r, InstKind::BinOp(BinOp::Add, v(of), Operand::ConstI64(1)))
+    }
+
+    #[test]
+    fn a_returning_block_may_reuse_a_dead_params_register() {
+        assert!(!arrival_case(vec![add1(7, 1)], Terminator::Ret(Some(v(7)))));
+    }
+
+    #[test]
+    fn a_param_read_at_or_after_the_def_keeps_its_register() {
+        let later = vec![add1(7, 1), inst(8, InstKind::BinOp(BinOp::Add, v(7), v(0)))];
+        assert!(arrival_case(later, Terminator::Ret(Some(v(8)))));
+        assert!(arrival_case(vec![add1(7, 0)], Terminator::Ret(Some(v(7)))));
+        assert!(arrival_case(vec![add1(7, 1)], Terminator::Ret(Some(v(0)))));
+    }
+
+    #[test]
+    fn a_block_with_successors_keeps_every_arrival_register() {
+        assert!(arrival_case(vec![add1(7, 1)], Terminator::Br(BlockId(2))));
+    }
+
+    /// `f(a, b) { if (a < 2) return b + 1; return f(a - 1, b) + a + b }`:
+    /// both params cross the call, and the base case's result takes the
+    /// return register, which is `a`'s argument register.
+    #[test]
+    fn a_base_case_computing_into_the_first_arg_register_runs_frameless() {
+        let mut func = countdown(false);
+        func.params.push(ValueId(6));
+        func.values
+            .extend([Type::I64, Type::I64, Type::I64].map(|ty| ValueInfo { ty, name: None }));
+        func.blocks[1].insts = vec![add1(7, 6)];
+        func.blocks[1].term = Terminator::Ret(Some(v(7)));
+        let rec = &mut func.blocks[2];
+        rec.insts[1] = inst(3, InstKind::Call(FuncId(0), vec![v(2), v(6)]));
+        rec.insts
+            .push(inst(8, InstKind::BinOp(BinOp::Add, v(4), v(6))));
+        rec.term = Terminator::Ret(Some(v(8)));
+        let alloc = allocate_linear_scan(&func);
+        assert_eq!(
+            alloc.of(ValueId(7)),
+            Reg::Gpr(Gpr::X0),
+            "the shape under test"
+        );
+        let sw = plan(&func, &alloc).expect("the base case needs no frame");
+        assert_eq!(sw.save, BlockId(2));
     }
 
     #[test]
