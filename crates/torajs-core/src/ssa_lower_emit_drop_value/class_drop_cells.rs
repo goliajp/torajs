@@ -7,6 +7,7 @@ use crate::ssa::{
     self, BinOp as SsaBinOp, BlockId, FuncId, IPred, InstKind, Operand, Terminator, Type,
 };
 use crate::ssa_lower::{OBJ_CLASS_TAG_OFF, OBJ_PROPS_OFF};
+use crate::ssa_lower_emit_drop_value::class_drop::Cx;
 
 pub(crate) fn branch(
     f: &mut ssa::Function,
@@ -25,15 +26,20 @@ pub(crate) fn branch(
     );
 }
 
-/// `p == NULL | p == @undefined_cell` — the two values a nullable
-/// `Obj` slot holds that own nothing (`nullish_skip_cond`).
-pub(crate) fn emit_nullish(f: &mut ssa::Function, blk: BlockId, p: Operand) -> Operand {
+/// `p == NULL`, the absent child a nullable `Obj` slot holds most.
+pub(crate) fn emit_is_null(f: &mut ssa::Function, blk: BlockId, p: Operand) -> Operand {
     let is_null = f.append_inst(
         blk,
         InstKind::ICmp(IPred::Eq, p, Operand::ConstPtrNull),
         Type::Bool,
         None,
     );
+    Operand::Value(is_null)
+}
+
+/// `p == @undefined_cell`, the other value a nullable `Obj` slot
+/// holds that owns nothing (`nullish_skip_cond`).
+pub(crate) fn emit_is_undef(f: &mut ssa::Function, blk: BlockId, p: Operand) -> Operand {
     let undef = f.append_inst(
         blk,
         InstKind::GlobalRef(crate::ssa_lower_binop_null_undef::UNDEF_CELL_SYM.to_string()),
@@ -46,48 +52,46 @@ pub(crate) fn emit_nullish(f: &mut ssa::Function, blk: BlockId, p: Operand) -> O
         Type::Bool,
         None,
     );
-    let nullish = f.append_inst(
-        blk,
-        InstKind::BinOp(
-            SsaBinOp::Or,
-            Operand::Value(is_null),
-            Operand::Value(is_undef),
-        ),
-        Type::Bool,
-        None,
-    );
-    Operand::Value(nullish)
+    Operand::Value(is_undef)
 }
 
-/// The low 32 bits of the +8 slot against each tag of the sid
-/// (`load_obj_class_tag`'s mask: the install cursor shares the word).
+/// Leave `blk` for `nullish` when `p` is null or undefined, one test
+/// per branch; answers the block the owning path continues in.
+pub(crate) fn branch_nullish(
+    f: &mut ssa::Function,
+    blk: BlockId,
+    p: Operand,
+    nullish: BlockId,
+) -> BlockId {
+    let undef_blk = f.add_block();
+    let owned = f.add_block();
+    let is_null = emit_is_null(f, blk, p);
+    branch(f, blk, is_null, nullish, undef_blk);
+    let is_undef = emit_is_undef(f, undef_blk, p);
+    branch(f, undef_blk, is_undef, nullish, owned);
+    owned
+}
+
+/// The low 32 bits of the +8 slot against each tag of the sid (the
+/// install cursor shares the word's high half): a 32-bit load reads
+/// exactly the half `load_obj_class_tag` masks out.
 pub(crate) fn emit_tag_in_set(
     f: &mut ssa::Function,
     blk: BlockId,
     p: Operand,
     tags: &[u32],
 ) -> Operand {
-    let slot = f.append_inst(
-        blk,
-        InstKind::Load(Type::I64, p, OBJ_CLASS_TAG_OFF),
-        Type::I64,
-        None,
-    );
     let tag = f.append_inst(
         blk,
-        InstKind::BinOp(
-            SsaBinOp::And,
-            Operand::Value(slot),
-            Operand::ConstI64(0xFFFF_FFFF),
-        ),
-        Type::I64,
+        InstKind::Load(Type::I32, p, OBJ_CLASS_TAG_OFF),
+        Type::I32,
         None,
     );
     let mut acc: Option<Operand> = None;
     for &t in tags {
         let hit = f.append_inst(
             blk,
-            InstKind::ICmp(IPred::Eq, Operand::Value(tag), Operand::ConstI64(t as i64)),
+            InstKind::ICmp(IPred::Eq, Operand::Value(tag), Operand::ConstI32(t as i32)),
             Type::Bool,
             None,
         );
@@ -128,9 +132,9 @@ pub(crate) fn emit_rc_dec(f: &mut ssa::Function, blk: BlockId, p: Operand) -> Op
 /// the block the caller continues in.
 pub(crate) fn emit_weakref_notify(
     f: &mut ssa::Function,
+    cx: &Cx<'_>,
     blk: BlockId,
     p: Operand,
-    dying: FuncId,
 ) -> BlockId {
     let active_ptr = f.append_inst(
         blk,
@@ -150,33 +154,27 @@ pub(crate) fn emit_weakref_notify(
         Type::Bool,
         None,
     );
-    emit_cond_call(f, blk, observed, dying, p)
+    emit_cold_call(f, cx, blk, observed, cx.intr.weakref_target_dying, p)
 }
 
-/// `if (p.props != NULL) seam(p)` — the expando bag's two link seams
-/// (release, cycle-root buffering) run only for a cell that has one.
-pub(crate) fn emit_if_props(
-    f: &mut ssa::Function,
-    blk: BlockId,
-    p: Operand,
-    seam: FuncId,
-) -> BlockId {
+/// `p.props != NULL` — the expando bag's two link seams (release,
+/// cycle-root buffering) run only for a cell that has one.
+pub(crate) fn emit_has_props(f: &mut ssa::Function, blk: BlockId, p: Operand) -> ssa::ValueId {
     let props = f.append_inst(
         blk,
         InstKind::Load(Type::Ptr, p, OBJ_PROPS_OFF),
         Type::Ptr,
         None,
     );
-    let nonnull = f.append_inst(
+    f.append_inst(
         blk,
         InstKind::ICmp(IPred::Ne, Operand::Value(props), Operand::ConstPtrNull),
         Type::Bool,
         None,
-    );
-    emit_cond_call(f, blk, nonnull, seam, p)
+    )
 }
 
-/// `if (cond) fid(arg)` — answers the join block.
+/// `if (cond) fid(arg)` in place — answers the join block.
 pub(crate) fn emit_cond_call(
     f: &mut ssa::Function,
     blk: BlockId,
@@ -192,15 +190,35 @@ pub(crate) fn emit_cond_call(
     join_blk
 }
 
-/// A cell the cycle collector holds as a candidate root stays
-/// allocated, coloured black with rc 0, for the next collect's root
-/// walk to free; that leg goes to `after`. Answers the free leg.
-pub(crate) fn emit_defer_if_buffered(
+/// `if (cond) fid(arg)` with the call laid out past the fn's hot
+/// path, so the common case falls straight through — answers the
+/// join block.
+pub(crate) fn emit_cold_call(
+    f: &mut ssa::Function,
+    cx: &Cx<'_>,
+    blk: BlockId,
+    cond: ssa::ValueId,
+    fid: FuncId,
+    arg: Operand,
+) -> BlockId {
+    let join_blk = f.add_block();
+    cx.defer(move |f| {
+        let call_blk = f.add_block();
+        branch(f, blk, Operand::Value(cond), call_blk, join_blk);
+        f.append_void(call_blk, InstKind::Call(fid, vec![arg]));
+        f.set_term(call_blk, Terminator::Br(join_blk));
+    });
+    join_blk
+}
+
+/// `FLAG_BUFFERED` of the header's flags word: a cell the cycle
+/// collector holds as a candidate root. Answers the test and the
+/// word `emit_colour_black` rewrites.
+pub(crate) fn emit_is_buffered(
     f: &mut ssa::Function,
     blk: BlockId,
     p: Operand,
-    after: BlockId,
-) -> BlockId {
+) -> (Operand, ssa::ValueId) {
     let word = f.append_inst(blk, InstKind::Load(Type::I32, p, 4), Type::I32, None);
     let bit = f.append_inst(
         blk,
@@ -218,11 +236,19 @@ pub(crate) fn emit_defer_if_buffered(
         Type::Bool,
         None,
     );
-    let defer_blk = f.add_block();
-    let free_blk = f.add_block();
-    branch(f, blk, Operand::Value(buffered), defer_blk, free_blk);
+    (Operand::Value(buffered), word)
+}
+
+/// A buffered cell stays allocated, coloured black with rc 0, for
+/// the next collect's root walk to free.
+pub(crate) fn emit_colour_black(
+    f: &mut ssa::Function,
+    blk: BlockId,
+    p: Operand,
+    word: ssa::ValueId,
+) {
     let black = f.append_inst(
-        defer_blk,
+        blk,
         InstKind::BinOp(
             SsaBinOp::And,
             Operand::Value(word),
@@ -231,7 +257,5 @@ pub(crate) fn emit_defer_if_buffered(
         Type::I32,
         None,
     );
-    f.append_void(defer_blk, InstKind::Store(Operand::Value(black), p, 4));
-    f.set_term(defer_blk, Terminator::Br(after));
-    free_blk
+    f.append_void(blk, InstKind::Store(Operand::Value(black), p, 4));
 }

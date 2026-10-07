@@ -25,7 +25,9 @@ use crate::ssa::{
     self, ArrId, BinOp as SsaBinOp, BlockId, IPred, InstKind, Operand, Terminator, Type,
 };
 use crate::ssa_lower::{ARR_DATA_PTR_OFF, ARR_LEN_OFF};
-use crate::ssa_lower_emit_drop_value::class_drop::{Cx, branch, emit_nullish, emit_release_value};
+use crate::ssa_lower_emit_drop_value::class_drop::{
+    Cx, branch, branch_nullish, emit_release_value,
+};
 
 pub(crate) fn emit_release_arr(
     f: &mut ssa::Function,
@@ -37,9 +39,7 @@ pub(crate) fn emit_release_arr(
 ) -> BlockId {
     let elem_ty = cx.arr_layouts[arr_id.0 as usize];
     let after = f.add_block();
-    let mut cur = f.add_block();
-    let nullish = emit_nullish(f, blk, val);
-    branch(f, blk, nullish, after, cur);
+    let mut cur = branch_nullish(f, blk, val, after);
     let drop_fid = if matches!(elem_ty, Type::Str | Type::Substr) {
         cx.intr.arr_drop_str_elems
     } else if elem_ty == Type::Any {

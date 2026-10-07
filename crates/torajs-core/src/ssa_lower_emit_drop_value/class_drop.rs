@@ -4,7 +4,7 @@
 //! (`ssa_lower_emit_drop_value::obj`) as one fn:
 //!
 //! ```text
-//! entry:   nullish(p) → ret
+//! entry:   p == NULL → ret ; p == @undefined_cell → ret
 //! tag:     class_tag(p) ∈ tags → dec ; else __torajs_obj_drop_rc(p), ret
 //! dec:     --rc == 0 → walk ; else __torajs_cycle_buffer(p), ret
 //! walk:    weakref observers live → __torajs_weakref_target_dying(p)
@@ -12,6 +12,9 @@
 //!          props bag → __torajs_obj_props_drop_slow(p)
 //!          FLAG_BUFFERED → colour black, ret ; else obj_drop_sized
 //! ```
+//!
+//! Blocks lay out in creation order: a dying leaf's path is created
+//! first and falls through; legs to runtime seams come last (`defer`).
 //!
 //! The tag test is new against the inline form. A layout is a prefix
 //! of every wider shape assignable to it — a subclass in a base-typed
@@ -32,14 +35,16 @@
 //! `Substr` through `substr_drop`, every other non-Copy value through
 //! the tag-dispatched `value_drop_heap`.
 
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
 use crate::ast::PropKey;
 use crate::ssa::{self, BlockId, FuncId, IPred, InstKind, Module, Operand, Terminator, Type};
 use crate::ssa_lower::{Intrinsics, OBJ_HEADER_SIZE};
-pub(crate) use crate::ssa_lower_emit_drop_value::class_drop_cells::{branch, emit_nullish};
+pub(crate) use crate::ssa_lower_emit_drop_value::class_drop_cells::{branch, branch_nullish};
 use crate::ssa_lower_emit_drop_value::class_drop_cells::{
-    emit_defer_if_buffered, emit_if_props, emit_rc_dec, emit_tag_in_set, emit_weakref_notify,
+    emit_cold_call, emit_colour_black, emit_cond_call, emit_has_props, emit_is_buffered,
+    emit_is_null, emit_is_undef, emit_rc_dec, emit_tag_in_set, emit_weakref_notify,
 };
 use crate::ssa_lower_emit_drop_value::class_drop_setup::ClassDropFn;
 
@@ -58,6 +63,14 @@ pub(crate) struct Cx<'a> {
     /// the fn's first block, where every loop counter slot is
     /// allocated; it branches to the release once the body is built
     pub prelude: BlockId,
+    /// legs off the hot path, emitted once the body is complete
+    pub cold: RefCell<Vec<Box<dyn FnOnce(&mut ssa::Function)>>>,
+}
+
+impl Cx<'_> {
+    pub(crate) fn defer(&self, leg: impl FnOnce(&mut ssa::Function) + 'static) {
+        self.cold.borrow_mut().push(Box::new(leg));
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -111,10 +124,14 @@ pub(crate) fn populate_class_drop_bodies(
             drop_fids: &drop_fids,
             intr: intrinsics,
             prelude,
+            cold: RefCell::new(Vec::new()),
         };
         let mut stack = Vec::new();
         let after = emit_release(&mut f, &cx, entry, Operand::Value(p), d.sid.0, &mut stack);
         f.set_term(after, Terminator::Ret(None));
+        for leg in cx.cold.take() {
+            leg(&mut f);
+        }
         f.set_term(prelude, Terminator::Br(entry));
         module.funcs[d.fid.0 as usize] = f;
     }
@@ -184,41 +201,91 @@ fn emit_release(
 ) -> BlockId {
     let layout = &cx.layouts[sid as usize];
     let is_class = cx.class_sids.contains(&sid);
-    let after = f.add_block();
+    let undef_blk = f.add_block();
     let tag_blk = f.add_block();
-    let foreign_blk = f.add_block();
     let dec_blk = f.add_block();
-    let nullish = emit_nullish(f, blk, val);
-    branch(f, blk, nullish, after, tag_blk);
+    let walk_blk = f.add_block();
+    let is_null = emit_is_null(f, blk, val);
+    let is_undef = emit_is_undef(f, undef_blk, val);
     let tags = cx.tags.get(&sid).map_or(&[0][..], Vec::as_slice);
     let known = emit_tag_in_set(f, tag_blk, val, tags);
-    branch(f, tag_blk, known, dec_blk, foreign_blk);
-    f.append_void(foreign_blk, InstKind::Call(cx.intr.obj_drop_rc, vec![val]));
-    f.set_term(foreign_blk, Terminator::Br(after));
-    let walk_blk = f.add_block();
     let is_zero = emit_rc_dec(f, dec_blk, val);
-    if is_class {
-        // references remain: a candidate cycle root; a fields-all-
-        // scalar instance can only close a cycle through its expando
-        // bag, so it buffers behind the bag's seam
+    let walk_end = emit_walk(f, cx, walk_blk, val, sid, stack);
+    let buffered = is_class.then(|| emit_is_buffered(f, walk_end, val));
+    let free_blk = if is_class { f.add_block() } else { walk_end };
+    emit_free(f, cx, free_blk, val, sid);
+    let after = f.add_block();
+    f.set_term(free_blk, Terminator::Br(after));
+    branch(f, blk, is_null, after, undef_blk);
+    branch(f, undef_blk, is_undef, after, tag_blk);
+    let (obj_drop_rc, cycle_buffer, buffer_slow) = (
+        cx.intr.obj_drop_rc,
+        cx.intr.cycle_buffer,
+        cx.intr.obj_buffer_slow,
+    );
+    cx.defer(move |f| {
+        let foreign_blk = f.add_block();
+        branch(f, tag_blk, known, dec_blk, foreign_blk);
+        f.append_void(foreign_blk, InstKind::Call(obj_drop_rc, vec![val]));
+        f.set_term(foreign_blk, Terminator::Br(after));
+    });
+    let Some((buffered, word)) = buffered else {
+        branch(f, dec_blk, is_zero, walk_blk, after);
+        return after;
+    };
+    // references remain: a candidate cycle root; a fields-all-scalar
+    // instance can only close a cycle through its expando bag, so it
+    // buffers behind the bag's seam
+    let scalar = layout.iter().all(|(_, fty)| fty.is_copy());
+    cx.defer(move |f| {
         let buffer_blk = f.add_block();
         branch(f, dec_blk, is_zero, walk_blk, buffer_blk);
-        let end = if layout.iter().all(|(_, fty)| fty.is_copy()) {
-            emit_if_props(f, buffer_blk, val, cx.intr.obj_buffer_slow)
+        let end = if scalar {
+            let has = emit_has_props(f, buffer_blk, val);
+            emit_cond_call(f, buffer_blk, has, buffer_slow, val)
         } else {
-            f.append_void(buffer_blk, InstKind::Call(cx.intr.cycle_buffer, vec![val]));
+            f.append_void(buffer_blk, InstKind::Call(cycle_buffer, vec![val]));
             buffer_blk
         };
         f.set_term(end, Terminator::Br(after));
-    } else {
-        branch(f, dec_blk, is_zero, walk_blk, after);
+        let defer_blk = f.add_block();
+        branch(f, walk_end, buffered, defer_blk, free_blk);
+        emit_colour_black(f, defer_blk, val, word);
+        f.set_term(defer_blk, Terminator::Br(after));
+    });
+    after
+}
+
+/// Free the cell. A class sid's tag set names classes of this very
+/// layout, so a cell past the tag test has this size. An anonymous
+/// sid's set holds 0, a cell minted without a stamp, which says
+/// nothing of its layout: the sid rides along and `cell_size::settle`
+/// decides the free once every layout is known, as for the inline drop.
+fn emit_free(f: &mut ssa::Function, cx: &Cx<'_>, blk: BlockId, val: Operand, sid: u32) {
+    let size = OBJ_HEADER_SIZE + cx.layouts[sid as usize].len() as u64 * 8;
+    let mut args = vec![val, Operand::ConstI64(size as i64)];
+    if !cx.class_sids.contains(&sid) {
+        args.push(Operand::ConstI64(sid as i64));
     }
-    let mut cur = walk_blk;
-    if is_class {
-        cur = emit_weakref_notify(f, cur, val, cx.intr.weakref_target_dying);
+    f.append_void(blk, InstKind::Call(cx.intr.obj_drop_sized, args));
+}
+
+/// The release of a cell whose count reached zero, up to the free:
+/// the WeakRef notice, each non-Copy field, the expando bag.
+fn emit_walk(
+    f: &mut ssa::Function,
+    cx: &Cx<'_>,
+    blk: BlockId,
+    val: Operand,
+    sid: u32,
+    stack: &mut Vec<u32>,
+) -> BlockId {
+    let mut cur = blk;
+    if cx.class_sids.contains(&sid) {
+        cur = emit_weakref_notify(f, cx, cur, val);
     }
     stack.push(sid);
-    for (i, (_, fty)) in layout.iter().enumerate() {
+    for (i, (_, fty)) in cx.layouts[sid as usize].iter().enumerate() {
         if fty.is_copy() {
             continue;
         }
@@ -227,21 +294,6 @@ fn emit_release(
         cur = emit_release_value(f, cx, cur, field, *fty, stack);
     }
     stack.pop();
-    cur = emit_if_props(f, cur, val, cx.intr.obj_props_drop_slow);
-    if is_class {
-        cur = emit_defer_if_buffered(f, cur, val, after);
-    }
-    // A class sid's tag set names classes of this very layout, so a
-    // cell past the tag test has this size. An anonymous sid's set
-    // holds 0, a cell minted without a stamp, which says nothing of
-    // its layout: the sid rides along and `cell_size::settle` decides
-    // the free once every layout is known, as for the inline drop.
-    let size = OBJ_HEADER_SIZE + layout.len() as u64 * 8;
-    let mut args = vec![val, Operand::ConstI64(size as i64)];
-    if !is_class {
-        args.push(Operand::ConstI64(sid as i64));
-    }
-    f.append_void(cur, InstKind::Call(cx.intr.obj_drop_sized, args));
-    f.set_term(cur, Terminator::Br(after));
-    after
+    let has = emit_has_props(f, cur, val);
+    emit_cold_call(f, cx, cur, has, cx.intr.obj_props_drop_slow, val)
 }
