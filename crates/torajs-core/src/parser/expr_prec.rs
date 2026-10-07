@@ -330,6 +330,9 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn parse_unary(&mut self) -> Result<ExprId, String> {
+        if matches!(self.peek(), Token::Lt) {
+            return self.parse_angle_assertion();
+        }
         if matches!(self.peek(), Token::Bang) {
             self.pos += 1;
             // Right-associative: `!!a` = !(!a).

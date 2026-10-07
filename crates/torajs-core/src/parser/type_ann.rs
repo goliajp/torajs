@@ -323,10 +323,15 @@ impl<'a> Parser<'a> {
                 }
             }
         }
-        // S155 — close consumes one virtual `>`. If we're inside
-        // `Foo<Bar<X>>` the real token is ShrShr; peel it once and
-        // advance pos when fully consumed (peel == 2 for ShrShr,
-        // peel == 3 for ShrShrShr).
+        self.consume_type_close("type args")?;
+        Ok(args)
+    }
+
+    /// Consume one virtual `>` closing a type's angle brackets. S155:
+    /// inside `Foo<Bar<X>>` the real token is ShrShr; peel it once and
+    /// advance pos when fully consumed (peel == 2 for ShrShr, peel == 3
+    /// for ShrShrShr).
+    pub(super) fn consume_type_close(&mut self, what: &str) -> Result<(), String> {
         match &self.tokens[self.pos].token {
             Token::Gt => {
                 self.pos += 1;
@@ -348,13 +353,13 @@ impl<'a> Parser<'a> {
             }
             _ => {
                 return Err(format!(
-                    "expected `>` to close type args, got {:?} at {}",
+                    "expected `>` to close {what}, got {:?} at {}",
                     self.peek(),
                     self.at()
                 ));
             }
         }
-        Ok(args)
+        Ok(())
     }
 
     /// Shared postfix readers on a just-parsed type: `[]` array

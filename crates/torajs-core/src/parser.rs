@@ -116,6 +116,7 @@ mod type_ann;
 mod type_ann_fn;
 mod type_ann_helpers;
 mod type_ann_literal;
+mod type_assertion;
 mod type_decl;
 mod using_decl;
 mod with_stmt;
