@@ -111,48 +111,39 @@ impl TlabCache {
     /// As [`TlabCache::spill`], for every block; the chain holds at
     /// least `n` blocks.
     unsafe fn release_chain(&mut self, class: usize, head: *mut u8, n: usize) -> *mut u8 {
-        // the open run: its span, the span's byte range, and the
-        // chain segment collected so far
-        let mut cur: *mut SpanMeta = ptr::null_mut();
-        let mut lo = 0usize;
-        let mut len = 0usize;
-        let mut was_full = false;
-        let mut seg_head = ptr::null_mut();
-        let mut seg_last = ptr::null_mut();
-        let mut run = 0;
         let mut p = head;
-        for _ in 0..n {
-            let next = unsafe { *link(p) };
-            if (p as usize).wrapping_sub(lo) >= len {
-                if run > 0 {
-                    unsafe { self.settle_chain(class, cur, seg_head, seg_last, run, was_full) };
-                    run = 0;
-                }
-                let arena = Arena::containing(p);
-                let meta = unsafe { (*arena).meta_of(p) };
-                #[cfg(torajs_alloc_guard)]
-                assert!(
-                    unsafe { (*meta).class() } == class,
-                    "block released at another size class"
-                );
-                if !ptr::eq(unsafe { (*arena).owner }, self) {
-                    unsafe { (*meta).release_remote(p) };
-                    len = 0;
-                    p = next;
-                    continue;
-                }
-                cur = meta;
-                lo = unsafe { (*arena).span_base(meta) } as usize;
-                len = unsafe { (*meta).pages() } * ARENA_PAGE;
-                was_full = unsafe { (*meta).state() } == SpanState::Full;
-                seg_head = p;
+        let mut left = n;
+        while left > 0 {
+            let arena = Arena::containing(p);
+            let meta = unsafe { (*arena).meta_of(p) };
+            #[cfg(torajs_alloc_guard)]
+            assert!(
+                unsafe { (*meta).class() } == class,
+                "block released at another size class"
+            );
+            if !ptr::eq(unsafe { (*arena).owner }, self) {
+                let next = unsafe { *link(p) };
+                unsafe { (*meta).release_remote(p) };
+                p = next;
+                left -= 1;
+                continue;
             }
-            seg_last = p;
-            run += 1;
-            p = next;
-        }
-        if run > 0 {
-            unsafe { self.settle_chain(class, cur, seg_head, seg_last, run, was_full) };
+            // the run: `p` and the neighbours after it on its span; the
+            // walk per block is a load, a count and a range test
+            let lo = unsafe { (*arena).span_base(meta) } as usize;
+            let len = unsafe { (*meta).pages() } * ARENA_PAGE;
+            let was_full = unsafe { (*meta).state() } == SpanState::Full;
+            let (seg_head, start) = (p, left);
+            let mut last;
+            loop {
+                last = p;
+                p = unsafe { *link(p) };
+                left -= 1;
+                if left == 0 || (p as usize).wrapping_sub(lo) >= len {
+                    break;
+                }
+            }
+            unsafe { self.settle_chain(class, meta, seg_head, last, start - left, was_full) };
         }
         p
     }
