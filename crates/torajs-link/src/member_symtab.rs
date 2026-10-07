@@ -19,9 +19,7 @@ use crate::member_resolve::MemberSymtab;
 /// Walk a member's load commands and pull the `LC_SYMTAB` four-tuple.
 /// Bounds-checks the symoff/stroff ranges against the member buffer
 /// up front so per-reloc loops can index without further validation.
-pub(crate) fn parse_member_symtab(
-    member: &ArMember<'_>,
-) -> Result<MemberSymtab, MemberRelocApplyError> {
+pub fn parse_member_symtab(member: &ArMember<'_>) -> Result<MemberSymtab, MemberRelocApplyError> {
     let bytes = member.data;
     if bytes.len() < 32 {
         return Err(MemberRelocApplyError::Decode(
@@ -99,7 +97,7 @@ pub(crate) fn parse_member_symtab(
 }
 
 /// Resolve `nlist[sym_index].n_strx` to a UTF-8 symbol name.
-pub(crate) fn read_nlist_name<'a>(
+pub fn read_nlist_name<'a>(
     member: &ArMember<'a>,
     symtab: &MemberSymtab,
     sym_index: u32,

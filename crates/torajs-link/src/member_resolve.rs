@@ -15,11 +15,11 @@ use crate::data_section_layout::DataSectionLayout;
 use crate::non_text_layout::NonTextSectionLayout;
 
 /// Sub-view of a parsed `LC_SYMTAB`, the four absolute file offsets +
-/// counts the symbol-name resolver needs. `pub(crate)` so
-/// `member_apply::parse_member_symtab` (still owns the parse) and
-/// `resolve_local_nsect` (this module) share the struct.
+/// counts the symbol-name resolver needs, shared by
+/// `member_symtab::parse_member_symtab` (which owns the parse) and
+/// `resolve_local_nsect` (this module).
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct MemberSymtab {
+pub struct MemberSymtab {
     pub(crate) symoff: u32,
     pub(crate) nsyms: u32,
     pub(crate) stroff: u32,
