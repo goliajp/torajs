@@ -123,13 +123,7 @@ pub(super) fn mint(
         let Some(params) = widenable_target(c, owned_ast, &name).map(|t| t.params) else {
             continue;
         };
-        // the twin's `any` values would be stored into the typed slot of
-        // a binding outside it, which lowering refuses; such a closure
-        // keeps the coercion kernel
-        if owned_ast.stmts.iter().any(|s| {
-            matches!(s, Stmt::FnDecl { name: n, .. } if *n == name)
-                && crate::ast::free_vars_write::writes_outer_binding(owned_ast, s)
-        }) {
+        if writes_outer_binding(owned_ast, &name) {
             continue;
         }
         // the twin is checked at the original's construction site, whose
@@ -156,6 +150,16 @@ pub(super) fn mint(
         minted = true;
     }
     minted
+}
+
+/// Does the body of `name` write a binding outside it? The twin's `any`
+/// values would be stored into that binding's typed slot, which
+/// lowering refuses; such a closure keeps the coercion kernel.
+fn writes_outer_binding(ast: &Ast, name: &str) -> bool {
+    ast.stmts.iter().any(|s| {
+        matches!(s, Stmt::FnDecl { name: n, .. } if n == name)
+            && crate::ast::free_vars_write::writes_outer_binding(ast, s)
+    })
 }
 
 fn captured(ty: Type) -> LocalInfo {
