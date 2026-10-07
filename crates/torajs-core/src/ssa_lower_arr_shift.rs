@@ -107,18 +107,14 @@ impl LowerCtx<'_> {
             Type::I64,
             None,
         );
-        let flags = self.f.append_inst(
-            self.cur_block,
-            InstKind::BinOp(SsaBinOp::LShr, Operand::Value(hdr), Operand::ConstI64(48)),
-            Type::I64,
-            None,
-        );
+        // the flags are the header word's top 16 bits; testing the bit
+        // in place lets the branch be one `tst`
         let marks = self.f.append_inst(
             self.cur_block,
             InstKind::BinOp(
                 SsaBinOp::And,
-                Operand::Value(flags),
-                Operand::ConstI64(i64::from(torajs_rc::FLAG_ARR_EXOTIC_INDEX)),
+                Operand::Value(hdr),
+                Operand::ConstI64((u64::from(torajs_rc::FLAG_ARR_EXOTIC_INDEX) << 48) as i64),
             ),
             Type::I64,
             None,

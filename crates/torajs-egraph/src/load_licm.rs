@@ -148,8 +148,9 @@ fn hoist_fn(
 }
 
 /// The header-word flag tests in `insts` that may leave the loop:
-/// `t = load i64 A+0; s = lshr t, 48; k = and s, K`, each the only use
-/// of the one before, in one block, where A's header is written by
+/// `t = load i64 A+0` masked either after `s = lshr t, 48` by
+/// `k = and s, K`, or in place by `k = and t, K << 48`, each the only
+/// use of the one before, in one block, where A's header is written by
 /// nothing in the loop and K selects no bit the cycle collector flips
 /// (`HEADER_FLAGS_COLLECTOR`) — every other flag moves only inside a
 /// runtime call handed the array, and the refcount sits below bit 32.
@@ -160,6 +161,20 @@ fn flag_test_chains(
 ) -> HashSet<ValueId> {
     let mut chains = HashSet::default();
     let single = |v: ValueId| uses.get(&v) == Some(&1);
+    let flags_only = |k: u64| k & i64::from(HEADER_FLAGS_COLLECTOR) as u64 == 0;
+    let mask_of = |from: usize, a0: ValueId| {
+        insts[from..]
+            .iter()
+            .enumerate()
+            .find_map(|(d, x)| match &x.kind {
+                InstKind::BinOp(
+                    op @ (BinOp::LShr | BinOp::And),
+                    Operand::Value(a),
+                    Operand::ConstI64(c),
+                ) if *a == a0 => x.result.map(|r| (*op, *c as u64, r, from + d)),
+                _ => None,
+            })
+    };
     for (i, load) in insts.iter().enumerate() {
         let (InstKind::Load(Type::I64, Operand::Value(p), 0), Some(t)) = (&load.kind, load.result)
         else {
@@ -168,33 +183,18 @@ fn flag_test_chains(
         if !clean(p) || !single(t) {
             continue;
         }
-        let Some((s, j)) = insts[i + 1..]
-            .iter()
-            .enumerate()
-            .find_map(|(d, x)| match &x.kind {
-                InstKind::BinOp(BinOp::LShr, Operand::Value(a), Operand::ConstI64(48))
-                    if *a == t =>
-                {
-                    x.result.map(|r| (r, i + 1 + d))
-                }
-                _ => None,
-            })
-        else {
-            continue;
-        };
-        if !single(s) {
-            continue;
-        }
-        let k = insts[j + 1..].iter().find_map(|x| match &x.kind {
-            InstKind::BinOp(BinOp::And, Operand::Value(a), Operand::ConstI64(mask))
-                if *a == s && mask & i64::from(HEADER_FLAGS_COLLECTOR) == 0 =>
-            {
-                x.result
+        match mask_of(i + 1, t) {
+            Some((BinOp::And, m, k, _)) if m & 0xffff_ffff_ffff == 0 && flags_only(m >> 48) => {
+                chains.extend([t, k]);
             }
-            _ => None,
-        });
-        if let Some(k) = k {
-            chains.extend([t, s, k]);
+            Some((BinOp::LShr, 48, s, j)) if single(s) => {
+                if let Some((BinOp::And, m, k, _)) = mask_of(j + 1, s)
+                    && flags_only(m)
+                {
+                    chains.extend([t, s, k]);
+                }
+            }
+            _ => {}
         }
     }
     chains
@@ -447,6 +447,41 @@ mod tests {
         buffered[2].kind = InstKind::BinOp(BinOp::And, v(6), Operand::ConstI64(1 << 5));
         let mut m = walk(Terminator::Br(BlockId(1)), buffered);
         assert_eq!(hoist_header_loads(&mut m).loads_hoisted, 2);
+    }
+
+    #[test]
+    fn a_length_lock_masked_in_place_leaves_the_loop_whole() {
+        let lock = |mask: i64| {
+            vec![
+                mk(Some(5), InstKind::Load(Type::I64, v(0), 0)),
+                mk(
+                    Some(6),
+                    InstKind::BinOp(BinOp::And, v(5), Operand::ConstI64(mask)),
+                ),
+                mk(
+                    Some(7),
+                    InstKind::ICmp(IPred::Ne, v(6), Operand::ConstI64(0)),
+                ),
+            ]
+        };
+        let grow = |m: &mut Module| {
+            for _ in 0..3 {
+                m.funcs[3].values.push(ValueInfo {
+                    ty: Type::I64,
+                    name: None,
+                });
+            }
+        };
+        let mut m = walk(Terminator::Br(BlockId(1)), lock((0x8290u64 << 48) as i64));
+        grow(&mut m);
+        assert_eq!(hoist_header_loads(&mut m).loads_hoisted, 4);
+        assert_eq!(m.funcs[3].blocks[2].insts.len(), 1);
+        // the collector's buffered bit, or any bit below the flags, stays
+        for mask in [1i64 << 53, (0x8290 << 48) | 1] {
+            let mut m = walk(Terminator::Br(BlockId(1)), lock(mask));
+            grow(&mut m);
+            assert_eq!(hoist_header_loads(&mut m).loads_hoisted, 2);
+        }
     }
 
     #[test]

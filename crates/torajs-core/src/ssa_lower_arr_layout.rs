@@ -53,7 +53,7 @@ impl<'a> LowerCtx<'a> {
     /// non-writable `length` throws TypeError, INCLUDING the empty
     /// receiver (step 3.b writes length 0), so this precedes the
     /// empty short-circuit. Inline hot path: one header load +
-    /// shift/mask/branch (the flags word rides the same cache line
+    /// mask/branch (the flags word rides the same cache line
     /// as the len the op reads next); the cold block calls the
     /// runtime thrower and propagates.
     pub(crate) fn emit_arr_len_lock_guard(&mut self, arr: Operand, lock: ArrLenLock) {
@@ -76,18 +76,13 @@ impl<'a> LowerCtx<'a> {
             Type::I64,
             None,
         );
-        let sh = self.f.append_inst(
-            self.cur_block,
-            InstKind::BinOp(SsaBinOp::LShr, Operand::Value(hdr), Operand::ConstI64(48)),
-            Type::I64,
-            None,
-        );
+        // the flags are the header word's top 16 bits, masked in place
         let masked = self.f.append_inst(
             self.cur_block,
             InstKind::BinOp(
                 SsaBinOp::And,
-                Operand::Value(sh),
-                Operand::ConstI64(lock_bits),
+                Operand::Value(hdr),
+                Operand::ConstI64(((lock_bits as u64) << 48) as i64),
             ),
             Type::I64,
             None,
