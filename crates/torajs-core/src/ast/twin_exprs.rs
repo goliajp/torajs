@@ -16,7 +16,7 @@
 use std::collections::HashSet;
 
 use super::desugar_async_sm_walk::{visit_expr_children, visit_stmt_exprs};
-use super::{Ast, ExprId, Stmt};
+use super::{Ast, Expr, ExprId, Stmt};
 
 pub(crate) fn twin_body_exprs(ast: &Ast) -> HashSet<ExprId> {
     let mut out: HashSet<ExprId> = HashSet::new();
@@ -45,4 +45,47 @@ pub(crate) fn twin_body_exprs(ast: &Ast) -> HashSet<ExprId> {
         }
     }
     out
+}
+
+/// How a body may read a binding ([`body_reads`]).
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum NameRead {
+    No,
+    /// Only through identifiers of the body's own scope.
+    Direct,
+    /// Through a closure capture, a direct `eval`, or a nested function
+    /// or class body this walk does not enter.
+    Nested,
+}
+
+/// How `body` may read the binding `name`.
+pub(crate) fn body_reads(ast: &Ast, body: &[Stmt], name: &str) -> NameRead {
+    let mut read = NameRead::No;
+    crate::ast::walk_stmts(body, &mut |s| {
+        if matches!(s, Stmt::FnDecl { .. } | Stmt::ClassDecl { .. }) {
+            read = NameRead::Nested;
+        }
+    });
+    let mut roots: Vec<ExprId> = Vec::new();
+    for s in body {
+        visit_stmt_exprs(s, &mut |e| roots.push(e));
+    }
+    let mut seen: HashSet<ExprId> = HashSet::new();
+    while let Some(e) = roots.pop() {
+        if !seen.insert(e) {
+            continue;
+        }
+        let here = match ast.get_expr(e) {
+            Expr::Ident(n) if n == "eval" => NameRead::Nested,
+            Expr::Ident(n) if n == name => NameRead::Direct,
+            Expr::Closure { captures, .. } if captures.iter().any(|c| c == name) => {
+                NameRead::Nested
+            }
+            Expr::ArrowFn { .. } => NameRead::Nested,
+            _ => NameRead::No,
+        };
+        read = read.max(here);
+        visit_expr_children(ast, e, &mut |c| roots.push(c));
+    }
+    read
 }

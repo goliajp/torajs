@@ -83,7 +83,7 @@ mod desugar_async_sm_this;
 mod desugar_async_sm_values;
 pub(crate) mod desugar_async_sm_walk;
 mod twin_exprs;
-pub(crate) use twin_exprs::twin_body_exprs;
+pub(crate) use twin_exprs::{NameRead, body_reads, twin_body_exprs};
 mod desugar_classes;
 mod desugar_classes_abstract;
 pub(crate) mod desugar_classes_builtin_heritage;

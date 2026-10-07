@@ -58,7 +58,7 @@ pub(super) fn slot_probe(
         miss: Miss::At(miss_at),
         passes_cell: false,
     };
-    if let Some(tags) = scalar_tags(ty, dflt) {
+    if let Some(tags) = scalar_tags(ty, dflt, slot.undef_misses) {
         return Probe {
             miss: Miss::Outside(tags),
             ..probe(intr.any_unbox_tag, On::Arg(Vec::new()), 0)

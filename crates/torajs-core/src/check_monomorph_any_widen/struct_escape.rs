@@ -63,6 +63,7 @@ use crate::check::Checker;
 use crate::check_monomorph::WorkItem;
 use crate::ssa_lower_generics_monomorph::Generics;
 use closure::{all_any, inner_suffix};
+pub(crate) use target::twin_clone_params;
 pub(super) use target::widenable_target;
 
 const SUFFIX: &str = "$$anyws";
@@ -131,6 +132,7 @@ pub(super) fn run(
         let generator_twin = crate::ast::generator_any_twin(owned_ast, &target);
         let target_twin = generator_twin.clone().unwrap_or_else(|| twin_name(&target));
         if generator_twin.is_none() && !c.globals.contains_key(&target_twin) {
+            mirror_target_tables(owned_ast, &target, &target_twin);
             let idxs = all_any(&params);
             emit_widened_spec(
                 c,
@@ -146,17 +148,24 @@ pub(super) fn run(
                 &idxs,
                 RetFace::Any,
             );
-            // the shell twin's forwarding call is a packed direct call
-            // of the target twin: the checker folds its rest sentinel
-            // back to the one array slot only for names in this table
-            // (`check_type_of_call_rest_param::fold_packed_direct_call`)
-            if let Some(&prefix) = owned_ast.rest_arg_prefix.get(&target) {
-                owned_ast
-                    .rest_arg_prefix
-                    .insert(target_twin.clone(), prefix);
-            }
         }
         mint_shell_twin(c, owned_ast, &shell, &params, &target_twin, site);
+    }
+}
+
+/// The name-keyed tables the target twin answers to as the target does.
+/// The shell twin's forwarding call is a packed direct call of the
+/// target twin: the checker folds its rest sentinel back to the one
+/// array slot only for names in `rest_arg_prefix`
+/// (`check_type_of_call_rest_param::fold_packed_direct_call`). A
+/// length-only body reads its hidden argc, and so does its twin, which
+/// that forwarding call fills with the shell's own runtime count.
+fn mirror_target_tables(ast: &mut Ast, target: &str, twin: &str) {
+    if let Some(&prefix) = ast.rest_arg_prefix.get(target) {
+        ast.rest_arg_prefix.insert(twin.to_string(), prefix);
+    }
+    if ast.headless_argc_fns.contains(target) {
+        ast.headless_argc_fns.insert(twin.to_string());
     }
 }
 

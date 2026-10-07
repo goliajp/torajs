@@ -8,7 +8,7 @@
 //! `any` at all, so a target that qualifies by scalar slots alone is
 //! twinned only behind a loose value ([`Twinnable::needs_escape`]).
 
-use crate::ast::{Ast, Param, Stmt};
+use crate::ast::{Ast, NameRead, Param, Stmt};
 use crate::check::{Checker, Type};
 use crate::check_type_ann::{resolve_type_ann_full, str_or_arr_ann, struct_shaped_ann};
 
@@ -21,16 +21,15 @@ pub(in crate::check_monomorph_any_widen) struct Twinnable {
     pub(in crate::check_monomorph_any_widen) needs_escape: bool,
 }
 
-/// The target `target` when this lane can twin it: a non-generic,
-/// non-generator declaration (an async generator's factory only with
-/// its desugar-time twin) with no receiver or argv channel, declaring
-/// at least one non-rest struct, string, array, `number` or `boolean`
-/// parameter.
-pub(in crate::check_monomorph_any_widen) fn widenable_target(
-    c: &Checker,
-    ast: &Ast,
-    target: &str,
-) -> Option<Twinnable> {
+/// The parameters of the top-level declaration `target`, past a lifted
+/// body's `__env` head, when its body can be cloned into an all-`any`
+/// twin: not generic, not a generator (an async generator's factory
+/// only with its desugar-time twin), with no receiver or argv channel.
+/// Answers the same before `desugar_implicit_generics` as after it: an
+/// untyped parameter of a plain declaration is a type variable to be.
+/// The `any`-alias devirtualization asks it too, to keep on the `any`
+/// lane only calls whose target this lane will twin.
+pub(crate) fn twin_clone_params(ast: &Ast, target: &str) -> Option<Vec<Param>> {
     let (params, type_params, is_generator) = ast.stmts.iter().find_map(|s| match s {
         Stmt::FnDecl {
             name,
@@ -38,13 +37,15 @@ pub(in crate::check_monomorph_any_widen) fn widenable_target(
             type_params,
             is_generator,
             ..
-        } if name == target => Some((params.clone(), type_params, *is_generator)),
+        } if name == target => Some((params, type_params, *is_generator)),
         _ => None,
     })?;
-    let params = params[usize::from(params.first().is_some_and(|p| p.name == "__env"))..].to_vec();
+    let lifted = params.first().is_some_and(|p| p.name == "__env");
+    let params = params[usize::from(lifted)..].to_vec();
+    let implicit_generic = !lifted && params.iter().any(|p| !p.is_rest && p.type_ann.is_none());
     let plain = type_params.is_empty()
+        && !implicit_generic
         && !is_generator
-        && !c.generic_type_params.contains_key(target)
         && (!ast.async_generator_fns.contains(target)
             || crate::ast::minted_generator_any_twin(ast, target).is_some())
         && params.iter().all(|p| {
@@ -53,18 +54,34 @@ pub(in crate::check_monomorph_any_widen) fn widenable_target(
                 "__env" | "__this" | "__torajs_argv" | crate::ast::GEN_ARGV_PARAM
             ) && p.name != crate::ast::new_target_param::NEW_TARGET
         });
-    if !plain {
+    plain.then_some(params)
+}
+
+/// The target `target` when this lane can twin it
+/// ([`twin_clone_params`]), declaring at least one non-rest struct,
+/// string, array, `number` or `boolean` parameter. A body on the
+/// hidden-argc tier counts only the parameters it may read: one it
+/// never reads binds whatever the call hands it unseen.
+pub(in crate::check_monomorph_any_widen) fn widenable_target(
+    c: &Checker,
+    ast: &Ast,
+    target: &str,
+) -> Option<Twinnable> {
+    if c.generic_type_params.contains_key(target) {
         return None;
     }
-    // the twin carries no hidden argc / argv head, so a body that reads
-    // `arguments` mints one only for the struct slots it always served
-    let headless = ast.headless_argc_fns.contains(target)
-        || ast.headless_argv_fns.contains(target)
-        || ast.this_first_argc_fns.contains_key(target);
+    let params = twin_clone_params(ast, target)?;
+    // the twin carries the hidden argc head of a length-only body
+    // (`run` mirrors it), but no argv head, so a body that reads
+    // argument values mints one only for the struct slots it always
+    // served
+    let headless =
+        ast.headless_argv_fns.contains(target) || ast.this_first_argc_fns.contains_key(target);
+    let unseen = unseen_params(ast, target);
     let anns = || {
         params
             .iter()
-            .filter(|p| !p.is_rest)
+            .filter(|p| !p.is_rest && !unseen.contains(&p.name.as_str()))
             .filter_map(|p| p.type_ann.as_deref())
     };
     let shaped = anns().any(|ann| {
@@ -82,4 +99,34 @@ pub(in crate::check_monomorph_any_widen) fn widenable_target(
         params,
         needs_escape: !shaped,
     })
+}
+
+/// The parameters a body on the hidden-argc tier that reads no
+/// argument value never reads. Its materialized arguments local
+/// (`__torajs_arguments`) lists them, but only its length is observed,
+/// and that is the hidden argc.
+fn unseen_params<'a>(ast: &'a Ast, target: &str) -> Vec<&'a str> {
+    if !ast.headless_argc_fns.contains(target) || ast.headless_argv_fns.contains(target) {
+        return Vec::new();
+    }
+    let Some((params, body)) = ast.stmts.iter().find_map(|s| match s {
+        Stmt::FnDecl {
+            name, params, body, ..
+        } if name == target => Some((params, body)),
+        _ => None,
+    }) else {
+        return Vec::new();
+    };
+    let stmts = body
+        .iter()
+        .filter(|s| !matches!(s, Stmt::LetDecl { name, .. } if name == "__torajs_arguments"));
+    params
+        .iter()
+        .filter(|p| {
+            stmts.clone().all(|s| {
+                crate::ast::body_reads(ast, std::slice::from_ref(s), &p.name) == NameRead::No
+            })
+        })
+        .map(|p| p.name.as_str())
+        .collect()
 }

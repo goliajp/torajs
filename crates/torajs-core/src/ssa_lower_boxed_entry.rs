@@ -144,21 +144,14 @@ pub(crate) fn synthesize_boxed_entries(
         is_twin_name(&t.name) || crate::check_monomorph_any_widen::struct_escape::is_twin(&t.name)
     });
     for t in twins.into_iter().chain(monos) {
+        let undef_misses = relay_target_reads_argc(ast, &t.name);
         let slots: Vec<SlotTest> = t
             .user_tys
             .iter()
-            .map(|ty| slot_test(*ty, arr_layouts, &sid_tag))
+            .map(|ty| slot_test(*ty, arr_layouts, &sid_tag, undef_misses))
             .collect();
-        let twin_reroute = twin_adapter_of(ast, fn_table, &entries, &t.name).filter(|_| {
-            t.user_tys.iter().enumerate().any(|(i, ty)| {
-                lossy_slot(
-                    *ty,
-                    t.dflt_lits.get(i).and_then(|d| d.as_ref()),
-                    slots[i],
-                    t.rest && i + 1 == t.user_tys.len(),
-                )
-            })
-        });
+        let twin_reroute =
+            twin_adapter_of(ast, fn_table, &entries, &t.name).filter(|_| any_lossy(&t, &slots));
         let same_face = env_faced(&t.name);
         let pair = build_boxed_entry(
             module,
@@ -221,6 +214,25 @@ use fit_tag::{SlotTest, lossy_slot, slot_test};
 mod relay;
 mod targets;
 use targets::{TargetTables, collect_boxed_targets};
+
+/// Some user slot of `t` an argument may not cross as it is.
+fn any_lossy(t: &targets::BoxedEntryTarget, slots: &[SlotTest]) -> bool {
+    t.user_tys.iter().enumerate().any(|(i, ty)| {
+        lossy_slot(
+            *ty,
+            t.dflt_lits.get(i).and_then(|d| d.as_ref()),
+            slots[i],
+            t.rest && i + 1 == t.user_tys.len(),
+        )
+    })
+}
+
+/// A `__forward_<t>` relay whose `t` reads its hidden argc, so reads
+/// `arguments` ([`fit_tag::SlotTest::undef_misses`]).
+fn relay_target_reads_argc(ast: &Ast, name: &str) -> bool {
+    name.strip_prefix("__forward_")
+        .is_some_and(|t| ast.headless_argc_fns.contains(t))
+}
 
 /// A mono whose twin wears its own `(env, argv, argc)` face: a relay
 /// shell, or a lifted closure.

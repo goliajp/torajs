@@ -45,19 +45,28 @@ pub(crate) struct SlotTest {
     /// The shape word of an array slot over non-struct elements
     /// (`torajs_rc::arr_kind::SLOT_LEVEL_BITS`).
     pub(crate) shape: Option<u64>,
+    /// The body reads `arguments`: a `number` slot does not keep the
+    /// `undefined` sentinel there but hands the call to the twin, so a
+    /// missing argument stays `undefined` in every read of it.
+    pub(crate) undef_misses: bool,
 }
 
 pub(crate) fn slot_test(
     ty: Type,
     arr_layouts: &[Type],
     sid_tag: &dyn Fn(ssa::StructId) -> u32,
+    undef_misses: bool,
 ) -> SlotTest {
     let fit = fit_tag(ty, arr_layouts, sid_tag);
     let shape = match ty {
         Type::Arr(a) if fit.is_none() => Some(level(arr_layouts[a.0 as usize], arr_layouts, 0)),
         _ => None,
     };
-    SlotTest { fit, shape }
+    SlotTest {
+        fit,
+        shape,
+        undef_misses,
+    }
 }
 
 /// The shape bits of one array level whose elements are `elem`, and of
@@ -99,7 +108,7 @@ pub(super) fn lossy_slot(
     test: SlotTest,
     rest: bool,
 ) -> bool {
-    scalar_tags(ty, dflt).is_some()
+    scalar_tags(ty, dflt, test.undef_misses).is_some()
         || dflt.is_none()
             && (test.fit.is_some()
                 || match ty {
@@ -114,12 +123,19 @@ pub(super) fn lossy_slot(
 /// number or `undefined` (its slot keeps the undefined sentinel,
 /// `__torajs_anyv_to_f64_slot`), a `boolean` slot a boolean, and a slot
 /// with a literal default `undefined` as well (the default replaces
-/// it). Every other argument is the all-`any` twin's to bind.
-pub(super) fn scalar_tags(ty: Type, dflt: Option<&super::DfltLit>) -> Option<i64> {
+/// it). Every other argument is the all-`any` twin's to bind, and so
+/// is a `number` slot's `undefined` when the body reads `arguments`
+/// (`undef_misses`).
+pub(super) fn scalar_tags(
+    ty: Type,
+    dflt: Option<&super::DfltLit>,
+    undef_misses: bool,
+) -> Option<i64> {
     use torajs_rc::AnySlotTag as T;
     let bit = |t: T| 1i64 << (t as i64);
     let kind = match ty {
         Type::I64 | Type::I32 => bit(T::I64),
+        Type::F64 if undef_misses => bit(T::I64) | bit(T::F64),
         Type::F64 => bit(T::I64) | bit(T::F64) | bit(T::Undef),
         Type::Bool => bit(T::Bool),
         _ => return None,

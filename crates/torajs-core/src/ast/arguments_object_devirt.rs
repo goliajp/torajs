@@ -31,7 +31,8 @@
 use super::arguments_object_walkers::{
     body_has_arguments_length, body_has_non_length_arguments_touch,
 };
-use super::{Ast, Expr, ExprId, Stmt};
+use super::{Ast, Expr, ExprId, NameRead, Stmt, body_reads};
+use crate::check_monomorph_any_widen::struct_escape::twin_clone_params;
 
 pub(super) fn devirtualize_fn_value_aliases(ast: &mut Ast) {
     use std::collections::{HashMap, HashSet};
@@ -54,14 +55,11 @@ pub(super) fn devirtualize_fn_value_aliases(ast: &mut Ast) {
         let Some(target) = relay_target(ast, fn_name) else {
             continue;
         };
+        if keeps_any_call_rules(ast, s, &target) {
+            continue;
+        }
         alias_relays.insert(name.clone(), (*init, fn_name.clone()));
-        let touches = ast.stmts.iter().any(|s| {
-            matches!(s, Stmt::FnDecl { name: n, body, .. }
-                if *n == target
-                    && (body_has_arguments_length(ast, body)
-                        || body_has_non_length_arguments_touch(ast, body)))
-        });
-        if touches {
+        if touches_arguments(ast, &target) {
             aliases.insert(name.clone(), (si, target));
         }
     }
@@ -170,5 +168,66 @@ fn relay_target(ast: &Ast, fn_name: &str) -> Option<String> {
             _ => None,
         },
         _ => None,
+    })
+}
+
+fn touches_arguments(ast: &Ast, target: &str) -> bool {
+    ast.stmts.iter().any(|s| {
+        matches!(s, Stmt::FnDecl { name, body, .. }
+            if name == target
+                && (body_has_arguments_length(ast, body)
+                    || body_has_non_length_arguments_touch(ast, body)))
+    })
+}
+
+/// Whether the alias `decl` keeps its own call rules rather than being
+/// folded into `target()`, whose arity the checker would then test: it
+/// is annotated `any` (`const gv: any = g` makes `gv()` legal at any
+/// width, and makes the relay a value called through `any`) and the
+/// `any` lane answers every call of `target` as the source wrote it.
+///
+/// The target is a plain declaration: no generator, async body,
+/// receiver head or other hidden parameter, and no parameter default
+/// (the call site pads defaults, and the `any` lane would count the
+/// padding). With every parameter untyped or `any`, nothing is
+/// converted. Otherwise the body reads nothing but `arguments.length`,
+/// reads each typed parameter in its own scope only, and the
+/// struct-escape lane can clone it ([`twin_clone_params`]): its
+/// all-`any` twin carries the hidden
+/// argc and takes every argument a parameter the body reads cannot
+/// hold as passed, `undefined` included. A body reading argument
+/// values has no such twin, and a typed parameter would bind a missing
+/// argument as its type's zero. Every other target keeps the fold, and
+/// with it the checker's arity test.
+fn keeps_any_call_rules(ast: &Ast, decl: &Stmt, target: &str) -> bool {
+    if !matches!(decl, Stmt::LetDecl { type_ann: Some(t), .. } if t == "any") {
+        return false;
+    }
+    ast.stmts.iter().any(|s| match s {
+        Stmt::FnDecl {
+            name,
+            params,
+            body,
+            is_generator,
+            ..
+        } if name == target => {
+            let plain = !is_generator
+                && !ast.async_fns.contains(target)
+                && params
+                    .iter()
+                    .all(|p| !p.name.starts_with("__") && p.default.is_none());
+            let typed = |p: &&super::Param| p.type_ann.as_deref().is_some_and(|t| t != "any");
+            let all_any = !params.iter().any(|p| typed(&p));
+            // a closure in the twin still captures into the typed
+            // body's environment layout
+            let twinned = !body_has_non_length_arguments_touch(ast, body)
+                && twin_clone_params(ast, target).is_some()
+                && params
+                    .iter()
+                    .filter(typed)
+                    .all(|p| body_reads(ast, body, &p.name) != NameRead::Nested);
+            plain && (all_any || twinned)
+        }
+        _ => false,
     })
 }
