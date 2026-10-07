@@ -59,6 +59,10 @@ pub(super) fn try_objlit_setter(
     Ok(Some(param_ty))
 }
 
+/// `q.X = v` through a class setter. The value param follows the
+/// receiver and, when the body reads `arguments` (the method argv face),
+/// the synthetic `__torajs_argv` that the boxed adapter and the direct
+/// accessor lanes fill; no caller spells it.
 pub(super) fn try_accessor_setter(
     checker: &mut Checker,
     ast: &Ast,
@@ -94,10 +98,10 @@ pub(super) fn try_accessor_setter(
     let Some(Type::Function(params, _ret)) = checker.globals.get(&setter_fn).cloned() else {
         return Ok(None);
     };
-    if params.len() < 2 {
+    let at = 1 + usize::from(ast.method_argv_fns.contains(&setter_fn));
+    let Some(mut setter_param_ty) = params.get(at).cloned() else {
         return Ok(None);
-    }
-    let mut setter_param_ty = params[1].clone();
+    };
     if let Some(tps) = checker.generic_type_params.get(&setter_fn).cloned() {
         let mut submap: std::collections::HashMap<String, Type> = std::collections::HashMap::new();
         for (k, ann) in &hit.subst {

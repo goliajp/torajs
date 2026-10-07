@@ -69,22 +69,18 @@ pub(crate) fn try_lower_setter_call(
     // bare-field slot held a garbage box (p25g SIGSEGV / silent
     // no-output). Route through the one `arg_conv` contract instead.
     let mut owned: Vec<(Operand, Type)> = Vec::new();
-    let arg = match ctx.fn_sig_ids.get(&fid).copied() {
-        // The `__cm_` setter's sig is receiver-first: param 0 is the
-        // receiver, param 1 the user value.
-        Some(sig_id) => match ctx.fn_sigs[sig_id.0 as usize].0.get(1).copied() {
-            Some(expected) => {
-                crate::ssa_lower_call_arg_conv::emit_arg_conv(ctx, expected, value, v, &mut owned)
-            }
-            None => v,
-        },
+    use crate::ssa_lower_member_obj_field::accessor_argv as acc;
+    let arg = match acc::class_setter_value_ty(ctx, fid, &hit.fn_name) {
+        Some(expected) => {
+            crate::ssa_lower_call_arg_conv::emit_arg_conv(ctx, expected, value, v, &mut owned)
+        }
         None => v,
     };
+    let args = acc::class_accessor_call_args(ctx, &hit.fn_name, obj_val, &[(arg, Some(value))]);
     let recv = obj_val;
     let call = move |ctx: &mut LowerCtx<'_>| {
         let cur_block = ctx.cur_block;
-        ctx.f
-            .append_void(cur_block, InstKind::Call(fid, vec![obj_val, arg]));
+        ctx.f.append_void(cur_block, InstKind::Call(fid, args));
         ctx.emit_throw_check(Some(fid));
     };
     if ctx.ast.program_reparents {

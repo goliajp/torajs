@@ -27,6 +27,8 @@
 //!   `Load(field_ty, obj_val, offset)`. Panics if the field is
 //!   absent (typechecker upstream rejects).
 
+pub(crate) mod accessor_argv;
+
 use crate::ast::ExprId;
 use crate::ssa::{InstKind, Operand, StructId, Type};
 use crate::ssa_lower::{LowerCtx, OBJ_HEADER_SIZE};
@@ -197,12 +199,12 @@ fn try_accessor_getter(
         }
     };
     let ret_ty = ctx.f_ret_type_hint(fid);
-    let recv = obj_val;
+    let args = accessor_argv::class_accessor_call_args(ctx, &hit.fn_name, obj_val, &[]);
     let call = move |ctx: &mut LowerCtx<'_>| {
         let cur_block = ctx.cur_block;
         let v = ctx
             .f
-            .append_inst(cur_block, InstKind::Call(fid, vec![obj_val]), ret_ty, None);
+            .append_inst(cur_block, InstKind::Call(fid, args), ret_ty, None);
         ctx.emit_throw_check(Some(fid));
         Operand::Value(v)
     };
@@ -212,7 +214,7 @@ fn try_accessor_getter(
     // RFC 20260920-struct-user-proto K4 — a re-parented instance
     // reads its getter from its user chain.
     Some(crate::ssa_lower_call_reparent_guard::guarded_getter(
-        ctx, eid, recv, name, call,
+        ctx, eid, obj_val, name, call,
     ))
 }
 

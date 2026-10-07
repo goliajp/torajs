@@ -1,0 +1,12 @@
+cset 1 7
+cget 0
+c.v 40
+compound 42.5
+proto get 427
+proto set 8
+cset 3 1
+cset 1 4
+heir get 11
+heir set 4
+G set 1 2
+G get 0 2

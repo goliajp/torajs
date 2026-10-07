@@ -216,7 +216,7 @@ impl<'a> Analysis<'a> {
         let mut class_hit = false;
         for c in self.classes.clone() {
             let f = format!("__cm_{c}__{name}");
-            if let Some(ps) = self.fn_params.get(&f).cloned() {
+            if let Some(ps) = self.method_arg_params(&f) {
                 class_hit = true;
                 let ck = SlotKey::Class(c.clone());
                 self.mark_containerish(&ck);

@@ -61,7 +61,7 @@ pub(super) fn collect_method_argv(
         else {
             continue;
         };
-        if !name.starts_with("__cm_") {
+        if !name.starts_with("__cm_") && !name.starts_with("__cmany_") {
             continue;
         }
         if excluded.contains(name) || static_argv.contains_key(name) {
