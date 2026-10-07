@@ -63,10 +63,11 @@ pub(crate) struct Cx<'a> {
     /// the fn's first block, where every loop counter slot is
     /// allocated; it branches to the release once the body is built
     pub prelude: BlockId,
-    /// legs off the hot path, emitted once the body is complete
-    pub cold: RefCell<Vec<Box<dyn FnOnce(&mut ssa::Function)>>>,
+    pub cold: RefCell<Vec<ColdLeg>>,
 }
 
+/// a leg off the hot path, emitted once the body is complete
+type ColdLeg = Box<dyn FnOnce(&mut ssa::Function)>;
 impl Cx<'_> {
     pub(crate) fn defer(&self, leg: impl FnOnce(&mut ssa::Function) + 'static) {
         self.cold.borrow_mut().push(Box::new(leg));
