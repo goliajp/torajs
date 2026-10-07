@@ -25,10 +25,11 @@ pub(in crate::check_monomorph_any_widen) struct Twinnable {
 /// body's `__env` head, when its body can be cloned into an all-`any`
 /// twin: not generic, not a generator (an async generator's factory
 /// only with its desugar-time twin), with no receiver or argv channel.
-/// With `recv`, a lifted body's receiver head (`__env` then `__this`, a
-/// promoted function expression) is admitted and kept: its boxed entry
-/// takes the receiver in argv[0], and so does its twin's, so the mono
-/// adapter hands a call over as it came.
+/// With `recv`, a receiver head is admitted and kept: a lifted body's
+/// (`__env` then `__this`, a promoted function expression) or a
+/// promoted declaration's (`__this`, reached through its receiver-first
+/// shell). The boxed entry takes the receiver in argv[0], and so does
+/// the twin's, so the mono adapter hands a call over as it came.
 /// Answers the same before `desugar_implicit_generics` as after it: an
 /// untyped parameter of a plain declaration is a type variable to be.
 /// The `any`-alias devirtualization asks it too, to keep on the `any`
@@ -48,9 +49,12 @@ pub(crate) fn twin_clone_params(ast: &Ast, target: &str, recv: bool) -> Option<V
     let params = params[usize::from(lifted)..].to_vec();
     let implicit_generic = !lifted && params.iter().any(|p| !p.is_rest && p.type_ann.is_none());
     let recv_head = usize::from(
-        recv && lifted
-            && params.first().is_some_and(|p| p.name == "__this")
-            && ast.fnexpr_recv_fns.contains(target),
+        recv && params.first().is_some_and(|p| p.name == "__this")
+            && if lifted {
+                ast.fnexpr_recv_fns.contains(target)
+            } else {
+                ast.this_param_fns.contains(target)
+            },
     );
     let plain = type_params.is_empty()
         && !implicit_generic

@@ -48,23 +48,23 @@
 //! direct call with `any` arguments, which takes that generator's
 //! twin. Out of reach, and left on the coercion kernel: a target with
 //! an argv channel (`__torajs_argv`, new.target), a generic, and a
-//! receiver channel (`__this`) except a function expression's at the
-//! callback of an iteration handing `any` elements (`escaped_cb`),
-//! where the receiver rides argv[0] on both faces. Class methods are served
-//! by the `__cmany_` / `__smany_` twins instead.
+//! receiver channel (`__this`) except at the callback of an iteration
+//! handing `any` elements (`escaped_cb`), where the receiver rides
+//! argv[0] on both faces. Class methods take `__cmany_` / `__smany_`.
 
 use std::collections::{HashMap, VecDeque};
 
 pub(super) mod closure;
 pub(crate) mod escaped_cb;
+mod named_cb;
+mod pair;
 mod target;
 mod typed_sites;
-use super::{RetFace, emit_widened_spec};
 use crate::ast::{Ast, Expr, ExprId, Param, ShellFace, Stmt};
 use crate::check::Checker;
 use crate::check_monomorph::WorkItem;
 use crate::ssa_lower_generics_monomorph::Generics;
-use closure::{all_any, inner_suffix};
+use pair::mint_pair;
 pub(crate) use target::twin_clone_params;
 pub(super) use target::widenable_target;
 
@@ -116,7 +116,6 @@ pub(super) fn run(
         if found.needs_escape && !loose_shells.contains(&shell) {
             continue;
         }
-        let params = found.params;
         // a generator's twin is a class of its own, and so is the machine
         // an async body's twin reaches: cut only for a shell whose value
         // may be called other than through its typed face
@@ -126,48 +125,18 @@ pub(super) fn run(
         {
             continue;
         }
-        let Some(site) = construction_site(owned_ast, &shell) else {
-            continue;
-        };
-        // a generator's twin was cut from its source before the machine
-        // was built: its factory body is no body to clone
-        let generator_twin = crate::ast::generator_any_twin(owned_ast, &target);
-        let target_twin = generator_twin.clone().unwrap_or_else(|| twin_name(&target));
-        if generator_twin.is_none() && !c.globals.contains_key(&target_twin) {
-            mirror_target_tables(owned_ast, &target, &target_twin);
-            let idxs = all_any(&params);
-            emit_widened_spec(
-                c,
-                owned_ast,
-                generics,
-                cache,
-                worklist,
-                call_retargets,
-                mono_decls,
-                &target,
-                &target_twin,
-                &inner_suffix(&target),
-                &idxs,
-                RetFace::Any,
-            );
-        }
-        mint_shell_twin(c, owned_ast, &shell, &params, &target_twin, site);
-    }
-}
-
-/// The name-keyed tables the target twin answers to as the target does.
-/// The shell twin's forwarding call is a packed direct call of the
-/// target twin: the checker folds its rest sentinel back to the one
-/// array slot only for names in `rest_arg_prefix`
-/// (`check_type_of_call_rest_param::fold_packed_direct_call`). A
-/// length-only body reads its hidden argc, and so does its twin, which
-/// that forwarding call fills with the shell's own runtime count.
-fn mirror_target_tables(ast: &mut Ast, target: &str, twin: &str) {
-    if let Some(&prefix) = ast.rest_arg_prefix.get(target) {
-        ast.rest_arg_prefix.insert(twin.to_string(), prefix);
-    }
-    if ast.headless_argc_fns.contains(target) {
-        ast.headless_argc_fns.insert(twin.to_string());
+        mint_pair(
+            c,
+            owned_ast,
+            generics,
+            cache,
+            worklist,
+            call_retargets,
+            mono_decls,
+            &shell,
+            &target,
+            &found.params,
+        );
     }
 }
 
@@ -233,7 +202,7 @@ fn mint_shell_twin(
         &user,
         ret,
         span,
-        ShellFace::Plain,
+        ShellFace::of(shell),
     );
     // the pass that packs a call's rest tail (`ast::apply_rest_args`)
     // ran at desugar time; its single-spread form, a fresh array over

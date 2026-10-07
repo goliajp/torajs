@@ -34,10 +34,10 @@ pub(crate) fn finish(
     mut mono_decls: Vec<Stmt>,
     mut generic_fn_names: HashSet<String>,
 ) -> MonoOutput {
+    let mut tried_shells = HashSet::new();
     loop {
-        // RFC 20260802-any-arg-typed-param-mono — retarget every admitted
-        // `Array(Any)`-into-`Array(T)` call site to an any-widened callee
-        // clone; alternates with the generic worklist until both drain.
+        // retarget every admitted `Array(Any)`-into-`Array(T)` call site to
+        // an any-widened clone; alternates with the generic worklist
         crate::check_monomorph_any_widen::run(
             c,
             &mut owned_ast,
@@ -60,6 +60,7 @@ pub(crate) fn finish(
             &mut call_retargets,
             &mut mono_decls,
             &generic_fn_names,
+            &mut tried_shells,
             &widths,
         );
         if !minted {

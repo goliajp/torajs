@@ -45,7 +45,7 @@ mod fallthrough;
 mod fnsig;
 mod hidden_any;
 mod hidden_any_scope;
-mod hof_receivers;
+pub(crate) mod hof_receivers;
 mod json_seed;
 mod lattice;
 mod let_names;

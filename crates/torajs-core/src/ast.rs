@@ -257,7 +257,7 @@ mod lift_arrow_fns;
 mod module_ns_members;
 mod module_passes;
 mod named_eval;
-mod namedfn_rebound_scope;
+pub(crate) mod namedfn_rebound_scope;
 mod namedfn_this_value;
 pub(crate) mod nested_closure_captures;
 mod nested_fns;

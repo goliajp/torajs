@@ -107,6 +107,38 @@ pub(crate) fn block_scoped_expr_ids(ast: &Ast, name: &str) -> HashSet<ExprId> {
     out
 }
 
+/// Every arena slot in the body of a lifted function that captures
+/// `name`, or that a named function expression called `name` lifted
+/// to: a read there is the captured binding or the expression's own
+/// name (§15.2.5), whatever the statement tree around the body declares.
+pub(crate) fn captured_expr_ids(ast: &Ast, name: &str) -> HashSet<ExprId> {
+    let mut lifted: HashSet<&str> = ast
+        .exprs
+        .iter()
+        .filter_map(|e| match e {
+            Expr::Closure { fn_name, captures } if captures.iter().any(|c| c == name) => {
+                Some(fn_name.as_str())
+            }
+            _ => None,
+        })
+        .collect();
+    lifted.extend(
+        ast.closure_self_names
+            .iter()
+            .filter(|(_, sn)| *sn == name)
+            .map(|(f, _)| f.as_str()),
+    );
+    let mut out = HashSet::new();
+    for s in &ast.stmts {
+        if let Stmt::FnDecl { name: n, .. } = s
+            && lifted.contains(n.as_str())
+        {
+            walk_stmt(ast, s, name, true, &mut out);
+        }
+    }
+    out
+}
+
 /// `inside` is true once an enclosing list has declared `name`; from
 /// there every slot below belongs to that binding.
 fn walk_stmt(ast: &Ast, s: &Stmt, name: &str, inside: bool, out: &mut HashSet<ExprId>) {

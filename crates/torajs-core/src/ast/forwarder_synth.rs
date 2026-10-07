@@ -67,6 +67,17 @@ pub(crate) enum ShellFace {
     ReceiverFirst,
 }
 
+impl ShellFace {
+    /// The face a shell's name spells.
+    pub(crate) fn of(shell: &str) -> Self {
+        if shell.starts_with("__fwdrecv_") {
+            Self::ReceiverFirst
+        } else {
+            Self::Plain
+        }
+    }
+}
+
 /// The declaration a synthesized relay shell forwards to, whichever
 /// face it wears — `__forward_` and `__fwdrecv_` are two faces of the
 /// same shell ([`ShellFace`]), minted by the same synthesizer from the

@@ -18,6 +18,7 @@ use super::sentinel_hof::{callback_fn_name, taint_param};
 use super::{Analysis, Scope, SlotKey};
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::Type;
+use crate::check_monomorph_any_widen::struct_escape::twin_name;
 
 impl Analysis<'_> {
     /// The Call arm of `walk_expr`: record the array a callback-taking
@@ -40,7 +41,7 @@ impl Analysis<'_> {
 
 /// The array a call hands its callback the elements of: the receiver
 /// of an array iteration method, or the source of `Array.from(src, cb)`.
-fn iterated_array(ast: &Ast, callee: ExprId, args: &[ExprId]) -> Option<ExprId> {
+pub(crate) fn iterated_array(ast: &Ast, callee: ExprId, args: &[ExprId]) -> Option<ExprId> {
     let Expr::Member { obj, name } = ast.get_expr(callee) else {
         return None;
     };
@@ -129,11 +130,13 @@ fn any_elems(a: &Analysis<'_>, escaped: &HashSet<ExprId>, recv: ExprId) -> bool 
 }
 
 /// Is `call` a `map` / `flatMap` / `Array.from` whose product a lifted
-/// closure with a typed first parameter fills? Only such a callback
-/// answers through a twin, in a kind its declared return does not
-/// spell. A function declaration passed by name has no twin, and a
-/// callback taking `any` already answers in its declared kind for
-/// every element; either leaves the product as typed as before.
+/// closure or a relay shell with a typed first parameter fills? Only
+/// such a callback answers through a twin, in a kind its declared
+/// return does not spell (a function declaration passed by name gets
+/// its shell first, `struct_escape::named_cb`; a shell whose twin
+/// did not check answers through its typed face). A callback taking
+/// `any` already answers in its declared kind for every element, and
+/// leaves the product as typed as before.
 fn fills_any(a: &Analysis<'_>, call: ExprId) -> bool {
     let Expr::Call { callee, args } = a.ast.get_expr(call) else {
         return false;
@@ -148,7 +151,10 @@ fn fills_any(a: &Analysis<'_>, call: ExprId) -> bool {
     };
     let fns = callback_fn_name(a, cb);
     !fns.is_empty()
-        && fns.iter().all(|f| f.starts_with("__closure_"))
+        && fns.iter().all(|f| {
+            f.starts_with("__closure_")
+                || (crate::ast::is_shell(f) && a.fn_params.contains_key(&twin_name(f)))
+        })
         && matches!(a.expr_types.get(&cb), Some(Type::Function(ps, _))
             if ps.first().is_some_and(boxed_slot))
 }
