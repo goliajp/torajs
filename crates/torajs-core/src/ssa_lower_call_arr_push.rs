@@ -79,13 +79,13 @@ pub(crate) fn try_lower(
 /// outer-slot write-back exists to miss — the historical "no place
 /// to store a possibly-realloc'd pointer" rejection is moot.
 ///
-/// A comma receiver whose value is a borrowed place (`(0, xs).push(v)`,
-/// and the dead-zone guard `flag_closure_tdz` wraps a closure's read
-/// in) rides the same arm for the same reason: its value is the cell.
+/// A comma or cast receiver whose value is a borrowed place (`(0, xs).push(v)`,
+/// `(xs as any[]).push(v)`, the dead-zone guard `flag_closure_tdz` wraps a
+/// closure's read in) rides the same arm for the same reason: its value is the cell.
 fn try_lower_index(ctx: &mut LowerCtx<'_>, recv_id: ExprId, args: &[ExprId]) -> Option<Operand> {
     let mut tail = recv_id;
-    while let Expr::Sequence { right, .. } = ctx.ast.get_expr(tail) {
-        tail = *right;
+    while let Expr::Sequence { right: t, .. } | Expr::As { expr: t, .. } = ctx.ast.get_expr(tail) {
+        tail = *t;
     }
     let borrowed_comma = tail != recv_id
         && matches!(
