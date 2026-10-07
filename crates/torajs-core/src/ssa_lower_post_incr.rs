@@ -99,6 +99,23 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId) -> Operand {
     }
 }
 
+/// Box the receiver and step `field` through the any-member lane. No
+/// write-back and no release: the receiver's own slot holds its pointer,
+/// not an `AnyValue`.
+fn boxed_member_step(
+    ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
+    target: ExprId,
+    obj_val: Operand,
+    field: &str,
+    step: Step,
+) -> Operand {
+    let boxed = ctx.box_to_any(obj_val);
+    crate::ssa_lower_post_incr_any::lower_member_any(
+        ctx, eid, target, None, false, boxed, field, step,
+    )
+}
+
 /// §13.4.4 over the global object: read it, ToNumber, write it back,
 /// and answer the old or the new value. The read throws if the object
 /// does not carry the name — which is what §13.4.4.1 step 1 wants,
@@ -292,25 +309,23 @@ fn lower_member(
         // the set lane an ident to re-store would corrupt it — which
         // is why `obj_ident` and `recv_owned` are now the caller's to
         // supply rather than derived inside the lane.
-        _ => {
-            let boxed = ctx.box_to_any(obj_val);
-            return crate::ssa_lower_post_incr_any::lower_member_any(
-                ctx, eid, target, None, false, boxed, &field, step,
-            );
-        }
+        _ => return boxed_member_step(ctx, eid, target, obj_val, &field, step),
     };
-    let layout = ctx.struct_layouts[sid.0 as usize].clone();
-    let (idx, field_ty) = layout
+    let slot = ctx.struct_layouts[sid.0 as usize]
         .iter()
-        .enumerate()
-        .find_map(|(i, (fname, fty))| {
-            if fname == &field {
-                Some((i, *fty))
-            } else {
-                None
-            }
-        })
-        .unwrap_or_else(|| panic!("ssa-lower: struct {sid:?} has no field `{field}`"));
+        .position(|(fname, _)| fname == &field);
+    let Some(idx) = slot else {
+        // a name the layout never carries (a class accessor, an expando)
+        // steps through the any lane, whose read and write tails own the
+        // accessor dispatch, as the assignment's miss arm does; a private
+        // method stays refused
+        assert!(
+            !field.starts_with("__priv_"),
+            "ssa-lower: struct {sid:?} has no field `{field}`"
+        );
+        return boxed_member_step(ctx, eid, target, obj_val, &field, step);
+    };
+    let field_ty = ctx.struct_layouts[sid.0 as usize][idx].1;
     let offset = OBJ_HEADER_SIZE + (idx as u64) * 8;
     let cur_block = ctx.cur_block;
     let old = ctx.f.append_inst(
