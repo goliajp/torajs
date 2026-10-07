@@ -10,7 +10,8 @@
 //! iteration lowering hands an element the callback's slot cannot hold
 //! to the callback's boxed entry, whose tag test calls the twin
 //! (§10.2.1.3 binds an argument as it is: `typeof v` on "s" is
-//! "string"). The analysis runs over the AST the twins are appended
+//! "string"). A function expression reading `this` keeps its receiver
+//! head on the twin. The analysis runs over the AST the twins are appended
 //! to, so the driver (`check_monomorph::finish`) asks again after every
 //! mint until no escaped callback lacks one.
 
@@ -51,6 +52,7 @@ pub(crate) fn mint_escaped_callback_twins(
         mono_decls,
         retired,
         names,
+        true,
     )
 }
 

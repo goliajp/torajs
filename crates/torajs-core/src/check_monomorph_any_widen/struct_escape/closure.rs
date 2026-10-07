@@ -94,11 +94,13 @@ pub(in crate::check_monomorph_any_widen) fn run(
         mono_decls,
         retired,
         names,
+        false,
     )
 }
 
 /// Mint the twin of each of the lifted closures `names` that has none
-/// yet and can take one. True when one was minted.
+/// yet and can take one; `recv` admits a receiver head
+/// ([`widenable_target`]). True when one was minted.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn mint(
     c: &mut Checker,
@@ -110,6 +112,7 @@ pub(super) fn mint(
     mono_decls: &mut Vec<Stmt>,
     retired: &HashSet<String>,
     names: Vec<String>,
+    recv: bool,
 ) -> bool {
     let mut minted = false;
     for name in names {
@@ -117,15 +120,13 @@ pub(super) fn mint(
         if retired.contains(&name)
             || c.globals.contains_key(&twin)
             || !c.globals.contains_key(&name)
+            || writes_typed_outer_binding(c, owned_ast, &name)
         {
             continue;
         }
-        let Some(params) = widenable_target(c, owned_ast, &name).map(|t| t.params) else {
+        let Some(params) = widenable_target(c, owned_ast, &name, recv).map(|t| t.params) else {
             continue;
         };
-        if writes_typed_outer_binding(c, owned_ast, &name) {
-            continue;
-        }
         // the twin is checked at the original's construction site, whose
         // scope (an enclosing body's locals) is gone by now: bind the
         // capture types recorded there

@@ -90,13 +90,12 @@ pub(super) fn build_boxed_entry(
     let skip = lead.max(usize::from(recv_slot));
     let shifted = (skip > 0).then(|| shifted_argv(&mut f, entry, argv, skip));
     let window = shifted.unwrap_or(argv);
-    // User slot i is argv[i] behind a lead (lead slots are user
-    // params too) and window[i] behind a bare receiver slot.
+    // user slot i is argv[i]: lead slots are user params, and so is a
+    // receiver slot's `__this` (user slot 0, unboxed off argv below)
     if let Some(rr) = coerce.twin_reroute {
-        let base = if lead > 0 { argv } else { window };
         (entry, coerce.fit) = emit_twin_reroute(
-            &mut f, entry, intr, &coerce, rr, env, argv, argc, base, user_tys, dflt_lits,
-            recv_slot, feeds_env,
+            &mut f, entry, intr, &coerce, rr, env, argv, argc, user_tys, dflt_lits, recv_slot,
+            feeds_env,
         );
     }
     // A twin on the this-first argv lane: its `__this` is user param

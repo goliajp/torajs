@@ -53,7 +53,7 @@ pub(super) struct TwinReroute {
     pub(super) same_face: bool,
 }
 
-/// Test every lossy slot of the window at `base`; on the first
+/// Test every lossy slot (user slot `i` is `argv[i]`); on the first
 /// undefined scalar or non-fitting struct argument, call the twin
 /// adapter and return its answer. Returns the block the adapter
 /// continues in and, per user slot, the loaded argument of a struct
@@ -68,7 +68,6 @@ pub(super) fn emit_twin_reroute(
     env: ssa::ValueId,
     argv: ssa::ValueId,
     argc: ssa::ValueId,
-    base: ssa::ValueId,
     user_tys: &[Type],
     dflt_lits: &[Option<super::DfltLit>],
     recv_slot: bool,
@@ -97,7 +96,7 @@ pub(super) fn emit_twin_reroute(
             On::Arg(extra) => {
                 let av = f.append_inst(
                     entry,
-                    InstKind::Load(Type::Any, Operand::Value(base), (i as u64) * 8),
+                    InstKind::Load(Type::Any, Operand::Value(argv), (i as u64) * 8),
                     Type::Any,
                     None,
                 );

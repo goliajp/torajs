@@ -47,8 +47,10 @@
 //! async function's clone reaches its machine's generator through a
 //! direct call with `any` arguments, which takes that generator's
 //! twin. Out of reach, and left on the coercion kernel: a target with
-//! a receiver or argv channel (`__this`, `__torajs_argv`, new.target),
-//! a generic. Class methods are served
+//! an argv channel (`__torajs_argv`, new.target), a generic, and a
+//! receiver channel (`__this`) except a function expression's at the
+//! callback of an iteration handing `any` elements (`escaped_cb`),
+//! where the receiver rides argv[0] on both faces. Class methods are served
 //! by the `__cmany_` / `__smany_` twins instead.
 
 use std::collections::{HashMap, VecDeque};
@@ -108,7 +110,7 @@ pub(super) fn run(
         .collect();
     let loose_shells = closure::loose_values(c, owned_ast, "__forward_");
     for (shell, target) in shells {
-        let Some(found) = widenable_target(c, owned_ast, &target) else {
+        let Some(found) = widenable_target(c, owned_ast, &target, false) else {
             continue;
         };
         if found.needs_escape && !loose_shells.contains(&shell) {

@@ -221,7 +221,7 @@ fn keeps_any_call_rules(ast: &Ast, decl: &Stmt, target: &str) -> bool {
             // a closure in the twin still captures into the typed
             // body's environment layout
             let twinned = !body_has_non_length_arguments_touch(ast, body)
-                && twin_clone_params(ast, target).is_some()
+                && twin_clone_params(ast, target, false).is_some()
                 && params
                     .iter()
                     .filter(typed)
