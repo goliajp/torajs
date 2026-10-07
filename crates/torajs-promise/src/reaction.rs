@@ -38,9 +38,9 @@ use core::ffi::c_void;
 use core::ptr;
 
 use crate::layout::{
-    Promise, REPR_ANY, REPR_HEAP, REPR_STR, REPR_VOID, RX_CATCH, RX_CLOSURE, RX_INTEREST_MASK,
-    RX_NONE, RX_PARAM_ANY, RX_THEN, STATE_FULFILLED, STATE_PENDING, STATE_REJECTED, as_promise,
-    inline_link, inline_link_derived,
+    CB_INLINE_TAG, Promise, REPR_ANY, REPR_HEAP, REPR_STR, REPR_VOID, RX_CATCH, RX_CLOSURE,
+    RX_INTEREST_MASK, RX_NONE, RX_PARAM_ANY, RX_THEN, STATE_FULFILLED, STATE_PENDING,
+    STATE_REJECTED, as_promise, inline_link,
 };
 use crate::pool::__torajs_promise_drop;
 use crate::state::{__torajs_promise_reject, __torajs_promise_resolve};
@@ -247,9 +247,15 @@ unsafe fn run_inline_reaction(dp: *mut Promise) -> Stake {
 #[inline(always)]
 unsafe fn settle_into_chain(dp: *mut Promise, ret_repr: u8, value: i64) -> Stake {
     unsafe {
-        let next = inline_link_derived((*dp).callbacks);
-        if next.is_null()
-            || !(*next).rx_next.is_null()
+        let link = (*dp).callbacks as usize;
+        // an empty list or a heap record is one bit test, before any
+        // work on the link
+        if link & CB_INLINE_TAG == 0 {
+            settle_handler_return(dp as *mut c_void, ret_repr, value);
+            return Stake::Kept;
+        }
+        let next = (link & !CB_INLINE_TAG) as *mut Promise;
+        if !(*next).rx_next.is_null()
             || matches!(ret_repr, REPR_HEAP | REPR_ANY)
             || (*dp).state != STATE_PENDING
         {
