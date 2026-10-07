@@ -27,6 +27,11 @@ pub(super) const IDENTITY_CALLS: &[&str] = &["__torajs_arr_reserve"];
 pub(super) const IDENTITY_PUSH_CALLS: &[&str] = &["__torajs_arr_push"];
 /// Writes argument 1 into an element; returns nothing.
 pub(super) const VOID_PUSH_CALLS: &[&str] = &["__torajs_arr_push_unchecked"];
+/// Kernels that may leave an element holding a value no write spells:
+/// the shift lock raiser moves the elements down and, under a
+/// non-writable length, deletes the last index (it reads `undefined`)
+/// before it refuses the length write.
+pub(super) const HOLE_WRITE_CALLS: &[&str] = &["__torajs_arr_shift_guard"];
 /// Admitted kernels that leave the length field as they found it:
 /// `reserve` grows capacity only, the species guard reads the props
 /// slot, `mark_kind` reads the length to walk the elements. Every
@@ -37,10 +42,8 @@ pub(super) const LEN_INERT_CALLS: &[&str] = &[
     "__torajs_arr_mark_kind",
 ];
 /// Touches the header or frees the block; no element value effect.
-/// The length-lock raisers belong here too: they read the flags and
-/// either do nothing or record a TypeError, and the one that moves
-/// elements first (`shift_guard`'s partial shift) only copies values
-/// the slots already held.
+/// The tail-delete lock raiser belongs here too: it reads the flags and
+/// either does nothing or records a TypeError.
 /// The species guard (`Array.prototype.map` and its family, §9.4.2.3)
 /// reads the props slot and answers on a null bag; a bag — the only
 /// way to a `constructor` getter that could touch the array — is
@@ -52,7 +55,6 @@ pub(super) const VOID_INERT_CALLS: &[&str] = &[
     "__torajs_arr_species_guard",
     "__torajs_arr_mark_kind",
     "__torajs_arr_delete_tail_guard",
-    "__torajs_arr_shift_guard",
     "__torajs_arr_drop",
     "__torajs_arr_drop_scalar",
     "__torajs_arr_drop_any",

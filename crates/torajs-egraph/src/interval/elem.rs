@@ -286,6 +286,8 @@ fn scan_inst(
                     }
                 } else if VOID_PUSH_CALLS.contains(&n) {
                     record_write(writes, rep, args.get(1));
+                } else if HOLE_WRITE_CALLS.contains(&n) {
+                    record_write(writes, rep, None);
                 } else if !VOID_INERT_CALLS.contains(&n) {
                     kill.push(rep);
                 }

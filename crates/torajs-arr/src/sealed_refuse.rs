@@ -31,6 +31,7 @@ const ARR_HEAD_OFF: usize = 20;
 unsafe extern "C" {
     fn __torajs_value_drop_heap(p: *mut c_void);
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+    fn __torajs_str_drop(s: *mut c_void);
 }
 
 /// Take a +1 on every slot in `[from, to)` that holds a cell, on either
@@ -56,13 +57,12 @@ unsafe fn stake_visible_copies(arr: *mut u8, from: u64, to: u64) {
     }
 }
 
-/// `shift` on a SEALED receiver with at least one element: drop slot
-/// 0's value (the `first` the spec read and then abandoned), move the
-/// rest one slot down, stake the copy the move left in the last slot,
-/// record the TypeError. Answers `true` when it did all that — the
-/// caller stores nothing and answers the throw sentinel. Callers
-/// guarantee `len > 0` and that the frozen / RO-length guard has
-/// already run (a frozen receiver refuses before reaching here).
+/// `shift` on a SEALED receiver with at least one element: the moves
+/// succeed and the delete of the last index fails, so the TypeError is
+/// recorded over the moved slots. Answers `true` when it did all that —
+/// the caller stores nothing and answers the throw sentinel. Callers
+/// guarantee `len > 0` and that the frozen guard has already run (a
+/// frozen receiver refuses before reaching here).
 ///
 /// # Safety
 /// `arr` is a live array heap block with `len > 0`.
@@ -71,6 +71,37 @@ pub(crate) unsafe fn shift_refuses_on_sealed(arr: *mut u8) -> bool {
     if header.flags & FLAG_SEALED == 0 {
         return false;
     }
+    unsafe { shift_down_in_place(arr) };
+    unsafe { __torajs_throw_type_error(c"Unable to delete property.".as_ptr()) };
+    true
+}
+
+/// `shift` on a receiver whose `length` is not writable, with at least
+/// one element and no seal: §23.1.3.29 moves every element down,
+/// deletes the last index (a configurable element), and only the final
+/// `Set(O, "length")` refuses. Non-zero means a TypeError is pending;
+/// zero means the length is writable and nothing happened.
+///
+/// # Safety
+/// `arr` is a live array heap block with `len > 0`.
+unsafe fn shift_refuses_on_ro_length(arr: *mut u8) -> i64 {
+    let header = unsafe { &*(arr as *const HeapHeader) };
+    if header.flags & FLAG_ARR_LENGTH_RO == 0 {
+        return 0;
+    }
+    let last = unsafe { *(arr.add(ARR_LEN_OFF) as *const u64) } - 1;
+    unsafe { shift_down_in_place(arr) };
+    let key = unsafe { crate::define::mint_index_key(last) };
+    unsafe { crate::define_hole::__torajs_arr_delete_index(arr.cast(), key.cast(), last) };
+    unsafe { __torajs_str_drop(key.cast()) };
+    unsafe { __torajs_arr_len_write_guard(arr as *const c_void) }
+}
+
+/// Drop slot 0's value (the `first` the spec read and then abandoned),
+/// move the rest one slot down, and stake the copy the move left in the
+/// last slot, which is now a second reference to its cell.
+unsafe fn shift_down_in_place(arr: *mut u8) {
+    let header = unsafe { &*(arr as *const HeapHeader) };
     let len = unsafe { *(arr.add(ARR_LEN_OFF) as *const u64) };
     let head = unsafe { *(arr.add(ARR_HEAD_OFF) as *const u32) } as usize;
     let base = unsafe { arr_data(arr).add(head * 8) };
@@ -84,8 +115,6 @@ pub(crate) unsafe fn shift_refuses_on_sealed(arr: *mut u8) -> bool {
         unsafe { core::ptr::copy(base.add(8), base, (len - 1) as usize * 8) };
     }
     unsafe { stake_visible_copies(arr, len - 1, len) };
-    unsafe { __torajs_throw_type_error(c"Unable to delete property.".as_ptr()) };
-    true
 }
 
 /// The typed lowering's lock raiser for `shift`, called from the cold
@@ -98,9 +127,9 @@ pub(crate) unsafe fn shift_refuses_on_sealed(arr: *mut u8) -> bool {
 /// refuses and a seal does not; with one element nothing moves and
 /// step 6's delete of that element fails first on a frozen or sealed
 /// receiver; with more, the first move's Set fails on a frozen one
-/// (readonly), while a sealed one takes the partial move above and an
-/// RO-length one refuses at entry. Non-zero means a TypeError is
-/// pending.
+/// (readonly), a sealed one takes the moves and fails the delete, and
+/// an RO-length one takes the moves and the delete and fails the
+/// length write. Non-zero means a TypeError is pending.
 ///
 /// # Safety
 /// `arr` is a live array heap block.
@@ -115,14 +144,17 @@ pub unsafe extern "C" fn __torajs_arr_shift_guard(arr: *const c_void) -> i64 {
         }
         return unsafe { __torajs_arr_len_write_guard(arr as *const c_void) };
     }
-    if header.flags & FLAG_FROZEN != 0 && len == 1 {
-        unsafe { __torajs_throw_type_error(c"Unable to delete property.".as_ptr()) };
-        return 1;
-    }
-    if header.flags & (FLAG_FROZEN | FLAG_ARR_LENGTH_RO) != 0 {
+    if header.flags & FLAG_FROZEN != 0 {
+        if len == 1 {
+            unsafe { __torajs_throw_type_error(c"Unable to delete property.".as_ptr()) };
+            return 1;
+        }
         return unsafe { __torajs_arr_len_write_guard(arr as *const c_void) };
     }
-    unsafe { shift_refuses_on_sealed(arr) as i64 }
+    if unsafe { shift_refuses_on_sealed(arr) } {
+        return 1;
+    }
+    unsafe { shift_refuses_on_ro_length(arr) }
 }
 
 /// A shrinking `splice` on a SEALED receiver, called by the splice
