@@ -39,26 +39,7 @@ pub(super) fn collect_objlit_method_static_argv(
     std::collections::HashSet<String>,
 ) {
     use std::collections::{HashMap, HashSet};
-    // (binding, field) → lifted closure fn name, for top-level
-    // object-literal lets whose method closures are env fns with an
-    // arguments touch.
-    let mut methods: HashMap<(String, String), String> = HashMap::new();
-    for s in &ast.stmts {
-        let Stmt::LetDecl { name, init, .. } = s else {
-            continue;
-        };
-        let Expr::ObjectLit { fields } = ast.get_expr(*init) else {
-            continue;
-        };
-        for (fname, feid) in fields {
-            if let Expr::Closure { fn_name, .. } = ast.get_expr(*feid)
-                && env_fns.contains(fn_name)
-                && let Some(fname) = fname.as_str()
-            {
-                methods.insert((name.clone(), fname.to_string()), fn_name.clone());
-            }
-        }
-    }
+    let methods = collect_objlit_methods(ast, env_fns);
     if methods.is_empty() {
         return (HashMap::new(), HashSet::new());
     }
@@ -119,7 +100,7 @@ pub(super) fn collect_objlit_method_static_argv(
     // leaves the static face; the knife-4c argv-face seed picks the
     // alias up and delivers the TRUE per-call argc instead.
     let mut escaped_fns: HashSet<String> = HashSet::new();
-    let mut argcs: HashMap<String, HashSet<usize>> = HashMap::new();
+    let mut argcs: HashMap<(String, String), HashSet<usize>> = HashMap::new();
     for (i, e) in ast.exprs.iter().enumerate() {
         let Expr::Member { obj, name: fname } = e else {
             continue;
@@ -127,11 +108,12 @@ pub(super) fn collect_objlit_method_static_argv(
         let Expr::Ident(oname) = ast.get_expr(*obj) else {
             continue;
         };
-        let Some(fn_name) = methods.get(&(oname.clone(), fname.clone())) else {
+        let key = (oname.clone(), fname.clone());
+        let Some(fns) = methods.get(&key) else {
             continue;
         };
         if !call_callee_member.contains(&(i as u32)) {
-            escaped_fns.insert(fn_name.clone());
+            escaped_fns.extend(fns.iter().cloned());
             continue;
         }
         // Find the call that owns this callee to count its args.
@@ -145,32 +127,80 @@ pub(super) fn collect_objlit_method_static_argv(
                 {
                     killed.insert(oname.clone());
                 } else {
-                    argcs.entry(fn_name.clone()).or_default().insert(args.len());
+                    argcs.entry(key.clone()).or_default().insert(args.len());
                 }
             }
         }
     }
     let mut out: HashMap<String, usize> = HashMap::new();
-    for ((oname, _), fn_name) in &methods {
-        if killed.contains(oname) || fn_local_names.contains(oname) {
+    for (key, fns) in &methods {
+        let oname = &key.0;
+        if killed.contains(oname) || (fn_local_names.contains(oname) && top_level_let(ast, oname)) {
             continue;
         }
-        let Some(votes) = argcs.get(fn_name) else {
+        let Some(votes) = argcs.get(key) else {
             continue;
         };
         if votes.len() != 1 {
             continue;
         }
         let n = *votes.iter().next().unwrap();
-        let touches = ast.stmts.iter().any(|s| {
-            matches!(s, Stmt::FnDecl { name, body, .. }
-                if name == fn_name
-                    && (body_has_non_length_arguments_touch(ast, body)
-                        || super::arguments_object_walkers::body_has_arguments_length(ast, body)))
-        });
-        if touches {
-            out.insert(fn_name.clone(), n);
+        for fn_name in fns {
+            let touches = ast.stmts.iter().any(|s| {
+                matches!(s, Stmt::FnDecl { name, body, .. }
+                    if name == fn_name
+                        && (body_has_non_length_arguments_touch(ast, body)
+                            || super::arguments_object_walkers::body_has_arguments_length(ast, body)))
+            });
+            if touches {
+                out.insert(fn_name.clone(), n);
+            }
         }
     }
     (out, escaped_fns)
+}
+
+fn top_level_let(ast: &Ast, name: &str) -> bool {
+    ast.stmts
+        .iter()
+        .any(|s| matches!(s, Stmt::LetDecl { name: n, .. } if n == name))
+}
+
+/// (binding, field) → lifted closure fns, for every object-literal let
+/// (top-level or fn-local) whose method closures are env fns. Several
+/// lets may share a binding name: the votes are taken per (name,
+/// field) over every member call that spells it, so one uniform argc
+/// across all of them covers each closure the name can reach.
+fn collect_objlit_methods(
+    ast: &Ast,
+    env_fns: &std::collections::HashSet<String>,
+) -> std::collections::HashMap<(String, String), Vec<String>> {
+    let mut methods: std::collections::HashMap<(String, String), Vec<String>> =
+        std::collections::HashMap::new();
+    let mut add_methods = |name: &String, init: super::ExprId| {
+        let Expr::ObjectLit { fields } = ast.get_expr(init) else {
+            return;
+        };
+        for (fname, feid) in fields {
+            if let Expr::Closure { fn_name, .. } = ast.get_expr(*feid)
+                && env_fns.contains(fn_name)
+                && let Some(fname) = fname.as_str()
+            {
+                let key = (name.clone(), fname.to_string());
+                methods.entry(key).or_default().push(fn_name.clone());
+            }
+        }
+    };
+    for s in &ast.stmts {
+        match s {
+            Stmt::LetDecl { name, init, .. } => add_methods(name, *init),
+            Stmt::FnDecl { body, .. } => super::ns_alias::walk_stmts(body, &mut |inner| {
+                if let Stmt::LetDecl { name, init, .. } = inner {
+                    add_methods(name, *init);
+                }
+            }),
+            _ => {}
+        }
+    }
+    methods
 }

@@ -37,6 +37,7 @@ use super::stmt::Stmt;
 use super::{Ast, ExprId};
 
 mod stmt_walk;
+mod typeof_fold;
 use stmt_walk::scan_stmt;
 
 /// Where the walk stands relative to arrow boundaries.
@@ -66,6 +67,8 @@ enum Mode {
 struct Hits {
     reads: Vec<ExprId>,
     rebinds: Vec<ExprId>,
+    /// The scope's own `typeof arguments` nodes ([`typeof_fold`]).
+    typeofs: Vec<ExprId>,
 }
 
 /// Does a param list bind the name `arguments`?
@@ -119,6 +122,7 @@ fn process_scope(ast: &mut Ast, body: &mut Vec<Stmt>, shadowed: bool) {
     for s in body.iter_mut() {
         scan_stmt(ast, s, start, &mut hits);
     }
+    typeof_fold::fold_own_typeofs(ast, body, &hits);
     if hits.reads.is_empty() {
         return;
     }
@@ -158,17 +162,23 @@ fn process_scope(ast: &mut Ast, body: &mut Vec<Stmt>, shadowed: bool) {
 /// is taken out of the node, walked in [`Mode::Arrow`] (or
 /// [`Mode::Shadowed`] under an `arguments`-named param), and put
 /// back.
+/// `Expr::ArrowFn` also encodes function expressions (`fn_expr_exprs`
+/// / `gen_fn_exprs`) and object-literal methods and accessors
+/// (`objlit_method_exprs`); each has its OWN `arguments` (§10.2.11), so
+/// its body is a fresh scope. Only the true arrow extends this one.
+fn owns_arguments(ast: &Ast, eid: ExprId) -> bool {
+    ast.fn_expr_exprs.contains(&eid)
+        || ast.gen_fn_exprs.contains_key(&eid)
+        || ast.objlit_method_exprs.contains(&eid)
+}
+
 fn scan_expr(ast: &mut Ast, eid: ExprId, mode: Mode, hits: &mut Hits) {
-    // `Expr::ArrowFn` is a lossy encoding (see `parser/fn_expr.rs`
-    // knife-1 note): a FUNCTION expression parses to the same node,
-    // marked in `fn_expr_exprs` / `gen_fn_exprs` — and a fn-expr has
-    // its OWN `arguments` binding, so its body is a fresh scope, not
-    // an extension of this one (the un-gated first version rewrote
-    // `const h = function () { return arguments[0] }` at the outer
-    // fn's — six gate reds). Only the true arrow stays flagged.
     if matches!(ast.get_expr(eid), Expr::ArrowFn { .. }) {
-        let own_scope = ast.fn_expr_exprs.contains(&eid) || ast.gen_fn_exprs.contains_key(&eid);
+        let own_scope = owns_arguments(ast, eid);
         return scan_fn_value(ast, eid, own_scope, mode, hits);
+    }
+    if typeof_fold::take_own_typeof(ast, eid, mode, hits) {
+        return;
     }
     if mode == Mode::Arrow && matches!(ast.get_expr(eid), Expr::Ident(n) if n == "arguments") {
         hits.reads.push(eid);
