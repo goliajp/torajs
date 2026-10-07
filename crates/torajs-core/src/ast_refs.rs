@@ -335,6 +335,11 @@ pub(crate) fn idents_in_expr(
         }
         Expr::ObjectLit { fields } => {
             for (_, e) in fields {
+                // a runtime computed key evaluates in the literal's
+                // scope too, and lives beside the field it names
+                if let Some(k) = ast.objlit_computed_keys.get(e) {
+                    idents_in_expr(ast, *k, shadow, out);
+                }
                 idents_in_expr(ast, *e, shadow, out);
             }
         }

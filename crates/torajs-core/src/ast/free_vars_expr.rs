@@ -57,6 +57,10 @@ pub(super) fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Bound<'_>, out: &mut
         }
         Expr::ObjectLit { fields } => {
             for (_, e) in fields {
+                // a runtime computed key lives beside the field it names
+                if let Some(k) = ast.objlit_computed_keys.get(e) {
+                    walk_expr(ast, *k, bound, out);
+                }
                 walk_expr(ast, *e, bound, out);
             }
         }
