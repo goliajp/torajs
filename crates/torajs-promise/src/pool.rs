@@ -88,6 +88,18 @@ pub(crate) unsafe fn alloc_pending() -> *mut c_void {
     unsafe { promise_alloc_(STATE_PENDING, 0, 0) as *mut c_void }
 }
 
+/// [`alloc_pending`] off the row alone: null when the row is empty,
+/// so a caller that keeps no frame can leave the allocator call to
+/// its slow path.
+#[inline(always)]
+pub(crate) unsafe fn pop_pending() -> *mut c_void {
+    let p = pop_fixed::<PROMISE_SIZE>() as *mut Promise;
+    if !p.is_null() {
+        unsafe { init_cell(p, STATE_PENDING, 0, 0) };
+    }
+    p as *mut c_void
+}
+
 #[inline(always)]
 pub(crate) unsafe fn alloc_fulfilled(value: i64) -> *mut c_void {
     unsafe { promise_alloc_(STATE_FULFILLED, value, 0) as *mut c_void }

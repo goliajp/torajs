@@ -100,6 +100,32 @@ pub(crate) unsafe fn attach_inline(
     }
 }
 
+/// [`attach_inline`] of a plain handler (no [`RX_CLOSURE`]) to a source
+/// known to be pending, into a cell fresh from the allocator: nothing
+/// is queued and no env is held, so it makes no call.
+#[inline(always)]
+pub(crate) unsafe fn attach_plain_pending(
+    sp: *mut Promise,
+    dp: *mut Promise,
+    kind: u8,
+    cb: *mut c_void,
+    ret_repr: u8,
+    param_repr: u8,
+) {
+    unsafe {
+        (*dp).rx_kind = kind;
+        (*dp).rx_ret_repr = ret_repr;
+        (*dp).rx_param_repr = param_repr;
+        (*dp).rx_source = sp as *mut c_void;
+        (*dp).rx_cb = cb;
+        // the list's stake
+        rc_inc_cell(dp as *mut c_void);
+        (*sp).has_handler = 1;
+        (*dp).rx_next = (*sp).callbacks;
+        (*sp).callbacks = inline_link(dp);
+    }
+}
+
 /// Queue the reaction parked in `derived`, now out of the list of
 /// `source`, which just settled: the job takes its stake on `source`.
 #[inline(always)]

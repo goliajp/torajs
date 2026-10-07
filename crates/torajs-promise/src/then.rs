@@ -25,9 +25,9 @@
 use core::ffi::c_void;
 use core::ptr;
 
-use crate::layout::{RX_CATCH, RX_CLOSURE, RX_PARAM_ANY, RX_THEN, as_promise};
-use crate::pool::alloc_pending;
-use crate::reaction::attach_inline;
+use crate::layout::{RX_CATCH, RX_CLOSURE, RX_PARAM_ANY, RX_THEN, STATE_PENDING, as_promise};
+use crate::pool::{alloc_pending, pop_pending};
+use crate::reaction::{attach_inline, attach_plain_pending};
 use crate::then_box::{PARAM_ANY_FLAG, PARAM_REPR_SHIFT, refuse_unstamped};
 
 /// RFC 20260720-anylane-promise-methods knife 3 — the settle path
@@ -96,7 +96,37 @@ pub type FinallyRecvClosureFn = unsafe extern "C" fn(*mut c_void, i64, i64) -> i
 /// see a known form; the dispatcher overwrites on the forward leg),
 /// then park the reaction inline. `cb` is a fn pointer or a closure
 /// env per `kind`'s [`RX_CLOSURE`] bit.
+///
+/// A plain handler on a pending source, with a block on the row —
+/// every link while a `then` chain is built — makes no call at all,
+/// so it is inlined into the entry points without a frame; the rest
+/// goes to [`then_kernel_full`].
+#[inline(always)]
 unsafe fn then_kernel(
+    source: *mut c_void,
+    cb: *mut c_void,
+    kind: u8,
+    ret_repr: i64,
+) -> *mut c_void {
+    unsafe {
+        let sp = as_promise(source);
+        if ret_repr & PARAM_ANY_FLAG == 0 && kind & RX_CLOSURE == 0 && (*sp).state == STATE_PENDING
+        {
+            let result = pop_pending();
+            if !result.is_null() {
+                let param_repr = ((ret_repr >> PARAM_REPR_SHIFT) & 0xff) as u8;
+                let ret_repr = (ret_repr & 0xff) as u8;
+                stamp_result_repr(result, ret_repr);
+                attach_plain_pending(sp, as_promise(result), kind, cb, ret_repr, param_repr);
+                return result;
+            }
+        }
+        then_kernel_full(source, cb, kind, ret_repr)
+    }
+}
+
+#[inline(never)]
+unsafe fn then_kernel_full(
     source: *mut c_void,
     cb: *mut c_void,
     kind: u8,
