@@ -9,6 +9,8 @@ use super::{Analysis, Scope, SlotKey};
 use crate::ast::PropKey;
 use crate::ast::{Expr, ExprId};
 
+mod arg_params;
+
 /// Member methods with dedicated wiring in this file — the F5
 /// struct-field-fn arg edges must not double-wire them.
 const BUILTIN_MEMBER_METHODS: &[&str] = &[

@@ -20,6 +20,8 @@ use std::collections::HashMap;
 use crate::ast::{Ast, Param, Stmt};
 use crate::check::{Checker, DiagPush, LocalInfo, Type, build_fn_type};
 
+mod value_ty;
+
 pub(crate) fn check_arrow_fn(
     checker: &mut Checker,
     ast: &Ast,
@@ -105,28 +107,7 @@ pub(crate) fn closure_sig(
     let Type::Function(param_tys, ret_ty) = fn_ty.clone() else {
         unreachable!("build_fn_type returned non-Function");
     };
-    // RFC 20260714-objlit-accessor blade 1 — an object-literal method's
-    // receiver is a param of the LIFTED fn, not of the method the user
-    // wrote: `o.m()` passes no receiver. It still has to be declared
-    // into the body's scope (that is what makes `this.a` resolve), so
-    // only the VALUE type sheds it.
-    let takes_recv = real_params.first().is_some_and(|p| p.name == "__this");
-    let value_ty = if takes_recv {
-        Type::Function(param_tys.iter().skip(1).cloned().collect(), ret_ty.clone())
-    } else {
-        fn_ty
-    };
-    // RFC 20260708-closure-argv-face — a full-arguments closure's
-    // PUBLIC type is `(...args: any[]) => R`: any call arity is
-    // legal and every call must ride the boxed dual entry (whose
-    // adapter feeds real argc + argv into the synthetic params).
-    // The rest-tail type reuses the whole variadic track — call
-    // admit, assignability, and the SSA boxed-lane registration.
-    let value_ty = if ast.closure_argv_fns.contains(fn_name) {
-        Type::Function(vec![Type::Rest(Box::new(Type::Any))], ret_ty.clone())
-    } else {
-        value_ty
-    };
+    let value_ty = value_ty::closure_value_ty(ast, fn_name, &real_params, fn_ty);
     Ok(ClosureSig {
         real_params,
         param_tys,
