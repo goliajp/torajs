@@ -104,6 +104,14 @@ pub(crate) fn try_lower(
 /// carries its own +1 stake; an owned source temp is released here,
 /// mirroring [`lower_promise_get_value`]'s borrow classification.
 pub(crate) fn lower_any_await(ctx: &mut LowerCtx<'_>, op: Operand, obj: ExprId) -> Operand {
+    let is_borrow = matches!(
+        ctx.ast.get_expr(obj),
+        Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. }
+    );
+    // the drain may rebind a borrowed operand's binding and release it
+    if is_borrow {
+        ctx.emit_owned_result_inc(op, Type::Any);
+    }
     let cur_block = ctx.cur_block;
     ctx.f.append_void(
         cur_block,
@@ -115,14 +123,8 @@ pub(crate) fn lower_any_await(ctx: &mut LowerCtx<'_>, op: Operand, obj: ExprId) 
         Type::Any,
         None,
     );
-    ctx.emit_throw_check(None);
-    let is_borrow = matches!(
-        ctx.ast.get_expr(obj),
-        Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. }
-    );
-    if !is_borrow {
-        ctx.emit_drop_value(op, Type::Any);
-    }
+    ctx.emit_throw_check_owned(None, op, Type::Any);
+    ctx.emit_drop_value(op, Type::Any);
     Operand::Value(v)
 }
 
@@ -256,6 +258,15 @@ fn try_p10_4_primitive_identity(ctx: &mut LowerCtx<'_>, obj: ExprId) -> Option<O
 /// the `.value` Member wrap that used to route it here).
 pub(crate) fn lower_promise_get_value(ctx: &mut LowerCtx<'_>, obj: ExprId) -> Operand {
     let obj_op = ctx.lower_expr(obj);
+    // the drain below runs jobs that may rebind the binding a borrowed
+    // operand was read from and release the cell: the await takes its
+    // own stake on a borrowed cell, so every path below owns one
+    if matches!(
+        ctx.ast.get_expr(obj),
+        Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. }
+    ) {
+        ctx.emit_owned_result_inc(obj_op, Type::Promise);
+    }
     let cur_block = ctx.cur_block;
     ctx.f.append_void(
         cur_block,
@@ -285,25 +296,11 @@ pub(crate) fn lower_promise_get_value(ctx: &mut LowerCtx<'_>, obj: ExprId) -> Op
         Type::I64,
         None,
     );
-    let is_borrow = matches!(
-        ctx.ast.get_expr(obj),
-        Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. }
-    );
     // A rejected cell leaves through the throw path, which never
-    // reaches the drop below — and the temp promise it read from
-    // never reached a local either, so neither the catch nor the
-    // propagate destination can know to free it. `await`ing a
-    // rejection therefore stranded one promise per throw. A BORROWED
-    // source is the caller's to free on both paths, as before.
-    if is_borrow {
-        ctx.emit_throw_check(None);
-    } else {
-        ctx.emit_throw_check_owned(None, obj_op, Type::Promise);
-    }
+    // reaches the drop below, so the stake goes with it there.
+    ctx.emit_throw_check_owned(None, obj_op, Type::Promise);
     let v = cast_promise_value(ctx, raw_v, inner_ssa_ty);
-    if !is_borrow {
-        ctx.emit_drop_value(obj_op, Type::Promise);
-    }
+    ctx.emit_drop_value(obj_op, Type::Promise);
     Operand::Value(v)
 }
 
