@@ -6,14 +6,11 @@
 //! CMP already left in NZCV, and CBNZ re-tests it. When the compare
 //! is the last instruction of the block and its result feeds only
 //! this terminator, the pair fuses to `cmp; b.cond` — and an eq/ne
-//! compare against constant 0 over an I64 value drops the CMP too
-//! (`cbz`/`cbnz` on the value register). The block-tail restriction
-//! keeps NZCV live across zero intervening instructions; the
-//! single-use restriction keeps the (skipped) CSET's 0/1 result
-//! unobservable.
-//!
-//! Collatz decomposition A3 — every
-//! loop header / parity test in a division loop carries this shape.
+//! compare against 0 or a null pointer drops the CMP too (`cbz`/`cbnz`
+//! on the value register). The block-tail restriction keeps NZCV live
+//! across zero intervening instructions; the single-use restriction
+//! keeps the (skipped) CSET's 0/1 result unobservable. Every loop
+//! header, parity test and nullable-field skip carries this shape.
 
 use torajs_core::ssa::id_hash::HashMap;
 
@@ -216,11 +213,8 @@ pub(crate) fn invert_ipred(pred: IPred) -> IPred {
 /// when b.<cc> would not), and that holds for every NZCV state FCMP
 /// can produce *including unordered* — so `!(a > b)` lands on b.LE,
 /// which does take on NaN, matching the SSA CondBr semantics of a
-/// false compare.
-///
-/// `cbz`/`cbnz` fold applies to an integer eq/ne against a zero with
-/// a Value on the other side; a ConstI32 zero takes the W form, which
-/// reads only the half an I32 value keeps (`emit_compare_nzcv`).
+/// false compare. A ConstI32 zero in the `cbz`/`cbnz` fold takes the
+/// W form, which reads only the half an I32 value keeps.
 ///
 /// `else_blk: None` = the else-target is the fall-through block; the
 /// trailing unconditional B is skipped.
@@ -237,7 +231,7 @@ pub(crate) fn emit_fused_condbr(
         FusedSelPred::Int(p) => Some(if invert { invert_ipred(p) } else { p }),
         FusedSelPred::Float(_) => None,
     };
-    let zero = |op: &Operand| matches!(op, Operand::ConstI64(0) | Operand::ConstI32(0));
+    let zero = super::store_pair::is_zero;
     let zero_test = match (int_pred, &fc.lhs, &fc.rhs) {
         _ if fc.test => None,
         (Some(IPred::Eq | IPred::Ne), Operand::Value(_), z) if zero(z) => Some((fc.lhs, *z)),
@@ -512,6 +506,17 @@ mod tests {
         assert!(words.iter().any(|w| (*w >> 24) == 0x35), "cbnz w present");
         assert!(!words.iter().any(|w| (*w >> 24) == 0xB5), "no x-form cbnz");
         assert!(!words.iter().any(|w| (*w & 0xFFE0_FC1F) == 0x6B00_001F));
+    }
+
+    #[test]
+    fn eq_null_ptr_fuses_to_the_x_form_cbz() {
+        let func = icmp_condbr_func(IPred::Eq, Operand::ConstPtrNull, false);
+        let words = words_of(&compile_function(&func).bytes);
+        assert!(words.iter().any(|w| (*w >> 24) == 0xB5), "cbnz x present");
+        assert!(!words.iter().any(|w| (*w >> 24) == 0x54), "no b.cond");
+        // no CMP, register or immediate form
+        assert!(!words.iter().any(|w| (*w & 0xFF00_001F) == 0xEB00_001F));
+        assert!(!words.iter().any(|w| (*w & 0xFF00_001F) == 0xF100_001F));
     }
 
     #[test]

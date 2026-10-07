@@ -28,6 +28,16 @@ fn const_logical_imm(op: &Operand) -> Option<(u32, u32, u32)> {
     }
 }
 
+/// A constant in the ADD/SUB imm12 range. A ConstI32 qualifies too:
+/// the register it would materialize into holds the same value.
+fn const_imm12(op: &Operand) -> Option<u16> {
+    match op {
+        Operand::ConstI64(c) if (0..4096).contains(c) => Some(*c as u16),
+        Operand::ConstI32(c) if (0..4096).contains(c) => Some(*c as u16),
+        _ => None,
+    }
+}
+
 /// P-OPT Phase 2 chunk 11b — emit `%v = neg %op` as the aarch64
 /// `NEG Xd, Xn` alias of `SUB Xd, XZR, Xn` (ARM ARM C7.2.273).
 /// Emitted in place of `sub 0 x` by the egraph `SubNegate` rule.
@@ -115,12 +125,10 @@ pub fn emit_binop(
             // small constant RHS use the imm12 form, skipping the
             // MOVZ rematerialization per op (`i + 1` / `n - 1` loop
             // steps pay this every iteration).
-            if let (BinOp::Add | BinOp::Sub, Operand::ConstI64(c)) = (op, rhs)
-                && (0..4096).contains(c)
-            {
+            if let (BinOp::Add | BinOp::Sub, Some(c)) = (op, const_imm12(rhs)) {
                 match op {
-                    BinOp::Add => write_u32(bytes, add_imm(dst, rn, *c as u16)),
-                    BinOp::Sub => write_u32(bytes, sub_imm(dst, rn, *c as u16)),
+                    BinOp::Add => write_u32(bytes, add_imm(dst, rn, c)),
+                    BinOp::Sub => write_u32(bytes, sub_imm(dst, rn, c)),
                     _ => unreachable!(),
                 }
                 write_def_spill_gpr(bytes, spill_off, dst);

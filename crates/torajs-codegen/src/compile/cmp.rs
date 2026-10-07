@@ -8,8 +8,8 @@ use super::{
     OP_SCRATCH_RHS, OP_SCRATCH_TMP, write_def_spill_fpr, write_def_spill_gpr, write_u32,
 };
 use crate::enc::{
-    cmp_imm, cmp_reg, cmp_w_reg, cond, csel_cond, cset_cond, csinc_cond, fcsel_d, logical_imm,
-    orr_reg, tst_imm,
+    cmp_imm, cmp_reg, cmp_w_imm, cmp_w_reg, cond, csel_cond, cset_cond, csinc_cond, fcsel_d,
+    logical_imm, orr_reg, tst_imm,
 };
 use crate::regalloc::Assignment;
 
@@ -56,15 +56,20 @@ pub(crate) fn emit_compare_nzcv(
     // the CMP-immediate alias, skipping the MOVZ rematerialization
     // of the constant into a scratch register on every compare
     // (loop headers pay this once per iteration).
-    if let Operand::ConstI64(c) = rhs
-        && (0..4096).contains(c)
-    {
-        write_u32(bytes, cmp_imm(rn, *c as u16));
-        return;
+    // a null pointer is the X-form #0; a small I32 constant the W form
+    match rhs {
+        Operand::ConstI64(c) if (0..4096).contains(c) => {
+            return write_u32(bytes, cmp_imm(rn, *c as u16));
+        }
+        Operand::ConstPtrNull => return write_u32(bytes, cmp_imm(rn, 0)),
+        Operand::ConstI32(c) if (0..4096).contains(c) => {
+            return write_u32(bytes, cmp_w_imm(rn, *c as u16));
+        }
+        _ => {}
     }
     let rm = materialize_operand_gpr(bytes, rhs, OP_SCRATCH_RHS, alloc);
-    // I32-typed ICmp (e.g. refcount equality in emit_rc_dec_inline's
-    // `ICmp(Eq, rc_new: I32, ConstI32(0))`) must compare only the
+    // I32-typed ICmp (a negative or wide `ConstI32`, which the
+    // immediate forms above do not take) must compare only the
     // low 32 bits: an I32 value lives in an X register whose high
     // half is not kept canonical (a negative ConstI32 materializes
     // sign-extended), so a 64-bit cmp could misroute the
@@ -296,6 +301,7 @@ mod tests {
     use super::*;
     use crate::enc;
     use crate::reg::{Fpr, Gpr};
+    use torajs_core::ssa::InstKind;
 
     /// Small-const RHS ICmps take the CMP-immediate form (Round 5
     /// popcount branch/const attack) — the constant never touches a
@@ -333,6 +339,26 @@ mod tests {
             "icmp-large-const: expected {expected:02X?}, got {:02X?}",
             compiled.bytes
         );
+    }
+
+    /// A null-pointer RHS is the X-form `cmp #0`; a small ConstI32
+    /// RHS the W-form CMP-immediate. Neither materializes the constant.
+    #[test]
+    fn icmp_null_and_small_i32_take_the_immediate_form() {
+        for (rhs, cmp) in [
+            (Operand::ConstPtrNull, enc::cmp_imm(Gpr::X9, 0)),
+            (Operand::ConstI32(7), enc::cmp_w_imm(Gpr::X9, 7)),
+        ] {
+            let mut func = build_icmp_const("icmp_imm", IPred::Eq, 5, 0);
+            func.blocks[0].insts[0].kind = InstKind::ICmp(IPred::Eq, Operand::ConstI64(5), rhs);
+            let expected = words_to_le_bytes(&[
+                enc::movz_imm(Gpr::X9, 5, 0),
+                cmp,
+                enc::cset_cond(Gpr::X0, cond::EQ),
+                enc::ret(Gpr::X30),
+            ]);
+            assert_eq!(compile_function(&func).bytes, expected, "{rhs:?}");
+        }
     }
 
     #[test]

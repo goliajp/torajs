@@ -91,7 +91,7 @@ pub(super) fn plan(func: &Function, alloc: &Assignment) -> HashMap<(u32, u32), S
     out
 }
 
-fn is_zero(op: &Operand) -> bool {
+pub(super) fn is_zero(op: &Operand) -> bool {
     matches!(
         op,
         Operand::ConstI64(0) | Operand::ConstI32(0) | Operand::ConstPtrNull
