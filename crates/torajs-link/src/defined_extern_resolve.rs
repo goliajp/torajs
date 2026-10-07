@@ -22,8 +22,11 @@
 //! iteration walked garbage, and the leaf fixture SIGSEGV'd at
 //! `cycle_collect + 84`.
 
+use crate::archive_emit::member_data_layouts;
 use crate::data_section_layout::DataSectionLayout;
+use crate::layout_types::ArchiveLayout;
 use crate::non_text_layout::NonTextSectionLayout;
+use crate::resolve::SymTable;
 
 /// Dispatch each defined extern's final vaddr through its home
 /// section. Mirrors [`crate::member_resolve::resolve_local_nsect`]
@@ -62,6 +65,61 @@ pub(crate) fn section_vaddr_for_sym(
         return layout.final_vaddr + n_value.saturating_sub(layout.member_addr);
     }
     member_vaddr + n_value
+}
+
+/// The `#[global_allocator]` shim family, matched by unmangled
+/// suffix so the per-build `Cs<hash>_7___rustc` prefix does not
+/// matter. `___rdl_alloc` deliberately does NOT match: that is
+/// std's default System implementation, and the point of the
+/// override is to stop binding to the shim that forwards to it.
+fn is_allocator_shim_sym(name: &str) -> bool {
+    const SHIMS: &[&str] = &[
+        "___rust_alloc",
+        "___rust_dealloc",
+        "___rust_realloc",
+        "___rust_alloc_zeroed",
+        "___rust_alloc_error_handler",
+        "___rust_no_alloc_shim_is_unstable_v2",
+    ];
+    SHIMS.iter().any(|s| name.ends_with(s))
+}
+
+/// Every member's defined externals into the vaddr table, each at the
+/// address its home section gives it.
+pub(crate) fn insert_member_syms(layout: &ArchiveLayout, effective_sym_table: &mut SymTable) {
+    for (m_idx, m) in layout.member_layouts.iter().enumerate() {
+        let data_layouts = member_data_layouts(layout, m_idx);
+        for (name, n_value, n_sect) in &m.defined_syms {
+            let vaddr = section_vaddr_for_sym(
+                *n_sect,
+                *n_value,
+                m.vaddr,
+                &m.non_text_sections,
+                data_layouts,
+            );
+            if is_allocator_shim_sym(name) {
+                // First definition wins for this family only. Every
+                // `libtorajs_*.a` bundles its own `core`, so the
+                // default `__rust_alloc -> __rdl_alloc` shim is
+                // defined once per archive; plain `insert` lets the
+                // last archive scanned decide, which is how user
+                // binaries ended up on libc malloc while
+                // `TorajsAllocator` sat unreferenced in the image.
+                // `member_layouts` is ordered by `(archive_idx,
+                // member_idx)` (archive_link sorts `member_keys`),
+                // and `libtorajs_panic_runtime.a` — the one crate
+                // carrying `#[global_allocator]` — leads the
+                // runtime image, so first-wins here means its
+                // shim is the one every call site binds to. That
+                // matches what `merge_archive_indexes` already
+                // documents for the symbol index (ld64 search order);
+                // the vaddr table was the half that disagreed.
+                effective_sym_table.entry(name.clone()).or_insert(vaddr);
+            } else {
+                effective_sym_table.insert(name.clone(), vaddr);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
