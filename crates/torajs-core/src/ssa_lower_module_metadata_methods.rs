@@ -8,9 +8,13 @@
 
 use std::collections::HashMap;
 
-use crate::ast::{PropKey, mangle_key, unmangle_key};
+use crate::ast::{PropKey, unmangle_key};
 
 use crate::ssa;
+
+mod accessor_rows;
+use accessor_rows::other_accessor_face;
+pub(crate) use accessor_rows::retarget_generic_class_methods;
 
 /// 刀 4 (RFC 20260714-t262-top-clusters) — collect every class's OWN
 /// `__cm_<C>__<m>` method bodies by scanning the fn table (NOT
@@ -226,59 +230,29 @@ pub(crate) fn resolve_class_methods(
             break;
         }
         if let Some(methods) = own_methods.get(&name) {
-            // Collapse this class's rows to one per method name,
-            // preferring the row that carries a boxed adapter, and
-            // keep first-declaration order. A generic method appears
-            // twice — the original `__cm_C__m` (params still typed, no
-            // adapter) at its declaration position, and the `$$anywv`
-            // mono (all-`any`, adapter) later — and the mono is the
-            // dispatchable body. Picking by adapter here is what lets
-            // the declaration-order walk keep it: a plain first-seen
-            // dedup would shadow the mono behind the adapter-less
-            // original and drop the method.
-            let mut order: Vec<&PropKey> = Vec::new();
-            let mut best: HashMap<&PropKey, (ssa::FuncId, Option<ssa::FuncId>)> = HashMap::new();
-            for (mname, fid, twin_fid) in methods {
-                match best.get(mname) {
-                    None => {
-                        order.push(mname);
-                        best.insert(mname, (*fid, *twin_fid));
-                    }
-                    Some((cur_fid, _)) if !boxed_entries.contains_key(cur_fid) => {
-                        // Upgrade to an adapter-bearing row if this one has one.
-                        if boxed_entries.contains_key(fid) {
-                            best.insert(mname, (*fid, *twin_fid));
-                        }
-                    }
-                    Some(_) => {}
-                }
-            }
+            let (order, best) = collapse_rows(methods, boxed_entries);
             let mut shadowed: Vec<PropKey> = Vec::new();
             for mname in order {
                 if seen.contains(mname) {
                     continue;
                 }
                 let (fid, twin_fid) = best[mname];
-                if let Some(&(adapter_fid, _)) = boxed_entries.get(&fid) {
-                    out.push(ssa::MethodMetaSpec {
-                        name: mname.clone(),
-                        adapter_fid,
-                        this_free: facts.this_free.contains(&fid),
-                        twin_adapter_fid: twin_fid
-                            .and_then(|t| boxed_entries.get(&t).map(|&(a, _)| a)),
-                        twin_primary: false,
-                        // depth 0 is the class's own body list; every
-                        // later hop is an ancestor's.
-                        declared_here: depth == 0,
-                        touches_private: facts.touches_private.contains(&fid),
-                    });
-                }
+                // depth 0 is the class's own body list; every later
+                // hop is an ancestor's.
+                out.extend(row_spec(
+                    mname,
+                    fid,
+                    twin_fid,
+                    boxed_entries,
+                    facts,
+                    depth == 0,
+                ));
                 // Shadow even on adapter dropout — a child decl
                 // without an adapter must not expose the parent's.
                 shadowed.push(mname.clone());
-                // One face of a pair shadows the ancestor's whole
+                // one face of a pair shadows the ancestor's whole
                 // pair: the class prototype holds one accessor
-                // property per key, its missing face undefined.
+                // property per key, its missing face undefined
                 shadowed.extend(other_accessor_face(mname));
             }
             seen.extend(shadowed);
@@ -294,86 +268,64 @@ pub(crate) fn resolve_class_methods(
     out
 }
 
-/// The slot spelling of the opposite face of an accessor row
-/// (`__getter_p` ↔ `__setter_p`); `None` for a method row.
-fn other_accessor_face(row: &PropKey) -> Option<PropKey> {
-    let key = row.as_wtf8();
-    if let Some(p) = key.strip_prefix("__getter_") {
-        return Some(PropKey::prefixed("__setter_", p));
-    }
-    key.strip_prefix("__setter_")
-        .map(|p| PropKey::prefixed("__getter_", p))
-}
+type CollapsedRows<'a> = (
+    Vec<&'a PropKey>,
+    HashMap<&'a PropKey, (ssa::FuncId, Option<ssa::FuncId>)>,
+);
 
-/// 404-01 — re-target a GENERIC class's method rows at the
-/// receiver-polymorphic twin's all-any instance.
-///
-/// The `$$anywv` mono body reads its receiver at ONE specialization's
-/// static offsets (its `__this` erases to `G<any>`), while an
-/// instance wears whichever specialization it was built with — a
-/// `G<number>` k is a raw i64 the mono misdecodes as a NaN box. The
-/// twin (`__cmany_…$$anywv`) reads through GetV, which honors the
-/// receiver row's per-field type tags, so it is correct under every
-/// specialization. A receiver-FREE body keeps its mono adapter (it
-/// touches no field, so no layout can betray it); a receiver-reading
-/// body whose twin was never minted (accessor slots, super-carrying
-/// bodies) drops its row — the honest no-such TypeError over a
-/// misread answer.
-pub(crate) fn retarget_generic_class_methods(
-    ast: &crate::ast::Ast,
-    fn_table: &HashMap<String, ssa::FuncId>,
+/// Collapse one class's rows to one per method name, preferring the
+/// row that carries a boxed adapter, and keep first-declaration order.
+/// A generic method appears twice — the original `__cm_C__m` (params
+/// still typed, no adapter) at its declaration position, and the
+/// `$$anywv` mono (all-`any`, adapter) later — and the mono is the
+/// dispatchable body. Picking by adapter here is what lets the
+/// declaration-order walk keep it: a plain first-seen dedup would
+/// shadow the mono behind the adapter-less original and drop the
+/// method.
+fn collapse_rows<'a>(
+    methods: &'a [(PropKey, ssa::FuncId, Option<ssa::FuncId>)],
     boxed_entries: &HashMap<ssa::FuncId, (ssa::FuncId, ssa::SigId)>,
-    base: &str,
-    methods: Vec<ssa::MethodMetaSpec>,
-) -> Vec<ssa::MethodMetaSpec> {
-    methods
-        .into_iter()
-        .filter_map(|mut m| {
-            // RFC 20260815 刀 5 — an accessor row's name is the slot
-            // spelling (`__getter_value`), not a `__cm_` suffix; its
-            // twin is keyed by the getter/setter FN name, recovered
-            // through the accessor maps (walking the parent chain —
-            // the row may be inherited, and the twin reads through
-            // GetV so it is sound under a subclass receiver too).
-            let decl = accessor_decl_for(ast, base, &m.name)
-                .unwrap_or_else(|| format!("__cm_{base}__{}", mangle_key(&m.name)));
-            let Some(twin) = ast.cmany_twins.get(&decl) else {
-                return m.this_free.then_some(m);
-            };
-            let fid = fn_table.get(format!("{twin}$$anywv").as_str()).copied()?;
-            let (adapter, _) = boxed_entries.get(&fid).copied()?;
-            m.adapter_fid = adapter;
-            m.twin_adapter_fid = None;
-            m.twin_primary = true;
-            Some(m)
-        })
-        .collect()
+) -> CollapsedRows<'a> {
+    let mut order: Vec<&PropKey> = Vec::new();
+    let mut best: HashMap<&PropKey, (ssa::FuncId, Option<ssa::FuncId>)> = HashMap::new();
+    for (mname, fid, twin_fid) in methods {
+        match best.get(mname) {
+            None => {
+                order.push(mname);
+                best.insert(mname, (*fid, *twin_fid));
+            }
+            Some((cur_fid, _)) if !boxed_entries.contains_key(cur_fid) => {
+                // Upgrade to an adapter-bearing row if this one has one.
+                if boxed_entries.contains_key(fid) {
+                    best.insert(mname, (*fid, *twin_fid));
+                }
+            }
+            Some(_) => {}
+        }
+    }
+    (order, best)
 }
 
-/// RFC 20260815 刀 5 — recover the declaring getter/setter FN name
-/// behind an accessor slot row (`__getter_value` on class `Box` →
-/// `__cm_Box__value_get`), walking `class_parents` because a resolved
-/// method table merges inherited rows. `None` for a plain method row
-/// or an accessor no ancestor declares.
-fn accessor_decl_for(ast: &crate::ast::Ast, base: &str, slot: &PropKey) -> Option<String> {
-    let (table, prop) = match slot.strip_prefix("__getter_") {
-        Some(p) => (&ast.accessor_getters, p),
-        None => (&ast.accessor_setters, slot.strip_prefix("__setter_")?),
-    };
-    let prop = PropKey::from(prop);
-    let mut cur = Some(base.to_string());
-    let mut depth = 0u32;
-    while let Some(c) = cur {
-        if depth > 64 {
-            break;
-        }
-        if let Some(f) = table.get(&(c.clone(), prop.clone())) {
-            return Some(f.clone());
-        }
-        cur = ast.class_parents.get(&c).and_then(|p| p.clone());
-        depth += 1;
-    }
-    None
+/// The metadata row of one method body; `None` when the body has no
+/// boxed adapter to dispatch through.
+fn row_spec(
+    mname: &PropKey,
+    fid: ssa::FuncId,
+    twin_fid: Option<ssa::FuncId>,
+    boxed_entries: &HashMap<ssa::FuncId, (ssa::FuncId, ssa::SigId)>,
+    facts: &MethodFidFacts<'_>,
+    declared_here: bool,
+) -> Option<ssa::MethodMetaSpec> {
+    let &(adapter_fid, _) = boxed_entries.get(&fid)?;
+    Some(ssa::MethodMetaSpec {
+        name: mname.clone(),
+        adapter_fid,
+        this_free: facts.this_free.contains(&fid),
+        twin_adapter_fid: twin_fid.and_then(|t| boxed_entries.get(&t).map(|&(a, _)| a)),
+        twin_primary: false,
+        declared_here,
+        touches_private: facts.touches_private.contains(&fid),
+    })
 }
 
 /// S2.38 — `true` when the function never observes its first param
