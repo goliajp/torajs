@@ -24,7 +24,8 @@
 //!   (RFC 20260720-promise-any-cb): a discarding call site drops the
 //!   returned promise before the job fires, and the dispatcher would
 //!   otherwise settle a recycled cell. Released by the dispatcher
-//!   after settling.
+//!   after settling — or, when settling queued the derived cell's own
+//!   sole reaction, kept as that job's reference on its source.
 //! - `rx_cb` with [`RX_CLOSURE`] holds one reference on the env,
 //!   released after the call.
 //!
@@ -37,13 +38,14 @@ use core::ffi::c_void;
 use core::ptr;
 
 use crate::layout::{
-    Promise, REPR_VOID, RX_CATCH, RX_CLOSURE, RX_INTEREST_MASK, RX_NONE, RX_PARAM_ANY, RX_THEN,
-    STATE_PENDING, STATE_REJECTED, as_promise, inline_link,
+    Promise, REPR_ANY, REPR_HEAP, REPR_STR, REPR_VOID, RX_CATCH, RX_CLOSURE, RX_INTEREST_MASK,
+    RX_NONE, RX_PARAM_ANY, RX_THEN, STATE_FULFILLED, STATE_PENDING, STATE_REJECTED, as_promise,
+    inline_link, inline_link_derived,
 };
 use crate::pool::__torajs_promise_drop;
 use crate::state::{__torajs_promise_reject, __torajs_promise_resolve};
 use crate::then::{ThenCbI64, call_handler, stamp_result_repr};
-use crate::then_box::{settle_handler_return, settle_param};
+use crate::then_box::{reject_on_pending_throw, settle_handler_return, settle_param};
 use torajs_rc::rc_inc_cell;
 
 pub(crate) mod candidate;
@@ -133,7 +135,8 @@ pub(crate) unsafe extern "C" fn inline_reaction_dispatch(arg: i64) {
             RX_CATCH => rejected,
             _ => false,
         };
-        if fires {
+        // true when the derived promise's stake went to the next job
+        let handed = if fires {
             let v = settle_param(
                 (*sp).value_repr,
                 kind & RX_PARAM_ANY != 0,
@@ -149,7 +152,7 @@ pub(crate) unsafe extern "C" fn inline_reaction_dispatch(arg: i64) {
             // A Void-ret handler leaves garbage in the return
             // register — settle a clean 0 behind the VOID stamp.
             let result = if ret_repr == REPR_VOID { 0 } else { result };
-            settle_handler_return(derived, ret_repr, result);
+            settle_into_chain(dp, ret_repr, result)
         } else {
             // The handler's interest does not match: forward the
             // settlement unchanged so a downstream handler sees it.
@@ -159,11 +162,47 @@ pub(crate) unsafe extern "C" fn inline_reaction_dispatch(arg: i64) {
             } else {
                 __torajs_promise_resolve(derived, (*sp).value);
             }
-        }
+            false
+        };
         __torajs_promise_drop(source);
         if kind & RX_CLOSURE != 0 {
             __torajs_value_drop_heap(cb);
         }
-        __torajs_promise_drop(derived);
+        if !handed {
+            __torajs_promise_drop(derived);
+        }
+    }
+}
+
+/// Settle `dp` with its handler's return `value`. When the return is
+/// a form that can be neither adopted nor a thenable and `dp`'s list
+/// is one inline reaction — a link of a `then` chain — this fulfills
+/// `dp` and queues that reaction itself, handing the dispatcher's
+/// stake on `dp` to the job, which needs one on its source anyway:
+/// answers true, and the dispatcher must not release `dp`. Anything
+/// else goes through [`settle_handler_return`] and answers false.
+#[inline(always)]
+unsafe fn settle_into_chain(dp: *mut Promise, ret_repr: u8, value: i64) -> bool {
+    unsafe {
+        let next = inline_link_derived((*dp).callbacks);
+        if next.is_null()
+            || !(*next).rx_next.is_null()
+            || matches!(ret_repr, REPR_HEAP | REPR_ANY)
+            || (*dp).state != STATE_PENDING
+        {
+            settle_handler_return(dp as *mut c_void, ret_repr, value);
+            return false;
+        }
+        if reject_on_pending_throw(dp as *mut c_void) {
+            return false;
+        }
+        (*dp).value_repr = ret_repr;
+        (*dp).value_is_heap = (ret_repr == REPR_STR) as u8;
+        (*dp).state = STATE_FULFILLED;
+        (*dp).value = value;
+        (*dp).callbacks = ptr::null_mut();
+        (*next).rx_next = ptr::null_mut();
+        __torajs_microtask_enqueue(inline_reaction_dispatch, next as i64);
+        true
     }
 }
