@@ -1,10 +1,10 @@
 //! The check rounds that retype bindings `any`.
 //!
-//! A binding that stores a value the checker types by a declaration
-//! while the lowering holds it as `any` (`num_width::hidden_any`: an
-//! element of a typed array whose alias escaped into the `any` world)
-//! is annotated `any`, and the program checked again, until no round
-//! asks for another. A program that asks for none is checked once.
+//! A binding that may store a value of another kind
+//! (`num_width::hidden_any`: an element of a typed array whose alias
+//! escaped into the `any` world, or of an `any[]`) is annotated `any`,
+//! and the program checked again, until no round asks for another. A
+//! program that asks for none is checked once.
 
 use std::collections::HashSet;
 

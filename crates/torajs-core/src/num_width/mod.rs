@@ -44,6 +44,7 @@ mod escape;
 mod fallthrough;
 mod fnsig;
 mod hidden_any;
+mod hidden_any_scope;
 mod hof_receivers;
 mod json_seed;
 mod lattice;

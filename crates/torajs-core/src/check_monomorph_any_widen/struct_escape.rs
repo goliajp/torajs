@@ -77,6 +77,11 @@ pub(crate) fn is_twin(name: &str) -> bool {
     name.ends_with(SUFFIX)
 }
 
+/// The name `twin` is the twin of, when it is one.
+pub(crate) fn twin_original(twin: &str) -> Option<&str> {
+    twin.strip_suffix(SUFFIX)
+}
+
 /// Mint the twin pair behind every plain-face shell whose target
 /// declares a struct parameter. Runs once, ahead of the widen
 /// fixpoint: the twins' checks seed that loop like any clone's.

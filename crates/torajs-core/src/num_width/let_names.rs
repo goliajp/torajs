@@ -57,7 +57,7 @@ pub(super) fn walk_bindings(s: &Stmt, f: BindingVisit) {
         // dep from the pre-built `src[i]` read lands on it, in the
         // same commit as the lowering sites that consume the table.
         Stmt::ForOf { var_name, body, .. } => {
-            f(var_name, Some(s));
+            f(var_name, None);
             walk_bindings(body, f);
         }
         Stmt::ForOfSplitIter { body, .. } => walk_bindings(body, f),
