@@ -31,14 +31,14 @@ pub(crate) fn is_objlit_method_slot(
 /// closure on the argv face? Its native entry carries the raw argv
 /// pointer, which only the boxed dual entry fills.
 ///
-/// A layout is matched by field names: literals with the same names can
-/// share it (the value layout is interned apart from any nominal alias,
-/// and the closure types in it do not tell the two faces apart), and a
-/// `__getter_` / `__setter_` name only ever comes from an accessor
-/// literal. A receiver bound to one literal (`recv`, when the lane has
-/// the expression) names the closure in the slot, so the answer is that
-/// closure's; any other receiver sharing an argv slot's names takes the
-/// boxed route, which serves every accessor closure.
+/// A receiver bound to one literal (`recv`, when the lane has the
+/// expression) names the closure in the slot, so the answer is that
+/// closure's. Any other receiver whose slot carries the name of an argv
+/// accessor takes the boxed route, which serves every accessor closure:
+/// literals with the same names can share a layout, the closure types
+/// in it do not tell the two faces apart, and a spread literal's layout
+/// names fields its source does not, so the slot name alone decides
+/// (wide only costs a boxed call).
 pub(crate) fn slot_takes_argv(
     ctx: &LowerCtx<'_>,
     recv: Option<ExprId>,
@@ -57,11 +57,7 @@ pub(crate) fn slot_takes_argv(
     let Some((slot, _)) = layout.get(idx) else {
         return false;
     };
-    let shared = slots.rows.iter().any(|(names, f, _)| {
-        *slot == f.as_str()
-            && names.len() == layout.len()
-            && names.iter().zip(layout).all(|(n, (k, _))| *k == n.as_str())
-    });
+    let shared = slots.rows.iter().any(|(_, f, _)| *slot == f.as_str());
     let lit = recv.and_then(|r| match ctx.ast.get_expr(r) {
         Expr::ObjectLit { .. } => Some(r),
         Expr::Ident(n) => slots.bound.get(n).copied(),
@@ -72,7 +68,7 @@ pub(crate) fn slot_takes_argv(
         _ => None,
     });
     match held.map(|v| ctx.ast.get_expr(v)) {
-        Some(Expr::Closure { fn_name, .. }) if shared => ctx.ast.closure_argv_fns.contains(fn_name),
+        Some(Expr::Closure { fn_name, .. }) => ctx.ast.closure_argv_fns.contains(fn_name),
         _ => shared,
     }
 }
