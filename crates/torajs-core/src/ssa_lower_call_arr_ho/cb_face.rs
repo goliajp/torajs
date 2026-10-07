@@ -70,6 +70,29 @@ pub(crate) fn cb_face(
     (Type::Closure(any_ret), true)
 }
 
+/// [`cb_face`] for `Array.from(src, cb)`. Only an array source can hand
+/// a typed callback slot any elements; a Set / Map / iterator source
+/// materializes as `Arr<Any>` without being one, and keeps the face a
+/// callback reading `arguments` takes.
+pub(crate) fn from_face(
+    ctx: &mut LowerCtx<'_>,
+    args: &[ExprId],
+    fn_ty: Type,
+    src_ty: Type,
+    eid: ExprId,
+) -> (Type, bool) {
+    if matches!(
+        ctx.expr_types.get(&args[0]),
+        Some(crate::check::Type::Array(_))
+    ) {
+        return cb_face(ctx, args[1], fn_ty, src_ty, "from", eid);
+    }
+    (
+        fn_ty,
+        crate::ast::argv_face_callback::lane_takes_argv_face(ctx.ast, args[1]),
+    )
+}
+
 /// Is `cb` a callback with a boxed entry whose typed first parameter an
 /// `src_ty` array feeds `any` elements?
 fn any_elems_take_boxed_entry(ctx: &LowerCtx<'_>, cb: ExprId, fn_ty: Type, src_ty: Type) -> bool {

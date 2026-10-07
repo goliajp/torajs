@@ -6,7 +6,7 @@
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{BinOp as SsaBinOp, FuncId, IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, PreReserveState, intern_arr_layout};
-use crate::ssa_lower_call_arr_ho::cb_face::cb_face;
+use crate::ssa_lower_call_arr_ho::cb_face::from_face;
 
 /// S151 — `Array.from(iter, mapFn)` per ES §23.1.2.1. mapFn shape:
 /// `(elem) → R` or `(elem, idx) → R`. Strategy: walk `src_arr_op`, per-elem
@@ -128,7 +128,7 @@ pub(crate) fn emit_map_loop(
     // §23.1.2.1 «kValue, k» pair, never the direct / devirt call. The
     // ret of the face drives the dst layout; the conv unboxes to it.
     let fn_ty = ctx.operand_ty(&fn_val);
-    let (fn_ty, argv_face) = cb_face(ctx, args[1], fn_ty, src_arr_ty, "from", eid);
+    let (fn_ty, argv_face) = from_face(ctx, args, fn_ty, src_arr_ty, eid);
     let known_fid: Option<FuncId> = if argv_face {
         None
     } else {

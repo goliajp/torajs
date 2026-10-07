@@ -146,7 +146,18 @@ fn fills_any(a: &Analysis<'_>, call: ExprId) -> bool {
     !fns.is_empty()
         && fns.iter().all(|f| f.starts_with("__closure_"))
         && matches!(a.expr_types.get(&cb), Some(Type::Function(ps, _))
-            if ps.first().is_some_and(|p| *p != Type::Any))
+            if ps.first().is_some_and(boxed_slot))
+}
+
+/// A first parameter the lowering sends through the boxed entry when an
+/// any element meets it (`ssa_lower_call_arr_ho::cb_face`): a scalar or
+/// a struct slot. Any other kind keeps the direct call and a typed
+/// product, so the product must not be marked as an any one either.
+fn boxed_slot(p: &Type) -> bool {
+    matches!(
+        p,
+        Type::Number | Type::String | Type::Boolean | Type::Struct(_) | Type::Object(_)
+    )
 }
 
 /// The callback parameter an iteration hands the element to. `sort`
