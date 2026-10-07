@@ -125,24 +125,80 @@ pub(crate) fn getter_fns_by_prop(ast: &Ast) -> HashMap<String, Vec<&str>> {
     out
 }
 
+/// The getter a read of `prop` through a receiver statically typed
+/// `cls_key` runs, when one function or one vtable slot answers for
+/// every instance that type admits. `None` sends the site to the
+/// any-member lane, whose runtime walk settles it: no accessor at all,
+/// a pair that lacks the getter (§10.1.8.1 answers undefined), or a
+/// subclass shadowing the pair in a way no slot carries
+/// ([`face_varies_below`]).
 pub(crate) fn accessor_getter_in_chain(
     ast: &Ast,
     cls_key: &str,
     prop: &str,
 ) -> Option<AccessorHit> {
-    accessor_in_chain(&ast.accessor_getters, ast, cls_key, prop)
+    let faces = Faces {
+        this: &ast.accessor_getters,
+        other: &ast.accessor_setters,
+        suffix: "_get",
+    };
+    accessor_in_chain(&faces, ast, cls_key, prop)
 }
 
+/// The setter twin of [`accessor_getter_in_chain`]; a pair that lacks
+/// the setter refuses the write at runtime (§10.1.9.2 step 7) in the
+/// writer's strictness.
 pub(crate) fn accessor_setter_in_chain(
     ast: &Ast,
     cls_key: &str,
     prop: &str,
 ) -> Option<AccessorHit> {
-    accessor_in_chain(&ast.accessor_setters, ast, cls_key, prop)
+    let faces = Faces {
+        this: &ast.accessor_setters,
+        other: &ast.accessor_getters,
+        suffix: "_set",
+    };
+    accessor_in_chain(&faces, ast, cls_key, prop)
+}
+
+/// One face of the accessor tables, read alongside the other. A class
+/// declaring either face owns the whole property (one accessor
+/// property per key on its prototype), so the walk stops there either
+/// way.
+struct Faces<'a> {
+    this: &'a HashMap<(String, PropKey), String>,
+    other: &'a HashMap<(String, PropKey), String>,
+    suffix: &'static str,
+}
+
+/// Whether a strict descendant of `head` redeclares `prop` in a way
+/// this face's vtable slot does not carry: the descendant's pair lacks
+/// the face, or the face holds no slot listing it (a regular method
+/// spelled like the face's symbol keeps the accessor out of the
+/// slots). The function a read or write runs then depends on the
+/// instance in a way only the runtime walk knows.
+fn face_varies_below(faces: &Faces<'_>, ast: &Ast, head: &str, prop: &str) -> bool {
+    let key = PropKey::from(prop);
+    let slot = format!("{}{}", super::mangle_key(&key), faces.suffix);
+    let owners = ast
+        .method_index
+        .contains_key(&slot)
+        .then(|| ast.method_owners.get(&slot))
+        .flatten();
+    faces
+        .this
+        .keys()
+        .chain(faces.other.keys())
+        .filter(|(c, p)| *p == key && c != head)
+        .filter(|(c, _)| super::method_owner_is_in_chain(&ast.class_parents, head, c))
+        .any(|(c, _)| {
+            !faces.this.contains_key(&(c.clone(), key.clone()))
+                || !owners.is_some_and(|o| o.contains(c))
+        })
 }
 
 fn accessor_in_chain(
-    table: &HashMap<(String, PropKey), String>,
+    faces: &Faces<'_>,
     ast: &Ast,
     cls_key: &str,
     prop: &str,
@@ -171,14 +227,21 @@ fn accessor_in_chain(
         }
         _ => (cls_key, Vec::new()),
     };
+    if face_varies_below(faces, ast, head, prop) {
+        return None;
+    }
     let mut cur = Some(head.to_string());
     for _ in 0..=ast.class_parents.len() {
         let c = cur?;
-        if let Some(f) = table.get(&(c.clone(), PropKey::from(prop))) {
+        let key = (c.clone(), PropKey::from(prop));
+        if let Some(f) = faces.this.get(&key) {
             return Some(AccessorHit {
                 fn_name: f.clone(),
                 subst,
             });
+        }
+        if faces.other.contains_key(&key) {
+            return None;
         }
         // Compose the substitution for the parent's vocabulary before
         // hopping — the written heritage args are spelled in `c`'s

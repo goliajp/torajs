@@ -218,7 +218,7 @@ pub(crate) fn resolve_class_methods(
     cname: &str,
 ) -> Vec<ssa::MethodMetaSpec> {
     let mut out: Vec<ssa::MethodMetaSpec> = Vec::new();
-    let mut seen: std::collections::HashSet<&PropKey> = std::collections::HashSet::new();
+    let mut seen: std::collections::HashSet<PropKey> = std::collections::HashSet::new();
     let mut cur: Option<String> = Some(cname.to_string());
     let mut depth = 0u32;
     while let Some(name) = cur {
@@ -253,6 +253,7 @@ pub(crate) fn resolve_class_methods(
                     Some(_) => {}
                 }
             }
+            let mut shadowed: Vec<PropKey> = Vec::new();
             for mname in order {
                 if seen.contains(mname) {
                     continue;
@@ -274,8 +275,13 @@ pub(crate) fn resolve_class_methods(
                 }
                 // Shadow even on adapter dropout — a child decl
                 // without an adapter must not expose the parent's.
-                seen.insert(mname);
+                shadowed.push(mname.clone());
+                // One face of a pair shadows the ancestor's whole
+                // pair: the class prototype holds one accessor
+                // property per key, its missing face undefined.
+                shadowed.extend(other_accessor_face(mname));
             }
+            seen.extend(shadowed);
         }
         cur = ast.class_parents.get(&name).and_then(|p| p.clone());
         depth += 1;
@@ -286,6 +292,17 @@ pub(crate) fn resolve_class_methods(
     // `console.log(instance)` prints. Dispatch is a by-name scan
     // (`__torajs_struct_method_find`), so row order never gated it.
     out
+}
+
+/// The slot spelling of the opposite face of an accessor row
+/// (`__getter_p` ↔ `__setter_p`); `None` for a method row.
+fn other_accessor_face(row: &PropKey) -> Option<PropKey> {
+    let key = row.as_wtf8();
+    if let Some(p) = key.strip_prefix("__getter_") {
+        return Some(PropKey::prefixed("__setter_", p));
+    }
+    key.strip_prefix("__setter_")
+        .map(|p| PropKey::prefixed("__getter_", p))
 }
 
 /// 404-01 — re-target a GENERIC class's method rows at the

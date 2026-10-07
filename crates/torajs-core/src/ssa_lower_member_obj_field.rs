@@ -28,6 +28,7 @@
 //!   absent (typechecker upstream rejects).
 
 pub(crate) mod accessor_argv;
+pub(crate) mod accessor_slot;
 
 use crate::ast::ExprId;
 use crate::ssa::{InstKind, Operand, StructId, Type};
@@ -194,7 +195,12 @@ fn try_accessor_getter(
     };
     let ret_ty = ctx.f_ret_type_hint(fid);
     let args = accessor_argv::class_accessor_call_args(ctx, &hit.fn_name, obj_val, &[]);
+    let slot = accessor_slot::find(ctx, &cls_key, name, "_get");
     let call = move |ctx: &mut LowerCtx<'_>| {
+        if let Some(slot) = &slot {
+            let v = accessor_slot::emit_call(ctx, slot, obj, fid, &hit.fn_name, args);
+            return Operand::Value(v);
+        }
         let cur_block = ctx.cur_block;
         let v = ctx
             .f

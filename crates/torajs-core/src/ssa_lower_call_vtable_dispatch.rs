@@ -150,7 +150,7 @@ pub(crate) fn try_lower(
 /// True iff a body the slot may resolve to for this receiver is a
 /// may-throw fn. With a `ClassRef` receiver only the declarers at or
 /// below its class count; otherwise every owner does.
-fn slot_may_throw(
+pub(crate) fn slot_may_throw(
     ctx: &LowerCtx<'_>,
     recv: ExprId,
     method_name: &str,

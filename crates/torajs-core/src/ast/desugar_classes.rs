@@ -409,6 +409,13 @@ fn finalize_side_tables(
     accessor_getter_records: Vec<(String, PropKey, String)>,
     accessor_setter_records: Vec<(String, PropKey, String)>,
 ) {
+    let mut method_owners = method_owners;
+    super::desugar_classes_method_owners::add_accessor_owners(
+        &mut method_owners,
+        accessor_getter_records
+            .iter()
+            .chain(accessor_setter_records.iter()),
+    );
     let slots =
         super::desugar_classes_method_owners::vtable_methods(&method_owners, &ast.class_parents);
     ast.method_index = slots

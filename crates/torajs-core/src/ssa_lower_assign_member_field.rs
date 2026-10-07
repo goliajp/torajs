@@ -78,7 +78,13 @@ pub(crate) fn try_lower_setter_call(
     };
     let args = acc::class_accessor_call_args(ctx, &hit.fn_name, obj_val, &[(arg, Some(value))]);
     let recv = obj_val;
+    let slot = crate::ssa_lower_member_obj_field::accessor_slot::find(ctx, &cls_key, field, "_set");
     let call = move |ctx: &mut LowerCtx<'_>| {
+        if let Some(slot) = &slot {
+            use crate::ssa_lower_member_obj_field::accessor_slot::emit_call;
+            emit_call(ctx, slot, obj, fid, &hit.fn_name, args);
+            return;
+        }
         let cur_block = ctx.cur_block;
         ctx.f.append_void(cur_block, InstKind::Call(fid, args));
         ctx.emit_throw_check(Some(fid));

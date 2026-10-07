@@ -1,0 +1,9 @@
+poly 10 1010
+put 1 1001
+arr 1030
+arr-set 2,1002,2
+field 1010
+field-set 1005
+ret 1010 10
+static 1010
+static-set 1003

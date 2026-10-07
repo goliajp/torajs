@@ -29,7 +29,7 @@
 //! pattern as chunks 177/178/179.
 
 use super::desugar_classes_super::ClassIndexEntry;
-use super::{mangle_key, method_owner_is_in_chain};
+use super::{PropKey, mangle_key, method_owner_is_in_chain};
 use std::collections::{HashMap, HashSet};
 
 pub(super) fn compute_method_owners_and_chain_methods(
@@ -83,6 +83,34 @@ pub(super) fn compute_method_owners_and_chain_methods(
         .map(|(n, _)| n.clone())
         .collect();
     (method_owners, chain_methods)
+}
+
+/// Enter each instance accessor face under its symbol tail
+/// (`<key>_get` / `<key>_set`, the part of `__cm_<C>__<key>_get` after
+/// the class), so an overridden face takes a vtable slot like any
+/// overridden method. This runs after the dispatcher stubs and the
+/// call rewrite have read the table: nothing calls a face by name, so
+/// neither may see it. A face whose tail a regular method also spells
+/// stays out — the slot would mix the two — and its sites keep to the
+/// accessor walk, which routes a receiver with a redeclaring
+/// descendant through the any-member lane.
+pub(super) fn add_accessor_owners<'a>(
+    method_owners: &mut HashMap<String, Vec<String>>,
+    records: impl Iterator<Item = &'a (String, PropKey, String)>,
+) {
+    let regular: HashSet<String> = method_owners.keys().cloned().collect();
+    for (cname, _, fn_name) in records {
+        let Some(tail) = fn_name.strip_prefix(&format!("__cm_{cname}__")) else {
+            continue;
+        };
+        if regular.contains(tail) {
+            continue;
+        }
+        method_owners
+            .entry(tail.to_string())
+            .or_default()
+            .push(cname.clone());
+    }
 }
 
 /// Name-sorted method names that need a vtable slot: every name some

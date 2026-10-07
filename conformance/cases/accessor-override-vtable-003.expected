@@ -1,0 +1,5 @@
+read 1 1 10
+inc 2 2 111
+add 2 2 111
+mid 1,10
+assign 102 1020

@@ -1,0 +1,7 @@
+get-only 17 TypeError
+set-only undefined ok 8
+base 10 ok 4
+static-g 17
+static-g-set TypeError 10
+static-s 18 undefined
+mixed 10,17,undefined
