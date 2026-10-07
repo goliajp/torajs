@@ -183,7 +183,7 @@ pub fn lower_with_arity(ast: &Ast, artifacts: &crate::check::CheckArtifacts) -> 
         _generic_call_sites,
         expr_types,
         arity_pad_count,
-        demoted_cm_rewrites,
+        _demoted_cm_rewrites,
         contextual_any,
         mono,
         global_spellings,
@@ -192,7 +192,6 @@ pub fn lower_with_arity(ast: &Ast, artifacts: &crate::check::CheckArtifacts) -> 
     lower_inner(
         expr_types,
         arity_pad_count,
-        demoted_cm_rewrites,
         contextual_any,
         mono,
         global_spellings,

@@ -56,20 +56,19 @@ use crate::ssa_lower_pass_2_5::cell_size;
 pub(crate) fn lower_inner(
     expr_types: &HashMap<crate::ast::ExprId, crate::check::Type>,
     arity_pad_count: &HashMap<crate::ast::ExprId, usize>,
-    demoted_cm_rewrites: &HashMap<crate::ast::ExprId, crate::ast::ExprId>,
     contextual_any: &std::collections::HashSet<crate::ast::ExprId>,
     mono: &MonoOutput,
     global_spellings: &HashMap<String, String>,
 ) -> Module {
-    // Monomorphization ran at the end of the check pipeline
-    // (check_monomorph.rs) — specializations are already appended and
-    // type-checked, demoted member-call shapes already restored. W1
-    // num-width analysis is all that remains of the old pass 0.
+    // Monomorphization and the W1 num-width analysis ran at the end of
+    // the check pipeline (check_monomorph.rs, check_monomorph/finish.rs)
+    // — specializations are already appended and type-checked, demoted
+    // member-call shapes already restored, and the width table was
+    // built over this AST with these retargets.
     let ast: &Ast = &mono.mono_ast;
     let call_retargets = &mono.call_retargets;
     let generic_fn_names = &mono.generic_fn_names;
-    let num_f64_slots =
-        crate::num_width::analyze(ast, call_retargets, demoted_cm_rewrites, expr_types);
+    let num_f64_slots = &mono.widths;
 
     let mut module = Module::default();
     let mut fn_table: HashMap<String, FuncId> = HashMap::new();
@@ -85,7 +84,7 @@ pub(crate) fn lower_inner(
     // by [`crate::ssa_lower_pass_0_5::run`] and handed back through the
     // `Pass05` holder. struct_layouts is `mem::take`'d off `module`
     // inside the sibling; everything else is fresh.
-    let pass05 = crate::ssa_lower_pass_0_5::run(ast, expr_types, &mut module, &num_f64_slots);
+    let pass05 = crate::ssa_lower_pass_0_5::run(ast, expr_types, &mut module, num_f64_slots);
     let aliases = pass05.aliases;
     let mut arr_layouts = pass05.arr_layouts;
     let mut baked_regex_buf = pass05.baked_regex_buf;
@@ -113,7 +112,7 @@ pub(crate) fn lower_inner(
         &generic_struct_decls,
         &mut struct_layouts,
         &mut inst_memo,
-        &num_f64_slots,
+        num_f64_slots,
         generic_fn_names,
     );
     let mut fn_sig_ids = pass1.fn_sig_ids;
@@ -127,7 +126,7 @@ pub(crate) fn lower_inner(
         &mut fn_sigs,
         &mut fn_sig_ids,
         &init_a,
-        &num_f64_slots,
+        num_f64_slots,
         &aliases,
         &struct_layouts,
     );
@@ -164,7 +163,7 @@ pub(crate) fn lower_inner(
         &generic_struct_decls,
         &mut struct_layouts,
         &mut inst_memo,
-        &num_f64_slots,
+        num_f64_slots,
         &mut module,
     );
 
@@ -228,7 +227,7 @@ pub(crate) fn lower_inner(
         expr_types,
         arity_pad_count,
         contextual_any,
-        &num_f64_slots,
+        num_f64_slots,
         &promise_thunks,
         &class_drop_fids,
         &boxed_entries,
