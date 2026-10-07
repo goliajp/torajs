@@ -123,7 +123,7 @@ pub(super) fn mint(
         let Some(params) = widenable_target(c, owned_ast, &name).map(|t| t.params) else {
             continue;
         };
-        if writes_outer_binding(owned_ast, &name) {
+        if writes_typed_outer_binding(c, owned_ast, &name) {
             continue;
         }
         // the twin is checked at the original's construction site, whose
@@ -152,13 +152,28 @@ pub(super) fn mint(
     minted
 }
 
-/// Does the body of `name` write a binding outside it? The twin's `any`
-/// values would be stored into that binding's typed slot, which
-/// lowering refuses; such a closure keeps the coercion kernel.
-fn writes_outer_binding(ast: &Ast, name: &str) -> bool {
+/// Does the body of `name` write a binding outside it that cannot take
+/// the twin's values? The twin's `any` values would be stored into a
+/// container-typed slot (`Map<number, string> | undefined`), which
+/// lowering refuses; such a closure keeps the coercion kernel. An `any`
+/// binding takes them as they are, and a number / string / boolean one
+/// takes what its own assignments compute: one that may store an `any`
+/// element as it is was retyped `any` (`num_width::hidden_any`).
+fn writes_typed_outer_binding(c: &Checker, ast: &Ast, name: &str) -> bool {
+    let caps = c.closure_captures.get(name);
+    let takes_twin_values = |w: &String| {
+        matches!(
+            caps.and_then(|cs| cs.iter().find(|(n, _)| n == w))
+                .map(|(_, t)| t)
+                .or_else(|| c.globals.get(w)),
+            Some(Type::Any | Type::Number | Type::String | Type::Boolean)
+        )
+    };
     ast.stmts.iter().any(|s| {
         matches!(s, Stmt::FnDecl { name: n, .. } if n == name)
-            && crate::ast::free_vars_write::writes_outer_binding(ast, s)
+            && !crate::ast::free_vars_write::outer_writes(ast, s)
+                .iter()
+                .all(takes_twin_values)
     })
 }
 

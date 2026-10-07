@@ -1,18 +1,18 @@
-//! Does a declaration write a binding it does not declare itself?
+//! Which bindings a declaration writes that it does not declare itself.
 
 use std::collections::HashSet;
 
 use super::free_vars::{Bound, FreeSink, walk_stmt};
 use super::{Ast, Expr, ExprId, Stmt};
 
-/// True when `decl` assigns (or `++` / `--`) a name that no frame
-/// inside it binds: a capture, or a top-level or global binding.
-pub(crate) fn writes_outer_binding(ast: &Ast, decl: &Stmt) -> bool {
-    struct Sites(Vec<ExprId>);
+/// The names `decl` assigns (or `++` / `--`) that no frame inside it
+/// binds: captures, and top-level or global bindings.
+pub(crate) fn outer_writes(ast: &Ast, decl: &Stmt) -> Vec<String> {
+    struct Sites(Vec<(String, ExprId)>);
     impl FreeSink for Sites {
-        fn free(&mut self, _name: &str, site: Option<ExprId>, _bound: &[String]) {
+        fn free(&mut self, name: &str, site: Option<ExprId>, _bound: &[String]) {
             if let Some(site) = site {
-                self.0.push(site);
+                self.0.push((name.to_string(), site));
             }
         }
     }
@@ -30,5 +30,10 @@ pub(crate) fn writes_outer_binding(ast: &Ast, decl: &Stmt) -> bool {
     };
     let mut sites = Sites(Vec::new());
     walk_stmt(ast, decl, &mut bound, &mut sites);
-    sites.0.iter().any(|s| written.contains(s))
+    sites
+        .0
+        .into_iter()
+        .filter(|(_, s)| written.contains(s))
+        .map(|(n, _)| n)
+        .collect()
 }

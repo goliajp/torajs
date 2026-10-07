@@ -1,0 +1,4 @@
+module 1s3 string
+captured 1s3 string number,string,number
+arith NaN number
+plain 15 number
