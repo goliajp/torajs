@@ -36,6 +36,7 @@
 
 use core::ffi::c_void;
 use core::ptr;
+use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 
 use crate::layout::{
     CB_INLINE_TAG, Promise, REPR_ANY, REPR_HEAP, REPR_STR, REPR_VOID, RX_CATCH, RX_CLOSURE,
@@ -54,7 +55,11 @@ pub mod record;
 unsafe extern "C" {
     fn __torajs_value_drop_heap(p: *mut c_void);
     fn __torajs_microtask_enqueue(fn_: crate::layout::MicrotaskFn, arg: i64);
-    fn __torajs_microtask_enqueue_or_run(fn_: crate::layout::MicrotaskFn, arg: i64) -> bool;
+    /// torajs-microtask — the queue's pop and push counts and its
+    /// job-boundary hook, read in place ([`queue_idle`])
+    static __torajs_microtask_head: AtomicUsize;
+    static __torajs_microtask_tail: AtomicUsize;
+    static __torajs_microtask_kept_clear: AtomicPtr<c_void>;
 }
 
 /// Park the reaction `(kind, cb)` in `derived`, take its stakes and
@@ -272,24 +277,24 @@ unsafe fn settle_into_chain(dp: *mut Promise, ret_repr: u8, value: i64) -> Stake
         (*dp).value = value;
         (*dp).callbacks = ptr::null_mut();
         (*next).rx_next = ptr::null_mut();
-        if __torajs_microtask_enqueue_or_run(inline_reaction_dispatch, next as i64) {
+        if queue_idle() {
             Stake::RunNext(next)
         } else {
+            __torajs_microtask_enqueue(inline_reaction_dispatch, next as i64);
             Stake::Queued
         }
     }
 }
 
-// cargo test links no microtask archive; a stub as the crate root's
-#[cfg(test)]
-mod test_stub {
-    /// # Safety
-    /// Never called; any call panics.
-    #[unsafe(no_mangle)]
-    pub unsafe extern "C" fn __torajs_microtask_enqueue_or_run(
-        _fn_: crate::layout::MicrotaskFn,
-        _arg: i64,
-    ) -> bool {
-        panic!("torajs-promise test stub: microtask_enqueue_or_run should not be called");
+/// Nothing is pending behind the running job and no job-boundary hook
+/// is installed: a reaction queued now would be the very next job.
+#[inline(always)]
+unsafe fn queue_idle() -> bool {
+    unsafe {
+        __torajs_microtask_head.load(Ordering::Relaxed)
+            == __torajs_microtask_tail.load(Ordering::Relaxed)
+            && __torajs_microtask_kept_clear
+                .load(Ordering::Relaxed)
+                .is_null()
     }
 }

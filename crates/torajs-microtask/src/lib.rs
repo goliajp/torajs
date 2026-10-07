@@ -56,10 +56,19 @@ static MT_QUEUE: AtomicPtr<Microtask> = AtomicPtr::new(ptr::null_mut());
 
 /// Count of tasks popped. A task's slot is its count masked by
 /// `MT_CAP - 1`; the pending tasks are the counts `MT_HEAD..MT_TAIL`.
-static MT_HEAD: AtomicUsize = AtomicUsize::new(0);
+///
+/// The two counts and the kept-objects hook are exported under C
+/// names: a running promise job reads them in place to tell whether
+/// the reaction it is about to queue would be the next job anyway
+/// (torajs-promise `reaction::settle_into_chain`).
+#[unsafe(no_mangle)]
+pub static __torajs_microtask_head: AtomicUsize = AtomicUsize::new(0);
+use __torajs_microtask_head as MT_HEAD;
 
 /// Count of tasks pushed.
-static MT_TAIL: AtomicUsize = AtomicUsize::new(0);
+#[unsafe(no_mangle)]
+pub static __torajs_microtask_tail: AtomicUsize = AtomicUsize::new(0);
+use __torajs_microtask_tail as MT_TAIL;
 
 /// Ring capacity in entries: 0, or a power of two from 32.
 static MT_CAP: AtomicUsize = AtomicUsize::new(0);
@@ -117,27 +126,6 @@ pub unsafe extern "C" fn __torajs_microtask_enqueue(fn_: Option<MicrotaskFn>, ar
     MT_TAIL.store(tail + 1, Ordering::Relaxed);
 }
 
-/// A running job about to queue `(fn_, arg)` asks here instead. With
-/// nothing else pending and no job-boundary hook installed, the drain
-/// would pop exactly that entry once the job returns, so nothing is
-/// queued and the answer is true: the caller runs the entry itself as
-/// soon as the rest of its job is done. Otherwise the entry is queued
-/// and the answer is false.
-///
-/// # Safety
-/// As [`__torajs_microtask_enqueue`]; the caller is a job the drain
-/// popped and queues nothing more before it runs the entry.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_microtask_enqueue_or_run(fn_: MicrotaskFn, arg: i64) -> bool {
-    if MT_HEAD.load(Ordering::Relaxed) == MT_TAIL.load(Ordering::Relaxed)
-        && KEPT_CLEAR.load(Ordering::Relaxed).is_null()
-    {
-        return true;
-    }
-    unsafe { __torajs_microtask_enqueue(Some(fn_), arg) };
-    false
-}
-
 /// Drain the microtask queue to empty. Pops one task, runs it,
 /// repeats — new tasks enqueued during the callback land at the
 /// tail and get processed in this same drain (JS spec microtask
@@ -188,7 +176,10 @@ unsafe fn drain() {
 
 /// §9.10 ClearKeptObjects — torajs-weak's kept list, installed by its
 /// first add, so a program with no `WeakRef` pays one load per job.
-static KEPT_CLEAR: AtomicPtr<c_void> = AtomicPtr::new(ptr::null_mut());
+/// Exported, as the counts are.
+#[unsafe(no_mangle)]
+pub static __torajs_microtask_kept_clear: AtomicPtr<c_void> = AtomicPtr::new(ptr::null_mut());
+use __torajs_microtask_kept_clear as KEPT_CLEAR;
 
 /// Install the kept-objects clear (idempotent).
 #[unsafe(no_mangle)]
@@ -333,20 +324,26 @@ mod tests {
         assert_eq!(unsafe { __torajs_microtask_pending_count() }, 0);
     }
 
-    /// An idle queue leaves the entry to the caller; a pending one
-    /// takes it behind what is already there.
+    static IDLE_IN_JOB: AtomicUsize = AtomicUsize::new(0);
+
+    unsafe extern "C" fn note_idle(_arg: i64) {
+        let idle = MT_HEAD.load(Ordering::Relaxed) == MT_TAIL.load(Ordering::Relaxed);
+        IDLE_IN_JOB.store(idle as usize, Ordering::Relaxed);
+    }
+
+    /// The exported counts read equal inside the last pending job and
+    /// apart while another job waits behind it.
     #[test]
-    fn enqueue_or_run_queues_only_behind_pending_work() {
+    fn the_exported_counts_tell_a_job_whether_it_is_the_last() {
         let _g = TEST_LOCK.lock().unwrap();
         reset_queue();
-        assert!(unsafe { __torajs_microtask_enqueue_or_run(add, 1) });
-        assert_eq!(unsafe { __torajs_microtask_pending_count() }, 0);
-        unsafe { __torajs_microtask_enqueue(Some(add), 2) };
-        assert!(!unsafe { __torajs_microtask_enqueue_or_run(add, 3) });
-        assert_eq!(unsafe { __torajs_microtask_pending_count() }, 2);
-        unsafe { COUNTER = 0 };
+        unsafe { __torajs_microtask_enqueue(Some(note_idle), 0) };
         unsafe { __torajs_microtask_run_until_idle() };
-        assert_eq!(unsafe { COUNTER }, 2 + 3);
+        assert_eq!(IDLE_IN_JOB.load(Ordering::Relaxed), 1);
+        unsafe { __torajs_microtask_enqueue(Some(note_idle), 0) };
+        unsafe { __torajs_microtask_enqueue(Some(noop), 0) };
+        unsafe { __torajs_microtask_run_until_idle() };
+        assert_eq!(IDLE_IN_JOB.load(Ordering::Relaxed), 0);
     }
 
     #[test]
