@@ -55,8 +55,8 @@ fn resolve_name(
 /// top-level fn (lifted closures included) or the top level (`""`).
 pub(super) struct Body<'s> {
     pub(super) name: String,
-    params: HashSet<String>,
-    locals: HashSet<String>,
+    pub(super) params: HashSet<String>,
+    pub(super) locals: HashSet<String>,
     stmts: Vec<&'s Stmt>,
 }
 

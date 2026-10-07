@@ -22,6 +22,8 @@ use crate::ast::{Ast, ExprId};
 use crate::check::{Checker, Diagnostic, GenericCallSites, Severity, Type};
 use std::collections::HashMap;
 
+mod hidden_any;
+
 /// The full pipeline to its fixpoint ([`fixpoint_with`]).
 ///
 /// A call the any-widen lane types `any` (`widen_ret_any`) is still
@@ -129,7 +131,23 @@ pub fn check_with_arity(ast: &Ast) -> Result<CheckArtifacts, String> {
 /// end-state marks warn); any Warning-severity diagnostics ride
 /// along. Collected before the mono pass, which discards its own
 /// diagnostics except where a specialization body left a hole.
+///
+/// A round can ask for bindings to be retyped `any`
+/// ([`hidden_any::settle`]).
 pub fn check_with_arity_warn(ast: &Ast) -> Result<(CheckArtifacts, Vec<String>), String> {
+    let (artifacts, warnings, census) = hidden_any::settle(ast, check_round(ast)?)?;
+    if let Some(line) = census {
+        eprintln!("{line}");
+    }
+    Ok((artifacts, warnings))
+}
+
+/// The artifacts, the warnings and the typed census line of a round;
+/// the line comes back unprinted unless the round failed.
+type Round = (CheckArtifacts, Vec<String>, Option<String>);
+
+/// One check of `ast` and its mono pass.
+fn check_round(ast: &Ast) -> Result<Round, String> {
     let mut c = check_to_fixpoint(ast);
     // typed 覆盖率读数(`TORAJS_TYPED_CENSUS=1` 下才打)。在错误分支
     // 提前返回**之前**算 —— 一次被拒的编译同样要有读数,否则 `refused`
@@ -194,20 +212,19 @@ pub fn check_with_arity_warn(ast: &Ast) -> Result<(CheckArtifacts, Vec<String>),
         .filter(|d| d.severity == Severity::Error)
         .map(|d| d.message.clone())
         .collect();
-    // a round the driver compiles again for the generator twins it
-    // asked for is not the program's reading
-    if let Some(line) = &census
-        && (!mono_errors.is_empty()
-            || mono
-                .mono_ast
-                .generator_twin_requests
-                .is_subset(&ast.generator_twin_requests))
-    {
-        eprintln!("{line}");
-    }
     if !mono_errors.is_empty() {
+        if let Some(line) = &census {
+            eprintln!("{line}");
+        }
         return Err(mono_errors.join("\n"));
     }
+    // a round the driver compiles again for the generator twins it
+    // asked for is not the program's reading
+    let census = census.filter(|_| {
+        mono.mono_ast
+            .generator_twin_requests
+            .is_subset(&ast.generator_twin_requests)
+    });
     Ok((
         (
             c.generic_call_sites,
@@ -219,6 +236,7 @@ pub fn check_with_arity_warn(ast: &Ast) -> Result<(CheckArtifacts, Vec<String>),
             c.global_spellings,
         ),
         warnings,
+        census,
     ))
 }
 

@@ -43,6 +43,7 @@ mod cycle;
 mod escape;
 mod fallthrough;
 mod fnsig;
+mod hidden_any;
 mod hof_receivers;
 mod json_seed;
 mod lattice;
@@ -423,17 +424,15 @@ pub(crate) fn analyze(
         }
     }
 
-    // W-ESC — escape faces resolve to frozen class reps (+ Elem-chain
-    // contagion for nested containers).
-    let (any_escaped, escaped_hof_receivers) = hof_receivers::settle(&a, &mut tables.params);
+    // W-ESC — escape faces on frozen class reps, Elem chains included
+    let escapes = hof_receivers::settle(&a, &mut tables.params);
     // W4 shape-join (rotation 371; doc on the collector — sibling
     // `analyze_tables.rs`).
     let objlit_shape_f64 = analyze_tables::collect_objlit_shape_f64(ast, &a, &canon_out);
 
     WidthTable::new(
         canon_out,
-        any_escaped,
-        escaped_hof_receivers,
+        escapes,
         a.uf,
         a.container_poison,
         a.nominal_aliases,

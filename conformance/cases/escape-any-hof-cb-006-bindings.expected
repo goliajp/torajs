@@ -1,0 +1,10 @@
+for-of 1s3 string
+index string 0s
+relay 0s string
+const s string
+str s string
+nullish 1 number
+module 11s3 string
+fn string 1s3
+mul NaN number
+plain 6 2 number number

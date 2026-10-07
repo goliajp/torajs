@@ -70,11 +70,12 @@ fn iterated_array(ast: &Ast, callee: ExprId, args: &[ExprId]) -> Option<ExprId> 
 /// `undefined` as its element, which a `number` slot holds as the
 /// undefined sentinel (`ssa_lower_boxed_entry::unbox`); its element
 /// parameter joins the sentinel-capable ones, so a read that asks
-/// (`typeof v`, printing `v`) answers `undefined`, not NaN.
+/// (`typeof v`, printing `v`) answers `undefined`, not NaN. The last
+/// set holds the declarations that store such values (`hidden_any`).
 pub(super) fn settle(
     a: &Analysis<'_>,
     undef_params: &mut HashSet<(String, String)>,
-) -> (HashSet<SlotKey>, HashSet<ExprId>) {
+) -> (HashSet<SlotKey>, HashSet<ExprId>, HashSet<ExprId>) {
     let mut seeds = [&a.any_seeds[..], &a.escape_only_seeds[..]].concat();
     let (any_escaped, escaped) = loop {
         let any_escaped = super::escape::propagate(&seeds, &a.uf, &a.containerish);
@@ -96,6 +97,7 @@ pub(super) fn settle(
         }
         seeds.extend(products);
     };
+    let mut elem_params = HashSet::new();
     for e in &a.ast.exprs {
         let Expr::Call { callee, args } = e else {
             continue;
@@ -111,10 +113,12 @@ pub(super) fn settle(
         if any_elems(a, &escaped, recv)
             && let (Some(idx), Some(&cb)) = (elem_param(a.ast, *callee), cb)
         {
-            taint_param(a, &callback_fn_name(a, cb), idx, undef_params);
+            taint_param(a, &callback_fn_name(a, cb), idx, &mut elem_params);
         }
     }
-    (any_escaped, escaped)
+    let hidden = super::hidden_any::collect(a, &any_escaped, &elem_params);
+    undef_params.extend(elem_params);
+    (any_escaped, escaped, hidden)
 }
 
 /// Does `recv` hand its callbacks `any` elements: an escaped typed

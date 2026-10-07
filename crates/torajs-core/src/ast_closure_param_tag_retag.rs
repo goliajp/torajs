@@ -55,7 +55,7 @@ pub(crate) fn retag_fn_decls(stmts: &mut [Stmt], marked: &HashSet<(String, usize
 }
 
 /// Mutable twin of [`crate::ast_closure_param_tag::push_child_stmts`].
-fn push_child_stmts_mut<'a>(s: &'a mut Stmt, stack: &mut Vec<&'a mut Stmt>) {
+pub(crate) fn push_child_stmts_mut<'a>(s: &'a mut Stmt, stack: &mut Vec<&'a mut Stmt>) {
     match s {
         Stmt::If {
             then_branch,
