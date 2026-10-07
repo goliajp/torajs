@@ -1,22 +1,12 @@
-//! Promise free-list pool + 5 alloc variants + thenable absorption
-//! + rc-aware drop.
+//! Promise cells: the 5 alloc variants, thenable absorption and the
+//! rc-aware drop.
 //!
-//! Port of the P-PERF.A6 pool + T-15.a alloc + T-19.f thenable
-//! absorption + T-15.g.7 drop sections of `runtime_promise.c`
-//! (P6.1, 2026-05-24). Hot Promise benchmarks (promise-chain-1m,
-//! promise-all-1m, promise-await-100k, promise-then-100k) allocate
-//! and free hundreds-of-thousands of Promises in tight loops — the
-//! pool turns each pair into a head-only LIFO pop/push instead of
-//! a libc malloc/free pair (~10× faster on hot paths).
-//!
-//! ## Pool layout (head-only stack, LIFO)
-//!
-//! `Promise.callbacks` doubles as the freelist `next` while parked
-//! (an untagged link — a parked cell carries no reaction).
-//! On alloc-out the pop clears it back to NULL; on release the
-//! `callbacks` pointer is repurposed to point at the previous head.
-//! No extra storage per slot. Capacity bounded at 32 — overflow
-//! goes straight to `free()`.
+//! Hot Promise benchmarks (promise-chain-1m, promise-all-1m,
+//! promise-await-100k, promise-then-100k) allocate and free hundreds
+//! of thousands of cells in tight loops. A cell is one block of the
+//! allocator's row for its class, popped and pushed inline
+//! (`torajs_mmalloc::fixed`): no call, no size checks, and no second
+//! cache in front of the row.
 //!
 //! ## Thenable absorption (`Promise.resolve(p)` sync MVP)
 //!
@@ -33,18 +23,14 @@ use core::ffi::c_void;
 use core::ptr;
 
 use crate::layout::{
-    HeapHeader, PROMISE_SIZE, Promise, PromiseCb, RX_NONE, STATE_FULFILLED, STATE_PENDING,
-    STATE_REJECTED, TAG_PROMISE, as_promise,
+    HeapHeader, PROMISE_SIZE, Promise, RX_NONE, STATE_FULFILLED, STATE_PENDING, STATE_REJECTED,
+    TAG_PROMISE, as_promise,
 };
 
 mod teardown;
 mod thenable;
 pub use teardown::__torajs_promise_drop;
 pub use thenable::__torajs_promise_resolve_thenable;
-
-/// Bounded freelist capacity. Matches
-/// `runtime_promise.c::__TORAJS_PROMISE_POOL_CAP = 32`.
-const POOL_CAP: usize = 32;
 
 /// `STATIC_LITERAL` flag bit — Promise literals don't exist in
 /// practice but the drop bit-check mirrors the universal heap-header
@@ -56,62 +42,41 @@ pub(crate) const FLAG_STATIC_LITERAL: u16 = 4;
 /// must scrub its identity entry from torajs-meta's side table.
 const FLAG_SUBCLASSED: u16 = 1;
 
-use std::sync::atomic::{AtomicI32, AtomicPtr, Ordering};
-
-/// Freelist head — `Promise.callbacks` repurposed as `next`.
-/// AtomicPtr static pattern (same as torajs-arr::pool / torajs-weak::
-/// registry); compiles to plain load/store on x86_64 / aarch64.
-static POOL_HEAD: AtomicPtr<Promise> = AtomicPtr::new(ptr::null_mut());
-// the count moves with the list head, which is a plain load and
-// store; a read-modify-write here would buy no more than the head has
-// and costs a locked add on every promise alloc and release
-static POOL_COUNT: AtomicI32 = AtomicI32::new(0);
+use torajs_mmalloc::fixed::{alloc_fixed, free_fixed, pop_fixed};
 
 unsafe extern "C" {
     /// torajs-mmalloc libc-compat — v0.7-A2 step 6b cutover.
-    #[link_name = "__torajs_malloc"]
-    fn malloc(n: usize) -> *mut c_void;
     #[link_name = "__torajs_free"]
     fn free(p: *mut c_void, size: usize);
 }
 
-/// Internal alloc — pop pool or malloc, then init fields. Inlined
-/// into runtime callers that already keep a frame, where the malloc
-/// call costs no more than the pool pop around it.
+/// Internal alloc — a block of the cell's class, then init fields.
+/// Inlined into runtime callers that already keep a frame, where the
+/// allocator call on an empty row costs no more than the pop around
+/// it.
 #[inline(always)]
 unsafe fn promise_alloc_(state: u8, value: i64, is_heap: u8) -> *mut Promise {
-    let head = POOL_HEAD.load(Ordering::Relaxed);
-    let p = if head.is_null() {
-        unsafe { malloc(PROMISE_SIZE) as *mut Promise }
-    } else {
-        let next = unsafe { (*head).callbacks as *mut Promise };
-        POOL_HEAD.store(next, Ordering::Relaxed);
-        POOL_COUNT.store(POOL_COUNT.load(Ordering::Relaxed) - 1, Ordering::Relaxed);
-        head
-    };
+    let p = alloc_fixed::<PROMISE_SIZE>() as *mut Promise;
     unsafe { init_cell(p, state, value, is_heap) };
     p
 }
 
-/// The leaf C entry points' alloc: the pool pop needs no frame, and
-/// an empty pool tail-calls a malloc path instantiated per state, so
+/// The leaf C entry points' alloc: the row pop needs no frame, and an
+/// empty row tail-calls an allocating path instantiated per state, so
 /// it keeps only the registers its own entry point needs.
 #[inline(always)]
 unsafe fn promise_alloc_leaf<const STATE: u8, const IS_HEAP: u8>(value: i64) -> *mut c_void {
-    let head = POOL_HEAD.load(Ordering::Relaxed);
-    if head.is_null() {
+    let p = pop_fixed::<PROMISE_SIZE>() as *mut Promise;
+    if p.is_null() {
         return unsafe { promise_alloc_fresh::<STATE, IS_HEAP>(value) };
     }
-    let next = unsafe { (*head).callbacks as *mut Promise };
-    POOL_HEAD.store(next, Ordering::Relaxed);
-    POOL_COUNT.store(POOL_COUNT.load(Ordering::Relaxed) - 1, Ordering::Relaxed);
-    unsafe { init_cell(head, STATE, value, IS_HEAP) };
-    head as *mut c_void
+    unsafe { init_cell(p, STATE, value, IS_HEAP) };
+    p as *mut c_void
 }
 
 #[inline(never)]
 unsafe fn promise_alloc_fresh<const STATE: u8, const IS_HEAP: u8>(value: i64) -> *mut c_void {
-    let p = unsafe { malloc(PROMISE_SIZE) as *mut Promise };
+    let p = alloc_fixed::<PROMISE_SIZE>() as *mut Promise;
     unsafe { init_cell(p, STATE, value, IS_HEAP) };
     p as *mut c_void
 }
@@ -166,22 +131,11 @@ unsafe fn init_cell(p: *mut Promise, state: u8, value: i64, is_heap: u8) {
     }
 }
 
-/// Return a Promise to the pool if there's capacity, else free.
-/// Caller must have already dropped any heap value + cb list.
+/// Give a dead cell's block back to the allocator. Caller must have
+/// already dropped any heap value + cb list.
 #[inline(always)]
 unsafe fn promise_release_(p: *mut Promise) {
-    let count = POOL_COUNT.load(Ordering::Relaxed);
-    if count < POOL_CAP as i32 {
-        unsafe {
-            (*p).callbacks = POOL_HEAD.load(Ordering::Relaxed) as *mut PromiseCb;
-        }
-        POOL_HEAD.store(p, Ordering::Relaxed);
-        POOL_COUNT.store(count + 1, Ordering::Relaxed);
-    } else {
-        // Layer 1 sized free: Promise struct is PROMISE_SIZE — see
-        // promise/layout.rs.
-        unsafe { free(p as *mut c_void, crate::layout::PROMISE_SIZE) };
-    }
+    unsafe { free_fixed::<PROMISE_SIZE>(p as *mut u8) };
 }
 
 // ============================================================

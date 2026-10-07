@@ -51,8 +51,7 @@
 //! whose `next` continues it. The two forms interleave freely, so a
 //! second `then` on a pending source head-pushes without spilling
 //! the first into a node. Every cell is 8-aligned, so the bit is
-//! free; the pool's parked-cell freelist reuses `callbacks` as an
-//! untagged link.
+//! free.
 //!
 //! ## Callback chain (PromiseCb)
 //!

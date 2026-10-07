@@ -13,7 +13,7 @@
 //! - [`layout`] — Promise + PromiseCb struct + constants + heap
 //!   header + MicrotaskFn typedef. ABI-shared with the ssa_lower-
 //!   emitted dispatcher fns + every C-side caller's struct read.
-//! - [`pool`] — bounded free-list pool + 5 alloc variants
+//! - [`pool`] — the cell allocator + 5 alloc variants
 //!   (pending/fulfilled/rejected × primitive/heap) + drop +
 //!   thenable absorption.
 //! - [`state`] — resolve/reject + drain_callbacks + get_value/

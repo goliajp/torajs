@@ -1,5 +1,5 @@
 //! The rc-aware drop kernel: a promise losing its last reference
-//! tears down what it still owns and goes back to the pool. The
+//! tears down what it still owns and goes back to the allocator. The
 //! derived cells its death leaves unreferenced are torn down in a
 //! loop ([`free_chain`]), so the depth of a pending chain is never
 //! the depth of the native stack.
@@ -29,7 +29,7 @@ unsafe extern "C" {
 
 /// rc-aware drop. Called from `value_drop_heap`'s TAG_PROMISE case.
 /// On last owner: free residual cb list, drop heap value if any,
-/// return Promise to pool (or free if pool full).
+/// give the block back to the allocator.
 ///
 /// # Safety
 /// `p` is NULL or a live Promise cell; the caller gives up its reference.
@@ -54,7 +54,7 @@ unsafe fn free_dead(pp: *mut Promise) {
     // A cell that owns nothing — no reaction list, no inline
     // reaction, no heap value, no expando, no identity entry, never
     // buffered — has nothing for `free_cell` to release, so it goes
-    // straight back to the pool, without the teardown's frame. The
+    // straight back to the allocator, without the teardown's frame. The
     // STATIC_LITERAL bit sends a cell to the general path, which
     // keeps it.
     let owns_nothing = unsafe {
@@ -159,7 +159,7 @@ unsafe fn free_cell(pp: *mut Promise, mut on_dead: impl FnMut(*mut Promise)) {
         }
         // Expando props dynobj (defineProperty landings) — the
         // universal dispatcher routes it to the dynobj drop; NULLed
-        // so a pool re-issue starts clean.
+        // so a reissued block starts clean.
         if !(*pp).props.is_null() {
             __torajs_value_drop_heap((*pp).props);
             (*pp).props = ptr::null_mut();

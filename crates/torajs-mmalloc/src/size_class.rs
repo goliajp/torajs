@@ -67,7 +67,7 @@ const MIN_SLOTS_PER_SPAN: usize = 32;
 /// loop. `size_classes_are_the_powers_of_two_this_assumes` pins the
 /// assumption; `bucket_for_matches_a_linear_scan` checks every size.
 #[inline]
-pub fn bucket_for(size: usize) -> Option<usize> {
+pub const fn bucket_for(size: usize) -> Option<usize> {
     if size > MAX_SMALL {
         return None;
     }

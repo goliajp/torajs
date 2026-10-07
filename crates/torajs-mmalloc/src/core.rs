@@ -167,7 +167,7 @@ unsafe fn free_large(ptr: *mut u8, size: usize) {
 /// As [`free_sized`].
 #[cold]
 #[inline(never)]
-unsafe fn free_spill(ptr: *mut u8, class: usize) {
+pub(crate) unsafe fn free_spill(ptr: *mut u8, class: usize) {
     let tlab = &raw mut __torajs_core_tlab;
     unsafe { (*tlab).spill(class, ptr) };
 }
