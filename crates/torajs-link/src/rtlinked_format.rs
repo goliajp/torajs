@@ -162,6 +162,10 @@ pub enum FormatError {
     },
     BadImportKind(u32),
     NameNotUtf8,
+    /// An offset falls outside the region it must lie in.
+    BadLayout {
+        what: &'static str,
+    },
 }
 
 /// A parsed view over an image blob.
@@ -209,6 +213,7 @@ impl<'a> RtLinkedImage<'a> {
         img.slice("names", h.names.off, h.names.count as usize)?;
         img.slice("text", h.text.file_off, h.text.file_size as usize)?;
         img.slice("data", h.data.file_off, h.data.file_size as usize)?;
+        img.check_layout()?;
         Ok(img)
     }
 
@@ -226,8 +231,9 @@ impl<'a> RtLinkedImage<'a> {
 
     fn name(&self, off: u32, len: u32) -> Result<&'a str, FormatError> {
         let names = self.table(self.header.names, 1);
+        let (off, len) = (off as usize, len as usize);
         let bytes = names
-            .get(off as usize..(off + len) as usize)
+            .get(off..off + len)
             .ok_or(FormatError::OutOfBounds { what: "name" })?;
         std::str::from_utf8(bytes).map_err(|_| FormatError::NameNotUtf8)
     }
@@ -268,7 +274,7 @@ impl<'a> RtLinkedImage<'a> {
                 Ok(Import {
                     kind: ImportKind::from_u32(kind).ok_or(FormatError::BadImportKind(kind))?,
                     name: self.name(u32_at(e, 4), u32_at(e, 8))?,
-                    slot_off: u32_at(e, 12),
+                    slot_off: self.check_slot(u32_at(e, 12))?,
                 })
             })
             .collect()
@@ -277,7 +283,8 @@ impl<'a> RtLinkedImage<'a> {
     /// Entry `i` of the export table: (name, origin offset).
     pub fn export_at(&self, i: usize) -> Result<(&'a str, u32), FormatError> {
         let e = &self.table(self.header.exports, EXPORT_ENTRY_SIZE)[i * EXPORT_ENTRY_SIZE..];
-        Ok((self.name(u32_at(e, 0), u32_at(e, 4))?, u32_at(e, 8)))
+        let off = self.check_export(u32_at(e, 8))?;
+        Ok((self.name(u32_at(e, 0), u32_at(e, 4))?, off))
     }
 
     /// Binary search of the sorted export table.
