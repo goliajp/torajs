@@ -150,8 +150,9 @@ pub(crate) fn synthesize_boxed_entries(
             .iter()
             .map(|ty| slot_test(*ty, arr_layouts, &sid_tag, undef_misses))
             .collect();
-        let twin_reroute =
-            twin_adapter_of(ast, fn_table, &entries, &t.name).filter(|_| any_lossy(&t, &slots));
+        let argc_fixed = fixed_argc_of(ast, &t.name);
+        let twin_reroute = twin_adapter_of(ast, fn_table, &entries, &t.name)
+            .filter(|_| argc_fixed.is_some() || any_lossy(&t, &slots));
         let same_face = env_faced(&t.name);
         let pair = build_boxed_entry(
             module,
@@ -170,6 +171,7 @@ pub(crate) fn synthesize_boxed_entries(
                     sig,
                     invoke: ids.invoke_recv_first,
                     same_face,
+                    argc_fixed,
                 }),
                 fit: vec![None; t.user_tys.len()],
             },
@@ -238,4 +240,11 @@ fn relay_target_reads_argc(ast: &Ast, name: &str) -> bool {
 /// shell, or a lifted closure.
 fn env_faced(name: &str) -> bool {
     crate::ast::is_shell(name) || name.starts_with("__closure_")
+}
+
+/// The count a `__cm_` mono's body answers for, when its twin hosts
+/// the others (a `$$` specialization answers through its base).
+fn fixed_argc_of(ast: &Ast, name: &str) -> Option<usize> {
+    let base = name.split_once("$$").map_or(name, |(b, _)| b);
+    ast.cm_fixed_argc.get(base).copied()
 }

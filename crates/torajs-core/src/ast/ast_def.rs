@@ -1094,6 +1094,11 @@ pub struct Ast {
     /// `__fwdrecv_` answered the declared arity (`[7].map(t, o)`
     /// said 1 where bun says 3).
     pub this_first_argc_fns: std::collections::HashMap<String, usize>,
+    /// `__cm_` method → the argument count its body answers for
+    /// (static-face count or declared arity), when its `__cmany_` twin
+    /// reads the real argc / argv: the boxed adapter hands any call
+    /// with another count to the twin.
+    pub cm_fixed_argc: std::collections::HashMap<String, usize>,
     /// RFC 20260810-indirect-argc-abi H1 — head-less top-level fns
     /// on the T-31 real-argc tier (`arguments.length` readers with
     /// no `__env`/`__this` head). Their SSA sig carries the hidden

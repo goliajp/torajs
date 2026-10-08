@@ -51,6 +51,10 @@ pub(super) struct TwinReroute {
     /// directly with the same env. A receiver-polymorphic twin takes
     /// its receiver in argv[0] and goes through `invoke`.
     pub(super) same_face: bool,
+    /// The one argument count the mono's body answers for
+    /// (`Ast::cm_fixed_argc`): a call with another count is the
+    /// twin's, whatever its arguments are.
+    pub(super) argc_fixed: Option<usize>,
 }
 
 /// Test every lossy slot (user slot `i` is `argv[i]`); on the first
@@ -84,10 +88,32 @@ pub(super) fn emit_twin_reroute(
             )
         })
         .collect();
-    if lossy.is_empty() {
+    if lossy.is_empty() && rr.argc_fixed.is_none() {
         return (entry, fit);
     }
     let reroute = f.add_block();
+    if let Some(n) = rr.argc_fixed {
+        let ne = f.append_inst(
+            entry,
+            InstKind::ICmp(
+                ssa::IPred::Ne,
+                Operand::Value(argc),
+                Operand::ConstI64(n as i64),
+            ),
+            Type::Bool,
+            None,
+        );
+        let next = f.add_block();
+        f.set_term(
+            entry,
+            Terminator::CondBr {
+                cond: Operand::Value(ne),
+                then_blk: reroute,
+                else_blk: next,
+            },
+        );
+        entry = next;
+    }
     for i in lossy {
         let rest = coerce.rest && i + 1 == user_tys.len();
         let dflt = dflt_lits.get(i).and_then(|d| d.as_ref());

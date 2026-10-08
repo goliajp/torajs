@@ -149,6 +149,17 @@ fn rewrite_one_body(
             this_first_argc_fns,
         },
     );
+    // a class method whose body answers one fixed count: its argv twin
+    // hosts every boxed call that passes another
+    if let Some(n) = fixed_argc(argc_mode, params.len())
+        && name.starts_with("__cm_")
+        && ast
+            .cmany_twins
+            .get(name)
+            .is_some_and(|twin| method_argv_fns.contains(twin))
+    {
+        ast.cm_fixed_argc.insert(name.to_string(), n);
+    }
     // T-11 — pre-pass: detect any dynamic `arguments[<non-
     // literal>]` use. If found, prepend a synthesized
     // `let __torajs_arguments: any[] = [p0, p1, ...]` before
@@ -320,4 +331,17 @@ fn body_prologue(ast: &mut Ast, m: MintInputs<'_>) -> Vec<Stmt> {
         ));
     }
     out
+}
+
+/// The one argument count a body on `mode` answers for: the static
+/// face's count, or the declared arity a folding tier assumes.
+fn fixed_argc(mode: ArgcMode, declared: usize) -> Option<usize> {
+    match mode {
+        ArgcMode::FoldTo(n)
+        | ArgcMode::Unmapped(n)
+        | ArgcMode::Mapped(n)
+        | ArgcMode::LiveLength(LiveSeed::Static(n)) => Some(n),
+        ArgcMode::FoldArity => Some(declared),
+        _ => None,
+    }
 }

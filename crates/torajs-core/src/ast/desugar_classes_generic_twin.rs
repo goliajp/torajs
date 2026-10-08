@@ -18,6 +18,9 @@
 //! `this_free` fact, probed here at the AST level off the clone
 //! map — an `Expr::This` / `Ident("__this")` among the cloned
 //! nodes). A twin-less method keeps today's direct-mono dispatch.
+//! A body that reads `arguments` mints one whatever it reads: the
+//! mono answers for one argument count, and the twin, on the argv
+//! face, hosts every boxed call that passes another.
 //!
 //! Ledger: a dropped mint (receiver-free probe miss, or a super
 //! call in the body — see `restore_dynamic_calls`) neutralizes its
@@ -58,6 +61,7 @@ pub(in crate::ast) fn mint_generic_twin(
         type_params,
         span,
     } = src;
+    let reads_arguments = super::arguments_object_walkers::body_has_any_arguments_touch(ast, body);
     let mut cloner = BodyCloner::new(ast);
     let cloned_body = cloner.clone_stmts(body);
     let cloned_params: Vec<Param> = params
@@ -65,7 +69,14 @@ pub(in crate::ast) fn mint_generic_twin(
         .map(|p| Param {
             name: p.name.clone(),
             type_ann: Some(if p.is_rest { "any[]" } else { "any" }.to_string()),
-            default: p.default.map(|d| cloner.clone_expr(d)),
+            // an `any` slot binds an absent argument as undefined by
+            // itself; dropping the optional's implicit default keeps an
+            // arguments-reading twin on the argv face, which refuses
+            // defaults
+            default: p
+                .default
+                .filter(|&d| !(reads_arguments && super::binds_undefined(cloner.ast, d)))
+                .map(|d| cloner.clone_expr(d)),
             is_rest: p.is_rest,
         })
         .collect();
@@ -73,7 +84,9 @@ pub(in crate::ast) fn mint_generic_twin(
         matches!(cloner.ast.get_expr(*old), Expr::This | Expr::NewTarget)
             || matches!(cloner.ast.get_expr(*old), Expr::Ident(n) if n == "__this")
     });
-    if !reads_receiver && !has_lossy_param(cloner.ast, tables, params, false) {
+    // a body that reads `arguments` mints one too: its argv twin hosts
+    // the boxed calls whose count the mono's folded answer misses
+    if !reads_receiver && !has_lossy_param(cloner.ast, tables, params, false) && !reads_arguments {
         neutralize_clone(&mut cloner);
         return;
     }
