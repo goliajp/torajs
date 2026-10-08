@@ -1,0 +1,5 @@
+# str-concat-ascii-escape-10m with a tail that changes every iteration (two
+# argv strings, alternating), so the concat is not loop-invariant and no
+# compiler can build it once outside the loop. Read together with the
+# escape case, where every runtime may hoist the invariant concat.
+args = "10000000 x y"

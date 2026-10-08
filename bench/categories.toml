@@ -73,6 +73,7 @@ cases = [
   "str-concat-ascii-100k",
   "str-concat-ascii-escape-100k",
   "str-concat-ascii-escape-10m",
+  "str-concat-ascii-vary-10m",
   "i64-to-str-100k",
   "i64-to-str-10m",
   "split-materialize-1m",

@@ -51,6 +51,7 @@
   "str-concat-ascii-100k": {"kind": "suppressed", "why": "black_box keeps the per-iteration String, which LLVM would elide and fold the loop"},
   "str-concat-ascii-escape-100k": {"kind": "same", "why": "each result is a fresh String from concat, moved into an 8-slot ring that drops the String it replaces, and read back by index", "note": "at n=100k bun's work is mostly JIT warm-up (about 690 instructions per iteration against about 24 in steady state), so this ratio favours tr; str-concat-ascii-escape-10m reads the steady state"},
   "str-concat-ascii-escape-10m": {"kind": "same", "why": "each result is a fresh String from concat, moved into an 8-slot ring that drops the String it replaces, and read back by index"},
+  "str-concat-ascii-vary-10m": {"kind": "same", "why": "each result is a fresh String from concat, moved into an 8-slot ring that drops the String it replaces, and read back by index"},
   "json-stringify-100k": {"kind": "different", "why": "serializer is fixed to the struct's keys and value kinds; JSON.stringify discovers both at run time"},
   "str-replace-100k": {"kind": "different", "why": "hand-coded forward scan for a(b+)c stands in for a regex engine"},
   "str-replace-argv-100k": {"kind": "different", "why": "hand-coded forward scan for a(b+)c stands in for a regex engine"},
