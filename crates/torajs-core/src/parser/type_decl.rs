@@ -34,46 +34,7 @@ impl<'a> Parser<'a> {
             }
         };
         self.pos += 1;
-        // Optional generic type-parameter list — mirror parse_type_decl.
-        let mut type_params: Vec<String> = Vec::new();
-        if matches!(self.peek(), Token::Lt) {
-            self.pos += 1;
-            if !matches!(self.peek(), Token::Gt) {
-                loop {
-                    match self.peek() {
-                        Token::Ident(n) => {
-                            type_params.push(n.clone());
-                            self.pos += 1;
-                        }
-                        t => {
-                            return Err(format!(
-                                "expected type-parameter name in interface<...>, got {t:?} at {}",
-                                self.at()
-                            ));
-                        }
-                    }
-                    match self.peek() {
-                        Token::Comma => self.pos += 1,
-                        Token::Gt => break,
-                        t => {
-                            return Err(format!(
-                                "expected `,` or `>` in interface type params, got {t:?} at {}",
-                                self.at()
-                            ));
-                        }
-                    }
-                }
-            }
-            match self.peek() {
-                Token::Gt => self.pos += 1,
-                t => {
-                    return Err(format!(
-                        "expected `>` to close interface type params, got {t:?} at {}",
-                        self.at()
-                    ));
-                }
-            }
-        }
+        let type_params = self.parse_decl_type_params("interface")?;
         // `extends Foo, Bar<T>` — each heritage type rides as a leading
         // field row that `ast::flatten_interface_extends` expands into
         // the parent's members.
@@ -102,16 +63,7 @@ impl<'a> Parser<'a> {
                 ));
             }
         }
-        if !matches!(self.peek(), Token::RBrace) {
-            fields.push(self.parse_type_decl_field()?);
-            while matches!(self.peek(), Token::Comma | Token::Semi) {
-                self.pos += 1;
-                if matches!(self.peek(), Token::RBrace) {
-                    break;
-                }
-                fields.push(self.parse_type_decl_field()?);
-            }
-        }
+        self.parse_type_decl_fields(&mut fields)?;
         match self.peek() {
             Token::RBrace => self.pos += 1,
             t => {
@@ -145,45 +97,7 @@ impl<'a> Parser<'a> {
         };
         self.pos += 1;
         // M3.4 — optional type parameters: `type Pair<A, B> = { ... }`.
-        let mut type_params: Vec<String> = Vec::new();
-        if matches!(self.peek(), Token::Lt) {
-            self.pos += 1;
-            if !matches!(self.peek(), Token::Gt) {
-                loop {
-                    match self.peek() {
-                        Token::Ident(n) => {
-                            type_params.push(n.clone());
-                            self.pos += 1;
-                        }
-                        t => {
-                            return Err(format!(
-                                "expected type-parameter name in type<...>, got {t:?} at {}",
-                                self.at()
-                            ));
-                        }
-                    }
-                    match self.peek() {
-                        Token::Comma => self.pos += 1,
-                        Token::Gt => break,
-                        t => {
-                            return Err(format!(
-                                "expected `,` or `>` in type params, got {t:?} at {}",
-                                self.at()
-                            ));
-                        }
-                    }
-                }
-            }
-            match self.peek() {
-                Token::Gt => self.pos += 1,
-                t => {
-                    return Err(format!(
-                        "expected `>` to close type params, got {t:?} at {}",
-                        self.at()
-                    ));
-                }
-            }
-        }
+        let type_params = self.parse_decl_type_params("type")?;
         match self.peek() {
             Token::Eq => self.pos += 1,
             t => {
@@ -222,20 +136,7 @@ impl<'a> Parser<'a> {
             }
         }
         let mut fields: Vec<(PropKey, String)> = Vec::new();
-        if !matches!(self.peek(), Token::RBrace) {
-            fields.push(self.parse_type_decl_field()?);
-            // V3-18 m1.h.54 — TS spec also allows `;` (or newline-implied
-            // ASI) as a field separator inside type literals. Pre-fix
-            // tora only accepted `,`, hard-rejecting the canonical
-            // `type T = { a: number; b: number }` form.
-            while matches!(self.peek(), Token::Comma | Token::Semi) {
-                self.pos += 1;
-                if matches!(self.peek(), Token::RBrace) {
-                    break;
-                }
-                fields.push(self.parse_type_decl_field()?);
-            }
-        }
+        self.parse_type_decl_fields(&mut fields)?;
         match self.peek() {
             Token::RBrace => self.pos += 1,
             t => {
@@ -253,6 +154,60 @@ impl<'a> Parser<'a> {
             type_params,
             fields,
         })
+    }
+
+    /// The optional `<A, B>` type-parameter list of a `type` /
+    /// `interface` declaration (`what` names it in errors).
+    fn parse_decl_type_params(&mut self, what: &str) -> Result<Vec<String>, String> {
+        let mut type_params: Vec<String> = Vec::new();
+        if !matches!(self.peek(), Token::Lt) {
+            return Ok(type_params);
+        }
+        self.pos += 1;
+        while !matches!(self.peek(), Token::Gt) {
+            match self.peek() {
+                Token::Ident(n) => {
+                    type_params.push(n.clone());
+                    self.pos += 1;
+                }
+                t => {
+                    return Err(format!(
+                        "expected type-parameter name in {what}<...>, got {t:?} at {}",
+                        self.at()
+                    ));
+                }
+            }
+            match self.peek() {
+                Token::Comma => self.pos += 1,
+                Token::Gt => break,
+                t => {
+                    return Err(format!(
+                        "expected `,` or `>` in {what} type params, got {t:?} at {}",
+                        self.at()
+                    ));
+                }
+            }
+        }
+        self.pos += 1;
+        Ok(type_params)
+    }
+
+    /// The members of a declaration body, up to (not consuming) its
+    /// `}`. A member ends at `,`, `;` or a line break (TS §3.9: the
+    /// separator of a type member list is optional before a newline).
+    fn parse_type_decl_fields(
+        &mut self,
+        fields: &mut Vec<(PropKey, String)>,
+    ) -> Result<(), String> {
+        while !matches!(self.peek(), Token::RBrace) {
+            fields.push(self.parse_type_decl_field()?);
+            if matches!(self.peek(), Token::Comma | Token::Semi) {
+                self.pos += 1;
+            } else if !self.has_newline_before(self.pos) {
+                break;
+            }
+        }
+        Ok(())
     }
 
     pub(super) fn parse_type_decl_field(&mut self) -> Result<(PropKey, String), String> {

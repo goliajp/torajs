@@ -16,6 +16,7 @@
 
 use super::*;
 
+mod inline_obj;
 mod predicate;
 mod union_chain;
 
@@ -71,113 +72,9 @@ impl<'a> Parser<'a> {
         if matches!(self.peek(), Token::LParen) {
             return self.parse_fn_type_ann();
         }
-        // V3-18 P2.4.c.2 — inline object type literal `{ x: T; y: U }`.
-        // Encoded as `__inlobj(x:T|y:U)` for downstream check.rs to
-        // decode into a Type::Struct. Same encoding scheme as `__fn(...)`.
+        // Object type literal `{ x: T }` / `{ [k: string]: V }`.
         if matches!(self.peek(), Token::LBrace) {
-            self.pos += 1;
-            let mut fields: Vec<String> = Vec::new();
-            if !matches!(self.peek(), Token::RBrace) {
-                loop {
-                    // V3-18 wedge — `readonly` modifier on an inline-obj
-                    // field. Type-side only; subset accepts and discards.
-                    if let Token::Ident(s) = self.peek()
-                        && s == "readonly"
-                        && let Some(next) = self.tokens.get(self.pos + 1)
-                        && matches!(next.token, Token::Ident(_))
-                    {
-                        self.pos += 1;
-                    }
-                    let fname = match self.peek() {
-                        Token::Ident(n) => n.clone(),
-                        t => {
-                            return Err(format!(
-                                "expected field name in inline obj type, got {t:?} at {}",
-                                self.at()
-                            ));
-                        }
-                    };
-                    self.pos += 1;
-                    // V3-18 wedge — optional field `field?: T`. TS spec
-                    // §3.9: makes the property absence-tolerant. Subset
-                    // models it as `T | null` (we don't have a separate
-                    // Type::Undefined for property absence yet).
-                    let optional = matches!(self.peek(), Token::Question);
-                    if optional {
-                        self.pos += 1;
-                    }
-                    // `m(p: T): R` — a MethodSignature, which TS reads as
-                    // the property holding a `(p: T) => R`. Producing
-                    // that spelling here means nothing downstream learns
-                    // a new shape: `{ f: () => number }` already worked,
-                    // and this is the same annotation written the other
-                    // way.
-                    let fty_raw = if matches!(self.peek(), Token::LParen) {
-                        self.parse_method_sig_type_ann()?
-                    } else {
-                        match self.peek() {
-                            Token::Colon => self.pos += 1,
-                            t => {
-                                return Err(format!(
-                                    "expected `:` after inline obj field name, got {t:?} at {}",
-                                    self.at()
-                                ));
-                            }
-                        }
-                        self.parse_type_ann()?
-                    };
-                    // Chunk 793 — struct-field fn slots are
-                    // Closure-repr. Retag at birth: this is the site
-                    // that mints `__inlobj(` from syntax, and nested
-                    // inline objects recurse through here, so every
-                    // downstream consumer (checker / parse_type /
-                    // collectors / forwarder synthesis) sees the same
-                    // `__cls(` field the named-TypeDecl lane sees.
-                    let fty_raw = crate::ast::retag_field_fn_ann(&fty_raw);
-                    let fty = if optional && !fty_raw.starts_with("__nullable(") {
-                        format!("__nullable({fty_raw})")
-                    } else {
-                        fty_raw
-                    };
-                    fields.push(format!("{fname}:{fty}"));
-                    match self.peek() {
-                        Token::Comma | Token::Semi => self.pos += 1,
-                        Token::RBrace => break,
-                        t => {
-                            return Err(format!(
-                                "expected `,` `;` or `}}` in inline obj type, got {t:?} at {}",
-                                self.at()
-                            ));
-                        }
-                    }
-                    if matches!(self.peek(), Token::RBrace) {
-                        break;
-                    }
-                }
-            }
-            match self.peek() {
-                Token::RBrace => self.pos += 1,
-                t => {
-                    return Err(format!(
-                        "expected `}}` to end inline obj type, got {t:?} at {}",
-                        self.at()
-                    ));
-                }
-            }
-            let mut name = format!("__inlobj({})", fields.join("|"));
-            // V3-18 wedge — `{ ... } | null` shape. Mirror the
-            // post-Ident pipe handler below for the inline-obj case.
-            while matches!(self.peek(), Token::LBracket)
-                && matches!(
-                    self.tokens.get(self.pos + 1).map(|s| &s.token),
-                    Some(Token::RBracket)
-                )
-            {
-                self.pos += 2;
-                name.push_str("[]");
-            }
-            name = self.consume_union_suffix(name)?;
-            return Ok(name);
+            return self.parse_inline_obj_type();
         }
         // V3-18 wedge — tuple type ann (`[number, string]`, TS spec
         // §3.3.3). The subset has no fixed-arity array type, so a
@@ -362,8 +259,10 @@ impl<'a> Parser<'a> {
     /// Chunk 735 — extracted from the parse_type_ann tail so the
     /// parenthesized-type arm in parse_fn_type_ann reads the same
     /// postfixes on its inner type (`(() => string)[]`).
+    /// An array suffix does not continue past a line break (TS reads
+    /// `T` then a new member at `T\n[k: string]: V`).
     pub(super) fn read_type_postfix(&mut self, mut name: String) -> Result<String, String> {
-        while matches!(self.peek(), Token::LBracket) {
+        while matches!(self.peek(), Token::LBracket) && !self.has_newline_before(self.pos) {
             self.pos += 1;
             match self.peek() {
                 Token::RBracket => self.pos += 1,
