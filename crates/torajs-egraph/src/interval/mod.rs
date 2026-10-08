@@ -27,6 +27,7 @@ mod def_shapes;
 mod edge;
 pub(crate) mod elem;
 mod elem_alias;
+pub(crate) mod elem_header;
 mod elem_kernels;
 pub(crate) mod elem_len;
 mod horizon;

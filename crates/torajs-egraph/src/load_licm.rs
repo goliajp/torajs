@@ -25,8 +25,9 @@
 //!
 //! The moved load runs on paths that never enter the loop too. That
 //! is safe: A comes from `__torajs_arr_alloc*`, which never answers
-//! null and writes the whole header before returning, and the cell
-//! never moves (a grow swaps the data buffer, not the cell); the only
+//! null and writes the whole header before returning, or is a frame
+//! cell whose header lowering writes in the cell's own block, and the
+//! cell never moves (a grow swaps the data buffer, not the cell); the only
 //! instruction that frees it is a drop naming A, which the loop body
 //! does not contain, and one before `idom(header)` would already be a
 //! use-after-free in the loop itself.
@@ -43,6 +44,8 @@ use torajs_core::ssa::{
 use crate::interval::elem::{ArrayClasses, array_classes};
 use torajs_core::ssa::dominator::DominatorTree;
 use torajs_core::ssa::loop_analysis::LoopAnalysis;
+
+pub mod reread;
 
 #[derive(Debug, Default)]
 pub struct LoadLicmStats {

@@ -43,7 +43,7 @@ pub(crate) struct LenCells {
 /// when `callee_names` is empty (no call can be recognized).
 pub(crate) fn len_cells(func: &Function, callee_names: &[String]) -> LenCells {
     let mut cells = LenCells::default();
-    let Some(a) = elem::analyze(func, callee_names) else {
+    let Some(a) = elem::analyze(func, callee_names, false) else {
         return cells;
     };
     let live = &a.classes.live;

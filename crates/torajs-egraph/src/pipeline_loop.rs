@@ -7,9 +7,10 @@ use torajs_core::ssa::Module;
 use crate::pass_gates::gated_pass;
 use crate::{fconst_hoist, iconst_hoist, len_promote, load_licm};
 
-/// The two passes that take array header words out of loops: the
-/// length of a loop that stores it into a register, then header-field
-/// loads of arrays the loop never writes. Before throw_check_fold (its
+/// The passes that take array header words out of loops: the length
+/// of a loop that stores it into a register, header-field loads of
+/// arrays the loop never writes, then the words only the typed store's
+/// cold-arm kernels write. Before throw_check_fold (its
 /// loop-entry probe would otherwise sit between the preheader and the
 /// header).
 pub(crate) fn array_header_passes(module: &mut Module) {
@@ -26,6 +27,16 @@ pub(crate) fn array_header_passes(module: &mut Module) {
     // otherwise sit between the preheader and the header).
     // `TORAJS_LOAD_LICM_OFF=1` skips (bisect gate).
     gated_pass("LOAD_LICM", module, load_licm::hoist_header_loads);
+    // Header words a loop reads but only the typed store's cold-arm
+    // kernels write: kept in registers and read again after each
+    // kernel call (`load_licm::reread`). After load_licm, which takes
+    // the loops no call naming the array touches.
+    // `TORAJS_LOAD_REREAD_OFF=1` skips (bisect gate).
+    gated_pass(
+        "LOAD_REREAD",
+        module,
+        load_licm::reread::reread_header_words,
+    );
 }
 
 /// The two loop-constant hoists: each distinct in-loop `ConstF64`

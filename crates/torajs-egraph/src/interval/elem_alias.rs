@@ -59,9 +59,10 @@ pub(super) fn classify_values(
     defs: &HashMap<ValueId, Vec<InstKind>>,
     roots: &[ValueId],
     names: &[String],
+    seed_base: &[(ValueId, ValueId)],
 ) -> (HashMap<ValueId, ValueId>, HashMap<ValueId, ValueId>) {
     let mut class: HashMap<ValueId, ValueId> = roots.iter().map(|r| (*r, *r)).collect();
-    let mut base: HashMap<ValueId, ValueId> = HashMap::default();
+    let mut base: HashMap<ValueId, ValueId> = seed_base.iter().copied().collect();
     let mut ordered: Vec<ValueId> = defs.keys().copied().collect();
     ordered.sort_by_key(|v| v.0);
     let mut moving = true;

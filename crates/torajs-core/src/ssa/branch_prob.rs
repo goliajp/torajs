@@ -110,20 +110,51 @@ pub fn cold_arms(func: &Function) -> Vec<(BlockId, BlockId, f64)> {
 
 /// Defining inst of every value written exactly once. φ destruction
 /// gives a merged value one `copy` per predecessor; such values match
-/// no rule.
+/// no rule, except a register cell every def of which copies a load of
+/// the same word through the same pointer, or the same mask of one (a
+/// header word kept in a register across a loop and read again after
+/// the calls that may write it): it reads as that load or mask.
 fn single_defs(func: &Function) -> HashMap<ValueId, &InstKind> {
-    let mut defs: HashMap<ValueId, Option<&InstKind>> = HashMap::default();
+    let mut all: HashMap<ValueId, Vec<&InstKind>> = HashMap::default();
     for b in &func.blocks {
         for i in &b.insts {
             if let Some(r) = i.result {
-                defs.entry(r)
-                    .and_modify(|d| *d = None)
-                    .or_insert(Some(&i.kind));
+                all.entry(r).or_default().push(&i.kind);
             }
         }
     }
-    defs.into_iter()
-        .filter_map(|(v, d)| d.map(|k| (v, k)))
+    let single = |v: &ValueId| match all.get(v).map(Vec::as_slice) {
+        Some([k]) => Some(*k),
+        _ => None,
+    };
+    // a copied load, or a copied mask of one: (def, pointer, offset, mask)
+    let loaded = |k: &InstKind| {
+        let InstKind::Copy(_, Operand::Value(t)) = k else {
+            return None;
+        };
+        match single(t)? {
+            l @ InstKind::Load(_, ptr, off) => Some((l, *ptr, *off, None)),
+            m @ InstKind::BinOp(BinOp::And, Operand::Value(w), Operand::ConstI64(mask)) => {
+                match single(w)? {
+                    InstKind::Load(_, ptr, off) => Some((m, *ptr, *off, Some(*mask))),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    };
+    let cell = |ds: &[&InstKind]| {
+        let (def, p, o, m) = loaded(ds[0])?;
+        ds[1..]
+            .iter()
+            .all(|d| loaded(d).is_some_and(|(_, p2, o2, m2)| (p2, o2, m2) == (p, o, m)))
+            .then_some(def)
+    };
+    all.iter()
+        .filter_map(|(v, ds)| match ds.as_slice() {
+            [k] => Some((*v, *k)),
+            _ => cell(ds).map(|l| (*v, l)),
+        })
         .collect()
 }
 

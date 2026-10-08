@@ -230,6 +230,49 @@ mod tests {
         assert_eq!(block_freqs(&f), vec![1024, 16, 1024, 1024]);
     }
 
+    /// A header word kept in a register cell across a loop: every def
+    /// copies a load of the same word (or the same mask of one), so the
+    /// guards on it still predict.
+    fn cell_guard(word: Vec<Inst>, cond: InstKind) -> Function {
+        let mut insts = word;
+        insts.push(inst(3, cond));
+        func(vec![
+            block(0, insts, cond_br(3, 1, 2)),
+            block(1, vec![], br(3)),
+            block(2, vec![call()], br(3)),
+            block(3, vec![], RET),
+        ])
+    }
+
+    #[test]
+    fn guards_on_a_cached_header_word_still_predict() {
+        let len = |at: u32| inst(at, InstKind::Load(Type::I64, v(0), 8));
+        let copy = |from: u32| inst(4, InstKind::Copy(Type::I64, v(from)));
+        let f = cell_guard(
+            vec![len(1), copy(1), len(5), copy(5)],
+            InstKind::ICmp(IPred::Ult, v(9), v(4)),
+        );
+        assert_eq!(block_freqs(&f), vec![1024, 1024, 16, 1024]);
+        let flags = |at: u32| inst(at, InstKind::Load(Type::I64, v(0), 0));
+        let mask = |at: u32, of: u32| {
+            inst(
+                at,
+                InstKind::BinOp(BinOp::And, v(of), Operand::ConstI64(1 << 49)),
+            )
+        };
+        let f = cell_guard(
+            vec![flags(1), mask(2, 1), copy(2), flags(5), mask(6, 5), copy(6)],
+            InstKind::ICmp(IPred::Ne, v(4), Operand::ConstI64(0)),
+        );
+        assert_eq!(block_freqs(&f), vec![1024, 1024, 16, 1024]);
+        // a flags cell that also takes some other value predicts nothing
+        let f = cell_guard(
+            vec![flags(1), mask(2, 1), copy(2), copy(9)],
+            InstKind::ICmp(IPred::Ne, v(4), Operand::ConstI64(0)),
+        );
+        assert_eq!(block_freqs(&f), vec![1024, 1024, 1024, 1024]);
+    }
+
     #[test]
     fn the_empty_arm_of_a_shift_on_a_promoted_length_is_cold() {
         // `len_promote` reads the word into cell %5 ahead of the loop and

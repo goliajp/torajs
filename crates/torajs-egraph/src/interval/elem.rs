@@ -54,6 +54,7 @@ use crate::id_hash::{HashMap, HashSet};
 use torajs_core::ssa::{BinOp, FuncId, Function, InstKind, Operand, Terminator, ValueId};
 
 use super::elem_alias::classify_values;
+use super::elem_header;
 use super::elem_kernels::*;
 
 /// The element points of one function.
@@ -82,7 +83,7 @@ pub(super) fn val(op: &Operand) -> Option<ValueId> {
 /// `callee_names` is index-aligned with `Module::funcs`; an empty
 /// slice means no call can be recognized, so nothing is tracked.
 pub(super) fn collect(func: &Function, callee_names: &[String]) -> ElemPoints {
-    let Some(mut a) = analyze(func, callee_names) else {
+    let Some(mut a) = analyze(func, callee_names, false) else {
         return ElemPoints {
             writes: Vec::new(),
             reads: HashMap::default(),
@@ -113,9 +114,12 @@ pub(crate) struct ArrayClasses {
     pub(crate) live: HashSet<ValueId>,
 }
 
-/// The escape discipline of [`collect`] on its own, for `load_licm`.
+/// The escape discipline of [`collect`] on its own, for the header
+/// passes (`load_licm`, `len_promote`), which also track frame-cell
+/// array literals and admit the typed store's header kernels
+/// (`elem_header`).
 pub(crate) fn array_classes(func: &Function, callee_names: &[String]) -> Option<ArrayClasses> {
-    analyze(func, callee_names).map(|a| a.classes)
+    analyze(func, callee_names, true).map(|a| a.classes)
 }
 
 pub(super) struct Analysis {
@@ -125,7 +129,8 @@ pub(super) struct Analysis {
     reads: HashMap<ValueId, ValueId>,
 }
 
-pub(super) fn analyze(func: &Function, callee_names: &[String]) -> Option<Analysis> {
+/// `header`: track for the header passes only — see [`array_classes`].
+pub(super) fn analyze(func: &Function, callee_names: &[String], header: bool) -> Option<Analysis> {
     if callee_names.is_empty() {
         return None;
     }
@@ -149,18 +154,37 @@ pub(super) fn analyze(func: &Function, callee_names: &[String]) -> Option<Analys
         })
         .map(|(v, _)| *v)
         .collect();
+    let stack = if header {
+        elem_header::frame_cell_roots(func, &defs)
+    } else {
+        HashSet::default()
+    };
+    roots.extend(stack.iter().copied());
     if roots.is_empty() {
         return None;
     }
     roots.sort_by_key(|v| v.0);
 
-    let (class, base) = classify_values(&defs, &roots, callee_names);
+    let seeds = elem_header::inline_data_ptrs(&defs, &stack);
+    let (class, base) = classify_values(&defs, &roots, callee_names, &seeds);
     let mut live: HashSet<ValueId> = roots.iter().copied().collect();
     let mut writes: HashMap<ValueId, Vec<Operand>> = HashMap::default();
     let mut reads: HashMap<ValueId, ValueId> = HashMap::default();
 
     for block in &func.blocks {
         for inst in &block.insts {
+            if header
+                && elem_header::admitted(
+                    inst.result,
+                    &inst.kind,
+                    &class,
+                    &base,
+                    &stack,
+                    callee_names,
+                )
+            {
+                continue;
+            }
             scan_inst(
                 inst.result,
                 &inst.kind,
