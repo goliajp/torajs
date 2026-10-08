@@ -254,6 +254,10 @@ fn resolve_type_ann_inner(
         // same independent substrate work as object's non-primitive
         // check.
         "Function" => Some(Type::Any),
+        // a tag's first parameter: the template object reaches it as
+        // `any` (`__torajs_template_object`), an array of the cooked
+        // strings that also carries `.raw`, which no array type spells
+        "TemplateStringsArray" => Some(Type::Any),
         // RFC 20260823-typedarray-substrate — the buffer-family
         // classes annotate as `Type::Any` for the same reason their
         // constructors produce it: the cells are reached only

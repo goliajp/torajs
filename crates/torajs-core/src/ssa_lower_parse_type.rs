@@ -377,6 +377,8 @@ fn parse_keyword(s: &str, aliases: &HashMap<String, Type>) -> Type {
         // layer (mirror of `check_type_ann.rs`). No-access-without-
         // narrow constraint is independent L3b.
         "unknown" => Type::Any,
+        // the template object a tag receives (mirror of `check_type_ann.rs`)
+        "TemplateStringsArray" => Type::Any,
         // T-13.a (v0.4.0) — Symbol value. Heap-allocated 16-byte
         // block, identity is pointer identity. Lowers to ptr.
         "symbol" => Type::Symbol,
