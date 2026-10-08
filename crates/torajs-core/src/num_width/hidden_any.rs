@@ -46,6 +46,8 @@ pub(super) enum Node {
     AnyVal,
     /// A direct call's argument.
     Arg(ExprId),
+    /// What a function returns.
+    Ret(String),
 }
 
 /// What a name resolves to: one node, or the slot keys of every
@@ -96,12 +98,14 @@ pub(super) struct Graph<'s> {
 }
 
 /// What the check driver changes for the next round: the initializers
-/// of the declarations to retype `any`, and the call arguments that may
-/// carry a value of another kind than the checker reads them as.
+/// of the declarations to retype `any`, the call arguments that may
+/// carry a value of another kind than the checker reads them as, and
+/// the functions that may return one.
 #[derive(Default)]
 pub(crate) struct HiddenAny {
     pub(crate) inits: HashSet<ExprId>,
     pub(crate) args: HashSet<ExprId>,
+    pub(crate) rets: HashSet<String>,
 }
 
 /// The initializers of the declarations to retype `any`, and the call
@@ -194,8 +198,10 @@ impl Graph<'_> {
         let stats = std::env::var_os("TORAJS_NUM_WIDTH_STATS").is_some();
         let mut out = HiddenAny::default();
         for n in &tainted {
-            if let Node::Arg(e) = n {
-                out.args.insert(*e);
+            match n {
+                Node::Arg(e) => drop(out.args.insert(*e)),
+                Node::Ret(f) => drop(out.rets.insert(f.clone())),
+                _ => {}
             }
         }
         for (i, d) in self.decls.iter().enumerate() {
@@ -241,6 +247,7 @@ impl Graph<'_> {
                 self.seeds.push(Node::AnyVal);
                 out.push(Node::AnyVal);
             }
+            Expr::Call { callee, .. } => out.extend(self.call_result(a, eid, *callee)),
             Expr::Index { obj, .. } | Expr::OptIndex { obj, .. } => {
                 if let Some(n) = self.elem_source(a, *obj, scope) {
                     self.seeds.push(n.clone());
