@@ -293,7 +293,7 @@ pub(super) fn completion_undefined(yield_ty: &str) -> Expr {
         .strip_prefix("__nullable(")
         .and_then(|s| s.strip_suffix(')'))
         .unwrap_or(yield_ty);
-    if matches!(inner, "any" | "void" | "undefined") {
+    if crate::ssa_lower_parse_type::slot_is_any(inner) {
         return Expr::Ident("undefined".into());
     }
     Expr::Ident(format!("{}{inner}", crate::ast::UNDEF_SLOT_MARKER))
@@ -316,7 +316,7 @@ pub(super) fn yield_arg_undefined(yield_ty: &str) -> Expr {
         .and_then(|s| s.strip_suffix(')'))
         .unwrap_or(yield_ty);
     if crate::ssa_lower_parse_type::nullable_inner_boxes(inner)
-        || matches!(inner, "any" | "void" | "undefined")
+        || crate::ssa_lower_parse_type::slot_is_any(inner)
     {
         return Expr::Ident("undefined".into());
     }

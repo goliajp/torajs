@@ -50,7 +50,7 @@ pub(crate) fn implicit_optional_default(ast: &mut Ast, type_ann: Option<&str>) -
         .and_then(|s| s.strip_suffix(')'))
         .unwrap_or(ann);
     if crate::ssa_lower_parse_type::nullable_inner_boxes(inner)
-        || matches!(inner, "any" | "void" | "undefined")
+        || crate::ssa_lower_parse_type::slot_is_any(inner)
     {
         return ast.add_expr(Expr::Ident("undefined".into()));
     }

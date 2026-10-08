@@ -20,3 +20,12 @@
 pub(crate) fn nullable_inner_boxes(inner: &str) -> bool {
     matches!(inner, "number" | "boolean")
 }
+
+/// Does the slot spelled `inner` materialize as `Type::Any` on its own
+/// — the any family, and a union (whose value is NaN-boxed)? Such a
+/// slot holds `undefined` as the plain ANY_UNDEF box, so the positions
+/// that spell "the absent value" for it write the plain `undefined`,
+/// never a per-type sentinel.
+pub(crate) fn slot_is_any(inner: &str) -> bool {
+    matches!(inner, "any" | "void" | "undefined") || inner.starts_with("__union(")
+}

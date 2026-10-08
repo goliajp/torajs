@@ -16,6 +16,8 @@
 
 use super::*;
 
+mod union_chain;
+
 impl<'a> Parser<'a> {
     /// Recording wrapper (RFC 20260719-fn-tostring-source B2) — the
     /// outermost annotation pushes its byte range into
@@ -27,6 +29,11 @@ impl<'a> Parser<'a> {
     pub(super) fn parse_type_ann(&mut self) -> Result<String, String> {
         let record = self.type_ann_depth == 0;
         let start_pos = self.pos;
+        // a union may open with a `|` of its own (TS §3.4), the
+        // spelling that puts each member on a line of its own
+        if matches!(self.peek(), Token::Pipe) {
+            self.pos += 1;
+        }
         self.type_ann_depth += 1;
         let r = self.parse_type_ann_inner();
         self.type_ann_depth -= 1;
@@ -37,7 +44,7 @@ impl<'a> Parser<'a> {
         r
     }
 
-    fn parse_type_ann_inner(&mut self) -> Result<String, String> {
+    pub(super) fn parse_type_ann_inner(&mut self) -> Result<String, String> {
         // V3-18 wedge — TS type-predicate return type:
         //   function isT(v: any): v is T { ... }
         // Per TS spec §3.6.5 the return type is `boolean` at the
@@ -181,7 +188,7 @@ impl<'a> Parser<'a> {
                 self.pos += 2;
                 name.push_str("[]");
             }
-            name = self.consume_nullish_union_suffix(name)?;
+            name = self.consume_union_suffix(name)?;
             return Ok(name);
         }
         // V3-18 wedge — tuple type ann (`[number, string]`, TS spec
@@ -239,11 +246,11 @@ impl<'a> Parser<'a> {
                 self.pos += 2;
                 name.push_str("[]");
             }
-            name = self.consume_nullish_union_suffix(name)?;
+            name = self.consume_union_suffix(name)?;
             return Ok(name);
         }
         if let Some(widened) = self.literal_type_widen() {
-            return Ok(widened);
+            return self.read_type_postfix(widened);
         }
         let mut name = match self.peek() {
             Token::Ident(n) => n.clone(),
@@ -363,7 +370,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Shared postfix readers on a just-parsed type: `[]` array
-    /// suffixes and the single-side `| null` nullable wrapper.
+    /// suffixes and a trailing union chain.
     /// Chunk 735 — extracted from the parse_type_ann tail so the
     /// parenthesized-type arm in parse_fn_type_ann reads the same
     /// postfixes on its inner type (`(() => string)[]`).
@@ -381,57 +388,7 @@ impl<'a> Parser<'a> {
             }
             name.push_str("[]");
         }
-        name = self.consume_nullish_union_suffix(name)?;
+        name = self.consume_union_suffix(name)?;
         Ok(name)
-    }
-
-    /// A trailing `| null` or `| undefined` wraps the type in the
-    /// `__nullable(T)` marker; anything else is still rejected. The
-    /// parser does not try to be a full TS union solver.
-    ///
-    /// Both nullish spellings land on the SAME marker, which is what
-    /// the optional shape `T?` has always desugared to — §9.2 widens
-    /// an optional to `T | undefined`, so admitting only `| null` left
-    /// the shorthand working and the longhand a parse error. The two
-    /// VALUES stay distinct where it counts: at runtime a scalar slot
-    /// is Any and holds ANY_NULL or ANY_UNDEF, a pointer-shaped one
-    /// holds NULL or its per-type undefined sentinel. It is the
-    /// checker that folds them, and it folds `T?` the same way.
-    fn consume_nullish_union_suffix(&mut self, name: String) -> Result<String, String> {
-        if !matches!(self.peek(), Token::Pipe) {
-            return Ok(name);
-        }
-        self.pos += 1;
-        let nullish = match self.peek() {
-            Token::Null => true,
-            Token::Ident(s) => s == "undefined",
-            _ => false,
-        };
-        if !nullish {
-            // `null | number` is the same type as `number | null`, and
-            // TS accepts both orders. Reading only the trailing form
-            // made the nullish side's position load-bearing: the exact
-            // union tsc reports no error for was a parse error here.
-            // The already-parsed side IS the nullish one, so the type
-            // to wrap is the one still ahead.
-            if name == "null" || name == "undefined" {
-                let inner = self.parse_type_ann()?;
-                // `null | number | undefined` wraps once: a nullable of
-                // a nullable is the same set of values, and the marker
-                // is not recursive downstream.
-                return Ok(if inner.starts_with("__nullable(") {
-                    inner
-                } else {
-                    format!("__nullable({inner})")
-                });
-            }
-            return Err(format!(
-                "only `T | null` and `T | undefined` unions are supported (no other unions yet); got {:?} at {}",
-                self.peek(),
-                self.at()
-            ));
-        }
-        self.pos += 1;
-        Ok(format!("__nullable({name})"))
     }
 }

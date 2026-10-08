@@ -7,6 +7,7 @@
 use crate::ast::{GenericStructDecls, PropKey};
 use std::collections::HashMap;
 
+use crate::check_type_ann::split_top_pipe;
 use crate::ssa::{self, Type};
 use crate::ssa_lower::substitute_in_ann;
 
@@ -138,7 +139,7 @@ pub(super) fn parse_generic(
     // check.rs::resolve_type_ann_full so SSA + check agree.
     if matches!(head, "Array" | "ReadonlyArray" | "Iterable") {
         let inner = &s[open_idx + 1..s.len() - 1];
-        if !inner.contains('|') {
+        if split_top_pipe(inner).len() == 1 {
             let elem_str = format!("{inner}[]");
             return Some(parse_type(
                 Some(&elem_str),
@@ -155,7 +156,7 @@ pub(super) fn parse_generic(
     // struct (layout reuses `__step_<gen>` generator shape).
     if head == "IteratorResult" {
         let inner = &s[open_idx + 1..s.len() - 1];
-        if !inner.contains('|') {
+        if split_top_pipe(inner).len() == 1 {
             let inlobj = format!("__inlobj(value:{inner}|done:boolean)");
             return Some(parse_type(
                 Some(&inlobj),

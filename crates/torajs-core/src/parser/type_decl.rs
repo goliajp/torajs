@@ -201,7 +201,7 @@ impl<'a> Parser<'a> {
         // resolve to the alias's actual Type without wrapping in
         // a Struct. Real struct-shape `{ ... }` keeps the
         // existing Vec<(name, ty)> path untouched.
-        if !matches!(self.peek(), Token::LBrace) {
+        if !matches!(self.peek(), Token::LBrace) || self.brace_type_heads_union() {
             let ann = self.parse_type_ann()?;
             if matches!(self.peek(), Token::Semi) {
                 self.pos += 1;

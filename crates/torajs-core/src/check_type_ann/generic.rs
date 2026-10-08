@@ -28,7 +28,7 @@ pub(super) fn resolve_generic(
     if matches!(head, "Array" | "ReadonlyArray" | "Iterable") {
         let inner = &name[open_idx + 1..name.len() - 1];
         // Single arg only — Array<T1, T2> is invalid TS.
-        if !inner.contains('|') {
+        if split_top_pipe(inner).len() == 1 {
             return resolve_type_ann_inner(inner, aliases, type_params, generic_aliases, in_flight)
                 .map(|t| Type::Array(Box::new(t)));
         }
@@ -42,7 +42,7 @@ pub(super) fn resolve_generic(
     // without minting their own per-iterator alias.
     if head == "IteratorResult" {
         let inner = &name[open_idx + 1..name.len() - 1];
-        if !inner.contains('|')
+        if split_top_pipe(inner).len() == 1
             && let Some(value_ty) =
                 resolve_type_ann_inner(inner, aliases, type_params, generic_aliases, in_flight)
         {
@@ -61,7 +61,7 @@ pub(super) fn resolve_generic(
     // surfacing a "unresolved type" error.
     if matches!(head, "Iterator" | "IterableIterator") {
         let inner = &name[open_idx + 1..name.len() - 1];
-        if !inner.contains('|') {
+        if split_top_pipe(inner).len() == 1 {
             let _ = resolve_type_ann_inner(inner, aliases, type_params, generic_aliases, in_flight);
             return Some(Type::Any);
         }
