@@ -47,7 +47,8 @@ use torajs_rc::{FLAG_STATIC_LITERAL, HeapHeader};
 
 use crate::layout::{
     STR_DATA_OFF, STR_FLAG_HAS_CAPACITY, STR_FLAG_IS_LATIN1, STR_HDR_SIZE, STR_LEN_OFF,
-    STR_PAD_OFF, STR_POOL_PAYLOADS, block_size, byte_capacity, packed_header_init, pool_class_of,
+    STR_PAD_OFF, STR_POOL_PAYLOAD, STR_POOL_PAYLOADS, block_size, byte_capacity,
+    packed_header_init, pool_class_of,
 };
 use crate::max_len::STR_MAX_LEN;
 use crate::pool;
@@ -154,7 +155,10 @@ impl StrBlock {
         // SAFETY: libc malloc; null is OOM, a hard stop here.
         let raw = unsafe { malloc(block_size(length, is_latin1)) } as *mut u8;
         let nn = NonNull::new(raw).unwrap_or_else(|| torajs_abort::abort_with(b"OOM in Str alloc"));
-        Self::init_header_and_length(nn, length, is_latin1, extra);
+        // a block taken at a class size records its class, as a popped
+        // one does; one past the classes records none
+        let tag = pool_class_of(cap).map_or(0, pool::class_tag);
+        Self::init_header_and_length(nn, length, is_latin1, extra, tag);
         Self(nn)
     }
 
@@ -171,11 +175,12 @@ impl StrBlock {
         let class = pool_class_of(payload_bytes)?;
         let p = pool::pop(class)?;
         // SAFETY: a popped block is exclusively ours until we return.
-        // The length store is eight bytes wide: it zeroes the
-        // capacity slot beside it.
+        // The length store is eight bytes wide: it writes the class
+        // tag into the capacity slot beside it.
         unsafe {
             (p.as_ptr() as *mut u64).write(packed_header_init(false) | (flags as u64) << 48);
-            (p.as_ptr().add(STR_LEN_OFF) as *mut u64).write(length as u64);
+            (p.as_ptr().add(STR_LEN_OFF) as *mut u64)
+                .write(length as u64 | (pool::class_tag(class) as u64) << 32);
         }
         Some(Self(p))
     }
@@ -197,16 +202,22 @@ impl StrBlock {
         // The pool only holds blocks at its class payloads, so it can
         // serve this request when `cap` is one of them — which is the
         // whole small end of a growing string's walk.
-        let p = pool_class_of(cap)
-            .filter(|&class| STR_POOL_PAYLOADS[class] == cap)
-            .and_then(pool::pop)
-            .unwrap_or_else(|| {
-                // SAFETY: same contract as `alloc_with_encoding` —
-                // libc malloc, null means OOM.
-                let raw = unsafe { malloc(STR_HDR_SIZE + cap as usize) } as *mut u8;
-                NonNull::new(raw).unwrap_or_else(|| torajs_abort::abort_with(b"OOM in Str alloc"))
-            });
-        Self::init_header_and_length(p, length, is_latin1, 0);
+        // past the classes is asked first and alone, so the class
+        // arithmetic stays off the malloc path
+        let pooled = if cap > STR_POOL_PAYLOAD {
+            None
+        } else {
+            pool_class_of(cap)
+                .filter(|&class| STR_POOL_PAYLOADS[class] == cap)
+                .and_then(pool::pop)
+        };
+        let p = pooled.unwrap_or_else(|| {
+            // SAFETY: same contract as `alloc_with_encoding` —
+            // libc malloc, null means OOM.
+            let raw = unsafe { malloc(STR_HDR_SIZE + cap as usize) } as *mut u8;
+            NonNull::new(raw).unwrap_or_else(|| torajs_abort::abort_with(b"OOM in Str alloc"))
+        });
+        Self::init_header_and_length(p, length, is_latin1, 0, 0);
         // Recorded together with the flag bit that announces it, so
         // "carries a capacity" means exactly "owns more than its
         // length says" — the question `free_pool_aware` has to
@@ -233,12 +244,11 @@ impl StrBlock {
     /// otherwise try to `free` `.rodata` bytes and crash. The
     /// check is kept here to keep the contract local.
     ///
-    /// A cell nothing appended to carries no capacity, so its size is
-    /// recomputed from `(length, is_latin1)` on every drop — mirrors
-    /// V8 SeqString sizing. Latin-1 path is a no-op multiply; UTF-16
-    /// path is a single shift. An appended-to cell records what it
-    /// was actually taken at, which is the number the allocator has
-    /// to be handed back.
+    /// A cell nothing appended to carries no capacity: one taken at a
+    /// pool class names that class in its capacity slot, and the rest
+    /// are sized from `(length, is_latin1)` — mirrors V8 SeqString
+    /// sizing. An appended-to cell records what it was actually taken
+    /// at, which is the number the allocator has to be handed back.
     #[inline]
     pub fn free_pool_aware(self) {
         // SAFETY: caller's contract is that `self.0` points at a
@@ -247,25 +257,24 @@ impl StrBlock {
         let flags = unsafe { &*(self.0.as_ptr() as *const HeapHeader) }.flags;
         // Both of the questions this path has to ask up front live in
         // the flags word, so ask them together: a plain owned cell —
-        // which is nearly every cell — falls through one test into
-        // exactly the sequence it took before capacities existed.
+        // which is nearly every cell — falls through one test.
         if flags & (FLAG_STATIC_LITERAL | STR_FLAG_HAS_CAPACITY) != 0 {
             return self.free_marked(flags);
+        }
+        // SAFETY: every alloc site writes the slot (see `STR_PAD_OFF`).
+        let tag = unsafe { (self.0.as_ptr().add(STR_PAD_OFF) as *const u32).read() };
+        if tag != 0 && pool::push_tagged(tag, self.0) {
+            return;
         }
         let is_latin1 = (flags & STR_FLAG_IS_LATIN1) != 0;
         // SAFETY: length u32 was written at alloc time; offset
         // STR_LEN_OFF mirrors runtime_str.c __TORAJS_STR_LEN.
         let length = unsafe { self.length() };
-        let cap = byte_capacity(length, is_latin1);
-        if let Some(class) = pool_class_of(cap)
-            && pool::push(class, self.0)
-        {
-            return;
-        }
         // SAFETY: block was `malloc(block_size(length, is_latin1))`-
         // allocated by `Self::alloc` (or a future caller follows the
-        // same shape). Layer 1 `free` takes the same size we alloc'd
-        // with — derived deterministically from `(length, is_latin1)`.
+        // same shape): a cell taken at a class whose LIFO is full is
+        // that class's size, and one past the classes its exact one.
+        // Layer 1 `free` takes the same size we alloc'd with.
         unsafe {
             free(
                 self.0.as_ptr() as *mut c_void,
@@ -422,18 +431,19 @@ impl StrBlock {
         Self(unsafe { NonNull::new_unchecked(p) })
     }
 
-    /// Write the packed header + length + zero the reserved
-    /// padding at the start of a freshly-allocated (or pool-
-    /// popped) block. Internal helper; not exposed.
+    /// Write the packed header, the length and the capacity slot's
+    /// pool-class `tag` (see [`STR_PAD_OFF`]) at the start of a
+    /// freshly-allocated (or pool-popped) block. Internal helper; not
+    /// exposed.
     #[inline]
-    fn init_header_and_length(p: NonNull<u8>, length: u32, is_latin1: bool, extra: u16) {
+    fn init_header_and_length(p: NonNull<u8>, length: u32, is_latin1: bool, extra: u16, tag: u32) {
+        const _: () = assert!(STR_PAD_OFF == STR_LEN_OFF + 4);
         // SAFETY: caller has just produced `p` via `malloc` or
         // `pool::pop`; the first 16 bytes are exclusively owned
         // until we return.
         unsafe {
             (p.as_ptr() as *mut u64).write(packed_header_init(is_latin1) | (extra as u64) << 48);
-            (p.as_ptr().add(STR_LEN_OFF) as *mut u32).write(length);
-            (p.as_ptr().add(STR_PAD_OFF) as *mut u32).write(0);
+            (p.as_ptr().add(STR_LEN_OFF) as *mut u64).write(length as u64 | (tag as u64) << 32);
         }
     }
 }
@@ -538,9 +548,9 @@ mod tests {
         // length at offset STR_LEN_OFF (u32 now)
         let length = unsafe { (p.add(STR_LEN_OFF) as *const u32).read() };
         assert_eq!(length, 12);
-        // reserved padding zero
+        // the capacity slot names the pool class the block was taken at
         let pad = unsafe { (p.add(STR_PAD_OFF) as *const u32).read() };
-        assert_eq!(pad, 0);
+        assert_eq!(pad, pool::class_tag(0));
         unsafe { __torajs_str_free(p) };
     }
 

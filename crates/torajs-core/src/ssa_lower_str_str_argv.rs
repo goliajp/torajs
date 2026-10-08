@@ -35,7 +35,7 @@
 //! - **fallback** — `argv.push(ctx.lower_expr(a))`.
 
 use crate::ast::ExprId;
-use crate::ssa::{InstKind, Operand, Type};
+use crate::ssa::{Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
 /// Walk `args` and append each lowered (or spec-substituted) operand
@@ -186,13 +186,10 @@ pub(crate) fn populate_argv(
             argv.push(Operand::ConstI64(0));
         } else if u.slice_subs_2arg && arg_undef && i == 1 {
             if substring_len_op.is_none() {
-                let len = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::Load(Type::I64, recv_op, 8),
-                    Type::I64,
-                    None,
-                );
-                substring_len_op = Some(Operand::Value(len));
+                let ty = ctx.operand_ty(&recv_op);
+                substring_len_op = Some(crate::ssa_lower_str::load_str_or_substr_length(
+                    ctx, recv_op, ty,
+                ));
             }
             argv.push(substring_len_op.unwrap());
         } else if u.slice_subs_1arg_undef && arg_undef && i == 0 {

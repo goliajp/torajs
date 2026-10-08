@@ -82,13 +82,10 @@ pub(crate) fn try_lower(
         // the test is on the any TAG, not on the number.
         let (tag, _, idx) = ctx.any_slot_tag_number_index(a);
         if substring_len_op.is_none() {
-            let len = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Load(Type::I64, *recv_op, 8),
-                Type::I64,
-                None,
-            );
-            *substring_len_op = Some(Operand::Value(len));
+            let ty = ctx.operand_ty(recv_op);
+            *substring_len_op = Some(crate::ssa_lower_str::load_str_or_substr_length(
+                ctx, *recv_op, ty,
+            ));
         }
         let sel = ctx.select_on_undef_tag(tag, (*substring_len_op).unwrap(), idx, "__str_end_slot");
         return Some(sel);

@@ -34,7 +34,7 @@
 //!   missing replaceValue.
 
 use crate::ast::ExprId;
-use crate::ssa::{InstKind, Operand, Type};
+use crate::ssa::Operand;
 use crate::ssa_lower::LowerCtx;
 
 /// Append missing positional slots into `argv` to match each Str
@@ -53,13 +53,9 @@ pub(crate) fn fill_missing(
         if args.is_empty() {
             argv.push(Operand::ConstI64(0));
         }
-        let len = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Load(Type::I64, recv_op, 8),
-            Type::I64,
-            None,
-        );
-        argv.push(Operand::Value(len));
+        let ty = ctx.operand_ty(&recv_op);
+        let len = crate::ssa_lower_str::load_str_or_substr_length(ctx, recv_op, ty);
+        argv.push(len);
     }
     // T-49 — substr 0/1-arg defaults (2nd slot is *length*, not end)
     if method == "substr" && args.len() < 2 {

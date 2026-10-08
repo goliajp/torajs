@@ -32,7 +32,7 @@ fn make_str(payload: &[u8]) -> *mut u8 {
 }
 
 fn read_str(p: *const u8) -> Vec<u8> {
-    let len = unsafe { *(p.add(8) as *const u64) };
+    let len = unsafe { *(p.add(8) as *const u32) };
     let bytes = unsafe { std::slice::from_raw_parts(p.add(16), len as usize) };
     bytes.to_vec()
 }

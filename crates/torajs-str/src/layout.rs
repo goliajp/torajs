@@ -54,19 +54,22 @@ pub const STR_HDR_SIZE: usize = 16;
 pub const STR_LEN_OFF: usize = 8;
 
 /// Byte offset (from `Str` block start) of the u32 payload-capacity
-/// slot.
+/// slot. What it holds depends on [`STR_FLAG_HAS_CAPACITY`]:
 ///
-/// **Zero means "ask [`block_size`]"** — which is what every alloc
-/// site writes, so the field reads as inert for every cell the
-/// runtime mints the ordinary way, and capacity stays the pure
-/// function of `(length, is_latin1)` it has always been.
+/// - flag set: the block's real payload byte count. Only
+///   [`crate::append`]'s grow path stores one: an appended-to cell
+///   carries slack past its length so the next append writes into it
+///   instead of reallocating, and `free_pool_aware` must hand
+///   `__torajs_free` the size the block was actually taken at.
+/// - flag clear: the pool class the block was taken at, as
+///   [`crate::pool::class_tag`] encodes it, written with the length by
+///   every alloc site so the release pushes the block back without
+///   re-deriving the class from the length; zero for a block taken
+///   past the classes (or a static cell), whose size stays the pure
+///   function of `(length, is_latin1)`.
 ///
-/// A non-zero value is the block's real payload byte count, and only
-/// [`crate::append`]'s grow path ever stores one: an appended-to cell
-/// carries slack past its length so the next append writes into it
-/// instead of reallocating. `free_pool_aware` is the only other
-/// reader — it must hand `__torajs_free` the size the block was
-/// actually taken at.
+/// Readers of the length load the u32 at [`STR_LEN_OFF`], never the
+/// eight bytes there.
 pub const STR_PAD_OFF: usize = 12;
 
 /// Byte offset (from `Str` block start) of the first payload byte.

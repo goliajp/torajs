@@ -38,18 +38,47 @@ use crate::layout::{STR_POOL_PAYLOADS, STR_POOL_SLOTS};
 /// One LIFO per payload class ([`STR_POOL_PAYLOADS`]).
 const N_CLASSES: usize = STR_POOL_PAYLOADS.len();
 
-/// LIFO slot array. `SLOTS[0..COUNT]` is occupied; the rest is
-/// stale. `pop()` reads `SLOTS[COUNT - 1]` and decrements;
-/// `push()` writes `SLOTS[COUNT]` and increments.
-static SLOTS: [[AtomicPtr<u8>; STR_POOL_SLOTS]; N_CLASSES] =
-    [const { [const { AtomicPtr::new(ptr::null_mut()) }; STR_POOL_SLOTS] }; N_CLASSES];
-static COUNT: [AtomicUsize; N_CLASSES] = [const { AtomicUsize::new(0) }; N_CLASSES];
+/// One class's LIFO: `slots[0..count]` is occupied; the rest is
+/// stale. `pop()` reads `slots[count - 1]` and decrements; `push()`
+/// writes `slots[count]` and increments. The slots open the struct so
+/// a slot is one scaled index off the class's base, the count follows
+/// them so the same base reaches it, and the alignment rounds the
+/// stride up to a power of two so reaching a class's base is one
+/// shifted add.
+#[repr(C, align(512))]
+struct Class {
+    slots: [AtomicPtr<u8>; STR_POOL_SLOTS],
+    count: AtomicUsize,
+}
 
-// Every index below is `get`, never `[]`: `pool_class_of` only
-// answers a class below `N_CLASSES` and `push` keeps every count
-// within `STR_POOL_SLOTS`, but the compiler cannot see either, and a
-// bounds check that can never fail still links the whole
-// `panic_bounds_check` rendering path — `Display for usize`,
+/// The LIFOs, padded to a power of two so a class read back from a
+/// cell's own header ([`class_tag`]) indexes them with a mask rather
+/// than a bounds test. The padding LIFO is never popped: a tag that
+/// somehow names it parks at most `STR_POOL_SLOTS` blocks there.
+const N_POOLS: usize = N_CLASSES.next_power_of_two();
+
+const _: () = assert!(size_of::<Class>().is_power_of_two());
+
+static POOL: [Class; N_POOLS] = [const {
+    Class {
+        slots: [const { AtomicPtr::new(ptr::null_mut()) }; STR_POOL_SLOTS],
+        count: AtomicUsize::new(0),
+    }
+}; N_POOLS];
+
+/// What a block taken at `class` records in its capacity slot: the
+/// class with a marker bit above it, so a block that records none
+/// reads zero and [`push_tagged`] needs no subtraction.
+#[inline(always)]
+pub const fn class_tag(class: usize) -> u32 {
+    (N_POOLS | class) as u32
+}
+
+// Every index below is `get` or masked, never a bare `[]`:
+// `pool_class_of` only answers a class below `N_CLASSES` and `push`
+// keeps every count within `STR_POOL_SLOTS`, but the compiler cannot
+// see either, and a bounds check that can never fail still links the
+// whole `panic_bounds_check` rendering path — `Display for usize`,
 // `Formatter::pad_integral`, the char counter — 5 KB of `core` text
 // in a program that prints one integer (r502: `str_alloc_pooled` was
 // the empty program's only edge into it). An out-of-range class
@@ -60,8 +89,8 @@ static COUNT: [AtomicUsize; N_CLASSES] = [const { AtomicUsize::new(0) }; N_CLASS
 /// must write the header + len + payload before exposing it.
 #[inline]
 pub fn pop(class: usize) -> Option<NonNull<u8>> {
-    let counter = COUNT.get(class)?;
-    let count = counter.load(Ordering::Relaxed);
+    let pool = POOL.get(class)?;
+    let count = pool.count.load(Ordering::Relaxed);
     if count == 0 {
         return None;
     }
@@ -69,11 +98,14 @@ pub fn pop(class: usize) -> Option<NonNull<u8>> {
     // `push` keeps every count within the slot array; the mask says
     // so in a form that needs no bounds test
     const _: () = assert!(STR_POOL_SLOTS.is_power_of_two());
-    let slot = &SLOTS.get(class)?[new_count & (STR_POOL_SLOTS - 1)];
-    counter.store(new_count, Ordering::Relaxed);
+    let slot = &pool.slots[new_count & (STR_POOL_SLOTS - 1)];
+    pool.count.store(new_count, Ordering::Relaxed);
     // the slot keeps its pointer: the count alone says what the pool
     // holds, and the next push overwrites it
-    NonNull::new(slot.load(Ordering::Relaxed))
+    // SAFETY: a slot below the count holds what `push` stored there,
+    // a `NonNull`; `clear_for_test` nulls slots only with the count
+    // reset to zero
+    Some(unsafe { NonNull::new_unchecked(slot.load(Ordering::Relaxed)) })
 }
 
 /// Push a freed block onto the LIFO. Returns `true` if accepted,
@@ -85,15 +117,26 @@ pub fn pop(class: usize) -> Option<NonNull<u8>> {
 /// `pop()` retrieves it.
 #[inline]
 pub fn push(class: usize, p: NonNull<u8>) -> bool {
-    let (Some(counter), Some(slots)) = (COUNT.get(class), SLOTS.get(class)) else {
-        return false;
-    };
-    let count = counter.load(Ordering::Relaxed);
-    let Some(slot) = slots.get(count) else {
+    match POOL.get(class) {
+        Some(pool) => push_into(pool, p),
+        None => false,
+    }
+}
+
+/// [`push`] by a non-zero [`class_tag`] read off the block itself.
+#[inline]
+pub fn push_tagged(tag: u32, p: NonNull<u8>) -> bool {
+    push_into(&POOL[tag as usize & (N_POOLS - 1)], p)
+}
+
+#[inline(always)]
+fn push_into(pool: &Class, p: NonNull<u8>) -> bool {
+    let count = pool.count.load(Ordering::Relaxed);
+    let Some(slot) = pool.slots.get(count) else {
         return false;
     };
     slot.store(p.as_ptr(), Ordering::Relaxed);
-    counter.store(count + 1, Ordering::Relaxed);
+    pool.count.store(count + 1, Ordering::Relaxed);
     true
 }
 
@@ -103,7 +146,7 @@ pub fn push(class: usize, p: NonNull<u8>) -> bool {
 /// state-dependent.
 #[inline]
 pub fn occupancy() -> usize {
-    COUNT.iter().map(|c| c.load(Ordering::Relaxed)).sum()
+    POOL.iter().map(|c| c.count.load(Ordering::Relaxed)).sum()
 }
 
 /// Reset the pool to empty. Used between unit tests so a test that
@@ -116,11 +159,11 @@ pub fn occupancy() -> usize {
 /// holds them on behalf of `__torajs_str_free`).
 #[doc(hidden)]
 pub fn clear_for_test() {
-    for (counter, slots) in COUNT.iter().zip(SLOTS.iter()) {
-        for slot in slots.iter() {
+    for pool in POOL.iter() {
+        for slot in pool.slots.iter() {
             slot.store(ptr::null_mut(), Ordering::Relaxed);
         }
-        counter.store(0, Ordering::Relaxed);
+        pool.count.store(0, Ordering::Relaxed);
     }
 }
 
