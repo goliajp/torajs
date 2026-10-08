@@ -21,12 +21,10 @@ impl Checker {
     ///
     /// Answers the operand view ([`Type::operand_view`]): a `never`
     /// call reads as the `undefined` every consumer already handles.
+    /// A union answers [`Type::lane`], the `Any` its value travels as.
     pub(crate) fn type_of(&mut self, ast: &Ast, eid: ExprId) -> Result<Type, String> {
-        let result = self.type_of_inner(ast, eid).map(Type::operand_view);
-        if let Ok(t) = &result {
-            self.expr_types.insert(eid, t.clone());
-        }
-        result
+        let result = self.type_of_inner(ast, eid);
+        result.map(|t| self.record_type(ast, eid, t.operand_view()).lane())
     }
 
     /// [`Self::type_of`] keeping `Never`, for the sites that only ask
@@ -34,10 +32,11 @@ impl Checker {
     /// initializer, a `return`): bottom fits every slot.
     pub(crate) fn type_of_raw(&mut self, ast: &Ast, eid: ExprId) -> Result<Type, String> {
         let result = self.type_of_inner(ast, eid);
-        if let Ok(t) = &result {
-            self.expr_types.insert(eid, t.clone().operand_view());
-        }
-        result
+        result.map(|t| {
+            let never = t == Type::Never;
+            let seen = self.record_type(ast, eid, t.operand_view());
+            if never { Type::Never } else { seen }
+        })
     }
 
     /// Type of one expression, before the memo/cycle bookkeeping in

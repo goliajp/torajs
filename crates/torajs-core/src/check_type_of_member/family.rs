@@ -32,6 +32,11 @@ pub(crate) fn member_is_modeled(obj_ty: &Type, name: &str) -> bool {
     try_family_dispatch(obj_ty, name).is_some()
 }
 
+/// Whether a per-family arm answers `name` on `obj_ty` with a type.
+pub(crate) fn member_resolves(obj_ty: &Type, name: &str) -> bool {
+    matches!(try_family_dispatch(obj_ty, name), Some(Ok(_)))
+}
+
 pub(super) fn try_family_dispatch(obj_ty: &Type, name: &str) -> Option<Result<Type, String>> {
     // Date instance methods — see
     // [`crate::check_type_of_member_date`] (chunk 191 —

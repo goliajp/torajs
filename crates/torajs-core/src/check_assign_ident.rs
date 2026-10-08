@@ -188,6 +188,7 @@ pub(crate) fn check(
     // `b = "x"` must stay legal, the narrow never shrinks the
     // assignable surface.
     let target_ty = checker.assign_declared_ty(&name, &info.ty);
+    let target_ty = checker.union_assign_target(&name, target_ty);
     let value_ty = checker.type_of(ast, value)?;
     let value_ty =
         crate::check_assignable::in_declared_order(checker, ast, &target_ty, value, value_ty);

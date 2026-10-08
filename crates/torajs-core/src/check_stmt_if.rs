@@ -47,7 +47,13 @@ pub(crate) fn check(
     // `member_narrows` (assignments to the receiver or the member
     // invalidate it, see check_type_of_assign).
     let member_narrow = checker.collect_member_narrow(ast, cond);
+    // `typeof x === "tag"` on a union binding: each branch sees its
+    // members (the narrowed type is still a union, see union_narrow)
+    let union_narrow = checker.union_guard(ast, cond);
     let pre = checker.snapshot_moved();
+    let then_union = union_narrow
+        .as_ref()
+        .and_then(|(n, t, _)| checker.apply_union_narrow(n, t.clone()));
     let then_narrow = if let Some((name, inner, polarity)) = &narrow {
         if *polarity {
             checker.apply_narrow(name, inner.clone())
@@ -67,6 +73,9 @@ pub(crate) fn check(
         None
     };
     checker.check_stmt(ast, then_branch);
+    if let (Some((name, _, _)), Some(saved)) = (&union_narrow, then_union) {
+        checker.restore_narrow(name, saved);
+    }
     // The guard's restore runs FIRST, then the flush. `saved` is the
     // type the binding had before this guard, which may itself be a
     // straight-line assign narrow — and the flush exists precisely to
@@ -105,7 +114,13 @@ pub(crate) fn check(
         } else {
             None
         };
+        let else_union = union_narrow
+            .as_ref()
+            .and_then(|(n, _, e)| checker.apply_union_narrow(n, e.clone()));
         checker.check_stmt(ast, eb);
+        if let (Some((name, _, _)), Some(saved)) = (&union_narrow, else_union) {
+            checker.restore_narrow(name, saved);
+        }
         if let (Some((name, _, _)), Some(saved)) = (&narrow, else_narrow) {
             checker.restore_narrow(name, saved);
         }
@@ -126,5 +141,14 @@ pub(crate) fn check(
         if post_narrow_to_inner {
             checker.apply_narrow(name, inner.clone());
         }
+    }
+    match (&union_narrow, then_div, else_div) {
+        (Some((name, _, e)), true, false) => {
+            checker.apply_union_narrow(name, e.clone());
+        }
+        (Some((name, t, _)), false, true) => {
+            checker.apply_union_narrow(name, t.clone());
+        }
+        _ => {}
     }
 }

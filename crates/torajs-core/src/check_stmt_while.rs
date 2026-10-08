@@ -28,6 +28,7 @@ pub(crate) fn check_while(checker: &mut Checker, ast: &Ast, cond: ExprId, body: 
         )),
         Err(e) => checker.errors.push_err(e),
     }
+    checker.note_unmodeled_guard(ast, cond);
     let narrow = checker.collect_null_narrow(ast, cond);
     let saved = if let Some((name, inner, polarity)) = &narrow {
         if *polarity && !stmt_assigns_to(ast, body, name) {
@@ -66,6 +67,7 @@ pub(crate) fn check_while(checker: &mut Checker, ast: &Ast, cond: ExprId, body: 
 
 pub(crate) fn check_do_while(checker: &mut Checker, ast: &Ast, body: &Stmt, cond: ExprId) {
     checker.check_stmt(ast, body);
+    checker.note_unmodeled_guard(ast, cond);
     match checker.type_of(ast, cond) {
         Ok(t) if js_truthy_acceptable(&t) => {}
         Ok(other) => checker.errors.push_err(format!(

@@ -118,6 +118,8 @@ pub fn type_to_ann(ty: &Type) -> String {
         // T's annotation; check.rs is the only layer that distinguishes
         // them, and it's already past by the time this fn runs.
         Type::Nullable(inner) => type_to_ann(inner),
+        // a union's value travels as the any box
+        Type::Union(_) => "any".into(),
         Type::Null => "null".into(),
         // P1.1 — Type::Undefined collapses to `null` in the SSA-ann
         // string for now since the SSA layer has no separate Undefined.

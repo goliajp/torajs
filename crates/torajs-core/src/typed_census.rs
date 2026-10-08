@@ -52,6 +52,10 @@ pub(crate) struct TypedCensus {
     pub(crate) typed: u64,
     /// 定出 `Type::Any` 的表达式 —— 类型被放弃到运行期。
     pub(crate) any: u64,
+    /// Expressions the checker typed as a union whose value rides the
+    /// any lane: the members took part in the checks but not in
+    /// codegen, so they count as neither typed nor plain any.
+    pub(crate) union: u64,
     /// Error 级 diagnostic 条数(见模块 doc 第 2 条,**不是**表达式数)。
     pub(crate) refused: u64,
 }
@@ -64,8 +68,13 @@ impl TypedCensus {
     /// 100%"。这是 `test/instrument-must-be-able-to-fail` 在这个量具
     /// 上的具体形式:量具要能红。
     pub(crate) fn typed_ratio(&self) -> Option<f64> {
-        let scored = self.typed + self.any;
+        let scored = self.scored();
         (scored > 0).then(|| self.typed as f64 / scored as f64)
+    }
+
+    /// Every typed expression, all three buckets.
+    pub(crate) fn scored(&self) -> u64 {
+        self.typed + self.any + self.union
     }
 
     /// 一行机器可读的读数,给 `hardev/autorun/` 的采集脚本解析。
@@ -78,11 +87,12 @@ impl TypedCensus {
             None => "none".to_string(),
         };
         format!(
-            "torajs-typed-census: typed={} any={} refused={} scored={} typed_ratio={}",
+            "torajs-typed-census: typed={} any={} union={} refused={} scored={} typed_ratio={}",
             self.typed,
             self.any,
+            self.union,
             self.refused,
-            self.typed + self.any,
+            self.scored(),
             ratio,
         )
     }
@@ -96,7 +106,9 @@ impl Checker {
             if skip.contains(eid) {
                 continue;
             }
-            if matches!(ty, Type::Any) {
+            if self.unions.types.contains_key(eid) {
+                census.union += 1;
+            } else if matches!(ty, Type::Any) {
                 census.any += 1;
             } else {
                 census.typed += 1;
@@ -141,6 +153,7 @@ mod tests {
         let census = TypedCensus {
             typed: 3,
             any: 1,
+            union: 0,
             refused: 7,
         };
         assert_eq!(census.typed_ratio(), Some(0.75));
@@ -154,9 +167,24 @@ mod tests {
         let census = TypedCensus {
             typed: 0,
             any: 5,
+            union: 0,
             refused: 0,
         };
         assert_eq!(census.typed_ratio(), Some(0.0));
         assert!(census.report_line().contains("typed_ratio=0.0000"));
+    }
+
+    #[test]
+    fn union_bucket_is_scored_but_not_typed() {
+        let census = TypedCensus {
+            typed: 2,
+            any: 1,
+            union: 1,
+            refused: 0,
+        };
+        assert_eq!(census.typed_ratio(), Some(0.5));
+        let line = census.report_line();
+        assert!(line.contains("any=1 union=1"));
+        assert!(line.contains("scored=4"));
     }
 }

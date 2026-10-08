@@ -123,6 +123,15 @@ pub enum Type {
     /// at runtime. Restricted to T ∈ {String, Array<_>, Struct, …};
     /// number/boolean nullables would need a tag bit and aren't in v0.
     Nullable(Box<Type>),
+    /// `A | B | ...` with at least two non-nullish members, built
+    /// through [`Type::union_of`] (flat, deduplicated, sorted; a
+    /// nullish member brings both `Null` and `Undefined`, the way
+    /// `Nullable` reads `T | null`) — or a narrow of one, which may be
+    /// down to a single member (`check::union_narrow`). The members
+    /// are what the assignability and member checks see; the value
+    /// itself rides the any lane, so every type an expression hands
+    /// its consumers has its unions folded to `Any` ([`Type::lane`]).
+    Union(Vec<Type>),
     /// Compiled regex instance produced by a `/.../flags` literal or
     /// (eventually) `new RegExp(...)`. Heap-owned, non-Copy, ARC under
     /// the universal heap header. Distinct from `Type::Object("RegExp")`

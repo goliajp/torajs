@@ -73,6 +73,7 @@ pub(crate) fn check_switch(checker: &mut Checker, ast: &Ast, stmt: &Stmt) {
     else {
         return;
     };
+    checker.note_unmodeled_guard(ast, *scrutinee);
     let scrut_ty = match checker.type_of(ast, *scrutinee) {
         Ok(t) => t,
         Err(e) => {

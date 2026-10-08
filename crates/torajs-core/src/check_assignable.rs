@@ -75,6 +75,11 @@ fn is_assignable_to_deep(
     if matches!(to_r, Type::Void) && matches!(from_r, Type::Undefined) {
         return true;
     }
+    if let Some(fits) = Type::union_fits(&to_r, &from_r, &mut |t, f| {
+        is_assignable_to_deep(t, f, class_structs, aliases, generic_aliases, seen)
+    }) {
+        return fits;
+    }
     if let Type::Nullable(inner) = &to_r {
         // P1.7 — `Nullable<T>` ≡ `T | null | undefined` per spec.
         // Both null and undefined are valid in any Nullable<T> slot.
@@ -164,6 +169,12 @@ fn is_assignable_to_deep(
 pub(crate) fn is_assignable_to(to: &Type, from: &Type) -> bool {
     if to == from {
         return true;
+    }
+    if !matches!(to, Type::Any)
+        && !matches!(from, Type::Any | Type::Never)
+        && let Some(fits) = Type::union_fits(to, from, &mut |t, f| is_assignable_to(t, f))
+    {
+        return fits;
     }
     // M6.3 — `Type::Any` from JSON.parse return is a typecheck-level
     // hole; ssa_lower's LetDecl arm specializes the actual decode at

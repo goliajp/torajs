@@ -18,6 +18,11 @@ mod stmt;
 mod synth_dunder;
 mod type_def;
 mod type_of;
+mod type_union;
+mod union_member;
+mod union_narrow;
+#[cfg(test)]
+mod union_tests;
 
 pub(crate) use diag::DiagPush;
 pub use diag::{Diagnostic, Severity};
@@ -353,6 +358,8 @@ pub(crate) struct Checker {
     /// (rebuilt each `collect_types_and_errors` call) so stale
     /// entries from edits don't surface.
     pub expr_types: HashMap<ExprId, Type>,
+    /// Union types, their narrows and loose bindings.
+    pub(crate) unions: union_narrow::UnionFacts,
     /// Demoted speculative class-method rewrites, `call → alt
     /// member-call` ExprIds (single decision point — see cm_demote.rs).
     pub demoted_cm_rewrites: HashMap<ExprId, ExprId>,

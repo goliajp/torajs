@@ -48,6 +48,10 @@ pub(crate) fn check(
     // if-stmt wedge (RFC 20260710 C5) applied to the expression
     // form, same polarity dance as the binding narrow.
     let member_narrow = checker.collect_member_narrow(ast, cond);
+    let union_narrow = checker.union_guard(ast, cond);
+    let then_union = union_narrow
+        .as_ref()
+        .and_then(|(n, t, _)| checker.apply_union_narrow(n, t.clone()));
     let then_saved = if let Some((name, inner, polarity)) = &narrow {
         if *polarity {
             checker.apply_narrow(name, inner.clone())
@@ -71,6 +75,12 @@ pub(crate) fn check(
     // for the REST of the check, which is checker state corruption on
     // an error path that no diagnostic reports.
     let t = checker.type_of(ast, then_branch);
+    if let (Some((name, _, _)), Some(saved)) = (&union_narrow, then_union) {
+        checker.restore_narrow(name, saved);
+    }
+    let else_union = union_narrow
+        .as_ref()
+        .and_then(|(n, _, e)| checker.apply_union_narrow(n, e.clone()));
     if let (Some((name, _, _)), Some(saved)) = (&narrow, then_saved) {
         checker.restore_narrow(name, saved);
     }
@@ -96,6 +106,9 @@ pub(crate) fn check(
         None
     };
     let e = checker.type_of(ast, else_branch);
+    if let (Some((name, _, _)), Some(saved)) = (&union_narrow, else_union) {
+        checker.restore_narrow(name, saved);
+    }
     if let (Some((name, _, _)), Some(saved)) = (&narrow, else_saved) {
         checker.restore_narrow(name, saved);
     }

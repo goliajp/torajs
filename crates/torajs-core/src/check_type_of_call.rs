@@ -77,6 +77,7 @@ pub(crate) fn check(
     } else {
         false
     };
+    checker.check_union_method_call(ast, *callee)?;
     if patched_static || patched_method {
         // Type the arguments before standing down. Returning straight
         // from here skips the walk every other route performs, and
@@ -167,5 +168,7 @@ pub(crate) fn check(
     if let Some(r) = crate::check_type_of_call_hof_any_cb::try_match(checker, ast, callee, args) {
         return r;
     }
-    general::general_call(checker, ast, eid, callee, args)
+    let ty = general::general_call(checker, ast, eid, callee, args)?;
+    checker.check_union_args(ast, *callee, args)?;
+    Ok(ty)
 }

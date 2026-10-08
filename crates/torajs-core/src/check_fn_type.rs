@@ -18,7 +18,7 @@
 
 use crate::ast::Param;
 use crate::check::{GenericAliasMap, Type};
-use crate::check_type_ann::resolve_type_ann_full;
+use crate::check_type_ann::{resolve_type_ann_decl, resolve_type_ann_full};
 use std::collections::HashMap;
 
 #[allow(dead_code)]
@@ -84,7 +84,7 @@ pub(crate) fn build_fn_type_full(
                 p.name
             ));
         };
-        let Some(ty) = resolve_type_ann_full(ann, aliases, type_params, generic_aliases) else {
+        let Some(ty) = resolve_type_ann_decl(ann, aliases, type_params, generic_aliases) else {
             return Err(format!(
                 "unknown type `{ann}` for parameter `{}` of function `{fn_name}`",
                 p.name
@@ -111,7 +111,7 @@ pub(crate) fn build_fn_type_full(
     }
     let ret_ty = match return_type {
         None => Type::Void,
-        Some(t) => match resolve_type_ann_full(t, aliases, type_params, generic_aliases) {
+        Some(t) => match resolve_type_ann_decl(t, aliases, type_params, generic_aliases) {
             Some(ty) => ty,
             None => {
                 return Err(format!(

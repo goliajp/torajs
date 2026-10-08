@@ -13,6 +13,8 @@ use std::collections::HashMap;
 
 use crate::check::{GenericAliasMap, Type};
 
+/// The type an annotation denotes, as the value travels: a union
+/// anywhere in it is folded to `Any` ([`Type::lane`]).
 pub(crate) fn resolve_type_ann_full(
     name: &str,
     aliases: &HashMap<String, Type>,
@@ -21,6 +23,22 @@ pub(crate) fn resolve_type_ann_full(
 ) -> Option<Type> {
     let mut in_flight = std::collections::HashSet::new();
     resolve_type_ann_inner(name, aliases, type_params, generic_aliases, &mut in_flight)
+        .map(Type::lane)
+}
+
+/// [`resolve_type_ann_full`] for the slots that check a value against
+/// a union member by member — a binding, a parameter, a return type
+/// and a type alias: a union at the top keeps its members
+/// ([`Type::decl_view`]).
+pub(crate) fn resolve_type_ann_decl(
+    name: &str,
+    aliases: &HashMap<String, Type>,
+    type_params: &[String],
+    generic_aliases: &GenericAliasMap,
+) -> Option<Type> {
+    let mut in_flight = std::collections::HashSet::new();
+    resolve_type_ann_inner(name, aliases, type_params, generic_aliases, &mut in_flight)
+        .map(Type::decl_view)
 }
 
 fn resolve_type_ann_inner(
@@ -55,6 +73,9 @@ fn resolve_type_ann_inner(
         return resolve_type_ann_inner(inner, aliases, type_params, generic_aliases, in_flight)
             .map(|t| match t {
                 Type::Any => Type::Any,
+                // a union (or a nullable alias) absorbs the nullish
+                // pair itself: one canonical spelling per value set
+                t @ (Type::Union(_) | Type::Nullable(_)) => Type::union_of([t, Type::Null]),
                 other => Type::Nullable(Box::new(other)),
             });
     }

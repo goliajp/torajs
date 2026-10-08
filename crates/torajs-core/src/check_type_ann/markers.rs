@@ -213,6 +213,20 @@ pub(super) fn resolve_internal_marker(
             in_flight,
         ));
     }
+    // `__union(A|B|...)` — the parser's canonical union spelling.
+    if let Some(rest) = name.strip_prefix("__union(")
+        && let Some(inner) = rest.strip_suffix(')')
+    {
+        let mut members = Vec::new();
+        for m in split_top_pipe(inner) {
+            match super::resolve_type_ann_inner(m, aliases, type_params, generic_aliases, in_flight)
+            {
+                Some(t) => members.push(t),
+                None => return Some(None),
+            }
+        }
+        return Some(Some(Type::union_of(members)));
+    }
     // RFC 20260714-objlit-accessor blade 1 — `__mth(P1|...)->(R)`, an
     // object-literal METHOD slot. Types exactly like `__cls(`: the
     // receiver is not in the signature (it is the lifted fn's hidden

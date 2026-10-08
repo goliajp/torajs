@@ -30,8 +30,8 @@ use crate::check_type_of_member_accessor::{class_name_of, enforce_visibility};
 use crate::check_type_of_member_nullable_recv as nullable_recv;
 
 mod family;
-pub(crate) use family::member_is_modeled;
 use family::try_family_dispatch;
+pub(crate) use family::{member_is_modeled, member_resolves};
 
 /// `lenient_missing` — S2.24 刀 4: true for a desugar-minted
 /// pattern field load (`Ast::dstr_default_member_loads`, every slot
@@ -62,6 +62,7 @@ pub(crate) fn check(
         return Ok(narrowed.clone());
     }
     let obj_ty = checker.type_of(ast, *obj)?;
+    checker.check_union_member(ast, *obj, name)?;
     // RFC 20260806 — a builtin method this module might have patched or
     // deleted is not the kernel's to answer. Typing the read as Any
     // routes the call through `ssa_lower_any_method_call`'s cluster-#4

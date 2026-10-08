@@ -19,7 +19,7 @@ use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
 use crate::check::{
     Checker, DiagPush, GenericAliasMap, Type, build_fn_type_full, resolve_type_ann,
 };
-use crate::check_type_ann::resolve_type_ann_full;
+use crate::check_type_ann::{resolve_type_ann_decl, resolve_type_ann_full};
 use std::collections::HashMap;
 
 /// Pass 0 — install the alias tables read off `ast.stmts`; see
@@ -144,7 +144,7 @@ pub(crate) fn collect_type_alias_tables(ast: &Ast) -> TypeAliasTables {
             }
             if fields.len() == 1 && fields[0].0 == "__alias__" {
                 let alias_ann = &fields[0].1;
-                match resolve_type_ann_full(alias_ann, &t.aliases, &[], &t.generic_alias_decls) {
+                match resolve_type_ann_decl(alias_ann, &t.aliases, &[], &t.generic_alias_decls) {
                     Some(ty) => {
                         t.aliases.insert(name.clone(), ty);
                     }

@@ -35,6 +35,7 @@ pub(crate) fn check(
     // back-edge: an init assignment narrow must not reach them.
     checker.flush_assign_narrows();
     if let Some(c) = cond {
+        checker.note_unmodeled_guard(ast, *c);
         match checker.type_of(ast, *c) {
             Ok(t) if js_truthy_acceptable(&t) => {}
             Ok(other) => checker.errors.push_err(format!(

@@ -150,6 +150,11 @@ pub(crate) fn unify_ternary(t: &Type, e: &Type) -> Option<Type> {
         // (`const C = float ? Float64Array : Float32Array`), which is
         // why it is 25 rows of the incompatible bucket by itself.
         (Type::Object(_), Type::Object(_)) => Some(Type::Any),
+        // a branch that may already be null joins to itself: wrapping
+        // it again named a nullable of a nullable
+        (Type::Null, other @ Type::Nullable(_)) | (other @ Type::Nullable(_), Type::Null) => {
+            Some(other.clone())
+        }
         (Type::Null, other) | (other, Type::Null) => Some(Type::Nullable(Box::new(other.clone()))),
         (Type::Nullable(inner), other) | (other, Type::Nullable(inner)) => {
             if inner.as_ref() == other {

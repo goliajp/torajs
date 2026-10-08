@@ -48,6 +48,7 @@ impl Checker {
             generic_alias_decls: HashMap::new(),
             fn_defaults: HashMap::new(),
             expr_types: HashMap::new(),
+            unions: Default::default(),
             demoted_cm_rewrites: HashMap::new(),
             contextual_any_literals: std::collections::HashSet::new(),
             iter_destr_srcs: HashMap::new(),

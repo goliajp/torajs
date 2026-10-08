@@ -65,6 +65,10 @@ pub(crate) fn check(
     // the null tag and answered FALSE — the guard read backwards, and
     // `!== undefined` always true.
     let l = checker.type_of(ast, left);
+    // the right operand of `&&` / `||` runs under the left as a guard
+    if matches!(op, BinOp::LAnd | BinOp::LOr) {
+        checker.note_unmodeled_guard(ast, left);
+    }
     let r = checker.type_of(ast, right);
     let (l, r) = (l?, r?);
     // Band B before the per-op lanes: when the spec answers this pair
