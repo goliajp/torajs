@@ -53,7 +53,7 @@ use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{BinOp, FuncId, Function, InstKind, Operand, Terminator, ValueId};
 
-use super::elem_alias::{AliasKind, alias_source};
+use super::elem_alias::classify_values;
 use super::elem_kernels::*;
 
 /// The element points of one function.
@@ -190,62 +190,6 @@ pub(super) fn analyze(func: &Function, callee_names: &[String]) -> Option<Analys
         writes,
         reads,
     })
-}
-
-/// Optimistic membership: which values are aliases of a root, and
-/// which are data pointers loaded out of one. Both are confirmed by
-/// [`scan_inst`], which kills a class whose alias-producing use did
-/// not land back in the same class.
-fn classify_values(
-    defs: &HashMap<ValueId, Vec<InstKind>>,
-    roots: &[ValueId],
-    names: &[String],
-) -> (HashMap<ValueId, ValueId>, HashMap<ValueId, ValueId>) {
-    let mut class: HashMap<ValueId, ValueId> = roots.iter().map(|r| (*r, *r)).collect();
-    let mut base: HashMap<ValueId, ValueId> = HashMap::default();
-    let mut ordered: Vec<ValueId> = defs.keys().copied().collect();
-    ordered.sort_by_key(|v| v.0);
-    let mut moving = true;
-    while moving {
-        moving = false;
-        for v in &ordered {
-            if class.contains_key(v) || base.contains_key(v) {
-                continue;
-            }
-            // Every definition has to name the same class in the same
-            // role, or the value may also hold an array this analysis
-            // never saw.
-            let mut agreed: Option<(ValueId, bool)> = None;
-            let mut ok = true;
-            for d in &defs[v] {
-                let seen = match alias_source(d, names, defs) {
-                    // A copy of a data pointer stays a data pointer;
-                    // a copy of the array stays the array.
-                    Some((src, AliasKind::Same)) => class
-                        .get(&src)
-                        .map(|r| (*r, false))
-                        .or_else(|| base.get(&src).map(|r| (*r, true))),
-                    Some((src, AliasKind::DataPtr)) => class.get(&src).map(|r| (*r, true)),
-                    Some((src, AliasKind::Advanced)) => base.get(&src).map(|r| (*r, true)),
-                    None => None,
-                };
-                match (seen, agreed) {
-                    (Some(x), None) => agreed = Some(x),
-                    (Some(x), Some(y)) if x == y => {}
-                    _ => ok = false,
-                }
-                if !ok {
-                    break;
-                }
-            }
-            let Some((rep, is_base)) = agreed.filter(|_| ok) else {
-                continue;
-            };
-            if is_base { &mut base } else { &mut class }.insert(*v, rep);
-            moving = true;
-        }
-    }
-    (class, base)
 }
 
 #[allow(clippy::too_many_arguments)]

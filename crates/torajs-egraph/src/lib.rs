@@ -60,6 +60,7 @@ mod pass_timer;
 pub mod phi_promote;
 pub mod phi_thread;
 mod pipeline_head;
+mod pipeline_loop;
 mod pipeline_tail;
 pub mod print_narrow;
 pub mod rc_dec_immediate;
@@ -114,41 +115,6 @@ fn egraph_functions(module: &mut Module) {
     for func in module.funcs.iter_mut() {
         *func = EgraphPass::new(func).run();
     }
-}
-
-/// The two passes that take array header words out of loops: the
-/// length of a loop that stores it into a register, then header-field
-/// loads of arrays the loop never writes. Before throw_check_fold (its
-/// loop-entry probe would otherwise sit between the preheader and the
-/// header).
-fn array_header_passes(module: &mut Module) {
-    // Array length word into a register across a loop that stores it
-    // (`len_promote`): the pop loop's `str len` → next `ldr len` chain.
-    // After branch_fold (its folded arms are no longer loop body),
-    // before load_licm, which then sees the loop without the stores.
-    // `TORAJS_LEN_PROMOTE_OFF=1` skips (bisect gate).
-    gated_pass("LEN_PROMOTE", module, len_promote::promote_lengths);
-    // Array header-field loads out of loops that never write that
-    // array's header (allocation-site alias slices, `load_licm`).
-    // After branch_fold (a folded-away out-of-range arm is no longer
-    // loop body), before throw_check_fold (its loop-entry probe would
-    // otherwise sit between the preheader and the header).
-    // `TORAJS_LOAD_LICM_OFF=1` skips (bisect gate).
-    gated_pass("LOAD_LICM", module, load_licm::hoist_header_loads);
-}
-
-/// The two loop-constant hoists: each distinct in-loop `ConstF64`
-/// operand mints one preheader Copy and body uses read the value,
-/// killing the per-iteration 3-inst rematerialization + GPR→FPR
-/// crossing (mandelbrot decomposition D1); its i64 twin does the same
-/// for a compare's non-imm12 constant (rotation 623, the fill-loop
-/// bound). After branch_fold (its folds shrink loop bodies), before
-/// select_form / cmp_sink (their formed shapes read the already-
-/// hoisted operands). `TORAJS_FCONST_HOIST_OFF=1` /
-/// `TORAJS_ICONST_HOIST_OFF=1` skip either (bisect gates).
-fn hoist_loop_consts(module: &mut Module) {
-    gated_pass("FCONST_HOIST", module, fconst_hoist::hoist_fp_consts);
-    gated_pass("ICONST_HOIST", module, iconst_hoist::hoist_int_consts);
 }
 
 /// Apply the Cluster E inliner (Phase 1.0b) followed by `EgraphPass`
@@ -278,7 +244,7 @@ pub fn transform_module(mut module: Module) -> Module {
     });
     // Array header words out of loops (`array_header_passes`). After
     // branch_fold: its folded-away arms are no longer loop body.
-    array_header_passes(&mut module);
+    pipeline_loop::array_header_passes(&mut module);
     // Repeated nullish checks and pending-exception probes whose
     // answer is already known. After branch_fold (it removes the
     // out-of-range arms whose calls would otherwise sit between).
@@ -292,7 +258,7 @@ pub fn transform_module(mut module: Module) -> Module {
         print_narrow::narrow_prints(m, fact_cache.as_ref())
     });
     drop(fact_cache);
-    hoist_loop_consts(&mut module);
+    pipeline_loop::hoist_loop_consts(&mut module);
     // Ctpop-range-sum reduction recognition — collapse a counted
     // `acc += ctpop(i)` loop into one `CtpopRangeSum` super-inst that
     // codegen expands to an 8-wide SIMD reduction (RFC
