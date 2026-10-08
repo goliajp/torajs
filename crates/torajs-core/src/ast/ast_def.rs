@@ -521,6 +521,10 @@ pub struct Ast {
     /// loads `vtable_ptr[method_index] -> fn_ptr` and `CallIndirect`s.
     /// Indices are sorted by method name so codegen is reproducible.
     pub method_index: std::collections::HashMap<String, u32>,
+    /// `(type, member)` for every member an interface / object type
+    /// declaration marks optional (`m?: T`, `m?(): T`) — its annotation
+    /// alone (`__nullable(T)`) also spells a required `T | null`.
+    pub optional_members: std::collections::HashSet<(String, PropKey)>,
     /// M-OO.5 — `(class_name, member_name)` → visibility, populated by
     /// the parser when a `private` / `protected` modifier appears on a
     /// field or method. Public is the absent-default (no entry stored).

@@ -37,13 +37,46 @@ pub fn flatten_interface_extends(ast: &mut Ast) {
         return;
     }
     let mut done: HashMap<String, Vec<(PropKey, String)>> = HashMap::new();
+    let mut inherited: Vec<(String, PropKey)> = Vec::new();
     for s in ast.stmts.iter_mut() {
         if let Stmt::TypeDecl { name, fields, .. } = s
             && fields.iter().any(|(k, _)| is_extends(k))
         {
+            let keys = optional_keys(name, &decls, &ast.optional_members, 0);
+            inherited.extend(keys.into_iter().map(|k| (name.clone(), k)));
             *fields = resolve(name, &decls, &mut done, 0);
         }
     }
+    ast.optional_members.extend(inherited);
+}
+
+/// The members `name` declares optional or inherits optional and does
+/// not redeclare.
+fn optional_keys(
+    name: &str,
+    decls: &HashMap<String, Decl>,
+    optional: &std::collections::HashSet<(String, PropKey)>,
+    depth: usize,
+) -> Vec<PropKey> {
+    let Some((_, fields)) = decls.get(name).filter(|_| depth <= decls.len()) else {
+        return Vec::new();
+    };
+    let mut out: Vec<PropKey> = Vec::new();
+    for (_, ann) in fields.iter().filter(|(k, _)| is_extends(k)) {
+        let parent = split_instantiation(ann).0;
+        for k in optional_keys(parent, decls, optional, depth + 1) {
+            if !fields.iter().any(|(own, _)| *own == k) {
+                out.push(k);
+            }
+        }
+    }
+    out.extend(
+        fields
+            .iter()
+            .filter(|(k, _)| optional.contains(&(name.to_string(), k.clone())))
+            .map(|(k, _)| k.clone()),
+    );
+    out
 }
 
 fn is_extends(k: &PropKey) -> bool {

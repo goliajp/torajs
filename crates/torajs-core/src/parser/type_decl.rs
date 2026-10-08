@@ -68,7 +68,7 @@ impl<'a> Parser<'a> {
                 ));
             }
         }
-        self.parse_type_decl_fields(&mut fields)?;
+        self.parse_type_decl_fields(&name, &mut fields)?;
         match self.peek() {
             Token::RBrace => self.pos += 1,
             t => {
@@ -144,7 +144,7 @@ impl<'a> Parser<'a> {
             }
         }
         let mut fields: Vec<(PropKey, String)> = Vec::new();
-        self.parse_type_decl_fields(&mut fields)?;
+        self.parse_type_decl_fields(&name, &mut fields)?;
         match self.peek() {
             Token::RBrace => self.pos += 1,
             t => {
@@ -205,10 +205,11 @@ impl<'a> Parser<'a> {
     /// separator of a type member list is optional before a newline).
     fn parse_type_decl_fields(
         &mut self,
+        owner: &str,
         fields: &mut Vec<(PropKey, String)>,
     ) -> Result<(), String> {
         while !matches!(self.peek(), Token::RBrace) {
-            fields.push(self.parse_type_decl_field()?);
+            fields.push(self.parse_type_decl_field(owner)?);
             if matches!(self.peek(), Token::Comma | Token::Semi) {
                 self.pos += 1;
             } else if !self.has_newline_before(self.pos) {
@@ -218,7 +219,10 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    pub(super) fn parse_type_decl_field(&mut self) -> Result<(PropKey, String), String> {
+    pub(super) fn parse_type_decl_field(
+        &mut self,
+        owner: &str,
+    ) -> Result<(PropKey, String), String> {
         // V3-18 wedge — `readonly` modifier on a type-body field
         // (`interface X { readonly id: number }`). TS-side only;
         // subset accepts and discards. Detect when followed by an
@@ -250,6 +254,14 @@ impl<'a> Parser<'a> {
         let optional = matches!(self.peek(), Token::Question);
         if optional {
             self.pos += 1;
+            let at = (owner.to_string(), PropKey::from(name.as_str()));
+            self.ast.optional_members.insert(at);
+        }
+        // `m?(p: T): R` — an optional method is an optional member of
+        // the method's fn type
+        if optional && matches!(self.peek(), Token::LParen) {
+            let ann = self.parse_method_shape_ann()?;
+            return Ok((PropKey::from(name), format!("__nullable({ann})")));
         }
         match self.peek() {
             Token::Colon => self.pos += 1,
