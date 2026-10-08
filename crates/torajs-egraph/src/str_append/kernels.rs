@@ -88,6 +88,14 @@ impl Kernels {
         })
     }
 
+    /// The kernels that only borrow both operands.
+    pub fn borrowing(&self) -> impl Iterator<Item = FuncId> + '_ {
+        self.binary
+            .iter()
+            .filter(|k| !k.consumes_left)
+            .map(|k| k.fid)
+    }
+
     pub fn get(&self, fid: FuncId) -> Option<&Kernel> {
         self.binary.iter().find(|k| k.fid == fid)
     }

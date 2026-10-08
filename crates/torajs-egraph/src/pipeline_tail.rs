@@ -3,9 +3,9 @@ use crate::id_hash::HashMap;
 use torajs_core::ssa::{FuncId, Module, ValueId};
 
 use crate::{
-    block_layout, concat_len, concat_num_fuse, gated_pass, interval, iv_merge, loop_rotate,
-    map_find_cse, pass_gates, pass_timer, rc_dec_immediate, rc_peephole, scaled_addr, select_form,
-    srem_fquot, str_append, strip_assumes, unroll_jam, unroll_pair,
+    block_layout, concat_len, concat_licm, concat_num_fuse, gated_pass, interval, iv_merge,
+    loop_rotate, map_find_cse, pass_gates, pass_timer, rc_dec_immediate, rc_peephole, scaled_addr,
+    select_form, srem_fquot, str_append, strip_assumes, unroll_jam, unroll_pair,
 };
 
 /// Select formation and the inst-level fusions that read its output,
@@ -138,6 +138,11 @@ pub(crate) fn finish_pipeline(
     // Before block_layout, which lays out the rotated body.
     // `TORAJS_LOOP_ROTATE_OFF=1` skips (bisect gate).
     gated_pass("LOOP_ROTATE", module, loop_rotate::rotate_module);
+    // A concat with loop-invariant operands out of the loop it sits
+    // in. After loop_rotate, whose bottom-tested loops have the body
+    // in the header; before block_layout, which lays out the preheader
+    // and exit blocks it adds. `TORAJS_CONCAT_LICM_OFF=1` skips.
+    gated_pass("CONCAT_LICM", module, concat_licm::hoist_concats);
     // Loop-body contiguity layout — last, so the block order codegen
     // sees (fall-through chains, positional liveness/spill weights)
     // is the final one. Sinks cold blocks out of loop position
