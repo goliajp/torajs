@@ -99,7 +99,8 @@ fn level(elem: Type, arr_layouts: &[Type], depth: u32) -> u64 {
 /// which ToNumber / ToBoolean would turn into one nobody passed; a
 /// string or array slot (with no literal default to substitute) that
 /// cannot hold `null` / `undefined` / another kind of value; or a
-/// struct-shaped layout (`fit`) the argument may not have. A rest slot
+/// struct-shaped layout (`fit`) the argument may not have; or a
+/// fn-typed slot, which no argument crosses. A rest slot
 /// asks the same of every argument it collects, which an `any[]` rest
 /// takes as they are.
 pub(super) fn lossy_slot(
@@ -109,6 +110,7 @@ pub(super) fn lossy_slot(
     rest: bool,
 ) -> bool {
     scalar_tags(ty, dflt, test.undef_misses).is_some()
+        || matches!(ty, Type::FnSig(_))
         || dflt.is_none()
             && (test.fit.is_some()
                 || match ty {

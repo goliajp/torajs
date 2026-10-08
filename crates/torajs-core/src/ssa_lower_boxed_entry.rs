@@ -153,6 +153,10 @@ pub(crate) fn synthesize_boxed_entries(
         let argc_fixed = fixed_argc_of(ast, &t.name);
         let twin_reroute = twin_adapter_of(ast, fn_table, &entries, &t.name)
             .filter(|_| argc_fixed.is_some() || any_lossy(&t, &slots));
+        // a fn-typed slot is served by the twin alone
+        if twin_reroute.is_none() && t.user_tys.iter().any(|ty| matches!(ty, Type::FnSig(_))) {
+            continue;
+        }
         let same_face = env_faced(&t.name);
         let pair = build_boxed_entry(
             module,

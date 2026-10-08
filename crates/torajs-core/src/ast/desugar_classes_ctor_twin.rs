@@ -202,7 +202,8 @@ pub(in crate::ast) fn close_real_parents_over_chain(
 /// element layout) all count exactly where the struct-escape lane
 /// counts them. A `string` or array slot counts as well: neither holds
 /// `null`, `undefined` or another kind of value, which the twin binds
-/// as passed (§10.2.1.3).
+/// as passed (§10.2.1.3). So does a function-typed slot, which holds a
+/// bare function pointer no value handed over through `any` is.
 pub(super) fn has_lossy_param(
     ast: &Ast,
     tables: &TypeAliasTables,
@@ -223,7 +224,8 @@ pub(super) fn has_lossy_param(
             Some(ann) => {
                 p.name != "__this"
                     && (struct_shaped_ann(ann, &tables.aliases, &tables.generic_alias_decls)
-                        || str_or_arr_ann(ann, &tables.aliases, &tables.generic_alias_decls))
+                        || str_or_arr_ann(ann, &tables.aliases, &tables.generic_alias_decls)
+                        || crate::ast_closure_param_tag::is_fnsig_ann(&p.type_ann))
             }
             None => false,
         },

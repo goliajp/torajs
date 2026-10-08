@@ -72,7 +72,7 @@ pub(crate) fn twin_clone_params(ast: &Ast, target: &str, recv: bool) -> Option<V
 
 /// The target `target` when this lane can twin it
 /// ([`twin_clone_params`]), declaring at least one non-rest struct,
-/// string, array, `number` or `boolean` parameter. A body on the
+/// string, array, `number`, `boolean` or function-typed parameter. A body on the
 /// hidden-argc tier counts only the parameters it may read: one it
 /// never reads binds whatever the call hands it unseen.
 pub(in crate::check_monomorph_any_widen) fn widenable_target(
@@ -94,12 +94,12 @@ pub(in crate::check_monomorph_any_widen) fn widenable_target(
     let headless =
         ast.headless_argv_fns.contains(target) || ast.this_first_argc_fns.contains_key(target);
     let unseen = unseen_params(ast, target);
-    let anns = || {
+    let slots = || {
         params[recv_head..]
             .iter()
             .filter(|p| !p.is_rest && !unseen.contains(&p.name.as_str()))
-            .filter_map(|p| p.type_ann.as_deref())
     };
+    let anns = || slots().filter_map(|p| p.type_ann.as_deref());
     let shaped = anns().any(|ann| {
         struct_shaped_ann(ann, &c.aliases, &c.generic_alias_decls)
             || !headless && str_or_arr_ann(ann, &c.aliases, &c.generic_alias_decls)
@@ -111,7 +111,12 @@ pub(in crate::check_monomorph_any_widen) fn widenable_target(
                 Some(Type::Number | Type::Boolean)
             )
         });
-    (shaped || scalar).then_some(Twinnable {
+    // a fn-typed slot takes a bare function pointer, which no value
+    // handed over through `any` is: the mono adapter passes every such
+    // call to the twin, where the slot binds the value as it is
+    let fn_slot =
+        !headless && slots().any(|p| crate::ast_closure_param_tag::is_fnsig_ann(&p.type_ann));
+    (shaped || scalar || fn_slot).then_some(Twinnable {
         params,
         needs_escape: !shaped,
     })

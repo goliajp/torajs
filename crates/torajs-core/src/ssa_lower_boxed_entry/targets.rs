@@ -196,7 +196,9 @@ fn target_facts(
         return None;
     }
     let (rest, rest_kind) = rest_slot_kind(params, &user_tys, arr_layouts)?;
-    if !user_tys.iter().all(boxable) || !(ret_ty == Type::Void || boxable(&ret_ty)) {
+    // a fn-typed slot crosses only to the all-`any` twin (`build`)
+    let crosses = |t: &Type| boxable(t) || matches!(t, Type::FnSig(_));
+    if !user_tys.iter().all(crosses) || !(ret_ty == Type::Void || boxable(&ret_ty)) {
         return None;
     }
     // RFC 20260823-proxy-substrate 刀 4b — a TYPED array return

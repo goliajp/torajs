@@ -93,10 +93,14 @@ pub(super) fn build_boxed_entry(
     // user slot i is argv[i]: lead slots are user params, and so is a
     // receiver slot's `__this` (user slot 0, unboxed off argv below)
     if let Some(rr) = coerce.twin_reroute {
-        (entry, coerce.fit) = emit_twin_reroute(
+        let Some(go_on) = emit_twin_reroute(
             &mut f, entry, intr, &coerce, rr, env, argv, argc, user_tys, dflt_lits, recv_slot,
             feeds_env,
-        );
+        ) else {
+            module.funcs.push(f);
+            return (fid, own_sig);
+        };
+        (entry, coerce.fit) = go_on;
     }
     // A twin on the this-first argv lane: its `__this` is user param
     // 0 and sits BEFORE the hidden slots in the sig, so the receiver

@@ -61,7 +61,9 @@ pub(super) struct TwinReroute {
 /// undefined scalar or non-fitting struct argument, call the twin
 /// adapter and return its answer. Returns the block the adapter
 /// continues in and, per user slot, the loaded argument of a struct
-/// slot that fits (`BoxedCoerceIntrinsics::fit`).
+/// slot that fits (`BoxedCoerceIntrinsics::fit`); `None` when every
+/// call is the twin's: a fn-typed slot takes a bare function pointer,
+/// which no boxed value is.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn emit_twin_reroute(
     f: &mut ssa::Function,
@@ -76,7 +78,7 @@ pub(super) fn emit_twin_reroute(
     dflt_lits: &[Option<super::DfltLit>],
     recv_slot: bool,
     feeds_env: bool,
-) -> (ssa::BlockId, Vec<Option<ssa::ValueId>>) {
+) -> Option<(ssa::BlockId, Vec<Option<ssa::ValueId>>)> {
     let mut fit = vec![None; user_tys.len()];
     let lossy: Vec<usize> = (0..user_tys.len())
         .filter(|&i| {
@@ -89,10 +91,13 @@ pub(super) fn emit_twin_reroute(
         })
         .collect();
     if lossy.is_empty() && rr.argc_fixed.is_none() {
-        return (entry, fit);
+        return Some((entry, fit));
     }
     let reroute = f.add_block();
-    if let Some(n) = rr.argc_fixed {
+    let always = user_tys.iter().any(|t| matches!(t, Type::FnSig(_)));
+    if always {
+        f.set_term(entry, Terminator::Br(reroute));
+    } else if let Some(n) = rr.argc_fixed {
         let ne = f.append_inst(
             entry,
             InstKind::ICmp(
@@ -114,7 +119,7 @@ pub(super) fn emit_twin_reroute(
         );
         entry = next;
     }
-    for i in lossy {
+    for i in lossy.into_iter().filter(|_| !always) {
         let rest = coerce.rest && i + 1 == user_tys.len();
         let dflt = dflt_lits.get(i).and_then(|d| d.as_ref());
         let probe = slot_probe(&coerce.ids, intr, coerce.slots[i], user_tys[i], dflt, rest);
@@ -229,7 +234,7 @@ pub(super) fn emit_twin_reroute(
         )
     };
     f.set_term(reroute, Terminator::Ret(Some(Operand::Value(answer))));
-    (entry, fit)
+    (!always).then_some((entry, fit))
 }
 
 /// A twin minted beside a class method or constructor.
