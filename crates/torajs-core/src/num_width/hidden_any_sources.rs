@@ -27,7 +27,11 @@ impl Graph<'_> {
                 self.seeds.push(Node::AnyVal);
                 out.push(Node::AnyVal);
             }
-            Expr::Call { callee, .. } => out.extend(self.call_result(a, eid, *callee)),
+            Expr::Call { callee, .. } => {
+                out.extend(self.call_result(a, eid, *callee));
+                out.extend(self.container_read(a, eid, scope));
+            }
+            Expr::Member { .. } => out.extend(self.container_read(a, eid, scope)),
             Expr::Index { obj, .. } | Expr::OptIndex { obj, .. } => {
                 if let Some(n) = self.elem_source(a, *obj, scope) {
                     self.seeds.push(n.clone());

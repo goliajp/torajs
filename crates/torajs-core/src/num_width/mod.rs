@@ -45,6 +45,7 @@ mod fallthrough;
 mod fnsig;
 mod hidden_any;
 mod hidden_any_calls;
+mod hidden_any_containers;
 mod hidden_any_scope;
 mod hidden_any_seeds;
 mod hidden_any_sources;

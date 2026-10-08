@@ -264,6 +264,7 @@ impl Graph<'_> {
     fn exprs(&mut self, a: &Analysis<'_>, sc: &Scope, root: ExprId) {
         let mut stack = vec![root];
         while let Some(e) = stack.pop() {
+            self.container_writes(a, sc, e);
             match a.ast.get_expr(e) {
                 Expr::Assign { target, value } => {
                     if let Expr::Ident(n) = a.ast.get_expr(*target) {

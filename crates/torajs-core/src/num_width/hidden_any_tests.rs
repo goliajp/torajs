@@ -1,4 +1,4 @@
-use super::super::analyze;
+use super::super::{SlotKey, analyze};
 use crate::ast::{Ast, Expr, Stmt};
 use crate::{lexer, parser};
 use std::collections::HashMap;
@@ -151,4 +151,18 @@ fn a_function_returning_an_escaped_element_is_reported() {
     let mut rets: Vec<String> = h.rets.into_iter().collect();
     rets.sort();
     assert_eq!(rets, ["get", "relay"]);
+}
+
+#[test]
+fn an_array_stored_an_escaped_element_escapes() {
+    let src = format!(
+        "{ESCAPED}const acc: number[] = [];\nacc.push(d[0]);\nconst lit = [d[1], 5];\nconst t: number[] = [];\nt.push(1);\nconst w = [t[0]];\nconsole.log(acc, lit, t, w);"
+    );
+    let tokens = lexer::tokenize(&src).expect("lex");
+    let ast = parser::parse(&src, &tokens).expect("parse");
+    let (_, types) = crate::check::check_with_types(&ast).expect("check");
+    let t = analyze(&ast, &HashMap::new(), &HashMap::new(), &types);
+    let escapes = |n: &str| t.slot_escapes_any(&SlotKey::Global(n.into()));
+    assert!(escapes("acc") && escapes("lit"));
+    assert!(!escapes("t") && !escapes("w"));
 }

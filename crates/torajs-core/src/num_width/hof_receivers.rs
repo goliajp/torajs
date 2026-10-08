@@ -73,15 +73,36 @@ pub(crate) fn iterated_array(ast: &Ast, callee: ExprId, args: &[ExprId]) -> Opti
 /// undefined sentinel (`ssa_lower_boxed_entry::unbox`); its element
 /// parameter joins the sentinel-capable ones, so a read that asks
 /// (`typeof v`, printing `v`) answers `undefined`, not NaN. The last
-/// set holds the declarations that store such values, or the `any`
-/// parameters of the widened clones (`hidden_any`).
+/// part answers what such values reach (`hidden_any`), from the element
+/// parameters and the `any` parameters of the widened clones; a
+/// container one is stored into escapes too, and the faces close again.
 pub(super) fn settle(
     a: &Analysis<'_>,
     undef_params: &mut HashSet<(String, String)>,
 ) -> (HashSet<SlotKey>, HashSet<ExprId>, super::HiddenAny) {
     let mut seeds = [&a.any_seeds[..], &a.escape_only_seeds[..]].concat();
-    let (any_escaped, escaped) = loop {
-        let any_escaped = super::escape::propagate(&seeds, &a.uf, &a.containerish);
+    loop {
+        let (any_escaped, escaped) = close_products(a, &mut seeds);
+        let elem_params = elem_params(a, &escaped);
+        let mut sources = elem_params.clone();
+        sources.extend(super::hidden_any_seeds::widened_params(a.ast));
+        let hidden = super::hidden_any::collect(a, &any_escaped, &sources);
+        if hidden.filled.is_empty() {
+            undef_params.extend(elem_params);
+            return (any_escaped, escaped, hidden);
+        }
+        seeds.extend(hidden.filled);
+    }
+}
+
+/// Propagate `seeds` until no iteration product joins them; answers the
+/// escaped classes and the recorded arrays among them.
+fn close_products(
+    a: &Analysis<'_>,
+    seeds: &mut Vec<SlotKey>,
+) -> (HashSet<SlotKey>, HashSet<ExprId>) {
+    loop {
+        let any_escaped = super::escape::propagate(seeds, &a.uf, &a.containerish);
         let escaped: HashSet<ExprId> = a
             .hof_receivers
             .iter()
@@ -96,10 +117,15 @@ pub(super) fn settle(
             .filter(|k| !any_escaped.contains(&canon_key_frozen(&a.uf, k)))
             .collect();
         if products.is_empty() {
-            break (any_escaped, escaped);
+            return (any_escaped, escaped);
         }
         seeds.extend(products);
-    };
+    }
+}
+
+/// The callback parameters an iteration over `escaped` or an `any[]`
+/// hands its elements to.
+fn elem_params(a: &Analysis<'_>, escaped: &HashSet<ExprId>) -> HashSet<(String, String)> {
     let mut elem_params = HashSet::new();
     for e in &a.ast.exprs {
         let Expr::Call { callee, args } = e else {
@@ -113,17 +139,13 @@ pub(super) fn settle(
         } else {
             args.first()
         };
-        if any_elems(a, &escaped, recv)
+        if any_elems(a, escaped, recv)
             && let (Some(idx), Some(&cb)) = (elem_param(a.ast, *callee), cb)
         {
             taint_param(a, &callback_fn_name(a, cb), idx, &mut elem_params);
         }
     }
-    let mut sources = elem_params.clone();
-    sources.extend(super::hidden_any_seeds::widened_params(a.ast));
-    let hidden = super::hidden_any::collect(a, &any_escaped, &sources);
-    undef_params.extend(elem_params);
-    (any_escaped, escaped, hidden)
+    elem_params
 }
 
 /// Does `recv` hand its callbacks `any` elements: an escaped typed

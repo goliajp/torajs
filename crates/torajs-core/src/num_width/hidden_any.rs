@@ -43,6 +43,8 @@ pub(super) enum Node {
     Arg(ExprId),
     /// What a function returns.
     Ret(String),
+    /// What a container stores (`hidden_any_containers`).
+    Into(SlotKey),
 }
 
 /// What a name resolves to: one node, or the slot keys of every
@@ -95,12 +97,15 @@ pub(super) struct Graph<'s> {
 /// What the check driver changes for the next round: the initializers
 /// of the declarations to retype `any`, the call arguments that may
 /// carry a value of another kind than the checker reads them as, and
-/// the functions that may return one.
+/// the functions that may return one. `filled` are the containers such
+/// a value is stored into, which the width analysis itself turns into
+/// escapes.
 #[derive(Default)]
 pub(crate) struct HiddenAny {
     pub(crate) inits: HashSet<ExprId>,
     pub(crate) args: HashSet<ExprId>,
     pub(crate) rets: HashSet<String>,
+    pub(super) filled: Vec<SlotKey>,
 }
 
 /// The initializers of the declarations to retype `any`, and the call
@@ -196,6 +201,7 @@ impl Graph<'_> {
             match n {
                 Node::Arg(e) => drop(out.args.insert(*e)),
                 Node::Ret(f) => drop(out.rets.insert(f.clone())),
+                Node::Into(k) => out.filled.push(k.clone()),
                 _ => {}
             }
         }
