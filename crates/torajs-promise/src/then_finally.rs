@@ -55,11 +55,16 @@ unsafe extern "C" {
 }
 
 /// Forward the source's own settlement — what `.finally` answers with
-/// whatever the handler did.
+/// whatever the handler did. The value keeps its own form and a stake
+/// of its own (the source may be released first).
 unsafe fn forward_source(source: *mut c_void, result: *mut c_void) {
     unsafe {
         let src = as_promise(source);
         stamp_result_repr(result, (*src).value_repr);
+        (*as_promise(result)).value_is_heap = (*src).value_is_heap;
+        if (*src).value_is_heap != 0 && (*src).value != 0 {
+            __torajs_rc_inc((*src).value as *mut c_void);
+        }
         if (*src).state == STATE_FULFILLED {
             __torajs_promise_resolve(result, (*src).value);
         } else {
@@ -102,10 +107,9 @@ unsafe extern "C" fn finally_wait_dispatch(arg: i64) {
             // onRejected, so a rejected wait displaces the source's
             // settlement on either leg.
             //
-            // This leg takes a stake where the source leg above does
-            // not: the inner promise is one the handler made and this
-            // job is about to drop, so it may be the only owner of
-            // its reason.
+            // Like the source leg, this one takes a stake: the inner
+            // promise is one the handler made and this job is about
+            // to drop, so it may be the only owner of its reason.
             let reason = (*ip).value;
             let rp = as_promise((*a).result);
             (*rp).value_repr = (*ip).value_repr;

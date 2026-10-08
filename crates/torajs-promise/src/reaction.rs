@@ -54,6 +54,7 @@ pub mod record;
 
 unsafe extern "C" {
     fn __torajs_value_drop_heap(p: *mut c_void);
+    fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_microtask_enqueue(fn_: crate::layout::MicrotaskFn, arg: i64);
     /// torajs-microtask — the queue's pop and push counts and its
     /// job-boundary hook, read in place ([`queue_idle`])
@@ -225,7 +226,13 @@ unsafe fn run_inline_reaction(dp: *mut Promise) -> Stake {
         } else {
             // The handler's interest does not match: forward the
             // settlement unchanged so a downstream handler sees it.
+            // The value keeps its own form and a stake of its own (the
+            // source may be released first).
             stamp_result_repr(derived, (*sp).value_repr);
+            (*dp).value_is_heap = (*sp).value_is_heap;
+            if (*sp).value_is_heap != 0 && (*sp).value != 0 {
+                __torajs_rc_inc((*sp).value as *mut c_void);
+            }
             if rejected {
                 __torajs_promise_reject(derived, (*sp).value);
             } else {
