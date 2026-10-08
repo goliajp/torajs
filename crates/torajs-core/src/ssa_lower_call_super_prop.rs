@@ -43,15 +43,26 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx<'_>, name: &str, args: &[ExprId]) -> 
     if args.len() != arity {
         return None;
     }
-    let mut ops: Vec<Operand> = Vec::with_capacity(arity);
+    // §13.3.7.1 evaluates the key expression before
+    // MakeSuperPropertyReference reads the home object's prototype, so
+    // a key that re-links the prototype chain sees the new base.
+    let order: &[usize] = if name == crate::ast::private_brand::FIELD_DEFINE {
+        &[0, 1, 2]
+    } else if arity == 3 {
+        &[1, 0, 2]
+    } else {
+        &[1, 0, 2, 3]
+    };
+    let mut ops: Vec<Operand> = vec![Operand::ConstI64(0); arity];
     let mut boxed: Vec<Operand> = Vec::with_capacity(arity);
     let mut any_temps: Vec<(ExprId, Operand)> = Vec::new();
-    for &a in args {
+    for &i in order {
+        let a = args[i];
         let raw = ctx.lower_expr(a);
         let raw_ty = ctx.operand_ty(&raw);
         if raw_ty == Type::Any {
             any_temps.push((a, raw));
-            ops.push(raw);
+            ops[i] = raw;
         } else {
             if matches!(ctx.ast.get_expr(a), Expr::Ident(_) | Expr::Member { .. })
                 && raw_ty.is_refcounted()
@@ -59,7 +70,7 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx<'_>, name: &str, args: &[ExprId]) -> 
                 ctx.emit_rc_inc(raw);
             }
             let b = ctx.box_to_any_from_expr(a, raw);
-            ops.push(b);
+            ops[i] = b;
             boxed.push(b);
         }
     }
