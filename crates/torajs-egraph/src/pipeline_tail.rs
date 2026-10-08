@@ -1,11 +1,11 @@
 use crate::id_hash::HashMap;
 
-use torajs_core::ssa::{Module, ValueId};
+use torajs_core::ssa::{FuncId, Module, ValueId};
 
 use crate::{
     block_layout, concat_len, concat_num_fuse, gated_pass, interval, iv_merge, loop_rotate,
-    map_find_cse, rc_dec_immediate, rc_peephole, scaled_addr, select_form, srem_fquot, str_append,
-    unroll_jam, unroll_pair,
+    map_find_cse, pass_gates, pass_timer, rc_dec_immediate, rc_peephole, scaled_addr, select_form,
+    srem_fquot, str_append, strip_assumes, unroll_jam, unroll_pair,
 };
 
 /// Select formation and the inst-level fusions that read its output,
@@ -82,6 +82,7 @@ pub(crate) fn form_selects_and_fuse(module: &mut Module) {
 pub(crate) fn finish_pipeline(
     module: &mut Module,
     facts: Option<&[HashMap<ValueId, interval::NumFact>]>,
+    clones: &[(FuncId, FuncId)],
 ) {
     // Immediate-box release elision — `anyv_rc_dec` of a `box_from_
     // pair(<non-heap tag>, _)` is the kernel's own no-op (a `new C()`
@@ -121,6 +122,17 @@ pub(crate) fn finish_pipeline(
     gated_pass("UNROLL_PAIR", module, |m| {
         unroll_pair::pair_module(m, facts, &jammed)
     });
+    // The integer clones' entry assumptions, read by every analysis
+    // above, go before loop_rotate copies their blocks.
+    if !clones.is_empty() {
+        let stats = pass_timer::timed("STRIP_ASSUMES", || {
+            strip_assumes::strip_assumes(module, clones)
+        });
+        if std::env::var("TORAJS_FN_INT_CLONE_STATS").as_deref() == Ok("1") {
+            eprintln!("torajs-fn-int-clone-stats: {stats:?}");
+        }
+        pass_gates::dump_after("STRIP_ASSUMES", module);
+    }
     // Loop rotation — copy each top-tested loop's exit test into its
     // latch so the loop runs one conditional branch per iteration.
     // Before block_layout, which lays out the rotated body.

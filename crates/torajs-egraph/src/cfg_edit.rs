@@ -1,12 +1,15 @@
 //! The block-level edits a diamond-building pass makes: a fresh block,
-//! an instruction appended to one, and the renumbering after blocks
-//! move. `split_block_at` and `push_value` stay in `float_demote`,
-//! which owns their tests.
+//! an instruction appended to one, the renumbering after blocks
+//! move, and folding straight-line chains back into one block.
+//! `split_block_at` and `push_value` stay in `float_demote`, which
+//! owns their tests.
 
 use crate::id_hash::HashMap;
 
 use torajs_core::ssa::{Block, BlockId, Function, Inst, InstKind, Operand, Terminator, Type};
 
+use crate::branch_fold::sweep_unreachable_blocks;
+use crate::float_demote::cfg::successors;
 use crate::float_demote::push_value;
 
 /// An empty block at the end of the function, ending in `unreachable`
@@ -53,4 +56,41 @@ pub(crate) fn renumber(func: &mut Function) {
             Terminator::Ret(_) | Terminator::Unreachable => {}
         }
     }
+}
+
+/// Fold every block reached only by an unconditional branch from one
+/// other block into that block, then drop the emptied ones. Answers
+/// how many were folded.
+pub(crate) fn merge_straight_chains(func: &mut Function) -> u32 {
+    let mut merged = 0;
+    loop {
+        let mut preds = vec![0u32; func.blocks.len()];
+        for block in &func.blocks {
+            for s in successors(&block.term) {
+                preds[s.0 as usize] += 1;
+            }
+        }
+        let mut changed = false;
+        for b in 0..func.blocks.len() {
+            let Terminator::Br(t) = func.blocks[b].term else {
+                continue;
+            };
+            let t = t.0 as usize;
+            if t == b || t == 0 || preds[t] != 1 {
+                continue;
+            }
+            let insts = std::mem::take(&mut func.blocks[t].insts);
+            let term = std::mem::replace(&mut func.blocks[t].term, Terminator::Unreachable);
+            func.blocks[b].insts.extend(insts);
+            func.blocks[b].term = term;
+            preds[t] = 0;
+            merged += 1;
+            changed = true;
+        }
+        if !changed {
+            break;
+        }
+    }
+    sweep_unreachable_blocks(func);
+    merged
 }

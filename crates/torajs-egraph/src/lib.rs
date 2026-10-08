@@ -12,11 +12,6 @@
 //! 3. **Elaborate**: scoped elaboration converts the egraph back to SSA-
 //!    canonical form. Scope-stack memoization → GVN / CSE / LICM all fall
 //!    out from domtree-aware placement, no separate passes.
-//!
-//! Phase 0 (this commit and following 3-4 commits) ships substrate
-//! scaffold only — no rules, no production wiring. `EgraphPass::run`
-//! is identity (round-trip-equivalent) until Phase 1 lands the first
-//! rule cluster.
 
 pub mod block_chain;
 pub mod block_layout;
@@ -36,6 +31,7 @@ pub mod elaborate;
 mod fact_folds;
 pub mod fconst_hoist;
 pub mod float_demote;
+pub mod fn_int_clone;
 pub mod frame_cell_clean;
 pub mod frem_guard;
 pub mod frem_int;
@@ -79,6 +75,7 @@ pub mod slot_forward;
 pub mod srem_fquot;
 pub mod srem_parity;
 pub mod str_append;
+mod strip_assumes;
 pub mod throw_check_fold;
 pub mod unroll_jam;
 pub mod unroll_pair;
@@ -208,6 +205,9 @@ pub fn transform_module(mut module: Module) -> Module {
     // interval analysis / float_demote below see the recovered int
     // loops directly. `TORAJS_FREM_NARROW_OFF=1` skips (bisect gate).
     gated_pass("FREM_NARROW", &mut module, frem_narrow::narrow_frems);
+    // `TORAJS_FN_INT_CLONE_OFF=1` skips (bisect gate).
+    let clones = gated_pass("FN_INT_CLONE", &mut module, fn_int_clone::clone_functions)
+        .map_or_else(Vec::new, |s| s.clones);
     // `TORAJS_INT_ENTRY_OFF=1` skips (bisect gate).
     gated_pass("INT_ENTRY", &mut module, int_entry::version_loops);
     // Integer range analysis (analysis-only, RFC 20260611) — interval
@@ -324,7 +324,7 @@ pub fn transform_module(mut module: Module) -> Module {
         self_tail_call::eliminate_self_tail_calls,
     );
     pipeline_tail::form_selects_and_fuse(&mut module);
-    pipeline_tail::finish_pipeline(&mut module, interval_facts.as_deref());
+    pipeline_tail::finish_pipeline(&mut module, interval_facts.as_deref(), &clones);
     module
 }
 
