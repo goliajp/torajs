@@ -112,6 +112,12 @@ fn walk_stmt(
             }
             return;
         }
+        // A block's bindings stay visible to the statements after them
+        // in the block, and end with it.
+        Stmt::Block(list) => {
+            walk_list(ast, list, globals, scope, out);
+            return;
+        }
         // A compiler-minted sequence SHARES the surrounding scope (the
         // destructuring expansion's lets must stay visible to the
         // statements after it), so its children are not fenced off.

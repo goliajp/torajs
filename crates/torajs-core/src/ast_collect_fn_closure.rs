@@ -383,7 +383,20 @@ impl<'a> FnToClosureCollector<'a> {
                 }
                 self.walk_stmt(body, ret_is_any);
             }
-            Stmt::Block(stmts) | Stmt::Multi(stmts) => {
+            Stmt::Block(stmts) => {
+                // a block's own bindings hide a same-named top-level fn
+                // inside it; a fn body's frame already covers its blocks
+                let frame = stmts.iter().filter_map(|s| match s {
+                    Stmt::LetDecl { name, .. } => Some(name.clone()),
+                    _ => None,
+                });
+                self.shadowed.push(frame.collect());
+                for inner in stmts {
+                    self.walk_stmt(inner, ret_is_any);
+                }
+                self.shadowed.pop();
+            }
+            Stmt::Multi(stmts) => {
                 for inner in stmts {
                     self.walk_stmt(inner, ret_is_any);
                 }
