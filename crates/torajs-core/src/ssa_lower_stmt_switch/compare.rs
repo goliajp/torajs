@@ -2,7 +2,7 @@
 //! from the switch lowering (file-size line).
 
 use crate::ast::Expr;
-use crate::ssa::{BlockId, FPred, IPred, InstKind, Operand, Type};
+use crate::ssa::{FPred, IPred, InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
 /// `true` when this clause value is the `undefined` literal — the
@@ -23,9 +23,11 @@ pub(super) fn emit_case_compare(
     scrut_val: Operand,
     scrut_ty: Type,
     value: crate::ast::ExprId,
-    cmp_blk: BlockId,
 ) -> crate::ssa::ValueId {
     let v = ctx.lower_expr(value);
+    // a clause value may branch (`typeof y === "string"` on an `any`):
+    // the compare goes where its value ends, not where it began
+    let cmp_blk = ctx.cur_block;
     let is_null = matches!(ctx.ast.get_expr(value), Expr::Null);
     let is_undef = is_undefined_literal(ctx, value);
     let v_ty = ctx.operand_ty(&v);

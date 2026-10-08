@@ -137,8 +137,7 @@ pub(crate) fn lower(
     // after a mid-switch `default` sees the bindings the default
     // declares.
     for (i, c) in cases.iter().enumerate() {
-        let cmp_blk = ctx.cur_block;
-        let eq = emit_case_compare(ctx, scrutinee, scrut_val, scrut_ty, c.value, cmp_blk);
+        let eq = emit_case_compare(ctx, scrutinee, scrut_val, scrut_ty, c.value);
         let next_cmp_or_default = if i + 1 < cases.len() {
             ctx.f.add_block()
         } else {
