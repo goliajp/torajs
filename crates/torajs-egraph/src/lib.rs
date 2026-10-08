@@ -33,6 +33,7 @@ mod fact_folds;
 pub mod fconst_hoist;
 pub mod float_demote;
 pub mod fn_int_clone;
+pub mod frame_arr_drop;
 pub mod frame_cell_clean;
 pub mod frem_guard;
 pub mod frem_int;
@@ -245,6 +246,14 @@ pub fn transform_module(mut module: Module) -> Module {
     // Array header words out of loops (`array_header_passes`). After
     // branch_fold: its folded-away arms are no longer loop body.
     pipeline_loop::array_header_passes(&mut module);
+    // Frame-literal array releases behind an inline born-shape test
+    // (`frame_arr_drop`). After the header passes, which read the
+    // release as a call naming the array.
+    gated_pass(
+        "FRAME_ARR_DROP",
+        &mut module,
+        frame_arr_drop::guard_frame_arr_drops,
+    );
     // Repeated nullish checks and pending-exception probes whose
     // answer is already known. After branch_fold (it removes the
     // out-of-range arms whose calls would otherwise sit between).

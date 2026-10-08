@@ -26,9 +26,9 @@ use super::elem::{name_of, val};
 use super::elem_kernels::{ARR_DATA_PTR_OFF, ARR_HEADER_WORD_OFF};
 
 /// The header's size; a frame cell's inline slots start here.
-const ARR_CELL_SIZE: u64 = 40;
+pub(crate) const ARR_CELL_SIZE: u64 = 40;
 /// The props-bag slot.
-const ARR_PROPS_OFF: u64 = 24;
+pub(crate) const ARR_PROPS_OFF: u64 = 24;
 
 /// The typed element store's cold-arm kernels (see the module doc).
 pub(crate) const HEADER_WRITE_CALLS: &[&str] = &[
