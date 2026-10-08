@@ -154,3 +154,79 @@ pub(super) fn resolve_fn_cls(
         super::resolve_type_ann_inner(ret_str, aliases, type_params, generic_aliases, in_flight)?;
     Some(Type::Function(param_tys, Box::new(ret_ty)))
 }
+
+/// The markers the compiler mints for itself, which no source
+/// annotation can spell: the closure env, the raw argv pointer, the
+/// inline object type, and the three fn-shaped slots. They are kept
+/// together because they answer one question — "is this string a
+/// marker, and if so what type is it" — while everything around them
+/// answers "what does this source-visible annotation denote".
+///
+/// The outer `Option` is the marker test, the inner one is the
+/// resolution: `None` means fall through to the source-visible
+/// ladder, `Some(None)` means this WAS a marker that did not resolve.
+pub(super) fn resolve_internal_marker(
+    name: &str,
+    aliases: &HashMap<String, Type>,
+    type_params: &[String],
+    generic_aliases: &GenericAliasMap,
+    in_flight: &mut std::collections::HashSet<String>,
+) -> Option<Option<Type>> {
+    // M2 — closure env marker `__env(cap0|cap1|...)` injected by
+    // `lift_arrow_fns` on the hidden first param of capturing arrows. At
+    // the typechecker layer the env is just a printable opaque value
+    // (capture types are tracked separately in `Checker.closure_captures`),
+    // so we resolve it to `Any`. The SSA lowerer recognizes the same
+    // marker string and emits the actual env load preamble.
+    if name.starts_with("__env(") && name.ends_with(')') {
+        return Some(Some(Type::Any));
+    }
+    // RFC 20260708-closure-argv-face — raw argv pointer marker on
+    // the synthetic `__torajs_argv` param. Opaque at the checker
+    // layer (only the synthetic materialize call consumes it); the
+    // SSA parse_type maps it to Ptr.
+    if name == "__argvptr()" {
+        return Some(Some(Type::Any));
+    }
+    // V3-18 P2.4.c.2 — inline obj type `__inlobj(name1:T1|name2:T2|...)`
+    // decoded in resolve_inlobj.
+    if let Some(rest) = name.strip_prefix("__inlobj(") {
+        return Some(resolve_inlobj(
+            rest,
+            aliases,
+            type_params,
+            generic_aliases,
+            in_flight,
+        ));
+    }
+    // `__fn(P1|P2|...)->(R)` / `__cls(P1|...)->(R)` fn-type markers decoded
+    // in resolve_fn_cls.
+    if let Some(rest) = name
+        .strip_prefix("__fn(")
+        .or_else(|| name.strip_prefix("__cls("))
+    {
+        return Some(resolve_fn_cls(
+            rest,
+            aliases,
+            type_params,
+            generic_aliases,
+            in_flight,
+        ));
+    }
+    // RFC 20260714-objlit-accessor blade 1 — `__mth(P1|...)->(R)`, an
+    // object-literal METHOD slot. Types exactly like `__cls(`: the
+    // receiver is not in the signature (it is the lifted fn's hidden
+    // `__this`, reassembled at the field-call arm), so `o.m(x)` types at
+    // the arity the source has. The prefix exists only to tell that call
+    // arm to push the receiver — the `__cls(`-marker idiom.
+    if let Some(rest) = name.strip_prefix("__mth(") {
+        return Some(resolve_fn_cls(
+            rest,
+            aliases,
+            type_params,
+            generic_aliases,
+            in_flight,
+        ));
+    }
+    None
+}

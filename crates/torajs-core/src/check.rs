@@ -31,28 +31,11 @@ pub use type_def::Type;
 /// structurally as ever.
 pub(crate) type GenericAliasMap = HashMap<String, (Vec<String>, Vec<(PropKey, String)>, bool)>;
 
-/// M6.1 — string / array methods that borrow both their receiver and
-/// any args (no consume on pass). Shared between `check.rs`'s Call
-/// arm (deciding whether to skip the move) and `ssa_lower`'s Member-
-/// call dispatch (which routes these to the matching runtime
-/// intrinsic). Single source of truth so the two layers can't drift
-/// out of sync — a new borrow-method only has to be added here.
-pub const STRING_BORROW_METHODS: &[&str] = &[
-    "slice",
-    "charCodeAt",
-    "startsWith",
-    "endsWith",
-    "includes",
-    "indexOf",
-    "split",
-    "join",
-];
-
-// `is_class_method_name` lives in [`crate::check_method_name`]
-// (chunk-327 of the check.rs god-file decomp). Re-exported here so
-// callers (`check_type_of_call_dispatch_flags`) keep the canonical
-// `crate::check::is_class_method_name` import path.
-pub use crate::check_method_name::is_class_method_name;
+// `is_class_method_name` and `STRING_BORROW_METHODS` live in
+// [`crate::check_method_name`] (chunk-327 of the check.rs god-file
+// decomp). Re-exported here so callers keep the canonical
+// `crate::check::<name>` import path.
+pub use crate::check_method_name::{STRING_BORROW_METHODS, is_class_method_name};
 
 /// Per-scope-frame snapshot of which bindings are currently moved.
 /// Each inner Vec captures the bindings inside one scope frame as

@@ -8,39 +8,13 @@
 use crate::ast::{GenericStructDecls, PropKey};
 use std::collections::HashMap;
 
+mod absent;
 mod generic;
 mod markers;
+pub(crate) use absent::nullable_inner_boxes;
 
 use crate::ssa::{self, Type};
 use crate::ssa_lower::intern_arr_layout;
-
-/// RFC 20260710-optional-undefined-repr C4 — struct FIELD-position
-/// type resolution. A `__nullable(number|boolean)` field slot
-/// materializes as `Type::Any` (8B NaN-box): scalar slots have no
-/// in-band undefined/null encoding, so the optional slot pays the
-/// box tax (undefined = ANY_UNDEF, null = ANY_NULL, values box as
-/// i64/f64/bool) while non-optional slots stay raw. Param / let /
-/// return positions keep the plain [`parse_type`] strip — their ABI
-/// is unchanged. A `__nullable(<alias>)` whose alias RESOLVES to a
-/// scalar boxes the same way, through [`parse_type`]; every other
-/// spelling delegates verbatim.
-/// Does `__nullable(<inner>)` materialize as `Type::Any` rather than
-/// as the pointer-shaped in-band collapse?
-///
-/// A scalar `T | null` has nowhere to PUT the null — the in-band 0
-/// sentinel is a legitimate `0` / `false` — so it pays the 8B NaN-box
-/// tax instead (RFC 20260710-optional-undefined-repr C4). A
-/// pointer-shaped T genuinely has the bit pattern to spare and stays
-/// raw. This answers from the spelling alone; an alias RESOLVING to a
-/// scalar is boxed by [`parse_type`] once it has resolved it.
-///
-/// Every position that has to spell "the absent value" for such a slot
-/// asks HERE rather than restating the list — the parser's implicit
-/// optional-parameter default is the second caller, and two spellings
-/// of one rule is how the answers drift apart.
-pub(crate) fn nullable_inner_boxes(inner: &str) -> bool {
-    matches!(inner, "number" | "boolean")
-}
 
 /// The slot of `T | null` once `T` has resolved: an alias resolving to
 /// a scalar has nowhere to put the null either, so it boxes like the
@@ -52,6 +26,16 @@ fn nullable_slot(inner: Type) -> Type {
     }
 }
 
+/// RFC 20260710-optional-undefined-repr C4 — struct FIELD-position
+/// type resolution. A `__nullable(number|boolean)` field slot
+/// materializes as `Type::Any` (8B NaN-box): scalar slots have no
+/// in-band undefined/null encoding, so the optional slot pays the
+/// box tax (undefined = ANY_UNDEF, null = ANY_NULL, values box as
+/// i64/f64/bool) while non-optional slots stay raw. Param / let /
+/// return positions keep the plain [`parse_type`] strip — their ABI
+/// is unchanged. A `__nullable(<alias>)` whose alias RESOLVES to a
+/// scalar boxes the same way, through [`parse_type`]; every other
+/// spelling delegates verbatim.
 pub(crate) fn parse_struct_field_type(
     ann: &str,
     aliases: &HashMap<String, Type>,

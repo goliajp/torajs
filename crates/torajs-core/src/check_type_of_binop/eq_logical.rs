@@ -2,8 +2,8 @@
 //! (`==` / `===` and their negations, `&&` / `||`), carved out of
 //! `check_type_of_binop.rs` when the arithmetic side's BigInt
 //! verdict (rotation 629) took the file past the 500-line cap. The
-//! parent keeps the numeric family (add / arith / pow / bitwise /
-//! ordering) and dispatches here for these six.
+//! parent keeps the numeric family (add / arith / pow / bitwise;
+//! ordering is in `compare`) and dispatches here for these six.
 
 use crate::ast::{Ast, BinOp};
 use crate::check::{Type, js_loose_eq_supported};
