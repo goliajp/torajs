@@ -227,6 +227,13 @@ pub(super) fn resolve_internal_marker(
         }
         return Some(Some(Type::union_of(members)));
     }
+    if let Some(rest) = name.strip_prefix("__dict(")
+        && let Some(inner) = rest.strip_suffix(')')
+    {
+        let dict =
+            super::dict::resolve_dict(inner, aliases, type_params, generic_aliases, in_flight);
+        return Some(dict);
+    }
     // RFC 20260714-objlit-accessor blade 1 — `__mth(P1|...)->(R)`, an
     // object-literal METHOD slot. Types exactly like `__cls(`: the
     // receiver is not in the signature (it is the lifted fn's hidden

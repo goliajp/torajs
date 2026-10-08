@@ -95,6 +95,7 @@ impl Checker {
         // by Pass 0; Pass 2 reads globals populated by Pass 1 and
         // the pre-pass.
         crate::check_pipeline::pass_0_register_type_aliases(self, ast);
+        crate::check_type_ann::check_dict_sites(self, ast);
         crate::check_pipeline::pass_1_hoist_fn_signatures(self, ast);
         crate::check_pipeline::pass_2_register_globals_and_check_stmts(self, ast);
     }

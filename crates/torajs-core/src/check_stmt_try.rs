@@ -45,9 +45,8 @@ pub(crate) fn check(
             match resolve_type_ann_full(ann, &checker.aliases, &[], &checker.generic_alias_decls) {
                 Some(t) => t,
                 None => {
-                    checker
-                        .errors
-                        .push_err(format!("unknown type `{ann}` in catch param"));
+                    let msg = crate::check_type_ann::unknown_type(ann);
+                    checker.errors.push_err(format!("{msg} in catch param"));
                     Type::Any
                 }
             }

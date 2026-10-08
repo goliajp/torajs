@@ -132,6 +132,15 @@ pub enum Type {
     /// itself rides the any lane, so every type an expression hands
     /// its consumers has its unions folded to `Any` ([`Type::lane`]).
     Union(Vec<Type>),
+    /// An object type with an index signature (TS §3.9.4) — `{ [k:
+    /// string]: V }`, `Record<K, V>` — holding the key type `K` and
+    /// the value type `V`.
+    /// The object is a dictionary on the dynamic-object lane: a write
+    /// is checked against `V`, while a read by key answers `Any`,
+    /// since a key may name an inherited `Object.prototype` member
+    /// (ES §10.1.8 [[Get]] walks the prototype chain). Like a union,
+    /// its value travels as `Any` ([`Type::lane`]).
+    Dict(Box<Type>, Box<Type>),
     /// Compiled regex instance produced by a `/.../flags` literal or
     /// (eventually) `new RegExp(...)`. Heap-owned, non-Copy, ARC under
     /// the universal heap header. Distinct from `Type::Object("RegExp")`

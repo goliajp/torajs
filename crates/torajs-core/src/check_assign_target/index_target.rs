@@ -60,7 +60,8 @@ pub(crate) fn check_index(
     // `__torajs_any_index_set`. The value still typechecks for its
     // own side effects / diagnostics.
     if matches!(obj_ty, Type::Any) {
-        let _ = checker.type_of(ast, value)?;
+        let key = crate::ast::literal_prop_key(ast, index);
+        checker.check_dict_write(ast, obj, key.as_ref().and_then(|k| k.as_str()), value)?;
         return Ok(Type::Any);
     }
     // Rotation 346 — the struct + undefined-key pair the number

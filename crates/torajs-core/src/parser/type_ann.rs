@@ -176,8 +176,12 @@ impl<'a> Parser<'a> {
         // ssa_lower can share parsers with the existing fn-type reader.
         if matches!(self.peek(), Token::Lt) {
             self.pos += 1;
+            let args_pos = self.pos;
             let args = self.parse_type_args_list()?;
-            name = format!("{name}<{}>", args.join("|"));
+            name = match self.record_dict_ann(&name, &args, args_pos) {
+                Some(dict) => dict,
+                None => format!("{name}<{}>", args.join("|")),
+            };
         }
         self.read_type_postfix(name)
     }

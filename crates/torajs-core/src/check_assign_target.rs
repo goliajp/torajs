@@ -86,7 +86,7 @@ pub(crate) fn check_member(
     // stake (props lanes) and loudly rejected legal alias-rhs
     // writes.
     if matches!(*obj_ty, Type::Any | Type::Function(..) | Type::Array(_)) {
-        let _ = checker.type_of(ast, value)?;
+        checker.check_dict_write(ast, obj, Some(&field), value)?;
         return Ok(Type::Any);
     }
     // A namespace with a runtime singleton (RFC 20260801

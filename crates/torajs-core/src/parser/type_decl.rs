@@ -54,6 +54,9 @@ impl<'a> Parser<'a> {
                 break;
             }
         }
+        if matches!(self.peek(), Token::LBrace) && self.brace_body_has_index_sig() {
+            return self.finish_dict_interface(name, type_params, fields);
+        }
         match self.peek() {
             Token::LBrace => self.pos += 1,
             t => {
@@ -115,7 +118,10 @@ impl<'a> Parser<'a> {
         // resolve to the alias's actual Type without wrapping in
         // a Struct. Real struct-shape `{ ... }` keeps the
         // existing Vec<(name, ty)> path untouched.
-        if !matches!(self.peek(), Token::LBrace) || self.brace_type_heads_union() {
+        if !matches!(self.peek(), Token::LBrace)
+            || self.brace_type_heads_union()
+            || self.brace_body_has_index_sig()
+        {
             let ann = self.parse_type_ann()?;
             if matches!(self.peek(), Token::Semi) {
                 self.pos += 1;

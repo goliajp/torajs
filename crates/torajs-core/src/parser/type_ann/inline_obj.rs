@@ -1,14 +1,40 @@
-//! Object type literals — `{ x: T; y: U }`, encoded as
-//! `__inlobj(x:T|y:U)` for downstream check.rs to decode into a
-//! `Type::Struct` (same encoding scheme as `__fn(...)`).
+//! Object type literals — `{ x: T; y: U }` and the index signature
+//! `{ [k: string]: V }` (TS §3.9.4).
+//!
+//! A literal without an index signature is the struct shape
+//! `__inlobj(x:T|y:U)`, decoded into a `Type::Struct` downstream (same
+//! encoding scheme as `__fn(...)`). One with an index signature is a
+//! dictionary, spelled `__dict(K|V)`: the key type and the value type.
+//! The named members declared beside the signature only have to fit
+//! it; they go to `Ast::dict_sites` with the key, where the checker
+//! diagnoses both. The `Record<K, V>` utility type is the same
+//! dictionary ([`Parser::record_dict_ann`]).
 
 use super::*;
+use crate::ast::DictSite;
+
+/// One named member of an object type body: name, annotation, the
+/// annotation's source text and the name's byte offset.
+type ObjTypeMember = (String, String, String, u32);
+
+/// An index signature `[k: K]: V`: key annotation, its source text and
+/// the parameter name's byte offset; value annotation and source text.
+struct IndexSig {
+    key: String,
+    key_src: String,
+    key_at: u32,
+    value: String,
+    value_src: String,
+}
+
+/// An object type body: its named members and its index signature.
+type ObjTypeMembers = (Vec<ObjTypeMember>, Option<IndexSig>);
 
 impl Parser<'_> {
     /// The object type literal at the cursor (`{` not yet consumed).
     pub(super) fn parse_inline_obj_type(&mut self) -> Result<String, String> {
         self.pos += 1;
-        let fields = self.parse_obj_type_members(Token::RBrace, "inline obj type")?;
+        let (fields, index_sig) = self.parse_obj_type_members(Token::RBrace, "inline obj type")?;
         match self.peek() {
             Token::RBrace => self.pos += 1,
             t => {
@@ -18,7 +44,14 @@ impl Parser<'_> {
                 ));
             }
         }
-        let mut name = format!("__inlobj({})", fields.join("|"));
+        let mut name = match index_sig {
+            Some(sig) => self.dict_ann(sig, fields, false),
+            None => {
+                let fields: Vec<String> =
+                    fields.iter().map(|(n, t, ..)| format!("{n}:{t}")).collect();
+                format!("__inlobj({})", fields.join("|"))
+            }
+        };
         // V3-18 wedge — `{ ... } | null` shape. Mirror the
         // post-Ident pipe handler for the inline-obj case.
         // An array suffix does not continue past a line break.
@@ -36,24 +69,34 @@ impl Parser<'_> {
     }
 
     /// The members of an object type body up to (not consuming)
-    /// `close`, as `name:T`. A member ends at `,`, `;` or a line break.
-    pub(in crate::parser) fn parse_obj_type_members(
+    /// `close`: the named members, and the index signature when there
+    /// is one. With a `string` and a `number`
+    /// signature both present the `string` one is the dictionary's
+    /// (TS requires the `number` one's value to fit it).
+    fn parse_obj_type_members(
         &mut self,
         close: Token,
         what: &str,
-    ) -> Result<Vec<String>, String> {
-        let mut fields: Vec<String> = Vec::new();
+    ) -> Result<ObjTypeMembers, String> {
+        let mut fields: Vec<ObjTypeMember> = Vec::new();
+        let mut index_sig: Option<IndexSig> = None;
         while *self.peek() != close {
             // `readonly` on a member is type-side only: accepted and
             // discarded.
             if let Token::Ident(s) = self.peek()
                 && s == "readonly"
                 && let Some(next) = self.tokens.get(self.pos + 1)
-                && matches!(next.token, Token::Ident(_))
+                && matches!(next.token, Token::Ident(_) | Token::LBracket)
             {
                 self.pos += 1;
             }
-            fields.push(self.parse_obj_type_field(what)?);
+            if let Some(sig) = self.parse_index_sig()? {
+                if index_sig.as_ref().is_none_or(|prev| prev.key != "string") {
+                    index_sig = Some(sig);
+                }
+            } else {
+                fields.push(self.parse_obj_type_field(what)?);
+            }
             match self.peek() {
                 Token::Comma | Token::Semi => self.pos += 1,
                 t if *t == close => break,
@@ -66,12 +109,56 @@ impl Parser<'_> {
                 }
             }
         }
-        Ok(fields)
+        Ok((fields, index_sig))
     }
 
-    /// One named member `name: T` / `name?: T` / `m(p: T): R`, as
-    /// `name:T`.
-    fn parse_obj_type_field(&mut self, what: &str) -> Result<String, String> {
+    /// `[k: K]: V` at the cursor, consumed; `None` (nothing consumed)
+    /// when the cursor is not at one.
+    fn parse_index_sig(&mut self) -> Result<Option<IndexSig>, String> {
+        let at = |p: &Self, i: usize| p.tokens.get(p.pos + i).map(|t| &t.token);
+        if !(matches!(self.peek(), Token::LBracket)
+            && matches!(at(self, 1), Some(Token::Ident(_)))
+            && matches!(at(self, 2), Some(Token::Colon)))
+        {
+            return Ok(None);
+        }
+        let key_at = self.tokens[self.pos + 1].span.start;
+        self.pos += 3;
+        let (key, key_src) = self.parse_type_ann_src()?;
+        for (tok, what) in [(Token::RBracket, "`]`"), (Token::Colon, "`:`")] {
+            if *self.peek() != tok {
+                return Err(format!(
+                    "expected {what} in index signature, got {:?} at {}",
+                    self.peek(),
+                    self.at()
+                ));
+            }
+            self.pos += 1;
+        }
+        let (value, value_src) = self.parse_type_ann_src()?;
+        Ok(Some(IndexSig {
+            key,
+            key_src,
+            key_at,
+            value,
+            value_src,
+        }))
+    }
+
+    /// An annotation with its source text.
+    fn parse_type_ann_src(&mut self) -> Result<(String, String), String> {
+        let start = self.pos;
+        let ann = self.parse_type_ann()?;
+        let span = self.span_from(start);
+        Ok((
+            ann,
+            self.source[span.start as usize..span.end as usize].to_string(),
+        ))
+    }
+
+    /// One named member `name: T` / `name?: T` / `m(p: T): R`.
+    fn parse_obj_type_field(&mut self, what: &str) -> Result<ObjTypeMember, String> {
+        let at = self.at();
         let fname = match self.peek() {
             Token::Ident(n) => n.clone(),
             t => {
@@ -91,8 +178,14 @@ impl Parser<'_> {
         // `m(p: T): R` — a MethodSignature, which TS reads as the
         // property holding a `(p: T) => R`, so nothing downstream
         // learns a new shape.
-        let fty_raw = if matches!(self.peek(), Token::LParen) {
-            self.parse_method_sig_type_ann()?
+        let (fty_raw, src) = if matches!(self.peek(), Token::LParen) {
+            let start = self.pos;
+            let ann = self.parse_method_sig_type_ann()?;
+            let span = self.span_from(start);
+            (
+                ann,
+                self.source[span.start as usize..span.end as usize].to_string(),
+            )
         } else {
             match self.peek() {
                 Token::Colon => self.pos += 1,
@@ -103,7 +196,7 @@ impl Parser<'_> {
                     ));
                 }
             }
-            self.parse_type_ann()?
+            self.parse_type_ann_src()?
         };
         // Chunk 793 — struct-field fn slots are Closure-repr. Retag at
         // birth: this is the site that mints `__inlobj(` from syntax,
@@ -116,6 +209,109 @@ impl Parser<'_> {
         } else {
             fty_raw
         };
-        Ok(format!("{fname}:{fty}"))
+        Ok((fname, fty, src, at))
+    }
+
+    /// Whether the object type body opening at the `{` under the
+    /// cursor declares an index signature among its own members.
+    pub(in crate::parser) fn brace_body_has_index_sig(&self) -> bool {
+        let tok = |i: usize| self.tokens.get(i).map(|t| &t.token);
+        let mut depth = 0usize;
+        let mut prev: Option<&Token> = None;
+        for i in self.pos.. {
+            let Some(t) = tok(i) else { return false };
+            match t {
+                Token::LBracket
+                    if depth == 1
+                        && (matches!(prev, Some(Token::LBrace | Token::Semi | Token::Comma))
+                            || matches!(prev, Some(Token::Ident(s)) if s == "readonly")
+                            || self.has_newline_before(i))
+                        && matches!(tok(i + 1), Some(Token::Ident(_)))
+                        && matches!(tok(i + 2), Some(Token::Colon)) =>
+                {
+                    return true;
+                }
+                Token::LBrace | Token::LParen | Token::LBracket => depth += 1,
+                Token::RBrace | Token::RParen | Token::RBracket => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return false;
+                    }
+                }
+                _ => {}
+            }
+            prev = Some(t);
+        }
+        false
+    }
+
+    /// The rest of `interface Name { .. }` whose body declares an index
+    /// signature (cursor at `{`): the interface is the dictionary the
+    /// body spells, held as a type alias.
+    pub(in crate::parser) fn finish_dict_interface(
+        &mut self,
+        name: String,
+        type_params: Vec<String>,
+        heritage: Vec<(crate::ast::PropKey, String)>,
+    ) -> Result<Stmt, String> {
+        let body_at = self.at();
+        self.pos += 1;
+        let (mut fields, index_sig) =
+            self.parse_obj_type_members(Token::RBrace, "interface body")?;
+        self.pos += 1;
+        if matches!(self.peek(), Token::Semi) {
+            self.pos += 1;
+        }
+        // an inherited member must fit the signature as a declared one
+        // does; the parent's members are checked as one `extends` row
+        for (key, parent) in heritage {
+            fields.push((key.lossy().to_string(), parent.clone(), parent, body_at));
+        }
+        let sig = index_sig.expect("the lookahead saw an index signature");
+        let ann = self.dict_ann(sig, fields, false);
+        Ok(Stmt::TypeDecl {
+            name,
+            type_params,
+            fields: vec![(crate::ast::PropKey::from("__alias__"), ann)],
+        })
+    }
+
+    /// `Record<K, V>` (its type arguments already read, the first
+    /// starting at token `args_pos`) as the dictionary `__dict(K|V)`;
+    /// any other head or arity is `None`. `Record` is read as the
+    /// builtin utility type, the way `Array` and `Map` are.
+    pub(super) fn record_dict_ann(
+        &mut self,
+        head: &str,
+        args: &[String],
+        args_pos: usize,
+    ) -> Option<String> {
+        let ("Record", [key, value]) = (head, args) else {
+            return None;
+        };
+        let sig = IndexSig {
+            key: key.clone(),
+            key_src: key.clone(),
+            key_at: self.tokens[args_pos].span.start,
+            value: value.clone(),
+            value_src: value.clone(),
+        };
+        Some(self.dict_ann(sig, Vec::new(), true))
+    }
+
+    /// The dictionary spelling `__dict(K|V)`, its site recorded for the
+    /// checker's diagnostics.
+    fn dict_ann(&mut self, sig: IndexSig, members: Vec<ObjTypeMember>, record: bool) -> String {
+        let ann = format!("__dict({}|{})", sig.key, sig.value);
+        self.ast.dict_sites.push(DictSite {
+            record,
+            key_at: sig.key_at,
+            key: sig.key,
+            key_src: sig.key_src,
+            value: sig.value,
+            value_src: sig.value_src,
+            members,
+        });
+        ann
     }
 }

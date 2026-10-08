@@ -86,7 +86,8 @@ pub(crate) fn build_fn_type_full(
         };
         let Some(ty) = resolve_type_ann_decl(ann, aliases, type_params, generic_aliases) else {
             return Err(format!(
-                "unknown type `{ann}` for parameter `{}` of function `{fn_name}`",
+                "{} for parameter `{}` of function `{fn_name}`",
+                crate::check_type_ann::unknown_type(ann),
                 p.name
             ));
         };
@@ -115,7 +116,8 @@ pub(crate) fn build_fn_type_full(
             Some(ty) => ty,
             None => {
                 return Err(format!(
-                    "unknown return type `{t}` for function `{fn_name}`"
+                    "unknown return type `{}` for function `{fn_name}`",
+                    crate::check_type_ann::ann_text(t)
                 ));
             }
         },

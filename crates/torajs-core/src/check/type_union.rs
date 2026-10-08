@@ -27,13 +27,17 @@ impl Type {
         acc.finish()
     }
 
-    /// The type a value of this type travels as: every union, at any
-    /// depth, folded to `Any`. A union's value rides the any lane, so
+    /// The type a value of this type travels as: every union and every
+    /// dictionary ([`Type::Dict`]), at any depth, folded to `Any`. A union's value rides the any lane, so
     /// an array of unions is an `any[]`, a struct field holding one is
     /// an `any` field, and so on — the shapes the lowering already
     /// builds for those annotations.
     pub(crate) fn lane(self) -> Type {
-        if self.has_union() { self.fold() } else { self }
+        if self.has_lane_fold() {
+            self.fold()
+        } else {
+            self
+        }
     }
 
     /// The type a declared slot keeps: a union at the top keeps its
@@ -45,15 +49,18 @@ impl Type {
     pub(crate) fn decl_view(self) -> Type {
         match self {
             Type::Union(ms) => Type::Union(ms.into_iter().map(Type::lane).collect()),
+            // the value type keeps its own top union for the write check
+            Type::Dict(k, v) => Type::Dict(k, Box::new(v.decl_view())),
             t => t.lane(),
         }
     }
 
     /// TS §3.11.4 assignability with a union on either side: a union
     /// value fits a slot when every member does, a union slot takes
-    /// what any one of its members takes. `None` when neither side is
-    /// a union; `fits` is the caller's own member test.
-    pub(crate) fn union_fits(
+    /// what any one of its members takes. A dictionary slot is
+    /// [`Type::dict_fits`]'s. `None` when neither rule applies; `fits`
+    /// is the caller's own member test.
+    pub(crate) fn lane_fits(
         to: &Type,
         from: &Type,
         fits: &mut dyn FnMut(&Type, &Type) -> bool,
@@ -67,27 +74,52 @@ impl Type {
                     .all(|p| ms.iter().any(|m| fits(m, p))),
             ),
             (Type::Union(ms), _) => Some(ms.iter().any(|m| fits(m, from))),
+            _ => Type::dict_fits(to, from, fits),
+        }
+    }
+
+    /// TS §3.11.4 assignability into a dictionary slot `{ [k]: V }`: a
+    /// dictionary fits when its value type does; an object type when
+    /// every one of its properties fits `V` (TS §3.11.4's index
+    /// signature rule, with the object literal's implicit signature);
+    /// an array when its element type does (its keys are indices).
+    /// `None` for any other pair.
+    pub(crate) fn dict_fits(
+        to: &Type,
+        from: &Type,
+        fits: &mut dyn FnMut(&Type, &Type) -> bool,
+    ) -> Option<bool> {
+        let Type::Dict(k, v) = to else { return None };
+        match from {
+            Type::Dict(_, w) | Type::Array(w) => Some(fits(v, w)),
+            Type::Struct(fields) => Some(
+                fields
+                    .iter()
+                    .all(|(n, t)| !k.dict_key_covers(&n.lossy()) || fits(v, t)),
+            ),
             _ => None,
         }
     }
 
-    /// Whether a union occurs anywhere in this type — the common
-    /// answer is no, and then neither view rebuilds the type.
-    pub(crate) fn has_union(&self) -> bool {
+    /// Whether a union or a dictionary occurs anywhere in this type —
+    /// the common answer is no, and then neither view rebuilds the type.
+    pub(crate) fn has_lane_fold(&self) -> bool {
         match self {
-            Type::Union(_) => true,
-            Type::Array(e) | Type::Rest(e) | Type::Promise(e) | Type::MapIter(e) => e.has_union(),
-            Type::Nullable(e) => e.has_union(),
-            Type::Map(k, v) => k.has_union() || v.has_union(),
-            Type::Function(ps, r) => ps.iter().any(Type::has_union) || r.has_union(),
-            Type::Struct(fields) => fields.iter().any(|(_, t)| t.has_union()),
+            Type::Union(_) | Type::Dict(..) => true,
+            Type::Array(e) | Type::Rest(e) | Type::Promise(e) | Type::MapIter(e) => {
+                e.has_lane_fold()
+            }
+            Type::Nullable(e) => e.has_lane_fold(),
+            Type::Map(k, v) => k.has_lane_fold() || v.has_lane_fold(),
+            Type::Function(ps, r) => ps.iter().any(Type::has_lane_fold) || r.has_lane_fold(),
+            Type::Struct(fields) => fields.iter().any(|(_, t)| t.has_lane_fold()),
             _ => false,
         }
     }
 
     fn fold(self) -> Type {
         match self {
-            Type::Union(_) => Type::Any,
+            Type::Union(_) | Type::Dict(..) => Type::Any,
             Type::Array(e) => Type::Array(Box::new(e.lane())),
             Type::Rest(e) => Type::Rest(Box::new(e.lane())),
             Type::Promise(e) => Type::Promise(Box::new(e.lane())),

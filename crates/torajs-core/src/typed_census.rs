@@ -52,10 +52,14 @@ pub(crate) struct TypedCensus {
     pub(crate) typed: u64,
     /// 定出 `Type::Any` 的表达式 —— 类型被放弃到运行期。
     pub(crate) any: u64,
-    /// Expressions the checker typed as a union whose value rides the
+    /// Expressions the checker typed as a union, whose value rides the
     /// any lane: the members took part in the checks but not in
     /// codegen, so they count as neither typed nor plain any.
     pub(crate) union: u64,
+    /// Expressions the checker typed as a dictionary (an index
+    /// signature / `Record`): the value type checks the writes, the
+    /// value rides the any lane. Scored like `union`, counted apart.
+    pub(crate) dict: u64,
     /// Error 级 diagnostic 条数(见模块 doc 第 2 条,**不是**表达式数)。
     pub(crate) refused: u64,
 }
@@ -74,7 +78,7 @@ impl TypedCensus {
 
     /// Every typed expression, all three buckets.
     pub(crate) fn scored(&self) -> u64 {
-        self.typed + self.any + self.union
+        self.typed + self.any + self.union + self.dict
     }
 
     /// 一行机器可读的读数,给 `hardev/autorun/` 的采集脚本解析。
@@ -87,10 +91,11 @@ impl TypedCensus {
             None => "none".to_string(),
         };
         format!(
-            "torajs-typed-census: typed={} any={} union={} refused={} scored={} typed_ratio={}",
+            "torajs-typed-census: typed={} any={} union={} dict={} refused={} scored={} typed_ratio={}",
             self.typed,
             self.any,
             self.union,
+            self.dict,
             self.refused,
             self.scored(),
             ratio,
@@ -106,8 +111,11 @@ impl Checker {
             if skip.contains(eid) {
                 continue;
             }
-            if self.unions.types.contains_key(eid) {
-                census.union += 1;
+            if let Some(t) = self.unions.types.get(eid) {
+                match t {
+                    Type::Dict(..) => census.dict += 1,
+                    _ => census.union += 1,
+                }
             } else if matches!(ty, Type::Any) {
                 census.any += 1;
             } else {
@@ -154,6 +162,7 @@ mod tests {
             typed: 3,
             any: 1,
             union: 0,
+            dict: 0,
             refused: 7,
         };
         assert_eq!(census.typed_ratio(), Some(0.75));
@@ -168,6 +177,7 @@ mod tests {
             typed: 0,
             any: 5,
             union: 0,
+            dict: 0,
             refused: 0,
         };
         assert_eq!(census.typed_ratio(), Some(0.0));
@@ -180,11 +190,12 @@ mod tests {
             typed: 2,
             any: 1,
             union: 1,
+            dict: 1,
             refused: 0,
         };
-        assert_eq!(census.typed_ratio(), Some(0.5));
+        assert_eq!(census.typed_ratio(), Some(0.4));
         let line = census.report_line();
-        assert!(line.contains("any=1 union=1"));
-        assert!(line.contains("scored=4"));
+        assert!(line.contains("any=1 union=1 dict=1"));
+        assert!(line.contains("scored=5"));
     }
 }

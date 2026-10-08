@@ -23,10 +23,11 @@ use super::{Checker, Type};
 /// The union facts the checker keeps beside its plain type tables.
 #[derive(Default)]
 pub(crate) struct UnionFacts {
-    /// The expressions whose type is a union, with that union.
-    /// `expr_types` holds what the value travels as (`Any`); this keeps
-    /// the members, for the member check on a union receiver and for
-    /// the census's `union` bucket.
+    /// The expressions whose type is a union or a dictionary, with
+    /// that type. `expr_types` holds what the value travels as (`Any`);
+    /// this keeps the members (the value type), for the member check on
+    /// a union receiver, the write check on a dictionary and the
+    /// census's `union` bucket.
     pub(crate) types: std::collections::HashMap<ExprId, Type>,
     /// The loose union bindings that live in `globals` — a scope
     /// binding keeps its mark on its own `LocalInfo`.
@@ -56,7 +57,7 @@ impl Checker {
     /// binding, whose surviving members are unknown — that value fits
     /// a slot the way an `any` does.
     pub(crate) fn record_type(&mut self, ast: &Ast, eid: ExprId, t: Type) -> Type {
-        if !t.has_union() {
+        if !t.has_lane_fold() {
             if !self.unions.types.is_empty() {
                 self.unions.types.remove(&eid);
             }
@@ -64,7 +65,7 @@ impl Checker {
             return t;
         }
         let t = t.decl_view();
-        if matches!(t, Type::Union(_)) {
+        if matches!(t, Type::Union(_) | Type::Dict(..)) {
             self.unions.types.insert(eid, t.clone());
         } else {
             self.unions.types.remove(&eid);

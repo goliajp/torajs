@@ -75,7 +75,7 @@ fn is_assignable_to_deep(
     if matches!(to_r, Type::Void) && matches!(from_r, Type::Undefined) {
         return true;
     }
-    if let Some(fits) = Type::union_fits(&to_r, &from_r, &mut |t, f| {
+    if let Some(fits) = Type::lane_fits(&to_r, &from_r, &mut |t, f| {
         is_assignable_to_deep(t, f, class_structs, aliases, generic_aliases, seen)
     }) {
         return fits;
@@ -172,7 +172,7 @@ pub(crate) fn is_assignable_to(to: &Type, from: &Type) -> bool {
     }
     if !matches!(to, Type::Any)
         && !matches!(from, Type::Any | Type::Never)
-        && let Some(fits) = Type::union_fits(to, from, &mut |t, f| is_assignable_to(t, f))
+        && let Some(fits) = Type::lane_fits(to, from, &mut |t, f| is_assignable_to(t, f))
     {
         return fits;
     }

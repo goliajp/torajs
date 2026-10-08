@@ -7,6 +7,9 @@
 //! The nullish members are skipped, the posture a `T | null` receiver
 //! already has: reading through a null is the runtime TypeError, not a
 //! compile stop.
+//!
+//! A dictionary receiver ([`Type::Dict`]) rides the same lane, and its
+//! check is on the write side: what is stored must fit the value type.
 
 use crate::ast::{Ast, Expr, ExprId};
 
@@ -58,6 +61,40 @@ impl Checker {
         ))
     }
 
+    /// Types the `value` of `obj[k] = value` / `obj.k = value`, and
+    /// refuses it when `obj` was typed as a dictionary whose value type
+    /// it does not fit (TS §4.11.2 / §3.11.4; no runtime semantics are
+    /// involved, the store itself always succeeds). `name` is the
+    /// property when the key spells one; a name the signature's key
+    /// does not cover is a named member's, whose type is not kept.
+    pub(crate) fn check_dict_write(
+        &mut self,
+        ast: &Ast,
+        obj: ExprId,
+        name: Option<&str>,
+        value: ExprId,
+    ) -> Result<(), String> {
+        let value_ty = self.type_of_raw(ast, value)?;
+        let Some(Type::Dict(k, v)) = self.unions.types.get(&obj) else {
+            return Ok(());
+        };
+        if name.is_some_and(|n| !k.dict_key_covers(n)) {
+            return Ok(());
+        }
+        if crate::check_assignable::is_assignable_to_resolved(
+            v,
+            &value_ty,
+            &self.class_structs,
+            &self.aliases,
+            &self.generic_alias_decls,
+        ) {
+            return Ok(());
+        }
+        Err(format!(
+            "type mismatch: {value_ty:?} is not assignable to the dictionary's value type {v:?}"
+        ))
+    }
+
     /// [`Self::check_union_member`] for the callee of `obj.name(..)`
     /// when `obj` is a union binding: several call routes claim a
     /// method call off its syntax without typing the member read.
@@ -76,9 +113,9 @@ impl Checker {
         Ok(())
     }
 
-    /// TS §4.15.1 argument assignability for the union parameters of a
-    /// named function: an argument the any lane would carry anyway
-    /// must still be one of the parameter's members.
+    /// TS §4.15.1 argument assignability for the union and dictionary
+    /// parameters of a named function: an argument the any lane would
+    /// carry anyway must still fit the parameter's members.
     pub(crate) fn check_union_args(
         &self,
         ast: &Ast,
@@ -99,7 +136,7 @@ impl Checker {
             return Ok(());
         };
         for (i, (p, a)) in params.iter().zip(args).enumerate() {
-            if !matches!(p, Type::Union(_)) {
+            if !matches!(p, Type::Union(_) | Type::Dict(..)) {
                 continue;
             }
             let given = match ast.get_expr(*a) {

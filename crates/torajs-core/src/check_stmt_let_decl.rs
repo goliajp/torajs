@@ -35,7 +35,7 @@ use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, DiagPush, LocalInfo, Type};
 use crate::check_assignable::is_assignable_to_resolved;
 use crate::check_stmt_let_decl_selfref::{SelfRef, predeclare_self_ref_closure};
-use crate::check_type_ann::{resolve_type_ann_decl, resolve_type_ann_full};
+use crate::check_type_ann::{resolve_type_ann_decl, resolve_type_ann_full, unknown_type};
 
 pub(crate) fn check(
     checker: &mut Checker,
@@ -116,7 +116,7 @@ pub(crate) fn check(
             let Some(ann_ty) =
                 resolve_type_ann_decl(ann, &checker.aliases, &[], &checker.generic_alias_decls)
             else {
-                checker.errors.push_err(format!("unknown type `{ann}`"));
+                checker.errors.push_err(unknown_type(ann));
                 return;
             };
             let init_ty =
@@ -435,7 +435,7 @@ fn check_empty_array_ann(
             let Some(t) =
                 resolve_type_ann_full(ann, &checker.aliases, &[], &checker.generic_alias_decls)
             else {
-                checker.errors.push_err(format!("unknown type `{ann}`"));
+                checker.errors.push_err(unknown_type(ann));
                 return None;
             };
             // An `any` annotation absorbs the literal (chunk-809

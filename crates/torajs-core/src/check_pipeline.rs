@@ -19,7 +19,7 @@ use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
 use crate::check::{
     Checker, DiagPush, GenericAliasMap, Type, build_fn_type_full, resolve_type_ann,
 };
-use crate::check_type_ann::{resolve_type_ann_decl, resolve_type_ann_full};
+use crate::check_type_ann::{resolve_type_ann_decl, resolve_type_ann_full, unknown_type};
 use std::collections::HashMap;
 
 /// Pass 0 — install the alias tables read off `ast.stmts`; see
@@ -149,9 +149,8 @@ pub(crate) fn collect_type_alias_tables(ast: &Ast) -> TypeAliasTables {
                         t.aliases.insert(name.clone(), ty);
                     }
                     None => {
-                        t.errors.push(format!(
-                            "unknown type `{alias_ann}` for type alias `{name}`"
-                        ));
+                        let msg = unknown_type(alias_ann);
+                        t.errors.push(format!("{msg} for type alias `{name}`"));
                     }
                 }
                 continue;
@@ -162,10 +161,9 @@ pub(crate) fn collect_type_alias_tables(ast: &Ast) -> TypeAliasTables {
                 match resolve_type_ann_full(fty_ann, &t.aliases, &[], &t.generic_alias_decls) {
                     Some(ty) => field_tys.push((fname.clone(), ty)),
                     None => {
-                        t.errors.push(format!(
-                            "unknown type `{fty_ann}` for field `{}` of `{name}`",
-                            fname.lossy()
-                        ));
+                        let msg = unknown_type(fty_ann);
+                        t.errors
+                            .push(format!("{msg} for field `{}` of `{name}`", fname.lossy()));
                         had_err = true;
                         break;
                     }

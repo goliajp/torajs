@@ -167,6 +167,31 @@ pub(crate) fn unify_typevar(
             Ok(())
         }
         (Type::Nullable(p), Type::Nullable(a)) => unify_typevar(p, a, subst, parents),
+        // a dictionary pattern reads its key and value types off a
+        // dictionary, an object type (string-named properties, those
+        // the key covers) or an array (index keys)
+        (Type::Dict(pk, pv), actual) => {
+            let (key, values): (Type, Vec<&Type>) = match actual {
+                Type::Dict(ak, av) => ((**ak).clone(), vec![&**av]),
+                Type::Struct(fields) => (
+                    Type::String,
+                    fields
+                        .iter()
+                        .filter(|(n, _)| pk.dict_key_covers(&n.lossy()))
+                        .map(|(_, t)| t)
+                        .collect(),
+                ),
+                Type::Array(e) => (Type::Number, vec![&**e]),
+                Type::Any => return Ok(()),
+                _ => return Err(format!("expected {pattern:?}, got {actual:?}")),
+            };
+            if matches!(**pk, Type::TypeVar(_)) {
+                unify_typevar(pk, &key, subst, parents)?;
+            }
+            values
+                .into_iter()
+                .try_for_each(|v| unify_typevar(pv, v, subst, parents))
+        }
         (a, b) if a == b => Ok(()),
         (a, b) => Err(format!("expected {a:?}, got {b:?}")),
     }
@@ -246,7 +271,9 @@ pub(crate) fn typevar_appears_in(ty: &Type, name: &str) -> bool {
     match ty {
         Type::TypeVar(n) => n == name,
         Type::Array(inner) | Type::MapIter(inner) => typevar_appears_in(inner, name),
-        Type::Map(k, v) => typevar_appears_in(k, name) || typevar_appears_in(v, name),
+        Type::Map(k, v) | Type::Dict(k, v) => {
+            typevar_appears_in(k, name) || typevar_appears_in(v, name)
+        }
         Type::Function(args, ret) => {
             args.iter().any(|t| typevar_appears_in(t, name)) || typevar_appears_in(ret, name)
         }

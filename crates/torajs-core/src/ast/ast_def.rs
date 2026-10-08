@@ -1614,6 +1614,23 @@ pub struct Ast {
     /// after parsing, so `ast::triage_await_idents` (prelude) raises
     /// the module-goal SyntaxError when this is non-empty.
     pub await_ident_positions: Vec<u32>,
+    /// Every index signature and `Record<K, V>` the parser read, for
+    /// the checker's diagnostics on its key and named members.
+    pub dict_sites: Vec<DictSite>,
+}
+
+/// An index signature or a `Record<K, V>` as written: source text and
+/// byte offsets of the key, the value and each named member beside it.
+#[derive(Debug, Clone)]
+pub struct DictSite {
+    pub record: bool,
+    pub key_at: u32,
+    pub key: String,
+    pub key_src: String,
+    pub value: String,
+    pub value_src: String,
+    /// `(name, annotation, annotation source, name offset)`.
+    pub members: Vec<(String, String, String, u32)>,
 }
 
 /// Thin wrapper preserving the `ast::desugar_builtin_new` public

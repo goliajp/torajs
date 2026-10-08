@@ -5,8 +5,10 @@
 //! closes its back-edge as nominal `Type::ClassRef("Rec<number>")`
 //! instead of recursing forever (V3-05 placeholder scheme mirror).
 
+mod dict;
 mod generic;
 mod markers;
+pub(crate) use dict::{ann_text, check_dict_sites, unknown_type};
 pub(crate) use generic::expand_instantiation_full;
 pub(crate) use markers::{split_top_pipe, strip_nullable};
 use std::collections::HashMap;

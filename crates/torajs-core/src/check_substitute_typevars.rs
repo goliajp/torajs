@@ -24,6 +24,10 @@ pub(crate) fn substitute_typevars(ty: &Type, subst: &HashMap<String, Type>) -> T
             Box::new(substitute_typevars(k, subst)),
             Box::new(substitute_typevars(v, subst)),
         ),
+        Type::Dict(k, v) => Type::Dict(
+            Box::new(substitute_typevars(k, subst)),
+            Box::new(substitute_typevars(v, subst)),
+        ),
         Type::MapIter(inner) => Type::MapIter(Box::new(substitute_typevars(inner, subst))),
         Type::Function(args, ret) => Type::Function(
             args.iter().map(|t| substitute_typevars(t, subst)).collect(),

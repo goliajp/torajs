@@ -354,8 +354,8 @@ fn parse_keyword(s: &str, aliases: &HashMap<String, Type>) -> Type {
         "Response" => Type::Ptr,
         // T-10.a — Any plumbing; single 64B ptr slot, tag via heap header.
         "any" => Type::Any,
-        // a union's value is NaN-boxed: the members are a checker fact
-        s if s.starts_with("__union(") => Type::Any,
+        // a union's / dictionary's value is NaN-boxed: the members are a checker fact
+        s if s.starts_with("__union(") || s.starts_with("__dict(") => Type::Any,
         // TS `object` collapses to Type::Any (non-primitive constraint
         // is independent substrate; mirror of `check_type_ann.rs`).
         "object" => Type::Any,
