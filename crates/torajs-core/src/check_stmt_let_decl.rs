@@ -30,7 +30,7 @@
 //! fully usable afterwards.
 
 pub(crate) mod any_layout_slot;
-mod contextual_array;
+pub(crate) mod contextual_array;
 pub(crate) use contextual_array::{apply_contextual_array_ann, apply_contextual_array_ann_store};
 
 use crate::ast::{Ast, Expr, ExprId};

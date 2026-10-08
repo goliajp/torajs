@@ -36,6 +36,9 @@ pub(crate) fn in_declared_order(
     value: ExprId,
     value_ty: Type,
 ) -> Type {
+    crate::check_stmt_let_decl::contextual_array::refuse_unfit_elems(
+        checker, ast, value, to, &value_ty,
+    );
     let mut records = Vec::new();
     let Some(ty) = reorder(checker, ast, to, value, &value_ty, &mut records) else {
         return value_ty;

@@ -57,11 +57,6 @@ pub(crate) fn apply_contextual_array_ann_store(
     let Expr::Array(elements) = ast.get_expr(eid) else {
         return;
     };
-    if any_layout_slot::struct_elem_array(ann)
-        && let Some(Type::Array(inferred)) = checker.expr_types.get(&eid).cloned()
-    {
-        refuse_unfit_elems(checker, ast, elements, &inferred, elem_ann);
-    }
     checker.expr_types.insert(eid, ann.clone());
     // The lowering flavor gate keys off this side-set, NOT off
     // expr_types — infer-widened Array<Any> shapes (`["a",
@@ -74,21 +69,30 @@ pub(crate) fn apply_contextual_array_ann_store(
     }
 }
 
-/// A struct-array literal was admitted by its inferred element type:
-/// its first element's, or `any` when the elements share none (an `any`
-/// element fits any slot). It now takes `T[]` and every element is read
-/// as a `T`, so each object element of another type that is not itself
-/// a literal (those are laid out to the declared type where they stand)
-/// has to fit `T` on its own — a class instance that only matched the
-/// first element's data fields included. TS refuses the declaration
-/// otherwise, and the spec gives it no meaning.
-fn refuse_unfit_elems(
+/// A struct-array literal written where `T[]` is expected (`ann`; every
+/// position `in_declared_order` serves) is admitted by its inferred
+/// element type: its first element's, or `any` when the elements share
+/// none (an `any` element fits any slot). It then takes `T[]` and every
+/// element is read as a `T`, so each object element of another type
+/// that is not itself a literal (those are laid out to the declared
+/// type where they stand) has to fit `T` on its own — a class instance
+/// that only matched the first element's data fields included. TS
+/// refuses the program otherwise, and the spec gives it no meaning.
+pub(crate) fn refuse_unfit_elems(
     checker: &mut Checker,
     ast: &Ast,
-    elements: &[ExprId],
+    eid: ExprId,
+    ann: &Type,
     inferred: &Type,
-    elem_ann: &Type,
 ) {
+    let (Type::Array(elem_ann), Expr::Array(elements), Type::Array(inferred)) =
+        (ann, ast.get_expr(eid), inferred)
+    else {
+        return;
+    };
+    if !any_layout_slot::struct_elem_array(ann) {
+        return;
+    }
     for (i, &el) in elements.iter().enumerate() {
         if matches!(
             ast.get_expr(el),
@@ -99,7 +103,7 @@ fn refuse_unfit_elems(
         let Some(t) = checker.expr_types.get(&el).cloned() else {
             continue;
         };
-        if !matches!(t, Type::Struct(_) | Type::ClassRef(_)) || t == *inferred {
+        if !matches!(t, Type::Struct(_) | Type::ClassRef(_)) || t == **inferred {
             continue;
         }
         let tables = (
