@@ -181,6 +181,11 @@ fn duplicable(kind: &InstKind) -> bool {
     match kind {
         InstKind::BinOp(op, _, _) => !matches!(op, BinOp::SDiv | BinOp::SRem | BinOp::FRem),
         InstKind::ICmp(..) | InstKind::FCmp(..) => true,
+        InstKind::SiToFp(_)
+        | InstKind::FpToSi(_)
+        | InstKind::FpToInt32(_)
+        | InstKind::ZExtBoolToI64(_)
+        | InstKind::ZExtI32ToI64(_) => true,
         _ => false,
     }
 }
@@ -272,6 +277,11 @@ fn remap_operands(kind: &mut InstKind, rename: &HashMap<ValueId, ValueId>) {
             fix(a);
             fix(b);
         }
+        InstKind::SiToFp(a)
+        | InstKind::FpToSi(a)
+        | InstKind::FpToInt32(a)
+        | InstKind::ZExtBoolToI64(a)
+        | InstKind::ZExtI32ToI64(a) => fix(a),
         _ => unreachable!("only duplicable kinds are copied"),
     }
 }
