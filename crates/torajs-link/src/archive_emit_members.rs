@@ -8,6 +8,9 @@ use crate::archives_merge::MergedArchives;
 use crate::member_apply::apply_member_relocs;
 use crate::resolve::SymTable;
 
+/// Each member's `__text` bytes, and its non-text `__TEXT` section bytes.
+type MemberPayloads = (Vec<Vec<u8>>, Vec<Vec<u8>>);
+
 /// The patched `__text` of every laid-out member, in layout order,
 /// and the bytes of its non-text `__TEXT` sections, in
 /// `compute_non_text_layouts` order.
@@ -15,7 +18,7 @@ pub(crate) fn member_text_payloads(
     layout: &ArchiveLayout,
     merged: &MergedArchives<'_>,
     sym_table: &SymTable,
-) -> Result<(Vec<Vec<u8>>, Vec<Vec<u8>>), ArchiveLayoutError> {
+) -> Result<MemberPayloads, ArchiveLayoutError> {
     let mut text: Vec<Vec<u8>> = Vec::with_capacity(layout.member_layouts.len());
     let mut non_text: Vec<Vec<u8>> = Vec::new();
     for (mi, m) in layout.member_layouts.iter().enumerate() {

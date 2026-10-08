@@ -72,7 +72,7 @@ fn misaligned_base_is_refused() {
 
 #[test]
 fn image_past_the_user_address_space_is_refused() {
-    for base in [1u64 << 47, u64::MAX & !0x3fff] {
+    for base in [1u64 << 47, !0x3fff] {
         let b = edited(|b| b[16..24].copy_from_slice(&base.to_le_bytes()));
         assert_eq!(layout_error(&b), "preferred base", "base {base:#x}");
     }

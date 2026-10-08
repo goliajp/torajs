@@ -47,7 +47,7 @@ pub fn flatten_interface_extends(ast: &mut Ast) {
 }
 
 fn is_extends(k: &PropKey) -> bool {
-    *k == PropKey::from(EXTENDS_FIELD)
+    k.lossy() == EXTENDS_FIELD
 }
 
 /// The member list of `name` with every heritage row expanded.

@@ -107,9 +107,10 @@ fn module(second: InstKind, extra: Option<Inst>) -> Module {
             term: Terminator::Ret(Some(v(1))),
         }],
     );
-    let mut m = Module::default();
-    m.funcs = vec![fib, main, decl("src"), decl(MARK_ARGUMENTS)];
-    m
+    Module {
+        funcs: vec![fib, main, decl("src"), decl(MARK_ARGUMENTS)],
+        ..Default::default()
+    }
 }
 
 fn fsub(c: f64) -> InstKind {
