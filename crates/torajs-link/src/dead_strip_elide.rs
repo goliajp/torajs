@@ -67,7 +67,7 @@ use std::collections::BTreeSet;
 use torajs_codegen::CompiledFunction;
 use torajs_codegen::frame::FrameLayout;
 
-use crate::archives_merge::{MergedArchives, compute_required_members_cached};
+use crate::archives_merge::{ExtraDefined, MergedArchives, compute_required_members_cached};
 use crate::dead_strip_elide_columns::{Columns, columns_present, without_columns};
 use crate::dead_strip_elide_guard::guard_live;
 use crate::dead_strip_elide_patch::{patch_site, site_drops_user_ref};
@@ -170,7 +170,7 @@ pub(crate) struct Assumed {
 pub(crate) fn judge_and_patch<'a>(
     cfg: &LinkConfig,
     merged: &MergedArchives<'a>,
-    extra_defined_syms: &BTreeSet<String>,
+    extra_defined_syms: &ExtraDefined,
     cache: &mut ReachCache<'a>,
 ) -> Result<Option<(Assumed, Option<ReachResult<'a>>)>, String> {
     let present = columns_present(&cfg.class_layouts);
@@ -198,19 +198,9 @@ pub(crate) fn judge_and_patch<'a>(
             compute_required_members_cached(&assumed.funcs, merged, extra_defined_syms, cache)
                 .map_err(|e| format!("member closure (elide probe): {e:?}"))?;
         t.tick("elide_required");
-        let probe_cfg = LinkConfig {
-            funcs: assumed.funcs,
-            class_layouts: assumed
-                .class_layouts
-                .unwrap_or_else(|| cfg.class_layouts.clone()),
-            fn_name_globals: assumed
-                .fn_name_globals
-                .unwrap_or_else(|| cfg.fn_name_globals.clone()),
-            ..cfg.clone()
-        };
         // preds only under diag — `explain_live` walks them.
         let reach = compute_reachability(
-            &probe_cfg,
+            &assumed.funcs,
             merged,
             &required,
             extra_defined_syms,
@@ -257,7 +247,7 @@ pub(crate) fn judge_and_patch<'a>(
             // (`user_refs`) or by a user fn's own reloc — the closure
             // env-drop legs (A5) are called from synthesized user fns
             // and never appear in a member's undef table.
-            let fn_named = user_fn_reloc_names(&probe_cfg.funcs);
+            let fn_named = user_fn_reloc_names(&assumed.funcs);
             for (i, stub) in cfg.guarded_stubs.iter().enumerate() {
                 referenced[i] = !applied[i]
                     || reach.user_refs.contains(&stub.sym)

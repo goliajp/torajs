@@ -12,7 +12,6 @@
 //! effective sym table so the ADRP+ADD pair resolves to `fn_vaddrs[i]`.
 
 use crate::resolve::SymTable;
-use std::collections::BTreeSet;
 use torajs_codegen::CompiledFunction;
 
 /// The two alias namespaces codegen takes a user fn's address
@@ -30,18 +29,15 @@ pub fn parse_fn_addr_alias(sym: &str) -> Option<usize> {
         .and_then(|t| t.parse().ok())
 }
 
-/// Sym names to flag as link-defined in the worklist closure
-/// (`compute_required_members::extra_defined_syms`) so a user-fn
-/// reloc against either alias isn't surfaced as `UnresolvedExterns`
-/// before the emit pass injects the alias.
-pub fn fn_addr_extra_defined_syms(funcs: &[CompiledFunction]) -> BTreeSet<String> {
-    (0..funcs.len())
-        .flat_map(|i| {
-            FN_ADDR_ALIAS_PREFIXES
-                .iter()
-                .map(move |p| format!("{p}{i}"))
-        })
-        .collect()
+/// `<i>` when `sym` is either alias exactly as [`register_fn_addr_syms`]
+/// spells it (decimal, no sign, no leading zero).
+pub fn fn_addr_alias_index(sym: &str) -> Option<usize> {
+    let t = FN_ADDR_ALIAS_PREFIXES
+        .iter()
+        .find_map(|p| sym.strip_prefix(p))?;
+    let canonical =
+        !t.is_empty() && t.bytes().all(|b| b.is_ascii_digit()) && (t == "0" || !t.starts_with('0'));
+    canonical.then(|| t.parse().ok()).flatten()
 }
 
 /// Register both aliases → `fn_vaddrs[i]` for every user fn.

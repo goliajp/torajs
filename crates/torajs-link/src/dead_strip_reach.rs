@@ -27,16 +27,17 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
+use torajs_codegen::CompiledFunction;
 use torajs_obj::{
     N_NO_DEAD_STRIP, N_SECT, N_TYPE, S_ATTR_LIVE_SUPPORT, S_ATTR_NO_DEAD_STRIP,
     S_MOD_INIT_FUNC_POINTERS, S_TERM_FUNC_POINTERS, S_THREAD_LOCAL_VARIABLES, SECTION_TYPE,
 };
 
+use crate::archive_link_extra_syms::{ExtraDefined, UserDefined};
 use crate::archives_merge::{MergedArchives, RequiredMembers, reloc_target_name};
 pub(crate) use crate::dead_strip_reach_build::trim16;
 use crate::dead_strip_reach_cache::ReachCache;
 use crate::dead_strip_reach_edges::{Edge, EdgeIndex, Seen, UndefMemo};
-use crate::exec::LinkConfig;
 use crate::phase_timer::PhaseTimer;
 
 /// One parsed nlist row — just the fields reachability needs.
@@ -143,10 +144,10 @@ pub(crate) struct ReachProbes {
 /// members. Pure analysis — touches nothing the emit path reads.
 /// Member parses come from (and land in) `cache`.
 pub(crate) fn compute_reachability<'a>(
-    cfg: &LinkConfig,
+    user_funcs: &[CompiledFunction],
     merged: &MergedArchives<'a>,
     required: &RequiredMembers,
-    extra_defined_syms: &BTreeSet<String>,
+    extra_defined_syms: &ExtraDefined,
     record_preds: bool,
     probes: Option<&ReachProbes>,
     cache: &mut ReachCache<'a>,
@@ -160,16 +161,11 @@ pub(crate) fn compute_reachability<'a>(
     t.tick("reach_build_members");
 
     // Roots: the same seed set compute_required_members walked from.
-    let defined_in_user: BTreeSet<&str> = cfg
-        .funcs
-        .iter()
-        .map(|f| f.name.as_str())
-        .chain(extra_defined_syms.iter().map(|s| s.as_str()))
-        .collect();
+    let defined_in_user = extra_defined_syms.with_user_fns(user_funcs);
     let mut worklist: Vec<Node> = Vec::new();
     let mut unresolved: BTreeSet<String> = BTreeSet::new();
     let mut preds: BTreeMap<Node, Pred> = BTreeMap::new();
-    for f in &cfg.funcs {
+    for f in user_funcs {
         for r in &f.relocs {
             if let Some(name) = reloc_target_name(&r.kind)
                 && !defined_in_user.contains(name)
@@ -326,7 +322,7 @@ fn expand_node<'a>(
     node: Node,
     merged: &MergedArchives<'a>,
     reach: &mut BTreeMap<(usize, usize), MemberReach<'a>>,
-    defined_in_user: &BTreeSet<&str>,
+    defined_in_user: &UserDefined<'_>,
     required: &RequiredMembers,
     worklist: &mut Vec<Node>,
     unresolved: &mut BTreeSet<String>,

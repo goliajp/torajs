@@ -10,6 +10,7 @@
 
 use std::collections::BTreeSet;
 
+use crate::archive_link_extra_syms::ExtraDefined;
 use crate::archives_merge::{MergedArchives, RequiredMembers};
 use crate::dead_strip_reach::{Node, ReachResult, node_is_cut, resolve_reloc_target};
 use crate::exec::LinkConfig;
@@ -21,16 +22,11 @@ pub(crate) fn who_census(
     cfg: &LinkConfig,
     merged: &MergedArchives<'_>,
     required: &RequiredMembers,
-    extra_defined_syms: &BTreeSet<String>,
+    extra_defined_syms: &ExtraDefined,
     r: &ReachResult<'_>,
     pats: &[String],
 ) -> Vec<(Node, Node)> {
-    let defined_in_user: BTreeSet<&str> = cfg
-        .funcs
-        .iter()
-        .map(|f| f.name.as_str())
-        .chain(extra_defined_syms.iter().map(|s| s.as_str()))
-        .collect();
+    let defined_in_user = extra_defined_syms.with_user_fns(&cfg.funcs);
     let mut edges: BTreeSet<(Node, Node)> = BTreeSet::new();
     let mut scratch: BTreeSet<String> = BTreeSet::new();
     // Target set first — cheap membership test per resolved reloc.

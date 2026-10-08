@@ -8,9 +8,12 @@
 
 use std::collections::BTreeSet;
 
+use torajs_codegen::CompiledFunction;
+use torajs_codegen::id_hash::HashSet;
+
 use crate::class_name_table_layout::class_name_table_extra_defined_syms;
 use crate::exec::LinkConfig;
-use crate::fn_addr_syms::fn_addr_extra_defined_syms;
+use crate::fn_addr_syms::fn_addr_alias_index;
 use crate::fn_name_table_layout::fn_name_table_extra_defined_syms;
 use crate::user_class_layouts_layout::user_class_layouts_extra_defined_syms;
 use crate::user_data_globals_layout::user_data_globals_extra_defined_syms;
@@ -22,9 +25,8 @@ use crate::user_vtables_layout::user_vtables_extra_defined_syms;
 /// `compute_required_members`. Each user-data emit module exports its
 /// own `*_extra_defined_syms` (string-keyed sym names that the worklist
 /// closure should treat as defined-by-emit instead of unresolved).
-pub(crate) fn collect_extra_defined_syms(cfg: &LinkConfig) -> BTreeSet<String> {
+pub(crate) fn collect_extra_defined_syms(cfg: &LinkConfig) -> ExtraDefined {
     let mut extra = user_strings_extra_defined_syms(&cfg.strings);
-    extra.extend(fn_addr_extra_defined_syms(&cfg.funcs));
     extra.extend(user_data_globals_extra_defined_syms(&cfg.data_globals));
     extra.extend(user_vtables_extra_defined_syms(&cfg.vtable_globals));
     // e8-2c — `tr build` sets force_emit so the libtorajs_cycle.a
@@ -49,5 +51,48 @@ pub(crate) fn collect_extra_defined_syms(cfg: &LinkConfig) -> BTreeSet<String> {
     extra.extend(user_regex_baked_extra_defined_syms(
         &cfg.baked_regex_entries,
     ));
-    extra
+    ExtraDefined {
+        names: extra,
+        fn_count: cfg.funcs.len(),
+    }
+}
+
+/// The names the link defines itself.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct ExtraDefined {
+    /// every one but the fn-address aliases
+    pub names: BTreeSet<String>,
+    /// both fn-address aliases of every user fn index below this; they
+    /// are recognized rather than listed, since a list is two strings
+    /// per fn, declarations included, built again on every walk
+    pub fn_count: usize,
+}
+
+impl ExtraDefined {
+    fn is_fn_alias(&self, name: &str) -> bool {
+        fn_addr_alias_index(name).is_some_and(|i| i < self.fn_count)
+    }
+
+    /// These names and the user fns' own, as one membership test.
+    pub(crate) fn with_user_fns<'a>(&'a self, funcs: &'a [CompiledFunction]) -> UserDefined<'a> {
+        let names = funcs
+            .iter()
+            .map(|f| f.name.as_str())
+            .chain(self.names.iter().map(String::as_str))
+            .collect();
+        UserDefined { names, extra: self }
+    }
+}
+
+/// A name a user fn or the link defines: a member's reference to it
+/// never pulls the archive's copy.
+pub(crate) struct UserDefined<'a> {
+    names: HashSet<&'a str>,
+    extra: &'a ExtraDefined,
+}
+
+impl UserDefined<'_> {
+    pub(crate) fn contains(&self, name: &str) -> bool {
+        self.names.contains(name) || self.extra.is_fn_alias(name)
+    }
 }

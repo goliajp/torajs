@@ -67,34 +67,18 @@ pub(crate) fn strip_archives<'a>(
     let judged = crate::dead_strip_elide::judge_and_patch(cfg, merged, &extra, cache)?;
     t.tick("elide_judge_and_patch");
     let (assumed, probed) = judged.map_or((None, None), |(a, c)| (Some(a), c));
-    let patched_cfg;
-    let cfg = match &assumed {
-        Some(a) => {
-            patched_cfg = LinkConfig {
-                funcs: a.funcs.clone(),
-                class_layouts: a
-                    .class_layouts
-                    .clone()
-                    .unwrap_or_else(|| cfg.class_layouts.clone()),
-                fn_name_globals: a
-                    .fn_name_globals
-                    .clone()
-                    .unwrap_or_else(|| cfg.fn_name_globals.clone()),
-                ..cfg.clone()
-            };
-            &patched_cfg
-        }
-        None => cfg,
-    };
+    // the closure reads only the user fns: the patched ones when
+    // the judgment changed any
+    let funcs = assumed.as_ref().map_or(&cfg.funcs, |a| &a.funcs);
     let reach = match probed {
         Some(reach) => reach,
         None => {
-            let required = compute_required_members_cached(&cfg.funcs, merged, &extra, cache)
+            let required = compute_required_members_cached(funcs, merged, &extra, cache)
                 .map_err(|e| format!("member closure: {e:?}"))?;
             // probes=None always: the CUT/CUT_IN what-ifs are diag-only
             // pricing probes and must never shape emitted bytes.
             t.tick("required_members");
-            compute_reachability(cfg, merged, &required, &extra, false, None, cache)?
+            compute_reachability(funcs, merged, &required, &extra, false, None, cache)?
         }
     };
     t.tick("reachability");

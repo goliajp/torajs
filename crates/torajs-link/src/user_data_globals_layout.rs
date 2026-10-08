@@ -83,7 +83,7 @@ pub fn apply_user_data_global_overrides(layout: &UserDataGlobalsLayout, sym_tabl
 /// Sym names to flag as link-defined in the worklist closure so a
 /// user-fn reloc against the global's `sym` isn't surfaced as
 /// `UnresolvedExterns` before emit. Mirrors
-/// `user_strings_extra_defined_syms` / `fn_addr_extra_defined_syms`.
+/// `user_strings_extra_defined_syms`.
 pub fn user_data_globals_extra_defined_syms(
     globals: &[UserDataGlobalEntry],
 ) -> std::collections::BTreeSet<String> {

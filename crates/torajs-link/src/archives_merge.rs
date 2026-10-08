@@ -22,6 +22,7 @@ use torajs_obj::{LC_SYMTAB, MH_MAGIC_64, N_EXT, N_TYPE, N_UNDF};
 use torajs_rtimage::image::{Image, ImageError};
 
 use crate::archive::{ArMember, MemberSymtabError};
+pub use crate::archive_link_extra_syms::ExtraDefined;
 use crate::dead_strip_reach_cache::ReachCache;
 
 /// One entry in a `MergedArchives` global lookup. Tells the link
@@ -158,7 +159,7 @@ pub enum ArchiveLinkError {
 pub fn compute_required_members(
     user_funcs: &[CompiledFunction],
     merged: &MergedArchives<'_>,
-    extra_defined_syms: &BTreeSet<String>,
+    extra_defined_syms: &ExtraDefined,
 ) -> Result<RequiredMembers, ArchiveLinkError> {
     let mut cache = ReachCache::default();
     compute_required_members_cached(user_funcs, merged, extra_defined_syms, &mut cache)
@@ -169,17 +170,13 @@ pub fn compute_required_members(
 pub(crate) fn compute_required_members_cached<'a>(
     user_funcs: &[CompiledFunction],
     merged: &MergedArchives<'a>,
-    extra_defined_syms: &BTreeSet<String>,
+    extra_defined_syms: &ExtraDefined,
     cache: &mut ReachCache<'a>,
 ) -> Result<RequiredMembers, ArchiveLinkError> {
     // SD-4c-prereq+e1 — `extra_defined_syms` carries link-defined syms
     // (e.g. `__torajs_str_lit_*` from `LinkConfig.strings`) so the
     // worklist doesn't flag them as `UnresolvedExterns` before emit.
-    let defined_in_user: HashSet<&str> = user_funcs
-        .iter()
-        .map(|f| f.name.as_str())
-        .chain(extra_defined_syms.iter().map(|s| s.as_str()))
-        .collect();
+    let defined_in_user = extra_defined_syms.with_user_fns(user_funcs);
 
     let mut required: BTreeSet<(usize, usize)> = BTreeSet::new();
     let mut visited_names: HashSet<&str> = HashSet::default();
@@ -673,7 +670,7 @@ mod tests {
         let user = vec![fn_leaf("_main")];
         let image = torajs_rtimage::image::build(&[]).unwrap();
         let merged = merge_archive_indexes(&image).unwrap();
-        let req = compute_required_members(&user, &merged, &BTreeSet::new()).unwrap();
+        let req = compute_required_members(&user, &merged, &ExtraDefined::default()).unwrap();
         assert!(req.members.is_empty());
     }
 
@@ -687,7 +684,7 @@ mod tests {
         let merged = merge_archive_indexes(&image).unwrap();
 
         let user = vec![fn_with_extern_calls("_main", &["_foo"])];
-        let req = compute_required_members(&user, &merged, &BTreeSet::new()).unwrap();
+        let req = compute_required_members(&user, &merged, &ExtraDefined::default()).unwrap();
 
         assert_eq!(req.members.len(), 1);
         assert!(req.members.contains(&(0, 0)));
@@ -712,7 +709,7 @@ mod tests {
         let merged = merge_archive_indexes(&image).unwrap();
 
         let user = vec![fn_with_extern_calls("_main", &["_foo"])];
-        let req = compute_required_members(&user, &merged, &BTreeSet::new()).unwrap();
+        let req = compute_required_members(&user, &merged, &ExtraDefined::default()).unwrap();
 
         assert_eq!(req.members.len(), 3);
         assert!(req.members.contains(&(0, 0)));
@@ -733,7 +730,7 @@ mod tests {
         let merged = merge_archive_indexes(&image).unwrap();
 
         let user = vec![fn_with_extern_calls("_main", &["_foo"])];
-        let req = compute_required_members(&user, &merged, &BTreeSet::new()).unwrap();
+        let req = compute_required_members(&user, &merged, &ExtraDefined::default()).unwrap();
 
         assert_eq!(req.members.len(), 2);
     }
@@ -748,7 +745,7 @@ mod tests {
         let merged = merge_archive_indexes(&image).unwrap();
 
         let user = vec![fn_with_extern_calls("_main", &["_foo", "_foo", "_foo"])];
-        let req = compute_required_members(&user, &merged, &BTreeSet::new()).unwrap();
+        let req = compute_required_members(&user, &merged, &ExtraDefined::default()).unwrap();
         assert_eq!(req.members.len(), 1);
     }
 
@@ -760,7 +757,7 @@ mod tests {
         let image = torajs_rtimage::image::build(&[]).unwrap();
         let merged = merge_archive_indexes(&image).unwrap();
         let user = vec![fn_with_extern_calls("_main", &["_qux", "_zap", "_qux"])];
-        let err = compute_required_members(&user, &merged, &BTreeSet::new()).unwrap_err();
+        let err = compute_required_members(&user, &merged, &ExtraDefined::default()).unwrap_err();
         match err {
             ArchiveLinkError::UnresolvedExterns { names } => {
                 assert_eq!(names, vec!["_qux".to_string(), "_zap".to_string()]);
@@ -780,7 +777,7 @@ mod tests {
             "_main",
             &["_malloc", "_pthread_create", "_free"],
         )];
-        let req = compute_required_members(&user, &merged, &BTreeSet::new()).unwrap();
+        let req = compute_required_members(&user, &merged, &ExtraDefined::default()).unwrap();
         assert!(req.members.is_empty(), "no archive member should be pulled");
         assert_eq!(req.dyld_imports.len(), 3);
         assert!(req.dyld_imports.contains_key("_malloc"));
@@ -796,7 +793,7 @@ mod tests {
         let image = torajs_rtimage::image::build(&[]).unwrap();
         let merged = merge_archive_indexes(&image).unwrap();
         let user = vec![fn_with_extern_calls("_main", &["_malloc", "_qux"])];
-        let err = compute_required_members(&user, &merged, &BTreeSet::new()).unwrap_err();
+        let err = compute_required_members(&user, &merged, &ExtraDefined::default()).unwrap_err();
         match err {
             ArchiveLinkError::UnresolvedExterns { names } => {
                 assert_eq!(names, vec!["_qux".to_string()]);
@@ -818,7 +815,7 @@ mod tests {
             "_main",
             &["_curl_easy_init", "_malloc"],
         )];
-        let req = compute_required_members(&user, &merged, &BTreeSet::new()).unwrap();
+        let req = compute_required_members(&user, &merged, &ExtraDefined::default()).unwrap();
         assert_eq!(req.dyld_imports.len(), 2);
         assert_eq!(req.dyld_imports.get("_curl_easy_init").copied(), Some(2));
         assert_eq!(req.dyld_imports.get("_malloc").copied(), Some(1));
@@ -835,7 +832,7 @@ mod tests {
         ];
         let image = torajs_rtimage::image::build(&[]).unwrap();
         let merged = merge_archive_indexes(&image).unwrap();
-        let req = compute_required_members(&user, &merged, &BTreeSet::new()).unwrap();
+        let req = compute_required_members(&user, &merged, &ExtraDefined::default()).unwrap();
         assert!(req.members.is_empty());
     }
 

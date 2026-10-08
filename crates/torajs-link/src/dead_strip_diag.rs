@@ -5,7 +5,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::archives_merge::{MergedArchives, RequiredMembers};
+use crate::archives_merge::{ExtraDefined, MergedArchives, RequiredMembers};
 use crate::dead_strip_reach::{
     MemberReach, Node, Pred, ReachProbes, ReachResult, compute_reachability, trim16,
 };
@@ -20,7 +20,7 @@ pub(crate) fn report<'a>(
     cfg: &LinkConfig,
     merged: &MergedArchives<'a>,
     required: &RequiredMembers,
-    extra_defined_syms: &BTreeSet<String>,
+    extra_defined_syms: &ExtraDefined,
     cache: &mut ReachCache<'a>,
 ) {
     let why = std::env::var("TORAJS_LINK_DEADSTRIP_WHY").ok();
@@ -45,7 +45,7 @@ pub(crate) fn report<'a>(
     let who = pats("TORAJS_LINK_DEADSTRIP_WHO");
     let active = !probes.cuts.is_empty() || !probes.cut_ins.is_empty();
     match compute_reachability(
-        cfg,
+        &cfg.funcs,
         merged,
         required,
         extra_defined_syms,

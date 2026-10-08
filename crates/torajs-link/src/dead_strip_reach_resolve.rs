@@ -7,6 +7,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::archive::ArMember;
+use crate::archive_link_extra_syms::UserDefined;
 use crate::archives_merge::{MergedArchives, RequiredMembers};
 use crate::dead_strip_reach::{MemberReach, Node, SectAtoms};
 use crate::member_reloc::MemberRelocEntry;
@@ -151,7 +152,7 @@ pub(crate) fn resolve_undef(
     name: &str,
     merged: &MergedArchives<'_>,
     reach: &BTreeMap<(usize, usize), MemberReach<'_>>,
-    defined_in_user: &BTreeSet<&str>,
+    defined_in_user: &UserDefined<'_>,
     required: &RequiredMembers,
     unresolved: &mut BTreeSet<String>,
 ) -> Option<Node> {
@@ -175,7 +176,7 @@ pub(crate) fn resolve_reloc_target(
     merged: &MergedArchives<'_>,
     r: &MemberReach<'_>,
     reach: &BTreeMap<(usize, usize), MemberReach<'_>>,
-    defined_in_user: &BTreeSet<&str>,
+    defined_in_user: &UserDefined<'_>,
     required: &RequiredMembers,
     unresolved: &mut BTreeSet<String>,
 ) -> Option<Node> {

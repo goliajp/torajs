@@ -267,12 +267,15 @@ fn main() {
     let merged = merge_archive_indexes(&image).expect("merge");
     let root_names = roots(&merged);
     let main_fn = root_fn(&root_names);
-    let user: BTreeSet<String> =
-        match compute_required_members(std::slice::from_ref(&main_fn), &merged, &BTreeSet::new()) {
-            Ok(_) => BTreeSet::new(),
-            Err(ArchiveLinkError::UnresolvedExterns { names }) => names.into_iter().collect(),
-            Err(e) => panic!("closure: {e:?}"),
-        };
+    let user: BTreeSet<String> = match compute_required_members(
+        std::slice::from_ref(&main_fn),
+        &merged,
+        &Default::default(),
+    ) {
+        Ok(_) => BTreeSet::new(),
+        Err(ArchiveLinkError::UnresolvedExterns { names }) => names.into_iter().collect(),
+        Err(e) => panic!("closure: {e:?}"),
+    };
     println!("roots: {}", root_names.len());
     println!(
         "\nnames the runtime closure needs from the program side: {}",
