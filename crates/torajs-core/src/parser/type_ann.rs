@@ -16,6 +16,7 @@
 
 use super::*;
 
+mod predicate;
 mod union_chain;
 
 impl<'a> Parser<'a> {
@@ -45,21 +46,8 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn parse_type_ann_inner(&mut self) -> Result<String, String> {
-        // V3-18 wedge — TS type-predicate return type:
-        //   function isT(v: any): v is T { ... }
-        // Per TS spec §3.6.5 the return type is `boolean` at the
-        // value level; the `is T` half is a flow-narrowing hint
-        // for callers. The subset accepts and discards the
-        // predicate (no flow narrowing) — typecheck sees the
-        // function's return as `boolean`. Matched only when the
-        // shape is `<paramName> is <Type>`.
-        if let Token::Ident(_) = self.peek()
-            && let Some(Token::Ident(maybe_is)) = self.tokens.get(self.pos + 1).map(|s| &s.token)
-            && maybe_is == "is"
-        {
-            self.pos += 2; // consume <param> + "is"
-            let _ = self.parse_type_ann()?; // consume the asserted type
-            return Ok("boolean".to_string());
+        if let Some(pred) = self.parse_predicate_sig() {
+            return pred;
         }
         // V3-18 wedge — `readonly T[]` modifier on array-of types.
         // Per TS spec §3.10.2 the modifier is type-side and has no
