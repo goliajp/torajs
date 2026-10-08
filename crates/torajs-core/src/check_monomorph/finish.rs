@@ -110,6 +110,9 @@ fn hand_over(
     let origins = std::mem::take(&mut c.widen_clone_origin);
     owned_ast.widen_clone_origin.extend(origins);
     crate::check_monomorph_closures::prune_unresolved_captures(c, owned_ast);
+    if let Err(e) = crate::iface_witness::settle(owned_ast) {
+        crate::check::DiagPush::push_err(&mut c.errors, e);
+    }
     crate::num_width::analyze(
         owned_ast,
         call_retargets,

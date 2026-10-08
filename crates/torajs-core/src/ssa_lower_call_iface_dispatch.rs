@@ -21,7 +21,7 @@ pub(crate) fn try_lower(
     if ctx.ast.iface_slots.is_empty()
         || !matches!(
             ctx.expr_types.get(&obj),
-            Some(crate::check::Type::Struct(_))
+            Some(crate::check::Type::Struct(_) | crate::check::Type::Nullable(_))
         )
     {
         return None;

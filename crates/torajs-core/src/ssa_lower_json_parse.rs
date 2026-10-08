@@ -264,14 +264,7 @@ impl LowerCtx<'_> {
                     crate::ssa_lower::OBJ_CLASS_TAG_OFF,
                 ),
             );
-            self.f.append_void(
-                self.cur_block,
-                InstKind::Store(
-                    Operand::ConstPtrNull,
-                    Operand::Value(obj_ptr_v),
-                    crate::ssa_lower::OBJ_VTABLE_OFF,
-                ),
-            );
+            crate::ssa_lower_iface::store_lit_vtable(self, obj_ptr_v, sid);
             let obj_ptr = Operand::Value(obj_ptr_v);
             // arr_first('{', '}') — handle empty object.
             let first = self.f.append_inst(

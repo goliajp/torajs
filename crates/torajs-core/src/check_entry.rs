@@ -143,6 +143,7 @@ pub fn check_with_arity(ast: &Ast) -> Result<CheckArtifacts, String> {
 /// A round can ask for bindings to be retyped `any`
 /// ([`hidden_any::settle`]).
 pub fn check_with_arity_warn(ast: &Ast) -> Result<(CheckArtifacts, Vec<String>), String> {
+    crate::iface_witness::begin_compile();
     let (artifacts, warnings, census) =
         hidden_any::settle(ast, check_round(ast, &HashSet::new())?)?;
     if let Some(line) = census {

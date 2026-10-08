@@ -39,7 +39,7 @@ pub fn is_assignable_to_resolved(
     is_assignable_to_deep(to, from, class_structs, aliases, generic_aliases, &mut seen)
 }
 
-fn is_assignable_to_deep(
+fn deep_inner(
     to: &Type,
     from: &Type,
     class_structs: &std::collections::HashMap<String, Type>,
@@ -169,7 +169,7 @@ fn is_assignable_to_deep(
     is_assignable_to(&to_r, &from_r)
 }
 
-pub(crate) fn is_assignable_to(to: &Type, from: &Type) -> bool {
+fn shallow_inner(to: &Type, from: &Type) -> bool {
     if to == from {
         return true;
     }
@@ -295,4 +295,6 @@ pub(crate) fn fn_slot_admits(
 }
 
 mod declared_order;
+mod flow;
 pub(crate) use declared_order::{cast_in_declared_order, in_declared_order};
+pub(crate) use flow::{is_assignable_to, is_assignable_to_deep};

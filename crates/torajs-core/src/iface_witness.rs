@@ -20,15 +20,20 @@
 //! interface is a vtable load and an indirect call, the same as a
 //! virtual method.
 //!
-//! A data-only interface whose every implementing class already lays
-//! the interface's fields out first, in order, keeps the plain field
-//! loads it has always had: there is nothing the slots would fix.
+//! The rows are planned for every interface some class satisfies, but
+//! an interface keeps its slots only when the checker saw a class
+//! instance flow into it (`settle`) and one such class cannot be read
+//! at the interface's own offsets: a method, a member the class lacks,
+//! or a field laid out elsewhere. Every other interface keeps the
+//! plain field loads it has always had, and its thunks are dropped.
 
 mod admit;
 mod body;
 mod plan;
+mod settle;
 
-pub(crate) use admit::{class_admit, install};
+pub(crate) use admit::{begin_compile, class_admit, install, note_flow};
+pub(crate) use settle::settle;
 
 use std::collections::{BTreeSet, HashMap};
 
@@ -43,6 +48,13 @@ pub struct IfaceSlots {
     /// interface → its resolved type, which is what a receiver typed by
     /// it checks as (a value of it may sit on more than one layout id)
     pub types: HashMap<String, crate::check::Type>,
+    /// the interfaces that declare a method
+    pub with_methods: BTreeSet<String>,
+    /// interface → the classes whose instances read right at the
+    /// interface's own field offsets (its fields first, in order)
+    pub plain: HashMap<String, BTreeSet<String>>,
+    /// interface → the names of its witness thunks
+    pub thunks: HashMap<String, Vec<String>>,
 }
 
 /// What a face does with its member.
@@ -142,13 +154,23 @@ pub fn synthesize_iface_witnesses(ast: &mut crate::ast::Ast) {
         for (face, _, _) in &p.lit_faces {
             slots.faces.push((p.iface.clone(), face.clone()));
         }
+        let from = appended.len();
         body::emit_iface(ast, &p, &mut appended);
+        let names = appended[from..].iter().filter_map(|s| match s {
+            crate::ast::Stmt::FnDecl { name, .. } => Some(name.clone()),
+            _ => None,
+        });
+        slots.thunks.insert(p.iface.clone(), names.collect());
         slots
             .witnesses
             .insert(p.iface.clone(), p.classes.keys().cloned().collect());
         if let Some(t) = tables.aliases.get(&p.iface) {
             slots.types.insert(p.iface.clone(), t.clone());
         }
+        if p.with_method {
+            slots.with_methods.insert(p.iface.clone());
+        }
+        slots.plain.insert(p.iface.clone(), p.plain);
     }
     slots.faces.sort();
     ast.stmts.extend(appended);

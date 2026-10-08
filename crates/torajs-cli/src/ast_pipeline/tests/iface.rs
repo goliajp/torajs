@@ -61,16 +61,91 @@ class K { name(): string { return \"k\" } }
     assert!(witnesses(src, "N").is_empty());
 }
 
+/// The slots the lowering sees once the check settled which
+/// interfaces a class instance flows into.
+fn settled(src: &str) -> Result<Vec<String>, String> {
+    let artifacts = torajs_core::check::check_with_arity(&desugared(src))?;
+    let slots = &artifacts.5.mono_ast.iface_slots;
+    let mut out: Vec<String> = slots.witnesses.keys().cloned().collect();
+    out.sort();
+    Ok(out)
+}
+
 #[test]
 fn a_data_interface_every_class_lays_out_first_keeps_its_field_reads() {
     let src = "interface P { x: number }
 class C { x: number; y: number; constructor() { this.x = 1; this.y = 2 } }
+const p: P = new C();
+console.log(p.x);
 ";
-    assert!(desugared(src).iface_slots.is_empty());
+    assert_eq!(settled(src), Ok(vec![]));
     let by_name = "interface P { y: number }
 class C { x: number; y: number; constructor() { this.x = 1; this.y = 2 } }
+const p: P = new C();
+console.log(p.y);
 ";
     assert_eq!(witnesses(by_name, "P"), ["C"]);
+    assert_eq!(settled(by_name), Ok(vec!["P".to_string()]));
+}
+
+#[test]
+fn an_interface_no_class_instance_flows_into_keeps_no_slots() {
+    let src = "type Vec = { x: number; y: number };
+class Particle { id: number; x: number; y: number; constructor() { this.id = 0; this.x = 1; this.y = 2 } }
+function len2(v: Vec): number { return v.x * v.x + v.y * v.y }
+const p = new Particle();
+console.log(len2({ x: 3, y: 4 }), p.id);
+";
+    assert_eq!(witnesses(src, "Vec"), ["Particle"]);
+    assert_eq!(settled(src), Ok(vec![]));
+}
+
+#[test]
+fn a_class_instance_reached_through_another_interface_needs_a_row_there() {
+    let src = "interface A { y: number; m(): number }
+interface B { y?: number }
+class C { z = 1; y = 2; m() { return 3 } }
+const a: A = new C();
+const b: B = a;
+console.log(b.y);
+";
+    let err = settled(src).expect_err("C has no row for B");
+    assert!(err.contains("not yet supported"), "{err}");
+    let fits = "interface A { x: number; m(): number }
+interface B { x: number }
+class C { k = 0; x = 5; m() { return 1 } }
+const a: A = new C();
+const b: B = a;
+console.log(b.x);
+";
+    assert_eq!(settled(fits), Ok(vec!["A".to_string(), "B".to_string()]));
+}
+
+#[test]
+fn a_class_without_a_row_is_refused_only_where_slots_are_kept() {
+    let alone = "class N { v = 1 }
+interface H { n: N | null; tag: string }
+class C { n: N = new N(); tag = \"c\"; extra = 1 }
+function read(h: H): string { return h.tag }
+console.log(read(new C()));
+";
+    assert_eq!(settled(alone), Ok(vec![]));
+    let mixed = "class N { v = 1 }
+interface H { n: N | null; tag: string }
+class C { n: N = new N(); tag = \"c\"; extra = 1 }
+class D { k = 0; n: N | null = null; tag = \"d\" }
+function read(h: H): string { return h.tag }
+console.log(read(new C()), read(new D()));
+";
+    let err = settled(mixed).expect_err("C has no row for H");
+    assert!(err.contains("class `C`"), "{err}");
+}
+
+#[test]
+fn a_subclass_without_a_row_takes_its_ancestors_witness_away() {
+    let src =
+        format!("{SHAPES}class Big extends Sq {{ area(k: number): number {{ return k }} }}\n");
+    assert_eq!(witnesses(&src, "Shape"), ["Ci"]);
 }
 
 #[test]
@@ -91,4 +166,21 @@ fn an_array_element_that_only_matched_its_first_sibling_is_refused() {
     );
     let err = checked(&src).expect_err("the second element is no Shape");
     assert!(err.contains("array element 1"), "{err}");
+}
+
+#[test]
+fn an_unfit_array_element_is_refused_in_every_typed_position() {
+    let base = "interface Sh { area(): number }
+class A { area() { return 1 } }
+class U { q = 5 }
+";
+    let tails = [
+        "function sum(xs: Sh[]): number { return xs.length }\nsum([new A(), new U()]);\n",
+        "function mk(): Sh[] { return [new A(), new U()] }\nmk();\n",
+        "class Box { items: Sh[] = [] }\nconst b = new Box();\nb.items = [new A(), new U()];\n",
+    ];
+    for t in tails {
+        let err = checked(&format!("{base}{t}")).expect_err(t);
+        assert!(err.contains("array element 1"), "{t}: {err}");
+    }
 }

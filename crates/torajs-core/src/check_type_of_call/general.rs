@@ -191,6 +191,7 @@ pub(crate) fn general_call(
                 "argument {i}: expected {param_ty:?}, got {arg_ty:?}"
             ));
         }
+        crate::iface_witness::note_flow(param_ty, &arg_ty, true);
         // TS-shape: function parameters SHARE non-Copy args —
         // calling `f(x)` never marks `x` moved. The consuming-
         // params bitmap retired in chunk 568: every store lane

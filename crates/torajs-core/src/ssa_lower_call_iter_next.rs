@@ -32,7 +32,7 @@ use crate::ast::PropKey;
 use crate::ast::{Expr, ExprId};
 use crate::ssa;
 use crate::ssa::{IPred, InstKind, Operand, Type};
-use crate::ssa_lower::{LowerCtx, OBJ_CLASS_TAG_OFF, OBJ_HEADER_SIZE, OBJ_VTABLE_OFF};
+use crate::ssa_lower::{LowerCtx, OBJ_CLASS_TAG_OFF, OBJ_HEADER_SIZE};
 
 pub(crate) fn try_lower(
     ctx: &mut LowerCtx<'_>,
@@ -178,15 +178,7 @@ pub(crate) fn try_lower(
             OBJ_CLASS_TAG_OFF,
         ),
     );
-    // vtable = null.
-    ctx.f.append_void(
-        cur_block,
-        InstKind::Store(
-            Operand::ConstPtrNull,
-            Operand::Value(obj_ptr),
-            OBJ_VTABLE_OFF,
-        ),
-    );
+    crate::ssa_lower_iface::store_lit_vtable(ctx, obj_ptr, sid);
     // Field 0 — "value" at OBJ_HEADER_SIZE.
     ctx.f.append_void(
         cur_block,

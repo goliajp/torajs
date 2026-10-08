@@ -11,7 +11,9 @@
 //! therefore skips them: the mono already scored the same source.
 //! A generator's all-`any` twin (`desugar_generators_any_twin`) is the
 //! same kind of clone, its factory and its iterator class's methods
-//! alike.
+//! alike. An interface witness thunk (`__iw_` / `__ilit_`) holds no
+//! source expression at all: it is a forwarding body the compiler
+//! writes per interface member, kept or dropped after the check.
 
 use std::collections::HashSet;
 
@@ -30,6 +32,8 @@ pub(crate) fn twin_body_exprs(ast: &Ast) -> HashSet<ExprId> {
         if !(name.starts_with("__cmany_")
             || name.starts_with("__smany_")
             || name.starts_with("__ctorany_")
+            || name.starts_with("__iw_")
+            || name.starts_with("__ilit_")
             || crate::ast::is_generator_any_twin_decl(name))
         {
             continue;

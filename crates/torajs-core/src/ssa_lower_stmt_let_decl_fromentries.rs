@@ -78,14 +78,7 @@ pub(crate) fn try_lower(
             crate::ssa_lower::OBJ_CLASS_TAG_OFF,
         ),
     );
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::Store(
-            Operand::ConstPtrNull,
-            obj_op,
-            crate::ssa_lower::OBJ_VTABLE_OFF,
-        ),
-    );
+    crate::ssa_lower_iface::store_lit_vtable(ctx, obj_ptr, sid);
     let entries_data = ctx.emit_arr_data_ptr(entries_op);
     for (idx, (_fname, fty)) in layout.iter().enumerate() {
         let inner_off = (idx as u64) * 8;

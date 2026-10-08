@@ -10,7 +10,7 @@
 
 mod class_row;
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::ast::{Ast, Param, Stmt};
 use class_row::class_row;
@@ -59,6 +59,10 @@ pub(super) struct IfacePlan {
     pub lit_faces: Vec<(String, usize, Body)>,
     /// class → (face, member index, body)
     pub classes: BTreeMap<String, Vec<(String, usize, Body)>>,
+    pub with_method: bool,
+    /// the classes whose instances read right at the interface's own
+    /// field offsets
+    pub plain: BTreeSet<String>,
 }
 
 /// A top-level function's type parameters, parameters and return
@@ -122,15 +126,22 @@ pub(super) fn plan(ast: &Ast) -> Vec<IfacePlan> {
                 rows.insert(c.to_string(), row);
             }
         }
-        if rows.is_empty() || !needs_slots(&decls, &members, &rows) {
+        drop_unfit_lines(ast, &mut rows);
+        if rows.is_empty() {
             continue;
         }
+        let with_method = members
+            .iter()
+            .any(|m| matches!(m.kind, MemberKind::Method { .. }));
+        let plain = plain_classes(&decls, &classes, &members, &rows);
         let lit_faces = lit_row(&members);
         out.push(IfacePlan {
             iface: iface.to_string(),
             members,
             lit_faces,
             classes: rows,
+            with_method,
+            plain,
         });
     }
     out
@@ -188,30 +199,54 @@ fn members_of(
     Some(out)
 }
 
-/// Whether some witness needs the slots: the interface has a method
-/// (a class keeps those out of the instance), reads a member the class
-/// does not declare, or the class does not lay the interface's fields
-/// out first and in order.
-fn needs_slots(
+/// A row is filled per class, but a subclass instance stands wherever
+/// its ancestor does: a class with a descendant that has no row of its
+/// own is no witness either.
+fn drop_unfit_lines(ast: &Ast, rows: &mut BTreeMap<String, Vec<(String, usize, Body)>>) {
+    let unfit: Vec<&String> = ast
+        .class_parents
+        .keys()
+        .filter(|c| !rows.contains_key(c.as_str()))
+        .collect();
+    for c in unfit {
+        let mut cur = ast.class_parents.get(c).cloned().flatten();
+        let mut hops = ast.class_parents.len();
+        while let Some(p) = cur {
+            rows.remove(&p);
+            let Some(h) = hops.checked_sub(1) else { break };
+            hops = h;
+            cur = ast.class_parents.get(&p).cloned().flatten();
+        }
+    }
+}
+
+/// The classes that lay the interface's members out first and in
+/// order, and whose row (if any) reads none of them dynamically: their
+/// instances read right at the interface's own field offsets.
+fn plain_classes(
     d: &Decls<'_>,
+    classes: &[&str],
     members: &[Member],
     rows: &BTreeMap<String, Vec<(String, usize, Body)>>,
-) -> bool {
-    if members
+) -> BTreeSet<String> {
+    let prefix = |c: &str| {
+        let fields = d.class_fields[c];
+        members
+            .iter()
+            .enumerate()
+            .all(|(i, m)| fields.get(i).is_some_and(|(n, _)| *n == *m.key))
+    };
+    let static_row = |c: &str| {
+        rows.get(c).is_none_or(|row| {
+            !row.iter()
+                .any(|(_, _, b)| matches!(b, Body::DynGet | Body::DynSet))
+        })
+    };
+    classes
         .iter()
-        .any(|m| matches!(m.kind, MemberKind::Method { .. }))
-    {
-        return true;
-    }
-    rows.iter().any(|(c, row)| {
-        let fields = d.class_fields[c.as_str()];
-        row.iter()
-            .any(|(_, _, b)| matches!(b, Body::DynGet | Body::DynSet))
-            || members
-                .iter()
-                .enumerate()
-                .any(|(i, m)| fields.get(i).is_none_or(|(n, _)| *n != *m.key))
-    })
+        .filter(|c| prefix(c) && static_row(c))
+        .map(|c| c.to_string())
+        .collect()
 }
 
 fn lit_row(members: &[Member]) -> Vec<(String, usize, Body)> {

@@ -91,10 +91,8 @@ fn has_accessor(ast: &Ast, c: &str, key: &str) -> bool {
     false
 }
 
-/// How a thunk calls the method body `cm`: directly when it is the only
-/// body of its name, else through the member-call lanes (which pick the
-/// override for the instance). `None` when its signature does not
-/// match the interface's.
+/// How a thunk calls the method body `cm`: directly. `None` when its
+/// signature does not match the interface's.
 fn method_body(
     ast: &Ast,
     d: &Decls<'_>,
@@ -121,10 +119,8 @@ fn method_body(
     if !(ret == "void" || r == "any" || eq.same(r, ret)) {
         return None;
     }
-    let key = cm.rsplit("__").next().unwrap_or_default();
-    if ast.method_owners.contains_key(key) {
-        Some(Body::MemberCall(own.len()))
-    } else {
-        Some(Body::Static(cm.to_string(), own.len()))
-    }
+    // the row is only ever reached from an instance of exactly this
+    // class, and `cm` is the body that class answers with: no override
+    // is left to pick
+    Some(Body::Static(cm.to_string(), own.len()))
 }
