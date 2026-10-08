@@ -5,7 +5,7 @@
 //! - parse_fn — header (generator `*`, name), then delegates, then
 //!   return type / generator yield-type recording / overload
 //!   signature discard / body / FnDecl assembly
-//! - parse_fn_type_params — `<T, U>` list (M3)
+//! - parse_fn_type_params — `<T, U extends C>` list (M3)
 //! - parse_fn_params — `(a: T, [x, y]: U[], ...rest)` incl. destr
 //!   patterns, optional `?`, defaults, trailing comma; returns the
 //!   params plus the synthesized destr let-prelude
@@ -217,54 +217,18 @@ impl<'a> Parser<'a> {
         })
     }
 
+    /// `<T, U extends C = D>`; a constraint or default is read and
+    /// dropped, a call instantiating each parameter from its arguments.
     pub(super) fn parse_fn_type_params(&mut self) -> Result<Vec<String>, String> {
-        let mut type_params: Vec<String> = Vec::new();
-        if matches!(self.peek(), Token::Lt) {
-            // B2 — the whole `<T, U>` list is type-side syntax; record
-            // it for the erase splice (see parse_type_ann's wrapper).
-            let start_pos = self.pos;
-            self.pos += 1;
-            if !matches!(self.peek(), Token::Gt) {
-                loop {
-                    match self.peek() {
-                        Token::Ident(n) => {
-                            type_params.push(n.clone());
-                            self.pos += 1;
-                        }
-                        t => {
-                            return Err(format!(
-                                "expected type-parameter name, got {t:?} at {}",
-                                self.at()
-                            ));
-                        }
-                    }
-                    match self.peek() {
-                        Token::Comma => self.pos += 1,
-                        Token::Gt => break,
-                        t => {
-                            return Err(format!(
-                                "expected `,` or `>` in type parameters, got {t:?} at {}",
-                                self.at()
-                            ));
-                        }
-                    }
-                }
-            }
-            match self.peek() {
-                Token::Gt => {
-                    self.pos += 1;
-                    let span = self.span_from(start_pos);
-                    self.ast.type_ann_spans.push(span);
-                }
-                t => {
-                    return Err(format!(
-                        "expected `>` to close type parameters, got {t:?} at {}",
-                        self.at()
-                    ));
-                }
-            }
+        // B2 — the whole list is type-side syntax; record it for the
+        // erase splice (see parse_type_ann's wrapper).
+        let start_pos = self.pos;
+        let names = self.parse_erased_type_params()?;
+        if self.pos > start_pos {
+            let span = self.span_from(start_pos);
+            self.ast.type_ann_spans.push(span);
         }
-        Ok(type_params)
+        Ok(names)
     }
 
     fn parse_fn_params(&mut self) -> Result<(Vec<Param>, Vec<Stmt>), String> {

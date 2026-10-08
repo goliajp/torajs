@@ -238,6 +238,10 @@ fn a_dictionary_key_must_be_a_property_key_type() {
         "function get<V>(r: Record<string, V>, k: string): V { return r[k]; }\n\
          const n: number = get({ a: 1, b: 2 }, \"a\");\n",
     );
+    accepted(
+        "function pick<K extends string>(r: Record<K, number>, k: K): number { return r[k]; }\n\
+         const m: number = pick({ a: 1 }, \"a\");\n",
+    );
     // a line break separates members, and ends an array suffix
     accepted(
         "interface E {\n  name: string\n  [k: string]: string\n}\n\
