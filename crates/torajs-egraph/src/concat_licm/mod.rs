@@ -42,6 +42,7 @@
 //! counts.
 
 mod catch;
+mod sink;
 
 use crate::id_hash::{HashMap, HashSet};
 
@@ -177,7 +178,7 @@ fn effect_free(kind: &InstKind) -> bool {
         )
 }
 
-fn apply(func: &mut Function, plan: Hoist, str_drop: FuncId) {
+fn apply(func: &mut Function, mut plan: Hoist, str_drop: FuncId) {
     let pre = new_block(func);
     retarget(
         &mut func.blocks[plan.entry.0 as usize].term,
@@ -233,6 +234,9 @@ fn apply(func: &mut Function, plan: Hoist, str_drop: FuncId) {
         })
         .collect();
     release_on_exits(func, &plan.body, &drops);
+    for h in cells {
+        sink::sink_minted(func, &mut plan.body, plan.header, h, str_drop);
+    }
 }
 
 /// `str_drop` of every hoisted cell on each edge leaving the loop: at
@@ -605,5 +609,101 @@ mod tests {
         body.truncate(4);
         f.blocks.push(blk(5, body, Terminator::Br(BlockId(1))));
         assert_eq!(hoist_concats(&mut m).concats_hoisted, 0);
+    }
+
+    #[test]
+    fn a_body_that_only_reads_the_cell_touches_no_header() {
+        // the body reads the cell and releases it at its close
+        let mut m = rotated(vec![], v(0));
+        let f = &mut m.funcs[3];
+        f.blocks[1].insts[1] = mk(Some(6), InstKind::Load(Type::I64, v(3), 8));
+        f.blocks[1]
+            .insts
+            .insert(2, mk(None, InstKind::Call(DROP, vec![v(3)])));
+        f.values.push(ValueInfo {
+            ty: Type::I64,
+            name: None,
+        });
+        assert_eq!(hoist_concats(&mut m).concats_hoisted, 1);
+        let f = &m.funcs[3];
+        let h = ValueId(7);
+        // the retain cancelled against the close's release: the header
+        // holds the read alone, the exits still release the loop's own
+        let hd = &f.blocks[1];
+        assert_eq!(hd.insts.len(), 4);
+        assert_eq!(
+            hd.insts[0].kind,
+            InstKind::Load(Type::I64, Operand::Value(h), 8)
+        );
+        assert!(!f.blocks.iter().any(|b| {
+            b.insts
+                .iter()
+                .any(|i| i.kind == InstKind::RcInc(Operand::Value(h)))
+        }));
+        assert!(is_drop(&f.blocks[2].insts[0], h));
+    }
+
+    #[test]
+    fn a_slot_store_swaps_only_when_the_slot_holds_another_cell() {
+        // `old = slot; str_drop(old); slot = s` in the header
+        let mut m = rotated(vec![], v(0));
+        let f = &mut m.funcs[3];
+        f.blocks[1].insts.splice(
+            1..2,
+            [
+                mk(
+                    Some(6),
+                    InstKind::LoadDyn(Type::Str, v(0), Operand::ConstI64(16)),
+                ),
+                mk(None, InstKind::Call(DROP, vec![v(6)])),
+                mk(None, InstKind::StoreDyn(v(3), v(0), Operand::ConstI64(16))),
+            ],
+        );
+        f.values.push(ValueInfo {
+            ty: Type::Str,
+            name: None,
+        });
+        assert_eq!(hoist_concats(&mut m).concats_hoisted, 1);
+        let f = &m.funcs[3];
+        let (h, eq) = (ValueId(7), ValueId(8));
+        let hd = &f.blocks[1];
+        assert_eq!(
+            hd.insts.iter().map(|i| &i.kind).collect::<Vec<_>>(),
+            vec![
+                &InstKind::LoadDyn(Type::Str, v(0), Operand::ConstI64(16)),
+                &InstKind::ICmp(IPred::Eq, v(6), Operand::Value(h)),
+            ]
+        );
+        let Terminator::CondBr {
+            cond,
+            then_blk: tail,
+            else_blk: swap,
+        } = hd.term
+        else {
+            unreachable!()
+        };
+        assert_eq!(cond, Operand::Value(eq));
+        let s = &f.blocks[swap.0 as usize];
+        assert_eq!(
+            s.insts.iter().map(|i| &i.kind).collect::<Vec<_>>(),
+            vec![
+                &InstKind::Call(DROP, vec![v(6)]),
+                &InstKind::RcInc(Operand::Value(h)),
+            ]
+        );
+        assert_eq!(s.term, Terminator::Br(tail));
+        let t = &f.blocks[tail.0 as usize];
+        assert_eq!(
+            t.insts[0].kind,
+            InstKind::StoreDyn(Operand::Value(h), v(0), Operand::ConstI64(16))
+        );
+        assert_eq!(t.insts.len(), 4);
+        assert!(matches!(
+            t.term,
+            Terminator::CondBr {
+                then_blk: BlockId(1),
+                ..
+            }
+        ));
     }
 }
