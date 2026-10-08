@@ -22,9 +22,10 @@ use super::*;
 /// silently never ran.
 ///
 /// Skipped (keeping today's behavior) when the whole chain is
-/// ctor-less (nothing to forward) or when the class ITSELF is generic
-/// (its factory lane threads its own type params; a later blade). A
-/// generic ANCESTOR no longer stops the walk: its ctor param anns
+/// ctor-less (nothing to forward). A generic class takes the ctor the
+/// same way: the heritage arguments it writes spell its own type
+/// params, which its ctor declares. A generic ANCESTOR no longer stops
+/// the walk: its ctor param anns
 /// spell its type params (`constructor(x: T)`), and the heritage
 /// arguments recorded per hop (`class Sub extends Box<number>` →
 /// `class_parent_type_args["Sub"] = ["number"]`) substitute them out
@@ -76,7 +77,7 @@ pub(super) fn synthesize_derived_default_ctors(
         })
         .collect();
     let max_hops = class_index.len();
-    for (_, cname, type_params, parent, _, _, ctor, _, _, _) in class_index.iter_mut() {
+    for (_, cname, _, parent, _, _, ctor, _, _, _) in class_index.iter_mut() {
         // A derived class with field initializers and no `constructor`
         // still needs the implicit one. The parser turns its field
         // initializers into a ctor so they run at all, and that ctor
@@ -88,10 +89,7 @@ pub(super) fn synthesize_derived_default_ctors(
         // argument(s)"). `append_no_super_throw` next door already
         // spells out the rule this restores: such a class simply has
         // the implicit default ctor, and that one does call super.
-        if (ctor.is_some() && !ast.field_init_synth_ctors.contains(cname))
-            || parent.is_none()
-            || !type_params.is_empty()
-        {
+        if (ctor.is_some() && !ast.field_init_synth_ctors.contains(cname)) || parent.is_none() {
             continue;
         }
         let mut child = cname.clone();
