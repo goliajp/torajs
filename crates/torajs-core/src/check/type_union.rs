@@ -60,6 +60,12 @@ impl Type {
     ) -> Option<bool> {
         match (to, from) {
             (_, Type::Union(ms)) => Some(ms.iter().all(|m| fits(to, m))),
+            // `T | null | undefined` fits when each of its three does
+            (Type::Union(ms), Type::Nullable(inner)) => Some(
+                [(**inner).clone(), Type::Null, Type::Undefined]
+                    .iter()
+                    .all(|p| ms.iter().any(|m| fits(m, p))),
+            ),
             (Type::Union(ms), _) => Some(ms.iter().any(|m| fits(m, from))),
             _ => None,
         }
