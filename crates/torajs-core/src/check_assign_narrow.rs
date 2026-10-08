@@ -122,6 +122,7 @@ impl Checker {
         if matches!(ast.get_expr(init), Expr::Uninit) {
             return;
         }
+        self.union_decl_narrow(ast, name, init);
         let Some(ty) = self.expr_types.get(&init).cloned() else {
             return;
         };

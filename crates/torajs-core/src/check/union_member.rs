@@ -43,10 +43,12 @@ impl Checker {
             return Ok(());
         };
         // a loose binding may be narrowed by a guard this checker does
-        // not model: one member having the name is enough
+        // not model: one declared member having the name is enough
         if let Expr::Ident(n) = ast.get_expr(obj)
-            && self.unions.loose.contains(n)
-            && solid.iter().any(|m| self.has_member(ast, m, name))
+            && self.is_loose(n)
+            && (self.declared_union(n).unwrap_or_default().iter())
+                .chain(solid.iter().copied())
+                .any(|m| !m.is_nullish_value() && self.has_member(ast, m, name))
         {
             return Ok(());
         }
@@ -101,7 +103,7 @@ impl Checker {
                 continue;
             }
             let given = match ast.get_expr(*a) {
-                Expr::Ident(n) if self.unions.loose.contains(n) => continue,
+                Expr::Ident(n) if self.is_loose(n) => continue,
                 _ => self.unions.types.get(a).or_else(|| self.expr_types.get(a)),
             };
             if let Some(given) = given
@@ -135,7 +137,13 @@ impl Checker {
             return true;
         }
         if let Type::ClassRef(c) = t {
-            let mut cur = Some(c.as_str());
+            if crate::ast::accessor_lookup::accessor_getter_in_chain(ast, c, name).is_some()
+                || crate::ast::accessor_lookup::accessor_setter_in_chain(ast, c, name).is_some()
+            {
+                return true;
+            }
+            // a generic class's methods are registered under its bare name
+            let mut cur = c.split('<').next();
             let mut hops = ast.class_parents.len() + 1;
             while let Some(cname) = cur
                 && hops > 0

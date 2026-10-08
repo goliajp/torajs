@@ -61,6 +61,9 @@ pub(crate) struct LocalInfo {
     /// so its calls ride the boxed entry
     /// (`check_type_of_call::fn_slot_ret`).
     pub(crate) fn_slot: Option<FnSlot>,
+    /// What the union rules know about this binding, when it is typed
+    /// as a union (see `check/union_narrow.rs`).
+    pub(crate) union: UnionBinding,
 }
 
 impl LocalInfo {
@@ -75,8 +78,21 @@ impl LocalInfo {
             builtin_mv: false,
             exec_result: false,
             fn_slot: None,
+            union: UnionBinding::default(),
         }
     }
+}
+
+/// The per-binding half of the union rules.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct UnionBinding {
+    /// The members the binding was declared with, recorded the first
+    /// time a narrow replaces its type; `None` while it still holds
+    /// its declared union.
+    pub(crate) declared: Option<Vec<Type>>,
+    /// Under a guard the checker does not narrow, or assigned to: a
+    /// member read needs the name on one declared member only.
+    pub(crate) loose: bool,
 }
 
 /// Which declaration a census slot binding is.

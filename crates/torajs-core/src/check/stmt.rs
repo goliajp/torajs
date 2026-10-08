@@ -244,7 +244,14 @@ impl Checker {
     fn check_stmt_expr(&mut self, ast: &Ast, eid: ExprId) {
         match self.type_of(ast, eid) {
             Err(e) => self.errors.push_err(e),
-            Ok(_) => {
+            Ok(t) => {
+                // an assertion function (`asserts v is T`) narrows its
+                // arguments for the rest of the block
+                if matches!(t, Type::Void | Type::Undefined)
+                    && let Expr::Call { args, .. } = ast.get_expr(eid)
+                {
+                    args.iter().for_each(|a| self.note_unmodeled_guard(ast, *a));
+                }
                 if let Expr::Assign { target, value } = ast.get_expr(eid)
                     && let Expr::Ident(n) = ast.get_expr(*target)
                     && let Some(vt) = self.expr_types.get(value).cloned()

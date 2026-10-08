@@ -74,6 +74,10 @@ pub(crate) fn check_switch(checker: &mut Checker, ast: &Ast, stmt: &Stmt) {
         return;
     };
     checker.note_unmodeled_guard(ast, *scrutinee);
+    // `switch (true) { case typeof y === "string": … }` guards in a case
+    for c in cases {
+        checker.note_unmodeled_guard(ast, c.value);
+    }
     let scrut_ty = match checker.type_of(ast, *scrutinee) {
         Ok(t) => t,
         Err(e) => {

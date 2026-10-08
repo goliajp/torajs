@@ -221,10 +221,11 @@ pub(crate) fn check_closure_body(
         .map(|(n, _)| n.clone())
         .collect();
     checker.toplevel_captures.push(top_caps);
-    // a captured census slot stays that slot inside the closure
-    let cap_slots: HashMap<String, crate::check::FnSlot> = cap_tys
+    // a captured census slot stays that slot inside the closure, and a
+    // captured union keeps its declared members and loose mark
+    let cap_outer: HashMap<String, LocalInfo> = cap_tys
         .iter()
-        .filter_map(|(n, _)| Some((n.clone(), checker.lookup(n)?.fn_slot?)))
+        .filter_map(|(n, _)| Some((n.clone(), checker.lookup(n)?)))
         .collect();
     let saved_scopes = std::mem::replace(&mut checker.scopes, vec![HashMap::new()]);
     let saved_return = checker.expected_return.replace(ret_ty);
@@ -252,7 +253,11 @@ pub(crate) fn check_closure_body(
         let _ = checker.declare(
             cap_name.clone(),
             LocalInfo {
-                fn_slot: cap_slots.get(cap_name).cloned(),
+                fn_slot: cap_outer.get(cap_name).and_then(|i| i.fn_slot.clone()),
+                union: cap_outer
+                    .get(cap_name)
+                    .map(|i| i.union.clone())
+                    .unwrap_or_default(),
                 ..LocalInfo::plain(cap_ty.clone())
             },
         );

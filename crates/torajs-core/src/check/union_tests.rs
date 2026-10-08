@@ -82,4 +82,74 @@ fn an_assignment_in_a_narrow_checks_the_declaration() {
          v = true;\n\
          return \"\" + v;\n}\n",
     );
+    // an assignment in a narrow reaches the read after the branch
+    accepted(
+        "function f(v: string | number): string {\n\
+         if (typeof v === \"string\") { v = 5; }\n\
+         return v.toFixed(1);\n}\n",
+    );
+}
+
+#[test]
+fn an_optional_value_fits_a_union_with_undefined() {
+    accepted(
+        "function f(v: string | number | undefined): string { return \"\" + v; }\n\
+         function g(s?: string): string { return f(s); }\n",
+    );
+    refused(
+        "function f(v: string | number): string { return \"\" + v; }\n\
+         function g(s?: string): string { return f(s); }\n",
+        "not assignable",
+    );
+}
+
+#[test]
+fn an_initializer_narrows_the_declared_union() {
+    accepted("let x: string | number = \"hi\";\nconsole.log(x.toUpperCase());\n");
+    refused(
+        "let x: string | number = \"hi\";\nconsole.log(x.toFixed(1));\n",
+        "does not exist on every member",
+    );
+    // a typeof guard the initializer's narrow leaves empty still sees
+    // the declared member a loop's back edge brings in
+    accepted(
+        "let x: string | number = \"a\";\n\
+         for (let i = 0; i < 2; i++) {\n\
+         if (typeof x === \"number\") { console.log(x.toFixed(1)); }\n\
+         x = i;\n}\n",
+    );
+    // a closure sees the declared members too
+    accepted(
+        "let x: string | number = \"a\";\n\
+         const f = (): string => typeof x === \"number\" ? x.toFixed(1) : x;\n\
+         x = 2;\nconsole.log(f());\n",
+    );
+}
+
+#[test]
+fn a_loose_mark_stays_on_its_own_binding() {
+    refused(
+        "function a(v: string | number): number {\n\
+         if (v === \"x\") return 1;\n\
+         return 0;\n}\n\
+         function b(v: string | number): number { return v.length; }\n",
+        "does not exist on every member",
+    );
+}
+
+#[test]
+fn guards_held_elsewhere_loosen_the_binding() {
+    // class accessors and `switch (true)` need the desugar passes this
+    // harness skips; the union-*.ts conformance cases cover them
+    accepted(
+        "function b(y: string | number): number {\n\
+         const isS = typeof y === \"string\";\n\
+         if (isS) return y.length;\n\
+         return 0;\n}\n",
+    );
+    accepted(
+        "function assertS(v: unknown): asserts v is string {\n\
+         if (typeof v !== \"string\") throw \"no\";\n}\n\
+         function c(y: string | number): number { assertS(y); return y.length; }\n",
+    );
 }

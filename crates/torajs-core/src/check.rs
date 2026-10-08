@@ -19,6 +19,7 @@ mod synth_dunder;
 mod type_def;
 mod type_of;
 mod type_union;
+mod union_binding;
 mod union_member;
 mod union_narrow;
 #[cfg(test)]

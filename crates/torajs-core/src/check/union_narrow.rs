@@ -12,8 +12,9 @@
 //! `instanceof`, a user type predicate, a guard inside `&&` / `||` /
 //! a loop or switch condition), and every assignment to one, marks the
 //! binding loose: from there on a member read on it needs the name on
-//! some member, not on every member. That under-refuses where TS would
-//! have narrowed further, and never refuses a program TS accepts.
+//! some declared member, not on every member. That under-refuses where
+//! TS would have narrowed further, and never refuses a program TS
+//! accepts. The binding's own state lives in `union_binding`.
 
 use crate::ast::{Ast, BinOp, Expr, ExprId};
 
@@ -27,14 +28,9 @@ pub(crate) struct UnionFacts {
     /// the members, for the member check on a union receiver and for
     /// the census's `union` bucket.
     pub(crate) types: std::collections::HashMap<ExprId, Type>,
-    /// Union bindings under a guard the checker does not narrow, or
-    /// assigned to: their member reads take the loose rule. Keyed by
-    /// name, so a same-named binding elsewhere is loosened too.
-    pub(crate) loose: std::collections::HashSet<String>,
-    /// The declared union of a binding a `typeof` guard has narrowed,
-    /// so an assignment in the narrowed segment is checked against
-    /// the declaration, not the narrow.
-    pub(crate) declared: std::collections::HashMap<String, Type>,
+    /// The loose union bindings that live in `globals` — a scope
+    /// binding keeps its mark on its own `LocalInfo`.
+    pub(crate) loose_globals: std::collections::HashSet<String>,
 }
 
 /// What `typeof` answers for a value of type `t` (ES §13.5.3), when
@@ -75,20 +71,8 @@ impl Checker {
         }
         self.expr_types.insert(eid, t.clone().lane());
         match ast.get_expr(eid) {
-            Expr::Ident(n) if self.unions.loose.contains(n) => t.lane(),
+            Expr::Ident(n) if self.is_loose(n) => t.lane(),
             _ => t,
-        }
-    }
-
-    /// The union type `name` is bound to right now, if it is one.
-    pub(super) fn binding_union(&self, name: &str) -> Option<&Vec<Type>> {
-        let ty = match self.scopes.iter().rev().find_map(|s| s.get(name)) {
-            Some(info) => &info.ty,
-            None => self.globals.get(name)?,
-        };
-        match ty {
-            Type::Union(ms) => Some(ms),
-            _ => None,
         }
     }
 
@@ -117,25 +101,21 @@ impl Checker {
         };
         let (name, tag) = operand(*left, *right).or_else(|| operand(*right, *left))?;
         let members = self.binding_union(&name)?.clone();
-        let (is, is_not): (Vec<Type>, Vec<Type>) = members
-            .iter()
-            .cloned()
-            .partition(|m| typeof_tag(m).is_none_or(|t| t == tag));
-        // a member typeof cannot classify stays on both sides
-        let unknown: Vec<Type> = members
-            .iter()
-            .filter(|m| typeof_tag(m).is_none())
-            .cloned()
-            .collect();
-        let is_not = [is_not, unknown].concat();
-        let side = |ms: Vec<Type>| {
-            if ms.is_empty() {
-                Type::Union(members.clone())
-            } else {
-                Type::Union(ms)
-            }
+        let declared = self
+            .declared_union(&name)
+            .unwrap_or_else(|| members.clone());
+        let (is, is_not) = split_by_typeof(&members, &tag);
+        let (d_is, d_not) = split_by_typeof(&declared, &tag);
+        // a side the narrowed type leaves empty can still be reached
+        // with a declared member, across a loop's back edge
+        let side = |ms: Vec<Type>, d: Vec<Type>| {
+            Type::Union(match (ms.is_empty(), d.is_empty()) {
+                (false, _) => ms,
+                (true, false) => d,
+                (true, true) => declared.clone(),
+            })
         };
-        let (eq, ne) = (side(is), side(is_not));
+        let (eq, ne) = (side(is, d_is), side(is_not, d_not));
         Some(if holds_when_equal {
             (name, eq, ne)
         } else {
@@ -143,34 +123,13 @@ impl Checker {
         })
     }
 
-    /// Installs a `typeof` narrow on `name`, remembering the declared
-    /// union; answers the type to restore. A binding already narrowed
-    /// holds a subset of the remembered union and keeps it; any other
-    /// is a fresh declaration (another binding of the same name).
-    pub(crate) fn apply_union_narrow(&mut self, name: &str, ty: Type) -> Option<Type> {
-        if let Some(cur) = self.binding_union(name).cloned() {
-            let known = match self.unions.declared.get(name) {
-                Some(Type::Union(d)) => cur.iter().all(|m| d.contains(m)),
-                _ => false,
-            };
-            if !known {
-                self.unions
-                    .declared
-                    .insert(name.to_string(), Type::Union(cur));
-            }
-        }
-        self.apply_narrow(name, ty)
-    }
-
     /// Marks loose every union binding `cond` names (a guard this
     /// checker does not narrow).
     pub(crate) fn note_unmodeled_guard(&mut self, ast: &Ast, cond: ExprId) {
         let mut stack = vec![cond];
         while let Some(e) = stack.pop() {
-            if let Expr::Ident(n) = ast.get_expr(e)
-                && self.binding_union(n).is_some()
-            {
-                self.unions.loose.insert(n.clone());
+            if let Expr::Ident(n) = ast.get_expr(e) {
+                self.mark_loose(n);
             }
             crate::ast::desugar_async_sm_walk::visit_expr_children(ast, e, &mut |c| stack.push(c));
         }
@@ -186,21 +145,21 @@ impl Checker {
         }
         narrow
     }
+}
 
-    /// The slot an assignment to `name` is checked against: a narrowed
-    /// union gives way to its declaration. The binding goes loose — the
-    /// value assigned may be of any member.
-    pub(crate) fn union_assign_target(&mut self, name: &str, target: Type) -> Type {
-        let Type::Union(cur) = &target else {
-            return target;
-        };
-        self.unions.loose.insert(name.to_string());
-        // a narrow is a subset of its declaration; a union that is not
-        // one of the remembered union's subsets belongs to another
-        // binding of the same name
-        match self.unions.declared.get(name) {
-            Some(Type::Union(d)) if cur.iter().all(|m| d.contains(m)) => Type::Union(d.clone()),
-            _ => target,
-        }
-    }
+/// `members` split by what `typeof` answers for each: `tag`, or
+/// something else. A member `typeof` cannot classify stays on both
+/// sides.
+fn split_by_typeof(members: &[Type], tag: &str) -> (Vec<Type>, Vec<Type>) {
+    let is = members
+        .iter()
+        .filter(|m| typeof_tag(m).is_none_or(|t| t == tag))
+        .cloned()
+        .collect();
+    let is_not = members
+        .iter()
+        .filter(|m| typeof_tag(m) != Some(tag))
+        .cloned()
+        .collect();
+    (is, is_not)
 }
