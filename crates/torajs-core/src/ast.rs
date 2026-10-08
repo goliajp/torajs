@@ -82,6 +82,7 @@ mod desugar_async_sm_rewrite;
 mod desugar_async_sm_this;
 mod desugar_async_sm_values;
 pub(crate) mod desugar_async_sm_walk;
+pub(crate) mod interface_extends;
 mod twin_exprs;
 pub(crate) use twin_exprs::{NameRead, body_reads, twin_body_exprs};
 mod desugar_classes;
@@ -407,6 +408,7 @@ pub(crate) use inject_builtin_classes::class_reaches_error;
 pub use inject_builtin_classes::inject_builtin_classes;
 pub use inject_disposable_stack::inject_disposable_stack;
 pub use inject_promise_finally::inject_promise_finally;
+pub use interface_extends::flatten_interface_extends;
 pub use let_owned_elems::analyze_let_owned_elems;
 pub use lift_arrow_fns::lift_arrow_fns;
 pub(crate) use lift_arrow_fns::{

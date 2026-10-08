@@ -211,6 +211,7 @@ fn compute_diagnostics(uri: &Uri, text: &str) -> Vec<Diagnostic> {
         // mirrors main.rs (run before any desugar rewrites decls).
         torajs_core::ast::early_redecl_errors(&mut ast);
         torajs_core::ast::dedupe_fn_decls(&mut ast);
+        torajs_core::ast::flatten_interface_extends(&mut ast);
         if !ast.redecl_parse_errors.is_empty() {
             return ast
                 .redecl_parse_errors

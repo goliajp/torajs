@@ -74,12 +74,18 @@ impl<'a> Parser<'a> {
                 }
             }
         }
-        // Optional `extends Foo, Bar` clause — subset stub: tokens
-        // are consumed and discarded (no field-inheritance yet).
+        // `extends Foo, Bar<T>` — each heritage type rides as a leading
+        // field row that `ast::flatten_interface_extends` expands into
+        // the parent's members.
+        let mut fields: Vec<(PropKey, String)> = Vec::new();
         if matches!(self.peek(), Token::Extends) {
             self.pos += 1;
             loop {
-                let _parent = self.parse_type_ann()?;
+                let parent = self.parse_type_ann()?;
+                fields.push((
+                    PropKey::from(crate::ast::interface_extends::EXTENDS_FIELD),
+                    parent,
+                ));
                 if matches!(self.peek(), Token::Comma) {
                     self.pos += 1;
                     continue;
@@ -96,7 +102,6 @@ impl<'a> Parser<'a> {
                 ));
             }
         }
-        let mut fields: Vec<(PropKey, String)> = Vec::new();
         if !matches!(self.peek(), Token::RBrace) {
             fields.push(self.parse_type_decl_field()?);
             while matches!(self.peek(), Token::Comma | Token::Semi) {
