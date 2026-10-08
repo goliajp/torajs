@@ -4,15 +4,18 @@
 //! (`num_width::hidden_any`: an element of a typed array whose alias
 //! escaped into the `any` world, or of an `any[]`) is annotated `any`,
 //! a call argument that may carry one is read as `any` by the call
-//! check (`check_type_of_call::any_widen`), a function that may return
-//! one returns `any`, and the program checked
-//! again, until no round asks for another. A program that asks for
-//! none is checked once.
+//! check (`check_type_of_call::any_widen`), an object literal field
+//! that may be stored one is initialized through `as any` (the field's
+//! slot is laid out from the value it is initialized with), a function
+//! that may return one returns `any`, and the program checked again,
+//! until no round asks for another. A program that asks for none is
+//! checked once.
 
 use std::collections::{HashMap, HashSet};
 
 use super::{Round, check_round};
 use crate::ast::{Ast, Expr, ExprId, Stmt};
+use crate::check::Type;
 
 /// Run rounds from `first`, the round of `ast` as written.
 pub(super) fn settle(ast: &Ast, first: Round) -> Result<Round, String> {
@@ -20,6 +23,7 @@ pub(super) fn settle(ast: &Ast, first: Round) -> Result<Round, String> {
     let mut inits: HashSet<ExprId> = HashSet::new();
     let mut args: HashSet<ExprId> = HashSet::new();
     let mut rets: HashSet<String> = HashSet::new();
+    let mut fields: HashSet<ExprId> = HashSet::new();
     let mut retypable: Option<HashSet<String>> = None;
     let mut retyped: Option<Ast> = None;
     loop {
@@ -29,13 +33,16 @@ pub(super) fn settle(ast: &Ast, first: Round) -> Result<Round, String> {
             let ok = retypable.get_or_insert_with(|| retypable_returns(ast));
             rets.extend((hidden.rets.iter()).filter(|f| ok.contains(*f)).cloned());
         }
-        let grew = (rets.len() > before) | extend_own(ast, &mut inits, &hidden.inits);
+        let grew = (rets.len() > before)
+            | extend_own(ast, &mut inits, &hidden.inits)
+            | extend_own(ast, &mut fields, &scalar_values(&round.0.1, &hidden.fields));
         if !(extend_own(ast, &mut args, &hidden.args) || grew) {
             return Ok(round);
         }
         let r = retyped.get_or_insert_with(|| ast.clone());
         retype_any(&mut r.stmts, &inits);
         retype_returns_any(&mut r.stmts, &rets);
+        spell_fields_any(r, &fields);
         round = check_round(r, &args)?;
     }
 }
@@ -47,6 +54,48 @@ fn extend_own(ast: &Ast, asked: &mut HashSet<ExprId>, found: &HashSet<ExprId>) -
     let before = asked.len();
     asked.extend((found.iter().copied()).filter(|e| (e.0 as usize) < ast.exprs.len()));
     asked.len() > before
+}
+
+/// The values among `found` the checker types `number`, `string` or
+/// `boolean`; a field initialized with anything else has a slot that
+/// holds a value of any kind already, or a value whose name a field
+/// initializer gives it (§13.2.5.5) that an `as` would hide.
+fn scalar_values(types: &HashMap<ExprId, Type>, found: &HashSet<ExprId>) -> HashSet<ExprId> {
+    (found.iter().copied())
+        .filter(|e| {
+            matches!(
+                types.get(e),
+                Some(Type::Number | Type::String | Type::Boolean)
+            )
+        })
+        .collect()
+}
+
+/// Spell `<value> as any` for each object literal field value in
+/// `vals` that is still the field's value. The field may be stored a
+/// value of another kind later (§10.1.9 stores it as is), and its slot
+/// takes the kind of the value it is initialized with.
+fn spell_fields_any(r: &mut Ast, vals: &HashSet<ExprId>) {
+    for i in 0..r.exprs.len() {
+        let Expr::ObjectLit { fields } = &r.exprs[i] else {
+            continue;
+        };
+        let hits: Vec<(usize, ExprId)> = (fields.iter().enumerate())
+            .filter(|(_, (_, v))| vals.contains(v))
+            .map(|(j, (_, v))| (j, *v))
+            .collect();
+        for (j, v) in hits {
+            let span = r.expr_spans[v.0 as usize];
+            let w = r.add_expr(Expr::As {
+                expr: v,
+                ty_ann: "any".to_string(),
+            });
+            r.set_expr_span(w, span);
+            if let Expr::ObjectLit { fields } = &mut r.exprs[i] {
+                fields[j].1 = w;
+            }
+        }
+    }
 }
 
 /// Annotate `any` every `let` / `const` whose initializer is in

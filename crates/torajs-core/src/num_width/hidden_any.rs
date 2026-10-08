@@ -92,18 +92,22 @@ pub(super) struct Graph<'s> {
     /// The block frames of the body being walked, outermost first:
     /// its parameters, then its own top-level bindings.
     pub(super) frames: Vec<HashMap<String, Node>>,
+    /// Each object literal field value, with the field point it sets.
+    pub(super) lit_fields: Vec<(Node, ExprId)>,
 }
 
 /// What the check driver changes for the next round: the initializers
 /// of the declarations to retype `any`, the call arguments that may
-/// carry a value of another kind than the checker reads them as, and
-/// the functions that may return one. `filled` are the containers such
-/// a value is stored into, which the width analysis itself turns into
+/// carry a value of another kind than the checker reads them as, the
+/// object literal field values whose field may be stored one, and the
+/// functions that may return one. `filled` are the containers such a
+/// value is stored into, which the width analysis itself turns into
 /// escapes.
 #[derive(Default)]
 pub(crate) struct HiddenAny {
     pub(crate) inits: HashSet<ExprId>,
     pub(crate) args: HashSet<ExprId>,
+    pub(crate) fields: HashSet<ExprId>,
     pub(crate) rets: HashSet<String>,
     pub(super) filled: Vec<SlotKey>,
 }
@@ -132,6 +136,7 @@ pub(super) fn collect(
             caps_in: caps,
             caps_out: CapMap::new(),
             frames: Vec::new(),
+            lit_fields: Vec::new(),
         };
         for b in &bodies {
             g.walk_body(a, b);
@@ -197,6 +202,11 @@ impl Graph<'_> {
         }
         let stats = std::env::var_os("TORAJS_NUM_WIDTH_STATS").is_some();
         let mut out = HiddenAny::default();
+        for (n, v) in &self.lit_fields {
+            if tainted.contains(n) {
+                out.fields.insert(*v);
+            }
+        }
         for n in &tainted {
             match n {
                 Node::Arg(e) => drop(out.args.insert(*e)),

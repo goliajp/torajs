@@ -166,3 +166,17 @@ fn an_array_stored_an_escaped_element_escapes() {
     assert!(escapes("acc") && escapes("lit"));
     assert!(!escapes("t") && !escapes("w"));
 }
+
+#[test]
+fn a_field_stored_an_escaped_element_is_reported() {
+    let src = format!(
+        "{ESCAPED}const o = {{ k: 0, n: 1 }};\no.k = d[1];\nconst p = {{ k: 2 }};\np.k = 3;\nconsole.log(o, p);"
+    );
+    let (ast, h) = hidden_in(&src);
+    let zero: Vec<_> = (0..ast.exprs.len())
+        .map(|i| crate::ast::ExprId(i as u32))
+        .filter(|&e| matches!(ast.get_expr(e), Expr::Number(n) if *n == 0.0))
+        .collect();
+    assert_eq!(zero.len(), 1);
+    assert_eq!(h.fields, zero.into_iter().collect());
+}

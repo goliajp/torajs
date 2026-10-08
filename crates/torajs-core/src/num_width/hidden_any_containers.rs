@@ -8,10 +8,11 @@
 //! (`hof_receivers::settle` adds it to the escape seeds), so it lowers
 //! as an `Arr<Any>` and its reads become sources in turn.
 //!
-//! A field of an object literal set from such a value holds it the
-//! same way, and a read of the field carries it on. The element reads
-//! a method answers (`d.at(1)`, `d.pop()`) are sources as the index
-//! reads are.
+//! A field of an object literal set from such a value, or stored such a
+//! value later (`obj.k = v`), holds it the same way (§10.1.9): the
+//! check driver initializes the literal's field through `as any`, and a
+//! read of the field carries the value on. The element reads a method answers
+//! (`d.at(1)`, `d.pop()`) are sources as the index reads are.
 
 use super::container::canon_key_frozen;
 use super::hidden_any::{Graph, Node};
@@ -22,11 +23,16 @@ impl Graph<'_> {
     /// The container stores under expression `e`.
     pub(super) fn container_writes(&mut self, a: &Analysis<'_>, sc: &Scope, e: ExprId) {
         match a.ast.get_expr(e) {
-            Expr::Assign { target, value } => {
-                if let Expr::Index { obj, .. } = a.ast.get_expr(*target) {
-                    self.store_into(a, sc, *obj, *value);
+            Expr::Assign { target, value } => match a.ast.get_expr(*target) {
+                Expr::Index { obj, .. } => self.store_into(a, sc, *obj, *value),
+                Expr::Member { .. } => {
+                    if let Some(f) = a.container_key_lookup(*target, sc) {
+                        let f = canon_key_frozen(&a.uf, &f);
+                        self.flow(a, &[Node::Read(f)], *value, sc);
+                    }
                 }
-            }
+                _ => {}
+            },
             Expr::Call { callee, args } => {
                 let Expr::Member { obj, name } = a.ast.get_expr(*callee) else {
                     return;
@@ -52,7 +58,9 @@ impl Graph<'_> {
                 };
                 for (name, v) in fields {
                     let f = SlotKey::Field(Box::new(k.clone()), name.clone());
-                    self.flow(a, &[Node::Read(canon_key_frozen(&a.uf, &f))], *v, sc);
+                    let n = Node::Read(canon_key_frozen(&a.uf, &f));
+                    self.flow(a, std::slice::from_ref(&n), *v, sc);
+                    self.lit_fields.push((n, *v));
                 }
             }
             _ => {}
