@@ -141,14 +141,3 @@ fn a_call_argument_carrying_an_escaped_element_is_reported() {
     assert_eq!(want.len(), 1);
     assert_eq!(h.args, want);
 }
-
-#[test]
-fn a_function_returning_an_escaped_element_is_reported() {
-    let src = format!(
-        "{ESCAPED}function get(): number {{ return d[1]; }}\nfunction one(): number {{ return 1; }}\nfunction relay(): number {{ return get(); }}\nconsole.log(get(), one(), relay());"
-    );
-    let (_, h) = hidden_in(&src);
-    let mut rets: Vec<String> = h.rets.into_iter().collect();
-    rets.sort();
-    assert_eq!(rets, ["get", "relay"]);
-}

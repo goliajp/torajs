@@ -1,5 +1,5 @@
 //! The direct calls of `hidden_any`: what an argument carries in, and
-//! what a call carries out.
+//! what a call answering through an any-widened clone carries out.
 //!
 //! `id(d[1])` against `function id(v: number)` converted an element of
 //! an escaped typed array to a number on the way into the typed slot,
@@ -9,11 +9,6 @@
 //! parameter as `any` (`check_type_of_call::any_widen`). The clone
 //! answers `any` when its result depends on the parameter, and the
 //! value it answers flows on as a source.
-//!
-//! A function returning such a value (`function get(): number { return
-//! d[1] }`) converted it to its declared return on the way out, where
-//! §10.2.1.12 hands the value back as is. The check driver retypes its
-//! return `any`, and a call of it carries what it returns.
 
 use super::Analysis;
 use super::Scope;
@@ -45,26 +40,6 @@ impl Graph<'_> {
                 self.flow(a, &[Node::Arg(arg)], arg, sc);
             }
         }
-    }
-}
-
-impl Graph<'_> {
-    /// What call `eid` of `callee` returns, when `callee` names a
-    /// function declaration (or the instance a retarget names).
-    pub(super) fn call_result(
-        &self,
-        a: &Analysis<'_>,
-        eid: ExprId,
-        callee: ExprId,
-    ) -> Option<Node> {
-        let Expr::Ident(n) = a.ast.get_expr(callee) else {
-            return None;
-        };
-        if self.frames.iter().any(|f| f.contains_key(n)) || a.shadowing_reads.contains(&callee) {
-            return None;
-        }
-        let f = a.retargets.get(&eid).unwrap_or(n);
-        a.fn_params.contains_key(f).then(|| Node::Ret(f.clone()))
     }
 }
 

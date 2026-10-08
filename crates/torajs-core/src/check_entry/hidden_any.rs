@@ -4,8 +4,7 @@
 //! (`num_width::hidden_any`: an element of a typed array whose alias
 //! escaped into the `any` world, or of an `any[]`) is annotated `any`,
 //! a call argument that may carry one is read as `any` by the call
-//! check (`check_type_of_call::any_widen`), a function that may return
-//! one returns `any`, and the program checked
+//! check (`check_type_of_call::any_widen`), and the program checked
 //! again, until no round asks for another. A program that asks for
 //! none is checked once.
 
@@ -19,24 +18,15 @@ pub(super) fn settle(ast: &Ast, first: Round) -> Result<Round, String> {
     let mut round = first;
     let mut inits: HashSet<ExprId> = HashSet::new();
     let mut args: HashSet<ExprId> = HashSet::new();
-    let mut rets: HashSet<String> = HashSet::new();
-    let retypable = retypable_returns(ast);
     let mut retyped: Option<Ast> = None;
     loop {
         let hidden = &round.0.5.widths.hidden_any;
-        let before = rets.len();
-        rets.extend(
-            (hidden.rets.iter())
-                .filter(|f| retypable.contains(*f))
-                .cloned(),
-        );
-        let grew = (rets.len() > before) | extend_own(ast, &mut inits, &hidden.inits);
+        let grew = extend_own(ast, &mut inits, &hidden.inits);
         if !(extend_own(ast, &mut args, &hidden.args) || grew) {
             return Ok(round);
         }
         let r = retyped.get_or_insert_with(|| ast.clone());
         retype_any(&mut r.stmts, &inits);
-        retype_returns_any(&mut r.stmts, &rets);
         round = check_round(r, &args)?;
     }
 }
@@ -62,48 +52,6 @@ fn retype_any(stmts: &mut [Stmt], inits: &HashSet<ExprId>) {
             && inits.contains(init)
         {
             *type_ann = Some("any".to_string());
-        }
-        crate::ast_closure_param_tag_retag::push_child_stmts_mut(s, &mut stack);
-    }
-}
-
-/// The functions whose return a round may retype `any`: a declaration
-/// or a lifted closure declared to return a `number`, `string` or
-/// `boolean`, or with no annotation. A generator or an async function
-/// answers an object of its own and keeps its face.
-fn retypable_returns(ast: &Ast) -> HashSet<String> {
-    let mut out = HashSet::new();
-    crate::ast::walk_stmts(&ast.stmts, &mut |s| {
-        if let Stmt::FnDecl {
-            name,
-            return_type,
-            is_generator: false,
-            ..
-        } = s
-            && (!name.starts_with("__") || name.starts_with("__closure_"))
-            && !ast.async_fns.contains(name)
-            && matches!(
-                return_type.as_deref(),
-                None | Some("number" | "string" | "boolean")
-            )
-        {
-            out.insert(name.clone());
-        }
-    });
-    out
-}
-
-/// Annotate `any` the return of every function in `fns`. It may hand
-/// back a value of any kind, which §10.2.1.12 returns as is.
-fn retype_returns_any(stmts: &mut [Stmt], fns: &HashSet<String>) {
-    let mut stack: Vec<&mut Stmt> = stmts.iter_mut().collect();
-    while let Some(s) = stack.pop() {
-        if let Stmt::FnDecl {
-            name, return_type, ..
-        } = s
-            && fns.contains(name)
-        {
-            *return_type = Some("any".to_string());
         }
         crate::ast_closure_param_tag_retag::push_child_stmts_mut(s, &mut stack);
     }
