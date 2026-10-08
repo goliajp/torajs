@@ -19,7 +19,7 @@
 
 use crate::ast::{BinOp as AstBinOp, Expr, ExprId, Stmt};
 use crate::check::Type as CT;
-use crate::ssa::{Operand, Type};
+use crate::ssa::{BlockId, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
 /// Before lowering `stmts[k]`: record its element store as a move when
@@ -193,16 +193,18 @@ impl LowerCtx<'_> {
 
     /// The typed element store's integrity guard, then the move
     /// [`Self::take_slot_move`] granted: the guard's throw path runs
-    /// before the binding is marked, so it still releases `s`.
+    /// before the binding is marked, so it still releases `s`. Returns
+    /// the guarded arm, left open for the caller's own store.
     pub(crate) fn emit_integrity_guard_then_move(
         &mut self,
         arr_val: &Operand,
         idx_val: &Operand,
         moved_from: Option<String>,
-    ) {
-        self.emit_index_integrity_guard(arr_val, idx_val);
+    ) -> BlockId {
+        let guarded = self.emit_index_integrity_guard(arr_val, idx_val);
         if let Some(info) = moved_from.and_then(|s| self.locals.get_mut(&s)) {
             info.moved = true;
         }
+        guarded
     }
 }

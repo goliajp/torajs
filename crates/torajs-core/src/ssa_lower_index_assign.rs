@@ -234,24 +234,16 @@ impl<'a> LowerCtx<'a> {
         if !transfers && !elem_ty.is_copy() && !move_in {
             self.emit_rc_inc(v);
         }
-        self.emit_integrity_guard_then_move(&arr_val, &idx_val, moved_from);
-        // T-13.5: head-aware byte offset for indexed assign.
-        let (offset_base, offset) =
-            self.emit_arr_slot_byte_offset(arr_val, idx_val, 3, is_non_deque);
-        // Drop old elem if non-Copy. M1.2 MVP only ships i64
-        // elements (Copy), so this branch currently never fires; lays
-        // groundwork for non-Copy element types in a follow-up.
-        if !elem_ty.is_copy() {
-            let old = self.f.append_inst(
-                self.cur_block,
-                InstKind::LoadDyn(elem_ty, offset_base, offset),
-                elem_ty,
-                None,
-            );
-            self.emit_drop_value(Operand::Value(old), elem_ty);
-        }
-        self.f
-            .append_void(self.cur_block, InstKind::StoreDyn(v, offset_base, offset));
+        let guarded_blk = self.emit_integrity_guard_then_move(&arr_val, &idx_val, moved_from);
+        // A clean header (the common arm) has no hole shadow either —
+        // the hole bit is one of the bits the guard just tested — so
+        // the store goes straight to the join; only the guarded arm
+        // asks the revive question after its store.
+        self.emit_typed_slot_store(arr_val, idx_val, is_non_deque, elem_ty, v);
+        let fast = self.cur_block;
+        self.f.set_term(fast, Terminator::Br(join_blk));
+        self.cur_block = guarded_blk;
+        self.emit_typed_slot_store(arr_val, idx_val, is_non_deque, elem_ty, v);
         self.emit_hole_revive_branch(&arr_val, &idx_val, join_blk);
         if let Some((expando_blk, _join_unused, raw)) = expando_arm {
             self.emit_nonintegral_index_expando_store(expando_blk, raw, value, &v_raw, &arr_val);

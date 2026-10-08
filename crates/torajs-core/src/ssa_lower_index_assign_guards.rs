@@ -25,7 +25,11 @@ impl<'a> LowerCtx<'a> {
     /// (defineProperty shadow / frozen / sealed / non-extensible) test
     /// as ONE mask over the same header word the hole-revive branch
     /// below already loads, and only a hit calls the kernel.
-    pub(crate) fn emit_index_integrity_guard(&mut self, arr_val: &Operand, idx_val: &Operand) {
+    pub(crate) fn emit_index_integrity_guard(
+        &mut self,
+        arr_val: &Operand,
+        idx_val: &Operand,
+    ) -> BlockId {
         // Header word is `[refcount u32 | tag u16 | flags u16]`, so a
         // flags bit N sits at bit 48+N of the I64 load.
         const FLAGS_SHIFT: u32 = 48;
@@ -77,11 +81,38 @@ impl<'a> LowerCtx<'a> {
         );
         // The kernel ARMS the TypeError (the `obj_check_not_frozen`
         // shape); this diverts to the user's handler before the slot
-        // is written.
+        // is written. The guarded arm is left open for the caller: it
+        // stores on its own and then asks the hole-revive question,
+        // which the clean arm never has to.
         self.emit_throw_check(None);
-        let cb = self.cur_block;
-        self.f.set_term(cb, Terminator::Br(cont_blk));
+        let guarded = self.cur_block;
         self.cur_block = cont_blk;
+        guarded
+    }
+
+    /// The typed slot store itself: the head-aware byte offset, the
+    /// old element's release for a counted element type, the write.
+    pub(crate) fn emit_typed_slot_store(
+        &mut self,
+        arr_val: Operand,
+        idx_val: Operand,
+        is_non_deque: bool,
+        elem_ty: Type,
+        v: Operand,
+    ) {
+        let (offset_base, offset) =
+            self.emit_arr_slot_byte_offset(arr_val, idx_val, 3, is_non_deque);
+        if !elem_ty.is_copy() {
+            let old = self.f.append_inst(
+                self.cur_block,
+                InstKind::LoadDyn(elem_ty, offset_base, offset),
+                elem_ty,
+                None,
+            );
+            self.emit_drop_value(Operand::Value(old), elem_ty);
+        }
+        self.f
+            .append_void(self.cur_block, InstKind::StoreDyn(v, offset_base, offset));
     }
 
     pub(crate) fn emit_hole_revive_branch(
