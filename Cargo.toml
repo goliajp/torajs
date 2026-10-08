@@ -49,6 +49,7 @@ members = [
     "crates/torajs-rtimage",
     "crates/torajs-rtimage-macro",
     "crates/torajs-rtlinked-macro",
+    "crates/torajs-runload",
     "crates/torajs-link",
     "crates/torajs-core",
     "crates/torajs-cli",

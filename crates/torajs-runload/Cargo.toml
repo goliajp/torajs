@@ -1,0 +1,16 @@
+[package]
+name = "torajs-runload"
+description = "In-process loader for the prelinked torajs runtime image: places the image (`torajs_link::rtlinked_format`) in the running `tr` process and binds what it imports, so `tr run` executes a program without linking the runtime or starting a new executable."
+keywords = ["torajs", "aot", "loader"]
+categories = ["compilers"]
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
