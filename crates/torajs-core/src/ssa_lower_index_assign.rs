@@ -28,6 +28,7 @@ use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx};
 
 // rotation 468 file-size split — the element-store coercion table.
 mod elem_store;
+pub(crate) mod move_const_temp;
 
 /// Receiver shapes that historically had a slot to store a
 /// realloc'd pointer back into — B1 retired the store itself (the
@@ -224,13 +225,16 @@ impl<'a> LowerCtx<'a> {
         // temps keep transferring their fresh reference.
         let transfers = self.expr_transfers_ownership(value);
         let (v, transfers) = self.coerce_elem_store(elem_ty, value, v, transfers);
-        let join_blk = self.emit_index_bounds_guard(&arr_val, &idx_val, &v, elem_ty, transfers);
+        let moved_from = self.take_slot_move(eid, elem_ty, &v, &v_raw, !split && !transfers);
+        let move_in = moved_from.is_some();
+        let join_blk =
+            self.emit_index_bounds_guard(&arr_val, &idx_val, &v, elem_ty, transfers, move_in);
         // The slot's +1 lands inside the in-bounds write block — the
         // OOB path stores nothing and must not mint a stake.
-        if !transfers && !elem_ty.is_copy() {
+        if !transfers && !elem_ty.is_copy() && !move_in {
             self.emit_rc_inc(v);
         }
-        self.emit_index_integrity_guard(&arr_val, &idx_val);
+        self.emit_integrity_guard_then_move(&arr_val, &idx_val, moved_from);
         // T-13.5: head-aware byte offset for indexed assign.
         let (offset_base, offset) =
             self.emit_arr_slot_byte_offset(arr_val, idx_val, 3, is_non_deque);
@@ -324,6 +328,7 @@ impl<'a> LowerCtx<'a> {
         v: &Operand,
         elem_ty: Type,
         transfers: bool,
+        move_in: bool,
     ) -> BlockId {
         let len = self.f.append_inst(
             self.cur_block,
@@ -383,6 +388,11 @@ impl<'a> LowerCtx<'a> {
             ),
         );
         self.emit_throw_check(None);
+        // a moving store hands the slot the binding's stake: the kernel
+        // kept the minted one, so the binding's own goes here
+        if move_in {
+            self.emit_drop_value(*v, elem_ty);
+        }
         let ob = self.cur_block;
         self.f.set_term(ob, Terminator::Br(join_blk));
         self.cur_block = write_blk;

@@ -46,6 +46,10 @@ pub(crate) struct Proofs {
     /// something may have released its source
     /// (`crate::ssa_lower::alias_hazard`): they bind owned.
     pub(crate) released_alias_inits: HashSet<ExprId>,
+    /// Element stores `xs[i] = s` that may take the `const` binding's
+    /// own stake: the rest of its block only reads `s`
+    /// (`crate::ssa_lower_index_assign::move_const_temp`).
+    pub(crate) slot_moves: HashMap<ExprId, String>,
     /// Fn-local bindings whose current value passed a nullish guard on
     /// every path reaching the point being lowered.
     nonnull_lets: HashSet<String>,

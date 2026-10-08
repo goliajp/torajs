@@ -35,7 +35,8 @@ pub(crate) fn lower(ctx: &mut LowerCtx, stmts: &[Stmt]) {
     ctx.shadow_stack.push(Vec::new());
     crate::ssa_lower_stmt_let_decl_recursive::hoist_forward_boxes(ctx, stmts.iter());
     let mut prev: Option<&Stmt> = None;
-    for s in stmts {
+    for (k, s) in stmts.iter().enumerate() {
+        crate::ssa_lower_index_assign::move_const_temp::note(ctx, stmts, k);
         if !ctx.try_lower_while_fast(prev, s) {
             ctx.lower_stmt(s);
         }
