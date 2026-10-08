@@ -121,8 +121,10 @@ impl Graph<'_> {
             Stmt::LetDecl { name, init, .. } | Stmt::UsingDecl { name, init, .. } => {
                 self.store(a, sc, name, *init)
             }
-            Stmt::Expr(e) | Stmt::Throw(e) | Stmt::Yield(e) | Stmt::Return(Some(e)) => {
-                self.exprs(a, sc, *e)
+            Stmt::Expr(e) | Stmt::Throw(e) | Stmt::Yield(e) => self.exprs(a, sc, *e),
+            Stmt::Return(Some(e)) => {
+                self.exprs(a, sc, *e);
+                self.flow(a, &[Node::Ret(sc.fn_name.to_string())], *e, sc);
             }
             Stmt::YieldInto { value, .. } => self.exprs(a, sc, *value),
             Stmt::Labeled { body, .. } => self.stmt(a, sc, body),
