@@ -152,6 +152,7 @@ fn store_class_tag(ctx: &mut LowerCtx<'_>, obj_ptr: crate::ssa::ValueId, tag: u3
 pub(super) fn write_vtable_ptr(
     ctx: &mut LowerCtx<'_>,
     obj_ptr: crate::ssa::ValueId,
+    sid: StructId,
     owner: Option<&str>,
 ) {
     // A GENERIC class's mono factory (`__new_Box$$_number`) misses
@@ -159,22 +160,35 @@ pub(super) fn write_vtable_ptr(
     // vtable — `populate_vtables` emits one row per mono factory
     // under the full suffixed spelling (same `split_once` shape as
     // `write_class_tag`'s generic-tag branch above).
-    let vtable_class: Option<&str> = if ctx.ast.method_index.is_empty() {
-        None
-    } else if let Some(cname) = owner {
-        // Same reasoning as the tag: the cell is the field's class,
-        // so it wants that class's method table. An alias owner has
-        // none and takes the null a non-factory literal takes.
-        Some(cname).filter(|c| ctx.class_name_to_tag.contains_key(*c))
-    } else {
-        ctx.f.name.strip_prefix("__new_").filter(|c| {
-            ctx.class_name_to_tag.contains_key(*c)
-                || c.split_once("$$")
-                    .is_some_and(|(base, _)| ctx.class_name_to_tag.contains_key(base))
-        })
+    let vtable_class: Option<&str> =
+        if ctx.ast.method_index.is_empty() && ctx.ast.iface_slots.is_empty() {
+            None
+        } else if let Some(cname) = owner {
+            // Same reasoning as the tag: the cell is the field's class,
+            // so it wants that class's method table. An alias owner has
+            // none and takes the null a non-factory literal takes.
+            Some(cname).filter(|c| ctx.class_name_to_tag.contains_key(*c))
+        } else {
+            ctx.f.name.strip_prefix("__new_").filter(|c| {
+                ctx.class_name_to_tag.contains_key(*c)
+                    || c.split_once("$$")
+                        .is_some_and(|(base, _)| ctx.class_name_to_tag.contains_key(base))
+            })
+        };
+    // a literal that can stand in for an interface wears the row of
+    // its layout, whose interface slots read its own fields
+    let lit_row = || {
+        let layout = &ctx.struct_layouts[sid.0 as usize];
+        let ifaces = crate::ssa_lower_iface::lit_row_ifaces(ctx.ast, layout);
+        (!ifaces.is_empty()).then(|| crate::ssa_lower_iface::lit_row_name(sid))
+    };
+    let row = match vtable_class {
+        Some(c) => Some(c.to_string()),
+        None if !ctx.ast.iface_slots.is_empty() => lit_row(),
+        None => None,
     };
     let cur_block = ctx.cur_block;
-    let vtable_ptr_op = match vtable_class {
+    let vtable_ptr_op = match row {
         Some(cname) => {
             let g = ctx.f.append_inst(
                 cur_block,

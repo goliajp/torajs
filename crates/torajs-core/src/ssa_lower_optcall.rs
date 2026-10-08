@@ -46,6 +46,9 @@ pub(crate) fn lower(
     callee: ExprId,
     args: &[ExprId],
 ) -> Operand {
+    if let Some(op) = crate::ssa_lower_iface_opt::try_lower(ctx, eid, callee, args) {
+        return op;
+    }
     // Chunk 709 — a Member callee on an `any` receiver dispatches
     // through the opt method-call runtime so builtin methods work
     // (`s.toUpperCase?.()` — a member READ answers undefined for

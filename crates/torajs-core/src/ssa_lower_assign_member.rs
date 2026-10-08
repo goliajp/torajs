@@ -215,6 +215,9 @@ fn lower_obj_assign(
     field: &str,
     value: ExprId,
 ) -> Operand {
+    if let Some(v) = crate::ssa_lower_iface::try_set(ctx, eid, obj, obj_val, field, value) {
+        return v;
+    }
     if let Some(v) = crate::ssa_lower_assign_member_field::try_lower_setter_call(
         ctx, eid, obj, obj_val, sid, field, value,
     ) {

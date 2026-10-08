@@ -64,6 +64,9 @@ pub(crate) fn nominal_alias_names(ast: &Ast) -> HashSet<String> {
     // `is_objlit_method_slot` then misses (receiver never pushed), and
     // a sibling `this.m()` reads the ret off the wrong register lane.
     out.extend(ast.objlit_method_fields.keys().cloned());
+    // An interface whose members are reached through witness slots has
+    // one signature per slot, so every value of it agrees on one layout.
+    out.extend(ast.iface_slots.witnesses.keys().cloned());
     out
 }
 

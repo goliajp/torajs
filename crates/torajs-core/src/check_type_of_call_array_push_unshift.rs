@@ -72,7 +72,8 @@ pub(crate) fn try_match(
         let aty = crate::check_assignable::in_declared_order(checker, ast, &inner, *aid, aty);
         let admitted = inner == Type::Any
             || aty == Type::Any
-            || crate::check_assignable::is_assignable_to(&inner, &aty);
+            || crate::check_assignable::is_assignable_to(&inner, &aty)
+            || crate::iface_witness::class_admit(&inner, &aty) == Some(true);
         if !admitted {
             return Some(Err(format!(
                 "Array.{m_name} arg {i}: expected element type {:?}, got {aty:?}",

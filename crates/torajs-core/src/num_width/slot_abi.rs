@@ -55,6 +55,88 @@ pub(super) fn dispatch_unions(a: &mut Analysis) {
         }
     }
     slot_unions(a);
+    iface_unions(a);
+}
+
+/// One interface slot, one ABI, across every hierarchy: a call through
+/// an interface reaches whichever class's witness thunk the receiver's
+/// row holds, and enters it with the literal thunk's signature. The
+/// rows of a face union with each other and with the member's own
+/// annotation point — the fn-type class for a call face, the
+/// interface's field for a get / set face — which is what the call
+/// site's arguments and result are read against.
+fn iface_unions(a: &mut Analysis) {
+    use crate::iface_witness::{FaceKind, class_thunk, face_kind, lit_thunk};
+    let ast = a.ast;
+    for (iface, face) in &ast.iface_slots.faces {
+        let lit = lit_thunk(iface, face);
+        let Some(head) = a.fn_params.get(&lit).cloned() else {
+            continue;
+        };
+        let classes = ast.iface_slots.witnesses.get(iface);
+        for c in classes.into_iter().flatten() {
+            let row = class_thunk(c, iface, face);
+            let Some(ps) = a.fn_params.get(&row).cloned() else {
+                continue;
+            };
+            a.uf.union(&SlotKey::Ret(lit.clone()), &SlotKey::Ret(row.clone()));
+            for (hp, rp) in head.iter().zip(ps.iter()).skip(1) {
+                a.uf.union(
+                    &SlotKey::Param(lit.clone(), hp.clone()),
+                    &SlotKey::Param(row.clone(), rp.clone()),
+                );
+            }
+        }
+        let (key, kind) = face_kind(face);
+        let Some(ann) = member_ann(ast, iface, key) else {
+            continue;
+        };
+        let point = match kind {
+            FaceKind::Call => match super::fn_type_canon(&ann) {
+                Some(canon) => SlotKey::Class(canon),
+                None => continue,
+            },
+            FaceKind::Get | FaceKind::Set => {
+                SlotKey::Field(Box::new(SlotKey::Class(iface.clone())), key.into())
+            }
+            FaceKind::Has => continue,
+        };
+        let mut pairs: Vec<(SlotKey, SlotKey)> = Vec::new();
+        match kind {
+            FaceKind::Call => {
+                let proj = |p: &str| SlotKey::Field(Box::new(point.clone()), p.into());
+                pairs.push((proj("__ret"), SlotKey::Ret(lit.clone())));
+                for (i, p) in head.iter().enumerate().skip(1) {
+                    let k = proj(&format!("__p{}", i - 1));
+                    pairs.push((k, SlotKey::Param(lit.clone(), p.clone())));
+                }
+            }
+            FaceKind::Get => pairs.push((point, SlotKey::Ret(lit.clone()))),
+            FaceKind::Has => {}
+            FaceKind::Set => {
+                if let Some(v) = head.get(1) {
+                    pairs.push((point, SlotKey::Param(lit.clone(), v.clone())));
+                }
+            }
+        }
+        for (x, y) in pairs {
+            a.mark_containerish(&x);
+            a.uf.union(&x, &y);
+        }
+    }
+}
+
+/// The annotation `iface` declares `key` with.
+fn member_ann(ast: &crate::ast::Ast, iface: &str, key: &str) -> Option<String> {
+    crate::ast::toplevel_stmts_flat(ast)
+        .into_iter()
+        .find_map(|s| match s {
+            crate::ast::Stmt::TypeDecl { name, fields, .. } if name == iface => fields
+                .iter()
+                .find(|(k, _)| *k == *key)
+                .map(|(_, ann)| ann.clone()),
+            _ => None,
+        })
 }
 
 /// Rotation 650 — a relay shell shares its target's signature width.

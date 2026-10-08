@@ -521,6 +521,9 @@ pub struct Ast {
     /// loads `vtable_ptr[method_index] -> fn_ptr` and `CallIndirect`s.
     /// Indices are sorted by method name so codegen is reproducible.
     pub method_index: std::collections::HashMap<String, u32>,
+    /// Interface witness slots, after the `method_index` ones
+    /// (`crate::iface_witness`).
+    pub iface_slots: crate::iface_witness::IfaceSlots,
     /// `(type, member)` for every member an interface / object type
     /// declaration marks optional (`m?: T`, `m?(): T`) — its annotation
     /// alone (`__nullable(T)`) also spells a required `T | null`.

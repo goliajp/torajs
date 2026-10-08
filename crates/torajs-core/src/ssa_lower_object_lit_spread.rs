@@ -27,6 +27,7 @@ pub(crate) fn unfold_spread(
     field_tys: &mut Vec<(PropKey, Type)>,
     field_vals: &mut Vec<Operand>,
 ) -> (Operand, crate::ssa::StructId) {
+    crate::ssa_lower_iface::refuse_spread(ctx, eid);
     let src_op = ctx.lower_expr(eid);
     let src_ty = ctx.operand_ty(&src_op);
     let Type::Obj(sid) = src_ty else {

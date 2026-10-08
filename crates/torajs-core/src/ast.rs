@@ -326,7 +326,7 @@ mod var_hoist_eval_sites;
 mod var_hoist_recurse;
 mod variadic_closure_bindings;
 mod view_homes;
-mod vtable_slot;
+pub(crate) mod vtable_slot;
 mod yield_ident_goal;
 pub use apply_args::apply_default_args;
 pub use apply_args_materialize::materialize_expr_defaults;

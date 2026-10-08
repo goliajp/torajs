@@ -274,6 +274,7 @@ pub(super) fn global_coercion_compatible(ctx: &LowerCtx<'_>, slot_ty: Type, v_ty
         // L3b #4 — shorter-arity closures fit wider fn-typed slots
         // (see check_local_coercion's Closure arm).
         || (matches!(slot_ty, Type::Closure(_)) && matches!(v_ty, Type::Closure(_)))
+        || crate::ssa_lower_iface::slot_takes(ctx, slot_ty, v_ty)
 }
 
 pub(super) fn check_local_coercion(ctx: &LowerCtx<'_>, name: &str, snap_ty: Type, v_ty: Type) {
@@ -289,7 +290,8 @@ pub(super) fn check_local_coercion(ctx: &LowerCtx<'_>, name: &str, snap_ty: Type
         || arr_views_into_owned_slot(ctx, snap_ty, v_ty)
         || arr_typed_into_any_slot(ctx, snap_ty, v_ty)
         || arr_slot_takes_any(ctx, snap_ty, v_ty).is_some()
-        || arr_any_slot_takes_any(ctx, snap_ty, v_ty);
+        || arr_any_slot_takes_any(ctx, snap_ty, v_ty)
+        || crate::ssa_lower_iface::slot_takes(ctx, snap_ty, v_ty);
     if direct_compatible {
         return;
     }

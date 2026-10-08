@@ -8,12 +8,7 @@ impl<'a> Parser<'a> {
     /// an interface / type-decl body. Per TS spec §3.7 the
     /// shape is equivalent to `m: (p: T) => R`. Subset rewrites
     /// by parsing the param list + `: R` and synthesizing the
-    /// arrow-fn type-ann string. Note: type-side only — calls
-    /// on a struct field that holds a function are not yet
-    /// lowered, so the wedge unblocks the *parse* of common
-    /// interface shapes (e.g. matching real class methods via
-    /// `class C implements I`) even though direct invocation
-    /// on a struct-typed binding still isn't supported.
+    /// arrow-fn type-ann string.
     ///
     /// Entered at the `(`; answers the arrow-fn type-ann string.
     pub(super) fn parse_method_shape_ann(&mut self) -> Result<String, String> {

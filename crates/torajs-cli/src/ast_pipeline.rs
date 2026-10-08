@@ -446,6 +446,9 @@ pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) -> Result<(), ()> {
         eprintln!("not yet supported: {msg}");
         return Err(());
     }
+    // After both joins: a witness row is matched against the method
+    // signatures they settle.
+    torajs_core::iface_witness::synthesize_iface_witnesses(ast);
     // After it, because the receiver-promoting knives live inside it —
     // what still carries a `__this` capture by now is a fn-expr nobody
     // supplies a receiver for, and gets the plain-call answer.

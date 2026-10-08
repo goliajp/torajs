@@ -83,7 +83,7 @@ pub(crate) fn try_lower(
     if args.is_empty() {
         return None;
     }
-    let arg_op = ctx.lower_expr(args[0]);
+    let arg_op = crate::ssa_lower_iface::lower_reflect_arg(ctx, args[0]);
     // S297 — lower-and-drop trailing args past the 1 useful obj slot per
     // S256 (S272 idiom). check.rs already type_of'd them.
     for &a in args.iter().skip(1) {

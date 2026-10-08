@@ -158,7 +158,7 @@ pub(crate) fn lower(
     if owner.is_none() && !ctx.f.name.starts_with("__new_") {
         order::retag_for_spread_sources(ctx, obj_ptr, sid, &fields, &spreads);
     }
-    write_vtable_ptr(ctx, obj_ptr, owner);
+    write_vtable_ptr(ctx, obj_ptr, sid, owner);
     let layout = ctx.struct_layouts[sid.0 as usize].clone();
     for (i, (fname, slot_ty)) in layout.iter().enumerate() {
         if undef_fields.contains(fname)

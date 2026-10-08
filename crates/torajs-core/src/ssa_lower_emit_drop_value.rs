@@ -97,6 +97,11 @@ pub(crate) fn emit(ctx: &mut LowerCtx, val: Operand, ty: Type) {
     let drop_fid = match ty {
         // a class sid with an `Obj` field releases through its
         // synthesized `__drop_<C>` (the callee makes the nullish test)
+        // an interface value may be any implementing class's instance:
+        // its own header says which layout to walk
+        Type::Obj(sid) if crate::ssa_lower_iface::sid_is_iface(ctx, sid) => {
+            ctx.intrinsics.value_drop_heap
+        }
         Type::Obj(sid) => {
             match crate::ssa_lower_emit_drop_value::class_drop_setup::class_drop_fid(ctx, sid) {
                 Some(fid) => fid,

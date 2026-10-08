@@ -51,7 +51,7 @@ pub(crate) fn try_lower(
     if ns != "JSON" {
         return None;
     }
-    let arg_op = ctx.lower_expr(args[0]);
+    let arg_op = crate::ssa_lower_iface::lower_reflect_arg(ctx, args[0]);
     // Rotation 543 — both walks below READ the value they serialize;
     // neither consumes it. Only the step-12 sentinel arm released its
     // argument temp, so `JSON.stringify({a: 1})` (14.57 MB over 200k

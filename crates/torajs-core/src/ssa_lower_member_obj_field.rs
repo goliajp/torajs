@@ -76,6 +76,9 @@ pub(crate) fn try_lower(
     // (bun/JSC wording), not a deref past the bare static header.
     // No-op for plain receivers.
     crate::ssa_lower_nullable_guard::emit_undefable_heap_guard(ctx, obj, &obj_val);
+    if let Some(op) = crate::ssa_lower_iface::try_get(ctx, eid, obj, obj_val, name) {
+        return op;
+    }
     // A getter read is a CALL: its result arrives owned (+1-result),
     // so the read joins the owned track and its consumer releases it.
     // Left off, every consumer took its own stake on top and the

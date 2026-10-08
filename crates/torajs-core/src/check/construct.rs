@@ -83,6 +83,7 @@ impl Checker {
         // the call takes the dispatcher lane instead of a kernel.
         self.proto_shadow = crate::builtin_proto_shadow::collect_shadowed_builtin_methods(ast);
         self.declared_privates = crate::check_private_name::declared_private_names(ast);
+        crate::iface_witness::install(ast);
         // RFC 20260804-mutable-let-widen — cross-family reassigned
         // mutable lets type `any` from declaration (same shared-set
         // architecture; the lowerer recomputes from its own snapshot).

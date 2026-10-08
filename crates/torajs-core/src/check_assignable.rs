@@ -50,6 +50,9 @@ fn is_assignable_to_deep(
     // Resolve any ClassRef placeholders one layer up before deeper
     // structural comparison.
     let to_r = resolve_class_ref(to, class_structs, aliases, generic_aliases);
+    if let Some(fits) = crate::iface_witness::class_admit(to, from) {
+        return fits;
+    }
     let from_r = resolve_class_ref(from, class_structs, aliases, generic_aliases);
     if to_r == from_r {
         return true;

@@ -249,6 +249,9 @@ fn arg_admitted(
     if param_ty == &Type::Any || arg_ty == param_ty {
         return true;
     }
+    if let Some(fits) = crate::iface_witness::class_admit(param_ty, arg_ty) {
+        return fits;
+    }
     if nullable_into_defaulted_param(ast, callee, i, param_ty, arg_ty) {
         return true;
     }

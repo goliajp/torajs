@@ -44,10 +44,18 @@ pub(crate) fn assert_vtable_slot_abi(
     fn_sig_ids: &HashMap<ssa::FuncId, ssa::SigId>,
 ) {
     let mut claimed: HashMap<(usize, String), (String, String)> = HashMap::new();
+    let n_methods = ast.method_index.len();
     for row in &module.vtable_globals {
-        let root = crate::ast::hierarchy_root(ast, &row.class_name);
+        let own_root = crate::ast::hierarchy_root(ast, &row.class_name);
         for (slot, fid) in row.fn_ids.iter().enumerate() {
             let Some(fid) = fid else { continue };
+            // an interface slot is reached from receivers of every
+            // hierarchy, so all of its rows share one shape
+            let root = if slot < n_methods {
+                own_root.clone()
+            } else {
+                String::new()
+            };
             // A body with no interned signature is not reachable
             // through the indirect lane either: the call site's own
             // `fn_sig_ids` miss makes it fall back to a direct call.

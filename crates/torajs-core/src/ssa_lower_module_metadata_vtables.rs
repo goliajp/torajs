@@ -16,7 +16,7 @@ pub(crate) fn populate_vtables(
     fn_table: &HashMap<String, ssa::FuncId>,
     module: &mut Module,
 ) {
-    if ast.method_index.is_empty() {
+    if ast.method_index.is_empty() && ast.iface_slots.is_empty() {
         return;
     }
     let n_methods = ast.method_index.len();
@@ -77,8 +77,49 @@ pub(crate) fn populate_vtables(
             }
             fn_ids.push(found);
         }
+        // a class's witness rows are its own (the thunks are minted
+        // per class, inheritance already resolved inside them)
+        for (iface, face) in &ast.iface_slots.faces {
+            let thunk = crate::iface_witness::class_thunk(&cname, iface, face);
+            fn_ids.push(fn_table.get(&thunk).copied());
+        }
         module.vtable_globals.push(VtableGlobal {
             class_name: cname,
+            fn_ids,
+        });
+    }
+    push_lit_rows(ast, fn_table, module, n_methods);
+}
+
+/// One row per object-literal layout that can stand in for an
+/// interface (`ssa_lower_iface::lit_row_ifaces` — the same test the
+/// literal's allocation makes): its method slots stay empty, its
+/// interface slots hold the literal thunks.
+fn push_lit_rows(
+    ast: &crate::ast::Ast,
+    fn_table: &HashMap<String, ssa::FuncId>,
+    module: &mut Module,
+    n_methods: usize,
+) {
+    if ast.iface_slots.is_empty() {
+        return;
+    }
+    for sid in 0..module.struct_layouts.len() {
+        let ifaces = crate::ssa_lower_iface::lit_row_ifaces(ast, &module.struct_layouts[sid]);
+        if ifaces.is_empty() {
+            continue;
+        }
+        let mut fn_ids: Vec<Option<ssa::FuncId>> = vec![None; n_methods];
+        for (iface, face) in &ast.iface_slots.faces {
+            let fid = ifaces
+                .contains(iface)
+                .then(|| fn_table.get(&crate::iface_witness::lit_thunk(iface, face)))
+                .flatten()
+                .copied();
+            fn_ids.push(fid);
+        }
+        module.vtable_globals.push(VtableGlobal {
+            class_name: crate::ssa_lower_iface::lit_row_name(ssa::StructId(sid as u32)),
             fn_ids,
         });
     }

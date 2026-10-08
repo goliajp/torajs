@@ -39,6 +39,7 @@ pub(crate) fn lower(
     callee: ExprId,
     args: &[ExprId],
 ) -> Operand {
+    crate::ssa_lower_iface::refuse_reflection(ctx, callee, args);
     // §13.3.9 — a call the desugar marked as an optional chain runs
     // under its base's nullish guard. It sits OUTSIDE the cascade
     // rather than at the top of it because its hit branch re-enters
@@ -199,6 +200,9 @@ fn try_dispatch_a(
     }
     // V3-18 m2.b — Object.prototype subset on constructor-namespace objects.
     if let Some(op) = crate::ssa_lower_call_namespace_obj_methods::try_lower(ctx, callee, args) {
+        return Some(op);
+    }
+    if let Some(op) = crate::ssa_lower_call_iface_dispatch::try_lower(ctx, eid, callee, args) {
         return Some(op);
     }
     // P3.struct-method-dispatch — `obj.method()` on Type::Obj(sid) struct with FnSig/Closure field.

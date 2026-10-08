@@ -27,3 +27,5 @@ fn a_user_written_callback_return_is_not_contextual() {
     let src = r#"console.log("abc".replace(/b/, (m: string): string => m + m));"#;
     assert_eq!(contextual_ret_fns(src), 0);
 }
+
+mod iface;

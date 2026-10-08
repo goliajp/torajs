@@ -4,7 +4,7 @@
 
 use super::any_layout_slot;
 use crate::ast::{Ast, Expr, ExprId};
-use crate::check::{Checker, Type};
+use crate::check::{Checker, DiagPush, Type};
 
 /// Chunk 702 — TS contextual typing for array-literal inits: after the
 /// annotation is verified assignable, the literal's recorded type IS
@@ -57,6 +57,11 @@ pub(crate) fn apply_contextual_array_ann_store(
     let Expr::Array(elements) = ast.get_expr(eid) else {
         return;
     };
+    if any_layout_slot::struct_elem_array(ann)
+        && let Some(Type::Array(inferred)) = checker.expr_types.get(&eid).cloned()
+    {
+        refuse_unfit_elems(checker, ast, elements, &inferred, elem_ann);
+    }
     checker.expr_types.insert(eid, ann.clone());
     // The lowering flavor gate keys off this side-set, NOT off
     // expr_types — infer-widened Array<Any> shapes (`["a",
@@ -66,5 +71,50 @@ pub(crate) fn apply_contextual_array_ann_store(
     }
     for &el in elements {
         apply_contextual_array_ann(checker, ast, el, elem_ann);
+    }
+}
+
+/// A struct-array literal was admitted by its inferred element type:
+/// its first element's, or `any` when the elements share none (an `any`
+/// element fits any slot). It now takes `T[]` and every element is read
+/// as a `T`, so each object element of another type that is not itself
+/// a literal (those are laid out to the declared type where they stand)
+/// has to fit `T` on its own — a class instance that only matched the
+/// first element's data fields included. TS refuses the declaration
+/// otherwise, and the spec gives it no meaning.
+fn refuse_unfit_elems(
+    checker: &mut Checker,
+    ast: &Ast,
+    elements: &[ExprId],
+    inferred: &Type,
+    elem_ann: &Type,
+) {
+    for (i, &el) in elements.iter().enumerate() {
+        if matches!(
+            ast.get_expr(el),
+            Expr::Spread { .. } | Expr::ObjectLit { .. } | Expr::Array(_)
+        ) {
+            continue;
+        }
+        let Some(t) = checker.expr_types.get(&el).cloned() else {
+            continue;
+        };
+        if !matches!(t, Type::Struct(_) | Type::ClassRef(_)) || t == *inferred {
+            continue;
+        }
+        let tables = (
+            &checker.class_structs,
+            &checker.aliases,
+            &checker.generic_alias_decls,
+        );
+        if crate::check_assignable::is_assignable_to_resolved(
+            elem_ann, &t, tables.0, tables.1, tables.2,
+        ) || crate::check_assignable::fn_slot_admits(elem_ann, &t, tables.0, tables.1, tables.2)
+        {
+            continue;
+        }
+        checker.errors.push_err(format!(
+            "type mismatch on array element {i}: declared {elem_ann:?}, element has {t:?}"
+        ));
     }
 }
