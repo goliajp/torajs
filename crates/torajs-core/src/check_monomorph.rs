@@ -455,7 +455,15 @@ pub(crate) fn seed_records(
                 .iter()
                 .map(|a| crate::ssa_lower_generics_monomorph::name_safe(a))
                 .collect();
-            let mono_name = format!("{}$$_{}", name, suffix.join("_"));
+            // an all-`any` dispatcher instance takes the method bodies'
+            // pre-seeded spelling, so the vtable lane finds its slot
+            // signature under the same suffix (`__cm_<Base>__m$$anywv`)
+            let mono_name = if name.starts_with("__dispatch_") && suffix.iter().all(|a| a == "any")
+            {
+                format!("{name}$$anywv")
+            } else {
+                format!("{}$$_{}", name, suffix.join("_"))
+            };
             cache.insert(cache_key.clone(), mono_name.clone());
             worklist.push_back((cache_key.0, cache_key.1, type_args.clone()));
             mono_name
