@@ -417,9 +417,12 @@ impl<'a> FnToClosureCollector<'a> {
     /// callee rides the runtime any-method lane, whose argv boxes
     /// into the any world — a raw FnSig has no arm there. A TYPED
     /// ident receiver keeps its args unwrapped so `xs.map(topFn)`
-    /// hot paths stay on raw-FnSig direct dispatch; a typed chained
-    /// receiver (`getArr().map(topFn)`) only costs the wrap —
-    /// closure values are legal fn-param arguments.
+    /// hot paths stay on raw-FnSig direct dispatch, but its callee
+    /// may declare a closure parameter, which the lowering fills with
+    /// the function's forwarder cell: the forwarder is minted, the
+    /// site left as written. A typed chained receiver
+    /// (`getArr().map(topFn)`) only costs the wrap — closure values
+    /// are legal fn-param arguments.
     fn mark_any_recv_member_args(&mut self, callee: &ExprId, args: &[ExprId]) {
         let Expr::Member { obj, .. } = self.ast.get_expr(*callee) else {
             return;
@@ -434,7 +437,7 @@ impl<'a> FnToClosureCollector<'a> {
                 && !self.any_param_frames.iter().any(|f| f.contains(n))
         );
         if typed_ident_recv {
-            return;
+            return self.target_fn_args(args);
         }
         // r292 — generator / async-generator factory idents wrap too:
         // the canonical forward cell carries the G2 reflection faces
@@ -443,31 +446,6 @@ impl<'a> FnToClosureCollector<'a> {
         // .call(g)` — the this-val-not-generator family).
         for &arg in args {
             self.try_mark(arg);
-        }
-    }
-
-    /// Rotation 652 — a top-FnDecl handler of a `.then` / `.catch` /
-    /// `.finally` call gets a FORWARDER but keeps its raw FnSig at
-    /// the site: the typed chain lane dispatches the bare address
-    /// (`promise-then-100k` / `promise-chain-1m` are exactly
-    /// `.then(add1)`), and only the own-`then` split's patched block
-    /// (`ssa_lower_promise_chain_own_then`) needs a closure cell —
-    /// which it builds from `__forward_<f>` by name. Target only, no
-    /// rewrite — and minted even when no other site rewrites (r653).
-    fn mark_promise_chain_handler_targets(&mut self, callee: &ExprId, args: &[ExprId]) {
-        let Expr::Member { name, .. } = self.ast.get_expr(*callee) else {
-            return;
-        };
-        if !matches!(name.as_str(), "then" | "catch" | "finally") {
-            return;
-        }
-        for &arg in args {
-            if let Expr::Ident(f) = self.ast.get_expr(arg)
-                && self.fn_sigs.contains_key(f)
-                && !self.shadowed.iter().any(|s| s.contains(f))
-            {
-                self.targets.insert(f.clone());
-            }
         }
     }
 

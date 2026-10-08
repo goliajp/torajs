@@ -125,6 +125,18 @@ impl<'a> LowerCtx<'a> {
             };
             match conv {
                 ArgConv::None => out.push(a),
+                // only an operand whose expression names its functions
+                // converts; any other keeps the pointer as it was
+                ArgConv::FnSigToClosure => {
+                    let exp = expected.expect("a conversion has a parameter");
+                    match crate::ssa_lower_call_fn_cell::operand_fn_value_cell(self, exp, a) {
+                        Some(cell) => {
+                            out.push(cell);
+                            drops.push((cell, exp));
+                        }
+                        None => out.push(a),
+                    }
+                }
                 // Both number lanes. This lane used to carry neither,
                 // and three higher-order call stations patched the
                 // I64 → F64 half back in on their own side before

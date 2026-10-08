@@ -52,6 +52,9 @@ pub(crate) enum ArgConv {
     /// A borrowed `Substr` view materialized into an owned `Str`, also
     /// released by the calling lane after the call.
     SubstrToStr,
+    /// A bare function pointer into a closure parameter: the function's
+    /// value is its canonical cell, built from its forwarder shell.
+    FnSigToClosure,
 }
 
 /// The contract. `expected` is the parameter's type, `actual` the
@@ -74,6 +77,7 @@ pub(crate) fn arg_conv(expected: Type, actual: Type) -> ArgConv {
         (Type::BigInt, Type::Any) => ArgConv::AnyToBigInt,
         (Type::F64, Type::I64 | Type::Bool) => ArgConv::ToF64,
         (Type::I64, Type::F64 | Type::Bool) => ArgConv::ToI64,
+        (Type::Closure(_), Type::FnSig(_)) => ArgConv::FnSigToClosure,
         _ => ArgConv::None,
     }
 }
@@ -206,6 +210,11 @@ pub(crate) fn emit_arg_conv(
             owned.push((Operand::Value(v), Type::Str));
             Operand::Value(v)
         }
+        ArgConv::FnSigToClosure => {
+            let cell = crate::ssa_lower_call_fn_cell::fn_value_cell(ctx, expected, arg, op);
+            owned.push((cell, ctx.operand_ty(&cell)));
+            cell
+        }
     }
 }
 
@@ -250,5 +259,19 @@ mod tests {
         assert_eq!(arg_conv(Type::Str, Type::Substr), ArgConv::SubstrToStr);
         assert_eq!(arg_conv(Type::Any, Type::Substr), ArgConv::BoxAny);
         assert_eq!(arg_conv(Type::Substr, Type::Substr), ArgConv::None);
+    }
+
+    #[test]
+    fn a_fn_pointer_takes_a_cell_only_for_a_closure_param() {
+        let sig = crate::ssa::SigId(0);
+        assert_eq!(
+            arg_conv(Type::Closure(sig), Type::FnSig(sig)),
+            ArgConv::FnSigToClosure
+        );
+        assert_eq!(arg_conv(Type::FnSig(sig), Type::FnSig(sig)), ArgConv::None);
+        assert_eq!(
+            arg_conv(Type::FnSig(sig), Type::Closure(sig)),
+            ArgConv::None
+        );
     }
 }
