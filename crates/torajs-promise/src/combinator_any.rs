@@ -383,7 +383,7 @@ pub(crate) unsafe fn race_sync_any(promises_arr: *mut c_void) -> *mut c_void {
                 stamped = true;
             }
             __torajs_rc_inc(pp as *mut c_void);
-            crate::then_adopt::adopt_into(result, pp as *mut c_void);
+            crate::then_adopt::follow(result, pp as *mut c_void);
         }
         result
     }

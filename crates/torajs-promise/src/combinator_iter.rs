@@ -347,7 +347,7 @@ unsafe fn attach_elem_bits(b: *mut AllBlock, mode: u8, index: u64, bits: u64) {
                     w
                 }
             };
-            crate::then_adopt::adopt_into((*b).result, pp as *mut c_void);
+            crate::then_adopt::follow((*b).result, pp as *mut c_void);
             return;
         }
         match crate::combinator_any::slot_promise(bits) {

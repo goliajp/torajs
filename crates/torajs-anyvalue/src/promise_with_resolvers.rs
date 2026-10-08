@@ -140,6 +140,7 @@ unsafe extern "C" {
         invoke: Option<unsafe extern "C" fn(i64)>,
         arg: i64,
     );
+    fn __torajs_microtask_enqueue(fn_: Option<unsafe extern "C" fn(i64)>, arg: i64);
     fn __torajs_dynobj_alloc() -> *mut c_void;
     fn __torajs_dynobj_set(obj_slot: *mut *mut c_void, key: *mut c_void, tag: u64, value: u64);
     fn __torajs_dynobj_define_plain(
@@ -281,9 +282,11 @@ pub(crate) unsafe fn is_native_promise(v: u64) -> bool {
     unsafe { *(ptr.cast::<u8>().add(4) as *const u16) == TAG_PROMISE }
 }
 
-/// §27.2.1.3.2 step 8-13 — attach a forwarding reaction on `inner`
-/// so `target` settles when `inner` does. Both cells get a stake to
-/// survive the microtask delay; the dispatch releases them.
+/// §27.2.1.3.2 steps 13-15 — resolving `target` with the promise
+/// `inner` queues NewPromiseResolveThenableJob, and that job's `then`
+/// attaches the forwarding reaction, so `target` settles one job after
+/// `inner` would have handed its own reactions the value. Both cells
+/// get a stake to survive the delay; the dispatch releases them.
 pub(crate) unsafe fn adopt_promise(target: *mut c_void, inner: *mut c_void) {
     unsafe {
         let layout = core::alloc::Layout::from_size_align(16, 8).unwrap();
@@ -292,7 +295,16 @@ pub(crate) unsafe fn adopt_promise(target: *mut c_void, inner: *mut c_void) {
         (*a).target = target;
         torajs_rc::__torajs_rc_inc(inner);
         torajs_rc::__torajs_rc_inc(target);
-        __torajs_promise_attach_then(inner, Some(adopt_forward_dispatch), a as i64);
+        __torajs_microtask_enqueue(Some(adopt_forward_job), a as i64);
+    }
+}
+
+/// The NewPromiseResolveThenableJob of [`adopt_promise`]: `then` on a
+/// native promise attaches the forwarding reaction.
+unsafe extern "C" fn adopt_forward_job(arg: i64) {
+    unsafe {
+        let inner = (*(arg as *mut ForwardArg)).inner;
+        __torajs_promise_attach_then(inner, Some(adopt_forward_dispatch), arg);
     }
 }
 

@@ -368,7 +368,7 @@ unsafe fn race_fan_in(promises_arr: *mut c_void, len: u64) -> *mut c_void {
                 stamped = true;
             }
             __torajs_rc_inc(pp as *mut c_void);
-            crate::then_adopt::adopt_into(result, pp as *mut c_void);
+            crate::then_adopt::follow(result, pp as *mut c_void);
         }
         result
     }

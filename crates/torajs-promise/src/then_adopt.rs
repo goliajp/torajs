@@ -38,6 +38,7 @@ unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
     fn __torajs_throw_take() -> i64;
     fn __torajs_throw_take_tag() -> i64;
+    fn __torajs_microtask_enqueue(fn_: crate::layout::MicrotaskFn, arg: i64);
 }
 
 /// Is this handler return a promise cell the derived promise must
@@ -116,7 +117,7 @@ unsafe extern "C" fn adopt_dispatch(arg: i64) {
 /// dispatcher releases it — no inc here. `result` needs one of its own,
 /// since the reaction dispatcher that called us drops its stake as soon
 /// as it returns.
-pub(crate) unsafe fn adopt_into(result: *mut c_void, inner: *mut c_void) {
+unsafe fn attach_settle(result: *mut c_void, inner: *mut c_void, job: bool) {
     unsafe {
         // §27.2.1.3.2 step 1 — resolving a promise with itself is a
         // TypeError, not an eternal pending. Reject rather than build a
@@ -137,8 +138,34 @@ pub(crate) unsafe fn adopt_into(result: *mut c_void, inner: *mut c_void) {
         (*a).inner = inner;
         (*a).result = result;
         __torajs_rc_inc(result);
-        __torajs_promise_attach_then(inner, Some(adopt_dispatch), a as i64);
+        if job {
+            __torajs_microtask_enqueue(adopt_attach_job, a as i64);
+        } else {
+            __torajs_promise_attach_then(inner, Some(adopt_dispatch), a as i64);
+        }
     }
+}
+
+/// §27.2.1.3.2 NewPromiseResolveThenableJob over a native promise: its
+/// `then` attaches the settling reaction, one job after the resolution.
+unsafe extern "C" fn adopt_attach_job(arg: i64) {
+    unsafe {
+        let inner = (*(arg as *mut AdoptArg)).inner;
+        __torajs_promise_attach_then(inner, Some(adopt_dispatch), arg);
+    }
+}
+
+/// Resolve `result` with the promise `inner` (a handler's return):
+/// §27.2.1.3.2 queues the thenable job, whose `then` attaches.
+pub(crate) unsafe fn adopt_into(result: *mut c_void, inner: *mut c_void) {
+    unsafe { attach_settle(result, inner, true) }
+}
+
+/// Settle `result` from `inner` by a reaction attached now — what
+/// `Invoke(p, "then", resolve, reject)` does in the combinators and in
+/// a handler-less `then`.
+pub(crate) unsafe fn follow(result: *mut c_void, inner: *mut c_void) {
+    unsafe { attach_settle(result, inner, false) }
 }
 
 /// The same protocol for the any-lane bridge, which lives in
@@ -199,7 +226,7 @@ pub unsafe extern "C" fn __torajs_promise_then_passthrough(src: *mut c_void) -> 
         (*dp).value_is_heap = (*sp).value_is_heap;
         (*sp).has_handler = 1;
         __torajs_rc_inc(src);
-        adopt_into(d, src);
+        follow(d, src);
         d
     }
 }
