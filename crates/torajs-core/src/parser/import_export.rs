@@ -320,7 +320,7 @@ impl<'a> Parser<'a> {
         // `export <decl>` — modifier on a function / class / type / let
         // / const declaration. Single-file mode just unwraps the inner
         // decl; the AST-level wrapper is preserved for future K.2 work.
-        let inner = self.parse_stmt()?;
+        let inner = self.parse_export_inner_stmt()?;
         Ok(Stmt::ExportDecl {
             inner: Some(Box::new(inner)),
             named: Vec::new(),

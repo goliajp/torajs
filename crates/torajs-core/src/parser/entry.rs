@@ -131,6 +131,7 @@ pub fn parse_into_eval(
         synth_classes: Vec::new(),
         synth_classes_local: Vec::new(),
         stmt_depth: 0,
+        enums: Default::default(),
         class_value_aliases: std::collections::HashMap::new(),
         yield_hoist_buf: Vec::new(),
         dstra_saw_yield: false,

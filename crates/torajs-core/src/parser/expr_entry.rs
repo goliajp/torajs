@@ -191,8 +191,7 @@ impl<'a> Parser<'a> {
             // still in the heritage, so the strictness rides along
             // like `in_strict_fn` below.
             in_class_heritage: self.in_class_heritage,
-            // Template interpolation is a parenthesized-
-            // like nesting — [In] resets.
+            // Template interpolation nests like parentheses: [In] resets.
             in_for_init: false,
             bare_logical: false,
             // Inherited for the same reason `current_class`
@@ -238,6 +237,7 @@ impl<'a> Parser<'a> {
             // interpolation wraps its class expressions at
             // the right nesting (0 would read as top level).
             stmt_depth: self.stmt_depth,
+            enums: Default::default(),
             // Sub-parser sees outer aliases so a template
             // interpolation can do `${new F()}` where F is
             // an outer const-class binding. Sub-parser

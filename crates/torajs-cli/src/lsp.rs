@@ -207,6 +207,7 @@ fn compute_diagnostics(uri: &Uri, text: &str) -> Vec<Diagnostic> {
             return vec![error_at_origin(format!("import error: {e}"))];
         }
 
+        torajs_core::ast::desugar_enums(&mut ast);
         // Block/CaseBlock redeclaration early errors — raw-AST pass,
         // mirrors main.rs (run before any desugar rewrites decls).
         torajs_core::ast::early_redecl_errors(&mut ast);

@@ -100,6 +100,9 @@ impl<'a> Parser<'a> {
             self.pos += 1;
             return self.parse_fn(true);
         }
+        if let Some(r) = self.try_parse_enum_head() {
+            return r;
+        }
         // `type X = …` is a TS declaration; a bare `type` is a name.
         if matches!(self.peek(), Token::Type)
             && matches!(

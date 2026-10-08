@@ -132,6 +132,9 @@ pub(crate) fn run_pre_resolve_gates(ast: &mut ast::Ast) -> Result<(), ()> {
 }
 
 pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
+    // First: every later pass, the redeclaration gates included,
+    // reads enums as the plain type alias + object they stand for.
+    ast::desugar_enums(ast);
     // Block/CaseBlock redeclaration early errors — must see the RAW
     // AST before the generator / async / var-hoist desugars move one
     // side of a conflict away.
