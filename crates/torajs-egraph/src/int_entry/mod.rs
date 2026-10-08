@@ -29,7 +29,7 @@
 //! the interval analysis, which reads the assumption back out of the
 //! checks. `TORAJS_INT_ENTRY_OFF=1` skips it.
 
-mod guard;
+pub(crate) mod guard;
 mod region;
 mod window;
 

@@ -38,7 +38,7 @@ use crate::float_demote::push_value;
 
 /// Which way a bound rounds to become the integer comparand.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) enum Round {
+pub(crate) enum Round {
     Ceil,
     Floor,
     /// the value itself, when it is an integer
@@ -47,11 +47,11 @@ pub(super) enum Round {
 
 /// One rounded bound the chain must produce.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct Need {
-    pub(super) source: ValueId,
-    pub(super) round: Round,
-    pub(super) lo: i64,
-    pub(super) hi: i64,
+pub(crate) struct Need {
+    pub(crate) source: ValueId,
+    pub(crate) round: Round,
+    pub(crate) lo: i64,
+    pub(crate) hi: i64,
 }
 
 struct Chain<'f> {
@@ -101,18 +101,18 @@ impl Chain<'_> {
     }
 }
 
-pub(super) struct Built {
-    pub(super) head: BlockId,
+pub(crate) struct Built {
+    pub(crate) head: BlockId,
     /// the last block, entered only when every check passed
-    pub(super) pass: BlockId,
-    pub(super) rounded: HashMap<(ValueId, Round), ValueId>,
+    pub(crate) pass: BlockId,
+    pub(crate) rounded: HashMap<(ValueId, Round), ValueId>,
     /// source → the f64 the copy reads in its place: `sitofp` of the
     /// exact integer's `copy`
-    pub(super) values: HashMap<ValueId, ValueId>,
+    pub(crate) values: HashMap<ValueId, ValueId>,
 }
 
 /// Build the chain; `needs` holds each (source, round) once.
-pub(super) fn build_chain(
+pub(crate) fn build_chain(
     func: &mut Function,
     needs: &[Need],
     slow: BlockId,
