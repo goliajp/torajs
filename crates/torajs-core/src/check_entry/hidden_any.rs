@@ -3,8 +3,10 @@
 //! A binding that may store a value of another kind
 //! (`num_width::hidden_any`: an element of a typed array whose alias
 //! escaped into the `any` world, or of an `any[]`) is annotated `any`,
-//! and the program checked again, until no round asks for another. A
-//! program that asks for none is checked once.
+//! a call argument that may carry one is read as `any` by the call
+//! check (`check_type_of_call::any_widen`), and the program checked
+//! again, until no round asks for another. A program that asks for
+//! none is checked once.
 
 use std::collections::HashSet;
 
@@ -14,23 +16,28 @@ use crate::ast::{Ast, ExprId, Stmt};
 /// Run rounds from `first`, the round of `ast` as written.
 pub(super) fn settle(ast: &Ast, first: Round) -> Result<Round, String> {
     let mut round = first;
-    let mut asked: HashSet<ExprId> = HashSet::new();
+    let mut inits: HashSet<ExprId> = HashSet::new();
+    let mut args: HashSet<ExprId> = HashSet::new();
     let mut retyped: Option<Ast> = None;
     loop {
-        let widths = &round.0.5.widths;
-        // ids past `ast.exprs` belong to specializations the mono pass
-        // clones; they name no declaration of `ast`
-        let fresh: Vec<ExprId> = (widths.hidden_any_inits.iter().copied())
-            .filter(|e| (e.0 as usize) < ast.exprs.len() && !asked.contains(e))
-            .collect();
-        if fresh.is_empty() {
+        let hidden = &round.0.5.widths.hidden_any;
+        let grew = extend_own(ast, &mut inits, &hidden.inits);
+        if !(extend_own(ast, &mut args, &hidden.args) || grew) {
             return Ok(round);
         }
-        asked.extend(fresh);
         let r = retyped.get_or_insert_with(|| ast.clone());
-        retype_any(&mut r.stmts, &asked);
-        round = check_round(r)?;
+        retype_any(&mut r.stmts, &inits);
+        round = check_round(r, &args)?;
     }
+}
+
+/// Add the ids of `found` that belong to `ast` to `asked`; true when
+/// one was new. Ids past `ast.exprs` belong to specializations the mono
+/// pass clones, and name nothing of `ast`.
+fn extend_own(ast: &Ast, asked: &mut HashSet<ExprId>, found: &HashSet<ExprId>) -> bool {
+    let before = asked.len();
+    asked.extend((found.iter().copied()).filter(|e| (e.0 as usize) < ast.exprs.len()));
+    asked.len() > before
 }
 
 /// Annotate `any` every `let` / `const` whose initializer is in

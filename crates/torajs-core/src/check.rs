@@ -294,6 +294,10 @@ pub(crate) struct Checker {
     /// return instead, so a program TS rejects on that type is
     /// rejected here too (`check_entry::check_to_fixpoint`).
     pub widen_ret_declared: bool,
+    /// Call arguments that may carry a value of another kind than they
+    /// type as (`num_width::hidden_any`); a scalar parameter takes them
+    /// through the any-widen lane (`check_type_of_call::any_widen`).
+    pub(crate) hidden_any_args: std::collections::HashSet<ExprId>,
     /// The calls through a census fn slot typed `any`, and the verdict
     /// per slot (`check_type_of_call::fn_slot_ret`).
     pub(crate) fn_slot_ret_any: std::collections::HashSet<ExprId>,

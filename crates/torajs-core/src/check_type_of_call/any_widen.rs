@@ -75,6 +75,40 @@ pub(super) fn any_into_heap_param(
     true
 }
 
+/// An argument the width analysis found may carry a value of another
+/// kind than it types as (`num_width::hidden_any`: an element of a
+/// typed array whose alias escaped into the `any` world, a binding
+/// retyped `any` for one) into a `number` / `boolean` / `string`
+/// parameter. The typed slot would convert it, while §10.2.1.3 binds
+/// it as passed, so the call takes the clone with that parameter `any`,
+/// as an `any` argument into a heap-typed parameter does.
+pub(super) fn hidden_any_into_scalar_param(
+    checker: &mut Checker,
+    ast: &Ast,
+    eid: ExprId,
+    callee: &ExprId,
+    arg_id: &ExprId,
+    param_ty: &Type,
+    i: usize,
+) -> bool {
+    if !checker.hidden_any_args.contains(arg_id)
+        || !matches!(param_ty, Type::Number | Type::Boolean | Type::String)
+    {
+        return false;
+    }
+    let crate::ast::Expr::Ident(n) = ast.get_expr(*callee) else {
+        return false;
+    };
+    let Some(n) = clonable_callee(checker, ast, n, i) else {
+        return false;
+    };
+    if param_has_default(ast, &n, i) {
+        return false;
+    }
+    record_widen_site(checker, eid, &n, i, WidenTarget::Scalar);
+    true
+}
+
 /// Does user param `i` of the decl `name` carry a default? A `string`
 /// param with one stays on the caller-side lane, which substitutes the
 /// default for a run-time `undefined`; the widened clone would not.

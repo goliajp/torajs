@@ -37,6 +37,7 @@ impl Checker {
             any_widen_mono_sites: HashMap::new(),
             widen_ret_any: std::collections::HashSet::new(),
             widen_ret_declared: false,
+            hidden_any_args: std::collections::HashSet::new(),
             fn_slot_ret_any: std::collections::HashSet::new(),
             fn_slot_kept: HashMap::new(),
             fn_escape_widen_sites: HashMap::new(),

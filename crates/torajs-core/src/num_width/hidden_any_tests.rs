@@ -46,7 +46,7 @@ fn retyped_in(src: &str, lift: bool) -> Vec<String> {
     let mut all = Vec::new();
     decls(&ast, &ast.stmts, &mut all);
     let mut out: Vec<String> = (all.into_iter())
-        .filter(|(_, _, init)| t.hidden_any_inits.contains(init))
+        .filter(|(_, _, init)| t.hidden_any.inits.contains(init))
         .map(|(n, v, _)| if v.is_empty() { n } else { format!("{n}={v}") })
         .collect();
     out.sort();
@@ -55,6 +55,26 @@ fn retyped_in(src: &str, lift: bool) -> Vec<String> {
 
 fn retyped(src: &str) -> Vec<String> {
     retyped_in(src, false)
+}
+
+/// The program `src` and what one analysis of it asks of the next round.
+fn hidden_in(src: &str) -> (Ast, super::HiddenAny) {
+    let tokens = lexer::tokenize(src).expect("lex");
+    let ast = parser::parse(src, &tokens).expect("parse");
+    let (_, types) = crate::check::check_with_types(&ast).expect("check");
+    let t = analyze(&ast, &HashMap::new(), &HashMap::new(), &types);
+    (ast, t.hidden_any)
+}
+
+/// The index reads of `ast` whose array is named `arr`.
+fn index_reads(ast: &Ast, arr: &str) -> Vec<crate::ast::ExprId> {
+    (0..ast.exprs.len())
+        .map(|i| crate::ast::ExprId(i as u32))
+        .filter(|&e| {
+            matches!(ast.get_expr(e), Expr::Index { obj, .. }
+            if matches!(ast.get_expr(*obj), Expr::Ident(n) if n == arr))
+        })
+        .collect()
 }
 
 const ESCAPED: &str = "const d: number[] = [1, 2];\nconst u: any = d;\n";
@@ -109,4 +129,15 @@ fn a_callback_writes_the_binding_its_block_names() {
 fn an_any_array_read_is_a_source() {
     let src = "const xs: any[] = [1, \"s\"];\nlet u: number = 0;\nfor (let i = 0; i < xs.length; i++) u = u + xs[i];\nlet acc = 0;\nfor (const v of xs) acc = acc + v;\nlet n: number = 0;\nn = n * xs[0];";
     assert_eq!(retyped(src), ["acc=0", "u=0"]);
+}
+
+#[test]
+fn a_call_argument_carrying_an_escaped_element_is_reported() {
+    let src = format!(
+        "{ESCAPED}function id(v: number): number {{ return v; }}\nid(d[1]);\nid(2);\nconst t: number[] = [3];\nid(t[0]);"
+    );
+    let (ast, h) = hidden_in(&src);
+    let want: std::collections::HashSet<_> = index_reads(&ast, "d").into_iter().collect();
+    assert_eq!(want.len(), 1);
+    assert_eq!(h.args, want);
 }

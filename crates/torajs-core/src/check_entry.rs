@@ -20,7 +20,7 @@
 
 use crate::ast::{Ast, ExprId};
 use crate::check::{Checker, Diagnostic, GenericCallSites, Severity, Type};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 mod hidden_any;
 
@@ -36,11 +36,17 @@ mod hidden_any;
 /// then it lowers from the declared run, as if no call were typed
 /// `any`.
 fn check_to_fixpoint(ast: &Ast) -> Checker {
-    let c = fixpoint_with(ast, false);
+    fixpoint_hidden(ast, &HashSet::new())
+}
+
+/// [`check_to_fixpoint`] with the call arguments `hidden` holds read as
+/// values of any kind ([`hidden_any::settle`]).
+fn fixpoint_hidden(ast: &Ast, hidden: &HashSet<ExprId>) -> Checker {
+    let c = fixpoint_with(ast, false, hidden);
     if c.widen_ret_any.is_empty() {
         return c;
     }
-    let declared = fixpoint_with(ast, true);
+    let declared = fixpoint_with(ast, true, hidden);
     if has_errors(&c) || has_errors(&declared) {
         declared
     } else {
@@ -59,9 +65,10 @@ fn has_errors(c: &Checker) -> bool {
 /// with the binding widened, and that can widen the next one
 /// (`u = total`). The set only grows and is bounded by the program's
 /// mutable `let`s.
-fn fixpoint_with(ast: &Ast, widen_ret_declared: bool) -> Checker {
+fn fixpoint_with(ast: &Ast, widen_ret_declared: bool, hidden: &HashSet<ExprId>) -> Checker {
     let mut c = Checker::new();
     c.widen_ret_declared = widen_ret_declared;
+    c.hidden_any_args = hidden.clone();
     c.run_full_pipeline(ast);
     loop {
         let found = crate::let_widen::collect_cross_type_widen_inits(ast, Some(&c.expr_types));
@@ -72,6 +79,7 @@ fn fixpoint_with(ast: &Ast, widen_ret_declared: bool) -> Checker {
         seed.extend(found);
         c = Checker::new();
         c.widen_ret_declared = widen_ret_declared;
+        c.hidden_any_args = hidden.clone();
         c.cross_type_widened = seed;
         c.run_full_pipeline(ast);
     }
@@ -135,7 +143,8 @@ pub fn check_with_arity(ast: &Ast) -> Result<CheckArtifacts, String> {
 /// A round can ask for bindings to be retyped `any`
 /// ([`hidden_any::settle`]).
 pub fn check_with_arity_warn(ast: &Ast) -> Result<(CheckArtifacts, Vec<String>), String> {
-    let (artifacts, warnings, census) = hidden_any::settle(ast, check_round(ast)?)?;
+    let (artifacts, warnings, census) =
+        hidden_any::settle(ast, check_round(ast, &HashSet::new())?)?;
     if let Some(line) = census {
         eprintln!("{line}");
     }
@@ -146,9 +155,10 @@ pub fn check_with_arity_warn(ast: &Ast) -> Result<(CheckArtifacts, Vec<String>),
 /// the line comes back unprinted unless the round failed.
 type Round = (CheckArtifacts, Vec<String>, Option<String>);
 
-/// One check of `ast` and its mono pass.
-fn check_round(ast: &Ast) -> Result<Round, String> {
-    let mut c = check_to_fixpoint(ast);
+/// One check of `ast` and its mono pass, reading the call arguments
+/// `hidden` holds as values of any kind.
+fn check_round(ast: &Ast, hidden: &HashSet<ExprId>) -> Result<Round, String> {
+    let mut c = fixpoint_hidden(ast, hidden);
     // typed 覆盖率读数(`TORAJS_TYPED_CENSUS=1` 下才打)。在错误分支
     // 提前返回**之前**算 —— 一次被拒的编译同样要有读数,否则 `refused`
     // 永远是 0。见 `crate::typed_census`。

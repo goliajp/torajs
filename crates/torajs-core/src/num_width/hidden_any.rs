@@ -24,6 +24,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use super::captures::bodies;
 use super::container::canon_key_frozen;
+use super::hidden_any_calls::answers_any;
 use super::{Analysis, Scope, SlotKey};
 use crate::ast::{BinOp, Expr, ExprId};
 use crate::check::Type;
@@ -40,8 +41,11 @@ pub(super) enum Node {
     Read(SlotKey),
     /// A write through such a key; it reaches every declaration of it.
     Write(SlotKey),
-    /// An element read of an `any[]`.
-    AnyElem,
+    /// An element read of an `any[]`, or a call answering through an
+    /// any-widened clone typed `any` (`hidden_any_calls`).
+    AnyVal,
+    /// A direct call's argument.
+    Arg(ExprId),
 }
 
 /// What a name resolves to: one node, or the slot keys of every
@@ -91,7 +95,17 @@ pub(super) struct Graph<'s> {
     pub(super) frames: Vec<HashMap<String, Node>>,
 }
 
-/// The initializers of the declarations to retype `any`. `elem_params`
+/// What the check driver changes for the next round: the initializers
+/// of the declarations to retype `any`, and the call arguments that may
+/// carry a value of another kind than the checker reads them as.
+#[derive(Default)]
+pub(crate) struct HiddenAny {
+    pub(crate) inits: HashSet<ExprId>,
+    pub(crate) args: HashSet<ExprId>,
+}
+
+/// The initializers of the declarations to retype `any`, and the call
+/// arguments that may carry such a value. `elem_params`
 /// are the parameters handed values of any kind: callback parameters
 /// handed `any` elements (`hof_receivers::settle`) and the widened
 /// parameters of the any-widened clones (`hidden_any_seeds`).
@@ -99,7 +113,7 @@ pub(super) fn collect(
     a: &Analysis<'_>,
     any_escaped: &HashSet<SlotKey>,
     elem_params: &HashSet<(String, String)>,
-) -> HashSet<ExprId> {
+) -> HiddenAny {
     let bodies = bodies(a.ast);
     // one pass per closure nesting level settles the captures
     let mut caps = CapMap::new();
@@ -153,8 +167,8 @@ impl Graph<'_> {
         }
     }
 
-    /// The tainted candidates' initializers.
-    fn retyped(mut self) -> HashSet<ExprId> {
+    /// The tainted candidates' initializers and arguments.
+    fn retyped(mut self) -> HiddenAny {
         for (i, d) in self.decls.iter().enumerate() {
             let (r, w) = (Node::Read(d.key.clone()), Node::Write(d.key.clone()));
             self.edges.entry(Node::Decl(i)).or_default().push(r);
@@ -178,7 +192,12 @@ impl Graph<'_> {
             }
         }
         let stats = std::env::var_os("TORAJS_NUM_WIDTH_STATS").is_some();
-        let mut out = HashSet::new();
+        let mut out = HiddenAny::default();
+        for n in &tainted {
+            if let Node::Arg(e) = n {
+                out.args.insert(*e);
+            }
+        }
         for (i, d) in self.decls.iter().enumerate() {
             if let Some(init) = d.init
                 && tainted.contains(&Node::Decl(i))
@@ -187,7 +206,7 @@ impl Graph<'_> {
                 if stats {
                     eprintln!("[num_width] hidden-any decl: {:?} init {}", d.key, init.0);
                 }
-                out.insert(init);
+                out.inits.insert(init);
             }
         }
         out
@@ -218,6 +237,10 @@ impl Graph<'_> {
     fn sources(&mut self, a: &Analysis<'_>, eid: ExprId, scope: &Scope, out: &mut Vec<Node>) {
         match a.ast.get_expr(eid) {
             Expr::Ident(n) => out.extend(self.resolve(a, n, scope).reads()),
+            Expr::Call { .. } if answers_any(a, eid) => {
+                self.seeds.push(Node::AnyVal);
+                out.push(Node::AnyVal);
+            }
             Expr::Index { obj, .. } | Expr::OptIndex { obj, .. } => {
                 if let Some(n) = self.elem_source(a, *obj, scope) {
                     self.seeds.push(n.clone());
@@ -263,7 +286,7 @@ impl Graph<'_> {
             return None;
         };
         if **el == Type::Any {
-            return Some(Node::AnyElem);
+            return Some(Node::AnyVal);
         }
         let k = canon_key_frozen(&a.uf, &a.container_key_lookup(obj, scope)?);
         self.any_escaped

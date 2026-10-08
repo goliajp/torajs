@@ -78,7 +78,7 @@ pub(crate) fn iterated_array(ast: &Ast, callee: ExprId, args: &[ExprId]) -> Opti
 pub(super) fn settle(
     a: &Analysis<'_>,
     undef_params: &mut HashSet<(String, String)>,
-) -> (HashSet<SlotKey>, HashSet<ExprId>, HashSet<ExprId>) {
+) -> (HashSet<SlotKey>, HashSet<ExprId>, super::HiddenAny) {
     let mut seeds = [&a.any_seeds[..], &a.escape_only_seeds[..]].concat();
     let (any_escaped, escaped) = loop {
         let any_escaped = super::escape::propagate(&seeds, &a.uf, &a.containerish);

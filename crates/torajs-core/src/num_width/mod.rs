@@ -44,6 +44,7 @@ mod escape;
 mod fallthrough;
 mod fnsig;
 mod hidden_any;
+mod hidden_any_calls;
 mod hidden_any_scope;
 mod hidden_any_seeds;
 pub(crate) mod hof_receivers;
@@ -65,6 +66,7 @@ mod width_table;
 
 pub(crate) use container_promise::awaited_promise_inner_of;
 pub(crate) use fnsig::{fn_type_canon, split_fn_type};
+pub(crate) use hidden_any::HiddenAny;
 pub(crate) use magnitude::EXACT_INT_MAX;
 pub(crate) use mono::{NumWidth, compute_typevar_widths};
 pub(crate) use width_table::WidthTable;

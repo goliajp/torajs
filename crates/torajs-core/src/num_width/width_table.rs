@@ -26,8 +26,9 @@ pub(crate) struct WidthTable {
     /// The arrays of callback-taking iterations whose class is in
     /// `any_escaped` (`hof_receivers.rs`).
     escaped_hof_receivers: HashSet<ExprId>,
-    /// The declarations to retype `any` (`hidden_any.rs`).
-    pub(crate) hidden_any_inits: HashSet<ExprId>,
+    /// The declarations to retype `any` and the call arguments to
+    /// widen (`hidden_any.rs`).
+    pub(crate) hidden_any: super::HiddenAny,
     uf: UnionFind,
     container_poison: bool,
     /// D5 — cyclic plain-alias names (see `alias.rs`); the TypeDecl
@@ -114,7 +115,7 @@ impl WidthTable {
     #[allow(clippy::too_many_arguments)] // frozen-analysis assembly, one call site
     pub(super) fn new(
         canon: HashSet<SlotKey>,
-        escapes: (HashSet<SlotKey>, HashSet<ExprId>, HashSet<ExprId>),
+        escapes: (HashSet<SlotKey>, HashSet<ExprId>, super::HiddenAny),
         uf: UnionFind,
         container_poison: bool,
         nominal_aliases: HashSet<String>,
@@ -132,12 +133,12 @@ impl WidthTable {
         captures: super::captures::CaptureMap,
         bound_closures: super::bound_closures::BoundClosures,
     ) -> Self {
-        let (any_escaped, escaped_hof_receivers, hidden_any_inits) = escapes;
+        let (any_escaped, escaped_hof_receivers, hidden_any) = escapes;
         WidthTable {
             canon,
             any_escaped,
             escaped_hof_receivers,
-            hidden_any_inits,
+            hidden_any,
             uf,
             container_poison,
             nominal_aliases,

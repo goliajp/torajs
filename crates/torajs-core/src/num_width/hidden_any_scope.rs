@@ -269,6 +269,7 @@ impl Graph<'_> {
                         self.flow(a, &dsts, *value, sc);
                     }
                 }
+                Expr::Call { callee, args } => self.call_args(a, *callee, args, sc),
                 Expr::Closure { fn_name, captures } => {
                     for n in captures {
                         let r = Some(self.resolve(a, n, sc));

@@ -9,7 +9,10 @@
 use crate::ast::{Ast, ExprId};
 use crate::check::{Checker, Type};
 
-use super::any_widen::{any_into_heap_param, arr_any_into_typed_arr_param, as_cast_inner_ty};
+use super::any_widen::{
+    any_into_heap_param, arr_any_into_typed_arr_param, as_cast_inner_ty,
+    hidden_any_into_scalar_param,
+};
 
 pub(crate) fn general_call(
     checker: &mut Checker,
@@ -218,6 +221,14 @@ fn arg_admitted(
     arg_ty: &Type,
     arg_id: &ExprId,
 ) -> bool {
+    // only an argument the checker already types as the parameter (or as
+    // any) rides the as-passed lane; `id(d[1] + "x")` into a number slot
+    // stays the type error it is
+    if (arg_ty == param_ty || arg_ty == &Type::Any)
+        && hidden_any_into_scalar_param(checker, ast, eid, callee, arg_id, param_ty, i)
+    {
+        return true;
+    }
     // r381 — an `as` cast over an `any` value changes what the CHECKER
     // sees and nothing about the runtime repr, so `f(z as P)` used to
     // slip past the equality shortcut below and hand a NaN-boxed value
