@@ -4,6 +4,7 @@
 
 use crate::archive_emit_lc_meta::compute_emit_lc_meta;
 use crate::archive_emit_lcs::{write_header_and_load_commands, write_symtab_and_strtab};
+use crate::archive_emit_members::member_text_payloads;
 use crate::archive_link::{ArchiveLayout, ArchiveLayoutError};
 use crate::archives_merge::{MergedArchives, merge_archive_indexes};
 use crate::chained_fixups_call::recompute_chained_fixups_with_data_rebase;
@@ -19,7 +20,6 @@ use crate::dyld_emit::{write_la_ptr_section, write_stubs_section};
 use crate::exec::LinkConfig;
 use crate::fn_addr_syms::{register_fn_addr_syms, register_user_fn_syms};
 use crate::fn_name_table_layout::{apply_fn_name_table_overrides, build_fn_name_table_payload};
-use crate::member_apply::apply_member_relocs;
 use crate::member_data_apply::collect_member_data_payloads;
 use crate::member_data_rebase_layout::compute_member_data_rebase_targets;
 use crate::phase_timer::PhaseTimer;
@@ -209,35 +209,8 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
     t.tick("apply_relocs");
 
     // S7-C5 — patch each member's __text in place against effective sym table.
-    let mut member_text_payloads: Vec<Vec<u8>> = Vec::with_capacity(layout.member_layouts.len());
-    let mut non_text_payloads: Vec<Vec<u8>> = Vec::new();
-    for (mi, m) in layout.member_layouts.iter().enumerate() {
-        let member = &merged.per_archive_members[m.key.0][m.key.1];
-        let off = m.member_text_offset_in_member as usize;
-        let end = off + m.text_size as usize;
-        let mut bytes = member.data[off..end].to_vec();
-        apply_member_relocs(
-            &mut bytes,
-            member,
-            m.vaddr,
-            &effective_sym_table,
-            &m.non_text_sections,
-            member_data_layouts(&layout, mi),
-        )
-        .map_err(|err| ArchiveLayoutError::MemberReloc {
-            archive_idx: m.key.0,
-            member_idx: m.key.1,
-            err,
-        })?;
-        member_text_payloads.push(bytes);
-        // SD-4c-prereq-c — slice each `__TEXT,*` non-text section's
-        // bytes out of the member, in compute_non_text_layouts order.
-        for s in &m.non_text_sections {
-            let off = s.member_internal_offset as usize;
-            let end = off + s.size as usize;
-            non_text_payloads.push(member.data[off..end].to_vec());
-        }
-    }
+    let (member_text_payloads, non_text_payloads) =
+        member_text_payloads(&layout, &merged, &effective_sym_table)?;
 
     t.tick("member_relocs");
     let data_non_text_payloads =
