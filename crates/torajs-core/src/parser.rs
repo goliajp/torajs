@@ -55,9 +55,7 @@ mod dstr_assign;
 mod dstr_assign_rest;
 mod dstr_assign_step;
 mod entry;
-mod enum_const_eval;
 mod enum_decl;
-mod enum_object;
 mod void_expr;
 pub use entry::{parse, parse_into, parse_into_eval};
 mod expr_entry;
@@ -436,10 +434,8 @@ struct Parser<'a> {
     /// would touch typecheck + ssa_lower) at the cost of these
     /// narrow-form limitations: (i) `let` and reassignment shapes
     /// fall through to the regular ident path (still error); (ii) no
-    /// scope-tracking — an inner-fn-body `const F = class {}` would
-    /// overwrite an outer alias of the same name (test262 corpus
-    /// rarely collides; if it does, lift to a scope stack). The full
-    /// dynamic-ctor-dispatch substrate is parked as an L3b follow-up.
+    /// scope-tracking — an inner-fn-body `const F = class {}`
+    /// overwrites an outer alias of the same name.
     class_value_aliases: std::collections::HashMap<String, String>,
     /// Class expressions minted outside a class body (393-01) or in a
     /// member body's statement (K6-1). Unlike

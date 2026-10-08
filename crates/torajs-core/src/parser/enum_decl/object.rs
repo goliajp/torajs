@@ -3,15 +3,16 @@
 //! type alias the enum's name annotates with, and the rewrite of a
 //! computed initializer's member references.
 
-use super::enum_const_eval::{EnumConst, EnumValue, is_array_index, member_const};
-use super::*;
+use super::super::*;
+use super::const_eval::{EnumConst, EnumValue, is_array_index, member_const};
 use crate::ast::{PropKey, number_prop_key};
 use torajs_wtf8::Wtf8Buf;
 
 impl Parser<'_> {
     /// A bare member name inside a computed initializer refers to the
-    /// enum's own member (TS §enum member scope); the hoisted
-    /// initializer sits outside the object, so spell each one out.
+    /// enum's own member (TS §enum member scope), and so do `E.M` and
+    /// `E["M"]`; the hoisted initializer runs before the object
+    /// exists, so spell each one out.
     pub(super) fn resolve_member_refs(
         &mut self,
         root: ExprId,
@@ -20,11 +21,15 @@ impl Parser<'_> {
     ) {
         let mut stack = vec![root];
         while let Some(eid) = stack.pop() {
+            let own =
+                |obj: &ExprId| matches!(self.ast.get_expr(*obj), Expr::Ident(o) if o == enum_name);
             let replacement = match self.ast.get_expr(eid) {
                 Expr::Ident(x) => member_const(members, x).cloned(),
-                Expr::Member { obj, name } if matches!(self.ast.get_expr(*obj), Expr::Ident(o) if o == enum_name) => {
-                    member_const(members, name).cloned()
-                }
+                Expr::Member { obj, name } if own(obj) => member_const(members, name).cloned(),
+                Expr::Index { obj, index } if own(obj) => match self.ast.get_expr(*index) {
+                    Expr::String(s) => s.as_str().and_then(|k| member_const(members, k)).cloned(),
+                    _ => None,
+                },
                 _ => None,
             };
             match replacement {
@@ -94,29 +99,24 @@ impl Parser<'_> {
         fields
     }
 
-    /// The alias the enum's name annotates with. A heterogeneous
-    /// enum's type is `number | string`; the annotation grammar has
-    /// no such union, so its values are typed at runtime (`any`).
-    pub(super) fn register_enum_type(&mut self, name: &str, members: &[(PropKey, EnumValue)]) {
-        if self.enums.type_names.contains(name) {
-            return;
-        }
-        let strings = members
-            .iter()
-            .filter(|(_, v)| matches!(v, EnumValue::Const(EnumConst::Str(_))))
-            .count();
-        let ann = if strings == 0 {
-            "number"
-        } else if strings == members.len() {
-            "string"
+    /// The alias the enum's name annotates with, registered under the
+    /// name itself at the top level and under a name of its own in a
+    /// nested scope, so two local enums of one name keep their own
+    /// types.
+    pub(super) fn register_enum_type(
+        &mut self,
+        name: &str,
+        members: &[(PropKey, EnumValue)],
+    ) -> String {
+        let alias = if self.stmt_depth == 1 || self.enum_exported() {
+            name.to_string()
         } else {
-            "any"
+            format!("__enum_{name}_{}", self.mint_desugar_id())
         };
-        self.enums.type_names.insert(name.to_string());
         let decl = Stmt::TypeDecl {
-            name: name.to_string(),
+            name: alias.clone(),
             type_params: Vec::new(),
-            fields: vec![(PropKey::from("__alias__"), ann.to_string())],
+            fields: vec![(PropKey::from("__alias__"), enum_type(members).to_string())],
         };
         // An exported enum exports its type too: a named import of
         // the value injects the alias only through an export face.
@@ -134,5 +134,49 @@ impl Parser<'_> {
             decl
         };
         self.synth_classes.push(decl);
+        alias
+    }
+
+    /// A merged declaration may change the enum's type (string
+    /// members joining numeric ones): rewrite the registered alias.
+    pub(super) fn update_enum_alias(&mut self, state: usize) {
+        let ty = enum_type(&self.enums.states[state].members).to_string();
+        let alias = &self.enums.states[state].alias;
+        let decls = self
+            .synth_classes
+            .iter_mut()
+            .chain(self.ast.stmts.iter_mut());
+        for s in decls {
+            let s = match s {
+                Stmt::ExportDecl {
+                    inner: Some(inner), ..
+                } => inner.as_mut(),
+                s => s,
+            };
+            if let Stmt::TypeDecl { name, fields, .. } = s
+                && name == alias
+            {
+                fields[0].1 = ty;
+                return;
+            }
+        }
+    }
+}
+
+/// A numeric enum's type is `number` (a computed member is a number
+/// too), a string enum's is `string`. A heterogeneous enum's type is
+/// `number | string`; the annotation grammar has no such union, so its
+/// values are typed at runtime (`any`).
+fn enum_type(members: &[(PropKey, EnumValue)]) -> &'static str {
+    let strings = members
+        .iter()
+        .filter(|(_, v)| matches!(v, EnumValue::Const(EnumConst::Str(_))))
+        .count();
+    if strings == 0 {
+        "number"
+    } else if strings == members.len() {
+        "string"
+    } else {
+        "any"
     }
 }

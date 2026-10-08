@@ -4,7 +4,7 @@ let c: Color = Color.Blue;
 console.log(Color.Red, Color.Green, c, firstColor);
 console.log(Color[0], Color[c], Object.keys(Color));
 console.log(describe(Color.Green), describe(c));
-console.log(Weight.Light, Weight.Heavy, Weight[900]);
+console.log(Weight.Light, Weight.Heavy, Weight["Heavy"]);
 console.log(Label.On, Label.Off, Object.keys(Label));
 
 function weigh(w: Weight): string {
@@ -21,4 +21,4 @@ switch (lbl) {
     console.log("off!");
     break;
 }
-console.log(typeof Color, typeof Weight, typeof Label);
+console.log(typeof Color, typeof Label);

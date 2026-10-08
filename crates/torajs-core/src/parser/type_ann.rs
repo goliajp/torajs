@@ -277,7 +277,7 @@ impl<'a> Parser<'a> {
                 return Err(format!("expected type name, got {t:?} at {}", self.at()));
             }
         };
-        self.pos += 1 + self.enum_member_type_len(&name);
+        name = self.enum_type_ref(name);
         // M3.4 — generic type instantiation `Pair<A, B>`. Encoded into the
         // flat ann string as `Pair<A|B>` (inner `|` mirrors the `__fn(P|Q)`
         // separator). Same depth-aware decoding shape, so check.rs and

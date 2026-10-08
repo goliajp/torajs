@@ -180,8 +180,7 @@ fn uri_to_file_path(uri: &Uri) -> Option<PathBuf> {
 /// exact. L-2.b refactors check.rs to attach real spans (~80-100
 /// push sites).
 fn compute_diagnostics(uri: &Uri, text: &str) -> Vec<Diagnostic> {
-    // Catch panics from lex/parse/desugar so the server stays alive
-    // even when the user types syntactically invalid code.
+    // A panic in lex/parse/desugar must not take the server down.
     let computation = std::panic::AssertUnwindSafe(|| {
         let tokens = match torajs_core::lexer::tokenize(text) {
             Ok(t) => t,
@@ -194,9 +193,8 @@ fn compute_diagnostics(uri: &Uri, text: &str) -> Vec<Diagnostic> {
         ast.source = text.to_string();
         ast.warm_newline_cache();
 
-        // Resolve cross-file imports relative to the document's
-        // directory if it's a file:// URL. Failures here surface
-        // as a single import-error diagnostic.
+        // Imports resolve relative to a file:// document's directory;
+        // a failure is one import-error diagnostic.
         let entry = uri_to_file_path(uri);
         let base_dir = entry
             .as_ref()
@@ -207,9 +205,10 @@ fn compute_diagnostics(uri: &Uri, text: &str) -> Vec<Diagnostic> {
             return vec![error_at_origin(format!("import error: {e}"))];
         }
 
-        torajs_core::ast::desugar_enums(&mut ast);
-        // Block/CaseBlock redeclaration early errors — raw-AST pass,
-        // mirrors main.rs (run before any desugar rewrites decls).
+        if let Err(e) = torajs_core::ast::desugar_enums(&mut ast) {
+            return vec![error_at_origin(format!("parse error: {e}"))];
+        }
+        // Block/CaseBlock redeclaration early errors on the raw AST.
         torajs_core::ast::early_redecl_errors(&mut ast);
         torajs_core::ast::dedupe_fn_decls(&mut ast);
         torajs_core::ast::flatten_interface_extends(&mut ast);

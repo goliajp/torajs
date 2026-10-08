@@ -7,11 +7,8 @@
 //! decls, `class` decls and `type` aliases all persist naturally
 //! because they live in the buffer.
 //!
-//! This is the lowest-blast-radius shape that gives a usable REPL
-//! on top of tora's whole-program compile pipeline. Incremental
-//! compile (true REPL) is a follow-up — the compile time on a
-//! growing buffer is dominated by LLVM, not by us, so the cost
-//! is acceptable for interactive sessions of dozens of lines.
+//! Recompiling the whole buffer costs mostly LLVM time, which is
+//! acceptable for interactive sessions of dozens of lines.
 //!
 //! Multi-line input: when the parse fails with an error that
 //! suggests an unfinished construct (unclosed brace, expected
@@ -267,7 +264,9 @@ fn parse_check(src: &str) -> ParseOutcome {
     };
     a.source = src.to_string();
     a.warm_newline_cache();
-    ast::desugar_enums(&mut a);
+    if let Err(e) = ast::desugar_enums(&mut a) {
+        return ParseOutcome::Error(format!("parse: {e}"));
+    }
     ast::census_program_reparents(&mut a);
     ast::desugar_using(&mut a);
     ast::inject_disposable_stack(&mut a);

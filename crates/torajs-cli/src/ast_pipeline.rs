@@ -1,7 +1,6 @@
-//! The shared post-parse AST desugar sequence — `tr run` (main.rs)
-//! and `tr build` (cmd_build.rs) ran byte-identical copies of this
-//! 31-pass chain; one home keeps the two from drifting when a pass
-//! lands (the REPL and LSP keep their own reduced pipelines).
+//! The post-parse AST desugar sequence shared by `tr run` (main.rs)
+//! and `tr build` (cmd_build.rs), kept in one place so the two do not
+//! drift (the REPL and LSP keep their own reduced pipelines).
 //!
 //! Ordering notes live where they bind:
 //! - `lift_arrow_fns` (M2 Phase A) — lifts arrow fns to top-level
@@ -132,9 +131,11 @@ pub(crate) fn run_pre_resolve_gates(ast: &mut ast::Ast) -> Result<(), ()> {
 }
 
 pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
-    // First: every later pass, the redeclaration gates included,
-    // reads enums as the plain type alias + object they stand for.
-    ast::desugar_enums(ast);
+    // First: every later pass reads enums as the alias + object.
+    if let Err(msg) = ast::desugar_enums(ast) {
+        eprintln!("parse error: {msg}");
+        return Err(());
+    }
     // Block/CaseBlock redeclaration early errors — must see the RAW
     // AST before the generator / async / var-hoist desugars move one
     // side of a conflict away.
@@ -170,15 +171,11 @@ pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
     // pass knows, and this turns it into ordinary code before anything
     // else looks.
     //
-    // AFTER `desugar_eval`, not before. A `with` can arrive from the
+    // AFTER `desugar_eval`, not before: a `with` can arrive from the
     // eval'd source itself (`Function("var o = {}; with (o) {}")`),
-    // and running first meant the marker block was minted after this
-    // pass had already decided the program had no `with` in it — so
-    // the helpers were never injected and the program died on
-    // `unknown identifier __torajs_with_obj` (t262
-    // statements/with/12.10.1-5-s and -10-s). Running after also makes
-    // eval-inlined statements INSIDE a `with` body get rewritten,
-    // which is what §14.11 wants of them anyway.
+    // and its marker block is minted after a pass that ran first had
+    // decided there was no `with`. Running after also rewrites
+    // eval-inlined statements INSIDE a `with` body, as §14.11 wants.
     // The reject carries its own prefix: a `with` in strict code is a
     // §14.11.1 SyntaxError (`parse error:`), an uncovered shape is
     // `not yet supported:`. Printing both as a bare `error:` made every

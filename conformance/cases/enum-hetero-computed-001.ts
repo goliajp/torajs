@@ -1,6 +1,6 @@
-// heterogeneous members, computed members evaluated once at runtime,
-// auto-increment continuing after a computed member, non-index
-// numeric values and their reverse entries
+// heterogeneous members, computed members evaluated once at runtime
+// (a member after one needs an initializer, TS1061; `"abc".length` is
+// computed too), non-index numeric values and their reverse entries
 let calls = 0;
 function next(): number {
   calls += 1;
@@ -16,7 +16,7 @@ enum Mixed {
 
 enum Computed {
   A = "abc".length,
-  B,
+  B = A + Computed["A"],
   C = next(),
   D = C + 1,
   E = 100,

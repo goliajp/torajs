@@ -2,9 +2,9 @@
 //! them, and an enum object nobody reads as a value disappears.
 //!
 //! The parser leaves each enum as `const E = { … }` with the
-//! `ENUM_OBJECT_ANN` marker in its `type_ann` (see
-//! `parser/enum_decl.rs`). This pass, first in the prelude so every
-//! later pass sees plain statements:
+//! `ENUM_OBJECT_ANN` (or, for a const enum, `ENUM_CONST_ANN`) marker
+//! in its `type_ann` (see `parser/enum_decl.rs`). This pass, first in
+//! the prelude so every later pass sees plain statements:
 //!
 //! 1. folds `E.A` / `E["A"]` to the member's literal wherever `E`
 //!    can only mean that enum — one declaration of the name in the
@@ -12,15 +12,18 @@
 //!    write target (`E.A = 1`, `E.A++`, `delete E.A`) keeps the
 //!    property access; reads still answer the declared constant,
 //!    which is what tsc and bun emit;
-//! 2. drops the object when no reference to `E` survives the fold,
-//!    so an enum used only through its members costs nothing at
-//!    runtime; otherwise clears the marker and the object is an
-//!    ordinary `const` holding an object literal;
+//! 2. drops the object, and the writes of the declarations merged
+//!    into it, when no reference to `E` survives the fold, so an enum
+//!    used only through its members costs nothing at runtime;
+//!    otherwise clears the marker and the object is an ordinary
+//!    `const` holding an object literal. A const enum has no object
+//!    at runtime, so a reference that survives is a type error
+//!    (TS2475 / TS2476);
 //! 3. turns each merged declaration (the `ENUM_MERGE_ANN` call) into
 //!    property writes on the first declaration's object at its own
-//!    position.
-//!    The object then changes shape after it is made, so its binding
-//!    is typed `any`; member reads still fold to their constants.
+//!    position. The object then changes shape after it is made, so
+//!    its binding is typed `any`; member reads still fold to their
+//!    constants.
 //!
 //! A name that is ambiguous (two enums of the same name in different
 //! scopes, or an enum shadowed by a binding) folds nothing: every
@@ -28,11 +31,17 @@
 
 use std::collections::{HashMap, HashSet};
 
-use super::desugar_with::walk::{stmt_children, stmt_children_ref};
-use super::{Ast, Expr, ExprId, Param, PropKey, StaticInit, Stmt, number_prop_key};
+use super::desugar_with::walk::stmt_children;
+mod census;
+
+use super::{Ast, Expr, ExprId, PropKey, StaticInit, Stmt, number_prop_key};
+use census::{is_enum_decl, take_census};
 
 /// `type_ann` marker on the enum object's `const`.
 pub const ENUM_OBJECT_ANN: &str = "__enum__";
+/// The same marker for a const enum, whose object only exists for the
+/// compiler: every read must fold.
+pub const ENUM_CONST_ANN: &str = "__enum_const__";
 /// Callee of the statement a merged declaration parses to:
 /// `__enum_merge__(E, <id of the first declaration's object literal>,
 /// { new members })`. An expression statement rather than a binding,
@@ -40,46 +49,22 @@ pub const ENUM_OBJECT_ANN: &str = "__enum__";
 /// unused-declaration sweep take it for a second `E`.
 pub const ENUM_MERGE_ANN: &str = "__enum_merge__";
 
-/// A merged declaration: its marker call, the name, its own object
-/// literal of new members, and the first declaration's object literal.
-struct Merge {
-    call: ExprId,
-    name: String,
-    objlit: ExprId,
-    primary: ExprId,
-}
-
-pub fn desugar_enums(ast: &mut Ast) {
-    let mut enum_decls: HashMap<String, Vec<ExprId>> = HashMap::new();
-    let mut other_bindings: HashSet<String> = HashSet::new();
-    let mut merges: Vec<Merge> = Vec::new();
-    let mut c = Census {
-        enums: &mut enum_decls,
-        others: &mut other_bindings,
-        merges: &mut merges,
-    };
-    for s in &ast.stmts {
-        census(ast, s, &mut c);
-    }
-    for e in &ast.exprs {
-        if let Expr::ArrowFn { params, body, .. } = e {
-            push_params(params, c.others);
-            for s in body {
-                census(ast, s, &mut c);
-            }
-        }
-    }
-    other_bindings.extend(ast.fn_expr_self_names.values().cloned());
-    if enum_decls.is_empty() {
-        return;
+pub fn desugar_enums(ast: &mut Ast) -> Result<(), String> {
+    let census = take_census(ast);
+    if census.enums.is_empty() {
+        return Ok(());
     }
     let mut tables: HashMap<String, HashMap<PropKey, Expr>> = HashMap::new();
-    for (name, objlits) in &enum_decls {
-        if objlits.len() != 1 || other_bindings.contains(name) {
+    for (name, decls) in &census.enums {
+        if decls.len() != 1 || census.others.contains(name) {
             continue;
         }
-        let mut table = member_table(ast, objlits[0]);
-        for m in merges.iter().filter(|m| m.primary == objlits[0]) {
+        let mut table = member_table(ast, decls[0].objlit);
+        for m in census
+            .merges
+            .iter()
+            .filter(|m| m.primary == decls[0].objlit)
+        {
             table.extend(member_table(ast, m.objlit));
         }
         tables.insert(name.clone(), table);
@@ -89,13 +74,35 @@ pub fn desugar_enums(ast: &mut Ast) {
     for s in &ast.stmts {
         crate::linter::refs::count_refs_stmt(ast, s, &mut refs);
     }
+    // the merge marker names the enum without reading it
+    for m in &census.merges {
+        if let Some(n) = refs.get_mut(&m.name) {
+            *n = n.saturating_sub(1);
+        }
+    }
+    let read = |name: &String| refs.get(name).copied().unwrap_or(0) > 0;
+    let mut dropped: HashSet<ExprId> = HashSet::new();
+    for (name, decls) in &census.enums {
+        if !read(name) {
+            dropped.extend(decls.iter().map(|d| d.objlit));
+        } else if tables.contains_key(name) && decls[0].is_const {
+            return Err(format!(
+                "type error: const enum `{name}` can only be read through a member name or a \
+                 string literal key (TS2475 / TS2476)"
+            ));
+        }
+    }
     let mut settle = Settle {
-        merged: merges.iter().map(|m| m.primary).collect(),
+        merged: census.merges.iter().map(|m| m.primary).collect(),
         writes: HashMap::new(),
-        refs,
+        dropped,
     };
-    for m in &merges {
-        let w = merge_writes(ast, &m.name, m.objlit);
+    for m in &census.merges {
+        let w = if settle.dropped.contains(&m.primary) {
+            Vec::new()
+        } else {
+            merge_writes(ast, &m.name, m.objlit)
+        };
         settle.writes.insert(m.call, w);
     }
     for s in ast.stmts.iter_mut() {
@@ -108,45 +115,16 @@ pub fn desugar_enums(ast: &mut Ast) {
             }
         }
     }
-}
-
-struct Census<'a> {
-    enums: &'a mut HashMap<String, Vec<ExprId>>,
-    others: &'a mut HashSet<String>,
-    merges: &'a mut Vec<Merge>,
+    Ok(())
 }
 
 struct Settle {
-    refs: HashMap<String, usize>,
+    /// Enum objects nothing reads as a value.
+    dropped: HashSet<ExprId>,
     /// First declarations some later declaration merges into.
     merged: HashSet<ExprId>,
     /// The property writes each merged declaration's call becomes.
     writes: HashMap<ExprId, Vec<Stmt>>,
-}
-
-fn is_enum_merge(ast: &Ast, s: &Stmt) -> Option<Merge> {
-    let Stmt::Expr(call) = s else {
-        return None;
-    };
-    let Expr::Call { callee, args } = ast.get_expr(*call) else {
-        return None;
-    };
-    if !matches!(ast.get_expr(*callee), Expr::Ident(n) if n == ENUM_MERGE_ANN) {
-        return None;
-    }
-    let [name, primary, objlit] = args.as_slice() else {
-        return None;
-    };
-    let (Expr::Ident(name), Expr::Number(primary)) = (ast.get_expr(*name), ast.get_expr(*primary))
-    else {
-        return None;
-    };
-    Some(Merge {
-        call: *call,
-        name: name.clone(),
-        objlit: *objlit,
-        primary: ExprId(*primary as u32),
-    })
 }
 
 /// `E[key] = value;` for every field of a merged declaration's object
@@ -166,105 +144,6 @@ fn merge_writes(ast: &mut Ast, name: &str, objlit: ExprId) -> Vec<Stmt> {
         out.push(Stmt::Expr(ast.add_expr(Expr::Assign { target, value })));
     }
     out
-}
-
-fn is_enum_decl(s: &Stmt) -> Option<(&String, ExprId)> {
-    match s {
-        Stmt::LetDecl {
-            name,
-            type_ann: Some(ann),
-            init,
-            ..
-        } if ann == ENUM_OBJECT_ANN => Some((name, *init)),
-        _ => None,
-    }
-}
-
-fn push_params(params: &[Param], out: &mut HashSet<String>) {
-    for p in params {
-        out.insert(p.name.clone());
-    }
-}
-
-/// Enum objects by name, and every other name the program binds —
-/// the two facts that decide whether `E.A` can be folded.
-fn census(ast: &Ast, s: &Stmt, c: &mut Census) {
-    if let Some((name, init)) = is_enum_decl(s) {
-        c.enums.entry(name.clone()).or_default().push(init);
-        return;
-    }
-    if let Some(m) = is_enum_merge(ast, s) {
-        c.merges.push(m);
-        return;
-    }
-    match s {
-        Stmt::LetDecl { name, .. } | Stmt::UsingDecl { name, .. } => {
-            c.others.insert(name.clone());
-        }
-        Stmt::ForOf { var_name, .. } | Stmt::ForOfSplitIter { var_name, .. } => {
-            c.others.insert(var_name.clone());
-        }
-        Stmt::Try {
-            catch_param: Some(p),
-            ..
-        } => {
-            c.others.insert(p.clone());
-        }
-        Stmt::FnDecl {
-            name, params, body, ..
-        } => {
-            c.others.insert(name.clone());
-            push_params(params, c.others);
-            for s in body {
-                census(ast, s, c);
-            }
-        }
-        Stmt::ClassDecl {
-            name,
-            ctor,
-            methods,
-            static_methods,
-            static_init,
-            ..
-        } => {
-            c.others.insert(name.clone());
-            if let Some(ct) = ctor {
-                push_params(&ct.params, c.others);
-                for s in &ct.body {
-                    census(ast, s, c);
-                }
-            }
-            for m in methods.iter().chain(static_methods.iter()) {
-                push_params(&m.params, c.others);
-                for s in &m.body {
-                    census(ast, s, c);
-                }
-            }
-            for si in static_init {
-                if let StaticInit::Block(b) = si {
-                    for s in b {
-                        census(ast, s, c);
-                    }
-                }
-            }
-        }
-        Stmt::ExportDecl {
-            inner: Some(inner), ..
-        } => census(ast, inner, c),
-        // A named import is not counted: it names the declaration the
-        // resolver spliced in from the source module (renamed to the
-        // local name when they differ), counted where it stands.
-        Stmt::ImportDecl {
-            default, namespace, ..
-        } => {
-            c.others.extend(default.iter().cloned());
-            c.others.extend(namespace.iter().cloned());
-        }
-        _ => {}
-    }
-    for child in stmt_children_ref(s) {
-        census(ast, child, c);
-    }
 }
 
 /// The members whose value is a literal — a computed member or a
@@ -339,8 +218,8 @@ fn lookup(
 /// Every enum `const` either goes (no reads left) or becomes an
 /// ordinary object binding.
 fn settle_decls(s: &mut Stmt, st: &mut Settle) {
-    if let Some((name, init)) = is_enum_decl(s) {
-        if st.refs.get(name).copied().unwrap_or(0) == 0 {
+    if let Some((_, init, _)) = is_enum_decl(s) {
+        if st.dropped.contains(&init) {
             *s = Stmt::Block(Vec::new());
         } else if let Stmt::LetDecl { type_ann, .. } = s {
             *type_ann = st.merged.contains(&init).then(|| "any".to_string());

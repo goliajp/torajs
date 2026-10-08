@@ -1,11 +1,5 @@
 //! `Parser::parse_stmt` extracted from `parser.rs` (chunk 162).
 //!
-//! Pre-extract this method was 413 LOC inside `impl Parser` block.
-//! Body verbatim moves here as an `impl` block sibling — Rust
-//! allows multiple impl blocks for the same type, no re-export
-//! needed. Follows the pattern of `parser/class_member.rs` +
-//! `parser/object_member.rs` already in this directory.
-//!
 //! `parse_stmt` is the top-level statement dispatcher — peeks the
 //! current token and routes to the corresponding parse_* helper
 //! (parse_import / parse_export / parse_block / parse_if /

@@ -172,7 +172,7 @@ impl<'a> Parser<'a> {
             let init = match self.expand_dstr_assign_init(init, &mut decls)? {
                 Some(rhs_temp) => rhs_temp,
                 None => {
-                    self.register_class_value_alias(&name, init);
+                    self.note_decl_init(&name, init, kw == "const" && type_ann.is_none());
                     init
                 }
             };
@@ -366,7 +366,7 @@ impl<'a> Parser<'a> {
             .or_insert_with(|| name.to_string());
     }
 
-    fn register_class_value_alias(&mut self, name: &str, init: ExprId) {
+    pub(super) fn register_class_value_alias(&mut self, name: &str, init: ExprId) {
         let mut aliased = false;
         if let Expr::Ident(init_name) = self.ast.get_expr(init) {
             if init_name.starts_with("__ClassExpr_") {
