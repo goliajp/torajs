@@ -92,8 +92,9 @@ pub(super) struct Graph<'s> {
 }
 
 /// The initializers of the declarations to retype `any`. `elem_params`
-/// are the callback parameters handed `any` elements
-/// (`hof_receivers::settle`).
+/// are the parameters handed values of any kind: callback parameters
+/// handed `any` elements (`hof_receivers::settle`) and the widened
+/// parameters of the any-widened clones (`hidden_any_seeds`).
 pub(super) fn collect(
     a: &Analysis<'_>,
     any_escaped: &HashSet<SlotKey>,

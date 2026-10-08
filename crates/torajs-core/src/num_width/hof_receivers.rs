@@ -73,7 +73,8 @@ pub(crate) fn iterated_array(ast: &Ast, callee: ExprId, args: &[ExprId]) -> Opti
 /// undefined sentinel (`ssa_lower_boxed_entry::unbox`); its element
 /// parameter joins the sentinel-capable ones, so a read that asks
 /// (`typeof v`, printing `v`) answers `undefined`, not NaN. The last
-/// set holds the declarations that store such values (`hidden_any`).
+/// set holds the declarations that store such values, or the `any`
+/// parameters of the widened clones (`hidden_any`).
 pub(super) fn settle(
     a: &Analysis<'_>,
     undef_params: &mut HashSet<(String, String)>,
@@ -118,7 +119,9 @@ pub(super) fn settle(
             taint_param(a, &callback_fn_name(a, cb), idx, &mut elem_params);
         }
     }
-    let hidden = super::hidden_any::collect(a, &any_escaped, &elem_params);
+    let mut sources = elem_params.clone();
+    sources.extend(super::hidden_any_seeds::widened_params(a.ast));
+    let hidden = super::hidden_any::collect(a, &any_escaped, &sources);
     undef_params.extend(elem_params);
     (any_escaped, escaped, hidden)
 }
