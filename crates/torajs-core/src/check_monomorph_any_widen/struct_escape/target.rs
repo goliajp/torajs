@@ -111,15 +111,23 @@ pub(in crate::check_monomorph_any_widen) fn widenable_target(
                 Some(Type::Number | Type::Boolean)
             )
         });
-    // a fn-typed slot takes a bare function pointer, which no value
-    // handed over through `any` is: the mono adapter passes every such
-    // call to the twin, where the slot binds the value as it is
-    let fn_slot =
-        !headless && slots().any(|p| crate::ast_closure_param_tag::is_fnsig_ann(&p.type_ann));
+    // a fn-typed slot calls its value through a typed entry, which not
+    // every callable handed over through `any` has: the mono adapter
+    // passes every such call to the twin, where the slot binds the
+    // value as it is
+    let fn_slot = !headless && slots().any(|p| p.type_ann.as_deref().is_some_and(fn_typed_ann));
     (shaped || scalar || fn_slot).then_some(Twinnable {
         params,
         needs_escape: !shaped,
     })
+}
+
+/// Does `ann` type a function slot, bare pointer (`__fn(`) or closure
+/// (`__cls(`), optional or not?
+fn fn_typed_ann(ann: &str) -> bool {
+    let t = ann.trim_start();
+    let t = t.strip_prefix("__nullable(").unwrap_or(t);
+    t.starts_with("__fn(") || t.starts_with("__cls(")
 }
 
 /// The parameters a body on the hidden-argc tier that reads no

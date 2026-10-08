@@ -110,7 +110,7 @@ pub(super) fn lossy_slot(
     rest: bool,
 ) -> bool {
     scalar_tags(ty, dflt, test.undef_misses).is_some()
-        || matches!(ty, Type::FnSig(_))
+        || matches!(ty, Type::FnSig(_) | Type::Closure(_))
         || dflt.is_none()
             && (test.fit.is_some()
                 || match ty {

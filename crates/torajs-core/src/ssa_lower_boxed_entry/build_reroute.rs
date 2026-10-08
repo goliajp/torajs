@@ -62,8 +62,10 @@ pub(super) struct TwinReroute {
 /// adapter and return its answer. Returns the block the adapter
 /// continues in and, per user slot, the loaded argument of a struct
 /// slot that fits (`BoxedCoerceIntrinsics::fit`); `None` when every
-/// call is the twin's: a fn-typed slot takes a bare function pointer,
-/// which no boxed value is.
+/// call is the twin's: a fn-typed slot calls its value through a typed
+/// entry, which no boxed value carries as a bare pointer, and which a
+/// closure cell of a builtin, a resolving function or another
+/// signature does not offer.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn emit_twin_reroute(
     f: &mut ssa::Function,
@@ -94,7 +96,9 @@ pub(super) fn emit_twin_reroute(
         return Some((entry, fit));
     }
     let reroute = f.add_block();
-    let always = user_tys.iter().any(|t| matches!(t, Type::FnSig(_)));
+    let always = user_tys
+        .iter()
+        .any(|t| matches!(t, Type::FnSig(_) | Type::Closure(_)));
     if always {
         f.set_term(entry, Terminator::Br(reroute));
     } else if let Some(n) = rr.argc_fixed {
