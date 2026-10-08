@@ -22,16 +22,89 @@ impl Parser<'_> {
             self.pos += 2;
             return self.parse_unary();
         }
+        if let Some(names) = self.try_generic_arrow_params() {
+            let arrow = self.parse_arrow_fn()?;
+            self.erase_type_params(arrow, &names);
+            return Ok(arrow);
+        }
         let ty_ann = self.parse_type_ann()?;
         self.consume_type_close("a type assertion")?;
         if matches!(self.peek(), Token::LParen) && self.is_arrow_fn_at_lparen() {
             return Err(format!(
-                "generic arrow functions are not supported yet at {lt_at}"
+                "unexpected arrow function after the type assertion at {lt_at}"
             ));
         }
         let expr = self.parse_unary()?;
         Ok(self.add_expr_at(start, Expr::As { expr, ty_ann }))
     }
+
+    /// After the `<`: a type parameter list (`T`, `T extends C`,
+    /// `T = D`, a trailing comma) closed by `>` and followed by an
+    /// arrow's parameter list. Answers the names with the position past
+    /// the `>`; anything else restores the position.
+    fn try_generic_arrow_params(&mut self) -> Option<Vec<String>> {
+        let save = self.pos;
+        let mut names = Vec::new();
+        let ok = loop {
+            let Token::Ident(n) = self.peek() else {
+                break false;
+            };
+            names.push(n.clone());
+            self.pos += 1;
+            if matches!(self.peek(), Token::Extends) {
+                self.pos += 1;
+                if self.parse_type_ann().is_err() {
+                    break false;
+                }
+            }
+            if matches!(self.peek(), Token::Eq) {
+                self.pos += 1;
+                if self.parse_type_ann().is_err() {
+                    break false;
+                }
+            }
+            if matches!(self.peek(), Token::Comma) {
+                self.pos += 1;
+            }
+            if matches!(self.peek(), Token::Gt) {
+                self.pos += 1;
+                break matches!(self.peek(), Token::LParen) && self.is_arrow_fn_at_lparen();
+            }
+        };
+        if !ok {
+            self.pos = save;
+            return None;
+        }
+        Some(names)
+    }
+
+    /// A generic arrow runs as the same arrow without its type
+    /// parameters: an annotation that names one is dropped, so the
+    /// parameter is typed per call the way an unannotated one is.
+    fn erase_type_params(&mut self, arrow: ExprId, names: &[String]) {
+        let names_one = |ann: &Option<String>| ann.as_deref().is_some_and(|a| names_type(a, names));
+        if let Expr::ArrowFn {
+            params,
+            return_type,
+            ..
+        } = &mut self.ast.exprs[arrow.0 as usize]
+        {
+            for p in params.iter_mut() {
+                if names_one(&p.type_ann) {
+                    p.type_ann = None;
+                }
+            }
+            if names_one(return_type) {
+                *return_type = None;
+            }
+        }
+    }
+}
+
+/// Does the annotation spell one of `names` as a whole word?
+fn names_type(ann: &str, names: &[String]) -> bool {
+    ann.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '$'))
+        .any(|w| names.iter().any(|n| n == w))
 }
 
 #[cfg(test)]
@@ -79,9 +152,43 @@ mod tests {
         assert!(casts(&ast).is_empty());
     }
 
+    fn arrow_param_anns(ast: &crate::ast::Ast) -> Vec<Option<String>> {
+        ast.exprs
+            .iter()
+            .filter_map(|e| match e {
+                Expr::ArrowFn { params, .. } => Some(params.iter().map(|p| p.type_ann.clone())),
+                _ => None,
+            })
+            .flatten()
+            .collect()
+    }
+
     #[test]
     fn generic_arrow_is_not_read_as_an_assertion() {
-        let err = parse("const id = <T>(x: T) => x;").unwrap_err();
-        assert!(err.contains("generic arrow"), "{err}");
+        let ast = parse("const id = <T>(x: T, n: number): T => x;").unwrap();
+        assert!(casts(&ast).is_empty());
+        assert_eq!(
+            arrow_param_anns(&ast),
+            vec![None, Some("number".to_string())]
+        );
+    }
+
+    #[test]
+    fn constrained_and_trailing_comma_type_params_open_an_arrow() {
+        for src in [
+            "const k = <T extends object>(o: T) => o;",
+            "const k = <T,>(o: T) => o;",
+            "const k = <T = string, U extends T[] = T[]>(o: T, u: U) => o;",
+        ] {
+            let ast = parse(src).unwrap();
+            assert!(casts(&ast).is_empty(), "{src}");
+            assert!(arrow_param_anns(&ast).iter().all(Option::is_none), "{src}");
+        }
+    }
+
+    #[test]
+    fn assertion_of_a_parenthesized_operand_stays_an_assertion() {
+        let ast = parse("const c: any = 5; const n = <number>(c);").unwrap();
+        assert_eq!(casts(&ast), vec!["number".to_string()]);
     }
 }
