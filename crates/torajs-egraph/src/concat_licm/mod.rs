@@ -333,8 +333,8 @@ mod tests {
     const SINK: FuncId = FuncId(2);
 
     /// bb0: %0 %1 static strs, %2 = 0, cond_br bb1 / bb3 (the guard) ·
-    /// bb1 (header): `pre` · %3 = concat(%0, %1) · sink(%3) · %4 = %2
-    /// + 1 · %2 = copy %4 · %5 = %2 < 10 · cond_br bb1 / bb2 · bb2:
+    /// bb1 (header): `pre` · %3 = concat(%0, %1) · sink(%3) ·
+    /// %4 = %2 + 1 · %2 = copy %4 · %5 = %2 < 10 · cond_br bb1 / bb2 · bb2:
     /// cond_br bb3 / bb4 · bb3, bb4: ret — a bottom-tested loop with
     /// two exits, one of which shares its target with the guard.
     fn rotated(pre: Vec<Inst>, left: Operand) -> Module {
