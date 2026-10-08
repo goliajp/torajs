@@ -19,9 +19,29 @@ struct HyperfineExport {
     results: Vec<HyperfineRun>,
 }
 
+/// hyperfine 1.x puts `median` (seconds) on the result; 2.x moves it
+/// into `summary.time_wall_clock`.
 #[derive(Deserialize)]
 struct HyperfineRun {
+    median: Option<f64>,
+    summary: Option<Summary>,
+}
+
+#[derive(Deserialize)]
+struct Summary {
+    time_wall_clock: WallClock,
+}
+
+#[derive(Deserialize)]
+struct WallClock {
     median: f64, // seconds
+}
+
+impl HyperfineRun {
+    fn median_s(&self) -> Option<f64> {
+        self.median
+            .or_else(|| self.summary.as_ref().map(|s| s.time_wall_clock.median))
+    }
 }
 
 pub(crate) fn hyperfine_one(
@@ -72,8 +92,11 @@ pub(crate) fn hyperfine_one(
         .results
         .first()
         .context("hyperfine returned no results")?;
+    let median = r
+        .median_s()
+        .context("hyperfine result carries no wall-clock median")?;
     Ok(Stats {
-        median_ms: r.median * 1000.0,
+        median_ms: median * 1000.0,
     })
 }
 
@@ -84,4 +107,35 @@ fn rand_suffix() -> String {
         .map(|d| d.subsec_nanos())
         .unwrap_or(0);
     format!("{nanos:x}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::HyperfineExport;
+
+    fn median(json: &str) -> Option<f64> {
+        let parsed: HyperfineExport = serde_json::from_str(json).unwrap();
+        parsed.results[0].median_s()
+    }
+
+    #[test]
+    fn reads_the_1x_median() {
+        assert_eq!(
+            median(r#"{"results":[{"median":0.25,"mean":0.3}]}"#),
+            Some(0.25)
+        );
+    }
+
+    #[test]
+    fn reads_the_2x_wall_clock_median() {
+        let json = r#"{"schema_version":"1","results":[{"command":"true",
+            "summary":{"time_wall_clock":{"unit":"second","median":0.004,"mean":0.005},
+            "instructions":{"median":6.0}}}]}"#;
+        assert_eq!(median(json), Some(0.004));
+    }
+
+    #[test]
+    fn a_result_without_either_is_none() {
+        assert_eq!(median(r#"{"results":[{"command":"true"}]}"#), None);
+    }
 }
