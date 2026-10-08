@@ -399,7 +399,7 @@ fn finalize_module(
     // ClassLayoutMeta + W-J Phase A0 anonymous-struct ClassLayoutMeta
     // — see [`crate::ssa_lower_module_metadata`] for the consolidated
     // builder docs.
-    crate::ssa_lower_module_metadata::populate_vtables(ast, fn_table, module);
+    crate::ssa_lower_module_metadata_vtables::populate_vtables(ast, fn_table, module);
     // 507-02 — one slot, one ABI: the indirect call through a slot
     // takes ITS signature from a single owner, so the table is only
     // callable if every row agrees. Nothing else pins that; the

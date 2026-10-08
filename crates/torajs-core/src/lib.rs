@@ -599,6 +599,7 @@ pub(crate) mod ssa_lower_micro_helpers;
 pub(crate) mod ssa_lower_module_metadata;
 pub(crate) mod ssa_lower_module_metadata_methods;
 pub(crate) mod ssa_lower_module_metadata_slot_abi;
+pub(crate) mod ssa_lower_module_metadata_vtables;
 pub(crate) mod ssa_lower_new;
 pub(crate) mod ssa_lower_new_arr_init;
 mod ssa_lower_new_collection;

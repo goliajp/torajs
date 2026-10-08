@@ -14,6 +14,8 @@
 //! internal to this cluster. All promoted `pub(super)` per the
 //! sibling-impl pack pattern. Body unchanged.
 
+mod method_shape;
+
 use super::*;
 
 impl<'a> Parser<'a> {
@@ -238,63 +240,8 @@ impl<'a> Parser<'a> {
             }
         };
         self.pos += 1;
-        // V3-18 wedge — method-shape field (`m(p: T): R`) in
-        // an interface / type-decl body. Per TS spec §3.7 the
-        // shape is equivalent to `m: (p: T) => R`. Subset rewrites
-        // by parsing the param list + `: R` and synthesizing the
-        // arrow-fn type-ann string. Note: type-side only — calls
-        // on a struct field that holds a function are not yet
-        // lowered, so the wedge unblocks the *parse* of common
-        // interface shapes (e.g. matching real class methods via
-        // `class C implements I`) even though direct invocation
-        // on a struct-typed binding still isn't supported.
         if matches!(self.peek(), Token::LParen) {
-            self.pos += 1;
-            let mut param_anns: Vec<String> = Vec::new();
-            if !matches!(self.peek(), Token::RParen) {
-                loop {
-                    // Optional `name:` prefix on each param — discarded.
-                    if matches!(self.peek(), Token::Ident(_))
-                        && matches!(
-                            self.tokens.get(self.pos + 1).map(|s| &s.token),
-                            Some(Token::Colon) | Some(Token::Question)
-                        )
-                    {
-                        self.pos += 1;
-                        if matches!(self.peek(), Token::Question) {
-                            self.pos += 1;
-                        }
-                        if matches!(self.peek(), Token::Colon) {
-                            self.pos += 1;
-                        }
-                    }
-                    param_anns.push(self.parse_type_ann()?);
-                    match self.peek() {
-                        Token::Comma => self.pos += 1,
-                        Token::RParen => break,
-                        t => {
-                            return Err(format!(
-                                "expected `,` or `)` in method-shape params, got {t:?} at {}",
-                                self.at()
-                            ));
-                        }
-                    }
-                }
-            }
-            match self.peek() {
-                Token::RParen => self.pos += 1,
-                t => return Err(format!("expected `)`, got {t:?} at {}", self.at())),
-            }
-            let ret_ann = match self.peek() {
-                Token::Colon => {
-                    self.pos += 1;
-                    self.parse_type_ann()?
-                }
-                _ => "void".to_string(),
-            };
-            let fn_ann =
-                crate::type_ann_fnsig::fn_type_ann("__fn", &param_anns.join("|"), &ret_ann);
-            return Ok((PropKey::from(name), fn_ann));
+            return Ok((PropKey::from(name), self.parse_method_shape_ann()?));
         }
         // V3-18 wedge — optional field `field?: T` in a `type X = {...}`
         // declaration. Same modeling as the inline-obj path: optional
