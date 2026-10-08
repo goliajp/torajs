@@ -283,6 +283,7 @@ fn main() {
         // sub-crate name to match Cargo's env-var conventions.
         let env_name = format!("{}_STATICLIB_PATH", name.to_uppercase());
         println!("cargo:rustc-env={}={}", env_name, src.display());
+        println!("cargo::metadata={}={}", env_name, src.display());
         // `cargo:rerun-if-env-changed` ensures rustc re-runs the
         // crate that consumes this env var whenever cargo's env
         // for it changes. Combined with the always-rerun sentinel

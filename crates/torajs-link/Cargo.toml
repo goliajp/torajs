@@ -22,4 +22,4 @@ torajs-rtimage = { path = "../torajs-rtimage" }
 # Test fixtures hand-build SSA `Function`s to exercise reloc patching
 # paths end-to-end. The production link API consumes
 # `&[CompiledFunction]`, never touching the SSA types directly.
-torajs-core = { path = "../torajs-core" }
+torajs-core = { path = "../torajs-core", features = ["runtime-image"] }

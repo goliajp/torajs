@@ -42,44 +42,57 @@
 /// in the shipped binary. The crate's own comment asserted "this
 /// staticlib resolves first"; with the in-house linker that was never
 /// true.
-pub static TORAJS_RUNTIME_IMAGE: &[u8] = torajs_rtimage_macro::runtime_image!(
-    "TORAJS_PANIC_RUNTIME_STATICLIB_PATH",
-    "TORAJS_SYSCALL_STATICLIB_PATH",
-    "TORAJS_IO_STATICLIB_PATH",
-    "TORAJS_FMT_STATICLIB_PATH",
-    "TORAJS_MEM_STATICLIB_PATH",
-    "TORAJS_MMALLOC_STATICLIB_PATH",
-    "TORAJS_RC_STATICLIB_PATH",
-    "TORAJS_ANYVALUE_STATICLIB_PATH",
-    "TORAJS_DISPATCH_STATICLIB_PATH",
-    "TORAJS_THROW_STATICLIB_PATH",
-    "TORAJS_STR_STATICLIB_PATH",
-    "TORAJS_NUM_STATICLIB_PATH",
-    "TORAJS_MATH_STATICLIB_PATH",
-    "TORAJS_BIGINT_STATICLIB_PATH",
-    "TORAJS_ARR_STATICLIB_PATH",
-    "TORAJS_DYNOBJ_STATICLIB_PATH",
-    "TORAJS_COLLECTIONS_STATICLIB_PATH",
-    "TORAJS_WEAK_STATICLIB_PATH",
-    "TORAJS_CYCLE_STATICLIB_PATH",
-    "TORAJS_MICROTASK_STATICLIB_PATH",
-    "TORAJS_PROMISE_STATICLIB_PATH",
-    "TORAJS_REGEX_STATICLIB_PATH",
-    "TORAJS_FETCH_STATICLIB_PATH",
-    "TORAJS_DATE_STATICLIB_PATH",
-    "TORAJS_CAPTURE_BOX_STATICLIB_PATH",
-    "TORAJS_FS_STATICLIB_PATH",
-    "TORAJS_META_STATICLIB_PATH",
-    "TORAJS_STRUCTMETA_STATICLIB_PATH",
-    "TORAJS_PROCESS_STATICLIB_PATH",
-    "TORAJS_PANIC_STATICLIB_PATH",
-    "TORAJS_VALUE_DROP_STATICLIB_PATH",
-    "TORAJS_BUFFER_STATICLIB_PATH",
-    "TORAJS_WRAPPER_STATICLIB_PATH",
-    "TORAJS_ABORT_STATICLIB_PATH",
-    "TORAJS_PRINT_STATICLIB_PATH",
-    "TORAJS_FNNAME_STATICLIB_PATH",
-);
+#[cfg(feature = "runtime-image")]
+pub static TORAJS_RUNTIME_IMAGE: &[u8] =
+    crate::runtime_staticlib_envs!(torajs_rtimage_macro::runtime_image);
+
+/// Expands to `$m!($($arg,)* "TORAJS_<NAME>_STATICLIB_PATH", ...)` with
+/// every runtime staticlib in link search order, so each image built
+/// from the archives reads them in the one order documented above.
+#[macro_export]
+macro_rules! runtime_staticlib_envs {
+    ($($m:ident)::+ $(, $arg:literal)*) => {
+        $($m)::+!(
+            $($arg,)*
+            "TORAJS_PANIC_RUNTIME_STATICLIB_PATH",
+            "TORAJS_SYSCALL_STATICLIB_PATH",
+            "TORAJS_IO_STATICLIB_PATH",
+            "TORAJS_FMT_STATICLIB_PATH",
+            "TORAJS_MEM_STATICLIB_PATH",
+            "TORAJS_MMALLOC_STATICLIB_PATH",
+            "TORAJS_RC_STATICLIB_PATH",
+            "TORAJS_ANYVALUE_STATICLIB_PATH",
+            "TORAJS_DISPATCH_STATICLIB_PATH",
+            "TORAJS_THROW_STATICLIB_PATH",
+            "TORAJS_STR_STATICLIB_PATH",
+            "TORAJS_NUM_STATICLIB_PATH",
+            "TORAJS_MATH_STATICLIB_PATH",
+            "TORAJS_BIGINT_STATICLIB_PATH",
+            "TORAJS_ARR_STATICLIB_PATH",
+            "TORAJS_DYNOBJ_STATICLIB_PATH",
+            "TORAJS_COLLECTIONS_STATICLIB_PATH",
+            "TORAJS_WEAK_STATICLIB_PATH",
+            "TORAJS_CYCLE_STATICLIB_PATH",
+            "TORAJS_MICROTASK_STATICLIB_PATH",
+            "TORAJS_PROMISE_STATICLIB_PATH",
+            "TORAJS_REGEX_STATICLIB_PATH",
+            "TORAJS_FETCH_STATICLIB_PATH",
+            "TORAJS_DATE_STATICLIB_PATH",
+            "TORAJS_CAPTURE_BOX_STATICLIB_PATH",
+            "TORAJS_FS_STATICLIB_PATH",
+            "TORAJS_META_STATICLIB_PATH",
+            "TORAJS_STRUCTMETA_STATICLIB_PATH",
+            "TORAJS_PROCESS_STATICLIB_PATH",
+            "TORAJS_PANIC_STATICLIB_PATH",
+            "TORAJS_VALUE_DROP_STATICLIB_PATH",
+            "TORAJS_BUFFER_STATICLIB_PATH",
+            "TORAJS_WRAPPER_STATICLIB_PATH",
+            "TORAJS_ABORT_STATICLIB_PATH",
+            "TORAJS_PRINT_STATICLIB_PATH",
+            "TORAJS_FNNAME_STATICLIB_PATH",
+        )
+    };
+}
 
 /// Compiler-source fingerprint emitted by build.rs (hash of
 /// `src/ssa_lower.rs` / `src/check.rs` / `src/parser.rs` /

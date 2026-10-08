@@ -12,7 +12,7 @@ name = "tr"
 path = "src/main.rs"
 
 [dependencies]
-torajs-core = { path = "../torajs-core" }
+torajs-core = { path = "../torajs-core", features = ["runtime-image"] }
 # host-side consumer of the mid/family tables for the blade-2b
 # dispatch stub judgment (cmd_build_dispatch_judge) — same in-house
 # crate torajs-core already links for compile-time mid interning.
@@ -23,6 +23,9 @@ torajs-rc = { path = "../torajs-rc" }
 # the ssa_inkwell/LLVM backend was retired (v0.7 Metal stone #6).
 torajs-codegen = { path = "../torajs-codegen" }
 torajs-link = { path = "../torajs-link" }
+# links the runtime once, at tr's own compile time, into the
+# fixed-layout image `tr run` maps (rtlinked.rs)
+torajs-rtlinked-macro = { path = "../torajs-rtlinked-macro" }
 
 # Phase 0 step 8 — egraph mid-end optimizer wired into the new pipeline
 # between `ssa_lower::lower_with_arity` and `torajs_codegen::compile_function`.

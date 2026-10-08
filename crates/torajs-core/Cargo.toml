@@ -2,6 +2,10 @@
 name = "torajs-core"
 version = "0.1.0"
 edition = "2024"
+# no native library: `links` only lets build.rs hand the staticlib paths
+# to dependents' build scripts as DEP_TORAJS_RUNTIME_* (torajs-cli embeds
+# the prelinked runtime from the same archives)
+links = "torajs_runtime"
 
 # v0.3 #6 Graduation — compiler internals as a library crate. Owns
 # the lex / parse / desugar / typecheck / SSA-lower pipeline; downstream
@@ -10,10 +14,17 @@ edition = "2024"
 [lib]
 path = "src/lib.rs"
 
+[features]
+# Embeds the runtime staticlibs (`TORAJS_RUNTIME_IMAGE`). Off for the
+# host build a proc macro reaches through torajs-link: under
+# `--target`, the runtime archives only exist for the target, and the
+# host copy of this crate has no use for them.
+runtime-image = ["dep:torajs-rtimage-macro"]
+
 [dependencies]
 # Builds the runtime image out of the staticlibs below at this crate's
 # compile time (staticlibs.rs).
-torajs-rtimage-macro = { path = "../torajs-rtimage-macro" }
+torajs-rtimage-macro = { path = "../torajs-rtimage-macro", optional = true }
 # v0.7-A2 metal-tier allocator. TLAB layout constants are read at
 # `tr build` time so SSA lowering can emit inline TLAB.pop / push at
 # user-binary alloc/free call sites.

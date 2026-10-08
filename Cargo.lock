@@ -1464,6 +1464,7 @@ dependencies = [
  "torajs-egraph",
  "torajs-link",
  "torajs-rc",
+ "torajs-rtlinked-macro",
 ]
 
 [[package]]
@@ -1758,6 +1759,14 @@ version = "0.1.0"
 name = "torajs-rtimage-macro"
 version = "0.1.0"
 dependencies = [
+ "torajs-rtimage",
+]
+
+[[package]]
+name = "torajs-rtlinked-macro"
+version = "0.1.0"
+dependencies = [
+ "torajs-link",
  "torajs-rtimage",
 ]
 

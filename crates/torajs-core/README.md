@@ -53,7 +53,9 @@ CLI invokes.
 At `tr build` time the in-house linker reads the runtime image
 (the Rust staticlibs preprocessed at compile time of `torajs-core`
 — see `TORAJS_RUNTIME_IMAGE` in `staticlibs.rs`, built by
-`torajs-rtimage-macro` from the paths `build.rs` emits).
+`torajs-rtimage-macro` from the paths `build.rs` emits). The embed
+exists only with the `runtime-image` feature on, which `torajs-cli`
+enables; without it the crate builds without the runtime staticlibs.
 
 ## License
 

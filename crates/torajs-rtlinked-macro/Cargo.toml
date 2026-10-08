@@ -1,0 +1,21 @@
+[package]
+name = "torajs-rtlinked-macro"
+description = "Compile-time embedding of the prelinked torajs runtime: `runtime_linked_image!` reads the `libtorajs_*.a` staticlibs named by build-script env vars, links them once into the fixed-layout image `torajs-link` defines, and expands to the image as a segment-aligned byte array, so `tr run` can map it without linking the runtime per run."
+keywords = ["torajs", "aot", "proc-macro"]
+categories = ["compilers"]
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+torajs-link = { path = "../torajs-link" }
+torajs-rtimage = { path = "../torajs-rtimage" }
