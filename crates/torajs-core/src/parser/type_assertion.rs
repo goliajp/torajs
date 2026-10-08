@@ -78,10 +78,37 @@ impl Parser<'_> {
         Some(names)
     }
 
+    /// `<T, U extends C = D>` before a function expression's
+    /// parameter list, answered as names for [`Self::erase_type_params`];
+    /// no list answers none.
+    pub(super) fn parse_erased_type_params(&mut self) -> Result<Vec<String>, String> {
+        if !matches!(self.peek(), Token::Lt) {
+            return Ok(Vec::new());
+        }
+        self.pos += 1;
+        let mut names = Vec::new();
+        while let Token::Ident(n) = self.peek() {
+            names.push(n.clone());
+            self.pos += 1;
+            for t in [Token::Extends, Token::Eq] {
+                if *self.peek() == t {
+                    self.pos += 1;
+                    self.parse_type_ann()?;
+                }
+            }
+            if !matches!(self.peek(), Token::Comma) {
+                break;
+            }
+            self.pos += 1;
+        }
+        self.consume_type_close("type parameters")?;
+        Ok(names)
+    }
+
     /// A generic arrow runs as the same arrow without its type
     /// parameters: an annotation that names one is dropped, so the
     /// parameter is typed per call the way an unannotated one is.
-    fn erase_type_params(&mut self, arrow: ExprId, names: &[String]) {
+    pub(super) fn erase_type_params(&mut self, arrow: ExprId, names: &[String]) {
         let names_one = |ann: &Option<String>| ann.as_deref().is_some_and(|a| names_type(a, names));
         if let Expr::ArrowFn {
             params,

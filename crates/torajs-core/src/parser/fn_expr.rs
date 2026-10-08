@@ -273,6 +273,7 @@ impl<'a> Parser<'a> {
             self.pos += 1;
         }
         let self_name = self.parse_fn_expr_self_name(is_generator, was_async_prefixed);
+        let type_params = self.parse_erased_type_params()?;
         // §15.5.1 — FormalParameters ride the fn's OWN [Yield] bit,
         // so the generator swap happens BEFORE the param list (the
         // self-name above stayed on the enclosing scope's bit). Error
@@ -444,6 +445,7 @@ impl<'a> Parser<'a> {
         if let Some(n) = self_name {
             self.ast.fn_expr_self_names.insert(eid, n);
         }
+        self.erase_type_params(eid, &type_params);
         Ok(eid)
     }
 }
