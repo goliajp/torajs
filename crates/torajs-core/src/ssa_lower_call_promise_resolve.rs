@@ -303,10 +303,17 @@ fn lower_one_plus_op(
         } else {
             ctx.box_to_any_from_expr(arg0, arg_op)
         };
+        // an async function's own result is a fresh promise that adopts
+        // a returned one (§27.7.5.1), not the returned one itself
+        let kernel = if ctx.ast.synth_promise_static_calls.contains(&eid) {
+            ctx.intrinsics.promise_resolve_fresh
+        } else {
+            ctx.intrinsics.promise_resolve_any
+        };
         let cur_block = ctx.cur_block;
         let v = ctx.f.append_inst(
             cur_block,
-            InstKind::Call(ctx.intrinsics.promise_resolve_any, vec![boxed]),
+            InstKind::Call(kernel, vec![boxed]),
             Type::Promise,
             None,
         );

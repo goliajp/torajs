@@ -695,6 +695,7 @@ pub(crate) fn build(
         promise_alloc_fulfilled_heap: init_d.promise.promise_alloc_fulfilled_heap,
         promise_alloc_rejected_heap: init_d.promise.promise_alloc_rejected_heap,
         promise_resolve_any: init_d.promise.promise_resolve_any,
+        promise_resolve_fresh: init_d.promise.promise_resolve_fresh,
         promise_ctor_patched: init_d.promise.promise_ctor_patched,
         promise_patched_result: init_d.promise.promise_patched_result,
         promise_stamp_repr: init_d.promise.promise_stamp_repr,

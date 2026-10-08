@@ -845,9 +845,10 @@ pub(crate) struct Intrinsics {
     pub(crate) promise_alloc_rejected: FuncId,
     pub(crate) promise_alloc_fulfilled_heap: FuncId,
     pub(crate) promise_alloc_rejected_heap: FuncId,
-    /// §27.2.4.7 PromiseResolve through the any lane: %Promise% passes
-    /// through, a thenable takes the §27.2.1.3.2 job, else fulfilled.
+    /// §27.2.4.7 PromiseResolve through the any lane, and the async
+    /// function result's fresh twin that adopts a native promise.
     pub(crate) promise_resolve_any: FuncId,
+    pub(crate) promise_resolve_fresh: FuncId,
     /// §27.2.4 static-slot patch consult pair (rotation 448).
     pub(crate) promise_ctor_patched: FuncId,
     pub(crate) promise_patched_result: FuncId,

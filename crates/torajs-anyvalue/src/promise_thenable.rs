@@ -285,6 +285,43 @@ unsafe fn constructor_is_builtin_promise(v: AnyValue) -> bool {
     }
 }
 
+/// An async function settling its own result promise with `x`
+/// (§27.7.5.1 step 3.b calls the capability's resolve function): unlike
+/// PromiseResolve, a native promise is never answered itself — a fresh
+/// cell adopts it through the §27.2.1.3.2 job, so `f() !== p` and the
+/// result settles two jobs after `p`. Anything else is
+/// [`__torajs_anyv_promise_resolve`]. The caller transfers one ref on
+/// the box; the answer is owned.
+///
+/// # Safety
+/// `bits` is a live AnyValue whose stake transfers in.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_promise_resolve_fresh(bits: i64) -> *mut c_void {
+    unsafe {
+        let v = bits as AnyValue;
+        if !is_native_promise(v) {
+            return __torajs_anyv_promise_resolve(bits);
+        }
+        let p = __torajs_promise_alloc_pending();
+        p.cast::<u8>().add(P_REPR_OFF).write(REPR_ANY);
+        p.cast::<u8>().add(P_IS_HEAP_OFF).write(1);
+        // an own `then` is the one the job calls
+        match probe_then(v) {
+            ThenProbe::Callable(then) => enqueue_thenable_job(p, v, then),
+            ThenProbe::Threw => {
+                let reason = take_throw_box();
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(v);
+                __torajs_promise_reject(p, reason as i64);
+            }
+            ThenProbe::NotThenable => {
+                crate::promise_with_resolvers::adopt_promise(p, crate::nanbox::as_void_ptr(v));
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(v);
+            }
+        }
+        p
+    }
+}
+
 /// §27.2.4.7 PromiseResolve(%Promise%, x) — the any-lane kernel behind
 /// `await` and `Promise.resolve(any)`. A %Promise% cell passes through
 /// and a non-thenable fulfills (torajs-promise's `resolve_any`, which

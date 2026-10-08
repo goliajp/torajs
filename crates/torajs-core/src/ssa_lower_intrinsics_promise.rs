@@ -65,6 +65,10 @@ pub(crate) struct PromiseIds {
     /// §27.2.1.3.2 job settles, an abrupt `then` read a rejected one,
     /// anything else the fulfilled_heap + REPR_ANY pair.
     pub promise_resolve_any: FuncId,
+    /// An async function's settle of its own result promise: a native
+    /// promise is adopted by a fresh cell through the §27.2.1.3.2 job
+    /// instead of being answered itself.
+    pub promise_resolve_fresh: FuncId,
     /// §27.2.4 static-slot patch consult pair (rotation 448) — the
     /// call-site gate over the ctor cell's expando dict, and the
     /// typed lane's Any→Promise return contract on a patched call.
@@ -189,6 +193,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             module,
             fn_table,
             "__torajs_anyv_promise_resolve",
+            i641,
+            Type::Promise,
+        ),
+        promise_resolve_fresh: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_anyv_promise_resolve_fresh",
             i641,
             Type::Promise,
         ),
