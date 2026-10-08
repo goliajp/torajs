@@ -1,0 +1,5 @@
+# str-concat-ascii-escape-100k at 100x the iterations, same programs. At
+# 1e5 bun's work is still mostly its JIT warming up (about 690 instructions
+# per iteration there against about 24 in steady state), so the 100k ratio
+# favours tr; this size reads both sides' steady-state concat throughput.
+args = "10000000 x"

@@ -1,0 +1,5 @@
+# split-only-100k with the input and the separator taken from argv, so the
+# split cannot be folded at compile time (in split-only-100k both operands
+# are literals). The harness splits args on whitespace, so the tokens are
+# joined by `_` here instead of a space.
+args = "100000 3_4_+_2_*_5_+ _"
