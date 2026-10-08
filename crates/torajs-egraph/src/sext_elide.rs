@@ -33,6 +33,10 @@
 //!   its result is sext-32. Over `sitofp(x)` of a sext-32 `x` (the
 //!   int-versioned loop's bitwise operand), `fptoint32` / `fptosi`
 //!   collapse to `x` itself, and the orphaned `sitofp` is swept.
+//! * **Mask (R4)** — `and(x, C)` with `C` inside `[0, 2^31)` keeps
+//!   only bits a sext pair never rewrites, so a pair on `x` goes
+//!   (`and(sx(a), 7) → and(a, 7)`, every `i & 7` of a counter with no
+//!   range fact), and the result, inside `[0, C]`, is sext-32.
 //!
 //! Runs after `phi_promote` (final canonical shape, right before the
 //! SSA dump / rc_peephole). Orphaned shift insts left by either
@@ -66,6 +70,8 @@ pub struct SextElideStats {
     pub round_trips_elided: u32,
     /// Orphaned sitofp insts swept after the rewrites.
     pub dead_casts_removed: u32,
+    /// Sext pairs dropped from under an in-i32 non-negative mask.
+    pub masks_stripped: u32,
 }
 
 /// Run sext-pair elimination over every function body. `seeds` is
@@ -108,6 +114,19 @@ fn sitofp_src(
     match defs.get(a) {
         Some(InstKind::SiToFp(x)) if op_sext32(x, facts) => Some(*x),
         _ => None,
+    }
+}
+
+/// `and(x, C)` with `C` a non-negative i32 constant → `(x, C)`.
+fn masked(a: &Operand, b: &Operand) -> Option<(Operand, Operand)> {
+    let mask =
+        |op: &Operand| matches!(op, Operand::ConstI64(c) if (0..=i32::MAX as i64).contains(c));
+    if mask(b) {
+        Some((*a, *b))
+    } else if mask(a) {
+        Some((*b, *a))
+    } else {
+        None
     }
 }
 
@@ -199,6 +218,24 @@ fn elide_in_function(func: &mut Function, seed: &HashSet<ValueId>, stats: &mut S
                     out.push(inst);
                     continue;
                 }
+            }
+            // R4 — an in-i32 mask needs no pair under it.
+            if let InstKind::BinOp(BinOp::And, a, b) = inst.kind
+                && let Some((x, mask)) = masked(&a, &b)
+            {
+                let mut inst = inst;
+                if let Operand::Value(v) = resolve(&x, &replace)
+                    && let Some(src) = sxpair_src(v, &defs)
+                {
+                    inst.kind = InstKind::BinOp(BinOp::And, src, mask);
+                    stats.masks_stripped += 1;
+                }
+                if !multi.contains(&r) {
+                    defs.insert(r, inst.kind.clone());
+                    facts.insert(r);
+                }
+                out.push(inst);
+                continue;
             }
             // R1 — transpose operand-side pairs into one result-side pair.
             if let InstKind::BinOp(bop @ (BinOp::And | BinOp::Or | BinOp::Xor), a, b) = inst.kind {
@@ -514,6 +551,49 @@ mod tests {
         let stats = elide_sext_pairs(&mut m, &[]);
         assert_eq!(stats, SextElideStats::default());
         assert_eq!(body(&m).len(), 4);
+    }
+
+    #[test]
+    fn an_in_range_mask_drops_the_pair_under_it() {
+        // `i & 7` of a counter with no fact: and(sx(%0), 7) is
+        // and(%0, 7), and a pair over that result elides.
+        let mut vals = vec![];
+        let insts = vec![
+            val(0, binop(BinOp::Add, c(7), c(9)), &mut vals),
+            val(1, binop(BinOp::Shl, v(0), c(32)), &mut vals),
+            val(2, binop(BinOp::AShr, v(1), c(32)), &mut vals),
+            val(3, binop(BinOp::And, c(7), v(2)), &mut vals),
+            val(4, binop(BinOp::Shl, v(3), c(32)), &mut vals),
+            val(5, binop(BinOp::AShr, v(4), c(32)), &mut vals),
+        ];
+        let mut m = module_one_block(insts, vals, Terminator::Ret(Some(v(5))));
+        let stats = elide_sext_pairs(&mut m, &[]);
+        assert_eq!(stats.masks_stripped, 1);
+        assert_eq!(stats.pairs_elided, 1);
+        assert_eq!(stats.transposed, 0);
+        assert_eq!(stats.dead_shifts_removed, 3);
+        assert_eq!(body(&m).len(), 2);
+        assert_eq!(body(&m)[1].kind, binop(BinOp::And, v(0), c(7)));
+        assert!(matches!(
+            m.funcs[0].blocks[0].term,
+            Terminator::Ret(Some(Operand::Value(ValueId(3))))
+        ));
+    }
+
+    #[test]
+    fn a_negative_mask_keeps_the_pair() {
+        // and(sx(%0), -8) keeps the high bits the pair wrote
+        let mut vals = vec![];
+        let insts = vec![
+            val(0, binop(BinOp::Add, c(7), c(9)), &mut vals),
+            val(1, binop(BinOp::Shl, v(0), c(32)), &mut vals),
+            val(2, binop(BinOp::AShr, v(1), c(32)), &mut vals),
+            val(3, binop(BinOp::And, v(2), c(-8)), &mut vals),
+        ];
+        let mut m = module_one_block(insts, vals, Terminator::Ret(Some(v(3))));
+        let stats = elide_sext_pairs(&mut m, &[]);
+        assert_eq!(stats.masks_stripped, 0);
+        assert_eq!(stats.transposed, 1);
     }
 
     #[test]
