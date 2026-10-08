@@ -12,7 +12,7 @@ use torajs_obj::{
 
 use crate::archive_emit::member_data_layouts;
 use crate::archive_emit_lc_meta::{EmitLcMeta, compute_emit_lc_meta};
-use crate::archive_link::{ArchiveLayout, symtab_rows};
+use crate::archive_link::ArchiveLayout;
 use crate::data_section_emit::build_data_non_text_section_64_entries;
 use crate::defined_extern_resolve::section_vaddr_for_sym;
 use crate::dyld_emit::{build_data_segment, build_stubs_section};
@@ -274,4 +274,18 @@ fn write_user_symtab_only(buf: &mut Vec<u8>, cfg: &LinkConfig, layout: &ArchiveL
         Nlist64::defined_extern(strx, 1, layout.fn_vaddrs[i]).write_to(buf);
     }
     buf.extend_from_slice(strtab.as_bytes());
+}
+
+/// The `cfg.funcs` slots that own a symbol-table row: every user
+/// function with a body. Extern-declaration slots (empty bytes —
+/// `compile_module_funcs` keeps them so `FuncId`s stay stable) define
+/// nothing; a row for them would claim the runtime symbol lives at
+/// the text start and mis-attribute crash frames there.
+pub(crate) fn symtab_rows(
+    cfg: &LinkConfig,
+) -> impl Iterator<Item = (usize, &torajs_codegen::CompiledFunction)> {
+    cfg.funcs
+        .iter()
+        .enumerate()
+        .filter(|(_, f)| !f.bytes.is_empty())
 }

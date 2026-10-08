@@ -12,6 +12,7 @@
 
 use torajs_obj::NLIST_64_SIZE;
 
+use crate::archive_emit_lcs::symtab_rows;
 use crate::archive_layout_data::compute_data_region_plan;
 use crate::archive_layout_linkedit::compute_linkedit_plan;
 use crate::archive_layout_text::compute_text_region_plan;
@@ -31,20 +32,6 @@ pub use crate::member_text::{MemberTextError, parse_member_text_section};
 pub(crate) fn round_up_to(value: u64, align: u64) -> u64 {
     debug_assert!(align.is_power_of_two());
     (value + align - 1) & !(align - 1)
-}
-
-/// The `cfg.funcs` slots that own a symbol-table row: every user
-/// function with a body. Extern-declaration slots (empty bytes —
-/// `compile_module_funcs` keeps them so `FuncId`s stay stable) define
-/// nothing; a row for them would claim the runtime symbol lives at
-/// the text start and mis-attribute crash frames there.
-pub(crate) fn symtab_rows(
-    cfg: &LinkConfig,
-) -> impl Iterator<Item = (usize, &torajs_codegen::CompiledFunction)> {
-    cfg.funcs
-        .iter()
-        .enumerate()
-        .filter(|(_, f)| !f.bytes.is_empty())
 }
 
 /// File + virtual layout for a `LinkConfig` against its runtime
