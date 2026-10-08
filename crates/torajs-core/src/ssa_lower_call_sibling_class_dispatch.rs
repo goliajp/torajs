@@ -129,10 +129,12 @@ pub(crate) fn try_lower(
     // bits (two `function*` decls make `next` a sibling-owned name,
     // so `g.next(42)` came through here and the generator's
     // resumption value read back as a garbage NaN-box). The sig is
-    // receiver-first: user args align to params[1..].
+    // receiver-first: user args align to params[1..], past the slot's
+    // hidden argc when it carries one.
+    let slot_argc = ctx.ast.this_first_argc_fns.contains_key(&fn_name);
     let mut coerce_owned = crate::ssa_lower_call_terminal_coerce::coerce_args_by_param_tys(
         ctx,
-        param_tys.get(1..).unwrap_or(&[]),
+        param_tys.get(1 + usize::from(slot_argc)..).unwrap_or(&[]),
         head,
         &mut arg_ops,
     );
@@ -161,6 +163,10 @@ pub(crate) fn try_lower(
     // above, where the tail's position told it how wide the gap was.
     if tail_at.is_none() {
         crate::ssa_lower_call_terminal::pad_trailing_undef(ctx, eid, &mut argv);
+    }
+    if slot_argc {
+        let n = crate::ssa_lower_call_terminal_headless::user_argc(ctx, eid, args.len());
+        argv.insert(1, Operand::ConstI64(n as i64));
     }
     let ret_ty = ctx.f_ret_type_hint(fid);
     let cur_block = ctx.cur_block;

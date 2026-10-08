@@ -58,7 +58,8 @@ pub(crate) fn forwarded_argc(
         .f
         .name
         .strip_prefix("__forward_")
-        .or_else(|| ctx.f.name.strip_prefix("__fwdrecv_"))?;
+        .or_else(|| ctx.f.name.strip_prefix("__fwdrecv_"))
+        .or_else(|| ctx.f.name.strip_prefix("__dispatch_"))?;
     // A this-reading (or lossy-slot) static's relay forwards to the
     // receiver-polymorphic twin under the mono's `__forward_` name
     // (`forwarder_synth::static_twin_target`), so the callee it
@@ -68,6 +69,11 @@ pub(crate) fn forwarded_argc(
     // b: string)` answered `arguments.length` as the declared 2.
     let forwards_to_callee =
         relay_of == callee_name.as_str() || ctx.ast.smany_twins.get(relay_of) == Some(callee_name);
+    // a `__dispatch_` stub on the argc tier forwards to its slot's row
+    // the same way: the stub shares the slot's signature, so its own
+    // count is the one the row must answer
+    let forwards_to_callee = forwards_to_callee
+        || ctx.f.name.starts_with("__dispatch_") && callee_name.starts_with("__cm_");
     if !forwards_to_callee {
         return None;
     }

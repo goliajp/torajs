@@ -108,19 +108,26 @@ pub(crate) fn try_lower(
     // contract, so an i64 reaching an unannotated (`any`) parameter
     // arrived as raw bits: `class A { f(x) { return x } }` called
     // through the slot with `2` printed `null`. The signature is
-    // receiver-first and so is `args` here, so both start at 1.
+    // receiver-first and so is `args` here, so both start at 1 (past
+    // the slot's hidden argc, when it carries one).
+    let slot_argc = slot_carries_argc(ctx, &owners[0], method_name);
+    let user_at = 1 + usize::from(slot_argc);
     let coerce_owned = match sig_id {
         Some(sig) => {
             let param_tys = ctx.fn_sigs[sig.0 as usize].0.clone();
             crate::ssa_lower_call_terminal_coerce::coerce_args_by_param_tys(
                 ctx,
-                param_tys.get(1..).unwrap_or(&[]),
+                param_tys.get(user_at..).unwrap_or(&[]),
                 args.get(1..).unwrap_or(&[]),
                 arg_ops.get_mut(1..).unwrap_or(&mut []),
             )
         }
         None => Vec::new(),
     };
+    if slot_argc {
+        let n = crate::ssa_lower_call_terminal_headless::user_argc(ctx, eid, args.len());
+        arg_ops.insert(1, Operand::ConstI64(n.saturating_sub(1) as i64));
+    }
     let cur_block = ctx.cur_block;
     let r = match direct_fid {
         Some(fid) => ctx
@@ -145,6 +152,15 @@ pub(crate) fn try_lower(
         ctx.release_owned_temp(args[i], &op);
     }
     Some(Operand::Value(r))
+}
+
+/// The slot of `method` carries the hidden argc right after the
+/// receiver: its rows read `arguments.length`, and the this-first argc
+/// tier admits a slot's rows all together (`declarer` is any of them).
+pub(crate) fn slot_carries_argc(ctx: &LowerCtx<'_>, declarer: &str, method: &str) -> bool {
+    ctx.ast
+        .this_first_argc_fns
+        .contains_key(&format!("__cm_{declarer}__{method}"))
 }
 
 /// True iff a body the slot may resolve to for this receiver is a

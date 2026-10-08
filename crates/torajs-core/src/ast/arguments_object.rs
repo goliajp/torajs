@@ -233,9 +233,11 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
     // The this-first twin of the same stand-aside (rotation 650):
     // a `this`-reading declaration / static twin / ctor a relay
     // reaches takes the this-first runtime face when that face
-    // would admit it.
-    let relayed_this_first =
-        super::arguments_object_this_first_argv::relayed_this_first_fns(ast, &excluded);
+    // would admit it, and so does every row of a vtable slot it admits.
+    let slot_argc = super::arguments_object_this_first_argv::slot_argc_fns(ast, &excluded);
+    let relayed_this_first = super::arguments_object_this_first_argv::relayed_this_first_fns(
+        ast, &excluded, &slot_argc,
+    );
     static_argv.retain(|n, _| !relayed_this_first.contains(n));
     // Knife 4c — escape-vs-static resolution: when the escaped
     // alias qualifies for the argv face (exclusively-called safe
@@ -315,6 +317,7 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
         ast,
         &excluded,
         &iife_static_argv,
+        &slot_argc,
     );
     let this_first_argc_fns = this_first.argc;
     let this_first_argv_fns = this_first.argv;

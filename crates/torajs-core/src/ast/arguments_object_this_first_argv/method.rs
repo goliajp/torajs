@@ -42,23 +42,25 @@ struct MethodBars {
     /// Every `__cm_<C>__<M>` the vtable / `__dispatch_` / sibling
     /// lanes can spell.
     old_signature: std::collections::HashSet<String>,
-    /// Class getters and setters: the member-read and member-write
-    /// lanes call them by fid with the receiver alone in front.
-    accessors: std::collections::HashSet<String>,
 }
 
 impl MethodBars {
     fn of(ast: &Ast) -> Self {
         MethodBars {
             old_signature: super::super::arguments_object_method_argv::old_signature_lane(ast),
-            accessors: ast
-                .accessor_getters
-                .values()
-                .chain(ast.accessor_setters.values())
-                .cloned()
-                .collect(),
         }
     }
+}
+
+/// A class getter or setter (the member-read and member-write lanes
+/// call it by fid with the receiver alone in front), or a method a
+/// protocol lane calls by its spelled name ([`PROTOCOL_METHODS`]).
+pub(super) fn accessor_or_protocol(ast: &Ast, name: &str) -> bool {
+    ast.accessor_getters
+        .values()
+        .chain(ast.accessor_setters.values())
+        .any(|a| a == name)
+        || PROTOCOL_METHODS.iter().any(|m| name.ends_with(m))
 }
 
 /// Method names lowering calls by their spelled `__cm_<C>__<M>` fid
@@ -103,10 +105,7 @@ fn method_admits(
     {
         return false;
     }
-    if bars.old_signature.contains(name)
-        || bars.accessors.contains(name)
-        || PROTOCOL_METHODS.iter().any(|m| name.ends_with(m))
-    {
+    if bars.old_signature.contains(name) || accessor_or_protocol(ast, name) {
         return false;
     }
     let called = ast.exprs.iter().any(|e| {

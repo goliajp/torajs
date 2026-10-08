@@ -75,7 +75,9 @@
 //! `super.m` / vtable / `__dispatch_` lane can name is excluded: every
 //! override sharing a vtable slot has to share a signature (admitting
 //! one answers `vtable slot 0 of hierarchy \`P\` holds two different
-//! signatures`), so the whole slot would have to move together. A method is also excluded when
+//! signatures`), so the whole slot moves together: every row and the
+//! `__dispatch_` stub of a slot some row reads the count in
+//! ([`slot::collect_slot_argc`]). A method is also excluded when
 //! lowering calls it by its spelled name rather than through the
 //! direct-call terminal or the boxed adapter (the iterator protocol,
 //! `toJSON`, `then`, class accessors). Argc lives in the SSA
@@ -84,6 +86,7 @@
 //! (`default_padded_argc`), not the padded one.
 
 mod method;
+mod slot;
 use super::arguments_object_walkers::{
     body_has_any_arguments_touch, body_has_non_length_arguments_touch,
 };
@@ -98,6 +101,7 @@ pub(super) fn collect_this_first_argv(
     ast: &Ast,
     excluded: &std::collections::HashSet<String>,
     static_argv: &std::collections::HashMap<String, usize>,
+    slot_argc: &[String],
 ) -> ThisFirstTiers {
     let mut out = ThisFirstTiers::default();
     let one_slot: std::collections::HashSet<&String> = ast
@@ -156,6 +160,7 @@ pub(super) fn collect_this_first_argv(
     out.argc.extend(
         collect_method_argc(ast, excluded, static_argv)
             .into_iter()
+            .chain(slot_argc.iter().cloned())
             .map(|n| (n, 1)),
     );
     out
@@ -200,10 +205,16 @@ pub(super) struct ThisFirstTiers {
 /// static map: the question is what this face would take if the
 /// static face stood aside, which is exactly the decision being
 /// made.
+///
+/// The rows and stubs of every vtable slot this face admits yield
+/// too: a row is reached through the slot as well as by name, and a
+/// `super.m(x)` site is the only one the fold sees.
 pub(super) fn relayed_this_first_fns(
     ast: &Ast,
     excluded: &std::collections::HashSet<String>,
+    slot_argc: &[String],
 ) -> std::collections::HashSet<String> {
+    let mut out: std::collections::HashSet<String> = slot_argc.iter().cloned().collect();
     let relayed: std::collections::HashSet<&str> = ast
         .stmts
         .iter()
@@ -215,13 +226,24 @@ pub(super) fn relayed_this_first_fns(
         })
         .collect();
     if relayed.is_empty() {
-        return std::collections::HashSet::new();
+        return out;
     }
-    collect_this_first_argv(ast, excluded, &std::collections::HashMap::new())
-        .argc
-        .into_keys()
-        .filter(|n| relayed.contains(n.as_str()))
-        .collect()
+    out.extend(
+        collect_this_first_argv(ast, excluded, &std::collections::HashMap::new(), slot_argc)
+            .argc
+            .into_keys()
+            .filter(|n| relayed.contains(n.as_str())),
+    );
+    out
+}
+
+/// The rows and stubs of every vtable slot the argc tier admits,
+/// computed once per program for both askers above.
+pub(super) fn slot_argc_fns(
+    ast: &Ast,
+    excluded: &std::collections::HashSet<String>,
+) -> Vec<String> {
+    slot::collect_slot_argc(ast, excluded)
 }
 
 /// Some call of `name` carries a `...spread` argument.
