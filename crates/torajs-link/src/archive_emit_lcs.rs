@@ -3,6 +3,7 @@
 //! the 500-line prod limit. Byte sequences verbatim — probe smoke
 //! (6 probes byte-count) is the ground truth for this file.
 
+use torajs_codegen::is_local_label;
 use torajs_obj::{
     CPU_SUBTYPE_ARM64_ALL, CPU_TYPE_ARM64, MH_MAGIC_64, MachHeader64, N_EXT, N_SECT, Nlist64,
     S_ATTR_PURE_INSTRUCTIONS, S_ATTR_SOME_INSTRUCTIONS, SECTION_64_SIZE, SEGMENT_COMMAND_64_SIZE,
@@ -277,15 +278,64 @@ fn write_user_symtab_only(buf: &mut Vec<u8>, cfg: &LinkConfig, layout: &ArchiveL
 }
 
 /// The `cfg.funcs` slots that own a symbol-table row: every user
-/// function with a body. Extern-declaration slots (empty bytes —
-/// `compile_module_funcs` keeps them so `FuncId`s stay stable) define
-/// nothing; a row for them would claim the runtime symbol lives at
-/// the text start and mis-attribute crash frames there.
+/// function with a body, other than a local label in a stripped build
+/// (an unstripped one keeps its row, so a sampled PC inside it is not
+/// charged to the function laid out before it). Extern-declaration
+/// slots (empty bytes — `compile_module_funcs` keeps them so
+/// `FuncId`s stay stable) define nothing; a row for them would claim
+/// the runtime symbol lives at the text start and mis-attribute crash
+/// frames there.
 pub(crate) fn symtab_rows(
     cfg: &LinkConfig,
 ) -> impl Iterator<Item = (usize, &torajs_codegen::CompiledFunction)> {
-    cfg.funcs
-        .iter()
-        .enumerate()
-        .filter(|(_, f)| !f.bytes.is_empty())
+    cfg.funcs.iter().enumerate().filter(|(_, f)| {
+        !f.bytes.is_empty() && !(cfg.strip_member_symbols && is_local_label(&f.name))
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::resolve::SymTable;
+    use torajs_codegen::CompiledFunction;
+    use torajs_codegen::frame::FrameLayout;
+
+    fn leaf(name: &str) -> CompiledFunction {
+        CompiledFunction {
+            name: name.into(),
+            bytes: vec![0xc0, 0x03, 0x5f, 0xd6],
+            relocs: Vec::new(),
+            frame: FrameLayout::leaf_no_spill(),
+        }
+    }
+
+    /// A local label loses its row only when the build is stripped.
+    #[test]
+    fn local_label_rows_follow_the_strip_policy() {
+        let mut cfg = LinkConfig {
+            funcs: vec![leaf("_main"), leaf(".Lfib.int")],
+            entry: "_main".into(),
+            sym_table: SymTable::new(),
+            codesign_ident: "tora".into(),
+            dead_strip: false,
+            strip_member_symbols: false,
+            elidable_sites: Vec::new(),
+            guarded_stubs: Vec::new(),
+            image: torajs_rtimage::image::build(&[]).unwrap().into(),
+            strings: Vec::new(),
+            data_globals: Vec::new(),
+            vtable_globals: Vec::new(),
+            class_layouts: Vec::new(),
+            force_emit_class_layouts_globals: false,
+            fn_name_globals: Vec::new(),
+            force_emit_fn_name_globals: false,
+            class_names: Vec::new(),
+            force_emit_class_names_globals: false,
+            baked_regex_entries: Vec::new(),
+        };
+        let rows = |cfg: &LinkConfig| symtab_rows(cfg).map(|(i, _)| i).collect::<Vec<_>>();
+        assert_eq!(rows(&cfg), vec![0, 1]);
+        cfg.strip_member_symbols = true;
+        assert_eq!(rows(&cfg), vec![0]);
+    }
 }

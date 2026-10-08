@@ -1,8 +1,8 @@
-//! `impl StringLiteral` (build-time Latin-1 / UTF-16 encoding picker)
-//! and the `demo_fib40` hand-built fixture. Extracted from
-//! `module_methods.rs` to keep that file under the 500-prod-LOC
-//! file-size hard limit (`rules/common/file-size.md`). Pure
-//! mechanical pull, no semantic change.
+//! `impl StringLiteral` (build-time Latin-1 / UTF-16 encoding picker),
+//! the local-label function names and the `demo_fib40` hand-built
+//! fixture. Extracted from `module_methods.rs` so that no source file
+//! passes 500 lines of production code. Pure mechanical pull, no
+//! semantic change.
 
 use super::module_methods::{Module, StringLiteral};
 use super::{BinOp, FuncId, Function, IPred, InstKind, Operand, Terminator, Type};
@@ -103,6 +103,16 @@ impl StringLiteral {
             }
         }
     }
+}
+
+/// Prefix of a function the compiler made that gets no symbol-table
+/// row in a stripped build, as `.L` labels do not on ELF. No source
+/// name begins with `.`.
+pub const LOCAL_LABEL_PREFIX: &str = ".L";
+
+/// The function named `name` is a local label.
+pub fn is_local_label(name: &str) -> bool {
+    name.starts_with(LOCAL_LABEL_PREFIX)
 }
 
 /// Hand-built fib(n: i64) -> i64 module — the same shape the retired

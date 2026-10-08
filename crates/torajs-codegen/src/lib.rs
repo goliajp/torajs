@@ -44,4 +44,4 @@ pub use compile::{
     compile_function_in, compile_function_with,
 };
 pub use reloc::{Reloc, RelocKind};
-pub use torajs_core::ssa::id_hash;
+pub use torajs_core::ssa::{id_hash, is_local_label};

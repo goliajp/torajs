@@ -43,7 +43,7 @@ pub const ANY_SLOT_TAG_HEAP: i64 = torajs_rc::AnySlotTag::Heap as i64;
 pub const HEADER_FLAGS_COLLECTOR: u16 = torajs_rc::FLAG_BUFFERED | torajs_rc::COLOR_MASK;
 
 pub use module_class_layouts::{ClassLayoutMeta, FieldMetaSpec, MethodMetaSpec, field_type_tag_of};
-pub use module_extras::demo_fib40;
+pub use module_extras::{LOCAL_LABEL_PREFIX, demo_fib40, is_local_label};
 pub use module_methods::{
     BakedRegexEntry, DataGlobal, FnNameEntry, Module, StringLiteral, VtableGlobal,
 };
