@@ -139,3 +139,20 @@ impl Parser<'_> {
         crate::lexer::Span { start, end }
     }
 }
+
+impl Parser<'_> {
+    pub(super) fn mint_desugar_id(&mut self) -> u32 {
+        let id = self.desugar_id;
+        self.desugar_id += 1;
+        id
+    }
+
+    /// M5.1 — `class C { field: T; constructor(...) {...} method(...): R {...} }`.
+    /// Single class, no inheritance / super / static / accessors. Lowered
+    /// post-parse by `desugar_classes` into a `TypeDecl` + a series of
+    /// `FnDecl`s. The parser only assembles the structure here.
+    pub(super) fn parse_class_decl(&mut self) -> Result<Stmt, String> {
+        let stmt = self.parse_class_decl_with_abstract(false, false, false)?;
+        Ok(self.finish_class_decl_stmt(stmt))
+    }
+}
