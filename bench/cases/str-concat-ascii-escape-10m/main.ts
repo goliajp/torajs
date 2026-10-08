@@ -1,7 +1,9 @@
 // str-concat-ascii-escape-100k at 10M iterations (steady state on every runtime).
 // Escaping twin of str-concat-ascii-100k: the same `prefix + tail` per
 // iteration, but every result is stored into a ring that outlives the
-// loop and is read by index, so the concat must be built every time.
+// loop and is read by index. The concat itself is loop-invariant, so a
+// compiler may build it once before the loop; str-concat-ascii-vary-10m
+// changes the tail every iteration.
 // The tail comes from argv so the concat cannot be folded at compile time.
 const prefix = '  Hello42 word  '
 const tail = process.argv[3]
