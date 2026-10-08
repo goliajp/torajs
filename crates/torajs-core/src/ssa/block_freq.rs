@@ -231,6 +231,29 @@ mod tests {
     }
 
     #[test]
+    fn the_empty_arm_of_a_shift_on_a_promoted_length_is_cold() {
+        // `len_promote` reads the word into cell %5 ahead of the loop and
+        // redefines it on the length store; the guard is `0 >=u len`
+        let entry = vec![
+            inst(1, InstKind::Load(Type::I64, v(0), 8)),
+            inst(5, InstKind::Copy(Type::I64, v(1))),
+        ];
+        let guard = vec![
+            inst(6, InstKind::Copy(Type::I64, v(5))),
+            inst(2, InstKind::ICmp(IPred::Uge, Operand::ConstI64(0), v(6))),
+        ];
+        let store = vec![inst(5, InstKind::Copy(Type::I64, Operand::ConstI64(7)))];
+        let f = func(vec![
+            block(0, entry, br(1)),
+            block(1, guard, cond_br(2, 2, 3)),
+            block(2, vec![], br(4)),
+            block(3, store, br(4)),
+            block(4, vec![], RET),
+        ]);
+        assert_eq!(block_freqs(&f), vec![1024, 1024, 16, 1024, 1024]);
+    }
+
+    #[test]
     fn a_user_branch_with_a_call_is_not_cold() {
         // `if (q.length > 16) q.shift()` is taken on almost every
         // iteration; a call alone says nothing

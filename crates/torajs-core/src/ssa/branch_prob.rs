@@ -11,9 +11,11 @@
 //!    exactly one arm calls something: the latin1 / frozen / COW bit
 //!    tests guarding a runtime slow path.
 //! 4. **Length guard** — `icmp ult i, len` / `icmp uge i, len` with
-//!    `len` the array length word (`load p +8`): the out-of-bounds arm
-//!    (a grow on a store, `undefined` on a read). Only bounds checks
-//!    compare unsigned; loop conditions use `slt`.
+//!    `len` the array length word (`load p +8`, or the register cell
+//!    `len_promote` keeps it in across a loop): the out-of-bounds arm
+//!    (a grow on a store, `undefined` on a read, the empty arm of a
+//!    pop / shift, whose guard is `icmp uge 0, len`). Only bounds
+//!    checks compare unsigned; loop conditions use `slt`.
 //!
 //! Every other branch predicts nothing, and nothing splits on it: the
 //! lowerer emits many conditionals no rule reads (loop versioning on a
@@ -31,7 +33,7 @@
 //! A guard arm predicted cold but actually hot costs a store and a
 //! reload around a call that itself costs far more.
 
-use crate::ssa::id_hash::HashMap;
+use crate::ssa::id_hash::{HashMap, HashSet};
 
 use crate::ssa::{
     BinOp, BlockId, Function, IPred, InstKind, Operand, THROW_ACTIVE_SYM, Terminator, ValueId,
@@ -51,6 +53,7 @@ const ARR_LEN_OFFSET: u64 = 8;
 /// takes, and the odds of taking it.
 pub fn cold_arms(func: &Function) -> Vec<(BlockId, BlockId, f64)> {
     let defs = single_defs(func);
+    let cells = length_cells(func, &defs);
     let blocks: HashMap<BlockId, usize> = func
         .blocks
         .iter()
@@ -95,7 +98,7 @@ pub fn cold_arms(func: &Function) -> Vec<(BlockId, BlockId, f64)> {
         } else if one_calls && cond.is_some_and(|c| is_flag_guard(c, &defs)) {
             Some((calling_arm(), P_SLOW_PATH))
         } else {
-            cond.and_then(|c| out_of_bounds_arm(c, &defs, t, e))
+            cond.and_then(|c| out_of_bounds_arm(c, &defs, &cells, t, e))
                 .map(|oob| (oob, P_SLOW_PATH))
         };
         if let Some((cold, p)) = arm {
@@ -164,19 +167,45 @@ fn is_flag_guard(cond: &InstKind, defs: &HashMap<ValueId, &InstKind>) -> bool {
     matches!(value_def(word, defs), Some(InstKind::Load(_, _, 0)))
 }
 
+fn is_len_load(kind: Option<&InstKind>) -> bool {
+    matches!(kind, Some(InstKind::Load(_, _, off)) if *off == ARR_LEN_OFFSET)
+}
+
+/// The multi-def values one of whose defs copies a length word: the
+/// cell `len_promote` keeps a loop's array length in (its preheader
+/// def reads the word; the rest are the loop's length stores and the
+/// re-reads after a kernel call).
+fn length_cells(func: &Function, defs: &HashMap<ValueId, &InstKind>) -> HashSet<ValueId> {
+    let mut out = HashSet::default();
+    for b in &func.blocks {
+        for i in &b.insts {
+            if let (Some(r), InstKind::Copy(_, src)) = (i.result, &i.kind)
+                && !defs.contains_key(&r)
+                && is_len_load(value_def(src, defs))
+            {
+                out.insert(r);
+            }
+        }
+    }
+    out
+}
+
 /// The arm an unsigned compare against the array length word takes
 /// when the index is out of bounds.
 fn out_of_bounds_arm(
     cond: &InstKind,
     defs: &HashMap<ValueId, &InstKind>,
+    cells: &HashSet<ValueId>,
     then_blk: BlockId,
     else_blk: BlockId,
 ) -> Option<BlockId> {
     let InstKind::ICmp(pred @ (IPred::Ult | IPred::Uge), _, len) = cond else {
         return None;
     };
-    let is_len =
-        matches!(value_def(len, defs), Some(InstKind::Load(_, _, off)) if *off == ARR_LEN_OFFSET);
+    let in_cell = |op: &Operand| matches!(op, Operand::Value(v) if cells.contains(v));
+    let is_len = is_len_load(value_def(len, defs))
+        || in_cell(len)
+        || matches!(value_def(len, defs), Some(InstKind::Copy(_, c)) if in_cell(c));
     is_len.then_some(if *pred == IPred::Ult {
         else_blk
     } else {

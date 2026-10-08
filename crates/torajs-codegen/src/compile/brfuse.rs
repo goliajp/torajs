@@ -232,13 +232,21 @@ pub(crate) fn emit_fused_condbr(
         FusedSelPred::Float(_) => None,
     };
     let zero = super::store_pair::is_zero;
+    // (value, zero, branch when the value is zero); `0 >=u v` holds
+    // exactly when `v == 0`, `0 <u v` exactly when it is not
     let zero_test = match (int_pred, &fc.lhs, &fc.rhs) {
         _ if fc.test => None,
-        (Some(IPred::Eq | IPred::Ne), Operand::Value(_), z) if zero(z) => Some((fc.lhs, *z)),
-        (Some(IPred::Eq | IPred::Ne), z, Operand::Value(_)) if zero(z) => Some((fc.rhs, *z)),
+        (Some(p @ (IPred::Eq | IPred::Ne)), Operand::Value(_), z) if zero(z) => {
+            Some((fc.lhs, *z, p == IPred::Eq))
+        }
+        (Some(p @ (IPred::Eq | IPred::Ne | IPred::Uge | IPred::Ult)), z, Operand::Value(_))
+            if zero(z) =>
+        {
+            Some((fc.rhs, *z, matches!(p, IPred::Eq | IPred::Uge)))
+        }
         _ => None,
     };
-    if let Some((val, z)) = zero_test {
+    if let Some((val, z, on_zero)) = zero_test {
         let rt = materialize_operand_gpr(bytes, &val, OP_SCRATCH_LHS, alloc);
         let site = bytes.len() as u32;
         fixups.push(BranchFixup {
@@ -247,11 +255,7 @@ pub(crate) fn emit_fused_condbr(
             kind: BranchKind::Imm19,
         });
         // branch to then_blk when the cond holds: eq → value == 0 → CBZ
-        let x = match int_pred {
-            Some(IPred::Eq) => cbz_x(rt, 0),
-            Some(IPred::Ne) => cbnz_x(rt, 0),
-            _ => unreachable!("zero_test admits eq/ne only"),
-        };
+        let x = if on_zero { cbz_x(rt, 0) } else { cbnz_x(rt, 0) };
         let narrow = matches!(z, Operand::ConstI32(_));
         write_u32(bytes, if narrow { cb_w(x) } else { x });
     } else {
@@ -495,6 +499,20 @@ mod tests {
             !words.iter().any(|w| (*w >> 24) == 0x54),
             "no b.cond needed"
         );
+    }
+
+    #[test]
+    fn zero_uge_value_fuses_to_cbz_without_cmp() {
+        let mut func = icmp_condbr_func(IPred::Uge, Operand::ConstI64(0), false);
+        func.blocks[0].insts[1].kind =
+            InstKind::ICmp(IPred::Uge, Operand::ConstI64(0), Operand::Value(ValueId(0)));
+        assert_eq!(fusible_cmps(&func).len(), 1);
+        let words = words_of(&compile_function(&func).bytes);
+        // `0 >=u v` is `v == 0`; the then-target falls through, so the
+        // flipped `0 <u v` branches to the else with CBNZ
+        assert!(words.iter().any(|w| (*w >> 24) == 0xB5), "cbnz present");
+        assert!(!words.iter().any(|w| (*w >> 24) == 0x54), "no b.cond");
+        assert!(!words.iter().any(|w| (*w & 0xFF00_001F) == 0xEB00_001F));
     }
 
     #[test]

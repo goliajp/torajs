@@ -30,7 +30,7 @@ pub(super) fn edge_constraints(
                 if let Some(r) = icmp_range(*pred, taken, k, true) {
                     out.push(Constraint::Range(*v, r));
                 }
-                if k == 0 && nonzero_edge(*pred, taken) {
+                if k == 0 && (nonzero_edge(*pred, taken) || index_zero_in_bounds(*pred, taken)) {
                     out.push(Constraint::NonZero(*v));
                 }
             }
@@ -162,6 +162,13 @@ pub(super) fn nonzero_edge(pred: IPred, taken: bool) -> bool {
     matches!((pred, taken), (IPred::Ne, true) | (IPred::Eq, false))
 }
 
+/// The edge on which `0 <pred> value`, an unsigned bounds check of
+/// index 0 (the pop / shift empty guard), proves the value nonzero:
+/// `0 <u n` taken, `0 >=u n` not taken.
+pub(super) fn index_zero_in_bounds(pred: IPred, taken: bool) -> bool {
+    matches!((pred, taken), (IPred::Ult, true) | (IPred::Uge, false))
+}
+
 /// fcmp counterpart of [`nonzero_edge`]. `One` and `Une` agree on the
 /// nonzero verdict (NaN ≠ 0 either way); `Oeq` proves nonzero on the
 /// not-taken edge only for non-NaN values — but NaN has no interval
@@ -177,11 +184,15 @@ pub(super) fn fcmp_nonzero_edge(pred: FPred, taken: bool) -> bool {
 /// `k <pred> value` when `flipped`) on the `taken`/not-taken edge.
 pub(super) fn icmp_range(pred: IPred, taken: bool, k: i128, flipped: bool) -> Option<NumFact> {
     // `x ult k` bounds x only on its taken edge, and only for k >= 1;
-    // the other edge (x >= k or x < 0) and the mirrored form say nothing
-    // an interval can hold
+    // the other edge (x >= k or x < 0) says nothing an interval can
+    // hold, nor does the mirrored form past k == 0
     match (pred, flipped, taken) {
         (IPred::Ult, false, true) | (IPred::Uge, false, false) if k >= 1 => {
             return Some(NumFact::new(0, k - 1));
+        }
+        // `0 >=u x` holds for x == 0 alone
+        (IPred::Uge, true, true) | (IPred::Ult, true, false) if k == 0 => {
+            return Some(NumFact::point(0));
         }
         (IPred::Ult | IPred::Uge, ..) => return None,
         _ => {}

@@ -17,9 +17,12 @@
 //! - before any instruction that may run code outside the function
 //!   (a call, a release, a box), `store c, A +8` puts the word back,
 //!   so the runtime and the cycle collector see the true length;
-//! - a length-lock raiser named with A gets the write-back and a
-//!   re-read after it (it may shift elements); any other call naming
-//!   A (push, reserve, a drop, a user function) leaves the loop alone;
+//! - a call naming A on the re-read list gets the write-back and a
+//!   re-read after it: the length-lock raisers (they may shift
+//!   elements), and the push / shift kernels a guard's slow arm calls
+//!   (they move the length, never free the array and keep no copy of
+//!   the length elsewhere); any other call naming A (reserve, a drop,
+//!   a user function, a push codegen opens) leaves the loop alone;
 //! - every edge out of the loop stores `c` back.
 //!
 //! A loop is taken only if it stores the length at least once; a loop
@@ -51,9 +54,19 @@ pub struct LenPromoteStats {
 
 const ARR_LEN_OFF: u64 = 8;
 
-/// Raisers that read the array's flags and either return or record a
-/// TypeError; they are cold arms of a push / pop / shift.
-const GUARD_CALLS: &[&str] = &["__torajs_arr_delete_tail_guard", "__torajs_arr_shift_guard"];
+/// Calls naming A the cell lives across, written back before and
+/// re-read after. The raisers read the array's flags and either return
+/// or record a TypeError; the kernels are the out-of-line arms of an
+/// opened push and of a shift on a marked array. Each may write the
+/// length and none frees the array or stores its length anywhere else.
+/// `__torajs_arr_push` stays off: codegen opens it in place, and the
+/// re-read around every such push costs more than the cell saves.
+const REREAD_CALLS: &[&str] = &[
+    "__torajs_arr_delete_tail_guard",
+    "__torajs_arr_shift_guard",
+    "__torajs_arr_push_cold",
+    "__torajs_arr_shift",
+];
 
 pub fn promote_lengths(module: &mut Module) -> LenPromoteStats {
     let names: Vec<String> = module.funcs.iter().map(|f| f.name.clone()).collect();
@@ -152,9 +165,9 @@ fn is_len_access(kind: &InstKind, a: ValueId, classes: &ArrayClasses) -> bool {
     }
 }
 
-fn guard_call(kind: &InstKind, names: &[String]) -> bool {
+fn reread_call(kind: &InstKind, names: &[String]) -> bool {
     matches!(kind, InstKind::Call(f, _)
-        if GUARD_CALLS.contains(&names.get(f.0 as usize).map(String::as_str).unwrap_or("")))
+        if REREAD_CALLS.contains(&names.get(f.0 as usize).map(String::as_str).unwrap_or("")))
 }
 
 /// The loop stores A's length, every length access is an i64 word, and
@@ -177,7 +190,7 @@ fn qualifies(
                     _ => {}
                 },
                 k @ InstKind::Call(_, args) if args.iter().any(|x| names_array(x, a, classes)) => {
-                    if !guard_call(k, names) {
+                    if !reread_call(k, names) {
                         return false;
                     }
                 }
@@ -209,6 +222,9 @@ fn stays_local(kind: &InstKind) -> bool {
                 | InstKind::StoreDynScaled8(..)
                 | InstKind::Copy(..)
                 | InstKind::Identity(..)
+                // register bit moves around a slot's raw bytes
+                | InstKind::BitCastF64ToI64(..)
+                | InstKind::BitCastI64ToF64(..)
         )
 }
 
@@ -290,7 +306,7 @@ fn promote_loop(
                 stats.stores_placed += 1;
                 synced = true;
             }
-            let reread = guard_call(&i.kind, names)
+            let reread = reread_call(&i.kind, names)
                 && matches!(&i.kind, InstKind::Call(_, args)
                     if args.iter().any(|x| names_array(x, a, classes)));
             out.push(i);
@@ -442,6 +458,7 @@ mod tests {
                     ],
                     current_origin: None,
                 },
+                decl("__torajs_arr_push_cold"),
             ],
             ..Default::default()
         }
@@ -505,6 +522,33 @@ mod tests {
         assert!(matches!(b[1].kind, InstKind::Call(FuncId(2), _)));
         assert!(is_len_load(&b[2]));
         assert!(matches!(b[3].kind, InstKind::Copy(..)));
+    }
+
+    #[test]
+    fn an_opened_pushs_cold_arm_sees_the_word_and_is_followed_by_a_reread() {
+        let bits = inst(
+            Some(ValueId(4)),
+            InstKind::BitCastF64ToI64(Operand::ConstF64(1.0)),
+        );
+        let push = inst(
+            Some(ValueId(5)),
+            InstKind::Call(FuncId(5), vec![v(0), v(4)]),
+        );
+        let mut m = pop_loop(vec![bits, push], vec![]);
+        let vals = &mut m.funcs[4].values;
+        vals[4].ty = Type::I64;
+        vals.push(ValueInfo {
+            ty: Type::Ptr,
+            name: None,
+        });
+        assert_eq!(promote_lengths(&mut m).cells_promoted, 1);
+        let b = &m.funcs[4].blocks[2].insts;
+        // the bit move stays ahead of the write-back
+        assert!(matches!(b[0].kind, InstKind::BitCastF64ToI64(_)));
+        assert!(is_len_store(&b[1]));
+        assert!(matches!(b[2].kind, InstKind::Call(FuncId(5), _)));
+        assert!(is_len_load(&b[3]));
+        assert!(matches!(b[4].kind, InstKind::Copy(..)));
     }
 
     #[test]

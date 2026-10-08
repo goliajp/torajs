@@ -24,7 +24,7 @@ pub(super) const ALLOC_CALLS: &[&str] = &["__torajs_arr_alloc", "__torajs_arr_al
 /// carried over) and writes no element.
 pub(super) const IDENTITY_CALLS: &[&str] = &["__torajs_arr_reserve"];
 /// Returns the same array AND writes argument 1 into an element.
-pub(super) const IDENTITY_PUSH_CALLS: &[&str] = &["__torajs_arr_push"];
+pub(super) const IDENTITY_PUSH_CALLS: &[&str] = &["__torajs_arr_push", "__torajs_arr_push_cold"];
 /// Writes argument 1 into an element; returns nothing.
 pub(super) const VOID_PUSH_CALLS: &[&str] = &["__torajs_arr_push_unchecked"];
 /// Kernels that may leave an element holding a value no write spells:
@@ -42,6 +42,9 @@ pub(super) const LEN_INERT_CALLS: &[&str] = &[
     "__torajs_arr_mark_kind",
 ];
 /// Touches the header or frees the block; no element value effect.
+/// The shift kernel moves the head past slot 0 and drops the length
+/// (and moves the hole marks a tracked array never carries): the
+/// slots still in bounds keep values some write spelled.
 /// The tail-delete lock raiser belongs here too: it reads the flags and
 /// either does nothing or records a TypeError.
 /// The species guard (`Array.prototype.map` and its family, §9.4.2.3)
@@ -60,4 +63,5 @@ pub(super) const VOID_INERT_CALLS: &[&str] = &[
     "__torajs_arr_drop_any",
     "__torajs_arr_drop_heap",
     "__torajs_arr_drop_str_elems",
+    "__torajs_arr_shift",
 ];

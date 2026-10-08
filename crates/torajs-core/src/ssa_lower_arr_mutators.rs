@@ -53,7 +53,10 @@ impl<'a> LowerCtx<'a> {
     }
 
     /// bug-327 C1 — shared empty-array guard for `pop` / `shift`.
-    /// Emits `len == 0` CondBr: the empty block stores the ES-spec
+    /// Emits `0 >=u len` CondBr — index 0 out of bounds, the bounds
+    /// check the guard is, so block layout and the branch odds read
+    /// the empty arm as the rare one and codegen tests it with one
+    /// `cbz`. The empty block stores the ES-spec
     /// result (undefined for Any elems via the VALUE_UNDEFINED
     /// NaN-box; the typed-tier zero value otherwise — typed-tier
     /// truncation bar, same as charAt) into a fresh result slot and
@@ -69,7 +72,7 @@ impl<'a> LowerCtx<'a> {
         let result_slot = self.alloca(slot_ty, Some("__pop_shift_result"));
         let is_empty = self.f.append_inst(
             self.cur_block,
-            InstKind::ICmp(IPred::Eq, Operand::Value(len), Operand::ConstI64(0)),
+            InstKind::ICmp(IPred::Uge, Operand::ConstI64(0), Operand::Value(len)),
             Type::Bool,
             None,
         );

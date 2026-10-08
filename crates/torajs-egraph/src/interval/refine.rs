@@ -239,6 +239,21 @@ mod tests {
     }
 
     #[test]
+    fn index_zero_out_of_bounds_pins_the_length_at_zero() {
+        // `0 >=u n` taken / `0 <u n` not taken: n == 0
+        assert_eq!(
+            icmp_range(IPred::Uge, true, 0, true),
+            Some(NumFact::point(0))
+        );
+        assert_eq!(
+            icmp_range(IPred::Ult, false, 0, true),
+            Some(NumFact::point(0))
+        );
+        assert_eq!(icmp_range(IPred::Uge, false, 0, true), None);
+        assert_eq!(icmp_range(IPred::Uge, true, 1, true), None);
+    }
+
+    #[test]
     fn a_relation_reads_the_endpoint_facing_the_value() {
         let known = NumFact::new(3, 10);
         assert_eq!(

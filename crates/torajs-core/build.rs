@@ -65,6 +65,7 @@ const COMPILER_SOURCE_FILES: &[&str] = &[
     "src/ssa_lower_str_arr_sort/helper.rs",
     "src/ssa_lower_intrinsics.rs",
     "src/ssa_lower_intrinsics_arr.rs",
+    "src/ssa_lower_arr_grow_kernel.rs",
     "src/ssa_lower_intrinsics_arr_any.rs",
     "src/ssa_lower_arr_hole_gate.rs",
     "src/ssa_lower_call_arr_ho_loop.rs",

@@ -54,6 +54,15 @@ pub(crate) struct ArrIds {
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> ArrIds {
+    // the cold arm of a push opened in place, reached through
+    // `fn_table` by `ssa_lower_arr_grow_kernel`
+    declare_intrinsic(
+        module,
+        fn_table,
+        "__torajs_arr_push_cold",
+        &[Type::Ptr, Type::I64],
+        Type::Ptr,
+    );
     ArrIds {
         arr_alloc: declare_intrinsic(
             module,

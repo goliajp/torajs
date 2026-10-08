@@ -172,6 +172,17 @@ pub unsafe extern "C" fn __torajs_arr_push(arr: *mut u8, val: i64) -> *mut u8 {
     arr
 }
 
+/// [`__torajs_arr_push`] under a second name: the out-of-line arm of
+/// a push the lowering opened in place. Codegen opens every
+/// `__torajs_arr_push` call again; a call to this one stays a call.
+///
+/// # Safety
+/// As [`__torajs_arr_push`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_push_cold(arr: *mut u8, val: i64) -> *mut u8 {
+    unsafe { __torajs_arr_push(arr, val) }
+}
+
 /// T-13.5 O(1) deque shift: pop and return `arr[0]`.
 ///
 /// Algorithm (1:1 port of ssa_inkwell::define_arr_shift, ~70 LOC IR @
