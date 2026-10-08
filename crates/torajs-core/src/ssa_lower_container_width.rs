@@ -460,7 +460,7 @@ pub(crate) fn widen_arr_elem(
         Some(a) => a.strip_suffix("[]"),
         None => None,
     };
-    let number_elem = matches!(elem_ann, Some("number") | None);
+    let number_elem = elem_ann != Some("i64");
     let elem = arr_layouts[id.0 as usize];
     let widened_elem = match elem {
         Type::I64 if number_elem && table.elem_is_f64(key) => Type::F64,
