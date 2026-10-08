@@ -335,16 +335,6 @@ fn box_return(
     }
 }
 
-/// Collect argv[n_fixed..argc] into a fresh Arr<Any> (§10.2.1.3 rest
-/// binding — every runtime argument past the fixed prefix, in order,
-/// `[]` when none). The count clamps at 0: a call may pass fewer than
-/// the fixed arity, and arr_alloc_any's u64 cap would treat a
-/// negative as huge; Select is egraph-elaborator-only territory, so
-/// the clamp is the branch-free sign mask `n & ~(n >> 63)`.
-/// Ownership: the caller boxes the returned arr (the pair box takes
-/// the alloc's +1) and releases it after the body call — the
-/// caller-owns convention direct call sites use for the packed
-/// literal.
 /// The recv-slot argv window shift (RFC 20260808 knife 2): the
 /// receiver rides argv[0], so the body's argv face starts one slot
 /// past it.

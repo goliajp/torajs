@@ -34,10 +34,10 @@
 
 use super::ast_def::Ast;
 use super::clone_body::BodyCloner;
+use super::desugar_classes_ctor_twin::has_lossy_param;
 use super::expr::{Expr, Param};
 use super::stmt::Stmt;
 use crate::check_pipeline::TypeAliasTables;
-use crate::check_type_ann::{str_or_arr_ann, struct_shaped_ann};
 
 /// The desugared method a twin is minted from.
 pub(in crate::ast) struct TwinSource<'s> {
@@ -214,63 +214,6 @@ pub(in crate::ast) fn mint_static_generic_twin(
         is_generator: false,
         span,
     });
-}
-
-/// A parameter slot a missing argument cannot cross without loss:
-/// the boxed adapter unboxes `undefined` into an F64 slot as the
-/// NaN sentinel and into a Str slot as the immortal undefined cell,
-/// but a `boolean` slot takes `false` and an integer slot `0`, which
-/// is a silent wrong answer for `typeof b` / `b === undefined`. A
-/// method with such a slot mints its twin even when its body never
-/// reads the receiver: the bare call (`const f = d.m; f()`) then
-/// runs the twin, whose every parameter is `any`, instead of the
-/// loud "class method called without a receiver". A slot with a
-/// Number / Bool literal default is exempt — the adapter
-/// materializes that default from the same `undefined`; any other
-/// default is an expression the adapter cannot replay, so it counts
-/// like a lossy slot and the twin evaluates it. An instance method's
-/// `number` without a default stays out: a method read as a value
-/// already seeds its number parameters F64. A static method has no
-/// such seed (`num_width::method_value` walks `__cm_` bodies only),
-/// so its integer-valued `number` slot is an I64 and counts. A
-/// struct-typed slot counts too: the mono body reads it through the
-/// layout, which only a fitting struct cell has, and the adapter
-/// sends every other argument — an array, a Proxy, a `3` — to the
-/// twin, where `p.x` is the generic [[Get]] (§13.3.2.1). Struct-shaped
-/// is the checker's reading of the annotation (`struct_shaped_ann`),
-/// so an alias chain, an inline object type, a `P | null` and an array
-/// of any of them (`Tok[]`, read element by element through the
-/// element layout) all count exactly where the struct-escape lane
-/// counts them. A `string` or array slot counts as well: neither holds
-/// `null`, `undefined` or another kind of value, which the twin binds
-/// as passed (§10.2.1.3).
-fn has_lossy_param(ast: &Ast, tables: &TypeAliasTables, params: &[Param], is_static: bool) -> bool {
-    params.iter().any(|p| match p.default {
-        None => match p.type_ann.as_deref() {
-            Some("boolean" | "i64" | "i32") => true,
-            Some("number") => is_static,
-            // the receiver head carries the class's own annotation
-            // and is the mono adapter's env, not an argv slot
-            // a typed rest is collected argument by argument, and an
-            // argument it cannot hold is the twin's to bind
-            Some(ann) if p.is_rest => {
-                ann != "any[]" && str_or_arr_ann(ann, &tables.aliases, &tables.generic_alias_decls)
-            }
-            Some(ann) => {
-                p.name != "__this"
-                    && (struct_shaped_ann(ann, &tables.aliases, &tables.generic_alias_decls)
-                        || str_or_arr_ann(ann, &tables.aliases, &tables.generic_alias_decls))
-            }
-            None => false,
-        },
-        // a default that reads `arguments` stays on the direct lane:
-        // the adapter's argv carries the declared arity only, so the
-        // twin would answer `arguments[3]` as undefined
-        Some(d) => {
-            !matches!(ast.get_expr(d), Expr::Number(_) | Expr::Bool(_))
-                && !super::desugar_async_nested_fns::expr_names_arguments(ast, d)
-        }
-    })
 }
 
 /// Point every cloned counterpart of a static-`this` site at the

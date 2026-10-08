@@ -4,7 +4,8 @@
 //!
 //! Moved verbatim out of `build.rs` (rotation 627) when that file
 //! stood at 468 lines and the adapter build had to grow a receiver
-//! lead for the argv-face static twin.
+//! lead for the argv-face static twin. The targets' reading of the
+//! rest slot ([`rest_slot_kind`]) moved here from `targets.rs`.
 
 use crate::ssa::{self, FuncId, InstKind, Operand, Terminator, Type};
 
@@ -201,4 +202,66 @@ fn emit_rest_collect(
         ),
     );
     arr
+}
+
+/// The rest slot's shape for the adapter: `(is_rest, elem kind)`.
+/// `None` refuses the target — a rest element the kernel cannot
+/// stamp (a nested typed array) keeps the loud not-callable instead
+/// of silent garbage. Split out of `targets::target_facts` (200-line fn
+/// limit, rotation 650).
+pub(super) fn rest_slot_kind(
+    params: &[crate::ast::Param],
+    user_tys: &[Type],
+    arr_layouts: &[Type],
+) -> Option<(bool, Option<i64>)> {
+    // Rest-param body: direct call sites pack trailing args into
+    // an array literal (apply_rest_args), so the LAST param is an
+    // ordinary Arr the static world always feeds. A runtime call
+    // has no packing site — pre-fix the adapter unboxed argv
+    // positionally and the rest param read one lone argument as
+    // an array (garbage). The adapter collects argv[fixed..argc]
+    // into a fresh Arr<Any> itself; a TYPED rest (刀 2, RFC
+    // 20260815-fn-value-rest-spread) converts that collection
+    // through `__torajs_arr_any_to_typed` with the element's
+    // ARR_KIND. A REFCOUNTED element is one cell per slot, which
+    // the kernel's HEAP path stakes — materializing a ShortStr
+    // immediate rather than refusing one (the rotation-546 form).
+    // Keeping this narrower than `arr_kind_chain_of`'s mapping is
+    // what left `string[]` with no adapter at all, so
+    // `const g = (...xs: string[]) => …; g('a')` died at "value
+    // is not a function" (rotation 600).
+    //
+    // Nested typed arrays stay out for a reason still true: their
+    // kind is a CHAIN and the kernel takes one level, so the inner
+    // stamp would be lost. No adapter keeps such a call a loud
+    // not-callable instead of silent garbage.
+    let rest = params.last().is_some_and(|p| p.is_rest);
+    let mut rest_kind: Option<i64> = None;
+    let rest_elem = match user_tys.last() {
+        Some(Type::Arr(id)) if rest => arr_layouts.get(id.0 as usize),
+        _ => None,
+    };
+    // A rest whose SSA element is `Any` collects as `Arr<Any>`
+    // exactly like an `any[]` annotation: the width analysis widens
+    // a `number[]` rest to Any when its slot shares a class with an
+    // any-escaped value (rotation 650 — a relay shell's `xs` unioned
+    // with its target's, reached through one any-call site alongside
+    // an arguments-face callee), and the HEAP arm below then refused
+    // every integer box at `__torajs_arr_any_to_typed`'s pass 1.
+    if rest
+        && params.last().and_then(|p| p.type_ann.as_deref()) != Some("any[]")
+        && rest_elem != Some(&Type::Any)
+    {
+        let elem = rest_elem;
+        rest_kind = match elem {
+            Some(Type::I64) | Some(Type::I32) => Some(torajs_rc::ARR_KIND_I64 as i64),
+            Some(Type::F64) => Some(torajs_rc::ARR_KIND_F64 as i64),
+            Some(Type::Bool) => Some(torajs_rc::ARR_KIND_BOOL as i64),
+            Some(Type::Arr(_)) => None,
+            Some(t) if t.is_refcounted() => Some(torajs_rc::ARR_KIND_HEAP as i64),
+            _ => None,
+        };
+        rest_kind?;
+    }
+    Some((rest, rest_kind))
 }
