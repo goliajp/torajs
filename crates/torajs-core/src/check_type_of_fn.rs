@@ -40,19 +40,7 @@ pub(crate) fn check_arrow_fn(
     let saved_return = checker.expected_return.replace(*ret_ty);
     checker.toplevel_captures.push(Default::default());
     for (p, ty) in params.iter().zip(param_tys.iter()) {
-        if let Err(e) = checker.declare(
-            p.name.clone(),
-            LocalInfo {
-                ty: ty.clone(),
-                mutable: true,
-                moved: false,
-                borrowed: false,
-                declared_class: None,
-                builtin_mv: false,
-                exec_result: false,
-                fn_slot: None,
-            },
-        ) {
+        if let Err(e) = checker.declare(p.name.clone(), LocalInfo::plain(ty.clone())) {
             checker.errors.push_err(e);
         }
     }
@@ -256,19 +244,7 @@ pub(crate) fn check_closure_body(
     let saved_self_name = checker.self_name_active.take();
     let mut active: Option<String> = None;
     if let Some(sn) = ast.closure_self_names.get(&fn_name) {
-        let _ = checker.declare(
-            sn.clone(),
-            LocalInfo {
-                ty: value_ty.clone(),
-                mutable: true,
-                moved: false,
-                borrowed: false,
-                declared_class: None,
-                builtin_mv: false,
-                exec_result: false,
-                fn_slot: None,
-            },
-        );
+        let _ = checker.declare(sn.clone(), LocalInfo::plain(value_ty.clone()));
         active = Some(sn.clone());
         checker.scopes.push(HashMap::new());
     }
@@ -276,14 +252,8 @@ pub(crate) fn check_closure_body(
         let _ = checker.declare(
             cap_name.clone(),
             LocalInfo {
-                ty: cap_ty.clone(),
-                mutable: true,
-                moved: false,
-                borrowed: false,
-                declared_class: None,
-                builtin_mv: false,
-                exec_result: false,
                 fn_slot: cap_slots.get(cap_name).cloned(),
+                ..LocalInfo::plain(cap_ty.clone())
             },
         );
     }
@@ -296,19 +266,7 @@ pub(crate) fn check_closure_body(
             Type::Rest(elem) => Type::Array(elem.clone()),
             other => other.clone(),
         };
-        let _ = checker.declare(
-            p.name.clone(),
-            LocalInfo {
-                ty: binding_ty,
-                mutable: true,
-                moved: false,
-                borrowed: false,
-                declared_class: None,
-                builtin_mv: false,
-                exec_result: false,
-                fn_slot: None,
-            },
-        );
+        let _ = checker.declare(p.name.clone(), LocalInfo::plain(binding_ty));
     }
     if active.is_none()
         && let Some(sn) = &saved_self_name

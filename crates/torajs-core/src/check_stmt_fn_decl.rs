@@ -102,14 +102,8 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, name: &str, params: &[Para
             .declare(
                 "__torajs_argv".to_string(),
                 LocalInfo {
-                    ty: Type::Any,
                     mutable: false,
-                    moved: false,
-                    borrowed: false,
-                    declared_class: None,
-                    builtin_mv: false,
-                    exec_result: false,
-                    fn_slot: None,
+                    ..LocalInfo::plain(Type::Any)
                 },
             )
             .ok();
@@ -146,18 +140,13 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, name: &str, params: &[Para
         if let Err(e) = checker.declare(
             p.name.clone(),
             LocalInfo {
-                ty: binding_ty,
-                mutable: true,
-                moved: false,
-                borrowed: false,
                 declared_class,
-                builtin_mv: false,
-                exec_result: false,
                 fn_slot: ast
                     .argv_boxed_params
                     .get(name)
                     .is_some_and(|ps| ps.contains(&p.name))
                     .then(|| crate::check::FnSlot::Param(name.to_string())),
+                ..LocalInfo::plain(binding_ty)
             },
         ) {
             checker.errors.push_err(e);

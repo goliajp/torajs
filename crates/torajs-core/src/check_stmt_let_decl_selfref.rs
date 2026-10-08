@@ -132,16 +132,7 @@ pub(crate) fn predeclare_self_ref_closure(
 }
 
 fn declare_provisional(checker: &mut Checker, name: &str, ty: Type, verdict: SelfRef) -> SelfRef {
-    let info = LocalInfo {
-        ty,
-        mutable: true,
-        moved: false,
-        borrowed: false,
-        declared_class: None,
-        builtin_mv: false,
-        exec_result: false,
-        fn_slot: None,
-    };
+    let info = LocalInfo::plain(ty);
     match checker.declare(name.to_string(), info) {
         Ok(_) => verdict,
         Err(_) => SelfRef::None,

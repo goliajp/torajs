@@ -56,19 +56,7 @@ pub(crate) fn check(
     };
     checker.scopes.push(HashMap::new());
     if let Some(p) = catch_param {
-        let _ = checker.declare(
-            p.clone(),
-            LocalInfo {
-                ty: e_ty,
-                mutable: true,
-                moved: false,
-                borrowed: false,
-                declared_class: None,
-                builtin_mv: false,
-                exec_result: false,
-                fn_slot: None,
-            },
-        );
+        let _ = checker.declare(p.clone(), LocalInfo::plain(e_ty));
     }
     for s in catch_body {
         checker.check_stmt(ast, s);

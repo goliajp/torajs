@@ -30,19 +30,7 @@ pub(crate) fn seed_captures(checker: &mut Checker, ast: &Ast, fn_name: &str) {
         if !info.names.contains(&n) {
             continue;
         }
-        if let Err(e) = checker.declare(
-            n,
-            LocalInfo {
-                ty,
-                mutable: true,
-                moved: false,
-                borrowed: false,
-                declared_class: None,
-                builtin_mv: false,
-                exec_result: false,
-                fn_slot: None,
-            },
-        ) {
+        if let Err(e) = checker.declare(n, LocalInfo::plain(ty)) {
             checker.errors.push_err(e);
         }
     }

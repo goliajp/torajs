@@ -99,19 +99,7 @@ pub(crate) fn check(
     is_await: bool,
 ) {
     checker.scopes.push(HashMap::new());
-    let _ = checker.declare(
-        i_ident.to_string(),
-        LocalInfo {
-            ty: Type::Number,
-            mutable: true,
-            moved: false,
-            borrowed: false,
-            declared_class: None,
-            builtin_mv: false,
-            exec_result: false,
-            fn_slot: None,
-        },
-    );
+    let _ = checker.declare(i_ident.to_string(), LocalInfo::plain(Type::Number));
     let src_kind = if let Expr::Index { obj, .. } = ast.get_expr(elem_expr) {
         checker.type_of(ast, *obj).ok()
     } else {
@@ -164,19 +152,7 @@ pub(crate) fn check(
     // parser (`throw_on_const_loop_var_writes`), so nothing here has
     // to refuse them. Ownership of a written variable is the
     // lowering's business (`ssa_lower_for_of_written`).
-    let _ = checker.declare(
-        var_name.to_string(),
-        LocalInfo {
-            ty: var_ty,
-            mutable: true,
-            moved: false,
-            borrowed: false,
-            declared_class: None,
-            builtin_mv: false,
-            exec_result: false,
-            fn_slot: None,
-        },
-    );
+    let _ = checker.declare(var_name.to_string(), LocalInfo::plain(var_ty));
     checker.check_stmt(ast, body);
     checker.scopes.pop();
 }

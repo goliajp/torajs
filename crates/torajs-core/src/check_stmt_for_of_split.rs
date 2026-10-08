@@ -44,14 +44,8 @@ pub(crate) fn check(
     let _ = checker.declare(
         var_name.to_string(),
         LocalInfo {
-            ty: Type::String,
             mutable: false,
-            moved: false,
-            borrowed: false,
-            declared_class: None,
-            builtin_mv: false,
-            exec_result: false,
-            fn_slot: None,
+            ..LocalInfo::plain(Type::String)
         },
     );
     checker.check_stmt(ast, body);

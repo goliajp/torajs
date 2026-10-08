@@ -216,9 +216,7 @@ pub(crate) fn check(
     if let Err(e) = checker.declare(
         name.to_string(),
         LocalInfo {
-            ty: final_ty,
             mutable,
-            moved: false,
             borrowed: is_alias_init,
             declared_class,
             builtin_mv,
@@ -226,6 +224,7 @@ pub(crate) fn check(
             fn_slot: (ast.fnsig_mismatch_bindings.contains(name)
                 && type_ann.as_deref().is_some_and(crate::ast::is_fn_like_ann))
             .then_some(crate::check::FnSlot::Let(init)),
+            ..LocalInfo::plain(final_ty)
         },
     ) {
         checker.errors.push_err(e);

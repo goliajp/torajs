@@ -63,6 +63,22 @@ pub(crate) struct LocalInfo {
     pub(crate) fn_slot: Option<FnSlot>,
 }
 
+impl LocalInfo {
+    /// A mutable binding of type `ty` with every flag clear.
+    pub(crate) fn plain(ty: Type) -> LocalInfo {
+        LocalInfo {
+            ty,
+            mutable: true,
+            moved: false,
+            borrowed: false,
+            declared_class: None,
+            builtin_mv: false,
+            exec_result: false,
+            fn_slot: None,
+        }
+    }
+}
+
 /// Which declaration a census slot binding is.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum FnSlot {

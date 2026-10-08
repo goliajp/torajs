@@ -179,16 +179,7 @@ fn writes_typed_outer_binding(c: &Checker, ast: &Ast, name: &str) -> bool {
 }
 
 fn captured(ty: Type) -> LocalInfo {
-    LocalInfo {
-        ty,
-        mutable: true,
-        moved: false,
-        borrowed: false,
-        declared_class: None,
-        builtin_mv: false,
-        exec_result: false,
-        fn_slot: None,
-    }
+    LocalInfo::plain(ty)
 }
 
 /// The lifted closures, in arena order, with a construction site whose
