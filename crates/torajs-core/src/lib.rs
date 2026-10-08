@@ -18,6 +18,7 @@ pub(crate) mod ast_closure_param_tag_collect;
 pub(crate) mod ast_closure_param_tag_hof;
 pub mod ast_closure_param_tag_ns_values;
 pub(crate) mod ast_closure_param_tag_retag;
+pub(crate) mod ast_closure_param_tag_wrap;
 pub(crate) mod ast_collect_bindings;
 pub(crate) mod ast_collect_fn_closure;
 pub(crate) mod ast_collect_fn_closure_call;

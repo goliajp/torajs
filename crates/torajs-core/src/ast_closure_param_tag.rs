@@ -226,7 +226,7 @@ pub fn tag_closure_arg_params(ast: &mut Ast) {
         .iter()
         .filter_map(|x| fn_alias_lets.get(x).cloned())
         .collect();
-    crate::ast_closure_param_tag_axes::wrap_named_fn_values(
+    crate::ast_closure_param_tag_wrap::wrap_named_fn_values(
         ast,
         &fn_params,
         &fn_returns,
