@@ -47,6 +47,7 @@ mod hidden_any;
 mod hidden_any_calls;
 mod hidden_any_scope;
 mod hidden_any_seeds;
+mod hidden_any_sources;
 pub(crate) mod hof_receivers;
 mod json_seed;
 mod lattice;
