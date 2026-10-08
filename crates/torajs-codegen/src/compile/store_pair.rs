@@ -9,8 +9,9 @@
 //! with `o` width-aligned and in STP's reach, write exactly what one
 //! `STP lo, hi, [base, #o]` writes: nothing runs between them, and
 //! neither store's value depends on the other. A zero is stored from
-//! the zero register, and the same operand on both sides is
-//! materialized once.
+//! the zero register — an f64 +0.0 too, whose bits are the integer
+//! zero, so a float literal's zero-filled slots pair like any other —
+//! and the same operand on both sides is materialized once.
 
 use torajs_core::ssa::id_hash::HashMap;
 
@@ -36,6 +37,9 @@ pub(super) struct StorePair {
 /// `Some(false)` for 64-bit, `None` for one that does not pair (an f64
 /// value lives in the other register file).
 fn gpr_width(func: &Function, val: &Operand, alloc: &Assignment) -> Option<bool> {
+    if zero_word(val) {
+        return Some(matches!(val, Operand::ConstI32(_)));
+    }
     if operand_is_f64(val, alloc) {
         return None;
     }
@@ -98,6 +102,12 @@ pub(super) fn is_zero(op: &Operand) -> bool {
     )
 }
 
+/// A value stored from the zero register: an integer zero, null, or
+/// +0.0 (not -0.0, whose sign bit is set).
+fn zero_word(op: &Operand) -> bool {
+    is_zero(op) || matches!(op, Operand::ConstF64(x) if x.to_bits() == 0)
+}
+
 fn same_operand(a: &Operand, b: &Operand) -> bool {
     match (a, b) {
         (Operand::Value(x), Operand::Value(y)) => x == y,
@@ -108,12 +118,12 @@ fn same_operand(a: &Operand, b: &Operand) -> bool {
 }
 
 pub(super) fn emit(bytes: &mut Vec<u8>, p: &StorePair, alloc: &Assignment) {
-    let rt = if is_zero(&p.lo) {
+    let rt = if zero_word(&p.lo) {
         Gpr::XZR
     } else {
         materialize_operand_gpr(bytes, &p.lo, OP_SCRATCH_LHS, alloc)
     };
-    let rt2 = if is_zero(&p.hi) {
+    let rt2 = if zero_word(&p.hi) {
         Gpr::XZR
     } else if same_operand(&p.lo, &p.hi) {
         rt
@@ -183,6 +193,22 @@ mod tests {
         );
         let single_str = |x: &u32| (x & 0xBFC0_0000) == 0xB900_0000;
         assert!(!w.iter().any(single_str), "no single STR left");
+    }
+
+    #[test]
+    fn float_zeros_pair_from_the_zero_register() {
+        let f = header_init(&[
+            (Operand::ConstF64(0.0), 40),
+            (Operand::ConstF64(0.0), 48),
+            (Operand::ConstF64(-0.0), 56),
+            (Operand::ConstF64(0.0), 64),
+        ]);
+        let w = words(&f);
+        let zero_pair = shape(enc::stp_x_off(Gpr::XZR, Gpr::XZR, Gpr::X0, 40));
+        assert!(w.iter().any(|x| shape(*x) == zero_pair), "+0.0 pair");
+        // -0.0 lives in the float file: it and its neighbour stay single
+        let x_pairs = w.iter().filter(|x| (*x & 0x7FC0_0000) == 0x2900_0000);
+        assert_eq!(x_pairs.count(), 1);
     }
 
     #[test]
