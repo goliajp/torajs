@@ -126,7 +126,7 @@ pub mod user_strings_emit;
 pub mod user_strings_layout;
 pub mod user_vtables_layout;
 
-pub use archive_emit::link_to_exec_with_archives;
+pub use archive_emit::{link_to_exec_for_exit, link_to_exec_with_archives};
 pub use archive_link::{ArchiveLayout, ArchiveLayoutError, MemberLayout, compute_archive_layout};
 pub use archives_merge::{
     ArchiveLinkError, ArchiveMergeError, MergedArchives, MergedSymbol, RequiredMembers,

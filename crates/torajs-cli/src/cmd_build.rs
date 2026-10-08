@@ -23,7 +23,7 @@ use torajs_codegen::reloc::{CallTarget, RelocKind};
 use torajs_codegen::{ModuleFacts, compile_function_in};
 use torajs_core::TORAJS_RUNTIME_IMAGE;
 use torajs_core::ssa::Module;
-use torajs_link::archive_emit::link_to_exec_with_archives;
+use torajs_link::archive_emit::link_to_exec_for_exit;
 use torajs_link::exec::LinkConfig;
 use torajs_link::phase_timer::PhaseTimer;
 use torajs_link::resolve::SymTable;
@@ -97,7 +97,7 @@ pub(crate) fn run(args: &[String]) -> ExitCode {
     let cfg = build_link_config(&ssa_module, true, !no_strip);
     t.tick("build_link_config");
 
-    let bytes = match link_to_exec_with_archives(&cfg) {
+    let bytes = match link_to_exec_for_exit(&cfg) {
         Ok(b) => b,
         Err(e) => {
             eprintln!("link error: {e:?}");
@@ -127,6 +127,7 @@ pub(crate) fn run(args: &[String]) -> ExitCode {
         }
     }
 
+    std::mem::forget((ssa_module, cfg, bytes)); // the process exits next
     ExitCode::SUCCESS
 }
 

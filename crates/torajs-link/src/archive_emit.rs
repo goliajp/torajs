@@ -83,6 +83,25 @@ fn dead_strip_prepass<'a>(
 /// relocs both resolve against one effective sym table (caller
 /// externs + every member defined-external + dyld stub vaddrs).
 pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLayoutError> {
+    link(cfg, Release::Free)
+}
+
+/// [`link_to_exec_with_archives`] for a process that exits once the
+/// bytes are written: the link's working state (the merged index, the
+/// member parses, the layout, the payloads) is left to the exit
+/// instead of being freed piece by piece, as clang's driver does with
+/// `-disable-free`.
+pub fn link_to_exec_for_exit(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLayoutError> {
+    link(cfg, Release::AtExit)
+}
+
+#[derive(PartialEq)]
+enum Release {
+    Free,
+    AtExit,
+}
+
+fn link(cfg: &LinkConfig, release: Release) -> Result<Vec<u8>, ArchiveLayoutError> {
     // Merge once: the dead-strip pre-pass reads this index, its
     // rewritten members are swapped into it, and layout and emit share
     // it — each merge re-parses every archive member's symtab.
@@ -231,6 +250,12 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
         &user_regex_baked_payload,
     );
     t.tick("emit_binary");
+    if release == Release::AtExit {
+        std::mem::forget((merged, cache, layout, effective_sym_table, resolved));
+        std::mem::forget((stripped_members, stripped_cfg, derived_cfg, dead_rows));
+        std::mem::forget((member_text_payloads, non_text_payloads));
+        std::mem::forget(data_non_text_payloads);
+    }
     Ok(bytes)
 }
 
