@@ -3,6 +3,7 @@
 //! retagged slot or return lane become their forwarder cells.
 
 use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
+use crate::ast_closure_param_tag_member::passthrough_leaves;
 use std::collections::{HashMap, HashSet};
 
 /// Named-fn values reaching a retagged lane need the env-first shape
@@ -41,12 +42,18 @@ pub(crate) fn wrap_named_fn_values(
             if !marked.contains(&(fname.clone(), *idx)) {
                 continue;
             }
-            if let Some(arg) = args.get(*idx)
-                && let Expr::Ident(g) = ast.get_expr(*arg)
-                && fn_sigs.contains_key(g)
-                && !closure_idents.contains(g)
-            {
-                wrap_sites.push((*arg, g.clone()));
+            // a choice among named functions (`c ? f1 : f2`) wraps each
+            let leaves = args
+                .get(*idx)
+                .into_iter()
+                .flat_map(|a| passthrough_leaves(ast, *a));
+            for arg in leaves {
+                if let Expr::Ident(g) = ast.get_expr(arg)
+                    && fn_sigs.contains_key(g)
+                    && !closure_idents.contains(g)
+                {
+                    wrap_sites.push((arg, g.clone()));
+                }
             }
         }
     }
@@ -57,12 +64,12 @@ pub(crate) fn wrap_named_fn_values(
         if !ret_marked.contains(fname) {
             continue;
         }
-        for r in rets {
-            if let Expr::Ident(g) = ast.get_expr(*r)
+        for r in rets.iter().flat_map(|r| passthrough_leaves(ast, *r)) {
+            if let Expr::Ident(g) = ast.get_expr(r)
                 && fn_sigs.contains_key(g)
                 && !closure_idents.contains(g)
             {
-                wrap_sites.push((*r, g.clone()));
+                wrap_sites.push((r, g.clone()));
             }
         }
     }

@@ -208,6 +208,24 @@ pub(crate) fn mirror_closure_aliases(
     }
 }
 
+/// The usage-axis seeds of the marking fixpoint: params whose callers
+/// hand closure repr however the call sites read. Chunk 631: a
+/// replace callback's (see the axes sibling); 551-01: a builtin HOF
+/// callback's element-position ones (see the hof sibling); r549: a
+/// closure-let alias's ([`seed_closure_alias_marks`]).
+pub(crate) fn usage_seed_marks(
+    ast: &Ast,
+    fn_params: &HashMap<String, Vec<(usize, String)>>,
+    aliases: &HashMap<String, (String, usize)>,
+) -> HashSet<(String, usize)> {
+    let mut out = crate::ast_closure_param_tag_axes::replace_cb_param_seeds(ast, fn_params);
+    out.extend(crate::ast_closure_param_tag_hof::hof_elem_cb_param_seeds(
+        ast, fn_params,
+    ));
+    out.extend(seed_closure_alias_marks(aliases, fn_params));
+    out
+}
+
 /// Seed marks for every fn-typed param of an aliased decl (by the
 /// binding ident, arg-indexed). The binding is a Closure-typed slot,
 /// and the closure call lane hands EVERY fn value to it in closure
@@ -217,7 +235,7 @@ pub(crate) fn mirror_closure_aliases(
 /// call sites look like (`t(g)` alone, EXIT 138). The decl's params
 /// therefore take the closure repr unconditionally; the call-site
 /// rounds still run for the return lane and the transitive marks.
-pub(crate) fn seed_closure_alias_marks(
+fn seed_closure_alias_marks(
     aliases: &HashMap<String, (String, usize)>,
     fn_params: &HashMap<String, Vec<(usize, String)>>,
 ) -> Vec<(String, usize)> {

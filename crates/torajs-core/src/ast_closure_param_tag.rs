@@ -48,7 +48,7 @@
 //!    the residue.
 
 use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
-use crate::ast_closure_param_tag_axes::{backward_param_marks, replace_cb_param_seeds};
+use crate::ast_closure_param_tag_member::CallSites;
 use std::collections::{HashMap, HashSet};
 
 /// Does this annotation parse to `Type::FnSig` at the SSA layer?
@@ -110,23 +110,12 @@ pub fn tag_closure_arg_params(ast: &mut Ast) {
     // param's name itself becomes closure-holding (it may be forwarded
     // verbatim into another fn's fn-typed param or returned), and a
     // ret-marked fn's call results are closure-shaped in turn.
-    let mut marked: HashSet<(String, usize)> = HashSet::new();
-    // chunk 631 — usage-axis seed: replace-cb params need the
-    // env-first shape (see ast_closure_param_tag_axes doc).
-    marked.extend(replace_cb_param_seeds(ast, &fn_params));
-    // 551-01 — HOF-elem axis: builtin HOF callbacks receive Closure-
-    // repr elements in their element-position params (see hof sibling).
-    marked.extend(crate::ast_closure_param_tag_hof::hof_elem_cb_param_seeds(
-        ast, &fn_params,
-    ));
-    // r549 — closure-let aliases: the binding's callers always hand
-    // closure repr (see the collect sibling's seed doc).
-    marked.extend(
-        crate::ast_closure_param_tag_collect::seed_closure_alias_marks(
-            &closure_aliases,
-            &fn_params,
-        ),
-    );
+    // the usage-axis seeds (see the collect sibling's doc), and the
+    // calls the rounds below read with the function each sits in
+    let sites = CallSites::collect(ast, &fn_params, &closure_aliases);
+    let mut marked =
+        crate::ast_closure_param_tag_collect::usage_seed_marks(ast, &fn_params, &closure_aliases);
+    marked.extend(sites.escaped_marks(&fn_params));
     let mut ret_marked: HashSet<String> = HashSet::new();
     loop {
         let mut changed = false;
@@ -191,12 +180,16 @@ pub fn tag_closure_arg_params(ast: &mut Ast) {
             }
             push_child_stmts(s, &mut stack);
         }
-        // chunk 632 — backward round: params handed into an already-
-        // marked slot carry the closure shape too (see axes sibling).
-        for m in backward_param_marks(ast, &fn_params, &marked) {
-            if marked.insert(m) {
-                changed = true;
-            }
+        // member calls, and the backward round: what reaches a marked
+        // slot from the calling frame carries the closure shape too
+        // (see the member sibling)
+        let shaped = |e| is_closure_shaped(ast, e, &closure_idents, &ret_marked);
+        let (ms, rs) = sites.round(ast, &fn_params, &fn_returns, &marked, &shaped);
+        for m in ms {
+            changed |= marked.insert(m);
+        }
+        for r in rs {
+            changed |= ret_marked.insert(r);
         }
         if mark_closure_defaults(ast, &fn_params, &closure_idents, &ret_marked, &mut marked) {
             changed = true;
@@ -626,6 +619,42 @@ mod tests {
                 .any(|e| matches!(e, Expr::Closure { fn_name, .. } if fn_name == "__forward_up")),
             "h(up) arg should be rewritten"
         );
+    }
+
+    #[test]
+    fn backward_round_resolves_the_name_where_the_call_sits() {
+        // `run` only shares its param's name with the forwarding `h`;
+        // the object-literal method receives no closure at all
+        let ast = pass_output(
+            "function up(s: string): string { return s; }\nfunction g3(cb: (s: string) => string): void { cb(\"x\"); }\nfunction h(cb: (s: string) => string): void { g3(cb); }\nfunction run(cb: (s: string) => string): void { cb(\"y\"); }\nconst o = { k(cb: (s: string) => string) { cb(\"z\"); } };\ng3((s: string): string => s);\nh(up);\nrun(up);\no.k(up);\n",
+        );
+        assert!(fn_param_ann(&ast, "h", 0).unwrap().starts_with("__cls("));
+        assert!(fn_param_ann(&ast, "run", 0).unwrap().starts_with("__fn("));
+        let ks: Vec<String> = ast
+            .exprs
+            .iter()
+            .filter_map(|e| match e {
+                Expr::ObjectLit { fields } => {
+                    fields.iter().find_map(|(_, v)| match ast.get_expr(*v) {
+                        Expr::Closure { fn_name, .. } => Some(fn_name.clone()),
+                        _ => None,
+                    })
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(ks.len(), 1);
+        assert!(fn_param_ann(&ast, &ks[0], 1).unwrap().starts_with("__fn("));
+    }
+
+    #[test]
+    fn objlit_method_param_marked_through_member_calls() {
+        // an arrow at `o.k(...)` marks the method's param, and the
+        // param a function forwards there follows it
+        let ast = pass_output(
+            "const o = { k(cb: (s: string) => string) { cb(\"z\"); } };\nfunction fwd(cb: (s: string) => string): void { o.k(cb); }\no.k((s: string): string => s);\n",
+        );
+        assert!(fn_param_ann(&ast, "fwd", 0).unwrap().starts_with("__cls("));
     }
 
     #[test]
