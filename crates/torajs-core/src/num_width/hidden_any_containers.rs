@@ -6,7 +6,9 @@
 //! escaped typed array put "s" into a `number[]`, which lowers with raw
 //! number slots. Such an array escapes into the `any` world itself
 //! (`hof_receivers::settle` adds it to the escape seeds), so it lowers
-//! as an `Arr<Any>` and its reads become sources in turn.
+//! as an `Arr<Any>` and its reads become sources in turn. A `Map`
+//! stored one through `set` (§24.1.3.9) escapes the same way: it leaves
+//! the typed number lane and `get` answers what was stored.
 //!
 //! A field of an object literal set from such a value, or stored such a
 //! value later (`obj.k = v`), holds it the same way (§10.1.9): the
@@ -18,6 +20,7 @@ use super::container::canon_key_frozen;
 use super::hidden_any::{Graph, Node};
 use super::{Analysis, Scope, SlotKey};
 use crate::ast::{Expr, ExprId};
+use crate::check::Type;
 
 impl Graph<'_> {
     /// The container stores under expression `e`.
@@ -41,6 +44,9 @@ impl Graph<'_> {
                     "push" | "unshift" => &args[..],
                     "splice" => args.get(2..).unwrap_or_default(),
                     "fill" => args.get(..1).unwrap_or_default(),
+                    "set" if matches!(a.expr_types.get(obj), Some(Type::Map(..))) => {
+                        args.get(1..2).unwrap_or_default()
+                    }
                     _ => &[],
                 };
                 for &v in stored {
