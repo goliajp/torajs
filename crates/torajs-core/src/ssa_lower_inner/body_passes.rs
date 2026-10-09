@@ -50,6 +50,7 @@ pub(crate) fn run(
     class_drop_fids: &std::collections::HashMap<u32, crate::ssa::FuncId>,
     boxed_entries: &HashMap<FuncId, (FuncId, ssa::SigId)>,
 ) {
+    let scans = crate::ssa_lower_ctx_state::ModuleScans::of(ast, expr_types);
     // Pass 2: lower user FnDecl bodies. Each call returns the lowered
     // function plus any string literals interned during its body; we
     // append those into module.strings before the next call so the
@@ -99,6 +100,7 @@ pub(crate) fn run(
                 promise_thunks,
                 class_drop_fids,
                 boxed_entries,
+                &scans,
             );
             module.funcs[fid.0 as usize] = f;
             for s in new_strings {
@@ -175,6 +177,7 @@ pub(crate) fn run(
         promise_thunks,
         class_drop_fids,
         boxed_entries,
+        &scans,
     );
 
     // Pass 2.5: synthesize each pre-registered env-drop fn body now

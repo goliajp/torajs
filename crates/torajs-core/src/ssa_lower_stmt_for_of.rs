@@ -97,7 +97,7 @@ pub(crate) fn lower(
     // module stands the index loop down to the any lane's runtime
     // GetIterator — the same compile-time stand-down the typed method
     // tier takes; a program that spells neither keeps the index loop.
-    if matches!(src_ty, Type::Arr(_)) && ctx.proto_shadow.shadows_iteration("Array") {
+    if matches!(src_ty, Type::Arr(_)) && ctx.scans.proto_shadow.shadows_iteration("Array") {
         ctx.emit_arr_mark_kind(&src_ptr_op);
         let boxed = ctx.box_to_any(src_ptr_op);
         crate::ssa_lower_for_of_any_iter::lower(ctx, boxed, var_name, body, is_await);

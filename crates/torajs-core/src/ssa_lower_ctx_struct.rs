@@ -323,12 +323,9 @@ pub(crate) struct LowerCtx<'a> {
     /// unobservable on the common surface. test262 regressions
     /// are caught by the conformance gate.
     pub(crate) regex_lit_cache: std::collections::HashMap<(String, String), ssa::ValueId>,
-    /// What this module might monkey-patch onto a builtin prototype
-    /// (RFC 20260806). The checker's gate covers every call site it
-    /// types; the routes that never type their arguments — `console.log`
-    /// is the one that found this — leave the callee unrecorded, so the
-    /// any-method-call arm consults this directly instead.
-    pub(crate) proto_shadow: crate::builtin_proto_shadow::ShadowSet,
+    /// The module-wide scans (dynobj-degraded and cross-type widened
+    /// inits, builtin prototype patches) every body reads.
+    pub(crate) scans: &'a crate::ssa_lower_ctx_state::ModuleScans,
     /// Scratch for the binop currently being lowered — set by
     /// `lower_binop_with_ids` on the way in, restored on the way out.
     /// Nothing in it survives a single binop, which is why it lives in
@@ -383,14 +380,6 @@ pub(crate) struct LowerCtx<'a> {
     /// recorded in `stack_alloced_locals` so end-of-scope drop
     /// emission skips its rc-dec branch + drop_sized call.
     pub(crate) escape_obj_lets: std::collections::HashSet<String>,
-    /// RC-4 F1c — init ExprIds of defineProperty-receiver `let`
-    /// declarations (`crate::dynobj_degrade` scope-correct walk).
-    /// An unannotated ObjectLit `LetDecl` in the set lowers through
-    /// the P3.2 dynobj-init lane (binding type `any`), mirroring the
-    /// checker's `dynobj_degraded` so the two sides can't drift.
-    pub(crate) dynobj_degraded: std::collections::HashSet<crate::ast::ExprId>,
-    /// RFC 20260804-mutable-let-widen — mirror of the checker's set.
-    pub(crate) cross_type_widened: std::collections::HashSet<crate::ast::ExprId>,
     /// RC-4 F1a — binding names whose let-init is an exec/match
     /// method call (Nullable<Array<Str>> per the checker). Filled
     /// in declaration order by the LetDecl arm; `.length` / index

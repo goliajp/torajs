@@ -99,7 +99,7 @@ pub(crate) fn initial_let_ty(
             (type_ann.map(|s| s.as_str()), init),
             ctx.ast,
             ctx.expr_types,
-            ctx.cross_type_widened.contains(&init),
+            ctx.scans.cross_type_widened.contains(&init),
             ctx.arr_layouts,
         ) {
             return (repr, false);

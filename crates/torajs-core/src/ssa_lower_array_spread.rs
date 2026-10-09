@@ -250,7 +250,7 @@ fn lower_spread_source(ctx: &mut LowerCtx<'_>, inner: ExprId) -> (Operand, Type,
     // meanings. A module that installs one stands the typed lanes
     // down wholesale; one that never spells `Symbol.iterator` pays
     // nothing (`builtin_proto_shadow`'s posture, same reasoning).
-    if ctx.proto_shadow.iterator_hook_written()
+    if ctx.scans.proto_shadow.iterator_hook_written()
         && matches!(v_ty, Type::Arr(_) | Type::Str | Type::Set)
     {
         let arr_any_id = intern_arr_layout(ctx.arr_layouts, Type::Any);

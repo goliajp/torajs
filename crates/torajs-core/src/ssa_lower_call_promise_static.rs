@@ -277,7 +277,7 @@ fn lower_aggregate(ctx: &mut LowerCtx<'_>, eid: ExprId, method: &str, args: &[Ex
     let sync_elem_form = match arg_ty {
         Type::Arr(aid) => {
             matches!(ctx.arr_layouts[aid.0 as usize], Type::Promise | Type::Any)
-                && !ctx.proto_shadow.iterator_hook_written()
+                && !ctx.scans.proto_shadow.iterator_hook_written()
         }
         _ => false,
     };

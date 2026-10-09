@@ -141,7 +141,7 @@ pub(crate) fn lower_chain_with_own_then_probe(
 /// checker types `Promise` (`P.resolve(x)`), and their species is the
 /// subclass.
 fn species_census_written(ctx: &LowerCtx<'_>) -> bool {
-    let set = &ctx.proto_shadow;
+    let set = &ctx.scans.proto_shadow;
     set.shadows("Promise", "constructor")
         || set.hook_written("species")
         || ctx

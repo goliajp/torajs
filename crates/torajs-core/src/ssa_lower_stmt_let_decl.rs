@@ -98,14 +98,14 @@ pub(crate) fn lower(
     );
     if type_ann.is_none()
         && matches!(ctx.ast.get_expr(init), Expr::ObjectLit { .. })
-        && (ctx.dynobj_degraded.contains(&init) || init_struct_has_undef)
+        && (ctx.scans.dynobj_degraded.contains(&init) || init_struct_has_undef)
     {
         ty = Type::Any;
     }
     // RFC 20260804-mutable-let-widen — cross-family reassigned
     // binding lowers as an Any slot from declaration, mirroring
     // `check_stmt_let_decl`'s widen off the same shared set.
-    if type_ann.is_none() && ctx.cross_type_widened.contains(&init) {
+    if type_ann.is_none() && ctx.scans.cross_type_widened.contains(&init) {
         ty = Type::Any;
     }
     crate::ssa_lower_stmt_let_decl_general::record_binding_flags(ctx, name, type_ann, init);

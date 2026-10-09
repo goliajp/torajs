@@ -70,7 +70,7 @@ fn with_env<R>(ctx: &LowerCtx<'_>, frame: &[&Stmt], f: impl FnOnce(&Env) -> R) -
         types: ctx.expr_types,
         leaf_names: decls::leaf_names(ctx, frame),
         field_slot: &field_slot,
-        shadow: &ctx.proto_shadow,
+        shadow: &ctx.scans.proto_shadow,
     };
     f(&env)
 }

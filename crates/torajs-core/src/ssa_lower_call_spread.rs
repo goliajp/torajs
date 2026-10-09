@@ -403,7 +403,7 @@ pub(crate) fn build_args_arr(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand
             // array-literal twin in `ssa_lower_array_spread`.
             let src_is_any_arr = matches!(src_ty, Type::Arr(id)
                 if matches!(ctx.arr_layouts[id.0 as usize], Type::Any))
-                && !ctx.proto_shadow.iterator_hook_written();
+                && !ctx.scans.proto_shadow.iterator_hook_written();
             if src_is_any_arr {
                 arr = Operand::Value(ctx.f.append_inst(
                     ctx.cur_block,

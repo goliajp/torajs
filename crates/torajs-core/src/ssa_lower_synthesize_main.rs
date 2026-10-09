@@ -69,6 +69,7 @@ pub(crate) fn synthesize_main(
     let mut f = ssa::Function::new("main", Type::I32);
     let entry = f.add_block();
     let mut new_strings: Vec<ssa::StringLiteral> = Vec::new();
+    let scans = crate::ssa_lower_ctx_state::ModuleScans::of(ast, expr_types);
     {
         let mut ctx = LowerCtx {
             f: &mut f,
@@ -127,18 +128,13 @@ pub(crate) fn synthesize_main(
             prereserve: crate::ssa_lower_arr_prereserve::PreReserve::new(&[]),
             regex_lit_cache: std::collections::HashMap::new(),
             binop: Default::default(),
-            proto_shadow: crate::builtin_proto_shadow::collect_shadowed_builtin_methods(ast),
+            scans: &scans,
             bigint_op_may_throw: false,
             globals,
             is_main_fn: true,
             drop_inline_stack: std::collections::HashSet::new(),
             deque_arrs: std::collections::HashSet::new(),
             escape_obj_lets: std::collections::HashSet::new(),
-            dynobj_degraded: crate::dynobj_degrade::collect_dynobj_degraded_inits(ast),
-            cross_type_widened: crate::let_widen::collect_cross_type_widen_inits(
-                ast,
-                Some(expr_types),
-            ),
             nullable_arr_lets: std::collections::HashSet::new(),
             exec_records: HashMap::new(),
             nullable_str_lets: std::collections::HashSet::new(),

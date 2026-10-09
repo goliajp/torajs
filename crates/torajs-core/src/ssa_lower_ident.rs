@@ -64,7 +64,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: crate::ast::ExprId, name: &str)
         // with — the write never reached that cell. Same mechanism
         // the undeclared read above uses, and the name is present, so
         // the throw arm of the kernel never fires.
-        if ctx.proto_shadow.writes_global(name) {
+        if ctx.scans.proto_shadow.writes_global(name) {
             return crate::ssa_lower_ident_global::emit_global_ident_read(ctx, name);
         }
         if name == "NaN" {

@@ -171,7 +171,7 @@ fn lower_map_clone(
 /// patch array iteration stands them down to `lower_iterable_init`,
 /// which is that walk. Same posture as the spread / for-of lanes.
 fn arr_iteration_patched(ctx: &LowerCtx<'_>) -> bool {
-    ctx.proto_shadow.shadows_iteration("Array")
+    ctx.scans.proto_shadow.shadows_iteration("Array")
 }
 
 pub(crate) fn lower_set(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {

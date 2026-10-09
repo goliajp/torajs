@@ -89,7 +89,7 @@ pub(crate) fn check_join(ctx: &mut LowerCtx<'_>, v: ValueId) {
 /// Has this module put anything in front of the walk the join kernel
 /// stands in for?
 fn shadowed(ctx: &LowerCtx<'_>) -> bool {
-    crate::builtin_proto_shadow::arr_to_string_shadowed(&ctx.proto_shadow)
+    crate::builtin_proto_shadow::arr_to_string_shadowed(&ctx.scans.proto_shadow)
 }
 
 /// The one thing the any lane needs that the typed kernels do not: the

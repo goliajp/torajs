@@ -19,23 +19,47 @@
 //!   `lower_while_inner` with the let-zero counter derived from
 //!   `prev`; returns true iff `s` was a While that got fast-lowered.
 
-use crate::ast::Stmt;
+use std::collections::HashMap;
+
+use crate::ast::{Ast, ExprId, Stmt};
 use crate::ssa::Terminator;
 use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_push_loop_detect::let_counter_zero_name;
 use crate::ssa_lower_while_push_fast::lower_while_inner;
 
-impl<'a> LowerCtx<'a> {
-    /// The init sets the checker keeps, recomputed from this fn's AST
-    /// snapshot so the two homes agree: dynobj-degraded object inits
-    /// (RC-4 F1c, `crate::dynobj_degrade`) and cross-type widened lets
-    /// (`crate::let_widen`, with the checker's final types).
-    pub(crate) fn prime_checker_mirror_sets(&mut self) {
-        self.dynobj_degraded = crate::dynobj_degrade::collect_dynobj_degraded_inits(self.ast);
-        self.cross_type_widened =
-            crate::let_widen::collect_cross_type_widen_inits(self.ast, Some(self.expr_types));
-    }
+/// The whole-program scans every function body's lowering reads. They
+/// depend only on the AST and the checker's final types, so the module
+/// computes them once instead of once per function.
+pub(crate) struct ModuleScans {
+    /// Init ExprIds of defineProperty-receiver `let` declarations
+    /// (`crate::dynobj_degrade`): an unannotated ObjectLit `LetDecl`
+    /// in the set lowers through the dynobj-init lane (binding type
+    /// `any`), mirroring the checker's `dynobj_degraded`.
+    pub(crate) dynobj_degraded: std::collections::HashSet<ExprId>,
+    /// Cross-type widened let inits (`crate::let_widen`), mirroring
+    /// the checker's set.
+    pub(crate) cross_type_widened: std::collections::HashSet<ExprId>,
+    /// What this module might monkey-patch onto a builtin prototype.
+    /// The checker's gate covers every call site it types; the routes
+    /// that never type their arguments (`console.log`) leave the callee
+    /// unrecorded, so the any-method-call arm consults this directly.
+    pub(crate) proto_shadow: crate::builtin_proto_shadow::ShadowSet,
+}
 
+impl ModuleScans {
+    pub(crate) fn of(ast: &Ast, expr_types: &HashMap<ExprId, crate::check::Type>) -> Self {
+        ModuleScans {
+            dynobj_degraded: crate::dynobj_degrade::collect_dynobj_degraded_inits(ast),
+            cross_type_widened: crate::let_widen::collect_cross_type_widen_inits(
+                ast,
+                Some(expr_types),
+            ),
+            proto_shadow: crate::builtin_proto_shadow::collect_shadowed_builtin_methods(ast),
+        }
+    }
+}
+
+impl<'a> LowerCtx<'a> {
     /// Prime the per-body binding sets shared by `lower_fn` and
     /// `synthesize_main` before any statement lowers:
     /// escape-captured lets (T-15.g.5 — a top-level `let` captured by

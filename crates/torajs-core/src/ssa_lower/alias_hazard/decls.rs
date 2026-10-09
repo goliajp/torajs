@@ -54,7 +54,7 @@ fn walk(ctx: &LowerCtx<'_>, s: &Stmt, seen: &mut HashMap<String, bool>) {
                 Some(a) => matches!(a.trim(), "number" | "boolean" | "string" | "bigint"),
                 // a cross-family rebind widens the slot past its init
                 None => {
-                    !ctx.cross_type_widened.contains(init)
+                    !ctx.scans.cross_type_widened.contains(init)
                         && matches!(
                             ctx.expr_types.get(init),
                             Some(CT::Number | CT::Boolean | CT::String | CT::BigInt)

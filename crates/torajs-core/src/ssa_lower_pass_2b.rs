@@ -122,6 +122,7 @@ pub(crate) fn run(
     promise_thunks: &crate::ssa_lower_promise_thunk::PromiseThunks,
     class_drop_fids: &std::collections::HashMap<u32, crate::ssa::FuncId>,
     boxed_entries: &HashMap<FuncId, (FuncId, ssa::SigId)>,
+    scans: &crate::ssa_lower_ctx_state::ModuleScans,
 ) {
     let named_eval = collect_named_eval(ast);
     for (stmt_idx, fid) in closure_decls {
@@ -189,6 +190,7 @@ pub(crate) fn run(
                 promise_thunks,
                 class_drop_fids,
                 boxed_entries,
+                scans,
             );
             module.funcs[fid.0 as usize] = f;
             for s in new_strings {

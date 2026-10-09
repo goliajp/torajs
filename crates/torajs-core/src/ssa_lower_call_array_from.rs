@@ -65,7 +65,7 @@ pub(crate) fn try_lower(
     // module that installs one takes the kernel route for every
     // `Array.from`, source shape regardless. Same posture as the
     // spread lanes (`ssa_lower_array_spread`).
-    if ctx.proto_shadow.iterator_hook_written() {
+    if ctx.scans.proto_shadow.iterator_hook_written() {
         return Some(emit_kernel_route(ctx, args));
     }
     // S275 — widen `== 1 || == 2` to `>= 1`. The 2-arg path below handles

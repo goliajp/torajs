@@ -224,7 +224,7 @@ fn dynamic_target_name(ctx: &LowerCtx<'_>, class_name: &str) -> Option<String> {
         // runtime lane falls through to OrdinaryHasInstance when the
         // target carries no handler after all.
         return (class_declares_has_instance(ctx, class_name)
-            || ctx.proto_shadow.hook_written("hasInstance"))
+            || ctx.scans.proto_shadow.hook_written("hasInstance"))
         .then(|| format!("__class_{class_name}"));
     }
     if builtin_proto_tag(class_name).is_some()

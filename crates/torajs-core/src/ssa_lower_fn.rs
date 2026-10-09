@@ -79,6 +79,7 @@ pub(crate) fn lower_fn(
     promise_thunks: &crate::ssa_lower_promise_thunk::PromiseThunks,
     class_drop_fids: &std::collections::HashMap<u32, crate::ssa::FuncId>,
     boxed_entries: &HashMap<FuncId, (FuncId, ssa::SigId)>,
+    scans: &crate::ssa_lower_ctx_state::ModuleScans,
 ) -> (ssa::Function, Vec<ssa::StringLiteral>) {
     let ret_ty = promote_and_widen(
         effective_ret_ty(
@@ -179,15 +180,13 @@ pub(crate) fn lower_fn(
         prereserve: crate::ssa_lower_arr_prereserve::PreReserve::new(params),
         regex_lit_cache: std::collections::HashMap::new(),
         binop: Default::default(),
-        proto_shadow: Default::default(),
+        scans,
         bigint_op_may_throw: false,
         globals,
         is_main_fn: false,
         drop_inline_stack: std::collections::HashSet::new(),
         deque_arrs: std::collections::HashSet::new(),
         escape_obj_lets: std::collections::HashSet::new(),
-        dynobj_degraded: std::collections::HashSet::new(),
-        cross_type_widened: std::collections::HashSet::new(),
         nullable_arr_lets: std::collections::HashSet::new(),
         exec_records: HashMap::new(),
         ret_ann_nullable: return_type.is_some_and(|r| r.starts_with("__nullable(")),
@@ -209,9 +208,7 @@ pub(crate) fn lower_fn(
     };
 
     let assigned_in_body = ctx.prime_body_binding_sets(body.iter());
-    ctx.prime_checker_mirror_sets();
     crate::undef_f64_fields::prime(&mut ctx);
-    ctx.proto_shadow = crate::builtin_proto_shadow::collect_shadowed_builtin_methods(ctx.ast);
 
     ctx.materialize_fn_params(name, param_setup, &assigned_in_body, params);
     crate::ssa_lower::alias_hazard::prime(&mut ctx, body.iter());
