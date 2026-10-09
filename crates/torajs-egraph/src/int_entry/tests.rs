@@ -407,8 +407,16 @@ fn a_value_the_loop_divides_by_gets_the_divisor_window() {
 #[test]
 fn a_value_read_after_the_loop_keeps_it_unversioned() {
     let mut m = counting_loop(FPred::Olt, vec![]);
-    // the exit returns the single-def sum instead of the cell
-    m.funcs[1].blocks[3].term = Terminator::Ret(Some(v(5)));
+    // a cold exit out of the body returns the body's single-def sum;
+    // bb2 dominates it, so the read is well formed
+    let f = &mut m.funcs[1];
+    f.blocks[2].term = Terminator::CondBr {
+        cond: v(4),
+        then_blk: BlockId(5),
+        else_blk: BlockId(4),
+    };
+    f.blocks.push(block(4, vec![], Terminator::Ret(Some(v(5)))));
+    f.blocks.push(block(5, vec![], Terminator::Br(BlockId(1))));
     let stats = version_loops(&mut m);
     assert_eq!(stats.loops_versioned, 0);
     assert_eq!(stats.skipped_escaping, 1);
