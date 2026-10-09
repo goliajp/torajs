@@ -74,7 +74,9 @@ pub(crate) fn class_admit(to: &Type, from: &Type) -> Option<bool> {
             let c = c.split('<').next().unwrap_or(c);
             let table = table();
             let i = iface(&table, to)?;
-            if !table.witnesses.get(&i).is_some_and(|cs| cs.contains(c)) {
+            if !table.witnesses.get(&i).is_some_and(|cs| cs.contains(c))
+                || table.loose.get(&i).is_some_and(|cs| cs.contains(c))
+            {
                 return None;
             }
             note_flow(to, from, true);

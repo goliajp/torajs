@@ -5,18 +5,44 @@ use super::super::{get_face, has_face, set_face};
 use super::{Body, Decls, Member, MemberKind};
 use crate::ast::Ast;
 
-/// The class's thunk bodies for every face of the interface, or `None`
-/// when some required member is missing or does not match.
+/// How a class's declared members match the interface's.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum Fit {
+    /// every member with the interface's own type
+    Exact,
+    /// a data member with another type that fits the interface's and
+    /// is stored alike: an object, string or array under that type or
+    /// nullish (`n: N` under `n: N | null`). Whether the class itself
+    /// fits is the checker's structural rules' to say, as for a class
+    /// with no row at all. Its get face reads the field; its set face
+    /// stores through the instance's dynamic properties, which put a
+    /// nullish value into the pointer slot itself.
+    Loose,
+    /// a loose member stored otherwise than the interface's (a
+    /// `number` under `number | string`), so a read at the interface's
+    /// own offsets would misread it. Its set face could not put a
+    /// value of the interface's type into the field, so a field the
+    /// program writes through some receiver other than `this` is held
+    /// as `any` instead (`super::super::widen`), and both faces then
+    /// reach it as a field.
+    Retyped,
+}
+
+/// The class's thunk bodies for every face of the interface, how it
+/// fits and its retyped data members, or `None` when some required
+/// member is missing or does not match.
 pub(super) fn class_row(
     ast: &Ast,
     d: &Decls<'_>,
     eq: &crate::ast::vtable_slot::ann_eq::AnnEq<'_>,
     c: &str,
     members: &[Member],
-) -> Option<Vec<(String, usize, Body)>> {
+) -> Option<(Vec<(String, usize, Body)>, Fit, Vec<String>)> {
     let fields = d.class_fields[c];
     let field_ann = |k: &str| fields.iter().find(|(n, _)| *n == *k).map(|(_, a)| a);
     let mut row = Vec::new();
+    let mut fit = Fit::Exact;
+    let mut retyped = Vec::new();
     for (i, m) in members.iter().enumerate() {
         match &m.kind {
             MemberKind::Method { params, ret } => {
@@ -42,6 +68,19 @@ pub(super) fn class_row(
             MemberKind::Data => {
                 let (get, set) = match field_ann(&m.key) {
                     Some(a) if eq.same(a, &m.ann) => (Body::FieldGet, Body::FieldSet),
+                    Some(a) if a.trim() == "any" => {
+                        fit = fit.max(Fit::Retyped);
+                        (Body::FieldGet, Body::FieldSet)
+                    }
+                    Some(a) if eq.fits(&m.ann, a) => {
+                        if eq.nullable_of(&m.ann, a) {
+                            fit = fit.max(Fit::Loose);
+                        } else {
+                            fit = fit.max(Fit::Retyped);
+                            retyped.push(m.key.clone());
+                        }
+                        (Body::FieldGet, Body::DynSet)
+                    }
                     Some(_) => return None,
                     None if m.optional && !has_accessor(ast, c, &m.key) => {
                         (Body::DynGet, Body::DynSet)
@@ -53,7 +92,7 @@ pub(super) fn class_row(
             }
         }
     }
-    Some(row)
+    Some((row, fit, retyped))
 }
 
 /// The `__cm_` body `c` answers `key` with: its own, or the nearest

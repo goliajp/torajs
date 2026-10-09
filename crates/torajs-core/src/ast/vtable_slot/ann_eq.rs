@@ -45,6 +45,50 @@ impl<'a> AnnEq<'a> {
             _ => false,
         }
     }
+
+    /// Whether a value of `from` fits a slot of `to` by the checker's
+    /// assignability rules.
+    pub(crate) fn fits(&self, to: &str, from: &str) -> bool {
+        let t = self
+            .tables
+            .get_or_init(|| collect_type_alias_tables(self.ast));
+        let resolve = |s: &str| {
+            crate::check_type_ann::resolve_type_ann_full(s, &t.aliases, &[], &t.generic_alias_decls)
+        };
+        let (Some(to), Some(from)) = (resolve(to), resolve(from)) else {
+            return false;
+        };
+        crate::check_assignable::is_assignable_to_resolved(
+            &to,
+            &from,
+            &t.class_structs,
+            &t.aliases,
+            &t.generic_alias_decls,
+        )
+    }
+
+    /// Whether `wide` is `narrow` or nullish, with `narrow` a type held
+    /// by pointer (an object, a string, an array): a slot of either
+    /// stores a value of `narrow` alike, and a nullish one as the
+    /// pointer slot's own null or undefined.
+    pub(crate) fn nullable_of(&self, wide: &str, narrow: &str) -> bool {
+        let t = self
+            .tables
+            .get_or_init(|| collect_type_alias_tables(self.ast));
+        let resolve = |s: &str| {
+            crate::check_type_ann::resolve_type_ann_full(s, &t.aliases, &[], &t.generic_alias_decls)
+        };
+        match (resolve(wide), resolve(narrow)) {
+            (Some(Type::Nullable(w)), Some(n)) => {
+                *w == n
+                    && matches!(
+                        n,
+                        Type::ClassRef(_) | Type::Struct(_) | Type::String | Type::Array(_)
+                    )
+            }
+            _ => false,
+        }
+    }
 }
 
 fn structural(t: &Type) -> bool {

@@ -113,7 +113,8 @@ console.log(len2({ x: 3, y: 4 }), p.id);
 }
 
 #[test]
-fn a_class_instance_reached_through_another_interface_needs_a_row_there() {
+fn a_class_instance_reached_through_another_interface_takes_its_row_there() {
+    // `y = 2` under `y?: number`: a loose row, read where C keeps it
     let src = "interface A { y: number; m(): number }
 interface B { y?: number }
 class C { z = 1; y = 2; m() { return 3 } }
@@ -121,8 +122,8 @@ const a: A = new C();
 const b: B = a;
 console.log(b.y);
 ";
-    let err = settled(src).expect_err("C has no row for B");
-    assert!(err.contains("not yet supported"), "{err}");
+    assert_eq!(witnesses(src, "B"), ["C"]);
+    assert_eq!(settled(src), Ok(vec!["A".to_string(), "B".to_string()]));
     let fits = "interface A { x: number; m(): number }
 interface B { x: number }
 class C { k = 0; x = 5; m() { return 1 } }
@@ -134,13 +135,15 @@ console.log(b.x);
 }
 
 #[test]
-fn a_class_without_a_row_is_refused_only_where_slots_are_kept() {
+fn a_class_declaring_a_member_narrower_stands_behind_the_interface() {
+    // `n: N` under `n: N | null` is stored alike: read in place
     let alone = "class N { v = 1 }
 interface H { n: N | null; tag: string }
 class C { n: N = new N(); tag = \"c\"; extra = 1 }
 function read(h: H): string { return h.tag }
 console.log(read(new C()));
 ";
+    assert_eq!(witnesses(alone, "H"), ["C"]);
     assert_eq!(settled(alone), Ok(vec![]));
     let mixed = "class N { v = 1 }
 interface H { n: N | null; tag: string }
@@ -149,8 +152,56 @@ class D { k = 0; n: N | null = null; tag = \"d\" }
 function read(h: H): string { return h.tag }
 console.log(read(new C()), read(new D()));
 ";
-    let err = settled(mixed).expect_err("C has no row for H");
-    assert!(err.contains("class `C`"), "{err}");
+    assert_eq!(settled(mixed), Ok(vec!["H".to_string()]));
+    // a `number` under `number | null` is stored otherwise
+    let retyped = "interface H { v: number | null }
+class C { v: number = 2 }
+function read(h: H): number | null { return h.v }
+console.log(read(new C()));
+";
+    assert_eq!(settled(retyped), Ok(vec!["H".to_string()]));
+    // the structural rules still refuse a member of another type
+    let other = "interface H { v: number | null }
+class C { v: string = \"x\" }
+const h: H = new C();
+";
+    assert!(checked(other).is_err());
+}
+
+fn field_ann(ast: &Ast, class: &str, key: &str) -> String {
+    torajs_core::ast::toplevel_stmts_flat(ast)
+        .into_iter()
+        .find_map(|s| match s {
+            torajs_core::ast::Stmt::TypeDecl { name, fields, .. } if name == class => fields
+                .iter()
+                .find(|(n, _)| *n == *key)
+                .map(|(_, a)| a.clone()),
+            _ => None,
+        })
+        .expect("class declares the field")
+}
+
+#[test]
+fn a_retyped_field_written_through_another_receiver_is_held_as_any() {
+    let decls = "interface P { x: number | string }
+class B { x = 1 }
+class C extends B { y = 2 }
+class Lone { x = 3 }
+const p: P = new C();
+";
+    let read = desugared(&format!("{decls}console.log(p.x);\n"));
+    assert_eq!(field_ann(&read, "C", "x"), "number");
+    let written = desugared(&format!("{decls}p.x = \"s\";\n"));
+    for c in ["B", "C"] {
+        assert_eq!(field_ann(&written, c, "x"), "any", "{c}");
+    }
+    // `Lone` holds a slot of its own, and the write may as well be one
+    // through a `P` it stands behind
+    assert_eq!(field_ann(&written, "Lone", "x"), "any");
+    let own = desugared(&format!(
+        "{decls}class D {{ x = 4; set() {{ this.x = 5 }} }}\n"
+    ));
+    assert_eq!(field_ann(&own, "D", "x"), "number");
 }
 
 #[test]

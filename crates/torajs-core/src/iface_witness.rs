@@ -31,6 +31,7 @@ mod admit;
 mod body;
 mod plan;
 mod settle;
+mod widen;
 
 pub(crate) use admit::{begin_compile, class_admit, install, note_flow};
 pub(crate) use settle::settle;
@@ -55,6 +56,11 @@ pub struct IfaceSlots {
     pub plain: HashMap<String, BTreeSet<String>>,
     /// interface → the names of its witness thunks
     pub thunks: HashMap<String, Vec<String>>,
+    /// interface → the classes whose rows read some member through
+    /// the instance's dynamic properties because the class declares it
+    /// with another type: the structural rules, not the row, decide
+    /// whether such a class fits
+    pub loose: HashMap<String, BTreeSet<String>>,
 }
 
 /// What a face does with its member.
@@ -142,7 +148,10 @@ pub fn lit_thunk(iface: &str, face: &str) -> String {
 /// vtable slot joins), before the default / rest argument passes, which
 /// then treat the thunks' forwarding calls like any other call.
 pub fn synthesize_iface_witnesses(ast: &mut crate::ast::Ast) {
-    let plans = plan::plan(ast);
+    let mut plans = plan::plan(ast);
+    if widen::widen_written(ast, &plans) {
+        plans = plan::plan(ast);
+    }
     let mut slots = IfaceSlots::default();
     if plans.is_empty() {
         ast.iface_slots = slots;
@@ -171,6 +180,7 @@ pub fn synthesize_iface_witnesses(ast: &mut crate::ast::Ast) {
             slots.with_methods.insert(p.iface.clone());
         }
         slots.plain.insert(p.iface.clone(), p.plain);
+        slots.loose.insert(p.iface.clone(), p.loose);
     }
     slots.faces.sort();
     ast.stmts.extend(appended);

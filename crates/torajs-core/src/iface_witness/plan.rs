@@ -13,7 +13,7 @@ mod class_row;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::ast::{Ast, Param, Stmt};
-use class_row::class_row;
+use class_row::{Fit, class_row};
 
 pub(super) struct Member {
     pub key: String,
@@ -63,6 +63,11 @@ pub(super) struct IfacePlan {
     /// the classes whose instances read right at the interface's own
     /// field offsets
     pub plain: BTreeSet<String>,
+    /// the classes whose rows are loose (`class_row`)
+    pub loose: BTreeSet<String>,
+    /// class → its data members of another type stored otherwise
+    /// than the interface's (`class_row::Fit::Retyped`)
+    pub retyped: BTreeMap<String, Vec<String>>,
 }
 
 /// A top-level function's type parameters, parameters and return
@@ -75,6 +80,9 @@ struct Decls<'a> {
 }
 
 pub(super) fn plan(ast: &Ast) -> Vec<IfacePlan> {
+    // a loose row asks the assignability lattice, which consults the
+    // witness table: the one a previous compile left must not answer
+    super::admit::install(ast);
     let mut decls = Decls {
         fns: HashMap::new(),
         class_fields: HashMap::new(),
@@ -113,6 +121,8 @@ pub(super) fn plan(ast: &Ast) -> Vec<IfacePlan> {
     let mut out = Vec::new();
     for (iface, members) in ifaces {
         let mut rows = BTreeMap::new();
+        let mut loose = BTreeMap::new();
+        let mut retyped = BTreeMap::new();
         for &c in &classes {
             // a desugar-made class (generator / async state machines)
             // has no source spelling a program could implement with
@@ -122,18 +132,26 @@ pub(super) fn plan(ast: &Ast) -> Vec<IfacePlan> {
             {
                 continue;
             }
-            if let Some(row) = class_row(ast, &decls, &eq, c, &members) {
+            if let Some((row, fit, keys)) = class_row(ast, &decls, &eq, c, &members) {
                 rows.insert(c.to_string(), row);
+                if fit != Fit::Exact {
+                    loose.insert(c.to_string(), fit);
+                }
+                if !keys.is_empty() {
+                    retyped.insert(c.to_string(), keys);
+                }
             }
         }
         drop_unfit_lines(ast, &mut rows);
+        loose.retain(|c, _| rows.contains_key(c));
+        retyped.retain(|c, _| rows.contains_key(c));
         if rows.is_empty() {
             continue;
         }
         let with_method = members
             .iter()
             .any(|m| matches!(m.kind, MemberKind::Method { .. }));
-        let plain = plain_classes(&decls, &classes, &members, &rows);
+        let plain = plain_classes(&decls, &classes, &members, &rows, &loose);
         let lit_faces = lit_row(&members);
         out.push(IfacePlan {
             iface: iface.to_string(),
@@ -142,6 +160,8 @@ pub(super) fn plan(ast: &Ast) -> Vec<IfacePlan> {
             classes: rows,
             with_method,
             plain,
+            loose: loose.into_keys().collect(),
+            retyped,
         });
     }
     out
@@ -221,13 +241,15 @@ fn drop_unfit_lines(ast: &Ast, rows: &mut BTreeMap<String, Vec<(String, usize, B
 }
 
 /// The classes that lay the interface's members out first and in
-/// order, and whose row (if any) reads none of them dynamically: their
-/// instances read right at the interface's own field offsets.
+/// order, each stored as the interface stores it, and whose row (if
+/// any) reads none of them dynamically: their instances read right at
+/// the interface's own field offsets.
 fn plain_classes(
     d: &Decls<'_>,
     classes: &[&str],
     members: &[Member],
     rows: &BTreeMap<String, Vec<(String, usize, Body)>>,
+    loose: &BTreeMap<String, Fit>,
 ) -> BTreeSet<String> {
     let prefix = |c: &str| {
         let fields = d.class_fields[c];
@@ -236,11 +258,13 @@ fn plain_classes(
             .enumerate()
             .all(|(i, m)| fields.get(i).is_some_and(|(n, _)| *n == *m.key))
     };
+    // a member the class lacks is read dynamically (`DynGet`); a loose
+    // one is only written that way, into a field stored alike
     let static_row = |c: &str| {
-        rows.get(c).is_none_or(|row| {
-            !row.iter()
-                .any(|(_, _, b)| matches!(b, Body::DynGet | Body::DynSet))
-        })
+        loose.get(c) != Some(&Fit::Retyped)
+            && rows
+                .get(c)
+                .is_none_or(|row| !row.iter().any(|(_, _, b)| matches!(b, Body::DynGet)))
     };
     classes
         .iter()
