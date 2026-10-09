@@ -36,7 +36,7 @@
 mod str_split;
 
 use crate::ast::ExprId;
-use crate::ssa::{FuncId, InstKind, Operand, Type};
+use crate::ssa::{BinOp, FuncId, InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_call_terminal_coerce::coerce_args;
 use crate::ssa_lower_call_terminal_headless::{
@@ -213,6 +213,15 @@ pub(crate) fn emit(
 /// The `Call` of a direct call, answering its value in the callee's
 /// return type.
 fn emit_direct_call(ctx: &mut LowerCtx<'_>, target: FuncId, argv: Vec<Operand>) -> Operand {
+    // Math.imul inline: coerce_args already put both operands through
+    // ToInt32 (sign-extended int32 in i64), so their i64 product cannot
+    // overflow and its low 32 bits are the int32 product; sign-extending
+    // them answers what the kernel answers, without the call
+    if target == ctx.intrinsics.math_imul {
+        debug_assert_eq!(argv.len(), 2, "Math.imul takes 2 coerced args");
+        let p = ctx.bin(BinOp::Mul, argv[0], argv[1], Type::I64);
+        return ctx.emit_to_int32(p);
+    }
     let ret_ty = ctx.f_ret_type_hint(target);
     let cur_block = ctx.cur_block;
     // Chunk 806 — a void callee has no return value; consuming the
