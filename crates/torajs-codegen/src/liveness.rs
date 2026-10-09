@@ -1,19 +1,19 @@
 //! SSA value liveness analysis — Linear Scan input.
 //!
-//! Every inst slot gets a unique global index in block order, and
-//! every `ValueId` an `Interval { start, end }` over those indices
-//! (Poletto & Sarkar 1999):
+//! Phase 1 of Linear Scan (Poletto & Sarkar 1999): walk the function
+//! in block order, assign every inst slot a unique global index, and
+//! record `Interval { start, end }` per `ValueId`:
 //!
-//!   - `start` = the first slot at which the value is live: its def,
-//!     or just before the head of a block it is live into. Function
-//!     params live from index 0 (before any inst slot).
-//!   - `end`   = the last slot at which it is live. A value never used
-//!     keeps `end == start` (a dead-after-def slot — the allocator can
-//!     still pick a register for the def site but the slot expires
-//!     immediately).
+//!   - `start` = the inst index at which the value is defined.
+//!     Function params live from index 0 (before any inst slot).
+//!   - `end`   = the maximum inst index that references the value
+//!     as an operand. If the value is never used, `end == start`
+//!     (a dead-after-def slot — the allocator can still pick a
+//!     register for the def site but the slot expires immediately).
 //!
-//! The interval is the hull of the value's live ranges
-//! (`live_ranges::LiveRanges`), which the same pass computes.
+//! Phase 2 (active set + register allocation) and Phase 3 (spill to
+//! alloca region) land in follow-up sub-steps S5-gap-2-{2,3,4} —
+//! they consume the `HashMap<u32, Interval>` produced here.
 //!
 //! ## Index numbering
 //!
@@ -31,25 +31,42 @@
 //! `Ret(Some(v))` / `CondBr { cond: v, .. }` extend the value's
 //! interval through the end of the block.
 //!
-//! ## Liveness across blocks
+//! ## Cross-block use
 //!
 //! The current SSA has no `Phi` instruction — multi-block control
-//! flow shares ValueIds directly, and loops carry values around
-//! backedges. Textual order alone gets this wrong: a loop body's load
-//! that reads from an alloca slot defined in the entry block looks
-//! "expired" once the walk moves past its last textual use, even
-//! though the next iteration will re-read it; the allocator then hands
-//! the register to a `cset` inside the loop body, and the backedge
+//! flow shares ValueIds directly: block 0 defines `v0`, block 1
+//! uses `v0`. The linear index walk naturally captures this — when
+//! block 1's use is reached, `v0`'s interval `end` advances past
+//! block 1's index without any block-boundary special case.
+//!
+//! That makes intervals "live-set safe" for the trivial multi-block
+//! shapes the rest of codegen already handles via `BranchFixup`.
+//! Loops and more elaborate join patterns would need a fixed-point
+//! data-flow pass instead — see the alloca-result carve-out below
+//! for the only loop-relevant case the lowerer currently emits.
+//!
+//! ## Loop-aware extension (Phase 1 single-pass + Phase 2 CFG fix-up)
+//!
+//! Single-pass liveness assumes execution follows textual order —
+//! true for straight-line code and forward branches, broken by
+//! backedges. A loop body's load that reads from an alloca slot
+//! defined in the entry block looks "expired" once the linear walk
+//! moves past the last textual use, even though the next iteration
+//! will re-read it. The allocator then hands the entry-block
+//! register to a `cset` inside the loop body, and the backedge
 //! delivers garbage to the next load.
 //! `ssa_lower_str::lower_array_index_of_inline_emit` (Array
 //! `indexOf` / `lastIndexOf` / `includes`) hits this canonically.
 //!
-//! So liveness is solved on the block CFG first: the textbook live-in
-//! / live-out equations (use[B], def[B], live_in[B] = use[B] ∪
-//! (live_out[B] \ def[B]), live_out[B] = ∪{live_in[s] : s ∈ succ(B)},
-//! `liveness_blocks`). One backward walk per block over those sets
-//! then gives every value's live ranges, and a value live into a block
-//! has its interval cover that whole block.
+//! Fix: after the linear pass, solve the textbook live-in / live-out
+//! equations over the block CFG (use[B], def[B], live_in[B] =
+//! use[B] ∪ (live_out[B] \ def[B]), live_out[B] =
+//! ∪{live_in[s] : s ∈ succ(B)}). Any `ValueId` live across a block
+//! has its interval extended to that block's end. Backedges
+//! naturally close the loop: `live_out[loop_body]` pulls in
+//! `live_in[loop_header]`, which propagates the header's
+//! invariants (param-derived loads, alloca-addr loads) back over
+//! the body.
 //!
 //! Param ValueIds get the same treatment via the carve-out below —
 //! AAPCS64-arg ValueIds are not stored back to SSA `Store/Load`
@@ -62,7 +79,6 @@ use torajs_core::ssa::id_hash::HashMap;
 
 use torajs_core::ssa::{Function, InstKind, Operand, Terminator, ValueId};
 
-use crate::live_ranges::{LiveRanges, holes_off};
 use crate::liveness_blocks::{BlockLiveness, compute_block_liveness};
 
 /// Inclusive live interval `[start, end]` over the global inst-slot
@@ -98,104 +114,126 @@ pub fn compute_intervals(func: &Function) -> HashMap<u32, Interval> {
     compute_liveness(func).0
 }
 
-/// [`compute_intervals`] plus every value's live ranges and the
-/// block-level live sets both were built from (copy coalescing and the
-/// sweep need all three).
-pub(crate) fn compute_liveness(
-    func: &Function,
-) -> (HashMap<u32, Interval>, LiveRanges, BlockLiveness) {
-    // indexed by value while computing; a hull starting at `u32::MAX`
-    // marks a value never defined
-    const NONE: Interval = Interval {
-        start: u32::MAX,
-        end: 0,
-    };
-    let mut out: Vec<Interval> = vec![NONE; func.values.len()];
+/// [`compute_intervals`] plus the block-level live sets it was built
+/// from (copy coalescing needs both).
+pub fn compute_liveness(func: &Function) -> (HashMap<u32, Interval>, BlockLiveness) {
+    let mut out: HashMap<u32, Interval> = HashMap::default();
     // Collected during the walk and patched at the end — see the
     // "Alloca-result carve-out" section in the module docs.
     let mut alloca_results: Vec<u32> = Vec::new();
 
     // Params are live from before any inst executes — model that as
-    // index 0. A param that's never used keeps `end == 0` (immediately
-    // dead, but the allocator still needs an AAPCS64 arg-lane register
-    // for the call-frame entry).
+    // index 0. Any subsequent use will extend `end` past 0; a param
+    // that's never used keeps `end == 0` (immediately dead, but the
+    // allocator still needs an AAPCS64 arg-lane register for the
+    // call-frame entry).
     for &p in &func.params {
-        out[p.0 as usize] = Interval { start: 0, end: 0 };
+        out.insert(p.0, Interval { start: 0, end: 0 });
     }
-    // every def starts its value's interval at its first slot and the
-    // range walk below widens it over the uses; a use of a value the
-    // lowerer never defined extends nothing, the allocator surfaces it
+
     let mut idx: u32 = 0;
     for block in &func.blocks {
         for inst in &block.insts {
-            if let Some(result) = inst.result {
-                let it = &mut out[result.0 as usize];
-                if it.start == u32::MAX {
-                    *it = Interval {
-                        start: idx,
-                        end: idx,
-                    };
+            // Visit operands first so any value used by this inst has
+            // its `end` extended to the current index *before* its
+            // own def (if any) lands. Practically: an inst whose
+            // result reuses one of its own operand registers (a fold
+            // the trivial allocator never does, but a real allocator
+            // might) sees the operand as "still alive at idx".
+            visit_inst_operands(&inst.kind, |v| {
+                if let Some(it) = out.get_mut(&v.0)
+                    && idx > it.end
+                {
+                    it.end = idx;
                 }
+                // Operand references a value the lowerer never defined?
+                // Likely an upstream bug, but liveness is best-effort —
+                // the allocator will surface it as a hard error later.
+            });
+
+            if let Some(result) = inst.result {
+                // φ cells have several defs; each writes the register, so
+                // a later dead def must stay inside the interval or it
+                // clobbers whoever holds that register at that point
+                let it = out.entry(result.0).or_insert(Interval {
+                    start: idx,
+                    end: idx,
+                });
+                it.end = it.end.max(idx);
                 if matches!(inst.kind, InstKind::Alloca(_) | InstKind::AllocaBytes(_)) {
                     alloca_results.push(result.0);
                 }
             }
             idx += 1;
         }
-        // the terminator's own slot
+
+        // Terminator slot has its own index. Operands extend through
+        // it; Br / Unreachable contribute none, Ret/CondBr each
+        // contribute one.
+        visit_terminator_operands(&block.term, |v| {
+            if let Some(it) = out.get_mut(&v.0)
+                && idx > it.end
+            {
+                it.end = idx;
+            }
+        });
         idx += 1;
     }
 
     let last_idx = idx.saturating_sub(1);
 
-    // The CFG live-in/live-out sets, then one backward walk per block
-    // over them: every value's live ranges, its interval their hull
-    // widened over every block it is live into. A value live into a
-    // block starts just before the block head: when block layout runs
-    // against the CFG (a `continue`-arm block laid out AFTER the loop
-    // latch that reads its def) the use's linear index is SMALLER than
-    // the def's, and an interval keyed on the def alone would leave the
-    // use uncovered. Before, not at: an interval starting at a call's
-    // slot means "this is the call's result", so a value live into a
-    // block that opens with a call would not count as crossing it.
+    // Phase 2 — CFG live-in/live-out fix-point. Pins any ValueId
+    // that crosses a block boundary (especially backedges) to a
+    // live interval covering every block where it stays live.
+    // See module docs for the full algorithm.
     let blocks = compute_block_liveness(func);
-    let mut pinned = vec![false; func.values.len()];
-    for v in alloca_results
-        .iter()
-        .copied()
-        .chain(func.params.iter().map(|p| p.0))
-    {
-        pinned[v as usize] = true;
-    }
-    let mut pairs = LiveRanges::walk(func, &blocks, &mut out, &pinned);
+    extend_intervals_loop_aware(&blocks, &mut out);
 
     // Alloca-result + function-param carve-out — see module docs.
     // Pure data-flow can't always see params (some lowers don't
     // store-and-reload them, so the param's textual last-use precedes
     // the loop body that consumes a reloaded copy), so pin both
-    // classes to `[def, last_idx]` regardless; their hull is their
-    // only live range.
-    for v in alloca_results
-        .into_iter()
-        .chain(func.params.iter().map(|p| p.0))
-    {
-        let it = &mut out[v as usize];
-        it.end = it.end.max(last_idx);
-        pairs.push((v, (it.start, it.end)));
+    // classes to `[def, last_idx]` regardless.
+    for v in alloca_results {
+        if let Some(it) = out.get_mut(&v)
+            && last_idx > it.end
+        {
+            it.end = last_idx;
+        }
     }
-    if holes_off() {
-        pairs = (out.iter().enumerate())
-            .filter(|(_, it)| it.start != u32::MAX)
-            .map(|(v, it)| (v as u32, (it.start, it.end)))
-            .collect();
+    for &p in &func.params {
+        if let Some(it) = out.get_mut(&p.0)
+            && last_idx > it.end
+        {
+            it.end = last_idx;
+        }
     }
-    let ranges = LiveRanges::from_pairs(func.values.len(), &pairs);
 
-    let intervals = (out.into_iter().enumerate())
-        .filter(|(_, it)| it.start != u32::MAX)
-        .map(|(v, it)| (v as u32, it))
-        .collect();
-    (intervals, ranges, blocks)
+    (out, blocks)
+}
+
+/// Phase 2 — extend every value's interval to cover every block where
+/// it stays live (see module docs). `live_in` pulls `start` back to
+/// just before the block head: when block layout runs against the CFG
+/// (a `continue`-arm block laid out AFTER the loop latch that reads
+/// its def) the use's linear index is SMALLER than the def's, and an
+/// interval keyed on the def alone would leave the use uncovered.
+/// Before, not at: an interval starting at a call's slot means "this
+/// is the call's result", so a value live into a block that opens with
+/// a call would not count as crossing it.
+fn extend_intervals_loop_aware(blocks: &BlockLiveness, out: &mut HashMap<u32, Interval>) {
+    for b in 0..blocks.start.len() {
+        let start = blocks.start[b].saturating_sub(1);
+        let end = blocks.end[b];
+        let ins = blocks.live_in[b].iter().map(|v| (v, start));
+        let outs = blocks.live_out[b].iter().map(|v| (v, u32::MAX));
+        for (v, from) in ins.chain(outs) {
+            if let Some(it) = out.get_mut(&v) {
+                it.end = it.end.max(end);
+                it.start = it.start.min(from);
+            }
+        }
+    }
 }
 
 /// Invoke `f` on every `ValueId` referenced as an operand of `kind`.

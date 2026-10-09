@@ -7,7 +7,7 @@ use torajs_core::ssa::id_hash::HashMap;
 
 use torajs_core::ssa::{Function, Type};
 
-use crate::live_ranges::LiveRanges;
+use crate::liveness::Interval;
 use crate::reg::{Reg, aapcs64};
 
 /// One value's AAPCS64 §5.4.2 lane: an argument register, or a stack
@@ -100,13 +100,15 @@ pub(crate) fn param_lanes(func: &Function) -> (HashMap<u32, Reg>, HashMap<u32, u
 pub(crate) fn ret_lane_free(
     func: &Function,
     reg: Reg,
-    ret_vid: u32,
-    ranges: &LiveRanges,
+    ret_interval: Interval,
+    intervals: &HashMap<u32, Interval>,
     by_value: &HashMap<u32, Reg>,
 ) -> bool {
     !func.params.iter().any(|p| {
         by_value.get(&p.0) == Some(&reg)
-            && LiveRanges::intersect(ranges.of(p.0), ranges.of(ret_vid))
+            && intervals
+                .get(&p.0)
+                .is_some_and(|pi| pi.start <= ret_interval.end && ret_interval.start <= pi.end)
     })
 }
 

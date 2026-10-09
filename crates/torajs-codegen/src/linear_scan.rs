@@ -38,8 +38,7 @@ use torajs_core::ssa::Function;
 use crate::coalesce::build_copy_classes;
 use crate::compile::InlineSites;
 use crate::linear_scan_calls::{
-    CallCosts, FrameScan, collect_call_saves, crosses_call_from_entry, crosses_call_ranges,
-    scan_frame,
+    CallCosts, FrameScan, collect_call_saves, crosses_call, crosses_call_from_entry, scan_frame,
 };
 use crate::linear_scan_lanes::{param_entries, param_lanes, ret_lane_free};
 use crate::linear_scan_sweep::Sweep;
@@ -57,7 +56,7 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
 /// [`allocate_linear_scan`] for a function whose intrinsic calls
 /// `compile` opens inline: those sites call only on their slow arm.
 pub fn allocate_linear_scan_with(func: &Function, inline: InlineSites) -> Assignment {
-    let (mut intervals, ranges, blocks) = compute_liveness(func);
+    let (mut intervals, blocks) = compute_liveness(func);
     let ret_vids = collect_ret_value_ids(func);
 
     let FrameScan {
@@ -73,14 +72,8 @@ pub fn allocate_linear_scan_with(func: &Function, inline: InlineSites) -> Assign
     let classes = build_copy_classes(func, &intervals, &blocks, &ret_vids, &call_sites);
     let (mut weights, units) = compute_spill_weights(func);
     classes.fold_into(&mut intervals, &mut weights);
-    let ranges = ranges.fold(&intervals, &classes);
-    debug_assert!(
-        ranges.within(&intervals),
-        "{}: live ranges leave their hull",
-        func.name
-    );
     let call_costs = CallCosts::new(&call_sites, &call_rarity, &units);
-    let mut sweep = Sweep::new(next_alloca_offset, weights, call_costs, ranges);
+    let mut sweep = Sweep::new(next_alloca_offset, weights, call_costs);
     sweep.unspillable = crate::vec_homes::vector_values(func, &classes);
     // `TORAJS_CALL_SAVE_OFF=1`: call-crossing values never take a
     // caller-saved register (bisect gate).
@@ -111,7 +104,7 @@ pub fn allocate_linear_scan_with(func: &Function, inline: InlineSites) -> Assign
         let crossing = if param_arg_reg.contains_key(&vid) || stack_params.contains_key(&vid) {
             crosses_call_from_entry(interval, &call_sites)
         } else {
-            crosses_call_ranges(sweep.ranges.of(vid), &call_sites)
+            crosses_call(interval, &call_sites)
         };
 
         // Stack params (9th+ of a register class) arrive in the
@@ -182,7 +175,7 @@ pub fn allocate_linear_scan_with(func: &Function, inline: InlineSites) -> Assign
             };
             // That lane belongs to the first param too — see
             // `ret_lane_free` for why the sweep can't see the clash.
-            if ret_lane_free(func, reg, vid, &sweep.ranges, &sweep.by_value) {
+            if ret_lane_free(func, reg, interval, &intervals, &sweep.by_value) {
                 sweep.by_value.insert(vid, reg);
                 continue;
             }
@@ -202,7 +195,7 @@ pub fn allocate_linear_scan_with(func: &Function, inline: InlineSites) -> Assign
     }
 
     classes.fan_out(&mut sweep.by_value);
-    let (call_saves, vec_call_saves) = collect_call_saves(&mut sweep, &call_sites);
+    let (call_saves, vec_call_saves) = collect_call_saves(&mut sweep, &intervals, &call_sites);
 
     let total_spill_bytes = sweep.next_spill_offset - next_alloca_offset;
     let used_callee_gpr_mask = sweep.used_callee_gpr_mask;
