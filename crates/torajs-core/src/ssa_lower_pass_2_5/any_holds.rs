@@ -19,7 +19,7 @@
 //! runtime reaches an adapter only through an address stored for it,
 //! so what such a body hands on reaches nobody ([`dead_adapters`]).
 
-use std::collections::{HashMap, HashSet};
+use crate::ssa::id_hash::{HashMap, HashSet};
 
 use crate::ssa::{FuncId, Function, InstKind, Module, Operand, StructId, Type, ValueId};
 
@@ -90,12 +90,12 @@ impl<'a> AnyHolds<'a> {
         let mut holds = AnyHolds {
             module,
             facts: module.funcs.iter().map(FnFacts::of).collect(),
-            values: vec![HashMap::new(); module.funcs.len()],
-            params: HashMap::new(),
+            values: vec![HashMap::default(); module.funcs.len()],
+            params: HashMap::default(),
             unbox_value: find(UNBOX_VALUE),
             arg_to_struct: find(ARG_TO_STRUCT),
             dead: dead_adapters(module),
-            taken: HashSet::new(),
+            taken: HashSet::default(),
         };
         holds.seed_params();
         while holds.pass() {}
@@ -254,7 +254,7 @@ fn widen<K: std::hash::Hash + Eq>(table: &mut HashMap<K, Holds>, key: K, step: H
 impl<'a> FnFacts<'a> {
     fn of(f: &'a Function) -> FnFacts<'a> {
         let mut facts = FnFacts {
-            stores: HashMap::new(),
+            stores: HashMap::default(),
             params: f.params.iter().enumerate().map(|(i, p)| (*p, i)).collect(),
         };
         for inst in f.blocks.iter().flat_map(|b| &b.insts) {

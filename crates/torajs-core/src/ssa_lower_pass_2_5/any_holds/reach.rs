@@ -1,7 +1,7 @@
 //! Which functions run, and how: reached by a direct call, entered
 //! through an address, or never entered at all.
 
-use std::collections::HashSet;
+use crate::ssa::id_hash::HashSet;
 
 use super::BOXED_ENTRY_PREFIX;
 use crate::ssa::{FuncId, InstKind, Module};
@@ -13,7 +13,7 @@ pub(super) fn reached_and_taken(
     module: &Module,
     dead: &[bool],
 ) -> (HashSet<FuncId>, HashSet<FuncId>) {
-    let mut reached = HashSet::new();
+    let mut reached = HashSet::default();
     let mut taken = table_held_fns(module);
     for (i, f) in module.funcs.iter().enumerate() {
         if dead[i] {
