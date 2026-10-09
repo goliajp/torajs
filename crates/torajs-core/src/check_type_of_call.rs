@@ -19,6 +19,7 @@
 //! every arm is preserved verbatim. When adding a new wedge, pick
 //! the segment by cascade position, never by receiver family.
 
+mod any_struct_slot;
 mod any_widen;
 mod any_widen_ret;
 mod arity_wedges;

@@ -202,7 +202,9 @@ pub(in crate::check_monomorph_any_widen) fn loose_values(
             _ => None,
         })
         .collect();
-    // names read anywhere other than as a callee; a name shared by
+    // names read anywhere other than as a callee, and names a typed call
+    // hands an `any` argument for an object parameter through the boxed
+    // entry (`check_type_of_call::any_struct_slot`); a name shared by
     // several bindings only makes more of them loose
     let read_as_value: HashSet<&str> = ast
         .exprs
@@ -212,6 +214,7 @@ pub(in crate::check_monomorph_any_widen) fn loose_values(
             Expr::Ident(n) if !callees.contains(&ExprId(i as u32)) => Some(n.as_str()),
             _ => None,
         })
+        .chain(c.any_struct_arg_callees.keys().map(String::as_str))
         .collect();
     let mut bound: HashMap<ExprId, (String, Option<String>)> = HashMap::new();
     crate::ast::walk_stmts(&ast.stmts, &mut |s| {

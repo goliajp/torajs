@@ -305,6 +305,11 @@ pub(crate) struct Checker {
     /// per slot (`check_type_of_call::fn_slot_ret`).
     pub(crate) fn_slot_ret_any: std::collections::HashSet<ExprId>,
     pub(crate) fn_slot_kept: HashMap<String, bool>,
+    /// The function-value bindings a call hands an `any` argument for
+    /// an object-typed parameter, with their parameter types; the
+    /// closures they hold take the all-`any` twin
+    /// (`check_type_of_call::any_struct_slot`).
+    pub(crate) any_struct_arg_callees: HashMap<String, Vec<Type>>,
     /// L3b ③ — generic-fn VALUE escapes (`const g = f` where `f`'s
     /// sig still carries un-inferred TypeVars): key is the init
     /// Ident's ExprId, value the fn name. The binding's face is

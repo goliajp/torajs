@@ -33,6 +33,7 @@ use crate::ssa_lower::{CLOSURE_FN_ADDR_OFF, LowerCtx, intern_fn_sig};
 mod bindings;
 mod retarget;
 mod slot_ret;
+pub(crate) use bindings::any_into_obj_slot;
 use bindings::{
     global_argv_face_binding, global_fnsig_mismatch_binding, global_variadic_value_binding,
     recv_gate_reachable,
@@ -79,6 +80,7 @@ pub(crate) fn try_lower_with_this(
         || global_argv_face_binding(ctx, callee_name)
         || global_variadic_value_binding(ctx, callee_name)
         || global_fnsig_mismatch_binding(ctx, callee_name)
+        || any_into_obj_slot(ctx, args, user_sig_id)
     {
         if this_arg.is_some() {
             return None;

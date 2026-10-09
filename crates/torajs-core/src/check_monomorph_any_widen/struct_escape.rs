@@ -54,6 +54,7 @@
 
 use std::collections::{HashMap, VecDeque};
 
+mod boxed_reach;
 pub(super) mod closure;
 pub(crate) mod escaped_cb;
 mod named_cb;
@@ -64,6 +65,7 @@ use crate::ast::{Ast, Expr, ExprId, Param, ShellFace, Stmt};
 use crate::check::Checker;
 use crate::check_monomorph::WorkItem;
 use crate::ssa_lower_generics_monomorph::Generics;
+pub(crate) use boxed_reach::refuse_untwinned;
 use pair::mint_pair;
 pub(crate) use target::twin_clone_params;
 pub(super) use target::widenable_target;

@@ -201,7 +201,7 @@ pub(super) fn record_widen_site(
 /// resolves it (`lifted_closure_alias`) and the clone then carries
 /// the `__env` head, which the clone lane serves through the same
 /// path the hand-spelled `(x: any) => …` closure takes today.
-fn clonable_callee(checker: &Checker, ast: &Ast, n: &str, i: usize) -> Option<String> {
+pub(super) fn clonable_callee(checker: &Checker, ast: &Ast, n: &str, i: usize) -> Option<String> {
     let (name, lifted) = match lifted_closure_alias(checker, ast, n) {
         Some(f) => (f, true),
         None if checker.closure_fn_names.contains(n) => return None,

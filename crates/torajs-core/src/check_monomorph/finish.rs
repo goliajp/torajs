@@ -64,6 +64,11 @@ pub(crate) fn finish(
             &widths,
         );
         if !minted {
+            crate::check_monomorph_any_widen::struct_escape::refuse_untwinned(
+                c,
+                &owned_ast,
+                &generic_fn_names,
+            );
             return MonoOutput {
                 mono_ast: owned_ast,
                 call_retargets,

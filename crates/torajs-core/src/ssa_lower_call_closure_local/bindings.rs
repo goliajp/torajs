@@ -55,3 +55,21 @@ pub(super) fn recv_gate_reachable(ctx: &LowerCtx<'_>, callee_slot: crate::ssa::V
         ctx.self_name_slot == Some(callee_slot) && !ctx.ast.fnexpr_recv_fns.contains(&ctx.f.name);
     !ctx.ast.fnexpr_recv_fns.is_empty() && !unpromoted_self
 }
+
+/// Does the call hand an `any` argument to an object-typed parameter
+/// of `sig`? The checker admits it for a function value
+/// (`check_type_of_call::any_struct_slot`), and the typed entry would
+/// read the NaN-box bits as a cell pointer: the call rides the boxed
+/// entry, whose adapter tests each object slot and hands a value the
+/// body cannot read to the all-`any` twin.
+pub(crate) fn any_into_obj_slot(
+    ctx: &LowerCtx<'_>,
+    args: &[crate::ast::ExprId],
+    sig: crate::ssa::SigId,
+) -> bool {
+    let params = &ctx.fn_sigs[sig.0 as usize].0;
+    args.iter().zip(params).any(|(a, p)| {
+        matches!(p, crate::ssa::Type::Obj(_))
+            && matches!(ctx.expr_types.get(a), Some(crate::check::Type::Any))
+    })
+}

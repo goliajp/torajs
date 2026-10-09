@@ -67,6 +67,19 @@ fn try_lower_local_fnsig(
     let Type::FnSig(sig_id) = info.ty else {
         return None;
     };
+    // an `any` argument for an object parameter: a `const` binding of a
+    // declared function is retargeted to that function's widened clone
+    // (`check_type_of_call::any_struct_slot`), which the direct-call lane
+    // takes; any other bare pointer has no boxed entry to hand it to, and
+    // the checker refuses the call
+    if crate::ssa_lower_call_closure_local::any_into_obj_slot(ctx, args, sig_id) {
+        assert!(
+            ctx.call_retargets.contains_key(&eid),
+            "ssa-lower: `{callee_name}` holds a bare function pointer and takes an `any` \
+             argument for an object parameter"
+        );
+        return None;
+    }
 
     let fn_ptr = ctx.f.append_inst(
         ctx.cur_block,
