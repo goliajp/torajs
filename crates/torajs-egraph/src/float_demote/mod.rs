@@ -57,6 +57,7 @@ mod guard;
 mod hoist;
 mod merge;
 mod plan;
+mod settle;
 
 use crate::id_hash::{HashMap, HashSet};
 
@@ -67,8 +68,6 @@ use torajs_core::ssa::{
 use crate::interval::transfer::NumFact;
 use crate::rc_peephole::visit_value_operands;
 use crate::slot_forward::rewrite_operands;
-
-use fit::Fit;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct FloatDemoteStats {
@@ -163,93 +162,10 @@ fn compute_demote_set(
         .copied()
         .collect();
     loop {
-        // def-fit fixpoint (greatest: shrink from the full candidate
-        // set so loop cells can certify through themselves)
-        loop {
-            let snapshot = set.clone();
-            set.retain(|v| {
-                defs.get(v).is_some_and(|dl| {
-                    !dl.is_empty()
-                        && dl
-                            .iter()
-                            .all(|d| fit::def_fit(d, v, facts, &snapshot) != Fit::No)
-                })
-            });
-            if set.len() == snapshot.len() {
-                break;
-            }
-        }
+        let graph = settle::Graph::of(func, &defs);
+        settle::settle(&mut set, &defs, facts, &graph);
         if set.is_empty() {
             return None;
-        }
-        // -0-free closure — coinductive (greatest fixpoint): assume
-        // every in-set value clean, evict anything whose def could
-        // mint a -0 under the current assumption, repeat. A least
-        // fixpoint would never admit loop cells (cell ↔ op cycles);
-        // the survivors here provably have no -0 source on any path.
-        let mut nz: HashSet<ValueId> = set.clone();
-        loop {
-            let snapshot = nz.clone();
-            nz.retain(|v| {
-                defs[v]
-                    .iter()
-                    .all(|d| fit::def_no_neg_zero(d, facts, &snapshot))
-            });
-            if nz.len() == snapshot.len() {
-                break;
-            }
-        }
-        // classify every use: an in-set def operand or a convertible
-        // fcmp operand is a useful (i64-native) use; anything else
-        // needs a sitofp bridge. A bridged escape must be -0-free,
-        // and a value with no useful use at all leaves the set — a
-        // demote whose every consumer bridges back is a net loss
-        // (copy + sitofp where a single sitofp stood).
-        let mut bad: HashSet<ValueId> = HashSet::default();
-        let mut useful: HashSet<ValueId> = HashSet::default();
-        for block in &func.blocks {
-            for inst in &block.insts {
-                if inst.result.is_some_and(|r| set.contains(&r)) {
-                    visit_value_operands(&inst.kind, |v| {
-                        if set.contains(&v) {
-                            useful.insert(v);
-                        }
-                    });
-                    continue;
-                }
-                if let InstKind::FCmp(_, a, b) = &inst.kind
-                    && fit::fcmp_convertible(a, b, &set)
-                {
-                    for op in [a, b] {
-                        if let Operand::Value(v) = op {
-                            useful.insert(*v);
-                        }
-                    }
-                    continue;
-                }
-                visit_value_operands(&inst.kind, |v| {
-                    if set.contains(&v) && !nz.contains(&v) {
-                        bad.insert(v);
-                    }
-                });
-            }
-            if let Terminator::Ret(Some(Operand::Value(v))) = &block.term
-                && set.contains(v)
-                && !nz.contains(v)
-            {
-                bad.insert(*v);
-            }
-        }
-        for v in &set {
-            if !useful.contains(v) {
-                bad.insert(*v);
-            }
-        }
-        if !bad.is_empty() {
-            for v in bad {
-                set.remove(&v);
-            }
-            continue;
         }
         // guarded defs need a hosting region (1b-ii)
         let (growth, entries) = guard::collect_guard_sites(func, &set, facts);
