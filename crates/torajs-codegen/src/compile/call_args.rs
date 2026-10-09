@@ -10,6 +10,32 @@ use crate::linear_scan_lanes::{ArgLane, classify_lanes};
 use crate::reg::{Gpr, Reg};
 use crate::regalloc::Assignment;
 
+/// Whether argument `i` travels as an f64. The declared param type
+/// decides when the callee has one at that position; varargs /
+/// over-supplied args fall back to the operand's own classification.
+fn expected_f64(i: usize, arg: &Operand, alloc: &Assignment, param_types: Option<&[Type]>) -> bool {
+    match param_types {
+        Some(pt) if i < pt.len() => pt[i] == Type::F64,
+        _ => operand_is_f64(arg, alloc),
+    }
+}
+
+fn arg_lanes(args: &[Operand], alloc: &Assignment, param_types: Option<&[Type]>) -> Vec<ArgLane> {
+    let fp = args.iter().enumerate();
+    classify_lanes(fp.map(|(i, arg)| expected_f64(i, arg, alloc, param_types)))
+}
+
+/// Does some argument travel on the stack?
+pub(super) fn has_stack_lane(
+    args: &[Operand],
+    alloc: &Assignment,
+    param_types: Option<&[Type]>,
+) -> bool {
+    arg_lanes(args, alloc, param_types)
+        .iter()
+        .any(|l| matches!(l, ArgLane::Stack(_)))
+}
+
 /// AAPCS64 §5.4.2 arg passing — int / ptr args fill X0..X7 in their
 /// own lane while f64 args fill V0..V7 (D0..D7) in a parallel lane.
 /// The two counters advance independently, matching how clang lowers
@@ -44,14 +70,7 @@ pub(super) fn pass_args(
     alloc: &Assignment,
     param_types: Option<&[Type]>,
 ) {
-    // Expected lane: prefer the declared param type when available
-    // and within the declared arity; varargs / over-supplied args
-    // fall back to the operand's own classification.
-    let expected_f64 = |i: usize, arg: &Operand| match param_types {
-        Some(pt) if i < pt.len() => pt[i] == Type::F64,
-        _ => operand_is_f64(arg, alloc),
-    };
-    let lanes = classify_lanes(args.iter().enumerate().map(|(i, arg)| expected_f64(i, arg)));
+    let lanes = arg_lanes(args, alloc, param_types);
     // Stack lanes first: their materializes read arbitrary homes
     // (which may include an ARG_RET register a later reg-lane move
     // would overwrite), while the stores themselves only touch the
@@ -60,7 +79,7 @@ pub(super) fn pass_args(
     for (i, (arg, lane)) in args.iter().zip(&lanes).enumerate() {
         let ArgLane::Stack(j) = lane else { continue };
         let actual_is_f64 = operand_is_f64(arg, alloc);
-        if expected_f64(i, arg) {
+        if expected_f64(i, arg, alloc, param_types) {
             let src = if actual_is_f64 {
                 materialize_operand_fpr(bytes, arg, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc)
             } else {

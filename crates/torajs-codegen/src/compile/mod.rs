@@ -51,6 +51,7 @@ mod rc;
 mod rc_dec;
 mod refs;
 mod selinc;
+mod sibcall;
 pub(crate) mod slot;
 mod store_pair;
 mod str_append;
@@ -160,6 +161,9 @@ pub struct ModuleFacts {
     /// coerce each arg's actual SSA type to the declared param type
     /// — FCVTZS for f64→i64, SCVTF for i64→f64 at the call boundary.
     pub(crate) fn_sigs: Vec<Vec<Type>>,
+    /// Per-FuncId return type of a function with a body (None for a
+    /// declaration); a sibling call reads it.
+    pub(crate) fn_rets: Vec<Option<Type>>,
     /// The intrinsic calls that open inline.
     pub(crate) inline: InlineSites,
     /// Symbols known to sit on an 8-byte boundary: the module's data
@@ -175,9 +179,34 @@ impl ModuleFacts {
             |f: &Function| f.params.iter().map(|v| f.values[v.0 as usize].ty).collect();
         ModuleFacts {
             fn_sigs: module.funcs.iter().map(param_types).collect(),
+            fn_rets: (module.funcs.iter())
+                .map(|f| (!f.is_declaration()).then_some(f.ret))
+                .collect(),
             inline: InlineSites::of_module(module),
             aligned8_syms: global_access::aligned8_syms(module),
         }
+    }
+}
+
+/// The register assignment and frame a block runs under, opening the
+/// frame where shrink-wrapping put its save point: the blocks ahead of
+/// it run frameless (see shrink_wrap.rs).
+fn open_block<'a>(
+    bytes: &mut Vec<u8>,
+    block: &torajs_core::ssa::Block,
+    shrink: &'a Option<crate::shrink_wrap::ShrinkWrap>,
+    alloc: &'a Assignment,
+    frame: &'a FrameLayout,
+    frameless: &'a FrameLayout,
+) -> (&'a Assignment, &'a FrameLayout) {
+    match shrink {
+        Some(sw) if sw.save == block.id => {
+            frame.emit_prologue(bytes);
+            emit_param_entry_moves(bytes, alloc);
+            (alloc, frame)
+        }
+        Some(sw) if sw.pre.contains(&block.id.0) => (&sw.pre_alloc, frameless),
+        _ => (alloc, frame),
     }
 }
 
@@ -246,17 +275,11 @@ pub fn compile_function_with(
             }
         }
         block_byte_starts.insert(block.id.0, bytes.len() as u32);
-        let (alloc, frame) = match &shrink {
-            Some(sw) if sw.save == block.id => {
-                frame.emit_prologue(&mut bytes);
-                emit_param_entry_moves(&mut bytes, &alloc);
-                (&alloc, &frame)
-            }
-            Some(sw) if sw.pre.contains(&block.id.0) => (&sw.pre_alloc, &frameless),
-            _ => (&alloc, &frame),
-        };
+        let (alloc, frame) = open_block(&mut bytes, block, &shrink, &alloc, &frame, &frameless);
         let fused = fusions.cmp_of(block.id.0);
-        for (ii, inst) in block.insts.iter().enumerate() {
+        let sib = sibcall::plan(func, block, &blocks_by_id, alloc, facts, block_slot);
+        let body = sib.as_ref().map_or(block.insts.len(), |s| s.at);
+        for (ii, inst) in block.insts[..body].iter().enumerate() {
             if fusions.emit(&mut bytes, &mut relocs, block, ii, inst, alloc) {
                 continue;
             }
@@ -264,6 +287,11 @@ pub fn compile_function_with(
             emit_inst_at(&mut bytes, &mut relocs, func, inst, alloc, facts, site);
         }
         block_slot += block.insts.len() as u32 + 1;
+        if let Some(s) = &sib {
+            sibcall::emit(&mut bytes, &mut relocs, s, alloc, facts, frame);
+            falls_in = false;
+            continue;
+        }
         // The layout successor's final identity — a branch resolving
         // there is a fall-through and needs no B (the next block, or
         // the empty-forwarder chain it heads, is about to emit).
