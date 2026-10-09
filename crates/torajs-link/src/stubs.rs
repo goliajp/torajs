@@ -120,17 +120,14 @@ pub fn build_stubs(
         let stub_page = (stub_vaddr & !0xFFF) as i64;
         let page_disp = slot_page - stub_page;
         let pageoff_bytes = (slot_vaddr & 0xFFF) as u32;
-        debug_assert_eq!(
-            pageoff_bytes % 8,
-            0,
-            "la_ptr slot pageoff {pageoff_bytes:#X} must be 8-byte aligned for 64-bit LDR imm12"
-        );
 
         let adrp = patch_page21(ADRP_X16_BASE, page_disp);
         // patch_pageoff12 scales the byte offset by the 64-bit LDR's
         // access size internally — pass the raw page-offset, not the
         // pre-divided value.
-        let ldr = patch_pageoff12(LDR_X16_BASE, pageoff_bytes);
+        let ldr = patch_pageoff12(LDR_X16_BASE, pageoff_bytes).unwrap_or_else(|_| {
+            panic!("la_ptr slot 0x{slot_vaddr:X} must be 8-byte aligned for the 64-bit LDR imm12")
+        });
 
         let mut bytes = [0u8; 12];
         bytes[0..4].copy_from_slice(&adrp.to_le_bytes());

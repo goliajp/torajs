@@ -147,13 +147,17 @@ pub(crate) fn compute_data_region_plan(
         data_vmaddr + data_total_file_size + u64::from(data_non_text_zerofill_vmsize),
     )
     .map_err(|count| ArchiveLayoutError::DataGlobalsWithoutDyld { count })?;
+    // the user bss start is rounded up past the member zerofill, so the
+    // segment ends at the bss end, not at the sum of the two sizes
     let data_vmsize = if tp.has_dyld {
-        round_up_to(
-            data_total_file_size
-                + u64::from(data_non_text_zerofill_vmsize)
-                + u64::from(user_data_globals_layout.total_vmsize),
-            APPLE_SILICON_PAGE_SIZE,
-        )
+        let member_end = data_total_file_size + u64::from(data_non_text_zerofill_vmsize);
+        let end = if user_data_globals_layout.total_vmsize > 0 {
+            user_data_globals_layout.vaddr - data_vmaddr
+                + u64::from(user_data_globals_layout.total_vmsize)
+        } else {
+            member_end
+        };
+        round_up_to(end, APPLE_SILICON_PAGE_SIZE)
     } else {
         0
     };

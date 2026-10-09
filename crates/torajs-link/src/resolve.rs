@@ -60,6 +60,8 @@ pub struct ResolvedFunction {
 /// - BRANCH26 displacement overflow (silent corruption would be
 ///   strictly worse than a loud panic; surfaces an over-sized
 ///   `__TEXT` segment as a build-time error).
+/// - PAGEOFF12 on a scaled load / store whose target is not aligned to
+///   the access size (the immediate would reach the word below it).
 pub fn apply_relocs(
     funcs: &[CompiledFunction],
     fn_vaddrs: &[u64],
@@ -127,7 +129,13 @@ fn apply_one(
         RelocKind::PageOff12 { .. } => {
             let offset = (target_vaddr & 0xFFF) as u32;
             let insn = read_u32_le(bytes, off);
-            let patched = patch_pageoff12(insn, offset);
+            let patched = patch_pageoff12(insn, offset).unwrap_or_else(|e| {
+                panic!(
+                    "PAGEOFF12 target 0x{target_vaddr:X} at 0x{site_vaddr:X} is not aligned to the {}-byte access of 0x{:08X}",
+                    1u32 << e.scale,
+                    e.insn
+                )
+            });
             write_u32_le(bytes, off, patched);
         }
         RelocKind::AbsPtr64 { .. } => {

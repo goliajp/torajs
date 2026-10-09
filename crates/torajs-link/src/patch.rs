@@ -96,24 +96,35 @@ pub fn patch_page21(insn: u32, page_displacement_bytes: i64) -> u32 {
 /// would dereference +0xF80. ld64 inspects the opcode and rescales;
 /// this mirrors it (see [`load_store_scale`]).
 ///
-/// Offsets ≥ 4096 (= 0x1000), or a load/store offset not aligned to
-/// its access size, trigger a debug-assert panic — both would silently
-/// corrupt the encoding. Apple ld emits the matching ADRP+ADD/LDR pair
-/// so the offset is always within a single page and naturally aligned
-/// by construction.
-pub fn patch_pageoff12(insn: u32, offset: u32) -> u32 {
+/// Offsets ≥ 4096 (= 0x1000) trigger a debug-assert panic (every
+/// caller masks the address with `& 0xFFF`). A load/store offset not
+/// aligned to its access size is an error in every build profile: the
+/// scaled immediate cannot express it, and encoding `offset >> scale`
+/// would silently read or write the aligned word below the target.
+pub fn patch_pageoff12(insn: u32, offset: u32) -> Result<u32, PageOff12Misaligned> {
     debug_assert!(
         offset < 0x1000,
         "PAGEOFF12 offset 0x{offset:X} must fit in 12 bits"
     );
     let scale = load_store_scale(insn);
-    debug_assert_eq!(
-        offset & ((1 << scale) - 1),
-        0,
-        "PAGEOFF12 offset 0x{offset:X} not aligned to load/store access size 1<<{scale}"
-    );
+    if offset & ((1 << scale) - 1) != 0 {
+        return Err(PageOff12Misaligned {
+            insn,
+            offset,
+            scale,
+        });
+    }
     let imm12 = ((offset >> scale) & 0xFFF) << 10;
-    (insn & !PAGEOFF12_MASK) | imm12
+    Ok((insn & !PAGEOFF12_MASK) | imm12)
+}
+
+/// A PAGEOFF12 target whose page offset is not a multiple of the
+/// scaled load/store's access size (`1 << scale` bytes).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PageOff12Misaligned {
+    pub insn: u32,
+    pub offset: u32,
+    pub scale: u32,
 }
 
 /// Access-size log2 (`scale`) of a load/store *unsigned immediate*
@@ -309,7 +320,7 @@ mod tests {
     #[test]
     fn pageoff12_zero_round_trip() {
         let add_base = 0x9100_0000;
-        assert_eq!(patch_pageoff12(add_base, 0), add_base);
+        assert_eq!(patch_pageoff12(add_base, 0).unwrap(), add_base);
     }
 
     /// ADD imm12 = 0x123 lands at bit 21..10 = 0x123 << 10 =
@@ -317,7 +328,7 @@ mod tests {
     #[test]
     fn pageoff12_arbitrary_offset() {
         let add_base = 0x9100_0000;
-        let patched = patch_pageoff12(add_base, 0x123);
+        let patched = patch_pageoff12(add_base, 0x123).unwrap();
         let expected = (add_base & !PAGEOFF12_MASK) | (0x123 << 10);
         assert_eq!(patched, expected);
         // Round-trip extract:
@@ -328,7 +339,7 @@ mod tests {
     #[test]
     fn pageoff12_max_offset() {
         let add_base = 0x9100_0000;
-        let patched = patch_pageoff12(add_base, 0xFFF);
+        let patched = patch_pageoff12(add_base, 0xFFF).unwrap();
         assert_eq!((patched >> 10) & 0xFFF, 0xFFF);
         // Bit 22 (the `sh` shift bit) stays 0 — the patcher
         // touches imm12 only.
@@ -343,7 +354,7 @@ mod tests {
         // Force the sh bit on in the input — patcher must not
         // clear it.
         let add_with_sh = 0x9100_0000 | (1 << 22);
-        let patched = patch_pageoff12(add_with_sh, 0x100);
+        let patched = patch_pageoff12(add_with_sh, 0x100).unwrap();
         assert_eq!((patched >> 22) & 1, 1, "sh bit must survive patching");
         assert_eq!((patched >> 10) & 0xFFF, 0x100);
     }
@@ -352,7 +363,7 @@ mod tests {
     #[cfg(debug_assertions)]
     #[should_panic(expected = "PAGEOFF12 offset")]
     fn pageoff12_overflow_panics() {
-        let _ = patch_pageoff12(0x9100_0000, 0x1000);
+        let _ = patch_pageoff12(0x9100_0000, 0x1000).unwrap();
     }
 
     /// A 64-bit `LDR Xt, [Xn, #imm]` (scale 3) must store the byte
@@ -363,7 +374,7 @@ mod tests {
     #[test]
     fn pageoff12_scales_ldr64() {
         let ldr_x = 0xF940_0000;
-        let patched = patch_pageoff12(ldr_x, 0x1F0);
+        let patched = patch_pageoff12(ldr_x, 0x1F0).unwrap();
         // imm12 = 0x1F0 >> 3 = 0x3E.
         assert_eq!((patched >> 10) & 0xFFF, 0x3E);
         // Effective offset the CPU computes = imm12 << 3 = 0x1F0.
@@ -375,7 +386,7 @@ mod tests {
     #[test]
     fn pageoff12_scales_ldr32() {
         let ldr_w = 0xB940_0000;
-        let patched = patch_pageoff12(ldr_w, 0x40);
+        let patched = patch_pageoff12(ldr_w, 0x40).unwrap();
         assert_eq!((patched >> 10) & 0xFFF, 0x10);
     }
 
@@ -384,7 +395,7 @@ mod tests {
     #[test]
     fn pageoff12_ldrb_unscaled() {
         let ldrb = 0x3940_0000;
-        let patched = patch_pageoff12(ldrb, 0x1F0);
+        let patched = patch_pageoff12(ldrb, 0x1F0).unwrap();
         assert_eq!((patched >> 10) & 0xFFF, 0x1F0);
     }
 
@@ -394,7 +405,7 @@ mod tests {
     #[test]
     fn pageoff12_scales_ldr128() {
         let ldr_q = 0x3DC0_0000;
-        let patched = patch_pageoff12(ldr_q, 0x100);
+        let patched = patch_pageoff12(ldr_q, 0x100).unwrap();
         assert_eq!((patched >> 10) & 0xFFF, 0x10);
     }
 
@@ -404,17 +415,28 @@ mod tests {
     fn pageoff12_add_unscaled() {
         assert_eq!(load_store_scale(0x9100_0000), 0);
         let add = 0x9100_0000;
-        assert_eq!((patch_pageoff12(add, 0x1F0) >> 10) & 0xFFF, 0x1F0);
+        assert_eq!((patch_pageoff12(add, 0x1F0).unwrap() >> 10) & 0xFFF, 0x1F0);
     }
 
     /// A load/store offset not aligned to its access size is a
-    /// mis-encode — debug builds must catch it. `LDR X0` needs
-    /// 8-aligned offsets; 0x1F4 is not.
+    /// mis-encode — every build profile must refuse it. `LDR X0` /
+    /// `STR X0` need 8-aligned offsets; 0x1F4 is not. `STR W0` (scale
+    /// 2) takes 0x1F4 but not 0x1F2; `LDRB` takes anything.
     #[test]
-    #[cfg(debug_assertions)]
-    #[should_panic(expected = "not aligned")]
-    fn pageoff12_misaligned_ldr_panics() {
-        let _ = patch_pageoff12(0xF940_0000, 0x1F4);
+    fn pageoff12_misaligned_scaled_access_is_an_error() {
+        assert_eq!(
+            patch_pageoff12(0xF940_0000, 0x1F4),
+            Err(PageOff12Misaligned {
+                insn: 0xF940_0000,
+                offset: 0x1F4,
+                scale: 3,
+            })
+        );
+        assert!(patch_pageoff12(0xF900_0000, 0x1F4).is_err());
+        assert!(patch_pageoff12(0xB900_0000, 0x1F4).is_ok());
+        assert!(patch_pageoff12(0xB900_0000, 0x1F2).is_err());
+        assert!(patch_pageoff12(0x3940_0000, 0x1F3).is_ok());
+        assert!(patch_pageoff12(0x9100_0000, 0x1F3).is_ok());
     }
 
     // ---- write_unsigned64 ----

@@ -74,9 +74,8 @@ pub struct NonTextSectionLayout {
     /// pads the buffer to the same offset so encoder and runtime
     /// agree byte-for-byte. swap-2k chunk 3: `__TEXT,__literal16`
     /// ships `align = 4`; `ldr q0` (128-bit SIMD unsigned-immediate)
-    /// encodes `imm12 = offset >> 4`, silently dropping the low 4
-    /// bits when the target is not 16-aligned (release builds skip
-    /// the matching `debug_assert!` in `patch::patch_pageoff12`).
+    /// encodes `imm12 = offset >> 4` and cannot reach a target that
+    /// is not 16-aligned (`patch::patch_pageoff12` refuses one).
     pub align: u8,
 }
 

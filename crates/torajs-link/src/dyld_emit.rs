@@ -64,9 +64,7 @@ pub(crate) fn build_user_bss_section(layout: &ArchiveLayout) -> Section64 {
         addr: layout.user_data_globals_layout.vaddr,
         size: u64::from(layout.user_data_globals_layout.total_vmsize),
         offset: 0,
-        // Slot alignment is per-entry; the section header reports
-        // the maximum (8 bytes) — every primitive Copy slot fits.
-        align_log2: 3,
+        align_log2: layout.user_data_globals_layout.align_log2,
         reloff: 0,
         nreloc: 0,
         flags: S_ZEROFILL,

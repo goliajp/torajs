@@ -7,10 +7,14 @@
 //!
 //! - Entries pack in input order, each one padded up to its
 //!   `align_log2` requirement before placement.
-//! - Section start (= `vaddr_base` / `segment_offset_base`) is set
-//!   by the caller to land after all file-storage `__DATA` sections.
-//!   Mach-O requires zerofill sections to come last within their
-//!   segment, so caller must ensure ordering.
+//! - The caller passes the first free vaddr after all file-storage
+//!   `__DATA` sections and the runtime members' zerofill (Mach-O
+//!   requires zerofill sections to come last within their segment).
+//!   That address can stop at any byte, so the section start is
+//!   rounded up to the section alignment (at least 8): entry offsets
+//!   are only aligned relative to the section start, and codegen folds
+//!   a global's page offset into the scaled immediate of an 8-byte
+//!   load / store, which only reaches an 8-aligned address.
 //! - `total_vmsize` is the section's `vmsize` — the `vmsize` of the
 //!   enclosing `__DATA` segment is extended by this amount, while
 //!   `filesize` is unchanged (zerofill occupies vmsize, not file
@@ -35,20 +39,36 @@ pub struct UserDataGlobalEntryLayout {
 #[derive(Debug, Clone, Default)]
 pub struct UserDataGlobalsLayout {
     pub entries: Vec<UserDataGlobalEntryLayout>,
-    /// Absolute vaddr of the section's first byte (= `vaddr_base`).
+    /// Absolute vaddr of the section's first byte (`vaddr_base`
+    /// rounded up to `1 << align_log2`).
     pub vaddr: u64,
+    /// Section alignment — the largest entry alignment, and never
+    /// below [`USER_BSS_MIN_ALIGN_LOG2`].
+    pub align_log2: u32,
     /// Section vmsize — sum of entry sizes plus inter-entry alignment
     /// pad. 0 when input is empty.
     pub total_vmsize: u32,
 }
 
-/// Compute per-entry placements for one user-data-globals set,
-/// starting at `vaddr_base`. Pure function — no allocations beyond
-/// the returned `entries` Vec.
+/// Minimum `__DATA,__bss` section alignment: every 8-byte slot sits on
+/// an 8-byte boundary in absolute terms, not only relative to the
+/// section start.
+pub const USER_BSS_MIN_ALIGN_LOG2: u32 = 3;
+
+/// Compute per-entry placements for one user-data-globals set, in a
+/// section starting at `vaddr_base` rounded up to the section
+/// alignment. Pure function — no allocations beyond the returned
+/// `entries` Vec.
 pub fn compute_user_data_globals_layout(
     globals: &[UserDataGlobalEntry],
     vaddr_base: u64,
 ) -> UserDataGlobalsLayout {
+    let align_log2 = globals
+        .iter()
+        .map(|g| u32::from(g.align_log2))
+        .fold(USER_BSS_MIN_ALIGN_LOG2, u32::max);
+    let section_mask = (1u64 << align_log2) - 1;
+    let vaddr_base = (vaddr_base + section_mask) & !section_mask;
     let mut entries = Vec::with_capacity(globals.len());
     let mut running: u32 = 0;
     for g in globals {
@@ -66,6 +86,7 @@ pub fn compute_user_data_globals_layout(
     UserDataGlobalsLayout {
         entries,
         vaddr: vaddr_base,
+        align_log2,
         total_vmsize: running,
     }
 }
@@ -127,6 +148,30 @@ mod tests {
         assert!(layout.entries.is_empty());
         assert_eq!(layout.total_vmsize, 0);
         assert_eq!(layout.vaddr, 0x1_0000_8000);
+    }
+
+    #[test]
+    fn unaligned_base_rounds_section_start_to_8() {
+        // the runtime members' zerofill can end on any byte; every
+        // 8-byte slot must still land on an absolute 8-byte boundary
+        let globals = [
+            entry("a_bool", 1, 0),
+            entry("b_i64", 8, 3),
+            entry("c_i32", 4, 2),
+            entry("d_f64", 8, 3),
+        ];
+        for base in 0x1_0000_8000u64..0x1_0000_8010 {
+            let layout = compute_user_data_globals_layout(&globals, base);
+            assert_eq!(layout.vaddr % 8, 0, "base 0x{base:X}");
+            assert!(layout.vaddr >= base && layout.vaddr - base < 8);
+            assert_eq!(layout.align_log2, 3);
+            for e in &layout.entries {
+                if e.size == 8 {
+                    assert_eq!(e.vaddr % 8, 0, "{} at base 0x{base:X}", e.sym);
+                }
+            }
+            assert_eq!(layout.entries[0].vaddr, layout.vaddr);
+        }
     }
 
     #[test]

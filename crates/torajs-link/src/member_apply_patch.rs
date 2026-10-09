@@ -72,7 +72,8 @@ pub(crate) fn patch_reloc_site(
         ARM64_RELOC_PAGEOFF12 | ARM64_RELOC_TLVP_LOAD_PAGEOFF12 => {
             let offset12 = (target_vaddr & 0xFFF) as u32;
             let insn = read_u32_le(bytes, off);
-            let patched = patch_pageoff12(insn, offset12);
+            let patched =
+                patch_pageoff12(insn, offset12).map_err(|_| misaligned(insn, target_vaddr, r))?;
             write_u32_le(bytes, off, patched);
         }
         // GOT_LOAD_PAGEOFF12 lives on an LDR instruction (load
@@ -100,7 +101,8 @@ pub(crate) fn patch_reloc_site(
             }
             let insn_add = insn_ldr & !0x6840_0000;
             let offset12 = (target_vaddr & 0xFFF) as u32;
-            let patched = patch_pageoff12(insn_add, offset12);
+            let patched = patch_pageoff12(insn_add, offset12)
+                .map_err(|_| misaligned(insn_add, target_vaddr, r))?;
             write_u32_le(bytes, off, patched);
         }
         ARM64_RELOC_UNSIGNED => {
@@ -117,6 +119,14 @@ pub(crate) fn patch_reloc_site(
         }
     }
     Ok(())
+}
+
+fn misaligned(insn: u32, target_vaddr: u64, r: &MemberRelocEntry) -> MemberRelocApplyError {
+    MemberRelocApplyError::PageOff12Misaligned {
+        insn,
+        target_vaddr,
+        r_address: r.r_address,
+    }
 }
 
 fn read_u32_le(bytes: &[u8], off: usize) -> u32 {
@@ -153,6 +163,7 @@ pub(crate) fn patch_got_slot_site(
                 });
             }
             patch_pageoff12(insn, (slot_vaddr & 0xFFF) as u32)
+                .map_err(|_| misaligned(insn, slot_vaddr, r))?
         }
         _ => {
             return Err(MemberRelocApplyError::GotSlotNotGotLoad {

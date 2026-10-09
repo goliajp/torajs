@@ -131,6 +131,14 @@ pub enum MemberRelocApplyError {
         target_vaddr: u64,
         displacement: i64,
     },
+    /// A PAGEOFF12 reloc on a scaled load / store whose target is not
+    /// aligned to the access size: the encoding would silently reach
+    /// the aligned word below the target.
+    PageOff12Misaligned {
+        insn: u32,
+        target_vaddr: u64,
+        r_address: u32,
+    },
     /// `LC_SYMTAB` was missing entirely. Members emitted by
     /// `torajs_obj::write_object` always have one; a missing
     /// load command means the member isn't a torajs-obj output.
