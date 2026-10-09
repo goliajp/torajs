@@ -105,6 +105,7 @@ fn pairs_invariant_dividends_over_a_shared_divisor() {
     assert!(matches!(
         pre.last().map(|i| &i.kind),
         Some(InstKind::Vec(VecInst::Pair(
+            VecShape::F64x2,
             Operand::Value(ValueId(0)),
             Operand::Value(ValueId(11))
         )))

@@ -84,7 +84,7 @@ fn float_counter(func: &mut Function, p: &Plan) -> (ValueId, ValueId) {
         func,
         p.preheader,
         lanes,
-        InstKind::Vec(VecInst::Pair(v(y0), v(y1))),
+        InstKind::Vec(VecInst::Pair(VecShape::F64x2, v(y0), v(y1))),
     );
     push(func, p.preheader, yv, InstKind::Copy(F64X2, v(lanes)));
     let splat = InstKind::Vec(VecInst::Splat(VecShape::F64x2, two));
@@ -112,7 +112,10 @@ fn pair_site(func: &mut Function, p: &Plan, xv: ValueId, counter: Option<ValueId
                     let step = Operand::ConstI64(p.step);
                     out.push(inst(i1, InstKind::BinOp(BinOp::Add, v(p.iv), step)));
                     out.push(inst(yf1, InstKind::SiToFp(v(i1))));
-                    out.push(inst(yv, InstKind::Vec(VecInst::Pair(v(p.yf), v(yf1)))));
+                    out.push(inst(
+                        yv,
+                        InstKind::Vec(VecInst::Pair(VecShape::F64x2, v(p.yf), v(yf1))),
+                    ));
                     yv
                 }
                 (None, None) => unreachable!("a converted pair has its early step"),

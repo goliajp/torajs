@@ -62,6 +62,25 @@ pub fn fcvtzs_v2d(rd: Fpr, rn: Fpr) -> u32 {
     0x4EE1_B800 | (rn.idx() << 5) | rd.idx()
 }
 
+/// FRINTZ Vd.2D, Vn.2D — each f64 lane rounded toward zero, kept as
+/// f64. ARM ARM C7.2.150 (Q=1, sz=1). Base = 0x4EE1_9800.
+pub fn frintz_v2d(rd: Fpr, rn: Fpr) -> u32 {
+    0x4EE1_9800 | (rn.idx() << 5) | rd.idx()
+}
+
+/// FCMEQ Vd.2D, Vn.2D, Vm.2D — each lane all ones where the f64 lanes
+/// compare equal (NaN never does), else zero. ARM ARM C7.2.58
+/// (register, Q=1, sz=1). Base = 0x4E60_E400.
+pub fn fcmeq_v2d(rd: Fpr, rn: Fpr, rm: Fpr) -> u32 {
+    0x4E60_E400 | (rm.idx() << 16) | (rn.idx() << 5) | rd.idx()
+}
+
+/// AND Vd.16B, Vn.16B, Vm.16B — bitwise and of the full register.
+/// ARM ARM C7.2.11. Base = 0x4E20_1C00.
+pub fn and_v16b(rd: Fpr, rn: Fpr, rm: Fpr) -> u32 {
+    0x4E20_1C00 | (rm.idx() << 16) | (rn.idx() << 5) | rd.idx()
+}
+
 /// DUP Vd.2D, Vn.D[0] — broadcast the low D lane into both lanes.
 /// ARM ARM C7.2.40 (imm5 = 01000). Base = 0x4E08_0400.
 pub fn dup_2d_d(rd: Fpr, rn: Fpr) -> u32 {
@@ -93,6 +112,12 @@ mod tests {
     //   fcvtzs v1.2d, v2.2d     4ee1b841
     //   dup  v1.2d, v2.d[0]     4e080441
     //   mov  v5.d[1], v6.d[0]   6e1804c5
+    //   frintz v1.2d, v2.2d     4ee19841
+    //   frintz v5.2d, v30.2d    4ee19bc5
+    //   fcmeq v1.2d, v2.2d, v3.2d     4e63e441
+    //   fcmeq v7.2d, v16.2d, v29.2d   4e7de607
+    //   and  v1.16b, v2.16b, v3.16b   4e231c41
+    //   and  v7.16b, v16.16b, v29.16b 4e3d1e07
     #[test]
     fn q_loads_and_stores_match_clang() {
         assert_eq!(ldr_q_imm12(Fpr::V3, Gpr::X9, 48), 0x3DC0_0D23);
@@ -116,5 +141,15 @@ mod tests {
         assert_eq!(fcvtzs_v2d(Fpr::V1, Fpr::V2), 0x4EE1_B841);
         assert_eq!(dup_2d_d(Fpr::V1, Fpr::V2), 0x4E08_0441);
         assert_eq!(ins_d1_d0(Fpr::V5, Fpr::V6), 0x6E18_04C5);
+    }
+
+    #[test]
+    fn divisibility_mask_forms_match_clang() {
+        assert_eq!(frintz_v2d(Fpr::V1, Fpr::V2), 0x4EE1_9841);
+        assert_eq!(frintz_v2d(Fpr::V5, Fpr::V30), 0x4EE1_9BC5);
+        assert_eq!(fcmeq_v2d(Fpr::V1, Fpr::V2, Fpr::V3), 0x4E63_E441);
+        assert_eq!(fcmeq_v2d(Fpr::V7, Fpr::V16, Fpr::V29), 0x4E7D_E607);
+        assert_eq!(and_v16b(Fpr::V1, Fpr::V2, Fpr::V3), 0x4E23_1C41);
+        assert_eq!(and_v16b(Fpr::V7, Fpr::V16, Fpr::V29), 0x4E3D_1E07);
     }
 }

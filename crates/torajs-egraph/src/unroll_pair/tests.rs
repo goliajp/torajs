@@ -155,7 +155,7 @@ fn the_loop_is_unrolled_twice_around_one_lane_divide() {
     assert!(matches!(site[2], InstKind::SiToFp(_)));
     assert!(is_vec(site[3], |vi| matches!(
         vi,
-        VecInst::Pair(Operand::Value(ValueId(5)), _)
+        VecInst::Pair(_, Operand::Value(ValueId(5)), _)
     )));
     assert!(is_vec(site[4], |vi| matches!(
         vi,

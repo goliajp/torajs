@@ -13,9 +13,9 @@ use super::{
     OP_SCRATCH_RHS, OP_SCRATCH_TMP, write_def_spill_gpr, write_u32,
 };
 use crate::enc::{
-    add_imm, add_v2d, addp_d_v2d, dup_2d_d, dup_2d_x, fadd_v2d, fcvtzs_v2d, fdiv_v2d,
-    fmov_x_from_d, ins_d1_d0, ldr_q_imm12, ldur_q_imm9, mov_d_reg, movi_2d_zero, orr_reg, orr_v16b,
-    str_q_imm12, stur_q_imm9, umov_x_d,
+    add_imm, add_v2d, addp_d_v2d, and_v16b, dup_2d_d, dup_2d_x, fadd_v2d, fcmeq_v2d, fcvtzs_v2d,
+    fdiv_v2d, fmov_d_from_x, fmov_x_from_d, frintz_v2d, ins_d1_d0, ins_d1_x, ldr_q_imm12,
+    ldur_q_imm9, mov_d_reg, movi_2d_zero, orr_reg, orr_v16b, str_q_imm12, stur_q_imm9, umov_x_d,
 };
 use crate::reg::{Fpr, Gpr, Reg};
 use crate::regalloc::Assignment;
@@ -103,7 +103,7 @@ pub(super) fn emit_vec(bytes: &mut Vec<u8>, inst: &Inst, vi: &VecInst, alloc: &A
         // the low lane is the f64 register itself; the high lane is
         // written after it, from a scratch when the destination is
         // the high operand's own register
-        VecInst::Pair(lo, hi) => {
+        VecInst::Pair(VecShape::F64x2, lo, hi) => {
             let dst = vec_home(alloc, result);
             let lo = materialize_operand_fpr(bytes, lo, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
             let mut hi = materialize_operand_fpr(bytes, hi, FP_SCRATCH_RHS, OP_SCRATCH_RHS, alloc);
@@ -116,9 +116,22 @@ pub(super) fn emit_vec(bytes: &mut Vec<u8>, inst: &Inst, vi: &VecInst, alloc: &A
             }
             write_u32(bytes, ins_d1_d0(dst, hi));
         }
+        // from GPRs: the low lane's fmov clears the high lane, which
+        // the insert then writes
+        VecInst::Pair(VecShape::I64x2, lo, hi) => {
+            let dst = vec_home(alloc, result);
+            let lo = materialize_operand_gpr(bytes, lo, OP_SCRATCH_LHS, alloc);
+            let hi = materialize_operand_gpr(bytes, hi, OP_SCRATCH_RHS, alloc);
+            write_u32(bytes, fmov_d_from_x(dst, lo));
+            write_u32(bytes, ins_d1_x(dst, hi));
+        }
         VecInst::FpToSi(v) => {
             let src = vec_operand(alloc, v);
             write_u32(bytes, fcvtzs_v2d(vec_home(alloc, result), src));
+        }
+        VecInst::FRintZ(v) => {
+            let src = vec_operand(alloc, v);
+            write_u32(bytes, frintz_v2d(vec_home(alloc, result), src));
         }
         VecInst::Lane(k, v) => {
             let src = vec_operand(alloc, v);
@@ -133,9 +146,11 @@ pub(super) fn emit_vec(bytes: &mut Vec<u8>, inst: &Inst, vi: &VecInst, alloc: &A
                 bytes,
                 match op {
                     VecOp::Add => add_v2d(dst, ra, rb),
+                    VecOp::And => and_v16b(dst, ra, rb),
                     VecOp::Or => orr_v16b(dst, ra, rb),
                     VecOp::FAdd => fadd_v2d(dst, ra, rb),
                     VecOp::FDiv => fdiv_v2d(dst, ra, rb),
+                    VecOp::FCmEq => fcmeq_v2d(dst, ra, rb),
                 },
             );
         }
@@ -152,7 +167,9 @@ pub(super) fn emit_vec(bytes: &mut Vec<u8>, inst: &Inst, vi: &VecInst, alloc: &A
                     write_u32(bytes, umov_x_d(dst, src, 0));
                     write_u32(bytes, orr_reg(dst, dst, OP_SCRATCH_TMP));
                 }
-                VecOp::FAdd | VecOp::FDiv => panic!("vec.reduce has no float form"),
+                VecOp::And | VecOp::FAdd | VecOp::FDiv | VecOp::FCmEq => {
+                    panic!("vec.reduce.{} has no lowering", op.as_str())
+                }
             }
             write_def_spill_gpr(bytes, spill, dst);
         }
@@ -231,6 +248,50 @@ mod tests {
             enc::orr_reg(gpr(q), gpr(q), OP_SCRATCH_TMP),
         ];
         let got = words(&compile_function(&func).bytes);
+        let mut at = 0;
+        for w in expect {
+            at += got[at..]
+                .iter()
+                .position(|&g| g == w)
+                .unwrap_or_else(|| panic!("missing {w:#010x} after word {at}"))
+                + 1;
+        }
+    }
+
+    /// `(a, b) & (trunc(p[0..2] / p[2..4]) == p[0..2] / p[2..4])`,
+    /// reduced: the divisibility-mask chain over an i64 lane pair.
+    #[test]
+    fn mask_chain_emits_frintz_fcmeq_and_over_an_i64_pair() {
+        const F: Type = Type::Vec(VecShape::F64x2);
+        let mut f = Function::new("mask", Type::I64);
+        let p = f.add_param(Type::Ptr, "p");
+        let a = f.add_param(Type::I64, "a");
+        let b = f.add_param(Type::I64, "b");
+        let blk = f.add_block();
+        let x = f.append_inst(blk, InstKind::Load(F, val(p), 0), F, None);
+        let y = f.append_inst(blk, InstKind::Load(F, val(p), 16), F, None);
+        let q = vec_inst(&mut f, VecInst::BinOp(VecOp::FDiv, val(x), val(y)), F);
+        let t = vec_inst(&mut f, VecInst::FRintZ(val(q)), F);
+        let m = vec_inst(&mut f, VecInst::BinOp(VecOp::FCmEq, val(t), val(q)), V);
+        let s = vec_inst(&mut f, VecInst::Pair(VecShape::I64x2, val(a), val(b)), V);
+        let k = vec_inst(&mut f, VecInst::BinOp(VecOp::And, val(m), val(s)), V);
+        let r = vec_inst(&mut f, VecInst::Reduce(VecOp::Add, val(k)), Type::I64);
+        f.set_term(blk, Terminator::Ret(Some(val(r))));
+        let alloc = allocate_linear_scan(&f);
+        let fpr = |v: ValueId| vec_home(&alloc, v);
+        let gpr = |v: ValueId| match alloc.of(v) {
+            Reg::Gpr(g) => g,
+            other => panic!("{other:?}"),
+        };
+        let expect = [
+            enc::fdiv_v2d(fpr(q), fpr(x), fpr(y)),
+            enc::frintz_v2d(fpr(t), fpr(q)),
+            enc::fcmeq_v2d(fpr(m), fpr(t), fpr(q)),
+            enc::fmov_d_from_x(fpr(s), gpr(a)),
+            enc::ins_d1_x(fpr(s), gpr(b)),
+            enc::and_v16b(fpr(k), fpr(m), fpr(s)),
+        ];
+        let got = words(&compile_function(&f).bytes);
         let mut at = 0;
         for w in expect {
             at += got[at..]

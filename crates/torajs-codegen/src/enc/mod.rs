@@ -59,7 +59,7 @@ pub use mem::{
     stur_w_imm9, stur_x_imm9, sturh_w_imm9,
 };
 pub use simd::{
-    dup_2d_d, fadd_v2d, fcvtzs_v2d, fdiv_v2d, ins_d1_d0, ldr_q_imm12, ldur_q_imm9, orr_v16b,
-    str_q_imm12, stur_q_imm9, umov_x_d,
+    and_v16b, dup_2d_d, fadd_v2d, fcmeq_v2d, fcvtzs_v2d, fdiv_v2d, frintz_v2d, ins_d1_d0,
+    ldr_q_imm12, ldur_q_imm9, orr_v16b, str_q_imm12, stur_q_imm9, umov_x_d,
 };
 pub use sys::{mrs_fpcr, msr_fpcr, orr_imm_bit};

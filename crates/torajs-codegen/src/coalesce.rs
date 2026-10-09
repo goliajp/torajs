@@ -29,7 +29,7 @@
 
 use torajs_core::ssa::id_hash::{HashMap, HashSet};
 
-use torajs_core::ssa::{Function, InstKind, Operand, VecInst};
+use torajs_core::ssa::{Function, InstKind, Operand, VecInst, VecShape};
 
 use crate::linear_scan_calls::crosses_call;
 use crate::liveness::{Interval, visit_inst_operands, visit_terminator_operands};
@@ -153,7 +153,7 @@ fn collect_copies(
             }
             (InstKind::Copy(_, Operand::Value(v)), Some(w)) => copies.push((w.0, v.0)),
             // a lane pair starts as its low operand's register
-            (InstKind::Vec(VecInst::Pair(Operand::Value(v), _)), Some(w)) => {
+            (InstKind::Vec(VecInst::Pair(VecShape::F64x2, Operand::Value(v), _)), Some(w)) => {
                 copies.push((w.0, v.0))
             }
             _ => {}

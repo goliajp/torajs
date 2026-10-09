@@ -253,7 +253,7 @@ fn rewrite_block(func: &mut Function, b: BlockId, pre: BlockId, pairs: &[(Quot, 
     let mut splats: HashMap<ValueId, ValueId> = HashMap::default();
     for (q1, q2) in pairs {
         let xv = new_value(func, F64X2);
-        let pair = InstKind::Vec(VecInst::Pair(v(q1.a), v(q2.a)));
+        let pair = InstKind::Vec(VecInst::Pair(VecShape::F64x2, v(q1.a), v(q2.a)));
         func.blocks[pre.0 as usize].insts.push(inst(xv, pair));
         let fresh = !splats.contains_key(&q1.y);
         if fresh {
