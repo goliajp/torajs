@@ -226,7 +226,7 @@ unsafe fn any_slice(arr: *const u8, start: i64, end: i64, holes: Holes) -> *mut 
                 .as_ptr()
                 .cast(),
         ) {
-            return crate::alloc::__torajs_arr_alloc_any(0);
+            return crate::alloc_any::__torajs_arr_alloc_any(0);
         }
         let len = *(arr.add(ARR_LEN_OFF) as *const u64);
         let (lo, hi) = clamp_range(len as i64, start, end);
@@ -322,7 +322,7 @@ pub unsafe extern "C" fn __torajs_arr_any_to_reversed(arr: *const u8) -> *mut u8
                 .as_ptr()
                 .cast(),
         ) {
-            return crate::alloc::__torajs_arr_alloc_any(0);
+            return crate::alloc_any::__torajs_arr_alloc_any(0);
         }
         let len = *(arr.add(ARR_LEN_OFF) as *const u64);
         let total = ARR_CELL_SIZE + (len as usize) * ANY_SLOT_BYTES;

@@ -43,12 +43,12 @@ pub unsafe extern "C" fn __torajs_arr_flat_any(outer: *const u8) -> *mut u8 {
                 .cast(),
         )
     } {
-        return unsafe { crate::alloc::__torajs_arr_alloc_any(0) };
+        return unsafe { crate::alloc_any::__torajs_arr_alloc_any(0) };
     }
     let outer_len = unsafe { *(outer.add(ARR_LEN_OFF) as *const u64) };
     // Start with cap == outer_len; arr_push_any / arr_extend_any
     // grow on demand so over-estimating isn't required.
-    let mut dst = unsafe { crate::alloc::__torajs_arr_alloc_any(outer_len) };
+    let mut dst = unsafe { crate::alloc_any::__torajs_arr_alloc_any(outer_len) };
     let outer_mut = outer as *mut u8;
     let outer_mop = unsafe { crate::layout::needs_index_mop(outer) };
     for i in 0..outer_len {

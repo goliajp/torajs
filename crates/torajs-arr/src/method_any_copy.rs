@@ -44,7 +44,7 @@ unsafe fn owned_any_copy(arr: *const u8) -> *mut u8 {
             return crate::slice::__torajs_arr_any_slice(arr, 0, i64::MAX);
         }
         let len = *(arr.add(ARR_LEN_OFF) as *const u64);
-        let seed = crate::alloc::__torajs_arr_alloc_any(len);
+        let seed = crate::alloc_any::__torajs_arr_alloc_any(len);
         crate::any::__torajs_arr_extend_any(seed, arr)
     }
 }
@@ -93,7 +93,7 @@ pub unsafe extern "C" fn __torajs_arr_any_flat_depth(arr: *const u8, depth: i64)
                 .as_ptr()
                 .cast(),
         ) {
-            return crate::alloc::__torajs_arr_alloc_any(0);
+            return crate::alloc_any::__torajs_arr_alloc_any(0);
         }
         if depth <= 0 {
             return crate::slice::__torajs_arr_any_slice(arr, 0, i64::MAX);
@@ -137,7 +137,7 @@ pub unsafe extern "C" fn __torajs_arr_any_with(arr: *const u8, i: i64, v: u64) -
                 .as_ptr()
                 .cast(),
         ) {
-            return crate::alloc::__torajs_arr_alloc_any(0);
+            return crate::alloc_any::__torajs_arr_alloc_any(0);
         }
         let len = *(arr.add(ARR_LEN_OFF) as *const u64) as i64;
         let adj = if i < 0 { len + i } else { i };

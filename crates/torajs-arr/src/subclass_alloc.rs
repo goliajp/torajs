@@ -17,7 +17,7 @@
 
 use core::ffi::c_void;
 
-use crate::alloc::__torajs_arr_alloc_any_holes;
+use crate::alloc_any::__torajs_arr_alloc_any_holes;
 
 unsafe extern "C" {
     /// torajs-meta — record the fresh instance's class identity

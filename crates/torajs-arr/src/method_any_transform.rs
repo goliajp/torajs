@@ -311,7 +311,7 @@ pub unsafe extern "C" fn __torajs_arr_any_splice(
                 .as_ptr()
                 .cast(),
         ) {
-            return crate::alloc::__torajs_arr_alloc_any(0);
+            return crate::alloc_any::__torajs_arr_alloc_any(0);
         }
         let len = arr_len(arr);
         let header = &*(arr as *const HeapHeader);
@@ -326,7 +326,7 @@ pub unsafe extern "C" fn __torajs_arr_any_splice(
             || (item_count > actual_delete && header.flags & torajs_rc::FLAG_ARR_LENGTH_RO != 0)
         {
             crate::define_length::__torajs_arr_len_write_guard(arr as *const _);
-            return crate::alloc::__torajs_arr_alloc_any(0);
+            return crate::alloc_any::__torajs_arr_alloc_any(0);
         }
         // Net growth on a non-extensible (sealed / preventExtensions)
         // receiver refuses before anything moves — new indexes cannot
@@ -334,7 +334,7 @@ pub unsafe extern "C" fn __torajs_arr_any_splice(
         if item_count > actual_delete
             && crate::define_length::__torajs_arr_extend_guard(arr as *const _) != 0
         {
-            return crate::alloc::__torajs_arr_alloc_any(0);
+            return crate::alloc_any::__torajs_arr_alloc_any(0);
         }
 
         // Typed pre-scan: every item must be storable without
@@ -345,7 +345,7 @@ pub unsafe extern "C" fn __torajs_arr_any_splice(
                 __torajs_throw_type_error(
                     c"array of unknown element kind reached an any[] splice".as_ptr(),
                 );
-                return crate::alloc::__torajs_arr_alloc_any(0);
+                return crate::alloc_any::__torajs_arr_alloc_any(0);
             }
             for k in 0..item_count {
                 let av = *items.add(k as usize);
@@ -365,7 +365,7 @@ pub unsafe extern "C" fn __torajs_arr_any_splice(
                         c"splice through an any[] view would change the typed array's element kind"
                             .as_ptr(),
                     );
-                    return crate::alloc::__torajs_arr_alloc_any(0);
+                    return crate::alloc_any::__torajs_arr_alloc_any(0);
                 }
             }
         }
@@ -385,7 +385,7 @@ pub unsafe extern "C" fn __torajs_arr_any_splice(
         // Removed array — slots transfer (no rc traffic), header
         // flags follow the receiver's shape.
         let removed = if is_any {
-            let p = crate::alloc::__torajs_arr_alloc_any(actual_delete as u64);
+            let p = crate::alloc_any::__torajs_arr_alloc_any(actual_delete as u64);
             *(p.add(ARR_LEN_OFF) as *mut u64) = actual_delete as u64;
             // A transferred slot hole stays a hole (§23.1.3.31 step 11
             // copies only present indices), so the product can hold one.

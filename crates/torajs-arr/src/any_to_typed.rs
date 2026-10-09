@@ -62,7 +62,7 @@ pub unsafe extern "C" fn __torajs_arr_any_to_typed(arr: *mut u8, kind: i64) -> *
                 .cast(),
         )
     } {
-        return unsafe { crate::alloc::__torajs_arr_alloc_any(0) };
+        return unsafe { crate::alloc_any::__torajs_arr_alloc_any(0) };
     }
     let want = kind as u16;
     let hdr = arr as *const HeapHeader;

@@ -109,7 +109,7 @@ unsafe fn hof_loop(
         let out: *mut u8 = if mode == 0 {
             core::ptr::null_mut()
         } else {
-            crate::alloc::__torajs_arr_alloc_any(len)
+            crate::alloc_any::__torajs_arr_alloc_any(len)
         };
         // The receiver rides as the callback's third argument — a
         // heap cell's NaN-box encoding is its pointer bits (borrow).

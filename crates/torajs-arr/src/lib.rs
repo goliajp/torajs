@@ -36,6 +36,7 @@
 extern crate torajs_mmalloc as _;
 
 pub mod alloc;
+pub mod alloc_any;
 pub mod any;
 pub mod any_fill;
 pub mod any_flat;
@@ -100,9 +101,9 @@ pub mod transform;
 pub mod transform_es2023;
 pub mod transform_splice;
 
-pub use alloc::{
-    __torajs_arr_alloc, __torajs_arr_alloc_any, __torajs_arr_alloc_any_filled,
-    __torajs_arr_alloc_any_filled_f64, __torajs_arr_alloc_pooled, __torajs_arr_free,
+pub use alloc::{__torajs_arr_alloc, __torajs_arr_alloc_pooled, __torajs_arr_free};
+pub use alloc_any::{
+    __torajs_arr_alloc_any, __torajs_arr_alloc_any_filled, __torajs_arr_alloc_any_filled_f64,
     __torajs_arr_new_from_any,
 };
 pub use any::{
