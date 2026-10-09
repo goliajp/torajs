@@ -69,6 +69,12 @@ use torajs_core::ssa::{BlockId, IPred, Module, Operand, ValueId};
 pub const MIN_LANES: usize = 4;
 /// At most this many: each lane keeps its cells in registers.
 pub const MAX_LANES: usize = 8;
+/// General registers every lane's own state may take together, out of
+/// the 21 the allocator hands out; the rest hold shared values, each
+/// step's temporaries and the outer loop. Bounds the lane count of a
+/// lockstep group (`fit::lane_count`) and of a masked one
+/// (`masked::masked_lanes`).
+const LANE_GPR_BUDGET: usize = 18;
 const MAX_PRE_INSTS: usize = 16;
 const MAX_INNER_INSTS: usize = 24;
 const MAX_POST_INSTS: usize = 64;

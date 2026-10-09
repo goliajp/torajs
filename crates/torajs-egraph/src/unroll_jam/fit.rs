@@ -10,7 +10,9 @@ use torajs_core::ssa::{
 
 use super::clone::reads_outside;
 use super::plan::blk;
-use super::{MAX_INNER_INSTS, MAX_LANES, MAX_POST_INSTS, MAX_PRE_INSTS, MIN_LANES, Plan};
+use super::{
+    LANE_GPR_BUDGET, MAX_INNER_INSTS, MAX_LANES, MAX_POST_INSTS, MAX_PRE_INSTS, MIN_LANES, Plan,
+};
 
 /// Cycles one inner step must wait on its own previous step before the
 /// interleaving pays: below this, a single lane already keeps the core
@@ -24,11 +26,6 @@ const MIN_CARRIED_LATENCY: u32 = 3;
 /// counted as one.
 const INT_DIV_ISSUE: u32 = 2;
 const FLOAT_DIV_ISSUE: u32 = 1;
-
-/// General registers the lanes' own cells may take, out of the ~21 the
-/// allocator hands out, leaving the rest to shared values and the outer
-/// loop.
-const LANE_GPR_BUDGET: usize = 18;
 
 /// Pure, trap-free, reads no memory.
 fn pure(kind: &InstKind) -> bool {

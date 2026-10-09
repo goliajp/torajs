@@ -42,14 +42,13 @@ use torajs_core::ssa::{
 
 use super::clone::{clone_into, new_value, push, reads_outside, tail_clone};
 use super::emit::reuse_shared;
-use super::{MIN_LANES, Plan};
+use super::{LANE_GPR_BUDGET, MIN_LANES, Plan};
 
 type Lane = HashMap<ValueId, ValueId>;
 
-/// Registers of each kind a masked lane's state may take, out of the
-/// 21 general and 21 float registers the allocator hands out; the rest
-/// hold shared values and each step's temporaries.
-const LANE_GPR_BUDGET: usize = 18;
+/// Float registers a masked lane's state may take, out of the 21 the
+/// allocator hands out; the rest hold shared values and each step's
+/// temporaries.
 const LANE_FPR_BUDGET: usize = 16;
 
 /// Lanes for a masked group: the default count, or fewer where every
