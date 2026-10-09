@@ -104,16 +104,13 @@ struct Plan {
 pub fn version_loops(module: &mut Module) -> IntEntryStats {
     let mut stats = IntEntryStats::default();
     for func in module.funcs.iter_mut() {
-        let dense = func
-            .blocks
-            .iter()
-            .enumerate()
-            .all(|(i, b)| b.id.0 as usize == i);
+        let dense = (0u32..).zip(&func.blocks).all(|(i, b)| b.id.0 == i);
         if func.is_declaration() || !dense {
             continue;
         }
-        for plan in plan_function(func, &mut stats) {
-            apply(func, &plan);
+        // last first: an earlier loop's body may read a later plan's cell
+        for plan in plan_function(func, &mut stats).iter().rev() {
+            apply(func, plan);
             stats.loops_versioned += 1;
             stats.bounds_converted += plan.uses.len() as u32;
             stats.values_converted += plan.values.len() as u32;
