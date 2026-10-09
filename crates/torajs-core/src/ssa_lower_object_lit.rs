@@ -108,7 +108,7 @@ pub(crate) fn lower(
     for t in parked {
         ctx.pop_throw_temp(t);
     }
-    apply_w4_widen(ctx, &mut field_tys, &mut field_vals, eid);
+    apply_w4_widen(ctx, &mut field_tys, &mut field_vals, eid, declared_hint);
     // An `undefined` literal has no type of its own — its field's
     // DECLARED slot type is the truth, and the sentinel it lands is
     // re-materialized for that slot after resolution (below). Lowered
