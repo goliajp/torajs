@@ -9,6 +9,8 @@
 //! is true, as IEEE 754 compares and ECMA-262 Number::equal /
 //! Number::lessThan answer.
 
+use std::cmp::Ordering;
+
 use crate::rewrite::Rewrite;
 use torajs_core::ssa::{FPred, IPred, InstKind, Operand};
 
@@ -44,7 +46,7 @@ fn icmp(p: IPred, a: i64, b: i64) -> bool {
 fn fcmp(p: FPred, a: f64, b: f64) -> bool {
     match p {
         FPred::Oeq => a == b,
-        FPred::One => a < b || a > b,
+        FPred::One => matches!(a.partial_cmp(&b), Some(Ordering::Less | Ordering::Greater)),
         FPred::Olt => a < b,
         FPred::Ogt => a > b,
         FPred::Ole => a <= b,

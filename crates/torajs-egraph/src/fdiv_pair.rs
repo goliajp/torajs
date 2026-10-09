@@ -215,10 +215,9 @@ fn plan_block(func: &Function, b: BlockId, lp: &NaturalLoop, facts: &Facts) -> V
         }
         group.push(quot);
     }
-    order
-        .iter()
-        .flat_map(|y| by_divisor[y].chunks_exact(2).map(|c| (c[0], c[1])))
-        .collect()
+    let pair = |c: &[Quot; 2]| (c[0], c[1]);
+    let pairs = |y| by_divisor[y].as_chunks().0.iter().map(pair);
+    order.iter().flat_map(pairs).collect()
 }
 
 fn new_value(func: &mut Function, ty: Type) -> ValueId {
