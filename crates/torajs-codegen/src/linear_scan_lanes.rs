@@ -110,6 +110,10 @@ pub(crate) fn ret_lane_free(
     })
 }
 
+/// Register moves `(arg_reg, home)` and stack loads `(slot, home)` that
+/// put each parameter in its home on entry.
+type ParamEntries = (Vec<(Reg, Reg)>, Vec<(u32, Reg)>);
+
 /// The entry moves of the parameters, from the post-sweep `by_value`:
 /// a param the sweep parked in a callee-saved reg may later be evicted
 /// to a spill slot by `spill_at_active`; the original push would still
@@ -121,7 +125,7 @@ pub(crate) fn param_entries(
     by_value: &HashMap<u32, Reg>,
     param_arg_reg: &HashMap<u32, Reg>,
     stack_params: &HashMap<u32, u32>,
-) -> (Vec<(Reg, Reg)>, Vec<(u32, Reg)>) {
+) -> ParamEntries {
     let mut param_entry_moves: Vec<(Reg, Reg)> = Vec::new();
     let mut stack_param_entry_loads: Vec<(u32, Reg)> = Vec::new();
     for &param in &func.params {

@@ -32,12 +32,12 @@ impl Parser<'_> {
         // same base
         while matches!(self.peek(), Token::Pipe) {
             let next = self.tokens.get(self.pos + 1).map(|s| &s.token);
-            let same = match (&lit, next) {
-                (Lit::Str(_), Some(Token::String(_))) => true,
-                (Lit::Num(_), Some(Token::Number(_))) => true,
-                (Lit::Bool(_), Some(Token::True | Token::False)) => true,
-                _ => false,
-            };
+            let same = matches!(
+                (&lit, next),
+                (Lit::Str(_), Some(Token::String(_)))
+                    | (Lit::Num(_), Some(Token::Number(_)))
+                    | (Lit::Bool(_), Some(Token::True | Token::False))
+            );
             if !same {
                 break;
             }

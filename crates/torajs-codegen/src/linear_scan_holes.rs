@@ -35,6 +35,9 @@ const NIL: u32 = u32::MAX;
 /// compile time.
 pub(crate) const MAX_HOLDERS: u8 = 32;
 
+/// `(next range start, vid, its index, hull start, hull end, register)`.
+type Waiting = (u32, u32, u32, u32, u32, usize);
+
 /// The holders of every pool register and the ones in a hole.
 pub(crate) struct Holes {
     /// Per pool register (`holder_key`), the first of the values holding
@@ -51,7 +54,7 @@ pub(crate) struct Holes {
     at: Vec<(u32, u32)>,
     /// `(next range start, vid, its index, hull start, hull end,
     /// register)` of every holder in a hole, earliest start first.
-    waiting: BinaryHeap<Reverse<(u32, u32, u32, u32, u32, usize)>>,
+    waiting: BinaryHeap<Reverse<Waiting>>,
     /// Per register, how many of its holders wait; the registers with
     /// a waiting holder; the registers with an active holder (at most
     /// one each: active holders all cover the sweep position).

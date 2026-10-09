@@ -82,11 +82,11 @@ impl Checker {
             Stmt::For { cond, .. } => self.loop_end(ast, *cond),
             Stmt::ForOf { .. } | Stmt::ForOfSplitIter { .. } => End::Completes,
             Stmt::DoWhile { .. } | Stmt::Labeled { .. } => End::Unknown,
-            Stmt::Switch { default, .. } => match default {
-                // no clause need match
-                None => End::Completes,
-                Some(_) => End::Unknown,
-            },
+            // no clause need match
+            Stmt::Switch { default: None, .. } => End::Completes,
+            Stmt::Switch {
+                default: Some(_), ..
+            } => End::Unknown,
             Stmt::Expr(e) if self.never_returns(ast, *e) => End::Diverges,
             _ => End::Completes,
         }
