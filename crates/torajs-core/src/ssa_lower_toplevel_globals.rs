@@ -270,6 +270,7 @@ fn slot_ty_from_ann(
             &key,
             num_f64_slots,
             arr_layouts,
+            struct_layouts,
             fn_sigs,
         )
     } else {

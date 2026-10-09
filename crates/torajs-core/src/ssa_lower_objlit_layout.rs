@@ -15,10 +15,14 @@
 //!    allowance) — the historical fast path, unchanged;
 //! 2. numeric-coercible match: every field name matches and the only
 //!    disagreements are F64-vs-I64 — the literal coerces to the
-//!    registered width (`SiToFp` is lossless for |v| ≤ 2^53;
-//!    `FpToSi` truncates a fractional value, which is the
-//!    pre-existing W4 container-width debt, strictly better than
-//!    bit-punning);
+//!    registered width. `SiToFp` is lossless for |v| ≤ 2^53. The
+//!    narrowing `FpToSi` is admitted only against the declared hint:
+//!    a declared slot the width table left I64 has an integral class,
+//!    so the value it narrows is integral. The un-hinted scan never
+//!    narrows — an F64 literal there means its own or its family's
+//!    verdict floats, and coercing it into a same-shaped I64 layout
+//!    (a `type A = { right: number }` registered at the parse width)
+//!    truncated `[{ right: 3.5 }]` to 3;
 //! 3. auto-register an anonymous layout (V3-18 P2.4.c, unchanged).
 
 use crate::ast::PropKey;
@@ -56,7 +60,7 @@ pub(crate) fn resolve_objlit_layout(
                     rn == ln && (rt == lt || (*lt == Type::Ptr && rt.is_pointer_shaped()))
                 })
     };
-    let coercible = |reg: &Vec<(PropKey, Type)>| -> bool {
+    let coercible = |reg: &Vec<(PropKey, Type)>, narrow: bool| -> bool {
         reg.len() == field_tys.len()
             && reg
                 .iter()
@@ -65,7 +69,7 @@ pub(crate) fn resolve_objlit_layout(
                     rn == ln
                         && (rt == lt
                             || (*lt == Type::Ptr && rt.is_pointer_shaped())
-                            || (*lt == Type::F64 && *rt == Type::I64)
+                            || (narrow && *lt == Type::F64 && *rt == Type::I64)
                             || (*lt == Type::I64 && *rt == Type::F64)
                             // RFC 20260710 C4 — a declared-Any slot
                             // (`__nullable(number|boolean)` optional
@@ -146,14 +150,14 @@ pub(crate) fn resolve_objlit_layout(
     };
     let hinted = declared_hint.filter(|sid| {
         layouts.get(sid.0 as usize).is_some_and(|reg| {
-            exact(reg) || coercible(reg) || coercible_unbox(reg) || coercible_null_lit(reg)
+            exact(reg) || coercible(reg, true) || coercible_unbox(reg) || coercible_null_lit(reg)
         })
     });
     let sid = match hinted.or_else(|| {
         layouts
             .iter()
             .position(exact)
-            .or_else(|| layouts.iter().position(coercible))
+            .or_else(|| layouts.iter().position(|reg| coercible(reg, false)))
             .map(|i| StructId(i as u32))
     }) {
         Some(sid) => sid,

@@ -18,19 +18,22 @@ use crate::ssa_lower::intern_fn_sig;
 /// smaller than its container's. A face therefore descends through a
 /// strictly decreasing id and cannot cycle. (A self-referential
 /// spelling never reaches here — `parse_type` recurses on the alias
-/// first. `Obj` faces are deliberately not walked: struct layouts are
-/// the one shape that IS interned reserve-first, for the recursive
-/// generic alias, so the argument above does not hold for them.)
+/// first. A bare `Obj` face is deliberately not walked: struct layouts
+/// are the one shape that IS interned reserve-first, for the recursive
+/// generic alias, so the argument above does not hold for them. An
+/// `Obj` ELEMENT of an array face is walked by `widen_arr_elem`, which
+/// hands it to `widen_struct_fields` and its own cycle guard.)
 fn widen_face(
     ty: Type,
     ann: Option<&str>,
     key: &SlotKey,
     table: &WidthTable,
     arr_layouts: &mut Vec<Type>,
+    struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
 ) -> Type {
     match ty {
-        Type::Arr(_) => widen_arr_elem(ty, ann, key, table, arr_layouts, fn_sigs),
+        Type::Arr(_) => widen_arr_elem(ty, ann, key, table, arr_layouts, struct_layouts, fn_sigs),
         // A fn-typed param is itself a signature whose faces live on
         // the projections of THIS key — the flow site glued them onto
         // the resident's Ret / Param classes the same way. Without
@@ -38,7 +41,7 @@ fn widen_face(
         // result off the annotation's narrow SigId while the argument
         // actually passed had already widened (553-01).
         Type::Closure(_) | Type::FnSig(_) => {
-            widen_fn_sig_by_key(ty, key, table, arr_layouts, fn_sigs)
+            widen_fn_sig_by_key(ty, key, table, arr_layouts, struct_layouts, fn_sigs)
         }
         _ => ty,
     }
@@ -66,6 +69,7 @@ pub(crate) fn widen_fn_sig(
     key: &SlotKey,
     table: &WidthTable,
     arr_layouts: &mut Vec<Type>,
+    struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
 ) -> Type {
     let (sid, is_closure) = match parsed {
@@ -84,10 +88,10 @@ pub(crate) fn widen_fn_sig(
     // f(7)` reading `f`'s result through the narrow annotation SigId
     // while the argument actually passed had widened (553-01).
     let Some(canon) = ann.and_then(fn_type_canon) else {
-        return widen_fn_sig_by_key(parsed, key, table, arr_layouts, fn_sigs);
+        return widen_fn_sig_by_key(parsed, key, table, arr_layouts, struct_layouts, fn_sigs);
     };
     let Some((param_anns, ret_ann)) = split_fn_type(&canon) else {
-        return widen_fn_sig_by_key(parsed, key, table, arr_layouts, fn_sigs);
+        return widen_fn_sig_by_key(parsed, key, table, arr_layouts, struct_layouts, fn_sigs);
     };
     let ck = SlotKey::Class(canon.clone());
     let (param_tys, ret_ty) = fn_sigs[sid.0 as usize].clone();
@@ -106,6 +110,7 @@ pub(crate) fn widen_fn_sig(
                 &pk,
                 table,
                 arr_layouts,
+                struct_layouts,
                 fn_sigs,
             );
         }
@@ -115,7 +120,15 @@ pub(crate) fn widen_fn_sig(
         Type::F64
     } else {
         let rk = SlotKey::Field(Box::new(ck.clone()), "__ret".into());
-        widen_face(ret_ty, Some(ret_ann), &rk, table, arr_layouts, fn_sigs)
+        widen_face(
+            ret_ty,
+            Some(ret_ann),
+            &rk,
+            table,
+            arr_layouts,
+            struct_layouts,
+            fn_sigs,
+        )
     };
     if new_params == param_tys && new_ret == ret_ty {
         return parsed;
@@ -141,6 +154,7 @@ pub(crate) fn widen_fn_sig_by_key(
     key: &SlotKey,
     table: &WidthTable,
     arr_layouts: &mut Vec<Type>,
+    struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
 ) -> Type {
     let (sid, is_closure) = match parsed {
@@ -155,14 +169,22 @@ pub(crate) fn widen_fn_sig_by_key(
         if *pt == Type::I64 && table.field_is_f64(key, format!("__p{i}")) {
             *pt = Type::F64;
         } else {
-            *pt = widen_face(*pt, None, &pk, table, arr_layouts, fn_sigs);
+            *pt = widen_face(*pt, None, &pk, table, arr_layouts, struct_layouts, fn_sigs);
         }
     }
     let new_ret = if ret_ty == Type::I64 && table.field_is_f64(key, "__ret") {
         Type::F64
     } else {
         let rk = SlotKey::Field(Box::new(key.clone()), "__ret".into());
-        widen_face(ret_ty, None, &rk, table, arr_layouts, fn_sigs)
+        widen_face(
+            ret_ty,
+            None,
+            &rk,
+            table,
+            arr_layouts,
+            struct_layouts,
+            fn_sigs,
+        )
     };
     if new_params == param_tys && new_ret == ret_ty {
         return parsed;

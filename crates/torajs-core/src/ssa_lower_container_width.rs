@@ -60,13 +60,27 @@ pub(crate) fn widen_container_ty(
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
 ) -> Type {
     match parsed {
-        Type::Arr(_) => widen_arr_elem(parsed, ann, key, table, arr_layouts, fn_sigs),
+        Type::Arr(_) => widen_arr_elem(
+            parsed,
+            ann,
+            key,
+            table,
+            arr_layouts,
+            struct_layouts,
+            fn_sigs,
+        ),
         Type::Obj(_) => {
             widen_struct_fields(parsed, key, table, arr_layouts, struct_layouts, fn_sigs)
         }
-        Type::Closure(_) | Type::FnSig(_) => {
-            widen_fn_sig(parsed, ann, key, table, arr_layouts, fn_sigs)
-        }
+        Type::Closure(_) | Type::FnSig(_) => widen_fn_sig(
+            parsed,
+            ann,
+            key,
+            table,
+            arr_layouts,
+            struct_layouts,
+            fn_sigs,
+        ),
         _ => parsed,
     }
 }
@@ -161,14 +175,22 @@ pub(crate) fn widen_struct_fields(
         let fkey = SlotKey::Field(Box::new(key.clone()), fname.clone());
         let new_fty = match *fty {
             Type::I64 if table.field_is_f64(key, fname.clone()) => Type::F64,
-            Type::Arr(_) => widen_arr_elem(*fty, None, &fkey, table, arr_layouts, fn_sigs),
+            Type::Arr(_) => widen_arr_elem(
+                *fty,
+                None,
+                &fkey,
+                table,
+                arr_layouts,
+                struct_layouts,
+                fn_sigs,
+            ),
             Type::Obj(_) => {
                 widen_struct_fields(*fty, &fkey, table, arr_layouts, struct_layouts, fn_sigs)
             }
             // F5 — fn-typed fields widen by the field's own key
             // projections (the dispatch face reads this signature).
             Type::FnSig(_) | Type::Closure(_) => {
-                widen_fn_sig_by_key(*fty, &fkey, table, arr_layouts, fn_sigs)
+                widen_fn_sig_by_key(*fty, &fkey, table, arr_layouts, struct_layouts, fn_sigs)
             }
             _ => *fty,
         };
@@ -209,7 +231,25 @@ fn widen_struct_fields_in_place(
         let fkey = SlotKey::Field(Box::new(key.clone()), fname.clone());
         match *fty {
             Type::I64 if table.field_is_f64(key, fname.clone()) => *fty = Type::F64,
-            Type::Arr(_) => *fty = widen_arr_elem(*fty, None, &fkey, table, arr_layouts, fn_sigs),
+            // An array of a struct this walk is already widening in
+            // place (`kids: Node[]`) keeps its layout: the element sid
+            // is the one being mutated, and re-entering it through the
+            // element walk would start a fresh walk and never return.
+            Type::Arr(_)
+                if visiting.iter().any(|v| {
+                    ty_reaches(*fty, *v, arr_layouts, struct_layouts, &mut Vec::new())
+                }) => {}
+            Type::Arr(_) => {
+                *fty = widen_arr_elem(
+                    *fty,
+                    None,
+                    &fkey,
+                    table,
+                    arr_layouts,
+                    struct_layouts,
+                    fn_sigs,
+                )
+            }
             Type::Obj(inner) => {
                 let mut seen = Vec::new();
                 if struct_layouts[inner.0 as usize]
@@ -238,7 +278,7 @@ fn widen_struct_fields_in_place(
                 }
             }
             Type::FnSig(_) | Type::Closure(_) => {
-                *fty = widen_fn_sig_by_key(*fty, &fkey, table, arr_layouts, fn_sigs)
+                *fty = widen_fn_sig_by_key(*fty, &fkey, table, arr_layouts, struct_layouts, fn_sigs)
             }
             _ => {}
         }
@@ -259,6 +299,7 @@ pub(crate) fn widen_arr_elem(
     key: &SlotKey,
     table: &WidthTable,
     arr_layouts: &mut Vec<Type>,
+    struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
 ) -> Type {
     let Type::Arr(id) = parsed else {
@@ -303,7 +344,15 @@ pub(crate) fn widen_arr_elem(
         Type::I64 if number_elem && table.elem_is_f64(key) => Type::F64,
         Type::Arr(_) => {
             let elem_key = SlotKey::Elem(Box::new(key.clone()));
-            widen_arr_elem(elem, elem_ann, &elem_key, table, arr_layouts, fn_sigs)
+            widen_arr_elem(
+                elem,
+                elem_ann,
+                &elem_key,
+                table,
+                arr_layouts,
+                struct_layouts,
+                fn_sigs,
+            )
         }
         // A fn-typed element (`(() => number)[]`, Closure-repr per
         // `parse_arr_suffix`): its signature faces widen like any
@@ -313,7 +362,25 @@ pub(crate) fn widen_arr_elem(
         // resident returning f64 was read off the integer lane).
         Type::Closure(_) | Type::FnSig(_) => {
             let elem_key = SlotKey::Elem(Box::new(key.clone()));
-            widen_fn_sig(elem, elem_ann, &elem_key, table, arr_layouts, fn_sigs)
+            widen_fn_sig(
+                elem,
+                elem_ann,
+                &elem_key,
+                table,
+                arr_layouts,
+                struct_layouts,
+                fn_sigs,
+            )
+        }
+        // A struct element (`A[]`, an inferred `[{ right: 3.5 }]`): its
+        // number fields widen by the element key's field points, which
+        // the literal elements joined. Left at the parse width, every
+        // element literal coerced a fractional field into the I64 slot
+        // and a widened `A` value stored as an element was read back
+        // through the narrow layout as its own bits.
+        Type::Obj(_) => {
+            let elem_key = SlotKey::Elem(Box::new(key.clone()));
+            widen_struct_fields(elem, &elem_key, table, arr_layouts, struct_layouts, fn_sigs)
         }
         _ => elem,
     };
