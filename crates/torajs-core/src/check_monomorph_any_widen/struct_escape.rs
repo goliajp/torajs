@@ -50,13 +50,16 @@
 //! an argv channel (`__torajs_argv`, new.target), a generic, and a
 //! receiver channel (`__this`) except at the callback of an iteration
 //! handing `any` elements (`escaped_cb`), where the receiver rides
-//! argv[0] on both faces. Class methods take `__cmany_` / `__smany_`.
+//! argv[0] on both faces. Class methods take `__cmany_` / `__smany_`;
+//! a class factory reached through the construct channel takes a clone
+//! of its own ([`factory`]).
 
 use std::collections::{HashMap, VecDeque};
 
 mod boxed_reach;
 pub(super) mod closure;
 pub(crate) mod escaped_cb;
+mod factory;
 mod named_cb;
 mod pair;
 mod target;
@@ -140,6 +143,15 @@ pub(super) fn run(
             &found.params,
         );
     }
+    factory::run(
+        c,
+        owned_ast,
+        generics,
+        cache,
+        worklist,
+        call_retargets,
+        mono_decls,
+    );
 }
 
 fn construction_site(ast: &Ast, shell: &str) -> Option<ExprId> {

@@ -112,7 +112,7 @@ pub(super) fn hidden_any_into_scalar_param(
 /// Does user param `i` of the decl `name` carry a default? A `string`
 /// param with one stays on the caller-side lane, which substitutes the
 /// default for a run-time `undefined`; the widened clone would not.
-fn param_has_default(ast: &Ast, name: &str, i: usize) -> bool {
+pub(crate) fn param_has_default(ast: &Ast, name: &str, i: usize) -> bool {
     ast.stmts.iter().any(|s| {
         matches!(s, crate::ast::Stmt::FnDecl { name: n, params, .. }
             if n == name

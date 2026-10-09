@@ -227,9 +227,9 @@ fn relay_target_reads_argc(ast: &Ast, name: &str) -> bool {
 }
 
 /// A mono whose twin wears its own `(env, argv, argc)` face: a relay
-/// shell, or a lifted closure.
+/// shell, a lifted closure, or a class factory (head-less on both).
 fn env_faced(name: &str) -> bool {
-    crate::ast::is_shell(name) || name.starts_with("__closure_")
+    crate::ast::is_shell(name) || name.starts_with("__closure_") || name.starts_with("__new_")
 }
 
 /// The count a `__cm_` mono's body answers for, when its twin hosts

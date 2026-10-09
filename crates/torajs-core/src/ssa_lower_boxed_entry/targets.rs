@@ -115,7 +115,11 @@ pub(super) fn collect_boxed_targets(tables: &TargetTables<'_>) -> Vec<BoxedEntry
             && (constructs_from_value
                 || factory_always_admitted(ast, &promise_heirs, {
                     let c = &name["__new_".len()..];
-                    c.strip_suffix("$$anywv").unwrap_or(c)
+                    c.strip_suffix("$$anywv")
+                        .or_else(|| {
+                            crate::check_monomorph_any_widen::struct_escape::twin_original(c)
+                        })
+                        .unwrap_or(c)
                 }));
         // the replace lane's view twin is entered only by that lane's
         // direct call: no fn value carries it, so no adapter
