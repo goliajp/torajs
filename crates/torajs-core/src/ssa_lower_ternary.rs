@@ -35,6 +35,8 @@ use crate::ast::ExprId;
 use crate::ssa::{InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::LowerCtx;
 
+mod object_join;
+
 pub(crate) fn lower(
     ctx: &mut LowerCtx<'_>,
     eid: ExprId,
@@ -195,23 +197,8 @@ fn widen_branches(
         ctx.expr_types.get(&else_branch),
         Some(crate::check::Type::Null)
     );
-    // A class instance against `null`: the checker joins it to
-    // Nullable(ClassRef), not Any (only Number / Boolean / Struct
-    // widen, check_type_compare), and a nullable class slot holds the
-    // null pointer natively, as `let v: C | null = null` does. Boxing
-    // it here handed an Any to the `C | null` binding, which stored
-    // the box bits: `v === null` never held for the null arm and the
-    // next member read dereferenced the box.
-    if then_null != else_null
-        && matches!(
-            ctx.expr_types.get(&eid),
-            Some(crate::check::Type::Nullable(_))
-        )
-    {
-        let res = if then_null { et } else { tt };
-        if matches!(res, Type::Obj(_)) {
-            return (then_val, else_val, res, false, false);
-        }
+    if let Some(res) = object_join::class_or_null(ctx, eid, (tt, et), (then_null, else_null)) {
+        return (then_val, else_val, res, false, false);
     }
     let scalar_or_struct = |t: &Type| {
         matches!(
@@ -239,6 +226,15 @@ fn widen_branches(
     // the checker widened to Any), which this gate leaves alone.
     if struct_join && let Some(res) = ctx.class_join_repr(eid) {
         return (then_val, else_val, res, false, false);
+    }
+    if let Some((t, e, res)) = object_join::declared(
+        ctx,
+        eid,
+        (then_val, else_val),
+        (then_end, else_end),
+        (then_branch, else_branch),
+    ) {
+        return (t, e, res, false, false);
     }
     // rotation 284 — two array-shaped branches whose element reprs
     // differ (the checker joined `Array(T)` × `Array(Any)` to Any):

@@ -25,6 +25,8 @@
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type};
 
+mod ternary;
+
 /// `value_ty` in the field order of `to` when `value` is an object
 /// literal (or an array literal of them, at any depth) spelling the
 /// same plain property names in another order; otherwise `value_ty`
@@ -36,6 +38,7 @@ pub(crate) fn in_declared_order(
     value: ExprId,
     value_ty: Type,
 ) -> Type {
+    let value_ty = ternary::declared_join(checker, ast, to, value, value_ty);
     crate::check_stmt_let_decl::contextual_array::refuse_unfit_elems(
         checker, ast, value, to, &value_ty,
     );

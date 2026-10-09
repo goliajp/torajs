@@ -61,6 +61,18 @@ class K { name(): string { return \"k\" } }
     assert!(witnesses(src, "N").is_empty());
 }
 
+#[test]
+fn a_conditional_under_a_class_takes_only_its_own_instances() {
+    let src = "class A { x = 1; up(): number { return this.x } }
+class Sub extends A { y = 2 }
+class B { pad = \"p\"; x = 10; up(): number { return this.x } }
+const n = process.argv.length;
+";
+    assert!(checked(&format!("{src}const a: A = n > 9 ? new Sub() : new A();\n")).is_ok());
+    let err = checked(&format!("{src}const a: A = n > 9 ? new B() : new A();\n")).unwrap_err();
+    assert!(err.contains("conditional branch"), "{err}");
+}
+
 /// The slots the lowering sees once the check settled which
 /// interfaces a class instance flows into.
 fn settled(src: &str) -> Result<Vec<String>, String> {
