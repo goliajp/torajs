@@ -108,10 +108,9 @@ pub(crate) fn finish_pipeline(
     // before loop_rotate, which then rotates the loops it builds.
     let mut jammed = Vec::new();
     gated_pass("UNROLL_JAM", module, |m| {
-        jammed = unroll_jam::jam_functions(m);
-        unroll_jam::UnrollJamStats {
-            loops_jammed: jammed.iter().sum(),
-        }
+        let (per_func, stats) = unroll_jam::jam_functions(m);
+        jammed = per_func;
+        stats
     });
     // A divide-bound inner loop unrolled by two with its quotients in
     // one two-lane divide, in the functions the jam left alone (its

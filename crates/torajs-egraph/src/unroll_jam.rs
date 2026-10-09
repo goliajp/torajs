@@ -79,16 +79,18 @@ const MAX_STEP: i64 = 1 << 20;
 pub struct UnrollJamStats {
     /// Outer loops given a jammed group path.
     pub loops_jammed: u32,
+    /// Of those, the ones whose group steps its lanes under masks.
+    pub loops_masked: u32,
 }
 
 pub fn jam_module(module: &mut Module) -> UnrollJamStats {
-    UnrollJamStats {
-        loops_jammed: jam_functions(module).iter().sum(),
-    }
+    jam_functions(module).1
 }
 
-/// Loops jammed in each function of the module, by function index.
-pub fn jam_functions(module: &mut Module) -> Vec<u32> {
+/// Loops jammed in each function of the module, by function index,
+/// and the module's counters.
+pub fn jam_functions(module: &mut Module) -> (Vec<u32>, UnrollJamStats) {
+    let mut stats = UnrollJamStats::default();
     let mut jammed = vec![0; module.funcs.len()];
     for (func, count) in module.funcs.iter_mut().zip(&mut jammed) {
         if func.is_declaration() {
@@ -104,9 +106,11 @@ pub fn jam_functions(module: &mut Module) -> Vec<u32> {
             done.insert(plan.header);
             emit::apply(func, &plan);
             *count += 1;
+            stats.loops_jammed += 1;
+            stats.loops_masked += u32::from(plan.masked);
         }
     }
-    jammed
+    (jammed, stats)
 }
 
 /// One outer loop the rewrite takes, with its regions named.
