@@ -4,6 +4,7 @@ mod case;
 mod compare;
 mod exec;
 mod hyperfine;
+mod machine_probe;
 mod macho;
 mod outcome;
 mod passes;
@@ -430,11 +431,6 @@ fn run_cmd(bench_dir: &Path, args: &[String]) -> Result<bool> {
         )?,
         None => None,
     };
-    if calibration_bin.is_none() {
-        eprintln!(
-            "→ no calibration binary (c runner or its compiler missing); passes run unbracketed"
-        );
-    }
     let (rows, calibration) = passes::Passes {
         cases: &cases,
         runners: &runners,
@@ -446,7 +442,7 @@ fn run_cmd(bench_dir: &Path, args: &[String]) -> Result<bool> {
     }
     .run()?;
     report.calibration = calibration;
-    let mut all_ok = true;
+    let mut all_ok = machine_probe::clean_run(&report.calibration);
     for outcome in rows {
         if !outcome.is_ok() {
             all_ok = false;

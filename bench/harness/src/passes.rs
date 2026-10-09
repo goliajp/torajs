@@ -5,8 +5,8 @@
 //! Interleaving passes samples the machine's drift across time rather
 //! than N back-to-back runs of one cell; shuffling the order inside a
 //! pass keeps a slow drift from landing on the same cells every pass;
-//! the calibration binary says whether the machine moved during a pass
-//! at all.
+//! the calibration binary, run between every two cells, says whether
+//! the machine moved under a cell (`machine_probe`).
 
 use std::path::Path;
 use std::time::Duration;
@@ -17,7 +17,7 @@ use crate::bench::{self, RunOutcome};
 use crate::case::Case;
 use crate::report::Calibration;
 use crate::runner::Runner;
-use crate::rusage::measure_runs;
+use crate::machine_probe::{CELL_REDOS, Probe, REDO_PAUSE, Reading, is_clean};
 
 /// A pass whose calibration readings differ by more than this ran on
 /// a machine that changed under it.
@@ -95,67 +95,108 @@ pub fn build_calibration(
     }
 }
 
-fn calibrate(bin: &str) -> Result<(f64, Option<u64>)> {
-    let st = measure_runs(bin, 0, 1, &[], Duration::from_secs(60))?;
-    Ok((st.median_ms, st.instructions))
-}
-
 impl Passes<'_> {
     /// Runs every pass and returns one aggregated outcome per cell, in
-    /// case-major order, plus the calibration readings.
+    /// case-major order, plus each pass's machine record. A cell runs
+    /// again while a probe next to it reads the machine as busy
+    /// (`machine_probe`); the record says which cells did and whether
+    /// any stayed bracketed by a busy probe.
     pub fn run(&self) -> Result<(Vec<RunOutcome>, Vec<Calibration>)> {
         let nr = self.runners.len();
         let ncell = self.cases.len() * nr;
         let mut acc: Vec<Vec<RunOutcome>> = (0..ncell).map(|_| Vec::new()).collect();
         // Compile is deterministic across passes for the same (case,
-        // runner), so passes 2+ reuse the first pass's compile_ms; the
+        // runner), so passes 2+ reuse the first accepted compile_ms; the
         // compile itself still runs to produce the artifact.
         let mut compile_cache: Vec<Option<f64>> = vec![None; ncell];
+        let mut probe = match &self.calibration_bin {
+            Some(b) => Some(Probe::new(b.clone())?),
+            None => {
+                eprintln!(
+                    "→ no calibration binary (c runner or its compiler missing); passes run unprobed"
+                );
+                None
+            }
+        };
+        // every accepted cell's two bracketing probes, judged again at the
+        // end against the run's final floor
+        let mut brackets: Vec<Vec<(String, f64, f64)>> = Vec::new();
         let mut calibration = Vec::new();
         let mut shuffle = Shuffle(self.seed | 1);
         for pass in 1..=self.runs {
-            let start = match &self.calibration_bin {
-                Some(b) => Some(calibrate(b)?),
+            let mut rec = PassRecord::new(pass);
+            let mut before = match probe.as_mut() {
+                Some(p) => Some(rec.note(p.read()?)),
                 None => None,
             };
+            let mut pass_brackets = Vec::new();
             for idx in shuffle.order(ncell) {
                 let (ci, ri) = (idx / nr, idx % nr);
                 let (c, r) = (&self.cases[ci], &self.runners[ri]);
+                let label = format!("{} × {}", c.name, r.name);
                 if self.runs > 1 {
-                    eprintln!("→ {} × {} (pass {pass}/{})", c.name, r.name, self.runs);
+                    eprintln!("→ {label} (pass {pass}/{})", self.runs);
                 } else {
-                    eprintln!("→ {} × {}", c.name, r.name);
+                    eprintln!("→ {label}");
                 }
-                let cached = compile_cache[idx];
-                let outcome = bench::run_one(c, r, self.work_dir, self.workspace, cached, pass)?;
-                if cached.is_none()
-                    && let Some(cm) = outcome.compile_ms
-                {
-                    compile_cache[idx] = Some(cm);
+                let mut tries = 0;
+                let outcome = loop {
+                    let outcome = bench::run_one(
+                        c,
+                        r,
+                        self.work_dir,
+                        self.workspace,
+                        compile_cache[idx],
+                        pass,
+                    )?;
+                    let (Some(p), Some(pre)) = (probe.as_mut(), before) else {
+                        break outcome;
+                    };
+                    let post = rec.note(p.read()?);
+                    before = Some(post);
+                    if p.is_clean(&pre) && p.is_clean(&post) {
+                        pass_brackets.push((label.clone(), pre.ms, post.ms));
+                        break outcome;
+                    }
+                    if tries == CELL_REDOS {
+                        eprintln!(
+                            "⚠ {label}: still bracketed by a busy probe after {tries} redos \
+                             ({:.3} / {:.3} ms, floor {:.3}); pass {pass} is contaminated",
+                            pre.ms,
+                            post.ms,
+                            p.floor_ms()
+                        );
+                        rec.dirty.push(label.clone());
+                        break outcome;
+                    }
+                    tries += 1;
+                    eprintln!(
+                        "⚠ {label}: probe {:.3} / {:.3} ms against floor {:.3}; again in {} s",
+                        pre.ms,
+                        post.ms,
+                        p.floor_ms(),
+                        REDO_PAUSE.as_secs()
+                    );
+                    if !rec.redone.contains(&label) {
+                        rec.redone.push(label.clone());
+                    }
+                    std::thread::sleep(REDO_PAUSE);
+                    before = Some(rec.note(p.read()?));
+                };
+                if compile_cache[idx].is_none() {
+                    compile_cache[idx] = outcome.compile_ms;
                 }
                 acc[idx].push(outcome);
             }
-            if let (Some(b), Some((start_ms, start_instructions))) = (&self.calibration_bin, start)
-            {
-                let (end_ms, end_instructions) = calibrate(b)?;
-                let unstable =
-                    ((end_ms - start_ms) / start_ms * 100.0).abs() > CALIBRATION_DRIFT_PCT;
-                if unstable {
-                    eprintln!(
-                        "⚠ pass {pass}: calibration moved {start_ms:.3} → {end_ms:.3} ms \
-                         (> {CALIBRATION_DRIFT_PCT}%); the machine changed under this pass"
-                    );
-                }
-                calibration.push(Calibration {
-                    pass,
-                    start_ms,
-                    end_ms,
-                    start_instructions,
-                    end_instructions,
-                    unstable,
-                });
+            brackets.push(pass_brackets);
+            if probe.is_some() {
+                calibration.push(rec);
             }
         }
+        let calibration = match &probe {
+            Some(p) => finish(calibration, &brackets, p.floor_ms()),
+            None => Vec::new(),
+        };
         let mut rows = Vec::with_capacity(ncell);
         for passes in acc {
             rows.push(if passes.len() > 1 {
@@ -166,6 +207,68 @@ impl Passes<'_> {
         }
         Ok((rows, calibration))
     }
+}
+
+/// One pass's probe readings as they come.
+struct PassRecord {
+    pass: usize,
+    readings: Vec<Reading>,
+    redone: Vec<String>,
+    dirty: Vec<String>,
+}
+
+impl PassRecord {
+    fn new(pass: usize) -> Self {
+        Self { pass, readings: Vec::new(), redone: Vec::new(), dirty: Vec::new() }
+    }
+
+    fn note(&mut self, r: Reading) -> Reading {
+        self.readings.push(r);
+        r
+    }
+}
+
+/// Judges every accepted cell's brackets again against the final floor:
+/// a floor that fell after a cell was accepted can turn its probes busy.
+fn finish(
+    recs: Vec<PassRecord>,
+    brackets: &[Vec<(String, f64, f64)>],
+    floor_ms: f64,
+) -> Vec<Calibration> {
+    recs.into_iter()
+        .zip(brackets)
+        .map(|(mut rec, br)| {
+            for (label, pre, post) in br {
+                if !(is_clean(*pre, floor_ms) && is_clean(*post, floor_ms)) {
+                    rec.dirty.push(label.clone());
+                }
+            }
+            let first = rec.readings.first().copied();
+            let last = rec.readings.last().copied();
+            let ms: Vec<f64> = rec.readings.iter().map(|r| r.ms).collect();
+            let loads: Vec<f64> = rec.readings.iter().filter_map(|r| r.load1).collect();
+            let start_ms = first.map_or(0.0, |r| r.ms);
+            let end_ms = last.map_or(0.0, |r| r.ms);
+            Calibration {
+                pass: rec.pass,
+                start_ms,
+                end_ms,
+                start_instructions: first.and_then(|r| r.instructions),
+                end_instructions: last.and_then(|r| r.instructions),
+                unstable: ((end_ms - start_ms) / start_ms * 100.0).abs() > CALIBRATION_DRIFT_PCT,
+                floor_ms,
+                probes: ms.len(),
+                probe_max_ms: ms.iter().copied().fold(0.0, f64::max),
+                probes_busy: ms.iter().filter(|m| !is_clean(**m, floor_ms)).count(),
+                load1_start: first.and_then(|r| r.load1),
+                load1_max: loads.iter().copied().reduce(f64::max),
+                load1_end: last.and_then(|r| r.load1),
+                redone_cells: rec.redone,
+                contaminated: !rec.dirty.is_empty(),
+                dirty_cells: rec.dirty,
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]

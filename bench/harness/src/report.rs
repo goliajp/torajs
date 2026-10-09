@@ -69,6 +69,19 @@ pub struct Calibration {
     pub start_instructions: Option<u64>,
     pub end_instructions: Option<u64>,
     pub unstable: bool,
+    /// The fastest probe of the whole run; every probe is judged against it.
+    pub floor_ms: f64,
+    pub probes: usize,
+    pub probe_max_ms: f64,
+    pub probes_busy: usize,
+    pub load1_start: Option<f64>,
+    pub load1_max: Option<f64>,
+    pub load1_end: Option<f64>,
+    /// Cells that ran again because a probe next to them read busy.
+    pub redone_cells: Vec<String>,
+    /// Cells whose kept reading is bracketed by a busy probe.
+    pub dirty_cells: Vec<String>,
+    pub contaminated: bool,
 }
 
 impl Report {
