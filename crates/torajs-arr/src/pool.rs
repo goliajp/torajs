@@ -94,3 +94,43 @@ pub fn push(p: *mut u8, cap: u64) -> bool {
     COUNT.store(count + 1, Ordering::Relaxed);
     true
 }
+
+/// Cells of arrays that grew, each still holding the slot buffer it
+/// spilled into. An empty literal that is about to be pushed to
+/// (`const out: T[] = []` filled in a loop, once per call) otherwise
+/// pays a malloc for its cell, a malloc and a realloc for its buffer
+/// and two frees for every list it builds; handing it a cell whose
+/// buffer already has room makes those pushes stores.
+pub const SPILLED_SLOTS: usize = 8;
+
+/// Buffers above this many slots are released, not kept: the stack
+/// holds at most `SPILLED_SLOTS * SPILLED_CAP_MAX * 8` bytes.
+pub const SPILLED_CAP_MAX: u64 = 256;
+
+static SPILLED: [AtomicPtr<u8>; SPILLED_SLOTS] =
+    [const { AtomicPtr::new(ptr::null_mut()) }; SPILLED_SLOTS];
+
+static SPILLED_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+/// The most recently kept spilled cell, or null.
+#[inline]
+pub fn pop_spilled() -> *mut u8 {
+    let count = SPILLED_COUNT.load(Ordering::Relaxed);
+    if count == 0 {
+        return ptr::null_mut();
+    }
+    SPILLED_COUNT.store(count - 1, Ordering::Relaxed);
+    SPILLED[count - 1].load(Ordering::Relaxed)
+}
+
+/// Keep a spilled cell; `false` when the stack is full.
+#[inline]
+pub fn push_spilled(p: *mut u8) -> bool {
+    let count = SPILLED_COUNT.load(Ordering::Relaxed);
+    if count >= SPILLED_SLOTS {
+        return false;
+    }
+    SPILLED[count].store(p, Ordering::Relaxed);
+    SPILLED_COUNT.store(count + 1, Ordering::Relaxed);
+    true
+}

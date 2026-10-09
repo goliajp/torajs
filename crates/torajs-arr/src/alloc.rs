@@ -26,7 +26,9 @@ use torajs_rc::{FLAG_ARR_ANY, FLAG_SPLIT_BLOCK, FLAG_STATIC_LITERAL, HeapHeader}
 use crate::layout::{
     ARR_CELL_SIZE, ARR_DATA_PTR_OFF, ARR_LEN_OFF, ARR_PROPS_OFF, TAG_ARR, arr_data_is_inline,
 };
-use crate::pool::{POOL_CAP_MAX, POOL_SLOTS, pop_cap_match, push};
+use crate::pool::{
+    POOL_CAP_MAX, POOL_SLOTS, SPILLED_CAP_MAX, pop_cap_match, pop_spilled, push, push_spilled,
+};
 
 unsafe extern "C" {
     /// torajs-mmalloc libc-compat — v0.7-A2 step 6b cutover.
@@ -65,6 +67,15 @@ fn block_size_regular(cap: u64) -> usize {
 /// directly if the rc was never incremented).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_alloc_pooled(cap: u64) -> *mut u8 {
+    // An empty array has no inline slots for anyone to write through
+    // the cell, so a kept spilled cell serves it, buffer and all.
+    if cap == 0 {
+        let p = pop_spilled();
+        if !p.is_null() {
+            unsafe { init_header(p) };
+            return p;
+        }
+    }
     let p: *mut u8 = if cap <= POOL_CAP_MAX {
         let recycled = pop_cap_match(cap);
         if !recycled.is_null() {
@@ -76,22 +87,34 @@ pub unsafe extern "C" fn __torajs_arr_alloc_pooled(cap: u64) -> *mut u8 {
         unsafe { malloc(block_size_regular(cap)) as *mut u8 }
     };
     unsafe {
-        // Header init: rc=1, tag=ARR, flags=0.
-        *(p as *mut u32) = 1;
-        *(p.add(4) as *mut u16) = TAG_ARR;
-        *(p.add(6) as *mut u16) = 0;
-        // len = 0
-        *(p.add(ARR_LEN_OFF) as *mut u64) = 0;
-        // cap (u32) + head_offset (u32, T-13.5)
+        init_header(p);
+        // cap (u32)
         *(p.add(ARR_CAP_LOW32_OFF) as *mut u32) = cap as u32;
-        *(p.add(ARR_CAP_LOW32_OFF + 4) as *mut u32) = 0;
-        // Round 4 chunk 5a — inline props_dynobj slot initialized to
-        // NULL. Set by arrprops_set (chunk 5b+) on first `arr.x = v`.
-        *(p.add(ARR_PROPS_OFF) as *mut u64) = 0;
         // B1 — data pointer starts self-referential (inline slots).
         *(p.add(ARR_DATA_PTR_OFF) as *mut *mut u8) = p.add(ARR_CELL_SIZE);
     }
     p
+}
+
+/// Every header word but the capacity and the data pointer, which
+/// describe where the slots are: rc=1, tag=ARR, flags=0, an empty
+/// length, no deque head, no props bag.
+///
+/// # Safety
+/// `p` is a block of at least `ARR_CELL_SIZE` bytes.
+#[inline]
+unsafe fn init_header(p: *mut u8) {
+    unsafe {
+        *(p as *mut u32) = 1;
+        *(p.add(4) as *mut u16) = TAG_ARR;
+        *(p.add(6) as *mut u16) = 0;
+        *(p.add(ARR_LEN_OFF) as *mut u64) = 0;
+        // head_offset (u32, T-13.5), beside the cap
+        *(p.add(ARR_CAP_LOW32_OFF + 4) as *mut u32) = 0;
+        // Round 4 chunk 5a — inline props_dynobj slot initialized to
+        // NULL. Set by arrprops_set (chunk 5b+) on first `arr.x = v`.
+        *(p.add(ARR_PROPS_OFF) as *mut u64) = 0;
+    }
 }
 
 /// `__torajs_arr_alloc(cap)` — top-level Array alloc entry.
@@ -150,11 +173,19 @@ pub unsafe extern "C" fn __torajs_arr_free(p: *mut c_void) {
         unsafe { __torajs_split_block_free_push(p as *mut u8) };
         return;
     }
-    // Grown arrays spilled slots to an external buffer — release
-    // it first (B1). The cell itself must NOT enter the pool: its
-    // cap field describes the buffer, not the cell's inline
-    // region, so a cap-keyed pool reuse would under-allocate.
+    // Grown arrays spilled slots to an external buffer (B1). The cell
+    // must NOT enter the cap-keyed pool: its cap field describes the
+    // buffer, not the cell's inline region, so a reuse there would
+    // under-allocate. It is kept with its buffer for an empty array
+    // instead, or released together with it.
     if !unsafe { arr_data_is_inline(p as *const u8) } {
+        let cap = unsafe { *((p as *const u8).add(ARR_CAP_LOW32_OFF) as *const u32) } as u64;
+        if cap <= SPILLED_CAP_MAX
+            && (header.flags & FLAG_ARR_ANY) == 0
+            && push_spilled(p as *mut u8)
+        {
+            return;
+        }
         unsafe { free(crate::layout::arr_data(p as *const u8) as *mut c_void) };
         unsafe { free(p) };
         return;
