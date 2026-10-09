@@ -1,0 +1,4 @@
+# split-only-100k at 10x the iterations: at 1e5 tr does about 0.4 ms of
+# work after startup, so its work-only ratio moved 8.8% across two rounds
+# with the same instruction count (startup-row spread alone is ~0.03 ms).
+args = "1000000"

@@ -66,6 +66,7 @@ cases = [
   "csv-rebuild-100k",
   "csv-trim-100k",
   "split-only-100k",
+  "split-only-1m",
   "split-only-argv-100k",
   "rpn-eval-100k",
   "str-replace-100k",
