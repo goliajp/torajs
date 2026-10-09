@@ -326,13 +326,10 @@ impl<'a> Analysis<'a> {
     /// f64; other member calls and indirect fn-value calls read
     /// through the container lattice.
     fn width_of_call(&self, eid: ExprId, callee: ExprId, args: &[ExprId], scope: &Scope) -> W {
-        if let Some(mono) = self.retargets.get(&eid) {
-            return W::Num(vec![(SlotKey::Ret(mono.clone()), false)]);
+        if let Some(f) = self.direct_callee(eid, callee) {
+            return W::Num(vec![(SlotKey::Ret(f), false)]);
         }
         match self.ast.get_expr(callee) {
-            Expr::Ident(f) if self.fn_params.contains_key(f) => {
-                W::Num(vec![(SlotKey::Ret(f.clone()), false)])
-            }
             // Math.* numeric intrinsics are libm-shaped f64
             // (same set the retired infer_arg_width flagged).
             // Other member calls read through the container

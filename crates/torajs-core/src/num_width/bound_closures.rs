@@ -181,6 +181,23 @@ impl Analysis<'_> {
         }
     }
 
+    /// The function a call at `eid` with callee `callee` lands on by
+    /// name: a monomorphized instance, or a function declaration that no
+    /// parameter, local or capture of the same name shadows there.
+    pub(super) fn direct_callee(&self, eid: ExprId, callee: ExprId) -> Option<String> {
+        if let Some(mono) = self.retargets.get(&eid) {
+            return Some(mono.clone());
+        }
+        match self.ast.get_expr(callee) {
+            Expr::Ident(n)
+                if self.fn_params.contains_key(n) && !self.shadowing_reads.contains(&callee) =>
+            {
+                Some(n.clone())
+            }
+            _ => None,
+        }
+    }
+
     /// Join the parameter and return slots of the closures one binding
     /// may hold: a call through the binding reaches any of them with
     /// the same arguments and hands back whichever one ran.

@@ -99,23 +99,18 @@ impl<'a> Analysis<'a> {
                 Some(SlotKey::Elem(Box::new(base)))
             }
             Expr::Call { callee, args } => {
-                if let Some(f) =
-                    self.retargets
-                        .get(&eid)
-                        .cloned()
-                        .or_else(|| match self.ast.get_expr(*callee) {
-                            Expr::Ident(n) => Some(n.clone()),
-                            _ => None,
-                        })
+                if let Some(f) = self.direct_callee(eid, *callee)
+                    && self.fn_params.contains_key(&f)
                 {
-                    if self.fn_params.contains_key(&f) {
-                        return Some(SlotKey::Ret(f));
-                    }
-                    // Not a lifted fn's own name — an fn-valued
-                    // binding (`const a = (n) => …; a(1)`) or an
-                    // unknown global; fall through to the indirect
-                    // projection below.
-                } else if let Expr::Member { obj, name } = self.ast.get_expr(*callee).clone() {
+                    return Some(SlotKey::Ret(f));
+                }
+                // Not a lifted fn's own name — an fn-valued binding
+                // (`const a = (n) => …; a(1)`, or a parameter that
+                // shadows a declaration) or an unknown global falls
+                // through to the indirect projection below.
+                if !self.retargets.contains_key(&eid)
+                    && let Expr::Member { obj, name } = self.ast.get_expr(*callee).clone()
+                {
                     return self.method_result_key(eid, obj, &name, args, scope);
                 }
                 // F1 mirror — indirect call through an fn value: the

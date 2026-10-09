@@ -37,21 +37,17 @@ impl<'a> Analysis<'a> {
                 Some(SlotKey::Elem(Box::new(base)))
             }
             Expr::Call { callee, args } => {
-                if let Some(f) =
-                    self.retargets
-                        .get(&eid)
-                        .cloned()
-                        .or_else(|| match self.ast.get_expr(*callee) {
-                            Expr::Ident(n) => Some(n.clone()),
-                            _ => None,
-                        })
+                if let Some(f) = self.direct_callee(eid, *callee)
+                    && self.fn_params.contains_key(&f)
                 {
-                    if self.fn_params.contains_key(&f) {
-                        return Some(SlotKey::Ret(f));
-                    }
-                    // Fn-valued binding or unknown global — fall
-                    // through to the indirect projection below
-                    // (mirror of the walk side).
+                    return Some(SlotKey::Ret(f));
+                }
+                if self.retargets.contains_key(&eid)
+                    || matches!(self.ast.get_expr(*callee), Expr::Ident(_))
+                {
+                    // Fn-valued binding (a parameter or local may
+                    // shadow a declaration's name) or unknown global —
+                    // the indirect projection (mirror of the walk side).
                     return self
                         .container_key_lookup(*callee, scope)
                         .map(|k| SlotKey::Field(Box::new(k), "__ret".into()));

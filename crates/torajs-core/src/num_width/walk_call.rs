@@ -19,14 +19,7 @@ impl Analysis<'_> {
         if self.char_code_in_bounds(callee, args) {
             self.char_code_proven.insert(eid);
         }
-        let callee_name: Option<String> = self.retargets.get(&eid).cloned().or_else(|| match self
-            .ast
-            .get_expr(callee)
-        {
-            Expr::Ident(n) => Some(n.clone()),
-            _ => None,
-        });
-        if let Some(fname) = callee_name
+        if let Some(fname) = self.direct_callee(eid, callee)
             && let Some(pnames) = self.fn_params.get(&fname).cloned()
         {
             for (i, arg) in args.iter().enumerate() {
