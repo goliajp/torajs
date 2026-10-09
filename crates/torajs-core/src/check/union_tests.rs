@@ -249,3 +249,24 @@ fn a_dictionary_key_must_be_a_property_key_type() {
     );
     accepted("interface P {\n  a: number\n  b: string[]\n}\nconst p: P = { a: 1, b: [] };\n");
 }
+
+#[test]
+fn a_literal_type_takes_its_literal_only() {
+    refused(
+        "type M = \"a\" | \"b\";\nlet m: M = \"c\";\n",
+        "type mismatch",
+    );
+    refused("type M = \"a\" | \"b\";\nlet m: M = 1;\n", "type mismatch");
+    refused(
+        "type Bit = 0 | 1;\nconst k = 2;\nlet b: Bit = k;\n",
+        "type mismatch",
+    );
+    refused(
+        "type M = \"a\" | \"b\";\nfunction f(m: M): M { return \"z\"; }\n",
+        "return type mismatch",
+    );
+    accepted("type M = \"a\" | \"b\";\nlet m: M = \"b\";\nconst s: string = m;\n");
+    accepted("type Bit = 0 | 1;\nconst one = 1;\nlet b: Bit = one;\nconst n: number = b + 1;\n");
+    // a widened string is taken: the checker does not track every fresh literal
+    accepted("type M = \"a\" | \"b\";\nlet s = \"a\";\nlet m: M = s;\n");
+}

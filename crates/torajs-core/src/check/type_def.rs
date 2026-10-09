@@ -132,6 +132,11 @@ pub enum Type {
     /// itself rides the any lane, so every type an expression hands
     /// its consumers has its unions folded to `Any` ([`Type::lane`]).
     Union(Vec<Type>),
+    /// A literal type (TS §3.2.10, §3.11.4): the type whose only value
+    /// is that string, number or boolean. A checker fact like a
+    /// union's members: its value is a value of the base type
+    /// ([`Lit::base`]), which is what it travels as ([`Type::lane`]).
+    Literal(Lit),
     /// An object type with an index signature (TS §3.9.4) — `{ [k:
     /// string]: V }`, `Record<K, V>` — holding the key type `K` and
     /// the value type `V`.
@@ -199,6 +204,11 @@ impl Type {
     /// binding (let-rhs / assign-rhs / call-arg / return) transfers
     /// ownership and the source name is marked moved.
     pub fn is_copy(&self) -> bool {
+        // a literal or a union is a checker fact over the value its
+        // lane carries
+        if matches!(self, Type::Literal(_) | Type::Union(_)) {
+            return self.clone().lane().is_copy();
+        }
         matches!(
             self,
             Type::Number | Type::Boolean | Type::Void | Type::Never | Type::Any
@@ -255,5 +265,35 @@ impl Type {
                 | Type::BigInt
                 | Type::Symbol
         )
+    }
+}
+
+/// The value of a literal type ([`Type::Literal`]).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Lit {
+    Str(torajs_wtf8::Wtf8Buf),
+    Num(f64),
+    Bool(bool),
+}
+
+impl Lit {
+    /// The primitive type every value of this literal type has.
+    pub(crate) fn base(&self) -> Type {
+        match self {
+            Lit::Str(_) => Type::String,
+            Lit::Num(_) => Type::Number,
+            Lit::Bool(_) => Type::Boolean,
+        }
+    }
+
+    /// The literal an expression spells, if it is one.
+    pub(crate) fn of_expr(e: &crate::ast::Expr) -> Option<Lit> {
+        use crate::ast::Expr;
+        match e {
+            Expr::String(s) => Some(Lit::Str(s.clone())),
+            Expr::Number(n) => Some(Lit::Num(*n)),
+            Expr::Bool(b) => Some(Lit::Bool(*b)),
+            _ => None,
+        }
     }
 }

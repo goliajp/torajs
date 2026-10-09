@@ -135,8 +135,8 @@ impl<'a> Parser<'a> {
             name = self.consume_union_suffix(name)?;
             return Ok(name);
         }
-        if let Some(widened) = self.literal_type_widen() {
-            return self.read_type_postfix(widened);
+        if let Some(marker) = self.literal_type_marker() {
+            return self.read_type_postfix(marker);
         }
         let mut name = match self.peek() {
             Token::Ident(n) => n.clone(),

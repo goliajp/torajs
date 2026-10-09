@@ -402,10 +402,12 @@ impl Checker {
 fn literal_type_of(e: &Expr) -> Type {
     match e {
         Expr::NewTarget => Type::Any,
-        Expr::String(_) => Type::String,
-        Expr::Number(_) => Type::Number,
+        // a literal's own type is its literal type (TS §3.2.10), which
+        // every consumer reads as the base type ([`Type::lane`])
+        Expr::String(_) | Expr::Number(_) | Expr::Bool(_) => {
+            Type::Literal(Lit::of_expr(e).expect("a literal expression"))
+        }
         Expr::BigInt { .. } => Type::BigInt,
-        Expr::Bool(_) => Type::Boolean,
         Expr::Null => Type::Null,
         Expr::Uninit => Type::Undefined,
         // An array-literal elision reads as undefined (§13.2.4);

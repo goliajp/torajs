@@ -162,6 +162,10 @@ impl Checker {
     }
 
     fn has_member(&self, ast: &Ast, t: &Type, name: &str) -> bool {
+        // a literal type has its base type's members
+        if let Type::Literal(l) = t {
+            return self.has_member(ast, &l.base(), name);
+        }
         let resolved = super::resolve_class_ref(
             t,
             &self.class_structs,

@@ -104,6 +104,7 @@ pub fn parse_into_eval(
         type_close_peel: 0,
         type_ann_depth: 0,
         in_arrow_ret_ann: false,
+        keep_literals: false,
         pattern_binds_lexically: true,
         ast: taken,
         desugar_id: id_offset,

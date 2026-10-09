@@ -143,6 +143,7 @@ fn is_key_type(t: &Type) -> bool {
     match t {
         Type::String | Type::Number | Type::Symbol => true,
         Type::Union(ms) => ms.iter().all(is_key_type),
+        Type::Literal(l) => is_key_type(&l.base()),
         _ => false,
     }
 }
@@ -158,6 +159,11 @@ impl Type {
             Type::String | Type::TypeVar(_) => true,
             Type::Number => is_numeric_name(name),
             Type::Union(ms) => ms.iter().any(|m| m.dict_key_covers(name)),
+            // a literal key names exactly one property
+            Type::Literal(crate::check::Lit::Str(s)) => s.as_str() == Some(name),
+            Type::Literal(crate::check::Lit::Num(n)) => {
+                crate::ast::number_prop_key(*n).as_str() == Some(name)
+            }
             _ => false,
         }
     }

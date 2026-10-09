@@ -111,7 +111,10 @@ impl Checker {
             if skip.contains(eid) {
                 continue;
             }
-            if let Some(t) = self.unions.types.get(eid) {
+            // a union whose literals widen to one type travels typed
+            if let Some(t) = self.unions.types.get(eid)
+                && matches!(ty, Type::Any)
+            {
                 match t {
                     Type::Dict(..) => census.dict += 1,
                     _ => census.union += 1,

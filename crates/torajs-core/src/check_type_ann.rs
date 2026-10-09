@@ -7,9 +7,11 @@
 
 mod dict;
 mod generic;
+mod literal;
 mod markers;
 pub(crate) use dict::{ann_text, check_dict_sites, unknown_type};
 pub(crate) use generic::expand_instantiation_full;
+pub(crate) use literal::{literal_marker, precise_decl_fields, widen_literal_types};
 pub(crate) use markers::{split_top_pipe, strip_nullable};
 use std::collections::HashMap;
 
@@ -41,6 +43,19 @@ pub(crate) fn resolve_type_ann_decl(
     let mut in_flight = std::collections::HashSet::new();
     resolve_type_ann_inner(name, aliases, type_params, generic_aliases, &mut in_flight)
         .map(Type::decl_view)
+}
+
+/// [`resolve_type_ann_full`] for an object type's field: a literal
+/// field type stays ([`Type::field_view`]).
+pub(crate) fn resolve_type_ann_field(
+    name: &str,
+    aliases: &HashMap<String, Type>,
+    type_params: &[String],
+    generic_aliases: &GenericAliasMap,
+) -> Option<Type> {
+    let mut in_flight = std::collections::HashSet::new();
+    resolve_type_ann_inner(name, aliases, type_params, generic_aliases, &mut in_flight)
+        .map(Type::field_view)
 }
 
 fn resolve_type_ann_inner(
@@ -83,6 +98,9 @@ fn resolve_type_ann_inner(
     }
     if name == "null" {
         return Some(Type::Null);
+    }
+    if let Some(t) = literal::resolve_literal_marker(name) {
+        return Some(t);
     }
     // The `undefined` type (the type whose only value is `undefined`).
     // Represented like undefined values themselves (a null-shaped slot,

@@ -27,7 +27,7 @@ mod union_tests;
 
 pub(crate) use diag::DiagPush;
 pub use diag::{Diagnostic, Severity};
-pub use type_def::Type;
+pub use type_def::{Lit, Type};
 
 /// Generic declaration index: name → (type-param names, field ann
 /// pairs, is_class). The bool separates a generic CLASS (`class

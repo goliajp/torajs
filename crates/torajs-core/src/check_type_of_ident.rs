@@ -94,7 +94,7 @@ pub(crate) fn check(
         // (hoist pre-typing under an incomplete scope) that NOW
         // resolves is a legal forward reference — self-heal the mark.
         checker.undeclared_reads.remove(&eid);
-        return Ok(info.ty);
+        return Ok(info.union.literal.unwrap_or(info.ty));
     }
     if let Some(ty) = checker.globals.get(name) {
         let ty = ty.clone();

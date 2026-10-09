@@ -118,8 +118,9 @@ pub fn type_to_ann(ty: &Type) -> String {
         // T's annotation; check.rs is the only layer that distinguishes
         // them, and it's already past by the time this fn runs.
         Type::Nullable(inner) => type_to_ann(inner),
-        // a union's and a dictionary's value travels as the any box
-        Type::Union(_) | Type::Dict(..) => "any".into(),
+        // a union's, a literal's and a dictionary's value travels as
+        // its lane: the any box, or the one type a union's literals widen to
+        Type::Union(_) | Type::Dict(..) | Type::Literal(_) => type_to_ann(&ty.clone().lane()),
         Type::Null => "null".into(),
         // P1.1 — Type::Undefined collapses to `null` in the SSA-ann
         // string for now since the SSA layer has no separate Undefined.

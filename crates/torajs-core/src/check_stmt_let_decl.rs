@@ -226,6 +226,7 @@ pub(crate) fn check(
             fn_slot: (ast.fnsig_mismatch_bindings.contains(name)
                 && type_ann.as_deref().is_some_and(crate::ast::is_fn_like_ann))
             .then_some(crate::check::FnSlot::Let(init)),
+            union: const_literal(ast, mutable, type_ann, init),
             ..LocalInfo::plain(final_ty)
         },
     ) {
@@ -234,6 +235,24 @@ pub(crate) fn check(
     // An initializer is the binding's first assignment — see
     // `Checker::apply_decl_narrow`.
     checker.apply_decl_narrow(ast, name, init);
+}
+
+/// An unannotated `const` initialized with a literal keeps the literal
+/// type (TS §3.2.10); a `let` widens it.
+fn const_literal(
+    ast: &Ast,
+    mutable: bool,
+    type_ann: &Option<String>,
+    init: ExprId,
+) -> crate::check_local_info::UnionBinding {
+    let literal = (!mutable && type_ann.is_none())
+        .then(|| crate::check::Lit::of_expr(ast.get_expr(init)))
+        .flatten()
+        .map(Type::Literal);
+    crate::check_local_info::UnionBinding {
+        literal,
+        ..Default::default()
+    }
 }
 
 /// The widenings a binding's type takes after its initializer types —

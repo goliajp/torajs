@@ -93,6 +93,11 @@ pub(crate) struct UnionBinding {
     /// Under a guard the checker does not narrow, or assigned to: a
     /// member read needs the name on one declared member only.
     pub(crate) loose: bool,
+    /// The literal type of an unannotated `const` initialized with a
+    /// literal (TS §3.2.10: a `const` keeps the literal, a `let`
+    /// widens). Its reads type as this; the binding's type stays the
+    /// base.
+    pub(crate) literal: Option<Type>,
 }
 
 /// Which declaration a census slot binding is.

@@ -55,7 +55,7 @@ const UNION: &str = "__union(";
 const NULLABLE: &str = "__nullable(";
 
 /// `ann` with every union marker rebuilt by the parser's own combine.
-fn canonical_unions(ann: &str) -> String {
+pub(crate) fn canonical_unions(ann: &str) -> String {
     let at = [UNION, NULLABLE]
         .iter()
         .filter_map(|m| ann.find(m).map(|p| (p, *m)))

@@ -48,11 +48,71 @@ impl Type {
     /// for it.
     pub(crate) fn decl_view(self) -> Type {
         match self {
-            Type::Union(ms) => Type::Union(ms.into_iter().map(Type::lane).collect()),
+            Type::Union(ms) => Type::Union(ms.into_iter().map(Type::member_view).collect()),
+            t @ Type::Literal(_) => t,
             // the value type keeps its own top union for the write check
             Type::Dict(k, v) => Type::Dict(k, Box::new(v.decl_view())),
             t => t.lane(),
         }
+    }
+
+    /// A union member as a slot keeps it: a literal, and an object
+    /// member's literal-typed field, stay — they are what tells the
+    /// members apart — while every union below is folded.
+    fn member_view(self) -> Type {
+        match self {
+            Type::Struct(fields) => Type::Struct(
+                fields
+                    .into_iter()
+                    .map(|(k, t)| (k, t.field_view()))
+                    .collect(),
+            ),
+            t => t.field_view(),
+        }
+    }
+
+    /// An object type's field as its declaration keeps it: a literal
+    /// type stays, anything else is its lane.
+    pub(crate) fn field_view(self) -> Type {
+        match self {
+            t @ Type::Literal(_) => t,
+            t => t.lane(),
+        }
+    }
+
+    /// This type with every literal type replaced by its base — the
+    /// type of the annotation the rest of the program reads, which
+    /// spells each literal type as its base
+    /// (`check_type_ann::widen_literal_types`).
+    pub(crate) fn erase_literals(self) -> Type {
+        match self {
+            Type::Literal(l) => l.base(),
+            Type::Struct(fields) => Type::Struct(
+                fields
+                    .into_iter()
+                    .map(|(k, t)| (k, t.erase_literals()))
+                    .collect(),
+            ),
+            Type::Union(ms) => Type::union_of(ms.into_iter().map(Type::erase_literals)),
+            Type::Array(e) => Type::Array(Box::new(e.erase_literals())),
+            Type::Nullable(e) => Type::Nullable(Box::new(e.erase_literals())),
+            t => t,
+        }
+    }
+
+    /// The narrow of a binding declared as `declared` down to
+    /// `members`. The binding's slot is what its declaration lowers to;
+    /// when that is the any box while the narrowed members alone would
+    /// travel typed (`"a" | number` narrowed to `"a"`), an `Any` member
+    /// keeps the lane at `Any` — it has every member and fits every
+    /// slot, so the member and assignability checks read the others.
+    pub(crate) fn union_narrowed(members: Vec<Type>, declared: &[Type]) -> Type {
+        let mut narrowed = members;
+        let slot_is_any = Type::Union(declared.to_vec()).lane() == Type::Any;
+        if slot_is_any && Type::Union(narrowed.clone()).lane() != Type::Any {
+            narrowed.push(Type::Any);
+        }
+        Type::Union(narrowed)
     }
 
     /// TS §3.11.4 assignability with a union on either side: a union
@@ -67,6 +127,13 @@ impl Type {
     ) -> Option<bool> {
         match (to, from) {
             (_, Type::Union(ms)) => Some(ms.iter().all(|m| fits(to, m))),
+            (Type::Literal(a), Type::Literal(b)) => Some(a == b),
+            // a value of the base type whose literal the checker did not
+            // keep (an object literal's field, a widened binding) is
+            // taken: this under-refuses where tsc tracks the fresh
+            // literal, and never refuses a program tsc accepts
+            (Type::Literal(l), _) => Some(*from == l.base()),
+            (_, Type::Literal(l)) if !matches!(to, Type::Union(_)) => Some(fits(to, &l.base())),
             // `T | null | undefined` fits when each of its three does
             (Type::Union(ms), Type::Nullable(inner)) => Some(
                 [(**inner).clone(), Type::Null, Type::Undefined]
@@ -105,7 +172,7 @@ impl Type {
     /// the common answer is no, and then neither view rebuilds the type.
     pub(crate) fn has_lane_fold(&self) -> bool {
         match self {
-            Type::Union(_) | Type::Dict(..) => true,
+            Type::Union(_) | Type::Dict(..) | Type::Literal(_) => true,
             Type::Array(e) | Type::Rest(e) | Type::Promise(e) | Type::MapIter(e) => {
                 e.has_lane_fold()
             }
@@ -119,7 +186,15 @@ impl Type {
 
     fn fold(self) -> Type {
         match self {
-            Type::Union(_) | Type::Dict(..) => Type::Any,
+            // the members a literal type tells apart are one value
+            // type once their literals are erased: that type is the
+            // lane, the one the lowering reads off the same annotation
+            Type::Union(ms) => match Type::union_of(ms.into_iter().map(Type::erase_literals)) {
+                Type::Union(_) => Type::Any,
+                t => t.lane(),
+            },
+            Type::Literal(l) => l.base(),
+            Type::Dict(..) => Type::Any,
             Type::Array(e) => Type::Array(Box::new(e.lane())),
             Type::Rest(e) => Type::Rest(Box::new(e.lane())),
             Type::Promise(e) => Type::Promise(Box::new(e.lane())),

@@ -73,6 +73,10 @@ impl Checker {
     /// the declared members on the binding; answers the type to
     /// restore.
     pub(crate) fn apply_union_narrow(&mut self, name: &str, ty: Type) -> Option<Type> {
+        let ty = match (ty, self.declared_union(name)) {
+            (Type::Union(ms), Some(d)) => Type::union_narrowed(ms, &d),
+            (t, _) => t,
+        };
         if let Some(info) = self.scope_binding_mut(name)
             && info.union.declared.is_none()
             && let Type::Union(ms) = &info.ty

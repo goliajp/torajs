@@ -444,6 +444,7 @@ pub use regex_replace_inline::analyze_regex_replace_inline;
 pub use regex_result_props::analyze_regex_result_props;
 pub use reparent_census::census_program_reparents;
 pub use scalar_alias_inline::inline_scalar_aliases;
+pub(crate) use scalar_alias_spell::canonical_unions;
 pub use script_global_fns::synthesize_script_global_fns;
 pub use sfi_pass::rewrite_split_for_i_to_iter;
 pub use sig_thunk::synthesize_sig_thunks;

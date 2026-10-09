@@ -406,7 +406,9 @@ pub(crate) fn spells_undef_with_generic_cell(t: &crate::check::Type) -> bool {
         | T::WeakSet => true,
         // `T | null` for a pointer-shaped T is that slot with NULL in band
         T::Nullable(inner) => spells_undef_with_generic_cell(inner),
-        // Str and Substr carry their own family oddballs; Any, a union and a
+        // a union and a literal type lower as their lane
+        T::Union(_) | T::Literal(_) => spells_undef_with_generic_cell(&t.clone().lane()),
+        // Str and Substr carry their own family oddballs; Any and a
         // dictionary carry the answer in the tag; the rest are scalars, absent
         // values, or names gone before lowering (`TypeVar` is substituted,
         // `Rest` is an annotation marker, `Object` is a global stand-in).
@@ -416,7 +418,6 @@ pub(crate) fn spells_undef_with_generic_cell(t: &crate::check::Type) -> bool {
         | T::Void
         | T::Never
         | T::Any
-        | T::Union(_)
         | T::Dict(..)
         | T::Null
         | T::Undefined

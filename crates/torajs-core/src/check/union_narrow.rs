@@ -45,6 +45,7 @@ fn typeof_tag(t: &Type) -> Option<&'static str> {
         Type::Symbol => "symbol",
         Type::Undefined | Type::Void => "undefined",
         Type::Function(..) | Type::Object(_) => "function",
+        Type::Literal(l) => return typeof_tag(&l.base()),
         Type::TypeVar(_) | Type::Any | Type::Union(_) | Type::Never => return None,
         _ => "object",
     })

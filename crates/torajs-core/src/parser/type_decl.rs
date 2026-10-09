@@ -25,6 +25,10 @@ impl<'a> Parser<'a> {
     /// declaration-merging / heritage clauses are honored beyond
     /// what's already covered by `type`).
     pub(super) fn parse_interface_decl(&mut self) -> Result<Stmt, String> {
+        self.with_literal_types(Self::parse_interface_decl_body)
+    }
+
+    fn parse_interface_decl_body(&mut self) -> Result<Stmt, String> {
         self.pos += 1; // consume `interface`
         let name = match self.peek() {
             Token::Ident(n) => n.clone(),
@@ -90,6 +94,10 @@ impl<'a> Parser<'a> {
 
     /// `type Name = { f1: T1, f2: T2 };`
     pub(super) fn parse_type_decl(&mut self) -> Result<Stmt, String> {
+        self.with_literal_types(Self::parse_type_decl_body)
+    }
+
+    fn parse_type_decl_body(&mut self) -> Result<Stmt, String> {
         self.pos += 1; // consume `type`
         let name = match self.peek() {
             Token::Ident(n) => n.clone(),

@@ -163,6 +163,9 @@ struct Parser<'a> {
     // only, so annotations nested inside the return type keep the
     // greedy read.
     in_arrow_ret_ann: bool,
+    /// Inside a `type` / `interface` declaration: a literal type reads
+    /// as its marker (`parser/type_ann_literal.rs`), not its base.
+    keep_literals: bool,
     /// Whether the BoundNames of the pattern being read belong to a
     /// LEXICAL binding — the half of §14.3.1.1 that a pattern reader
     /// cannot see for itself. Default `true` (refuse), so a binding

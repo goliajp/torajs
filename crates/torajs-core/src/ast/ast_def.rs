@@ -1413,6 +1413,13 @@ pub struct Ast {
     /// The checker records them on its mono AST; the driver then
     /// compiles the program again with this set seeded.
     pub generator_twin_requests: std::collections::HashSet<String>,
+    /// A type declaration's fields as written, literal types kept
+    /// (`check_type_ann::literal`), keyed by its name — the checker's
+    /// alone; its AST fields spell each literal as its base type. `None`
+    /// when no literal was written or more than one declaration has the
+    /// name.
+    pub literal_type_decls:
+        std::collections::HashMap<String, Option<Vec<(crate::ast::PropKey, String)>>>,
     /// Plan A — Array literal ExprIds that the escape verifier proved
     /// safe to emit on the stack instead of `__torajs_arr_alloc_pooled`.
     /// Populated by `escape_analyze_array_literals`. ssa_lower's
