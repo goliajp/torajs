@@ -63,6 +63,9 @@ pub struct ElaborateStats {
     /// placeholders emitted by rewrite rules — their result is aliased
     /// to `op` via `egraph.set_opt_value` and never reaches codegen.
     pub identity_dropped: u32,
+    /// Pure instructions dropped because a rewrite rule folded their
+    /// class to a literal that every use now reads instead.
+    pub const_dropped: u32,
     /// Number of blocks visited by the domtree preorder walk.
     pub blocks_visited: u32,
     /// Number of `Terminator::CondBr` folded to `Terminator::Br`
@@ -182,6 +185,12 @@ pub fn elaborate(
                             egraph.set_opt_value(res, *target_v);
                         }
                         stats.identity_dropped += 1;
+                        continue;
+                    }
+                    // a pure inst folded to a literal every use now reads
+                    let canon = inst.result.map(|r| egraph.opt_value(r));
+                    if canon.is_some_and(|c| egraph.const_of(c).is_some()) {
+                        stats.const_dropped += 1;
                         continue;
                     }
 
@@ -877,10 +886,11 @@ mod tests {
         let lp = LoopAnalysis::compute(&f, &dom);
         let mut eg = Egraph::new(f.values.len());
         let _ = remove_pure_and_optimize(&f, &dom, &LoopAnalysis::compute(&f, &dom), &mut eg);
-        let (out, _) = elaborate(&f, &dom, &lp, &mut eg);
-        // The Sub itself stays in layout (no Identity inst in the
-        // input IR; const propagation only fires on use-sites).
-        // The Add's LHS must canonicalise to ConstI64(0).
+        let (out, stats) = elaborate(&f, &dom, &lp, &mut eg);
+        // The Sub's value is the literal now, so the Sub is dropped;
+        // the Add's LHS must canonicalise to ConstI64(0).
+        assert_eq!(stats.const_dropped, 1);
+        assert_eq!(out.blocks[0].insts.len(), 1);
         let add_inst = out.blocks[0]
             .insts
             .iter()

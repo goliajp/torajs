@@ -331,9 +331,8 @@ mod tests {
     }
 
     #[test]
-    fn pass_is_identity_on_no_rule_function() {
-        // Phase 0: with no rewrite rules, EgraphPass::run returns a
-        // function with the same inst count, same kinds, same term.
+    fn insts_over_two_literals_fold_away() {
+        // Both BinOps fold to literals no use reads, so nothing is left.
         let values = vec![
             ValueInfo {
                 ty: Type::I64,
@@ -361,15 +360,7 @@ mod tests {
         let f = fixture(values, blocks);
         let out = EgraphPass::new(&f).run();
         assert_eq!(out.blocks.len(), 1);
-        assert_eq!(out.blocks[0].insts.len(), 2);
-        assert!(matches!(
-            out.blocks[0].insts[0].kind,
-            InstKind::BinOp(BinOp::Add, _, _)
-        ));
-        assert!(matches!(
-            out.blocks[0].insts[1].kind,
-            InstKind::BinOp(BinOp::Sub, _, _)
-        ));
+        assert!(out.blocks[0].insts.is_empty());
     }
 
     #[test]
