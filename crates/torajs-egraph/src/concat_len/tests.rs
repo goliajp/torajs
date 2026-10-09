@@ -104,13 +104,17 @@ fn a_measured_concat_becomes_a_length_sum_with_the_kernel_on_the_slow_arm() {
     assert_eq!(join.insts[1].result, Some(ValueId(12)));
     assert_eq!(join.insts[1].kind, InstKind::Copy(Type::I64, v(11)));
     assert_eq!(join.term, Terminator::Ret(Some(v(12))));
-    // slow: the concat and its drop as they were, measuring 0
+    // slow: the concat and its drop as they were, measuring what the
+    // kernel answered (its left operand past the longest string)
     assert_eq!(calls_in(f, 4), vec![STR_CONCAT, STR_DROP]);
     assert_eq!(f.blocks[4].term, Terminator::Br(BlockId(3)));
-    assert!(matches!(
-        f.blocks[4].insts[2].kind,
-        InstKind::Copy(Type::I64, Operand::ConstI64(0))
-    ));
+    let slow = &f.blocks[4].insts;
+    assert_eq!(slow[1].kind, InstKind::Load(Type::I32, v(10), STR_LEN_OFF));
+    let widened = slow[2].result.expect("the widening defines a value");
+    assert_eq!(
+        slow[4].kind,
+        InstKind::Copy(Type::I64, Operand::Value(widened))
+    );
 }
 
 #[test]
@@ -197,8 +201,9 @@ fn a_cell_copied_between_two_concat_sites_folds_with_both() {
         .flat_map(|b| &b.insts)
         .filter(|i| matches!(i.kind, InstKind::Copy(Type::I64, Operand::Value(_))))
         .count();
-    // two fast arms, one copy between the cells, two loads, two widenings
-    assert_eq!(copies, 7);
+    // two fast arms, two slow arms, one copy between the cells, two
+    // loads, two widenings
+    assert_eq!(copies, 9);
     assert!(
         f.blocks
             .iter()

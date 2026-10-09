@@ -36,7 +36,7 @@ use crate::concat::{
 use crate::layout::{
     STR_DATA_OFF, STR_FLAG_IS_ASCII, STR_LEN_OFF, STR_POOL_PAYLOAD, packed_header_init,
 };
-use crate::max_len::{__torajs_str_too_long, str_len_of};
+use crate::max_len::str_len_of;
 use crate::str_drop::__torajs_str_drop;
 use torajs_rc::{FLAG_STATIC_LITERAL, HeapHeader};
 
@@ -109,7 +109,7 @@ unsafe fn concat_ascii_tail(a: *const u8, d_len: usize, write: impl FnOnce(*mut 
     let len = a_len + d_len as u32;
     let bytes = (len as u64) << u32::from(!latin1);
     if bytes > STR_POOL_PAYLOAD as u64 && str_len_of(len as usize).is_none() {
-        return unsafe { __torajs_str_too_long() };
+        return unsafe { crate::concat::too_long_shared(a) };
     }
     let dst = StrBlock::alloc_with_flags(len, latin1, ascii).into_raw();
     unsafe { fill_ascii_tail(dst, a, a_len, latin1, d_len, write) };

@@ -13,7 +13,7 @@ use super::{STR_LEN_OFF, STR_MAX_LEN, SUBSTR_LEN_OFF};
 /// head:    null tests on the Str operands → slow | measure
 /// measure: lengths, sum, bound test → slow | fast
 /// fast:    `n = sum` → join
-/// slow:    the concat, its drop, `n = 0` → join
+/// slow:    the concat, `n` = the length of its answer, its drop → join
 /// join:    the rest of the block
 ///
 /// With no Str operand there is nothing to null-test and the lengths
@@ -34,8 +34,9 @@ pub(super) fn fold_site(
     let concat = func.blocks[join.0 as usize].insts.remove(0);
     let origin = concat.origin;
     let r = concat.result.expect("a concat defines its result");
+    func.blocks[slow.0 as usize].insts.push(concat);
+    let answer = length(func, slow, (Operand::Value(r), Kind::Str));
     let slow_block = &mut func.blocks[slow.0 as usize];
-    slow_block.insts.push(concat);
     slow_block.insts.push(Inst {
         result: None,
         kind: InstKind::Call(kernels.str_drop, vec![Operand::Value(r)]),
@@ -43,7 +44,7 @@ pub(super) fn fold_site(
     });
     slow_block.insts.push(Inst {
         result: Some(n),
-        kind: InstKind::Copy(Type::I64, Operand::ConstI64(0)),
+        kind: InstKind::Copy(Type::I64, answer),
         origin,
     });
     slow_block.term = Terminator::Br(join);

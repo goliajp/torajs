@@ -234,6 +234,7 @@ fn lower_global_assign(
     if slot_ty.is_refcounted() && !drop_old_slot {
         panic!("ssa-lower: assignment to refcount global `{name}` is not yet supported (K.6)");
     }
+    crate::ssa_lower_binop::str_check::defer_rhs(ctx, &name, value);
     let v = lower_assign_rhs(ctx, slot_ty, value);
     // Chunk 558 — mutable Str globals; chunk 730 (RFC
     // 20260709-closure-global) — mutable Closure globals ride the
@@ -299,6 +300,7 @@ fn lower_global_assign(
         crate::ssa_lower_stmt_let_decl_global::emit_script_global_var_bind(
             ctx, &name, slot_ty, ptr, site,
         );
+        crate::ssa_lower_binop::str_check::emit_deferred(ctx);
         return v;
     }
     let cur_block = ctx.cur_block;
@@ -307,6 +309,7 @@ fn lower_global_assign(
     crate::ssa_lower_stmt_let_decl_global::emit_script_global_var_bind(
         ctx, &name, slot_ty, ptr, site,
     );
+    crate::ssa_lower_binop::str_check::emit_deferred(ctx);
     let cur_block = ctx.cur_block;
     let r = ctx.f.append_inst(
         cur_block,
@@ -322,6 +325,7 @@ fn lower_local_assign(ctx: &mut LowerCtx<'_>, name: String, value: ExprId) -> Op
         Some(i) => *i,
         None => panic!("ssa-lower: assign to unknown ident `{name}`"),
     };
+    crate::ssa_lower_binop::str_check::defer_rhs(ctx, &name, value);
     let v = lower_assign_rhs(ctx, snapshot.ty, value);
     let v_ty = ctx.operand_ty(&v);
     // Same carve-out as the global lane: a view into a Str slot is
@@ -358,6 +362,7 @@ fn lower_local_assign(ctx: &mut LowerCtx<'_>, name: String, value: ExprId) -> Op
     {
         info.moved = false;
     }
+    crate::ssa_lower_binop::str_check::emit_deferred(ctx);
     v
 }
 

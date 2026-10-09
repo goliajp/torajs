@@ -74,4 +74,8 @@ pub(crate) struct BinopScratch {
     /// window dispatches (`WidthTable::arith_in_window`): it computes
     /// in f64.
     pub(crate) arith_unbounded: bool,
+    /// The one field that outlives its binop: a string `+` on the
+    /// right of an assignment hands its throw check to the assignment
+    /// (`ssa_lower_binop::str_check`).
+    pub(crate) str_check: crate::ssa_lower_binop::str_check::StrConcatCheck,
 }

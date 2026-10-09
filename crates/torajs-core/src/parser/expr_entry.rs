@@ -87,10 +87,10 @@ impl<'a> Parser<'a> {
         for p in parts {
             let id = match p {
                 lexer::TemplatePart::Lit { cooked: s, .. } => {
-                    if s.is_empty() && acc.is_some() {
-                        // Skip empty-string filler between adjacent
-                        // interpolations — `${a}${b}` shouldn't
-                        // generate an extra `+ ""` step.
+                    if s.is_empty() {
+                        // Skip empty filler: a substitution is a
+                        // `String(...)` call, so `${a}${b}` is a string
+                        // chain without a `"" +` step copying `a`.
                         continue;
                     }
                     self.ast.add_expr(Expr::String(s.clone()))

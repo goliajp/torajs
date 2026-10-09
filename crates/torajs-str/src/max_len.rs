@@ -54,8 +54,22 @@ pub const fn str_max_bytes(is_latin1: bool) -> u32 {
 #[inline(never)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_too_long() -> *mut u8 {
-    unsafe { __torajs_throw_range_error(c"Invalid string length".as_ptr().cast()) };
+    unsafe { raise_too_long() };
     StrBlock::alloc_with_encoding(0, true).into_raw()
+}
+
+/// Record the RangeError for a string longer than [`STR_MAX_LEN`],
+/// leaving the answer to the caller: a concat answers its left
+/// operand, so a binding the failed `s += x` assigns keeps its value.
+///
+/// # Safety
+///
+/// Records a pending throw: the caller returns to code that checks
+/// for one.
+#[cold]
+#[inline(never)]
+pub(crate) unsafe fn raise_too_long() {
+    unsafe { __torajs_throw_range_error(c"Invalid string length".as_ptr().cast()) };
 }
 
 #[cfg(test)]

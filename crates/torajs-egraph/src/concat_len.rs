@@ -8,7 +8,7 @@
 //! %l = load i32, %r +8                              sum = la + lb
 //! %z = zext_i32 %l                                  cond_br sum > MAX | a null | b null, slow, fast
 //! call __torajs_str_drop(%r)                  fast: %n = copy sum          → join
-//!                                             slow: concat; drop; %n = 0   → join
+//!                                             slow: concat; %n = len; drop → join
 //!                                             join: %l = copy %n; %z = copy %l
 //! ```
 //!
@@ -29,11 +29,12 @@
 //! node holding two lengths until someone reads the characters.
 //!
 //! The slow arm keeps the kernel for the two cases its fast path does
-//! not spell: past [`STR_MAX_LEN`] it raises a RangeError and answers
-//! an empty placeholder, which the readers then measure as 0; and a
-//! NULL in a Str-typed operand reads as the text "null" (the kernel's
-//! own arm), which the head cannot measure by loading. Lengths are
-//! each at most `MAX`, so the i64 sum cannot wrap.
+//! not spell, and measures what the kernel answered: past
+//! [`STR_MAX_LEN`] it raises a RangeError and answers its left operand,
+//! which a `catch` reading the result sees; and a NULL in a Str-typed
+//! operand reads as the text "null" (the kernel's own arm), which the
+//! head cannot measure by loading. Lengths are each at most `MAX`, so
+//! the i64 sum cannot wrap.
 //!
 //! Before concat_num_fuse and str_append, which would otherwise claim
 //! the concat for an append. `TORAJS_CONCAT_LEN_OFF=1` skips,

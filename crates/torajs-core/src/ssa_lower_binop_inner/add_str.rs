@@ -148,6 +148,7 @@ pub(crate) fn try_lower(
             Type::Str,
             None,
         );
+        ctx.binop.str_check.emitted = true;
         drop_minted_temps(ctx, a, a_temp, b, b_temp);
         return Some(Operand::Value(v));
     }
@@ -159,6 +160,7 @@ pub(crate) fn try_lower(
             Type::Str,
             None,
         );
+        ctx.binop.str_check.emitted = true;
         drop_minted_temps(ctx, a, a_temp, b, b_temp);
         return Some(Operand::Value(v));
     }
@@ -187,6 +189,7 @@ pub(crate) fn try_lower(
             Type::Str,
             None,
         );
+        ctx.binop.str_check.emitted = true;
         drop_minted_temps(ctx, a_str, a_fresh || a_temp, b_str, b_fresh || b_temp);
         return Some(Operand::Value(v));
     }

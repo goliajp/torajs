@@ -32,16 +32,18 @@ use crate::join::{Side, write_side};
 use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_ASCII, STR_FLAG_IS_LATIN1, STR_POOL_PAYLOAD};
 pub use crate::lit_meta::{LIT_META_LEN_MASK, LIT_META_LEN_SHIFT};
 pub(crate) use crate::lit_meta::{lit_flags, lit_len, write_low_bytes, write_widened};
-use crate::max_len::{__torajs_str_too_long, str_len_of};
+use crate::max_len::{raise_too_long, str_len_of};
 
 /// Fresh cell holding `side` and the literal, in the order `lit_first`
-/// says.
+/// says. `shared` says `side` is a whole Str heap block
+/// ([`Side::of_str`]), which a result past the longest Str answers
+/// with one more reference instead of a copy.
 ///
 /// # Safety
 ///
 /// `side` is readable for its code units.
 #[inline(always)]
-unsafe fn join_lit(side: Side, bits: u64, meta: u64, lit_first: bool) -> *mut u8 {
+unsafe fn join_lit(side: Side, bits: u64, meta: u64, lit_first: bool, shared: bool) -> *mut u8 {
     let lit_flags = lit_flags(meta);
     // a length within the largest pooled payload: neither the sum
     // below nor its byte count can wrap
@@ -69,9 +71,32 @@ unsafe fn join_lit(side: Side, bits: u64, meta: u64, lit_first: bool) -> *mut u8
         }
     }
     if !fits_with_lit(side, meta) {
-        return unsafe { __torajs_str_too_long() };
+        return unsafe {
+            if lit_first {
+                lit_first_too_long(bits, meta)
+            } else if shared {
+                crate::concat::too_long_sharing(side.ptr)
+            } else {
+                crate::join::too_long_keeping(side.ptr, side.len, side.flags)
+            }
+        };
     }
     unsafe { join_lit_general(side, bits, meta, lit_first) }
+}
+
+/// Raise the RangeError for `<literal> + side` past the longest Str
+/// and answer a fresh cell holding the literal, its left operand.
+///
+/// # Safety
+///
+/// `bits` / `meta` describe a literal as the module doc lays out.
+#[cold]
+#[inline(never)]
+unsafe fn lit_first_too_long(bits: u64, meta: u64) -> *mut u8 {
+    unsafe {
+        raise_too_long();
+        join_lit_general(Side::EMPTY, bits, meta, true)
+    }
 }
 
 /// Whether `side` with the literal `meta` describes fits the longest
@@ -133,7 +158,7 @@ pub unsafe extern "C" fn __torajs_str_concat_lit(a: *const u8, bits: u64, meta: 
     if a.is_null() {
         return unsafe { join_lit_general(Side::NULL_TEXT, bits, meta, false) };
     }
-    unsafe { join_lit(Side::of_str(a), bits, meta, false) }
+    unsafe { join_lit(Side::of_str(a), bits, meta, false, true) }
 }
 
 /// `<literal> + b` — fresh refcount-1 Str; `b` is borrowed.
@@ -146,7 +171,7 @@ pub unsafe extern "C" fn __torajs_str_prepend_lit(b: *const u8, bits: u64, meta:
     if b.is_null() {
         return unsafe { join_lit_general(Side::NULL_TEXT, bits, meta, true) };
     }
-    unsafe { join_lit(Side::of_str(b), bits, meta, true) }
+    unsafe { join_lit(Side::of_str(b), bits, meta, true, true) }
 }
 
 /// `view + <literal>` — fresh refcount-1 Str; the view is borrowed.
@@ -157,7 +182,7 @@ pub unsafe extern "C" fn __torajs_str_prepend_lit(b: *const u8, bits: u64, meta:
 /// describe a literal as the module doc lays out.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_substr_concat_lit(v: *const u8, bits: u64, meta: u64) -> *mut u8 {
-    unsafe { join_lit(Side::of_view(v), bits, meta, false) }
+    unsafe { join_lit(Side::of_view(v), bits, meta, false, false) }
 }
 
 /// `<literal> + view` — fresh refcount-1 Str; the view is borrowed.
@@ -171,7 +196,7 @@ pub unsafe extern "C" fn __torajs_substr_prepend_lit(
     bits: u64,
     meta: u64,
 ) -> *mut u8 {
-    unsafe { join_lit(Side::of_view(v), bits, meta, true) }
+    unsafe { join_lit(Side::of_view(v), bits, meta, true, false) }
 }
 
 #[cfg(test)]

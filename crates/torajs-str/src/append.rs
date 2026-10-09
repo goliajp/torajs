@@ -267,17 +267,19 @@ pub(crate) unsafe fn append_payload(
     grown.into_raw()
 }
 
-/// Release the left side an append was handed and raise the
-/// RangeError for a result past the longest Str.
+/// Raise the RangeError for a result past the longest Str and hand
+/// the left side back untouched: the caller stores the answer before
+/// its throw check runs, so `s += x` leaves `s` as it was.
 ///
 /// # Safety
 ///
-/// `a` is a valid Str block the caller owns one reference to.
+/// `a` is a valid Str block the caller owns one reference to; the
+/// answer carries that reference.
 #[cold]
 #[inline(never)]
 pub(crate) unsafe fn append_too_long(a: *mut u8) -> *mut u8 {
-    unsafe { __torajs_str_drop(a) };
-    unsafe { crate::max_len::__torajs_str_too_long() }
+    unsafe { crate::max_len::raise_too_long() };
+    a
 }
 
 #[cfg(test)]
@@ -486,5 +488,19 @@ mod tests {
         assert_eq!(cap, 128, "69 bytes rounds to 128");
         assert!(cap > STR_POOL_PAYLOAD, "past the pool cutoff");
         unsafe { __torajs_str_free(acc) };
+    }
+
+    #[test]
+    fn an_append_past_the_longest_string_raises_and_keeps_the_left_side() {
+        // the right side's length alone is what overflows: its bytes
+        // are never read on that path
+        let acc = latin1(b"keep");
+        crate::STUB_THROW_RAISED.store(false, core::sync::atomic::Ordering::SeqCst);
+        let out =
+            unsafe { append_payload(acc, &[], crate::max_len::STR_MAX_LEN as u32, true, true) };
+        assert!(crate::STUB_THROW_RAISED.load(core::sync::atomic::Ordering::SeqCst));
+        assert_eq!(out, acc, "the cell the caller handed over comes back");
+        assert_eq!(read(out).0, b"keep");
+        unsafe { __torajs_str_free(out) };
     }
 }

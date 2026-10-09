@@ -24,7 +24,7 @@ use crate::copy::{copy_bytes, copy_short, widen_latin1};
 use crate::layout::{
     STR_DATA_OFF, STR_FLAG_IS_ASCII, STR_FLAG_IS_LATIN1, STR_LEN_OFF, STR_POOL_PAYLOAD,
 };
-use crate::max_len::{__torajs_str_too_long, str_len_of};
+use crate::max_len::{raise_too_long, str_len_of};
 use crate::substr_methods::{substr_len, substr_offset, substr_parent};
 
 /// One operand of a concat: `len` code units at `ptr`, in the encoding
@@ -46,6 +46,13 @@ impl Side {
     pub const NULL_TEXT: Side = Side {
         ptr: b"null".as_ptr(),
         len: 4,
+        flags: STR_FLAG_IS_LATIN1 | STR_FLAG_IS_ASCII,
+    };
+
+    /// No code units: joined on, it leaves the other side alone.
+    pub const EMPTY: Side = Side {
+        ptr: b"".as_ptr(),
+        len: 0,
         flags: STR_FLAG_IS_LATIN1 | STR_FLAG_IS_ASCII,
     };
 
@@ -125,6 +132,22 @@ impl Side {
 /// Each side is readable for its `len` code units in its encoding.
 #[inline(always)]
 pub(crate) unsafe fn join(a: Side, b: Side) -> *mut u8 {
+    unsafe { join_or(a, b, |ptr, len, flags| too_long_keeping(ptr, len, flags)) }
+}
+
+/// [`join`] with the answer for a result past the longest Str left to
+/// `too_long`, handed the left side's fields: it raises the RangeError
+/// and answers the left side.
+///
+/// # Safety
+///
+/// Same contract as [`join`]; `too_long` answers an owned Str.
+#[inline(always)]
+pub(crate) unsafe fn join_or(
+    a: Side,
+    b: Side,
+    too_long: impl FnOnce(*const u8, u32, u16) -> *mut u8,
+) -> *mut u8 {
     // both lengths under twice the largest pooled payload: neither the
     // sum below nor its byte count can wrap
     if (a.flags ^ b.flags) & STR_FLAG_IS_LATIN1 == 0 && (a.len | b.len) < 2 * STR_POOL_PAYLOAD {
@@ -144,9 +167,31 @@ pub(crate) unsafe fn join(a: Side, b: Side) -> *mut u8 {
         }
     }
     if !fits_one_str(a, b) {
-        return unsafe { __torajs_str_too_long() };
+        return too_long(a.ptr, a.len, a.flags);
     }
     unsafe { join_general(a, b) }
+}
+
+/// Raise the RangeError for a join past the longest Str and answer a
+/// fresh cell holding the left side alone: the caller stores the
+/// answer before its throw check runs, and `s = s + x` must leave `s`
+/// as it was.
+///
+/// The side comes apart in its three fields: a [`Side`] argument made
+/// the hot joins build it in a frame slot just to have it ready for
+/// this call they almost never make.
+///
+/// # Safety
+///
+/// `ptr` is readable for `len` code units in the encoding `flags`
+/// names.
+#[cold]
+#[inline(never)]
+pub(crate) unsafe fn too_long_keeping(ptr: *const u8, len: u32, flags: u16) -> *mut u8 {
+    unsafe {
+        raise_too_long();
+        join_general(Side { ptr, len, flags }, Side::EMPTY)
+    }
 }
 
 /// Whether `a` and `b` together fit the longest Str. Each side is at
@@ -196,5 +241,35 @@ pub(crate) unsafe fn write_side(dst: *mut u8, side: Side, out_latin1: bool) {
         } else {
             widen_latin1(dst, side.ptr, side.len as usize);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::block::__torajs_str_free;
+    use crate::max_len::STR_MAX_LEN;
+    use core::sync::atomic::Ordering;
+
+    #[test]
+    fn a_join_past_the_longest_string_raises_and_answers_the_left_side() {
+        let left = Side {
+            ptr: b"left".as_ptr(),
+            len: 4,
+            flags: STR_FLAG_IS_LATIN1 | STR_FLAG_IS_ASCII,
+        };
+        // only the length is read before the bound refuses the join
+        let huge = Side {
+            ptr: b"".as_ptr(),
+            len: STR_MAX_LEN as u32,
+            flags: STR_FLAG_IS_LATIN1,
+        };
+        crate::STUB_THROW_RAISED.store(false, Ordering::SeqCst);
+        let out = unsafe { join(left, huge) };
+        assert!(crate::STUB_THROW_RAISED.load(Ordering::SeqCst));
+        let got = unsafe { Side::of_str(out) };
+        assert_eq!(got.len, 4);
+        assert_eq!(unsafe { core::slice::from_raw_parts(got.ptr, 4) }, b"left");
+        unsafe { __torajs_str_free(out) };
     }
 }

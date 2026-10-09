@@ -35,6 +35,7 @@ use crate::ssa::Operand;
 use crate::ssa_lower::LowerCtx;
 
 mod square;
+pub(crate) mod str_check;
 
 pub(crate) fn lower(
     ctx: &mut LowerCtx<'_>,
@@ -43,6 +44,7 @@ pub(crate) fn lower(
     left: ExprId,
     right: ExprId,
 ) -> Operand {
+    let str_deferred = str_check::take_root(ctx, eid);
     // Band B first: the checker already decided this pair can only
     // throw (`Ast::spec_throws`), so there is nothing for the operator
     // lanes below to dispatch on. See `ssa_lower_spec_throw`.
@@ -142,6 +144,7 @@ pub(crate) fn lower(
     if std::mem::take(&mut ctx.bigint_op_may_throw) {
         ctx.emit_throw_check(None);
     }
+    str_check::finish(ctx, str_deferred, result);
     result
 }
 

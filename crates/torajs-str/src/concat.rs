@@ -33,9 +33,8 @@
 //! ASCII concat stays on the all-Latin-1 fast path with the same
 //! shape as pre-S2; only mixed-encoding concats pay the widen cost.
 
-use crate::join::{Side, fits_one_str, join, join_general};
+use crate::join::{Side, fits_one_str, join_general, join_or, too_long_keeping};
 use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_LEN_OFF};
-use crate::max_len::__torajs_str_too_long;
 use torajs_rc::HeapHeader;
 
 // ============================================================
@@ -95,17 +94,58 @@ pub unsafe extern "C" fn __torajs_str_concat(a: *const u8, b: *const u8) -> *mut
     if a.is_null() || b.is_null() {
         return unsafe { concat_null(a, b) };
     }
-    unsafe { join(Side::of_str(a), Side::of_str(b)) }
+    unsafe {
+        join_or(Side::of_str(a), Side::of_str(b), |ptr, _, _| {
+            too_long_sharing(ptr)
+        })
+    }
+}
+
+/// Raise the RangeError for a concat past the longest Str and answer
+/// the left cell itself with one more reference; see
+/// [`too_long_shared`]. The cell is found back from its payload
+/// pointer, so the hot path keeps nothing live for this call it almost
+/// never makes.
+///
+/// # Safety
+///
+/// `payload` is the payload of a valid Str heap block
+/// ([`Side::of_str`]).
+#[cold]
+#[inline(never)]
+pub(crate) unsafe fn too_long_sharing(payload: *const u8) -> *mut u8 {
+    unsafe { too_long_shared(payload.sub(STR_DATA_OFF)) }
+}
+
+/// Raise the RangeError for a concat past the longest Str and answer
+/// the left cell `a` with one more reference: the caller stores the
+/// answer before its throw check runs, so `s = s + x` leaves `s` as it
+/// was, and no copy of a side that long is made.
+///
+/// # Safety
+///
+/// `a` is a valid Str heap block.
+#[cold]
+#[inline(never)]
+pub(crate) unsafe fn too_long_shared(a: *const u8) -> *mut u8 {
+    unsafe {
+        crate::max_len::raise_too_long();
+        torajs_rc::__torajs_rc_inc(a as *mut core::ffi::c_void);
+    }
+    a as *mut u8
 }
 
 /// `__torajs_str_concat` with a null operand: it reads as the text
 /// "null".
 #[cold]
 #[inline(never)]
-unsafe fn concat_null(a: *const u8, b: *const u8) -> *mut u8 {
-    let (a, b) = unsafe { (Side::of_nullable_str(a), Side::of_nullable_str(b)) };
+unsafe fn concat_null(a_cell: *const u8, b: *const u8) -> *mut u8 {
+    let (a, b) = unsafe { (Side::of_nullable_str(a_cell), Side::of_nullable_str(b)) };
     if !fits_one_str(a, b) {
-        return unsafe { __torajs_str_too_long() };
+        if !a_cell.is_null() {
+            return unsafe { too_long_shared(a_cell) };
+        }
+        return unsafe { too_long_keeping(a.ptr, a.len, a.flags) };
     }
     unsafe { join_general(a, b) }
 }
@@ -167,6 +207,49 @@ mod tests {
         for p in [a, b, unknown, both, one] {
             unsafe { __torajs_str_free(p) };
         }
+    }
+
+    #[test]
+    fn a_concat_past_the_longest_string_raises_and_answers_its_left_cell() {
+        let a = make_latin1(b"keep");
+        let b = make_latin1(b"");
+        // only the length is read before the bound refuses the join
+        let set_len = |p: *mut u8, n: u32| unsafe { (p.add(STR_LEN_OFF) as *mut u32).write(n) };
+        set_len(b, crate::max_len::STR_MAX_LEN as u32);
+        crate::STUB_THROW_RAISED.store(false, core::sync::atomic::Ordering::SeqCst);
+        let out = unsafe { __torajs_str_concat(a, b) };
+        assert!(crate::STUB_THROW_RAISED.load(core::sync::atomic::Ordering::SeqCst));
+        assert_eq!(out, a, "the left cell itself comes back");
+        assert_eq!(unsafe { &*(a as *const HeapHeader) }.refcount, 2);
+        set_len(b, 0);
+        unsafe { crate::str_drop::__torajs_str_drop(out) };
+        for p in [a, b] {
+            unsafe { __torajs_str_free(p) };
+        }
+    }
+
+    #[test]
+    fn a_literal_or_number_tail_past_the_longest_string_answers_the_left_cell() {
+        use crate::concat_lit::test_support::lit1;
+        use core::sync::atomic::Ordering::SeqCst;
+        let a = make_latin1(b"keep");
+        // only the length is read before the bound refuses the join
+        unsafe { (a.add(STR_LEN_OFF) as *mut u32).write(crate::max_len::STR_MAX_LEN as u32) };
+        let (bits, meta) = lit1(b"x");
+        let joins: [&dyn Fn() -> *mut u8; 2] = [
+            &|| unsafe { crate::concat_lit::__torajs_str_concat_lit(a, bits, meta) },
+            &|| unsafe { crate::concat_num::__torajs_str_concat_i64(a, 7) },
+        ];
+        for join in joins {
+            crate::STUB_THROW_RAISED.store(false, SeqCst);
+            let out = join();
+            assert!(crate::STUB_THROW_RAISED.load(SeqCst));
+            assert_eq!(out, a, "the left cell itself comes back");
+            assert_eq!(unsafe { &*(a as *const HeapHeader) }.refcount, 2);
+            unsafe { crate::str_drop::__torajs_str_drop(out) };
+        }
+        unsafe { (a.add(STR_LEN_OFF) as *mut u32).write(4) };
+        unsafe { __torajs_str_free(a) };
     }
 
     #[test]

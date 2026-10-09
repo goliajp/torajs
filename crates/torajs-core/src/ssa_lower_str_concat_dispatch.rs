@@ -124,6 +124,12 @@ pub(crate) fn try_dispatch(
             acc = Operand::Value(v);
             acc_fresh = true;
         }
+        // a product past the longest string raised a RangeError; the
+        // kernels answered their left operands and kept folding, so
+        // one check after the last one covers every round
+        if acc_fresh && crate::ssa_lower_binop::str_check::checks_here(ctx) {
+            ctx.emit_throw_check_owned(None, acc, Type::Str);
+        }
         return Some(acc);
     }
     // `xs.concat(a, b, ..., z)` per ES §23.1.3.2 — a fresh array
