@@ -35,6 +35,7 @@ use torajs_core::ssa::InstKind;
 pub mod arith_identity;
 pub mod bitwise_identity;
 pub mod canon;
+pub mod cmp_fold;
 pub mod const_fold;
 pub mod self_fold;
 pub mod strength_reduction;
@@ -49,6 +50,7 @@ pub use strength_reduction::{FMulTwoToAdd, MulPow2ToShl};
 use arith_identity::{ADD_ZERO, MUL_ONE, MUL_ZERO, SUB_NEGATE, SUB_ZERO};
 use bitwise_identity::{AND_ALL_ONES, AND_ZERO, OR_ALL_ONES, OR_ZERO, XOR_ZERO};
 use canon::COMMUTATIVE_CANON;
+use cmp_fold::CMP_CONST_FOLD;
 use const_fold::BIN_OP_CONST_FOLD;
 use self_fold::{SUB_SELF, XOR_SELF};
 use strength_reduction::{FMUL_TWO, MUL_POW2};
@@ -188,6 +190,7 @@ pub static BUILTIN_RULES: &[&'static dyn Rewrite] = &[
     &SUB_SELF,
     &XOR_SELF,
     &BIN_OP_CONST_FOLD,
+    &CMP_CONST_FOLD,
     &MUL_POW2,
     &FMUL_TWO,
 ];

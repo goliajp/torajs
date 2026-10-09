@@ -259,28 +259,7 @@ pub fn elaborate(
         }
     }
 
-    // Blocks unreachable from BlockId(0) are detached from the CFG —
-    // no edge reaches them, so their contents can never execute.
-    // Empty them and pin `Terminator::Unreachable` (the ctpop_idiom /
-    // ctpop_range_sum detach idiom) instead of cloning their insts
-    // verbatim: passes that run before elaboration walk the whole
-    // block list (the inliner in particular replaces calls with
-    // `InstKind::Identity` result bindings in any block), while the
-    // egraph optimize/elaborate walks are domtree DFS and never
-    // canonicalise dead-block contents — a verbatim clone leaks
-    // un-elaborated Identity insts straight into liveness, which
-    // rejects them by contract.
-    for (bi, blk) in out_blocks.iter_mut().enumerate().take(n).skip(1) {
-        let bid = BlockId(bi as u32);
-        if dom.immediate_dominator(bid).is_none() {
-            // Never visited by the DFS: insts is still the empty
-            // prealloc (LICM redirects only target dominators, which
-            // are reachable by definition). Pin the terminator so the
-            // detached block carries no operand uses either.
-            blk.insts.clear();
-            blk.term = Terminator::Unreachable;
-        }
-    }
+    detach_unreached(&mut out_blocks, n);
 
     let func_out = Function {
         name: func.name.clone(),
@@ -291,6 +270,40 @@ pub fn elaborate(
         current_origin: func.current_origin,
     };
     (func_out, stats)
+}
+
+/// Blocks the entry no longer reaches over the elaborated terminators
+/// are detached from the CFG: their contents can never execute. That
+/// covers the blocks the domtree DFS never visited (still the empty
+/// prealloc) and the dead arm of a branch whose condition folded to a
+/// literal here, which the domtree computed before the fold still
+/// held. Empty them and pin `Terminator::Unreachable` (the
+/// ctpop_idiom / ctpop_range_sum detach idiom): a dead arm left in
+/// place keeps its reads alive, so a slot it touches stays a slot for
+/// every later pass, and a verbatim clone of an unvisited block would
+/// leak un-elaborated Identity insts into liveness, which rejects
+/// them by contract.
+fn detach_unreached(blocks: &mut [Block], n: usize) {
+    let mut seen = vec![false; blocks.len()];
+    let mut stack = vec![0usize];
+    while let Some(b) = stack.pop() {
+        if b >= blocks.len() || std::mem::replace(&mut seen[b], true) {
+            continue;
+        }
+        match &blocks[b].term {
+            Terminator::Br(t) => stack.push(t.0 as usize),
+            Terminator::CondBr {
+                then_blk, else_blk, ..
+            } => stack.extend([then_blk.0 as usize, else_blk.0 as usize]),
+            Terminator::Ret(_) | Terminator::Unreachable => {}
+        }
+    }
+    for (bi, blk) in blocks.iter_mut().enumerate().take(n).skip(1) {
+        if !seen[bi] {
+            blk.insts.clear();
+            blk.term = Terminator::Unreachable;
+        }
+    }
 }
 
 /// Rewrite every `Operand::Value(v)` operand of an `InstKind` through
@@ -788,10 +801,11 @@ mod tests {
         assert_eq!(stats.blocks_visited, 4);
         assert_eq!(stats.emitted, 4);
         assert_eq!(stats.gvn_skipped, 0);
-        // Layout preserved — every block has exactly one inst.
-        for b in &out.blocks {
-            assert_eq!(b.insts.len(), 1);
-        }
+        // Layout preserved; the `true` condition folds the branch, so
+        // the else arm no longer runs and is detached.
+        let lens: Vec<usize> = out.blocks.iter().map(|b| b.insts.len()).collect();
+        assert_eq!(lens, vec![1, 1, 0, 1]);
+        assert_eq!(out.blocks[2].term, Terminator::Unreachable);
     }
 
     #[test]
