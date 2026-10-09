@@ -19,7 +19,7 @@ fn lanes_of(f: &Function) -> usize {
 ///   b0: total=0; i=1       b3: d*d <= i ? b4 : b5
 ///   b1: i <= n ? b2 : b6   b4: s = i%d == 0 ? s+d : s; d++ → b3
 ///   b2: s=0; d=1 → b3      b5: total += s; i++ → b1     b6: ret total
-fn divisor_sums() -> Function {
+pub(super) fn divisor_sums() -> Function {
     let blocks = vec![
         blk(0, vec![copy(1, c(0)), copy(2, c(1))], br(1)),
         blk(
