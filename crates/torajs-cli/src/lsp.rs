@@ -208,6 +208,7 @@ fn compute_diagnostics(uri: &Uri, text: &str) -> Vec<Diagnostic> {
         if let Err(e) = torajs_core::ast::desugar_enums(&mut ast) {
             return vec![error_at_origin(format!("parse error: {e}"))];
         }
+        torajs_core::ast::inline_scalar_aliases(&mut ast);
         // Block/CaseBlock redeclaration early errors on the raw AST.
         torajs_core::ast::early_redecl_errors(&mut ast);
         torajs_core::ast::dedupe_fn_decls(&mut ast);

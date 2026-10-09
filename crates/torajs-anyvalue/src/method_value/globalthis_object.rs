@@ -25,10 +25,13 @@
 //! NOT filled — a dynamic read must stay LOUD, not answer a silent
 //! `undefined` where bun answers a function. The member-get miss
 //! lane consults [`globalthis_missing_known`] via the singleton
-//! pointer probe and raises a TypeError. Static spellings
-//! (`globalThis.parseInt`) never get here — the G1 desugar rewrote
-//! them to the bare name at compile time. An UNKNOWN name answers
-//! `undefined` like every ordinary miss (bun parity).
+//! pointer probe and raises a TypeError. A static spelling
+//! (`globalThis.parseInt`) gets here only where the G1 desugar had to
+//! keep the member read — a declaration of the name in scope at the
+//! read whose rename would be observable, or a sloppy script's own
+//! top-level binding of it; everywhere else it became the bare name at
+//! compile time. An UNKNOWN name answers `undefined` like every
+//! ordinary miss (bun parity).
 //!
 //! Mutations never reach this object: the checker rejects member
 //! stores / deletes / incrs through a bare `globalThis` (a write

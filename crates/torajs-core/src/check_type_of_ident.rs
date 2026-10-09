@@ -128,9 +128,10 @@ pub(crate) fn check(
         // the runtime singleton (an Any-boxed immortal dynobj), so
         // member reads ride the any lanes: unknown names answer
         // undefined (bun parity), known-but-unfilled builtins throw
-        // through the member-get miss probe. Static builtin member
-        // reads never get here — the G1 desugar rewrote them to bare
-        // names. `typeof globalThis` keeps its static "object" lane.
+        // through the member-get miss probe. A static builtin member
+        // read is here only where the G1 desugar kept the member form
+        // (`globalthis_member`); the rest became bare names. `typeof
+        // globalThis` keeps its static "object" lane.
         "globalThis" => Ok(Type::Any),
         // §19.2.2-6 function properties of the global object as bare
         // VALUES — the ns-static cells shipped (rotation 368), so a

@@ -135,10 +135,12 @@ fn resolve(
     let suffix = &target[head.len()..];
     let r = if !head.bytes().all(is_word_byte) {
         None
+    } else if targets.contains_key(head) {
+        // a declared alias wins over a primitive spelling: `i64` / `f64`
+        // are names a program may declare itself
+        resolve(head, targets, memo, visiting).map(|inner| format!("{inner}{suffix}"))
     } else if PRIMITIVE_WORDS.contains(&head) {
         Some(target.clone())
-    } else if targets.contains_key(head) {
-        resolve(head, targets, memo, visiting).map(|inner| format!("{inner}{suffix}"))
     } else {
         None
     };
