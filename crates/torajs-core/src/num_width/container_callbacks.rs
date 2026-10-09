@@ -19,8 +19,20 @@ impl Analysis<'_> {
     /// wired the elem edge onto the env pointer (and reduce's acc
     /// feedback missed the accumulator entirely — the array-005 FPR
     /// abort).
-    pub(super) fn wire_elem_to_cb_param(&mut self, ek: &SlotKey, cb_arg: ExprId, scope: &Scope) {
-        self.wire_elem_to_cb_param_at(ek, cb_arg, 0, scope);
+    ///
+    /// An object element is the exception: the parameter then holds the
+    /// element itself, so it IS the element's class and joins it
+    /// outright. A width edge alone left `xs.map((m) => m.right)` reading
+    /// a widened `{ right: number }` element through the parameter's
+    /// own narrow layout, its fraction coming back as raw bits.
+    pub(super) fn wire_elem_to_cb_param(
+        &mut self,
+        ek: &SlotKey,
+        src: ExprId,
+        cb_arg: ExprId,
+        scope: &Scope,
+    ) {
+        self.wire_elem_to_cb_param_at(ek, src, cb_arg, 0, scope);
     }
 
     /// The same wiring for a callback parameter other than the first.
@@ -36,6 +48,7 @@ impl Analysis<'_> {
     fn wire_elem_to_cb_param_at(
         &mut self,
         ek: &SlotKey,
+        src: ExprId,
         cb_arg: ExprId,
         idx: usize,
         scope: &Scope,
@@ -45,8 +58,17 @@ impl Analysis<'_> {
                 .entry(ek.clone())
                 .or_default()
                 .push((pk.clone(), false));
+            if self.elems_are_objects(src) {
+                self.guarded_unions.push((pk.clone(), ek.clone()));
+            }
             self.nested_unions.push((ek.clone(), pk));
         }
+    }
+
+    fn elems_are_objects(&self, src: ExprId) -> bool {
+        use crate::check::Type;
+        matches!(self.expr_types.get(&src),
+            Some(Type::Array(t)) if matches!(**t, Type::Struct(_) | Type::ClassRef(_)))
     }
 
     /// The key of a callback's `idx`-th parameter: the named function's
@@ -77,9 +99,9 @@ impl Analysis<'_> {
     /// `forEach`'s element wiring, which is per-receiver: a Set hands
     /// the member twice (see [`Self::wire_elem_to_cb_param_at`]).
     fn wire_foreach_params(&mut self, ek: &SlotKey, cb_arg: ExprId, recv: ExprId, scope: &Scope) {
-        self.wire_elem_to_cb_param_at(ek, cb_arg, 0, scope);
+        self.wire_elem_to_cb_param_at(ek, recv, cb_arg, 0, scope);
         if matches!(self.expr_types.get(&recv), Some(crate::check::Type::Set)) {
-            self.wire_elem_to_cb_param_at(ek, cb_arg, 1, scope);
+            self.wire_elem_to_cb_param_at(ek, recv, cb_arg, 1, scope);
         }
     }
 
@@ -103,7 +125,7 @@ impl Analysis<'_> {
                     if name == "forEach" {
                         self.wire_foreach_params(ek, *a0, obj, scope);
                     } else {
-                        self.wire_elem_to_cb_param(ek, *a0, scope);
+                        self.wire_elem_to_cb_param(ek, obj, *a0, scope);
                     }
                 }
             }
@@ -117,13 +139,7 @@ impl Analysis<'_> {
                 // cmp(3.5, -1.25) received 4307779648 / 16384).
                 if let Some(&cb_arg) = args.first() {
                     for idx in 0..2 {
-                        if let Some(pk) = self.cb_param_key(cb_arg, idx, scope) {
-                            self.c_edges
-                                .entry(ek.clone())
-                                .or_default()
-                                .push((pk.clone(), false));
-                            self.nested_unions.push((ek.clone(), pk));
-                        }
+                        self.wire_elem_to_cb_param_at(ek, obj, cb_arg, idx, scope);
                     }
                 }
             }
