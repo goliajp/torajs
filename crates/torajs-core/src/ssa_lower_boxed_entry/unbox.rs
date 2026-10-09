@@ -20,11 +20,11 @@ pub(super) struct BoxedCoerceIds {
     pub(super) anyv_to_str: FuncId,
     /// S2.36 — the struct-param coercion kernel.
     pub(super) arg_to_struct: FuncId,
-    /// `__torajs_anyv_struct_fits(v, class_tag) -> i64` — the mono
+    /// `__torajs_anyv_struct_fits(v, class_tag, kin) -> i64` — the mono
     /// adapter's struct-slot test ahead of its unboxes
     /// (`build_reroute`).
     pub(super) struct_fits: FuncId,
-    /// `__torajs_anyv_arr_fits(v, class_tag, depth) -> i64` — the
+    /// `__torajs_anyv_arr_fits(v, class_tag, depth, kin) -> i64` — the
     /// same test for an array-of-struct slot, over every element.
     pub(super) arr_fits: FuncId,
     /// `__torajs_anyv_str_fits(v) -> i64` — a string slot's test.
@@ -55,8 +55,8 @@ pub(super) fn declare_coerce_intrinsics(
     BoxedCoerceIds {
         anyv_to_str: d("__torajs_anyv_to_str_param", &[Any], Ptr),
         arg_to_struct: d("__torajs_anyv_arg_to_struct", &[Any, I64], Any),
-        struct_fits: d("__torajs_anyv_struct_fits", &[Any, I64], I64),
-        arr_fits: d("__torajs_anyv_arr_fits", &[Any, I64, I64], I64),
+        struct_fits: d("__torajs_anyv_struct_fits", &[Any, I64, I64], I64),
+        arr_fits: d("__torajs_anyv_arr_fits", &[Any, I64, I64, I64], I64),
         str_fits: d("__torajs_anyv_str_fits", &[Any], I64),
         arr_cell: d("__torajs_anyv_arr_cell", &[Any, I64], I64),
         rest_fits: d("__torajs_anyv_rest_fits", &[Ptr, I64, I64, I64], I64),

@@ -5,7 +5,7 @@ use crate::ssa::{self, BinOp, FuncId, IPred, InstKind, Operand, Type};
 
 use super::BoxedEntryIntrinsics;
 use super::fit_tag::{FitTag, scalar_tags};
-use super::unbox::BoxedCoerceIds;
+use super::unbox::BoxedCoerceIntrinsics;
 
 /// What a lossy slot's test reads besides its loaded argument.
 pub(super) enum On {
@@ -44,14 +44,18 @@ pub(super) struct Probe {
 /// passed, or slots it cannot read. A `number` / `boolean` / integer
 /// slot misses on every tag outside the set it binds as it is
 /// (`fit_tag::scalar_tags`), which ToNumber / ToBoolean would convert.
+/// A struct-shaped slot's class list is addressed in `entry` of `f`.
 pub(super) fn slot_probe(
-    ids: &BoxedCoerceIds,
+    f: &mut ssa::Function,
+    entry: ssa::BlockId,
     intr: &BoxedEntryIntrinsics,
-    slot: super::fit_tag::SlotTest,
+    coerce: &BoxedCoerceIntrinsics<'_>,
+    i: usize,
     ty: Type,
     dflt: Option<&super::DfltLit>,
-    rest: bool,
 ) -> Probe {
+    let (ids, slot) = (&coerce.ids, coerce.slots[i]);
+    let rest = coerce.rest && i + 1 == coerce.slots.len();
     let probe = |test, on, miss_at| Probe {
         test,
         on,
@@ -65,25 +69,20 @@ pub(super) fn slot_probe(
         };
     }
     match (slot.fit, slot.shape) {
-        (Some(FitTag { tag, depth: 0 }), _) => Probe {
-            passes_cell: true,
-            ..probe(
-                ids.struct_fits,
-                On::Arg(vec![Operand::ConstI64(tag as i64)]),
-                0,
-            )
-        },
-        (Some(FitTag { tag, depth }), _) => Probe {
-            passes_cell: true,
-            ..probe(
-                ids.arr_fits,
-                On::Arg(vec![
-                    Operand::ConstI64(tag as i64),
-                    Operand::ConstI64(depth as i64),
-                ]),
-                0,
-            )
-        },
+        (Some(FitTag { tag, depth, kin }), _) => {
+            let mut on = vec![Operand::ConstI64(tag as i64)];
+            on.extend((depth > 0).then_some(Operand::ConstI64(depth as i64)));
+            on.push(kin_operand(f, entry, kin));
+            let test = if depth == 0 {
+                ids.struct_fits
+            } else {
+                ids.arr_fits
+            };
+            Probe {
+                passes_cell: true,
+                ..probe(test, On::Arg(on), 0)
+            }
+        }
         (None, Some(shape)) if rest => probe(ids.rest_fits, On::Rest(shape), 0),
         (None, Some(shape)) => probe(
             ids.arr_cell,
@@ -92,6 +91,22 @@ pub(super) fn slot_probe(
         ),
         _ => probe(ids.str_fits, On::Arg(Vec::new()), 0),
     }
+}
+
+/// The `kin` operand of a fit test: the class list's address, or null
+/// for a slot with none.
+fn kin_operand(f: &mut ssa::Function, entry: ssa::BlockId, kin: Option<ssa::StringId>) -> Operand {
+    let Some(list) = kin else {
+        return Operand::ConstI64(0);
+    };
+    let ptr = f.append_inst(entry, InstKind::StringRef(list), Type::Ptr, None);
+    let bits = f.append_inst(
+        entry,
+        InstKind::PtrToInt(Operand::Value(ptr)),
+        Type::I64,
+        None,
+    );
+    Operand::Value(bits)
 }
 
 /// The `Bool` that is true when the test's answer `v` misses.

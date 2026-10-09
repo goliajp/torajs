@@ -10,6 +10,8 @@
 //! that layout (or one extending it) has: an array, a Proxy, a
 //! getter-bearing literal, a `3` handed over through `any` means a
 //! generic [[Get]] for every `p.x` (§13.3.2.1), not an offset read.
+//! A slot typed by a class takes only a cell of that class or of a
+//! subclass (`kin`): the body calls the class's own methods on it.
 //! The twin's every parameter is `any`, so it hosts such a call
 //! exactly; with every argument fitting, the typed body runs as
 //! before. The test is one tag-set test per lossy scalar slot and one
@@ -124,9 +126,8 @@ pub(super) fn emit_twin_reroute(
         entry = next;
     }
     for i in lossy.into_iter().filter(|_| !always) {
-        let rest = coerce.rest && i + 1 == user_tys.len();
         let dflt = dflt_lits.get(i).and_then(|d| d.as_ref());
-        let probe = slot_probe(&coerce.ids, intr, coerce.slots[i], user_tys[i], dflt, rest);
+        let probe = slot_probe(f, entry, intr, coerce, i, user_tys[i], dflt);
         let args = match probe.on {
             On::Arg(extra) => {
                 let av = f.append_inst(

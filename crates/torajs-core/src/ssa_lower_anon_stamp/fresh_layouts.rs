@@ -3,7 +3,8 @@
 use std::collections::HashMap;
 
 use crate::ast::PropKey;
-use crate::ssa;
+use crate::ssa::{self, FieldMetaSpec, Type};
+use crate::ssa_lower_boxed_entry::admit_generic_rows;
 
 use super::AnonStampPoolCell;
 
@@ -11,20 +12,23 @@ use super::AnonStampPoolCell;
 type LayoutRow<'a> = (u32, ssa::StructId, Option<&'a String>, Option<&'a [u32]>);
 
 /// Append a `ClassLayoutMeta` row per Pass 2 fresh tag recorded in
-/// `pool` to `class_layouts` — plain anon sids and generic-factory
-/// rows (405-03) share one tag counter, so the two lists merge
-/// sorted by tag to keep the runtime indexed view dense
+/// `pool` to `module.class_layouts` — plain anon sids and
+/// generic-factory rows (405-03) share one tag counter, so the two
+/// lists merge sorted by tag to keep the runtime indexed view dense
 /// (`class_tag - 1` keeps holding).
 ///
-/// `struct_layouts` is the post-Pass-2 vec — every fresh sid index
-/// is now in-range. `generic_methods` maps a generic class to its
-/// re-targeted method table (built by `populate_class_layouts`).
+/// `module.struct_layouts` is the post-Pass-2 vec — every fresh sid
+/// index is now in-range. `generic_methods` maps a generic class to
+/// its re-targeted method table (built by `populate_class_layouts`).
+/// A generic row also joins the class lists of the boxed adapters'
+/// fit tests that admit its class ([`admit_generic_rows`]).
 pub fn append_fresh_class_layouts(
     pool: &AnonStampPoolCell,
-    struct_layouts: &[Vec<(PropKey, crate::ssa::Type)>],
     generic_methods: &HashMap<String, Vec<crate::ssa::MethodMetaSpec>>,
-    class_layouts: &mut Vec<crate::ssa::ClassLayoutMeta>,
+    class_name_to_tag: &HashMap<String, u32>,
+    module: &mut ssa::Module,
 ) {
+    admit_generic_rows(pool, class_name_to_tag, &mut module.strings);
     let p = pool.borrow();
     let mut rows: Vec<LayoutRow<'_>> = p
         .fresh_sids()
@@ -44,23 +48,7 @@ pub fn append_fresh_class_layouts(
     rows.sort_by_key(|(tag, _, _, _)| *tag);
     for (_, sid, base, order) in rows {
         let sid_idx = sid.0 as usize;
-        let layout = &struct_layouts[sid_idx];
-        let identity: Vec<u32> = (0..layout.len() as u32).collect();
-        let mut child_offsets: Vec<u32> = Vec::new();
-        let mut field_metadata: Vec<crate::ssa::FieldMetaSpec> = Vec::new();
-        // rows follow the creation order; each keeps its own slot offset
-        for &i in order.unwrap_or(&identity) {
-            let (fname, fty) = &layout[i as usize];
-            let off = crate::ssa_lower::OBJ_HEADER_SIZE as u32 + i * 8;
-            if fty.is_refcounted() {
-                child_offsets.push(off);
-            }
-            field_metadata.push(crate::ssa::FieldMetaSpec {
-                name: fname.clone(),
-                offset: off,
-                type_tag: crate::ssa::field_type_tag_of(*fty),
-            });
-        }
+        let (child_offsets, field_metadata) = field_rows(&module.struct_layouts[sid_idx], order);
         // 404-01 / 405-03 — a generic factory's row keeps its
         // per-specialization LAYOUT but wears the class identity
         // (name + re-targeted method table).
@@ -71,7 +59,7 @@ pub fn append_fresh_class_layouts(
             ),
             None => (format!("__anon_struct_{sid_idx}"), Vec::new()),
         };
-        class_layouts.push(crate::ssa::ClassLayoutMeta {
+        module.class_layouts.push(crate::ssa::ClassLayoutMeta {
             class_name,
             child_offsets,
             field_metadata,
@@ -80,4 +68,27 @@ pub fn append_fresh_class_layouts(
             methods,
         });
     }
+}
+
+/// The child offsets and field rows of a cell of `layout` whose
+/// properties were created in `order` (the layout's own order when
+/// `None`): the rows follow the creation order, and each keeps its
+/// own slot offset.
+fn field_rows(layout: &[(PropKey, Type)], order: Option<&[u32]>) -> (Vec<u32>, Vec<FieldMetaSpec>) {
+    let identity: Vec<u32> = (0..layout.len() as u32).collect();
+    let mut child_offsets: Vec<u32> = Vec::new();
+    let mut field_metadata: Vec<FieldMetaSpec> = Vec::new();
+    for &i in order.unwrap_or(&identity) {
+        let (fname, fty) = &layout[i as usize];
+        let off = crate::ssa_lower::OBJ_HEADER_SIZE as u32 + i * 8;
+        if fty.is_refcounted() {
+            child_offsets.push(off);
+        }
+        field_metadata.push(FieldMetaSpec {
+            name: fname.clone(),
+            offset: off,
+            type_tag: crate::ssa::field_type_tag_of(*fty),
+        });
+    }
+    (child_offsets, field_metadata)
 }

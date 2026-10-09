@@ -108,25 +108,13 @@ pub(crate) fn synthesize_boxed_entries(
     aliases: &HashMap<String, Type>,
     arr_layouts: &[Type],
 ) -> HashMap<FuncId, (FuncId, ssa::SigId)> {
-    // S2.36 — sid → class_tag for the struct-param coercion call.
-    // Named classes resolve through their name tag; anonymous shapes
-    // through the Pass-1.5 stamp pool (same split the ObjectLit
-    // alloc stamping uses).
-    // Classes with the same layout share one sid; the lowest tag
-    // answers for it, so the choice never follows hash order.
-    let mut named_sid_to_tag: HashMap<ssa::StructId, u32> = HashMap::new();
-    for (cname, &tag) in class_name_to_tag {
-        if let Some(Type::Obj(sid)) = aliases.get(cname) {
-            let t = named_sid_to_tag.entry(*sid).or_insert(tag);
-            *t = (*t).min(tag);
-        }
-    }
-    let sid_tag = |sid: ssa::StructId| -> u32 {
-        named_sid_to_tag
-            .get(&sid)
-            .copied()
-            .unwrap_or_else(|| anon_stamp_pool.borrow_mut().assign_or_get(sid))
-    };
+    let mut kins = kin::Kins::new(
+        ast,
+        class_name_to_tag,
+        aliases,
+        arr_layouts,
+        anon_stamp_pool,
+    );
     let targets = collect_boxed_targets(&TargetTables {
         ast,
         call_retargets,
@@ -145,11 +133,7 @@ pub(crate) fn synthesize_boxed_entries(
     });
     for t in twins.into_iter().chain(monos) {
         let undef_misses = relay_target_reads_argc(ast, &t.name);
-        let slots: Vec<SlotTest> = t
-            .user_tys
-            .iter()
-            .map(|ty| slot_test(*ty, arr_layouts, &sid_tag, undef_misses))
-            .collect();
+        let slots = kins.slot_tests(&mut module.strings, &t, undef_misses);
         let argc_fixed = fixed_argc_of(ast, &t.name);
         let twin_reroute = twin_adapter_of(ast, fn_table, &entries, &t.name)
             .filter(|_| argc_fixed.is_some() || any_lossy(&t, &slots));
@@ -212,11 +196,13 @@ mod build;
 mod build_reroute;
 mod build_rest;
 mod fit_tag;
+mod kin;
+pub(crate) use kin::admit_generic_rows;
 mod probe;
 use build::build_boxed_entry;
 pub(crate) use build_reroute::twin_adapter_of;
 use build_reroute::{TwinReroute, is_twin_name};
-use fit_tag::{SlotTest, lossy_slot, slot_test};
+use fit_tag::{SlotTest, lossy_slot};
 mod relay;
 mod targets;
 use targets::{TargetTables, collect_boxed_targets};

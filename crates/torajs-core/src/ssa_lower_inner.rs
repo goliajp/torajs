@@ -421,8 +421,8 @@ fn finalize_module(
     // anon sids + the 405-03 generic-factory rows, merged by tag).
     crate::ssa_lower_anon_stamp::append_fresh_class_layouts(
         anon_stamp_pool,
-        &module.struct_layouts.clone(),
         &generic_methods,
-        &mut module.class_layouts,
+        class_name_to_tag,
+        module,
     );
 }

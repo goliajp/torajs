@@ -9,6 +9,9 @@ use crate::ssa::{self, Type};
 pub(crate) struct FitTag {
     pub(crate) tag: u32,
     pub(crate) depth: u32,
+    /// The rodata list of class tags a slot typed by a class admits
+    /// (`kin`); `None` for an interface or object-literal slot.
+    pub(crate) kin: Option<ssa::StringId>,
 }
 
 /// The [`FitTag`] of a struct-shaped slot type: a cell, or an array
@@ -26,6 +29,7 @@ pub(crate) fn fit_tag(
                 return Some(FitTag {
                     tag: sid_tag(sid),
                     depth,
+                    kin: None,
                 });
             }
             Type::Arr(a) => {

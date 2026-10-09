@@ -19,16 +19,29 @@
 //! Pure reads over `LowerCtx`; the emit half stays in the parent
 //! module.
 
+use std::collections::HashMap;
+
 use crate::ssa_lower::LowerCtx;
 
 pub(super) fn compute_descendant_tags(ctx: &LowerCtx<'_>, class_name: &str) -> Vec<u32> {
+    descendant_tags(&ctx.ast.class_parents, ctx.class_name_to_tag, class_name)
+}
+
+/// The constant tags of `class_name` and of every class whose
+/// `class_parents` chain reaches it, sorted; empty for a name that
+/// is no declared class.
+pub(crate) fn descendant_tags(
+    class_parents: &HashMap<String, Option<String>>,
+    class_name_to_tag: &HashMap<String, u32>,
+    class_name: &str,
+) -> Vec<u32> {
     let mut descendant_tags: Vec<u32> = Vec::new();
-    if !ctx.ast.class_parents.contains_key(class_name) {
+    if !class_parents.contains_key(class_name) {
         return descendant_tags;
     }
-    for c in ctx.ast.class_parents.keys() {
-        if chain_reaches(ctx, c, class_name)
-            && let Some(tag) = ctx.class_name_to_tag.get(c)
+    for c in class_parents.keys() {
+        if chain_reaches(class_parents, c, class_name)
+            && let Some(tag) = class_name_to_tag.get(c)
         {
             descendant_tags.push(*tag);
         }
@@ -81,7 +94,7 @@ pub(super) fn generic_half_tags(ctx: &LowerCtx<'_>, class_name: &str) -> Vec<i64
         for c in ctx.ast.class_parents.keys() {
             if c != class_name
                 && is_generic_class(ctx, c)
-                && chain_reaches(ctx, c, class_name)
+                && chain_reaches(&ctx.ast.class_parents, c, class_name)
                 && let Some(tag) = ctx.class_name_to_tag.get(c)
             {
                 tags.push(*tag as i64);
@@ -96,7 +109,7 @@ pub(super) fn generic_half_tags(ctx: &LowerCtx<'_>, class_name: &str) -> Vec<i64
 /// Does `c`'s `class_parents` chain (self included) reach `target`?
 /// Depth-capped like the pre-split walk — the parent map is acyclic
 /// by construction, the cap is a defensive bound only.
-fn chain_reaches(ctx: &LowerCtx<'_>, c: &str, target: &str) -> bool {
+fn chain_reaches(class_parents: &HashMap<String, Option<String>>, c: &str, target: &str) -> bool {
     let mut cur = Some(c.to_string());
     let mut depth = 0u32;
     while let Some(name) = cur {
@@ -106,7 +119,7 @@ fn chain_reaches(ctx: &LowerCtx<'_>, c: &str, target: &str) -> bool {
         if name == target {
             return true;
         }
-        cur = ctx.ast.class_parents.get(&name).and_then(|p| p.clone());
+        cur = class_parents.get(&name).and_then(|p| p.clone());
         depth += 1;
     }
     false

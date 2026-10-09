@@ -31,20 +31,29 @@ use crate::layout::{ARR_LEN_OFF, arr_data};
 unsafe extern "C" {
     /// A heap cell's pointer, 0 for every immediate.
     fn __torajs_anyv_cell_ptr(v: u64) -> i64;
-    /// 1 when the cell has the class's layout or one extending it.
-    fn __torajs_anyv_struct_fits(v: u64, class_tag: u32) -> i64;
+    /// 1 when the cell has the class's layout or one extending it, and
+    /// wears one of the tags of the class list `kin` when that is not
+    /// null.
+    fn __torajs_anyv_struct_fits(v: u64, class_tag: u32, kin: *const u8) -> i64;
 }
 
-/// `__torajs_anyv_arr_fits(v, class_tag, depth)` — see the module doc.
-/// 1 when `v` is an array that fits a slot of `depth` levels of array
-/// over cells of `class_tag`; 0 otherwise.
+/// `__torajs_anyv_arr_fits(v, class_tag, depth, kin)` — see the module
+/// doc. 1 when `v` is an array that fits a slot of `depth` levels of
+/// array over cells of `class_tag`; 0 otherwise. `kin` is the element
+/// slot's class list (null for none), asked of every element.
 ///
 /// # Safety
-/// `v` is a valid NaN-box; a cell it names is live.
+/// `v` is a valid NaN-box; a cell it names is live; `kin` is null or a
+/// class list.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_anyv_arr_fits(v: u64, class_tag: u32, depth: i64) -> i64 {
+pub unsafe extern "C" fn __torajs_anyv_arr_fits(
+    v: u64,
+    class_tag: u32,
+    depth: i64,
+    kin: *const u8,
+) -> i64 {
     let cell = unsafe { __torajs_anyv_cell_ptr(v) } as *const u8;
-    i64::from(!cell.is_null() && unsafe { arr_fits(cell, class_tag, depth) })
+    i64::from(!cell.is_null() && unsafe { arr_fits(cell, class_tag, depth, kin) })
 }
 
 /// `__torajs_anyv_arr_cell(v, shape)` — 1 when `v` is an array block a
@@ -116,7 +125,7 @@ unsafe fn live_slots(arr: *const u8) -> impl Iterator<Item = u64> {
 
 /// # Safety
 /// `arr` is a live heap cell.
-unsafe fn arr_fits(arr: *const u8, class_tag: u32, depth: i64) -> bool {
+unsafe fn arr_fits(arr: *const u8, class_tag: u32, depth: i64, kin: *const u8) -> bool {
     const UNFIT: u16 = FLAG_ARR_ANY | FLAG_ARR_EXOTIC_INDEX | FLAG_ARR_SPARSE_TAIL;
     let hdr = unsafe { &*(arr as *const HeapHeader) };
     if hdr.tag() != Tag::Arr || hdr.flags & UNFIT != 0 || hdr.arr_elem_kind() != ARR_KIND_HEAP {
@@ -127,9 +136,9 @@ unsafe fn arr_fits(arr: *const u8, class_tag: u32, depth: i64) -> bool {
             return false;
         }
         if depth <= 1 {
-            let fits = unsafe { __torajs_anyv_struct_fits(p, class_tag) };
+            let fits = unsafe { __torajs_anyv_struct_fits(p, class_tag, kin) };
             return fits == 1;
         }
-        unsafe { arr_fits(p as *const u8, class_tag, depth - 1) }
+        unsafe { arr_fits(p as *const u8, class_tag, depth - 1, kin) }
     })
 }

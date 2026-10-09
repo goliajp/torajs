@@ -16,12 +16,27 @@ use crate::nanbox::{AnyValue, as_void_ptr, is_cell};
 /// dynobj, a struct of another layout and every other heap cell. The
 /// boxed adapter branches on it ahead of its unboxes: a 0 sends the
 /// call to the function's all-`any` twin instead of through the
-/// coercion above.
+/// coercion ([`super::__torajs_anyv_arg_to_struct`]).
+///
+/// A slot typed by a class also asks who the cell is: the body calls
+/// a method no subclass overrides as that class's own function, and
+/// answers `instanceof` by the class tag, so an instance of another
+/// class with the same fields would run the slot class's methods
+/// (§13.3.2.1 reads `p.m` off the cell's own prototype chain). `kin`
+/// then lists the tags such a cell may wear: a u32 count, then the
+/// tags of the slot class, its subclasses and their generic rows
+/// (unaligned rodata). A null `kin` is an interface or object-literal
+/// slot, which any cell with the fields fits.
 ///
 /// # Safety
-/// `av`, when a cell, points at a live heap cell.
+/// `av`, when a cell, points at a live heap cell; `kin` is null or a
+/// class list.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_anyv_struct_fits(av: AnyValue, class_tag: u32) -> i64 {
+pub unsafe extern "C" fn __torajs_anyv_struct_fits(
+    av: AnyValue,
+    class_tag: u32,
+    kin: *const u8,
+) -> i64 {
     if !is_cell(av) {
         return 0;
     }
@@ -30,12 +45,25 @@ pub unsafe extern "C" fn __torajs_anyv_struct_fits(av: AnyValue, class_tag: u32)
         if (p.cast::<u8>().add(OBJ_TAG_OFF) as *const u16).read() != Tag::Obj as u16 {
             return 0;
         }
-        if (p.cast::<u8>().add(OBJ_CLASS_TAG_OFF) as *const u32).read() == class_tag {
+        let cell_tag = (p.cast::<u8>().add(OBJ_CLASS_TAG_OFF) as *const u32).read();
+        if cell_tag == class_tag {
             return 1;
+        }
+        if !kin.is_null() && !kin_admits(kin, cell_tag) {
+            return 0;
         }
         let layout = __torajs_struct_layout_lookup(class_tag);
         i64::from(!layout.is_null() && cell_fits(p, class_tag, layout))
     }
+}
+
+/// `cell_tag` is one of the tags of the class list `kin`.
+///
+/// # Safety
+/// `kin` is a class list.
+unsafe fn kin_admits(kin: *const u8, cell_tag: u32) -> bool {
+    let word = |i: usize| unsafe { kin.add(i * 4).cast::<u32>().read_unaligned() };
+    (1..=word(0) as usize).any(|i| word(i) == cell_tag)
 }
 
 /// Does the `Tag::Obj` cell `p` have the layout `layout` (of

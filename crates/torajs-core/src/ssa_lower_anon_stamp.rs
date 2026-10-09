@@ -63,6 +63,10 @@ pub struct AnonStampPool {
     /// stays untouched for plain object literals of that shape.
     generic_rows: Vec<(u32, ssa::StructId, String)>,
     generic_by_factory: HashMap<String, u32>,
+    /// The class-tag lists the boxed adapters' fit tests read; a
+    /// generic row of a listed class joins its list once Pass 2 has
+    /// minted it (`ssa_lower_boxed_entry::admit_generic_rows`).
+    kin_lists: Vec<ssa::StringId>,
     /// Sids a class factory stamped a CLASS tag onto. A factory's
     /// literal can intern to a sid other than the class's own (a
     /// field whose declared width differs from the literal's), and
@@ -95,6 +99,7 @@ impl AnonStampPool {
             next_tag: next_tag_start,
             generic_rows: Vec::new(),
             generic_by_factory: HashMap::new(),
+            kin_lists: Vec::new(),
             class_minted: HashSet::new(),
             perm_tags: HashMap::new(),
             perm_rows: Vec::new(),
@@ -147,6 +152,15 @@ impl AnonStampPool {
     /// append.
     pub fn generic_rows(&self) -> &[(u32, ssa::StructId, String)] {
         &self.generic_rows
+    }
+
+    /// Record a class-tag list a fit test reads (see `kin_lists`).
+    pub fn note_kin_list(&mut self, list: ssa::StringId) {
+        self.kin_lists.push(list);
+    }
+
+    pub fn kin_lists(&self) -> &[ssa::StringId] {
+        &self.kin_lists
     }
 
     /// Look up an existing tag for `sid` or allocate a fresh one. Fresh

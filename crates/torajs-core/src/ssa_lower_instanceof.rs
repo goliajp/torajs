@@ -65,7 +65,7 @@ use crate::ssa_lower::LowerCtx;
 
 mod dynamic;
 mod fold;
-mod tags;
+pub(crate) mod tags;
 
 use dynamic::{emit_has_instance, has_any_encoding, lower_general_rhs, try_lower_dynamic_target};
 use fold::{builtin_proto_tag, try_compile_time_fold};

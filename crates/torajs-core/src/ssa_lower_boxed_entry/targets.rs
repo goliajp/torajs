@@ -278,11 +278,7 @@ fn target_facts(
         fid,
         body_fid: relay.map_or(fid, |r| r.fid),
         user_tys,
-        ret_ty: if relay.is_some_and(|r| r.ret_void) {
-            Type::Void
-        } else {
-            ret_ty
-        },
+        ret_ty: relay.filter(|r| r.ret_void).map_or(ret_ty, |_| Type::Void),
         has_argv: has_argv || relay.is_some(),
         recv_slot,
         lead: match relay {
@@ -294,6 +290,7 @@ fn target_facts(
         feeds_env: feeds_env && relay.is_none(),
         hidden_argc: first_is_env || this_hidden,
         dflt_lits,
+        type_anns: dflt_params.iter().map(|p| p.type_ann.clone()).collect(),
         rest,
         rest_kind,
         ret_arr_kind,
@@ -330,6 +327,8 @@ pub(super) struct BoxedEntryTarget {
     /// method_argv family); the adapter forwards its own argc there.
     pub(super) hidden_argc: bool,
     pub(super) dflt_lits: Vec<Option<DfltLit>>,
+    /// The user params' type annotations, aligned with `user_tys`.
+    pub(super) type_anns: Vec<Option<String>>,
     /// Last user param is an `any[]` rest — the adapter collects
     /// argv[fixed..argc] into a fresh Arr<Any> for that slot.
     pub(super) rest: bool,
