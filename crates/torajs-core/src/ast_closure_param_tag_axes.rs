@@ -20,6 +20,9 @@
 use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
 use std::collections::{HashMap, HashSet};
 
+mod any_arg;
+pub(crate) use any_arg::any_obj_arg_seeds;
+
 /// Seed marks for fn-typed params whose name appears as the
 /// functional replaceValue of a `replace` / `replaceAll` member call
 /// anywhere in the program.
