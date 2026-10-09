@@ -64,6 +64,9 @@ pub(crate) struct LocalInfo {
     /// What the union rules know about this binding, when it is typed
     /// as a union (see `check/union_narrow.rs`).
     pub(crate) union: UnionBinding,
+    /// An object-typed binding that holds an `any` value
+    /// (`crate::check_stmt_let_decl::held_any`).
+    pub(crate) held_any: bool,
 }
 
 impl LocalInfo {
@@ -79,6 +82,7 @@ impl LocalInfo {
             exec_result: false,
             fn_slot: None,
             union: UnionBinding::default(),
+            held_any: false,
         }
     }
 }

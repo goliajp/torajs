@@ -71,6 +71,19 @@ fn any_cast(init: ExprId, ast: &Ast, types: &HashMap<ExprId, T>) -> bool {
     matches!(ast.get_expr(init), Expr::As { expr, .. } if types.get(expr) == Some(&T::Any))
 }
 
+/// Whether `init` reads a value held as `any` — a binding, a property,
+/// an element, a conditional of them — rather than producing one: a
+/// call is left out, since the typed `JSON.parse` / `Object.fromEntries`
+/// lanes decode theirs into the declared layout.
+fn any_read(init: ExprId, ast: &Ast, types: &HashMap<ExprId, T>) -> bool {
+    types.get(&init) == Some(&T::Any)
+        && match ast.get_expr(init) {
+            Expr::Ident(_) | Expr::Index { .. } | Expr::Ternary { .. } => true,
+            Expr::Member { obj, .. } => !matches!(ast.get_expr(*obj), Expr::Call { .. }),
+            _ => false,
+        }
+}
+
 /// The checker type of a binding of struct type `ty` whose initializer
 /// is `v as A` with `v: any`: the cast keeps the box (an `as` converts
 /// nothing), so the binding is `any`, with or without an annotation,
@@ -79,18 +92,46 @@ pub(crate) fn cast_face(ty: &T, init: ExprId, ast: &Ast, types: &HashMap<ExprId,
     (matches!(ty, T::Struct(_) | T::ClassRef(_)) && any_cast(init, ast, types)).then_some(T::Any)
 }
 
-/// The lowering mirror of [`checker_face`]: the SSA type a binding
-/// whose annotation parsed to `slot` takes for `init` — `None` keeps
-/// the annotation's layout.
+/// Whether a binding of checker type `ty` annotated `ann` holds the
+/// `any` value `init` reads (`super::held_any`).
+pub(crate) fn holds_any(
+    ty: &T,
+    ann: Option<&str>,
+    init: ExprId,
+    ast: &Ast,
+    types: &HashMap<ExprId, T>,
+) -> bool {
+    let inner = match ty {
+        T::Nullable(t) => t,
+        t => t,
+    };
+    matches!(inner, T::Struct(_) | T::ClassRef(_)) && held_read(ann, init, ast, types)
+}
+
+/// [`any_read`] into a binding annotated `ann` with anything but a
+/// class: the binding holds the box (`super::held_any`), which the
+/// checker and the lowering both read off this one spelling.
+fn held_read(ann: Option<&str>, init: ExprId, ast: &Ast, types: &HashMap<ExprId, T>) -> bool {
+    let Some(ann) = ann else { return false };
+    let base = crate::check_type_ann::strip_nullable(ann);
+    let base = base.split('<').next().unwrap_or(base).trim();
+    !ast.class_parents.contains_key(base) && any_read(init, ast, types)
+}
+
+/// The lowering mirror of [`checker_face`], [`cast_face`] and
+/// [`holds_any`]: the SSA type a binding annotated `ann`, which parsed
+/// to `slot`, takes for `init` — `None` keeps the annotation's layout.
 pub(crate) fn value_repr(
     slot: &Type,
-    init: ExprId,
+    (ann, init): (Option<&str>, ExprId),
     ast: &Ast,
     types: &HashMap<ExprId, T>,
     widened: bool,
     arr_layouts: &mut Vec<Type>,
 ) -> Option<Type> {
-    if matches!(slot, Type::Obj(_)) && any_cast(init, ast, types) {
+    if matches!(slot, Type::Obj(_))
+        && (any_cast(init, ast, types) || held_read(ann, init, ast, types))
+    {
         return Some(Type::Any);
     }
     let Type::Arr(id) = slot else { return None };

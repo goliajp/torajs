@@ -94,12 +94,16 @@ pub(crate) fn check(
         // (hoist pre-typing under an incomplete scope) that NOW
         // resolves is a legal forward reference — self-heal the mark.
         checker.undeclared_reads.remove(&eid);
-        return Ok(info.union.literal.unwrap_or(info.ty));
+        if let Some(lit) = info.union.literal {
+            return Ok(lit);
+        }
+        return Ok(held_face(checker, ast, eid, info.held_any, info.ty));
     }
     if let Some(ty) = checker.globals.get(name) {
         let ty = ty.clone();
         checker.undeclared_reads.remove(&eid);
-        return Ok(ty);
+        let held = checker.held_any.globals.contains(name);
+        return Ok(held_face(checker, ast, eid, held, ty));
     }
     // §8.1.1.1 — a read ahead of its top-level declaration reaches that
     // binding, uninitialized; the lowering raises the ReferenceError.
@@ -234,5 +238,21 @@ pub(crate) fn check(
             }
             Ok(Type::Any)
         }
+    }
+}
+
+/// A read of a binding that holds an `any` value types as `any` unless
+/// a member access reads through it (`crate::check_stmt_let_decl::held_any`).
+fn held_face(
+    checker: &mut Checker,
+    ast: &crate::ast::Ast,
+    eid: crate::ast::ExprId,
+    held: bool,
+    ty: Type,
+) -> Type {
+    if held && !checker.held_any.is_receiver(ast, eid) {
+        Type::Any
+    } else {
+        ty
     }
 }

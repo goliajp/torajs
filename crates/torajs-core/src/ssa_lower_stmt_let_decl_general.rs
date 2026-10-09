@@ -96,7 +96,7 @@ pub(crate) fn initial_let_ty(
         }
         if let Some(repr) = crate::check_stmt_let_decl::any_layout_slot::value_repr(
             &parsed,
-            init,
+            (type_ann.map(|s| s.as_str()), init),
             ctx.ast,
             ctx.expr_types,
             ctx.cross_type_widened.contains(&init),

@@ -258,6 +258,7 @@ pub(crate) fn check_closure_body(
                     .get(cap_name)
                     .map(|i| i.union.clone())
                     .unwrap_or_default(),
+                held_any: cap_outer.get(cap_name).is_some_and(|i| i.held_any),
                 ..LocalInfo::plain(cap_ty.clone())
             },
         );

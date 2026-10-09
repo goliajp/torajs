@@ -31,6 +31,7 @@
 
 pub(crate) mod any_layout_slot;
 pub(crate) mod contextual_array;
+pub(crate) mod held_any;
 pub(crate) use contextual_array::{apply_contextual_array_ann, apply_contextual_array_ann_store};
 
 use crate::ast::{Ast, Expr, ExprId};
@@ -68,30 +69,7 @@ pub(crate) fn check(
             }
         }
     };
-    // L3b ③ — a generic fn escaping as a VALUE (`const g = f` where
-    // `f`'s face still carries un-inferred TypeVars from the
-    // implicit-generics pass): the binding's direct call is a
-    // CallIndirect with no mono channel, so the TypeVar face rejects
-    // every argument. Widen the face all-TypeVar→Any and record the
-    // site; `check_monomorph_any_widen` clones an all-`any` spec and
-    // the ident lowering takes ITS address (the generic original is a
-    // checker template that never lowers).
-    let init_ty = match (&init_ty, ast.get_expr(init)) {
-        (Type::Function(ptys, rty), Expr::Ident(n))
-            if checker.generic_type_params.contains_key(n.as_str())
-                && (ptys.iter().any(|t| matches!(t, Type::TypeVar(_)))
-                    || matches!(**rty, Type::TypeVar(_))) =>
-        {
-            checker.fn_escape_widen_sites.insert(init, n.clone());
-            let subst: std::collections::HashMap<String, Type> = checker.generic_type_params
-                [n.as_str()]
-            .iter()
-            .map(|tv| (tv.clone(), Type::Any))
-            .collect();
-            crate::check_substitute_typevars::substitute_typevars(&init_ty, &subst)
-        }
-        _ => init_ty,
-    };
+    let init_ty = widen_escaping_generic(checker, ast, init, init_ty);
     // Chunk 618 — a void-call init binds undefined (the call runs
     // for effect; a fn that produces no value returns undefined).
     // Void is not a value type: pre-fix the binding carried Void
@@ -180,7 +158,7 @@ pub(crate) fn check(
             }
         }
     };
-    let final_ty = widen_binding_ty(checker, ast, init, type_ann.is_none(), final_ty);
+    let final_ty = widen_binding_ty(checker, ast, init, type_ann.as_deref(), final_ty);
     record_fresh_map_ty(checker, ast, init, &final_ty);
     if let SelfRef::Skeleton(provisional) = &self_ref_closure
         && *provisional != final_ty
@@ -188,6 +166,16 @@ pub(crate) fn check(
         checker.errors.push_err(format!(
             "internal: `{name}` pre-declared as {provisional:?} for its initializer's closures, declared {final_ty:?}"
         ));
+    }
+    let held_any = any_layout_slot::holds_any(
+        &final_ty,
+        type_ann.as_deref(),
+        init,
+        ast,
+        &checker.expr_types,
+    );
+    if held_any && checker.scopes.len() == 1 {
+        checker.held_any.globals.insert(name.to_string());
     }
     let is_alias_init = checker.classify_init_alias(ast, init);
     let declared_class: Option<String> = type_ann.as_ref().and_then(|s| {
@@ -227,6 +215,7 @@ pub(crate) fn check(
                 && type_ann.as_deref().is_some_and(crate::ast::is_fn_like_ann))
             .then_some(crate::check::FnSlot::Let(init)),
             union: const_literal(ast, mutable, type_ann, init),
+            held_any,
             ..LocalInfo::plain(final_ty)
         },
     ) {
@@ -235,6 +224,33 @@ pub(crate) fn check(
     // An initializer is the binding's first assignment — see
     // `Checker::apply_decl_narrow`.
     checker.apply_decl_narrow(ast, name, init);
+}
+
+/// L3b ③ — a generic fn escaping as a VALUE (`const g = f` where
+/// `f`'s face still carries un-inferred TypeVars from the
+/// implicit-generics pass): the binding's direct call is a
+/// CallIndirect with no mono channel, so the TypeVar face rejects
+/// every argument. Widen the face all-TypeVar→Any and record the
+/// site; `check_monomorph_any_widen` clones an all-`any` spec and
+/// the ident lowering takes ITS address (the generic original is a
+/// checker template that never lowers).
+fn widen_escaping_generic(checker: &mut Checker, ast: &Ast, init: ExprId, init_ty: Type) -> Type {
+    match (&init_ty, ast.get_expr(init)) {
+        (Type::Function(ptys, rty), Expr::Ident(n))
+            if checker.generic_type_params.contains_key(n.as_str())
+                && (ptys.iter().any(|t| matches!(t, Type::TypeVar(_)))
+                    || matches!(**rty, Type::TypeVar(_))) =>
+        {
+            checker.fn_escape_widen_sites.insert(init, n.clone());
+            let subst: std::collections::HashMap<String, Type> = checker.generic_type_params
+                [n.as_str()]
+            .iter()
+            .map(|tv| (tv.clone(), Type::Any))
+            .collect();
+            crate::check_substitute_typevars::substitute_typevars(&init_ty, &subst)
+        }
+        _ => init_ty,
+    }
 }
 
 /// An unannotated `const` initialized with a literal keeps the literal
@@ -262,10 +278,10 @@ pub(crate) fn widen_binding_ty(
     checker: &Checker,
     ast: &Ast,
     init: ExprId,
-    unannotated: bool,
+    ann: Option<&str>,
     ty: Type,
 ) -> Type {
-    let ty = if unannotated {
+    let ty = if ann.is_none() {
         map_ty_from_type_args(checker, ast, init, ty)
     } else {
         ty
@@ -286,7 +302,7 @@ pub(crate) fn widen_binding_ty(
     // sees ANY_NULL=0). Widening the binding to `any` routes it
     // through the dobj lane (mirrors chunk 5's inline-ObjectLit fn
     // arg fix at the call site — this is the pre-bound analog).
-    if unannotated
+    if ann.is_none()
         && matches!(ast.get_expr(init), Expr::ObjectLit { .. })
         && (checker.dynobj_degraded.contains(&init) || struct_has_undef_field(&ty))
     {
@@ -300,7 +316,7 @@ pub(crate) fn widen_binding_ty(
         Type::Any
     } else if let Some(t) = any_layout_slot::cast_face(&ty, init, ast, &checker.expr_types) {
         t
-    } else if unannotated && checker.cross_type_widened.contains(&init) {
+    } else if ann.is_none() && checker.cross_type_widened.contains(&init) {
         // RFC 20260804-mutable-let-widen — a later reassign of a
         // different syntactic family (JS `let it = new C();
         // it = Iterator.from(it)`) makes the binding `any` from

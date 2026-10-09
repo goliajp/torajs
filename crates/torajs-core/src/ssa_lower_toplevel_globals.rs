@@ -155,9 +155,9 @@ pub(crate) fn collect_toplevel_globals(
                 continue;
             };
             let ty = match type_ann {
-                Some(_) => crate::check_stmt_let_decl::any_layout_slot::value_repr(
+                Some(ann) => crate::check_stmt_let_decl::any_layout_slot::value_repr(
                     &ty,
-                    *init,
+                    (Some(ann.as_str()), *init),
                     ast,
                     expr_types,
                     widened.contains(init),

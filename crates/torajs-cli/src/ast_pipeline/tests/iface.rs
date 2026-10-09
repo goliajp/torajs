@@ -247,3 +247,17 @@ class U { q = 5 }
         assert!(err.contains("array element 1"), "{t}: {err}");
     }
 }
+
+#[test]
+fn a_binding_holding_an_any_value_keeps_its_declared_type() {
+    let src = "interface Shape { area(): number; name?: string }
+const raw: any = { area: () => 5 };
+const s: Shape = raw;
+const b: Shape = s;
+";
+    assert!(checked(&format!("{src}const n: number = b.area();\n")).is_ok());
+    for recv in ["s", "b"] {
+        let err = checked(&format!("{src}const n: string = {recv}.area();\n")).unwrap_err();
+        assert!(err.contains("type mismatch on `n`"), "{recv}: {err}");
+    }
+}

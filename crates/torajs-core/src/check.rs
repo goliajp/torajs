@@ -255,6 +255,7 @@ pub(crate) struct Checker {
     /// (`crate::let_widen` scope-correct walk); such bindings type
     /// `any` from declaration.
     pub(crate) cross_type_widened: std::collections::HashSet<crate::ast::ExprId>,
+    pub(crate) held_any: crate::check_stmt_let_decl::held_any::HeldAny,
     /// S2.35 — init ExprIds pass_2 promoted to an `Any` global via
     /// the shared [`crate::ast_refs_any_promote`] verdict (call-init
     /// / method-objlit). The LetDecl arm widens the main binding to

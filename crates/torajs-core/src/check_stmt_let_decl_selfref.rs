@@ -101,7 +101,7 @@ pub(crate) fn predeclare_self_ref_closure(
                 } else {
                     ty
                 };
-                let ty = widen_binding_ty(checker, ast, init, true, ty);
+                let ty = widen_binding_ty(checker, ast, init, None, ty);
                 (ty.clone(), SelfRef::Skeleton(ty))
             }
         };
