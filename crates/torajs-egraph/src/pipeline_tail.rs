@@ -3,9 +3,9 @@ use crate::id_hash::HashMap;
 use torajs_core::ssa::{FuncId, Module, ValueId};
 
 use crate::{
-    block_layout, concat_len, concat_licm, concat_num_fuse, gated_pass, interval, iv_merge,
-    loop_rotate, map_find_cse, pass_gates, pass_timer, rc_dec_immediate, rc_peephole, scaled_addr,
-    select_form, srem_fquot, str_append, strip_assumes, unroll_jam, unroll_pair,
+    block_layout, concat_len, concat_licm, concat_num_fuse, fdiv_pair, gated_pass, interval,
+    iv_merge, loop_rotate, map_find_cse, pass_gates, pass_timer, rc_dec_immediate, rc_peephole,
+    scaled_addr, select_form, srem_fquot, str_append, strip_assumes, unroll_jam, unroll_pair,
 };
 
 /// Select formation and the inst-level fusions that read its output,
@@ -122,17 +122,11 @@ pub(crate) fn finish_pipeline(
     gated_pass("UNROLL_PAIR", module, |m| {
         unroll_pair::pair_module(m, facts, &jammed)
     });
-    // The integer clones' entry assumptions, read by every analysis
-    // above, go before loop_rotate copies their blocks.
-    if !clones.is_empty() {
-        let stats = pass_timer::timed("STRIP_ASSUMES", || {
-            strip_assumes::strip_assumes(module, clones)
-        });
-        if std::env::var("TORAJS_FN_INT_CLONE_STATS").as_deref() == Ok("1") {
-            eprintln!("torajs-fn-int-clone-stats: {stats:?}");
-        }
-        pass_gates::dump_after("STRIP_ASSUMES", module);
-    }
+    // Two quotients of one divisor (the jam's lanes dividing their own
+    // `n` by a shared `d`) from one two-lane divide; after the passes
+    // above, which make those blocks. `TORAJS_FDIV_PAIR_OFF=1` skips.
+    gated_pass("FDIV_PAIR", module, fdiv_pair::pair_module);
+    strip_clone_assumes(module, clones);
     // Loop rotation — copy each top-tested loop's exit test into its
     // latch so the loop runs one conditional branch per iteration.
     // Before block_layout, which lays out the rotated body.
@@ -149,4 +143,19 @@ pub(crate) fn finish_pipeline(
     // ranges; no inst-level rewrites. `TORAJS_BLOCK_LAYOUT_OFF=1`
     // skips (bisect gate).
     gated_pass("BLOCK_LAYOUT", module, block_layout::layout_module);
+}
+
+/// The integer clones' entry assumptions, read by every analysis
+/// before it, go before loop_rotate copies their blocks.
+fn strip_clone_assumes(module: &mut Module, clones: &[(FuncId, FuncId)]) {
+    if clones.is_empty() {
+        return;
+    }
+    let stats = pass_timer::timed("STRIP_ASSUMES", || {
+        strip_assumes::strip_assumes(module, clones)
+    });
+    if std::env::var("TORAJS_FN_INT_CLONE_STATS").as_deref() == Ok("1") {
+        eprintln!("torajs-fn-int-clone-stats: {stats:?}");
+    }
+    pass_gates::dump_after("STRIP_ASSUMES", module);
 }

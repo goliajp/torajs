@@ -31,6 +31,7 @@ mod egraph_pass;
 pub mod elaborate;
 mod fact_folds;
 pub mod fconst_hoist;
+pub mod fdiv_pair;
 pub mod float_demote;
 pub mod fn_int_clone;
 pub mod frame_arr_drop;
