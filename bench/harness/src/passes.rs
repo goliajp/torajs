@@ -15,9 +15,9 @@ use anyhow::Result;
 
 use crate::bench::{self, RunOutcome};
 use crate::case::Case;
+use crate::machine_probe::{CELL_REDOS, Probe, REDO_PAUSE, Reading, is_clean};
 use crate::report::Calibration;
 use crate::runner::Runner;
-use crate::machine_probe::{CELL_REDOS, Probe, REDO_PAUSE, Reading, is_clean};
 
 /// A pass whose calibration readings differ by more than this ran on
 /// a machine that changed under it.
@@ -219,7 +219,12 @@ struct PassRecord {
 
 impl PassRecord {
     fn new(pass: usize) -> Self {
-        Self { pass, readings: Vec::new(), redone: Vec::new(), dirty: Vec::new() }
+        Self {
+            pass,
+            readings: Vec::new(),
+            redone: Vec::new(),
+            dirty: Vec::new(),
+        }
     }
 
     fn note(&mut self, r: Reading) -> Reading {

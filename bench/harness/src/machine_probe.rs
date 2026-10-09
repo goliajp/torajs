@@ -51,7 +51,10 @@ impl Probe {
     /// Runs the calibration binary `FLOOR_PROBES` times and keeps the
     /// fastest as the floor every later probe is judged against.
     pub fn new(bin: String) -> Result<Self> {
-        let mut p = Self { bin, floor_ms: f64::INFINITY };
+        let mut p = Self {
+            bin,
+            floor_ms: f64::INFINITY,
+        };
         for _ in 0..FLOOR_PROBES {
             p.read()?;
         }
@@ -61,7 +64,11 @@ impl Probe {
     pub fn read(&mut self) -> Result<Reading> {
         let st = measure_runs(&self.bin, 0, 1, &[], Duration::from_secs(60))?;
         self.floor_ms = self.floor_ms.min(st.median_ms);
-        Ok(Reading { ms: st.median_ms, instructions: st.instructions, load1: load1() })
+        Ok(Reading {
+            ms: st.median_ms,
+            instructions: st.instructions,
+            load1: load1(),
+        })
     }
 
     pub fn floor_ms(&self) -> f64 {
@@ -80,7 +87,11 @@ pub fn is_clean(ms: f64, floor_ms: f64) -> bool {
 /// False, and says so, when a pass kept a reading bracketed by a busy
 /// probe: such a results file is not a measurement and is not pooled.
 pub fn clean_run(cal: &[Calibration]) -> bool {
-    let bad: Vec<usize> = cal.iter().filter(|c| c.contaminated).map(|c| c.pass).collect();
+    let bad: Vec<usize> = cal
+        .iter()
+        .filter(|c| c.contaminated)
+        .map(|c| c.pass)
+        .collect();
     if !bad.is_empty() {
         eprintln!("CONTAMINATED: pass {bad:?} kept a reading bracketed by a busy probe");
     }
