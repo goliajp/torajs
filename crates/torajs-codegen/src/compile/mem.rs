@@ -144,7 +144,7 @@ pub fn emit_load(
 /// writes it directly (S7 knife r0; a 16-slot `[0, 0, …]` array
 /// literal paid MOVZ + FMOV + STR per slot). `-0.0` has a sign bit
 /// and keeps the FPR path.
-fn store_val_is_zero(val: &Operand) -> bool {
+pub(super) fn store_val_is_zero(val: &Operand) -> bool {
     match val {
         Operand::ConstI64(0) | Operand::ConstI32(0) | Operand::ConstPtrNull => true,
         Operand::ConstF64(c) => c.to_bits() == 0,

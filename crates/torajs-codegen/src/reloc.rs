@@ -12,6 +12,8 @@
 //!   - `CallSite`   → ARM64_RELOC_BRANCH26 / R_AARCH64_CALL26
 //!   - `Page21`     → ARM64_RELOC_PAGE21   / R_AARCH64_ADR_PREL_PG_HI21
 //!   - `PageOff12`  → ARM64_RELOC_PAGEOFF12 / R_AARCH64_ADD_ABS_LO12_NC
+//!     on an `ADD`; on an 8-byte `LDR` / `STR` the ELF counterpart is
+//!     R_AARCH64_LDST64_ABS_LO12_NC (Mach-O uses one type for both)
 //!   - `AbsPtr64`   → ARM64_RELOC_UNSIGNED  / R_AARCH64_ABS64
 //!
 //! S4-A populates `CallSite`. S4-B (this commit) populates

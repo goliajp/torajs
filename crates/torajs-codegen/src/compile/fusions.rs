@@ -6,13 +6,16 @@
 
 use torajs_core::ssa::id_hash::{HashMap, HashSet};
 
-use torajs_core::ssa::{Block, Function, Inst, InstKind};
+use torajs_core::ssa::{Block, Function, Inst, InstKind, ValueId};
 
+use super::ModuleFacts;
 use super::brfuse::{self, FusedCmp, FusedSelCmp};
 use super::cmp;
+use super::global_access::{self, GlobalAccesses};
 use super::selinc::{self, SelectIncs};
 use super::store_pair::{self, StorePair};
 use crate::regalloc::Assignment;
+use crate::reloc::Reloc;
 
 pub(super) struct Fusions {
     /// Block-tail single-use ICmp + CondBr pairs fuse into cmp+b.cond
@@ -31,16 +34,21 @@ pub(super) struct Fusions {
     /// no instruction or terminator reads (an inlined constructor's
     /// unused `new.target` name): an ADRP + ADD each, for nothing.
     dead_refs: HashSet<(u32, u32)>,
+    /// 8-byte loads and stores through a single-use symbol address,
+    /// which fold the address's low half. See compile/global_access.rs.
+    globals: GlobalAccesses,
 }
 
 impl Fusions {
-    pub(super) fn of(func: &Function, alloc: &Assignment) -> Self {
+    pub(super) fn of(func: &Function, alloc: &Assignment, facts: &ModuleFacts) -> Self {
+        let uses = brfuse::count_uses(func);
         Fusions {
             cmps: brfuse::fusible_cmps(func),
             select_cmps: brfuse::fusible_select_cmps(func, alloc),
             select_incs: selinc::fusible_select_incs(func),
             store_pairs: store_pair::plan(func, alloc),
-            dead_refs: dead_refs(func),
+            dead_refs: dead_refs(func, &uses),
+            globals: global_access::plan(func, &uses, &facts.aligned8_syms),
         }
     }
 
@@ -55,13 +63,18 @@ impl Fusions {
     pub(super) fn emit(
         &self,
         bytes: &mut Vec<u8>,
+        relocs: &mut Vec<Reloc>,
         block: &Block,
         ii: usize,
         inst: &Inst,
         alloc: &Assignment,
     ) -> bool {
         let (b, i) = (block.id.0, ii as u32);
-        if self.dead_refs.contains(&(b, i)) {
+        if self.dead_refs.contains(&(b, i)) || self.globals.absorbed(b, i) {
+            return true;
+        }
+        if let Some(sym) = self.globals.sym_of(b, i) {
+            global_access::emit(bytes, relocs, inst, sym, alloc);
             return true;
         }
         if self.cmps.contains_key(&b) && ii == block.insts.len() - 1 {
@@ -95,8 +108,7 @@ impl Fusions {
     }
 }
 
-fn dead_refs(func: &Function) -> HashSet<(u32, u32)> {
-    let uses = brfuse::count_uses(func);
+fn dead_refs(func: &Function, uses: &HashMap<ValueId, u32>) -> HashSet<(u32, u32)> {
     let mut out = HashSet::default();
     for block in &func.blocks {
         for (ii, inst) in block.insts.iter().enumerate() {

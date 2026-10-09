@@ -42,6 +42,7 @@ mod cmp;
 mod ctpop_range_sum;
 mod entry;
 mod fusions;
+mod global_access;
 mod inline_sites;
 mod inst;
 mod mem;
@@ -60,7 +61,7 @@ mod vec;
 #[cfg(test)]
 pub(crate) mod test_fixtures;
 
-use torajs_core::ssa::id_hash::HashMap;
+use torajs_core::ssa::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{Function, Module, Type};
 
@@ -161,6 +162,11 @@ pub struct ModuleFacts {
     pub(crate) fn_sigs: Vec<Vec<Type>>,
     /// The intrinsic calls that open inline.
     pub(crate) inline: InlineSites,
+    /// Symbols known to sit on an 8-byte boundary: the module's data
+    /// globals of 8-byte slots and the runtime's 64-bit flags. An
+    /// access through one may carry the page offset as its scaled
+    /// immediate (compile/global_access.rs).
+    pub(crate) aligned8_syms: HashSet<String>,
 }
 
 impl ModuleFacts {
@@ -170,6 +176,7 @@ impl ModuleFacts {
         ModuleFacts {
             fn_sigs: module.funcs.iter().map(param_types).collect(),
             inline: InlineSites::of_module(module),
+            aligned8_syms: global_access::aligned8_syms(module),
         }
     }
 }
@@ -218,7 +225,7 @@ pub fn compile_function_with(
         emit_stack_param_loads(&mut bytes, &alloc, &frame);
     }
 
-    let fusions = fusions::Fusions::of(func, &alloc);
+    let fusions = fusions::Fusions::of(func, &alloc, facts);
 
     // Forwarder-resolved block map, shared by the terminator emit
     // (fall-through elision needs the next block's final identity)
@@ -250,7 +257,7 @@ pub fn compile_function_with(
         };
         let fused = fusions.cmp_of(block.id.0);
         for (ii, inst) in block.insts.iter().enumerate() {
-            if fusions.emit(&mut bytes, block, ii, inst, alloc) {
+            if fusions.emit(&mut bytes, &mut relocs, block, ii, inst, alloc) {
                 continue;
             }
             let site = block_slot + ii as u32;
