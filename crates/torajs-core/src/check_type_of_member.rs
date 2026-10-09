@@ -57,9 +57,16 @@ pub(crate) fn check(
     // receiver paths (chunk 789: Ident / Member chain), minted from
     // the same shape.
     if let Some(path) = crate::check_assigns_to::member_path(ast, *obj)
-        && let Some(narrowed) = checker.member_narrows.get(&(path, name.to_string()))
+        && let Some(narrowed) = checker
+            .member_narrows
+            .get(&(path, name.to_string()))
+            .cloned()
     {
-        return Ok(narrowed.clone());
+        // the receiver's own type is still recorded: the lowering picks
+        // the read's lane off it (an interface's witness slot reads a
+        // class instance's member wherever the class laid it out)
+        checker.type_of(ast, *obj)?;
+        return Ok(narrowed);
     }
     let obj_ty = checker.type_of(ast, *obj)?;
     checker.check_union_member(ast, *obj, name)?;
