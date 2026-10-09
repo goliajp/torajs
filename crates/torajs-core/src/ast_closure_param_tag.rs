@@ -102,6 +102,8 @@ pub fn tag_closure_arg_params(ast: &mut Ast) {
     // per-fn docs): closure-holding lets, and named-fn alias lets
     // whose init wraps once a marked param receives them.
     let mut closure_idents = crate::ast_closure_param_tag_collect::closure_holding_lets(ast);
+    let relayed = crate::ast::escaping_fn_aliases(ast, &|g| fn_sigs.contains_key(g));
+    closure_idents.extend(relayed.into_iter().map(|(_, local, _)| local));
     let fn_alias_lets = crate::ast_closure_param_tag_collect::fn_alias_lets(ast, &fn_sigs);
     let mut alias_wraps: HashSet<String> = HashSet::new();
 
@@ -117,9 +119,7 @@ pub fn tag_closure_arg_params(ast: &mut Ast) {
         crate::ast_closure_param_tag_collect::usage_seed_marks(ast, &fn_params, &closure_aliases);
     marked.extend(sites.escaped_marks(&fn_params));
     marked.extend(crate::ast_closure_param_tag_axes::nested_fn_arg_seeds(
-        ast,
-        &fn_params,
-        &closure_aliases,
+        ast, &fn_params,
     ));
     let mut ret_marked: HashSet<String> = HashSet::new();
     loop {

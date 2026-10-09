@@ -270,63 +270,55 @@ pub(crate) fn split_sig_ann(ann: &str) -> Option<(Vec<String>, String)> {
 /// No call-site round of the parent pass sees it: the hand-off happens
 /// inside `hof` through a callee that is a parameter, not a decl.
 ///
-/// The seed marks the passed decl's parameter at the nested position,
-/// so it takes the env-first shape and its own direct call sites wrap
-/// named-fn arguments the way every other marked parameter's do. Only
-/// a decl named directly as the argument is seen; a function reaching
-/// the slot any other way (through a let, a ternary, a property) keeps
-/// its bare parameter.
-///
-/// Seed marks `(decl, param idx)` for each decl named as an argument
-/// to a fn-typed parameter whose annotation has a fn-typed parameter
-/// at that index. The callee is a decl or a closure-let alias of one
-/// (`aliases`, the lifted prefix shifted off).
+/// A function whose name is read as a value anywhere — an argument,
+/// an initializer, an array element, a property, a ternary arm — can
+/// reach that lane by any route (`hof(run)`, `const r = run;
+/// hof(r)`, `outer(run)` forwarding its parameter to `hof`,
+/// `hof(xs[0])`), so every fn-typed parameter of it takes the
+/// env-first shape, and its own direct call sites wrap named-fn
+/// arguments the way every other marked parameter's do. A call's
+/// callee is not a value read. The name is a decl or a closure-let
+/// alias of one (`fn_params` mirrors the alias's parameters); an
+/// arrow (`hof((g) => g(5))`) is a value wherever it stands. Reads
+/// are matched by name program-wide, so a binding that shadows a
+/// decl's name over-marks it, which costs only direct dispatch.
 pub(crate) fn nested_fn_arg_seeds(
     ast: &Ast,
     fn_params: &HashMap<String, Vec<(usize, String)>>,
-    aliases: &HashMap<String, (String, usize)>,
 ) -> HashSet<(String, usize)> {
-    let mut decls: HashMap<&str, &[Param]> = HashMap::new();
+    let callees: HashSet<ExprId> = ast
+        .exprs
+        .iter()
+        .filter_map(|e| match e {
+            Expr::Call { callee, .. } => Some(*callee),
+            _ => None,
+        })
+        .collect();
+    // an arrow bound by `let` is read through its name (the alias case
+    // above), and one stored in an object literal is matched at its
+    // member calls (the member sibling)
+    let mut named: HashSet<ExprId> = HashSet::new();
     let mut stack: Vec<&Stmt> = ast.stmts.iter().collect();
     while let Some(s) = stack.pop() {
-        if let Stmt::FnDecl { name, params, .. } = s {
-            decls.insert(name, params);
+        if let Stmt::LetDecl { init, .. } = s {
+            named.insert(*init);
         }
         crate::ast_closure_param_tag::push_child_stmts(s, &mut stack);
     }
-    let mut seeds = HashSet::new();
     for e in &ast.exprs {
-        let Expr::Call { callee, args } = e else {
-            continue;
+        if let Expr::ObjectLit { fields } = e {
+            named.extend(fields.iter().map(|(_, v)| *v));
+        }
+    }
+    let mut seeds = HashSet::new();
+    for (i, e) in ast.exprs.iter().enumerate() {
+        let x = match e {
+            Expr::Ident(x) if !callees.contains(&ExprId(i as u32)) => x,
+            Expr::Closure { fn_name, .. } if !named.contains(&ExprId(i as u32)) => fn_name,
+            _ => continue,
         };
-        let Expr::Ident(h) = ast.get_expr(*callee) else {
-            continue;
-        };
-        let (decl, shift) = match aliases.get(h) {
-            Some((f, shift)) => (f.as_str(), *shift),
-            None => (h.as_str(), 0),
-        };
-        let Some(params) = decls.get(decl).and_then(|p| p.get(shift..)) else {
-            continue;
-        };
-        for (param, &arg) in params.iter().zip(args) {
-            let Some(ann) = param.type_ann.as_deref() else {
-                continue;
-            };
-            let Expr::Ident(x) = ast.get_expr(arg) else {
-                continue;
-            };
-            let Some(x_params) = fn_params.get(x) else {
-                continue;
-            };
-            let Some((segs, _)) = split_sig_ann(ann) else {
-                continue;
-            };
-            for (j, seg) in segs.iter().enumerate() {
-                if is_fn_typed_seg(seg) && x_params.iter().any(|(i, _)| *i == j) {
-                    seeds.insert((x.clone(), j));
-                }
-            }
+        if let Some(x_params) = fn_params.get(x) {
+            seeds.extend(x_params.iter().map(|(j, _)| (x.clone(), *j)));
         }
     }
     // the same slot fed from inside: `f(g)` with `g` a fn-typed param

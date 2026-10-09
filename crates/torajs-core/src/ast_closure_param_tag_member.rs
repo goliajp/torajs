@@ -46,6 +46,8 @@ pub(crate) struct CallSites {
     escaped: HashSet<String>,
     /// function → where its free names resolve
     parents: HashMap<String, Parent>,
+    /// (function, local) → the name `let local = name` binds it to
+    local_aliases: HashMap<(String, String), String>,
 }
 
 /// The function a lifted closure is created in, with the names it
@@ -55,6 +57,34 @@ type Parent = (Option<String>, Option<Vec<String>>);
 
 /// What one round adds: param marks and return-lane marks.
 pub(crate) type RoundMarks = (Vec<(String, usize)>, Vec<String>);
+
+/// Per function (by name), its `const` locals initialized from a bare
+/// name: `const k = h` lets a relay through `k` reach `h`. A `let`
+/// stays out, since a later write may bind a different function.
+fn local_aliases(ast: &Ast, decls: &[(&str, &[Stmt], usize)]) -> HashMap<(String, String), String> {
+    let mut out = HashMap::new();
+    for (name, body, _) in decls {
+        let mut stack: Vec<&Stmt> = body.iter().collect();
+        while let Some(s) = stack.pop() {
+            match s {
+                Stmt::FnDecl { .. } => continue,
+                Stmt::LetDecl {
+                    name: local,
+                    init,
+                    mutable: false,
+                    ..
+                } => {
+                    if let Expr::Ident(n) = ast.get_expr(*init) {
+                        out.insert((name.to_string(), local.clone()), n.clone());
+                    }
+                }
+                _ => {}
+            }
+            push_child_stmts(s, &mut stack);
+        }
+    }
+    out
+}
 
 impl CallSites {
     pub(crate) fn collect(
@@ -133,6 +163,7 @@ impl CallSites {
             calls,
             escaped,
             parents,
+            local_aliases: local_aliases(ast, &decls),
         }
     }
 
@@ -179,6 +210,7 @@ impl CallSites {
                     for leaf in passthrough_leaves(ast, arg) {
                         match ast.get_expr(leaf) {
                             Expr::Ident(n) => {
+                                let n = self.unalias(n, encl.as_deref());
                                 marks.extend(self.param_owner(n, encl.as_deref(), fn_params));
                             }
                             Expr::Call { callee, .. } => {
@@ -195,6 +227,22 @@ impl CallSites {
             }
         }
         (marks, rets)
+    }
+
+    /// What a local that only renames another binding stands for
+    /// inside `f` (`const k = h; hof(k)`), followed to the end of the
+    /// chain; `n` itself otherwise.
+    fn unalias<'a>(&'a self, mut n: &'a str, f: Option<&str>) -> &'a str {
+        let Some(f) = f else {
+            return n;
+        };
+        let mut seen = HashSet::new();
+        while seen.insert(n)
+            && let Some(m) = self.local_aliases.get(&(f.to_string(), n.to_string()))
+        {
+            n = m;
+        }
+        n
     }
 
     /// The fn-typed param `n` names inside `f`: `f`'s own, or, when `f`

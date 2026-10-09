@@ -51,48 +51,17 @@
 //! already took through its declare-then-assign fold.
 
 use super::forwarders_object::{snapshot_fn_sigs, synthesize_forwarder_decls};
-use super::{Ast, Expr, ExprId, Stmt};
-use std::collections::HashSet;
+use super::{Ast, Expr, ExprId, Param, Stmt};
+use std::collections::{HashMap, HashSet};
 
 pub fn wrap_escaping_fn_ident_bindings(ast: &mut Ast) {
     let (fn_sigs, existing_forwarders, _fn_type_params) = snapshot_fn_sigs(ast);
     if fn_sigs.is_empty() {
         return;
     }
-    let mut cands: Vec<(ExprId, String, String)> = Vec::new();
-    super::ns_alias::walk_stmts(&ast.stmts, &mut |s| {
-        let Stmt::LetDecl {
-            name,
-            type_ann: None,
-            init,
-            ..
-        } = s
-        else {
-            return;
-        };
-        let Expr::Ident(g) = ast.get_expr(*init) else {
-            return;
-        };
-        // `let g = g` re-binds the name this pass would rewrite
-        // through; leave that shadow alone.
-        if g == name || !fn_sigs.contains_key(g) || !relayable_target(g) {
-            return;
-        }
-        cands.push((*init, name.clone(), g.clone()));
-    });
     let mut targets: HashSet<String> = HashSet::new();
     let mut rewrites: Vec<(ExprId, String)> = Vec::new();
-    let mut escaping: HashSet<String> = HashSet::new();
-    let mut settled: HashSet<String> = HashSet::new();
-    for (eid, local, target) in cands {
-        if settled.insert(local.clone())
-            && (local_escapes(ast, &local) || target_touches_arguments(ast, &target))
-        {
-            escaping.insert(local.clone());
-        }
-        if !escaping.contains(&local) {
-            continue;
-        }
+    for (eid, _, target) in escaping_fn_aliases(ast, &|g| fn_sigs.contains_key(g)) {
         targets.insert(target.clone());
         rewrites.push((eid, target));
     }
@@ -110,6 +79,58 @@ pub fn wrap_escaping_fn_ident_bindings(ast: &mut Ast) {
         }
     }
     ast.stmts.extend(new_decls);
+}
+
+/// The `let local = target` bindings [`wrap_escaping_fn_ident_bindings`]
+/// relays, as (init, local, target), with `is_fn` naming the plain
+/// function declarations. The closure-param tag pass, which runs
+/// first, asks the same question to know which locals end up closure
+/// cells: before its retag every fn-typed parameter still spells
+/// `__fn(`, so a local handed only to those stays a bare pointer.
+pub fn escaping_fn_aliases(
+    ast: &Ast,
+    is_fn: &dyn Fn(&str) -> bool,
+) -> Vec<(ExprId, String, String)> {
+    let mut cands: Vec<(ExprId, String, String)> = Vec::new();
+    super::ns_alias::walk_stmts(&ast.stmts, &mut |s| {
+        let Stmt::LetDecl {
+            name,
+            type_ann: None,
+            init,
+            ..
+        } = s
+        else {
+            return;
+        };
+        let Expr::Ident(g) = ast.get_expr(*init) else {
+            return;
+        };
+        // `let g = g` re-binds the name this pass would rewrite
+        // through; leave that shadow alone.
+        if g == name || !is_fn(g) || !relayable_target(g) {
+            return;
+        }
+        cands.push((*init, name.clone(), g.clone()));
+    });
+    let mut out = Vec::new();
+    let mut escaping: HashSet<String> = HashSet::new();
+    let mut settled: HashSet<String> = HashSet::new();
+    let fnsig_args = if cands.is_empty() {
+        HashSet::new()
+    } else {
+        fnsig_param_args(ast)
+    };
+    for (eid, local, target) in cands {
+        if settled.insert(local.clone())
+            && (local_escapes(ast, &local, &fnsig_args) || target_touches_arguments(ast, &target))
+        {
+            escaping.insert(local.clone());
+        }
+        if escaping.contains(&local) {
+            out.push((eid, local, target));
+        }
+    }
+    out
 }
 
 /// Which synthetic names may be relayed. `desugar_classes` rewrites
@@ -163,7 +184,13 @@ fn target_touches_arguments(ast: &Ast, target: &str) -> bool {
 /// A spread call's callee slot is an escape: the runtime spread lane
 /// boxes its callee as a value, which a bare FnSig cannot be
 /// (`const h = E.plain; h(1, ...arr)` refused loud there).
-fn local_escapes(ast: &Ast, name: &str) -> bool {
+///
+/// An argument to a declared function's bare-pointer parameter
+/// ([`fnsig_param_args`]) is not one either: the call hands the FnSig
+/// over as is, exactly as `app(g)` would. Wrapping there put a
+/// closure cell into that `__fn(` slot, and the callee branched into
+/// the cell's header.
+fn local_escapes(ast: &Ast, name: &str, fnsig_args: &HashSet<u32>) -> bool {
     let mut occurrences: HashSet<u32> = HashSet::new();
     for (i, e) in ast.exprs.iter().enumerate() {
         if matches!(e, Expr::Ident(n) if n == name) {
@@ -190,5 +217,56 @@ fn local_escapes(ast: &Ast, name: &str) -> bool {
             callee_slots.insert(callee.0);
         }
     }
+    callee_slots.extend(fnsig_args.intersection(&occurrences));
     occurrences.difference(&callee_slots).next().is_some()
+}
+
+/// The arguments of direct calls that land in a declared function's
+/// `__fn(` parameter, which still names the bare-pointer lane here
+/// (`tag_closure_arg_params` has retagged every parameter a closure
+/// reaches to `__cls(`). The callee's name must not be rebound
+/// anywhere, and the declaration must have no hidden parameter that
+/// would shift the argument positions.
+fn fnsig_param_args(ast: &Ast) -> HashSet<u32> {
+    let mut decls: HashMap<&str, &[Param]> = HashMap::new();
+    let mut rebound: HashSet<String> = HashSet::new();
+    super::ns_alias::walk_stmts(&ast.stmts, &mut |s| match s {
+        Stmt::LetDecl { name, .. } => {
+            rebound.insert(name.clone());
+        }
+        Stmt::FnDecl { params, .. } => rebound.extend(params.iter().map(|p| p.name.clone())),
+        _ => {}
+    });
+    for s in &ast.stmts {
+        if let Stmt::FnDecl { name, params, .. } = s
+            && !params.iter().any(|p| p.name.starts_with("__"))
+        {
+            decls.insert(name, params);
+        }
+    }
+    let mut out = HashSet::new();
+    for e in &ast.exprs {
+        let Expr::Call { callee, args } = e else {
+            continue;
+        };
+        let Expr::Ident(f) = ast.get_expr(*callee) else {
+            continue;
+        };
+        let Some(params) = decls.get(f.as_str()) else {
+            continue;
+        };
+        if rebound.contains(f)
+            || args
+                .iter()
+                .any(|a| matches!(ast.get_expr(*a), Expr::Spread { .. }))
+        {
+            continue;
+        }
+        for (p, a) in params.iter().zip(args) {
+            if !p.is_rest && crate::ast_closure_param_tag::is_fnsig_ann(&p.type_ann) {
+                out.insert(a.0);
+            }
+        }
+    }
+    out
 }
