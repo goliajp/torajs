@@ -205,10 +205,9 @@ fn compute_diagnostics(uri: &Uri, text: &str) -> Vec<Diagnostic> {
             return vec![error_at_origin(format!("import error: {e}"))];
         }
 
-        if let Err(e) = torajs_core::ast::desugar_enums(&mut ast) {
+        if let Err(e) = torajs_core::ast::resolve_type_decls(&mut ast) {
             return vec![error_at_origin(format!("parse error: {e}"))];
         }
-        torajs_core::ast::inline_scalar_aliases(&mut ast);
         // Block/CaseBlock redeclaration early errors on the raw AST.
         torajs_core::ast::early_redecl_errors(&mut ast);
         torajs_core::ast::dedupe_fn_decls(&mut ast);
@@ -475,3 +474,6 @@ fn compute_hover(text: &str, pos: Position) -> Option<Hover> {
     });
     std::panic::catch_unwind(computation).ok().flatten()
 }
+
+#[cfg(test)]
+mod tests;

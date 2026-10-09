@@ -131,12 +131,11 @@ pub(crate) fn run_pre_resolve_gates(ast: &mut ast::Ast) -> Result<(), ()> {
 }
 
 pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
-    // First: every later pass reads enums as the alias + object.
-    if let Err(msg) = ast::desugar_enums(ast) {
+    // First: every later pass reads type names through these tables.
+    if let Err(msg) = ast::resolve_type_decls(ast) {
         eprintln!("parse error: {msg}");
         return Err(());
     }
-    ast::inline_scalar_aliases(ast);
     // Block/CaseBlock redeclaration early errors — must see the RAW
     // AST before the generator / async / var-hoist desugars move one
     // side of a conflict away.

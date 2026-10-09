@@ -48,7 +48,7 @@ const PRIMITIVE_WORDS: [&str; 8] = [
     "f64",
 ];
 
-pub fn inline_scalar_aliases(ast: &mut Ast) {
+pub(super) fn inline_scalar_aliases(ast: &mut Ast) {
     let mut targets: HashMap<String, String> = HashMap::new();
     for s in &ast.stmts {
         let s = match s {
