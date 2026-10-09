@@ -52,13 +52,16 @@ pub(super) enum Body {
     HasDyn,
 }
 
+/// One row's faces: (face, member index, thunk body).
+pub(super) type Row = Vec<(String, usize, Body)>;
+
 pub(super) struct IfacePlan {
     pub iface: String,
     pub members: Vec<Member>,
     /// (face, member index, literal thunk body)
-    pub lit_faces: Vec<(String, usize, Body)>,
+    pub lit_faces: Row,
     /// class → (face, member index, body)
-    pub classes: BTreeMap<String, Vec<(String, usize, Body)>>,
+    pub classes: BTreeMap<String, Row>,
     pub with_method: bool,
     /// the classes whose instances read right at the interface's own
     /// field offsets
@@ -222,7 +225,7 @@ fn members_of(
 /// A row is filled per class, but a subclass instance stands wherever
 /// its ancestor does: a class with a descendant that has no row of its
 /// own is no witness either.
-fn drop_unfit_lines(ast: &Ast, rows: &mut BTreeMap<String, Vec<(String, usize, Body)>>) {
+fn drop_unfit_lines(ast: &Ast, rows: &mut BTreeMap<String, Row>) {
     let unfit: Vec<&String> = ast
         .class_parents
         .keys()
@@ -248,7 +251,7 @@ fn plain_classes(
     d: &Decls<'_>,
     classes: &[&str],
     members: &[Member],
-    rows: &BTreeMap<String, Vec<(String, usize, Body)>>,
+    rows: &BTreeMap<String, Row>,
     loose: &BTreeMap<String, Fit>,
 ) -> BTreeSet<String> {
     let prefix = |c: &str| {
@@ -273,7 +276,7 @@ fn plain_classes(
         .collect()
 }
 
-fn lit_row(members: &[Member]) -> Vec<(String, usize, Body)> {
+fn lit_row(members: &[Member]) -> Row {
     let mut out = Vec::new();
     for (i, m) in members.iter().enumerate() {
         match &m.kind {

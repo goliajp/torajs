@@ -2,7 +2,7 @@
 //! class's own member, read off its field list and its `__cm_` bodies.
 
 use super::super::{get_face, has_face, set_face};
-use super::{Body, Decls, Member, MemberKind};
+use super::{Body, Decls, Member, MemberKind, Row};
 use crate::ast::Ast;
 
 /// How a class's declared members match the interface's.
@@ -37,7 +37,7 @@ pub(super) fn class_row(
     eq: &crate::ast::vtable_slot::ann_eq::AnnEq<'_>,
     c: &str,
     members: &[Member],
-) -> Option<(Vec<(String, usize, Body)>, Fit, Vec<String>)> {
+) -> Option<(Row, Fit, Vec<String>)> {
     let fields = d.class_fields[c];
     let field_ann = |k: &str| fields.iter().find(|(n, _)| *n == *k).map(|(_, a)| a);
     let mut row = Vec::new();
