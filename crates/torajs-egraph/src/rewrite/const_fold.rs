@@ -105,6 +105,33 @@ fn fold_f64(op: BinOp, a: f64, b: f64) -> Option<f64> {
 
 pub(crate) static BIN_OP_CONST_FOLD: BinOpConstFold = BinOpConstFold;
 
+/// `sitofp ConstI64(n) → Identity(ConstF64(n as f64))`. Rust's
+/// integer-to-float `as` rounds to nearest, ties to even — the IEEE
+/// default the runtime conversion (`scvtf` under the default FPCR)
+/// uses — so the literal is the value the instruction would produce.
+/// The shape arises when an inlined callee's integer-typed parameter
+/// (`scale(k: number)` lowered with `k: i64`) receives a literal: the
+/// float use of the parameter stays a conversion of a constant, which
+/// keeps one f64 register live across the caller's loop and hides the
+/// integer value from the rules and passes that read constant operands.
+pub struct SiToFpConstFold;
+
+impl Rewrite for SiToFpConstFold {
+    fn name(&self) -> &'static str {
+        "sitofp_const_fold"
+    }
+    fn try_apply(&self, lhs: &InstKind) -> Option<InstKind> {
+        let n = match lhs {
+            InstKind::SiToFp(Operand::ConstI64(n)) => *n,
+            InstKind::SiToFp(Operand::ConstI32(n)) => *n as i64,
+            _ => return None,
+        };
+        Some(InstKind::Identity(Operand::ConstF64(n as f64)))
+    }
+}
+
+pub(crate) static SI_TO_FP_CONST_FOLD: SiToFpConstFold = SiToFpConstFold;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -264,6 +291,30 @@ mod tests {
             assert!(fold(op, 1, 2).is_none(), "FP op {:?} on i64 literals", op);
         }
         assert_eq!(fold_f(BinOp::Add, 1.0, 2.0), None);
+    }
+
+    #[test]
+    fn sitofp_of_a_literal_folds_with_round_to_nearest_even() {
+        let fold_c = |op| SiToFpConstFold.try_apply(&InstKind::SiToFp(op));
+        assert_eq!(
+            fold_c(Operand::ConstI64(2)),
+            Some(InstKind::Identity(Operand::ConstF64(2.0)))
+        );
+        assert_eq!(
+            fold_c(Operand::ConstI32(-7)),
+            Some(InstKind::Identity(Operand::ConstF64(-7.0)))
+        );
+        // 2^53 + 1 is a tie between 2^53 and 2^53 + 2: even wins
+        assert_eq!(
+            fold_c(Operand::ConstI64((1 << 53) + 1)),
+            Some(InstKind::Identity(Operand::ConstF64(9007199254740992.0)))
+        );
+        // 2^53 + 3 is a tie between 2^53 + 2 and 2^53 + 4: even wins
+        assert_eq!(
+            fold_c(Operand::ConstI64((1 << 53) + 3)),
+            Some(InstKind::Identity(Operand::ConstF64(9007199254740996.0)))
+        );
+        assert_eq!(fold_c(Operand::Value(ValueId(3))), None);
     }
 
     #[test]
