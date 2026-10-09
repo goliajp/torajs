@@ -48,6 +48,7 @@ mod clone;
 mod emit;
 mod fit;
 mod flow;
+mod heads;
 mod plan;
 #[cfg(test)]
 mod tests;
