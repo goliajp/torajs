@@ -22,9 +22,11 @@ use crate::report::Calibration;
 use crate::rusage::measure_runs;
 
 /// A probe slower than the fastest probe of the run by more than this
-/// says the machine was not the one the other readings ran on. A clean
-/// run's probes spread under 3 %.
-pub const PROBE_CLEAN_PCT: f64 = 5.0;
+/// says the machine was not the one the other readings ran on. On a
+/// quiet machine (load1 1.1) a probe right after a long cell reads up
+/// to 13.9 % over the floor from the cell's own heat; a burst that
+/// moved readings read 60 % on `startup` and 7x on a probe.
+pub const PROBE_CLEAN_PCT: f64 = 15.0;
 
 /// How many times a cell bracketed by a slow probe runs again.
 pub const CELL_REDOS: usize = 3;
@@ -130,8 +132,8 @@ mod tests {
     #[test]
     fn clean_is_judged_against_the_floor() {
         assert!(is_clean(37.0, 37.0));
-        assert!(is_clean(38.8, 37.0));
-        assert!(!is_clean(38.9, 37.0));
+        assert!(is_clean(42.5, 37.0));
+        assert!(!is_clean(42.6, 37.0));
         assert!(!is_clean(265.9, 36.8));
     }
 
