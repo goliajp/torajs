@@ -49,26 +49,7 @@ const PRIMITIVE_WORDS: [&str; 8] = [
 ];
 
 pub(super) fn inline_scalar_aliases(ast: &mut Ast) {
-    let mut targets: HashMap<String, String> = HashMap::new();
-    for s in &ast.stmts {
-        let s = match s {
-            Stmt::ExportDecl {
-                inner: Some(inner), ..
-            } => inner.as_ref(),
-            s => s,
-        };
-        if let Stmt::TypeDecl {
-            name,
-            type_params,
-            fields,
-        } = s
-            && type_params.is_empty()
-            && fields.len() == 1
-            && fields[0].0 == "__alias__"
-        {
-            targets.insert(name.clone(), fields[0].1.clone());
-        }
-    }
+    let targets = alias_targets(ast);
     if targets.is_empty() {
         return;
     }
@@ -104,6 +85,48 @@ pub(super) fn inline_scalar_aliases(ast: &mut Ast) {
             super::ann_rewrite::sub(a, &rw);
         }
     }
+}
+
+/// The target spelling of each top-level non-generic `type X = T`
+/// whose name means the one alias everywhere: no other type
+/// declaration, type parameter or top-level value spells it. A reader
+/// that resolves an annotation through this table sees the type the
+/// alias names (TS §3.10) without the inline above.
+pub(crate) fn unshadowed_aliases(ast: &Ast) -> HashMap<String, String> {
+    let claims = Claims::collect(ast);
+    alias_targets(ast)
+        .into_iter()
+        .filter(|(name, _)| {
+            claims.type_decls.get(name).copied().unwrap_or(0) == 1
+                && !claims.type_params.contains(name)
+                && !claims.values.contains(name)
+        })
+        .collect()
+}
+
+/// Each top-level non-generic `type X = T`: its name and target.
+fn alias_targets(ast: &Ast) -> HashMap<String, String> {
+    let mut targets: HashMap<String, String> = HashMap::new();
+    for s in &ast.stmts {
+        let s = match s {
+            Stmt::ExportDecl {
+                inner: Some(inner), ..
+            } => inner.as_ref(),
+            s => s,
+        };
+        if let Stmt::TypeDecl {
+            name,
+            type_params,
+            fields,
+        } = s
+            && type_params.is_empty()
+            && fields.len() == 1
+            && fields[0].0 == "__alias__"
+        {
+            targets.insert(name.clone(), fields[0].1.clone());
+        }
+    }
+    targets
 }
 
 /// The inline's ann face. No decl is skipped: an alias a type

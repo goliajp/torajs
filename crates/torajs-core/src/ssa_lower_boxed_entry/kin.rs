@@ -34,6 +34,7 @@ pub(super) struct Kins<'a> {
     arr_layouts: &'a [Type],
     pool: &'a AnonStampPoolCell,
     named_sid_to_tag: HashMap<StructId, u32>,
+    type_aliases: HashMap<String, String>,
     interned: HashMap<Vec<u32>, StringId>,
 }
 
@@ -65,6 +66,7 @@ impl<'a> Kins<'a> {
             arr_layouts,
             pool,
             named_sid_to_tag,
+            type_aliases: crate::ast::scalar_alias_inline::unshadowed_aliases(ast),
             interned: HashMap::new(),
         }
     }
@@ -105,7 +107,7 @@ impl<'a> Kins<'a> {
         ann: Option<&str>,
     ) -> SlotTest {
         let Some(fit) = test.fit else { return test };
-        let Some(name) = ann.and_then(|a| ann_class(a, fit.depth)) else {
+        let Some(name) = ann.and_then(|a| ann_class(a, fit.depth, &self.type_aliases)) else {
             return test;
         };
         let elem = (0..fit.depth).fold(ty, |t, _| match t {
@@ -181,32 +183,80 @@ fn decode(bytes: &[u8]) -> Vec<u32> {
 }
 
 /// The class name an annotation spells behind `depth` levels of array
-/// (`C[]`, `Array<C>`); `None` for any other shape.
-fn ann_class(ann: &str, depth: u32) -> Option<&str> {
-    let mut a = ann.trim();
+/// (`C[]`, `Array<C>`), seen through `C | null` / `C | undefined`,
+/// `readonly` and type aliases; `None` for any other shape.
+fn ann_class<'a>(
+    ann: &'a str,
+    depth: u32,
+    aliases: &'a HashMap<String, String>,
+) -> Option<&'a str> {
+    let mut a = unwrap_ann(ann, aliases);
     for _ in 0..depth {
         a = match a.strip_suffix("[]") {
             Some(inner) => inner.trim(),
             None => a.strip_prefix("Array<")?.strip_suffix('>')?.trim(),
         };
+        a = unwrap_ann(a, aliases);
     }
     a.chars()
         .all(|c| c.is_alphanumeric() || c == '_' || c == '$')
         .then_some(a)
 }
 
+/// `ann` with the spellings that name the same slot type peeled off:
+/// a nullable union (its `null` is the slot's in-band 0, never a
+/// cell), `readonly`, and an alias (bounded, an alias cycle is a type
+/// error the checker reports).
+fn unwrap_ann<'a>(ann: &'a str, aliases: &'a HashMap<String, String>) -> &'a str {
+    let mut a = ann.trim();
+    for _ in 0..16 {
+        a = if let Some(inner) = a
+            .strip_prefix("__nullable(")
+            .and_then(|r| r.strip_suffix(')'))
+        {
+            inner.trim()
+        } else if let Some(inner) = a.strip_prefix("readonly ") {
+            inner.trim()
+        } else if let Some(target) = aliases.get(a) {
+            target.trim()
+        } else {
+            break;
+        };
+    }
+    a
+}
+
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::{ann_class, decode, encode};
 
     #[test]
     fn ann_class_peels_array_levels() {
-        assert_eq!(ann_class("P", 0), Some("P"));
-        assert_eq!(ann_class("P[]", 1), Some("P"));
-        assert_eq!(ann_class("Array<P>[]", 2), Some("P"));
-        assert_eq!(ann_class("P[]", 0), None);
-        assert_eq!(ann_class("P", 1), None);
-        assert_eq!(ann_class("Box<number>", 0), None);
+        let none = HashMap::new();
+        assert_eq!(ann_class("P", 0, &none), Some("P"));
+        assert_eq!(ann_class("P[]", 1, &none), Some("P"));
+        assert_eq!(ann_class("Array<P>[]", 2, &none), Some("P"));
+        assert_eq!(ann_class("P[]", 0, &none), None);
+        assert_eq!(ann_class("P", 1, &none), None);
+        assert_eq!(ann_class("Box<number>", 0, &none), None);
+    }
+
+    #[test]
+    fn ann_class_sees_through_nullable_readonly_and_aliases() {
+        let aliases = HashMap::from([
+            ("A".to_string(), "P".to_string()),
+            ("B".to_string(), "__nullable(A)".to_string()),
+            ("L".to_string(), "readonly A[]".to_string()),
+        ]);
+        assert_eq!(ann_class("__nullable(P)", 0, &aliases), Some("P"));
+        assert_eq!(ann_class("A", 0, &aliases), Some("P"));
+        assert_eq!(ann_class("B", 0, &aliases), Some("P"));
+        assert_eq!(ann_class("L", 1, &aliases), Some("P"));
+        assert_eq!(ann_class("__nullable(A)[]", 1, &aliases), Some("P"));
+        assert_eq!(ann_class("__nullable(P[])", 1, &aliases), Some("P"));
+        assert_eq!(ann_class("__union(P,Q)", 0, &aliases), None);
     }
 
     #[test]
