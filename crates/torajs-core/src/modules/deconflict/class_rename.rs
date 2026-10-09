@@ -320,8 +320,7 @@ fn rewrite_arena_bakes(ast: &mut Ast, lib_expr_offset: usize, old: &str, new: &s
     }
 }
 
-mod anns;
-use anns::rewrite_anns;
+use crate::ast::ann_rewrite::rewrite_anns;
 mod tables;
 pub(in crate::modules) use tables::{LibTableDelta, diff_class_tables, snapshot_class_tables};
 use tables::{migrate_exprid_tables, migrate_name_keyed_tables};

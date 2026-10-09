@@ -1,22 +1,24 @@
-//! Knife D — the annotation-string face of a class rename.
+//! The annotation-string face of a type-name rewrite.
 //!
-//! A class name appears in type positions as a bare word inside flat
+//! A type name appears in type positions as a bare word inside flat
 //! ann strings (`let x: C`, `(p: C[]) => …`, `as C`, `new Box<C>()`),
-//! which the census's Ident rewrite never sees. This walk applies the
-//! same word-boundary substitution monomorphization uses to every ann
-//! carrier in the lib's statements and arena slice.
+//! which an Ident rewrite never sees. This walk applies the same
+//! word-boundary substitution monomorphization uses to every ann
+//! carrier in a statement section and an arena slice — for the module
+//! deconflict's class rename (Knife D), a lib's statements and arena
+//! slice.
 //!
-//! Shadowing: the census DECLINES the class mangle when any lib decl
-//! declares a type parameter spelled like the class
-//! (`type_param_shadows`), so by the time this walk runs no ann can
-//! mean anything but the class. The per-decl skip below keeps the
-//! same posture defensively anyway — a skipped signature under a
-//! shadowing type param is exactly what the source meant.
+//! Shadowing: the caller DECLINES the rewrite when some decl declares
+//! a type parameter spelled like the name (`type_param_shadows`), so
+//! by the time this walk runs no ann can mean anything but the one
+//! type. The per-decl skip below keeps the same posture defensively
+//! anyway — a skipped signature under a shadowing type param is
+//! exactly what the source meant.
 
 use crate::ast::{Ast, Expr, Stmt};
 use crate::ssa_lower_generics_monomorph::substitute_in_ann;
 
-pub(super) fn rewrite_anns(
+pub(crate) fn rewrite_anns(
     ast: &mut Ast,
     lib_section: &mut [Stmt],
     lib_expr_offset: usize,
