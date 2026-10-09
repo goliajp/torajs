@@ -24,7 +24,7 @@ use super::infer_closure_params_helpers::{
     seed_container_arg_hints, seed_let_ann_hints,
 };
 use super::infer_closure_params_hof::apply_hof_param_only_arm;
-use super::infer_closure_typevars::apply_user_fn_callee_hint;
+use super::infer_closure_typevars::{UserFnHintSinks, apply_user_fn_callee_hint};
 use super::{Ast, Expr, ExprId};
 use crate::ssa_lower_free_helpers::count_capture_groups;
 
@@ -245,19 +245,8 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
         if closure_args.is_empty() && !has_container_arg {
             continue;
         }
-        // User-fn callee: an `__fn(P|..)->(R)`-annotated param at a
-        // closure arg position hints the lifted closure's own
-        // param/ret annotations (chunk 554 face ②).
-        //
-        // Generic callee (chunk 682) — the hint spellings may mention
-        // the callee's type params (`g<T>(cb: (...args: T[]) => T,
-        // x: T)`); projecting a raw `T` onto the lifted closure trips
-        // `build_fn_type` with "unknown return type `T`" (the typevar
-        // is out of scope there). Resolve typevars from the same call
-        // site first (a bare-typevar param position holding a literal
-        // arg pins it: `x: T` + `21` → T=number); a spelling still
-        // mentioning an unresolved typevar after substitution is not
-        // projected.
+        // User-fn callee: the callee's fn-typed param at a closure arg
+        // position hints the lifted closure (`apply_user_fn_callee_hint`).
         if let Expr::Ident(fname) = ast.get_expr(callee) {
             // a fn-typed param of the function the call sits in shadows
             // any top-level function of that name
@@ -270,15 +259,20 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
                 }
                 None => (&fn_param_pos_anns, &fn_type_params),
             };
-            apply_user_fn_callee_hint(
-                ast,
-                fname,
-                &args,
-                &closure_args,
-                pos_anns,
-                tps,
-                &mut updates,
-            );
+            if let Some(callee_anns) = pos_anns.get(fname) {
+                apply_user_fn_callee_hint(
+                    ast,
+                    ExprId(i as u32),
+                    &args,
+                    &closure_args,
+                    callee_anns,
+                    tps.get(fname).map(Vec::as_slice),
+                    UserFnHintSinks {
+                        updates: &mut updates,
+                        param_only: &mut param_only_updates,
+                    },
+                );
+            }
             continue;
         }
         // Member(obj, method) — the Array-method path.
