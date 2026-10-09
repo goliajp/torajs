@@ -213,7 +213,7 @@ fn fn_return_ann_of(ast: &Ast, fname: &str) -> Option<String> {
 /// Split `__fn(P1|P2)->(R)` (or its retagged `__cls(` twin) into the
 /// param ann strings and the return ann — the string-level twin of
 /// `ssa_lower_parse_fn_type::try_parse_fn_type`'s depth-aware walk.
-fn split_sig_ann(ann: &str) -> Option<(Vec<String>, String)> {
+pub(crate) fn split_sig_ann(ann: &str) -> Option<(Vec<String>, String)> {
     let rest = ann.trim_start();
     let rest = rest
         .strip_prefix("__fn(")
@@ -255,4 +255,154 @@ fn split_sig_ann(ann: &str) -> Option<(Vec<String>, String)> {
         params.push(params_str[last..].to_string());
     }
     Some((params, ret))
+}
+
+/// Nested-param axis — a function handed to a fn-typed parameter whose
+/// own parameters are fn-typed (`hof(run)` with
+/// `hof(f: (g: (x: number) => number) => number)`).
+///
+/// `hof` calls `f(...)` through the indirect lane, and every function
+/// value that lane hands to `f`'s fn-typed position is a closure cell:
+/// an arrow is one, and a named function there is wrapped in its
+/// `__forward_<name>` cell (`ast_collect_fn_closure`). So the function
+/// that `f` stands for receives closure repr in that parameter, and a
+/// `__fn(` (bare pointer) parameter `blr`s the cell's header — SIGBUS.
+/// No call-site round of the parent pass sees it: the hand-off happens
+/// inside `hof` through a callee that is a parameter, not a decl.
+///
+/// The seed marks the passed decl's parameter at the nested position,
+/// so it takes the env-first shape and its own direct call sites wrap
+/// named-fn arguments the way every other marked parameter's do. Only
+/// a decl named directly as the argument is seen; a function reaching
+/// the slot any other way (through a let, a ternary, a property) keeps
+/// its bare parameter.
+///
+/// Seed marks `(decl, param idx)` for each decl named as an argument
+/// to a fn-typed parameter whose annotation has a fn-typed parameter
+/// at that index. The callee is a decl or a closure-let alias of one
+/// (`aliases`, the lifted prefix shifted off).
+pub(crate) fn nested_fn_arg_seeds(
+    ast: &Ast,
+    fn_params: &HashMap<String, Vec<(usize, String)>>,
+    aliases: &HashMap<String, (String, usize)>,
+) -> HashSet<(String, usize)> {
+    let mut decls: HashMap<&str, &[Param]> = HashMap::new();
+    let mut stack: Vec<&Stmt> = ast.stmts.iter().collect();
+    while let Some(s) = stack.pop() {
+        if let Stmt::FnDecl { name, params, .. } = s {
+            decls.insert(name, params);
+        }
+        crate::ast_closure_param_tag::push_child_stmts(s, &mut stack);
+    }
+    let mut seeds = HashSet::new();
+    for e in &ast.exprs {
+        let Expr::Call { callee, args } = e else {
+            continue;
+        };
+        let Expr::Ident(h) = ast.get_expr(*callee) else {
+            continue;
+        };
+        let (decl, shift) = match aliases.get(h) {
+            Some((f, shift)) => (f.as_str(), *shift),
+            None => (h.as_str(), 0),
+        };
+        let Some(params) = decls.get(decl).and_then(|p| p.get(shift..)) else {
+            continue;
+        };
+        for (param, &arg) in params.iter().zip(args) {
+            let Some(ann) = param.type_ann.as_deref() else {
+                continue;
+            };
+            let Expr::Ident(x) = ast.get_expr(arg) else {
+                continue;
+            };
+            let Some(x_params) = fn_params.get(x) else {
+                continue;
+            };
+            let Some((segs, _)) = split_sig_ann(ann) else {
+                continue;
+            };
+            for (j, seg) in segs.iter().enumerate() {
+                if is_fn_typed_seg(seg) && x_params.iter().any(|(i, _)| *i == j) {
+                    seeds.insert((x.clone(), j));
+                }
+            }
+        }
+    }
+    // the same slot fed from inside: `f(g)` with `g` a fn-typed param
+    // of the function the call sits in hands `g` to that position, so
+    // `g` takes the closure repr as well
+    for (d, call, segs) in param_callee_calls(ast) {
+        let Expr::Call { args, .. } = ast.get_expr(call) else {
+            continue;
+        };
+        let Some(own) = fn_params.get(&d) else {
+            continue;
+        };
+        for (seg, &arg) in segs.iter().zip(args) {
+            if let Expr::Ident(g) = ast.get_expr(arg)
+                && is_fn_typed_seg(seg)
+                && let Some((i, _)) = own.iter().find(|(_, p)| p == g)
+            {
+                seeds.insert((d.clone(), *i));
+            }
+        }
+    }
+    seeds
+}
+
+/// Every call through a fn-typed parameter of the function it sits in
+/// (`f(...)` inside `function hof(f: (g: ...) => R)`): the function,
+/// the call, and the parameter annotations of the function type `f`
+/// declares. A name the body binds again is left out, and so is a call
+/// in a nested declaration, which is walked as its own function.
+pub(crate) fn param_callee_calls(ast: &Ast) -> Vec<(String, ExprId, Vec<String>)> {
+    use crate::ast::desugar_async_sm_walk::{visit_expr_children, visit_stmt_exprs};
+    let mut out = Vec::new();
+    let mut stack: Vec<&Stmt> = ast.stmts.iter().collect();
+    while let Some(s) = stack.pop() {
+        crate::ast_closure_param_tag::push_child_stmts(s, &mut stack);
+        let Stmt::FnDecl {
+            name, params, body, ..
+        } = s
+        else {
+            continue;
+        };
+        let mut fn_params: HashMap<&str, Vec<String>> = HashMap::new();
+        for p in params {
+            if let Some((segs, _)) = p.type_ann.as_deref().and_then(split_sig_ann) {
+                fn_params.insert(p.name.as_str(), segs);
+            }
+        }
+        let mut inner: Vec<&Stmt> = body.iter().collect();
+        while let Some(st) = inner.pop() {
+            if let Stmt::LetDecl { name, .. } = st {
+                fn_params.remove(name.as_str());
+            }
+            if !matches!(st, Stmt::FnDecl { .. }) {
+                crate::ast_closure_param_tag::push_child_stmts(st, &mut inner);
+            }
+        }
+        if fn_params.is_empty() {
+            continue;
+        }
+        let mut todo: Vec<ExprId> = Vec::new();
+        for st in body {
+            visit_stmt_exprs(st, &mut |e| todo.push(e));
+        }
+        while let Some(e) = todo.pop() {
+            if let Expr::Call { callee, .. } = ast.get_expr(e)
+                && let Expr::Ident(n) = ast.get_expr(*callee)
+                && let Some(segs) = fn_params.get(n.as_str())
+            {
+                out.push((name.clone(), e, segs.clone()));
+            }
+            visit_expr_children(ast, e, &mut |c| todo.push(c));
+        }
+    }
+    out
+}
+
+fn is_fn_typed_seg(seg: &str) -> bool {
+    crate::ast_closure_param_tag::is_fnsig_ann(&Some(seg.to_string())) || seg.starts_with("__cls(")
 }

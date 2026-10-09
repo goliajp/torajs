@@ -92,7 +92,22 @@ pub(crate) fn wrap_named_fn_values(
             .clone()
             .unwrap_or_else(|| format!("__forward_{target}"));
         if existing.is_none() {
-            let (params, return_type, target_span) = fn_sigs.get(target).unwrap().clone();
+            let (mut params, mut return_type, target_span) = fn_sigs.get(target).unwrap().clone();
+            // the snapshot predates the retag: the forwarder hands its
+            // params straight to the target, so it takes the target's
+            // closure repr wherever the target does
+            for (i, p) in params.iter_mut().enumerate() {
+                if marked.contains(&(target.clone(), i))
+                    && let Some(ann) = &mut p.type_ann
+                {
+                    crate::ast_closure_param_tag_retag::retag_to_cls(ann);
+                }
+            }
+            if ret_marked.contains(target)
+                && let Some(ann) = &mut return_type
+            {
+                crate::ast_closure_param_tag_retag::retag_to_cls(ann);
+            }
             // Knife 4d (RFC 20260801-arguments-method-face) — an
             // argv-consuming generator factory takes its argv from the
             // relay's own `[...arguments]` rather than a declared slot:

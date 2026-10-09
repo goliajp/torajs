@@ -13,7 +13,7 @@ use std::collections::HashSet;
 /// everything else keeps its own repr with null as the in-band 0 — so
 /// the payload is what carries the repr tag, and the wrapper has to
 /// survive the rewrite rather than be replaced by it.
-fn retag_to_cls(ann: &mut String) {
+pub(crate) fn retag_to_cls(ann: &mut String) {
     if let Some(rest) = ann.strip_prefix("__fn(") {
         *ann = format!("__cls({rest}");
     } else if let Some(rest) = ann.strip_prefix("__nullable(__fn(") {

@@ -227,6 +227,11 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
 
     let (fn_param_pos_anns, fn_type_params, fn_user_param_count, fn_ret_anns) =
         collect_fn_decl_metadata(ast);
+    let param_callee_anns: HashMap<ExprId, Vec<Option<String>>> =
+        crate::ast_closure_param_tag_axes::param_callee_calls(ast)
+            .into_iter()
+            .map(|(_, call, segs)| (call, segs.into_iter().map(Some).collect()))
+            .collect();
 
     let n = ast.exprs.len();
     for i in 0..n {
@@ -253,13 +258,24 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
         // mentioning an unresolved typevar after substitution is not
         // projected.
         if let Expr::Ident(fname) = ast.get_expr(callee) {
+            // a fn-typed param of the function the call sits in shadows
+            // any top-level function of that name
+            let (own, no_tps);
+            let (pos_anns, tps) = match param_callee_anns.get(&ExprId(i as u32)) {
+                Some(anns) => {
+                    own = HashMap::from([(fname.clone(), anns.clone())]);
+                    no_tps = HashMap::new();
+                    (&own, &no_tps)
+                }
+                None => (&fn_param_pos_anns, &fn_type_params),
+            };
             apply_user_fn_callee_hint(
                 ast,
                 fname,
                 &args,
                 &closure_args,
-                &fn_param_pos_anns,
-                &fn_type_params,
+                pos_anns,
+                tps,
                 &mut updates,
             );
             continue;

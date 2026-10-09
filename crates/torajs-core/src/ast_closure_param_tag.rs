@@ -116,6 +116,11 @@ pub fn tag_closure_arg_params(ast: &mut Ast) {
     let mut marked =
         crate::ast_closure_param_tag_collect::usage_seed_marks(ast, &fn_params, &closure_aliases);
     marked.extend(sites.escaped_marks(&fn_params));
+    marked.extend(crate::ast_closure_param_tag_axes::nested_fn_arg_seeds(
+        ast,
+        &fn_params,
+        &closure_aliases,
+    ));
     let mut ret_marked: HashSet<String> = HashSet::new();
     loop {
         let mut changed = false;
@@ -720,5 +725,48 @@ mod tests {
         let inner_ann = fn_param_ann(&ast, "inner", 0).unwrap();
         assert!(outer_ann.starts_with("__cls("), "outer: {outer_ann}");
         assert!(inner_ann.starts_with("__cls("), "inner: {inner_ann}");
+    }
+
+    const RUN: &str = "function run(cb: (x: number) => number): number { return cb(3); }\n";
+    const NESTED: &str = "(f: (g: (x: number) => number) => number";
+
+    #[test]
+    fn fn_passed_to_a_nested_fn_typed_slot_takes_closure_params() {
+        let src =
+            format!("{RUN}function hof{NESTED}): number {{ return f((x) => x); }}\nhof(run);\n");
+        let ast = pass_output(&src);
+        let run_ann = fn_param_ann(&ast, "run", 0).unwrap();
+        let hof_ann = fn_param_ann(&ast, "hof", 0).unwrap();
+        assert!(run_ann.starts_with("__cls("), "run: {run_ann}");
+        assert!(hof_ann.starts_with("__fn("), "hof keeps its own: {hof_ann}");
+    }
+
+    #[test]
+    fn fn_typed_param_fed_to_a_nested_slot_takes_closure_repr() {
+        let src = format!(
+            "{RUN}function pass{NESTED}, g2: (x: number) => number): number {{ return f(g2); }}\n"
+        );
+        let ast = pass_output(&src);
+        let g2_ann = fn_param_ann(&ast, "pass", 1).unwrap();
+        assert!(g2_ann.starts_with("__cls("), "g2: {g2_ann}");
+    }
+
+    #[test]
+    fn forwarder_of_a_retagged_fn_takes_its_closure_params() {
+        // `lam`'s params are closure repr, so `run` reaches it as its
+        // forwarder, which hands `cb` on to `run` unchanged
+        let src = format!("{RUN}const lam = {NESTED}): number => f((x) => x);\nlam(run);\n");
+        let ast = pass_output(&src);
+        let fwd = ast
+            .stmts
+            .iter()
+            .find_map(|s| match s {
+                Stmt::FnDecl { name, params, .. } if name == "__forward_run" => Some(params),
+                _ => None,
+            })
+            .expect("forwarder for run");
+        let cb = fwd.iter().find(|p| p.name == "cb").expect("cb param");
+        let ann = cb.type_ann.as_deref().unwrap();
+        assert!(ann.starts_with("__cls("), "forwarder cb: {ann}");
     }
 }
