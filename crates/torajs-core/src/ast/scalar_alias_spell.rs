@@ -18,29 +18,14 @@ use std::collections::HashMap;
 /// `ann` with every type-position mention of a `table` name replaced by
 /// its spelling; `None` when nothing changes.
 pub(super) fn inline_ann(ann: &str, table: &HashMap<String, String>) -> Option<String> {
-    let b = ann.as_bytes();
     let mut out: Option<String> = None;
     let mut copied = 0usize;
-    let mut i = 0usize;
-    while i < b.len() {
-        if !is_word_byte(b[i]) {
-            i += 1;
-            continue;
-        }
-        let start = i;
-        while i < b.len() && is_word_byte(b[i]) {
-            i += 1;
-        }
-        let field_name = b.get(i) == Some(&b':') || b.get(i) == Some(&b'?');
-        let qualified = b.get(i) == Some(&b'.') || (start > 0 && b[start - 1] == b'.');
-        if field_name || qualified {
-            continue;
-        }
-        if let Some(spelling) = table.get(&ann[start..i]) {
+    for (start, end) in type_word_spans(ann) {
+        if let Some(spelling) = table.get(&ann[start..end]) {
             let o = out.get_or_insert_with(|| String::with_capacity(ann.len() + 16));
             o.push_str(&ann[copied..start]);
             o.push_str(spelling);
-            copied = i;
+            copied = end;
         }
     }
     let mut o = out?;
@@ -48,7 +33,41 @@ pub(super) fn inline_ann(ann: &str, table: &HashMap<String, String>) -> Option<S
     if o.contains(UNION) || o.contains(NULLABLE) {
         o = canonical_unions(&o);
     }
+    if o.contains(INLOBJ) {
+        o = closure_inlobj_fields(&o);
+    }
     Some(o)
+}
+
+/// The words of `ann` that stand in a type position, in order.
+pub(super) fn type_words(ann: &str) -> impl Iterator<Item = &str> {
+    type_word_spans(ann).map(move |(s, e)| &ann[s..e])
+}
+
+/// Byte spans of the words in a type position: not an object type's
+/// field name (the word right before a `:` or `?`), not a part of a
+/// qualified name.
+fn type_word_spans(ann: &str) -> impl Iterator<Item = (usize, usize)> + '_ {
+    let b = ann.as_bytes();
+    let mut i = 0usize;
+    std::iter::from_fn(move || {
+        while i < b.len() {
+            if !is_word_byte(b[i]) {
+                i += 1;
+                continue;
+            }
+            let start = i;
+            while i < b.len() && is_word_byte(b[i]) {
+                i += 1;
+            }
+            let field_name = b.get(i) == Some(&b':') || b.get(i) == Some(&b'?');
+            let qualified = b.get(i) == Some(&b'.') || (start > 0 && b[start - 1] == b'.');
+            if !(field_name || qualified) {
+                return Some((start, i));
+            }
+        }
+        None
+    })
 }
 
 const UNION: &str = "__union(";
@@ -78,6 +97,32 @@ pub(crate) fn canonical_unions(ann: &str) -> String {
     };
     let rest = canonical_unions(&ann[(close + 1).min(ann.len())..]);
     format!("{}{combined}{rest}", &ann[..p])
+}
+
+const INLOBJ: &str = "__inlobj(";
+
+/// `ann` with every object-type field whose type is a function type
+/// spelled closure-shaped, the way the parser spells such a field when
+/// it reads the function type in place: a field is a mutable slot that
+/// may hold a capturing closure.
+fn closure_inlobj_fields(ann: &str) -> String {
+    let Some(p) = ann.find(INLOBJ) else {
+        return ann.to_string();
+    };
+    let open = p + INLOBJ.len();
+    let close = matching_paren(ann, open);
+    let fields: Vec<String> = crate::check_type_ann::split_top_pipe(&ann[open..close])
+        .into_iter()
+        .map(|field| match field.split_once(':') {
+            Some((name, ty)) => {
+                let ty = crate::ast::retag_field_fn_ann(&closure_inlobj_fields(ty));
+                format!("{name}:{ty}")
+            }
+            None => field.to_string(),
+        })
+        .collect();
+    let rest = closure_inlobj_fields(&ann[(close + 1).min(ann.len())..]);
+    format!("{}{INLOBJ}{}){rest}", &ann[..p], fields.join("|"))
 }
 
 /// The index of the `)` closing the group whose contents start at
@@ -122,8 +167,8 @@ mod tests {
             Some("__inlobj(N:number)")
         );
         assert_eq!(
-            inline_ann("__inlobj(Id:__nullable(Id)|N:__fn(N)->(N))", &t).as_deref(),
-            Some("__inlobj(Id:__nullable(string)|N:__fn(number)->(number))")
+            inline_ann("__inlobj(Id:__nullable(Id)|N:__cls(N)->(N))", &t).as_deref(),
+            Some("__inlobj(Id:__nullable(string)|N:__cls(number)->(number))")
         );
         assert_eq!(inline_ann("ns.N", &t), None);
         assert_eq!(inline_ann("N.x", &t), None);
@@ -168,5 +213,25 @@ mod tests {
             Some("Map<__union(boolean|number)|__nullable(string)>")
         );
         assert_eq!(inline_ann("string", &t), None);
+    }
+
+    #[test]
+    fn a_function_type_landing_in_an_object_field_is_closure_shaped() {
+        let t = table(&[("G", "__fn(number)->(number)")]);
+        assert_eq!(
+            inline_ann("__inlobj(f:G|g:__nullable(G)|h:G[])", &t).as_deref(),
+            Some(
+                "__inlobj(f:__cls(number)->(number)|g:__nullable(__cls(number)->(number))\
+                 |h:__cls(number)->(number)[])"
+            )
+        );
+        assert_eq!(
+            inline_ann("__inlobj(o:__inlobj(f:G))", &t).as_deref(),
+            Some("__inlobj(o:__inlobj(f:__cls(number)->(number)))")
+        );
+        assert_eq!(
+            inline_ann("__fn(G)->(G)", &t).as_deref(),
+            Some("__fn(__fn(number)->(number))->(__fn(number)->(number))")
+        );
     }
 }

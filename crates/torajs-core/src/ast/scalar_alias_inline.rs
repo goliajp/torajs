@@ -12,8 +12,18 @@
 //!
 //! Which aliases: a top-level non-generic `type X = T` whose target,
 //! with every other such alias inlined, is a primitive keyword with
-//! `[]` suffixes (`number`, `number[][]`). A union target is encoded
-//! `__union(..)` / `__nullable(..)` and is not inlined. Declined — left
+//! `[]` suffixes (`number`, `number[][]`), or a function type
+//! (`(x: number) => number`). A function type is read by its spelling
+//! too — whether a parameter takes a bare function pointer, whether a
+//! struct field or array element is closure-shaped — so `f: G` has to
+//! read exactly as the `f: (x: number) => number` it stands for. Each
+//! other word in a function-type target is inlined when it is such an
+//! alias itself, and otherwise must mean the same type everywhere (one
+//! type declaration, no type parameter of that name), since the
+//! spelling lands in scopes other than the alias's own. A union target
+//! is encoded `__union(..)` / `__nullable(..)` and is not inlined, nor
+//! is a variadic function type (`__rest(..)`), which resolves by name
+//! to its own closure shape. Declined — left
 //! to resolve by name, as before — when anything else claims the
 //! name: a second type declaration (a nested `type`, a class), a type
 //! parameter, or a top-level value binding (an enum's object).
@@ -24,7 +34,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use super::scalar_alias_spell::{inline_ann, is_word_byte};
+use super::scalar_alias_spell::{inline_ann, is_word_byte, type_words};
 use super::{Ast, Expr, Stmt};
 
 const PRIMITIVE_WORDS: [&str; 8] = [
@@ -72,7 +82,7 @@ pub fn inline_scalar_aliases(ast: &mut Ast) {
         {
             continue;
         }
-        if let Some(spelling) = resolve(name, &targets, &mut memo, &mut HashSet::new()) {
+        if let Some(spelling) = resolve(name, &targets, &claims, &mut memo, &mut HashSet::new()) {
             table.insert(name.clone(), spelling);
         }
     }
@@ -112,15 +122,16 @@ impl super::ann_rewrite::AnnRewrite for Inline<'_> {
     }
 }
 
-/// The primitive spelling `name` stands for, with an alias it names
-/// inlined: a primitive keyword or such an alias, then any number of
-/// `[]` suffixes. `None` for anything else — in particular a union,
-/// which the annotation encoding spells `__union(..)` /
-/// `__nullable(..)` and which keeps resolving by name — or when the
-/// chain cycles back.
+/// The spelling `name` stands for, with an alias it names inlined: a
+/// primitive keyword or such an alias, then any number of `[]`
+/// suffixes; or a function type. `None` for anything else — in
+/// particular a union, which the annotation encoding spells
+/// `__union(..)` / `__nullable(..)` and which keeps resolving by name
+/// — or when the chain cycles back.
 fn resolve(
     name: &str,
     targets: &HashMap<String, String>,
+    claims: &Claims,
     memo: &mut HashMap<String, Option<String>>,
     visiting: &mut HashSet<String>,
 ) -> Option<String> {
@@ -133,12 +144,14 @@ fn resolve(
     let target = targets.get(name)?;
     let head = target.trim_end_matches("[]");
     let suffix = &target[head.len()..];
-    let r = if !head.bytes().all(is_word_byte) {
+    let r = if target.starts_with("__fn(") && !target.contains("__rest(") {
+        fn_target(target, targets, claims, memo, visiting)
+    } else if !head.bytes().all(is_word_byte) {
         None
     } else if targets.contains_key(head) {
         // a declared alias wins over a primitive spelling: `i64` / `f64`
         // are names a program may declare itself
-        resolve(head, targets, memo, visiting).map(|inner| format!("{inner}{suffix}"))
+        resolve(head, targets, claims, memo, visiting).map(|inner| format!("{inner}{suffix}"))
     } else if PRIMITIVE_WORDS.contains(&head) {
         Some(target.clone())
     } else {
@@ -147,6 +160,41 @@ fn resolve(
     visiting.remove(name);
     memo.insert(name.to_string(), r.clone());
     r
+}
+
+/// A function-type target's spelling with the aliases it names
+/// inlined. `None` when a word in it may mean another type at some use
+/// site: a name declared more than once, or spelled by a type
+/// parameter. `None` too when it names a function-type alias that does
+/// not inline, which covers a recursive one (`type F = (f: F) => ..`):
+/// its spelling has no finite expansion, so the whole chain keeps
+/// resolving by name. A named alias that does not inline otherwise (a
+/// union) keeps its name, which means the same type everywhere under
+/// that same test.
+fn fn_target(
+    target: &str,
+    targets: &HashMap<String, String>,
+    claims: &Claims,
+    memo: &mut HashMap<String, Option<String>>,
+    visiting: &mut HashSet<String>,
+) -> Option<String> {
+    let mut sub: HashMap<String, String> = HashMap::new();
+    for w in type_words(target) {
+        if claims.type_decls.get(w).copied().unwrap_or(0) > 1 || claims.type_params.contains(w) {
+            return None;
+        }
+        let Some(w_target) = targets.get(w) else {
+            continue;
+        };
+        match resolve(w, targets, claims, memo, visiting) {
+            Some(spelling) => {
+                sub.insert(w.to_string(), spelling);
+            }
+            None if w_target.starts_with("__fn(") => return None,
+            None => {}
+        }
+    }
+    Some(inline_ann(target, &sub).unwrap_or_else(|| target.to_string()))
 }
 
 /// Every other claim on a name: how many type declarations (aliases,
@@ -232,3 +280,6 @@ impl Claims {
         super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| self.list(inner));
     }
 }
+
+#[cfg(test)]
+mod tests;
