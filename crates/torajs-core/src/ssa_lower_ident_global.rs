@@ -73,9 +73,5 @@ pub(crate) fn user_binds(ctx: &LowerCtx<'_>, name: &str) -> bool {
     ctx.locals.contains_key(name)
         || ctx.fn_table.contains_key(name)
         || ctx.globals.contains_key(name)
-        || ctx
-            .ast
-            .stmts
-            .iter()
-            .any(|s| matches!(s, crate::ast::Stmt::LetDecl { name: n, .. } if n == name))
+        || crate::ast::toplevel_binds(ctx.ast, name)
 }

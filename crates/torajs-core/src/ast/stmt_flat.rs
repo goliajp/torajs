@@ -18,6 +18,29 @@ pub fn toplevel_stmts_flat(ast: &Ast) -> Vec<&Stmt> {
     stmts_flat(&ast.stmts)
 }
 
+/// Some top-level declaration binds `name` — a `let` / `const` /
+/// `var`, a `using`, a function or a class, exported or not. That is
+/// the global environment's declarative half (§9.1.1.4): from the
+/// first statement on, a bare `name` reaches it rather than the
+/// global object, uninitialized (§8.1.1.1) until its declaration runs.
+pub fn toplevel_binds(ast: &Ast, name: &str) -> bool {
+    toplevel_stmts_flat(ast).into_iter().any(|s| {
+        let s = match s {
+            Stmt::ExportDecl {
+                inner: Some(inner), ..
+            } => inner.as_ref(),
+            s => s,
+        };
+        matches!(
+            s,
+            Stmt::LetDecl { name: n, .. }
+            | Stmt::UsingDecl { name: n, .. }
+            | Stmt::FnDecl { name: n, .. }
+            | Stmt::ClassDecl { name: n, .. } if n == name
+        )
+    })
+}
+
 /// Any statement list with its `Stmt::Multi` groups flattened — the
 /// same view for a list that is not the top level (a switch's clause
 /// bodies share one scope the same way).

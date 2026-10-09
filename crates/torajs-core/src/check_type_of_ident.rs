@@ -101,6 +101,12 @@ pub(crate) fn check(
         checker.undeclared_reads.remove(&eid);
         return Ok(ty);
     }
+    // §8.1.1.1 — a read ahead of its top-level declaration reaches that
+    // binding, uninitialized; the lowering raises the ReferenceError.
+    // A builtin of the same name below is not what it reads.
+    if checker.tdz_reads.contains(&eid) {
+        return Ok(Type::Any);
+    }
     if let Some(&ns) = NS_OBJECT_IDENTS.iter().find(|&&n| n == name) {
         return Ok(Type::Object(ns));
     }

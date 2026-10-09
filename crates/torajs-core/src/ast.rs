@@ -470,7 +470,7 @@ pub use legacy_octal_sites::{record_legacy_octal_sites, triage_legacy_octal};
 pub use new_target_param::{bind_new_target_param, synthesize_new_target_ctor_faces};
 pub use number_template_sites::number_template_sites;
 pub use promise_then_store_widen::widen_promise_then_store_bindings;
-pub use stmt_flat::{stmts_flat, toplevel_stmts_flat};
+pub use stmt_flat::{stmts_flat, toplevel_binds, toplevel_stmts_flat};
 pub use strict_reserved_goal::triage_strict_reserved_idents;
 pub use tdz_reads::mark_tdz_reads;
 pub use this_param::bind_this_param;

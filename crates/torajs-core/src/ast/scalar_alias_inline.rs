@@ -64,36 +64,36 @@ pub fn inline_scalar_aliases(ast: &mut Ast) {
     }
     let claims = Claims::collect(ast);
     let mut memo: HashMap<String, Option<String>> = HashMap::new();
-    let mut names: Vec<String> = targets.keys().cloned().collect();
-    names.sort();
-    let mut subst: Vec<(String, String)> = Vec::new();
-    for name in names {
-        if claims.type_decls.get(&name).copied().unwrap_or(0) != 1
-            || claims.type_params.contains(&name)
-            || claims.values.contains(&name)
+    let mut table: HashMap<String, String> = HashMap::new();
+    for name in targets.keys() {
+        if claims.type_decls.get(name).copied().unwrap_or(0) != 1
+            || claims.type_params.contains(name)
+            || claims.values.contains(name)
         {
             continue;
         }
-        if let Some(spelling) = resolve(&name, &targets, &mut memo, &mut HashSet::new()) {
-            subst.push((name, spelling));
+        if let Some(spelling) = resolve(name, &targets, &mut memo, &mut HashSet::new()) {
+            table.insert(name.clone(), spelling);
         }
     }
+    if table.is_empty() {
+        return;
+    }
+    // one walk with the whole table: every spelling is already fully
+    // resolved, so no replacement can produce another alias name
+    let rw = Inline { table: &table };
     let mut stmts = std::mem::take(&mut ast.stmts);
-    for (old, new) in &subst {
-        let table: HashMap<String, String> = [(old.clone(), new.clone())].into();
-        let rw = Inline { table: &table };
-        super::ann_rewrite::rewrite_anns(ast, &mut stmts, 0, &rw);
-        for args in ast
-            .call_type_args
-            .values_mut()
-            .chain(ast.class_parent_type_args.values_mut())
-        {
-            for a in args.iter_mut() {
-                super::ann_rewrite::sub(a, &rw);
-            }
+    super::ann_rewrite::rewrite_anns(ast, &mut stmts, 0, &rw);
+    ast.stmts = stmts;
+    for args in ast
+        .call_type_args
+        .values_mut()
+        .chain(ast.class_parent_type_args.values_mut())
+    {
+        for a in args.iter_mut() {
+            super::ann_rewrite::sub(a, &rw);
         }
     }
-    ast.stmts = stmts;
 }
 
 /// The inline's ann face. No decl is skipped: an alias a type

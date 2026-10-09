@@ -38,6 +38,26 @@
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type};
 
+/// The bare names with a dedicated call route, on both sides — the
+/// one list the checker and the lowering share, so a name's binding
+/// checks run only for a call that could take the route.
+pub(crate) fn has_route(name: &str) -> bool {
+    matches!(
+        name,
+        "parseInt"
+            | "parseFloat"
+            | "isNaN"
+            | "isFinite"
+            | "queueMicrotask"
+            | "encodeURI"
+            | "encodeURIComponent"
+            | "decodeURI"
+            | "decodeURIComponent"
+            | "escape"
+            | "unescape"
+    )
+}
+
 pub(crate) fn try_match(
     checker: &mut Checker,
     ast: &Ast,
@@ -45,6 +65,9 @@ pub(crate) fn try_match(
     args: &[ExprId],
 ) -> Option<Result<Type, String>> {
     if let Expr::Ident(name) = ast.get_expr(*callee) {
+        if !has_route(name) {
+            return None;
+        }
         // A module that writes this property of the global object
         // takes the general cascade: the callee reads Any there
         // (`check_type_of_ident`), which is what routes the call to
@@ -54,10 +77,14 @@ pub(crate) fn try_match(
         }
         // §9.1.1.1 — a user binding of the name (local, parameter,
         // capture, top-level function or binding) answers before the
-        // global object, so the call is an ordinary call of it.
+        // global object, so the call is an ordinary call of it. The
+        // top-level check is the lowering's (`user_binds`): a call
+        // ahead of a top-level `let` reaches that binding in its dead
+        // zone, not the builtin.
         if checker.lookup(name).is_some()
             || checker.globals.contains_key(name)
             || checker.hoisted_closure_lets.contains_key(name)
+            || crate::ast::toplevel_binds(ast, name)
         {
             return None;
         }

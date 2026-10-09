@@ -24,23 +24,23 @@ pub(crate) fn try_lower(
     callee: ExprId,
     args: &[ExprId],
 ) -> Option<Operand> {
-    let name = match ctx.ast.get_expr(callee) {
-        Expr::Ident(n) => n.clone(),
+    let ast = ctx.ast;
+    let name = match ast.get_expr(callee) {
+        Expr::Ident(n) if crate::check_type_of_call_bare_globals::has_route(n) => n,
         _ => return None,
     };
     // Checker mirror (`check_type_of_call_bare_globals`) — a module
     // that writes this property of the global object gets the runtime
     // dispatcher instead of the dedicated route below; a user binding
     // of the name takes the ordinary call of that binding.
-    if ctx.proto_shadow.writes_global(&name)
-        || crate::ssa_lower_ident_global::user_binds(ctx, &name)
+    if ctx.proto_shadow.writes_global(name) || crate::ssa_lower_ident_global::user_binds(ctx, name)
     {
         return None;
     }
     match name.as_str() {
         "parseInt" => Some(lower_parse_int(ctx, args)),
         "parseFloat" => Some(lower_parse_float(ctx, args)),
-        "isNaN" | "isFinite" => Some(lower_is_nan_or_finite(ctx, name.as_str(), args)),
+        "isNaN" | "isFinite" => Some(lower_is_nan_or_finite(ctx, name, args)),
         "queueMicrotask" => Some(lower_queue_microtask(ctx, args)),
         "encodeURI" => Some(lower_uri(ctx, args, true, false)),
         "encodeURIComponent" => Some(lower_uri(ctx, args, true, true)),
