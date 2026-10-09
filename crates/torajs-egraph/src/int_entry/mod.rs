@@ -151,7 +151,7 @@ fn plan_function(func: &Function, stats: &mut IntEntryStats) -> Vec<Plan> {
             continue;
         }
         let region: HashSet<BlockId> = l.body.iter().copied().collect();
-        let mut uses = bound_uses(func, &region, &defs);
+        let mut uses = bound_uses(func, &region, &defs, &cells);
         let matched: HashSet<(BlockId, usize)> = uses.iter().map(|u| (u.block, u.inst)).collect();
         let mut values = value_sources(func, &region, &defs, &matched);
         // a cell every way into the loop starts from one source: the
@@ -279,8 +279,26 @@ fn bound_uses(
     func: &Function,
     region: &HashSet<BlockId>,
     defs: &HashMap<ValueId, (BlockId, &InstKind)>,
+    cells: &HashSet<ValueId>,
 ) -> Vec<BoundUse> {
+    // a cell the loop does not write is some other loop's, and a plan
+    // of that loop points its readers at an out cell this compare,
+    // made from the counter as planned, would never see
+    let written: HashSet<ValueId> = region
+        .iter()
+        .flat_map(|b| {
+            func.blocks[b.0 as usize]
+                .insts
+                .iter()
+                .filter_map(|i| i.result)
+        })
+        .collect();
     let counter_of = |v: ValueId| match defs.get(&v) {
+        Some((_, InstKind::SiToFp(Operand::Value(x))))
+            if cells.contains(x) && !written.contains(x) =>
+        {
+            None
+        }
         Some((_, InstKind::SiToFp(x))) => Some(*x),
         _ => None,
     };
