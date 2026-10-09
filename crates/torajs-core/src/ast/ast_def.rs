@@ -314,6 +314,10 @@ pub struct Ast {
     /// (`class Inner {}`) parses under its own name and never
     /// enters this map (§15.5.5: the self-name wins).
     pub class_expr_display_names: std::collections::HashMap<String, String>,
+    /// A binding renamed out of a `globalThis.X` read's way: new
+    /// spelling → the name the source wrote, for the messages that
+    /// quote it (a dead-zone read's ReferenceError).
+    pub renamed_binding_display: std::collections::HashMap<String, String>,
     /// Rotation 373 (L3b 373-05) — synth `__ClassExpr_<id>` decls
     /// whose expression site sat in an enclosing class body's field
     /// initializer or computed key (K6-1 lands one written in a

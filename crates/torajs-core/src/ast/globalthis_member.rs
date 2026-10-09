@@ -17,19 +17,33 @@
 //! `undefined`, but a silent undefined here could mask a typo'd
 //! builtin until runtime — G2 owns the dynamic surface).
 //!
-//! Shadow gates, both program-wide because the by-name match cannot
-//! tell which scope a read resolves to (the same bar `fnexpr_this`
-//! uses): a user binding NAMED `globalThis` anywhere disables the
-//! pass, and a user binding named `X` anywhere keeps `globalThis.X`
-//! as the member read — the bare name could reach that binding
-//! instead of the global object's property.
+//! Which reads rewrite: `globalThis.X` reads the global object's
+//! property whatever scope it sits in (§9.4.2), and the bare `X` is
+//! the same thing only where no declaration of `X` is in scope.
+//!
+//! - Where no declaration of `X` is in scope at the read
+//!   (`globalthis_member_scope`), the bare name is the builtin. A
+//!   sloppy script's top-level `var X` / `function X` counts as no
+//!   declaration here: it IS the global object's property (§16.1.7),
+//!   so the bare name reaches the same value the read does.
+//! - Where one is — a parameter, a local, a module or script top-level
+//!   `let` / `const` / `class`, an import — that declaration is renamed
+//!   out of the way when the rename cannot be observed
+//!   (`globalthis_member_rename`), and the read becomes the bare
+//!   builtin; otherwise it stays a member read of the runtime object.
+//! - A binding NAMED `globalThis` anywhere disables the pass: the
+//!   object itself could be the user's.
 //!
 //! Runs at the top of the desugar pipeline: eval-inlined statements
 //! (prelude) are already in place, and no later pass consumes a
 //! `globalThis` member shape.
 
+use std::collections::{HashMap, HashSet};
+
 use crate::check_js_semantics::is_known_builtin_global;
 
+use super::globalthis_member_rename::{renamable, rename};
+use super::globalthis_member_scope::{script_global_props, take_census};
 use super::{Ast, Expr, ExprId, Param, Stmt};
 
 pub fn desugar_globalthis_members(ast: &mut Ast) {
@@ -39,7 +53,7 @@ pub fn desugar_globalthis_members(ast: &mut Ast) {
     // Mutation positions keep the member shape (loud) — collect the
     // ExprIds standing as an Assign target, a Delete operand, or a
     // PostIncr target before rewriting anything.
-    let mut excluded: std::collections::HashSet<ExprId> = std::collections::HashSet::new();
+    let mut excluded: HashSet<ExprId> = HashSet::new();
     for e in &ast.exprs {
         match e {
             Expr::Assign { target, .. } => {
@@ -54,15 +68,15 @@ pub fn desugar_globalthis_members(ast: &mut Ast) {
             _ => {}
         }
     }
-    let mut bound: std::collections::HashMap<String, bool> = std::collections::HashMap::new();
-    for i in 0..ast.exprs.len() {
-        if excluded.contains(&ExprId(i as u32)) {
-            continue;
-        }
-        let Expr::Member { obj, name } = &ast.exprs[i] else {
+    let mut sites: Vec<(ExprId, String)> = Vec::new();
+    for (i, e) in ast.exprs.iter().enumerate() {
+        let eid = ExprId(i as u32);
+        let Expr::Member { obj, name } = e else {
             continue;
         };
-        if !matches!(&ast.exprs[obj.0 as usize], Expr::Ident(n) if n == "globalThis") {
+        if excluded.contains(&eid)
+            || !matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "globalThis")
+        {
             continue;
         }
         // `globalThis.globalThis` re-mentions the object itself —
@@ -70,19 +84,55 @@ pub fn desugar_globalthis_members(ast: &mut Ast) {
         if name == "globalThis" || !is_known_builtin_global(name) {
             continue;
         }
-        let bare = name.clone();
-        let rebound = match bound.get(&bare) {
-            Some(&b) => b,
-            None => {
-                let b = binds_anywhere(ast, &bare);
-                bound.insert(bare.clone(), b);
-                b
-            }
-        };
-        if rebound {
-            continue;
+        sites.push((eid, name.clone()));
+    }
+    if sites.is_empty() {
+        return;
+    }
+    let watch: HashSet<String> = sites.iter().map(|(_, n)| n.clone()).collect();
+    let props = if ast.sloppy_script_goal {
+        script_global_props(ast, &watch)
+    } else {
+        HashSet::new()
+    };
+    let census = take_census(ast, &watch, &props);
+    // A read the walk did not reach (a side-table root) is judged by
+    // whether the program declares the name at all.
+    let mut declared: HashMap<String, bool> = HashMap::new();
+    let mut shadowed = |ast: &Ast, eid: ExprId, name: &str| match census.site_shadowed.get(&eid) {
+        Some(&b) => b,
+        None => *declared
+            .entry(name.to_string())
+            .or_insert_with(|| binds_anywhere(ast, name)),
+    };
+    let mut keep: HashSet<ExprId> = HashSet::new();
+    for (eid, name) in &sites {
+        if shadowed(ast, *eid, name) {
+            keep.insert(*eid);
         }
-        ast.exprs[i] = Expr::Ident(bare);
+    }
+    let mut names: Vec<&String> = watch.iter().collect();
+    names.sort();
+    for name in names {
+        let hit = sites.iter().any(|(e, n)| n == name && keep.contains(e));
+        // a rename would also move the script's own top-level binding,
+        // which is the property the read reaches
+        if hit && !props.contains(name) && renamable(ast, &census, name) {
+            let fresh = rename(ast, &census, name, |ast, c| {
+                binds_anywhere(ast, c)
+                    || ast
+                        .exprs
+                        .iter()
+                        .any(|e| matches!(e, Expr::Ident(n) if n == c))
+            });
+            ast.renamed_binding_display.insert(fresh, name.clone());
+            keep.retain(|e| sites.iter().all(|(s, n)| s != e || n != name));
+        }
+    }
+    for (eid, name) in sites {
+        if !keep.contains(&eid) {
+            ast.exprs[eid.0 as usize] = Expr::Ident(name);
+        }
     }
 }
 

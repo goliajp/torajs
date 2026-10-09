@@ -253,7 +253,11 @@ pub(crate) fn emit_tdz_raise(ctx: &mut LowerCtx<'_>, eid: crate::ast::ExprId, na
     if !ctx.ast.tdz_reads.contains(&eid) {
         return;
     }
-    let name_str = ctx.intern_string_literal(name);
+    let shown = match ctx.ast.renamed_binding_display.get(name) {
+        Some(src) => src.clone(),
+        None => name.to_string(),
+    };
+    let name_str = ctx.intern_string_literal(&shown);
     let raiser = ctx.intrinsics.throw_reference_error_tdz;
     let cur_block = ctx.cur_block;
     ctx.f.append_void(

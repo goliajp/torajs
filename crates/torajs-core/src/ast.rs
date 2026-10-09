@@ -214,6 +214,8 @@ pub(crate) mod free_vars_write;
 pub(crate) mod fresh_this;
 mod gen_fn_expr;
 mod globalthis_member;
+mod globalthis_member_rename;
+mod globalthis_member_scope;
 mod heritage;
 pub(crate) mod hof_len_shrink;
 mod hoist_gen_fn_exprs;
