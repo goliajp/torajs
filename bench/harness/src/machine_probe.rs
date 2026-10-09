@@ -30,7 +30,7 @@ pub const PROBE_CLEAN_PCT: f64 = 5.0;
 pub const CELL_REDOS: usize = 3;
 
 /// The pause before running a cell again, so a burst can end.
-pub const REDO_PAUSE: Duration = Duration::from_secs(10);
+pub const REDO_PAUSE: Duration = Duration::from_secs(5);
 
 /// Probes taken before the first pass to find the machine's floor.
 const FLOOR_PROBES: usize = 5;
@@ -62,10 +62,23 @@ impl Probe {
     }
 
     pub fn read(&mut self) -> Result<Reading> {
-        let st = measure_runs(&self.bin, 0, 1, &[], Duration::from_secs(60))?;
-        self.floor_ms = self.floor_ms.min(st.median_ms);
+        self.read_after(1)
+    }
+
+    /// After a pause the cores come back slow: the first runs of the
+    /// probe then read 2x and more on a quiet machine, so a reading
+    /// after one takes more unmeasured runs first.
+    pub fn read_after_pause(&mut self) -> Result<Reading> {
+        self.read_after(4)
+    }
+
+    /// The fastest of two runs after `warmup` unmeasured ones: a single
+    /// run reads one stall as a busy machine.
+    fn read_after(&mut self, warmup: u32) -> Result<Reading> {
+        let st = measure_runs(&self.bin, warmup, 2, &[], Duration::from_secs(60))?;
+        self.floor_ms = self.floor_ms.min(st.min_ms);
         Ok(Reading {
-            ms: st.median_ms,
+            ms: st.min_ms,
             instructions: st.instructions,
             load1: load1(),
         })

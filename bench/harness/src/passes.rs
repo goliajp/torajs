@@ -181,7 +181,7 @@ impl Passes<'_> {
                         rec.redone.push(label.clone());
                     }
                     std::thread::sleep(REDO_PAUSE);
-                    before = Some(rec.note(p.read()?));
+                    before = Some(rec.note(p.read_after_pause()?));
                 };
                 if compile_cache[idx].is_none() {
                     compile_cache[idx] = outcome.compile_ms;
