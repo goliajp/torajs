@@ -47,7 +47,7 @@
 //! cell through the universal heap drop (per-field walk).
 //!
 //! An adapter whose function has an all-`any` twin asks
-//! [`__torajs_anyv_struct_fits`] first and hands the whole call to
+//! [`fits::__torajs_anyv_struct_fits`] first and hands the whole call to
 //! the twin when a struct slot's argument does not fit: there the
 //! parameter is read through the generic [[Get]] (§13.3.2.1), which
 //! is what an array, a Proxy, a getter-bearing literal or a `3`
@@ -63,6 +63,9 @@ use torajs_rc::{AnySlotTag, Tag};
 
 use crate::nanbox::{AnyValue, as_void_ptr, is_cell};
 use crate::struct_probe::struct_field_pair_bytes;
+
+mod fits;
+use fits::cell_fits;
 
 /// Mirror of `torajs-structmeta::StrSlice` (repr(C) pair).
 #[repr(C)]
@@ -177,89 +180,6 @@ pub unsafe extern "C" fn __torajs_anyv_arg_to_struct(av: AnyValue, class_tag: u3
         }
         crate::nanbox_encode::__torajs_anyv_box_from_pair(ANY_HEAP as i64, cell as i64)
     }
-}
-
-/// Does `av` fit a struct slot of `class_tag` as it is — a `Tag::Obj`
-/// cell of that class, or of a class whose layout extends it field
-/// for field (see [`cell_fits`])? 1 when it does; 0 for a non-cell, a
-/// dynobj, a struct of another layout and every other heap cell. The
-/// boxed adapter branches on it ahead of its unboxes: a 0 sends the
-/// call to the function's all-`any` twin instead of through the
-/// coercion above.
-///
-/// # Safety
-/// `av`, when a cell, points at a live heap cell.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_anyv_struct_fits(av: AnyValue, class_tag: u32) -> i64 {
-    if !is_cell(av) {
-        return 0;
-    }
-    let p = as_void_ptr(av);
-    unsafe {
-        if (p.cast::<u8>().add(OBJ_TAG_OFF) as *const u16).read() != Tag::Obj as u16 {
-            return 0;
-        }
-        if (p.cast::<u8>().add(OBJ_CLASS_TAG_OFF) as *const u32).read() == class_tag {
-            return 1;
-        }
-        let layout = __torajs_struct_layout_lookup(class_tag);
-        i64::from(!layout.is_null() && cell_fits(p, class_tag, layout))
-    }
-}
-
-/// Does the `Tag::Obj` cell `p` have the layout `layout` (of
-/// `class_tag`), or one that extends it field for field — same name,
-/// same offset, same type — so a body reading `p` through `layout`
-/// reads its own fields, and a slot of that layout can size it?
-///
-/// Inlined into both callers: with two of them LLVM outlines it into
-/// an atom of its own, and a program that links only one caller then
-/// carries a call and a prologue where it had straight-line code.
-///
-/// # Safety
-/// `p` is a live `Tag::Obj` cell; `layout` a live lookup result.
-#[inline(always)]
-unsafe fn cell_fits(p: *mut c_void, class_tag: u32, layout: *const c_void) -> bool {
-    let cell_tag = unsafe { (p.cast::<u8>().add(OBJ_CLASS_TAG_OFF) as *const u32).read() };
-    if cell_tag == class_tag {
-        return true;
-    }
-    let own = unsafe { __torajs_struct_layout_lookup(cell_tag) };
-    if own.is_null() {
-        return false;
-    }
-    let n = unsafe { __torajs_struct_field_count(layout) };
-    let own_n = unsafe { __torajs_struct_field_count(own) };
-    if own_n < n {
-        return false;
-    }
-    // a cell created in another order than its layout wears rows in
-    // that order over the same slots, so a row that is not at the same
-    // index is looked up by name
-    (0..n).all(|idx| unsafe {
-        same_row(layout, idx, own, idx)
-            || (0..own_n).any(|j| j != idx && same_row(layout, idx, own, j))
-    })
-}
-
-/// Row `i` of `a` and row `j` of `b` name the same field at the same
-/// offset with the same type.
-///
-/// # Safety
-/// `a` / `b` are live lookup results with rows `i` / `j`.
-unsafe fn same_row(a: *const c_void, i: u32, b: *const c_void, j: u32) -> bool {
-    let (na, nb) = unsafe {
-        (
-            __torajs_struct_field_name(a, i),
-            __torajs_struct_field_name(b, j),
-        )
-    };
-    na.len == nb.len
-        && unsafe {
-            core::slice::from_raw_parts(na.ptr, na.len)
-                == core::slice::from_raw_parts(nb.ptr, nb.len)
-                && __torajs_struct_field_info(a, i) == __torajs_struct_field_info(b, j)
-        }
 }
 
 /// The `(any_tag, payload)` pair a layout field named `name` takes
