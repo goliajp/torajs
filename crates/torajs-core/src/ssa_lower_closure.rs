@@ -86,7 +86,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, fn_name: String, captures: Vec<Strin
         .filter_map(|c| {
             if let Some(l) = ctx.locals.get(c) {
                 Some((c.clone(), l.ty))
-            } else if ctx.globals.contains_key(c) || class_sentinel_name(ctx, c) {
+            } else if read_without_slot(ctx, c) {
                 None
             } else {
                 panic!("ssa-lower: closure capture `{c}` not in scope")
@@ -434,6 +434,31 @@ fn write_captures(ctx: &mut LowerCtx<'_>, env_v: crate::ssa::ValueId, captures: 
             );
         }
     }
+}
+
+/// A captured name the lifted body reads with no env slot: a data
+/// global, a class sentinel, or a const that folds to its literal.
+fn read_without_slot(ctx: &LowerCtx<'_>, name: &str) -> bool {
+    ctx.globals.contains_key(name)
+        || class_sentinel_name(ctx, name)
+        || folds_to_literal(ctx.ast, name)
+}
+
+/// Is `name` a top-level `const` whose reads fold to its Number / Bool
+/// literal (`ssa_lower_ident`'s `try_inline_const_literal`)? It has no
+/// slot to capture, and an arrow inside a named function reads the
+/// literal the way that function's own body does: `const k = 5;
+/// function g() { return ap((x) => x * k); }`.
+fn folds_to_literal(ast: &crate::ast::Ast, name: &str) -> bool {
+    ast.stmts.iter().any(|s| {
+        matches!(s, crate::ast::Stmt::LetDecl { name: n, init, mutable: false, type_ann, .. }
+        if n == name
+            && type_ann.as_deref() != Some("any")
+            && matches!(
+                ast.get_expr(*init),
+                crate::ast::Expr::Number(_) | crate::ast::Expr::Bool(_)
+            ))
+    })
 }
 
 /// Is `name` a class sentinel — `__class_<C>` or `__proto_<C>` for a
