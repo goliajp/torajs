@@ -128,10 +128,11 @@ fn plan_loop(func: &Function, la: &LoopAnalysis, l: &NaturalLoop, ctx: &Ctx) -> 
         return None;
     }
     let (inner_on_true, cont, px) = inner_exit(func, inner, ih)?;
-    let chain = inner_chain(func, ctx, &body, inner, ih, cont)?;
+    let (chain, inner_exits) = inner_chain(func, ctx, &body, inner, ih, cont)?;
     let mut fixed: HashSet<BlockId> = pre_blocks.iter().copied().collect();
     fixed.insert(h);
-    if fixed.contains(&px) || !body.contains(&px) {
+    if fixed.contains(&px) || !body.contains(&px) || inner_exits.values().any(|x| fixed.contains(x))
+    {
         return None;
     }
     let mut post: Vec<BlockId> = body
@@ -166,6 +167,7 @@ fn plan_loop(func: &Function, la: &LoopAnalysis, l: &NaturalLoop, ctx: &Ctx) -> 
         inner_header: ih,
         inner_on_true,
         chain,
+        masked: !inner_exits.is_empty(),
         post,
         body,
         lane_cells: Vec::new(),

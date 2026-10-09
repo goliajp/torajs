@@ -143,6 +143,7 @@ fn reached_from(func: &Function, p: &Plan, sources: &[BlockId]) -> Vec<BlockId> 
 /// part a lane past the first reads lane 0's instead of computing its
 /// own: all lanes enter the fused loop together and step it together,
 /// so such a value is the same in every lane at every point.
+/// Under masks, nothing the inner loop carries is alike (see `masked`).
 /// Not a cell `pre` and the inner header define more than once between
 /// them: lanes run those part by part, a whole lane at a time, so a
 /// later lane would read lane 0's last def where its own earlier one
@@ -157,6 +158,17 @@ pub(super) fn lane_shared(func: &Function, p: &Plan) -> HashSet<ValueId> {
         }
     }
     let mut variant: HashSet<ValueId> = HashSet::from_iter([p.iv]);
+    if p.masked {
+        // masked lanes stop at different steps: no cell the inner loop
+        // carries stays alike across them
+        let inner = p.inner_order();
+        let carried = inner
+            .iter()
+            .flat_map(|&b| blk(func, b).insts.iter())
+            .filter(|i| matches!(i.kind, InstKind::Copy(..)))
+            .filter_map(|i| i.result);
+        variant.extend(carried);
+    }
     loop {
         let mut grew = false;
         for inst in insts() {

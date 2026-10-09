@@ -11,6 +11,9 @@
 //! Tj:  clone of inner loop + post + latch; latch → R(j+1), last → G
 //! ```
 //!
+//! An inner loop with an early exit steps its lanes under masks
+//! instead (`masked`).
+//!
 //! The original loop stays as it was and runs whatever a group cannot.
 
 use crate::id_hash::HashMap;
@@ -27,30 +30,14 @@ use super::guards::{entry_block, guard_shared, lane_guard};
 use super::heads::inner_heads;
 
 pub(super) fn apply(func: &mut Function, p: &Plan) {
-    let h = p.header;
     let cells = cell_set(func);
     let read_after_pre = reads_outside(func, &p.pre_order());
-    let ph = func.add_block();
-    for b in 0..ph.0 as usize {
-        if !p.body.contains(&BlockId(b as u32)) {
-            retarget(&mut func.blocks[b].term, |t| t, h, Some(ph));
-        }
+    let (g, gb) = group_entry(func, p);
+    if p.masked {
+        let (lanes, cur) = pre_lanes(func, p, gb);
+        super::masked::steps(func, p, &cells, &read_after_pre, g, cur, lanes);
+        return;
     }
-    let g = func.add_block();
-    let gb = func.add_block();
-    let bk = entry_block(func, p, ph, g);
-    let gv = new_value(func, Type::Bool);
-    push(
-        func,
-        g,
-        gv,
-        InstKind::ICmp(p.pred, Operand::Value(p.iv), bk),
-    );
-    func.blocks[g.0 as usize].term = Terminator::CondBr {
-        cond: Operand::Value(gv),
-        then_blk: gb,
-        else_blk: h,
-    };
     let heads: Vec<BlockId> = (0..p.lanes).map(|_| func.add_block()).collect();
     let fb = func.add_block();
     let resumes: Vec<BlockId> = (0..p.lanes).map(|_| func.add_block()).collect();
@@ -74,9 +61,37 @@ pub(super) fn apply(func: &mut Function, p: &Plan) {
     }
 }
 
+/// `PH` in front of the loop and `G` testing whether a whole group
+/// remains; returns `G` and the group's first block `GB`.
+fn group_entry(func: &mut Function, p: &Plan) -> (BlockId, BlockId) {
+    let h = p.header;
+    let ph = func.add_block();
+    for b in 0..ph.0 as usize {
+        if !p.body.contains(&BlockId(b as u32)) {
+            retarget(&mut func.blocks[b].term, |t| t, h, Some(ph));
+        }
+    }
+    let g = func.add_block();
+    let gb = func.add_block();
+    let bk = entry_block(func, p, ph, g);
+    let gv = new_value(func, Type::Bool);
+    push(
+        func,
+        g,
+        gv,
+        InstKind::ICmp(p.pred, Operand::Value(p.iv), bk),
+    );
+    func.blocks[g.0 as usize].term = Terminator::CondBr {
+        cond: Operand::Value(gv),
+        then_blk: gb,
+        else_blk: h,
+    };
+    (g, gb)
+}
+
 /// `GB`: every lane's `pre`, lane by lane from `gb`. Returns each
 /// lane's renaming and the block the last lane ends in.
-fn pre_lanes(
+pub(super) fn pre_lanes(
     func: &mut Function,
     p: &Plan,
     gb: BlockId,

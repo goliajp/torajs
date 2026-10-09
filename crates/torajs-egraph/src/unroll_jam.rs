@@ -27,6 +27,9 @@
 //! - the fused loop stops when any lane's inner loop is done, so it
 //!   never runs longer than lane 0's own inner loop: an inner loop
 //!   that does not terminate hangs at the same iteration as before.
+//!   An inner loop with a guard that leaves only it (a `break`, an
+//!   inlined early `return`) is stepped under masks instead (`masked`):
+//!   the group runs while the earliest unfinished lane still steps.
 //! - `post` (reductions and their overflow guards, calls, stores) runs
 //!   once per lane in iteration order: sums keep their order and each
 //!   exit sees the state the original saw at that point.
@@ -51,6 +54,7 @@ mod fit;
 mod flow;
 mod guards;
 mod heads;
+mod masked;
 mod plan;
 #[cfg(test)]
 mod tests;
@@ -124,6 +128,9 @@ pub(crate) struct Plan {
     pub inner_on_true: bool,
     /// Inner body blocks after the inner header, in order.
     pub chain: Vec<BlockId>,
+    /// The inner body has a guard leaving the inner loop for `post`:
+    /// the group steps its lanes under masks (see `masked`).
+    pub masked: bool,
     /// Everything else in the outer body, the latch included.
     pub post: Vec<BlockId>,
     pub body: HashSet<BlockId>,

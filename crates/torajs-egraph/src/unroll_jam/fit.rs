@@ -57,7 +57,8 @@ fn pure(kind: &InstKind) -> bool {
 /// the interleaving to hide: a divide on the inner loop (its throughput
 /// is the bound once lanes overlap), or a value the inner loop carries
 /// from one step to the next through a chain of at least
-/// `MIN_CARRIED_LATENCY` cycles (a multiply-add recurrence).
+/// `MIN_CARRIED_LATENCY` cycles (a multiply-add recurrence). Masked
+/// lanes take only the latter, and no divide.
 pub(super) fn regions_fit(func: &Function, p: &Plan) -> bool {
     let count = |bs: &[BlockId]| bs.iter().map(|b| blk(func, *b).insts.len()).sum::<usize>();
     let early = p.pre_order().into_iter().chain(p.inner_order());
@@ -74,11 +75,20 @@ pub(super) fn regions_fit(func: &Function, p: &Plan) -> bool {
                 InstKind::BinOp(BinOp::SDiv | BinOp::SRem | BinOp::FDiv, _, _)
             )
         });
+    let carried = || carried_latency(func, &inner) >= MIN_CARRIED_LATENCY;
+    let wins = if p.masked {
+        // masked lanes step past their own exits, where a divisor may be
+        // 0; and only a long recurrence pays for every lane's masked step
+        // (a lone divide off the recurrence already overlaps step to step)
+        !divides && carried()
+    } else {
+        divides || carried()
+    };
     all_pure
         && count(&p.pre_order()) <= MAX_PRE_INSTS
         && count(&inner) <= MAX_INNER_INSTS
         && count(&p.post) <= MAX_POST_INSTS
-        && (divides || carried_latency(func, &inner) >= MIN_CARRIED_LATENCY)
+        && wins
 }
 
 /// Lanes for a divide-bound inner loop whose lanes step in lockstep:
@@ -95,6 +105,9 @@ pub(super) fn regions_fit(func: &Function, p: &Plan) -> bool {
 /// multiply-add chain is short enough that more lanes only add
 /// register pressure (collatz at 8 lanes: 5% more cycles).
 pub(super) fn lane_count(func: &Function, p: &Plan) -> usize {
+    if p.masked {
+        return super::masked::masked_lanes(func, p);
+    }
     let inner = p.inner_order();
     if !lockstep(func, p) {
         return MIN_LANES;

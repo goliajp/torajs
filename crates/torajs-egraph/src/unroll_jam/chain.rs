@@ -2,7 +2,7 @@
 //! loop's back edge: the straight run into the inner header, the inner
 //! header's exit, and the inner body.
 
-use crate::id_hash::HashSet;
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::loop_analysis::NaturalLoop;
 use torajs_core::ssa::{BlockId, Function, Operand, Terminator};
@@ -87,7 +87,9 @@ fn guarded_next(
 }
 
 /// The inner body as a straight run of blocks back to its header
-/// (empty when the header loops on itself).
+/// (empty when the header loops on itself), and the body guards whose
+/// other edge leaves the inner loop for the rest of the outer body (a
+/// `break` or an inlined `return`), each with that edge's target.
 pub(super) fn inner_chain(
     func: &Function,
     ctx: &Ctx,
@@ -95,8 +97,9 @@ pub(super) fn inner_chain(
     inner: &NaturalLoop,
     ih: BlockId,
     cont: BlockId,
-) -> Option<Vec<BlockId>> {
+) -> Option<(Vec<BlockId>, HashMap<BlockId, BlockId>)> {
     let mut chain = Vec::new();
+    let mut exits = HashMap::default();
     let (mut prev, mut cur) = (ih, cont);
     while cur != ih {
         if chain.len() >= MAX_CHAIN_BLOCKS
@@ -104,9 +107,39 @@ pub(super) fn inner_chain(
         {
             return None;
         }
-        let next = guarded_next(&blk(func, cur).term, |b| inner.contains(&b), body)?;
+        let term = &blk(func, cur).term;
+        let next = match inner_exit_edge(term, inner, body) {
+            Some((next, exit)) => {
+                exits.insert(cur, exit);
+                next
+            }
+            None => guarded_next(term, |b| inner.contains(&b), body)?,
+        };
         chain.push(cur);
         (prev, cur) = (cur, next);
     }
-    (inner.body.len() == chain.len() + 1).then_some(chain)
+    (inner.body.len() == chain.len() + 1).then_some((chain, exits))
+}
+
+/// `(stays, leaves)` of a guard with one edge in the inner loop and the
+/// other in the outer loop outside it.
+fn inner_exit_edge(
+    term: &Terminator,
+    inner: &NaturalLoop,
+    outer: &HashSet<BlockId>,
+) -> Option<(BlockId, BlockId)> {
+    let Terminator::CondBr {
+        cond: Operand::Value(_),
+        then_blk,
+        else_blk,
+    } = *term
+    else {
+        return None;
+    };
+    let exits = |b: BlockId| outer.contains(&b) && !inner.contains(&b);
+    match (inner.contains(&then_blk), inner.contains(&else_blk)) {
+        (true, false) if exits(else_blk) => Some((then_blk, else_blk)),
+        (false, true) if exits(then_blk) => Some((else_blk, then_blk)),
+        _ => None,
+    }
 }
