@@ -30,6 +30,7 @@
 //! checks. `TORAJS_INT_ENTRY_OFF=1` skips it.
 
 pub(crate) mod guard;
+mod order;
 mod region;
 mod window;
 
@@ -55,8 +56,10 @@ pub struct IntEntryStats {
     pub bounds_converted: u32,
     /// f64 values the fast copies read as the image of an integer
     pub values_converted: u32,
-    /// loops left alone: a value they define is read after them, or
-    /// a cell of theirs by code that may also run before them
+    /// loops left alone: a value they define is read after them, a
+    /// cell of theirs by code that may also run before them, or no
+    /// order of the plans puts theirs before the loops it must
+    /// precede (see `order`)
     pub skipped_escaping: u32,
     /// loops left alone: too large to copy
     pub skipped_budget: u32,
@@ -112,7 +115,9 @@ pub fn version_loops(module: &mut Module) -> IntEntryStats {
         if func.is_declaration() || !dense {
             continue;
         }
-        for plan in plan_function(func, &mut stats) {
+        let (plans, cyclic) = order::applying_order(func, plan_function(func, &mut stats));
+        stats.skipped_escaping += cyclic;
+        for plan in plans {
             apply(func, &plan);
             stats.loops_versioned += 1;
             stats.bounds_converted += plan.uses.len() as u32;
