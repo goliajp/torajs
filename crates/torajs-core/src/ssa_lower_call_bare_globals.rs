@@ -30,8 +30,11 @@ pub(crate) fn try_lower(
     };
     // Checker mirror (`check_type_of_call_bare_globals`) — a module
     // that writes this property of the global object gets the runtime
-    // dispatcher instead of the dedicated route below.
-    if ctx.proto_shadow.writes_global(&name) {
+    // dispatcher instead of the dedicated route below; a user binding
+    // of the name takes the ordinary call of that binding.
+    if ctx.proto_shadow.writes_global(&name)
+        || crate::ssa_lower_ident_global::user_binds(ctx, &name)
+    {
         return None;
     }
     match name.as_str() {

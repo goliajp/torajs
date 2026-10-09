@@ -52,6 +52,15 @@ pub(crate) fn try_match(
         if checker.proto_shadow.writes_global(name) {
             return None;
         }
+        // §9.1.1.1 — a user binding of the name (local, parameter,
+        // capture, top-level function or binding) answers before the
+        // global object, so the call is an ordinary call of it.
+        if checker.lookup(name).is_some()
+            || checker.globals.contains_key(name)
+            || checker.hoisted_closure_lets.contains_key(name)
+        {
+            return None;
+        }
         match name.as_str() {
             "parseInt" => {
                 // S252 — parseInt(str, radix, ...trailing)

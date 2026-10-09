@@ -62,3 +62,20 @@ pub(crate) fn emit_global_ident_read(ctx: &mut LowerCtx<'_>, name: &str) -> Oper
     ctx.emit_throw_check(None);
     Operand::Value(v)
 }
+
+/// §9.1.1.1 HasBinding — a declarative record between this site and
+/// the global one (a local, a parameter, a capture) or the global
+/// record's own declarative half (a top-level function or binding)
+/// answers before the global object does. A builtin-name lane that
+/// folds the global object's property stands down whenever this
+/// answers true.
+pub(crate) fn user_binds(ctx: &LowerCtx<'_>, name: &str) -> bool {
+    ctx.locals.contains_key(name)
+        || ctx.fn_table.contains_key(name)
+        || ctx.globals.contains_key(name)
+        || ctx
+            .ast
+            .stmts
+            .iter()
+            .any(|s| matches!(s, crate::ast::Stmt::LetDecl { name: n, .. } if n == name))
+}
