@@ -32,7 +32,8 @@ use torajs_core::ssa::id_hash::{HashMap, HashSet};
 use torajs_core::ssa::{Function, InstKind, Operand, VecInst};
 
 use crate::linear_scan_calls::crosses_call;
-use crate::liveness::{Interval, visit_inst_operands, visit_terminator_operands};
+use crate::live_ranges::walk_half_slots;
+use crate::liveness::Interval;
 use crate::liveness_blocks::BlockLiveness;
 
 /// Inclusive half-slot ranges, sorted by start and pairwise disjoint.
@@ -68,6 +69,11 @@ impl Classes {
             weights.insert(leader, weight);
             intervals.insert(leader, class.hull);
         }
+    }
+
+    /// Every class, as its leader and its members (the leader included).
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (u32, &[u32])> {
+        (self.classes.iter()).map(|(&l, c)| (l, c.members.as_slice()))
     }
 
     /// The value whose home `v` shares: its class leader, or itself.
@@ -233,46 +239,23 @@ fn overlaps(a: &Segments, b: &Segments) -> bool {
     false
 }
 
-/// Half-slot ranges where each candidate holds a live value, from one
-/// backward walk per block. A def with no later read still occupies
-/// its write half: the register is clobbered there.
+/// Half-slot ranges where each candidate holds a live value.
 fn live_segments(
     func: &Function,
     blocks: &BlockLiveness,
     cands: &HashSet<u32>,
 ) -> HashMap<u32, Segments> {
     let mut segs: HashMap<u32, Segments> = HashMap::default();
-    for (b, block) in func.blocks.iter().enumerate() {
-        let (bs, be) = (blocks.start[b], blocks.end[b]);
-        // live candidate → end of its currently open segment
-        let mut open: HashMap<u32, u32> = blocks.live_out[b]
-            .iter()
-            .filter(|v| cands.contains(v))
-            .map(|v| (v, 2 * be + 1))
-            .collect();
-        visit_terminator_operands(&block.term, |v| {
-            if cands.contains(&v.0) {
-                open.entry(v.0).or_insert(2 * be);
+    walk_half_slots(
+        func,
+        blocks,
+        |v| cands.contains(&v),
+        |_, block| {
+            for &(v, lo, hi) in block {
+                segs.entry(v).or_default().push((lo, hi));
             }
-        });
-        for (k, inst) in block.insts.iter().enumerate().rev() {
-            let p = bs + k as u32;
-            if let Some(r) = inst.result
-                && cands.contains(&r.0)
-            {
-                let end = open.remove(&r.0).unwrap_or(2 * p + 1);
-                segs.entry(r.0).or_default().push((2 * p + 1, end));
-            }
-            visit_inst_operands(&inst.kind, |v| {
-                if cands.contains(&v.0) {
-                    open.entry(v.0).or_insert(2 * p);
-                }
-            });
-        }
-        for (v, end) in open {
-            segs.entry(v).or_default().push((2 * bs, end));
-        }
-    }
+        },
+    );
     segs
 }
 

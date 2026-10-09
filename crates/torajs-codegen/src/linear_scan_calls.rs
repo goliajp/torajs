@@ -29,6 +29,17 @@ pub(crate) fn crosses_call(interval: Interval, call_sites: &[u32]) -> bool {
     call_sites.get(i).is_some_and(|&p| p < interval.end)
 }
 
+/// [`crosses_call`] over a value's live ranges: a call inside a hole
+/// runs only on paths where the value is dead.
+pub(crate) fn crosses_call_ranges(ranges: &[(u32, u32)], call_sites: &[u32]) -> bool {
+    // ranges ascend, so each search starts where the last one ended
+    let mut rest = call_sites;
+    ranges.iter().any(|&(start, end)| {
+        rest = &rest[rest.partition_point(|&p| p <= start)..];
+        rest.first().is_some_and(|&p| p < end)
+    })
+}
+
 /// The param variant of [`crosses_call`]: a param defs at function
 /// ENTRY, before inst slot 0, so a call AT `start` clobbers its arg
 /// register too (the `p == start` exemption is sound only for a
@@ -107,13 +118,12 @@ pub(crate) fn scan_frame(func: &Function, inline: InlineSites) -> FrameScan {
 type Saves<R> = HashMap<u32, Vec<(R, u32)>>;
 
 /// For every call-crossing value that ended in a caller-saved register,
-/// one stack slot and the call sites strictly inside its interval: the
+/// one stack slot and the call sites strictly inside its live ranges: the
 /// value is stored before each such call and reloaded after it. Keyed
 /// by call-site slot index. A vector's saves come apart, in the second
 /// map: its slot is 16 bytes at a 16-aligned offset.
 pub(crate) fn collect_call_saves(
     sweep: &mut Sweep,
-    intervals: &HashMap<u32, Interval>,
     call_sites: &[u32],
 ) -> (Saves<Reg>, Saves<Fpr>) {
     let mut out: Saves<Reg> = HashMap::default();
@@ -123,22 +133,26 @@ pub(crate) fn collect_call_saves(
         if matches!(reg, Reg::SpillGpr(_) | Reg::SpillFpr(_)) {
             continue; // evicted after the sweep handed it the register
         }
-        let it = intervals[&vid];
-        let first = call_sites.partition_point(|&p| p <= it.start);
-        let crossed = call_sites[first..].iter().take_while(|&&p| p < it.end);
+        let crossed: Vec<u32> = (sweep.ranges.of(vid).iter())
+            .flat_map(|&(start, end)| {
+                let first = call_sites.partition_point(|&p| p <= start);
+                call_sites[first..].iter().take_while(move |&&p| p < end)
+            })
+            .copied()
+            .collect();
         if let (true, Reg::Fpr(f)) = (sweep.unspillable.contains(&vid), reg) {
             if !sweep.next_spill_offset.is_multiple_of(16) {
                 sweep.alloc_spill_slot();
             }
             let slot = sweep.alloc_spill_slot();
             sweep.alloc_spill_slot();
-            for &p in crossed {
+            for &p in &crossed {
                 wide.entry(p).or_default().push((f, slot));
             }
             continue;
         }
         let slot = sweep.alloc_spill_slot();
-        for &p in crossed {
+        for &p in &crossed {
             out.entry(p).or_default().push((reg, slot));
         }
     }
@@ -147,7 +161,7 @@ pub(crate) fn collect_call_saves(
 
 /// Estimated frequency of the call sites, as prefix sums: the cost of
 /// keeping a value in a caller-saved register is a store and a reload
-/// around every call strictly inside its interval.
+/// around every call strictly inside one of its live ranges.
 pub(crate) struct CallCosts {
     sites: Vec<u32>,
     prefix: Vec<u64>,
@@ -166,9 +180,12 @@ impl CallCosts {
         }
     }
 
-    pub(crate) fn save_cost(&self, it: Interval) -> u64 {
-        let lo = self.sites.partition_point(|&p| p <= it.start);
-        let hi = self.sites.partition_point(|&p| p < it.end).max(lo);
-        2 * (self.prefix[hi] - self.prefix[lo])
+    pub(crate) fn save_cost(&self, ranges: &[(u32, u32)]) -> u64 {
+        let one = |&(start, end): &(u32, u32)| {
+            let lo = self.sites.partition_point(|&p| p <= start);
+            let hi = self.sites.partition_point(|&p| p < end).max(lo);
+            2 * (self.prefix[hi] - self.prefix[lo])
+        };
+        ranges.iter().map(one).sum()
     }
 }

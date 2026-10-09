@@ -8,6 +8,8 @@ use std::collections::VecDeque;
 use torajs_core::ssa::id_hash::{HashMap, HashSet};
 
 use crate::linear_scan_calls::CallCosts;
+use crate::linear_scan_holes::{Holes, holder_key};
+use crate::live_ranges::LiveRanges;
 use crate::liveness::Interval;
 use crate::reg::{Fpr, Gpr, Reg, aapcs64};
 
@@ -19,8 +21,10 @@ use crate::reg::{Fpr, Gpr, Reg, aapcs64};
 pub(crate) struct Sweep {
     /// Final ValueId → register map being built.
     pub(crate) by_value: HashMap<u32, Reg>,
-    /// (ValueId, interval, reg) of every live value that HOLDS a pool
-    /// register. Vec — N ≤ pool size, linear scan beats tree
+    /// (ValueId, interval, reg) of every value that HOLDS a pool
+    /// register and has a live range covering the sweep position; the
+    /// holders in a hole of theirs wait in `holes`
+    /// (`linear_scan_holes`). Vec — N ≤ pool size, linear scan beats tree
     /// maintenance. A spilled value never enters (`activate`) and a
     /// victim leaves as it spills: it holds no register, so `expire`
     /// releases nothing for it and the victim scan skips it — keeping
@@ -28,6 +32,8 @@ pub(crate) struct Sweep {
     /// array literal (every element live to the final stores) turned
     /// into a quadratic sweep (555-01).
     pub(crate) active: Vec<(u32, Interval, Reg)>,
+    pub(crate) holes: Holes,
+    pub(crate) ranges: LiveRanges,
     pub(crate) free_caller_gpr: VecDeque<Gpr>,
     pub(crate) free_callee_gpr: VecDeque<Gpr>,
     pub(crate) free_caller_fpr: VecDeque<Fpr>,
@@ -58,10 +64,17 @@ pub(crate) struct Sweep {
 }
 
 impl Sweep {
-    pub(crate) fn new(spill_base: u32, weights: HashMap<u32, u64>, call_costs: CallCosts) -> Self {
+    pub(crate) fn new(
+        spill_base: u32,
+        weights: HashMap<u32, u64>,
+        call_costs: CallCosts,
+        ranges: LiveRanges,
+    ) -> Self {
         Sweep {
             by_value: HashMap::default(),
             active: Vec::new(),
+            holes: Holes::new(ranges.values()),
+            ranges,
             free_caller_gpr: aapcs64::CALLER_SAVED_SCRATCH.iter().copied().collect(),
             free_callee_gpr: aapcs64::CALLEE_SAVED_SCRATCH.iter().copied().collect(),
             free_caller_fpr: aapcs64::FP_CALLER_SAVED_SCRATCH.iter().copied().collect(),
@@ -79,23 +92,9 @@ impl Sweep {
     /// Record a live value's home; only a pool register joins the
     /// active set (doc on `active`).
     pub(crate) fn activate(&mut self, vid: u32, interval: Interval, reg: Reg) {
-        if !matches!(reg, Reg::SpillGpr(_) | Reg::SpillFpr(_)) {
-            self.active.push((vid, interval, reg));
-        }
-    }
-
-    /// Release every active interval whose end is strictly before
-    /// `cur_start`; its register returns to the pool it came from.
-    pub(crate) fn expire(&mut self, cur_start: u32) {
-        let mut i = 0;
-        while i < self.active.len() {
-            if self.active[i].1.end < cur_start {
-                let reg = self.active[i].2;
-                self.release(reg);
-                self.active.swap_remove(i);
-            } else {
-                i += 1;
-            }
+        if holder_key(reg).is_some() {
+            self.holes.add(reg, vid);
+            self.push_active(vid, interval, reg, interval.start);
         }
     }
 
@@ -186,7 +185,13 @@ impl Sweep {
                 // Already-spilled actives can't free a register.
                 Reg::SpillGpr(_) | Reg::SpillFpr(_) => continue,
             };
-            if !class_ok || (callee_only && !is_callee_reg) || self.unspillable.contains(&e.0) {
+            // the register also has to be free of the victim's
+            // co-holders wherever the arrival is live
+            if !class_ok
+                || (callee_only && !is_callee_reg)
+                || self.unspillable.contains(&e.0)
+                || !self.others_miss(e.2, e.0, new_vid)
+            {
                 continue;
             }
             let key = (weight_of(&self.weights, e.0), e.1.end as i64);
@@ -202,26 +207,23 @@ impl Sweep {
         // remaining range (the original furthest-end rule).
         let new_weight = weight_of(&self.weights, new_vid);
         let pinned = self.unspillable.contains(&new_vid);
-        assert!(
-            !pinned || victim_idx.is_some(),
-            "no register to evict for unspillable value %{new_vid}"
-        );
+        if pinned && victim_idx.is_none() {
+            return self.evict_holders(new_vid, is_fp, callee_only);
+        }
         let spill_off = self.alloc_spill_slot();
         match victim_idx {
             Some(i)
                 if pinned
                     || victim_key.0 < new_weight
-                    || (victim_key.0 == new_weight
-                        && (self.active[i].1.end as i64) > new_interval.end as i64) =>
+                    || (victim_key.0 == new_weight && victim_key.1 > new_interval.end as i64) =>
             {
-                let (victim_vid, _vi, victim_reg) = self.active[i];
+                let (victim_vid, _vi, victim_reg) = self.take_active(i);
                 let spilled = if is_fp {
                     Reg::SpillFpr(spill_off)
                 } else {
                     Reg::SpillGpr(spill_off)
                 };
                 self.by_value.insert(victim_vid, spilled);
-                self.active.swap_remove(i);
                 victim_reg
             }
             _ => {
