@@ -1,6 +1,7 @@
 //! AAPCS64 lane bookkeeping for the linear-scan sweep — which register
 //! each parameter arrives in, and whether the return value may be
-//! parked in the lane it shares with the first parameter.
+//! parked in the lane it shares with the first parameter, and the moves
+//! that bring each parameter from its lane to its final home.
 
 use torajs_core::ssa::id_hash::HashMap;
 
@@ -109,4 +110,40 @@ pub(crate) fn ret_lane_free(
                 .get(&p.0)
                 .is_some_and(|pi| pi.start <= ret_interval.end && ret_interval.start <= pi.end)
     })
+}
+
+/// The entry moves of the parameters, from the post-sweep `by_value`:
+/// a param the sweep parked in a callee-saved reg may later be evicted
+/// to a spill slot by `spill_at_active`; the original push would still
+/// `mov` to the reassigned reg while load sites read from the
+/// never-written spill slot. Walking final state gives the correct
+/// `(arg_reg → callee_reg | SpillGpr)` shape regardless of victim.
+pub(crate) fn param_entries(
+    func: &Function,
+    by_value: &HashMap<u32, Reg>,
+    param_arg_reg: &HashMap<u32, Reg>,
+    stack_params: &HashMap<u32, u32>,
+) -> (Vec<(Reg, Reg)>, Vec<(u32, Reg)>) {
+    let mut param_entry_moves: Vec<(Reg, Reg)> = Vec::new();
+    let mut stack_param_entry_loads: Vec<(u32, Reg)> = Vec::new();
+    for &param in &func.params {
+        let vid = param.0;
+        let final_reg = *by_value
+            .get(&vid)
+            .expect("param must have a final assignment after sweep");
+        if let Some(&slot) = stack_params.get(&vid) {
+            stack_param_entry_loads.push((slot, final_reg));
+            continue;
+        }
+        let arg_reg = *param_arg_reg
+            .get(&vid)
+            .expect("param must have an AAPCS64 arg register");
+        if final_reg != arg_reg {
+            param_entry_moves.push((arg_reg, final_reg));
+        }
+    }
+    // Deterministic emit order (walked off func.params, but keep the
+    // slot order explicit for the reader + any future map-driven walk).
+    stack_param_entry_loads.sort_by_key(|&(slot, _)| slot);
+    (param_entry_moves, stack_param_entry_loads)
 }

@@ -40,7 +40,7 @@ use crate::compile::InlineSites;
 use crate::linear_scan_calls::{
     CallCosts, FrameScan, collect_call_saves, crosses_call, crosses_call_from_entry, scan_frame,
 };
-use crate::linear_scan_lanes::{param_lanes, ret_lane_free};
+use crate::linear_scan_lanes::{param_entries, param_lanes, ret_lane_free};
 use crate::linear_scan_sweep::Sweep;
 use crate::liveness::compute_liveness;
 use crate::reg::{Reg, aapcs64};
@@ -201,34 +201,8 @@ pub fn allocate_linear_scan_with(func: &Function, inline: InlineSites) -> Assign
     let used_callee_gpr_mask = sweep.used_callee_gpr_mask;
     let used_callee_fpr_mask = sweep.used_callee_fpr_mask;
 
-    // Derive entry moves from post-sweep `by_value` — a param the
-    // sweep parked in a callee-saved reg may later be evicted to a
-    // spill slot by `spill_at_active`; the original push would still
-    // `mov` to the reassigned reg while load sites read from the
-    // never-written spill slot. Walking final state gives the correct
-    // `(arg_reg → callee_reg | SpillGpr)` shape regardless of victim.
-    let mut param_entry_moves: Vec<(Reg, Reg)> = Vec::new();
-    let mut stack_param_entry_loads: Vec<(u32, Reg)> = Vec::new();
-    for &param in &func.params {
-        let vid = param.0;
-        let final_reg = *sweep
-            .by_value
-            .get(&vid)
-            .expect("param must have a final assignment after sweep");
-        if let Some(&slot) = stack_params.get(&vid) {
-            stack_param_entry_loads.push((slot, final_reg));
-            continue;
-        }
-        let arg_reg = *param_arg_reg
-            .get(&vid)
-            .expect("param must have an AAPCS64 arg register");
-        if final_reg != arg_reg {
-            param_entry_moves.push((arg_reg, final_reg));
-        }
-    }
-    // Deterministic emit order (walked off func.params, but keep the
-    // slot order explicit for the reader + any future map-driven walk).
-    stack_param_entry_loads.sort_by_key(|&(slot, _)| slot);
+    let (param_entry_moves, stack_param_entry_loads) =
+        param_entries(func, &sweep.by_value, &param_arg_reg, &stack_params);
 
     let mut assignment = Assignment::from_parts(
         sweep.by_value,
