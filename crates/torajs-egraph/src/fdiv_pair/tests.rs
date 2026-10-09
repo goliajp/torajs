@@ -93,7 +93,7 @@ fn two_quotients(inner: bool) -> Function {
 fn run(f: Function) -> (Function, u32) {
     let mut m = Module::default();
     m.funcs.push(f);
-    let stats = pair_module(&mut m);
+    let stats = pair_module(&mut m, None);
     (m.funcs.pop().expect("one function"), stats.pairs)
 }
 

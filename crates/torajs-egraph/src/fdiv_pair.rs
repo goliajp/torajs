@@ -20,10 +20,17 @@
 //! issue. Each lane divides and converts exactly as the scalar
 //! instructions did, so the values are the same bit for bit.
 //!
+//! When both quotients feed a divisibility test that adds the divisor
+//! to a per-lane sum (`if (n % d === 0) s += d`, after srem_fquot), the
+//! test and the sum move onto the lanes as well (`accum`).
+//!
 //! After unroll_jam and unroll_pair, before loop_rotate.
 //! `TORAJS_FDIV_PAIR_OFF=1` skips, `TORAJS_FDIV_PAIR_STATS=1` counts.
 
+mod accum;
+
 use crate::id_hash::HashMap;
+use crate::interval::NumFact;
 
 use torajs_core::ssa::dominator::DominatorTree;
 use torajs_core::ssa::loop_analysis::{LoopAnalysis, NaturalLoop};
@@ -36,13 +43,20 @@ use torajs_core::ssa::{
 pub struct FdivPairStats {
     /// quotient pairs taken from one two-lane divide
     pub pairs: u32,
+    /// of those, the pairs whose divisibility test and masked sum run
+    /// on the lanes too
+    pub accumulated: u32,
 }
 
-pub fn pair_module(module: &mut Module) -> FdivPairStats {
+pub fn pair_module(
+    module: &mut Module,
+    facts: Option<&[HashMap<ValueId, NumFact>]>,
+) -> FdivPairStats {
+    debug_assert!(facts.is_none_or(|f| f.len() == module.funcs.len()));
     let mut stats = FdivPairStats::default();
-    for func in module.funcs.iter_mut() {
+    for (fi, func) in module.funcs.iter_mut().enumerate() {
         if !func.is_declaration() && has_two_fdivs(func) {
-            pair_function(func, &mut stats);
+            pair_function(func, facts.map(|f| &f[fi]), &mut stats);
         }
     }
     stats
@@ -128,7 +142,11 @@ fn successors(term: &Terminator) -> Vec<BlockId> {
 /// cannot spill; past this many the FP registers would run out.
 const PAIRS_PER_LOOP_MAX: usize = 4;
 
-fn pair_function(func: &mut Function, stats: &mut FdivPairStats) {
+fn pair_function(
+    func: &mut Function,
+    known: Option<&HashMap<ValueId, NumFact>>,
+    stats: &mut FdivPairStats,
+) {
     let dom = DominatorTree::compute(func);
     let la = LoopAnalysis::compute(func, &dom);
     let facts = Facts::of(func);
@@ -151,8 +169,23 @@ fn pair_function(func: &mut Function, stats: &mut FdivPairStats) {
         pairs.truncate(PAIRS_PER_LOOP_MAX - *used);
         *used += pairs.len();
         if !pairs.is_empty() {
+            let chains: Vec<Option<accum::Chain>> = match known {
+                Some(known) => {
+                    let at = accum::Scope {
+                        func,
+                        b,
+                        lp,
+                        pre,
+                        facts: &facts,
+                        known,
+                    };
+                    pairs.iter().map(|p| accum::plan(&at, p)).collect()
+                }
+                None => pairs.iter().map(|_| None).collect(),
+            };
             stats.pairs += pairs.len() as u32;
-            rewrite_block(func, b, pre, &pairs);
+            stats.accumulated += chains.iter().flatten().count() as u32;
+            rewrite_block(func, b, pre, &pairs, &chains);
         }
     }
 }
@@ -237,21 +270,42 @@ fn inst(result: ValueId, kind: InstKind) -> Inst {
 /// What the rewritten block puts at an old instruction's position.
 enum Site {
     /// the first divide: the shared splat (when this pair is the
-    /// divisor's first), the vector divide and conversion
-    Divide(Option<ValueId>, ValueId, ValueId, ValueId),
+    /// divisor's first), the vector divide and what follows it
+    Divide(Option<ValueId>, ValueId, ValueId, Tail),
     /// a conversion: its result from lane `k`
     Lane(u8, ValueId),
-    /// the second divide, now part of the first's vector
+    /// the masked add of an accumulating pair, at its later select:
+    /// the divisor operand, the mask, the sum cell and the new sum
+    Accumulate(ValueId, ValueId, ValueId, ValueId),
+    /// the sum cell's write, at the pair's later carry copy
+    Carry(ValueId, ValueId),
+    /// the second divide, now part of the first's vector; and every
+    /// scalar step an accumulating pair replaces
     Gone,
 }
 
-fn rewrite_block(func: &mut Function, b: BlockId, pre: BlockId, pairs: &[(Quot, Quot)]) {
+/// What follows a pair's vector divide.
+enum Tail {
+    /// `vec.fptosi` into the lane vector the conversions read
+    Convert(ValueId),
+    /// `vec.frintz` into the first, `vec.fcmeq` of it and the quotient
+    /// into the second
+    Mask(ValueId, ValueId),
+}
+
+fn rewrite_block(
+    func: &mut Function,
+    b: BlockId,
+    pre: BlockId,
+    pairs: &[(Quot, Quot)],
+    chains: &[Option<accum::Chain>],
+) {
     const F64X2: Type = Type::Vec(VecShape::F64x2);
     const I64X2: Type = Type::Vec(VecShape::I64x2);
     let v = Operand::Value;
     let mut sites: HashMap<usize, Site> = HashMap::default();
     let mut splats: HashMap<ValueId, ValueId> = HashMap::default();
-    for (q1, q2) in pairs {
+    for ((q1, q2), chain) in pairs.iter().zip(chains) {
         let xv = new_value(func, F64X2);
         let pair = InstKind::Vec(VecInst::Pair(VecShape::F64x2, v(q1.a), v(q2.a)));
         func.blocks[pre.0 as usize].insts.push(inst(xv, pair));
@@ -261,13 +315,19 @@ fn rewrite_block(func: &mut Function, b: BlockId, pre: BlockId, pairs: &[(Quot, 
             splats.insert(q1.y, yv);
         }
         let qv = new_value(func, F64X2);
-        let tv = new_value(func, I64X2);
         let splat = fresh.then(|| splats[&q1.y]);
-        sites.insert(q1.fdiv, Site::Divide(splat, xv, qv, tv));
-        sites.insert(q1.cvt, Site::Lane(0, tv));
         sites.insert(q2.fdiv, Site::Gone);
+        if let Some(chain) = chain {
+            let tail = accum::place(func, pre, chain, &mut sites);
+            sites.insert(q1.fdiv, Site::Divide(splat, xv, qv, tail));
+            continue;
+        }
+        let tv = new_value(func, I64X2);
+        sites.insert(q1.fdiv, Site::Divide(splat, xv, qv, Tail::Convert(tv)));
+        sites.insert(q1.cvt, Site::Lane(0, tv));
         sites.insert(q2.cvt, Site::Lane(1, tv));
     }
+    let mut dsplats: HashMap<ValueId, ValueId> = HashMap::default();
     let old = std::mem::take(&mut func.blocks[b.0 as usize].insts);
     let mut out = Vec::with_capacity(old.len() + 2 * pairs.len());
     for (at, i) in old.into_iter().enumerate() {
@@ -279,7 +339,14 @@ fn rewrite_block(func: &mut Function, b: BlockId, pre: BlockId, pairs: &[(Quot, 
                 kind: InstKind::Vec(VecInst::Lane(*k, v(*tv))),
                 origin: i.origin,
             }),
-            Some(Site::Divide(splat, xv, qv, tv)) => {
+            Some(Site::Accumulate(dd, mv, sv, sum)) => {
+                accum::emit_add(func, &mut out, &mut dsplats, (*dd, *mv, *sv, *sum));
+            }
+            Some(Site::Carry(sv, sum)) => {
+                let kind = InstKind::Copy(I64X2, v(*sum));
+                out.push(inst(*sv, kind));
+            }
+            Some(Site::Divide(splat, xv, qv, tail)) => {
                 let InstKind::BinOp(_, _, y) = i.kind else {
                     unreachable!("a planned divide is an fdiv");
                 };
@@ -295,7 +362,16 @@ fn rewrite_block(func: &mut Function, b: BlockId, pre: BlockId, pairs: &[(Quot, 
                     kind: InstKind::Vec(VecInst::BinOp(VecOp::FDiv, v(*xv), v(yv))),
                     origin: i.origin,
                 });
-                out.push(inst(*tv, InstKind::Vec(VecInst::FpToSi(v(*qv)))));
+                match tail {
+                    Tail::Convert(tv) => {
+                        out.push(inst(*tv, InstKind::Vec(VecInst::FpToSi(v(*qv)))));
+                    }
+                    Tail::Mask(tv, mv) => {
+                        out.push(inst(*tv, InstKind::Vec(VecInst::FRintZ(v(*qv)))));
+                        let eq = VecInst::BinOp(VecOp::FCmEq, v(*tv), v(*qv));
+                        out.push(inst(*mv, InstKind::Vec(eq)));
+                    }
+                }
             }
         }
     }

@@ -124,7 +124,7 @@ pub(crate) fn finish_pipeline(
     // Two quotients of one divisor (the jam's lanes dividing their own
     // `n` by a shared `d`) from one two-lane divide; after the passes
     // above, which make those blocks. `TORAJS_FDIV_PAIR_OFF=1` skips.
-    gated_pass("FDIV_PAIR", module, fdiv_pair::pair_module);
+    gated_pass("FDIV_PAIR", module, |m| fdiv_pair::pair_module(m, facts));
     strip_clone_assumes(module, clones);
     // Loop rotation — copy each top-tested loop's exit test into its
     // latch so the loop runs one conditional branch per iteration.
