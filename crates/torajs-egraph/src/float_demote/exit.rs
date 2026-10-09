@@ -11,7 +11,9 @@ use super::push_value;
 
 /// A side-exit block: write back every cloned value live at the slow
 /// continuation, then branch into it. Demoted values bridge through
-/// `sitofp` (exact by the guard invariant), intermediates copy.
+/// `sitofp`, intermediates copy. The `sitofp` is exact for a value the
+/// guards passed; a post site's own result may lie past ±2^53, and its
+/// `sitofp` rounds the exact i64 sum once, as the f64 op would have.
 pub(super) fn build_side_exit(
     func: &mut Function,
     target: BlockId,

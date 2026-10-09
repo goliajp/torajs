@@ -50,11 +50,10 @@ pub(crate) enum Test {
 
 /// A growth site needing per-iteration guards. `inst_idx` indexes the
 /// block's inst list at collection time — valid until mutation.
-/// `post` sites check the result after the op runs (the i64 add/sub
-/// cannot overflow under the in-set magnitude invariant), halving the
-/// check count against per-operand windows; the side exit still
-/// re-enters the slow path before the op, so only the operands — both
-/// inside ±2^53 — write back.
+/// `post` sites (see `growth_checks`) check the result after the op
+/// runs; their side exit enters the slow path after the op and writes
+/// the i64 result back through `sitofp`, so an accumulator `t = t + d`
+/// updates in place instead of holding the old `t` past the check.
 #[derive(Debug, Clone)]
 pub(crate) struct GuardSite {
     pub block: BlockId,
@@ -73,11 +72,12 @@ pub(crate) struct GuardSite {
 /// to stay conservative.
 ///
 /// `fadd`/`fsub` check the *result* against ±(2^53-1) after the i64
-/// op runs: with both operands at ≤ 2^53 magnitude (the in-set
-/// invariant) the i64 add/sub cannot overflow, and one check covers
-/// what per-operand windows needed two-to-four for. `fmul` keeps the
-/// pre-op operand window (a large constant could overflow i64 before
-/// a post check sees the result).
+/// op runs, one check where per-operand windows needed two-to-four. A
+/// constant operand must be ≤ 2^53-1 in magnitude: with a value operand
+/// ≤ 2^53 (the in-set invariant) the i64 add/sub cannot wrap, and the
+/// side exit writes back the exact sum for `sitofp` to round once, as
+/// the f64 op would. `fmul` keeps the pre-op window (a large constant
+/// could overflow i64 before a post check sees the result).
 pub(crate) fn growth_checks(
     kind: &InstKind,
     result: ValueId,
@@ -88,7 +88,7 @@ pub(crate) fn growth_checks(
     };
     let value_ok = |o: &Operand| match o {
         Operand::Value(_) => true,
-        other => op_const_int(other).is_some(),
+        other => op_const_int(other).is_some_and(|c| c.abs() <= MAX_EXACT as i128),
     };
     match op {
         BinOp::FAdd | BinOp::FSub => {
@@ -405,6 +405,29 @@ mod tests {
         assert_eq!(checks.len(), 1);
         assert_eq!(checks[0].operand, Operand::Value(ValueId(9)));
         assert_eq!(checks[0].test, Test::HighBits(53));
+    }
+
+    #[test]
+    fn a_post_add_takes_only_a_constant_inside_2_pow_53() {
+        // `t + c` with |c| past 2^53-1 can wrap the i64 add before the
+        // check runs, and the side exit would write the wrapped sum back
+        let mut facts = HashMap::default();
+        facts.insert(ValueId(1), unbounded_nonneg());
+        facts.insert(ValueId(9), unbounded_nonneg());
+        let guarded = |k: &InstKind| growth_checks(k, ValueId(9), &facts).is_some();
+        for (c, guardable) in [
+            (9_007_199_254_740_991.0, true),
+            (9_007_199_254_740_992.0, false),
+            (9_223_372_036_854_774_784.0, false),
+            (-9_223_372_036_854_774_784.0, false),
+        ] {
+            for op in [BinOp::FAdd, BinOp::FSub] {
+                let kind = InstKind::BinOp(op, Operand::Value(ValueId(1)), Operand::ConstF64(c));
+                let swapped = InstKind::BinOp(op, Operand::ConstF64(c), Operand::Value(ValueId(1)));
+                assert_eq!(guarded(&kind), guardable);
+                assert_eq!(guarded(&swapped), guardable);
+            }
+        }
     }
 
     /// `%2 = fmul %1, 10; %3 = fadd %2, %d` in one block, `%1`

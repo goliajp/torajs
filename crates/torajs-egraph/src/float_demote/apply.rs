@@ -7,9 +7,11 @@
 //!
 //! A side exit materializes the slow continuation's live state:
 //! every cloned value live at the matching slow split point is
-//! written back (`sitofp` for demoted values — exact, since every
-//! fast-path in-set value is ≤ 2^53-1 in magnitude by the guard
-//! invariant — and a plain `copy` for intermediates). Shared
+//! written back (`sitofp` for demoted values, a plain `copy` for
+//! intermediates). The `sitofp` is exact for every value the guards
+//! already passed (≤ 2^53-1 in magnitude) except a post site's own
+//! result, the exact i64 sum or difference of two operands inside
+//! ±2^53, which it rounds once as the f64 op would have. Shared
 //! (non-set) cells need no writeback: both versions define the same
 //! id. The entry guard branches straight into the slow clone with no
 //! writeback — no region state exists yet at the entry edge.
@@ -150,10 +152,11 @@ pub(crate) fn install_guards(
             None => by_block.push((s.block, vec![s])),
         }
     }
+    // a post site's slow split sits after its op (see `GuardSite`)
     let mut slow_target: HashMap<(BlockId, usize), BlockId> = HashMap::default();
     for (b, sites) in &mut by_block {
-        sites.sort_by_key(|s| s.inst_idx);
-        let idxs: Vec<usize> = sites.iter().map(|s| s.inst_idx).collect();
+        sites.sort_by_key(|s| s.inst_idx + s.post as usize);
+        let idxs: Vec<usize> = sites.iter().map(|s| s.inst_idx + s.post as usize).collect();
         let targets = split_block_at(func, clone.block_map[b], &idxs);
         for (s, t) in sites.iter().zip(targets) {
             slow_target.insert((s.block, s.inst_idx), t);
@@ -164,18 +167,17 @@ pub(crate) fn install_guards(
         slow_target.insert(key, clone.block_map[p]);
     }
 
-    let live_in = slow_liveness(func, clone);
+    let live_in = slow_liveness(func, clone, slow_target.values().copied());
     let inverse: HashMap<ValueId, ValueId> =
         clone.value_map.iter().map(|(k, v)| (*v, *k)).collect();
 
     // fast-side splits + check chains + side exits. A post site
-    // splits after its (already-run) op — the checks see the result;
-    // its side exit still targets the slow split before the op, so
-    // the slow path recomputes it and only operands write back. The
-    // first check of every site inlines into the preceding segment
-    // (cmp appended, terminator becomes the branch) — the common
-    // single-check site then adds no extra hot-path jump.
-    // a widened site's checks open its branching block instead
+    // splits after its (already-run) op: the checks see the result,
+    // and its side exit enters the slow path after the op with the
+    // result written back. The first check of every site inlines
+    // into the preceding segment (cmp appended, terminator becomes the
+    // branch) — the common single-check site then adds no extra
+    // hot-path jump. A widened site's checks open its branching block.
     let mut fast_groups: Vec<(BlockId, Vec<(usize, &GuardSite)>)> = Vec::new();
     for s in &plan.growth {
         let (b, at) = match widen.get(&(s.block, s.inst_idx)) {
@@ -278,21 +280,13 @@ pub(crate) fn split_block_at(func: &mut Function, block: BlockId, idxs: &[usize]
 /// Backward liveness of cloned (fresh) values over the slow blocks
 /// (including split continuations). Cloned values cannot escape the
 /// region (feasibility), so live-out at region exits is empty.
-fn slow_liveness(func: &Function, clone: &RegionClone) -> HashMap<BlockId, HashSet<ValueId>> {
+fn slow_liveness(
+    func: &Function,
+    clone: &RegionClone,
+    targets: impl Iterator<Item = BlockId>,
+) -> HashMap<BlockId, HashSet<ValueId>> {
     let fresh: HashSet<ValueId> = clone.value_map.values().copied().collect();
-    let mut slow_blocks: Vec<BlockId> = clone.block_map.values().copied().collect();
-    let mut seen: HashSet<BlockId> = slow_blocks.iter().copied().collect();
-    let mut stack = slow_blocks.clone();
-    while let Some(b) = stack.pop() {
-        for s in successors(&func.blocks[b.0 as usize].term) {
-            if !seen.contains(&s) && block_touches(func, s, &fresh) {
-                seen.insert(s);
-                slow_blocks.push(s);
-                stack.push(s);
-            }
-        }
-    }
-
+    let slow_blocks = slow_blocks(func, clone, targets, &fresh);
     let mut live_in: HashMap<BlockId, HashSet<ValueId>> = HashMap::default();
     let mut changed = true;
     while changed {
@@ -328,6 +322,31 @@ fn slow_liveness(func: &Function, clone: &RegionClone) -> HashMap<BlockId, HashS
         }
     }
     live_in
+}
+
+/// The clones, the side-exit targets — a post site's continuation can
+/// be empty and so touch no fresh value — and every block reachable
+/// from them that touches one.
+fn slow_blocks(
+    func: &Function,
+    clone: &RegionClone,
+    targets: impl Iterator<Item = BlockId>,
+    fresh: &HashSet<ValueId>,
+) -> Vec<BlockId> {
+    let mut blocks: Vec<BlockId> = clone.block_map.values().copied().collect();
+    let mut seen: HashSet<BlockId> = blocks.iter().copied().collect();
+    blocks.extend(targets.filter(|t| seen.insert(*t)));
+    let mut stack = blocks.clone();
+    while let Some(b) = stack.pop() {
+        for s in successors(&func.blocks[b.0 as usize].term) {
+            if !seen.contains(&s) && block_touches(func, s, fresh) {
+                seen.insert(s);
+                blocks.push(s);
+                stack.push(s);
+            }
+        }
+    }
+    blocks
 }
 
 #[cfg(test)]
