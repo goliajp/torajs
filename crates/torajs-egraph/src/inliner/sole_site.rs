@@ -31,3 +31,21 @@ pub(super) fn sole_site_callees(module: &Module) -> Vec<bool> {
     }
     (0..n).map(|i| calls[i] == 1 && !escapes[i]).collect()
 }
+
+/// Whether any instruction in `module` still calls `callee` or takes
+/// its address. A callee sole at the start of the pass may have been
+/// spliced into its own callee first (mutual recursion: `f` calls `g`
+/// once, `g` calls `f`, and `f` inlined into `g` leaves `g` calling
+/// itself), so the call the pass moved was not the last one.
+pub(super) fn still_referenced(module: &Module, callee: usize) -> bool {
+    module
+        .funcs
+        .iter()
+        .flat_map(|f| f.blocks.iter().flat_map(|b| &b.insts))
+        .any(|inst| match &inst.kind {
+            InstKind::Call(id, _) | InstKind::FnAddr(id) | InstKind::BoxedEntryAddr(id) => {
+                id.0 as usize == callee
+            }
+            _ => false,
+        })
+}

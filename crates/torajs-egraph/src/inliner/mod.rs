@@ -452,15 +452,20 @@ pub fn inline_module_with_budget(module: &mut Module, budget: InlineBudget) -> I
             }
         }
         // A sole-site callee's one call is gone: its out-of-line body
-        // is unreachable. A user function (no `__` prefix) is named by
-        // nothing but SSA instructions, so its body goes; a
-        // compiler-minted one may sit in a metadata table by fid.
+        // is unreachable, unless a splice into it made it call itself.
+        // A user function (no `__` prefix) is named by nothing but SSA
+        // instructions, so its body goes; a compiler-minted one may sit
+        // in a metadata table by fid.
         for callee in spliced_sole {
-            let f = &mut module.funcs[callee];
-            if callee != caller_idx && sole[callee] && !f.name.starts_with("__") {
-                f.blocks.clear();
-                stats.sole_bodies_dropped += 1;
+            if callee == caller_idx
+                || !sole[callee]
+                || module.funcs[callee].name.starts_with("__")
+                || sole_site::still_referenced(module, callee)
+            {
+                continue;
             }
+            module.funcs[callee].blocks.clear();
+            stats.sole_bodies_dropped += 1;
         }
         // its callers, visited later, price the body they will clone
         callee_costs[caller_idx] = callee_body_cost(&module.funcs[caller_idx]);
