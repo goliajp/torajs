@@ -157,7 +157,27 @@ pub(super) fn rename_class_artifacts(
     rewrite_member_spellings(&mut lib_section[decl_idx], old, new);
     rename_synth_decls(lib_section, old, new, hidden, hidden_inject);
     rewrite_arena_bakes(ast, lib_expr_offset, old, new);
-    rewrite_anns(ast, lib_section, lib_expr_offset, old, new);
+    rewrite_anns(ast, lib_section, lib_expr_offset, &ClassRename { old, new });
+}
+
+/// The class rename's ann face: the word substitution, skipping a
+/// decl whose own type parameter is spelled like the class.
+struct ClassRename<'a> {
+    old: &'a str,
+    new: &'a str,
+}
+
+impl AnnRewrite for ClassRename<'_> {
+    fn skips(&self, type_params: &[String]) -> bool {
+        type_params.iter().any(|t| t == self.old)
+    }
+
+    fn rewrite(&self, ann: &str) -> Option<String> {
+        let subst = [(self.old.to_string(), self.new.to_string())];
+        Some(crate::ssa_lower_generics_monomorph::substitute_in_ann(
+            ann, &subst,
+        ))
+    }
 }
 
 fn priv_prefix(class: &str) -> String {
@@ -320,7 +340,7 @@ fn rewrite_arena_bakes(ast: &mut Ast, lib_expr_offset: usize, old: &str, new: &s
     }
 }
 
-use crate::ast::ann_rewrite::rewrite_anns;
+use crate::ast::ann_rewrite::{AnnRewrite, rewrite_anns};
 mod tables;
 pub(in crate::modules) use tables::{LibTableDelta, diff_class_tables, snapshot_class_tables};
 use tables::{migrate_exprid_tables, migrate_name_keyed_tables};

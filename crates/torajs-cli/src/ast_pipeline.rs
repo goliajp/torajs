@@ -136,6 +136,7 @@ pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
         eprintln!("parse error: {msg}");
         return Err(());
     }
+    ast::inline_scalar_aliases(ast);
     // Block/CaseBlock redeclaration early errors — must see the RAW
     // AST before the generator / async / var-hoist desugars move one
     // side of a conflict away.

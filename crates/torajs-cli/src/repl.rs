@@ -267,6 +267,7 @@ fn parse_check(src: &str) -> ParseOutcome {
     if let Err(e) = ast::desugar_enums(&mut a) {
         return ParseOutcome::Error(format!("parse: {e}"));
     }
+    ast::inline_scalar_aliases(&mut a);
     ast::census_program_reparents(&mut a);
     ast::desugar_using(&mut a);
     ast::inject_disposable_stack(&mut a);

@@ -97,6 +97,7 @@ mod single_stmt_judge;
 pub(crate) mod tagged_template;
 use parse_class_member_field::FieldMarker;
 pub(crate) use tagged_template::TEMPLATE_OBJECT_CALLEE;
+pub(crate) use type_ann::union_combine;
 mod await_ident;
 mod dstr_assign_slot;
 mod if_block;

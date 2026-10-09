@@ -19,6 +19,7 @@ use super::*;
 mod inline_obj;
 mod predicate;
 mod union_chain;
+pub(crate) use union_chain::union_combine;
 
 impl<'a> Parser<'a> {
     /// Recording wrapper (RFC 20260719-fn-tostring-source B2) — the
