@@ -519,8 +519,8 @@ mod tests {
             enc::movz_imm(Gpr::X9, 42, 0),
             enc::str_x_imm12(Gpr::X9, Gpr::X13, 0),
             enc::ldr_x_imm12(Gpr::X0, Gpr::X13, 0),
-            enc::add_imm(Gpr::SP, Gpr::SP, 16),
-            enc::ldp_post_index(Gpr::X29, Gpr::X30, Gpr::SP, 16),
+            enc::ldp_x_off(Gpr::X29, Gpr::X30, Gpr::SP, 16),
+            enc::add_imm(Gpr::SP, Gpr::SP, 32),
             enc::ret(Gpr::X30),
         ]);
         assert_eq!(
@@ -570,8 +570,8 @@ mod tests {
             enc::movz_imm(Gpr::X10, 8, 0),
             enc::ldr_x_reg(Gpr::X0, Gpr::X13, Gpr::X10),
             // epilogue
-            enc::add_imm(Gpr::SP, Gpr::SP, 16),
-            enc::ldp_post_index(Gpr::X29, Gpr::X30, Gpr::SP, 16),
+            enc::ldp_x_off(Gpr::X29, Gpr::X30, Gpr::SP, 16),
+            enc::add_imm(Gpr::SP, Gpr::SP, 32),
             enc::ret(Gpr::X30),
         ]);
         assert_eq!(
