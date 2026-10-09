@@ -8,8 +8,9 @@
 //! Verbatim moves; signatures / semantics unchanged.
 //!
 //! Rotation 197 sweep — `collect_fn_decl_metadata` (four side-channel
-//! HashMap gather), `apply_user_fn_callee_hint` (chunk-554 face ②
-//! user-fn callee arm), and `apply_hof_param_only_arm` (map / flatMap /
+//! HashMap gather), `apply_user_fn_callee_hint` (the
+//! user-fn callee arm, since moved beside its typevar helpers in
+//! `infer_closure_typevars`), and `apply_hof_param_only_arm` (map / flatMap /
 //! reduce / reduceRight param-only seed) also moved here to bring the
 //! parent's `infer_anonymous_closure_params` fn under the 200-line hard
 //! limit without breaking the 500-line file cap.
@@ -17,7 +18,6 @@
 use std::collections::HashMap;
 
 use super::infer_closure_params_apply::body_returns_value;
-use super::infer_closure_typevars::{mentions_any_word, resolve_call_site_typevars};
 use super::infer_return_ann;
 use crate::ast::infer_closure_lets::{collect_let_anns, collect_let_init_anns};
 use crate::ast::{Ast, ExprId, Stmt};
@@ -109,7 +109,7 @@ pub(super) fn project_fn_type_ann(ast: &Ast, ann: &str) -> Option<(Vec<String>, 
 
 /// Project each `lifted closure → binding annotation` hint onto the
 /// closure's params and return, the let-init counterpart of
-/// [`apply_user_fn_callee_hint`]. Both land in the same `updates` map
+/// [`super::infer_closure_typevars::apply_user_fn_callee_hint`]. Both land in the same `updates` map
 /// and go through the same applier, which is what makes an explicitly
 /// annotated param win, a shorter param list not overrun, and a
 /// void-bodied closure keep its Void return.
@@ -372,69 +372,6 @@ pub(super) fn collect_fn_decl_metadata(ast: &Ast) -> FnDeclMetadata {
         fn_user_param_count,
         fn_ret_anns,
     )
-}
-
-/// User-fn callee arm — an `__fn(P|..)->(R)`-annotated param at a closure
-/// arg position hints the lifted closure's own param/ret annotations
-/// (chunk 554 face ②).
-///
-/// Generic callee (chunk 682) — the hint spellings may mention the
-/// callee's type params (`g<T>(cb: (...args: T[]) => T, x: T)`);
-/// projecting a raw `T` onto the lifted closure trips `build_fn_type`
-/// with "unknown return type `T`" (the typevar is out of scope there).
-/// Resolve typevars from the same call site first (a bare-typevar param
-/// position holding a literal arg pins it: `x: T` + `21` → T=number);
-/// a spelling still mentioning an unresolved typevar after substitution
-/// is not projected.
-pub(super) fn apply_user_fn_callee_hint(
-    ast: &Ast,
-    fname: &str,
-    args: &[ExprId],
-    closure_args: &[(usize, String)],
-    fn_param_pos_anns: &HashMap<String, Vec<Option<String>>>,
-    fn_type_params: &HashMap<String, Vec<String>>,
-    updates: &mut HashMap<String, (Vec<String>, String)>,
-) {
-    let Some(pos_anns) = fn_param_pos_anns.get(fname) else {
-        return;
-    };
-    let subst = fn_type_params
-        .get(fname)
-        .map(|tps| resolve_call_site_typevars(ast, tps, pos_anns, args));
-    let tps = fn_type_params.get(fname);
-    // A container literal at an argument position carries that
-    // position's declared type inward; the arrows inside it are not
-    // themselves the argument.
-    for (arg_idx, arg) in args.iter().enumerate() {
-        if let Some(Some(pann)) = pos_anns.get(arg_idx) {
-            seed_container_arg_hints(ast, pann, *arg, updates);
-        }
-    }
-    for (arg_idx, fn_name) in closure_args {
-        let Some(Some(pann)) = pos_anns.get(*arg_idx) else {
-            continue;
-        };
-        let Some(canon) = fn_type_canon(pann) else {
-            continue;
-        };
-        let Some((param_spellings, ret_spelling)) = split_fn_type(&canon) else {
-            continue;
-        };
-        let mut param_anns: Vec<String> = param_spellings.iter().map(|s| s.to_string()).collect();
-        let mut ret_ann = ret_spelling.to_string();
-        if let (Some(subst), Some(tps)) = (&subst, tps) {
-            for a in param_anns.iter_mut() {
-                *a = crate::ssa_lower_generics_monomorph::substitute_in_ann(a, subst);
-            }
-            ret_ann = crate::ssa_lower_generics_monomorph::substitute_in_ann(&ret_ann, subst);
-            if param_anns.iter().any(|a| mentions_any_word(a, tps))
-                || mentions_any_word(&ret_ann, tps)
-            {
-                continue;
-            }
-        }
-        updates.insert(fn_name.clone(), (param_anns, ret_ann));
-    }
 }
 
 // `apply_hof_param_only_arm` (map / flatMap / reduce / reduceRight

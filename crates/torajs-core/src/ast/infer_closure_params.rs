@@ -20,10 +20,11 @@
 
 use super::infer_closure_params_apply::apply_closure_ann_updates;
 use super::infer_closure_params_helpers::{
-    apply_stored_elem_arm, apply_user_fn_callee_hint, build_ann_table, collect_fn_decl_metadata,
-    mapset_foreach_expected, seed_container_arg_hints, seed_let_ann_hints,
+    apply_stored_elem_arm, build_ann_table, collect_fn_decl_metadata, mapset_foreach_expected,
+    seed_container_arg_hints, seed_let_ann_hints,
 };
 use super::infer_closure_params_hof::apply_hof_param_only_arm;
+use super::infer_closure_typevars::apply_user_fn_callee_hint;
 use super::{Ast, Expr, ExprId};
 use crate::ssa_lower_free_helpers::count_capture_groups;
 
