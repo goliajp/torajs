@@ -70,6 +70,9 @@ pub(crate) fn check(
     }
     let obj_ty = checker.type_of(ast, *obj)?;
     checker.check_union_member(ast, *obj, name)?;
+    if let Some(t) = checker.union_field_type(ast, *obj, name) {
+        return Ok(t);
+    }
     // RFC 20260806 — a builtin method this module might have patched or
     // deleted is not the kernel's to answer. Typing the read as Any
     // routes the call through `ssa_lower_any_method_call`'s cluster-#4

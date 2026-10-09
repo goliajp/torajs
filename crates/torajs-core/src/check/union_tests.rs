@@ -250,6 +250,10 @@ fn a_dictionary_key_must_be_a_property_key_type() {
     accepted("interface P {\n  a: number\n  b: string[]\n}\nconst p: P = { a: 1, b: [] };\n");
 }
 
+const SHAPES: &str = "type Circle = { kind: \"circle\"; r: number };\n\
+     type Rect = { kind: \"rect\"; w: number };\n\
+     type Shape = Circle | Rect;\n";
+
 #[test]
 fn a_literal_type_takes_its_literal_only() {
     refused(
@@ -269,4 +273,109 @@ fn a_literal_type_takes_its_literal_only() {
     accepted("type Bit = 0 | 1;\nconst one = 1;\nlet b: Bit = one;\nconst n: number = b + 1;\n");
     // a widened string is taken: the checker does not track every fresh literal
     accepted("type M = \"a\" | \"b\";\nlet s = \"a\";\nlet m: M = s;\n");
+}
+
+#[test]
+fn a_discriminant_compare_narrows_the_union() {
+    let ok = format!(
+        "{SHAPES}function f(s: Shape): number {{\n\
+         if (s.kind === \"circle\") {{ return s.r; }} else {{ return s.w; }}\n}}\n\
+         function g(s: Shape): number {{\n\
+         if (s.kind !== \"rect\") return s.r;\n  return s.w;\n}}\n\
+         function h(s: Shape): number {{ return s.kind === \"rect\" ? s.w : s.r; }}\n"
+    );
+    accepted(&ok);
+    let wrong_field = format!(
+        "{SHAPES}function f(s: Shape): number {{\n\
+         if (s.kind === \"circle\") {{ return s.w; }}\n  return 0;\n}}\n"
+    );
+    refused(&wrong_field, "does not exist on every member");
+    // the narrowed field's type is known to the slot checks
+    let wrong_type = format!(
+        "{SHAPES}function f(s: Shape): string {{\n\
+         if (s.kind === \"circle\") {{ const t: string = s.r; return t; }}\n  return \"\";\n}}\n"
+    );
+    refused(&wrong_type, "type mismatch");
+}
+
+#[test]
+fn a_switch_on_the_discriminant_narrows_each_clause() {
+    let ok = format!(
+        "{SHAPES}function f(s: Shape): number {{\n\
+         switch (s.kind) {{\n    case \"circle\": return s.r;\n    default: return s.w;\n  }}\n}}\n\
+         function g(s: Shape): number {{\n  let n = 0;\n\
+         switch (s.kind) {{\n    case \"rect\": n = s.w;\n    case \"circle\": n += 1;\n  }}\n  return n;\n}}\n"
+    );
+    accepted(&ok);
+    let fell_through = format!(
+        "{SHAPES}function f(s: Shape): number {{\n\
+         switch (s.kind) {{\n    case \"rect\":\n    case \"circle\": return s.r;\n  }}\n  return 0;\n}}\n"
+    );
+    refused(&fell_through, "does not exist on every member");
+}
+
+#[test]
+fn a_nullable_common_field_reads_through_its_guard() {
+    accepted(
+        "type N = { x: number };\n\
+         type A = { k: \"a\"; next: N | null; a: number };\n\
+         type B = { k: \"b\"; next: N | null };\n\
+         function f(u: A | B): number { if (u.next !== null) return u.next.x; return 0; }\n",
+    );
+}
+
+#[test]
+fn a_discriminant_of_several_values_narrows_by_each() {
+    for k in ["\"a\" | \"c\"", "\"a\" | null", "\"a\" | undefined"] {
+        let ty =
+            format!("type A = {{ k: {k}; x: number }};\ntype B = {{ k: \"b\"; y: string }};\n");
+        accepted(&format!(
+            "{ty}function f(u: A | B): string {{ if (u.k === \"b\") return u.y; return \"\"; }}\n"
+        ));
+        refused(
+            &format!(
+                "{ty}function f(u: A | B): string {{ if (u.k === \"a\") return u.y; return \"\"; }}\n"
+            ),
+            "does not exist on every member",
+        );
+    }
+    accepted(
+        "type A = { k?: \"a\"; x: number };\ntype B = { k: \"b\"; y: string };\n\
+         function f(u: A | B): string { if (u.k !== \"b\") return \"\"; return u.y; }\n",
+    );
+    // every value of A's field is named by a case: the default sees B
+    accepted(
+        "type A = { k: \"a\" | \"c\"; x: number };\ntype B = { k: \"b\"; y: string };\n\
+         function f(u: A | B): string {\n\
+         switch (u.k) { case \"a\": case \"c\": return \"\" + u.x; default: return u.y; }\n}\n",
+    );
+}
+
+#[test]
+fn a_branch_ending_in_a_never_call_or_an_undecided_form_does_not_over_refuse() {
+    let r = "type R = { status: \"ok\"; value: number } | { status: \"err\"; msg: string };\n";
+    for branch in [
+        "process.exit(1);",
+        "fail(r.msg);",
+        "try { return 0; } finally { }",
+        "while (true) { }",
+    ] {
+        accepted(&format!(
+            "{r}function fail(m: string): never {{ throw m; }}\n\
+             function g(r: R): number {{\n  if (r.status === \"err\") {{ {branch} }}\n  return r.value;\n}}\n"
+        ));
+    }
+    accepted(
+        "type A = { k: \"a\"; x: number };\ntype B = { k: \"b\"; y: string };\n\
+         function f(u: A | B): number {\n\
+         switch (u.k) {\n    case \"a\": try { return u.x; } finally { }\n\
+         case \"b\": return u.y.length;\n  }\n}\n",
+    );
+    // a branch that completes still keeps its members after the `if`
+    refused(
+        &format!(
+            "{r}function g(r: R): number {{\n  if (r.status === \"err\") {{ console.log(1); }}\n  return r.value;\n}}\n"
+        ),
+        "does not exist on every member",
+    );
 }

@@ -61,6 +61,48 @@ impl Checker {
         ))
     }
 
+    /// The type of `obj.name` when `obj` is typed as a union whose
+    /// value rides the any lane and whose every object member has the
+    /// data field `name` (TS §4.13: the union of those fields' types).
+    /// It travels as `Any`, as the read off an any-lane value does; the
+    /// members are for the slot checks. A literal field reads as its
+    /// base, and a loose binding is skipped: a narrow this checker did
+    /// not model may have left fewer members than it knows of.
+    pub(crate) fn union_field_type(&self, ast: &Ast, obj: ExprId, name: &str) -> Option<Type> {
+        let Some(Type::Union(members)) = self.unions.types.get(&obj) else {
+            return None;
+        };
+        if self.expr_types.get(&obj) != Some(&Type::Any) {
+            return None;
+        }
+        if let Expr::Ident(n) = ast.get_expr(obj)
+            && self.is_loose(n)
+        {
+            return None;
+        }
+        let mut tys: Vec<Type> = Vec::new();
+        for m in members
+            .iter()
+            .filter(|m| !m.is_nullish_value() && **m != Type::Any)
+        {
+            let resolved = super::resolve_class_ref(
+                m,
+                &self.class_structs,
+                &self.aliases,
+                &self.generic_alias_decls,
+            );
+            let Type::Struct(fields) = resolved else {
+                return None;
+            };
+            let (_, t) = fields.iter().find(|(k, _)| k == name)?;
+            let t = t.clone().lane();
+            if !tys.contains(&t) {
+                tys.push(t);
+            }
+        }
+        (!tys.is_empty()).then(|| Type::union_narrowed(tys, &[Type::Any]))
+    }
+
     /// Types the `value` of `obj[k] = value` / `obj.k = value`, and
     /// refuses it when `obj` was typed as a dictionary whose value type
     /// it does not fit (TS §4.11.2 / §3.11.4; no runtime semantics are

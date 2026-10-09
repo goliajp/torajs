@@ -142,13 +142,23 @@ pub(crate) fn check(
             checker.apply_narrow(name, inner.clone());
         }
     }
-    match (&union_narrow, then_div, else_div) {
-        (Some((name, _, e)), true, false) => {
-            checker.apply_union_narrow(name, e.clone());
+    if let Some((name, t, e)) = &union_narrow {
+        use crate::check::End;
+        let then_end = checker.stmt_end(ast, then_branch);
+        let else_end = else_branch
+            .as_deref()
+            .map_or(End::Completes, |eb| checker.stmt_end(ast, eb));
+        match (then_end, else_end) {
+            (End::Diverges, End::Completes) => {
+                checker.apply_union_narrow(name, e.clone());
+            }
+            (End::Completes, End::Diverges) => {
+                checker.apply_union_narrow(name, t.clone());
+            }
+            // a branch that may diverge in a form not decided here
+            // leaves the members after the `if` unknown
+            (End::Unknown, _) | (_, End::Unknown) => checker.mark_loose(name),
+            _ => {}
         }
-        (Some((name, t, _)), false, true) => {
-            checker.apply_union_narrow(name, t.clone());
-        }
-        _ => {}
     }
 }

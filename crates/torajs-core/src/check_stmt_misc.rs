@@ -73,7 +73,17 @@ pub(crate) fn check_switch(checker: &mut Checker, ast: &Ast, stmt: &Stmt) {
     else {
         return;
     };
-    checker.note_unmodeled_guard(ast, *scrutinee);
+    // `switch (u.kind)` with literal cases narrows `u` per clause; any
+    // other scrutinee naming a union binding leaves it loose
+    let narrows = checker.switch_narrows(ast, *scrutinee, cases, default.as_deref(), *default_at);
+    if narrows.is_none() {
+        checker.note_unmodeled_guard(ast, *scrutinee);
+    }
+    let clause_narrow = |i: Option<usize>| {
+        narrows.as_ref().map(|(n, per_case, on_default)| {
+            (n.clone(), i.map_or(on_default, |i| &per_case[i]).clone())
+        })
+    };
     // `switch (true) { case typeof y === "string": … }` guards in a case
     for c in cases {
         checker.note_unmodeled_guard(ast, c.value);
@@ -109,7 +119,8 @@ pub(crate) fn check_switch(checker: &mut Checker, ast: &Ast, stmt: &Stmt) {
     let saved_hoists = crate::check_hoist_closure_lets::enter(checker, ast, &block);
     for (i, c) in cases.iter().enumerate() {
         if i == *default_at {
-            check_clause_body(checker, ast, default.as_deref().unwrap_or_default());
+            let body = default.as_deref().unwrap_or_default();
+            check_clause_body(checker, ast, body, clause_narrow(None));
         }
         match checker.type_of(ast, c.value) {
             // `any` on either side is the type whose runtime value is
@@ -164,20 +175,38 @@ pub(crate) fn check_switch(checker: &mut Checker, ast: &Ast, stmt: &Stmt) {
             )),
             Err(e) => checker.errors.push_err(e),
         }
-        check_clause_body(checker, ast, &c.body);
+        check_clause_body(checker, ast, &c.body, clause_narrow(Some(i)));
     }
     if *default_at == cases.len() {
-        check_clause_body(checker, ast, default.as_deref().unwrap_or_default());
+        let body = default.as_deref().unwrap_or_default();
+        check_clause_body(checker, ast, body, clause_narrow(None));
     }
     checker.hoisted_closure_lets = saved_hoists;
     checker.scopes.pop();
+    // past the switch the binding goes loose, as under any switch that
+    // names it: what a returning clause leaves behind is not joined
+    if let Some((name, _, _)) = &narrows {
+        checker.mark_loose(name);
+    }
 }
 
 /// One clause body, in source order — a later clause's closures see
-/// what an earlier one (the default included) declares.
-fn check_clause_body(checker: &mut Checker, ast: &Ast, body: &[Stmt]) {
+/// what an earlier one (the default included) declares. `narrow` is
+/// the union binding this clause sees narrowed, and to what.
+fn check_clause_body(
+    checker: &mut Checker,
+    ast: &Ast,
+    body: &[Stmt],
+    narrow: Option<(String, Type)>,
+) {
+    let saved = narrow
+        .as_ref()
+        .and_then(|(n, t)| checker.apply_union_narrow(n, t.clone()));
     for s in body {
         checker.check_stmt(ast, s);
+    }
+    if let (Some((n, _)), Some(prev)) = (&narrow, saved) {
+        checker.restore_narrow(n, prev);
     }
     // ut3 — only one case body executes; no assignment narrow
     // crosses case boundaries.

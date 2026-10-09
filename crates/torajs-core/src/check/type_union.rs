@@ -72,11 +72,37 @@ impl Type {
     }
 
     /// An object type's field as its declaration keeps it: a literal
-    /// type stays, anything else is its lane.
+    /// type, a union of literal types and a nullable one stay (each is
+    /// a set of values a discriminant compare reads), anything else is
+    /// its lane.
     pub(crate) fn field_view(self) -> Type {
+        if self.literal_values().is_some() {
+            self
+        } else {
+            self.lane()
+        }
+    }
+
+    /// The values a type made of literal types may hold: its literals,
+    /// and whether `null` / `undefined` is one of them. `None` for a
+    /// type with any other member.
+    pub(crate) fn literal_values(&self) -> Option<(Vec<&super::Lit>, bool)> {
         match self {
-            t @ Type::Literal(_) => t,
-            t => t.lane(),
+            Type::Literal(l) => Some((vec![l], false)),
+            Type::Nullable(inner) => inner.literal_values().map(|(ls, _)| (ls, true)),
+            Type::Union(ms) => {
+                let mut lits = Vec::new();
+                let mut nullish = false;
+                for m in ms {
+                    match m {
+                        Type::Literal(l) => lits.push(l),
+                        Type::Null | Type::Undefined => nullish = true,
+                        _ => return None,
+                    }
+                }
+                (!lits.is_empty()).then_some((lits, nullish))
+            }
+            _ => None,
         }
     }
 
