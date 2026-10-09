@@ -1,13 +1,17 @@
-//! Constant folding for integer BinOps — `(op ConstI64(a) ConstI64(b))`
-//! collapses to `Identity(ConstI64(folded))`, picked up by
-//! `optimize.rs::try_rewrite`'s existing `set_const` path so downstream
-//! e-class consumers see the literal value.
+//! Constant folding for BinOps over two literals —
+//! `(op ConstI64(a) ConstI64(b))` collapses to `Identity(ConstI64(folded))`
+//! and `(fop ConstF64(a) ConstF64(b))` to `Identity(ConstF64(folded))`,
+//! picked up by `optimize.rs::try_rewrite`'s existing `set_const` path so
+//! downstream e-class consumers see the literal value.
 //!
 //! Covers the 11 integer BinOps `BinOp::{Add, Sub, Mul, SDiv, SRem,
-//! And, Or, Xor, Shl, AShr, LShr}`. FP BinOps (`FAdd / FSub / FMul /
-//! FDiv / FRem`) are deferred to a fast-math flag (NaN propagation,
-//! rounding mode, signed-zero handling all need decisions before
-//! it's safe to evaluate at compile time).
+//! And, Or, Xor, Shl, AShr, LShr}` and the 5 FP BinOps `FAdd / FSub /
+//! FMul / FDiv / FRem`. FP folding is exact: ECMA-262 Number arithmetic
+//! is IEEE 754 binary64 with round-to-nearest-even, which is what the
+//! host's f64 ops compute, and `%` on Numbers is the truncating
+//! remainder that Rust's f64 `%` computes. Signed zeros, infinities and
+//! NaN come out as at run time; only a NaN's payload may differ, and
+//! the spec leaves NaN bit patterns implementation-defined.
 //!
 //! Guards mirror LLVM `ConstantFold`:
 //! - `SDiv` / `SRem` by zero → bail (would panic in `wrapping_div`)
@@ -38,6 +42,9 @@ impl Rewrite for BinOpConstFold {
         "binop_const_fold"
     }
     fn try_apply(&self, lhs: &InstKind) -> Option<InstKind> {
+        if let InstKind::BinOp(op, Operand::ConstF64(a), Operand::ConstF64(b)) = lhs {
+            return fold_f64(*op, *a, *b).map(|x| InstKind::Identity(Operand::ConstF64(x)));
+        }
         let InstKind::BinOp(op, Operand::ConstI64(a), Operand::ConstI64(b)) = lhs else {
             return None;
         };
@@ -79,14 +86,21 @@ impl Rewrite for BinOpConstFold {
                 }
                 ((a as u64).wrapping_shr(b as u32)) as i64
             }
-            // FP folding deferred to fast-math flag. NaN / signed
-            // zero / rounding mode all need decisions before compile-
-            // time evaluation is safe; runtime BinOp keeps current
-            // semantics until then.
-            BinOp::FAdd | BinOp::FSub | BinOp::FMul | BinOp::FDiv | BinOp::FRem => return None,
+            _ => return None,
         };
         Some(InstKind::Identity(Operand::ConstI64(folded)))
     }
+}
+
+fn fold_f64(op: BinOp, a: f64, b: f64) -> Option<f64> {
+    Some(match op {
+        BinOp::FAdd => a + b,
+        BinOp::FSub => a - b,
+        BinOp::FMul => a * b,
+        BinOp::FDiv => a / b,
+        BinOp::FRem => a % b,
+        _ => return None,
+    })
 }
 
 pub(crate) static BIN_OP_CONST_FOLD: BinOpConstFold = BinOpConstFold;
@@ -204,9 +218,42 @@ mod tests {
         assert!(BinOpConstFold.try_apply(&vv).is_none());
     }
 
+    fn fold_f(op: BinOp, a: f64, b: f64) -> Option<f64> {
+        match BinOpConstFold.try_apply(&InstKind::BinOp(
+            op,
+            Operand::ConstF64(a),
+            Operand::ConstF64(b),
+        )) {
+            Some(InstKind::Identity(Operand::ConstF64(x))) => Some(x),
+            None => None,
+            other => panic!("unexpected fold {other:?}"),
+        }
+    }
+
     #[test]
-    fn fp_binops_do_not_fire() {
-        // FP folding requires fast-math flag — defer.
+    fn fp_binops_fold_exactly() {
+        assert_eq!(fold_f(BinOp::FAdd, 0.1, 0.2), Some(0.1 + 0.2));
+        assert_eq!(fold_f(BinOp::FSub, 1.0, 3.0), Some(-2.0));
+        assert_eq!(fold_f(BinOp::FMul, 1.5, 4.0), Some(6.0));
+        assert_eq!(fold_f(BinOp::FDiv, 1.0, 3.0), Some(1.0 / 3.0));
+        assert_eq!(fold_f(BinOp::FRem, -5.5, 2.0), Some(-1.5));
+    }
+
+    #[test]
+    fn fp_folds_keep_ieee_edges() {
+        let neg_zero = fold_f(BinOp::FMul, -1.0, 0.0).unwrap();
+        assert!(neg_zero == 0.0 && neg_zero.is_sign_negative());
+        let rem_zero = fold_f(BinOp::FRem, -4.0, 2.0).unwrap();
+        assert!(rem_zero == 0.0 && rem_zero.is_sign_negative());
+        assert_eq!(fold_f(BinOp::FDiv, 1.0, 0.0), Some(f64::INFINITY));
+        assert_eq!(fold_f(BinOp::FDiv, -1.0, 0.0), Some(f64::NEG_INFINITY));
+        assert!(fold_f(BinOp::FDiv, 0.0, 0.0).unwrap().is_nan());
+        assert!(fold_f(BinOp::FRem, 1.0, 0.0).unwrap().is_nan());
+        assert_eq!(fold_f(BinOp::FRem, 5.0, f64::INFINITY), Some(5.0));
+    }
+
+    #[test]
+    fn fp_ops_on_int_literals_and_int_ops_on_fp_literals_do_not_fire() {
         for op in [
             BinOp::FAdd,
             BinOp::FSub,
@@ -214,8 +261,9 @@ mod tests {
             BinOp::FDiv,
             BinOp::FRem,
         ] {
-            assert!(fold(op, 1, 2).is_none(), "FP op {:?} must not fold", op);
+            assert!(fold(op, 1, 2).is_none(), "FP op {:?} on i64 literals", op);
         }
+        assert_eq!(fold_f(BinOp::Add, 1.0, 2.0), None);
     }
 
     #[test]
