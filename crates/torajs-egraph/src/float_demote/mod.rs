@@ -49,6 +49,7 @@
 mod apply;
 pub(crate) use apply::split_block_at;
 pub(crate) mod cfg;
+mod exit;
 // pub(crate): frem_narrow shares fit::fpred_to_ipred (one ground
 // truth for the integral fcmp→icmp predicate mapping).
 pub(crate) mod fit;
