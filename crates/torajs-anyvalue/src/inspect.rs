@@ -43,6 +43,7 @@ pub mod any;
 pub mod buffer_print;
 pub mod closure_face;
 pub mod ctor_class_form;
+mod depth_cut;
 pub mod formatters;
 pub mod key_hidden;
 pub mod line_est;

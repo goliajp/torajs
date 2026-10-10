@@ -115,6 +115,13 @@ pub unsafe extern "C" fn __torajs_print_anyv_inline_at(v: AnyValue, indent: u32)
         let child = as_void_ptr(v) as *const c_void;
         // SAFETY: live heap ptr per caller invariant.
         let tag = unsafe { heap_type_tag(child) };
+        if indent >= super::depth_cut::CUT_INDENT
+            && let Some(cut) = unsafe { super::depth_cut::placeholder(child, tag) }
+        {
+            unsafe { put_bytes(cut) };
+            __torajs_inspect_line_add(cut.len() as u32);
+            return;
+        }
         if tag == Tag::Undefined as u16 {
             // RFC 20260722 chunk C — the generic undefined sentinel
             // cell (typed-lane composite slot: `[find-miss]` /
