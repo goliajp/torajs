@@ -11,10 +11,12 @@
 //! Calls through the parameter and relays into another fn-typed
 //! parameter are not stores and leave the direct-dispatch ABI alone.
 //! A value handed to an `any` slot is stored the same way (the
-//! any-sink sibling).
+//! any-sink sibling), and so is one that shares a choice with a
+//! closure (`o || (s => s.length)`): the choice's one slot holds the
+//! closure's cell, so it is closure repr whichever arm answers.
 
 use crate::ast::desugar_async_sm_walk::{visit_expr_children, visit_stmt_exprs};
-use crate::ast::{Ast, Expr, ExprId, Stmt};
+use crate::ast::{Ast, BinOp, Expr, ExprId, Stmt};
 use crate::ast_closure_param_tag::push_child_stmts;
 use crate::ast_closure_param_tag_member::passthrough_leaves;
 use std::collections::{HashMap, HashSet};
@@ -188,7 +190,22 @@ fn own_stored_names<'a>(ast: &'a Ast, e: ExprId, out: &mut HashSet<&'a str>) {
         Expr::ObjectLit { fields } => fields.iter().map(|(_, v)| *v).collect(),
         _ => Vec::new(),
     };
-    for &v in stored.iter().chain(&fields) {
+    let choice = match ast.get_expr(e) {
+        Expr::Ternary { .. }
+        | Expr::Nullish { .. }
+        | Expr::BinOp {
+            op: BinOp::LAnd | BinOp::LOr,
+            ..
+        } => {
+            let leaves = passthrough_leaves(ast, e);
+            let with_closure = leaves
+                .iter()
+                .any(|l| matches!(ast.get_expr(*l), Expr::Closure { .. }));
+            if with_closure { vec![e] } else { Vec::new() }
+        }
+        _ => Vec::new(),
+    };
+    for &v in stored.iter().chain(&fields).chain(&choice) {
         for leaf in passthrough_leaves(ast, v) {
             if let Expr::Ident(n) = ast.get_expr(leaf) {
                 out.insert(n);
