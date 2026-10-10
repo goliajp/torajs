@@ -232,9 +232,9 @@ fn try_lower_call_or_closure_callee(
             // generator literal (the async desugar's generator wrapper
             // sits on the arrow's own ExprId and is called at once)
             // answers a machine that keeps reading the env without a
-            // share of its own, so that cell stays as it was; a Call
-            // callee's answer may be a passthrough of a binding's
-            // share (`k > 0 ? f1 : f2`).
+            // share of its own, so that cell stays as it was. A call
+            // callee (`mk(i)(1)`) is the callee's return, which every
+            // return path hands over +1, borrowed arms included.
             let minted = match ctx.ast.get_expr(callee) {
                 Expr::Closure { fn_name, .. } => {
                     !ctx.ast.fn_async_value_fns.contains(fn_name)
@@ -243,6 +243,7 @@ fn try_lower_call_or_closure_callee(
                         && !ctx.ast.async_sm_value_exprs.contains(&callee)
                         && !ctx.ast.gen_fn_exprs.contains_key(&callee)
                 }
+                Expr::Call { .. } => ctx.expr_owned_shape(callee),
                 // a choice answers a fresh closure when an arm mints one
                 _ => is_choice(ctx, callee) && ctx.expr_owned_shape(callee),
             };
