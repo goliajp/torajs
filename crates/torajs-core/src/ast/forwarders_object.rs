@@ -250,7 +250,11 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
         &mut new_init_bindings,
     );
     let ident_census = crate::ast_collect_fn_closure_init::ident_census(ast);
-    let mixed_slot_rows = crate::ast_collect_fn_closure_target::mixed_slot_rows(ast, &fn_sigs);
+    let mut mixed_slot_rows = crate::ast_collect_fn_closure_target::mixed_slot_rows(ast, &fn_sigs);
+    // a function handed to a parameter returning a bare fn type joins
+    // the lane with that parameter's other functions, mixed or not
+    mixed_slot_rows
+        .extend(crate::ast_collect_fn_closure_target::raw_ret::fn_ret_param_args(ast, &fn_sigs));
     let param_arg_targets = crate::ast_collect_fn_closure_target::raw_ret::param_arg_targets(
         ast,
         &fn_sigs,

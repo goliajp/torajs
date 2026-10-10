@@ -190,3 +190,93 @@ pub(crate) fn param_arg_targets(
     }
     out
 }
+
+/// The return annotation of a fn-typed parameter annotation, when it
+/// is itself a bare-pointer fn type (`(k: number) => (n: number) =>
+/// number`).
+pub(crate) fn fnsig_ret(ann: &Option<String>) -> Option<String> {
+    let a = ann.as_deref()?.trim();
+    let a = a
+        .strip_prefix("__nullable(")
+        .and_then(|r| r.strip_suffix(')'))
+        .unwrap_or(a);
+    let (_, ret) = crate::ast_closure_param_tag_axes::split_sig_ann(a)?;
+    crate::ast_closure_param_tag::is_fnsig_ann(&Some(ret.clone())).then_some(ret)
+}
+
+/// The top-level functions handed to a parameter whose annotation
+/// returns a bare-pointer fn type. Once a function of the closure lane
+/// reaches such a parameter, every function handed to it joins the
+/// lane (`check_monomorph::any_ret`), so their returns are rows that
+/// may take it whether or not they mix. None of them does while no
+/// return can open the lane.
+pub(crate) fn fn_ret_param_args(
+    ast: &Ast,
+    fn_sigs: &HashMap<String, super::FnSig>,
+) -> HashSet<String> {
+    if !lane_may_open(ast, fn_sigs) {
+        return HashSet::new();
+    }
+    let slots: HashMap<&str, Vec<bool>> = crate::ast::toplevel_stmts_flat(ast)
+        .into_iter()
+        .filter_map(|s| match s {
+            Stmt::FnDecl { name, params, .. } => Some((
+                name.as_str(),
+                params
+                    .iter()
+                    .map(|p| fnsig_ret(&p.type_ann).is_some())
+                    .collect(),
+            )),
+            _ => None,
+        })
+        .collect();
+    let mut out = HashSet::new();
+    for e in &ast.exprs {
+        let Expr::Call { callee, args } = e else {
+            continue;
+        };
+        let Some(own) = (match ast.get_expr(*callee) {
+            Expr::Ident(c) => slots.get(c.as_str()),
+            _ => None,
+        }) else {
+            continue;
+        };
+        for (&a, _) in args.iter().zip(own).filter(|(_, f)| **f) {
+            if let Expr::Ident(n) = ast.get_expr(a)
+                && fn_sigs.contains_key(n)
+            {
+                out.insert(n.clone());
+            }
+        }
+    }
+    out
+}
+
+/// Whether some declaration returning a bare-pointer fn type returns a
+/// value the checker may type `any`, which is what opens the closure
+/// lane: anything but a top-level function, one of its own params, a
+/// function literal or `null`.
+fn lane_may_open(ast: &Ast, fn_sigs: &HashMap<String, super::FnSig>) -> bool {
+    crate::ast::toplevel_stmts_flat(ast).into_iter().any(|s| {
+        let Stmt::FnDecl {
+            params,
+            return_type,
+            body,
+            ..
+        } = s
+        else {
+            return false;
+        };
+        crate::ast_closure_param_tag::is_fnsig_ann(return_type)
+            && super::fn_returns(body).into_iter().any(|r| {
+                let leaves = crate::ast_closure_param_tag_member::passthrough_leaves(ast, r);
+                leaves.into_iter().any(|l| match ast.get_expr(l) {
+                    Expr::Ident(n) => {
+                        !fn_sigs.contains_key(n) && !params.iter().any(|p| &p.name == n)
+                    }
+                    Expr::Closure { .. } | Expr::ArrowFn { .. } | Expr::Null => false,
+                    _ => true,
+                })
+            })
+    })
+}

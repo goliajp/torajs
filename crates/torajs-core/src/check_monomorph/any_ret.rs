@@ -19,6 +19,9 @@
 //! stub, which a call through the slot cannot tell apart. So does a
 //! declaration that hands on what a retagged one returns (`return
 //! pick(k)`, `return super.get()`): the value it returns is a cell.
+//! A fn-typed parameter a function of the lane is handed to returns a
+//! cell as well, and the other functions handed to it join the lane
+//! (the `fn_ret_param` sibling).
 
 use std::collections::{HashMap, HashSet};
 
@@ -28,6 +31,7 @@ use crate::ast_collect_fn_closure_target::fn_returns;
 use crate::ast_collect_fn_closure_target::raw_ret::const_lets;
 use crate::check::Type;
 
+mod fn_ret_param;
 mod raw;
 
 pub(super) fn retag(ast: &mut Ast, expr_types: &HashMap<ExprId, Type>) {
@@ -40,8 +44,38 @@ pub(super) fn retag(ast: &mut Ast, expr_types: &HashMap<ExprId, Type>) {
         })
         .map(|(name, _, _)| name.clone())
         .collect();
+    let fnsig_fns: HashSet<String> = decls.iter().map(|(n, _, _)| n.clone()).collect();
+    let mut params = HashSet::new();
+    let mut via = HashSet::new();
     while !lane.is_empty() {
-        let peers = slot_peers(ast, &lane);
+        close_lane(ast, &decls, &mut lane, &via);
+        let (marked, joins) = fn_ret_param::marked_params(ast, &lane, &fnsig_fns);
+        let names = fn_ret_param::param_names(ast, &marked);
+        let grew = !joins.is_empty() || names.len() > via.len();
+        params = marked;
+        via = names;
+        if !grew {
+            break;
+        }
+        lane.extend(joins);
+    }
+    raw::hand_back_cells(ast, &lane);
+    crate::ast_closure_param_tag_retag::retag_fn_return_types(&mut ast.stmts, &lane);
+    fn_ret_param::retag_params(ast, &params);
+}
+
+/// Take into `lane` its slot peers, its shells and the declarations
+/// that hand on what it returns, or what a call through one of their
+/// parameters in `via` (declaration, parameter name) returns, to a
+/// fixpoint.
+fn close_lane(
+    ast: &Ast,
+    decls: &[FnsigDecl<'_>],
+    lane: &mut HashSet<String>,
+    via: &HashSet<(String, String)>,
+) {
+    loop {
+        let peers = slot_peers(ast, lane);
         lane.extend(peers);
         let shells: Vec<String> = lane
             .iter()
@@ -51,7 +85,9 @@ pub(super) fn retag(ast: &mut Ast, expr_types: &HashMap<ExprId, Type>) {
         let more: Vec<String> = decls
             .iter()
             .filter(|(name, rets, lets)| {
-                !lane.contains(name) && rets.iter().any(|&e| hands_on(ast, e, lets, &lane, 0))
+                let calls_lane =
+                    |f: &str| lane.contains(f) || via.contains(&(name.clone(), f.to_string()));
+                !lane.contains(name) && rets.iter().any(|&e| hands_on(ast, e, lets, &calls_lane, 0))
             })
             .map(|(name, _, _)| name.clone())
             .collect();
@@ -60,8 +96,6 @@ pub(super) fn retag(ast: &mut Ast, expr_types: &HashMap<ExprId, Type>) {
         }
         lane.extend(more);
     }
-    raw::hand_back_cells(ast, &lane);
-    crate::ast_closure_param_tag_retag::retag_fn_return_types(&mut ast.stmts, &lane);
 }
 
 /// Every declaration with a `__fn(` return the context did not seed:
@@ -89,23 +123,24 @@ fn fnsig_decls(ast: &Ast) -> Vec<FnsigDecl<'_>> {
     out
 }
 
-/// Does `e` hand on, unchanged, what a function of `lane` returns: its
-/// call, an immutable binding of one, or a choice with one among its
-/// arms? Bounded by `depth`, since a binding may name itself.
+/// Does `e` hand on, unchanged, what a callee `calls_lane` accepts
+/// returns: its call, an immutable binding of one, or a choice with
+/// one among its arms? Bounded by `depth`, since a binding may name
+/// itself.
 fn hands_on(
     ast: &Ast,
     e: ExprId,
     lets: &HashMap<&str, ExprId>,
-    lane: &HashSet<String>,
+    calls_lane: &dyn Fn(&str) -> bool,
     depth: usize,
 ) -> bool {
     if depth > 16 {
         return false;
     }
-    let on = |x: ExprId| hands_on(ast, x, lets, lane, depth + 1);
+    let on = |x: ExprId| hands_on(ast, x, lets, calls_lane, depth + 1);
     match ast.get_expr(e) {
         Expr::Call { callee, .. } => {
-            matches!(ast.get_expr(*callee), Expr::Ident(f) if lane.contains(f))
+            matches!(ast.get_expr(*callee), Expr::Ident(f) if calls_lane(f))
         }
         Expr::Ident(x) => lets.get(x.as_str()).is_some_and(|&init| on(init)),
         Expr::As { expr, .. } => on(*expr),
