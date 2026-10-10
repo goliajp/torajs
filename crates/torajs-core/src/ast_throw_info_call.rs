@@ -181,7 +181,8 @@ pub(crate) fn scan_call(sc: &mut Scan<'_>, callee: ExprId, args: &[ExprId]) {
         // fns (fib / gcd / mandelbrot) have no method calls and
         // keep the M4.3.b skip.
         Expr::Member { obj, .. } => {
-            let exempt = matches!(sc.ast.get_expr(*obj), Expr::Ident(n) if n == "console");
+            let exempt = matches!(sc.ast.get_expr(*obj), Expr::Ident(n) if n == "console")
+                || math_on_primitives(sc, callee, *obj, args);
             if !exempt {
                 sc.direct = true;
             }
@@ -207,6 +208,26 @@ pub(crate) fn scan_call(sc: &mut Scan<'_>, callee: ExprId, args: &[ExprId]) {
         }
         sc.expr(*a);
     }
+}
+
+/// `Math.<m>(…)` on the builtin namespace, every argument a number,
+/// boolean or string: §21.3.2's functions only apply ToNumber /
+/// ToUint32 to their arguments, which cannot raise on those three
+/// (BigInt, Symbol and objects can, and stay out), and the lowering
+/// calls the kernel with no check behind it. A program that writes
+/// the static, or binds its own `Math`, is typed off the namespace —
+/// the checker records the callee `Any` / the object as its own type —
+/// so either spelling keeps the conservative bit.
+fn math_on_primitives(sc: &Scan<'_>, callee: ExprId, obj: ExprId, args: &[ExprId]) -> bool {
+    use crate::check::Type;
+    matches!(sc.expr_types.get(&obj), Some(Type::Object("Math")))
+        && !matches!(sc.expr_types.get(&callee), Some(Type::Any))
+        && args.iter().all(|a| {
+            matches!(
+                sc.expr_types.get(a),
+                Some(Type::Number | Type::Boolean | Type::String)
+            )
+        })
 }
 
 /// Rotation 625 — a spread over a source the checker does not type as
