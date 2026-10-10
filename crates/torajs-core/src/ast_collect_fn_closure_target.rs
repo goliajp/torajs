@@ -152,9 +152,19 @@ impl FnToClosureCollector<'_> {
     /// synthesized here, the site itself stays as written.
     pub(crate) fn target_mixed_choice(&mut self, eid: ExprId) {
         let leaves = crate::ast_closure_param_tag_member::passthrough_leaves(self.ast, eid);
-        let named: Vec<String> = leaves.iter().filter_map(|&l| self.fn_name(l)).collect();
-        if !named.is_empty() && named.len() < leaves.len() {
-            self.targets.extend(named);
+        let named: Vec<(ExprId, String)> = (leaves.iter())
+            .filter_map(|&l| Some((l, self.fn_name(l)?)))
+            .collect();
+        if named.is_empty() || named.len() == leaves.len() {
+            return;
+        }
+        for (leaf, name) in named {
+            // a generic function (explicit, or with an unannotated
+            // parameter) has no original a forwarder could call; its
+            // value keeps the lane it took before this axis
+            if !self.is_no_original_fn_ident(leaf) {
+                self.targets.insert(name);
+            }
         }
     }
 
