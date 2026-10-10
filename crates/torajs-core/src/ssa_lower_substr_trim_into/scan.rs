@@ -250,40 +250,59 @@ fn emit_kernel(ctx: &mut LowerCtx<'_>, at: BlockId, recv: Operand, out: Out) {
 }
 
 /// `b` in TAB..CR, SP or NBSP goes to `ws`, anything else to `other`.
+/// SP is asked first, then 0x21..0x9F, which holds no member and every
+/// printable ASCII byte, so the two bytes a field usually ends on are
+/// each settled by one comparison; TAB..CR and NBSP are asked last.
 fn branch_on_ws(ctx: &mut LowerCtx<'_>, at: BlockId, b: ValueId, ws: BlockId, other: BlockId) {
-    let not_ctl = ctx.f.add_block();
     let not_sp = ctx.f.add_block();
-    let rel = bin(
+    let rare = ctx.f.add_block();
+    let not_ctl = ctx.f.add_block();
+    let sp = cmp(
         ctx,
         at,
+        IPred::Eq,
+        Operand::Value(b),
+        Operand::ConstI64(i64::from(b' ')),
+    );
+    cond_br(ctx, at, sp, ws, not_sp);
+    let above_sp = bin(
+        ctx,
+        not_sp,
+        BinOp::Sub,
+        Operand::Value(b),
+        Operand::ConstI64(0x21),
+    );
+    let plain = cmp(
+        ctx,
+        not_sp,
+        IPred::Ult,
+        Operand::Value(above_sp),
+        Operand::ConstI64(0xa0 - 0x21),
+    );
+    cond_br(ctx, not_sp, plain, other, rare);
+    let rel = bin(
+        ctx,
+        rare,
         BinOp::Sub,
         Operand::Value(b),
         Operand::ConstI64(i64::from(b'\t')),
     );
     let ctl = cmp(
         ctx,
-        at,
+        rare,
         IPred::Ult,
         Operand::Value(rel),
         Operand::ConstI64(i64::from(b'\r' - b'\t' + 1)),
     );
-    cond_br(ctx, at, ctl, ws, not_ctl);
-    let sp = cmp(
+    cond_br(ctx, rare, ctl, ws, not_ctl);
+    let nbsp = cmp(
         ctx,
         not_ctl,
         IPred::Eq,
         Operand::Value(b),
-        Operand::ConstI64(i64::from(b' ')),
-    );
-    cond_br(ctx, not_ctl, sp, ws, not_sp);
-    let nbsp = cmp(
-        ctx,
-        not_sp,
-        IPred::Eq,
-        Operand::Value(b),
         Operand::ConstI64(0xa0),
     );
-    cond_br(ctx, not_sp, nbsp, ws, other);
+    cond_br(ctx, not_ctl, nbsp, ws, other);
 }
 
 fn load(ctx: &mut LowerCtx<'_>, at: BlockId, ty: Type, ptr: Operand, off: usize) -> ValueId {
