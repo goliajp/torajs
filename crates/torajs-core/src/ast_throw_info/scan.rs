@@ -239,12 +239,14 @@ impl<'a> Scan<'a> {
         {
             f |= ANY;
         }
-        // an `any` initializer of an object-typed binding is cast
+        // an `any` initializer of an object-typed binding, or of an
+        // array of objects, is cast
+        let any_init = matches!(self.expr_types.get(&init), Some(crate::check::Type::Any));
         if type_ann.is_some_and(|a| super::obj_cast::object_ann(self.ast, a)) {
             self.obj_slots.insert(name.to_string());
-            if matches!(self.expr_types.get(&init), Some(crate::check::Type::Any)) {
-                self.direct = true;
-            }
+            self.direct |= any_init;
+        } else if type_ann.is_some_and(|a| super::obj_cast::cast_binding_ann(self.ast, a)) {
+            self.direct |= any_init;
         }
         if f != 0 {
             self.nullish.insert(name.to_string(), f);

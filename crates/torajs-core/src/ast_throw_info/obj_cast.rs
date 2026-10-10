@@ -23,6 +23,16 @@ pub(crate) fn object_ann(ast: &Ast, ann: &str) -> bool {
         })
 }
 
+/// Whether a binding annotated `ann` is a slot the object cast guards
+/// (`ssa_lower_checked_cast::obj`): an object type, a written object
+/// type literal, or an array of either at any depth.
+pub(crate) fn cast_binding_ann(ast: &Ast, ann: &str) -> bool {
+    let base = strip_nullable(ann).trim();
+    object_ann(ast, base)
+        || (base.starts_with("__inlobj(") && base != "__inlobj()")
+        || elem_ann(base).is_some_and(|e| cast_binding_ann(ast, &e))
+}
+
 /// Whether a binding of checker type `t` is an object layout.
 pub(crate) fn object_ty(t: Option<&Type>) -> bool {
     match t {

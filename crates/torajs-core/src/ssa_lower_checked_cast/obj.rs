@@ -24,7 +24,7 @@
 
 use crate::ast::ExprId;
 use crate::check_type_ann::strip_nullable;
-use crate::ssa::{Operand, StructId, Type};
+use crate::ssa::{InstKind, Operand, StructId, Type};
 use crate::ssa_lower::LowerCtx;
 
 use super::CastSlot;
@@ -161,6 +161,52 @@ impl LowerCtx<'_> {
         };
         let site = super::site_line(slot, &shown);
         Some(self.emit_plan_cast(op, Type::Obj(sid), ann, &site))
+    }
+
+    /// [`Self::checked_cast_obj`] for an array of object layouts,
+    /// at any depth (`const ps: P[] = anyValue`): an array whose
+    /// elements each pass as the element slot would take them is
+    /// copied; anything else raises the TypeError.
+    pub(crate) fn checked_cast_obj_arr(
+        &mut self,
+        op: Operand,
+        ty: Type,
+        ann: &str,
+        slot: CastSlot,
+    ) -> Option<Operand> {
+        if self.operand_ty(&op) != Type::Any {
+            return None;
+        }
+        // a slot the width table widened to `any[]` holds the array
+        // cell as it is, its elements read on the any lane
+        if let Type::Arr(id) = ty
+            && self.arr_layouts[id.0 as usize] == Type::Any
+        {
+            let fid = *(self.fn_table.get("__torajs_arr_cell_from_any"))
+                .expect("__torajs_arr_cell_from_any intrinsic missing");
+            let cell = self
+                .f
+                .append_inst(self.cur_block, InstKind::Call(fid, vec![op]), ty, None);
+            self.emit_throw_check(None);
+            self.emit_rc_inc(Operand::Value(cell));
+            return Some(Operand::Value(cell));
+        }
+        let (mut elem_ty, mut elem) = (ty, ann.to_string());
+        while let Type::Arr(id) = elem_ty {
+            elem_ty = self.arr_layouts[id.0 as usize];
+            elem = crate::ast_throw_info::elem_ann(&elem)?;
+        }
+        let Type::Obj(sid) = elem_ty else {
+            return None;
+        };
+
+        let base = strip_nullable(&elem).trim();
+        if base.starts_with("__") && !base.starts_with("__inlobj(") || !self.casts_into(sid, &elem)
+        {
+            return None;
+        }
+        let site = super::site_line(slot, strip_nullable(ann).trim());
+        Some(self.emit_plan_cast(op, ty, ann, &site))
     }
 
     /// Whether a slot of layout `sid` annotated `ann` is cast

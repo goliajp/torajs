@@ -116,6 +116,15 @@ pub(crate) fn maybe_any_to_typed_scalar(
                 None => return (init_val, false),
             }
         }
+        // an array of object layouts takes each element as the element
+        // slot would
+        Type::Arr(_) => {
+            let ann = type_ann.expect("an unannotated binding returned above");
+            match ctx.checked_cast_obj_arr(init_val, ty, ann, CastSlot::Assign) {
+                Some(v) => v,
+                None => return (init_val, false),
+            }
+        }
         _ => return (init_val, false),
     };
     // The original reference, not the box: boxing above re-encoded it
