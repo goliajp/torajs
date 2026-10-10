@@ -236,6 +236,13 @@ impl LowerCtx<'_> {
         if let Some(cell) = named_fn_owned_cell(self, eid, ty) {
             return self.box_to_any(cell);
         }
+        // a choice among top-level functions (`k ? sq : dbl`) is the
+        // fn object of whichever function the pointer is
+        if matches!(ty, Type::FnSig(_))
+            && let Some(cell) = crate::ssa_lower_call_fn_cell::fn_choice_owned_cell(self, eid, val)
+        {
+            return self.box_to_any(cell);
+        }
         if is_borrow && ty.is_refcounted() {
             self.emit_rc_inc(val);
         }
