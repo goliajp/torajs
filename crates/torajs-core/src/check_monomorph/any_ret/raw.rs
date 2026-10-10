@@ -15,6 +15,7 @@ use crate::ast_collect_fn_closure_target::raw_ret::{RawRet, const_lets, raw_ret}
 /// `lane`: the declarations `any_ret` retags; a declaration already
 /// annotated with the closure repr takes the lane too.
 pub(super) fn hand_back_cells(ast: &mut Ast, lane: &HashSet<String>) {
+    split_choice_returns(ast, lane);
     let decls = crate::ast::toplevel_stmts_flat(ast);
     let fns: HashSet<&str> = decls
         .iter()
@@ -68,6 +69,69 @@ pub(super) fn hand_back_cells(ast: &mut Ast, lane: &HashSet<String>) {
     }
     if !marks.is_empty() {
         crate::ast_closure_param_tag_retag::retag_fn_decls(&mut ast.stmts, &marks);
+    }
+}
+
+/// A conditional returned through the lane with a top-level function
+/// among its arms (`return k > 0 ? dbl : sq`) becomes one return per
+/// arm, `if (k > 0) return dbl; else return sq;`, which evaluates the
+/// same: each function is then returned as itself and answers its fn
+/// object, where the joined conditional would hand back the bare one.
+fn split_choice_returns(ast: &mut Ast, lane: &HashSet<String>) {
+    let fns: HashSet<String> = crate::ast::toplevel_stmts_flat(ast)
+        .into_iter()
+        .filter_map(|s| match s {
+            Stmt::FnDecl { name, .. } => Some(name.clone()),
+            _ => None,
+        })
+        .collect();
+    let Ast { stmts, exprs, .. } = ast;
+    fn strip(exprs: &[Expr], mut e: ExprId) -> ExprId {
+        while let Expr::As { expr, .. } = &exprs[e.0 as usize] {
+            e = *expr;
+        }
+        e
+    }
+    fn named(exprs: &[Expr], fns: &HashSet<String>, e: ExprId) -> bool {
+        match &exprs[strip(exprs, e).0 as usize] {
+            Expr::Ident(n) => fns.contains(n),
+            Expr::Ternary {
+                then_branch,
+                else_branch,
+                ..
+            } => named(exprs, fns, *then_branch) || named(exprs, fns, *else_branch),
+            _ => false,
+        }
+    }
+    let mut decls: Vec<&mut Stmt> = stmts.iter_mut().collect();
+    while let Some(d) = decls.pop() {
+        let Stmt::FnDecl { name, body, .. } = d else {
+            crate::ast_closure_param_tag_retag::push_child_stmts_mut(d, &mut decls);
+            continue;
+        };
+        if !lane.contains(name) {
+            continue;
+        }
+        let mut stack: Vec<&mut Stmt> = body.iter_mut().collect();
+        while let Some(s) = stack.pop() {
+            if let Stmt::Return(Some(e)) = s
+                && let Expr::Ternary {
+                    cond,
+                    then_branch,
+                    else_branch,
+                } = exprs[strip(exprs, *e).0 as usize]
+                && named(exprs, &fns, *e)
+            {
+                *s = Stmt::If {
+                    cond,
+                    then_branch: Box::new(Stmt::Return(Some(then_branch))),
+                    else_branch: Some(Box::new(Stmt::Return(Some(else_branch)))),
+                };
+            }
+            if !matches!(s, Stmt::FnDecl { .. }) {
+                crate::ast_closure_param_tag_retag::push_child_stmts_mut(s, &mut stack);
+            }
+        }
     }
 }
 

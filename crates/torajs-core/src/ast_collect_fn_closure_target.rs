@@ -142,6 +142,15 @@ impl FnToClosureCollector<'_> {
                 named.push(o);
             }
         }
+        // so does a named function among the arms of a returned choice,
+        // which the lane splits into one return per arm
+        // (`check_monomorph::any_ret`)
+        for &r in &rets {
+            let leaves = crate::ast_closure_param_tag_member::passthrough_leaves(self.ast, r);
+            if leaves != [r] {
+                named.extend(leaves.into_iter().filter_map(|l| self.fn_name(l)));
+            }
+        }
         if !named.is_empty() && (direct < rets.len() || self.mixed_slot_rows.contains(name)) {
             self.targets.extend(named);
         }
