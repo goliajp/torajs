@@ -87,10 +87,7 @@ pub unsafe extern "C" fn __torajs_anyv_cast_obj(
     vtables: *const *mut c_void,
     site: *const u8,
 ) -> *mut c_void {
-    let plan = Plan {
-        base: plan,
-        vtables,
-    };
+    let plan = Plan::new(plan, vtables);
     match unsafe { plan.cast(4, v) } {
         Ok(bits) => bits as *mut c_void,
         Err(Fail::Mismatch) => {
@@ -140,8 +137,25 @@ impl Plan {
         if flags & FITS_ONLY != 0 {
             return Err(Fail::Mismatch);
         }
+        if let Some(copy) = self.copy_of(v, at) {
+            return Ok(copy);
+        }
         let n = self.u16(at + 14) as usize;
-        let mut fields: Vec<(usize, usize, u64)> = Vec::with_capacity(n);
+        // the copy exists before its fields are read, so a field that
+        // reaches `v` again answers it
+        let cell = unsafe { calloc(OBJ_HEADER_SIZE + n * 8) };
+        unsafe {
+            *(cell as *mut u32) = 1;
+            *(cell.add(OBJ_TAG_OFF) as *mut u16) = Tag::Obj as u16;
+            *(cell.add(OBJ_CLASS_TAG_OFF) as *mut u32) = class_tag;
+            let vt = if self.vtables.is_null() {
+                core::ptr::null_mut()
+            } else {
+                *self.vtables.add(self.u32(at + 10) as usize)
+            };
+            *(cell.add(OBJ_VTABLE_OFF) as *mut *mut c_void) = vt;
+        }
+        self.note_copy(v, at, cell as u64);
         let mut field = at + 16;
         for _ in 0..n {
             let end = self.u32(field) as usize;
@@ -155,30 +169,15 @@ impl Plan {
                 r
             });
             match cast {
-                Ok(bits) => fields.push((node, off, bits)),
+                Ok(bits) => unsafe { (cell.add(off) as *mut u64).write(bits) },
                 Err(fail) => {
-                    for (node, _, bits) in fields {
-                        unsafe { self.release(node, bits) };
-                    }
+                    // a field not yet filled is zero, which the drop
+                    // of the layout skips
+                    unsafe { self.release(at, cell as u64) };
                     return Err(fail);
                 }
             }
             field = end;
-        }
-        let cell = unsafe { calloc(OBJ_HEADER_SIZE + n * 8) };
-        unsafe {
-            *(cell as *mut u32) = 1;
-            *(cell.add(OBJ_TAG_OFF) as *mut u16) = Tag::Obj as u16;
-            *(cell.add(OBJ_CLASS_TAG_OFF) as *mut u32) = class_tag;
-            let vt = if self.vtables.is_null() {
-                core::ptr::null_mut()
-            } else {
-                *self.vtables.add(self.u32(at + 10) as usize)
-            };
-            *(cell.add(OBJ_VTABLE_OFF) as *mut *mut c_void) = vt;
-            for (_, off, bits) in fields {
-                (cell.add(off) as *mut u64).write(bits);
-            }
         }
         Ok(cell as u64)
     }
@@ -232,10 +231,7 @@ mod tests {
 
     fn cast(node: &[u8], v: AnyValue) -> Option<u64> {
         let bytes = plan_of(node);
-        let plan = Plan {
-            base: bytes.as_ptr(),
-            vtables: core::ptr::null(),
-        };
+        let plan = Plan::new(bytes.as_ptr(), core::ptr::null());
         unsafe { plan.cast(4, v) }.ok()
     }
 

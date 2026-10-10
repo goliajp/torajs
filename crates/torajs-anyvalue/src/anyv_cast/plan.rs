@@ -21,10 +21,12 @@
 //!
 //! Reads are unaligned: the bytes are a string literal block.
 
+use core::cell::RefCell;
 use core::ffi::c_void;
+use std::collections::BTreeMap;
 
-use torajs_rc::Tag;
 use torajs_rc::undef_cell::undef_cell_ptr;
+use torajs_rc::{ARR_KIND_HEAP, Tag};
 
 use super::cell_tag;
 use crate::nanbox::{
@@ -60,6 +62,7 @@ unsafe extern "C" {
     fn __torajs_arr_any_to_typed(arr: *mut u8, kind: i64) -> *mut u8;
     fn __torajs_arr_alloc(cap: u64) -> *mut u8;
     fn __torajs_arr_push(arr: *mut u8, val: i64) -> *mut u8;
+    fn __torajs_arr_mark_kind(arr: *mut c_void, chain: u64);
 }
 
 // Cargo-test stand-ins: torajs-arr is not linked into this crate's
@@ -76,6 +79,10 @@ unsafe fn __torajs_arr_alloc(_cap: u64) -> *mut u8 {
 unsafe fn __torajs_arr_push(_arr: *mut u8, _val: i64) -> *mut u8 {
     unreachable!()
 }
+#[cfg(test)]
+unsafe fn __torajs_arr_mark_kind(_arr: *mut c_void, _chain: u64) {
+    unreachable!()
+}
 
 /// Why a value did not cross: it is not of the slot's type (the
 /// caller records the TypeError), or user code run on the way (a
@@ -85,13 +92,39 @@ pub(super) enum Fail {
     Thrown,
 }
 
-/// A plan and the vtable addresses of its object nodes.
+/// A plan, the vtable addresses of its object nodes, and the copies
+/// this cast has made so far: an object or array reached again (a
+/// cycle, or one value under two names) answers the copy already made
+/// for the same node, so a cycle stays a cycle and the walk ends.
 pub(super) struct Plan {
     pub(super) base: *const u8,
     pub(super) vtables: *const *mut c_void,
+    pub(super) copies: RefCell<BTreeMap<(AnyValue, usize), u64>>,
 }
 
 impl Plan {
+    pub(super) fn new(base: *const u8, vtables: *const *mut c_void) -> Plan {
+        Plan {
+            base,
+            vtables,
+            copies: RefCell::new(BTreeMap::new()),
+        }
+    }
+
+    /// The copy already made of `v` for the node at `at`, with a stake
+    /// for the caller.
+    pub(super) fn copy_of(&self, v: AnyValue, at: usize) -> Option<u64> {
+        let copy = *self.copies.borrow().get(&(v, at))?;
+        unsafe { __torajs_rc_inc(copy as *mut c_void) };
+        Some(copy)
+    }
+
+    /// Record `copy` as the copy of `v` for the node at `at`, before
+    /// its contents are filled in.
+    pub(super) fn note_copy(&self, v: AnyValue, at: usize, copy: u64) {
+        self.copies.borrow_mut().insert((v, at), copy);
+    }
+
     pub(super) fn u8(&self, at: usize) -> u8 {
         unsafe { self.base.add(at).read() }
     }
@@ -199,23 +232,27 @@ impl Plan {
             }
             _ => {}
         }
+        if let Some(copy) = self.copy_of(arr as AnyValue, at) {
+            return Ok(copy);
+        }
         let len = unsafe { arr.cast::<u8>().add(ARR_LEN_OFF).cast::<u64>().read() };
-        let mut items = Vec::with_capacity(len as usize);
+        // every element node left here holds a heap pointer; marked so
+        // a release of a half-filled copy releases what it holds
+        let out = unsafe { __torajs_arr_alloc(len) };
+        unsafe { __torajs_arr_mark_kind(out.cast(), u64::from(ARR_KIND_HEAP)) };
+        self.note_copy(arr as AnyValue, at, out as u64);
         for i in 0..len {
             let e = unsafe { __torajs_arr_get_any_boxed(arr, i) };
             match unsafe { self.cast(elem, e) } {
-                Ok(bits) => items.push(bits),
+                Ok(bits) => {
+                    let grown = unsafe { __torajs_arr_push(out, bits as i64) };
+                    debug_assert_eq!(grown, out, "allocated with its full length");
+                }
                 Err(fail) => {
-                    for bits in items {
-                        unsafe { self.release(elem, bits) };
-                    }
+                    unsafe { self.release(at, out as u64) };
                     return Err(fail);
                 }
             }
-        }
-        let out = unsafe { __torajs_arr_alloc(len) };
-        for bits in items {
-            unsafe { __torajs_arr_push(out, bits as i64) };
         }
         Ok(out as u64)
     }
