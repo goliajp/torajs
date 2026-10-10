@@ -208,6 +208,12 @@ pub(crate) fn try_lower_method_call(
     // matching __torajs_str_* runtime intrinsic. Args are
     // borrow-shaped (no consume — see the Call arm in
     // check.rs).
+    if name == "trim"
+        && let Some(v) =
+            crate::ssa_lower_substr_trim_into::try_split_part_length(ctx, call_eid, obj_eid)
+    {
+        return Some(v);
+    }
     if name == "charCodeAt"
         && let Some(v) =
             crate::ssa_lower_stmt_for_of_split_iter::try_view_char_code_at(ctx, obj_eid, args)

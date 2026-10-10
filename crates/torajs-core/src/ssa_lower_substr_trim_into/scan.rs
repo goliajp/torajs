@@ -34,12 +34,6 @@ pub(crate) enum Out {
 /// `__torajs_substr_trim_into`.
 pub(crate) fn emit(ctx: &mut LowerCtx<'_>, recv: Operand, out: Out) {
     let entry = ctx.cur_block;
-    let lo_slot = ctx
-        .f
-        .append_inst(entry, InstKind::Alloca(Type::I64), Type::Ptr, None);
-    let hi_slot = ctx
-        .f
-        .append_inst(entry, InstKind::Alloca(Type::I64), Type::Ptr, None);
     let parent = load(ctx, entry, Type::Ptr, recv, SUBSTR_PARENT_OFF);
     let off = load(ctx, entry, Type::I64, recv, SUBSTR_OFFSET_OFF);
     let len = load(ctx, entry, Type::I64, recv, SUBSTR_LEN_OFF);
@@ -62,14 +56,6 @@ pub(crate) fn emit(ctx: &mut LowerCtx<'_>, recv: Operand, out: Out) {
 
     let slow = ctx.f.add_block();
     let fast = ctx.f.add_block();
-    let lo_head = ctx.f.add_block();
-    let lo_probe = ctx.f.add_block();
-    let lo_next = ctx.f.add_block();
-    let hi_init = ctx.f.add_block();
-    let hi_head = ctx.f.add_block();
-    let hi_probe = ctx.f.add_block();
-    let hi_next = ctx.f.add_block();
-    let emit = ctx.f.add_block();
     let join = ctx.f.add_block();
     cond_br(ctx, entry, is_lat, fast, slow);
 
@@ -102,74 +88,7 @@ pub(crate) fn emit(ctx: &mut LowerCtx<'_>, recv: Operand, out: Out) {
         Type::Ptr,
         None,
     );
-    store(ctx, fast, Operand::ConstI64(0), lo_slot, 0);
-    ctx.f.set_term(fast, Terminator::Br(lo_head));
-
-    // leading side: lo walks up while it sees whitespace
-    let lo = load(ctx, lo_head, Type::I64, Operand::Value(lo_slot), 0);
-    let lo_in = cmp(
-        ctx,
-        lo_head,
-        IPred::Slt,
-        Operand::Value(lo),
-        Operand::Value(len),
-    );
-    cond_br(ctx, lo_head, lo_in, lo_probe, hi_init);
-    let b = ctx.f.append_inst(
-        lo_probe,
-        InstKind::LoadU8Dyn(Operand::Value(base), Operand::Value(lo)),
-        Type::I64,
-        None,
-    );
-    branch_on_ws(ctx, lo_probe, b, lo_next, hi_init);
-    let lo1 = bin(
-        ctx,
-        lo_next,
-        BinOp::Add,
-        Operand::Value(lo),
-        Operand::ConstI64(1),
-    );
-    store(ctx, lo_next, Operand::Value(lo1), lo_slot, 0);
-    ctx.f.set_term(lo_next, Terminator::Br(lo_head));
-
-    // trailing side: hi walks down to lo
-    let lo_end = load(ctx, hi_init, Type::I64, Operand::Value(lo_slot), 0);
-    store(ctx, hi_init, Operand::Value(len), hi_slot, 0);
-    ctx.f.set_term(hi_init, Terminator::Br(hi_head));
-    let hi = load(ctx, hi_head, Type::I64, Operand::Value(hi_slot), 0);
-    let hi_in = cmp(
-        ctx,
-        hi_head,
-        IPred::Sgt,
-        Operand::Value(hi),
-        Operand::Value(lo_end),
-    );
-    cond_br(ctx, hi_head, hi_in, hi_probe, emit);
-    let last = bin(
-        ctx,
-        hi_probe,
-        BinOp::Sub,
-        Operand::Value(hi),
-        Operand::ConstI64(1),
-    );
-    let b = ctx.f.append_inst(
-        hi_probe,
-        InstKind::LoadU8Dyn(Operand::Value(base), Operand::Value(last)),
-        Type::I64,
-        None,
-    );
-    branch_on_ws(ctx, hi_probe, b, hi_next, emit);
-    let hi1 = bin(
-        ctx,
-        hi_next,
-        BinOp::Sub,
-        Operand::Value(hi),
-        Operand::ConstI64(1),
-    );
-    store(ctx, hi_next, Operand::Value(hi1), hi_slot, 0);
-    ctx.f.set_term(hi_next, Terminator::Br(hi_head));
-
-    let hi_end = load(ctx, emit, Type::I64, Operand::Value(hi_slot), 0);
+    let (lo_end, hi_end, emit) = scan_ends(ctx, fast, base, len);
     let new_len = bin(
         ctx,
         emit,
@@ -222,10 +141,126 @@ pub(crate) fn emit(ctx: &mut LowerCtx<'_>, recv: Operand, out: Out) {
     ctx.cur_block = join;
 }
 
+/// The trimmed length of the Latin-1 run `[base, base + len)` stored
+/// into `slot`, scanned from the current block, which is left at the
+/// block after the store.
+pub(crate) fn emit_latin1_length(
+    ctx: &mut LowerCtx<'_>,
+    base: ValueId,
+    len: ValueId,
+    slot: ValueId,
+) {
+    let (lo_end, hi_end, done) = scan_ends(ctx, ctx.cur_block, base, len);
+    let n = bin(
+        ctx,
+        done,
+        BinOp::Sub,
+        Operand::Value(hi_end),
+        Operand::Value(lo_end),
+    );
+    store(ctx, done, Operand::Value(n), slot, 0);
+    ctx.cur_block = done;
+}
+
+/// Both ends of the Latin-1 run `[base, base + len)` scanned from `at`:
+/// the offset the leading walk stopped at, the end the trailing walk
+/// stopped at (never below the first), and the open block where both
+/// are known.
+fn scan_ends(
+    ctx: &mut LowerCtx<'_>,
+    at: BlockId,
+    base: ValueId,
+    len: ValueId,
+) -> (ValueId, ValueId, BlockId) {
+    let lo_slot = ctx
+        .f
+        .append_inst(at, InstKind::Alloca(Type::I64), Type::Ptr, None);
+    let hi_slot = ctx
+        .f
+        .append_inst(at, InstKind::Alloca(Type::I64), Type::Ptr, None);
+    let lo_head = ctx.f.add_block();
+    let lo_probe = ctx.f.add_block();
+    let lo_next = ctx.f.add_block();
+    let hi_init = ctx.f.add_block();
+    let hi_head = ctx.f.add_block();
+    let hi_probe = ctx.f.add_block();
+    let hi_next = ctx.f.add_block();
+    let done = ctx.f.add_block();
+    store(ctx, at, Operand::ConstI64(0), lo_slot, 0);
+    ctx.f.set_term(at, Terminator::Br(lo_head));
+
+    // leading side: lo walks up while it sees whitespace
+    let lo = load(ctx, lo_head, Type::I64, Operand::Value(lo_slot), 0);
+    let lo_in = cmp(
+        ctx,
+        lo_head,
+        IPred::Slt,
+        Operand::Value(lo),
+        Operand::Value(len),
+    );
+    cond_br(ctx, lo_head, lo_in, lo_probe, hi_init);
+    let b = ctx.f.append_inst(
+        lo_probe,
+        InstKind::LoadU8Dyn(Operand::Value(base), Operand::Value(lo)),
+        Type::I64,
+        None,
+    );
+    branch_on_ws(ctx, lo_probe, b, lo_next, hi_init);
+    let lo1 = bin(
+        ctx,
+        lo_next,
+        BinOp::Add,
+        Operand::Value(lo),
+        Operand::ConstI64(1),
+    );
+    store(ctx, lo_next, Operand::Value(lo1), lo_slot, 0);
+    ctx.f.set_term(lo_next, Terminator::Br(lo_head));
+
+    // trailing side: hi walks down to lo
+    let lo_end = load(ctx, hi_init, Type::I64, Operand::Value(lo_slot), 0);
+    store(ctx, hi_init, Operand::Value(len), hi_slot, 0);
+    ctx.f.set_term(hi_init, Terminator::Br(hi_head));
+    let hi = load(ctx, hi_head, Type::I64, Operand::Value(hi_slot), 0);
+    let hi_in = cmp(
+        ctx,
+        hi_head,
+        IPred::Sgt,
+        Operand::Value(hi),
+        Operand::Value(lo_end),
+    );
+    cond_br(ctx, hi_head, hi_in, hi_probe, done);
+    let last = bin(
+        ctx,
+        hi_probe,
+        BinOp::Sub,
+        Operand::Value(hi),
+        Operand::ConstI64(1),
+    );
+    let b = ctx.f.append_inst(
+        hi_probe,
+        InstKind::LoadU8Dyn(Operand::Value(base), Operand::Value(last)),
+        Type::I64,
+        None,
+    );
+    branch_on_ws(ctx, hi_probe, b, hi_next, done);
+    let hi1 = bin(
+        ctx,
+        hi_next,
+        BinOp::Sub,
+        Operand::Value(hi),
+        Operand::ConstI64(1),
+    );
+    store(ctx, hi_next, Operand::Value(hi1), hi_slot, 0);
+    ctx.f.set_term(hi_next, Terminator::Br(hi_head));
+
+    let hi_end = load(ctx, done, Type::I64, Operand::Value(hi_slot), 0);
+    (lo_end, hi_end, done)
+}
+
 /// The UTF-16 arm: the kernel writes the view, into `out`'s buffer or,
 /// when only the length is wanted, into a scratch buffer released as
 /// soon as its length is read.
-fn emit_kernel(ctx: &mut LowerCtx<'_>, at: BlockId, recv: Operand, out: Out) {
+pub(crate) fn emit_kernel(ctx: &mut LowerCtx<'_>, at: BlockId, recv: Operand, out: Out) {
     let (buf, slot) = match out {
         Out::View(buf) => (buf, None),
         Out::Length(slot) => {

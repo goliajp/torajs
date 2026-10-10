@@ -30,7 +30,7 @@ mod scan;
 use std::collections::HashMap;
 
 use crate::ast::ExprId;
-use crate::ssa::{FuncId, InstKind, Module, Operand, Type};
+use crate::ssa::{BinOp, FuncId, InstKind, Module, Operand, Terminator, Type};
 use crate::ssa_lower::{LowerCtx, declare_intrinsic};
 
 /// Declare all 4 trim-variant intrinsics on `module` + `fn_table`
@@ -159,6 +159,85 @@ pub(crate) fn try_emit_length(
         None,
     );
     Some(Operand::Value(len))
+}
+
+/// A measured `part.trim()` on a versioned split loop's variable: the
+/// length from the loop's own registers, the part's offset and length
+/// over the loop-invariant payload base, with no Substr read. Only the
+/// UTF-16 arm, which always fills the loop's Substr, asks the kernel.
+/// The loop leaves that Substr unfilled on its Latin-1 arm only when
+/// every read of the variable is one of these
+/// (`ast::sfi_safe::split_var_view_reads_only`), so this must answer
+/// whenever that census does: a census-listed call on the variable.
+pub(crate) fn try_split_part_length(
+    ctx: &mut LowerCtx<'_>,
+    call_eid: ExprId,
+    recv: ExprId,
+) -> Option<Operand> {
+    if !is_measured_trim(ctx, call_eid) {
+        return None;
+    }
+    let view = crate::ssa_lower_stmt_for_of_split_iter::view_of(ctx, recv)?;
+    let cur = ctx.cur_block;
+    let slot = ctx
+        .f
+        .append_inst(cur, InstKind::Alloca(Type::I64), Type::Ptr, None);
+    let lat = ctx.f.add_block();
+    let wide = ctx.f.add_block();
+    let join = ctx.f.add_block();
+    ctx.f.set_term(
+        cur,
+        Terminator::CondBr {
+            cond: Operand::Value(view.is_lat),
+            then_blk: lat,
+            else_blk: wide,
+        },
+    );
+
+    let i64_load = |ctx: &mut LowerCtx<'_>, at, slot| {
+        ctx.f.append_inst(
+            at,
+            InstKind::Load(Type::I64, Operand::Value(slot), 0),
+            Type::I64,
+            None,
+        )
+    };
+    let off = i64_load(ctx, lat, view.off_slot);
+    let len = i64_load(ctx, lat, view.len_slot);
+    let p = ctx.f.append_inst(
+        lat,
+        InstKind::PtrToInt(Operand::Value(view.pbase)),
+        Type::I64,
+        None,
+    );
+    let start = ctx.f.append_inst(
+        lat,
+        InstKind::BinOp(BinOp::Add, Operand::Value(p), Operand::Value(off)),
+        Type::I64,
+        None,
+    );
+    let base = ctx.f.append_inst(
+        lat,
+        InstKind::IntToPtr(Operand::Value(start)),
+        Type::Ptr,
+        None,
+    );
+    ctx.cur_block = lat;
+    scan::emit_latin1_length(ctx, base, len, slot);
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(join));
+
+    let part = ctx.f.append_inst(
+        wide,
+        InstKind::Load(Type::Substr, Operand::Value(view.v_slot), 0),
+        Type::Substr,
+        None,
+    );
+    scan::emit_kernel(ctx, wide, Operand::Value(part), scan::Out::Length(slot));
+    ctx.f.set_term(wide, Terminator::Br(join));
+
+    ctx.cur_block = join;
+    let n = i64_load(ctx, join, slot);
+    Some(Operand::Value(n))
 }
 
 /// `eid` is a trim call the census listed; it arrives as its length

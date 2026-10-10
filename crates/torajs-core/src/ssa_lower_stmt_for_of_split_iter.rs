@@ -269,7 +269,7 @@ pub(crate) struct SplitView {
 
 /// The view whose loop variable `recv` names, if any: an identifier
 /// bound to that loop's own slot (not a shadowing inner binding).
-fn view_of(ctx: &LowerCtx, recv: ExprId) -> Option<SplitView> {
+pub(crate) fn view_of(ctx: &LowerCtx, recv: ExprId) -> Option<SplitView> {
     let Expr::Ident(name) = ctx.ast.get_expr(recv) else {
         return None;
     };

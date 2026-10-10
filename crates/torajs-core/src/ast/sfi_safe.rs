@@ -20,8 +20,9 @@ pub(super) fn sfi_body_x_safe(ast: &Ast, body: &Stmt, x_name: &str, i_name: &str
 
 /// True when every reference to the split loop's variable `v_name` in
 /// `body` is a view read the lowering answers from the loop's own
-/// registers: the receiver of a `.charCodeAt(pos?)` call, or `.length`.
-/// Then the part never needs to exist as a Substr in memory.
+/// registers: the receiver of a `.charCodeAt(pos?)` call or of a
+/// `.trim()` whose product is only measured (`trim_length_only`), or
+/// `.length`. Then the part never needs to exist as a Substr in memory.
 pub(crate) fn split_var_view_reads_only(ast: &Ast, body: &Stmt, v_name: &str) -> bool {
     sfi_stmt_x_safe(ast, body, v_name, XShape::ViewReads)
 }
@@ -31,7 +32,8 @@ pub(crate) fn split_var_view_reads_only(ast: &Ast, body: &Stmt, v_name: &str) ->
 enum XShape<'a> {
     /// `X[I]` for the loop counter `I`, nothing else.
     SeqIndex(&'a str),
-    /// `X.charCodeAt(pos?)` as a call, and `X.length`.
+    /// `X.charCodeAt(pos?)` or a measured `X.trim()` as a call, and
+    /// `X.length`.
     ViewReads,
 }
 
@@ -160,9 +162,9 @@ fn sfi_expr_x_safe(ast: &Ast, eid: ExprId, x_name: &str, shape: XShape<'_>) -> b
         }
         Expr::Call { callee, args } => {
             let view_read = matches!(shape, XShape::ViewReads)
-                && args.len() <= 1
                 && matches!(ast.get_expr(*callee), Expr::Member { obj, name }
-                    if name == "charCodeAt"
+                    if (name == "charCodeAt" && args.len() <= 1
+                        || name == "trim" && ast.trim_length_only_calls.contains(&eid))
                         && matches!(ast.get_expr(*obj), Expr::Ident(n) if n == x_name));
             (view_read || sfi_expr_x_safe(ast, *callee, x_name, shape))
                 && args.iter().all(|a| sfi_expr_x_safe(ast, *a, x_name, shape))
