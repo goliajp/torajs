@@ -47,6 +47,15 @@ impl LowerCtx<'_> {
         if slot_ty == Type::Any {
             return fast;
         }
+        // Only whitespace may follow the value; anything else stops
+        // the typed lane like any other syntax error.
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Call(
+                self.intrinsics.json_eat_char,
+                vec![text_op, Operand::Value(cursor), Operand::ConstI64(-1)],
+            ),
+        );
         let out = self.alloca(slot_ty, Some("__json_out"));
         self.f.append_void(
             self.cur_block,

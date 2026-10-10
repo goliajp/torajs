@@ -2,8 +2,9 @@
 
 use super::{json_skip_ws, json_src, json_throw};
 
-/// Parse a JSON integer literal (`-?[0-9]+`). Throws on missing
-/// digits.
+/// Parse a JSON integer literal (`-? (0 | [1-9][0-9]*)`). Throws on
+/// missing digits; a leading `0` is the whole token, as in the
+/// float parser.
 ///
 /// # Safety
 /// `str_ptr` is a valid Str heap block; `pos` is a writable i64
@@ -28,6 +29,9 @@ pub unsafe extern "C" fn __torajs_json_parse_int(str_ptr: *const u8, pos: *mut i
         }
         value = value * 10 + (c - b'0') as i64;
         *p += 1;
+        if value == 0 {
+            break;
+        }
     }
     if *p == digits_start {
         json_throw("JSON.parse: expected number digits", start);

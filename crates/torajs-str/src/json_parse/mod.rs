@@ -174,6 +174,8 @@ pub(super) unsafe fn json_src(str_ptr: *const u8) -> JsonSrc {
 // ============================================================
 
 /// Consume the next non-ws byte if it equals `want`; throw otherwise.
+/// `want == -1` is the end of the text: after the value only
+/// whitespace may remain (ECMA-404 §2), so `4.5 x` throws.
 ///
 /// # Safety
 /// `str_ptr` is a live Str cell and `pos` a valid cursor into it.
@@ -182,6 +184,12 @@ pub unsafe extern "C" fn __torajs_json_eat_char(str_ptr: *const u8, pos: *mut i6
     let data = unsafe { json_src(str_ptr) };
     let p = unsafe { &mut *pos };
     json_skip_ws(&data, p);
+    if want == -1 {
+        if (*p as usize) < data.len() {
+            json_throw("JSON.parse: unexpected trailing characters", *p);
+        }
+        return;
+    }
     if (*p as usize) >= data.len() || data.ascii(*p as usize) != want as u8 {
         let msg = format!("JSON.parse: expected '{}'", want as u8 as char);
         json_throw(&msg, *p);
