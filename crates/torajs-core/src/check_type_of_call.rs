@@ -125,6 +125,18 @@ pub(crate) fn check(
             Expr::Member { obj, .. } => {
                 let _ = checker.type_of(ast, *obj);
             }
+            // A generic declaration is a template that never lowers,
+            // and a spread site instantiates nothing: the callee takes
+            // the all-`any` clone, as a value escape does (a class
+            // factory with an unannotated parameter, `new C(...xs)`).
+            Expr::Ident(n)
+                if n.starts_with("__new_")
+                    && checker.generic_type_params.contains_key(n.as_str()) =>
+            {
+                let n = n.clone();
+                let _ = checker.type_of(ast, *callee);
+                checker.fn_escape_widen_sites.insert(*callee, n);
+            }
             _ => {
                 let _ = checker.type_of(ast, *callee);
             }

@@ -140,6 +140,18 @@ pub fn apply_rest_args(ast: &mut Ast) {
             };
             let args_clone = args.clone();
             let given = args_clone.len().min(fixed);
+            // A spread inside the fixed prefix stands for an unknown
+            // number of arguments, so no position past it is known:
+            // `g(...xs)` on `g(x, ...r)` binds `x` to `xs[0]` and `r`
+            // to the tail. Packing it as one fixed argument gave `x`
+            // the spread and `r` an extra empty array; the site is the
+            // runtime spread lane's.
+            if args_clone[..given]
+                .iter()
+                .any(|a| matches!(ast.get_expr(*a), Expr::Spread { .. }))
+            {
+                continue;
+            }
             let mut new_args: Vec<ExprId> = args_clone[..given].to_vec();
             let rest_elems: Vec<ExprId> = args_clone[given..].to_vec();
             // §10.2.11 — a call that stops short of the fixed prefix

@@ -7,15 +7,29 @@
 //! a scalar / any / string slot converts like a positional argument;
 //! a parameter annotated with a class or an array of one takes the
 //! checked cast; any other heap-typed slot takes the box's cell as a
-//! borrow, which the list keeps alive across the call.
+//! borrow, which the list keeps alive across the call. A rest
+//! parameter collects the slots past the fixed ones into a fresh
+//! array, as the boxed adapter's rest slot does (`build_rest`).
 
 use crate::ast::{ExprId, Stmt};
-use crate::ssa::{InstKind, Operand, Type, ValueId};
-use crate::ssa_lower::LowerCtx;
+use crate::ssa::{BinOp, InstKind, Operand, Type, ValueId};
+use crate::ssa_lower::{LowerCtx, intern_arr_layout};
 use crate::ssa_lower_checked_cast::CastSlot;
 
-/// One declared parameter: its SSA type and its annotation.
-pub(super) type Declared = Vec<(Type, Option<String>)>;
+/// The declared parameters: each fixed one's SSA type and
+/// annotation, then the rest parameter's slot when there is one.
+pub(super) struct Declared {
+    fixed: Vec<(Type, Option<String>)>,
+    rest: Option<RestSlot>,
+}
+
+/// A rest parameter: its array type, and the element kind the
+/// collected `Array<Any>` converts to (`None` for an `any` element).
+#[derive(Clone, Copy)]
+struct RestSlot {
+    ty: Type,
+    kind: Option<i64>,
+}
 
 /// What the unpack leaves for after the call: the casts' and
 /// conversions' own values to release, and the borrowed cells whose
@@ -29,8 +43,6 @@ pub(super) struct Unpacked {
 /// The declared parameters of `name` past `skip` signature slots
 /// (the head, the hidden count, the argv pointer), when every one of
 /// them can be unpacked; `None` before anything is emitted otherwise.
-/// A rest parameter collects the tail rather than one slot, which
-/// this lane does not build.
 pub(super) fn declared(
     ctx: &LowerCtx<'_>,
     name: &str,
@@ -39,8 +51,8 @@ pub(super) fn declared(
 ) -> Option<Declared> {
     let target = *ctx.fn_table.get(name)?;
     let sig_id = *ctx.fn_sig_ids.get(&target)?;
-    let tys = ctx.fn_sigs[sig_id.0 as usize].0.get(skip..)?.to_vec();
-    let user: Vec<_> = ctx
+    let mut tys = ctx.fn_sigs[sig_id.0 as usize].0.get(skip..)?.to_vec();
+    let mut user: Vec<_> = ctx
         .ast
         .stmts
         .iter()
@@ -54,9 +66,13 @@ pub(super) fn declared(
         .skip(head)
         .filter(|p| p.name != "__torajs_argv")
         .collect();
-    if user.iter().any(|p| p.is_rest) {
-        return None;
-    }
+    let rest = match user.last() {
+        Some(p) if p.is_rest => {
+            user.pop();
+            Some(rest_slot(ctx, tys.pop()?)?)
+        }
+        _ => None,
+    };
     if !tys
         .iter()
         .all(|t| converts(*t) || (t.is_refcounted() && *t != Type::Substr))
@@ -68,7 +84,26 @@ pub(super) fn declared(
         Some(a) => a.collect(),
         None => vec![None; tys.len()],
     };
-    Some(tys.into_iter().zip(anns).collect())
+    Some(Declared {
+        fixed: tys.into_iter().zip(anns).collect(),
+        rest,
+    })
+}
+
+/// The rest slot of type `ty`, when its element is one the
+/// `Array<Any>` conversion can stamp: a nested typed array's kind is
+/// a chain the kernel takes one level of, as for the boxed adapter
+/// (`rest_slot_kind`).
+fn rest_slot(ctx: &LowerCtx<'_>, ty: Type) -> Option<RestSlot> {
+    let Type::Arr(id) = ty else { return None };
+    let kind = match ctx.arr_layouts[id.0 as usize] {
+        Type::Any => None,
+        Type::Arr(_) => return None,
+        elem => Some(crate::ssa_lower_stmt_let_decl_convert::arr_elem_kind_const(
+            &elem,
+        )?),
+    };
+    Some(RestSlot { ty, kind })
 }
 
 /// Emit the unpack of `declared` off `args_arr`; answers the call
@@ -81,10 +116,11 @@ pub(super) fn emit(
     declared: Declared,
     out: &mut Unpacked,
 ) -> Vec<Operand> {
-    let mut ops = Vec::with_capacity(declared.len());
+    let n_fixed = declared.fixed.len();
+    let mut ops = Vec::with_capacity(n_fixed + 1);
     // a cast below may throw, with the list and the earlier casts live
     let mut parked = vec![ctx.push_throw_temp(args_arr, ctx.operand_ty(&args_arr))];
-    for (i, (pty, ann)) in declared.into_iter().enumerate() {
+    for (i, (pty, ann)) in declared.fixed.into_iter().enumerate() {
         let slot = crate::ssa_lower_anyv_inline::arr_get_any_borrowed(
             ctx,
             args_arr,
@@ -123,10 +159,113 @@ pub(super) fn emit(
         };
         ops.push(v);
     }
+    if let Some(rest) = declared.rest {
+        let v = collect_rest(ctx, args_arr, n_fixed, rest);
+        out.owned.push((v, rest.ty));
+        ops.push(v);
+    }
     for t in parked.into_iter().rev() {
         ctx.pop_throw_temp(t);
     }
     ops
+}
+
+/// The rest array: the list's slots past the `n_fixed` declared ones
+/// (none when the list is shorter), in a fresh `Array<Any>`, then
+/// converted to the typed array a typed rest declares. A slot the
+/// element type does not admit raises the conversion's TypeError.
+fn collect_rest(
+    ctx: &mut LowerCtx<'_>,
+    args_arr: Operand,
+    n_fixed: usize,
+    rest: RestSlot,
+) -> Operand {
+    let b = ctx.cur_block;
+    let len = ctx.f.append_inst(
+        b,
+        InstKind::Load(Type::I64, args_arr, crate::ssa_lower::ARR_LEN_OFF),
+        Type::I64,
+        None,
+    );
+    let n = ctx.f.append_inst(
+        b,
+        InstKind::BinOp(
+            BinOp::Sub,
+            Operand::Value(len),
+            Operand::ConstI64(n_fixed as i64),
+        ),
+        Type::I64,
+        None,
+    );
+    // max(n, 0): the sign mask clears a negative count
+    let sign = ctx.f.append_inst(
+        b,
+        InstKind::BinOp(BinOp::AShr, Operand::Value(n), Operand::ConstI64(63)),
+        Type::I64,
+        None,
+    );
+    let keep = ctx.f.append_inst(
+        b,
+        InstKind::BinOp(BinOp::Xor, Operand::Value(sign), Operand::ConstI64(-1)),
+        Type::I64,
+        None,
+    );
+    let count = Operand::Value(ctx.f.append_inst(
+        b,
+        InstKind::BinOp(BinOp::And, Operand::Value(n), Operand::Value(keep)),
+        Type::I64,
+        None,
+    ));
+    let any_ty = Type::Arr(intern_arr_layout(ctx.arr_layouts, Type::Any));
+    let arr = Operand::Value(ctx.f.append_inst(
+        b,
+        InstKind::Call(ctx.intrinsics.arr_alloc_any, vec![count]),
+        any_ty,
+        None,
+    ));
+    let data = ctx.emit_arr_data_ptr(args_arr);
+    let b = ctx.cur_block;
+    let base = ctx
+        .f
+        .append_inst(b, InstKind::PtrToInt(data), Type::I64, None);
+    let at = ctx.f.append_inst(
+        b,
+        InstKind::BinOp(
+            BinOp::Add,
+            Operand::Value(base),
+            Operand::ConstI64(8 * n_fixed as i64),
+        ),
+        Type::I64,
+        None,
+    );
+    let src = ctx
+        .f
+        .append_inst(b, InstKind::IntToPtr(Operand::Value(at)), Type::Ptr, None);
+    // the slots are borrows of the list; the append takes stakes of
+    // its own on the heap cells
+    ctx.f.append_void(
+        b,
+        InstKind::Call(
+            ctx.intrinsics.arr_any_push,
+            vec![arr, Operand::Value(src), count, Operand::ConstPtrNull],
+        ),
+    );
+    let Some(kind) = rest.kind else {
+        return arr;
+    };
+    let fid = *ctx
+        .fn_table
+        .get("__torajs_arr_any_to_typed")
+        .expect("__torajs_arr_any_to_typed intrinsic missing");
+    let typed = Operand::Value(ctx.f.append_inst(
+        b,
+        InstKind::Call(fid, vec![arr, Operand::ConstI64(kind)]),
+        rest.ty,
+        None,
+    ));
+    ctx.emit_drop_value(arr, any_ty);
+    ctx.emit_throw_check(None);
+    typed
 }
 
 /// The slot types a positional argument's conversion takes out of a

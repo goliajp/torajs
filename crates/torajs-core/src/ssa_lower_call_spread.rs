@@ -28,7 +28,7 @@ use crate::ssa_lower::{LowerCtx, intern_arr_layout};
 mod this_first;
 mod unpack;
 
-use this_first::lower_this_first_argv_spread;
+use this_first::{lower_this_first_argv_spread, rest_ctor_head};
 
 /// Try to lower a spread-carrying call. Returns `None` when no
 /// argument is a spread (the cascade continues).
@@ -123,14 +123,15 @@ fn try_lower_headless_argv_spread(
     let Expr::Ident(name) = ctx.ast.get_expr(callee) else {
         return None;
     };
-    let name = name.clone();
+    // a generic callee's site names its all-`any` clone
+    let name = ctx.call_retargets.get(&callee).unwrap_or(name).clone();
     // The this-first lane (rotation 616 / 627) wants the same two
     // values, a head wider: `super(...xs)` desugars to
     // `__cm_P__ctor(__this, __new_target, ...xs)`, a twin's
     // `C.m.apply(o, xs)` to `__smany_C__m(o, ...xs)`, so the head
     // arguments lower as themselves and only the tail becomes argv.
     if let Some(&head) = ctx.ast.this_first_argv_fns.get(&name) {
-        return lower_this_first_argv_spread(ctx, &name, args, head, true);
+        return lower_this_first_argv_spread(ctx, &name, args, head, true, true);
     }
     // A class factory carrying its constructor's channel
     // (`arguments_object_ctor_factory`) is the same shape with no
@@ -138,7 +139,20 @@ fn try_lower_headless_argv_spread(
     // declared parameters unpack here.
     if name.starts_with("__new_") && ctx.ast.headless_argc_fns.contains(&name) {
         let argv = ctx.ast.headless_argv_fns.contains(&name);
-        return lower_this_first_argv_spread(ctx, &name, args, 0, argv);
+        return lower_this_first_argv_spread(ctx, &name, args, 0, true, argv);
+    }
+    // A rest constructor or its factory, with or without a count
+    // channel: `apply_rest_args` takes a spread only past the fixed
+    // parameters, and a synthetic callee has no relay, so
+    // `new C(...xs)` / `super(...xs)` on `constructor(a, ...r)` died
+    // at the callee boxing below.
+    if let Some(head) = rest_ctor_head(ctx, &name) {
+        let argc = if head == 0 {
+            ctx.ast.headless_argc_fns.contains(&name)
+        } else {
+            ctx.ast.this_first_argc_fns.contains_key(&name)
+        };
+        return lower_this_first_argv_spread(ctx, &name, args, head, argc, false);
     }
     if !ctx.ast.headless_argv_fns.contains(&name) || !ctx.ast.headless_argc_fns.contains(&name) {
         return None;

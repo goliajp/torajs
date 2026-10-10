@@ -132,8 +132,16 @@ pub fn wrap_dynamic_spread_callees(ast: &mut Ast) {
         // carries its OWN runtime argc into a head-less callee's
         // hidden slot (RFC 20260815 blade 5), so a spread site's true
         // count reaches the body — the relay is fed by the boxed
-        // adapter, which knows it.
+        // adapter, which knows it. A rest-tailed callee on that tier
+        // reads its values off its own parameters, which the adapter
+        // fills, rest included — the relay is its route for a spread
+        // that starves the fixed parameters, which `apply_rest_args`
+        // cannot pack.
+        let rest_relay = user.last().is_some_and(|p| p.is_rest)
+            && ast.headless_argc_fns.contains(&name)
+            && !static_expander_takes(ast, args, user, &evident);
         if !argv_admitted
+            && !rest_relay
             && (ast.closure_argv_fns.contains(&name)
                 || ast.headless_argv_touch_fns.contains(&name)
                 || ast.closure_argc_locals.contains(&name)
