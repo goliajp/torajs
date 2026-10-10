@@ -12,7 +12,7 @@
 //! array, as the boxed adapter's rest slot does (`build_rest`).
 
 use crate::ast::{ExprId, Stmt};
-use crate::ssa::{BinOp, InstKind, Operand, Type, ValueId};
+use crate::ssa::{BinOp, IPred, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::{LowerCtx, intern_arr_layout};
 use crate::ssa_lower_checked_cast::CastSlot;
 
@@ -120,19 +120,25 @@ pub(super) fn emit(
     let mut ops = Vec::with_capacity(n_fixed + 1);
     // a cast below may throw, with the list and the earlier casts live
     let mut parked = vec![ctx.push_throw_temp(args_arr, ctx.operand_ty(&args_arr))];
+    let len = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I64, args_arr, crate::ssa_lower::ARR_LEN_OFF),
+        Type::I64,
+        None,
+    );
     for (i, (pty, ann)) in declared.fixed.into_iter().enumerate() {
         let slot = crate::ssa_lower_anyv_inline::arr_get_any_borrowed(
             ctx,
             args_arr,
             Operand::ConstI64(i as i64),
         );
-        let cast = match (pty, ann.as_deref()) {
-            (Type::Obj(sid), Some(a)) => {
-                ctx.checked_cast_obj(Operand::Value(slot), sid, a, CastSlot::Pass)
-            }
-            (Type::Arr(_), Some(a)) => {
-                ctx.checked_cast_obj_arr(Operand::Value(slot), pty, a, CastSlot::Pass)
-            }
+        let casts = match (pty, ann.as_deref()) {
+            (Type::Obj(sid), Some(a)) => ctx.casts_obj_slot(sid, a),
+            (Type::Arr(_), Some(a)) => ctx.casts_obj_arr_slot(pty, a),
+            _ => false,
+        };
+        let cast = match ann.as_deref() {
+            Some(a) if casts => Some(cast_if_passed(ctx, len, i, slot, pty, a)),
             _ => None,
         };
         let v = match cast {
@@ -168,6 +174,54 @@ pub(super) fn emit(
         ctx.pop_throw_temp(t);
     }
     ops
+}
+
+/// Slot `i` cast into the annotated parameter type `pty` when the
+/// list holds it. Past the list's end no argument was passed, and
+/// §10.2.11 binds the parameter to undefined, which no annotation
+/// checks: the parameter takes its type's undefined cell. A position
+/// the arity pads is not a passed argument, so it takes no cast.
+fn cast_if_passed(
+    ctx: &mut LowerCtx<'_>,
+    len: ValueId,
+    i: usize,
+    slot: ValueId,
+    pty: Type,
+    ann: &str,
+) -> Operand {
+    let res = ctx.alloca_in_entry(pty, None);
+    let passed = ctx.cmp(IPred::Slt, Operand::ConstI64(i as i64), Operand::Value(len));
+    let (cast_blk, undef_blk, join) = (ctx.f.add_block(), ctx.f.add_block(), ctx.f.add_block());
+    let b = ctx.cur_block;
+    ctx.f.set_term(
+        b,
+        Terminator::CondBr {
+            cond: passed,
+            then_blk: cast_blk,
+            else_blk: undef_blk,
+        },
+    );
+    ctx.cur_block = cast_blk;
+    let v = match pty {
+        Type::Obj(sid) => ctx.checked_cast_obj(Operand::Value(slot), sid, ann, CastSlot::Pass),
+        _ => ctx.checked_cast_obj_arr(Operand::Value(slot), pty, ann, CastSlot::Pass),
+    }
+    .expect("the slot was asked whether it casts");
+    let b = ctx.cur_block;
+    ctx.f
+        .append_void(b, InstKind::Store(v, Operand::Value(res), 0));
+    ctx.f.set_term(b, Terminator::Br(join));
+    ctx.cur_block = undef_blk;
+    let u =
+        (ctx.str_undef_sentinel_for(pty)).expect("an object or array slot has an undefined cell");
+    ctx.f
+        .append_void(undef_blk, InstKind::Store(u, Operand::Value(res), 0));
+    ctx.f.set_term(undef_blk, Terminator::Br(join));
+    ctx.cur_block = join;
+    Operand::Value(
+        ctx.f
+            .append_inst(join, InstKind::Load(pty, Operand::Value(res), 0), pty, None),
+    )
 }
 
 /// The rest array: the list's slots past the `n_fixed` declared ones

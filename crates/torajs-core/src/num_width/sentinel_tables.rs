@@ -364,6 +364,18 @@ fn collect_undef_sentinel_params(
                 super::sentinel_hof::taint_param(a, &fns, i, &mut out);
             }
         }
+        // A spread stands for an unknown number of arguments, so every
+        // parameter from its position on may be one the list does not
+        // reach, which the spread lanes bind to undefined (§10.2.11).
+        if let Some(k) = args
+            .iter()
+            .position(|x| matches!(a.ast.get_expr(*x), Expr::Spread { .. }))
+        {
+            let width = fns.iter().map(|f| a.user_params(f).len()).max();
+            for i in k..width.unwrap_or(0) {
+                super::sentinel_hof::taint_param(a, &fns, i, &mut out);
+            }
+        }
     }
     out
 }

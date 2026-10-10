@@ -141,19 +141,10 @@ impl LowerCtx<'_> {
         ann: &str,
         slot: CastSlot,
     ) -> Option<Operand> {
-        if self.operand_ty(&op) != Type::Any {
+        if self.operand_ty(&op) != Type::Any || !self.casts_obj_slot(sid, ann) {
             return None;
         }
         let base = strip_nullable(ann).trim();
-        // a `__`-named type is one the compiler made (a generator's
-        // wrapper), never the program's own annotation; so is the empty
-        // shape inferred from an object built up from `{}`. A written
-        // object type literal is spelled `__inlobj(fields)`
-        let compiler_made =
-            base == "__inlobj()" || (base.starts_with("__") && !base.starts_with("__inlobj("));
-        if compiler_made || !self.casts_into(sid, ann) {
-            return None;
-        }
         let shown = if base.len() != ann.len() {
             format!("{base} | undefined")
         } else {
@@ -161,6 +152,19 @@ impl LowerCtx<'_> {
         };
         let site = super::site_line(slot, &shown);
         Some(self.emit_plan_cast(op, Type::Obj(sid), ann, &site))
+    }
+
+    /// Whether [`Self::checked_cast_obj`] casts an `any` value into the
+    /// object slot `sid` annotated `ann`.
+    pub(crate) fn casts_obj_slot(&self, sid: StructId, ann: &str) -> bool {
+        let base = strip_nullable(ann).trim();
+        // a `__`-named type is one the compiler made (a generator's
+        // wrapper), never the program's own annotation; so is the empty
+        // shape inferred from an object built up from `{}`. A written
+        // object type literal is spelled `__inlobj(fields)`
+        let compiler_made =
+            base == "__inlobj()" || (base.starts_with("__") && !base.starts_with("__inlobj("));
+        !compiler_made && self.casts_into(sid, ann)
     }
 
     /// [`Self::checked_cast_obj`] for an array of object layouts,
@@ -174,7 +178,7 @@ impl LowerCtx<'_> {
         ann: &str,
         slot: CastSlot,
     ) -> Option<Operand> {
-        if self.operand_ty(&op) != Type::Any {
+        if self.operand_ty(&op) != Type::Any || !self.casts_obj_arr_slot(ty, ann) {
             return None;
         }
         // a slot the width table widened to `any[]` holds the array
@@ -191,22 +195,31 @@ impl LowerCtx<'_> {
             self.emit_rc_inc(Operand::Value(cell));
             return Some(Operand::Value(cell));
         }
+        let site = super::site_line(slot, strip_nullable(ann).trim());
+        Some(self.emit_plan_cast(op, ty, ann, &site))
+    }
+
+    /// Whether [`Self::checked_cast_obj_arr`] casts an `any` value into
+    /// the array slot `ty` annotated `ann`.
+    pub(crate) fn casts_obj_arr_slot(&self, ty: Type, ann: &str) -> bool {
+        if let Type::Arr(id) = ty
+            && self.arr_layouts[id.0 as usize] == Type::Any
+        {
+            return true;
+        }
         let (mut elem_ty, mut elem) = (ty, ann.to_string());
         while let Type::Arr(id) = elem_ty {
             elem_ty = self.arr_layouts[id.0 as usize];
-            elem = crate::ast_throw_info::elem_ann(&elem)?;
+            let Some(e) = crate::ast_throw_info::elem_ann(&elem) else {
+                return false;
+            };
+            elem = e;
         }
         let Type::Obj(sid) = elem_ty else {
-            return None;
+            return false;
         };
-
         let base = strip_nullable(&elem).trim();
-        if base.starts_with("__") && !base.starts_with("__inlobj(") || !self.casts_into(sid, &elem)
-        {
-            return None;
-        }
-        let site = super::site_line(slot, strip_nullable(ann).trim());
-        Some(self.emit_plan_cast(op, ty, ann, &site))
+        !(base.starts_with("__") && !base.starts_with("__inlobj(")) && self.casts_into(sid, &elem)
     }
 
     /// Whether a slot of layout `sid` annotated `ann` is cast
