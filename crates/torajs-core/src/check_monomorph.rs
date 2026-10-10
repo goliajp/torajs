@@ -41,6 +41,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 mod any_fn_param;
 mod any_ret;
 mod finish;
+mod unvisited_shells;
 
 use crate::ast::{Ast, ExprId, Param, Stmt};
 use crate::check::{Checker, Type, substitute_typevars};
@@ -151,6 +152,7 @@ pub(crate) fn monomorphize_and_check(c: &mut Checker, ast: &Ast) -> MonoOutput {
         worklist.push_back((name, arg_anns, type_args));
     }
 
+    unvisited_shells::check_unvisited_generic_shells(c, &owned_ast, &generics);
     // Seed from the checker's top-level records. Sorted by ExprId so
     // the worklist (and thus mono-decl emission) is deterministic —
     // the source map iterates in hash order.
