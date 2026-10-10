@@ -15,7 +15,10 @@ use torajs_rc::builtin_proto::{
 };
 use torajs_rc::{F64_UNDEF_SENTINEL_BITS, FLAG_SUBCLASSED};
 
-use crate::exotic_seam::{__torajs_arr_typed_nonint_f64_slow, __torajs_arr_typed_nonint_str_slow};
+use crate::exotic_seam::{
+    __torajs_arr_typed_nonint_any_slow, __torajs_arr_typed_nonint_f64_slow,
+    __torajs_arr_typed_nonint_str_slow,
+};
 use crate::layout::ARR_PROPS_OFF;
 
 /// Can a property whose key is not an array index be visible through
@@ -77,6 +80,32 @@ pub unsafe extern "C" fn __torajs_arr_typed_nonint_str(arr: *mut c_void, key: f6
     }
 }
 
+/// The NaN-box `undefined` (torajs-anyvalue `VALUE_UNDEFINED`).
+const ANY_UNDEFINED: u64 = 0x0A;
+
+/// The twin for an element with no Number or Str slot: a `boolean[]`
+/// (`keep != 0`) answers the keyed read's whole value, owned, into
+/// its promoted `any` slot; a pointer element (`keep == 0`) runs the
+/// read for its getter's throw and answers `undefined`, its slot
+/// having no spelling for a value of another type. A cell that
+/// cannot carry the property answers `undefined` without the seam.
+///
+/// # Safety
+/// `arr` is a live `Tag::Arr` cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_typed_nonint_any(
+    arr: *mut c_void,
+    key: f64,
+    keep: i64,
+) -> u64 {
+    unsafe {
+        if !named_prop_possible(arr as *const u8) {
+            return ANY_UNDEFINED;
+        }
+        __torajs_arr_typed_nonint_any_slow(arr, key, keep)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -93,6 +122,8 @@ mod tests {
             let got = __torajs_arr_typed_nonint_f64(p as *mut c_void, 1.5);
             assert_eq!(got.to_bits(), F64_UNDEF_SENTINEL_BITS);
             assert!(__torajs_arr_typed_nonint_str(p as *mut c_void, f64::NAN).is_null());
+            let got = __torajs_arr_typed_nonint_any(p as *mut c_void, 5.0, 1);
+            assert_eq!(got, ANY_UNDEFINED);
         }
     }
 

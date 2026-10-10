@@ -153,7 +153,7 @@ const SITES: [(&str, &str, &[&str], u32); 3] = [
 /// entries whose text liveness un-assumes the stub, landing-pad fam
 /// id). The join seam's enabler is the exotic-flag writer; the
 /// species probe's enablers are the two props-bag creators.
-const SYMBOL_STUBS: [(&str, &[&str], u32); 13] = [
+const SYMBOL_STUBS: [(&str, &[&str], u32); 14] = [
     (
         "___torajs_arr_join_exotic",
         &["___torajs_arr_flag_exotic"],
@@ -259,6 +259,13 @@ const SYMBOL_STUBS: [(&str, &[&str], u32); 13] = [
             "___torajs_arr_flag_sparse_tail",
         ],
         54,
+    ),
+    // the `boolean[]` / pointer-element twin of the typed keyed read
+    // (fam 52 / 53), same enablers.
+    (
+        "___torajs_arr_typed_nonint_any_slow",
+        &NAMED_PROP_WRITERS,
+        56,
     ),
 ];
 
@@ -506,7 +513,7 @@ mod tests {
     #[test]
     fn exotic_slow_path_stubs_are_symbol_guarded_loud_rejects() {
         let stubs = guarded_stubs();
-        assert_eq!(stubs.len(), 14);
+        assert_eq!(stubs.len(), 15);
         let map_hole = &stubs[13];
         assert_eq!(map_hole.sym, "___torajs_arr_map_hole_slow");
         assert_eq!(
@@ -518,14 +525,12 @@ mod tests {
             &map_hole.bytes[..4],
             &(0xD280_0000u32 | (54 << 5) | 7).to_le_bytes()
         );
-        for (i, sym) in [
-            "___torajs_arr_typed_nonint_f64_slow",
-            "___torajs_arr_typed_nonint_str_slow",
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            let read = &stubs[11 + i];
+        for (i, fam, sym) in [
+            (11, 52u32, "___torajs_arr_typed_nonint_f64_slow"),
+            (12, 53, "___torajs_arr_typed_nonint_str_slow"),
+            (14, 56, "___torajs_arr_typed_nonint_any_slow"),
+        ] {
+            let read = &stubs[i];
             assert_eq!(read.sym, sym);
             assert_eq!(
                 read.guard.to_string(),
@@ -534,7 +539,7 @@ mod tests {
             );
             assert_eq!(
                 &read.bytes[..4],
-                &(0xD280_0000u32 | ((52 + i as u32) << 5) | 7).to_le_bytes()
+                &(0xD280_0000u32 | (fam << 5) | 7).to_le_bytes()
             );
         }
         let sort = &stubs[10];

@@ -186,6 +186,12 @@ pub unsafe extern "C" fn __torajs_any_index_get(recv: AnyValue, idx: i64) -> Any
         return VALUE_UNDEFINED;
     }
     if tag == Tag::Arr as u16 {
+        // §6.1.7 — an array index is below 2^32 - 1; "-1" or
+        // "4294967295" names an ordinary property, found where a
+        // string key's is (the props bag, then the chain's).
+        if !(0..4_294_967_295).contains(&idx) {
+            return unsafe { named_index_get(recv, idx) };
+        }
         return unsafe { __torajs_arr_index_get(ptr, idx) };
     }
     if tag == Tag::DynObj as u16 {
@@ -381,6 +387,19 @@ pub(crate) unsafe fn dynobj_index_entry(
             dtag as i64,
             dval as i64,
         ))
+    }
+}
+
+/// `recv[idx]` through the decimal spelling of `idx`, by the probe a
+/// string key takes.
+unsafe fn named_index_get(recv: AnyValue, idx: i64) -> AnyValue {
+    let mut buf = [0u8; 20];
+    let (start, len) = i64_dec(&mut buf, idx);
+    unsafe {
+        let key = __torajs_str_alloc(buf[start..].as_ptr(), len as i64);
+        let out = crate::index_any_keyed::probe_key_cell(recv, key as *const c_void);
+        __torajs_str_drop(key as *mut c_void);
+        out
     }
 }
 

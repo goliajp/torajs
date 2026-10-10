@@ -80,6 +80,16 @@ pub(crate) fn lower_typed_arr(
             upper_proven,
         );
     }
+    // A read that can reach a getter answers an owned value through
+    // that exit (`emit_nonintegral_typed_read`), so the whole read is
+    // owned: a `boolean[]` element is an immediate whose release is
+    // nothing, and the `string[]` lane takes a stake on its in-range
+    // element (`lower_typed_index_checked`).
+    if matches!(elem_ty, Type::Bool | Type::Str)
+        && (nonint.is_some() || ctx.ast.array_prop_reads_may_raise)
+    {
+        ctx.owned_member_reads.insert(eid);
+    }
     crate::ssa_lower_index::lower_typed_index_checked(
         ctx,
         arr_val,
@@ -88,6 +98,7 @@ pub(crate) fn lower_typed_arr(
         elem_ty,
         upper_proven,
         nonint,
+        ctx.ast.array_prop_reads_may_raise,
     )
 }
 

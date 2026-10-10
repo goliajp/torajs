@@ -268,7 +268,10 @@ pub(crate) fn lower_from_value(
 /// `>= len` compare and the length load it needs, for a read an
 /// enclosing `i < arr.length` guard settles — the negative compare
 /// stays, because that guard says nothing about `i >= 0` and a
-/// negative index reads before the data pointer.
+/// negative index reads before the data pointer. `oob_asks` sends the
+/// out-of-range exit to the prototype chain's property
+/// ([`crate::ssa_lower_index_nonintegral::emit_oob_named_read`]); a
+/// plain `[[Get]]` passes the program's `array_prop_reads_may_raise`.
 pub(crate) fn lower_typed_index_checked(
     ctx: &mut LowerCtx<'_>,
     arr_val: Operand,
@@ -277,6 +280,7 @@ pub(crate) fn lower_typed_index_checked(
     elem_ty: Type,
     upper_proven: bool,
     nonint: Option<(Operand, Operand)>,
+    oob_asks: bool,
 ) -> Operand {
     use crate::ssa::{IPred, Terminator};
     use crate::ssa_lower::ARR_LEN_OFF;
@@ -290,6 +294,7 @@ pub(crate) fn lower_typed_index_checked(
     });
     let slot_ty = crate::ssa_lower_nullable_guard::undefable_read_ty(elem_ty);
     let promote_bool = slot_ty != elem_ty;
+    let owned_str = elem_ty == Type::Str && (nonint.is_some() || oob_asks);
     let slot = ctx.alloca_in_entry(slot_ty, Some("__oob_elem"));
     let oob_blk = ctx.f.add_block();
     let in_blk = ctx.f.add_block();
@@ -328,11 +333,19 @@ pub(crate) fn lower_typed_index_checked(
         None => ctx.cmp(IPred::Slt, idx_val, Operand::ConstI64(0)),
     };
     let cb = ctx.cur_block;
+    let oob_target = if oob_asks {
+        crate::ssa_lower_index_nonintegral::emit_oob_named_read(
+            ctx, arr_val, idx_val, elem_ty, slot, merge,
+        )
+        .unwrap_or(oob_blk)
+    } else {
+        oob_blk
+    };
     ctx.f.set_term(
         cb,
         Terminator::CondBr {
             cond: out,
-            then_blk: oob_blk,
+            then_blk: oob_target,
             else_blk: in_blk,
         },
     );
@@ -354,6 +367,11 @@ pub(crate) fn lower_typed_index_checked(
         None,
     );
     crate::ssa_lower_index_undef::hole_slot_is_undefined(ctx, v, elem_ty, slot, merge);
+    // the getter exits answer an owned Str, so the element joins them
+    // owned (`lower_typed_arr` records the read)
+    if owned_str {
+        ctx.emit_rc_inc(Operand::Value(v));
+    }
     let stored = if promote_bool {
         let b = ctx.cmp(IPred::Ne, Operand::Value(v), Operand::ConstI64(0));
         ctx.box_to_any(b)

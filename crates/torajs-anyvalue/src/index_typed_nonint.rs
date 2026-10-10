@@ -57,3 +57,29 @@ pub unsafe extern "C" fn __torajs_arr_typed_nonint_str_impl(
         out
     }
 }
+
+/// `boolean[]` / pointer-element flavor: the answer as it is, owned,
+/// when `keep != 0`; otherwise the answer is released and `undefined`
+/// stands in — a pointer slot has no spelling for a value of another
+/// type, so only the read's getter (and its throw) shows.
+///
+/// # Safety
+/// `arr` is a live `Tag::Arr` cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_typed_nonint_any_impl(
+    arr: *mut c_void,
+    key: f64,
+    keep: i64,
+) -> u64 {
+    unsafe {
+        let v = __torajs_any_index_get_keyed(
+            crate::nanbox::box_void_ptr(arr),
+            crate::nanbox::box_double(key),
+        );
+        if keep != 0 {
+            return v;
+        }
+        crate::nanbox_ffi::__torajs_anyv_rc_dec(v);
+        crate::nanbox::VALUE_UNDEFINED
+    }
+}

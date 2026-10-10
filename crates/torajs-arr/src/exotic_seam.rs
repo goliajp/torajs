@@ -81,6 +81,9 @@ unsafe extern "C" {
     pub(crate) fn __torajs_arr_typed_nonint_f64_slow(arr: *mut c_void, key: f64) -> f64;
     /// `string[]` twin: an owned Str cell, or NULL for undefined.
     pub(crate) fn __torajs_arr_typed_nonint_str_slow(arr: *mut c_void, key: f64) -> *mut c_void;
+    /// `boolean[]` / pointer-element twin: the AnyValue answer when
+    /// `keep != 0`, otherwise `undefined` after the read has run.
+    pub(crate) fn __torajs_arr_typed_nonint_any_slow(arr: *mut c_void, key: f64, keep: i64) -> u64;
 }
 
 #[cfg(test)]
@@ -121,6 +124,15 @@ pub(crate) unsafe fn __torajs_arr_typed_nonint_str_slow(
     _arr: *mut c_void,
     _key: f64,
 ) -> *mut c_void {
+    panic!("torajs-arr unit-test stub: the keyed read lives in torajs-anyvalue");
+}
+
+#[cfg(test)]
+pub(crate) unsafe fn __torajs_arr_typed_nonint_any_slow(
+    _arr: *mut c_void,
+    _key: f64,
+    _keep: i64,
+) -> u64 {
     panic!("torajs-arr unit-test stub: the keyed read lives in torajs-anyvalue");
 }
 

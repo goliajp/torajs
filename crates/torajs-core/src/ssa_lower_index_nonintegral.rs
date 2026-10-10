@@ -50,10 +50,15 @@ pub(crate) fn lower_typed_read_index(
 /// undefined cell. torajs-arr answers undefined itself for a cell
 /// that cannot carry a named property; its keyed read sits behind a
 /// link-judged seam (`cmd_build_elide`, fam 52 / 53), so a program
-/// whose arrays never grow one links no any world here. Answers
-/// `false` for an element type with no undefined spelling (i64 /
-/// bool / nested heap): the caller keeps its RangeError exit. Leaves
+/// whose arrays never grow one links no any world here. A boolean or
+/// pointer element asks the `_any` twin ([`emit_any_shaped_read`]).
+/// Answers `false` for an element type with no undefined spelling
+/// (an integer): the caller keeps its RangeError exit. Leaves
 /// `cur_block` on the block that stored the slot, with no terminator.
+///
+/// The out-of-range exit asks the same entries, with the integer
+/// index as the key, when the program can put a property on an
+/// array's prototype chain (`lower_typed_index_checked`).
 pub(crate) fn emit_nonintegral_typed_read(
     ctx: &mut LowerCtx<'_>,
     arr: Operand,
@@ -65,6 +70,10 @@ pub(crate) fn emit_nonintegral_typed_read(
     let entry = match elem_ty {
         Type::F64 => "__torajs_arr_typed_nonint_f64",
         Type::Str => "__torajs_arr_typed_nonint_str",
+        Type::Bool => return emit_any_shaped_read(ctx, arr, raw_key, elem_ty, slot),
+        t if t.spells_undef_with_generic_cell() => {
+            return emit_any_shaped_read(ctx, arr, raw_key, elem_ty, slot);
+        }
         _ => return false,
     };
     let fid = *ctx
@@ -123,6 +132,82 @@ pub(crate) fn emit_nonintegral_typed_read(
     );
     ctx.f.set_term(cell_blk, Terminator::Br(done_blk));
     ctx.cur_block = done_blk;
+    true
+}
+
+/// The out-of-range exit of a typed read in a program that can put a
+/// property on an array's prototype chain: `xs[5]` past the end, or
+/// `xs[-1]`, is no own element, and §10.1.8.1 OrdinaryGet goes on to
+/// the property the key names on the chain — through the same entries
+/// a non-integral key asks, with the index as the key. Builds the
+/// block the bounds branch takes (it stores the slot and goes to
+/// `merge`) and leaves `cur_block` alone; `None` for an element with
+/// no undefined spelling, whose exit stays the RangeError.
+pub(crate) fn emit_oob_named_read(
+    ctx: &mut LowerCtx<'_>,
+    arr: Operand,
+    idx: Operand,
+    elem_ty: Type,
+    slot: ValueId,
+    merge: crate::ssa::BlockId,
+) -> Option<crate::ssa::BlockId> {
+    if !matches!(elem_ty, Type::F64 | Type::Str | Type::Bool)
+        && !elem_ty.spells_undef_with_generic_cell()
+    {
+        return None;
+    }
+    let saved = ctx.cur_block;
+    let ask = ctx.f.add_block();
+    ctx.cur_block = ask;
+    let key = ctx
+        .f
+        .append_inst(ask, InstKind::SiToFp(idx), Type::F64, None);
+    emit_nonintegral_typed_read(ctx, arr, Operand::Value(key), elem_ty, slot);
+    let end = ctx.cur_block;
+    ctx.f.set_term(end, crate::ssa::Terminator::Br(merge));
+    ctx.cur_block = saved;
+    Some(ask)
+}
+
+/// [`emit_nonintegral_typed_read`]'s arm for a `boolean[]`, whose read
+/// is promoted to an `any` slot and keeps the property's value whole,
+/// and for a pointer element, whose slot has no spelling for a value
+/// of another type: there the read runs for its getter's throw and
+/// the slot takes `undefined`.
+fn emit_any_shaped_read(
+    ctx: &mut LowerCtx<'_>,
+    arr: Operand,
+    raw_key: Operand,
+    elem_ty: Type,
+    slot: ValueId,
+) -> bool {
+    let fid = *ctx
+        .fn_table
+        .get("__torajs_arr_typed_nonint_any")
+        .expect("typed non-integral read entry missing");
+    let keep = elem_ty == Type::Bool;
+    let v = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(fid, vec![arr, raw_key, Operand::ConstI64(keep as i64)]),
+        Type::Any,
+        None,
+    );
+    ctx.emit_throw_check(None);
+    let stored = if keep {
+        Operand::Value(v)
+    } else {
+        let c = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::GlobalRef(crate::ssa_lower_binop_null_undef::UNDEF_CELL_SYM.to_string()),
+            elem_ty,
+            None,
+        );
+        Operand::Value(c)
+    };
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(stored, Operand::Value(slot), 0),
+    );
     true
 }
 

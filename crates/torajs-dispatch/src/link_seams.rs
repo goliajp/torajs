@@ -31,6 +31,7 @@ unsafe extern "C" {
         arr: *mut core::ffi::c_void,
         key: f64,
     ) -> *mut core::ffi::c_void;
+    fn __torajs_arr_typed_nonint_any_impl(arr: *mut core::ffi::c_void, key: f64, keep: i64) -> u64;
 }
 
 /// Default resolution of a typed `number[]` read at a non-integral
@@ -61,6 +62,20 @@ pub unsafe extern "C" fn __torajs_arr_typed_nonint_str_slow(
     key: f64,
 ) -> *mut core::ffi::c_void {
     unsafe { __torajs_arr_typed_nonint_str_impl(arr, key) }
+}
+
+/// The `boolean[]` / pointer-element twin of
+/// [`__torajs_arr_typed_nonint_f64_slow`] (fam 56).
+///
+/// # Safety
+/// `arr` is a live `Tag::Arr` cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_typed_nonint_any_slow(
+    arr: *mut core::ffi::c_void,
+    key: f64,
+    keep: i64,
+) -> u64 {
+    unsafe { __torajs_arr_typed_nonint_any_impl(arr, key, keep) }
 }
 
 /// Default resolution of the static `map` lane's hole arm: an absent

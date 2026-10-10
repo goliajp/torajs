@@ -130,7 +130,7 @@ const ANY_HEAP_TAG: u64 = 4;
 /// `Promise.allKeyed` was released once more than it was retained
 /// (rc underflow → pool recycle under a live `.then` receiver, the
 /// rotation-348 crash family).
-unsafe fn probe_key_cell(recv: AnyValue, key: *const c_void) -> AnyValue {
+pub(crate) unsafe fn probe_key_cell(recv: AnyValue, key: *const c_void) -> AnyValue {
     unsafe {
         let tag = crate::member_get::__torajs_any_member_get_tag(recv, key);
         let value = crate::member_get::__torajs_any_member_get_value(recv, key);

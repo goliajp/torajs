@@ -51,19 +51,20 @@ impl Scan<'_> {
         !plain && may_hold_array(self.lane_of(*obj)) && self.key_may_name_property(*index)
     }
 
-    /// A receiver whose non-integral index read asks for the property
-    /// the key names: a `number[]` or `string[]` (the typed lanes'
-    /// `__torajs_arr_typed_nonint_*`), an `any[]` (the keyed kernel
-    /// behind `emit_any_elem_read_split`), and a receiver typed `any`
-    /// or not known. The other element types answer such a read without
-    /// looking (`emit_nonintegral_typed_read`), and so does a string.
-    fn asks_named_prop(&self, obj: ExprId) -> bool {
+    /// The read `obj[index]` may ask for the property its key names.
+    /// An array of any element type does for a key that may not be an
+    /// array index (the typed lanes' `__torajs_arr_typed_nonint_*`, the
+    /// keyed kernel behind `emit_any_elem_read_split`), as does a
+    /// receiver typed `any` or not known. Where the program can put a
+    /// property on an array's prototype chain
+    /// (`Ast::array_prop_reads_may_raise`), every key may: an
+    /// out-of-range index asks the chain (`emit_oob_named_read`).
+    fn read_asks(&self, obj: ExprId, index: ExprId) -> bool {
+        let chain = self.ast.array_prop_reads_may_raise;
         match self.lane_of(obj) {
-            Some(Type::Array(e)) => matches!(
-                *e,
-                Type::Number | Type::String | Type::Any | Type::TypeVar(_)
-            ),
-            Some(Type::Any | Type::TypeVar(_)) | None => true,
+            Some(Type::Array(_) | Type::Any | Type::TypeVar(_)) | None => {
+                chain || self.key_may_name_property(index)
+            }
             _ => false,
         }
     }
@@ -85,13 +86,13 @@ impl Scan<'_> {
         {
             self.direct = true;
         }
-        self.nonint_read |= self.asks_named_prop(obj) && self.key_may_name_property(index);
+        self.nonint_read |= self.read_asks(obj, index);
         self.expr(obj);
         self.expr(index);
     }
 
     pub(super) fn opt_index_read(&mut self, obj: ExprId, index: ExprId) {
-        self.nonint_read |= self.asks_named_prop(obj) && self.key_may_name_property(index);
+        self.nonint_read |= self.read_asks(obj, index);
         self.expr(obj);
         self.expr(index);
     }
