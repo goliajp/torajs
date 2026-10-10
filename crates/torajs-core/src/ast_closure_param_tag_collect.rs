@@ -214,7 +214,8 @@ pub(crate) fn mirror_closure_aliases(
 /// callback's element-position ones (see the hof sibling); r549: a
 /// closure-let alias's ([`seed_closure_alias_marks`]); a parameter
 /// called with an `any` argument for an object position (the axes
-/// sibling).
+/// sibling); a parameter the function stores into the heap (the
+/// store-sink axis).
 pub(crate) fn usage_seed_marks(
     ast: &Ast,
     fn_params: &HashMap<String, Vec<(usize, String)>>,
@@ -225,6 +226,9 @@ pub(crate) fn usage_seed_marks(
         ast, fn_params,
     ));
     out.extend(crate::ast_closure_param_tag_axes::any_obj_arg_seeds(
+        ast, fn_params,
+    ));
+    out.extend(crate::ast_closure_param_tag_axes::store_sink_param_seeds(
         ast, fn_params,
     ));
     out.extend(seed_closure_alias_marks(aliases, fn_params));

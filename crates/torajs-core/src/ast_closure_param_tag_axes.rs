@@ -21,7 +21,9 @@ use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
 use std::collections::{HashMap, HashSet};
 
 mod any_arg;
+mod store_sink;
 pub(crate) use any_arg::any_obj_arg_seeds;
+pub(crate) use store_sink::store_sink_param_seeds;
 
 /// Seed marks for fn-typed params whose name appears as the
 /// functional replaceValue of a `replace` / `replaceAll` member call

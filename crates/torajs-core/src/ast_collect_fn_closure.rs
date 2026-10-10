@@ -16,8 +16,9 @@
 //!   approximate — a shadowing non-any `f` in another scope would
 //!   also match, which only costs an unnecessary wrap).
 //! - `callee(name)` where the matching declared param is
-//!   `any`-annotated (L3b #8; fn-typed params stay raw FnSig —
-//!   direct dispatch preserved).
+//!   `any`-annotated (L3b #8; a fn-typed param stays raw FnSig, for
+//!   direct dispatch, unless its body stores it into the heap — the
+//!   store-sink axis gives it the closure repr).
 //! - `return name` inside a fn whose declared return type is `any`
 //!   (L3b #8; closure-typed returns ride the older
 //!   `ast/forwarders.rs` pass).
@@ -175,18 +176,6 @@ impl<'a> FnToClosureCollector<'a> {
                 self.try_mark(arg);
             }
         }
-    }
-
-    pub(crate) fn try_mark(&mut self, eid: ExprId) -> bool {
-        if let Expr::Ident(name) = self.ast.get_expr(eid)
-            && self.fn_sigs.contains_key(name)
-            && !self.shadowed.iter().any(|s| s.contains(name))
-        {
-            self.targets.insert(name.clone());
-            self.rewrites.push((eid, name.clone()));
-            return true;
-        }
-        false
     }
 
     /// The `Stmt::LetDecl` arm of [`Self::walk_stmt`] — extracted
