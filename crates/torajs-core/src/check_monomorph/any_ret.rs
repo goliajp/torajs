@@ -16,21 +16,62 @@
 //! goes along, since it was copied or matched before the check: its
 //! `__forward_*` / `__fwdrecv_*` shells, which return what it returns,
 //! and the other rows of its vtable slot with their `__dispatch_*`
-//! stub, which a call through the slot cannot tell apart.
+//! stub, which a call through the slot cannot tell apart. So does a
+//! declaration that hands on what a retagged one returns (`return
+//! pick(k)`, `return super.get()`): the value it returns is a cell.
 
 use std::collections::{HashMap, HashSet};
 
-use crate::ast::{Ast, ExprId, Stmt};
+use crate::ast::{Ast, Expr, ExprId, Stmt};
 use crate::ast_closure_param_tag::is_fnsig_ann;
-use crate::ast_closure_param_tag_retag::{
-    push_child_stmts_mut, retag_fn_return_types, retag_to_cls,
-};
+use crate::ast_collect_fn_closure_target::fn_returns;
+use crate::ast_collect_fn_closure_target::raw_ret::const_lets;
 use crate::check::Type;
 
+mod raw;
+
 pub(super) fn retag(ast: &mut Ast, expr_types: &HashMap<ExprId, Type>) {
-    let contextual = &ast.contextual_ret_fns;
-    let mut retagged: HashSet<String> = HashSet::new();
-    let mut stack: Vec<&mut Stmt> = ast.stmts.iter_mut().collect();
+    let decls = fnsig_decls(ast);
+    let mut lane: HashSet<String> = decls
+        .iter()
+        .filter(|(_, rets, _)| {
+            rets.iter()
+                .any(|e| matches!(expr_types.get(e), Some(Type::Any)))
+        })
+        .map(|(name, _, _)| name.clone())
+        .collect();
+    while !lane.is_empty() {
+        let peers = slot_peers(ast, &lane);
+        lane.extend(peers);
+        let shells: Vec<String> = lane
+            .iter()
+            .flat_map(|n| crate::ast::shell_names(n))
+            .collect();
+        lane.extend(shells);
+        let more: Vec<String> = decls
+            .iter()
+            .filter(|(name, rets, lets)| {
+                !lane.contains(name) && rets.iter().any(|&e| hands_on(ast, e, lets, &lane, 0))
+            })
+            .map(|(name, _, _)| name.clone())
+            .collect();
+        if more.is_empty() {
+            break;
+        }
+        lane.extend(more);
+    }
+    raw::hand_back_cells(ast, &lane);
+    crate::ast_closure_param_tag_retag::retag_fn_return_types(&mut ast.stmts, &lane);
+}
+
+/// Every declaration with a `__fn(` return the context did not seed:
+/// its name, the values it returns, and its own immutable bindings by
+/// name (not those of a nested function).
+type FnsigDecl<'a> = (String, Vec<ExprId>, HashMap<&'a str, ExprId>);
+
+fn fnsig_decls(ast: &Ast) -> Vec<FnsigDecl<'_>> {
+    let mut out = Vec::new();
+    let mut stack: Vec<&Stmt> = ast.stmts.iter().collect();
     while let Some(s) = stack.pop() {
         if let Stmt::FnDecl {
             name,
@@ -38,34 +79,50 @@ pub(super) fn retag(ast: &mut Ast, expr_types: &HashMap<ExprId, Type>) {
             body,
             ..
         } = s
-            && !contextual.contains(name.as_str())
+            && !ast.contextual_ret_fns.contains(name.as_str())
             && is_fnsig_ann(return_type)
-            && returns_any(body, expr_types)
-            && let Some(ann) = return_type
         {
-            retag_to_cls(ann);
-            retagged.insert(name.clone());
+            out.push((name.clone(), fn_returns(body), const_lets(body)));
         }
-        push_child_stmts_mut(s, &mut stack);
+        crate::ast_closure_param_tag::push_child_stmts(s, &mut stack);
     }
-    let mut peers = slot_peers(ast, &retagged);
-    peers.extend(
-        retagged
-            .iter()
-            .chain(peers.clone().iter())
-            .flat_map(|n| crate::ast::shell_names(n)),
-    );
-    if !peers.is_empty() {
-        retag_fn_return_types(&mut ast.stmts, &peers);
-    }
+    out
 }
 
-/// Does a `return` of this body (not of a nested function) hand back a
-/// value typed `any`?
-fn returns_any(body: &[Stmt], expr_types: &HashMap<ExprId, Type>) -> bool {
-    crate::ast_collect_fn_closure_target::fn_returns(body)
-        .iter()
-        .any(|e| matches!(expr_types.get(e), Some(Type::Any)))
+/// Does `e` hand on, unchanged, what a function of `lane` returns: its
+/// call, an immutable binding of one, or a choice with one among its
+/// arms? Bounded by `depth`, since a binding may name itself.
+fn hands_on(
+    ast: &Ast,
+    e: ExprId,
+    lets: &HashMap<&str, ExprId>,
+    lane: &HashSet<String>,
+    depth: usize,
+) -> bool {
+    if depth > 16 {
+        return false;
+    }
+    let on = |x: ExprId| hands_on(ast, x, lets, lane, depth + 1);
+    match ast.get_expr(e) {
+        Expr::Call { callee, .. } => {
+            matches!(ast.get_expr(*callee), Expr::Ident(f) if lane.contains(f))
+        }
+        Expr::Ident(x) => lets.get(x.as_str()).is_some_and(|&init| on(init)),
+        Expr::As { expr, .. } => on(*expr),
+        Expr::Sequence { right, .. } => on(*right),
+        Expr::Ternary {
+            then_branch,
+            else_branch,
+            ..
+        } => on(*then_branch) || on(*else_branch),
+        Expr::Nullish { lhs: a, rhs: b }
+        | Expr::BinOp {
+            op: crate::ast::BinOp::LAnd | crate::ast::BinOp::LOr,
+            left: a,
+            right: b,
+        } => on(*a) || on(*b),
+        _ => false,
+    }
 }
 
 /// The other rows of every vtable slot a retagged method sits in,

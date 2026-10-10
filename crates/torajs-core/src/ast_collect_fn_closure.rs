@@ -312,7 +312,7 @@ impl<'a> FnToClosureCollector<'a> {
                 );
                 self.cls_param_frames
                     .push(crate::ast_collect_fn_closure_target::cls_params(params));
-                self.target_mixed_fn_returns(name, return_type, body);
+                self.target_mixed_fn_returns(name, params, return_type, body);
                 for inner in body {
                     self.walk_stmt(inner, ret_any);
                 }

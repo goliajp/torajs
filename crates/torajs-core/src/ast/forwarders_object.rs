@@ -251,6 +251,11 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
     );
     let ident_census = crate::ast_collect_fn_closure_init::ident_census(ast);
     let mixed_slot_rows = crate::ast_collect_fn_closure_target::mixed_slot_rows(ast, &fn_sigs);
+    let param_arg_targets = crate::ast_collect_fn_closure_target::raw_ret::param_arg_targets(
+        ast,
+        &fn_sigs,
+        &mixed_slot_rows,
+    );
     let mut collector = crate::ast_collect_fn_closure::FnToClosureCollector {
         ast,
         fn_sigs: &fn_sigs,
@@ -273,6 +278,7 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
     for s in &stmts_snapshot {
         collector.walk_stmt(s, false);
     }
+    collector.targets.extend(param_arg_targets);
     // RFC 20260729-fn-value-any V4 刀 1 — a destructuring-slot
     // default that is a hoisted generator-expression factory
     // (`{ gen = function* () {} }` → the ternary's else arm holds

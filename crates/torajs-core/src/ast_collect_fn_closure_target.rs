@@ -7,6 +7,8 @@ use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
 use crate::ast_collect_fn_closure::FnToClosureCollector;
 use std::collections::{HashMap, HashSet};
 
+pub(crate) mod raw_ret;
+
 type FnSig = (Vec<Param>, Option<String>, crate::lexer::Span);
 
 /// The params the closure-param tag pass gave the closure repr: each
@@ -117,6 +119,7 @@ impl FnToClosureCollector<'_> {
     pub(crate) fn target_mixed_fn_returns(
         &mut self,
         name: &str,
+        params: &[Param],
         return_type: &Option<String>,
         body: &[Stmt],
     ) {
@@ -124,8 +127,21 @@ impl FnToClosureCollector<'_> {
             return;
         }
         let rets = fn_returns(body);
-        let named: Vec<String> = rets.iter().filter_map(|&r| self.fn_name(r)).collect();
-        if !named.is_empty() && (named.len() < rets.len() || self.mixed_slot_rows.contains(name)) {
+        let mut named: Vec<String> = rets.iter().filter_map(|&r| self.fn_name(r)).collect();
+        let direct = named.len();
+        // a const binding of a named function returned in its place
+        // (`raw_ret`) needs the same fn object
+        let lets = raw_ret::const_lets(body);
+        let is_fn = |n: &str| self.fn_sigs.contains_key(n);
+        for &r in &rets {
+            if self.fn_name(r).is_none()
+                && let Some(raw_ret::RawRet::Named(o)) =
+                    raw_ret::raw_ret(self.ast, params, &lets, r, &is_fn)
+            {
+                named.push(o);
+            }
+        }
+        if !named.is_empty() && (direct < rets.len() || self.mixed_slot_rows.contains(name)) {
             self.targets.extend(named);
         }
     }
@@ -186,18 +202,24 @@ pub(crate) fn fn_returns(body: &[Stmt]) -> Vec<ExprId> {
 /// every row's does, so the named functions there need their fn
 /// objects.
 pub(crate) fn mixed_slot_rows(ast: &Ast, fn_sigs: &HashMap<String, FnSig>) -> HashSet<String> {
-    let bodies: HashMap<&str, (&Option<String>, &[Stmt])> = crate::ast::toplevel_stmts_flat(ast)
+    type Row<'a> = (&'a Option<String>, &'a [Param], &'a [Stmt]);
+    let bodies: HashMap<&str, Row> = crate::ast::toplevel_stmts_flat(ast)
         .into_iter()
         .filter_map(|s| match s {
             Stmt::FnDecl {
                 name,
+                params,
                 return_type,
                 body,
                 ..
-            } => Some((name.as_str(), (return_type, body.as_slice()))),
+            } => Some((
+                name.as_str(),
+                (return_type, params.as_slice(), body.as_slice()),
+            )),
             _ => None,
         })
         .collect();
+    let is_fn = |n: &str| fn_sigs.contains_key(n);
     let mut out = HashSet::new();
     for (_, by_root) in crate::ast::vtable_slot::slot_groups_by_name(ast) {
         for rows in by_root.values() {
@@ -206,18 +228,21 @@ pub(crate) fn mixed_slot_rows(ast: &Ast, fn_sigs: &HashMap<String, FnSig>) -> Ha
                 .filter(|r| {
                     bodies
                         .get(r.as_str())
-                        .is_some_and(|(ann, _)| crate::ast_closure_param_tag::is_fnsig_ann(ann))
+                        .is_some_and(|(ann, ..)| crate::ast_closure_param_tag::is_fnsig_ann(ann))
                 })
                 .collect();
-            let rets: Vec<ExprId> = rows
-                .iter()
-                .flat_map(|r| fn_returns(bodies[r.as_str()].1))
-                .collect();
-            let named = rets
-                .iter()
-                .filter(|&&e| matches!(ast.get_expr(e), Expr::Ident(n) if fn_sigs.contains_key(n)))
-                .count();
-            if named > 0 && named < rets.len() {
+            let (mut named, mut raw, mut n) = (0, 0, 0);
+            for r in &rows {
+                let (_, params, body) = bodies[r.as_str()];
+                let (rr, rn) = raw_ret::decl_raw_rets(ast, params, body, &is_fn);
+                named += fn_returns(body)
+                    .iter()
+                    .filter(|&&e| matches!(ast.get_expr(e), Expr::Ident(n) if is_fn(n)))
+                    .count();
+                raw += rr.len();
+                n += rn;
+            }
+            if (named > 0 && named < n) || (raw > 0 && raw < n) {
                 out.extend(rows.into_iter().cloned());
             }
         }
