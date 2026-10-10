@@ -317,6 +317,11 @@ fn dispatch_method(
     // charAt(idx, trailing) shape still routes through this fast
     // path; args[1] is never lowered (trailing-arg ignore).
     if let Some(v) =
+        crate::ssa_lower_substr_trim_into::try_emit_length(ctx, call_eid, method, recv_op, recv_ty)
+    {
+        return Some(v);
+    }
+    if let Some(v) =
         crate::ssa_lower_str_substr_dispatch::try_dispatch(ctx, method, args, recv_op, recv_ty)
     {
         return Some(v);

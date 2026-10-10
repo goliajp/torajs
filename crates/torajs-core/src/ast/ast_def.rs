@@ -1471,12 +1471,11 @@ pub struct Ast {
     /// of these; anywhere else it is handed on as owned strings.
     /// Populated by `analyze_let_owned_elems`.
     pub view_home_exprs: std::collections::HashSet<ExprId>,
-    /// Rotation 672 — the separator ExprIds of the one-argument
-    /// `R.split(S)` calls whose product is only ever measured
-    /// (`R.split(S).length`, or a binding read only as `x.length`).
-    /// Populated by `analyze_split_length_only`; the lowering counts
-    /// the tokens instead of building the array.
+    /// The separator ExprIds of the one-argument `R.split(S)` calls
+    /// whose product is only ever measured (`analyze_split_length_only`).
     pub split_length_only_seps: std::collections::HashSet<ExprId>,
+    /// The `R.trim()` calls likewise only measured (`analyze_trim_length_only`).
+    pub trim_length_only_calls: std::collections::HashSet<ExprId>,
     /// The `.match` member ExprIds whose `const m = s.match(re)`
     /// result is only null-tested or asked `m[0].length`. Populated by
     /// `analyze_regex_match_len_only`; the lowering holds the first

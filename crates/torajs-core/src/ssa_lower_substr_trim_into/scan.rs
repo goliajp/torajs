@@ -16,13 +16,23 @@ use crate::ssa_lower_rc_emit::emit_rc_inc_in_fn;
 // the header word packs count @0, tag @4, flags @6
 const HDR_FLAGS_SHIFT: u32 = 48;
 
-/// The trim of `recv` written into `buf`. A Latin-1 parent is scanned
-/// in place from both ends against the Latin-1 projection of
+/// Where the trim of `recv` goes.
+#[derive(Clone, Copy)]
+pub(crate) enum Out {
+    /// An inline view written into this 32-byte stack buffer, holding
+    /// a stake in the parent unless the parent is a static literal,
+    /// which is never counted.
+    View(ValueId),
+    /// Only the trimmed length, stored into this `i64` slot: no view
+    /// is written and the parent is neither retained nor released.
+    Length(ValueId),
+}
+
+/// The trim of `recv`, delivered as `out` says. A Latin-1 parent is
+/// scanned in place from both ends against the Latin-1 projection of
 /// TrimString's set (TAB..CR, SP, NBSP); a UTF-16 parent takes
-/// `__torajs_substr_trim_into`. Either way `buf` ends up an inline
-/// view holding a stake in the parent, unless the parent is a static
-/// literal, which is never counted.
-pub(crate) fn emit(ctx: &mut LowerCtx<'_>, recv: Operand, buf: ValueId) {
+/// `__torajs_substr_trim_into`.
+pub(crate) fn emit(ctx: &mut LowerCtx<'_>, recv: Operand, out: Out) {
     let entry = ctx.cur_block;
     let lo_slot = ctx
         .f
@@ -63,13 +73,7 @@ pub(crate) fn emit(ctx: &mut LowerCtx<'_>, recv: Operand, buf: ValueId) {
     let join = ctx.f.add_block();
     cond_br(ctx, entry, is_lat, fast, slow);
 
-    ctx.f.append_void(
-        slow,
-        InstKind::Call(
-            ctx.intrinsics.substr_trim_into,
-            vec![recv, Operand::Value(buf)],
-        ),
-    );
+    emit_kernel(ctx, slow, recv, out);
     ctx.f.set_term(slow, Terminator::Br(join));
 
     let p_int = ctx.f.append_inst(
@@ -173,6 +177,15 @@ pub(crate) fn emit(ctx: &mut LowerCtx<'_>, recv: Operand, buf: ValueId) {
         Operand::Value(hi_end),
         Operand::Value(lo_end),
     );
+    let buf = match out {
+        Out::View(buf) => buf,
+        Out::Length(slot) => {
+            store(ctx, emit, Operand::Value(new_len), slot, 0);
+            ctx.f.set_term(emit, Terminator::Br(join));
+            ctx.cur_block = join;
+            return;
+        }
+    };
     let new_off = bin(
         ctx,
         emit,
@@ -207,6 +220,33 @@ pub(crate) fn emit(ctx: &mut LowerCtx<'_>, recv: Operand, buf: ValueId) {
     ctx.f.set_term(retain, Terminator::Br(join));
 
     ctx.cur_block = join;
+}
+
+/// The UTF-16 arm: the kernel writes the view, into `out`'s buffer or,
+/// when only the length is wanted, into a scratch buffer released as
+/// soon as its length is read.
+fn emit_kernel(ctx: &mut LowerCtx<'_>, at: BlockId, recv: Operand, out: Out) {
+    let (buf, slot) = match out {
+        Out::View(buf) => (buf, None),
+        Out::Length(slot) => {
+            let tmp = ctx
+                .f
+                .append_inst(at, InstKind::AllocaBytes(32), Type::Substr, None);
+            (tmp, Some(slot))
+        }
+    };
+    let trim_into = ctx.intrinsics.substr_trim_into;
+    ctx.f.append_void(
+        at,
+        InstKind::Call(trim_into, vec![recv, Operand::Value(buf)]),
+    );
+    if let Some(slot) = slot {
+        let len = load(ctx, at, Type::I64, Operand::Value(buf), SUBSTR_LEN_OFF);
+        store(ctx, at, Operand::Value(len), slot, 0);
+        let drop = ctx.intrinsics.substr_drop;
+        ctx.f
+            .append_void(at, InstKind::Call(drop, vec![Operand::Value(buf)]));
+    }
 }
 
 /// `b` in TAB..CR, SP or NBSP goes to `ws`, anything else to `other`.

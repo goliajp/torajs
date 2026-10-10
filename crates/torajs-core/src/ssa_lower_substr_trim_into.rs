@@ -29,6 +29,7 @@ mod scan;
 
 use std::collections::HashMap;
 
+use crate::ast::ExprId;
 use crate::ssa::{FuncId, InstKind, Module, Operand, Type};
 use crate::ssa_lower::{LowerCtx, declare_intrinsic};
 
@@ -125,6 +126,60 @@ pub(crate) fn try_emit(
     let buf = ctx
         .f
         .append_inst(ctx.cur_block, InstKind::AllocaBytes(32), Type::Substr, None);
-    scan::emit(ctx, recv_op, buf);
+    scan::emit(ctx, recv_op, scan::Out::View(buf));
     Some(Operand::Value(buf))
+}
+
+/// `<recv>.trim()` on a view whose product the census proved is only
+/// ever measured (`ast::trim_length_only`): the trimmed length as an
+/// `I64`, with no view written. `None` for any other call, which then
+/// takes [`try_emit`] or the general dispatch.
+pub(crate) fn try_emit_length(
+    ctx: &mut LowerCtx<'_>,
+    call_eid: ExprId,
+    method: &str,
+    recv_op: Operand,
+    recv_ty: Type,
+) -> Option<Operand> {
+    if recv_ty != Type::Substr
+        || method != "trim"
+        || !ctx.ast.trim_length_only_calls.contains(&call_eid)
+    {
+        return None;
+    }
+    let entry = ctx.cur_block;
+    let slot = ctx
+        .f
+        .append_inst(entry, InstKind::Alloca(Type::I64), Type::Ptr, None);
+    scan::emit(ctx, recv_op, scan::Out::Length(slot));
+    let len = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I64, Operand::Value(slot), 0),
+        Type::I64,
+        None,
+    );
+    Some(Operand::Value(len))
+}
+
+/// `eid` is a trim call the census listed; it arrives as its length
+/// when [`try_emit_length`] took it, which the `I64` type tells.
+pub(crate) fn is_measured_trim(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
+    ctx.ast.trim_length_only_calls.contains(&eid)
+}
+
+/// `obj`, lowered to an operand of type `obj_ty`, is a measured trim
+/// product: the call itself, or a binding that holds one — a name the
+/// checker types a string whose slot holds an `I64`, which only
+/// `finalize_and_bind` makes, and only for this lane.
+pub(crate) fn operand_is_trim_length(ctx: &LowerCtx<'_>, obj: ExprId, obj_ty: &Type) -> bool {
+    if *obj_ty != Type::I64 {
+        return false;
+    }
+    match ctx.ast.get_expr(obj) {
+        crate::ast::Expr::Ident(n) => {
+            matches!(ctx.expr_types.get(&obj), Some(crate::check::Type::String))
+                && ctx.locals.get(n).is_some_and(|l| l.ty == Type::I64)
+        }
+        _ => is_measured_trim(ctx, obj),
+    }
 }

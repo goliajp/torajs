@@ -77,7 +77,10 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId, name: &str
     }
     let obj_val = ctx.lower_expr(obj);
     let obj_ty = ctx.operand_ty(&obj_val);
-    if name == "length" && crate::ssa_lower_split_count::operand_is_split_count(ctx, obj, &obj_ty) {
+    if name == "length"
+        && (crate::ssa_lower_split_count::operand_is_split_count(ctx, obj, &obj_ty)
+            || crate::ssa_lower_substr_trim_into::operand_is_trim_length(ctx, obj, &obj_ty))
+    {
         return obj_val;
     }
     let result = lower_with_val(ctx, eid, obj, obj_val, obj_ty, name);

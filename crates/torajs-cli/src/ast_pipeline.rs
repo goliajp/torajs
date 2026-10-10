@@ -483,6 +483,7 @@ pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) -> Result<(), ()> {
     ast::analyze_regex_result_props(ast);
     ast::analyze_let_owned_elems(ast);
     ast::analyze_split_length_only(ast);
+    ast::analyze_trim_length_only(ast);
     ast::analyze_regex_match_len_only(ast);
     ast::analyze_regex_exec_record(ast);
     ast::analyze_regex_replace_inline(ast);
