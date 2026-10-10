@@ -50,20 +50,14 @@ pub(super) fn plan<'a>(
     let returned = match &block.term {
         Terminator::Ret(Some(Operand::Value(v))) => *v,
         Terminator::Br(t) => {
-            let j = blocks_by_id.get(&brfuse::resolve_forwarded_target(blocks_by_id, *t).0)?;
-            let (Terminator::Ret(Some(Operand::Value(x))), true) = (&j.term, j.insts.is_empty())
-            else {
+            let copy = block.insts.last()?;
+            let InstKind::Copy(ty, Operand::Value(r)) = &copy.kind else {
                 return None;
             };
-            let copy = block.insts.last()?;
-            match &copy.kind {
-                InstKind::Copy(ty, Operand::Value(r))
-                    if copy.result == Some(*x) && *ty == func.ret =>
-                {
-                    *r
-                }
-                _ => return None,
+            if *ty != func.ret || !returns_through(func, blocks_by_id, *t, copy.result?) {
+                return None;
             }
+            *r
         }
         _ => return None,
     };
@@ -90,6 +84,37 @@ pub(super) fn plan<'a>(
         callee: *callee,
         args,
     })
+}
+
+/// Whether jumping to `target` with `v` in hand returns `v`: the
+/// target is just `ret v`, or a join that copies `v` into the next
+/// join's value and jumps on (one join per enclosing return, once
+/// inlining has nested a tail call's body inside another's).
+fn returns_through(
+    func: &Function,
+    blocks_by_id: &HashMap<u32, &Block>,
+    mut target: torajs_core::ssa::BlockId,
+    mut v: torajs_core::ssa::ValueId,
+) -> bool {
+    for _ in 0..8 {
+        let Some(j) = blocks_by_id.get(&brfuse::resolve_forwarded_target(blocks_by_id, target).0)
+        else {
+            return false;
+        };
+        match (&j.term, j.insts.as_slice()) {
+            (Terminator::Ret(Some(Operand::Value(x))), []) => return *x == v,
+            (Terminator::Br(next), [copy]) => match &copy.kind {
+                InstKind::Copy(ty, Operand::Value(r)) if *r == v && *ty == func.ret => {
+                    let Some(w) = copy.result else { return false };
+                    v = w;
+                    target = *next;
+                }
+                _ => return false,
+            },
+            _ => return false,
+        }
+    }
+    false
 }
 
 /// Arguments, epilogue, then `B` to the callee with the call-site
