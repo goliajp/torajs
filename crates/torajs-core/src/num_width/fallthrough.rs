@@ -44,6 +44,14 @@ pub(super) fn seed_and_walk_fn(
     if let Some(r) = return_type {
         let rk = SlotKey::Ret(name.clone());
         a.seed_any_face(&rk, r);
+        let mut any_ret = false;
+        crate::ast::walk_stmts(body, &mut |s| {
+            any_ret |= matches!(s, Stmt::Return(Some(e))
+                if a.expr_types.get(e) == Some(&crate::check::Type::Any));
+        });
+        if any_ret {
+            a.any_object_seed(&rk, r);
+        }
         seed_fallthrough_return(a, rk, r, name, body, tables, fallthrough_fns);
     }
     let scope = Scope {

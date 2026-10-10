@@ -4,6 +4,7 @@ use super::*;
 
 pub(crate) fn coerce_for_global(
     ctx: &mut LowerCtx<'_>,
+    name: &str,
     slot_ty: Type,
     v_ty: Type,
     v: Operand,
@@ -47,6 +48,8 @@ pub(crate) fn coerce_for_global(
             ctx.emit_drop_value(v, Type::Substr);
         }
         Operand::Value(owned)
+    } else if let Some(cast) = ctx.cast_assigned_obj(name, true, slot_ty, v, value) {
+        cast
     } else {
         v
     }

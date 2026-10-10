@@ -249,8 +249,14 @@ pub(super) fn coerce_arr_views_to_owned(
     copy
 }
 
-pub(super) fn global_coercion_compatible(ctx: &LowerCtx<'_>, slot_ty: Type, v_ty: Type) -> bool {
+pub(super) fn global_coercion_compatible(
+    ctx: &LowerCtx<'_>,
+    name: &str,
+    slot_ty: Type,
+    v_ty: Type,
+) -> bool {
     v_ty == slot_ty
+        || ctx.casts_assigned_obj(name, true, slot_ty, v_ty)
         || arr_views_into_owned_slot(ctx, slot_ty, v_ty)
         || arr_typed_into_any_slot(ctx, slot_ty, v_ty)
         || arr_slot_takes_any(ctx, slot_ty, v_ty).is_some()
@@ -302,7 +308,8 @@ pub(super) fn check_local_coercion(ctx: &LowerCtx<'_>, name: &str, snap_ty: Type
         || arr_typed_into_any_slot(ctx, snap_ty, v_ty)
         || arr_slot_takes_any(ctx, snap_ty, v_ty).is_some()
         || arr_any_slot_takes_any(ctx, snap_ty, v_ty)
-        || crate::ssa_lower_iface::slot_takes(ctx, snap_ty, v_ty);
+        || crate::ssa_lower_iface::slot_takes(ctx, snap_ty, v_ty)
+        || ctx.casts_assigned_obj(name, false, snap_ty, v_ty);
     if direct_compatible {
         return;
     }
@@ -349,6 +356,7 @@ pub(super) fn mismatch_hint(slot: &Type, val: &Type) -> &'static str {
 
 pub(super) fn coerce_for_local(
     ctx: &mut LowerCtx<'_>,
+    name: &str,
     snap_ty: Type,
     v_ty: Type,
     v: Operand,
@@ -407,6 +415,8 @@ pub(super) fn coerce_for_local(
             ctx.emit_drop_value(v, Type::Substr);
         }
         Operand::Value(owned)
+    } else if let Some(cast) = ctx.cast_assigned_obj(name, false, snap_ty, v, value) {
+        cast
     } else {
         v
     }

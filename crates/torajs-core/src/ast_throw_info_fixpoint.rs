@@ -33,11 +33,17 @@ pub(crate) fn compute_may_throw_fns(
     let fn_lets = fn_typed_lets(ast, expr_types, &aliases);
     for stmt in &ast.stmts {
         if let Stmt::FnDecl {
-            name, params, body, ..
+            name,
+            params,
+            body,
+            return_type,
+            ..
         } = stmt
         {
             let (mut direct, mut called) =
                 fn_throw_info(ast, name, params, body, expr_types, widths, &assigned);
+            let ret = return_type.as_deref();
+            direct |= crate::ast_throw_info::returns_any_into_obj(ast, name, ret, body, expr_types);
             // RFC 20260922 S0 — a checked cast can raise at any typed
             // boundary, which this scan does not model; the measurement
             // gate keeps every caller's check instead.

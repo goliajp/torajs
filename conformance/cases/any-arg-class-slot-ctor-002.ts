@@ -7,7 +7,7 @@ class P {
 }
 class D {
   n: any;
-  p: P;
+  p: any;
   constructor(p: P, n: number = 5) {
     this.p = p;
     this.n = n;
@@ -16,7 +16,7 @@ class D {
 class E {
   n: any;
   b: any;
-  p: P;
+  p: any;
   constructor(p: P, n: number, b: boolean) {
     this.p = p;
     this.n = n;

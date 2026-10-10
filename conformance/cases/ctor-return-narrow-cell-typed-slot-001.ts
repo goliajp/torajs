@@ -92,9 +92,18 @@ function mk(i: number): BigRet {
 let acc = 0
 for (let i = 0; i < 64; i++) {
   {
-    // narrow cell in a wide slot, through the constructor's answer
-    const v: BigCtor = new BigCtor(takeOut(i))
-    acc += v.a
+    // narrow cell in a wide slot, through the constructor's answer: the
+    // annotation names a class the cell is not an instance of, so the
+    // declaration throws a TypeError where bun stores it (RFC 20260922,
+    // decision 1); either way the cell is released by its own size
+    const c = takeOut(i)
+    acc += c.a
+    try {
+      const v: BigCtor = new BigCtor(c)
+      acc += v.a - c.a
+    } catch (e) {
+      if (!(e instanceof TypeError)) throw e
+    }
   }
   {
     // the same through an `as` cast out of `any`
@@ -102,14 +111,25 @@ for (let i = 0; i < 64; i++) {
     acc += w.a
   }
   {
-    // a typed call argument, handed back into a typed binding
-    const t: BigArg = take(takeOut(i))
-    acc += t.a
+    // a typed call argument, handed back into a typed binding, which
+    // throws the same TypeError (see above); the cell is a `Small(0)`
+    try {
+      const t: BigArg = take(takeOut(i))
+      acc += t.a
+    } catch (e) {
+      if (!(e instanceof TypeError)) throw e
+    }
   }
   {
-    // a declared return
-    const r: BigRet = mk(i)
-    acc += r.a
+    // a declared return, which throws the same TypeError (see above);
+    // the cell handed out here is a `Small(0)`, so `acc` is the same
+    // either way
+    try {
+      const r: BigRet = mk(i)
+      acc += r.a
+    } catch (e) {
+      if (!(e instanceof TypeError)) throw e
+    }
   }
 }
 console.log('acc', acc)

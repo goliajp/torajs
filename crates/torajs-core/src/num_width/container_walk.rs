@@ -287,6 +287,16 @@ impl<'a> Analysis<'a> {
                 if let Some(rk) = self.container_key_of(*obj, scope) {
                     self.mark_containerish(&rk);
                     let fk = SlotKey::Field(Box::new(rk), PropKey::from(name));
+                    if self.expr_types.get(&value) == Some(&crate::check::Type::Any)
+                        && let Some(ann) = crate::ast_throw_info::class_field_ann(
+                            self.ast,
+                            self.expr_types,
+                            *obj,
+                            name,
+                        )
+                    {
+                        self.any_object_seed(&fk, &ann);
+                    }
                     let w = self.flow(value, scope);
                     self.add_container_constraint(fk.clone(), w);
                     // F5 — fn value assigned into a field: same sig

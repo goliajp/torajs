@@ -229,6 +229,12 @@ impl<'a> Scan<'a> {
         {
             f |= ANY;
         }
+        // an `any` initializer of an object-typed binding is cast
+        if type_ann.is_some_and(|a| super::obj_cast::object_ann(self.ast, a))
+            && matches!(self.expr_types.get(&init), Some(crate::check::Type::Any))
+        {
+            self.direct = true;
+        }
         if f != 0 {
             self.nullish.insert(name.to_string(), f);
         } else {

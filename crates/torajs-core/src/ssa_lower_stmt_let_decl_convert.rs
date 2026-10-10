@@ -107,6 +107,15 @@ pub(crate) fn maybe_any_to_typed_scalar(
         // box is a non-zero pattern — every any-held value read as
         // true, the L3b ① TypedNarrow-lane discovery).
         Type::Bool => ctx.coerce_to_bool(init_val),
+        // An object layout the annotation names takes the value only as
+        // the cell it is (`ssa_lower_checked_cast::obj`).
+        Type::Obj(sid) => {
+            let ann = type_ann.expect("an unannotated binding returned above");
+            match ctx.checked_cast_obj(init_val, sid, ann, CastSlot::Assign, Some(init)) {
+                Some(v) => v,
+                None => return (init_val, false),
+            }
+        }
         _ => return (init_val, false),
     };
     // The original reference, not the box: boxing above re-encoded it

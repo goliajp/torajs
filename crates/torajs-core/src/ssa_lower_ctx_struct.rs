@@ -388,10 +388,14 @@ pub(crate) struct LowerCtx<'a> {
     pub(crate) nullable_arr_lets: std::collections::HashSet<String>,
     /// The bindings held as exec records, by slot (`ssa_lower_exec_record`).
     pub(crate) exec_records: HashMap<ValueId, crate::ssa_lower_exec_record::ExecRecord>,
-    /// Whether this function's RETURN annotation admits `undefined`
-    /// (`string | undefined`). Storage drops the nullable bit, so the
-    /// return boundary reads it here — see `coerce_to_ret`.
-    pub(crate) ret_ann_nullable: bool,
+    /// This function's RETURN annotation as written. Storage drops the
+    /// nullable bit (`string | undefined`) and the class an object
+    /// layout was named by, so the return boundary reads them here —
+    /// see `coerce_to_ret`.
+    pub(crate) ret_ann: Option<String>,
+    /// The annotation of each `let` of this function by name (the
+    /// latest declaration), for an assignment into its slot.
+    pub(crate) let_anns: HashMap<String, Option<String>>,
     /// RFC 20260707-undefined-sentinel-repr chunk 1 — binding names
     /// whose let-init is an element load off a nullable-arr source
     /// (`const c = m[1]` with m an exec/match binding) or an alias

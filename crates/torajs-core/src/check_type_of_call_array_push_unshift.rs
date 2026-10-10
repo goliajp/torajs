@@ -52,7 +52,13 @@ pub(crate) fn try_match(
         // so only the Any-arg form is intercepted; the ret is the
         // member-table's Number (new length), the same answer the
         // variadic arm below gives.
-        if !matches!(inner, Type::Number | Type::String) {
+        // An object-layout element takes it too: the lowering casts it
+        // into an annotated element type (`cast_pushed_obj`), and an
+        // inferred one is retyped `any[]` first (`let_widen::push`).
+        if !matches!(
+            inner,
+            Type::Number | Type::String | Type::Struct(_) | Type::ClassRef(_)
+        ) {
             return None;
         }
         let aty = match checker.type_of(ast, args[0]) {

@@ -190,6 +190,10 @@ impl<'a> Analysis<'a> {
         // face seeds F64 (see json_seed.rs).
         if self.is_json_parse(init) {
             self.json_parse_seed(&key, type_ann);
+        } else if let Some(ann) = type_ann
+            && self.expr_types.get(&init) == Some(&crate::check::Type::Any)
+        {
+            self.any_object_seed(&key, ann);
         }
         self.add_constraint(key.clone(), w);
         self.alias_guarded(key.clone(), init, scope);
@@ -209,6 +213,11 @@ impl<'a> Analysis<'a> {
                     let w = self.flow(*value, scope);
                     self.assign_to_name(&n, w, scope);
                     if let Some(k) = self.resolve(&n, scope) {
+                        if self.expr_types.get(value) == Some(&crate::check::Type::Any)
+                            && let Some(ann) = self.binding_ann(&k)
+                        {
+                            self.any_object_seed(&k, &ann);
+                        }
                         self.alias_guarded(k.clone(), *value, scope);
                         self.fn_value_flow(&k, *value, scope);
                     } else if scope.fn_name.starts_with("__") && self.by_name.contains_key(&n) {

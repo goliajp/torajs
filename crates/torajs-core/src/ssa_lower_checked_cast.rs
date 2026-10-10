@@ -26,9 +26,16 @@
 //!
 //! **Not a production path.** With the gate on, the binary makes no
 //! promise beyond "a boundary that would cast now throws".
+//!
+//! An object-layout slot the program annotated is cast always, gate or
+//! not ([`obj`]): before the cast its boundary had no conversion at
+//! all, and the slot read the box's bits as a cell.
 
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
+
+mod obj;
+mod obj_ann;
 
 /// Where the program got the slot's type from (RFC §3.1).
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -92,6 +99,12 @@ fn site_text(slot: CastSlot, target: Type) -> Option<String> {
         Type::Bool => "boolean",
         _ => return None,
     };
+    Some(site_line(slot, ty))
+}
+
+/// The kernel's message for a slot of type `ty`, `{}` standing for the
+/// rejected value's `typeof` class.
+fn site_line(slot: CastSlot, ty: &str) -> String {
     let verb = match slot {
         CastSlot::Assign => "assign {} to",
         CastSlot::Pass => "pass {} to parameter of type",
@@ -99,10 +112,16 @@ fn site_text(slot: CastSlot, target: Type) -> Option<String> {
         CastSlot::Cast => "cast {} to",
         CastSlot::Store => "store {} into",
     };
-    Some(format!("cannot {verb} `{ty}`"))
+    format!("cannot {verb} `{ty}`")
 }
 
 impl LowerCtx<'_> {
+    /// Whether this function's return annotation admits `undefined`
+    /// (`string | undefined`).
+    pub(crate) fn ret_ann_nullable(&self) -> bool {
+        (self.ret_ann.as_deref()).is_some_and(|r| r.starts_with("__nullable("))
+    }
+
     /// The checked cast of `op` (an `any` operand) into `target`, when
     /// the gate covers `scope` and `target` is a scalar slot; `None`
     /// leaves the boundary's own conversion in charge. A string result

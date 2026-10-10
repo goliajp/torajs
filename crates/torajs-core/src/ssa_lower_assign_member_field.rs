@@ -238,7 +238,7 @@ pub(crate) fn lower_struct_field_store(
         // temps keep transferring their fresh reference — and so
         // does a fit that MINTED, whose value the source expression
         // never held (see `fit_to_field`).
-        let (v, minted) = fit_to_field(ctx, field_ty, v, value);
+        let (v, minted) = fit_to_field(ctx, field_ty, v, value, (obj, field));
         let transfers = ctx.expr_transfers_ownership(value) || minted;
         let v_ty = ctx.operand_ty(&v);
         if !transfers && !v_ty.is_copy() {
@@ -307,7 +307,11 @@ fn fit_to_field(
     field_ty: Type,
     v: Operand,
     value: ExprId,
+    (obj, field): (ExprId, &str),
 ) -> (Operand, bool) {
+    if let Some(cast) = ctx.cast_stored_obj(field_ty, v, value, obj, field) {
+        return (cast, true);
+    }
     // W4 — align the stored value with the field width (mirrors the
     // index-assign site; the reverse direction means the width
     // analysis missed this write).

@@ -47,6 +47,9 @@ pub(crate) fn coerce_push_value(
     // non-Arr elem types). See index-assign twin.
     ctx.emit_arr_mark_kind(&val);
     val = ctx.coerce_bool_to_i64(val);
+    if let Some(cast) = ctx.cast_pushed_obj(elem_ty, val, arg_eid) {
+        return (cast, true);
+    }
     let mut val_owned_from_substr = false;
     let cast = ctx.checked_cast(
         val,

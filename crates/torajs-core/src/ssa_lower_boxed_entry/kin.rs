@@ -166,7 +166,8 @@ pub(crate) fn admit_generic_rows(
     }
 }
 
-fn encode(tags: &[u32]) -> Vec<u8> {
+/// A class list's rodata bytes.
+pub(crate) fn encode(tags: &[u32]) -> Vec<u8> {
     std::iter::once(tags.len() as u32)
         .chain(tags.iter().copied())
         .flat_map(u32::to_le_bytes)

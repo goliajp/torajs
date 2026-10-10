@@ -61,9 +61,11 @@ use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
 use std::collections::{HashMap, HashSet};
 
 mod nullish;
+mod obj_cast;
 mod scan;
 
 pub(crate) use crate::ast_throw_info_fixpoint::compute_may_throw_fns;
+pub(crate) use obj_cast::{class_field_ann, returns_any_into_obj};
 pub(crate) use scan::Scan;
 
 pub(crate) fn fn_throw_info(
@@ -206,6 +208,12 @@ impl Scan<'_> {
                 // nothing has seen yet, which the lowering stores
                 // unguarded on the same proof.
                 if is_property_store(ast, *target) && !self.fresh_store(*target) {
+                    self.direct = true;
+                }
+                // an `any` value into an object-typed slot is cast
+                if self.expr_types.get(value) == Some(&crate::check::Type::Any)
+                    && obj_cast::object_ty(self.expr_types.get(target))
+                {
                     self.direct = true;
                 }
                 self.expr(*target);

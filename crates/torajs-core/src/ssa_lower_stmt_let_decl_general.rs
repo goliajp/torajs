@@ -205,6 +205,7 @@ pub(crate) fn record_binding_flags(
     type_ann: Option<&String>,
     init: ExprId,
 ) {
+    ctx.let_anns.insert(name.to_string(), type_ann.cloned());
     // RC-4 F1a — record exec/match-shaped let-inits so member/index
     // loads on this binding emit the null guard (miss is null per
     // the checker's Nullable<Array<Str>> typing).

@@ -1,0 +1,14 @@
+Q1:false P1:true P21:true
+L5:false
+x=7 x=1 x=undefined
+TypeError TypeError TypeError
+TypeError TypeError
+true true true
+true
+null Q1:false P1:true
+Q1:false P21:true
+Q1:false
+Q1:false P1:true
+Q1:false true
+TypeError 1
+P21:true x=1

@@ -65,23 +65,12 @@ impl<'a> Analysis<'a> {
             self.json_seed_container(&ek, Some(elem), seen);
             return;
         }
-        // Named-type spelling — seed each field's face.
+        // Named-type or object-type-literal spelling — seed each
+        // field's face.
         if !seen.insert(ann.to_string()) {
             return;
         }
-        let fields: Vec<(PropKey, String)> = self
-            .ast
-            .stmts
-            .iter()
-            .find_map(|s| match s {
-                Stmt::TypeDecl {
-                    name,
-                    type_params,
-                    fields,
-                } if name == ann && type_params.is_empty() => Some(fields.clone()),
-                _ => None,
-            })
-            .unwrap_or_default();
+        let fields = self.object_fields(ann);
         if fields.is_empty() {
             return;
         }
@@ -92,6 +81,93 @@ impl<'a> Analysis<'a> {
                 self.add_container_constraint(fk.clone(), super::magnitude::f64_flow());
             }
             self.json_seed_container(&fk, Some(&fann), seen);
+        }
+    }
+}
+
+impl Analysis<'_> {
+    /// Seed the number-domain fields of the object type `ann` that the
+    /// slot `key` is written an `any` value into. The write casts, and
+    /// a cast may rebuild a fresh dynamic object as a cell of the
+    /// slot's layout (`ssa_lower_checked_cast::obj`): its property
+    /// values are runtime data like JSON text, and a field narrowed
+    /// past `number` would reject a fraction the annotation admits.
+    pub(super) fn any_object_seed(&mut self, key: &SlotKey, ann: &str) {
+        let base = crate::check_type_ann::strip_nullable(ann).trim();
+        // a class slot takes the cell as it is, never a rebuilt one
+        if self.ast.class_parents.contains_key(base) {
+            return;
+        }
+        let fields = self.object_fields(base);
+        if fields.is_empty() {
+            return;
+        }
+        self.mark_containerish(key);
+        for (fname, fann) in fields {
+            if number_domain(Some(&fann)) {
+                let fk = SlotKey::Field(Box::new(key.clone()), fname);
+                self.add_container_constraint(fk, super::magnitude::f64_flow());
+            }
+        }
+    }
+
+    /// The fields of the object type `ann`: an object type literal's,
+    /// or a declared non-generic type's (a class's among them).
+    fn object_fields(&self, ann: &str) -> Vec<(PropKey, String)> {
+        let inline = crate::ast_collect_fn_closure_init::parse_inlobj_field_anns(ann)
+            .map(|fs| fs.into_iter().map(|(f, a)| (PropKey::from(f), a)).collect());
+        inline
+            .or_else(|| {
+                self.ast.stmts.iter().find_map(|s| match s {
+                    Stmt::TypeDecl {
+                        name,
+                        type_params,
+                        fields,
+                    } if name == ann && type_params.is_empty() => Some(fields.clone()),
+                    _ => None,
+                })
+            })
+            .unwrap_or_default()
+    }
+
+    /// The annotation the binding of slot `key` was declared with: a
+    /// module `let`'s, a function `let`'s (by name) or a parameter's.
+    pub(super) fn binding_ann(&self, key: &SlotKey) -> Option<String> {
+        let let_ann = |stmts: &[Stmt], want: &str| {
+            let mut found = None;
+            crate::ast::walk_stmts(stmts, &mut |s| {
+                if let Stmt::LetDecl {
+                    name,
+                    type_ann: Some(a),
+                    ..
+                } = s
+                    && name == want
+                {
+                    found = Some(a.clone());
+                }
+            });
+            found
+        };
+        let decl = |f: &str| {
+            self.ast.stmts.iter().find_map(|s| match s {
+                Stmt::FnDecl {
+                    name, params, body, ..
+                } if name == f => Some((params, body)),
+                _ => None,
+            })
+        };
+        match key {
+            SlotKey::Global(n) => self.ast.stmts.iter().find_map(|s| match s {
+                Stmt::LetDecl {
+                    name,
+                    type_ann: Some(a),
+                    ..
+                } if name == n => Some(a.clone()),
+                _ => None,
+            }),
+            SlotKey::Local(f, n) => let_ann(decl(f)?.1, n),
+            SlotKey::Param(f, n) => (decl(f)?.0.iter()).find(|p| p.name == *n)?.type_ann.clone(),
+            _ => None,
         }
     }
 }

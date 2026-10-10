@@ -197,7 +197,7 @@ mod build_reroute;
 mod build_rest;
 mod fit_tag;
 mod kin;
-pub(crate) use kin::admit_generic_rows;
+pub(crate) use kin::{admit_generic_rows, encode as encode_class_list};
 mod probe;
 use build::build_boxed_entry;
 pub(crate) use build_reroute::twin_adapter_of;

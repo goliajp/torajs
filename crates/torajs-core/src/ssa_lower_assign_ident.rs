@@ -253,7 +253,7 @@ fn lower_global_assign(
     if drop_old_slot && !(slot_ty == Type::Str && v_ty == Type::Substr) {
         apply_borrow_rc_inc(ctx, &v, value);
     }
-    if !global_coercion_compatible(ctx, slot_ty, v_ty) {
+    if !global_coercion_compatible(ctx, &name, slot_ty, v_ty) {
         panic!(
             "ssa-lower: assignment to global `{name}` mismatch — slot is {slot_ty:?} but value is {v_ty:?}{}",
             mismatch_hint(&slot_ty, &v_ty),
@@ -265,7 +265,7 @@ fn lower_global_assign(
     let v = if slot_ty == Type::Any && v_ty != Type::Any {
         ctx.box_to_any_from_expr(value, v)
     } else {
-        coerce_for_global(ctx, slot_ty, v_ty, v, value)
+        coerce_for_global(ctx, &name, slot_ty, v_ty, v, value)
     };
     let cur_block = ctx.cur_block;
     let ptr = ctx.f.append_inst(
@@ -334,7 +334,7 @@ fn lower_local_assign(ctx: &mut LowerCtx<'_>, name: String, value: ExprId) -> Op
         apply_borrow_rc_inc(ctx, &v, value);
     }
     check_local_coercion(ctx, &name, snapshot.ty, v_ty);
-    let v = coerce_for_local(ctx, snapshot.ty, v_ty, v, value);
+    let v = coerce_for_local(ctx, &name, snapshot.ty, v_ty, v, value);
     let post_rhs = *ctx.locals.get(&name).unwrap_or(&snapshot);
     // RFC 20260710 — a promoted mutable capture binding is
     // moved-marked (its stake lives in the capture box), but the box

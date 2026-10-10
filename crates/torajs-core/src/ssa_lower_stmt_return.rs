@@ -334,7 +334,7 @@ fn coerce_to_ret(ctx: &mut LowerCtx, op: Operand, maybe: Option<crate::ast::Expr
     // the literal, so putting the sentinel there would make one
     // binding read two ways (the `7a6947f11` shape, still open for the
     // bare face).
-    if ctx.ret_ann_nullable
+    if ctx.ret_ann_nullable()
         && let Some(eid) = maybe
         && matches!(
             ctx.expr_types.get(&eid),
@@ -344,12 +344,15 @@ fn coerce_to_ret(ctx: &mut LowerCtx, op: Operand, maybe: Option<crate::ast::Expr
     {
         return sentinel;
     }
+    if let Some(v) = ctx.cast_returned_obj(op, maybe) {
+        return v;
+    }
     if actual == Type::Any && !ctx.ast.contextual_ret_fns.contains(&ctx.f.name) {
         // RFC 20260922 S0 — a return type the program wrote casts; a
         // contextual seed keeps the spec's own coercion below.
         use crate::ssa_lower_checked_cast::{Admits, CastScope, CastSlot};
         let ret = ctx.f.ret;
-        let admits = if ctx.ret_ann_nullable {
+        let admits = if ctx.ret_ann_nullable() {
             Admits::OrUndefined
         } else {
             Admits::Exact
@@ -428,7 +431,7 @@ fn coerce_to_ret(ctx: &mut LowerCtx, op: Operand, maybe: Option<crate::ast::Expr
         // already take; the checker types the call `Nullable(String)`,
         // so typeof / eq / print at the call site already take their
         // two-state runtime branch rather than folding.
-        let kernel = if ctx.ret_ann_nullable {
+        let kernel = if ctx.ret_ann_nullable() {
             ctx.intrinsics.any_to_str_slot
         } else {
             ctx.intrinsics.any_to_str_box

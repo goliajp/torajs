@@ -1,6 +1,9 @@
 // A class reached through a value constructs through its factory's
 // boxed entry: an argument that is no instance of the parameter's
-// class runs the constructor on the value as it is.
+// class runs the constructor on the value as it is. Storing that value
+// into a field the program annotated with the class is a checked cast
+// of the program's own type, which throws a TypeError where bun keeps
+// the value (the KP line of the expected output).
 class P {
   x = 1;
   m() {
@@ -20,10 +23,16 @@ class Q {
 }
 class K {
   tag: string;
-  p: P;
+  p: any;
   constructor(p: P) {
     this.p = p;
     this.tag = p.m() + ":" + (p instanceof P);
+  }
+}
+class KP {
+  p: P;
+  constructor(p: P) {
+    this.p = p;
   }
 }
 class R {
@@ -78,5 +87,7 @@ console.log(mk(K, new Q()).tag, mk(K, new P()).tag);
 class S2 extends K {}
 const SS2: any = S2;
 console.log(new SS2(new Q()).tag, new SS2(new Q()) instanceof K);
+const KKP: any = KP;
+console.log(err(() => new KKP(new Q()).p.x), err(() => new KKP(new P2()).p.x));
 // a typed construction keeps the typed body
 console.log(new K(new P2()).tag, new R(new P()).s);
