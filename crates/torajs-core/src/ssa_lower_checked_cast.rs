@@ -38,6 +38,7 @@ mod obj;
 mod obj_ann;
 pub(crate) mod plan;
 mod plan_emit;
+pub(crate) use plan_emit::emit_plan_operands;
 
 /// Where the program got the slot's type from (RFC §3.1).
 #[derive(Clone, Copy, PartialEq, Eq)]

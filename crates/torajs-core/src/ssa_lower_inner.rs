@@ -188,6 +188,7 @@ pub(crate) fn lower_inner(
         &class_name_to_tag,
         &aliases,
         &arr_layouts,
+        &struct_layouts,
         env_drop_trivial_fid,
         &init_a,
         &init_b,

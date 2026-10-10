@@ -179,6 +179,8 @@ pub(super) fn build_boxed_entry(
         entry = new_entry;
         args.push(Operand::Value(arr));
     }
+    let temps = (&str_temps[..], &obj_temps[..], &settle_temps[..]);
+    entry = super::build_cast::emit_cast_check(&mut f, entry, intr, &coerce, temps);
 
     let boxed = if ret_ty == Type::Void {
         f.append_void(entry, InstKind::Call(body_fid, args));

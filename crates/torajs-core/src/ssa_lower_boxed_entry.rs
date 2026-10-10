@@ -107,6 +107,7 @@ pub(crate) fn synthesize_boxed_entries(
     class_name_to_tag: &HashMap<String, u32>,
     aliases: &HashMap<String, Type>,
     arr_layouts: &[Type],
+    struct_layouts: &[Vec<(crate::ast::PropKey, Type)>],
 ) -> HashMap<FuncId, (FuncId, ssa::SigId)> {
     let mut kins = kin::Kins::new(
         ast,
@@ -134,6 +135,15 @@ pub(crate) fn synthesize_boxed_entries(
     for t in twins.into_iter().chain(monos) {
         let undef_misses = relay_target_reads_argc(ast, &t.name);
         let slots = kins.slot_tests(&mut module.strings, &t, undef_misses);
+        let tables = crate::ssa_lower_checked_cast::plan::PlanTables {
+            ast,
+            struct_layouts,
+            arr_layouts,
+            class_name_to_tag,
+            aliases,
+            anon_stamp_pool,
+        };
+        let casts = build_cast::param_casts(&t, &tables, &mut module.strings);
         let argc_fixed = fixed_argc_of(ast, &t.name);
         let twin_reroute = twin_adapter_of(ast, fn_table, &entries, &t.name)
             .filter(|_| argc_fixed.is_some() || any_lossy(&t, &slots));
@@ -162,6 +172,7 @@ pub(crate) fn synthesize_boxed_entries(
                     argc_fixed,
                 }),
                 fit: vec![None; t.user_tys.len()],
+                casts,
             },
             &t.name,
             t.body_fid,
@@ -193,6 +204,7 @@ mod dflt_lit;
 pub(crate) use dflt_lit::{DfltLit, FnDfltLits};
 
 mod build;
+mod build_cast;
 mod build_reroute;
 mod build_rest;
 mod fit_tag;

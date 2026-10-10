@@ -42,6 +42,10 @@ pub(super) struct BoxedCoerceIds {
     pub(super) arr_any_to_typed: FuncId,
     /// The twin adapter call of a receiver-polymorphic twin.
     pub(super) invoke_recv_first: FuncId,
+    /// The object cast of a class-typed parameter
+    /// (`build_cast`), and the pending-throw test after it.
+    pub(super) cast_obj: FuncId,
+    pub(super) throw_check: FuncId,
 }
 
 pub(super) fn declare_coerce_intrinsics(
@@ -67,6 +71,8 @@ pub(super) fn declare_coerce_intrinsics(
             &[Ptr, I64, Any, Ptr, I64],
             Any,
         ),
+        cast_obj: d("__torajs_anyv_cast_obj", &[Any, I64, Ptr, Type::Str], Ptr),
+        throw_check: d("__torajs_throw_check", &[], I64),
     }
 }
 
@@ -89,6 +95,10 @@ pub(super) struct BoxedCoerceIntrinsics<'a> {
     /// 1 on the path that reaches the unboxes); `None` for every
     /// other slot. Such a slot passes the cell through as it is.
     pub(super) fit: Vec<Option<ssa::ValueId>>,
+    /// Per user slot, the cast of a class-typed
+    /// parameter (`build_cast`); such a slot that did not fit is cast
+    /// rather than coerced.
+    pub(super) casts: Vec<Option<super::build_cast::ParamCast>>,
 }
 
 /// The adapter's per-param unbox walk (module-doc ABI): load each
@@ -234,40 +244,15 @@ pub(super) fn unbox_args(
                 obj_temps.push(av);
                 Operand::Value(ptr)
             }
-            // S2.36 — struct params ride the coercion kernel: an
-            // inline-objlit argument arrives as a DYNOBJ box (the
-            // any-lane packing contract) while the body reads the
-            // param through its struct LAYOUT; the kernel
-            // materializes the right repr (or stakes a pass-through)
-            // and the owned answer releases after the call.
-            Type::Obj(_) => {
-                let tag = coerce.slots[first + i]
-                    .fit
-                    .expect("a struct slot carries its layout test")
-                    .tag;
-                let coerced = f.append_inst(
-                    entry,
-                    InstKind::Call(
-                        coerce.ids.arg_to_struct,
-                        vec![av, Operand::ConstI64(tag as i64)],
-                    ),
-                    Type::Any,
-                    None,
-                );
-                obj_temps.push(coerced);
-                let raw = f.append_inst(
-                    entry,
-                    InstKind::Call(intr.any_unbox_value, vec![Operand::Value(coerced)]),
-                    Type::I64,
-                    None,
-                );
-                Operand::Value(f.append_inst(
-                    entry,
-                    InstKind::IntToPtr(Operand::Value(raw)),
-                    Type::Ptr,
-                    None,
-                ))
-            }
+            // a class-typed parameter that did not fit takes the
+            // checked cast (`build_cast`); another struct param rides
+            // the S2.36 coercion kernel
+            Type::Obj(_) => match &coerce.casts[first + i] {
+                Some(cast) => {
+                    super::build_cast::emit_param_cast(f, entry, cast, coerce, intr, av, obj_temps)
+                }
+                None => coerce_struct_arg(f, entry, coerce, intr, first + i, av, obj_temps),
+            },
             // Other heap-typed / raw-ptr params: the cell's NaN-box
             // encoding is its pointer bits (borrow — the argv slot
             // keeps the reference alive across the call). A ShortStr
@@ -294,6 +279,48 @@ pub(super) fn unbox_args(
         };
         args.push(arg);
     }
+}
+
+/// S2.36 — a struct param rides the coercion kernel: an inline-objlit
+/// argument arrives as a DYNOBJ box (the any-lane packing contract)
+/// while the body reads the param through its struct LAYOUT; the
+/// kernel materializes the right repr (or stakes a pass-through) and
+/// the owned answer releases after the call. `slot` is the user slot.
+fn coerce_struct_arg(
+    f: &mut ssa::Function,
+    entry: ssa::BlockId,
+    coerce: &BoxedCoerceIntrinsics<'_>,
+    intr: &BoxedEntryIntrinsics,
+    slot: usize,
+    av: Operand,
+    obj_temps: &mut Vec<ssa::ValueId>,
+) -> Operand {
+    let tag = coerce.slots[slot]
+        .fit
+        .expect("a struct slot carries its layout test")
+        .tag;
+    let coerced = f.append_inst(
+        entry,
+        InstKind::Call(
+            coerce.ids.arg_to_struct,
+            vec![av, Operand::ConstI64(tag as i64)],
+        ),
+        Type::Any,
+        None,
+    );
+    obj_temps.push(coerced);
+    let raw = f.append_inst(
+        entry,
+        InstKind::Call(intr.any_unbox_value, vec![Operand::Value(coerced)]),
+        Type::I64,
+        None,
+    );
+    Operand::Value(f.append_inst(
+        entry,
+        InstKind::IntToPtr(Operand::Value(raw)),
+        Type::Ptr,
+        None,
+    ))
 }
 
 /// 546-02 Class B leg — reclaim ShortStr materializations the

@@ -1,20 +1,21 @@
-//! The all-`any` twin of a class factory reached through a value.
+//! The twin of a class factory reached through a value.
 //!
 //! `const KK: any = K; new KK(v)` constructs through the factory's
 //! boxed adapter (`__torajs_anyv_construct`), which unboxes `v` for the
-//! typed factory: a slot typed by a class takes the cell as that class,
-//! and the inlined constructor calls the class's own methods on it and
-//! answers `instanceof` by its tag. For a `v` of another class that is
-//! a static call of a method `v` does not have. §10.2.1.3 binds the
-//! argument as it is, and §13.3.2.1 / §13.10.2 read `p.m` and
-//! `p instanceof P` off that value, so the factory takes the twin a
-//! relay shell takes: `__new_<C>$$anyws`, the factory with every
-//! non-rest parameter `any` and its return `any`. Its constructor call
-//! hands those `any` arguments to the constructor, which the direct-call
-//! wedge widens in turn (`check_type_of_call::any_widen`). The mono
-//! adapter tests each slot and hands a call that does not fit to the
-//! twin's adapter, on the same head-less face
-//! (`ssa_lower_boxed_entry::twin_adapter_of`).
+//! typed factory. A `number` / `boolean` slot handed a value of another
+//! kind, or a slot of another object type handed a value without its
+//! layout, cannot take it as it is (§10.2.1.3 binds the argument as it
+//! is), so the factory takes the twin a relay shell takes:
+//! `__new_<C>$$anyws`, the factory with those parameters `any` and its
+//! return `any`. Its constructor call hands those `any` arguments to
+//! the constructor, which the direct-call wedge widens in turn
+//! (`check_type_of_call::any_widen`). The mono adapter tests each slot
+//! and hands a call that does not fit to the twin's adapter, on the
+//! same head-less face (`ssa_lower_boxed_entry::twin_adapter_of`).
+//!
+//! A parameter annotated with a class keeps its type in the twin
+//! ([`widened`]): it is a class slot, and both adapters cast the
+//! argument into it.
 //!
 //! Only a factory that gets a boxed adapter at all takes one: the
 //! construct channel is its only caller. Out of reach, and left as
@@ -27,7 +28,7 @@ use std::collections::{HashMap, VecDeque};
 use super::closure::{all_any, inner_suffix};
 use super::{twin_name, widenable_target};
 use crate::ast::desugar_with::walk::{expr_children, stmt_exprs};
-use crate::ast::{Ast, Expr, ExprId, Stmt};
+use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
 use crate::check::{Checker, Type};
 use crate::check_monomorph::WorkItem;
 use crate::check_monomorph_any_widen::{RetFace, WidenTarget, emit_widened_spec};
@@ -82,13 +83,34 @@ pub(super) fn run(
             &factory,
             &twin,
             &inner_suffix(&factory),
-            &all_any(&found.params),
+            &widened(owned_ast, &found.params),
             RetFace::Any,
         );
         if mono_decls.len() > emitted {
             widen_ctor_scalars(c, owned_ast, &mono_decls[emitted..], &factory);
         }
     }
+}
+
+/// The twin's parameters: every non-rest one `any`, except one the
+/// program annotated with a class. That slot is the same class-slot
+/// boundary as a `let` or a field of the class (RFC
+/// 20260922-any-to-typed-checked-cast §2), and the factory adapters
+/// cast the argument into it (`ssa_lower_boxed_entry::build_cast`): an
+/// instance of the class crosses as it is, an object of the class's
+/// field types becomes a fresh instance, anything else throws.
+fn widened(ast: &Ast, params: &[Param]) -> Vec<(usize, WidenTarget)> {
+    all_any(params)
+        .into_iter()
+        .filter(|(i, _)| {
+            !(params[*i].type_ann.as_deref()).is_some_and(|a| {
+                let base = crate::check_type_ann::strip_nullable(a.trim()).trim();
+                ast.class_parents.contains_key(base)
+                    && crate::ast::desugar_classes_builtin_heritage::exotic_root_parent(ast, base)
+                        .is_none()
+            })
+        })
+        .collect()
 }
 
 /// The twin's constructor call hands the constructor `any` arguments.
