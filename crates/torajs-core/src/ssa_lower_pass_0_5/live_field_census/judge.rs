@@ -90,10 +90,7 @@ impl<'a> Census<'a> {
         }) && self.prefix.iter().any(|w| {
             w.class == class
                 && w.field == field
-                && self
-                    .expr_types
-                    .get(&w.value)
-                    .is_some_and(|t| pointer_shaped(t))
+                && self.expr_types.get(&w.value).is_some_and(pointer_shaped)
         })
     }
 }

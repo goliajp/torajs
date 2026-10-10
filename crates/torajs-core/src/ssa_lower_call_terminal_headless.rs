@@ -53,7 +53,7 @@ pub(crate) fn forwarded_argc(
     // the factory hands its constructor the caller's own buffer, so
     // its count needs no cap
     if is_factory_relay(ctx, callee_name) {
-        return Some(load_local(ctx, "__torajs_argc")?);
+        return load_local(ctx, "__torajs_argc");
     }
     // A receiver-first relay (`__fwdrecv_`, rotation 649) forwards
     // its true count the same way; without it a `this`-reading

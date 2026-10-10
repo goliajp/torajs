@@ -162,6 +162,19 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, name: &str, params: &[Para
     checker.current_class = saved_class;
 }
 
+/// Whether the caller-visible signature of `name` leaves out the
+/// `__torajs_argv` slot in `params` (its user params, past any env
+/// head): at position 0 (head-less), anywhere on a constructor (after
+/// `__this` / `__new_target`), or at position 1 off the `__cm_`
+/// methods (a static twin or a promoted declaration). A `$$` clone
+/// answers as its template does.
+pub(crate) fn argv_slot_hidden(name: &str, params: &[Param]) -> bool {
+    let name = name.split_once("$$").map_or(name, |(t, _)| t);
+    params.first().is_some_and(|p| p.name == "__torajs_argv")
+        || (name.ends_with("__ctor") && params.iter().any(|p| p.name == "__torajs_argv"))
+        || (!name.starts_with("__cm_") && params.get(1).is_some_and(|p| p.name == "__torajs_argv"))
+}
+
 #[cfg(test)]
 mod tests {
     fn check_src(src: &str) -> Result<(), String> {
@@ -183,17 +196,4 @@ mod tests {
                    function g(): never { while (true) {} }\n";
         assert!(check_src(src).is_ok(), "{:?}", check_src(src));
     }
-}
-
-/// Whether the caller-visible signature of `name` leaves out the
-/// `__torajs_argv` slot in `params` (its user params, past any env
-/// head): at position 0 (head-less), anywhere on a constructor (after
-/// `__this` / `__new_target`), or at position 1 off the `__cm_`
-/// methods (a static twin or a promoted declaration). A `$$` clone
-/// answers as its template does.
-pub(crate) fn argv_slot_hidden(name: &str, params: &[Param]) -> bool {
-    let name = name.split_once("$$").map_or(name, |(t, _)| t);
-    params.first().is_some_and(|p| p.name == "__torajs_argv")
-        || (name.ends_with("__ctor") && params.iter().any(|p| p.name == "__torajs_argv"))
-        || (!name.starts_with("__cm_") && params.get(1).is_some_and(|p| p.name == "__torajs_argv"))
 }

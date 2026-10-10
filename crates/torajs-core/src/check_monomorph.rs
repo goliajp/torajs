@@ -438,6 +438,8 @@ pub(crate) fn clone_spec_body(
 /// shared cache (queueing the instantiation on first sight — the
 /// early reservation breaks recursion cycles), and retarget the
 /// call's ExprId.
+// the per-pass tables the caller threads through every resolution
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn seed_records(
     owned_ast: &Ast,
     records: &[(ExprId, (String, Vec<Type>))],

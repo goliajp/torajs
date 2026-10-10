@@ -245,10 +245,11 @@ impl<'a> Census<'a> {
             Stmt::ForOf { var_name, .. } | Stmt::ForOfSplitIter { var_name, .. } => {
                 self.bound.insert(var_name.clone());
             }
-            Stmt::Try { catch_param, .. } => {
-                if let Some(p) = catch_param {
-                    self.bound.insert(p.clone());
-                }
+            Stmt::Try {
+                catch_param: Some(p),
+                ..
+            } => {
+                self.bound.insert(p.clone());
             }
             _ => {}
         }

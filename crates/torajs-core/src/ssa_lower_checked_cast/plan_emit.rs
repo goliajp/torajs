@@ -53,7 +53,7 @@ impl LowerCtx<'_> {
             .push(StringLiteral::from_latin1_bytes(plan.bytes));
         self.anon_stamp_pool.borrow_mut().note_cast_plan(id);
         let block = self.cur_block;
-        let (plan_bits, vtables) = emit_plan_operands(&mut self.f, block, id, &plan.vtables);
+        let (plan_bits, vtables) = emit_plan_operands(self.f, block, id, &plan.vtables);
         let v = self.f.append_inst(
             self.cur_block,
             InstKind::Call(
