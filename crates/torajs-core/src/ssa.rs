@@ -41,6 +41,10 @@ pub const ANY_SLOT_TAG_HEAP: i64 = torajs_rc::AnySlotTag::Heap as i64;
 /// naming the object: the cycle collector's buffered and color bits.
 /// Every other flag moves only inside a runtime call handed the object.
 pub const HEADER_FLAGS_COLLECTOR: u16 = torajs_rc::FLAG_BUFFERED | torajs_rc::COLOR_MASK;
+/// The header word of a dense `any[]`: `FLAG_ARR_ANY` in the flag
+/// half, as the inline element read tests it (`and word, mask` then
+/// `icmp eq` against this).
+pub const HEADER_WORD_ARR_ANY: i64 = (torajs_rc::FLAG_ARR_ANY as i64) << 48;
 
 pub use module_class_layouts::{ClassLayoutMeta, FieldMetaSpec, MethodMetaSpec, field_type_tag_of};
 pub use module_extras::{LOCAL_LABEL_PREFIX, demo_fib40, is_local_label};

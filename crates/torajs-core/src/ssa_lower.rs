@@ -129,7 +129,7 @@ pub(crate) const ARR_PROPS_OFF: u64 = 24;
 /// `torajs_arr::layout::ARR_DATA_PTR_OFF` +
 /// `torajs_cycle::arr::ARR_DATA_PTR_OFF` +
 /// `torajs_promise::layout::ARR_DATA_PTR_OFF` must equal this.
-pub(crate) const ARR_DATA_PTR_OFF: u64 = 32;
+pub const ARR_DATA_PTR_OFF: u64 = 32;
 /// Fixed cell size — the inline slots region a fresh alloc's data
 /// pointer targets starts here (`torajs_arr::layout::ARR_CELL_SIZE`).
 pub(crate) const ARR_CELL_SIZE: u64 = 40;

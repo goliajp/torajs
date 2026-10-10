@@ -100,7 +100,7 @@ const OBJ_BUFFER_INTRINSICS: [&str; 2] = ["__torajs_cycle_buffer", "__torajs_obj
 /// was transparent when the lowering emitted the single
 /// `str_print_err` call. They touch only the io buffers and an
 /// AtomicBool — no rc traffic.
-const READONLY_INTRINSICS: [&str; 4] = [
+pub(crate) const READONLY_INTRINSICS: [&str; 4] = [
     "__torajs_str_print",
     "__torajs_substr_print",
     "__torajs_io_sink_to_stderr",
@@ -177,7 +177,7 @@ pub fn elide_rc_pairs(module: &mut Module) -> RcPeepholeStats {
     stats
 }
 
-fn find_func(module: &Module, name: &str) -> Option<u32> {
+pub(crate) fn find_func(module: &Module, name: &str) -> Option<u32> {
     module
         .funcs
         .iter()
@@ -329,7 +329,11 @@ fn elide_in_insts(
 /// pure ops, stack-slot allocation, loads/stores whose address is a
 /// tracked (non-escaped) stack slot, and calls to the read-only
 /// print intrinsics.
-fn rc_transparent(kind: &InstKind, readonly_fids: &HashSet<u32>, slots: &HashSet<ValueId>) -> bool {
+pub(crate) fn rc_transparent(
+    kind: &InstKind,
+    readonly_fids: &HashSet<u32>,
+    slots: &HashSet<ValueId>,
+) -> bool {
     if classify_pure(kind) {
         return true;
     }

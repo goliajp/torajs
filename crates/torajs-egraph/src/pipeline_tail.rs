@@ -4,8 +4,9 @@ use torajs_core::ssa::{FuncId, Module, ValueId};
 
 use crate::{
     block_layout, concat_len, concat_licm, concat_num_fuse, fdiv_pair, gated_pass, interval,
-    iv_merge, loop_rotate, map_find_cse, pass_gates, pass_timer, rc_dec_immediate, rc_peephole,
-    scaled_addr, select_form, srem_fquot, str_append, strip_assumes, unroll_jam, unroll_pair,
+    iv_merge, loop_rotate, map_find_cse, pass_gates, pass_timer, rc_borrow, rc_dec_immediate,
+    rc_peephole, scaled_addr, select_form, srem_fquot, str_append, strip_assumes, unroll_jam,
+    unroll_pair,
 };
 
 /// Select formation and the inst-level fusions that read its output,
@@ -95,6 +96,12 @@ pub(crate) fn finish_pipeline(
         module,
         rc_dec_immediate::elide_immediate_rc_decs,
     );
+    // Array-element borrowing — an `any[]` element read whose box is
+    // only inspected while the array stays untouched keeps no share
+    // of its own: the retain after the read and the release at scope
+    // end both go. Before the pair peephole, which pairs what is left.
+    // `TORAJS_RC_BORROW_OFF=1` skips.
+    gated_pass("RC_BORROW", module, rc_borrow::borrow_array_elems);
     // RC elide peephole — after the egraph pass so pure-inst dedup /
     // identity collapse has already tightened the windows between
     // retain/release pairs. `TORAJS_RC_PEEPHOLE_OFF=1` skips (bisect
