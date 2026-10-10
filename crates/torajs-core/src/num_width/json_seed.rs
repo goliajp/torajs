@@ -130,11 +130,12 @@ impl Analysis<'_> {
             .unwrap_or_default()
     }
 
-    /// The annotations the binding of slot `key` was declared with: a
-    /// module `let`'s, or the `let`s and parameter of its function by
-    /// its name. Every same-named `let` of a function shares the slot,
-    /// so this answers each of them, a superset of the one declaration
-    /// a cast reads at its write (`LowerCtx::binding_ann`).
+    /// The annotations the binding of slot `key` was declared with: the
+    /// top level's `let`s by its name (a block's among them), or the
+    /// `let`s and parameter of its function by its name. Every
+    /// same-named `let` of a body shares the slot, so this answers each
+    /// of them, a superset of the one declaration a cast reads at its
+    /// write (`LowerCtx::binding_ann`).
     pub(super) fn binding_anns(&self, key: &SlotKey) -> Vec<String> {
         let decl = |f: &str| {
             self.ast.stmts.iter().find_map(|s| match s {
@@ -157,7 +158,12 @@ impl Analysis<'_> {
             }
         };
         match key {
-            SlotKey::Global(n) => (self.ast.stmts.iter()).for_each(|s| take(s, n)),
+            SlotKey::Global(n) => {
+                let top = self.ast.stmts.iter();
+                for s in top.filter(|s| !matches!(s, Stmt::FnDecl { .. })) {
+                    crate::ast::walk_stmts(std::slice::from_ref(s), &mut |s| take(s, n));
+                }
+            }
             SlotKey::Local(f, n) => {
                 if let Some((_, body)) = decl(f) {
                     crate::ast::walk_stmts(body, &mut |s| take(s, n));

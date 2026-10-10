@@ -178,6 +178,15 @@ pub(super) fn collect_captures(
                 }
             }
         }
+        // a generator's iterator method reads its captures through the
+        // env of the wrapper closure, so they are the wrapper's
+        for (m, info) in &ast.gen_env_methods {
+            if let Some(w) = next.get(&info.wrapper_fn_name(ast)) {
+                let reads = (w.iter()).filter(|(n, _)| info.names.contains(n));
+                let reads = reads.map(|(n, k)| (n.clone(), k.clone())).collect();
+                next.insert(m.clone(), reads);
+            }
+        }
         if next == caps {
             return caps;
         }
