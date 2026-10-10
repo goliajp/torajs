@@ -415,6 +415,29 @@ mod tests {
     }
 
     #[test]
+    fn a_mask_of_a_stack_slot_predicts_nothing() {
+        // `slot = ...; if ((slot & 4) !== 0) f()` with the slot not lifted
+        let bits = vec![
+            inst(0, InstKind::Alloca(Type::I64)),
+            inst(1, InstKind::Load(Type::I64, v(0), 0)),
+            inst(2, InstKind::BinOp(BinOp::And, v(1), Operand::ConstI64(4))),
+        ];
+        let cond = InstKind::ICmp(IPred::Ne, v(2), Operand::ConstI64(0));
+        assert_eq!(guarded_call(bits, cond), vec![1024, 1024, 1024, 1024]);
+        // an array cell promoted to the stack keeps a real header word
+        let bits = vec![
+            inst(0, InstKind::AllocaBytes(168)),
+            inst(1, InstKind::Load(Type::I64, v(0), 0)),
+            inst(
+                2,
+                InstKind::BinOp(BinOp::And, v(1), Operand::ConstI64(1 << 49)),
+            ),
+        ];
+        let cond = InstKind::ICmp(IPred::Ne, v(2), Operand::ConstI64(0));
+        assert_eq!(guarded_call(bits, cond), vec![1024, 1024, 16, 1024]);
+    }
+
+    #[test]
     fn a_tag_test_on_a_boxed_value_predicts_its_calling_arm_cold() {
         let bits = |rest: Vec<Inst>| {
             let mut insts = vec![inst(1, InstKind::PtrToInt(v(0)))];
@@ -510,6 +533,58 @@ mod tests {
             block(4, vec![], RET),
         ]);
         assert_eq!(block_freqs(&f), vec![1024, 1024, 1024, 32, 1024]);
+    }
+
+    fn flag_guard(at: u32) -> Vec<Inst> {
+        vec![
+            inst(at, InstKind::Load(Type::I64, v(0), 0)),
+            inst(
+                at + 1,
+                InstKind::BinOp(BinOp::And, v(at), Operand::ConstI64(1 << 49)),
+            ),
+            inst(
+                at + 2,
+                InstKind::ICmp(IPred::Ne, v(at + 1), Operand::ConstI64(0)),
+            ),
+        ]
+    }
+
+    #[test]
+    fn a_join_sums_its_edges_and_is_capped_by_its_dominator() {
+        // three guards share one slow call: three cold edges add up
+        let f = func(vec![
+            block(0, flag_guard(1), cond_br(3, 4, 1)),
+            block(1, flag_guard(4), cond_br(6, 4, 2)),
+            block(2, flag_guard(7), cond_br(9, 4, 3)),
+            block(3, vec![], br(5)),
+            block(4, vec![call()], br(5)),
+            block(5, vec![], RET),
+        ]);
+        assert_eq!(block_freqs(&f), vec![1024, 1024, 1024, 1024, 48, 1024]);
+        // a cold arm, its warm sibling and the other side of an unread
+        // split meet: the sum passes 1 and the dominator caps it
+        let f = func(vec![
+            block(0, vec![], cond_br(100, 1, 2)),
+            block(1, flag_guard(1), cond_br(3, 3, 4)),
+            block(2, vec![], br(4)),
+            block(3, vec![call()], br(4)),
+            block(4, vec![], RET),
+        ]);
+        assert_eq!(block_freqs(&f), vec![1024, 1024, 1024, 16, 1024]);
+    }
+
+    #[test]
+    fn a_loop_inside_a_cold_arm_scales_from_the_cold_odds() {
+        // the slow arm 1 calls, then loops in 2-3; the loop exit rejoins
+        // the warm arm at 4
+        let f = func(vec![
+            block(0, flag_guard(1), cond_br(3, 1, 4)),
+            block(1, vec![call()], br(2)),
+            block(2, vec![], cond_br(100, 3, 4)),
+            block(3, vec![], br(2)),
+            block(4, vec![], RET),
+        ]);
+        assert_eq!(block_freqs(&f), vec![1024, 16, 256, 256, 1024]);
     }
 
     #[test]

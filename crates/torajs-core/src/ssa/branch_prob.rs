@@ -12,7 +12,8 @@
 //!    where exactly one arm calls something: the latin1 / frozen / COW
 //!    bit tests and the array element-kind test guarding a runtime slow
 //!    path. Object fields start past the 32-byte header, so a user's
-//!    `(o.flags & 4) !== 0` never reads as one.
+//!    `(o.flags & 4) !== 0` never reads as one; nor does a load of a
+//!    typed stack slot (`alloca`), which also sits at offset 0.
 //! 4. **Length guard** — `icmp ult i, len` / `icmp uge i, len` with
 //!    `len` the array length word (`load p +8`, or the register cell
 //!    `len_promote` keeps it in across a loop): the out-of-bounds arm
@@ -232,7 +233,12 @@ fn is_flag_guard(cond: &InstKind, defs: &HashMap<ValueId, &InstKind>) -> bool {
     else {
         return false;
     };
-    matches!(value_def(word, defs), Some(InstKind::Load(_, _, off)) if *off < FLAGS_WORD_BYTES)
+    let Some(InstKind::Load(_, p, off)) = value_def(word, defs) else {
+        return false;
+    };
+    // a typed slot mem2reg left in place also loads at offset 0; an
+    // `alloca_bytes` may be a stack-promoted cell with a real header
+    *off < FLAGS_WORD_BYTES && !matches!(value_def(p, defs), Some(InstKind::Alloca(_)))
 }
 
 /// A compare of `ptrtoint v`, or of its tag bits, with a constant; or
