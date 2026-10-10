@@ -318,10 +318,10 @@ impl<'a> Parser<'a> {
                 // A numeric key cannot shorthand-bind, so it takes
                 // the same mandatory-rename path as keyword fields; the
                 // load recipe turns an all-digit field into an index
-                // read. Non-integer numerics keep the loud reject.
-                Token::Number(n) if n.fract() == 0.0 && *n >= 0.0 => {
-                    (PropKey::from((*n as u64).to_string()), true)
-                }
+                // read. The key is the literal's Number::toString
+                // (§7.1.12.1): `{ 1.5: v }` names "1.5", `{ 1e21: v }`
+                // names "1e+21".
+                Token::Number(n) => (crate::ast::number_prop_key(*n), true),
                 // PropertyName : StringLiteral — `{ "a b": v }`; the
                 // field is the cooked string, rename mandatory.
                 Token::String(s) => (PropKey::from(s.clone()), true),

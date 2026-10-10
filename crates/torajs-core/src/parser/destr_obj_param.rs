@@ -96,9 +96,7 @@ impl<'a> Parser<'a> {
                     // rename mandatory, same as keyword fields; the
                     // load recipe turns all-digit fields into
                     // length-guarded index reads.
-                    Token::Number(n) if n.fract() == 0.0 && *n >= 0.0 => {
-                        (PropKey::from((*n as u64).to_string()), true)
-                    }
+                    Token::Number(n) => (crate::ast::number_prop_key(*n), true),
                     Token::String(s) => (PropKey::from(s.clone()), true),
                     t => {
                         return Err(format!(
