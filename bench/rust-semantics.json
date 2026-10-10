@@ -42,6 +42,8 @@
   "regex-wireback-minlit-100k": {"kind": "different", "why": "hand-written byte search for x; no match array, index or input props"},
   "regex-wireback-minlit-10m": {"kind": "different", "why": "hand-written byte search for x; no match array, index or input props"},
   "array-any-indexed-100k": {"kind": "different", "why": "Vec<String> has no per-element type tag; main.ts reads an any[] and dispatches on the tag"},
+  "array-any-double-sum-1m": {"kind": "different", "why": "Vec<f64> has no per-element type tag; main.ts reads an any[] and dispatches on both operands' tags"},
+  "array-any-str-to-num-1m": {"kind": "different", "why": "Vec<String> has no per-element type tag, and str::parse::<f64> accepts a narrower grammar than ToNumber (no whitespace trim, no 0x / 0b / 0o prefix); same strings, one conversion per iteration"},
   "array-sort-100k": {"kind": "same"},
   "i64-to-str-100k": {"kind": "same", "lead": "each formatted Str is popped from tr's 32-slot small-string pool and pushed back on drop; rustc's String is a libmalloc malloc and free per number"},
   "i64-to-str-10m": {"kind": "same", "lead": "each formatted Str is popped from tr's 32-slot small-string pool and pushed back on drop; rustc's String is a libmalloc malloc and free per number"},

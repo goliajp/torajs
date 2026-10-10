@@ -1,0 +1,3 @@
+# any[] of numeric strings read and converted with unary plus every
+# iteration: the string arm of ToNumber is the one that runs.
+args = "1000000 100"

@@ -1,0 +1,3 @@
+# any[] of doubles summed into an untyped accumulator: the generic
+# (non-int) arm of the any + any test is the one that runs.
+args = "1000000 100"

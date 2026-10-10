@@ -56,6 +56,8 @@ cases = [
   "array-sum-mixed-1m",
   "array-copy-1m",
   "array-any-indexed-100k",
+  "array-any-double-sum-1m",
+  "array-any-str-to-num-1m",
   "stack-pop-1m",
   "array-sort-100k",
 ]
