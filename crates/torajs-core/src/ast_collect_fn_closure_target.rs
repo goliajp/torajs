@@ -13,12 +13,16 @@ type FnSig = (Vec<Param>, Option<String>, crate::lexer::Span);
 
 /// The params the closure-param tag pass gave the closure repr: each
 /// already answers a cell, so [`FnToClosureCollector::try_mark`] counts
-/// it among a choice's cell operands.
+/// it among a choice's cell operands. An optional one (`o?: (s: string)
+/// => number`) is spelled `__nullable(__cls(...))` and holds the same
+/// cell or nothing.
 pub(crate) fn cls_params(params: &[Param]) -> HashSet<String> {
     let cls = |p: &&Param| {
-        p.type_ann
-            .as_deref()
-            .is_some_and(|a| a.starts_with("__cls("))
+        p.type_ann.as_deref().is_some_and(|a| {
+            a.strip_prefix("__nullable(")
+                .unwrap_or(a)
+                .starts_with("__cls(")
+        })
     };
     params.iter().filter(cls).map(|p| p.name.clone()).collect()
 }
@@ -90,17 +94,8 @@ impl FnToClosureCollector<'_> {
             return true;
         }
         let leaves = crate::ast_closure_param_tag_member::passthrough_leaves(self.ast, eid);
-        let all_cells = leaves.iter().all(|&leaf| {
-            leaf != eid
-                && (self.fn_name(leaf).is_some()
-                    || match self.ast.get_expr(leaf) {
-                        Expr::Closure { .. } | Expr::ArrowFn { .. } => true,
-                        Expr::Ident(p) => {
-                            self.cls_param_frames.last().is_some_and(|f| f.contains(p))
-                        }
-                        _ => false,
-                    })
-        });
+        let all_cells = (leaves.iter())
+            .all(|&leaf| leaf != eid && (self.fn_name(leaf).is_some() || self.is_cell(leaf)));
         if all_cells {
             for leaf in leaves {
                 self.mark_ident(leaf);
@@ -146,25 +141,48 @@ impl FnToClosureCollector<'_> {
         }
     }
 
+    /// A function literal, or a param the closure-param tag pass gave
+    /// the closure repr: a value that already is a fn cell.
+    fn is_cell(&self, leaf: ExprId) -> bool {
+        match self.ast.get_expr(leaf) {
+            Expr::Closure { .. } | Expr::ArrowFn { .. } => true,
+            Expr::Ident(p) => self.cls_param_frames.last().is_some_and(|f| f.contains(p)),
+            _ => false,
+        }
+    }
+
     /// A choice mixing named fns with values that are not fn cells
     /// (`(flip && inc) || h`) joins in the any lane, where a named fn
     /// boxes as its canonical cell: the forwarder that cell runs is
     /// synthesized here, the site itself stays as written.
+    ///
+    /// Two shapes rewrite the named leaves to their cells instead. A
+    /// generic function (explicit, or with an unannotated parameter)
+    /// has no raw value at all, only the forwarder's instance at
+    /// `any`. And next to a fn cell (`opt || decode` with `opt` a
+    /// closure-repr param) the raw pointer would be a second
+    /// representation of the same fn-typed value, called through the
+    /// cell's entry.
     pub(crate) fn target_mixed_choice(&mut self, eid: ExprId) {
         let leaves = crate::ast_closure_param_tag_member::passthrough_leaves(self.ast, eid);
         let named: Vec<(ExprId, String)> = (leaves.iter())
             .filter_map(|&l| Some((l, self.fn_name(l)?)))
             .collect();
-        if named.is_empty() || named.len() == leaves.len() {
+        if named.is_empty() {
             return;
         }
-        for (leaf, name) in named {
-            // a generic function (explicit, or with an unannotated
-            // parameter) has no original a forwarder could call; its
-            // value keeps the lane it took before this axis
-            if !self.is_no_original_fn_ident(leaf) {
-                self.targets.insert(name);
+        let others: Vec<ExprId> = (leaves.iter())
+            .filter(|l| !named.iter().any(|(n, _)| n == *l))
+            .copied()
+            .collect();
+        let rewrite = named.iter().any(|&(l, _)| self.is_no_original_fn_ident(l))
+            || (!others.is_empty() && others.iter().all(|&l| self.is_cell(l)));
+        if rewrite {
+            for (leaf, _) in named {
+                self.mark_ident(leaf);
             }
+        } else if !others.is_empty() {
+            self.targets.extend(named.into_iter().map(|(_, n)| n));
         }
     }
 
