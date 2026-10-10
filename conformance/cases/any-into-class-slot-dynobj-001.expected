@@ -1,0 +1,42 @@
+db:5432 true
+web:80 false
+true db:5432 true web:80
+let ok
+lit:1 false
+lit changed false
+literal ok
+db:5432 true
+true db:5432
+field ok
+db:5432 true true db:5432
+return ok
+db:5432 true | p:2 true
+push ok
+db:5432 true
+param ok
+got:3 true
+getter ok
+o 42 true true
+nested ok
+1 undefined null
+2 x 6
+optional ok
+a,b 2,4
+true
+arrays ok
+2 db:5432 true
+true db:5432
+class array ok
+1 2
+object type ok
+db:5432 true
+true db:5432
+ctor param ok
+missing true JSON.parse result does not have the annotated type `Cfg`
+wrong type true JSON.parse result does not have the annotated type `Cfg`
+nested wrong type true JSON.parse result does not have the annotated type `Outer`
+element wrong type true JSON.parse result does not have the annotated type `Bag`
+literal missing true cannot assign object to `Cfg`
+return missing true cannot return object from function returning `Cfg`
+ctor param missing true cannot pass object to parameter of type `Cfg`
+not an object true cannot assign number to `Cfg`
