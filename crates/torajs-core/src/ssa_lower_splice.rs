@@ -326,6 +326,7 @@ fn emit_any_item_bits(ctx: &mut LowerCtx, item_eid: ExprId) -> Operand {
             ctx.release_owned_temp(item_eid, &v_raw);
             bits
         }
-        _ => ctx.box_to_any_from_expr(item_eid, v_raw),
+        // a named function's box takes its own stake on the fn object
+        _ => ctx.box_owned_from_expr(item_eid, v_raw, false),
     }
 }

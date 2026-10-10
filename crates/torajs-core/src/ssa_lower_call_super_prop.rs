@@ -64,12 +64,8 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx<'_>, name: &str, args: &[ExprId]) -> 
             any_temps.push((a, raw));
             ops[i] = raw;
         } else {
-            if matches!(ctx.ast.get_expr(a), Expr::Ident(_) | Expr::Member { .. })
-                && raw_ty.is_refcounted()
-            {
-                ctx.emit_rc_inc(raw);
-            }
-            let b = ctx.box_to_any_from_expr(a, raw);
+            let is_borrow = matches!(ctx.ast.get_expr(a), Expr::Ident(_) | Expr::Member { .. });
+            let b = ctx.box_owned_from_expr(a, raw, is_borrow);
             ops[i] = b;
             boxed.push(b);
         }

@@ -60,10 +60,8 @@ pub(crate) fn lower_any_lhs(
     let rhs_op = if rhs_raw_ty == Type::Any {
         rhs_raw
     } else {
-        if rhs_raw_ty.is_refcounted() && !ctx.expr_transfers_ownership(rhs) {
-            ctx.emit_rc_inc(rhs_raw);
-        }
-        ctx.box_to_any_from_expr(rhs, rhs_raw)
+        let is_borrow = !ctx.expr_transfers_ownership(rhs);
+        ctx.box_owned_from_expr(rhs, rhs_raw, is_borrow)
     };
     let rhs_ty = Type::Any;
     let rhs_end = ctx.cur_block;

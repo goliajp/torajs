@@ -80,7 +80,7 @@ impl LowerCtx<'_> {
             self.class_join_repr(eid).unwrap_or(a_ty)
         };
         let a_for_slot = if widen_to_any && a_ty != Type::Any {
-            self.box_borrowed_arm(left, a)
+            self.box_to_any_from_expr(left, a)
         } else {
             a
         };
@@ -108,7 +108,7 @@ impl LowerCtx<'_> {
         let b = crate::ssa_lower_closure_canonical::lower_slot_arm(self, slot_ty, right);
         self.proofs.leave_cond();
         let b_for_slot = if widen_to_any && self.operand_ty(&b) != Type::Any {
-            self.box_borrowed_arm(right, b)
+            self.box_to_any_from_expr(right, b)
         } else {
             b
         };
@@ -261,7 +261,7 @@ impl LowerCtx<'_> {
             self.class_join_repr(eid).unwrap_or(a_ty)
         };
         let a_for_slot = if widen_to_any && a_ty != Type::Any {
-            self.box_borrowed_arm(left, a)
+            self.box_to_any_from_expr(left, a)
         } else {
             a
         };
@@ -288,7 +288,7 @@ impl LowerCtx<'_> {
         let b = crate::ssa_lower_closure_canonical::lower_slot_arm(self, slot_ty, right);
         self.proofs.leave_cond();
         let b_for_slot = if widen_to_any && self.operand_ty(&b) != Type::Any {
-            self.box_borrowed_arm(right, b)
+            self.box_to_any_from_expr(right, b)
         } else {
             b
         };

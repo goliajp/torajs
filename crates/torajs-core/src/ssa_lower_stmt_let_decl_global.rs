@@ -98,16 +98,11 @@ pub(crate) fn try_lower_global_let(
     // the box already settled ownership.
     let (init_val, converted) =
         if slot_ty == Type::Any && ctx.operand_ty(&init_val) != Type::Any && !converted {
-            let got = ctx.operand_ty(&init_val);
-            if got.is_refcounted()
-                && matches!(
-                    ctx.ast.get_expr(init),
-                    Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. }
-                )
-            {
-                ctx.emit_rc_inc(init_val);
-            }
-            (ctx.box_to_any_from_expr(init, init_val), true)
+            let is_borrow = matches!(
+                ctx.ast.get_expr(init),
+                Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. }
+            );
+            (ctx.box_owned_from_expr(init, init_val, is_borrow), true)
         } else {
             (init_val, converted)
         };

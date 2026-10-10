@@ -378,8 +378,9 @@ pub(super) fn coerce_for_local(
         // boxing its raw bits as a Number (`let b: any = 0;
         // b = t[1];` answered NaN). The expr gate also keeps
         // `undefined` / `null` rhs tags apart, as the global path
-        // has since chunk 809.
-        ctx.box_to_any_from_expr(value, v)
+        // has since chunk 809. The caller retained a borrowed heap
+        // value; a named function's box takes its own stake.
+        ctx.box_owned_from_expr(value, v, false)
     } else if fn_pointer_into_closure_slot(snap_ty, v_ty) {
         crate::ssa_lower_call_fn_cell::fn_value_cell(ctx, snap_ty, value, v)
     } else if snap_ty == Type::F64 && v_ty == Type::I64 {

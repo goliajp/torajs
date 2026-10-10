@@ -259,11 +259,11 @@ fn lower_global_assign(
             mismatch_hint(&slot_ty, &v_ty),
         );
     }
-    // Chunk 809 — a concrete rhs boxes into the Any slot (the
-    // borrow inc above supplied the stake the box transfer
-    // consumes; expr-aware so undefined/null keep their tags).
+    // Chunk 809 — a concrete rhs boxes into the Any slot (the borrow
+    // inc above, or a named function's box, supplies the stake the
+    // slot takes; expr-aware so undefined/null keep their tags).
     let v = if slot_ty == Type::Any && v_ty != Type::Any {
-        ctx.box_to_any_from_expr(value, v)
+        ctx.box_owned_from_expr(value, v, false)
     } else {
         coerce_for_global(ctx, &name, slot_ty, v_ty, v, value)
     };

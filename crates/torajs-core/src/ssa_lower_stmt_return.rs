@@ -318,8 +318,10 @@ fn coerce_to_ret(ctx: &mut LowerCtx, op: Operand, maybe: Option<crate::ast::Expr
         // typed source ANY_UNDEF; the plain box encoded its
         // ConstPtrNull payload as ANY_NULL, so `return undefined`
         // (and void-call returns) printed `null` at the caller.
+        // `lower_return_value` already retained a borrowed heap value;
+        // a named function's box takes its own stake on the fn object
         if let Some(eid) = maybe {
-            return ctx.box_to_any_from_expr(eid, op);
+            return ctx.box_owned_from_expr(eid, op, false);
         }
         return ctx.box_to_any(op);
     }

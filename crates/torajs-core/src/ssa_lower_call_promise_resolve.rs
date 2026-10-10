@@ -175,10 +175,7 @@ fn lower_patched_call(
                     ctx.ast.get_expr(ctx.peel_as_wrappers(aid)),
                     Expr::Regex { .. }
                 );
-            if is_borrow && ty.is_refcounted() {
-                ctx.emit_rc_inc(*op);
-            }
-            let boxed = ctx.box_to_any_from_expr(aid, *op);
+            let boxed = ctx.box_owned_from_expr(aid, *op, is_borrow);
             drops.push(boxed);
             boxed
         };

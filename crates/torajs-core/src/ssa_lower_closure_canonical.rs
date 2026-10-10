@@ -40,6 +40,19 @@ pub(crate) fn try_lower_canonical_cell(
     if !crate::ast::is_shell(fn_name) || has_captures {
         return None;
     }
+    let v = canonical_cell(ctx, fn_name, fid, closure_ty);
+    ctx.emit_rc_inc(v);
+    Some(v)
+}
+
+/// THE cell of the shell `fn_name`, minted on first use, borrowed from
+/// its `__fncell_*` slot.
+fn canonical_cell(
+    ctx: &mut LowerCtx<'_>,
+    fn_name: &str,
+    fid: crate::ssa::FuncId,
+    closure_ty: Type,
+) -> Operand {
     let slot_name = format!("__fncell_{fn_name}");
     let gref = ctx.f.append_inst(
         ctx.cur_block,
@@ -140,22 +153,19 @@ pub(crate) fn try_lower_canonical_cell(
         closure_ty,
         None,
     );
-    ctx.emit_rc_inc(Operand::Value(v));
-    Some(Operand::Value(v))
+    Operand::Value(v)
 }
 
-/// The fn object of the top-level function `eid` names, when the bare
-/// function (`val_ty`, a `FnSig`) is handed on as a value of the
-/// closure lane: the canonical cell, +1 for the receiver. `None` for
-/// any other value, or when no `__forward_*` shell was synthesized for
-/// the function.
-pub(crate) fn named_fn_owned_cell(
-    ctx: &mut LowerCtx<'_>,
+/// The forwarder shell standing for the top-level function `eid`
+/// names, when the bare function (`val_ty`, a `FnSig`) is handed on as
+/// a value: `None` for any other value, or when no `__forward_*` shell
+/// was synthesized for the function.
+fn named_fn_shell(
+    ctx: &LowerCtx<'_>,
     eid: crate::ast::ExprId,
     val_ty: Type,
-) -> Option<Operand> {
-    let ast = ctx.ast;
-    let crate::ast::Expr::Ident(name) = ast.get_expr(eid) else {
+) -> Option<(String, crate::ssa::FuncId)> {
+    let crate::ast::Expr::Ident(name) = ctx.ast.get_expr(eid) else {
         return None;
     };
     if !matches!(val_ty, Type::FnSig(_)) || ctx.locals.contains_key(name) {
@@ -163,23 +173,33 @@ pub(crate) fn named_fn_owned_cell(
     }
     let fwd = format!("__forward_{name}");
     let fid = ctx.fn_table.get(&fwd).copied()?;
+    Some((fwd, fid))
+}
+
+/// The fn object of the function [`named_fn_shell`] finds, +1 for the
+/// receiver: the value the closure lane holds for it.
+pub(crate) fn named_fn_owned_cell(
+    ctx: &mut LowerCtx<'_>,
+    eid: crate::ast::ExprId,
+    val_ty: Type,
+) -> Option<Operand> {
+    let (fwd, fid) = named_fn_shell(ctx, eid, val_ty)?;
     let closure_ty = crate::ssa_lower_closure::closure_value_ty(ctx, &fwd);
     try_lower_canonical_cell(ctx, &fwd, fid, closure_ty, false)
 }
 
-/// [`named_fn_owned_cell`] for a site that joins the bare function
-/// into the any lane (`(flip && inc) || h`, `c ? 0 : f`): the cell
-/// borrowed like the binding it stands for, since its hidden slot
-/// keeps a permanent stake.
+/// [`named_fn_owned_cell`] borrowed like the binding it stands for
+/// (`(flip && inc) || h`, `c ? 0 : f`, an argument boxed for one
+/// call): the hidden slot keeps the cell's one permanent stake, so a
+/// consumer that only reads the value takes none.
 pub(crate) fn named_fn_cell(
     ctx: &mut LowerCtx<'_>,
     eid: crate::ast::ExprId,
     val_ty: Type,
 ) -> Option<Operand> {
-    let cell = named_fn_owned_cell(ctx, eid, val_ty)?;
-    let closure_ty = ctx.operand_ty(&cell);
-    ctx.emit_drop_value(cell, closure_ty);
-    Some(cell)
+    let (fwd, fid) = named_fn_shell(ctx, eid, val_ty)?;
+    let closure_ty = crate::ssa_lower_closure::closure_value_ty(ctx, &fwd);
+    Some(canonical_cell(ctx, &fwd, fid, closure_ty))
 }
 
 /// Lower the arm `eid` of a choice whose join slot is `slot_ty`. A
@@ -200,13 +220,25 @@ pub(crate) fn lower_slot_arm(
 }
 
 impl LowerCtx<'_> {
-    /// Box an arm of a choice that stays a borrow when its arms are
-    /// (`(flip && inc) || h`): a named function boxes as its fn object,
-    /// borrowed like the binding it stands for ([`named_fn_cell`]),
-    /// where the plain box takes the +1 an owned consumer releases.
-    pub(crate) fn box_borrowed_arm(&mut self, eid: crate::ast::ExprId, val: Operand) -> Operand {
+    /// Box `val`, lowered from `eid`, into an any its consumer owns. A
+    /// borrowed source (`is_borrow`, the consumer's reading of `eid`)
+    /// takes +1 first; a named function boxes as its fn object with a
+    /// +1 of its own whatever that reading, since the bare function
+    /// carries no stake. [`LowerCtx::box_to_any_from_expr`] stays a
+    /// pure encoding, for consumers that only read the box.
+    pub(crate) fn box_owned_from_expr(
+        &mut self,
+        eid: crate::ast::ExprId,
+        val: Operand,
+        is_borrow: bool,
+    ) -> Operand {
         let ty = self.operand_ty(&val);
-        let val = named_fn_cell(self, eid, ty).unwrap_or(val);
+        if let Some(cell) = named_fn_owned_cell(self, eid, ty) {
+            return self.box_to_any(cell);
+        }
+        if is_borrow && ty.is_refcounted() {
+            self.emit_rc_inc(val);
+        }
         self.box_to_any_from_expr(eid, val)
     }
 }

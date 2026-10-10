@@ -319,9 +319,8 @@ fn widen_branches(
 }
 
 /// Box one arm at the end of its own block. The box is fresh, so a
-/// borrow-shape arm takes +1 first (chunk 722, see `widen_branches`);
-/// a named function boxes as its fn object, borrowed like a binding
-/// (`ssa_lower_closure_canonical::named_fn_cell`).
+/// borrow-shape arm takes +1 first (chunk 722, see `widen_branches`),
+/// and a named function boxes as its fn object.
 fn box_arm(
     ctx: &mut LowerCtx<'_>,
     end: &mut crate::ssa::BlockId,
@@ -329,12 +328,8 @@ fn box_arm(
     val: Operand,
 ) -> Operand {
     ctx.cur_block = *end;
-    let ty = ctx.operand_ty(&val);
-    let val = crate::ssa_lower_closure_canonical::named_fn_cell(ctx, branch, ty).unwrap_or(val);
-    if ctx.operand_ty(&val).is_refcounted() && !ctx.expr_transfers_ownership(branch) {
-        ctx.emit_rc_inc(val);
-    }
-    let boxed = ctx.box_to_any_from_expr(branch, val);
+    let is_borrow = !ctx.expr_transfers_ownership(branch);
+    let boxed = ctx.box_owned_from_expr(branch, val, is_borrow);
     *end = ctx.cur_block;
     boxed
 }

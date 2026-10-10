@@ -29,7 +29,6 @@ pub(crate) fn try_lower(
         return None;
     }
     let raw = ctx.lower_expr(callee);
-    let raw_ty = ctx.operand_ty(&raw);
     // Borrow-shaped callees (an Ident binding, a Member read, the
     // fn-scope LICM-cached regex literal) don't own their value —
     // the box takes its own reference, exactly the argv discipline
@@ -41,10 +40,7 @@ pub(crate) fn try_lower(
             ctx.ast.get_expr(ctx.peel_as_wrappers(callee)),
             Expr::Regex { .. }
         );
-    if is_borrow && raw_ty.is_refcounted() {
-        ctx.emit_rc_inc(raw);
-    }
-    let recv = ctx.box_to_any_from_expr(callee, raw);
+    let recv = ctx.box_owned_from_expr(callee, raw, is_borrow);
     // Rotation 550 — the box is ours; park it across the arguments'
     // lowers so their throw paths release it.
     let recv_tok = ctx.push_throw_temp(recv, SsaType::Any);

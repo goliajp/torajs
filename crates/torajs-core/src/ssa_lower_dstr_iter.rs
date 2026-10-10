@@ -223,10 +223,8 @@ fn lower_src_to_any(ctx: &mut LowerCtx, init: ExprId) -> (Operand, bool) {
     if src_ty == Type::Any {
         return (src, false);
     }
-    if src_ty.is_refcounted() && !ctx.expr_transfers_ownership(init) {
-        ctx.emit_rc_inc(src);
-    }
-    (ctx.box_to_any_from_expr(init, src), true)
+    let is_borrow = !ctx.expr_transfers_ownership(init);
+    (ctx.box_owned_from_expr(init, src, is_borrow), true)
 }
 
 /// Deferred close's stop-short arm: mint the park value through the

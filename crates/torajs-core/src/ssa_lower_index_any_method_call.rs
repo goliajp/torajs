@@ -198,10 +198,7 @@ pub(crate) fn try_lower(
     let (key, key_boxed) = if key_ty == Type::Any {
         (key_raw, false)
     } else {
-        if key_is_borrow && key_ty.is_refcounted() {
-            ctx.emit_rc_inc(key_raw);
-        }
-        (ctx.box_to_any_from_expr(index, key_raw), true)
+        (ctx.box_owned_from_expr(index, key_raw, key_is_borrow), true)
     };
     // The key is ours too (a box we minted, or an owned already-Any
     // temp the release below covers) — park it across the args.

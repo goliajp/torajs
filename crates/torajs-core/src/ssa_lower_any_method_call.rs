@@ -410,14 +410,11 @@ pub(crate) fn pack_any_argv_padded(
             let owned = ctx.expr_is_fresh_owned(aid);
             (raw, owned)
         } else {
-            if is_borrow && raw_ty.is_refcounted() {
-                ctx.emit_rc_inc(raw);
-            }
             // Frontend-type-aware boxing — an `undefined` literal
             // argument must ride as ANY_UNDEF, not the ANY_NULL the
             // type-blind ConstPtrNull encoding would pick (bun
             // parity: `s.anchor(undefined)` renders "undefined").
-            (ctx.box_to_any_from_expr(aid, raw), true)
+            (ctx.box_owned_from_expr(aid, raw, is_borrow), true)
         };
         ctx.f.append_void(
             ctx.cur_block,

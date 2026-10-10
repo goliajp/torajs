@@ -36,14 +36,11 @@ pub(crate) fn try_lower(
             // Same three-shape ownership rule as the dispatch below:
             // a borrow-shape source takes a +1 before boxing, and the
             // boxed temp is released after the kernel returns.
-            if matches!(
+            let is_borrow = matches!(
                 ctx.ast.get_expr(args[0]),
                 Expr::Ident(_) | Expr::Member { .. }
-            ) && ctx.operand_ty(&raw).is_refcounted()
-            {
-                ctx.emit_rc_inc(raw);
-            }
-            let b = ctx.box_to_any_from_expr(args[0], raw);
+            );
+            let b = ctx.box_owned_from_expr(args[0], raw, is_borrow);
             (b, Some(b))
         };
         let cur_block = ctx.cur_block;
@@ -72,12 +69,8 @@ pub(crate) fn try_lower(
             // TRANSFERS the temp's reference, released after the
             // call (same three-shape rule the NewDynamic lowering
             // follows).
-            if matches!(ctx.ast.get_expr(a), Expr::Ident(_) | Expr::Member { .. })
-                && raw_ty.is_refcounted()
-            {
-                ctx.emit_rc_inc(raw);
-            }
-            let b = ctx.box_to_any_from_expr(a, raw);
+            let is_borrow = matches!(ctx.ast.get_expr(a), Expr::Ident(_) | Expr::Member { .. });
+            let b = ctx.box_owned_from_expr(a, raw, is_borrow);
             ops.push(b);
             boxed.push(Some(b));
         }

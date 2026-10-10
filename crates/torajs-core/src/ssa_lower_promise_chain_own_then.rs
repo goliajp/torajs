@@ -206,10 +206,8 @@ fn lower_own_then_invoke(
             }
             *op
         } else {
-            if !ctx.expr_is_fresh_owned(aid) && ty.is_refcounted() {
-                ctx.emit_rc_inc(*op);
-            }
-            let boxed = ctx.box_to_any_from_expr(aid, *op);
+            let is_borrow = !ctx.expr_is_fresh_owned(aid);
+            let boxed = ctx.box_owned_from_expr(aid, *op, is_borrow);
             drops.push(boxed);
             boxed
         };

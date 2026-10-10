@@ -62,10 +62,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, callee: ExprId, args: &[ExprId]) -> 
     let (target, target_boxed) = if raw_ty == Type::Any {
         (raw, false)
     } else {
-        if callee_is_borrow && raw_ty.is_refcounted() {
-            ctx.emit_rc_inc(raw);
-        }
-        (ctx.box_to_any_from_expr(callee, raw), true)
+        (ctx.box_owned_from_expr(callee, raw, callee_is_borrow), true)
     };
 
     // Rotation 550 — the target we hold (our box, or an owned temp

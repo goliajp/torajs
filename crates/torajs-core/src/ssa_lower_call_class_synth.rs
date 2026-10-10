@@ -264,10 +264,7 @@ fn try_lower_is_constructor(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<O
     let (v_op, boxed) = if raw_ty == Type::Any {
         (raw, false)
     } else {
-        if is_borrow && raw_ty.is_refcounted() {
-            ctx.emit_rc_inc(raw);
-        }
-        (ctx.box_to_any_from_expr(args[0], raw), true)
+        (ctx.box_owned_from_expr(args[0], raw, is_borrow), true)
     };
     let cur_block = ctx.cur_block;
     let probe = ctx.intrinsics.is_constructor;

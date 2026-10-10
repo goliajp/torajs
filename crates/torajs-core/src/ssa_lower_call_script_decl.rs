@@ -58,14 +58,11 @@ pub(crate) fn try_lower(
             let (value, boxed) = if ctx.operand_ty(&raw) == Type::Any {
                 (raw, None)
             } else {
-                if matches!(
+                let is_borrow = matches!(
                     ctx.ast.get_expr(args[1]),
                     Expr::Ident(_) | Expr::Member { .. }
-                ) && ctx.operand_ty(&raw).is_refcounted()
-                {
-                    ctx.emit_rc_inc(raw);
-                }
-                let b = ctx.box_to_any_from_expr(args[1], raw);
+                );
+                let b = ctx.box_owned_from_expr(args[1], raw, is_borrow);
                 (b, Some(b))
             };
             let kernel = ctx.intrinsics.global_fn_declare;

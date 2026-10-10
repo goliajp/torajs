@@ -291,10 +291,8 @@ fn finalize_and_bind(
         init_val = ctx.coerce_to_f64(init_val);
     }
     if boxed_any {
-        if ctx.operand_ty(&init_val).is_refcounted() && !ctx.expr_transfers_ownership(init) {
-            ctx.emit_rc_inc(init_val);
-        }
-        init_val = ctx.box_to_any_from_expr(init, init_val);
+        let is_borrow = !ctx.expr_transfers_ownership(init);
+        init_val = ctx.box_owned_from_expr(init, init_val, is_borrow);
     }
     if type_ann.is_none() {
         ty = ctx.operand_ty(&init_val);
