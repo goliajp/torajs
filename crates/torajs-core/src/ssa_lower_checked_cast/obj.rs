@@ -1,6 +1,5 @@
 //! The checked cast of an `any` value into an object-layout slot the
-//! program annotated (RFC 20260922 §4.1, the `Obj(sid)` row; kernel
-//! `torajs-anyvalue::anyv_cast::obj`).
+//! program annotated (kernel `torajs-anyvalue::anyv_cast::obj`).
 //!
 //! The slot's readers load its fields at the layout's offsets and call
 //! a class's methods as that class's own functions, so the value has to
@@ -38,8 +37,8 @@ const FRESH: i64 = 2;
 impl LowerCtx<'_> {
     /// `op`, an `any` value `maybe` returns, cast into an object return
     /// type the program wrote; the value's own stake goes. A return
-    /// type a callback's context seeded is no annotation (RFC 20260922
-    /// decision 2), and keeps its own lanes.
+    /// type a callback's context seeded is not one the program wrote,
+    /// and keeps its own lanes.
     pub(crate) fn cast_returned_obj(
         &mut self,
         op: Operand,

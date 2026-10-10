@@ -1,13 +1,14 @@
-// The annotation an `any` value is cast to is the one of the binding
+// the annotation an `any` value is cast to is the one of the binding
 // it is written to, found in that binding's own scope: a function's
 // own `let` or parameter, a method's parameter, a binding a closure
-// captures as declared where the closure is made. A binding of the
+// captures as declared where the closure is made; a binding of the
 // same name in another function is another binding and its annotation
-// is never read; a binding without one is not cast.
+// is never read, and a binding without one is not cast
 //
-// Departures from bun (RFC 20260922 decision 1): a class slot given an
-// object of no class, and an object-type slot given a borrowed dynamic
-// object, throw TypeError at the write.
+// departures from bun, checked against the .expected: an annotated slot
+// holds what its annotation says, so a class slot given an object of no
+// class, and an object-type slot given a borrowed dynamic object, throw
+// TypeError at the write
 
 class P {
   x: number;

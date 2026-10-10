@@ -76,7 +76,7 @@ fn scalar_values(types: &HashMap<ExprId, Type>, found: &HashSet<ExprId>) -> Hash
 /// stored into later (`o.p = v`, `o` a binding the literal initializes
 /// without an annotation). The field's slot is the compiler's inference
 /// from its first value, and an inferred slot never rejects a value at
-/// run time (RFC 20260922 §3.1): it holds the value of any kind. Bindings
+/// run time (only an annotation the program wrote does): it holds the value of any kind. Bindings
 /// resolve by name, so a same-named binding elsewhere can widen a field
 /// too, which costs the typed lane, never an answer.
 fn objects_given_any(ast: &Ast, types: &HashMap<ExprId, Type>) -> HashSet<ExprId> {

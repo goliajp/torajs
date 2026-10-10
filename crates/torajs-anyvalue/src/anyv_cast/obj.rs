@@ -1,5 +1,4 @@
-//! The checked cast into an object-layout slot (RFC 20260922 §4.1, the
-//! `Obj(sid)` row).
+//! The checked cast into an object-layout slot (`Obj(sid)`).
 //!
 //! The slot's readers load fields at its layout's offsets and, for a
 //! class slot, call the class's own methods, so the cell that crosses

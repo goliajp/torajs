@@ -94,8 +94,8 @@ for (let i = 0; i < 64; i++) {
   {
     // narrow cell in a wide slot, through the constructor's answer: the
     // annotation names a class the cell is not an instance of, so the
-    // declaration throws a TypeError where bun stores it (RFC 20260922,
-    // decision 1); either way the cell is released by its own size
+    // declaration throws a TypeError where bun stores it (an annotated
+    // slot holds what it says); either way the cell is released by its own size
     const c = takeOut(i)
     acc += c.a
     try {

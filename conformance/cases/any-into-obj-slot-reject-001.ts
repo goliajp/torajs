@@ -2,8 +2,8 @@
 // or an object type, when the value is not something the slot can hold
 // as it is, throws a TypeError at the write. bun runs these writes
 // (an annotation does nothing at run time), so this case is checked
-// against its .expected: the throw is the deliberate departure decided
-// in RFC 20260922 (decision 1, an annotated slot holds what it says).
+// against its .expected: the throw is a deliberate departure: an
+// annotated slot holds what its annotation says.
 // A class slot takes an instance of the class or of a subclass only, an
 // object-type slot an object with its fields, or a fresh object nothing
 // else holds whose properties are exactly those fields.

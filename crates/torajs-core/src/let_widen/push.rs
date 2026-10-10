@@ -3,8 +3,8 @@
 //!
 //! The element type is the compiler's inference from the initializer,
 //! and `v` may hold a value of any kind, which §23.1.3.23 appends as it
-//! is. An inferred slot never rejects a value at run time (RFC 20260922
-//! §3.1, the third row), so the binding is `any` from its declaration:
+//! is. An inferred slot never rejects a value at run time (only an
+//! annotation the program wrote does), so the binding is `any` from its declaration:
 //! its elements are read through the dynamic lane, each as what it is.
 //! An annotated binding keeps its element type; the lowering casts the
 //! value into it (`ssa_lower_checked_cast::obj`).
