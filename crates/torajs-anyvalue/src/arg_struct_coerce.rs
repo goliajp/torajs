@@ -65,21 +65,22 @@ use crate::nanbox::{AnyValue, as_void_ptr, is_cell};
 use crate::struct_probe::struct_field_pair_bytes;
 
 mod fits;
+pub(crate) use fits::__torajs_anyv_struct_fits;
 use fits::cell_fits;
 
 /// Mirror of `torajs-structmeta::StrSlice` (repr(C) pair).
 #[repr(C)]
-struct StrSlice {
-    ptr: *const u8,
-    len: usize,
+pub(crate) struct StrSlice {
+    pub(crate) ptr: *const u8,
+    pub(crate) len: usize,
 }
 
 /// Mirror of `torajs-structmeta::FieldInfo`.
 #[repr(C)]
 #[derive(PartialEq, Eq)]
-struct FieldInfo {
-    field_byte_offset: u32,
-    type_tag: u8,
+pub(crate) struct FieldInfo {
+    pub(crate) field_byte_offset: u32,
+    pub(crate) type_tag: u8,
 }
 
 unsafe extern "C" {
@@ -100,12 +101,12 @@ unsafe extern "C" {
 }
 
 const ANY_HEAP: u64 = 4;
-const OBJ_TAG_OFF: usize = 4;
-const OBJ_CLASS_TAG_OFF: usize = 8;
+pub(crate) const OBJ_TAG_OFF: usize = 4;
+pub(crate) const OBJ_CLASS_TAG_OFF: usize = 8;
 /// Mirror of `ssa_lower::OBJ_HEADER_SIZE` (blade 1: 32 — header 8 +
 /// class_tag 8 + vtable 8 + props dynobj 8). `calloc` below zeroes
 /// the +24 props slot along with the vtable.
-const OBJ_HEADER_SIZE: usize = 32;
+pub(crate) const OBJ_HEADER_SIZE: usize = 32;
 
 /// See the module doc. `class_tag` is the param sid's stamp (anon
 /// pool / class factory — the same tag the ObjectLit alloc writes at

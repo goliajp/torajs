@@ -595,6 +595,7 @@ pub(crate) fn build(
         anyv_cast_str: init_c.any_cast.anyv_cast_str,
         anyv_cast_str_or_undef: init_c.any_cast.anyv_cast_str_or_undef,
         anyv_cast_cell: init_c.any_cast.anyv_cast_cell,
+        anyv_cast_obj: init_c.any_cast.anyv_cast_obj,
         ctor_ret_carry: init_c.ctor_ret.ctor_ret_carry,
         new_target_register: init_c.ctor_ret.new_target_register,
         new_target_register_entries: init_c.ctor_ret.new_target_register_entries,

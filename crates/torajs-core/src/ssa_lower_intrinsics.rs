@@ -709,6 +709,7 @@ pub(crate) struct Intrinsics {
     pub(crate) anyv_cast_str: FuncId,
     pub(crate) anyv_cast_str_or_undef: FuncId,
     pub(crate) anyv_cast_cell: FuncId,
+    pub(crate) anyv_cast_obj: FuncId,
     /// RFC 20260820-ctor-return-override — §10.2.2 step 13. The pick
     /// hands back an OWNED box; the carry borrows.
     pub(crate) ctor_ret_value: FuncId,
