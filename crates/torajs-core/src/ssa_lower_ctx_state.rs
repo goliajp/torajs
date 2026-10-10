@@ -44,6 +44,9 @@ pub(crate) struct ModuleScans {
     /// that never type their arguments (`console.log`) leave the callee
     /// unrecorded, so the any-method-call arm consults this directly.
     pub(crate) proto_shadow: crate::builtin_proto_shadow::ShadowSet,
+    /// The functions whose return type the program wrote
+    /// (`Ast::ret_written_at`), by name.
+    pub(crate) written_ret_fns: std::collections::HashSet<String>,
 }
 
 impl ModuleScans {
@@ -55,6 +58,14 @@ impl ModuleScans {
                 Some(expr_types),
             ),
             proto_shadow: crate::builtin_proto_shadow::collect_shadowed_builtin_methods(ast),
+            written_ret_fns: (ast.stmts.iter())
+                .filter_map(|s| match s {
+                    Stmt::FnDecl { name, span, .. } if ast.fn_ret_written(name, *span) => {
+                        Some(name.clone())
+                    }
+                    _ => None,
+                })
+                .collect(),
         }
     }
 }

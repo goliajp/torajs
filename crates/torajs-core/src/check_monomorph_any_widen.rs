@@ -150,6 +150,7 @@ fn escape_widen_one(
         _ => Vec::new(),
     };
     let mono_name = format!("{fn_name}$$anywv");
+    owned_ast.mirror_ret_written(&fn_name, &mono_name);
     if owned_ast.headless_argc_fns.contains(&fn_name) {
         owned_ast.headless_argc_fns.insert(mono_name.clone());
     }
@@ -232,6 +233,7 @@ fn widen_one(
         if ret == RetFace::Any { "_r" } else { "" }
     );
     let mono_name = format!("{fn_name}{suffix}");
+    owned_ast.mirror_ret_written(&fn_name, &mono_name);
     // H1 — mirror a head-less body's any-widened clone into the
     // hidden-argc side table (same contract as the generic channel's
     // mirror in `process_one_generic`).

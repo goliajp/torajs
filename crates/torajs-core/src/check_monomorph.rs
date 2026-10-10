@@ -221,6 +221,7 @@ pub(crate) fn process_one_generic(
             return;
         };
         let mono_name = cache[&(name.clone(), arg_anns.clone())].clone();
+        owned_ast.mirror_ret_written(&name, &mono_name);
         // RFC 20260810-indirect-argc-abi H1 — a head-less T-31 body's
         // specialization keeps the hidden-argc ABI: mirror the clone
         // into the side table the sig/def/terminal sites key on

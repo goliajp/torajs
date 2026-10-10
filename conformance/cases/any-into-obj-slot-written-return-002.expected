@@ -1,0 +1,17 @@
+len 2
+1
+typed ok ok
+len 2
+typed bad true cannot return object from function returning `__inlobj(x:number)`
+len 3
+2
+any arr ok ok
+len 3
+any arr bad ok
+t a
+3
+generic ok ok
+t true
+generic bad true cannot return object from function returning `__inlobj(v:number)`
+t 7
+generic inferred bad true cannot return object from function returning `__inlobj(v:number)`

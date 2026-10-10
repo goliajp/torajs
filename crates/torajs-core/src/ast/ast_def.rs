@@ -289,6 +289,14 @@ pub struct Ast {
     /// 20260922-any-to-typed-checked-cast, slice S1b). Filled by
     /// `apply_closure_ann_updates` at the one point it writes the seed.
     pub contextual_ret_fns: std::collections::HashSet<String>,
+    /// Each function's source span (start, end) → whether the program
+    /// wrote its return type, as opposed to the compiler inferring it.
+    /// Filled at parse by `ast::ret_written`; read through
+    /// [`Ast::ret_written_at`].
+    pub ret_written: std::collections::HashMap<(u32, u32), bool>,
+    /// Monomorph clones (no span of their own) of a function whose
+    /// return type the program wrote, by clone name.
+    pub ret_written_clones: std::collections::HashSet<String>,
     /// §8.1.1.1 — top-level `let` / `const` occurrences written
     /// EARLIER in the statement list than the declaration, so the
     /// binding is in its temporal dead zone whenever they run. Reads

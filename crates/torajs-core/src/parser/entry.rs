@@ -158,6 +158,9 @@ pub fn parse_into_eval(
         Ok(r)
     });
     *target = p.ast;
+    if result.is_ok() {
+        crate::ast::ret_written::record_written_returns(target, stmt_offset, id_offset as usize);
+    }
     if let Some((snap, snap_by_decl)) = nested_spans_snapshot {
         target.class_decl_spans = snap;
         target.class_decl_spans_by_decl = snap_by_decl;

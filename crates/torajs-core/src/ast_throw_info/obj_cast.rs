@@ -8,6 +8,7 @@
 use crate::ast::{Ast, Expr, ExprId, Stmt};
 use crate::check::Type;
 use crate::check_type_ann::strip_nullable;
+use crate::lexer::Span;
 use std::collections::HashMap;
 
 /// Whether `ann` names an object type: a class, an object type literal
@@ -31,16 +32,23 @@ pub(crate) fn object_ty(t: Option<&Type>) -> bool {
     }
 }
 
-/// Whether the function `name`, declared returning `ret`, returns an
-/// `any` value into an object return type it wrote.
+/// Whether the function `name`, declared at `span` returning `ret`,
+/// returns an `any` value into an object return type it wrote.
 pub(crate) fn returns_any_into_obj(
     ast: &Ast,
     name: &str,
     ret: Option<&str>,
+    span: Span,
     body: &[Stmt],
     expr_types: &HashMap<ExprId, Type>,
 ) -> bool {
-    if !ret.is_some_and(|r| object_ann(ast, r)) || ast.contextual_ret_fns.contains(name) {
+    let written_shape = |r: &str| {
+        let base = strip_nullable(r).trim();
+        base.starts_with("__inlobj(") && base != "__inlobj()" && ast.fn_ret_written(name, span)
+    };
+    if !ret.is_some_and(|r| object_ann(ast, r) || written_shape(r))
+        || ast.contextual_ret_fns.contains(name)
+    {
         return false;
     }
     let mut hit = false;

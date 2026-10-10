@@ -1,0 +1,26 @@
+1
+decl ok
+decl extra true cannot return object from function returning `__inlobj(x:number)`
+decl type true cannot return object from function returning `__inlobj(x:number)`
+decl number true cannot return number from function returning `__inlobj(x:number)`
+via let true cannot return object from function returning `__inlobj(x:number)`
+via let, named type true cannot return object from function returning `T`
+2
+arrow ok
+arrow missing true cannot return object from function returning `__inlobj(x:number)`
+3
+method ok
+method null true cannot return null from function returning `__inlobj(x:number)`
+getter true cannot return object from function returning `__inlobj(x:number)`
+4
+object method ok
+object method array true cannot return object from function returning `__inlobj(x:number)`
+6
+closure ok
+closure missing true cannot return object from function returning `__inlobj(x:number)`
+nested true cannot return object from function returning `__inlobj(x:number)`
+7
+nullable ok
+false
+nullable undefined ok
+nullable number true cannot return number from function returning `__inlobj(x:number) | undefined`

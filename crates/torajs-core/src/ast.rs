@@ -297,6 +297,7 @@ mod regex_match_len_only;
 mod regex_replace_inline;
 mod regex_result_props;
 mod reparent_census;
+pub(crate) mod ret_written;
 pub(crate) mod scalar_alias_inline;
 mod scalar_alias_spell;
 mod scalar_census;

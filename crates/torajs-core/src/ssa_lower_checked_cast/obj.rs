@@ -48,11 +48,12 @@ impl LowerCtx<'_> {
             return None;
         };
         // a return type spelled as an object literal's shape is also what
-        // the compiler infers for a function returning one, and the two
-        // cannot be told apart here; such a return keeps the value
-        if self.ast.contextual_ret_fns.contains(&self.f.name)
-            || strip_nullable(&ann).trim().starts_with("__inlobj(")
-        {
+        // the compiler infers for a function returning one; an inferred
+        // one is not sound for an object later given accessors, and such
+        // a return keeps the value
+        let inferred_shape = strip_nullable(&ann).trim().starts_with("__inlobj(")
+            && !self.scans.written_ret_fns.contains(&self.f.name);
+        if self.ast.contextual_ret_fns.contains(&self.f.name) || inferred_shape {
             return None;
         }
         let v = self.checked_cast_obj(op, sid, &ann, CastSlot::Return, maybe)?;
