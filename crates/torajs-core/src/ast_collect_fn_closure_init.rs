@@ -320,5 +320,21 @@ pub(crate) fn ident_census(ast: &Ast) -> IdentCensus {
             _ => {}
         }
     }
+    // a switch selects its clause with IsStrictlyEqual (§14.12.4), so
+    // the scrutinee and the case values are compared names too
+    let mut stack: Vec<&crate::ast::Stmt> = ast.stmts.iter().collect();
+    while let Some(s) = stack.pop() {
+        if let crate::ast::Stmt::Switch {
+            scrutinee, cases, ..
+        } = s
+        {
+            for e in std::iter::once(*scrutinee).chain(cases.iter().map(|c| c.value)) {
+                if let Expr::Ident(n) = ast.get_expr(strip_as(e)) {
+                    out.eq_operands.insert(n.clone());
+                }
+            }
+        }
+        crate::ast_closure_param_tag::push_child_stmts(s, &mut stack);
+    }
     out
 }

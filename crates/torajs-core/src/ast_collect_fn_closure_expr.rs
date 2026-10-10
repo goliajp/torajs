@@ -5,7 +5,7 @@
 //! doc lists every axis). The `Expr::Call` arm lives in
 //! `ast_collect_fn_closure_call.rs` since rotation 291.
 
-use crate::ast::{Ast, BinOp, Expr, ExprId};
+use crate::ast::{BinOp, Expr, ExprId};
 use crate::ast_collect_fn_closure::FnToClosureCollector;
 
 impl<'a> FnToClosureCollector<'a> {
@@ -118,27 +118,26 @@ impl<'a> FnToClosureCollector<'a> {
                 | crate::ast::BinOp::LooseEq
                 | crate::ast::BinOp::LooseNeq
         ) {
-            // `as` layers are value pass-throughs — strip so
-            // `(getX as any) === getX` marks the inner Ident
-            // (the rewrite lands there; the As then forwards
-            // the canonical cell unchanged).
-            let strip_as = |ast: &Ast, mut e: ExprId| {
-                while let Expr::As { expr, .. } = ast.get_expr(e) {
-                    e = *expr;
-                }
-                e
-            };
-            let l = strip_as(self.ast, *left);
-            if !self.try_mark(l) {
-                self.walk_expr(*left);
-            }
-            let r = strip_as(self.ast, *right);
-            if !self.try_mark(r) {
-                self.walk_expr(*right);
-            }
+            self.walk_eq_operand(*left);
+            self.walk_eq_operand(*right);
         } else {
             self.walk_expr(*left);
             self.walk_expr(*right);
+        }
+    }
+
+    /// An operand of IsStrictlyEqual / IsLooselyEqual: `===` and its
+    /// kin, a switch scrutinee and its case values (§14.12.4). `as`
+    /// layers are value pass-throughs — strip so `(getX as any) ===
+    /// getX` marks the inner Ident (the rewrite lands there; the As
+    /// then forwards the canonical cell unchanged).
+    pub(crate) fn walk_eq_operand(&mut self, e: ExprId) {
+        let mut inner = e;
+        while let Expr::As { expr, .. } = self.ast.get_expr(inner) {
+            inner = *expr;
+        }
+        if !self.try_mark(inner) {
+            self.walk_expr(e);
         }
     }
 

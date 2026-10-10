@@ -25,6 +25,21 @@ pub(super) fn emit_case_compare(
     value: crate::ast::ExprId,
 ) -> crate::ssa::ValueId {
     let v = ctx.lower_expr(value);
+    let eq = compare_value(ctx, scrutinee, scrut_val, scrut_ty, value, v);
+    // the clause value is only compared: an owned temp (a call result,
+    // a named function's fn object) is released right after
+    ctx.release_owned_temp(value, &v);
+    eq
+}
+
+fn compare_value(
+    ctx: &mut LowerCtx,
+    scrutinee: crate::ast::ExprId,
+    scrut_val: Operand,
+    scrut_ty: Type,
+    value: crate::ast::ExprId,
+    v: Operand,
+) -> crate::ssa::ValueId {
     // a clause value may branch (`typeof y === "string"` on an `any`):
     // the compare goes where its value ends, not where it began
     let cmp_blk = ctx.cur_block;

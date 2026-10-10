@@ -387,8 +387,9 @@ impl<'a> FnToClosureCollector<'a> {
                 default,
                 ..
             } => {
-                self.walk_expr(*scrutinee);
+                self.walk_eq_operand(*scrutinee);
                 for c in cases {
+                    self.walk_eq_operand(c.value);
                     for inner in &c.body {
                         self.walk_stmt(inner, ret_is_any);
                     }
