@@ -11,8 +11,8 @@ use torajs_core::ssa::{
 use super::Plan;
 use super::plan::Uses;
 
-const F64X2: Type = Type::Vec(VecShape::F64x2);
-const I64X2: Type = Type::Vec(VecShape::I64x2);
+pub(super) const F64X2: Type = Type::Vec(VecShape::F64x2);
+pub(super) const I64X2: Type = Type::Vec(VecShape::I64x2);
 
 pub(super) fn apply(func: &mut Function, p: &Plan) {
     let snapshot: Vec<Block> = p
@@ -43,7 +43,7 @@ pub(super) fn apply(func: &mut Function, p: &Plan) {
     sweep_dead(func, &swept, &p.cells);
 }
 
-fn new_value(func: &mut Function, ty: Type) -> ValueId {
+pub(super) fn new_value(func: &mut Function, ty: Type) -> ValueId {
     let id = ValueId(func.values.len() as u32);
     func.values.push(ValueInfo { ty, name: None });
     id
@@ -57,7 +57,7 @@ fn inst(result: ValueId, kind: InstKind) -> Inst {
     }
 }
 
-fn push(func: &mut Function, b: BlockId, result: ValueId, kind: InstKind) {
+pub(super) fn push(func: &mut Function, b: BlockId, result: ValueId, kind: InstKind) {
     func.blocks[b.0 as usize].insts.push(inst(result, kind));
 }
 

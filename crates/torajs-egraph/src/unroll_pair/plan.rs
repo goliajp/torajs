@@ -52,7 +52,7 @@ impl Uses {
         u
     }
 
-    fn single_def(&self, v: ValueId) -> Option<(BlockId, usize)> {
+    pub fn single_def(&self, v: ValueId) -> Option<(BlockId, usize)> {
         match self.defs.get(&v)?.as_slice() {
             [d] => Some(*d),
             _ => None,
@@ -84,16 +84,26 @@ pub(super) fn successors(term: &Terminator) -> Vec<BlockId> {
 }
 
 pub(super) fn find_plan(func: &Function, done: &HashSet<BlockId>) -> Option<Plan> {
+    find_plan_where(func, done, |p, _, _| Some(p))
+}
+
+/// The first loop the rewrite takes that `accept` also takes, given
+/// the loop and the uses it was planned against.
+pub(super) fn find_plan_where<T>(
+    func: &Function,
+    done: &HashSet<BlockId>,
+    mut accept: impl FnMut(Plan, &NaturalLoop, &Uses) -> Option<T>,
+) -> Option<T> {
     let dom = DominatorTree::compute(func);
     let la = LoopAnalysis::compute(func, &dom);
     let uses = Uses::of(func);
     la.loops()
         .iter()
         .filter(|l| !done.contains(&l.header))
-        .find_map(|l| plan_loop(func, &la, l, &uses))
+        .find_map(|l| accept(plan_loop(func, &la, l, &uses)?, l, &uses))
 }
 
-fn blk(func: &Function, b: BlockId) -> &torajs_core::ssa::Block {
+pub(super) fn blk(func: &Function, b: BlockId) -> &torajs_core::ssa::Block {
     &func.blocks[b.0 as usize]
 }
 

@@ -39,6 +39,11 @@
 //! has no φ nodes (loop cells are multi-def `Copy`), so the second
 //! copy reads the cells the first copy's latch wrote.
 //!
+//! A trial-division loop whose one body exit is the divisibility test
+//! and whose counter is its one cell is instead searched several
+//! divisors a step ahead of the loop, which is kept as it was
+//! (`search`).
+//!
 //! After unroll_jam, in the functions it left alone (a jammed loop
 //! runs four quotients a step already) and before loop_rotate (the second
 //! copy's header test rotates into its latch like the first's).
@@ -47,6 +52,7 @@
 
 mod emit;
 mod plan;
+mod search;
 #[cfg(test)]
 mod tests;
 
@@ -67,6 +73,8 @@ pub struct UnrollPairStats {
     pub loops_paired: u32,
     /// Of those, the ones whose divisor lanes are a float counter.
     pub float_counters: u32,
+    /// Trial-division loops given a lane search ahead of them.
+    pub loops_searched: u32,
 }
 
 pub fn pair_module(
@@ -84,11 +92,17 @@ pub fn pair_module(
         // a paired loop's second copy is a new header the analysis
         // would list next round; a header once handled is not retaken
         let mut done: HashSet<BlockId> = HashSet::default();
+        let known = facts.and_then(|f| f.get(fi));
+        // the searched loop stays as it was, to replay a group
+        while let Some(sp) = search::find_plan(func, known, &done) {
+            done.insert(sp.header);
+            done.insert(search::apply(func, &sp));
+            stats.loops_searched += 1;
+        }
         while let Some(mut plan) = plan::find_plan(func, &done) {
             done.insert(plan.header);
             let reach = F64_EXACT - 2 * plan.step as i128;
-            plan.float_counter = facts
-                .and_then(|f| f.get(fi))
+            plan.float_counter = known
                 .and_then(|fm| fm.get(&plan.iv))
                 .is_some_and(|f| f.lo >= -reach && f.hi <= reach);
             stats.float_counters += u32::from(plan.float_counter);

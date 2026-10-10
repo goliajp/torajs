@@ -6,11 +6,11 @@ use torajs_core::ssa::{
     VecShape,
 };
 
-fn v(id: u32) -> Operand {
+pub(super) fn v(id: u32) -> Operand {
     Operand::Value(ValueId(id))
 }
 
-fn i(r: u32, kind: InstKind) -> Inst {
+pub(super) fn i(r: u32, kind: InstKind) -> Inst {
     Inst {
         result: Some(ValueId(r)),
         kind,
@@ -44,7 +44,7 @@ fn cond(c: u32, then_blk: u32, else_blk: u32) -> Terminator {
 /// bb3: %11 = add %1, 1; %1 = copy %11; br bb1
 /// bb4: ret 1        bb5: ret 0
 /// ```
-fn trial_loop() -> Function {
+pub(super) fn trial_loop() -> Function {
     let types = [
         Type::I64,  // 0 n
         Type::I64,  // 1 i
