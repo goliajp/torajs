@@ -7,6 +7,10 @@
 // and fractional dividends, the counter read after `break` and after
 // the bound fails mid-group, a dividing lane past a bound on the
 // counter, and a loop writing a second cell, which is not searched.
+// The group the bound cuts: every bound from 2 to 41 against every
+// dividend below 90, so the bound fails at each lane of the group and
+// the first divisor falls before, at and after that lane, each with
+// the counter read after the loop, for bounds `d <= b` and `b > d`.
 
 const lim = parseInt(process.argv[2] ?? "230", 10);
 const top = parseInt(process.argv[3] ?? "2147483648", 10);
@@ -93,6 +97,26 @@ function isPrime(n: number): boolean {
   return true;
 }
 
+// the counter after the loop, a bound on the counter given at run time
+function stepsUpTo(x: number, b: number): number {
+  let d = 2;
+  while (d <= b) {
+    if (x % d === 0) break;
+    d = d + 1;
+  }
+  return d;
+}
+
+// the bound on the left and strict
+function stepsBelow(x: number, b: number): number {
+  let d = 2;
+  while (b > d) {
+    if (x % d === 0) return -d;
+    d = d + 1;
+  }
+  return d;
+}
+
 // negative and fractional dividends take the float path
 function smallestAny(n: number): number {
   let d = 2;
@@ -151,3 +175,11 @@ let f = "";
 for (let y = -60.5; y < 60; y += 3) f += smallestAny(y) + ",";
 for (let y = -60; y < 60; y += 7) f += smallestAny(y) + ",";
 console.log(f);
+
+let u = "";
+for (let bound = 2; bound < 42; bound++) {
+  let w = "";
+  for (let z = 0; z < 90; z++) w += stepsUpTo(z, bound) + "," + stepsBelow(z, bound) + ",";
+  u += w + "\n";
+}
+console.log(u);
