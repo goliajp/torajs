@@ -92,10 +92,7 @@ fn lower_return_value(ctx: &mut LowerCtx, eid: crate::ast::ExprId) -> Operand {
     // one stake — `const s = "ab" + "cd"; return s as any` read back
     // the next allocation's bytes (`x199`) on the second use, where
     // the uncast `return s` is correct.
-    let mut src_eid = eid;
-    while let Expr::As { expr, .. } = ctx.ast.get_expr(src_eid) {
-        src_eid = *expr;
-    }
+    let src_eid = crate::ssa_lower_return_borrow::peel_passthrough(ctx.ast, eid);
     // A return routed through a `finally` parks its value and leaves;
     // the frames outside the try are released at the finally tail, ONE
     // site shared by every return that came through it. A moved mark
@@ -170,10 +167,8 @@ pub(crate) fn lower(ctx: &mut LowerCtx, maybe: Option<crate::ast::ExprId>) {
         .filter(|(_, info)| !info.moved)
         .map(|(name, _)| name.clone())
         .collect();
-    let root_is_ident = maybe.is_some_and(|mut eid| {
-        while let Expr::As { expr, .. } = ctx.ast.get_expr(eid) {
-            eid = *expr;
-        }
+    let root_is_ident = maybe.is_some_and(|eid| {
+        let eid = crate::ssa_lower_return_borrow::peel_passthrough(ctx.ast, eid);
         matches!(ctx.ast.get_expr(eid), Expr::Ident(_))
     });
     let ret_operand = maybe.map(|eid| lower_return_value(ctx, eid));

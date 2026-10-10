@@ -15,6 +15,16 @@ use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
+/// The operand a return actually hands out: value-transparent `As`
+/// wrappers and the right side of a comma pass it through untouched.
+pub(crate) fn peel_passthrough(ast: &crate::ast::Ast, mut eid: ExprId) -> ExprId {
+    while let Expr::As { expr: inner, .. } | Expr::Sequence { right: inner, .. } = ast.get_expr(eid)
+    {
+        eid = *inner;
+    }
+    eid
+}
+
 /// `Some(answer)` when `src_eid` (the `As`-peeled return expression)
 /// is one of the borrow shapes; the answer already carries its stake
 /// and the caller skips the consume walk. `None` for everything else.
