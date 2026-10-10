@@ -7,15 +7,25 @@
 //! 1. **Throw probe** — `icmp ne (load (global_ref THROW_ACTIVE)), 0`:
 //!    the throw arm is taken only when an exception is in flight.
 //! 2. **Unreachable arm** — an arm ending in `unreachable`.
-//! 3. **Header flag guard** — `icmp ne (and (load p), MASK), 0` where
-//!    exactly one arm calls something: the latin1 / frozen / COW bit
-//!    tests guarding a runtime slow path.
+//! 3. **Header flag guard** — `icmp eq|ne (and (load p +off), MASK), K`
+//!    with `off` inside the refcount-and-flags word and `K` a constant,
+//!    where exactly one arm calls something: the latin1 / frozen / COW
+//!    bit tests and the array element-kind test guarding a runtime slow
+//!    path. Object fields start past the 32-byte header, so a user's
+//!    `(o.flags & 4) !== 0` never reads as one.
 //! 4. **Length guard** — `icmp ult i, len` / `icmp uge i, len` with
 //!    `len` the array length word (`load p +8`, or the register cell
 //!    `len_promote` keeps it in across a loop): the out-of-bounds arm
 //!    (a grow on a store, `undefined` on a read, the empty arm of a
 //!    pop / shift, whose guard is `icmp uge 0, len`). Only bounds
 //!    checks compare unsigned; loop conditions use `slt`.
+//! 5. **Boxed-value guard** — a compare of `ptrtoint v` (the null test
+//!    of a pointer the lowerer loaded) or of its tag bits (`and` with a
+//!    mask, `lshr 48`) with a constant, or an `and` / `or` of such
+//!    compares, where exactly one arm calls something: is-string /
+//!    is-number / both-int tests in front of the generic kernel.
+//!    `ptrtoint` comes only from the lowerer: no source construct
+//!    exposes a NaN-box's bits.
 //!
 //! Every other branch predicts nothing, and nothing splits on it: the
 //! lowerer emits many conditionals no rule reads (loop versioning on a
@@ -25,7 +35,7 @@
 //! Two classic heuristics are deliberately absent. The call heuristic
 //! ("an arm that calls is rarely taken") misreads user code such as
 //! `if (q.length > 16) q.shift()`, taken on almost every iteration;
-//! it applies here only through rules 3–4, where the compare is one
+//! it applies here only through rules 3–5, where the compare is one
 //! the lowerer itself emitted. The opcode heuristic ("equality is
 //! usually false") lost 14% on collatz's `n % 2 === 0` when block
 //! layout tried it.
@@ -97,9 +107,12 @@ pub fn cold_arms(func: &Function) -> Vec<(BlockId, BlockId, f64)> {
             Some((if ends_unreachable(t) { t } else { e }, P_NEVER))
         } else if one_calls && cond.is_some_and(|c| is_flag_guard(c, &defs)) {
             Some((calling_arm(), P_SLOW_PATH))
+        } else if let Some(oob) = cond.and_then(|c| out_of_bounds_arm(c, &defs, &cells, t, e)) {
+            Some((oob, P_SLOW_PATH))
+        } else if one_calls && cond.is_some_and(|c| is_boxed_guard(c, &defs, 1)) {
+            Some((calling_arm(), P_SLOW_PATH))
         } else {
-            cond.and_then(|c| out_of_bounds_arm(c, &defs, &cells, t, e))
-                .map(|oob| (oob, P_SLOW_PATH))
+            None
         };
         if let Some((cold, p)) = arm {
             out.push((b.id, cold, p));
@@ -183,19 +196,51 @@ fn is_throw_probe(cond: &InstKind, defs: &HashMap<ValueId, &InstKind>) -> bool {
     matches!(value_def(addr, defs), Some(InstKind::GlobalRef(s)) if s == THROW_ACTIVE_SYM)
 }
 
-/// `icmp ne (and (load p), MASK), 0` — a test of header bits.
+/// Bytes of the refcount-and-flags word at the head of every heap cell.
+const FLAGS_WORD_BYTES: u64 = 8;
+
+/// A constant: an immediate, or the value `iconst_hoist` minted for one.
+fn is_const(op: &Operand, defs: &HashMap<ValueId, &InstKind>) -> bool {
+    matches!(op, Operand::ConstI64(_))
+        || matches!(
+            value_def(op, defs),
+            Some(InstKind::Copy(_, Operand::ConstI64(_)))
+        )
+}
+
+/// `icmp eq|ne (and (load p +off), MASK), K` — a test of header bits.
 fn is_flag_guard(cond: &InstKind, defs: &HashMap<ValueId, &InstKind>) -> bool {
-    let InstKind::ICmp(IPred::Ne, masked, zero) = cond else {
+    let InstKind::ICmp(IPred::Ne | IPred::Eq, masked, k) = cond else {
         return false;
     };
-    if !is_zero(zero) {
+    if !is_const(k, defs) {
         return false;
     }
     let Some(InstKind::BinOp(BinOp::And, word, Operand::ConstI64(_))) = value_def(masked, defs)
     else {
         return false;
     };
-    matches!(value_def(word, defs), Some(InstKind::Load(_, _, 0)))
+    matches!(value_def(word, defs), Some(InstKind::Load(_, _, off)) if *off < FLAGS_WORD_BYTES)
+}
+
+/// A compare of `ptrtoint v`, or of its tag bits, with a constant; or
+/// an `and` / `or` of two such compares (`depth` bounds the nesting).
+fn is_boxed_guard(cond: &InstKind, defs: &HashMap<ValueId, &InstKind>, depth: u32) -> bool {
+    let is_bits = |op: &Operand| matches!(value_def(op, defs), Some(InstKind::PtrToInt(_)));
+    match cond {
+        InstKind::ICmp(IPred::Eq | IPred::Ne, x, k) if is_const(k, defs) => {
+            is_bits(x)
+                || matches!(
+                    value_def(x, defs),
+                    Some(InstKind::BinOp(BinOp::And | BinOp::LShr, w, Operand::ConstI64(_)))
+                        if is_bits(w)
+                )
+        }
+        InstKind::BinOp(BinOp::And | BinOp::Or, a, b) if depth > 0 => [a, b]
+            .iter()
+            .all(|op| value_def(op, defs).is_some_and(|c| is_boxed_guard(c, defs, depth - 1))),
+        _ => false,
+    }
 }
 
 fn is_len_load(kind: Option<&InstKind>) -> bool {

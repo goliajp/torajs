@@ -2,12 +2,16 @@
 //! often it runs: spill weights and the cost of saving a register
 //! around a call.
 //!
-//! `freq(b) = ENTRY_FREQ × LOOP_SCALE^min(depth(b), NEST_CAP) × Π p`,
+//! `freq(b) = ENTRY_FREQ × LOOP_SCALE^min(depth(b), NEST_CAP) × p`,
 //! where `depth` counts the natural loops holding `b` (back edges by
-//! the dominator tree) and the product runs over the cold arms of
-//! [`super::branch_prob`] whose target dominates `b`. A cold arm's
-//! target counts only when that branch is its sole predecessor, so the
-//! join after the arm runs at full frequency again.
+//! the dominator tree) and `p` is the share of runs that reach `b`:
+//! the sum over its incoming edges of the predecessor's share times
+//! the edge's odds (a cold arm of [`super::branch_prob`], else 1),
+//! capped by its immediate dominator's share (Wu & Larus, MICRO 1994,
+//! without the loop scaling). The join after a cold arm and a warm one
+//! runs at full frequency again; a join every path into which comes
+//! through a cold arm (the one slow call several guards share) stays
+//! cold.
 //!
 //! A loop level stands for 16 iterations, the classic block-frequency
 //! figure. Branches no rule reads split nothing; see `branch_prob` for
@@ -15,6 +19,7 @@
 
 use crate::ssa::branch_prob::cold_arms;
 use crate::ssa::dominator::DominatorTree;
+use crate::ssa::id_hash::HashMap;
 use crate::ssa::loop_analysis::LoopAnalysis;
 use crate::ssa::{BlockId, Function, Terminator};
 
@@ -42,38 +47,53 @@ pub fn block_freqs(func: &Function) -> Vec<u64> {
     let dom = DominatorTree::compute(func);
     let loops = LoopAnalysis::compute(func, &dom);
 
-    let mut preds = vec![0u32; n];
+    let mut preds: Vec<Vec<BlockId>> = vec![Vec::new(); n];
     for b in &func.blocks {
         match &b.term {
-            Terminator::Br(t) => preds[t.0 as usize] += 1,
+            Terminator::Br(t) => preds[t.0 as usize].push(b.id),
             Terminator::CondBr {
                 then_blk, else_blk, ..
             } => {
-                preds[then_blk.0 as usize] += 1;
+                preds[then_blk.0 as usize].push(b.id);
                 if else_blk != then_blk {
-                    preds[else_blk.0 as usize] += 1;
+                    preds[else_blk.0 as usize].push(b.id);
                 }
             }
             Terminator::Ret(_) | Terminator::Unreachable => {}
         }
     }
-    let mut arm_odds = vec![1.0f64; n];
-    for (_, cold, p) in cold_arms(func) {
-        if preds[cold.0 as usize] == 1 {
-            arm_odds[cold.0 as usize] *= p;
-        }
-    }
+    let edge_odds: HashMap<(BlockId, BlockId), f64> = cold_arms(func)
+        .into_iter()
+        .map(|(from, cold, p)| ((from, cold), p))
+        .collect();
 
-    // walk the dominator tree carrying the product of cold-arm odds
-    let entry = func.blocks[0].id;
-    let mut stack: Vec<(BlockId, f64)> = vec![(entry, arm_odds[entry.0 as usize])];
-    while let Some((b, odds)) = stack.pop() {
+    // In reverse postorder a block's forward predecessors come first.
+    // Its odds are the mass its incoming edges carry, capped by its
+    // immediate dominator's; a predecessor not yet visited (a back
+    // edge) leaves the cap.
+    let mut odds = vec![f64::NAN; n];
+    for &b in dom.reverse_postorder() {
+        odds[b.0 as usize] = match dom.immediate_dominator(b) {
+            None => 1.0,
+            Some(d) => {
+                let inflow = preds[b.0 as usize]
+                    .iter()
+                    .filter(|p| dom.is_reachable(**p))
+                    .map(|p| odds[p.0 as usize] * edge_odds.get(&(*p, b)).copied().unwrap_or(1.0))
+                    .sum::<f64>();
+                let cap = odds[d.0 as usize];
+                if inflow.is_nan() {
+                    cap
+                } else {
+                    cap.min(inflow)
+                }
+            }
+        };
+    }
+    for &b in dom.reverse_postorder() {
         let depth = loops.nest_depth(b).min(NEST_CAP);
-        let f = (ENTRY_FREQ * LOOP_SCALE.pow(depth)) as f64 * odds;
+        let f = (ENTRY_FREQ * LOOP_SCALE.pow(depth)) as f64 * odds[b.0 as usize];
         out[b.0 as usize] = (f.round() as u64).max(1);
-        for &c in dom.children(b) {
-            stack.push((c, odds * arm_odds[c.0 as usize]));
-        }
     }
     out
 }
@@ -358,6 +378,107 @@ mod tests {
             block(4, vec![], RET),
         ]);
         assert_eq!(block_freqs(&f), vec![1024, 16384, 16384, 16384, 1024]);
+    }
+
+    /// `cond` on `bits` in block 0; block 2 calls, block 1 does not.
+    fn guarded_call(bits: Vec<Inst>, cond: InstKind) -> Vec<u64> {
+        let mut insts = bits;
+        insts.push(inst(3, cond));
+        block_freqs(&func(vec![
+            block(0, insts, cond_br(3, 1, 2)),
+            block(1, vec![], br(3)),
+            block(2, vec![call()], br(3)),
+            block(3, vec![], RET),
+        ]))
+    }
+
+    #[test]
+    fn an_element_kind_guard_predicts_its_calling_arm_cold() {
+        // `(header & KIND_MASK) == KIND`, the kind minted by iconst_hoist
+        let bits = vec![
+            inst(1, InstKind::Load(Type::I64, v(0), 0)),
+            inst(
+                2,
+                InstKind::BinOp(BinOp::And, v(1), Operand::ConstI64(-1 << 48)),
+            ),
+            inst(4, InstKind::Copy(Type::I64, Operand::ConstI64(0x5ab << 48))),
+        ];
+        let cond = InstKind::ICmp(IPred::Eq, v(2), v(4));
+        assert_eq!(guarded_call(bits, cond), vec![1024, 1024, 16, 1024]);
+        // a field past the header is user data
+        let field = vec![
+            inst(1, InstKind::Load(Type::I64, v(0), 32)),
+            inst(2, InstKind::BinOp(BinOp::And, v(1), Operand::ConstI64(4))),
+        ];
+        let cond = InstKind::ICmp(IPred::Ne, v(2), Operand::ConstI64(0));
+        assert_eq!(guarded_call(field, cond), vec![1024, 1024, 1024, 1024]);
+    }
+
+    #[test]
+    fn a_tag_test_on_a_boxed_value_predicts_its_calling_arm_cold() {
+        let bits = |rest: Vec<Inst>| {
+            let mut insts = vec![inst(1, InstKind::PtrToInt(v(0)))];
+            insts.extend(rest);
+            insts
+        };
+        // the null test of a loaded element
+        let cond = InstKind::ICmp(IPred::Ne, v(1), Operand::ConstI64(0));
+        assert_eq!(guarded_call(bits(vec![]), cond), vec![1024, 1024, 16, 1024]);
+        // is-int: `lshr bits, 48 == INT_TAG`
+        let tag = vec![inst(
+            2,
+            InstKind::BinOp(BinOp::LShr, v(1), Operand::ConstI64(48)),
+        )];
+        let cond = InstKind::ICmp(IPred::Eq, v(2), Operand::ConstI64(0xfffe));
+        assert_eq!(guarded_call(bits(tag), cond), vec![1024, 1024, 16, 1024]);
+        // is-cell: no tag bits and not null
+        let cell = vec![
+            inst(
+                2,
+                InstKind::BinOp(BinOp::And, v(1), Operand::ConstI64(-0xfffe)),
+            ),
+            inst(5, InstKind::ICmp(IPred::Eq, v(2), Operand::ConstI64(0))),
+            inst(6, InstKind::ICmp(IPred::Ne, v(1), Operand::ConstI64(0))),
+        ];
+        let cond = InstKind::BinOp(BinOp::And, v(5), v(6));
+        assert_eq!(guarded_call(bits(cell), cond), vec![1024, 1024, 16, 1024]);
+    }
+
+    #[test]
+    fn a_users_bit_test_predicts_nothing() {
+        // `if ((x & 1) === 1) f()` on a number the program computed
+        let bits = vec![inst(
+            2,
+            InstKind::BinOp(BinOp::And, v(0), Operand::ConstI64(1)),
+        )];
+        let cond = InstKind::ICmp(IPred::Eq, v(2), Operand::ConstI64(1));
+        assert_eq!(guarded_call(bits, cond), vec![1024, 1024, 1024, 1024]);
+    }
+
+    #[test]
+    fn a_slow_call_every_guard_shares_stays_cold() {
+        // two kind guards in a row fall back to one kernel call in 3
+        let guard = |at: u32| {
+            vec![
+                inst(at, InstKind::Load(Type::I64, v(0), 0)),
+                inst(
+                    at + 1,
+                    InstKind::BinOp(BinOp::And, v(at), Operand::ConstI64(1 << 49)),
+                ),
+                inst(
+                    at + 2,
+                    InstKind::ICmp(IPred::Ne, v(at + 1), Operand::ConstI64(0)),
+                ),
+            ]
+        };
+        let f = func(vec![
+            block(0, guard(1), cond_br(3, 3, 1)),
+            block(1, guard(4), cond_br(6, 3, 2)),
+            block(2, vec![], br(4)),
+            block(3, vec![call()], br(4)),
+            block(4, vec![], RET),
+        ]);
+        assert_eq!(block_freqs(&f), vec![1024, 1024, 1024, 32, 1024]);
     }
 
     #[test]
