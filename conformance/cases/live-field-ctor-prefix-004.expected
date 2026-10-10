@@ -1,0 +1,6 @@
+literal: TypeError
+struct binding: TypeError
+array element: TypeError
+return: TypeError
+cast: TypeError
+2

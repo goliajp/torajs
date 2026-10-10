@@ -25,11 +25,24 @@ use std::collections::{HashMap, HashSet};
 
 use crate::ast::ExprId;
 
+/// What the whole-program censuses of pass 0.5 established, shared by
+/// every fn's proofs.
+#[derive(Default)]
+pub(crate) struct ProgramFacts {
+    /// No array in the program ever has a non-zero deque head
+    /// (`ssa_lower_pass_0_5::arr_head_census`).
+    pub(crate) arr_head_pinned: bool,
+    /// `(class, field)` pairs whose reads never see the undefined cell
+    /// (`ssa_lower_pass_0_5::live_field_census`).
+    pub(crate) live_fields: crate::ssa_lower_pass_0_5::live_field_census::LiveFields,
+}
+
+pub(crate) type ProgramFactsRc = std::rc::Rc<ProgramFacts>;
+
 #[derive(Default)]
 pub(crate) struct Proofs {
-    /// No array in the program ever has a non-zero deque head, so
-    /// every element lives at `data + idx * stride`.
-    pub(crate) arr_head_pinned: bool,
+    /// The whole-program facts of pass 0.5.
+    facts: ProgramFactsRc,
     /// Index reads that are the receiver of a member read of the named
     /// field; the typed lane fuses the bounds / hole exits into the
     /// TypeError that read would raise anyway.
@@ -59,11 +72,28 @@ pub(crate) struct Proofs {
 }
 
 impl Proofs {
-    pub(crate) fn new(arr_head_pinned: bool) -> Self {
+    pub(crate) fn new(facts: &ProgramFactsRc) -> Self {
         Proofs {
-            arr_head_pinned,
+            facts: facts.clone(),
             ..Default::default()
         }
+    }
+
+    /// No array in the program ever has a non-zero deque head, so
+    /// every element lives at `data + idx * stride`.
+    pub(crate) fn arr_head_pinned(&self) -> bool {
+        self.facts.arr_head_pinned
+    }
+
+    /// `obj.name` reads a field the census proved live.
+    pub(crate) fn field_is_live(&self, recv: Option<&crate::check::Type>, name: &str) -> bool {
+        let Some(crate::check::Type::ClassRef(c)) = recv else {
+            return false;
+        };
+        let c = c.split('<').next().unwrap_or(c);
+        self.facts
+            .live_fields
+            .contains(&(c.to_string(), name.to_string()))
     }
 
     pub(crate) fn let_is_nonnull(&self, name: &str) -> bool {

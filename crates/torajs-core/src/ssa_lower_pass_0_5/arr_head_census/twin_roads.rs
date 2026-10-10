@@ -42,7 +42,7 @@ const REBIND_NAMES: &[&str] = &[
 
 /// The expressions of every twin body, or nothing when some road can
 /// hand a twin a foreign receiver.
-pub(super) fn unreachable_twin_exprs(
+pub(crate) fn unreachable_twin_exprs(
     ast: &Ast,
     expr_types: &std::collections::HashMap<ExprId, Type>,
 ) -> HashSet<ExprId> {

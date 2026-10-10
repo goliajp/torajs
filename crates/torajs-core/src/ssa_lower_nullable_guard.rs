@@ -271,7 +271,16 @@ pub(crate) fn is_undefable_heap_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool 
         // agreed the field held `undefined` while `typeof c.d` read the
         // slot's static type and said "object". `expr_types` carries the
         // declared field type here, which is the question being asked.
-        Expr::Member { .. } | Expr::OptChain { .. } => ctx
+        // A field the whole-program census proved live holds a cell
+        // at every read (`ssa_lower_pass_0_5::live_field_census`).
+        Expr::Member { obj, name } => {
+            !ctx.proofs.field_is_live(ctx.expr_types.get(obj), name)
+                && ctx
+                    .expr_types
+                    .get(&eid)
+                    .is_some_and(spells_undef_with_generic_cell)
+        }
+        Expr::OptChain { .. } => ctx
             .expr_types
             .get(&eid)
             .is_some_and(spells_undef_with_generic_cell),

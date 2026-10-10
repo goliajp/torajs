@@ -54,7 +54,7 @@ pub(crate) fn synthesize_main(
     closure_capture_facts: &mut HashMap<String, crate::ssa_lower_closure_order::CaptureFacts>,
     call_retargets: &CallRetargets,
     may_throw_fns: &std::collections::HashSet<String>,
-    arr_head_pinned: bool,
+    facts: &crate::ssa_lower::proofs::ProgramFactsRc,
     class_name_to_tag: &HashMap<String, u32>,
     anon_stamp_pool: &crate::ssa_lower_anon_stamp::AnonStampPoolCell,
     globals: &HashMap<String, Type>,
@@ -154,7 +154,7 @@ pub(crate) fn synthesize_main(
             temps: Default::default(),
             owned_member_reads: std::collections::HashSet::new(),
             pins: Default::default(),
-            proofs: crate::ssa_lower::proofs::Proofs::new(arr_head_pinned),
+            proofs: crate::ssa_lower::proofs::Proofs::new(facts),
         };
         crate::undef_f64_fields::prime(&mut ctx);
         // T-15.g.5 — prime the binding sets BEFORE lowering any

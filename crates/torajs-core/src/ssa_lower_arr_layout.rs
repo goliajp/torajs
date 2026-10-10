@@ -231,7 +231,7 @@ impl<'a> LowerCtx<'a> {
     /// escape, not a parameter, another scope's binding or rebound):
     /// those may hold an array other code has shifted.
     pub(crate) fn arr_expr_is_non_deque(&self, eid: ExprId) -> bool {
-        if self.proofs.arr_head_pinned {
+        if self.proofs.arr_head_pinned() {
             return true;
         }
         if let Expr::Ident(name) = self.ast.get_expr(eid) {

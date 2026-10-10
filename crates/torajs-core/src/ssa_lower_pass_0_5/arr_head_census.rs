@@ -25,6 +25,8 @@
 
 mod twin_roads;
 
+pub(crate) use twin_roads::unreachable_twin_exprs;
+
 use std::collections::HashMap;
 
 use crate::ast::{Ast, Expr, ExprId};
