@@ -46,6 +46,12 @@ pub(crate) fn twin_clone_params(ast: &Ast, target: &str, recv: bool) -> Option<V
         _ => None,
     })?;
     let lifted = params.first().is_some_and(|p| p.name == "__env");
+    // a class factory carrying its constructor's argv leads with the
+    // pointer (`arguments_object_ctor_factory`); its twin keeps it, so
+    // the twin's adapter feeds it as the factory's does
+    let factory_argv = usize::from(
+        target.starts_with("__new_") && params.first().is_some_and(|p| p.name == "__torajs_argv"),
+    );
     let params = params[usize::from(lifted)..].to_vec();
     let implicit_generic = !lifted && params.iter().any(|p| !p.is_rest && p.type_ann.is_none());
     let recv_head = usize::from(
@@ -61,7 +67,7 @@ pub(crate) fn twin_clone_params(ast: &Ast, target: &str, recv: bool) -> Option<V
         && !is_generator
         && (!ast.async_generator_fns.contains(target)
             || crate::ast::minted_generator_any_twin(ast, target).is_some())
-        && params[recv_head..].iter().all(|p| {
+        && params[recv_head + factory_argv..].iter().all(|p| {
             !matches!(
                 p.name.as_str(),
                 "__env" | "__this" | "__torajs_argv" | crate::ast::GEN_ARGV_PARAM
@@ -85,14 +91,19 @@ pub(in crate::check_monomorph_any_widen) fn widenable_target(
         return None;
     }
     let params = twin_clone_params(ast, target, recv)?;
-    // a receiver head admitted above is no user slot
-    let recv_head = usize::from(params.first().is_some_and(|p| p.name == "__this"));
+    // a receiver head admitted above is no user slot, nor is a
+    // factory's argv pointer
+    let recv_head = usize::from(
+        params
+            .first()
+            .is_some_and(|p| p.name == "__this" || p.name == "__torajs_argv"),
+    );
     // the twin carries the hidden argc head of a length-only body
     // (`run` mirrors it), but no argv head, so a body that reads
     // argument values mints one only for the struct slots it always
     // served
-    let headless =
-        ast.headless_argv_fns.contains(target) || ast.this_first_argc_fns.contains_key(target);
+    let headless = ast.headless_argv_fns.contains(target) && !target.starts_with("__new_")
+        || ast.this_first_argc_fns.contains_key(target);
     let unseen = unseen_params(ast, target);
     let slots = || {
         params[recv_head..]

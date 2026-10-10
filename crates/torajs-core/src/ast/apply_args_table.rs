@@ -63,6 +63,17 @@ pub(crate) fn collect_fn_defaults(ast: &Ast) -> HashMap<String, Vec<Option<ExprI
                 }
                 user_params = rest;
             }
+            // a this-first body carries the pointer right after its
+            // head, which no call site spells either
+            let unspelled: Vec<Param>;
+            if user_params.iter().any(|p| p.name == "__torajs_argv") {
+                unspelled = user_params
+                    .iter()
+                    .filter(|p| p.name != "__torajs_argv")
+                    .cloned()
+                    .collect();
+                user_params = &unspelled;
+            }
             if user_params.iter().any(|p| p.default.is_some()) {
                 fn_defaults.insert(name.clone(), paddable_defaults(user_params));
             }

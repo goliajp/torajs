@@ -83,11 +83,28 @@ pub(super) fn run(
             &factory,
             &twin,
             &inner_suffix(&factory),
-            &widened(owned_ast, &found.params),
+            // the indices count the caller-visible params, which leave
+            // out the argv pointer of a factory carrying one
+            &widened(
+                owned_ast,
+                &found
+                    .params
+                    .iter()
+                    .filter(|p| p.name != "__torajs_argv")
+                    .cloned()
+                    .collect::<Vec<_>>(),
+            ),
             RetFace::Any,
         );
         if mono_decls.len() > emitted {
             widen_ctor_scalars(c, owned_ast, &mono_decls[emitted..], &factory);
+        }
+        // the twin carries the factory's channel too
+        if owned_ast.headless_argv_fns.contains(&factory) {
+            owned_ast.headless_argv_fns.insert(twin.clone());
+        }
+        if owned_ast.headless_argc_fns.contains(&factory) {
+            owned_ast.headless_argc_fns.insert(twin);
         }
     }
 }

@@ -246,16 +246,7 @@ pub(crate) fn pass_1_hoist_fn_signatures(c: &mut Checker, ast: &Ast) {
             // A one-slot this-first body on the argv lane (a static
             // twin or a promoted declaration, rotation 627) strips
             // like a ctor: it is called directly.
-            if user_params
-                .first()
-                .is_some_and(|p| p.name == "__torajs_argv")
-                || (name.ends_with("__ctor")
-                    && user_params.iter().any(|p| p.name == "__torajs_argv"))
-                || (!name.starts_with("__cm_")
-                    && user_params
-                        .get(1)
-                        .is_some_and(|p| p.name == "__torajs_argv"))
-            {
+            if crate::check_stmt_fn_decl::argv_slot_hidden(name, user_params) {
                 stripped = user_params
                     .iter()
                     .filter(|p| p.name != "__torajs_argv")

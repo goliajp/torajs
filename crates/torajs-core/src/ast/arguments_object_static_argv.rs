@@ -103,12 +103,24 @@ pub(super) fn collect_named_static_argv(
         else {
             continue;
         };
-        if env_fns.contains(name) {
+        // A class constructor's only call by name is its factory's,
+        // which passes the declared parameters rather than the
+        // program's arguments; the method face votes at the `new` and
+        // `super(…)` sites instead (`ctor_uniform_argc`). Voting here
+        // also counted the new-target slot as an argument.
+        if env_fns.contains(name) || (name.starts_with("__cm_") && name.ends_with("__ctor")) {
             continue;
         }
-        let this_slots = usize::from(params.first().is_some_and(|p| p.name == "__this"));
+        // the head is `__this`, plus `__new_target` on a declaration
+        // that reads `new.target` (`new_target_param`)
+        let this_slots = match params.first() {
+            Some(p) if p.name == "__this" => {
+                1 + usize::from(params.get(1).is_some_and(|p| p.name == "__new_target"))
+            }
+            _ => 0,
+        };
         let touches = body_has_non_length_arguments_touch(ast, body)
-            || (this_slots == 1 && body_has_arguments_length(ast, body));
+            || (this_slots > 0 && body_has_arguments_length(ast, body));
         if touches {
             cand.insert(name.clone(), this_slots);
         }
@@ -246,6 +258,10 @@ pub(super) fn collect_method_static_argv(ast: &Ast) -> std::collections::HashMap
     use std::collections::HashMap;
     let fwd_sites = forwarder_call_callee_eids(ast);
     let meta_reads = super::arguments_object_walkers::fn_meta_read_receivers(ast);
+    // a class the construct channel reaches is built from arguments
+    // no `new` site spells (`new (C as any)(…)`, `Reflect.construct`)
+    let from_value = crate::ssa_lower_boxed_entry::program_constructs_from_value(ast);
+    let heirs = crate::ssa_lower_boxed_entry::promise_heir_classes(ast);
     let mut out: HashMap<String, usize> = HashMap::new();
     for s in &ast.stmts {
         let Stmt::FnDecl {
@@ -300,6 +316,12 @@ pub(super) fn collect_method_static_argv(ast: &Ast) -> std::collections::HashMap
             .and_then(|r| r.strip_suffix("__ctor"))
             .filter(|_| recv_slots == 2)
         {
+            Some(cname)
+                if from_value
+                    || crate::ssa_lower_boxed_entry::factory_always_admitted(ast, &heirs, cname) =>
+            {
+                None
+            }
             Some(cname) => ctor_uniform_argc(ast, name, cname, &fwd_sites, &meta_reads),
             None => uniform_direct_call_argc(ast, name, recv_slots, &fwd_sites, &meta_reads),
         };

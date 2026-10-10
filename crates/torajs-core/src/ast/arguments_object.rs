@@ -14,6 +14,7 @@
 //! `crate::ast::arguments_object_rewrite::rewrite_arguments_in_stmt`.
 
 use super::arguments_object_collect::{collect_value_argc, collect_value_argv};
+use super::arguments_object_ctor_factory::join_factory_relays;
 use super::arguments_object_inject::inject_argc_params;
 use super::arguments_object_stages::{
     collect_arguments_shadowed_fns, collect_iife_real_argc, snapshot_fn_params,
@@ -335,8 +336,8 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
             &iife_static_argv,
             &env_fns,
         );
-    let uses_real_argc: std::collections::HashSet<String> =
-        uses_real_argc.union(&headless_argv_fns).cloned().collect();
+    let (headless_argv_fns, uses_real_argc) =
+        join_factory_relays(ast, headless_argv_fns, uses_real_argc);
     // RFC 20260810-indirect-argc-abi H1 — record the final head-less
     // tier membership: the SSA sig side (pass 1 / setup_fn_params /
     // direct-call terminal) keys the hidden-argc slot on this set,

@@ -179,7 +179,7 @@ pub(super) fn collect_headless_argv(
 /// target. Conservative by construction: an unrelated binding that
 /// happens to share the fn's name fails the walk, which only loses
 /// the admission.
-fn name_only_called_directly(ast: &Ast, name: &str) -> bool {
+pub(super) fn name_only_called_directly(ast: &Ast, name: &str) -> bool {
     use std::collections::HashSet;
     let mut occurrences: HashSet<u32> = HashSet::new();
     for (i, e) in ast.exprs.iter().enumerate() {

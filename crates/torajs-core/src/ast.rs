@@ -23,6 +23,7 @@ mod arguments_object_builtin_cb;
 mod arguments_object_chain;
 mod arguments_object_collect;
 mod arguments_object_ctor_argv;
+mod arguments_object_ctor_factory;
 mod arguments_object_devirt;
 pub(crate) mod arguments_object_escape_store;
 mod arguments_object_headless_argv;

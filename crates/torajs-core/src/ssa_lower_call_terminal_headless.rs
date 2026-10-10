@@ -50,6 +50,11 @@ pub(crate) fn forwarded_argc(
     let crate::ast::Expr::Ident(callee_name) = ctx.ast.get_expr(callee) else {
         return None;
     };
+    // the factory hands its constructor the caller's own buffer, so
+    // its count needs no cap
+    if is_factory_relay(ctx, callee_name) {
+        return Some(load_local(ctx, "__torajs_argc")?);
+    }
     // A receiver-first relay (`__fwdrecv_`, rotation 649) forwards
     // its true count the same way; without it a `this`-reading
     // declaration at a thisArg callback position answered
@@ -77,15 +82,9 @@ pub(crate) fn forwarded_argc(
     if !forwards_to_callee {
         return None;
     }
-    let info = ctx.locals.get("__torajs_argc")?;
-    let (slot, ty) = (info.slot, info.ty);
-    let cur_block = ctx.cur_block;
-    let v = ctx.f.append_inst(
-        cur_block,
-        InstKind::Load(ty, Operand::Value(slot), 0),
-        ty,
-        None,
-    );
+    let Operand::Value(v) = load_local(ctx, "__torajs_argc")? else {
+        return None;
+    };
     let Some(n) = packed else {
         return Some(Operand::Value(v));
     };
@@ -97,6 +96,53 @@ pub(crate) fn forwarded_argc(
     // lifting the cap while such a body still took the argv channel,
     // and `[7].map(t, o)` died on the over-read.
     Some(Operand::Value(emit_min_const(ctx, v, n as i64)))
+}
+
+/// The class factory's call to its own constructor
+/// (`__new_<C>` → `__cm_<C>__ctor`) while the factory carries the
+/// constructor's channel (`arguments_object_ctor_factory`): the
+/// count and values the constructor's `arguments` describes are the
+/// ones the `new` site passed the factory, not the factory's declared
+/// parameters.
+fn is_factory_relay(ctx: &LowerCtx<'_>, callee_name: &str) -> bool {
+    // the factory's `$$` clones (the construct channel's all-`any`
+    // twin) relay to the template's constructor name
+    let factory = ctx.f.name.split_once("$$").map_or(&*ctx.f.name, |(f, _)| f);
+    factory.strip_prefix("__new_").is_some_and(|c| {
+        callee_name
+            .strip_prefix("__cm_")
+            .and_then(|r| r.strip_suffix("__ctor"))
+            == Some(c)
+    }) && ctx.ast.headless_argc_fns.contains(&ctx.f.name)
+}
+
+/// The argv buffer a factory relay forwards instead of packing one
+/// (see [`is_factory_relay`]). `None` off that call.
+pub(crate) fn factory_relay_argv(
+    ctx: &mut LowerCtx<'_>,
+    callee: ExprId,
+) -> Option<(Operand, usize)> {
+    let crate::ast::Expr::Ident(callee_name) = ctx.ast.get_expr(callee) else {
+        return None;
+    };
+    if !is_factory_relay(ctx, callee_name) {
+        return None;
+    }
+    // the slot count only feeds the relay cap, which a factory skips
+    Some((load_local(ctx, "__torajs_argv")?, 0))
+}
+
+fn load_local(ctx: &mut LowerCtx<'_>, name: &str) -> Option<Operand> {
+    let info = ctx.locals.get(name)?;
+    let (slot, ty) = (info.slot, info.ty);
+    let cur_block = ctx.cur_block;
+    let v = ctx.f.append_inst(
+        cur_block,
+        InstKind::Load(ty, Operand::Value(slot), 0),
+        ty,
+        None,
+    );
+    Some(Operand::Value(v))
 }
 
 /// `min(v, n)` without a select: `n + ((v - n) & ((v - n) >> 63))`

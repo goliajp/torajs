@@ -188,7 +188,15 @@ fn target_facts(
     let this_hidden =
         crate::ssa_lower_pass_1::this_first_hidden_argc_pos(ast, name, params).is_some();
     let ast_skip = env_count + usize::from(has_argv);
-    let sig_skip = ast_skip + usize::from(first_is_env) + usize::from(this_hidden);
+    // a head-less body (a class factory carrying its constructor's
+    // channel, `arguments_object_ctor_factory`) has the slot at 0
+    let headless_hidden = !feeds_env
+        && !this_hidden
+        && crate::ssa_lower_pass_1::hidden_argc_pos(ast, name, params) == Some(0);
+    let sig_skip = ast_skip
+        + usize::from(first_is_env)
+        + usize::from(this_hidden)
+        + usize::from(headless_hidden);
     let user_tys: Vec<Type> = if twin_argv {
         std::iter::once(param_tys[0])
             .chain(param_tys[3..].iter().cloned())
@@ -292,7 +300,7 @@ fn target_facts(
         },
         lead_undef: relay.is_some_and(|r| r.this_first && !r.recv_first),
         feeds_env: feeds_env && relay.is_none(),
-        hidden_argc: first_is_env || this_hidden,
+        hidden_argc: first_is_env || this_hidden || headless_hidden,
         dflt_lits,
         type_anns: dflt_params.iter().map(|p| p.type_ann.clone()).collect(),
         rest,

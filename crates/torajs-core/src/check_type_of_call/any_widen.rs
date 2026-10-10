@@ -115,12 +115,16 @@ pub(super) fn hidden_any_into_scalar_param(
 pub(crate) fn param_has_default(ast: &Ast, name: &str, i: usize) -> bool {
     ast.stmts.iter().any(|s| {
         matches!(s, crate::ast::Stmt::FnDecl { name: n, params, .. }
-            if n == name
-                && params
-                    .iter()
-                    .filter(|p| p.name != "__env")
-                    .nth(i)
-                    .is_some_and(|p| p.default.is_some()))
+        if n == name && {
+            let user = &params[usize::from(params.first().is_some_and(|p| p.name == "__env"))..];
+            // `i` counts the caller-visible params, which leave out
+            // a hidden argv slot
+            let hidden = crate::check_stmt_fn_decl::argv_slot_hidden(name, user);
+            user.iter()
+                .filter(|p| !(hidden && p.name == "__torajs_argv"))
+                .nth(i)
+                .is_some_and(|p| p.default.is_some())
+        })
     })
 }
 

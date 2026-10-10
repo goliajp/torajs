@@ -40,7 +40,7 @@ use crate::ssa::{BinOp, FuncId, InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_call_terminal_coerce::coerce_args;
 use crate::ssa_lower_call_terminal_headless::{
-    headless_slots, insert_headless_slots, pack_headless_argv,
+    factory_relay_argv, headless_slots, insert_headless_slots, pack_headless_argv,
 };
 
 pub(crate) fn emit(
@@ -165,9 +165,10 @@ pub(crate) fn emit(
     // Packing here also reuses the operands already lowered above —
     // re-lowering the arg expressions would double their side
     // effects.
-    let headless_argv = headless
-        .argv
-        .then(|| pack_headless_argv(ctx, eid, args, &argv, headless.at));
+    let headless_argv = headless.argv.then(|| {
+        factory_relay_argv(ctx, callee)
+            .unwrap_or_else(|| pack_headless_argv(ctx, eid, args, &argv, headless.at))
+    });
     // Direct-call trailing-ignore (checker wedge mirror): the extra
     // args lowered above for §13.3.6.1 side effects; the callee's ABI
     // reads only its declared slots, so argv aligns down to the

@@ -318,9 +318,17 @@ fn emit_widened_spec(
     let no_subst: Vec<(String, String)> = Vec::new();
     let (mut new_params, new_return_type, new_body, id_map) =
         clone_spec_body(owned_ast, &params, &return_type, &body, &no_subst);
+    // the fn type also leaves out a hidden argv slot, so index `i`
+    // counts the params past it
+    let visible: Vec<usize> = (head..new_params.len())
+        .filter(|&j| {
+            new_params[j].name != "__torajs_argv"
+                || !crate::check_stmt_fn_decl::argv_slot_hidden(fn_name, &params[head..])
+        })
+        .collect();
     for &(i, target) in idxs {
-        if let Some(p) = new_params.get_mut(i + head) {
-            p.type_ann = Some(target.ann().to_string());
+        if let Some(&j) = visible.get(i) {
+            new_params[j].type_ann = Some(target.ann().to_string());
         }
     }
     if lifted {

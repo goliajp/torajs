@@ -125,7 +125,15 @@ fn try_lower_headless_argv_spread(
     // `C.m.apply(o, xs)` to `__smany_C__m(o, ...xs)`, so the head
     // arguments lower as themselves and only the tail becomes argv.
     if let Some(&head) = ctx.ast.this_first_argv_fns.get(&name) {
-        return lower_this_first_argv_spread(ctx, &name, args, head);
+        return lower_this_first_argv_spread(ctx, &name, args, head, true);
+    }
+    // A class factory carrying its constructor's channel
+    // (`arguments_object_ctor_factory`) is the same shape with no
+    // head: no relay is minted for a synthetic callee, so the
+    // declared parameters unpack here.
+    if name.starts_with("__new_") && ctx.ast.headless_argc_fns.contains(&name) {
+        let argv = ctx.ast.headless_argv_fns.contains(&name);
+        return lower_this_first_argv_spread(ctx, &name, args, 0, argv);
     }
     if !ctx.ast.headless_argv_fns.contains(&name) || !ctx.ast.headless_argc_fns.contains(&name) {
         return None;
@@ -178,12 +186,15 @@ fn try_lower_headless_argv_spread(
 /// desugar wrote (`__this`, `__new_target`) lowers positionally;
 /// everything after it materializes into one `Array<Any>` whose len
 /// is the argc and whose slot base is the argv — the head-less
-/// lane's mechanism, offset by the head.
+/// lane's mechanism, offset by the head. `argv` is false for a
+/// callee on the argc tier alone, which takes the count but no
+/// pointer.
 fn lower_this_first_argv_spread(
     ctx: &mut LowerCtx<'_>,
     name: &str,
     args: &[ExprId],
     head: usize,
+    argv: bool,
 ) -> Option<Operand> {
     if args.len() < head {
         return None;
@@ -195,7 +206,8 @@ fn lower_this_first_argv_spread(
     // so that shape keeps the loud refusal (decided before anything
     // is emitted — a `None` here must leave no half-lowered call).
     let sig_id = *ctx.fn_sig_ids.get(&target)?;
-    let declared: Vec<Type> = ctx.fn_sigs[sig_id.0 as usize].0[head + 2..].to_vec();
+    let declared: Vec<Type> =
+        ctx.fn_sigs[sig_id.0 as usize].0[head + 1 + usize::from(argv)..].to_vec();
     if !declared.iter().all(|t| {
         matches!(
             t,
@@ -218,10 +230,11 @@ fn lower_this_first_argv_spread(
         Type::I64,
         None,
     );
-    let argv = ctx.emit_arr_data_ptr(args_arr);
     let mut call_args = head_ops;
     call_args.push(Operand::Value(argc));
-    call_args.push(argv);
+    if argv {
+        call_args.push(ctx.emit_arr_data_ptr(args_arr));
+    }
     // The declared parameters, unpacked off the same list: slot `i`
     // read boxed (past the end answers undefined, §10.2.11's missing
     // argument), then converted to the parameter's own SSA type the
