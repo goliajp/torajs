@@ -81,21 +81,20 @@ pub struct InlineBudget {
     /// `would_inline` decisions sum past this, further sites for the
     /// same caller are skipped with `SkipReason::CallerBudgetExhausted`.
     pub caller_total_budget: Cost,
-    /// Maximum recursion depth allowed via inlining. `0` (default)
-    /// rejects every direct self-recursive call site with
-    /// `SkipReason::Recursion` — matching LLVM, which never inlines
-    /// self-recursion. `1` (the GCC `max-inline-recursive-depth`
-    /// shape) lets a self-call site inline its own body once: the
-    /// emit pass is one-shot over the sites captured before
-    /// splicing and self-sites splice from a pre-splice snapshot,
-    /// so depth is naturally bounded. History: depth 1 first
-    /// regressed fib40 +8.3% on mini (2026-06-10, 3-run medians)
-    /// because the multi-ret join slot's store/load stayed in the
-    /// hot path with no promotion pass to clear it — default went
-    /// back to 0 pending mem2reg. With slot_forward + mem2reg +
-    /// phi_promote landed the join slot dissolves into φ copies,
-    /// unlocking depth 1 as the default. Values > 1 are reserved
-    /// (an iterative emit pass would be needed to honor them).
+    /// Maximum recursion depth allowed via inlining (the GCC
+    /// `max-inline-recursive-depth` shape). `0` rejects every direct
+    /// self-recursive call site with `SkipReason::Recursion` — matching
+    /// LLVM, which never inlines self-recursion. `d > 0` runs `d`
+    /// rounds per caller: the first classifies every site; each later
+    /// one classifies only the self-calls left in the body, with a
+    /// fresh caller budget. Every self-site splices the caller's
+    /// original body from the snapshot taken before its first splice,
+    /// so one out-of-line frame covers `d + 1` levels of the recursion.
+    /// History: depth 1 first regressed fib40 +8.3% on mini
+    /// (2026-06-10, 3-run medians) because the multi-ret join slot's
+    /// store/load stayed in the hot path with no promotion pass to
+    /// clear it; with slot_forward + mem2reg + phi_promote the join
+    /// slot dissolves into φ copies.
     pub max_recursion_depth: u32,
     /// Ceiling for a callee with one direct call site and no address
     /// taken (`sole_site.rs`), which is also not charged to the
@@ -108,7 +107,7 @@ impl Default for InlineBudget {
         Self {
             callee_cost_ceiling: Cost::new(225),
             caller_total_budget: Cost::new(675),
-            max_recursion_depth: 1,
+            max_recursion_depth: 2,
             sole_site_ceiling: Cost::new(2000),
         }
     }
@@ -192,13 +191,15 @@ pub fn callee_body_cost(func: &Function) -> Cost {
 ///
 /// Decisions are returned in source order. `CallIndirect` sites land
 /// as `Skip(Indirect)` so the caller can count them toward
-/// `InlinerStats::skipped_indirect` without re-scanning.
+/// `InlinerStats::skipped_indirect` without re-scanning. With
+/// `self_only` every site but a direct self-call is passed over.
 fn classify_caller_sites(
     module: &Module,
     caller_idx: usize,
     budget: &InlineBudget,
     callee_costs: &[Cost],
     sole: &[bool],
+    self_only: bool,
 ) -> Vec<(usize, usize, InlineDecision)> {
     let caller = &module.funcs[caller_idx];
     let mut decisions = Vec::new();
@@ -206,7 +207,9 @@ fn classify_caller_sites(
     for (blk_idx, blk) in caller.blocks.iter().enumerate() {
         for (site_idx, inst) in blk.insts.iter().enumerate() {
             match &inst.kind {
-                InstKind::Call(callee_id, _args) => {
+                InstKind::Call(callee_id, _)
+                    if !self_only || callee_id.0 as usize == caller_idx =>
+                {
                     let callee_ix = callee_id.0 as usize;
                     let callee = &module.funcs[callee_ix];
                     if callee.is_declaration() {
@@ -266,7 +269,7 @@ fn classify_caller_sites(
                     caller_spent = projected;
                     decisions.push((blk_idx, site_idx, InlineDecision::Inline { callee_cost }));
                 }
-                InstKind::CallIndirect(_, _, _) => {
+                InstKind::CallIndirect(_, _, _) if !self_only => {
                     decisions.push((
                         blk_idx,
                         site_idx,
@@ -322,21 +325,29 @@ pub fn inline_module_with_budget(module: &mut Module, budget: InlineBudget) -> I
     let mut stats = InlinerStats::default();
     let sole = sole_site::sole_site_callees(module);
     for caller_idx in order::bottom_up(module) {
-        let decisions = classify_caller_sites(module, caller_idx, &budget, &callee_costs, &sole);
-        stats.tally(&decisions);
-        if dry_run {
-            continue;
-        }
         let mut self_snapshot = None;
-        emit::emit_caller(
-            module,
-            caller_idx,
-            &decisions,
-            &mut self_snapshot,
-            &budget,
-            &sole,
-            &mut stats,
-        );
+        for round in 0..budget.max_recursion_depth.max(1) {
+            // rounds past the first splice the original body into the
+            // self-sites the previous round's clones carry
+            if round > 0 && self_snapshot.is_none() {
+                break;
+            }
+            let decisions =
+                classify_caller_sites(module, caller_idx, &budget, &callee_costs, &sole, round > 0);
+            stats.tally(&decisions);
+            if dry_run {
+                break;
+            }
+            emit::emit_caller(
+                module,
+                caller_idx,
+                &decisions,
+                &mut self_snapshot,
+                &budget,
+                &sole,
+                &mut stats,
+            );
+        }
         // its callers, visited later, price the body they will clone
         callee_costs[caller_idx] = callee_body_cost(&module.funcs[caller_idx]);
     }

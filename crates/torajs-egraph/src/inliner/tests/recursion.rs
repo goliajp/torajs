@@ -119,3 +119,27 @@ fn self_recursive_sites_inline_one_level_from_snapshot() {
          6 would mean the second splice cloned the already-grown body"
     );
 }
+
+#[test]
+fn self_recursive_sites_inline_two_levels_from_snapshot() {
+    let mut m = module_of(vec![fib_like()]);
+    let budget = InlineBudget {
+        max_recursion_depth: 2,
+        ..InlineBudget::default()
+    };
+    let stats = inline_module_with_budget(&mut m, budget);
+    assert_eq!(
+        stats.inlined, 6,
+        "2 sites in round one, their 4 in round two"
+    );
+    let recursive_sites: usize = m.funcs[0]
+        .blocks
+        .iter()
+        .flat_map(|b| &b.insts)
+        .filter(|i| matches!(i.kind, InstKind::Call(FuncId(0), _)))
+        .count();
+    assert_eq!(
+        recursive_sites, 8,
+        "round two clones the ORIGINAL 2-site body into each of the 4 sites"
+    );
+}
