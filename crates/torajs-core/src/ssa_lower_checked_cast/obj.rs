@@ -111,10 +111,11 @@ impl LowerCtx<'_> {
     /// `v`, an `any` value `arg` appends to an array of the object
     /// layout `elem` (`push`, `unshift`), cast into the element type
     /// the array's annotation names; an owned temporary's stake goes,
-    /// and the element takes the cast's. An array whose element type
-    /// is the compiler's inference was retyped `any[]` before
-    /// (`let_widen::push`), so one without an annotation to cast to is
-    /// refused here, as the checker refused it before casts.
+    /// and the element takes the cast's. The checker admits such an
+    /// append only onto an array whose element annotation it traced to
+    /// a type the cast tests (`check_type_of_call_array_push_unshift`),
+    /// and an array whose element type is the compiler's inference was
+    /// retyped `any[]` before (`let_widen::push`).
     pub(crate) fn cast_pushed_obj(
         &mut self,
         elem: Type,
@@ -125,14 +126,9 @@ impl LowerCtx<'_> {
         if self.operand_ty(&v) != Type::Any {
             return None;
         }
-        let ann = self.pushed_elem_ann(arg);
-        let cast = ann.and_then(|a| self.checked_cast_obj(v, sid, &a, CastSlot::Store, Some(arg)));
-        let Some(cast) = cast else {
-            panic!(
-                "ssa-lower: an `any` value appended to an array of {elem:?} whose element type \
-                 is not an annotated class or object type"
-            );
-        };
+        let ann = (self.pushed_elem_ann(arg)).expect("the checker traced the element annotation");
+        let cast = (self.checked_cast_obj(v, sid, &ann, CastSlot::Store, Some(arg)))
+            .expect("the checker admitted only an element type the cast tests");
         if self.expr_transfers_ownership(arg) {
             self.emit_drop_value(v, Type::Any);
         }

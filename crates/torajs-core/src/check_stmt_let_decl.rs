@@ -216,6 +216,7 @@ pub(crate) fn check(
             .then_some(crate::check::FnSlot::Let(init)),
             union: const_literal(ast, mutable, type_ann, init),
             held_any,
+            ann: type_ann.clone(),
             ..LocalInfo::plain(final_ty)
         },
     ) {

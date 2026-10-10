@@ -259,6 +259,7 @@ pub(crate) fn check_closure_body(
                     .map(|i| i.union.clone())
                     .unwrap_or_default(),
                 held_any: cap_outer.get(cap_name).is_some_and(|i| i.held_any),
+                ann: cap_outer.get(cap_name).and_then(|i| i.ann.clone()),
                 ..LocalInfo::plain(cap_ty.clone())
             },
         );
@@ -272,7 +273,14 @@ pub(crate) fn check_closure_body(
             Type::Rest(elem) => Type::Array(elem.clone()),
             other => other.clone(),
         };
-        let _ = checker.declare(p.name.clone(), LocalInfo::plain(binding_ty));
+        let ann = p.type_ann.clone();
+        let _ = checker.declare(
+            p.name.clone(),
+            LocalInfo {
+                ann,
+                ..LocalInfo::plain(binding_ty)
+            },
+        );
     }
     if active.is_none()
         && let Some(sn) = &saved_self_name

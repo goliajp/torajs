@@ -65,7 +65,7 @@ mod obj_cast;
 mod scan;
 
 pub(crate) use crate::ast_throw_info_fixpoint::compute_may_throw_fns;
-pub(crate) use obj_cast::{class_field_ann, returns_any_into_obj};
+pub(crate) use obj_cast::{class_field_ann, class_of, elem_ann, returns_any_into_obj, written_ann};
 pub(crate) use scan::Scan;
 
 pub(crate) fn fn_throw_info(

@@ -67,6 +67,10 @@ pub(crate) struct LocalInfo {
     /// An object-typed binding that holds an `any` value
     /// (`crate::check_stmt_let_decl::held_any`).
     pub(crate) held_any: bool,
+    /// The annotation the declaration wrote (`let x: T`, `p: T`), for
+    /// a binding the program typed itself; `None` for one the compiler
+    /// typed.
+    pub(crate) ann: Option<String>,
 }
 
 impl LocalInfo {
@@ -83,6 +87,7 @@ impl LocalInfo {
             fn_slot: None,
             union: UnionBinding::default(),
             held_any: false,
+            ann: None,
         }
     }
 }

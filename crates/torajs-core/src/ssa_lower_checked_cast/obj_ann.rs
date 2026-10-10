@@ -3,7 +3,6 @@
 //! has no annotation, and is not cast.
 
 use crate::ast::{Expr, ExprId, Stmt};
-use crate::check_type_ann::strip_nullable;
 use crate::ssa_lower::LowerCtx;
 
 impl LowerCtx<'_> {
@@ -29,8 +28,8 @@ impl LowerCtx<'_> {
     }
 
     /// The element annotation of the array the call taking `arg`
-    /// appends to: a binding's or a class field's, peeled of its `[]` /
-    /// `Array<>`.
+    /// appends to, as the checker traced it when it admitted the call
+    /// (`ast_throw_info::written_ann`).
     pub(super) fn pushed_elem_ann(&self, arg: ExprId) -> Option<String> {
         let recv = self.ast.exprs.iter().find_map(|e| match e {
             Expr::Call { callee, args } if args.contains(&arg) => {
@@ -41,17 +40,10 @@ impl LowerCtx<'_> {
             }
             _ => None,
         })?;
-        let ann = match self.ast.get_expr(recv) {
-            Expr::Ident(n) => self.binding_ann(n, !self.locals.contains_key(n)),
-            Expr::Member { obj, name } => self.field_ann(*obj, name),
-            _ => None,
-        }?;
-        let ann = strip_nullable(&ann).trim();
-        let elem = match ann.strip_suffix("[]") {
-            Some(e) => e,
-            None => ann.strip_prefix("Array<")?.strip_suffix('>')?,
-        };
-        Some(elem.trim().to_string())
+        let binding = |n: &str| self.binding_ann(n, !self.locals.contains_key(n));
+        let class_of = |e| crate::ast_throw_info::class_of(self.expr_types, e);
+        let ann = crate::ast_throw_info::written_ann(self.ast, recv, &binding, &class_of)?;
+        crate::ast_throw_info::elem_ann(&ann)
     }
 }
 
