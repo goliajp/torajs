@@ -44,17 +44,18 @@ impl<'a> Analysis<'a> {
             self.add_constraint(key.clone(), super::magnitude::f64_flow());
         }
         let mut seen: HashSet<String> = HashSet::new();
-        self.json_seed_container(key, ann, &mut seen);
+        self.seed_number_faces(key, ann, &mut seen);
     }
 
-    fn json_seed_container(
-        &mut self,
-        key: &SlotKey,
-        ann: Option<&str>,
-        seen: &mut HashSet<String>,
-    ) {
+    /// Seed the number-domain faces below the slot `key` of type
+    /// `ann`: array elements, and the fields of an object type at any
+    /// depth. A class has one layout, shared by every instance, so its
+    /// fields seed on the class's own aggregation point (`Class(C)`),
+    /// which the layout reads; a slot's own key would only widen a twin
+    /// layout that no longer names the class.
+    fn seed_number_faces(&mut self, key: &SlotKey, ann: Option<&str>, seen: &mut HashSet<String>) {
         let Some(ann) = ann else { return };
-        let ann = ann.trim();
+        let ann = crate::check_type_ann::strip_nullable(ann).trim();
         if let Some(elem) = ann.strip_suffix("[]") {
             let ek = SlotKey::Elem(Box::new(key.clone()));
             self.mark_containerish(key);
@@ -62,7 +63,7 @@ impl<'a> Analysis<'a> {
             if number_domain(Some(elem)) {
                 self.add_container_constraint(ek.clone(), super::magnitude::f64_flow());
             }
-            self.json_seed_container(&ek, Some(elem), seen);
+            self.seed_number_faces(&ek, Some(elem), seen);
             return;
         }
         // Named-type or object-type-literal spelling — seed each
@@ -74,43 +75,33 @@ impl<'a> Analysis<'a> {
         if fields.is_empty() {
             return;
         }
-        self.mark_containerish(key);
+        let holder = if self.ast.class_parents.contains_key(ann) {
+            SlotKey::Class(ann.to_string())
+        } else {
+            key.clone()
+        };
+        self.mark_containerish(&holder);
         for (fname, fann) in fields {
-            let fk = SlotKey::Field(Box::new(key.clone()), fname);
+            let fk = SlotKey::Field(Box::new(holder.clone()), fname);
             if number_domain(Some(&fann)) {
                 self.add_container_constraint(fk.clone(), super::magnitude::f64_flow());
             }
-            self.json_seed_container(&fk, Some(&fann), seen);
+            self.seed_number_faces(&fk, Some(&fann), seen);
         }
     }
 }
 
 impl Analysis<'_> {
-    /// Seed the number-domain fields of the object type `ann` that the
+    /// Seed the number-domain faces of the object type `ann` that the
     /// slot `key` is written an `any` value into. The write casts, and
-    /// a cast may copy a dynamic object into a cell of the
-    /// slot's layout (`ssa_lower_checked_cast::obj`): its property
-    /// values are runtime data like JSON text, and a field narrowed
-    /// past `number` would reject a fraction the annotation admits.
+    /// a cast may copy a dynamic object into a cell of the slot's
+    /// layout (`ssa_lower_checked_cast::obj`): its property values are
+    /// runtime data like JSON text, and a field narrowed past `number`
+    /// would reject a fraction the annotation admits (RFC 20260922
+    /// §4.4 item 1).
     pub(super) fn any_object_seed(&mut self, key: &SlotKey, ann: &str) {
-        let base = crate::check_type_ann::strip_nullable(ann).trim();
-        // a class has one layout, which this seed does not widen: a
-        // fraction copied into a field the width analysis narrowed is
-        // rejected (the width debt of RFC 20260922 §4.4 item 1)
-        if self.ast.class_parents.contains_key(base) {
-            return;
-        }
-        let fields = self.object_fields(base);
-        if fields.is_empty() {
-            return;
-        }
-        self.mark_containerish(key);
-        for (fname, fann) in fields {
-            if number_domain(Some(&fann)) {
-                let fk = SlotKey::Field(Box::new(key.clone()), fname);
-                self.add_container_constraint(fk, super::magnitude::f64_flow());
-            }
-        }
+        let mut seen: HashSet<String> = HashSet::new();
+        self.seed_number_faces(key, Some(ann), &mut seen);
     }
 
     /// The fields of the object type `ann`: an object type literal's,
