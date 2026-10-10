@@ -65,7 +65,17 @@ pub fn wrap_escaping_fn_ident_bindings(ast: &mut Ast) {
         targets.insert(target.clone());
         rewrites.push((eid, target));
     }
-    if rewrites.is_empty() {
+    // a function stored into a binding that holds cells (see the sibling)
+    let cell_inits: HashSet<ExprId> = rewrites.iter().map(|(eid, _)| *eid).collect();
+    let is_fn = |g: &str| fn_sigs.contains_key(g);
+    let (wraps, shells_only) =
+        super::fn_assign_rhs_wrap::closure_slot_store_leaves(ast, &is_fn, &cell_inits);
+    for (eid, target) in wraps {
+        targets.insert(target.clone());
+        rewrites.push((eid, target));
+    }
+    targets.extend(shells_only);
+    if targets.is_empty() {
         return;
     }
     let (new_decls, renames) =
@@ -149,7 +159,7 @@ pub fn escaping_fn_aliases(
 /// too — the re-export alias `__reex_*`, the deconflict mangle
 /// `__m<k>_*` — and a later request binds its own spelling to it
 /// (`const __reex_b = __reex_a`); both are the user's function.
-fn relayable_target(g: &str) -> bool {
+pub(super) fn relayable_target(g: &str) -> bool {
     !g.starts_with("__")
         || g.starts_with("__sm_")
         || g.starts_with("__reex_")

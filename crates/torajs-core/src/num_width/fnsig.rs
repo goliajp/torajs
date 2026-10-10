@@ -171,8 +171,15 @@ impl<'a> Analysis<'a> {
     /// closure construction) flowing into `key` unions its Ret /
     /// Param keys with the destination's `__ret` / `__p{i}`
     /// projections. Call at every value-flow site (let init, assign
-    /// RHS, return expr, call arg).
+    /// RHS, return expr, call arg). A choice (`c ? f : g`, `f || g`)
+    /// flows each function it may answer.
     pub(super) fn fn_value_flow(&mut self, key: &SlotKey, eid: ExprId, scope: &Scope) {
+        for leaf in crate::ast_closure_param_tag_member::passthrough_leaves(self.ast, eid) {
+            self.fn_leaf_flow(key, leaf, scope);
+        }
+    }
+
+    fn fn_leaf_flow(&mut self, key: &SlotKey, eid: ExprId, scope: &Scope) {
         let fname = match self.ast.get_expr(eid) {
             Expr::Ident(n)
                 if self.resolve(n, scope).is_none() && self.fn_params.contains_key(n) =>

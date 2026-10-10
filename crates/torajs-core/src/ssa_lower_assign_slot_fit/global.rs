@@ -17,6 +17,8 @@ pub(crate) fn coerce_for_global(
         coerce_any_into_arr_slot(ctx, slot_ty, kind, v)
     } else if arr_any_slot_takes_any(ctx, slot_ty, v_ty) {
         share_any_into_arr_any_slot(ctx, slot_ty, v)
+    } else if super::fn_pointer_into_closure_slot(slot_ty, v_ty) {
+        crate::ssa_lower_call_fn_cell::fn_value_cell(ctx, slot_ty, value, v)
     } else if slot_ty == Type::F64 && v_ty == Type::I64 {
         ctx.coerce_to_f64(v)
     } else if let Some(cast) = ctx.checked_cast(

@@ -274,7 +274,18 @@ pub(super) fn global_coercion_compatible(ctx: &LowerCtx<'_>, slot_ty: Type, v_ty
         // L3b #4 — shorter-arity closures fit wider fn-typed slots
         // (see check_local_coercion's Closure arm).
         || (matches!(slot_ty, Type::Closure(_)) && matches!(v_ty, Type::Closure(_)))
+        || fn_pointer_into_closure_slot(slot_ty, v_ty)
         || crate::ssa_lower_iface::slot_takes(ctx, slot_ty, v_ty)
+}
+
+/// A top-level function's bare pointer assigned into a binding that
+/// holds closures of the same signature (`let k = mk(); k = f`): the
+/// slot takes the function's canonical closure cell, as a closure
+/// parameter does. The stores the AST can see arrive wrapped already
+/// (`ast::fn_assign_rhs_wrap`); a signature that differs (number
+/// widths settled apart) has no cell to hand over.
+fn fn_pointer_into_closure_slot(slot_ty: Type, v_ty: Type) -> bool {
+    matches!((slot_ty, v_ty), (Type::Closure(a), Type::FnSig(b)) if a == b)
 }
 
 pub(super) fn check_local_coercion(ctx: &LowerCtx<'_>, name: &str, snap_ty: Type, v_ty: Type) {
@@ -307,7 +318,9 @@ pub(super) fn check_local_coercion(ctx: &LowerCtx<'_>, name: &str, snap_ty: Type
     // gate): both are env cells, the call site pushes the SLOT sig's
     // args and the callee reads its own shorter prefix, extra arg
     // registers are simply never read.
-    if matches!(snap_ty, Type::Closure(_)) && matches!(v_ty, Type::Closure(_)) {
+    if matches!(snap_ty, Type::Closure(_)) && matches!(v_ty, Type::Closure(_))
+        || fn_pointer_into_closure_slot(snap_ty, v_ty)
+    {
         return;
     }
     panic!(
@@ -359,6 +372,8 @@ pub(super) fn coerce_for_local(
         // `undefined` / `null` rhs tags apart, as the global path
         // has since chunk 809.
         ctx.box_to_any_from_expr(value, v)
+    } else if fn_pointer_into_closure_slot(snap_ty, v_ty) {
+        crate::ssa_lower_call_fn_cell::fn_value_cell(ctx, snap_ty, value, v)
     } else if snap_ty == Type::F64 && v_ty == Type::I64 {
         ctx.coerce_to_f64(v)
     } else if let Some(cast) = ctx.checked_cast(
