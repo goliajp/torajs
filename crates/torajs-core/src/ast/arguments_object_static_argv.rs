@@ -318,7 +318,9 @@ pub(super) fn collect_method_static_argv(ast: &Ast) -> std::collections::HashMap
         {
             Some(cname)
                 if from_value
-                    || crate::ssa_lower_boxed_entry::factory_always_admitted(ast, &heirs, cname) =>
+                    || crate::ssa_lower_boxed_entry::factory_always_admitted(
+                        ast, &heirs, cname,
+                    ) =>
             {
                 None
             }

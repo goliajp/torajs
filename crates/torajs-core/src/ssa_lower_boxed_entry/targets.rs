@@ -135,6 +135,31 @@ pub(super) fn collect_boxed_targets(tables: &TargetTables<'_>) -> Vec<BoxedEntry
     targets
 }
 
+/// The SSA signature slots ahead of the user parameters that the AST
+/// param list does not spell. Two skip counts since RFC
+/// 20260810-indirect-argc-abi S1: the AST param list has no hidden
+/// slot, the SSA sig of an `__env`-first body has the injected I64
+/// `__torajs_argc` at position 1 — cutting both sides with one count
+/// was the exact AST↔sig mis-align this split exists to prevent.
+/// S1-T1 — the this-first method_argv family carries the same
+/// sig-only slot (shared predicate: pass 1 / setup_fn_params / here),
+/// and a head-less body (a class factory carrying its constructor's
+/// channel, `arguments_object_ctor_factory`) has it at 0.
+fn sig_only_slots(
+    ast: &Ast,
+    name: &str,
+    params: &[crate::ast::Param],
+    first_is_env: bool,
+    feeds_env: bool,
+) -> usize {
+    let this_hidden =
+        crate::ssa_lower_pass_1::this_first_hidden_argc_pos(ast, name, params).is_some();
+    let headless_hidden = !feeds_env
+        && !this_hidden
+        && crate::ssa_lower_pass_1::hidden_argc_pos(ast, name, params) == Some(0);
+    usize::from(first_is_env) + usize::from(this_hidden) + usize::from(headless_hidden)
+}
+
 /// The per-FnDecl facts of one admitted target — everything the
 /// adapter build reads. `None` refuses the fn (a shape the adapter
 /// cannot serve: an unboxable param, a nested-typed rest, a sig the
@@ -177,26 +202,10 @@ fn target_facts(
             .is_some_and(|p| p.name == "__torajs_argv");
     // param 0 is the env Ptr (when the body carries one); the
     // boxed surface covers the rest (minus the argv slot, which
-    // never consumes argv positions). Two skip counts since
-    // RFC 20260810-indirect-argc-abi S1: the AST param list has
-    // no hidden slot, the SSA sig of an `__env`-first body has
-    // the injected I64 `__torajs_argc` at position 1 — cutting
-    // both sides with one count was the exact AST↔sig mis-align
-    // this split exists to prevent. S1-T1 — the this-first
-    // method_argv family carries the same sig-only slot (shared
-    // predicate: pass 1 / setup_fn_params / here).
-    let this_hidden =
-        crate::ssa_lower_pass_1::this_first_hidden_argc_pos(ast, name, params).is_some();
+    // never consumes argv positions)
     let ast_skip = env_count + usize::from(has_argv);
-    // a head-less body (a class factory carrying its constructor's
-    // channel, `arguments_object_ctor_factory`) has the slot at 0
-    let headless_hidden = !feeds_env
-        && !this_hidden
-        && crate::ssa_lower_pass_1::hidden_argc_pos(ast, name, params) == Some(0);
-    let sig_skip = ast_skip
-        + usize::from(first_is_env)
-        + usize::from(this_hidden)
-        + usize::from(headless_hidden);
+    let hidden = sig_only_slots(ast, name, params, first_is_env, feeds_env);
+    let sig_skip = ast_skip + hidden;
     let user_tys: Vec<Type> = if twin_argv {
         std::iter::once(param_tys[0])
             .chain(param_tys[3..].iter().cloned())
@@ -300,7 +309,7 @@ fn target_facts(
         },
         lead_undef: relay.is_some_and(|r| r.this_first && !r.recv_first),
         feeds_env: feeds_env && relay.is_none(),
-        hidden_argc: first_is_env || this_hidden || headless_hidden,
+        hidden_argc: hidden > 0,
         dflt_lits,
         type_anns: dflt_params.iter().map(|p| p.type_ann.clone()).collect(),
         rest,
