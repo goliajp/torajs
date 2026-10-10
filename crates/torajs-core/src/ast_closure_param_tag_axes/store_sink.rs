@@ -37,6 +37,7 @@ pub(crate) fn store_sink_param_seeds(
         for st in body {
             visit_stmt_exprs(st, &mut |e| stored_names(ast, e, &mut stored));
         }
+        through_bindings(ast, body, &mut stored);
         for (i, p) in own {
             if stored.contains(p.as_str()) {
                 seeds.insert((name.clone(), *i));
@@ -46,8 +47,54 @@ pub(crate) fn store_sink_param_seeds(
     seeds
 }
 
+/// Every name the module hands to a heap slot, scope-blind: a name
+/// collision only costs that binding its direct-dispatch lane.
+pub(crate) fn heap_stored_names(ast: &Ast) -> HashSet<String> {
+    let mut out = HashSet::new();
+    for i in 0..ast.exprs.len() {
+        own_stored_names(ast, ExprId(i as u32), &mut out);
+    }
+    through_bindings(ast, &ast.stmts, &mut out);
+    out.into_iter().map(str::to_string).collect()
+}
+
+/// A stored binding stores what its initializer answers as well:
+/// `const k: F = f; xs.push(k)` hands `f` to the slot, and so does
+/// `const k = c ? f : g` both operands. Followed to a fixpoint over
+/// every binding in `stmts`, nested ones included.
+fn through_bindings<'a>(ast: &'a Ast, stmts: &'a [Stmt], out: &mut HashSet<&'a str>) {
+    let mut inits: Vec<(&str, ExprId)> = Vec::new();
+    let mut stack: Vec<&Stmt> = stmts.iter().collect();
+    while let Some(s) = stack.pop() {
+        push_child_stmts(s, &mut stack);
+        if let Stmt::LetDecl { name, init, .. } = s {
+            inits.push((name, *init));
+        }
+    }
+    let mut grew = true;
+    while grew {
+        grew = false;
+        for &(name, init) in &inits {
+            if !out.contains(name) {
+                continue;
+            }
+            for leaf in passthrough_leaves(ast, init) {
+                if let Expr::Ident(n) = ast.get_expr(leaf) {
+                    grew |= out.insert(n);
+                }
+            }
+        }
+    }
+}
+
 /// The names `e` and its subexpressions hand to a heap slot.
 fn stored_names<'a>(ast: &'a Ast, e: ExprId, out: &mut HashSet<&'a str>) {
+    own_stored_names(ast, e, out);
+    visit_expr_children(ast, e, &mut |c| stored_names(ast, c, out));
+}
+
+/// The names `e` itself, not its subexpressions, hands to a heap slot.
+fn own_stored_names<'a>(ast: &'a Ast, e: ExprId, out: &mut HashSet<&'a str>) {
     let stored: &[ExprId] = match ast.get_expr(e) {
         Expr::Call { callee, args } => match ast.get_expr(*callee) {
             Expr::Member { name, .. }
@@ -75,5 +122,4 @@ fn stored_names<'a>(ast: &'a Ast, e: ExprId, out: &mut HashSet<&'a str>) {
             }
         }
     }
-    visit_expr_children(ast, e, &mut |c| stored_names(ast, c, out));
 }

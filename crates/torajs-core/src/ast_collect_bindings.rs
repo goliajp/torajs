@@ -49,12 +49,22 @@ pub(crate) fn collect_any_bindings(stmts: &[Stmt], out: &mut HashSet<String>) {
 /// value type FnSig(..)`, while `z.push(p as any)`, a binding hop,
 /// a function expression and an arrow all worked. Same shape as the
 /// array-literal element position, one spelling later.
+///
+/// A parameter so annotated joins them too: `function t(zs: F[]) {
+/// zs.push(h) }` stores into the same Closure-repr element slot.
 pub(crate) fn collect_fn_arr_bindings(stmts: &[Stmt], out: &mut HashSet<String>) {
-    collect_bindings_matching(
-        stmts,
-        &|a| crate::ast::is_fn_arr_ann(a) || is_any_arr_ann(a),
-        out,
-    );
+    let pred = |a: &str| crate::ast::is_fn_arr_ann(a) || is_any_arr_ann(a);
+    collect_bindings_matching(stmts, &pred, out);
+    let mut stack: Vec<&Stmt> = stmts.iter().collect();
+    while let Some(s) = stack.pop() {
+        crate::ast_closure_param_tag::push_child_stmts(s, &mut stack);
+        if let Stmt::FnDecl { params, .. } = s {
+            let annotated = params
+                .iter()
+                .filter(|p| p.type_ann.as_deref().is_some_and(pred));
+            out.extend(annotated.map(|p| p.name.clone()));
+        }
+    }
 }
 
 /// `any[]` / `Array<any>` / `ReadonlyArray<any>` / `Iterable<any>` —

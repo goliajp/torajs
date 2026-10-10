@@ -134,6 +134,10 @@ pub(crate) struct FnToClosureCollector<'a> {
     /// raw FnSig into the any-method argv. Same frame discipline as
     /// `shadowed`.
     pub(crate) any_param_frames: Vec<HashSet<String>>,
+    /// Per-fn stack of param names the closure-param tag pass gave the
+    /// closure repr (`__cls(`): such a param already answers a cell,
+    /// so a choice between it and named fns wraps the named fns.
+    pub(crate) cls_param_frames: Vec<HashSet<String>>,
 }
 
 // Annotation-predicate binding walks (collect_any_bindings /
@@ -231,8 +235,12 @@ impl<'a> FnToClosureCollector<'a> {
         }
         // An immutable one the 424-04 census marked (a named function
         // whose parameter face differs from the annotation's) wraps
-        // the same way, so its calls can ride the cell's boxed entry.
-        if !mutable && self.ast.fnsig_mismatch_bindings.contains(name) {
+        // the same way, so its calls can ride the cell's boxed entry;
+        // so does one the module stores into the heap, whose slots
+        // hold only cells (`const g: F = h; fs.push(g)`).
+        let heap_fn = self.ident_census.heap_stored.contains(name)
+            && type_ann.is_none_or(|a| is_fn_like_ann(a) && !a.contains("__rest("));
+        if !mutable && (heap_fn || self.ast.fnsig_mismatch_bindings.contains(name)) {
             self.try_mark(init);
         }
         // Rotation 599 — the identity axis. `const h = t` (and the
@@ -323,9 +331,12 @@ impl<'a> FnToClosureCollector<'a> {
                         .map(|p| p.name.clone())
                         .collect(),
                 );
+                self.cls_param_frames
+                    .push(crate::ast_collect_fn_closure_target::cls_params(params));
                 for inner in body {
                     self.walk_stmt(inner, ret_any);
                 }
+                self.cls_param_frames.pop();
                 self.any_param_frames.pop();
                 self.shadowed.pop();
             }

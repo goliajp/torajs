@@ -227,6 +227,11 @@ pub(crate) struct IdentCensus {
     /// module: which define reached which function is not a question
     /// a syntactic census can answer.
     pub(crate) define_bases: std::collections::HashSet<String>,
+    /// Names handed to a heap slot (`xs.push(g)`, `[g]`, `{ k: g }`,
+    /// `o.k = g`). A fn-typed array element or object field is a
+    /// closure cell and an `any` slot boxes only a cell, so an
+    /// immutable fn-typed binding stored there must hold the cell.
+    pub(crate) heap_stored: std::collections::HashSet<String>,
 }
 
 pub(crate) fn ident_census(ast: &Ast) -> IdentCensus {
@@ -234,6 +239,7 @@ pub(crate) fn ident_census(ast: &Ast) -> IdentCensus {
         eq_operands: std::collections::HashSet::new(),
         delete_bases: std::collections::HashSet::new(),
         define_bases: std::collections::HashSet::new(),
+        heap_stored: crate::ast_closure_param_tag_axes::heap_stored_names(ast),
     };
     // `as` layers are value pass-throughs — `(h as any) === t` is
     // still a comparison of `h`, and `delete (g as any).name` is
