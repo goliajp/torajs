@@ -55,11 +55,5 @@ show("push", () => {
 show("integer", () => ret('{"x":9,"s":"i"}'));
 console.log(seed.x + 1, g.x);
 
-function inline(src: string): { x: number } {
-  return JSON.parse(src);
-}
-console.log(inline('{"x":1.5}').x);
 const o: { x: number } = JSON.parse('{"x":2.5}');
 console.log(o.x);
-const p: { x: number } = inline('{"x":3}');
-console.log(p.x);

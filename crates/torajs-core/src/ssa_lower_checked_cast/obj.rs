@@ -47,7 +47,12 @@ impl LowerCtx<'_> {
         let (Type::Obj(sid), Some(ann)) = (self.f.ret, self.ret_ann.clone()) else {
             return None;
         };
-        if self.ast.contextual_ret_fns.contains(&self.f.name) {
+        // a return type spelled as an object literal's shape is also what
+        // the compiler infers for a function returning one, and the two
+        // cannot be told apart here; such a return keeps the value
+        if self.ast.contextual_ret_fns.contains(&self.f.name)
+            || strip_nullable(&ann).trim().starts_with("__inlobj(")
+        {
             return None;
         }
         let v = self.checked_cast_obj(op, sid, &ann, CastSlot::Return, maybe)?;
@@ -151,10 +156,13 @@ impl LowerCtx<'_> {
             return None;
         }
         let base = strip_nullable(ann).trim();
-        // a `__`-named type is one the compiler wrote (an object
-        // literal's inferred shape, a generator's wrapper), never the
-        // program's own annotation
-        if base.starts_with("__") || !self.casts_into(sid, ann) {
+        // a `__`-named type is one the compiler made (a generator's
+        // wrapper), never the program's own annotation; so is the empty
+        // shape inferred from an object built up from `{}`. A written
+        // object type literal is spelled `__inlobj(fields)`
+        let compiler_made =
+            base == "__inlobj()" || (base.starts_with("__") && !base.starts_with("__inlobj("));
+        if compiler_made || !self.casts_into(sid, ann) {
             return None;
         }
         let class = self.slot_class(base, sid);
