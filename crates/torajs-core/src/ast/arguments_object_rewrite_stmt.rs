@@ -14,7 +14,7 @@ pub(super) fn rewrite_arguments_in_stmt(
     s: &Stmt,
     params: &[String],
     argc_mode: ArgcMode,
-    is_argv_fn: bool,
+    from_array: bool,
     sloppy_callee: SloppyCallee<'_>,
 ) -> Stmt {
     match s {
@@ -23,7 +23,7 @@ pub(super) fn rewrite_arguments_in_stmt(
             *eid,
             params,
             argc_mode,
-            is_argv_fn,
+            from_array,
             sloppy_callee,
         )),
         Stmt::Throw(eid) => Stmt::Throw(rewrite_arguments_in_expr(
@@ -31,7 +31,7 @@ pub(super) fn rewrite_arguments_in_stmt(
             *eid,
             params,
             argc_mode,
-            is_argv_fn,
+            from_array,
             sloppy_callee,
         )),
         Stmt::Return(Some(eid)) => Stmt::Return(Some(rewrite_arguments_in_expr(
@@ -39,7 +39,7 @@ pub(super) fn rewrite_arguments_in_stmt(
             *eid,
             params,
             argc_mode,
-            is_argv_fn,
+            from_array,
             sloppy_callee,
         ))),
         Stmt::Return(None) => Stmt::Return(None),
@@ -58,7 +58,7 @@ pub(super) fn rewrite_arguments_in_stmt(
                 *init,
                 params,
                 argc_mode,
-                is_argv_fn,
+                from_array,
                 sloppy_callee,
             ),
             // preserve `var` flag (hardcoded false dropped var-hoist
@@ -69,7 +69,7 @@ pub(super) fn rewrite_arguments_in_stmt(
             stmts
                 .iter()
                 .map(|s| {
-                    rewrite_arguments_in_stmt(ast, s, params, argc_mode, is_argv_fn, sloppy_callee)
+                    rewrite_arguments_in_stmt(ast, s, params, argc_mode, from_array, sloppy_callee)
                 })
                 .collect(),
         ),
@@ -77,7 +77,7 @@ pub(super) fn rewrite_arguments_in_stmt(
             stmts
                 .iter()
                 .map(|s| {
-                    rewrite_arguments_in_stmt(ast, s, params, argc_mode, is_argv_fn, sloppy_callee)
+                    rewrite_arguments_in_stmt(ast, s, params, argc_mode, from_array, sloppy_callee)
                 })
                 .collect(),
         ),
@@ -91,7 +91,7 @@ pub(super) fn rewrite_arguments_in_stmt(
                 *cond,
                 params,
                 argc_mode,
-                is_argv_fn,
+                from_array,
                 sloppy_callee,
             ),
             then_branch: Box::new(rewrite_arguments_in_stmt(
@@ -99,7 +99,7 @@ pub(super) fn rewrite_arguments_in_stmt(
                 then_branch,
                 params,
                 argc_mode,
-                is_argv_fn,
+                from_array,
                 sloppy_callee,
             )),
             else_branch: else_branch.as_ref().map(|eb| {
@@ -108,7 +108,7 @@ pub(super) fn rewrite_arguments_in_stmt(
                     eb,
                     params,
                     argc_mode,
-                    is_argv_fn,
+                    from_array,
                     sloppy_callee,
                 ))
             }),
@@ -120,7 +120,7 @@ pub(super) fn rewrite_arguments_in_stmt(
                 body,
                 params,
                 argc_mode,
-                is_argv_fn,
+                from_array,
                 sloppy_callee,
             )),
         },
@@ -130,7 +130,7 @@ pub(super) fn rewrite_arguments_in_stmt(
                 *cond,
                 params,
                 argc_mode,
-                is_argv_fn,
+                from_array,
                 sloppy_callee,
             ),
             body: Box::new(rewrite_arguments_in_stmt(
@@ -138,7 +138,7 @@ pub(super) fn rewrite_arguments_in_stmt(
                 body,
                 params,
                 argc_mode,
-                is_argv_fn,
+                from_array,
                 sloppy_callee,
             )),
         },
@@ -148,7 +148,7 @@ pub(super) fn rewrite_arguments_in_stmt(
                 *cond,
                 params,
                 argc_mode,
-                is_argv_fn,
+                from_array,
                 sloppy_callee,
             ),
             body: Box::new(rewrite_arguments_in_stmt(
@@ -156,7 +156,7 @@ pub(super) fn rewrite_arguments_in_stmt(
                 body,
                 params,
                 argc_mode,
-                is_argv_fn,
+                from_array,
                 sloppy_callee,
             )),
         },
@@ -172,22 +172,22 @@ pub(super) fn rewrite_arguments_in_stmt(
                     i,
                     params,
                     argc_mode,
-                    is_argv_fn,
+                    from_array,
                     sloppy_callee,
                 ))
             }),
             cond: cond.map(|c| {
-                rewrite_arguments_in_expr(ast, c, params, argc_mode, is_argv_fn, sloppy_callee)
+                rewrite_arguments_in_expr(ast, c, params, argc_mode, from_array, sloppy_callee)
             }),
             step: step.map(|u| {
-                rewrite_arguments_in_expr(ast, u, params, argc_mode, is_argv_fn, sloppy_callee)
+                rewrite_arguments_in_expr(ast, u, params, argc_mode, from_array, sloppy_callee)
             }),
             body: Box::new(rewrite_arguments_in_stmt(
                 ast,
                 body,
                 params,
                 argc_mode,
-                is_argv_fn,
+                from_array,
                 sloppy_callee,
             )),
         },
@@ -202,7 +202,7 @@ pub(super) fn rewrite_arguments_in_stmt(
             body: body
                 .iter()
                 .map(|s| {
-                    rewrite_arguments_in_stmt(ast, s, params, argc_mode, is_argv_fn, sloppy_callee)
+                    rewrite_arguments_in_stmt(ast, s, params, argc_mode, from_array, sloppy_callee)
                 })
                 .collect(),
             had_catch: *had_catch,
@@ -211,7 +211,7 @@ pub(super) fn rewrite_arguments_in_stmt(
             catch_body: catch_body
                 .iter()
                 .map(|s| {
-                    rewrite_arguments_in_stmt(ast, s, params, argc_mode, is_argv_fn, sloppy_callee)
+                    rewrite_arguments_in_stmt(ast, s, params, argc_mode, from_array, sloppy_callee)
                 })
                 .collect(),
             finally_body: finally_body.as_ref().map(|fb| {
@@ -222,7 +222,7 @@ pub(super) fn rewrite_arguments_in_stmt(
                             s,
                             params,
                             argc_mode,
-                            is_argv_fn,
+                            from_array,
                             sloppy_callee,
                         )
                     })
@@ -253,7 +253,7 @@ pub(super) fn rewrite_arguments_in_stmt(
                 *elem_expr,
                 params,
                 argc_mode,
-                is_argv_fn,
+                from_array,
                 sloppy_callee,
             ),
             body: Box::new(rewrite_arguments_in_stmt(
@@ -261,7 +261,7 @@ pub(super) fn rewrite_arguments_in_stmt(
                 body,
                 params,
                 argc_mode,
-                is_argv_fn,
+                from_array,
                 sloppy_callee,
             )),
             forin_obj: *forin_obj,
@@ -279,16 +279,16 @@ pub(super) fn rewrite_arguments_in_stmt(
                 *parent,
                 params,
                 argc_mode,
-                is_argv_fn,
+                from_array,
                 sloppy_callee,
             ),
-            sep: rewrite_arguments_in_expr(ast, *sep, params, argc_mode, is_argv_fn, sloppy_callee),
+            sep: rewrite_arguments_in_expr(ast, *sep, params, argc_mode, from_array, sloppy_callee),
             body: Box::new(rewrite_arguments_in_stmt(
                 ast,
                 body,
                 params,
                 argc_mode,
-                is_argv_fn,
+                from_array,
                 sloppy_callee,
             )),
         },

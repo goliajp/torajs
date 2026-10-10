@@ -303,8 +303,15 @@ pub(crate) fn rest_packed_argc(
     ctx: &mut LowerCtx<'_>,
     eid: ExprId,
     argv: &[Operand],
+    head: usize,
 ) -> Option<Operand> {
-    let given = *ctx.ast.rest_packed_sites.get(&eid)?;
+    // the fixed slots a site filled: the ones the source wrote, when
+    // `apply_default_args` padded the rest from the callee's defaults,
+    // and past a this-first site's head
+    let packed = *ctx.ast.rest_packed_sites.get(&eid)?;
+    let given = (ctx.ast.default_padded_argc.get(&eid))
+        .map_or(packed, |&written| packed.min(written))
+        .saturating_sub(head);
     let arr = *argv.last()?;
     let b = ctx.cur_block;
     let len = ctx.f.append_inst(
@@ -349,7 +356,7 @@ pub(crate) fn insert_headless_slots(
     // synthetic slots move in.
     let rest_argc = headless
         .argc
-        .then(|| rest_packed_argc(ctx, eid, argv))
+        .then(|| rest_packed_argc(ctx, eid, argv, headless.at))
         .flatten();
     if let Some((op, _)) = headless_argv {
         argv.insert(headless.at.min(argv.len()), op);

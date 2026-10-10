@@ -47,12 +47,16 @@ pub(super) enum SloppyCallee<'a> {
     Keyed,
 }
 
+/// `from_array`: every value touch (index, spread, bare escape)
+/// reads the materialized `__torajs_arguments` — an argv-face body,
+/// whose array holds what the caller passed, or a rest-tailed one,
+/// whose parameters are not one per position.
 pub(super) fn rewrite_arguments_in_expr(
     ast: &mut Ast,
     eid: ExprId,
     params: &[String],
     argc_mode: ArgcMode,
-    is_argv_fn: bool,
+    from_array: bool,
     sloppy_callee: SloppyCallee<'_>,
 ) -> ExprId {
     let e = ast.get_expr(eid).clone();
@@ -121,7 +125,7 @@ pub(super) fn rewrite_arguments_in_expr(
                 });
             }
             let o =
-                rewrite_arguments_in_expr(ast, obj, params, argc_mode, is_argv_fn, sloppy_callee);
+                rewrite_arguments_in_expr(ast, obj, params, argc_mode, from_array, sloppy_callee);
             if o == obj {
                 return eid;
             }
@@ -143,7 +147,7 @@ pub(super) fn rewrite_arguments_in_expr(
             // side tables (speculative_cm_rewrites & co.) stay valid
             // for every subtree this pass didn't actually rewrite.
             let new_obj =
-                rewrite_arguments_in_expr(ast, obj, params, argc_mode, is_argv_fn, sloppy_callee);
+                rewrite_arguments_in_expr(ast, obj, params, argc_mode, from_array, sloppy_callee);
             if new_obj == obj {
                 return eid;
             }
@@ -161,7 +165,7 @@ pub(super) fn rewrite_arguments_in_expr(
             index,
             params,
             argc_mode,
-            is_argv_fn,
+            from_array,
             sloppy_callee,
         ),
         Expr::Call { callee, args } => rewrite_call_arm(
@@ -171,7 +175,7 @@ pub(super) fn rewrite_arguments_in_expr(
             args,
             params,
             argc_mode,
-            is_argv_fn,
+            from_array,
             sloppy_callee,
         ),
         Expr::Array(elems) => rewrite_array_arm(
@@ -180,7 +184,7 @@ pub(super) fn rewrite_arguments_in_expr(
             elems,
             params,
             argc_mode,
-            is_argv_fn,
+            from_array,
             sloppy_callee,
         ),
         // RFC 20260801-arguments-escape-face — bare `arguments`
@@ -190,7 +194,7 @@ pub(super) fn rewrite_arguments_in_expr(
         // consumer then treats as an ordinary array-like. Every other
         // mode leaves the node for the checker's loud reject.
         Expr::Ident(n) if n == "arguments" => {
-            if is_argv_fn
+            if from_array
                 || matches!(
                     argc_mode,
                     ArgcMode::FoldTo(_) | ArgcMode::LiveLength(_) | ArgcMode::Unmapped(_)
@@ -206,7 +210,7 @@ pub(super) fn rewrite_arguments_in_expr(
             other,
             params,
             argc_mode,
-            is_argv_fn,
+            from_array,
             sloppy_callee,
         ),
     }
@@ -224,7 +228,7 @@ fn rewrite_index_arm(
     index: ExprId,
     params: &[String],
     argc_mode: ArgcMode,
-    is_argv_fn: bool,
+    from_array: bool,
     sloppy_callee: SloppyCallee<'_>,
 ) -> ExprId {
     let is_arguments = matches!(
@@ -255,7 +259,10 @@ fn rewrite_index_arm(
         // `f()` binds `a` to the callee's own default, while
         // `arguments[0]` must stay undefined (§10.4.4 builds
         // the object from the argument list).
-        if !is_argv_fn
+        // A rest-tailed body rides it too: past the fixed
+        // parameters, position i is an element of the rest array,
+        // not a parameter (`arguments[1]` on `(a, ...r)` is `r[0]`).
+        if !from_array
             && !matches!(argc_mode, ArgcMode::Unmapped(_) | ArgcMode::LiveLength(_))
             && let Expr::Number(n) = ast.get_expr(index)
             && n.fract() == 0.0
@@ -267,16 +274,16 @@ fn rewrite_index_arm(
         // Dynamic index (or out-of-range literal): route to
         // the materialized Array<Any> via __torajs_arguments.
         let new_index =
-            rewrite_arguments_in_expr(ast, index, params, argc_mode, is_argv_fn, sloppy_callee);
+            rewrite_arguments_in_expr(ast, index, params, argc_mode, from_array, sloppy_callee);
         let synth_obj = ast.add_expr(Expr::Ident("__torajs_arguments".into()));
         return ast.add_expr(Expr::Index {
             obj: synth_obj,
             index: new_index,
         });
     }
-    let new_obj = rewrite_arguments_in_expr(ast, obj, params, argc_mode, is_argv_fn, sloppy_callee);
+    let new_obj = rewrite_arguments_in_expr(ast, obj, params, argc_mode, from_array, sloppy_callee);
     let new_index =
-        rewrite_arguments_in_expr(ast, index, params, argc_mode, is_argv_fn, sloppy_callee);
+        rewrite_arguments_in_expr(ast, index, params, argc_mode, from_array, sloppy_callee);
     if new_obj == obj && new_index == index {
         return eid;
     }

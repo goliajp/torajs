@@ -56,13 +56,15 @@
 //! - **the static face did not take it** — a body whose every site
 //!   folds statically is already answered, at zero cost; reshaping
 //!   it would trade a fold for a runtime channel and gain nothing.
-//! - **no rest param** — `apply_rest_args` bundles the trailing
-//!   arguments into one array, so the sites no longer spell the
-//!   count. Defaults are kept off the one-slot heads, whose sites
-//!   were never audited against the padding; a constructor takes
-//!   them, since `apply_default_args` pads past the injected argv
-//!   pointer (`collect_fn_defaults`) and the terminal counts the
-//!   source-written arguments (`default_padded_argc`).
+//! - **rest and defaults on constructors only** — the one-slot
+//!   heads' sites were never audited against `apply_rest_args`'s
+//!   packing or the default padding. A constructor takes both:
+//!   `apply_default_args` pads past the injected argv pointer
+//!   (`collect_fn_defaults`) and the terminal counts the
+//!   source-written arguments (`default_padded_argc`); a packed
+//!   rest site counts its fixed slots plus the packed array's
+//!   runtime length (`rest_packed_argc`). A rest constructor takes
+//!   the argc tier alone — its values are its parameters.
 //! - **every arena `Ident` naming the fn is a call callee** — a
 //!   value escape reaches sites that know nothing of the new slot.
 //!   For a ctor those Idents are the factory's own call and the
@@ -130,10 +132,8 @@ pub(super) fn collect_this_first_argv(
         let Some(head) = head_width(params, is_ctor) else {
             continue;
         };
-        if params
-            .iter()
-            .any(|p| p.is_rest || p.default.is_some() && !is_ctor)
-        {
+        let rest = params.last().is_some_and(|p| p.is_rest);
+        if !is_ctor && params.iter().any(|p| p.is_rest || p.default.is_some()) {
             continue;
         }
         // Declared parameters are fine on this lane: a direct super
@@ -159,8 +159,11 @@ pub(super) fn collect_this_first_argv(
         out.argc.insert(name.clone(), head);
         // A spread site feeds the declared parameters off the
         // materialized list (`lower_this_first_argv_spread`), so it
-        // needs the argv channel even for a length-only body.
-        if spread_site || body_has_non_length_arguments_touch(ast, body) {
+        // needs the argv channel even for a length-only body. A rest
+        // constructor stays on the argc tier: its parameters already
+        // hold every value, and a direct site's list is packed
+        // (`f(1, [2, 3])`), which no argv buffer can be read off.
+        if !rest && (spread_site || body_has_non_length_arguments_touch(ast, body)) {
             out.argv.insert(name.clone(), head);
         }
     }

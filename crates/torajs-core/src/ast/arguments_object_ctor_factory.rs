@@ -84,10 +84,10 @@ fn collect_factory_relays(
             continue;
         }
         let factory = format!("__new_{cname}");
-        let admits = ast.stmts.iter().any(|s| {
-            matches!(s, Stmt::FnDecl { name, params, .. }
-                if *name == factory && !params.iter().any(|p| p.is_rest))
-        });
+        let admits = ast
+            .stmts
+            .iter()
+            .any(|s| matches!(s, Stmt::FnDecl { name, .. } if *name == factory));
         if !admits || !name_only_called_directly(ast, &factory) {
             continue;
         }

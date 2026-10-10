@@ -174,8 +174,20 @@ fn rewrite_one_body(
     // alone never reads `arguments` — nothing to materialize.
     let argv_reads =
         is_argv_fn && super::arguments_object_walkers::body_has_any_arguments_touch(ast, body);
-    let mut needs_materialize =
-        argv_reads || matches!(argc_mode, ArgcMode::LiveLength(_) | ArgcMode::Unmapped(_));
+    // A rest-tailed body's value touches read the declared-params
+    // builder (`[p0, …, ...rest]`): its parameters stop being one per
+    // position at the rest, so neither the literal-index substitution
+    // nor the inline spread expansion describes the argument list.
+    // Only on the hidden argc, which the prologue trims the builder
+    // to (`body_prologue`); a body without the count keeps its loud
+    // refusals.
+    let rest_values = !is_argv_fn
+        && matches!(argc_mode, ArgcMode::Real | ArgcMode::RealLocal)
+        && decl_params.last().is_some_and(|p| p.is_rest)
+        && super::arguments_object_walkers::body_has_non_length_arguments_touch(ast, body);
+    let mut needs_materialize = argv_reads
+        || rest_values
+        || matches!(argc_mode, ArgcMode::LiveLength(_) | ArgcMode::Unmapped(_));
     if !needs_materialize {
         for s in body {
             if stmt_uses_dynamic_arguments(ast, s) {
@@ -237,7 +249,7 @@ fn rewrite_one_body(
                 s,
                 &params,
                 argc_mode,
-                is_argv_fn,
+                is_argv_fn || rest_values,
                 sloppy_callee,
             )
         })
@@ -316,8 +328,13 @@ fn body_prologue(ast: &mut Ast, m: MintInputs<'_>) -> Vec<Stmt> {
     // declared-params builder; the array's `.length` is seeded from
     // the hidden argc so a read before the rebind answers the true
     // count (see LiveSeed::HiddenArgc). The argv mint already took
-    // that many slots.
-    if !m.argv_reads && m.argc_mode == ArgcMode::LiveLength(LiveSeed::HiddenArgc) {
+    // that many slots. A rest-tailed body on the hidden argc takes the
+    // same seed: its builder spells every fixed parameter, which a
+    // call passing fewer did not pass.
+    let rest_on_argc = matches!(m.argc_mode, ArgcMode::Real | ArgcMode::RealLocal)
+        && m.decl_params.last().is_some_and(|p| p.is_rest);
+    if !m.argv_reads && (m.argc_mode == ArgcMode::LiveLength(LiveSeed::HiddenArgc) || rest_on_argc)
+    {
         out.push(super::arguments_object_synth::synth_live_length_seed(ast));
     }
     // S2 — the sloppy goal seeds `callee` into the bag right

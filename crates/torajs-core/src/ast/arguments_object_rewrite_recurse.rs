@@ -25,7 +25,7 @@ pub(super) fn rewrite_recurse_arm(
     e: Expr,
     params: &[String],
     argc_mode: ArgcMode,
-    is_argv_fn: bool,
+    from_array: bool,
     sloppy_callee: SloppyCallee<'_>,
 ) -> ExprId {
     match &e {
@@ -37,12 +37,12 @@ pub(super) fn rewrite_recurse_arm(
         | Expr::OptChain { .. }
         | Expr::OptIndex { .. }
         | Expr::OptCall { .. } => {
-            recurse_optional(ast, eid, e, params, argc_mode, is_argv_fn, sloppy_callee)
+            recurse_optional(ast, eid, e, params, argc_mode, from_array, sloppy_callee)
         }
         Expr::Member { .. } | Expr::Assign { .. } | Expr::ObjectLit { .. } => {
-            recurse_place(ast, eid, e, params, argc_mode, is_argv_fn, sloppy_callee)
+            recurse_place(ast, eid, e, params, argc_mode, from_array, sloppy_callee)
         }
-        _ => recurse_operator(ast, eid, e, params, argc_mode, is_argv_fn, sloppy_callee),
+        _ => recurse_operator(ast, eid, e, params, argc_mode, from_array, sloppy_callee),
     }
 }
 
@@ -54,15 +54,15 @@ fn recurse_operator(
     e: Expr,
     params: &[String],
     argc_mode: ArgcMode,
-    is_argv_fn: bool,
+    from_array: bool,
     sloppy_callee: SloppyCallee<'_>,
 ) -> ExprId {
     match e {
         Expr::BinOp { op, left, right } => {
             let l =
-                rewrite_arguments_in_expr(ast, left, params, argc_mode, is_argv_fn, sloppy_callee);
+                rewrite_arguments_in_expr(ast, left, params, argc_mode, from_array, sloppy_callee);
             let r =
-                rewrite_arguments_in_expr(ast, right, params, argc_mode, is_argv_fn, sloppy_callee);
+                rewrite_arguments_in_expr(ast, right, params, argc_mode, from_array, sloppy_callee);
             if l == left && r == right {
                 return eid;
             }
@@ -74,7 +74,7 @@ fn recurse_operator(
         }
         Expr::Unary { op, expr } => {
             let e2 =
-                rewrite_arguments_in_expr(ast, expr, params, argc_mode, is_argv_fn, sloppy_callee);
+                rewrite_arguments_in_expr(ast, expr, params, argc_mode, from_array, sloppy_callee);
             if e2 == expr {
                 return eid;
             }
@@ -82,7 +82,7 @@ fn recurse_operator(
         }
         Expr::TypeOf { expr } => {
             let e2 =
-                rewrite_arguments_in_expr(ast, expr, params, argc_mode, is_argv_fn, sloppy_callee);
+                rewrite_arguments_in_expr(ast, expr, params, argc_mode, from_array, sloppy_callee);
             if e2 == expr {
                 return eid;
             }
@@ -92,7 +92,7 @@ fn recurse_operator(
         // operand takes the same rewrite as anywhere else.
         Expr::As { expr, ty_ann } => {
             let e2 =
-                rewrite_arguments_in_expr(ast, expr, params, argc_mode, is_argv_fn, sloppy_callee);
+                rewrite_arguments_in_expr(ast, expr, params, argc_mode, from_array, sloppy_callee);
             if e2 == expr {
                 return eid;
             }
@@ -109,7 +109,7 @@ fn recurse_operator(
         // recursion would mint a Call operand — not a property
         // reference — and refuse at compile time).
         Expr::Delete { expr } => {
-            rewrite_delete_arm(ast, eid, expr, params, argc_mode, is_argv_fn, sloppy_callee)
+            rewrite_delete_arm(ast, eid, expr, params, argc_mode, from_array, sloppy_callee)
         }
         // Constructor arguments are ordinary value positions — the
         // missing arms left the rewrite unable to reach an
@@ -121,7 +121,7 @@ fn recurse_operator(
             type_args,
         } => {
             let (new_args, changed) =
-                rewrite_args_vec(ast, &args, params, argc_mode, is_argv_fn, sloppy_callee);
+                rewrite_args_vec(ast, &args, params, argc_mode, from_array, sloppy_callee);
             if !changed {
                 return eid;
             }
@@ -137,11 +137,11 @@ fn recurse_operator(
                 callee,
                 params,
                 argc_mode,
-                is_argv_fn,
+                from_array,
                 sloppy_callee,
             );
             let (new_args, changed) =
-                rewrite_args_vec(ast, &args, params, argc_mode, is_argv_fn, sloppy_callee);
+                rewrite_args_vec(ast, &args, params, argc_mode, from_array, sloppy_callee);
             if c == callee && !changed {
                 return eid;
             }
@@ -171,7 +171,7 @@ fn recurse_optional(
     e: Expr,
     params: &[String],
     argc_mode: ArgcMode,
-    is_argv_fn: bool,
+    from_array: bool,
     sloppy_callee: SloppyCallee<'_>,
 ) -> ExprId {
     match e {
@@ -185,7 +185,7 @@ fn recurse_optional(
                 target,
                 params,
                 argc_mode,
-                is_argv_fn,
+                from_array,
                 sloppy_callee,
             );
             if t == target {
@@ -199,7 +199,7 @@ fn recurse_optional(
         }
         Expr::Spread { expr } => {
             let e2 =
-                rewrite_arguments_in_expr(ast, expr, params, argc_mode, is_argv_fn, sloppy_callee);
+                rewrite_arguments_in_expr(ast, expr, params, argc_mode, from_array, sloppy_callee);
             if e2 == expr {
                 return eid;
             }
@@ -211,13 +211,13 @@ fn recurse_optional(
             else_branch,
         } => {
             let c =
-                rewrite_arguments_in_expr(ast, cond, params, argc_mode, is_argv_fn, sloppy_callee);
+                rewrite_arguments_in_expr(ast, cond, params, argc_mode, from_array, sloppy_callee);
             let t = rewrite_arguments_in_expr(
                 ast,
                 then_branch,
                 params,
                 argc_mode,
-                is_argv_fn,
+                from_array,
                 sloppy_callee,
             );
             let e2 = rewrite_arguments_in_expr(
@@ -225,7 +225,7 @@ fn recurse_optional(
                 else_branch,
                 params,
                 argc_mode,
-                is_argv_fn,
+                from_array,
                 sloppy_callee,
             );
             if c == cond && t == then_branch && e2 == else_branch {
@@ -239,9 +239,9 @@ fn recurse_optional(
         }
         Expr::Nullish { lhs, rhs } => {
             let l =
-                rewrite_arguments_in_expr(ast, lhs, params, argc_mode, is_argv_fn, sloppy_callee);
+                rewrite_arguments_in_expr(ast, lhs, params, argc_mode, from_array, sloppy_callee);
             let r =
-                rewrite_arguments_in_expr(ast, rhs, params, argc_mode, is_argv_fn, sloppy_callee);
+                rewrite_arguments_in_expr(ast, rhs, params, argc_mode, from_array, sloppy_callee);
             if l == lhs && r == rhs {
                 return eid;
             }
@@ -254,9 +254,9 @@ fn recurse_optional(
         // identifier at check.
         Expr::Sequence { left, right } => {
             let l =
-                rewrite_arguments_in_expr(ast, left, params, argc_mode, is_argv_fn, sloppy_callee);
+                rewrite_arguments_in_expr(ast, left, params, argc_mode, from_array, sloppy_callee);
             let r =
-                rewrite_arguments_in_expr(ast, right, params, argc_mode, is_argv_fn, sloppy_callee);
+                rewrite_arguments_in_expr(ast, right, params, argc_mode, from_array, sloppy_callee);
             if l == left && r == right {
                 return eid;
             }
@@ -264,7 +264,7 @@ fn recurse_optional(
         }
         Expr::OptChain { obj, name } => {
             let o =
-                rewrite_arguments_in_expr(ast, obj, params, argc_mode, is_argv_fn, sloppy_callee);
+                rewrite_arguments_in_expr(ast, obj, params, argc_mode, from_array, sloppy_callee);
             if o == obj {
                 return eid;
             }
@@ -272,9 +272,9 @@ fn recurse_optional(
         }
         Expr::OptIndex { obj, index } => {
             let o =
-                rewrite_arguments_in_expr(ast, obj, params, argc_mode, is_argv_fn, sloppy_callee);
+                rewrite_arguments_in_expr(ast, obj, params, argc_mode, from_array, sloppy_callee);
             let ix =
-                rewrite_arguments_in_expr(ast, index, params, argc_mode, is_argv_fn, sloppy_callee);
+                rewrite_arguments_in_expr(ast, index, params, argc_mode, from_array, sloppy_callee);
             if o == obj && ix == index {
                 return eid;
             }
@@ -286,13 +286,13 @@ fn recurse_optional(
                 callee,
                 params,
                 argc_mode,
-                is_argv_fn,
+                from_array,
                 sloppy_callee,
             );
             let new_args: Vec<ExprId> = args
                 .iter()
                 .map(|a| {
-                    rewrite_arguments_in_expr(ast, *a, params, argc_mode, is_argv_fn, sloppy_callee)
+                    rewrite_arguments_in_expr(ast, *a, params, argc_mode, from_array, sloppy_callee)
                 })
                 .collect();
             if c == callee && new_args == args {
@@ -318,13 +318,13 @@ fn recurse_place(
     e: Expr,
     params: &[String],
     argc_mode: ArgcMode,
-    is_argv_fn: bool,
+    from_array: bool,
     sloppy_callee: SloppyCallee<'_>,
 ) -> ExprId {
     match e {
         Expr::Member { obj, name } => {
             let o =
-                rewrite_arguments_in_expr(ast, obj, params, argc_mode, is_argv_fn, sloppy_callee);
+                rewrite_arguments_in_expr(ast, obj, params, argc_mode, from_array, sloppy_callee);
             if o == obj {
                 return eid;
             }
@@ -346,7 +346,7 @@ fn recurse_place(
                     value,
                     params,
                     argc_mode,
-                    is_argv_fn,
+                    from_array,
                     sloppy_callee,
                 );
                 // S2 sloppy write — callee is an ordinary writable
@@ -374,11 +374,11 @@ fn recurse_place(
                 target,
                 params,
                 argc_mode,
-                is_argv_fn,
+                from_array,
                 sloppy_callee,
             );
             let v =
-                rewrite_arguments_in_expr(ast, value, params, argc_mode, is_argv_fn, sloppy_callee);
+                rewrite_arguments_in_expr(ast, value, params, argc_mode, from_array, sloppy_callee);
             if t == target && v == value {
                 return eid;
             }
@@ -398,7 +398,7 @@ fn recurse_place(
                             *e,
                             params,
                             argc_mode,
-                            is_argv_fn,
+                            from_array,
                             sloppy_callee,
                         ),
                     )
@@ -425,13 +425,13 @@ fn rewrite_args_vec(
     args: &[ExprId],
     params: &[String],
     argc_mode: ArgcMode,
-    is_argv_fn: bool,
+    from_array: bool,
     sloppy_callee: SloppyCallee<'_>,
 ) -> (Vec<ExprId>, bool) {
     let mut out: Vec<ExprId> = Vec::with_capacity(args.len());
     let mut changed = false;
     for a in args {
-        let r = rewrite_arguments_in_expr(ast, *a, params, argc_mode, is_argv_fn, sloppy_callee);
+        let r = rewrite_arguments_in_expr(ast, *a, params, argc_mode, from_array, sloppy_callee);
         changed |= r != *a;
         out.push(r);
     }
@@ -450,7 +450,7 @@ fn rewrite_delete_arm(
     expr: ExprId,
     params: &[String],
     argc_mode: ArgcMode,
-    is_argv_fn: bool,
+    from_array: bool,
     sloppy_callee: SloppyCallee<'_>,
 ) -> ExprId {
     if matches!(ast.get_expr(expr), Expr::Member { obj, name }
@@ -489,7 +489,7 @@ fn rewrite_delete_arm(
         });
         return ast.add_expr(Expr::Delete { expr: idx });
     }
-    let e2 = rewrite_arguments_in_expr(ast, expr, params, argc_mode, is_argv_fn, sloppy_callee);
+    let e2 = rewrite_arguments_in_expr(ast, expr, params, argc_mode, from_array, sloppy_callee);
     if e2 == expr {
         return eid;
     }

@@ -31,9 +31,10 @@ fn spread_take(params: &[String], argc_mode: ArgcMode) -> usize {
 /// snapshot is observationally exact there AND keeps static element
 /// types (the `any[]` ride smuggled boxed slots into typed
 /// literals — `[99, ...arguments]` in a `number[]` position read
-/// back NaN).
-fn spread_rides_array(argc_mode: ArgcMode, is_argv_fn: bool) -> bool {
-    is_argv_fn || matches!(argc_mode, ArgcMode::LiveLength(_) | ArgcMode::Unmapped(_))
+/// back NaN). A rest-tailed body rides it as well: its inline
+/// expansion would hand on the rest array as one argument.
+fn spread_rides_array(argc_mode: ArgcMode, from_array: bool) -> bool {
+    from_array || matches!(argc_mode, ArgcMode::LiveLength(_) | ArgcMode::Unmapped(_))
 }
 
 /// `f(...arguments)` — argv-face bodies swap the spread source to the
@@ -51,17 +52,17 @@ pub(super) fn rewrite_call_arm(
     args: Vec<ExprId>,
     params: &[String],
     argc_mode: ArgcMode,
-    is_argv_fn: bool,
+    from_array: bool,
     sloppy_callee: SloppyCallee<'_>,
 ) -> ExprId {
-    let c = rewrite_arguments_in_expr(ast, callee, params, argc_mode, is_argv_fn, sloppy_callee);
+    let c = rewrite_arguments_in_expr(ast, callee, params, argc_mode, from_array, sloppy_callee);
     let mut new_args: Vec<ExprId> = Vec::with_capacity(args.len());
     for a in &args {
         if let Expr::Spread { expr } = ast.get_expr(*a)
             && let Expr::Ident(n) = ast.get_expr(*expr)
             && n == "arguments"
         {
-            if spread_rides_array(argc_mode, is_argv_fn) {
+            if spread_rides_array(argc_mode, from_array) {
                 let src = ast.add_expr(Expr::Ident("__torajs_arguments".into()));
                 new_args.push(ast.add_expr(Expr::Spread { expr: src }));
             } else {
@@ -76,7 +77,7 @@ pub(super) fn rewrite_call_arm(
             *a,
             params,
             argc_mode,
-            is_argv_fn,
+            from_array,
             sloppy_callee,
         ));
     }
@@ -107,7 +108,7 @@ pub(super) fn rewrite_array_arm(
     elems: Vec<ExprId>,
     params: &[String],
     argc_mode: ArgcMode,
-    is_argv_fn: bool,
+    from_array: bool,
     sloppy_callee: SloppyCallee<'_>,
 ) -> ExprId {
     let mut new_elems: Vec<ExprId> = Vec::with_capacity(elems.len());
@@ -116,7 +117,7 @@ pub(super) fn rewrite_array_arm(
             && let Expr::Ident(n) = ast.get_expr(*expr)
             && n == "arguments"
         {
-            if spread_rides_array(argc_mode, is_argv_fn) {
+            if spread_rides_array(argc_mode, from_array) {
                 let src = ast.add_expr(Expr::Ident("__torajs_arguments".into()));
                 new_elems.push(ast.add_expr(Expr::Spread { expr: src }));
             } else {
@@ -131,7 +132,7 @@ pub(super) fn rewrite_array_arm(
             *e,
             params,
             argc_mode,
-            is_argv_fn,
+            from_array,
             sloppy_callee,
         ));
     }

@@ -103,7 +103,13 @@ pub(super) fn snapshot_fn_params(
             if params.first().is_some_and(|p| p.name == "__env") {
                 env_fns.insert(name.clone());
             }
-            if user_start == 0 && body_has_arguments_length(ast, body) {
+            // A rest-tailed body reading argument values needs the count
+            // as much as one reading it: its declared-params builder
+            // spells every fixed parameter, passed or not, and is
+            // trimmed to the hidden argc.
+            let rest_values = params.last().is_some_and(|p| p.is_rest)
+                && super::arguments_object_walkers::body_has_non_length_arguments_touch(ast, body);
+            if user_start == 0 && (body_has_arguments_length(ast, body) || rest_values) {
                 uses_real_argc.insert(name.clone());
             }
         }
