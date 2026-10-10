@@ -35,7 +35,8 @@ pub(super) fn settle(ast: &Ast, first: Round) -> Result<Round, String> {
         }
         let grew = (rets.len() > before)
             | extend_own(ast, &mut inits, &hidden.inits)
-            | extend_own(ast, &mut fields, &scalar_values(&round.0.1, &hidden.fields));
+            | extend_own(ast, &mut fields, &scalar_values(&round.0.1, &hidden.fields))
+            | extend_own(ast, &mut fields, &objects_given_any(ast, &round.0.1));
         if !(extend_own(ast, &mut args, &hidden.args) || grew) {
             return Ok(round);
         }
@@ -69,6 +70,55 @@ fn scalar_values(types: &HashMap<ExprId, Type>, found: &HashSet<ExprId>) -> Hash
             )
         })
         .collect()
+}
+
+/// The object values of the object literal fields an `any` value is
+/// stored into later (`o.p = v`, `o` a binding the literal initializes
+/// without an annotation). The field's slot is the compiler's inference
+/// from its first value, and an inferred slot never rejects a value at
+/// run time (RFC 20260922 §3.1): it holds the value of any kind. Bindings
+/// resolve by name, so a same-named binding elsewhere can widen a field
+/// too, which costs the typed lane, never an answer.
+fn objects_given_any(ast: &Ast, types: &HashMap<ExprId, Type>) -> HashSet<ExprId> {
+    let mut lits: HashMap<String, ExprId> = HashMap::new();
+    crate::ast::walk_stmts(&ast.stmts, &mut |s| {
+        if let Stmt::LetDecl {
+            name,
+            type_ann: None,
+            init,
+            ..
+        } = s
+            && matches!(ast.get_expr(*init), Expr::ObjectLit { .. })
+        {
+            lits.insert(name.clone(), *init);
+        }
+    });
+    let mut out = HashSet::new();
+    for e in &ast.exprs {
+        let Expr::Assign { target, value } = e else {
+            continue;
+        };
+        let (Expr::Member { obj, name: f }, Some(Type::Any)) =
+            (ast.get_expr(*target), types.get(value))
+        else {
+            continue;
+        };
+        let lit = match ast.get_expr(*obj) {
+            Expr::Ident(n) => lits.get(n).map(|l| ast.get_expr(*l)),
+            _ => None,
+        };
+        let Some(Expr::ObjectLit { fields }) = lit else {
+            continue;
+        };
+        out.extend(
+            (fields.iter())
+                .filter(|(k, v)| {
+                    k == f && matches!(types.get(v), Some(Type::Struct(_) | Type::ClassRef(_)))
+                })
+                .map(|(_, v)| *v),
+        );
+    }
+    out
 }
 
 /// Spell `<value> as any` for each object literal field value in

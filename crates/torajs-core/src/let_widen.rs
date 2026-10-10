@@ -22,9 +22,10 @@
 //! ident) never widens — `let i = 0; i = i + 1` stays on the typed
 //! lane, and a shape the judgment misses keeps today's loud checker
 //! reject (never silent wrong). Recorded boundary: an assign inside
-//! a nested fn body resolves against that fn's own scope only
-//! (closure-captured rebinds of an outer `let` keep the loud
-//! reject; extend to a name-keyed fallback if a cluster surfaces).
+//! a nested fn body resolves against that fn's own scope and the
+//! module's top-level bindings only (closure-captured rebinds of an
+//! outer function's `let` keep the loud reject; extend to a
+//! name-keyed fallback if a cluster surfaces).
 //!
 //! Rotation 651 — that fallback exists for NULLISH inits. `let t =
 //! null; let o = { m() { t = this } }` and `let u = undefined; u = 3`
@@ -51,6 +52,7 @@
 //! until this set stops growing (`check_entry::check_to_fixpoint`);
 //! the lowerer asks with the checker's final table.
 
+mod push;
 mod walk;
 
 use std::collections::{HashMap, HashSet};
@@ -130,6 +132,9 @@ enum Binding {
     /// type; for any other annotation the mark changes nothing), and
     /// the binding has to hold it from its declaration.
     LayoutArr { init: ExprId },
+    /// An unannotated `const`: never reassigned, but an array it holds
+    /// may be pushed a value of any kind (`push`).
+    Fixed { init: ExprId },
     /// Shadows without tracking (const, other annotated, params, catch
     /// params, imports).
     Opaque,
@@ -175,10 +180,32 @@ pub(crate) fn collect_cross_type_widen_inits(
                 _ => None,
             })
             .collect(),
+        closure_bodies: (ast.exprs.iter())
+            .filter_map(|e| match e {
+                Expr::Closure { fn_name, .. } => Some(fn_name.as_str()),
+                _ => None,
+            })
+            .collect(),
+        module: HashMap::new(),
         entered: HashSet::new(),
         scopes: vec![HashMap::new()],
         out: HashSet::new(),
     };
+    // a named function reads and writes the module's bindings wherever
+    // it is declared, before or after them
+    for s in &ast.stmts {
+        if let crate::ast::Stmt::LetDecl {
+            name,
+            mutable,
+            type_ann,
+            init,
+            ..
+        } = s
+        {
+            w.register_let(name, *mutable, type_ann.as_deref(), *init);
+        }
+    }
+    w.module = w.scopes[0].clone();
     for s in &ast.stmts {
         w.walk_stmt(s);
     }
@@ -200,6 +227,12 @@ struct Walker<'a> {
     non_nullish_rebinds: HashSet<String>,
     /// Top-level FnDecls by name — where a closure's lifted body lives.
     lifted: HashMap<&'a str, (&'a [crate::ast::Param], &'a [crate::ast::Stmt])>,
+    /// The lifted bodies of closures, which are walked where each
+    /// closure is made, with the bindings it captures there.
+    closure_bodies: HashSet<&'a str>,
+    /// The module's top-level bindings, which a named function body
+    /// starts from.
+    module: HashMap<String, Binding>,
     /// Lifted bodies being walked from their closure site (a closure
     /// made inside its own body is not re-entered).
     entered: HashSet<&'a str>,
@@ -267,6 +300,8 @@ impl Walker<'_> {
                 self.out.insert(init);
             }
             Binding::Tracked { init, family }
+        } else if ann.is_none() {
+            Binding::Fixed { init }
         } else {
             Binding::Opaque
         };
@@ -303,7 +338,7 @@ impl Walker<'_> {
                 }
                 return;
             }
-            Some(Binding::Opaque) | None => return,
+            Some(Binding::Opaque | Binding::Fixed { .. }) | None => return,
         };
         if let Some(types) = self.types
             && types.get(&value) == Some(&Type::Any)

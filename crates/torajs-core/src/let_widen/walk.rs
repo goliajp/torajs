@@ -154,7 +154,7 @@ impl Walker<'_> {
                 name, params, body, ..
             } => {
                 self.shadow(name);
-                self.walk_fn_body(params, body);
+                self.walk_named_fn(name, params, body);
             }
             Stmt::TypeDecl { .. } => {}
             Stmt::ClassDecl {
@@ -241,6 +241,7 @@ impl Walker<'_> {
             }
             Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => self.walk_expr(*obj),
             Expr::Call { callee, args } | Expr::OptCall { callee, args } => {
+                self.scan_push(*callee, args);
                 self.walk_expr(*callee);
                 for a in args {
                     self.walk_expr(*a);
@@ -361,6 +362,18 @@ impl Walker<'_> {
     /// module-doc boundary.
     pub(super) fn walk_fn_body(&mut self, params: &[Param], body: &[Stmt]) {
         self.walk_body_in(HashMap::new(), params, body);
+    }
+
+    /// A named function's body starts from the module's bindings; a
+    /// closure's lifted body starts from nothing here, since it is
+    /// walked where the closure is made ([`Self::walk_closure_body`]).
+    fn walk_named_fn(&mut self, name: &str, params: &[Param], body: &[Stmt]) {
+        let base = if self.closure_bodies.contains(name) {
+            HashMap::new()
+        } else {
+            self.module.clone()
+        };
+        self.walk_body_in(base, params, body);
     }
 
     /// A lifted closure body walked from the site that makes it: each
