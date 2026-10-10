@@ -166,8 +166,8 @@ fn matches_face(param_ty: &Type, arg_ty: &Type, call_face: bool) -> bool {
     }
 }
 
-/// A callback parameter slot matches its formal: equal, or either
-/// side Any — and a `Map` matches component-wise by the same rule, so
+/// A callback parameter slot matches its formal: equal, either side
+/// Any, or an object formal assignable to the object it declares — and a `Map` matches component-wise by the same rule, so
 /// `(v, k, m: Map<string, number>) => …` fits a forEach face built
 /// from an unannotated `Map<any, any>` receiver.
 fn slot_agrees(a: &Type, f: &Type) -> bool {
@@ -179,6 +179,10 @@ fn slot_agrees(a: &Type, f: &Type) -> bool {
         (Type::Nullable(inner), _) => slot_agrees(inner, f),
         (Type::Map(ak, av), Type::Map(fk, fv)) => slot_agrees(ak, fk) && slot_agrees(av, fv),
         (Type::MapIter(ai), Type::MapIter(fi)) => slot_agrees(ai, fi),
+        // parameters are contravariant: a callback declaring a wider
+        // object parameter takes every narrower object the formal
+        // passes; the prefix layout makes the cell readable as either
+        (Type::Struct(_), Type::Struct(_)) => crate::check_assignable::is_assignable_to(a, f),
         _ => false,
     }
 }
