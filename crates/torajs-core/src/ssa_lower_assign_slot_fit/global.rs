@@ -48,7 +48,7 @@ pub(crate) fn coerce_for_global(
             ctx.emit_drop_value(v, Type::Substr);
         }
         Operand::Value(owned)
-    } else if let Some(cast) = ctx.cast_assigned_obj(name, true, slot_ty, v, value) {
+    } else if let Some(cast) = ctx.cast_assigned_obj(name, true, slot_ty, v) {
         cast
     } else {
         v

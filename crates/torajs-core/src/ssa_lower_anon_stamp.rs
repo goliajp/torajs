@@ -67,6 +67,9 @@ pub struct AnonStampPool {
     /// generic row of a listed class joins its list once Pass 2 has
     /// minted it (`ssa_lower_boxed_entry::admit_generic_rows`).
     kin_lists: Vec<ssa::StringId>,
+    /// The object cast plans, whose class lists are widened the same
+    /// way (`ssa_lower_checked_cast::plan`).
+    cast_plans: Vec<ssa::StringId>,
     /// Sids a class factory stamped a CLASS tag onto. A factory's
     /// literal can intern to a sid other than the class's own (a
     /// field whose declared width differs from the literal's), and
@@ -100,6 +103,7 @@ impl AnonStampPool {
             generic_rows: Vec::new(),
             generic_by_factory: HashMap::new(),
             kin_lists: Vec::new(),
+            cast_plans: Vec::new(),
             class_minted: HashSet::new(),
             perm_tags: HashMap::new(),
             perm_rows: Vec::new(),
@@ -161,6 +165,15 @@ impl AnonStampPool {
 
     pub fn kin_lists(&self) -> &[ssa::StringId] {
         &self.kin_lists
+    }
+
+    /// Record an object cast plan (see `cast_plans`).
+    pub fn note_cast_plan(&mut self, plan: ssa::StringId) {
+        self.cast_plans.push(plan);
+    }
+
+    pub fn cast_plans(&self) -> &[ssa::StringId] {
+        &self.cast_plans
     }
 
     /// Look up an existing tag for `sid` or allocate a fresh one. Fresh

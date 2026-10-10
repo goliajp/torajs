@@ -344,7 +344,7 @@ fn coerce_to_ret(ctx: &mut LowerCtx, op: Operand, maybe: Option<crate::ast::Expr
     {
         return sentinel;
     }
-    if let Some(v) = ctx.cast_returned_obj(op, maybe) {
+    if let Some(v) = ctx.cast_returned_obj(op) {
         return v;
     }
     if actual == Type::Any && !ctx.ast.contextual_ret_fns.contains(&ctx.f.name) {

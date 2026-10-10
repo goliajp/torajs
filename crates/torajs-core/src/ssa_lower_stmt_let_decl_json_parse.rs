@@ -34,6 +34,7 @@ pub(crate) fn try_lower(
     if !ctx.is_json_parse_call(init) {
         return false;
     }
+    let declared = slot_ty_for_parse;
     if matches!(slot_ty_for_parse, Type::I64) && type_ann.map(|s| s.as_str()) == Some("number") {
         slot_ty_for_parse = Type::F64;
     }
@@ -52,13 +53,14 @@ pub(crate) fn try_lower(
         unreachable!()
     };
     let class_depth = type_ann.and_then(|a| class_depth(ctx, a));
-    if class_depth == Some(0) {
+    if class_depth.is_some() {
         let text_op = ctx.lower_expr(text_eid);
         let arg = ctx.box_to_any_from_expr(text_eid, text_op);
         let owned = ctx.expr_is_fresh_owned(text_eid) && ctx.operand_ty(&text_op).is_refcounted();
         let drop_text = owned.then_some(text_op);
-        reject_class_slot(ctx, arg, drop_text, type_ann.map_or("", |a| a.as_str()));
-        declare(ctx, name, slot_ty_for_parse, Operand::ConstPtrNull);
+        let ann = type_ann.map_or("", |a| a.as_str());
+        let v = parse_into_class_slot(ctx, arg, drop_text, declared, ann);
+        declare(ctx, name, declared, v);
         return true;
     }
     // The typed parse reads `text` as a Str cell; a non-String
@@ -72,7 +74,7 @@ pub(crate) fn try_lower(
     }
     let text_op = ctx.lower_expr(text_eid);
     let ann = type_ann.map_or("", |a| a.as_str());
-    let result = ctx.lower_json_parse_annotated(text_op, slot_ty_for_parse, class_depth, ann);
+    let result = ctx.lower_json_parse_annotated(text_op, slot_ty_for_parse, ann);
     if ctx.expr_is_fresh_owned(text_eid) && ctx.operand_ty(&text_op).is_refcounted() {
         ctx.emit_drop_value(text_op, ctx.operand_ty(&text_op));
     }
@@ -85,9 +87,9 @@ pub(crate) fn try_lower(
 }
 
 /// `Some(d)` when `ann` names a class under `d` array levels (`P`,
-/// `P[]`, `Array<P>`).
+/// `P[]`, `Array<P>`), either one `| null`.
 pub(crate) fn class_depth(ctx: &LowerCtx, ann: &str) -> Option<u32> {
-    let mut t = ann.trim();
+    let mut t = crate::check_type_ann::strip_nullable(ann.trim()).trim();
     let mut depth = 0;
     loop {
         if let Some(inner) = t.strip_suffix("[]") {
@@ -103,38 +105,36 @@ pub(crate) fn class_depth(ctx: &LowerCtx, ann: &str) -> Option<u32> {
     ctx.ast.class_parents.contains_key(base).then_some(depth)
 }
 
-/// `const p: P = JSON.parse(text)` with `P` a class: the annotation
-/// is a checked cast of the user's own type, judged by name, and what
-/// JSON.parse answers is a plain object, never an instance of `P`. The text still parses first
-/// (its SyntaxError comes before the cast's TypeError), on the any
-/// lane, whose result is then released.
-pub(crate) fn reject_class_slot(
+/// `const p: P = JSON.parse(text)` with `P` a class, or an array of
+/// one (`ty` the slot's type, `ann` its annotation): the text parses
+/// first, on the any lane (its SyntaxError comes before the cast's
+/// TypeError, §25.5.1), and the value then meets the annotation as a
+/// checked cast of the user's own type (`ssa_lower_checked_cast::obj`):
+/// a parsed object whose fields have the class's field types becomes
+/// a fresh instance of the class, anything else raises the TypeError.
+/// Answers the owned value, NULL under a pending throw.
+pub(crate) fn parse_into_class_slot(
     ctx: &mut LowerCtx,
     text_any: Operand,
     drop_text: Option<Operand>,
+    ty: Type,
     ann: &str,
-) {
-    let parsed = ctx.f.append_inst(
+) -> Operand {
+    let parsed = Operand::Value(ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(ctx.intrinsics.json_parse_any, vec![text_any]),
         Type::Any,
         None,
-    );
+    ));
     if let Some(t) = drop_text {
         ctx.emit_drop_value(t, ctx.operand_ty(&t));
     }
     ctx.emit_throw_check(None);
-    ctx.emit_drop_value(Operand::Value(parsed), Type::Any);
-    let msg = format!("cannot assign a JSON.parse result to `{ann}`: it is not a class instance");
-    let msg_str = ctx.intern_string_literal(msg.as_str());
-    let raiser = ctx.intrinsics.throw_type_error_str;
-    ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Call(raiser, vec![Operand::Value(msg_str)]),
-        Type::Void,
-        None,
-    );
-    ctx.emit_throw_check(None);
+    let site = format!("JSON.parse result does not have the annotated type `{ann}`");
+    let v = ctx.emit_plan_cast_unchecked(parsed, ty, ann, &site);
+    ctx.emit_drop_value(parsed, Type::Any);
+    ctx.emit_throw_check_owned(None, v, ty);
+    v
 }
 
 pub(crate) fn declare(ctx: &mut LowerCtx, name: &str, ty: Type, value: Operand) {

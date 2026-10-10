@@ -303,7 +303,7 @@ impl LowerCtx<'_> {
             ),
         );
         // Parse field value (recursive).
-        let fv = self.lower_json_parse(text_op, cursor_ptr, fty, None);
+        let fv = self.lower_json_parse(text_op, cursor_ptr, fty);
         // Store at field offset.
         let field_off = OBJ_HEADER_SIZE + (i as u64) * 8;
         self.f

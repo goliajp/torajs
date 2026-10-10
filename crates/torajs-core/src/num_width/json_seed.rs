@@ -88,13 +88,15 @@ impl<'a> Analysis<'a> {
 impl Analysis<'_> {
     /// Seed the number-domain fields of the object type `ann` that the
     /// slot `key` is written an `any` value into. The write casts, and
-    /// a cast may rebuild a fresh dynamic object as a cell of the
+    /// a cast may copy a dynamic object into a cell of the
     /// slot's layout (`ssa_lower_checked_cast::obj`): its property
     /// values are runtime data like JSON text, and a field narrowed
     /// past `number` would reject a fraction the annotation admits.
     pub(super) fn any_object_seed(&mut self, key: &SlotKey, ann: &str) {
         let base = crate::check_type_ann::strip_nullable(ann).trim();
-        // a class slot takes the cell as it is, never a rebuilt one
+        // a class has one layout, which this seed does not widen: a
+        // fraction copied into a field the width analysis narrowed is
+        // rejected (the width debt of RFC 20260922 §4.4 item 1)
         if self.ast.class_parents.contains_key(base) {
             return;
         }

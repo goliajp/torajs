@@ -415,7 +415,7 @@ pub(super) fn coerce_for_local(
             ctx.emit_drop_value(v, Type::Substr);
         }
         Operand::Value(owned)
-    } else if let Some(cast) = ctx.cast_assigned_obj(name, false, snap_ty, v, value) {
+    } else if let Some(cast) = ctx.cast_assigned_obj(name, false, snap_ty, v) {
         cast
     } else {
         v

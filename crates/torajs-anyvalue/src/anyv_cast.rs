@@ -19,6 +19,7 @@
 use core::ffi::{c_char, c_void};
 
 mod obj;
+mod plan;
 
 use crate::STR_HDR_SIZE;
 use crate::member_set::STR_LEN_OFF;

@@ -5,10 +5,10 @@
 // probe below reads the value the way that makes bun throw a
 // TypeError too, so the two print the same line; tr throws earlier.
 //
-// A class slot: JSON.parse answers a plain object, never an
-// instance. bun does not throw at the declaration (the annotation is
-// erased there); tr does, because this project judges a hand-written
-// class annotation by name. The probe calls a method, so bun throws
+// A class slot: a parsed object with the class's fields becomes an
+// instance of the class (any-into-class-slot-dynobj-001); one without
+// them is the TypeError. bun does not throw at the declaration (the
+// annotation is erased there); the probe calls a method, so bun throws
 // the same TypeError one statement later.
 class P {
   x: number;
@@ -19,14 +19,15 @@ class P {
     return this.x + 1;
   }
 }
-const pText = process.argv.length > 100 ? "" : '{"x":5}';
+const pText = process.argv.length > 100 ? "" : '{"y":5}';
 try {
   const p: P = JSON.parse(pText);
   console.log(p.m());
 } catch (e) {
   console.log("class slot", e instanceof TypeError);
 }
-// an array of a class: the empty array fits, an element does not
+// an array of a class: the empty array fits, an element without the
+// class's fields does not
 function classArr(t: string): void {
   try {
     const ps: P[] = JSON.parse(t);
@@ -36,7 +37,7 @@ function classArr(t: string): void {
   }
 }
 classArr("[]");
-classArr('[{"x":1}]');
+classArr('[{"y":1}]');
 
 // An interface slot: a structurally complete object is a legal value,
 // whatever the order of its keys and whatever else it carries.

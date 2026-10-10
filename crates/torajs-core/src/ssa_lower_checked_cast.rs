@@ -36,6 +36,8 @@ use crate::ssa_lower::LowerCtx;
 
 mod obj;
 mod obj_ann;
+pub(crate) mod plan;
+mod plan_emit;
 
 /// Where the program got the slot's type from (RFC §3.1).
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -104,7 +106,7 @@ fn site_text(slot: CastSlot, target: Type) -> Option<String> {
 
 /// The kernel's message for a slot of type `ty`, `{}` standing for the
 /// rejected value's `typeof` class.
-fn site_line(slot: CastSlot, ty: &str) -> String {
+pub(crate) fn site_line(slot: CastSlot, ty: &str) -> String {
     let verb = match slot {
         CastSlot::Assign => "assign {} to",
         CastSlot::Pass => "pass {} to parameter of type",

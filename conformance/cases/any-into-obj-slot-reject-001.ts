@@ -4,9 +4,11 @@
 // (an annotation does nothing at run time), so this case is checked
 // against its .expected: the throw is a deliberate departure: an
 // annotated slot holds what its annotation says.
-// A class slot takes an instance of the class or of a subclass only, an
-// object-type slot an object with its fields, or a fresh object nothing
-// else holds whose properties are exactly those fields.
+// A class slot takes an instance of the class or of a subclass as it
+// is, and an object that is no class instance as a copy when it has
+// the class's fields; an object-type slot takes any object with its
+// fields. An instance of another class, a primitive, an array, or an
+// object with a field missing or of another type is rejected.
 
 class P {
   x: number;
@@ -85,8 +87,8 @@ attempt("extra property", () => fresh('{"x":1,"y":2}'));
 attempt("missing property", () => fresh("{}"));
 attempt("property type", () => fresh('{"x":"1"}'));
 attempt("fresh", () => console.log(fresh('{"x":9}').x));
-// a class slot takes an instance only: a fresh object is never rebuilt
-// as one, whatever its properties
+// a class slot copies an object with the class's fields into an
+// instance
 function litP(): P {
   return { x: 1 } as any;
 }

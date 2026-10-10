@@ -23,9 +23,9 @@ pub(crate) struct AnyCastIds {
     pub anyv_cast_str_or_undef: FuncId,
     /// One heap family by tag: the cell with +1, or NULL.
     pub anyv_cast_cell: FuncId,
-    /// An object-layout slot `(value, class_tag, class list, site,
-    /// mode)`: the cell with +1 (a fresh one for a fresh dynamic
-    /// object), a nullish spelling, or NULL.
+    /// An object-layout slot, or an array of them `(value, cast plan,
+    /// vtables, site)`: the cell with +1, a fresh cell copied from an
+    /// object of the slot's type, a nullish spelling, or NULL.
     pub anyv_cast_obj: FuncId,
 }
 
@@ -57,7 +57,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         ),
         anyv_cast_obj: decl(
             "__torajs_anyv_cast_obj",
-            &[Type::Any, Type::I64, Type::I64, Type::Str, Type::I64],
+            &[Type::Any, Type::I64, Type::Ptr, Type::Str],
             Type::Ptr,
         ),
     }

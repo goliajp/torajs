@@ -5,20 +5,20 @@ global true cannot assign object to `P`
 push true cannot store object into `P`
 decl true cannot assign object to `P`
 object type ok
-return true cannot return object from function returning `P`
-field true cannot store object into `P`
-local true cannot assign object to `P`
-global true cannot assign object to `P`
-push true cannot store object into `P`
-decl true cannot assign object to `P`
-object type true cannot return object from function returning `T`
-return true cannot return object from function returning `P`
-field true cannot store object into `P`
-local true cannot assign object to `P`
-global true cannot assign object to `P`
-push true cannot store object into `P`
-decl true cannot assign object to `P`
-object type true cannot return object from function returning `T`
+return ok
+field ok
+local ok
+global ok
+push ok
+decl ok
+object type ok
+return ok
+field ok
+local ok
+global ok
+push ok
+decl ok
+object type ok
 return true cannot return number from function returning `P`
 field true cannot store number into `P`
 local true cannot assign number to `P`
@@ -54,10 +54,10 @@ global true cannot assign null to `P`
 push true cannot store null into `P`
 decl true cannot assign null to `P`
 object type true cannot return null from function returning `T`
-extra property true cannot return object from function returning `T`
+extra property ok
 missing property true cannot return object from function returning `T`
 property type true cannot return object from function returning `T`
 9
 fresh ok
-fresh literal into class true cannot return object from function returning `P`
-fresh parse into class true cannot return object from function returning `P`
+fresh literal into class ok
+fresh parse into class ok

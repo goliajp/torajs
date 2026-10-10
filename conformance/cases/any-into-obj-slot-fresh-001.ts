@@ -1,6 +1,6 @@
-// A fresh object (a JSON.parse result or an object literal nothing else
-// holds) written through `any` into a slot annotated with an object type
-// is the object with exactly those fields. A `number` field takes the
+// An object (a JSON.parse result or an object literal) written through
+// `any` into a slot annotated with an object type is copied into the
+// slot's layout when it has the type's fields. A `number` field takes the
 // fraction the text holds at every kind of write, however the program's
 // own writes to the type look.
 

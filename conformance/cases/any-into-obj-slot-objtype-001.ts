@@ -1,8 +1,7 @@
 // A slot annotated with an object type (not a class) takes any object
 // laid out with its fields as it is, an instance of an unrelated class
-// with those fields too; a fresh object literal or JSON.parse result
-// nothing else holds becomes the slot's object with the same
-// properties, in the same order.
+// with those fields too; an object literal or JSON.parse result with
+// those fields becomes a copy in the slot's layout.
 
 type T = { x: number; s: string };
 class C {

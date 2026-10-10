@@ -35,7 +35,6 @@ impl LowerCtx<'_> {
         &mut self,
         text_op: Operand,
         slot_ty: Type,
-        class_depth: Option<u32>,
         ann: &str,
     ) -> Operand {
         let cursor = self.alloca(Type::I64, Some("__json_pos"));
@@ -43,7 +42,7 @@ impl LowerCtx<'_> {
             self.cur_block,
             InstKind::Store(Operand::ConstI64(0), Operand::Value(cursor), 0),
         );
-        let fast = self.lower_json_parse(text_op, Operand::Value(cursor), slot_ty, class_depth);
+        let fast = self.lower_json_parse(text_op, Operand::Value(cursor), slot_ty);
         if slot_ty == Type::Any {
             return fast;
         }
@@ -81,7 +80,7 @@ impl LowerCtx<'_> {
         self.cur_block = retry;
         self.emit_json_discard_pending();
         self.emit_drop_value(fast, slot_ty);
-        self.emit_json_retry(text_op, slot_ty, class_depth, ann, out);
+        self.emit_json_retry(text_op, slot_ty, ann, out);
         self.f.set_term(self.cur_block, Terminator::Br(join));
         self.cur_block = join;
         Operand::Value(self.f.append_inst(
@@ -121,14 +120,7 @@ impl LowerCtx<'_> {
     /// Parse `text` on the any lane and store into `out` the value
     /// built from it, or a zero under a pending SyntaxError (the text
     /// is not JSON) or TypeError (its value does not fit `slot_ty`).
-    fn emit_json_retry(
-        &mut self,
-        text_op: Operand,
-        slot_ty: Type,
-        class_depth: Option<u32>,
-        ann: &str,
-        out: ValueId,
-    ) {
+    fn emit_json_retry(&mut self, text_op: Operand, slot_ty: Type, ann: &str, out: ValueId) {
         let arg = self.box_to_any(text_op);
         let parsed = Operand::Value(self.f.append_inst(
             self.cur_block,
@@ -162,7 +154,7 @@ impl LowerCtx<'_> {
             },
         );
         self.cur_block = judge;
-        self.emit_json_fits(parsed, slot_ty, class_depth, ok);
+        self.emit_json_fits(parsed, slot_ty, ok);
         let fits = self.f.append_inst(
             self.cur_block,
             InstKind::Load(Type::Bool, Operand::Value(ok), 0),
@@ -208,15 +200,7 @@ impl LowerCtx<'_> {
     }
 
     /// Clear `ok` unless the borrowed node `v` has the shape of `ty`.
-    /// A class slot never fits: a parsed object is not an instance.
-    fn emit_json_fits(&mut self, v: Operand, ty: Type, class_depth: Option<u32>, ok: ValueId) {
-        if class_depth == Some(0) {
-            self.f.append_void(
-                self.cur_block,
-                InstKind::Store(Operand::ConstBool(false), Operand::Value(ok), 0),
-            );
-            return;
-        }
+    fn emit_json_fits(&mut self, v: Operand, ty: Type, ok: ValueId) {
         let kind = match ty {
             Type::Any => return,
             Type::F64 | Type::I64 => NUMBER,
@@ -264,14 +248,13 @@ impl LowerCtx<'_> {
                 let layout = self.struct_layouts[sid.0 as usize].clone();
                 for (fname, fty) in layout.iter() {
                     let fv = self.emit_json_field_any(p, fname);
-                    self.emit_json_fits(fv, *fty, None, ok);
+                    self.emit_json_fits(fv, *fty, ok);
                 }
             }
             Type::Arr(arr_id) => {
                 let elem_ty = self.arr_layouts[arr_id.0 as usize];
                 let p = self.emit_json_cell_ptr(v);
-                let depth = class_depth.map(|d| d - 1);
-                self.emit_json_each(p, &mut |ctx, e| ctx.emit_json_fits(e, elem_ty, depth, ok));
+                self.emit_json_each(p, &mut |ctx, e| ctx.emit_json_fits(e, elem_ty, ok));
             }
             _ => {}
         }

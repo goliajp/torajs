@@ -148,9 +148,7 @@ pub(crate) fn admit_generic_rows(
     strings: &mut [StringLiteral],
 ) {
     let pool = pool.borrow();
-    for &list in pool.kin_lists() {
-        let lit = &mut strings[list.0 as usize];
-        let mut tags = decode(&lit.bytes);
+    let widen = |tags: &mut Vec<u32>| {
         let n = tags.len();
         for (row, _, base) in pool.generic_rows() {
             if class_name_to_tag
@@ -160,8 +158,22 @@ pub(crate) fn admit_generic_rows(
                 tags.push(*row);
             }
         }
+    };
+    for &list in pool.kin_lists() {
+        let lit = &mut strings[list.0 as usize];
+        let mut tags = decode(&lit.bytes);
+        let n = tags.len();
+        widen(&mut tags);
         if tags.len() > n {
             *lit = StringLiteral::from_latin1_bytes(encode(&tags));
+        }
+    }
+    for &plan in pool.cast_plans() {
+        let lit = &mut strings[plan.0 as usize];
+        let mut bytes = lit.bytes.clone();
+        crate::ssa_lower_checked_cast::plan::rewrite_class_lists(&mut bytes, &widen);
+        if bytes != lit.bytes {
+            *lit = StringLiteral::from_latin1_bytes(bytes);
         }
     }
 }

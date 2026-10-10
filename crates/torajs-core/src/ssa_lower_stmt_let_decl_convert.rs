@@ -111,7 +111,7 @@ pub(crate) fn maybe_any_to_typed_scalar(
         // the cell it is (`ssa_lower_checked_cast::obj`).
         Type::Obj(sid) => {
             let ann = type_ann.expect("an unannotated binding returned above");
-            match ctx.checked_cast_obj(init_val, sid, ann, CastSlot::Assign, Some(init)) {
+            match ctx.checked_cast_obj(init_val, sid, ann, CastSlot::Assign) {
                 Some(v) => v,
                 None => return (init_val, false),
             }

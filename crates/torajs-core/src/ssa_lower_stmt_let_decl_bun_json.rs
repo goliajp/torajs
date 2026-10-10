@@ -40,20 +40,15 @@ pub(crate) fn try_lower(
     );
     let ann = type_ann.map_or("", |a| a.as_str());
     let class_depth = crate::ssa_lower_stmt_let_decl_json_parse::class_depth(ctx, ann);
-    if class_depth == Some(0) {
+    if class_depth.is_some() {
+        use crate::ssa_lower_stmt_let_decl_json_parse::{declare, parse_into_class_slot};
         let text_any = ctx.box_to_any(Operand::Value(str_v));
         let drop_text = Some(Operand::Value(str_v));
-        crate::ssa_lower_stmt_let_decl_json_parse::reject_class_slot(ctx, text_any, drop_text, ann);
-        crate::ssa_lower_stmt_let_decl_json_parse::declare(
-            ctx,
-            name,
-            slot_ty_for_parse,
-            Operand::ConstPtrNull,
-        );
+        let v = parse_into_class_slot(ctx, text_any, drop_text, slot_ty_for_parse, ann);
+        declare(ctx, name, slot_ty_for_parse, v);
         return true;
     }
-    let result =
-        ctx.lower_json_parse_annotated(Operand::Value(str_v), slot_ty_for_parse, class_depth, ann);
+    let result = ctx.lower_json_parse_annotated(Operand::Value(str_v), slot_ty_for_parse, ann);
     ctx.emit_drop_value(Operand::Value(str_v), Type::Str);
     ctx.emit_throw_check_owned(None, result, slot_ty_for_parse);
     crate::ssa_lower_stmt_let_decl_json_parse::declare(ctx, name, slot_ty_for_parse, result);
