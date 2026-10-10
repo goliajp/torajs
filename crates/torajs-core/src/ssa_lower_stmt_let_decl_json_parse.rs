@@ -53,7 +53,7 @@ pub(crate) fn try_lower(
         unreachable!()
     };
     let class_depth = type_ann.and_then(|a| class_depth(ctx, a));
-    if class_depth.is_some() {
+    if class_depth.is_some() || holds_any_below(ctx, declared) {
         let text_op = ctx.lower_expr(text_eid);
         let arg = ctx.box_to_any_from_expr(text_eid, text_op);
         let owned = ctx.expr_is_fresh_owned(text_eid) && ctx.operand_ty(&text_op).is_refcounted();
@@ -103,6 +103,29 @@ pub(crate) fn class_depth(ctx: &LowerCtx, ann: &str) -> Option<u32> {
     }
     let base = t.split('<').next().unwrap_or(t).trim_end();
     ctx.ast.class_parents.contains_key(base).then_some(depth)
+}
+
+/// Whether `ty` has an `any` part below its top (`any[]`,
+/// `{ v: any }`): the typed cursor parse has no shape to unfold there,
+/// so the text parses on the any lane and meets the annotation as a
+/// cast, as for a class slot.
+fn holds_any_below(ctx: &LowerCtx, ty: Type) -> bool {
+    fn walk(ctx: &LowerCtx, ty: Type, seen: &mut Vec<Type>) -> bool {
+        if seen.contains(&ty) {
+            return false;
+        }
+        seen.push(ty);
+        match ty {
+            Type::Arr(a) => {
+                let elem = ctx.arr_layouts[a.0 as usize];
+                elem == Type::Any || walk(ctx, elem, seen)
+            }
+            Type::Obj(sid) => (ctx.struct_layouts[sid.0 as usize].iter())
+                .any(|(_, f)| *f == Type::Any || walk(ctx, *f, seen)),
+            _ => false,
+        }
+    }
+    walk(ctx, ty, &mut Vec::new())
 }
 
 /// `const p: P = JSON.parse(text)` with `P` a class, or an array of
