@@ -75,15 +75,18 @@ pub(crate) fn try_match(
             Err(e) => return Some(Err(e)),
         };
         let aty = crate::check_assignable::in_declared_order(checker, ast, &inner, *aid, aty);
-        // an `any` value for an object-layout element is cast, or refused
-        let admitted = if aty == Type::Any && matches!(inner, Type::Struct(_) | Type::ClassRef(_)) {
-            casts_any_into(checker, ast, &inner, *src_id)
-        } else {
-            inner == Type::Any
-                || aty == Type::Any
-                || crate::check_assignable::is_assignable_to(&inner, &aty)
-                || crate::iface_witness::class_admit(&inner, &aty) == Some(true)
-        };
+        // an `any` value for an object-layout element is cast as the
+        // one-argument append casts it, or refused as that one is
+        if aty == Type::Any
+            && matches!(inner, Type::Struct(_) | Type::ClassRef(_))
+            && !casts_any_into(checker, ast, &inner, *src_id)
+        {
+            return Some(Err(format!("argument {i}: expected {inner:?}, got Any")));
+        }
+        let admitted = inner == Type::Any
+            || aty == Type::Any
+            || crate::check_assignable::is_assignable_to(&inner, &aty)
+            || crate::iface_witness::class_admit(&inner, &aty) == Some(true);
         if !admitted {
             return Some(Err(format!(
                 "Array.{m_name} arg {i}: expected element type {:?}, got {aty:?}",

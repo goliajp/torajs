@@ -43,6 +43,10 @@ pub(crate) struct SharedPins {
     /// (hit = borrow). Distinct from `compound_key`, which holds the
     /// key AFTER ToPropertyKey; this holds it as lowered.
     pub(crate) operands: std::collections::HashMap<ExprId, Operand>,
+    /// The pinned arguments of a multi-value append that were owned
+    /// temporaries before the pin hid it: an object cast may rebuild
+    /// such a value (`ssa_lower_checked_cast::obj`).
+    pub(crate) owned_args: std::collections::HashSet<ExprId>,
 }
 
 /// What one entry point pinned: each shared child's eid, its lowered

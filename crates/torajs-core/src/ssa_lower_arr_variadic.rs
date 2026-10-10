@@ -98,6 +98,9 @@ fn hold_arg(ctx: &mut LowerCtx<'_>, eid: ExprId) -> Held {
     let ty = ctx.operand_ty(&op);
     let owns = ctx.expr_transfers_ownership(eid) || ctx.expr_minted_closure(eid, &op);
     let owned = (owns && !ty.is_copy()).then(|| ctx.push_throw_temp(op, ty));
+    if ctx.expr_owned_shape(eid) {
+        ctx.pins.owned_args.insert(eid);
+    }
     ctx.pins.operands.insert(eid, op);
     Held { eid, op, owned }
 }
@@ -106,6 +109,7 @@ fn hold_arg(ctx: &mut LowerCtx<'_>, eid: ExprId) -> Held {
 /// its own with the grow lane's inc.
 fn release_arg(ctx: &mut LowerCtx<'_>, h: Held) {
     ctx.pins.operands.remove(&h.eid);
+    ctx.pins.owned_args.remove(&h.eid);
     if let Some(tok) = h.owned {
         ctx.pop_throw_temp(tok);
         let ty = ctx.operand_ty(&h.op);

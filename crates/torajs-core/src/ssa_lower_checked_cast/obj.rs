@@ -166,7 +166,8 @@ impl LowerCtx<'_> {
         if base.len() != ann.len() {
             mode |= NULLISH;
         }
-        if class.is_none() && value.is_some_and(|e| self.expr_owned_shape(e)) {
+        let owned = |e| self.expr_owned_shape(e) || self.pins.owned_args.contains(&e);
+        if class.is_none() && value.is_some_and(owned) {
             mode |= FRESH;
         }
         let shown = if mode & NULLISH != 0 {
