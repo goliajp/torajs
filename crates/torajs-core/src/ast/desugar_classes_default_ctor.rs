@@ -53,6 +53,8 @@ pub(super) fn synthesize_derived_default_ctors(
         /// The ancestor's own type-param NAMES — what its ctor param
         /// anns may spell, and what the heritage arguments replace.
         type_params: Vec<String>,
+        /// The user-written ctor reads `arguments`.
+        reads_arguments: bool,
     }
     let by_name: std::collections::HashMap<String, ChainInfo> = class_index
         .iter()
@@ -72,6 +74,9 @@ pub(super) fn synthesize_derived_default_ctors(
                         .map(|c| c.params.clone()),
                     has_ctor: ctor.is_some(),
                     type_params: tp.clone(),
+                    reads_arguments: ctor
+                        .as_ref()
+                        .is_some_and(|c| body_reads_arguments(ast, &c.body)),
                 },
             )
         })
@@ -102,6 +107,7 @@ pub(super) fn synthesize_derived_default_ctors(
         // `number`, not `U`). Empty for a non-generic ancestor.
         let mut subst: Vec<(String, String)> = Vec::new();
         let mut found: Option<Vec<Param>> = None;
+        let mut forwards_arguments = false;
         let mut any_ancestor_ctor = false;
         for _ in 0..max_hops {
             let Some(pname) = cur.clone() else { break };
@@ -146,6 +152,7 @@ pub(super) fn synthesize_derived_default_ctors(
                     }
                 }
                 found = Some(ps);
+                forwards_arguments = info.reads_arguments;
                 break;
             }
             child = pname;
@@ -159,7 +166,14 @@ pub(super) fn synthesize_derived_default_ctors(
             continue;
         }
         let params = found.unwrap_or_default();
-        let args: Vec<ExprId> = params
+        // An ancestor that reads `arguments` sees every argument the
+        // `new` site passed, beyond its declared ones, which only the
+        // spec's own `super(...args)` spelling forwards.
+        let args: Vec<ExprId> = if forwards_arguments {
+            let all = ast.add_expr(Expr::Ident("arguments".into()));
+            vec![ast.add_expr(Expr::Spread { expr: all })]
+        } else {
+            params
             .iter()
             .map(|p| {
                 let pid = ast.add_expr(Expr::Ident(p.name.clone()));
@@ -176,7 +190,8 @@ pub(super) fn synthesize_derived_default_ctors(
                     pid
                 }
             })
-            .collect();
+            .collect()
+        };
         let super_eid = ast.add_expr(Expr::Super { args });
         match ctor {
             // Field initializers are already sitting in the synthesized
@@ -197,5 +212,28 @@ pub(super) fn synthesize_derived_default_ctors(
             }
         }
         ast.derived_default_ctor_classes.insert(cname.clone());
+    }
+}
+
+/// Whether a constructor body reads `arguments`, arrow bodies
+/// included (an arrow has none of its own).
+fn body_reads_arguments(ast: &Ast, body: &[Stmt]) -> bool {
+    use super::desugar_with::walk;
+    let mut work: Vec<ExprId> = Vec::new();
+    let mut stmts: Vec<&Stmt> = body.iter().collect();
+    loop {
+        while let Some(s) = stmts.pop() {
+            work.extend(walk::stmt_exprs(s));
+            stmts.extend(walk::stmt_children_ref(s));
+        }
+        let Some(e) = work.pop() else {
+            return false;
+        };
+        match ast.get_expr(e) {
+            Expr::Ident(n) if n == "arguments" => return true,
+            Expr::ArrowFn { body, .. } => stmts.extend(body.iter()),
+            _ => {}
+        }
+        work.extend(walk::expr_children(ast, e));
     }
 }
