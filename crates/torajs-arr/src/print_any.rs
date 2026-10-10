@@ -119,6 +119,9 @@ unsafe fn slot_is_composite(v: u64) -> bool {
         && tag != torajs_rc::Tag::NumberWrapper as u16
         && tag != torajs_rc::Tag::StringWrapper as u16
         && tag != torajs_rc::Tag::BooleanWrapper as u16
+        // A RegExp prints as its literal and keeps the array on one
+        // line (bun: `[ /a/g, 1 ]`), unlike a Date
+        && tag != torajs_rc::Tag::RegExp as u16
 }
 
 /// Indent-aware body of [`__torajs_arr_print_any`].
