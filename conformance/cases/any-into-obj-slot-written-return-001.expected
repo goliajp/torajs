@@ -1,10 +1,10 @@
 1
 decl ok
-decl extra true cannot return object from function returning `__inlobj(x:number)`
+decl extra ok
 decl type true cannot return object from function returning `__inlobj(x:number)`
 decl number true cannot return number from function returning `__inlobj(x:number)`
-via let true cannot return object from function returning `__inlobj(x:number)`
-via let, named type true cannot return object from function returning `T`
+via let ok
+via let, named type ok
 2
 arrow ok
 arrow missing true cannot return object from function returning `__inlobj(x:number)`
