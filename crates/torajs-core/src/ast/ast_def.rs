@@ -870,8 +870,8 @@ pub struct Ast {
     /// (`ast::census_program_reparents`); typed class dispatch then
     /// tests the instance's `FLAG_OBJ_USER_PROTO` before going static.
     pub program_reparents: bool,
-    /// User code can put a code-bearing named property on an array's
-    /// prototype chain (`ast::named_prop_census`).
+    /// User code can put a code-bearing named property on an array's or a
+    /// string's prototype chain (`ast::named_prop_census`).
     pub array_prop_reads_may_raise: bool,
     /// RFC 20260714-objlit-accessor blade 1 — `__ObjLit_<n>` (the synth
     /// nominal alias minted for a method-bearing object literal) → its

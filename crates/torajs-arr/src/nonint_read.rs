@@ -19,7 +19,7 @@ use crate::exotic_seam::{
     __torajs_arr_typed_nonint_any_slow, __torajs_arr_typed_nonint_f64_slow,
     __torajs_arr_typed_nonint_str_slow,
 };
-use crate::layout::ARR_PROPS_OFF;
+use crate::layout::{ARR_PROPS_OFF, VALUE_UNDEFINED_IMM};
 
 /// Can a property whose key is not an array index be visible through
 /// this cell: an own expando, a member of a subclass's prototype, or
@@ -80,9 +80,6 @@ pub unsafe extern "C" fn __torajs_arr_typed_nonint_str(arr: *mut c_void, key: f6
     }
 }
 
-/// The NaN-box `undefined` (torajs-anyvalue `VALUE_UNDEFINED`).
-const ANY_UNDEFINED: u64 = 0x0A;
-
 /// The twin for an element with no Number or Str slot: a `boolean[]`
 /// (`keep != 0`) answers the keyed read's whole value, owned, into
 /// its promoted `any` slot; a pointer element (`keep == 0`) runs the
@@ -100,7 +97,7 @@ pub unsafe extern "C" fn __torajs_arr_typed_nonint_any(
 ) -> u64 {
     unsafe {
         if !named_prop_possible(arr as *const u8) {
-            return ANY_UNDEFINED;
+            return VALUE_UNDEFINED_IMM;
         }
         __torajs_arr_typed_nonint_any_slow(arr, key, keep)
     }
@@ -123,7 +120,7 @@ mod tests {
             assert_eq!(got.to_bits(), F64_UNDEF_SENTINEL_BITS);
             assert!(__torajs_arr_typed_nonint_str(p as *mut c_void, f64::NAN).is_null());
             let got = __torajs_arr_typed_nonint_any(p as *mut c_void, 5.0, 1);
-            assert_eq!(got, ANY_UNDEFINED);
+            assert_eq!(got, VALUE_UNDEFINED_IMM);
         }
     }
 

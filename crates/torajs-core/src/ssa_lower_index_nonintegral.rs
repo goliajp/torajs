@@ -169,6 +169,77 @@ pub(crate) fn emit_oob_named_read(
     Some(ask)
 }
 
+/// The index a string's view read takes: §10.4.3.5 answers an own
+/// property only for a CanonicalNumericIndexString that is an integer,
+/// so a key that is not one (`s[1.5]`, `s[NaN]`) reads as -1, which
+/// the view answers with its `undefined` like any index past the end.
+/// Used where no program code can put a property on
+/// %String.prototype% (`Ast::array_prop_reads_may_raise` false), so
+/// that `undefined` is the property's value.
+pub(crate) fn str_view_index(
+    ctx: &mut LowerCtx<'_>,
+    idx: Operand,
+    nonint: Option<(Operand, Operand)>,
+) -> Operand {
+    let Some((flag, _)) = nonint else {
+        return idx;
+    };
+    // idx | -flag: all ones when the flag is set (no Select before
+    // the egraph pass forms them)
+    use crate::ssa::BinOp;
+    let cb = ctx.cur_block;
+    let one = ctx
+        .f
+        .append_inst(cb, InstKind::ZExtBoolToI64(flag), Type::I64, None);
+    let mask = ctx.f.append_inst(
+        cb,
+        InstKind::BinOp(BinOp::Sub, Operand::ConstI64(0), Operand::Value(one)),
+        Type::I64,
+        None,
+    );
+    let v = ctx.f.append_inst(
+        cb,
+        InstKind::BinOp(BinOp::Or, idx, Operand::Value(mask)),
+        Type::I64,
+        None,
+    );
+    Operand::Value(v)
+}
+
+/// A string's index read in a program that can put a property on
+/// %String.prototype% or %Object.prototype%: a key that is not an
+/// in-range integer reads the property it names, through the keyed
+/// kernel, which runs a getter and records its throw
+/// (`__torajs_str_index_keyed`).
+pub(crate) fn emit_str_keyed_read(
+    ctx: &mut LowerCtx<'_>,
+    s: Operand,
+    idx: Operand,
+    nonint: Option<(Operand, Operand)>,
+) -> Operand {
+    let key = match nonint {
+        Some((_, raw)) => raw,
+        None => {
+            Operand::Value(
+                ctx.f
+                    .append_inst(ctx.cur_block, InstKind::SiToFp(idx), Type::F64, None),
+            )
+        }
+    };
+    let fid = *ctx
+        .fn_table
+        .get("__torajs_str_index_keyed")
+        .expect("string keyed read entry missing");
+    let v = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(fid, vec![s, key]),
+        Type::Substr,
+        None,
+    );
+    ctx.emit_throw_check(None);
+    Operand::Value(v)
+}
+
 /// [`emit_nonintegral_typed_read`]'s arm for a `boolean[]`, whose read
 /// is promoted to an `any` slot and keeps the property's value whole,
 /// and for a pointer element, whose slot has no spelling for a value

@@ -14,7 +14,11 @@
 //! receiver whose type does not fix the element, and the throw
 //! analysis finds those from the checker's types
 //! (`Scan::code_write`). Both answers are needed before a
-//! non-integral read may stay off its callers' checks.
+//! non-integral read may stay off its callers' checks. A string's read
+//! at a key it does not own (`s[1.5]`, `s[7]` past the end) relies on
+//! the same answer for %String.prototype%, which the spellings below
+//! reach the way they reach %Array.prototype% (`String.prototype`,
+//! `getPrototypeOf`, `constructor`).
 //!
 //! The spellings: a re-parent (`program_reparents`); an accessor
 //! definition or a bulk copy (`defineProperty`, `defineProperties`,

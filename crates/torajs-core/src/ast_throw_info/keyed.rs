@@ -56,15 +56,18 @@ impl Scan<'_> {
     /// array index (the typed lanes' `__torajs_arr_typed_nonint_*`, the
     /// keyed kernel behind `emit_any_elem_read_split`), as does a
     /// receiver typed `any` or not known. Where the program can put a
-    /// property on an array's prototype chain
+    /// property on an array's or a string's prototype chain
     /// (`Ast::array_prop_reads_may_raise`), every key may: an
-    /// out-of-range index asks the chain (`emit_oob_named_read`).
+    /// out-of-range index asks the chain (`emit_oob_named_read`), and a
+    /// string asks for any key its view does not answer
+    /// (`emit_str_keyed_read`).
     fn read_asks(&self, obj: ExprId, index: ExprId) -> bool {
         let chain = self.ast.array_prop_reads_may_raise;
         match self.lane_of(obj) {
             Some(Type::Array(_) | Type::Any | Type::TypeVar(_)) | None => {
                 chain || self.key_may_name_property(index)
             }
+            Some(Type::String) => chain,
             _ => false,
         }
     }

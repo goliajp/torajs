@@ -62,10 +62,11 @@
 //! that answers it roots the any world (array-copy-1m: 909 KB for
 //! one `dst[n - 1]` with an F64 `n`). torajs-arr answers undefined
 //! itself for a cell that cannot carry a named property and calls
-//! the `__torajs_arr_typed_nonint_{f64,str}_slow` seams (fam 52 /
-//! 53) otherwise; they are judged on every entry that can put a cell
-//! in that state: the props-bag creators, the builtin-prototype mint
-//! and the Array subclass allocator.
+//! the `__torajs_arr_typed_nonint_{f64,str,any}_slow` seams (fam 52 /
+//! 53 / 56; `any` serves `boolean[]` and pointer elements) otherwise,
+//! judged on every entry that can put a cell in that state: the
+//! props-bag creators, the builtin-prototype mint and the Array
+//! subclass allocator.
 //!
 //! **The static `map` lane's hole arm** — a skipped source index
 //! arrives in the product as a hole (§23.1.3.21 step 6.c), and the

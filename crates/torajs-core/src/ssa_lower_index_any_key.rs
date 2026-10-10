@@ -122,8 +122,13 @@ pub(crate) fn lower_str_recv_index(
     {
         return lower_typed_arr_any_key(ctx, eid, arr_val, index);
     }
-    let idx_raw = ctx.lower_expr(index);
-    let idx_val = ctx.coerce_to_i64(idx_raw);
+    let (idx_val, nonint) = crate::ssa_lower_index_nonintegral::lower_typed_read_index(ctx, index);
+    if ctx.ast.array_prop_reads_may_raise {
+        return crate::ssa_lower_index_nonintegral::emit_str_keyed_read(
+            ctx, arr_val, idx_val, nonint,
+        );
+    }
+    let idx_val = crate::ssa_lower_index_nonintegral::str_view_index(ctx, idx_val, nonint);
     let fid = if arr_ty == Type::Str {
         ctx.intrinsics.str_index_view
     } else {

@@ -89,33 +89,14 @@ pub unsafe extern "C" fn __torajs_any_index_get(recv: AnyValue, idx: i64) -> Any
         return VALUE_UNDEFINED;
     }
     if is_short_str(recv) {
-        let len = short_str_len(recv) as usize;
-        let bytes = short_str_bytes(recv);
-        let payload = &bytes[..len];
-        if payload.iter().all(|b| *b < 0x80) {
-            // ASCII: byte index == UTF-16 code-unit index.
-            if idx < 0 || idx as usize >= len {
-                return VALUE_UNDEFINED;
-            }
-            return try_box_short_str(&payload[idx as usize..idx as usize + 1])
-                .unwrap_or(VALUE_UNDEFINED);
-        }
-        // Non-ASCII payload: materialize to a heap Str and reuse the
-        // heap path so code-unit semantics match the typed tier. The
-        // returned Substr holds its own parent reference, so the
-        // temporary parent drops safely right after.
-        unsafe {
-            let parent = materialize_short_str(recv);
-            let out = index_str_cell(parent, idx);
-            __torajs_str_drop(parent as *mut c_void);
-            return out;
-        }
+        return unsafe { string_index_get(recv, idx) };
     }
     if is_int32(recv) || is_double(recv) || is_bool(recv) {
         // §10.1.8.1 through the ToObject wrapper: the family
         // prototype's expando under the decimal spelling
-        // (`Number.prototype[0] = v` then `(3)[0]`, rotation 646).
-        return unsafe { family_proto_index_get(recv, idx) };
+        // (`Number.prototype[0] = v` then `(3)[0]`, rotation 646); a
+        // getter there sees the primitive itself as `this`.
+        return unsafe { named_index_get(recv, idx) };
     }
     if !is_cell(recv) {
         return VALUE_UNDEFINED;
@@ -137,7 +118,7 @@ pub unsafe extern "C" fn __torajs_any_index_get(recv: AnyValue, idx: i64) -> Any
         // expando (rotation 646: `s[0] = "own"` then `s[0]` read the
         // prototype's entry).
         if tag == Tag::StringWrapper as u16 {
-            let out = unsafe { __torajs_any_index_get(inner, idx) };
+            let out = unsafe { string_own_index(inner, idx) };
             if out != VALUE_UNDEFINED {
                 return out;
             }
@@ -165,7 +146,7 @@ pub unsafe extern "C" fn __torajs_any_index_get(recv: AnyValue, idx: i64) -> Any
         return VALUE_UNDEFINED;
     }
     if tag == Tag::Str as u16 {
-        return unsafe { index_str_cell(ptr as *mut u8, idx) };
+        return unsafe { string_index_get(recv, idx) };
     }
     // §10.4.5.4 — an integer-indexed exotic object. An index that
     // is out of range answers `undefined` WITHOUT walking the
@@ -399,6 +380,49 @@ unsafe fn named_index_get(recv: AnyValue, idx: i64) -> AnyValue {
         let key = __torajs_str_alloc(buf[start..].as_ptr(), len as i64);
         let out = crate::index_any_keyed::probe_key_cell(recv, key as *const c_void);
         __torajs_str_drop(key as *mut c_void);
+        out
+    }
+}
+
+/// A string receiver's [[Get]] at an integer key: the code unit when
+/// the key is below the length, otherwise the property the key names
+/// — no own property of the String exotic object (§10.4.3.5
+/// StringGetOwnProperty answers only the indices below the length),
+/// so §10.1.8.1 goes on to %String.prototype%'s digit key, whose
+/// getter sees the string itself as `this`.
+unsafe fn string_index_get(recv: AnyValue, idx: i64) -> AnyValue {
+    let own = unsafe { string_own_index(recv, idx) };
+    if own != VALUE_UNDEFINED {
+        return own;
+    }
+    unsafe { named_index_get(recv, idx) }
+}
+
+/// The code unit at `idx` of a short string or a Str cell, as a
+/// one-unit string; `undefined` past either end.
+unsafe fn string_own_index(recv: AnyValue, idx: i64) -> AnyValue {
+    if !is_short_str(recv) {
+        return unsafe { index_str_cell(as_void_ptr(recv) as *mut u8, idx) };
+    }
+    let len = short_str_len(recv) as usize;
+    let bytes = short_str_bytes(recv);
+    let payload = &bytes[..len];
+    if payload.iter().all(|b| *b < 0x80) {
+        // ASCII: byte index == UTF-16 code-unit index.
+        if idx < 0 || idx as usize >= len {
+            return VALUE_UNDEFINED;
+        }
+        return try_box_short_str(&payload[idx as usize..idx as usize + 1])
+            .unwrap_or(VALUE_UNDEFINED);
+    }
+    // Non-ASCII payload: materialize to a heap Str and reuse the
+    // heap path so code-unit semantics match the typed tier. The
+    // returned Substr holds its own parent reference, so the
+    // temporary parent drops safely right after.
+    unsafe {
+        let parent = materialize_short_str(recv);
+        let out = index_str_cell(parent, idx);
+        __torajs_str_drop(parent as *mut c_void);
         out
     }
 }

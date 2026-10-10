@@ -126,6 +126,9 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
     let _ = decl!("__torajs_arr_typed_nonint_f64", [Ptr, F64], F64);
     let _ = decl!("__torajs_arr_typed_nonint_str", [Ptr, F64], Str);
     let _ = decl!("__torajs_arr_typed_nonint_any", [Ptr, F64, I64], Any);
+    // A string's read at a key its index view does not answer
+    // (`ssa_lower_index_nonintegral::emit_str_keyed_read`).
+    let _ = decl!("__torajs_str_index_keyed", [Ptr, F64], Substr);
     // `new Array(n)` — every index a hole (§23.1.2.1 ArrayCreate).
     let _ = decl!("__torajs_arr_alloc_any_holes", [I64], Ptr);
     // §23.1.2.1 step 4.b — f64 entry for non-integer-provable Number
