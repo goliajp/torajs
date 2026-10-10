@@ -193,9 +193,14 @@ fn target_facts(
     // recv-first cell and is user param 0 of the body — fed from
     // argv[0] BEFORE the hidden slots, the window then shifted past
     // it for the rest (`recv_leads`).
-    let twin_argv = !feeds_env
-        && params.first().is_some_and(|p| p.name == "__this")
-        && params.get(1).is_some_and(|p| p.name == "__torajs_argv");
+    let twin_head = !feeds_env && params.first().is_some_and(|p| p.name == "__this");
+    let twin_argv = twin_head && params.get(1).is_some_and(|p| p.name == "__torajs_argv");
+    // A twin on the argc tier alone has the same receiver-first shape
+    // without the pointer, `[__this: Any, argc: I64, …user]`; mapped
+    // as a plain head its argc slot read argv[0], and a static method
+    // reached through `any` answered `arguments.length` 0.
+    let twin_lane =
+        twin_argv || twin_head && ast.this_first_argc_fns.get(name).is_some_and(|&h| h == 1);
     let has_argv = twin_argv
         || params
             .get(env_count)
@@ -206,9 +211,9 @@ fn target_facts(
     let ast_skip = env_count + usize::from(has_argv);
     let hidden = sig_only_slots(ast, name, params, first_is_env, feeds_env);
     let sig_skip = ast_skip + hidden;
-    let user_tys: Vec<Type> = if twin_argv {
+    let user_tys: Vec<Type> = if twin_lane {
         std::iter::once(param_tys[0])
-            .chain(param_tys[3..].iter().cloned())
+            .chain(param_tys[2 + usize::from(twin_argv)..].iter().cloned())
             .collect()
     } else {
         param_tys[sig_skip..].to_vec()
@@ -243,7 +248,7 @@ fn target_facts(
     // §10.2.1.3 treats both alike), which a runtime call cannot
     // get from the caller-side default injection. Qualifying
     // literals per [`DfltLit::of_default_expr`].
-    let dflt_params: Vec<&crate::ast::Param> = if twin_argv {
+    let dflt_params: Vec<&crate::ast::Param> = if twin_lane {
         params
             .iter()
             .filter(|p| p.name != "__torajs_argv")
@@ -274,7 +279,7 @@ fn target_facts(
     // false). A `__cm_` this-first head never reaches ast_skip
     // (env_count consumes it) and twins are not env-first.
     let recv_slot =
-        twin_argv || first_is_env && params.get(ast_skip).is_some_and(|p| p.name == "__this");
+        twin_lane || first_is_env && params.get(ast_skip).is_some_and(|p| p.name == "__this");
     // The relay redirect (module doc in `relay`): the adapter of
     // a `__forward_<t>` / `__fwdrecv_<t>` enters `t` with its own
     // argc / argv. A receiver-first relay composes like a twin on
@@ -305,7 +310,7 @@ fn target_facts(
         lead: match relay {
             Some(r) if r.new_target => 2,
             Some(r) if r.recv_first => 1,
-            _ => usize::from(twin_argv),
+            _ => usize::from(twin_lane),
         },
         lead_undef: relay.is_some_and(|r| r.this_first && !r.recv_first),
         feeds_env: feeds_env && relay.is_none(),
