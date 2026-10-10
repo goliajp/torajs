@@ -200,6 +200,12 @@ fn widen_branches(
     if let Some(res) = object_join::class_or_null(ctx, eid, (tt, et), (then_null, else_null)) {
         return (then_val, else_val, res, false, false);
     }
+    // a `null` arm before a callable (`c ? null : inc`): the join takes
+    // the callable's repr, whose zero is null, as the reverse order
+    // already does
+    if then_null && matches!(et, Type::FnSig(_) | Type::Closure(_)) {
+        return (then_val, else_val, et, false, false);
+    }
     let scalar_or_struct = |t: &Type| {
         matches!(
             t,

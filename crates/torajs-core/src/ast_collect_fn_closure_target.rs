@@ -94,8 +94,14 @@ impl FnToClosureCollector<'_> {
             return true;
         }
         let leaves = crate::ast_closure_param_tag_member::passthrough_leaves(self.ast, eid);
-        let all_cells = (leaves.iter())
-            .all(|&leaf| leaf != eid && (self.fn_name(leaf).is_some() || self.is_cell(leaf)));
+        let nullish = |leaf| match self.ast.get_expr(leaf) {
+            Expr::Null => true,
+            Expr::Ident(p) => p == "undefined",
+            _ => false,
+        };
+        let all_cells = leaves.iter().all(|&leaf| {
+            leaf != eid && (self.fn_name(leaf).is_some() || self.is_cell(leaf) || nullish(leaf))
+        });
         if all_cells {
             for leaf in leaves {
                 self.mark_ident(leaf);

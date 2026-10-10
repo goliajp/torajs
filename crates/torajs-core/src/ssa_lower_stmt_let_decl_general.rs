@@ -153,10 +153,10 @@ pub(crate) fn initial_let_ty(
 /// - call — the callee's ret repr is Closure (`effective_ret_ty`
 ///   upgrades a fn-sig-annotated ret whose body returns closures;
 ///   the value arriving here IS that cell) (r359).
-/// - ternary / nullish — both arms yield cells (r359; a mixed
-///   cell/code-address pair keeps the FnSig repr and the pre-existing
-///   behavior — re-repring the slot would just move which arm jumps
-///   wrong).
+/// - ternary / nullish — both arms yield cells, or one does and the
+///   other is a null literal (r359; a mixed cell/code-address pair
+///   keeps the FnSig repr and the pre-existing behavior — re-repring
+///   the slot would just move which arm jumps wrong).
 fn init_yields_closure_cell(ctx: &LowerCtx, init: ExprId) -> bool {
     match ctx.ast.get_expr(init) {
         Expr::Closure { .. } => true,
@@ -184,15 +184,23 @@ fn init_yields_closure_cell(ctx: &LowerCtx, init: ExprId) -> bool {
             then_branch,
             else_branch,
             ..
-        } => {
-            init_yields_closure_cell(ctx, *then_branch)
-                && init_yields_closure_cell(ctx, *else_branch)
-        }
-        Expr::Nullish { lhs, rhs } => {
-            init_yields_closure_cell(ctx, *lhs) && init_yields_closure_cell(ctx, *rhs)
-        }
+        } => cell_arms(ctx, [*then_branch, *else_branch]),
+        Expr::Nullish { lhs, rhs } => cell_arms(ctx, [*lhs, *rhs]),
         _ => false,
     }
+}
+
+/// Both arms of a choice yield cells, or one does and the other is the
+/// `null` / `undefined` literal (`d ? dbl : null` once `dbl` is wrapped):
+/// a nullable cell.
+fn cell_arms(ctx: &LowerCtx, arms: [ExprId; 2]) -> bool {
+    let nullish = |e: ExprId| {
+        matches!(ctx.ast.get_expr(e), Expr::Null)
+            || matches!(ctx.ast.get_expr(e), Expr::Ident(n) if n == "undefined")
+    };
+    arms.iter()
+        .all(|&a| nullish(a) || init_yields_closure_cell(ctx, a))
+        && arms.iter().any(|&a| !nullish(a))
 }
 
 /// Stage 2 — record the binding in the source-shape registries its

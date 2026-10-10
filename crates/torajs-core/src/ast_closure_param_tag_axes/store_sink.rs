@@ -99,12 +99,33 @@ fn closures_in<'a>(ast: &'a Ast, e: ExprId, out: &mut Vec<(&'a str, &'a [String]
     visit_expr_children(ast, e, &mut |c| closures_in(ast, c, out));
 }
 
-/// Every name the module hands to a heap slot, scope-blind: a name
-/// collision only costs that binding its direct-dispatch lane.
+/// Every name the module hands to a heap slot or an `any` slot,
+/// scope-blind: a name collision only costs that binding its
+/// direct-dispatch lane.
 pub(crate) fn heap_stored_names(ast: &Ast) -> HashSet<String> {
     let mut out = HashSet::new();
     for i in 0..ast.exprs.len() {
         own_stored_names(ast, ExprId(i as u32), &mut out);
+    }
+    let any_params = super::any_sink::any_param_slots(ast);
+    super::any_sink::any_sunk_names(ast, (&[], &None, &ast.stmts), &any_params, &mut out);
+    let mut stack: Vec<&Stmt> = ast.stmts.iter().collect();
+    while let Some(s) = stack.pop() {
+        push_child_stmts(s, &mut stack);
+        if let Stmt::FnDecl {
+            params,
+            return_type,
+            body,
+            ..
+        } = s
+        {
+            super::any_sink::any_sunk_names(
+                ast,
+                (params, return_type, body),
+                &any_params,
+                &mut out,
+            );
+        }
     }
     through_bindings(ast, &ast.stmts, &mut out);
     out.into_iter().map(str::to_string).collect()
