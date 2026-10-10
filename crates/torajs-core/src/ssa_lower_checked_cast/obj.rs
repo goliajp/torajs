@@ -195,11 +195,20 @@ impl LowerCtx<'_> {
     }
 
     /// Whether a slot of layout `sid` annotated `ann` is cast: a class
-    /// slot always; another object type unless it is an interface with
-    /// witness rows or has a method (module doc).
+    /// slot unless its class descends from an exotic builtin; another
+    /// object type unless it is an interface with witness rows or has a
+    /// method (module doc).
     fn casts_into(&self, sid: StructId, ann: &str) -> bool {
-        self.slot_class(strip_nullable(ann).trim(), sid).is_some()
-            || !(crate::ssa_lower_iface::sid_is_iface(self, sid) || self.has_methods(sid))
+        match self.slot_class(strip_nullable(ann).trim(), sid) {
+            // an instance of a class rooted in an exotic builtin is that
+            // builtin's cell (a Promise, a Set), which no layout test
+            // can tell apart; its slot keeps the value as it is
+            Some(class) => {
+                crate::ast::desugar_classes_builtin_heritage::exotic_root_parent(self.ast, class)
+                    .is_none()
+            }
+            None => !(crate::ssa_lower_iface::sid_is_iface(self, sid) || self.has_methods(sid)),
+        }
     }
 
     /// Whether layout `sid` has a function-typed member: an object type
