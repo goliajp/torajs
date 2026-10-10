@@ -283,6 +283,31 @@ pub(crate) fn typevar_appears_in(ty: &Type, name: &str) -> bool {
     }
 }
 
+/// Bind every type variable inside `ty` that `subst` has no binding
+/// for yet to `any`.
+pub(crate) fn bind_unbound_to_any(ty: &Type, subst: &mut HashMap<String, Type>) {
+    match ty {
+        Type::TypeVar(n) => {
+            subst.entry(n.clone()).or_insert(Type::Any);
+        }
+        Type::Array(inner) | Type::MapIter(inner) | Type::Nullable(inner) | Type::Rest(inner) => {
+            bind_unbound_to_any(inner, subst)
+        }
+        Type::Map(k, v) | Type::Dict(k, v) => {
+            bind_unbound_to_any(k, subst);
+            bind_unbound_to_any(v, subst);
+        }
+        Type::Function(args, ret) => {
+            args.iter().for_each(|t| bind_unbound_to_any(t, subst));
+            bind_unbound_to_any(ret, subst);
+        }
+        Type::Struct(fields) => fields
+            .iter()
+            .for_each(|(_, t)| bind_unbound_to_any(t, subst)),
+        _ => {}
+    }
+}
+
 pub(crate) fn typevar_appears_in_iter(tys: &[Type], name: &str) -> bool {
     tys.iter().any(|t| typevar_appears_in(t, name))
 }

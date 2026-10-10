@@ -195,16 +195,27 @@ pub(crate) fn try_match(
         let mut subst: HashMap<String, Type> =
             explicit_type_arg_subst(checker, ast, eid, &type_params);
         let mut arg_tys: Vec<Type> = Vec::with_capacity(args.len());
+        // an `any` argument for a fn-typed parameter says nothing about
+        // the type variables: those no other argument binds take `any`
+        // (the instantiation takes that parameter as `any`,
+        // `check_monomorph::any_fn_param`)
+        let mut any_fn_params: Vec<(usize, &Type)> = Vec::new();
         for (i, (param_ty, arg_id)) in params.iter().zip(args.iter()).enumerate() {
             let arg_ty = match checker.type_of(ast, *arg_id) {
                 Ok(t) => t,
                 Err(e) => return Some(Err(e)),
             };
             let arg_ty = arg::unify_view(checker, ast, param_ty, Some(&subst), *arg_id, arg_ty);
-            if let Err(e) = unify_typevar(param_ty, &arg_ty, &mut subst, &ast.class_parents) {
+            if matches!((param_ty, &arg_ty), (Type::Function(..), Type::Any)) {
+                any_fn_params.push((i, param_ty));
+            } else if let Err(e) = unify_typevar(param_ty, &arg_ty, &mut subst, &ast.class_parents)
+            {
                 return Some(Err(format!("argument {i} to `{name}`: {e}")));
             }
             arg_tys.push(arg_ty);
+        }
+        for (_, param_ty) in &any_fn_params {
+            crate::check_typevar::bind_unbound_to_any(param_ty, &mut subst);
         }
         // Validate every type-param was bound. A param the SIGNATURE
         // never mentions cannot be inferred and cannot matter — bind
@@ -244,9 +255,13 @@ pub(crate) fn try_match(
         // caveat.
         let _ = params;
         let _ = args;
-        return Some(Ok(resolved_ret));
+        let widened: Vec<usize> = any_fn_params.iter().map(|(i, _)| *i).collect();
+        let face =
+            any_fn_ret::call_ret_face(checker, ast, eid, name, &widened, &subst, resolved_ret);
+        return Some(Ok(face));
     }
     None
 }
 
+mod any_fn_ret;
 mod arg;

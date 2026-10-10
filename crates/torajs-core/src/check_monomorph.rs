@@ -38,6 +38,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
+mod any_fn_param;
 mod finish;
 
 use crate::ast::{Ast, ExprId, Param, Stmt};
@@ -167,6 +168,7 @@ pub(crate) fn monomorphize_and_check(c: &mut Checker, ast: &Ast) -> MonoOutput {
         &seed,
         &generics,
         &empty_env,
+        c,
         &mut cache,
         &mut worklist,
         &mut call_retargets,
@@ -284,7 +286,7 @@ pub(crate) fn process_one_generic(
                 Type::Function(spec_ptys, Box::new(spec_rty)),
             );
         }
-        let spec_decl = Stmt::FnDecl {
+        let mut spec_decl = Stmt::FnDecl {
             name: mono_name,
             type_params: Vec::new(),
             params: new_params,
@@ -296,6 +298,7 @@ pub(crate) fn process_one_generic(
             // an RFC 20260719 B3 refinement)
             span: crate::lexer::Span { start: 0, end: 0 },
         };
+        any_fn_param::widen(c, &mut spec_decl, &arg_anns);
         // Check the concrete body — INFERENCE-ONLY. Swap-capture the
         // per-ExprId tables so the inner generic calls this body
         // contains can be seeded from exactly the new records, then
@@ -359,6 +362,7 @@ pub(crate) fn process_one_generic(
             &inner,
             generics,
             &param_env,
+            c,
             cache,
             worklist,
             call_retargets,
@@ -438,6 +442,7 @@ pub(crate) fn seed_records(
     records: &[(ExprId, (String, Vec<Type>))],
     generics: &Generics,
     param_env: &HashMap<String, String>,
+    checker: &Checker,
     cache: &mut HashMap<(String, Vec<String>), String>,
     worklist: &mut VecDeque<WorkItem>,
     call_retargets: &mut HashMap<ExprId, String>,
@@ -446,7 +451,8 @@ pub(crate) fn seed_records(
         if !generics.contains_key(name) {
             continue;
         }
-        let arg_anns = compute_arg_anns(owned_ast, *eid, name, type_args, generics, param_env);
+        let mut arg_anns = compute_arg_anns(owned_ast, *eid, name, type_args, generics, param_env);
+        any_fn_param::mark(&mut arg_anns, owned_ast, *eid, name, generics, checker);
         let cache_key = (name.clone(), arg_anns);
         let mono_name = if let Some(n) = cache.get(&cache_key) {
             n.clone()

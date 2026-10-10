@@ -403,6 +403,7 @@ fn emit_widened_spec(
         &inner,
         generics,
         &param_env,
+        c,
         cache,
         worklist,
         call_retargets,
