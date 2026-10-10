@@ -18,26 +18,58 @@ use crate::ast_closure_param_tag_member::passthrough_leaves;
 use std::collections::{HashMap, HashSet};
 
 /// Seed marks for the fn-typed parameters a function stores, read off
-/// that function's own body (a nested declaration is its own scope).
+/// that function's own body (a nested declaration is its own scope)
+/// and off the closures it creates: a closure storing a name it
+/// captures (`() => xs.push(f)`) stores the enclosing binding.
 pub(crate) fn store_sink_param_seeds(
     ast: &Ast,
     fn_params: &HashMap<String, Vec<(usize, String)>>,
 ) -> HashSet<(String, usize)> {
-    let mut seeds = HashSet::new();
+    let mut stored_by_fn: HashMap<&str, HashSet<&str>> = HashMap::new();
+    let mut closures_by_fn: HashMap<&str, Vec<(&str, &[String])>> = HashMap::new();
     let mut stack: Vec<&Stmt> = ast.stmts.iter().collect();
     while let Some(s) = stack.pop() {
         push_child_stmts(s, &mut stack);
         let Stmt::FnDecl { name, body, .. } = s else {
             continue;
         };
-        let Some(own) = fn_params.get(name) else {
-            continue;
-        };
         let mut stored: HashSet<&str> = HashSet::new();
+        let mut closures = Vec::new();
         for st in body {
-            visit_stmt_exprs(st, &mut |e| stored_names(ast, e, &mut stored));
+            visit_stmt_exprs(st, &mut |e| {
+                stored_names(ast, e, &mut stored);
+                closures_in(ast, e, &mut closures);
+            });
         }
         through_bindings(ast, body, &mut stored);
+        stored_by_fn.entry(name).or_default().extend(stored);
+        closures_by_fn.entry(name).or_default().extend(closures);
+    }
+    let mut grew = true;
+    while grew {
+        grew = false;
+        for (&f, closures) in &closures_by_fn {
+            for &(c, captures) in closures {
+                let inner: Vec<&str> = match stored_by_fn.get(c) {
+                    Some(st) => captures
+                        .iter()
+                        .map(String::as_str)
+                        .filter(|n| st.contains(n))
+                        .collect(),
+                    None => continue,
+                };
+                let outer = stored_by_fn.entry(f).or_default();
+                for n in inner {
+                    grew |= outer.insert(n);
+                }
+            }
+        }
+    }
+    let mut seeds = HashSet::new();
+    for (name, own) in fn_params {
+        let Some(stored) = stored_by_fn.get(name.as_str()) else {
+            continue;
+        };
         for (i, p) in own {
             if stored.contains(p.as_str()) {
                 seeds.insert((name.clone(), *i));
@@ -45,6 +77,15 @@ pub(crate) fn store_sink_param_seeds(
         }
     }
     seeds
+}
+
+/// The closures `e` and its subexpressions create, with the names
+/// each captures.
+fn closures_in<'a>(ast: &'a Ast, e: ExprId, out: &mut Vec<(&'a str, &'a [String])>) {
+    if let Expr::Closure { fn_name, captures } = ast.get_expr(e) {
+        out.push((fn_name, captures));
+    }
+    visit_expr_children(ast, e, &mut |c| closures_in(ast, c, out));
 }
 
 /// Every name the module hands to a heap slot, scope-blind: a name
