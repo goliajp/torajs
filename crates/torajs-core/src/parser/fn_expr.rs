@@ -118,6 +118,30 @@ impl<'a> Parser<'a> {
                                 }
                                 j += 1;
                             }
+                            // An object type literal as the return
+                            // annotation: `(): { x: number } => …`. A
+                            // ternary's `: { … }` else-arm is never
+                            // followed by `=>`, so only an arrow head
+                            // matches.
+                            if matches!(self.tokens.get(j).map(|s| &s.token), Some(Token::LBrace)) {
+                                let mut d = 0;
+                                while let Some(t) = self.tokens.get(j) {
+                                    match t.token {
+                                        Token::LBrace => d += 1,
+                                        Token::RBrace => d -= 1,
+                                        Token::Eof => return false,
+                                        _ => {}
+                                    }
+                                    j += 1;
+                                    if d == 0 {
+                                        break;
+                                    }
+                                }
+                                return matches!(
+                                    self.tokens.get(j).map(|s| &s.token),
+                                    Some(Token::FatArrow)
+                                );
+                            }
                             // Type starts with an identifier — or
                             // the `void` keyword (m1.h.30 promoted
                             // it from contextual ident to keyword;
