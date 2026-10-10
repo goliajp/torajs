@@ -20,6 +20,14 @@ pub(super) fn decide(pred: IPred, a: NumFact, b: NumFact) -> Option<bool> {
     }
 }
 
+/// `x <pred> x`: true for the predicates that include equality.
+pub(super) fn reflexive(pred: IPred) -> bool {
+    match pred {
+        IPred::Eq | IPred::Sge | IPred::Sle | IPred::Uge => true,
+        IPred::Ne | IPred::Sgt | IPred::Slt | IPred::Ult => false,
+    }
+}
+
 fn decide_ordered(always: bool, never: bool) -> Option<bool> {
     match (always, never) {
         (true, _) => Some(true),

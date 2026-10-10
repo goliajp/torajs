@@ -119,6 +119,16 @@ fn fold_in_function(func: &mut Function, fns: &[String], seed: Seed, stats: &mut
         let InstKind::ICmp(pred, a, b) = &func.blocks[cd.0].insts[cd.1].kind else {
             continue;
         };
+        // both sides read the same value at the same instant, so the
+        // compare is reflexive whatever the value is; sext_elide's
+        // round-trip collapse leaves `icmp ne x, x` behind
+        if let (Operand::Value(va), Operand::Value(vb)) = (a, b)
+            && va == vb
+        {
+            let taken = decide::reflexive(*pred);
+            folds.push((bi, if taken { *then_blk } else { *else_blk }));
+            continue;
+        }
         let fa = eval_side(&src, a, cd);
         let fb = eval_side(&src, b, cd);
         if let (Some(fa), Some(fb)) = (fa, fb)
@@ -572,5 +582,45 @@ mod tests {
         let mut stats = BranchFoldStats::default();
         fold_in_function(&mut f, &[], None, &mut stats);
         assert_eq!(stats, BranchFoldStats::default());
+    }
+
+    /// `icmp ne x, x` over an opaque value is false: the arm it guards
+    /// goes, even though no range is known for `x`.
+    #[test]
+    fn reflexive_compare_folds() {
+        let mut f = Function {
+            name: "f".into(),
+            params: vec![],
+            ret: Type::Void,
+            values: vec![
+                ValueInfo {
+                    ty: Type::I64,
+                    name: None
+                };
+                2
+            ],
+            blocks: vec![
+                block(
+                    0,
+                    vec![
+                        inst(0, InstKind::Call(torajs_core::ssa::FuncId(0), vec![])),
+                        inst(1, InstKind::ICmp(IPred::Ne, v(0), v(0))),
+                    ],
+                    Terminator::CondBr {
+                        cond: v(1),
+                        then_blk: BlockId(1),
+                        else_blk: BlockId(2),
+                    },
+                ),
+                block(1, vec![], Terminator::Ret(None)),
+                block(2, vec![], Terminator::Ret(None)),
+            ],
+            current_origin: None,
+        };
+        let mut stats = BranchFoldStats::default();
+        fold_in_function(&mut f, &[], None, &mut stats);
+        assert_eq!(stats.folded, 1, "{stats:?}");
+        assert_eq!(stats.blocks_removed, 1, "{stats:?}");
+        assert!(matches!(f.blocks[0].term, Terminator::Br(BlockId(1))));
     }
 }

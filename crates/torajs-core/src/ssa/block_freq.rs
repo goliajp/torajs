@@ -445,6 +445,37 @@ mod tests {
     }
 
     #[test]
+    fn the_generic_arm_of_an_int_pair_test_is_cold() {
+        // `a + b` on two any values: both tags int → the int fast path
+        let mut insts = Vec::new();
+        for (bits, tag, eq, of) in [(1, 2, 5, 0), (3, 4, 6, 7)] {
+            insts.push(inst(bits, InstKind::PtrToInt(v(of))));
+            insts.push(inst(
+                tag,
+                InstKind::BinOp(BinOp::LShr, v(bits), Operand::ConstI64(48)),
+            ));
+            insts.push(inst(
+                eq,
+                InstKind::ICmp(IPred::Eq, v(tag), Operand::ConstI64(0xfffe)),
+            ));
+        }
+        insts.push(inst(8, InstKind::BinOp(BinOp::And, v(5), v(6))));
+        let pair = |insts: Vec<Inst>| {
+            block_freqs(&func(vec![
+                block(0, insts, cond_br(8, 1, 2)),
+                block(1, vec![], br(3)),
+                block(2, vec![], br(3)),
+                block(3, vec![], RET),
+            ]))
+        };
+        assert_eq!(pair(insts.clone()), vec![1024, 1024, 16, 1024]);
+        // `total + +s`: the right operand is the generic kernel's
+        // answer, a double whenever s was a string
+        insts.insert(0, inst(7, InstKind::Call(FuncId(0), vec![])));
+        assert_eq!(pair(insts), vec![1024, 1024, 1024, 1024]);
+    }
+
+    #[test]
     fn a_users_bit_test_predicts_nothing() {
         // `if ((x & 1) === 1) f()` on a number the program computed
         let bits = vec![inst(

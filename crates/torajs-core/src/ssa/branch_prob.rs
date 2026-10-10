@@ -26,6 +26,16 @@
 //!    is-number / both-int tests in front of the generic kernel.
 //!    `ptrtoint` comes only from the lowerer: no source construct
 //!    exposes a NaN-box's bits.
+//! 6. **Int pair test** — an `and` of two compares of a boxed value's
+//!    tag (`lshr (ptrtoint v), 48`) with a constant: the test the
+//!    lowerer puts in front of arithmetic on two `any` operands, whose
+//!    then arm is the int fast path (the small-integer speculation of
+//!    every JS engine). The else arm, the generic number / string path,
+//!    is cold even though neither arm calls: when it is the one that
+//!    runs, its float temporaries cost spill traffic, never a call.
+//!    Not when an operand is a call's answer: the generic kernels box
+//!    a double whenever an input was not an int (`+s` on a numeric
+//!    string), so the else arm is the one that runs.
 //!
 //! Every other branch predicts nothing, and nothing splits on it: the
 //! lowerer emits many conditionals no rule reads (loop versioning on a
@@ -111,6 +121,8 @@ pub fn cold_arms(func: &Function) -> Vec<(BlockId, BlockId, f64)> {
             Some((oob, P_SLOW_PATH))
         } else if one_calls && cond.is_some_and(|c| is_boxed_guard(c, &defs, 1)) {
             Some((calling_arm(), P_SLOW_PATH))
+        } else if cond.is_some_and(|c| is_int_pair_test(c, &defs)) {
+            Some((e, P_SLOW_PATH))
         } else {
             None
         };
@@ -241,6 +253,25 @@ fn is_boxed_guard(cond: &InstKind, defs: &HashMap<ValueId, &InstKind>, depth: u3
             .all(|op| value_def(op, defs).is_some_and(|c| is_boxed_guard(c, defs, depth - 1))),
         _ => false,
     }
+}
+
+/// `and (icmp eq (lshr (ptrtoint a), 48), K), (icmp eq (lshr (ptrtoint b), 48), K)`.
+fn is_int_pair_test(cond: &InstKind, defs: &HashMap<ValueId, &InstKind>) -> bool {
+    let not_a_call_answer = |w: &Operand| match value_def(w, defs) {
+        Some(InstKind::PtrToInt(v)) => !matches!(
+            value_def(v, defs),
+            Some(InstKind::Call(..) | InstKind::CallIndirect(..))
+        ),
+        _ => false,
+    };
+    let tag = |op: &Operand| match value_def(op, defs) {
+        Some(InstKind::ICmp(IPred::Eq, x, k)) if is_const(k, defs) => matches!(
+            value_def(x, defs),
+            Some(InstKind::BinOp(BinOp::LShr, w, Operand::ConstI64(48))) if not_a_call_answer(w)
+        ),
+        _ => false,
+    };
+    matches!(cond, InstKind::BinOp(BinOp::And, a, b) if tag(a) && tag(b))
 }
 
 fn is_len_load(kind: Option<&InstKind>) -> bool {
