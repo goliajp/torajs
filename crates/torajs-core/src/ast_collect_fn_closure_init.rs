@@ -234,6 +234,30 @@ pub(crate) struct IdentCensus {
     pub(crate) heap_stored: std::collections::HashSet<String>,
 }
 
+/// A fn-typed slot annotation that is not variadic (a rest-typed one
+/// keeps its own boxed-dual route).
+pub(crate) fn is_fn_slot_ann(a: &str) -> bool {
+    crate::ast::is_fn_like_ann(a) && !a.contains("__rest(")
+}
+
+impl IdentCensus {
+    /// Whether a let binding's slot holds a closure cell on one of the
+    /// binding axes, so the collector wraps a named-fn initializer into
+    /// its forwarder cell: a mutable fn-typed slot (chunk 736), an
+    /// immutable one the module stores into the heap, or one an `===`
+    /// compares (rotation 599, the identity axis: ES creates one
+    /// function object per declaration, §10.2.11, so a compared binding
+    /// must be the canonical cell every value site of the function
+    /// answers). The closure-param tag
+    /// pass, which runs first, reads the same answer to give every
+    /// fn-typed parameter receiving such a binding the closure repr.
+    pub(crate) fn wraps_let(&self, mutable: bool, type_ann: Option<&str>, name: &str) -> bool {
+        (mutable && type_ann.is_some_and(is_fn_slot_ann))
+            || (!mutable && self.heap_stored.contains(name) && type_ann.is_none_or(is_fn_slot_ann))
+            || self.eq_operands.contains(name)
+    }
+}
+
 pub(crate) fn ident_census(ast: &Ast) -> IdentCensus {
     let mut out = IdentCensus {
         eq_operands: std::collections::HashSet::new(),

@@ -222,41 +222,16 @@ impl<'a> FnToClosureCollector<'a> {
         if type_ann.is_some_and(crate::ast::is_fn_arr_ann) {
             self.mark_array_lit_elems(init);
         }
-        // Chunk 736 — a MUTABLE fn-typed binding initialized
-        // with a bare named fn (`let cb: (n)=>n = take`): the
-        // slot re-reprs Closure (chunk 732 local / K.3b
-        // global), so the raw-FnSig init wraps. The rewrite
-        // also turns the init into Expr::Closure, steering
-        // the lowerer off the immutable-only fn_addr_let
-        // direct-dispatch lane naturally. Variadic anns keep
-        // their own boxed-dual route (chunk-4 axis mirror).
-        if mutable && type_ann.is_some_and(|a| is_fn_like_ann(a) && !a.contains("__rest(")) {
-            self.try_mark(init);
-        }
-        // An immutable one the 424-04 census marked (a named function
-        // whose parameter face differs from the annotation's) wraps
-        // the same way, so its calls can ride the cell's boxed entry;
-        // so does one the module stores into the heap, whose slots
-        // hold only cells (`const g: F = h; fs.push(g)`).
-        let heap_fn = self.ident_census.heap_stored.contains(name)
-            && type_ann.is_none_or(|a| is_fn_like_ann(a) && !a.contains("__rest("));
-        if !mutable && (heap_fn || self.ast.fnsig_mismatch_bindings.contains(name)) {
-            self.try_mark(init);
-        }
-        // Rotation 599 — the identity axis. `const h = t` (and the
-        // fn-typed immutable spelling) keeps the raw FnSig address so
-        // `h()` is a direct call, while every value SITE of `t`
-        // answers the canonical `__fncell_*` singleton; `===` is the
-        // only observer that can see the two apart, and it saw them:
-        // `const h = t; h === t` was false while `const a = t;
-        // const b = t; a === b` was true, because both of THOSE were
-        // on the raw side. ES creates one function object per
-        // declaration (§10.2.11), so when the binding is compared it
-        // must be the cell. Gated on the comparison rather than
-        // applied to every immutable fn binding, because the wrap
-        // costs the direct-dispatch lane and only a comparison can
-        // observe the difference.
-        if self.ident_census.eq_operands.contains(name) {
+        // The binding axes (chunk 736 mutable fn-typed slot, the heap
+        // store, rotation 599's identity axis; see
+        // `IdentCensus::wraps_let`) and the 424-04 census (a named
+        // function whose parameter face differs from the annotation's,
+        // so its calls ride the cell's boxed entry) wrap the init.
+        // Wrapping turns it into `Expr::Closure`, which steers the
+        // lowerer off the immutable-only fn_addr_let direct lane.
+        if self.ident_census.wraps_let(mutable, type_ann, name)
+            || (!mutable && self.ast.fnsig_mismatch_bindings.contains(name))
+        {
             self.try_mark(init);
         }
         self.walk_expr(init);

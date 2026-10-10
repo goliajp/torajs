@@ -96,12 +96,24 @@ pub(crate) fn collect_fn_returns(stmts: &[Stmt], out: &mut HashMap<String, Vec<E
 /// eval-code `gen-func-expr-*-cntns-arguments-*` SIGBUS family). A
 /// plain named-fn init (`let f = h`) stays out: that slot keeps the
 /// raw fn_addr_let direct lane (see [`fn_alias_lets`] for how it
-/// joins when a marked param actually receives it).
+/// joins when a marked param actually receives it), unless a binding
+/// axis gives the slot the cell ([`cell_slot_let`]).
 pub(crate) fn closure_holding_lets(ast: &Ast) -> HashSet<String> {
+    let census = crate::ast_collect_fn_closure_init::ident_census(ast);
     let mut closure_idents: HashSet<String> = HashSet::new();
     let mut stack: Vec<&Stmt> = ast.stmts.iter().collect();
     while let Some(s) = stack.pop() {
-        if let Stmt::LetDecl { name, init, .. } = s {
+        if let Stmt::LetDecl {
+            name,
+            init,
+            mutable,
+            type_ann,
+            ..
+        } = s
+        {
+            if cell_slot_let(ast, &census, *mutable, type_ann.as_deref(), name, *init) {
+                closure_idents.insert(name.clone());
+            }
             match ast.get_expr(*init) {
                 Expr::Closure { .. } => {
                     closure_idents.insert(name.clone());
@@ -115,6 +127,31 @@ pub(crate) fn closure_holding_lets(ast: &Ast) -> HashSet<String> {
         push_child_stmts(s, &mut stack);
     }
     closure_idents
+}
+
+/// A binding whose slot the forwarder collector, which runs after this
+/// pass, makes a closure cell on one of its binding axes
+/// ([`crate::ast_collect_fn_closure_init::IdentCensus::wraps_let`]): a
+/// mutable fn-typed slot always is one; an immutable or unannotated one
+/// is when its initializer may name a function. Left out, a fn-typed
+/// param receiving it kept the bare-pointer lane and `blr`'d the cell
+/// (`const g: F = h; fs.push(g); call(g)`, EXIT 138).
+fn cell_slot_let(
+    ast: &Ast,
+    census: &crate::ast_collect_fn_closure_init::IdentCensus,
+    mutable: bool,
+    type_ann: Option<&str>,
+    name: &str,
+    init: ExprId,
+) -> bool {
+    use crate::ast_collect_fn_closure_init::is_fn_slot_ann;
+    if !census.wraps_let(mutable, type_ann, name) || !type_ann.is_none_or(is_fn_slot_ann) {
+        return false;
+    }
+    (mutable && type_ann.is_some())
+        || crate::ast_closure_param_tag_member::passthrough_leaves(ast, init)
+            .iter()
+            .any(|&l| matches!(ast.get_expr(l), Expr::Ident(_)))
 }
 
 /// `let x = <named-fn Ident>` aliases, program-wide by name:
