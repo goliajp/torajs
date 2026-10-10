@@ -41,6 +41,10 @@ pub(crate) struct Scan<'a> {
     /// Receivers of a constructor's leading field writes, which no
     /// integrity level can refuse yet (`ast::fresh_this`).
     pub(crate) fresh_recv: HashSet<ExprId>,
+    /// Parameters and `let`s some declaration annotates with an object
+    /// type (`obj_cast::object_ann`): an `any` value assigned to one is
+    /// cast. Never narrowed by a shadowing declaration.
+    pub(crate) obj_slots: HashSet<String>,
 }
 
 impl<'a> Scan<'a> {
@@ -78,6 +82,12 @@ impl<'a> Scan<'a> {
             safe: HashSet::new(),
             assigned,
             fresh_recv: HashSet::new(),
+            obj_slots: (params.iter())
+                .filter(|p| {
+                    (p.type_ann.as_deref()).is_some_and(|a| super::obj_cast::object_ann(ast, a))
+                })
+                .map(|p| p.name.clone())
+                .collect(),
         }
     }
 
@@ -230,10 +240,11 @@ impl<'a> Scan<'a> {
             f |= ANY;
         }
         // an `any` initializer of an object-typed binding is cast
-        if type_ann.is_some_and(|a| super::obj_cast::object_ann(self.ast, a))
-            && matches!(self.expr_types.get(&init), Some(crate::check::Type::Any))
-        {
-            self.direct = true;
+        if type_ann.is_some_and(|a| super::obj_cast::object_ann(self.ast, a)) {
+            self.obj_slots.insert(name.to_string());
+            if matches!(self.expr_types.get(&init), Some(crate::check::Type::Any)) {
+                self.direct = true;
+            }
         }
         if f != 0 {
             self.nullish.insert(name.to_string(), f);

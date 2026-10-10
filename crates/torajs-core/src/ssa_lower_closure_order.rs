@@ -22,6 +22,20 @@ use crate::ast::{Ast, Expr, ExprId, Stmt};
 use crate::ssa::FuncId;
 use std::collections::{HashMap, HashSet};
 
+/// What a closure's construction site knows of the bindings it
+/// captures, which the closure's body, lowered after it, reads.
+pub(crate) struct CaptureFacts {
+    /// 556-02 — the captures that were VARIADIC bindings in the
+    /// constructing frame (`variadic_locals` there). The body preamble
+    /// re-registers them so a call through the captured binding takes
+    /// the boxed dual entry — the fixed-prefix CallIndirect fed a rest
+    /// body its argv slots as plain params (exit 139).
+    pub(crate) variadic: Vec<String>,
+    /// The captures declared with an annotation, and the annotation:
+    /// the body's `let_anns` start from them (`LowerCtx::binding_ann`).
+    pub(crate) anns: Vec<(String, String)>,
+}
+
 /// T-15.g.5 extension: closure construction can also live at module
 /// top-level (`let cb = function(v) { return v + cap }` directly in
 /// implicit main). Top-level construction only runs when synthesize_

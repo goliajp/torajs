@@ -334,9 +334,9 @@ impl<'a> LowerCtx<'a> {
         // 556-02 — captures that were variadic bindings at the
         // construction site route their calls boxed here too.
         let variadic_caps: Vec<String> = self
-            .closure_variadic_captures
+            .closure_capture_facts
             .get(layout_of)
-            .cloned()
+            .map(|f| f.variadic.clone())
             .unwrap_or_default();
         let env_slot = self
             .locals

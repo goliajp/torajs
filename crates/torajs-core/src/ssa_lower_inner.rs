@@ -51,6 +51,7 @@ use std::collections::HashMap;
 use crate::ast::Ast;
 use crate::check_monomorph::MonoOutput;
 use crate::ssa::{self, FuncId, Module, Type};
+use crate::ssa_lower_closure_order::CaptureFacts;
 use crate::ssa_lower_pass_2_5::cell_size;
 
 pub(crate) fn lower_inner(
@@ -150,8 +151,8 @@ pub(crate) fn lower_inner(
     // before its lifted body in ast.stmts ordering: user FnDecls come
     // first, lifted `__closure_N` decls are appended to the end.
     let mut closure_captures: HashMap<String, Vec<(String, Type, bool)>> = HashMap::new();
-    // 556-02 — the variadic-capture record alongside (see `LowerCtx`).
-    let mut closure_variadic_captures: HashMap<String, Vec<String>> = HashMap::new();
+    // What each construction site knew of its captures (see `LowerCtx`).
+    let mut closure_capture_facts: HashMap<String, CaptureFacts> = HashMap::new();
 
     let globals = register_toplevel_globals(
         ast,
@@ -217,7 +218,7 @@ pub(crate) fn lower_inner(
         &mut inst_memo,
         &generic_struct_decls,
         &mut closure_captures,
-        &mut closure_variadic_captures,
+        &mut closure_capture_facts,
         call_retargets,
         &may_throw,
         arr_head_pinned,

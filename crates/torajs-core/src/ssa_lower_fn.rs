@@ -65,7 +65,7 @@ pub(crate) fn lower_fn(
     generic_struct_decls: &GenericStructDecls,
     string_id_base: usize,
     closure_captures: &mut HashMap<String, Vec<(String, Type, bool)>>,
-    closure_variadic_captures: &mut HashMap<String, Vec<String>>,
+    closure_capture_facts: &mut HashMap<String, crate::ssa_lower_closure_order::CaptureFacts>,
     call_retargets: &CallRetargets,
     may_throw_fns: &std::collections::HashSet<String>,
     arr_head_pinned: bool,
@@ -169,7 +169,7 @@ pub(crate) fn lower_fn(
         new_strings: &mut new_strings,
         string_id_base,
         closure_captures,
-        closure_variadic_captures,
+        closure_capture_facts,
         call_retargets,
         may_throw_fns,
         escape_captured_lets: std::collections::HashSet::new(),
@@ -247,6 +247,11 @@ pub(crate) fn lower_fn(
 
 /// What the body's statements can rely on before the first is lowered.
 fn seed_body_facts(ctx: &mut LowerCtx<'_>, name: &str, params: &[ast::Param], body: &[Stmt]) {
+    // the captures' annotations, then the parameters', which shadow them
+    let captured = ctx.closure_capture_facts.get(name).map(|f| f.anns.clone());
+    let captured = captured.into_iter().flatten().map(|(n, a)| (n, Some(a)));
+    let params_anns = params.iter().map(|p| (p.name.clone(), p.type_ann.clone()));
+    ctx.let_anns = captured.chain(params_anns).collect();
     undef_params::seed_undef_sentinel_params(ctx, name, params);
     fresh_this::seed_fresh_this(ctx, name, params, body);
     // Mutually recursive closure bindings need each other's boxes open

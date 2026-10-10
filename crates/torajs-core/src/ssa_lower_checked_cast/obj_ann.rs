@@ -8,38 +8,16 @@ use crate::ssa_lower::LowerCtx;
 
 impl LowerCtx<'_> {
     /// The annotation of the binding `name`: a module global's from its
-    /// top-level declaration when `global`; otherwise a `let` of this
-    /// function's from its declaration, a parameter's, or, for a binding
-    /// this function captures, its declaration's elsewhere (by name).
-    pub(super) fn binding_ann(&self, name: &str, global: bool) -> Option<String> {
+    /// top-level declaration when `global`; otherwise the latest `let`
+    /// or parameter of this function by that name, or for a binding a
+    /// closure captures, the one it had where the closure was made. The
+    /// same name declared in some other function is another binding,
+    /// and is never read for this one.
+    pub(crate) fn binding_ann(&self, name: &str, global: bool) -> Option<String> {
         if global {
             return self.ast.stmts.iter().find_map(|s| let_ann(s, name));
         }
-        if let Some(own) = self.let_anns.get(name) {
-            return own.clone();
-        }
-        if let Some(p) = self.param(name) {
-            return p;
-        }
-        let mut found = None;
-        crate::ast::walk_stmts(&self.ast.stmts, &mut |s| {
-            found = found.take().or_else(|| let_ann(s, name));
-        });
-        found
-    }
-
-    /// The annotation of the parameter `name` of the function being
-    /// lowered: `None` when it has no such parameter, `Some(None)` for
-    /// one without an annotation.
-    fn param(&self, name: &str) -> Option<Option<String>> {
-        self.ast.stmts.iter().find_map(|s| match s {
-            Stmt::FnDecl {
-                name: f, params, ..
-            } if *f == self.f.name => (params.iter())
-                .find(|p| p.name == name)
-                .map(|p| p.type_ann.clone()),
-            _ => None,
-        })
+        self.let_anns.get(name).cloned().flatten()
     }
 
     /// The annotation of the field `field` of the class instance `obj`

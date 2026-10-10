@@ -35,9 +35,9 @@ impl LowerCtx<'_> {
                 )
             });
         let variadic_caps = self
-            .closure_variadic_captures
+            .closure_capture_facts
             .get(&wrapper)
-            .cloned()
+            .map(|f| f.variadic.clone())
             .unwrap_or_default();
         let this = *self
             .locals

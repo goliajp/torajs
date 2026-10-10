@@ -212,7 +212,9 @@ impl Scan<'_> {
                 }
                 // an `any` value into an object-typed slot is cast
                 if self.expr_types.get(value) == Some(&crate::check::Type::Any)
-                    && obj_cast::object_ty(self.expr_types.get(target))
+                    && (obj_cast::object_ty(self.expr_types.get(target))
+                        || matches!(ast.get_expr(*target),
+                            Expr::Ident(n) if self.obj_slots.contains(n)))
                 {
                     self.direct = true;
                 }

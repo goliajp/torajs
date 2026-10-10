@@ -117,8 +117,13 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, fn_name: String, captures: Vec<Strin
         .filter(|&(n, _)| ctx.variadic_locals.contains(n))
         .map(|(n, _)| n.clone())
         .collect();
-    ctx.closure_variadic_captures
-        .insert(fn_name.clone(), variadic);
+    let anns =
+        (eff_captures.iter()).filter_map(|(n, _)| Some((n.clone(), ctx.binding_ann(n, false)?)));
+    let facts = crate::ssa_lower_closure_order::CaptureFacts {
+        variadic,
+        anns: anns.collect(),
+    };
+    ctx.closure_capture_facts.insert(fn_name.clone(), facts);
 
     // Canonical `__fncell_*` singleton arm — carved out to
     // `ssa_lower_closure_canonical.rs` (file-size cap); plain arrow /
