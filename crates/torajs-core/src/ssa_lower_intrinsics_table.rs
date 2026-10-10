@@ -447,6 +447,7 @@ pub(crate) fn build(
         json_is_raw_json: init_c.json_raw.json_is_raw_json,
         json_parse_any: init_c.json_raw.json_parse_any,
         json_parse_reviver: init_c.json_raw.json_parse_reviver,
+        json_value_is: init_c.json_raw.json_value_is,
         ns_object_json: init_c.json_raw.ns_object_json,
 
         class_register: init_c.any_substrate.class_register,

@@ -29,6 +29,8 @@ use crate::nanbox::{AnyValue, VALUE_FALSE, VALUE_NULL, VALUE_TRUE, VALUE_UNDEFIN
 use crate::nanbox_encode::{__torajs_anyv_box_f64, __torajs_anyv_box_from_pair};
 use torajs_rc::HeapHeader;
 
+mod fits;
+
 /// `nanbox_encode` pair-encoding heap tag (0=Null 1=Bool 2=I64 3=F64
 /// 4=Heap 5=Undef).
 const ANY_HEAP: u64 = 4;

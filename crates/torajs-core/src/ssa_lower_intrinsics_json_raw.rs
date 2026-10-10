@@ -18,6 +18,10 @@ pub(crate) struct JsonRawIds {
     pub json_is_raw_json: FuncId,
     pub json_parse_any: FuncId,
     pub json_parse_reviver: FuncId,
+    /// The JSON kind of a node of an any-lane parse (0 number,
+    /// 1 boolean, 2 string, 3 object, 4 array): the shape walk of an
+    /// annotated parse whose typed lane stopped.
+    pub json_value_is: FuncId,
     /// §25.5.2 with a `replacer` — value + replacer + gap + starting
     /// depth. The static unfold cannot serve it (a replacer may
     /// substitute any node's value at run time), so the whole walk
@@ -56,6 +60,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_json_parse_reviver",
             &[Type::Any, Type::Any],
             Type::Any,
+        ),
+        json_value_is: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_json_value_is",
+            &[Type::Any, Type::I64],
+            Type::I64,
         ),
         json_stringify_full: declare_intrinsic(
             module,

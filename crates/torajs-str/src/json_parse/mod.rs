@@ -38,6 +38,7 @@ use torajs_rc::HeapHeader;
 
 unsafe extern "C" {
     fn __torajs_throw_syntax_error(msg: *const core::ffi::c_char);
+    fn __torajs_throw_check() -> i64;
 }
 
 // ============================================================
@@ -47,7 +48,17 @@ unsafe extern "C" {
 /// Throw a JSON.parse error: §25.5.1 step 2 makes a text that does
 /// not parse a SyntaxError, raised with the message and a
 /// `" at pos N"` suffix.
+///
+/// The typed parse checks for a pending throw once, after the whole
+/// text, so every helper after the first failure runs on a cursor
+/// that failure left behind. Only that first error is kept: raising
+/// another would replace it and strand its Error. The declaration
+/// then discards it and judges the text again on the any lane, where
+/// a SyntaxError comes before any mismatch with the annotation.
 pub(super) fn json_throw(msg: &str, pos: i64) {
+    if unsafe { __torajs_throw_check() } != 0 {
+        return;
+    }
     let mut buf = String::with_capacity(msg.len() + 16);
     buf.push_str(msg);
     buf.push_str(" at pos ");

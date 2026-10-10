@@ -14,7 +14,7 @@
 
 use crate::ast::ExprId;
 use crate::ssa::{InstKind, Operand, Type};
-use crate::ssa_lower::{LocalInfo, LowerCtx};
+use crate::ssa_lower::LowerCtx;
 
 pub(crate) fn try_lower(
     ctx: &mut LowerCtx,
@@ -38,34 +38,24 @@ pub(crate) fn try_lower(
         Type::Str,
         None,
     );
-    let cursor = ctx.alloca(Type::I64, Some("__json_pos"));
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::Store(Operand::ConstI64(0), Operand::Value(cursor), 0),
-    );
-    let result = ctx.lower_json_parse(
-        Operand::Value(str_v),
-        Operand::Value(cursor),
-        slot_ty_for_parse,
-    );
+    let ann = type_ann.map_or("", |a| a.as_str());
+    let class_depth = crate::ssa_lower_stmt_let_decl_json_parse::class_depth(ctx, ann);
+    if class_depth == Some(0) {
+        let text_any = ctx.box_to_any(Operand::Value(str_v));
+        let drop_text = Some(Operand::Value(str_v));
+        crate::ssa_lower_stmt_let_decl_json_parse::reject_class_slot(ctx, text_any, drop_text, ann);
+        crate::ssa_lower_stmt_let_decl_json_parse::declare(
+            ctx,
+            name,
+            slot_ty_for_parse,
+            Operand::ConstPtrNull,
+        );
+        return true;
+    }
+    let result =
+        ctx.lower_json_parse_annotated(Operand::Value(str_v), slot_ty_for_parse, class_depth, ann);
     ctx.emit_drop_value(Operand::Value(str_v), Type::Str);
-    let slot = ctx.binding_slot_alloca(slot_ty_for_parse, name);
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::Store(result, Operand::Value(slot), 0),
-    );
-    let cur_depth = ctx.scope_stack.len() - 1;
-    ctx.locals.insert(
-        name.to_string(),
-        LocalInfo {
-            slot,
-            ty: slot_ty_for_parse,
-            moved: false,
-            borrowed: false,
-            boxed: false,
-            scope_depth: cur_depth,
-        },
-    );
-    ctx.scope_stack.last_mut().unwrap().push(name.to_string());
+    ctx.emit_throw_check_owned(None, result, slot_ty_for_parse);
+    crate::ssa_lower_stmt_let_decl_json_parse::declare(ctx, name, slot_ty_for_parse, result);
     true
 }

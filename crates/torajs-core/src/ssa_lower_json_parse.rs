@@ -5,6 +5,7 @@
 //! arrive pre-widened to F64 (`num_width/json_seed.rs` — JSON text
 //! is runtime data, narrow faces are unprovable).
 
+mod from_any;
 mod obj;
 
 use crate::ssa::{IPred, InstKind, Operand, Terminator, Type};
@@ -23,12 +24,24 @@ impl LowerCtx<'_> {
     ///
     /// `text_op` must be a `Type::Str` operand; `cursor_slot` is a
     /// pointer to an alloca'd `i64` initialized to 0 by the caller.
+    ///
+    /// `class_depth` is `Some(d)` when the annotation names a class
+    /// under `d` array levels (`P` is 0, `P[]` is 1). A parsed value
+    /// is a plain object, never an instance, so the parse reaching
+    /// that depth stops the typed lane instead of building a cell
+    /// that would wear the class's layout and answer its methods; the
+    /// any-lane retry then raises the TypeError.
     pub(crate) fn lower_json_parse(
         &mut self,
         text_op: Operand,
         cursor_ptr: Operand,
         slot_ty: Type,
+        class_depth: Option<u32>,
     ) -> Operand {
+        if class_depth == Some(0) {
+            self.emit_json_mismatch();
+            return Operand::ConstPtrNull;
+        }
         match slot_ty {
             Type::I64 => {
                 let v = self.f.append_inst(
@@ -73,12 +86,18 @@ impl LowerCtx<'_> {
                 );
                 Operand::Value(v)
             }
-            Type::Arr(arr_id) => self.lower_json_parse_arr(text_op, cursor_ptr, slot_ty, arr_id),
+            Type::Arr(arr_id) => self.lower_json_parse_arr(
+                text_op,
+                cursor_ptr,
+                slot_ty,
+                arr_id,
+                class_depth.map(|d| d - 1),
+            ),
             Type::Obj(sid) => self.lower_json_parse_obj(text_op, cursor_ptr, sid),
-            // RFC 20260808-json-parse-any blade 2 — an `any` slot has
-            // no static shape to unfold: the whole text parses at
-            // runtime (kernel does its own ToString / cursor /
-            // trailing-garbage check; the shared cursor stays unread).
+            // An `any` slot has no static shape to unfold: the whole
+            // text parses at runtime (the kernel does its own ToString /
+            // cursor / trailing-garbage check; the shared cursor stays
+            // unread).
             Type::Any => {
                 let arg = self.box_to_any(text_op);
                 let v = self.f.append_inst(
@@ -101,6 +120,7 @@ impl LowerCtx<'_> {
         cursor_ptr: Operand,
         slot_ty: Type,
         arr_id: crate::ssa::ArrId,
+        elem_class_depth: Option<u32>,
     ) -> Operand {
         {
             let elem_ty = self.arr_layouts[arr_id.0 as usize];
@@ -157,7 +177,7 @@ impl LowerCtx<'_> {
                 },
             );
             self.cur_block = body;
-            let elem = self.lower_json_parse(text_op, cursor_ptr, elem_ty);
+            let elem = self.lower_json_parse(text_op, cursor_ptr, elem_ty, elem_class_depth);
             // ②.7 — array slots are 8 raw bytes; an F64 elem
             // passes its BITS through arr_push's i64 value param
             // (same raw_slot_arg adapter the map/filter push uses

@@ -51,37 +51,104 @@ pub(crate) fn try_lower(
     } else {
         unreachable!()
     };
-    // RFC 20260808-json-parse-any blade 3 — the typed parse reads
-    // `text` as a Str cell; a non-String argument (admitted since the
-    // namespace sig widened to Any) must ride the any-lane kernel,
-    // whose ToString covers §25.5.1 step 1 (pre-gate this SIGSEGV'd:
-    // json_parse_int dereferenced a NaN-box as a Str pointer).
+    let class_depth = type_ann.and_then(|a| class_depth(ctx, a));
+    if class_depth == Some(0) {
+        let text_op = ctx.lower_expr(text_eid);
+        let arg = ctx.box_to_any_from_expr(text_eid, text_op);
+        let owned = ctx.expr_is_fresh_owned(text_eid) && ctx.operand_ty(&text_op).is_refcounted();
+        let drop_text = owned.then_some(text_op);
+        reject_class_slot(ctx, arg, drop_text, type_ann.map_or("", |a| a.as_str()));
+        declare(ctx, name, slot_ty_for_parse, Operand::ConstPtrNull);
+        return true;
+    }
+    // The typed parse reads `text` as a Str cell; a non-String
+    // argument (admitted since the namespace sig widened to Any) must
+    // ride the any-lane kernel, whose ToString covers §25.5.1 step 1
+    // (a NaN-box read as a Str pointer would fault).
     if let Some(t) = ctx.expr_types.get(&text_eid)
         && !matches!(t, crate::check::Type::String)
     {
         return false;
     }
     let text_op = ctx.lower_expr(text_eid);
-    let cursor = ctx.alloca(Type::I64, Some("__json_pos"));
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::Store(Operand::ConstI64(0), Operand::Value(cursor), 0),
-    );
-    let result = ctx.lower_json_parse(text_op, Operand::Value(cursor), slot_ty_for_parse);
+    let ann = type_ann.map_or("", |a| a.as_str());
+    let result = ctx.lower_json_parse_annotated(text_op, slot_ty_for_parse, class_depth, ann);
     if ctx.expr_is_fresh_owned(text_eid) && ctx.operand_ty(&text_op).is_refcounted() {
         ctx.emit_drop_value(text_op, ctx.operand_ty(&text_op));
     }
-    let slot = ctx.binding_slot_alloca(slot_ty_for_parse, name);
+    // The parse's SyntaxError / TypeError surfaces here, before the
+    // binding exists: the result built so far is released on the
+    // throw edge.
+    ctx.emit_throw_check_owned(None, result, slot_ty_for_parse);
+    declare(ctx, name, slot_ty_for_parse, result);
+    true
+}
+
+/// `Some(d)` when `ann` names a class under `d` array levels (`P`,
+/// `P[]`, `Array<P>`).
+pub(crate) fn class_depth(ctx: &LowerCtx, ann: &str) -> Option<u32> {
+    let mut t = ann.trim();
+    let mut depth = 0;
+    loop {
+        if let Some(inner) = t.strip_suffix("[]") {
+            t = inner.trim_end();
+        } else if let Some(inner) = t.strip_prefix("Array<").and_then(|r| r.strip_suffix('>')) {
+            t = inner.trim();
+        } else {
+            break;
+        }
+        depth += 1;
+    }
+    let base = t.split('<').next().unwrap_or(t).trim_end();
+    ctx.ast.class_parents.contains_key(base).then_some(depth)
+}
+
+/// `const p: P = JSON.parse(text)` with `P` a class: the annotation
+/// is a checked cast of the user's own type, judged by name, and what
+/// JSON.parse answers is a plain object, never an instance of `P`. The text still parses first
+/// (its SyntaxError comes before the cast's TypeError), on the any
+/// lane, whose result is then released.
+pub(crate) fn reject_class_slot(
+    ctx: &mut LowerCtx,
+    text_any: Operand,
+    drop_text: Option<Operand>,
+    ann: &str,
+) {
+    let parsed = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.json_parse_any, vec![text_any]),
+        Type::Any,
+        None,
+    );
+    if let Some(t) = drop_text {
+        ctx.emit_drop_value(t, ctx.operand_ty(&t));
+    }
+    ctx.emit_throw_check(None);
+    ctx.emit_drop_value(Operand::Value(parsed), Type::Any);
+    let msg = format!("cannot assign a JSON.parse result to `{ann}`: it is not a class instance");
+    let msg_str = ctx.intern_string_literal(msg.as_str());
+    let raiser = ctx.intrinsics.throw_type_error_str;
+    ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(raiser, vec![Operand::Value(msg_str)]),
+        Type::Void,
+        None,
+    );
+    ctx.emit_throw_check(None);
+}
+
+pub(crate) fn declare(ctx: &mut LowerCtx, name: &str, ty: Type, value: Operand) {
+    let slot = ctx.binding_slot_alloca(ty, name);
     ctx.f.append_void(
         ctx.cur_block,
-        InstKind::Store(result, Operand::Value(slot), 0),
+        InstKind::Store(value, Operand::Value(slot), 0),
     );
     let cur_depth = ctx.scope_stack.len() - 1;
     ctx.locals.insert(
         name.to_string(),
         LocalInfo {
             slot,
-            ty: slot_ty_for_parse,
+            ty,
             moved: false,
             borrowed: false,
             boxed: false,
@@ -90,5 +157,4 @@ pub(crate) fn try_lower(
     );
     let top = ctx.scope_stack.last_mut().expect("scope frame");
     top.push(name.to_string());
-    true
 }
