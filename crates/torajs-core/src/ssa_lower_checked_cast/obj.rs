@@ -150,10 +150,13 @@ impl LowerCtx<'_> {
         if self.operand_ty(&op) != Type::Any {
             return None;
         }
-        if !self.casts_into(sid, ann) {
+        let base = strip_nullable(ann).trim();
+        // a `__`-named type is one the compiler wrote (an object
+        // literal's inferred shape, a generator's wrapper), never the
+        // program's own annotation
+        if base.starts_with("__") || !self.casts_into(sid, ann) {
             return None;
         }
-        let base = strip_nullable(ann).trim();
         let class = self.slot_class(base, sid);
         let (tag, kin) = match class {
             Some(name) => {
