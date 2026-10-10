@@ -168,7 +168,8 @@ fn try_lower_call_or_closure_callee(
     if !matches!(
         ctx.ast.get_expr(callee),
         Expr::Call { .. } | Expr::Closure { .. } | Expr::Index { .. } | Expr::Sequence { .. }
-    ) {
+    ) && !is_choice(ctx, callee)
+    {
         return None;
     }
     // Rotation 591 — §13.3.6.2: an Index callee is a property
@@ -242,7 +243,8 @@ fn try_lower_call_or_closure_callee(
                         && !ctx.ast.async_sm_value_exprs.contains(&callee)
                         && !ctx.ast.gen_fn_exprs.contains_key(&callee)
                 }
-                _ => false,
+                // a choice answers a fresh closure when an arm mints one
+                _ => is_choice(ctx, callee) && ctx.expr_owned_shape(callee),
             };
             let parked = minted.then(|| ctx.push_throw_temp(callee_op, Type::Closure(user_sig_id)));
             let result =
@@ -255,15 +257,35 @@ fn try_lower_call_or_closure_callee(
         }
         Type::FnSig(sig_id) => Some(emit_fnsig_callee(ctx, eid, callee_op, sig_id, args)),
         // a method read off a typed receiver comes out boxed
-        Type::Any if matches!(ctx.ast.get_expr(callee), Expr::Sequence { .. }) => Some(
-            crate::ssa_lower_any_call::emit(ctx, eid, callee, callee_op, args),
-        ),
+        Type::Any
+            if matches!(ctx.ast.get_expr(callee), Expr::Sequence { .. })
+                || is_choice(ctx, callee) =>
+        {
+            Some(crate::ssa_lower_any_call::emit(
+                ctx, eid, callee, callee_op, args,
+            ))
+        }
         _ => {
             // Non-callable — fall through to resolve_callee for the panic
             // with a clearer error message.
             None
         }
     }
+}
+
+/// A choice among values (`c ? f : g`, `f || g`, `f ?? g`): no
+/// Reference, so the chosen function is called with an undefined
+/// `this`, as a comma expression's is.
+fn is_choice(ctx: &LowerCtx<'_>, callee: ExprId) -> bool {
+    matches!(
+        ctx.ast.get_expr(callee),
+        Expr::Ternary { .. }
+            | Expr::Nullish { .. }
+            | Expr::BinOp {
+                op: crate::ast::BinOp::LAnd | crate::ast::BinOp::LOr,
+                ..
+            }
+    )
 }
 
 /// The `Type::Closure` callee arm: env-first CallIndirect, or the
