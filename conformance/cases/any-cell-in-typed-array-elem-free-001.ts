@@ -7,6 +7,14 @@
 // be caught on its own. The wide cells minted afterwards reuse
 // whatever the frees gave back, so a cell returned to the wrong size
 // class shows up as a clobbered neighbour.
+//
+// A write of an `any` into a class-annotated slot now checks the value
+// is an instance of that class. The literal and the indexed assignment
+// reject the mismatched cell with a TypeError at the element write.
+// The two conversions still accept the array with the cell inside, so
+// the array itself is released holding it; the element read back into
+// a class-annotated binding is what rejects there. Each rejection is
+// counted, and the wide and kept cells below must come out intact.
 class Small {
   a: number
   constructor(a: number) {
@@ -87,49 +95,62 @@ function anyArrTyped(i: number): any[] {
 }
 
 let acc = 0
+let rejLit = 0
+let rejSet = 0
+let rejConv = 0
+let rejAnyArr = 0
 for (let i = 0; i < 64; i++) {
   {
     // a literal typed by its annotation
     let b: BigLit | null = null
-    {
+    try {
       const xs: BigLit[] = [takeOut(i)]
       const t: BigLit = xs[0]
       b = t
+    } catch (e) {
+      if (e instanceof TypeError) rejLit++
     }
-    acc += b!.a
+    if (b !== null) acc += b!.a
   }
   {
     // an indexed assignment
     let b: BigSet | null = null
-    {
+    try {
       const xs: BigSet[] = [new BigSet()]
       xs[0] = takeOut(i)
       const t: BigSet = xs[0]
       b = t
+    } catch (e) {
+      if (e instanceof TypeError) rejSet++
     }
-    acc += b!.a
+    if (b !== null) acc += b!.a
   }
   {
     // an `any` array converted at a typed declaration
     let b: BigConv | null = null
-    {
+    try {
       const xs: BigConv[] = anyArr(i)
       const t: BigConv = xs[0]
       b = t
+    } catch (e) {
+      if (e instanceof TypeError) rejConv++
     }
-    acc += b!.a
+    if (b !== null) acc += b!.a
   }
   {
     // an `any[]` converted at a typed declaration
     let b: BigFromAnyArr | null = null
-    {
+    try {
       const xs: BigFromAnyArr[] = anyArrTyped(i)
       const t: BigFromAnyArr = xs[0]
       b = t
+    } catch (e) {
+      if (e instanceof TypeError) rejAnyArr++
     }
-    acc += b!.a
+    if (b !== null) acc += b!.a
   }
 }
+console.log('rejected', rejLit, rejSet, rejConv, rejAnyArr)
 console.log('acc', acc)
 
 // wide cells now: each takes a block the frees above handed back, and

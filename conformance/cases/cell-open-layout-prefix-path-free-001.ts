@@ -8,6 +8,13 @@
 // hands its block to the base's class, and the base-sized cells
 // allocated right after it would overrun the empty cells minted beside
 // it.
+//
+// A write of an `any` into a class-annotated binding now checks the
+// value is an instance of that class, so the mismatched cell is
+// rejected with a TypeError at the write and never reaches the base
+// slot. What is left to check is that the rejected value is released
+// by its own layout: each rejection is counted, and the refill and
+// kept cells must stay clean.
 class Base {
   a: number
   b: number
@@ -51,17 +58,20 @@ function refill(): number {
 
 let seen = 0
 let bad = 0
+let rejected = 0
 for (let i = 0; i < 64; i++) {
   const h = new Holder()
-  {
+  try {
     const m: Mid = takeOut(i)
     h.x = m
+  } catch (e) {
+    if (e instanceof TypeError) rejected++
   }
   if (h.x !== null) seen++
   h.x = null
   if (refill() !== 4014) bad++
 }
-console.log('seen', seen, 'bad', bad)
+console.log('seen', seen, 'rejected', rejected, 'bad', bad)
 
 // a Mid that only ever holds its own cells, beside the open one
 let own = 0

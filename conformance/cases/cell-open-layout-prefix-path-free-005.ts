@@ -7,6 +7,14 @@
 // class hands its block to the wrong class; the narrow cells
 // allocated right after it would then overrun the empty cells minted
 // beside it.
+//
+// The wider-class value comes from an `any` passed straight into the
+// call, since a class-annotated binding now rejects a mismatched cell
+// at its write. The calls still hand the cell to the closure's and
+// the override's parameters unchecked; the class-annotated binding
+// and field write inside them reject it with a TypeError, and the
+// parameters holding it are released as the frame unwinds. Each
+// rejection is counted, and the refill and kept cells must stay clean.
 class N {
   a: number
   b: number
@@ -72,19 +80,29 @@ function refill(): number {
 
 const h = new Holder()
 let bad = 0
+let rejClosure = 0
+let rejOverride = 0
 for (let i = 0; i < 64; i++) {
-  const w: W = takeOut(i)
-  apply((n: W) => {
-    const m: N = n
-    h.n = m
-  }, w)
+  const w: any = takeOut(i)
+  try {
+    apply((n: W) => {
+      const m: N = n
+      h.n = m
+    }, w)
+  } catch (e) {
+    if (e instanceof TypeError) rejClosure++
+  }
   h.n = null
   if (refill() !== 4018) bad++
 }
 const bs: Base[] = [new Base(), new Derived()]
 for (let i = 64; i < 128; i++) {
-  const w: W = takeOut(i)
-  bs[i % 2].take(w, h)
+  const w: any = takeOut(i)
+  try {
+    bs[i % 2].take(w, h)
+  } catch (e) {
+    if (e instanceof TypeError) rejOverride++
+  }
   h.n = null
   if (refill() !== 4018) bad++
 }
@@ -92,4 +110,5 @@ let okKept = 0
 for (let i = 0; i < kept.length; i++) {
   if (kept[i] instanceof X) okKept++
 }
+console.log('rejected', rejClosure, rejOverride)
 console.log('bad', bad, 'kept', okKept)

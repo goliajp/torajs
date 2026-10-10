@@ -8,6 +8,13 @@
 // wide cells minted afterwards reuse whatever the frees gave back, so
 // a cell returned to the wrong size class shows up as a clobbered
 // neighbour.
+//
+// A write of an `any` into a class-annotated slot now checks the value
+// is an instance of that class, so every channel here rejects the
+// mismatched cell with a TypeError at the write. What is left to check
+// is that the rejected value, and the frames unwound past it, are
+// released by their own layout: each rejection is counted, and the
+// wide and kept cells below must still come out intact.
 class Small {
   a: number
   constructor(a: number) {
@@ -95,21 +102,39 @@ function viaBoxOuter(i: number): number {
 }
 
 let acc = 0
+let rejField = 0
+let rejBoxClosure = 0
+let rejBoxOuter = 0
 for (let i = 0; i < 64; i++) {
   {
     // a field, read back into a typed binding that outlives the holder
     let b: BigField | null = null
     {
       const h = new Holder()
-      h.b = takeOut(i)
-      const t: BigField = h.b!
-      b = t
+      try {
+        h.b = takeOut(i)
+      } catch (e) {
+        if (e instanceof TypeError) rejField++
+      }
+      if (h.b !== null) {
+        const t: BigField = h.b!
+        b = t
+      }
     }
-    acc += b!.a
+    if (b !== null) acc += b!.a
   }
-  acc += viaBoxClosure(i)
-  acc += viaBoxOuter(i)
+  try {
+    acc += viaBoxClosure(i)
+  } catch (e) {
+    if (e instanceof TypeError) rejBoxClosure++
+  }
+  try {
+    acc += viaBoxOuter(i)
+  } catch (e) {
+    if (e instanceof TypeError) rejBoxOuter++
+  }
 }
+console.log('rejected', rejField, rejBoxClosure, rejBoxOuter)
 console.log('acc', acc)
 
 // wide cells now: each takes a block the frees above handed back, and
