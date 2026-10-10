@@ -1,6 +1,8 @@
 //! The inliner's per-run counters, split from `mod.rs` at the
 //! file-size line.
 
+use super::{InlineDecision, SkipReason};
+
 /// Aggregate diagnostic counters across one `inline_module` run.
 /// Reported to the integration layer for logging and regression
 /// tracking. Not used to gate correctness.
@@ -60,4 +62,47 @@ pub struct InlinerStats {
     /// nothing references), so the dump and the per-fn stats show
     /// the live copy only and codegen skips the dead one.
     pub sole_bodies_dropped: u32,
+}
+
+impl InlinerStats {
+    /// Count one classifier run's decisions.
+    pub(super) fn tally(&mut self, decisions: &[(usize, usize, InlineDecision)]) {
+        for (_, _, dec) in decisions {
+            match dec {
+                InlineDecision::Inline { .. } => {
+                    self.candidates += 1;
+                    self.would_inline += 1;
+                }
+                InlineDecision::Skip(reason) => match reason {
+                    SkipReason::CalleeTooLarge => {
+                        self.candidates += 1;
+                        self.skipped_callee_too_large += 1;
+                    }
+                    SkipReason::CallerBudgetExhausted => {
+                        self.candidates += 1;
+                        self.skipped_caller_budget += 1;
+                    }
+                    SkipReason::CalleeIsDeclaration => {
+                        self.candidates += 1;
+                        self.skipped_declaration += 1;
+                    }
+                    SkipReason::Recursion => {
+                        self.candidates += 1;
+                        self.skipped_recursion += 1;
+                    }
+                    SkipReason::Indirect => {
+                        self.skipped_indirect += 1;
+                    }
+                    SkipReason::LinkJudgedUnit => {
+                        self.candidates += 1;
+                        self.skipped_link_judged_unit += 1;
+                    }
+                    SkipReason::ClassDropUnit => {
+                        self.candidates += 1;
+                        self.skipped_class_drop_unit += 1;
+                    }
+                },
+            }
+        }
+    }
 }
