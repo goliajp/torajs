@@ -21,6 +21,7 @@ use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
 use std::collections::{HashMap, HashSet};
 
 mod any_arg;
+mod any_sink;
 mod store_sink;
 pub(crate) use any_arg::any_obj_arg_seeds;
 pub(crate) use store_sink::{heap_stored_names, store_sink_param_seeds};

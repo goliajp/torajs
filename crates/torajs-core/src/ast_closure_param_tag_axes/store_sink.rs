@@ -10,6 +10,8 @@
 //! them, wraps at the call site into its canonical forwarder cell.
 //! Calls through the parameter and relays into another fn-typed
 //! parameter are not stores and leave the direct-dispatch ABI alone.
+//! A value handed to an `any` slot is stored the same way (the
+//! any-sink sibling).
 
 use crate::ast::desugar_async_sm_walk::{visit_expr_children, visit_stmt_exprs};
 use crate::ast::{Ast, Expr, ExprId, Stmt};
@@ -27,10 +29,18 @@ pub(crate) fn store_sink_param_seeds(
 ) -> HashSet<(String, usize)> {
     let mut stored_by_fn: HashMap<&str, HashSet<&str>> = HashMap::new();
     let mut closures_by_fn: HashMap<&str, Vec<(&str, &[String])>> = HashMap::new();
+    let any_params = super::any_sink::any_param_slots(ast);
     let mut stack: Vec<&Stmt> = ast.stmts.iter().collect();
     while let Some(s) = stack.pop() {
         push_child_stmts(s, &mut stack);
-        let Stmt::FnDecl { name, body, .. } = s else {
+        let Stmt::FnDecl {
+            name,
+            params,
+            return_type,
+            body,
+            ..
+        } = s
+        else {
             continue;
         };
         let mut stored: HashSet<&str> = HashSet::new();
@@ -41,6 +51,7 @@ pub(crate) fn store_sink_param_seeds(
                 closures_in(ast, e, &mut closures);
             });
         }
+        super::any_sink::any_sunk_names(ast, (params, return_type, body), &any_params, &mut stored);
         through_bindings(ast, body, &mut stored);
         stored_by_fn.entry(name).or_default().extend(stored);
         closures_by_fn.entry(name).or_default().extend(closures);
