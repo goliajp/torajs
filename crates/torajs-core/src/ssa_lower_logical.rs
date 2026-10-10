@@ -105,7 +105,7 @@ impl LowerCtx<'_> {
             self.emit_drop_value(a_for_slot, slot_ty);
         }
         self.proofs.enter_cond();
-        let b = self.lower_expr(right);
+        let b = crate::ssa_lower_closure_canonical::lower_slot_arm(self, slot_ty, right);
         self.proofs.leave_cond();
         let b_for_slot = if widen_to_any && self.operand_ty(&b) != Type::Any {
             self.box_to_any_from_expr(right, b)
@@ -285,7 +285,7 @@ impl LowerCtx<'_> {
             self.emit_drop_value(a_for_slot, slot_ty);
         }
         self.proofs.enter_cond();
-        let b = self.lower_expr(right);
+        let b = crate::ssa_lower_closure_canonical::lower_slot_arm(self, slot_ty, right);
         self.proofs.leave_cond();
         let b_for_slot = if widen_to_any && self.operand_ty(&b) != Type::Any {
             self.box_to_any_from_expr(right, b)

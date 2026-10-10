@@ -136,6 +136,10 @@ pub(crate) fn unify_ternary(t: &Type, e: &Type) -> Option<Type> {
         (Type::String, Type::Number | Type::Boolean)
         | (Type::Number, Type::String | Type::Boolean)
         | (Type::Boolean, Type::String | Type::Number) => Some(Type::Any),
+        // a function against a scalar (`c ? 0 : f`) joins to ANY the same
+        // way; a named function boxes as its own fn object
+        (Type::Function(..), Type::Number | Type::String | Type::Boolean)
+        | (Type::Number | Type::String | Type::Boolean, Type::Function(..)) => Some(Type::Any),
         // 633-01 — two DIFFERENT builtin constructors read as VALUES
         // join to ANY, the S129-1 posture. `Type::Object(name)` is the
         // constructor itself, not an instance of it, so there is no

@@ -235,7 +235,7 @@ fn lower_generic_ptr_lhs(
     );
     ctx.cur_block = then_blk;
     ctx.proofs.enter_cond();
-    let rhs_op = ctx.lower_expr(rhs);
+    let rhs_op = crate::ssa_lower_closure_canonical::lower_slot_arm(ctx, lhs_ty, rhs);
     ctx.proofs.leave_cond();
     let then_end = ctx.cur_block;
     ctx.f.append_void(

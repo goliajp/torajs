@@ -119,6 +119,9 @@ impl<'a> LowerCtx<'a> {
             );
             return Operand::Value(v);
         }
+        if let Some(cell) = crate::ssa_lower_closure_canonical::named_fn_cell(self, eid, val_ty) {
+            return self.box_to_any(cell);
+        }
         self.box_to_any(val)
     }
 

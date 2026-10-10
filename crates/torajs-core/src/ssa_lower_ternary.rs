@@ -270,27 +270,29 @@ fn widen_branches(
     let scalar_mixed_join = scalar_ck(&then_branch)
         && scalar_ck(&else_branch)
         && ctx.expr_types.get(&then_branch) != ctx.expr_types.get(&else_branch);
+    // a function against a scalar (`c ? 0 : f`), the checker's join
+    // to Any for that pair: both sides box, a named function as its
+    // fn object
+    let fn_ck = |e: &ExprId| {
+        matches!(
+            ctx.expr_types.get(e),
+            Some(crate::check::Type::Function(..))
+        )
+    };
+    let fn_scalar_join = (fn_ck(&then_branch) && scalar_ck(&else_branch))
+        || (scalar_ck(&then_branch) && fn_ck(&else_branch));
     if (struct_join
         || arr_join
         || heap_mixed_join
         || scalar_mixed_join
+        || fn_scalar_join
         || then_undef != else_undef
         || null_join)
         && tt != Type::Any
         && et != Type::Any
     {
-        ctx.cur_block = *then_end;
-        if tt.is_refcounted() && !ctx.expr_transfers_ownership(then_branch) {
-            ctx.emit_rc_inc(then_val);
-        }
-        let t = ctx.box_to_any_from_expr(then_branch, then_val);
-        *then_end = ctx.cur_block;
-        ctx.cur_block = *else_end;
-        if et.is_refcounted() && !ctx.expr_transfers_ownership(else_branch) {
-            ctx.emit_rc_inc(else_val);
-        }
-        let e = ctx.box_to_any_from_expr(else_branch, else_val);
-        *else_end = ctx.cur_block;
+        let t = box_arm(ctx, then_end, then_branch, then_val);
+        let e = box_arm(ctx, else_end, else_branch, else_val);
         return (t, e, Type::Any, true, true);
     }
     // The box is expr-AWARE here for the same reason S2.27 above is:
@@ -304,24 +306,35 @@ fn widen_branches(
     // instead of dropping the key.
     if tt == Type::Any || et == Type::Any {
         if tt != Type::Any {
-            ctx.cur_block = *then_end;
-            if tt.is_refcounted() && !ctx.expr_transfers_ownership(then_branch) {
-                ctx.emit_rc_inc(then_val);
-            }
-            let t = ctx.box_to_any_from_expr(then_branch, then_val);
-            *then_end = ctx.cur_block;
+            let t = box_arm(ctx, then_end, then_branch, then_val);
             return (t, else_val, Type::Any, true, false);
         }
         if et != Type::Any {
-            ctx.cur_block = *else_end;
-            if et.is_refcounted() && !ctx.expr_transfers_ownership(else_branch) {
-                ctx.emit_rc_inc(else_val);
-            }
-            let e = ctx.box_to_any_from_expr(else_branch, else_val);
-            *else_end = ctx.cur_block;
+            let e = box_arm(ctx, else_end, else_branch, else_val);
             return (then_val, e, Type::Any, false, true);
         }
         return (then_val, else_val, Type::Any, false, false);
     }
     (then_val, else_val, tt, false, false)
+}
+
+/// Box one arm at the end of its own block. The box is fresh, so a
+/// borrow-shape arm takes +1 first (chunk 722, see `widen_branches`);
+/// a named function boxes as its fn object, borrowed like a binding
+/// (`ssa_lower_closure_canonical::named_fn_cell`).
+fn box_arm(
+    ctx: &mut LowerCtx<'_>,
+    end: &mut crate::ssa::BlockId,
+    branch: ExprId,
+    val: Operand,
+) -> Operand {
+    ctx.cur_block = *end;
+    let ty = ctx.operand_ty(&val);
+    let val = crate::ssa_lower_closure_canonical::named_fn_cell(ctx, branch, ty).unwrap_or(val);
+    if ctx.operand_ty(&val).is_refcounted() && !ctx.expr_transfers_ownership(branch) {
+        ctx.emit_rc_inc(val);
+    }
+    let boxed = ctx.box_to_any_from_expr(branch, val);
+    *end = ctx.cur_block;
+    boxed
 }

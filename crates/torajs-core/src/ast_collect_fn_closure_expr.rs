@@ -291,6 +291,9 @@ impl<'a> FnToClosureCollector<'a> {
             }
             Expr::BinOp { op, left, right } => {
                 let (op, left, right) = (*op, *left, *right);
+                if matches!(op, BinOp::LAnd | BinOp::LOr) {
+                    self.target_mixed_choice(eid);
+                }
                 self.walk_binop(&op, &left, &right);
             }
             // Rotation 459 — `typeof F` on an implicit-generic decl:
@@ -335,6 +338,7 @@ impl<'a> FnToClosureCollector<'a> {
                 then_branch,
                 else_branch,
             } => {
+                self.target_mixed_choice(eid);
                 self.walk_expr(*cond);
                 self.walk_expr(*then_branch);
                 self.walk_expr(*else_branch);
@@ -344,6 +348,9 @@ impl<'a> FnToClosureCollector<'a> {
                 lhs: left,
                 rhs: right,
             } => {
+                if matches!(self.ast.get_expr(eid), Expr::Nullish { .. }) {
+                    self.target_mixed_choice(eid);
+                }
                 self.walk_expr(*left);
                 self.walk_expr(*right);
             }

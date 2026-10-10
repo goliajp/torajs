@@ -129,6 +129,18 @@ impl FnToClosureCollector<'_> {
         }
     }
 
+    /// A choice mixing named fns with values that are not fn cells
+    /// (`(flip && inc) || h`) joins in the any lane, where a named fn
+    /// boxes as its canonical cell: the forwarder that cell runs is
+    /// synthesized here, the site itself stays as written.
+    pub(crate) fn target_mixed_choice(&mut self, eid: ExprId) {
+        let leaves = crate::ast_closure_param_tag_member::passthrough_leaves(self.ast, eid);
+        let named: Vec<String> = leaves.iter().filter_map(|&l| self.fn_name(l)).collect();
+        if !named.is_empty() && named.len() < leaves.len() {
+            self.targets.extend(named);
+        }
+    }
+
     fn fn_name(&self, eid: ExprId) -> Option<String> {
         match self.ast.get_expr(eid) {
             Expr::Ident(name)

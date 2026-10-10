@@ -166,3 +166,35 @@ pub(crate) fn named_fn_owned_cell(
     let closure_ty = crate::ssa_lower_closure::closure_value_ty(ctx, &fwd);
     try_lower_canonical_cell(ctx, &fwd, fid, closure_ty, false)
 }
+
+/// [`named_fn_owned_cell`] for a site that joins the bare function
+/// into the any lane (`(flip && inc) || h`, `c ? 0 : f`): the cell
+/// borrowed like the binding it stands for, since its hidden slot
+/// keeps a permanent stake.
+pub(crate) fn named_fn_cell(
+    ctx: &mut LowerCtx<'_>,
+    eid: crate::ast::ExprId,
+    val_ty: Type,
+) -> Option<Operand> {
+    let cell = named_fn_owned_cell(ctx, eid, val_ty)?;
+    let closure_ty = ctx.operand_ty(&cell);
+    ctx.emit_drop_value(cell, closure_ty);
+    Some(cell)
+}
+
+/// Lower the arm `eid` of a choice whose join slot is `slot_ty`. A
+/// named function joining a closure slot (`slot ?? inc`, `slot ||
+/// inc`) is its fn object there ([`named_fn_cell`]): the bare address
+/// is not a cell.
+pub(crate) fn lower_slot_arm(
+    ctx: &mut LowerCtx<'_>,
+    slot_ty: Type,
+    eid: crate::ast::ExprId,
+) -> Operand {
+    let v = ctx.lower_expr(eid);
+    if !matches!(slot_ty, Type::Closure(_)) {
+        return v;
+    }
+    let ty = ctx.operand_ty(&v);
+    named_fn_cell(ctx, eid, ty).unwrap_or(v)
+}
