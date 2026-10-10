@@ -5,7 +5,7 @@
 
 use super::{Analysis, Scope, SlotKey};
 use crate::ast::PropKey;
-use crate::ast::{Expr, ExprId};
+use crate::ast::{BinOp, Expr, ExprId};
 
 impl<'a> Analysis<'a> {
     /// Read-only mirror of `container_key_of` — same key for every
@@ -84,7 +84,11 @@ impl<'a> Analysis<'a> {
             Expr::Array(_)
             | Expr::ObjectLit { .. }
             | Expr::Ternary { .. }
-            | Expr::Nullish { .. } => Some(SlotKey::Anon(eid.0)),
+            | Expr::Nullish { .. }
+            | Expr::BinOp {
+                op: BinOp::LAnd | BinOp::LOr,
+                ..
+            } => Some(SlotKey::Anon(eid.0)),
             Expr::Sequence { right, .. } => self.container_key_lookup(*right, scope),
             Expr::As { expr, .. } => self.container_key_lookup(*expr, scope),
             Expr::Assign { value, .. } => self.container_key_lookup(*value, scope),

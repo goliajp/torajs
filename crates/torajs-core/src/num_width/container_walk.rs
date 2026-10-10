@@ -5,7 +5,7 @@
 
 use super::{Analysis, Scope, SlotKey, W};
 use crate::ast::PropKey;
-use crate::ast::{Expr, ExprId};
+use crate::ast::{BinOp, Expr, ExprId};
 
 impl<'a> Analysis<'a> {
     /// Container-channel constraint — same shape as `add_constraint`
@@ -186,19 +186,18 @@ impl<'a> Analysis<'a> {
                 Some(anon)
             }
             Expr::Ternary {
-                then_branch,
-                else_branch,
+                then_branch: lhs,
+                else_branch: rhs,
                 ..
-            } => {
-                let anon = SlotKey::Anon(eid.0);
-                for arm in [*then_branch, *else_branch] {
-                    if let Some(k) = self.container_key_of(arm, scope) {
-                        self.guarded_unions.push((anon.clone(), k));
-                    }
-                }
-                Some(anon)
             }
-            Expr::Nullish { lhs, rhs } => {
+            // `a || b` / `a && b` answer one of their operands like
+            // `??` does (§13.13), so the join holds either one
+            | Expr::Nullish { lhs, rhs }
+            | Expr::BinOp {
+                op: BinOp::LAnd | BinOp::LOr,
+                left: lhs,
+                right: rhs,
+            } => {
                 let anon = SlotKey::Anon(eid.0);
                 for arm in [*lhs, *rhs] {
                     if let Some(k) = self.container_key_of(arm, scope) {
