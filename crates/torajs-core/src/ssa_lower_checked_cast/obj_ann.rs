@@ -3,20 +3,39 @@
 //! has no annotation, and is not cast.
 
 use crate::ast::{Expr, ExprId, Stmt};
+use crate::ssa::ValueId;
 use crate::ssa_lower::LowerCtx;
 
 impl LowerCtx<'_> {
     /// The annotation of the binding `name`: a module global's from its
-    /// top-level declaration when `global`; otherwise the latest `let`
-    /// or parameter of this function by that name, or for a binding a
-    /// closure captures, the one it had where the closure was made. The
-    /// same name declared in some other function is another binding,
-    /// and is never read for this one.
+    /// top-level declaration when `global`; otherwise that of the
+    /// binding `name` denotes here, a `let` or parameter of this
+    /// function, or for a binding a closure captures, the one it had
+    /// where the closure was made. The same name declared in some other
+    /// function or in a closed block is another binding, and is never
+    /// read for this one.
     pub(crate) fn binding_ann(&self, name: &str, global: bool) -> Option<String> {
         if global {
             return self.ast.stmts.iter().find_map(|s| let_ann(s, name));
         }
-        self.let_anns.get(name).cloned().flatten()
+        self.let_anns.get(&self.locals.get(name)?.slot).cloned()
+    }
+
+    /// Record the annotation of the `let` of `name` just lowered, when
+    /// it bound a slot of its own (`outer` is the slot the name denoted
+    /// before); a lane that kept the binding out of `locals` has none.
+    pub(crate) fn note_binding_ann(
+        &mut self,
+        name: &str,
+        outer: Option<ValueId>,
+        ann: Option<&String>,
+    ) {
+        let (Some(ann), Some(l)) = (ann, self.locals.get(name)) else {
+            return;
+        };
+        if outer != Some(l.slot) {
+            self.let_anns.insert(l.slot, ann.clone());
+        }
     }
 
     /// The annotation of the field `field` of the class instance `obj`

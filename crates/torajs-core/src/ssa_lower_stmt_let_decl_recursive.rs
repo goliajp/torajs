@@ -184,6 +184,12 @@ pub(crate) fn hoist_forward_boxes<'s>(ctx: &mut LowerCtx, stmts: impl Iterator<I
             // cannot be repaired after the fact). The declaration
             // patches it to what the init really produced.
             open_box(ctx, &name, Type::Any);
+            // the declaration fills this box rather than binding a slot
+            // of its own, so the box's slot carries its annotation
+            if let Some(ann) = &type_ann {
+                let slot = ctx.locals[&name].slot;
+                ctx.let_anns.insert(slot, ann.clone());
+            }
             ctx.forward_capture_boxes.insert(name, Vec::new());
             continue;
         };

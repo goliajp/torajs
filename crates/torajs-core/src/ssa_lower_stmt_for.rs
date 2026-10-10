@@ -284,6 +284,9 @@ fn mint_per_iter_boxes(ctx: &mut LowerCtx, per_iter: &mut [PerIterVar]) {
             // byref (write_captures / assign-ident boxed lanes).
             ctx.boxed_noncopy_lets.insert(pv.name.clone());
         }
+        if let Some(ann) = ctx.let_anns.get(&pv.outer.slot).cloned() {
+            ctx.let_anns.insert(boxed, ann);
+        }
         ctx.locals.insert(
             pv.name.clone(),
             LocalInfo {

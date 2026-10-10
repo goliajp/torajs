@@ -247,11 +247,21 @@ pub(crate) fn lower_fn(
 
 /// What the body's statements can rely on before the first is lowered.
 fn seed_body_facts(ctx: &mut LowerCtx<'_>, name: &str, params: &[ast::Param], body: &[Stmt]) {
-    // the captures' annotations, then the parameters', which shadow them
-    let captured = ctx.closure_capture_facts.get(name).map(|f| f.anns.clone());
-    let captured = captured.into_iter().flatten().map(|(n, a)| (n, Some(a)));
-    let params_anns = params.iter().map(|p| (p.name.clone(), p.type_ann.clone()));
-    ctx.let_anns = captured.chain(params_anns).collect();
+    // the captures' annotations, then the parameters', which shadow
+    // them; an iterator method's captures are its wrapper's
+    let site = match ctx.ast.gen_env_methods.get(name) {
+        Some(info) => info.wrapper_fn_name(ctx.ast),
+        None => name.to_string(),
+    };
+    let captured = ctx.closure_capture_facts.get(&site).map(|f| f.anns.clone());
+    let params_anns = params
+        .iter()
+        .filter_map(|p| Some((p.name.clone(), p.type_ann.clone()?)));
+    for (n, a) in captured.into_iter().flatten().chain(params_anns) {
+        if let Some(l) = ctx.locals.get(&n) {
+            ctx.let_anns.insert(l.slot, a);
+        }
+    }
     undef_params::seed_undef_sentinel_params(ctx, name, params);
     fresh_this::seed_fresh_this(ctx, name, params, body);
     // Mutually recursive closure bindings need each other's boxes open

@@ -390,9 +390,11 @@ pub(crate) struct LowerCtx<'a> {
     /// layout was named by, so the return boundary reads them here —
     /// see `coerce_to_ret`.
     pub(crate) ret_ann: Option<String>,
-    /// The annotation of each parameter and `let` of this function by
-    /// name (the latest declaration), for an assignment into its slot.
-    pub(crate) let_anns: HashMap<String, Option<String>>,
+    /// The annotation each annotated parameter, capture and `let` of
+    /// this function was declared with, by the binding's slot: a name
+    /// an inner block rebinds denotes the outer binding again once the
+    /// block closes, and `locals` then answers the outer slot.
+    pub(crate) let_anns: HashMap<ValueId, String>,
     /// RFC 20260707-undefined-sentinel-repr chunk 1 — binding names
     /// whose let-init is an element load off a nullable-arr source
     /// (`const c = m[1]` with m an exec/match binding) or an alias

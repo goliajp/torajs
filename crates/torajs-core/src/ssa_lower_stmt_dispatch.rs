@@ -67,6 +67,7 @@ impl<'a> LowerCtx<'a> {
                 if self.makes_fresh_array(*init) {
                     self.prereserve.note_array_literal_let(name);
                 }
+                let outer = self.locals.get(name).map(|l| l.slot);
                 crate::ssa_lower_stmt_let_decl::lower(
                     self,
                     name,
@@ -74,6 +75,7 @@ impl<'a> LowerCtx<'a> {
                     *init,
                     *mutable,
                 );
+                self.note_binding_ann(name, outer, type_ann.as_ref());
             }
             Stmt::While { cond, body } => {
                 self.proofs.forget_lets();
