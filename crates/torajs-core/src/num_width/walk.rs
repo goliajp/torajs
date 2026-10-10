@@ -213,10 +213,10 @@ impl<'a> Analysis<'a> {
                     let w = self.flow(*value, scope);
                     self.assign_to_name(&n, w, scope);
                     if let Some(k) = self.resolve(&n, scope) {
-                        if self.expr_types.get(value) == Some(&crate::check::Type::Any)
-                            && let Some(ann) = self.binding_ann(&k)
-                        {
-                            self.any_object_seed(&k, &ann);
+                        if self.expr_types.get(value) == Some(&crate::check::Type::Any) {
+                            for ann in self.binding_anns(&k) {
+                                self.any_object_seed(&k, &ann);
+                            }
                         }
                         self.alias_guarded(k.clone(), *value, scope);
                         self.fn_value_flow(&k, *value, scope);

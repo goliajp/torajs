@@ -130,24 +130,12 @@ impl Analysis<'_> {
             .unwrap_or_default()
     }
 
-    /// The annotation the binding of slot `key` was declared with: a
-    /// module `let`'s, a function `let`'s (by name) or a parameter's.
-    pub(super) fn binding_ann(&self, key: &SlotKey) -> Option<String> {
-        let let_ann = |stmts: &[Stmt], want: &str| {
-            let mut found = None;
-            crate::ast::walk_stmts(stmts, &mut |s| {
-                if let Stmt::LetDecl {
-                    name,
-                    type_ann: Some(a),
-                    ..
-                } = s
-                    && name == want
-                {
-                    found = Some(a.clone());
-                }
-            });
-            found
-        };
+    /// The annotations the binding of slot `key` was declared with: a
+    /// module `let`'s, or the `let`s and parameter of its function by
+    /// its name. Every same-named `let` of a function shares the slot,
+    /// so this answers each of them, a superset of the one declaration
+    /// a cast reads at its write (`LowerCtx::binding_ann`).
+    pub(super) fn binding_anns(&self, key: &SlotKey) -> Vec<String> {
         let decl = |f: &str| {
             self.ast.stmts.iter().find_map(|s| match s {
                 Stmt::FnDecl {
@@ -156,18 +144,50 @@ impl Analysis<'_> {
                 _ => None,
             })
         };
+        let mut out = Vec::new();
+        let mut take = |s: &Stmt, want: &str| {
+            if let Stmt::LetDecl {
+                name,
+                type_ann: Some(a),
+                ..
+            } = s
+                && name == want
+            {
+                out.push(a.clone());
+            }
+        };
         match key {
-            SlotKey::Global(n) => self.ast.stmts.iter().find_map(|s| match s {
-                Stmt::LetDecl {
-                    name,
-                    type_ann: Some(a),
-                    ..
-                } if name == n => Some(a.clone()),
-                _ => None,
-            }),
-            SlotKey::Local(f, n) => let_ann(decl(f)?.1, n),
-            SlotKey::Param(f, n) => (decl(f)?.0.iter()).find(|p| p.name == *n)?.type_ann.clone(),
-            _ => None,
+            SlotKey::Global(n) => (self.ast.stmts.iter()).for_each(|s| take(s, n)),
+            SlotKey::Local(f, n) => {
+                if let Some((_, body)) = decl(f) {
+                    crate::ast::walk_stmts(body, &mut |s| take(s, n));
+                }
+            }
+            SlotKey::Param(f, n) => {
+                let p = decl(f).and_then(|(ps, _)| ps.iter().find(|p| p.name == *n));
+                out.extend(p.and_then(|p| p.type_ann.clone()));
+            }
+            _ => {}
         }
+        out
+    }
+
+    /// The element annotations of the array `recv` reads, for an `any`
+    /// value appended to it (`ast_throw_info::written_ann`).
+    pub(super) fn pushed_elem_anns(&self, recv: ExprId, scope: &super::Scope) -> Vec<String> {
+        let anns = match self.ast.get_expr(recv) {
+            Expr::Ident(n) => {
+                (self.resolve(n, scope)).map_or(Vec::new(), |k| self.binding_anns(&k))
+            }
+            _ => {
+                let binding = |n: &str| self.binding_anns(&self.resolve(n, scope)?).pop();
+                let class_of = |e| crate::ast_throw_info::class_of(self.expr_types, e);
+                let ann = crate::ast_throw_info::written_ann(self.ast, recv, &binding, &class_of);
+                ann.into_iter().collect()
+            }
+        };
+        (anns.iter())
+            .filter_map(|a| crate::ast_throw_info::elem_ann(a))
+            .collect()
     }
 }

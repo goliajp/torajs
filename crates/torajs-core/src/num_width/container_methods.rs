@@ -177,6 +177,15 @@ impl<'a> Analysis<'a> {
             _ => Vec::new(),
         };
         for a in write_args {
+            // an `any` value appended to an annotated array is cast into
+            // its element type, maybe rebuilt (`any_object_seed`)
+            if matches!(name.as_str(), "push" | "unshift")
+                && self.expr_types.get(&a) == Some(&crate::check::Type::Any)
+            {
+                for ann in self.pushed_elem_anns(obj, scope) {
+                    self.any_object_seed(&ek, &ann);
+                }
+            }
             let w = self.flow(a, scope);
             self.add_container_constraint(ek.clone(), w);
             // A function value written into the element slot wires the
