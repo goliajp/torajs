@@ -25,6 +25,8 @@ use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::{LowerCtx, intern_arr_layout};
 
+mod unpack;
+
 /// Try to lower a spread-carrying call. Returns `None` when no
 /// argument is a spread (the cascade continues).
 pub(crate) fn try_lower(
@@ -200,22 +202,10 @@ fn lower_this_first_argv_spread(
         return None;
     }
     let target = *ctx.fn_table.get(name)?;
-    // The declared parameters, unpacked off the list below: only the
-    // scalar / any / string shapes `emit_arg_conv` converts from a
-    // box. A struct-typed parameter would take the box as a pointer,
-    // so that shape keeps the loud refusal (decided before anything
-    // is emitted — a `None` here must leave no half-lowered call).
-    let sig_id = *ctx.fn_sig_ids.get(&target)?;
-    let declared: Vec<Type> =
-        ctx.fn_sigs[sig_id.0 as usize].0[head + 1 + usize::from(argv)..].to_vec();
-    if !declared.iter().all(|t| {
-        matches!(
-            t,
-            Type::Any | Type::I64 | Type::I32 | Type::F64 | Type::Bool | Type::Str | Type::BigInt
-        )
-    }) {
-        return None;
-    }
+    // The declared parameters, unpacked off the list below (decided
+    // before anything is emitted — a `None` here must leave no
+    // half-lowered call).
+    let declared = unpack::declared(ctx, name, head, head + 1 + usize::from(argv))?;
     let head_ops: Vec<Operand> = args[..head].iter().map(|a| ctx.lower_expr(*a)).collect();
     let arr_any_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
     let args_arr = build_args_arr(ctx, &args[head..]);
@@ -235,32 +225,22 @@ fn lower_this_first_argv_spread(
     if argv {
         call_args.push(ctx.emit_arr_data_ptr(args_arr));
     }
-    // The declared parameters, unpacked off the same list: slot `i`
-    // read boxed (past the end answers undefined, §10.2.11's missing
-    // argument), then converted to the parameter's own SSA type the
-    // way a positional argument is. `[…head, argc, argv, …declared]`
-    // is the this-first argv signature (`inject_argc_params`).
+    // The declared parameters, unpacked off the same list.
+    // `[…head, argc, argv, …declared]` is the this-first argv
+    // signature (`inject_argc_params`).
     let spread_eid = args[head..]
         .iter()
         .copied()
         .find(|a| matches!(ctx.ast.get_expr(*a), Expr::Spread { .. }))
         .expect("this-first argv spread lane entered without a spread argument");
-    let mut owned: Vec<(Operand, Type)> = Vec::new();
-    for (i, pty) in declared.into_iter().enumerate() {
-        let slot = crate::ssa_lower_anyv_inline::arr_get_any_borrowed(
-            ctx,
-            args_arr,
-            Operand::ConstI64(i as i64),
-        );
-        let v = crate::ssa_lower_call_arg_conv::emit_arg_conv(
-            ctx,
-            pty,
-            spread_eid,
-            Operand::Value(slot),
-            &mut owned,
-        );
-        call_args.push(v);
-    }
+    let mut unpacked = unpack::Unpacked::default();
+    call_args.extend(unpack::emit(
+        ctx,
+        args_arr,
+        spread_eid,
+        declared,
+        &mut unpacked,
+    ));
     let ret_ty = ctx.f_ret_type_hint(target);
     let result = if ret_ty == Type::Void {
         ctx.f
@@ -274,9 +254,7 @@ fn lower_this_first_argv_spread(
             None,
         ))
     };
-    for (op, ty) in owned {
-        ctx.emit_drop_value(op, ty);
-    }
+    unpack::release(ctx, unpacked);
     ctx.emit_drop_value(args_arr, Type::Arr(arr_any_id));
     ctx.emit_throw_check(Some(target));
     Some(result)

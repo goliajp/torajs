@@ -166,32 +166,7 @@ pub(super) fn synthesize_derived_default_ctors(
             continue;
         }
         let params = found.unwrap_or_default();
-        // An ancestor that reads `arguments` sees every argument the
-        // `new` site passed, beyond its declared ones, which only the
-        // spec's own `super(...args)` spelling forwards.
-        let args: Vec<ExprId> = if forwards_arguments {
-            let all = ast.add_expr(Expr::Ident("arguments".into()));
-            vec![ast.add_expr(Expr::Spread { expr: all })]
-        } else {
-            params
-            .iter()
-            .map(|p| {
-                let pid = ast.add_expr(Expr::Ident(p.name.clone()));
-                // A rest param forwards as a SPREAD (the same
-                // double-wrap story as build_factory_body's ctor
-                // relay): `super(a)` against a rest-tailed ancestor
-                // would re-pack into `super([a])`. Pre-fix this
-                // shape was skipped outright, which left the derived
-                // default ctor without its super call — the base
-                // initializers silently never ran.
-                if p.is_rest {
-                    ast.add_expr(Expr::Spread { expr: pid })
-                } else {
-                    pid
-                }
-            })
-            .collect()
-        };
+        let args = super_args(ast, &params, forwards_arguments);
         let super_eid = ast.add_expr(Expr::Super { args });
         match ctor {
             // Field initializers are already sitting in the synthesized
@@ -213,6 +188,37 @@ pub(super) fn synthesize_derived_default_ctors(
         }
         ast.derived_default_ctor_classes.insert(cname.clone());
     }
+}
+
+/// The implicit constructor's `super(…)` arguments against the
+/// ancestor parameters `params`. §15.7.10 spells them
+/// `super(...args)`; forwarding the declared parameters is the same
+/// list until the ancestor reads `arguments` (`forwards`), which sees
+/// every argument the `new` site passed. A rest-tailed list already
+/// forwards every one.
+fn super_args(ast: &mut Ast, params: &[Param], forwards: bool) -> Vec<ExprId> {
+    if forwards && !params.last().is_some_and(|p| p.is_rest) {
+        let all = ast.add_expr(Expr::Ident("arguments".into()));
+        return vec![ast.add_expr(Expr::Spread { expr: all })];
+    }
+    params
+        .iter()
+        .map(|p| {
+            let pid = ast.add_expr(Expr::Ident(p.name.clone()));
+            // A rest param forwards as a SPREAD (the same
+            // double-wrap story as build_factory_body's ctor
+            // relay): `super(a)` against a rest-tailed ancestor
+            // would re-pack into `super([a])`. Pre-fix this
+            // shape was skipped outright, which left the derived
+            // default ctor without its super call — the base
+            // initializers silently never ran.
+            if p.is_rest {
+                ast.add_expr(Expr::Spread { expr: pid })
+            } else {
+                pid
+            }
+        })
+        .collect()
 }
 
 /// Whether a constructor body reads `arguments`, arrow bodies
