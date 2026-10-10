@@ -15,14 +15,13 @@ use super::{build_args_arr, unpack};
 pub(super) fn rest_ctor_head(ctx: &LowerCtx<'_>, name: &str) -> Option<usize> {
     let head = if name.starts_with("__cm_") && name.ends_with("__ctor") {
         2
-    } else if let Some(factory) = name.strip_prefix("__new_") {
+    } else {
+        let factory = name.strip_prefix("__new_")?;
         let class = factory.split_once("$$").map_or(factory, |(c, _)| c);
         if ctx.ast.eval_unit_classes.contains(class) {
             return None;
         }
         0
-    } else {
-        return None;
     };
     let rest = ctx.ast.stmts.iter().any(|s| {
         matches!(s, crate::ast::Stmt::FnDecl { name: n, params, .. }

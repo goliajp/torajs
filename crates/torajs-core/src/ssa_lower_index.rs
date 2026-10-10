@@ -272,6 +272,7 @@ pub(crate) fn lower_from_value(
 /// out-of-range exit to the prototype chain's property
 /// ([`crate::ssa_lower_index_nonintegral::emit_oob_named_read`]); a
 /// plain `[[Get]]` passes the program's `array_prop_reads_may_raise`.
+#[allow(clippy::too_many_arguments)] // two call sites, each argument an independent switch of one read
 pub(crate) fn lower_typed_index_checked(
     ctx: &mut LowerCtx<'_>,
     arr_val: Operand,
