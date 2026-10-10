@@ -250,6 +250,7 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
         &mut new_init_bindings,
     );
     let ident_census = crate::ast_collect_fn_closure_init::ident_census(ast);
+    let mixed_slot_rows = crate::ast_collect_fn_closure_target::mixed_slot_rows(ast, &fn_sigs);
     let mut collector = crate::ast_collect_fn_closure::FnToClosureCollector {
         ast,
         fn_sigs: &fn_sigs,
@@ -262,6 +263,7 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
         fn_arr_bindings: &fn_arr_bindings,
         proto_shadow: &proto_shadow,
         ident_census: &ident_census,
+        mixed_slot_rows: &mixed_slot_rows,
         targets: HashSet::new(),
         rewrites: Vec::new(),
         shadowed: Vec::new(),

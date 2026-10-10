@@ -174,7 +174,7 @@ fn plan_slot_returns(ast: &Ast, anns: &HashMap<String, String>) -> HashMap<Strin
 /// `num_width::slot_abi::slot_unions` unions widths over. It has to
 /// be: that pass is what makes these rows' widths agree, and a slot
 /// the two passes disagree about is a slot nobody checks.
-pub(super) fn slot_groups_by_name(ast: &Ast) -> Vec<(String, HashMap<String, Vec<String>>)> {
+pub(crate) fn slot_groups_by_name(ast: &Ast) -> Vec<(String, HashMap<String, Vec<String>>)> {
     let decls: Vec<String> = super::toplevel_stmts_flat(ast)
         .into_iter()
         .filter_map(|s| match s {
@@ -212,7 +212,7 @@ pub(super) fn slot_groups_by_name(ast: &Ast) -> Vec<(String, HashMap<String, Vec
 /// The `__dispatch_<M>` stub's name, plus its mono spellings (the
 /// `$$` suffix rides the name's tail). Empty for a method with no
 /// dispatcher — a name an unrelated class also declares gets none.
-pub(super) fn dispatch_stub_names<'a>(
+pub(crate) fn dispatch_stub_names<'a>(
     names: impl Iterator<Item = &'a String>,
     m: &str,
 ) -> Vec<String> {

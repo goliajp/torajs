@@ -111,6 +111,9 @@ pub(crate) struct FnToClosureCollector<'a> {
     /// the canonical `__fncell_*` cell every value site answers, and
     /// `===` is the one observer that can tell them apart.
     pub(crate) ident_census: &'a crate::ast_collect_fn_closure_init::IdentCensus,
+    /// Method rows whose vtable slot mixes named-fn returns with other
+    /// values (`ast_collect_fn_closure_target::mixed_slot_rows`).
+    pub(crate) mixed_slot_rows: &'a HashSet<String>,
     pub(crate) targets: HashSet<String>,
     pub(crate) rewrites: Vec<(ExprId, String)>,
     /// Per-fn shadow stack (rotation 128) — names bound as a param or
@@ -251,6 +254,7 @@ impl<'a> FnToClosureCollector<'a> {
                 ..
             } => self.walk_let_decl(*mutable, type_ann.as_deref(), *init, *is_var, name),
             Stmt::FnDecl {
+                name,
                 return_type,
                 params,
                 body,
@@ -308,7 +312,7 @@ impl<'a> FnToClosureCollector<'a> {
                 );
                 self.cls_param_frames
                     .push(crate::ast_collect_fn_closure_target::cls_params(params));
-                self.target_mixed_fn_returns(return_type, body);
+                self.target_mixed_fn_returns(name, return_type, body);
                 for inner in body {
                     self.walk_stmt(inner, ret_any);
                 }

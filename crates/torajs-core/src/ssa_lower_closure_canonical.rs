@@ -198,3 +198,15 @@ pub(crate) fn lower_slot_arm(
     let ty = ctx.operand_ty(&v);
     named_fn_cell(ctx, eid, ty).unwrap_or(v)
 }
+
+impl LowerCtx<'_> {
+    /// Box an arm of a choice that stays a borrow when its arms are
+    /// (`(flip && inc) || h`): a named function boxes as its fn object,
+    /// borrowed like the binding it stands for ([`named_fn_cell`]),
+    /// where the plain box takes the +1 an owned consumer releases.
+    pub(crate) fn box_borrowed_arm(&mut self, eid: crate::ast::ExprId, val: Operand) -> Operand {
+        let ty = self.operand_ty(&val);
+        let val = named_fn_cell(self, eid, ty).unwrap_or(val);
+        self.box_to_any_from_expr(eid, val)
+    }
+}

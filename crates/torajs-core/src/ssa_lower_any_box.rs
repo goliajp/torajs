@@ -119,7 +119,12 @@ impl<'a> LowerCtx<'a> {
             );
             return Operand::Value(v);
         }
-        if let Some(cell) = crate::ssa_lower_closure_canonical::named_fn_cell(self, eid, val_ty) {
+        // a bare function carries no stake, so the caller hands it on
+        // without +1, yet the box is owned wherever its consumer takes
+        // it as owned (`anyv ?? inc`): it carries a +1 of the cell
+        if let Some(cell) =
+            crate::ssa_lower_closure_canonical::named_fn_owned_cell(self, eid, val_ty)
+        {
             return self.box_to_any(cell);
         }
         self.box_to_any(val)
