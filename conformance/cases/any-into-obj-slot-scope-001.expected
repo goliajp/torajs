@@ -3,7 +3,7 @@ second 8
 captured 2.5 -4
 inferred 3 2.5
 method 5
-method threw cannot assign object to `P`
+method 2.5
 param 4.5
 param threw cannot assign object to `Q`
 end

@@ -6,9 +6,9 @@
 // is never read, and a binding without one is not cast
 //
 // departures from bun, checked against the .expected: an annotated slot
-// holds what its annotation says, so a class slot given an object of no
-// class, and an object-type slot given a borrowed dynamic object, throw
-// TypeError at the write
+// holds what its annotation says, so a slot given an object without the
+// annotated fields' types throws TypeError at the write, and a class slot
+// given an object of no class holds a copy of it made an instance
 
 class P {
   x: number;
