@@ -3,7 +3,7 @@
 //! the raw function value, and the marking of a site whose value
 //! becomes that forwarder's cell.
 
-use crate::ast::{Expr, ExprId, Param};
+use crate::ast::{Expr, ExprId, Param, Stmt};
 use crate::ast_collect_fn_closure::FnToClosureCollector;
 use std::collections::HashSet;
 
@@ -103,6 +103,30 @@ impl FnToClosureCollector<'_> {
             }
         }
         false
+    }
+
+    /// A function declared to return a bare-pointer fn type, whose
+    /// returns mix named functions with other values, returns through
+    /// the closure lane once the checker types one of those values
+    /// `any` (`check_monomorph::any_ret`); a named function returned
+    /// there answers its fn object, whose forwarder is minted here.
+    pub(crate) fn target_mixed_fn_returns(&mut self, return_type: &Option<String>, body: &[Stmt]) {
+        if !crate::ast_closure_param_tag::is_fnsig_ann(return_type) {
+            return;
+        }
+        let mut rets: Vec<ExprId> = Vec::new();
+        let mut stack: Vec<&Stmt> = body.iter().collect();
+        while let Some(s) = stack.pop() {
+            match s {
+                Stmt::Return(Some(e)) => rets.push(*e),
+                Stmt::FnDecl { .. } => {}
+                _ => crate::ast_closure_param_tag::push_child_stmts(s, &mut stack),
+            }
+        }
+        let named: Vec<String> = rets.iter().filter_map(|&r| self.fn_name(r)).collect();
+        if !named.is_empty() && named.len() < rets.len() {
+            self.targets.extend(named);
+        }
     }
 
     fn fn_name(&self, eid: ExprId) -> Option<String> {

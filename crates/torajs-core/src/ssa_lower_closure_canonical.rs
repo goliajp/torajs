@@ -143,3 +143,26 @@ pub(crate) fn try_lower_canonical_cell(
     ctx.emit_rc_inc(Operand::Value(v));
     Some(Operand::Value(v))
 }
+
+/// The fn object of the top-level function `eid` names, when the bare
+/// function (`val_ty`, a `FnSig`) is handed on as a value of the
+/// closure lane: the canonical cell, +1 for the receiver. `None` for
+/// any other value, or when no `__forward_*` shell was synthesized for
+/// the function.
+pub(crate) fn named_fn_owned_cell(
+    ctx: &mut LowerCtx<'_>,
+    eid: crate::ast::ExprId,
+    val_ty: Type,
+) -> Option<Operand> {
+    let ast = ctx.ast;
+    let crate::ast::Expr::Ident(name) = ast.get_expr(eid) else {
+        return None;
+    };
+    if !matches!(val_ty, Type::FnSig(_)) || ctx.locals.contains_key(name) {
+        return None;
+    }
+    let fwd = format!("__forward_{name}");
+    let fid = ctx.fn_table.get(&fwd).copied()?;
+    let closure_ty = crate::ssa_lower_closure::closure_value_ty(ctx, &fwd);
+    try_lower_canonical_cell(ctx, &fwd, fid, closure_ty, false)
+}

@@ -378,6 +378,15 @@ fn coerce_to_ret(ctx: &mut LowerCtx, op: Operand, maybe: Option<crate::ast::Expr
         let boxed = ctx.box_to_any(op);
         return coerce_to_ret(ctx, boxed, None);
     }
+    // a named function returned through the closure lane answers its fn
+    // object (`check_monomorph::any_ret` retags such a return)
+    if matches!(ctx.f.ret, Type::Closure(_))
+        && let Some(eid) = maybe
+        && let Some(cell) =
+            crate::ssa_lower_closure_canonical::named_fn_owned_cell(ctx, eid, actual)
+    {
+        return cell;
+    }
     if actual == Type::Any && matches!(ctx.f.ret, Type::Closure(_)) {
         // 403-03 — an Any box crossing a fn-typed return boundary
         // (`effective_ret_ty`'s any-binding upgrade). The kernel
