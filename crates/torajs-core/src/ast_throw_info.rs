@@ -60,6 +60,7 @@
 use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
 use std::collections::{HashMap, HashSet};
 
+mod keyed;
 mod nullish;
 mod obj_cast;
 mod scan;
@@ -76,11 +77,16 @@ pub(crate) fn fn_throw_info(
     expr_types: &HashMap<ExprId, crate::check::Type>,
     widths: &crate::num_width::WidthTable,
     assigned: &HashSet<String>,
-) -> (bool, Vec<String>) {
+) -> crate::ast_throw_info_fixpoint::FnThrow {
     let mut sc = Scan::new(ast, name, params, expr_types, widths, assigned);
     sc.fresh_recv = crate::ast::fresh_this::fresh_this_writes(ast, name, params, body).recv;
     sc.stmts(body);
-    (sc.direct, sc.called)
+    crate::ast_throw_info_fixpoint::FnThrow {
+        direct: sc.direct,
+        called: sc.called,
+        nonint_read: sc.nonint_read,
+        code_write: sc.code_write,
+    }
 }
 
 /// A property STORE target (`o.k = v`, `o.k++`, `xs[i] = v`, `xs[i]++`)
@@ -210,6 +216,7 @@ impl Scan<'_> {
                 if is_property_store(ast, *target) && !self.fresh_store(*target) {
                     self.direct = true;
                 }
+                self.code_write |= self.keyed_write_carries_code(*target, *value);
                 // an `any` value into an object-typed slot is cast
                 if self.expr_types.get(value) == Some(&crate::check::Type::Any)
                     && (obj_cast::object_ty(self.expr_types.get(target))
@@ -221,18 +228,7 @@ impl Scan<'_> {
                 self.expr(*target);
                 self.expr(*value);
             }
-            Expr::Index { obj, index } => {
-                // Same as the Member arm: any-receiver index reads throw on
-                // null/undefined via __torajs_any_index, typed ones through
-                // the nullish guard in front of the element load.
-                if matches!(self.expr_types.get(obj), Some(crate::check::Type::Any))
-                    || self.receiver_raises(*obj)
-                {
-                    self.direct = true;
-                }
-                self.expr(*obj);
-                self.expr(*index);
-            }
+            Expr::Index { obj, index } => self.index_read(*obj, *index),
             Expr::Array(elems) => {
                 for e in elems {
                     self.expr(*e);
@@ -289,10 +285,7 @@ impl Scan<'_> {
                 self.expr(*right);
             }
             Expr::OptChain { obj, .. } => self.expr(*obj),
-            Expr::OptIndex { obj, index } => {
-                self.expr(*obj);
-                self.expr(*index);
-            }
+            Expr::OptIndex { obj, index } => self.opt_index_read(*obj, *index),
             // `f?.(…)` — the callee is a dynamic value (any_call raises a
             // catchable TypeError on non-callables; a statically-plain
             // callee delegates to the Call lowering): conservative

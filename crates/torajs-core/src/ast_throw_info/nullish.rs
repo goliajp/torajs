@@ -11,7 +11,7 @@
 //! other way only costs one cold throw check per call site.
 
 use super::Scan;
-use crate::ast::{Expr, ExprId};
+use crate::ast::{BinOp, Expr, ExprId, UnaryOp};
 use crate::check::Type;
 use crate::ssa_lower_nullable_guard::spells_undef_with_generic_cell;
 
@@ -150,5 +150,75 @@ impl Scan<'_> {
                     && crate::ssa_lower_body_returns_closure::body_returns_any_binding(
                         self.ast, params, body))
         })
+    }
+}
+
+impl Scan<'_> {
+    /// The names `cond` coming out `when` proves not to hold the paired
+    /// forms.
+    pub(super) fn narrowings(&self, cond: ExprId, when: bool) -> Vec<(String, Form)> {
+        match self.ast.get_expr(cond) {
+            Expr::BinOp {
+                op: BinOp::LAnd,
+                left,
+                right,
+            } if when => {
+                let mut v = self.narrowings(*left, true);
+                v.extend(self.narrowings(*right, true));
+                v
+            }
+            Expr::BinOp {
+                op: BinOp::LOr,
+                left,
+                right,
+            } if !when => {
+                let mut v = self.narrowings(*left, false);
+                v.extend(self.narrowings(*right, false));
+                v
+            }
+            Expr::Unary {
+                op: UnaryOp::Not,
+                expr,
+            } => self.narrowings(*expr, !when),
+            Expr::Ident(n) if when => vec![(n.clone(), ANY)],
+            Expr::BinOp { op, left, right } => {
+                let strict = match op {
+                    BinOp::Eq | BinOp::Neq => true,
+                    BinOp::LooseEq | BinOp::LooseNeq => false,
+                    _ => return Vec::new(),
+                };
+                let Some((name, form)) = self
+                    .nullish_test(*left, *right)
+                    .or_else(|| self.nullish_test(*right, *left))
+                else {
+                    return Vec::new();
+                };
+                // the test asserting nullish-ness held: nothing ruled out
+                if matches!(op, BinOp::Eq | BinOp::LooseEq) == when {
+                    return Vec::new();
+                }
+                vec![(name, if strict { form } else { ANY })]
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    /// `x` against `undefined` / `null`, or `typeof x` against
+    /// "undefined": the name and the form the literal names.
+    fn nullish_test(&self, x: ExprId, lit: ExprId) -> Option<(String, Form)> {
+        match (self.ast.get_expr(x), self.ast.get_expr(lit)) {
+            (Expr::Ident(n), _) => match self.expr_types.get(&lit) {
+                Some(crate::check::Type::Undefined) => Some((n.clone(), UNDEF)),
+                Some(crate::check::Type::Null) => Some((n.clone(), NULL)),
+                _ => None,
+            },
+            (Expr::TypeOf { expr }, Expr::String(s)) if s == "undefined" => {
+                match self.ast.get_expr(*expr) {
+                    Expr::Ident(n) => Some((n.clone(), UNDEF)),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
     }
 }

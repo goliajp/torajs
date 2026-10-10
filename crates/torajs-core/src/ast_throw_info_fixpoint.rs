@@ -8,6 +8,15 @@ use crate::ast::{Ast, Expr, ExprId, Stmt};
 use crate::ast_throw_info::fn_throw_info;
 use std::collections::{HashMap, HashSet};
 
+/// One fn's throw shape; `nonint_read` and `code_write` are settled
+/// program-wide (`compute_may_throw_fns`).
+pub(crate) struct FnThrow {
+    pub(crate) direct: bool,
+    pub(crate) called: Vec<String>,
+    pub(crate) nonint_read: bool,
+    pub(crate) code_write: bool,
+}
+
 /// M4.3.b — the transitive may-throw set: collect each FnDecl's
 /// `(direct_throw, called_names)` then iterate to fixed-point — a fn
 /// is may_throw if it throws directly OR calls any may_throw fn.
@@ -31,6 +40,8 @@ pub(crate) fn compute_may_throw_fns(
     // in three).
     let aliases = crate::ast_closure_param_tag_collect::closure_let_aliases(ast);
     let fn_lets = fn_typed_lets(ast, expr_types, &aliases);
+    let mut nonint_readers: Vec<String> = Vec::new();
+    let mut props_run_code = props_run_code_outside_fns(ast, expr_types, widths, &assigned);
     for stmt in &ast.stmts {
         if let Stmt::FnDecl {
             name,
@@ -41,8 +52,12 @@ pub(crate) fn compute_may_throw_fns(
             ..
         } = stmt
         {
-            let (mut direct, mut called) =
-                fn_throw_info(ast, name, params, body, expr_types, widths, &assigned);
+            let info = fn_throw_info(ast, name, params, body, expr_types, widths, &assigned);
+            let (mut direct, mut called) = (info.direct, info.called);
+            props_run_code |= info.code_write;
+            if info.nonint_read {
+                nonint_readers.push(name.clone());
+            }
             let ret = return_type.as_deref();
             direct |= crate::ast_throw_info::returns_any_into_obj(
                 ast, name, ret, *span, body, expr_types,
@@ -87,6 +102,9 @@ pub(crate) fn compute_may_throw_fns(
             decl_throw_info.push((name.clone(), direct, called));
         }
     }
+    if props_run_code {
+        may_throw.extend(nonint_readers);
+    }
     loop {
         let mut grew = false;
         for (name, _direct, called) in &decl_throw_info {
@@ -106,6 +124,26 @@ pub(crate) fn compute_may_throw_fns(
         }
     }
     may_throw
+}
+
+/// A non-integral keyed read raises only where some named property on
+/// an array can run code: a prototype / accessor spelling
+/// (`Ast::array_prop_reads_may_raise`) or a keyed store that can leave
+/// a code-bearing value in one (`Scan::code_write`). This answers for
+/// everything but the FnDecls, whose own scans add their stores: the
+/// top-level statements are no FnDecl of their own.
+fn props_run_code_outside_fns(
+    ast: &Ast,
+    expr_types: &HashMap<ExprId, crate::check::Type>,
+    widths: &crate::num_width::WidthTable,
+    assigned: &HashSet<String>,
+) -> bool {
+    if ast.array_prop_reads_may_raise {
+        return true;
+    }
+    let mut top = crate::ast_throw_info::Scan::new(ast, "", &[], expr_types, widths, assigned);
+    top.stmts(&ast.stmts);
+    top.code_write
 }
 
 /// Names some assignment or `++` / `--` anywhere in the program

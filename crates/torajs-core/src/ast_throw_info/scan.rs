@@ -16,8 +16,8 @@
 //! anywhere in the program writes, so the value the test saw is the
 //! value the read sees.
 
-use super::nullish::{ANY, Form, NULL, UNDEF};
-use crate::ast::{Ast, BinOp, Expr, ExprId, Param, Stmt, UnaryOp};
+use super::nullish::{ANY, Form, UNDEF};
+use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
 use crate::num_width::WidthTable;
 use std::collections::{HashMap, HashSet};
 
@@ -45,6 +45,13 @@ pub(crate) struct Scan<'a> {
     /// type (`obj_cast::object_ann`): an `any` value assigned to one is
     /// cast. Never narrowed by a shadowing declaration.
     pub(crate) obj_slots: HashSet<String>,
+    /// The scanned fn, for the width table's slot lookups.
+    pub(crate) fn_name: String,
+    /// A keyed read whose key may name a non-index property; it raises
+    /// only in a program where such a property can run code.
+    pub(crate) nonint_read: bool,
+    /// A keyed store that can give an array such a property.
+    pub(crate) code_write: bool,
 }
 
 impl<'a> Scan<'a> {
@@ -88,6 +95,9 @@ impl<'a> Scan<'a> {
                 })
                 .map(|p| p.name.clone())
                 .collect(),
+            fn_name: name.to_string(),
+            nonint_read: false,
+            code_write: false,
         }
     }
 
@@ -155,74 +165,6 @@ impl<'a> Scan<'a> {
             {
                 self.safe.insert(name);
             }
-        }
-    }
-
-    /// The names `cond` coming out `when` proves not to hold the paired
-    /// forms.
-    fn narrowings(&self, cond: ExprId, when: bool) -> Vec<(String, Form)> {
-        match self.ast.get_expr(cond) {
-            Expr::BinOp {
-                op: BinOp::LAnd,
-                left,
-                right,
-            } if when => {
-                let mut v = self.narrowings(*left, true);
-                v.extend(self.narrowings(*right, true));
-                v
-            }
-            Expr::BinOp {
-                op: BinOp::LOr,
-                left,
-                right,
-            } if !when => {
-                let mut v = self.narrowings(*left, false);
-                v.extend(self.narrowings(*right, false));
-                v
-            }
-            Expr::Unary {
-                op: UnaryOp::Not,
-                expr,
-            } => self.narrowings(*expr, !when),
-            Expr::Ident(n) if when => vec![(n.clone(), ANY)],
-            Expr::BinOp { op, left, right } => {
-                let strict = match op {
-                    BinOp::Eq | BinOp::Neq => true,
-                    BinOp::LooseEq | BinOp::LooseNeq => false,
-                    _ => return Vec::new(),
-                };
-                let Some((name, form)) = self
-                    .nullish_test(*left, *right)
-                    .or_else(|| self.nullish_test(*right, *left))
-                else {
-                    return Vec::new();
-                };
-                // the test asserting nullish-ness held: nothing ruled out
-                if matches!(op, BinOp::Eq | BinOp::LooseEq) == when {
-                    return Vec::new();
-                }
-                vec![(name, if strict { form } else { ANY })]
-            }
-            _ => Vec::new(),
-        }
-    }
-
-    /// `x` against `undefined` / `null`, or `typeof x` against
-    /// "undefined": the name and the form the literal names.
-    fn nullish_test(&self, x: ExprId, lit: ExprId) -> Option<(String, Form)> {
-        match (self.ast.get_expr(x), self.ast.get_expr(lit)) {
-            (Expr::Ident(n), _) => match self.expr_types.get(&lit) {
-                Some(crate::check::Type::Undefined) => Some((n.clone(), UNDEF)),
-                Some(crate::check::Type::Null) => Some((n.clone(), NULL)),
-                _ => None,
-            },
-            (Expr::TypeOf { expr }, Expr::String(s)) if s == "undefined" => {
-                match self.ast.get_expr(*expr) {
-                    Expr::Ident(n) => Some((n.clone(), UNDEF)),
-                    _ => None,
-                }
-            }
-            _ => None,
         }
     }
 
