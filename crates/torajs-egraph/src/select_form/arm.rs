@@ -33,6 +33,7 @@ pub(super) fn can_speculate(kind: &InstKind) -> bool {
         | InstKind::FCmp(_, _, _)
         | InstKind::Neg(_)
         | InstKind::Ctpop(_)
+        | InstKind::Cttz(_)
         | InstKind::SiToFp(_)
         | InstKind::FpToSi(_)
         | InstKind::FpToInt32(_)

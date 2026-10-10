@@ -169,6 +169,8 @@ pub fn cost_of_kind(kind: &InstKind) -> Cost {
         // `Ctpop(op)` lowers to a 4-instruction GPR→SIMD→GPR round
         // trip (`fmov; cnt; addv; fmov`).
         InstKind::Ctpop(_) => Cost::new(4),
+        // `Cttz(op)` lowers to `rbit; clz`.
+        InstKind::Cttz(_) => Cost::new(2),
 
         // `Select` lowers to `cmp #0; csel` — csel itself is a
         // single-cycle ALU op (the cmp is often fused away when the

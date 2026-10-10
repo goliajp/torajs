@@ -125,7 +125,8 @@ fn pure(kind: &InstKind) -> bool {
         | InstKind::BitCastI64ToF64(_)
         | InstKind::TruncI64ToBool(_)
         | InstKind::Neg(_)
-        | InstKind::Ctpop(_) => true,
+        | InstKind::Ctpop(_)
+        | InstKind::Cttz(_) => true,
         _ => false,
     }
 }

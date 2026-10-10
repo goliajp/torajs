@@ -4,7 +4,9 @@
 use torajs_core::ssa::Operand;
 
 use super::{FP_SCRATCH_LHS, FP_SCRATCH_RHS, OP_SCRATCH_LHS, OP_SCRATCH_RHS, write_u32};
-use crate::enc::{fcmp_d, fcmp_d_zero, fmov_d_from_x, movk_imm, movn_imm, movz_imm};
+use crate::enc::{
+    fcmp_d, fcmp_d_zero, fmov_d_from_x, logical_imm, movk_imm, movn_imm, movz_imm, orr_imm,
+};
 use crate::reg::{Fpr, Gpr, Reg};
 use crate::regalloc::Assignment;
 
@@ -133,12 +135,21 @@ pub fn materialize_operand_fpr(
 /// numerous picks the base — MOVZ fills the rest with zeros, MOVN
 /// with ones — so `-1` and other dense-ones constants are one
 /// instruction, the same choice LLVM's `expandMOVImm` makes; the tie
-/// goes to MOVZ, and `0` is `MOVZ dst, #0`.
+/// goes to MOVZ, and `0` is `MOVZ dst, #0`. A constant that would take
+/// two or more of those and is a bitmask immediate (a repeating lane
+/// pattern such as `0x7f7f..`) is one `ORR dst, XZR, #imm` instead,
+/// as LLVM also prefers.
 pub fn materialize_const_i64(bytes: &mut Vec<u8>, dst: Gpr, value: i64) {
     let u = value as u64;
     let quads: [u16; 4] = core::array::from_fn(|i| (u >> (16 * i)) as u16);
     let zeros = quads.iter().filter(|&&q| q == 0).count();
     let ones = quads.iter().filter(|&&q| q == 0xFFFF).count();
+    if zeros.max(ones) < 3
+        && let Some(f) = logical_imm(u)
+    {
+        write_u32(bytes, orr_imm(dst, Gpr::XZR, f));
+        return;
+    }
     let (skip, first): (u16, fn(Gpr, u16, u8) -> u32) = if ones > zeros {
         (0xFFFF, |rd, q, hw| movn_imm(rd, !q, hw))
     } else {
@@ -274,6 +285,24 @@ mod tests {
         .flat_map(|w| w.to_le_bytes())
         .collect();
         assert_eq!(compiled.bytes, expected);
+    }
+
+    #[test]
+    fn const_bitmask_pattern_emits_single_orr() {
+        // 0x7f7f.. would take MOVZ + 3 MOVK; as a bitmask immediate it is
+        // one ORR x9, xzr, #imm
+        let mut bytes = Vec::new();
+        materialize_const_i64(&mut bytes, Gpr::X9, 0x7f7f_7f7f_7f7f_7f7f);
+        assert_eq!(bytes.len(), 4);
+        let word = u32::from_le_bytes(bytes[0..4].try_into().unwrap());
+        let f = enc::logical_imm(0x7f7f_7f7f_7f7f_7f7f).unwrap();
+        assert_eq!(word, enc::orr_imm(Gpr::X9, Gpr::XZR, f));
+        // a pattern one MOVZ already covers keeps the MOVZ
+        let mut bytes = Vec::new();
+        materialize_const_i64(&mut bytes, Gpr::X9, 0x8000_0000_0000_0000_u64 as i64);
+        assert_eq!(bytes.len(), 4);
+        let word = u32::from_le_bytes(bytes[0..4].try_into().unwrap());
+        assert_eq!(word, enc::movz_imm(Gpr::X9, 0x8000, 3));
     }
 
     #[test]

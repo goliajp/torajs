@@ -325,6 +325,10 @@ pub enum InstKind {
     /// base ISA — the canonical sequence is `fmov d,x; cnt v.8b;
     /// addv b,v.8b; fmov x,d` (what LLVM emits for `llvm.ctpop.i64`).
     Ctpop(Operand),
+    /// `%v = cttz <op>` — count of trailing zero bits of an i64 (64 for
+    /// zero), the bit index of the lowest set bit. Codegen: aarch64
+    /// `rbit Xd, Xn; clz Xd, Xd` (what LLVM emits for `llvm.cttz.i64`).
+    Cttz(Operand),
     /// `%v = copy <ty> <op>` — register-level move, the destruction
     /// product of mem2reg's φ placement (LLVM PHIElimination's mov
     /// shape). Emitted at predecessor-block ends so a φ-merged value

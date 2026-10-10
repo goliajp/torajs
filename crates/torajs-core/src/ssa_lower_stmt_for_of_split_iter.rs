@@ -53,9 +53,11 @@
 //! mint ForOfSplitIter for literal seps), the loop header instead
 //! dispatches each iteration on a HOISTED `parent is Latin-1` bool:
 //!
-//! - fast arm: inline byte scan (`LDRB` probe per byte via
-//!   [`InstKind::LoadU8Dyn`]) + direct Substr write into `sub_slot`,
-//!   loop state (`pos` / `done`) in mem2reg-liftable scalar slots.
+//! - fast arm: inline scan — the parent read eight bytes at a time
+//!   the way `memchr` does, each part cut from the word's separator
+//!   marks (`ssa_lower_stmt_for_of_split_iter_fast::word`) — + direct
+//!   Substr write into `sub_slot`, loop state (`pos` / `done` / the
+//!   marks) in mem2reg-liftable scalar slots.
 //!   The iter struct is never initialized on this arm: the parent
 //!   length comes straight from the Str header.
 //! - slow arm: the pre-existing `split_iter_next` call (UTF-16 /

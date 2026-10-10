@@ -45,6 +45,7 @@ fn pure(kind: &InstKind) -> bool {
         | InstKind::TruncI64ToBool(_)
         | InstKind::Neg(_)
         | InstKind::Ctpop(_)
+        | InstKind::Cttz(_)
         | InstKind::Identity(_) => true,
         _ => false,
     }

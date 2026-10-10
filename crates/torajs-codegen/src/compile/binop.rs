@@ -9,9 +9,9 @@ use super::{
 };
 use crate::enc::{
     add_imm, add_reg, add_reg_lsl, addv_b_v8b, and_imm, and_reg, asr_imm, asrv_reg, bl_imm26,
-    cnt_v8b, eor_imm, eor_reg, fadd_d, fdiv_d, fmov_d_from_x, fmov_x_from_d, fmul_d, fsub_d,
-    logical_imm, lsl_imm, lslv_reg, lsr_imm, lsrv_reg, mov_d_reg, msub_reg, mul_reg, orr_imm,
-    orr_reg, sdiv_reg, sub_imm, sub_reg,
+    clz_reg, cnt_v8b, eor_imm, eor_reg, fadd_d, fdiv_d, fmov_d_from_x, fmov_x_from_d, fmul_d,
+    fsub_d, logical_imm, lsl_imm, lslv_reg, lsr_imm, lsrv_reg, mov_d_reg, msub_reg, mul_reg,
+    orr_imm, orr_reg, rbit_reg, sdiv_reg, sub_imm, sub_reg,
 };
 use crate::reg::aapcs64;
 use crate::regalloc::Assignment;
@@ -69,6 +69,17 @@ pub fn emit_ctpop(bytes: &mut Vec<u8>, inst: &Inst, op: &Operand, alloc: &Assign
     write_u32(bytes, cnt_v8b(FP_SCRATCH_LHS, FP_SCRATCH_LHS));
     write_u32(bytes, addv_b_v8b(FP_SCRATCH_LHS, FP_SCRATCH_LHS));
     write_u32(bytes, fmov_x_from_d(dst, FP_SCRATCH_LHS));
+    write_def_spill_gpr(bytes, spill_off, dst);
+}
+
+/// Emit `%v = cttz %op` — the bit index of the lowest set bit (64 for
+/// zero) as `rbit; clz`, the pair LLVM emits for `llvm.cttz.i64`.
+pub fn emit_cttz(bytes: &mut Vec<u8>, inst: &Inst, op: &Operand, alloc: &Assignment) {
+    let result_vid = inst.result.expect("Cttz must have a result ValueId");
+    let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
+    let rn = materialize_operand_gpr(bytes, op, OP_SCRATCH_LHS, alloc);
+    write_u32(bytes, rbit_reg(dst, rn));
+    write_u32(bytes, clz_reg(dst, dst));
     write_def_spill_gpr(bytes, spill_off, dst);
 }
 

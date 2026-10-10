@@ -275,6 +275,7 @@ pub(crate) fn rewrite_operands(kind: &mut InstKind, replace: &HashMap<ValueId, O
         | InstKind::Identity(a)
         | InstKind::Neg(a)
         | InstKind::Ctpop(a)
+        | InstKind::Cttz(a)
         | InstKind::Copy(_, a) => r(a),
         InstKind::Alloca(_)
         | InstKind::AllocaBytes(_)

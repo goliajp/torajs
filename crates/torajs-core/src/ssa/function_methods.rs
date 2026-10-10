@@ -341,7 +341,8 @@ impl Function {
             | InstKind::TruncI64ToBool(v)
             | InstKind::Identity(v)
             | InstKind::Neg(v)
-            | InstKind::Ctpop(v) => {
+            | InstKind::Ctpop(v)
+            | InstKind::Cttz(v) => {
                 write!(w, "{} ", one_operand_mnemonic(&inst.kind))?;
                 self.write_operand(w, v)?;
             }
@@ -393,6 +394,7 @@ fn one_operand_mnemonic(kind: &InstKind) -> String {
         InstKind::Identity(_) => "id".into(),
         InstKind::Neg(_) => "neg".into(),
         InstKind::Ctpop(_) => "ctpop".into(),
+        InstKind::Cttz(_) => "cttz".into(),
         other => unreachable!("not a one-operand instruction: {other:?}"),
     }
 }

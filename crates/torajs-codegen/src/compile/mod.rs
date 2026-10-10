@@ -74,7 +74,7 @@ use entry::{emit_param_entry_moves, emit_stack_param_loads};
 use inst::emit_inst_at;
 use terminator::{BranchFixup, BranchKind, emit_terminator, patch_branch};
 
-pub use binop::{emit_binop, emit_ctpop, emit_neg};
+pub use binop::{emit_binop, emit_ctpop, emit_cttz, emit_neg};
 pub use call::{emit_call, emit_call_indirect};
 pub use cast::{
     emit_bitcast_f64_to_i64, emit_bitcast_i64_to_f64, emit_fp_to_int32, emit_fp_to_si,

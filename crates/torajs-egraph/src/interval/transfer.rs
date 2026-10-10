@@ -360,6 +360,8 @@ pub fn eval_inst(
         // growth guards float_demote inserted always-false once
         // ctpop_idiom has collapsed the Kernighan loop).
         InstKind::Ctpop(_) => AbsVal::Fact(NumFact::new(0, 64)),
+        // trailing-zero count — 0..=64 likewise
+        InstKind::Cttz(_) => AbsVal::Fact(NumFact::new(0, 64)),
         _ => opaque(),
     }
 }

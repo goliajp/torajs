@@ -299,6 +299,16 @@ pub fn mov_x_reg(rd: Gpr, rm: Gpr) -> u32 {
     0xAA00_03E0 | (rm.idx() << 16) | rd.idx()
 }
 
+/// RBIT Xd, Xn — reverse the bit order. ARM ARM C6.2.235 (sf=1).
+pub fn rbit_reg(rd: Gpr, rn: Gpr) -> u32 {
+    0xDAC0_0000 | (rn.idx() << 5) | rd.idx()
+}
+
+/// CLZ Xd, Xn — count leading zero bits. ARM ARM C6.2.51 (sf=1).
+pub fn clz_reg(rd: Gpr, rn: Gpr) -> u32 {
+    0xDAC0_1000 | (rn.idx() << 5) | rd.idx()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

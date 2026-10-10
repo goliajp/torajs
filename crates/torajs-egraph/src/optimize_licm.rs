@@ -153,6 +153,7 @@ fn operands_loop_invariant(
         | InstKind::ZExtI32ToI64(v)
         | InstKind::Neg(v)
         | InstKind::Ctpop(v)
+        | InstKind::Cttz(v)
         | InstKind::Identity(v) => check(v),
         // Load is filtered out by is_pure; including it here would be
         // unsafe without alias analysis (a Store inside the loop body

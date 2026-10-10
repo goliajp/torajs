@@ -278,6 +278,7 @@ fn is_removable(kind: &InstKind) -> bool {
             | InstKind::Identity(_)
             | InstKind::Neg(_)
             | InstKind::Ctpop(_)
+            | InstKind::Cttz(_)
             | InstKind::Select(..)
             | InstKind::ZExtBoolToI64(_)
             | InstKind::ZExtI32ToI64(_)

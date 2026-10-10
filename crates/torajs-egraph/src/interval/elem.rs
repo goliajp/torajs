@@ -398,6 +398,7 @@ fn operands(kind: &InstKind) -> Vec<Operand> {
         | InstKind::Identity(a)
         | InstKind::Neg(a)
         | InstKind::Ctpop(a)
+        | InstKind::Cttz(a)
         | InstKind::Copy(_, a) => vec![*a],
         InstKind::Alloca(_)
         | InstKind::AllocaBytes(_)

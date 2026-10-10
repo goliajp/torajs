@@ -268,6 +268,7 @@ fn canonicalize_operands(kind: &InstKind, egraph: &mut Egraph) -> InstKind {
         InstKind::Identity(v) => InstKind::Identity(map_op(v, egraph)),
         InstKind::Neg(v) => InstKind::Neg(map_op(v, egraph)),
         InstKind::Ctpop(v) => InstKind::Ctpop(map_op(v, egraph)),
+        InstKind::Cttz(v) => InstKind::Cttz(map_op(v, egraph)),
         // Side-effecting kinds (Store, StoreDyn, Call, Alloca,
         // AllocaBytes) are not GVN candidates — return as-is. They
         // pass through the walk but don't participate in
@@ -309,6 +310,8 @@ pub(crate) fn is_pure(kind: &InstKind) -> bool {
         InstKind::Neg(_) => true,
         // `Ctpop(op)` — pure single-operand bit count, deterministic.
         InstKind::Ctpop(_) => true,
+        // `Cttz(op)` — pure single-operand bit index, deterministic.
+        InstKind::Cttz(_) => true,
         // `Select(ty, c, t, e)` — pure conditional move, deterministic
         // in its three operands, no memory effect. GVN never actually
         // sees it (select formation runs after the egraph pass), but
