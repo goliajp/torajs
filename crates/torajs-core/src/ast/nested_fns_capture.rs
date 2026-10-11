@@ -313,6 +313,8 @@ fn rewrite_in_place(ast: &mut Ast, slot: &mut Stmt) {
     });
     ast.set_expr_span(eid, span);
     ast.fn_expr_exprs.insert(eid);
+    // a value has no static callee to pad its defaults at
+    super::apply_args_materialize::materialize_declared_fn_value(ast, eid);
     *slot = Stmt::LetDecl {
         mutable: false,
         name,

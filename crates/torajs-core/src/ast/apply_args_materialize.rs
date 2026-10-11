@@ -76,7 +76,10 @@ use super::{Ast, BinOp, Expr, ExprId, Stmt};
 pub(crate) mod body_arguments;
 mod ctor_relay;
 mod expr_shape;
+mod fn_value;
 mod nested;
+
+pub(crate) use fn_value::materialize_declared_fn_value;
 
 use expr_shape::{body_safe_default, reads_arguments, refs_prior_param};
 
@@ -273,6 +276,14 @@ fn patch_params(params: &mut [super::Param], pads: Vec<(usize, ExprId, Option<St
 /// fields before FunctionDeclarationInstantiation evaluates the
 /// defaults; `constructor(o = this.x)` reads the initialized field).
 pub(super) fn splice_guards(body: &mut Vec<Stmt>, guards: Vec<Stmt>, at: usize) {
+    let list = guard_list_mut(body);
+    let at = at.min(list.len());
+    list.splice(at..at, guards);
+}
+
+/// The statement list the guards go into: the body itself, or the
+/// try body of an async-wrapped one (see [`splice_guards`]).
+pub(super) fn guard_list_mut(body: &mut Vec<Stmt>) -> &mut Vec<Stmt> {
     let into_try = matches!(
         &body[..],
         [Stmt::Try {
@@ -280,15 +291,26 @@ pub(super) fn splice_guards(body: &mut Vec<Stmt>, guards: Vec<Stmt>, at: usize) 
             ..
         }] if p == "__async_err"
     );
-    if into_try {
-        let Stmt::Try { body: tb, .. } = &mut body[0] else {
-            unreachable!()
-        };
-        tb.splice(at..at, guards);
-    } else {
-        let at = at.min(body.len());
-        body.splice(at..at, guards);
+    if !into_try {
+        return body;
     }
+    let Stmt::Try { body: tb, .. } = &mut body[0] else {
+        unreachable!()
+    };
+    tb
+}
+
+/// Top-level FnDecl names — pre-bound in the closed-fn-literal check
+/// so a reference to one (the t262 harness `Test262Error` shape)
+/// doesn't read as a capture. Same construction as `lift_arrow_fns`.
+pub(super) fn top_fn_names(ast: &Ast) -> Vec<String> {
+    ast.stmts
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::FnDecl { name, .. } => Some(name.clone()),
+            _ => None,
+        })
+        .collect()
 }
 
 /// See module doc. Walks every top-level FnDecl (all function forms
@@ -301,18 +323,7 @@ pub(super) fn splice_guards(body: &mut Vec<Stmt>, guards: Vec<Stmt>, at: usize) 
 /// through with their defaults pasted into the caller's scope
 /// (`unknown identifier`, rotation 276).
 pub fn materialize_expr_defaults(ast: &mut Ast) {
-    // Top-level FnDecl names — pre-bound in the closed-fn-literal
-    // check so a reference to one (the t262 harness `Test262Error`
-    // shape) doesn't read as a capture. Same construction as
-    // `lift_arrow_fns`.
-    let global_fns: Vec<String> = ast
-        .stmts
-        .iter()
-        .filter_map(|s| match s {
-            Stmt::FnDecl { name, .. } => Some(name.clone()),
-            _ => None,
-        })
-        .collect();
+    let global_fns = top_fn_names(ast);
     // Phase A — collect (stmt index, param index, param name,
     // conversion plan) for every converting param, immutably. The
     // FnDecl TypedNarrow lane is gated on a prior-param reference or
@@ -332,34 +343,10 @@ pub fn materialize_expr_defaults(ast: &mut Ast) {
         }
     }
     ctor_relay::relay_factory_params(ast, &mut sites);
-    let mut arrow_sites: Vec<(usize, usize, String, Conv)> = Vec::new();
-    for (ei, e) in ast.exprs.iter().enumerate() {
-        let Expr::ArrowFn { params, .. } = e else {
-            continue;
-        };
-        let fn_expr = ast.fn_expr_exprs.contains(&ExprId(ei as u32));
-        // once one default runs in the body, every later one has to
-        // as well: §10.2.11 evaluates them in parameter order, and a
-        // call-site pad would run before the guards
-        let mut moved = false;
-        for (pi, p) in params.iter().enumerate() {
-            let prior: Vec<String> = params[..pi].iter().map(|q| q.name.clone()).collect();
-            // a fn-expr default reading the fn's own `arguments` is
-            // meaningless at the call site, so it takes the body lane
-            // even when it assigns (the FnDecl gate)
-            let own_args = fn_expr && p.default.is_some_and(|d| reads_arguments(ast, d));
-            let body_lane = own_args || moved;
-            if let Some(d) = converting_default(ast, p, &global_fns, &prior, body_lane) {
-                arrow_sites.push((ei, pi, p.name.clone(), Conv::Any(d)));
-                moved = true;
-            } else if let Some((d, ann)) =
-                converting_typed_default(ast, p, &global_fns, &prior, body_lane)
-            {
-                arrow_sites.push((ei, pi, p.name.clone(), Conv::TypedNarrow(d, ann)));
-                moved = true;
-            }
-        }
-    }
+    let arrow_plans: Vec<(usize, Vec<(usize, String, Conv)>)> = (0..ast.exprs.len())
+        .map(|ei| (ei, fn_value::fn_value_conv(ast, ei, &global_fns, false)))
+        .filter(|(_, conv)| !conv.is_empty())
+        .collect();
     // Phase B — mutate the FnDecls (guard/pad construction shared
     // with the ArrowFn phase; see `build_guards_and_pads` for the
     // param-order contract).
@@ -392,28 +379,8 @@ pub fn materialize_expr_defaults(ast: &mut Ast) {
     // Phase B' — same conversion for arrow-fn / fn-expression values
     // still living in the expr arena (nested arrows included: the
     // arena walk sees every ArrowFn regardless of depth).
-    let mut by_expr: std::collections::BTreeMap<usize, Vec<(usize, String, Conv)>> =
-        std::collections::BTreeMap::new();
-    for (ei, pi, name, kind) in arrow_sites {
-        by_expr.entry(ei).or_default().push((pi, name, kind));
-    }
-    for (ei, mut conv) in by_expr {
-        conv.sort_by_key(|(pi, _, _)| *pi);
-        let own_args =
-            ast.fn_expr_exprs.contains(&ExprId(ei as u32)) && conv_reads_arguments(ast, &conv);
-        let (guards, pads) = build_guards_and_pads(ast, conv);
-        let Expr::ArrowFn { params, body, .. } = &mut ast.exprs[ei] else {
-            unreachable!()
-        };
-        patch_params(params, pads);
-        let mut b = std::mem::take(body);
-        if own_args {
-            body_arguments::split_body_arguments(ast, &mut b);
-        }
-        splice_guards(&mut b, guards, 0);
-        if let Expr::ArrowFn { body, .. } = &mut ast.exprs[ei] {
-            *body = b;
-        }
+    for (ei, conv) in arrow_plans {
+        fn_value::apply_fn_value_conv(ast, ei, conv);
     }
     // Phase C (424-04) — nested `function` declarations, in the
     // child module (see its doc for why the spine walk exists).
