@@ -64,10 +64,13 @@ mod keyed;
 mod nullish;
 mod obj_cast;
 mod scan;
+mod shapes;
 
 pub(crate) use crate::ast_throw_info_fixpoint::compute_may_throw_fns;
 pub(crate) use obj_cast::{class_field_ann, class_of, elem_ann, returns_any_into_obj, written_ann};
 pub(crate) use scan::Scan;
+pub(crate) use shapes::ident_read_raises;
+use shapes::is_property_store;
 
 pub(crate) fn fn_throw_info(
     ast: &Ast,
@@ -87,56 +90,6 @@ pub(crate) fn fn_throw_info(
         nonint_read: sc.nonint_read,
         code_write: sc.code_write,
     }
-}
-
-/// A property STORE target (`o.k = v`, `o.k++`, `xs[i] = v`, `xs[i]++`)
-/// — the shape whose store can raise, whatever the receiver is.
-///
-/// This used to be an inclusion whitelist of receiver types, grown
-/// one entry at a time: `xs.length` (rotation 270, the §10.4.2.5
-/// resize helper), a `ClassRef`/`Struct` field (rotation 373, the
-/// §10.1.9 writable gate), and `Any` by way of the `Expr::Member`
-/// read arm below. Three arms, one reason — and the whitelist shape
-/// was structurally wrong, because the store ladder it is meant to
-/// mirror ends in a lane that takes EVERYTHING ELSE: a receiver with
-/// no arm of its own is boxed and routed through
-/// `__torajs_any_member_set`, which raises. So the receivers nobody
-/// had thought to name were exactly the ones whose throw went
-/// missing, and the one that surfaced it is a receiver the ladder
-/// never even had to reach for: a specialized body's parameter.
-///
-/// `function f(n) { n.nope = 1 }` called as `f(1)` types `n` as
-/// `Number` — not `Any`, because specialization already resolved it —
-/// so no arm matched, the caller pruned its check under M4.3.b, and
-/// the strict-mode TypeError §10.1.8.1 owes a primitive receiver was
-/// dropped on the floor. The callee did stop (its own throw check
-/// fired); the caller then printed the ret sentinel, so
-/// `console.log(f(1))` answered `null` and a `try`/`catch` around it
-/// caught nothing. The SAME program with `n: any`, or routed through
-/// a `const m: any = n`, threw correctly all along.
-///
-/// Nothing statically rules a store out: a frozen instance, a
-/// `defineProperty`-demoted field, an accessor-only property and a
-/// primitive receiver all raise, and none of them is visible in the
-/// receiver's type. So the predicate is the position, not the shape.
-/// The KEYED spelling is on the same rule for the same reason, and it
-/// is not an exotic shape either: `function w(xs) { xs[0] = 99 }` over
-/// a FROZEN array raised in the callee, which correctly left the
-/// element alone — and then the caller, having pruned its check,
-/// printed the ret sentinel. `console.log(w(a))` answered `null` where
-/// every engine throws.
-fn is_property_store(ast: &Ast, eid: ExprId) -> bool {
-    matches!(ast.get_expr(eid), Expr::Member { .. } | Expr::Index { .. })
-}
-
-/// The two marks that make a bare identifier read RAISE instead of
-/// answering: an unresolvable Reference (RFC 20260730-undeclared-ident,
-/// §6.2.5.5) and a binding still in its temporal dead zone
-/// (`ast::mark_tdz_reads`, §8.1.1.1). Either way the enclosing
-/// fn must enter `may_throw`, or callers prune the check and the throw
-/// is silently swallowed across the fn boundary.
-pub(crate) fn ident_read_raises(ast: &Ast, eid: ExprId) -> bool {
-    ast.undeclared_reads.contains_key(&eid) || ast.tdz_reads.contains(&eid)
 }
 
 impl Scan<'_> {

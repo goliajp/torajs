@@ -42,8 +42,9 @@
 //! `Expr::PostIncr` match arm bottoms out here).
 
 use crate::ast::{Expr, ExprId};
-use crate::ssa::{BinOp as SsaBinOp, InstKind, Operand, Type};
+use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::{LowerCtx, OBJ_HEADER_SIZE};
+use crate::ssa_lower_post_incr_len::incr_op_one;
 
 /// `eid` is the `Expr::PostIncr` node. `is_prefix` picks the answer:
 /// the postfix form yields the coerced OLD value, the prefix form
@@ -452,19 +453,5 @@ fn lower_index(
         Operand::Value(new_v)
     } else {
         Operand::Value(old)
-    }
-}
-
-pub(crate) fn incr_op_one(slot_ty: Type, is_inc: bool) -> (Operand, SsaBinOp) {
-    if slot_ty == Type::F64 {
-        let f = if is_inc {
-            SsaBinOp::FAdd
-        } else {
-            SsaBinOp::FSub
-        };
-        (Operand::ConstF64(1.0), f)
-    } else {
-        let i = if is_inc { SsaBinOp::Add } else { SsaBinOp::Sub };
-        (Operand::ConstI64(1), i)
     }
 }

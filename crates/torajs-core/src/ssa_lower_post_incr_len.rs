@@ -2,9 +2,9 @@
 //! `ssa_lower_post_incr.rs` when that file reached its 500-line limit.
 
 use crate::ast::ExprId;
-use crate::ssa::{InstKind, Operand, Type};
+use crate::ssa::{BinOp as SsaBinOp, InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
-use crate::ssa_lower_post_incr::{Step, incr_op_one};
+use crate::ssa_lower_post_incr::Step;
 
 /// The Arr-length lane of `ssa_lower_post_incr::lower_member` — old len loads inline
 /// (read-path twin at `ssa_lower_member_typed_props`), the stepped
@@ -54,5 +54,19 @@ pub(crate) fn lower_arr_length(
         Operand::Value(new_v)
     } else {
         Operand::Value(old)
+    }
+}
+
+pub(crate) fn incr_op_one(slot_ty: Type, is_inc: bool) -> (Operand, SsaBinOp) {
+    if slot_ty == Type::F64 {
+        let f = if is_inc {
+            SsaBinOp::FAdd
+        } else {
+            SsaBinOp::FSub
+        };
+        (Operand::ConstF64(1.0), f)
+    } else {
+        let i = if is_inc { SsaBinOp::Add } else { SsaBinOp::Sub };
+        (Operand::ConstI64(1), i)
     }
 }
