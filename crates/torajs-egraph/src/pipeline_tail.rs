@@ -9,6 +9,8 @@ use crate::{
     unroll_pair,
 };
 
+mod global_ref_share;
+
 /// Select formation and the inst-level fusions that read its output,
 /// ahead of the rc and cfg-shape tail.
 pub(crate) fn form_selects_and_fuse(module: &mut Module) {
@@ -143,6 +145,15 @@ pub(crate) fn finish_pipeline(
     // in the header; before block_layout, which lays out the preheader
     // and exit blocks it adds. `TORAJS_CONCAT_LICM_OFF=1` skips.
     gated_pass("CONCAT_LICM", module, concat_licm::hoist_concats);
+    // One address per symbol in a call-free run of a block, so codegen
+    // folds a read and a write of one module `let` through one page;
+    // after every pass that adds or moves instructions.
+    // `TORAJS_GLOBAL_REF_SHARE_OFF=1` skips.
+    gated_pass(
+        "GLOBAL_REF_SHARE",
+        module,
+        global_ref_share::share_global_refs,
+    );
     // Loop-body contiguity layout — last, so the block order codegen
     // sees (fall-through chains, positional liveness/spill weights)
     // is the final one. Sinks cold blocks out of loop position

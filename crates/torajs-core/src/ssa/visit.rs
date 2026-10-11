@@ -3,7 +3,7 @@
 //! breaks loudly when a new variant grows an operand (the egraph
 //! passes and codegen both count uses through this single walker).
 
-use super::{InstKind, Operand, ValueId};
+use super::{BinOp, InstKind, Operand, ValueId};
 
 /// Call `f` with every `Operand::Value` the instruction reads.
 pub fn visit_value_operands(kind: &InstKind, mut f: impl FnMut(ValueId)) {
@@ -192,4 +192,27 @@ pub fn rewrite_value_operands(kind: &mut InstKind, mut f: impl FnMut(ValueId) ->
         | InstKind::FnAddr(_)
         | InstKind::BoxedEntryAddr(_) => {}
     }
+}
+
+/// `true` iff codegen lowers the instruction to a `BL`, or to a canned
+/// loop clobbering a subset of the caller-saved set a call clobbers:
+///   - `Call` / `CallIndirect`,
+///   - `BinOp(FRem)`, a libm `_fmod` call,
+///   - `RcDecAny`, whose slow arm calls `__torajs_value_drop_heap`,
+///   - `CtpopRangeSum`, no `BL`, but its SIMD loop clobbers V0-V7,
+///     V16-V18 and X9-X12.
+///
+/// The allocator moves values live across one to callee-saved homes
+/// and the prologue saves the link register; the mid-end reads it to
+/// keep a value from living across one when that costs more than
+/// recomputing it.
+pub fn lowers_to_call(kind: &InstKind) -> bool {
+    matches!(
+        kind,
+        InstKind::Call(..)
+            | InstKind::CallIndirect(..)
+            | InstKind::BinOp(BinOp::FRem, ..)
+            | InstKind::CtpopRangeSum(..)
+            | InstKind::RcDecAny(_)
+    )
 }

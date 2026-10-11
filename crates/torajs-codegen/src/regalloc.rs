@@ -3,7 +3,7 @@
 //! sizing, and the per-instruction facts the allocator reads.
 
 use torajs_core::ssa::id_hash::{HashMap, HashSet};
-use torajs_core::ssa::{BinOp, Function, InstKind, Terminator, Type, ValueId};
+use torajs_core::ssa::{Function, InstKind, Terminator, Type, ValueId};
 
 use crate::compile::InlineSites;
 use crate::reg::{Fpr, Gpr, Reg};
@@ -175,30 +175,11 @@ impl Assignment {
     }
 }
 
-/// `true` iff the instruction lowers to a `BL` site at codegen time.
-/// This is what determines whether the prologue must save FP/LR
-/// (the AAPCS64 link register) — every BL clobbers x30.
-///
-/// Currently the BL sites are:
-///   - `Call(FuncId, _)` / `CallIndirect(_, _, _)` (direct and
-///     indirect SSA call surface, S4-A/C),
-///   - `BinOp(FRem, _, _)` — lowered to a libm `_fmod` BL by
-///     `compile::binop` (S2-D),
-///   - `RcDecAny(_)` — `compile::rc_dec`'s slow arm calls
-///     `__torajs_value_drop_heap`.
+/// `true` iff the instruction is a call clobber site: a `BL`, or a
+/// canned loop clobbering the same registers (`ssa::lowers_to_call`
+/// lists them). Every one makes the prologue save FP/LR.
 pub(crate) fn inst_emits_bl(kind: &InstKind) -> bool {
-    // CtpopRangeSum emits no BL, but its canned SIMD loop clobbers
-    // V0-V7 + V16-V18 and X9-X12 — a subset of a call's caller-saved
-    // clobber set — so it needs the same treatment FRem gets: mark
-    // the site so live-across values relocate to callee-saved homes.
-    matches!(
-        kind,
-        InstKind::Call(_, _)
-            | InstKind::CallIndirect(_, _, _)
-            | InstKind::BinOp(BinOp::FRem, _, _)
-            | InstKind::CtpopRangeSum(_, _, _)
-            | InstKind::RcDecAny(_)
-    )
+    torajs_core::ssa::lowers_to_call(kind)
 }
 
 /// How often a call site's `bl` actually runs, as a divisor of its

@@ -34,8 +34,9 @@ pub(super) struct Fusions {
     /// no instruction or terminator reads (an inlined constructor's
     /// unused `new.target` name): an ADRP + ADD each, for nothing.
     dead_refs: HashSet<(u32, u32)>,
-    /// 8-byte loads and stores through a single-use symbol address,
-    /// which fold the address's low half. See compile/global_access.rs.
+    /// 8-byte loads and stores through a symbol address nothing else
+    /// reads, which fold the address's low half. See
+    /// compile/global_access.rs.
     globals: GlobalAccesses,
 }
 
@@ -78,8 +79,12 @@ impl Fusions {
         if self.dead_refs.contains(&(b, i)) || self.globals.absorbed(b, i) {
             return true;
         }
-        if let Some(sym) = self.globals.sym_of(b, i) {
-            global_access::emit(bytes, relocs, inst, sym, alloc);
+        if let Some(sym) = self.globals.paged_sym(b, i) {
+            global_access::emit_paged(bytes, relocs, inst, sym, alloc);
+            return true;
+        }
+        if let Some(acc) = self.globals.access(b, i) {
+            global_access::emit(bytes, relocs, inst, acc, alloc);
             return true;
         }
         if let Some(fc) = self.cmps.get(&b) {

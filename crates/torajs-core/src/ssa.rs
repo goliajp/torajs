@@ -58,7 +58,7 @@ pub use module_methods::{
 pub use op_impls::{BinOp, FPred, IPred, Operand};
 pub use type_def::Type;
 pub use vec::{VecInst, VecOp, VecShape};
-pub use visit::{rewrite_value_operands, visit_value_operands};
+pub use visit::{lowers_to_call, rewrite_value_operands, visit_value_operands};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ValueId(pub u32);
