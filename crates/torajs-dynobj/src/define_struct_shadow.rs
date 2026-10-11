@@ -41,6 +41,28 @@ unsafe extern "C" {
         tag: u64,
         value: u64,
     );
+    /// torajs-dispatch seam — an absent-member set turned into deletion
+    /// records (torajs-meta `struct_absent`).
+    fn __torajs_obj_absent_settle(cell: *mut c_void);
+    /// torajs-meta — clear `key`'s bit in the absent set; 1 if it was set.
+    fn __torajs_obj_absent_clear(cell: *mut c_void, key: *const c_void) -> i64;
+}
+
+/// `torajs_rc::FLAG_OBJ_ABSENT_FIELD` mirror (Tag::Obj-private bit 11).
+const OBJ_HDR_FLAG_ABSENT_FIELD: u16 = 1 << 11;
+
+/// Turn the absent-member set an object literal left on the struct cell
+/// `obj` into deletion records before a define moves its members
+/// (torajs-meta `struct_absent`): one header test when there is none.
+///
+/// # Safety
+/// `obj` is a live `Tag::Obj` heap pointer.
+#[inline]
+pub(crate) unsafe fn settle_absent(obj: *mut c_void) {
+    let hdr = unsafe { (obj.cast::<u8>().add(6) as *const u16).read() };
+    if hdr & OBJ_HDR_FLAG_ABSENT_FIELD != 0 {
+        unsafe { __torajs_obj_absent_settle(obj) };
+    }
 }
 
 /// The sidecar's value word for `key`, or `None` when the instance
@@ -77,6 +99,7 @@ pub unsafe extern "C" fn __torajs_obj_declared_field_deleted(
     obj: *mut c_void,
     key: *mut c_void,
 ) -> i64 {
+    unsafe { settle_absent(obj) };
     let hdr = unsafe { (obj.cast::<u8>().add(6) as *const u16).read() };
     if hdr & OBJ_HDR_FLAG_EXOTIC_FIELD == 0 {
         return 0;
@@ -115,6 +138,37 @@ pub unsafe extern "C" fn __torajs_obj_declared_field_delete(
         __torajs_obj_flag_exotic_field(obj);
     }
     1
+}
+
+/// A store that creates a deleted declared field again (§10.1.9.2 step
+/// 2.c.i; the caller has run the extensible gate): the deletion record
+/// is dropped, which brings back the layout's default attributes, and
+/// the store that follows fills the slot. When no declared name keeps
+/// an entry in the dict the exotic-field bit comes down, so the cell's
+/// typed stores are one store again.
+///
+/// # Safety
+/// `obj` is a live `Tag::Obj` heap pointer carrying a deletion record
+/// for `key`; `key` is a live key cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_obj_declared_field_revive(obj: *mut c_void, key: *mut c_void) {
+    // a member the literal that built the cell left out has no record
+    if unsafe { __torajs_obj_absent_clear(obj, key) } != 0 {
+        return;
+    }
+    let props = unsafe { *(obj.cast::<u8>().add(crate::layout::CELL_PROPS_OFF) as *const u64) }
+        as *mut c_void;
+    unsafe { crate::delete::__torajs_dynobj_delete(props, key) };
+    let n = unsafe { crate::iter::__torajs_dynobj_iter_len(props) };
+    let declared = (0..n).any(|i| {
+        let k = unsafe { crate::iter::__torajs_dynobj_iter_key(props, i) };
+        !k.is_null()
+            && unsafe { crate::define_struct::__torajs_obj_declared_field_attrs(obj, k) } >= 0
+    });
+    if !declared {
+        let flags = unsafe { obj.cast::<u8>().add(6).cast::<u16>() };
+        unsafe { *flags &= !OBJ_HDR_FLAG_EXOTIC_FIELD };
+    }
 }
 
 /// [[Set]] of a payload the layout slot cannot hold: the value goes

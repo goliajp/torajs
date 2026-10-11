@@ -1231,6 +1231,12 @@ mod tests {
         1
     }
     #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_obj_declared_field_revive(
+        _obj: *mut c_void,
+        _key: *mut c_void,
+    ) {
+    }
+    #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_struct_field_find(
         _layout: *const c_void,
         _name: *const u8,

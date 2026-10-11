@@ -64,6 +64,7 @@ pub unsafe extern "C" fn __torajs_obj_prevent_extensions(p: *mut c_void) -> *mut
     }
     // SAFETY: caller's contract is that `p` points at a valid heap
     // block with the universal HeapHeader prefix.
+    unsafe { crate::freeze::settle_absent(p, header(p)) };
     let h = unsafe { header_mut(p) };
     if h.flags & FLAG_STATIC_LITERAL != 0 {
         return p;
@@ -114,6 +115,7 @@ pub unsafe extern "C" fn __torajs_obj_seal_mark(p: *mut c_void) -> *mut c_void {
     if p.is_null() {
         return p;
     }
+    unsafe { crate::freeze::settle_absent(p, header(p)) };
     let h = unsafe { header_mut(p) };
     if h.flags & FLAG_STATIC_LITERAL != 0 {
         return p;

@@ -200,7 +200,10 @@ fn lower_plural(ctx: &mut LowerCtx<'_>, callee: ExprId, args: &[ExprId]) -> Opti
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(ctx.intrinsics.get_property_descriptors, vec![obj_op]),
+        InstKind::Call(
+            ctx.intrinsics.struct_expando.get_property_descriptors,
+            vec![obj_op],
+        ),
         Type::Any,
         None,
     );

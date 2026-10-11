@@ -11,6 +11,7 @@
   "mandelbrot": {"kind": "same"},
   "generic-id-1m": {"kind": "same"},
   "generic-pair-1m": {"kind": "same", "why": "the pair never escapes, so it is a local struct; rustc is free to reduce the loop"},
+  "objlit-optional-field-1m": {"kind": "same", "why": "the record never escapes, so it is a local struct with an Option; rustc is free to keep it in registers"},
   "fifo-queue-100k": {"kind": "same"},
   "fifo-queue-10m": {"kind": "same"},
   "stack-pop-1m": {"kind": "same"},

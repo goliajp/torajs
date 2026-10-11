@@ -114,7 +114,12 @@ cases = ["json-stringify-100k"]
 
 [categories.oop]
 weight = 14
-cases = ["class-method-100k", "class-method-10m", "tokenizer-parser-eval-10k"]
+cases = [
+  "class-method-100k",
+  "class-method-10m",
+  "objlit-optional-field-1m",
+  "tokenizer-parser-eval-10k",
+]
 
 [categories.promise]
 weight = 10

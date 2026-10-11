@@ -20,6 +20,7 @@
 use torajs_codegen::CompiledFunction;
 use torajs_codegen::frame::FrameLayout;
 use torajs_codegen::reloc::{CallTarget, Reloc, RelocKind};
+use torajs_core::ssa::{InstKind, Module, Operand};
 
 /// Mach-O names of the fifteen family arm seams (see
 /// `torajs-anyvalue/src/dispatch_seam.rs`).
@@ -131,6 +132,30 @@ pub(crate) fn append_dispatch_stubs(
         let (bytes, relocs) = reject_stub_body(fam_id as u32);
         funcs.push(CompiledFunction {
             name: name.into(),
+            bytes,
+            relocs,
+            frame: FrameLayout::leaf_no_spill(),
+        });
+    }
+}
+
+/// The absent-member settle seam (torajs-dispatch, fam 58) is entered
+/// only for a struct cell whose header carries `FLAG_OBJ_ABSENT_FIELD`,
+/// and the one writer of that bit is the store an object literal that
+/// leaves a member out makes into its own header. A program none of
+/// whose functions makes such a store gets the stub, and the settle
+/// world (deletion records, the layout table walk) leaves with it.
+pub(crate) fn append_absent_settle_stub(funcs: &mut Vec<CompiledFunction>, module: &Module) {
+    let bit = i32::from(torajs_rc::flags::FLAG_OBJ_ABSENT_FIELD) << 16;
+    let mints = module.funcs.iter().flat_map(|f| &f.blocks).any(|b| {
+        b.insts
+            .iter()
+            .any(|i| matches!(i.kind, InstKind::Store(Operand::ConstI32(v), _, 4) if v & bit != 0))
+    });
+    if !mints {
+        let (bytes, relocs) = reject_stub_body(58);
+        funcs.push(CompiledFunction {
+            name: "___torajs_obj_absent_settle".into(),
             bytes,
             relocs,
             frame: FrameLayout::leaf_no_spill(),

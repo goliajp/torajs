@@ -6,7 +6,10 @@
 //! low half is the class tag. Every compiler-side writer stores that
 //! slot as a whole I64 with a zero high half at allocation, and every
 //! reader of the tag masks, so the half is this module's alone after
-//! the mint.
+//! the mint, except on an object literal's cell that left an optional
+//! member out: there the half is that absent set while
+//! `torajs_rc::flags::FLAG_OBJ_ABSENT_FIELD` is up. Every reader here
+//! settles such a set first ([`settle_absent`]), which zeroes the half.
 
 use crate::member_get_layout::recv_cell;
 use crate::nanbox::AnyValue;
@@ -21,6 +24,23 @@ unsafe extern "C" {
     fn __torajs_obj_is_extensible(p: *const c_void) -> bool;
     /// torajs-meta — the tag a unit class object records (-1 = not one).
     fn __torajs_class_unit_tag_of(cell: *const c_void) -> i64;
+    /// torajs-meta — an absent-member set turned into deletion records.
+    fn __torajs_obj_absent_settle(cell: *mut c_void);
+}
+
+/// Turn the absent-member set of the heap cell `p` into the deletion
+/// records every runtime own-property face reads, when it carries one
+/// (torajs-meta `struct_absent`): one header test otherwise.
+///
+/// # Safety
+/// `p` is a live heap cell.
+#[inline]
+pub(crate) unsafe fn settle_absent(p: *const c_void) {
+    let word = unsafe { p.cast::<u8>().add(4).cast::<u32>().read() };
+    let absent = u32::from(torajs_rc::flags::FLAG_OBJ_ABSENT_FIELD) << 16;
+    if word & 0xFFFF == Tag::Obj as u32 && word & absent != 0 {
+        unsafe { __torajs_obj_absent_settle(p.cast_mut()) };
+    }
 }
 
 fn instance_cell(v: AnyValue) -> Option<*mut c_void> {
@@ -44,6 +64,7 @@ fn instance_cell(v: AnyValue) -> Option<*mut c_void> {
 pub unsafe extern "C" fn __torajs_priv_install(v: AnyValue, from: i64, to: i64) {
     let Some(p) = instance_cell(v) else { return };
     unsafe {
+        settle_absent(p);
         if !__torajs_obj_is_extensible(p) {
             __torajs_throw_type_error(
                 c"cannot add a private element to a non-extensible object".as_ptr(),
@@ -68,7 +89,10 @@ pub unsafe extern "C" fn __torajs_priv_install(v: AnyValue, from: i64, to: i64) 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_priv_cursor(v: AnyValue) -> i64 {
     match instance_cell(v) {
-        Some(p) => i64::from(unsafe { p.cast::<u8>().add(CURSOR_OFF).cast::<u32>().read() }),
+        Some(p) => unsafe {
+            settle_absent(p);
+            i64::from(p.cast::<u8>().add(CURSOR_OFF).cast::<u32>().read())
+        },
         None => -1,
     }
 }

@@ -101,7 +101,7 @@ unsafe extern "C" {
         out: *mut u64,
     ) -> i64;
     /// torajs-dynobj — entry removal; drops the deletion record on revive.
-    fn __torajs_dynobj_delete(obj: *mut c_void, key: *const c_void) -> i32;
+    fn __torajs_obj_declared_field_revive(obj: *mut c_void, key: *mut c_void);
     fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
     fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
 }
@@ -233,8 +233,7 @@ pub(crate) unsafe fn deleted_field_write_gate(
     } {
         return Some(0);
     }
-    let props = unsafe { crate::member_get_layout::struct_props(ptr) };
-    unsafe { __torajs_dynobj_delete(props as *mut c_void, key) };
+    unsafe { __torajs_obj_declared_field_revive(ptr, key.cast_mut()) };
     None
 }
 

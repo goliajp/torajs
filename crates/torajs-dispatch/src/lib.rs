@@ -181,12 +181,11 @@ pub unsafe extern "C" fn __torajs_dispatch_stub_reject(
 
 /// The reject subjects, one string: the fifteen arm families first
 /// (fam_id 0..14, the order `torajs_rc::any_method_family` numbers its
-/// bits), then the named worlds. r505 — one string plus a byte offset
-/// table instead of an array of `&str`: fifteen fat pointers were 240 B
-/// of `__DATA,__const` (each needs a rebase fixup), and that file-backed
-/// section was what kept a whole `__DATA` page in every program whose
-/// dispatch reject stub was live. Offsets into a string are plain
-/// rodata — `__TEXT,__const`, no fixups.
+/// bits), then the named worlds. One string plus a byte offset table
+/// instead of an array of `&str`: fifteen fat pointers were 240 B of
+/// `__DATA,__const` (each needs a rebase fixup), a whole `__DATA` page
+/// in every program whose dispatch reject stub was live. Offsets into
+/// a string are plain rodata — `__TEXT,__const`, no fixups.
 const SUBJECTS: &str = "str\
 arr\
 dynobj\
@@ -222,18 +221,19 @@ array map hole mark\
 unsized cell free\
 typed-array keyed any read\
 struct field-read guard\
+struct absent set\
 method family";
-/// `SUBJECTS[OFF[i]..OFF[i + 1]]` is subject `i` (u16: the string is 500 B).
-const OFF: [u16; 37] = [
+/// `SUBJECTS[OFF[i]..OFF[i + 1]]` is subject `i` (u16: the string is 517 B).
+const OFF: [u16; 38] = [
     0, 3, 6, 12, 18, 24, 28, 34, 38, 45, 51, 57, 63, 70, 74, 77, 99, 113, 130, 149, 172, 198, 216,
-    232, 253, 270, 292, 307, 331, 354, 376, 402, 421, 438, 464, 487, 500,
+    232, 253, 270, 292, 307, 331, 354, 376, 402, 421, 438, 464, 487, 504, 517,
 ];
 const ARM_FAMILY_COUNT: u64 = 15;
 /// Subject indices past the arm families.
 const SUBJ_NS_STATIC: usize = 15;
 const SUBJ_PRINTER: usize = 16;
 const SUBJ_LINK_FIRST: usize = 17;
-const SUBJ_FALLBACK: usize = 35;
+const SUBJ_FALLBACK: usize = 36;
 
 const REJECT_METHOD_FAMILY: &str = " method family";
 const REJECT_DISPATCH_TAIL: &str = " stripped (dispatch judgment bug)";
@@ -265,7 +265,7 @@ fn reject_message(fam_id: u64, buf: &mut [u8; REJECT_MSG_CAP]) -> usize {
         n if n < ARM_FAMILY_COUNT => (n as usize, REJECT_METHOD_FAMILY, REJECT_DISPATCH_TAIL),
         15 => (SUBJ_NS_STATIC, "", REJECT_DISPATCH_TAIL),
         16..40 => (SUBJ_PRINTER, "", REJECT_DISPATCH_TAIL),
-        40..=57 => (
+        40..=58 => (
             SUBJ_LINK_FIRST + (fam_id - 40) as usize,
             "",
             REJECT_LINK_TAIL,
@@ -343,7 +343,7 @@ mod tests {
             "typed-array keyed any read stripped (link judgment bug)",
         );
         assert_line(57, "struct field-read guard stripped (link judgment bug)");
-        assert_line(58, "method family stripped (dispatch judgment bug)");
+        assert_line(58, "struct absent set stripped (link judgment bug)");
         assert_line(u64::MAX, "method family stripped (dispatch judgment bug)");
     }
 

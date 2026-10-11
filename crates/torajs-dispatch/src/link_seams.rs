@@ -31,6 +31,7 @@ unsafe extern "C" {
         strict: i64,
     ) -> i64;
     fn __torajs_obj_field_get_exotic_impl(p: *mut u8, name: *const u8) -> u64;
+    fn __torajs_obj_absent_settle_impl(cell: *mut core::ffi::c_void);
     fn __torajs_arr_sort_exotic_impl(arr: *mut core::ffi::c_void, cmp: u64) -> u64;
     fn __torajs_arr_mark_last_hole(arr: *mut core::ffi::c_void);
     fn __torajs_arr_typed_nonint_f64_impl(arr: *mut core::ffi::c_void, key: f64) -> f64;
@@ -157,6 +158,19 @@ pub unsafe extern "C" fn __torajs_obj_field_set_exotic(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_obj_field_get_exotic(p: *mut u8, name: *const u8) -> u64 {
     unsafe { __torajs_obj_field_get_exotic_impl(p, name) }
+}
+
+/// Default resolution of the absent-member settle (torajs-meta
+/// `struct_absent`): a runtime own-property face meets a struct cell
+/// whose header says an object literal left a member out, and turns
+/// that set into deletion records. `tr build` stubs it (fam 58) when no
+/// function of the program stores the bit (`cmd_build_dispatch_stubs`).
+///
+/// # Safety
+/// `cell` is a live `Tag::Obj` cell carrying the absent-field bit.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_obj_absent_settle(cell: *mut core::ffi::c_void) {
+    unsafe { __torajs_obj_absent_settle_impl(cell) }
 }
 
 /// Default resolution of a class prologue cell's exit release (r503):

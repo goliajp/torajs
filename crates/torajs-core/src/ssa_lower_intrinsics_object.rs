@@ -152,9 +152,6 @@ pub(crate) struct ObjectIds {
     /// §28.1.3 Reflect.deleteProperty — the OrdinaryDelete kernel's
     /// no-throw flavor (refusal answers 0 with no pending throw).
     pub any_prop_delete_soft: FuncId,
-    /// Is a declared field of a struct cell recorded deleted (or left
-    /// out of the literal that built the cell)? 1 / 0.
-    pub obj_field_deleted: FuncId,
     /// §28.1.13 Reflect.set — the [[Set]] kernel's no-throw flavor
     /// (refusal answers 0 with no pending throw; setter throws
     /// still propagate). §13.15.2 sloppy assignment rides the same
@@ -310,7 +307,6 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         dynobj_has: decl!("__torajs_dynobj_has", [Ptr, Ptr], I32),
         dynobj_delete: decl!("__torajs_dynobj_delete", [Ptr, Ptr], I32),
         any_prop_delete_soft: decl!("__torajs_any_prop_delete_soft", [Any, Ptr], I64),
-        obj_field_deleted: decl!("__torajs_obj_declared_field_deleted", [Ptr, Ptr], I64),
         any_member_set_soft: decl!(
             "__torajs_any_member_set_soft",
             [Ptr, Ptr, I64, I64, I64],

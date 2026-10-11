@@ -1,9 +1,6 @@
 //! [`crate::HeapHeader`] `flags` field — bit-position constants.
 //!
-//! Split out of `lib.rs` (file-size hard limit; RFC
-//! 20260713-defprop-residual-cluster chunk A pushed the root file
-//! over 500). Re-exported at crate root so downstream crates keep
-//! writing `torajs_rc::FLAG_FROZEN` etc.
+//! Re-exported at crate root (`torajs_rc::FLAG_FROZEN`).
 //!
 //! ## Occupancy map (u16)
 //!
@@ -26,7 +23,7 @@
 //! | 10-11 | [`FLAG_FN_NAME_DELETED`] / [`FLAG_FN_LENGTH_DELETED`] | Closure (disjoint-by-tag with Arr kind) |
 //! | 10    | [`FLAG_DYNOBJ_CLASS_CTOR`] | DynObj (disjoint-by-tag with Closure / Arr) |
 //! | 12    | [`FLAG_DYNOBJ_MODULE_NS`] | DynObj (disjoint-by-tag with Closure / Obj / Arr) |
-//! | 11    | [`FLAG_DYNOBJ_RAW_JSON`] (DynObj) / `STR_FLAG_HAS_CAPACITY` (torajs-str private, Str) | disjoint-by-tag with Closure / Arr |
+//! | 11    | [`FLAG_DYNOBJ_RAW_JSON`] (DynObj) / `STR_FLAG_HAS_CAPACITY` (torajs-str private, Str) / [`FLAG_OBJ_ABSENT_FIELD`] (Obj) | disjoint-by-tag with Closure / Arr |
 //! | 10    | [`FLAG_PROXY_CALLABLE`] | Proxy (disjoint-by-tag with DynObj / Closure / Arr) |
 //! | 11    | [`FLAG_PROXY_CONSTRUCTOR`] (Proxy) / `FLAG_RX_ENV` (torajs-promise private, Promise) | disjoint-by-tag with DynObj / Closure / Arr |
 //! | 10    | [`FLAG_MAP_VALUES_NUMBER`] (Map; torajs-collections mirrors it) / `FLAG_LIST_EDGE` (torajs-promise private, Promise) | disjoint-by-tag |
@@ -35,9 +32,7 @@
 //!
 //! Bits 13-14 look free in a flag-constants-only read but are painted
 //! by the cycle collector on EVERY tag: buffering a candidate sets
-//! Purple = bit 14 (RFC 20260713-defprop-residual-cluster chunk A —
-//! `defineProperties(arr, {})`'s receiver dec buffered the array
-//! Purple, which read back as a locked length).
+//! Purple = bit 14, which an Arr once read back as a locked length.
 
 /// Exotic builtin cell minted as a user-class instance (RFC
 /// 20260730-exotic-backed-class-instance blade 0) — `class C extends
@@ -296,6 +291,11 @@ pub const FLAG_OBJ_EXPANDO: u16 = 1 << 12;
 /// Bit 6 is Tag::Obj-private (disjoint-by-tag with DynObj's NULL_PROTO
 /// bit, which says the same thing about the dict itself).
 pub const FLAG_OBJ_USER_PROTO: u16 = 1 << 6;
+/// `Tag::Obj` instance lacks a declared member an object literal left
+/// out; while up, the high half of the `+8` word is that absent set
+/// (bit `i` = layout slot `i`), not a private-element cursor. Bit 11
+/// is Tag::Obj-private. Protocol: torajs-meta `struct_absent`.
+pub const FLAG_OBJ_ABSENT_FIELD: u16 = 1 << 11;
 /// `Tag::Arr` `length` property lock (RFC 20260712-arr-exotic-define
 /// chunk D) — `Object.defineProperty(arr, "length", {writable:
 /// false})` sets it; every later length mutation (assign / define /

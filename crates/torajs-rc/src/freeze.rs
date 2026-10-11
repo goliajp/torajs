@@ -35,6 +35,27 @@ unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const u8);
     fn __torajs_anyv_unbox_tag(v: i64) -> i64;
     fn __torajs_anyv_unbox_value(v: i64) -> i64;
+    /// torajs-dispatch seam — an absent-member set turned into the
+    /// deletion records (torajs-meta `struct_absent`).
+    #[cfg(not(test))]
+    fn __torajs_obj_absent_settle(cell: *mut c_void);
+}
+
+// cargo-test stand-in: no cell under test carries an absent set
+#[cfg(test)]
+unsafe fn __torajs_obj_absent_settle(_cell: *mut c_void) {}
+
+/// An integrity level moves the attributes of the members an object
+/// has; one an object literal left out is no member, so a struct cell
+/// that carries an absent set settles it first (the set never coexists
+/// with these bits).
+///
+/// # Safety
+/// `h` is the live header of the cell `p`.
+pub(crate) unsafe fn settle_absent(p: *mut c_void, h: &HeapHeader) {
+    if h.type_tag == Tag::Obj as u16 && h.flags & crate::flags::FLAG_OBJ_ABSENT_FIELD != 0 {
+        unsafe { __torajs_obj_absent_settle(p) };
+    }
 }
 
 #[inline]
@@ -81,6 +102,7 @@ pub unsafe extern "C" fn __torajs_obj_freeze(p: *mut c_void) -> *mut c_void {
     }
     // SAFETY: caller's contract is that `p` points at a valid heap
     // block with the universal HeapHeader prefix.
+    unsafe { settle_absent(p, header(p)) };
     let h = unsafe { header_mut(p) };
     if h.flags & FLAG_STATIC_LITERAL != 0 {
         return p;

@@ -20,6 +20,7 @@
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{BinOp, IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::{LowerCtx, OBJ_CLASS_TAG_OFF};
+use torajs_rc::{FLAG_NON_EXTENSIBLE as NON_EXT, flags::FLAG_OBJ_ABSENT_FIELD as ABSENT};
 
 pub(crate) fn try_lower(ctx: &mut LowerCtx<'_>, name: &str, args: &[ExprId]) -> Option<Operand> {
     match name {
@@ -60,11 +61,9 @@ fn lower_install(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
 
 /// A class instance's cursor sits in the high half of its +8 slot:
 /// standing at `from` on an extensible cell it moves by `to - from`;
-/// anywhere else — or on a cell `Object.preventExtensions` marked —
-/// the kernel raises the TypeError (duplicate add, or the proposal's
-/// non-extensible refusal). The flag word is the header's +4 (tag in
-/// the low half, flags in the high), read the way `emit_obj_tag_gate`
-/// reads it.
+/// anywhere else — or on a cell `Object.preventExtensions` marked, or
+/// whose literal parked its absent set in that half — the kernel
+/// answers. The flag word is the header's +4 (`emit_obj_tag_gate`).
 fn lower_install_inline(ctx: &mut LowerCtx<'_>, recv: Operand, from: i64, to: i64) {
     let slot = ctx.f.append_inst(
         ctx.cur_block,
@@ -95,7 +94,7 @@ fn lower_install_inline(ctx: &mut LowerCtx<'_>, recv: Operand, from: i64, to: i6
         InstKind::BinOp(
             BinOp::And,
             Operand::Value(flags_word),
-            Operand::ConstI32(((torajs_rc::FLAG_NON_EXTENSIBLE as u32) << 16) as i32),
+            Operand::ConstI32((((NON_EXT | ABSENT) as u32) << 16) as i32),
         ),
         Type::I32,
         None,

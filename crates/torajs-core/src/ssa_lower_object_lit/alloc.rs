@@ -47,12 +47,14 @@ pub(super) fn alloc_obj(
     )
 }
 
+/// Answers the header word at `+4` the cell starts with (`Tag::Obj`,
+/// and the Error flag on an Error-derived class's instance).
 pub(super) fn init_header(
     ctx: &mut LowerCtx<'_>,
     obj_ptr: crate::ssa::ValueId,
     _sid: StructId,
     owner: Option<&str>,
-) {
+) -> i32 {
     ctx.emit_obj_header_init(Operand::Value(obj_ptr));
     let cell_class = match owner {
         Some(cname) => Some(cname.to_owned()),
@@ -67,7 +69,9 @@ pub(super) fn init_header(
             cur_block,
             InstKind::Store(Operand::ConstI32(packed), Operand::Value(obj_ptr), 4),
         );
+        return packed;
     }
+    1
 }
 
 pub(super) fn write_class_tag(

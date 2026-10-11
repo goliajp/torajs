@@ -33,9 +33,9 @@ fn emit_expando_probe(
 ) -> Operand {
     let boxed = ctx.box_to_any(*recv_op);
     let target = if is_enumerable_probe {
-        ctx.intrinsics.any_prop_enumerable
+        ctx.intrinsics.struct_expando.any_prop_enumerable
     } else {
-        ctx.intrinsics.any_own_prop_has
+        ctx.intrinsics.struct_expando.any_own_prop_has
     };
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
@@ -179,7 +179,7 @@ pub(crate) fn emit_obj_has_own_property(
             None,
         );
         let mut eq_op = Operand::Value(eq);
-        if ctx.ast.absent_field_names.contains(public) {
+        if ctx.ast.mints_absent_set {
             let own =
                 crate::ssa_lower_object_lit::absent::declared_field_own(ctx, *recv_op, public);
             let and = ctx.f.append_inst(

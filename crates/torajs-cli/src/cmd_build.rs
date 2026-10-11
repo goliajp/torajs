@@ -231,8 +231,7 @@ pub(crate) fn build_link_config(
     let mut funcs = compile_module_funcs(ssa_module);
     t.tick("compile_module_funcs");
     // S2-5 blade 2b: judge which dispatch families the program can
-    // never enter and stub their arm seams (module docs in
-    // cmd_build_dispatch_judge / cmd_build_dispatch_stubs).
+    // never enter and stub their arm seams (cmd_build_dispatch_judge).
     // TORAJS_DISPATCH_STUB_ALL forces every family (pricing);
     // TORAJS_DISPATCH_STUB_OFF disables the judgment entirely.
     if crate::cmd_build_dispatch_stubs::stub_all_enabled() {
@@ -245,6 +244,7 @@ pub(crate) fn build_link_config(
             j.stub_ns_static,
             j.stub_printers,
         );
+        crate::cmd_build_dispatch_stubs::append_absent_settle_stub(&mut funcs, ssa_module);
     }
 
     t.tick("dispatch_stubs");

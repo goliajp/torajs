@@ -102,7 +102,7 @@ pub(crate) fn lower(
         .map(|(n, _)| n.clone())
         .collect();
     let (mut field_tys, mut field_vals, parked, spreads, spread_absent) =
-        lower_field_entries(ctx, (eid, &fields), declared_hint);
+        lower_field_entries(ctx, &fields, declared_hint);
     // Every field is lowered; nothing below can throw before the
     // stores transfer the owned values into the object.
     for t in parked {
@@ -111,9 +111,6 @@ pub(crate) fn lower(
     let absent = absent::absent_fields(ctx, eid, &fields);
     absent::insert_absent(&absent, &mut field_tys, &mut field_vals);
     undef_fields.extend(absent.iter().map(|(_, n)| n.clone()));
-    // the deletion record hangs a dict off the cell, which a frame
-    // slot's end of scope would never release
-    let stack_hint = stack_hint.filter(|_| absent.is_empty() && spread_absent.is_empty());
     apply_w4_widen(ctx, &mut field_tys, &mut field_vals, eid, declared_hint);
     // An `undefined` literal has no type of its own — its field's
     // DECLARED slot type is the truth, and the sentinel it lands is
@@ -149,6 +146,18 @@ pub(crate) fn lower(
         &mut field_vals,
         declared_hint,
     );
+    let slot = |n: &PropKey| {
+        field_tys
+            .iter()
+            .position(|(k, _)| k == n)
+            .unwrap_or(usize::MAX)
+    };
+    let fixed: Vec<usize> = absent.iter().map(|(_, n)| slot(n)).collect();
+    let cond: Vec<(usize, Operand)> = spread_absent.iter().map(|(n, v)| (slot(n), *v)).collect();
+    let in_set = absent::fits_set(fixed.iter().chain(cond.iter().map(|(i, _)| i)).copied());
+    // a deletion record hangs a dict off the cell, which a frame
+    // slot's end of scope would never release
+    let stack_hint = stack_hint.filter(|_| in_set || (absent.is_empty() && cond.is_empty()));
     let any_refcounted = field_tys.iter().any(|(_, ty)| ty.is_refcounted());
     let obj_ptr = alloc_obj(ctx, sid, field_tys.len(), any_refcounted, stack_hint);
     // Which class is this cell? Normally the factory being lowered
@@ -159,7 +168,7 @@ pub(crate) fn lower(
     // onto it.
     let owner = ctx.ast.field_default_objlits.get(&eid).cloned();
     let owner = owner.as_deref();
-    init_header(ctx, obj_ptr, sid, owner);
+    let hdr = init_header(ctx, obj_ptr, sid, owner);
     write_class_tag(ctx, obj_ptr, sid, owner, order.as_deref());
     if owner.is_none() && !ctx.f.name.starts_with("__new_") {
         order::retag_for_spread_sources(ctx, obj_ptr, sid, &fields, &spreads);
@@ -237,8 +246,12 @@ pub(crate) fn lower(
             InstKind::Store(*val, Operand::Value(obj_ptr), offset),
         );
     }
-    absent::mark_absent(ctx, obj_ptr, &absent);
-    absent::mark_absent_if(ctx, obj_ptr, &spread_absent);
+    if in_set {
+        absent::raise_set(ctx, obj_ptr, hdr, &fixed, &cond);
+    } else {
+        let fixed: Vec<PropKey> = absent.into_iter().map(|(_, n)| n).collect();
+        absent::record_deleted(ctx, obj_ptr, &fixed, &spread_absent);
+    }
     Operand::Value(obj_ptr)
 }
 
@@ -254,7 +267,7 @@ type FieldEntries = (
 
 fn lower_field_entries(
     ctx: &mut LowerCtx<'_>,
-    (lit, entries): (ExprId, &[(PropKey, ExprId)]),
+    entries: &[(PropKey, ExprId)],
     declared_hint: Option<StructId>,
 ) -> FieldEntries {
     // Chunk 785 — the outer declared layout also pins NESTED object
@@ -294,7 +307,7 @@ fn lower_field_entries(
             let omit: Vec<PropKey> = omit.iter().map(|s| PropKey::from(*s)).collect();
             let (op, sid) = crate::ssa_lower_object_lit_spread::unfold_spread(
                 ctx,
-                (lit, *eid),
+                (*eid, &entries[..entry]),
                 &omit,
                 &mut field_tys,
                 &mut field_vals,

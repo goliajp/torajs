@@ -221,19 +221,13 @@ pub(crate) unsafe fn struct_keys_with_expandos(
     include_nonenum: i64,
 ) -> *mut c_void {
     let props = unsafe { struct_props(cell) };
-    if props.is_null() {
+    // the expando keys in ES dict order (BORROWED cells)
+    let Some(order) = (unsafe { crate::struct_absent::expando_order(cell, props) }) else {
         return static_names;
-    }
-    let n_props = unsafe { __torajs_dynobj_iter_len(props) };
-    if n_props == 0 {
-        return static_names;
-    }
-    // Collect the expando keys in ES dict order (BORROWED cells).
-    let mut order = vec![0u64; n_props as usize];
-    let n = unsafe { __torajs_dynobj_iter_order(props, order.as_mut_ptr(), n_props) };
+    };
     let mut exp_ints: Vec<(u64, *mut c_void)> = Vec::new();
     let mut exp_tail: Vec<*mut c_void> = Vec::new();
-    for &i in order.iter().take(n as usize) {
+    for &i in &order {
         if include_nonenum == 0 {
             let flags = unsafe { __torajs_dynobj_iter_flags(props, i) };
             if flags & FLAG_ENUMERABLE == 0 {

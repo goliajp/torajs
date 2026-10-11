@@ -6,6 +6,8 @@ use crate::ast::{Expr, ExprId};
 use crate::ssa::{BlockId, IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::LowerCtx;
 
+mod absent;
+
 /// A generator machine writing or reading its own state: those fields
 /// are the generator's internal slots (§27.5.2), which no integrity
 /// level reaches (§7.3.16 walks own property keys), so
@@ -60,7 +62,12 @@ pub(crate) fn emit_field_writable_guard(
         Type::I32,
         None,
     );
-    let guard_bits = ((torajs_rc::FLAG_FROZEN | torajs_rc::FLAG_OBJ_EXOTIC_FIELD) as u32) << 16;
+    let absent = match ctx.ast.mints_absent_set {
+        true => torajs_rc::flags::FLAG_OBJ_ABSENT_FIELD,
+        false => 0,
+    };
+    let guard_bits =
+        ((torajs_rc::FLAG_FROZEN | torajs_rc::FLAG_OBJ_EXOTIC_FIELD | absent) as u32) << 16;
     let masked = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::BinOp(
@@ -89,6 +96,9 @@ pub(crate) fn emit_field_writable_guard(
         },
     );
     ctx.cur_block = check_blk;
+    if absent != 0 {
+        absent::clear_absent(ctx, (obj_val, Operand::Value(masked)), field, store_blk);
+    }
     let v_ty = ctx.operand_ty(&v);
     // the leg takes its own stake in the payload; the caller's stays
     // with the slot store (or the parked throw temp)

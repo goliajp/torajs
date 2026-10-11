@@ -21,7 +21,6 @@
 //! - `__torajs_anyv_*` family — `torajs-anyvalue`
 //! - `__torajs_rc_inc` — `torajs-rc`
 //! - `__torajs_str_alloc_pooled / str_drop` — `torajs-str`
-//! - `__torajs_value_drop_heap` — `runtime_str.c` (will move in P7.i)
 
 pub(crate) mod arr_reflect;
 pub(crate) mod buffer_reflect;
@@ -68,6 +67,7 @@ mod reflect_proto_set_faces;
 pub mod str_descriptor;
 pub(crate) mod str_wtf8;
 pub mod string_raw;
+pub(crate) mod struct_absent;
 pub mod struct_enum;
 pub mod struct_enum_order;
 pub mod struct_field_attrs;

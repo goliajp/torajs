@@ -12,6 +12,7 @@
   "collatz": {"kind": "different", "why": "u64 n & 1 and n >>= 1 where main.ts needs f64 % 2 and / 2"},
   "generic-id-1m": {"kind": "suppressed", "why": "noinline loop_sum keeps the sum out of the push loop"},
   "generic-pair-1m": {"kind": "same", "why": "the pair never escapes, so it is a local struct; clang is free to reduce the loop"},
+  "objlit-optional-field-1m": {"kind": "same", "why": "the record never escapes, so it is a local struct with a presence flag; clang is free to keep it in registers"},
   "fifo-queue-100k": {"kind": "same", "why": "growable ring buffer, mirrors VecDeque"},
   "fifo-queue-10m": {"kind": "same", "why": "growable ring buffer, mirrors VecDeque"},
   "stack-pop-1m": {"kind": "same"},

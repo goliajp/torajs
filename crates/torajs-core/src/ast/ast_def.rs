@@ -273,17 +273,14 @@ pub struct Ast {
     /// both operand types are known at compile time, so the outcome is
     /// decided here rather than re-derived at run time.
     ///
-    /// This is the one thing neither neighbour can do: an engine that
-    /// erased the types must run the coercions to find out, and a type
-    /// checker that only reports produces no executable. The entry
-    /// means "evaluate the operands for their effects, then raise" —
-    /// `ssa_lower_spec_throw` emits exactly that, with no type
+    /// An entry means "evaluate the operands for their effects, then
+    /// raise" — `ssa_lower_spec_throw` emits exactly that, with no type
     /// dispatch. Parked by `check_monomorph` on the owned post-check
     /// AST (same ride as `undeclared_reads`). Empty pre-check.
     pub spec_throws: std::collections::HashMap<ExprId, String>,
-    /// Field names some object literal leaves out of its declared type,
-    /// which no static own-property fold may answer. Parked post-check.
-    pub absent_field_names: std::collections::HashSet<PropKey>,
+    /// Some object literal leaves out a member of its declared type, so
+    /// the own-property folds ask the cell. Parked post-check.
+    pub mints_absent_set: bool,
     /// Lifted closures whose return type was SEEDED from the position
     /// they were passed to (a builtin callback slot, a fn-typed
     /// parameter / binding), not written by the user. The annotation

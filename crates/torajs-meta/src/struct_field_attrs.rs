@@ -94,6 +94,11 @@ pub unsafe extern "C" fn __torajs_obj_field_is_nonenumerable(
     name: *const u8,
     name_len: u32,
 ) -> i64 {
+    let want = unsafe { core::slice::from_raw_parts(name, name_len as usize) };
+    // a member a literal left out reads like its deletion record
+    if unsafe { crate::struct_absent::lacks(cell, want) } {
+        return 1;
+    }
     let flags = unsafe { cell.cast::<u8>().add(6).cast::<u16>().read() };
     if flags & OBJ_HDR_FLAG_EXOTIC_FIELD == 0 {
         return 0;
@@ -102,7 +107,6 @@ pub unsafe extern "C" fn __torajs_obj_field_is_nonenumerable(
     if props.is_null() {
         return 0;
     }
-    let want = unsafe { core::slice::from_raw_parts(name, name_len as usize) };
     let n = unsafe { __torajs_dynobj_iter_len(props) };
     for i in 0..n {
         let key = unsafe { __torajs_dynobj_iter_key(props, i) };
@@ -157,6 +161,12 @@ pub unsafe extern "C" fn __torajs_obj_field_is_deleted(
     name: *const u8,
     name_len: u32,
 ) -> i64 {
+    let want = unsafe { core::slice::from_raw_parts(name, name_len as usize) };
+    // a member the literal that built the cell left out (never on a
+    // cell that also carries sidecars)
+    if unsafe { crate::struct_absent::lacks(cell, want) } {
+        return 1;
+    }
     let flags = unsafe { cell.cast::<u8>().add(6).cast::<u16>().read() };
     if flags & OBJ_HDR_FLAG_EXOTIC_FIELD == 0 {
         return 0;
@@ -165,7 +175,6 @@ pub unsafe extern "C" fn __torajs_obj_field_is_deleted(
     if props.is_null() {
         return 0;
     }
-    let want = unsafe { core::slice::from_raw_parts(name, name_len as usize) };
     let n = unsafe { __torajs_dynobj_iter_len(props) };
     for i in 0..n {
         let key = unsafe { __torajs_dynobj_iter_key(props, i) };

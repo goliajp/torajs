@@ -50,8 +50,13 @@ const FLAGS_SHIFT: u32 = 48;
 /// `cell` must be a live, non-NULL `Tag::Obj` operand — see the module
 /// doc.
 pub(crate) fn emit_exotic_field_test(ctx: &mut LowerCtx<'_>, cell: &Operand) -> Operand {
-    let mask =
-        ((torajs_rc::FLAG_OBJ_EXOTIC_FIELD | torajs_rc::FLAG_OBJ_EXPANDO) as i64) << FLAGS_SHIFT;
+    // a literal that left a member out moves the own set the same way
+    let absent = match ctx.ast.mints_absent_set {
+        true => torajs_rc::flags::FLAG_OBJ_ABSENT_FIELD,
+        false => 0,
+    };
+    let mask = ((torajs_rc::FLAG_OBJ_EXOTIC_FIELD | torajs_rc::FLAG_OBJ_EXPANDO | absent) as i64)
+        << FLAGS_SHIFT;
     let hdr = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(Type::I64, *cell, 0),

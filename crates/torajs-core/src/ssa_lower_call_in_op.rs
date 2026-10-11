@@ -30,7 +30,7 @@
 //! a compiler bug.
 
 use crate::ast::{Expr, ExprId};
-use crate::ssa::{IPred, InstKind, Operand, Type};
+use crate::ssa::{BinOp, IPred, InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
 mod priv_in;
@@ -138,17 +138,20 @@ pub(crate) fn lower_has_property(
             // to the runtime rather than folding, which is where the
             // guard already lives.
             let is_internal_spelling = crate::check_type_of_object_lit::accessor_slot(s).is_some();
-            // a field some literal leaves out may be absent from this
-            // cell, which only the runtime face can tell
             let present = !is_internal_spelling
-                && !ctx.ast.absent_field_names.contains(&**s)
                 && layout.iter().any(|(n, _)| {
                     n == s
                         || crate::check_type_of_object_lit::accessor_slot(n)
                             .is_some_and(|(_, prop)| *prop == **s)
                 });
-            if present {
+            if present && !ctx.ast.mints_absent_set {
                 return Operand::ConstBool(true);
+            }
+            // a member a literal left out is no own property, and the
+            // chain answers for it
+            if present {
+                let s = s.clone();
+                return absent_member_in(ctx, obj_op, &s);
             }
         }
         // The layout scan can only prove PRESENCE. Absence is not a
@@ -254,4 +257,86 @@ pub(crate) fn lower_has_property(
         }
     }
     panic!("ssa-lower: `in` rhs unsupported type {obj_ty:?}");
+}
+
+/// The members `Object.prototype` has before user code adds any.
+const OBJECT_PROTO_MEMBERS: [&str; 12] = [
+    "constructor",
+    "hasOwnProperty",
+    "isPrototypeOf",
+    "propertyIsEnumerable",
+    "toLocaleString",
+    "toString",
+    "valueOf",
+    "__defineGetter__",
+    "__defineSetter__",
+    "__lookupGetter__",
+    "__lookupSetter__",
+    "__proto__",
+];
+
+/// `"k" in o` for a member `k` the layout of the struct `obj` declares,
+/// in a program where some literal leaves a member out: true when the
+/// cell owns it (one inline test), else the prototype chain answers.
+fn absent_member_in(ctx: &mut LowerCtx<'_>, obj: Operand, key: &torajs_wtf8::Wtf8) -> Operand {
+    let own = crate::ssa_lower_object_lit::absent::declared_field_own(ctx, obj, key);
+    let slot = ctx.alloca_in_entry(Type::Bool, Some("__in_own"));
+    ctx.f
+        .append_void(ctx.cur_block, InstKind::Store(own, Operand::Value(slot), 0));
+    let (chain, cont) = (ctx.f.add_block(), ctx.f.add_block());
+    ctx.f.set_term(
+        ctx.cur_block,
+        crate::ssa::Terminator::CondBr {
+            cond: own,
+            then_blk: cont,
+            else_blk: chain,
+        },
+    );
+    ctx.cur_block = chain;
+    let k = Operand::Value(ctx.intern_string_literal(key));
+    let r = match OBJECT_PROTO_MEMBERS.iter().any(|m| key == *m) {
+        // the builtin members answer through the interned prototype tables
+        true => {
+            let boxed = ctx.box_to_any(obj);
+            let call = InstKind::Call(ctx.intrinsics.in_op_any_str, vec![boxed, k]);
+            Operand::Value(ctx.f.append_inst(chain, call, Type::Bool, None))
+        }
+        // the cell's own words, never the cell: a frame cell stays put
+        false => {
+            let load = |ctx: &mut LowerCtx<'_>, ty, off| {
+                let v = ctx
+                    .f
+                    .append_inst(chain, InstKind::Load(ty, obj, off), ty, None);
+                Operand::Value(v)
+            };
+            let hdr = load(ctx, Type::I32, 4);
+            let flags = ctx
+                .f
+                .append_inst(chain, InstKind::ZExtI32ToI64(hdr), Type::I64, None);
+            let flags = ctx.f.append_inst(
+                chain,
+                InstKind::BinOp(BinOp::LShr, Operand::Value(flags), Operand::ConstI64(16)),
+                Type::I64,
+                None,
+            );
+            let tag = load(ctx, Type::I64, 8);
+            let props = load(ctx, Type::Ptr, crate::ssa_lower::OBJ_PROPS_OFF);
+            let args = vec![Operand::Value(flags), tag, props, k];
+            let call = InstKind::Call(ctx.intrinsics.struct_expando.struct_lacks_in, args);
+            let r = ctx.f.append_inst(chain, call, Type::I64, None);
+            let cmp = InstKind::ICmp(IPred::Ne, Operand::Value(r), Operand::ConstI64(0));
+            Operand::Value(ctx.f.append_inst(chain, cmp, Type::Bool, None))
+        }
+    };
+    ctx.f
+        .append_void(chain, InstKind::Store(r, Operand::Value(slot), 0));
+    ctx.f.set_term(chain, crate::ssa::Terminator::Br(cont));
+    ctx.cur_block = cont;
+    let v = ctx.f.append_inst(
+        cont,
+        InstKind::Load(Type::Bool, Operand::Value(slot), 0),
+        Type::Bool,
+        None,
+    );
+    Operand::Value(v)
 }

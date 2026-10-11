@@ -110,6 +110,8 @@ pub(crate) fn check(
     // names the fields). Remaining fields still typecheck below for
     // side effects.
     let mut dynobj_lane = false;
+    // members a spread source may lack, with no member before spelling them
+    let mut optional: Vec<PropKey> = Vec::new();
     // A rejected field must not take its SIBLINGS' visits with it —
     // `type_of` records into `expr_types` only on Ok, so `{ m: a - b,
     // n: o.q === undefined }` left `n`'s value untyped and lowering
@@ -189,15 +191,23 @@ pub(crate) fn check(
                 if omit.iter().any(|o| sn == *o) {
                     continue;
                 }
+                // §7.3.25 copies only the keys the source owns: an
+                // optional member it lacks keeps the earlier value, and
+                // stays optional when nothing before spelled it
+                let maybe = src_fields.is_optional(&sn);
+                if !maybe {
+                    optional.retain(|o| *o != sn);
+                }
                 if let Some(pos) = field_tys.iter().position(|(k, _)| *k == sn) {
-                    // §7.3.25 copies only the keys the source owns: an
-                    // optional member it lacks keeps the earlier value
-                    let st = match src_fields.is_optional(&sn) && field_tys[pos].1 != st {
+                    let st = match maybe && field_tys[pos].1 != st {
                         true => Type::union_of([field_tys[pos].1.clone(), st]),
                         false => st,
                     };
                     field_tys[pos] = (sn, st);
                 } else {
+                    if maybe {
+                        optional.push(sn.clone());
+                    }
                     field_tys.push((sn, st));
                 }
             }
@@ -241,6 +251,7 @@ pub(crate) fn check(
                     continue;
                 }
             };
+            optional.retain(|o| o != n);
             if let Some(pos) = field_tys.iter().position(|(k, _)| k == n) {
                 field_tys[pos] = (n.clone(), ty);
             } else {
@@ -254,5 +265,7 @@ pub(crate) fn check(
     if dynobj_lane {
         return Ok(Type::Any);
     }
-    Ok(Type::Struct(field_tys.into()))
+    Ok(Type::Struct(
+        crate::check::StructFields::from(field_tys).with_optional(optional),
+    ))
 }

@@ -36,7 +36,6 @@ use crate::layout::{
 
 /// torajs-core `ssa_lower::OBJ_CLASS_TAG_OFF` mirror — the u32 class
 /// tag right after the universal heap header of a `Tag::Obj` cell.
-/// Named so a sweep for class-tag read points finds this one.
 const OBJ_CLASS_TAG_OFF: usize = 8;
 use crate::probe::{bucket_flags, entries, key_str_bytes, probe};
 
@@ -50,7 +49,6 @@ const OBJ_HDR_FLAG_ERROR: u16 = 1 << 7;
 
 /// `torajs_rc::FLAG_OBJ_EXOTIC_FIELD` mirror — bit 15, "this instance
 /// carries at least one declared field with non-default attributes".
-/// The typed store's gate reads it; see that constant's doc.
 const OBJ_HDR_FLAG_EXOTIC_FIELD: u16 = 1 << 15;
 
 /// `torajs_rc::FLAG_OBJ_EXPANDO` mirror — bit 12, "this instance owns
@@ -157,6 +155,7 @@ pub(crate) unsafe fn struct_receiver_define(
     flags_byte: u64,
     throw_on_refusal: bool,
 ) -> Option<i64> {
+    unsafe { crate::define_struct_shadow::settle_absent(obj) };
     match unsafe { struct_declares(obj, key) } {
         Declared::No => {
             Some(unsafe { struct_define(obj, key, tag, value, flags_byte, throw_on_refusal) })
