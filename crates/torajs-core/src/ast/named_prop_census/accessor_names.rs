@@ -11,14 +11,28 @@
 //! `Object` / `Reflect` / `globalThis` held as a value or read as a
 //! property — may reach any name. Like the other censuses it runs over the user's code before
 //! injection, over every expression in the arena, reachable or not.
+//!
+//! One spelling needs the checker's types: a computed-key read
+//! (`O["define" + "Property"]`) hands a definer out as a value when its
+//! receiver can hold `Object` or `Reflect`, which a value of type `any`
+//! can (`({} as any).constructor`). The census records those reads,
+//! [`AccessorFieldNames::settle_key_reads`] answers them once the
+//! types are known, and until then each one reaches every name.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use super::super::{Ast, Expr, ExprId};
 
 /// The answer, read by every typed field read and its throw analysis.
 #[derive(Debug, Clone, Default)]
-pub enum AccessorFieldNames {
+pub struct AccessorFieldNames {
+    reach: Reach,
+    /// Computed-key reads whose receiver's type is not settled yet.
+    key_reads: Vec<ExprId>,
+}
+
+#[derive(Debug, Clone, Default)]
+enum Reach {
     /// No definer is named: every typed field read is a plain load.
     #[default]
     None,
@@ -31,16 +45,17 @@ pub enum AccessorFieldNames {
 impl AccessorFieldNames {
     /// Whether a declared field called `name` can become an accessor.
     pub fn may(&self, name: &str) -> bool {
-        match self {
-            AccessorFieldNames::None => false,
-            AccessorFieldNames::Names(n) => n.contains(name),
-            AccessorFieldNames::All => true,
+        match &self.reach {
+            _ if !self.key_reads.is_empty() => true,
+            Reach::None => false,
+            Reach::Names(n) => n.contains(name),
+            Reach::All => true,
         }
     }
 
     /// Whether some declared field can.
     pub fn reaches_any(&self) -> bool {
-        !matches!(self, AccessorFieldNames::None)
+        !self.key_reads.is_empty() || !matches!(self.reach, Reach::None)
     }
 }
 
@@ -55,7 +70,83 @@ pub(in crate::ast) fn census(ast: &mut Ast) {
     ast.accessor_field_names = names(ast);
 }
 
+impl AccessorFieldNames {
+    /// Answer the computed-key reads the census left open: one whose
+    /// receiver can hold a namespace or a function (`any` / `unknown`, a
+    /// function type, a dictionary, a type parameter, or no recorded
+    /// type) and whose key can be a string the program never spells (a
+    /// number, a symbol or a literal type cannot) may pick a definer,
+    /// and then every name is reachable.
+    pub fn settle_key_reads(ast: &mut Ast, expr_types: &HashMap<ExprId, crate::check::Type>) {
+        let reads = std::mem::take(&mut ast.accessor_field_names.key_reads);
+        // a read the checker never reached (rewritten away by a pass, or
+        // in a body nothing calls) is not one the program performs
+        let reached = |e: &ExprId| expr_types.contains_key(e);
+        let open = reads.iter().any(|r| match ast.get_expr(*r) {
+            Expr::Index { obj, index } | Expr::OptIndex { obj, index } => {
+                (reached(r) || reached(obj))
+                    && expr_types.get(obj).is_none_or(may_hold_definer)
+                    && expr_types.get(index).is_none_or(may_spell_definer)
+            }
+            // rewritten in place since the census: nothing says the
+            // new shape is harmless
+            _ => reached(r),
+        });
+        if open {
+            ast.accessor_field_names.reach = Reach::All;
+        }
+    }
+}
+
+fn may_hold_definer(t: &crate::check::Type) -> bool {
+    use crate::check::Type;
+    match t {
+        Type::Any | Type::Function(..) | Type::Object(_) | Type::TypeVar(_) | Type::Dict(..) => {
+            true
+        }
+        Type::Nullable(t) => may_hold_definer(t),
+        Type::Union(ts) => ts.iter().any(may_hold_definer),
+        _ => false,
+    }
+}
+
+/// Whether a key of this type can be a definer's name: a string built
+/// at run time, or the name itself as a literal type (`k as
+/// "defineProperty"`, which spells no string expression).
+fn may_spell_definer(t: &crate::check::Type) -> bool {
+    use crate::check::{Lit, Type};
+    match t {
+        Type::Any | Type::String | Type::TypeVar(_) => true,
+        Type::Literal(Lit::Str(s)) => DEFINERS.iter().any(|d| s == *d),
+        Type::Nullable(t) => may_spell_definer(t),
+        Type::Union(ts) => ts.iter().any(may_spell_definer),
+        _ => false,
+    }
+}
+
 fn names(ast: &Ast) -> AccessorFieldNames {
+    let reach = reach(ast);
+    let key_reads = match reach {
+        Reach::All => Vec::new(),
+        _ => (ast.exprs.iter().enumerate())
+            .filter(|(_, e)| computed_read(ast, e))
+            .map(|(i, _)| ExprId(i as u32))
+            .collect(),
+    };
+    AccessorFieldNames { reach, key_reads }
+}
+
+/// A read whose key is not a literal (`o[k]`, `o?.[k]`).
+fn computed_read(ast: &Ast, e: &Expr) -> bool {
+    match e {
+        Expr::Index { index, .. } | Expr::OptIndex { index, .. } => {
+            !matches!(ast.get_expr(*index), Expr::String(_) | Expr::Number(_))
+        }
+        _ => false,
+    }
+}
+
+fn reach(ast: &Ast) -> Reach {
     let mut names = HashSet::new();
     let mut callees = HashSet::new();
     let mut definer_bases = HashSet::new();
@@ -66,7 +157,7 @@ fn names(ast: &Ast) -> AccessorFieldNames {
         };
         // a method picked by a computed key can be any definer
         if computed_key(ast, callee) {
-            return AccessorFieldNames::All;
+            return Reach::All;
         }
         let Expr::Member { obj, name } = ast.get_expr(callee) else {
             continue;
@@ -80,10 +171,10 @@ fn names(ast: &Ast) -> AccessorFieldNames {
             .iter()
             .any(|a| matches!(ast.get_expr(*a), Expr::Spread { .. }))
         {
-            return AccessorFieldNames::All;
+            return Reach::All;
         }
         let Some(keys) = literal_keys(ast, name, args) else {
-            return AccessorFieldNames::All;
+            return Reach::All;
         };
         names.extend(keys);
         callees.insert(callee);
@@ -109,11 +200,11 @@ fn names(ast: &Ast) -> AccessorFieldNames {
         }
     });
     if elsewhere {
-        AccessorFieldNames::All
+        Reach::All
     } else if names.is_empty() {
-        AccessorFieldNames::None
+        Reach::None
     } else {
-        AccessorFieldNames::Names(names)
+        Reach::Names(names)
     }
 }
 
@@ -154,13 +245,17 @@ fn literal_keys(ast: &Ast, name: &str, args: &[ExprId]) -> Option<Vec<String>> {
 mod tests {
     use super::*;
 
-    fn census_of(src: &str) -> AccessorFieldNames {
+    fn parse(src: &str) -> Ast {
         let tokens = crate::lexer::tokenize(src).expect("tokenize");
-        names(&crate::parser::parse(src, &tokens).expect("parse"))
+        crate::parser::parse(src, &tokens).expect("parse")
+    }
+
+    fn census_of(src: &str) -> AccessorFieldNames {
+        names(&parse(src))
     }
 
     fn is_all(n: AccessorFieldNames) -> bool {
-        matches!(n, AccessorFieldNames::All)
+        matches!(n.reach, Reach::All)
     }
 
     #[test]
@@ -171,16 +266,13 @@ mod tests {
             c.__defineGetter__("x", f);
             globalThis.Object.defineProperty(c, "y", d);"#,
         );
-        let AccessorFieldNames::Names(n) = n else {
+        let Reach::Names(n) = n.reach else {
             panic!("expected names, got {n:?}")
         };
         let mut n: Vec<_> = n.into_iter().collect();
         n.sort();
         assert_eq!(n, ["v", "w", "x", "y"]);
-        assert!(matches!(
-            census_of("Object.keys(c);"),
-            AccessorFieldNames::None
-        ));
+        assert!(!census_of("Object.keys(c);").reaches_any());
     }
 
     #[test]
@@ -204,5 +296,47 @@ mod tests {
     fn object_read_as_a_property_reaches_every_name() {
         assert!(is_all(census_of("const O = globalThis.Object;")));
         assert!(is_all(census_of("f(window.Reflect);")));
+    }
+
+    /// `O[k]` reaches every name exactly when its receiver's type can
+    /// hold a namespace and its key's type can be a definer's name; an
+    /// unsettled read already counts as reaching every name, and one the
+    /// checker never reached reaches none.
+    #[test]
+    fn a_computed_read_reaches_every_name_by_its_types() {
+        use crate::check::{Lit, Type};
+        let settle = |read_ty: Option<Type>, obj_ty: Option<Type>, key_ty: Option<Type>| {
+            let mut ast = parse(r#"const dp = O[k]; dp(c, "v", d);"#);
+            ast.accessor_field_names = names(&ast);
+            assert!(ast.accessor_field_names.may("v"));
+            let (read, obj, index) = (ast.exprs.iter().enumerate())
+                .find_map(|e| match e {
+                    (i, Expr::Index { obj, index }) => Some((ExprId(i as u32), *obj, *index)),
+                    _ => None,
+                })
+                .expect("the computed read");
+            let types: HashMap<ExprId, Type> = [(read, read_ty), (obj, obj_ty), (index, key_ty)]
+                .into_iter()
+                .filter_map(|(e, t)| Some((e, t?)))
+                .collect();
+            AccessorFieldNames::settle_key_reads(&mut ast, &types);
+            ast.accessor_field_names.may("v")
+        };
+        let lit = |s: &str| Type::Literal(Lit::Str(s.into()));
+        let any = || Some(Type::Any);
+        assert!(settle(any(), any(), Some(Type::String)));
+        assert!(settle(
+            any(),
+            Some(Type::Nullable(Box::new(Type::Any))),
+            any()
+        ));
+        assert!(settle(any(), None, None));
+        assert!(!settle(None, None, None));
+        assert!(settle(any(), any(), Some(lit("defineProperty"))));
+        assert!(!settle(any(), any(), Some(Type::Number)));
+        assert!(!settle(any(), any(), Some(lit("x"))));
+        let nums = Some(Type::Array(Box::new(Type::Number)));
+        assert!(!settle(any(), nums, Some(Type::String)));
+        assert!(!settle(any(), Some(Type::String), any()));
     }
 }

@@ -119,6 +119,9 @@ fn hand_over(
     if let Err(e) = crate::iface_witness::settle(owned_ast) {
         crate::check::DiagPush::push_err(&mut c.errors, e);
     }
+    // the width analysis below already asks which fields an accessor
+    // can reach
+    crate::ast::AccessorFieldNames::settle_key_reads(owned_ast, &c.expr_types);
     crate::num_width::analyze(
         owned_ast,
         call_retargets,
