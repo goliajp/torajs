@@ -330,8 +330,18 @@ fn rewrite_block(
     let mut dsplats: HashMap<ValueId, ValueId> = HashMap::default();
     let old = std::mem::take(&mut func.blocks[b.0 as usize].insts);
     let mut out = Vec::with_capacity(old.len() + 2 * pairs.len());
+    // what follows a divide waits until the next instruction that is
+    // neither a divide nor gone, so neighbouring divides issue back to
+    // back: the divider takes the second while the first's quotient is
+    // still in flight, instead of the second queueing behind the first
+    // one's dependent rounding and compare
+    let mut tails: Vec<Inst> = Vec::new();
     for (at, i) in old.into_iter().enumerate() {
-        match sites.get(&at) {
+        let site = sites.get(&at);
+        if !matches!(site, Some(Site::Divide(..) | Site::Gone)) {
+            out.append(&mut tails);
+        }
+        match site {
             None => out.push(i),
             Some(Site::Gone) => {}
             Some(Site::Lane(k, tv)) => out.push(Inst {
@@ -364,17 +374,18 @@ fn rewrite_block(
                 });
                 match tail {
                     Tail::Convert(tv) => {
-                        out.push(inst(*tv, InstKind::Vec(VecInst::FpToSi(v(*qv)))));
+                        tails.push(inst(*tv, InstKind::Vec(VecInst::FpToSi(v(*qv)))));
                     }
                     Tail::Mask(tv, mv) => {
-                        out.push(inst(*tv, InstKind::Vec(VecInst::FRintZ(v(*qv)))));
+                        tails.push(inst(*tv, InstKind::Vec(VecInst::FRintZ(v(*qv)))));
                         let eq = VecInst::BinOp(VecOp::FCmEq, v(*tv), v(*qv));
-                        out.push(inst(*mv, InstKind::Vec(eq)));
+                        tails.push(inst(*mv, InstKind::Vec(eq)));
                     }
                 }
             }
         }
     }
+    out.append(&mut tails);
     func.blocks[b.0 as usize].insts = out;
 }
 

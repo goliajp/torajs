@@ -141,8 +141,9 @@ fn leaves_a_dividend_defined_in_the_loop() {
 }
 
 /// `n` loop-invariant dividends (parameters `%0..%n`) over one shared
-/// divisor in a single loop block.
-fn many_quotients(n: u32) -> Function {
+/// divisor in a single loop block, each divide followed by its
+/// conversion, or with `grouped` every divide first.
+fn many_quotients(n: u32, grouped: bool) -> Function {
     let c = n;
     let cmp = n + 1;
     let d = n + 2;
@@ -157,7 +158,12 @@ fn many_quotients(n: u32) -> Function {
     let mut body = vec![i(d, InstKind::SiToFp(v(c)))];
     for j in 0..n {
         body.push(i(q(j), InstKind::BinOp(BinOp::FDiv, v(j), v(d))));
-        body.push(i(q(j) + 1, InstKind::FpToSi(v(q(j)))));
+        if !grouped {
+            body.push(i(q(j) + 1, InstKind::FpToSi(v(q(j)))));
+        }
+    }
+    if grouped {
+        body.extend((0..n).map(|j| i(q(j) + 1, InstKind::FpToSi(v(q(j))))));
     }
     body.push(i(
         inc,
@@ -204,10 +210,10 @@ fn many_quotients(n: u32) -> Function {
 
 #[test]
 fn a_loop_takes_at_most_its_cap_of_pairs() {
-    let (_, pairs) = run(many_quotients(4));
+    let (_, pairs) = run(many_quotients(4, false));
     assert_eq!(pairs, 2);
     // the dividend vectors live through the loop and cannot spill
-    let (f, pairs) = run(many_quotients(12));
+    let (f, pairs) = run(many_quotients(12, false));
     assert_eq!(pairs as usize, PAIRS_PER_LOOP_MAX);
     let scalar = f.blocks[2]
         .insts
@@ -215,4 +221,17 @@ fn a_loop_takes_at_most_its_cap_of_pairs() {
         .filter(|i| matches!(i.kind, InstKind::BinOp(BinOp::FDiv, ..)))
         .count();
     assert_eq!(scalar, 12 - 2 * PAIRS_PER_LOOP_MAX);
+}
+
+#[test]
+fn neighbouring_divides_issue_before_their_tails() {
+    let (f, pairs) = run(many_quotients(4, true));
+    assert_eq!(pairs, 2);
+    let kinds: Vec<&InstKind> = f.blocks[2].insts.iter().map(|i| &i.kind).collect();
+    let fdiv = |k: &InstKind| matches!(k, InstKind::Vec(VecInst::BinOp(VecOp::FDiv, ..)));
+    let cvt = |k: &InstKind| matches!(k, InstKind::Vec(VecInst::FpToSi(_)));
+    // sitofp, splat, the two divides back to back, then their conversions
+    assert!(fdiv(kinds[2]) && fdiv(kinds[3]), "{kinds:?}");
+    assert!(cvt(kinds[4]) && cvt(kinds[5]), "{kinds:?}");
+    assert!(matches!(kinds[6], InstKind::Vec(VecInst::Lane(0, _))));
 }
