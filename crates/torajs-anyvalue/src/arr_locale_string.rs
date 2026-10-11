@@ -11,7 +11,7 @@ use core::ffi::c_void;
 
 use torajs_rc::ANY_METHOD_TO_LOCALE_STRING;
 
-use crate::nanbox::{AnyValue, VALUE_UNDEFINED, is_null, is_undefined};
+use crate::nanbox::{AnyValue, is_null, is_undefined};
 use crate::nanbox_encode::__torajs_anyv_box_pointer;
 use crate::nanbox_ffi::{__torajs_anyv_rc_dec, __torajs_anyv_to_str};
 use crate::{__torajs_str_alloc_pooled, __torajs_str_concat};
@@ -47,60 +47,22 @@ unsafe fn comma() -> *mut u8 {
 
 /// See module doc. Returns an OWNED boxed Str; a throwing element
 /// hook aborts with the pending throw set (caller's throw check
-/// propagates) and answers undefined. `argv` / `argc` are the
-/// call's own arguments (see [`locale_join`]).
-pub(crate) unsafe fn arr_to_locale_string(
-    arr: *mut c_void,
-    argv: *const u64,
-    argc: i64,
-) -> AnyValue {
+/// propagates) and answers undefined.
+pub(crate) unsafe fn arr_to_locale_string(arr: *mut c_void) -> AnyValue {
     unsafe {
-        let s = arr_to_locale_str(arr, forwarded(argv, argc));
+        let s = arr_to_locale_str(arr);
         if s.is_null() {
-            return VALUE_UNDEFINED;
+            return crate::nanbox::VALUE_UNDEFINED;
         }
         __torajs_anyv_box_pointer(s as *mut c_void)
     }
 }
 
 /// Str-face core — NULL on a pending element-hook throw.
-unsafe fn arr_to_locale_str(arr: *mut c_void, fwd: Forwarded) -> *mut u8 {
+unsafe fn arr_to_locale_str(arr: *mut c_void) -> *mut u8 {
     unsafe {
         let len = (arr.cast::<u8>().add(ARR_LEN_OFF) as *const u64).read();
-        locale_join(len, |i| __torajs_arr_index_get(arr, i as i64), fwd)
-    }
-}
-
-/// The arguments each element's `toLocaleString` receives: none for
-/// a call without arguments, else ECMA-402's `« locales, options »`
-/// (§19.5.1 — the Array and TypedArray methods hand both to every
-/// element, which is where a Number or Date element refuses a locale
-/// it cannot serve).
-#[derive(Clone, Copy)]
-pub(crate) struct Forwarded {
-    args: [u64; 2],
-    argc: i64,
-}
-
-/// [`Forwarded`] for a call's argument vector.
-///
-/// # Safety
-/// `argv` holds `argc` AnyValues.
-pub(crate) unsafe fn forwarded(argv: *const u64, argc: i64) -> Forwarded {
-    if argc <= 0 {
-        return Forwarded {
-            args: [VALUE_UNDEFINED; 2],
-            argc: 0,
-        };
-    }
-    let options = if argc >= 2 {
-        unsafe { *argv.add(1) }
-    } else {
-        VALUE_UNDEFINED
-    };
-    Forwarded {
-        args: [unsafe { *argv }, options],
-        argc: 2,
+        locale_join(len, |i| __torajs_arr_index_get(arr, i as i64))
     }
 }
 
@@ -109,11 +71,7 @@ pub(crate) unsafe fn forwarded(argv: *const u64, argc: i64) -> Forwarded {
 /// in its own `read` (an OWNED element per index) and the Invoke /
 /// ToString / join steps live once. NULL on a pending element-hook
 /// throw; otherwise a fresh owned Str.
-pub(crate) unsafe fn locale_join(
-    len: u64,
-    mut read: impl FnMut(u64) -> AnyValue,
-    fwd: Forwarded,
-) -> *mut u8 {
+pub(crate) unsafe fn locale_join(len: u64, mut read: impl FnMut(u64) -> AnyValue) -> *mut u8 {
     unsafe {
         let sep = comma();
         // The dynobj arm resolves a monkey-patched hook by NAME
@@ -144,8 +102,8 @@ pub(crate) unsafe fn locale_join(
                 ANY_METHOD_TO_LOCALE_STRING,
                 name,
                 core::ptr::null_mut(),
-                fwd.args.as_ptr(),
-                fwd.argc,
+                core::ptr::null(),
+                0,
             );
             __torajs_anyv_rc_dec(v);
             if __torajs_throw_check() != 0 {
@@ -185,27 +143,7 @@ pub(crate) unsafe fn locale_join(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_any_to_locale_string(arr: *mut c_void) -> *mut u8 {
     unsafe {
-        let s = arr_to_locale_str(arr, forwarded(core::ptr::null(), 0));
-        if s.is_null() {
-            return __torajs_str_alloc_pooled(0);
-        }
-        s
-    }
-}
-
-/// [`__torajs_arr_any_to_locale_string`] for a call with arguments:
-/// `locales` / `options` reach every element (borrowed).
-///
-/// # Safety
-/// `arr` is a live `Tag::Arr` heap pointer.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_arr_any_to_locale_string_args(
-    arr: *mut c_void,
-    locales: u64,
-    options: u64,
-) -> *mut u8 {
-    unsafe {
-        let s = arr_to_locale_str(arr, forwarded([locales, options].as_ptr(), 2));
+        let s = arr_to_locale_str(arr);
         if s.is_null() {
             return __torajs_str_alloc_pooled(0);
         }
@@ -230,28 +168,6 @@ pub unsafe extern "C" fn __torajs_arr_typed_to_locale_string(
     arr: *mut c_void,
     prim: i64,
 ) -> *mut u8 {
-    unsafe { typed_to_locale_string(arr, prim, forwarded(core::ptr::null(), 0)) }
-}
-
-/// [`__torajs_arr_typed_to_locale_string`] for a call with
-/// arguments. Without a patch the join kernel formats the elements
-/// itself, so the gate a Number element would run on `locales` /
-/// `options` runs here, once, when there is an element to format;
-/// string and boolean elements ignore both.
-///
-/// # Safety
-/// As [`__torajs_arr_typed_to_locale_string`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_arr_typed_to_locale_string_args(
-    arr: *mut c_void,
-    prim: i64,
-    locales: u64,
-    options: u64,
-) -> *mut u8 {
-    unsafe { typed_to_locale_string(arr, prim, forwarded([locales, options].as_ptr(), 2)) }
-}
-
-unsafe fn typed_to_locale_string(arr: *mut c_void, prim: i64, fwd: Forwarded) -> *mut u8 {
     use torajs_rc::ANY_METHOD_TO_STRING;
     use torajs_rc::builtin_proto::__torajs_builtin_proto_has_patch;
 
@@ -268,22 +184,11 @@ unsafe fn typed_to_locale_string(arr: *mut c_void, prim: i64, fwd: Forwarded) ->
             _ => __torajs_builtin_proto_has_patch(0, ANY_METHOD_TO_LOCALE_STRING) != 0,
         };
         if patched {
-            let s = arr_to_locale_str(arr, fwd);
+            let s = arr_to_locale_str(arr);
             if s.is_null() {
                 return __torajs_str_alloc_pooled(0);
             }
             return s;
-        }
-        let len = (arr.cast::<u8>().add(ARR_LEN_OFF) as *const u64).read();
-        if prim >= 3
-            && len > 0
-            && !crate::locale_args::locale_argv_served(
-                fwd.args.as_ptr(),
-                fwd.argc,
-                crate::locale_args::LOCALE_FORMAT_NUMBER,
-            )
-        {
-            return __torajs_str_alloc_pooled(0);
         }
         let sep = comma();
         let out = match prim {

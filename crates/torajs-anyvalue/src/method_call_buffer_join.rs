@@ -102,21 +102,15 @@ pub(crate) unsafe fn typedarray_join(recv: AnyValue, argv: *const u64, argc: i64
 ///
 /// # Safety
 /// `recv` is a live TypedArray AnyValue.
-pub(crate) unsafe fn typedarray_to_locale_string(
-    recv: AnyValue,
-    argv: *const u64,
-    argc: i64,
-) -> AnyValue {
+pub(crate) unsafe fn typedarray_to_locale_string(recv: AnyValue) -> AnyValue {
     unsafe {
         let len = __torajs_typedarray_validate(recv);
         if len < 0 {
             return VALUE_UNDEFINED;
         }
-        let s = crate::arr_locale_string::locale_join(
-            len as u64,
-            |k| __torajs_typedarray_index_get(recv, k as f64),
-            crate::arr_locale_string::forwarded(argv, argc),
-        );
+        let s = crate::arr_locale_string::locale_join(len as u64, |k| {
+            __torajs_typedarray_index_get(recv, k as f64)
+        });
         if s.is_null() {
             return VALUE_UNDEFINED;
         }

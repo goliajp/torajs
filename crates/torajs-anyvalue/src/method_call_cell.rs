@@ -14,7 +14,6 @@ use torajs_rc::{
 
 use core::ffi::c_void;
 
-use crate::arr_locale_string::arr_to_locale_string;
 use crate::method_call::any_method_call_inner;
 use crate::nanbox::{AnyValue, as_void_ptr};
 
@@ -302,7 +301,7 @@ pub(crate) unsafe fn cell_method(
         if tag == Tag::Arr as u16 {
             // §23.1.3.32 — per-element toLocaleString invoke
             // (a plain join never dispatched the element hook).
-            return Some(unsafe { arr_to_locale_string(ptr, argv, argc) });
+            return Some(unsafe { crate::arr_locale_string::arr_to_locale_string(ptr) });
         }
     }
     if tag == Tag::Str as u16 {

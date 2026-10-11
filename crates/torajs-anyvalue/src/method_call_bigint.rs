@@ -9,9 +9,7 @@
 //!   records a pending RangeError for an out-of-`[2,36]` radix (and
 //!   returns a throwaway empty Str), propagated at the extern
 //!   boundary.
-//! - `toLocaleString(locales?, options?)` — the en-US grouped decimal;
-//!   a locale or option it cannot serve is a RangeError
-//!   ([`crate::locale_args`]).
+//! - `toLocaleString()` — grouped-decimal default-locale form.
 //!
 //! Both stringifiers return an owned Str cell (rc=1), boxed as an
 //! AnyValue heap pointer.
@@ -56,13 +54,6 @@ pub(crate) unsafe fn bigint_method(
             return crate::nanbox_encode::__torajs_anyv_box_pointer(s as *mut c_void);
         }
         if mid == ANY_METHOD_TO_LOCALE_STRING {
-            if !crate::locale_args::locale_argv_served(
-                argv,
-                argc,
-                crate::locale_args::LOCALE_FORMAT_NUMBER,
-            ) {
-                return VALUE_UNDEFINED;
-            }
             let s = __torajs_bigint_to_locale_string(ptr);
             return crate::nanbox_encode::__torajs_anyv_box_pointer(s as *mut c_void);
         }

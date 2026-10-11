@@ -118,15 +118,6 @@ pub(crate) fn try_lower(
     // receiver. Snapshot before `build_arg_ops` takes the operand.
     let recv_raw = recv_op;
 
-    let args = if matches!(
-        method.as_str(),
-        "toLocaleString" | "toLocaleDateString" | "toLocaleTimeString"
-    ) {
-        crate::ssa_lower_call_number_methods::emit_locale_args_check(ctx, args, Some(recv_op));
-        &[]
-    } else {
-        args
-    };
     let arg_ops = build_arg_ops(ctx, &method, recv_op, args);
     let (target, ret_ty) = resolve_intrinsic(ctx, &method);
     let cur_block = ctx.cur_block;

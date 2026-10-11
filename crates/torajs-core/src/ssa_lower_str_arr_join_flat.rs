@@ -28,38 +28,6 @@ pub(crate) fn try_dispatch(
         .or_else(|| try_flat(ctx, method, args, recv_op, recv_ty))
 }
 
-/// `xs.toLocaleString(...)`: the plain entry without arguments;
-/// with any, the `_args` entry that hands `locales` / `options` to
-/// every element (ECMA-402 §19.5.1), which is where a Number element
-/// refuses a locale the en-US formatter cannot serve.
-fn emit_arr_locale_call(
-    ctx: &mut LowerCtx<'_>,
-    args: &[ExprId],
-    mut argv: Vec<Operand>,
-    plain: crate::ssa::FuncId,
-    with_args: &str,
-) -> Operand {
-    let la = crate::ssa_lower_call_number_methods::lower_locale_args(ctx, args);
-    let fid = match &la {
-        Some(la) => {
-            argv.push(la.locales);
-            argv.push(la.options);
-            *ctx.fn_table
-                .get(with_args)
-                .expect("array toLocaleString entry missing")
-        }
-        None => plain,
-    };
-    let s = ctx
-        .f
-        .append_inst(ctx.cur_block, InstKind::Call(fid, argv), Type::Str, None);
-    if let Some(la) = &la {
-        crate::ssa_lower_call_number_methods::release_locale_args(ctx, la);
-    }
-    ctx.emit_throw_check(None);
-    Operand::Value(s)
-}
-
 /// `<Arr>.join(sep)` / `toString()` / `toLocaleString()` — the
 /// element-typed `arr_join_*` intrinsic family.
 fn try_join(
@@ -116,20 +84,22 @@ fn try_join(
         // kernel joins the same lane — its elements are exactly the
         // ones with a toLocaleString worth invoking.
         if is_locale && (matches!(elem_ty, Type::Any) || !kernel) {
-            let plain = ctx.intrinsics.arr_any_to_locale_string;
-            return Some(emit_arr_locale_call(
-                ctx,
-                args,
-                vec![recv_op],
-                plain,
-                "__torajs_arr_any_to_locale_string_args",
-            ));
+            let s = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.arr_any_to_locale_string, vec![recv_op]),
+                Type::Str,
+                None,
+            );
+            ctx.emit_throw_check(None);
+            return Some(Operand::Value(s));
         }
         // RFC 20260721 刀 11 G13 — the primitive-element lanes take
         // a runtime patch gate: a builtin-prototype monkey-patch on
         // the element family's Invoke face must fire per element
         // (§23.1.3.32 step 4.b), while the no-patch program keeps
-        // the direct join kernel behind one bitmap load.
+        // the direct join kernel behind one bitmap load. Trailing
+        // args lower-and-drop (S287 idiom — toLocaleString is
+        // 0-useful).
         if is_locale {
             let prim = match elem_ty {
                 Type::Bool => Some(0i64),
@@ -141,14 +111,20 @@ fn try_join(
             };
             if let Some(p) = prim {
                 ctx.emit_arr_mark_kind(&recv_op);
-                let plain = ctx.intrinsics.arr_typed_to_locale_string;
-                return Some(emit_arr_locale_call(
-                    ctx,
-                    args,
-                    vec![recv_op, Operand::ConstI64(p)],
-                    plain,
-                    "__torajs_arr_typed_to_locale_string_args",
-                ));
+                for &a in args.iter() {
+                    let _ = ctx.lower_expr(a);
+                }
+                let s = ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::Call(
+                        ctx.intrinsics.arr_typed_to_locale_string,
+                        vec![recv_op, Operand::ConstI64(p)],
+                    ),
+                    Type::Str,
+                    None,
+                );
+                ctx.emit_throw_check(None);
+                return Some(Operand::Value(s));
             }
         }
         let join_fid = match elem_ty {

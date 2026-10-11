@@ -64,12 +64,5 @@ console.log("calls after toString trail:", calls);
 
 console.log("--- toLocaleString ---");
 console.log(base.toLocaleString());
-// "tls-trail" is a well-formed language tag, so it reaches each number
-// element as `locales`; only en / en-US are formatted, any other locale
-// is a RangeError (the step still runs first).
-try {
-    console.log(base.toLocaleString(step("tls-trail")));
-} catch (e) {
-    console.log("tls-trail refused:", e instanceof RangeError);
-}
+console.log(base.toLocaleString(step("tls-trail")));
 console.log("calls final:", calls);

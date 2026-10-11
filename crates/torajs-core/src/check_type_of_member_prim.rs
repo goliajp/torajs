@@ -25,10 +25,11 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
             Type::Function(vec![Type::Number], Box::new(Type::String))
         }
         (Type::Number, "toString") => Type::Function(Vec::new(), Box::new(Type::String)),
-        // `n.toLocaleString(locales?, options?)` per ES §21.1.3.4,
-        // `(Any?, Any?) -> string`. The lowering hands both to the
-        // runtime locale gate (en-US is the only formatter; any
-        // other locale or an option is a RangeError).
+        // S139 — `n.toLocaleString(locales?, options?)` per ES
+        // §21.1.3.4 accepts optional locale + options args;
+        // tr's subset is en-US only and ignores them, so the
+        // signature is `(Any?, Any?) -> string`. ssa_lower
+        // drops the args before the 1-arg runtime helper.
         (Type::Number, "toLocaleString") => {
             Type::Function(vec![Type::Any, Type::Any], Box::new(Type::String))
         }

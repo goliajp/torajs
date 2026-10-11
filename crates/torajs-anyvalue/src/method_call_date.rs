@@ -152,20 +152,6 @@ fn decode_fields(argv: *const u64, argc: i64, arity: usize) -> Option<Fields> {
     Some(Fields { v, present })
 }
 
-/// The `toLocale{,Date,Time}String` locale / option gate (a NaN date
-/// answers "Invalid Date" without consulting either).
-fn date_locale_args_served(d: *mut c_void, argv: *const u64, argc: i64) -> bool {
-    unsafe {
-        let options = if argc >= 2 {
-            *argv.add(1)
-        } else {
-            crate::nanbox::VALUE_UNDEFINED
-        };
-        crate::locale_args::__torajs_locale_args_check_date(d, *argv, options);
-        __torajs_throw_check() == 0
-    }
-}
-
 /// `Tag::Date` arm — id-switch onto the torajs-date kernels (see
 /// module doc).
 pub(crate) unsafe fn date_method(
@@ -217,14 +203,6 @@ pub(crate) unsafe fn date_method(
             m if m == ANY_METHOD_TO_DATE_STRING => s(__torajs_date_to_date_string(d)),
             m if m == ANY_METHOD_TO_TIME_STRING => s(__torajs_date_to_time_string(d)),
             m if m == ANY_METHOD_TO_STRING => s(__torajs_date_to_string(d)),
-            m if (m == ANY_METHOD_TO_LOCALE_STRING
-                || m == ANY_METHOD_TO_LOCALE_DATE_STRING
-                || m == ANY_METHOD_TO_LOCALE_TIME_STRING)
-                && argc > 0
-                && !date_locale_args_served(d, argv, argc) =>
-            {
-                crate::nanbox::VALUE_UNDEFINED
-            }
             m if m == ANY_METHOD_TO_LOCALE_STRING => s(__torajs_date_to_locale_string(d)),
             m if m == ANY_METHOD_TO_LOCALE_DATE_STRING => s(__torajs_date_to_locale_date_string(d)),
             m if m == ANY_METHOD_TO_LOCALE_TIME_STRING => s(__torajs_date_to_locale_time_string(d)),
