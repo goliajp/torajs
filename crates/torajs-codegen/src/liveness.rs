@@ -280,7 +280,16 @@ pub(crate) fn visit_inst_operands(kind: &InstKind, mut f: impl FnMut(ValueId)) {
         | InstKind::RcInc(ptr)
         | InstKind::RcIncAny(ptr)
         | InstKind::RcDecAny(ptr)
-        | InstKind::BoxAny(_, ptr) => visit(ptr),
+        | InstKind::BoxAny(_, ptr)
+        | InstKind::AnyIsNumber(ptr)
+        | InstKind::AnyIsInt32(ptr)
+        | InstKind::AnyToInt32(ptr)
+        | InstKind::BoxInt32(ptr)
+        | InstKind::BoxF64(ptr) => visit(ptr),
+        InstKind::AnyToF64(val, flag) => {
+            visit(val);
+            visit(flag);
+        }
         InstKind::Store(val, ptr, _) => {
             visit(val);
             visit(ptr);

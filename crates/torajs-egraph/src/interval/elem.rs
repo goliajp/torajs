@@ -378,7 +378,13 @@ fn operands(kind: &InstKind) -> Vec<Operand> {
         | InstKind::RcInc(a)
         | InstKind::RcIncAny(a)
         | InstKind::RcDecAny(a)
-        | InstKind::BoxAny(_, a) => vec![*a],
+        | InstKind::BoxAny(_, a)
+        | InstKind::AnyIsNumber(a)
+        | InstKind::AnyIsInt32(a)
+        | InstKind::AnyToInt32(a)
+        | InstKind::BoxInt32(a)
+        | InstKind::BoxF64(a) => vec![*a],
+        InstKind::AnyToF64(a, b) => vec![*a, *b],
         InstKind::Store(a, b, _) => vec![*a, *b],
         InstKind::StoreDyn(a, b, c)
         | InstKind::StoreDynScaled8(a, b, c)

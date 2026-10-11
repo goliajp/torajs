@@ -107,6 +107,15 @@ pub(super) fn emit_plain(
         InstKind::RcIncAny(v) => super::rc::emit_rc_inc_any(bytes, v, alloc),
         InstKind::BoxAny(tag, v) => super::box_any::emit_box_any(bytes, func, inst, *tag, v, alloc),
         InstKind::RcDecAny(v) => super::rc_dec::emit_rc_dec_any(bytes, relocs, v, alloc, &[]),
+        InstKind::AnyIsNumber(_)
+        | InstKind::AnyIsInt32(_)
+        | InstKind::AnyToInt32(_)
+        | InstKind::AnyToF64(_, _)
+        | InstKind::BoxInt32(_)
+        | InstKind::BoxF64(_) => unreachable!(
+            "a typed number-box node reached aarch64 emit — the egraph's \
+             anynum expansion lowers every one to bit operations"
+        ),
     }
 }
 

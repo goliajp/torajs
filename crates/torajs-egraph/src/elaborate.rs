@@ -343,6 +343,14 @@ fn canonicalize_operands(kind: &InstKind, egraph: &mut Egraph) -> InstKind {
         InstKind::RcInc(p) => InstKind::RcInc(map_operand(p, egraph)),
         InstKind::RcIncAny(v) => InstKind::RcIncAny(map_operand(v, egraph)),
         InstKind::BoxAny(t, v) => InstKind::BoxAny(*t, map_operand(v, egraph)),
+        InstKind::AnyIsNumber(v) => InstKind::AnyIsNumber(map_operand(v, egraph)),
+        InstKind::AnyIsInt32(v) => InstKind::AnyIsInt32(map_operand(v, egraph)),
+        InstKind::AnyToInt32(v) => InstKind::AnyToInt32(map_operand(v, egraph)),
+        InstKind::AnyToF64(v, f) => {
+            InstKind::AnyToF64(map_operand(v, egraph), map_operand(f, egraph))
+        }
+        InstKind::BoxInt32(v) => InstKind::BoxInt32(map_operand(v, egraph)),
+        InstKind::BoxF64(v) => InstKind::BoxF64(map_operand(v, egraph)),
         InstKind::RcDecAny(v) => InstKind::RcDecAny(map_operand(v, egraph)),
         InstKind::Store(val, addr, off) => {
             InstKind::Store(map_operand(val, egraph), map_operand(addr, egraph), *off)

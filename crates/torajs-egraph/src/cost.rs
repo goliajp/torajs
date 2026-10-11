@@ -147,6 +147,12 @@ pub fn cost_of_kind(kind: &InstKind) -> Cost {
             4 => Cost::new(3),
             _ => ALU_COST,
         },
+        // the typed number faces, as the bit operations they expand to
+        InstKind::AnyIsNumber(_) | InstKind::AnyIsInt32(_) | InstKind::AnyToInt32(_) => {
+            Cost::new(2)
+        }
+        InstKind::BoxInt32(_) => Cost::new(2),
+        InstKind::AnyToF64(_, _) | InstKind::BoxF64(_) => Cost::new(4),
 
         // Cross-pipeline numeric casts.
         InstKind::SiToFp(_) | InstKind::FpToSi(_) => CAST_COST,

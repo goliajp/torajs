@@ -65,6 +65,7 @@ pub fn elide_immediate_rc_decs(module: &mut Module) -> RcDecImmediateStats {
                     Some(r)
                 }
                 (InstKind::BoxAny(t, _), Some(r)) if *t != ANY_SLOT_TAG_HEAP => Some(r),
+                (InstKind::BoxInt32(_) | InstKind::BoxF64(_), Some(r)) => Some(r),
                 _ => None,
             })
             .collect();

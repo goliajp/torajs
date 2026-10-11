@@ -354,6 +354,13 @@ pub(crate) fn is_pure(kind: &InstKind) -> bool {
         // tracking (heap_to_stack, interval, the slot family) is by
         // mention anywhere in the function, not by position
         InstKind::BoxAny(_, _) => true,
+        // the typed faces of the number encoding: pure as well
+        InstKind::AnyIsNumber(_)
+        | InstKind::AnyIsInt32(_)
+        | InstKind::AnyToInt32(_)
+        | InstKind::AnyToF64(_, _)
+        | InstKind::BoxInt32(_)
+        | InstKind::BoxF64(_) => true,
         // Alloca returns a unique pointer per invocation — two
         // syntactically identical Alloca ops produce DIFFERENT
         // pointers, so they must NOT be GVN-deduplicated. Treated as

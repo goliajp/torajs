@@ -325,10 +325,21 @@ impl Function {
                 write!(w, ", ")?;
                 self.write_operand(w, acc)?;
             }
+            InstKind::AnyToF64(v, flag) => {
+                write!(w, "any_to_f64 ")?;
+                self.write_operand(w, v)?;
+                write!(w, ", ")?;
+                self.write_operand(w, flag)?;
+            }
             InstKind::RcInc(v)
             | InstKind::RcIncAny(v)
             | InstKind::RcDecAny(v)
             | InstKind::BoxAny(_, v)
+            | InstKind::AnyIsNumber(v)
+            | InstKind::AnyIsInt32(v)
+            | InstKind::AnyToInt32(v)
+            | InstKind::BoxInt32(v)
+            | InstKind::BoxF64(v)
             | InstKind::SiToFp(v)
             | InstKind::FpToSi(v)
             | InstKind::FpToInt32(v)
@@ -381,6 +392,11 @@ fn one_operand_mnemonic(kind: &InstKind) -> String {
         InstKind::RcIncAny(_) => "rc_inc_any".into(),
         InstKind::RcDecAny(_) => "rc_dec_any".into(),
         InstKind::BoxAny(tag, _) => format!("box_any {tag}"),
+        InstKind::AnyIsNumber(_) => "any_is_number".into(),
+        InstKind::AnyIsInt32(_) => "any_is_int32".into(),
+        InstKind::AnyToInt32(_) => "any_to_int32".into(),
+        InstKind::BoxInt32(_) => "box_int32".into(),
+        InstKind::BoxF64(_) => "box_f64".into(),
         InstKind::SiToFp(_) => "sitofp".into(),
         InstKind::FpToSi(_) => "fptosi".into(),
         InstKind::FpToInt32(_) => "fptoint32".into(),

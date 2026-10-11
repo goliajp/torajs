@@ -31,7 +31,7 @@
 
 pub(crate) mod guard;
 mod order;
-mod region;
+pub(crate) mod region;
 mod window;
 
 use crate::id_hash::{HashMap, HashSet};

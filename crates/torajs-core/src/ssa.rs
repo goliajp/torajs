@@ -45,6 +45,10 @@ pub const HEADER_FLAGS_COLLECTOR: u16 = torajs_rc::FLAG_BUFFERED | torajs_rc::CO
 /// half, as the inline element read tests it (`and word, mask` then
 /// `icmp eq` against this).
 pub const HEADER_WORD_ARR_ANY: i64 = (torajs_rc::FLAG_ARR_ANY as i64) << 48;
+/// The NaN-box number encoding the typed number nodes (`AnyIsNumber`
+/// and the five beside it) expand with: the int32 tag in the top 16
+/// bits, and the offset a double's bits are shifted by.
+pub use torajs_anyvalue::nanbox::{DOUBLE_ENCODE_OFFSET, TAG_TYPE_NUMBER};
 
 pub use module_class_layouts::{ClassLayoutMeta, FieldMetaSpec, MethodMetaSpec, field_type_tag_of};
 pub use module_extras::{LOCAL_LABEL_PREFIX, demo_fib40, is_local_label};
@@ -335,6 +339,33 @@ pub enum InstKind {
     /// `__torajs_anyv_box_from_pair(tag, v)`. A pure encode: no
     /// refcount traffic, no call — codegen expands it in place.
     BoxAny(i64, Operand),
+    /// `any_is_number <v>` — Bool: the `any` encodes a number (an
+    /// int32 or a double). Cells, ShortStr and the sentinels answer
+    /// false.
+    AnyIsNumber(Operand),
+    /// `any_is_int32 <v>` — Bool: the `any` is the int32 encoding.
+    AnyIsInt32(Operand),
+    /// `any_to_int32 <v>` — I64: the int32 an `any` encodes, sign-
+    /// extended. Defined only where `any_is_int32` held.
+    AnyToInt32(Operand),
+    /// `any_to_f64 <v>, <is_int>` — F64: the number an `any` encodes,
+    /// `is_int` being `any_is_int32` of it. Defined only where
+    /// `any_is_number` held.
+    AnyToF64(Operand, Operand),
+    /// `box_int32 <i>` — Any: the int32 encoding of an I64 that fits
+    /// an int32 (the caller's proof; nothing is checked).
+    BoxInt32(Operand),
+    /// `box_f64 <f>` — Any: the double encoding of an F64, every NaN
+    /// stored as the canonical one (§6.1.6.1 makes them
+    /// indistinguishable; only a NaN payload can wrap into another
+    /// tag's range). The same answer as `box_any 3` of its bits.
+    ///
+    /// These six are the typed faces of the NaN-box number encoding:
+    /// the lowering emits them, the egraph reads the number flow
+    /// through them (a cell every def boxes and every use unboxes can
+    /// live unboxed), and `anynum::expand` lowers what remains to the
+    /// bit operations after φ promotion.
+    BoxF64(Operand),
     /// SIMD lane arithmetic over `Type::Vec` values (see `vec`).
     Vec(VecInst),
 }

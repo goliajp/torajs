@@ -13,6 +13,7 @@
 //!    canonical form. Scope-stack memoization → GVN / CSE / LICM all fall
 //!    out from domtree-aware placement, no separate passes.
 
+pub mod anynum;
 pub mod block_chain;
 pub mod block_layout;
 pub mod branch_fold;
@@ -134,8 +135,9 @@ fn egraph_functions(module: &mut Module) {
 ///
 /// Honors two independent env gates (used for bisection when
 /// validating which sub-pass is responsible for a regression):
-/// * `TORAJS_EGRAPH_OFF=1` — skip both inliner and egraph; return the
-///   module unchanged.
+/// * `TORAJS_EGRAPH_OFF=1` — skip both inliner and egraph; only the
+///   typed number nodes are expanded, since codegen has no lowering
+///   for them.
 /// * `TORAJS_INLINER_OFF=1` — skip only the inliner emit pass
 ///   (classification stats are still produced but discarded here);
 ///   `EgraphPass` still runs.
@@ -145,6 +147,7 @@ fn egraph_functions(module: &mut Module) {
 /// `ssa_lower::lower_with_arity` and `torajs_codegen::compile_function`.
 pub fn transform_module(mut module: Module) -> Module {
     if std::env::var("TORAJS_EGRAPH_OFF").as_deref() == Ok("1") {
+        anynum::expand::expand_number_nodes(&mut module);
         return module;
     }
     pass_timer::arm();
@@ -160,6 +163,22 @@ pub fn transform_module(mut module: Module) -> Module {
     // Stack cells merged through one Copy (the inlined generator step
     // object) read field by field (`merge_sroa`): needs that Copy.
     gated_pass("MERGE_SROA", &mut module, merge_sroa::replace_merged_cells);
+    // The typed number-box nodes expand to the NaN-box bit operations
+    // here: after φ promotion (the number flow through a loop cell is
+    // read in the promoted form), before late_gvn and every pass that
+    // matches the bit shapes. It is part of the lowering — codegen has
+    // no rule for the nodes — so it has no off switch.
+    // A loop's number-valued `any` cells run as scalar lanes in a
+    // copy of the loop (`anynum`), before the nodes expand.
+    // `TORAJS_ANYNUM_CELL_OFF=1` skips.
+    gated_pass("ANYNUM_CELL", &mut module, anynum::unbox_loop_cells);
+    // `rc_inc_any` / `rc_dec_any` of a value every path has tested
+    // as a number go (`anynum::rc_fold`). `TORAJS_ANYNUM_RC_OFF=1` skips.
+    gated_pass("ANYNUM_RC", &mut module, anynum::rc_fold::fold_number_rcs);
+    pass_timer::timed("ANYNUM_EXPAND", || {
+        anynum::expand::expand_number_nodes(&mut module)
+    });
+    dump_after("ANYNUM_EXPAND", &module);
     // Post-φ dominator GVN — the main egraph GVN ran before φ
     // promotion (it must not see multi-def Copies), so loop-carried
     // reads were opaque Loads to it and cross-block CSE of shapes

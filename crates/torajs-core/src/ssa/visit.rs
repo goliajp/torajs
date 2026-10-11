@@ -26,7 +26,16 @@ pub fn visit_value_operands(kind: &InstKind, mut f: impl FnMut(ValueId)) {
         | InstKind::RcInc(ptr)
         | InstKind::RcIncAny(ptr)
         | InstKind::RcDecAny(ptr)
-        | InstKind::BoxAny(_, ptr) => v(ptr),
+        | InstKind::BoxAny(_, ptr)
+        | InstKind::AnyIsNumber(ptr)
+        | InstKind::AnyIsInt32(ptr)
+        | InstKind::AnyToInt32(ptr)
+        | InstKind::BoxInt32(ptr)
+        | InstKind::BoxF64(ptr) => v(ptr),
+        InstKind::AnyToF64(val, flag) => {
+            v(val);
+            v(flag);
+        }
         InstKind::Store(val, ptr, _) => {
             v(val);
             v(ptr);
@@ -113,7 +122,16 @@ pub fn rewrite_value_operands(kind: &mut InstKind, mut f: impl FnMut(ValueId) ->
         | InstKind::RcInc(ptr)
         | InstKind::RcIncAny(ptr)
         | InstKind::RcDecAny(ptr)
-        | InstKind::BoxAny(_, ptr) => v(ptr),
+        | InstKind::BoxAny(_, ptr)
+        | InstKind::AnyIsNumber(ptr)
+        | InstKind::AnyIsInt32(ptr)
+        | InstKind::AnyToInt32(ptr)
+        | InstKind::BoxInt32(ptr)
+        | InstKind::BoxF64(ptr) => v(ptr),
+        InstKind::AnyToF64(val, flag) => {
+            v(val);
+            v(flag);
+        }
         InstKind::Store(val, ptr, _) => {
             v(val);
             v(ptr);

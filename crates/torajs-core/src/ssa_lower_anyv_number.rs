@@ -1,12 +1,14 @@
 //! Inline number arms for `any` values: ToNumber of an any and `+`
-//! with an any addend, decoding the NaN-box in SSA and keeping the
-//! runtime call for every encoding that is not a number.
-
-use torajs_anyvalue::nanbox::{DOUBLE_ENCODE_OFFSET, TAG_TYPE_NUMBER};
+//! with an any addend, the number encodings read and written through
+//! the typed number nodes (`any_is_number`, `any_is_int32`,
+//! `any_to_int32`, `any_to_f64`, `box_int32`, `box_f64`) and the
+//! runtime call kept for every encoding that is not a number. The
+//! egraph reads the number flow through the nodes and expands what
+//! remains to the bit operations after φ promotion.
 
 use crate::ssa::{BinOp, BlockId, IPred, InstKind, Operand, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
-use crate::ssa_lower_anyv_inline::{bin, branch, cmp_zero, emit_bits, inst, store_and_join};
+use crate::ssa_lower_anyv_inline::{branch, inst, store_and_join};
 
 /// §7.1.4 ToNumber of an `any` value into an F64. An int32 or double
 /// encoding decodes inline; everything else calls
@@ -17,12 +19,12 @@ pub(crate) fn to_number(ctx: &mut LowerCtx<'_>, v: Operand) -> Operand {
     let slow_blk = ctx.f.add_block();
     let done_blk = ctx.f.add_block();
 
-    let bits = emit_bits(ctx, &v);
-    let is_num = emit_is_number(ctx, bits);
+    let is_num = inst(ctx, InstKind::AnyIsNumber(v), Type::Bool);
     branch(ctx, is_num, num_blk, slow_blk);
 
     ctx.cur_block = num_blk;
-    emit_decode_number(ctx, bits, slot, done_blk);
+    let (f, _) = emit_decode_number(ctx, v);
+    store_and_join(ctx, f, slot, done_blk);
 
     ctx.cur_block = slow_blk;
     let n = inst(
@@ -46,10 +48,10 @@ pub(crate) fn to_number(ctx: &mut LowerCtx<'_>, v: Operand) -> Operand {
 /// reduces to Number::add: the operands are added in source order and
 /// the sum is boxed as `__torajs_anyv_add_pair` boxes it — an int32
 /// when both operands are integer-shaped (an int32 encoding or an I64)
-/// and the sum is an integer in int32 range, `box_double` otherwise
-/// (NaN collisions canonicalized). Two int32 encodings add as
-/// integers, which gives the same box without a float round trip.
-/// Any other value takes `slow`, which must answer an owned `any`.
+/// and the sum is an integer in int32 range, `box_f64` otherwise.
+/// Two int32 encodings add as integers, which gives the same box
+/// without a float round trip. Any other value takes `slow`, which
+/// must answer an owned `any`.
 pub(crate) fn number_add(
     ctx: &mut LowerCtx<'_>,
     (a, a_ty): (Operand, Type),
@@ -108,23 +110,8 @@ fn emit_int32_pair_add(
     general: BlockId,
     done: BlockId,
 ) {
-    let int_tag = Operand::ConstI64((TAG_TYPE_NUMBER >> 48) as i64);
-    let int_of = |ctx: &mut LowerCtx<'_>, v: &Operand| {
-        let bits = emit_bits(ctx, v);
-        let top = inst(
-            ctx,
-            bin(BinOp::LShr, bits, Operand::ConstI64(48)),
-            Type::I64,
-        );
-        let is_int = inst(
-            ctx,
-            InstKind::ICmp(IPred::Eq, Operand::Value(top), int_tag),
-            Type::Bool,
-        );
-        (bits, is_int)
-    };
-    let (a_bits, a_int) = int_of(ctx, a);
-    let (b_bits, b_int) = int_of(ctx, b);
+    let a_int = inst(ctx, InstKind::AnyIsInt32(*a), Type::Bool);
+    let b_int = inst(ctx, InstKind::AnyIsInt32(*b), Type::Bool);
     let both = inst(
         ctx,
         InstKind::BinOp(BinOp::And, Operand::Value(a_int), Operand::Value(b_int)),
@@ -136,7 +123,8 @@ fn emit_int32_pair_add(
     ctx.cur_block = add_blk;
     let fits_blk = ctx.f.add_block();
     let wide_blk = ctx.f.add_block();
-    let (x, y) = (sext32(ctx, a_bits), sext32(ctx, b_bits));
+    let x = inst(ctx, InstKind::AnyToInt32(*a), Type::I64);
+    let y = inst(ctx, InstKind::AnyToInt32(*b), Type::I64);
     let sum = inst(
         ctx,
         InstKind::BinOp(BinOp::Add, Operand::Value(x), Operand::Value(y)),
@@ -151,28 +139,27 @@ fn emit_int32_pair_add(
     branch(ctx, fits, fits_blk, wide_blk);
 
     ctx.cur_block = fits_blk;
-    let low = inst(
-        ctx,
-        bin(BinOp::And, sum, Operand::ConstI64(0xFFFF_FFFF)),
-        Type::I64,
-    );
-    let boxed = inst(
-        ctx,
-        bin(BinOp::Or, low, Operand::ConstI64(TAG_TYPE_NUMBER as i64)),
-        Type::I64,
-    );
-    let v = inst(ctx, InstKind::IntToPtr(Operand::Value(boxed)), Type::Any);
+    let v = inst(ctx, InstKind::BoxInt32(Operand::Value(sum)), Type::Any);
     store_and_join(ctx, Operand::Value(v), slot, done);
 
     ctx.cur_block = wide_blk;
     let f = inst(ctx, InstKind::SiToFp(Operand::Value(sum)), Type::F64);
-    emit_box_double(ctx, f, slot, done);
+    let v = inst(ctx, InstKind::BoxF64(Operand::Value(f)), Type::Any);
+    store_and_join(ctx, Operand::Value(v), slot, done);
 }
 
 /// The low 32 bits of `v`, sign-extended.
 fn sext32(ctx: &mut LowerCtx<'_>, v: ValueId) -> ValueId {
-    let hi = inst(ctx, bin(BinOp::Shl, v, Operand::ConstI64(32)), Type::I64);
-    inst(ctx, bin(BinOp::AShr, hi, Operand::ConstI64(32)), Type::I64)
+    let hi = inst(
+        ctx,
+        InstKind::BinOp(BinOp::Shl, Operand::Value(v), Operand::ConstI64(32)),
+        Type::I64,
+    );
+    inst(
+        ctx,
+        InstKind::BinOp(BinOp::AShr, Operand::Value(hi), Operand::ConstI64(32)),
+        Type::I64,
+    )
 }
 
 /// Whether an addend is integer-shaped (`tag_is_i64_shaped` in the
@@ -199,24 +186,26 @@ fn emit_number_side(
             (Operand::Value(f), IntShaped::Yes)
         }
         _ => {
-            let num = ctx.alloca(Type::F64, None);
             let num_blk = ctx.f.add_block();
-            let next = ctx.f.add_block();
-            let bits = emit_bits(ctx, v);
-            let is_num = emit_is_number(ctx, bits);
+            let is_num = inst(ctx, InstKind::AnyIsNumber(*v), Type::Bool);
             branch(ctx, is_num, num_blk, slow);
             ctx.cur_block = num_blk;
-            // decided in `num_blk`, which every path to `next` passes
-            let is_int = emit_decode_number(ctx, bits, num, next);
-            ctx.cur_block = next;
-            let f = inst(
-                ctx,
-                InstKind::Load(Type::F64, Operand::Value(num), 0),
-                Type::F64,
-            );
-            (Operand::Value(f), IntShaped::If(is_int))
+            let (f, is_int) = emit_decode_number(ctx, *v);
+            (f, IntShaped::If(is_int))
         }
     }
+}
+
+/// A known-number encoding as an F64, with the Bool that says it was
+/// the int32 one.
+fn emit_decode_number(ctx: &mut LowerCtx<'_>, v: Operand) -> (Operand, ValueId) {
+    let is_int = inst(ctx, InstKind::AnyIsInt32(v), Type::Bool);
+    let f = inst(
+        ctx,
+        InstKind::AnyToF64(v, Operand::Value(is_int)),
+        Type::F64,
+    );
+    (Operand::Value(f), is_int)
 }
 
 /// Box a sum into `slot` and branch to `done`: an int32 when
@@ -286,118 +275,15 @@ fn emit_box_sum(
     branch(ctx, ok, int_blk, dbl_blk);
 
     ctx.cur_block = int_blk;
-    let low = inst(
-        ctx,
-        bin(BinOp::And, n, Operand::ConstI64(0xFFFF_FFFF)),
-        Type::I64,
-    );
-    let boxed = inst(
-        ctx,
-        bin(BinOp::Or, low, Operand::ConstI64(TAG_TYPE_NUMBER as i64)),
-        Type::I64,
-    );
-    let v = inst(ctx, InstKind::IntToPtr(Operand::Value(boxed)), Type::Any);
+    let v = inst(ctx, InstKind::BoxInt32(Operand::Value(n)), Type::Any);
     store_and_join(ctx, Operand::Value(v), slot, done);
 
     ctx.cur_block = dbl_blk;
     emit_box_double(ctx, sum, slot, done);
 }
 
-/// `bits` encodes a number (int32 or double): `bits & TAG_TYPE_NUMBER
-/// != 0`. Cells, ShortStr and the sentinels all have it clear.
-fn emit_is_number(ctx: &mut LowerCtx<'_>, bits: ValueId) -> ValueId {
-    let t = inst(
-        ctx,
-        bin(BinOp::And, bits, Operand::ConstI64(TAG_TYPE_NUMBER as i64)),
-        Type::I64,
-    );
-    inst(ctx, cmp_zero(IPred::Ne, t), Type::Bool)
-}
-
-/// Decode a known-number encoding into `slot` and branch to `done`:
-/// an int32 (top 16 bits == TAG_TYPE_NUMBER) sign-extends its low 32
-/// bits, a double subtracts DOUBLE_ENCODE_OFFSET. Answers the Bool
-/// that chose the int32 arm.
-fn emit_decode_number(
-    ctx: &mut LowerCtx<'_>,
-    bits: ValueId,
-    slot: ValueId,
-    done: BlockId,
-) -> ValueId {
-    let int_blk = ctx.f.add_block();
-    let dbl_blk = ctx.f.add_block();
-    let top = inst(
-        ctx,
-        bin(BinOp::LShr, bits, Operand::ConstI64(48)),
-        Type::I64,
-    );
-    let is_int = inst(
-        ctx,
-        InstKind::ICmp(
-            IPred::Eq,
-            Operand::Value(top),
-            Operand::ConstI64((TAG_TYPE_NUMBER >> 48) as i64),
-        ),
-        Type::Bool,
-    );
-    branch(ctx, is_int, int_blk, dbl_blk);
-
-    ctx.cur_block = int_blk;
-    let hi = inst(ctx, bin(BinOp::Shl, bits, Operand::ConstI64(32)), Type::I64);
-    let n = inst(ctx, bin(BinOp::AShr, hi, Operand::ConstI64(32)), Type::I64);
-    let f = inst(ctx, InstKind::SiToFp(Operand::Value(n)), Type::F64);
-    store_and_join(ctx, Operand::Value(f), slot, done);
-
-    ctx.cur_block = dbl_blk;
-    let raw = inst(
-        ctx,
-        bin(
-            BinOp::Sub,
-            bits,
-            Operand::ConstI64(DOUBLE_ENCODE_OFFSET as i64),
-        ),
-        Type::I64,
-    );
-    let f = inst(
-        ctx,
-        InstKind::BitCastI64ToF64(Operand::Value(raw)),
-        Type::F64,
-    );
-    store_and_join(ctx, Operand::Value(f), slot, done);
-    is_int
-}
-
-/// `box_double(f)` into `slot`, then branch to `done`. Only a NaN can
-/// encode into another tag's range (its payload wraps past the double
-/// window), so every NaN stores the canonical one: §6.1.6.1 makes all
-/// NaN values indistinguishable, and one `fcmp` replaces the two-mask
-/// range test on the encoded bits.
+/// `box_f64 f` into `slot`, then branch to `done`.
 fn emit_box_double(ctx: &mut LowerCtx<'_>, f: ValueId, slot: ValueId, done: BlockId) {
-    let ok_blk = ctx.f.add_block();
-    let nan_blk = ctx.f.add_block();
-    let is_nan = inst(
-        ctx,
-        InstKind::FCmp(crate::ssa::FPred::Une, Operand::Value(f), Operand::Value(f)),
-        Type::Bool,
-    );
-    branch(ctx, is_nan, nan_blk, ok_blk);
-
-    ctx.cur_block = ok_blk;
-    let raw = inst(ctx, InstKind::BitCastF64ToI64(Operand::Value(f)), Type::I64);
-    let enc = inst(
-        ctx,
-        bin(
-            BinOp::Add,
-            raw,
-            Operand::ConstI64(DOUBLE_ENCODE_OFFSET as i64),
-        ),
-        Type::I64,
-    );
-    let v = inst(ctx, InstKind::IntToPtr(Operand::Value(enc)), Type::Any);
-    store_and_join(ctx, Operand::Value(v), slot, done);
-
-    ctx.cur_block = nan_blk;
-    let nan = f64::NAN.to_bits().wrapping_add(DOUBLE_ENCODE_OFFSET) as i64;
-    let v = inst(ctx, InstKind::IntToPtr(Operand::ConstI64(nan)), Type::Any);
+    let v = inst(ctx, InstKind::BoxF64(Operand::Value(f)), Type::Any);
     store_and_join(ctx, Operand::Value(v), slot, done);
 }

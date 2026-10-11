@@ -1,0 +1,23 @@
+alt -1 number  
+int 214748364600 number  
+negzero 0 number -0 
+negzero+0 0 number  
+zero+negzero 0 number  
+nan NaN number  nan
+nan words true
+string 3.5x34.512.5x34.5 string  
+undefined NaN number  nan
+null 7 number  
+coerce 42.55true1.5false405 string  
+break 20.5 number  
+return 8 number  
+return-end 125 number  
+threw true 3.5
+caught-inside 207 number  
+bigint true 1.5
+escape 1,1.5,2.5,3,4,4.5,
+nested 24 number  
+seed1 6.25 number  
+seed0 seed1212 string  
+stays-int 1000 number  
+true true

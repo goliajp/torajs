@@ -26,11 +26,11 @@ use crate::float_demote::push_value;
 use crate::rc_peephole::visit_value_operands;
 use crate::slot_forward::rewrite_operands;
 
-pub(super) struct FastCopy {
+pub(crate) struct FastCopy {
     /// loop block → its copy
-    pub(super) blocks: HashMap<BlockId, BlockId>,
+    pub(crate) blocks: HashMap<BlockId, BlockId>,
     /// value the loop defines → the copy's
-    pub(super) values: HashMap<ValueId, ValueId>,
+    pub(crate) values: HashMap<ValueId, ValueId>,
 }
 
 impl FastCopy {
@@ -88,7 +88,7 @@ fn reads(block: &Block, of: &HashSet<ValueId>) -> HashSet<ValueId> {
 /// not dominate, yet an exit reaches — the loop sat under a branch,
 /// or inside another loop that carries the cell round — may be
 /// reading either.
-pub(super) fn readers_after(
+pub(crate) fn readers_after(
     func: &Function,
     region: &[BlockId],
     header: BlockId,
@@ -136,7 +136,7 @@ pub(super) fn readers_after(
 }
 
 /// Append the copy. Nothing enters it yet.
-pub(super) fn clone_blocks(func: &mut Function, region: &[BlockId]) -> FastCopy {
+pub(crate) fn clone_blocks(func: &mut Function, region: &[BlockId]) -> FastCopy {
     let mut op_map: HashMap<ValueId, Operand> = HashMap::default();
     let mut values: HashMap<ValueId, ValueId> = HashMap::default();
     for b in region {
@@ -180,7 +180,7 @@ pub(super) fn clone_blocks(func: &mut Function, region: &[BlockId]) -> FastCopy 
 }
 
 /// The loop's cells, in id order.
-pub(super) fn cells_of(
+pub(crate) fn cells_of(
     func: &Function,
     region: &[BlockId],
     cells: &HashSet<ValueId>,
@@ -258,7 +258,7 @@ pub(super) fn seed_cells(
 
 /// What every block entering the loop last stored into `cell`, when
 /// they all stored the same thing.
-pub(super) fn entry_value(
+pub(crate) fn entry_value(
     func: &Function,
     region: &HashSet<BlockId>,
     header: BlockId,

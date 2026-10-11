@@ -224,7 +224,16 @@ pub(crate) fn rewrite_operands(kind: &mut InstKind, replace: &HashMap<ValueId, O
         | InstKind::RcInc(p)
         | InstKind::RcIncAny(p)
         | InstKind::RcDecAny(p)
-        | InstKind::BoxAny(_, p) => r(p),
+        | InstKind::BoxAny(_, p)
+        | InstKind::AnyIsNumber(p)
+        | InstKind::AnyIsInt32(p)
+        | InstKind::AnyToInt32(p)
+        | InstKind::BoxInt32(p)
+        | InstKind::BoxF64(p) => r(p),
+        InstKind::AnyToF64(v, f) => {
+            r(v);
+            r(f);
+        }
         InstKind::Store(v, p, _) => {
             r(v);
             r(p);

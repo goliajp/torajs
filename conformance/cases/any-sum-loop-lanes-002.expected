@@ -1,0 +1,27 @@
+414519.5 419486.5
+41456917
+499667 8998125
+49966700
+outer 0 193.5
+outer 1 387
+outer 2 580.5
+do 0 193.75
+do 1 387.25
+do 2 580.75
+true false
+NaN true
+inf 0 1
+inf 1 Infinity
+inf 2 Infinity
+inf 3 NaN
+big 2147483648 false
+big 2147483647 true
+big 2147483648 false
+big 2147483646 true
+-2147483648 true
+break 1233.5
+labeled continue 252.5
+return 533.5 -193.5
+caught boom at 25 304.5
+caught pre boom at 25 404.5
+22.5x89.51011
