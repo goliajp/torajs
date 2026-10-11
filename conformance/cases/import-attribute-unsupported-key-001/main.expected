@@ -1,0 +1,4 @@
+empty 7
+static reject SyntaxError
+dynamic reject TypeError
+string-key reject TypeError
