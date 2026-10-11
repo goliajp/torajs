@@ -37,6 +37,12 @@ impl LowerCtx<'_> {
         v
     }
 
+    /// Whether the cast plan of a slot of type `ty` annotated `ann`
+    /// admits `null` / `undefined` in some node.
+    pub(crate) fn plan_admits_nullish(&self, ty: Type, ann: &str) -> bool {
+        super::plan::compile(&self.plan_tables(), ty, ann).nullish
+    }
+
     /// [`Self::emit_plan_cast`] without the throw check: the answer is
     /// NULL under a pending throw, which the caller checks.
     pub(crate) fn emit_plan_cast_unchecked(

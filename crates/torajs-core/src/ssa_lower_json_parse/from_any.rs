@@ -12,7 +12,9 @@
 //! A value whose shape fits (an object with every declared field of
 //! the declared kind, in any order, extra keys allowed) is copied into
 //! a fresh cell of the annotation's layout; any other value raises
-//! the TypeError.
+//! the TypeError. A slot whose annotation admits `null` or `undefined`
+//! in a field is judged by the annotation's cast plan instead
+//! (`ssa_lower_checked_cast::plan`), which reads the annotation.
 
 use crate::ssa::{IPred, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
@@ -119,6 +121,11 @@ impl LowerCtx<'_> {
     /// Parse `text` on the any lane and store into `out` the value
     /// built from it, or a zero under a pending SyntaxError (the text
     /// is not JSON) or TypeError (its value does not fit `slot_ty`).
+    /// An object or array slot whose annotation admits `null` or
+    /// `undefined` somewhere (a `T | null` or optional field, which the
+    /// layout types alone do not tell apart from `T`) meets the parsed
+    /// value through the annotation's cast plan, the table the object
+    /// cast kernel walks; any other slot is judged and built inline.
     fn emit_json_retry(&mut self, text_op: Operand, slot_ty: Type, ann: &str, out: ValueId) {
         let arg = self.box_to_any(text_op);
         let parsed = Operand::Value(self.f.append_inst(
@@ -127,11 +134,6 @@ impl LowerCtx<'_> {
             Type::Any,
             None,
         ));
-        let ok = self.alloca(Type::Bool, Some("__json_fits"));
-        self.f.append_void(
-            self.cur_block,
-            InstKind::Store(Operand::ConstBool(true), Operand::Value(ok), 0),
-        );
         let active = self.emit_throw_active_load();
         let parsed_ok = self.f.append_inst(
             self.cur_block,
@@ -141,8 +143,6 @@ impl LowerCtx<'_> {
         );
         let judge = self.f.add_block();
         let fail = self.f.add_block();
-        let build = self.f.add_block();
-        let reject = self.f.add_block();
         let done = self.f.add_block();
         self.f.set_term(
             self.cur_block,
@@ -153,6 +153,43 @@ impl LowerCtx<'_> {
             },
         );
         self.cur_block = judge;
+        let msg = format!("JSON.parse result does not have the annotated type `{ann}`");
+        if matches!(slot_ty, Type::Obj(_) | Type::Arr(_)) && self.plan_admits_nullish(slot_ty, ann)
+        {
+            let v = self.emit_plan_cast_unchecked(parsed, slot_ty, ann, &msg);
+            self.f
+                .append_void(self.cur_block, InstKind::Store(v, Operand::Value(out), 0));
+            self.f.set_term(self.cur_block, Terminator::Br(done));
+        } else {
+            self.emit_json_inline(parsed, slot_ty, &msg, out, (fail, done));
+        }
+        self.cur_block = fail;
+        let zero = json_zero(slot_ty);
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(zero, Operand::Value(out), 0),
+        );
+        self.f.set_term(self.cur_block, Terminator::Br(done));
+        self.cur_block = done;
+        self.emit_drop_value(parsed, Type::Any);
+    }
+
+    /// The inline judge: a parsed node of the slot's shape is built
+    /// into a fresh value, any other node raises the TypeError `msg`
+    /// and branches to `fail`.
+    fn emit_json_inline(
+        &mut self,
+        parsed: Operand,
+        slot_ty: Type,
+        msg: &str,
+        out: ValueId,
+        (fail, done): (crate::ssa::BlockId, crate::ssa::BlockId),
+    ) {
+        let ok = self.alloca(Type::Bool, Some("__json_fits"));
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(Operand::ConstBool(true), Operand::Value(ok), 0),
+        );
         self.emit_json_fits(parsed, slot_ty, ok);
         let fits = self.f.append_inst(
             self.cur_block,
@@ -160,6 +197,8 @@ impl LowerCtx<'_> {
             Type::Bool,
             None,
         );
+        let build = self.f.add_block();
+        let reject = self.f.add_block();
         self.f.set_term(
             self.cur_block,
             Terminator::CondBr {
@@ -175,8 +214,7 @@ impl LowerCtx<'_> {
             .append_void(self.cur_block, InstKind::Store(v, Operand::Value(out), 0));
         self.f.set_term(self.cur_block, Terminator::Br(done));
         self.cur_block = reject;
-        let msg = format!("JSON.parse result does not have the annotated type `{ann}`");
-        let msg_str = self.intern_string_literal(msg.as_str());
+        let msg_str = self.intern_string_literal(msg);
         self.f.append_inst(
             self.cur_block,
             InstKind::Call(
@@ -187,15 +225,6 @@ impl LowerCtx<'_> {
             None,
         );
         self.f.set_term(self.cur_block, Terminator::Br(fail));
-        self.cur_block = fail;
-        let zero = json_zero(slot_ty);
-        self.f.append_void(
-            self.cur_block,
-            InstKind::Store(zero, Operand::Value(out), 0),
-        );
-        self.f.set_term(self.cur_block, Terminator::Br(done));
-        self.cur_block = done;
-        self.emit_drop_value(parsed, Type::Any);
     }
 
     /// Clear `ok` unless the borrowed node `v` has the shape of `ty`.

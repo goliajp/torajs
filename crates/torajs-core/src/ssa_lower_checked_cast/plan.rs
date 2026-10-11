@@ -86,6 +86,9 @@ impl PlanTables<'_> {
 pub(crate) struct CastPlan {
     pub(crate) bytes: Vec<u8>,
     pub(crate) vtables: Vec<Option<String>>,
+    /// Some node admits `null` / `undefined` besides its type (a
+    /// `T | null` or optional field the annotation spells).
+    pub(crate) nullish: bool,
 }
 
 /// The plan of a slot of type `ty` the program annotated `ann`. When
@@ -106,6 +109,7 @@ fn build(t: &PlanTables<'_>, ty: Type, ann: &str, fits_only: bool) -> Option<Cas
         vtables: Vec::new(),
         lists: Vec::new(),
         open: HashMap::new(),
+        nullish: false,
     };
     b.node(ty, Some(ann))?;
     let lists_off = b.bytes.len() as u32;
@@ -118,6 +122,7 @@ fn build(t: &PlanTables<'_>, ty: Type, ann: &str, fits_only: bool) -> Option<Cas
     Some(CastPlan {
         bytes: b.bytes,
         vtables: b.vtables,
+        nullish: b.nullish,
     })
 }
 
@@ -148,6 +153,7 @@ struct Builder<'t, 'a> {
     lists: Vec<Vec<u32>>,
     /// The OBJ node already written for a layout and its class.
     open: HashMap<(StructId, Option<String>), u32>,
+    nullish: bool,
 }
 
 impl Builder<'_, '_> {
@@ -156,7 +162,9 @@ impl Builder<'_, '_> {
         let base = ann.map(|a| strip_nullable(a.trim()).trim());
         if nullable && matches!(ty, Type::Str | Type::Obj(_) | Type::Arr(_)) {
             self.bytes.push(OPT);
+            self.nullish = true;
         }
+        self.nullish |= nullable && ty == Type::Any && matches!(base, Some("number" | "boolean"));
         match ty {
             Type::Any if nullable && base == Some("number") => self.bytes.extend([BOXED, 0]),
             Type::Any if nullable && base == Some("boolean") => self.bytes.extend([BOXED, 1]),
