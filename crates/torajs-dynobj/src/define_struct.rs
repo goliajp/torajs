@@ -281,6 +281,22 @@ pub(crate) unsafe fn redefine_declared_field(
     // below replaces the deletion record.
     let deleted =
         unsafe { crate::define_struct_shadow::__torajs_obj_declared_field_deleted(obj, key) } != 0;
+    // §10.1.6.3 step 2.a — creating it needs an extensible object
+    if deleted
+        && unsafe { (obj.cast::<u8>().add(6) as *const u16).read() } & OBJ_HDR_FLAG_NON_EXTENSIBLE
+            != 0
+    {
+        return unsafe {
+            refuse(
+                throw_on_refusal,
+                c"Attempting to define property on object that is not extensible.".as_ptr()
+                    as *const u8,
+                flags_byte & DEFINE_PRESENT_VALUE != 0,
+                tag,
+                value,
+            )
+        };
+    }
     let cur = if deleted {
         // The deletion record goes: its all-false attributes would read
         // as a non-configurable property the define may not change.

@@ -19,3 +19,23 @@ try {
   console.log("readonly", (e as Error).constructor.name)
 }
 console.log(d.y)
+// a non-extensible object refuses to create the deleted field again
+// (§10.1.6.3 step 2.a)
+const e = new C()
+delete (e as any).x
+Object.preventExtensions(e)
+try {
+  Object.defineProperty(e, "x", { value: 1 })
+} catch (err) {
+  console.log("not extensible", (err as Error).constructor.name)
+}
+console.log(Object.getOwnPropertyDescriptor(e, "x"), Reflect.defineProperty(e, "x", { value: 1 }), Object.keys(e))
+const f = new C()
+delete (f as any).y
+Object.freeze(f)
+try {
+  Object.defineProperty(f, "y", { value: 1 })
+} catch (err) {
+  console.log("frozen", (err as Error).constructor.name)
+}
+console.log(Object.getOwnPropertyDescriptor(f, "y"), Object.keys(f))
