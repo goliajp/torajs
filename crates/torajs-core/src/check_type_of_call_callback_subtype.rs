@@ -166,6 +166,21 @@ fn matches_face(param_ty: &Type, arg_ty: &Type, call_face: bool) -> bool {
     }
 }
 
+/// Whether a callback ending in a rest parameter (`(a, ...xs: E[])`)
+/// takes every argument of a call passing `formals`: its fixed
+/// parameters pair positionally, the rest element against each formal
+/// past them — TS's rule for a rest source.
+pub(crate) fn rest_callback_fits(formals: &[Type], actual: &[Type]) -> bool {
+    let Some((Type::Rest(elem), fixed)) = actual.split_last() else {
+        return false;
+    };
+    fixed.len() <= formals.len()
+        && formals
+            .iter()
+            .enumerate()
+            .all(|(i, f)| slot_agrees(fixed.get(i).unwrap_or(elem), f))
+}
+
 /// A callback parameter slot matches its formal: equal, either side
 /// Any, or an object formal assignable to the object it declares — and a `Map` matches component-wise by the same rule, so
 /// `(v, k, m: Map<string, number>) => …` fits a forEach face built

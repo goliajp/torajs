@@ -11,7 +11,7 @@
 //! `Array.from` lane and the checker's HOF wedge ask this one
 //! question; it used to be spelled out at each of them.
 
-use super::{Ast, Expr, ExprId};
+use super::{Ast, Expr, ExprId, Stmt};
 
 pub(crate) fn is_argv_face_callback(ast: &Ast, cb: ExprId) -> bool {
     match ast.get_expr(cb) {
@@ -40,7 +40,43 @@ pub(crate) fn is_argv_face_callback(ast: &Ast, cb: ExprId) -> bool {
 /// type is its declared signature, which the method table already
 /// admits.
 pub(crate) fn lane_takes_argv_face(ast: &Ast, cb: ExprId) -> bool {
-    is_argv_face_callback(ast, cb) || relays_to_argv_body(ast, cb)
+    is_argv_face_callback(ast, cb) || relays_to_argv_body(ast, cb) || rest_callback(ast, cb)
+}
+
+/// A callback whose callee gathers a rest parameter — a lifted closure
+/// or `__forward_` relay declaring `...xs`, inline or through the one
+/// `const` binding of its name. A lane's typed call fills only the
+/// positions the callee's signature spells, while the rest array holds
+/// every argument past the fixed ones (`[7, 8].map(f)` passes three);
+/// the boxed entry's adapter collects that tail.
+pub(crate) fn rest_callback(ast: &Ast, cb: ExprId) -> bool {
+    let fn_name = match ast.get_expr(cb) {
+        Expr::Closure { fn_name, .. } => fn_name,
+        Expr::Ident(n) => match const_closure(ast, n) {
+            Some(f) => f,
+            None => return false,
+        },
+        _ => return false,
+    };
+    ast.stmts.iter().any(|s| {
+        matches!(s, Stmt::FnDecl { name, params, .. }
+            if name == fn_name && params.last().is_some_and(|p| p.is_rest))
+    })
+}
+
+fn const_closure<'a>(ast: &'a Ast, name: &str) -> Option<&'a String> {
+    let mut decls = Vec::new();
+    super::fnexpr_this_names::collect_decls_by_name(&ast.stmts, name, &mut decls);
+    let [(false, init)] = decls[..] else {
+        return None;
+    };
+    if super::fnexpr_this_names::name_shadowed_elsewhere(&ast.stmts, name) {
+        return None;
+    }
+    match ast.get_expr(init) {
+        Expr::Closure { fn_name, .. } => Some(fn_name),
+        _ => None,
+    }
 }
 
 fn relays_to_argv_body(ast: &Ast, cb: ExprId) -> bool {

@@ -10,6 +10,15 @@
 //! through the boxed variadic call (`emit_variadic_boxed_call` —
 //! the adapter feeds real argc + argv into the synthetic params).
 //!
+//! A callback declaring a rest parameter takes the same boxed call
+//! (`argv_face_callback::rest_callback`): its adapter collects the
+//! arguments past the fixed parameters into the rest array. It is
+//! admitted when its parameters take what the lane passes — fixed
+//! ones positionally, the rest element every later argument — so
+//! `(...xs: any[]) => …` fits a map, and `(...xs: number[]) => …`,
+//! which would be handed the array as a number, does not (TS refuses
+//! it too).
+//!
 //! Result types keep the lanes honest:
 //! - `map` answers `Array<R>` for primitive `R` (Number / String /
 //!   Boolean / Any) — the hetero-map posture: an `arguments[0]`
@@ -60,7 +69,8 @@ pub(crate) fn try_match(
     // call: the inline closure the collector's HOF-anon arm admitted,
     // and (rotation 363 knife 3) a binding the safe-chain walk let
     // through to the callback slot.
-    if !crate::ast::argv_face_callback::is_argv_face_callback(ast, args[0]) {
+    let argv_face = crate::ast::argv_face_callback::is_argv_face_callback(ast, args[0]);
+    if !argv_face && !crate::ast::argv_face_callback::rest_callback(ast, args[0]) {
         return None;
     }
     let src_ty = match crate::check::receiver_type(checker, ast, *src_id) {
@@ -77,7 +87,15 @@ pub(crate) fn try_match(
     let Type::Function(ps, aret) = &cb_ty else {
         return None;
     };
-    if !matches!(ps.as_slice(), [Type::Rest(_)]) {
+    let admitted = if argv_face {
+        matches!(ps.as_slice(), [Type::Rest(_)])
+    } else {
+        crate::check_type_of_call_callback_subtype::rest_callback_fits(
+            &callback_formals(m_name, elem),
+            ps,
+        )
+    };
+    if !admitted {
         return None;
     }
     // Reduce needs the seed's type BEFORE the trailing loop below
@@ -164,5 +182,18 @@ pub(crate) fn try_match(
             Some(Ok(acc))
         }
         _ => unreachable!(),
+    }
+}
+
+/// The arguments each method's lane passes its callback: «value,
+/// index, array», a reducer's accumulator ahead of them (whatever its
+/// type), a comparator's two values.
+fn callback_formals(method: &str, elem: &Type) -> Vec<Type> {
+    let value = elem.clone();
+    let array = Type::Array(Box::new(elem.clone()));
+    match method {
+        "reduce" | "reduceRight" => vec![Type::Any, value, Type::Number, array],
+        "sort" | "toSorted" => vec![value.clone(), value],
+        _ => vec![value, Type::Number, array],
     }
 }
