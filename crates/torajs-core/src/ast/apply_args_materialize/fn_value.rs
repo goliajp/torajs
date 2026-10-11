@@ -25,8 +25,12 @@ pub(super) fn fn_value_conv(
     global_fns: &[String],
     declared: bool,
 ) -> Vec<(usize, String, Conv)> {
-    let Expr::ArrowFn { params, .. } = &ast.exprs[ei] else {
+    let Expr::ArrowFn { params, body, .. } = &ast.exprs[ei] else {
         return Vec::new();
+    };
+    let scope = match declared {
+        true => captured_scope(ast, params, body, global_fns),
+        false => Vec::new(),
     };
     let fn_expr = ast.fn_expr_exprs.contains(&ExprId(ei as u32));
     let mut conv = Vec::new();
@@ -35,7 +39,8 @@ pub(super) fn fn_value_conv(
     // pad would run before the guards
     let mut moved = false;
     for (pi, p) in params.iter().enumerate() {
-        let prior: Vec<String> = params[..pi].iter().map(|q| q.name.clone()).collect();
+        let mut prior: Vec<String> = params[..pi].iter().map(|q| q.name.clone()).collect();
+        prior.extend(scope.iter().cloned());
         // a fn-expr default reading the fn's own `arguments` is
         // meaningless at the call site, so it takes the body lane
         // even when it assigns (the FnDecl gate)
@@ -52,6 +57,23 @@ pub(super) fn fn_value_conv(
         }
     }
     conv
+}
+
+/// What a nested function declaration reads from the scopes around it,
+/// defaults included — the captures it takes once it becomes a closure.
+/// An arrow default capturing one of them can run in its body: the
+/// closure holding the arrow holds the binding too. Phase C and the
+/// declared lane both admit them, so the two agree on what moves
+/// ([`materialize_declared_fn_value`] depends on it).
+pub(super) fn captured_scope(
+    ast: &Ast,
+    params: &[super::super::Param],
+    body: &[Stmt],
+    global_fns: &[String],
+) -> Vec<String> {
+    let mut bound: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
+    bound.extend(global_fns.iter().cloned());
+    crate::ast::free_vars::free_vars_of_fn(ast, &bound, params, body)
 }
 
 /// Apply one fn value's plan: patch its params and splice the guards
@@ -75,86 +97,34 @@ pub(super) fn apply_fn_value_conv(ast: &mut Ast, ei: usize, conv: Vec<(usize, St
 }
 
 /// See the module doc. The declaration's own Phase C guards already
-/// sit at the head of the body, in param order; each guard this adds
-/// goes in front of the first of them that belongs to a LATER
-/// parameter, so the defaults still run in parameter order
-/// (§10.2.11).
-pub(crate) fn materialize_declared_fn_value(ast: &mut Ast, eid: ExprId) {
+/// sit at the head of the body, in param order, and every one of them
+/// belongs to a LATER parameter than any default converted here:
+/// Phase C, once it moves one default into the body, moves every later
+/// one it can (`collect_fn_conv`'s `moved`), and what it could not move
+/// this lane cannot either. So this block goes in front of them all
+/// and the defaults still run in parameter order (§10.2.11).
+///
+/// A default neither lane can move is refused: left on the pad, no call
+/// of the value would evaluate it, and §10.2.11 owes the evaluation.
+pub(crate) fn materialize_declared_fn_value(ast: &mut Ast, eid: ExprId, name: &str) {
     let global_fns = top_fn_names(ast);
     let ei = eid.0 as usize;
     let conv = fn_value_conv(ast, ei, &global_fns, true);
-    if conv.is_empty() {
-        return;
+    if !conv.is_empty() {
+        apply_fn_value_conv(ast, ei, conv);
     }
-    let own_args = ast.fn_expr_exprs.contains(&eid) && conv_reads_arguments(ast, &conv);
-    let names: Vec<String> = match &ast.exprs[ei] {
-        Expr::ArrowFn { params, .. } => params.iter().map(|p| p.name.clone()).collect(),
-        _ => unreachable!(),
-    };
-    let mut groups: Vec<(usize, Vec<Stmt>)> = Vec::new();
-    let mut all_pads: ParamPads = Vec::new();
-    for c in conv {
-        let pi = c.0;
-        let (guards, pads) = build_guards_and_pads(ast, vec![c]);
-        groups.push((pi, guards));
-        all_pads.extend(pads);
-    }
-    let Expr::ArrowFn { params, body, .. } = &mut ast.exprs[ei] else {
+    let Expr::ArrowFn { params, .. } = &ast.exprs[ei] else {
         unreachable!()
     };
-    patch_params(params, all_pads);
-    let mut b = std::mem::take(body);
-    if own_args {
-        body_arguments::split_body_arguments(ast, &mut b);
+    let stranded = params
+        .iter()
+        .find(|p| p.default.is_some_and(|d| !is_absent_default(ast, d)));
+    if let Some(p) = stranded {
+        panic!(
+            "the default of parameter `{}` of `{name}`, a nested \
+             function that reads its enclosing scope (§10.2.11 evaluates it in the \
+             function's own scope, and this shape cannot move there yet)",
+            p.name
+        );
     }
-    let list = guard_list_mut(&mut b);
-    for (pi, group) in groups {
-        let at = head_guard_position(ast, list, &names, pi);
-        list.splice(at..at, group);
-    }
-    if let Expr::ArrowFn { body, .. } = &mut ast.exprs[ei] {
-        *body = b;
-    }
-}
-
-/// Where in `list`'s leading run of default guards the guard of
-/// param `pi` belongs: before the first guard of a later param, or
-/// at the end of the run.
-fn head_guard_position(ast: &Ast, list: &[Stmt], names: &[String], pi: usize) -> usize {
-    for (i, s) in list.iter().enumerate() {
-        match s {
-            Stmt::If {
-                cond,
-                else_branch: None,
-                ..
-            } => match guarded_param(ast, *cond, names) {
-                Some(owner) if owner <= pi => {}
-                _ => return i,
-            },
-            // the typed narrow that follows a carrier's guard
-            Stmt::LetDecl { .. } if i > 0 && matches!(list[i - 1], Stmt::If { .. }) => {}
-            _ => return i,
-        }
-    }
-    list.len()
-}
-
-/// The param an `if (<p> === undefined) …` guard fills, as
-/// [`build_default_guard`] spells its test.
-fn guarded_param(ast: &Ast, cond: ExprId, names: &[String]) -> Option<usize> {
-    let Expr::BinOp {
-        op: BinOp::Eq,
-        left,
-        right,
-    } = ast.get_expr(cond)
-    else {
-        return None;
-    };
-    if !matches!(ast.get_expr(*right), Expr::Ident(u) if u == "undefined") {
-        return None;
-    }
-    let Expr::Ident(n) = ast.get_expr(*left) else {
-        return None;
-    };
-    names.iter().position(|x| x == n)
 }

@@ -11,6 +11,7 @@
 //! that only the callee's own scope binds.
 
 use super::*;
+use crate::ast::desugar_with::walk::expr_children;
 use crate::ast::{Param, free_vars};
 
 /// Whether the default is safe to evaluate inside the callee body —
@@ -51,50 +52,44 @@ pub(super) fn body_safe_default(
         Expr::Number(_) | Expr::String(_) | Expr::Bool(_) | Expr::Null | Expr::Ident(_) => true,
         Expr::Assign { target, value } => in_fn_decl && rec(*target) && rec(*value),
         Expr::PostIncr { target, .. } => in_fn_decl && rec(*target),
-        Expr::BinOp { left, right, .. } => {
-            body_safe_default(ast, *left, global_fns, prior, in_fn_decl)
-                && body_safe_default(ast, *right, global_fns, prior, in_fn_decl)
-        }
-        Expr::Unary { expr, .. } | Expr::As { expr, .. } => {
-            body_safe_default(ast, *expr, global_fns, prior, in_fn_decl)
-        }
-        Expr::Member { obj, .. } => body_safe_default(ast, *obj, global_fns, prior, in_fn_decl),
-        Expr::Index { obj, index } => {
-            body_safe_default(ast, *obj, global_fns, prior, in_fn_decl)
-                && body_safe_default(ast, *index, global_fns, prior, in_fn_decl)
-        }
-        Expr::Ternary {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            body_safe_default(ast, *cond, global_fns, prior, in_fn_decl)
-                && body_safe_default(ast, *then_branch, global_fns, prior, in_fn_decl)
-                && body_safe_default(ast, *else_branch, global_fns, prior, in_fn_decl)
-        }
-        Expr::Sequence { left, right } => {
-            body_safe_default(ast, *left, global_fns, prior, in_fn_decl)
-                && body_safe_default(ast, *right, global_fns, prior, in_fn_decl)
-        }
-        Expr::Call { callee, args } => {
-            body_safe_default(ast, *callee, global_fns, prior, in_fn_decl)
-                && args
-                    .iter()
-                    .all(|a| body_safe_default(ast, *a, global_fns, prior, in_fn_decl))
-        }
-        Expr::Array(elems) => elems
-            .iter()
-            .all(|a| body_safe_default(ast, *a, global_fns, prior, in_fn_decl)),
-        Expr::ObjectLit { fields } => fields
-            .iter()
-            .all(|(_, v)| body_safe_default(ast, *v, global_fns, prior, in_fn_decl)),
         Expr::ArrowFn { params, body, .. } => {
             free_vars::free_vars_of_arrow(ast, params, body, global_fns, &[], None)
                 .iter()
                 .all(|v| prior.contains(v))
         }
+        other if composite(other) => expr_children(ast, e).into_iter().all(rec),
         _ => false,
     }
+}
+
+/// The shapes whose parts alone decide: an operator, a member or index
+/// read, a call or construction, a `typeof`, an optional chain, `??`,
+/// `instanceof`, a spread, and the literals that build a fresh value.
+fn composite(e: &Expr) -> bool {
+    matches!(
+        e,
+        Expr::BinOp { .. }
+            | Expr::Unary { .. }
+            | Expr::As { .. }
+            | Expr::Member { .. }
+            | Expr::Index { .. }
+            | Expr::Ternary { .. }
+            | Expr::Sequence { .. }
+            | Expr::Call { .. }
+            | Expr::Array(_)
+            | Expr::ObjectLit { .. }
+            | Expr::New { .. }
+            | Expr::NewDynamic { .. }
+            | Expr::TypeOf { .. }
+            | Expr::OptChain { .. }
+            | Expr::OptIndex { .. }
+            | Expr::OptCall { .. }
+            | Expr::Nullish { .. }
+            | Expr::InstanceOf { .. }
+            | Expr::Spread { .. }
+            | Expr::BigInt { .. }
+            | Expr::Regex { .. }
+    )
 }
 
 /// Whether the default expression reads `arguments` outside any nested
@@ -106,22 +101,11 @@ pub(super) fn reads_arguments(ast: &Ast, d: ExprId) -> bool {
     let rec = |a| reads_arguments(ast, a);
     match ast.get_expr(d) {
         Expr::Ident(n) => n == "arguments",
-        Expr::Assign { target, value } => rec(*target) || rec(*value),
-        Expr::PostIncr { target, .. } => rec(*target),
-        Expr::BinOp { left, right, .. } | Expr::Sequence { left, right } => {
-            rec(*left) || rec(*right)
+        other
+            if composite(other) || matches!(other, Expr::Assign { .. } | Expr::PostIncr { .. }) =>
+        {
+            expr_children(ast, d).into_iter().any(rec)
         }
-        Expr::Unary { expr, .. } | Expr::As { expr, .. } => rec(*expr),
-        Expr::Member { obj, .. } => rec(*obj),
-        Expr::Index { obj, index } => rec(*obj) || rec(*index),
-        Expr::Ternary {
-            cond,
-            then_branch,
-            else_branch,
-        } => rec(*cond) || rec(*then_branch) || rec(*else_branch),
-        Expr::Call { callee, args } => rec(*callee) || args.iter().any(|a| rec(*a)),
-        Expr::Array(elems) => elems.iter().any(|a| rec(*a)),
-        Expr::ObjectLit { fields } => fields.iter().any(|(_, v)| rec(*v)),
         _ => false,
     }
 }
@@ -149,22 +133,6 @@ pub(super) fn refs_prior_param(
     let rec = |a| refs_prior_param(ast, params, pi, a, global_fns);
     match ast.get_expr(d) {
         Expr::Ident(n) => params[..pi].iter().any(|p| p.name == *n),
-        Expr::Assign { target, value } => rec(*target) || rec(*value),
-        Expr::PostIncr { target, .. } => rec(*target),
-        Expr::BinOp { left, right, .. } | Expr::Sequence { left, right } => {
-            rec(*left) || rec(*right)
-        }
-        Expr::Unary { expr, .. } | Expr::As { expr, .. } => rec(*expr),
-        Expr::Member { obj, .. } => rec(*obj),
-        Expr::Index { obj, index } => rec(*obj) || rec(*index),
-        Expr::Ternary {
-            cond,
-            then_branch,
-            else_branch,
-        } => rec(*cond) || rec(*then_branch) || rec(*else_branch),
-        Expr::Call { callee, args } => rec(*callee) || args.iter().any(|a| rec(*a)),
-        Expr::Array(elems) => elems.iter().any(|a| rec(*a)),
-        Expr::ObjectLit { fields } => fields.iter().any(|(_, v)| rec(*v)),
         Expr::ArrowFn {
             params: aparams,
             body,
@@ -172,6 +140,11 @@ pub(super) fn refs_prior_param(
         } => free_vars::free_vars_of_arrow(ast, aparams, body, global_fns, &[], None)
             .iter()
             .any(|v| params[..pi].iter().any(|p| p.name == *v)),
+        other
+            if composite(other) || matches!(other, Expr::Assign { .. } | Expr::PostIncr { .. }) =>
+        {
+            expr_children(ast, d).into_iter().any(rec)
+        }
         _ => false,
     }
 }

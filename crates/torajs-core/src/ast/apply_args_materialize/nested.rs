@@ -25,7 +25,8 @@ pub(super) fn materialize_nested(ast: &mut Ast, global_fns: &[String]) {
                 else {
                     continue;
                 };
-                let conv = collect_fn_conv(ast, name, params, &*body, global_fns);
+                let scope = fn_value::captured_scope(ast, params, body, global_fns);
+                let conv = collect_fn_conv(ast, name, params, &*body, global_fns, &scope);
                 if conv.is_empty() {
                     continue;
                 }

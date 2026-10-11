@@ -41,17 +41,18 @@
 //!
 //! Guarded faces:
 //! - On a top-level FnDecl only `any` / unannotated params convert
-//!   freely. A scalar-typed or fn-shaped default converts through
+//!   freely. A typed default converts through
 //!   the TypedNarrow lane ONLY when it references a prior param —
 //!   directly (`h(k: number, m: number = k + 1)`) or as an arrow's
 //!   capture (`h2(k: number, cb: (x) => x = (x) => x + k)`): the
 //!   call-site pad pasted the expression into the CALLER's scope —
 //!   `unknown identifier k` + runtime ReferenceError where §9.2
-//!   wants the callee's params environment. Any other typed default
-//!   keeps today's pad / `FnDfltLits` channel (the callee is
-//!   static; zero behavior movement).
+//!   wants the callee's params environment (or follows one that
+//!   moved, or the body reads its argument values). Any other typed
+//!   default keeps the pad / `FnDfltLits` channel (the callee is
+//!   static).
 //! - On an ArrowFn VALUE (closure / function expression) EVERY
-//!   scalar-typed or fn-shaped default converts through the
+//!   typed default converts through the
 //!   TypedNarrow lane: the closure direct call is a CallIndirect
 //!   with no static callee, so the pad table cannot fire and a
 //!   runtime-undefined `any` argument used to flow through the
@@ -114,8 +115,9 @@ pub(super) fn build_default_guard(ast: &mut Ast, name: &str, d: ExprId) -> Stmt 
 ///   `same_literal` check and evicts "next" from the pad table
 ///   (every `it.next()` then binds the implicit fill: silent
 ///   wrong, the rotation-275 ref-prior failure shape).
-/// - the `undefined` literal: it is this pass's own pad value — a
-///   guard assigning `undefined` on undefined is a no-op.
+/// - an absent default ([`is_absent_default`]): the `undefined`
+///   literal is this pass's own pad value — a guard assigning
+///   `undefined` on undefined is a no-op.
 fn converting_default(
     ast: &Ast,
     p: &super::Param,
@@ -144,7 +146,7 @@ pub(super) fn guardable_default(
     if p.name == "__yield_arg" {
         return None;
     }
-    if matches!(ast.get_expr(d), Expr::Ident(n) if n == "undefined") {
+    if is_absent_default(ast, d) {
         return None;
     }
     if !body_safe_default(ast, d, global_fns, prior, in_fn_decl) {
@@ -153,11 +155,19 @@ pub(super) fn guardable_default(
     Some(d)
 }
 
+/// The value an omitted argument binds and nothing more: the `undefined`
+/// literal (also this pass's own pad), or the per-type sentinel an
+/// optional `x?: T` slot is padded with. There is no default to run.
+pub(super) fn is_absent_default(ast: &Ast, d: ExprId) -> bool {
+    matches!(ast.get_expr(d), Expr::Ident(n)
+        if n == "undefined" || n.starts_with(super::UNDEF_SLOT_MARKER))
+}
+
 /// TypedNarrow gate (module doc "Guarded faces"): a body-safe
-/// default on a scalar-typed or fn-shaped param. Answers the
-/// declared annotation so the mutate phase can rebuild the typed
-/// local (the any→closure `let` narrow is the same channel a plain
-/// `let cb: (x: number) => number = someAny` takes). Every ArrowFn
+/// default on an annotated param. Answers the declared annotation so
+/// the mutate phase can rebuild the typed local — the checked any→T
+/// narrow a plain `let y: number[] = someAny` takes, for every T (a
+/// value nobody pads cannot leave a default behind). Every ArrowFn
 /// takes this lane; a FnDecl takes it only when the default
 /// references a prior param (see [`refs_prior_param`]).
 fn converting_typed_default(
@@ -169,14 +179,6 @@ fn converting_typed_default(
 ) -> Option<(ExprId, String)> {
     let d = guardable_default(ast, p, global_fns, prior, in_fn_decl)?;
     let ann = p.type_ann.as_deref()?.trim();
-    // Fn-shaped test mirrors `lift_arrow_fns`'s `is_fn_type_ann`.
-    let fn_shaped = ann.starts_with("__cls(")
-        || ann.starts_with("__fn(")
-        || ann.contains("=>")
-        || ann.starts_with('(');
-    if !matches!(ann, "number" | "string" | "boolean") && !fn_shaped {
-        return None;
-    }
     Some((d, ann.to_string()))
 }
 
@@ -330,7 +332,7 @@ pub fn materialize_expr_defaults(ast: &mut Ast) {
     // FnDecl TypedNarrow lane is gated on a prior-param reference or
     // a body reading argument values — any other typed literal
     // default keeps the pad channel; the ArrowFn lane takes every
-    // scalar-typed default (no static callee, no pad).
+    // typed default (no static callee, no pad).
     let mut sites: Vec<(usize, usize, String, Conv)> = Vec::new();
     for (si, s) in ast.stmts.iter().enumerate() {
         let Stmt::FnDecl {
@@ -339,7 +341,7 @@ pub fn materialize_expr_defaults(ast: &mut Ast) {
         else {
             continue;
         };
-        for (pi, name, kind) in collect_fn_conv(ast, name, params, body, &global_fns) {
+        for (pi, name, kind) in collect_fn_conv(ast, name, params, body, &global_fns, &[]) {
             sites.push((si, pi, name, kind));
         }
     }
@@ -399,6 +401,8 @@ fn conv_reads_arguments(ast: &Ast, conv: &[(usize, String, Conv)]) -> bool {
 
 /// One fn's conversion plan (module doc "Guarded faces" — the FnDecl
 /// gates), shared by the top-level scan and the nested Phase C.
+/// `scope`: names an arrow default may capture besides the prior
+/// params (see [`fn_value::captured_scope`]).
 /// Entries come out in param order. A body that reads its arguments'
 /// values takes every typed default too: §10.4.4 shows an argument
 /// the caller passed as `undefined` as `undefined`, and only a guard
@@ -409,6 +413,7 @@ fn collect_fn_conv(
     params: &[super::Param],
     body: &[Stmt],
     global_fns: &[String],
+    scope: &[String],
 ) -> Vec<(usize, String, Conv)> {
     let reads_values =
         super::arguments_object_walkers::body_has_non_length_arguments_touch(ast, body);
@@ -421,17 +426,23 @@ fn collect_fn_conv(
             .iter()
             .any(|s| matches!(s, Stmt::LetDecl { name, .. } if name == flag));
     let mut conv: Vec<(usize, String, Conv)> = Vec::new();
+    // as in `fn_value_conv`: a pad runs before every guard, so a typed
+    // default after one that moved has to move too (§10.2.11 order)
+    let mut moved = false;
     for (pi, p) in params.iter().enumerate() {
         let mut prior: Vec<String> = params[..pi].iter().map(|q| q.name.clone()).collect();
         if flagged {
             prior.push(flag.to_string());
         }
+        prior.extend(scope.iter().cloned());
         if let Some(d) = converting_default(ast, p, global_fns, &prior, true) {
             conv.push((pi, p.name.clone(), Conv::Any(d)));
+            moved = true;
         } else if let Some((d, ann)) = converting_typed_default(ast, p, global_fns, &prior, true)
-            && (reads_values || refs_prior_param(ast, params, pi, d, global_fns))
+            && (moved || reads_values || refs_prior_param(ast, params, pi, d, global_fns))
         {
             conv.push((pi, p.name.clone(), Conv::TypedNarrow(d, ann)));
+            moved = true;
         }
     }
     conv

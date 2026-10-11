@@ -7,7 +7,7 @@ use super::free_vars::walk_stmt;
 use super::free_vars::{Bound, FreeSink};
 use super::free_vars_expr::walk_expr;
 use super::free_vars_hoisted_names::hoist_list_names;
-use super::{Ast, ClassCtor, ClassMethod, ExprId, Param, StaticInit, Stmt};
+use super::{Ast, ClassCtor, ClassMethod, Expr, ExprId, Param, StaticInit, Stmt};
 
 /// A nested `function` declaration's body walk. The decl's own name is
 /// hoist-bound by the enclosing list walk. Its body is a scope of its
@@ -104,6 +104,10 @@ pub(super) fn walk_param_defaults(
     out: &mut dyn FreeSink,
 ) {
     for d in params.iter().filter_map(|p| p.default) {
+        // an optional `x?: T` slot's pad sentinel names no binding
+        if matches!(ast.get_expr(d), Expr::Ident(n) if n.starts_with(super::UNDEF_SLOT_MARKER)) {
+            continue;
+        }
         walk_expr(ast, d, bound, out);
     }
 }
