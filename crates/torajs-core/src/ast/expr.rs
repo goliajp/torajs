@@ -278,9 +278,15 @@ pub enum Expr {
 pub struct Param {
     pub name: String,
     pub type_ann: Option<String>,
-    /// Default value expression: `function f(x: number = 0)`. Evaluated
-    /// at the call site (not in callee scope) when the caller omits
-    /// the argument. None for required params.
+    /// Default value expression: `function f(x: number = 0)`. None for
+    /// required params. The language evaluates it in the callee's own
+    /// scope (§10.2.11). `materialize_expr_defaults` moves every default
+    /// it can into the body as an undefined-guard, or, for a typed slot
+    /// of a top-level function, into a top-level function the default
+    /// becomes a call to. What stays here is padded into call sites by
+    /// `apply_default_args`, where a name in it would resolve in the
+    /// caller's scope — so a default that reads one and takes neither
+    /// lane is still evaluated in the wrong scope.
     pub default: Option<ExprId>,
     /// Rest parameter: `function f(...args: number[])`. Only valid as
     /// the last param. The receiver sees `args` as an Array<T>; the

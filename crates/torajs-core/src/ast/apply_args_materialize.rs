@@ -78,6 +78,7 @@ mod ctor_relay;
 mod expr_shape;
 mod fn_value;
 mod nested;
+mod thunk;
 
 pub(crate) use fn_value::materialize_declared_fn_value;
 
@@ -385,6 +386,7 @@ pub fn materialize_expr_defaults(ast: &mut Ast) {
     // Phase C (424-04) — nested `function` declarations, in the
     // child module (see its doc for why the spine walk exists).
     nested::materialize_nested(ast, &global_fns);
+    thunk::scope_pads_to_top_level(ast, &global_fns);
 }
 
 /// Whether a guard of this plan reads the function's own `arguments`.
