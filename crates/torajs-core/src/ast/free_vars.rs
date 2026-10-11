@@ -54,10 +54,10 @@ pub(super) fn free_vars_of_arrow(
     if let Some(sn) = self_name {
         bound.push(sn.to_string());
     }
-    // The arrow's own defaults are not walked: by the lift each one the
+    // the arrow's own defaults are not walked: by the lift each one the
     // guard lane takes is already in the body (`materialize_expr_defaults`),
-    // and the rest are pasted into call sites by `apply_default_args` — a
-    // capture made for them here is one no copy of them reads.
+    // and the rest are pasted into call sites by `apply_default_args`, so a
+    // capture made for them here is one no copy of them reads
     free_vars_of_body_rebound(ast, &bound, rebound_globals, body)
 }
 

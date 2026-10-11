@@ -244,10 +244,13 @@ pub(super) fn collect_sites_stmt(
     out: &mut Vec<Site>,
 ) {
     if let Stmt::FnDecl { params, body, .. } = s {
-        if (!inside && !outer_fn_decls) || closure_shadows(params, body, name) {
+        if (!inside && !outer_fn_decls) || params_bind(params, name) {
             return;
         }
         collect_default_sites(ast, params, name, outer_fn_decls, out);
+        if closure_shadows(params, body, name) {
+            return;
+        }
         for b in body {
             collect_sites_stmt(ast, b, name, true, outer_fn_decls, out);
         }
@@ -290,10 +293,14 @@ pub(super) fn collect_sites_expr(
             }
         }
         Expr::ArrowFn { params, body, .. } => {
+            if params_bind(params, name) {
+                return;
+            }
+            // the defaults cannot see the body's declarations
+            collect_default_sites(ast, params, name, outer_fn_decls, out);
             if closure_shadows(params, body, name) {
                 return;
             }
-            collect_default_sites(ast, params, name, outer_fn_decls, out);
             for b in body {
                 collect_sites_stmt(ast, b, name, true, outer_fn_decls, out);
             }
