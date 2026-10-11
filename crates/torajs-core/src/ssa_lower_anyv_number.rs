@@ -2,7 +2,7 @@
 //! with an any addend, decoding the NaN-box in SSA and keeping the
 //! runtime call for every encoding that is not a number.
 
-use torajs_anyvalue::nanbox::{DOUBLE_ENCODE_OFFSET, TAG_TYPE_NUMBER, TOP_16_MASK};
+use torajs_anyvalue::nanbox::{DOUBLE_ENCODE_OFFSET, TAG_TYPE_NUMBER};
 
 use crate::ssa::{BinOp, BlockId, IPred, InstKind, Operand, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
@@ -367,12 +367,22 @@ fn emit_decode_number(
     is_int
 }
 
-/// `box_double(f)` into `slot`, then branch to `done`: the encoded
-/// bits must still read as a double, otherwise (a NaN payload that
-/// wraps into another tag's range) the canonical NaN is stored.
+/// `box_double(f)` into `slot`, then branch to `done`. Only a NaN can
+/// encode into another tag's range (its payload wraps past the double
+/// window), so every NaN stores the canonical one: §6.1.6.1 makes all
+/// NaN values indistinguishable, and one `fcmp` replaces the two-mask
+/// range test on the encoded bits.
 fn emit_box_double(ctx: &mut LowerCtx<'_>, f: ValueId, slot: ValueId, done: BlockId) {
     let ok_blk = ctx.f.add_block();
     let nan_blk = ctx.f.add_block();
+    let is_nan = inst(
+        ctx,
+        InstKind::FCmp(crate::ssa::FPred::Une, Operand::Value(f), Operand::Value(f)),
+        Type::Bool,
+    );
+    branch(ctx, is_nan, nan_blk, ok_blk);
+
+    ctx.cur_block = ok_blk;
     let raw = inst(ctx, InstKind::BitCastF64ToI64(Operand::Value(f)), Type::I64);
     let enc = inst(
         ctx,
@@ -383,38 +393,6 @@ fn emit_box_double(ctx: &mut LowerCtx<'_>, f: ValueId, slot: ValueId, done: Bloc
         ),
         Type::I64,
     );
-    let num_bits = inst(
-        ctx,
-        bin(BinOp::And, enc, Operand::ConstI64(TAG_TYPE_NUMBER as i64)),
-        Type::I64,
-    );
-    let top = inst(
-        ctx,
-        bin(BinOp::And, enc, Operand::ConstI64(TOP_16_MASK as i64)),
-        Type::I64,
-    );
-    let some_num = inst(ctx, cmp_zero(IPred::Ne, num_bits), Type::Bool);
-    let not_int = inst(
-        ctx,
-        InstKind::ICmp(
-            IPred::Ne,
-            Operand::Value(top),
-            Operand::ConstI64(TAG_TYPE_NUMBER as i64),
-        ),
-        Type::Bool,
-    );
-    let is_double = inst(
-        ctx,
-        InstKind::BinOp(
-            BinOp::And,
-            Operand::Value(some_num),
-            Operand::Value(not_int),
-        ),
-        Type::Bool,
-    );
-    branch(ctx, is_double, ok_blk, nan_blk);
-
-    ctx.cur_block = ok_blk;
     let v = inst(ctx, InstKind::IntToPtr(Operand::Value(enc)), Type::Any);
     store_and_join(ctx, Operand::Value(v), slot, done);
 
