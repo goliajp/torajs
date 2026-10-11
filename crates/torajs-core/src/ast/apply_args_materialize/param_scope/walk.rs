@@ -71,10 +71,14 @@ pub(super) fn all_decl_names<'s>(s: &'s Stmt, out: &mut Vec<&'s str>) {
     }
 }
 
+/// A visitor over one function: its parameters, its body and whether it
+/// is a constructor.
+type FnVisit<'f> = dyn FnMut(&[Param], &[Stmt], bool) + 'f;
+
 /// Every function a statement tree declares — `function`s, class
 /// constructors and methods — outside expressions, in a fixed order the
 /// mutable twin repeats. `ctor` marks a constructor.
-pub(super) fn for_each_fn(stmts: &[Stmt], f: &mut dyn FnMut(&[Param], &[Stmt], bool)) {
+pub(super) fn for_each_fn(stmts: &[Stmt], f: &mut FnVisit<'_>) {
     for s in stmts {
         match s {
             Stmt::FnDecl { params, body, .. } => {
