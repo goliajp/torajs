@@ -1,0 +1,21 @@
+# Changelog
+
+All notable changes to `torajs-crypto` are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Added
+
+- `sha2`: SHA-256, SHA-384 and SHA-512 (FIPS 180-4), streaming types and
+  one-shot functions; the SHA-256 block function uses the ARMv8 SHA-256
+  instructions when the target enables `sha2` at build time.
+- `Digest` trait (sealed) shared by the SHA-2 types.
+- `hmac`: `Hmac<D>` with constant-time `verify` and `verify_truncated`.
+- `hkdf`: `Hkdf<D>` with `extract`, `from_prk`, `expand` and
+  `expand_parts`.
+- `ct`: `Choice`, `ct_eq`, `ct_select`, `cmov`, and `ct::zeroize`.
+- `rand`: the `EntropySource` trait and `EntropyError`.
+- `cpu`: `CpuFeatures` and `Feature`.

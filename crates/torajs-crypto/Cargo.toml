@@ -1,0 +1,25 @@
+[package]
+name = "torajs-crypto"
+description = "Dependency-free no_std cryptographic primitives: SHA-256 / SHA-384 / SHA-512, HMAC, HKDF, constant-time helpers, and injectable entropy and CPU-feature interfaces. No allocator, no unsafe outside two audited modules."
+keywords = ["crypto", "sha2", "hmac", "hkdf", "no-std"]
+categories = ["cryptography", "no-std", "no-std::no-alloc"]
+readme = "README.md"
+documentation = "https://docs.rs/torajs-crypto"
+license = "MIT OR Apache-2.0"
+rust-version = "1.88"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[dependencies]
+
+[lints.rust]
+warnings = "deny"
+missing_docs = "deny"
+missing_debug_implementations = "deny"
+unexpected_cfgs = { level = "deny", check-cfg = ['cfg(torajs_crypto_portable)'] }
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }

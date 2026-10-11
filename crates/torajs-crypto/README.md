@@ -1,0 +1,100 @@
+# torajs-crypto
+
+Cryptographic primitives for `no_std` Rust with no dependencies and no
+allocator.
+
+- SHA-256, SHA-384, SHA-512 (FIPS 180-4), streaming and one-shot
+- HMAC (RFC 2104) over any of them, with constant-time tag verification
+- HKDF extract and expand (RFC 5869)
+- constant-time comparison and selection, and a wiping routine for secrets
+- an `EntropySource` trait for callers to supply randomness
+- a `CpuFeatures` value for callers to supply detected CPU capabilities
+
+## Usage
+
+```rust
+use torajs_crypto::Digest;
+use torajs_crypto::hkdf::Hkdf;
+use torajs_crypto::hmac::Hmac;
+use torajs_crypto::sha2::{Sha256, Sha384, sha256};
+
+// hashing
+let digest = sha256(b"hello");
+let streamed = Sha256::new().chain(b"hel").chain(b"lo").finish();
+assert_eq!(digest, streamed);
+
+// HMAC
+let tag = Hmac::<Sha384>::mac(b"key", b"message");
+assert!(Hmac::<Sha384>::new(b"key").chain(b"message").verify(&tag).is_ok());
+
+// HKDF
+let prk = Hkdf::<Sha256>::extract(b"salt", b"input keying material");
+let mut okm = [0u8; 32];
+prk.expand(b"context", &mut okm).unwrap();
+```
+
+## Design
+
+The crate performs no I/O and has no global state. It does not read a
+clock, a random source, or CPU identification registers. Anything that
+depends on the environment is passed in:
+
+- **Randomness.** Functions that need random bytes take
+  `&mut impl EntropySource`. A failing source returns `EntropyError` to the
+  caller; the crate never aborts.
+- **CPU features.** `CpuFeatures` is the value hardware code paths take
+  to choose an implementation. `CpuFeatures::portable()` and
+  `CpuFeatures::compile_time()` are safe; adding a feature bit is `unsafe`,
+  because claiming a feature the CPU lacks would execute an unsupported
+  instruction. In this release no function takes it yet: the SHA-256
+  ARMv8 path is selected at compile time (`target_feature = "sha2"`).
+
+All buffers are provided by the caller. Nothing allocates.
+
+## Security model
+
+- Operations on secret data (keys, MAC states, derived secrets) run in time
+  that depends only on public lengths: no secret-dependent branches,
+  indices or early-exit comparisons. Comparisons and selections go through
+  the `ct` module.
+- Tag verification (`Hmac::verify`, `Hmac::verify_truncated`) compares in
+  constant time.
+- Types that hold key material (`Hmac`, `Hkdf`) wipe it on drop with
+  volatile writes, so the wipe is not optimized away.
+- `Debug` output of state and key types prints the type name only.
+
+`unsafe` is denied crate-wide. Unsafe code exists in two places only: the
+wiping routine (`ct::zeroize`) and the AArch64 SHA-256 block function, which
+is compiled only when the target enables the `sha2` feature at build time.
+`CpuFeatures::with` is declared `unsafe fn` as a caller contract and
+contains no unsafe code.
+
+## Non-goals
+
+- Protection against power analysis, fault injection, or speculative
+  execution attacks.
+- Legacy algorithms (MD5, SHA-1).
+- Runtime CPU feature detection; that belongs to the caller.
+
+## Testing
+
+Unit tests cover the FIPS 180-4 examples, all RFC 4231 HMAC test cases and
+all RFC 5869 SHA-256 HKDF test cases. `tests/wycheproof.rs` runs the
+Project Wycheproof HMAC and HKDF vectors for SHA-256, SHA-384 and SHA-512
+(the JSON files under `tests/data` come from Project Wycheproof and are
+licensed under Apache-2.0). Build with `RUSTFLAGS="--cfg torajs_crypto_portable"`
+to test the portable code on hardware that would otherwise take an
+accelerated path.
+
+## Minimum supported Rust version
+
+Rust 1.88.
+
+## License
+
+Licensed under either of
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
+- MIT license ([LICENSE-MIT](LICENSE-MIT))
+
+at your option.

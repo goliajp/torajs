@@ -42,6 +42,7 @@ members = [
     "crates/torajs-print",
     "crates/torajs-fnname",
     "crates/torajs-codec-hex",
+    "crates/torajs-crypto",
     "crates/torajs-bench",
     "crates/torajs-codegen",
     "crates/torajs-egraph",

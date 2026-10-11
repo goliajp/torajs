@@ -1541,6 +1541,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "torajs-crypto"
+version = "0.1.0"
+
+[[package]]
 name = "torajs-cycle"
 version = "0.1.0"
 dependencies = [
