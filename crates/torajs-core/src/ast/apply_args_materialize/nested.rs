@@ -22,7 +22,7 @@ pub(super) fn materialize_nested(ast: &mut Ast, global_fns: &[String]) {
                 let Stmt::FnDecl { params, body, .. } = inner else {
                     continue;
                 };
-                let conv = collect_fn_conv(ast, params, global_fns);
+                let conv = collect_fn_conv(ast, params, &*body, global_fns);
                 if conv.is_empty() {
                     continue;
                 }

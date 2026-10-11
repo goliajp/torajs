@@ -74,6 +74,7 @@
 use super::{Ast, BinOp, Expr, ExprId, Stmt};
 
 pub(crate) mod body_arguments;
+mod ctor_relay;
 mod expr_shape;
 mod nested;
 
@@ -182,6 +183,9 @@ enum Conv {
     /// Scalar-typed lane: rename the param to a `__dflt_<name>` `any`
     /// carrier, guard the carrier, then `let <name>: <ann> = carrier`.
     TypedNarrow(ExprId, String),
+    /// A construct factory's copy of a parameter its constructor
+    /// guards: no guard, an `any` slot padded with `undefined`.
+    Relay,
 }
 
 /// Param patch entries: `(param index, pad ExprId, TypedNarrow
@@ -220,6 +224,9 @@ fn build_guards_and_pads(
                 });
                 pads.push((pi, pad_undef, Some(carrier)));
             }
+            // the carrier spelling of the param's own name keeps it
+            // and widens the slot to `any`
+            Conv::Relay => pads.push((pi, pad_undef, Some(name))),
         }
     }
     (guards, pads)
@@ -284,15 +291,6 @@ pub(super) fn splice_guards(body: &mut Vec<Stmt>, guards: Vec<Stmt>, at: usize) 
     }
 }
 
-/// Where a FnDecl's guards splice in: a class constructor's recorded
-/// field-initializer end, the head for everything else.
-fn guard_offset(ast: &Ast, name: &str) -> usize {
-    name.strip_prefix("__cm_")
-        .and_then(|rest| rest.strip_suffix("__ctor"))
-        .and_then(|cname| ast.ctor_field_init_end.get(cname).copied())
-        .unwrap_or(0)
-}
-
 /// See module doc. Walks every top-level FnDecl (all function forms
 /// are FnDecls by this point in the pass pipeline — class methods
 /// are `__cm_*`, lifted closures `__closure_*`, generator factories
@@ -317,19 +315,20 @@ pub fn materialize_expr_defaults(ast: &mut Ast) {
         .collect();
     // Phase A — collect (stmt index, param index, param name,
     // conversion plan) for every converting param, immutably. The
-    // FnDecl TypedNarrow lane is gated on a prior-param reference —
-    // an ordinary typed literal default keeps today's pad channel
-    // (zero behavior movement); the ArrowFn lane takes every
+    // FnDecl TypedNarrow lane is gated on a prior-param reference or
+    // a body reading argument values — any other typed literal
+    // default keeps the pad channel; the ArrowFn lane takes every
     // scalar-typed default (no static callee, no pad).
     let mut sites: Vec<(usize, usize, String, Conv)> = Vec::new();
     for (si, s) in ast.stmts.iter().enumerate() {
-        let Stmt::FnDecl { params, .. } = s else {
+        let Stmt::FnDecl { params, body, .. } = s else {
             continue;
         };
-        for (pi, name, kind) in collect_fn_conv(ast, params, &global_fns) {
+        for (pi, name, kind) in collect_fn_conv(ast, params, body, &global_fns) {
             sites.push((si, pi, name, kind));
         }
     }
+    ctor_relay::relay_factory_params(ast, &mut sites);
     let mut arrow_sites: Vec<(usize, usize, String, Conv)> = Vec::new();
     for (ei, e) in ast.exprs.iter().enumerate() {
         let Expr::ArrowFn { params, .. } = e else {
@@ -371,7 +370,7 @@ pub fn materialize_expr_defaults(ast: &mut Ast) {
         let own_args = conv_reads_arguments(ast, &conv);
         let (guards, pads) = build_guards_and_pads(ast, conv);
         let at = match &ast.stmts[si] {
-            Stmt::FnDecl { name, .. } => guard_offset(ast, name),
+            Stmt::FnDecl { name, .. } => ctor_relay::guard_offset(ast, name),
             _ => 0,
         };
         let Stmt::FnDecl { params, body, .. } = &mut ast.stmts[si] else {
@@ -422,24 +421,31 @@ pub fn materialize_expr_defaults(ast: &mut Ast) {
 fn conv_reads_arguments(ast: &Ast, conv: &[(usize, String, Conv)]) -> bool {
     conv.iter().any(|(_, _, k)| match k {
         Conv::Any(d) | Conv::TypedNarrow(d, _) => reads_arguments(ast, *d),
+        Conv::Relay => false,
     })
 }
 
 /// One fn's conversion plan (module doc "Guarded faces" — the FnDecl
 /// gates), shared by the top-level scan and the nested Phase C.
-/// Entries come out in param order.
+/// Entries come out in param order. A body that reads its arguments'
+/// values takes every typed default too: §10.4.4 shows an argument
+/// the caller passed as `undefined` as `undefined`, and only a guard
+/// behind an `any` slot keeps that value apart from the default.
 fn collect_fn_conv(
     ast: &Ast,
     params: &[super::Param],
+    body: &[Stmt],
     global_fns: &[String],
 ) -> Vec<(usize, String, Conv)> {
+    let reads_values =
+        super::arguments_object_walkers::body_has_non_length_arguments_touch(ast, body);
     let mut conv: Vec<(usize, String, Conv)> = Vec::new();
     for (pi, p) in params.iter().enumerate() {
         let prior: Vec<String> = params[..pi].iter().map(|q| q.name.clone()).collect();
         if let Some(d) = converting_default(ast, p, global_fns, &prior, true) {
             conv.push((pi, p.name.clone(), Conv::Any(d)));
         } else if let Some((d, ann)) = converting_typed_default(ast, p, global_fns, &prior, true)
-            && refs_prior_param(ast, params, pi, d, global_fns)
+            && (reads_values || refs_prior_param(ast, params, pi, d, global_fns))
         {
             conv.push((pi, p.name.clone(), Conv::TypedNarrow(d, ann)));
         }
