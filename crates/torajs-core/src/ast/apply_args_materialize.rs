@@ -348,7 +348,7 @@ pub fn materialize_expr_defaults(ast: &mut Ast) {
         }
     }
     ctor_relay::relay_factory_params(ast, &mut sites);
-    let arrow_plans: Vec<(usize, Vec<(usize, String, Conv)>)> = (0..ast.exprs.len())
+    let arrow_plans: Vec<_> = (0..ast.exprs.len())
         .map(|ei| (ei, fn_value::fn_value_conv(ast, ei, &global_fns, false)))
         .filter(|(_, conv)| !conv.is_empty())
         .collect();
