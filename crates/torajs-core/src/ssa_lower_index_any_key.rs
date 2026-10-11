@@ -123,7 +123,10 @@ pub(crate) fn lower_str_recv_index(
         return lower_typed_arr_any_key(ctx, eid, arr_val, index);
     }
     let (idx_val, nonint) = crate::ssa_lower_index_nonintegral::lower_typed_read_index(ctx, index);
-    if ctx.ast.array_prop_reads_may_raise {
+    // A Substr receiver may be a loop's frame view with no heap block
+    // to box, so it keeps the view read: a key past it or not an
+    // integer reads undefined without consulting the prototype.
+    if ctx.ast.array_prop_reads_may_raise && arr_ty == Type::Str {
         return crate::ssa_lower_index_nonintegral::emit_str_keyed_read(
             ctx, arr_val, idx_val, nonint,
         );
