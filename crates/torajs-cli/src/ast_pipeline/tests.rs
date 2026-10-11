@@ -29,3 +29,4 @@ fn a_user_written_callback_return_is_not_contextual() {
 }
 
 mod iface;
+mod reduce_acc;

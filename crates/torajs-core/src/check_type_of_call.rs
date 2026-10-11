@@ -26,6 +26,7 @@ mod arity_wedges;
 mod callback_slot_throw;
 mod fn_slot_ret;
 mod general;
+mod reduce_acc;
 mod route_arity_widen;
 mod route_collections;
 mod route_early;
@@ -154,6 +155,10 @@ pub(crate) fn check(
     {
         return Ok(Type::Any);
     }
+    // Before any route: several lanes claim a reducer whose
+    // accumulator disagrees with its seed and type the slot from the
+    // parameter alone. See [`reduce_acc`].
+    reduce_acc::check(checker, ast, callee, args)?;
     if let Some(r) =
         crate::check_type_of_call_super_value::try_match_priv_brand(checker, ast, callee, args)
             .or_else(|| route_early::try_route(checker, ast, eid, callee, args))
