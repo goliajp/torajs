@@ -27,6 +27,7 @@
 
 mod alias;
 mod analyze_tables;
+mod any_arr_writes;
 mod bound_closures;
 mod bounds_lower;
 mod bounds_walk;

@@ -55,12 +55,17 @@ impl<'a> Analysis<'a> {
     /// spells a `Type::Any` source (`any` / `unknown` / `object` —
     /// the same set `parse_type` folds to Any). Depth-wrapped so
     /// `box: any[]` seeds the element point (values stored INTO the
-    /// box escape; the box itself is already Arr<Any> by annotation).
+    /// box escape) and the box point itself (a typed array handed to
+    /// the box is written values of any kind through it).
     /// A struct-shaped face (`{ v: any }`, an interface, a class, an
     /// alias of one) seeds each field point whose own face is a sink:
     /// a container stored into `o.v` reaches the any world through it.
-    pub(super) fn seed_any_face(&mut self, key: &SlotKey, ann: &str) {
-        self.seed_any_face_on_path(key, ann, &mut Vec::new(), false);
+    /// `holders` is false for a face the compiler spelled (an
+    /// any-widened clone's `any[]` parameter, a rest parameter): its
+    /// arrays are the program's typed ones re-viewed, not handed to a
+    /// slot the program declared writable with any value.
+    pub(super) fn seed_any_face(&mut self, key: &SlotKey, ann: &str, holders: bool) {
+        self.seed_any_face_on_path(key, ann, &mut Vec::new(), false, holders);
     }
 
     /// An any face on the slot itself seeds both tables; a face found
@@ -83,6 +88,7 @@ impl<'a> Analysis<'a> {
         ann: &str,
         path: &mut Vec<String>,
         field: bool,
+        holders: bool,
     ) {
         if map_value_escapes(ann) {
             self.push_any_seed(key.clone(), field);
@@ -93,18 +99,27 @@ impl<'a> Analysis<'a> {
                 .into_iter()
                 .map(|(f, a)| (PropKey::from(f), a))
                 .collect();
-            self.seed_field_faces(key, &fields, path);
+            self.seed_field_faces(key, &fields, path, holders);
             return;
         }
         let Some((base, depth)) = named_ref(ann) else {
             return;
         };
         let mut k = key.clone();
+        let mut holder = None;
         for _ in 0..depth {
+            holder = Some(k.clone());
             k = SlotKey::Elem(Box::new(k));
         }
         if is_any_face(base) {
             self.push_any_seed(k, field);
+            // the array whose elements the face spells `any` is written
+            // values of any kind (`xs.push("s")` through `xs: any[]`),
+            // so a typed array reaching that slot escapes as it would
+            // through `any`; it is no number slot of the program's
+            if let Some(h) = holder.filter(|_| holders) {
+                self.escape_only_seeds.push(h);
+            }
             return;
         }
         // A type already on the path has its fields seeded by the outer
@@ -130,9 +145,9 @@ impl<'a> Analysis<'a> {
         path.push(base.to_string());
         match fields.as_slice() {
             [(f, target)] if f.lossy() == "__alias__" => {
-                self.seed_any_face_on_path(&k, target, path, field)
+                self.seed_any_face_on_path(&k, target, path, field, holders)
             }
-            _ => self.seed_field_faces(&k, &fields, path),
+            _ => self.seed_field_faces(&k, &fields, path, holders),
         }
         path.pop();
     }
@@ -142,10 +157,11 @@ impl<'a> Analysis<'a> {
         key: &SlotKey,
         fields: &[(PropKey, String)],
         path: &mut Vec<String>,
+        holders: bool,
     ) {
         for (f, fann) in fields {
             let fk = SlotKey::Field(Box::new(key.clone()), f.clone());
-            self.seed_any_face_on_path(&fk, fann, path, true);
+            self.seed_any_face_on_path(&fk, fann, path, true, holders);
         }
     }
 
@@ -164,7 +180,7 @@ impl<'a> Analysis<'a> {
             }
             if let Some(fields) = self.struct_decls.get(&n).cloned() {
                 let mut path = vec![n.clone()];
-                self.seed_field_faces(&SlotKey::Class(n), &fields, &mut path);
+                self.seed_field_faces(&SlotKey::Class(n), &fields, &mut path, true);
             }
         }
     }
@@ -220,7 +236,7 @@ impl<'a> Analysis<'a> {
             if any_target {
                 self.escape_only_seeds.push(k);
             } else {
-                self.seed_any_face_on_path(&k, ann, &mut Vec::new(), true);
+                self.seed_any_face_on_path(&k, ann, &mut Vec::new(), true, true);
             }
         }
         self.walk_expr(inner, scope);

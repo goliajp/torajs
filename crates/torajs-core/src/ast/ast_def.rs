@@ -313,6 +313,9 @@ pub struct Ast {
     /// retargets to it with the ORIGINAL cell's env), so its env
     /// layout is the original's. Parked by `check_monomorph`.
     pub widen_clone_origin: std::collections::HashMap<String, String>,
+    /// Every any-widened clone `check_monomorph_any_widen` minted, and
+    /// the lifted closures cloned along with one.
+    pub any_widen_clones: std::collections::HashSet<String>,
     /// RFC 20260714-dstr-residual blade 4 — NamedEvaluation for
     /// anonymous class expressions: synth class name
     /// (`__ClassExpr_<id>`) → binding identifier, recorded by the

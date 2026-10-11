@@ -35,15 +35,19 @@ pub(super) fn seed_and_walk_fn(
     };
     // W-ESC — any-annotated param / return faces are escape sinks
     // (escape.rs).
+    let widen_clone = a.ast.any_widen_clones.contains(name);
     for p in params {
         if let Some(ann) = &p.type_ann {
             let pk = SlotKey::Param(name.clone(), p.name.clone());
-            a.seed_any_face(&pk, ann);
+            let holders = !widen_clone
+                && !p.is_rest
+                && super::any_arr_writes::param_written(a.ast, body, &p.name);
+            a.seed_any_face(&pk, ann, holders);
         }
     }
     if let Some(r) = return_type {
         let rk = SlotKey::Ret(name.clone());
-        a.seed_any_face(&rk, r);
+        a.seed_any_face(&rk, r, !widen_clone);
         let mut any_ret = false;
         crate::ast::walk_stmts(body, &mut |s| {
             any_ret |= matches!(s, Stmt::Return(Some(e))

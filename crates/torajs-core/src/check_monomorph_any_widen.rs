@@ -381,9 +381,10 @@ fn emit_widened_spec(
     // keys are NOT retired into `generic_fn_names`: the original fn
     // still lowers, so its closures' original construction sites stay
     // live — retiring them would break the typed callers.
-    let _closure_rename = crate::check_monomorph_closures::clone_spec_closures(
+    let closure_rename = crate::check_monomorph_closures::clone_spec_closures(
         c, owned_ast, suffix, &id_map, &no_subst,
     );
+    (owned_ast.any_widen_clones).extend(closure_rename.into_values().chain([mono_name.into()]));
     if lifted {
         check_lifted_spec(c, owned_ast, fn_name, &spec_decl);
     } else {
