@@ -36,8 +36,8 @@ pub use type_def::{Lit, StructFields, Type};
 /// Generic declaration index: name → (type-param names, field ann pairs,
 /// is_class, optional members). The bool separates a generic CLASS (`class
 /// Box<T>`), whose instantiation keeps its nominal identity
-/// (`ClassRef("Box<number>")`, RFC 20260815-generic-nominal-identity blade
-/// 3), from a generic `type` alias, which expands structurally.
+/// (`ClassRef("Box<number>")`), from a generic `type` alias, which expands
+/// structurally.
 pub(crate) type GenericAliasMap =
     HashMap<String, (Vec<String>, Vec<(PropKey, String)>, bool, Vec<PropKey>)>;
 
