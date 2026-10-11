@@ -44,6 +44,14 @@ pub fn block_freqs(func: &Function) -> Vec<u64> {
     if func.blocks.is_empty() {
         return out;
     }
+    // a lone block that leaves the function runs once per entry: no
+    // dominator tree, loop nest or branch odds to build
+    if let [b] = func.blocks.as_slice()
+        && matches!(b.term, Terminator::Ret(_) | Terminator::Unreachable)
+    {
+        out[b.id.0 as usize] = ENTRY_FREQ;
+        return out;
+    }
     let dom = DominatorTree::compute(func);
     let loops = LoopAnalysis::compute(func, &dom);
 
@@ -62,10 +70,14 @@ pub fn block_freqs(func: &Function) -> Vec<u64> {
             Terminator::Ret(_) | Terminator::Unreachable => {}
         }
     }
-    let edge_odds: HashMap<(BlockId, BlockId), f64> = cold_arms(func)
-        .into_iter()
-        .map(|(from, cold, p)| ((from, cold), p))
-        .collect();
+    // only a conditional branch has a cold arm
+    let branches = (func.blocks.iter()).any(|b| matches!(b.term, Terminator::CondBr { .. }));
+    let edge_odds: HashMap<(BlockId, BlockId), f64> = match branches {
+        true => (cold_arms(func).into_iter())
+            .map(|(from, cold, p)| ((from, cold), p))
+            .collect(),
+        false => HashMap::default(),
+    };
 
     // In reverse postorder a block's forward predecessors come first.
     // Its odds are the mass its incoming edges carry, capped by its

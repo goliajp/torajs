@@ -141,16 +141,28 @@ pub fn cold_arms(func: &Function) -> Vec<(BlockId, BlockId, f64)> {
 /// header word kept in a register across a loop and read again after
 /// the calls that may write it): it reads as that load or mask.
 fn single_defs(func: &Function) -> HashMap<ValueId, &InstKind> {
+    // per value index, its def count and first def; only a value with
+    // several defs keeps a list of them, most have one
+    let defs = || func.blocks.iter().flat_map(|b| &b.insts);
+    let mut count = vec![0u32; func.values.len()];
+    let mut first: Vec<Option<&InstKind>> = vec![None; func.values.len()];
+    for (r, kind) in defs().filter_map(|i| Some((i.result?, &i.kind))) {
+        // a hand-built function may leave `values` short
+        if count.len() <= r.0 as usize {
+            count.resize(r.0 as usize + 1, 0);
+            first.resize(r.0 as usize + 1, None);
+        }
+        count[r.0 as usize] += 1;
+        first[r.0 as usize].get_or_insert(kind);
+    }
     let mut all: HashMap<ValueId, Vec<&InstKind>> = HashMap::default();
-    for b in &func.blocks {
-        for i in &b.insts {
-            if let Some(r) = i.result {
-                all.entry(r).or_default().push(&i.kind);
-            }
+    for (r, kind) in defs().filter_map(|i| Some((i.result?, &i.kind))) {
+        if count[r.0 as usize] > 1 {
+            all.entry(r).or_default().push(kind);
         }
     }
-    let single = |v: &ValueId| match all.get(v).map(Vec::as_slice) {
-        Some([k]) => Some(*k),
+    let single = |v: &ValueId| match count.get(v.0 as usize) {
+        Some(1) => first[v.0 as usize],
         _ => None,
     };
     // a copied load, or a copied mask of one: (def, pointer, offset, mask)
@@ -176,12 +188,11 @@ fn single_defs(func: &Function) -> HashMap<ValueId, &InstKind> {
             .all(|d| loaded(d).is_some_and(|(_, p2, o2, m2)| (p2, o2, m2) == (p, o, m)))
             .then_some(def)
     };
-    all.iter()
-        .filter_map(|(v, ds)| match ds.as_slice() {
-            [k] => Some((*v, *k)),
-            _ => cell(ds).map(|l| (*v, l)),
-        })
-        .collect()
+    let ones = (first.iter().enumerate())
+        .filter(|&(v, _)| count[v] == 1)
+        .filter_map(|(v, k)| Some((ValueId(v as u32), (*k)?)));
+    let cells = (all.iter()).filter_map(|(v, ds)| cell(ds).map(|l| (*v, l)));
+    ones.chain(cells).collect()
 }
 
 fn value_def<'a>(op: &Operand, defs: &HashMap<ValueId, &'a InstKind>) -> Option<&'a InstKind> {
