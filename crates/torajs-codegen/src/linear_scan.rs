@@ -42,6 +42,7 @@ use crate::linear_scan_calls::{
 };
 use crate::linear_scan_lanes::{param_entries, param_lanes, ret_lane_free};
 use crate::linear_scan_sweep::Sweep;
+use crate::live_ranges::LazyRanges;
 use crate::liveness::compute_liveness;
 use crate::reg::{Reg, aapcs64};
 use crate::regalloc::{Assignment, collect_ret_value_ids};
@@ -72,12 +73,11 @@ pub fn allocate_linear_scan_with(func: &Function, inline: InlineSites) -> Assign
     let classes = build_copy_classes(func, &intervals, &blocks, &ret_vids, &call_sites);
     let (mut weights, units) = compute_spill_weights(func);
     classes.fold_into(&mut intervals, &mut weights);
+    let ranges = LazyRanges::new(func, &blocks, &intervals, &classes);
     let call_costs = CallCosts::new(&call_sites, &call_rarity, &units);
-    let mut sweep = Sweep::new(next_alloca_offset, weights, call_costs);
+    let mut sweep = Sweep::new(next_alloca_offset, weights, call_costs, ranges);
     sweep.unspillable = crate::vec_homes::vector_values(func, &classes);
-    // `TORAJS_CALL_SAVE_OFF=1`: call-crossing values never take a
-    // caller-saved register (bisect gate).
-    let save_calls = std::env::var_os("TORAJS_CALL_SAVE_OFF").is_none_or(|v| v != "1");
+    sweep.log = crate::linear_scan_dump::wanted(func);
 
     // Sweep every interval (params + inst/alloca results) by start;
     // ties broken by ValueId to keep the sweep deterministic.
@@ -159,7 +159,7 @@ pub fn allocate_linear_scan_with(func: &Function, inline: InlineSites) -> Assign
         // idempotent `if src != X0/V0 { mov }` covers this).
         if ret_vids.contains(&vid) {
             if crossing {
-                let dst = if save_calls {
+                let dst = if sweep.save_calls {
                     sweep.alloc_crossing_saved(vid, interval, is_fp)
                 } else {
                     sweep.alloc_crossing(vid, interval, is_fp)
@@ -181,20 +181,13 @@ pub fn allocate_linear_scan_with(func: &Function, inline: InlineSites) -> Assign
             }
         }
 
-        let reg = if crossing && sweep.unspillable.contains(&vid) {
-            sweep.alloc_crossing_vector(vid, interval)
-        } else if crossing && save_calls {
-            sweep.alloc_crossing_saved(vid, interval, is_fp)
-        } else if crossing {
-            sweep.alloc_crossing(vid, interval, is_fp)
-        } else {
-            sweep.alloc_noncrossing(vid, interval, is_fp)
-        };
-        sweep.by_value.insert(vid, reg);
-        sweep.activate(vid, interval, reg);
+        sweep.alloc_value(vid, interval, is_fp, crossing);
     }
 
     classes.fan_out(&mut sweep.by_value);
+    if sweep.log {
+        crate::linear_scan_dump::dump(func, &intervals, &sweep, &call_sites);
+    }
     let (call_saves, vec_call_saves) = collect_call_saves(&mut sweep, &intervals, &call_sites);
 
     let total_spill_bytes = sweep.next_spill_offset - next_alloca_offset;

@@ -356,6 +356,46 @@ mod tests {
         compile_function(&func);
     }
 
+    /// The call sits in an arm the vector is dead on: its hull crosses
+    /// the call and its live ranges do not, so it is not saved around
+    /// the call. A value sharing its register in that arm would take
+    /// the reload over its own value.
+    ///
+    /// ```text
+    /// bb0: a = load p ; br c ? bb1 : bb2   ; slots 0, 1
+    /// bb1: call f0 ; ret 0                 ; slots 2, 3
+    /// bb2: r = reduce a ; ret r            ; slots 4, 5
+    /// ```
+    #[test]
+    fn a_vector_dead_at_a_call_in_its_hull_is_not_saved_around_it() {
+        let mut f = Function::new("hole", Type::I64);
+        let p = f.add_param(Type::Ptr, "p");
+        let c = f.add_param(Type::Bool, "c");
+        let (b0, b1, b2) = (f.add_block(), f.add_block(), f.add_block());
+        let a = f.append_inst(b0, InstKind::Load(V, val(p), 0), V, None);
+        f.set_term(
+            b0,
+            Terminator::CondBr {
+                cond: val(c),
+                then_blk: b1,
+                else_blk: b2,
+            },
+        );
+        f.blocks[b1.0 as usize].insts.push(Inst {
+            result: None,
+            kind: InstKind::Call(FuncId(0), Vec::new()),
+            origin: None,
+        });
+        f.set_term(b1, Terminator::Ret(Some(Operand::ConstI64(0))));
+        let reduce = InstKind::Vec(VecInst::Reduce(VecOp::Add, val(a)));
+        let r = f.append_inst(b2, reduce, Type::I64, None);
+        f.set_term(b2, Terminator::Ret(Some(val(r))));
+        let alloc = allocate_linear_scan(&f);
+        assert!(matches!(alloc.of(a), Reg::Fpr(_)));
+        assert!(alloc.vec_call_saves.get(&2).is_none_or(Vec::is_empty));
+        compile_function(&f);
+    }
+
     fn f64_value(f: &mut Function, kind: InstKind) -> ValueId {
         f.append_inst(torajs_core::ssa::BlockId(0), kind, Type::F64, None)
     }

@@ -73,6 +73,11 @@ impl Classes {
         }
     }
 
+    /// Every class, as its leader and its members (the leader included).
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (u32, &[u32])> {
+        (self.classes.iter()).map(|(&l, c)| (l, c.members.as_slice()))
+    }
+
     /// The value whose home `v` shares: its class leader, or itself.
     pub(crate) fn leader(&self, v: u32) -> u32 {
         self.leader_of.get(&v).copied().unwrap_or(v)

@@ -7,6 +7,7 @@ use torajs_core::ssa::{Function, InstKind};
 
 use crate::compile::InlineSites;
 use crate::linear_scan_sweep::Sweep;
+use crate::live_ranges::LiveRanges;
 use crate::liveness::Interval;
 use crate::reg::{Fpr, Reg};
 use crate::regalloc::{alloca_slot_size, call_site_rarity, inst_emits_bl};
@@ -110,9 +111,13 @@ type Saves<R> = HashMap<u32, Vec<(R, u32)>>;
 /// one stack slot and the call sites strictly inside its interval: the
 /// value is stored before each such call and reloaded after it. Keyed
 /// by call-site slot index. A vector's saves come apart, in the second
-/// map: its slot is 16 bytes at a 16-aligned offset.
+/// map: its slot is 16 bytes at a 16-aligned offset, and it is saved
+/// only around the calls it is live across. A vector may share its
+/// register with values live in the holes of its interval
+/// (`Sweep::share`), and a reload after a call in a hole would land on
+/// the one live there.
 pub(crate) fn collect_call_saves(
-    sweep: &mut Sweep,
+    sweep: &mut Sweep<'_>,
     intervals: &HashMap<u32, Interval>,
     call_sites: &[u32],
 ) -> (Saves<Reg>, Saves<Fpr>) {
@@ -132,7 +137,7 @@ pub(crate) fn collect_call_saves(
             }
             let slot = sweep.alloc_spill_slot();
             sweep.alloc_spill_slot();
-            for &p in crossed {
+            for &p in crossed.filter(|&&p| LiveRanges::live_across(sweep.ranges.of(vid), p)) {
                 wide.entry(p).or_default().push((f, slot));
             }
             continue;

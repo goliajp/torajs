@@ -1,24 +1,94 @@
-//! Spilling at the sweep's active set: when no register of the asked
-//! pool is free, the arrival or an active value goes to a stack slot.
+//! Spilling and sharing at the sweep's active set: when no register of
+//! the asked pool is free, the arrival takes one whose holders are all
+//! dead wherever it is live, or the holders it would meet go to stack
+//! slots, or the arrival does.
 
-use torajs_core::ssa::id_hash::HashMap;
-
-use crate::linear_scan_sweep::Sweep;
+use crate::linear_scan_sweep::{MAX_HOLDERS, Sweep, slot};
+use crate::live_ranges::LiveRanges;
 use crate::liveness::Interval;
 use crate::reg::{Reg, aapcs64};
 
-impl Sweep {
-    /// Poletto & Sarkar 1999 "spill at active" with pool-class
-    /// awareness: pick the furthest-end active value of the matching
-    /// class (restricted to callee-saved holders when `callee_only`,
-    /// i.e. the new arrival crosses a call) and spill whichever of
-    /// {victim, new} lives longer — the longest remaining range
-    /// maximizes the freed-register window.
+/// Whether `reg` is in the asked pool: the arrival's register class,
+/// callee-saved or caller-saved.
+fn in_pool(reg: Reg, is_fp: bool, callee: bool) -> bool {
+    match reg {
+        Reg::Gpr(g) if !is_fp && callee => aapcs64::CALLEE_SAVED_SCRATCH.contains(&g),
+        Reg::Gpr(g) if !is_fp => aapcs64::CALLER_SAVED_SCRATCH.contains(&g),
+        Reg::Fpr(f) if is_fp && callee => aapcs64::FP_CALLEE_SAVED_SCRATCH.contains(&f),
+        Reg::Fpr(f) if is_fp => aapcs64::FP_CALLER_SAVED_SCRATCH.contains(&f),
+        _ => false,
+    }
+}
+
+/// Whether `reg` is a register of the arrival's class that may be
+/// cleared for it: callee-saved only when `callee_only`.
+fn clearable(reg: Reg, is_fp: bool, callee_only: bool) -> bool {
+    match reg {
+        Reg::Gpr(g) => !is_fp && (!callee_only || aapcs64::CALLEE_SAVED_SCRATCH.contains(&g)),
+        Reg::Fpr(f) => is_fp && (!callee_only || aapcs64::FP_CALLEE_SAVED_SCRATCH.contains(&f)),
+        Reg::SpillGpr(_) | Reg::SpillFpr(_) => false,
+    }
+}
+
+impl Sweep<'_> {
+    /// A register of the asked pool (callee-saved or caller-saved, of
+    /// the arrival's class) every holder of which is dead wherever `vid`
+    /// is live, the first such in the order the active set first names
+    /// them: the arrival takes it without evicting anyone. A holder
+    /// saved around the calls it crosses keeps its register to itself,
+    /// since the reload after a call would land on the arrival; a
+    /// register with `MAX_HOLDERS` holders takes no more.
+    pub(crate) fn share(&mut self, vid: u32, is_fp: bool, callee: bool) -> Option<Reg> {
+        if !self.share {
+            return None;
+        }
+        let mine = self.ranges.of(vid);
+        if mine.is_empty() {
+            return None;
+        }
+        let mut seen = 0u64;
+        for i in 0..self.active.len() {
+            let reg = self.active[i].2;
+            let k = slot(reg).expect("a pool register");
+            if !in_pool(reg, is_fp, callee) || seen & (1 << k) != 0 {
+                continue;
+            }
+            seen |= 1 << k;
+            if self.holders[k] >= MAX_HOLDERS || self.saved_holders[k] > 0 {
+                continue;
+            }
+            if self.unions[k].is_none() {
+                let mut u: Vec<(u32, u32)> = Vec::new();
+                for &(v, _, _) in self.active.iter().filter(|e| e.2 == reg) {
+                    u = LiveRanges::union_from(&u, self.ranges.of(v), self.at);
+                }
+                self.unions[k] = Some(u);
+            }
+            let union = self.unions[k].as_deref().unwrap_or_default();
+            if !LiveRanges::intersect(union, mine) {
+                if self.log {
+                    eprintln!("  share %{vid} -> {reg:?}");
+                }
+                return Some(reg);
+            }
+        }
+        None
+    }
+
+    /// Poletto & Sarkar 1999 "spill at active" over registers with
+    /// several holders: a register of the matching class (callee-saved
+    /// only when `callee_only`, i.e. the new arrival crosses a call)
+    /// frees up when every holder the arrival would meet spills; the
+    /// holders dead on all of its ranges stay and share it. The cheapest
+    /// register to clear is the one whose leaving holders weigh least
+    /// (frequency-aware spill weights), the furthest end breaking ties;
+    /// the arrival spills instead when it weighs less than them, or the
+    /// same with the shorter remaining range.
     ///
-    /// Returns the reg to assign to the new arrival; if a victim was
-    /// chosen, its `by_value` + `active` entry are rewritten to the
-    /// spill slot in place and the new arrival inherits its register
-    /// (already in the used-mask if it was callee-saved).
+    /// Returns the reg to assign to the new arrival; the holders that
+    /// leave have their `by_value` rewritten to a spill slot each and
+    /// drop out of `active`; the register is already in the used-mask
+    /// if it was callee-saved.
     pub(crate) fn spill_at_active(
         &mut self,
         new_vid: u32,
@@ -26,67 +96,109 @@ impl Sweep {
         is_fp: bool,
         callee_only: bool,
     ) -> Reg {
-        // Round 5 popcount attack #1 — victim ranking is (lowest
-        // spill weight, then furthest end). Weight-flat functions
-        // degrade to the original Poletto & Sarkar furthest-end
-        // choice; a loop-carried accumulator (weight ≫ cold refs)
-        // keeps its register even when its interval end reaches
-        // function exit.
-        let weight_of = |w: &HashMap<u32, u64>, v: u32| w.get(&v).copied().unwrap_or(0);
-        let mut victim_idx: Option<usize> = None;
-        let mut victim_key: (u64, i64) = (u64::MAX, -1); // (weight asc, end desc)
-        for (i, e) in self.active.iter().enumerate() {
-            let (is_callee_reg, class_ok) = match e.2 {
-                Reg::Gpr(g) => (aapcs64::CALLEE_SAVED_SCRATCH.contains(&g), !is_fp),
-                Reg::Fpr(f) => (aapcs64::FP_CALLEE_SAVED_SCRATCH.contains(&f), is_fp),
-                // Already-spilled actives can't free a register.
-                Reg::SpillGpr(_) | Reg::SpillFpr(_) => continue,
-            };
-            if !class_ok || (callee_only && !is_callee_reg) || self.unspillable.contains(&e.0) {
-                continue;
-            }
-            let key = (weight_of(&self.weights, e.0), e.1.end as i64);
-            let better = key.0 < victim_key.0 || (key.0 == victim_key.0 && key.1 > victim_key.1);
-            if better {
-                victim_key = key;
-                victim_idx = Some(i);
-            }
-        }
-
-        // Spill the victim only when the new arrival outranks it:
-        // strictly heavier, or equal weight with the shorter
-        // remaining range (the original furthest-end rule).
-        let new_weight = weight_of(&self.weights, new_vid);
+        let mine: Vec<(u32, u32)> = match self.share {
+            true => self.ranges.of(new_vid).to_vec(),
+            false => Vec::new(),
+        };
+        let best = self.cheapest_clear(&mine, is_fp, callee_only);
+        let new_weight = self.weights.get(&new_vid).copied().unwrap_or(0);
         let pinned = self.unspillable.contains(&new_vid);
         assert!(
-            !pinned || victim_idx.is_some(),
+            !pinned || best.is_some(),
             "no register to evict for unspillable value %{new_vid}"
         );
-        let spill_off = self.alloc_spill_slot();
-        match victim_idx {
-            Some(i)
+        let spill = |off: u32| match is_fp {
+            true => Reg::SpillFpr(off),
+            false => Reg::SpillGpr(off),
+        };
+        match best {
+            Some((reg, cost, end))
                 if pinned
-                    || victim_key.0 < new_weight
-                    || (victim_key.0 == new_weight
-                        && (self.active[i].1.end as i64) > new_interval.end as i64) =>
+                    || cost < new_weight
+                    || (cost == new_weight && end > new_interval.end as i64) =>
             {
-                let (victim_vid, _vi, victim_reg) = self.active[i];
-                let spilled = if is_fp {
-                    Reg::SpillFpr(spill_off)
-                } else {
-                    Reg::SpillGpr(spill_off)
-                };
-                self.by_value.insert(victim_vid, spilled);
-                self.active.swap_remove(i);
-                victim_reg
+                let mut i = 0;
+                while i < self.active.len() {
+                    let (vid, _, r) = self.active[i];
+                    if r != reg || !self.leaves(vid, &mine) {
+                        i += 1;
+                        continue;
+                    }
+                    if self.log {
+                        eprintln!("  evict %{vid} {reg:?} for %{new_vid}");
+                    }
+                    let off = self.alloc_spill_slot();
+                    self.by_value.insert(vid, spill(off));
+                    self.deactivate(i);
+                }
+                // the union still holds the leavers' ranges
+                self.unions[slot(reg).expect("a pool register")] = None;
+                reg
             }
             _ => {
-                if is_fp {
-                    Reg::SpillFpr(spill_off)
-                } else {
-                    Reg::SpillGpr(spill_off)
+                if self.log {
+                    eprintln!("  spill %{new_vid} (best {best:?})");
                 }
+                spill(self.alloc_spill_slot())
             }
         }
+    }
+
+    /// The register of the asked class and pool that is cheapest to
+    /// clear for an arrival live on `mine`, with the summed weight of
+    /// the holders that would leave it and the furthest end among them;
+    /// registers tie in the order the active set first names them.
+    /// `None` when no register of the pool is held. A register one of
+    /// whose leavers may not spill, or that would keep `MAX_HOLDERS`
+    /// holders besides the arrival, is never chosen.
+    pub(crate) fn cheapest_clear(
+        &self,
+        mine: &[(u32, u32)],
+        is_fp: bool,
+        callee_only: bool,
+    ) -> Option<(Reg, u64, i64)> {
+        // per register: summed leaver weight, furthest leaver end,
+        // leavers, and whether a leaver may not spill
+        let mut acc = [(0u64, -1i64, 0u8, false); 64];
+        let (mut seen, mut order) = (0u64, Vec::new());
+        for &(v, it, reg) in &self.active {
+            if !clearable(reg, is_fp, callee_only) {
+                continue;
+            }
+            let k = slot(reg).expect("a pool register");
+            if seen & (1 << k) == 0 {
+                seen |= 1 << k;
+                order.push(reg);
+            }
+            if !self.leaves(v, mine) {
+                continue;
+            }
+            let a = &mut acc[k];
+            a.0 =
+                a.0.saturating_add(self.weights.get(&v).copied().unwrap_or(0));
+            a.1 = a.1.max(it.end as i64);
+            a.2 += 1;
+            a.3 |= self.unspillable.contains(&v);
+        }
+        let mut best: Option<(Reg, u64, i64)> = None;
+        for reg in order {
+            let k = slot(reg).unwrap();
+            let (cost, end, leavers, pinned) = acc[k];
+            if pinned || self.holders[k] - leavers >= MAX_HOLDERS {
+                continue;
+            }
+            if best.is_none_or(|(_, c, e)| cost < c || (cost == c && end > e)) {
+                best = Some((reg, cost, end));
+            }
+        }
+        best
+    }
+
+    /// Whether holder `vid` has to leave its register for an arrival
+    /// live on `mine`: it meets the arrival somewhere, or is saved
+    /// around calls (its reload after a call would land on the
+    /// arrival). With sharing off every holder leaves.
+    fn leaves(&self, vid: u32, mine: &[(u32, u32)]) -> bool {
+        !self.share || self.saved.contains(&vid) || LiveRanges::intersect(self.ranges.of(vid), mine)
     }
 }

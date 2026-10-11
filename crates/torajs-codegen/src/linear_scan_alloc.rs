@@ -6,9 +6,31 @@ use torajs_core::ssa::block_freq::ENTRY_FREQ;
 
 use crate::linear_scan_sweep::Sweep;
 use crate::liveness::Interval;
-use crate::reg::{Reg, aapcs64};
+use crate::reg::Reg;
 
-impl Sweep {
+impl Sweep<'_> {
+    /// Home an instruction or alloca result that is not pinned to a
+    /// lane, and record it as active.
+    pub(crate) fn alloc_value(
+        &mut self,
+        vid: u32,
+        interval: Interval,
+        is_fp: bool,
+        crossing: bool,
+    ) {
+        let reg = if crossing && self.unspillable.contains(&vid) {
+            self.alloc_crossing_vector(vid, interval)
+        } else if crossing && self.save_calls {
+            self.alloc_crossing_saved(vid, interval, is_fp)
+        } else if crossing {
+            self.alloc_crossing(vid, interval, is_fp)
+        } else {
+            self.alloc_noncrossing(vid, interval, is_fp)
+        };
+        self.by_value.insert(vid, reg);
+        self.activate(vid, interval, reg);
+    }
+
     /// Allocate for a value whose interval crosses a call: callee-
     /// saved only (caller-saved would be clobbered by the BL). Spills
     /// when the callee pool is exhausted.
@@ -18,18 +40,19 @@ impl Sweep {
         } else {
             self.take_callee_gpr().map(Reg::Gpr)
         };
-        reg.unwrap_or_else(|| {
-            self.spill_at_active(vid, interval, is_fp, /*callee_only=*/ true)
-        })
+        reg.or_else(|| self.share(vid, is_fp, true))
+            .unwrap_or_else(|| {
+                self.spill_at_active(vid, interval, is_fp, /*callee_only=*/ true)
+            })
     }
 
     /// Allocate for a value that crosses a call and may be saved around
     /// it: callee-saved first, unless that means saving one more
     /// register on entry for calls that rarely run. With that pool
     /// full, take a caller-saved register and save it around each
-    /// crossed call when that is cheaper than spilling this value or the
-    /// lightest callee-saved holder; otherwise spill as `alloc_crossing`
-    /// does.
+    /// crossed call when that is cheaper than spilling this value or
+    /// clearing the cheapest callee-saved register; otherwise spill as
+    /// `alloc_crossing` does.
     pub(crate) fn alloc_crossing_saved(
         &mut self,
         vid: u32,
@@ -44,7 +67,7 @@ impl Sweep {
             && self.call_costs.save_cost(interval) < ENTRY_FREQ
             && let Some(r) = self.take_caller(is_fp)
         {
-            self.caller_crossing.push(vid);
+            self.save_around_calls(vid);
             return r;
         }
         let callee = if is_fp {
@@ -52,25 +75,17 @@ impl Sweep {
         } else {
             self.take_callee_gpr().map(Reg::Gpr)
         };
-        if let Some(r) = callee {
+        if let Some(r) = callee.or_else(|| self.share(vid, is_fp, true)) {
             return r;
         }
         let weight = |v: u32| self.weights.get(&v).copied().unwrap_or(0);
-        let lightest_victim = self
-            .active
-            .iter()
-            .filter(|e| match e.2 {
-                Reg::Gpr(g) => !is_fp && aapcs64::CALLEE_SAVED_SCRATCH.contains(&g),
-                Reg::Fpr(f) => is_fp && aapcs64::FP_CALLEE_SAVED_SCRATCH.contains(&f),
-                _ => false,
-            })
-            .map(|e| weight(e.0))
-            .min()
-            .unwrap_or(u64::MAX);
-        if self.call_costs.save_cost(interval) < weight(vid).min(lightest_victim)
+        let cheapest_clear = self
+            .cheapest_clear(self.ranges.of(vid), is_fp, true)
+            .map_or(u64::MAX, |(_, cost, _)| cost);
+        if self.call_costs.save_cost(interval) < weight(vid).min(cheapest_clear)
             && let Some(r) = self.take_caller(is_fp)
         {
-            self.caller_crossing.push(vid);
+            self.save_around_calls(vid);
             return r;
         }
         self.spill_at_active(vid, interval, is_fp, /*callee_only=*/ true)
@@ -83,8 +98,10 @@ impl Sweep {
         let reg = self
             .take_caller(true)
             .or_else(|| self.take_callee_fpr().map(Reg::Fpr))
+            .or_else(|| self.share(vid, true, false))
+            .or_else(|| self.share(vid, true, true))
             .unwrap_or_else(|| self.spill_at_active(vid, interval, true, false));
-        self.caller_crossing.push(vid);
+        self.save_around_calls(vid);
         reg
     }
 
@@ -112,7 +129,8 @@ impl Sweep {
 
     /// Allocate for a value that never crosses a call: prefer caller-
     /// saved (free to clobber), fall back to callee-saved (then it
-    /// must be saved/restored), spill last.
+    /// must be saved/restored), then a register whose holders are dead
+    /// wherever this value is live, spill last.
     pub(crate) fn alloc_noncrossing(&mut self, vid: u32, interval: Interval, is_fp: bool) -> Reg {
         if is_fp {
             if let Some(f) = self.free_caller_fpr.pop_front() {
@@ -128,6 +146,12 @@ impl Sweep {
             if let Some(g) = self.take_callee_gpr() {
                 return Reg::Gpr(g);
             }
+        }
+        if let Some(r) = self
+            .share(vid, is_fp, false)
+            .or_else(|| self.share(vid, is_fp, true))
+        {
+            return r;
         }
         self.spill_at_active(vid, interval, is_fp, /*callee_only=*/ false)
     }
