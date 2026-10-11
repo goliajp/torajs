@@ -6,10 +6,10 @@
 //! with the en-US defaults, and an option it does not apply yet is a
 //! roadmap item, never a refusal.
 //!
-//! CurrencyDigits (§6.3.2) needs the ISO 4217 table, which does not
-//! ship; every currency counts the default 2 minor digits.
 
-use crate::locale_option_values::{is_unicode_type, is_well_formed_currency, is_well_formed_unit};
+use crate::locale_option_values::{
+    currency_digits, is_unicode_type, is_well_formed_currency, is_well_formed_unit,
+};
 use crate::locale_options::{OptionSource, Read, Refusal, default_number, get_number, get_string};
 
 /// InitializeNumberFormat's reads after CanonicalizeLocaleList.
@@ -22,13 +22,14 @@ pub(crate) fn read_number_format_options<S: OptionSource>(s: &mut S) -> Read<()>
     }
     let style = get_string(s, "style", &["decimal", "percent", "currency", "unit"])?;
     let style = style.as_deref().unwrap_or(b"decimal");
-    match get_string(s, "currency", &[])? {
+    let currency = get_string(s, "currency", &[])?;
+    match &currency {
         None if style == b"currency" => {
             return Err(Refusal::Type(
                 c"Currency code is required with currency style",
             ));
         }
-        Some(c) if !is_well_formed_currency(&c) => {
+        Some(c) if !is_well_formed_currency(c) => {
             return Err(Refusal::Range(c"Invalid currency code"));
         }
         _ => {}
@@ -56,7 +57,8 @@ pub(crate) fn read_number_format_options<S: OptionSource>(s: &mut S) -> Read<()>
     )?;
     let notation = notation.as_deref().unwrap_or(b"standard");
     let (mnfd_default, mxfd_default) = if style == b"currency" && notation == b"standard" {
-        (2.0, 2.0)
+        let cd = f64::from(currency.as_deref().map_or(2, currency_digits));
+        (cd, cd)
     } else if style == b"percent" {
         (0.0, 0.0)
     } else {

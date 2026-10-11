@@ -45,6 +45,8 @@ fn lower_locale_args(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<LocaleAr
         let op = ctx.lower_expr(a);
         if i < 2 {
             srcs[i] = Some((a, ctx.box_to_any_from_expr(a, op)));
+        } else {
+            ctx.release_owned_temp(a, &op);
         }
     }
     let (_, locales) = srcs[0]?;

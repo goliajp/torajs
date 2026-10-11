@@ -67,7 +67,8 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
         // common path and accepts a Number radix when
         // supplied (ssa-lower routes to bigint_to_string
         // vs bigint_to_string_radix per arg count).
-        // toLocaleString remains 0-arg per ES §22.2.3.2.
+        // toLocaleString's locales / options ride as trailing
+        // arguments, checked by the lowering (ECMA-402 §9.2.1)
         (Type::BigInt, "toString") => Type::Function(vec![Type::Any], Box::new(Type::String)),
         (Type::BigInt, "toLocaleString") => Type::Function(Vec::new(), Box::new(Type::String)),
         (Type::BigInt, "valueOf") => Type::Function(Vec::new(), Box::new(Type::BigInt)),

@@ -69,8 +69,8 @@ pub(crate) fn try_lower(
     if recv_ty == Type::BigInt && m_name == "toString" {
         return Some(emit_bigint_to_string(ctx, recv_op, args));
     }
-    // The en-US grouped decimal, behind the same locales / options
-    // checks as Number's.
+    // the en-US grouped decimal, behind the same locales / options
+    // checks as Number's
     if recv_ty == Type::BigInt && m_name == "toLocaleString" {
         let fmt = ctx.intrinsics.bigint_to_locale_string;
         return Some(gated_format(ctx, args, fmt, recv_op));

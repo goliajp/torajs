@@ -56,7 +56,7 @@ fn try_join(
         // pointer-walking helpers.
         // §23.1.3.32 — toLocaleString reads none of its arguments
         // (without ECMA-402 each element's own toLocaleString is
-        // invoked with none): they are evaluated and dropped.
+        // invoked with none): they are evaluated and dropped
         let is_locale = method == "toLocaleString";
         if is_locale {
             for &a in args {

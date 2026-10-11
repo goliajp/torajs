@@ -68,6 +68,31 @@ const SANCTIONED_UNITS: [&str; 45] = [
     "year",
 ];
 
+/// CurrencyDigits (ECMA-402 §6.3.2): the ISO 4217 minor unit of a
+/// well-formed code, compared case-insensitively; 2 for every code the
+/// list gives two minor digits or does not contain
+pub(crate) fn currency_digits(code: &[u8]) -> u8 {
+    const ZERO: [&[u8; 3]; 17] = [
+        b"BIF", b"CLP", b"DJF", b"GNF", b"ISK", b"JPY", b"KMF", b"KRW", b"PYG", b"RWF", b"UGX",
+        b"UYI", b"VND", b"VUV", b"XAF", b"XOF", b"XPF",
+    ];
+    const THREE: [&[u8; 3]; 7] = [b"BHD", b"IQD", b"JOD", b"KWD", b"LYD", b"OMR", b"TND"];
+    const FOUR: [&[u8; 3]; 2] = [b"CLF", b"UYW"];
+    let Ok(c) = <[u8; 3]>::try_from(code) else {
+        return 2;
+    };
+    let c = c.map(|b| b.to_ascii_uppercase());
+    if ZERO.contains(&&c) {
+        0
+    } else if THREE.contains(&&c) {
+        3
+    } else if FOUR.contains(&&c) {
+        4
+    } else {
+        2
+    }
+}
+
 fn is_sanctioned_unit(s: &[u8]) -> bool {
     SANCTIONED_UNITS.iter().any(|u| u.as_bytes() == s)
 }
@@ -134,6 +159,16 @@ mod tests {
         for t in ["", "ab", "abcdefghi", "thai-", "-thai", "th_ai"] {
             assert!(!is_unicode_type(t.as_bytes()), "{t}");
         }
+    }
+
+    #[test]
+    fn currency_minor_digits() {
+        assert_eq!(currency_digits(b"JPY"), 0);
+        assert_eq!(currency_digits(b"jpy"), 0);
+        assert_eq!(currency_digits(b"BHD"), 3);
+        assert_eq!(currency_digits(b"CLF"), 4);
+        assert_eq!(currency_digits(b"USD"), 2);
+        assert_eq!(currency_digits(b"XAU"), 2);
     }
 
     #[test]
