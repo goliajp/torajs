@@ -389,6 +389,10 @@ pub(crate) unsafe fn redefine_declared_field(
 #[inline(never)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_obj_flag_exotic_field(obj: *mut c_void) {
+    // a typed store that sees the absent set skips the deletion records,
+    // so the set never coexists with this bit: it becomes records first
+    // (settling drops its own bit before it records, ending the recursion)
+    unsafe { crate::define_struct_shadow::settle_absent(obj) };
     unsafe {
         let flags = obj.cast::<u8>().add(6) as *mut u16;
         *flags |= OBJ_HDR_FLAG_EXOTIC_FIELD;
