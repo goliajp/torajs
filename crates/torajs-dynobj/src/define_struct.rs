@@ -283,14 +283,10 @@ pub(crate) unsafe fn redefine_declared_field(
     let deleted =
         unsafe { crate::define_struct_shadow::__torajs_obj_declared_field_deleted(obj, key) } != 0;
     let cur = if deleted {
-        // The HOLE word goes back to the filler first: a flags-only
-        // redefine reboxes the current word, and a reboxed HOLE is a
-        // `null` the shadow readers would take for a value.
-        let props_slot =
-            unsafe { obj.cast::<u8>().add(crate::layout::CELL_PROPS_OFF) } as *mut *mut c_void;
-        unsafe {
-            crate::set_entry_flags::__torajs_dynobj_set_entry_value_raw(props_slot, key, 5, 0)
-        };
+        // The deletion record goes: its all-false attributes would read
+        // as a non-configurable property the define may not change.
+        let props = unsafe { *(obj.cast::<u8>().add(crate::layout::CELL_PROPS_OFF) as *const u64) };
+        unsafe { crate::delete::__torajs_dynobj_delete(props as *mut c_void, key) };
         0
     } else {
         unsafe { current_field_attrs(obj, key) }
