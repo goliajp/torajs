@@ -287,11 +287,19 @@ fn widen_branches(
     };
     let fn_scalar_join = (fn_ck(&then_branch) && scalar_ck(&else_branch))
         || (scalar_ck(&then_branch) && fn_ck(&else_branch));
+    // two functions of different signatures, the checker's union that
+    // travels as Any: each arm boxes as its own fn object, so a call
+    // of the join rides the any lane whichever arm ran
+    let fn_fn_join = fn_ck(&then_branch)
+        && fn_ck(&else_branch)
+        && ctx.expr_types.get(&then_branch) != ctx.expr_types.get(&else_branch)
+        && matches!(ctx.expr_types.get(&eid), Some(crate::check::Type::Any));
     if (struct_join
         || arr_join
         || heap_mixed_join
         || scalar_mixed_join
         || fn_scalar_join
+        || fn_fn_join
         || then_undef != else_undef
         || null_join)
         && tt != Type::Any

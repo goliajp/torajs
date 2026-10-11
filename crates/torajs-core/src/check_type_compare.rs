@@ -140,6 +140,19 @@ pub(crate) fn unify_ternary(t: &Type, e: &Type) -> Option<Type> {
         // way; a named function boxes as its own fn object
         (Type::Function(..), Type::Number | Type::String | Type::Boolean)
         | (Type::Number | Type::String | Type::Boolean, Type::Function(..)) => Some(Type::Any),
+        // two functions of different signatures are their union
+        // (§13.14 answers one operand; tsc types the conditional as the
+        // union too). Its value travels as `any`: each branch boxes as
+        // its own fn object and the call rides the any lane. An
+        // all-`any` instance among them (a generic function's value)
+        // folds the union to `any`
+        (Type::Function(..), Type::Function(..)) => Some(Type::union_of([t.clone(), e.clone()])),
+        (Type::Nullable(f), g @ Type::Function(..))
+        | (g @ Type::Function(..), Type::Nullable(f))
+            if matches!(**f, Type::Function(..)) && **f != *g =>
+        {
+            Some(Type::union_of([t.clone(), e.clone()]))
+        }
         // 633-01 — two DIFFERENT builtin constructors read as VALUES
         // join to ANY, the S129-1 posture. `Type::Object(name)` is the
         // constructor itself, not an instance of it, so there is no

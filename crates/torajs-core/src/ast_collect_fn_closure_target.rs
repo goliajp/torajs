@@ -178,6 +178,13 @@ impl FnToClosureCollector<'_> {
     /// closure-repr param) the raw pointer would be a second
     /// representation of the same fn-typed value, called through the
     /// cell's entry.
+    ///
+    /// A choice among named fns alone joins in the any lane too when
+    /// their signatures differ: the checker types it as their union,
+    /// whose value is the chosen operand's fn object. A face the
+    /// declarations do not spell out (an inferred return) counts as
+    /// differing: a shell no site boxes is never called, a missing one
+    /// refuses the box.
     pub(crate) fn target_mixed_choice(&mut self, eid: ExprId) {
         let leaves = crate::ast_closure_param_tag_member::passthrough_leaves(self.ast, eid);
         let named: Vec<(ExprId, String)> = (leaves.iter())
@@ -196,9 +203,27 @@ impl FnToClosureCollector<'_> {
             for (leaf, _) in named {
                 self.mark_ident(leaf);
             }
-        } else if !others.is_empty() {
+        } else if !others.is_empty() || !self.same_declared_face(&named) {
             self.targets.extend(named.into_iter().map(|(_, n)| n));
         }
+    }
+
+    /// Do the declarations of `named` spell one signature: the same
+    /// parameter list (annotation, rest, default) and the same
+    /// explicit return annotation, none of them generic?
+    fn same_declared_face(&self, named: &[(ExprId, String)]) -> bool {
+        let face = |n: &str| {
+            let (params, ret, _) = &self.fn_sigs[n];
+            let ps: Vec<_> = (params.iter())
+                .map(|p| (p.type_ann.as_deref(), p.is_rest, p.default.is_some()))
+                .collect();
+            (ps, ret.as_deref())
+        };
+        let first = face(&named[0].1);
+        first.1.is_some()
+            && named
+                .iter()
+                .all(|(_, n)| !self.fn_type_params.contains_key(n) && face(n) == first)
     }
 
     fn fn_name(&self, eid: ExprId) -> Option<String> {
