@@ -281,6 +281,9 @@ pub struct Ast {
     /// dispatch. Parked by `check_monomorph` on the owned post-check
     /// AST (same ride as `undeclared_reads`). Empty pre-check.
     pub spec_throws: std::collections::HashMap<ExprId, String>,
+    /// Field names some object literal leaves out of its declared type,
+    /// which no static own-property fold may answer. Parked post-check.
+    pub absent_field_names: std::collections::HashSet<PropKey>,
     /// Lifted closures whose return type was SEEDED from the position
     /// they were passed to (a builtin callback slot, a fn-typed
     /// parameter / binding), not written by the user. The annotation

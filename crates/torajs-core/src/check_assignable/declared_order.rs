@@ -25,7 +25,11 @@
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type};
 
+mod absent;
 mod ternary;
+
+pub(crate) use absent::literal_absent_fields;
+use absent::plain_entries;
 
 /// `value_ty` in the field order of `to` when `value` is an object
 /// literal (or an array literal of them, at any depth) spelling the
@@ -123,6 +127,12 @@ fn reorder(
     value_ty: &Type,
     records: &mut Vec<(ExprId, Type)>,
 ) -> Option<Type> {
+    if let Type::Nullable(inner) = to {
+        return reorder(checker, ast, inner, value, value_ty, records);
+    }
+    // a class instance is built by its constructor, never by a literal
+    // that leaves a field out
+    let class_slot = matches!(to, Type::ClassRef(c) if checker.class_names.contains(c));
     let to = crate::check::resolve_class_ref(
         to,
         &checker.class_structs,
@@ -135,38 +145,56 @@ fn reorder(
         return reorder(checker, ast, inner, value, value_ty, records);
     }
     match ast.get_expr(value) {
-        Expr::ObjectLit { fields } => {
-            reorder_object(checker, ast, &to, value, fields, value_ty, records)
-        }
+        Expr::ObjectLit { fields } => reorder_object(
+            checker,
+            ast,
+            (&to, !class_slot),
+            value,
+            fields,
+            value_ty,
+            records,
+        ),
         Expr::Array(elems) => reorder_array(checker, ast, &to, value, elems, records),
         _ => None,
     }
 }
 
+/// A literal that leaves out an optional member (`a?: T`; a required
+/// `a: T | undefined` may not be left out, TS2741) is recorded with the
+/// declared field list too: the field is no own property of the cell
+/// (§10.1.11), and the lowering stores the slot's undefined and marks
+/// the field absent. `to.1` says whether the slot may take such a
+/// literal at all.
 fn reorder_object(
     checker: &Checker,
     ast: &Ast,
-    to: &Type,
+    to: (&Type, bool),
     value: ExprId,
     entries: &[(crate::ast::PropKey, ExprId)],
     value_ty: &Type,
     records: &mut Vec<(ExprId, Type)>,
 ) -> Option<Type> {
+    let (to, admits_absent) = to;
     let (Type::Struct(to_fields), Type::Struct(from_fields)) = (to, value_ty) else {
         return None;
     };
-    let plain = entries.iter().all(|(n, _)| {
-        crate::check_type_of_object_lit::spread_omit_set(n).is_none()
-            && crate::check_type_of_object_lit::accessor_slot(n).is_none()
-            && !crate::check_type_of_object_lit::private_slot(n)
-    });
-    if !plain || to_fields.len() != from_fields.len() {
+    let absent = to_fields.len().checked_sub(from_fields.len())?;
+    if !plain_entries(entries) || (absent > 0 && !admits_absent) {
         return None;
     }
     let mut out = Vec::with_capacity(to_fields.len());
     let mut changed = false;
+    let mut missing = 0;
     for (k, (name, to_ty)) in to_fields.iter().enumerate() {
-        let pos = from_fields.iter().position(|(n, _)| n == name)?;
+        let Some(pos) = from_fields.iter().position(|(n, _)| n == name) else {
+            if !to_fields.is_optional(name) {
+                return None;
+            }
+            missing += 1;
+            changed = true;
+            out.push((name.clone(), to_ty.clone()));
+            continue;
+        };
         changed |= pos != k;
         let from_ty = &from_fields[pos].1;
         // the last spelling of a repeated key is the one that lands
@@ -180,10 +208,11 @@ fn reorder_object(
         };
         out.push((name.clone(), ty));
     }
-    if !changed {
+    // every field the literal spells has to be one the type declares
+    if !changed || missing != absent {
         return None;
     }
-    let ty = Type::Struct(out);
+    let ty = Type::Struct(out.into());
     records.push((value, ty.clone()));
     Some(ty)
 }

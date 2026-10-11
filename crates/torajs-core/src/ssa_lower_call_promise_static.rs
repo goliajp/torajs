@@ -194,7 +194,7 @@ fn allsettled_record_tags(ctx: &mut LowerCtx<'_>, eid: ExprId) -> i64 {
     let [(_, status_ty), (_, value_ty)] = &fields[..] else {
         return i64::from(fulfilled);
     };
-    let rejected_shape = check_mod::Type::Struct(vec![
+    let rejected_shape = check_mod::Type::struct_of(vec![
         ("status".into(), status_ty.clone()),
         ("reason".into(), value_ty.clone()),
     ]);

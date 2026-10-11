@@ -138,7 +138,10 @@ pub(crate) fn lower_has_property(
             // to the runtime rather than folding, which is where the
             // guard already lives.
             let is_internal_spelling = crate::check_type_of_object_lit::accessor_slot(s).is_some();
+            // a field some literal leaves out may be absent from this
+            // cell, which only the runtime face can tell
             let present = !is_internal_spelling
+                && !ctx.ast.absent_field_names.contains(&**s)
                 && layout.iter().any(|(n, _)| {
                     n == s
                         || crate::check_type_of_object_lit::accessor_slot(n)

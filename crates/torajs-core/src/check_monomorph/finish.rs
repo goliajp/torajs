@@ -89,6 +89,22 @@ fn hold_apart(owned_ast: &mut Ast, appended: usize, mut minted: Vec<Stmt>) -> Ve
     held
 }
 
+/// The fields an object literal leaves out of the struct type the
+/// checker recorded for it (`check_assignable::in_declared_order`).
+fn absent_field_names(
+    ast: &Ast,
+    expr_types: &HashMap<ExprId, crate::check::Type>,
+) -> std::collections::HashSet<crate::ast::PropKey> {
+    let mut out = std::collections::HashSet::new();
+    for (eid, ty) in expr_types {
+        if let crate::ast::Expr::ObjectLit { fields } = ast.get_expr(*eid) {
+            let absent = crate::check_assignable::literal_absent_fields(ty, fields);
+            out.extend(absent.into_iter().map(|(_, n)| n));
+        }
+    }
+    out
+}
+
 /// The checker's per-group lane verdicts (top-level and from the body
 /// checks) ride to the lowerer on the AST it already reads; answers the
 /// width table over that AST.
@@ -112,6 +128,7 @@ fn hand_over(
     owned_ast
         .spec_throws
         .extend(std::mem::take(&mut c.spec_throws));
+    owned_ast.absent_field_names = absent_field_names(owned_ast, &c.expr_types);
     let origins = std::mem::take(&mut c.widen_clone_origin);
     owned_ast.widen_clone_origin.extend(origins);
     crate::check_monomorph_closures::prune_unresolved_captures(c, owned_ast);

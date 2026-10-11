@@ -33,12 +33,9 @@ pub(crate) fn substitute_typevars(ty: &Type, subst: &HashMap<String, Type>) -> T
             args.iter().map(|t| substitute_typevars(t, subst)).collect(),
             Box::new(substitute_typevars(ret, subst)),
         ),
-        Type::Struct(fields) => Type::Struct(
-            fields
-                .iter()
-                .map(|(n, t)| (n.clone(), substitute_typevars(t, subst)))
-                .collect(),
-        ),
+        Type::Struct(fields) => {
+            Type::Struct(fields.map_types_ref(|t| substitute_typevars(t, subst)))
+        }
         Type::Rest(inner) => Type::Rest(Box::new(substitute_typevars(inner, subst))),
         Type::Nullable(inner) => Type::Nullable(Box::new(substitute_typevars(inner, subst))),
         Type::Promise(inner) => Type::Promise(Box::new(substitute_typevars(inner, subst))),

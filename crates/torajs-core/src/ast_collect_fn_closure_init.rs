@@ -35,7 +35,7 @@ pub(crate) fn parse_inlobj_field_anns(ann: &str) -> Option<HashMap<String, Strin
     for seg in crate::check_type_ann::split_top_pipe(body) {
         let colon = seg.find(':')?;
         map.insert(
-            seg[..colon].trim().to_string(),
+            seg[..colon].trim().trim_end_matches('?').to_string(),
             seg[colon + 1..].trim().to_string(),
         );
     }
@@ -75,7 +75,7 @@ impl<'a> FnToClosureCollector<'a> {
     /// an inline object type decodes in place, and a generic
     /// instantiation (`Box<() => number>` — chunk 795) substitutes
     /// its type args into the generic decl's fields (same dance as
-    /// `fill_optional_fields::instantiate_generic`). Every wrap
+    /// the checker's `resolve_generic`). Every wrap
     /// axis resolves through here so all spellings behave
     /// identically.
     pub(crate) fn resolve_field_anns(&self, ann: &str) -> Option<HashMap<PropKey, String>> {

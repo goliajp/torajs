@@ -61,12 +61,7 @@ impl Type {
     /// members apart — while every union below is folded.
     fn member_view(self) -> Type {
         match self {
-            Type::Struct(fields) => Type::Struct(
-                fields
-                    .into_iter()
-                    .map(|(k, t)| (k, t.field_view()))
-                    .collect(),
-            ),
+            Type::Struct(fields) => Type::Struct(fields.map_types(Type::field_view)),
             t => t.field_view(),
         }
     }
@@ -113,12 +108,7 @@ impl Type {
     pub(crate) fn erase_literals(self) -> Type {
         match self {
             Type::Literal(l) => l.base(),
-            Type::Struct(fields) => Type::Struct(
-                fields
-                    .into_iter()
-                    .map(|(k, t)| (k, t.erase_literals()))
-                    .collect(),
-            ),
+            Type::Struct(fields) => Type::Struct(fields.map_types(Type::erase_literals)),
             Type::Union(ms) => Type::union_of(ms.into_iter().map(Type::erase_literals)),
             Type::Array(e) => Type::Array(Box::new(e.erase_literals())),
             Type::Nullable(e) => Type::Nullable(Box::new(e.erase_literals())),
@@ -229,9 +219,7 @@ impl Type {
             Type::Function(ps, r) => {
                 Type::Function(ps.into_iter().map(Type::lane).collect(), Box::new(r.lane()))
             }
-            Type::Struct(fields) => {
-                Type::Struct(fields.into_iter().map(|(k, t)| (k, t.lane())).collect())
-            }
+            Type::Struct(fields) => Type::Struct(fields.map_types(Type::lane)),
             Type::Nullable(inner) => match inner.lane() {
                 Type::Any => Type::Any,
                 t => Type::Nullable(Box::new(t)),

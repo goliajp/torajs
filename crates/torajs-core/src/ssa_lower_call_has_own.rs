@@ -226,7 +226,12 @@ pub(crate) fn try_lower(
                 || n.strip_prefix("__setter_")
                     .is_some_and(|p| p == key.as_wtf8())
         });
-    Some(Operand::ConstBool(has))
+    if !has {
+        return Some(Operand::ConstBool(false));
+    }
+    Some(crate::ssa_lower_object_lit::absent::declared_field_own(
+        ctx, obj_op, &key,
+    ))
 }
 
 /// `Object.__forinKeyLive(obj, key)` — the for-in mid-loop-delete guard

@@ -31,15 +31,15 @@ mod union_tests;
 pub(crate) use branch_end::End;
 pub(crate) use diag::DiagPush;
 pub use diag::{Diagnostic, Severity};
-pub use type_def::{Lit, Type};
+pub use type_def::{Lit, StructFields, Type};
 
-/// Generic declaration index: name → (type-param names, field ann
-/// pairs, is_class). The bool separates a generic CLASS (`class
-/// Box<T>`) from a generic `type` alias — a class instantiation keeps
-/// its nominal identity (`ClassRef("Box<number>")`, RFC
-/// 20260815-generic-nominal-identity blade 3), an alias expands
-/// structurally as ever.
-pub(crate) type GenericAliasMap = HashMap<String, (Vec<String>, Vec<(PropKey, String)>, bool)>;
+/// Generic declaration index: name → (type-param names, field ann pairs,
+/// is_class, optional members). The bool separates a generic CLASS (`class
+/// Box<T>`), whose instantiation keeps its nominal identity
+/// (`ClassRef("Box<number>")`, RFC 20260815-generic-nominal-identity blade
+/// 3), from a generic `type` alias, which expands structurally.
+pub(crate) type GenericAliasMap =
+    HashMap<String, (Vec<String>, Vec<(PropKey, String)>, bool, Vec<PropKey>)>;
 
 // `is_class_method_name` and `STRING_BORROW_METHODS` live in
 // [`crate::check_method_name`] (chunk-327 of the check.rs god-file

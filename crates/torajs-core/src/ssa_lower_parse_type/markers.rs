@@ -40,7 +40,7 @@ pub(super) fn parse_struct(
             struct_layouts,
             inst_memo,
         );
-        fields.push((PropKey::from(n), fty));
+        fields.push((PropKey::from(n.trim_end_matches('?')), fty));
     }
     // Intern by structural equality.
     for (i, ex) in struct_layouts.iter().enumerate() {

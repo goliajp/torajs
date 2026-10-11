@@ -93,7 +93,7 @@ pub(super) fn find_close_paren(rest: &str) -> Option<usize> {
 /// V3-18 P2.4.c.2 — inline obj type `__inlobj(name1:T1|name2:T2|...)`.
 /// Each field's type recurses through the resolver so nested inline
 /// obj / generic types work. `rest` is the annotation past the
-/// `__inlobj(` prefix.
+/// `__inlobj(` prefix. A name spelled `name?` is an optional member.
 pub(super) fn resolve_inlobj(
     rest: &str,
     aliases: &HashMap<String, Type>,
@@ -105,9 +105,13 @@ pub(super) fn resolve_inlobj(
     let fields_str = &rest[..close];
     let fields_split = split_top_pipe(fields_str);
     let mut fields_out: Vec<(PropKey, Type)> = Vec::with_capacity(fields_split.len());
+    let mut optional = Vec::new();
     for f in fields_split {
         let colon = f.find(':')?;
-        let fname = f[..colon].to_string();
+        let fname = PropKey::from(f[..colon].trim_end_matches('?'));
+        if f[..colon].ends_with('?') {
+            optional.push(fname.clone());
+        }
         let fty_str = &f[colon + 1..];
         let fty = super::resolve_type_ann_inner(
             fty_str,
@@ -116,9 +120,10 @@ pub(super) fn resolve_inlobj(
             generic_aliases,
             in_flight,
         )?;
-        fields_out.push((PropKey::from(fname), fty));
+        fields_out.push((fname, fty));
     }
-    Some(Type::Struct(fields_out))
+    let fields = crate::check::StructFields::from(fields_out).with_optional(optional);
+    Some(Type::Struct(fields))
 }
 
 /// `__fn(P1|P2|...)->(R)` (user-source fn type) and its

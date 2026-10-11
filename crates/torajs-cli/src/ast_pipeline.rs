@@ -270,7 +270,6 @@ pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) -> Result<(), ()> {
     ast::promote_bind_receiver_this(ast);
     ast::synthesize_fn_constructors(ast);
     ast::route_non_class_new(ast);
-    ast::fill_optional_fields(ast);
     ast::synthesize_class_globals(ast);
     ast::tag_struct_field_closure_types(ast);
     // RFC-less blade — a `function` whose own name is assigned needs a

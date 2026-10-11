@@ -280,7 +280,7 @@ fn lower_shape(
             let peeled = fe_peel(fe);
             let is_error = fe_is_error_instance(ctx, peeled.as_ref());
             let fe_fields = match peeled {
-                Some(crate::check::Type::Struct(fs)) => Some(fs),
+                Some(crate::check::Type::Struct(fs)) => Some(fs.into_vec()),
                 _ => None,
             };
             exotic_gate::lower_obj_gated(ctx, val_op, sid, fe_fields, gap, depth, is_error)

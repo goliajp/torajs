@@ -630,6 +630,7 @@ pub(crate) fn build(
         any_method_probe: init_c.any_substrate.any_method_probe,
         any_prop_delete: init_c.any_substrate.any_prop_delete,
         any_prop_delete_soft: init_b.object.any_prop_delete_soft,
+        obj_field_deleted: init_b.object.obj_field_deleted,
         any_member_set_soft: init_b.object.any_member_set_soft,
         any_index_set_soft: init_b.object.any_index_set_soft,
         any_index_set_keyed_soft: init_b.object.any_index_set_keyed_soft,

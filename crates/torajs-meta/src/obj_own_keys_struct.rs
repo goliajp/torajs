@@ -282,6 +282,16 @@ pub(crate) unsafe fn struct_keys_with_expandos(
         if key.is_null() {
             continue;
         }
+        // a deleted field (or one the literal that built the cell left
+        // out) is no own property on any surface
+        let k = unsafe { crate::str_wtf8::StrWtf8::of(key) };
+        if unsafe {
+            crate::struct_field_attrs::__torajs_obj_field_is_deleted(cell, k.as_ptr(), k.len())
+        } != 0
+        {
+            dropped_static = true;
+            continue;
+        }
         // A field redefined to `enumerable: false` leaves Object.keys
         // and for-in, but `getOwnPropertyNames` still wants it — the
         // sidecar is the only place that distinction is recorded, the

@@ -91,7 +91,7 @@ pub(crate) fn lower(
     // must land the per-type undefined sentinel in the slot, not the
     // shared NULL (which means JS null): remember which field names
     // carried one before lowering collapses both to ConstPtrNull.
-    let undef_fields: std::collections::HashSet<PropKey> = fields
+    let mut undef_fields: std::collections::HashSet<PropKey> = fields
         .iter()
         .filter(|(_, veid)| {
             matches!(
@@ -101,13 +101,19 @@ pub(crate) fn lower(
         })
         .map(|(n, _)| n.clone())
         .collect();
-    let (mut field_tys, mut field_vals, parked, spreads) =
-        lower_field_entries(ctx, &fields, declared_hint);
+    let (mut field_tys, mut field_vals, parked, spreads, spread_absent) =
+        lower_field_entries(ctx, (eid, &fields), declared_hint);
     // Every field is lowered; nothing below can throw before the
     // stores transfer the owned values into the object.
     for t in parked {
         ctx.pop_throw_temp(t);
     }
+    let absent = absent::absent_fields(ctx, eid, &fields);
+    absent::insert_absent(&absent, &mut field_tys, &mut field_vals);
+    undef_fields.extend(absent.iter().map(|(_, n)| n.clone()));
+    // the deletion record hangs a dict off the cell, which a frame
+    // slot's end of scope would never release
+    let stack_hint = stack_hint.filter(|_| absent.is_empty() && spread_absent.is_empty());
     apply_w4_widen(ctx, &mut field_tys, &mut field_vals, eid, declared_hint);
     // An `undefined` literal has no type of its own — its field's
     // DECLARED slot type is the truth, and the sentinel it lands is
@@ -187,6 +193,7 @@ pub(crate) fn lower(
                     .map(|(_, veid)| *veid);
                 field_vals[i] = match veid {
                     Some(e) => ctx.box_to_any_from_expr(e, field_vals[i]),
+                    None if absent.iter().any(|(_, n)| n == fname) => absent::any_undef(ctx),
                     // spread-unfolded field — no source expr; the
                     // plain box maps ConstPtrNull to ANY_NULL.
                     None => ctx.box_to_any(field_vals[i]),
@@ -230,20 +237,24 @@ pub(crate) fn lower(
             InstKind::Store(*val, Operand::Value(obj_ptr), offset),
         );
     }
+    absent::mark_absent(ctx, obj_ptr, &absent);
+    absent::mark_absent_if(ctx, obj_ptr, &spread_absent);
     Operand::Value(obj_ptr)
 }
 
-/// field types, values, the indices that are undefined, and the spread sources
+/// field types, values, the indices that are undefined, the spread
+/// sources, and the spread fields each source may lack
 type FieldEntries = (
     Vec<(PropKey, Type)>,
     Vec<Operand>,
     Vec<usize>,
     Vec<order::SpreadSrc>,
+    Vec<(PropKey, Operand)>,
 );
 
 fn lower_field_entries(
     ctx: &mut LowerCtx<'_>,
-    entries: &[(PropKey, ExprId)],
+    (lit, entries): (ExprId, &[(PropKey, ExprId)]),
     declared_hint: Option<StructId>,
 ) -> FieldEntries {
     // Chunk 785 — the outer declared layout also pins NESTED object
@@ -264,6 +275,7 @@ fn lower_field_entries(
     // lane stranded the value per caught throw, 40MB over 600k).
     let mut parked: Vec<usize> = Vec::new();
     let mut spreads: Vec<order::SpreadSrc> = Vec::new();
+    let mut spread_absent: Vec<(PropKey, Operand)> = Vec::new();
     for (entry, (n, eid)) in entries.iter().enumerate() {
         // RFC 20260725-objlit-computed-key 刀 1 — a computed key has
         // no static field name, so the struct lane cannot place it;
@@ -282,10 +294,11 @@ fn lower_field_entries(
             let omit: Vec<PropKey> = omit.iter().map(|s| PropKey::from(*s)).collect();
             let (op, sid) = crate::ssa_lower_object_lit_spread::unfold_spread(
                 ctx,
-                *eid,
+                (lit, *eid),
                 &omit,
                 &mut field_tys,
                 &mut field_vals,
+                &mut spread_absent,
             );
             spreads.push(order::SpreadSrc {
                 entry,
@@ -295,6 +308,7 @@ fn lower_field_entries(
             });
             continue;
         }
+        spread_absent.retain(|(k, _)| k != n);
         let declared_field_ty = declared_fields
             .as_ref()
             .and_then(|fs| fs.iter().find(|(fname, _)| fname == n))
@@ -309,12 +323,13 @@ fn lower_field_entries(
             &mut parked,
         );
     }
-    (field_tys, field_vals, parked, spreads)
+    (field_tys, field_vals, parked, spreads, spread_absent)
 }
 
 // The cell-construction tail (alloc dispatch / header init / class
 // tag / vtable pointer) lives in the child module at the 500-line
 // file cap; `lower` above is its only caller.
+pub(crate) mod absent;
 mod alloc;
 use alloc::{alloc_obj, init_header, write_class_tag, write_vtable_ptr};
 mod any_slot;

@@ -114,7 +114,7 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
          * shaped IteratorResult struct. */
         (Type::MapIter(..), "next") => Type::Function(
             Vec::new(),
-            Box::new(Type::Struct(vec![
+            Box::new(Type::struct_of(vec![
                 ("value".into(), Type::Any),
                 ("done".into(), Type::Boolean),
             ])),
@@ -123,7 +123,7 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
          * MapIter (both produce `IteratorResult<any>`). */
         (Type::ArrIter, "next") => Type::Function(
             Vec::new(),
-            Box::new(Type::Struct(vec![
+            Box::new(Type::struct_of(vec![
                 ("value".into(), Type::Any),
                 ("done".into(), Type::Boolean),
             ])),

@@ -144,7 +144,7 @@ pub(crate) fn emit_obj_has_own_property(
             }
         }
         if result {
-            return Operand::ConstBool(true);
+            return crate::ssa_lower_object_lit::absent::declared_field_own(ctx, *recv_op, key);
         }
         let lit = ctx.intern_string_literal(key);
         return emit_expando_probe(ctx, recv_op, Operand::Value(lit), is_enumerable_probe);
@@ -179,6 +179,17 @@ pub(crate) fn emit_obj_has_own_property(
             None,
         );
         let mut eq_op = Operand::Value(eq);
+        if ctx.ast.absent_field_names.contains(public) {
+            let own =
+                crate::ssa_lower_object_lit::absent::declared_field_own(ctx, *recv_op, public);
+            let and = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::BinOp(SsaBinOp::And, eq_op, own),
+                Type::Bool,
+                None,
+            );
+            eq_op = Operand::Value(and);
+        }
         if is_err_recv && (public == "message" || public == "name") {
             let present = emit_present(ctx, public);
             let and = ctx.f.append_inst(

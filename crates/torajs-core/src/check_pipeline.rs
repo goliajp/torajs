@@ -143,6 +143,7 @@ pub(crate) fn collect_type_alias_tables(ast: &Ast) -> TypeAliasTables {
                         type_params.clone(),
                         fields.clone(),
                         ast.class_parents.contains_key(name),
+                        crate::check::StructFields::declared_optional(ast, name, fields),
                     ),
                 );
                 continue;
@@ -194,7 +195,8 @@ pub(crate) fn collect_type_alias_tables(ast: &Ast) -> TypeAliasTables {
                 // through `resolve_class_ref`, which reads this map.
                 // A plain `type P = {...}` alias has no nominal identity
                 // to keep — it resolves to the struct as before.
-                let resolved = Type::Struct(field_tys);
+                let resolved =
+                    Type::Struct(crate::check::StructFields::declared(ast, name, field_tys));
                 if ast.class_parents.contains_key(name) {
                     t.class_structs.insert(name.clone(), resolved);
                 } else {

@@ -156,7 +156,7 @@ pub(crate) fn try_match(
                         "Promise.allSettled: T must be Number, String, or Boolean in v0.5 MVP (got {inner:?}); spec-strict heterogeneous-T shape ships post-PromiseId interning"
                     )));
                 }
-                Type::Promise(Box::new(Type::Array(Box::new(Type::Struct(vec![
+                Type::Promise(Box::new(Type::Array(Box::new(Type::struct_of(vec![
                     ("status".into(), Type::String),
                     ("value".into(), inner.clone()),
                 ])))))

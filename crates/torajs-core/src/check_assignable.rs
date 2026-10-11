@@ -296,5 +296,5 @@ pub(crate) fn fn_slot_admits(
 
 mod declared_order;
 mod flow;
-pub(crate) use declared_order::{cast_in_declared_order, in_declared_order};
+pub(crate) use declared_order::{cast_in_declared_order, in_declared_order, literal_absent_fields};
 pub(crate) use flow::{is_assignable_to, is_assignable_to_deep};

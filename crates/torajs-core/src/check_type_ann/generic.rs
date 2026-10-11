@@ -46,7 +46,7 @@ pub(super) fn resolve_generic(
             && let Some(value_ty) =
                 resolve_type_ann_inner(inner, aliases, type_params, generic_aliases, in_flight)
         {
-            return Some(Type::Struct(vec![
+            return Some(Type::struct_of(vec![
                 ("value".into(), value_ty),
                 ("done".into(), Type::Boolean),
             ]));
@@ -66,7 +66,7 @@ pub(super) fn resolve_generic(
             return Some(Type::Any);
         }
     }
-    if let Some((_, _, is_class)) = generic_aliases.get(head) {
+    if let Some((_, _, is_class, _)) = generic_aliases.get(head) {
         // Blade 3 (RFC 20260815-generic-nominal-identity) — a generic
         // CLASS instantiation is nominal: `Box<number>` answers
         // `ClassRef("Box<number>")` (the full key is its own canonical
@@ -177,7 +177,7 @@ fn expand_instantiation(
     in_flight: &mut HashSet<String>,
 ) -> Option<Type> {
     let head = &name[..open_idx];
-    let (tp_names, fields, _) = generic_aliases.get(head)?;
+    let (tp_names, fields, _, optional) = generic_aliases.get(head)?;
     let inner = &name[open_idx + 1..name.len() - 1];
     // Split inner at depth-0 `|`.
     let args = split_top_pipe(inner);
@@ -233,7 +233,8 @@ fn expand_instantiation(
         field_tys.push((fname.clone(), ty));
     }
     in_flight.remove(name);
-    Some(Type::Struct(field_tys))
+    let fields = crate::check::StructFields::from(field_tys);
+    Some(Type::Struct(fields.with_optional(optional.iter().cloned())))
 }
 
 /// Force-expand entry for a generic-instantiation ClassRef key

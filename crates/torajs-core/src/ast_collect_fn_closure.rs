@@ -74,7 +74,7 @@ pub(crate) struct FnToClosureCollector<'a> {
     /// Generic TypeDecl snapshots (name → (type params, fields with
     /// the params still spelled inside)) — chunk 795: the wrap axes
     /// resolve `Box<() => number>` instantiations by word-boundary
-    /// substitution, mirroring `fill_optional_fields`'s AliasEnv.
+    /// substitution, as the checker's `resolve_generic` does.
     pub(crate) generic_field_anns: &'a GenericStructDecls,
     /// Binding names declared with an `any` annotation anywhere in
     /// the program (scope-approximate; see module doc).

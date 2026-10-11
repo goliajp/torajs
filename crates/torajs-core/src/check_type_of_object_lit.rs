@@ -190,6 +190,12 @@ pub(crate) fn check(
                     continue;
                 }
                 if let Some(pos) = field_tys.iter().position(|(k, _)| *k == sn) {
+                    // §7.3.25 copies only the keys the source owns: an
+                    // optional member it lacks keeps the earlier value
+                    let st = match src_fields.is_optional(&sn) && field_tys[pos].1 != st {
+                        true => Type::union_of([field_tys[pos].1.clone(), st]),
+                        false => st,
+                    };
                     field_tys[pos] = (sn, st);
                 } else {
                     field_tys.push((sn, st));
@@ -248,5 +254,5 @@ pub(crate) fn check(
     if dynobj_lane {
         return Ok(Type::Any);
     }
-    Ok(Type::Struct(field_tys))
+    Ok(Type::Struct(field_tys.into()))
 }

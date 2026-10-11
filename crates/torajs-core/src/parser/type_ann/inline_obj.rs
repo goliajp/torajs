@@ -170,8 +170,9 @@ impl Parser<'_> {
             }
         };
         self.pos += 1;
-        // V3-18 wedge — optional field `field?: T`. TS spec §3.9:
-        // makes the property absence-tolerant, modeled as `T | null`.
+        // `field?: T` (TS §3.9.2): the value is `T | undefined`, and the
+        // name keeps the `?` (`__inlobj(field?:T)`), since only an
+        // optional member may be absent while a `T | null` one may not
         let optional = matches!(self.peek(), Token::Question);
         if optional {
             self.pos += 1;
@@ -205,12 +206,14 @@ impl Parser<'_> {
         // downstream consumer sees the same `__cls(` field the
         // named-TypeDecl lane sees.
         let fty_raw = crate::ast::retag_field_fn_ann(&fty_raw);
-        let fty = if optional && !fty_raw.starts_with("__nullable(") {
-            format!("__nullable({fty_raw})")
-        } else {
-            fty_raw
+        if !optional {
+            return Ok((fname, fty_raw, src, at));
+        }
+        let fty = match fty_raw.starts_with("__nullable(") {
+            true => fty_raw,
+            false => format!("__nullable({fty_raw})"),
         };
-        Ok((fname, fty, src, at))
+        Ok((format!("{fname}?"), fty, src, at))
     }
 
     /// Whether the object type body opening at the `{` under the

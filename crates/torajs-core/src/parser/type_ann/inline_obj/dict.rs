@@ -66,10 +66,13 @@ impl Parser<'_> {
     pub(super) fn dict_ann(
         &mut self,
         sig: IndexSig,
-        members: Vec<ObjTypeMember>,
+        mut members: Vec<ObjTypeMember>,
         record: bool,
     ) -> String {
         let ann = format!("__dict({}|{})", sig.key, sig.value);
+        for m in &mut members {
+            m.0 = m.0.trim_end_matches('?').to_string();
+        }
         self.ast.dict_sites.push(DictSite {
             record,
             key_at: sig.key_at,
