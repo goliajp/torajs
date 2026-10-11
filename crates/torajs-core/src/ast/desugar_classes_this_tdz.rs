@@ -209,6 +209,10 @@ fn guard_bare_returns(ast: &mut Ast, s: &mut Stmt) {
         *s = Stmt::Multi(vec![Stmt::Expr(check), Stmt::Return(None)]);
         return;
     }
+    // a nested declaration's `return;` leaves its own frame
+    if matches!(s, Stmt::FnDecl { .. } | Stmt::ClassDecl { .. }) {
+        return;
+    }
     if let Stmt::Try {
         finally_body: Some(fin),
         ..
