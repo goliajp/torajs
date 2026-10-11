@@ -13,6 +13,11 @@
 //! `any`-fallback the return type; callers live in the main file's
 //! FnDecl loop and `preinfer_closure_sigs`.
 
+mod receiver_fields;
+
+pub(crate) use receiver_fields::receiver_field_rows;
+use receiver_fields::receiver_fields_of;
+
 use crate::ast::{
     AstExprsView, Param, PropKey, Stmt, body_has_value_return, body_never_completes,
     infer_return_ann, infer_return_ann_seeded,
@@ -146,34 +151,6 @@ pub(crate) fn desugar_closure_shape_fn(
             *return_type = Some("any".to_string());
         }
     }
-}
-
-/// r502 — every class the class desugar flattened into a struct
-/// decl, by name: a `__this`-shaped method's return sniff resolves
-/// `this.<field>` against its receiver's row.
-pub(crate) fn receiver_field_rows(
-    stmts: &[Stmt],
-) -> std::collections::HashMap<String, Vec<(PropKey, String)>> {
-    stmts
-        .iter()
-        .filter_map(|s| match s {
-            Stmt::TypeDecl { name, fields, .. } => Some((name.clone(), fields.clone())),
-            _ => None,
-        })
-        .collect()
-}
-
-/// The receiver's field rows for a `__this`-first fn whose receiver
-/// ann is a plain class name (`C`, not `C<T>` / `any`).
-fn receiver_fields_of<'a>(
-    params: &[Param],
-    receiver_fields: &'a std::collections::HashMap<String, Vec<(PropKey, String)>>,
-) -> Option<&'a Vec<(PropKey, String)>> {
-    let ann = params.first()?.type_ann.as_deref()?;
-    if ann.contains('<') {
-        return None;
-    }
-    receiver_fields.get(ann)
 }
 
 /// Main-loop lifted-closure arm (`__closure_*` name without the

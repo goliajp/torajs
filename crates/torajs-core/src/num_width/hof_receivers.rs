@@ -59,8 +59,9 @@ pub(crate) fn iterated_array(ast: &Ast, callee: ExprId, args: &[ExprId]) -> Opti
 }
 
 /// Close the escape faces over the iterations: propagate the `any`
-/// and escape-only seeds (`escape::propagate`), and when an iteration
-/// that fills a product walks `any` elements, the product joins them.
+/// and escape-only seeds (`escape_propagate::propagate`), and when an
+/// iteration that fills a product walks `any` elements, the product
+/// joins them.
 /// The product holds what the callback answers, and a callback fed
 /// `any` elements through a typed first parameter answers through its
 /// all-`any` twin in any kind (`d.map(v => v + 1)` on a "5" element is
@@ -102,7 +103,7 @@ fn close_products(
     seeds: &mut Vec<SlotKey>,
 ) -> (HashSet<SlotKey>, HashSet<ExprId>) {
     loop {
-        let any_escaped = super::escape::propagate(seeds, &a.uf, &a.containerish);
+        let any_escaped = super::escape_propagate::propagate(seeds, &a.uf, &a.containerish);
         let escaped: HashSet<ExprId> = a
             .hof_receivers
             .iter()

@@ -32,6 +32,7 @@ mod bounds_lower;
 mod bounds_walk;
 mod captures;
 mod container;
+mod container_assign;
 mod container_callbacks;
 mod container_lookup;
 mod container_methods;
@@ -41,6 +42,7 @@ mod container_result_key;
 mod container_walk;
 mod cycle;
 mod escape;
+mod escape_propagate;
 mod fallthrough;
 mod fnsig;
 mod hidden_any;
@@ -61,6 +63,7 @@ mod sentinel_hof;
 mod sentinel_member_reads;
 mod sentinel_tables;
 mod slot_abi;
+mod slot_key;
 mod walk;
 mod walk_call;
 mod width;
@@ -71,63 +74,14 @@ pub(crate) use fnsig::{fn_type_canon, split_fn_type};
 pub(crate) use hidden_any::HiddenAny;
 pub(crate) use magnitude::EXACT_INT_MAX;
 pub(crate) use mono::{NumWidth, compute_typevar_widths};
+pub(crate) use slot_key::SlotKey;
 pub(crate) use width_table::WidthTable;
 
-use crate::ast::{Ast, ExprId, Stmt};
-use crate::ast::{GenericStructDecls, PropKey};
+use crate::ast::{Ast, ExprId, GenericStructDecls, Stmt};
 use fallthrough::{alias_fallthrough_closures, seed_and_walk_fn};
 use lattice::{Dep, W, dump_f64_classes, fixpoint, join, literal_is_f64};
 use sentinel_tables::close_sentinel_tables;
 use std::collections::{HashMap, HashSet};
-
-/// Identity of a number-typed storage slot, module-wide.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) enum SlotKey {
-    /// Top-level `let` / `const` binding (whether it later promotes to
-    /// a data global or localizes into main — both consumers key here).
-    Global(String),
-    /// Fn-local `let` binding: (fn name, var name). Block-scoped
-    /// same-name lets within one fn share a key — merging their
-    /// poison is conservative (F64-ward), never wrong.
-    Local(String, String),
-    /// Fn parameter: (fn name, param name).
-    Param(String, String),
-    /// Fn return slot.
-    Ret(String),
-    /// W4 — nominal aggregation point for a class: every instance of
-    /// `class C` shares one struct layout at lowering, so field-width
-    /// decisions join over all instances. `__new_C`'s ret and every
-    /// `__cm_C__*` method's `__this` param union into this key.
-    Class(String),
-    /// W4 — a name a lifted body reads that no binding resolves
-    /// (`captures.rs`): every same-named slot unions through it.
-    Captured(String),
-    /// W4 — anonymous container origin (array / object literal, or a
-    /// transform-method result), keyed by the originating ExprId.
-    Anon(u32),
-    /// W4 — element-width point of the container alias class whose
-    /// representative is the inner key. `number[]` elems narrow to I64
-    /// only when every write reaching any alias of the array is
-    /// provably integral.
-    Elem(Box<SlotKey>),
-    /// W4 — field-width point of a struct / class / inline-object
-    /// alias class: (container class representative, field name).
-    Field(Box<SlotKey>, PropKey),
-    /// RFC 20260726-array-elem-width — the pending-throw value slot.
-    ///
-    /// There is one of it in the runtime, and it holds raw 8 bytes that
-    /// a `throw` writes and a `catch` binding reads back, so both ends
-    /// have to agree on how to read those bits — the same reason a
-    /// promise's `value` point exists. Nothing joined them before, so
-    /// `throw xs[i]` on a widened array wrote f64 bits that
-    /// `catch (e: number)` read as an integer.
-    ///
-    /// Being a single point means every numeric throw site in a program
-    /// shares one class. That is the conservative direction: a class
-    /// merges F64-ward, and a JS number IS an f64, so the worst case is
-    /// a slot that stays wider than it had to.
-    Thrown,
-}
 
 pub(super) struct Scope<'a> {
     /// Enclosing fn name; `""` = module top level (locals resolve to
