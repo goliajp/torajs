@@ -17,6 +17,8 @@
 //! | [`sha2`] | SHA-256, SHA-384, SHA-512 (FIPS 180-4) behind the [`Digest`] trait |
 //! | [`hmac`] | HMAC (RFC 2104) over any [`Digest`] |
 //! | [`hkdf`] | HKDF extract / expand (RFC 5869) over any [`Digest`] |
+//! | [`aead`] | the [`Aead`] trait, [`AeadError`](aead::AeadError), nonce and tag lengths |
+//! | [`chacha20poly1305`] | ChaCha20-Poly1305 (RFC 8439) |
 //! | [`rand`] | the [`EntropySource`](rand::EntropySource) trait callers implement |
 //! | [`cpu`] | [`CpuFeatures`](cpu::CpuFeatures), the hardware capabilities a caller vouches for |
 //!
@@ -41,7 +43,8 @@
 //! # Side-channel rules
 //!
 //! These rules hold for every function in the crate that touches a secret
-//! (keys, MAC states, derived secrets, plaintext):
+//! (keys, MAC states, derived secrets, plaintext, keystream, Poly1305
+//! accumulators):
 //!
 //! 1. A secret never decides a branch, a loop bound, an array index or a
 //!    divisor, and is never compared with an early-exit comparison.
@@ -76,14 +79,19 @@
 #[cfg(test)]
 extern crate std;
 
+pub mod aead;
+mod chacha20;
+pub mod chacha20poly1305;
 pub mod cpu;
 pub mod ct;
 mod digest;
 pub mod hkdf;
 pub mod hmac;
+mod poly1305;
 pub mod rand;
 pub mod sha2;
 #[cfg(test)]
 mod testutil;
 
+pub use aead::Aead;
 pub use digest::Digest;
