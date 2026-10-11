@@ -25,6 +25,10 @@ use torajs_crypto::gcm::Aes128Gcm;
 /// Calls per measurement, so one sample spans many timer ticks.
 const BATCH: usize = 8;
 const LEN: usize = 64;
+/// Long enough to reach the multi-block loops of the AEADs.
+const BULK: usize = 1024;
+/// Inputs generated ahead of each stretch of measurements.
+const CHUNK: usize = 1 << 16;
 
 struct Rng(u64);
 
@@ -67,14 +71,14 @@ fn welch(a: &Moments, b: &Moments) -> f64 {
     (a.mean - b.mean) / (a.var() / a.n + b.var() / b.n).sqrt()
 }
 
-/// Times `op` on `samples` inputs from `input(class, rng, buf)` and returns
-/// the largest |t| over the uncropped samples and samples cropped at the
-/// 50th, 75th and 90th percentile (dudect crops to drop interrupts and
-/// other long-tail noise).
-fn run(
+/// Times `op` on `samples` inputs of `L` bytes from
+/// `input(class, rng, buf)` and returns the largest |t| over the uncropped
+/// samples and samples cropped at the 50th, 75th and 90th percentile
+/// (dudect crops to drop interrupts and other long-tail noise).
+fn run<const L: usize>(
     name: &str,
-    mut input: impl FnMut(usize, &mut Rng, &mut [u8; LEN]),
-    mut op: impl FnMut(&mut [u8; LEN]),
+    mut input: impl FnMut(usize, &mut Rng, &mut [u8; L]),
+    mut op: impl FnMut(&mut [u8; L]),
 ) -> f64 {
     let samples: usize = std::env::var("DUDECT_SAMPLES")
         .ok()
@@ -82,25 +86,32 @@ fn run(
         .unwrap_or(1_000_000);
     let mut rng = Rng(0x2545_f491_4f6c_dd1d ^ name.len() as u64);
     let mut classes = Vec::with_capacity(samples);
-    let mut inputs = Vec::with_capacity(samples);
-    for _ in 0..samples {
-        let class = (rng.next() & 1) as usize;
-        let mut buf = [0u8; LEN];
-        input(class, &mut rng, &mut buf);
-        classes.push(class);
-        inputs.push(buf);
-    }
     let mut times = Vec::with_capacity(samples);
-    for x in &inputs {
-        // each call gets its own copy, made before the timer starts: the
-        // copy itself (fetching the input, storing it) runs faster on some
-        // byte patterns and is not part of the operation under test
-        let mut bufs = black_box([*x; BATCH]);
-        let start = Instant::now();
-        for b in &mut bufs {
-            op(black_box(b));
+    // inputs are made a chunk at a time, apart from the timed calls: making
+    // one right before its measurement would put class-dependent work
+    // (random generation or a plain copy) next to the timer
+    let mut inputs = Vec::with_capacity(CHUNK);
+    while classes.len() < samples {
+        inputs.clear();
+        for _ in 0..CHUNK.min(samples - classes.len()) {
+            let class = (rng.next() & 1) as usize;
+            let mut x = [0u8; L];
+            input(class, &mut rng, &mut x);
+            classes.push(class);
+            inputs.push(x);
         }
-        times.push(start.elapsed().as_nanos() as f64);
+        for x in &inputs {
+            // each call gets its own copy, made before the timer starts:
+            // the copy itself (fetching the input, storing it) runs faster
+            // on some byte patterns and is not part of the operation under
+            // test
+            let mut bufs = black_box([*x; BATCH]);
+            let start = Instant::now();
+            for b in &mut bufs {
+                op(black_box(b));
+            }
+            times.push(start.elapsed().as_nanos() as f64);
+        }
     }
     let mut sorted = times.clone();
     sorted.sort_by(f64::total_cmp);
@@ -131,7 +142,7 @@ fn open_fail<K: Aead>(name: &str, key: &K) -> f64 {
     let mut sealed = [0x33u8; LEN];
     let good = key.seal(&nonce, b"", &mut sealed).unwrap();
     // the input buffer carries the tag in its first 16 bytes
-    run(
+    run::<LEN>(
         name,
         |class, rng, buf| {
             if class == 0 {
@@ -149,15 +160,15 @@ fn open_fail<K: Aead>(name: &str, key: &K) -> f64 {
     )
 }
 
-/// Sealing secret data: class 0 a fixed buffer (all zeros, or fixed
-/// random-looking bytes), class 1 random bytes.
-fn seal_data<K: Aead>(name: &str, key: &K, zero: bool) -> f64 {
+/// Sealing `L` bytes of secret data: class 0 a fixed buffer (all zeros,
+/// or fixed random-looking bytes), class 1 random bytes.
+fn seal_data<const L: usize, K: Aead>(name: &str, key: &K, zero: bool) -> f64 {
     let nonce = [6u8; 12];
-    let mut fixed = [0u8; LEN];
+    let mut fixed = [0u8; L];
     if !zero {
         Rng(42).fill(&mut fixed);
     }
-    run(
+    run::<L>(
         name,
         |class, rng, buf| {
             if class == 0 {
@@ -172,11 +183,25 @@ fn seal_data<K: Aead>(name: &str, key: &K, zero: bool) -> f64 {
     )
 }
 
+/// [`seal_data`] at 64 bytes, which stays on the single-block code, and
+/// at 1 KiB, which reaches the multi-block loops; all four checks run
+/// before the largest |t| is returned.
+fn seal_checks<K: Aead>(name: &str, key: &K) -> f64 {
+    [
+        seal_data::<LEN, _>(name, key, false),
+        seal_data::<LEN, _>(&format!("{name}-zero"), key, true),
+        seal_data::<BULK, _>(&format!("{name}-1k"), key, false),
+        seal_data::<BULK, _>(&format!("{name}-1k-zero"), key, true),
+    ]
+    .into_iter()
+    .fold(0.0, f64::max)
+}
+
 /// Key setup and sealing under a secret key: class 0 a fixed key, class 1
 /// a random key. The first `key_len` bytes of the input are the key.
 fn seal_key<K: Aead>(name: &str, key_len: usize, new: impl Fn(&[u8]) -> K) -> f64 {
     let nonce = [8u8; 12];
-    run(
+    run::<LEN>(
         name,
         |class, rng, buf| {
             if class == 0 {
@@ -230,24 +255,28 @@ fn chacha_open_tag_check_compile_time() {
 #[ignore = "timing measurement; run on an idle machine"]
 fn gcm_seal_data_portable() {
     let key = Aes128Gcm::new(&[0x11; 16], CpuFeatures::portable());
-    assert_ct(seal_data("gcm-seal-portable", &key, false));
-    assert_ct(seal_data("gcm-seal-portable-zero", &key, true));
+    assert_ct(seal_checks("gcm-seal-portable", &key));
+}
+
+#[test]
+#[ignore = "timing measurement; run on an idle machine"]
+fn gcm_seal_data_compile_time() {
+    let key = Aes128Gcm::new(&[0x11; 16], CpuFeatures::compile_time());
+    assert_ct(seal_checks("gcm-seal-hw", &key));
 }
 
 #[test]
 #[ignore = "timing measurement; run on an idle machine"]
 fn chacha_seal_data_portable() {
     let key = ChaCha20Poly1305::new(&[0x22; 32], CpuFeatures::portable());
-    assert_ct(seal_data("chacha-seal-portable", &key, false));
-    assert_ct(seal_data("chacha-seal-portable-zero", &key, true));
+    assert_ct(seal_checks("chacha-seal-portable", &key));
 }
 
 #[test]
 #[ignore = "timing measurement; run on an idle machine"]
 fn chacha_seal_data_compile_time() {
     let key = ChaCha20Poly1305::new(&[0x22; 32], CpuFeatures::compile_time());
-    assert_ct(seal_data("chacha-seal-hw", &key, false));
-    assert_ct(seal_data("chacha-seal-hw-zero", &key, true));
+    assert_ct(seal_checks("chacha-seal-hw", &key));
 }
 
 #[test]

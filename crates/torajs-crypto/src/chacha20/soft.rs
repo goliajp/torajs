@@ -4,8 +4,6 @@
 //! lanes, one per block, in plain integer code.
 #![forbid(unsafe_code)]
 
-use crate::ct::zeroize::zeroize;
-
 pub(crate) const BLOCK_LEN: usize = 64;
 
 pub(super) const SIGMA: [u32; 4] = [0x6170_7865, 0x3320_646e, 0x7962_2d32, 0x6b20_6574];
@@ -126,23 +124,22 @@ pub(crate) fn xor_keystream(key: &[u32; 8], counter: u32, nonce: &[u32; 3], data
             }
         }
     }
-    // the tail spells its keystream out in stack buffers, which are wiped;
-    // the four-block keystream above is never stored as one, and wiping it
-    // would only force a copy into memory
-    let mut ks = [0u32; 16];
-    let mut buf = [0u8; BLOCK_LEN];
+    // the keystream stays in registers rather than a stack buffer, which
+    // would have to be wiped; wiping a binding that never lives in memory
+    // only forces a copy there
     for chunk in rest.chunks_mut(BLOCK_LEN) {
-        ks = block(key, ctr, nonce);
+        let ks = block(key, ctr, nonce);
         ctr = ctr.wrapping_add(1);
-        for (bytes, k) in buf.as_chunks_mut::<4>().0.iter_mut().zip(ks) {
-            *bytes = k.to_le_bytes();
+        let (words, bytes) = chunk.as_chunks_mut::<4>();
+        for (w, k) in words.iter_mut().zip(ks) {
+            *w = (u32::from_le_bytes(*w) ^ k).to_le_bytes();
         }
-        for (d, k) in chunk.iter_mut().zip(buf) {
-            *d ^= k;
+        if let Some(&k) = ks.get(words.len()) {
+            for (d, k) in bytes.iter_mut().zip(k.to_le_bytes()) {
+                *d ^= k;
+            }
         }
     }
-    zeroize(&mut ks);
-    zeroize(&mut buf);
 }
 
 #[cfg(test)]
