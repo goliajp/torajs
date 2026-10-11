@@ -215,7 +215,15 @@ pub fn emit_copy(
         }
     } else {
         let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
-        let src = materialize_operand_gpr(bytes, op, OP_SCRATCH_LHS, alloc);
+        // a register result is written by this copy alone, so a constant
+        // or a spilled source lands in it directly instead of passing
+        // through a scratch register and a move
+        let scratch = if spill_off.is_some() {
+            OP_SCRATCH_LHS
+        } else {
+            dst
+        };
+        let src = materialize_operand_gpr(bytes, op, scratch, alloc);
         if spill_off.is_some() {
             write_def_spill_gpr(bytes, spill_off, src);
             return;
@@ -256,17 +264,13 @@ mod tests {
     }
 
     #[test]
-    fn copy_const_i64_emits_movz_then_mov() {
-        // %0 = copy i64 #5; ret %0 → MOVZ x9,#5 / MOV x0,x9 / RET
+    fn copy_const_i64_emits_movz_into_its_home() {
+        // %0 = copy i64 #5; ret %0 → MOVZ x0,#5 / RET
         let compiled = compile_function(&copy_ret_fixture(Type::I64, Operand::ConstI64(5)));
-        let expected: Vec<u8> = [
-            enc::movz_imm(Gpr::X9, 5, 0),
-            enc::mov_x_reg(Gpr::X0, Gpr::X9),
-            enc::ret(Gpr::X30),
-        ]
-        .iter()
-        .flat_map(|w| w.to_le_bytes())
-        .collect();
+        let expected: Vec<u8> = [enc::movz_imm(Gpr::X0, 5, 0), enc::ret(Gpr::X30)]
+            .iter()
+            .flat_map(|w| w.to_le_bytes())
+            .collect();
         assert_eq!(compiled.bytes, expected);
     }
 
