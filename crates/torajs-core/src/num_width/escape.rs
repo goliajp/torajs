@@ -90,6 +90,10 @@ impl<'a> Analysis<'a> {
         field: bool,
         holders: bool,
     ) {
+        if holds_undefined_number(ann) {
+            self.seeds.push(key.clone());
+            return;
+        }
         if map_value_escapes(ann) {
             self.push_any_seed(key.clone(), field);
             return;
@@ -244,6 +248,19 @@ impl<'a> Analysis<'a> {
 }
 
 /// The annotation spellings `parse_type` folds to Any.
+/// A `number | undefined` slot (`x?: number`, `o: { a?: number }`,
+/// `let x: number;`): it materializes as a boxed `any`, and what it
+/// hands an arithmetic or a slot downstream is §7.1.4
+/// ToNumber(undefined), which is NaN. The slot's own repr is fixed by
+/// the annotation, but every slot its value flows into must be able
+/// to spell NaN — an I64 one truncated `x * 2` on an absent `x` to 0.
+/// Seeding the slot F64 sends that through the fixpoint.
+fn holds_undefined_number(ann: &str) -> bool {
+    ann.strip_prefix("__nullable(")
+        .and_then(|r| r.strip_suffix(')'))
+        .is_some_and(|inner| inner.trim() == "number")
+}
+
 fn is_any_face(base: &str) -> bool {
     matches!(base, "any" | "unknown" | "object")
 }
@@ -374,5 +391,15 @@ mod tests {
     fn container_held_by_escaped_object_escapes() {
         let src = "const xs: number[] = [1];\nconst ys: number[] = [2];\nconst o = { xs: xs };\nconst p = { ys: ys };\nconst a: any = o;\nconsole.log(p.ys);";
         assert_eq!(escaped(src, &["xs", "ys"]), [true, false]);
+    }
+
+    #[test]
+    fn value_of_an_optional_number_reaches_its_consumers_as_f64() {
+        let src = "function t1(x?: number) { return x * 2 }\nfunction t2(o: { a?: number }) { return o.a * 2 }\nfunction t3(x: number) { return x * 2 }\nconsole.log(t1(), t2({}), t3(1));";
+        let tokens = lexer::tokenize(src).expect("lex");
+        let ast = parser::parse(src, &tokens).expect("parse");
+        let t = analyze(&ast, &HashMap::new(), &HashMap::new(), &HashMap::new());
+        let ret = |f: &str| t.slot_is_f64(&SlotKey::Ret(f.into()));
+        assert_eq!([ret("t1"), ret("t2"), ret("t3")], [true, true, false]);
     }
 }
