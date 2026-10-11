@@ -152,6 +152,16 @@ pub(crate) fn prepare_acc_slot(
                 ctx.box_to_any(init_v)
             }
         }
+        // The typed slot owns its accumulator the same way: a borrowed
+        // explicit init (`xs.reduce(cb, seed)`) takes a +1 so the
+        // binding keeps its own stake past the first step's old-acc
+        // drop, and an owned temp init releases the ref that +1
+        // duplicated.
+        _ if !reduce_no_init && init_ty.is_refcounted() => {
+            ctx.emit_rc_inc(init_v);
+            ctx.release_owned_temp(args[1], &init_v);
+            init_v
+        }
         _ => init_v,
     };
     let slot = ctx.alloca(acc_ty, Some("__iter_acc"));
