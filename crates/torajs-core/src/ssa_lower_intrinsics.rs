@@ -541,7 +541,7 @@ pub(crate) struct Intrinsics {
     pub(crate) error_install_cause: FuncId,
     pub(crate) any_prop_enumerable: FuncId,
     pub(crate) get_property_descriptors: FuncId,
-    pub(crate) ctor_no_super_throw: FuncId,
+    pub(crate) this_binding_throw: FuncId,
     pub(crate) throw_reference_error_name: FuncId,
     /// §9.1.1.4 GetBindingValue on the global object (else the throw).
     pub(crate) global_ident_get: FuncId,

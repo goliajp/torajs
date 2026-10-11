@@ -16,7 +16,7 @@
 //!   argument still throws), result `undefined`; Object contributes
 //!   no per-instance state.
 //! - an explicit ctor with ZERO super() sites gets the
-//!   `__torajs_ctor_no_super_throw()` raiser appended (§9.2.2
+//!   `__torajs_this_binding_throw(false)` raiser appended (§9.2.2
 //!   this-TDZ, the `append_no_super_throw` shape) — that pass keys
 //!   on `parent.is_some()` and would skip the stripped entry.
 //!
@@ -302,11 +302,7 @@ pub(super) fn strip_builtin_heritage(ast: &mut Ast, class_index: &mut [ClassInde
                 collect_super_in_stmt(ast, s, &mut sites);
             }
             if sites.is_empty() && ast.explicit_ctor_classes.contains(cname) {
-                let callee = ast.add_expr(Expr::Ident("__torajs_ctor_no_super_throw".to_string()));
-                let call = ast.add_expr(Expr::Call {
-                    callee,
-                    args: Vec::new(),
-                });
+                let call = super::desugar_classes_this_tdz::raise_call(ast, false);
                 c.body.push(Stmt::Expr(call));
             }
             for (eid, args) in sites {

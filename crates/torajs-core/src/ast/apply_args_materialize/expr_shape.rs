@@ -88,10 +88,12 @@ pub(super) fn body_safe_default(
         Expr::ObjectLit { fields } => fields
             .iter()
             .all(|(_, v)| body_safe_default(ast, *v, global_fns, prior, in_fn_decl)),
+        // a derived constructor's this-binding flag is declared ahead
+        // of where its guards go, like a prior param
         Expr::ArrowFn { params, body, .. } => {
             free_vars::free_vars_of_arrow(ast, params, body, global_fns, &[], None)
                 .iter()
-                .all(|v| prior.contains(v))
+                .all(|v| prior.contains(v) || v == crate::ast::desugar_classes_this_tdz::FLAG)
         }
         _ => false,
     }

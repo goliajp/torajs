@@ -1,0 +1,13 @@
+B field,B ctor -1
+RefErr,B field,B ctor 2,1
+RefErr,B field,B ctor 3,1
+RefErr,B field,B ctor 4,after 1
+B field,B ctor 5,C 1,RefErr,B field,B ctor 6,C 1
+B field,B ctor 7,B field,B ctor 8,RefErr,D 1
+RefErr,B field,B ctor 9,E 1,B field,B ctor 9,RefErr
+RefErr,RefErr,RefErr,B field,B ctor 10,P 10
+RefErr,B field,B ctor 11,1,RefErr,B field,B ctor 12,1,B field,B ctor 13,1
+'super()' must be called in derived constructor before accessing |this| or returning non-object.
+'super()' can't be called more than once in a constructor.
+B field,B ctor -1,Q 1
+G default,B field,B ctor 1,G field,G body
