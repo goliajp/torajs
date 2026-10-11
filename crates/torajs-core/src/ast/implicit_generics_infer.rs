@@ -403,7 +403,7 @@ pub(crate) fn infer_expr_ann_with(
             .filter(|r| r == "string" || r.ends_with("[]"))
             .map(|_| "number".into()),
         Expr::Member { obj, name } => {
-            super::implicit_generics_infer_call::field_ann(&recur(*obj)?, name)
+            super::implicit_generics_infer_call::field_ann(&recur(*obj)?, name, binds)
         }
         Expr::Index { obj, .. } => recur(*obj)?.strip_suffix("[]").map(str::to_string),
         // The second site that mints `__inlobj(` (the parser's syntax

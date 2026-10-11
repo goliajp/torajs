@@ -227,14 +227,14 @@ fn fn_target(
 /// lives in the other namespace; the one way an annotation names a
 /// value, a `typeof` query, is not a position the inline rewrites.
 #[derive(Default)]
-struct Claims {
-    type_decls: HashMap<String, usize>,
-    type_params: HashSet<String>,
-    values: HashSet<String>,
+pub(super) struct Claims {
+    pub(super) type_decls: HashMap<String, usize>,
+    pub(super) type_params: HashSet<String>,
+    pub(super) values: HashSet<String>,
 }
 
 impl Claims {
-    fn collect(ast: &Ast) -> Self {
+    pub(super) fn collect(ast: &Ast) -> Self {
         let mut c = Claims::default();
         c.list(&ast.stmts);
         for e in &ast.exprs {

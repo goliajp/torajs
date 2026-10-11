@@ -236,7 +236,7 @@ mod hoist_nested_classes_walk;
 mod implicit_generics_cb_ret;
 pub(crate) mod implicit_generics_infer;
 pub(crate) mod implicit_generics_infer_binop;
-mod implicit_generics_infer_call;
+pub(crate) mod implicit_generics_infer_call;
 mod implicit_generics_infer_rebind;
 mod implicit_generics_value_return;
 mod infer_closure_lets;

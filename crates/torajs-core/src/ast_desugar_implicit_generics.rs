@@ -64,6 +64,8 @@ pub(crate) fn run(ast: &mut Ast) {
     // Read before the borrow split: it is two fields, and the split
     // hands out only one of them.
     let sloppy = ast.program_is_sloppy();
+    let type_seeds =
+        crate::ast::implicit_generics_infer_call::object_type_seeds::object_type_seeds(ast);
     let Ast {
         stmts,
         exprs,
@@ -129,6 +131,7 @@ pub(crate) fn run(ast: &mut Ast) {
         &outer_binds,
         cap_anns,
         closure_argv_fns,
+        &type_seeds,
         &mut fn_sigs,
     );
     // RFC 20260714-objlit-accessor blade 1 — must sit between the
@@ -202,6 +205,7 @@ pub(crate) fn run(ast: &mut Ast) {
                 &outer_binds,
                 cap_anns,
                 &receiver_fields,
+                &type_seeds,
                 &mut fn_sigs,
             );
             continue;

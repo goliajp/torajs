@@ -44,6 +44,7 @@ pub(crate) fn desugar_closure_shape_fn(
     outer_binds: &std::collections::HashMap<String, String>,
     cap_anns: &std::collections::HashMap<String, std::collections::HashMap<String, String>>,
     receiver_fields: &std::collections::HashMap<String, Vec<(PropKey, String)>>,
+    type_seeds: &std::collections::HashMap<String, String>,
     fn_sigs: &mut std::collections::HashMap<String, String>,
 ) {
     if (first_kind == Some("__env") && is_synth_closure_name(name)) || first_kind == Some("__this")
@@ -58,7 +59,7 @@ pub(crate) fn desugar_closure_shape_fn(
         }
     }
     if first_kind == Some("__env") && return_type.is_none() && body_has_value_return(body) {
-        let seeded = seeded_binds_for(name, outer_binds, cap_anns);
+        let seeded = seeded_binds_for(name, outer_binds, cap_anns, type_seeds);
         if let Some(inferred) =
             infer_return_ann_seeded(ast_exprs_view, body, params, &seeded, fn_sigs)
         {
@@ -100,7 +101,7 @@ pub(crate) fn desugar_closure_shape_fn(
         *return_type = Some("never".to_string());
     }
     if first_kind == Some("__this") && return_type.is_none() && body_has_value_return(body) {
-        let mut seeded = seeded_binds_for(name, outer_binds, cap_anns);
+        let mut seeded = seeded_binds_for(name, outer_binds, cap_anns, type_seeds);
         // r502 — the receiver's declared fields, so `return this.v`
         // types as `v` does (TS infers a method's return from its
         // body; the class row is the environment the shape grammar
@@ -180,14 +181,18 @@ pub(crate) fn desugar_lifted_closure_fn(
 }
 
 /// Seed map for one closure's return-ann sniff: the construction-site
-/// capture snapshot overlays the program-wide by-name fallback.
+/// capture snapshot overlays the program-wide by-name fallback, and
+/// the named object types ride along so a field read off a parameter
+/// of one types (`object_type_seeds`).
 /// Also consumed by the main file's `preinfer_closure_sigs`.
 pub(crate) fn seeded_binds_for(
     name: &str,
     outer_binds: &std::collections::HashMap<String, String>,
     cap_anns: &std::collections::HashMap<String, std::collections::HashMap<String, String>>,
+    type_seeds: &std::collections::HashMap<String, String>,
 ) -> std::collections::HashMap<String, String> {
     let mut merged = outer_binds.clone();
+    merged.extend(type_seeds.iter().map(|(k, v)| (k.clone(), v.clone())));
     if let Some(snap) = cap_anns.get(name) {
         merged.extend(snap.iter().map(|(k, v)| (k.clone(), v.clone())));
     }
@@ -200,6 +205,7 @@ pub(crate) fn preinfer_closure_sigs(
     outer_binds: &std::collections::HashMap<String, String>,
     cap_anns: &std::collections::HashMap<String, std::collections::HashMap<String, String>>,
     argv_fns: &std::collections::HashSet<String>,
+    type_seeds: &std::collections::HashMap<String, String>,
     fn_sigs: &mut std::collections::HashMap<String, String>,
 ) {
     for stmt in stmts.iter_mut() {
@@ -224,7 +230,7 @@ pub(crate) fn preinfer_closure_sigs(
         if return_type.is_none() && body_has_value_return(body) {
             let has_env = params.first().is_some_and(|p| p.name == "__env");
             let inferred = if has_env {
-                let seeded = seeded_binds_for(name, outer_binds, cap_anns);
+                let seeded = seeded_binds_for(name, outer_binds, cap_anns, type_seeds);
                 infer_return_ann_seeded(exprs, body, params, &seeded, fn_sigs)
             } else {
                 infer_return_ann(exprs, body, params, fn_sigs)

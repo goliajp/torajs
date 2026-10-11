@@ -68,9 +68,9 @@ pub(crate) fn try_match(
         return None;
     }
     // An object accumulator whose callback return the sniff could not
-    // name (`(acc: Acc, x) => ({ ...fields })` over a named `Acc`)
-    // rides the boxed slot too: the lane hands each boxed accumulator
-    // to the callback's object parameter through its boxed entry.
+    // name (`(acc: Acc, x) => ({ hi: Math.max(acc.hi, x) })`) rides
+    // the boxed slot too: the lane hands each boxed accumulator to the
+    // callback's object parameter through its boxed entry.
     let boxed_struct = matches!(acc_ty, Type::Struct(_)) && **ret == Type::Any;
     if !boxed_struct
         && !matches!(

@@ -4,7 +4,10 @@
 //! one arm that consults the published fn sigs (and the parser's
 //! synthetic relational calls) for a callee.
 
+pub(crate) mod object_type_seeds;
+
 use super::{AstExprsView, Expr, ExprId, Param, infer_expr_ann_with};
+use object_type_seeds::object_type_key;
 
 /// Type of `callee(args)` — see [`infer_expr_ann_with`].
 pub(super) fn infer_call_ann(
@@ -86,17 +89,31 @@ pub(super) fn infer_call_ann(
 }
 
 /// Type of `recv.field` off an inline object type (`__inlobj(f:ann|…)`)
-/// — `acc.sum` in `(acc: { sum: number }, x) => ({ sum: acc.sum + x })`.
+/// — `acc.sum` in `(acc: { sum: number }, x) => ({ sum: acc.sum + x })`
+/// — or off a named object type the seeds spell as one (`acc: Acc`
+/// under `type Acc = { sum: number }`, keyed by
+/// [`object_type_seeds::object_type_key`]).
 /// Only a field whose annotation is a value type the sniff itself
-/// spells (a primitive, an array of one, a nested inline object)
-/// answers; a nullable receiver, an optional or fn-valued field and
-/// a named type bail like any other unresolved shape.
-pub(super) fn field_ann(recv: &str, field: &str) -> Option<String> {
-    if !recv.starts_with("__inlobj(") {
-        return None;
-    }
-    let ann = crate::ast_collect_fn_closure_init::parse_inlobj_field_anns(recv)?.remove(field)?;
+/// spells (a primitive, an array of one, an inline or seeded named
+/// object) answers; a nullable receiver, an optional or fn-valued
+/// field and any other named type bail like any other unresolved
+/// shape.
+pub(super) fn field_ann(
+    recv: &str,
+    field: &str,
+    binds: &std::collections::HashMap<String, String>,
+) -> Option<String> {
+    let row = if recv.starts_with("__inlobj(") {
+        recv
+    } else {
+        binds.get(&object_type_key(recv))?
+    };
+    let ann = crate::ast_collect_fn_closure_init::parse_inlobj_field_anns(row)?.remove(field)?;
     let value = |t: &str| matches!(t, "number" | "string" | "boolean" | "bigint");
     let elem = ann.strip_suffix("[]");
-    (value(&ann) || elem.is_some_and(value) || ann.starts_with("__inlobj(")).then_some(ann)
+    (value(&ann)
+        || elem.is_some_and(value)
+        || ann.starts_with("__inlobj(")
+        || binds.contains_key(&object_type_key(&ann)))
+    .then_some(ann)
 }
