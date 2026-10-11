@@ -91,8 +91,10 @@ pub(crate) unsafe fn frozen_data_field_refuses(
 /// non-configurable property when the incoming `[[Value]]` is
 /// SameValue with the current one — so the define arm has to be able
 /// to ask, and only this crate can decode a typed slot into a
-/// comparable pair. Equality is the exact `(tag, value)` match used
-/// everywhere else `Any === Any` is approximated.
+/// comparable pair. Both pairs are compared as the values they spell
+/// (§7.2.10 SameValue): a number field held as a double still matches
+/// an incoming integer `5`, and two equal strings in different cells
+/// match.
 ///
 /// Answers 0 for a missing layout / absent field, which is the honest
 /// reading: nothing is stored there to match.
@@ -108,7 +110,14 @@ pub unsafe extern "C" fn __torajs_struct_data_field_same_value(
     value: u64,
 ) -> i64 {
     match unsafe { crate::struct_probe::struct_field_pair(ptr, key) } {
-        Some((cur_tag, cur_value)) => i64::from(cur_tag == tag && cur_value == value),
+        Some((cur_tag, cur_value)) => unsafe {
+            use crate::nanbox_encode::__torajs_anyv_box_from_pair as boxed;
+            let (cur, new) = (
+                boxed(cur_tag as i64, cur_value as i64),
+                boxed(tag as i64, value as i64),
+            );
+            i64::from(crate::nanbox_ffi::__torajs_anyv_same_value(cur, new))
+        },
         None => 0,
     }
 }
