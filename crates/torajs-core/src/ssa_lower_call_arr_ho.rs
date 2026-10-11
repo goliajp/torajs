@@ -152,7 +152,7 @@ fn lower_higher_order(
     // initialValue) so its static type can pick the acc lane below.
     let is_reduce_family = matches!(method.as_str(), "reduce" | "reduceRight");
     let reduce_init_op = if is_reduce_family && args.len() >= 2 {
-        Some(lower_reduce_init(ctx, args[1], fn_ty))
+        Some(lower_reduce_init(ctx, args[1], fn_ty, promoted))
     } else {
         None
     };

@@ -102,8 +102,16 @@ pub(crate) fn resolve_acc_ty(
 /// array lane, as under a `const seed: T[] = []` annotation. Minted
 /// as `Arr<Any>` it differed from the callback's return and pushed
 /// the accumulator into the boxed lane, whose box the typed callback
-/// then read as its own array layout.
-pub(crate) fn lower_reduce_init(ctx: &mut LowerCtx<'_>, init: ExprId, fn_ty: Type) -> Operand {
+/// then read as its own array layout. The lane is taken only when the
+/// accumulator parameter (after a promoted reducer's leading `__this`)
+/// is that same array type: an `any[]` parameter handed a typed array
+/// would find its element kind locked.
+pub(crate) fn lower_reduce_init(
+    ctx: &mut LowerCtx<'_>,
+    init: ExprId,
+    fn_ty: Type,
+    promoted: bool,
+) -> Operand {
     let mut lit = init;
     while let Expr::As { expr, .. } = ctx.ast.get_expr(lit) {
         lit = *expr;
@@ -112,6 +120,10 @@ pub(crate) fn lower_reduce_init(ctx: &mut LowerCtx<'_>, init: ExprId, fn_ty: Typ
         && els.is_empty()
         && let Some(acc @ Type::Arr(id)) = ctx.callback_ret_ty(fn_ty)
         && ctx.arr_layouts[id.0 as usize] != Type::Any
+        && ctx
+            .sig_param_tys(fn_ty)
+            .and_then(|p| p.get(usize::from(promoted)).copied())
+            == Some(acc)
     {
         let v = ctx.f.append_inst(
             ctx.cur_block,
