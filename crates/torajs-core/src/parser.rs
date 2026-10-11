@@ -62,6 +62,7 @@ mod expr_entry;
 mod expr_prec;
 mod expr_prec_short_circuit;
 mod fn_expr;
+mod fn_kind_split;
 mod forof_binding;
 mod forof_forin_src;
 mod forof_using;

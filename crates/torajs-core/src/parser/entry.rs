@@ -96,6 +96,10 @@ pub fn parse_into_eval(
     // ENTRY say it" (the field's doc). Snapshot and restore.
     let nested_prologue =
         (stmt_offset > 0 || id_offset > 0).then_some(target.program_strict_prologue);
+    let prior_kinds = super::fn_kind_split::PriorKinds {
+        async_fns: target.async_fns.clone(),
+        async_gens: target.async_generator_fns.clone(),
+    };
     let taken = std::mem::take(target);
     let mut p = Parser {
         source,
@@ -160,6 +164,14 @@ pub fn parse_into_eval(
     *target = p.ast;
     if result.is_ok() {
         crate::ast::ret_written::record_written_returns(target, stmt_offset, id_offset as usize);
+        super::fn_kind_split::split_fn_kind_names(
+            target,
+            source,
+            tokens,
+            stmt_offset,
+            id_offset as usize,
+            &prior_kinds,
+        );
     }
     if let Some((snap, snap_by_decl)) = nested_spans_snapshot {
         target.class_decl_spans = snap;

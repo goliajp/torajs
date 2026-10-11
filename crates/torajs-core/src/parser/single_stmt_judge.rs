@@ -137,11 +137,11 @@ impl Parser<'_> {
             }
             Stmt::ClassDecl { .. } => Some("class"),
             Stmt::FnDecl {
-                name, is_generator, ..
+                is_generator, span, ..
             } => {
                 if *is_generator {
                     Some("generator function")
-                } else if self.ast.async_fns.contains(name) {
+                } else if super::fn_kind_split::decl_text_is_async(self.source, *span) {
                     Some("async function")
                 } else if matches!(pos, SingleStmtPos::LoopBody) {
                     // The half no extension covers. §14.7's body is a

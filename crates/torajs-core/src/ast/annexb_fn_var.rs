@@ -347,7 +347,8 @@ impl LiftCtx {
             if source == super::apply_args_materialize::body_arguments::BODY_ARGUMENTS {
                 source = "arguments".to_string();
             }
-            // likewise one renamed out of a default's way
+            // likewise one renamed out of a default's way, or apart
+            // from a same-named declaration of another kind
             if let Some(shown) = ast.renamed_binding_display.get(&source) {
                 source = shown.clone();
             }
