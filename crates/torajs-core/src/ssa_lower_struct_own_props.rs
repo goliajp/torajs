@@ -15,7 +15,7 @@
 //! borrowed field load next to it — [`emit_prop_value`] reports which,
 //! so each consumer keeps its refcount ledger straight.
 
-use crate::ast::PropKey;
+use crate::ast::{ExprId, PropKey};
 use crate::ssa::{InstKind, Operand, SigId, Type};
 use crate::ssa_lower::{LowerCtx, OBJ_HEADER_SIZE};
 
@@ -202,9 +202,13 @@ pub(crate) fn emit_prop_store(
 /// the value arrives with its own reference (a getter's result, a fresh
 /// `undefined` box), `false` when it is borrowed out of the struct's
 /// slot and the consumer must take its own share before storing it.
+/// `src` is the expression `obj` is the value of, when there is one
+/// (its class names the annotation a getter's answer is checked
+/// against).
 pub(crate) fn emit_prop_value(
     ctx: &mut LowerCtx<'_>,
     obj: &Operand,
+    src: Option<ExprId>,
     prop: &OwnProp,
 ) -> (Operand, bool) {
     match prop.src {
@@ -212,7 +216,7 @@ pub(crate) fn emit_prop_value(
             let off = OBJ_HEADER_SIZE + (idx as u64) * 8;
             crate::ssa_lower_member_obj_field::exotic_read::slot_value(
                 ctx,
-                None,
+                src,
                 *obj,
                 (off, ty),
                 &prop.key.lossy(),
@@ -243,4 +247,20 @@ pub(crate) fn emit_prop_value(
             (Operand::Value(v), true)
         }
     }
+}
+
+/// A data property read for a consumer that takes any value as it is
+/// (a key-value pair): the getter's answer, owned and boxed, when the
+/// field can be an accessor; `None` when [`emit_prop_value`] answers.
+pub(crate) fn emit_prop_value_any(
+    ctx: &mut LowerCtx<'_>,
+    obj: &Operand,
+    prop: &OwnProp,
+) -> Option<Operand> {
+    let PropSource::Data { idx, ty } = prop.src else {
+        return None;
+    };
+    let off = OBJ_HEADER_SIZE + (idx as u64) * 8;
+    let name = prop.key.lossy();
+    crate::ssa_lower_member_obj_field::exotic_read::any_field_value(ctx, *obj, (off, ty), &name)
 }

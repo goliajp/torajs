@@ -7,6 +7,7 @@
 use crate::ast::PropKey;
 use crate::ssa::{InstKind, Operand, StructId, Terminator, Type};
 use crate::ssa_lower::{LowerCtx, OBJ_HEADER_SIZE};
+use crate::ssa_lower_member_obj_field::exotic_read;
 use torajs_wtf8::{Wtf8, Wtf8Buf};
 
 use super::composite::with_null_gate;
@@ -196,13 +197,14 @@ fn resolve_field(
             Some((prop.to_owned(), got, ret_ty, true))
         }
         None => {
-            let (v, owned) = crate::ssa_lower_member_obj_field::exotic_read::slot_value(
-                ctx,
-                None,
-                Operand::Value(obj_ptr),
-                (field_off, *slot_ty),
-                &fname.to_string_lossy(),
-            );
+            let obj = Operand::Value(obj_ptr);
+            let name = fname.to_string_lossy();
+            let slot = (field_off, *slot_ty);
+            // a getter's answer is serialized as it came (§25.5.2.4)
+            if let Some(v) = exotic_read::any_field_value(ctx, obj, slot, &name) {
+                return Some((fname.to_owned(), v, Type::Any, true));
+            }
+            let (v, owned) = exotic_read::slot_value(ctx, None, obj, slot, &name);
             Some((fname.to_owned(), v, *slot_ty, owned))
         }
     }

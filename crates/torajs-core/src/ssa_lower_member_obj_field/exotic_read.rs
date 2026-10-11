@@ -237,13 +237,51 @@ pub(crate) fn guarded_load_boxed(
     eid: ExprId,
     obj: ExprId,
     obj_val: Operand,
-    (offset, field_ty): (u64, Type),
+    slot: (u64, Type),
     name: &str,
     res_slot: crate::ssa::ValueId,
 ) -> Option<crate::ssa::BlockId> {
     if !applies(ctx, Some(obj), name) {
         return None;
     }
+    let done = boxed_read(ctx, obj_val, slot, name, res_slot);
+    ctx.owned_member_reads.insert(eid);
+    Some(done)
+}
+
+/// A whole-object reader whose result is `any` anyway (a serializer, a
+/// key-value pair): the field's value boxed and owned, the getter's
+/// answer as it came, so no cast stands between the two. `None` when
+/// the read keeps its bare load.
+pub(crate) fn any_field_value(
+    ctx: &mut LowerCtx<'_>,
+    obj_val: Operand,
+    slot: (u64, Type),
+    name: &str,
+) -> Option<Operand> {
+    if !applies(ctx, None, name) {
+        return None;
+    }
+    let res = ctx.alloca_in_entry(Type::Any, Some("__field_read"));
+    let done = boxed_read(ctx, obj_val, slot, name, res);
+    let v = ctx.f.append_inst(
+        done,
+        InstKind::Load(Type::Any, Operand::Value(res), 0),
+        Type::Any,
+        None,
+    );
+    Some(Operand::Value(v))
+}
+
+/// Both arms of a boxed guarded read, each writing its owned `any` to
+/// `res_slot`; `cur_block` is left at the returned join.
+fn boxed_read(
+    ctx: &mut LowerCtx<'_>,
+    obj_val: Operand,
+    (offset, field_ty): (u64, Type),
+    name: &str,
+    res_slot: crate::ssa::ValueId,
+) -> crate::ssa::BlockId {
     let (hit_blk, plain_blk) = branch(ctx, obj_val);
     let done = ctx.f.add_block();
 
@@ -270,7 +308,6 @@ pub(crate) fn guarded_load_boxed(
         .append_void(blk, InstKind::Store(boxed, Operand::Value(res_slot), 0));
     ctx.f.set_term(blk, Terminator::Br(done));
 
-    ctx.owned_member_reads.insert(eid);
     ctx.cur_block = done;
-    Some(done)
+    done
 }

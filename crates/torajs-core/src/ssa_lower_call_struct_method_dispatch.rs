@@ -85,6 +85,15 @@ pub(crate) fn try_lower(
     // its signature reads garbage registers in the callee (the probe
     // face: a missing `x: any` answered a stray Str-tagged value).
     let pad_n = ctx.arity_pad_count.get(&eid).copied().unwrap_or(0);
+    // the call reads the field first (§13.3.6.1 step 1): a getter
+    // installed there runs before the arguments, and an answer the
+    // typed call cannot invoke is a TypeError
+    if matches!(ssa_field_ty, Type::FnSig(_) | Type::Closure(_)) {
+        let slot = (offset, ssa_field_ty);
+        crate::ssa_lower_member_obj_field::exotic_read::guard_callee_slot(
+            ctx, obj, recv_op, slot, name,
+        );
+    }
     match ssa_field_ty {
         Type::FnSig(sig_id) => Some(emit_fnsig_call(ctx, recv_op, offset, sig_id, args, pad_n)),
         Type::Closure(user_sig_id) if is_variadic => {
@@ -105,10 +114,6 @@ pub(crate) fn try_lower(
         }
         Type::Closure(user_sig_id) => {
             let takes_recv = is_objlit_method_slot(ctx, sid, name);
-            let slot = (offset, ssa_field_ty);
-            crate::ssa_lower_member_obj_field::exotic_read::guard_callee_slot(
-                ctx, obj, recv_op, slot, name,
-            );
             Some(emit_closure_call(
                 ctx,
                 recv_op,

@@ -19,6 +19,8 @@ use crate::ssa_lower_checked_cast::CastSlot;
 const NUMBER_OR_UNDEF: &str = "__torajs_obj_field_exotic_number_or_undef";
 /// `(any, slot cell, site) -> owned ptr`: the cell the slot holds.
 const SAME_CELL: &str = "__torajs_obj_field_exotic_same_cell";
+/// `(any, site) -> ptr`: always the TypeError.
+const REFUSE: &str = "__torajs_obj_field_exotic_refuse";
 
 pub(super) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) {
     declare_intrinsic(
@@ -35,6 +37,7 @@ pub(super) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         &[Type::Any, Type::Ptr, Type::Str],
         Type::Ptr,
     );
+    declare_intrinsic(module, fn_table, REFUSE, &[Type::Any, Type::Str], Type::Ptr);
 }
 
 pub(super) enum Conv {
@@ -53,12 +56,15 @@ pub(super) enum Conv {
     /// already holds crosses, which is what an accessor answering the
     /// field's own value, or another field's redefinition, gives.
     SameCell,
+    /// A raw function address: no any-lane value is one, so every
+    /// answer is the TypeError rather than a call through the old slot.
+    Refuse,
 }
 
 /// The crossing for a field of type `field_ty`, and the type its
 /// TypeError names; `None` for a slot no accessor answer can reach as a
-/// value of its type (an inferred substring view, a raw word), whose
-/// read stays a bare load.
+/// value of its type (a raw word that is no value at all), whose read
+/// stays a bare load.
 pub(super) fn conversion(
     ctx: &LowerCtx<'_>,
     obj: Option<ExprId>,
@@ -75,7 +81,9 @@ pub(super) fn conversion(
     let shown = match (&base, or_undef) {
         (Some(b), true) => format!("{b} | undefined"),
         (Some(b), false) => b.clone(),
-        (None, _) if matches!(field_ty, Type::Closure(_)) => "function".to_string(),
+        (None, _) if matches!(field_ty, Type::Closure(_) | Type::FnSig(_)) => {
+            "function".to_string()
+        }
         (None, _) => format!("{field_ty:?}").to_lowercase(),
     };
     let conv = match field_ty {
@@ -94,7 +102,7 @@ pub(super) fn conversion(
         Type::BigInt => Conv::Cell(torajs_rc::Tag::BigInt),
         Type::Date => Conv::Cell(torajs_rc::Tag::Date),
         Type::Symbol => Conv::Cell(torajs_rc::Tag::Symbol),
-        Type::Substr => return None,
+        Type::FnSig(_) => Conv::Refuse,
         t if t.is_refcounted() => Conv::SameCell,
         _ => return None,
     };
@@ -165,6 +173,10 @@ pub(super) fn convert(
             );
             let f = ctx.fn_table[SAME_CELL];
             call(ctx, f, vec![got, Operand::Value(slot), site], field_ty)
+        }
+        Conv::Refuse => {
+            let f = ctx.fn_table[REFUSE];
+            call(ctx, f, vec![got, site], field_ty)
         }
     };
     ctx.pop_throw_temp(tok);

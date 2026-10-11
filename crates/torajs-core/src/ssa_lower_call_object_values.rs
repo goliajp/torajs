@@ -231,7 +231,7 @@ pub(crate) fn try_lower(
     // fast precisely because it is not boxed. It emits the same unfold
     // instead, asking per member whether it is hidden right now.
     let layout_hidden = layout.clone();
-    let arg_hidden = arg_op;
+    let (arg_hidden, src) = (arg_op, args[0]);
     // a getter under either arm can throw at a check inside the arm
     let parked = ctx.park_owned_temp(args[0], &arg_raw);
     let out = crate::ssa_lower_struct_exotic_gate::with_exotic_field_gate(
@@ -240,11 +240,11 @@ pub(crate) fn try_lower(
         Type::Arr(arr_id),
         move |ctx| {
             let props = crate::ssa_lower_struct_own_props::own_props(&layout_hidden, ctx.fn_sigs);
-            emit_values_unfold(ctx, &arg_hidden, &props, arr_id, true)
+            emit_values_unfold(ctx, (&arg_hidden, src), &props, arr_id, true)
         },
         move |ctx| {
             let props = crate::ssa_lower_struct_own_props::own_props(&layout, ctx.fn_sigs);
-            emit_values_unfold(ctx, &arg_op, &props, arr_id, false)
+            emit_values_unfold(ctx, (&arg_op, src), &props, arr_id, false)
         },
     );
     ctx.unpark_owned_temp(parked);
@@ -263,7 +263,7 @@ pub(crate) fn try_lower(
 /// filtered form simply leaves some of it unused.
 fn emit_values_unfold(
     ctx: &mut LowerCtx<'_>,
-    arg_op: &Operand,
+    (arg_op, src): (&Operand, ExprId),
     props: &[crate::ssa_lower_struct_own_props::OwnProp],
     arr_id: ArrId,
     filtered: bool,
@@ -317,7 +317,8 @@ fn emit_values_unfold(
         // straight over. A borrowed field slot keeps the pre-blade-6
         // shape (the array views the struct's stake). The push and the
         // store take it the same way — neither adds a reference.
-        let (v, _owned) = crate::ssa_lower_struct_own_props::emit_prop_value(ctx, arg_op, prop);
+        let (v, _owned) =
+            crate::ssa_lower_struct_own_props::emit_prop_value(ctx, arg_op, Some(src), prop);
         if let Some(next_blk) = skip_blk {
             let raw = ctx.raw_slot_arg(v);
             ctx.f.append_void(

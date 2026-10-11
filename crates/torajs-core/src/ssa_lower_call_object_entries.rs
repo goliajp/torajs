@@ -321,9 +321,16 @@ fn emit_one_pair(
     // the pair holds its key already; a raising getter must not leave
     // it behind
     let parked = ctx.push_throw_temp(Operand::Value(inner_after_key), Type::Arr(inner_arr_id));
-    let (val_op, owned) = crate::ssa_lower_struct_own_props::emit_prop_value(ctx, arg_op, prop);
+    let (val_op, owned, fty) =
+        match crate::ssa_lower_struct_own_props::emit_prop_value_any(ctx, arg_op, prop) {
+            Some(v) => (v, true, Type::Any),
+            None => {
+                let (v, owned) =
+                    crate::ssa_lower_struct_own_props::emit_prop_value(ctx, arg_op, None, prop);
+                (v, owned, prop.ty())
+            }
+        };
     ctx.pop_throw_temp(parked);
-    let fty = prop.ty();
     // An `Any` value is a NaN-box, but `push_any` takes a (tag, value)
     // pair — split it at runtime (a set-only property's `undefined`
     // lands here, as does an `any`-typed data field). A BORROWED box

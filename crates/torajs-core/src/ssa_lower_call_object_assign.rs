@@ -203,7 +203,7 @@ pub(crate) fn try_lower(
                 },
             );
             ctx.cur_block = copy_blk;
-            let (value, owned) = emit_prop_value(ctx, &source_op, &prop);
+            let (value, owned) = emit_prop_value(ctx, &source_op, Some(*src_eid), &prop);
             emit_prop_store(ctx, &target_op, &sink, value, owned, val_ty);
             let end = ctx.cur_block;
             ctx.f.set_term(end, Terminator::Br(next_blk));

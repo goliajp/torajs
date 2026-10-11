@@ -95,3 +95,18 @@ pub unsafe extern "C" fn __torajs_obj_field_exotic_same_cell(
     unsafe { crate::anyv_cast::reject(v, site) };
     core::ptr::null_mut()
 }
+
+/// A getter's answer `v` read through a declared field whose slot holds
+/// a raw function address: no value of the any lane is that address, so
+/// every answer records the TypeError `site` spells. Answers NULL.
+///
+/// # Safety
+/// `site` is a live Str literal block; a cell payload of `v` is live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_obj_field_exotic_refuse(
+    v: AnyValue,
+    site: *const u8,
+) -> *mut c_void {
+    unsafe { crate::anyv_cast::reject(v, site) };
+    core::ptr::null_mut()
+}

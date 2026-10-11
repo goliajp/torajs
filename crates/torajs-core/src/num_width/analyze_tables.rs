@@ -223,4 +223,29 @@ pub(super) fn seed_any_and_poison(a: &mut Analysis<'_>) {
             .collect();
         a.seeds.extend(poisoned);
     }
+    seed_accessor_fields(a);
+}
+
+/// A declared field an accessor definer can reach answers through its
+/// getter (or a redefined `value`), and that number is any number: the
+/// slot's integer lane would truncate `0.5` to `0` on the way back in.
+fn seed_accessor_fields(a: &mut Analysis<'_>) {
+    let names = &a.ast.accessor_field_names;
+    if !names.reaches_any() {
+        return;
+    }
+    let mut owners: Vec<&String> = a.classes.iter().chain(&a.nominal_aliases).collect();
+    owners.sort();
+    owners.dedup();
+    let reached: Vec<SlotKey> = owners
+        .into_iter()
+        .filter_map(|c| Some((c, a.struct_decls.get(c)?)))
+        .flat_map(|(c, fields)| {
+            (fields.iter())
+                .filter(|(f, _)| names.may(&f.lossy()))
+                .map(|(f, _)| SlotKey::Field(Box::new(SlotKey::Class(c.clone())), f.clone()))
+        })
+        .map(|k| container::canon_key_frozen(&a.uf, &k))
+        .collect();
+    a.seeds.extend(reached);
 }
