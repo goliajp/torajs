@@ -15,8 +15,9 @@ use torajs_core::ssa::id_hash::HashMap;
 
 use torajs_core::ssa::{BlockId, Terminator};
 
+use super::landing::Landing;
 use super::operand::{self, materialize_operand_fpr, materialize_operand_gpr};
-use super::{OP_SCRATCH_LHS, bittest, brfuse, landing, write_u32};
+use super::{OP_SCRATCH_LHS, bittest, brfuse, write_u32};
 use crate::enc::{b_imm26, brk_imm16, cbnz_x, cbz_x, mov_d_reg, mov_x_reg, ret};
 use crate::frame::FrameLayout;
 use crate::reg::{Fpr, Gpr};
@@ -69,19 +70,19 @@ pub(super) fn patch_branch(bytes: &mut [u8], fixup: &BranchFixup, displacement: 
     bytes[offset..offset + 4].copy_from_slice(&patched.to_le_bytes());
 }
 
-/// Patch every branch fixup with its real displacement. Empty
-/// forwarder blocks (no insts, unconditional Br) redirect the branch
-/// to their final destination first. False — nothing patched — when a
-/// TBZ / TBNZ displacement does not fit its 14 bits.
+/// Patch every branch fixup with its real displacement, each landing
+/// where [`Landing::resolve`] says (past empty forwarders and hollow
+/// blocks). False — nothing patched — when a TBZ / TBNZ displacement
+/// does not fit its 14 bits.
 pub(super) fn patch_all(
     bytes: &mut [u8],
     fixups: &[BranchFixup],
-    blocks_by_id: &HashMap<u32, &torajs_core::ssa::Block>,
+    landing: &Landing,
     block_byte_starts: &HashMap<u32, u32>,
 ) -> bool {
     let mut patches = Vec::with_capacity(fixups.len());
     for fixup in fixups {
-        let final_target = landing::resolve_forwarded_target(blocks_by_id, fixup.target_block);
+        let final_target = landing.resolve(fixup.target_block);
         let target_byte_offset = *block_byte_starts
             .get(&final_target.0)
             .unwrap_or_else(|| panic!("Branch target BlockId({}) not in function", final_target.0));
@@ -107,10 +108,10 @@ pub(super) fn emit_terminator(
     frame: &FrameLayout,
     alloc: &Assignment,
     fused: Option<&brfuse::FusedCmp>,
-    blocks_by_id: &HashMap<u32, &torajs_core::ssa::Block>,
+    landing: &Landing,
     next_resolved: Option<BlockId>,
 ) {
-    let resolve = |t: BlockId| landing::resolve_forwarded_target(blocks_by_id, t);
+    let resolve = |t: BlockId| landing.resolve(t);
     match term {
         Terminator::Ret(ret_op) => {
             // AAPCS64: int/ptr/bool return lands in X0, f64 in D0. The
@@ -231,11 +232,10 @@ pub(super) fn emit_terminator(
 /// uses to elide or flip its branches.
 pub(super) fn falls_through(
     term: &Terminator,
-    blocks_by_id: &HashMap<u32, &torajs_core::ssa::Block>,
+    landing: &Landing,
     next_resolved: Option<BlockId>,
 ) -> bool {
-    let lands_next =
-        |t: &BlockId| Some(landing::resolve_forwarded_target(blocks_by_id, *t)) == next_resolved;
+    let lands_next = |t: &BlockId| Some(landing.resolve(*t)) == next_resolved;
     match term {
         Terminator::Ret(_) | Terminator::Unreachable => false,
         Terminator::Br(t) => lands_next(t),

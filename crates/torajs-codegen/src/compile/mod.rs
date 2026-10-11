@@ -257,11 +257,10 @@ fn emit_body(
 
     let fusions = fusions::Fusions::of(func, alloc, facts, bit_tests);
 
-    // Forwarder-resolved block map, shared by the terminator emit
-    // (fall-through elision needs the next block's final identity)
-    // and the branch-fixup pass below.
-    let blocks_by_id: HashMap<u32, &torajs_core::ssa::Block> =
-        func.blocks.iter().map(|b| (b.id.0, b)).collect();
+    // Where each branch lands, shared by the terminator emit (fall-
+    // through elision needs the next block's final identity) and the
+    // branch-fixup pass below.
+    let landing = landing::Landing::of(func, alloc, &shrink);
 
     // A block no predecessor falls into starts on a 16-byte fetch
     // boundary. The pad sits after an unconditional branch or a
@@ -275,11 +274,12 @@ fn emit_body(
                 write_u32(&mut bytes, crate::enc::nop());
             }
         }
-        block_byte_starts.insert(block.id.0, bytes.len() as u32);
+        let start = bytes.len();
+        block_byte_starts.insert(block.id.0, start as u32);
         let (alloc, frame) =
             landing::open_block(&mut bytes, block, &shrink, alloc, frame, &frameless);
         let fused = fusions.cmp_of(block.id.0);
-        let sib = sibcall::plan(func, block, &blocks_by_id, alloc, facts, block_slot);
+        let sib = sibcall::plan(func, block, &landing.blocks_by_id, alloc, facts, block_slot);
         let body = sib.as_ref().map_or(block.insts.len(), |s| s.at);
         for (ii, inst) in block.insts[..body].iter().enumerate() {
             if fusions.emit(&mut bytes, &mut relocs, block, ii, inst, alloc) {
@@ -297,10 +297,8 @@ fn emit_body(
         // The layout successor's final identity — a branch resolving
         // there is a fall-through and needs no B (the next block, or
         // the empty-forwarder chain it heads, is about to emit).
-        let next_resolved = func
-            .blocks
-            .get(bi + 1)
-            .map(|nb| landing::resolve_forwarded_target(&blocks_by_id, nb.id));
+        let next_resolved = func.blocks.get(bi + 1).map(|nb| landing.resolve(nb.id));
+        assert!(!landing.is_hollow(block.id) || bytes.len() == start);
         emit_terminator(
             &mut bytes,
             &mut fixups,
@@ -308,13 +306,13 @@ fn emit_body(
             frame,
             alloc,
             fused,
-            &blocks_by_id,
+            &landing,
             next_resolved,
         );
-        falls_in = terminator::falls_through(&block.term, &blocks_by_id, next_resolved);
+        falls_in = terminator::falls_through(&block.term, &landing, next_resolved);
     }
 
-    let patched = terminator::patch_all(&mut bytes, &fixups, &blocks_by_id, &block_byte_starts);
+    let patched = terminator::patch_all(&mut bytes, &fixups, &landing, &block_byte_starts);
     patched.then_some((bytes, relocs))
 }
 

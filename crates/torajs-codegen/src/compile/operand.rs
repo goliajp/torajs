@@ -177,6 +177,18 @@ pub fn materialize_const_i64(bytes: &mut Vec<u8>, dst: Gpr, value: i64) {
     }
 }
 
+/// A copy the allocator coalesced: both sides share one home, spill
+/// slot included, so it emits nothing.
+pub(crate) fn copy_emits_nothing(inst: &torajs_core::ssa::Inst, alloc: &Assignment) -> bool {
+    use torajs_core::ssa::{InstKind, Type};
+    match (&inst.kind, inst.result) {
+        (InstKind::Copy(ty, Operand::Value(v)), Some(r)) => {
+            !matches!(ty, Type::Vec(_)) && alloc.contains(*v) && alloc.of(*v) == alloc.of(r)
+        }
+        _ => false,
+    }
+}
+
 /// `%v = copy <ty> <op>` — materialize the source and move it into
 /// the result's assigned home. mem2reg's φ destruction emits several
 /// `Copy`s defining the SAME result ValueId on different predecessor
@@ -199,11 +211,7 @@ pub fn emit_copy(
     use crate::enc::mov_d_reg;
     use crate::enc::mov_x_reg;
     let result_vid = inst.result.expect("Copy must have a result ValueId");
-    // a coalesced copy: both sides share one home, spill slot included
-    if let Operand::Value(v) = op
-        && alloc.contains(*v)
-        && alloc.of(*v) == alloc.of(result_vid)
-    {
+    if copy_emits_nothing(inst, alloc) {
         return;
     }
     if matches!(ty, torajs_core::ssa::Type::F64) {
