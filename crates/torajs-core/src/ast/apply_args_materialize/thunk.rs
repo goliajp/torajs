@@ -93,14 +93,39 @@ pub(super) fn scope_pads_to_top_level(ast: &mut Ast, global_fns: &[String]) {
 /// Whether default `d` of a fn with `params` reads a name, and every
 /// name it reads is one the top level can supply.
 fn reads_definition_scope(ast: &Ast, d: ExprId, params: &[Param], global_fns: &[String]) -> bool {
-    if !body_safe_default(ast, d, global_fns, &[], true) {
-        return false;
-    }
     let free = free_vars::free_vars_of_body(ast, &[], std::slice::from_ref(&Stmt::Expr(d)));
-    !free.is_empty()
-        && free.iter().all(|n| {
-            !n.starts_with("__") && n != "arguments" && !params.iter().any(|p| p.name == *n)
+    let top_level = |n: &str| {
+        !n.starts_with("__")
+            || top_level_declares(ast, n)
+            || n.strip_prefix("__new_")
+                .is_some_and(free_vars::is_global_name)
+    };
+    // a builtin's factory is a function the top level calls, which the
+    // raise of a TDZ guard (`flag_closure_tdz`) names
+    let mut fns = global_fns.to_vec();
+    fns.extend(
+        free.iter()
+            .filter(|n| n.starts_with("__new_") && top_level(n))
+            .cloned(),
+    );
+    body_safe_default(ast, d, &fns, &[], true)
+        && !free.is_empty()
+        && free
+            .iter()
+            .all(|n| top_level(n) && n != "arguments" && !params.iter().any(|p| p.name == *n))
+}
+
+/// A minted name the top level declares — the initialised-flag
+/// `flag_closure_tdz` gives a binding a hoisted call can read early.
+fn top_level_declares(ast: &Ast, n: &str) -> bool {
+    fn declares(list: &[Stmt], n: &str) -> bool {
+        list.iter().any(|s| match s {
+            Stmt::LetDecl { name, .. } => name == n,
+            Stmt::Multi(v) => declares(v, n),
+            _ => false,
         })
+    }
+    declares(&ast.stmts, n)
 }
 
 fn names_a_type_param(ann: &str, type_params: &[String]) -> bool {

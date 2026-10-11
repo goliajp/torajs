@@ -247,6 +247,7 @@ pub(super) fn collect_sites_stmt(
         if (!inside && !outer_fn_decls) || closure_shadows(params, body, name) {
             return;
         }
+        collect_default_sites(ast, params, name, outer_fn_decls, out);
         for b in body {
             collect_sites_stmt(ast, b, name, true, outer_fn_decls, out);
         }
@@ -257,6 +258,20 @@ pub(super) fn collect_sites_stmt(
     }
     for c in stmt_children_ref(s) {
         collect_sites_stmt(ast, c, name, inside, outer_fn_decls, out);
+    }
+}
+
+/// A parameter default runs when the function is called, as its body
+/// does (§10.2.11), so its reads are the function's own.
+fn collect_default_sites(
+    ast: &Ast,
+    params: &[Param],
+    name: &str,
+    outer_fn_decls: bool,
+    out: &mut Vec<Site>,
+) {
+    for d in params.iter().filter_map(|p| p.default) {
+        collect_sites_expr(ast, d, name, true, outer_fn_decls, out);
     }
 }
 
@@ -278,6 +293,7 @@ pub(super) fn collect_sites_expr(
             if closure_shadows(params, body, name) {
                 return;
             }
+            collect_default_sites(ast, params, name, outer_fn_decls, out);
             for b in body {
                 collect_sites_stmt(ast, b, name, true, outer_fn_decls, out);
             }
