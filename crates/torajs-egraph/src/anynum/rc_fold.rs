@@ -154,8 +154,8 @@ fn fold_in_function(func: &mut Function) -> u32 {
         }
     }
     let mut removed = 0u32;
-    for bi in 0..n {
-        let Some(mut facts) = live_in[bi].clone() else {
+    for (bi, entry) in live_in.iter().enumerate().take(n) {
+        let Some(mut facts) = entry.clone() else {
             continue;
         };
         let insts = std::mem::take(&mut func.blocks[bi].insts);
