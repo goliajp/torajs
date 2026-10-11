@@ -23,7 +23,9 @@
 //! Returns:
 //! - `Some(Ok(...))` — per-method result type (filter → `Array<T>`,
 //!   some/every → Boolean, findIndex/findLastIndex → Number,
-//!   map → `Array<Any>` of undefined boxes, reduce/reduceRight → Any,
+//!   map → `Array<Any>` of undefined boxes, reduce/reduceRight → the
+//!   seeded accumulator's type or Any
+//!   ([`crate::check_type_of_call::reduce_acc::seeded_result`]),
 //!   find/findLast → T with the documented zero-sentinel not-found
 //!   subset semantics)
 //! - `Some(Err(_))` — an arg's `type_of` failed
@@ -127,14 +129,18 @@ pub(crate) fn try_match(
             return Some(Err(e));
         }
     }
+    if is_reduce {
+        let acc = ps.first().cloned().unwrap_or(Type::Any);
+        return Some(crate::check_type_of_call::reduce_acc::seeded_result(
+            checker, ast, &acc, &ret, args,
+        ));
+    }
     let r = match m_name.as_str() {
         "filter" => Type::Array(elem),
         "some" | "every" => Type::Boolean,
         "findIndex" | "findLastIndex" => Type::Number,
-        // map — every element becomes `undefined`; reduce — the fed-
-        // back accumulator is `undefined` after the first call.
+        // map — every element becomes `undefined`
         "map" => Type::Array(Box::new(Type::Any)),
-        "reduce" | "reduceRight" => Type::Any,
         _ => *elem, // find | findLast — zero-sentinel not-found subset semantics
     };
     Some(Ok(r))

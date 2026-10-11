@@ -26,7 +26,7 @@ mod arity_wedges;
 mod callback_slot_throw;
 mod fn_slot_ret;
 mod general;
-mod reduce_acc;
+pub(crate) mod reduce_acc;
 mod route_arity_widen;
 mod route_collections;
 mod route_early;

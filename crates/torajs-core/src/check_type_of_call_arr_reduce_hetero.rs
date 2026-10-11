@@ -11,8 +11,12 @@
 //! - cb `(any, T) => R` — Any-param widening (contravariance);
 //!   result follows the cb's actual return
 //!   for U ∈ {Number, String, Boolean, Any}, and an object U whose
-//!   callback return is `Any` (the boxed accumulator lane). Homogeneous
-//!   `(T, T) => T` stays with the method-table arm; a Void-ret
+//!   callback return is `Any` (the boxed accumulator lane). A seeded
+//!   `Any` return or an `Any` seed answers the accumulator's U, an
+//!   object or array one only
+//!   ([`crate::check_type_of_call::reduce_acc::seeded_result`]).
+//!   Homogeneous `(T, T) => T` stays with the method-table arm unless
+//!   its return or its seed is `Any`; a Void-ret
 //!   reduce keeps the sister [`arr_pred_void_cb`] Any-fold lane.
 
 use crate::ast::{Ast, Expr, ExprId};
@@ -60,11 +64,15 @@ pub(crate) fn try_match(
         return None;
     }
     // First cb param (the accumulator) types the result. Same-`T`
-    // acc keeps the method-table arm; only primitive-U lanes we
-    // can round-trip through the run-time boxed acc slot are
-    // admitted here.
+    // acc keeps the method-table arm unless an `any` return or seed
+    // may hand the accumulator a value of another kind; only
+    // primitive-U lanes we can round-trip through the run-time boxed
+    // acc slot are admitted here.
     let acc_ty = &ps[0];
-    if acc_ty == elem.as_ref() {
+    let any_seed = args
+        .get(1)
+        .is_some_and(|&s| checker.type_of(ast, s).is_ok_and(|t| t == Type::Any));
+    if acc_ty == elem.as_ref() && **ret != Type::Any && !any_seed {
         return None;
     }
     // An object accumulator whose callback return the sniff could not
@@ -103,6 +111,11 @@ pub(crate) fn try_match(
         if let Err(e) = checker.type_of(ast, t) {
             return Some(Err(e));
         }
+    }
+    if **ret == Type::Any || any_seed {
+        return Some(crate::check_type_of_call::reduce_acc::seeded_result(
+            checker, ast, acc_ty, ret, args,
+        ));
     }
     Some(Ok((**ret).clone()))
 }

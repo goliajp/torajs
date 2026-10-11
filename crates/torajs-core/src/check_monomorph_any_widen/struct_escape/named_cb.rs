@@ -51,12 +51,15 @@ pub(super) fn any_elem_sites(c: &Checker, ast: &Ast, widths: &WidthTable) -> Vec
 /// `xs.reduce(cb, seed)` with an `any` seed: the first step binds
 /// whatever the seed holds to the callback's typed accumulator
 /// parameter (§23.1.3.24 step 8.b.iii passes it as it is), and every
-/// later step binds what that callback answered.
+/// later step binds what that callback answered. A callback answering
+/// `any` hands every later step a value of any kind the same way.
 fn any_reduce_seed(c: &Checker, ast: &Ast, callee: ExprId, args: &[ExprId]) -> bool {
     matches!(ast.get_expr(callee), Expr::Member { name, .. } if name == "reduce" || name == "reduceRight")
-        && args
+        && (args
             .get(1)
             .is_some_and(|s| c.expr_types.get(s) == Some(&Type::Any))
+            || matches!(args.first().and_then(|cb| c.expr_types.get(cb)),
+                Some(Type::Function(_, ret)) if **ret == Type::Any))
 }
 
 /// Replace each function declaration named at `sites` by its relay

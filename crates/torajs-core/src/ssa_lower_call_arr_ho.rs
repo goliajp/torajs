@@ -13,6 +13,7 @@
 
 pub(crate) mod cb_face;
 mod dense_gate;
+mod reduce_cast;
 
 pub(crate) use dense_gate::typed_dense_gate;
 
@@ -210,6 +211,9 @@ fn lower_higher_order(
     ctx.unpark_owned_temp(this_tok);
     if let Some((t, op)) = this_temp {
         ctx.release_owned_temp(t, &op);
+    }
+    if is_reduce && args.len() >= 2 {
+        return reduce_cast::cast_reduce_product(ctx, eid, args[0], fn_ty, promoted, out);
     }
     out
 }
