@@ -287,7 +287,19 @@ fn non_any_recv_admitted(ctx: &LowerCtx<'_>, callee: ExprId, obj: &ExprId, name:
     let any_elem_method = is_fn_surface
         && matches!(ctx.ast.get_expr(*obj), Expr::Index { obj: arr, .. }
             if crate::ssa_lower_index_any_method_call::obj_slot_elems_are_any(ctx, *arr));
+    // a binding the checker types as an object whose slot holds an
+    // any: an element of a class array the any world may write into
+    // (`for (const p of ps)` over a `P[]` that escaped), which can
+    // hold an instance of another class with methods of its own; read
+    // straight off such an array (`ps[i].m()`) the same holds
+    let object_in_any_slot = matches!(
+        ctx.expr_types.get(obj),
+        Some(crate::check::Type::Struct(_) | crate::check::Type::ClassRef(_))
+    ) && (crate::ssa_lower_any_call::callee_slot_is_any(ctx, *obj)
+        || matches!(ctx.ast.get_expr(*obj), Expr::Index { obj: arr, .. }
+            if crate::ssa_lower_index_any_method_call::obj_slot_elems_are_any(ctx, *arr)));
     sugar_fn_on_any
+        || object_in_any_slot
         || builtin_mv
         || ns_static_fn
         || builtin_ctor_fn
