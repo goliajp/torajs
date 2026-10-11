@@ -45,7 +45,9 @@ pub(crate) fn cb_face(
     method: &str,
     eid: ExprId,
 ) -> (Type, bool) {
-    if !any_elems_take_boxed_entry(ctx, cb, fn_ty, src_ty) {
+    if !any_elems_take_boxed_entry(ctx, cb, fn_ty, src_ty)
+        && !any_seed_takes_boxed_entry(ctx, cb, fn_ty, method, eid)
+    {
         return (fn_ty, cb_takes_argv_face(ctx, cb, fn_ty, src_ty));
     }
     let Type::Closure(sig) = fn_ty else {
@@ -99,12 +101,32 @@ fn any_elems_take_boxed_entry(ctx: &LowerCtx<'_>, cb: ExprId, fn_ty: Type, src_t
     let (Type::Closure(_), Type::Arr(src)) = (fn_ty, src_ty) else {
         return false;
     };
-    if ctx.arr_layouts[src.0 as usize] != Type::Any
-        || !matches!(
-            ctx.sig_param_tys(fn_ty).and_then(|p| p.first().copied()),
-            Some(Type::F64 | Type::I64 | Type::I32 | Type::Bool | Type::Str | Type::Obj(_))
-        )
-    {
+    ctx.arr_layouts[src.0 as usize] == Type::Any && typed_head_boxed(ctx, cb, fn_ty)
+}
+
+/// Is `cb` a reducer seeded with an `any` value at call `eid`? The
+/// first step binds the seed to its typed accumulator parameter as it
+/// is (§23.1.3.24 step 8.b.iii), whatever the elements are.
+fn any_seed_takes_boxed_entry(
+    ctx: &LowerCtx<'_>,
+    cb: ExprId,
+    fn_ty: Type,
+    method: &str,
+    eid: ExprId,
+) -> bool {
+    matches!(method, "reduce" | "reduceRight")
+        && matches!(fn_ty, Type::Closure(_))
+        && matches!(ctx.ast.get_expr(eid), Expr::Call { args, .. }
+            if args.get(1).is_some_and(|s| ctx.expr_types.get(s) == Some(&crate::check::Type::Any)))
+        && typed_head_boxed(ctx, cb, fn_ty)
+}
+
+/// Does `cb` take a typed first parameter and have a boxed entry?
+fn typed_head_boxed(ctx: &LowerCtx<'_>, cb: ExprId, fn_ty: Type) -> bool {
+    if !matches!(
+        ctx.sig_param_tys(fn_ty).and_then(|p| p.first().copied()),
+        Some(Type::F64 | Type::I64 | Type::I32 | Type::Bool | Type::Str | Type::Obj(_))
+    ) {
         return false;
     }
     let boxed = |n: &String| {

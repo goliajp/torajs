@@ -20,7 +20,8 @@ use crate::check::{Checker, Type};
 use crate::num_width::WidthTable;
 
 /// The callback sites of iterations that hand their callback `any`
-/// elements: `(receiver, callback)` in arena order.
+/// elements, or a reducer an `any` seed: `(receiver, callback)` in
+/// arena order.
 pub(super) fn any_elem_sites(c: &Checker, ast: &Ast, widths: &WidthTable) -> Vec<(ExprId, ExprId)> {
     let mut out = Vec::new();
     for e in &ast.exprs {
@@ -37,12 +38,25 @@ pub(super) fn any_elem_sites(c: &Checker, ast: &Ast, widths: &WidthTable) -> Vec
         };
         let any_arr = matches!(c.expr_types.get(&recv), Some(Type::Array(el)) if **el == Type::Any);
         if let Some(&cb) = cb
-            && (widths.hof_receiver_escapes(recv) || any_arr)
+            && (widths.hof_receiver_escapes(recv)
+                || any_arr
+                || any_reduce_seed(c, ast, *callee, args))
         {
             out.push((recv, cb));
         }
     }
     out
+}
+
+/// `xs.reduce(cb, seed)` with an `any` seed: the first step binds
+/// whatever the seed holds to the callback's typed accumulator
+/// parameter (§23.1.3.24 step 8.b.iii passes it as it is), and every
+/// later step binds what that callback answered.
+fn any_reduce_seed(c: &Checker, ast: &Ast, callee: ExprId, args: &[ExprId]) -> bool {
+    matches!(ast.get_expr(callee), Expr::Member { name, .. } if name == "reduce" || name == "reduceRight")
+        && args
+            .get(1)
+            .is_some_and(|s| c.expr_types.get(s) == Some(&Type::Any))
 }
 
 /// Replace each function declaration named at `sites` by its relay
