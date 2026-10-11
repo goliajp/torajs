@@ -3,7 +3,9 @@
 //! second on the other; instead of a select of the two, the join
 //! value becomes one unsigned test on `x - lo`: subtraction wraps, so
 //! `x - lo <u hi - lo + 1` holds exactly when `x` lies in `[lo, hi]`,
-//! for every i64 `x`. `||` tests the complement, `&&` the range. Two
+//! for every i64 `x`. Two rays: `||` tests the complement of their
+//! gap, `&&` their overlap. Two neighbouring points: `x == k || x ==
+//! k + 1` tests the pair, `x != k && x != k + 1` its complement. Two
 //! compares and a select (`cmp; cset; cmp; cset; cmp; csel`) become a
 //! subtract and a compare.
 
@@ -31,7 +33,7 @@ pub(super) fn fold(
     tp: &ArmPlan,
     ep: &ArmPlan,
 ) -> Option<Fold> {
-    let (vid, x, lo, width, or, c, o) = plan(func, h, cond, tp, ep)?;
+    let (vid, x, lo, width, inside, c, o) = plan(func, h, cond, tp, ep)?;
     let mut insts = Vec::new();
     let subject = if lo == 0 {
         Operand::Value(x)
@@ -48,7 +50,7 @@ pub(super) fn fold(
         });
         Operand::Value(shifted)
     };
-    let pred = if or { IPred::Uge } else { IPred::Ult };
+    let pred = if inside { IPred::Ult } else { IPred::Uge };
     insts.push(Inst {
         result: Some(vid),
         kind: InstKind::ICmp(pred, subject, Operand::ConstI64(width)),
@@ -61,7 +63,8 @@ pub(super) fn fold(
 }
 
 /// The fold's shape: join value, subject, range start, range width,
-/// `||` (complement) or `&&`, and the two compares it retires.
+/// whether the join holds inside the range (or outside it), and the
+/// two compares it retires.
 fn plan(
     func: &Function,
     h: usize,
@@ -99,28 +102,31 @@ fn plan(
     if x != ox || func.values[x.0 as usize].ty != Type::I64 {
         return None;
     }
-    // both compares read the same `x`: it is not rewritten in the
-    // header or on the arms (an arm rewriting it would have failed
-    // the arm plan), and the compares have no other reader
-    if header.iter().any(|i| i.result == Some(x)) {
+    // both compares read the same `x`, which the test appended at the
+    // end of the header reads in their place: nothing after the first
+    // compare in the header rewrites it (an arm rewriting it would
+    // have failed the arm plan), and the compares have no other reader
+    let at = header.iter().position(|i| i.result == Some(c))?;
+    if header[at..].iter().any(|i| i.result == Some(x)) {
         return None;
     }
     let uses = use_counts(func, &[c, o]);
     if uses != [2, 1] {
         return None;
     }
-    let (lo, hi) = if or {
+    let (lo, hi, inside) = match (or, c_set, o_set) {
         // the complement of `(-inf, a] ∪ [b, inf)` is `[a + 1, b - 1]`
-        let (a, b) = match (c_set, o_set) {
-            (Set::Below(a), Set::Above(b)) | (Set::Above(b), Set::Below(a)) => (a, b),
-            _ => return None,
-        };
-        (a + 1, b - 1)
-    } else {
-        match (c_set, o_set) {
-            (Set::Below(a), Set::Above(b)) | (Set::Above(b), Set::Below(a)) => (b, a),
-            _ => return None,
+        (true, Set::Below(a), Set::Above(b)) | (true, Set::Above(b), Set::Below(a)) => {
+            (a + 1, b - 1, false)
         }
+        (false, Set::Below(a), Set::Above(b)) | (false, Set::Above(b), Set::Below(a)) => {
+            (b, a, true)
+        }
+        (true, Set::Point(a), Set::Point(b)) if (a - b).abs() == 1 => (a.min(b), a.max(b), true),
+        (false, Set::Except(a), Set::Except(b)) if (a - b).abs() == 1 => {
+            (a.min(b), a.max(b), false)
+        }
+        _ => return None,
     };
     if lo > hi {
         return None;
@@ -129,17 +135,21 @@ fn plan(
     if width > i64::MAX as i128 {
         return None;
     }
-    Some((vid, x, lo as i64, width as i64, or, c, o))
+    Some((vid, x, lo as i64, width as i64, inside, c, o))
 }
 
 /// The values a signed compare against a constant accepts: a ray
-/// closed at the constant.
+/// closed at the constant, the constant alone, or every other value.
 #[derive(Clone, Copy)]
 enum Set {
     /// `(-inf, k]`
     Below(i128),
     /// `[k, inf)`
     Above(i128),
+    /// `{k}`
+    Point(i128),
+    /// everything but `k`
+    Except(i128),
 }
 
 fn compare_set(kind: &InstKind) -> Option<(ValueId, Set)> {
@@ -156,6 +166,8 @@ fn compare_set(kind: &InstKind) -> Option<(ValueId, Set)> {
         IPred::Sle => Set::Below(k),
         IPred::Sgt => Set::Above(k + 1),
         IPred::Sge => Set::Above(k),
+        IPred::Eq => Set::Point(k),
+        IPred::Ne => Set::Except(k),
         _ => return None,
     };
     Some((x, set))
@@ -168,6 +180,7 @@ fn mirror(pred: IPred) -> Option<IPred> {
         IPred::Sle => Some(IPred::Sge),
         IPred::Sgt => Some(IPred::Slt),
         IPred::Sge => Some(IPred::Sle),
+        IPred::Eq | IPred::Ne => Some(pred),
         _ => None,
     }
 }
@@ -350,6 +363,118 @@ mod tests {
     }
 
     #[test]
+    fn an_or_of_two_neighbouring_points_tests_the_pair() {
+        let mut f = shape(
+            InstKind::ICmp(IPred::Eq, v(0), c(3)),
+            InstKind::ICmp(IPred::Eq, c(2), v(0)),
+            true,
+        );
+        let stats = run(&mut f);
+        assert_eq!(stats.range_tests_formed, 1);
+        let [sub, test] = &f.blocks[0].insts[..] else {
+            panic!(
+                "header holds the subtract and the test: {:?}",
+                f.blocks[0].insts
+            );
+        };
+        assert!(matches!(
+            sub.kind,
+            InstKind::BinOp(BinOp::Sub, Operand::Value(ValueId(0)), Operand::ConstI64(2))
+        ));
+        assert!(
+            matches!(test.kind, InstKind::ICmp(IPred::Ult, Operand::Value(s), Operand::ConstI64(2)) if Some(s) == sub.result)
+        );
+    }
+
+    #[test]
+    fn an_and_of_two_neighbouring_exclusions_tests_outside_the_pair() {
+        let mut f = shape(
+            InstKind::ICmp(IPred::Ne, v(0), c(-1)),
+            InstKind::ICmp(IPred::Ne, v(0), c(0)),
+            false,
+        );
+        let stats = run(&mut f);
+        assert_eq!(stats.range_tests_formed, 1);
+        let [sub, test] = &f.blocks[0].insts[..] else {
+            panic!(
+                "header holds the subtract and the test: {:?}",
+                f.blocks[0].insts
+            );
+        };
+        assert!(matches!(
+            sub.kind,
+            InstKind::BinOp(
+                BinOp::Sub,
+                Operand::Value(ValueId(0)),
+                Operand::ConstI64(-1)
+            )
+        ));
+        assert!(
+            matches!(test.kind, InstKind::ICmp(IPred::Uge, Operand::Value(s), Operand::ConstI64(2)) if Some(s) == sub.result)
+        );
+    }
+
+    #[test]
+    fn points_apart_or_joined_by_the_wrong_operator_keep_the_select() {
+        for (a, b, or) in [(2, 4, true), (2, 2, true), (2, 3, false)] {
+            let mut f = shape(
+                InstKind::ICmp(IPred::Eq, v(0), c(a)),
+                InstKind::ICmp(IPred::Eq, v(0), c(b)),
+                or,
+            );
+            let stats = run(&mut f);
+            assert_eq!(stats.range_tests_formed, 0, "{a} {b} {or}");
+        }
+    }
+
+    #[test]
+    fn a_subject_loaded_in_the_header_before_the_first_compare_folds() {
+        let mut f = shape(
+            InstKind::ICmp(IPred::Eq, v(4), c(2)),
+            InstKind::ICmp(IPred::Eq, v(4), c(3)),
+            true,
+        );
+        f.values.push(ValueInfo {
+            ty: Type::I64,
+            name: None,
+        });
+        f.blocks[0]
+            .insts
+            .insert(0, inst(4, InstKind::Load(Type::I64, v(0), 32)));
+        let stats = run(&mut f);
+        assert_eq!(stats.range_tests_formed, 1);
+        assert!(matches!(
+            f.blocks[0].insts[..],
+            [
+                Inst {
+                    kind: InstKind::Load(..),
+                    ..
+                },
+                _,
+                _
+            ]
+        ));
+    }
+
+    #[test]
+    fn a_subject_rewritten_after_the_first_compare_keeps_the_select() {
+        let mut f = shape(
+            InstKind::ICmp(IPred::Eq, v(4), c(2)),
+            InstKind::ICmp(IPred::Eq, v(4), c(3)),
+            true,
+        );
+        f.values.push(ValueInfo {
+            ty: Type::I64,
+            name: None,
+        });
+        f.blocks[0]
+            .insts
+            .push(inst(4, InstKind::Copy(Type::I64, v(0))));
+        let stats = run(&mut f);
+        assert_eq!(stats.range_tests_formed, 0);
+    }
+
+    #[test]
     fn a_compare_with_another_reader_keeps_the_select() {
         let mut f = shape(
             InstKind::ICmp(IPred::Slt, v(0), c(48)),
@@ -361,5 +486,71 @@ mod tests {
         let stats = run(&mut f);
         assert_eq!(stats.range_tests_formed, 0);
         assert_eq!(stats.selects_formed, 1);
+    }
+
+    /// The subtrahend and the predicate of the folded test, if any.
+    fn folded(f: &mut Function) -> Option<(i64, IPred)> {
+        if run(f).range_tests_formed == 0 {
+            return None;
+        }
+        let [sub, test] = &f.blocks[0].insts[..] else {
+            panic!(
+                "header holds the subtract and the test: {:?}",
+                f.blocks[0].insts
+            );
+        };
+        let InstKind::BinOp(BinOp::Sub, Operand::Value(ValueId(0)), Operand::ConstI64(lo)) =
+            sub.kind
+        else {
+            panic!("{:?}", sub.kind);
+        };
+        let InstKind::ICmp(pred, Operand::Value(s), Operand::ConstI64(2)) = test.kind else {
+            panic!("{:?}", test.kind);
+        };
+        assert_eq!(Some(s), sub.result);
+        Some((lo, pred))
+    }
+
+    #[test]
+    fn neighbouring_points_at_either_end_of_i64_fold() {
+        for (a, or, pred) in [
+            (i64::MAX - 1, true, IPred::Ult),
+            (i64::MIN, true, IPred::Ult),
+            (i64::MAX - 1, false, IPred::Uge),
+            (i64::MIN, false, IPred::Uge),
+        ] {
+            let p = if or { IPred::Eq } else { IPred::Ne };
+            let mut f = shape(
+                InstKind::ICmp(p, v(0), c(a + 1)),
+                InstKind::ICmp(p, v(0), c(a)),
+                or,
+            );
+            assert_eq!(folded(&mut f), Some((a, pred)), "{a} {or}");
+        }
+    }
+
+    #[test]
+    fn the_ends_of_i64_are_not_neighbours() {
+        let mut f = shape(
+            InstKind::ICmp(IPred::Eq, v(0), c(i64::MAX)),
+            InstKind::ICmp(IPred::Eq, v(0), c(i64::MIN)),
+            true,
+        );
+        assert_eq!(folded(&mut f), None);
+    }
+
+    #[test]
+    fn a_subject_other_than_i64_keeps_the_select() {
+        for ty in [Type::Bool, Type::I32] {
+            let mut f = shape(
+                InstKind::ICmp(IPred::Eq, v(0), c(2)),
+                InstKind::ICmp(IPred::Eq, v(0), c(3)),
+                true,
+            );
+            f.values[0].ty = ty;
+            let stats = run(&mut f);
+            assert_eq!(stats.range_tests_formed, 0, "{ty:?}");
+            assert_eq!(stats.selects_formed, 1, "{ty:?}");
+        }
     }
 }
