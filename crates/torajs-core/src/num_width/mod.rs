@@ -343,38 +343,7 @@ pub(crate) fn analyze(
     container::canonicalize(&mut a);
     cycle::seed_growth_cycles(&a.edges, &mut a.seeds);
     let arith_in_window = magnitude::settle(&mut a);
-    // RFC 20260708-spread-call chunk 2a — any-face slots seed the
-    // F64 fixpoint. A number slot fed from the any world (an `any[]`
-    // elem read into a number param, an `any` param flowing into a
-    // number local) receives ToNumber(undefined) = NaN and
-    // fractional f64s at runtime; an I64 repr would FpToSi-truncate
-    // them (NaN → 0, silent). Conservative direction — repr cost
-    // only, never correctness.
-    let frozen_any: Vec<SlotKey> = a
-        .any_seeds
-        .iter()
-        .map(|k| container::canon_key_frozen(&a.uf, k))
-        .collect();
-    a.seeds.extend(frozen_any);
-    // An untrackable index-assign receiver poisons every container
-    // query (container_walk.rs) — but that query-side short-circuit
-    // reaches only the Elem/Field spellings. A SCALAR fed from a
-    // container point (`let y = c.x`) resolves through `canon`, which
-    // the bool never touches: the field slot lowers F64 while the
-    // local stays I64, and the store between them bit-puns (the r293
-    // Symbol-key SIGABRT — an Fpr value reaching
-    // materialize_operand_gpr). Seed every container point in the
-    // edge graph so the fixpoint carries the poison to its scalar
-    // dependents, keeping both sides of the lattice consistent.
-    if a.container_poison {
-        let poisoned: Vec<SlotKey> = a
-            .edges
-            .keys()
-            .filter(|k| matches!(k, SlotKey::Elem(_) | SlotKey::Field(..)))
-            .cloned()
-            .collect();
-        a.seeds.extend(poisoned);
-    }
+    analyze_tables::seed_any_and_poison(&mut a);
     let canon_out = fixpoint(std::mem::take(&mut a.seeds), &a.edges);
     dump_f64_classes(&canon_out);
 

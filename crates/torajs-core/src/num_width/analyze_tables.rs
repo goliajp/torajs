@@ -2,7 +2,8 @@
 //! carved out of `mod.rs` (file-size hard limit: the fn sat on the
 //! known-debt list at 225 lines and the file at 508). Verbatim moves:
 //! the slot-name registry the walk phase resolves names against, and
-//! the W4 objlit shape-join table the frozen verdict set feeds.
+//! the W4 objlit shape-join table the frozen verdict set feeds, and
+//! the any-face / poison seeding the fixpoint starts from.
 //!
 //! Rotation 507 — the registry also carries the const-int table
 //! ([`record_const_int`]): the value behind an immutable binding whose
@@ -184,4 +185,42 @@ pub(super) fn collect_generic_decls(ast: &Ast) -> GenericStructDecls {
         }
     }
     out
+}
+
+/// The two seed families that join the F64 fixpoint once the alias
+/// classes are frozen: the any-face slots and, under an untrackable
+/// index-assign receiver, every container point.
+pub(super) fn seed_any_and_poison(a: &mut Analysis<'_>) {
+    // RFC 20260708-spread-call chunk 2a — any-face slots seed the
+    // F64 fixpoint. A number slot fed from the any world (an `any[]`
+    // elem read into a number param, an `any` param flowing into a
+    // number local) receives ToNumber(undefined) = NaN and
+    // fractional f64s at runtime; an I64 repr would FpToSi-truncate
+    // them (NaN → 0, silent). Conservative direction — repr cost
+    // only, never correctness.
+    let frozen_any: Vec<SlotKey> = a
+        .any_seeds
+        .iter()
+        .map(|k| container::canon_key_frozen(&a.uf, k))
+        .collect();
+    a.seeds.extend(frozen_any);
+    // An untrackable index-assign receiver poisons every container
+    // query (container_walk.rs) — but that query-side short-circuit
+    // reaches only the Elem/Field spellings. A SCALAR fed from a
+    // container point (`let y = c.x`) resolves through `canon`, which
+    // the bool never touches: the field slot lowers F64 while the
+    // local stays I64, and the store between them bit-puns (the r293
+    // Symbol-key SIGABRT — an Fpr value reaching
+    // materialize_operand_gpr). Seed every container point in the
+    // edge graph so the fixpoint carries the poison to its scalar
+    // dependents, keeping both sides of the lattice consistent.
+    if a.container_poison {
+        let poisoned: Vec<SlotKey> = a
+            .edges
+            .keys()
+            .filter(|k| matches!(k, SlotKey::Elem(_) | SlotKey::Field(..)))
+            .cloned()
+            .collect();
+        a.seeds.extend(poisoned);
+    }
 }
