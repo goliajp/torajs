@@ -86,7 +86,14 @@ pub(super) fn plan(ast: &mut Ast, class_index: &mut [ClassIndexEntry]) -> Vec<Fl
     for (_, cname, _tp, parent, _, _, ctor, _, _, _) in class_index.iter_mut() {
         // the implicit constructor (§15.7.14) calls `super` first; what
         // the desugar wrote into one is field initializers
-        if parent.is_none() || !ast.explicit_ctor_classes.contains(cname.as_str()) {
+        if !ast.explicit_ctor_classes.contains(cname.as_str()) {
+            continue;
+        }
+        // a builtin parent's `super(…)` sites are already rewritten
+        // away (`strip_builtin_heritage`); only a body that never
+        // calls it, and so ends in the raiser, is still decidable here
+        let builtin = parent.is_none() && ast.builtin_class_parents.contains_key(cname.as_str());
+        if parent.is_none() && !(builtin && ctor.as_ref().is_some_and(|c| ends_in_raise(ast, c))) {
             continue;
         }
         if let Some(c) = ctor.as_mut()
@@ -96,6 +103,19 @@ pub(super) fn plan(ast: &mut Ast, class_index: &mut [ClassIndexEntry]) -> Vec<Fl
         }
     }
     out
+}
+
+/// Does the body end in the no-super raiser `strip_builtin_heritage`
+/// appends to a constructor with no `super(…)` site?
+fn ends_in_raise(ast: &Ast, c: &ClassCtor) -> bool {
+    let Some(Stmt::Expr(e)) = c.body.last() else {
+        return false;
+    };
+    let Expr::Call { callee, args } = ast.get_expr(*e) else {
+        return false;
+    };
+    matches!(ast.get_expr(*callee), Expr::Ident(n) if n == RAISER)
+        && matches!(args.as_slice(), [a] if matches!(ast.get_expr(*a), Expr::Bool(false)))
 }
 
 fn plan_ctor(ast: &mut Ast, cname: &str, c: &mut ClassCtor) -> Option<FlaggedCtor> {
