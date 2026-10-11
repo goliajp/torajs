@@ -143,7 +143,6 @@ fn aes_gcm() {
 fn chacha20_poly1305() {
     let mut wrong_nonce = 0;
     each("chacha20_poly1305_test.json", |v| {
-        let key = ChaCha20Poly1305::new(v.key[..].try_into().unwrap());
         let Ok(nonce) = <&[u8; 12]>::try_from(&v.iv[..]) else {
             // the API only takes 96-bit nonces, so these cannot be passed
             assert!(
@@ -155,11 +154,14 @@ fn chacha20_poly1305() {
             wrong_nonce += 1;
             return;
         };
-        check(
-            v,
-            |b| key.seal(nonce, &v.aad, b),
-            |b, t| key.open(nonce, &v.aad, b, t),
-        );
+        for cpu in cpus() {
+            let key = ChaCha20Poly1305::new(v.key[..].try_into().unwrap(), cpu);
+            check(
+                v,
+                |b| key.seal(nonce, &v.aad, b),
+                |b, t| key.open(nonce, &v.aad, b, t),
+            );
+        }
     });
     assert_eq!(wrong_nonce, 9);
 }

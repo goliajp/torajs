@@ -36,6 +36,8 @@ pub enum Feature {
     Aarch64Sha2,
     /// AArch64 `FEAT_SHA512`: SHA512H / SHA512H2 / SHA512SU0 / SHA512SU1.
     Aarch64Sha512,
+    /// AArch64 `FEAT_AdvSIMD` (NEON): the 128-bit vector instructions.
+    Aarch64Neon,
     /// x86-64 AES-NI (CPUID.1:ECX bit 25).
     X86Aes,
     /// x86-64 PCLMULQDQ (CPUID.1:ECX bit 1).
@@ -44,11 +46,12 @@ pub enum Feature {
     X86Sha,
 }
 
-const ALL: [Feature; 7] = [
+const ALL: [Feature; 8] = [
     Feature::Aarch64Aes,
     Feature::Aarch64Pmull,
     Feature::Aarch64Sha2,
     Feature::Aarch64Sha512,
+    Feature::Aarch64Neon,
     Feature::X86Aes,
     Feature::X86Pclmulqdq,
     Feature::X86Sha,
@@ -85,6 +88,9 @@ impl CpuFeatures {
         }
         if cfg!(all(target_arch = "aarch64", target_feature = "sha3")) {
             bits |= Feature::Aarch64Sha512.bit();
+        }
+        if cfg!(all(target_arch = "aarch64", target_feature = "neon")) {
+            bits |= Feature::Aarch64Neon.bit();
         }
         if cfg!(all(target_arch = "x86_64", target_feature = "aes")) {
             bits |= Feature::X86Aes.bit();
@@ -158,6 +164,10 @@ mod tests {
         assert_eq!(
             c.has(Feature::Aarch64Sha2),
             cfg!(all(target_arch = "aarch64", target_feature = "sha2"))
+        );
+        assert_eq!(
+            c.has(Feature::Aarch64Neon),
+            cfg!(all(target_arch = "aarch64", target_feature = "neon"))
         );
     }
 }

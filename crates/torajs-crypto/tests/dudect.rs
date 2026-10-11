@@ -214,11 +214,16 @@ fn gcm_open_tag_check_compile_time() {
 
 #[test]
 #[ignore = "timing measurement; run on an idle machine"]
-fn chacha_open_tag_check() {
-    assert_ct(open_fail(
-        "chacha-open",
-        &ChaCha20Poly1305::new(&[0x22; 32]),
-    ));
+fn chacha_open_tag_check_portable() {
+    let key = ChaCha20Poly1305::new(&[0x22; 32], CpuFeatures::portable());
+    assert_ct(open_fail("chacha-open-portable", &key));
+}
+
+#[test]
+#[ignore = "timing measurement; run on an idle machine"]
+fn chacha_open_tag_check_compile_time() {
+    let key = ChaCha20Poly1305::new(&[0x22; 32], CpuFeatures::compile_time());
+    assert_ct(open_fail("chacha-open-hw", &key));
 }
 
 #[test]
@@ -231,10 +236,18 @@ fn gcm_seal_data_portable() {
 
 #[test]
 #[ignore = "timing measurement; run on an idle machine"]
-fn chacha_seal_data() {
-    let key = ChaCha20Poly1305::new(&[0x22; 32]);
-    assert_ct(seal_data("chacha-seal", &key, false));
-    assert_ct(seal_data("chacha-seal-zero", &key, true));
+fn chacha_seal_data_portable() {
+    let key = ChaCha20Poly1305::new(&[0x22; 32], CpuFeatures::portable());
+    assert_ct(seal_data("chacha-seal-portable", &key, false));
+    assert_ct(seal_data("chacha-seal-portable-zero", &key, true));
+}
+
+#[test]
+#[ignore = "timing measurement; run on an idle machine"]
+fn chacha_seal_data_compile_time() {
+    let key = ChaCha20Poly1305::new(&[0x22; 32], CpuFeatures::compile_time());
+    assert_ct(seal_data("chacha-seal-hw", &key, false));
+    assert_ct(seal_data("chacha-seal-hw-zero", &key, true));
 }
 
 #[test]
@@ -249,6 +262,6 @@ fn gcm_key_portable() {
 #[ignore = "timing measurement; run on an idle machine"]
 fn chacha_key() {
     assert_ct(seal_key("chacha-key", 32, |k| {
-        ChaCha20Poly1305::new(k.try_into().unwrap())
+        ChaCha20Poly1305::new(k.try_into().unwrap(), CpuFeatures::compile_time())
     }));
 }

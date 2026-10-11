@@ -50,8 +50,13 @@ fn seal_16k_records() {
         RECORDS,
     );
     measure(
-        "chacha20poly1305",
-        &ChaCha20Poly1305::new(&[1; 32]),
+        "chacha20poly1305 compile-time",
+        &ChaCha20Poly1305::new(&[1; 32], hw),
+        RECORDS / 8,
+    );
+    measure(
+        "chacha20poly1305 portable",
+        &ChaCha20Poly1305::new(&[1; 32], soft),
         RECORDS / 8,
     );
     measure(

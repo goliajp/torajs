@@ -6,9 +6,9 @@
 //!
 //! - randomness through an [`EntropySource`](rand::EntropySource),
 //! - CPU capabilities through a [`CpuFeatures`](cpu::CpuFeatures) value,
-//!   which the AES-GCM constructors take to choose between the hardware
-//!   and the portable code (the SHA-256 ARMv8 path is still chosen at
-//!   compile time).
+//!   which the AES-GCM and ChaCha20-Poly1305 constructors take to choose
+//!   between the hardware and the portable code (the SHA-256 ARMv8 path is
+//!   still chosen at compile time).
 //!
 //! # Modules
 //!
@@ -71,9 +71,10 @@
 //! hardware intrinsics forbids it. Unsafe code exists in [`ct::zeroize`]
 //! (volatile writes) and in the AArch64 hardware modules: the SHA-256 block
 //! function, compiled only when the target enables the `sha2` feature at
-//! build time, and the AES and GHASH code, reached only through a
+//! build time, the AES and GHASH code, reached only through a
 //! [`CpuFeatures`](cpu::CpuFeatures) value that vouches for the AES and
-//! PMULL instructions.
+//! PMULL instructions, and the NEON ChaCha20 code, reached only through
+//! one that vouches for NEON.
 //! [`cpu::CpuFeatures::with`] is an `unsafe fn` as a caller contract: the
 //! caller vouches that the CPU has the feature.
 //!

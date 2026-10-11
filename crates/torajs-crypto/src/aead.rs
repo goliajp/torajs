@@ -9,8 +9,9 @@
 //! ```
 //! use torajs_crypto::Aead;
 //! use torajs_crypto::chacha20poly1305::ChaCha20Poly1305;
+//! use torajs_crypto::cpu::CpuFeatures;
 //!
-//! let key = ChaCha20Poly1305::new(&[7; 32]);
+//! let key = ChaCha20Poly1305::new(&[7; 32], CpuFeatures::compile_time());
 //! let nonce = [1; 12];
 //! let mut buf = *b"attack at dawn";
 //! let tag = key.seal(&nonce, b"header", &mut buf).unwrap();

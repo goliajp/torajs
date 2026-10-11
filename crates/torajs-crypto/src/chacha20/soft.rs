@@ -1,16 +1,14 @@
-//! The ChaCha20 stream cipher (RFC 8439 §2.3, §2.4), IETF variant: 256-bit
-//! key, 96-bit nonce, 32-bit block counter.
+//! Portable ChaCha20.
 //!
 //! Bulk data runs four blocks at a time with each state word held as four
-//! lanes, one per block, so the compiler can map a word onto one SIMD
-//! register (NEON, SSE2, wasm `simd128`) without target-specific code.
+//! lanes, one per block, in plain integer code.
 #![forbid(unsafe_code)]
 
 use crate::ct::zeroize::zeroize;
 
 pub(crate) const BLOCK_LEN: usize = 64;
 
-const SIGMA: [u32; 4] = [0x6170_7865, 0x3320_646e, 0x7962_2d32, 0x6b20_6574];
+pub(super) const SIGMA: [u32; 4] = [0x6170_7865, 0x3320_646e, 0x7962_2d32, 0x6b20_6574];
 
 #[inline(always)]
 fn quarter(s: &mut [u32; 16], a: usize, b: usize, c: usize, d: usize) {
@@ -182,21 +180,5 @@ mod tests {
                 assert_eq!(*col, one, "counter {counter} lane {j}");
             }
         }
-    }
-
-    /// RFC 8439 §2.4.2.
-    #[test]
-    fn encryption() {
-        let nonce = nonce_words(&unhex("000000000000004a00000000").try_into().unwrap());
-        let mut data = *b"Ladies and Gentlemen of the class of '99: If I could offer you \
-only one tip for the future, sunscreen would be it.";
-        xor_keystream(&key_00_1f(), 1, &nonce, &mut data);
-        assert_eq!(
-            hex(&data),
-            "6e2e359a2568f98041ba0728dd0d6981e97e7aec1d4360c20a27afccfd9fae0b\
-             f91b65c5524733ab8f593dabcd62b3571639d624e65152ab8f530c359f0861d8\
-             07ca0dbf500d6a6156a38e088a22b65e52bc514d16ccf806818ce91ab7793736\
-             5af90bbf74a35be6b40b8eedf2785e42874d"
-        );
     }
 }

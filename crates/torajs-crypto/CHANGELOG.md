@@ -18,10 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `expand_parts`.
 - `ct`: `Choice`, `ct_eq`, `ct_select`, `cmov`, and `ct::zeroize`.
 - `rand`: the `EntropySource` trait and `EntropyError`.
-- `cpu`: `CpuFeatures` and `Feature`.
+- `cpu`: `CpuFeatures` and `Feature`, including `Feature::Aarch64Neon`.
 - `aead`: the sealed `Aead` trait (`seal` / `open` in place, 96-bit nonce,
   128-bit tag), `AeadError`, `NONCE_LEN`, `TAG_LEN`.
-- `chacha20poly1305`: `ChaCha20Poly1305` (RFC 8439).
+- `chacha20poly1305`: `ChaCha20Poly1305` (RFC 8439). The constructor takes
+  a `CpuFeatures`; on AArch64 with NEON the keystream runs on vector
+  registers, twelve blocks at a time on bulk data.
 - `gcm`: `Aes128Gcm`, `Aes192Gcm`, `Aes256Gcm` (NIST SP 800-38D), with
   `seal_with_iv` / `open_with_iv` for IVs of any non-zero length. The
   constructors take a `CpuFeatures`; on AArch64 with AES and PMULL the

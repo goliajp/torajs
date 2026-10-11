@@ -8,7 +8,7 @@ allocator.
 - HKDF extract and expand (RFC 5869)
 - AES-128-GCM, AES-192-GCM and AES-256-GCM (NIST SP 800-38D), with an
   AArch64 path on the AES and PMULL instructions
-- ChaCha20-Poly1305 (RFC 8439)
+- ChaCha20-Poly1305 (RFC 8439), with an AArch64 NEON keystream
 - constant-time comparison and selection, and a wiping routine for secrets
 - an `EntropySource` trait for callers to supply randomness
 - a `CpuFeatures` value for callers to supply detected CPU capabilities
@@ -62,7 +62,9 @@ depends on the environment is passed in:
   because claiming a feature the CPU lacks would execute an unsupported
   instruction. The AES-GCM constructors take one: with both
   `Aarch64Aes` and `Aarch64Pmull` set they use the ARMv8 AES and PMULL
-  instructions, otherwise the portable code. The SHA-256 ARMv8 path is
+  instructions, otherwise the portable code. The ChaCha20-Poly1305
+  constructor takes one too and runs the keystream on NEON when
+  `Aarch64Neon` is set. The SHA-256 ARMv8 path is
   still selected at compile time (`target_feature = "sha2"`).
 
 All buffers are provided by the caller. Nothing allocates.
@@ -86,8 +88,9 @@ All buffers are provided by the caller. Nothing allocates.
 `unsafe` is denied crate-wide. Unsafe code exists in the wiping routine
 (`ct::zeroize`) and in the AArch64 hardware modules: the SHA-256 block
 function, compiled only when the target enables the `sha2` feature at build
-time, and the AES and GHASH code, reached only through a `CpuFeatures` value
-that vouches for the AES and PMULL instructions.
+time, the AES and GHASH code, reached only through a `CpuFeatures` value
+that vouches for the AES and PMULL instructions, and the NEON ChaCha20 code,
+reached only through one that vouches for NEON.
 `CpuFeatures::with` is declared `unsafe fn` as a caller contract and
 contains no unsafe code.
 
@@ -106,8 +109,10 @@ SP 800-38D GCM examples and the RFC 8439 ChaCha20 / Poly1305 / AEAD examples.
 `tests/wycheproof.rs` and `tests/wycheproof_aead.rs` run the Project
 Wycheproof HMAC, HKDF, AES-GCM and ChaCha20-Poly1305 vectors (the JSON files
 under `tests/data` come from Project Wycheproof and are licensed under
-Apache-2.0); AES-GCM vectors run on both the portable and the hardware path.
-A unit test compares the two AES-GCM paths on 100 000 random inputs. Build
+Apache-2.0); AES-GCM and ChaCha20-Poly1305 vectors run on both the portable
+and the hardware path. A unit test compares the two AES-GCM paths on 100 000
+random inputs, another the two ChaCha20 keystreams on every length up to
+1100 bytes and some longer ones. Build
 with `RUSTFLAGS="--cfg torajs_crypto_portable"` to test the portable code on
 hardware that would otherwise take an accelerated path.
 
