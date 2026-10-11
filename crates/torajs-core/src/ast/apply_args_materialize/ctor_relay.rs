@@ -49,21 +49,33 @@ pub(super) fn relay_factory_params(ast: &Ast, sites: &mut Vec<(usize, usize, Str
     );
 }
 
-fn ctor_class(name: &str) -> Option<&str> {
+pub(super) fn ctor_class(name: &str) -> Option<&str> {
     name.strip_prefix("__cm_")?.strip_suffix("__ctor")
 }
 
 /// Where a FnDecl's guards splice in. A base class constructor's go
 /// past its field initializers (the recorded end); a derived one's go
 /// at the head, ahead of the `super(…)` call those initializers
-/// follow — the defaults are evaluated before any of the body runs.
-/// Every other function takes the head.
-pub(super) fn guard_offset(ast: &Ast, name: &str) -> usize {
+/// follow — the defaults are evaluated before any of the body runs,
+/// though after the locals the class desugar declares there (the
+/// receiver, the parent's answer, the this-binding flag) since a
+/// default may read `this`. Every other function takes the head.
+pub(super) fn guard_offset(ast: &Ast, name: &str, body: &[Stmt]) -> usize {
     let Some(cname) = ctor_class(name) else {
         return 0;
     };
     if ast.class_parents.get(cname).is_some_and(Option::is_some) {
-        return 0;
+        let frame = [
+            "__this",
+            "__sup",
+            crate::ast::desugar_classes_this_tdz::FLAG,
+        ];
+        return body
+            .iter()
+            .take_while(
+                |s| matches!(s, Stmt::LetDecl { name, .. } if frame.contains(&name.as_str())),
+            )
+            .count();
     }
     ast.ctor_field_init_end.get(cname).copied().unwrap_or(0)
 }

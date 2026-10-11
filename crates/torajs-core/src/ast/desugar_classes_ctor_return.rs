@@ -266,7 +266,7 @@ fn stmt_returns_value(ast: &Ast, s: &Stmt) -> bool {
     }
 }
 
-fn is_undefined_literal(ast: &Ast, e: ExprId) -> bool {
+pub(super) fn is_undefined_literal(ast: &Ast, e: ExprId) -> bool {
     matches!(ast.get_expr(e), Expr::Ident(n) if n == "undefined")
 }
 

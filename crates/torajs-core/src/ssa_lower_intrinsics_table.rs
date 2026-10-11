@@ -465,7 +465,7 @@ pub(crate) fn build(
         error_install_cause: init_c.error_slots.error_install_cause,
         any_prop_enumerable: init_c.struct_expando.any_prop_enumerable,
         get_property_descriptors: init_c.struct_expando.get_property_descriptors,
-        ctor_no_super_throw: init_c.any_substrate.ctor_no_super_throw,
+        this_binding_throw: init_c.any_substrate.this_binding_throw,
         throw_reference_error_name: init_c.any_substrate.throw_reference_error_name,
         global_ident_get: init_c.global_object.global_ident_get,
         global_ident_typeof: init_c.global_object.global_ident_typeof,

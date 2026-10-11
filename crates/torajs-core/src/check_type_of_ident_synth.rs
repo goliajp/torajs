@@ -302,10 +302,12 @@ pub(crate) fn try_type(name: &str) -> Option<Result<Type, String>> {
         )),
         n if dstr_synth_ty(n).is_some() => Ok(dstr_synth_ty(n).unwrap()),
         n if unit_synth_ty(n).is_some() => Ok(unit_synth_ty(n).unwrap()),
-        // 刀 3 — the derived-ctor no-super ReferenceError raiser the
-        // class desugar appends to super-less derived ctors.
         n if error_synth_ty(n).is_some() => Ok(error_synth_ty(n).unwrap()),
-        "__torajs_ctor_no_super_throw" => Ok(Type::Function(Vec::new(), Box::new(Type::Void))),
+        // the derived-ctor this-binding ReferenceError raiser the class
+        // desugar plants (uninitialized read / second `super()`)
+        "__torajs_this_binding_throw" => {
+            Ok(Type::Function(vec![Type::Boolean], Box::new(Type::Boolean)))
+        }
         n if subclass_magic_ty(n).is_some() => Ok(subclass_magic_ty(n).unwrap()),
         "__torajs_error_stack" => Ok(Type::Function(vec![Type::Any], Box::new(Type::String))),
         "__torajs_register_native_error" => {

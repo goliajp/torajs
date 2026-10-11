@@ -85,7 +85,7 @@ pub(crate) fn scan_call(sc: &mut Scan<'_>, callee: ExprId, args: &[ExprId]) {
             // `new` site) is judged never-throwing and the pending
             // throw is silently stranded.
             // So does an exotic subclass's `super(v)` kernel (the builtin ctor's checks).
-            if name == "__torajs_ctor_no_super_throw" || name.contains("_subclass_super") {
+            if name == "__torajs_this_binding_throw" || name.contains("_subclass_super") {
                 sc.direct = true;
             }
             // RFC 20260820-ctor-return-override — §10.2.2 step 13.c:

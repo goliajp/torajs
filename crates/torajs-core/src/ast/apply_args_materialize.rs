@@ -321,10 +321,13 @@ pub fn materialize_expr_defaults(ast: &mut Ast) {
     // scalar-typed default (no static callee, no pad).
     let mut sites: Vec<(usize, usize, String, Conv)> = Vec::new();
     for (si, s) in ast.stmts.iter().enumerate() {
-        let Stmt::FnDecl { params, body, .. } = s else {
+        let Stmt::FnDecl {
+            name, params, body, ..
+        } = s
+        else {
             continue;
         };
-        for (pi, name, kind) in collect_fn_conv(ast, params, body, &global_fns) {
+        for (pi, name, kind) in collect_fn_conv(ast, name, params, body, &global_fns) {
             sites.push((si, pi, name, kind));
         }
     }
@@ -370,7 +373,7 @@ pub fn materialize_expr_defaults(ast: &mut Ast) {
         let own_args = conv_reads_arguments(ast, &conv);
         let (guards, pads) = build_guards_and_pads(ast, conv);
         let at = match &ast.stmts[si] {
-            Stmt::FnDecl { name, .. } => ctor_relay::guard_offset(ast, name),
+            Stmt::FnDecl { name, body, .. } => ctor_relay::guard_offset(ast, name, body),
             _ => 0,
         };
         let Stmt::FnDecl { params, body, .. } = &mut ast.stmts[si] else {
@@ -433,15 +436,27 @@ fn conv_reads_arguments(ast: &Ast, conv: &[(usize, String, Conv)]) -> bool {
 /// behind an `any` slot keeps that value apart from the default.
 fn collect_fn_conv(
     ast: &Ast,
+    fn_name: &str,
     params: &[super::Param],
     body: &[Stmt],
     global_fns: &[String],
 ) -> Vec<(usize, String, Conv)> {
     let reads_values =
         super::arguments_object_walkers::body_has_non_length_arguments_touch(ast, body);
+    // a flagged derived constructor declares its this-binding flag
+    // ahead of where the guards go, so a default may read it like a
+    // prior param
+    let flag = super::desugar_classes_this_tdz::FLAG;
+    let flagged = ctor_relay::ctor_class(fn_name).is_some()
+        && body
+            .iter()
+            .any(|s| matches!(s, Stmt::LetDecl { name, .. } if name == flag));
     let mut conv: Vec<(usize, String, Conv)> = Vec::new();
     for (pi, p) in params.iter().enumerate() {
-        let prior: Vec<String> = params[..pi].iter().map(|q| q.name.clone()).collect();
+        let mut prior: Vec<String> = params[..pi].iter().map(|q| q.name.clone()).collect();
+        if flagged {
+            prior.push(flag.to_string());
+        }
         if let Some(d) = converting_default(ast, p, global_fns, &prior, true) {
             conv.push((pi, p.name.clone(), Conv::Any(d)));
         } else if let Some((d, ann)) = converting_typed_default(ast, p, global_fns, &prior, true)

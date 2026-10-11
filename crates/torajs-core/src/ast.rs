@@ -114,6 +114,8 @@ mod desugar_classes_super_prop;
 mod desugar_classes_super_prop_call;
 mod desugar_classes_super_prop_mint;
 mod desugar_classes_super_static;
+mod desugar_classes_this_tdz;
+mod desugar_classes_this_tdz_exit;
 mod desugar_eval;
 mod desugar_generators;
 mod desugar_generators_alpha;

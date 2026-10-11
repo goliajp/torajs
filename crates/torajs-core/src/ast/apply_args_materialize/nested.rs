@@ -19,10 +19,13 @@ pub(super) fn materialize_nested(ast: &mut Ast, global_fns: &[String]) {
     for s in &mut stmts {
         crate::ast::stmt_nested_lists::for_each_nested_vec_mut(s, &mut |v| {
             for inner in v.iter_mut() {
-                let Stmt::FnDecl { params, body, .. } = inner else {
+                let Stmt::FnDecl {
+                    name, params, body, ..
+                } = inner
+                else {
                     continue;
                 };
-                let conv = collect_fn_conv(ast, params, &*body, global_fns);
+                let conv = collect_fn_conv(ast, name, params, &*body, global_fns);
                 if conv.is_empty() {
                     continue;
                 }

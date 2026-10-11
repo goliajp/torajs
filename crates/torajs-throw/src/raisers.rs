@@ -180,22 +180,23 @@ pub unsafe extern "C" fn __torajs_throw_uri_error(msg: *const c_char) {
     unsafe { throw_native(SLOT_URI_ERROR as i64, msg) };
 }
 
-/// §9.2.2 [[Construct]] step 15 — a derived constructor whose body
-/// never called `super()` reaches its implicit `return this` with an
-/// uninitialized this-binding: ReferenceError. Emitted by the class
-/// desugar at the tail of every super-less derived user ctor; the
-/// message spelling matches bun/JSC.
+/// The two ReferenceErrors a derived constructor's this-binding
+/// raises. `bound == 0`: §9.1.1.3.4 GetThisBinding on a binding
+/// `super()` has not initialized yet — a `this` read, a super property
+/// access, or §10.2.2 step 15's implicit `return this`. `bound != 0`:
+/// §9.1.1.3.1 BindThisValue on a binding already initialized — a
+/// second `super()` call. The message spellings match bun/JSC.
 ///
 /// # Safety
-/// `extern "C"` ABI; no arguments, records a pending throw only.
+/// `extern "C"` ABI; records a pending throw only.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_ctor_no_super_throw() {
-    unsafe {
-        throw_native(
-            SLOT_REFERENCE_ERROR as i64,
-            c"'super()' must be called in derived constructor before accessing |this| or returning non-object.".as_ptr(),
-        )
+pub unsafe extern "C" fn __torajs_this_binding_throw(bound: i64) {
+    let msg = if bound == 0 {
+        c"'super()' must be called in derived constructor before accessing |this| or returning non-object."
+    } else {
+        c"'super()' can't be called more than once in a constructor."
     };
+    unsafe { throw_native(SLOT_REFERENCE_ERROR as i64, msg.as_ptr()) };
 }
 
 /// A TypeError whose message the COMPILER computed. The typed lane
