@@ -10,7 +10,11 @@ use crate::cpu::CpuFeatures;
 use crate::ct::ct_eq;
 use crate::ct::zeroize::zeroize;
 
-#[cfg(all(target_arch = "aarch64", target_endian = "little", not(torajs_crypto_portable)))]
+#[cfg(all(
+    target_arch = "aarch64",
+    target_endian = "little",
+    not(torajs_crypto_portable)
+))]
 use super::aarch64;
 use super::soft;
 
@@ -24,7 +28,11 @@ const MAX_AUX_LEN: u64 = (1 << 61) - 1;
 #[allow(clippy::large_enum_variant)]
 enum Engine {
     Soft(soft::Gcm),
-    #[cfg(all(target_arch = "aarch64", target_endian = "little", not(torajs_crypto_portable)))]
+    #[cfg(all(
+        target_arch = "aarch64",
+        target_endian = "little",
+        not(torajs_crypto_portable)
+    ))]
     Arm(aarch64::Gcm),
 }
 
@@ -33,7 +41,11 @@ macro_rules! engine {
     ($self:expr, $e:ident => $body:expr) => {
         match &$self.engine {
             Engine::Soft($e) => $body,
-            #[cfg(all(target_arch = "aarch64", target_endian = "little", not(torajs_crypto_portable)))]
+            #[cfg(all(
+                target_arch = "aarch64",
+                target_endian = "little",
+                not(torajs_crypto_portable)
+            ))]
             Engine::Arm($e) => $body,
         }
     };
@@ -48,7 +60,11 @@ impl Drop for Core {
     fn drop(&mut self) {
         match &mut self.engine {
             Engine::Soft(e) => e.wipe(),
-            #[cfg(all(target_arch = "aarch64", target_endian = "little", not(torajs_crypto_portable)))]
+            #[cfg(all(
+                target_arch = "aarch64",
+                target_endian = "little",
+                not(torajs_crypto_portable)
+            ))]
             Engine::Arm(e) => e.wipe(),
         }
     }
@@ -56,17 +72,29 @@ impl Drop for Core {
 
 impl Core {
     #[cfg_attr(
-        not(all(target_arch = "aarch64", target_endian = "little", not(torajs_crypto_portable))),
+        not(all(
+            target_arch = "aarch64",
+            target_endian = "little",
+            not(torajs_crypto_portable)
+        )),
         allow(unused_variables)
     )]
     pub(super) fn new(key: &[u8], cpu: CpuFeatures) -> Core {
         let (mut words, rounds) = expand_key(key);
-        #[cfg(all(target_arch = "aarch64", target_endian = "little", not(torajs_crypto_portable)))]
+        #[cfg(all(
+            target_arch = "aarch64",
+            target_endian = "little",
+            not(torajs_crypto_portable)
+        ))]
         let engine = match aarch64::Gcm::new(&words, rounds, cpu) {
             Some(e) => Engine::Arm(e),
             None => Engine::Soft(soft::Gcm::new(&words, rounds)),
         };
-        #[cfg(not(all(target_arch = "aarch64", target_endian = "little", not(torajs_crypto_portable))))]
+        #[cfg(not(all(
+            target_arch = "aarch64",
+            target_endian = "little",
+            not(torajs_crypto_portable)
+        )))]
         let engine = Engine::Soft(soft::Gcm::new(&words, rounds));
         zeroize(&mut words);
         Core { engine }
