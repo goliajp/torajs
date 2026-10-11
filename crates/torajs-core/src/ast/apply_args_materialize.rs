@@ -79,9 +79,11 @@ mod ctor_relay;
 mod expr_shape;
 mod fn_value;
 mod nested;
+mod param_scope;
 mod thunk;
 
 pub(crate) use fn_value::materialize_declared_fn_value;
+pub use param_scope::split_param_scope;
 
 use expr_shape::{body_safe_default, reads_arguments, refs_prior_param};
 

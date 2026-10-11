@@ -90,6 +90,11 @@ pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
         eprintln!("{}", reject.message());
         return Err(());
     }
+    // §10.2.11's parameter environment: a body declaration a default
+    // would otherwise reach takes a name of its own, before any pass
+    // moves a default (the body's names are final once eval and `with`
+    // have been inlined).
+    ast::split_param_scope(ast);
     // §14.11 — an object literal used as a `with` scope object is
     // dynamic by contract (per-reference HasBinding, body-side
     // `delete`, fall-through misses); widen its declaration to `any`

@@ -36,13 +36,20 @@ fn unwrap_as(ast: &Ast, eid: ExprId) -> ExprId {
     }
 }
 
+/// The name the source wrote for a binding a pass renamed.
+fn source_name(ast: &Ast, n: &str) -> String {
+    ast.renamed_binding_display
+        .get(n)
+        .map_or_else(|| n.to_string(), String::clone)
+}
+
 /// `f = () => {}` names the anonymous rhs by the Ident target. A
 /// chained `f = g = () => {}` names only the innermost assignment —
 /// the outer rhs is an Assign expression, not an anonymous definition.
 fn walk_assign(ast: &Ast, eid: ExprId, map: &mut HashMap<ExprId, String>) {
     if let Expr::Assign { target, value } = ast.get_expr(eid) {
         if let Expr::Ident(n) = ast.get_expr(*target) {
-            map.insert(unwrap_as(ast, *value), n.clone());
+            map.insert(unwrap_as(ast, *value), source_name(ast, n));
         }
         walk_assign(ast, *value, map);
     }
@@ -51,7 +58,7 @@ fn walk_assign(ast: &Ast, eid: ExprId, map: &mut HashMap<ExprId, String>) {
 fn walk(ast: &Ast, s: &Stmt, map: &mut HashMap<ExprId, String>) {
     match s {
         Stmt::LetDecl { name, init, .. } => {
-            map.insert(unwrap_as(ast, *init), name.clone());
+            map.insert(unwrap_as(ast, *init), source_name(ast, name));
         }
         Stmt::Expr(eid) => walk_assign(ast, *eid, map),
         Stmt::If {

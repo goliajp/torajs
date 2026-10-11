@@ -267,6 +267,7 @@ fn parse_check(src: &str) -> ParseOutcome {
     if let Err(e) = ast::resolve_type_decls(&mut a) {
         return ParseOutcome::Error(format!("parse: {e}"));
     }
+    ast::split_param_scope(&mut a);
     ast::census_program_reparents(&mut a);
     ast::desugar_using(&mut a);
     ast::inject_disposable_stack(&mut a);

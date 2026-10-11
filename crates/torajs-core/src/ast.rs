@@ -342,7 +342,7 @@ mod view_homes;
 pub(crate) mod vtable_slot;
 mod yield_ident_goal;
 pub use apply_args::apply_default_args;
-pub use apply_args_materialize::materialize_expr_defaults;
+pub use apply_args_materialize::{materialize_expr_defaults, split_param_scope};
 pub(crate) use apply_args_table::{binds_undefined, peel_hidden_params, source_argc};
 pub use apply_rest_args::apply_rest_args;
 pub use apply_spread::apply_spread_args;

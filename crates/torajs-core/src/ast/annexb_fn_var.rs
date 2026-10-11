@@ -347,6 +347,10 @@ impl LiftCtx {
             if source == super::apply_args_materialize::body_arguments::BODY_ARGUMENTS {
                 source = "arguments".to_string();
             }
+            // likewise one renamed out of a default's way
+            if let Some(shown) = ast.renamed_binding_display.get(&source) {
+                source = shown.clone();
+            }
             ast.nested_fn_names.insert(mangled, source);
         }
         for (init, flavor) in std::mem::take(&mut self.eval_var_inits) {
