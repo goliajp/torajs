@@ -32,8 +32,11 @@
 use crate::obj_own_keys_struct::{ExpandoLane, push_expando_entries, push_expando_values};
 use crate::reflect::{TAG_OBJ, heap_type_tag, is_cell_imm};
 use crate::struct_enum_order::{key_already_emitted, layout_field_order};
-use crate::struct_reflect::{accessor_slot_name, field_slot_to_pair_owned, slot_key};
+use crate::struct_reflect::slot_key;
 use core::ffi::{c_char, c_void};
+use value::slot_own_value;
+
+mod value;
 
 unsafe extern "C" {
     // torajs-structmeta (W-J Phase A4) — read-side over __torajs_class_layouts.
@@ -54,13 +57,6 @@ unsafe extern "C" {
     fn __torajs_throw_check() -> i64;
     fn __torajs_arr_mark_kind(arr: *mut c_void, chain: u64);
     fn __torajs_value_drop_heap(p: *mut c_void);
-    /// torajs-anyvalue — a struct accessor's [[Get]], keyed by raw name
-    /// bytes (RFC 20260714-objlit-accessor blade 6). Answers the
-    /// getter's result OWNED; `undefined` for a set-only property.
-    fn __torajs_struct_accessor_get(obj: *mut c_void, name: *const u8, name_len: u32) -> u64;
-    /// torajs-anyvalue — split an AnyValue into its `(tag, value)` pair.
-    fn __torajs_anyv_unbox_tag(v: u64) -> i64;
-    fn __torajs_anyv_unbox_value(v: u64) -> i64;
 }
 
 /// `(ptr, len)` field-name slice returned by
@@ -91,52 +87,6 @@ const OBJ_CLASS_TAG_OFF: usize = 8;
 /// Shared by every `Object.keys`/`values`/`entries` struct arm — the
 /// non-struct `any` slot is a separate substrate trunk.
 const NON_STRUCT_MSG: &[u8] = b"Object reflection on a non-struct any value is not yet supported\0";
-
-/// The `(tag, value)` an own property contributes to `Object.values` /
-/// `Object.entries`, OWNED (the caller pushes it into the array, which
-/// takes the ref). RFC 20260714-objlit-accessor blade 6 — an accessor
-/// slot contributes the getter's RESULT ([[Get]], ES §7.3.25 / §20.1.2.x),
-/// not the getter closure sitting in the slot; the walkers used to hand
-/// the closure over (`[1, [Function: __getter_v]]` where bun says
-/// `[1, 2]`). The getter's result arrives owned, so unlike the borrowed
-/// field slot below it takes NO rc_inc.
-///
-/// # Safety
-/// `cell` is a live `Tag::Obj` struct cell; `layout` its live entry.
-unsafe fn slot_own_value(
-    cell: *const c_void,
-    layout: *const c_void,
-    idx: u32,
-    name: StrSlice,
-) -> (u64, u64) {
-    if let Some((_, p, plen)) = unsafe { accessor_slot_name(name.ptr, name.len) } {
-        let boxed = unsafe { __torajs_struct_accessor_get(cell as *mut c_void, p, plen as u32) };
-        return unsafe {
-            (
-                __torajs_anyv_unbox_tag(boxed) as u64,
-                __torajs_anyv_unbox_value(boxed) as u64,
-            )
-        };
-    }
-    let info = unsafe { __torajs_struct_field_info(layout, idx) };
-    let raw = unsafe {
-        cell.cast::<u8>()
-            .add(info.field_byte_offset as usize)
-            .cast::<u64>()
-            .read()
-    };
-    // RFC 20260915-declared-field-shadow — a shadowed field reads as
-    // an Any slot from its sidecar.
-    let (type_tag, raw) = unsafe {
-        crate::struct_field_attrs::slot_or_shadow(cell, name.ptr, name.len, info.type_tag, raw)
-    };
-    // Owned pair decode — exactly one fresh stake per heap payload
-    // (cell +1 / an Any slot's ShortStr materializes at rc=1). The
-    // pre-fix borrow-pair + rc_inc left a ShortStr's materialized
-    // Str at rc=2 with one reclaiming drop — 32B leaked per
-    // `Object.values` read of the slot.
-    unsafe { field_slot_to_pair_owned(type_tag, raw) }
-}
 
 /// A fresh rc=1 Str spelling a layout field name — `len` WTF-8 bytes
 /// at `ptr` (NULL / 0 for the empty name), decoded into the cell's
