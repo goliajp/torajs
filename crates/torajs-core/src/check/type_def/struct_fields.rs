@@ -106,14 +106,24 @@ impl Type {
 
     /// Whether the struct `from` declares optional a member the struct
     /// `to` requires: a value of `from` may lack it, so it does not fit
-    /// `to` (TS2322), however equal the field types are.
+    /// `to` (TS2322), however equal the field types are. The flags are
+    /// no part of struct equality, so the question goes down through
+    /// the members both sides name and the element types around them.
     pub fn optional_into_required(to: &Type, from: &Type) -> bool {
-        let (Type::Struct(t), Type::Struct(f)) = (to, from) else {
-            return false;
-        };
-        f.optional()
-            .iter()
-            .any(|n| !t.is_optional(n) && t.iter().any(|(k, _)| k == n))
+        match (to, from) {
+            (Type::Struct(t), Type::Struct(f)) => t.iter().any(|(k, tt)| {
+                f.iter().any(|(fk, ft)| {
+                    fk == k
+                        && ((f.is_optional(k) && !t.is_optional(k))
+                            || Type::optional_into_required(tt, ft))
+                })
+            }),
+            (Type::Array(t), Type::Array(f))
+            | (Type::Nullable(t), Type::Nullable(f))
+            | (Type::Promise(t), Type::Promise(f)) => Type::optional_into_required(t, f),
+            (Type::Nullable(t), f) => Type::optional_into_required(t, f),
+            _ => false,
+        }
     }
 }
 
@@ -190,5 +200,12 @@ mod tests {
         assert!(!Type::optional_into_required(&opt, &req));
         assert!(!Type::optional_into_required(&opt, &opt));
         assert!(!Type::optional_into_required(&req, &req));
+        let nest = |t: &Type| Type::struct_of(vec![(PropKey::from("x"), t.clone())]);
+        assert!(Type::optional_into_required(&nest(&req), &nest(&opt)));
+        assert!(!Type::optional_into_required(&nest(&opt), &nest(&req)));
+        let arr = |t: &Type| Type::Array(Box::new(t.clone()));
+        assert!(Type::optional_into_required(&arr(&req), &arr(&opt)));
+        let nullable = Type::Nullable(Box::new(req.clone()));
+        assert!(Type::optional_into_required(&nest(&nullable), &nest(&opt)));
     }
 }
