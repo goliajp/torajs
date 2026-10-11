@@ -42,7 +42,9 @@
 //! Per statement list, over its direct `function` declarations:
 //!
 //! 1. A declaration with a free variable that is not one of its peers
-//!    must route — that free variable is the outer local it cannot see.
+//!    must route — that free variable is the outer local it cannot see
+//!    (unless only its defaults read it and every call can pad them,
+//!    see [`pad`]).
 //! 2. Peers that reference each other route together. A routed
 //!    declaration becomes a local `let`, which a peer left on the
 //!    lifting lane could not name from top-level scope; both directions
@@ -63,6 +65,7 @@ use super::annexb_block_binding::split_block_binding;
 use super::free_vars::free_vars_of_fn;
 use super::{Ast, Expr, Stmt};
 
+mod pad;
 mod walk;
 use walk::walk_children;
 
@@ -193,28 +196,23 @@ fn route_list(
     // Free variables with the peers deliberately NOT pre-bound: the same
     // walk has to answer both questions — what the declaration reads from
     // outside (peers excluded) and which peers it names (peers alone).
+    let prebound: Vec<Vec<String>> = sites
+        .iter()
+        .map(|i| site_prebound(&stmts[*i], globals, scope))
+        .collect();
     let free: Vec<Vec<String>> = sites
         .iter()
-        .map(|i| match &stmts[*i] {
-            Stmt::FnDecl { params, body, .. } => {
-                let mut prebound: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
-                // A top-level fn name an enclosing scope has rebound is
-                // NOT in scope here — the reference belongs to the local
-                // and has to be captured (RFC 20260828).
-                prebound.extend(
-                    globals
-                        .iter()
-                        .filter(|g| !scope.iter().any(|b| b == *g))
-                        .cloned(),
-                );
-                free_vars_of_fn(ast, &prebound, params, body)
-            }
+        .zip(&prebound)
+        .map(|(i, pre)| match &stmts[*i] {
+            Stmt::FnDecl { params, body, .. } => free_vars_of_fn(ast, pre, params, body),
             _ => unreachable!("site is a FnDecl"),
         })
         .collect();
-    let mut routed: Vec<bool> = free
-        .iter()
-        .map(|f| f.iter().any(|n| !peers.contains(n.as_str())))
+    let mut routed: Vec<bool> = (0..sites.len())
+        .map(|k| {
+            free[k].iter().any(|n| !peers.contains(n.as_str()))
+                && (in_block || !pad::pad_reads_scope(ast, stmts, sites[k], &prebound[k], &peers))
+        })
         .collect();
     if !routed.iter().any(|r| *r) {
         return;
@@ -245,6 +243,24 @@ fn route_list(
         }
         split_block_binding(ast, stmts, *i, &names[k], spans[k], counter);
     }
+}
+
+/// What a declaration's frame binds before its free variables are read:
+/// its params, and every top-level fn name still in scope. One an
+/// enclosing scope has rebound is NOT — the reference belongs to the
+/// local and has to be captured (RFC 20260828).
+fn site_prebound(s: &Stmt, globals: &[String], scope: &[String]) -> Vec<String> {
+    let Stmt::FnDecl { params, .. } = s else {
+        unreachable!("site is a FnDecl");
+    };
+    let mut prebound: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
+    prebound.extend(
+        globals
+            .iter()
+            .filter(|g| !scope.iter().any(|b| b == *g))
+            .cloned(),
+    );
+    prebound
 }
 
 /// Pull every peer joined to a routed one by a reference edge, in either
