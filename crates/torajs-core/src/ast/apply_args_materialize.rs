@@ -370,7 +370,7 @@ pub fn materialize_expr_defaults(ast: &mut Ast) {
         let own_args = conv_reads_arguments(ast, &conv);
         let (guards, pads) = build_guards_and_pads(ast, conv);
         let at = match &ast.stmts[si] {
-            Stmt::FnDecl { name, body, .. } => ctor_relay::guard_offset(ast, name, body),
+            Stmt::FnDecl { name, .. } => ctor_relay::guard_offset(ast, name),
             _ => 0,
         };
         let Stmt::FnDecl { params, body, .. } = &mut ast.stmts[si] else {

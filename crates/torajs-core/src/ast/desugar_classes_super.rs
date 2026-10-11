@@ -42,10 +42,10 @@ pub(super) type ClassIndexEntry = (
 /// reached (test262 `NativeError/*-super.js`). Statically decidable
 /// here: the deep super-site walk finding zero sites in the whole
 /// body means no path can initialize `this`, so the desugar appends
-/// the `__torajs_this_binding_throw(false)` raiser at the body tail —
+/// the `__torajs_ctor_no_super_throw()` raiser at the body tail —
 /// side effects before it still run, matching the runtime order.
-/// (A ctor with a CONDITIONAL super() has ≥1 site; the runtime flag
-/// in `desugar_classes_this_tdz` covers it.)
+/// (A ctor with a CONDITIONAL super() has ≥1 site and is left
+/// untouched — the true runtime-flag TDZ is a recorded boundary.)
 /// Runs on the mutable class_index BEFORE it freezes; the synthetic
 /// derived default ctors just synthesized carry a super() and skip.
 pub(super) fn append_no_super_throw(ast: &mut Ast, class_index: &mut [ClassIndexEntry]) {
@@ -68,7 +68,11 @@ pub(super) fn append_no_super_throw(ast: &mut Ast, class_index: &mut [ClassIndex
         if !sites.is_empty() {
             continue;
         }
-        let call = super::desugar_classes_this_tdz::raise_call(ast, false);
+        let callee = ast.add_expr(Expr::Ident("__torajs_ctor_no_super_throw".to_string()));
+        let call = ast.add_expr(Expr::Call {
+            callee,
+            args: Vec::new(),
+        });
         c.body.push(Stmt::Expr(call));
     }
 }

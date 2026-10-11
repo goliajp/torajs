@@ -134,8 +134,8 @@ pub(crate) fn try_lower(
         | "__torajs_super_prop_decr_pre" => {
             crate::ssa_lower_call_super_prop::try_lower(ctx, &name, args)
         }
-        "__torajs_this_binding_throw" => {
-            crate::ssa_lower_call_error_magic::try_lower_this_binding_throw(ctx, args)
+        "__torajs_ctor_no_super_throw" => {
+            crate::ssa_lower_call_error_magic::try_lower_ctor_no_super_throw(ctx, args)
         }
         "__torajs_error_stack" => {
             crate::ssa_lower_call_error_magic::try_lower_error_stack(ctx, args)

@@ -80,7 +80,6 @@ pub fn desugar_classes(ast: &mut Ast) {
     // (§9.2.2 this-TDZ); must run after the default-ctor synthesis
     // (those carry a super() and are skipped) and before the freeze.
     super::desugar_classes_super::append_no_super_throw(ast, &mut class_index);
-    let this_tdz = super::desugar_classes_this_tdz::plan(ast, &mut class_index);
     // RFC 20260820-ctor-return-override 刀 1 — name the chains whose
     // ctor ABI has to answer a value (§10.2.2 step 13). Reads the
     // index after the default-ctor synthesis so a ctor-less derived
@@ -166,7 +165,6 @@ pub fn desugar_classes(ast: &mut Ast) {
     // parser-encoded off the `__superbase__` marker). Must also run
     // before Pass 2: the rewrite mints `Expr::This` nodes.
     super::desugar_classes_super_prop::rewrite_super_prop_sites(ast, &class_index, dyn_home);
-    super::desugar_classes_this_tdz::apply(ast, this_tdz);
 
     // Pass 2 — rewrite the expression arena (This → __this, New →
     // __new_<C> Call, Member-call → __cm_/__dispatch_ Call).

@@ -6,8 +6,8 @@
 //! - `__torajs_undef_str()` — 刀 2 own-absence Str sentinel mint.
 //! - `__torajs_error_stack(this)` — 刀 2 §20.5.3.4 stack header via
 //!   the `error_to_string` runtime helper.
-//! - `__torajs_this_binding_throw(bound)` — the derived-ctor
-//!   this-binding ReferenceError raiser (uninitialized / already bound).
+//! - `__torajs_ctor_no_super_throw()` — 刀 3 §9.2.2 this-TDZ
+//!   ReferenceError raiser at super-less derived ctor tails.
 
 use crate::ast::ExprId;
 use crate::ssa::{InstKind, Operand};
@@ -32,29 +32,23 @@ pub(crate) fn try_lower_undef_str(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Op
     Some(Operand::Value(v))
 }
 
-/// `__torajs_this_binding_throw(<bool literal>)` — the class desugar
-/// plants it where a derived constructor's this-binding is read
-/// uninitialized (`false`) or bound a second time (`true`): records
-/// the pending catchable ReferenceError; the emitted throw-check
-/// propagates it. The `false` it answers is never observed — the
-/// desugar spells the checks as `flag || raise` so the expression
-/// has a boolean to be.
-pub(crate) fn try_lower_this_binding_throw(
+/// 刀 3 — `__torajs_ctor_no_super_throw()` at the tail of a
+/// super-less derived user ctor (§9.2.2 [[Construct]] this-TDZ):
+/// records the pending catchable ReferenceError; the emitted
+/// throw-check propagates it through the factory to the `new` site.
+pub(crate) fn try_lower_ctor_no_super_throw(
     ctx: &mut LowerCtx<'_>,
     args: &[ExprId],
 ) -> Option<Operand> {
-    let [arg] = args else { return None };
-    let crate::ast::Expr::Bool(bound) = *ctx.ast.get_expr(*arg) else {
+    if !args.is_empty() {
         return None;
-    };
+    }
     let cur_block = ctx.cur_block;
-    let raiser = ctx.intrinsics.this_binding_throw;
-    ctx.f.append_void(
-        cur_block,
-        InstKind::Call(raiser, vec![Operand::ConstI64(i64::from(bound))]),
-    );
+    let raiser = ctx.intrinsics.ctor_no_super_throw;
+    ctx.f
+        .append_void(cur_block, InstKind::Call(raiser, Vec::new()));
     ctx.emit_throw_check(None);
-    Some(Operand::ConstBool(false))
+    Some(Operand::ConstI64(0))
 }
 
 /// 刀 2 — `__torajs_error_stack(this)` in the injected error ctors:

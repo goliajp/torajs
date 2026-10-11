@@ -144,7 +144,7 @@ pub(crate) struct AnySubstrateIds {
     pub error_tostring_dispatch: FuncId,
     /// 刀 3 — derived-ctor no-super ReferenceError raiser (§9.2.2
     /// this-TDZ; records the pending throw, message baked in).
-    pub this_binding_throw: FuncId,
+    pub ctor_no_super_throw: FuncId,
     /// RFC 20260730-undeclared-ident — §6.2.5.5 GetValue on an
     /// unresolvable Reference: raises `<name> is not defined` as a
     /// catchable ReferenceError. `name` is the identifier Str.
@@ -362,7 +362,7 @@ pub(crate) fn declare(
         proto_member_get: decl!("__torajs_anyv_proto_member_get", [Any], Any),
         error_to_string: decl!("__torajs_error_to_string", [Ptr], Str),
         error_tostring_dispatch: decl!("__torajs_error_tostring_dispatch", [Ptr], Str),
-        this_binding_throw: decl!("__torajs_this_binding_throw", [I64], Void),
+        ctor_no_super_throw: decl!("__torajs_ctor_no_super_throw", [], Void),
         throw_reference_error_name: decl!("__torajs_throw_reference_error_name", [Str], Void),
         throw_reference_error_tdz: decl!("__torajs_throw_reference_error_tdz", [Str], Void),
         throw_reference_error_super_delete: decl!(
