@@ -36,7 +36,9 @@ const WRAPPER_PROPS_OFF: usize = 16;
 use crate::probe::{bucket_flags, bucket_key_ptr, entries, entries_len};
 
 unsafe extern "C" {
+    #[link_name = "__torajs_calloc"]
     fn calloc(size: usize) -> *mut c_void;
+    #[link_name = "__torajs_free"]
     fn free(p: *mut c_void, size: usize);
     fn __torajs_throw_type_error(msg: *const u8);
     fn __torajs_throw_check() -> i64;
