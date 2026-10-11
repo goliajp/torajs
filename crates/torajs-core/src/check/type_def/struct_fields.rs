@@ -103,6 +103,18 @@ impl Type {
     pub fn struct_of(fields: Vec<(PropKey, Type)>) -> Type {
         Type::Struct(StructFields::from(fields))
     }
+
+    /// Whether the struct `from` declares optional a member the struct
+    /// `to` requires: a value of `from` may lack it, so it does not fit
+    /// `to` (TS2322), however equal the field types are.
+    pub fn optional_into_required(to: &Type, from: &Type) -> bool {
+        let (Type::Struct(t), Type::Struct(f)) = (to, from) else {
+            return false;
+        };
+        f.optional()
+            .iter()
+            .any(|n| !t.is_optional(n) && t.iter().any(|(k, _)| k == n))
+    }
 }
 
 impl PartialEq for StructFields {
@@ -158,5 +170,25 @@ impl<'a> IntoIterator for &'a StructFields {
     type IntoIter = core::slice::Iter<'a, (PropKey, Type)>;
     fn into_iter(self) -> Self::IntoIter {
         self.fields.iter()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_optional_member_does_not_fit_a_required_one() {
+        let fields = vec![
+            (PropKey::from("a"), Type::Number),
+            (PropKey::from("b"), Type::Number),
+        ];
+        let a = [PropKey::from("a")];
+        let opt = Type::Struct(StructFields::from(fields.clone()).with_optional(a));
+        let req = Type::struct_of(fields);
+        assert!(Type::optional_into_required(&req, &opt));
+        assert!(!Type::optional_into_required(&opt, &req));
+        assert!(!Type::optional_into_required(&opt, &opt));
+        assert!(!Type::optional_into_required(&req, &req));
     }
 }

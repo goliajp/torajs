@@ -54,6 +54,9 @@ fn deep_inner(
         return fits;
     }
     let from_r = resolve_class_ref(from, class_structs, aliases, generic_aliases);
+    if Type::optional_into_required(&to_r, &from_r) {
+        return false;
+    }
     if to_r == from_r {
         return true;
     }
@@ -64,17 +67,13 @@ fn deep_inner(
     }
     // P0 — anything is assignable to Any (per TS spec). The init's
     // concrete value gets boxed into the universal Any-box at lower
-    // time. Pre-fix tora rejected `let x: any = 5` with a strict
-    // Any vs Number mismatch, blocking the implicit-any path the
-    // entire untyped-JS surface needs.
+    // time.
     if matches!(to_r, Type::Any) {
         return true;
     }
     // Chunk 806 — `undefined` fits a void slot (TS: a void-returning
-    // fn may `return voidCall()` / `return undefined`). Load-bearing
-    // case: a forwarder body `return target(...)` around a void
-    // target — the call now types Undefined (general_call) while the
-    // forwarder's declared ret stays Void.
+    // fn may `return voidCall()` / `return undefined`), as in a
+    // forwarder body `return target(...)` around a void target.
     if matches!(to_r, Type::Void) && matches!(from_r, Type::Undefined) {
         return true;
     }
@@ -170,6 +169,9 @@ fn deep_inner(
 }
 
 fn shallow_inner(to: &Type, from: &Type) -> bool {
+    if Type::optional_into_required(to, from) {
+        return false;
+    }
     if to == from {
         return true;
     }
@@ -183,9 +185,6 @@ fn shallow_inner(to: &Type, from: &Type) -> bool {
     // hole; ssa_lower's LetDecl arm specializes the actual decode at
     // lower time using the slot's annotation. Allow Any → any T at
     // assignment sites so `let v: T = JSON.parse(text)` typechecks.
-    // (`Type::Any` was previously only used as `console.log`'s param
-    // type, where source Any was never the from-side; this widens
-    // it without breaking that path.)
     if matches!(from, Type::Any) {
         return true;
     }
