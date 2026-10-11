@@ -2,7 +2,7 @@
 
 use super::{Analysis, Scope, SlotKey};
 use crate::ast::PropKey;
-use crate::ast::{Expr, ExprId};
+use crate::ast::{BinOp, Expr, ExprId};
 
 impl Analysis<'_> {
     /// The Call arm of [`Self::walk_expr`]: argument widths flow into
@@ -48,6 +48,26 @@ impl Analysis<'_> {
             // into the value's `__p{i}` projections (the
             // indirect mirror of the direct Param edges; member
             // callees keep their builtin method handling).
+            //
+            // A callee that chooses among functions in place (`(c ?
+            // f : g)(x)`, `(f || g)(x)`) has no binding whose init
+            // glued them on: every function it may answer joins the
+            // projections here — named functions directly, fn-valued
+            // slots through the choice's own arm unions — so they all
+            // share one signature with the single indirect call that
+            // reaches them.
+            if matches!(
+                self.ast.get_expr(callee),
+                Expr::Ternary { .. }
+                    | Expr::Nullish { .. }
+                    | Expr::BinOp {
+                        op: BinOp::LAnd | BinOp::LOr,
+                        ..
+                    }
+            ) {
+                self.container_key_of(callee, scope);
+            }
+            self.fn_value_flow(&ck, callee, scope);
             for (i, arg) in args.iter().enumerate() {
                 let w = self.flow(*arg, scope);
                 let pk = SlotKey::Field(Box::new(ck.clone()), PropKey::from(format!("__p{i}")));
