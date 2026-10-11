@@ -63,11 +63,12 @@ use std::collections::HashSet;
 
 use super::annexb_block_binding::split_block_binding;
 use super::free_vars::free_vars_of_fn;
-use super::{Ast, Expr, Stmt};
+use super::scope_chain::{list_names, not_rebound};
+use super::{Ast, Expr, ExprId, Stmt};
 
 mod pad;
 mod walk;
-use walk::walk_children;
+use walk::{Scopes, walk_children};
 
 /// Compiler-minted declarations (lifted arrows, class methods, generator
 /// state machines, an earlier nested lift) are never user nesting.
@@ -98,6 +99,9 @@ pub fn desugar_capturing_nested_fns(ast: &mut Ast) {
     // Unique across the pass — it names the block bindings §B.3.3 needs
     // to keep apart from the var bindings they are written into.
     let mut counter: u32 = 0;
+    // The arena scan cannot see which body an arrow sits in, so the
+    // frames around each one are read off the tree first.
+    let chains = super::scope_chain::chains_by_arrow(ast, &[&top]);
     let n = ast.exprs.len();
     for i in 0..n {
         if !matches!(ast.exprs[i], Expr::ArrowFn { .. }) {
@@ -107,14 +111,8 @@ pub fn desugar_capturing_nested_fns(ast: &mut Ast) {
             Expr::ArrowFn { body, .. } => std::mem::take(body),
             _ => unreachable!("matched ArrowFn above"),
         };
-        walk_list(
-            ast,
-            &mut body,
-            &globals,
-            &mut Vec::new(),
-            false,
-            &mut counter,
-        );
+        let mut scope = Scopes::of_arrow(ast, &chains, ExprId(i as u32), &body);
+        walk_list(ast, &mut body, &globals, &mut scope, false, &mut counter);
         match &mut ast.exprs[i] {
             Expr::ArrowFn { body: b, .. } => *b = body,
             _ => unreachable!("matched ArrowFn above"),
@@ -122,7 +120,7 @@ pub fn desugar_capturing_nested_fns(ast: &mut Ast) {
     }
     // The module's own statement list is not a routing site — its
     // `function` declarations ARE the globals. Only descend.
-    let mut scope: Vec<String> = Vec::new();
+    let mut scope = Scopes::default();
     for s in top.iter_mut() {
         walk_children(ast, s, &globals, &mut scope, false, &mut counter);
     }
@@ -138,21 +136,23 @@ fn walk_list(
     ast: &mut Ast,
     stmts: &mut [Stmt],
     globals: &[String],
-    scope: &mut Vec<String>,
+    scope: &mut Scopes,
     in_block: bool,
     counter: &mut u32,
 ) {
-    let depth = scope.len();
+    let depth = scope.mark();
+    // A list's declarations bind for its whole extent.
+    list_names(stmts, &mut scope.shadow);
     for s in stmts.iter_mut() {
         walk_children(ast, s, globals, scope, in_block, counter);
         // Visible to the declarations that follow, and to every routing
         // decision this list makes.
         if let Stmt::LetDecl { name, .. } | Stmt::UsingDecl { name, .. } = s {
-            scope.push(name.clone());
+            scope.annexb.push(name.clone());
         }
     }
     route_list(ast, stmts, globals, scope, in_block, counter);
-    scope.truncate(depth);
+    scope.reset(depth);
 }
 
 /// One statement list: decide which of its `function` declarations route,
@@ -161,7 +161,7 @@ fn route_list(
     ast: &mut Ast,
     stmts: &mut [Stmt],
     globals: &[String],
-    scope: &[String],
+    scope: &Scopes,
     in_block: bool,
     counter: &mut u32,
 ) {
@@ -198,13 +198,13 @@ fn route_list(
     // outside (peers excluded) and which peers it names (peers alone).
     let prebound: Vec<Vec<String>> = sites
         .iter()
-        .map(|i| site_prebound(&stmts[*i], globals, scope))
+        .map(|i| site_prebound(&stmts[*i], globals, &scope.shadow))
         .collect();
     let free: Vec<Vec<String>> = sites
         .iter()
         .zip(&prebound)
         .map(|(i, pre)| match &stmts[*i] {
-            Stmt::FnDecl { params, body, .. } => free_vars_of_fn(ast, pre, params, body),
+            Stmt::FnDecl { params, body, .. } => free_vars_of_fn(ast, pre, &[], params, body),
             _ => unreachable!("site is a FnDecl"),
         })
         .collect();
@@ -238,7 +238,7 @@ fn route_list(
         // A name an enclosing scope already binds is §B.3.3.1 step
         // 1.a.ii's early error — the extension does not apply and the
         // reference belongs to that owner.
-        if !routed[k] || scope.iter().any(|b| *b == names[k]) {
+        if !routed[k] || scope.annexb.iter().any(|b| *b == names[k]) {
             continue;
         }
         split_block_binding(ast, stmts, *i, &names[k], spans[k], counter);
@@ -246,20 +246,15 @@ fn route_list(
 }
 
 /// What a declaration's frame binds before its free variables are read:
-/// its params, and every top-level fn name still in scope. One an
-/// enclosing scope has rebound is NOT — the reference belongs to the
-/// local and has to be captured (RFC 20260828).
-fn site_prebound(s: &Stmt, globals: &[String], scope: &[String]) -> Vec<String> {
+/// its params, and every top-level fn name still in scope. One a frame
+/// in `shadow` rebinds is NOT — the reference belongs to the local and
+/// has to be captured (RFC 20260828).
+fn site_prebound(s: &Stmt, globals: &[String], shadow: &[String]) -> Vec<String> {
     let Stmt::FnDecl { params, .. } = s else {
         unreachable!("site is a FnDecl");
     };
     let mut prebound: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
-    prebound.extend(
-        globals
-            .iter()
-            .filter(|g| !scope.iter().any(|b| b == *g))
-            .cloned(),
-    );
+    prebound.extend(not_rebound(globals, shadow));
     prebound
 }
 

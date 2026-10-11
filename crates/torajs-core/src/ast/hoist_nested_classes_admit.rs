@@ -48,6 +48,12 @@ pub(super) fn class_evaluation_is_observable(ast: &Ast, s: &Stmt) -> bool {
 /// by the parser (`finalize_class_field_inits`), so the ctor walk
 /// covers them.
 ///
+/// `shadow` is what the frames around the class bind
+/// (`scope_chain`). A top-level name one of them rebinds is not the
+/// top-level binding here: `const k = 1; function g(k) { class D {
+/// m() { return k } } }` hoisted D and read the outer `k`. The same
+/// goes for a global name (`Math`, `console`) a frame rebinds.
+///
 /// A computed member name is NOT in any body — the parser puts the key
 /// expression in a side table and leaves a `__ccm_<n>__` sentinel
 /// behind (`class_computed_keys`, and `class_computed_static_fields`
@@ -56,7 +62,12 @@ pub(super) fn class_evaluation_is_observable(ast: &Ast, s: &Stmt) -> bool {
 /// it hoisted to the top level and the key no longer resolved there —
 /// a warning plus a wrong answer at run time, not the loud abort every
 /// other capturing shape gets.
-pub(super) fn class_is_capture_free(ast: &Ast, s: &Stmt, top_names: &[String]) -> bool {
+pub(super) fn class_is_capture_free(
+    ast: &Ast,
+    s: &Stmt,
+    top_names: &[String],
+    shadow: &[String],
+) -> bool {
     let Stmt::ClassDecl {
         name,
         decl_id,
@@ -74,7 +85,9 @@ pub(super) fn class_is_capture_free(ast: &Ast, s: &Stmt, top_names: &[String]) -
     if parent.is_some() {
         match ast.parent_ident_name(*parent) {
             Some(pn) => {
-                if !top_names.iter().any(|t| t == pn) && !super::free_vars::is_global_name(pn) {
+                let top_or_global =
+                    top_names.iter().any(|t| t == pn) || super::free_vars::is_global_name(pn);
+                if !top_or_global || shadow.iter().any(|b| b == pn) {
                     return false;
                 }
             }
@@ -83,7 +96,11 @@ pub(super) fn class_is_capture_free(ast: &Ast, s: &Stmt, top_names: &[String]) -
             None => return false,
         }
     }
-    let mut prebound: Vec<String> = top_names.to_vec();
+    let mut prebound: Vec<String> = top_names
+        .iter()
+        .filter(|t| !shadow.contains(t))
+        .cloned()
+        .collect();
     prebound.push(name.clone());
     prebound.extend(type_params.iter().cloned());
     prebound.push("arguments".into());
@@ -91,7 +108,7 @@ pub(super) fn class_is_capture_free(ast: &Ast, s: &Stmt, top_names: &[String]) -
     let body_free = |params: &[Param], body: &[Stmt]| -> bool {
         let mut bound = prebound.clone();
         bound.extend(params.iter().map(|p| p.name.clone()));
-        super::free_vars::free_vars_of_fn(ast, &bound, params, body)
+        super::free_vars::free_vars_of_fn(ast, &bound, shadow, params, body)
             .iter()
             // `super.m()` parses as a Call to the marker ident
             // `__supercall__m` — desugar_classes rewrites it from the

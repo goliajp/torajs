@@ -94,6 +94,9 @@ pub fn hoist_gen_fn_exprs(ast: &mut Ast) {
     // the pre-hoist tree.
     let positions = crate::ast::collect_named_eval_positions(ast);
     let bound = super::hoist_gen_fn_exprs_names::bound_names_anywhere(ast);
+    // A top-level name a frame around the expression rebinds is that
+    // frame's, and the body captures it (`scope_chain`).
+    let chains = super::scope_chain::chains_by_arrow(ast, &[&ast.stmts]);
 
     let mut counter: usize = 0;
     for i in 0..ast.exprs.len() {
@@ -137,6 +140,14 @@ pub fn hoist_gen_fn_exprs(ast: &mut Ast) {
         if has_recv {
             ast.fnexpr_recv_fns.insert(format!("__forward_{name}"));
         }
+        let shadow: &[String] = chains.get(&eid).map_or(&[], |c| c.as_slice());
+        let narrowed: Vec<String>;
+        let globals: &[String] = if shadow.is_empty() {
+            &global_names
+        } else {
+            narrowed = super::scope_chain::not_rebound(&global_names, shadow);
+            &narrowed
+        };
         super::hoist_gen_fn_exprs_wrapper::route_wrapper(
             ast,
             i,
@@ -145,7 +156,7 @@ pub fn hoist_gen_fn_exprs(ast: &mut Ast) {
             has_recv,
             &mut params,
             &body,
-            &global_names,
+            (globals, shadow),
             &bound,
         );
         // Param-destructuring prefix carries over under the hoisted

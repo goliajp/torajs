@@ -104,6 +104,9 @@ fn captures_snapshot_safe(ast: &Ast, captures: &[String]) -> bool {
 /// `params` gains the captured names as leading params. A body with
 /// neither leaves both untouched. `bound` is every name the program
 /// binds anywhere — a free name outside it is not a capture.
+/// `global_names` is the top-level set less what the frames around the
+/// expression rebind; `rebound` is those frames' names
+/// (`scope_chain`).
 #[allow(clippy::too_many_arguments)]
 pub(super) fn route_wrapper(
     ast: &mut Ast,
@@ -113,7 +116,7 @@ pub(super) fn route_wrapper(
     has_recv: bool,
     params: &mut Vec<Param>,
     body: &[Stmt],
-    global_names: &[String],
+    (global_names, rebound): (&[String], &[String]),
     bound: &std::collections::HashSet<String>,
 ) {
     // §15.5.5 (RFC 20260810 knife 3) — the self-name binds inside
@@ -127,7 +130,7 @@ pub(super) fn route_wrapper(
     // the prep can turn them into field stores.
     let self_name = ast.fn_expr_self_names.get(&eid).cloned();
     let mut captures =
-        crate::ast::free_vars::free_vars_of_arrow(ast, params, body, global_names, &[], None);
+        crate::ast::free_vars::free_vars_of_arrow(ast, params, body, global_names, rebound, None);
     let self_ref = self_name
         .as_ref()
         .is_some_and(|sn| captures.iter().any(|c| c == sn));

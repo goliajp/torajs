@@ -33,15 +33,22 @@
 //!   be renamed with it).
 
 use super::hoist_nested_classes_admit::{class_evaluation_is_observable, class_is_capture_free};
+mod lanes;
 use super::hoist_nested_classes_walk::walk_child;
+use super::scope_chain::{list_names, list_names_but_classes};
 use super::*;
+pub(super) use lanes::HoistNames;
+use lanes::{in_place_for_statics, rewrite_capturing};
+use std::collections::HashMap;
 
 pub(super) fn hoist_nested_classes(ast: &mut Ast) {
-    // Top-level visible names — the prebound set for the capture
-    // check plus the collision domain for renaming.
-    let mut top_names: Vec<String> = Vec::new();
+    let mut names = HoistNames {
+        top: Vec::new(),
+        shadow: Vec::new(),
+        minted: HashMap::new(),
+    };
     for s in &ast.stmts {
-        collect_decl_name(s, &mut top_names);
+        collect_decl_name(s, &mut names.top);
     }
 
     // Program-wide ClassDecl name census (406-02). A computed STATIC
@@ -90,19 +97,14 @@ pub(super) fn hoist_nested_classes(ast: &mut Ast) {
                 .parent_ident_name(*parent)
                 .is_some_and(|p| ast.es5_value_parents.contains(p)));
         if value_parent {
-            super::capturing_classes::try_rewrite_capturing_class(
-                ast,
-                &mut stmts,
-                idx,
-                &mut counter,
-            );
+            rewrite_capturing(ast, &mut stmts, idx, &mut counter, &mut names);
         }
     }
     for s in &mut stmts {
         walk_child(
             ast,
             s,
-            &mut top_names,
+            &mut names,
             &mut hoisted,
             &mut counter,
             &name_counts,
@@ -110,6 +112,11 @@ pub(super) fn hoist_nested_classes(ast: &mut Ast) {
         );
     }
     ast.stmts = stmts;
+
+    // The frames around each arena body, read off the tree as the
+    // statement walk left it: a class it hoisted now sits in
+    // `hoisted`, at the top level.
+    let chains = super::scope_chain::chains_by_arrow(ast, &[&ast.stmts, &hoisted]);
 
     // Fn-expression / arrow bodies live in the expr arena. Nested
     // arrows are separate arena entries, so this flat scan covers
@@ -126,10 +133,13 @@ pub(super) fn hoist_nested_classes(ast: &mut Ast) {
                 continue;
             }
         };
+        let eid = ExprId(i as u32);
+        let around = chains.get(&eid).or_else(|| names.minted.get(&eid));
+        names.shadow = super::scope_chain::arrow_frames(ast, around, eid, &body);
         walk_container(
             ast,
             &mut body,
-            &mut top_names,
+            &mut names,
             &mut hoisted,
             &mut counter,
             &name_counts,
@@ -164,7 +174,7 @@ fn collect_decl_name(s: &Stmt, out: &mut Vec<String>) {
 pub(super) fn walk_container(
     ast: &mut Ast,
     stmts: &mut Vec<Stmt>,
-    top_names: &mut Vec<String>,
+    names: &mut HoistNames,
     hoisted: &mut Vec<Stmt>,
     counter: &mut u32,
     name_counts: &super::hoist_nested_classes_census::NameCensus,
@@ -192,14 +202,18 @@ pub(super) fn walk_container(
     }
     // Sibling class names count as resolvable during the capture
     // check: they either hoist together or the straggler fails loud
-    // in desugar's parent validation.
-    let sibling_start = top_names.len();
+    // in desugar's parent validation. Everything else this list
+    // declares is a binding around its classes.
+    let depth = names.shadow.len();
+    list_names_but_classes(stmts, &mut names.shadow);
+    let sibling_start = names.top.len();
     let lifted_start = hoisted.len();
     for s in stmts.iter() {
         if let Stmt::ClassDecl { name, .. } = s {
-            top_names.push(name.clone());
+            names.top.push(name.clone());
         }
     }
+    let lifted_names_start = names.top.len();
 
     for idx in 0..stmts.len() {
         if !matches!(stmts[idx], Stmt::ClassDecl { .. }) {
@@ -225,7 +239,7 @@ pub(super) fn walk_container(
         // so the in-place lane has nothing left to get right for it.
         let unit_shape =
             multi_eval && super::class_unit_admit::admits_shape(ast, &stmts[idx], None);
-        if !class_is_capture_free(ast, &stmts[idx], top_names)
+        if !class_is_capture_free(ast, &stmts[idx], &names.top, &names.shadow)
             || (observable
                 && !unit_shape
                 && super::capturing_classes::decline::would_claim(ast, &stmts[idx]))
@@ -234,7 +248,7 @@ pub(super) fn walk_container(
             // cannot be lifted, and takes the runtime-value lane
             // instead (RFC 20260814-capturing-nested-class). Whatever
             // that lane declines stays here and stays loud.
-            super::capturing_classes::try_rewrite_capturing_class(ast, stmts, idx, counter);
+            rewrite_capturing(ast, stmts, idx, counter, names);
             continue;
         }
         let old_name = match &stmts[idx] {
@@ -245,7 +259,7 @@ pub(super) fn walk_container(
         // name another class shares takes the collision rename, so the
         // reference census below counts this class's references only.
         let collides = super::hoist_nested_classes_rename::name_collides(
-            top_names,
+            &names.top,
             sibling_start,
             &old_name,
             unit_shape,
@@ -257,10 +271,10 @@ pub(super) fn walk_container(
             let new_name = super::hoist_nested_classes_rename::apply_collision_rename(
                 ast, stmts, lifted, idx, &old_name, counter,
             );
-            top_names.push(new_name.clone());
+            names.top.push(new_name.clone());
             residual = Some(new_name);
         } else {
-            top_names.push(old_name.clone());
+            names.top.push(old_name.clone());
         }
         // §14.2.3 — the scope the class was WRITTEN in holds the
         // outer mutable binding, and for a renamed class that scope
@@ -274,7 +288,7 @@ pub(super) fn walk_container(
         // the same widening its hoist already records.
         let binding = residual
             .clone()
-            .unwrap_or_else(|| top_names.last().cloned().unwrap_or_default());
+            .unwrap_or_else(|| names.top.last().cloned().unwrap_or_default());
         if unit_shape
             && super::hoist_nested_classes_unit::take_unit_lane(
                 ast,
@@ -294,9 +308,10 @@ pub(super) fn walk_container(
                 idx,
                 counter,
                 (&hoisted[lifted_start..], &binding),
+                names,
             )
         {
-            top_names.pop();
+            names.top.pop();
             continue;
         }
         let slot = match residual {
@@ -324,54 +339,32 @@ pub(super) fn walk_container(
     // this level's hoist and over this level's entries only (a nested
     // walk scans what it hoists itself): an inner class extending the
     // outer lands after it in `hoisted`, and the outer's name is
-    // already in `top_names`.
+    // already in `names.top`. No frame is around them any more.
     let lifted_end = hoisted.len();
+    let around = std::mem::take(&mut names.shadow);
     for j in lifted_start..lifted_end {
         if !matches!(hoisted[j], Stmt::ClassDecl { .. }) {
             continue;
         }
         let mut cls = std::mem::replace(&mut hoisted[j], Stmt::Multi(Vec::new()));
-        walk_child(
-            ast,
-            &mut cls,
-            top_names,
-            hoisted,
-            counter,
-            name_counts,
-            true,
-        );
+        walk_child(ast, &mut cls, names, hoisted, counter, name_counts, true);
         hoisted[j] = cls;
     }
+    names.shadow = around;
 
+    // What this level still binds once its hoisted classes are gone —
+    // a class the capturing lane kept is a local now. A name this
+    // level hoisted under resolves at the top level instead, which is
+    // where its residual binding (if any) is read from too.
+    names.shadow.truncate(depth);
+    let lifted = names.top[lifted_names_start..].to_vec();
+    let mut local: Vec<String> = Vec::new();
+    list_names(stmts, &mut local);
+    names
+        .shadow
+        .extend(local.into_iter().filter(|n| !lifted.contains(n)));
     for s in stmts.iter_mut() {
-        walk_child(ast, s, top_names, hoisted, counter, name_counts, multi_eval);
+        walk_child(ast, s, names, hoisted, counter, name_counts, multi_eval);
     }
-}
-
-/// A unit-shaped class the unit lane refused (a sibling body names
-/// it, say) still carries observable static work, and the shared
-/// hoist would run that at the program's end instead of where the
-/// class is written. When no class this level already `lifted` names
-/// it (those bodies now run at the top level, where a binding kept in
-/// the container is out of reach) and the capturing lane will take
-/// it, that lane rewrites it in place and answers `true` — a later
-/// sibling that reads it then sees a local and takes the same lane,
-/// so the two evaluate in source order.
-fn in_place_for_statics(
-    ast: &mut Ast,
-    stmts: &mut [Stmt],
-    idx: usize,
-    counter: &mut u32,
-    (lifted, name): (&[Stmt], &str),
-) -> bool {
-    let mut occ = super::class_unit_census::Occurrences::default();
-    for s in lifted
-        .iter()
-        .filter(|s| matches!(s, Stmt::ClassDecl { .. }))
-    {
-        occ.stmt(ast, s, name);
-    }
-    occ.name == 0
-        && super::capturing_classes::decline::would_claim(ast, &stmts[idx])
-        && super::capturing_classes::try_rewrite_capturing_class(ast, stmts, idx, counter)
+    names.shadow.truncate(depth);
 }

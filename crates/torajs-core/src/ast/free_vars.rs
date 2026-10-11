@@ -81,22 +81,15 @@ pub(super) fn free_vars_of_body_rebound(
     rebound_globals: &[String],
     body: &[Stmt],
 ) -> Vec<String> {
-    free_vars_of_scope(ast, prebound, rebound_globals, &[], body)
+    free_vars_of_fn(ast, prebound, rebound_globals, &[], body)
 }
 
 /// What a function leaves free: its parameter defaults as well as its
 /// body (see [`walk_param_defaults`]). `prebound` must already hold the
-/// parameter names, as every caller's frame does.
+/// parameter names, as every caller's frame does; `rebound_globals` are
+/// the global names an enclosing scope rebinds (see
+/// [`Bound::rebound_globals`]).
 pub(super) fn free_vars_of_fn(
-    ast: &Ast,
-    prebound: &[String],
-    params: &[Param],
-    body: &[Stmt],
-) -> Vec<String> {
-    free_vars_of_scope(ast, prebound, &[], params, body)
-}
-
-fn free_vars_of_scope(
     ast: &Ast,
     prebound: &[String],
     rebound_globals: &[String],

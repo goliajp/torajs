@@ -7,7 +7,7 @@
 /// checker's ident fallback, and capturing it would rename it out
 /// from under that resolution. An enclosing scope that REBINDS one
 /// (`const fs = […]`, `let process = …`) makes it an ordinary local
-/// again — `lift_arrow_fns` asks `shadowed_globals` and hands the
+/// again — `lift_arrow_fns` asks `scope_chain` and hands the
 /// walk those names as `Bound::rebound_globals`.
 pub(crate) const GLOBAL_NAMES: &[&str] = &[
     // Built-in objects + namespaces

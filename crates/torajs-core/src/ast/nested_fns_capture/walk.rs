@@ -1,8 +1,46 @@
 //! The descent half of the capture router — how the walk reaches each
 //! statement list — split out of the parent under the file-size line.
 
+use std::collections::HashMap;
+
 use super::walk_list;
-use crate::ast::{Ast, Stmt};
+use crate::ast::scope_chain::{arrow_frames, fn_names, for_init_names, list_names};
+use crate::ast::{Ast, ExprId, Stmt};
+
+/// The bindings the enclosing scopes introduce, kept two ways.
+#[derive(Default)]
+pub(super) struct Scopes {
+    /// What §B.3.3's block-binding split asks about: the lexical
+    /// declarations seen so far, parameters, catch and for-of names.
+    pub(super) annexb: Vec<String>,
+    /// Every name a frame between the list and the top level binds
+    /// (`scope_chain`) — whether a top-level fn name is rebound.
+    pub(super) shadow: Vec<String>,
+}
+
+impl Scopes {
+    /// The scopes an arrow's body list sits inside.
+    pub(super) fn of_arrow(
+        ast: &Ast,
+        chains: &HashMap<ExprId, Vec<String>>,
+        eid: ExprId,
+        body: &[Stmt],
+    ) -> Self {
+        Self {
+            annexb: Vec::new(),
+            shadow: arrow_frames(ast, chains.get(&eid), eid, body),
+        }
+    }
+
+    pub(super) fn mark(&self) -> (usize, usize) {
+        (self.annexb.len(), self.shadow.len())
+    }
+
+    pub(super) fn reset(&mut self, (a, s): (usize, usize)) {
+        self.annexb.truncate(a);
+        self.shadow.truncate(s);
+    }
+}
 
 /// Descend into every statement list `s` owns. A `FnDecl` body is a
 /// scope of its own and routes as one; the block-shaped statements carry
@@ -11,16 +49,16 @@ pub(super) fn walk_children(
     ast: &mut Ast,
     s: &mut Stmt,
     globals: &[String],
-    scope: &mut Vec<String>,
+    scope: &mut Scopes,
     in_block: bool,
     counter: &mut u32,
 ) {
+    let depth = scope.mark();
     match s {
         Stmt::FnDecl { params, body, .. } => {
-            let depth = scope.len();
-            scope.extend(params.iter().map(|p| p.name.clone()));
+            scope.annexb.extend(params.iter().map(|p| p.name.clone()));
+            fn_names(params, body, &mut scope.shadow);
             walk_list(ast, body, globals, scope, false, counter);
-            scope.truncate(depth);
         }
         // A `Block` opens one; `Multi` is a compiler-minted sequence
         // sharing the surrounding scope, so it is whatever its parent is.
@@ -37,16 +75,21 @@ pub(super) fn walk_children(
             }
         }
         Stmt::ForOf { var_name, body, .. } => {
-            let depth = scope.len();
-            scope.push(var_name.clone());
+            scope.annexb.push(var_name.clone());
+            scope.shadow.push(var_name.clone());
             walk_children(ast, body, globals, scope, true, counter);
-            scope.truncate(depth);
         }
-        Stmt::While { body, .. }
-        | Stmt::DoWhile { body, .. }
-        | Stmt::For { body, .. }
-        | Stmt::ForOfSplitIter { body, .. }
-        | Stmt::Labeled { body, .. } => walk_children(ast, body, globals, scope, true, counter),
+        Stmt::ForOfSplitIter { var_name, body, .. } => {
+            scope.shadow.push(var_name.clone());
+            walk_children(ast, body, globals, scope, true, counter);
+        }
+        Stmt::For { init, body, .. } => {
+            for_init_names(init.as_deref(), &mut scope.shadow);
+            walk_children(ast, body, globals, scope, true, counter);
+        }
+        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } | Stmt::Labeled { body, .. } => {
+            walk_children(ast, body, globals, scope, true, counter)
+        }
         Stmt::Try {
             body,
             catch_param,
@@ -55,17 +98,21 @@ pub(super) fn walk_children(
             ..
         } => {
             walk_list(ast, body, globals, scope, true, counter);
-            let depth = scope.len();
             if let Some(cp) = catch_param {
-                scope.push(cp.clone());
+                scope.annexb.push(cp.clone());
+                scope.shadow.push(cp.clone());
             }
             walk_list(ast, catch_body, globals, scope, true, counter);
-            scope.truncate(depth);
+            scope.reset(depth);
             if let Some(fb) = finally_body {
                 walk_list(ast, fb, globals, scope, true, counter);
             }
         }
         Stmt::Switch { cases, default, .. } => {
+            // One block holds every clause.
+            for list in cases.iter().map(|c| &c.body[..]).chain(default.as_deref()) {
+                list_names(list, &mut scope.shadow);
+            }
             for c in cases.iter_mut() {
                 walk_list(ast, &mut c.body, globals, scope, true, counter);
             }
@@ -75,4 +122,5 @@ pub(super) fn walk_children(
         }
         _ => {}
     }
+    scope.reset(depth);
 }

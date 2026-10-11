@@ -51,7 +51,7 @@ pub(super) fn pad_reads_scope(
     {
         return false;
     }
-    let read = free_vars_of_fn(ast, prebound, params, &[]);
+    let read = free_vars_of_fn(ast, prebound, &[], params, &[]);
     // the function's own `arguments`, `this` and `new.target` are not
     // the caller's
     if read.iter().any(|n| {

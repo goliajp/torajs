@@ -73,7 +73,7 @@ pub(super) fn captured_scope(
 ) -> Vec<String> {
     let mut bound: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
     bound.extend(global_fns.iter().cloned());
-    crate::ast::free_vars::free_vars_of_fn(ast, &bound, params, body)
+    crate::ast::free_vars::free_vars_of_fn(ast, &bound, &[], params, body)
 }
 
 /// Apply one fn value's plan: patch its params and splice the guards

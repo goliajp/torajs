@@ -286,7 +286,7 @@ pub fn lift_arrow_fns(ast: &mut Ast) {
                 .map(|n| n.to_string()),
         )
         .collect();
-    let shadowed = crate::ast::shadowed_globals::shadowed_globals_by_arrow(ast, &shadow_list);
+    let shadowed = crate::ast::scope_chain::shadowed_globals_by_arrow(ast, &shadow_list);
     let n = ast.exprs.len();
     for i in 0..n {
         if !matches!(ast.exprs[i], Expr::ArrowFn { .. }) {
@@ -332,11 +332,7 @@ pub fn lift_arrow_fns(ast: &mut Ast) {
         let rebound: Vec<String>;
         let (prebound, rebound_globals): (&[String], &[String]) = match shadowed.get(&eid) {
             Some(sh) => {
-                narrowed = global_fn_names
-                    .iter()
-                    .filter(|g| !sh.iter().any(|s| s == *g))
-                    .cloned()
-                    .collect();
+                narrowed = crate::ast::scope_chain::not_rebound(&global_fn_names, sh);
                 rebound = sh
                     .iter()
                     .filter(|s| !global_fn_names.contains(s))

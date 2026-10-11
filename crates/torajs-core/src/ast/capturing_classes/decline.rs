@@ -224,13 +224,13 @@ fn names_compiler_minted(
     let synthetic_free = |params: &[Param], body: &[Stmt]| -> bool {
         let mut bound = prebound.clone();
         bound.extend(params.iter().map(|p| p.name.clone()));
-        // A SIBLING the lane already claimed is a real `let` in the
-        // container under its minted `__cc<N>_…` spelling (the rename
-        // wrote that spelling into this body), so reading it is an
-        // ordinary capture, not a compiler global: `class B { m() {
-        // return new A() } }` beside a capturing `A` was refused for
-        // naming it.
-        free_vars_of_fn(ast, &bound, params, body).iter().any(|n| {
+        // A SIBLING the lane already claimed is a real `let` in the container
+        // under its minted `__cc<N>_…` spelling (the rename wrote that
+        // spelling into this body), so reading it is an ordinary capture, not
+        // a compiler global: `class B { m() { return new A() } }` beside a
+        // capturing `A` was refused for naming it.
+        let free = free_vars_of_fn(ast, &bound, &[], params, body);
+        free.iter().any(|n| {
             n.starts_with("__")
                 && !super::is_es5_class_binding(n)
                 && !(allow_supercall && (n.starts_with("__supercall__") || n == "__superbase__"))

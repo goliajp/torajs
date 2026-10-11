@@ -25,21 +25,26 @@
 //! so those annotations widen to `any` here — the same remap the
 //! lift does for its mangled names, aimed at the dynamic tier instead.
 
+use super::scope_chain::{DeclKey, chains_by_fn_decl, not_rebound};
 use super::stmt_nested_lists::for_each_nested_vec_mut;
 use super::{Ast, Expr, GenFnExprInfo, GenFnExprKind, Stmt};
+use std::collections::HashMap;
 
 /// Convert every capturing nested generator declaration in place.
 /// `global_names` is the top-level binding set the expression hoist
-/// pre-binds — a name in it is not a capture.
+/// pre-binds — a name in it is not a capture, unless a frame around
+/// the declaration rebinds it (`scope_chain`).
 pub(super) fn route_capturing_nested_gen_decls(ast: &mut Ast, global_names: &[String]) {
     let mut top = std::mem::take(&mut ast.stmts);
+    let chains = chains_by_fn_decl(ast, &[&top]);
+    let globals = (global_names, &chains);
     let mut converted: Vec<String> = Vec::new();
     for stmt in top.iter_mut() {
         // A top-level declaration is not nested; only its inner
         // lists are offered, which is what the walk below does.
         for_each_nested_vec_mut(stmt, &mut |list| {
             for slot in list.iter_mut() {
-                if let Some(name) = convert_slot(ast, slot, global_names) {
+                if let Some(name) = convert_slot(ast, slot, globals) {
                     converted.push(name);
                 }
             }
@@ -54,12 +59,12 @@ pub(super) fn route_capturing_nested_gen_decls(ast: &mut Ast, global_names: &[St
         };
         let mut body = std::mem::take(body);
         for s in body.iter_mut() {
-            if let Some(name) = convert_slot(ast, s, global_names) {
+            if let Some(name) = convert_slot(ast, s, globals) {
                 converted.push(name);
             }
             for_each_nested_vec_mut(s, &mut |list| {
                 for slot in list.iter_mut() {
-                    if let Some(name) = convert_slot(ast, slot, global_names) {
+                    if let Some(name) = convert_slot(ast, slot, globals) {
                         converted.push(name);
                     }
                 }
@@ -89,13 +94,18 @@ pub(super) fn route_capturing_nested_gen_decls(ast: &mut Ast, global_names: &[St
 
 /// One slot: a nested generator declaration that captures becomes a
 /// marked generator expression. Answers the converted name.
-fn convert_slot(ast: &mut Ast, slot: &mut Stmt, global_names: &[String]) -> Option<String> {
+fn convert_slot(
+    ast: &mut Ast,
+    slot: &mut Stmt,
+    (global_names, chains): (&[String], &HashMap<DeclKey, Vec<String>>),
+) -> Option<String> {
     let Stmt::FnDecl {
         name,
         type_params,
         params,
         body,
         is_generator: true,
+        span,
         ..
     } = &*slot
     else {
@@ -118,8 +128,12 @@ fn convert_slot(ast: &mut Ast, slot: &mut Stmt, global_names: &[String]) -> Opti
     {
         return None;
     }
+    let shadow: &[String] = chains
+        .get(&(name.clone(), span.start, span.end))
+        .map_or(&[], |c| c.as_slice());
+    let narrowed = not_rebound(global_names, shadow);
     let captures =
-        super::free_vars::free_vars_of_arrow(ast, params, body, global_names, &[], Some(name));
+        super::free_vars::free_vars_of_arrow(ast, params, body, &narrowed, shadow, Some(name));
     if captures.is_empty() {
         return None;
     }
