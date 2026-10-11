@@ -312,11 +312,15 @@ fn expr_touches_this(ast: &Ast, eid: ExprId) -> bool {
     match ast.get_expr(eid) {
         Expr::This => true,
         Expr::Ident(n) => n == SUPER_BASE_MARKER || n.starts_with("__supercall__"),
-        Expr::ArrowFn { body, .. } => {
+        Expr::ArrowFn { params, body, .. } => {
             !binds_own_this(ast, eid)
-                && unbound_roots(ast, body, &parser_site)
-                    .into_iter()
-                    .any(|e| expr_touches_this(ast, e))
+                && (params
+                    .iter()
+                    .filter_map(|p| p.default)
+                    .any(|d| expr_touches_this(ast, d))
+                    || unbound_roots(ast, body, &parser_site)
+                        .into_iter()
+                        .any(|e| expr_touches_this(ast, e)))
         }
         _ => walk::expr_children(ast, eid)
             .into_iter()
@@ -342,8 +346,11 @@ fn collect_this(ast: &Ast, eid: ExprId, sites: &[(ExprId, Vec<ExprId>)], out: &m
     }
     match ast.get_expr(eid) {
         Expr::This => out.push(eid),
-        Expr::ArrowFn { body, .. } => {
+        Expr::ArrowFn { params, body, .. } => {
             if !binds_own_this(ast, eid) {
+                for d in params.iter().filter_map(|p| p.default) {
+                    collect_this(ast, d, sites, out);
+                }
                 let is_site = |_: &Ast, e: ExprId| sites.iter().any(|(id, _)| *id == e);
                 for r in unbound_roots(ast, body, &is_site) {
                     collect_this(ast, r, sites, out);
