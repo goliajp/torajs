@@ -581,6 +581,7 @@ pub(crate) mod ssa_lower_intrinsics_weak;
 pub(crate) mod ssa_lower_json_parse;
 pub(crate) mod ssa_lower_json_stringify;
 pub(crate) mod ssa_lower_lit;
+pub(crate) mod ssa_lower_locale_args;
 mod ssa_lower_logical;
 pub(crate) mod ssa_lower_lowering_probes;
 pub mod ssa_lower_main_exit;

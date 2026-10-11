@@ -149,6 +149,16 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
     // Its `Array<Any>`-slot sibling: the boxed array cell itself,
     // shared, or a TypeError.
     let _ = decl!("__torajs_arr_cell_from_any", [Any], Ptr);
+    // The Number / BigInt / Date `toLocaleString` family's locales /
+    // options checks and the malformed-literal-tag RangeError —
+    // fn_table-only, resolved by name in `ssa_lower_locale_args`.
+    let _ = decl!("__torajs_locale_args_check", [Any, Any, I64], Void);
+    let _ = decl!(
+        "__torajs_locale_args_check_date",
+        [Date, Any, Any, I64],
+        Void
+    );
+    let _ = decl!("__torajs_str_locale_invalid", [Str], Void);
     ArrAnyIds {
         arr_alloc_any,
         arr_any_push: decl!("__torajs_arr_any_push", [Ptr, Ptr, I64, Ptr], I64),

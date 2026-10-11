@@ -43,10 +43,8 @@ use torajs_rc::{
     ANY_METHOD_SET_UTC_DATE, ANY_METHOD_SET_UTC_FULL_YEAR, ANY_METHOD_SET_UTC_HOURS,
     ANY_METHOD_SET_UTC_MILLISECONDS, ANY_METHOD_SET_UTC_MINUTES, ANY_METHOD_SET_UTC_MONTH,
     ANY_METHOD_SET_UTC_SECONDS, ANY_METHOD_SET_YEAR, ANY_METHOD_TO_DATE_STRING,
-    ANY_METHOD_TO_GMT_STRING, ANY_METHOD_TO_ISO_STRING, ANY_METHOD_TO_JSON,
-    ANY_METHOD_TO_LOCALE_DATE_STRING, ANY_METHOD_TO_LOCALE_STRING,
-    ANY_METHOD_TO_LOCALE_TIME_STRING, ANY_METHOD_TO_STRING, ANY_METHOD_TO_TIME_STRING,
-    ANY_METHOD_TO_UTC_STRING, ANY_METHOD_VALUE_OF,
+    ANY_METHOD_TO_GMT_STRING, ANY_METHOD_TO_ISO_STRING, ANY_METHOD_TO_JSON, ANY_METHOD_TO_STRING,
+    ANY_METHOD_TO_TIME_STRING, ANY_METHOD_TO_UTC_STRING, ANY_METHOD_VALUE_OF,
 };
 
 use crate::method_call::method_no_such;
@@ -80,9 +78,6 @@ unsafe extern "C" {
     fn __torajs_date_to_date_string(d: *const c_void) -> *mut u8;
     fn __torajs_date_to_time_string(d: *const c_void) -> *mut u8;
     fn __torajs_date_to_string(d: *const c_void) -> *mut u8;
-    fn __torajs_date_to_locale_string(d: *const c_void) -> *mut u8;
-    fn __torajs_date_to_locale_date_string(d: *const c_void) -> *mut u8;
-    fn __torajs_date_to_locale_time_string(d: *const c_void) -> *mut u8;
     fn __torajs_date_set_time(d: *mut c_void, ms: f64) -> f64;
     fn __torajs_date_set_year(d: *mut c_void, y: f64) -> f64;
     fn __torajs_date_set_full_year(d: *mut c_void, y: f64, mo: f64, dd: f64, present: i64) -> f64;
@@ -165,6 +160,9 @@ pub(crate) unsafe fn date_method(
     unsafe {
         let n = |x: f64| __torajs_anyv_box_f64(x);
         let s = |p: *mut u8| __torajs_anyv_box_from_pair(4, p as i64);
+        if let Some(v) = crate::locale_args::date_to_locale(d, mid, argv, argc) {
+            return v;
+        }
         match mid {
             m if m == ANY_METHOD_GET_TIME || m == ANY_METHOD_VALUE_OF => {
                 n(__torajs_date_get_time(d))
@@ -204,9 +202,6 @@ pub(crate) unsafe fn date_method(
             m if m == ANY_METHOD_TO_DATE_STRING => s(__torajs_date_to_date_string(d)),
             m if m == ANY_METHOD_TO_TIME_STRING => s(__torajs_date_to_time_string(d)),
             m if m == ANY_METHOD_TO_STRING => s(__torajs_date_to_string(d)),
-            m if m == ANY_METHOD_TO_LOCALE_STRING => s(__torajs_date_to_locale_string(d)),
-            m if m == ANY_METHOD_TO_LOCALE_DATE_STRING => s(__torajs_date_to_locale_date_string(d)),
-            m if m == ANY_METHOD_TO_LOCALE_TIME_STRING => s(__torajs_date_to_locale_time_string(d)),
             m if m == ANY_METHOD_SET_TIME => {
                 let Some(f) = fields(1) else {
                     return crate::nanbox::VALUE_UNDEFINED;

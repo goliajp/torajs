@@ -54,13 +54,16 @@ fn try_join(
         // runtime helpers that ToString each element
         // inline; Str / Substr take the existing
         // pointer-walking helpers.
-        // ES §22.1.3.32 step 5.b — toLocaleString routes
-        // numeric elements through Number.toLocaleString
-        // (en-US group separator). String / Substr / Bool
-        // / Any keep the ToString-equivalent helpers
-        // because their .toLocaleString returns the same
-        // value (no Intl substrate engaged).
+        // §23.1.3.32 — toLocaleString reads none of its arguments
+        // (without ECMA-402 each element's own toLocaleString is
+        // invoked with none): they are evaluated and dropped.
         let is_locale = method == "toLocaleString";
+        if is_locale {
+            for &a in args {
+                let op = ctx.lower_expr(a);
+                ctx.release_owned_temp(a, &op);
+            }
+        }
         // Which typed kernel reads these elements? `arr_join` is the
         // Array<Str> one, so an element type without a kernel of its
         // own — a nested array, a struct, a closure — takes the any
@@ -97,9 +100,7 @@ fn try_join(
         // a runtime patch gate: a builtin-prototype monkey-patch on
         // the element family's Invoke face must fire per element
         // (§23.1.3.32 step 4.b), while the no-patch program keeps
-        // the direct join kernel behind one bitmap load. Trailing
-        // args lower-and-drop (S287 idiom — toLocaleString is
-        // 0-useful).
+        // the direct join kernel behind one bitmap load.
         if is_locale {
             let prim = match elem_ty {
                 Type::Bool => Some(0i64),
@@ -111,9 +112,6 @@ fn try_join(
             };
             if let Some(p) = prim {
                 ctx.emit_arr_mark_kind(&recv_op);
-                for &a in args.iter() {
-                    let _ = ctx.lower_expr(a);
-                }
                 let s = ctx.f.append_inst(
                     ctx.cur_block,
                     InstKind::Call(

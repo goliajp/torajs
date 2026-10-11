@@ -26,6 +26,7 @@ use crate::ast::{Expr, ExprId};
 use crate::check as check_mod;
 use crate::ssa::{FuncId, InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
+use crate::ssa_lower_locale_args::gated_format;
 
 /// Try to lower `<recv>.{toFixed|toString|toLocaleString|toExponential
 /// |toPrecision}(...)`. Returns `Some` when dispatched.
@@ -68,18 +69,11 @@ pub(crate) fn try_lower(
     if recv_ty == Type::BigInt && m_name == "toString" {
         return Some(emit_bigint_to_string(ctx, recv_op, args));
     }
-    // §Intl fallback — default-locale grouped decimal (the
-    // `num_to_locale_i` posture); the checker admits the 0-arg form
-    // only, so no locales/options lowering here.
+    // The en-US grouped decimal, behind the same locales / options
+    // checks as Number's.
     if recv_ty == Type::BigInt && m_name == "toLocaleString" {
-        let cur_block = ctx.cur_block;
-        let v = ctx.f.append_inst(
-            cur_block,
-            InstKind::Call(ctx.intrinsics.bigint_to_locale_string, vec![recv_op]),
-            Type::Str,
-            None,
-        );
-        return Some(Operand::Value(v));
+        let fmt = ctx.intrinsics.bigint_to_locale_string;
+        return Some(gated_format(ctx, args, fmt, recv_op));
     }
     if recv_ty == Type::Symbol && (m_name == "toString" || m_name == "toLocaleString") {
         return Some(emit_str_intrinsic(
@@ -229,6 +223,10 @@ fn emit_numeric_method(
     if m_name == "toString" && !args.is_empty() && !arg0_is_undef {
         return emit_numeric_radix(ctx, recv_op, args, is_f64);
     }
+    if m_name == "toLocaleString" {
+        let fmt = pick_digits_intrinsic(ctx, m_name, is_f64);
+        return gated_format(ctx, args, fmt, recv_op);
+    }
     emit_numeric_digits(ctx, m_name, recv_op, args, is_f64, arg0_is_undef)
 }
 
@@ -271,7 +269,7 @@ fn emit_numeric_radix(
     Operand::Value(v)
 }
 
-/// toFixed / toExponential / toPrecision / toLocaleString / bare-toString:
+/// toFixed / toExponential / toPrecision / bare-toString:
 /// pick the matching i/f intrinsic, build argv with default-arg handling
 /// per spec §21.1.3.{3,5,6}, fire post-call throw_check for the
 /// digits-RangeError methods.
@@ -285,12 +283,7 @@ fn emit_numeric_digits(
 ) -> Operand {
     let target = pick_digits_intrinsic(ctx, m_name, is_f64);
     let mut argv = vec![recv_op];
-    // S139 — toLocaleString ignores any locale/options arg in tr's subset
-    // (always en-US). Drop user args so the runtime helper's 1-arg
-    // signature matches; the spec allows ignoring locale args outside
-    // Intl-enabled hosts.
-    let pass_args = !matches!(m_name, "toLocaleString");
-    if pass_args && !arg0_is_undef {
+    if !arg0_is_undef {
         // S254 — toFixed / toExponential / toPrecision read only args[0]
         // per ES §21.1.3.{3,5,6}. Trailing args dropped at lower-time
         // (check.rs's carve-out already type_of'd them). toString's radix
@@ -309,11 +302,9 @@ fn emit_numeric_digits(
         }
     }
     // S294 — lower-and-drop trailing args past the first slot routed
-    // into argv per ES trailing-arg ignore (S272 idiom). For
-    // toLocaleString (pass_args=false) drop ALL user args; for
-    // toFixed/toExp/toPrec (pass_args=true) drop args[1..] since args[0]
-    // was already routed into argv.
-    let drop_start = if pass_args && !arg0_is_undef && !args.is_empty() {
+    // into argv per ES trailing-arg ignore (S272 idiom): args[1..],
+    // since args[0] was already routed into argv.
+    let drop_start = if !arg0_is_undef && !args.is_empty() {
         1
     } else {
         0
@@ -363,8 +354,8 @@ fn emit_numeric_digits(
 }
 
 /// Pick the i / f intrinsic for the given method name. toLocaleString
-/// matches the canonical bun output on macOS without an Intl substrate
-/// (S139); locale-arg variants are a separate Intl item. Bare toString
+/// is the en-US formatter, reached only past [`gated_format`] (the
+/// ECMA-402 locales / options checks). Bare toString
 /// routes to the same formatters powering Number-to-String coercion in
 /// `+` (i64_to_str / f64_to_str).
 fn pick_digits_intrinsic(ctx: &LowerCtx<'_>, m_name: &str, is_f64: bool) -> FuncId {

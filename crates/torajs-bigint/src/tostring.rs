@@ -175,9 +175,8 @@ pub unsafe extern "C" fn __torajs_bigint_to_string(a_: *const c_void) -> *mut u8
 /// `a.toLocaleString()` for BigInt — the default-locale grouped
 /// decimal form (§6.1.6.2 via Intl fallback): en-US-style comma
 /// groups of three from the right, sign passed through. Mirrors
-/// `__torajs_num_to_locale_i`'s posture — locales/options arguments
-/// are not consumed (the full Intl.NumberFormat surface is a
-/// recorded substrate item); the checker admits the 0-arg form.
+/// `__torajs_num_to_locale_i`: callers check the locales / options
+/// first; every valid locale resolves to en-US, the only formatter.
 ///
 /// # Safety
 /// `a_` must be a valid BigInt heap pointer.

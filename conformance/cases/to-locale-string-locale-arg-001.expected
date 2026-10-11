@@ -1,0 +1,43 @@
+num bare 1,234.5
+num en-US 1,234.5
+num en 1,234,567
+num EN-us 1,234.5
+num undefined 1,234.5
+num list 1,234.5
+num empty list 1,234.5
+num empty options 1,234.5
+num unread option 1,234.5
+big en-US 12,345,678,901,234,567,890
+date en-US 1/2/2020
+arr en-US 1,234.5,2
+str arr de-DE a,b
+empty arr de-DE ""
+invalid date de-DE Invalid Date
+num de-DE 1,234.5
+num list de first 1,234.5
+num option 1,234.5
+num malformed throws RangeError
+num null throws TypeError
+big de-DE 12,345,678,901,234,567,890
+date de-DE 1/2/2020, 3:04:05 AM
+date option 3:04:05 AM
+arr de-DE 1,234.5,2
+arr null 1,234.5,2
+arr option 1,234.5,2 0
+element args spy,1,234.5,spy 0/0
+arg evaluated 1,234.5,2 spy,1,234.5,spy 2
+any num en-US 1,234.5
+any num de-DE 1,234.5
+any num option 1,234.5
+any date de-DE 1/2/2020
+any arr de-DE 1,234.5,2
+any arr option 1,234.5,2 0
+typed array de-DE 1,234.5
+typed array option 1,234 0
+getter once 1,234.5 1
+de with null options throws TypeError
+primitive options 1,234.5
+non-string locale element throws TypeError
+call en-US 1,234.5
+call de 1,234.5
+wrapper en-US 1,234.5

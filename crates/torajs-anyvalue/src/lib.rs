@@ -153,7 +153,12 @@ mod iter_zip_keyed;
 mod iter_zip_shared;
 mod len_get;
 mod len_get_expando;
+pub(crate) mod locale_args;
 mod locale_list;
+mod locale_option_values;
+mod locale_options;
+mod locale_options_date;
+mod locale_options_number;
 pub(crate) mod member_get;
 mod member_get_buffer;
 pub(crate) mod member_get_layout;
@@ -2221,6 +2226,7 @@ mod tests {
         __torajs_str_any_trim,
         __torajs_str_at,
         __torajs_str_index_get,
+        __torajs_str_locale_check,
         __torajs_string_wrapper_new,
         __torajs_subclass_class_tag,
         __torajs_subclass_proto,
