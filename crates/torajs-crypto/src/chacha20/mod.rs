@@ -7,7 +7,7 @@
 //! [`Feature::Aarch64Neon`](crate::cpu::Feature::Aarch64Neon). Both produce
 //! identical output.
 
-#[cfg(all(target_arch = "aarch64", not(torajs_crypto_portable)))]
+#[cfg(all(target_arch = "aarch64", target_endian = "little", not(torajs_crypto_portable)))]
 mod aarch64;
 mod soft;
 
@@ -19,17 +19,17 @@ use crate::cpu::CpuFeatures;
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Engine {
     Soft,
-    #[cfg(all(target_arch = "aarch64", not(torajs_crypto_portable)))]
+    #[cfg(all(target_arch = "aarch64", target_endian = "little", not(torajs_crypto_portable)))]
     Neon(aarch64::Neon),
 }
 
 impl Engine {
     #[cfg_attr(
-        not(all(target_arch = "aarch64", not(torajs_crypto_portable))),
+        not(all(target_arch = "aarch64", target_endian = "little", not(torajs_crypto_portable))),
         allow(unused_variables)
     )]
     pub(crate) fn new(cpu: CpuFeatures) -> Engine {
-        #[cfg(all(target_arch = "aarch64", not(torajs_crypto_portable)))]
+        #[cfg(all(target_arch = "aarch64", target_endian = "little", not(torajs_crypto_portable)))]
         if let Some(n) = aarch64::Neon::new(cpu) {
             return Engine::Neon(n);
         }
@@ -48,7 +48,7 @@ impl Engine {
     ) {
         match self {
             Engine::Soft => soft::xor_keystream(key, counter, nonce, data),
-            #[cfg(all(target_arch = "aarch64", not(torajs_crypto_portable)))]
+            #[cfg(all(target_arch = "aarch64", target_endian = "little", not(torajs_crypto_portable)))]
             Engine::Neon(n) => n.xor_keystream(key, counter, nonce, data),
         }
     }
@@ -73,6 +73,7 @@ mod tests {
             !soft,
             cfg!(all(
                 target_arch = "aarch64",
+                target_endian = "little",
                 target_feature = "neon",
                 not(torajs_crypto_portable)
             ))

@@ -83,6 +83,8 @@ All buffers are provided by the caller. Nothing allocates.
   with zeros, so unauthenticated plaintext never reaches the caller.
 - Types that hold key material (`Hmac`, `Hkdf`, the AEAD key types) wipe
   it on drop with volatile writes, so the wipe is not optimized away.
+  Named stack buffers that hold keystream or GHASH state are wiped the same
+  way; copies of registers the compiler spills to the stack are not.
 - `Debug` output of state and key types prints the type name only.
 
 `unsafe` is denied crate-wide. Unsafe code exists in the wiping routine

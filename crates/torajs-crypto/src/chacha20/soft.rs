@@ -124,9 +124,9 @@ pub(crate) fn xor_keystream(key: &[u32; 8], counter: u32, nonce: &[u32; 3], data
             }
         }
     }
-    // the keystream stays in registers rather than a stack buffer, which
-    // would have to be wiped; wiping a binding that never lives in memory
-    // only forces a copy there
+    // the tail xors from the block's words instead of a named stack
+    // buffer that would need wiping; register copies the compiler spills
+    // are not wiped (as in ring and RustCrypto chacha20)
     for chunk in rest.chunks_mut(BLOCK_LEN) {
         let ks = block(key, ctr, nonce);
         ctr = ctr.wrapping_add(1);

@@ -2,8 +2,9 @@
 //!
 //! The constructor takes a [`CpuFeatures`]: on AArch64, when it vouches
 //! for [`Feature::Aarch64Neon`](crate::cpu::Feature::Aarch64Neon), the
-//! keystream runs on NEON registers four blocks at a time; otherwise on
-//! portable integer code. Both produce identical output.
+//! keystream runs on NEON registers, three groups of four blocks
+//! interleaved; otherwise on portable integer code. Both produce identical
+//! output.
 //!
 //! ```
 //! use torajs_crypto::Aead;

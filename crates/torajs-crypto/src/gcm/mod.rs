@@ -26,7 +26,7 @@
 //! assert_eq!(tag[..4], [0xab, 0x6e, 0x47, 0xd4]);
 //! ```
 
-#[cfg(all(target_arch = "aarch64", not(torajs_crypto_portable)))]
+#[cfg(all(target_arch = "aarch64", target_endian = "little", not(torajs_crypto_portable)))]
 mod aarch64;
 mod key;
 mod soft;
