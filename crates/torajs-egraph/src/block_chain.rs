@@ -99,6 +99,25 @@ pub(crate) fn chain_loop_range(
         .flat_map(|(u, ids)| ids.iter().map(move |&id| (id, u)))
         .collect();
     let unit_of = |id: u32| unit_index.get(&id).copied();
+    // where a chain ends, the next one starts at the first unplaced
+    // warm unit: a unit every path to which runs a call (a grow, a
+    // slow-path kernel, the exit epilogue) goes after every warm one,
+    // in place order among themselves; taking units in place order
+    // alone put such a call ahead of the warm blocks lowered after it
+    // (a duplicated tail, an arm the lowerer emitted late), and the
+    // allocator, which judges call crossing on a value's positional
+    // hull, then saved every value those blocks read around the call;
+    // units are judged once, when a chain first ends (most loops chain
+    // whole and never ask)
+    let cold = std::cell::OnceCell::new();
+    let cold = |u: usize| {
+        cold.get_or_init(|| {
+            units
+                .iter()
+                .map(|unit| facts.cold_path(func, body, unit[0]))
+                .collect::<Vec<bool>>()
+        })[u]
+    };
     let mut placed = Placed::new(units.len());
     let mut chain: Vec<usize> = Vec::with_capacity(units.len());
     let mut cur = unit_of(header).expect("header in its loop range");
@@ -114,7 +133,7 @@ pub(crate) fn chain_loop_range(
             &leads_to_loop,
             &placed.flags,
         )
-        .or_else(|| placed.first_open());
+        .or_else(|| placed.first_open(cold));
         match next {
             Some(n) => cur = n,
             None => break,
@@ -171,8 +190,13 @@ impl Placed {
         }
     }
 
-    fn first_open(&self) -> Option<usize> {
-        (self.first_open < self.flags.len()).then_some(self.first_open)
+    /// The first unplaced unit that is not cold, else the first
+    /// unplaced one.
+    fn first_open(&self, cold: impl Fn(usize) -> bool) -> Option<usize> {
+        let n = self.flags.len();
+        (self.first_open..n)
+            .find(|&u| !self.flags[u] && !cold(u))
+            .or_else(|| (self.first_open < n).then_some(self.first_open))
     }
 }
 
@@ -272,5 +296,21 @@ mod tests {
             !cold(4) && !cold(5) && !cold(2),
             "the warm arm and the join"
         );
+    }
+
+    /// A chain that ends goes on at the first unplaced warm unit; the
+    /// cold ones come last, in place order.
+    #[test]
+    fn the_next_chain_starts_at_a_warm_unit() {
+        let mut placed = Placed::new(5);
+        let cold = |u: usize| [false, true, false, true, false][u];
+        placed.place(0);
+        assert_eq!(placed.first_open(cold), Some(2));
+        placed.place(2);
+        placed.place(4);
+        assert_eq!(placed.first_open(cold), Some(1));
+        placed.place(1);
+        placed.place(3);
+        assert_eq!(placed.first_open(cold), None);
     }
 }
