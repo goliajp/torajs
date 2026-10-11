@@ -196,13 +196,14 @@ fn resolve_field(
             Some((prop.to_owned(), got, ret_ty, true))
         }
         None => {
-            let v = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Load(*slot_ty, Operand::Value(obj_ptr), field_off),
-                *slot_ty,
+            let (v, owned) = crate::ssa_lower_member_obj_field::exotic_read::slot_value(
+                ctx,
                 None,
+                Operand::Value(obj_ptr),
+                (field_off, *slot_ty),
+                &fname.to_string_lossy(),
             );
-            Some((fname.to_owned(), Operand::Value(v), *slot_ty, false))
+            Some((fname.to_owned(), v, *slot_ty, owned))
         }
     }
 }

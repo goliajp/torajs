@@ -19,10 +19,11 @@
 use super::{Ast, Expr};
 
 /// Record on `ast` whether its user code names a re-parenting write,
-/// and the census that reads it (`named_prop_census`).
+/// and the censuses of `named_prop_census`.
 pub fn census_program_reparents(ast: &mut Ast) {
     ast.program_reparents = ast.exprs.iter().any(names_a_reparent);
     super::named_prop_census::census_array_prop_reads(ast);
+    super::named_prop_census::accessor_names::census(ast);
 }
 
 fn names_a_reparent(e: &Expr) -> bool {

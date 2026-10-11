@@ -390,8 +390,8 @@ mod tests {
     #[test]
     fn exotic_slow_path_stubs_are_symbol_guarded_loud_rejects() {
         let stubs = guarded_stubs();
-        assert_eq!(stubs.len(), 15);
-        let map_hole = &stubs[13];
+        assert_eq!(stubs.len(), 16);
+        let map_hole = &stubs[14];
         assert_eq!(map_hole.sym, "___torajs_arr_map_hole_slow");
         assert_eq!(
             map_hole.guard.to_string(),
@@ -403,9 +403,9 @@ mod tests {
             &(0xD280_0000u32 | (54 << 5) | 7).to_le_bytes()
         );
         for (i, fam, sym) in [
-            (11, 52u32, "___torajs_arr_typed_nonint_f64_slow"),
-            (12, 53, "___torajs_arr_typed_nonint_str_slow"),
-            (14, 56, "___torajs_arr_typed_nonint_any_slow"),
+            (12, 52u32, "___torajs_arr_typed_nonint_f64_slow"),
+            (13, 53, "___torajs_arr_typed_nonint_str_slow"),
+            (15, 56, "___torajs_arr_typed_nonint_any_slow"),
         ] {
             let read = &stubs[i];
             assert_eq!(read.sym, sym);
@@ -419,7 +419,7 @@ mod tests {
                 &(0xD280_0000u32 | (fam << 5) | 7).to_le_bytes()
             );
         }
-        let sort = &stubs[10];
+        let sort = &stubs[11];
         assert_eq!(sort.sym, "___torajs_arr_sort_exotic");
         assert_eq!(
             sort.guard.to_string(),
@@ -430,7 +430,7 @@ mod tests {
             &(0xD280_0000u32 | (51 << 5) | 7).to_le_bytes()
         );
         let guard = &stubs[9];
-        assert_eq!(guard.sym, "___torajs_obj_check_field_writable");
+        assert_eq!(guard.sym, "___torajs_obj_field_set_exotic");
         assert_eq!(
             guard.guard.to_string(),
             "syms:___torajs_obj_freeze|___torajs_obj_flag_exotic_field"
@@ -438,6 +438,16 @@ mod tests {
         assert_eq!(
             &guard.bytes[..4],
             &(0xD280_0000u32 | (50 << 5) | 7).to_le_bytes()
+        );
+        let read_guard = &stubs[10];
+        assert_eq!(read_guard.sym, "___torajs_obj_field_get_exotic");
+        assert_eq!(
+            read_guard.guard.to_string(),
+            "syms:___torajs_obj_flag_exotic_field"
+        );
+        assert_eq!(
+            &read_guard.bytes[..4],
+            &(0xD280_0000u32 | (57 << 5) | 7).to_le_bytes()
         );
         let join = &stubs[1];
         assert_eq!(join.sym, "___torajs_arr_join_exotic");

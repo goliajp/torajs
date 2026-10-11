@@ -3,6 +3,7 @@
 //! `ast.rs` as the module-tree and re-export face (the same shape
 //! `torajs-core/src/lib.rs` settled into at chunk 486).
 
+pub use super::named_prop_census::accessor_names::AccessorFieldNames;
 use super::*;
 
 #[derive(Debug, Clone, Default)]
@@ -876,6 +877,10 @@ pub struct Ast {
     /// User code can put a code-bearing named property on an array's or a
     /// string's prototype chain (`ast::named_prop_census`).
     pub array_prop_reads_may_raise: bool,
+    /// The declared fields user code can turn into accessors
+    /// (`ast::AccessorFieldNames`); a typed read of one tests the
+    /// instance's `FLAG_OBJ_EXOTIC_FIELD` before loading the slot.
+    pub accessor_field_names: AccessorFieldNames,
     /// RFC 20260714-objlit-accessor blade 1 — `__ObjLit_<n>` (the synth
     /// nominal alias minted for a method-bearing object literal) → its
     /// method field names. `ssa_lower` resolves the alias to a

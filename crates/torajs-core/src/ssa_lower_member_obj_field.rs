@@ -29,6 +29,7 @@
 
 pub(crate) mod accessor_argv;
 pub(crate) mod accessor_slot;
+pub(crate) mod exotic_read;
 
 use crate::ast::ExprId;
 use crate::ssa::{InstKind, Operand, StructId, Type};
@@ -130,7 +131,7 @@ pub(crate) fn try_lower(
         );
         return Operand::Value(v);
     }
-    lower_struct_field(ctx, eid, obj_val, sid, name)
+    lower_struct_field(ctx, eid, obj, obj_val, sid, name)
 }
 
 /// RFC 20260714-objlit-accessor blade 2 — `o.b` where the literal
@@ -214,6 +215,7 @@ fn try_accessor_getter(
 fn lower_struct_field(
     ctx: &mut LowerCtx<'_>,
     eid: ExprId,
+    obj: ExprId,
     obj_val: Operand,
     sid: StructId,
     name: &str,
@@ -234,6 +236,9 @@ fn lower_struct_field(
         return crate::ssa_lower_any_member::lower_any_member_read(ctx, eid, boxed_recv, name);
     };
     let offset = OBJ_HEADER_SIZE + idx as u64 * 8;
+    if let Some(v) = exotic_read::guarded_load(ctx, eid, obj, obj_val, (offset, field_ty), name) {
+        return v;
+    }
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur_block,

@@ -32,6 +32,8 @@
 //! before injection, and over every expression in the arena,
 //! reachable or not.
 
+pub(super) mod accessor_names;
+
 use super::{Ast, Expr, ExprId, Stmt};
 use std::collections::HashSet;
 

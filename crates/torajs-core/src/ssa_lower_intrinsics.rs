@@ -819,9 +819,9 @@ pub(crate) struct Intrinsics {
     pub(crate) obj_freeze_any: FuncId,
     pub(crate) obj_is_frozen: FuncId,
     pub(crate) obj_check_not_frozen: FuncId,
-    /// RFC 20260806-declared-field-redefine — the typed field-store
-    /// guard that asks about writability as well as frozen.
-    pub(crate) obj_check_field_writable: FuncId,
+    /// The typed field store's slow leg (the any-lane [[Set]]) behind
+    /// the frozen / redefined-field guard.
+    pub(crate) obj_field_set_exotic: FuncId,
     /// v0.5 T-15.e — drains the microtask queue. Auto-called at
     /// main exit so chained Promise callbacks run before the
     /// process returns.

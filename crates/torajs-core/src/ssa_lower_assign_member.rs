@@ -254,7 +254,12 @@ fn lower_obj_assign(
         );
     }
     crate::ssa_lower_assign_member_field::lower_struct_field_store(
-        ctx, obj, obj_val, sid, field, value,
+        ctx,
+        (eid, obj),
+        obj_val,
+        sid,
+        field,
+        value,
     )
 }
 

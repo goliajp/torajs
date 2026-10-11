@@ -10,8 +10,12 @@
 //! calls back through these two symbols.
 //!
 //! Both are thin: no logic beyond the raw↔bool boundary conversion.
+//! [`exotic`] holds the other direction: the typed lane's own field
+//! access falling back to the any lane.
 
 use core::ffi::c_void;
+
+mod exotic;
 
 unsafe extern "C" {
     /// torajs-rc — the cell's FROZEN header bit.

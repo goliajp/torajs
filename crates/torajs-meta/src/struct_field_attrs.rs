@@ -16,7 +16,7 @@
 //! - **What are this field's attributes?** The sidecar when one
 //!   exists, else the caller's layout default.
 
-use core::ffi::{c_char, c_void};
+use core::ffi::c_void;
 
 use crate::obj_own_keys_struct::struct_props;
 
@@ -33,9 +33,7 @@ unsafe extern "C" {
     // (arr_reflect / reflect) — a second, differently typed
     // declaration of the same symbol is a hard error here.
     fn __torajs_dynobj_has(obj: *const c_void, key: *const u8) -> bool;
-    fn __torajs_obj_declared_field_shadow_clear(obj: *mut c_void, key: *mut c_void);
     fn __torajs_dynobj_get_flags(obj: *const c_void, key: *const u8) -> u64;
-    fn __torajs_throw_type_error(msg: *const c_char);
     fn __torajs_dynobj_iter_len(obj: *const c_void) -> u64;
     fn __torajs_dynobj_iter_key(obj: *const c_void, i: u64) -> *mut c_void;
     fn __torajs_dynobj_iter_flags(obj: *const c_void, i: u64) -> u64;
@@ -275,61 +273,9 @@ pub unsafe extern "C" fn __torajs_obj_key_is_nonenumerable(
     unsafe { __torajs_obj_field_is_nonenumerable(cell, k.as_ptr(), k.len()) }
 }
 
-/// `torajs_rc::FLAG_FROZEN` / `FLAG_OBJ_EXOTIC_FIELD` mirrors — the
-/// two header bits that make a typed field store anything other than
-/// one store.
-const OBJ_HDR_FLAG_FROZEN: u16 = 1 << 4;
+/// `torajs_rc::FLAG_OBJ_EXOTIC_FIELD` mirror — set once some declared
+/// field of the instance carries a sidecar.
 const OBJ_HDR_FLAG_EXOTIC_FIELD: u16 = 1 << 15;
-
-/// The mutation guard `ssa_lower` emits at every typed
-/// `instance.field = value` site — successor to
-/// `__torajs_obj_check_not_frozen`, which asked only half the
-/// question.
-///
-/// Both refusals arm a `TypeError` and RETURN; the throw lands at the
-/// `emit_throw_check` the caller emits immediately after, before the
-/// store. §10.1.9 / §7.3.14: an assignment whose target is
-/// non-writable fails, and module code is strict.
-///
-/// The fast path is one header load and one masked test — the same
-/// shape the frozen-only guard had, with a wider immediate. A cell
-/// that was never frozen and never redefined leaves here without
-/// touching the expando dict.
-///
-/// r503 — reached through the `__torajs_obj_check_field_writable`
-/// seam in torajs-dispatch; the link judgment stubs the seam when no
-/// writer of either header bit (`__torajs_obj_freeze` /
-/// `__torajs_obj_flag_exotic_field`) is live, and this impl — with
-/// the readonly-assign throw it roots — dead-strips.
-///
-/// # Safety
-/// `p` is NULL or a live heap pointer; `name` is a live `Str` cell
-/// naming the field being stored (a compile-time literal).
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_obj_check_field_writable_impl(
-    p: *const c_void,
-    name: *const c_void,
-) {
-    if p.is_null() {
-        return;
-    }
-    let flags = unsafe { p.cast::<u8>().add(6).cast::<u16>().read() };
-    if flags & (OBJ_HDR_FLAG_FROZEN | OBJ_HDR_FLAG_EXOTIC_FIELD) == 0 {
-        return;
-    }
-    if flags & OBJ_HDR_FLAG_FROZEN != 0 {
-        unsafe { __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr()) };
-        return;
-    }
-    // Redefined somewhere on this instance — is it THIS field?
-    if unsafe { sidecar_attrs(p, name) }.is_some_and(|a| a & BUCKET_FLAG_WRITABLE == 0) {
-        unsafe { __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr()) };
-        return;
-    }
-    // the typed store that follows writes the slot, which supersedes
-    // a value the any lane parked in the field's shadow
-    unsafe { __torajs_obj_declared_field_shadow_clear(p as *mut c_void, name as *mut c_void) };
-}
 
 /// `torajs_dynobj::layout::BUCKET_FLAG_*` mirrors — the three
 /// PropertyDescriptor bits a dict entry's key word carries, and the

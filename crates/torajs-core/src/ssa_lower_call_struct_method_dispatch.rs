@@ -105,6 +105,10 @@ pub(crate) fn try_lower(
         }
         Type::Closure(user_sig_id) => {
             let takes_recv = is_objlit_method_slot(ctx, sid, name);
+            let slot = (offset, ssa_field_ty);
+            crate::ssa_lower_member_obj_field::exotic_read::guard_callee_slot(
+                ctx, obj, recv_op, slot, name,
+            );
             Some(emit_closure_call(
                 ctx,
                 recv_op,

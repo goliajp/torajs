@@ -100,7 +100,7 @@ fn setter_args(
 
 pub(crate) fn lower_struct_field_store(
     ctx: &mut LowerCtx<'_>,
-    obj: ExprId,
+    (assign, obj): (ExprId, ExprId),
     obj_val: Operand,
     sid: StructId,
     field: &str,
@@ -258,11 +258,7 @@ pub(crate) fn lower_struct_field_store(
     let v_ty = ctx.operand_ty(&v);
     let parked = (!v_ty.is_copy()).then(|| ctx.push_throw_temp(v, v_ty));
     crate::ssa_lower_nullable_guard_emit::emit_undefable_heap_guard(ctx, obj, &obj_val);
-    if !ctx.proofs.fresh_this_recv.contains(&obj) {
-        crate::ssa_lower_assign_member_field::guard::emit_field_writable_guard(
-            ctx, obj, obj_val, field,
-        );
-    }
+    let done = guard::emit_field_writable_guard(ctx, obj, obj_val, field, v);
     if let Some(token) = parked {
         ctx.pop_throw_temp(token);
     }
@@ -288,6 +284,8 @@ pub(crate) fn lower_struct_field_store(
     let cur_block = ctx.cur_block;
     ctx.f
         .append_void(cur_block, InstKind::Store(v, obj_val, offset));
+    guard::mint_read_stake(ctx, (assign, obj, field), v, done);
+    guard::finish_guarded_store(ctx, done);
     v
 }
 

@@ -13,7 +13,7 @@
 //! parent calls it under the same name.
 
 use crate::ast::{ExprId, PropKey};
-use crate::ssa::{InstKind, Operand, Type};
+use crate::ssa::{Operand, Type};
 use crate::ssa_lower::{LowerCtx, OBJ_HEADER_SIZE};
 
 /// `omit` — the destructuring-rest desugar's excluded keys
@@ -71,14 +71,14 @@ pub(crate) fn unfold_spread(
                 if omit.contains(sn) {
                     continue;
                 }
-                let cur_block = ctx.cur_block;
-                let v = ctx
-                    .f
-                    .append_inst(cur_block, InstKind::Load(*st, src_op, off), *st, None);
-                if st.is_refcounted() {
-                    ctx.emit_rc_inc(Operand::Value(v));
-                }
-                (sn.clone(), *st, Operand::Value(v))
+                let v = crate::ssa_lower_member_obj_field::exotic_read::owned_field(
+                    ctx,
+                    Some(eid),
+                    src_op,
+                    (off, *st),
+                    &sn.lossy(),
+                );
+                (sn.clone(), *st, v)
             }
         };
         if let Some(pos) = field_tys.iter().position(|(k, _)| *k == name) {

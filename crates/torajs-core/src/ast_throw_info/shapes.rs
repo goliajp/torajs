@@ -1,7 +1,9 @@
 //! Expression shapes that raise whatever their operands' types say,
 //! moved out of [`super`] whole.
 
-use crate::ast::{Ast, Expr, ExprId};
+use std::collections::HashMap;
+
+use crate::ast::{Ast, Expr, ExprId, PropKey};
 
 /// A property STORE target (`o.k = v`, `o.k++`, `xs[i] = v`, `xs[i]++`)
 /// — the shape whose store can raise, whatever the receiver is.
@@ -51,4 +53,19 @@ pub(super) fn is_property_store(ast: &Ast, eid: ExprId) -> bool {
 /// is silently swallowed across the fn boundary.
 pub(crate) fn ident_read_raises(ast: &Ast, eid: ExprId) -> bool {
     ast.undeclared_reads.contains_key(&eid) || ast.tdz_reads.contains(&eid)
+}
+
+/// An object literal's spread of a class instance or struct (`{ ...c }`)
+/// reads every field through [[Get]] (§7.3.25), which runs a getter
+/// once the program can install one over a declared field
+/// (`Ast::accessor_field_names`).
+pub(super) fn spread_runs_getters(
+    ast: &Ast,
+    expr_types: &HashMap<ExprId, crate::check::Type>,
+    key: &PropKey,
+    src: ExprId,
+) -> bool {
+    crate::check_type_of_object_lit::spread_omit_set(key.as_wtf8()).is_some()
+        && ast.accessor_field_names.reaches_any()
+        && super::obj_cast::object_ty(expr_types.get(&src))
 }

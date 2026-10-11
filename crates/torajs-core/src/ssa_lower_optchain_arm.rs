@@ -115,7 +115,7 @@ pub(crate) fn lower(
     emit_miss_path(ctx, null_blk, res_slot, after);
     ctx.proofs.enter_cond();
     if let Type::Obj(sid) = obj_ty {
-        emit_hit_path(ctx, mem_blk, eid, obj_op, sid, name, res_slot, after);
+        emit_hit_path(ctx, mem_blk, (eid, obj), obj_op, sid, name, res_slot, after);
     } else {
         emit_hit_path_member(ctx, mem_blk, eid, obj, obj_op, name, res_slot, after);
     }
@@ -156,7 +156,7 @@ fn emit_miss_path(
 fn emit_hit_path(
     ctx: &mut LowerCtx<'_>,
     mem_blk: crate::ssa::BlockId,
-    eid: crate::ast::ExprId,
+    (eid, obj): (crate::ast::ExprId, crate::ast::ExprId),
     obj_op: Operand,
     sid: crate::ssa::StructId,
     name: &str,
@@ -188,6 +188,18 @@ fn emit_hit_path(
         return;
     };
     let offset = OBJ_HEADER_SIZE + (field_idx as u64) * 8;
+    if let Some(done) = crate::ssa_lower_member_obj_field::exotic_read::guarded_load_boxed(
+        ctx,
+        eid,
+        obj,
+        obj_op,
+        (offset, field_ty),
+        name,
+        res_slot,
+    ) {
+        ctx.f.set_term(done, Terminator::Br(after));
+        return;
+    }
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur_block,

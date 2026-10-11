@@ -221,18 +221,19 @@ typed-array keyed str read\
 array map hole mark\
 unsized cell free\
 typed-array keyed any read\
+struct field-read guard\
 method family";
-/// `SUBJECTS[OFF[i]..OFF[i + 1]]` is subject `i` (u16: the string is 477 B).
-const OFF: [u16; 36] = [
+/// `SUBJECTS[OFF[i]..OFF[i + 1]]` is subject `i` (u16: the string is 500 B).
+const OFF: [u16; 37] = [
     0, 3, 6, 12, 18, 24, 28, 34, 38, 45, 51, 57, 63, 70, 74, 77, 99, 113, 130, 149, 172, 198, 216,
-    232, 253, 270, 292, 307, 331, 354, 376, 402, 421, 438, 464, 477,
+    232, 253, 270, 292, 307, 331, 354, 376, 402, 421, 438, 464, 487, 500,
 ];
 const ARM_FAMILY_COUNT: u64 = 15;
 /// Subject indices past the arm families.
 const SUBJ_NS_STATIC: usize = 15;
 const SUBJ_PRINTER: usize = 16;
 const SUBJ_LINK_FIRST: usize = 17;
-const SUBJ_FALLBACK: usize = 34;
+const SUBJ_FALLBACK: usize = 35;
 
 const REJECT_METHOD_FAMILY: &str = " method family";
 const REJECT_DISPATCH_TAIL: &str = " stripped (dispatch judgment bug)";
@@ -264,7 +265,7 @@ fn reject_message(fam_id: u64, buf: &mut [u8; REJECT_MSG_CAP]) -> usize {
         n if n < ARM_FAMILY_COUNT => (n as usize, REJECT_METHOD_FAMILY, REJECT_DISPATCH_TAIL),
         15 => (SUBJ_NS_STATIC, "", REJECT_DISPATCH_TAIL),
         16..40 => (SUBJ_PRINTER, "", REJECT_DISPATCH_TAIL),
-        40..=56 => (
+        40..=57 => (
             SUBJ_LINK_FIRST + (fam_id - 40) as usize,
             "",
             REJECT_LINK_TAIL,
@@ -341,7 +342,8 @@ mod tests {
             56,
             "typed-array keyed any read stripped (link judgment bug)",
         );
-        assert_line(57, "method family stripped (dispatch judgment bug)");
+        assert_line(57, "struct field-read guard stripped (link judgment bug)");
+        assert_line(58, "method family stripped (dispatch judgment bug)");
         assert_line(u64::MAX, "method family stripped (dispatch judgment bug)");
     }
 

@@ -28,9 +28,15 @@
 //!   seams release the expando bag at +24 — admitted only when every
 //!   store into that word is a null constant
 //!
-//! * the field-write guard `check_field_writable(%b, name)`: it reads
-//!   FROZEN / EXOTIC_FIELD, whose only writers take the cell as an
-//!   argument (`obj_freeze`, `obj_flag_exotic_field`), which rejects it
+//! * the field-write guard's slow leg `field_set_exotic(%b, name, ..)`:
+//!   it is reached only under FROZEN / EXOTIC_FIELD, whose only writers
+//!   take the cell as an argument (`obj_freeze`, `obj_flag_exotic_field`),
+//!   which rejects it; the payload it carries escapes as usual, and its
+//!   answer folds to 1, the store the leg would have let through
+//!
+//! * the field-read guard's slow leg `field_get_exotic(%b, name)`,
+//!   reached under EXOTIC_FIELD alone: the call goes, leaving the
+//!   bare slot load behind a header test no writer can make true
 //!
 //! The same allowlist applies to the candidate's aliases through
 //! unescaped stack slots (`owners`): the inliner's return slot and a
@@ -62,7 +68,11 @@ mod owners;
 const OBJ_ALLOC: &str = "__torajs_obj_alloc";
 const OBJ_DROP_SIZED: &str = "__torajs_obj_drop_sized";
 const OBJ_FREE_CELL: &str = "__torajs_obj_free_cell";
-const FIELD_GUARD: &str = "__torajs_obj_check_field_writable";
+/// The typed field store's and field read's slow legs.
+const FIELD_LEGS: [&str; 2] = [
+    "__torajs_obj_field_set_exotic",
+    "__torajs_obj_field_get_exotic",
+];
 /// Seams that only touch runtime state `%b` cannot be in.
 const INERT_SEAMS: &[&str] = &["__torajs_weakref_target_dying"];
 /// Seams that release the expando bag at `PROPS_OFF`.
@@ -96,7 +106,7 @@ struct Fids {
     alloc: FuncId,
     drop_sized: Option<FuncId>,
     free_cell: Option<FuncId>,
-    guard: Option<FuncId>,
+    legs: HashSet<FuncId>,
     inert: HashSet<FuncId>,
     props: HashSet<FuncId>,
 }
@@ -117,7 +127,7 @@ pub fn promote_module(module: &mut Module) -> HeapToStackStats {
         alloc,
         drop_sized: fid(OBJ_DROP_SIZED),
         free_cell: fid(OBJ_FREE_CELL),
-        guard: fid(FIELD_GUARD),
+        legs: FIELD_LEGS.iter().filter_map(|n| fid(n)).collect(),
         inert: INERT_SEAMS.iter().filter_map(|n| fid(n)).collect(),
         props: PROPS_SEAMS.iter().filter_map(|n| fid(n)).collect(),
     };
@@ -189,7 +199,9 @@ fn promote_in_function(func: &mut Function, fids: &Fids, stats: &mut HeapToStack
                     [b] if Some(*f) == fids.free_cell && own(b).is_some() => {}
                     [Operand::Value(_)] if fids.inert.contains(f) => {}
                     [b] if fids.props.contains(f) => props_seam_users.extend(own(b)),
-                    [b, name] if Some(*f) == fids.guard && own(b).is_some() => mark(name, &mut bad),
+                    [b, rest @ ..] if fids.legs.contains(f) && own(b).is_some() => {
+                        rest.iter().for_each(|a| mark(a, &mut bad))
+                    }
                     _ => args.iter().for_each(|a| mark(a, &mut bad)),
                 },
                 other => visit_value_operands(other, |v| mark(&Operand::Value(v), &mut bad)),
@@ -246,6 +258,9 @@ fn apply(
                 true
             }
             InstKind::Call(_, args) if args.first().is_some_and(|a| own(a).is_some()) => {
+                if let Some(r) = inst.result {
+                    replace.insert(r, Operand::ConstI64(1));
+                }
                 stats.calls_removed += 1;
                 false
             }
@@ -391,6 +406,83 @@ mod tests {
         let insts = &m.funcs[5].blocks[0].insts;
         assert!(matches!(insts[0].kind, InstKind::AllocaBytes(56)));
         assert!(!insts.iter().any(|i| matches!(i.kind, InstKind::Call(..))));
+    }
+
+    /// the field-write leg on the cell itself is never reached (nothing
+    /// passed the cell to a header-bit writer); its answer folds to the
+    /// store it would have let through
+    fn with_field_leg(payload: Operand) -> Module {
+        let leg = vec![
+            Operand::ConstPtrNull,
+            Operand::ConstI64(4),
+            payload,
+            Operand::ConstI64(1),
+        ];
+        let tail = vec![
+            val(3, InstKind::Call(FuncId(7), [vec![B], leg].concat())),
+            val(
+                4,
+                InstKind::ICmp(IPred::Ne, Operand::Value(ValueId(3)), Operand::ConstI64(0)),
+            ),
+        ];
+        let mut m = module_with(cell(Operand::ConstPtrNull, tail));
+        m.funcs.push(decl(FIELD_LEGS[0]));
+        let i64_info = ValueInfo {
+            ty: Type::I64,
+            name: None,
+        };
+        m.funcs[5].values.resize(5, i64_info);
+        m
+    }
+
+    #[test]
+    fn field_set_leg_on_the_cell_folds_to_the_store() {
+        let mut m = with_field_leg(Operand::ConstI64(9));
+        let stats = promote_module(&mut m);
+        assert_eq!((stats.promoted, stats.calls_removed), (1, 4));
+        let insts = &m.funcs[5].blocks[0].insts;
+        assert!(!insts.iter().any(|i| matches!(i.kind, InstKind::Call(..))));
+        assert!(insts.iter().any(|i| matches!(
+            i.kind,
+            InstKind::ICmp(IPred::Ne, Operand::ConstI64(1), Operand::ConstI64(0))
+        )));
+    }
+
+    #[test]
+    fn field_set_leg_carrying_the_cell_as_payload_stays_on_heap() {
+        let mut m = with_field_leg(B);
+        let stats = promote_module(&mut m);
+        assert_eq!((stats.promoted, stats.rejected), (0, 1));
+    }
+
+    /// the field-read leg on the cell is as dead as the write leg; a
+    /// cell passed as its name operand still escapes
+    fn with_read_leg(name: Operand) -> Module {
+        let tail = vec![val(3, InstKind::Call(FuncId(7), vec![B, name]))];
+        let mut m = module_with(cell(Operand::ConstPtrNull, tail));
+        m.funcs.push(decl(FIELD_LEGS[1]));
+        let i64_info = ValueInfo {
+            ty: Type::I64,
+            name: None,
+        };
+        m.funcs[5].values.resize(4, i64_info);
+        m
+    }
+
+    #[test]
+    fn field_read_leg_on_the_cell_goes() {
+        let mut m = with_read_leg(Operand::ConstPtrNull);
+        let stats = promote_module(&mut m);
+        assert_eq!((stats.promoted, stats.calls_removed), (1, 4));
+        let insts = &m.funcs[5].blocks[0].insts;
+        assert!(!insts.iter().any(|i| matches!(i.kind, InstKind::Call(..))));
+    }
+
+    #[test]
+    fn field_read_leg_naming_the_cell_stays_on_heap() {
+        let mut m = with_read_leg(B);
+        let stats = promote_module(&mut m);
+        assert_eq!((stats.promoted, stats.rejected), (0, 1));
     }
 
     #[test]

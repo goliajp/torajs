@@ -686,7 +686,7 @@ pub(crate) fn build(
         obj_freeze_any: init_c.print_freeze.obj_freeze_any,
         obj_is_frozen: init_c.print_freeze.obj_is_frozen,
         obj_check_not_frozen: init_c.print_freeze.obj_check_not_frozen,
-        obj_check_field_writable: init_c.print_freeze.obj_check_field_writable,
+        obj_field_set_exotic: init_c.print_freeze.obj_field_set_exotic,
         microtask_drain: init_c.runtime_misc.microtask_drain,
         host_jobs_drain: init_c.runtime_misc.host_jobs_drain,
         microtask_enqueue_closure: init_d.promise.microtask_enqueue_closure,

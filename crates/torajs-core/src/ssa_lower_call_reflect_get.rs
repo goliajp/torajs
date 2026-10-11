@@ -98,7 +98,11 @@ pub(crate) fn try_lower(
                 .any(|(n, _)| n.as_wtf8() == w)
     };
     let (key, _) = match (literal_key, matches!(obj_ty_probe, Type::Obj(_))) {
-        (Some(k), true) if key_is_data_field(ctx, &k) => (k, ()),
+        // a field the program can turn into an accessor is read by
+        // [[Get]] on the general lane, which runs the getter
+        (Some(k), true) if key_is_data_field(ctx, &k) && !ctx.ast.accessor_field_names.may(&k) => {
+            (k, ())
+        }
         _ => return Some(lower_general(ctx, args, obj_op)),
     };
     // ES §28.1.6 receiver arg + trailing silently ignored in the typed-

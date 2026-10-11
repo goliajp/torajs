@@ -73,12 +73,14 @@ pub(crate) unsafe fn set_obj_member(
         }
         // A declared field redefined as an accessor keeps its pair in
         // the sidecar (`struct_probe::declared_accessor_sidecar`): the
-        // write runs its setter — the dict accessor arm's ledger, the
-        // setter consuming the value — and a getter-only pair refuses.
+        // write runs its setter, which borrows the value, and a
+        // getter-only pair refuses; either way the payload is spent here
         if crate::struct_probe::declared_accessor_sidecar(ptr, key) {
             let props = crate::member_get_layout::struct_props(ptr);
             let pair = __torajs_dynobj_get_value(props, key) as *const c_void;
-            if __torajs_accessor_invoke_setter(pair, recv, value_anyv) == 0 {
+            let ran = __torajs_accessor_invoke_setter(pair, recv, value_anyv);
+            drop_payload(tag, value);
+            if ran == 0 {
                 if throw_on_refusal {
                     crate::member_set::__torajs_throw_type_error(
                         c"Attempted to assign to readonly property.".as_ptr(),

@@ -210,11 +210,13 @@ pub(crate) fn emit_prop_value(
     match prop.src {
         PropSource::Data { idx, ty } => {
             let off = OBJ_HEADER_SIZE + (idx as u64) * 8;
-            let cur = ctx.cur_block;
-            let v = ctx
-                .f
-                .append_inst(cur, InstKind::Load(ty, *obj, off), ty, None);
-            (Operand::Value(v), false)
+            crate::ssa_lower_member_obj_field::exotic_read::slot_value(
+                ctx,
+                None,
+                *obj,
+                (off, ty),
+                &prop.key.lossy(),
+            )
         }
         // Blade 1's `(__env, __this)` ABI — a getter is a zero-arg
         // method on the receiver. Its result is owned.

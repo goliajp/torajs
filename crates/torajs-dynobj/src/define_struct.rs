@@ -369,9 +369,9 @@ pub(crate) unsafe fn redefine_declared_field(
 
 /// Raise `FLAG_OBJ_EXOTIC_FIELD` on a struct cell — the one writer of
 /// that bit, and so (r503) a link-guard anchor: the typed field-write
-/// guard is stubbed when this atom and `__torajs_obj_freeze` are both
-/// dead. `inline(never)` keeps the atom whole under its in-crate
-/// caller.
+/// slow leg is stubbed when this atom and `__torajs_obj_freeze` are both
+/// dead, the field-read leg when this atom is. `inline(never)` keeps the
+/// atom whole under its in-crate caller.
 ///
 /// # Safety
 /// `obj` is a live `Tag::Obj` cell.

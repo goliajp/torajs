@@ -140,7 +140,7 @@ impl Scan<'_> {
                 }
                 self.expr(*expr)
             }
-            Expr::Member { obj, .. } => {
+            Expr::Member { obj, name } => {
                 // RFC 20260713 blade 6 — an any-receiver member READ lowers
                 // to __torajs_any_member_get_tag, which records a pending
                 // TypeError on a null/undefined receiver. Before this rule
@@ -151,8 +151,12 @@ impl Scan<'_> {
                 // SIGSEGV. Mirrors the chunk-701 method-call rule. A typed
                 // receiver raises only through the nullish guard, which
                 // `receiver_raises` answers from the lowering's sources.
+                // a class instance's field read runs a getter once the
+                // program can install one there (`accessor_field_names`)
                 if matches!(self.expr_types.get(obj), Some(crate::check::Type::Any))
                     || self.receiver_raises(*obj)
+                    || (ast.accessor_field_names.may(name)
+                        && obj_cast::object_ty(self.expr_types.get(obj)))
                 {
                     self.direct = true;
                 }
@@ -188,7 +192,8 @@ impl Scan<'_> {
                 }
             }
             Expr::ObjectLit { fields } => {
-                for (_, e) in fields {
+                for (k, e) in fields {
+                    self.direct |= shapes::spread_runs_getters(ast, self.expr_types, k, *e);
                     self.expr(*e);
                 }
             }
@@ -237,7 +242,14 @@ impl Scan<'_> {
                 self.expr(*left);
                 self.expr(*right);
             }
-            Expr::OptChain { obj, .. } => self.expr(*obj),
+            Expr::OptChain { obj, name } => {
+                if ast.accessor_field_names.may(name)
+                    && obj_cast::object_ty(self.expr_types.get(obj))
+                {
+                    self.direct = true;
+                }
+                self.expr(*obj)
+            }
             Expr::OptIndex { obj, index } => self.opt_index_read(*obj, *index),
             // `f?.(…)` — the callee is a dynamic value (any_call raises a
             // catchable TypeError on non-callables; a statically-plain

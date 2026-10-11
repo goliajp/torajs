@@ -328,21 +328,28 @@ fn lower_member(
     };
     let field_ty = ctx.struct_layouts[sid.0 as usize][idx].1;
     let offset = OBJ_HEADER_SIZE + (idx as u64) * 8;
-    let cur_block = ctx.cur_block;
-    let old = ctx.f.append_inst(
-        cur_block,
-        InstKind::Load(field_ty, obj_val, offset),
-        field_ty,
-        None,
+    let guarded = crate::ssa_lower_member_obj_field::exotic_read::guarded_load(
+        ctx,
+        eid,
+        obj,
+        obj_val,
+        (offset, field_ty),
+        &field,
     );
+    let old = guarded.unwrap_or_else(|| {
+        let cur_block = ctx.cur_block;
+        Operand::Value(ctx.f.append_inst(
+            cur_block,
+            InstKind::Load(field_ty, obj_val, offset),
+            field_ty,
+            None,
+        ))
+    });
     let (one, op) = incr_op_one(field_ty, step.is_inc);
     let cur_block = ctx.cur_block;
-    let new_v = ctx.f.append_inst(
-        cur_block,
-        InstKind::BinOp(op, Operand::Value(old), one),
-        field_ty,
-        None,
-    );
+    let new_v = ctx
+        .f
+        .append_inst(cur_block, InstKind::BinOp(op, old, one), field_ty, None);
     // `o.k++` ends in PutValue (§13.4.4.1 step 5), so it owes the
     // §10.1.9 writable gate the same as `o.k = v` does — the read and
     // the ToNumeric step come first, then the store may raise. This
@@ -351,18 +358,18 @@ fn lower_member(
     // it wrote through the freeze and answered "after", while the
     // plain-assign spelling of the same field threw. Same guard, one
     // definition — the `Store` below rides the block it leaves us on.
-    crate::ssa_lower_assign_member_field::guard::emit_field_writable_guard(
-        ctx, obj, obj_val, &field,
-    );
+    use crate::ssa_lower_assign_member_field::guard;
+    let done = guard::emit_field_writable_guard(ctx, obj, obj_val, &field, Operand::Value(new_v));
     let store_block = ctx.cur_block;
     ctx.f.append_void(
         store_block,
         InstKind::Store(Operand::Value(new_v), obj_val, offset),
     );
+    guard::finish_guarded_store(ctx, done);
     if step.is_prefix {
         Operand::Value(new_v)
     } else {
-        Operand::Value(old)
+        old
     }
 }
 

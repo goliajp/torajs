@@ -23,7 +23,14 @@ unsafe extern "C" {
     fn __torajs_cycle_buffer(p: *mut core::ffi::c_void);
     fn __torajs_uncaught_error_render_impl(p: *const u8);
     fn __torajs_anyv_rc_dec(v: u64);
-    fn __torajs_obj_check_field_writable_impl(p: *const u8, name: *const u8);
+    fn __torajs_obj_field_set_exotic_impl(
+        p: *mut u8,
+        name: *mut u8,
+        tag: u64,
+        value: u64,
+        strict: i64,
+    ) -> i64;
+    fn __torajs_obj_field_get_exotic_impl(p: *mut u8, name: *const u8) -> u64;
     fn __torajs_arr_sort_exotic_impl(arr: *mut core::ffi::c_void, cmp: u64) -> u64;
     fn __torajs_arr_mark_last_hole(arr: *mut core::ffi::c_void);
     fn __torajs_arr_typed_nonint_f64_impl(arr: *mut core::ffi::c_void, key: f64) -> f64;
@@ -116,18 +123,40 @@ pub unsafe extern "C" fn __torajs_arr_sort_exotic(arr: *mut core::ffi::c_void, c
     unsafe { __torajs_anyv_rc_dec(__torajs_arr_sort_exotic_impl(arr, cmp)) }
 }
 
-/// Default resolution of the typed field-write guard (r503): the
-/// frozen / redefined-field refusal behind every `instance.field =
-/// v` store, called only when the header bits hit. The link judgment
-/// stubs it (fam 50) when neither bit has a live writer
-/// (`__torajs_obj_freeze` / `__torajs_obj_flag_exotic_field`), and
-/// the refusal's throw world leaves with it.
+/// Default resolution of the typed field-write slow leg (r503): the
+/// §10.1.9.2 [[Set]] behind every `instance.field = v` store, called
+/// only when the header bits hit — a frozen instance, or one whose
+/// declared fields were redefined, deleted or shadowed. Answers 1 when
+/// the payload was written or a setter ran, 0 for a sloppy refusal.
+/// The link judgment stubs it (fam 50) when neither bit has a live
+/// writer (`__torajs_obj_freeze` / `__torajs_obj_flag_exotic_field`),
+/// and the any-lane [[Set]] leaves with it.
 ///
 /// # Safety
-/// `p` is NULL or a live heap pointer; `name` is a live Str cell.
+/// `p` is a live `Tag::Obj` cell; `name` is a live Str cell;
+/// `(tag, value)` is the caller's owned payload.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_obj_check_field_writable(p: *const u8, name: *const u8) {
-    unsafe { __torajs_obj_check_field_writable_impl(p, name) }
+pub unsafe extern "C" fn __torajs_obj_field_set_exotic(
+    p: *mut u8,
+    name: *mut u8,
+    tag: u64,
+    value: u64,
+    strict: i64,
+) -> i64 {
+    unsafe { __torajs_obj_field_set_exotic_impl(p, name, tag, value, strict) }
+}
+
+/// Default resolution of the typed field-read slow leg: the §10.1.8.1
+/// [[Get]] behind an `instance.field` load once the instance's declared
+/// fields were redefined (an accessor answers through its getter), the
+/// result owned. Stubbed (fam 57) when `__torajs_obj_flag_exotic_field`,
+/// the bit's one writer, is dead.
+///
+/// # Safety
+/// `p` is a live `Tag::Obj` cell; `name` is a live Str cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_obj_field_get_exotic(p: *mut u8, name: *const u8) -> u64 {
+    unsafe { __torajs_obj_field_get_exotic_impl(p, name) }
 }
 
 /// Default resolution of a class prologue cell's exit release (r503):

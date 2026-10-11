@@ -1,0 +1,16 @@
+number from string true cannot read string through the field `v: number`
+number from object true cannot read object through the field `v: number`
+number from undefined true cannot read undefined through the field `v: number`
+optional number from undefined undefined
+optional number from number 3
+number from number 5
+string from number true cannot read number through the field `s: string`
+optional string from undefined undefined
+string from undefined true cannot read undefined through the field `s: string`
+string from string ok!
+boolean from number true cannot read number through the field `b: boolean`
+boolean from boolean true
+bigint from number true cannot read number through the field `n: bigint`
+bigint from bigint 6n
+closure from another closure true cannot read function through the field `f: function`
+closure from number true cannot read number through the field `f: function`

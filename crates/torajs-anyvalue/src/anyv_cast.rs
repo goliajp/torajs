@@ -110,7 +110,7 @@ fn format_msg<'a>(site: &[u8], class: &[u8], buf: &'a mut [u8; 256]) -> &'a [u8]
 /// # Safety
 /// `site` is a live Str block with a one-byte-per-unit payload; a cell
 /// payload of `v` is live.
-unsafe fn reject(v: AnyValue, site: *const u8) {
+pub(crate) unsafe fn reject(v: AnyValue, site: *const u8) {
     let len = unsafe { site.add(STR_LEN_OFF).cast::<u32>().read_unaligned() } as usize;
     let site = unsafe { core::slice::from_raw_parts(site.add(STR_HDR_SIZE), len) };
     let mut buf = [0u8; 256];

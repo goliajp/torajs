@@ -98,11 +98,10 @@ pub(crate) struct PrintFreezeIds {
     pub obj_freeze_any: FuncId,
     pub obj_is_frozen: FuncId,
     pub obj_check_not_frozen: FuncId,
-    /// RFC 20260806-declared-field-redefine — successor guard at the
-    /// typed `instance.field = v` site: asks about the field's
-    /// writability as well as the cell's frozen bit, for one wider
-    /// immediate in the test the frozen-only guard already ran.
-    pub obj_check_field_writable: FuncId,
+    /// The slow leg behind the typed `instance.field = v` store once the
+    /// cell's header says it is frozen or its declared fields were
+    /// redefined: the any-lane [[Set]].
+    pub obj_field_set_exotic: FuncId,
 }
 
 // CARVE-OUT: dispatch table — a flat declare_intrinsic list (one
@@ -344,12 +343,12 @@ pub(crate) fn declare(
             &[Type::Ptr],
             Type::Void,
         ),
-        obj_check_field_writable: declare_intrinsic(
+        obj_field_set_exotic: declare_intrinsic(
             module,
             fn_table,
-            "__torajs_obj_check_field_writable",
-            &[Type::Ptr, Type::Str],
-            Type::Void,
+            "__torajs_obj_field_set_exotic",
+            &[Type::Ptr, Type::Str, Type::I64, Type::I64, Type::I64],
+            Type::I64,
         ),
     }
 }

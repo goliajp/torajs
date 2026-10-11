@@ -4,7 +4,7 @@
 /// entries whose text liveness un-assumes the stub, landing-pad fam
 /// id). The join seam's enabler is the exotic-flag writer; the
 /// species probe's enablers are the two props-bag creators.
-pub(super) const SYMBOL_STUBS: [(&str, &[&str], u32); 14] = [
+pub(super) const SYMBOL_STUBS: [(&str, &[&str], u32); 15] = [
     (
         "___torajs_arr_join_exotic",
         &["___torajs_arr_flag_exotic"],
@@ -70,11 +70,17 @@ pub(super) const SYMBOL_STUBS: [(&str, &[&str], u32); 14] = [
     // the typed field-write guard (r503): a struct cell's store is
     // anything but one store only under FLAG_FROZEN (written by
     // `__torajs_obj_freeze` alone) or FLAG_OBJ_EXOTIC_FIELD (written
-    // by `__torajs_obj_flag_exotic_field` alone).
+    // by `__torajs_obj_flag_exotic_field` alone); the read guard asks
+    // only the second bit.
     (
-        "___torajs_obj_check_field_writable",
+        "___torajs_obj_field_set_exotic",
         &["___torajs_obj_freeze", "___torajs_obj_flag_exotic_field"],
         50,
+    ),
+    (
+        "___torajs_obj_field_get_exotic",
+        &["___torajs_obj_flag_exotic_field"],
+        57,
     ),
     // the typed sort lane's exotic divert: taken only under
     // FLAG_ARR_EXOTIC_INDEX (`__torajs_arr_flag_exotic` alone) or
