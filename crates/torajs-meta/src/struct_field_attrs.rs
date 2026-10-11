@@ -20,6 +20,10 @@ use core::ffi::c_void;
 
 use crate::obj_own_keys_struct::struct_props;
 
+mod shadow;
+pub use shadow::__torajs_obj_field_shadow;
+pub(crate) use shadow::slot_or_shadow;
+
 unsafe extern "C" {
     fn __torajs_struct_layout_lookup(class_tag: u32) -> *const c_void;
     fn __torajs_struct_field_find(layout: *const c_void, name: *const u8, name_len: u32) -> u32;
@@ -114,60 +118,6 @@ pub unsafe extern "C" fn __torajs_obj_field_is_nonenumerable(
     0
 }
 
-/// The shadow value of the DECLARED field named by `name` (RFC
-/// 20260915-declared-field-shadow): a sidecar whose value word is
-/// neither the attribute-only filler nor the deletion HOLE holds the
-/// value the any lane wrote past the slot's type. Writes the box
-/// (BORROWED — the sidecar keeps the stake) to `out` and answers 1;
-/// 0 = read the slot. Bytes spelling and the header-bit gate as
-/// [`__torajs_obj_field_is_deleted`].
-///
-/// # Safety
-/// `cell` is a live `Tag::Obj` heap pointer; `name` points at
-/// `name_len` readable bytes; `out` is writable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_obj_field_shadow(
-    cell: *const c_void,
-    name: *const u8,
-    name_len: u32,
-    out: *mut u64,
-) -> i64 {
-    let flags = unsafe { cell.cast::<u8>().add(6).cast::<u16>().read() };
-    if flags & OBJ_HDR_FLAG_EXOTIC_FIELD == 0 {
-        return 0;
-    }
-    let props = unsafe { struct_props(cell) };
-    if props.is_null() {
-        return 0;
-    }
-    let want = unsafe { core::slice::from_raw_parts(name, name_len as usize) };
-    let n = unsafe { __torajs_dynobj_iter_len(props) };
-    for i in 0..n {
-        let key = unsafe { __torajs_dynobj_iter_key(props, i) };
-        if key.is_null() || unsafe { crate::str_wtf8::StrWtf8::of(key) }.as_bytes() != want {
-            continue;
-        }
-        let w = unsafe { __torajs_dynobj_iter_value(props, i) };
-        if w == crate::reflect::VALUE_UNDEFINED_IMM || w == DYNOBJ_HOLE_SENTINEL {
-            return 0;
-        }
-        // A shadowed `undefined` is spelled as the immortal undef
-        // cell so it stays distinct from the filler; readers get the
-        // immediate back.
-        let is_undef_cell = unsafe { __torajs_anyv_unbox_tag(w) } == 4
-            && unsafe { __torajs_is_undef_cell(__torajs_anyv_unbox_value(w) as *const u8) } != 0;
-        unsafe {
-            out.write(if is_undef_cell {
-                crate::reflect::VALUE_UNDEFINED_IMM
-            } else {
-                w
-            })
-        };
-        return 1;
-    }
-    0
-}
-
 /// Does the layout of `cell` declare the key of dict entry `pi` — i.e.
 /// is that entry a sidecar (attributes / shadow / deletion record)
 /// rather than an own expando? Enumeration faces skip it; the layout
@@ -190,28 +140,6 @@ pub(crate) unsafe fn expando_key_declared(
     }
     let key = unsafe { __torajs_dynobj_iter_key(props, pi) };
     !key.is_null() && unsafe { __torajs_obj_declared_field_attrs(cell as *mut c_void, key) } >= 0
-}
-
-/// What a value-reading face decodes for a declared field: the
-/// shadow as an Any slot (`type_tag` 0) when one exists, else the
-/// slot's own `(type_tag, raw)`. One spelling for the three faces
-/// (`Object.values` / gOPD / inspect) so they cannot drift.
-///
-/// # Safety
-/// As [`__torajs_obj_field_shadow`].
-pub(crate) unsafe fn slot_or_shadow(
-    cell: *const c_void,
-    name: *const u8,
-    name_len: usize,
-    type_tag: u8,
-    raw: u64,
-) -> (u8, u64) {
-    let mut shadow = 0u64;
-    if unsafe { __torajs_obj_field_shadow(cell, name, name_len as u32, &mut shadow) } != 0 {
-        (0, shadow)
-    } else {
-        (type_tag, raw)
-    }
 }
 
 /// Is the DECLARED field named by `name` deleted (RFC

@@ -24,6 +24,9 @@ use crate::check_type_ann::{
 };
 use std::collections::HashMap;
 
+mod synth_spelling;
+use synth_spelling::synthesized_spelling;
+
 /// Pass 0 — install the alias tables read off `ast.stmts`; see
 /// [`collect_type_alias_tables`] for the two phases.
 ///
@@ -394,82 +397,4 @@ pub(crate) fn pass_2_register_globals_and_check_stmts(c: &mut Checker, ast: &Ast
     let saved_hoists = crate::check_hoist_closure_lets::enter(c, ast, &ast.stmts);
     crate::check_gen_env::check_stmts(c, ast);
     c.hoisted_closure_lets = saved_hoists;
-}
-
-/// The annotation spelling an UN-annotated top-level binding registers
-/// from, when a named function body reads it (named functions have no
-/// capture machinery; a captured binding, mutable or not, takes the
-/// same global home — the capture filter resolves it there and the
-/// lifted body's writes take the global lane). `None` keeps the binding
-/// main-local. The lowerer parses the recorded string for the slot, so
-/// the checker's type and the slot's cannot drift. The flag says the
-/// init was widened to `any` (a cross-type write, or a literal only the
-/// `any` slot can hold): its main binding widens too.
-///
-/// The arms, in order:
-/// - a dynobj-degraded object literal is `any` — the degrade IS the
-///   any-lane routing decision (`crate::dynobj_degrade`);
-/// - an init a cross-type write widened is `any` (`let_widen`);
-/// - a lifted arrow spells the signature synthesized from its lifted
-///   decl's annotations (a variadic one carries its rest sentinel: the
-///   lowerer gives it a Closure slot from the same string and routes
-///   its calls through the boxed dual entry);
-/// - an alias of such a binding (`const c = k`) spells the same;
-/// - an all-literal object literal spells its `__inlobj(...)`, an
-///   all-literal array its `T[]`, a `new C()` its class or collection;
-/// - a literal / operator / named-fn-call init spells its scalar
-///   shape (`ast_refs::infer_toplevel_slot_shape`);
-/// - a call result or literal no shape names, but the `any` slot can
-///   hold (the test262 IIFE-iterator idiom), is `any`.
-///   `var` stays main-local in every arm but the scalar shape (the hoist
-///   escape hatch converts it first): the lowerer's promote loop only
-///   takes `is_var: false`, and a checker-only registration would
-///   typecheck programs whose lowering still aborts.
-fn synthesized_spelling(
-    c: &Checker,
-    ast: &Ast,
-    name: &str,
-    init: ExprId,
-    is_var: bool,
-    binding_refs: &crate::ast_refs::ToplevelBindingRefs,
-) -> Option<(String, bool)> {
-    if !binding_refs.named_fn_refs.contains(name) {
-        return None;
-    }
-    if !is_var && c.dynobj_degraded.contains(&init) {
-        return Some(("any".into(), false));
-    }
-    if !is_var && c.cross_type_widened.contains(&init) {
-        return Some(("any".into(), true));
-    }
-    if let Expr::Closure { fn_name, .. } = ast.get_expr(init) {
-        if is_var {
-            return None;
-        }
-        return crate::ast_refs::lifted_closure_fn_canon(ast, fn_name).map(|s| (s, false));
-    }
-    if !is_var
-        && let Some(ann) = crate::ast_refs::closure_alias_fn_canon(ast, init)
-            .or_else(|| crate::ast_refs::objlit_literal_inlobj_ann(ast, init))
-            .or_else(|| crate::ast_refs_arrlit::arrlit_literal_elem_ann(ast, init))
-            .or_else(|| crate::ast_refs::new_class_ann(ast, init))
-            .or_else(|| crate::ast_refs::collection_new_ann(ast, init))
-    {
-        return Some((ann, false));
-    }
-    if let Some(shape) = crate::ast_refs::infer_toplevel_slot_shape(ast, init) {
-        use crate::ast_refs::GlobalSlotShape as S;
-        let spelling = match shape {
-            S::I64 => "number",
-            S::F64 => "f64",
-            S::Str => "string",
-            S::Bool => "boolean",
-            S::Symbol => "symbol",
-            S::BigInt => "bigint",
-            S::RegExp => "regex",
-        };
-        return Some((spelling.into(), false));
-    }
-    (!is_var && crate::ast_refs_any_promote::any_promote_init(ast, init))
-        .then(|| ("any".into(), true))
 }
