@@ -1,7 +1,7 @@
 [package]
 name = "torajs-crypto"
-description = "Dependency-free no_std cryptographic primitives: SHA-256 / SHA-384 / SHA-512, HMAC, HKDF, constant-time helpers, and injectable entropy and CPU-feature interfaces. No allocator, no unsafe outside two audited modules."
-keywords = ["crypto", "sha2", "hmac", "hkdf", "no-std"]
+description = "Dependency-free no_std cryptographic primitives: SHA-256 / SHA-384 / SHA-512, HMAC, HKDF, AES-GCM, ChaCha20-Poly1305, constant-time helpers, and injectable entropy and CPU-feature interfaces. No allocator; unsafe only in the wiping routine and the hardware-instruction modules."
+keywords = ["crypto", "aead", "aes-gcm", "chacha20poly1305", "no-std"]
 categories = ["cryptography", "no-std", "no-std::no-alloc"]
 readme = "README.md"
 documentation = "https://docs.rs/torajs-crypto"

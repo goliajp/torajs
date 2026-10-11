@@ -5,8 +5,9 @@
 //! effect is passed in by the caller:
 //!
 //! - randomness through an [`EntropySource`](rand::EntropySource),
-//! - CPU capabilities through a [`CpuFeatures`](cpu::CpuFeatures) value
-//!   (no function takes one yet; the SHA-256 ARMv8 path is chosen at
+//! - CPU capabilities through a [`CpuFeatures`](cpu::CpuFeatures) value,
+//!   which the AES-GCM constructors take to choose between the hardware
+//!   and the portable code (the SHA-256 ARMv8 path is still chosen at
 //!   compile time).
 //!
 //! # Modules
@@ -18,6 +19,7 @@
 //! | [`hmac`] | HMAC (RFC 2104) over any [`Digest`] |
 //! | [`hkdf`] | HKDF extract / expand (RFC 5869) over any [`Digest`] |
 //! | [`aead`] | the [`Aead`] trait, [`AeadError`](aead::AeadError), nonce and tag lengths |
+//! | [`gcm`] | AES-128 / 192 / 256-GCM (NIST SP 800-38D) |
 //! | [`chacha20poly1305`] | ChaCha20-Poly1305 (RFC 8439) |
 //! | [`rand`] | the [`EntropySource`](rand::EntropySource) trait callers implement |
 //! | [`cpu`] | [`CpuFeatures`](cpu::CpuFeatures), the hardware capabilities a caller vouches for |
@@ -43,18 +45,20 @@
 //! # Side-channel rules
 //!
 //! These rules hold for every function in the crate that touches a secret
-//! (keys, MAC states, derived secrets, plaintext, keystream, Poly1305
-//! accumulators):
+//! (keys, MAC states, derived secrets, plaintext, keystream, Poly1305 and
+//! GHASH accumulators):
 //!
 //! 1. A secret never decides a branch, a loop bound, an array index or a
 //!    divisor, and is never compared with an early-exit comparison.
-//! 2. Secret comparisons and selections go through [`ct`]. A [`ct::Choice`]
+//! 2. No secret indexes a table: AES is bitsliced or runs on the AES
+//!    instructions, GHASH multiplies with integer or PMULL instructions.
+//! 3. Secret comparisons and selections go through [`ct`]. A [`ct::Choice`]
 //!    passes through [`core::hint::black_box`] so the optimizer is less
 //!    likely to turn a mask select back into a branch; this lowers the odds
 //!    rather than guaranteeing anything, so the compiled code is audited at
 //!    the instruction level as well.
-//! 3. Lengths are public. Input and output lengths may decide control flow.
-//! 4. Key material owned by a type of this crate is wiped with
+//! 4. Lengths are public. Input and output lengths may decide control flow.
+//! 5. Key material owned by a type of this crate is wiped with
 //!    [`ct::zeroize`] when the value is dropped.
 //!
 //! Public data (hash inputs, signatures, public keys) has no constant-time
@@ -65,8 +69,11 @@
 //!
 //! The crate root denies `unsafe_code` and every module that does not use
 //! hardware intrinsics forbids it. Unsafe code exists in [`ct::zeroize`]
-//! (volatile writes) and in the AArch64 SHA-256 block function, which is
-//! only compiled when the target enables the `sha2` feature at build time.
+//! (volatile writes) and in the AArch64 hardware modules: the SHA-256 block
+//! function, compiled only when the target enables the `sha2` feature at
+//! build time, and the AES and GHASH code, reached only through a
+//! [`CpuFeatures`](cpu::CpuFeatures) value that vouches for the AES and
+//! PMULL instructions.
 //! [`cpu::CpuFeatures::with`] is an `unsafe fn` as a caller contract: the
 //! caller vouches that the CPU has the feature.
 //!
@@ -80,11 +87,13 @@
 extern crate std;
 
 pub mod aead;
+mod aes;
 mod chacha20;
 pub mod chacha20poly1305;
 pub mod cpu;
 pub mod ct;
 mod digest;
+pub mod gcm;
 pub mod hkdf;
 pub mod hmac;
 mod poly1305;

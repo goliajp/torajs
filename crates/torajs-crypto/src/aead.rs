@@ -2,8 +2,9 @@
 //!
 //! [`Aead`] is implemented by
 //! [`ChaCha20Poly1305`](crate::chacha20poly1305::ChaCha20Poly1305)
-//! (RFC 8439). It takes a 96-bit nonce, produces a 128-bit tag, and works
-//! in place on a buffer the caller owns.
+//! (RFC 8439) and by the AES-GCM key types in [`gcm`](crate::gcm)
+//! (NIST SP 800-38D). All of them take a 96-bit nonce and produce a
+//! 128-bit tag, and all of them work in place on a buffer the caller owns.
 //!
 //! ```
 //! use torajs_crypto::Aead;

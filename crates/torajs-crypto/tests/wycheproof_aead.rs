@@ -1,8 +1,9 @@
-//! Project Wycheproof vectors for ChaCha20-Poly1305 (tests/data,
-//! Apache-2.0).
+//! Project Wycheproof vectors for AES-GCM and ChaCha20-Poly1305
+//! (tests/data, Apache-2.0).
 //!
-//! The runner counts the tests against `numberOfTests`, so a parser that
-//! silently skips a group fails.
+//! Every vector runs on the portable code and, where the build has one,
+//! on the hardware path. Both runners count the tests against
+//! `numberOfTests`, so a parser that silently skips a group fails.
 
 mod json;
 
@@ -10,6 +11,8 @@ use json::{Json, unhex};
 use torajs_crypto::Aead;
 use torajs_crypto::aead::{AeadError, TAG_LEN};
 use torajs_crypto::chacha20poly1305::ChaCha20Poly1305;
+use torajs_crypto::cpu::CpuFeatures;
+use torajs_crypto::gcm::{Aes128Gcm, Aes192Gcm, Aes256Gcm};
 
 fn load(name: &str) -> Json {
     let path = format!("{}/tests/data/{name}", env!("CARGO_MANIFEST_DIR"));
@@ -85,6 +88,55 @@ fn check(
         assert_eq!(opened, Err(AeadError), "#{id}: invalid vector accepted");
         assert!(buf.iter().all(|&b| b == 0), "#{id}: buffer not wiped");
     }
+}
+
+fn cpus() -> [CpuFeatures; 2] {
+    [CpuFeatures::portable(), CpuFeatures::compile_time()]
+}
+
+/// Runs one vector on a key type through both the any-length IV methods
+/// and, for 12-byte IVs, the [`Aead`] methods.
+macro_rules! gcm_vector {
+    ($ty:ty, $v:expr, $cpu:expr) => {{
+        let v: &Vector = $v;
+        let k = <$ty>::new(v.key[..].try_into().unwrap(), $cpu);
+        let (iv, aad) = (&v.iv, &v.aad);
+        check(
+            v,
+            |b| k.seal_with_iv(iv, aad, b),
+            |b, t| k.open_with_iv(iv, aad, b, t),
+        );
+        if let Ok(nonce) = <&[u8; 12]>::try_from(&iv[..]) {
+            check(
+                v,
+                |b| k.seal(nonce, aad, b),
+                |b, t| k.open(nonce, aad, b, t),
+            );
+        }
+        if iv.is_empty() {
+            // SP 800-38D requires a non-empty IV; sealing refuses it too
+            let mut buf = v.msg.clone();
+            assert_eq!(k.seal_with_iv(iv, aad, &mut buf), Err(AeadError));
+            assert_eq!(buf, v.msg);
+        }
+    }};
+}
+
+#[test]
+fn aes_gcm() {
+    let mut by_key = [0usize; 3];
+    each("aes_gcm_test.json", |v| {
+        for cpu in cpus() {
+            match v.key.len() {
+                16 => gcm_vector!(Aes128Gcm, v, cpu),
+                24 => gcm_vector!(Aes192Gcm, v, cpu),
+                32 => gcm_vector!(Aes256Gcm, v, cpu),
+                n => panic!("#{}: key length {n}", v.id),
+            }
+        }
+        by_key[v.key.len() / 8 - 2] += 1;
+    });
+    assert_eq!(by_key, [108, 103, 105]);
 }
 
 #[test]

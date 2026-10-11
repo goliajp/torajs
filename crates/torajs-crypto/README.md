@@ -6,6 +6,9 @@ allocator.
 - SHA-256, SHA-384, SHA-512 (FIPS 180-4), streaming and one-shot
 - HMAC (RFC 2104) over any of them, with constant-time tag verification
 - HKDF extract and expand (RFC 5869)
+- AES-128-GCM, AES-192-GCM and AES-256-GCM (NIST SP 800-38D), with an
+  AArch64 path on the AES and PMULL instructions
+- ChaCha20-Poly1305 (RFC 8439)
 - constant-time comparison and selection, and a wiping routine for secrets
 - an `EntropySource` trait for callers to supply randomness
 - a `CpuFeatures` value for callers to supply detected CPU capabilities
@@ -31,6 +34,17 @@ assert!(Hmac::<Sha384>::new(b"key").chain(b"message").verify(&tag).is_ok());
 let prk = Hkdf::<Sha256>::extract(b"salt", b"input keying material");
 let mut okm = [0u8; 32];
 prk.expand(b"context", &mut okm).unwrap();
+
+// AEAD, in place on a caller-owned buffer
+use torajs_crypto::Aead;
+use torajs_crypto::cpu::CpuFeatures;
+use torajs_crypto::gcm::Aes128Gcm;
+
+let key = Aes128Gcm::new(&[0x42; 16], CpuFeatures::compile_time());
+let mut record = *b"hello";
+let tag = key.seal(&[0; 12], b"header", &mut record).unwrap();
+key.open(&[0; 12], b"header", &mut record, &tag).unwrap();
+assert_eq!(&record, b"hello");
 ```
 
 ## Design
@@ -46,8 +60,10 @@ depends on the environment is passed in:
   to choose an implementation. `CpuFeatures::portable()` and
   `CpuFeatures::compile_time()` are safe; adding a feature bit is `unsafe`,
   because claiming a feature the CPU lacks would execute an unsupported
-  instruction. In this release no function takes it yet: the SHA-256
-  ARMv8 path is selected at compile time (`target_feature = "sha2"`).
+  instruction. The AES-GCM constructors take one: with both
+  `Aarch64Aes` and `Aarch64Pmull` set they use the ARMv8 AES and PMULL
+  instructions, otherwise the portable code. The SHA-256 ARMv8 path is
+  still selected at compile time (`target_feature = "sha2"`).
 
 All buffers are provided by the caller. Nothing allocates.
 
@@ -57,15 +73,21 @@ All buffers are provided by the caller. Nothing allocates.
   that depends only on public lengths: no secret-dependent branches,
   indices or early-exit comparisons. Comparisons and selections go through
   the `ct` module.
-- Tag verification (`Hmac::verify`, `Hmac::verify_truncated`) compares in
-  constant time.
-- Types that hold key material (`Hmac`, `Hkdf`) wipe it on drop with
-  volatile writes, so the wipe is not optimized away.
+- No secret indexes a table. The portable AES is bitsliced (the S-box is a
+  Boolean circuit evaluated on all bytes at once) and the portable GHASH
+  multiplies with integer instructions on masked operands.
+- Tag verification (`Hmac::verify`, `Hmac::verify_truncated`, AEAD `open`)
+  compares in constant time. A failed `open` overwrites the caller's buffer
+  with zeros, so unauthenticated plaintext never reaches the caller.
+- Types that hold key material (`Hmac`, `Hkdf`, the AEAD key types) wipe
+  it on drop with volatile writes, so the wipe is not optimized away.
 - `Debug` output of state and key types prints the type name only.
 
-`unsafe` is denied crate-wide. Unsafe code exists in two places only: the
-wiping routine (`ct::zeroize`) and the AArch64 SHA-256 block function, which
-is compiled only when the target enables the `sha2` feature at build time.
+`unsafe` is denied crate-wide. Unsafe code exists in the wiping routine
+(`ct::zeroize`) and in the AArch64 hardware modules: the SHA-256 block
+function, compiled only when the target enables the `sha2` feature at build
+time, and the AES and GHASH code, reached only through a `CpuFeatures` value
+that vouches for the AES and PMULL instructions.
 `CpuFeatures::with` is declared `unsafe fn` as a caller contract and
 contains no unsafe code.
 
@@ -79,12 +101,19 @@ contains no unsafe code.
 ## Testing
 
 Unit tests cover the FIPS 180-4 examples, all RFC 4231 HMAC test cases and
-all RFC 5869 SHA-256 HKDF test cases. `tests/wycheproof.rs` runs the
-Project Wycheproof HMAC and HKDF vectors for SHA-256, SHA-384 and SHA-512
-(the JSON files under `tests/data` come from Project Wycheproof and are
-licensed under Apache-2.0). Build with `RUSTFLAGS="--cfg torajs_crypto_portable"`
-to test the portable code on hardware that would otherwise take an
-accelerated path.
+all RFC 5869 SHA-256 HKDF test cases, the FIPS 197 AES examples, the
+SP 800-38D GCM examples and the RFC 8439 ChaCha20 / Poly1305 / AEAD examples.
+`tests/wycheproof.rs` and `tests/wycheproof_aead.rs` run the Project
+Wycheproof HMAC, HKDF, AES-GCM and ChaCha20-Poly1305 vectors (the JSON files
+under `tests/data` come from Project Wycheproof and are licensed under
+Apache-2.0); AES-GCM vectors run on both the portable and the hardware path.
+A unit test compares the two AES-GCM paths on 100 000 random inputs. Build
+with `RUSTFLAGS="--cfg torajs_crypto_portable"` to test the portable code on
+hardware that would otherwise take an accelerated path.
+
+Two ignored test files hold measurements: `tests/dudect.rs` (statistical
+constant-time checks after dudect) and `tests/throughput.rs` (sealing 16 KiB
+records).
 
 ## Minimum supported Rust version
 
