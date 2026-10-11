@@ -12,7 +12,7 @@ use torajs_core::ssa::{Inst, Operand, Type};
 use super::operand::{
     materialize_const_i64, materialize_operand_fpr, materialize_operand_gpr, operand_is_f64,
 };
-use super::store_pair::zero_word;
+use super::store_pair::{word_in_gpr, zero_word};
 use super::{
     FP_SCRATCH_LHS, FP_SCRATCH_RESULT, OP_SCRATCH_LHS, OP_SCRATCH_RESULT_GPR, OP_SCRATCH_RHS,
     OP_SCRATCH_TMP, write_def_spill_fpr, write_def_spill_gpr, write_u32,
@@ -157,6 +157,14 @@ pub fn emit_store(
     if zero_word(val) {
         let rn = materialize_operand_gpr(bytes, ptr, OP_SCRATCH_RHS, alloc);
         emit_gpr_access(bytes, forms, Gpr::XZR, rn, offset);
+        return;
+    }
+    if let Operand::ConstF64(_) = val {
+        // the bit pattern goes to memory from a GPR: no FMOV into a D
+        // register first
+        let rs = word_in_gpr(bytes, val, OP_SCRATCH_LHS, alloc);
+        let rn = materialize_operand_gpr(bytes, ptr, OP_SCRATCH_RHS, alloc);
+        emit_gpr_access(bytes, &X_STORE, rs, rn, offset);
         return;
     }
     if operand_is_f64(val, alloc) {

@@ -11,13 +11,15 @@
 //! neither store's value depends on the other. A zero is stored from
 //! the zero register — an f64 +0.0 too, whose bits are the integer
 //! zero, so a float literal's zero-filled slots pair like any other —
-//! and the same operand on both sides is materialized once.
+//! and the same operand on both sides is materialized once. Any other
+//! f64 constant is stored as its bit pattern from a general register
+//! too, so it pairs like an integer.
 
 use torajs_core::ssa::id_hash::HashMap;
 
 use torajs_core::ssa::{Function, InstKind, Operand, Type};
 
-use super::operand::{materialize_operand_gpr, operand_is_f64};
+use super::operand::{materialize_const_i64, materialize_operand_gpr, operand_is_f64};
 use super::{OP_SCRATCH_LHS, OP_SCRATCH_RHS, OP_SCRATCH_TMP, write_u32};
 use crate::enc::{stp_w_off, stp_x_off};
 use crate::reg::Gpr;
@@ -35,10 +37,13 @@ pub(super) struct StorePair {
 
 /// Width-class of a store's value: `Some(true)` for a 32-bit store,
 /// `Some(false)` for 64-bit, `None` for one that does not pair (an f64
-/// value lives in the other register file).
+/// value lives in the other register file; an f64 constant does not).
 fn gpr_width(func: &Function, val: &Operand, alloc: &Assignment) -> Option<bool> {
     if zero_word(val) {
         return Some(matches!(val, Operand::ConstI32(_)));
+    }
+    if let Operand::ConstF64(_) = val {
+        return Some(false);
     }
     if operand_is_f64(val, alloc) {
         return None;
@@ -113,22 +118,37 @@ fn same_operand(a: &Operand, b: &Operand) -> bool {
         (Operand::Value(x), Operand::Value(y)) => x == y,
         (Operand::ConstI64(x), Operand::ConstI64(y)) => x == y,
         (Operand::ConstI32(x), Operand::ConstI32(y)) => x == y,
+        (Operand::ConstF64(x), Operand::ConstF64(y)) => x.to_bits() == y.to_bits(),
         _ => false,
     }
+}
+
+/// The stored word in a general register: an f64 constant as its bits.
+pub(super) fn word_in_gpr(
+    bytes: &mut Vec<u8>,
+    op: &Operand,
+    scratch: Gpr,
+    alloc: &Assignment,
+) -> Gpr {
+    if let Operand::ConstF64(c) = op {
+        materialize_const_i64(bytes, scratch, c.to_bits() as i64);
+        return scratch;
+    }
+    materialize_operand_gpr(bytes, op, scratch, alloc)
 }
 
 pub(super) fn emit(bytes: &mut Vec<u8>, p: &StorePair, alloc: &Assignment) {
     let rt = if zero_word(&p.lo) {
         Gpr::XZR
     } else {
-        materialize_operand_gpr(bytes, &p.lo, OP_SCRATCH_LHS, alloc)
+        word_in_gpr(bytes, &p.lo, OP_SCRATCH_LHS, alloc)
     };
     let rt2 = if zero_word(&p.hi) {
         Gpr::XZR
     } else if same_operand(&p.lo, &p.hi) {
         rt
     } else {
-        materialize_operand_gpr(bytes, &p.hi, OP_SCRATCH_TMP, alloc)
+        word_in_gpr(bytes, &p.hi, OP_SCRATCH_TMP, alloc)
     };
     let rn = materialize_operand_gpr(bytes, &p.base, OP_SCRATCH_RHS, alloc);
     let off = p.offset as i32;
@@ -206,9 +226,14 @@ mod tests {
         let w = words(&f);
         let zero_pair = shape(enc::stp_x_off(Gpr::XZR, Gpr::XZR, Gpr::X0, 40));
         assert!(w.iter().any(|x| shape(*x) == zero_pair), "+0.0 pair");
-        // -0.0 lives in the float file: it and its neighbour stay single
+        // -0.0 is stored as its bit pattern from a general register,
+        // so it pairs with its neighbour too
         let x_pairs = w.iter().filter(|x| (*x & 0x7FC0_0000) == 0x2900_0000);
-        assert_eq!(x_pairs.count(), 1);
+        assert_eq!(x_pairs.count(), 2, "{w:08x?}");
+        assert!(
+            !w.iter().any(|x| (*x & 0xFFC0_0000) == 0xFD00_0000),
+            "no STR d"
+        );
     }
 
     #[test]

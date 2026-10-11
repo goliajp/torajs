@@ -116,6 +116,11 @@ pub fn materialize_operand_fpr(
             ),
         },
         Operand::ConstF64(c) => {
+            // +0.0 moves from xzr; fmov #imm stays unused, it measured slower
+            if c.to_bits() == 0 {
+                write_u32(bytes, fmov_d_from_x(fpr_scratch, Gpr::XZR));
+                return fpr_scratch;
+            }
             // `f64::to_bits()` gives the IEEE 754 binary64 word; the
             // FMOV-d-from-x reinterprets those bits as an f64. No NaN
             // canonicalization — the bit pattern survives intact,
@@ -289,6 +294,19 @@ mod tests {
         .flat_map(|w| w.to_le_bytes())
         .collect();
         assert_eq!(compiled.bytes, expected);
+    }
+
+    #[test]
+    fn copy_const_f64_zero_moves_from_the_zero_register() {
+        // +0.0: FMOV d16,xzr, no MOVZ; -0.0 keeps the MOVZ (sign bit)
+        let words = |c: f64| -> Vec<u32> {
+            let compiled = compile_function(&copy_ret_fixture(Type::F64, Operand::ConstF64(c)));
+            (compiled.bytes.as_chunks::<4>().0.iter())
+                .map(|c| u32::from_le_bytes(*c))
+                .collect()
+        };
+        assert_eq!(words(0.0)[0], enc::fmov_d_from_x(Fpr::V16, Gpr::XZR));
+        assert_eq!(words(-0.0)[0], enc::movz_imm(Gpr::X9, 0x8000, 3));
     }
 
     #[test]
