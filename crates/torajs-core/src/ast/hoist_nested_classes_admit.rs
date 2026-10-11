@@ -91,7 +91,7 @@ pub(super) fn class_is_capture_free(ast: &Ast, s: &Stmt, top_names: &[String]) -
     let body_free = |params: &[Param], body: &[Stmt]| -> bool {
         let mut bound = prebound.clone();
         bound.extend(params.iter().map(|p| p.name.clone()));
-        super::free_vars::free_vars_of_body(ast, &bound, body)
+        super::free_vars::free_vars_of_fn(ast, &bound, params, body)
             .iter()
             // `super.m()` parses as a Call to the marker ident
             // `__supercall__m` — desugar_classes rewrites it from the

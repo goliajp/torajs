@@ -5,7 +5,7 @@
 //! this answers "which ones it takes at all". The computed-key
 //! vocabulary both halves speak lives in the sibling `computed_keys`.
 
-use super::super::free_vars::free_vars_of_body;
+use super::super::free_vars::free_vars_of_fn;
 use super::super::{Ast, Param, Stmt, Visibility};
 use super::computed_keys::{key_binding, own_computed_members, sentinel_index};
 
@@ -230,7 +230,7 @@ fn names_compiler_minted(
         // ordinary capture, not a compiler global: `class B { m() {
         // return new A() } }` beside a capturing `A` was refused for
         // naming it.
-        free_vars_of_body(ast, &bound, body).iter().any(|n| {
+        free_vars_of_fn(ast, &bound, params, body).iter().any(|n| {
             n.starts_with("__")
                 && !super::is_es5_class_binding(n)
                 && !(allow_supercall && (n.starts_with("__supercall__") || n == "__superbase__"))

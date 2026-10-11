@@ -12,7 +12,7 @@
 //! [`super::free_vars_expr`]; the two call each other, because a
 //! statement holds expressions and an expression can hold a body.
 
-use super::free_vars_decls::{walk_class_decl, walk_fn_decl};
+use super::free_vars_decls::{walk_class_decl, walk_fn_decl, walk_param_defaults};
 use super::free_vars_expr::walk_expr;
 use super::free_vars_hoisted_names::{hoist_annexb_fn_names, hoist_list_names, hoist_var_names};
 use super::{Ast, ExprId, Param, Stmt};
@@ -54,6 +54,10 @@ pub(super) fn free_vars_of_arrow(
     if let Some(sn) = self_name {
         bound.push(sn.to_string());
     }
+    // The arrow's own defaults are not walked: by the lift each one the
+    // guard lane takes is already in the body (`materialize_expr_defaults`),
+    // and the rest are pasted into call sites by `apply_default_args` — a
+    // capture made for them here is one no copy of them reads.
     free_vars_of_body_rebound(ast, &bound, rebound_globals, body)
 }
 
@@ -77,11 +81,34 @@ pub(super) fn free_vars_of_body_rebound(
     rebound_globals: &[String],
     body: &[Stmt],
 ) -> Vec<String> {
+    free_vars_of_scope(ast, prebound, rebound_globals, &[], body)
+}
+
+/// What a function leaves free: its parameter defaults as well as its
+/// body (see [`walk_param_defaults`]). `prebound` must already hold the
+/// parameter names, as every caller's frame does.
+pub(super) fn free_vars_of_fn(
+    ast: &Ast,
+    prebound: &[String],
+    params: &[Param],
+    body: &[Stmt],
+) -> Vec<String> {
+    free_vars_of_scope(ast, prebound, &[], params, body)
+}
+
+fn free_vars_of_scope(
+    ast: &Ast,
+    prebound: &[String],
+    rebound_globals: &[String],
+    params: &[Param],
+    body: &[Stmt],
+) -> Vec<String> {
     let mut bound = Bound {
         names: prebound.to_vec(),
         rebound_globals,
     };
     let mut out: Vec<String> = Vec::new();
+    walk_param_defaults(ast, params, &mut bound, &mut out);
     hoist_list_names(body, &mut bound.names);
     // `var` is function-scoped, so a declaration written inside a block
     // is bound for the whole body — including after the block, where

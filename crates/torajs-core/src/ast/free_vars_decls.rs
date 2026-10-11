@@ -37,6 +37,7 @@ pub(super) fn walk_fn_decl(
     }
     bound.names.push("arguments".into());
     bound.names.push("__this".into());
+    walk_param_defaults(ast, params, bound, out);
     hoist_list_names(body, &mut bound.names);
     for s in body {
         walk_stmt(ast, s, bound, out);
@@ -84,5 +85,25 @@ pub(super) fn walk_class_decl(
                 bound.names.truncate(saved);
             }
         }
+    }
+}
+
+/// The parameter defaults of one function, walked in its own frame.
+/// §10.2.11 evaluates a default in the function's parameter scope:
+/// every parameter name is bound there (reading a later one is a
+/// runtime TDZ error, never an outer reference) and so are the
+/// function's own `arguments` and `this`, while the body's
+/// declarations are not — so the caller walks these after binding the
+/// params and before hoisting the body's names. A default is a read
+/// of the scope the function was DEFINED in, which is what makes a
+/// name in it a capture.
+pub(super) fn walk_param_defaults(
+    ast: &Ast,
+    params: &[Param],
+    bound: &mut Bound<'_>,
+    out: &mut dyn FreeSink,
+) {
+    for d in params.iter().filter_map(|p| p.default) {
+        walk_expr(ast, d, bound, out);
     }
 }

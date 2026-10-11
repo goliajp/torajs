@@ -60,7 +60,7 @@
 use std::collections::HashSet;
 
 use super::annexb_block_binding::split_block_binding;
-use super::free_vars::free_vars_of_body;
+use super::free_vars::free_vars_of_fn;
 use super::{Ast, Expr, Stmt};
 
 mod walk;
@@ -207,7 +207,7 @@ fn route_list(
                         .filter(|g| !scope.iter().any(|b| b == *g))
                         .cloned(),
                 );
-                free_vars_of_body(ast, &prebound, body)
+                free_vars_of_fn(ast, &prebound, params, body)
             }
             _ => unreachable!("site is a FnDecl"),
         })
