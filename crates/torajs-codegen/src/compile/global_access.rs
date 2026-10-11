@@ -174,7 +174,7 @@ pub(super) fn emit(
             }
         }
         InstKind::Store(val, _, _) => {
-            let word = if super::mem::store_val_is_zero(val) {
+            let word = if super::store_pair::zero_word(val) {
                 emit_page(bytes, relocs, OP_SCRATCH_RHS, sym);
                 str_x_imm12(Gpr::XZR, OP_SCRATCH_RHS, 0)
             } else if operand_is_f64(val, alloc) {

@@ -12,6 +12,7 @@ use torajs_core::ssa::{Inst, Operand, Type};
 use super::operand::{
     materialize_const_i64, materialize_operand_fpr, materialize_operand_gpr, operand_is_f64,
 };
+use super::store_pair::zero_word;
 use super::{
     FP_SCRATCH_LHS, FP_SCRATCH_RESULT, OP_SCRATCH_LHS, OP_SCRATCH_RESULT_GPR, OP_SCRATCH_RHS,
     OP_SCRATCH_TMP, write_def_spill_fpr, write_def_spill_gpr, write_u32,
@@ -139,19 +140,6 @@ pub fn emit_load(
     }
 }
 
-/// A stored constant zero — f64 `+0.0` and i64 `0` share the all-
-/// zero bit pattern — needs no materialization at all: `STR XZR`
-/// writes it directly (S7 knife r0; a 16-slot `[0, 0, …]` array
-/// literal paid MOVZ + FMOV + STR per slot). `-0.0` has a sign bit
-/// and keeps the FPR path.
-pub(super) fn store_val_is_zero(val: &Operand) -> bool {
-    match val {
-        Operand::ConstI64(0) | Operand::ConstI32(0) | Operand::ConstPtrNull => true,
-        Operand::ConstF64(c) => c.to_bits() == 0,
-        _ => false,
-    }
-}
-
 /// Emit `STR Xs/Ws/Ds, [Xn, #offset]` — store the value operand to
 /// the pointer operand at the given byte offset. The value operand
 /// (`val`) decides FP vs GPR via `operand_is_f64`; `w32` (an I32
@@ -166,7 +154,7 @@ pub fn emit_store(
     alloc: &Assignment,
 ) {
     let forms = if w32 { &W_STORE } else { &X_STORE };
-    if store_val_is_zero(val) {
+    if zero_word(val) {
         let rn = materialize_operand_gpr(bytes, ptr, OP_SCRATCH_RHS, alloc);
         emit_gpr_access(bytes, forms, Gpr::XZR, rn, offset);
         return;
@@ -282,7 +270,7 @@ pub fn emit_store_dyn_scaled8(
     idx: &Operand,
     alloc: &Assignment,
 ) {
-    if store_val_is_zero(val) {
+    if zero_word(val) {
         let rn = materialize_operand_gpr(bytes, base, OP_SCRATCH_RHS, alloc);
         let rm = materialize_operand_gpr(bytes, idx, OP_SCRATCH_TMP, alloc);
         write_u32(bytes, str_x_reg_lsl3(Gpr::XZR, rn, rm));
@@ -310,7 +298,7 @@ pub fn emit_store_dyn(
     dyn_offset: &Operand,
     alloc: &Assignment,
 ) {
-    if store_val_is_zero(val) {
+    if zero_word(val) {
         let rn = materialize_operand_gpr(bytes, base, OP_SCRATCH_RHS, alloc);
         let rm = materialize_operand_gpr(bytes, dyn_offset, OP_SCRATCH_TMP, alloc);
         write_u32(bytes, str_x_reg(Gpr::XZR, rn, rm));

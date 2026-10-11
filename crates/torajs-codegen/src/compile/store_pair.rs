@@ -104,7 +104,7 @@ pub(super) fn is_zero(op: &Operand) -> bool {
 
 /// A value stored from the zero register: an integer zero, null, or
 /// +0.0 (not -0.0, whose sign bit is set).
-fn zero_word(op: &Operand) -> bool {
+pub(super) fn zero_word(op: &Operand) -> bool {
     is_zero(op) || matches!(op, Operand::ConstF64(x) if x.to_bits() == 0)
 }
 
