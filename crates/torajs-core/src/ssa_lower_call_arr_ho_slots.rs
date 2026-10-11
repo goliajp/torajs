@@ -7,7 +7,7 @@
 //! the typed accumulator slot for the reduce family) and the dst
 //! element type the callback's return shape dictates.
 
-use crate::ast::ExprId;
+use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type, ValueId};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, intern_arr_layout};
 
@@ -94,6 +94,34 @@ pub(crate) fn resolve_acc_ty(
         }
     }
     acc_ty
+}
+
+/// The explicit reduce init. An empty array literal (under any `as`)
+/// is contextually typed by the accumulator the callback declares —
+/// TS infers the reducer's `U` from it — so it is minted in that
+/// array lane, as under a `const seed: T[] = []` annotation. Minted
+/// as `Arr<Any>` it differed from the callback's return and pushed
+/// the accumulator into the boxed lane, whose box the typed callback
+/// then read as its own array layout.
+pub(crate) fn lower_reduce_init(ctx: &mut LowerCtx<'_>, init: ExprId, fn_ty: Type) -> Operand {
+    let mut lit = init;
+    while let Expr::As { expr, .. } = ctx.ast.get_expr(lit) {
+        lit = *expr;
+    }
+    if let Expr::Array(els) = ctx.ast.get_expr(lit)
+        && els.is_empty()
+        && let Some(acc @ Type::Arr(id)) = ctx.callback_ret_ty(fn_ty)
+        && ctx.arr_layouts[id.0 as usize] != Type::Any
+    {
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.arr_alloc, vec![Operand::ConstI64(0)]),
+            acc,
+            None,
+        );
+        return Operand::Value(v);
+    }
+    ctx.lower_expr(init)
 }
 
 /// `reduce`/`reduceRight`: allocate `__iter_acc`, seed from `init_op`

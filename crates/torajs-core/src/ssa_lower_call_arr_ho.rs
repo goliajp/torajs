@@ -19,7 +19,7 @@ use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_arr_hole_gate::TypedGate;
 use crate::ssa_lower_call_arr_ho_loop::{begin_loop, emit_per_method_body, end_loop_and_produce};
 use crate::ssa_lower_call_arr_ho_slots::{
-    dst_array_type, prepare_acc_slot, prepare_dst_slot, resolve_acc_ty,
+    dst_array_type, lower_reduce_init, prepare_acc_slot, prepare_dst_slot, resolve_acc_ty,
 };
 
 /// Try to lower `<recv>.{map|filter|reduce|reduceRight|forEach}(fn[, init?])`.
@@ -152,7 +152,7 @@ fn lower_higher_order(
     // initialValue) so its static type can pick the acc lane below.
     let is_reduce_family = matches!(method.as_str(), "reduce" | "reduceRight");
     let reduce_init_op = if is_reduce_family && args.len() >= 2 {
-        Some(ctx.lower_expr(args[1]))
+        Some(lower_reduce_init(ctx, args[1], fn_ty))
     } else {
         None
     };
