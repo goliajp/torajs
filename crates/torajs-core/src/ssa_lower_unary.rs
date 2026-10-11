@@ -51,6 +51,15 @@ impl LowerCtx<'_> {
             }
         }
         let v = self.lower_expr(expr);
+        // §13.5.4 — `+any` is ToNumber and the checker types it a
+        // Number: the inline number decode, else the runtime ToNumber
+        // with its throw check, answering an f64.
+        if matches!(op, crate::ast::UnaryOp::Plus)
+            && matches!(self.operand_ty(&v), Type::Any)
+            && matches!(self.expr_types.get(&expr), Some(crate::check::Type::Any))
+        {
+            return self.coerce_any_to_number(v, Type::F64);
+        }
         // P0.9 — Any operand on unary `-` / `+`: route through
         // any_arith. See [`Self::lower_unary_any_arith`].
         if matches!(op, crate::ast::UnaryOp::Neg | crate::ast::UnaryOp::Plus)

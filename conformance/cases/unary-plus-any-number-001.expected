@@ -1,0 +1,22 @@
+number 3 false
+number 2.5 false
+number -0 true
+number 12 false
+number 7 false
+number NaN false
+number 0 false
+number 1 false
+number 0 false
+number 0 false
+number NaN false
+number 5 false
+number NaN false
+number NaN false
+number 9 false
+number 4 false
+number 0 false
+43.5
+TypeError
+TypeError
+boom
+4.5 2 NaN

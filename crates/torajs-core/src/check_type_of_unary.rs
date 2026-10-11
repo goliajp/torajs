@@ -18,9 +18,10 @@
 //!   `Number`/`Boolean`/`Null`/`String`/`Undefined` → `Number`
 //!   (ToNumber(undefined) = NaN per §7.1.4); `BigInt` → the TypeError
 //!   §7.1.4 mandates, **decided here and emitted** (band B — the
-//!   program runs and throws, rather than being refused); `Any`
-//!   (P0.9) → `Any` (identity-Mul to ToNumber, mirrors Neg's
-//!   any_arith).
+//!   program runs and throws, rather than being refused); `Any` →
+//!   `Number` (ToNumber answers a Number or throws); a nullable
+//!   number / boolean → `Any` (identity-Mul to ToNumber, mirrors
+//!   Neg's any_arith).
 //! - **`~`** (BitNot, V3-18 m1.f / spec §13.5.6) — ToInt32 (via
 //!   ToNumber). `Number` → `Number`; `BigInt` → `BigInt` (V3-02:
 //!   `~x` ≡ `-x - 1n`); `Boolean`/`Null`/`Undefined`/`String` →
@@ -70,6 +71,10 @@ pub(crate) fn check(
             }
         }
         UnaryOp::Neg => check_neg(t),
+        // §13.5.4: `+x` is ToNumber(x), whose only answers are a
+        // Number or a throw, so an `any` operand still yields a
+        // Number. A `T | null` keeps the any lane's shape.
+        UnaryOp::Plus if t == Type::Any => Ok(Type::Number),
         UnaryOp::Plus if rides_any_lane(&t) => Ok(Type::Any),
         UnaryOp::Plus => check_plus(t),
         UnaryOp::BitNot => check_bit_not(t),
