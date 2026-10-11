@@ -94,6 +94,12 @@ pub fn tbnz(rt: Gpr, bit: u32, byte_offset: i32) -> u32 {
     0x3700_0000 | ((bit >> 5) << 31) | ((bit & 0x1F) << 19) | (imm14 << 5) | rt.idx()
 }
 
+/// TBZ Rt, #bit, label — Test bit and Branch if Zero; the TBNZ
+/// encoding with op (bit 24) clear. ARM ARM C6.2.372.
+pub fn tbz(rt: Gpr, bit: u32, byte_offset: i32) -> u32 {
+    tbnz(rt, bit, byte_offset) & !(1 << 24)
+}
+
 /// NOP — alignment padding in front of a branch target. ARM ARM
 /// C6.2.238.
 pub fn nop() -> u32 {
@@ -193,6 +199,13 @@ mod tests {
         // `as -arch arm64`: tbnz x9, #50, +12 / tbnz w1, #2, +4
         assert_eq!(tbnz(Gpr::X9, 50, 12), 0xB790_0069);
         assert_eq!(tbnz(Gpr::X1, 2, 4), 0x3710_0021);
+    }
+
+    #[test]
+    fn tbz_matches_assembler() {
+        // `as -arch arm64`: tbz w13, #31, +8 / tbz x9, #50, +0
+        assert_eq!(tbz(Gpr::X13, 31, 8), 0x36F8_004D);
+        assert_eq!(tbz(Gpr::X9, 50, 0), 0xB690_0009);
     }
 
     #[test]

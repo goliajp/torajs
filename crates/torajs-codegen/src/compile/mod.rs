@@ -32,6 +32,7 @@
 
 mod arr_push;
 mod binop;
+mod bittest;
 mod box_any;
 mod brfuse;
 mod call;
@@ -73,7 +74,7 @@ use crate::regalloc::Assignment;
 use crate::reloc::Reloc;
 use entry::{emit_param_entry_moves, emit_stack_param_loads};
 use inst::emit_inst_at;
-use terminator::{BranchFixup, BranchKind, emit_terminator, patch_branch};
+use terminator::{BranchFixup, BranchKind, emit_terminator};
 
 pub use binop::{emit_binop, emit_ctpop, emit_cttz, emit_neg};
 pub use call::{emit_call, emit_call_indirect};
@@ -207,6 +208,27 @@ pub fn compile_function_with(
         alloc.used_callee_fpr_mask,
         alloc.has_calls,
     );
+    // a TBZ / TBNZ that cannot reach its target: emit again without them
+    let (bytes, relocs) = emit_body(func, &alloc, facts, &frame, true)
+        .or_else(|| emit_body(func, &alloc, facts, &frame, false))
+        .expect("without bit-test branches every displacement fits");
+    CompiledFunction {
+        name: func.name.clone(),
+        bytes,
+        relocs,
+        frame,
+    }
+}
+
+/// The function's code and relocations; None when `bit_tests` placed
+/// a bit-test branch out of its reach.
+fn emit_body(
+    func: &Function,
+    alloc: &Assignment,
+    facts: &ModuleFacts,
+    frame: &FrameLayout,
+    bit_tests: bool,
+) -> Option<(Vec<u8>, Vec<Reloc>)> {
     let mut bytes: Vec<u8> = Vec::new();
     let mut relocs: Vec<Reloc> = Vec::new();
     let mut fixups: Vec<BranchFixup> = Vec::new();
@@ -221,7 +243,7 @@ pub fn compile_function_with(
     let shrink = if frame.is_trivial() {
         None
     } else {
-        crate::shrink_wrap::plan(func, &alloc)
+        crate::shrink_wrap::plan(func, alloc)
     };
     let frameless = FrameLayout::leaf_no_spill();
     if shrink.is_none() {
@@ -229,11 +251,11 @@ pub fn compile_function_with(
         // Relocate call-crossing params out of their (caller-saved) arg
         // registers into the callee-saved registers the allocator picked,
         // now that the prologue has saved those registers' prior contents.
-        emit_param_entry_moves(&mut bytes, &alloc);
-        emit_stack_param_loads(&mut bytes, &alloc, &frame);
+        emit_param_entry_moves(&mut bytes, alloc);
+        emit_stack_param_loads(&mut bytes, alloc, frame);
     }
 
-    let fusions = fusions::Fusions::of(func, &alloc, facts);
+    let fusions = fusions::Fusions::of(func, alloc, facts, bit_tests);
 
     // Forwarder-resolved block map, shared by the terminator emit
     // (fall-through elision needs the next block's final identity)
@@ -255,7 +277,7 @@ pub fn compile_function_with(
         }
         block_byte_starts.insert(block.id.0, bytes.len() as u32);
         let (alloc, frame) =
-            landing::open_block(&mut bytes, block, &shrink, &alloc, &frame, &frameless);
+            landing::open_block(&mut bytes, block, &shrink, alloc, frame, &frameless);
         let fused = fusions.cmp_of(block.id.0);
         let sib = sibcall::plan(func, block, &blocks_by_id, alloc, facts, block_slot);
         let body = sib.as_ref().map_or(block.insts.len(), |s| s.at);
@@ -292,24 +314,8 @@ pub fn compile_function_with(
         falls_in = terminator::falls_through(&block.term, &blocks_by_id, next_resolved);
     }
 
-    // Patch every branch fixup with its real displacement. Empty
-    // forwarder blocks (no insts, unconditional Br) redirect the
-    // branch to their final destination first.
-    for fixup in &fixups {
-        let final_target = landing::resolve_forwarded_target(&blocks_by_id, fixup.target_block);
-        let target_byte_offset = *block_byte_starts
-            .get(&final_target.0)
-            .unwrap_or_else(|| panic!("Branch target BlockId({}) not in function", final_target.0));
-        let displacement = target_byte_offset as i32 - fixup.site_byte_offset as i32;
-        patch_branch(&mut bytes, fixup, displacement);
-    }
-
-    CompiledFunction {
-        name: func.name.clone(),
-        bytes,
-        relocs,
-        frame,
-    }
+    let patched = terminator::patch_all(&mut bytes, &fixups, &blocks_by_id, &block_byte_starts);
+    patched.then_some((bytes, relocs))
 }
 
 pub(crate) fn write_u32(bytes: &mut Vec<u8>, word: u32) {

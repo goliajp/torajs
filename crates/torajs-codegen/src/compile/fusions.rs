@@ -40,10 +40,15 @@ pub(super) struct Fusions {
 }
 
 impl Fusions {
-    pub(super) fn of(func: &Function, alloc: &Assignment, facts: &ModuleFacts) -> Self {
+    pub(super) fn of(
+        func: &Function,
+        alloc: &Assignment,
+        facts: &ModuleFacts,
+        bit_tests: bool,
+    ) -> Self {
         let uses = brfuse::count_uses(func);
         Fusions {
-            cmps: brfuse::fusible_cmps(func),
+            cmps: brfuse::fusible_cmps(func, bit_tests),
             select_cmps: brfuse::fusible_select_cmps(func, alloc),
             select_incs: selinc::fusible_select_incs(func),
             store_pairs: store_pair::plan(func, alloc),
@@ -77,8 +82,11 @@ impl Fusions {
             global_access::emit(bytes, relocs, inst, sym, alloc);
             return true;
         }
-        if self.cmps.contains_key(&b) && ii == block.insts.len() - 1 {
-            return true; // the CondBr emits this compare fused
+        if let Some(fc) = self.cmps.get(&b) {
+            let tail = block.insts.len() - 1;
+            if ii == tail || (fc.bits.is_some() && ii + 1 == tail) {
+                return true; // the CondBr emits this compare (and AND) fused
+            }
         }
         if self.select_cmps.contains_key(&(b, i)) {
             return true; // the next Select emits this compare fused

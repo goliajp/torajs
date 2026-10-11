@@ -182,6 +182,7 @@ fn fused_predicate(
             lhs,
             rhs,
             test,
+            bits: None,
         },
         ipred_to_cond(*pred),
     ))

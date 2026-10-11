@@ -16,7 +16,7 @@ use torajs_core::ssa::id_hash::HashMap;
 use torajs_core::ssa::{BlockId, Terminator};
 
 use super::operand::{self, materialize_operand_fpr, materialize_operand_gpr};
-use super::{OP_SCRATCH_LHS, brfuse, landing, write_u32};
+use super::{OP_SCRATCH_LHS, bittest, brfuse, landing, write_u32};
 use crate::enc::{b_imm26, brk_imm16, cbnz_x, cbz_x, mov_d_reg, mov_x_reg, ret};
 use crate::frame::FrameLayout;
 use crate::reg::{Fpr, Gpr};
@@ -28,6 +28,8 @@ pub(super) enum BranchKind {
     Imm26,
     /// CBZ / CBNZ / B.cond — 19-bit signed displacement at bits 23-5.
     Imm19,
+    /// TBZ / TBNZ — 14-bit signed displacement at bits 18-5 (±32 KiB).
+    Imm14,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -59,8 +61,42 @@ pub(super) fn patch_branch(bytes: &mut [u8], fixup: &BranchFixup, displacement: 
             let imm19 = (inst_offset as u32) & 0x7_FFFF;
             (original & !(0x7_FFFF << 5)) | (imm19 << 5)
         }
+        BranchKind::Imm14 => {
+            let imm14 = (inst_offset as u32) & 0x3FFF;
+            (original & !(0x3FFF << 5)) | (imm14 << 5)
+        }
     };
     bytes[offset..offset + 4].copy_from_slice(&patched.to_le_bytes());
+}
+
+/// Patch every branch fixup with its real displacement. Empty
+/// forwarder blocks (no insts, unconditional Br) redirect the branch
+/// to their final destination first. False — nothing patched — when a
+/// TBZ / TBNZ displacement does not fit its 14 bits.
+pub(super) fn patch_all(
+    bytes: &mut [u8],
+    fixups: &[BranchFixup],
+    blocks_by_id: &HashMap<u32, &torajs_core::ssa::Block>,
+    block_byte_starts: &HashMap<u32, u32>,
+) -> bool {
+    let mut patches = Vec::with_capacity(fixups.len());
+    for fixup in fixups {
+        let final_target = landing::resolve_forwarded_target(blocks_by_id, fixup.target_block);
+        let target_byte_offset = *block_byte_starts
+            .get(&final_target.0)
+            .unwrap_or_else(|| panic!("Branch target BlockId({}) not in function", final_target.0));
+        let displacement = target_byte_offset as i32 - fixup.site_byte_offset as i32;
+        if matches!(fixup.kind, BranchKind::Imm14)
+            && !(-(1 << 13)..(1 << 13)).contains(&(displacement / 4))
+        {
+            return false;
+        }
+        patches.push(displacement);
+    }
+    for (fixup, displacement) in fixups.iter().zip(patches) {
+        patch_branch(bytes, fixup, displacement);
+    }
+    true
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -138,11 +174,17 @@ pub(super) fn emit_terminator(
             // path and the trailing B disappears.
             let then_falls = !else_falls && Some(resolve(*then_blk)) == next_resolved;
             if let Some(fc) = fused {
-                let (invert, br_target) = if then_falls {
-                    (true, *else_blk)
+                let (invert, br_target, other) = if then_falls {
+                    (true, *else_blk, *then_blk)
                 } else {
-                    (false, *then_blk)
+                    (false, *then_blk, *else_blk)
                 };
+                if fc.bits.is_some() {
+                    let trailing = !then_falls && !else_falls;
+                    let to = (br_target, other);
+                    bittest::emit_condbr(bytes, fixups, fc, invert, to, trailing, alloc);
+                    return;
+                }
                 let trailing = (!then_falls && !else_falls).then_some(*else_blk);
                 brfuse::emit_fused_condbr(bytes, fixups, fc, invert, br_target, trailing, alloc);
                 return;
