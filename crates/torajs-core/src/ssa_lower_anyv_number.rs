@@ -22,7 +22,7 @@ pub(crate) fn to_number(ctx: &mut LowerCtx<'_>, v: Operand) -> Operand {
     branch(ctx, is_num, num_blk, slow_blk);
 
     ctx.cur_block = num_blk;
-    emit_decode_number(ctx, bits, slot, None, done_blk);
+    emit_decode_number(ctx, bits, slot, done_blk);
 
     ctx.cur_block = slow_blk;
     let n = inst(
@@ -59,13 +59,21 @@ pub(crate) fn number_add(
     let res = ctx.alloca(Type::Any, None);
     let slow_blk = ctx.f.add_block();
     let done_blk = ctx.f.add_block();
-    if a_ty == Type::Any && b_ty == Type::Any {
+    // past a failed int32 pair test the two `any` addends are never
+    // both int32 encodings, so the sum boxes as a double
+    let pair = a_ty == Type::Any && b_ty == Type::Any;
+    if pair {
         let general = ctx.f.add_block();
         emit_int32_pair_add(ctx, (&a, &b), res, general, done_blk);
         ctx.cur_block = general;
     }
     let (l, l_int) = emit_number_side(ctx, &a, a_ty, slow_blk);
     let (r, r_int) = emit_number_side(ctx, &b, b_ty, slow_blk);
+    let (l_int, r_int) = if pair {
+        (IntShaped::No, IntShaped::No)
+    } else {
+        (l_int, r_int)
+    };
     let sum = inst(ctx, InstKind::BinOp(BinOp::FAdd, l, r), Type::F64);
     let both_int = match (l_int, r_int) {
         (IntShaped::No, _) | (_, IntShaped::No) => IntShaped::No,
@@ -192,26 +200,21 @@ fn emit_number_side(
         }
         _ => {
             let num = ctx.alloca(Type::F64, None);
-            let int = ctx.alloca(Type::Bool, None);
             let num_blk = ctx.f.add_block();
             let next = ctx.f.add_block();
             let bits = emit_bits(ctx, v);
             let is_num = emit_is_number(ctx, bits);
             branch(ctx, is_num, num_blk, slow);
             ctx.cur_block = num_blk;
-            emit_decode_number(ctx, bits, num, Some(int), next);
+            // decided in `num_blk`, which every path to `next` passes
+            let is_int = emit_decode_number(ctx, bits, num, next);
             ctx.cur_block = next;
             let f = inst(
                 ctx,
                 InstKind::Load(Type::F64, Operand::Value(num), 0),
                 Type::F64,
             );
-            let i = inst(
-                ctx,
-                InstKind::Load(Type::Bool, Operand::Value(int), 0),
-                Type::Bool,
-            );
-            (Operand::Value(f), IntShaped::If(i))
+            (Operand::Value(f), IntShaped::If(is_int))
         }
     }
 }
@@ -313,14 +316,14 @@ fn emit_is_number(ctx: &mut LowerCtx<'_>, bits: ValueId) -> ValueId {
 
 /// Decode a known-number encoding into `slot` and branch to `done`:
 /// an int32 (top 16 bits == TAG_TYPE_NUMBER) sign-extends its low 32
-/// bits, a double subtracts DOUBLE_ENCODE_OFFSET.
+/// bits, a double subtracts DOUBLE_ENCODE_OFFSET. Answers the Bool
+/// that chose the int32 arm.
 fn emit_decode_number(
     ctx: &mut LowerCtx<'_>,
     bits: ValueId,
     slot: ValueId,
-    int_slot: Option<ValueId>,
     done: BlockId,
-) {
+) -> ValueId {
     let int_blk = ctx.f.add_block();
     let dbl_blk = ctx.f.add_block();
     let top = inst(
@@ -343,7 +346,6 @@ fn emit_decode_number(
     let hi = inst(ctx, bin(BinOp::Shl, bits, Operand::ConstI64(32)), Type::I64);
     let n = inst(ctx, bin(BinOp::AShr, hi, Operand::ConstI64(32)), Type::I64);
     let f = inst(ctx, InstKind::SiToFp(Operand::Value(n)), Type::F64);
-    store_int_shape(ctx, int_slot, true);
     store_and_join(ctx, Operand::Value(f), slot, done);
 
     ctx.cur_block = dbl_blk;
@@ -361,17 +363,8 @@ fn emit_decode_number(
         InstKind::BitCastI64ToF64(Operand::Value(raw)),
         Type::F64,
     );
-    store_int_shape(ctx, int_slot, false);
     store_and_join(ctx, Operand::Value(f), slot, done);
-}
-
-fn store_int_shape(ctx: &mut LowerCtx<'_>, int_slot: Option<ValueId>, int: bool) {
-    if let Some(s) = int_slot {
-        ctx.f.append_void(
-            ctx.cur_block,
-            InstKind::Store(Operand::ConstBool(int), Operand::Value(s), 0),
-        );
-    }
+    is_int
 }
 
 /// `box_double(f)` into `slot`, then branch to `done`: the encoded
