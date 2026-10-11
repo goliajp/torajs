@@ -1,33 +1,58 @@
 //! Where the values of a function are defined and read, and which of
 //! them a tail copy renames.
 
-use crate::id_hash::{HashMap, HashSet};
+use crate::id_hash::HashSet;
 
 use torajs_core::ssa::{Function, Operand, Terminator, ValueId, visit_value_operands};
 
-/// Where every value is defined and read, and every block's
-/// predecessors, by block.
+/// Where the values a tail defines are defined and read, and every
+/// block's predecessors, by block.
 pub(super) struct Sites {
-    defs: HashMap<ValueId, Vec<u32>>,
-    uses: HashMap<ValueId, Vec<u32>>,
-    preds: HashMap<u32, Vec<u32>>,
+    /// Per value index, its row in `defs` and `uses` plus one; 0 for a
+    /// value no tail defines, which no copy renames.
+    row: Vec<u32>,
+    defs: Vec<Vec<u32>>,
+    uses: Vec<Vec<u32>>,
+    preds: Vec<Vec<u32>>,
 }
 
 impl Sites {
-    pub(super) fn of(func: &Function) -> Self {
-        let mut defs: HashMap<ValueId, Vec<u32>> = HashMap::default();
-        let mut uses: HashMap<ValueId, Vec<u32>> = HashMap::default();
-        let mut preds: HashMap<u32, Vec<u32>> = HashMap::default();
+    /// The sites of the values the blocks of `tails` define. Only those
+    /// may be renamed, and they are few: tracking every value of a big
+    /// function cost a map entry per operand.
+    pub(super) fn of<'t>(func: &Function, tails: impl Iterator<Item = &'t [u32]>) -> Self {
+        let mut row = vec![0u32; func.values.len()];
+        let mut rows = 0;
+        for &b in tails.flatten() {
+            for r in func.blocks[b as usize]
+                .insts
+                .iter()
+                .filter_map(|i| i.result)
+            {
+                if row[r.0 as usize] == 0 {
+                    rows += 1;
+                    row[r.0 as usize] = rows;
+                }
+            }
+        }
+        let mut defs: Vec<Vec<u32>> = vec![Vec::new(); rows as usize];
+        let mut uses: Vec<Vec<u32>> = vec![Vec::new(); rows as usize];
+        let mut preds: Vec<Vec<u32>> = vec![Vec::new(); func.blocks.len()];
+        let at = |v: ValueId| (row[v.0 as usize] as usize).checked_sub(1);
         for block in &func.blocks {
             let id = block.id.0;
             for t in super::targets(&block.term) {
-                preds.entry(t).or_default().push(id);
+                preds[t as usize].push(id);
             }
             for inst in &block.insts {
-                if let Some(r) = inst.result {
-                    defs.entry(r).or_default().push(id);
+                if let Some(k) = inst.result.and_then(at) {
+                    defs[k].push(id);
                 }
-                visit_value_operands(&inst.kind, |v| uses.entry(v).or_default().push(id));
+                visit_value_operands(&inst.kind, |v| {
+                    if let Some(k) = at(v) {
+                        uses[k].push(id);
+                    }
+                });
             }
             match &block.term {
                 Terminator::CondBr {
@@ -35,12 +60,24 @@ impl Sites {
                     ..
                 }
                 | Terminator::Ret(Some(Operand::Value(v))) => {
-                    uses.entry(*v).or_default().push(id);
+                    if let Some(k) = at(*v) {
+                        uses[k].push(id);
+                    }
                 }
                 _ => {}
             }
         }
-        Sites { defs, uses, preds }
+        Sites {
+            row,
+            defs,
+            uses,
+            preds,
+        }
+    }
+
+    /// The row of a value a tail defines.
+    fn row(&self, v: ValueId) -> usize {
+        self.row[v.0 as usize] as usize - 1
     }
 
     /// The values that live only inside `tail`: every def and every
@@ -56,7 +93,7 @@ impl Sites {
         let mut visible: HashSet<ValueId> = HashSet::default();
         let mut carried: HashSet<ValueId> = HashSet::default();
         for (k, &b) in tail.iter().enumerate() {
-            if k > 0 && self.preds[&b].iter().any(|&p| p != tail[k - 1]) {
+            if k > 0 && self.preds[b as usize].iter().any(|&p| p != tail[k - 1]) {
                 visible.clear();
             }
             for inst in &func.blocks[b as usize].insts {
@@ -74,8 +111,8 @@ impl Sites {
         let mut local: Vec<ValueId> = defined
             .into_iter()
             .filter(|v| !carried.contains(v))
-            .filter(|v| in_tail(&self.defs[v]))
-            .filter(|v| self.uses.get(v).is_none_or(|u| in_tail(u)))
+            .filter(|&v| in_tail(&self.defs[self.row(v)]))
+            .filter(|&v| in_tail(&self.uses[self.row(v)]))
             .collect();
         local.sort_by_key(|v| v.0);
         local

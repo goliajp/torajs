@@ -117,7 +117,10 @@ pub fn compute_intervals(func: &Function) -> HashMap<u32, Interval> {
 /// [`compute_intervals`] plus the block-level live sets it was built
 /// from (copy coalescing needs both).
 pub fn compute_liveness(func: &Function) -> (HashMap<u32, Interval>, BlockLiveness) {
-    let mut out: HashMap<u32, Interval> = HashMap::default();
+    // per value index while the walks run, keyed once at the end: the
+    // walks touch a value at every read and every block it is live
+    // across, too often for a map
+    let mut out: Vec<Option<Interval>> = vec![None; func.values.len()];
     // Collected during the walk and patched at the end — see the
     // "Alloca-result carve-out" section in the module docs.
     let mut alloca_results: Vec<u32> = Vec::new();
@@ -128,7 +131,7 @@ pub fn compute_liveness(func: &Function) -> (HashMap<u32, Interval>, BlockLivene
     // allocator still needs an AAPCS64 arg-lane register for the
     // call-frame entry).
     for &p in &func.params {
-        out.insert(p.0, Interval { start: 0, end: 0 });
+        out[p.0 as usize] = Some(Interval { start: 0, end: 0 });
     }
 
     let mut idx: u32 = 0;
@@ -141,7 +144,7 @@ pub fn compute_liveness(func: &Function) -> (HashMap<u32, Interval>, BlockLivene
             // the trivial allocator never does, but a real allocator
             // might) sees the operand as "still alive at idx".
             visit_inst_operands(&inst.kind, |v| {
-                if let Some(it) = out.get_mut(&v.0)
+                if let Some(it) = out[v.0 as usize].as_mut()
                     && idx > it.end
                 {
                     it.end = idx;
@@ -155,7 +158,7 @@ pub fn compute_liveness(func: &Function) -> (HashMap<u32, Interval>, BlockLivene
                 // φ cells have several defs; each writes the register, so
                 // a later dead def must stay inside the interval or it
                 // clobbers whoever holds that register at that point
-                let it = out.entry(result.0).or_insert(Interval {
+                let it = out[result.0 as usize].get_or_insert(Interval {
                     start: idx,
                     end: idx,
                 });
@@ -171,7 +174,7 @@ pub fn compute_liveness(func: &Function) -> (HashMap<u32, Interval>, BlockLivene
         // it; Br / Unreachable contribute none, Ret/CondBr each
         // contribute one.
         visit_terminator_operands(&block.term, |v| {
-            if let Some(it) = out.get_mut(&v.0)
+            if let Some(it) = out[v.0 as usize].as_mut()
                 && idx > it.end
             {
                 it.end = idx;
@@ -194,22 +197,24 @@ pub fn compute_liveness(func: &Function) -> (HashMap<u32, Interval>, BlockLivene
     // store-and-reload them, so the param's textual last-use precedes
     // the loop body that consumes a reloaded copy), so pin both
     // classes to `[def, last_idx]` regardless.
-    for v in alloca_results {
-        if let Some(it) = out.get_mut(&v)
+    for v in alloca_results
+        .into_iter()
+        .chain(func.params.iter().map(|p| p.0))
+    {
+        if let Some(it) = out[v as usize].as_mut()
             && last_idx > it.end
         {
             it.end = last_idx;
         }
     }
-    for &p in &func.params {
-        if let Some(it) = out.get_mut(&p.0)
-            && last_idx > it.end
-        {
-            it.end = last_idx;
+    let mut intervals: HashMap<u32, Interval> = HashMap::default();
+    intervals.reserve(out.iter().flatten().count());
+    for (v, it) in out.into_iter().enumerate() {
+        if let Some(it) = it {
+            intervals.insert(v as u32, it);
         }
     }
-
-    (out, blocks)
+    (intervals, blocks)
 }
 
 /// Phase 2 — extend every value's interval to cover every block where
@@ -221,14 +226,14 @@ pub fn compute_liveness(func: &Function) -> (HashMap<u32, Interval>, BlockLivene
 /// Before, not at: an interval starting at a call's slot means "this
 /// is the call's result", so a value live into a block that opens with
 /// a call would not count as crossing it.
-fn extend_intervals_loop_aware(blocks: &BlockLiveness, out: &mut HashMap<u32, Interval>) {
+fn extend_intervals_loop_aware(blocks: &BlockLiveness, out: &mut [Option<Interval>]) {
     for b in 0..blocks.start.len() {
         let start = blocks.start[b].saturating_sub(1);
         let end = blocks.end[b];
         let ins = blocks.live_in[b].iter().map(|v| (v, start));
         let outs = blocks.live_out[b].iter().map(|v| (v, u32::MAX));
         for (v, from) in ins.chain(outs) {
-            if let Some(it) = out.get_mut(&v) {
+            if let Some(it) = out[v as usize].as_mut() {
                 it.end = it.end.max(end);
                 it.start = it.start.min(from);
             }

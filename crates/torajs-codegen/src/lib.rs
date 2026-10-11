@@ -40,6 +40,7 @@ pub mod regalloc;
 pub mod reloc;
 mod shrink_wrap;
 pub mod spill_weight;
+mod switches;
 mod vec_homes;
 
 pub use compile::{

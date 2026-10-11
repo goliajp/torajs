@@ -107,6 +107,20 @@ impl LiveRanges {
                 hull_only[r.0 as usize] = true;
             }
         }
+        // which values the walk follows, per value index: the walk asks
+        // once per operand, too often for a hash lookup
+        let mut keep = vec![false; func.values.len()];
+        for &v in intervals.keys() {
+            keep[v as usize] = true;
+        }
+        for (leader, members) in classes.iter() {
+            for &m in members.iter().filter(|&&m| m != leader) {
+                keep[m as usize] = true;
+            }
+        }
+        for (k, &only) in keep.iter_mut().zip(&hull_only) {
+            *k &= !only;
+        }
         // per value, the range being extended: a value's ranges arrive
         // in ascending order of start, so merging the overlapping and
         // adjacent ones needs no sort
@@ -115,7 +129,7 @@ impl LiveRanges {
         walk_half_slots(
             func,
             blocks,
-            |v| !hull_only[v as usize] && (intervals.contains_key(&v) || classes.leader(v) != v),
+            |v| keep[v as usize],
             |_, block| {
                 for &(v, lo, hi) in block.iter().rev() {
                     let c = &mut open[v as usize];

@@ -103,10 +103,6 @@ fn pool<R: Copy>(regs: &[R], n: usize) -> VecDeque<R> {
     regs.iter().take(n).copied().collect()
 }
 
-fn env_is_1(name: &str) -> bool {
-    std::env::var_os(name).is_some_and(|v| v == "1")
-}
-
 impl<'a> Sweep<'a> {
     /// `TORAJS_REGALLOC_POOL=<n>` keeps the first `n` registers of each
     /// of the four pools, so that sharing and spilling run everywhere
@@ -117,10 +113,8 @@ impl<'a> Sweep<'a> {
         call_costs: CallCosts,
         ranges: LazyRanges<'a>,
     ) -> Self {
-        let n = std::env::var("TORAJS_REGALLOC_POOL")
-            .ok()
-            .and_then(|v| v.parse::<usize>().ok())
-            .unwrap_or(usize::MAX);
+        let switches = crate::switches::get();
+        let n = switches.pool;
         Sweep {
             by_value: HashMap::default(),
             active: Vec::new(),
@@ -141,8 +135,8 @@ impl<'a> Sweep<'a> {
             saved: HashSet::default(),
             call_costs,
             unspillable: HashSet::default(),
-            share: !env_is_1("TORAJS_SHARE_OFF"),
-            save_calls: !env_is_1("TORAJS_CALL_SAVE_OFF"),
+            share: !switches.share_off,
+            save_calls: !switches.call_save_off,
             log: false,
         }
     }

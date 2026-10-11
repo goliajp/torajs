@@ -29,10 +29,15 @@ pub(super) fn live_segments(
     cands: &HashSet<u32>,
 ) -> HashMap<u32, Segments> {
     let mut segs: HashMap<u32, Segments> = HashMap::default();
+    // the walk asks once per operand and live-out member
+    let mut keep = vec![false; func.values.len()];
+    for &v in cands {
+        keep[v as usize] = true;
+    }
     walk_half_slots(
         func,
         blocks,
-        |v| cands.contains(&v),
+        |v| keep[v as usize],
         |_, block| {
             for &(v, lo, hi) in block {
                 segs.entry(v).or_default().push((lo, hi));

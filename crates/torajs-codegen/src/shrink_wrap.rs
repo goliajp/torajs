@@ -51,6 +51,11 @@ pub(crate) fn plan(func: &Function, alloc: &Assignment) -> Option<ShrinkWrap> {
             Some((p.0, *src))
         })
         .collect();
+    // an entry that needs the frame is the save point already: no
+    // dominator tree to build
+    if needs_frame(&func.blocks[0], alloc, &arrivals) {
+        return None;
+    }
     let dom = DominatorTree::compute(func);
     let needs: Vec<BlockId> = func
         .blocks

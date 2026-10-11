@@ -103,7 +103,7 @@ pub(crate) fn build_copy_classes(
     excluded: &HashSet<u32>,
     call_sites: &[u32],
 ) -> Classes {
-    if std::env::var_os("TORAJS_COALESCE_OFF").is_some_and(|v| v == "1") {
+    if crate::switches::get().coalesce_off {
         return Classes::default();
     }
     let copies = collect_copies(func, intervals, excluded);

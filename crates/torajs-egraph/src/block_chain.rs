@@ -50,7 +50,12 @@ impl<'a> ChainFacts<'a> {
     /// Every path to `block` inside `body` runs a call, ends the
     /// function, or takes a predicted-cold edge: read off the
     /// dominators of the block, which every path passes through.
-    pub(crate) fn cold_path(&self, func: &Function, body: &HashSet<u32>, block: u32) -> bool {
+    pub(crate) fn cold_path(
+        &self,
+        func: &Function,
+        in_body: &impl Fn(u32) -> bool,
+        block: u32,
+    ) -> bool {
         let mut cur = block;
         loop {
             if is_cold(func, cur) {
@@ -59,7 +64,7 @@ impl<'a> ChainFacts<'a> {
             let Some(idom) = self.dom.immediate_dominator(BlockId(cur)) else {
                 return false;
             };
-            if !body.contains(&idom.0) {
+            if !in_body(idom.0) {
                 return false;
             }
             if self.cold_edges.contains(&(idom.0, cur)) {
@@ -114,7 +119,7 @@ pub(crate) fn chain_loop_range(
         cold.get_or_init(|| {
             units
                 .iter()
-                .map(|unit| facts.cold_path(func, body, unit[0]))
+                .map(|unit| facts.cold_path(func, &|b| body.contains(&b), unit[0]))
                 .collect::<Vec<bool>>()
         })[u]
     };
@@ -290,7 +295,7 @@ mod tests {
         let dom = DominatorTree::compute(&f);
         let facts = ChainFacts::new(&f, &dom);
         let body: HashSet<u32> = [1, 2, 3, 4, 5, 7].into_iter().collect();
-        let cold = |id: u32| facts.cold_path(&f, &body, id);
+        let cold = |id: u32| facts.cold_path(&f, &|b| body.contains(&b), id);
         assert!(cold(3) && cold(7), "the call and the block behind it");
         assert!(
             !cold(4) && !cold(5) && !cold(2),

@@ -43,28 +43,33 @@ pub fn compute_spill_weights(func: &Function) -> (HashMap<u32, u64>, Vec<u64>) {
     let units = slot_units(func);
     // accumulate the slot's unit per static use (operand reads AND the
     // defining slot itself, so a value defined in a loop counts its
-    // def-site store too)
-    let mut weights: HashMap<u32, u64> = HashMap::default();
+    // def-site store too), per value index, then key the values seen:
+    // one map insert per value rather than one map update per use
+    let mut dense: Vec<Option<u64>> = vec![None; func.values.len()];
+    let mut add = |v: u32, unit: u64| {
+        let w = dense[v as usize].get_or_insert(0);
+        *w = w.saturating_add(unit);
+    };
     let mut idx: usize = 0;
     for b in &func.blocks {
         for inst in &b.insts {
             let unit = units[idx];
-            visit_inst_operands(&inst.kind, |v| {
-                let w = weights.entry(v.0).or_insert(0);
-                *w = w.saturating_add(unit);
-            });
+            visit_inst_operands(&inst.kind, |v| add(v.0, unit));
             if let Some(r) = inst.result {
-                let w = weights.entry(r.0).or_insert(0);
-                *w = w.saturating_add(unit);
+                add(r.0, unit);
             }
             idx += 1;
         }
         let unit = units[idx];
-        visit_terminator_operands(&b.term, |v| {
-            let w = weights.entry(v.0).or_insert(0);
-            *w = w.saturating_add(unit);
-        });
+        visit_terminator_operands(&b.term, |v| add(v.0, unit));
         idx += 1;
+    }
+    let mut weights: HashMap<u32, u64> = HashMap::default();
+    weights.reserve(dense.iter().flatten().count());
+    for (v, w) in dense.into_iter().enumerate() {
+        if let Some(w) = w {
+            weights.insert(v as u32, w);
+        }
     }
     (weights, units)
 }

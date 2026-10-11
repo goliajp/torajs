@@ -49,7 +49,7 @@
 //! `TORAJS_TAIL_DUP_OFF=1` skips (bisect gate).
 
 use crate::block_chain::ChainFacts;
-use crate::id_hash::{HashMap, HashSet};
+use crate::id_hash::HashMap;
 
 use torajs_core::ssa::dominator::DominatorTree;
 use torajs_core::ssa::loop_analysis::LoopAnalysis;
@@ -74,7 +74,7 @@ pub(crate) fn duplicate_small_joins(
     dom: &DominatorTree,
     la: &LoopAnalysis,
 ) -> u32 {
-    if std::env::var_os("TORAJS_TAIL_DUP_OFF").is_some_and(|v| v == "1") || !any_candidate(func) {
+    if off() || !any_candidate(func) {
         return 0;
     }
     if la.loops().is_empty() {
@@ -84,7 +84,7 @@ pub(crate) fn duplicate_small_joins(
     if joins.is_empty() {
         return 0;
     }
-    let sites = Sites::of(func);
+    let sites = Sites::of(func, joins.iter().map(|(_, tail, _)| tail.as_slice()));
     let mut copies = 0;
     for (id, tail, arms) in joins {
         let local = sites.local_to(func, &tail);
@@ -95,6 +95,13 @@ pub(crate) fn duplicate_small_joins(
         }
     }
     copies
+}
+
+/// `TORAJS_TAIL_DUP_OFF=1` (bisect gate), read once per process: the
+/// pass asks for every function.
+fn off() -> bool {
+    static OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *OFF.get_or_init(|| std::env::var_os("TORAJS_TAIL_DUP_OFF").is_some_and(|v| v == "1"))
 }
 
 /// Whether some block could head a copied tail: it is small, and of
@@ -124,44 +131,51 @@ fn joins_to_copy(
     dom: &DominatorTree,
     la: &LoopAnalysis,
 ) -> Vec<(u32, Vec<u32>, Vec<u32>)> {
-    // every block's predecessors, in block order
-    let mut preds: HashMap<u32, Vec<u32>> = HashMap::default();
+    // the predecessors, in block order, of every block that could head
+    // a tail (an empty list allocates nothing)
+    let heads: Vec<bool> = func.blocks.iter().map(duplicable).collect();
+    let mut preds: Vec<Vec<u32>> = vec![Vec::new(); func.blocks.len()];
     for block in &func.blocks {
-        for t in targets(&block.term) {
-            preds.entry(t).or_default().push(block.id.0);
+        for t in targets(&block.term).filter(|&t| heads[t as usize]) {
+            preds[t as usize].push(block.id.0);
         }
     }
-    // the innermost loop a block belongs to, as its body set and
-    // header: nested bodies are smaller, so the smallest body
-    // containing the block
-    let mut loops: Vec<(HashSet<u32>, u32)> = la
-        .loops()
-        .iter()
-        .map(|l| (l.body.iter().map(|b| b.0).collect(), l.header.0))
-        .collect();
-    loops.sort_by_key(|(b, _)| b.len());
-    let headers: HashSet<u32> = la.loops().iter().map(|l| l.header.0).collect();
+    // the innermost loop each block belongs to: nested bodies are
+    // smaller, so the bodies are marked largest first and the smallest
+    // one holding a block marks it last
+    let loops = la.loops();
+    let mut by_size: Vec<usize> = (0..loops.len()).collect();
+    by_size.sort_by_key(|&i| std::cmp::Reverse(loops[i].body.len()));
+    let mut innermost: Vec<Option<usize>> = vec![None; func.blocks.len()];
+    let mut headers = vec![false; func.blocks.len()];
+    for i in by_size {
+        for b in &loops[i].body {
+            innermost[b.0 as usize] = Some(i);
+        }
+        headers[loops[i].header.0 as usize] = true;
+    }
     // the guards' cold arms, read only once a join qualifies
     let facts = std::cell::OnceCell::new();
     let mut joins: Vec<(u32, Vec<u32>, Vec<u32>)> = Vec::new();
     for block in &func.blocks {
         let id = block.id.0;
-        if headers.contains(&id) {
+        if headers[id as usize] {
             continue;
         }
-        let Some((body, header)) = loops.iter().find(|(b, _)| b.contains(&id)) else {
+        let Some(lp) = innermost[id as usize].map(|i| &loops[i]) else {
             continue;
         };
-        let Some(ps) = preds.get(&id) else { continue };
+        let in_body = |b: u32| lp.contains(&BlockId(b));
+        let ps = &preds[id as usize];
         // every arm comes from inside the loop, or the join is an entry
-        if ps.len() < 2 || ps.iter().any(|p| !body.contains(p)) {
+        if ps.len() < 2 || ps.iter().any(|&p| !in_body(p)) {
             continue;
         }
         // the copy pays for itself only where the tail ends in the
         // back edge: the original pays that taken branch too
-        let tail = tail_from(func, id, body, &headers);
+        let tail = tail_from(func, id, &in_body, &headers);
         let Some(&last) = tail.last() else { continue };
-        if !matches!(func.blocks[last as usize].term, Terminator::Br(t) if t.0 == *header) {
+        if !matches!(func.blocks[last as usize].term, Terminator::Br(t) if t == lp.header) {
             continue;
         }
         // the arms that jump into the join: an arm that reaches it by
@@ -175,7 +189,7 @@ fn joins_to_copy(
             .filter(|&p| {
                 !facts
                     .get_or_init(|| ChainFacts::new(func, dom))
-                    .cold_path(func, body, p)
+                    .cold_path(func, &in_body, p)
             })
             .collect();
         let keep = usize::from(jumps.len() == ps.len());
@@ -231,12 +245,17 @@ fn copy_tail(func: &mut Function, tail: &[u32], local: &[ValueId]) -> BlockId {
 /// up to the size cap: each follows the one before as its only
 /// successor, and a loop header or a block seen twice ends the run.
 /// Empty when `start` itself does not qualify.
-fn tail_from(func: &Function, start: u32, body: &HashSet<u32>, headers: &HashSet<u32>) -> Vec<u32> {
+fn tail_from(
+    func: &Function,
+    start: u32,
+    in_body: &impl Fn(u32) -> bool,
+    headers: &[bool],
+) -> Vec<u32> {
     let mut tail: Vec<u32> = Vec::new();
     let mut insts = 0;
     let mut cur = start;
-    while !headers.contains(&cur)
-        && body.contains(&cur)
+    while !headers[cur as usize]
+        && in_body(cur)
         && !tail.contains(&cur)
         && duplicable(&func.blocks[cur as usize])
         && insts + func.blocks[cur as usize].insts.len() <= MAX_TAIL_INSTS
@@ -269,14 +288,18 @@ fn duplicable(block: &Block) -> bool {
         })
 }
 
-fn targets(term: &Terminator) -> Vec<u32> {
-    match term {
-        Terminator::Br(t) => vec![t.0],
+/// The blocks `term` branches to, a conditional branch's two arms both
+/// even when they are one block. The pass asks for every block of
+/// every function, so nothing is allocated.
+fn targets(term: &Terminator) -> impl Iterator<Item = u32> {
+    let (a, b) = match term {
+        Terminator::Br(t) => (Some(t.0), None),
         Terminator::CondBr {
             then_blk, else_blk, ..
-        } => vec![then_blk.0, else_blk.0],
-        Terminator::Ret(_) | Terminator::Unreachable => Vec::new(),
-    }
+        } => (Some(then_blk.0), Some(else_blk.0)),
+        Terminator::Ret(_) | Terminator::Unreachable => (None, None),
+    };
+    a.into_iter().chain(b)
 }
 
 /// Point every edge of `term` that goes to `from` at `to`.

@@ -12,8 +12,7 @@ use crate::linear_scan_sweep::Sweep;
 use crate::liveness::Interval;
 
 pub(crate) fn wanted(func: &Function) -> bool {
-    std::env::var("TORAJS_REGALLOC_DUMP")
-        .is_ok_and(|s| s == "*" || (!s.is_empty() && func.name.contains(&s)))
+    (crate::switches::get().dump.as_deref()).is_some_and(|s| s == "*" || func.name.contains(s))
 }
 
 pub(crate) fn dump(
