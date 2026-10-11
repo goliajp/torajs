@@ -19,8 +19,9 @@
 //!   typed tier's i64::MIN "shortest" sentinel; `toPrecision(p)` —
 //!   missing precision routes through bare ToString (§21.1.3.5
 //!   step 2). All three RangeError through TLS.
-//! - `toLocaleString()` — locale/options args ignored (tr subset is
-//!   always en-US, S139).
+//! - `toLocaleString(locales?, options?)` — the en-US formatter; a
+//!   locale or option it cannot serve is a RangeError
+//!   ([`crate::locale_args`]).
 //! - `valueOf()` — identity: the immediate itself is the boxed
 //!   return.
 //!
@@ -32,6 +33,7 @@ use torajs_rc::{
     ANY_METHOD_TO_PRECISION, ANY_METHOD_TO_STRING, ANY_METHOD_VALUE_OF,
 };
 
+use crate::locale_args::{LOCALE_FORMAT_NUMBER, locale_argv_served};
 use crate::method_call::method_no_such;
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, is_double};
 use crate::nanbox_encode::__torajs_anyv_box_from_pair;
@@ -117,6 +119,9 @@ pub(crate) unsafe fn number_method(
                 None => boxed(__torajs_i64_to_str(n as i64) as *mut u8),
             },
             m if m == ANY_METHOD_TO_LOCALE_STRING => {
+                if !locale_argv_served(argv, argc, LOCALE_FORMAT_NUMBER) {
+                    return VALUE_UNDEFINED;
+                }
                 if is_f {
                     boxed(__torajs_num_to_locale_f(n))
                 } else {

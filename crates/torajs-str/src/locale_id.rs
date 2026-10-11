@@ -142,6 +142,77 @@ unsafe extern "C" {
 /// `locale` must be a valid Str heap block.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_locale_check(locale: *const u8) -> i64 {
+    let (bytes, ascii) = unsafe { tag_bytes(locale) };
+    if ascii && is_structurally_valid_language_tag(&bytes) {
+        return 1;
+    }
+    raise_range_error(b"invalid language tag: ", &bytes, b"");
+    0
+}
+
+/// Whether a structurally valid tag names a locale whose number and
+/// date formatting is exactly the built-in en-US output: `en` or
+/// `en-US`, in any case. No locale data ships with the runtime, so
+/// any other tag would come out formatted for the wrong locale.
+pub(crate) fn is_builtin_format_locale(tag: &[u8]) -> bool {
+    tag.eq_ignore_ascii_case(b"en") || tag.eq_ignore_ascii_case(b"en-US")
+}
+
+/// The locale gate of the `toLocaleString` family, at
+/// CanonicalizeLocaleList: a malformed tag records a pending catchable
+/// `RangeError` and answers 0; a valid tag the built-in en-US formatter
+/// serves answers 1; any other valid tag answers 2, refused later by
+/// [`__torajs_str_locale_refuse`] where ResolveLocale would look it
+/// up, after the options are read.
+///
+/// # Safety
+///
+/// `locale` must be a valid Str heap block.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_locale_format_check(locale: *const u8) -> i64 {
+    let (bytes, ascii) = unsafe { tag_bytes(locale) };
+    if !ascii || !is_structurally_valid_language_tag(&bytes) {
+        raise_range_error(b"invalid language tag: ", &bytes, b"");
+        return 0;
+    }
+    if is_builtin_format_locale(&bytes) {
+        1
+    } else {
+        2
+    }
+}
+
+/// Record the pending `RangeError` for a valid tag no shipped locale
+/// data serves: its format is refused rather than answered in en-US.
+///
+/// # Safety
+///
+/// `locale` must be a valid Str heap block.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_locale_refuse(locale: *const u8) {
+    let (bytes, _) = unsafe { tag_bytes(locale) };
+    raise_range_error(
+        b"unsupported locale: ",
+        &bytes,
+        b" (only en-US formatting is available)",
+    );
+}
+
+/// Record `<prefix><tag><suffix>` as a pending catchable `RangeError`.
+fn raise_range_error(prefix: &[u8], tag: &[u8], suffix: &[u8]) {
+    let mut msg: Vec<u8> = prefix.to_vec();
+    msg.extend_from_slice(tag);
+    msg.extend_from_slice(suffix);
+    msg.push(0);
+    unsafe { __torajs_throw_range_error(msg.as_ptr()) };
+}
+
+/// The tag's code units as bytes, and whether all are ASCII.
+///
+/// # Safety
+///
+/// `locale` must be a valid Str heap block.
+unsafe fn tag_bytes(locale: *const u8) -> (Vec<u8>, bool) {
     let (payload, length, is_latin1) = unsafe { crate::transform::case::str_view(locale) };
     let len = length as usize;
     let mut ascii = true;
@@ -160,19 +231,31 @@ pub unsafe extern "C" fn __torajs_str_locale_check(locale: *const u8) -> i64 {
         // already-invalid tags carry them.
         bytes.push(if unit > 0xFF { b'?' } else { unit as u8 });
     }
-    if ascii && is_structurally_valid_language_tag(&bytes) {
-        return 1;
-    }
-    let mut msg: Vec<u8> = b"invalid language tag: ".to_vec();
-    msg.extend_from_slice(&bytes);
-    msg.push(0);
-    unsafe { __torajs_throw_range_error(msg.as_ptr()) };
-    0
+    (bytes, ascii)
 }
 
 #[cfg(test)]
 mod tests {
+    use super::is_builtin_format_locale as builtin;
     use super::is_structurally_valid_language_tag as valid;
+
+    #[test]
+    fn builtin_format_locales() {
+        for t in ["en", "en-US", "EN-us", "En"] {
+            assert!(builtin(t.as_bytes()), "{t} should be served");
+        }
+        for t in [
+            "de-DE",
+            "en-GB",
+            "en-Latn-US",
+            "en-US-u-nu-arab",
+            "und",
+            "e",
+            "en-",
+        ] {
+            assert!(!builtin(t.as_bytes()), "{t} should be refused");
+        }
+    }
 
     #[test]
     fn accepts_common_tags() {

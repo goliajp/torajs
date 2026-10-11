@@ -1,0 +1,33 @@
+r1 length: 3
+r1[0]: 4
+r1[1]: 1
+r1[2]: 3
+r2 length: 3
+r2[0]: 4
+calls after r2: 1
+r3 length: 3
+r3[0]: 4
+calls after r3: 4
+tr1 length: 3
+tr1[0]: 4
+tr2 length: 3
+tr2[2]: 3
+calls after tr2: 5
+tr3[0]: 4
+calls after tr3: 7
+--- join ---
+3,1,4
+3,1,4
+calls after join trail: 8
+3|1|4
+calls after join multi: 11
+3,1,4
+calls after join undef-sep trail: 12
+--- toString ---
+3,1,4
+3,1,4
+calls after toString trail: 13
+--- toLocaleString ---
+3,1,4
+tls-trail refused: true
+calls final: 14

@@ -257,9 +257,9 @@ pub(crate) unsafe fn typedarray_method(
         torajs_rc::ANY_METHOD_TO_STRING => Some(unsafe {
             crate::method_call_buffer_join::typedarray_join(recv, core::ptr::null(), 0)
         }),
-        torajs_rc::ANY_METHOD_TO_LOCALE_STRING => {
-            Some(unsafe { crate::method_call_buffer_join::typedarray_to_locale_string(recv) })
-        }
+        torajs_rc::ANY_METHOD_TO_LOCALE_STRING => Some(unsafe {
+            crate::method_call_buffer_join::typedarray_to_locale_string(recv, argv, argc)
+        }),
         // §23.2.5.1-3 — `values` / `keys` / `entries` answer the
         // SAME Array Iterator arrays do; CreateArrayIterator's own
         // closure branches on the source having a

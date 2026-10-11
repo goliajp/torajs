@@ -100,7 +100,7 @@ pub unsafe extern "C" fn __torajs_str_locale_case_any(
 ///
 /// # Safety
 /// `o` is a live heap object.
-unsafe fn first_valid_tag(o: *mut c_void) -> Result<*mut u8, ()> {
+pub(crate) unsafe fn first_valid_tag(o: *mut c_void) -> Result<*mut u8, ()> {
     unsafe {
         let len = crate::method_call_arraylike_host::arraylike_len(o).unwrap_or(0);
         if __torajs_throw_check() != 0 {
@@ -161,13 +161,13 @@ unsafe fn fold(s: *const u8, locale: *const u8, upper: i64) -> *mut u8 {
 }
 
 /// A string value: a short string or a heap Str cell.
-fn is_string(v: u64) -> bool {
+pub(crate) fn is_string(v: u64) -> bool {
     is_short_str(v) || (is_cell(v) && unsafe { (*as_pointer(v)).tag() } == Tag::Str)
 }
 
 /// An ECMAScript Object: a heap cell that is not a string, symbol,
 /// bigint or the undefined oddball.
-fn is_object(v: u64) -> bool {
+pub(crate) fn is_object(v: u64) -> bool {
     is_cell(v)
         && !matches!(
             unsafe { (*as_pointer(v)).tag() },

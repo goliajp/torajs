@@ -1,8 +1,9 @@
 // ES §21.1.3.4 — Number.prototype.toLocaleString(locales?, options?)
-// trailing-arg ignore. tora's subset is en-US only (no Intl
-// substrate); SSA-emit already pass_args=false silent-drops the
-// locales+options. S260 widens check.rs's fixed-arity sig
-// (vec![Any, Any] = 2 optional) to accept trailing per ES.
+// trailing-arg ignore. Only en-US is formatted: a served locale with a
+// primitive `options` (no option names to read) formats as usual, and
+// arguments past the second are evaluated and dropped. S260 widens
+// check.rs's fixed-arity sig (vec![Any, Any] = 2 optional) to accept
+// trailing per ES.
 
 const a: number = 1234.5;
 const b: number = 1000000;
