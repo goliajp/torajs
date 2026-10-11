@@ -73,14 +73,17 @@ pub(super) fn infer_call_ann(
             (_, Some(_), "every" | "some" | "includes") => "boolean",
             (_, Some(_), "indexOf" | "lastIndexOf" | "findIndex" | "findLastIndex") => "number",
             (_, Some(_), "join") => "string",
-            // `reduce` / `reduceRight` return type is the callback's
-            // accumulator type — for the common case where the
-            // accumulator is the same shape as elements (e.g.
-            // `xs.reduce((a, b) => a + b, 0)` on Number[]), it
-            // matches the element type. Mixed-type accumulators
-            // (cb returns a different shape than elem) still need
-            // explicit ret annotation (substrate follow-up).
-            (_, Some(e), "reduce" | "reduceRight") => e,
+            // `reduce` / `reduceRight` answer the accumulator: with a
+            // seed that is the third overload's `U` (sibling doc),
+            // without one the element type `T`.
+            (_, Some(e), "reduce" | "reduceRight") => {
+                let seed = args.get(1).and_then(|s| recur(*s));
+                match super::implicit_generics_cb_ret::reduce_result_ann(exprs, args, seed, fn_sigs)
+                {
+                    Some(u) => return Some(u),
+                    None => e,
+                }
+            }
             _ => return None,
         };
         return Some(ret.to_string());
