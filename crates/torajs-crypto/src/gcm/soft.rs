@@ -123,6 +123,7 @@ impl Gcm {
         for (d, k) in chunk.iter_mut().zip(ks.as_flattened()) {
             *d ^= k;
         }
+        zeroize(ks.as_flattened_mut());
     }
 
     /// Encrypts `data` in place and absorbs the ciphertext into `y`.

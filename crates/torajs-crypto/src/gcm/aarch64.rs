@@ -344,6 +344,7 @@ impl Gcm {
             ctr = ctr.wrapping_add(4);
         }
         for c in rest.chunks_mut(BLOCK_LEN) {
+            // a stack copy of plaintext, wiped below
             let mut block = [0u8; BLOCK_LEN];
             block[..c.len()].copy_from_slice(c);
             if SEAL && c.len() < BLOCK_LEN {
@@ -355,6 +356,7 @@ impl Gcm {
                 for (b, k) in block[..c.len()].iter_mut().zip(ks) {
                     *b ^= k;
                 }
+                zeroize(&mut ks);
                 // SAFETY: `block` is 16 bytes.
                 acc = unsafe { Self::ghash_blocks::<1>(&p, acc, block.as_ptr()) };
             } else {
@@ -365,6 +367,7 @@ impl Gcm {
             }
             ctr = ctr.wrapping_add(1);
             c.copy_from_slice(&block[..c.len()]);
+            zeroize(&mut block);
         }
         // SAFETY: `y` is two `u64`s.
         unsafe { vst1q_u64(y.as_mut_ptr(), acc) };

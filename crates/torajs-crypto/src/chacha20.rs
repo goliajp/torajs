@@ -6,6 +6,8 @@
 //! register (NEON, SSE2, wasm `simd128`) without target-specific code.
 #![forbid(unsafe_code)]
 
+use crate::ct::zeroize::zeroize;
+
 pub(crate) const BLOCK_LEN: usize = 64;
 
 const SIGMA: [u32; 4] = [0x6170_7865, 0x3320_646e, 0x7962_2d32, 0x6b20_6574];
@@ -126,10 +128,14 @@ pub(crate) fn xor_keystream(key: &[u32; 8], counter: u32, nonce: &[u32; 3], data
             }
         }
     }
+    // the tail spells its keystream out in stack buffers, which are wiped;
+    // the four-block keystream above is never stored as one, and wiping it
+    // would only force a copy into memory
+    let mut ks = [0u32; 16];
+    let mut buf = [0u8; BLOCK_LEN];
     for chunk in rest.chunks_mut(BLOCK_LEN) {
-        let ks = block(key, ctr, nonce);
+        ks = block(key, ctr, nonce);
         ctr = ctr.wrapping_add(1);
-        let mut buf = [0u8; BLOCK_LEN];
         for (bytes, k) in buf.as_chunks_mut::<4>().0.iter_mut().zip(ks) {
             *bytes = k.to_le_bytes();
         }
@@ -137,6 +143,8 @@ pub(crate) fn xor_keystream(key: &[u32; 8], counter: u32, nonce: &[u32; 3], data
             *d ^= k;
         }
     }
+    zeroize(&mut ks);
+    zeroize(&mut buf);
 }
 
 #[cfg(test)]

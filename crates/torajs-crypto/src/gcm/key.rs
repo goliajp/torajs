@@ -92,20 +92,23 @@ impl Core {
             e.ghash(&mut y, iv);
             e.ghash(&mut y, &lens);
         });
-        soft::store(y)
+        // a hashed J0 is a polynomial in H with known coefficients
+        let j0 = soft::store(y);
+        zeroize(&mut y);
+        j0
     }
 
     /// Runs GCM over `data` and returns the tag; `SEAL` encrypts, otherwise
     /// decrypts. The hash always covers the ciphertext.
     fn crypt<const SEAL: bool>(&self, iv: &[u8], aad: &[u8], data: &mut [u8]) -> [u8; TAG_LEN] {
-        let j0 = self.j0(iv);
-        let prefix: [u8; 12] = j0[..12].try_into().unwrap();
+        let mut j0 = self.j0(iv);
+        let mut prefix: [u8; 12] = j0[..12].try_into().unwrap();
         let ctr = u32::from_be_bytes(j0[12..].try_into().unwrap()).wrapping_add(1);
         let mut lens = [0u8; BLOCK_LEN];
         lens[..8].copy_from_slice(&(aad.len() as u64 * 8).to_be_bytes());
         lens[8..].copy_from_slice(&(data.len() as u64 * 8).to_be_bytes());
         let mut y = [0u64; 2];
-        let mask = engine!(self, e => {
+        let mut mask = engine!(self, e => {
             e.ghash(&mut y, aad);
             if SEAL {
                 e.seal(&prefix, ctr, &mut y, data);
@@ -118,6 +121,15 @@ impl Core {
         let mut tag = soft::store(y);
         for (t, m) in tag.iter_mut().zip(mask) {
             *t ^= m;
+        }
+        // the hash is a polynomial in H with public coefficients, so it
+        // reveals the hash key; E_K(J0) is secret too, and so is J0 when it
+        // was hashed from the IV
+        zeroize(&mut y);
+        zeroize(&mut mask);
+        if iv.len() != NONCE_LEN {
+            zeroize(&mut j0);
+            zeroize(&mut prefix);
         }
         tag
     }
