@@ -10,7 +10,8 @@
 //! - cb `(U, T) => U` — accumulator = U, element = T
 //! - cb `(any, T) => R` — Any-param widening (contravariance);
 //!   result follows the cb's actual return
-//!   for U ∈ {Number, String, Boolean, Any}. Homogeneous
+//!   for U ∈ {Number, String, Boolean, Any}, and an object U whose
+//!   callback return is `Any` (the boxed accumulator lane). Homogeneous
 //!   `(T, T) => T` stays with the method-table arm; a Void-ret
 //!   reduce keeps the sister [`arr_pred_void_cb`] Any-fold lane.
 
@@ -66,10 +67,17 @@ pub(crate) fn try_match(
     if acc_ty == elem.as_ref() {
         return None;
     }
-    if !matches!(
-        acc_ty,
-        Type::Number | Type::String | Type::Boolean | Type::Any
-    ) {
+    // An object accumulator whose callback return the sniff could not
+    // name (`(acc: Acc, x) => ({ ...fields })` over a named `Acc`)
+    // rides the boxed slot too: the lane hands each boxed accumulator
+    // to the callback's object parameter through its boxed entry.
+    let boxed_struct = matches!(acc_ty, Type::Struct(_)) && **ret == Type::Any;
+    if !boxed_struct
+        && !matches!(
+            acc_ty,
+            Type::Number | Type::String | Type::Boolean | Type::Any
+        )
+    {
         return None;
     }
     // Void ret is the sister wedge's territory.

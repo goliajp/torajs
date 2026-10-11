@@ -84,3 +84,19 @@ pub(super) fn infer_call_ann(
     }
     None
 }
+
+/// Type of `recv.field` off an inline object type (`__inlobj(f:ann|…)`)
+/// — `acc.sum` in `(acc: { sum: number }, x) => ({ sum: acc.sum + x })`.
+/// Only a field whose annotation is a value type the sniff itself
+/// spells (a primitive, an array of one, a nested inline object)
+/// answers; a nullable receiver, an optional or fn-valued field and
+/// a named type bail like any other unresolved shape.
+pub(super) fn field_ann(recv: &str, field: &str) -> Option<String> {
+    if !recv.starts_with("__inlobj(") {
+        return None;
+    }
+    let ann = crate::ast_collect_fn_closure_init::parse_inlobj_field_anns(recv)?.remove(field)?;
+    let value = |t: &str| matches!(t, "number" | "string" | "boolean" | "bigint");
+    let elem = ann.strip_suffix("[]");
+    (value(&ann) || elem.is_some_and(value) || ann.starts_with("__inlobj(")).then_some(ann)
+}
