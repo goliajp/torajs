@@ -42,6 +42,9 @@ use torajs_rc::HeapHeader;
 /// Returns f64::NAN on any parse failure; identical semantics to
 /// the pre-rewrite C `strtod`-with-`endp`-must-be-end check.
 pub fn parse_number(bytes: &[u8]) -> f64 {
+    if let Some(v) = decimal_integer(bytes) {
+        return v;
+    }
     // Trim leading/trailing whitespace (Latin-1 projection of the
     // ES TrimString set — shared predicate with `s.trim()`).
     let mut s = 0usize;
@@ -117,6 +120,33 @@ pub fn parse_number(bytes: &[u8]) -> f64 {
     // f64::from_str's contract: "must consume the entire input"
     // — matches the C original's `endp != end → NaN` check.
     s.parse::<f64>().unwrap_or(f64::NAN)
+}
+
+/// `[+-]? DecimalDigits` with 1..=15 digits and nothing around it: a
+/// StrDecimalLiteral without fraction or exponent (§7.1.4.1.1), whose MV
+/// is below 10^15 < 2^53, so the integer accumulation already is the
+/// Number value. `-` applies to the double, which keeps `"-0"` at -0.
+/// Every other shape answers `None` and takes the general path.
+#[inline(always)]
+fn decimal_integer(bytes: &[u8]) -> Option<f64> {
+    let (neg, digits) = match bytes.first()? {
+        b'-' => (true, &bytes[1..]),
+        b'+' => (false, &bytes[1..]),
+        _ => (false, bytes),
+    };
+    if digits.is_empty() || digits.len() > 15 {
+        return None;
+    }
+    let mut acc: u64 = 0;
+    for &b in digits {
+        let d = b.wrapping_sub(b'0');
+        if d > 9 {
+            return None;
+        }
+        acc = acc * 10 + d as u64;
+    }
+    let v = acc as f64;
+    Some(if neg { -v } else { v })
 }
 
 /// UTF-16 LE variant of [`parse_number`]: trims the full ES
@@ -246,6 +276,22 @@ mod tests {
         assert_to_number(b"42", 42.0);
         assert_to_number(b"-1", -1.0);
         assert_to_number(b"0", 0.0);
+    }
+
+    #[test]
+    fn decimal_integer_edges() {
+        assert_to_number(b"007", 7.0);
+        assert_to_number(b"+5", 5.0);
+        assert_to_number(b"999999999999999", 999_999_999_999_999.0);
+        assert_to_number(b"9007199254740993", 9_007_199_254_740_992.0);
+        assert_to_number(b"-", f64::NAN);
+        assert_to_number(b"+", f64::NAN);
+        assert_to_number(b"-0x10", f64::NAN);
+        assert_to_number(b"--1", f64::NAN);
+        let z = parse_number(b"-0");
+        assert!(z == 0.0 && z.is_sign_negative());
+        let p = parse_number(b"+0");
+        assert!(p == 0.0 && p.is_sign_positive());
     }
 
     #[test]
