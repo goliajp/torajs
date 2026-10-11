@@ -6,6 +6,7 @@
 //! is runtime data, narrow faces are unprovable).
 
 mod from_any;
+mod node;
 mod obj;
 
 use crate::ssa::{IPred, InstKind, Operand, Terminator, Type};
