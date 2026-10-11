@@ -1,13 +1,81 @@
-//! Stringify + helper methods on `Type` / `BinOp` / `IPred` / `FPred`.
-//!
-//! These are small `pub fn as_str(self) -> &'static str` + a few
-//! query predicates (`is_copy`, `is_refcounted`, `is_pointer_shaped`
-//! on Type) — all data-driven match arms over the enum variant.
-//!
-//! Extracted from `ssa.rs` (2026-05-25, god-file decomp batch 15).
+//! The operand and operator enums (`Operand` / `BinOp` / `IPred` /
+//! `FPred`) with their stringify + helper methods, and the same
+//! helpers on `Type` (`as_str`, `is_copy`, `is_refcounted`,
+//! `is_pointer_shaped`) — all data-driven match arms over the variant.
 
-use super::{BinOp, FPred, IPred, Operand, Type};
+use super::{Type, ValueId};
 use std::hash::{Hash, Hasher};
+
+// PartialEq + Eq + Hash are implemented manually below so `ConstF64`
+// can compare and hash by IEEE 754 bit pattern (NaN-stable; required
+// by the egraph GVN map where two textually identical f64 constants
+// must collapse even if one of them is NaN, matching Cranelift's
+// `gvn_map.rs` treatment of the same edge case).
+#[derive(Debug, Clone, Copy)]
+pub enum Operand {
+    Value(ValueId),
+    ConstI64(i64),
+    /// i32 constants only ever come up as `main`'s `ret 0` for now.
+    ConstI32(i32),
+    ConstF64(f64),
+    ConstBool(bool),
+    /// `null` literal value for a pointer-shaped slot (Str / Obj / Arr /
+    /// Closure / FnSig). At codegen we emit `ptr_t.const_null()` —
+    /// exactly the in-band 0 sentinel JS treats as nullish. Cheaper
+    /// than ConstI64(0) since no inttoptr is needed.
+    ConstPtrNull,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BinOp {
+    // Integer
+    Add,
+    Sub,
+    Mul,
+    SDiv,
+    SRem,
+    And,
+    Or,
+    Xor,
+    Shl,
+    AShr, // arithmetic (signed) shift right
+    LShr, // logical shift right
+    // Floating point
+    FAdd,
+    FSub,
+    FMul,
+    FDiv,
+    /// Floating-point remainder — IEEE 754 fmod-shaped, used for JS
+    /// Number `%` when either operand is f64 (V3-18 m1.h.41).
+    FRem,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum IPred {
+    Eq,
+    Ne,
+    Slt,
+    Sgt,
+    Sle,
+    Sge,
+    /// unsigned: one compare answers `0 <= x < n` for an `n >= 0`
+    Ult,
+    Uge,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FPred {
+    Oeq,
+    One,
+    Olt,
+    Ogt,
+    Ole,
+    Oge,
+    /// Unordered-or-not-equal — true if either operand is NaN OR
+    /// the values differ. Required for JS `!==` / `!=` on f64
+    /// (NaN !== NaN must be true per spec §7.2.16).
+    Une,
+}
 
 impl Type {
     pub fn as_str(self) -> &'static str {

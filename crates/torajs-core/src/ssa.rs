@@ -51,6 +51,7 @@ pub use module_extras::{LOCAL_LABEL_PREFIX, demo_fib40, is_local_label};
 pub use module_methods::{
     BakedRegexEntry, DataGlobal, FnNameEntry, Module, StringLiteral, VtableGlobal,
 };
+pub use op_impls::{BinOp, FPred, IPred, Operand};
 pub use type_def::Type;
 pub use vec::{VecInst, VecOp, VecShape};
 pub use visit::{rewrite_value_operands, visit_value_operands};
@@ -83,77 +84,6 @@ pub struct ArrId(pub u32);
 /// iff their signatures are identical. M2 Phase B Stage 2.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SigId(pub u32);
-
-// PartialEq + Eq + Hash are implemented manually below so `ConstF64`
-// can compare and hash by IEEE 754 bit pattern (NaN-stable; required
-// by the egraph GVN map where two textually identical f64 constants
-// must collapse even if one of them is NaN, matching Cranelift's
-// `gvn_map.rs` treatment of the same edge case).
-#[derive(Debug, Clone, Copy)]
-pub enum Operand {
-    Value(ValueId),
-    ConstI64(i64),
-    /// i32 constants only ever come up as `main`'s `ret 0` for now.
-    ConstI32(i32),
-    ConstF64(f64),
-    ConstBool(bool),
-    /// `null` literal value for a pointer-shaped slot (Str / Obj / Arr /
-    /// Closure / FnSig). At codegen we emit `ptr_t.const_null()` —
-    /// exactly the in-band 0 sentinel JS treats as nullish. Cheaper
-    /// than ConstI64(0) since no inttoptr is needed.
-    ConstPtrNull,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum BinOp {
-    // Integer
-    Add,
-    Sub,
-    Mul,
-    SDiv,
-    SRem,
-    And,
-    Or,
-    Xor,
-    Shl,
-    AShr, // arithmetic (signed) shift right
-    LShr, // logical shift right
-    // Floating point
-    FAdd,
-    FSub,
-    FMul,
-    FDiv,
-    /// Floating-point remainder — IEEE 754 fmod-shaped, used for JS
-    /// Number `%` when either operand is f64 (V3-18 m1.h.41).
-    FRem,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum IPred {
-    Eq,
-    Ne,
-    Slt,
-    Sgt,
-    Sle,
-    Sge,
-    /// unsigned: one compare answers `0 <= x < n` for an `n >= 0`
-    Ult,
-    Uge,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum FPred {
-    Oeq,
-    One,
-    Olt,
-    Ogt,
-    Ole,
-    Oge,
-    /// Unordered-or-not-equal — true if either operand is NaN OR
-    /// the values differ. Required for JS `!==` / `!=` on f64
-    /// (NaN !== NaN must be true per spec §7.2.16).
-    Une,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum InstKind {
