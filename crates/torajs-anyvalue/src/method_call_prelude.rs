@@ -110,7 +110,7 @@ pub(crate) unsafe fn post_nullish_arm(
     // a plain-named `obj.toJSON()` keeps ordinary own-property
     // routing (a user object's own `toJSON` must win).
     if mid == torajs_rc::ANY_METHOD_TO_JSON {
-        return Some(unsafe { crate::method_call_date::date_to_json_generic(recv) });
+        return Some(unsafe { crate::method_call_date_json::date_to_json_generic(recv) });
     }
     unsafe { crate::method_call_object_proto::object_proto_universal(recv, mid, argv, argc) }
 }

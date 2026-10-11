@@ -215,6 +215,7 @@ mod method_call_closure_dispatch;
 mod method_call_closure_expando;
 mod method_call_closure_generic;
 mod method_call_date;
+mod method_call_date_json;
 mod method_call_dynobj;
 mod method_call_dynobj_chain;
 mod method_call_dynobj_proto;
