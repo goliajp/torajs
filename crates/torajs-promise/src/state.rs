@@ -220,35 +220,22 @@ pub unsafe extern "C" fn __torajs_promise_get_value(p: *const c_void) -> i64 {
 /// `want_repr` of 0 means the caller has no lane in mind at all and
 /// wants the slot as-is.
 ///
-/// # Safety
-/// `p` is NULL or a live Promise cell.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_promise_get_value_as(p: *const c_void, want_repr: i64) -> i64 {
-    unsafe { get_value_as_inner(p, want_repr, false) }
-}
-
-/// The typed HEAP lane's read (rotation 635): a still-pending cell
-/// answers 0 from [`__torajs_promise_get_value`], and 0 cast into a
-/// heap-typed slot is a null pointer the awaiting site dereferences
-/// (`await Promise.all([pending])` into an array binding: SIGSEGV).
-/// The sync-resolve model cannot suspend here, so this lane raises a
-/// TypeError instead — loud, catchable, the same throw slot a
-/// rejection uses. Primitive lanes and the `any` lane keep the model's
-/// undefined answer.
+/// A cell still pending after the awaiting site drained the microtask
+/// queue has nothing left that can settle it, and this await cannot
+/// suspend yet. [`__torajs_promise_get_value`] answers 0 there, which
+/// every lane would read as a value that never existed: a null pointer
+/// in a heap slot, `0` / `false` in a Copy slot. So every lane raises
+/// a TypeError instead, through the throw slot a rejection uses — the
+/// same raise as the `any` lane's await.
 ///
 /// # Safety
 /// `p` is NULL or a live Promise cell.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_promise_get_value_heap(p: *const c_void, want_repr: i64) -> i64 {
-    unsafe { get_value_as_inner(p, want_repr, true) }
-}
-
-unsafe fn get_value_as_inner(p: *const c_void, want_repr: i64, pending_throws: bool) -> i64 {
+pub unsafe extern "C" fn __torajs_promise_get_value_as(p: *const c_void, want_repr: i64) -> i64 {
     unsafe extern "C" {
         fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
     }
-    if pending_throws && !p.is_null() && unsafe { (*(p as *const Promise)).state } == STATE_PENDING
-    {
+    if !p.is_null() && unsafe { (*(p as *const Promise)).state } == STATE_PENDING {
         unsafe {
             __torajs_throw_type_error(
                 c"await on a promise that is still pending: a value of this type cannot be read \

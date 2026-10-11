@@ -282,17 +282,14 @@ pub(crate) fn lower_promise_get_value(ctx: &mut LowerCtx<'_>, obj: ExprId) -> Op
     // deref for a string). The stamp on the cell is the only runtime
     // record of the real form, so the read consults it.
     let want_repr = awaited_lane_repr(inner_ssa_ty.as_ref());
-    // rotation 635 — a heap-typed slot cannot hold the model's
-    // "pending answers 0": the cast below would make it a null pointer.
-    // That lane's read raises on a still-pending cell (634-08 ①).
-    let read = if inner_ssa_ty.as_ref().is_some_and(|t| !t.is_copy()) {
-        ctx.intrinsics.promise_get_value_heap
-    } else {
-        ctx.intrinsics.promise_get_value_as
-    };
+    // a still-pending cell raises here rather than answering 0 into
+    // the slot (null for a heap lane, `0` / `false` for a Copy lane)
     let raw_v = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(read, vec![obj_op, Operand::ConstI64(want_repr)]),
+        InstKind::Call(
+            ctx.intrinsics.promise_get_value_as,
+            vec![obj_op, Operand::ConstI64(want_repr)],
+        ),
         Type::I64,
         None,
     );
