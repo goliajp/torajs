@@ -54,3 +54,9 @@ const w: W = {
 console.log("f31" in w, "f33" in w, "f30" in w, Object.keys(w).length, JSON.stringify(w).length)
 w.f33 = 33
 console.log("f33" in w, w.f33, Object.keys(w).length)
+
+// a member `delete` took is no more copied than one a literal left out
+const del: O = { a: 1, b: 2 }
+delete (del as any).a
+const dm = { ...del }
+console.log("a" in dm, Object.keys(dm), JSON.stringify(dm))

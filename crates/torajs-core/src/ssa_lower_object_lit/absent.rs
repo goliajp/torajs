@@ -9,12 +9,12 @@
 //!
 //! The cell records which slots it lacks itself: the header bit
 //! `FLAG_OBJ_ABSENT_FIELD` and the set in the high half of the `+8`
-//! word, bit `i` for slot `i` — two stores the literal adds to the ones
-//! that build it. The typed own faces read the set inline, a typed
-//! store clears its slot's bit (`ssa_lower_assign_member_field::guard`),
-//! and the runtime faces settle it into the deletion records `delete`
-//! leaves (torajs-meta `struct_absent`). A slot past the 32 the set can
-//! name takes that record from the start.
+//! word, bit `i` for slot `i` — stores among the ones that build it.
+//! The typed own faces read the set inline, a typed store clears its
+//! slot's bit (`ssa_lower_assign_member_field::guard`), and the runtime
+//! reads it beside the deletion records `delete` leaves (torajs-meta
+//! `struct_absent`). A slot past the 32 the set can name takes that
+//! record from the start.
 
 use crate::ast::{ExprId, PropKey};
 use crate::ssa::{BinOp, IPred, InstKind, Operand, Terminator, Type};

@@ -90,11 +90,21 @@ fn hold_apart(owned_ast: &mut Ast, appended: usize, mut minted: Vec<Stmt>) -> Ve
 }
 
 /// Whether some object literal leaves out a field of the struct type
-/// the checker recorded for it (`check_assignable::in_declared_order`).
+/// the checker recorded for it (`check_assignable::in_declared_order`),
+/// or spreads a source that may lack a member it copies.
 fn mints_absent_set(ast: &Ast, expr_types: &HashMap<ExprId, crate::check::Type>) -> bool {
-    expr_types.iter().any(|(eid, ty)| {
-        matches!(ast.get_expr(*eid), crate::ast::Expr::ObjectLit { fields }
-            if !crate::check_assignable::literal_absent_fields(ty, fields).is_empty())
+    let spreads = |fields: &[(crate::ast::PropKey, ExprId)]| {
+        let spread = crate::check_type_of_object_lit::spread_omit_set;
+        fields.iter().any(|(n, _)| spread(n).is_some())
+    };
+    expr_types.iter().any(|(eid, ty)| match ast.get_expr(*eid) {
+        crate::ast::Expr::ObjectLit { fields } => {
+            let optional =
+                matches!(ty, crate::check::Type::Struct(fs) if !fs.optional().is_empty());
+            !crate::check_assignable::literal_absent_fields(ty, fields).is_empty()
+                || (optional && spreads(fields))
+        }
+        _ => false,
     })
 }
 
