@@ -46,6 +46,28 @@ impl<'a> ChainFacts<'a> {
             .collect();
         ChainFacts { dom, cold_edges }
     }
+
+    /// Every path to `block` inside `body` runs a call, ends the
+    /// function, or takes a predicted-cold edge: read off the
+    /// dominators of the block, which every path passes through.
+    pub(crate) fn cold_path(&self, func: &Function, body: &HashSet<u32>, block: u32) -> bool {
+        let mut cur = block;
+        loop {
+            if is_cold(func, cur) {
+                return true;
+            }
+            let Some(idom) = self.dom.immediate_dominator(BlockId(cur)) else {
+                return false;
+            };
+            if !body.contains(&idom.0) {
+                return false;
+            }
+            if self.cold_edges.contains(&(idom.0, cur)) {
+                return true;
+            }
+            cur = idom.0;
+        }
+    }
 }
 
 /// Reorder `order[span]` (the loop's contiguous range) into
@@ -198,6 +220,8 @@ fn hot_successor(
     None
 }
 
+/// A block the path rarely runs: one that ends the function, calls,
+/// or drops an `any` (which may call).
 fn is_cold(func: &Function, id: u32) -> bool {
     let block = &func.blocks[id as usize];
     matches!(block.term, Terminator::Ret(_) | Terminator::Unreachable)
@@ -207,4 +231,46 @@ fn is_cold(func: &Function, id: u32) -> bool {
                 InstKind::Call(..) | InstKind::CallIndirect(..) | InstKind::RcDecAny(_)
             )
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use torajs_core::ssa::{FuncId, Inst, Operand, Type};
+
+    /// b0 → b1(hdr: ? b2 : b6) ; b2: ? b3 : b4 ; b3 (call) → b7 ;
+    /// b7 → b5 ; b4 → b5 ; b5 → b1 ; b6: ret
+    #[test]
+    fn a_block_only_a_call_reaches_is_cold() {
+        let mut f = Function::new("f", Type::Void);
+        let b: Vec<BlockId> = (0..8).map(|_| f.add_block()).collect();
+        let c = f.add_param(Type::Bool, "c");
+        let cond = |t: usize, e: usize| Terminator::CondBr {
+            cond: Operand::Value(c),
+            then_blk: b[t],
+            else_blk: b[e],
+        };
+        f.set_term(b[0], Terminator::Br(b[1]));
+        f.set_term(b[1], cond(2, 6));
+        f.set_term(b[2], cond(3, 4));
+        f.blocks[3].insts.push(Inst {
+            result: None,
+            kind: InstKind::Call(FuncId(0), Vec::new()),
+            origin: None,
+        });
+        f.set_term(b[3], Terminator::Br(b[7]));
+        f.set_term(b[7], Terminator::Br(b[5]));
+        f.set_term(b[4], Terminator::Br(b[5]));
+        f.set_term(b[5], Terminator::Br(b[1]));
+        f.set_term(b[6], Terminator::Ret(None));
+        let dom = DominatorTree::compute(&f);
+        let facts = ChainFacts::new(&f, &dom);
+        let body: HashSet<u32> = [1, 2, 3, 4, 5, 7].into_iter().collect();
+        let cold = |id: u32| facts.cold_path(&f, &body, id);
+        assert!(cold(3) && cold(7), "the call and the block behind it");
+        assert!(
+            !cold(4) && !cold(5) && !cold(2),
+            "the warm arm and the join"
+        );
+    }
 }

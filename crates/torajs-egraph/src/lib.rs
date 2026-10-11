@@ -85,6 +85,7 @@ pub mod srem_fquot;
 pub mod srem_parity;
 pub mod str_append;
 mod strip_assumes;
+mod tail_dup;
 pub mod throw_check_fold;
 pub mod unroll_jam;
 pub mod unroll_pair;

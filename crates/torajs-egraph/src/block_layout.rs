@@ -43,6 +43,8 @@ pub struct BlockLayoutStats {
     pub latches_sunk: u32,
     /// Loops whose body was reordered into hot-successor chains.
     pub loops_chained: u32,
+    /// Blocks copied into the extra arms of small joins (`tail_dup`).
+    pub blocks_duplicated: u32,
 }
 
 /// Restore loop-body contiguity in every function body.
@@ -63,7 +65,15 @@ pub fn layout_module(module: &mut Module) -> BlockLayoutStats {
         // touches the cfg — and the sweep that follows then really can
         // drop them.
         stats.blocks_pruned += thread_empty_forwarders(func);
-        let (sunk, latches, chained) = layout_function(func);
+        let dom = DominatorTree::compute(func);
+        let la = LoopAnalysis::compute(func, &dom);
+        // before the chain, which then lays each copy after its arm
+        let copied = crate::tail_dup::duplicate_small_joins(func, &dom, &la);
+        stats.blocks_duplicated += copied;
+        let (sunk, latches, chained) = match copied {
+            0 => layout_with(func, &dom, &la),
+            _ => layout_function(func),
+        };
         if sunk + latches + chained > 0 {
             stats.blocks_sunk += sunk;
             stats.latches_sunk += latches;
@@ -126,10 +136,15 @@ fn thread_empty_forwarders(func: &mut Function) -> u32 {
 fn layout_function(func: &mut Function) -> (u32, u32, u32) {
     let dom = DominatorTree::compute(func);
     let la = LoopAnalysis::compute(func, &dom);
+    layout_with(func, &dom, &la)
+}
+
+/// `layout_function` with the function's dominators and loops in hand.
+fn layout_with(func: &mut Function, dom: &DominatorTree, la: &LoopAnalysis) -> (u32, u32, u32) {
     if la.loops().is_empty() {
         return (0, 0, 0);
     }
-    let facts = crate::block_chain::ChainFacts::new(func, &dom);
+    let facts = crate::block_chain::ChainFacts::new(func, dom);
     // Loop body sets with their header and back-edge sources,
     // innermost (smallest) first so nested bodies are already
     // contiguous units when their parent partitions.
