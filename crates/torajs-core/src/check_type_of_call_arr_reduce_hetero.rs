@@ -65,14 +65,14 @@ pub(crate) fn try_match(
     }
     // First cb param (the accumulator) types the result. Same-`T`
     // acc keeps the method-table arm unless an `any` return or seed
-    // may hand the accumulator a value of another kind; only
+    // may hand a typed accumulator a value of another kind; only
     // primitive-U lanes we can round-trip through the run-time boxed
     // acc slot are admitted here.
     let acc_ty = &ps[0];
     let any_seed = args
         .get(1)
         .is_some_and(|&s| checker.type_of(ast, s).is_ok_and(|t| t == Type::Any));
-    if acc_ty == elem.as_ref() && **ret != Type::Any && !any_seed {
+    if acc_ty == elem.as_ref() && (*acc_ty == Type::Any || (**ret != Type::Any && !any_seed)) {
         return None;
     }
     // An object accumulator whose callback return the sniff could not
