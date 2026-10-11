@@ -23,7 +23,7 @@ use torajs_core::ssa::id_hash::HashMap;
 use torajs_core::ssa::{Block, FuncId, Function, InstKind, Operand, Terminator};
 
 use super::call_args::{has_stack_lane, pass_args};
-use super::{ModuleFacts, brfuse, write_u32};
+use super::{ModuleFacts, landing, write_u32};
 use crate::enc::b_imm26;
 use crate::frame::FrameLayout;
 use crate::regalloc::Assignment;
@@ -97,7 +97,7 @@ fn returns_through(
     mut v: torajs_core::ssa::ValueId,
 ) -> bool {
     for _ in 0..8 {
-        let Some(j) = blocks_by_id.get(&brfuse::resolve_forwarded_target(blocks_by_id, target).0)
+        let Some(j) = blocks_by_id.get(&landing::resolve_forwarded_target(blocks_by_id, target).0)
         else {
             return false;
         };

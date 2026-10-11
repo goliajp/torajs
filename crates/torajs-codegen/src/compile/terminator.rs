@@ -16,7 +16,7 @@ use torajs_core::ssa::id_hash::HashMap;
 use torajs_core::ssa::{BlockId, Terminator};
 
 use super::operand::{self, materialize_operand_fpr, materialize_operand_gpr};
-use super::{OP_SCRATCH_LHS, brfuse, write_u32};
+use super::{OP_SCRATCH_LHS, brfuse, landing, write_u32};
 use crate::enc::{b_imm26, brk_imm16, cbnz_x, cbz_x, mov_d_reg, mov_x_reg, ret};
 use crate::frame::FrameLayout;
 use crate::reg::{Fpr, Gpr};
@@ -74,7 +74,7 @@ pub(super) fn emit_terminator(
     blocks_by_id: &HashMap<u32, &torajs_core::ssa::Block>,
     next_resolved: Option<BlockId>,
 ) {
-    let resolve = |t: BlockId| brfuse::resolve_forwarded_target(blocks_by_id, t);
+    let resolve = |t: BlockId| landing::resolve_forwarded_target(blocks_by_id, t);
     match term {
         Terminator::Ret(ret_op) => {
             // AAPCS64: int/ptr/bool return lands in X0, f64 in D0. The
@@ -193,7 +193,7 @@ pub(super) fn falls_through(
     next_resolved: Option<BlockId>,
 ) -> bool {
     let lands_next =
-        |t: &BlockId| Some(brfuse::resolve_forwarded_target(blocks_by_id, *t)) == next_resolved;
+        |t: &BlockId| Some(landing::resolve_forwarded_target(blocks_by_id, *t)) == next_resolved;
     match term {
         Terminator::Ret(_) | Terminator::Unreachable => false,
         Terminator::Br(t) => lands_next(t),

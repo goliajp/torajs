@@ -45,6 +45,7 @@ mod fusions;
 mod global_access;
 mod inline_sites;
 mod inst;
+mod landing;
 mod mem;
 mod operand;
 mod rc;
@@ -188,28 +189,6 @@ impl ModuleFacts {
     }
 }
 
-/// The register assignment and frame a block runs under, opening the
-/// frame where shrink-wrapping put its save point: the blocks ahead of
-/// it run frameless (see shrink_wrap.rs).
-fn open_block<'a>(
-    bytes: &mut Vec<u8>,
-    block: &torajs_core::ssa::Block,
-    shrink: &'a Option<crate::shrink_wrap::ShrinkWrap>,
-    alloc: &'a Assignment,
-    frame: &'a FrameLayout,
-    frameless: &'a FrameLayout,
-) -> (&'a Assignment, &'a FrameLayout) {
-    match shrink {
-        Some(sw) if sw.save == block.id => {
-            frame.emit_prologue(bytes);
-            emit_param_entry_moves(bytes, alloc);
-            (alloc, frame)
-        }
-        Some(sw) if sw.pre.contains(&block.id.0) => (&sw.pre_alloc, frameless),
-        _ => (alloc, frame),
-    }
-}
-
 /// Compile one SSA Function to aarch64 bytes using a pre-computed
 /// register assignment.
 pub fn compile_function_with(
@@ -275,7 +254,8 @@ pub fn compile_function_with(
             }
         }
         block_byte_starts.insert(block.id.0, bytes.len() as u32);
-        let (alloc, frame) = open_block(&mut bytes, block, &shrink, &alloc, &frame, &frameless);
+        let (alloc, frame) =
+            landing::open_block(&mut bytes, block, &shrink, &alloc, &frame, &frameless);
         let fused = fusions.cmp_of(block.id.0);
         let sib = sibcall::plan(func, block, &blocks_by_id, alloc, facts, block_slot);
         let body = sib.as_ref().map_or(block.insts.len(), |s| s.at);
@@ -298,7 +278,7 @@ pub fn compile_function_with(
         let next_resolved = func
             .blocks
             .get(bi + 1)
-            .map(|nb| brfuse::resolve_forwarded_target(&blocks_by_id, nb.id));
+            .map(|nb| landing::resolve_forwarded_target(&blocks_by_id, nb.id));
         emit_terminator(
             &mut bytes,
             &mut fixups,
@@ -316,7 +296,7 @@ pub fn compile_function_with(
     // forwarder blocks (no insts, unconditional Br) redirect the
     // branch to their final destination first.
     for fixup in &fixups {
-        let final_target = brfuse::resolve_forwarded_target(&blocks_by_id, fixup.target_block);
+        let final_target = landing::resolve_forwarded_target(&blocks_by_id, fixup.target_block);
         let target_byte_offset = *block_byte_starts
             .get(&final_target.0)
             .unwrap_or_else(|| panic!("Branch target BlockId({}) not in function", final_target.0));
