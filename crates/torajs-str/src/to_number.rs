@@ -107,6 +107,16 @@ pub fn parse_number(bytes: &[u8]) -> f64 {
         }
     }
 
+    // A StrDecimalLiteral spells no letter but the exponent mark; the
+    // exact-case Infinity forms are answered above. `f64::from_str`
+    // would also take `inf`, `infinity` and `nan` in any case.
+    if slice
+        .iter()
+        .any(|&c| c.is_ascii_alphabetic() && c != b'e' && c != b'E')
+    {
+        return f64::NAN;
+    }
+
     // Decode bytes as ASCII (per the str-pool ABI, all source
     // bytes are u8 already; UTF-8 multi-byte sequences for digits
     // would also parse correctly via str::from_utf8 + f64::from_
@@ -276,6 +286,25 @@ mod tests {
         assert_to_number(b"42", 42.0);
         assert_to_number(b"-1", -1.0);
         assert_to_number(b"0", 0.0);
+    }
+
+    #[test]
+    fn rust_only_spellings_are_nan() {
+        for s in [
+            &b"inf"[..],
+            b"INFINITY",
+            b"infinity",
+            b"-inf",
+            b"+Inf",
+            b"nan",
+            b"-NaN",
+            b"1_0",
+        ] {
+            assert!(parse_number(s).is_nan(), "{:?}", core::str::from_utf8(s));
+        }
+        assert_to_number(b"1E3", 1000.0);
+        assert_to_number(b"5.", 5.0);
+        assert_to_number(b".5", 0.5);
     }
 
     #[test]

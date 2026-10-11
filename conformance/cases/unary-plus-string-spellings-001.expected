@@ -1,0 +1,25 @@
+"42" 42 false
+"-0" -0 true
+"+5" 5 false
+"007" 7 false
+"9007199254740993" 9007199254740992 false
+"-" NaN false
+"+" NaN false
+"" 0 false
+"  12  " 12 false
+"1E3" 1000 false
+"5." 5 false
+".5" 0.5 false
+"0x10" 16 false
+"-0x10" NaN false
+"Infinity" Infinity false
+"-Infinity" -Infinity false
+"INFINITY" NaN false
+"infinity" NaN false
+"inf" NaN false
+"-inf" NaN false
+"nan" NaN false
+"NaN" NaN false
+"1_000" NaN false
+"1e" NaN false
+"١٢" NaN false
