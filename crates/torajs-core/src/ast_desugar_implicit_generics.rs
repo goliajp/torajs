@@ -55,20 +55,7 @@ pub(crate) fn run(ast: &mut Ast) {
     // instead (rotation 409; the demand predicate is the same one
     // that arms the adapter synthesis).
     let factories_stay_any = crate::ssa_lower_boxed_entry::program_constructs_from_value(ast);
-    // …and, whatever the program spells, the factories a runtime
-    // consumer constructs through (`factory_always_admitted`).
-    let always_any_factories: std::collections::HashSet<String> = {
-        let heirs = crate::ssa_lower_boxed_entry::promise_heir_classes(ast);
-        ast.stmts
-            .iter()
-            .filter_map(|s| match s {
-                Stmt::FnDecl { name, .. } => name.strip_prefix("__new_"),
-                _ => None,
-            })
-            .filter(|c| crate::ssa_lower_boxed_entry::factory_always_admitted(ast, &heirs, c))
-            .map(|c| format!("__new_{c}"))
-            .collect()
-    };
+    let always_any_factories = always_any_factories(ast);
     // (k) leg — needs the whole `&Ast` (named-fn refs + the shared
     // promote verdict), so it runs before the borrow split below.
     let promoted_objlits = crate::ast_refs_any_promote::objlit::promoted_method_objlits(ast);
@@ -242,6 +229,21 @@ pub(crate) fn run(ast: &mut Ast) {
             &mut fn_sigs,
         );
     }
+}
+
+/// …and, whatever the program spells, the factories a runtime
+/// consumer constructs through (`factory_always_admitted`).
+fn always_any_factories(ast: &Ast) -> std::collections::HashSet<String> {
+    let heirs = crate::ssa_lower_boxed_entry::promise_heir_classes(ast);
+    ast.stmts
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::FnDecl { name, .. } => name.strip_prefix("__new_"),
+            _ => None,
+        })
+        .filter(|c| crate::ssa_lower_boxed_entry::factory_always_admitted(ast, &heirs, c))
+        .map(|c| format!("__new_{c}"))
+        .collect()
 }
 
 /// Second pass over top-level lets — a `const h = <closure>` binding
