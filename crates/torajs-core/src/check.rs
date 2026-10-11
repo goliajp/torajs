@@ -21,6 +21,8 @@ mod type_def;
 mod type_of;
 mod type_union;
 mod union_binding;
+#[cfg(test)]
+mod union_call_tests;
 mod union_member;
 mod union_narrow;
 #[cfg(test)]

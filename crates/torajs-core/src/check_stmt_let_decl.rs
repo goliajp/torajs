@@ -59,7 +59,9 @@ pub(crate) fn check(
         let typed = if type_ann.is_some() {
             checker.type_of_raw(ast, init)
         } else {
-            checker.type_of(ast, init)
+            checker
+                .type_of(ast, init)
+                .map(|t| fn_union_face(checker, init, t))
         };
         match typed {
             Ok(t) => t,
@@ -251,6 +253,22 @@ fn widen_escaping_generic(checker: &mut Checker, ast: &Ast, init: ExprId, init_t
             crate::check_substitute_typevars::substitute_typevars(&init_ty, &subst)
         }
         _ => init_ty,
+    }
+}
+
+/// An unannotated binding initialized with a choice among functions of
+/// different signatures has their union as its type, as TS infers it:
+/// the value still travels as `any`, and a call through the binding is
+/// checked against the members (`check_type_of_call::union_callee`).
+fn fn_union_face(checker: &Checker, init: ExprId, t: Type) -> Type {
+    match checker.unions.types.get(&init) {
+        Some(u)
+            if t == Type::Any
+                && crate::check_type_of_call::union_callee::fn_members(u).is_some() =>
+        {
+            u.clone()
+        }
+        _ => t,
     }
 }
 

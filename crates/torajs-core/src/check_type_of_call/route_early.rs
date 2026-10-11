@@ -110,6 +110,9 @@ pub(crate) fn try_route(
     if let Some(r) = try_fn_value_call(checker, ast, eid, callee, args) {
         return Some(r);
     }
+    if let Some(r) = super::union_callee::try_route(checker, ast, *callee, args) {
+        return Some(r);
+    }
     // RFC C4+ — a bare call whose callee itself types as `any`
     // (`f(1)` on an any-held closure) is legal per TS and answers
     // `any`; lowering routes it to the runtime closure dispatch.

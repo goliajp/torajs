@@ -35,6 +35,7 @@ mod route_globals;
 mod route_namespace_trailing;
 mod route_str_arr_trailing;
 mod source_array_param;
+pub(crate) mod union_callee;
 
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type};
