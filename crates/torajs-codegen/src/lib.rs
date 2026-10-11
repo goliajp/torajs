@@ -29,6 +29,7 @@ pub mod linear_scan;
 mod linear_scan_alloc;
 mod linear_scan_calls;
 mod linear_scan_lanes;
+mod linear_scan_spill;
 pub(crate) mod linear_scan_sweep;
 pub mod liveness;
 pub mod liveness_blocks;
