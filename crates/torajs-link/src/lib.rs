@@ -112,7 +112,6 @@ mod rtlinked_build_regions;
 mod rtlinked_build_tlv;
 pub mod rtlinked_format;
 mod rtlinked_format_check;
-pub mod sha256;
 pub mod sign;
 pub mod stubs;
 pub mod text_payload;

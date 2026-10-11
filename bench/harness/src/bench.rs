@@ -30,10 +30,10 @@ pub(crate) fn out_name(case: &str, runner: &str) -> String {
 }
 
 /// Hex-encoded SHA-256 of a file's contents, via the in-house
-/// `torajs_link::sha256` (the codesign digest — no external dep).
+/// `torajs_crypto::sha2::sha256` (no external dep).
 fn file_sha256_hex(path: &Path) -> Option<String> {
     let bytes = std::fs::read(path).ok()?;
-    let digest = torajs_link::sha256::sha256(&bytes);
+    let digest = torajs_crypto::sha2::sha256(&bytes);
     let mut hex = String::with_capacity(64);
     for b in digest {
         use std::fmt::Write;

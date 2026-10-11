@@ -5,7 +5,7 @@
 //! macOS 14+ refuses to load arm64 binaries that lack this blob —
 //! it's the last external-tool dependency in the torajs build
 //! pipeline. This module replaces the host `codesign` call with
-//! a hand-rolled blob builder driven by `sha256` (sister module).
+//! a hand-rolled blob builder driven by `torajs_crypto::sha2::sha256`.
 //!
 //! Blob layout (big-endian throughout, in contrast to Mach-O's
 //! little-endian convention — CMS blobs use network byte order):
@@ -43,7 +43,7 @@
 //! on an Apple-signed sample — see the inline tests for the
 //! field-by-field byte expectations.
 
-use crate::sha256::sha256;
+use torajs_crypto::sha2::sha256;
 
 /// `CSMAGIC_EMBEDDED_SIGNATURE` — SuperBlob magic, in network byte
 /// order. The host file ordering treats this big-endian.

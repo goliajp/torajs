@@ -15,6 +15,7 @@ workspace = true
 
 [dependencies]
 torajs-codegen = { path = "../torajs-codegen" }
+torajs-crypto = { path = "../torajs-crypto" }
 torajs-obj = { path = "../torajs-obj" }
 torajs-rtimage = { path = "../torajs-rtimage" }
 

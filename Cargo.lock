@@ -168,7 +168,7 @@ dependencies = [
  "serde",
  "serde_json",
  "toml",
- "torajs-link",
+ "torajs-crypto",
 ]
 
 [[package]]
@@ -1618,6 +1618,7 @@ version = "0.1.0"
 dependencies = [
  "torajs-codegen",
  "torajs-core",
+ "torajs-crypto",
  "torajs-obj",
  "torajs-rtimage",
 ]
