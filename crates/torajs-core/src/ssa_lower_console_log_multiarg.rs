@@ -287,12 +287,12 @@ fn print_one(ctx: &mut LowerCtx, la: LoweredArg) {
             Type::Str,
             None,
         );
+        // the Str-slot box is a pure encode: the one release is the Str's
         let boxed = ctx.box_to_any(Operand::Value(s));
         ctx.f.append_void(
             ctx.cur_block,
             InstKind::Call(ctx.intrinsics.print_any_inline_top, vec![boxed]),
         );
-        ctx.emit_drop_value(boxed, Type::Any);
         ctx.emit_drop_value(Operand::Value(s), Type::Str);
         crate::ssa_lower_call_console::close_console_sentinel_branch(ctx, sentinel_join);
         return;

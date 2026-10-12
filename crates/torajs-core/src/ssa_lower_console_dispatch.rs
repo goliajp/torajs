@@ -13,7 +13,7 @@
 //! `ssa_lower.rs` reach them through the impl block on the shared
 //! `crate::ssa_lower::LowerCtx` type.
 
-use crate::ast::{Expr, ExprId};
+use crate::ast::{BinOp as AstBinOp, Expr, ExprId};
 use crate::ssa::{FuncId, InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
@@ -205,6 +205,20 @@ pub(crate) fn console_arg_is_borrow(ctx: &LowerCtx<'_>, arg_id: ExprId) -> bool 
             !matches!(ctx.expr_types.get(obj), Some(crate::check::Type::String))
                 && !ctx.owned_member_reads.contains(&arg_id)
         }
+        // A `?:` / `??` / `&&` / `||` join answers whichever arm ran.
+        // Its lowering makes it owned on every path, and records it,
+        // when it unifies the arms; a join it left alone hands each
+        // arm through as lowered and is a borrow, whatever the arms
+        // are — the return path reads it the same way. Judging the
+        // arms here instead called `c ? s : null` owned (a `null`
+        // arm is not a borrow shape) and released `s` on the path
+        // that answered it.
+        Expr::Ternary { .. }
+        | Expr::Nullish { .. }
+        | Expr::BinOp {
+            op: AstBinOp::LAnd | AstBinOp::LOr,
+            ..
+        } => !ctx.expr_owned_shape(arg_id),
         _ => false,
     }
 }

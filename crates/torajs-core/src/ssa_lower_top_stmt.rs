@@ -11,8 +11,8 @@
 //!   (Null/Undefined → literal label, Substr → materialized owned
 //!   Str, BigInt → bigint_to_string + "n" suffix, Str/I64/other →
 //!   direct print);
-//! - single-arg borrow vs. owned drop semantics (Ident / Member /
-//!   Index expressions don't own the heap so no drop);
+//! - single-arg borrow vs. owned drop semantics (shared with the
+//!   in-fn lane's `console_arg_is_borrow`);
 //! - multi-arg `console.log` per-arg inspect dispatch via sibling
 //!   `ssa_lower_console_log_multiarg`;
 //! - multi-arg `console.error/warn` Str-coerce + str_concat joiner
@@ -63,11 +63,12 @@ impl<'a> LowerCtx<'a> {
                 self.emit_console_print(method, target, Operand::Value(lit));
                 return;
             }
-            let is_borrow = matches!(
-                self.ast.get_expr(args[0]),
-                Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. }
-            );
             let arg = self.lower_expr(args[0]);
+            // The in-fn lane's judgement, after the lowering that
+            // records owned reads; a private copy here had drifted
+            // (a `?:` join of borrows was released, a fresh `s[i]`
+            // view was not).
+            let is_borrow = crate::ssa_lower_console_dispatch::console_arg_is_borrow(self, args[0]);
             let arg_ty = self.operand_ty(&arg);
             // Substr: materialize to owned Str (always-drop), then print as Str.
             if arg_ty == Type::Substr {
