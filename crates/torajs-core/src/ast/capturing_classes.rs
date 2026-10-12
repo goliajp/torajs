@@ -70,6 +70,7 @@ mod extends;
 use super::{Ast, Expr, Stmt};
 
 mod install;
+pub(crate) mod new_target;
 mod own_binding;
 pub(in crate::ast) mod private_fields;
 mod return_override;
@@ -251,6 +252,14 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str, inner: String) -> St
         extends::rewrite_super_prop_sites(ast, &body, p, false, &name);
         return_override::reshape(ast, &mut body);
     }
+    let shown = super::class_globals::class_display_name(ast, src_name).to_string();
+    // A body reading `arguments` by index has no construct face, so its
+    // `new` runs the call channel too and the guard cannot tell the two
+    // apart (recorded residue: its [[Call]] does not throw).
+    if !super::arguments_object_walkers::body_has_non_length_arguments_touch(ast, &body) {
+        let guard = new_target::call_guard(ast, &shown);
+        body.insert(0, guard);
+    }
     let ctor_eid = ast.add_expr(Expr::ArrowFn {
         params,
         return_type: None,
@@ -265,7 +274,6 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str, inner: String) -> St
     // `.name` answered `__cci1_C`. Read through the display table: a
     // class the hoist renamed for a name collision (`__hc0_C`) still
     // answers the name it was written with.
-    let shown = super::class_globals::class_display_name(ast, src_name).to_string();
     ast.fn_expr_self_names.insert(ctor_eid, shown);
     // §20.2.3.5 — this function IS the class object, so its source
     // text is the class declaration's; without the span `String(C)`

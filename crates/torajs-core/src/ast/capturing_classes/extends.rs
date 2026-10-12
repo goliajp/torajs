@@ -29,6 +29,7 @@
 use super::super::super_collect::{collect_super_in_stmt, collect_supercall_in_stmt};
 use super::super::{Ast, ClassCtor, Expr, ExprId, Param, Stmt};
 use super::install::define_member;
+use super::new_target::{self, SuperArgs};
 
 /// The claim-time `extends` bookkeeping for a class this lane just
 /// took (moved verbatim from the parent's claim path at the
@@ -149,15 +150,12 @@ pub(super) fn rewrite_super_sites(
         // class's own `.call` correctly throws per §10.3.1, and the
         // mono ctor reads baked struct offsets a dynobj instance
         // never has. The twin's head is `(__this, __new_target,
-        // …user)`; the newTarget slot rides `undefined` — the true
-        // value is the subclass binding, but spelling that name in
-        // its own init expression defeats the capture census
-        // (recorded residue: `new.target` inside the parent ctor
-        // reads undefined on this lane).
+        // …user)`, and the slot takes this constructor's own
+        // new.target (§13.3.7.1 step 5).
         if ast.es5_real_parents.contains(&ctor_target) {
             let callee = ast.add_expr(Expr::Ident(format!("__ctorany_{ctor_target}")));
             let this = ast.add_expr(Expr::This);
-            let nt = ast.add_expr(Expr::Ident("undefined".to_string()));
+            let nt = ast.add_expr(Expr::NewTarget);
             let mut full = vec![this, nt];
             full.extend(args);
             let call = Expr::Call { callee, args: full };
@@ -165,11 +163,7 @@ pub(super) fn rewrite_super_sites(
             ast.exprs[eid.0 as usize] = adopt_super_answer(ast, call, derived);
             continue;
         }
-        let callee = call_member(ast, &ctor_target, &[]);
-        let call = Expr::Call {
-            callee,
-            args: this_first(ast, args),
-        };
+        let call = new_target::sibling_super(ast, &ctor_target, SuperArgs::List(args));
         let derived = ast.es5_derived_parents.contains(&ctor_target);
         ast.exprs[eid.0 as usize] = adopt_super_answer(ast, call, derived);
     }
@@ -305,7 +299,7 @@ fn this_first(ast: &mut Ast, args: Vec<ExprId>) -> Vec<ExprId> {
 /// program can spell: field initializers now run in that constructor's
 /// scope (`ctor_parts`), and `w = args.length` must keep reading the
 /// OUTER `args`.
-const REST_ARGS: &str = "__super_args";
+pub(super) const REST_ARGS: &str = "__super_args";
 
 /// The constructor's params and body as the lane lowers them.
 ///
@@ -364,7 +358,7 @@ pub(super) fn implicit_derived_ctor(
         // `rewrite_super_sites`), spread-forwarding the rest param.
         let callee = ast.add_expr(Expr::Ident(format!("__ctorany_{target}")));
         let this = ast.add_expr(Expr::This);
-        let nt = ast.add_expr(Expr::Ident("undefined".to_string()));
+        let nt = ast.add_expr(Expr::NewTarget);
         let rest_ref = ast.add_expr(Expr::Ident(REST_ARGS.to_string()));
         let spread = ast.add_expr(Expr::Spread { expr: rest_ref });
         let call = Expr::Call {
@@ -375,12 +369,9 @@ pub(super) fn implicit_derived_ctor(
         let adopted = adopt_super_answer(ast, call, derived);
         ast.add_expr(adopted)
     } else {
-        let callee = call_member(ast, &target, &[]);
-        let rest_ref = ast.add_expr(Expr::Ident(REST_ARGS.to_string()));
-        let spread = ast.add_expr(Expr::Spread { expr: rest_ref });
-        let args = this_first(ast, vec![spread]);
+        let call = new_target::sibling_super(ast, &target, SuperArgs::Rest);
         let derived = ast.es5_derived_parents.contains(&target);
-        let adopted = adopt_super_answer(ast, Expr::Call { callee, args }, derived);
+        let adopted = adopt_super_answer(ast, call, derived);
         ast.add_expr(adopted)
     };
     // The annotation is load-bearing: an unannotated rest lowered as

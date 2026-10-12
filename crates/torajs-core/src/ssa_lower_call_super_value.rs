@@ -53,6 +53,23 @@ pub(crate) fn try_lower(
         ctx.emit_throw_check(None);
         return Some(Operand::ConstPtrNull);
     }
+    // §10.2.1 step 2 — the capturing lane's [[Call]] guard: the
+    // message is known while compiling (bun's, with the class name the
+    // site carries as a literal), so the raise is the compiler-message
+    // one.
+    if n == crate::ast::capturing_classes::new_target::CALL_THROW
+        && let [name] = args
+        && let Expr::String(shown) = ctx.ast.get_expr(*name)
+    {
+        let text = format!("Cannot call a class constructor {shown} without |new|");
+        let msg = ctx.intern_string_literal(text.as_str());
+        let raiser = ctx.intrinsics.throw_type_error_str;
+        let cur_block = ctx.cur_block;
+        ctx.f
+            .append_void(cur_block, InstKind::Call(raiser, vec![Operand::Value(msg)]));
+        ctx.emit_throw_check(None);
+        return Some(Operand::ConstPtrNull);
+    }
     if n != "__torajs_super_value" || args.len() != 4 {
         return None;
     }
