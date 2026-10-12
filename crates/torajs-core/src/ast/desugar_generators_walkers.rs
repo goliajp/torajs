@@ -6,6 +6,9 @@
 use super::{Ast, Expr, Param, Stmt};
 
 mod local_ann;
+mod var_lift;
+
+pub(crate) use var_lift::var_slots;
 
 /// What the let-lift knows about the generator it is lifting out of,
 /// so an unannotated local can be typed by what its initializer says
@@ -45,6 +48,10 @@ pub(crate) struct LiftCtx<'a> {
     /// `Ast::const_lifted_fields` records a `const` / `using` lift
     /// under (RFC 20260915 #8).
     pub(crate) machine_class: String,
+    /// Every `var` name of the body — the function-scoped bindings
+    /// `var_lift` gives one field each — and whether that field may
+    /// take the initializer's type (`var_lift::var_slots`).
+    pub(crate) vars: std::collections::HashMap<String, bool>,
 }
 
 /// Lift the lets of one statement list — every scope that owns one
@@ -83,6 +90,7 @@ pub(crate) fn lift_lets_in_stmt(
     let taken = taken_names(ctx, lifted);
     super::desugar_generators_alpha::resolve_duplicate_for_let(ast, s, &taken);
     match s {
+        Stmt::LetDecl { is_var: true, .. } => var_lift::lift_var(ast, s, lifted, ctx),
         Stmt::LetDecl {
             mutable,
             name,
@@ -218,12 +226,13 @@ fn lift_lets_in_switch(
 }
 
 /// What a `let` about to lift may not be called: the fields the
-/// generator owns from the start (`LiftCtx::reserved`) plus what the
-/// lift has claimed so far.
+/// generator owns from the start (`LiftCtx::reserved`), the body's
+/// `var` names, and what the lift has claimed so far.
 fn taken_names(ctx: &LiftCtx, lifted: &[(String, String)]) -> Vec<(String, String)> {
     ctx.reserved
         .iter()
         .cloned()
+        .chain(ctx.vars.keys().map(|n| (n.clone(), String::new())))
         .chain(lifted.iter().cloned())
         .collect()
 }

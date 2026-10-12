@@ -118,10 +118,15 @@ fn rewrite_range(ast: &mut Ast, range: &mut [Stmt], from: &str, to: &str) {
     super::nested_fns_idents::rewrite_idents_in_body(ast, range, &map, true);
 }
 
-/// The name a statement declares into its enclosing list, if any.
+/// The block-scoped name a statement declares into its enclosing
+/// list, if any. A `var` is the function's one binding, never renamed.
 fn declared_name(s: &Stmt) -> Option<String> {
     match s {
-        Stmt::LetDecl { name, .. } => Some(name.clone()),
+        Stmt::LetDecl {
+            name,
+            is_var: false,
+            ..
+        } => Some(name.clone()),
         Stmt::Multi(inner) => inner.iter().find_map(declared_name),
         _ => None,
     }
