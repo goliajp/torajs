@@ -136,10 +136,26 @@ impl CallSites {
                 }
             }
         }
+        // a class method `__cm_<C>__<k>`, filed under every name it
+        // may end in (a class or method name may hold `__` itself)
+        let mut methods: HashMap<&str, Vec<Holder>> = HashMap::new();
+        for (name, _, shift) in &decls {
+            let Some(rest) = name.strip_prefix("__cm_") else {
+                continue;
+            };
+            if !fn_params.contains_key(*name) {
+                continue;
+            }
+            for (i, _) in rest.match_indices("__") {
+                let held = (name.to_string(), *shift);
+                methods.entry(&rest[i + 2..]).or_default().push(held);
+            }
+        }
         let mut walk = Walk {
             ast,
             fn_params,
             holders: &holders,
+            methods: &methods,
             calls: Vec::new(),
             escaped: HashSet::new(),
             parents,
@@ -301,6 +317,8 @@ struct Walk<'a> {
     ast: &'a Ast,
     fn_params: &'a HashMap<String, Vec<(usize, String)>>,
     holders: &'a HashMap<String, Vec<Holder>>,
+    /// method name → the class methods declaring it with fn-typed params
+    methods: &'a HashMap<&'a str, Vec<Holder>>,
     calls: Vec<CallSite>,
     escaped: HashSet<String>,
     parents: HashMap<String, Parent>,
@@ -314,6 +332,12 @@ impl Walk<'_> {
             Expr::Call { callee, args } => match ast.get_expr(*callee) {
                 Expr::Member { obj, name } => {
                     if let Some(hs) = self.holders.get(name) {
+                        self.calls.push((hs.clone(), 0, args.clone(), encl_owned()));
+                    }
+                    // a method name two unrelated classes declare keeps
+                    // the member call until the receiver's type picks
+                    // the class, so every such method is a callee here
+                    if let Some(hs) = self.methods.get(name.as_str()) {
                         self.calls.push((hs.clone(), 0, args.clone(), encl_owned()));
                     }
                     self.expr(*obj, encl);
