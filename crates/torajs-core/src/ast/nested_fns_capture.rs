@@ -67,11 +67,12 @@ use super::free_vars::free_vars_of_fn;
 use super::scope_chain::{list_names, not_rebound};
 use super::{Ast, Expr, ExprId, Stmt};
 
+mod case_block;
 mod early_use;
 mod pad;
 mod walk;
 pub(super) use early_use::hoist_above_first_use;
-use early_use::{early_use, raise_early};
+use early_use::{EarlyUse, early_use, raise_early};
 use walk::{Scopes, walk_children};
 
 /// Compiler-minted declarations (lifted arrows, class methods, generator
@@ -155,8 +156,37 @@ fn walk_list(
             scope.annexb.push(name.clone());
         }
     }
-    route_list(ast, stmts, globals, scope, in_block, counter);
+    let (routed, early) = route_list(ast, stmts, globals, scope, in_block);
+    // Annex B §B.3.3 — a declaration nested in a BLOCK has a second,
+    // var-scoped binding as well, and the rewrite only made the block
+    // one. See `annexb_block_binding` for what the split does.
+    if in_block {
+        for r in &routed {
+            // A name an enclosing scope already binds is §B.3.3.1 step
+            // 1.a.ii's early error — the extension does not apply and
+            // the reference belongs to that owner.
+            if r.early || scope.annexb.iter().any(|b| *b == r.name) {
+                continue;
+            }
+            split_block_binding(ast, stmts, r.idx, &r.name, r.span, counter);
+        }
+    }
+    if let Some(early) = &early {
+        raise_early(stmts, early);
+    }
     scope.reset(depth);
+}
+
+/// One declaration the router rewrote into a `let` in place.
+pub(super) struct Routed {
+    pub(super) idx: usize,
+    pub(super) name: String,
+    pub(super) span: crate::lexer::Span,
+    /// What it reads from outside, its peers included.
+    pub(super) free: Vec<String>,
+    /// A statement above it reaches it, so it moves up whole and is not
+    /// split (`early_use`).
+    pub(super) early: bool,
 }
 
 /// One statement list: decide which of its `function` declarations route,
@@ -167,8 +197,7 @@ fn route_list(
     globals: &[String],
     scope: &Scopes,
     in_block: bool,
-    counter: &mut u32,
-) {
+) -> (Vec<Routed>, Option<EarlyUse>) {
     let sites: Vec<usize> = stmts
         .iter()
         .enumerate()
@@ -178,7 +207,7 @@ fn route_list(
         })
         .collect();
     if sites.is_empty() {
-        return;
+        return (Vec::new(), None);
     }
     let names: Vec<String> = sites
         .iter()
@@ -219,12 +248,12 @@ fn route_list(
         })
         .collect();
     if !routed.iter().any(|r| *r) {
-        return;
+        return (Vec::new(), None);
     }
     grow_to_components(&names, &free, &mut routed);
     for (k, i) in sites.iter().enumerate() {
         if routed[k] && !can_rewrite(&stmts[*i], &free[k]) {
-            return;
+            return (Vec::new(), None);
         }
     }
     for (k, i) in sites.iter().enumerate() {
@@ -240,24 +269,17 @@ fn route_list(
     // even through a peer it calls, has to be live there, so it moves
     // up whole instead of splitting (`early_use`).
     let early = early_use(ast, stmts, &routed_sites);
-    let is_early = |i: usize| early.as_ref().is_some_and(|e| e.sites.contains(&i));
-    // Annex B §B.3.3 — a declaration nested in a BLOCK has a second,
-    // var-scoped binding as well, and the rewrite above only made the
-    // block one. See `annexb_block_binding` for what the split does.
-    if in_block {
-        for (k, i) in sites.iter().enumerate() {
-            // A name an enclosing scope already binds is §B.3.3.1 step
-            // 1.a.ii's early error — the extension does not apply and the
-            // reference belongs to that owner.
-            if !routed[k] || is_early(*i) || scope.annexb.iter().any(|b| *b == names[k]) {
-                continue;
-            }
-            split_block_binding(ast, stmts, *i, &names[k], spans[k], counter);
-        }
-    }
-    if let Some(early) = &early {
-        raise_early(stmts, early);
-    }
+    let out = (0..sites.len())
+        .filter(|k| routed[*k])
+        .map(|k| Routed {
+            idx: sites[k],
+            name: names[k].clone(),
+            span: spans[k],
+            free: free[k].clone(),
+            early: early.as_ref().is_some_and(|e| e.sites.contains(&sites[k])),
+        })
+        .collect();
+    (out, early)
 }
 
 /// What a declaration's frame binds before its free variables are read:

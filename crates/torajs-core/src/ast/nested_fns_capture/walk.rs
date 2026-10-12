@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 
 use super::walk_list;
-use crate::ast::scope_chain::{arrow_frames, fn_names, for_init_names, list_names};
+use crate::ast::scope_chain::{arrow_frames, fn_names, for_init_names};
 use crate::ast::{Ast, ExprId, Stmt};
 
 /// The bindings the enclosing scopes introduce, kept two ways.
@@ -108,18 +108,7 @@ pub(super) fn walk_children(
                 walk_list(ast, fb, globals, scope, true, counter);
             }
         }
-        Stmt::Switch { cases, default, .. } => {
-            // One block holds every clause.
-            for list in cases.iter().map(|c| &c.body[..]).chain(default.as_deref()) {
-                list_names(list, &mut scope.shadow);
-            }
-            for c in cases.iter_mut() {
-                walk_list(ast, &mut c.body, globals, scope, true, counter);
-            }
-            if let Some(d) = default {
-                walk_list(ast, d, globals, scope, true, counter);
-            }
-        }
+        Stmt::Switch { .. } => super::case_block::walk_case_block(ast, s, globals, scope, counter),
         _ => {}
     }
     scope.reset(depth);

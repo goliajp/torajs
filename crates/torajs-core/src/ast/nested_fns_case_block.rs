@@ -45,7 +45,7 @@ pub(super) struct CaseBlockSlots {
 /// The clause bodies in source order — a `default` written between
 /// cases sits between them, and the last of two same-named
 /// declarations is the one the binding holds.
-fn clauses<'a>(
+pub(super) fn clauses<'a>(
     cases: &'a mut [SwitchCase],
     default: &'a mut Option<Vec<Stmt>>,
     default_at: usize,
@@ -180,7 +180,12 @@ pub(super) fn apply_case_block_renames(
             let Some(Stmt::Switch { cases, default, .. }) = v.last_mut() else {
                 unreachable!("the wrapper ends in its switch");
             };
-            rename_case_block(ast, cases, default, cb);
+            rename_case_block(ast, cases, default, &cb.slots);
+            for (id, name) in &cb.writes {
+                if let Expr::Assign { target, .. } = ast.exprs[id.0 as usize] {
+                    ast.exprs[target.0 as usize] = Expr::Ident(name.clone());
+                }
+            }
         };
         for s in body.iter_mut() {
             for_each_nested_vec_mut(s, &mut visit);
@@ -188,13 +193,16 @@ pub(super) fn apply_case_block_renames(
     }
 }
 
-fn rename_case_block(
+/// Rename each `(source name, slot)` in the case selectors and clause
+/// bodies of one switch — not its scrutinee, which is evaluated outside
+/// the CaseBlock.
+pub(super) fn rename_case_block(
     ast: &mut Ast,
     cases: &mut [SwitchCase],
     default: &mut Option<Vec<Stmt>>,
-    cb: &CaseBlockSlots,
+    slots: &[(String, String)],
 ) {
-    for (name, slot) in &cb.slots {
+    for (name, slot) in slots {
         let map: HashMap<String, String> = HashMap::from([(name.clone(), slot.clone())]);
         for c in cases.iter_mut() {
             rewrite_idents_in_expr(ast, c.value, &map, true);
@@ -207,11 +215,6 @@ fn rename_case_block(
             if !rebinds_in_stmt(s, name) {
                 rewrite_idents_in_stmt(ast, s, &map, true);
             }
-        }
-    }
-    for (id, name) in &cb.writes {
-        if let Expr::Assign { target, .. } = ast.exprs[id.0 as usize] {
-            ast.exprs[target.0 as usize] = Expr::Ident(name.clone());
         }
     }
 }

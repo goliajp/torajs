@@ -74,6 +74,15 @@ pub(in crate::ast) fn early_use(ast: &Ast, stmts: &[Stmt], routed: &[usize]) -> 
     Some(EarlyUse { first_use, sites })
 }
 
+impl EarlyUse {
+    /// Keep only the sites `keep` accepts; `None` when none is left. The
+    /// destination stays above the first use, which is still above them.
+    pub(in crate::ast) fn retain(mut self, keep: impl Fn(usize) -> bool) -> Option<EarlyUse> {
+        self.sites.retain(|i| keep(*i));
+        (!self.sites.is_empty()).then_some(self)
+    }
+}
+
 /// Move the early sites, in order, to just above the first statement
 /// that reaches one of them.
 pub(in crate::ast) fn raise_early(stmts: &mut [Stmt], early: &EarlyUse) {
