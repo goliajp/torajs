@@ -298,25 +298,7 @@ pub(crate) fn coerce_to_str(ctx: &mut LowerCtx, v: Operand, undefable: bool) -> 
         // (default hint) runs its own `valueOf` / `toString` before
         // the kernel's closure arm falls back to the source row. The
         // direct source kernel this arm used to call skipped both.
-        | Type::Closure(_) => {
-            let raw = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::PtrToInt(v),
-                Type::I64,
-                None,
-            );
-            let s = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(
-                    ctx.intrinsics.any_to_str_prim,
-                    vec![Operand::ConstI64(4), Operand::Value(raw)],
-                ),
-                Type::Str,
-                None,
-            );
-            ctx.emit_throw_check(None);
-            (Operand::Value(s), true)
-        }
+        | Type::Closure(_) => heap_cell_to_str(ctx, v),
         // S138 — the Obj side below runs OrdinaryToPrimitive; the Arr
         // side is the S137 dispatch, shared with the two `String` /
         // `Number` coercion sites.
@@ -334,25 +316,60 @@ pub(crate) fn coerce_to_str(ctx: &mut LowerCtx, v: Operand, undefable: bool) -> 
         // the prototype, never in the layout, so the test answered no
         // for every class — `"x" + c` would have printed
         // "[object Object]" over a user `toString`.
-        Type::Obj(_) => {
-            let raw = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::PtrToInt(v),
-                Type::I64,
-                None,
-            );
-            let s = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(
-                    ctx.intrinsics.any_to_str_prim,
-                    vec![Operand::ConstI64(4), Operand::Value(raw)],
-                ),
-                Type::Str,
-                None,
-            );
-            ctx.emit_throw_check(None);
-            (Operand::Value(s), true)
-        }
+        Type::Obj(_) => heap_cell_to_str(ctx, v),
+        // §13.15.3 — ToPrimitive(default) then ToString of whatever
+        // the box holds
+        Type::Any => any_to_str(ctx, v),
         other => panic!("ssa-lower: mixed string concat unexpected type {other:?}"),
     }
+}
+
+/// A heap cell's §13.15.3 ToString through the any-lane kernel, which
+/// runs ToPrimitive(default) and dispatches on the header tag (tag 4 is
+/// the Heap slot tag).
+fn heap_cell_to_str(ctx: &mut LowerCtx, v: Operand) -> (Operand, bool) {
+    let raw = ctx
+        .f
+        .append_inst(ctx.cur_block, InstKind::PtrToInt(v), Type::I64, None);
+    prim_pair_to_str(ctx, Operand::ConstI64(4), Operand::Value(raw), None)
+}
+
+/// An `any` side: the kernel borrows the unboxed pair, which is settled
+/// back into the box once the Str is built.
+fn any_to_str(ctx: &mut LowerCtx, v: Operand) -> (Operand, bool) {
+    let tag = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.any_unbox_tag, vec![v]),
+        Type::I64,
+        None,
+    );
+    let raw = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.any_unbox_value, vec![v]),
+        Type::I64,
+        None,
+    );
+    prim_pair_to_str(ctx, Operand::Value(tag), Operand::Value(raw), Some(v))
+}
+
+fn prim_pair_to_str(
+    ctx: &mut LowerCtx,
+    tag: Operand,
+    raw: Operand,
+    settle: Option<Operand>,
+) -> (Operand, bool) {
+    let s = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.any_to_str_prim, vec![tag, raw]),
+        Type::Str,
+        None,
+    );
+    if let Some(src) = settle {
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.any_unbox_settle, vec![src, raw]),
+        );
+    }
+    ctx.emit_throw_check(None);
+    (Operand::Value(s), true)
 }

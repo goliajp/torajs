@@ -66,6 +66,14 @@ fn mixed_bigint_compare(op: AstBinOp, a: &Type, b: &Type) -> bool {
     matches!(a, Type::BigInt) != matches!(b, Type::BigInt)
 }
 
+/// §13.15.3 — a String side makes `+` a concat whatever the other side
+/// holds, so the pair is a Str (the checker's type) and takes the typed
+/// concat lane in `add_str`.
+fn str_concat(op: AstBinOp, a: &Type, b: &Type) -> bool {
+    let str_side = |t: &Type| matches!(t, Type::Str | Type::Substr);
+    op == AstBinOp::Add && (str_side(a) || str_side(b))
+}
+
 pub(crate) fn try_lower(
     ctx: &mut LowerCtx,
     op: AstBinOp,
@@ -99,6 +107,9 @@ pub(crate) fn try_lower(
         && !matches!(b_ty, Type::Any)
         && !mixed_bigint_compare(op, &a_ty, &b_ty)
     {
+        return None;
+    }
+    if str_concat(op, &a_ty, &b_ty) {
         return None;
     }
     // any beside any / F64 / I64: number encodings add inline

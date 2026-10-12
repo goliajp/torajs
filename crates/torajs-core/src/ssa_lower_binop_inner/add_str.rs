@@ -118,9 +118,9 @@ pub(crate) fn try_lower(
         // §22.2.6.14 toString → "/source/flags". Without this pair
         // the operand fell through to the numeric arms and printed
         // the heap pointer as a number (measured on the checker-side
-        // widening probe).
-        || (str_or_substr(a_ty) && heap_cell_tostring(b_ty))
-        || (str_or_substr(b_ty) && heap_cell_tostring(a_ty))
+        // widening probe). An `any` side shares the kernel's walk.
+        || (str_or_substr(a_ty) && (heap_cell_tostring(b_ty) || b_ty == Type::Any))
+        || (str_or_substr(b_ty) && (heap_cell_tostring(a_ty) || a_ty == Type::Any))
         // A nullable STRING is a Str on both sides, so the plain
         // Str+Str concat below would have taken it and handed the
         // in-band 0 to `str_concat` — `"" + s` printed "undefined".
