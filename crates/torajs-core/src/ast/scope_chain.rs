@@ -38,20 +38,31 @@ pub(super) use heritage::rebound_heritages;
 /// scope (a destructuring expansion's lets), and so does the try body
 /// the `using` desugar wraps the rest of the list in.
 pub(super) fn list_names(list: &[Stmt], out: &mut Vec<String>) {
-    names_of(list, true, out);
+    names_of(list, true, out, None);
 }
 
 /// [`list_names`] without the class declarations — for the nested
 /// class hoist, which treats a container's classes as one another's
 /// siblings rather than as bindings around them.
 pub(super) fn list_names_but_classes(list: &[Stmt], out: &mut Vec<String>) {
-    names_of(list, false, out);
+    names_of(list, false, out, None);
 }
 
-fn names_of(list: &[Stmt], classes: bool, out: &mut Vec<String>) {
+/// `marks` takes the `out` positions a class declaration fills.
+fn names_of(
+    list: &[Stmt],
+    classes: bool,
+    out: &mut Vec<String>,
+    mut marks: Option<&mut Vec<usize>>,
+) {
     for s in list {
         match s {
-            Stmt::ClassDecl { name, .. } if classes => out.push(name.clone()),
+            Stmt::ClassDecl { name, .. } if classes => {
+                if let Some(m) = marks.as_deref_mut() {
+                    m.push(out.len());
+                }
+                out.push(name.clone())
+            }
             Stmt::FnDecl { name, .. }
             | Stmt::LetDecl {
                 name,
@@ -59,15 +70,20 @@ fn names_of(list: &[Stmt], classes: bool, out: &mut Vec<String>) {
                 ..
             }
             | Stmt::UsingDecl { name, .. } => out.push(name.clone()),
-            Stmt::Multi(v) => names_of(v, classes, out),
+            Stmt::Multi(v) => names_of(v, classes, out, marks.as_deref_mut()),
             Stmt::Try {
                 body,
                 catch_param: Some(p),
                 ..
-            } if p.starts_with("__usc_") => names_of(body, classes, out),
+            } if p.starts_with("__usc_") => names_of(body, classes, out, marks.as_deref_mut()),
             Stmt::ExportDecl {
                 inner: Some(inner), ..
-            } => names_of(std::slice::from_ref(inner), classes, out),
+            } => names_of(
+                std::slice::from_ref(inner),
+                classes,
+                out,
+                marks.as_deref_mut(),
+            ),
             _ => {}
         }
     }
@@ -152,8 +168,7 @@ struct Walk<'a> {
 impl Walk<'_> {
     fn list(&mut self, list: &[Stmt]) {
         let depth = self.chain.len();
-        list_names(list, &mut self.chain);
-        self.mark_classes(list, depth);
+        self.bind_list(list);
         for s in list {
             self.stmt(s);
         }
@@ -261,12 +276,10 @@ impl Walk<'_> {
                 // One block holds every clause.
                 let depth = self.chain.len();
                 for c in cases {
-                    list_names(&c.body, &mut self.chain);
-                    self.mark_classes(&c.body, depth);
+                    self.bind_list(&c.body);
                 }
                 if let Some(d) = default {
-                    list_names(d, &mut self.chain);
-                    self.mark_classes(d, depth);
+                    self.bind_list(d);
                 }
                 for c in cases {
                     self.expr(c.value);

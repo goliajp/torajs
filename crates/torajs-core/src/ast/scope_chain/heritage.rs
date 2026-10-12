@@ -9,7 +9,7 @@
 //! frame around `D` is still a class parent, any other binding is a
 //! value.
 
-use super::{Walk, list_names, list_names_but_classes, walk};
+use super::{Walk, names_of, walk};
 use crate::ast::{Ast, Expr, ExprId, Stmt};
 use std::collections::HashSet;
 
@@ -24,25 +24,18 @@ pub(in crate::ast) fn rebound_heritages(ast: &Ast, roots: &[&[Stmt]]) -> HashSet
 }
 
 impl Walk<'_> {
-    /// Mark the `chain` entries from `depth` on that `list` put there
-    /// for a class declaration.
-    pub(super) fn mark_classes(&mut self, list: &[Stmt], depth: usize) {
-        let mut all = Vec::new();
-        let mut plain = Vec::new();
-        list_names(list, &mut all);
-        list_names_but_classes(list, &mut plain);
-        all.retain(|n| !plain.contains(n));
-        for i in depth..self.chain.len() {
-            if all.contains(&self.chain[i]) && !self.classes.contains(&i) {
-                self.classes.push(i);
-            }
-        }
+    /// Bind `list`'s names in the current frame, marking the class
+    /// declarations among them.
+    pub(super) fn bind_list(&mut self, list: &[Stmt]) {
+        names_of(list, true, &mut self.chain, Some(&mut self.classes));
     }
 
     /// Leave a frame: drop its names and its class marks.
     pub(super) fn truncate(&mut self, depth: usize) {
         self.chain.truncate(depth);
-        self.classes.retain(|&i| i < depth);
+        while self.classes.last().is_some_and(|&i| i >= depth) {
+            self.classes.pop();
+        }
     }
 
     pub(super) fn note_heritage(&mut self, p: ExprId) {
@@ -52,7 +45,7 @@ impl Walk<'_> {
         let Some(i) = self.chain.iter().rposition(|c| c == n) else {
             return;
         };
-        let rebound = !self.classes.contains(&i);
+        let rebound = self.classes.binary_search(&i).is_err();
         *self.heritages.entry(p).or_default() |= rebound;
     }
 }
