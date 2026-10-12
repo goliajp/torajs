@@ -35,6 +35,16 @@ pub(super) fn collect_declared_fn_return_types(
                 is_generator: true,
                 ..
             } => Some((name.clone(), format!("__Gen_{name}"))),
+            // A return naming the function's own type parameter is
+            // settled per call, after this pass: written into a field
+            // as is, `T` names nothing there ("unknown type `T` for
+            // field"), so the slot holds whatever the call answers.
+            Stmt::FnDecl {
+                name,
+                type_params,
+                return_type: Some(rt),
+                ..
+            } if names_type_param(rt, type_params) => Some((name.clone(), "any".to_string())),
             Stmt::FnDecl {
                 name,
                 return_type: Some(rt),
@@ -79,6 +89,11 @@ pub(super) fn collect_declared_fn_return_types(
             _ => None,
         })
         .collect()
+}
+
+fn names_type_param(rt: &str, type_params: &[String]) -> bool {
+    rt.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '$'))
+        .any(|w| type_params.iter().any(|t| t == w))
 }
 
 /// `void` as a FIELD annotation, which is what a lifted local becomes:
