@@ -127,6 +127,13 @@ pub(super) fn split_fn_kind_names(
         {
             ast.gen_param_destr_prefix.insert(r.new.clone(), n);
         }
+        if let Some(&n) =
+            ast.gen_param_destr_prefix_at
+                .get(&(r.old.clone(), r.span.start, r.span.end))
+        {
+            ast.gen_param_destr_prefix_at
+                .insert((r.new.clone(), r.span.start, r.span.end), n);
+        }
         ast.nested_fn_names.insert(r.new.clone(), r.old.clone());
         ast.renamed_binding_display
             .insert(r.new.clone(), r.old.clone());

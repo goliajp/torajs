@@ -123,7 +123,7 @@ pub fn hoist_gen_fn_exprs(ast: &mut Ast) {
         let Expr::ArrowFn {
             mut params,
             return_type,
-            body,
+            mut body,
         } = arrow
         else {
             panic!("gen_fn_exprs marker on a non-ArrowFn ExprId {eid:?} (parser contract)");
@@ -148,7 +148,7 @@ pub fn hoist_gen_fn_exprs(ast: &mut Ast) {
             narrowed = super::scope_chain::not_rebound(&global_names, shadow);
             &narrowed
         };
-        super::hoist_gen_fn_exprs_wrapper::route_wrapper(
+        let captures = super::hoist_gen_fn_exprs_wrapper::route_wrapper(
             ast,
             i,
             eid,
@@ -159,6 +159,10 @@ pub fn hoist_gen_fn_exprs(ast: &mut Ast) {
             (globals, shadow),
             &bound,
         );
+        // A captured name reaches the body as a param holding a
+        // function value, which mints no state-machine class: the
+        // parser's `yield* g()` annotations naming it widen to `any`.
+        super::hoist_gen_fn_exprs_decls::widen_parser_gen_anns(&mut body, &captures);
         // Param-destructuring prefix carries over under the hoisted
         // name so desugar_generators moves it into the __Gen ctor
         // (eager binding, same as decl form).

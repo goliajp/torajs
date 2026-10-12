@@ -102,7 +102,8 @@ fn captures_snapshot_safe(ast: &Ast, captures: &[String]) -> bool {
 /// body has captures or reads its self-name: the expression slot `i`
 /// becomes `(orig params) => __genexpr_N(<caps>, orig params)` and
 /// `params` gains the captured names as leading params. A body with
-/// neither leaves both untouched. `bound` is every name the program
+/// neither leaves both untouched. Answers the captured names (the
+/// self-name excluded). `bound` is every name the program
 /// binds anywhere — a free name outside it is not a capture.
 /// `global_names` is the top-level set less what the frames around the
 /// expression rebind; `rebound` is those frames' names
@@ -118,7 +119,7 @@ pub(super) fn route_wrapper(
     body: &[Stmt],
     (global_names, rebound): (&[String], &[String]),
     bound: &std::collections::HashSet<String>,
-) {
+) -> Vec<String> {
     // §15.5.5 (RFC 20260810 knife 3) — the self-name binds inside
     // the body, never a capture the enclosing scope must supply. A
     // body that READS it takes the wrapper route below: the
@@ -242,4 +243,5 @@ pub(super) fn route_wrapper(
             .collect();
         params.splice(0..0, lead_params);
     }
+    captures
 }

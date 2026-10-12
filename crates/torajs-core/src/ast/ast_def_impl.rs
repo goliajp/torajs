@@ -118,6 +118,14 @@ impl Ast {
         (line, col)
     }
 
+    /// Record a generator declaration's destructuring-param prefix, by
+    /// name and by the declaration itself.
+    pub(crate) fn note_gen_destr_prefix(&mut self, name: &str, span: crate::lexer::Span, n: usize) {
+        self.gen_param_destr_prefix.insert(name.to_string(), n);
+        self.gen_param_destr_prefix_at
+            .insert((name.to_string(), span.start, span.end), n);
+    }
+
     pub fn get_expr(&self, id: ExprId) -> &Expr {
         &self.exprs[id.0 as usize]
     }

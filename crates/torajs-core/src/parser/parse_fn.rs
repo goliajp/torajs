@@ -198,9 +198,9 @@ impl<'a> Parser<'a> {
             // prefix the body so desugar_generators can peel them into
             // the __Gen ctor (eager param-binding timing, ES §9.2).
             if is_generator {
+                let span = self.span_from(start_pos);
                 self.ast
-                    .gen_param_destr_prefix
-                    .insert(name.clone(), param_destr_lets.len());
+                    .note_gen_destr_prefix(&name, span, param_destr_lets.len());
             }
             let mut full = param_destr_lets;
             full.extend(body);

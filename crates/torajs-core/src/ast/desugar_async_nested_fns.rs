@@ -42,6 +42,8 @@
 //! async generator declaration reading an enclosing local was an
 //! unknown identifier — while the expression form takes the frame link
 //! the hoist gives an async value's nested generator (rotation 643).
+//! Its binding rises toward the top of the body as far as the names it
+//! reads allow, so a call written above the declaration finds it live.
 //!
 //! Not rewritten, keeping today's lane: a sync generator declaration
 //! (`lift_nested_generators` owns it), a generic one (an arrow has no
@@ -95,12 +97,35 @@ pub fn desugar_async_nested_fns(ast: &mut Ast) {
 }
 
 /// The body's direct function declarations become `let` bindings of
-/// function values, each in its own slot.
+/// function values, each in its own slot — an async generator's rises
+/// as far as what it reads allows, so a call above it finds it live
+/// (`hoist_gen_fn_exprs_decls::raise_binding`).
 fn rewrite_declarations(ast: &mut Ast, body: &mut [Stmt]) {
-    for slot in body.iter_mut() {
-        if is_rewritable(ast, slot) {
-            let taken = std::mem::replace(slot, Stmt::Block(Vec::new()));
-            *slot = to_value_binding(ast, taken);
+    for i in 0..body.len() {
+        if !is_rewritable(ast, &body[i]) {
+            continue;
+        }
+        let taken = std::mem::replace(&mut body[i], Stmt::Block(Vec::new()));
+        let reads = match &taken {
+            Stmt::FnDecl {
+                name,
+                params,
+                body: fn_body,
+                is_generator: true,
+                ..
+            } => Some(super::free_vars::free_vars_of_arrow(
+                ast,
+                params,
+                fn_body,
+                &[],
+                &[],
+                Some(name),
+            )),
+            _ => None,
+        };
+        body[i] = to_value_binding(ast, taken);
+        if let Some(reads) = reads {
+            super::hoist_gen_fn_exprs_decls::raise_binding(body, i, &reads);
         }
     }
 }

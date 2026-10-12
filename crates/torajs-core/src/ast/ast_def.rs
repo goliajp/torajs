@@ -1425,15 +1425,14 @@ pub struct Ast {
     /// The `__Gen_<name>` machine classes the generator desugar minted
     /// (a user class may carry the same spelling; this set may not).
     pub generator_machine_classes: std::collections::HashSet<String>,
-    /// Generator decls whose parameter list contained binding
-    /// patterns: fn name → count of parser-synthesized destructuring
-    /// `let` stmts prefixed to the body (parse_fn's param_destr_lets).
-    /// desugar_generators peels exactly this prefix off the generator
-    /// body and moves it into the `__Gen_<name>` ctor so parameter
-    /// destructuring evaluates eagerly at the factory call (ES §9.2
-    /// FunctionDeclarationInstantiation timing) instead of at the
-    /// first `next()`.
+    /// Generator decls whose parameter list contained binding patterns:
+    /// fn name → count of parser-synthesized destructuring `let`s
+    /// prefixed to the body, which desugar_generators moves into the
+    /// `__Gen_<name>` ctor (eager binding at the factory call, §9.2).
     pub gen_param_destr_prefix: std::collections::HashMap<String, usize>,
+    /// The same counts keyed by (name, span start, end): a nested
+    /// generator's name is not unique, and a pass renaming one reads it.
+    pub gen_param_destr_prefix_at: std::collections::HashMap<(String, u32, u32), usize>,
     /// Generator factories that need an all-`any` twin
     /// (`desugar_generators_any_twin`) no syntactic read reveals: a
     /// direct call handed an `any` argument, known only once checked.

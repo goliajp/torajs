@@ -69,6 +69,7 @@ pub(super) fn lift_nested_generators(ast: &mut Ast) {
             &mut lifted,
             &mut lifted_async,
         );
+        carry_name_tables(ast, &renames, &lifted);
         if !renames.is_empty() {
             // The stmt rewriter has no FnDecl arm (the general
             // nested-fns pass hands FnDecl BODIES to the body
@@ -91,8 +92,8 @@ pub(super) fn lift_nested_generators(ast: &mut Ast) {
     // (no aliasing against the rewrite calls that need `ast`),
     // wrapped in a Block so the claim walk offers the body's OWN
     // list too (it is not a top-level list), then put back. A
-    // generator that captures an arrow local still fails loud after
-    // the lift (unknown identifier) — the recorded 393-03 waterline.
+    // generator that captures an arrow local never reaches here:
+    // `hoist_gen_fn_exprs_decls` converted it.
     for i in 0..ast.exprs.len() {
         let body_taken = match &mut ast.exprs[i] {
             Expr::ArrowFn { body, .. } => std::mem::take(body),
@@ -110,6 +111,7 @@ pub(super) fn lift_nested_generators(ast: &mut Ast) {
             &mut lifted,
             &mut lifted_async,
         );
+        carry_name_tables(ast, &renames, &lifted);
         if !renames.is_empty() {
             rewrite_idents_in_stmt(ast, &mut block, &renames, true);
             remap_parser_gen_anns(&mut block, &renames);
@@ -133,6 +135,32 @@ pub(super) fn lift_nested_generators(ast: &mut Ast) {
     ast.stmts = top;
     for m in lifted_async {
         ast.async_generator_fns.insert(m);
+    }
+}
+
+/// The name-keyed tables a lifted generator still needs under its
+/// mangled name: the source spelling `.name` answers (the mint is not
+/// a name any source can spell) and the destructuring-param prefix the
+/// generator prep moves into the state machine (without it the pattern
+/// stays in the body and reads a param the prep already consumed).
+/// The prefix is read from the declaration's own row: the source name
+/// may be another generator's too.
+fn carry_name_tables(ast: &mut Ast, renames: &HashMap<String, String>, lifted: &[Stmt]) {
+    for lf in lifted {
+        let Stmt::FnDecl {
+            name: new, span, ..
+        } = lf
+        else {
+            continue;
+        };
+        let Some((old, _)) = renames.iter().find(|(_, m)| *m == new) else {
+            continue;
+        };
+        ast.nested_fn_names.insert(new.clone(), old.clone());
+        let key = (old.clone(), span.start, span.end);
+        if let Some(&n) = ast.gen_param_destr_prefix_at.get(&key) {
+            ast.gen_param_destr_prefix.insert(new.clone(), n);
+        }
     }
 }
 
