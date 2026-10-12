@@ -48,8 +48,14 @@ pub(super) fn call_ret_face(
     };
     let slot = match checker.lookup(n) {
         Some(info) => info.fn_slot,
-        None if ast.fnsig_mismatch_bindings.contains(n) => top_level_decl(ast, n),
-        None => None,
+        // a named body reaches a top-level binding as a global; a
+        // declaration that took its value's face is a census slot there
+        // too
+        None => top_level_decl(ast, n).filter(|s| {
+            ast.fnsig_mismatch_bindings.contains(n)
+                || matches!(s, FnSlot::Let(init) if checker.let_face_anns.contains_key(init)
+                    || checker.face_mismatch_lets.contains(init))
+        }),
     };
     let key = match &slot {
         Some(FnSlot::Let(init)) => format!("let:{}", init.0),

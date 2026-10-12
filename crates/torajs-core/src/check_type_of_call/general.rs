@@ -124,7 +124,9 @@ pub(crate) fn general_call(
         &effective_args,
         &ret,
     ) {
-        return r;
+        // a padded call through a census fn slot answers what the
+        // stored value returns, as an unpadded one does
+        return r.map(|ret| super::fn_slot_ret::call_ret_face(checker, ast, eid, *callee, ret));
     }
     super::arity_wedges::apply(checker, ast, callee, &mut effective_args, &mut params)?;
     super::arity_wedges::drop_extra_args(checker, ast, &mut effective_args, &params)?;
