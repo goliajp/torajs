@@ -44,15 +44,12 @@ pub(super) fn split_block_binding(
         return;
     }
     // A reference to the name BEFORE the declaration, in the same
-    // block, cannot follow the rename: both callers leave the rewrite
-    // where the declaration was, so the block binding does not exist
-    // yet there — that is the hoisting boundary
-    // `nested_fns_capture`'s own doc records. Such a block keeps the
-    // shape it had, where the name means the var binding throughout;
-    // of the two answers available it is the better one.
-    // `{ let y = f(); function f() { y; } }` is the case: the spec
-    // wants f callable (a block function is initialized on block
-    // entry) and the ReferenceError to come from y's TDZ.
+    // block, cannot follow the rename: the split binding is written
+    // where the declaration was, so it does not exist yet there. Such a
+    // block keeps one binding. `nested_fns_capture` raises it above
+    // that first reference — a block function is initialized on block
+    // entry, so in `{ let y = f(); function f() { y; } }` f is callable
+    // and the ReferenceError comes from y's TDZ.
     if free_vars_of_body(ast, &[], &stmts[..idx])
         .iter()
         .any(|n| n == name)

@@ -292,9 +292,14 @@ pub(crate) fn check_closure_body(
         active = Some(sn.clone());
     }
     checker.self_name_active = active;
+    // a closure body is a function body like any other: its bindings
+    // are all created on entry, so a closure binding may capture a
+    // peer declared later in the same body
+    let saved_hoists = crate::check_hoist_closure_lets::enter(checker, ast, &body);
     for s in &body {
         checker.check_stmt(ast, &s.clone());
     }
+    checker.hoisted_closure_lets = saved_hoists;
     checker.self_name_active = saved_self_name;
     checker.expected_return = saved_return;
     checker.scopes = saved_scopes;

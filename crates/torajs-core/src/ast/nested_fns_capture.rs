@@ -20,17 +20,16 @@
 //! pass leaves behind reaches `nested_fns` unchanged and lifts as before,
 //! so every non-capturing declaration keeps its current codegen.
 //!
-//! **The rewrite stays where the declaration was.** A function
-//! declaration is hoisted and initialized before any statement runs, so
-//! the textbook rewrite belongs at the top of the enclosing body — but
-//! the only thing hoisting buys is *using the name before the
-//! declaration*, and a declaration with no captures never leaves the
-//! old lane, where hoisting already works. What is left is the
-//! declaration that both captures and is used early, and that one is a
-//! type error today. In place it stays one: the name simply is not in
-//! scope yet. Moving to the top instead would demand a box for every
-//! captured binding declared later — a decision about when bindings get
-//! boxed, which is a separate blade (RFC 20260725-nested-fn-capture §4).
+//! **The rewrite moves up only as far as the first use.** A function
+//! declaration is initialized before any statement of its body runs
+//! (§10.2.11), and the only thing that buys is using the name before the
+//! declaration's text. So a routed `let` stays where the declaration was
+//! unless an earlier statement of the same body names it, and then moves
+//! to just above that statement ([`hoist_above_first_use`]). A captured
+//! binding the move leaves below the closure becomes a forward capture,
+//! the lane `check_hoist_closure_lets` and the lowering's forward-capture
+//! boxes already serve. A block declaration §B.3.3 splits stays in
+//! place: Annex B writes its var binding where the text sits.
 //!
 //! Recursion needs nothing new. Rewritten, a self-recursive declaration
 //! is a closure naming the binding it initializes, and a mutually
@@ -62,7 +61,7 @@
 use std::collections::HashSet;
 
 use super::annexb_block_binding::split_block_binding;
-use super::free_vars::free_vars_of_fn;
+use super::free_vars::{free_vars_of_body, free_vars_of_fn};
 use super::scope_chain::{list_names, not_rebound};
 use super::{Ast, Expr, ExprId, Stmt};
 
@@ -231,17 +230,58 @@ fn route_list(
     // Annex B §B.3.3 — a declaration nested in a BLOCK has a second,
     // var-scoped binding as well, and the rewrite above only made the
     // block one. See `annexb_block_binding` for what the split does.
-    if !in_block {
-        return;
-    }
-    for (k, i) in sites.iter().enumerate() {
-        // A name an enclosing scope already binds is §B.3.3.1 step
-        // 1.a.ii's early error — the extension does not apply and the
-        // reference belongs to that owner.
-        if !routed[k] || scope.annexb.iter().any(|b| *b == names[k]) {
-            continue;
+    if in_block {
+        for (k, i) in sites.iter().enumerate() {
+            // A name an enclosing scope already binds is §B.3.3.1 step
+            // 1.a.ii's early error — the extension does not apply and the
+            // reference belongs to that owner.
+            if !routed[k] || scope.annexb.iter().any(|b| *b == names[k]) {
+                continue;
+            }
+            split_block_binding(ast, stmts, *i, &names[k], spans[k], counter);
         }
-        split_block_binding(ast, stmts, *i, &names[k], spans[k], counter);
+    }
+    let routed_sites: Vec<usize> = (0..sites.len())
+        .filter(|k| routed[*k] && matches!(stmts[sites[*k]], Stmt::LetDecl { .. }))
+        .map(|k| sites[k])
+        .collect();
+    hoist_above_first_use(ast, stmts, &routed_sites);
+}
+
+/// §10.2.11 FunctionDeclarationInstantiation initializes every function
+/// declaration of a body before its first statement runs (§14.2.3 does
+/// the same for a block), so a call that precedes the declaration's text
+/// is legal. A block declaration that §B.3.3 split keeps its slot: its
+/// var write belongs where the text sits, and the split only happens
+/// when nothing above names it. The rewritten `let`s move up
+/// to the first statement that names one of them — no further: nothing
+/// above that point can observe the binding, and a binding the closure
+/// captures that is declared above it stays an ordinary backward capture.
+/// A capture the move puts below the closure is a forward capture, which
+/// is exactly the reference the declaration made before the rewrite.
+fn hoist_above_first_use(ast: &Ast, stmts: &mut [Stmt], routed: &[usize]) {
+    let Some(&last) = routed.last() else {
+        return;
+    };
+    let names: Vec<String> = routed
+        .iter()
+        .filter_map(|i| match &stmts[*i] {
+            Stmt::LetDecl { name, .. } => Some(name.clone()),
+            _ => None,
+        })
+        .collect();
+    let Some(first_use) = (0..last).find(|i| {
+        !routed.contains(i)
+            && free_vars_of_body(ast, &[], std::slice::from_ref(&stmts[*i]))
+                .iter()
+                .any(|n| names.contains(n))
+    }) else {
+        return;
+    };
+    let mut dest = first_use;
+    for &i in routed.iter().filter(|i| **i > first_use) {
+        stmts[dest..=i].rotate_right(1);
+        dest += 1;
     }
 }
 
