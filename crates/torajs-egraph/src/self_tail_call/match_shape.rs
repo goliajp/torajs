@@ -1,14 +1,15 @@
 //! Shape matching for the self-tail-call pass — scans a closure body
 //! for the `cell = load env+K; fp = load cell+8; call_indirect(cell,
 //! ARGC, args…); throw_check; icmp; cond_br(throw, ok)` tail shape and
-//! the ok-block `dec(args)*; ret r` epilogue. Split out of the parent
-//! when the pass file crossed the 500-line prod limit; the rewrite
-//! machinery stays in `self_tail_call.rs`.
+//! the ok-block `dec*` epilogue on a path that returns `r`. Split out
+//! of the parent when the pass file crossed the 500-line prod limit;
+//! the rewrite machinery stays in `self_tail_call.rs`.
 
 use crate::id_hash::HashMap;
 
 use torajs_core::ssa::{
-    FuncId, IPred, Inst, InstKind, Module, Operand, THROW_ACTIVE_SYM, Terminator, Type, ValueId,
+    BlockId, FuncId, Function, IPred, Inst, InstKind, Module, Operand, THROW_ACTIVE_SYM,
+    Terminator, Type, ValueId,
 };
 
 use super::SelfTailCallStats;
@@ -126,22 +127,22 @@ pub(super) fn match_sites(
             if Some(*c) != cmp.result {
                 return None;
             }
-            // ok block: dec(arg)* then `ret %r` — decs restricted to
-            // call args is also the no-pending-scope-drops proof.
-            let ok_block = &func.blocks[ok.0 as usize];
-            for inst in &ok_block.insts {
-                let released = match &inst.kind {
-                    InstKind::Call(f, a) if Some(*f) == dec_fid && a.len() == 1 => &a[0],
-                    InstKind::RcDecAny(v) => v,
-                    _ => return None,
-                };
-                if !args[2..].iter().any(|x| operand_eq(x, released)) {
-                    return None;
-                }
-            }
-            match &ok_block.term {
-                Terminator::Ret(Some(Operand::Value(rv))) if *rv == r => {}
-                _ => return None,
+            // ok block: decs, then a path returning `%r`; a non-arg dec
+            // is a scope drop rebind replays, a param dec unknown shape
+            let ok_insts = &func.blocks[ok.0 as usize].insts;
+            let decs = ok_insts
+                .iter()
+                .take_while(|i| released_by(i, dec_fid).is_some())
+                .count();
+            let unknown_drop = ok_insts[..decs]
+                .iter()
+                .filter_map(|i| released_by(i, dec_fid))
+                .any(|d| {
+                    !args[2..].iter().any(|x| operand_eq(x, &d))
+                        && !matches!(d, Operand::Value(v) if !func.params.contains(&v))
+                });
+            if unknown_drop || !returns_through(func, *ok, decs, r) {
+                return None;
             }
             Some(TailSite {
                 blk: bi,
@@ -155,6 +156,45 @@ pub(super) fn match_sites(
         }
     }
     sites
+}
+
+/// The value a release inst drops: a call to the Any dec helper or
+/// an inline `rc_dec_any`.
+pub(super) fn released_by(inst: &Inst, dec_fid: Option<FuncId>) -> Option<Operand> {
+    match &inst.kind {
+        InstKind::Call(f, a) if Some(*f) == dec_fid && a.len() == 1 => Some(a[0]),
+        InstKind::RcDecAny(v) => Some(*v),
+        _ => None,
+    }
+}
+
+/// Whether control entering `blk` past its first `skip` insts with
+/// `v` in hand returns `v` and does nothing else: each block on the
+/// way holds only copies of the value in hand (the joins a return in
+/// a conditional or logical operand flows through) and ends in a jump
+/// on or in `ret` of the value. Bounded like codegen's sibling-call
+/// join walk.
+fn returns_through(func: &Function, mut blk: BlockId, mut skip: usize, mut v: ValueId) -> bool {
+    for _ in 0..8 {
+        let block = &func.blocks[blk.0 as usize];
+        for inst in &block.insts[skip..] {
+            match (&inst.kind, inst.result) {
+                (InstKind::Copy(ty, Operand::Value(x)), Some(w)) if *x == v && *ty == func.ret => {
+                    v = w;
+                }
+                _ => return false,
+            }
+        }
+        match &block.term {
+            Terminator::Ret(Some(Operand::Value(x))) => return *x == v,
+            Terminator::Br(next) => {
+                blk = *next;
+                skip = 0;
+            }
+            _ => return false,
+        }
+    }
+    false
 }
 
 /// `(call index, throw-flag value)` when the tail of `insts` is a

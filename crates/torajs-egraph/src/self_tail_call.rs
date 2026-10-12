@@ -37,11 +37,14 @@
 //!   args are handled by re-running the header's argc normalization
 //!   (branch-shaped: the undefined arm never reads the stale slot).
 //!
-//! The "bbOk decs are exactly call args" requirement doubles as the
-//! scope-drop guard: a function with live owned locals at the tail
-//! `ret` has extra drops in bbOk (lower emits scope closes before
-//! every ret), which fails the match — no separate escape analysis
-//! needed.
+//! Scope drops: lower closes every scope before each ret, so a tail
+//! call with live owned locals (a catch binding, say) has decs of
+//! non-arg values in bbOk. The rebind path replays them after the
+//! borrowed args are retained, which is the order the frame would
+//! have released them in had the callee returned. bbOk must hold
+//! nothing but decs before its return path, and that path may only
+//! copy the result through joins (`cond ? f(x) : y`, `a && f(x)`), so
+//! no other effect of the original return is skipped.
 
 use crate::id_hash::HashMap;
 
@@ -59,7 +62,7 @@ const ANYV_DEC: &str = "__torajs_anyv_rc_dec";
 const THROW_CHECK: &str = "__torajs_throw_check";
 
 mod match_shape;
-use match_shape::{TailSite, match_sites, operand_eq};
+use match_shape::{TailSite, match_sites, operand_eq, released_by};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct SelfTailCallStats {
@@ -290,20 +293,19 @@ fn rewrite_site(
     };
     let argc_const = args[1];
     let user_args: Vec<Operand> = args[2..].to_vec();
-    // Owned call temps (dec'd on the original ok path) transfer into
-    // the loop vars; everything else is borrowed and needs a retain.
-    let ok_decs: Vec<Operand> = match &func.blocks[blk].term {
-        Terminator::CondBr { else_blk, .. } => func.blocks[else_blk.0 as usize]
-            .insts
-            .iter()
-            .filter_map(|i| match &i.kind {
-                InstKind::Call(f, a) if Some(*f) == dec_fid => Some(a[0]),
-                InstKind::RcDecAny(v) => Some(*v),
-                _ => None,
-            })
-            .collect(),
-        _ => unreachable!("matched site lost its cond_br"),
+    // Owned call temps (dec'd on the ok path) transfer into the loop
+    // vars; the ok path's other decs are scope drops, replayed on rebind.
+    let Terminator::CondBr { else_blk: ok, .. } = func.blocks[blk].term else {
+        unreachable!("matched site lost its cond_br");
     };
+    let (mut ok_decs, mut scope_drops) = (Vec::new(), Vec::new());
+    for inst in &func.blocks[ok.0 as usize].insts {
+        match released_by(inst, dec_fid) {
+            Some(d) if user_args.iter().any(|a| operand_eq(a, &d)) => ok_decs.push(d),
+            Some(_) => scope_drops.push(inst.clone()),
+            None => {}
+        }
+    }
     let old_term = std::mem::replace(
         &mut func.blocks[blk].term,
         Terminator::CondBr {
@@ -350,6 +352,7 @@ fn rewrite_site(
         }
         temps.push(t);
     }
+    insts.extend(scope_drops);
     for (v, ty) in param_vars.iter().zip(param_tys) {
         if matches!(ty, Type::Any) {
             insts.push(void_call(dec_fid.unwrap(), vec![Operand::Value(*v)]));
@@ -530,18 +533,79 @@ mod tests {
     }
 
     #[test]
-    fn skips_when_ok_block_has_non_arg_dec() {
+    fn replays_ok_block_scope_drop_on_rebind() {
         let mut m = self_tail_module();
-        // a scope drop in the ok block (dec of a value that is not a
-        // call arg) must fail the match — that dec is lower's scope
-        // close, which the rebind path would skip.
+        // a dec of a value that is not a call arg is lower's scope
+        // close; the rebind path must release it too
         m.funcs[3].blocks[2].insts.push(Inst {
             result: None,
-            kind: InstKind::Call(FuncId(2), vec![Operand::Value(ValueId(3))]),
+            kind: InstKind::RcDecAny(Operand::Value(ValueId(3))),
+            origin: None,
+        });
+        let stats = eliminate_self_tail_calls(&mut m);
+        assert_eq!(stats.sites_rewritten, 1);
+        let rebind = m.funcs[3].blocks.last().unwrap();
+        assert!(
+            rebind.insts.iter().any(
+                |i| matches!(&i.kind, InstKind::RcDecAny(Operand::Value(v)) if *v == ValueId(3))
+            )
+        );
+    }
+
+    #[test]
+    fn skips_when_ok_block_drops_a_param() {
+        let mut m = self_tail_module();
+        // params are borrowed; a frame that releases one is not a
+        // shape the rebind protocol knows
+        m.funcs[3].blocks[2].insts.push(Inst {
+            result: None,
+            kind: InstKind::Call(FuncId(2), vec![Operand::Value(ValueId(0))]),
             origin: None,
         });
         let stats = eliminate_self_tail_calls(&mut m);
         assert_eq!(stats.fns_rewritten, 0);
+        assert_eq!(stats.sites_rewritten, 0);
+        assert_eq!(stats.sites_skipped, 1);
+    }
+
+    /// Route the ok block's return through a copy join:
+    /// `ok: %8 = copy %r; br join` / `join: ret %8` — the shape a tail
+    /// call in a conditional or logical operand takes.
+    fn route_ok_through_join(m: &mut Module) {
+        let f = &mut m.funcs[3];
+        f.values.push(vi(Type::Any, "joined")); // v8
+        f.blocks[2]
+            .insts
+            .push(copy_inst(Type::Any, ValueId(8), Operand::Value(ValueId(5))));
+        f.blocks[2].term = Terminator::Br(BlockId(3));
+        f.blocks.push(Block {
+            id: BlockId(3),
+            insts: vec![],
+            term: Terminator::Ret(Some(Operand::Value(ValueId(8)))),
+        });
+    }
+
+    #[test]
+    fn rewrites_through_copy_join() {
+        let mut m = self_tail_module();
+        route_ok_through_join(&mut m);
+        let stats = eliminate_self_tail_calls(&mut m);
+        assert_eq!(stats.sites_rewritten, 1);
+        assert_eq!(stats.sites_skipped, 0);
+    }
+
+    #[test]
+    fn skips_join_with_scope_drop() {
+        let mut m = self_tail_module();
+        route_ok_through_join(&mut m);
+        // a release on the way to the ret is a scope close the rebind
+        // path would skip
+        m.funcs[3].blocks[3].insts.push(Inst {
+            result: None,
+            kind: InstKind::RcDecAny(Operand::Value(ValueId(3))),
+            origin: None,
+        });
+        let stats = eliminate_self_tail_calls(&mut m);
         assert_eq!(stats.sites_rewritten, 0);
         assert_eq!(stats.sites_skipped, 1);
     }
