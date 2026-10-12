@@ -90,7 +90,7 @@ impl CallSites {
     pub(crate) fn collect(
         ast: &Ast,
         fn_params: &HashMap<String, Vec<(usize, String)>>,
-        aliases: &HashMap<String, (String, usize)>,
+        aliases: &crate::ast_closure_param_tag_collect::ClosureAliases,
     ) -> Self {
         let mut decls: Vec<(&str, &[Stmt], usize)> = Vec::new();
         let mut parents: HashMap<String, Parent> = HashMap::new();

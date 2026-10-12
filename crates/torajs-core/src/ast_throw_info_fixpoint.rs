@@ -78,7 +78,9 @@ pub(crate) fn compute_may_throw_fns(
             }
             let lifted: Vec<String> = called
                 .iter()
-                .filter_map(|c| aliases.get(c).map(|(f, _)| f.clone()))
+                .filter_map(|c| aliases.get(c))
+                .flatten()
+                .map(|(f, _)| f.clone())
                 .collect();
             called.extend(lifted);
             // Rotation 507 — a `__dispatch_<M>` stub's AST body only
@@ -183,7 +185,7 @@ fn assigned_names(ast: &Ast) -> HashSet<String> {
 fn fn_typed_lets(
     ast: &Ast,
     expr_types: &HashMap<ExprId, crate::check::Type>,
-    aliases: &HashMap<String, (String, usize)>,
+    aliases: &crate::ast_closure_param_tag_collect::ClosureAliases,
 ) -> HashSet<String> {
     let mut out: HashSet<String> = HashSet::new();
     let mut stack: Vec<&Stmt> = ast.stmts.iter().collect();

@@ -356,7 +356,10 @@ pub(super) fn collect_fn_decl_metadata(ast: &Ast) -> FnDeclMetadata {
     // EXIT 139). Mirror each closure-let alias's metadata under the
     // ident, with the lifted `__env` / `__this` prefix shifted off so
     // the positions line up with the call's args.
-    for (ident, (fname, shift)) in crate::ast_closure_param_tag_collect::closure_let_aliases(ast) {
+    // an ident several functions bind keeps the first-listed decl's
+    // spellings: a call hint holds one spelling per position
+    for (ident, decls) in crate::ast_closure_param_tag_collect::closure_let_aliases(ast) {
+        let (fname, shift) = decls[0].clone();
         if let Some(pos) = fn_param_pos_anns.get(&fname) {
             let shifted: Vec<Option<String>> = pos.iter().skip(shift).cloned().collect();
             fn_param_pos_anns.entry(ident.clone()).or_insert(shifted);

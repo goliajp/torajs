@@ -210,8 +210,14 @@ pub(crate) fn fn_alias_lets(
 /// decl's fn-typed params / returns under the ident (arg-indexed —
 /// the lifted decl's `__env` / `__this` prefix is shifted off) and
 /// folds the marks back onto the decl before the retag. Same
-/// program-wide-by-name grade as [`closure_holding_lets`].
-pub(crate) fn closure_let_aliases(ast: &Ast) -> HashMap<String, (String, usize)> {
+/// program-wide-by-name grade as [`closure_holding_lets`]: an ident
+/// two functions both bind to an arrow (`const inner = …` in each)
+/// names every such decl, the first-listed the one met last in the
+/// walk, and the marks land on all of them — a call through the
+/// ident cannot tell them apart, so they share one repr per slot.
+pub(crate) type ClosureAliases = HashMap<String, Vec<(String, usize)>>;
+
+pub(crate) fn closure_let_aliases(ast: &Ast) -> ClosureAliases {
     let mut prefix: HashMap<String, usize> = HashMap::new();
     let mut stack: Vec<&Stmt> = ast.stmts.iter().collect();
     while let Some(s) = stack.pop() {
@@ -224,14 +230,16 @@ pub(crate) fn closure_let_aliases(ast: &Ast) -> HashMap<String, (String, usize)>
         }
         push_child_stmts(s, &mut stack);
     }
-    let mut out: HashMap<String, (String, usize)> = HashMap::new();
+    let mut out: ClosureAliases = HashMap::new();
     let mut stack: Vec<&Stmt> = ast.stmts.iter().collect();
     while let Some(s) = stack.pop() {
         if let Stmt::LetDecl { name, init, .. } = s
             && let Expr::Closure { fn_name, .. } = ast.get_expr(*init)
             && let Some(&n) = prefix.get(fn_name)
         {
-            out.insert(name.clone(), (fn_name.clone(), n));
+            out.entry(name.clone())
+                .or_default()
+                .insert(0, (fn_name.clone(), n));
         }
         push_child_stmts(s, &mut stack);
     }
@@ -242,26 +250,38 @@ pub(crate) fn closure_let_aliases(ast: &Ast) -> HashMap<String, (String, usize)>
 /// return sites under the binding ident — see [`closure_let_aliases`].
 /// A real FnDecl of the same name keeps its own entry.
 pub(crate) fn mirror_closure_aliases(
-    aliases: &HashMap<String, (String, usize)>,
+    aliases: &ClosureAliases,
     fn_params: &mut HashMap<String, Vec<(usize, String)>>,
     fn_returns: &mut HashMap<String, Vec<ExprId>>,
     unannotated: &mut HashSet<String>,
 ) {
-    for (ident, (fname, shift)) in aliases {
-        if unannotated.contains(fname) {
-            unannotated.insert(ident.clone());
-        }
-        if let Some(fps) = fn_params.get(fname) {
-            let shifted: Vec<(usize, String)> = fps
-                .iter()
-                .filter(|(i, _)| *i >= *shift)
-                .map(|(i, n)| (i - shift, n.clone()))
-                .collect();
-            fn_params.entry(ident.clone()).or_insert(shifted);
-        }
-        if let Some(rets) = fn_returns.get(fname) {
-            let rets = rets.clone();
-            fn_returns.entry(ident.clone()).or_insert(rets);
+    for (ident, decls) in aliases {
+        // a real FnDecl of the same name keeps its own entry
+        let (own_params, own_rets) = (
+            fn_params.contains_key(ident),
+            fn_returns.contains_key(ident),
+        );
+        for (fname, shift) in decls {
+            if unannotated.contains(fname) {
+                unannotated.insert(ident.clone());
+            }
+            if !own_params && let Some(fps) = fn_params.get(fname) {
+                let shifted: Vec<(usize, String)> = fps
+                    .iter()
+                    .filter(|(i, _)| *i >= *shift)
+                    .map(|(i, n)| (i - shift, n.clone()))
+                    .collect();
+                let slot = fn_params.entry(ident.clone()).or_default();
+                for p in shifted {
+                    if !slot.contains(&p) {
+                        slot.push(p);
+                    }
+                }
+            }
+            if !own_rets && let Some(rets) = fn_returns.get(fname) {
+                let rets = rets.clone();
+                fn_returns.entry(ident.clone()).or_default().extend(rets);
+            }
         }
     }
 }
@@ -277,7 +297,7 @@ pub(crate) fn mirror_closure_aliases(
 pub(crate) fn usage_seed_marks(
     ast: &Ast,
     fn_params: &HashMap<String, Vec<(usize, String)>>,
-    aliases: &HashMap<String, (String, usize)>,
+    aliases: &ClosureAliases,
 ) -> HashSet<(String, usize)> {
     let mut out = crate::ast_closure_param_tag_axes::replace_cb_param_seeds(ast, fn_params);
     out.extend(crate::ast_closure_param_tag_hof::hof_elem_cb_param_seeds(
@@ -303,7 +323,7 @@ pub(crate) fn usage_seed_marks(
 /// therefore take the closure repr unconditionally; the call-site
 /// rounds still run for the return lane and the transitive marks.
 fn seed_closure_alias_marks(
-    aliases: &HashMap<String, (String, usize)>,
+    aliases: &ClosureAliases,
     fn_params: &HashMap<String, Vec<(usize, String)>>,
 ) -> Vec<(String, usize)> {
     let mut out = Vec::new();
@@ -320,19 +340,21 @@ fn seed_closure_alias_marks(
 /// in-place retag finds the FnDecl. The ident entries stay: the
 /// wrap rounds match call sites by the callee ident.
 pub(crate) fn fold_closure_alias_marks(
-    aliases: &HashMap<String, (String, usize)>,
+    aliases: &ClosureAliases,
     marked: &mut HashSet<(String, usize)>,
     ret_marked: &mut HashSet<String>,
 ) {
-    for (ident, (fname, shift)) in aliases {
-        let folded: Vec<(String, usize)> = marked
-            .iter()
-            .filter(|(f, _)| f == ident)
-            .map(|(_, i)| (fname.clone(), i + shift))
-            .collect();
-        marked.extend(folded);
-        if ret_marked.contains(ident) {
-            ret_marked.insert(fname.clone());
+    for (ident, decls) in aliases {
+        for (fname, shift) in decls {
+            let folded: Vec<(String, usize)> = marked
+                .iter()
+                .filter(|(f, _)| f == ident)
+                .map(|(_, i)| (fname.clone(), i + shift))
+                .collect();
+            marked.extend(folded);
+            if ret_marked.contains(ident) {
+                ret_marked.insert(fname.clone());
+            }
         }
     }
 }
