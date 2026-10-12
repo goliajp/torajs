@@ -32,7 +32,9 @@
 //! undefined). A value whose parameter is NARROWER than the formal
 //! (`(s: string)` into `(s: any)`) is the boxed-entry census's
 //! (`argv_boxed_params`): its adapter tests each argument against the
-//! body's own type.
+//! body's own type. So is a parameter the clone cannot serve — of a
+//! closure a function-local binding holds, or in a face this lane does
+//! not spell (`Checker::face_mismatch_params`).
 
 use super::any_widen::{clonable_callee, record_widen_site};
 use crate::ast::{Ast, Expr, ExprId, Stmt};
@@ -70,6 +72,9 @@ pub(in crate::check_type_of_call) fn fn_face_into_fn_param(
         return true;
     };
     let Some(name) = clonable_callee(checker, ast, n, i) else {
+        if let Some(name) = local_closure_decl(checker, ast, n) {
+            box_param(checker, ast, &name, i, arg_ty, param_ty);
+        }
         return true;
     };
     let Some((pname, pann)) = user_param(ast, &name, i) else {
@@ -82,20 +87,56 @@ pub(in crate::check_type_of_call) fn fn_face_into_fn_param(
     {
         return true;
     }
-    let Face::Spelled(ann) = face_ann(&pann, aps, aret, fps, fret) else {
-        return true;
-    };
-    record_widen_site(
-        checker,
-        eid,
-        &name,
-        i,
-        WidenTarget::Face {
-            ann,
-            ty: arg_ty.clone(),
-        },
-    );
+    match face_ann(&pann, aps, aret, fps, fret) {
+        Face::Same => {}
+        Face::Spelled(ann) => record_widen_site(
+            checker,
+            eid,
+            &name,
+            i,
+            WidenTarget::Face {
+                ann,
+                ty: arg_ty.clone(),
+            },
+        ),
+        Face::Unspelled => box_param(checker, ast, &name, i, arg_ty, param_ty),
+    }
     true
+}
+
+/// The lifted body an immutable function-local closure binding `n`
+/// holds: the clone lane cannot stand in for it, but its declaration
+/// is in sight.
+fn local_closure_decl(checker: &Checker, ast: &Ast, n: &str) -> Option<String> {
+    let info = checker.lookup(n)?;
+    let Some(FnSlot::Let(init)) = info.decl.filter(|_| !info.mutable) else {
+        return None;
+    };
+    match ast.get_expr(init) {
+        Expr::Closure { fn_name, .. } => Some(fn_name.clone()),
+        _ => None,
+    }
+}
+
+/// The callee `name` cannot take the value's face as a clone: its
+/// param `i` joins the boxed-entry census instead, whose adapter
+/// unboxes per each value's own face.
+fn box_param(
+    checker: &mut Checker,
+    ast: &Ast,
+    name: &str,
+    i: usize,
+    arg_ty: &Type,
+    param_ty: &Type,
+) {
+    let Some((pname, pann)) = user_param(ast, name, i) else {
+        return;
+    };
+    if let_face_ann(&pann, arg_ty, param_ty) != Face::Same {
+        checker
+            .face_mismatch_params
+            .insert((name.to_string(), pname));
+    }
 }
 
 /// The name and annotation of user param `i` of the declaration `name`
