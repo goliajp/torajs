@@ -22,6 +22,7 @@ use std::collections::HashMap;
 use super::lift::Lifts;
 use super::rename::rename_in_owner;
 use crate::ast::annexb_fn_var::annexb_applies_at;
+use crate::ast::annexb_names::annexb_fn_span;
 use crate::ast::scope_chain::{for_init_names, list_names};
 use crate::ast::{Ast, Expr, Stmt};
 
@@ -110,6 +111,21 @@ impl<'a> Blocks<'a> {
                 ..
             } => {
                 self.block(ast, body, frames, owners, None);
+                // §B.3.5 lets a block function share the catch parameter's
+                // name, and its var write goes to the function's var
+                // scope; a parameter left under the name would take it
+                if let Some(p) = catch_param
+                    && annexb_fn_span(catch_body, p).is_some_and(|at| annexb_applies_at(ast, p, at))
+                {
+                    let fresh = format!("__catch_{p}_b{}", self.split);
+                    self.split += 1;
+                    rename_in_owner(
+                        ast,
+                        catch_body,
+                        &HashMap::from([(p.clone(), fresh.clone())]),
+                    );
+                    *p = fresh;
+                }
                 self.block(ast, catch_body, frames, owners, catch_param.as_deref());
                 if let Some(f) = finally_body {
                     self.block(ast, f, frames, owners, None);
