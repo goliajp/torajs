@@ -24,12 +24,14 @@
 //! declaration is initialized before any statement of its body runs
 //! (§10.2.11), and the only thing that buys is using the name before the
 //! declaration's text. So a routed `let` stays where the declaration was
-//! unless an earlier statement of the same body names it, and then moves
-//! to just above that statement ([`hoist_above_first_use`]). A captured
-//! binding the move leaves below the closure becomes a forward capture,
-//! the lane `check_hoist_closure_lets` and the lowering's forward-capture
-//! boxes already serve. A block declaration §B.3.3 splits stays in
-//! place: Annex B writes its var binding where the text sits.
+//! unless an earlier statement of the same body reaches it — naming it,
+//! or calling a peer that names it — and then moves to just above the
+//! first such statement ([`early_use`]). A captured binding the move
+//! leaves below the closure becomes a forward capture, the lane
+//! `check_hoist_closure_lets` and the lowering's forward-capture boxes
+//! already serve. A block declaration §B.3.3 splits stays in place:
+//! Annex B writes its var binding where the text sits, so one reached
+//! early is not split.
 //!
 //! Recursion needs nothing new. Rewritten, a self-recursive declaration
 //! is a closure naming the binding it initializes, and a mutually
@@ -61,12 +63,15 @@
 use std::collections::HashSet;
 
 use super::annexb_block_binding::split_block_binding;
-use super::free_vars::{free_vars_of_body, free_vars_of_fn};
+use super::free_vars::free_vars_of_fn;
 use super::scope_chain::{list_names, not_rebound};
 use super::{Ast, Expr, ExprId, Stmt};
 
+mod early_use;
 mod pad;
 mod walk;
+pub(super) use early_use::hoist_above_first_use;
+use early_use::{early_use, raise_early};
 use walk::{Scopes, walk_children};
 
 /// Compiler-minted declarations (lifted arrows, class methods, generator
@@ -227,6 +232,15 @@ fn route_list(
             rewrite_in_place(ast, &mut stmts[*i]);
         }
     }
+    let routed_sites: Vec<usize> = (0..sites.len())
+        .filter(|k| routed[*k])
+        .map(|k| sites[k])
+        .collect();
+    // Settled before the split: a binding a statement above can reach,
+    // even through a peer it calls, has to be live there, so it moves
+    // up whole instead of splitting (`early_use`).
+    let early = early_use(ast, stmts, &routed_sites);
+    let is_early = |i: usize| early.as_ref().is_some_and(|e| e.sites.contains(&i));
     // Annex B §B.3.3 — a declaration nested in a BLOCK has a second,
     // var-scoped binding as well, and the rewrite above only made the
     // block one. See `annexb_block_binding` for what the split does.
@@ -235,53 +249,14 @@ fn route_list(
             // A name an enclosing scope already binds is §B.3.3.1 step
             // 1.a.ii's early error — the extension does not apply and the
             // reference belongs to that owner.
-            if !routed[k] || scope.annexb.iter().any(|b| *b == names[k]) {
+            if !routed[k] || is_early(*i) || scope.annexb.iter().any(|b| *b == names[k]) {
                 continue;
             }
             split_block_binding(ast, stmts, *i, &names[k], spans[k], counter);
         }
     }
-    let routed_sites: Vec<usize> = (0..sites.len())
-        .filter(|k| routed[*k] && matches!(stmts[sites[*k]], Stmt::LetDecl { .. }))
-        .map(|k| sites[k])
-        .collect();
-    hoist_above_first_use(ast, stmts, &routed_sites);
-}
-
-/// §10.2.11 FunctionDeclarationInstantiation initializes every function
-/// declaration of a body before its first statement runs (§14.2.3 does
-/// the same for a block), so a call that precedes the declaration's text
-/// is legal. A block declaration that §B.3.3 split keeps its slot: its
-/// var write belongs where the text sits, and the split only happens
-/// when nothing above names it. The rewritten `let`s move up
-/// to the first statement that names one of them — no further: nothing
-/// above that point can observe the binding, and a binding the closure
-/// captures that is declared above it stays an ordinary backward capture.
-/// A capture the move puts below the closure is a forward capture, which
-/// is exactly the reference the declaration made before the rewrite.
-pub(super) fn hoist_above_first_use(ast: &Ast, stmts: &mut [Stmt], routed: &[usize]) {
-    let Some(&last) = routed.last() else {
-        return;
-    };
-    let names: Vec<String> = routed
-        .iter()
-        .filter_map(|i| match &stmts[*i] {
-            Stmt::LetDecl { name, .. } => Some(name.clone()),
-            _ => None,
-        })
-        .collect();
-    let Some(first_use) = (0..last).find(|i| {
-        !routed.contains(i)
-            && free_vars_of_body(ast, &[], std::slice::from_ref(&stmts[*i]))
-                .iter()
-                .any(|n| names.contains(n))
-    }) else {
-        return;
-    };
-    let mut dest = first_use;
-    for &i in routed.iter().filter(|i| **i > first_use) {
-        stmts[dest..=i].rotate_right(1);
-        dest += 1;
+    if let Some(early) = &early {
+        raise_early(stmts, early);
     }
 }
 
