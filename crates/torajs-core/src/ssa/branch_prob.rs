@@ -54,8 +54,6 @@
 //! A guard arm predicted cold but actually hot costs a store and a
 //! reload around a call that itself costs far more.
 
-use crate::ssa::id_hash::{HashMap, HashSet};
-
 use crate::ssa::{
     BinOp, BlockId, Function, IPred, InstKind, Operand, THROW_ACTIVE_SYM, Terminator, ValueId,
 };
@@ -75,22 +73,26 @@ const ARR_LEN_OFFSET: u64 = 8;
 pub fn cold_arms(func: &Function) -> Vec<(BlockId, BlockId, f64)> {
     let defs = single_defs(func);
     let cells = length_cells(func, &defs);
-    let blocks: HashMap<BlockId, usize> = func
-        .blocks
-        .iter()
-        .enumerate()
-        .map(|(i, b)| (b.id, i))
-        .collect();
+    // each block's position, by id
+    let span = (func.blocks.iter()).map(|b| b.id.0 as usize + 1).max();
+    let mut blocks = vec![usize::MAX; span.unwrap_or(0)];
+    for (i, b) in func.blocks.iter().enumerate() {
+        blocks[b.id.0 as usize] = i;
+    }
     let calls = |b: BlockId| {
-        func.blocks[blocks[&b]].insts.iter().any(|i| {
+        func.blocks[blocks[b.0 as usize]].insts.iter().any(|i| {
             matches!(
                 i.kind,
                 InstKind::Call(..) | InstKind::CallIndirect(..) | InstKind::RcDecAny(_)
             )
         })
     };
-    let ends_unreachable =
-        |b: BlockId| matches!(func.blocks[blocks[&b]].term, Terminator::Unreachable);
+    let ends_unreachable = |b: BlockId| {
+        matches!(
+            func.blocks[blocks[b.0 as usize]].term,
+            Terminator::Unreachable
+        )
+    };
 
     let mut out = Vec::new();
     for b in &func.blocks {
@@ -106,10 +108,7 @@ pub fn cold_arms(func: &Function) -> Vec<(BlockId, BlockId, f64)> {
         if t == e {
             continue;
         }
-        let cond = match cond {
-            Operand::Value(v) => defs.get(v).copied(),
-            _ => None,
-        };
+        let cond = value_def(cond, &defs);
         let calling_arm = || if calls(t) { t } else { e };
         let one_calls = calls(t) != calls(e);
         let arm = if cond.is_some_and(|c| is_throw_probe(c, &defs)) {
@@ -140,13 +139,13 @@ pub fn cold_arms(func: &Function) -> Vec<(BlockId, BlockId, f64)> {
 /// the same word through the same pointer, or the same mask of one (a
 /// header word kept in a register across a loop and read again after
 /// the calls that may write it): it reads as that load or mask.
-fn single_defs(func: &Function) -> HashMap<ValueId, &InstKind> {
-    // per value index, its def count and first def; only a value with
-    // several defs keeps a list of them, most have one
-    let defs = || func.blocks.iter().flat_map(|b| &b.insts);
+fn single_defs(func: &Function) -> Defs<'_> {
+    let defs =
+        || (func.blocks.iter().flat_map(|b| &b.insts)).filter_map(|i| Some((i.result?, &i.kind)));
+    // per value index, its def count and first def
     let mut count = vec![0u32; func.values.len()];
     let mut first: Vec<Option<&InstKind>> = vec![None; func.values.len()];
-    for (r, kind) in defs().filter_map(|i| Some((i.result?, &i.kind))) {
+    for (r, kind) in defs() {
         // a hand-built function may leave `values` short
         if count.len() <= r.0 as usize {
             count.resize(r.0 as usize + 1, 0);
@@ -154,12 +153,6 @@ fn single_defs(func: &Function) -> HashMap<ValueId, &InstKind> {
         }
         count[r.0 as usize] += 1;
         first[r.0 as usize].get_or_insert(kind);
-    }
-    let mut all: HashMap<ValueId, Vec<&InstKind>> = HashMap::default();
-    for (r, kind) in defs().filter_map(|i| Some((i.result?, &i.kind))) {
-        if count[r.0 as usize] > 1 {
-            all.entry(r).or_default().push(kind);
-        }
     }
     let single = |v: &ValueId| match count.get(v.0 as usize) {
         Some(1) => first[v.0 as usize],
@@ -181,23 +174,40 @@ fn single_defs(func: &Function) -> HashMap<ValueId, &InstKind> {
             _ => None,
         }
     };
-    let cell = |ds: &[&InstKind]| {
-        let (def, p, o, m) = loaded(ds[0])?;
-        ds[1..]
-            .iter()
-            .all(|d| loaded(d).is_some_and(|(_, p2, o2, m2)| (p2, o2, m2) == (p, o, m)))
-            .then_some(def)
-    };
-    let ones = (first.iter().enumerate())
-        .filter(|&(v, _)| count[v] == 1)
-        .filter_map(|(v, k)| Some((ValueId(v as u32), (*k)?)));
-    let cells = (all.iter()).filter_map(|(v, ds)| cell(ds).map(|l| (*v, l)));
-    ones.chain(cells).collect()
+    // a several-def value reads as its first def's load or mask while
+    // every later def, in block order, copies the same word
+    let key = |k: &InstKind| loaded(k).map(|(_, p, o, m)| (p, o, m));
+    let mut mixed = vec![false; count.len()];
+    for (r, kind) in defs().filter(|(r, _)| count[r.0 as usize] > 1) {
+        let (r, head) = (r.0 as usize, first[r.0 as usize].expect("a def was seen"));
+        if !mixed[r] && !std::ptr::eq(kind, head) {
+            mixed[r] = key(kind).is_none() || key(kind) != key(head);
+        }
+    }
+    let cells: Vec<(usize, Option<&InstKind>)> = (0..count.len())
+        .filter(|&v| count[v] > 1)
+        .map(|v| {
+            (
+                v,
+                first[v]
+                    .filter(|_| !mixed[v])
+                    .and_then(|h| Some(loaded(h)?.0)),
+            )
+        })
+        .collect();
+    for (v, def) in cells {
+        first[v] = def;
+    }
+    Defs(first)
 }
 
-fn value_def<'a>(op: &Operand, defs: &HashMap<ValueId, &'a InstKind>) -> Option<&'a InstKind> {
+/// The single def of each value (or the load a register cell copies),
+/// by value index.
+struct Defs<'a>(Vec<Option<&'a InstKind>>);
+
+fn value_def<'a>(op: &Operand, defs: &Defs<'a>) -> Option<&'a InstKind> {
     match op {
-        Operand::Value(v) => defs.get(v).copied(),
+        Operand::Value(v) => defs.0.get(v.0 as usize).copied().flatten(),
         _ => None,
     }
 }
@@ -207,7 +217,7 @@ fn is_zero(op: &Operand) -> bool {
 }
 
 /// `icmp ne (load (global_ref THROW_ACTIVE)), 0`.
-fn is_throw_probe(cond: &InstKind, defs: &HashMap<ValueId, &InstKind>) -> bool {
+fn is_throw_probe(cond: &InstKind, defs: &Defs) -> bool {
     let InstKind::ICmp(IPred::Ne, flag, zero) = cond else {
         return false;
     };
@@ -224,7 +234,7 @@ fn is_throw_probe(cond: &InstKind, defs: &HashMap<ValueId, &InstKind>) -> bool {
 const FLAGS_WORD_BYTES: u64 = 8;
 
 /// A constant: an immediate, or the value `iconst_hoist` minted for one.
-fn is_const(op: &Operand, defs: &HashMap<ValueId, &InstKind>) -> bool {
+fn is_const(op: &Operand, defs: &Defs) -> bool {
     matches!(op, Operand::ConstI64(_))
         || matches!(
             value_def(op, defs),
@@ -233,7 +243,7 @@ fn is_const(op: &Operand, defs: &HashMap<ValueId, &InstKind>) -> bool {
 }
 
 /// `icmp eq|ne (and (load p +off), MASK), K` — a test of header bits.
-fn is_flag_guard(cond: &InstKind, defs: &HashMap<ValueId, &InstKind>) -> bool {
+fn is_flag_guard(cond: &InstKind, defs: &Defs) -> bool {
     let InstKind::ICmp(IPred::Ne | IPred::Eq, masked, k) = cond else {
         return false;
     };
@@ -254,7 +264,7 @@ fn is_flag_guard(cond: &InstKind, defs: &HashMap<ValueId, &InstKind>) -> bool {
 
 /// A compare of `ptrtoint v`, or of its tag bits, with a constant; or
 /// an `and` / `or` of two such compares (`depth` bounds the nesting).
-fn is_boxed_guard(cond: &InstKind, defs: &HashMap<ValueId, &InstKind>, depth: u32) -> bool {
+fn is_boxed_guard(cond: &InstKind, defs: &Defs, depth: u32) -> bool {
     let is_bits = |op: &Operand| matches!(value_def(op, defs), Some(InstKind::PtrToInt(_)));
     match cond {
         InstKind::ICmp(IPred::Eq | IPred::Ne, x, k) if is_const(k, defs) => {
@@ -273,7 +283,7 @@ fn is_boxed_guard(cond: &InstKind, defs: &HashMap<ValueId, &InstKind>, depth: u3
 }
 
 /// `and (icmp eq (lshr (ptrtoint a), 48), K), (icmp eq (lshr (ptrtoint b), 48), K)`.
-fn is_int_pair_test(cond: &InstKind, defs: &HashMap<ValueId, &InstKind>) -> bool {
+fn is_int_pair_test(cond: &InstKind, defs: &Defs) -> bool {
     let not_a_call_answer = |w: &Operand| match value_def(w, defs) {
         Some(InstKind::PtrToInt(v)) => !matches!(
             value_def(v, defs),
@@ -299,15 +309,15 @@ fn is_len_load(kind: Option<&InstKind>) -> bool {
 /// cell `len_promote` keeps a loop's array length in (its preheader
 /// def reads the word; the rest are the loop's length stores and the
 /// re-reads after a kernel call).
-fn length_cells(func: &Function, defs: &HashMap<ValueId, &InstKind>) -> HashSet<ValueId> {
-    let mut out = HashSet::default();
+fn length_cells(func: &Function, defs: &Defs) -> Vec<bool> {
+    let mut out = vec![false; defs.0.len()];
     for b in &func.blocks {
         for i in &b.insts {
             if let (Some(r), InstKind::Copy(_, src)) = (i.result, &i.kind)
-                && !defs.contains_key(&r)
+                && value_def(&Operand::Value(r), defs).is_none()
                 && is_len_load(value_def(src, defs))
             {
-                out.insert(r);
+                out[r.0 as usize] = true;
             }
         }
     }
@@ -318,15 +328,16 @@ fn length_cells(func: &Function, defs: &HashMap<ValueId, &InstKind>) -> HashSet<
 /// when the index is out of bounds.
 fn out_of_bounds_arm(
     cond: &InstKind,
-    defs: &HashMap<ValueId, &InstKind>,
-    cells: &HashSet<ValueId>,
+    defs: &Defs,
+    cells: &[bool],
     then_blk: BlockId,
     else_blk: BlockId,
 ) -> Option<BlockId> {
     let InstKind::ICmp(pred @ (IPred::Ult | IPred::Uge), _, len) = cond else {
         return None;
     };
-    let in_cell = |op: &Operand| matches!(op, Operand::Value(v) if cells.contains(v));
+    let in_cell =
+        |op: &Operand| matches!(op, Operand::Value(v) if cells.get(v.0 as usize) == Some(&true));
     let is_len = is_len_load(value_def(len, defs))
         || in_cell(len)
         || matches!(value_def(len, defs), Some(InstKind::Copy(_, c)) if in_cell(c));
