@@ -12,6 +12,7 @@ use torajs_core::ssa::{
 use super::chain::{inner_chain, inner_exit, pre_chain};
 use super::fit::{lane_count, regions_fit};
 use super::flow::{escaping, lane_cells, lane_shared};
+use super::retire::exit_cells;
 use super::{MAX_STEP, MIN_LANES, Plan};
 
 pub(super) struct Ctx {
@@ -168,6 +169,7 @@ fn plan_loop(func: &Function, la: &LoopAnalysis, l: &NaturalLoop, ctx: &Ctx) -> 
         inner_on_true,
         chain,
         masked: !inner_exits.is_empty(),
+        exit_cells: None,
         post,
         body,
         lane_cells: Vec::new(),
@@ -186,6 +188,7 @@ fn complete(func: &Function, ctx: &Ctx, mut plan: Plan) -> Option<Plan> {
     plan.lane_cells = lane_cells(func, ctx, &plan)?;
     plan.escaping = escaping(func, ctx, &plan)?;
     plan.shared = lane_shared(func, &plan);
+    plan.exit_cells = plan.masked.then(|| exit_cells(func, &plan)).flatten();
     plan.lanes = lane_count(func, &plan);
     wrap_ok(&plan).then_some(plan)
 }

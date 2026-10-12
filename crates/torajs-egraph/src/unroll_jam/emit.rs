@@ -48,7 +48,7 @@ pub(super) fn apply(func: &mut Function, p: &Plan) {
     func.blocks[last.0 as usize].term = Terminator::Br(heads[0]);
     for j in 0..p.lanes {
         let next = if j + 1 < p.lanes { resumes[j + 1] } else { g };
-        let entry = tail_clone(func, p, &cells, &lanes[j], next);
+        let entry = tail_clone(func, p, &cells, &lanes[j], next)[&p.inner_header];
         let r = resumes[j];
         for &c in p.lane_cells.iter().filter(|c| read_after_pre.contains(c)) {
             let ty = func.values[c.0 as usize].ty;

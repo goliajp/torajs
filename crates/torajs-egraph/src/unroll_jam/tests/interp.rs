@@ -1,17 +1,52 @@
-//! A small interpreter for the integer subset the tests build, so a
-//! jammed function can be run against its original.
+//! A small interpreter for the subset the tests build, so a jammed
+//! function can be run against its original. An `f64` value is held as
+//! its bits.
 
 use crate::id_hash::HashMap;
 
-use torajs_core::ssa::{BinOp, BlockId, Function, IPred, InstKind, Operand, Terminator, ValueId};
+use torajs_core::ssa::{
+    BinOp, BlockId, FPred, Function, IPred, InstKind, Operand, Terminator, ValueId,
+};
 
 fn operand(env: &HashMap<ValueId, i64>, op: &Operand) -> i64 {
     match op {
         Operand::Value(x) => env[x],
         Operand::ConstI64(k) => *k,
         Operand::ConstBool(b) => *b as i64,
+        Operand::ConstF64(x) => x.to_bits() as i64,
         other => panic!("operand {other:?} outside the test subset"),
     }
+}
+
+fn float(env: &HashMap<ValueId, i64>, op: &Operand) -> f64 {
+    f64::from_bits(operand(env, op) as u64)
+}
+
+fn float_op(env: &HashMap<ValueId, i64>, kind: &InstKind) -> Option<i64> {
+    let r = match kind {
+        InstKind::BinOp(op, a, b) => {
+            let (x, y) = (float(env, a), float(env, b));
+            match op {
+                BinOp::FAdd => x + y,
+                BinOp::FSub => x - y,
+                BinOp::FMul => x * y,
+                _ => return None,
+            }
+        }
+        InstKind::SiToFp(a) => operand(env, a) as f64,
+        InstKind::FCmp(p, a, b) => {
+            let (x, y) = (float(env, a), float(env, b));
+            let r = match p {
+                FPred::Olt => x < y,
+                FPred::Ogt => x > y,
+                FPred::Oge => x >= y,
+                other => panic!("{other:?} outside the test subset"),
+            };
+            return Some(r as i64);
+        }
+        _ => return None,
+    };
+    Some(r.to_bits() as i64)
 }
 
 /// Run `f` on `args`; `None` when it does not return within `fuel`
@@ -26,6 +61,7 @@ pub(super) fn run(f: &Function, args: &[i64], fuel: usize) -> Option<i64> {
         for i in &block.insts {
             left = left.checked_sub(1)?;
             let r = match &i.kind {
+                kind if float_op(&env, kind).is_some() => float_op(&env, kind).expect("float"),
                 InstKind::Copy(_, a) => operand(&env, a),
                 InstKind::Select(_, c, a, bb) => {
                     if operand(&env, c) != 0 {

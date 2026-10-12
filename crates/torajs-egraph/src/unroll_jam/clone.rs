@@ -13,19 +13,39 @@ use super::Plan;
 /// One lane finishing alone: the inner loop, post and latch cloned on
 /// the original cells, the latch's back edge sent to `next`. Values
 /// `pre` computed come from this lane's copies; every other non-cell
-/// def gets a fresh id. Returns the clone's entry (inner header).
+/// def gets a fresh id. Returns each block's clone; the entry is the
+/// inner header's.
 pub(super) fn tail_clone(
     func: &mut Function,
     p: &Plan,
     cells: &HashSet<ValueId>,
     lane: &HashMap<ValueId, ValueId>,
     next: BlockId,
-) -> BlockId {
+) -> HashMap<BlockId, BlockId> {
     let blocks: Vec<BlockId> = p
         .inner_order()
         .into_iter()
         .chain(p.post.iter().copied())
         .collect();
+    let edge = |t: BlockId, bmap: &HashMap<BlockId, BlockId>| match bmap.get(&t) {
+        _ if t == p.header => next,
+        Some(&c) => c,
+        None => t,
+    };
+    clone_region(func, p, cells, lane, &blocks, edge)
+}
+
+/// `blocks` cloned on the original cells the way `tail_clone` clones
+/// them, each edge sent where `edge` maps it given the clones. Returns
+/// each block's clone.
+pub(super) fn clone_region(
+    func: &mut Function,
+    p: &Plan,
+    cells: &HashSet<ValueId>,
+    lane: &HashMap<ValueId, ValueId>,
+    blocks: &[BlockId],
+    edge: impl Fn(BlockId, &HashMap<BlockId, BlockId>) -> BlockId,
+) -> HashMap<BlockId, BlockId> {
     let mut map: HashMap<ValueId, ValueId> = lane
         .iter()
         // only what `pre` computed: every cell, the inner loop's
@@ -34,7 +54,7 @@ pub(super) fn tail_clone(
         .map(|(v, n)| (*v, *n))
         .collect();
     let bmap: HashMap<BlockId, BlockId> = blocks.iter().map(|b| (*b, func.add_block())).collect();
-    for &b in &blocks {
+    for &b in blocks {
         for inst in &func.blocks[b.0 as usize].insts.clone() {
             if let Some(r) = inst.result
                 && !cells.contains(&r)
@@ -45,7 +65,7 @@ pub(super) fn tail_clone(
             }
         }
     }
-    for &b in &blocks {
+    for &b in blocks {
         let src = func.blocks[b.0 as usize].clone();
         let nb = bmap[&b];
         for inst in &src.insts {
@@ -67,15 +87,10 @@ pub(super) fn tail_clone(
             | Terminator::Ret(Some(Operand::Value(v))) => *v = fix(*v),
             _ => {}
         }
-        retarget(
-            &mut term,
-            |t| bmap.get(&t).copied().unwrap_or(t),
-            p.header,
-            Some(next),
-        );
+        retarget(&mut term, |t| edge(t, &bmap), p.header, None);
         func.blocks[nb.0 as usize].term = term;
     }
-    bmap[&p.inner_header]
+    bmap
 }
 
 /// Values every def of which is a `Copy`: the cells clones keep under

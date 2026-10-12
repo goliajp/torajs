@@ -6,12 +6,12 @@
 //! ```text
 //! GB:  pre for every lane (as unmasked); lane slots hold each lane's
 //!      cells and pre values; snap_j = the cells the inner
-//!      loop writes; act_j = true; live = L ; br FB
+//!      loop writes (or fewer, see `retire`); act_j = true; live = L
 //! FB:  every slot's inner step as it is; go_j = act_j and every exit
 //!      test the step passes; snap_j = go_j ? cells_j : snap_j;
 //!      act_j = go_j ; cond_br act_0 and any other act_j, FB, R
-//! R:   original cells = slot 0's snap and cells ; br T (the counter
-//!      is slot 0's already)
+//! R:   original cells = slot 0's snap and cells ; br T (`retire`; the
+//!      counter is slot 0's already)
 //! T:   clone of inner loop + post + latch; latch → N
 //! N:   slot k = slot k+1, the last slot idle; live -= 1
 //!      cond_br live > 0, FT, G
@@ -22,6 +22,8 @@
 //! - a slot whose step leaves keeps in `snap` the cells it started that
 //!   step with, and every later step leaves them alone; `T` reruns that
 //!   step from them and takes the same exit (the inner loop is pure).
+//!   When the exits read fewer cells than the step writes, only those
+//!   are kept and `retire` replays the exit tests instead.
 //!   The cells themselves run on, so the select sits off the step's
 //!   own recurrence.
 //! - slot 0 always holds the earliest lane not yet finished; the group
@@ -40,8 +42,9 @@ use torajs_core::ssa::{
     visit_value_operands,
 };
 
-use super::clone::{clone_into, new_value, push, reads_outside, tail_clone};
+use super::clone::{clone_into, new_value, push, reads_outside};
 use super::emit::reuse_shared;
+use super::retire::{Slot0, retire, snapped};
 use super::{LANE_GPR_BUDGET, MIN_LANES, Plan};
 
 type Lane = HashMap<ValueId, ValueId>;
@@ -57,7 +60,7 @@ const LANE_FPR_BUDGET: usize = 16;
 /// store each step. At least two.
 pub(super) fn masked_lanes(func: &Function, p: &Plan) -> usize {
     let read_after_pre = reads_outside(func, &p.pre_order());
-    let written = inner_writes(func, p);
+    let kept = snapped(func, p);
     let mut own: HashSet<ValueId> = HashSet::default();
     for b in p.pre_order() {
         let results = func.blocks[b.0 as usize]
@@ -72,7 +75,7 @@ pub(super) fn masked_lanes(func: &Function, p: &Plan) -> usize {
     }
     let state = own
         .iter()
-        .chain(&written)
+        .chain(&kept)
         .map(|v| func.values[v.0 as usize].ty)
         .chain([Type::Bool]);
     let (mut fprs, mut gprs) = (0, 0);
@@ -109,10 +112,10 @@ pub(super) fn steps(
             lane.insert(v, slot);
         }
     }
-    let written = inner_writes(func, p);
+    let kept = snapped(func, p);
     let mut snaps: Vec<Lane> = Vec::with_capacity(p.lanes);
     for lane in &lanes {
-        let snap = written.iter().map(|c| (*c, copy_of(func, cur, lane[c])));
+        let snap = kept.iter().map(|c| (*c, copy_of(func, cur, lane[c])));
         snaps.push(snap.collect());
     }
     let act: Vec<ValueId> = (0..p.lanes).map(|_| new_value(func, Type::Bool)).collect();
@@ -168,15 +171,14 @@ pub(super) fn steps(
     }
     group_test(func, &act, fb, fb, r);
     group_test(func, &act, ft, fb, r);
-    for &c in p.lane_cells.iter().filter(|c| read_after_pre.contains(c)) {
-        let ty = func.values[c.0 as usize].ty;
-        let from = snaps[0].get(&c).unwrap_or(&first[&c]);
-        push(func, r, c, InstKind::Copy(ty, Operand::Value(*from)));
-    }
-    let entry = tail_clone(func, p, cells, &first, n);
-    func.blocks[r.0 as usize].term = Terminator::Br(entry);
+    let slot0 = Slot0 {
+        first: &first,
+        snap: &snaps[0],
+        act: act[0],
+    };
+    retire(func, p, cells, read_after_pre, slot0, r, n);
     shift(func, n, &slots, &lanes);
-    shift(func, n, &written, &snaps);
+    shift(func, n, &kept, &snaps);
     next_slot(func, p, n, &act, live, ft, g);
 }
 
@@ -280,20 +282,6 @@ fn slot_values(
         })
         .collect();
     out.sort_by_key(|v| v.0);
-    out
-}
-
-/// The lane cells the inner loop writes.
-fn inner_writes(func: &Function, p: &Plan) -> Vec<ValueId> {
-    let mut out: Vec<ValueId> = p
-        .inner_order()
-        .iter()
-        .flat_map(|b| func.blocks[b.0 as usize].insts.iter())
-        .filter_map(|i| i.result)
-        .filter(|r| p.lane_cells.contains(r) && !p.shared.contains(r))
-        .collect();
-    out.sort_by_key(|v| v.0);
-    out.dedup();
     out
 }
 

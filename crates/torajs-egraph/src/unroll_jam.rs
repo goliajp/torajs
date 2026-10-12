@@ -56,6 +56,7 @@ mod guards;
 mod heads;
 mod masked;
 mod plan;
+mod retire;
 #[cfg(test)]
 mod tests;
 
@@ -141,6 +142,9 @@ pub(crate) struct Plan {
     /// The inner body has a guard leaving the inner loop for `post`:
     /// the group steps its lanes under masks (see `masked`).
     pub masked: bool,
+    /// Under masks, the cells a lane keeps from the step it leaves in,
+    /// when fewer than the inner loop writes (see `retire`).
+    pub exit_cells: Option<Vec<ValueId>>,
     /// Everything else in the outer body, the latch included.
     pub post: Vec<BlockId>,
     pub body: HashSet<BlockId>,
