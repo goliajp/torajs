@@ -171,33 +171,14 @@ pub fn tag_closure_arg_params(ast: &mut Ast) {
                 changed = true;
             }
         }
-        for (fname, rets) in &fn_returns {
-            let yields = if unannotated.contains(fname) {
-                is_closure_valued
-            } else {
-                is_closure_shaped
-            };
-            if !ret_marked.contains(fname)
-                && rets
-                    .iter()
-                    .any(|r| yields(ast, *r, &closure_idents, &ret_marked))
-            {
-                ret_marked.insert(fname.clone());
-                changed = true;
-            }
-        }
-        let mut stack: Vec<&Stmt> = ast.stmts.iter().collect();
-        while let Some(s) = stack.pop() {
-            if let Stmt::LetDecl { name, init, .. } = s
-                && let Expr::Call { callee, .. } = ast.get_expr(*init)
-                && let Expr::Ident(f) = ast.get_expr(*callee)
-                && ret_marked.contains(f)
-                && closure_idents.insert(name.clone())
-            {
-                changed = true;
-            }
-            push_child_stmts(s, &mut stack);
-        }
+        changed |= mark_closure_returns(
+            ast,
+            &fn_returns,
+            &unannotated,
+            &closure_idents,
+            &mut ret_marked,
+        );
+        changed |= mark_ret_lets(ast, &ret_marked, &mut closure_idents);
         // member calls, and the backward round: what reaches a marked
         // slot from the calling frame carries the closure shape too
         // (see the member sibling)
@@ -256,6 +237,59 @@ pub fn tag_closure_arg_params(ast: &mut Ast) {
         &ret_marked,
         &mut existing_forwarders,
     );
+}
+
+/// One return-lane round of [`tag_closure_arg_params`]'s fixpoint: a
+/// fn whose return sites yield a closure-shaped value (any value, for
+/// an unannotated fn) is ret-marked. True when it marked one.
+fn mark_closure_returns(
+    ast: &Ast,
+    fn_returns: &HashMap<String, Vec<ExprId>>,
+    unannotated: &HashSet<String>,
+    closure_idents: &HashSet<String>,
+    ret_marked: &mut HashSet<String>,
+) -> bool {
+    let mut changed = false;
+    for (fname, rets) in fn_returns {
+        let yields = if unannotated.contains(fname) {
+            is_closure_valued
+        } else {
+            is_closure_shaped
+        };
+        if !ret_marked.contains(fname)
+            && rets
+                .iter()
+                .any(|r| yields(ast, *r, closure_idents, ret_marked))
+        {
+            ret_marked.insert(fname.clone());
+            changed = true;
+        }
+    }
+    changed
+}
+
+/// One round of [`tag_closure_arg_params`]'s fixpoint: a `let` bound
+/// to a ret-marked fn's call result holds a closure. True when it
+/// added one.
+fn mark_ret_lets(
+    ast: &Ast,
+    ret_marked: &HashSet<String>,
+    closure_idents: &mut HashSet<String>,
+) -> bool {
+    let mut changed = false;
+    let mut stack: Vec<&Stmt> = ast.stmts.iter().collect();
+    while let Some(s) = stack.pop() {
+        if let Stmt::LetDecl { name, init, .. } = s
+            && let Expr::Call { callee, .. } = ast.get_expr(*init)
+            && let Expr::Ident(f) = ast.get_expr(*callee)
+            && ret_marked.contains(f)
+            && closure_idents.insert(name.clone())
+        {
+            changed = true;
+        }
+        push_child_stmts(s, &mut stack);
+    }
+    changed
 }
 
 /// r359 — a fn-typed param whose DEFAULT is closure-shaped receives
