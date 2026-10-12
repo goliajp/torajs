@@ -51,6 +51,12 @@ pub(super) fn hoist_list_names(list: &[Stmt], bound: &mut Vec<String>) {
                 hoist_list_names(body, bound);
                 continue;
             }
+            // a compiler-minted group shares the list's scope (a dead-zone
+            // flag declared beside the statement it guards)
+            Stmt::Multi(inner) => {
+                hoist_list_names(inner, bound);
+                continue;
+            }
             _ => continue,
         };
         if !bound.contains(name) {
