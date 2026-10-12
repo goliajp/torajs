@@ -150,7 +150,9 @@ pub(crate) fn init_shares_source_stake(
         // src[0] : __ClassExpr_N`), and the class registry's
         // stake went through zero at the exit drain (census:
         // dstr-classname-001).
-        Expr::Ternary { .. } | Expr::Nullish { .. } => {
+        // a Member / Index-target assignment answers a borrow of the
+        // stored value, like a join over borrows
+        Expr::Ternary { .. } | Expr::Nullish { .. } | Expr::Assign { .. } => {
             !converted
                 && !ctx.owned_member_reads.contains(&init)
                 && pre_ty.is_refcounted()

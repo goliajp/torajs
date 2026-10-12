@@ -478,15 +478,16 @@ fn apply_borrow_rc_inc(ctx: &mut LowerCtx<'_>, v: &Operand, value: ExprId) {
         // the fn-owned compile; without the +1 the slot's drop-old
         // stole the fn's stake (UAF on the next occurrence).
         Expr::Regex { .. } => true,
-        // Rotation 326 — a Ternary / Nullish / `&&`-`||` join over
-        // pure borrows answers a borrow (chunk 722 keeps those joins
-        // at zero rc traffic); an owned-unified join recorded itself
-        // in owned_member_reads and transfers its fresh stake. Same
-        // arm the let-decl shares table took this rotation — the
-        // assignment target is a consumer like any other
-        // (`y = cond ? ys : xs; y.shift()` stole xs's stake at y's
-        // scope end; census array-019-deque).
-        Expr::Ternary { .. } | Expr::Nullish { .. } => !ctx.owned_member_reads.contains(&value),
+        // A Ternary / Nullish / `&&`-`||` join over pure borrows, and
+        // a Member / Index-target assignment, answer a borrow; an
+        // owned-unified join or an Ident-target assignment recorded
+        // itself in owned_member_reads and transfers its fresh stake.
+        // The target is a consumer like any other: `y = cond ? ys :
+        // xs; y.shift()` stole xs's stake, `y = (c.s = t); c.s = u`
+        // left y naming the freed t.
+        Expr::Ternary { .. } | Expr::Nullish { .. } | Expr::Assign { .. } => {
+            !ctx.owned_member_reads.contains(&value)
+        }
         Expr::BinOp {
             op: crate::ast::BinOp::LAnd | crate::ast::BinOp::LOr,
             ..
