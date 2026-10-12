@@ -122,6 +122,11 @@ unsafe fn any_to_str_hint(tag: i64, value: i64, hint_string: bool) -> *mut c_voi
             unsafe { __torajs_rc_inc(child as *mut c_void) };
             return child as *mut c_void;
         }
+        // The three wrapper shortcuts below answer what the hint-string
+        // ToPrimitive gets through an unpatched prototype; the concat
+        // position runs the DEFAULT hint, whose valueOf a program may
+        // replace (`Number.prototype.valueOf = …; "x" + new Number(5)`),
+        // so it takes the OrdinaryToPrimitive path below.
         // RFC 20260716 刀 2b — `String` wrapper cell:
         // ToString(StringWrapper) = [[StringData]] verbatim (spec
         // §7.1.17 step 3, ToPrimitive on String Object hits
@@ -129,7 +134,7 @@ unsafe fn any_to_str_hint(tag: i64, value: i64, hint_string: bool) -> *mut c_voi
         // Inner cell pointer lives at `STRING_WRAPPER_CELL_OFF = 8`.
         // rc_inc the shared Str cell so the caller owns a fresh
         // reference like the Tag::Str arm above.
-        if matches!(h.tag(), Tag::StringWrapper) {
+        if hint_string && matches!(h.tag(), Tag::StringWrapper) {
             let inner_ptr = unsafe { ((child as *const u8).add(8) as *const *mut c_void).read() };
             if inner_ptr.is_null() {
                 // Empty-str wrapper (`new String(NULL)` sentinel):
@@ -145,7 +150,7 @@ unsafe fn any_to_str_hint(tag: i64, value: i64, hint_string: bool) -> *mut c_voi
         // OrdinaryToPrimitive → Boolean.prototype.toString → the
         // primitive's ToString (§7.1.17 → §7.1.17.5). Reuses the
         // primitive `bool_to_str` intrinsic.
-        if matches!(h.tag(), Tag::BooleanWrapper) {
+        if hint_string && matches!(h.tag(), Tag::BooleanWrapper) {
             let val = unsafe { *((child as *const u8).add(8)) };
             return unsafe { crate::__torajs_bool_to_str(val as i32) };
         }
@@ -159,7 +164,7 @@ unsafe fn any_to_str_hint(tag: i64, value: i64, hint_string: bool) -> *mut c_voi
         // arms above (dodges the general `heap_to_primitive` +
         // method dispatch round-trip for a wrapper class with no
         // user monkey-patching).
-        if matches!(h.tag(), Tag::NumberWrapper) {
+        if hint_string && matches!(h.tag(), Tag::NumberWrapper) {
             let n = unsafe { ((child as *const u8).add(8) as *const f64).read() };
             return unsafe { __torajs_f64_to_str(n) };
         }
