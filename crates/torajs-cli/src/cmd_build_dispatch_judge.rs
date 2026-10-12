@@ -69,13 +69,15 @@ pub(crate) const FALLBACK_PREFIXES: [&str; 5] = [
 
 /// Emitted symbols that put a namespace / globalThis object (or a
 /// reified static cell) into the any world — the only compiler-
-/// emitted entrances to the ns-static mint face. A program with
-/// none of these provably never mints a namespace-static cell, so
-/// the mint seam (`__torajs_ns_static_cell`) gets a loud-reject
-/// stub and the whole ns-static dispatch universe dead-strips.
-/// (Builtin ctor values and proxies can also reach ctor own-static
-/// reads, but both are FALLBACK triggers — nothing is stubbed
-/// there at all.)
+/// emitted entrances to the ns-static mint face. The runtime has one
+/// more: a `constructor` read answers a builtin ctor cell, whose
+/// statics mint through the same seam
+/// ([`crate::cmd_build_dispatch_judge_ctor_reach`]). A program with
+/// neither never mints a namespace-static cell, so the mint seam
+/// (`__torajs_ns_static_cell`) gets a loud-reject stub and the whole
+/// ns-static dispatch universe dead-strips. (Builtin ctor values and
+/// proxies can also reach ctor own-static reads, but both are
+/// FALLBACK triggers — nothing is stubbed there at all.)
 const NS_WORLD_PREFIXES: [&str; 4] = [
     "__torajs_ns_static_cell",
     "__torajs_ns_object_",
@@ -364,6 +366,9 @@ pub(crate) fn judge(module: &Module) -> DispatchJudgment {
         }
     }
 
+    if !ns_world && !fallback {
+        ns_world = crate::cmd_build_dispatch_judge_ctor_reach::ctor_cell_reachable(module, diag);
+    }
     if any_writer && typed_arr_print {
         if diag {
             eprintln!("[judge] props-face keep: any writer + typed array printer");
