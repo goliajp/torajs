@@ -19,7 +19,7 @@
 //! closure capture; `const g = function () { return n; }` answers 2) —
 //! so the declaration becomes that value, `let g = function (…) { … }`,
 //! in the slot the declaration occupied, or just above the first
-//! statement that names it when one comes earlier (§10.2.11 initializes
+//! statement that reaches it when one comes earlier (§10.2.11 initializes
 //! the declaration before the body runs;
 //! `nested_fns_capture::hoist_above_first_use`). A local the move leaves
 //! below the value is a forward capture, which the machine's closure
@@ -47,19 +47,31 @@
 //! (`lift_nested_generators` owns it), a generic one (an arrow has no
 //! type parameters), one whose body names `arguments` (a declaration
 //! owns that binding), and an async generator with a parser-synthesized
-//! (`__`-spelled) parameter. Declarations deeper than the body's
-//! own statement list (inside a block or a loop) are Annex B territory
-//! and stay with `nested_fns`.
+//! (`__`-spelled) parameter — nor any peer that names one of those or
+//! is named by one, since a lifted declaration cannot name a value. In
+//! a generator body, a group of declarations that reads nothing around
+//! it stays a declaration too, and a direct call (`select`).
+//! Declarations deeper than the body's own statement list (inside a
+//! block or a loop) are Annex B territory and stay with `nested_fns`.
 
 use super::{Ast, Expr, ExprId, Stmt};
+
+mod lift;
+mod select;
+use select::Route;
 
 /// Rewrite every async function and generator body — declarations on
 /// the parser's `async_fns` roll or marked `is_generator`, and values in
 /// `async_fn_value_exprs` / `gen_fn_exprs`.
 pub fn desugar_async_nested_fns(ast: &mut Ast) {
+    let mut lifts = lift::Lifts::new(ast);
     for idx in 0..ast.stmts.len() {
         let Stmt::FnDecl {
-            name, is_generator, ..
+            name,
+            is_generator,
+            params,
+            body,
+            ..
         } = &ast.stmts[idx]
         else {
             continue;
@@ -67,11 +79,20 @@ pub fn desugar_async_nested_fns(ast: &mut Ast) {
         if !*is_generator && !ast.async_fns.contains(name) {
             continue;
         }
+        // a top-level generator: its own frame is all there is around
+        // a declaration in its body
+        let frames = (!ast.async_fns.contains(name)).then(|| {
+            let mut out = Vec::new();
+            super::scope_chain::fn_names(params, body, &mut out);
+            super::scope_chain::list_names(body, &mut out);
+            out
+        });
+        let parent = name.clone();
         let Stmt::FnDecl { body, .. } = &mut ast.stmts[idx] else {
             unreachable!()
         };
         let mut taken = std::mem::take(body);
-        rewrite_declarations(ast, &mut taken);
+        rewrite_declarations(ast, &mut taken, &mut lifts, &parent, frames.as_deref());
         let Stmt::FnDecl { body, .. } = &mut ast.stmts[idx] else {
             unreachable!()
         };
@@ -81,35 +102,61 @@ pub fn desugar_async_nested_fns(ast: &mut Ast) {
     ids.extend(ast.gen_fn_exprs.keys().copied());
     ids.sort_by_key(|e| e.0);
     ids.dedup();
+    let chains = super::scope_chain::chains_by_arrow(ast, &[&ast.stmts]);
     for eid in ids {
         let Expr::ArrowFn { body, .. } = &ast.exprs[eid.0 as usize] else {
             continue;
         };
-        if !body.iter().any(|s| is_rewritable(ast, s)) {
+        if !body.iter().any(|s| matches!(s, Stmt::FnDecl { .. })) {
             continue;
         }
+        let frames = (!ast.async_fn_value_exprs.contains(&eid)).then(|| {
+            let mut out = super::scope_chain::arrow_frames(ast, chains.get(&eid), eid, body);
+            super::scope_chain::list_names(body, &mut out);
+            out
+        });
         let Expr::ArrowFn { body, .. } = &mut ast.exprs[eid.0 as usize] else {
             unreachable!()
         };
         let mut taken = std::mem::take(body);
-        rewrite_declarations(ast, &mut taken);
+        rewrite_declarations(ast, &mut taken, &mut lifts, "__genexpr", frames.as_deref());
         let Expr::ArrowFn { body, .. } = &mut ast.exprs[eid.0 as usize] else {
             unreachable!()
         };
         *body = taken;
     }
+    lifts.finish(ast);
 }
 
-/// The body's direct function declarations become `let` bindings of
-/// function values, each in its own slot — an async generator's rises
-/// as far as what it reads allows, so a call above it finds it live
-/// (`hoist_gen_fn_exprs_decls::raise_binding`).
-fn rewrite_declarations(ast: &mut Ast, body: &mut [Stmt]) {
+/// The body's direct function declarations `select` routes to values
+/// become `let` bindings of function values, each in its own slot — an
+/// async generator's rises as far as what it reads allows, so a call
+/// above it finds it live (`hoist_gen_fn_exprs_decls::raise_binding`).
+/// Those it routes to a lift go to top level (`lift`).
+/// `capture_frames` is `None` for an async body (see `select`).
+fn rewrite_declarations(
+    ast: &mut Ast,
+    body: &mut [Stmt],
+    lifts: &mut lift::Lifts,
+    parent: &str,
+    capture_frames: Option<&[String]>,
+) {
+    let routes = select::select(ast, body, &lifts.globals, capture_frames);
+    let decls: Vec<usize> = (0..body.len())
+        .filter(|i| matches!(body[*i], Stmt::FnDecl { .. }))
+        .collect();
+    let of = |r: Route| -> Vec<usize> {
+        (0..decls.len())
+            .filter(|k| routes[*k] == r)
+            .map(|k| decls[k])
+            .collect()
+    };
+    // first, while every index still holds: a lifted slot empties in place
+    lifts.lift(ast, body, &of(Route::Lift), parent);
     let mut values: Vec<ExprId> = Vec::new();
-    for i in 0..body.len() {
-        if !is_rewritable(ast, &body[i]) {
-            continue;
-        }
+    // ascending, so a raise (which rotates only slots above `i`) leaves
+    // the later ones where they were
+    for i in of(Route::Value) {
         let taken = std::mem::replace(&mut body[i], Stmt::Block(Vec::new()));
         let reads = match &taken {
             Stmt::FnDecl {
