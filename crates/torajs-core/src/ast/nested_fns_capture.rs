@@ -259,7 +259,7 @@ fn route_list(
 /// captures that is declared above it stays an ordinary backward capture.
 /// A capture the move puts below the closure is a forward capture, which
 /// is exactly the reference the declaration made before the rewrite.
-fn hoist_above_first_use(ast: &Ast, stmts: &mut [Stmt], routed: &[usize]) {
+pub(super) fn hoist_above_first_use(ast: &Ast, stmts: &mut [Stmt], routed: &[usize]) {
     let Some(&last) = routed.last() else {
         return;
     };

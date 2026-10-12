@@ -1,6 +1,6 @@
-//! A `function` declared directly in an ASYNC function's body becomes
-//! a function value bound at the top of that body, before the body is
-//! moved into its state machine (RFC 20260805 blades 1-2).
+//! A `function` declared directly in the body of an ASYNC function or a
+//! GENERATOR becomes a function value bound in that body, before the
+//! body is moved into its state machine (RFC 20260805 blades 1-2).
 //!
 //! ```text
 //! async function outer() {
@@ -18,14 +18,12 @@
 //! closure lane captures the machine's frame (`desugar_generators`'
 //! closure capture; `const g = function () { return n; }` answers 2) —
 //! so the declaration becomes that value, `let g = function (…) { … }`,
-//! in the slot the declaration occupied — the same placement
-//! `nested_fns_capture` chose, for the same reason: the closure lane
-//! binds what is in scope at its site, so a value hoisted to the top
-//! could not name a local declared below it (`let values = []; async
-//! function inner() { values.push(1) }` — hoisted, `values` was an
-//! unknown identifier). What in-place gives up is calling the function
-//! before its text (§10.2.11); a call that early is a type error, as it
-//! is on that lane. An `async function` declaration becomes an async
+//! in the slot the declaration occupied, or just above the first
+//! statement that names it when one comes earlier (§10.2.11 initializes
+//! the declaration before the body runs;
+//! `nested_fns_capture::hoist_above_first_use`). A local the move leaves
+//! below the value is a forward capture, which the machine's closure
+//! lane serves. An `async function` declaration becomes an async
 //! function value (`async_fn_value_exprs`), which blade 2 then moves
 //! like any other.
 //!
@@ -55,14 +53,18 @@
 
 use super::{Ast, Expr, ExprId, Stmt};
 
-/// Rewrite every async function body — declarations on the parser's
-/// `async_fns` roll and values in `async_fn_value_exprs`.
+/// Rewrite every async function and generator body — declarations on
+/// the parser's `async_fns` roll or marked `is_generator`, and values in
+/// `async_fn_value_exprs` / `gen_fn_exprs`.
 pub fn desugar_async_nested_fns(ast: &mut Ast) {
     for idx in 0..ast.stmts.len() {
-        let Stmt::FnDecl { name, .. } = &ast.stmts[idx] else {
+        let Stmt::FnDecl {
+            name, is_generator, ..
+        } = &ast.stmts[idx]
+        else {
             continue;
         };
-        if !ast.async_fns.contains(name) {
+        if !*is_generator && !ast.async_fns.contains(name) {
             continue;
         }
         let Stmt::FnDecl { body, .. } = &mut ast.stmts[idx] else {
@@ -76,7 +78,9 @@ pub fn desugar_async_nested_fns(ast: &mut Ast) {
         *body = taken;
     }
     let mut ids: Vec<ExprId> = ast.async_fn_value_exprs.iter().copied().collect();
+    ids.extend(ast.gen_fn_exprs.keys().copied());
     ids.sort_by_key(|e| e.0);
+    ids.dedup();
     for eid in ids {
         let Expr::ArrowFn { body, .. } = &ast.exprs[eid.0 as usize] else {
             continue;
@@ -101,6 +105,7 @@ pub fn desugar_async_nested_fns(ast: &mut Ast) {
 /// as far as what it reads allows, so a call above it finds it live
 /// (`hoist_gen_fn_exprs_decls::raise_binding`).
 fn rewrite_declarations(ast: &mut Ast, body: &mut [Stmt]) {
+    let mut values: Vec<ExprId> = Vec::new();
     for i in 0..body.len() {
         if !is_rewritable(ast, &body[i]) {
             continue;
@@ -126,8 +131,19 @@ fn rewrite_declarations(ast: &mut Ast, body: &mut [Stmt]) {
         body[i] = to_value_binding(ast, taken);
         if let Some(reads) = reads {
             super::hoist_gen_fn_exprs_decls::raise_binding(body, i, &reads);
+        } else if let Stmt::LetDecl { init, .. } = &body[i] {
+            values.push(*init);
         }
     }
+    // a call written above a declaration finds the function live
+    // (§10.2.11), as in an ordinary body
+    let sites: Vec<usize> = body
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| matches!(s, Stmt::LetDecl { init, .. } if values.contains(init)))
+        .map(|(i, _)| i)
+        .collect();
+    super::nested_fns_capture::hoist_above_first_use(ast, body, &sites);
 }
 
 fn is_rewritable(ast: &Ast, s: &Stmt) -> bool {
