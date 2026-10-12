@@ -19,8 +19,22 @@
 
 use super::annexb_fn_var::LiftCtx;
 use super::desugar_async_nested_fns::rename::rename_in_owner;
+use super::nested_fns_case_block::apply_case_block_renames;
 use super::{Ast, Stmt};
 use std::collections::HashMap;
+
+mod block_refs;
+
+/// The rewrites a lift round leaves for after its flush, when the `Ast`
+/// can be borrowed: the catch parameters and case blocks it renamed,
+/// and the block references of its Annex B writes (`block_refs`).
+pub(super) fn apply_after_lift(ast: &mut Ast, body: &mut [Stmt], ctx: &mut LiftCtx) {
+    apply_catch_renames(ast, body, &ctx.catch_renames);
+    apply_case_block_renames(ast, body, std::mem::take(&mut ctx.case_blocks));
+    block_refs::redirect_block_refs(ast, body);
+    // the redirect may add to the arena; re-base the next mint past it
+    ctx.flush(ast);
+}
 
 /// Rename a catch parameter that would intercept a §B.3.3 write, and
 /// record the pair for [`apply_catch_renames`]. The write itself keeps

@@ -14,8 +14,7 @@
 use super::annexb_fn_var::{AnnexB, LiftCtx, LiftMode};
 use super::annexb_names::{block_nested_fn_names, own_fn_names, param_names};
 use super::desugar_async_nested_fns::rename::rename_in_owner;
-use super::nested_fns_case_block::apply_case_block_renames;
-use super::nested_fns_catch::apply_catch_renames;
+use super::nested_fns_catch::apply_after_lift;
 use super::nested_fns_idents::rewrite_idents_in_stmt;
 use super::nested_fns_walk::descend_into_children;
 use super::{Ast, Stmt};
@@ -139,8 +138,7 @@ fn desugar_nested_fns_once(ast: &mut Ast) {
             // After the mangling, so the references left under a
             // renamed catch parameter's original name are the ones that
             // meant the parameter.
-            apply_catch_renames(ast, body, &ctx.catch_renames);
-            apply_case_block_renames(ast, body, std::mem::take(&mut ctx.case_blocks));
+            apply_after_lift(ast, body, &mut ctx);
             new_top.extend(lifted);
         }
     }
@@ -208,8 +206,7 @@ fn desugar_nested_fns_once(ast: &mut Ast) {
         }
         rename_in_owner(ast, &mut top_lifted, &top_renames);
     }
-    apply_catch_renames(ast, &mut top, &ctx.catch_renames);
-    apply_case_block_renames(ast, &mut top, std::mem::take(&mut ctx.case_blocks));
+    apply_after_lift(ast, &mut top, &mut ctx);
     new_top.extend(top_lifted);
     // Pass 3 — function-expression bodies, which are neither of the two
     // scopes above. Runs while those bodies are still whole: after
@@ -335,6 +332,9 @@ pub(super) fn collect_nested_fns_to_lift(
 ) {
     let drained = std::mem::take(body);
     let mark = ctx.lex.enter_scope(&drained);
+    if mode.nested {
+        ctx.lex.enter_block_fns(&drained, mark);
+    }
     let mut new_body: Vec<Stmt> = Vec::with_capacity(drained.len());
     // Writes for the body-level declarations that keep a binding — see
     // `body_level_var_lift`. They go at the HEAD of the list because a
@@ -370,20 +370,15 @@ pub(super) fn collect_nested_fns_to_lift(
                         let decl = ctx.annexb_var_decl(name, &mangled);
                         new_body.push(decl);
                     }
-                    // Another owner holds the name outside the block,
-                    // so outer references belong to it and must not
-                    // follow the lift.
-                    AnnexB::Skip => {
-                        branch_scoped.insert(name.clone());
-                    }
-                    // Nothing outside the block holds the name at all,
-                    // so the binding is this list's — minted at its
-                    // HEAD, because a function declaration is hoisted
+                    // No var binding — another owner holds the name
+                    // outside the block (Skip) or the code is strict —
+                    // so the binding is this list's, minted at its
+                    // HEAD because a function declaration is hoisted
                     // within its block. `branch_scoped` keeps the
                     // enclosing body's references off the lifted name;
                     // this binding is what the block's own references
                     // resolve to.
-                    AnnexB::Strict => {
+                    AnnexB::Skip | AnnexB::Strict => {
                         branch_scoped.insert(name.clone());
                         // ONE binding per name, and the last
                         // declaration wins: two plain `function f` in

@@ -40,8 +40,7 @@ use super::annexb_fn_var::{LiftCtx, LiftMode};
 use super::annexb_names::{block_nested_fn_names, own_fn_names, param_names};
 use super::desugar_async_nested_fns::rename::rename_in_owner;
 use super::nested_fns::collect_nested_fns_to_lift;
-use super::nested_fns_case_block::apply_case_block_renames;
-use super::nested_fns_catch::apply_catch_renames;
+use super::nested_fns_catch::apply_after_lift;
 use super::{Ast, Expr, Stmt};
 use std::collections::{HashMap, HashSet};
 
@@ -123,7 +122,6 @@ fn lift_one_body(
         }
         rename_in_owner(ast, &mut lifted, &renames);
     }
-    apply_catch_renames(ast, body, &ctx.catch_renames);
-    apply_case_block_renames(ast, body, std::mem::take(&mut ctx.case_blocks));
+    apply_after_lift(ast, body, ctx);
     new_top.extend(lifted);
 }

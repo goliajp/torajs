@@ -274,7 +274,7 @@ impl LiftCtx {
         if !self.goal.applies(name, span) || self.goal.is_async_form(name) {
             return AnnexB::Strict;
         }
-        if self.params.contains(name) || self.lex.contains(name) {
+        if self.params.contains(name) || self.lex.owns(name, span) {
             return AnnexB::Skip;
         }
         AnnexB::Apply
