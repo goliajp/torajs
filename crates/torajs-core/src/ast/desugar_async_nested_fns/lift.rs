@@ -10,8 +10,7 @@
 
 use std::collections::HashMap;
 
-use crate::ast::desugar_with::walk::stmt_children;
-use crate::ast::nested_fns_idents::{arrow_rebinds, rewrite_idents_in_body};
+use super::rename::rename_in_owner;
 use crate::ast::{Ast, Stmt};
 
 pub(super) struct Lifts {
@@ -64,42 +63,13 @@ impl Lifts {
             renames.insert(std::mem::replace(name, mangled.clone()), mangled);
             lifted.push(decl);
         }
-        rewrite_idents_in_body(ast, body, &renames, true);
-        // the identifier walk stops at a declaration: the peers left in
-        // the body (values to be, declarations kept) and the lifted ones
-        // are entered here
-        for s in body.iter_mut().chain(lifted.iter_mut()) {
-            rename_in_decls(ast, s, &renames);
-        }
+        // a lifted declaration's body is a function scope like any
+        // other under the emptied one
+        rename_in_owner(ast, body, &renames);
+        rename_in_owner(ast, &mut lifted, &renames);
         self.out.extend(lifted);
     }
-}
 
-/// Rename the references in every declaration body under `s`, at any
-/// depth; a parameter or local of a body with a lifted name is that
-/// body's own binding, and hides the lifted one from it.
-fn rename_in_decls(ast: &mut Ast, s: &mut Stmt, renames: &HashMap<String, String>) {
-    if let Stmt::FnDecl { params, body, .. } = s {
-        let own: HashMap<String, String> = renames
-            .iter()
-            .filter(|(k, _)| !arrow_rebinds(params, body, k))
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect();
-        if own.is_empty() {
-            return;
-        }
-        rewrite_idents_in_body(ast, body, &own, true);
-        for c in body.iter_mut() {
-            rename_in_decls(ast, c, &own);
-        }
-        return;
-    }
-    for c in stmt_children(s) {
-        rename_in_decls(ast, c, renames);
-    }
-}
-
-impl Lifts {
     /// Append every lifted declaration to the program's top level.
     pub(super) fn finish(self, ast: &mut Ast) {
         ast.stmts.extend(self.out);
