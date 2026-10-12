@@ -111,7 +111,7 @@ pub(crate) fn lower_fn(
         params,
         ast.is_replace_view_fn(name),
         crate::ssa_lower_pass_1::hidden_argc_pos(ast, name, params),
-        ast.argv_boxed_params.get(name),
+        boxed_params_of(ast, name),
         aliases,
         arr_layouts,
         fn_sigs,
@@ -441,4 +441,19 @@ fn promote_and_widen(
         struct_layouts,
         fn_sigs,
     )
+}
+
+/// The boxed-entry census entry of `name`; a generic's typed
+/// specialization (`<g>$$_<types>`) shares its generic's, since the
+/// census records the call sites of the generic by its own name.
+fn boxed_params_of<'a>(
+    ast: &'a crate::ast::Ast,
+    name: &str,
+) -> Option<&'a std::collections::HashSet<String>> {
+    ast.argv_boxed_params.get(name).or_else(|| {
+        let (base, tail) = name.rsplit_once("$$")?;
+        tail.starts_with('_')
+            .then(|| ast.argv_boxed_params.get(base))
+            .flatten()
+    })
 }

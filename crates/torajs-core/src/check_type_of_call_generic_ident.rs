@@ -209,6 +209,12 @@ pub(crate) fn try_match(
             if matches!((param_ty, &arg_ty), (Type::Function(..), Type::Any)) {
                 any_fn_params.push((i, param_ty));
             } else if let Err(e) = unify_typevar(param_ty, &arg_ty, &mut subst, &ast.class_parents)
+                && (type_params
+                    .iter()
+                    .any(|tp| crate::check_typevar::typevar_appears_in(param_ty, tp))
+                    || !crate::check_type_of_call::fn_face::fn_face_into_generic_param(
+                        checker, ast, name, i, &arg_ty, param_ty,
+                    ))
             {
                 return Some(Err(format!("argument {i} to `{name}`: {e}")));
             }

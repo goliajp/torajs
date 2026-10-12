@@ -104,6 +104,39 @@ pub(in crate::check_type_of_call) fn fn_face_into_fn_param(
     true
 }
 
+/// A fn-typed parameter of the generic `name` that mentions none of its
+/// type variables, handed a function value of another face
+/// (`pass<T>(x: T, f: (y?: number) => number)` called with `mk2(1)`):
+/// the callback admit takes it as it does for a plain callee, and the
+/// parameter joins the boxed-entry census, whose adapter answers each
+/// value by its own face in every specialization (the face clone lane
+/// does not reach a generic). Returns whether the argument is admitted.
+pub(crate) fn fn_face_into_generic_param(
+    checker: &mut Checker,
+    ast: &Ast,
+    name: &str,
+    i: usize,
+    arg_ty: &Type,
+    param_ty: &Type,
+) -> bool {
+    let (Type::Function(aps, _), Type::Function(fps, _)) = (arg_ty, param_ty) else {
+        return false;
+    };
+    if !crate::check_type_of_call_callback_subtype::matches_resolved(
+        param_ty,
+        arg_ty,
+        &checker.class_structs,
+        &checker.aliases,
+        &checker.generic_alias_decls,
+    ) {
+        return false;
+    }
+    if !aps.iter().chain(fps).any(|t| matches!(t, Type::Rest(_))) {
+        box_param(checker, ast, name, i, arg_ty, param_ty);
+    }
+    true
+}
+
 /// The lifted body an immutable function-local closure binding `n`
 /// holds: the clone lane cannot stand in for it, but its declaration
 /// is in sight.
