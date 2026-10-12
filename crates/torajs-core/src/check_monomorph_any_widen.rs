@@ -83,7 +83,14 @@ pub(crate) fn run(
                 item,
             );
         }
-        let moved = widen_one(
+        let moved = crate::check_monomorph_ctor_face::run(
+            c,
+            owned_ast,
+            generics,
+            cache,
+            worklist,
+            call_retargets,
+        ) || widen_one(
             c,
             owned_ast,
             generics,

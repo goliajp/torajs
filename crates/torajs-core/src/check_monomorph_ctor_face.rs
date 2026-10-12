@@ -17,9 +17,11 @@
 //! resolved in is long gone by now. The closure cell mint registers the
 //! face against the original's boxed entry (`ssa_lower_closure_ctor_face.rs`).
 //!
-//! A body with a parameter default or an arguments vector keeps the call
-//! channel (the undefined local): the face's head order would disagree
-//! with those lanes. A rest parameter stays last and packs the tail.
+//! The face's boxed adapter skips both head slots when it counts the
+//! arguments (`ssa_lower_boxed_entry` `recv_slots`), so a parameter
+//! default and a rest parameter read the same argument window the call
+//! channel does. A body with an arguments vector keeps the call channel
+//! (the undefined local).
 
 use std::collections::{HashMap, VecDeque};
 
@@ -42,6 +44,8 @@ fn hidden(name: &str) -> Param {
     }
 }
 
+/// Mint the faces not minted yet; answers whether it minted any — a
+/// specialization cloned after the first call brings new sites.
 pub(crate) fn run(
     c: &mut Checker,
     owned_ast: &mut Ast,
@@ -49,7 +53,8 @@ pub(crate) fn run(
     cache: &mut HashMap<(String, Vec<String>), String>,
     worklist: &mut VecDeque<WorkItem>,
     call_retargets: &mut HashMap<ExprId, String>,
-) {
+) -> bool {
+    let mut minted = false;
     let mut sites: Vec<_> = owned_ast.new_target_fn_exprs.iter().copied().collect();
     sites.sort_by_key(|e| e.0);
     for site in sites {
@@ -74,9 +79,7 @@ pub(crate) fn run(
             continue;
         };
         if params.first().is_none_or(|p| p.name != "__env")
-            || params
-                .iter()
-                .any(|p| p.default.is_some() || p.name == "__torajs_argv")
+            || params.iter().any(|p| p.name == "__torajs_argv")
         {
             continue;
         }
@@ -149,6 +152,22 @@ pub(crate) fn run(
                 .retain(|s| !matches!(s, Stmt::FnDecl { name, .. } if *name == face));
             c.closure_fn_names.remove(&face);
             c.widen_clone_origin.remove(&face);
+        } else {
+            minted = true;
         }
     }
+    minted
+}
+
+/// A spec body's copy of a construction site that reads `new.target`
+/// is such a site too (`check_monomorph_closures` clones the body and
+/// its lifted closures per specialization), or a function expression
+/// inside an untyped function never gets its face.
+pub(crate) fn carry_sites(ast: &mut Ast, id_map: &[(ExprId, ExprId)]) {
+    let carried: Vec<ExprId> = id_map
+        .iter()
+        .filter(|(old, _)| ast.new_target_fn_exprs.contains(old))
+        .map(|&(_, new)| new)
+        .collect();
+    ast.new_target_fn_exprs.extend(carried);
 }

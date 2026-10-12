@@ -179,7 +179,7 @@ pub(crate) fn synthesize_boxed_entries(
             &t.user_tys,
             t.ret_ty,
             t.has_argv,
-            t.recv_slot,
+            t.recv_slots,
             t.lead,
             t.lead_undef,
             t.feeds_env,

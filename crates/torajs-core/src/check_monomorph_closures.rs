@@ -69,6 +69,7 @@ pub(crate) fn clone_spec_closures(
         &mut rewrite_sites,
         &rename,
     );
+    crate::check_monomorph_ctor_face::carry_sites(owned_ast, spec_body_id_map);
 
     while let Some(orig) = queue.pop_front() {
         if rename.contains_key(&orig) {
@@ -113,6 +114,7 @@ pub(crate) fn clone_spec_closures(
         owned_ast.ary_destr_groups.extend(cloned_groups);
 
         collect_lifted_refs(owned_ast, &id_map, &mut queue, &mut rewrite_sites, &rename);
+        crate::check_monomorph_ctor_face::carry_sites(owned_ast, &id_map);
         // Name-keyed side tables must mirror BEFORE the clone checks:
         // `closure_argv_fns` shapes the closure's checker-facing type.
         mirror_name_keyed_tables(owned_ast, &orig, &clone_name);

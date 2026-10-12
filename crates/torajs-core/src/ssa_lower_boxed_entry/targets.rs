@@ -249,8 +249,16 @@ fn target_facts(
     // arguments.length === 1 when the slot-keyed predicate went
     // false). A `__cm_` this-first head never reaches ast_skip
     // (env_count consumes it) and twins are not env-first.
-    let recv_slot =
+    let recv =
         twin_lane || first_is_env && params.get(ast_skip).is_some_and(|p| p.name == "__this");
+    // A function expression's construct face carries its new.target
+    // right after the receiver (`check_monomorph_ctor_face`), and it is
+    // no argument either: `arguments.length` counted it.
+    let nt_face = recv
+        && params
+            .get(ast_skip + 1)
+            .is_some_and(|p| p.name == crate::ast::new_target_param::NEW_TARGET);
+    let recv_slots = usize::from(recv) + usize::from(nt_face);
     // The relay redirect (module doc in `relay`): the adapter of
     // a `__forward_<t>` / `__fwdrecv_<t>` enters `t` with its own
     // argc / argv. A receiver-first relay composes like a twin on
@@ -277,7 +285,7 @@ fn target_facts(
         user_tys,
         ret_ty: relay.filter(|r| r.ret_void).map_or(ret_ty, |_| Type::Void),
         has_argv: has_argv || relay.is_some(),
-        recv_slot,
+        recv_slots,
         lead: match relay {
             Some(r) if r.new_target => 2,
             Some(r) if r.recv_first => 1,
@@ -307,7 +315,9 @@ pub(super) struct BoxedEntryTarget {
     pub(super) user_tys: Vec<Type>,
     pub(super) ret_ty: Type,
     pub(super) has_argv: bool,
-    pub(super) recv_slot: bool,
+    /// The receiver slots ahead of the user arguments in argv: the
+    /// recv-first `__this`, and a construct face's new.target.
+    pub(super) recv_slots: usize,
     /// The receiver in argv[0] is the body's user param 0 and
     /// precedes the hidden argc / argv slots in its sig (a twin on
     /// the this-first argv lane): unboxed first, the window then

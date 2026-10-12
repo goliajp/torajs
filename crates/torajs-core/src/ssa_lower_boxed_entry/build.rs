@@ -31,7 +31,7 @@ pub(super) fn build_boxed_entry(
     user_tys: &[Type],
     ret_ty: Type,
     has_argv: bool,
-    recv_slot: bool,
+    recv_slots: usize,
     lead: usize,
     lead_undef: bool,
     feeds_env: bool,
@@ -88,14 +88,24 @@ pub(super) fn build_boxed_entry(
     // The window starts past the receiver slots: the one receiver of a
     // recv-slot body, or the `lead` slots a relay unboxes itself
     // (receiver, and a construct face's new.target).
-    let skip = lead.max(usize::from(recv_slot));
+    let skip = lead.max(recv_slots);
     let shifted = (skip > 0).then(|| shifted_argv(&mut f, entry, argv, skip));
     let window = shifted.unwrap_or(argv);
     // user slot i is argv[i]: lead slots are user params, and so is a
     // receiver slot's `__this` (user slot 0, unboxed off argv below)
     if let Some(rr) = coerce.twin_reroute {
         let Some(go_on) = emit_twin_reroute(
-            &mut f, entry, intr, &coerce, rr, env, argv, argc, user_tys, dflt_lits, recv_slot,
+            &mut f,
+            entry,
+            intr,
+            &coerce,
+            rr,
+            env,
+            argv,
+            argc,
+            user_tys,
+            dflt_lits,
+            recv_slots > 0,
             feeds_env,
         ) else {
             module.funcs.push(f);
