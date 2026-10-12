@@ -22,7 +22,7 @@
 //! 6. `check_stmt` each body stmt.
 //! 7. Restore `expected_return` / `scopes` / `current_class`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::ast::{Ast, Param, Stmt};
 use crate::check::{Checker, DiagPush, LocalInfo, Type};
@@ -113,6 +113,7 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, name: &str, params: &[Para
     } else {
         params
     };
+    let boxed = boxed_params(checker, ast, name);
     for (p, ty) in params.iter().zip(param_tys.iter()) {
         let declared_class = if p.name == "__this" {
             checker.current_class.clone()
@@ -138,10 +139,8 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, name: &str, params: &[Para
             p.name.clone(),
             LocalInfo {
                 declared_class,
-                fn_slot: ast
-                    .argv_boxed_params
-                    .get(name)
-                    .is_some_and(|ps| ps.contains(&p.name))
+                fn_slot: boxed
+                    .contains(&p.name)
                     .then(|| crate::check::FnSlot::Param(name.to_string())),
                 ann: p.type_ann.clone(),
                 decl: crate::check::FnSlot::param(name, &binding_ty),
@@ -161,6 +160,24 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, name: &str, params: &[Para
     checker.scopes = saved_scopes;
     checker.toplevel_captures.pop();
     checker.current_class = saved_class;
+}
+
+/// The parameters of `name` whose direct calls ride the boxed entry: the
+/// census the AST carries, and the verdicts this check has reached so far
+/// (they reach the AST only once every specialization has been checked,
+/// while the lowerer reads them for each), for `name` and for the
+/// generic it specializes.
+fn boxed_params(checker: &Checker, ast: &Ast, name: &str) -> HashSet<String> {
+    let generic = crate::ast::boxed_params::spec_generic(name);
+    let mut out = ast.boxed_params_of(name).unwrap_or_default();
+    out.extend(
+        checker
+            .face_mismatch_params
+            .iter()
+            .filter(|(f, _)| f == name || Some(f.as_str()) == generic)
+            .map(|(_, p)| p.clone()),
+    );
+    out
 }
 
 /// Whether the caller-visible signature of `name` leaves out the

@@ -37,6 +37,7 @@ use std::collections::HashMap;
 
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type, substitute_typevars};
+use crate::check_type_of_call::fn_face;
 use crate::check_typevar::{typevar_appears_in_iter, unify_typevar};
 
 /// The substitution the call site *stated*, before any is inferred
@@ -200,6 +201,7 @@ pub(crate) fn try_match(
         // (the instantiation takes that parameter as `any`,
         // `check_monomorph::any_fn_param`)
         let mut any_fn_params: Vec<(usize, &Type)> = Vec::new();
+        let mut faced = Vec::new();
         for (i, (param_ty, arg_id)) in params.iter().zip(args.iter()).enumerate() {
             let arg_ty = match checker.type_of(ast, *arg_id) {
                 Ok(t) => t,
@@ -209,12 +211,12 @@ pub(crate) fn try_match(
             if matches!((param_ty, &arg_ty), (Type::Function(..), Type::Any)) {
                 any_fn_params.push((i, param_ty));
             } else if let Err(e) = unify_typevar(param_ty, &arg_ty, &mut subst, &ast.class_parents)
-                && (type_params
-                    .iter()
-                    .any(|tp| crate::check_typevar::typevar_appears_in(param_ty, tp))
-                    || !crate::check_type_of_call::fn_face::fn_face_into_generic_param(
-                        checker, ast, name, i, &arg_ty, param_ty,
-                    ))
+                && !fn_face::fn_face_into_generic_param(
+                    checker,
+                    &type_params,
+                    (i, &arg_ty, param_ty),
+                    &mut faced,
+                )
             {
                 return Some(Err(format!("argument {i} to `{name}`: {e}")));
             }
@@ -243,6 +245,7 @@ pub(crate) fn try_match(
                 )));
             }
         }
+        fn_face::box_generic_params(checker, ast, name, &faced);
         let resolved_ret = substitute_typevars(&ret, &subst);
         // Record the substitution for the SSA monomorphizer.
         // Keyed by ExprId of the call so each call site gets

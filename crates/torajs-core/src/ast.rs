@@ -51,6 +51,7 @@ mod arguments_object_walkers_return;
 pub(crate) mod argv_face_callback;
 mod arrow_arguments_alias;
 mod await_ident_goal;
+pub(crate) mod boxed_params;
 mod build_factory;
 mod builtin_global_assign;
 pub(crate) mod capturing_classes;

@@ -123,37 +123,52 @@ pub(in crate::check_type_of_call) fn fn_face_into_fn_param(
     true
 }
 
-/// A fn-typed parameter of the generic `name` that mentions none of its
-/// type variables, handed a function value of another face
+/// A fn-typed parameter of a generic that mentions none of its type
+/// variables (`type_params`), handed a function value of another face
 /// (`pass<T>(x: T, f: (y?: number) => number)` called with `mk2(1)`):
 /// the callback admit takes it as it does for a plain callee, and the
-/// parameter joins the boxed-entry census, whose adapter answers each
-/// value by its own face in every specialization (the face clone lane
-/// does not reach a generic). Returns whether the argument is admitted.
+/// argument goes to `faced`, which [`box_generic_params`] enters in the
+/// boxed-entry census once the whole call matches.
 pub(crate) fn fn_face_into_generic_param(
+    checker: &Checker,
+    type_params: &[String],
+    (i, arg_ty, param_ty): (usize, &Type, &Type),
+    faced: &mut Vec<(usize, Type, Type)>,
+) -> bool {
+    let admitted = matches!((arg_ty, param_ty), (Type::Function(..), Type::Function(..)))
+        && !type_params
+            .iter()
+            .any(|tp| crate::check_typevar::typevar_appears_in(param_ty, tp))
+        && crate::check_type_of_call_callback_subtype::matches_resolved(
+            param_ty,
+            arg_ty,
+            &checker.class_structs,
+            &checker.aliases,
+            &checker.generic_alias_decls,
+        );
+    if admitted {
+        faced.push((i, arg_ty.clone(), param_ty.clone()));
+    }
+    admitted
+}
+
+/// The parameters of the generic `name` an admitted value of another
+/// face reached join the boxed-entry census, whose adapter answers each
+/// value by its own face in every specialization (the face clone lane
+/// does not reach a generic).
+pub(crate) fn box_generic_params(
     checker: &mut Checker,
     ast: &Ast,
     name: &str,
-    i: usize,
-    arg_ty: &Type,
-    param_ty: &Type,
-) -> bool {
-    let (Type::Function(aps, _), Type::Function(fps, _)) = (arg_ty, param_ty) else {
-        return false;
-    };
-    if !crate::check_type_of_call_callback_subtype::matches_resolved(
-        param_ty,
-        arg_ty,
-        &checker.class_structs,
-        &checker.aliases,
-        &checker.generic_alias_decls,
-    ) {
-        return false;
+    faced: &[(usize, Type, Type)],
+) {
+    for (i, arg_ty, param_ty) in faced {
+        if let (Type::Function(aps, _), Type::Function(fps, _)) = (arg_ty, param_ty)
+            && !aps.iter().chain(fps).any(|t| matches!(t, Type::Rest(_)))
+        {
+            box_param(checker, ast, name, *i, arg_ty, param_ty);
+        }
     }
-    if !aps.iter().chain(fps).any(|t| matches!(t, Type::Rest(_))) {
-        box_param(checker, ast, name, i, arg_ty, param_ty);
-    }
-    true
 }
 
 /// The lifted body an immutable function-local closure binding `n`
