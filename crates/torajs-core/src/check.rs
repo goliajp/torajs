@@ -307,6 +307,17 @@ pub(crate) struct Checker {
     /// per slot (`check_type_of_call::fn_slot_ret`).
     pub(crate) fn_slot_ret_any: std::collections::HashSet<ExprId>,
     pub(crate) fn_slot_kept: HashMap<String, bool>,
+    /// An immutable fn-typed binding whose initializer has another face
+    /// than its annotation, keyed by the initializer: the annotation the
+    /// slot takes instead, spelled in the value's face
+    /// (`check_type_of_call::fn_face::let_face_ann`). The monomorph pass
+    /// rewrites the declaration so the lowering shapes the slot's calls
+    /// by what it holds.
+    pub(crate) let_face_anns: HashMap<ExprId, String>,
+    /// A mutable fn-typed binding some store hands a value of another
+    /// face than its annotation: joins `Ast::fnsig_mismatch_bindings`,
+    /// whose calls ride the boxed entry.
+    pub(crate) face_mismatch_bindings: std::collections::HashSet<String>,
     /// The function-value bindings a call hands an `any` argument for
     /// an object-typed parameter, with their parameter types; the
     /// closures they hold take the all-`any` twin

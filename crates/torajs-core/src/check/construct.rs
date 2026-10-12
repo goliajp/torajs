@@ -41,6 +41,8 @@ impl Checker {
             hidden_any_args: std::collections::HashSet::new(),
             fn_slot_ret_any: std::collections::HashSet::new(),
             fn_slot_kept: HashMap::new(),
+            let_face_anns: HashMap::new(),
+            face_mismatch_bindings: std::collections::HashSet::new(),
             any_struct_arg_callees: HashMap::new(),
             fn_escape_widen_sites: HashMap::new(),
             arity_pad_count: HashMap::new(),

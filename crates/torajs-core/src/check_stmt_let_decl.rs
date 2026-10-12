@@ -31,6 +31,7 @@
 
 pub(crate) mod any_layout_slot;
 pub(crate) mod contextual_array;
+pub(crate) mod fn_face_slot;
 pub(crate) mod held_any;
 pub(crate) use contextual_array::{apply_contextual_array_ann, apply_contextual_array_ann_store};
 
@@ -39,6 +40,7 @@ use crate::check::{Checker, DiagPush, LocalInfo, Type};
 use crate::check_assignable::is_assignable_to_resolved;
 use crate::check_stmt_let_decl_selfref::{SelfRef, predeclare_self_ref_closure};
 use crate::check_type_ann::{resolve_type_ann_decl, resolve_type_ann_full, unknown_type};
+use fn_face_slot::record_let_face;
 
 pub(crate) fn check(
     checker: &mut Checker,
@@ -92,6 +94,7 @@ pub(crate) fn check(
         Some(materialized) => materialized,
         None => init_ty,
     };
+    let mut face_slot = false;
     let final_ty = match type_ann {
         None => init_ty,
         Some(ann) => {
@@ -148,6 +151,8 @@ pub(crate) fn check(
                 ));
                 return;
             }
+            face_slot = fn_slot_widened
+                && record_let_face(checker, ann, init, mutable, name, &init_ty, &ann_ty);
             if accessor_layout {
                 // Pushing the annotation's element type onto the
                 // literal is the same adoption by another route: it
@@ -213,7 +218,7 @@ pub(crate) fn check(
             declared_class,
             builtin_mv,
             exec_result,
-            fn_slot: (ast.fnsig_mismatch_bindings.contains(name)
+            fn_slot: ((ast.fnsig_mismatch_bindings.contains(name) || face_slot)
                 && type_ann.as_deref().is_some_and(crate::ast::is_fn_like_ann))
             .then_some(crate::check::FnSlot::Let(init)),
             union: const_literal(ast, mutable, type_ann, init),

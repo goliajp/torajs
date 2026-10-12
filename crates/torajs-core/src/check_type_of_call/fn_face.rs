@@ -122,7 +122,13 @@ fn user_param(ast: &Ast, name: &str, i: usize) -> Option<(String, String)> {
 /// where the two agree and the value's where they differ, the return
 /// likewise. `None` where the face is not one this lane spells, or
 /// where nothing differs in a way the calling convention sees.
-fn face_ann(pann: &str, aps: &[Type], aret: &Type, fps: &[Type], fret: &Type) -> Option<String> {
+pub(crate) fn face_ann(
+    pann: &str,
+    aps: &[Type],
+    aret: &Type,
+    fps: &[Type],
+    fret: &Type,
+) -> Option<String> {
     let t = pann.trim();
     let marker = if t.starts_with("__cls(") {
         "__cls"
@@ -172,4 +178,19 @@ fn face_ann(pann: &str, aps: &[Type], aret: &Type, fps: &[Type], fret: &Type) ->
         }
     };
     changed.then(|| crate::type_ann_fnsig::fn_type_ann(marker, &out.join("|"), &ret))
+}
+
+/// The annotation an immutable fn-typed binding takes when its
+/// initializer's face `init_ty` differs from the annotated `ann_ty` in
+/// the direction the admit opens: `ann` re-spelled in the value's face
+/// ([`face_ann`]). The slot's calls are then shaped by what it holds,
+/// at no run-time cost; `None` leaves the annotation as written.
+pub(crate) fn let_face_ann(ann: &str, init_ty: &Type, ann_ty: &Type) -> Option<String> {
+    let (Type::Function(aps, aret), Type::Function(fps, fret)) = (init_ty, ann_ty) else {
+        return None;
+    };
+    if aps.len() != fps.len() || aps.iter().chain(fps).any(|t| matches!(t, Type::Rest(_))) {
+        return None;
+    }
+    face_ann(ann, aps, aret, fps, fret)
 }

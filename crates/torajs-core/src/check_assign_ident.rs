@@ -192,33 +192,7 @@ pub(crate) fn check(
     let value_ty = checker.type_of(ast, value)?;
     let value_ty =
         crate::check_assignable::in_declared_order(checker, ast, &target_ty, value, value_ty);
-    // 424-04 — the fn-face admit the LET position takes (423-03 ④)
-    // now applies to the assign position too: a mutable fn-typed
-    // binding is a closure_bindings member (the forwarder pass wraps
-    // its store sites into closure cells), and the mismatch census
-    // (`ast/forwarders_object_mismatch.rs`) routes a face-mismatched
-    // binding's calls through the boxed dual entry, whose argc +
-    // undefined-filled argv deliver §10.2.1.4 for every stored face.
-    let fn_slot_widened = crate::check_assignable::fn_slot_admits(
-        &target_ty,
-        &value_ty,
-        &checker.class_structs,
-        &checker.aliases,
-        &checker.generic_alias_decls,
-    );
-    if !fn_slot_widened
-        && !is_assignable_to_resolved(
-            &target_ty,
-            &value_ty,
-            &checker.class_structs,
-            &checker.aliases,
-            &checker.generic_alias_decls,
-        )
-    {
-        return Err(format!(
-            "type mismatch assigning to `{name}`: declared {target_ty:?}, value is {value_ty:?}"
-        ));
-    }
+    admit_store(checker, &name, &target_ty, &value_ty)?;
     // See the global arm above — the literal is typed by the slot.
     crate::check_stmt_let_decl::apply_contextual_array_ann_store(checker, ast, value, &target_ty);
     // A possibly-null value kills an existing narrow right here
@@ -252,4 +226,45 @@ fn write_outside_lookup(
         return Some(checker.type_of(ast, value));
     }
     None
+}
+
+/// Does the slot `name`, declared `target_ty`, take a store of
+/// `value_ty`? 424-04 — the fn-face admit the LET position takes
+/// (423-03 ④) applies to the assign position too: a mutable fn-typed
+/// binding is a closure_bindings member (the forwarder pass wraps its
+/// store sites into closure cells), and a face-mismatched binding's
+/// calls ride the boxed dual entry, whose argc + undefined-filled argv
+/// deliver §10.2.1.4 for every stored face. A store of another face
+/// than the slot's joins that census here
+/// (`check_stmt_let_decl::fn_face_slot` for the let position).
+fn admit_store(
+    checker: &mut Checker,
+    name: &str,
+    target_ty: &Type,
+    value_ty: &Type,
+) -> Result<(), String> {
+    let fn_slot_widened = crate::check_assignable::fn_slot_admits(
+        target_ty,
+        value_ty,
+        &checker.class_structs,
+        &checker.aliases,
+        &checker.generic_alias_decls,
+    );
+    if fn_slot_widened && target_ty != value_ty && matches!(value_ty, Type::Function(..)) {
+        checker.face_mismatch_bindings.insert(name.to_string());
+    }
+    if !fn_slot_widened
+        && !is_assignable_to_resolved(
+            target_ty,
+            value_ty,
+            &checker.class_structs,
+            &checker.aliases,
+            &checker.generic_alias_decls,
+        )
+    {
+        return Err(format!(
+            "type mismatch assigning to `{name}`: declared {target_ty:?}, value is {value_ty:?}"
+        ));
+    }
+    Ok(())
 }
