@@ -22,7 +22,7 @@
 //! `undefined`). Returns `None` on miss (non-console receiver, or 0
 //! args) so the caller falls through to subsequent arms.
 
-use crate::ast::{Expr, ExprId};
+use crate::ast::ExprId;
 use crate::ssa::{InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::LowerCtx;
 
@@ -48,43 +48,12 @@ pub(crate) fn try_lower(
     }
 }
 
-/// Borrow judgement for a console.log argument — shared by the
-/// single-arg lane and the chunk-808 multi-arg phase-1 stake
-/// (RFC 20260711 follow-up: the multi-arg copy of this match was
-/// missing the Index / OptChain / This arms, so
-/// `console.log(m[0], m[1])` treated container element reads as
-/// fresh temps and dropped them without a matching inc — the
-/// elements freed under the still-live array, probe `x1|x1`).
-///
-/// Chunk 570 — container Index reads are borrows (the slot owns the
-/// elem; dropping the read stole the slot's stake and the array's
-/// death then freed the source — UAF, probe-proven). String indexing
-/// stays owned: `s[i]` mints a fresh Substr view (chunk 561 family
-/// predicate). OptChain / This align with expr_is_fresh_owned's
-/// borrow set. Chunk 717 — reads recorded in `owned_member_reads`
-/// (any-member / literal-key Index / OptChain / OptIndex / Closure
-/// expando lanes) answer owned, so the predicate runs AFTER the
-/// lowering that records them.
-pub(crate) fn console_arg_is_borrow(ctx: &LowerCtx<'_>, arg_id: ExprId) -> bool {
-    match ctx.ast.get_expr(arg_id) {
-        Expr::Ident(_) | Expr::This => true,
-        Expr::Member { .. } | Expr::OptChain { .. } | Expr::OptIndex { .. } => {
-            !ctx.owned_member_reads.contains(&arg_id)
-        }
-        Expr::Index { obj, .. } => {
-            !matches!(ctx.expr_types.get(obj), Some(crate::check::Type::String))
-                && !ctx.owned_member_reads.contains(&arg_id)
-        }
-        _ => false,
-    }
-}
-
 /// `console.<m>(v)` — type-specific print target. Substr gets a
 /// one-time own copy; primitives and Str pass straight through.
 fn lower_single_arg(ctx: &mut LowerCtx<'_>, method: &'static str, arg_id: ExprId) -> Operand {
     let arg = ctx.lower_expr(arg_id);
     let arg_ty = ctx.operand_ty(&arg);
-    let is_borrow = console_arg_is_borrow(ctx, arg_id);
+    let is_borrow = crate::ssa_lower_console_dispatch::console_arg_is_borrow(ctx, arg_id);
     let cur_block = ctx.cur_block;
     // RFC 20260725-fallthrough-return knife 3 — a `void` / `undefined`
     // typed value carries no slot of its own (it lands on the default

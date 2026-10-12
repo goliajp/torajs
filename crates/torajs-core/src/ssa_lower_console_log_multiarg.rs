@@ -119,7 +119,7 @@ pub(crate) fn lower_log_args(ctx: &mut LowerCtx, arg_ids: &[ExprId]) {
         // statement owns. The judgement runs AFTER the lowering so
         // `owned_member_reads`-recorded reads answer owned (their
         // box transfer consumes the read's stake).
-        let mut is_borrow = crate::ssa_lower_call_console::console_arg_is_borrow(ctx, aid);
+        let mut is_borrow = crate::ssa_lower_console_dispatch::console_arg_is_borrow(ctx, aid);
         // A borrowed view (`log(n, parts[i])`) prints through an owned
         // copy, as the single-arg lane does: an inline view's own
         // count is never read by its drop, so the share-then-release
