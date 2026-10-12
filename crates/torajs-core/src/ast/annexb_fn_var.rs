@@ -96,7 +96,7 @@ impl AnnexBGoal {
 /// walk: [`super::nested_fns_capture`] routes a capturing declaration
 /// off the lifting lane before the lift ever sees it, and has to ask the
 /// same question about the block form it leaves behind.
-pub(super) fn annexb_applies_at(ast: &super::Ast, name: &str, span: crate::lexer::Span) -> bool {
+pub(crate) fn annexb_applies_at(ast: &super::Ast, name: &str, span: crate::lexer::Span) -> bool {
     AnnexBGoal::of(ast).applies(name, span)
 }
 

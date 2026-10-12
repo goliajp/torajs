@@ -30,6 +30,7 @@
 //! script and fn-body lists keep the checker's existing coverage.
 
 use crate::ast::{Ast, StaticInit, Stmt};
+use crate::lexer::Span;
 use std::collections::HashMap;
 
 #[derive(PartialEq, Clone, Copy)]
@@ -61,7 +62,7 @@ fn walk_stmt(s: &Stmt, ast: &Ast, errors: &mut Vec<String>) {
                 .iter()
                 .flat_map(|c| c.body.iter())
                 .chain(default.iter().flatten());
-            check_list(all, &block_fn_kind(ast), errors);
+            check_list(all, &case_block_fn_kind(ast), errors);
             for c in cases {
                 for s in &c.body {
                     walk_stmt(s, ast, errors);
@@ -194,7 +195,7 @@ pub fn module_top_level_redecl(stmts: &[Stmt]) -> Option<String> {
         } => &**inner,
         other => other,
     });
-    check_list(members, &|_, _| DeclKind::Lexical, &mut errors);
+    check_list(members, &|_, _, _| DeclKind::Lexical, &mut errors);
     errors.into_iter().next()
 }
 
@@ -205,7 +206,7 @@ pub fn module_top_level_redecl(stmts: &[Stmt]) -> Option<String> {
 /// level has no such thing.
 fn check_list<'a>(
     list: impl Iterator<Item = &'a Stmt>,
-    fn_kind: &dyn Fn(&str, bool) -> DeclKind,
+    fn_kind: &dyn Fn(&str, bool, Span) -> DeclKind,
     errors: &mut Vec<String>,
 ) {
     let mut lexical: HashMap<&str, DeclKind> = HashMap::new();
@@ -232,9 +233,17 @@ fn check_list<'a>(
                 insert_lexical(name, DeclKind::Lexical, &mut lexical, errors);
             }
             Stmt::FnDecl {
-                name, is_generator, ..
+                name,
+                is_generator,
+                span,
+                ..
             } => {
-                insert_lexical(name, fn_kind(name, *is_generator), &mut lexical, errors);
+                insert_lexical(
+                    name,
+                    fn_kind(name, *is_generator, *span),
+                    &mut lexical,
+                    errors,
+                );
             }
             Stmt::ClassDecl { name, .. } => {
                 insert_lexical(name, DeclKind::Lexical, &mut lexical, errors);
@@ -251,12 +260,26 @@ fn check_list<'a>(
 
 /// A block's `function` is the Annex B `PlainFn` unless it is a
 /// generator or async function (those are lexical everywhere).
-fn block_fn_kind(ast: &Ast) -> impl Fn(&str, bool) -> DeclKind + '_ {
-    move |name, is_generator| {
+fn block_fn_kind(ast: &Ast) -> impl Fn(&str, bool, Span) -> DeclKind + '_ {
+    move |name, is_generator, _| {
         if is_generator || ast.async_fns.contains(name) {
             DeclKind::Lexical
         } else {
             DeclKind::PlainFn
+        }
+    }
+}
+
+/// A CaseBlock's `function` is the Annex B `PlainFn` only in sloppy
+/// code: §B.3.2.4's allowance for duplicates bound only by function
+/// declarations is for source text that is not strict mode code, so a
+/// strict CaseBlock declaring `function f` twice is §14.12.1's error.
+fn case_block_fn_kind(ast: &Ast) -> impl Fn(&str, bool, Span) -> DeclKind + '_ {
+    move |name, is_generator, span| {
+        if crate::ast::annexb_fn_var::annexb_applies_at(ast, name, span) {
+            block_fn_kind(ast)(name, is_generator, span)
+        } else {
+            DeclKind::Lexical
         }
     }
 }

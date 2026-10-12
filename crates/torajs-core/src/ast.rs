@@ -4,7 +4,7 @@ pub(crate) mod accessor_lookup;
 pub(crate) mod ann_rewrite;
 mod annexb_block_binding;
 mod annexb_fn_goal;
-mod annexb_fn_var;
+pub(crate) mod annexb_fn_var;
 mod annexb_forin_init_goal;
 mod annexb_names;
 mod apply_args;
