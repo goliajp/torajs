@@ -49,7 +49,8 @@ use crate::ssa_lower::LowerCtx;
 pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) {
     let v = ctx.lower_expr(eid);
     let v_ty = ctx.operand_ty(&v);
-    // Peel value-transparent `As` wrappers before judging ownership —
+    // Peel value-transparent `As` wrappers (and a comma's discarded
+    // left operand) before judging ownership —
     // the twin of the return site's peel, and for the same reason:
     // `lower_as_cast` answers the inner operand untouched for a heap
     // source, so the inner read decides who holds the stake. Judging
@@ -57,10 +58,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) {
     // owned local left it unmarked for the fn-exit drop walk while the
     // throw slot still held it. The catch read back the next
     // allocation's bytes (`y199`); the uncast `throw s` is correct.
-    let mut src_eid = eid;
-    while let Expr::As { expr, .. } = ctx.ast.get_expr(src_eid) {
-        src_eid = *expr;
-    }
+    let src_eid = crate::ssa_lower_return_borrow::peel_passthrough(ctx.ast, eid);
     // A throw never MOVES a local into the throw slot — the slot takes
     // its own stake (below) and every binding keeps its drop. A moved
     // mark is a compile-time flag on the binding, and a throw is

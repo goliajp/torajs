@@ -30,7 +30,8 @@ pub(super) fn lower_regular_field(
         parked.push(ctx.push_throw_temp(op, ty));
     }
     let ty = ctx.operand_ty(&v);
-    // Peel value-transparent `As` wrappers before judging borrow-ness:
+    // Peel value-transparent `As` wrappers (and a comma's discarded
+    // left operand) before judging borrow-ness:
     // `lower_as_cast` is IDENTITY for an Any-typed source (the borrow
     // rides through the cast), a fresh IMMEDIATE box for a primitive
     // (whose inc below is a payload-gated no-op), and a bare
@@ -42,10 +43,7 @@ pub(super) fn lower_regular_field(
     // child: `function* g() { yield* [obj] }` freed the module global
     // on the first for-of drive (use-after-free that blade 1's layout
     // change surfaced as a SIGSEGV).
-    let mut src_eid = eid;
-    while let Expr::As { expr, .. } = ctx.ast.get_expr(src_eid) {
-        src_eid = *expr;
-    }
+    let src_eid = crate::ssa_lower_return_borrow::peel_passthrough(ctx.ast, eid);
     let needs_inc = ty.is_refcounted()
         && match ctx.ast.get_expr(src_eid) {
             // An Ident read is a BORROW off its slot unless the local

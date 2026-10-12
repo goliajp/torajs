@@ -15,8 +15,10 @@ use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
-/// The operand a return actually hands out: value-transparent `As`
-/// wrappers and the right side of a comma pass it through untouched.
+/// The node whose read a consumer is actually handed: value-transparent
+/// `As` wrappers and the right side of a comma pass it through
+/// untouched, so every ownership judgement (return, throw, array
+/// element, object field, fresh-owned probe) asks about this node.
 pub(crate) fn peel_passthrough(ast: &crate::ast::Ast, mut eid: ExprId) -> ExprId {
     while let Expr::As { expr: inner, .. } | Expr::Sequence { right: inner, .. } = ast.get_expr(eid)
     {

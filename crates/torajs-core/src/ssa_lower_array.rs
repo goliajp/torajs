@@ -274,7 +274,8 @@ fn lower_no_spread_element(
 /// top-level source, so the slot stole the global's only ref and the
 /// array's death freed it — UAF, probe-proven; 564 apply_borrow_rc_inc
 /// mirror), moved bindings included (their cell is alive under the
-/// canonical owner). Peel value-transparent `As` wrappers first, for
+/// canonical owner). Peel value-transparent `As` wrappers and a
+/// comma's discarded left operand first, for
 /// the reason the objlit field / assign-target / return siblings all
 /// peel: `lower_as_cast` answers the inner operand untouched for a
 /// heap source, so the inner read decides whether the slot owes a
@@ -284,10 +285,7 @@ fn elem_needs_inc(ctx: &LowerCtx<'_>, eid: ExprId, v: &Operand) -> bool {
     if !ctx.operand_ty(v).is_refcounted() {
         return false;
     }
-    let mut src_eid = eid;
-    while let Expr::As { expr, .. } = ctx.ast.get_expr(src_eid) {
-        src_eid = *expr;
-    }
+    let src_eid = crate::ssa_lower_return_borrow::peel_passthrough(ctx.ast, eid);
     match ctx.ast.get_expr(src_eid) {
         Expr::Ident(name) => ctx.locals.contains_key(name) || ctx.globals.contains_key(name),
         Expr::Member { .. } | Expr::Index { .. } => true,
@@ -333,7 +331,8 @@ fn materialize_substr_elem(ctx: &mut LowerCtx<'_>, view: Operand, eid: ExprId) -
         Type::Str,
         None,
     );
-    let borrowed = matches!(ctx.ast.get_expr(eid), Expr::Ident(_) | Expr::Member { .. });
+    let src = crate::ssa_lower_return_borrow::peel_passthrough(ctx.ast, eid);
+    let borrowed = matches!(ctx.ast.get_expr(src), Expr::Ident(_) | Expr::Member { .. });
     if !borrowed {
         ctx.emit_drop_value(view, Type::Substr);
     }

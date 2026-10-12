@@ -188,7 +188,11 @@ fn elems_need_any(ctx: &LowerCtx<'_>, element_ids: &[ExprId]) -> bool {
 /// lowering sends to the any lane for a nullable string side
 /// ([`nullable_str_add_rides_any`]), asked from the operands' checker
 /// types and the same sentinel predicate the lowering reads.
-fn lowers_to_unseen_any(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
+fn lowers_to_unseen_any(ctx: &LowerCtx<'_>, mut eid: ExprId) -> bool {
+    // a comma expression lowers to its right operand's value
+    while let Expr::Sequence { right, .. } = ctx.ast.get_expr(eid) {
+        eid = *right;
+    }
     // A class method read as a value types as a Function but lowers
     // to the any cell the prototype hands out (S2.34); its container
     // is an `Arr<Any>` or the typed lane stores box bits into an

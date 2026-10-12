@@ -92,7 +92,9 @@ impl<'a> LowerCtx<'a> {
         if self.pins.operands.contains_key(&eid) {
             return false;
         }
-        let eid = self.peel_as_wrappers(eid);
+        // a comma expression answers its right operand, so the peel
+        // also drops a Sequence's discarded left side
+        let eid = crate::ssa_lower_return_borrow::peel_passthrough(self.ast, eid);
         // Chunk 637 — a Member read whose owned-receiver lowering
         // detached the result (see `ssa_lower_member::lower`) IS
         // fresh-owned; every other Member stays a borrow. Chunk 717

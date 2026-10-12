@@ -132,7 +132,8 @@ pub(crate) fn init_shares_source_stake(
         // dstr-numeric-key-001 — the destructuring desugar mints
         // exactly this let for a non-Ident source).
         Expr::As { expr, .. } => {
-            if let Expr::Ident(src) = ctx.ast.get_expr(*expr) {
+            let src = crate::ssa_lower_return_borrow::peel_passthrough(ctx.ast, *expr);
+            if let Expr::Ident(src) = ctx.ast.get_expr(src) {
                 !converted
                     && (ctx.locals.contains_key(src) || ctx.globals.contains_key(src))
                     && pre_ty.is_refcounted()
