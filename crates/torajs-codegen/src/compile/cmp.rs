@@ -1,7 +1,8 @@
 //! ICmp + FCmp lowering — CMP/FCMP set NZCV, CSET converts to 0/1.
 
-use torajs_core::ssa::{FPred, IPred, Inst, Operand, Type};
+use torajs_core::ssa::{FPred, IPred, Inst, InstKind, Operand, Type};
 
+use super::cond_flags::{CondFlags, select_arm_gpr};
 use super::operand::{compare_fpr, is_f64_zero, materialize_operand_fpr, materialize_operand_gpr};
 use super::{
     FP_SCRATCH_LHS, FP_SCRATCH_RESULT, FP_SCRATCH_RHS, OP_SCRATCH_LHS, OP_SCRATCH_RESULT_GPR,
@@ -84,36 +85,34 @@ pub(crate) fn emit_compare_nzcv(
 }
 
 /// `InstKind::Select(ty, cond, then, else)` — branchless conditional
-/// move. Materialize all three operands first (mov/movz/ldr reloads
-/// never touch NZCV), then `cmp cond, #0; csel dst, then, else, NE`.
+/// move. Materialize both arms first (mov/movz/ldr reloads never touch
+/// NZCV), then `cmp cond, #0` unless `flags` says NZCV already holds it.
 /// An F64 result takes the FCSEL twin: register class follows the
 /// *value's* declared type (regalloc.rs:256), so the condition still
 /// rides a GPR and only the value arms live in FPRs.
-pub fn emit_select(
+pub(super) fn emit_select(
     bytes: &mut Vec<u8>,
     inst: &Inst,
-    ty: &Type,
-    cond_op: &Operand,
-    then_op: &Operand,
-    else_op: &Operand,
     alloc: &Assignment,
+    flags: &mut CondFlags,
 ) {
+    let InstKind::Select(ty, cond_op, then_op, else_op) = &inst.kind else {
+        unreachable!("emit_select on a non-Select");
+    };
     let result_vid = inst.result.expect("Select must have a result");
     if *ty == Type::F64 {
         let (dst, spill_off) = alloc.def_fpr(result_vid, FP_SCRATCH_RESULT);
         let rn = materialize_operand_fpr(bytes, then_op, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
         let rm = materialize_operand_fpr(bytes, else_op, FP_SCRATCH_RHS, OP_SCRATCH_RHS, alloc);
-        let rc = materialize_operand_gpr(bytes, cond_op, OP_SCRATCH_TMP, alloc);
-        write_u32(bytes, cmp_imm(rc, 0));
+        flags.compare_zero(bytes, cond_op, OP_SCRATCH_TMP, alloc);
         write_u32(bytes, fcsel_d(dst, rn, rm, cond::NE));
         write_def_spill_fpr(bytes, spill_off, dst);
         return;
     }
     let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
-    let rn = materialize_operand_gpr(bytes, then_op, OP_SCRATCH_LHS, alloc);
-    let rm = materialize_operand_gpr(bytes, else_op, OP_SCRATCH_RHS, alloc);
-    let rc = materialize_operand_gpr(bytes, cond_op, OP_SCRATCH_TMP, alloc);
-    write_u32(bytes, cmp_imm(rc, 0));
+    let rn = select_arm_gpr(bytes, then_op, OP_SCRATCH_LHS, alloc);
+    let rm = select_arm_gpr(bytes, else_op, OP_SCRATCH_RHS, alloc);
+    flags.compare_zero(bytes, cond_op, OP_SCRATCH_TMP, alloc);
     write_u32(bytes, csel_cond(dst, rn, rm, cond::NE));
     write_def_spill_gpr(bytes, spill_off, dst);
 }
@@ -178,8 +177,8 @@ pub(crate) fn emit_select_fused(
     // owns LHS/RHS (GPR for cmp, FPR + GPR carrier for fcmp) and
     // would clobber them. A spilled dst aliasing rm's scratch is
     // fine: CSEL reads its sources before writing Rd.
-    let rn = materialize_operand_gpr(bytes, then_op, OP_SCRATCH_TMP, alloc);
-    let rm = materialize_operand_gpr(bytes, else_op, OP_SCRATCH_RESULT_GPR, alloc);
+    let rn = select_arm_gpr(bytes, then_op, OP_SCRATCH_TMP, alloc);
+    let rm = select_arm_gpr(bytes, else_op, OP_SCRATCH_RESULT_GPR, alloc);
     let cc = emit_compare(bytes);
     write_u32(bytes, csel_cond(dst, rn, rm, cc));
     write_def_spill_gpr(bytes, spill_off, dst);

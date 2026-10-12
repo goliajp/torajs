@@ -9,7 +9,7 @@ use super::{
     emit_boxed_entry_addr, emit_call, emit_call_indirect, emit_copy, emit_ctpop,
     emit_ctpop_range_sum, emit_cttz, emit_fcmp, emit_fn_addr, emit_fp_to_int32, emit_fp_to_si,
     emit_global_ref, emit_icmp, emit_int_to_ptr, emit_load, emit_load_dyn, emit_load_dyn_scaled8,
-    emit_load_u8_dyn, emit_load_u16_dyn, emit_neg, emit_ptr_to_int, emit_select, emit_si_to_fp,
+    emit_load_u8_dyn, emit_load_u16_dyn, emit_neg, emit_ptr_to_int, emit_si_to_fp,
     emit_static_str_ref, emit_store, emit_store_dyn, emit_store_dyn_scaled8, emit_string_ref,
     emit_trunc_i64_to_bool, emit_zext_bool_to_i64, emit_zext_i32_to_i64,
 };
@@ -97,9 +97,12 @@ pub(super) fn emit_plain(
         InstKind::Copy(Type::Vec(_), op) => super::vec::emit_vec_copy(bytes, inst, op, alloc),
         InstKind::Copy(ty, op) => emit_copy(bytes, inst, *ty, op, alloc),
         InstKind::Vec(vi) => super::vec::emit_vec(bytes, inst, vi, alloc),
-        InstKind::Select(ty, cond, then_op, else_op) => {
-            emit_select(bytes, inst, ty, cond, then_op, else_op, alloc)
-        }
+        InstKind::Select(..) => super::cmp::emit_select(
+            bytes,
+            inst,
+            alloc,
+            &mut super::cond_flags::CondFlags::default(),
+        ),
         InstKind::CtpopRangeSum(start, bound, acc_init) => {
             emit_ctpop_range_sum(bytes, inst, start, bound, acc_init, alloc)
         }

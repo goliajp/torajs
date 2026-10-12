@@ -21,14 +21,6 @@
 //! S1 baseline test (`fn one_plus_two() -> i64 { 1 + 2 }`) lives here
 //! in `mod tests` because it's a driver-level acceptance test, not
 //! tied to any one InstKind family.
-//!
-//! Phase-level coverage notes (history, kept for reference):
-//!
-//! S1 — Add only. S2-A — full integer BinOp + 64-bit ConstI64 via
-//! MOVZ+MOVK. S2-B1 — FP encoders + Fpr enum. S2-B2 — FP binop wire-
-//! up + BitCast + Operand::ConstF64 via FMOV-d-from-x. S2-C — ICmp +
-//! FCmp via CMP/FCMP + CSET. S2-D pending: FRem (libm `fmod` call)
-//! and FPred::One (CCMP fold or NE+VC+AND).
 
 mod arr_push;
 mod binop;
@@ -40,6 +32,7 @@ mod call_args;
 mod cast;
 mod cell;
 mod cmp;
+mod cond_flags;
 mod ctpop_range_sum;
 mod entry;
 mod fusions;
@@ -84,7 +77,7 @@ pub use cast::{
     emit_zext_i32_to_i64,
 };
 pub use cell::CellOps;
-pub use cmp::{emit_fcmp, emit_icmp, emit_select};
+pub use cmp::{emit_fcmp, emit_icmp};
 pub use ctpop_range_sum::emit_ctpop_range_sum;
 pub use inline_sites::InlineSites;
 pub use mem::{
@@ -292,8 +285,11 @@ fn emit_body(
         let fused = fusions.cmp_of(block.id.0);
         let sib = sibcall::plan(func, block, &landing.blocks_by_id, alloc, facts);
         let body = sib.as_ref().map_or(block.insts.len(), |s| s.at);
+        let mut flags = cond_flags::CondFlags::default();
         for (ii, inst) in block.insts[..body].iter().enumerate() {
-            if fusions.emit(&mut bytes, &mut relocs, block, ii, inst, alloc) {
+            if fusions.emit(&mut bytes, &mut relocs, block, ii, inst, alloc)
+                || flags.emit_select(&mut bytes, inst, alloc)
+            {
                 continue;
             }
             let site = block_slot + ii as u32;
