@@ -15,12 +15,14 @@
 //! constructor symbol.
 //!
 //! Such a read needs the key `"constructor"` as a runtime string. A
-//! program either spells it (it is then in the string table, whatever
+//! program either spells it (a string literal instruction, whatever
 //! syntax carried it: `o.constructor`, `o["constructor"]`,
 //! `Reflect.get(o, "constructor")`, a destructuring pattern), or
 //! computes a key at run time and reads with it, or reads the
 //! descriptor bag that holds the value under that key. The scan
-//! answers true for each of the three; the first is the common one.
+//! answers true for the last two, and for a spelled key unless every
+//! answer it reads stays with benign uses
+//! ([`crate::cmd_build_dispatch_judge_ctor_uses`]).
 //!
 //! The other runtime handout is a class heritage: `class A extends
 //! Array` links the class object's [[Prototype]] to the interned
@@ -39,18 +41,7 @@ use std::collections::HashSet;
 
 use torajs_core::ssa::{InstKind, Module, Operand};
 
-/// Readers whose operand 1 is the property key. A key that is
-/// neither a static string literal nor a boxed number / boolean is a
-/// runtime key and may spell `constructor` (a number key names its
-/// digits, §7.1.19).
-const KEYED_READERS: [&str; 6] = [
-    "__torajs_any_member_get_tag",
-    "__torajs_any_member_get_value",
-    "__torajs_any_member_get_with_receiver",
-    "__torajs_any_accessor_get",
-    "__torajs_anyv_get_property_descriptor",
-    "__torajs_any_index_get_keyed",
-];
+use crate::cmd_build_dispatch_judge_ctor_uses::KEYED_READERS;
 
 /// Readers that hand out every own property or answer a constructor
 /// directly — any call may surface a constructor cell.
@@ -61,8 +52,6 @@ const OPEN_READERS: [&str; 2] = [
     "__torajs_closure_ctor_value",
 ];
 
-const CTOR_KEY: &[u8] = b"constructor";
-
 /// The class register entry and the operand index of its builtin
 /// parent tag (`-1` when the heritage is not a builtin).
 const CLASS_REGISTER: (&str, usize) = ("__torajs_anyv_class_register", 4);
@@ -70,19 +59,21 @@ const CLASS_REGISTER: (&str, usize) = ("__torajs_anyv_class_register", 4);
 /// True when the program can read a builtin constructor cell off a
 /// value (see the module doc). `diag` names the first reason.
 pub(crate) fn ctor_cell_reachable(module: &Module, diag: bool) -> bool {
-    if module
-        .strings
-        .iter()
-        .any(|s| s.is_latin1 && s.bytes == CTOR_KEY)
-    {
-        if diag {
-            eprintln!("[judge] ns-world: \"constructor\" literal");
-        }
-        return true;
-    }
+    let ctor_ids = crate::cmd_build_dispatch_judge_ctor_uses::ctor_key_ids(module);
     for f in &module.funcs {
+        if let Some(why) =
+            crate::cmd_build_dispatch_judge_ctor_uses::ctor_read_escape(module, f, &ctor_ids)
+        {
+            if diag {
+                eprintln!(
+                    "[judge] ns-world: {} reads a constructor into {why}",
+                    f.name
+                );
+            }
+            return true;
+        }
         // values that cannot be a runtime "constructor": string
-        // literals (checked above) and boxed scalars (`box_any` tags
+        // literals (judged above) and boxed scalars (`box_any` tags
         // other than 4, the heap pointer)
         let mut fixed_keys = HashSet::new();
         for b in &f.blocks {
