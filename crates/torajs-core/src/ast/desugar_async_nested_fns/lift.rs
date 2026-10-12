@@ -10,6 +10,7 @@
 
 use std::collections::HashMap;
 
+use crate::ast::desugar_with::walk::stmt_children;
 use crate::ast::nested_fns_idents::{arrow_rebinds, rewrite_idents_in_body};
 use crate::ast::{Ast, Stmt};
 
@@ -64,22 +65,41 @@ impl Lifts {
             lifted.push(decl);
         }
         rewrite_idents_in_body(ast, body, &renames, true);
-        for decl in lifted.iter_mut() {
-            let Stmt::FnDecl { params, body, .. } = decl else {
-                unreachable!("lifted a declaration");
-            };
-            // a parameter or local of the lifted body with a peer's name
-            // is that body's own binding
-            let own: HashMap<String, String> = renames
-                .iter()
-                .filter(|(k, _)| !arrow_rebinds(params, body, k))
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect();
-            rewrite_idents_in_body(ast, body, &own, true);
+        // the identifier walk stops at a declaration: the peers left in
+        // the body (values to be, declarations kept) and the lifted ones
+        // are entered here
+        for s in body.iter_mut().chain(lifted.iter_mut()) {
+            rename_in_decls(ast, s, &renames);
         }
         self.out.extend(lifted);
     }
+}
 
+/// Rename the references in every declaration body under `s`, at any
+/// depth; a parameter or local of a body with a lifted name is that
+/// body's own binding, and hides the lifted one from it.
+fn rename_in_decls(ast: &mut Ast, s: &mut Stmt, renames: &HashMap<String, String>) {
+    if let Stmt::FnDecl { params, body, .. } = s {
+        let own: HashMap<String, String> = renames
+            .iter()
+            .filter(|(k, _)| !arrow_rebinds(params, body, k))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        if own.is_empty() {
+            return;
+        }
+        rewrite_idents_in_body(ast, body, &own, true);
+        for c in body.iter_mut() {
+            rename_in_decls(ast, c, &own);
+        }
+        return;
+    }
+    for c in stmt_children(s) {
+        rename_in_decls(ast, c, renames);
+    }
+}
+
+impl Lifts {
     /// Append every lifted declaration to the program's top level.
     pub(super) fn finish(self, ast: &mut Ast) {
         ast.stmts.extend(self.out);

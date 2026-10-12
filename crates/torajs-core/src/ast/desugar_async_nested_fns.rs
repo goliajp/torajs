@@ -47,10 +47,10 @@
 //! (`lift_nested_generators` owns it), a generic one (an arrow has no
 //! type parameters), one whose body names `arguments` (a declaration
 //! owns that binding), and an async generator with a parser-synthesized
-//! (`__`-spelled) parameter — nor any peer that names one of those or
-//! is named by one, since a lifted declaration cannot name a value. In
-//! a generator body, a group of declarations that reads nothing around
-//! it stays a declaration too, and a direct call (`select`).
+//! (`__`-spelled) parameter — nor any peer one of those names, since a
+//! declaration cannot name a value. In a generator body, a declaration
+//! that reads nothing around it stays a declaration too, and a direct
+//! call (`select`).
 //! Declarations deeper than the body's own statement list (inside a
 //! block or a loop) are Annex B territory and stay with `nested_fns`.
 

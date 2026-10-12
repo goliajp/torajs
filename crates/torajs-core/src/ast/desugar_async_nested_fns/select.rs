@@ -1,19 +1,26 @@
 //! What becomes of each of a body's direct declarations.
 //!
-//! The answer is per connected component of the peer-reference
-//! relation (a declaration naming another of the same list): a value
-//! is a local `let`, which a peer lifted to top level could not name.
-//! A component with a member that cannot be a value (`is_rewritable`)
-//! keeps every member a declaration.
+//! Routes follow the peer-reference edges (a declaration naming another
+//! of the same list), each constraint along its own direction:
 //!
-//! In an async body every other component becomes values, so the moved
-//! body declares nothing (blade 2 refuses one that does). In a
-//! generator body only a component that reads the frames around it
-//! does; one that reads nothing of them is lifted to top level here,
-//! before the machine splits the body into states — left in the body it
+//! - a value is a local `let`, which a declaration kept or lifted to
+//!   top level cannot name: a declaration naming a value must be one
+//!   too (needing a value spreads from callee to caller)
+//! - a declaration that cannot be a value (`is_rewritable`) keeps every
+//!   peer it names a declaration as well (spreads from caller to
+//!   callee); a value naming it is unaffected, as the name it reads is
+//!   a top-level one once the declaration is lifted
+//! - a declaration left in the body is lifted later under a name of its
+//!   own lane: a peer naming it is not lifted here either
+//!
+//! In an async body every declaration needs a value, so the moved body
+//! declares nothing (blade 2 refuses one that does). In a generator
+//! body only one that reads the frames around it (or names one that
+//! does) needs it; the rest are lifted to top level here, before the
+//! machine splits the body into states — left in the body a declaration
 //! is declared in the first state only, out of reach of a call after a
-//! `yield` — and stays a direct call (`nested_fns_capture` draws the
-//! same line in an ordinary body).
+//! `yield` — and stay direct calls (`nested_fns_capture` draws the same
+//! line in an ordinary body).
 
 use crate::ast::free_vars::free_vars_of_fn;
 use crate::ast::scope_chain::not_rebound;
@@ -63,36 +70,53 @@ pub(super) fn select(
             _ => unreachable!("filtered to declarations"),
         })
         .collect();
-    let component = components(&names, &free);
-    let mut captures = vec![capture_frames.is_none(); decls.len()];
-    let mut stuck = vec![false; decls.len()];
-    let mut special = vec![false; decls.len()];
-    for (k, s) in decls.iter().enumerate() {
-        if free[k]
-            .iter()
-            .any(|n| n != "arguments" && !names.contains(&n.as_str()))
-        {
-            captures[component[k]] = true;
-        }
-        if !super::is_rewritable(ast, s) {
-            stuck[component[k]] = true;
-        }
-        if is_special(ast, s) {
-            special[component[k]] = true;
-        }
-    }
+    let names_peer = |a: usize, b: usize| free[a].iter().any(|n| n == names[b]);
+    let mut needs: Vec<bool> = free
+        .iter()
+        .map(|f| {
+            capture_frames.is_none()
+                || f.iter()
+                    .any(|n| n != "arguments" && !names.contains(&n.as_str()))
+        })
+        .collect();
+    spread(&mut needs, |a, b| names_peer(a, b));
+    let mut refuses: Vec<bool> = decls
+        .iter()
+        .map(|s| !super::is_rewritable(ast, s))
+        .collect();
+    spread(&mut refuses, |a, b| names_peer(b, a));
+    let mut stays: Vec<bool> = (0..decls.len())
+        .map(|k| needs[k] || is_special(ast, decls[k]))
+        .collect();
+    spread(&mut stays, |a, b| names_peer(a, b));
     (0..decls.len())
         .map(|k| {
-            let c = component[k];
-            if captures[c] && !stuck[c] {
+            if needs[k] && !refuses[k] {
                 Route::Value
-            } else if capture_frames.is_some() && !captures[c] && !special[c] {
+            } else if capture_frames.is_some() && !stays[k] {
                 Route::Lift
             } else {
                 Route::Keep
             }
         })
         .collect()
+}
+
+/// Close `mark` over `reaches`: `a` becomes marked when `reaches(a, b)`
+/// holds for a marked `b`.
+fn spread(mark: &mut [bool], reaches: impl Fn(usize, usize) -> bool) {
+    loop {
+        let mut changed = false;
+        for a in 0..mark.len() {
+            if !mark[a] && (0..mark.len()).any(|b| mark[b] && reaches(a, b)) {
+                mark[a] = true;
+                changed = true;
+            }
+        }
+        if !changed {
+            return;
+        }
+    }
 }
 
 /// A generator or async declaration has lanes of its own, keyed by its
@@ -105,27 +129,4 @@ fn is_special(ast: &Ast, s: &Stmt) -> bool {
         unreachable!("filtered to declarations");
     };
     *is_generator || ast.async_fns.contains(name) || ast.async_generator_fns.contains(name)
-}
-
-/// Component label per declaration: the smallest index joined to it by
-/// a chain of reference edges, in either direction.
-fn components(names: &[&str], free: &[Vec<String>]) -> Vec<usize> {
-    let mut label: Vec<usize> = (0..names.len()).collect();
-    loop {
-        let mut changed = false;
-        for a in 0..names.len() {
-            for b in 0..names.len() {
-                let edge = free[a].iter().any(|n| n == names[b]);
-                if edge && label[a] != label[b] {
-                    let m = label[a].min(label[b]);
-                    label[a] = m;
-                    label[b] = m;
-                    changed = true;
-                }
-            }
-        }
-        if !changed {
-            return label;
-        }
-    }
 }
