@@ -50,21 +50,38 @@ pub(crate) fn collect_fn_decls(
     }
 }
 
-/// Snapshot, per FnDecl with an `__fn(`-annotated return type, the
-/// ExprIds of every `return <e>` in its own body. A nested FnDecl
+/// Snapshot, per FnDecl with an `__fn(`-annotated return type or none
+/// at all, the ExprIds of every `return <e>` in its own body; the
+/// unannotated ones also land in `unannotated`, whose returns the
+/// marking round reads without the slot-read arm. A nested FnDecl
 /// switches context — its returns attribute to itself, never to the
-/// enclosing fn.
-pub(crate) fn collect_fn_returns(stmts: &[Stmt], out: &mut HashMap<String, Vec<ExprId>>) {
+/// enclosing fn. A generator answers its iterator, never what it
+/// returns, so it stays out.
+///
+/// An unannotated function returning a closure answers a closure (the
+/// desugar infers its return from those returns later). Left out, a
+/// call to it never read as closure-shaped, so `caller(mk(1))` kept
+/// `caller`'s fn-typed parameter on the bare-pointer lane and jumped
+/// into the closure cell's header (SIGBUS).
+pub(crate) fn collect_fn_returns(
+    stmts: &[Stmt],
+    out: &mut HashMap<String, Vec<ExprId>>,
+    unannotated: &mut HashSet<String>,
+) {
     let mut stack: Vec<(&Stmt, Option<String>)> = stmts.iter().map(|s| (s, None)).collect();
     while let Some((s, cur)) = stack.pop() {
         if let Stmt::FnDecl {
             name,
             return_type,
             body,
+            is_generator,
             ..
         } = s
         {
             let ctx = if is_fnsig_ann(return_type) {
+                Some(name.clone())
+            } else if return_type.is_none() && !*is_generator {
+                unannotated.insert(name.clone());
                 Some(name.clone())
             } else {
                 None
@@ -228,8 +245,12 @@ pub(crate) fn mirror_closure_aliases(
     aliases: &HashMap<String, (String, usize)>,
     fn_params: &mut HashMap<String, Vec<(usize, String)>>,
     fn_returns: &mut HashMap<String, Vec<ExprId>>,
+    unannotated: &mut HashSet<String>,
 ) {
     for (ident, (fname, shift)) in aliases {
+        if unannotated.contains(fname) {
+            unannotated.insert(ident.clone());
+        }
         if let Some(fps) = fn_params.get(fname) {
             let shifted: Vec<(usize, String)> = fps
                 .iter()

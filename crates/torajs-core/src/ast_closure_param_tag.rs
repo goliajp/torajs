@@ -31,7 +31,8 @@
 //! through the FnSig lane and the caller's `held(7)` `blr`'d the heap
 //! header — same SIGBUS family. Fns whose `__fn(`-annotated return
 //! yields a closure-shaped value anywhere are retagged `__cls(` on the
-//! return type; `return g` named-fn sites in those fns get the same
+//! return type (an unannotated fn yielding one joins the lane with no
+//! annotation to retag); `return g` named-fn sites in those fns get the same
 //! `__forward_<g>` wrap; a `let h = keep(...)` result joins the
 //! closure-holding idents so downstream params mark transitively.
 //!
@@ -80,10 +81,16 @@ pub fn tag_closure_arg_params(ast: &mut Ast) {
         &mut fn_sigs,
         &mut existing_forwarders,
     );
-    // bug-553 — FnDecls with an `__fn(`-annotated return type: their
-    // return-site ExprIds, for the return-lane marking round below.
+    // bug-553 — FnDecls with an `__fn(`-annotated return type or none:
+    // their return-site ExprIds, for the return-lane marking round
+    // below (the unannotated ones read by `is_closure_valued`).
     let mut fn_returns: HashMap<String, Vec<ExprId>> = HashMap::new();
-    crate::ast_closure_param_tag_collect::collect_fn_returns(&ast.stmts, &mut fn_returns);
+    let mut unannotated: HashSet<String> = HashSet::new();
+    crate::ast_closure_param_tag_collect::collect_fn_returns(
+        &ast.stmts,
+        &mut fn_returns,
+        &mut unannotated,
+    );
     // r549 — `const t = <arrow>` is called as `t(...)`: mirror the
     // lifted decl's fn-typed params / returns under the ident so the
     // by-callee-name rounds below see those calls (see the collect
@@ -93,6 +100,7 @@ pub fn tag_closure_arg_params(ast: &mut Ast) {
         &closure_aliases,
         &mut fn_params,
         &mut fn_returns,
+        &mut unannotated,
     );
     if fn_params.is_empty() && fn_returns.is_empty() {
         return;
@@ -164,10 +172,15 @@ pub fn tag_closure_arg_params(ast: &mut Ast) {
             }
         }
         for (fname, rets) in &fn_returns {
+            let yields = if unannotated.contains(fname) {
+                is_closure_valued
+            } else {
+                is_closure_shaped
+            };
             if !ret_marked.contains(fname)
                 && rets
                     .iter()
-                    .any(|r| is_closure_shaped(ast, *r, &closure_idents, &ret_marked))
+                    .any(|r| yields(ast, *r, &closure_idents, &ret_marked))
             {
                 ret_marked.insert(fname.clone());
                 changed = true;
@@ -288,6 +301,32 @@ fn is_closure_shaped(
     closure_idents: &HashSet<String>,
     ret_marked: &HashSet<String>,
 ) -> bool {
+    closure_shape(ast, eid, closure_idents, ret_marked, true)
+}
+
+/// [`is_closure_shaped`] without the slot-read arm, for the returns of
+/// an UNANNOTATED function: its return type is whatever the body
+/// yields, so `function first(a: number[]) { return a[0] }` must not
+/// read as returning a closure — `const inc = first(xs)` would join the
+/// closure-holding names program-wide and a top-level function `inc`
+/// would reach a retagged parameter unwrapped.
+fn is_closure_valued(
+    ast: &Ast,
+    eid: ExprId,
+    closure_idents: &HashSet<String>,
+    ret_marked: &HashSet<String>,
+) -> bool {
+    closure_shape(ast, eid, closure_idents, ret_marked, false)
+}
+
+fn closure_shape(
+    ast: &Ast,
+    eid: ExprId,
+    closure_idents: &HashSet<String>,
+    ret_marked: &HashSet<String>,
+    slot_reads: bool,
+) -> bool {
+    let again = |e| closure_shape(ast, e, closure_idents, ret_marked, slot_reads);
     match ast.get_expr(eid) {
         Expr::Closure { .. } => true,
         Expr::Ident(n) => closure_idents.contains(n),
@@ -311,7 +350,7 @@ fn is_closure_shaped(
         // over-marks the param, which costs direct dispatch but keeps
         // the shapes uniform — a fn-typed param's argument is a fn
         // value either way, so the retag stays sound.
-        Expr::Member { .. } | Expr::Index { .. } => true,
+        Expr::Member { .. } | Expr::Index { .. } => slot_reads,
         // The value-passthrough operators hand one of their operands
         // straight through, so the shape question is the operands'.
         // Without this a `__fn(`-annotated return whose value was
@@ -326,25 +365,16 @@ fn is_closure_shaped(
             then_branch,
             else_branch,
             ..
-        } => {
-            is_closure_shaped(ast, *then_branch, closure_idents, ret_marked)
-                || is_closure_shaped(ast, *else_branch, closure_idents, ret_marked)
-        }
-        Expr::Nullish { lhs, rhs } => {
-            is_closure_shaped(ast, *lhs, closure_idents, ret_marked)
-                || is_closure_shaped(ast, *rhs, closure_idents, ret_marked)
-        }
+        } => again(*then_branch) || again(*else_branch),
+        Expr::Nullish { lhs, rhs } => again(*lhs) || again(*rhs),
         Expr::BinOp {
             op: crate::ast::BinOp::LAnd | crate::ast::BinOp::LOr,
             left,
             right,
-        } => {
-            is_closure_shaped(ast, *left, closure_idents, ret_marked)
-                || is_closure_shaped(ast, *right, closure_idents, ret_marked)
-        }
-        Expr::Sequence { right, .. } => is_closure_shaped(ast, *right, closure_idents, ret_marked),
-        Expr::As { expr, .. } => is_closure_shaped(ast, *expr, closure_idents, ret_marked),
-        Expr::Assign { value, .. } => is_closure_shaped(ast, *value, closure_idents, ret_marked),
+        } => again(*left) || again(*right),
+        Expr::Sequence { right, .. } => again(*right),
+        Expr::As { expr, .. } => again(*expr),
+        Expr::Assign { value, .. } => again(*value),
         _ => false,
     }
 }
@@ -768,5 +798,31 @@ mod tests {
         let cb = fwd.iter().find(|p| p.name == "cb").expect("cb param");
         let ann = cb.type_ann.as_deref().unwrap();
         assert!(ann.starts_with("__cls("), "forwarder cb: {ann}");
+    }
+
+    #[test]
+    fn unannotated_fn_returning_a_closure_retags_the_receiving_param() {
+        let ast = pass_output(
+            "function mk(k: number) { return (y: number) => y + k; }\n\
+             function caller(h: (y: number) => number) { return h(1); }\n\
+             caller(mk(1));\n",
+        );
+        let ann = fn_param_ann(&ast, "caller", 0).unwrap();
+        assert!(ann.starts_with("__cls("), "expected __cls retag, got {ann}");
+    }
+
+    #[test]
+    fn unannotated_fn_returning_a_slot_read_is_not_a_closure_source() {
+        // `inc` below is a local number; the top-level `inc` keeps the
+        // direct lane
+        let ast = pass_output(
+            "function first(a: number[]) { return a[0]; }\n\
+             function inc(x: number) { return x + 1; }\n\
+             function apply(f: (x: number) => number) { return f(1); }\n\
+             function other() { const inc = first([5]); return inc; }\n\
+             console.log(other(), apply(inc));\n",
+        );
+        let ann = fn_param_ann(&ast, "apply", 0).unwrap();
+        assert!(ann.starts_with("__fn("), "expected __fn kept, got {ann}");
     }
 }
