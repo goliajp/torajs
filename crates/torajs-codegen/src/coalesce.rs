@@ -125,14 +125,15 @@ pub(crate) fn build_copy_classes(
     excluded: &HashSet<u32>,
     call_sites: &[u32],
 ) -> Classes {
-    if crate::switches::get().coalesce_off {
+    let switches = crate::switches::get();
+    if switches.coalesce_off {
         return Classes::default();
     }
     let copies = collect_copies(func, intervals, excluded);
     if copies.is_empty() {
         return Classes::default();
     }
-    let live_ok = std::env::var_os("TORAJS_COALESCE_LIVE_OFF").is_none_or(|v| v != "1");
+    let live_ok = !switches.coalesce_live_off;
     let cands: HashSet<u32> = copies.iter().flat_map(|c| [c.w, c.v]).collect();
     let mut segs = live_segments(func, blocks, &cands);
     let mut defs = def_sites(func, blocks, &cands);

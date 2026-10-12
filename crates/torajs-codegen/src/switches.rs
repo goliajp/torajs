@@ -8,6 +8,9 @@ use std::sync::OnceLock;
 pub(crate) struct Switches {
     /// `TORAJS_COALESCE_OFF=1`: no copy coalescing (bisect gate).
     pub(crate) coalesce_off: bool,
+    /// `TORAJS_COALESCE_LIVE_OFF=1`: no merging of a copy with its
+    /// source while both are live (bisect gate).
+    pub(crate) coalesce_live_off: bool,
     /// `TORAJS_SHARE_OFF=1`: no register shared across holes (bisect
     /// gate).
     pub(crate) share_off: bool,
@@ -28,6 +31,7 @@ pub(crate) fn get() -> &'static Switches {
     static SWITCHES: OnceLock<Switches> = OnceLock::new();
     SWITCHES.get_or_init(|| Switches {
         coalesce_off: is_1("TORAJS_COALESCE_OFF"),
+        coalesce_live_off: is_1("TORAJS_COALESCE_LIVE_OFF"),
         share_off: is_1("TORAJS_SHARE_OFF"),
         call_save_off: is_1("TORAJS_CALL_SAVE_OFF"),
         pool: std::env::var("TORAJS_REGALLOC_POOL")
