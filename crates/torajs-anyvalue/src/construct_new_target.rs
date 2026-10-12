@@ -22,8 +22,8 @@
 use core::ffi::c_void;
 use core::sync::atomic::{AtomicPtr, Ordering};
 
-use crate::method_call_closure_dispatch::boxed_entry_of;
-use crate::nanbox::{AnyValue, as_void_ptr, is_cell};
+use crate::method_call_closure_dispatch::{MAX_BOXED_ARGS, boxed_entry_of, invoke_boxed};
+use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell};
 
 /// (value face boxed entry, construct face boxed entry).
 type Faces = Vec<(u64, u64)>;
@@ -107,13 +107,20 @@ pub(crate) unsafe fn invoke_ctor_face(
     argc: i64,
 ) -> AnyValue {
     let n = argc.max(0) as usize;
-    let mut full = Vec::with_capacity(n + 2);
-    full.push(this_av);
-    full.push(new_target);
-    for i in 0..n {
-        full.push(unsafe { *argv.add(i) });
+    // every `new` of such a function comes through here: the common
+    // arity stays on the stack
+    let mut small = [VALUE_UNDEFINED; MAX_BOXED_ARGS];
+    let mut big = Vec::new();
+    let full: &mut [u64] = if n + 2 <= MAX_BOXED_ARGS {
+        &mut small[..n + 2]
+    } else {
+        big.resize(n + 2, VALUE_UNDEFINED);
+        &mut big
+    };
+    full[0] = this_av;
+    full[1] = new_target;
+    for (i, slot) in full[2..].iter_mut().enumerate() {
+        *slot = unsafe { *argv.add(i) };
     }
-    unsafe {
-        crate::method_call_closure_dispatch::invoke_boxed(env, entry, full.as_ptr(), (n + 2) as i64)
-    }
+    unsafe { invoke_boxed(env, entry, full.as_ptr(), (n + 2) as i64) }
 }
