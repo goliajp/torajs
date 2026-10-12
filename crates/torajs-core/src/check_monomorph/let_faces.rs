@@ -19,13 +19,18 @@ pub(super) fn apply(c: &Checker, owned_ast: &mut Ast) {
     owned_ast
         .face_mismatch_lets
         .extend(c.face_mismatch_lets.iter().copied());
-    for s in &owned_ast.stmts {
-        if let Stmt::LetDecl { name, init, .. } = s
-            && c.face_mismatch_lets.contains(init)
-        {
-            owned_ast.face_mismatch_globals.insert(name.clone());
-        }
-    }
+    // the flat view the lowerer's global registration walks: a
+    // multi-declarator `let` is a global like a single one
+    let globals: Vec<String> = crate::ast::toplevel_stmts_flat(owned_ast)
+        .into_iter()
+        .filter_map(|s| match s {
+            Stmt::LetDecl { name, init, .. } if c.face_mismatch_lets.contains(init) => {
+                Some(name.clone())
+            }
+            _ => None,
+        })
+        .collect();
+    owned_ast.face_mismatch_globals.extend(globals);
     let mut stack: Vec<&mut Stmt> = owned_ast.stmts.iter_mut().collect();
     while let Some(s) = stack.pop() {
         if let Stmt::LetDecl { type_ann, init, .. } = s
