@@ -56,13 +56,13 @@ impl WidenTarget {
     /// Per-index tag in the clone's name suffix. Two sites widening
     /// the SAME index to DIFFERENT targets must not collide on one
     /// mono name — the tag keeps `f$$anyw0a` and `f$$anyw0s` apart,
-    /// and a face tag carries a hash of its spelling so two faces on
-    /// one index get two clones.
+    /// and a face tag carries a hash of its annotation and its type so
+    /// two faces on one index get two clones.
     pub(super) fn tag(&self) -> String {
         match self {
             WidenTarget::Arr => "a".to_string(),
             WidenTarget::Scalar => "s".to_string(),
-            WidenTarget::Face { ann, .. } => format!("f{:016x}", fnv1a(ann)),
+            WidenTarget::Face { ann, ty } => format!("f{:016x}", fnv1a(&format!("{ann}|{ty:?}"))),
         }
     }
 }
