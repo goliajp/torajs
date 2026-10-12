@@ -43,6 +43,7 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, name: &str, params: &[Para
     }
     let saved_scopes = std::mem::replace(&mut checker.scopes, vec![HashMap::new()]);
     let saved_return = checker.expected_return.replace(*ret_ty);
+    let saved_owner = checker.ret_owner.replace(name.to_string());
     checker.toplevel_captures.push(Default::default());
     let saved_class = checker.current_class.take();
     // A class name can itself contain `__`: a class EXPRESSION binds
@@ -157,6 +158,7 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, name: &str, params: &[Para
     }
     checker.hoisted_closure_lets = saved_hoists;
     checker.expected_return = saved_return;
+    checker.ret_owner = saved_owner;
     checker.scopes = saved_scopes;
     checker.toplevel_captures.pop();
     checker.current_class = saved_class;

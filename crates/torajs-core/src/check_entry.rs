@@ -65,6 +65,11 @@ fn has_errors(c: &Checker) -> bool {
 /// with the binding widened, and that can widen the next one
 /// (`u = total`). The set only grows and is bounded by the program's
 /// mutable `let`s.
+///
+/// The property / return slot census (`check::face_slots`) is carried
+/// into the next run the same way, when a read asked for one of its
+/// keys before the store that entered it (`Reads::stale`): that call is
+/// typed again once the census holds it. It too only grows.
 fn fixpoint_with(ast: &Ast, widen_ret_declared: bool, hidden: &HashSet<ExprId>) -> Checker {
     let mut c = Checker::new();
     c.widen_ret_declared = widen_ret_declared;
@@ -72,15 +77,17 @@ fn fixpoint_with(ast: &Ast, widen_ret_declared: bool, hidden: &HashSet<ExprId>) 
     c.run_full_pipeline(ast);
     loop {
         let found = crate::let_widen::collect_cross_type_widen_inits(ast, Some(&c.expr_types));
-        if found.is_subset(&c.cross_type_widened) {
+        if found.is_subset(&c.cross_type_widened) && !c.face_slot_reads.stale {
             return c;
         }
         let mut seed = std::mem::take(&mut c.cross_type_widened);
         seed.extend(found);
+        let face_slots = std::mem::take(&mut c.face_slots);
         c = Checker::new();
         c.widen_ret_declared = widen_ret_declared;
         c.hidden_any_args = hidden.clone();
         c.cross_type_widened = seed;
+        c.face_slots = face_slots;
         c.run_full_pipeline(ast);
     }
 }
@@ -211,7 +218,8 @@ fn check_round(ast: &Ast, hidden: &HashSet<ExprId>) -> Result<Round, String> {
     warnings.extend(admitted.into_iter().map(|m| format!("[s0-admit] {m}")));
     let before_mono = c.errors.len();
     let mut mono = crate::check_monomorph::monomorphize_and_check(&mut c, ast);
-    mono.mono_ast.fn_slot_ret_any = std::mem::take(&mut c.fn_slot_ret_any);
+    mono.mono_ast.face_slots = std::mem::take(&mut c.face_slots);
+    mono.mono_ast.face_slots.ret_any = std::mem::take(&mut c.fn_slot_ret_any);
     // A specialization body's diagnostics are discarded inside the
     // pass — except when the body left a HOLE (a generic call with no
     // retarget). Those are not diagnostics about a program that

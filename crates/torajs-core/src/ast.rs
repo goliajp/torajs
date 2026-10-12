@@ -163,6 +163,7 @@ mod enum_fold;
 mod escape_analyze;
 mod export_names;
 mod expr;
+pub(crate) mod face_slots;
 mod fn_assign_rhs_wrap;
 mod fn_constructor;
 mod fn_constructor_argc;

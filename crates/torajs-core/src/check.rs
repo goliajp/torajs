@@ -12,6 +12,7 @@ use crate::lexer::Span;
 mod branch_end;
 mod construct;
 mod diag;
+pub(crate) mod face_slots;
 mod process_on;
 mod promise_static;
 mod scope_moves;
@@ -322,6 +323,12 @@ pub(crate) struct Checker {
     /// The same for a fn-typed parameter, as (function, parameter):
     /// joins `Ast::argv_boxed_params`.
     pub(crate) face_mismatch_params: std::collections::HashSet<(String, String)>,
+    /// The property and return slots a store hands a function value of
+    /// another face (`face_slots`), and the function whose returns the
+    /// body being checked makes.
+    pub(crate) face_slots: crate::ast::face_slots::FaceSlots,
+    pub(crate) face_slot_reads: face_slots::Reads,
+    pub(crate) ret_owner: Option<String>,
     /// The function-value bindings a call hands an `any` argument for
     /// an object-typed parameter, with their parameter types; the
     /// closures they hold take the all-`any` twin

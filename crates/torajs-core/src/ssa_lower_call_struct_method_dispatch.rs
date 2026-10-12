@@ -39,7 +39,7 @@ use crate::ssa_lower::{CLOSURE_FN_ADDR_OFF, LowerCtx, OBJ_HEADER_SIZE, intern_fn
 
 mod field_sig;
 mod fnsig_call;
-use field_sig::callable_field_is_variadic;
+use field_sig::{callable_field_is_variadic, is_face_slot_field};
 use fnsig_call::emit_fnsig_call;
 pub(crate) mod objlit_slot;
 pub(crate) use objlit_slot::is_objlit_method_slot;
@@ -96,21 +96,34 @@ pub(crate) fn try_lower(
     }
     match ssa_field_ty {
         Type::FnSig(sig_id) => Some(emit_fnsig_call(ctx, recv_op, offset, sig_id, args, pad_n)),
-        Type::Closure(user_sig_id) if is_variadic => {
+        Type::Closure(user_sig_id) if is_variadic || is_face_slot_field(ctx, obj, name) => {
             let closure_env = ctx.f.append_inst(
                 ctx.cur_block,
                 InstKind::Load(Type::Ptr, recv_op, offset),
                 Type::Ptr,
                 None,
             );
-            Some(
+            let env = Operand::Value(closure_env);
+            let passed = &args[..crate::ast::source_argc(ctx.ast, eid, args)];
+            Some(if is_variadic {
                 crate::ssa_lower_call_closure_local::emit_variadic_boxed_call(
                     ctx,
-                    Operand::Value(closure_env),
+                    env,
                     user_sig_id,
-                    &args[..crate::ast::source_argc(ctx.ast, eid, args)],
-                ),
-            )
+                    passed,
+                )
+            } else {
+                // the member call's receiver is the callee's `this`
+                // (§13.3.6.1), which a method stored in the slot reads
+                let this = ctx.box_to_any(recv_op);
+                crate::ssa_lower_call_closure_local::emit_face_slot_call(
+                    ctx,
+                    (eid, user_sig_id),
+                    env,
+                    Some(this),
+                    passed,
+                )
+            })
         }
         Type::Closure(user_sig_id) => {
             let takes_recv = is_objlit_method_slot(ctx, sid, name);

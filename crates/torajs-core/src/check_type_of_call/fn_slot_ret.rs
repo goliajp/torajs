@@ -19,15 +19,26 @@
 //!
 //! The slot is the binding the callee resolves to, as the scope lookup
 //! marks it ([`crate::check::FnSlot`]); a name the scopes do not hold
-//! resolves to a top-level declaration. A call typed `any` here is
-//! recorded in `fn_slot_ret_any`, which lowering reads by `ExprId`
-//! (`ssa_lower_call_closure_local::slot_ret`).
+//! resolves to a top-level declaration. A property or return slot of
+//! the census (`ast::face_slots`) is read the same way ([`prop_ret`]).
+//! A call typed `any` here is recorded in `fn_slot_ret_any`, which
+//! lowering reads by `ExprId` (`ssa_lower_call_closure_local::slot_ret`).
 
 use std::collections::{HashMap, HashSet};
 
 use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
 use crate::check::{Checker, FnSlot, Type};
 use crate::check_type_ann::resolve_type_ann_full;
+
+mod prop_ret;
+
+/// What a census slot holds: the binding the callee resolves to, or the
+/// stores of a property or return slot, already collected.
+enum Held<'a> {
+    Let(&'a str, ExprId),
+    Param(&'a str, String),
+    Stores(Option<Vec<(String, ExprId)>>),
+}
 
 /// The type of call `eid` through `callee`, whose type declares
 /// return `ret`.
@@ -43,32 +54,38 @@ pub(super) fn call_ret_face(
     {
         return ret;
     }
-    let Expr::Ident(n) = ast.get_expr(callee) else {
-        return ret;
-    };
-    let slot = match checker.lookup(n) {
-        Some(info) => info.fn_slot,
-        // a named body reaches a top-level binding as a global; a
-        // declaration that took its value's face is a census slot there
-        // too
-        None => top_level_decl(ast, n).filter(|s| {
-            ast.fnsig_mismatch_bindings.contains(n)
-                || matches!(s, FnSlot::Let(init) if checker.let_face_anns.contains_key(init)
-                    || checker.face_mismatch_lets.contains(init))
-        }),
-    };
-    let key = match &slot {
-        Some(FnSlot::Let(init)) => format!("let:{}", init.0),
-        Some(FnSlot::Param(owner)) => format!("param:{owner}:{n}"),
-        None => return ret,
+    let (key, held) = match ast.get_expr(callee) {
+        Expr::Ident(n) => {
+            let slot = match checker.lookup(n) {
+                Some(info) => info.fn_slot,
+                // a named body reaches a top-level binding as a global; a
+                // declaration that took its value's face is a census slot
+                // there too
+                None => top_level_decl(ast, n).filter(|s| {
+                    ast.fnsig_mismatch_bindings.contains(n)
+                        || matches!(s, FnSlot::Let(init) if checker.let_face_anns.contains_key(init)
+                            || checker.face_mismatch_lets.contains(init))
+                }),
+            };
+            match slot {
+                Some(FnSlot::Let(init)) => (format!("let:{}", init.0), Held::Let(n, init)),
+                Some(FnSlot::Param(owner)) => (format!("param:{owner}:{n}"), Held::Param(n, owner)),
+                None => return ret,
+            }
+        }
+        // a property or return slot in the census
+        _ => match prop_ret::slot(checker, ast, callee) {
+            Some((key, stores)) => (key, Held::Stores(stores)),
+            None => return ret,
+        },
     };
     let kept = match checker.fn_slot_kept.get(&key) {
         Some(k) => *k,
         None => {
-            let stores = match &slot {
-                Some(FnSlot::Let(init)) => let_stores(ast, n, *init),
-                Some(FnSlot::Param(owner)) => param_stores(ast, owner, n),
-                None => None,
+            let stores = match held {
+                Held::Let(n, init) => let_stores(ast, n, init),
+                Held::Param(n, owner) => param_stores(ast, &owner, n),
+                Held::Stores(stores) => stores,
             };
             let k = stores.is_some_and(|stores| {
                 !stores.is_empty()

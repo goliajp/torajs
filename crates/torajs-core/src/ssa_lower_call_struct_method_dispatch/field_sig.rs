@@ -61,3 +61,16 @@ pub(super) fn callable_field_is_variadic(
         Some(check_mod::Type::Rest(_))
     ))
 }
+
+/// Is `recv.name` a field of the property-slot census
+/// (`Ast::face_slots`), which some store handed a function value of
+/// another face? Its calls ride the boxed entry.
+pub(super) fn is_face_slot_field(ctx: &LowerCtx<'_>, obj: ExprId, name: &str) -> bool {
+    let census = &ctx.ast.face_slots;
+    !census.fields.is_empty()
+        && ctx
+            .expr_types
+            .get(&obj)
+            .and_then(|t| check_mod::face_slots::owner_key(ctx.ast, t))
+            .is_some_and(|owner| census.field_hit(&ctx.ast.class_parents, &owner, name))
+}

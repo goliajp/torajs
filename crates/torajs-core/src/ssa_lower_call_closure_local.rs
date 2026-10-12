@@ -38,7 +38,7 @@ use bindings::{
     global_argv_face_binding, global_fnsig_mismatch_binding, global_variadic_value_binding,
     recv_gate_reachable,
 };
-pub(crate) use slot_ret::settle as settle_slot_ret;
+pub(crate) use slot_ret::{emit_face_slot_call, settle as settle_slot_ret};
 
 pub(crate) fn try_lower(
     ctx: &mut LowerCtx<'_>,

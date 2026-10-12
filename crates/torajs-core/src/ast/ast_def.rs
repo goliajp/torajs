@@ -475,10 +475,9 @@ pub struct Ast {
     /// The top-level ones among them by name, for a call that reaches
     /// the binding as a module global.
     pub face_mismatch_globals: std::collections::HashSet<String>,
-    /// The calls through such a binding (or an `argv_boxed_params`
-    /// parameter) the checker typed `any`: their boxed answer is
-    /// returned unconverted. Filled after checking.
-    pub fn_slot_ret_any: std::collections::HashSet<ExprId>,
+    /// The property and return slots a store hands a function value of
+    /// another face, and the calls through any such slot typed `any`.
+    pub face_slots: face_slots::FaceSlots,
     /// Phase H.3.b — method name → declaring classes in source order
     /// (deepest sub last). Used by ssa_lower's `__dispatch_<M>` Call
     /// interception to emit the runtime tag-switch and call the right

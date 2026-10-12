@@ -320,6 +320,21 @@ fn emit_closure_arm(
             args,
         );
     }
+    // a call of a function that returns a value of another face than
+    // its declared return (`Ast::face_slots`): the boxed entry, as for
+    // a binding that holds it
+    if let Expr::Call { callee: f, .. } = ctx.ast.get_expr(callee)
+        && matches!(ctx.ast.get_expr(*f), Expr::Ident(g) if ctx.ast.face_slots.rets.contains(g))
+    {
+        let passed = &args[..crate::ast::source_argc(ctx.ast, eid, args)];
+        return crate::ssa_lower_call_closure_local::emit_face_slot_call(
+            ctx,
+            (eid, user_sig_id),
+            callee_op,
+            None,
+            passed,
+        );
+    }
     // Rotation 328 — an inline PROMOTED fn-expr callee (the
     // IIFE arm): its native ABI carries the `__this: any`
     // param the Closure sig sheds, so the receiverless call

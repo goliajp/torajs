@@ -38,6 +38,7 @@ pub(crate) fn check_arrow_fn(
     };
     let saved_scopes = std::mem::replace(&mut checker.scopes, vec![HashMap::new()]);
     let saved_return = checker.expected_return.replace(*ret_ty);
+    let saved_owner = checker.ret_owner.take();
     checker.toplevel_captures.push(Default::default());
     for (p, ty) in params.iter().zip(param_tys.iter()) {
         if let Err(e) = checker.declare(p.name.clone(), LocalInfo::plain(ty.clone())) {
@@ -48,6 +49,7 @@ pub(crate) fn check_arrow_fn(
         checker.check_stmt(ast, s);
     }
     checker.expected_return = saved_return;
+    checker.ret_owner = saved_owner;
     checker.scopes = saved_scopes;
     checker.toplevel_captures.pop();
     Ok(fn_ty)
@@ -229,6 +231,7 @@ pub(crate) fn check_closure_body(
         .collect();
     let saved_scopes = std::mem::replace(&mut checker.scopes, vec![HashMap::new()]);
     let saved_return = checker.expected_return.replace(ret_ty);
+    let saved_owner = checker.ret_owner.replace(fn_name.clone());
     // §15.5.5 (RFC 20260810) — the fn-expression's self-name binds
     // the closure itself inside the body, in a scope of its OWN
     // between the enclosing environment and the body (the spec's
@@ -302,6 +305,7 @@ pub(crate) fn check_closure_body(
     checker.hoisted_closure_lets = saved_hoists;
     checker.self_name_active = saved_self_name;
     checker.expected_return = saved_return;
+    checker.ret_owner = saved_owner;
     checker.scopes = saved_scopes;
     checker.toplevel_captures.pop();
     if checker.speculative_depth == 0 {

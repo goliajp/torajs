@@ -36,7 +36,7 @@ pub(crate) mod held_any;
 pub(crate) use contextual_array::{apply_contextual_array_ann, apply_contextual_array_ann_store};
 
 use crate::ast::{Ast, Expr, ExprId};
-use crate::check::{Checker, DiagPush, LocalInfo, Type};
+use crate::check::{Checker, DiagPush, LocalInfo, Type, face_slots};
 use crate::check_assignable::is_assignable_to_resolved;
 use crate::check_stmt_let_decl_selfref::{SelfRef, predeclare_self_ref_closure};
 use crate::check_type_ann::{resolve_type_ann_decl, resolve_type_ann_full, unknown_type};
@@ -95,8 +95,12 @@ pub(crate) fn check(
         None => init_ty,
     };
     let mut face_slot = false;
+    let mut ret_slot = false;
     let final_ty = match type_ann {
-        None => init_ty,
+        None => {
+            ret_slot = face_slots::ret_slot_let(checker, ast, (name, mutable), init, &init_ty);
+            init_ty
+        }
         Some(ann) => {
             let Some(ann_ty) =
                 resolve_type_ann_decl(ann, &checker.aliases, &[], &checker.generic_alias_decls)
@@ -153,6 +157,7 @@ pub(crate) fn check(
             }
             face_slot =
                 fn_slot_widened && record_let_face(checker, ann, init, mutable, &init_ty, &ann_ty);
+            face_slots::record_objlit_stores(checker, ast, &ann_ty, init);
             if accessor_layout {
                 // Pushing the annotation's element type onto the
                 // literal is the same adoption by another route: it
@@ -218,9 +223,10 @@ pub(crate) fn check(
             declared_class,
             builtin_mv,
             exec_result,
-            fn_slot: ((ast.fnsig_mismatch_bindings.contains(name) || face_slot)
+            fn_slot: (((ast.fnsig_mismatch_bindings.contains(name) || face_slot)
                 && type_ann.as_deref().is_some_and(crate::ast::is_fn_like_ann))
-            .then_some(crate::check::FnSlot::Let(init)),
+                || ret_slot)
+                .then_some(crate::check::FnSlot::Let(init)),
             union: const_literal(ast, mutable, type_ann, init),
             held_any,
             ann: type_ann.clone(),

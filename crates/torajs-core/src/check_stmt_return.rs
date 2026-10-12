@@ -65,6 +65,9 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, maybe_expr: Option<ExprId>
             "return type mismatch: function expects {expected:?}, got {actual:?}"
         ));
     }
+    if let Some(eid) = maybe_expr {
+        crate::check::face_slots::record_return(checker, ast, &expected, eid, &actual);
+    }
     if let Some(eid) = maybe_expr
         && !expected.is_copy()
     {
