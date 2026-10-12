@@ -58,6 +58,37 @@ type Parent = (Option<String>, Option<Vec<String>>);
 /// What one round adds: param marks and return-lane marks.
 pub(crate) type RoundMarks = (Vec<(String, usize)>, Vec<String>);
 
+/// Method name → the class methods `__cm_<C>__<k>` with fn-typed
+/// params, for a name unrelated classes declare: only then does the
+/// class desugar leave `x.k(...)` a member call, until the receiver's
+/// type picks the class. A name one class declares becomes a direct
+/// call (a member call left under it is a builtin's, `this.xs.map(..)`),
+/// and an override chain calls its `__dispatch_` stub.
+fn sibling_methods<'a>(
+    ast: &'a Ast,
+    fn_params: &HashMap<String, Vec<(usize, String)>>,
+    shifts: &HashMap<&str, usize>,
+) -> HashMap<&'a str, Vec<Holder>> {
+    let mut out: HashMap<&str, Vec<Holder>> = HashMap::new();
+    for (name, owners) in &ast.method_owners {
+        let base = &owners[0];
+        let chain = owners[1..]
+            .iter()
+            .all(|sub| crate::ast::method_owner_is_in_chain(&ast.class_parents, base, sub));
+        if chain || ast.accessor_slots.contains(name) {
+            continue;
+        }
+        for owner in owners {
+            let callee = format!("__cm_{owner}__{name}");
+            if fn_params.contains_key(&callee) {
+                let shift = shifts.get(callee.as_str()).copied().unwrap_or(0);
+                out.entry(name.as_str()).or_default().push((callee, shift));
+            }
+        }
+    }
+    out
+}
+
 /// Per function (by name), its `const` locals initialized from a bare
 /// name: `const k = h` lets a relay through `k` reach `h`. A `let`
 /// stays out, since a later write may bind a different function.
@@ -136,21 +167,7 @@ impl CallSites {
                 }
             }
         }
-        // a class method `__cm_<C>__<k>`, filed under every name it
-        // may end in (a class or method name may hold `__` itself)
-        let mut methods: HashMap<&str, Vec<Holder>> = HashMap::new();
-        for (name, _, shift) in &decls {
-            let Some(rest) = name.strip_prefix("__cm_") else {
-                continue;
-            };
-            if !fn_params.contains_key(*name) {
-                continue;
-            }
-            for (i, _) in rest.match_indices("__") {
-                let held = (name.to_string(), *shift);
-                methods.entry(&rest[i + 2..]).or_default().push(held);
-            }
-        }
+        let methods = sibling_methods(ast, fn_params, &shifts);
         let mut walk = Walk {
             ast,
             fn_params,
@@ -317,7 +334,7 @@ struct Walk<'a> {
     ast: &'a Ast,
     fn_params: &'a HashMap<String, Vec<(usize, String)>>,
     holders: &'a HashMap<String, Vec<Holder>>,
-    /// method name → the class methods declaring it with fn-typed params
+    /// [`sibling_methods`]
     methods: &'a HashMap<&'a str, Vec<Holder>>,
     calls: Vec<CallSite>,
     escaped: HashSet<String>,
