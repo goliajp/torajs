@@ -17,7 +17,7 @@ type Renames = HashMap<String, String>;
 
 /// Rename in the body that owned the lifted declarations; its own
 /// bindings are the lifted ones, so nothing here hides them.
-pub(super) fn rename_in_owner(ast: &mut Ast, body: &mut [Stmt], renames: &Renames) {
+pub(in crate::ast) fn rename_in_owner(ast: &mut Ast, body: &mut [Stmt], renames: &Renames) {
     for s in body.iter_mut() {
         rename_stmt(ast, s, renames);
     }
@@ -226,7 +226,7 @@ fn rename_stmt(ast: &mut Ast, s: &mut Stmt, renames: &Renames) {
 
 /// Rename the references in one expression tree; a function value's
 /// body is a function scope of its own.
-fn rename_expr(ast: &mut Ast, eid: ExprId, renames: &Renames) {
+pub(in crate::ast) fn rename_expr(ast: &mut Ast, eid: ExprId, renames: &Renames) {
     let mut seen: HashSet<ExprId> = HashSet::new();
     let mut stack = vec![eid];
     while let Some(id) = stack.pop() {

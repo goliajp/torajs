@@ -24,10 +24,9 @@
 //! source name.
 
 use super::annexb_fn_var::{AnnexB, LiftCtx, LiftMode};
-use super::desugar_generators_alpha::rebinds_in_stmt;
+use super::desugar_async_nested_fns::rename::{rename_expr, rename_in_owner};
 use super::nested_fns::collect_nested_fns_in_stmt;
 use super::nested_fns_capture::is_synthetic;
-use super::nested_fns_idents::{rewrite_idents_in_expr, rewrite_idents_in_stmt};
 use super::stmt_nested_lists::for_each_nested_vec_mut;
 use super::{Ast, Expr, ExprId, Stmt, SwitchCase};
 use std::collections::{HashMap, HashSet};
@@ -164,9 +163,7 @@ pub(super) fn lift_case_block(
 /// Inner switches first — the walk finishes an inner one before the
 /// outer one, so that is the order `pending` is in. A reference an
 /// inner CaseBlock already took is under a fresh name by the time the
-/// outer one renames. A statement that binds the name again anywhere
-/// inside it is left alone, as `switch_tdz_flag` does: its occurrences
-/// may be the inner binding's, and leaving one can only miss.
+/// outer one renames.
 pub(super) fn apply_case_block_renames(
     ast: &mut Ast,
     body: &mut [Stmt],
@@ -195,26 +192,25 @@ pub(super) fn apply_case_block_renames(
 
 /// Rename each `(source name, slot)` in the case selectors and clause
 /// bodies of one switch — not its scrutinee, which is evaluated outside
-/// the CaseBlock.
+/// the CaseBlock. Below the clause level the rename stops at any block,
+/// loop head, `catch`, inner switch or function that binds the name
+/// again, so only the references the CaseBlock's binding resolves
+/// follow it.
 pub(super) fn rename_case_block(
     ast: &mut Ast,
     cases: &mut [SwitchCase],
     default: &mut Option<Vec<Stmt>>,
     slots: &[(String, String)],
 ) {
-    for (name, slot) in slots {
-        let map: HashMap<String, String> = HashMap::from([(name.clone(), slot.clone())]);
-        for c in cases.iter_mut() {
-            rewrite_idents_in_expr(ast, c.value, &map, true);
-        }
-        let bodies = cases
-            .iter_mut()
-            .map(|c| &mut c.body)
-            .chain(default.as_mut());
-        for s in bodies.flat_map(|b| b.iter_mut()) {
-            if !rebinds_in_stmt(s, name) {
-                rewrite_idents_in_stmt(ast, s, &map, true);
-            }
-        }
+    let map: HashMap<String, String> = slots.iter().cloned().collect();
+    for c in cases.iter_mut() {
+        rename_expr(ast, c.value, &map);
+    }
+    let bodies = cases
+        .iter_mut()
+        .map(|c| &mut c.body)
+        .chain(default.as_mut());
+    for b in bodies {
+        rename_in_owner(ast, b, &map);
     }
 }

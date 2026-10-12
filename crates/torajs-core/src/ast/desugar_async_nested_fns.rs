@@ -57,7 +57,7 @@
 use super::{Ast, Expr, ExprId, Stmt};
 
 mod lift;
-mod rename;
+pub(super) mod rename;
 mod select;
 use select::Route;
 
