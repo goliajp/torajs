@@ -220,6 +220,9 @@ pub(super) struct LiftCtx {
     /// the whole thing, var binding included. Pushed and truncated by
     /// the walk, so it is a stack, not a set.
     lex: Vec<String>,
+    /// Switches the walk wrapped to give their CaseBlock one binding per
+    /// function, drained by the rename half after the flush.
+    pub(super) case_blocks: Vec<super::nested_fns_case_block::CaseBlockSlots>,
 }
 
 impl LiftCtx {
@@ -237,6 +240,7 @@ impl LiftCtx {
             eval_annexb: ast.eval_annexb_fn_names.clone(),
             eval_var_inits: Vec::new(),
             lex: Vec::new(),
+            case_blocks: Vec::new(),
         }
     }
 

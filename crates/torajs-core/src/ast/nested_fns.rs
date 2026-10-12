@@ -13,6 +13,7 @@
 
 use super::annexb_fn_var::{AnnexB, LiftCtx, LiftMode};
 use super::annexb_names::{block_nested_fn_names, own_fn_names, param_names};
+use super::nested_fns_case_block::apply_case_block_renames;
 use super::nested_fns_catch::apply_catch_renames;
 use super::nested_fns_idents::{rewrite_idents_in_body, rewrite_idents_in_stmt};
 use super::nested_fns_walk::descend_into_children;
@@ -137,6 +138,7 @@ fn desugar_nested_fns_once(ast: &mut Ast) {
             // renamed catch parameter's original name are the ones that
             // meant the parameter.
             apply_catch_renames(ast, body, &ctx.catch_renames);
+            apply_case_block_renames(ast, body, std::mem::take(&mut ctx.case_blocks));
             new_top.extend(lifted);
         }
     }
@@ -209,6 +211,7 @@ fn desugar_nested_fns_once(ast: &mut Ast) {
         }
     }
     apply_catch_renames(ast, &mut top, &ctx.catch_renames);
+    apply_case_block_renames(ast, &mut top, std::mem::take(&mut ctx.case_blocks));
     new_top.extend(top_lifted);
     // Pass 3 — function-expression bodies, which are neither of the two
     // scopes above. Runs while those bodies are still whole: after

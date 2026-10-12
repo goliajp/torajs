@@ -9,6 +9,7 @@
 use super::Stmt;
 use super::annexb_fn_var::{LiftCtx, LiftMode};
 use super::nested_fns::{collect_nested_fns_in_stmt, collect_nested_fns_to_lift};
+use super::nested_fns_case_block::lift_case_block;
 use super::nested_fns_catch::rename_catch_param_if_shadowing;
 use std::collections::{HashMap, HashSet};
 
@@ -172,29 +173,9 @@ pub(super) fn descend_into_children(
                 );
             }
         }
-        Stmt::Switch { cases, default, .. } => {
-            for case in cases.iter_mut() {
-                collect_nested_fns_to_lift(
-                    &mut case.body,
-                    parent_name,
-                    renames,
-                    branch_scoped,
-                    mode.descend(),
-                    lifted,
-                    ctx,
-                );
-            }
-            if let Some(d) = default {
-                collect_nested_fns_to_lift(
-                    d,
-                    parent_name,
-                    renames,
-                    branch_scoped,
-                    mode.descend(),
-                    lifted,
-                    ctx,
-                );
-            }
+        // One scope for every clause — §14.12.4.
+        Stmt::Switch { .. } => {
+            lift_case_block(stmt, parent_name, renames, branch_scoped, mode, lifted, ctx);
         }
         _ => {} // leaf stmts have no nested FnDecl children
     }

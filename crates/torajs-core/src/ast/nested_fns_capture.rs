@@ -76,7 +76,7 @@ use walk::{Scopes, walk_children};
 
 /// Compiler-minted declarations (lifted arrows, class methods, generator
 /// state machines, an earlier nested lift) are never user nesting.
-fn is_synthetic(name: &str) -> bool {
+pub(super) fn is_synthetic(name: &str) -> bool {
     name.starts_with("__closure_")
         || name.starts_with("__cm_")
         || name.starts_with("__sm_")
