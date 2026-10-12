@@ -55,6 +55,12 @@ pub fn blr_reg(rn: Gpr) -> u32 {
     0xD63F_0000 | (rn.idx() << 5)
 }
 
+/// BR Xn — indirect branch through `Xn`, X30 untouched. ARM ARM
+/// C6.2.37. Base = 0xD61F_0000.
+pub fn br_reg(rn: Gpr) -> u32 {
+    0xD61F_0000 | (rn.idx() << 5)
+}
+
 /// B.cond label — conditional branch with 19-bit signed displacement
 /// (scaled by 4). ARM ARM C6.2.32. Base = 0x5400_0000.
 pub fn b_cond_imm19(cond: u8, byte_offset: i32) -> u32 {
@@ -182,6 +188,13 @@ mod tests {
     #[test]
     fn blr_x12_matches_arm_arm() {
         assert_eq!(blr_reg(Gpr::X12), 0xD63F_0180);
+    }
+
+    #[test]
+    fn br_matches_arm_arm() {
+        // the linker veneer's `br x16` word
+        assert_eq!(br_reg(Gpr::X16), 0xD61F_0200);
+        assert_eq!(br_reg(Gpr::X17), 0xD61F_0220);
     }
 
     #[test]

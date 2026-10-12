@@ -36,7 +36,7 @@ mod simd;
 mod sys;
 
 pub use ctrl::{
-    adrp, b_cond_imm19, b_imm26, bl_imm26, blr_reg, brk_imm16, cb_w, cbnz_x, cbz_x, cond,
+    adrp, b_cond_imm19, b_imm26, bl_imm26, blr_reg, br_reg, brk_imm16, cb_w, cbnz_x, cbz_x, cond,
     csel_cond, cset_cond, csinc_cond, nop, ret, tbnz, tbz,
 };
 pub use fp::{

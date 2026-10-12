@@ -66,7 +66,7 @@ pub(crate) mod test_fixtures;
 
 use torajs_core::ssa::id_hash::{HashMap, HashSet};
 
-use torajs_core::ssa::{Function, Module, Type};
+use torajs_core::ssa::{FuncId, Function, Module, Type};
 
 use crate::frame::FrameLayout;
 use crate::reg::{Fpr, Gpr};
@@ -166,6 +166,13 @@ pub struct ModuleFacts {
     /// Per-FuncId return type of a function with a body (None for a
     /// declaration); a sibling call reads it.
     pub(crate) fn_rets: Vec<Option<Type>>,
+    /// Per-SigId return type of a fn-pointer signature; a sibling
+    /// call through a pointer reads it.
+    pub(crate) sig_rets: Vec<Type>,
+    /// The runtime's `(tag, value)`-pair arithmetic (`-` `*` `/` `%`
+    /// `**` on `any`), whose result a sibling call may prove to be an
+    /// immediate (compile/sibcall.rs).
+    pub(crate) arith_pair: Option<FuncId>,
     /// The intrinsic calls that open inline.
     pub(crate) inline: InlineSites,
     /// Symbols known to sit on an 8-byte boundary: the module's data
@@ -184,6 +191,10 @@ impl ModuleFacts {
             fn_rets: (module.funcs.iter())
                 .map(|f| (!f.is_declaration()).then_some(f.ret))
                 .collect(),
+            sig_rets: module.signatures.iter().map(|(_, ret)| *ret).collect(),
+            arith_pair: (module.funcs.iter())
+                .position(|f| f.name == sibcall::ARITH_PAIR)
+                .map(|i| FuncId(i as u32)),
             inline: InlineSites::of_module(module),
             aligned8_syms: global_access::aligned8_syms(module),
         }
@@ -279,7 +290,7 @@ fn emit_body(
         let (alloc, frame) =
             landing::open_block(&mut bytes, block, &shrink, alloc, frame, &frameless);
         let fused = fusions.cmp_of(block.id.0);
-        let sib = sibcall::plan(func, block, &landing.blocks_by_id, alloc, facts, block_slot);
+        let sib = sibcall::plan(func, block, &landing.blocks_by_id, alloc, facts);
         let body = sib.as_ref().map_or(block.insts.len(), |s| s.at);
         for (ii, inst) in block.insts[..body].iter().enumerate() {
             if fusions.emit(&mut bytes, &mut relocs, block, ii, inst, alloc) {
