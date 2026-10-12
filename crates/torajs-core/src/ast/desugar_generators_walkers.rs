@@ -5,6 +5,7 @@
 
 use super::{Ast, Expr, Param, Stmt};
 
+mod for_let_cell;
 mod local_ann;
 mod var_lift;
 
@@ -52,6 +53,9 @@ pub(crate) struct LiftCtx<'a> {
     /// `var_lift` gives one field each — and whether that field may
     /// take the initializer's type (`var_lift::var_slots`).
     pub(crate) vars: std::collections::HashMap<String, bool>,
+    /// Locals `for_let_cell` placed right before the statement that
+    /// reads them: they live within one state arm and stay locals.
+    pub(crate) arm_locals: std::collections::HashSet<String>,
 }
 
 /// Lift the lets of one statement list — every scope that owns one
@@ -89,8 +93,11 @@ pub(crate) fn lift_lets_in_stmt(
     // statement, and for a `for` whose name is still free.
     let taken = taken_names(ctx, lifted);
     super::desugar_generators_alpha::resolve_duplicate_for_let(ast, s, &taken);
+    let taken = taken_names(ctx, lifted);
+    for_let_cell::box_captured_for_let(ast, s, &taken, ctx);
     match s {
         Stmt::LetDecl { is_var: true, .. } => var_lift::lift_var(ast, s, lifted, ctx),
+        Stmt::LetDecl { name, .. } if ctx.arm_locals.contains(name) => {}
         Stmt::LetDecl {
             mutable,
             name,

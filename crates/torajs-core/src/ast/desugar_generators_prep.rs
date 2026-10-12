@@ -100,6 +100,7 @@ pub(super) fn prep_generator_body(
         local_classes,
         machine_class: format!("__Gen_{gen_name}"),
         vars: super::desugar_generators_walkers::var_slots(ast, &gen_body),
+        arm_locals: Default::default(),
     };
     lift_lets_in_list(ast, &mut gen_body, &mut lifted_locals, &mut lift_ctx);
     for i in 0..lifted_locals.len() {
