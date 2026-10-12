@@ -16,6 +16,12 @@
 //! `var` takes an `any` slot — the slot `desugar_var_hoist` gives
 //! every `var` outside generators — which also holds the differently
 //! shaped values several sites may store into the one binding.
+//!
+//! The `let` lift skips the inside of a yield-free `try` / `switch`
+//! and of an inline `for…of` (their `let`s stay plain locals of one
+//! state arm), but a `var` written there is still the function's
+//! binding and may be read after a later `yield`, so those bodies are
+//! walked for `var`s alone.
 
 use super::LiftCtx;
 use crate::ast::free_vars::free_vars_of_body;
@@ -120,4 +126,23 @@ pub(super) fn lift_var(
         target,
         value: init,
     }));
+}
+
+/// Lift the `var`s inside `s` and leave its block-scoped declarations
+/// where they are.
+pub(super) fn lift_vars_only(
+    ast: &mut Ast,
+    s: &mut Stmt,
+    lifted: &mut Vec<(String, String)>,
+    ctx: &mut LiftCtx,
+) {
+    match s {
+        Stmt::LetDecl { is_var: true, .. } => lift_var(ast, s, lifted, ctx),
+        Stmt::FnDecl { .. } | Stmt::ClassDecl { .. } => {}
+        _ => {
+            for c in crate::ast::desugar_with::walk::stmt_children(s) {
+                lift_vars_only(ast, c, lifted, ctx);
+            }
+        }
+    }
 }

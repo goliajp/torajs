@@ -179,6 +179,14 @@ pub(crate) fn lift_lets_in_stmt(
                 if let Some(fs) = finally_body {
                     lift_lets_in_list(ast, fs, lifted, ctx);
                 }
+            } else {
+                for s in body
+                    .iter_mut()
+                    .chain(catch_body.iter_mut())
+                    .chain(finally_body.iter_mut().flatten())
+                {
+                    var_lift::lift_vars_only(ast, s, lifted, ctx);
+                }
             }
         }
         Stmt::Switch {
@@ -187,6 +195,11 @@ pub(crate) fn lift_lets_in_stmt(
             default_at,
             ..
         } => lift_lets_in_switch(ast, cases, default, *default_at, lifted, ctx),
+        // An inline loop (the yield-bearing ones were rewritten to the
+        // manual protocol before the lift): its `let`s stay locals.
+        Stmt::ForOf { body, .. } | Stmt::ForOfSplitIter { body, .. } => {
+            var_lift::lift_vars_only(ast, body, lifted, ctx);
+        }
         _ => {}
     }
 }
@@ -210,6 +223,13 @@ fn lift_lets_in_switch(
         .chain(default.iter().flatten())
         .any(super::desugar_generators_sm_rewrite::stmt_contains_yield);
     if !has_yield {
+        for s in cases
+            .iter_mut()
+            .flat_map(|c| c.body.iter_mut())
+            .chain(default.iter_mut().flatten())
+        {
+            var_lift::lift_vars_only(ast, s, lifted, ctx);
+        }
         return;
     }
     let (before, after) = cases.split_at_mut(default_at);
