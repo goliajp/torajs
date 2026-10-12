@@ -1,19 +1,40 @@
 //! The scope walk behind
 //! [`crate::ast_closure_param_tag::slot_bind::slot_bound_reads`]: block,
 //! function and capture scopes, each frame naming its bindings and
-//! whether each is a slot-read binding.
+//! what each holds.
 
 use crate::ast::desugar_async_sm_walk::visit_expr_children;
 use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
-use crate::ast_closure_param_tag::slot_bind::holds_slot_read;
+use crate::ast_closure_param_tag::slot_bind::bound_of;
 use std::collections::{HashMap, HashSet};
+
+/// What a binding holds, as far as the reads resolving to it care.
+#[derive(Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Bound {
+    #[default]
+    Other,
+    /// an array or iterable of fn values, by its annotation: each
+    /// element read out of it is a closure cell
+    FnElems,
+    /// initialized from a slot read: a closure cell itself
+    SlotRead,
+}
+
+pub(crate) type Frame = HashMap<String, Bound>;
+
+/// Adds `name` to `frame`; of two declarations of one name, the one
+/// holding more wins.
+pub(crate) fn declare(frame: &mut Frame, name: &str, b: Bound) {
+    let e = frame.entry(name.to_string()).or_default();
+    *e = (*e).max(b);
+}
 
 pub(crate) struct Walk<'a> {
     pub(crate) ast: &'a Ast,
-    /// innermost last: name → whether it is a slot-read binding
-    pub(crate) frames: Vec<HashMap<String, bool>>,
+    /// innermost last
+    pub(crate) frames: Vec<Frame>,
     pub(crate) reads: HashSet<ExprId>,
-    pub(crate) inherited: HashMap<String, HashSet<String>>,
+    pub(crate) inherited: HashMap<String, Frame>,
     /// the declarations lifted out of a closure, with their params:
     /// each body sees its defining scope only through its captures,
     /// not through the top level it is placed in
@@ -25,21 +46,20 @@ pub(crate) struct Walk<'a> {
 }
 
 impl Walk<'_> {
-    fn resolves(&self, n: &str) -> bool {
+    fn bound(&self, n: &str) -> Bound {
         let found = self.frames.iter().rev().find_map(|f| f.get(n));
-        found.copied().unwrap_or(false)
+        found.copied().unwrap_or_default()
     }
 
-    fn visible(&self) -> HashSet<String> {
-        let mut names: HashSet<&str> = HashSet::new();
-        for f in &self.frames {
-            names.extend(f.keys().map(String::as_str));
-        }
-        names
-            .into_iter()
-            .filter(|n| self.resolves(n))
-            .map(str::to_string)
-            .collect()
+    /// The names in scope that resolve to anything but `Other`.
+    fn held<'n>(&self, names: impl Iterator<Item = &'n String>) -> Frame {
+        let held = names.map(|n| (n.clone(), self.bound(n)));
+        held.filter(|(_, b)| *b != Bound::Other).collect()
+    }
+
+    fn inherit(&mut self, f: &str, names: Frame) {
+        let into = self.inherited.entry(f.to_string()).or_default();
+        names.iter().for_each(|(n, b)| declare(into, n, *b));
     }
 
     pub(crate) fn block(&mut self, stmts: &[Stmt]) {
@@ -50,7 +70,7 @@ impl Walk<'_> {
     /// A block scope over `stmts`, whose lexical bindings are in scope
     /// throughout; `rest` runs inside it after them.
     fn scope(&mut self, stmts: &[&Stmt], rest: impl FnOnce(&mut Self)) {
-        let mut frame: HashMap<String, bool> = HashMap::new();
+        let mut frame = Frame::new();
         let mut decls: Vec<&Stmt> = stmts.to_vec();
         while let Some(s) = decls.pop() {
             match s {
@@ -63,8 +83,7 @@ impl Walk<'_> {
                     is_var: false,
                     ..
                 } => {
-                    let q = holds_slot_read(self.ast, type_ann.as_deref(), *init);
-                    *frame.entry(name.clone()).or_default() |= q;
+                    declare(&mut frame, name, bound_of(self.ast, type_ann, *init));
                 }
                 Stmt::UsingDecl { name, .. } | Stmt::FnDecl { name, .. } => {
                     frame.entry(name.clone()).or_default();
@@ -80,9 +99,21 @@ impl Walk<'_> {
         self.frames.pop();
     }
 
-    /// A scope binding only `names`, none of them slot reads.
+    /// A scope binding only `names`, none of them holding a cell.
     fn scoped(&mut self, names: &[&String], f: impl FnOnce(&mut Self)) {
-        let frame = names.iter().map(|n| (n.to_string(), false)).collect();
+        let frame = names.iter().map(|n| (n.to_string(), Bound::Other));
+        self.frames.push(frame.collect());
+        f(self);
+        self.frames.pop();
+    }
+
+    /// The scope of a for-of body: an element of an iterable of fn
+    /// values is a closure cell, so is the binding it initializes.
+    fn for_of(&mut self, var: &str, ann: Option<&str>, src: &str, f: impl FnOnce(&mut Self)) {
+        let elem = self.bound(src) == Bound::FnElems
+            && ann.is_none_or(crate::ast_collect_fn_closure_init::is_fn_slot_ann);
+        let b = if elem { Bound::SlotRead } else { Bound::Other };
+        let frame = [(var.to_string(), b)].into_iter().collect();
         self.frames.push(frame);
         f(self);
         self.frames.pop();
@@ -162,6 +193,7 @@ impl Walk<'_> {
             }
             Stmt::ForOf {
                 var_name,
+                var_type_ann,
                 src_ident,
                 i_ident,
                 elem_expr,
@@ -172,10 +204,9 @@ impl Walk<'_> {
                 if let Some(o) = forin_obj {
                     self.expr(*o);
                 }
-                self.scoped(&[var_name, src_ident, i_ident], |w| {
-                    w.expr(*elem_expr);
-                    w.sub(body);
-                });
+                self.scoped(&[src_ident, i_ident], |w| w.expr(*elem_expr));
+                let ann = var_type_ann.as_deref();
+                self.for_of(var_name, ann, src_ident, |w| w.sub(body));
             }
             Stmt::Labeled { body, .. } => self.sub(body),
             Stmt::Try {
@@ -195,8 +226,9 @@ impl Walk<'_> {
             Stmt::Block(b) => self.block(b),
             Stmt::Multi(b) => b.iter().for_each(|s| self.stmt(s)),
             Stmt::FnDecl { name, .. } if !self.lifted.contains_key(name.as_str()) => {
-                let seen = self.visible();
-                self.inherited.entry(name.clone()).or_default().extend(seen);
+                let all: Vec<&String> = self.frames.iter().flat_map(|f| f.keys()).collect();
+                let seen = self.held(all.into_iter());
+                self.inherit(name, seen);
             }
             Stmt::ExportDecl {
                 inner,
@@ -222,7 +254,7 @@ impl Walk<'_> {
 
     fn expr(&mut self, e: ExprId) {
         match self.ast.get_expr(e) {
-            Expr::Ident(n) if self.resolves(n) => {
+            Expr::Ident(n) if self.bound(n) == Bound::SlotRead => {
                 self.reads.insert(e);
             }
             Expr::Call { callee, .. } => {
@@ -233,12 +265,8 @@ impl Walk<'_> {
                 }
             }
             Expr::Closure { fn_name, captures } => {
-                let caught = captures.iter().filter(|c| self.resolves(c)).cloned();
-                let caught: Vec<String> = caught.collect();
-                self.inherited
-                    .entry(fn_name.clone())
-                    .or_default()
-                    .extend(caught);
+                let caught = self.held(captures.iter());
+                self.inherit(fn_name, caught);
                 // a default the closure kept reads names where the closure
                 // is written; they need not be among its captures
                 let params = self.lifted.get(fn_name.as_str()).copied().unwrap_or(&[]);

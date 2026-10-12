@@ -13,7 +13,7 @@
 
 use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
 use crate::ast_closure_param_tag::push_child_stmts;
-use crate::ast_closure_param_tag::slot_walk::Walk;
+use crate::ast_closure_param_tag::slot_walk::{Bound, Frame, Walk, declare};
 use std::collections::{HashMap, HashSet};
 
 /// Every `Ident` read of a binding whose initializer is (or chooses
@@ -46,7 +46,7 @@ pub(crate) fn slot_bound_reads(ast: &Ast) -> HashSet<ExprId> {
     }
     // a nested declaration or lifted closure inherits the names in
     // scope where it sits; that is only known once its parent is walked
-    let mut inherited: HashMap<String, HashSet<String>> = HashMap::new();
+    let mut inherited: HashMap<String, Frame> = HashMap::new();
     loop {
         let mut w = Walk {
             ast,
@@ -58,20 +58,15 @@ pub(crate) fn slot_bound_reads(ast: &Ast) -> HashSet<ExprId> {
         };
         for (name, body, params) in &bodies {
             let seed = name.and_then(|n| inherited.get(n));
-            w.frames = vec![
-                seed.into_iter()
-                    .flatten()
-                    .map(|n| (n.clone(), true))
-                    .collect(),
-            ];
-            w.frames
-                .push(params.iter().map(|p| (p.name.clone(), false)).collect());
+            w.frames = vec![seed.cloned().unwrap_or_default()];
+            let ps = params.iter().map(|p| (p.name.clone(), param_bound(p)));
+            w.frames.push(ps.collect());
             // a lifted closure's defaults are read where the closure
             // sits, a lifted nested declaration's where it is called
             if !name.is_some_and(|n| lifted.contains_key(n) || padded.contains_key(n)) {
                 w.defaults(params);
             }
-            let mut vars = HashMap::new();
+            let mut vars = Frame::new();
             hoisted_vars(ast, body, &mut vars);
             w.frames.last_mut().unwrap().extend(vars);
             w.block(body);
@@ -83,15 +78,31 @@ pub(crate) fn slot_bound_reads(ast: &Ast) -> HashSet<ExprId> {
     }
 }
 
-pub(crate) fn holds_slot_read(ast: &Ast, type_ann: Option<&str>, init: ExprId) -> bool {
-    type_ann.is_none_or(crate::ast_collect_fn_closure_init::is_fn_slot_ann)
+/// What a declaration with this annotation and initializer holds.
+pub(crate) fn bound_of(ast: &Ast, type_ann: &Option<String>, init: ExprId) -> Bound {
+    let ann = type_ann.as_deref();
+    let slot_read = ann.is_none_or(crate::ast_collect_fn_closure_init::is_fn_slot_ann)
         && crate::ast_closure_param_tag_member::passthrough_leaves(ast, init)
             .iter()
-            .any(|&l| matches!(ast.get_expr(l), Expr::Member { .. } | Expr::Index { .. }))
+            .any(|&l| matches!(ast.get_expr(l), Expr::Member { .. } | Expr::Index { .. }));
+    if slot_read {
+        Bound::SlotRead
+    } else if ann.is_some_and(crate::ast::is_fn_arr_ann) {
+        Bound::FnElems
+    } else {
+        Bound::Other
+    }
+}
+
+fn param_bound(p: &Param) -> Bound {
+    match p.type_ann.as_deref() {
+        Some(a) if crate::ast::is_fn_arr_ann(a) => Bound::FnElems,
+        _ => Bound::Other,
+    }
 }
 
 /// A body's `var` bindings, hoisted to its own frame.
-fn hoisted_vars(ast: &Ast, body: &[Stmt], out: &mut HashMap<String, bool>) {
+fn hoisted_vars(ast: &Ast, body: &[Stmt], out: &mut Frame) {
     let mut stack: Vec<&Stmt> = body.iter().collect();
     while let Some(s) = stack.pop() {
         match s {
@@ -103,8 +114,7 @@ fn hoisted_vars(ast: &Ast, body: &[Stmt], out: &mut HashMap<String, bool>) {
                 is_var: true,
                 ..
             } => {
-                let q = holds_slot_read(ast, type_ann.as_deref(), *init);
-                *out.entry(name.clone()).or_default() |= q;
+                declare(out, name, bound_of(ast, type_ann, *init));
             }
             _ => {}
         }
@@ -127,6 +137,7 @@ mod tests {
         let src = format!("{PRE}{src}");
         let toks = tokenize(&src).expect("lex");
         let mut ast = parse(&src, &toks).expect("parse");
+        crate::ast::resolve_type_decls(&mut ast).expect("type decls");
         crate::ast::desugar_capturing_nested_fns(&mut ast);
         crate::ast::desugar_nested_fns(&mut ast);
         lift_arrow_fns(&mut ast);
@@ -171,5 +182,20 @@ mod tests {
                       const g = src.g;\n\
                       const t = () => m(g);\n";
         assert_eq!(bound_reads_of(caught, "g"), 1);
+    }
+
+    #[test]
+    fn for_of_over_fn_values_binds_a_cell() {
+        let arr =
+            "function each(fs: F[]) { let s = 0; for (const g of fs) s += m(g); return s; }\n";
+        assert_eq!(bound_reads_of(arr, "g"), 1);
+        let caught =
+            "function each(fs: Array<F>) { for (const g of fs) { const t = () => m(g); t(); } }\n";
+        assert_eq!(bound_reads_of(caught, "g"), 1);
+        let nums =
+            "function sum(xs: number[]) { let s = 0; for (const g of xs) s += g; return s; }\n";
+        assert_eq!(bound_reads_of(nums, "g"), 0);
+        let shadowed = "function each(fs: F[]) { { const fs = [1]; for (const g of fs) m(g); } }\n";
+        assert_eq!(bound_reads_of(shadowed, "g"), 0);
     }
 }
