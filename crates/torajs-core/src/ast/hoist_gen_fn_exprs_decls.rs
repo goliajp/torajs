@@ -135,7 +135,7 @@ fn count_gen_decls(list: &[Stmt], counts: &mut HashMap<String, usize>) {
 /// is right above it.
 fn convert_list(
     ast: &mut Ast,
-    list: &mut Vec<Stmt>,
+    list: &mut [Stmt],
     globals: &Frames<'_>,
     converted: &mut Vec<String>,
 ) {
