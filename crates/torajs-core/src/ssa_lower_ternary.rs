@@ -34,6 +34,7 @@
 use crate::ast::ExprId;
 use crate::ssa::{InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::LowerCtx;
+use crate::ssa_lower_call_fn_cell as fn_cell;
 
 mod object_join;
 
@@ -329,7 +330,44 @@ fn widen_branches(
         }
         return (then_val, else_val, Type::Any, false, false);
     }
+    if let Some(j) = fn_cell_join(
+        ctx,
+        (then_val, else_val),
+        (then_end, else_end),
+        (then_branch, else_branch),
+    ) {
+        return j;
+    }
     (then_val, else_val, tt, false, false)
+}
+
+/// A top-level function against a cell of its signature (`c ? h :
+/// o.g`, the destructuring default `{ g = h }`): the pointer arm
+/// becomes its own cell, fresh, so the join is a cell whichever arm
+/// ran instead of the cell being called as a code address. None when
+/// the arms are not that pair, or the pointer arm is not a static
+/// choice of top-level functions.
+fn fn_cell_join(
+    ctx: &mut LowerCtx<'_>,
+    (then_val, else_val): (Operand, Operand),
+    (then_end, else_end): (&mut crate::ssa::BlockId, &mut crate::ssa::BlockId),
+    (then_branch, else_branch): (ExprId, ExprId),
+) -> Option<(Operand, Operand, Type, bool, bool)> {
+    match (ctx.operand_ty(&then_val), ctx.operand_ty(&else_val)) {
+        (Type::FnSig(a), cell @ Type::Closure(b)) if a == b => {
+            ctx.cur_block = *then_end;
+            let c = fn_cell::static_fn_value_cell(ctx, cell, then_branch, then_val)?;
+            *then_end = ctx.cur_block;
+            Some((c, else_val, cell, true, false))
+        }
+        (cell @ Type::Closure(a), Type::FnSig(b)) if a == b => {
+            ctx.cur_block = *else_end;
+            let c = fn_cell::static_fn_value_cell(ctx, cell, else_branch, else_val)?;
+            *else_end = ctx.cur_block;
+            Some((then_val, c, cell, false, true))
+        }
+        _ => None,
+    }
 }
 
 /// Box one arm at the end of its own block. The box is fresh, so a

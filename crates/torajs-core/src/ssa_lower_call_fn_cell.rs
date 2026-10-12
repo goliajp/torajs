@@ -69,7 +69,9 @@ pub(crate) fn fn_choice_owned_cell(
     static_fn_value_cell(ctx, expected, e, op)
 }
 
-fn static_fn_value_cell(
+/// [`fn_value_cell`] answering None, instead of refusing, when `arg`
+/// is not a static choice of top-level functions.
+pub(crate) fn static_fn_value_cell(
     ctx: &mut LowerCtx<'_>,
     expected: Type,
     arg: ExprId,
