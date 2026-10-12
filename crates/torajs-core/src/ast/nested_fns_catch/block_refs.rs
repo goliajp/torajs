@@ -18,7 +18,8 @@
 //! §B.3.3 write copies the `let`'s value at the declaration's text
 //! (§B.3.3.1: `benv.GetBindingValue(F)`).
 
-use super::super::desugar_with::walk::{expr_children, stmt_children_ref, stmt_exprs};
+use super::super::desugar_with::walk::stmt_children_ref;
+use super::super::free_vars_write::assigns_name;
 use super::super::nested_fns_idents::rewrite_idents_in_stmt;
 use super::super::{Ast, Expr, ExprId, Stmt};
 use std::collections::HashMap;
@@ -83,7 +84,7 @@ fn list(ast: &mut Ast, stmts: &mut Vec<Stmt>) {
         let assigned = stmts
             .iter()
             .enumerate()
-            .any(|(i, s)| !writes.iter().any(|(x, _, _)| x == &i) && assigns(ast, s, name));
+            .any(|(i, s)| !writes.iter().any(|(x, _, _)| x == &i) && assigns_name(ast, s, name));
         if !assigned {
             map.insert(name.clone(), lifted.clone());
             continue;
@@ -118,30 +119,6 @@ fn list(ast: &mut Ast, stmts: &mut Vec<Stmt>) {
         rewrite_idents_in_stmt(ast, s, &own, true);
     }
     stmts.splice(0..0, heads);
-}
-
-/// Does `s` assign `name` (`=`, a compound assignment, `++` / `--`),
-/// arrow bodies included? Shadowing is not consulted: a false yes only
-/// costs the block binding a slot of its own.
-fn assigns(ast: &Ast, s: &Stmt, name: &str) -> bool {
-    stmt_exprs(s).into_iter().any(|e| expr_assigns(ast, e, name))
-        || stmt_children_ref(s)
-            .into_iter()
-            .any(|c| assigns(ast, c, name))
-}
-
-fn expr_assigns(ast: &Ast, e: ExprId, name: &str) -> bool {
-    match ast.get_expr(e) {
-        Expr::Assign { target, .. } | Expr::PostIncr { target, .. }
-            if matches!(ast.get_expr(*target), Expr::Ident(n) if n == name) =>
-        {
-            true
-        }
-        Expr::ArrowFn { body, .. } => body.iter().any(|s| assigns(ast, s, name)),
-        _ => expr_children(ast, e)
-            .into_iter()
-            .any(|c| expr_assigns(ast, c, name)),
-    }
 }
 
 fn write_value(ast: &Ast, s: &Stmt) -> Option<ExprId> {

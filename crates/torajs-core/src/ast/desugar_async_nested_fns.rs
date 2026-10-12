@@ -180,7 +180,9 @@ fn rewrite_declarations(
             )),
             _ => None,
         };
-        body[i] = value::to_value_binding(ast, taken);
+        let assigned = matches!(&taken, Stmt::FnDecl { name, .. }
+            if body.iter().any(|s| super::free_vars_write::assigns_name(ast, s, name)));
+        body[i] = value::to_value_binding(ast, taken, assigned);
         if let Some(reads) = reads {
             super::hoist_gen_fn_exprs_decls::raise_binding(body, i, &reads);
         } else if let Stmt::LetDecl { init, .. } = &body[i] {

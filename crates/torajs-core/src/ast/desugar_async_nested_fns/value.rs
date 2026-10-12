@@ -3,9 +3,12 @@
 
 use super::super::{Ast, Expr, Stmt};
 
-/// `function f(p): R { … }` → `let f = function (p): R { … }`; an async
-/// declaration's value is marked async.
-pub(super) fn to_value_binding(ast: &mut Ast, s: Stmt) -> Stmt {
+/// `function f(p): R { … }` → `const f = function (p): R { … }`; an
+/// async declaration's value is marked async. A function declaration's
+/// binding is mutable (§10.2.11 step 36 creates it with
+/// `CreateMutableBinding`), so when the scope `assigned` the name it
+/// is a `let` of any value.
+pub(super) fn to_value_binding(ast: &mut Ast, s: Stmt, assigned: bool) -> Stmt {
     let Stmt::FnDecl {
         name,
         params,
@@ -34,15 +37,20 @@ pub(super) fn to_value_binding(ast: &mut Ast, s: Stmt) -> Stmt {
             },
         );
     } else {
+        // §15.2.5 InstantiateOrdinaryFunctionObject names the function
+        // after its declaration; the value takes the NamedEvaluation
+        // slot a destructuring default's anonymous definition takes
+        let shown = ast.renamed_binding_display.get(&name).unwrap_or(&name);
+        ast.dstr_default_names.insert(eid, shown.clone());
         ast.fn_expr_exprs.insert(eid);
         if ast.async_fns.contains(&name) {
             ast.async_fn_value_exprs.insert(eid);
         }
     }
     Stmt::LetDecl {
-        mutable: false,
+        mutable: assigned,
         name,
-        type_ann: None,
+        type_ann: assigned.then(|| "any".to_string()),
         init: eid,
         is_var: false,
     }

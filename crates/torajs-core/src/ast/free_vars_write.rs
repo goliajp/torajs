@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use super::desugar_with::walk;
+use super::desugar_with::walk::{self, expr_children, stmt_children_ref, stmt_exprs};
 use super::free_vars::{Bound, FreeSink, walk_stmt};
 use super::{Ast, Expr, ExprId, Stmt};
 
@@ -56,4 +56,35 @@ fn free_sites(ast: &Ast, decl: &Stmt) -> HashMap<ExprId, String> {
     let mut sites = Sites(HashMap::new());
     walk_stmt(ast, decl, &mut bound, &mut sites);
     sites.0
+}
+
+/// Does `s` assign `name` (`=`, a compound assignment, `++` / `--`),
+/// nested function bodies included? Shadowing is not consulted, so a
+/// caller must read a false yes as the safe answer.
+pub(crate) fn assigns_name(ast: &Ast, s: &Stmt, name: &str) -> bool {
+    if let Stmt::FnDecl { body, .. } = s {
+        return body.iter().any(|c| assigns_name(ast, c, name));
+    }
+    stmt_exprs(s)
+        .into_iter()
+        .any(|e| expr_assigns(ast, e, name))
+        || stmt_children_ref(s)
+            .into_iter()
+            .any(|c| assigns_name(ast, c, name))
+}
+
+fn expr_assigns(ast: &Ast, e: ExprId, name: &str) -> bool {
+    let target = match ast.get_expr(e) {
+        Expr::Assign { target, .. } | Expr::PostIncr { target, .. } => Some(*target),
+        _ => None,
+    };
+    if target.is_some_and(|t| matches!(ast.get_expr(t), Expr::Ident(n) if n == name)) {
+        return true;
+    }
+    match ast.get_expr(e) {
+        Expr::ArrowFn { body, .. } => body.iter().any(|s| assigns_name(ast, s, name)),
+        _ => expr_children(ast, e)
+            .into_iter()
+            .any(|c| expr_assigns(ast, c, name)),
+    }
 }
