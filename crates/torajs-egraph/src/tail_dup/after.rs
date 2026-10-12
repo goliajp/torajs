@@ -19,8 +19,14 @@ use torajs_core::ssa::{BlockId, Function};
 /// The new immediate dominator of every block copying gave one, by
 /// block id: each copied block and each block of a copied tail. `None`
 /// when a tail block has a predecessor the old tree's reverse postorder
-/// meets after it, which only an irreducible graph has; the caller then
-/// computes the tree afresh.
+/// meets after it, which only an irreducible graph has, or when an arm
+/// that got a copy is unreachable (a loop body holds the unreachable
+/// blocks that branch into it, and their copies would be unreachable
+/// too); the caller then computes the tree afresh.
+///
+/// Only edges from blocks the old tree reaches count, as only those
+/// count in a tree computed afresh: copying leaves every original
+/// block as reachable as it was, and no copy branches into a tail.
 pub(crate) fn idoms_after(
     func: &Function,
     dom: &DominatorTree,
@@ -34,6 +40,9 @@ pub(crate) fn idoms_after(
             in_tail[t as usize] = true;
         }
         for &(arm, first) in &join.copies {
+            if !dom.is_reachable(BlockId(arm)) {
+                return None;
+            }
             idoms[first as usize] = Some(arm);
             for k in 1..join.tail.len() as u32 {
                 idoms[(first + k) as usize] = Some(first + k - 1);
