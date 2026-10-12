@@ -27,6 +27,7 @@ use crate::check::Checker;
 ///   all-literal array its `T[]`, a `new C()` its class or collection;
 /// - a literal / operator / named-fn-call init spells its scalar
 ///   shape (`ast_refs::infer_toplevel_slot_shape`);
+/// - a `parseInt` / `parseFloat` call on the builtin route is `f64`;
 /// - a call result or literal no shape names, but the `any` slot can
 ///   hold (the test262 IIFE-iterator idiom), is `any`.
 ///   `var` stays main-local in every arm but the scalar shape (the hoist
@@ -77,6 +78,16 @@ pub(super) fn synthesized_spelling(
             S::RegExp => "regex",
         };
         return Some((spelling.into(), false));
+    }
+    // §19.2.4 / §19.2.5 — the builtin parsers answer a Number on
+    // every input and their route lowers to an f64; only a user
+    // binding or a patched global of the name loses that certainty
+    if let Expr::Call { callee, .. } = ast.get_expr(init)
+        && let Expr::Ident(fname) = ast.get_expr(*callee)
+        && matches!(fname.as_str(), "parseInt" | "parseFloat")
+        && crate::check_type_of_call_bare_globals::takes_route(c, ast, fname)
+    {
+        return Some(("f64".into(), false));
     }
     (!is_var && crate::ast_refs_any_promote::any_promote_init(ast, init))
         .then(|| ("any".into(), true))

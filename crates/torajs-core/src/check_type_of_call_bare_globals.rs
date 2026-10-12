@@ -58,6 +58,31 @@ pub(crate) fn has_route(name: &str) -> bool {
     )
 }
 
+/// Whether a bare call of `name` reaches the builtin's dedicated route
+/// rather than a user binding or a patched global-object property.
+pub(crate) fn takes_route(checker: &Checker, ast: &Ast, name: &str) -> bool {
+    if !has_route(name) {
+        return false;
+    }
+    // A module that writes this property of the global object
+    // takes the general cascade: the callee reads Any there
+    // (`check_type_of_ident`), which is what routes the call to
+    // the runtime dispatcher.
+    if checker.proto_shadow.writes_global(name) {
+        return false;
+    }
+    // §9.1.1.1 — a user binding of the name (local, parameter,
+    // capture, top-level function or binding) answers before the
+    // global object, so the call is an ordinary call of it. The
+    // top-level check is the lowering's (`user_binds`): a call
+    // ahead of a top-level `let` reaches that binding in its dead
+    // zone, not the builtin.
+    !(checker.lookup(name).is_some()
+        || checker.globals.contains_key(name)
+        || checker.hoisted_closure_lets.contains_key(name)
+        || crate::ast::toplevel_binds(ast, name))
+}
+
 pub(crate) fn try_match(
     checker: &mut Checker,
     ast: &Ast,
@@ -65,27 +90,7 @@ pub(crate) fn try_match(
     args: &[ExprId],
 ) -> Option<Result<Type, String>> {
     if let Expr::Ident(name) = ast.get_expr(*callee) {
-        if !has_route(name) {
-            return None;
-        }
-        // A module that writes this property of the global object
-        // takes the general cascade: the callee reads Any there
-        // (`check_type_of_ident`), which is what routes the call to
-        // the runtime dispatcher.
-        if checker.proto_shadow.writes_global(name) {
-            return None;
-        }
-        // §9.1.1.1 — a user binding of the name (local, parameter,
-        // capture, top-level function or binding) answers before the
-        // global object, so the call is an ordinary call of it. The
-        // top-level check is the lowering's (`user_binds`): a call
-        // ahead of a top-level `let` reaches that binding in its dead
-        // zone, not the builtin.
-        if checker.lookup(name).is_some()
-            || checker.globals.contains_key(name)
-            || checker.hoisted_closure_lets.contains_key(name)
-            || crate::ast::toplevel_binds(ast, name)
-        {
+        if !takes_route(checker, ast, name) {
             return None;
         }
         match name.as_str() {
