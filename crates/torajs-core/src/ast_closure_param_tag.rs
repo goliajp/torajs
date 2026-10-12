@@ -49,6 +49,8 @@
 //!    the residue.
 
 pub(crate) mod defaults;
+pub(crate) mod slot_bind;
+pub(crate) mod slot_walk;
 
 use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
 use defaults::mark_closure_defaults;
@@ -116,6 +118,7 @@ pub fn tag_closure_arg_params(ast: &mut Ast) {
     let relayed = crate::ast::escaping_fn_aliases(ast, &|g| fn_sigs.contains_key(g));
     closure_idents.extend(relayed.into_iter().map(|(_, local, _)| local));
     let fn_alias_lets = crate::ast_closure_param_tag_collect::fn_alias_lets(ast, &fn_sigs);
+    let bound = crate::ast_closure_param_tag::slot_bind::slot_bound_reads(ast);
     let mut alias_wraps: HashSet<String> = HashSet::new();
 
     // ── Mark fn-typed params that receive a closure-shaped argument
@@ -149,7 +152,7 @@ pub fn tag_closure_arg_params(ast: &mut Ast) {
                 let Some(arg) = args.get(*idx) else {
                     continue;
                 };
-                if is_closure_shaped(ast, *arg, &closure_idents, &ret_marked)
+                if is_closure_shaped(ast, *arg, &closure_idents, &bound, &ret_marked)
                     && marked.insert((fname.clone(), *idx))
                 {
                     changed = true;
@@ -178,14 +181,14 @@ pub fn tag_closure_arg_params(ast: &mut Ast) {
             ast,
             &fn_returns,
             &unannotated,
-            &closure_idents,
+            (&closure_idents, &bound),
             &mut ret_marked,
         );
         changed |= mark_ret_lets(ast, &ret_marked, &mut closure_idents);
         // member calls, and the backward round: what reaches a marked
         // slot from the calling frame carries the closure shape too
         // (see the member sibling)
-        let shaped = |e| is_closure_shaped(ast, e, &closure_idents, &ret_marked);
+        let shaped = |e| is_closure_shaped(ast, e, &closure_idents, &bound, &ret_marked);
         let (ms, rs) = sites.round(ast, &fn_params, &fn_returns, &marked, &shaped);
         for m in ms {
             changed |= marked.insert(m);
@@ -193,7 +196,8 @@ pub fn tag_closure_arg_params(ast: &mut Ast) {
         for r in rs {
             changed |= ret_marked.insert(r);
         }
-        if mark_closure_defaults(ast, &fn_params, &closure_idents, &ret_marked, &mut marked) {
+        let held = (&closure_idents, &bound);
+        if mark_closure_defaults(ast, &fn_params, held, &ret_marked, &mut marked) {
             changed = true;
         }
         if !changed {
@@ -228,7 +232,7 @@ pub fn tag_closure_arg_params(ast: &mut Ast) {
         &fn_sigs,
         &marked,
         &ret_marked,
-        &closure_idents,
+        (&closure_idents, &bound),
         &alias_init_sites,
         &mut existing_forwarders,
     );
@@ -249,21 +253,19 @@ fn mark_closure_returns(
     ast: &Ast,
     fn_returns: &HashMap<String, Vec<ExprId>>,
     unannotated: &HashSet<String>,
-    closure_idents: &HashSet<String>,
+    (closure_idents, bound): Held,
     ret_marked: &mut HashSet<String>,
 ) -> bool {
     let mut changed = false;
     for (fname, rets) in fn_returns {
-        let yields = if unannotated.contains(fname) {
-            is_closure_valued
+        let valued = |r: ExprId| is_closure_valued(ast, r, closure_idents, ret_marked);
+        let shaped = |r: ExprId| is_closure_shaped(ast, r, closure_idents, bound, ret_marked);
+        let yields: &dyn Fn(ExprId) -> bool = if unannotated.contains(fname) {
+            &valued
         } else {
-            is_closure_shaped
+            &shaped
         };
-        if !ret_marked.contains(fname)
-            && rets
-                .iter()
-                .any(|r| yields(ast, *r, closure_idents, ret_marked))
-        {
+        if !ret_marked.contains(fname) && rets.iter().any(|r| yields(*r)) {
             ret_marked.insert(fname.clone());
             changed = true;
         }
@@ -295,6 +297,10 @@ fn mark_ret_lets(
     changed
 }
 
+/// The closure-holding names, and the reads of a slot-read binding
+/// resolved by scope (see the slot_bind sibling).
+pub(crate) type Held<'a> = (&'a HashSet<String>, &'a HashSet<ExprId>);
+
 /// Closure-shaped value predicate shared by the param-arg and
 /// return-site marking rounds: a closure literal, a closure-holding
 /// ident, or a call to a fn whose return lane is closure-marked.
@@ -302,9 +308,10 @@ pub(crate) fn is_closure_shaped(
     ast: &Ast,
     eid: ExprId,
     closure_idents: &HashSet<String>,
+    bound: &HashSet<ExprId>,
     ret_marked: &HashSet<String>,
 ) -> bool {
-    closure_shape(ast, eid, closure_idents, ret_marked, true)
+    closure_shape(ast, eid, closure_idents, ret_marked, Some(bound))
 }
 
 /// [`is_closure_shaped`] without the slot-read arm, for the returns of
@@ -319,7 +326,7 @@ fn is_closure_valued(
     closure_idents: &HashSet<String>,
     ret_marked: &HashSet<String>,
 ) -> bool {
-    closure_shape(ast, eid, closure_idents, ret_marked, false)
+    closure_shape(ast, eid, closure_idents, ret_marked, None)
 }
 
 fn closure_shape(
@@ -327,12 +334,15 @@ fn closure_shape(
     eid: ExprId,
     closure_idents: &HashSet<String>,
     ret_marked: &HashSet<String>,
-    slot_reads: bool,
+    slot_reads: Option<&HashSet<ExprId>>,
 ) -> bool {
     let again = |e| closure_shape(ast, e, closure_idents, ret_marked, slot_reads);
     match ast.get_expr(eid) {
         Expr::Closure { .. } => true,
-        Expr::Ident(n) => closure_idents.contains(n),
+        // a binding a slot read initializes holds what the slot held
+        Expr::Ident(n) => {
+            closure_idents.contains(n) || slot_reads.is_some_and(|b| b.contains(&eid))
+        }
         Expr::Call { callee, .. } => {
             matches!(ast.get_expr(*callee), Expr::Ident(f) if ret_marked.contains(f))
         }
@@ -353,7 +363,7 @@ fn closure_shape(
         // over-marks the param, which costs direct dispatch but keeps
         // the shapes uniform — a fn-typed param's argument is a fn
         // value either way, so the retag stays sound.
-        Expr::Member { .. } | Expr::Index { .. } => slot_reads,
+        Expr::Member { .. } | Expr::Index { .. } => slot_reads.is_some(),
         // The value-passthrough operators hand one of their operands
         // straight through, so the shape question is the operands'.
         // Without this a `__fn(`-annotated return whose value was
@@ -487,6 +497,34 @@ mod tests {
             pass_output("function f(thunk: () => void): void { thunk(); }\nf(function() {});\n");
         let ann = fn_param_ann(&ast, "f", 0).unwrap();
         assert!(ann.starts_with("__cls("), "expected __cls retag, got {ann}");
+    }
+
+    #[test]
+    fn destructured_binding_arg_retags_param() {
+        // `{ g }` binds `let g = src.g`: a slot read, so a cell
+        let ast = pass_output(
+            "function m(f: (x: number) => number): number { return f(1); }\n\
+             function o({ g }: { g: (x: number) => number }) { return m(g); }\n",
+        );
+        let ann = fn_param_ann(&ast, "m", 0).unwrap();
+        assert!(ann.starts_with("__cls("), "expected __cls retag, got {ann}");
+    }
+
+    #[test]
+    fn slot_read_binding_elsewhere_keeps_named_fn_wrap() {
+        // `const inc = o.inc` in another function names a number; the
+        // top-level `inc` reaching the retagged param still wraps
+        let ast = pass_output(
+            "function m(f: (x: number) => number): number { return f(1); }\n\
+             function inc(x: number): number { return x + 1; }\n\
+             function c(o: { inc: number }) { const inc = o.inc; return inc; }\n\
+             m((x) => x); m(inc);\n",
+        );
+        let wrapped = ast
+            .exprs
+            .iter()
+            .any(|e| matches!(e, Expr::Closure { fn_name, .. } if fn_name == "__forward_inc"));
+        assert!(wrapped, "expected `inc` wrapped into __forward_inc");
     }
 
     #[test]

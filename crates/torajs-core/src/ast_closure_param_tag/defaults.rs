@@ -2,7 +2,7 @@
 //! fixpoint.
 
 use crate::ast::{Ast, Stmt};
-use crate::ast_closure_param_tag::{is_closure_shaped, push_child_stmts};
+use crate::ast_closure_param_tag::{Held, is_closure_shaped, push_child_stmts};
 use std::collections::{HashMap, HashSet};
 
 /// r359 — a fn-typed param whose DEFAULT is closure-shaped receives
@@ -15,7 +15,7 @@ use std::collections::{HashMap, HashSet};
 pub(crate) fn mark_closure_defaults(
     ast: &Ast,
     fn_params: &HashMap<String, Vec<(usize, String)>>,
-    closure_idents: &HashSet<String>,
+    (closure_idents, bound): Held,
     ret_marked: &HashSet<String>,
     marked: &mut HashSet<(String, usize)>,
 ) -> bool {
@@ -28,7 +28,7 @@ pub(crate) fn mark_closure_defaults(
             for (idx, _) in fps {
                 if let Some(p) = params.get(*idx)
                     && let Some(d) = p.default
-                    && is_closure_shaped(ast, d, closure_idents, ret_marked)
+                    && is_closure_shaped(ast, d, closure_idents, bound, ret_marked)
                     && marked.insert((name.clone(), *idx))
                 {
                     changed = true;

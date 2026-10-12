@@ -23,7 +23,7 @@ pub(crate) fn wrap_named_fn_values(
     fn_sigs: &HashMap<String, (Vec<Param>, Option<String>, crate::lexer::Span)>,
     marked: &HashSet<(String, usize)>,
     ret_marked: &HashSet<String>,
-    closure_idents: &HashSet<String>,
+    (closure_idents, bound): crate::ast_closure_param_tag::Held,
     alias_init_sites: &[(ExprId, String)],
     existing_forwarders: &mut HashSet<String>,
 ) {
@@ -51,6 +51,7 @@ pub(crate) fn wrap_named_fn_values(
                 if let Expr::Ident(g) = ast.get_expr(arg)
                     && fn_sigs.contains_key(g)
                     && !closure_idents.contains(g)
+                    && !bound.contains(&arg)
                 {
                     wrap_sites.push((arg, g.clone()));
                 }
@@ -68,6 +69,7 @@ pub(crate) fn wrap_named_fn_values(
             if let Expr::Ident(g) = ast.get_expr(r)
                 && fn_sigs.contains_key(g)
                 && !closure_idents.contains(g)
+                && !bound.contains(&r)
             {
                 wrap_sites.push((r, g.clone()));
             }
