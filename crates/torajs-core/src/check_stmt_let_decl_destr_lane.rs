@@ -7,6 +7,7 @@
 //! STEPPED through §7.4.2 GetIterator.
 
 use crate::ast::{Ast, ExprId};
+use crate::builtin_proto_shadow::ShadowSet;
 use crate::check::{Checker, Type};
 
 /// RFC 20260714-dstr-residual blade 3 — decide which lane an array
@@ -25,7 +26,9 @@ use crate::check::{Checker, Type};
 ///
 /// The verdict is recorded against the group temp's init and the temp
 /// binds `Array<Any>` — the shape the lowerer materializes the walk
-/// into, so every index read below it stays exactly as desugared.
+/// into, so every index read below it stays exactly as desugared. A
+/// `string` source of a binding pattern binds `Array<String>` instead
+/// ([`steps_string_typed`]).
 ///
 /// `pub(crate)` since rotation 455: a generator lift rewrites the
 /// group temp's `LetDecl` into `this.<temp> = init` BEFORE check runs,
@@ -38,6 +41,7 @@ use crate::check::{Checker, Type};
 pub(crate) fn pick_ary_destr_lane(
     checker: &mut Checker,
     ast: &Ast,
+    group: Option<&str>,
     init: ExprId,
     init_ty: &Type,
 ) -> Option<Type> {
@@ -66,5 +70,24 @@ pub(crate) fn pick_ary_destr_lane(
         return None;
     }
     checker.iter_destr_srcs.insert(init, limit);
+    if *init_ty == Type::String
+        && group.is_some_and(|g| steps_string_typed(ast, &checker.proto_shadow, g, init))
+    {
+        return Some(Type::Array(Box::new(Type::String)));
+    }
     Some(Type::Array(Box::new(Type::Any)))
+}
+
+/// §22.1.5.1 — the String iterator yields each code point as a string,
+/// so a binding pattern over a `string` source knows its element type:
+/// the group temp binds `Array<String>`, and the lowerer splits the
+/// string by code point into it (`ssa_lower_dstr_iter`), no iterator
+/// object involved. Three cases keep the `any` walk: an assignment
+/// pattern (`__dstra_src_`), whose group may park its iterator across
+/// a suspension; a pattern whose rest is drained after one; and a
+/// module that can patch String iteration, which §13.15.5.3 must call.
+pub(crate) fn steps_string_typed(ast: &Ast, shadow: &ShadowSet, group: &str, init: ExprId) -> bool {
+    group.starts_with("__ary_src_")
+        && !ast.dstr_deferred_rest.contains(&init)
+        && !shadow.shadows_iteration("String")
 }

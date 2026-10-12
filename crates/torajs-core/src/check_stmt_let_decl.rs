@@ -38,6 +38,7 @@ pub(crate) use contextual_array::{apply_contextual_array_ann, apply_contextual_a
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, DiagPush, LocalInfo, Type, face_slots};
 use crate::check_assignable::is_assignable_to_resolved;
+use crate::check_stmt_let_decl_destr_lane::pick_ary_destr_lane;
 use crate::check_stmt_let_decl_selfref::{SelfRef, predeclare_self_ref_closure};
 use crate::check_type_ann::{resolve_type_ann_decl, resolve_type_ann_full, unknown_type};
 use fn_face_slot::record_let_face;
@@ -84,16 +85,11 @@ pub(crate) fn check(
     } else {
         init_ty
     };
-    // RFC 20260714-dstr-residual blade 3 — an array binding pattern
-    // whose source isn't a statically indexable container. This is the
-    // one place in the pipeline that knows: pick the group's lane here
-    // and let the lowerer read the verdict back off the post-check AST.
-    let init_ty = match crate::check_stmt_let_decl_destr_lane::pick_ary_destr_lane(
-        checker, ast, init, &init_ty,
-    ) {
-        Some(materialized) => materialized,
-        None => init_ty,
-    };
+    // RFC 20260714-dstr-residual blade 3 — an array pattern's group temp
+    // takes its lane here, where the source type is known.
+    let stepped = pick_ary_destr_lane(checker, ast, Some(name), init, &init_ty);
+    let is_stepped = stepped.is_some();
+    let init_ty = stepped.unwrap_or(init_ty);
     let mut face_slot = false;
     let mut ret_slot = false;
     let final_ty = match type_ann {
@@ -227,7 +223,7 @@ pub(crate) fn check(
                 && type_ann.as_deref().is_some_and(crate::ast::is_fn_like_ann))
                 || ret_slot)
                 .then_some(crate::check::FnSlot::Let(init)),
-            union: const_literal(ast, mutable, type_ann, init),
+            union: const_literal(ast, mutable || is_stepped, type_ann, init),
             held_any,
             ann: type_ann.clone(),
             decl: Some(crate::check::FnSlot::Let(init)),
@@ -285,7 +281,9 @@ fn fn_union_face(checker: &Checker, init: ExprId, t: Type) -> Type {
 }
 
 /// An unannotated `const` initialized with a literal keeps the literal
-/// type (TS §3.2.10); a `let` widens it.
+/// type (TS §3.2.10); a `let` widens it, and so does a group temp the
+/// iterator lane rebinds to the stepped array: a string literal kept
+/// there made its index reads look like string indexing.
 fn const_literal(
     ast: &Ast,
     mutable: bool,

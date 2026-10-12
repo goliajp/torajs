@@ -263,14 +263,7 @@ fn lower_spread_source(ctx: &mut LowerCtx<'_>, inner: ExprId) -> (Operand, Type,
         // The same intrinsic `Array.from(str)` lowers to — one
         // code-point-correct walk, already declared, and it hands back
         // `Arr<Str>` directly instead of a split-then-materialize pair.
-        let str_arr_id = intern_arr_layout(ctx.arr_layouts, Type::Str);
-        let cur_block = ctx.cur_block;
-        let arr = ctx.f.append_inst(
-            cur_block,
-            InstKind::Call(ctx.intrinsics.arr_from_string, vec![v]),
-            Type::Arr(str_arr_id),
-            None,
-        );
+        let (arr, arr_ty) = ctx.emit_arr_from_string(v, -1);
         // The walk reads the string and answers a fresh array, so the
         // string's own stake is still ours: an owned source temp (or
         // the Str the Substr arm just minted) is released here.
@@ -279,8 +272,8 @@ fn lower_spread_source(ctx: &mut LowerCtx<'_>, inner: ExprId) -> (Operand, Type,
         } else {
             ctx.release_owned_temp(inner, &v);
         }
-        v = Operand::Value(arr);
-        v_ty = Type::Arr(str_arr_id);
+        v = arr;
+        v_ty = arr_ty;
         minted = true;
     }
     if matches!(v_ty, Type::Set) {

@@ -17,7 +17,10 @@ use crate::grow::__torajs_arr_push;
 use crate::join_enc::{STR_DATA_OFF, str_data, str_is_latin1, str_units};
 use crate::str_bridge::str_alloc_pooled_enc;
 
-/// `Array.from(s)` over a Str source: one element per code point.
+/// `Array.from(s)` over a Str source: one element per code point,
+/// stopping after `limit` of them when `limit >= 0` (an array binding
+/// pattern names a fixed number of elements, and the string's tail is
+/// never observed). A negative `limit` walks the whole string.
 ///
 /// # Safety
 ///
@@ -25,14 +28,16 @@ use crate::str_bridge::str_alloc_pooled_enc;
 /// is a fresh refcount=1 `Array<Str>` block whose elements each have
 /// rc=1.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_arr_from_string(s: *const u8) -> *mut u8 {
+pub unsafe extern "C" fn __torajs_arr_from_string(s: *const u8, limit: i64) -> *mut u8 {
     unsafe {
         let units = str_units(s);
         let data = str_data(s);
-        let mut arr = __torajs_arr_alloc(units);
+        // elements never outnumber units
+        let max = u64::try_from(limit).map_or(units, |l| l.min(units));
+        let mut arr = __torajs_arr_alloc(max);
         if str_is_latin1(s) {
             // Latin-1: every unit is one byte and one cp.
-            for i in 0..units {
+            for i in 0..max {
                 let byte = data.add(i as usize).read();
                 let p = str_alloc_pooled_enc(1, true);
                 p.add(STR_DATA_OFF).write(byte);
@@ -45,7 +50,8 @@ pub unsafe extern "C" fn __torajs_arr_from_string(s: *const u8) -> *mut u8 {
         // back to a Latin-1 element so downstream fast paths keep
         // their 1-byte shape.
         let mut i: u64 = 0;
-        while i < units {
+        let mut taken: u64 = 0;
+        while i < units && taken < max {
             let u = (data.add((i as usize) * 2) as *const u16).read_unaligned();
             let is_pair = (0xD800..=0xDBFF).contains(&u) && i + 1 < units && {
                 let lo = (data.add((i as usize + 1) * 2) as *const u16).read_unaligned();
@@ -68,6 +74,7 @@ pub unsafe extern "C" fn __torajs_arr_from_string(s: *const u8) -> *mut u8 {
                 p
             };
             arr = __torajs_arr_push(arr, p as i64);
+            taken += 1;
         }
         arr
     }

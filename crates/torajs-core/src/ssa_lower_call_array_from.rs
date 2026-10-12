@@ -179,14 +179,7 @@ fn materialize_src(
     arg_eid: ExprId,
 ) -> Operand {
     if matches!(arg_ty, Type::Str) {
-        let arr_id = intern_arr_layout(ctx.arr_layouts, Type::Str);
-        let v = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.arr_from_string, vec![arg_op]),
-            Type::Arr(arr_id),
-            None,
-        );
-        return Operand::Value(v);
+        return ctx.emit_arr_from_string(arg_op, -1).0;
     }
     if let Type::Arr(arr_id) = arg_ty {
         // S132 — `Array.from(<typed Array<T>>)` shallow copy. Same deep-

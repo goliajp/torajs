@@ -100,7 +100,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         substr_concat_substr_substr: decl!("__torajs_substr_concat_substr_substr", [Ptr, Ptr], Str),
         substr_to_owned: decl!("__torajs_substr_to_owned", [Substr], Str),
         substr_share: decl!("__torajs_substr_share", [Substr], Substr),
-        arr_from_string: decl!("__torajs_arr_from_string", [Str], Ptr),
+        arr_from_string: decl!("__torajs_arr_from_string", [Str, I64], Ptr),
         str_substring: decl!("__torajs_str_substring", [Str, I64, I64], Str),
         str_substr: decl!("__torajs_str_substr", [Str, I64, I64], Str),
         arr_set_length_validate: decl!("__torajs_arr_set_length_validate", [I64, I64], Void),

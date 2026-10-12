@@ -35,6 +35,8 @@ use crate::ssa::{BinOp, IPred, InstKind, Operand, StructId, Terminator, Type};
 use crate::ssa_lower::{LowerCtx, OBJ_HEADER_SIZE, intern_arr_layout};
 use crate::ssa_lower_stmt_let_decl_general::bind_let_slot;
 
+mod src;
+
 /// RFC 20260820-dstr-deferred-close — where a suspendable pattern's
 /// walk parks its still-open iterator instead of closing it: the
 /// desugar declared `__dstra_it_<id>` right before the group temp,
@@ -143,8 +145,13 @@ pub(crate) fn try_lower_group(ctx: &mut LowerCtx, name: &str, init: ExprId) -> b
     let Some(&limit) = ctx.ast.iter_destr_srcs.get(&init) else {
         return false;
     };
+    if let Some((arr, arr_ty)) = src::try_split_string(ctx, name, init, limit) {
+        let cur_depth = ctx.scope_stack.len() - 1;
+        bind_let_slot(ctx, name, arr_ty, arr, false, false, cur_depth);
+        return true;
+    }
     let park = park_for_local(ctx, name);
-    let (recv, minted) = lower_src_to_any(ctx, init);
+    let (recv, minted) = src::lower_src_to_any(ctx, init);
     let (arr, arr_ty) = emit_walk(ctx, recv, limit, park);
     // The kernel only borrows the receiver, so the stake that reached it
     // is still ours to settle. A box minted below owns one outright; a
@@ -201,7 +208,7 @@ pub(crate) fn try_lower_field_walk(
         return None;
     }
     let park = park_for_field(ctx, field, obj, sid);
-    let (recv, minted) = lower_src_to_any(ctx, init);
+    let (recv, minted) = src::lower_src_to_any(ctx, init);
     let (arr, _arr_ty) = emit_walk(ctx, recv, limit, park);
     if minted {
         ctx.emit_drop_value(recv, Type::Any);
@@ -209,22 +216,6 @@ pub(crate) fn try_lower_field_walk(
         ctx.release_owned_temp(init, &recv);
     }
     Some(ctx.box_to_any(arr))
-}
-
-/// Lower the source expression and hand the kernel an AnyValue, saying
-/// whether a box had to be minted for it. A concrete source (a
-/// `Generator` binding, a `Set`) boxes: the box takes a reference of its
-/// own, so a borrow-shaped init (an Ident) retains first and an owned
-/// one (a `gen()` call) transfers the reference it already holds. An
-/// `any` source is already in the kernel's shape and passes through.
-fn lower_src_to_any(ctx: &mut LowerCtx, init: ExprId) -> (Operand, bool) {
-    let src = ctx.lower_expr(init);
-    let src_ty = ctx.operand_ty(&src);
-    if src_ty == Type::Any {
-        return (src, false);
-    }
-    let is_borrow = !ctx.expr_transfers_ownership(init);
-    (ctx.box_owned_from_expr(init, src, is_borrow), true)
 }
 
 /// Deferred close's stop-short arm: mint the park value through the

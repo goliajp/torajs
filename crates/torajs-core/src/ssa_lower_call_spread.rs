@@ -318,15 +318,7 @@ pub(crate) fn build_args_arr(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand
                 src_ty = Type::Str;
             }
             if matches!(src_ty, Type::Str) {
-                let str_arr_id = intern_arr_layout(ctx.arr_layouts, Type::Str);
-                let a = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::Call(ctx.intrinsics.arr_from_string, vec![src]),
-                    Type::Arr(str_arr_id),
-                    None,
-                );
-                src = Operand::Value(a);
-                src_ty = Type::Arr(str_arr_id);
+                (src, src_ty) = ctx.emit_arr_from_string(src, -1);
                 str_arr_temp = Some(src);
             }
             // The direct extend reads the backing store; §13.2.4.1
