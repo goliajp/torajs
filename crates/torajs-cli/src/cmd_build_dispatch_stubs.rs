@@ -129,7 +129,11 @@ pub(crate) fn append_dispatch_stubs(
         .chain(ctor_date)
         .chain(printers_tagged)
     {
-        let (bytes, relocs) = reject_stub_body(fam_id as u32);
+        let (bytes, relocs) = if PTR_RETURNING.contains(&name) {
+            reject_stub_body_ptr(fam_id as u32)
+        } else {
+            reject_stub_body(fam_id as u32)
+        };
         funcs.push(CompiledFunction {
             name: name.into(),
             bytes,
@@ -170,13 +174,26 @@ pub(crate) fn append_absent_settle_stub(funcs: &mut Vec<CompiledFunction>, modul
 /// `__torajs_dispatch_stub_reject`. Shared with the link-judged
 /// stubs (`cmd_build_elide`), whose fam ids start at 40.
 pub(crate) fn reject_stub_body(fam_id: u32) -> (Vec<u8>, Vec<Reloc>) {
+    stub_body_to(fam_id, "___torajs_dispatch_stub_reject")
+}
+
+/// [`reject_stub_body`] for an entry that answers a pointer: the pad
+/// answers NULL instead of the `undefined` bits.
+pub(crate) fn reject_stub_body_ptr(fam_id: u32) -> (Vec<u8>, Vec<Reloc>) {
+    stub_body_to(fam_id, "___torajs_dispatch_stub_reject_ptr")
+}
+
+/// The stubbed entries above that answer a pointer.
+const PTR_RETURNING: [&str; 2] = [NS_STATIC_SEAM, "___torajs_date_to_iso_string"];
+
+fn stub_body_to(fam_id: u32, pad: &str) -> (Vec<u8>, Vec<Reloc>) {
     let movz: u32 = 0xD280_0000 | (fam_id << 5) | 7;
     let mut bytes = movz.to_le_bytes().to_vec();
     bytes.extend_from_slice(&[0x00, 0x00, 0x00, 0x14]);
     let relocs = vec![Reloc {
         byte_offset: 4,
         kind: RelocKind::CallSite {
-            target: CallTarget::Extern("___torajs_dispatch_stub_reject".into()),
+            target: CallTarget::Extern(pad.into()),
         },
     }];
     (bytes, relocs)
@@ -186,6 +203,12 @@ pub(crate) fn reject_stub_body(fam_id: u32) -> (Vec<u8>, Vec<Reloc>) {
 /// regardless of the judgment (see the module doc).
 pub(crate) fn stub_all_enabled() -> bool {
     std::env::var_os("TORAJS_DISPATCH_STUB_ALL").is_some_and(|v| v != "0")
+}
+
+/// Diagnosis override — stubs the ns-static mint seam on top of the
+/// judgment, to exercise its landing pad with every other family live.
+pub(crate) fn stub_ns_forced() -> bool {
+    std::env::var_os("TORAJS_DISPATCH_STUB_NS").is_some_and(|v| v != "0")
 }
 
 /// Kill switch — disables the blade-2b automatic judgment (emits no

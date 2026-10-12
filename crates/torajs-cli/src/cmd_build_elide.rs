@@ -235,8 +235,19 @@ pub(crate) fn guarded_stubs() -> Vec<GuardedStub> {
         relocs: Vec::new(),
         guard: guard("torajs_weak-", &[weak_hook]),
     }];
+    let forced = std::env::var("TORAJS_LINK_STUB_FORCE").unwrap_or_default();
     out.extend(SYMBOL_STUBS.iter().map(|(sym, writers, fam_id)| {
-        let (bytes, relocs) = crate::cmd_build_dispatch_stubs::reject_stub_body(*fam_id);
+        let (bytes, relocs) = if PTR_RETURNING.contains(sym) {
+            crate::cmd_build_dispatch_stubs::reject_stub_body_ptr(*fam_id)
+        } else {
+            crate::cmd_build_dispatch_stubs::reject_stub_body(*fam_id)
+        };
+        // diagnosis: a named stub with no enabler is always taken
+        let writers: &[&str] = if forced.split(',').any(|f| f == *sym) {
+            &[]
+        } else {
+            writers
+        };
         GuardedStub {
             sym: (*sym).to_string(),
             bytes,
@@ -246,6 +257,13 @@ pub(crate) fn guarded_stubs() -> Vec<GuardedStub> {
     }));
     out
 }
+
+/// The symbol-guarded seams that answer a pointer (a Str cell); their
+/// stubs land on the NULL pad.
+const PTR_RETURNING: [&str; 2] = [
+    "___torajs_arr_join_exotic",
+    "___torajs_arr_typed_nonint_str_slow",
+];
 
 #[cfg(test)]
 mod tests {

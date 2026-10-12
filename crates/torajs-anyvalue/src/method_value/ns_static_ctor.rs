@@ -156,7 +156,9 @@ pub unsafe extern "C" fn __torajs_ctor_static_value_cell(
 /// Same contract as the extern face.
 pub(crate) unsafe fn ctor_static_cell(cell: *const c_void, key: *const c_void) -> Option<*mut u8> {
     let id = unsafe { ctor_static_table_id(cell, key) }?;
-    Some(unsafe { crate::dispatch_seam::__torajs_ns_static_cell(id) })
+    // NULL only from a stubbed seam, its TypeError already pending
+    let found = unsafe { crate::dispatch_seam::__torajs_ns_static_cell(id) };
+    (!found.is_null()).then_some(found)
 }
 
 /// The ns-static table id a builtin ctor cell owns under `key` —
@@ -339,10 +341,8 @@ pub(crate) unsafe fn ctor_own_read_cell(
     }
     let id = torajs_rc::ns_static_id(ctor_ns_name(tag), name);
     if id != torajs_rc::NS_STATIC_UNKNOWN && !torajs_rc::ns_static_is_deleted(id) {
-        return Some((
-            4,
-            unsafe { crate::dispatch_seam::__torajs_ns_static_cell(id) } as u64,
-        ));
+        let found = unsafe { crate::dispatch_seam::__torajs_ns_static_cell(id) };
+        return (!found.is_null()).then_some((4, found as u64));
     }
     None
 }

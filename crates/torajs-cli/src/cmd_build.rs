@@ -241,7 +241,7 @@ pub(crate) fn build_link_config(
         crate::cmd_build_dispatch_stubs::append_dispatch_stubs(
             &mut funcs,
             j.stub_arm_bits,
-            j.stub_ns_static,
+            j.stub_ns_static || crate::cmd_build_dispatch_stubs::stub_ns_forced(),
             j.stub_printers,
         );
         crate::cmd_build_dispatch_stubs::append_absent_settle_stub(&mut funcs, ssa_module);

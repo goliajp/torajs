@@ -167,16 +167,44 @@ pub unsafe extern "C" fn __torajs_dispatch_stub_reject(
     _pad: u64,
     fam_id: u64,
 ) -> u64 {
-    // fam_id rides x7 (stamped by the stub's movz): 0..14 = the arm
-    // roster order, 16..40 = printer kernels, 40+ = link-judged
-    // exotic slow paths. The name makes a wrong
-    // judgment attributable from the failure line alone.
+    unsafe { throw_reject(fam_id) };
+    torajs_anyvalue::VALUE_UNDEFINED
+}
+
+/// The landing pad for a stubbed entry that answers a POINTER (the
+/// ns-static mint seam, the Date ISO printer, the exotic join, the
+/// typed `string[]` keyed read): the same named TypeError, then NULL,
+/// which their callers read as a miss and leave the pending throw to
+/// the caller's check. The value-shaped pad's `undefined` bits would
+/// be dereferenced as a cell before that check runs.
+///
+/// # Safety
+/// C-ABI entry; no pointer params are dereferenced.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dispatch_stub_reject_ptr(
+    _a0: u64,
+    _a1: u64,
+    _a2: u64,
+    _a3: u64,
+    _a4: u64,
+    _a5: u64,
+    _a6: u64,
+    fam_id: u64,
+) -> *mut u8 {
+    unsafe { throw_reject(fam_id) };
+    core::ptr::null_mut()
+}
+
+/// Record the named TypeError for `fam_id`. It rides x7 (stamped by
+/// the stub's movz): 0..14 = the arm roster order, 16..40 = printer
+/// kernels, 40+ = link-judged exotic slow paths. The name makes a
+/// wrong judgment attributable from the failure line alone.
+unsafe fn throw_reject(fam_id: u64) {
     let mut msg = [0u8; REJECT_MSG_CAP];
     reject_message(fam_id, &mut msg);
     unsafe {
         __torajs_throw_type_error(msg.as_ptr().cast());
     }
-    torajs_anyvalue::VALUE_UNDEFINED
 }
 
 /// The reject subjects, one string: the fifteen arm families first
