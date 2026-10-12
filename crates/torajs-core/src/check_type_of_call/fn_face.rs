@@ -34,7 +34,9 @@
 //! (`argv_boxed_params`): its adapter tests each argument against the
 //! body's own type. So is a parameter the clone cannot serve — of a
 //! closure a function-local binding holds, or in a face this lane does
-//! not spell (`Checker::face_mismatch_params`).
+//! not spell (`Checker::face_mismatch_params`), and a parameter of a
+//! method called through a member expression: an object literal's
+//! that a binding holds, or a class's and each override's.
 
 use super::any_widen::{clonable_callee, record_widen_site};
 use crate::ast::{Ast, Expr, ExprId, Stmt};
@@ -68,8 +70,19 @@ pub(in crate::check_type_of_call) fn fn_face_into_fn_param(
     if aps.iter().chain(fps).any(|t| matches!(t, Type::Rest(_))) {
         return true;
     }
-    let Expr::Ident(n) = ast.get_expr(*callee) else {
-        return true;
+    let n = match ast.get_expr(*callee) {
+        Expr::Ident(n) => n,
+        Expr::Member { obj, name } => {
+            let mut bodies = class_method_decls(checker, ast, *obj, name);
+            bodies.extend(objlit_method_decl(checker, ast, *obj, name));
+            for body in bodies {
+                // the receiver binds the body's `__this`, not an argument
+                let at = i + usize::from(receiver_param(ast, &body));
+                box_param(checker, ast, &body, at, arg_ty, param_ty);
+            }
+            return true;
+        }
+        _ => return true,
     };
     let Some(name) = clonable_callee(checker, ast, n, i) else {
         if let Some(name) = local_closure_decl(checker, ast, n) {
@@ -77,6 +90,12 @@ pub(in crate::check_type_of_call) fn fn_face_into_fn_param(
         }
         return true;
     };
+    // a class method called directly (`k.m(g)` with no override in
+    // sight, the receiver passed first) is not served by a clone
+    if name.starts_with("__cm_") {
+        box_param(checker, ast, &name, i, arg_ty, param_ty);
+        return true;
+    }
     let Some((pname, pann)) = user_param(ast, &name, i) else {
         return true;
     };
@@ -149,6 +168,97 @@ fn local_closure_decl(checker: &Checker, ast: &Ast, n: &str) -> Option<String> {
         Expr::Closure { fn_name, .. } => Some(fn_name.clone()),
         _ => None,
     }
+}
+
+/// The lifted body of method `key` on the object literal an immutable
+/// binding `recv` holds (`const obj = { m(f) { … } }; obj.m(g)`): the
+/// clone lane resolves callees by name and cannot stand in for it, but
+/// the body is in sight. A binding the scopes do not hold is read as
+/// the top-level declaration a named body reaches.
+fn objlit_method_decl(checker: &Checker, ast: &Ast, recv: ExprId, key: &str) -> Option<String> {
+    let Expr::Ident(n) = ast.get_expr(recv) else {
+        return None;
+    };
+    let init = match checker.lookup(n) {
+        Some(info) => match info.decl {
+            Some(FnSlot::Let(init)) if !info.mutable => init,
+            _ => return None,
+        },
+        None => {
+            let (init, _) = crate::ast_refs::unique_toplevel_binding(ast, n)?;
+            let immutable = crate::ast::toplevel_stmts_flat(ast)
+                .into_iter()
+                .any(|s| matches!(s, Stmt::LetDecl { init: i, mutable: false, .. } if *i == init));
+            if !immutable {
+                return None;
+            }
+            init
+        }
+    };
+    let Expr::ObjectLit { fields } = ast.get_expr(init) else {
+        return None;
+    };
+    // a later duplicate key wins (§13.2.5.5), so the last one is the method
+    let (_, v) = fields.iter().rev().find(|(k, _)| k.lossy() == key)?;
+    match ast.get_expr(*v) {
+        Expr::Closure { fn_name, .. } => Some(fn_name.clone()),
+        _ => None,
+    }
+}
+
+/// Whether the body `name` binds a receiver ahead of its arguments.
+fn receiver_param(ast: &Ast, name: &str) -> bool {
+    ast.stmts.iter().any(|s| {
+        matches!(s, Stmt::FnDecl { name: n, params, .. } if n == name
+            && params.iter().find(|p| p.name != "__env").is_some_and(|p| p.name == "__this"))
+    })
+}
+
+/// Every body a call of instance method `key` on `recv` can run: the
+/// one the receiver's class resolves (its own or the nearest
+/// ancestor's), and each override in a class derived from it — the
+/// receiver may be an instance of any of them.
+fn class_method_decls(checker: &Checker, ast: &Ast, recv: ExprId, key: &str) -> Vec<String> {
+    let Some(cname) = checker
+        .expr_types
+        .get(&recv)
+        .and_then(|t| crate::check_type_of_member_accessor::class_name_of(t, ast))
+    else {
+        return Vec::new();
+    };
+    let has = |c: &str| {
+        let body = format!("__cm_{c}__{key}");
+        ast.stmts
+            .iter()
+            .any(|s| matches!(s, Stmt::FnDecl { name, .. } if *name == body))
+            .then_some(body)
+    };
+    let mut out: Vec<String> = Vec::new();
+    let mut up = Some(cname.clone());
+    while let Some(c) = up {
+        if let Some(b) = has(&c) {
+            out.push(b);
+            break;
+        }
+        up = ast.class_parents.get(&c).cloned().flatten();
+    }
+    let descends = |c: &String| {
+        let mut c = c;
+        while let Some(Some(p)) = ast.class_parents.get(c) {
+            if *p == cname {
+                return true;
+            }
+            c = p;
+        }
+        false
+    };
+    out.extend(
+        ast.class_parents
+            .keys()
+            .filter(|c| descends(c))
+            .filter_map(|c| has(c)),
+    );
+    out
 }
 
 /// The callee `name` cannot take the value's face as a clone: its
