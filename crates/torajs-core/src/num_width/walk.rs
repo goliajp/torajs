@@ -285,9 +285,8 @@ impl<'a> Analysis<'a> {
                 }
             }
             Expr::Array(elems) => {
-                // W4 shape-join, the array sibling of the ObjectLit
-                // arm below (rotation 371) — every literal seeds its
-                // element width unconditionally. The container walker
+                // The array sibling of the ObjectLit arm below — every
+                // literal seeds its element width unconditionally. The container walker
                 // only reaches literals standing in container
                 // positions, so an array literal handed straight to a
                 // call never seeded: `JSON.stringify([1, 2.5])` took
@@ -308,15 +307,12 @@ impl<'a> Analysis<'a> {
                 }
             }
             Expr::ObjectLit { fields } => {
-                // W4 shape-join (rotation 371) — every literal seeds
-                // its field widths unconditionally. The container
-                // walker only reaches literals standing in container
-                // positions (let-init, known container flow), so a
-                // call-argument literal never seeded: its fractional /
-                // NaN initializer then truncated through the
-                // same-shape layout's I64 slot (`anon_shape_unions`
-                // gives the family one root; this hands the root
-                // every member's evidence).
+                // Every literal seeds its own field widths
+                // unconditionally. The container walker only reaches
+                // literals standing in container positions (let-init,
+                // known container flow), so a call-argument literal
+                // never seeded and its fractional / NaN initializer
+                // truncated through an I64 slot.
                 let anon = SlotKey::Anon(eid.0);
                 for (fname, e) in fields {
                     let fk = SlotKey::Field(Box::new(anon.clone()), fname.clone());

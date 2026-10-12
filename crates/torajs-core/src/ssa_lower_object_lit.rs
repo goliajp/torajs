@@ -111,7 +111,7 @@ pub(crate) fn lower(
     let absent = absent::absent_fields(ctx, eid, &fields);
     absent::insert_absent(&absent, &mut field_tys, &mut field_vals);
     undef_fields.extend(absent.iter().map(|(_, n)| n.clone()));
-    apply_w4_widen(ctx, &mut field_tys, &mut field_vals, eid, declared_hint);
+    apply_w4_widen(ctx, &mut field_tys, &mut field_vals, eid);
     // An `undefined` literal has no type of its own — its field's
     // DECLARED slot type is the truth, and the sentinel it lands is
     // re-materialized for that slot after resolution (below). Lowered

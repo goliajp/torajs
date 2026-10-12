@@ -1,7 +1,7 @@
 //! W4 — the frozen analysis result: [`WidthTable`], the read-only
 //! query surface every lowering site asks (`slot_is_f64` /
 //! `elem_is_f64` / `field_is_f64`, the nominal-alias and fallthrough
-//! registries, the shape-join and bounds-proof verdicts). Moved out of
+//! registries, the bounds-proof verdicts). Moved out of
 //! `container.rs` verbatim (rotation 642): that file keeps the
 //! walk-time machinery — the union-find, the congruence closure, the
 //! guarded-edge activation and the canonicalization — and this one
@@ -60,12 +60,6 @@ pub(crate) struct WidthTable {
     /// read back a plain number. This is the analysis's answer,
     /// which is by name and program-wide, handed over as a seed.
     sentinel_fields: HashSet<PropKey>,
-    /// W4 shape-join (rotation 371) — per ordered-field-name shape,
-    /// the fields whose width floats on ANY same-shaped literal.
-    /// Layout slot width is family-wide (same-shaped literals share
-    /// a layout through the coercible first-match); operation width
-    /// stays per-binding through the keys above.
-    objlit_shape_f64: HashMap<Vec<PropKey>, HashSet<PropKey>>,
     /// The index reads the walk proved in-bounds — `xs[i]` under an
     /// enclosing, untainted `i < xs.length` guard (see
     /// [`crate::ssa_lower_bounds_proven`]). It rides here rather than
@@ -123,7 +117,6 @@ impl WidthTable {
         undef_sentinel_params: HashSet<(String, String)>,
         sentinel_elems: HashSet<String>,
         sentinel_fields: HashSet<PropKey>,
-        objlit_shape_f64: HashMap<Vec<PropKey>, HashSet<PropKey>>,
         index_read_proven: HashSet<ExprId>,
         index_read_settled: HashSet<ExprId>,
         char_code_at_proven: HashSet<ExprId>,
@@ -146,7 +139,6 @@ impl WidthTable {
             undef_sentinel_params,
             sentinel_elems,
             sentinel_fields,
-            objlit_shape_f64,
             index_read_proven,
             index_read_settled,
             char_code_at_proven,
@@ -228,14 +220,6 @@ impl WidthTable {
     /// See the field's doc — keyed by the negation's operand.
     pub(crate) fn neg_operand_nonzero(&self, operand: ExprId) -> bool {
         self.nonzero_negs.contains(&operand)
-    }
-
-    /// W4 shape-join query — true when `name` floats on any literal
-    /// sharing this ordered field-name shape (see the field's doc).
-    pub(crate) fn objlit_shape_field_is_f64(&self, shape: &[PropKey], name: &PropKey) -> bool {
-        self.objlit_shape_f64
-            .get(shape)
-            .is_some_and(|s| s.contains(name))
     }
 
     /// True when `param` of `fn_name` may be handed the `undefined`

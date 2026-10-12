@@ -350,9 +350,6 @@ pub(crate) fn analyze(
 
     // W-ESC — escape faces on frozen class reps, Elem chains included
     let escapes = hof_receivers::settle(&a, &mut tables.params);
-    // W4 shape-join (rotation 371; doc on the collector — sibling
-    // `analyze_tables.rs`).
-    let objlit_shape_f64 = analyze_tables::collect_objlit_shape_f64(ast, &a, &canon_out);
 
     WidthTable::new(
         canon_out,
@@ -364,7 +361,6 @@ pub(crate) fn analyze(
         tables.params,
         tables.elems,
         tables.fields,
-        objlit_shape_f64,
         a.proven_reads,
         a.settled_reads,
         a.char_code_proven,

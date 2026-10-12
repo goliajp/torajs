@@ -19,8 +19,8 @@
 //!    narrowing `FpToSi` is admitted only against the declared hint:
 //!    a declared slot the width table left I64 has an integral class,
 //!    so the value it narrows is integral. The un-hinted scan never
-//!    narrows — an F64 literal there means its own or its family's
-//!    verdict floats, and coercing it into a same-shaped I64 layout
+//!    narrows — an F64 literal there means its own verdict floats,
+//!    and coercing it into a same-shaped I64 layout
 //!    (a `type A = { right: number }` registered at the parse width)
 //!    truncated `[{ right: 3.5 }]` to 3;
 //! 3. auto-register an anonymous layout (V3-18 P2.4.c, unchanged).

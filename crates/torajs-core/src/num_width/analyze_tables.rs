@@ -2,7 +2,6 @@
 //! carved out of `mod.rs` (file-size hard limit: the fn sat on the
 //! known-debt list at 225 lines and the file at 508). Verbatim moves:
 //! the slot-name registry the walk phase resolves names against, and
-//! the W4 objlit shape-join table the frozen verdict set feeds, and
 //! the any-face / poison seeding the fixpoint starts from.
 //!
 //! Rotation 507 — the registry also carries the const-int table
@@ -10,7 +9,7 @@
 //! initializer is an integer literal, so a `const step = 3` counter
 //! reads as the same small-step counter a literal `3` does.
 
-use crate::ast::{GenericStructDecls, PropKey};
+use crate::ast::GenericStructDecls;
 use std::collections::{HashMap, HashSet};
 
 use super::{Analysis, SlotKey, container, let_names};
@@ -123,50 +122,6 @@ pub(super) fn collect_slot_registry(ast: &Ast) -> SlotRegistry {
         }
     }
     (fn_params, toplevel_lets, by_name, const_ints)
-}
-
-/// W4 shape-join (rotation 371) — same-shaped anonymous literals
-/// share one struct layout at lowering (resolve_objlit_layout's
-/// first-match scan admits F64-vs-I64 as coercible), so the LAYOUT
-/// slot width must join across the family even though each binding
-/// keeps its own OPERATION width (the d5 slot-granularity contract).
-/// Collect, per ordered field-name shape, the fields any family
-/// member's verdict floats; `apply_w4_widen` consults this beside
-/// the literal's own key, so the FIRST registrant already claims the
-/// joined width and a later `{x: 1.5}` / `{x: NaN}` stops truncating
-/// through the coercible-match FpToSi (it read back 0 as a set-like
-/// `size`).
-pub(super) fn collect_objlit_shape_f64(
-    ast: &Ast,
-    a: &Analysis<'_>,
-    canon_out: &HashSet<SlotKey>,
-) -> HashMap<Vec<PropKey>, HashSet<PropKey>> {
-    let mut objlit_shape_f64: HashMap<Vec<PropKey>, HashSet<PropKey>> = HashMap::new();
-    if !a.container_poison {
-        for (i, e) in ast.exprs.iter().enumerate() {
-            let crate::ast::Expr::ObjectLit { fields } = e else {
-                continue;
-            };
-            if fields.is_empty() {
-                continue;
-            }
-            let anon = SlotKey::Anon(i as u32);
-            let floats: Vec<PropKey> = fields
-                .iter()
-                .filter(|(fname, _)| {
-                    let fk = SlotKey::Field(Box::new(anon.clone()), fname.clone());
-                    canon_out.contains(&container::canon_key_frozen(&a.uf, &fk))
-                })
-                .map(|(fname, _)| fname.clone())
-                .collect();
-            if floats.is_empty() {
-                continue;
-            }
-            let shape: Vec<PropKey> = fields.iter().map(|(n, _)| n.clone()).collect();
-            objlit_shape_f64.entry(shape).or_default().extend(floats);
-        }
-    }
-    objlit_shape_f64
 }
 
 /// Every generic `type` declaration by name, as `(type params, fields)`
