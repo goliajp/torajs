@@ -46,19 +46,21 @@
 //!    the wrong SSA type and print as a raw pointer integer
 //!    instead of the string content. Mirror the lhs_non_nullable
 //!    short-circuit by lowering rhs at its own SSA type.
-//! 4. **Generic Ptr lhs** with CondBr null-compare. Save lhs into
-//!    the slot so the non-null branch can reuse it without re-eval;
-//!    cond = (lhs == ConstPtrNull); null branch lowers rhs +
-//!    stores. Refcount inc on the chosen value in both branches.
+//! 4. **Generic Ptr lhs** with CondBr null-compare
+//!    (`ptr`): the non-null branch stores lhs
+//!    without re-eval; cond = (lhs == ConstPtrNull); null branch
+//!    lowers rhs + stores. The join result is owned on both paths.
 //!
 //! Returns `Operand` directly (terminal arm — caller's
 //! `Expr::Nullish` match arm bottoms out here).
 
 use crate::ast::ExprId;
 use crate::check::{self as check_mod};
-use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type};
+use crate::ssa::{IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_nullish_any::lower_any_lhs;
+
+mod ptr;
 
 pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId, lhs: ExprId, rhs: ExprId) -> Operand {
     // Cluster #4 — `o[k] ??= v` fingerprint: evaluate (and coerce)
@@ -109,13 +111,13 @@ fn lower_inner(ctx: &mut LowerCtx<'_>, eid: ExprId, lhs: ExprId, rhs: ExprId) ->
                 || crate::ssa_lower_nullable_guard::is_undefable_substr_source(ctx, lhs)))
             || crate::ssa_lower_nullable_guard::holds_undef_cell(ctx, lhs, lhs_ty))
     {
-        return lower_generic_ptr_lhs(ctx, eid, lhs_op, lhs_ty, lhs, rhs);
+        return ptr::lower(ctx, eid, lhs_op, lhs_ty, lhs, rhs);
     }
     if is_non_nullable(&lhs_check_ty) {
         // Chunk 722 — the short-circuit forwards lhs's value, so it
         // forwards lhs's ownership too: `mkStr(i) ?? d` discarded /
         // let-bound must release the Call's owned result.
-        if ctx.expr_owned_shape(lhs) {
+        if ctx.join_arm_mints(lhs) {
             ctx.owned_member_reads.insert(eid);
         }
         return lhs_op;
@@ -125,7 +127,7 @@ fn lower_inner(ctx: &mut LowerCtx<'_>, eid: ExprId, lhs: ExprId, rhs: ExprId) ->
         // (the shape query runs AFTER the lowering so member-read
         // owned verdicts recorded during it are visible).
         let rhs_op = ctx.lower_expr(rhs);
-        if ctx.expr_owned_shape(rhs) {
+        if ctx.join_arm_mints(rhs) {
             ctx.owned_member_reads.insert(eid);
         }
         return rhs_op;
@@ -148,7 +150,7 @@ fn lower_inner(ctx: &mut LowerCtx<'_>, eid: ExprId, lhs: ExprId, rhs: ExprId) ->
         let boxed = ctx.box_to_any_from_expr(lhs, lhs_op);
         return lower_any_lhs(ctx, eid, lhs, boxed, rhs);
     }
-    lower_generic_ptr_lhs(ctx, eid, lhs_op, lhs_ty, lhs, rhs)
+    ptr::lower(ctx, eid, lhs_op, lhs_ty, lhs, rhs)
 }
 
 fn is_non_nullable(check_ty: &Option<check_mod::Type>) -> bool {
@@ -166,109 +168,6 @@ fn is_always_nullish(check_ty: &Option<check_mod::Type>) -> bool {
         check_ty,
         Some(check_mod::Type::Null) | Some(check_mod::Type::Undefined)
     )
-}
-
-fn lower_generic_ptr_lhs(
-    ctx: &mut LowerCtx<'_>,
-    eid: ExprId,
-    lhs_op: Operand,
-    lhs_ty: Type,
-    lhs: ExprId,
-    rhs: ExprId,
-) -> Operand {
-    // Rotation 507 — two different class instances (`m ?? new
-    // Leaf(1)`): the checker joined them to a common ancestor, so the
-    // slot wears the ancestor's layout rather than the lhs's. No box
-    // — both pointers carry its field prefix (`class_join_repr`).
-    let lhs_ty = ctx.class_join_repr(eid).unwrap_or(lhs_ty);
-    let res_slot = ctx.alloca_in_entry(lhs_ty, Some("__nullish"));
-    let cur_block = ctx.cur_block;
-    ctx.f.append_void(
-        cur_block,
-        InstKind::Store(lhs_op, Operand::Value(res_slot), 0),
-    );
-    let cur_block = ctx.cur_block;
-    let eq_null = ctx.f.append_inst(
-        cur_block,
-        InstKind::ICmp(IPred::Eq, lhs_op, Operand::ConstPtrNull),
-        Type::Bool,
-        None,
-    );
-    // Chunk 786 — a pointer-shaped slot's undefined is the immortal
-    // per-type sentinel cell (RFC 20260710), not NULL: `o.tag ?? d`
-    // on a filled optional field compared only against NULL, so the
-    // sentinel rode the non-null path and printed its cell text
-    // ("undefined") instead of taking d. Mirror the truthiness
-    // station: nullish = NULL or the slot type's sentinel address.
-    // Slot types with no sentinel yet keep the plain null check.
-    let cond = if let Some(sentinel) = ctx.str_undef_sentinel_for(lhs_ty) {
-        let eq_undef = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::ICmp(IPred::Eq, lhs_op, sentinel),
-            Type::Bool,
-            None,
-        );
-        ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::BinOp(
-                SsaBinOp::Or,
-                Operand::Value(eq_null),
-                Operand::Value(eq_undef),
-            ),
-            Type::Bool,
-            None,
-        )
-    } else {
-        eq_null
-    };
-    let then_blk = ctx.f.add_block();
-    let else_blk = ctx.f.add_block();
-    let after = ctx.f.add_block();
-    let cb = ctx.cur_block;
-    ctx.f.set_term(
-        cb,
-        Terminator::CondBr {
-            cond: Operand::Value(cond),
-            then_blk,
-            else_blk,
-        },
-    );
-    ctx.cur_block = then_blk;
-    ctx.proofs.enter_cond();
-    let rhs_op = crate::ssa_lower_closure_canonical::lower_slot_arm(ctx, lhs_ty, rhs);
-    ctx.proofs.leave_cond();
-    let then_end = ctx.cur_block;
-    ctx.f.append_void(
-        then_end,
-        InstKind::Store(rhs_op, Operand::Value(res_slot), 0),
-    );
-    // Chunk 722 — the join result is uniformly OWNED: an owned
-    // shape transfers its fresh reference into the slot, a borrow
-    // takes +1 in its branch tail; the eid joins the owned track
-    // so the consumer's release balances (pre-fix both branches
-    // inc'd unconditionally while the predicate answered borrow —
-    // `mk(i) ?? "z"` leaked rc=2 per iteration on discard AND let,
-    // probes p722d/e 15.3MB vs 6.2MB flat).
-    if lhs_ty.is_refcounted() {
-        if !ctx.expr_transfers_ownership(rhs) {
-            ctx.emit_rc_inc_in(then_end, rhs_op);
-        }
-        if !ctx.expr_transfers_ownership(lhs) {
-            ctx.emit_rc_inc_in(else_blk, lhs_op);
-        }
-        ctx.owned_member_reads.insert(eid);
-    }
-    ctx.f.set_term(then_end, Terminator::Br(after));
-    ctx.f.set_term(else_blk, Terminator::Br(after));
-    ctx.cur_block = after;
-    let cur_block = ctx.cur_block;
-    let r = ctx.f.append_inst(
-        cur_block,
-        InstKind::Load(lhs_ty, Operand::Value(res_slot), 0),
-        lhs_ty,
-        None,
-    );
-    Operand::Value(r)
 }
 
 /// RFC 20260708-typed-arr-oob-read chunk 2 — `a[i] ?? d` where the

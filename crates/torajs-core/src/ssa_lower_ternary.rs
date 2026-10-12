@@ -34,9 +34,11 @@
 use crate::ast::ExprId;
 use crate::ssa::{InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::LowerCtx;
-use crate::ssa_lower_call_fn_cell as fn_cell;
 
+mod arm_box;
 mod object_join;
+
+use arm_box::{box_arm, fn_cell_join, settle_pair};
 
 pub(crate) fn lower(
     ctx: &mut LowerCtx<'_>,
@@ -74,7 +76,8 @@ pub(crate) fn lower(
         else_branch,
     );
     // Chunk 722 — owned unification: when either branch answers an
-    // owned value (Call / New / fresh Any box from the widen), the
+    // owned value (Call / New / a fresh string-index view / a box
+    // or an owned copy the widen made), the
     // join result must be owned on BOTH paths so the consumer's
     // single release balances (probe p722a: discarded
     // `c ? mk(i) : mk2(i)` had no release site, 15.3MB churn vs
@@ -82,8 +85,8 @@ pub(crate) fn lower(
     // eid joins the owned track `expr_owned_shape` consults. A
     // join over two borrows stays a borrow — zero rc traffic.
     if res_ty.is_refcounted() {
-        let then_owned = then_boxed || ctx.expr_owned_shape(then_branch);
-        let else_owned = else_boxed || ctx.expr_owned_shape(else_branch);
+        let then_owned = then_boxed || ctx.join_arm_mints(then_branch);
+        let else_owned = else_boxed || ctx.join_arm_mints(else_branch);
         if then_owned || else_owned {
             if !then_owned {
                 ctx.emit_owned_result_inc_in(then_end, then_val, res_ty);
@@ -124,7 +127,7 @@ pub(crate) fn lower(
 }
 
 /// The two trailing bools flag a branch whose value was NaN-boxed
-/// here (mixed-Any wedge) — the box is fresh, so that branch is
+/// or copied out of a view here — the value is fresh, so that branch is
 /// owned by construction regardless of the source expression's
 /// shape. Chunk 722: `box_to_any` transfers one reference into the
 /// box (chunk-563 contract), so a borrow-shape branch takes +1
@@ -154,17 +157,13 @@ fn widen_branches(
 ) -> (Operand, Operand, Type, bool, bool) {
     let tt = ctx.operand_ty(&then_val);
     let et = ctx.operand_ty(&else_val);
-    if tt == Type::F64 && et == Type::I64 {
-        ctx.cur_block = *else_end;
-        let e = ctx.coerce_to_f64(else_val);
-        *else_end = ctx.cur_block;
-        return (then_val, e, Type::F64, false, false);
-    }
-    if tt == Type::I64 && et == Type::F64 {
-        ctx.cur_block = *then_end;
-        let t = ctx.coerce_to_f64(then_val);
-        *then_end = ctx.cur_block;
-        return (t, else_val, Type::F64, false, false);
+    if let Some(j) = settle_pair(
+        ctx,
+        (then_val, else_val),
+        (then_end, else_end),
+        (then_branch, else_branch),
+    ) {
+        return j;
     }
     // S2.27 (RFC 20260727-dstr-assignment 刀 5) — exactly one branch
     // types Undefined (the checker's unify widened the join to Any):
@@ -339,49 +338,4 @@ fn widen_branches(
         return j;
     }
     (then_val, else_val, tt, false, false)
-}
-
-/// A top-level function against a cell of its signature (`c ? h :
-/// o.g`, the destructuring default `{ g = h }`): the pointer arm
-/// becomes its own cell, fresh, so the join is a cell whichever arm
-/// ran instead of the cell being called as a code address. None when
-/// the arms are not that pair, or the pointer arm is not a static
-/// choice of top-level functions.
-fn fn_cell_join(
-    ctx: &mut LowerCtx<'_>,
-    (then_val, else_val): (Operand, Operand),
-    (then_end, else_end): (&mut crate::ssa::BlockId, &mut crate::ssa::BlockId),
-    (then_branch, else_branch): (ExprId, ExprId),
-) -> Option<(Operand, Operand, Type, bool, bool)> {
-    match (ctx.operand_ty(&then_val), ctx.operand_ty(&else_val)) {
-        (Type::FnSig(a), cell @ Type::Closure(b)) if a == b => {
-            ctx.cur_block = *then_end;
-            let c = fn_cell::static_fn_value_cell(ctx, cell, then_branch, then_val)?;
-            *then_end = ctx.cur_block;
-            Some((c, else_val, cell, true, false))
-        }
-        (cell @ Type::Closure(a), Type::FnSig(b)) if a == b => {
-            ctx.cur_block = *else_end;
-            let c = fn_cell::static_fn_value_cell(ctx, cell, else_branch, else_val)?;
-            *else_end = ctx.cur_block;
-            Some((then_val, c, cell, false, true))
-        }
-        _ => None,
-    }
-}
-
-/// Box one arm at the end of its own block. The box is fresh, so a
-/// borrow-shape arm takes +1 first (chunk 722, see `widen_branches`),
-/// and a named function boxes as its fn object.
-fn box_arm(
-    ctx: &mut LowerCtx<'_>,
-    end: &mut crate::ssa::BlockId,
-    branch: ExprId,
-    val: Operand,
-) -> Operand {
-    ctx.cur_block = *end;
-    let is_borrow = !ctx.expr_transfers_ownership(branch);
-    let boxed = ctx.box_owned_from_expr(branch, val, is_borrow);
-    *end = ctx.cur_block;
-    boxed
 }
