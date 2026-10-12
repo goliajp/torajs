@@ -48,8 +48,8 @@
 //!
 //! `TORAJS_TAIL_DUP_OFF=1` skips (bisect gate).
 
-use crate::block_chain::ChainFacts;
-use crate::id_hash::HashMap;
+use crate::block_chain::{ChainFacts, DomView};
+use crate::id_hash::HashSet;
 
 use torajs_core::ssa::dominator::DominatorTree;
 use torajs_core::ssa::loop_analysis::LoopAnalysis;
@@ -58,7 +58,9 @@ use torajs_core::ssa::{
     Block, BlockId, Function, InstKind, Terminator, ValueId, rewrite_value_operands,
 };
 
+mod after;
 mod sites;
+pub(crate) use after::{add_to_loops, idoms_after};
 use sites::Sites;
 
 /// Largest block in a duplicated tail, in instructions.
@@ -66,35 +68,82 @@ const MAX_INSTS: usize = 6;
 /// Largest tail duplicated, in instructions.
 const MAX_TAIL_INSTS: usize = 10;
 
+/// What [`duplicate_small_joins`] changed.
+#[derive(Default)]
+pub(crate) struct Copied {
+    pub(crate) joins: Vec<CopiedJoin>,
+    /// The guards' cold edges as read before copying, when no copy
+    /// writes a value an original writes too: every value a copy
+    /// writes is then read only inside it, and every guard reads as
+    /// it did.
+    pub(crate) cold_edges: Option<HashSet<(u32, u32)>>,
+}
+
+/// One join whose tail was copied.
+pub(crate) struct CopiedJoin {
+    /// The original tail, join first.
+    pub(crate) tail: Vec<u32>,
+    /// The header of the loop the tail branches back to.
+    pub(crate) header: u32,
+    /// Per copy, the arm that now jumps to it and its first block; its
+    /// blocks follow in tail order.
+    pub(crate) copies: Vec<(u32, u32)>,
+}
+
+impl Copied {
+    /// How many blocks were copied.
+    pub(crate) fn blocks(&self) -> u32 {
+        (self.joins.iter())
+            .map(|j| (j.tail.len() * j.copies.len()) as u32)
+            .sum()
+    }
+}
+
 /// Give every extra warm in-loop predecessor of a small join its own
 /// copy of the join and the small blocks behind it; `dom` and `la` are
-/// the function's as it stands. Answers how many blocks were copied.
+/// the function's as it stands.
 pub(crate) fn duplicate_small_joins(
     func: &mut Function,
     dom: &DominatorTree,
     la: &LoopAnalysis,
-) -> u32 {
-    if off() || !any_candidate(func) {
-        return 0;
+) -> Copied {
+    if off() || !any_candidate(func) || la.loops().is_empty() {
+        return Copied::default();
     }
-    if la.loops().is_empty() {
-        return 0;
-    }
-    let joins = joins_to_copy(func, dom, la);
+    let (joins, facts) = joins_to_copy(func, dom, la);
     if joins.is_empty() {
-        return 0;
+        return Copied::default();
     }
-    let sites = Sites::of(func, joins.iter().map(|(_, tail, _)| tail.as_slice()));
-    let mut copies = 0;
-    for (id, tail, arms) in joins {
+    let sites = Sites::of(func, joins.iter().map(|(_, tail, _, _)| tail.as_slice()));
+    let copied: usize = (joins.iter())
+        .map(|(_, tail, _, arms)| tail.len() * arms.len())
+        .sum();
+    func.blocks.reserve(copied);
+    let mut renamed = true;
+    let mut out = Vec::with_capacity(joins.len());
+    for (id, tail, header, arms) in joins {
         let local = sites.local_to(func, &tail);
+        let writes = tail.iter().flat_map(|&b| &func.blocks[b as usize].insts);
+        renamed &= (writes.filter_map(|i| i.result))
+            .all(|r| local.binary_search_by_key(&r.0, |v| v.0).is_ok());
+        let mut copies = Vec::with_capacity(arms.len());
+        func.values.reserve(local.len() * arms.len());
         for p in arms {
             let first = copy_tail(func, &tail, &local);
             retarget(&mut func.blocks[p as usize].term, BlockId(id), first);
-            copies += tail.len() as u32;
+            copies.push((p, first.0));
         }
+        out.push(CopiedJoin {
+            tail,
+            header,
+            copies,
+        });
     }
-    copies
+    let cold_edges = facts.filter(|_| renamed).map(ChainFacts::into_cold_edges);
+    Copied {
+        joins: out,
+        cold_edges,
+    }
 }
 
 /// `TORAJS_TAIL_DUP_OFF=1` (bisect gate), read once per process: the
@@ -123,14 +172,19 @@ fn any_candidate(func: &Function) -> bool {
         .any(|(b, &(n, jump))| n >= 2 && jump && duplicable(b))
 }
 
-/// Every join worth copying, with its tail and the arms that get a
-/// copy. Tails and arms are read off the original graph: copying one
-/// join retargets an arm that may be the head of another's tail.
-fn joins_to_copy(
+/// A join worth copying: its id, its tail, its loop's header and the
+/// arms that get a copy.
+type Join = (u32, Vec<u32>, u32, Vec<u32>);
+
+/// Every join worth copying, and the chainer's facts if reading the
+/// joins needed them. Tails and arms are read off the original graph:
+/// copying one join retargets an arm that may be the head of another's
+/// tail.
+fn joins_to_copy<'d>(
     func: &Function,
-    dom: &DominatorTree,
+    dom: &'d DominatorTree,
     la: &LoopAnalysis,
-) -> Vec<(u32, Vec<u32>, Vec<u32>)> {
+) -> (Vec<Join>, Option<ChainFacts<'d>>) {
     // the predecessors, in block order, of every block that could head
     // a tail (an empty list allocates nothing)
     let heads: Vec<bool> = func.blocks.iter().map(duplicable).collect();
@@ -156,7 +210,7 @@ fn joins_to_copy(
     }
     // the guards' cold arms, read only once a join qualifies
     let facts = std::cell::OnceCell::new();
-    let mut joins: Vec<(u32, Vec<u32>, Vec<u32>)> = Vec::new();
+    let mut joins: Vec<Join> = Vec::new();
     for block in &func.blocks {
         let id = block.id.0;
         if headers[id as usize] {
@@ -188,16 +242,16 @@ fn joins_to_copy(
             .filter(|&p| matches!(func.blocks[p as usize].term, Terminator::Br(_)))
             .filter(|&p| {
                 !facts
-                    .get_or_init(|| ChainFacts::new(func, dom))
+                    .get_or_init(|| ChainFacts::new(func, DomView::whole(dom)))
                     .cold_path(func, &in_body, p)
             })
             .collect();
         let keep = usize::from(jumps.len() == ps.len());
         if jumps.len() > keep {
-            joins.push((id, tail, jumps[keep..].to_vec()));
+            joins.push((id, tail, lp.header.0, jumps[keep..].to_vec()));
         }
     }
-    joins
+    (joins, facts.into_inner())
 }
 
 /// Append a copy of the blocks of `tail`, chained in order, in which
@@ -205,13 +259,15 @@ fn joins_to_copy(
 /// block.
 fn copy_tail(func: &mut Function, tail: &[u32], local: &[ValueId]) -> BlockId {
     let first = BlockId(func.blocks.len() as u32);
-    let rename: HashMap<ValueId, ValueId> = local
-        .iter()
-        .map(|&v| {
-            func.values.push(func.values[v.0 as usize].clone());
-            (v, ValueId(func.values.len() as u32 - 1))
-        })
-        .collect();
+    // `local` is in id order, and its i-th value becomes the i-th
+    // fresh one
+    let fresh = func.values.len() as u32;
+    for &v in local {
+        func.values.push(func.values[v.0 as usize].clone());
+    }
+    let renamed = |v: &ValueId| {
+        (local.binary_search_by_key(&v.0, |l| l.0)).map_or(*v, |i| ValueId(fresh + i as u32))
+    };
     for (k, &t) in tail.iter().enumerate() {
         let copy = BlockId(func.blocks.len() as u32);
         let mut term = func.blocks[t as usize].term.clone();
@@ -223,12 +279,10 @@ fn copy_tail(func: &mut Function, tail: &[u32], local: &[ValueId]) -> BlockId {
             .iter()
             .map(|inst| {
                 let mut inst = inst.clone();
-                if let Some(r) = inst.result.as_mut()
-                    && let Some(n) = rename.get(r)
-                {
-                    *r = *n;
+                if let Some(r) = inst.result.as_mut() {
+                    *r = renamed(r);
                 }
-                rewrite_value_operands(&mut inst.kind, |v| rename.get(&v).copied().unwrap_or(v));
+                rewrite_value_operands(&mut inst.kind, |v| renamed(&v));
                 inst
             })
             .collect();
@@ -328,7 +382,7 @@ mod tests {
     fn dup(f: &mut Function) -> u32 {
         let dom = DominatorTree::compute(f);
         let la = LoopAnalysis::compute(f, &dom);
-        duplicate_small_joins(f, &dom, &la)
+        duplicate_small_joins(f, &dom, &la).blocks()
     }
 
     fn block(id: u32, insts: Vec<Inst>, term: Terminator) -> Block {

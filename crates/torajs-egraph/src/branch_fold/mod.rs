@@ -326,11 +326,11 @@ pub(crate) fn sweep_unreachable_blocks(func: &mut Function) -> u32 {
     if reachable.iter().all(|r| *r) {
         return 0;
     }
-    let mut remap: HashMap<u32, u32> = HashMap::default();
+    let mut remap = vec![u32::MAX; n]; // new id by old id, which is the position
     let mut next = 0u32;
     for (i, r) in reachable.iter().enumerate() {
         if *r {
-            remap.insert(func.blocks[i].id.0, next);
+            remap[func.blocks[i].id.0 as usize] = next;
             next += 1;
         }
     }
@@ -345,14 +345,14 @@ pub(crate) fn sweep_unreachable_blocks(func: &mut Function) -> u32 {
         keep
     });
     for block in func.blocks.iter_mut() {
-        block.id = BlockId(remap[&block.id.0]);
+        block.id = BlockId(remap[block.id.0 as usize]);
         match &mut block.term {
-            Terminator::Br(t) => t.0 = remap[&t.0],
+            Terminator::Br(t) => t.0 = remap[t.0 as usize],
             Terminator::CondBr {
                 then_blk, else_blk, ..
             } => {
-                then_blk.0 = remap[&then_blk.0];
-                else_blk.0 = remap[&else_blk.0];
+                then_blk.0 = remap[then_blk.0 as usize];
+                else_blk.0 = remap[else_blk.0 as usize];
             }
             _ => {}
         }

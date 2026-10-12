@@ -24,7 +24,9 @@
 //! `TORAJS_BLOCK_LAYOUT_OFF=1` skips (bisect gate),
 //! `TORAJS_BLOCK_LAYOUT_STATS=1` dumps counters.
 
-use crate::id_hash::{HashMap, HashSet};
+use crate::block_chain::{BlockSet, ChainFacts, DomView};
+use crate::id_hash::HashSet;
+use crate::tail_dup::Copied;
 
 use torajs_core::ssa::{Block, BlockId, Function, Module, Terminator};
 
@@ -69,11 +71,8 @@ pub fn layout_module(module: &mut Module) -> BlockLayoutStats {
         let la = LoopAnalysis::compute(func, &dom);
         // before the chain, which then lays each copy after its arm
         let copied = crate::tail_dup::duplicate_small_joins(func, &dom, &la);
-        stats.blocks_duplicated += copied;
-        let (sunk, latches, chained) = match copied {
-            0 => layout_with(func, &dom, &la),
-            _ => layout_function(func),
-        };
+        stats.blocks_duplicated += copied.blocks();
+        let (sunk, latches, chained) = layout_after(func, &dom, &la, copied);
         if sunk + latches + chained > 0 {
             stats.blocks_sunk += sunk;
             stats.latches_sunk += latches;
@@ -105,11 +104,18 @@ fn thread_empty_forwarders(func: &mut Function) -> u32 {
     if forwards.iter().all(|f| f.is_none()) {
         return 0;
     }
-    let resolve = |start: u32| -> u32 {
-        let mut seen = HashSet::default();
+    // the walk that last met each block: a walk stops at the first
+    // block it meets twice
+    let mut seen = vec![0u32; forwards.len()];
+    let mut walk = 0u32;
+    let mut resolve = |start: u32| -> u32 {
+        walk += 1;
         let mut cur = start;
-        while seen.insert(cur) {
-            match forwards.get(cur as usize).copied().flatten() {
+        while let Some(s) = seen.get_mut(cur as usize)
+            && *s != walk
+        {
+            *s = walk;
+            match forwards[cur as usize] {
                 Some(next) => cur = next,
                 None => break,
             }
@@ -133,30 +139,65 @@ fn thread_empty_forwarders(func: &mut Function) -> u32 {
 
 /// Answers (blocks sunk out of loop ranges, latches moved to a loop's
 /// bottom, loops chained).
+#[cfg(test)]
 fn layout_function(func: &mut Function) -> (u32, u32, u32) {
     let dom = DominatorTree::compute(func);
     let la = LoopAnalysis::compute(func, &dom);
-    layout_with(func, &dom, &la)
+    layout_with(func, DomView::whole(&dom), loop_sets(&la), None)
 }
 
-/// `layout_function` with the function's dominators and loops in hand.
-fn layout_with(func: &mut Function, dom: &DominatorTree, la: &LoopAnalysis) -> (u32, u32, u32) {
-    if la.loops().is_empty() {
-        return (0, 0, 0);
+/// Lay out the function as tail duplication left it, given the
+/// dominators and loops from before the copies; tail duplication says
+/// how they change, and the old cold edges are kept when it says they
+/// still hold.
+fn layout_after(
+    func: &mut Function,
+    dom: &DominatorTree,
+    la: &LoopAnalysis,
+    copied: Copied,
+) -> (u32, u32, u32) {
+    if copied.joins.is_empty() {
+        return layout_with(func, DomView::whole(dom), loop_sets(la), None);
     }
-    let facts = crate::block_chain::ChainFacts::new(func, dom);
-    // Loop body sets with their header and back-edge sources,
-    // innermost (smallest) first so nested bodies are already
-    // contiguous units when their parent partitions.
-    let mut loops: Vec<(HashSet<u32>, u32, Vec<u32>)> = la
-        .loops()
-        .iter()
+    let Some(idoms) = crate::tail_dup::idoms_after(func, dom, &copied) else {
+        let dom = DominatorTree::compute(func);
+        let la = LoopAnalysis::compute(func, &dom);
+        return layout_with(func, DomView::whole(&dom), loop_sets(&la), None);
+    };
+    let mut loops = loop_sets(la);
+    crate::tail_dup::add_to_loops(&mut loops, &copied);
+    let dom = DomView::patched(dom, &idoms);
+    layout_with(func, dom, loops, copied.cold_edges)
+}
+
+/// Every loop's body, header and back-edge sources.
+fn loop_sets(la: &LoopAnalysis) -> Vec<(BlockSet, u32, Vec<u32>)> {
+    (la.loops().iter())
         .map(|l| {
-            let body = l.body.iter().map(|b| b.0).collect();
+            let body = BlockSet::of(l.body.iter().map(|b| b.0));
             let latches = l.back_edge_sources.iter().map(|b| b.0).collect();
             (body, l.header.0, latches)
         })
-        .collect();
+        .collect()
+}
+
+/// Lay the function out with its dominators and loops in hand, and its
+/// cold edges if already read.
+fn layout_with(
+    func: &mut Function,
+    dom: DomView,
+    mut loops: Vec<(BlockSet, u32, Vec<u32>)>,
+    cold_edges: Option<HashSet<(u32, u32)>>,
+) -> (u32, u32, u32) {
+    if loops.is_empty() {
+        return (0, 0, 0);
+    }
+    let facts = match cold_edges {
+        Some(edges) => ChainFacts::with_cold_edges(dom, edges),
+        None => ChainFacts::new(func, dom),
+    };
+    // innermost (smallest) first so nested bodies are already
+    // contiguous units when their parent partitions
     loops.sort_by_key(|(b, _, _)| b.len());
 
     // Work over original ids; positions recompute after each rewrite.
@@ -165,13 +206,9 @@ fn layout_with(func: &mut Function, dom: &DominatorTree, la: &LoopAnalysis) -> (
     let mut latches_sunk = 0u32;
     let mut chained = 0u32;
     for (k, (body, header, latches)) in loops.iter().enumerate() {
-        let positions: Vec<usize> = order
-            .iter()
-            .enumerate()
-            .filter(|(_, id)| body.contains(id))
-            .map(|(i, _)| i)
-            .collect();
-        let (Some(&lo), Some(&hi)) = (positions.first(), positions.last()) else {
+        let lo = order.iter().position(|&id| body.contains(id));
+        let hi = order.iter().rposition(|&id| body.contains(id));
+        let (Some(lo), Some(hi)) = (lo, hi) else {
             continue;
         };
         if hi - lo + 1 != body.len() {
@@ -179,17 +216,17 @@ fn layout_with(func: &mut Function, dom: &DominatorTree, la: &LoopAnalysis) -> (
             // after, both keeping their relative order.
             let slice: Vec<u32> = order[lo..=hi].to_vec();
             let (members, cold): (Vec<u32>, Vec<u32>) =
-                slice.into_iter().partition(|id| body.contains(id));
+                slice.into_iter().partition(|id| body.contains(*id));
             sunk += cold.len() as u32;
             order.splice(lo..=hi, members.into_iter().chain(cold));
         }
         // The loops directly inside this one (not their own nests).
-        let inner: Vec<(&HashSet<u32>, u32)> = loops[..k]
+        let inner: Vec<(&BlockSet, u32)> = loops[..k]
             .iter()
             .map(|(b, h, _)| (b, *h))
             .filter(|(b, _)| b.len() < body.len() && b.is_subset(body))
             .collect();
-        let children: Vec<(&HashSet<u32>, u32)> = inner
+        let children: Vec<(&BlockSet, u32)> = inner
             .iter()
             .filter(|(b, _)| {
                 !inner
@@ -220,22 +257,28 @@ fn layout_with(func: &mut Function, dom: &DominatorTree, la: &LoopAnalysis) -> (
 
     // Rebuild func.blocks in the new order, renumbering ids and
     // terminator targets (BlockId.0 == position invariant).
-    let remap: HashMap<u32, u32> = order
-        .iter()
-        .enumerate()
-        .map(|(new, old)| (*old, new as u32))
-        .collect();
-    let mut by_id: HashMap<u32, Block> = func.blocks.drain(..).map(|b| (b.id.0, b)).collect();
-    for old in &order {
-        let mut block = by_id.remove(old).expect("layout order covers every block");
-        block.id = BlockId(remap[&block.id.0]);
+    let span = order.iter().max().map_or(0, |&m| m as usize + 1);
+    let mut remap = vec![u32::MAX; span];
+    for (new, &old) in order.iter().enumerate() {
+        remap[old as usize] = new as u32;
+    }
+    let mut by_id: Vec<Option<Block>> = (0..span).map(|_| None).collect();
+    for block in func.blocks.drain(..) {
+        let id = block.id.0 as usize;
+        by_id[id] = Some(block);
+    }
+    for &old in &order {
+        let mut block = by_id[old as usize]
+            .take()
+            .expect("layout order covers every block");
+        block.id = BlockId(remap[block.id.0 as usize]);
         match &mut block.term {
-            Terminator::Br(t) => t.0 = remap[&t.0],
+            Terminator::Br(t) => t.0 = remap[t.0 as usize],
             Terminator::CondBr {
                 then_blk, else_blk, ..
             } => {
-                then_blk.0 = remap[&then_blk.0];
-                else_blk.0 = remap[&else_blk.0];
+                then_blk.0 = remap[then_blk.0 as usize];
+                else_blk.0 = remap[else_blk.0 as usize];
             }
             _ => {}
         }

@@ -5,15 +5,15 @@ use crate::id_hash::HashSet;
 
 use torajs_core::ssa::{Function, Operand, Terminator, ValueId, visit_value_operands};
 
-/// Where the values a tail defines are defined and read, and every
-/// block's predecessors, by block.
+/// Where the values a tail defines are defined and read, and how many
+/// edges enter each block.
 pub(super) struct Sites {
     /// Per value index, its row in `defs` and `uses` plus one; 0 for a
     /// value no tail defines, which no copy renames.
     row: Vec<u32>,
     defs: Vec<Vec<u32>>,
     uses: Vec<Vec<u32>>,
-    preds: Vec<Vec<u32>>,
+    in_edges: Vec<u32>,
 }
 
 impl Sites {
@@ -37,12 +37,12 @@ impl Sites {
         }
         let mut defs: Vec<Vec<u32>> = vec![Vec::new(); rows as usize];
         let mut uses: Vec<Vec<u32>> = vec![Vec::new(); rows as usize];
-        let mut preds: Vec<Vec<u32>> = vec![Vec::new(); func.blocks.len()];
+        let mut in_edges = vec![0u32; func.blocks.len()];
         let at = |v: ValueId| (row[v.0 as usize] as usize).checked_sub(1);
         for block in &func.blocks {
             let id = block.id.0;
             for t in super::targets(&block.term) {
-                preds[t as usize].push(id);
+                in_edges[t as usize] += 1;
             }
             for inst in &block.insts {
                 if let Some(k) = inst.result.and_then(at) {
@@ -71,7 +71,7 @@ impl Sites {
             row,
             defs,
             uses,
-            preds,
+            in_edges,
         }
     }
 
@@ -93,7 +93,8 @@ impl Sites {
         let mut visible: HashSet<ValueId> = HashSet::default();
         let mut carried: HashSet<ValueId> = HashSet::default();
         for (k, &b) in tail.iter().enumerate() {
-            if k > 0 && self.preds[b as usize].iter().any(|&p| p != tail[k - 1]) {
+            // the block before it in the tail jumps to it: one edge
+            if k > 0 && self.in_edges[b as usize] > 1 {
                 visible.clear();
             }
             for inst in &func.blocks[b as usize].insts {

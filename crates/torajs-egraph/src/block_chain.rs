@@ -24,27 +24,38 @@
 //! already contiguous when their parent is chained and move as one
 //! unit, entered at their first block.
 
-use crate::id_hash::{HashMap, HashSet};
+use crate::id_hash::HashSet;
 
 use torajs_core::ssa::{BlockId, Function, InstKind, Terminator};
 
 use torajs_core::ssa::branch_prob::cold_arms;
-use torajs_core::ssa::dominator::DominatorTree;
+
+mod block_set;
+mod dom_view;
+pub(crate) use block_set::BlockSet;
+pub(crate) use dom_view::DomView;
 
 /// What the chainer knows about the whole function.
 pub(crate) struct ChainFacts<'a> {
-    pub(crate) dom: &'a DominatorTree,
+    pub(crate) dom: DomView<'a>,
     /// Edges `(from, to)` into an arm the lowerer's guards mark cold.
     cold_edges: HashSet<(u32, u32)>,
 }
 
 impl<'a> ChainFacts<'a> {
-    pub(crate) fn new(func: &Function, dom: &'a DominatorTree) -> Self {
-        let cold_edges = cold_arms(func)
-            .into_iter()
-            .map(|(from, to, _)| (from.0, to.0))
-            .collect();
+    pub(crate) fn new(func: &Function, dom: DomView<'a>) -> Self {
+        Self::with_cold_edges(dom, cold_edges(func))
+    }
+
+    /// The facts with the cold edges already read off the function.
+    pub(crate) fn with_cold_edges(dom: DomView<'a>, cold_edges: HashSet<(u32, u32)>) -> Self {
         ChainFacts { dom, cold_edges }
+    }
+
+    /// Hands back the cold edges, for the same function changed in
+    /// ways that leave them as they were.
+    pub(crate) fn into_cold_edges(self) -> HashSet<(u32, u32)> {
+        self.cold_edges
     }
 
     /// Every path to `block` inside `body` runs a call, ends the
@@ -73,6 +84,53 @@ impl<'a> ChainFacts<'a> {
             cur = idom.0;
         }
     }
+
+    /// `cold_path` of each of `starts`, sharing the walks: the walks
+    /// up from the blocks of one loop meet early.
+    fn cold_paths(
+        &self,
+        func: &Function,
+        in_body: &impl Fn(u32) -> bool,
+        starts: &[u32],
+    ) -> Vec<bool> {
+        let mut known: Vec<Option<bool>> = vec![None; func.blocks.len()];
+        let mut path: Vec<u32> = Vec::new();
+        let mut answer = |start: u32| -> bool {
+            let mut cur = start;
+            let cold = loop {
+                if let Some(k) = known[cur as usize] {
+                    break k;
+                }
+                if is_cold(func, cur) {
+                    break true;
+                }
+                match self.dom.immediate_dominator(BlockId(cur)) {
+                    Some(idom) if in_body(idom.0) => {
+                        if self.cold_edges.contains(&(idom.0, cur)) {
+                            break true;
+                        }
+                        path.push(cur);
+                        cur = idom.0;
+                    }
+                    _ => break false,
+                }
+            };
+            // a block walked through is as cold as its dominator
+            known[cur as usize] = Some(cold);
+            for b in path.drain(..) {
+                known[b as usize] = Some(cold);
+            }
+            cold
+        };
+        starts.iter().map(|&b| answer(b)).collect()
+    }
+}
+
+/// Edges `(from, to)` into an arm the lowerer's guards mark cold.
+fn cold_edges(func: &Function) -> HashSet<(u32, u32)> {
+    (cold_arms(func).into_iter())
+        .map(|(from, to, _)| (from.0, to.0))
+        .collect()
 }
 
 /// Reorder `order[span]` (the loop's contiguous range) into
@@ -84,12 +142,13 @@ pub(crate) fn chain_loop_range(
     order: &mut [u32],
     span: std::ops::Range<usize>,
     header: u32,
-    body: &HashSet<u32>,
-    children: &[(&HashSet<u32>, u32)],
+    body: &BlockSet,
+    children: &[(&BlockSet, u32)],
     facts: &ChainFacts,
 ) -> bool {
     let range = &order[span.clone()];
     let units = units_of(range, children);
+    let unit = |u: usize| &range[units[u].clone()];
     // A block on every path into a nested loop (its entry, a preheader,
     // a rotation guard) leads toward the loop.
     let leads_to_loop = |b: u32| {
@@ -98,12 +157,13 @@ pub(crate) fn chain_loop_range(
             .any(|(_, h)| facts.dom.dominates(BlockId(b), BlockId(*h)))
     };
     // every block of the range sits in exactly one unit
-    let unit_index: HashMap<u32, usize> = units
-        .iter()
-        .enumerate()
-        .flat_map(|(u, ids)| ids.iter().map(move |&id| (id, u)))
-        .collect();
-    let unit_of = |id: u32| unit_index.get(&id).copied();
+    let mut unit_index = vec![usize::MAX; range.iter().max().map_or(0, |&m| m as usize + 1)];
+    for (u, r) in units.iter().enumerate() {
+        for &id in &range[r.clone()] {
+            unit_index[id as usize] = u;
+        }
+    }
+    let unit_of = |id: u32| (unit_index.get(id as usize).copied()).filter(|&u| u != usize::MAX);
     // where a chain ends, the next one starts at the first unplaced
     // warm unit: a unit every path to which runs a call (a grow, a
     // slow-path kernel, the exit epilogue) goes after every warm one,
@@ -117,10 +177,8 @@ pub(crate) fn chain_loop_range(
     let cold = std::cell::OnceCell::new();
     let cold = |u: usize| {
         cold.get_or_init(|| {
-            units
-                .iter()
-                .map(|unit| facts.cold_path(func, &|b| body.contains(&b), unit[0]))
-                .collect::<Vec<bool>>()
+            let firsts: Vec<u32> = units.iter().map(|r| range[r.start]).collect();
+            facts.cold_paths(func, &|b| body.contains(b), &firsts)
         })[u]
     };
     let mut placed = Placed::new(units.len());
@@ -132,7 +190,7 @@ pub(crate) fn chain_loop_range(
         let next = hot_successor(
             func,
             facts,
-            &units[cur],
+            unit(cur),
             body,
             &unit_of,
             &leads_to_loop,
@@ -146,7 +204,7 @@ pub(crate) fn chain_loop_range(
     }
     let new: Vec<u32> = chain
         .iter()
-        .flat_map(|&u| units[u].iter().copied())
+        .flat_map(|&u| unit(u).iter().copied())
         .collect();
     if new.as_slice() == range {
         return false;
@@ -156,18 +214,19 @@ pub(crate) fn chain_loop_range(
 }
 
 /// The range in units, in current order: a child loop's run of blocks,
-/// or one block.
-fn units_of(range: &[u32], children: &[(&HashSet<u32>, u32)]) -> Vec<Vec<u32>> {
-    let mut units: Vec<Vec<u32>> = Vec::new();
-    for &id in range {
-        let owner = children.iter().position(|(c, _)| c.contains(&id));
-        let same = units.last().is_some_and(|u| {
-            owner.is_some() && children.iter().position(|(c, _)| c.contains(&u[0])) == owner
-        });
-        if same {
-            units.last_mut().expect("unit").push(id);
-        } else {
-            units.push(vec![id]);
+/// or one block; each unit is its span of positions in `range`.
+fn units_of(range: &[u32], children: &[(&BlockSet, u32)]) -> Vec<std::ops::Range<usize>> {
+    let mut units: Vec<std::ops::Range<usize>> = Vec::new();
+    // the child loop the last unit's first block belongs to
+    let mut last_owner = None;
+    for (i, &id) in range.iter().enumerate() {
+        let owner = children.iter().position(|(c, _)| c.contains(id));
+        match units.last_mut() {
+            Some(u) if owner.is_some() && last_owner == owner => u.end = i + 1,
+            _ => {
+                units.push(i..i + 1);
+                last_owner = owner;
+            }
         }
     }
     units
@@ -212,7 +271,7 @@ fn hot_successor(
     func: &Function,
     facts: &ChainFacts,
     unit: &[u32],
-    body: &HashSet<u32>,
+    body: &BlockSet,
     unit_of: &dyn Fn(u32) -> Option<usize>,
     leads_to_loop: &dyn Fn(u32) -> bool,
     placed: &[bool],
@@ -220,19 +279,23 @@ fn hot_successor(
     let last = *unit.last().expect("non-empty unit");
     let blocks = std::iter::once(last).chain(unit.iter().rev().skip(1).copied());
     for b in blocks {
-        let targets: Vec<u32> = match &func.blocks[b as usize].term {
-            Terminator::Br(t) => vec![t.0],
+        let targets = match &func.blocks[b as usize].term {
+            Terminator::Br(t) => [Some(t.0), None],
             Terminator::CondBr {
                 then_blk, else_blk, ..
-            } => vec![then_blk.0, else_blk.0],
-            Terminator::Ret(_) | Terminator::Unreachable => Vec::new(),
+            } => [Some(then_blk.0), Some(else_blk.0)],
+            Terminator::Ret(_) | Terminator::Unreachable => [None, None],
         };
-        let open: Vec<u32> = targets
-            .into_iter()
-            // the unit's own blocks are placed with it
-            .filter(|t| body.contains(t))
-            .filter(|t| unit_of(*t).is_some_and(|u| !placed[u]))
-            .collect();
+        let mut open = [0u32; 2];
+        let mut n = 0;
+        // the unit's own blocks are placed with it
+        for t in targets.into_iter().flatten() {
+            if body.contains(t) && unit_of(t).is_some_and(|u| !placed[u]) {
+                open[n] = t;
+                n += 1;
+            }
+        }
+        let open = &open[..n];
         // Among warm arms, the one entering a nested loop first: the
         // loop-branch heuristic of static prediction (an edge into a
         // loop is taken far more often than the one bypassing it).
@@ -265,6 +328,7 @@ fn is_cold(func: &Function, id: u32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use torajs_core::ssa::dominator::DominatorTree;
     use torajs_core::ssa::{FuncId, Inst, Operand, Type};
 
     /// b0 → b1(hdr: ? b2 : b6) ; b2: ? b3 : b4 ; b3 (call) → b7 ;
@@ -293,14 +357,20 @@ mod tests {
         f.set_term(b[5], Terminator::Br(b[1]));
         f.set_term(b[6], Terminator::Ret(None));
         let dom = DominatorTree::compute(&f);
-        let facts = ChainFacts::new(&f, &dom);
-        let body: HashSet<u32> = [1, 2, 3, 4, 5, 7].into_iter().collect();
-        let cold = |id: u32| facts.cold_path(&f, &|b| body.contains(&b), id);
+        let facts = ChainFacts::new(&f, DomView::whole(&dom));
+        let body = BlockSet::of([1, 2, 3, 4, 5, 7].into_iter());
+        let cold = |id: u32| facts.cold_path(&f, &|b| body.contains(b), id);
         assert!(cold(3) && cold(7), "the call and the block behind it");
         assert!(
             !cold(4) && !cold(5) && !cold(2),
             "the warm arm and the join"
         );
+        // the shared walks answer what one walk per block does, in any
+        // order of asking
+        let all = [7, 5, 4, 3, 2, 1];
+        let one_by_one: Vec<bool> = all.iter().map(|&b| cold(b)).collect();
+        let in_body = |b| body.contains(b);
+        assert_eq!(facts.cold_paths(&f, &in_body, &all), one_by_one);
     }
 
     /// A chain that ends goes on at the first unplaced warm unit; the
