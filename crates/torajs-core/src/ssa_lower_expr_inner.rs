@@ -400,7 +400,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
             ctx.lower_as_cast(eid, inner, &ann)
         }
         // V3-18 m1.h.6 — comma operator; see [`lower_sequence`].
-        Expr::Sequence { left, right } => lower_sequence(ctx, *left, *right),
+        Expr::Sequence { left, right } => lower_sequence(ctx, eid, *left, *right),
         // P-PARSE.8 — `let x;` placeholder reaches here when
         // desugar_uninit_let couldn't find a follow-up assignment
         // to splice in. Emit the same shape as Expr::Null (the
@@ -419,7 +419,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
 /// the result if non-Copy heap, then return the right operand's
 /// value. Drop emission keeps the refcount math sane on heap-typed
 /// left expressions.
-fn lower_sequence(ctx: &mut LowerCtx, left: ExprId, right: ExprId) -> Operand {
+fn lower_sequence(ctx: &mut LowerCtx, eid: ExprId, left: ExprId, right: ExprId) -> Operand {
     let l = ctx.lower_expr(left);
     // Rotation 326 — the discarded left is only released when its
     // value is an owned temp. The unconditional type-shaped drop
@@ -428,7 +428,16 @@ fn lower_sequence(ctx: &mut LowerCtx, left: ExprId, right: ExprId) -> Operand {
     // registry still points at — one line was enough to underflow
     // every class object it named.
     ctx.release_owned_temp(left, &l);
-    ctx.lower_expr(right)
+    // a discarded comma discards its right operand too: an assignment
+    // there mints no consumer stake (`for (…; k++, x = s + k)` leaked
+    // one string per iteration)
+    let saved = ctx.discarded_stmt_expr;
+    if saved == Some(eid) {
+        ctx.discarded_stmt_expr = Some(right);
+    }
+    let r = ctx.lower_expr(right);
+    ctx.discarded_stmt_expr = saved;
+    r
 }
 
 impl<'a> LowerCtx<'a> {

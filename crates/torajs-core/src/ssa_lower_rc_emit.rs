@@ -319,7 +319,9 @@ impl<'a> LowerCtx<'a> {
         // 385): 300k of `const t: any = s[0] as any` peaked at
         // 16.07 MB RSS against 6.46 MB for the uncast `s[0]`.
         let mut eid = eid;
-        while let Expr::As { expr, .. } = self.ast.get_expr(eid) {
+        while let Expr::As { expr, .. } | Expr::Sequence { right: expr, .. } =
+            self.ast.get_expr(eid)
+        {
             eid = *expr;
         }
         match self.ast.get_expr(eid) {

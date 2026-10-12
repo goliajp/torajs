@@ -81,6 +81,10 @@ pub(crate) fn init_shares_source_stake(
     converted: bool,
 ) -> bool {
     match ctx.ast.get_expr(init) {
+        // a comma expression answers its right operand as lowered
+        Expr::Sequence { right, .. } => {
+            init_shares_source_stake(ctx, *right, pre_ty, ty, converted)
+        }
         Expr::Ident(src) => {
             // Chunk 698 — a converted init is a fresh cell the
             // binding owns outright; no share with the source.

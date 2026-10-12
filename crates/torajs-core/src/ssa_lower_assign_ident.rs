@@ -442,7 +442,7 @@ fn apply_borrow_rc_inc(ctx: &mut LowerCtx<'_>, v: &Operand, value: ExprId) {
     // read came back as the churn string. The uncast `dst = src` is
     // correct, which is exactly what makes this shape easy to miss.
     let mut value = value;
-    while let Expr::As { expr, .. } = ctx.ast.get_expr(value) {
+    while let Expr::As { expr, .. } | Expr::Sequence { right: expr, .. } = ctx.ast.get_expr(value) {
         value = *expr;
     }
     let needs_inc = match ctx.ast.get_expr(value) {
