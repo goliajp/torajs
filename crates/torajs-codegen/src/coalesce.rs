@@ -51,7 +51,7 @@ use crate::liveness_blocks::BlockLiveness;
 type Segments = Vec<(u32, u32)>;
 
 mod segments;
-use segments::{any_inside, def_sites, live_segments, overlaps, union};
+use segments::{Live, NONE, any_inside, live_segments, overlaps, union};
 
 struct Class {
     members: Vec<u32>,
@@ -134,9 +134,17 @@ pub(crate) fn build_copy_classes(
         return Classes::default();
     }
     let live_ok = !switches.coalesce_live_off;
-    let cands: HashSet<u32> = copies.iter().flat_map(|c| [c.w, c.v]).collect();
-    let mut segs = live_segments(func, blocks, &cands);
-    let mut defs = def_sites(func, blocks, &cands);
+    // candidate index per value: the walk asks once per operand, too
+    // often for a hash lookup
+    let mut slot = vec![NONE; func.values.len()];
+    let mut cands = 0;
+    for x in copies.iter().flat_map(|c| [c.w, c.v]) {
+        if slot[x as usize] == NONE {
+            slot[x as usize] = cands;
+            cands += 1;
+        }
+    }
+    let mut live = live_segments(func, blocks, &slot, cands as usize);
 
     let mut leader_of: HashMap<u32, u32> = HashMap::default();
     let mut classes: HashMap<u32, Class> = HashMap::default();
@@ -148,13 +156,16 @@ pub(crate) fn build_copy_classes(
         }
         let a = classes
             .remove(&rw)
-            .unwrap_or_else(|| singleton(rw, &mut segs, &mut defs, intervals));
+            .unwrap_or_else(|| singleton(rw, &slot, &mut live, intervals));
         let b = classes
             .remove(&rv)
-            .unwrap_or_else(|| singleton(rv, &mut segs, &mut defs, intervals));
+            .unwrap_or_else(|| singleton(rv, &slot, &mut live, intervals));
         if mergeable(&a, &b, exact && live_ok, call_sites) {
+            let from = a.members.len();
             let merged = merge(a, b);
-            for &m in &merged.members {
+            // the members `a` brought already answer `rw`
+            leader_of.insert(rw, rw);
+            for &m in &merged.members[from..] {
                 leader_of.insert(m, rw);
             }
             classes.insert(rw, merged);
@@ -210,19 +221,13 @@ fn collect_copies(
     copies
 }
 
-fn singleton(
-    v: u32,
-    segs: &mut HashMap<u32, Segments>,
-    defs: &mut HashMap<u32, Vec<u32>>,
-    intervals: &HashMap<u32, Interval>,
-) -> Class {
-    let mut s = segs.remove(&v).unwrap_or_default();
-    s.sort_unstable();
+fn singleton(v: u32, slot: &[u32], live: &mut Live, intervals: &HashMap<u32, Interval>) -> Class {
+    let i = slot[v as usize] as usize;
     Class {
         members: vec![v],
-        segs: s,
+        segs: std::mem::take(&mut live.segs[i]),
         hull: intervals[&v],
-        defs: defs.remove(&v).unwrap_or_default(),
+        defs: std::mem::take(&mut live.defs[i]),
     }
 }
 

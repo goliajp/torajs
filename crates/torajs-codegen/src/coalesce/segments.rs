@@ -2,7 +2,6 @@
 //! the interference tests over them.
 
 use torajs_core::ssa::Function;
-use torajs_core::ssa::id_hash::{HashMap, HashSet};
 
 use super::Segments;
 use crate::live_ranges::walk_half_slots;
@@ -22,29 +21,50 @@ pub(super) fn overlaps(a: &Segments, b: &Segments) -> bool {
     false
 }
 
-/// Half-slot ranges where each candidate holds a live value.
+/// The candidates' live segments and def sites, indexed like the
+/// candidates: `slot[v]` is value `v`'s candidate index, `NONE` for a
+/// value that is not one.
+pub(super) struct Live {
+    /// Half-slot ranges where the candidate holds a live value,
+    /// ascending.
+    pub(super) segs: Vec<Segments>,
+    /// Write half-slots of the candidate's defs, ascending.
+    pub(super) defs: Vec<Vec<u32>>,
+}
+
+pub(super) const NONE: u32 = u32::MAX;
+
+/// One backward walk gives both: every def of a candidate opens a range
+/// at its write half-slot `2p + 1`, the only odd start a range can have
+/// (a range live into a block starts at the block's read half-slot).
+/// The walk hands each block's ranges in descending order of start and
+/// the blocks in ascending slot order, so reading each block backward
+/// leaves every list ascending.
 pub(super) fn live_segments(
     func: &Function,
     blocks: &BlockLiveness,
-    cands: &HashSet<u32>,
-) -> HashMap<u32, Segments> {
-    let mut segs: HashMap<u32, Segments> = HashMap::default();
-    // the walk asks once per operand and live-out member
-    let mut keep = vec![false; func.values.len()];
-    for &v in cands {
-        keep[v as usize] = true;
-    }
+    slot: &[u32],
+    cands: usize,
+) -> Live {
+    let mut live = Live {
+        segs: vec![Vec::new(); cands],
+        defs: vec![Vec::new(); cands],
+    };
     walk_half_slots(
         func,
         blocks,
-        |v| keep[v as usize],
+        |v| slot[v as usize] != NONE,
         |_, block| {
-            for &(v, lo, hi) in block {
-                segs.entry(v).or_default().push((lo, hi));
+            for &(v, lo, hi) in block.iter().rev() {
+                let i = slot[v as usize] as usize;
+                live.segs[i].push((lo, hi));
+                if lo % 2 == 1 {
+                    live.defs[i].push(lo);
+                }
             }
         },
     );
-    segs
+    live
 }
 
 /// Whether some position of `points` (ascending) falls inside a range
@@ -81,25 +101,4 @@ pub(super) fn union(a: &Segments, b: &Segments) -> Segments {
         }
     }
     out
-}
-
-/// Write half-slots of every def of the candidates.
-pub(super) fn def_sites(
-    func: &Function,
-    blocks: &BlockLiveness,
-    cands: &HashSet<u32>,
-) -> HashMap<u32, Vec<u32>> {
-    let mut defs: HashMap<u32, Vec<u32>> = HashMap::default();
-    for (b, block) in func.blocks.iter().enumerate() {
-        for (k, inst) in block.insts.iter().enumerate() {
-            if let Some(r) = inst.result
-                && cands.contains(&r.0)
-            {
-                defs.entry(r.0)
-                    .or_default()
-                    .push(2 * (blocks.start[b] + k as u32) + 1);
-            }
-        }
-    }
-    defs
 }
