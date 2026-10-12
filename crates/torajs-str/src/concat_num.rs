@@ -124,7 +124,7 @@ unsafe fn concat_ascii_tail(a: *const u8, d_len: usize, write: impl FnOnce(*mut 
 /// # Safety
 /// `buf` is 8-aligned and holds the header and `length` units.
 #[inline(always)]
-unsafe fn stack_cell(buf: *mut u8, length: u32, latin1: bool, extra: u16) {
+pub(crate) unsafe fn stack_cell(buf: *mut u8, length: u32, latin1: bool, extra: u16) {
     let flags = (extra | FLAG_STATIC_LITERAL) as u64;
     unsafe {
         (buf as *mut u64).write(packed_header_init(latin1) | flags << 48);

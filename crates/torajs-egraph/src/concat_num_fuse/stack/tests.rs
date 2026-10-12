@@ -268,3 +268,78 @@ fn anything_that_may_keep_it_stays_on_the_heap() {
         assert_eq!(format!("{:?}", body(&m).blocks), before, "case {i}");
     }
 }
+
+const VIEW_CONCAT: FuncId = FuncId(BODY as u32 + 1);
+const CHAR_CODE_AT: FuncId = FuncId(BODY as u32 + 2);
+
+/// [`module`] with the view concat and a reader declared after the
+/// body, and a one-byte literal `|` as literal 2.
+fn view_module(insts: Vec<Inst>) -> Module {
+    let mut m = module(vec![insts], Terminator::Ret(None));
+    for name in [
+        "__torajs_substr_concat_substr_str",
+        "__torajs_str_char_code_at",
+    ] {
+        m.funcs.push(Function::new(name, Type::Str));
+    }
+    m.strings.push(StringLiteral::encode_from_str("|"));
+    m
+}
+
+#[test]
+fn the_view_literal_slot_is_the_largest_pooled_payload() {
+    // torajs-str's STR_DATA_OFF + STR_POOL_PAYLOAD, which its own
+    // concat_lit tests pin to the same number
+    assert_eq!(super::VIEW_LIT_CELL, 16 + 64);
+}
+
+#[test]
+fn a_view_and_literal_read_only_by_char_code_at_moves_and_keeps_its_drop() {
+    let mut m = view_module(vec![
+        lit(2, 2),
+        call(3, VIEW_CONCAT, &[v(0), v(2)]),
+        call(4, CHAR_CODE_AT, &[v(3), Operand::ConstI64(0)]),
+        drop_of(3),
+    ]);
+    assert_eq!(stack_temps(&mut m), 1);
+    let insts = &body(&m).blocks[0].insts;
+    assert!(
+        !insts
+            .iter()
+            .any(|i| matches!(i.kind, InstKind::StaticStrRef(_))),
+        "the literal travels as immediates"
+    );
+    assert!(matches!(insts[0].kind, InstKind::AllocaBytes(80)));
+    assert_eq!(
+        callee(&m, &insts[1]).as_deref(),
+        Some("__torajs_substr_concat_lit_into")
+    );
+    let InstKind::Call(_, args) = &insts[1].kind else {
+        unreachable!()
+    };
+    let meta = 1 << 4 | 1 << 1 | 1 << 12;
+    assert_eq!(
+        args,
+        &vec![
+            v(0),
+            Operand::ConstI64(i64::from(b'|')),
+            Operand::ConstI64(meta),
+            Operand::Value(insts[0].result.unwrap()),
+        ]
+    );
+    assert!(has_drop(&m), "a longer view answers a heap cell");
+}
+
+#[test]
+fn a_stored_view_and_literal_stays_on_the_heap() {
+    let mut m = view_module(vec![
+        lit(2, 2),
+        call(3, VIEW_CONCAT, &[v(0), v(2)]),
+        inst(None, InstKind::Store(v(3), v(0), 16)),
+    ]);
+    assert_eq!(stack_temps(&mut m), 0);
+    assert_eq!(
+        callee(&m, &body(&m).blocks[0].insts[1]).as_deref(),
+        Some("__torajs_substr_concat_substr_str")
+    );
+}

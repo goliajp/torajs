@@ -62,7 +62,7 @@
 // beside this file
 mod chain;
 pub(crate) mod kernels;
-mod literal;
+pub(crate) mod literal;
 mod reserve;
 #[cfg(test)]
 pub(crate) mod test_support;

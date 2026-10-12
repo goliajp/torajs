@@ -5,10 +5,10 @@
 use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{
-    BinOp, Function, Inst, InstKind, Operand, Terminator, ValueId, visit_value_operands,
+    BinOp, Function, Inst, InstKind, Operand, StringId, Terminator, ValueId, visit_value_operands,
 };
 
-use super::{HDR_BYTES, I64_DIGITS_MAX, Kernels, Mint};
+use super::{HDR_BYTES, I64_DIGITS_MAX, Kernels, Mint, VIEW_LIT_CELL};
 
 #[derive(Clone, Copy)]
 pub(super) enum Use {
@@ -62,19 +62,33 @@ pub(super) fn mint_of(inst: &Inst, k: &Kernels, ix: &Index<'_>) -> Option<(u64, 
         let bytes = (HDR_BYTES + I64_DIGITS_MAX).next_multiple_of(8);
         return Some((bytes, Mint::ToStr));
     }
-    if Some(*fid) != k.concat || args.len() != 2 {
+    if args.len() != 2 {
         return None;
     }
-    let Operand::Value(a) = args[0] else {
+    if Some(*fid) == k.view_concat {
+        let (bits, meta) = (*k.lit_imms.get(static_sid(&args[1], ix)?.0 as usize)?)?;
+        return Some((VIEW_LIT_CELL, Mint::ViewLit { bits, meta }));
+    }
+    if Some(*fid) != k.concat {
+        return None;
+    }
+    let sid = static_sid(&args[0], ix)?;
+    Some(((*k.lit_cells.get(sid.0 as usize)?)?, Mint::Concat))
+}
+
+/// The static literal `op` names, when its one def is a
+/// `static_str_ref`.
+fn static_sid(op: &Operand, ix: &Index<'_>) -> Option<StringId> {
+    let Operand::Value(a) = op else {
         return None;
     };
-    let [(b, i)] = ix.defs.get(&a)?.as_slice() else {
+    let [(b, i)] = ix.defs.get(a)?.as_slice() else {
         return None;
     };
     let InstKind::StaticStrRef(sid) = ix.inst(*b, *i).kind else {
         return None;
     };
-    Some(((*k.lit_cells.get(sid.0 as usize)?)?, Mint::Concat))
+    Some(sid)
 }
 
 pub(super) enum Role {

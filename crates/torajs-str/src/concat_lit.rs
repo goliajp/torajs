@@ -27,6 +27,7 @@
 //! that ends in a pooled block, and the rest is one tail call away.
 
 use crate::block::StrBlock;
+use crate::concat_num::stack_cell;
 use crate::copy::copy_short;
 use crate::join::{Side, write_side};
 use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_ASCII, STR_FLAG_IS_LATIN1, STR_POOL_PAYLOAD};
@@ -197,6 +198,47 @@ pub unsafe extern "C" fn __torajs_substr_prepend_lit(
     meta: u64,
 ) -> *mut u8 {
     unsafe { join_lit(Side::of_view(v), bits, meta, true, false) }
+}
+
+/// `view + <literal>` written into the caller's frame cell `buf`
+/// when the result is a pooled-size payload of one width; answers
+/// `buf`, whose static header makes every release of it a no-op.
+/// Any other result is the fresh refcount-1 Str
+/// [`__torajs_substr_concat_lit`] answers, which the caller releases
+/// as before.
+///
+/// # Safety
+///
+/// Same contract as [`__torajs_substr_concat_lit`]; `buf` is 8-aligned
+/// with room for the header and [`STR_POOL_PAYLOAD`] bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_substr_concat_lit_into(
+    v: *const u8,
+    bits: u64,
+    meta: u64,
+    buf: *mut u8,
+) -> *mut u8 {
+    let side = unsafe { Side::of_view(v) };
+    let lit_flags = lit_flags(meta);
+    // a length within the payload first, so the byte sum cannot wrap
+    if (side.flags ^ lit_flags) & STR_FLAG_IS_LATIN1 == 0 && side.len <= STR_POOL_PAYLOAD {
+        let shift = u32::from(!side.is_latin1());
+        let n = lit_len(meta);
+        let side_bytes = side.len << shift;
+        let lit_bytes = n << shift;
+        if side_bytes + lit_bytes <= STR_POOL_PAYLOAD {
+            let ascii = side.flags & lit_flags & STR_FLAG_IS_ASCII;
+            let (side_bytes, lit_bytes) = (side_bytes as usize, lit_bytes as usize);
+            unsafe {
+                stack_cell(buf, side.len + n, side.is_latin1(), ascii);
+                let dst = buf.add(STR_DATA_OFF);
+                copy_short(dst, side.ptr, side_bytes);
+                write_low_bytes(dst.add(side_bytes), bits, lit_bytes);
+            }
+            return buf;
+        }
+    }
+    unsafe { join_lit(side, bits, meta, false, false) }
 }
 
 #[cfg(test)]
@@ -492,5 +534,83 @@ mod tests {
         for p in [parent, wide, r, l, r2] {
             unsafe { __torajs_str_free(p) };
         }
+    }
+
+    /// 8-aligned room for a frame cell: the header and the largest
+    /// pooled payload.
+    #[repr(align(8))]
+    struct Frame([u8; STR_DATA_OFF + STR_POOL_PAYLOAD as usize]);
+
+    #[test]
+    fn a_pooled_size_view_and_literal_land_in_the_frame() {
+        let parent = latin1(b"alpha,beta");
+        let v = view(parent, 6, 4);
+        let (bits, meta) = lit1(b"|");
+        let mut frame = Frame([0xAA; STR_DATA_OFF + STR_POOL_PAYLOAD as usize]);
+        let buf = frame.0.as_mut_ptr();
+        let r =
+            unsafe { __torajs_substr_concat_lit_into(v.as_ptr() as *const u8, bits, meta, buf) };
+        assert_eq!(r, buf);
+        assert_eq!(read(r), (b"beta|".to_vec(), true, 5));
+        let flags = unsafe { (*(r as *const torajs_rc::HeapHeader)).flags };
+        assert_ne!(flags & FLAG_STATIC_LITERAL, 0);
+        assert!(!is_marked_ascii(r), "the parent carries no ASCII mark");
+        unsafe { crate::str_drop::__torajs_str_drop(r) };
+        assert_eq!(read(r).0, b"beta|", "a release passes over the frame cell");
+        let text = [b'q'; STR_POOL_PAYLOAD as usize];
+        let full = mark_ascii(latin1(&text));
+        let v = view(full, 1, 63);
+        let r =
+            unsafe { __torajs_substr_concat_lit_into(v.as_ptr() as *const u8, bits, meta, buf) };
+        assert_eq!(r, buf, "exactly the payload bound");
+        let mut want = text[1..].to_vec();
+        want.push(b'|');
+        assert_eq!(read(r), (want, true, 64));
+        assert!(is_marked_ascii(r));
+        let wide = utf16(&[0x3042, 0x4E2D, 0x6587]);
+        let v = view(wide, 1, 2);
+        let (wbits, wmeta) = lit2(&[0x7C]);
+        let r =
+            unsafe { __torajs_substr_concat_lit_into(v.as_ptr() as *const u8, wbits, wmeta, buf) };
+        assert_eq!(r, buf);
+        assert_eq!(read(r), (vec![0x2D, 0x4E, 0x87, 0x65, b'|', 0], false, 3));
+        for p in [parent, full, wide] {
+            unsafe { __torajs_str_free(p) };
+        }
+    }
+
+    #[test]
+    fn a_long_or_mixed_width_view_falls_back_to_a_heap_cell() {
+        let mut frame = Frame([0; STR_DATA_OFF + STR_POOL_PAYLOAD as usize]);
+        let buf = frame.0.as_mut_ptr();
+        let (bits, meta) = lit1(b"|");
+        let text = [b'q'; 80];
+        let long = latin1(&text);
+        let v = view(long, 0, 64);
+        let r =
+            unsafe { __torajs_substr_concat_lit_into(v.as_ptr() as *const u8, bits, meta, buf) };
+        assert_ne!(r, buf, "65 bytes are past the payload");
+        let mut want = text[..64].to_vec();
+        want.push(b'|');
+        assert_eq!(read(r), (want, true, 65));
+        let wide = utf16(&[0x3042, 0x4E2D]);
+        let v = view(wide, 0, 2);
+        let w =
+            unsafe { __torajs_substr_concat_lit_into(v.as_ptr() as *const u8, bits, meta, buf) };
+        assert_ne!(
+            w, buf,
+            "a Latin-1 literal on a UTF-16 view widens on the heap"
+        );
+        assert_eq!(read(w), (vec![0x42, 0x30, 0x2D, 0x4E, b'|', 0], false, 3));
+        for p in [long, wide, r, w] {
+            unsafe { __torajs_str_free(p) };
+        }
+    }
+
+    #[test]
+    fn the_frame_cell_size_is_the_one_the_compiler_reserves() {
+        // torajs-egraph's concat_num_fuse::stack mirrors this as its
+        // view-literal slot size
+        assert_eq!(STR_DATA_OFF + STR_POOL_PAYLOAD as usize, 80);
     }
 }

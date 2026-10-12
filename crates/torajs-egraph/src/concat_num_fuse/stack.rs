@@ -8,7 +8,7 @@
 //! `__torajs_i64_to_str_into(n, buf)` over an `AllocaBytes` slot sized
 //! for the longest result, the cell's header is static (so any rc op
 //! or release that still reaches it is a no-op), and every drop of it
-//! is deleted.
+//! is deleted unless the set also holds a view-literal mint (below).
 //!
 //! What makes that sound is the set of values the cell's address can
 //! reach — the mint results plus everything joined to them by `copy`
@@ -17,7 +17,8 @@
 //! must be one of:
 //!
 //! * a `copy` into another value of the set;
-//! * a `__torajs_str_drop` of it, which is deleted;
+//! * a `__torajs_str_drop` of it, which is deleted (kept, as a no-op on
+//!   the frame cell, in a set with a view-literal mint);
 //! * a load through it, or an argument slot of a runtime reader that
 //!   is known not to keep the string (no cache, no view, no result
 //!   that points into it), of a value whose bytes are known to be its
@@ -32,6 +33,14 @@
 //! their subject, a Map keeps its key) — leaves the whole set on the
 //! heap. The prefix must be a static literal so the slot's size is
 //! known at compile time; there is no heap fallback inside the kernel.
+//!
+//! A substring view followed by a literal short enough to travel as
+//! immediates (`str_append::literal`) gets the same treatment through
+//! `__torajs_substr_concat_lit_into`, with one difference: the view's
+//! length is only known at run time, so the slot holds the largest
+//! pooled payload and a longer or mixed-width result is a heap cell
+//! the kernel answers instead. Its drops therefore stay; on the frame
+//! cell they are no-ops.
 
 use crate::id_hash::{HashMap, HashSet};
 
@@ -39,6 +48,7 @@ use torajs_core::ssa::{
     FuncId, Function, Inst, InstKind, Module, Operand, Type, ValueId, ValueInfo,
 };
 
+use crate::str_append::literal::{drop_unread, immediates};
 use web::{Index, Role, Use, mint_of, role, web};
 
 mod web;
@@ -48,12 +58,20 @@ const CONCAT_I64: &str = "__torajs_str_concat_i64";
 const STR_DROP: &str = "__torajs_str_drop";
 const I64_TO_STR_INTO: &str = "__torajs_i64_to_str_into";
 const CONCAT_I64_INTO: &str = "__torajs_str_concat_i64_into";
+const VIEW_CONCAT: &str = "__torajs_substr_concat_substr_str";
+const VIEW_LIT_INTO: &str = "__torajs_substr_concat_lit_into";
 
 const HDR_BYTES: u64 = 16;
 /// `-9223372036854775808`
 const I64_DIGITS_MAX: u64 = 20;
 /// The most frame one temp may take.
 const CELL_CAP: u64 = 256;
+/// torajs-str's `STR_POOL_PAYLOAD`: the most payload bytes a
+/// view-and-literal frame cell holds.
+const POOL_PAYLOAD_MAX: u64 = 64;
+/// Frame bytes of a view-and-literal cell: torajs-str's
+/// `STR_DATA_OFF + STR_POOL_PAYLOAD`.
+const VIEW_LIT_CELL: u64 = HDR_BYTES + POOL_PAYLOAD_MAX;
 
 /// Runtime readers and the argument slots in which a string is only
 /// read: each scans the bytes and answers a number or a bool.
@@ -72,16 +90,26 @@ pub(crate) const READERS: &[(&str, &[usize])] = &[
 enum Mint {
     ToStr,
     Concat,
+    /// `view + <literal>`, the literal as its `(bits, meta)`
+    /// immediates; the literal's value is the second argument.
+    ViewLit {
+        bits: i64,
+        meta: i64,
+    },
 }
 
 struct Kernels {
     drop: FuncId,
     to_str: Option<FuncId>,
     concat: Option<FuncId>,
+    view_concat: Option<FuncId>,
     readers: HashMap<FuncId, &'static [usize]>,
     /// Frame bytes for a `concat_i64` cell over each static literal,
     /// `None` past [`CELL_CAP`].
     lit_cells: Vec<Option<u64>>,
+    /// Immediates of each static literal short enough to travel by
+    /// value.
+    lit_imms: Vec<Option<(i64, i64)>>,
 }
 
 #[derive(Default)]
@@ -111,12 +139,23 @@ pub(crate) fn stack_temps(module: &mut Module) -> u32 {
     }
     let to_str_into = declare(module, I64_TO_STR_INTO, &[Type::I64, Type::Ptr]);
     let concat_into = declare(module, CONCAT_I64_INTO, &[Type::Str, Type::I64, Type::Ptr]);
+    let view_into = plans
+        .iter()
+        .any(|(_, p)| p.mints.iter().any(|m| matches!(m.3, Mint::ViewLit { .. })))
+        .then(|| {
+            declare(
+                module,
+                VIEW_LIT_INTO,
+                &[Type::Ptr, Type::I64, Type::I64, Type::Ptr],
+            )
+        });
     let mut moved = 0;
     for (i, p) in plans {
         moved += p.mints.len() as u32;
         apply(&mut module.funcs[i], p, |m| match m {
             Mint::ToStr => to_str_into,
             Mint::Concat => concat_into,
+            Mint::ViewLit { .. } => view_into.expect("declared for a planned view mint"),
         });
     }
     moved
@@ -131,7 +170,8 @@ fn kernels(module: &Module) -> Option<Kernels> {
     let drop = find(module, STR_DROP)?;
     let to_str = find(module, I64_TO_STR);
     let concat = find(module, CONCAT_I64);
-    if to_str.is_none() && concat.is_none() {
+    let view_concat = find(module, VIEW_CONCAT);
+    if to_str.is_none() && concat.is_none() && view_concat.is_none() {
         return None;
     }
     let readers = READERS
@@ -148,12 +188,15 @@ fn kernels(module: &Module) -> Option<Kernels> {
             (bytes <= CELL_CAP).then_some(bytes)
         })
         .collect();
+    let lit_imms = module.strings.iter().map(immediates).collect();
     Some(Kernels {
         drop,
         to_str,
         concat,
+        view_concat,
         readers,
         lit_cells,
+        lit_imms,
     })
 }
 
@@ -190,7 +233,7 @@ fn plan(f: &Function, k: &Kernels) -> Plan {
             if !ok {
                 continue;
             }
-            let mut mints = Vec::new();
+            let mut mints: Vec<(usize, usize, u64, Mint)> = Vec::new();
             let mut drops = Vec::new();
             for v in &set {
                 for &(b, i) in ix.defs.get(v).map_or(&[][..], |d| d.as_slice()) {
@@ -205,6 +248,10 @@ fn plan(f: &Function, k: &Kernels) -> Plan {
                         drops.push((b, j));
                     }
                 }
+            }
+            // a view cell may be a heap one, which its drops release
+            if mints.iter().any(|m| matches!(m.3, Mint::ViewLit { .. })) {
+                drops.clear();
             }
             let bytes: u64 = mints.iter().map(|m| m.2).sum();
             if frame_bytes + bytes > FRAME_BUDGET {
@@ -222,6 +269,7 @@ fn plan(f: &Function, k: &Kernels) -> Plan {
 type Edit = (usize, usize, Option<(u64, Mint)>);
 
 fn apply(f: &mut Function, p: Plan, into: impl Fn(Mint) -> FuncId) {
+    let mut moved_lits: HashSet<ValueId> = HashSet::default();
     // per block, edits from the highest index down so earlier ones
     // keep their positions
     let mut edits: Vec<Edit> = p
@@ -248,6 +296,13 @@ fn apply(f: &mut Function, p: Plan, into: impl Fn(Mint) -> FuncId) {
             unreachable!("a planned mint is a call");
         };
         *fid = into(m);
+        if let Mint::ViewLit { bits, meta } = m {
+            if let Operand::Value(l) = args[1] {
+                moved_lits.insert(l);
+            }
+            args.truncate(1);
+            args.extend([Operand::ConstI64(bits), Operand::ConstI64(meta)]);
+        }
         args.push(Operand::Value(buf));
         f.blocks[b].insts.insert(
             i,
@@ -257,6 +312,9 @@ fn apply(f: &mut Function, p: Plan, into: impl Fn(Mint) -> FuncId) {
                 origin,
             },
         );
+    }
+    if !moved_lits.is_empty() {
+        drop_unread(f, moved_lits);
     }
 }
 

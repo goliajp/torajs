@@ -54,7 +54,7 @@ const SUBSTR_PREPEND_NAME: &str = "__torajs_substr_prepend_lit";
 
 /// The `(bits, meta)` immediates of a literal short enough to travel
 /// by value.
-fn immediates(lit: &StringLiteral) -> Option<(i64, i64)> {
+pub(crate) fn immediates(lit: &StringLiteral) -> Option<(i64, i64)> {
     if lit.bytes.is_empty() || lit.bytes.len() > MAX_PAYLOAD_BYTES {
         return None;
     }
@@ -166,7 +166,7 @@ impl LiteralForms {
 
 /// Delete the `static_str_ref` of every value in `moved` that nothing
 /// reads any more.
-fn drop_unread(func: &mut Function, mut moved: HashSet<ValueId>) {
+pub(crate) fn drop_unread(func: &mut Function, mut moved: HashSet<ValueId>) {
     for block in &func.blocks {
         for inst in &block.insts {
             visit_value_operands(&inst.kind, |v| {
