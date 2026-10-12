@@ -139,7 +139,9 @@ pub(crate) const REGISTER: &str = "__torajs_new_target_register";
 ///
 /// A function with a parameter default or a rest parameter keeps the
 /// call channel: the face forwards each parameter by name, which a
-/// call-site default or a spread would misrepresent.
+/// call-site default or a spread would misrepresent. A body that reads
+/// `arguments` is handed the face's own (`...arguments`), so its length
+/// and indices are the construct's rather than the declared count.
 pub fn synthesize_new_target_ctor_faces(ast: &mut Ast) {
     let mut faces: Vec<Stmt> = Vec::new();
     let mut registers: Vec<Stmt> = Vec::new();
@@ -159,6 +161,7 @@ pub fn synthesize_new_target_ctor_faces(ast: &mut Ast) {
             params,
             return_type,
             span,
+            body,
             ..
         }) = ast
             .stmts
@@ -172,13 +175,24 @@ pub fn synthesize_new_target_ctor_faces(ast: &mut Ast) {
         {
             continue;
         }
+        let reads_args = super::arguments_object_walkers::body_has_any_arguments_touch(ast, body);
         let (params, return_type, span) = (params.clone(), return_type.clone(), *span);
         let ctor_face = format!("__ntctor_{name}");
         let callee = ast.add_expr(Expr::Ident(name.clone()));
-        let args = params
-            .iter()
-            .map(|p| ast.add_expr(Expr::Ident(p.name.clone())))
-            .collect();
+        let args = if reads_args {
+            let head = params.iter().take(2);
+            let mut a: Vec<ExprId> = head
+                .map(|p| ast.add_expr(Expr::Ident(p.name.clone())))
+                .collect();
+            let all = ast.add_expr(Expr::Ident("arguments".into()));
+            a.push(ast.add_expr(Expr::Spread { expr: all }));
+            a
+        } else {
+            params
+                .iter()
+                .map(|p| ast.add_expr(Expr::Ident(p.name.clone())))
+                .collect()
+        };
         let call = ast.add_expr(Expr::Call { callee, args });
         let mut face_params = vec![Param {
             name: "__env".into(),
