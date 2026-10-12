@@ -27,11 +27,12 @@
 //! Only the direction the admit opens is cloned: the value's slot is
 //! `any`, or the optional spelling of the formal's; the value's return
 //! is `any` / `never`, or a scalar against an `any` formal return. A
-//! value with fewer parameters than the formal keeps the plain lane
-//! (the env-first ABI ignores the extra arguments), and a value whose
-//! parameter is NARROWER than the formal (`(s: string)` into
-//! `(s: any)`) is the boxed-entry census's (`argv_boxed_params`): its
-//! adapter tests each argument against the body's own type.
+//! value of another arity is spelled as it is (the clone's calls pass
+//! what the formal passes; extra arguments drop, missing ones bind
+//! undefined). A value whose parameter is NARROWER than the formal
+//! (`(s: string)` into `(s: any)`) is the boxed-entry census's
+//! (`argv_boxed_params`): its adapter tests each argument against the
+//! body's own type.
 
 use super::any_widen::{clonable_callee, record_widen_site};
 use crate::ast::{Ast, Expr, ExprId, Stmt};
@@ -62,7 +63,7 @@ pub(in crate::check_type_of_call) fn fn_face_into_fn_param(
     ) {
         return false;
     }
-    if aps.len() != fps.len() || aps.iter().chain(fps).any(|t| matches!(t, Type::Rest(_))) {
+    if aps.iter().chain(fps).any(|t| matches!(t, Type::Rest(_))) {
         return true;
     }
     let Expr::Ident(n) = ast.get_expr(*callee) else {
@@ -144,10 +145,24 @@ pub(crate) fn face_ann(
         return None;
     }
     let mut changed = false;
-    let mut out: Vec<String> = Vec::with_capacity(slots.len());
-    for ((a, f), spelled) in aps.iter().zip(fps).zip(&slots) {
+    let mut out: Vec<String> = Vec::with_capacity(aps.len());
+    for (j, a) in aps.iter().enumerate() {
+        // a slot past the formal's arity is only ever handed undefined,
+        // which the admit limited to `any` / optional; it is spelled but
+        // does not call for a clone on its own (the env-first ABI binds
+        // an unpassed slot undefined already)
+        let Some(f) = fps.get(j) else {
+            out.push(match a {
+                Type::Nullable(inner) => {
+                    format!("__nullable({})", crate::check::type_to_ann(inner))
+                }
+                other => crate::check::type_to_ann(other),
+            });
+            continue;
+        };
+        let spelled = slots[j];
         if a == f {
-            out.push((*spelled).to_string());
+            out.push(spelled.to_string());
             continue;
         }
         changed = true;
@@ -189,7 +204,7 @@ pub(crate) fn let_face_ann(ann: &str, init_ty: &Type, ann_ty: &Type) -> Option<S
     let (Type::Function(aps, aret), Type::Function(fps, fret)) = (init_ty, ann_ty) else {
         return None;
     };
-    if aps.len() != fps.len() || aps.iter().chain(fps).any(|t| matches!(t, Type::Rest(_))) {
+    if aps.iter().chain(fps).any(|t| matches!(t, Type::Rest(_))) {
         return None;
     }
     face_ann(ann, aps, aret, fps, fret)
