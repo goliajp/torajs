@@ -1,13 +1,6 @@
 //! ToString for ONE operand of a mixed `+` concat — the arm set the
 //! §13.15.3 dispatch in [`super::add_str`] hands each side to.
 //!
-//! Split out of `add_str.rs` (2026-09-08): that file stood at 491 of
-//! its 500, and the arm set had to grow to admit the heap-cell
-//! receivers (Map / Set / the weak pair / the two iterators / Date /
-//! Promise) whose ToString the runtime kernel has always answered.
-//! Bodies verbatim; the two `pub(crate)` names keep their old paths
-//! through a re-export in `add_str`, so no call site moves.
-//!
 //! The arm set is also what `ssa_lower_str_html`'s attribute-value
 //! coercion reads — keep the two in sync.
 
@@ -90,9 +83,11 @@ pub(super) fn ptr_shaped(t: &Type) -> bool {
 /// coerce: branch on the in-band 0 sentinel (§13.15.3 ToString(null)
 /// → "null" via the same `null_to_str` kernel the Str+Null pair uses)
 /// before handing a live pointer to the plain coerce. The merge rides
-/// an alloca'd Str slot (this IR has no phi). Both arms mint a fresh
-/// Str, so the answer is always minted=true and the caller's temp
-/// drop balances either path.
+/// an alloca'd Str slot (this IR has no phi), so every arm must store
+/// an owned Str: the answer is always minted=true and the caller's one
+/// drop balances whichever arm ran. A Str operand is borrowed, so its
+/// live arm takes its own ref — storing it bare made that drop release
+/// the caller's binding.
 pub(super) fn coerce_nullable_ptr_to_str(ctx: &mut LowerCtx, v: Operand) -> (Operand, bool) {
     let slot = ctx.alloca(Type::Str, None);
     let null_blk = ctx.f.add_block();
@@ -168,7 +163,10 @@ pub(super) fn coerce_nullable_ptr_to_str(ctx: &mut LowerCtx, v: Operand) -> (Ope
         ctx.f.set_term(ctx.cur_block, Terminator::Br(merge));
         ctx.cur_block = live_blk;
     }
-    let (s, _minted) = coerce_to_str(ctx, v, false);
+    let (s, minted) = coerce_to_str(ctx, v, false);
+    if !minted {
+        ctx.emit_rc_inc(s);
+    }
     ctx.f
         .append_void(ctx.cur_block, InstKind::Store(s, Operand::Value(slot), 0));
     ctx.f.set_term(ctx.cur_block, Terminator::Br(merge));

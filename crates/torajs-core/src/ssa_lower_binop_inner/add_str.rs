@@ -171,13 +171,16 @@ pub(crate) fn try_lower(
         // operand is spelled as bare T here, so every arm of the
         // coerce below reads its in-band 0 as a live value: the Arr
         // arm handed NULL to `arr_join`, the Str arm passed the null
-        // pointer through. Guard the sentinel first.
-        let (a_str, a_fresh) = if ctx.binop.left_nullable_ptr && ptr_shaped(&a_ty) {
+        // pointer through. Guard the sentinel first. A side this
+        // lowering already replaced with its minted "undefined" holds
+        // neither sentinel, and the guard's live arm would retain it a
+        // second time.
+        let (a_str, a_fresh) = if !a_temp && ctx.binop.left_nullable_ptr && ptr_shaped(&a_ty) {
             coerce_nullable_ptr_to_str(ctx, a)
         } else {
             coerce_to_str(ctx, a, a_undefable)
         };
-        let (b_str, b_fresh) = if ctx.binop.right_nullable_ptr && ptr_shaped(&b_ty) {
+        let (b_str, b_fresh) = if !b_temp && ctx.binop.right_nullable_ptr && ptr_shaped(&b_ty) {
             coerce_nullable_ptr_to_str(ctx, b)
         } else {
             coerce_to_str(ctx, b, b_undefable)
