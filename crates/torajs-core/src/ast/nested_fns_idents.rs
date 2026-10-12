@@ -7,6 +7,7 @@ mod expr;
 
 pub(super) use expr::rewrite_idents_in_expr;
 
+use super::scope_chain::list_names;
 use super::{Ast, Stmt};
 use std::collections::HashMap;
 
@@ -65,27 +66,19 @@ pub(super) fn rewrite_idents_in_stmt(
             }
             rewrite_idents_in_stmt(ast, body, renames, arrows);
         }
-        Stmt::Block(b) | Stmt::Multi(b) => {
-            for s2 in b.iter_mut() {
-                rewrite_idents_in_stmt(ast, s2, renames, arrows);
-            }
-        }
+        Stmt::Multi(b) => rewrite_idents_in_body(ast, b, renames, arrows),
+        Stmt::Block(b) => rewrite_in_scope(ast, b, renames, arrows, None),
         Stmt::Try {
             body,
+            catch_param,
             catch_body,
             finally_body,
             ..
         } => {
-            for s2 in body.iter_mut() {
-                rewrite_idents_in_stmt(ast, s2, renames, arrows);
-            }
-            for s2 in catch_body.iter_mut() {
-                rewrite_idents_in_stmt(ast, s2, renames, arrows);
-            }
+            rewrite_in_scope(ast, body, renames, arrows, None);
+            rewrite_in_scope(ast, catch_body, renames, arrows, catch_param.as_deref());
             if let Some(fb) = finally_body {
-                for s2 in fb.iter_mut() {
-                    rewrite_idents_in_stmt(ast, s2, renames, arrows);
-                }
+                rewrite_in_scope(ast, fb, renames, arrows, None);
             }
         }
         Stmt::Switch {
@@ -95,16 +88,24 @@ pub(super) fn rewrite_idents_in_stmt(
             ..
         } => {
             rewrite_idents_in_expr(ast, *scrutinee, renames, arrows);
+            // one scope for every clause, the selectors included
+            let mut bound: Vec<String> = Vec::new();
+            for case in cases.iter() {
+                list_names(&case.body, &mut bound);
+            }
+            if let Some(dflt) = default.as_deref() {
+                list_names(dflt, &mut bound);
+            }
+            let inner = without(renames, &bound);
+            if inner.is_empty() {
+                return;
+            }
             for case in cases.iter_mut() {
-                rewrite_idents_in_expr(ast, case.value, renames, arrows);
-                for s2 in case.body.iter_mut() {
-                    rewrite_idents_in_stmt(ast, s2, renames, arrows);
-                }
+                rewrite_idents_in_expr(ast, case.value, &inner, arrows);
+                rewrite_idents_in_body(ast, &mut case.body, &inner, arrows);
             }
             if let Some(dflt) = default {
-                for s2 in dflt.iter_mut() {
-                    rewrite_idents_in_stmt(ast, s2, renames, arrows);
-                }
+                rewrite_idents_in_body(ast, dflt, &inner, arrows);
             }
         }
         Stmt::ForOfSplitIter {
@@ -125,6 +126,31 @@ pub(super) fn rewrite_idents_in_stmt(
         }
         _ => {}
     }
+}
+
+/// A nested block-like list: a name it declares lexically (or its
+/// `catch` parameter) is its own binding below, not the renamed one.
+fn rewrite_in_scope(
+    ast: &mut Ast,
+    list: &mut [Stmt],
+    renames: &HashMap<String, String>,
+    arrows: bool,
+    param: Option<&str>,
+) {
+    let mut bound: Vec<String> = param.map(str::to_string).into_iter().collect();
+    list_names(list, &mut bound);
+    let inner = without(renames, &bound);
+    if !inner.is_empty() {
+        rewrite_idents_in_body(ast, list, &inner, arrows);
+    }
+}
+
+fn without(renames: &HashMap<String, String>, bound: &[String]) -> HashMap<String, String> {
+    renames
+        .iter()
+        .filter(|(k, _)| !bound.contains(k))
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect()
 }
 
 /// True when an arrow rebinds `name` itself — as a parameter, or as a

@@ -51,11 +51,12 @@
 //! declaration cannot name a value. In a generator body, a declaration
 //! that reads nothing around it stays a declaration too, and a direct
 //! call (`select`).
-//! Declarations deeper than the body's own statement list (inside a
-//! block or a loop) are Annex B territory and stay with `nested_fns`.
+//! Declarations in a block under the body route the same way, list by
+//! list, with Annex B's var binding in sloppy code (`blocks`).
 
 use super::{Ast, Expr, ExprId, Stmt};
 
+mod blocks;
 mod lift;
 pub(super) mod rename;
 mod select;
@@ -90,11 +91,12 @@ pub fn desugar_async_nested_fns(ast: &mut Ast) {
             out
         });
         let parent = name.clone();
+        let owners = params.iter().map(|p| p.name.clone()).collect();
         let Stmt::FnDecl { body, .. } = &mut ast.stmts[idx] else {
             unreachable!()
         };
         let mut taken = std::mem::take(body);
-        rewrite_declarations(ast, &mut taken, &mut lifts, &parent, frames.as_deref());
+        lifts.route(ast, &mut taken, &parent, frames.as_deref(), owners);
         let Stmt::FnDecl { body, .. } = &mut ast.stmts[idx] else {
             unreachable!()
         };
@@ -106,12 +108,13 @@ pub fn desugar_async_nested_fns(ast: &mut Ast) {
     ids.dedup();
     let chains = super::scope_chain::chains_by_arrow(ast, &[&ast.stmts]);
     for eid in ids {
-        let Expr::ArrowFn { body, .. } = &ast.exprs[eid.0 as usize] else {
+        let Expr::ArrowFn { body, params, .. } = &ast.exprs[eid.0 as usize] else {
             continue;
         };
-        if !body.iter().any(|s| matches!(s, Stmt::FnDecl { .. })) {
+        if !blocks::declares_fn(body) {
             continue;
         }
+        let owners = params.iter().map(|p| p.name.clone()).collect();
         let frames = (!ast.async_fn_value_exprs.contains(&eid)).then(|| {
             let mut out = super::scope_chain::arrow_frames(ast, chains.get(&eid), eid, body);
             super::scope_chain::list_names(body, &mut out);
@@ -121,7 +124,7 @@ pub fn desugar_async_nested_fns(ast: &mut Ast) {
             unreachable!()
         };
         let mut taken = std::mem::take(body);
-        rewrite_declarations(ast, &mut taken, &mut lifts, "__genexpr", frames.as_deref());
+        lifts.route(ast, &mut taken, "__genexpr", frames.as_deref(), owners);
         let Expr::ArrowFn { body, .. } = &mut ast.exprs[eid.0 as usize] else {
             unreachable!()
         };

@@ -1,105 +1,64 @@
-// A nested function declaration is lifted and renamed; every scope
-// that rebinds its name keeps reading its own binding.
+// A block that declares the name of a lifted nested function keeps its
+// own binding (§14.2.2: a Block's lexical declarations shadow the
+// enclosing ones for the whole block). The lift renames every reference
+// to the declaration, and the walk that did it went straight through
+// such a block, so the block's `f()` called the lifted declaration.
 
-function n() {
-  function f() { return 1 }
-  { const f = () => 9; console.log(f()) }
-  return f()
-}
-console.log(n())
-
-function a(): number {
-  function f(): number { return 1 }
-  let out = 0
-  { let f = (): number => 2; out += f() }
-  { class f { v(): number { return 3 } } out += new f().v() }
-  { function f(): number { return 4 } out += f() }
-  for (const f of [5]) { out += f }
-  for (let f = 6; f < 7; f++) { out += f }
-  try { throw 7 } catch (f) { out += f as number }
-  switch (out) { default: { const f = 8; out += f } }
-  const g = (f: number): number => f + 100
-  out += g(9)
-  const h = (): number => { const f = 10; return f }
-  out += h()
-  const k = (): number => { { const f = 11; return f } }
-  out += k()
-  return out + f()
-}
-console.log(a())
-
-function b() {
-  function f() { return "outer" }
-  const o = { f }
-  const p = { f: 1 }
-  console.log(o.f(), p.f, typeof o.f)
-  const r = () => { const s = () => f(); return s() }
-  console.log(r())
-  switch (1) { case 1: { console.log(f()) } }
-  return f()
-}
-console.log(b())
-
-function c() {
-  function f() { return 1 }
-  const m = [0].map(() => { { const f = () => 9; return f() } })
-  console.log(m[0])
-  const t = 0
-  switch (t) { case 0: let f = () => 5; console.log(f()); break }
-  return f()
-}
-console.log(c())
-
-const q = function () {
-  function g() { return 2 }
-  { const g = () => 7; console.log(g()) }
-  return g()
-}
-console.log(q())
-
-function cc() {
-  try { throw 1 } catch (e) {
-    function h() { return 3 }
-    { const h = () => 6; console.log(h()) }
-    console.log(h(), e)
+// A nested generator declaration, lifted early by the generator lane.
+function viaGenerator(): number {
+  function* f() { yield 1; }
+  {
+    const f = () => 9;
+    console.log(f());
   }
+  return f().next().value as number;
 }
-cc()
+console.log(viaGenerator());
 
-function dd() {
-  function f() { return 4 }
-  function g(f: number) { return f + 1 }
-  console.log(g(10), f())
-  function r(n: number): number { return n <= 0 ? f() : r(n - 1) }
-  console.log(r(2))
-  function s() { function f() { return 5 } return f() }
-  console.log(s(), f())
+// Deeper: the shadowing block is not the one holding the reference.
+function deeper(): number {
+  function* f() { yield 2; }
+  {
+    let f = () => 8;
+    {
+      console.log(f());
+    }
+  }
+  return f().next().value as number;
 }
-dd()
+console.log(deeper());
 
-function cl() {
-  function f() { return 1 }
-  class C { m() { return f() } }
-  { class D { m() { const f = () => 2; return f() } } console.log(new D().m()) }
-  return new C().m()
+// A catch parameter and a switch's clauses are scopes too.
+function catchParam(): number {
+  function* f() { yield 3; }
+  try {
+    throw () => 7;
+  } catch (f) {
+    const thrown: any = f;
+    console.log(thrown());
+  }
+  return f().next().value as number;
 }
-console.log(cl())
+console.log(catchParam());
 
-function lp() {
-  function f() { return 3 }
-  let s = 0
-  for (const f of [10, 20]) s += f
-  for (let f = 0; f < 2; f++) s += f
-  let i = 0
-  while (i < 1) { const f = 100; s += f; i++ }
-  if (s > 0) { const f = () => 1000; s += f() }
-  return s + f()
+function caseBlock(k: number): number {
+  function* f() { yield 4; }
+  switch (k) {
+    case 0:
+      const f = () => 6;
+      console.log(f());
+  }
+  return f().next().value as number;
 }
-console.log(lp())
+console.log(caseBlock(0));
 
-function nm() {
-  function f() { return "decl" }
-  const e = function f(n: number): string { return n > 0 ? f(n - 1) : "expr" }
-  return e(2) + " " + f()
+// The plain declaration takes the other lift; same answer.
+function plain(): number {
+  function f() { return 1; }
+  {
+    const f = () => 9;
+    console.log(f());
+  }
+  return f();
 }
-console.log(nm())
+console.log(plain());
