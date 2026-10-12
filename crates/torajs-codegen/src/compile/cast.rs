@@ -104,10 +104,14 @@ pub fn emit_trunc_i64_to_bool(bytes: &mut Vec<u8>, inst: &Inst, src: &Operand, a
 }
 
 /// PtrToInt: MOV Xd, Xn — machine-level no-op (Ptr and I64 share the
-/// 64-bit GPR representation) but a copy is needed when the trivial
-/// allocator places src and dst in different physical registers.
+/// 64-bit GPR representation) but a copy is needed when the allocator
+/// places src and dst in different homes; a coalesced pair emits
+/// nothing.
 pub fn emit_ptr_to_int(bytes: &mut Vec<u8>, inst: &Inst, src: &Operand, alloc: &Assignment) {
     let result_vid = inst.result.expect("PtrToInt must have a result");
+    if same_home(src, result_vid, alloc) {
+        return;
+    }
     let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
     let src_gpr = materialize_operand_gpr(bytes, src, OP_SCRATCH_LHS, alloc);
     write_u32(bytes, mov_x_reg(dst, src_gpr));
@@ -117,10 +121,19 @@ pub fn emit_ptr_to_int(bytes: &mut Vec<u8>, inst: &Inst, src: &Operand, alloc: &
 /// IntToPtr: MOV Xd, Xn — symmetric inverse of PtrToInt.
 pub fn emit_int_to_ptr(bytes: &mut Vec<u8>, inst: &Inst, src: &Operand, alloc: &Assignment) {
     let result_vid = inst.result.expect("IntToPtr must have a result");
+    if same_home(src, result_vid, alloc) {
+        return;
+    }
     let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
     let src_gpr = materialize_operand_gpr(bytes, src, OP_SCRATCH_LHS, alloc);
     write_u32(bytes, mov_x_reg(dst, src_gpr));
     write_def_spill_gpr(bytes, spill_off, dst);
+}
+
+/// Whether `src` is a value coalesced with `result`: both share one
+/// home, spill slot included, and the cast moves nothing.
+fn same_home(src: &Operand, result: torajs_core::ssa::ValueId, alloc: &Assignment) -> bool {
+    matches!(src, Operand::Value(v) if alloc.contains(*v) && alloc.of(*v) == alloc.of(result))
 }
 
 #[cfg(test)]

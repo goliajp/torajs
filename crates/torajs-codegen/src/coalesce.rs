@@ -16,6 +16,16 @@
 //! written does. The live segments come from the block live sets
 //! `liveness::compute_liveness` already computes.
 //!
+//! A copy whose destination has no other def holds the same value as
+//! its source until the source is written again, so the two may share
+//! a register while both are live (Boissinot et al. 2009, "Revisiting
+//! Out-of-SSA Translation", value-based interference): such a pair
+//! merges unless a member of the source's class is defined somewhere
+//! the destination is live. `ptrtoint` / `inttoptr` move the same bits
+//! and count as copies; the emitters of all three move nothing for a
+//! coalesced pair. A lane pair coalesces with its low operand only
+//! where the two are never live together: its high lane differs.
+//!
 //! Classes are formed greedily in copy order with union-find. A merge
 //! whose hull would newly cross a call when neither side did is
 //! refused: it would push a short caller-saved value into a
@@ -25,7 +35,9 @@
 //! all of its operands before it first writes `dst`; the emitters all
 //! do (`regalloc::Assignment::def_gpr`).
 //!
-//! `TORAJS_COALESCE_OFF=1` disables coalescing (bisect gate).
+//! `TORAJS_COALESCE_OFF=1` disables coalescing, and
+//! `TORAJS_COALESCE_LIVE_OFF=1` only the merging of a copy with its
+//! source while both are live (bisect gates).
 
 use torajs_core::ssa::id_hash::{HashMap, HashSet};
 
@@ -39,12 +51,22 @@ use crate::liveness_blocks::BlockLiveness;
 type Segments = Vec<(u32, u32)>;
 
 mod segments;
-use segments::{live_segments, overlaps};
+use segments::{any_inside, def_sites, live_segments, overlaps, union};
 
 struct Class {
     members: Vec<u32>,
     segs: Segments,
     hull: Interval,
+    /// Write half-slots of the members' defs, ascending.
+    defs: Vec<u32>,
+}
+
+/// A copy candidate `w = copy v`; `exact` when `w` holds exactly the
+/// bits of `v` (a copy, `ptrtoint`, `inttoptr`; not a lane pair).
+struct Copy {
+    w: u32,
+    v: u32,
+    exact: bool,
 }
 
 /// Copy classes of two or more values, keyed by leader.
@@ -110,24 +132,26 @@ pub(crate) fn build_copy_classes(
     if copies.is_empty() {
         return Classes::default();
     }
-    let cands: HashSet<u32> = copies.iter().flat_map(|&(w, v)| [w, v]).collect();
+    let live_ok = std::env::var_os("TORAJS_COALESCE_LIVE_OFF").is_none_or(|v| v != "1");
+    let cands: HashSet<u32> = copies.iter().flat_map(|c| [c.w, c.v]).collect();
     let mut segs = live_segments(func, blocks, &cands);
+    let mut defs = def_sites(func, blocks, &cands);
 
     let mut leader_of: HashMap<u32, u32> = HashMap::default();
     let mut classes: HashMap<u32, Class> = HashMap::default();
     let root = |leader_of: &HashMap<u32, u32>, v: u32| *leader_of.get(&v).unwrap_or(&v);
-    for (w, v) in copies {
+    for Copy { w, v, exact } in copies {
         let (rw, rv) = (root(&leader_of, w), root(&leader_of, v));
         if rw == rv {
             continue;
         }
         let a = classes
             .remove(&rw)
-            .unwrap_or_else(|| singleton(rw, &mut segs, intervals));
+            .unwrap_or_else(|| singleton(rw, &mut segs, &mut defs, intervals));
         let b = classes
             .remove(&rv)
-            .unwrap_or_else(|| singleton(rv, &mut segs, intervals));
-        match try_merge(a, b, call_sites) {
+            .unwrap_or_else(|| singleton(rv, &mut segs, &mut defs, intervals));
+        match try_merge(a, b, exact && live_ok, call_sites) {
             Ok(merged) => {
                 for &m in &merged.members {
                     leader_of.insert(m, rw);
@@ -145,31 +169,36 @@ pub(crate) fn build_copy_classes(
     Classes { leader_of, classes }
 }
 
-/// `(w, v)` for every `w = copy v` both of whose values may share a
-/// register: same register class, not pinned, not an alloca.
+/// Every `w = copy v` (or a `ptrtoint` / `inttoptr`, which moves the
+/// same bits, or a lane pair, which starts as its low operand's
+/// register) both of whose values may share a register: same register
+/// class, not pinned, not an alloca.
 fn collect_copies(
     func: &Function,
     intervals: &HashMap<u32, Interval>,
     excluded: &HashSet<u32>,
-) -> Vec<(u32, u32)> {
+) -> Vec<Copy> {
     let mut allocas: HashSet<u32> = HashSet::default();
-    let mut copies: Vec<(u32, u32)> = Vec::new();
+    let mut copies: Vec<Copy> = Vec::new();
     for inst in func.blocks.iter().flat_map(|b| &b.insts) {
-        match (&inst.kind, inst.result) {
-            (InstKind::Alloca(_) | InstKind::AllocaBytes(_), Some(r)) => {
-                allocas.insert(r.0);
+        let (exact, v) = match &inst.kind {
+            InstKind::Alloca(_) | InstKind::AllocaBytes(_) => {
+                allocas.extend(inst.result.map(|r| r.0));
+                continue;
             }
-            (InstKind::Copy(_, Operand::Value(v)), Some(w)) => copies.push((w.0, v.0)),
-            // a lane pair starts as its low operand's register
-            (InstKind::Vec(VecInst::Pair(VecShape::F64x2, Operand::Value(v), _)), Some(w)) => {
-                copies.push((w.0, v.0))
-            }
-            _ => {}
+            InstKind::Copy(_, Operand::Value(v))
+            | InstKind::PtrToInt(Operand::Value(v))
+            | InstKind::IntToPtr(Operand::Value(v)) => (true, v.0),
+            InstKind::Vec(VecInst::Pair(VecShape::F64x2, Operand::Value(v), _)) => (false, v.0),
+            _ => continue,
+        };
+        if let Some(w) = inst.result {
+            copies.push(Copy { w: w.0, v, exact });
         }
     }
     let params: HashSet<u32> = func.params.iter().map(|p| p.0).collect();
     let is_fp = |v: u32| func.values[v as usize].ty.is_fpr_class();
-    copies.retain(|&(w, v)| {
+    copies.retain(|&Copy { w, v, .. }| {
         w != v
             && [w, v].iter().all(|x| {
                 intervals.contains_key(x)
@@ -185,6 +214,7 @@ fn collect_copies(
 fn singleton(
     v: u32,
     segs: &mut HashMap<u32, Segments>,
+    defs: &mut HashMap<u32, Vec<u32>>,
     intervals: &HashMap<u32, Interval>,
 ) -> Class {
     let mut s = segs.remove(&v).unwrap_or_default();
@@ -193,10 +223,17 @@ fn singleton(
         members: vec![v],
         segs: s,
         hull: intervals[&v],
+        defs: defs.remove(&v).unwrap_or_default(),
     }
 }
 
-fn try_merge(a: Class, b: Class, call_sites: &[u32]) -> Result<Class, (Class, Class)> {
+/// Merge the class `a` of a copy's destination into the class `b` of
+/// its source. Besides disjoint classes, when the copy moves the
+/// source's bits unchanged (`exact`), a destination with that copy as
+/// its only def may join while live together with the source: it
+/// holds the source's value until a member of `b` is written, so no
+/// such write may fall where `a` is live.
+fn try_merge(a: Class, b: Class, exact: bool, call_sites: &[u32]) -> Result<Class, (Class, Class)> {
     let hull = Interval {
         start: a.hull.start.min(b.hull.start),
         end: a.hull.end.max(b.hull.end),
@@ -204,26 +241,27 @@ fn try_merge(a: Class, b: Class, call_sites: &[u32]) -> Result<Class, (Class, Cl
     let newly_crossing = crosses_call(hull, call_sites)
         && !crosses_call(a.hull, call_sites)
         && !crosses_call(b.hull, call_sites);
-    if newly_crossing || overlaps(&a.segs, &b.segs) {
+    if newly_crossing {
         return Err((a, b));
     }
-    let mut segs = Vec::with_capacity(a.segs.len() + b.segs.len());
-    let (mut i, mut j) = (0, 0);
-    while i < a.segs.len() || j < b.segs.len() {
-        if j == b.segs.len() || (i < a.segs.len() && a.segs[i] < b.segs[j]) {
-            segs.push(a.segs[i]);
-            i += 1;
-        } else {
-            segs.push(b.segs[j]);
-            j += 1;
+    if overlaps(&a.segs, &b.segs) {
+        let same_value =
+            exact && a.members.len() == 1 && a.defs.len() == 1 && !any_inside(&b.defs, &a.segs);
+        if !same_value {
+            return Err((a, b));
         }
     }
+    let segs = union(&a.segs, &b.segs);
+    let mut defs = a.defs;
+    defs.extend(b.defs);
+    defs.sort_unstable();
     let mut members = a.members;
     members.extend(b.members);
     Ok(Class {
         members,
         segs,
         hull,
+        defs,
     })
 }
 
@@ -233,7 +271,7 @@ mod tests {
     use crate::reg::Reg;
     use torajs_core::ssa::{
         BinOp, Block, BlockId, Function, IPred, Inst, InstKind, Operand, Terminator, Type, ValueId,
-        ValueInfo,
+        ValueInfo, VecInst, VecOp, VecShape,
     };
 
     fn v(n: u32) -> Operand {
@@ -352,6 +390,47 @@ mod tests {
         );
         let a = allocate_linear_scan(&f);
         assert_ne!(a.of(ValueId(1)), a.of(ValueId(2)));
+    }
+
+    /// `b = a; use(a, b)` with `a` never written again: `b` holds `a`'s
+    /// value wherever both are live, so the two share a register and the
+    /// copy moves nothing.
+    #[test]
+    fn copy_of_a_source_left_alone_shares_while_both_live() {
+        let f = func(
+            4,
+            &[0],
+            &[],
+            vec![block(
+                0,
+                vec![
+                    add(1, v(0), Operand::ConstI64(1)),
+                    copy(2, v(1)),
+                    add(3, v(1), v(2)),
+                ],
+                Terminator::Ret(Some(v(3))),
+            )],
+        );
+        assert_eq!(home(&f, 1), home(&f, 2));
+    }
+
+    /// A lane pair differs from its low operand in the high lane, so it
+    /// takes the operand's register only where the operand is dead.
+    #[test]
+    fn lane_pair_stays_apart_from_a_live_low_operand() {
+        let mut f = Function::new("pair", Type::F64);
+        let b = f.add_block();
+        let x = f.append_inst(b, InstKind::SiToFp(Operand::ConstI64(3)), Type::F64, None);
+        let pair = VecInst::Pair(VecShape::F64x2, v(x.0), v(x.0));
+        let w = f.append_inst(b, InstKind::Vec(pair), Type::Vec(VecShape::F64x2), None);
+        let sum = VecInst::Reduce(VecOp::FAdd, v(w.0));
+        let r = f.append_inst(b, InstKind::Vec(sum), Type::F64, None);
+        let kind = InstKind::BinOp(BinOp::FAdd, v(r.0), v(x.0));
+        let t = f.append_inst(b, kind, Type::F64, None);
+        f.set_term(b, Terminator::Ret(Some(v(t.0))));
+        let alloc = allocate_linear_scan(&f);
+        assert!(matches!(alloc.of(w), Reg::Fpr(_)));
+        assert_ne!(alloc.of(w), alloc.of(x));
     }
 
     /// A join value written by a copy in each predecessor joins both
