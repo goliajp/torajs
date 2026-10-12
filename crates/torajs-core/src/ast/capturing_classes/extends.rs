@@ -57,8 +57,9 @@ pub(super) fn record_claim_tables(ast: &mut Ast, s: &Stmt, new: &str, self_targe
             .cloned()
             .unwrap_or_else(|| p.clone()),
         // A class carrying its own constructor forwards to itself —
-        // to the CLASS-SCOPE binding when it has one, so a later write
-        // through the container's cannot redirect a `super(…)`.
+        // to the CLASS-SCOPE binding (or its construct twin), so a
+        // later write through the container's cannot redirect a
+        // `super(…)`.
         _ => self_target.to_string(),
     };
     ast.es5_ctor_forward.insert(new.to_string(), target.clone());

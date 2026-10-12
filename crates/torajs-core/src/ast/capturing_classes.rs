@@ -134,11 +134,16 @@ pub(super) fn try_rewrite_capturing_class(
     // Recorded under the minted name — the rename below writes that
     // same spelling into every sibling's `parent` field.
     ast.es5_parent_classes.insert(new.clone());
-    // Where this class's `super(…)` lands, plus the real-parent
-    // twin request (405-01) — see `extends::record_claim_tables`.
-    extends::record_claim_tables(ast, &stmts[idx], &new, &inner);
     super::hoist_nested_classes_rename::rename_in_stmts(ast, stmts, &old, &new);
     super::hoist_nested_classes_rename::rename_in_class_bodies(ast, &mut stmts[idx], &new, &inner);
+    // Where this class's `super(…)` lands — its construct twin when a
+    // sibling extends it (`new_target`) — plus the real-parent twin
+    // request (405-01); see `extends::record_claim_tables`.
+    let own = match new_target::wants_twin(ast, stmts, &stmts[idx], &new) {
+        true => new_target::twin_name(&inner),
+        false => inner.clone(),
+    };
+    extends::record_claim_tables(ast, &stmts[idx], &new, &own);
     alias::mint_unique_aliases(ast, stmts, &new, counter);
     let taken = std::mem::replace(&mut stmts[idx], Stmt::Multi(Vec::new()));
     stmts[idx] = lower_to_es5(ast, taken, &old, inner);
@@ -252,6 +257,9 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str, inner: String) -> St
         extends::rewrite_super_prop_sites(ast, &body, p, false, &name);
         return_override::reshape(ast, &mut body);
     }
+    let twin = new_target::twin_name(&name);
+    let twin = (ast.es5_ctor_forward.get(&outer) == Some(&twin))
+        .then(|| new_target::twin_stmt(ast, &params, &body, twin));
     let shown = super::class_globals::class_display_name(ast, src_name).to_string();
     // A body reading `arguments` by index has no construct face, so its
     // `new` runs the call channel too and the guard cannot tell the two
@@ -288,6 +296,7 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str, inner: String) -> St
         init: ctor_eid,
         is_var: false,
     });
+    out.extend(twin);
     // The prototype link goes in BEFORE any member lands: members
     // install on the linked prototype, not the one the function was
     // born with.

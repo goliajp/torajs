@@ -7,7 +7,8 @@
 ///
 /// The lane's other minted spellings all put a letter where these put
 /// a digit (`__cca<N>_` aliases, `__ccm_<n>__` member sentinels,
-/// `__ccmk_<C>_<n>` computed keys, `__ccp<N>` heritage bindings), so
+/// `__ccmk_<C>_<n>` computed keys, `__ccp<N>` heritage bindings,
+/// `__ccn<N>_` construct twins), so
 /// the digit is what tells them apart — the inner one wears its `i`
 /// ahead of the digits for the same reason.
 ///

@@ -220,7 +220,7 @@ pub fn synthesize_new_target_ctor_faces(ast: &mut Ast) {
     ast.stmts.splice(0..0, registers);
 }
 
-fn collect_stmts(ast: &Ast, stmts: &[Stmt], out: &mut Vec<ExprId>) {
+pub(super) fn collect_stmts(ast: &Ast, stmts: &[Stmt], out: &mut Vec<ExprId>) {
     for s in stmts {
         // A nested declaration is its own function with its own
         // [[NewTarget]].
@@ -236,7 +236,7 @@ fn collect_stmts(ast: &Ast, stmts: &[Stmt], out: &mut Vec<ExprId>) {
     }
 }
 
-fn collect(ast: &Ast, eid: ExprId, out: &mut Vec<ExprId>) {
+pub(super) fn collect(ast: &Ast, eid: ExprId, out: &mut Vec<ExprId>) {
     match ast.get_expr(eid) {
         Expr::NewTarget => out.push(eid),
         // A function expression binds its own new.target; an arrow
