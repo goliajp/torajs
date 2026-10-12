@@ -65,8 +65,11 @@ pub(super) fn prep_generator_body(
     // `LiftCtx`). The generator's own params seed the lookup; each
     // lifted local joins `binds` as it lands, so a local reading an
     // earlier one resolves.
-    let mut local_classes = std::collections::HashSet::new();
-    collect_local_classes(&gen_body, &mut local_classes);
+    // source order, so the state-machine field layout is the same on
+    // every build
+    let mut class_order: Vec<String> = Vec::new();
+    collect_local_classes(&gen_body, &mut class_order);
+    let local_classes: std::collections::HashSet<String> = class_order.iter().cloned().collect();
     // The CLASS BINDING itself must survive yields too: the class
     // value the capturing lane will mint (`const __cc<N>_C`) is born
     // AFTER this lift ran, inside one state arm — a cross-yield read
@@ -79,8 +82,8 @@ pub(super) fn prep_generator_body(
     // α-rename) stores the minted value into the field. `new C()`
     // spells the class as a string, not an Ident — the lane's
     // same-list rename owns it, untouched here.
-    for c in &local_classes {
-        lifted_locals.push((c.clone(), "any".into()));
+    for c in class_order {
+        lifted_locals.push((c, "any".into()));
     }
     let mut lift_ctx = LiftCtx {
         params: gen_params,
@@ -217,11 +220,13 @@ fn bridge_in_boxed(ast: &mut Ast, s: &mut Stmt, local_classes: &std::collections
 /// `LiftCtx::local_classes` so the field-ann sniff can refuse to
 /// annotate a lifted local with a class name that will never reach
 /// the top-level class index (the capturing lane α-renames it).
-fn collect_local_classes(body: &[Stmt], out: &mut std::collections::HashSet<String>) {
+fn collect_local_classes(body: &[Stmt], out: &mut Vec<String>) {
     for s in body {
         match s {
             Stmt::ClassDecl { name, .. } => {
-                out.insert(name.clone());
+                if !out.contains(name) {
+                    out.push(name.clone());
+                }
             }
             Stmt::Multi(list) | Stmt::Block(list) => collect_local_classes(list, out),
             Stmt::If {
