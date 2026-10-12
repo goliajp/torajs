@@ -319,6 +319,9 @@ pub(crate) struct Checker {
     /// apart from the annotation's: joins `Ast::face_mismatch_lets`,
     /// whose calls ride the boxed entry.
     pub(crate) face_mismatch_lets: std::collections::HashSet<ExprId>,
+    /// The same for a fn-typed parameter, as (function, parameter):
+    /// joins `Ast::argv_boxed_params`.
+    pub(crate) face_mismatch_params: std::collections::HashSet<(String, String)>,
     /// The function-value bindings a call hands an `any` argument for
     /// an object-typed parameter, with their parameter types; the
     /// closures they hold take the all-`any` twin

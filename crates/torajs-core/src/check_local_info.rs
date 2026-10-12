@@ -71,9 +71,10 @@ pub(crate) struct LocalInfo {
     /// a binding the program typed itself; `None` for one the compiler
     /// typed.
     pub(crate) ann: Option<String>,
-    /// The initializer of the `let` / `const` / `var` that declared the
-    /// binding: which declaration a write through the name reaches.
-    pub(crate) let_init: Option<crate::ast::ExprId>,
+    /// Which declaration a write through the name reaches: a `let` /
+    /// `const` / `var` by its initializer (a `for-of` head by its
+    /// element read), or a fn-typed parameter by its function.
+    pub(crate) decl: Option<FnSlot>,
 }
 
 impl LocalInfo {
@@ -91,7 +92,7 @@ impl LocalInfo {
             union: UnionBinding::default(),
             held_any: false,
             ann: None,
-            let_init: None,
+            decl: None,
         }
     }
 }
@@ -121,4 +122,12 @@ pub(crate) enum FnSlot {
     /// a parameter of the named function (reached directly, or as a
     /// capture of a closure inside it)
     Param(String),
+}
+
+impl FnSlot {
+    /// The declaration a parameter of `owner` typed `ty` is: only a
+    /// fn-typed one can be handed a value of another face.
+    pub(crate) fn param(owner: &str, ty: &Type) -> Option<FnSlot> {
+        matches!(ty, Type::Function(..)).then(|| FnSlot::Param(owner.to_string()))
+    }
 }

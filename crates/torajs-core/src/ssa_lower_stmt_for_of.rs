@@ -78,6 +78,11 @@ pub(crate) fn lower(
             ctx.ast.get_expr(elem_expr)
         );
     };
+    // a head some store handed a value of another face
+    // (`check_stmt_let_decl::fn_face_slot`) calls through the boxed entry
+    if ctx.ast.face_mismatch_lets.contains(&elem_expr) {
+        ctx.variadic_locals.insert(var_name.to_string());
+    }
     let src_ptr_op = ctx.lower_expr(src_ref_eid);
     let src_ty = ctx.operand_ty(&src_ptr_op);
     if lower_non_array_source(

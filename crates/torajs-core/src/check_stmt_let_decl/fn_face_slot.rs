@@ -12,8 +12,10 @@
 //! mutable binding may hold a different face after each store, so it
 //! joins the boxed-entry census (`Checker::face_mismatch_lets` →
 //! `Ast::face_mismatch_lets`): the adapter unboxes per the stored
-//! value's own face. Either way the binding is a census fn slot, so a
-//! call through it types what the value returns
+//! value's own face; so does a store into a mutable `for-of` head or a
+//! fn-typed parameter (`Checker::face_mismatch_params` →
+//! `Ast::argv_boxed_params`). A declaration that took another face is
+//! a census fn slot, so a call through it types what the value returns
 //! (`check_type_of_call::fn_slot_ret`).
 //!
 //! Only a difference the calling convention sees counts
@@ -21,8 +23,8 @@
 //! (its initializer), not the name: a same-named binding elsewhere
 //! keeps its direct calls.
 
-use crate::ast::ExprId;
-use crate::check::{Checker, Type};
+use crate::ast::{Ast, ExprId, Stmt};
+use crate::check::{Checker, FnSlot, Type};
 use crate::check_type_of_call::fn_face::{Face, let_face_ann};
 
 /// Record the binding (annotation `ann`, initializer `init`) whose
@@ -56,13 +58,15 @@ pub(super) fn record_let_face(
     }
 }
 
-/// A store of `value_ty` into the mutable binding declared by `decl`
-/// (annotation `ann`, declared type `target_ty`): a value of another
-/// face joins the binding to the boxed-entry census.
+/// A store of `value_ty` into the mutable binding `name` declared by
+/// `decl` (annotation `ann`, declared type `target_ty`): a value of
+/// another face joins the binding to the boxed-entry census, a `let`
+/// by its declaration and a parameter by its function.
 pub(crate) fn record_store_face(
     checker: &mut Checker,
+    name: &str,
     ann: Option<&str>,
-    decl: Option<ExprId>,
+    decl: Option<&FnSlot>,
     target_ty: &Type,
     value_ty: &Type,
 ) {
@@ -76,7 +80,49 @@ pub(crate) fn record_store_face(
         Some(ann) => let_face_ann(ann, value_ty, target_ty),
         None => Face::Unspelled,
     };
-    if face != Face::Same {
-        checker.face_mismatch_lets.insert(decl);
+    if face == Face::Same {
+        return;
+    }
+    match decl {
+        FnSlot::Let(init) => {
+            checker.face_mismatch_lets.insert(*init);
+        }
+        FnSlot::Param(owner) => {
+            checker
+                .face_mismatch_params
+                .insert((owner.clone(), name.to_string()));
+        }
+    }
+}
+
+/// [`record_store_face`] for a store a function body makes into a
+/// top-level binding, which it reaches as a module global.
+pub(crate) fn record_global_store_face(
+    checker: &mut Checker,
+    ast: &Ast,
+    name: &str,
+    global_ty: &Type,
+    value_ty: &Type,
+) {
+    if !matches!(
+        (global_ty, value_ty),
+        (Type::Function(..), Type::Function(..))
+    ) {
+        return;
+    }
+    let decl = crate::ast::toplevel_stmts_flat(ast)
+        .into_iter()
+        .find_map(|s| match s {
+            Stmt::LetDecl {
+                name: n,
+                type_ann,
+                init,
+                mutable: true,
+                ..
+            } if n == name => Some((type_ann.as_deref(), FnSlot::Let(*init))),
+            _ => None,
+        });
+    if let Some((ann, decl)) = decl {
+        record_store_face(checker, name, ann, Some(&decl), global_ty, value_ty);
     }
 }

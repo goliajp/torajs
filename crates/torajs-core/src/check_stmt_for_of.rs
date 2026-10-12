@@ -31,7 +31,7 @@
 use std::collections::HashMap;
 
 use crate::ast::{Ast, Expr, ExprId, Stmt};
-use crate::check::{Checker, DiagPush, LocalInfo, Type, resolve_type_ann};
+use crate::check::{Checker, DiagPush, FnSlot, LocalInfo, Type, resolve_type_ann};
 
 /// The declared class whose instance type is `ty` — the checker-side
 /// twin of ssa_lower's alias scan.
@@ -152,7 +152,13 @@ pub(crate) fn check(
     // parser (`throw_on_const_loop_var_writes`), so nothing here has
     // to refuse them. Ownership of a written variable is the
     // lowering's business (`ssa_lower_for_of_written`).
-    let _ = checker.declare(var_name.to_string(), LocalInfo::plain(var_ty));
+    let _ = checker.declare(
+        var_name.to_string(),
+        LocalInfo {
+            decl: Some(FnSlot::Let(elem_expr)),
+            ..LocalInfo::plain(var_ty)
+        },
+    );
     checker.check_stmt(ast, body);
     checker.scopes.pop();
 }

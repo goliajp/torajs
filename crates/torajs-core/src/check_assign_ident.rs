@@ -27,7 +27,7 @@
 use crate::ast::{Ast, ExprId};
 use crate::check::{Checker, DiagPush, Type};
 use crate::check_assignable::is_assignable_to_resolved;
-use crate::check_stmt_let_decl::fn_face_slot::record_store_face;
+use crate::check_stmt_let_decl::fn_face_slot::{record_global_store_face, record_store_face};
 
 pub(crate) fn check(
     checker: &mut Checker,
@@ -75,6 +75,7 @@ pub(crate) fn check(
                 "type mismatch assigning to global `{name}`: declared {global_ty:?}, value is {value_ty:?}"
             ));
         }
+        record_global_store_face(checker, ast, &name, &global_ty, &value_ty);
         // An array literal takes the slot's element type (rotation 629
         // — `var x = []; x = [0]` minted a `number[]` for an `any[]`
         // slot and died at lowering), the contextual typing a declared
@@ -193,7 +194,7 @@ pub(crate) fn check(
     let value_ty = checker.type_of(ast, value)?;
     let value_ty =
         crate::check_assignable::in_declared_order(checker, ast, &target_ty, value, value_ty);
-    let decl = (info.ann.as_deref(), info.let_init);
+    let decl = (info.ann.as_deref(), info.decl.as_ref());
     admit_store(checker, &name, decl, &target_ty, &value_ty)?;
     // See the global arm above — the literal is typed by the slot.
     crate::check_stmt_let_decl::apply_contextual_array_ann_store(checker, ast, value, &target_ty);
@@ -243,7 +244,7 @@ fn write_outside_lookup(
 fn admit_store(
     checker: &mut Checker,
     name: &str,
-    decl: (Option<&str>, Option<ExprId>),
+    decl: (Option<&str>, Option<&crate::check::FnSlot>),
     target_ty: &Type,
     value_ty: &Type,
 ) -> Result<(), String> {
@@ -256,7 +257,7 @@ fn admit_store(
     );
     if fn_slot_widened {
         let (ann, init) = decl;
-        record_store_face(checker, ann, init, target_ty, value_ty);
+        record_store_face(checker, name, ann, init, target_ty, value_ty);
     }
     if !fn_slot_widened
         && !is_assignable_to_resolved(

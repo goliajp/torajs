@@ -36,7 +36,7 @@
 
 use super::any_widen::{clonable_callee, record_widen_site};
 use crate::ast::{Ast, Expr, ExprId, Stmt};
-use crate::check::{Checker, Type, WidenTarget};
+use crate::check::{Checker, FnSlot, Type, WidenTarget};
 
 /// Record the call `eid` as a face-widen site for argument `i` when the
 /// callback admit holds between `param_ty` and `arg_ty` and the callee
@@ -229,7 +229,9 @@ pub(crate) fn held_face(checker: &Checker, ast: &Ast, arg: ExprId) -> Option<Typ
     let Expr::Ident(n) = ast.get_expr(arg) else {
         return None;
     };
-    let init = checker.lookup(n)?.let_init?;
+    let Some(FnSlot::Let(init)) = checker.lookup(n)?.decl else {
+        return None;
+    };
     if !checker.let_face_anns.contains_key(&init) {
         return None;
     }

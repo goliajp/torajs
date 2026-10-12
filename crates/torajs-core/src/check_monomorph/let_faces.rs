@@ -3,12 +3,16 @@
 //! owned AST the lowerer reads: an immutable binding's declaration takes
 //! the annotation spelled in its value's face, a mutable one joins the
 //! boxed-entry census by its declaration (and, declared at top level,
-//! by its global name).
+//! by its global name), a parameter by its function.
 
 use crate::ast::{Ast, Stmt};
 use crate::check::Checker;
 
 pub(super) fn apply(c: &Checker, owned_ast: &mut Ast) {
+    for (f, p) in &c.face_mismatch_params {
+        let params = owned_ast.argv_boxed_params.entry(f.clone()).or_default();
+        params.insert(p.clone());
+    }
     if c.let_face_anns.is_empty() && c.face_mismatch_lets.is_empty() {
         return;
     }

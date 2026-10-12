@@ -144,6 +144,7 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, name: &str, params: &[Para
                     .is_some_and(|ps| ps.contains(&p.name))
                     .then(|| crate::check::FnSlot::Param(name.to_string())),
                 ann: p.type_ann.clone(),
+                decl: crate::check::FnSlot::param(name, &binding_ty),
                 ..LocalInfo::plain(binding_ty)
             },
         ) {
