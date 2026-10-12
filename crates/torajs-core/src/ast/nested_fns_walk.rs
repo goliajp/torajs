@@ -108,8 +108,8 @@ pub(super) fn descend_into_children(
                     name,
                     is_var: false,
                     ..
-                }) => ctx.enter_binding(name),
-                _ => ctx.enter_binding_none(),
+                }) => ctx.lex.enter_binding(name),
+                _ => ctx.lex.enter_binding_none(),
             };
             collect_nested_fns_in_stmt(
                 body,
@@ -120,10 +120,10 @@ pub(super) fn descend_into_children(
                 lifted,
                 ctx,
             );
-            ctx.leave_scope(mark);
+            ctx.lex.leave(mark);
         }
         Stmt::ForOfSplitIter { var_name, body, .. } | Stmt::ForOf { var_name, body, .. } => {
-            let mark = ctx.enter_binding(var_name);
+            let mark = ctx.lex.enter_binding(var_name);
             collect_nested_fns_in_stmt(
                 body,
                 parent_name,
@@ -133,7 +133,7 @@ pub(super) fn descend_into_children(
                 lifted,
                 ctx,
             );
-            ctx.leave_scope(mark);
+            ctx.lex.leave(mark);
         }
         Stmt::Try {
             body,

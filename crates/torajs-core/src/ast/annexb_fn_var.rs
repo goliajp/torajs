@@ -22,9 +22,12 @@
 //! text that is not strict mode code, so a `{ function f() {} }` inside
 //! a class body does not get it.
 
-use super::annexb_names::{annexb_fn_span, lex_names_into};
+use super::annexb_names::annexb_fn_span;
 use super::{Expr, ExprId, Stmt};
 use std::collections::HashSet;
+
+mod lex_scopes;
+pub(super) use lex_scopes::LexScopes;
 
 /// The strictness half of §B.3.3's precondition, snapshotted once per
 /// pass so the walk does not carry `&Ast` through every frame.
@@ -212,14 +215,8 @@ pub(super) struct LiftCtx {
     /// The `init` slots minted for those names, drained into
     /// `Ast::eval_var_sites` on the next flush.
     eval_var_inits: Vec<(ExprId, super::var_hoist::ScriptGlobalVar)>,
-    /// Names lexically declared by the scopes between the var scope and
-    /// the declaration, innermost last. §B.3.3.1 step 1.a.ii applies
-    /// Annex B only when replacing the declaration with `var F` would
-    /// raise no early error, and a `let` / `const` of the same name in
-    /// any enclosing block is exactly that error — so a hit here skips
-    /// the whole thing, var binding included. Pushed and truncated by
-    /// the walk, so it is a stack, not a set.
-    lex: Vec<String>,
+    /// The lexical scopes between the var scope and the declaration.
+    pub(super) lex: LexScopes,
     /// Switches the walk wrapped to give their CaseBlock one binding per
     /// function, drained by the rename half after the flush.
     pub(super) case_blocks: Vec<super::nested_fns_case_block::CaseBlockSlots>,
@@ -239,7 +236,7 @@ impl LiftCtx {
             catch_renames: Vec::new(),
             eval_annexb: ast.eval_annexb_fn_names.clone(),
             eval_var_inits: Vec::new(),
-            lex: Vec::new(),
+            lex: LexScopes::default(),
             case_blocks: Vec::new(),
         }
     }
@@ -277,7 +274,7 @@ impl LiftCtx {
         if !self.goal.applies(name, span) || self.goal.is_async_form(name) {
             return AnnexB::Strict;
         }
-        if self.params.contains(name) || self.lex.iter().any(|n| n == name) {
+        if self.params.contains(name) || self.lex.contains(name) {
             return AnnexB::Skip;
         }
         AnnexB::Apply
@@ -292,39 +289,6 @@ impl LiftCtx {
     /// two bindings the write reaches.
     pub(super) fn catch_param_shadows_write(&self, p: &str, catch_body: &[Stmt]) -> bool {
         annexb_fn_span(catch_body, p).is_some_and(|span| self.goal.applies(p, span))
-    }
-
-    /// Enter a scope: remember the stack height, then record what the
-    /// statement list declares lexically. The mark goes back to
-    /// [`Self::leave_scope`] when the walk leaves.
-    pub(super) fn enter_scope(&mut self, body: &[Stmt]) -> usize {
-        let mark = self.lex.len();
-        lex_names_into(body, &mut self.lex);
-        mark
-    }
-
-    /// Enter a scope that binds exactly one name — a `for` head's
-    /// `let` / `const`, or a for-in / for-of element binding.
-    pub(super) fn enter_binding(&mut self, name: &str) -> usize {
-        let mark = self.lex.len();
-        self.lex.push(name.to_string());
-        mark
-    }
-
-    /// A scope that binds nothing — the mark alone, so both arms of a
-    /// loop head can leave the same way.
-    pub(super) fn enter_binding_none(&self) -> usize {
-        self.lex.len()
-    }
-
-    pub(super) fn leave_scope(&mut self, mark: usize) {
-        self.lex.truncate(mark);
-    }
-
-    /// Start a fresh var scope. Nothing outside a function body's own
-    /// lexical scopes can raise the early error §B.3.3.1 asks about.
-    pub(super) fn reset_scopes(&mut self) {
-        self.lex.clear();
     }
 
     /// Move what has been minted into the arena and re-base.

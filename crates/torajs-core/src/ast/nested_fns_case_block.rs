@@ -79,9 +79,9 @@ pub(super) fn lift_case_block(
     };
     let mode = mode.descend();
     let mut bodies = clauses(cases, default, *default_at);
-    let mark = ctx.enter_binding_none();
+    let mark = ctx.lex.enter_binding_none();
     for b in bodies.iter() {
-        ctx.enter_scope(&b[..]);
+        ctx.lex.enter_scope(&b[..]);
     }
     // (source name, slot, the mangled declaration it holds)
     let mut slots: Vec<(String, String, String)> = Vec::new();
@@ -140,7 +140,7 @@ pub(super) fn lift_case_block(
             lifted.push(decl);
         }
     }
-    ctx.leave_scope(mark);
+    ctx.lex.leave(mark);
     if slots.is_empty() {
         return;
     }

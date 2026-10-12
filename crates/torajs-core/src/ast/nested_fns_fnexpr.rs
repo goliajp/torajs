@@ -93,7 +93,7 @@ fn lift_one_body(
     ctx.shadowed = own.difference(&nested_names).cloned().collect();
     ctx.params = param_names(params);
     ctx.catch_renames.clear();
-    ctx.reset_scopes();
+    ctx.lex.clear();
     let mut renames: HashMap<String, String> = HashMap::new();
     let mut branch_scoped: HashSet<String> = HashSet::new();
     let mut lifted: Vec<Stmt> = Vec::new();

@@ -97,7 +97,7 @@ fn desugar_nested_fns_once(ast: &mut Ast) {
             ctx.shadowed = own.difference(&nested_names).cloned().collect();
             ctx.params = param_names(params);
             ctx.catch_renames.clear();
-            ctx.reset_scopes();
+            ctx.lex.clear();
             let mut renames: HashMap<String, String> = HashMap::new();
             let mut branch_scoped: HashSet<String> = HashSet::new();
             let mut lifted: Vec<Stmt> = Vec::new();
@@ -162,8 +162,8 @@ fn desugar_nested_fns_once(ast: &mut Ast) {
     ctx.shadowed = top_declared;
     ctx.params = HashSet::new();
     ctx.catch_renames.clear();
-    ctx.reset_scopes();
-    let top_mark = ctx.enter_scope(&top);
+    ctx.lex.clear();
+    let top_mark = ctx.lex.enter_scope(&top);
     let mut top_renames: HashMap<String, String> = HashMap::new();
     let mut top_branch_scoped: HashSet<String> = HashSet::new();
     let mut top_lifted: Vec<Stmt> = Vec::new();
@@ -190,7 +190,7 @@ fn desugar_nested_fns_once(ast: &mut Ast) {
             }
         }
     }
-    ctx.leave_scope(top_mark);
+    ctx.lex.leave(top_mark);
     ctx.flush(ast);
     if !top_renames.is_empty() {
         // Rewrite ident references in the entire top-level (excluding
@@ -334,7 +334,7 @@ pub(super) fn collect_nested_fns_to_lift(
     ctx: &mut LiftCtx,
 ) {
     let drained = std::mem::take(body);
-    let mark = ctx.enter_scope(&drained);
+    let mark = ctx.lex.enter_scope(&drained);
     let mut new_body: Vec<Stmt> = Vec::with_capacity(drained.len());
     // Writes for the body-level declarations that keep a binding — see
     // `body_level_var_lift`. They go at the HEAD of the list because a
@@ -445,7 +445,7 @@ pub(super) fn collect_nested_fns_to_lift(
             }
         }
     }
-    ctx.leave_scope(mark);
+    ctx.lex.leave(mark);
     // At the HEAD, because a function declaration is hoisted within
     // its block: a call written above it has to resolve.
     let minted: Vec<Stmt> = strict_block
