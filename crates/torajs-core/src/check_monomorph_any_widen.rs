@@ -316,8 +316,8 @@ fn emit_widened_spec(
                 || !crate::check_stmt_fn_decl::argv_slot_hidden(fn_name, &params[head..])
         })
         .collect();
-    for &(i, target) in idxs {
-        if let Some(&j) = visible.get(i) {
+    for (i, target) in idxs {
+        if let Some(&j) = visible.get(*i) {
             new_params[j].type_ann = Some(target.ann().to_string());
         }
     }
@@ -346,8 +346,8 @@ fn emit_widened_spec(
     };
     if let Some(Type::Function(ptys, rty)) = c.globals.get(fn_name).cloned() {
         let mut spec_ptys = ptys;
-        for &(i, target) in idxs {
-            if let Some(t) = spec_ptys.get_mut(i) {
+        for (i, target) in idxs {
+            if let Some(t) = spec_ptys.get_mut(*i) {
                 *t = target.ty();
             }
         }

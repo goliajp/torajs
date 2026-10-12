@@ -54,7 +54,7 @@ pub(super) fn call_ret_face(checker: &mut Checker, ast: &Ast, eid: ExprId, ret: 
     // a lifted body's `__env` head is not a user param
     let head = usize::from(params.first().is_some_and(|p| p.name == "__env"));
     let mut params = params.clone();
-    for &(i, target) in idxs {
+    for (i, target) in idxs {
         if let Some(p) = params.get_mut(i + head) {
             p.type_ann = Some(target.ann().to_string());
         }

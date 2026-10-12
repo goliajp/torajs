@@ -58,6 +58,13 @@ pub(super) fn arg_admitted(
     if is_class_method && i == 0 && crate::check::nullable_receiver_admits(param_ty, arg_ty) {
         return true;
     }
+    // a function value of another face: the clone lane re-spells the
+    // callee's param in the value's face (`check_type_of_call::fn_face`)
+    if crate::check_type_of_call::fn_face::fn_face_into_fn_param(
+        checker, ast, eid, callee, arg_ty, param_ty, i,
+    ) {
+        return true;
+    }
     // RFC 20260715-nominal-class-identity — a class instance types as
     // its NAME, so every structural wedge below (subclass prefix,
     // Nullable match, callback subtype, container widen) needs the

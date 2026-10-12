@@ -1,0 +1,175 @@
+//! A function value handed to a fn-typed parameter whose face differs
+//! from the value's own: `caller(mk(1))` where `caller(f: (y?: number)
+//! => number)` and `mk` returns `(y?: number) => any`.
+//!
+//! The callback admit (`check_type_of_call_callback_subtype`) accepts
+//! the value, as TS does: an optional or `any` parameter takes every
+//! argument the formal passes, and an `any` return is assignable to a
+//! typed one. The two faces lower to different calling conventions,
+//! though — an optional `number` slot is a NaN-boxed value where a
+//! plain one is an f64, and so is an `any` return against a `number`
+//! one — and a call through the parameter is shaped by the PARAMETER's
+//! face. Handing the value over unchanged makes the callee read a box
+//! as an f64 (NaN, SIGBUS).
+//!
+//! Wrapping the value in an adapter would change which function
+//! object the callee holds (§7.2.10 SameValue: `f === g`, `.name`, a
+//! Map key), and routing every call through the boxed entry taxes the
+//! `reduce(xs, f)` shape with four extra calls per iteration. So the
+//! CALLEE moves instead: the call site is recorded as an any-widen site
+//! whose target is the value's face ([`WidenTarget::Face`]), and
+//! `check_monomorph_any_widen` clones the callee with that parameter
+//! spelled in the value's face. The clone's calls through the param
+//! then use the value's own convention; the original stays untouched
+//! for every call whose faces agree. The type flows: a value that
+//! reaches the call through `id(x)` carries the same face.
+//!
+//! Only the direction the admit opens is cloned: the value's slot is
+//! `any`, or the optional spelling of the formal's; the value's return
+//! is `any` / `never`, or a scalar against an `any` formal return. A
+//! value with fewer parameters than the formal keeps the plain lane
+//! (the env-first ABI ignores the extra arguments), and a value whose
+//! parameter is NARROWER than the formal (`(s: string)` into
+//! `(s: any)`) is the boxed-entry census's (`argv_boxed_params`): its
+//! adapter tests each argument against the body's own type.
+
+use super::any_widen::{clonable_callee, record_widen_site};
+use crate::ast::{Ast, Expr, ExprId, Stmt};
+use crate::check::{Checker, Type, WidenTarget};
+
+/// Record the call `eid` as a face-widen site for argument `i` when the
+/// callback admit holds between `param_ty` and `arg_ty` and the callee
+/// is a clonable declaration. Returns whether the argument is admitted.
+#[allow(clippy::too_many_arguments)]
+pub(in crate::check_type_of_call) fn fn_face_into_fn_param(
+    checker: &mut Checker,
+    ast: &Ast,
+    eid: ExprId,
+    callee: &ExprId,
+    arg_ty: &Type,
+    param_ty: &Type,
+    i: usize,
+) -> bool {
+    let (Type::Function(aps, aret), Type::Function(fps, fret)) = (arg_ty, param_ty) else {
+        return false;
+    };
+    if !crate::check_type_of_call_callback_subtype::matches_resolved(
+        param_ty,
+        arg_ty,
+        &checker.class_structs,
+        &checker.aliases,
+        &checker.generic_alias_decls,
+    ) {
+        return false;
+    }
+    if aps.len() != fps.len() || aps.iter().chain(fps).any(|t| matches!(t, Type::Rest(_))) {
+        return true;
+    }
+    let Expr::Ident(n) = ast.get_expr(*callee) else {
+        return true;
+    };
+    let Some(name) = clonable_callee(checker, ast, n, i) else {
+        return true;
+    };
+    let Some((pname, pann)) = user_param(ast, &name, i) else {
+        return true;
+    };
+    if ast
+        .argv_boxed_params
+        .get(&name)
+        .is_some_and(|set| set.contains(&pname))
+    {
+        return true;
+    }
+    let Some(ann) = face_ann(&pann, aps, aret, fps, fret) else {
+        return true;
+    };
+    record_widen_site(
+        checker,
+        eid,
+        &name,
+        i,
+        WidenTarget::Face {
+            ann,
+            ty: arg_ty.clone(),
+        },
+    );
+    true
+}
+
+/// The name and annotation of user param `i` of the declaration `name`
+/// — past a lifted body's `__env` head and a hidden argv slot, the way
+/// `any_widen::param_has_default` counts them.
+fn user_param(ast: &Ast, name: &str, i: usize) -> Option<(String, String)> {
+    ast.stmts.iter().find_map(|s| match s {
+        Stmt::FnDecl {
+            name: n, params, ..
+        } if n == name => {
+            let user = &params[usize::from(params.first().is_some_and(|p| p.name == "__env"))..];
+            let hidden = crate::check_stmt_fn_decl::argv_slot_hidden(name, user);
+            user.iter()
+                .filter(|p| !(hidden && p.name == "__torajs_argv"))
+                .nth(i)
+                .and_then(|p| Some((p.name.clone(), p.type_ann.clone()?)))
+        }
+        _ => None,
+    })
+}
+
+/// The param's annotation re-spelled in the value's face: the same
+/// repr marker (`__fn` / `__cls`, decided by the closure-param tagger
+/// from what flows into the slot), each slot the formal's own spelling
+/// where the two agree and the value's where they differ, the return
+/// likewise. `None` where the face is not one this lane spells, or
+/// where nothing differs in a way the calling convention sees.
+fn face_ann(pann: &str, aps: &[Type], aret: &Type, fps: &[Type], fret: &Type) -> Option<String> {
+    let t = pann.trim();
+    let marker = if t.starts_with("__cls(") {
+        "__cls"
+    } else if t.starts_with("__fn(") {
+        "__fn"
+    } else {
+        return None;
+    };
+    let canon = crate::num_width::fn_type_canon(t)?;
+    let (slots, ret) = crate::num_width::split_fn_type(&canon)?;
+    let slots: Vec<&str> = slots.into_iter().filter(|p| !p.is_empty()).collect();
+    if slots.len() != fps.len() {
+        return None;
+    }
+    let mut changed = false;
+    let mut out: Vec<String> = Vec::with_capacity(slots.len());
+    for ((a, f), spelled) in aps.iter().zip(fps).zip(&slots) {
+        if a == f {
+            out.push((*spelled).to_string());
+            continue;
+        }
+        changed = true;
+        match a {
+            Type::Any => out.push("any".to_string()),
+            Type::Nullable(inner) if **inner == *f => {
+                out.push(format!("__nullable({spelled})"));
+            }
+            _ => return None,
+        }
+    }
+    let ret = if aret == fret {
+        ret.to_string()
+    } else {
+        match (aret, fret) {
+            // the formal discards the value: the register read is
+            // never used
+            (_, Type::Void | Type::Undefined) => ret.to_string(),
+            (Type::Any | Type::Never, _) => {
+                changed = true;
+                crate::check::type_to_ann(aret)
+            }
+            (Type::Number | Type::String | Type::Boolean | Type::BigInt, Type::Any) => {
+                changed = true;
+                crate::check::type_to_ann(aret)
+            }
+            _ => return None,
+        }
+    };
+    changed.then(|| crate::type_ann_fnsig::fn_type_ann(marker, &out.join("|"), &ret))
+}
