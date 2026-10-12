@@ -50,8 +50,10 @@
 //!
 //! 1. A secret never decides a branch, a loop bound, an array index or a
 //!    divisor, and is never compared with an early-exit comparison.
-//! 2. No secret indexes a table: AES is bitsliced or runs on the AES
-//!    instructions, GHASH multiplies with integer or PMULL instructions.
+//! 2. No secret indexes a table in memory: AES is bitsliced or runs on the
+//!    AES instructions, GHASH multiplies with integer, PMULL or PCLMULQDQ
+//!    instructions (the x86-64 path reverses bits with `pshufb` on a
+//!    register-held table).
 //! 3. Secret comparisons and selections go through [`ct`]. A [`ct::Choice`]
 //!    passes through [`core::hint::black_box`] so the optimizer is less
 //!    likely to turn a mask select back into a branch; this lowers the odds
@@ -74,11 +76,12 @@
 //!
 //! The crate root denies `unsafe_code` and every module that does not use
 //! hardware intrinsics forbids it. Unsafe code exists in [`ct::zeroize`]
-//! (volatile writes) and in the AArch64 hardware modules: the SHA-256 block
+//! (volatile writes) and in the hardware modules: the AArch64 SHA-256 block
 //! function, compiled only when the target enables the `sha2` feature at
-//! build time, the AES and GHASH code, reached only through a
+//! build time, the AArch64 AES and GHASH code, reached only through a
 //! [`CpuFeatures`](cpu::CpuFeatures) value that vouches for the AES and
-//! PMULL instructions, the NEON ChaCha20 code, reached only through
+//! PMULL instructions, the x86-64 AES and GHASH code, reached only through
+//! one that vouches for AES-NI, PCLMULQDQ and SSSE3, the NEON ChaCha20 code, reached only through
 //! one that vouches for NEON, and the `PSTATE.DIT` register accesses,
 //! reached only through one that vouches for `FEAT_DIT`.
 //! [`cpu::CpuFeatures::with`] is an `unsafe fn` as a caller contract: the

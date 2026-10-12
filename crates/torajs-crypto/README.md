@@ -7,7 +7,8 @@ allocator.
 - HMAC (RFC 2104) over any of them, with constant-time tag verification
 - HKDF extract and expand (RFC 5869)
 - AES-128-GCM, AES-192-GCM and AES-256-GCM (NIST SP 800-38D), with an
-  AArch64 path on the AES and PMULL instructions
+  AArch64 path on the AES and PMULL instructions and an x86-64 path on
+  AES-NI and PCLMULQDQ
 - ChaCha20-Poly1305 (RFC 8439), with an AArch64 NEON keystream
 - constant-time comparison and selection, and a wiping routine for secrets
 - an `EntropySource` trait for callers to supply randomness
@@ -62,7 +63,8 @@ depends on the environment is passed in:
   because claiming a feature the CPU lacks would execute an unsupported
   instruction. The AES-GCM constructors take one: with both
   `Aarch64Aes` and `Aarch64Pmull` set they use the ARMv8 AES and PMULL
-  instructions, otherwise the portable code. The ChaCha20-Poly1305
+  instructions, with `X86Aes`, `X86Pclmulqdq` and `X86Ssse3` set the
+  x86-64 AES-NI and PCLMULQDQ instructions, otherwise the portable code. The ChaCha20-Poly1305
   constructor takes one too and runs the keystream on NEON when
   `Aarch64Neon` is set. With `Aarch64Dit` set, both AEADs switch on
   Arm data-independent timing (`PSTATE.DIT`) for key setup, sealing and
@@ -92,11 +94,14 @@ All buffers are provided by the caller. Nothing allocates.
 - `Debug` output of state and key types prints the type name only.
 
 `unsafe` is denied crate-wide. Unsafe code exists in the wiping routine
-(`ct::zeroize`) and in the AArch64 hardware modules: the SHA-256 block
+(`ct::zeroize`) and in the hardware modules: the AArch64 SHA-256 block
 function, compiled only when the target enables the `sha2` feature at build
-time, the AES and GHASH code, reached only through a `CpuFeatures` value
-that vouches for the AES and PMULL instructions, and the NEON ChaCha20 code,
-reached only through one that vouches for NEON.
+time, the AArch64 AES and GHASH code, reached only through a `CpuFeatures`
+value that vouches for the AES and PMULL instructions, the x86-64 AES and
+GHASH code, reached only through one that vouches for AES-NI, PCLMULQDQ and
+SSSE3, the NEON ChaCha20 code, reached only through one that vouches for
+NEON, and the `PSTATE.DIT` register accesses, reached only through one that
+vouches for `FEAT_DIT`.
 `CpuFeatures::with` is declared `unsafe fn` as a caller contract and
 contains no unsafe code.
 

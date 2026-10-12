@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ct`: `Choice`, `ct_eq`, `ct_select`, `cmov`, and `ct::zeroize`.
 - `rand`: the `EntropySource` trait and `EntropyError`.
 - `cpu`: `CpuFeatures` and `Feature`, including `Feature::Aarch64Neon`,
-  `Feature::Aarch64Dit` and `Feature::Aarch64Sb`.
+  `Feature::Aarch64Dit`, `Feature::Aarch64Sb` and `Feature::X86Ssse3`.
 - `cpu::with_data_independent_timing`: runs a closure with Arm
   `PSTATE.DIT` set (followed by a speculation barrier) and restores the
   previous value; nested scopes leave the bit as they found it. The AEAD
@@ -32,5 +32,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   registers, twelve blocks at a time on bulk data.
 - `gcm`: `Aes128Gcm`, `Aes192Gcm`, `Aes256Gcm` (NIST SP 800-38D), with
   `seal_with_iv` / `open_with_iv` for IVs of any non-zero length. The
-  constructors take a `CpuFeatures`; on AArch64 with AES and PMULL the
-  hardware path is used, otherwise bitsliced AES and a table-free GHASH.
+  constructors take a `CpuFeatures`; on AArch64 with AES and PMULL, and on
+  x86-64 with AES-NI, PCLMULQDQ and SSSE3, the hardware path is used,
+  otherwise bitsliced AES and a table-free GHASH.

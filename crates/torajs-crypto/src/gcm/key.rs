@@ -18,6 +18,12 @@ use crate::dit;
 ))]
 use super::aarch64;
 use super::soft;
+#[cfg(all(
+    target_arch = "x86_64",
+    target_feature = "sse2",
+    not(torajs_crypto_portable)
+))]
+use super::x86_64;
 
 /// Longest plaintext: `2^39 - 256` bits (SP 800-38D §5.2.1.1).
 const MAX_DATA_LEN: u64 = (1 << 36) - 32;
@@ -35,6 +41,12 @@ enum Engine {
         not(torajs_crypto_portable)
     ))]
     Arm(aarch64::Gcm),
+    #[cfg(all(
+        target_arch = "x86_64",
+        target_feature = "sse2",
+        not(torajs_crypto_portable)
+    ))]
+    X86(x86_64::Gcm),
 }
 
 /// Dispatches one call to whichever engine the key was built with.
@@ -48,6 +60,12 @@ macro_rules! engine {
                 not(torajs_crypto_portable)
             ))]
             Engine::Arm($e) => $body,
+            #[cfg(all(
+                target_arch = "x86_64",
+                target_feature = "sse2",
+                not(torajs_crypto_portable)
+            ))]
+            Engine::X86($e) => $body,
         }
     };
 }
@@ -68,38 +86,58 @@ impl Drop for Core {
                 not(torajs_crypto_portable)
             ))]
             Engine::Arm(e) => e.wipe(),
+            #[cfg(all(
+                target_arch = "x86_64",
+                target_feature = "sse2",
+                not(torajs_crypto_portable)
+            ))]
+            Engine::X86(e) => e.wipe(),
         }
     }
 }
 
-impl Core {
-    #[cfg_attr(
-        not(all(
+/// The hardware engine `cpu` vouches for, or the portable one.
+#[cfg_attr(
+    not(any(
+        all(
             target_arch = "aarch64",
             target_endian = "little",
             not(torajs_crypto_portable)
-        )),
-        allow(unused_variables)
-    )]
+        ),
+        all(
+            target_arch = "x86_64",
+            target_feature = "sse2",
+            not(torajs_crypto_portable)
+        )
+    )),
+    allow(unused_variables)
+)]
+fn pick(words: &[u32], rounds: usize, cpu: CpuFeatures) -> Engine {
+    #[cfg(all(
+        target_arch = "aarch64",
+        target_endian = "little",
+        not(torajs_crypto_portable)
+    ))]
+    if let Some(e) = aarch64::Gcm::new(words, rounds, cpu) {
+        return Engine::Arm(e);
+    }
+    #[cfg(all(
+        target_arch = "x86_64",
+        target_feature = "sse2",
+        not(torajs_crypto_portable)
+    ))]
+    if let Some(e) = x86_64::Gcm::new(words, rounds, cpu) {
+        return Engine::X86(e);
+    }
+    Engine::Soft(soft::Gcm::new(words, rounds))
+}
+
+impl Core {
     pub(super) fn new(key: &[u8], cpu: CpuFeatures) -> Core {
         let dit = dit::Mode::new(cpu);
         let _dit = dit.enter();
         let (mut words, rounds) = expand_key(key);
-        #[cfg(all(
-            target_arch = "aarch64",
-            target_endian = "little",
-            not(torajs_crypto_portable)
-        ))]
-        let engine = match aarch64::Gcm::new(&words, rounds, cpu) {
-            Some(e) => Engine::Arm(e),
-            None => Engine::Soft(soft::Gcm::new(&words, rounds)),
-        };
-        #[cfg(not(all(
-            target_arch = "aarch64",
-            target_endian = "little",
-            not(torajs_crypto_portable)
-        )))]
-        let engine = Engine::Soft(soft::Gcm::new(&words, rounds));
+        let engine = pick(&words, rounds, cpu);
         zeroize(&mut words);
         Core { engine, dit }
     }

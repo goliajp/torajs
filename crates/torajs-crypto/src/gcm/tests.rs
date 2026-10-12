@@ -85,6 +85,12 @@ fn hardware_path_is_taken_when_compiled_in() {
         target_arch = "aarch64",
         target_feature = "aes",
         not(torajs_crypto_portable)
+    )) || cfg!(all(
+        target_arch = "x86_64",
+        target_feature = "aes",
+        target_feature = "pclmulqdq",
+        target_feature = "ssse3",
+        not(torajs_crypto_portable)
     ));
     assert_eq!(hw.is_hardware(), expected);
     assert!(!Core::new(&[0; 16], CpuFeatures::portable()).is_hardware());

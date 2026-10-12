@@ -4,7 +4,13 @@
 //! AArch64, when it vouches for both
 //! [`Feature::Aarch64Aes`](crate::cpu::Feature::Aarch64Aes) and
 //! [`Feature::Aarch64Pmull`](crate::cpu::Feature::Aarch64Pmull), the key
-//! uses the AES and PMULL instructions; otherwise it uses the portable
+//! uses the AES and PMULL instructions; on x86-64, when it vouches for
+//! [`Feature::X86Aes`](crate::cpu::Feature::X86Aes),
+//! [`Feature::X86Pclmulqdq`](crate::cpu::Feature::X86Pclmulqdq) and
+//! [`Feature::X86Ssse3`](crate::cpu::Feature::X86Ssse3), the AES-NI and
+//! PCLMULQDQ instructions (on a target built with SSE2; a target without
+//! it, such as `x86_64-unknown-none`, keeps the portable code); otherwise
+//! it uses the portable
 //! code: bitsliced AES and a GHASH built from integer multiplications,
 //! neither of which reads a table. Both produce identical output. When it
 //! vouches for [`Feature::Aarch64Dit`](crate::cpu::Feature::Aarch64Dit),
@@ -40,5 +46,11 @@ mod key;
 mod soft;
 #[cfg(test)]
 mod tests;
+#[cfg(all(
+    target_arch = "x86_64",
+    target_feature = "sse2",
+    not(torajs_crypto_portable)
+))]
+mod x86_64;
 
 pub use key::{Aes128Gcm, Aes192Gcm, Aes256Gcm};
