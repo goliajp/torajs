@@ -18,7 +18,7 @@
 //! construction.
 
 use super::annexb_fn_var::LiftCtx;
-use super::nested_fns_idents::rewrite_idents_in_body;
+use super::desugar_async_nested_fns::rename::rename_in_owner;
 use super::{Ast, Stmt};
 use std::collections::HashMap;
 
@@ -67,7 +67,7 @@ fn apply_in_stmt(ast: &mut Ast, stmt: &mut Stmt, pairs: &[(String, String)]) {
             {
                 let map: HashMap<String, String> =
                     HashMap::from([(pair.0.clone(), pair.1.clone())]);
-                rewrite_idents_in_body(ast, catch_body, &map, true);
+                rename_in_owner(ast, catch_body, &map);
             }
             apply_catch_renames(ast, catch_body, pairs);
             if let Some(fb) = finally_body {

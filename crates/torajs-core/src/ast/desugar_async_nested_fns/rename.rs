@@ -242,7 +242,17 @@ pub(in crate::ast) fn rename_expr(ast: &mut Ast, eid: ExprId, renames: &Renames)
             Expr::ArrowFn { params, body, .. } => {
                 let params = params.clone();
                 let mut taken = body.clone();
-                rename_function(ast, &params, &mut taken, renames);
+                // a named function expression binds its own name
+                // inside its body (§15.2.5)
+                let hidden;
+                let own = match ast.fn_expr_self_names.get(&id) {
+                    Some(n) if renames.contains_key(n) => {
+                        hidden = without(renames, &HashSet::from([n.clone()]));
+                        &hidden
+                    }
+                    _ => renames,
+                };
+                rename_function(ast, &params, &mut taken, own);
                 if let Expr::ArrowFn { body: slot, .. } = &mut ast.exprs[id.0 as usize] {
                     *slot = taken;
                 }

@@ -6,16 +6,17 @@
 //! nested `function f() {...}` decls inside any block-shape stmt,
 //! lifts them to top-level with mangled names
 //! `__nested_<parent>_<name>_<uid>`, rewrites references. The
-//! private helpers (`collect_nested_fns_in_stmt/to_lift`,
-//! `rewrite_idents_in_body/stmt/expr` in the idents sibling) do the
-//! tree walk — both passes share ONE stmt collector since rotation
-//! 269 (the pass-1-only sibling lacked the bare-FnDecl-branch arm).
+//! private helpers (`collect_nested_fns_in_stmt/to_lift`, and the
+//! scope-aware `rename_in_owner`) do the tree walk — both passes
+//! share ONE stmt collector since rotation 269 (the pass-1-only
+//! sibling lacked the bare-FnDecl-branch arm).
 
 use super::annexb_fn_var::{AnnexB, LiftCtx, LiftMode};
 use super::annexb_names::{block_nested_fn_names, own_fn_names, param_names};
+use super::desugar_async_nested_fns::rename::rename_in_owner;
 use super::nested_fns_case_block::apply_case_block_renames;
 use super::nested_fns_catch::apply_catch_renames;
-use super::nested_fns_idents::{rewrite_idents_in_body, rewrite_idents_in_stmt};
+use super::nested_fns_idents::rewrite_idents_in_stmt;
 use super::nested_fns_walk::descend_into_children;
 use super::{Ast, Stmt};
 use std::collections::{HashMap, HashSet};
@@ -125,14 +126,15 @@ fn desugar_nested_fns_once(ast: &mut Ast) {
                     .filter(|(k, _)| !branch_scoped.contains(*k))
                     .map(|(k, v)| (k.clone(), v.clone()))
                     .collect();
+                // By scope: a block, loop head, catch clause or
+                // nested function that rebinds a lifted name keeps its
+                // own references.
                 if !outer_map.is_empty() {
-                    rewrite_idents_in_body(ast, body, &outer_map, true);
+                    rename_in_owner(ast, body, &outer_map);
                 }
-                for lf in lifted.iter_mut() {
-                    if let Stmt::FnDecl { body: lb, .. } = lf {
-                        rewrite_idents_in_body(ast, lb, &renames, true);
-                    }
-                }
+                // Each lifted declaration is a function scope of its
+                // own, whose parameters and locals hide the names too.
+                rename_in_owner(ast, &mut lifted, &renames);
             }
             // After the mangling, so the references left under a
             // renamed catch parameter's original name are the ones that
@@ -204,11 +206,7 @@ fn desugar_nested_fns_once(ast: &mut Ast) {
                 rewrite_idents_in_stmt(ast, stmt, &outer_map, false);
             }
         }
-        for lf in top_lifted.iter_mut() {
-            if let Stmt::FnDecl { body: lb, .. } = lf {
-                rewrite_idents_in_body(ast, lb, &top_renames, true);
-            }
-        }
+        rename_in_owner(ast, &mut top_lifted, &top_renames);
     }
     apply_catch_renames(ast, &mut top, &ctx.catch_renames);
     apply_case_block_renames(ast, &mut top, std::mem::take(&mut ctx.case_blocks));
