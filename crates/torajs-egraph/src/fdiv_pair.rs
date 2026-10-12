@@ -24,10 +24,14 @@
 //! to a per-lane sum (`if (n % d === 0) s += d`, after srem_fquot), the
 //! test and the sum move onto the lanes as well (`accum`).
 //!
+//! A divisor that is a loop counter is read from vector cells stepped
+//! beside it instead of splatted every trip (`counter`).
+//!
 //! After unroll_jam and unroll_pair, before loop_rotate.
 //! `TORAJS_FDIV_PAIR_OFF=1` skips, `TORAJS_FDIV_PAIR_STATS=1` counts.
 
 mod accum;
+mod counter;
 
 use crate::id_hash::HashMap;
 use crate::interval::NumFact;
@@ -46,6 +50,10 @@ pub struct FdivPairStats {
     /// of those, the pairs whose divisibility test and masked sum run
     /// on the lanes too
     pub accumulated: u32,
+    /// counter divisors whose f64 lanes come from a stepped cell
+    pub float_counters: u32,
+    /// counter divisors whose i64 lanes come from a stepped cell
+    pub int_counters: u32,
 }
 
 pub fn pair_module(
@@ -185,7 +193,17 @@ fn pair_function(
             };
             stats.pairs += pairs.len() as u32;
             stats.accumulated += chains.iter().flatten().count() as u32;
-            rewrite_block(func, b, pre, &pairs, &chains);
+            let counters = known
+                .map(|known| counter::plan(func, b, lp, known, &pairs, &chains))
+                .unwrap_or_default();
+            stats.float_counters += counters.float.len() as u32;
+            stats.int_counters += counters.int.len() as u32;
+            let cells = counter::build_cells(func, pre, &counters);
+            rewrite_block(func, b, pre, &pairs, &chains, &cells);
+            for (d, cs) in &cells.by_counter {
+                counter::step_cells(func, lp, b, *d, cs);
+            }
+            counter::drop_unread(func, b, &cells);
         }
     }
 }
@@ -299,12 +317,14 @@ fn rewrite_block(
     pre: BlockId,
     pairs: &[(Quot, Quot)],
     chains: &[Option<accum::Chain>],
+    cells: &counter::Cells,
 ) {
     const F64X2: Type = Type::Vec(VecShape::F64x2);
     const I64X2: Type = Type::Vec(VecShape::I64x2);
     let v = Operand::Value;
     let mut sites: HashMap<usize, Site> = HashMap::default();
-    let mut splats: HashMap<ValueId, ValueId> = HashMap::default();
+    // a counter divisor's lanes are its cell, never splatted
+    let mut splats = cells.float.clone();
     for ((q1, q2), chain) in pairs.iter().zip(chains) {
         let xv = new_value(func, F64X2);
         let pair = InstKind::Vec(VecInst::Pair(VecShape::F64x2, v(q1.a), v(q2.a)));
@@ -327,7 +347,7 @@ fn rewrite_block(
         sites.insert(q1.cvt, Site::Lane(0, tv));
         sites.insert(q2.cvt, Site::Lane(1, tv));
     }
-    let mut dsplats: HashMap<ValueId, ValueId> = HashMap::default();
+    let mut dsplats = cells.int.clone();
     let old = std::mem::take(&mut func.blocks[b.0 as usize].insts);
     let mut out = Vec::with_capacity(old.len() + 2 * pairs.len());
     // what follows a divide waits until the next instruction that is

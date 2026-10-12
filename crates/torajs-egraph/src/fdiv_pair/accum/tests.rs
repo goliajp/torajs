@@ -122,6 +122,7 @@ fn moves_the_tests_and_sums_onto_the_lanes() {
     assert_eq!((pairs, accumulated), (1, 1));
     let pre = &f.blocks[0].insts;
     let n = pre.len();
+    // the counter cells first, then the dividend pair and the sum cell
     assert!(is_vec(&pre[n - 2], |vi| matches!(
         vi,
         VecInst::Pair(
@@ -152,17 +153,20 @@ fn moves_the_tests_and_sums_onto_the_lanes() {
                 .to_lowercase(),
         })
         .collect();
+    // the divisor `%4` counts up by one: its lanes are cells, each
+    // stepped right after its last read, and its conversion and copy
+    // are gone
     assert_eq!(
         shape,
         [
-            "sitofp",
-            "vec.splat f64x2",
             "vec.fdiv",
+            "vec.fadd",
+            "copy",
             "vec.frintz",
             "vec.fcmeq",
-            "copy",
-            "vec.splat i64x2",
             "vec.and",
+            "vec.add",
+            "copy.v",
             "vec.add",
             "binop",
             "copy.v",
@@ -234,4 +238,39 @@ fn leaves_an_exit_entered_from_outside_the_loop() {
     });
     let (_, pairs, accumulated) = run(f, Some(1 << 31));
     assert_eq!((pairs, accumulated), (1, 0));
+}
+
+/// The pass's counter counts, on `divisor_sums` with both dividends in
+/// `[0, 2^31]`.
+fn counters(f: Function) -> (u32, u32) {
+    let mut m = Module::default();
+    m.funcs.push(f);
+    let fact = NumFact::new(0, 1 << 31);
+    let facts = vec![
+        [(ValueId(0), fact), (ValueId(1), fact)]
+            .into_iter()
+            .collect(),
+    ];
+    let stats = pair_module(&mut m, Some(&facts));
+    (stats.float_counters, stats.int_counters)
+}
+
+#[test]
+fn a_counter_divisor_is_read_from_cells() {
+    assert_eq!(counters(divisor_sums()), (1, 1));
+    let (f, _, _) = run(divisor_sums(), Some(1 << 31));
+    let pre = &f.blocks[0].insts;
+    // the f64 cell from `sitofp %4`, the i64 cell from `%4`, each with
+    // the splat of its step
+    let splat_of = |i: &Inst| match &i.kind {
+        InstKind::Vec(VecInst::Splat(_, o)) => Some(*o),
+        _ => None,
+    };
+    let splats: Vec<Operand> = pre.iter().filter_map(splat_of).collect();
+    assert!(matches!(splats[0], Operand::Value(_)));
+    assert_eq!(splats[1], Operand::ConstF64(1.0));
+    assert_eq!(splats[2], v(4));
+    assert_eq!(splats[3], Operand::ConstI64(1));
+    // the loop splats nothing
+    assert!(!f.blocks[2].insts.iter().any(|i| splat_of(i).is_some()));
 }

@@ -59,8 +59,17 @@ struct Lane {
 pub(super) struct Chain {
     lanes: [Lane; 2],
     /// the divisor as the first lane's add reads it
-    dd: ValueId,
+    pub dd: ValueId,
+    /// the divisor, not written in the block before either select
+    pub d: ValueId,
     exits: Vec<BlockId>,
+}
+
+impl Chain {
+    /// The later select, where the masked add reads `dd`.
+    pub(super) fn last_sel(&self) -> usize {
+        self.lanes[0].sel.max(self.lanes[1].sel)
+    }
 }
 
 /// The block the pair sits in and what is known around it.
@@ -83,6 +92,7 @@ pub(super) fn plan(at: &Scope, (q1, q2): &(Quot, Quot)) -> Option<Chain> {
     Some(Chain {
         lanes: [l1, l2],
         dd,
+        d: d1,
         exits,
     })
 }

@@ -235,3 +235,98 @@ fn neighbouring_divides_issue_before_their_tails() {
     assert!(cvt(kinds[4]) && cvt(kinds[5]), "{kinds:?}");
     assert!(matches!(kinds[6], InstKind::Vec(VecInst::Lane(0, _))));
 }
+
+/// `two_quotients(false)` with the divisor `%2` known in `[1, hi]`;
+/// answers the function and the f64 counters made.
+fn run_counted(f: Function, hi: i128) -> (Function, u32) {
+    let mut m = Module::default();
+    m.funcs.push(f);
+    let facts = vec![[(ValueId(2), NumFact::new(1, hi))].into_iter().collect()];
+    let stats = pair_module(&mut m, Some(&facts));
+    (m.funcs.pop().expect("one function"), stats.float_counters)
+}
+
+fn splats_in_loop(f: &Function) -> usize {
+    f.blocks[2]
+        .insts
+        .iter()
+        .filter(|i| matches!(i.kind, InstKind::Vec(VecInst::Splat(..))))
+        .count()
+}
+
+#[test]
+fn a_counter_divisor_inside_the_exact_window_is_a_cell() {
+    let (f, counters) = run_counted(two_quotients(false), 101);
+    assert_eq!(counters, 1);
+    assert_eq!(splats_in_loop(&f), 0);
+    let body = &f.blocks[2].insts;
+    // no conversion of the counter is left; the divide reads the cell,
+    // stepped right after it, and the loop's write of `%2` stays last
+    assert!(!body.iter().any(|i| matches!(i.kind, InstKind::SiToFp(_))));
+    let InstKind::Vec(VecInst::BinOp(VecOp::FDiv, _, Operand::Value(cell))) = body[0].kind else {
+        panic!("the divide first: {body:?}");
+    };
+    assert!(matches!(
+        body[1].kind,
+        InstKind::Vec(VecInst::BinOp(VecOp::FAdd, Operand::Value(x), _)) if x == cell
+    ));
+    assert_eq!(body[2].result, Some(cell));
+    assert_eq!(body.last().and_then(|i| i.result), Some(ValueId(2)));
+    // the preheader sets the cell from `%2` as it enters
+    let pre = &f.blocks[0].insts;
+    let start = |i: &Inst| matches!(i.kind, InstKind::SiToFp(Operand::Value(ValueId(2))));
+    assert!(pre.iter().any(start));
+    assert!(pre.iter().any(|i| i.result == Some(cell)));
+}
+
+#[test]
+fn a_counter_divisor_past_the_exact_window_is_splatted() {
+    let (f, counters) = run_counted(two_quotients(false), 1 << 53);
+    assert_eq!(counters, 0);
+    assert_eq!(splats_in_loop(&f), 1);
+    let (_, counters) = run_counted(two_quotients(false), (1 << 53) - 1);
+    assert_eq!(counters, 1);
+}
+
+#[test]
+fn a_divisor_the_loop_writes_twice_is_splatted() {
+    let mut f = two_quotients(false);
+    f.blocks[1]
+        .insts
+        .push(i(2, InstKind::Copy(Type::I64, v(2))));
+    let (f, counters) = run_counted(f, 101);
+    assert_eq!(counters, 0);
+    assert_eq!(splats_in_loop(&f), 1);
+}
+
+#[test]
+fn a_divisor_stepped_by_a_variable_is_splatted() {
+    let mut f = two_quotients(false);
+    f.blocks[2].insts[6].kind = InstKind::BinOp(BinOp::Add, v(2), v(6));
+    let (f, counters) = run_counted(f, 101);
+    assert_eq!(counters, 0);
+    assert_eq!(splats_in_loop(&f), 1);
+}
+
+#[test]
+fn a_counter_written_in_another_block_steps_its_cell_there() {
+    let mut f = two_quotients(false);
+    // the step and the write move to a latch block of their own
+    let step: Vec<Inst> = f.blocks[2].insts.drain(6..).collect();
+    f.blocks[2].term = Terminator::Br(BlockId(4));
+    f.blocks.push(Block {
+        id: BlockId(4),
+        insts: step,
+        term: Terminator::Br(BlockId(1)),
+    });
+    let (f, counters) = run_counted(f, 101);
+    assert_eq!(counters, 1);
+    assert_eq!(splats_in_loop(&f), 0);
+    let latch = &f.blocks[4].insts;
+    assert_eq!(latch.len(), 4);
+    assert_eq!(latch[1].result, Some(ValueId(2)));
+    assert!(matches!(
+        latch[2].kind,
+        InstKind::Vec(VecInst::BinOp(VecOp::FAdd, ..))
+    ));
+}
