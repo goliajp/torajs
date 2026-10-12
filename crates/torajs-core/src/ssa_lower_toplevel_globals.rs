@@ -23,10 +23,9 @@
 //!     mutation through method calls (`xs.push(v)`) would need
 //!     writeback to the slot (K.6, not yet landed).
 
-use crate::ast::{GenericStructDecls, PropKey};
 use std::collections::{HashMap, HashSet};
 
-use crate::ast::{Ast, Expr, ExprId, Stmt};
+use crate::ast::{Ast, Expr, ExprId, GenericStructDecls, PropKey, Stmt};
 use crate::num_width::SlotKey;
 use crate::ssa::Type;
 use crate::ssa_lower::parse_type;
@@ -61,6 +60,7 @@ pub(crate) fn collect_toplevel_globals(
     let ns_live = crate::ast_refs::ns_live_exports(ast);
     let mut globals: HashMap<String, Type> = HashMap::new();
     let widened = crate::let_widen::collect_cross_type_widen_inits(ast, Some(expr_types));
+    let degraded = crate::dynobj_degrade::collect_dynobj_degraded_inits(ast);
     // Multi-flattened walk (rotation 230) — the same flat view the
     // checker's pass_2 walks.
     for stmt in crate::ast::toplevel_stmts_flat(ast) {
@@ -128,6 +128,7 @@ pub(crate) fn collect_toplevel_globals(
                     *init,
                     ast,
                     cell_fns,
+                    (&degraded, &widened),
                     expr_types,
                     aliases,
                     arr_layouts,
@@ -248,6 +249,7 @@ fn slot_ty_from_ann(
     init: ExprId,
     ast: &Ast,
     cell_fns: &HashSet<&str>,
+    (degraded, widened): (&HashSet<ExprId>, &HashSet<ExprId>),
     expr_types: &HashMap<ExprId, crate::check::Type>,
     aliases: &HashMap<String, Type>,
     arr_layouts: &mut Vec<Type>,
@@ -297,21 +299,19 @@ fn slot_ty_from_ann(
         peeled = *expr;
     }
     let init_is_lifted_arrow = matches!(ast.get_expr(peeled), Expr::Closure { .. });
-    // a call to a user function whose return is an env cell
-    // (`const g: (y?: number) => number = mk(1)`) holds that cell too;
-    // left on the FnSig repr the binding stayed main-local and a
-    // named-fn body calling it failed with "unknown function"
+    // a call to a user fn returning an env cell (`= mk(1)`) or a read
+    // of an env cell field (`= src.g`) holds that cell too
     let calls_cell_fn = matches!(ast.get_expr(peeled), Expr::Call { callee, .. }
         if matches!(ast.get_expr(*callee), Expr::Ident(f) if cell_fns.contains(f.as_str())));
     let closure_shaped = init_is_lifted_arrow
         || calls_cell_fn
+        || crate::ast_refs::closure_field_read_ann(ast, peeled, degraded, widened).is_some()
         || (!written && crate::ast_refs::closure_alias_fn_canon(ast, peeled).is_some());
-    // Any other Any-typed init (an any-bound ident, an any member
-    // read) carries the cell shape too, but K.4's global-init store
-    // lane has no Any→Closure conversion — keep the binding
-    // main-local instead, where the fn-local let lane converts
-    // (`initial_let_ty` mirror). A named-fn read of such a binding
-    // stays the recorded main-local unknown-ident limitation.
+    // Any other Any-typed init (an any-bound ident, an any member read)
+    // carries the cell shape too, but K.4's global-init store lane has
+    // no Any→Closure conversion: it stays main-local, where the fn-local
+    // let lane converts (`initial_let_ty` mirror); a named-fn read of it
+    // is the recorded main-local unknown-ident limitation.
     if matches!(parsed, Type::FnSig(_))
         && !init_is_lifted_arrow
         && matches!(expr_types.get(&init), Some(crate::check::Type::Any))

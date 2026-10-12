@@ -22,7 +22,9 @@ use crate::check::Checker;
 ///   decl's annotations (a variadic one carries its rest sentinel: the
 ///   lowerer gives it a Closure slot from the same string and routes
 ///   its calls through the boxed dual entry);
-/// - an alias of such a binding (`const c = k`) spells the same;
+/// - an alias of such a binding (`const c = k`) spells the same, and
+///   so does a read of a closure field of a top-level object literal
+///   (`const g = src.g`);
 /// - an all-literal object literal spells its `__inlobj(...)`, an
 ///   all-literal array its `T[]`, a `new C()` its class or collection;
 /// - a literal / operator / named-fn-call init spells its scalar
@@ -63,6 +65,10 @@ pub(super) fn synthesized_spelling(
             .or_else(|| crate::ast_refs_arrlit::arrlit_literal_elem_ann(ast, init))
             .or_else(|| crate::ast_refs::new_class_ann(ast, init))
             .or_else(|| crate::ast_refs::collection_new_ann(ast, init))
+            .or_else(|| {
+                let (degraded, widened) = (&c.dynobj_degraded, &c.cross_type_widened);
+                crate::ast_refs::closure_field_read_ann(ast, init, degraded, widened)
+            })
     {
         return Some((ann, false));
     }

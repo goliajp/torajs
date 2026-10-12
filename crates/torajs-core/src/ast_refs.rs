@@ -20,15 +20,15 @@
 use crate::ast::{Ast, Expr, ExprId, Stmt};
 use std::collections::HashSet;
 
-// r290 / r602 file-size splits — the slot-shape inference half and
-// the canonical-annotation half; `pub use` keeps every
-// `crate::ast_refs::*` consumer path unchanged.
+// file-size splits; `pub use` keeps every `crate::ast_refs::*` path
 mod class_method_value;
+mod field_read_ann;
 mod init_ann;
 mod ns_live;
 mod shape;
 mod shape_operator;
 pub use class_method_value::class_method_value_read;
+pub use field_read_ann::closure_field_read_ann;
 pub use init_ann::{
     closure_alias_fn_canon, collection_new_ann, lifted_closure_fn_canon, new_class_ann,
     objlit_literal_inlobj_ann, unique_toplevel_binding,
