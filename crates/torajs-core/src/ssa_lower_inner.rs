@@ -46,7 +46,7 @@ pub(crate) use body_passes_fn_name::{
 use callable_infra::{CallableInfra, setup_callable_infra};
 use setup::{build_anon_stamp_pool_with_snapshot, build_intrinsics_and_boxed_entries};
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::ast::Ast;
 use crate::check_monomorph::MonoOutput;
@@ -156,6 +156,7 @@ pub(crate) fn lower_inner(
 
     let globals = register_toplevel_globals(
         ast,
+        &fn_table,
         expr_types,
         global_spellings,
         &aliases,
@@ -306,6 +307,7 @@ fn declare_intrinsic_batches(
 #[allow(clippy::too_many_arguments)]
 fn register_toplevel_globals(
     ast: &Ast,
+    fn_table: &HashMap<String, FuncId>,
     expr_types: &HashMap<crate::ast::ExprId, crate::check::Type>,
     global_spellings: &HashMap<String, String>,
     aliases: &HashMap<String, Type>,
@@ -321,8 +323,16 @@ fn register_toplevel_globals(
     // policy (annotation parsing, the K.3b ast_refs gate, and the
     // localize gate that keeps main-only primitive bindings out of
     // the global space) lives in ssa_lower_toplevel_globals.
+    // the user functions whose return is an env cell: a call to one
+    // initializes a fn-typed global the way a lifted arrow does
+    let cell_fns: HashSet<&str> = fn_table
+        .iter()
+        .filter(|(_, f)| matches!(module.funcs[f.0 as usize].ret, Type::Closure(_)))
+        .map(|(n, _)| n.as_str())
+        .collect();
     let globals = crate::ssa_lower_toplevel_globals::collect_toplevel_globals(
         ast,
+        &cell_fns,
         expr_types,
         global_spellings,
         aliases,

@@ -24,7 +24,7 @@
 //!     writeback to the slot (K.6, not yet landed).
 
 use crate::ast::{GenericStructDecls, PropKey};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::ast::{Ast, Expr, ExprId, Stmt};
 use crate::num_width::SlotKey;
@@ -43,6 +43,7 @@ pub(crate) use write_through::init_is_static_string_split;
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn collect_toplevel_globals(
     ast: &Ast,
+    cell_fns: &HashSet<&str>,
     expr_types: &HashMap<ExprId, crate::check::Type>,
     global_spellings: &HashMap<String, String>,
     aliases: &HashMap<String, Type>,
@@ -126,6 +127,7 @@ pub(crate) fn collect_toplevel_globals(
                     name,
                     *init,
                     ast,
+                    cell_fns,
                     expr_types,
                     aliases,
                     arr_layouts,
@@ -245,6 +247,7 @@ fn slot_ty_from_ann(
     name: &str,
     init: ExprId,
     ast: &Ast,
+    cell_fns: &HashSet<&str>,
     expr_types: &HashMap<ExprId, crate::check::Type>,
     aliases: &HashMap<String, Type>,
     arr_layouts: &mut Vec<Type>,
@@ -294,7 +297,14 @@ fn slot_ty_from_ann(
         peeled = *expr;
     }
     let init_is_lifted_arrow = matches!(ast.get_expr(peeled), Expr::Closure { .. });
+    // a call to a user function whose return is an env cell
+    // (`const g: (y?: number) => number = mk(1)`) holds that cell too;
+    // left on the FnSig repr the binding stayed main-local and a
+    // named-fn body calling it failed with "unknown function"
+    let calls_cell_fn = matches!(ast.get_expr(peeled), Expr::Call { callee, .. }
+        if matches!(ast.get_expr(*callee), Expr::Ident(f) if cell_fns.contains(f.as_str())));
     let closure_shaped = init_is_lifted_arrow
+        || calls_cell_fn
         || (!written && crate::ast_refs::closure_alias_fn_canon(ast, peeled).is_some());
     // Any other Any-typed init (an any-bound ident, an any member
     // read) carries the cell shape too, but K.4's global-init store
