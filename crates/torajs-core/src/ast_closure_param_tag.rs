@@ -53,8 +53,8 @@ pub(crate) mod slot_bind;
 pub(crate) mod slot_walk;
 
 use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
-use defaults::mark_closure_defaults;
 use crate::ast_closure_param_tag_member::CallSites;
+use defaults::mark_closure_defaults;
 use std::collections::{HashMap, HashSet};
 
 /// Does this annotation parse to `Type::FnSig` at the SSA layer?
