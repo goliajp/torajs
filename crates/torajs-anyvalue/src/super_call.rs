@@ -14,6 +14,7 @@
 //!   the factory-adapter registration ([`crate::construct`]).
 //! - a CLOSURE (plain function parent) → the ordinary receiver-honoring
 //!   call channel, §10.2.1 [[Call]] with `this` bound.
+//! - a PROXY → its [[Construct]] with the subclass's new.target.
 //! - anything else → §15.7.14 step 5's TypeError.
 //!
 //! Arguments arrive as one dense `Arr<Any>` the capturing lane's
@@ -171,6 +172,22 @@ pub unsafe extern "C" fn __torajs_anyv_super_call(
             unsafe { __torajs_anyv_rc_dec(*b) };
         }
     };
+    // §10.5.13 — a Proxy parent is [[Construct]]ed with this
+    // new.target (its trap, or its target under the same newTarget,
+    // `this` from newTarget's prototype); the object it answers becomes
+    // the subclass's `this` at the site
+    if crate::proxy::is_proxy(parent) {
+        let out = unsafe {
+            crate::reflect_construct::construct_with_new_target(
+                parent,
+                elems.as_ptr(),
+                n as i64,
+                new_target,
+            )
+        };
+        release(elems);
+        return out;
+    }
     if is_cell(parent) {
         let cell = as_void_ptr(parent);
         if !cell.is_null() {

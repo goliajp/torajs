@@ -29,7 +29,9 @@ use super::{Ast, Expr, ExprId, Param, StaticInit, Stmt};
 use std::collections::HashMap;
 
 mod globals;
+mod heritage;
 pub(super) use globals::{not_rebound, shadowed_globals_by_arrow};
+pub(super) use heritage::rebound_heritages;
 
 /// The names `list` binds for its whole extent: its lexical, function
 /// and class declarations. A compiler-minted `Multi` shares the list's
@@ -124,8 +126,10 @@ fn walk<'a>(ast: &'a Ast, roots: &[&[Stmt]]) -> Walk<'a> {
     let mut w = Walk {
         ast,
         chain: Vec::new(),
+        classes: Vec::new(),
         out: HashMap::new(),
         decls: HashMap::new(),
+        heritages: HashMap::new(),
     };
     for list in roots {
         for s in list.iter() {
@@ -138,18 +142,22 @@ fn walk<'a>(ast: &'a Ast, roots: &[&[Stmt]]) -> Walk<'a> {
 struct Walk<'a> {
     ast: &'a Ast,
     chain: Vec<String>,
+    /// The `chain` positions a class declaration put there.
+    classes: Vec<usize>,
     out: HashMap<ExprId, Vec<String>>,
     decls: HashMap<DeclKey, Vec<String>>,
+    heritages: HashMap<ExprId, bool>,
 }
 
 impl Walk<'_> {
     fn list(&mut self, list: &[Stmt]) {
         let depth = self.chain.len();
         list_names(list, &mut self.chain);
+        self.mark_classes(list, depth);
         for s in list {
             self.stmt(s);
         }
-        self.chain.truncate(depth);
+        self.truncate(depth);
     }
 
     /// A single-statement body (`if`, loop, label): a block opens a
@@ -254,9 +262,11 @@ impl Walk<'_> {
                 let depth = self.chain.len();
                 for c in cases {
                     list_names(&c.body, &mut self.chain);
+                    self.mark_classes(&c.body, depth);
                 }
                 if let Some(d) = default {
                     list_names(d, &mut self.chain);
+                    self.mark_classes(d, depth);
                 }
                 for c in cases {
                     self.expr(c.value);
@@ -265,7 +275,7 @@ impl Walk<'_> {
                 if let Some(d) = default {
                     d.iter().for_each(|s| self.stmt(s));
                 }
-                self.chain.truncate(depth);
+                self.truncate(depth);
             }
             Stmt::Try {
                 body,
@@ -317,6 +327,7 @@ impl Walk<'_> {
                 ..
             } => {
                 if let Some(p) = parent {
+                    self.note_heritage(*p);
                     self.expr(*p);
                 }
                 if let Some(c) = ctor {

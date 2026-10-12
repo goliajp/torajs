@@ -58,12 +58,14 @@ impl Ast {
             }
         }
         let class_names: std::collections::HashSet<String> = counts.into_keys().collect();
+        let rebound = super::scope_chain::rebound_heritages(self, &[&self.stmts]);
+        let names = (&class_names, &rebound);
         let mut counter: u32 = 0;
         let mut stmts = std::mem::take(&mut self.stmts);
-        extract_in_list(self, &mut stmts, &mut counter, &class_names);
+        extract_in_list(self, &mut stmts, &mut counter, names);
         for s in stmts.iter_mut() {
             super::stmt_nested_lists::for_each_nested_vec_mut(s, &mut |list| {
-                extract_in_list(self, list, &mut counter, &class_names);
+                extract_in_list(self, list, &mut counter, names);
             });
         }
         self.stmts = stmts;
@@ -80,10 +82,10 @@ impl Ast {
                     continue;
                 }
             };
-            extract_in_list(self, &mut body, &mut counter, &class_names);
+            extract_in_list(self, &mut body, &mut counter, names);
             for s in body.iter_mut() {
                 super::stmt_nested_lists::for_each_nested_vec_mut(s, &mut |list| {
-                    extract_in_list(self, list, &mut counter, &class_names);
+                    extract_in_list(self, list, &mut counter, names);
                 });
             }
             if let Expr::ArrowFn { body: b, .. } = &mut self.exprs[i] {
@@ -108,18 +110,19 @@ impl Ast {
     }
 }
 
+/// The class declaration names, and the heritages a scope rebinds.
+type Names<'a> = (
+    &'a std::collections::HashSet<String>,
+    &'a std::collections::HashSet<ExprId>,
+);
+
 /// One statement list: insert the minted binding right before each
 /// class whose heritage extracts. `for_each_nested_vec_mut` recurses
 /// the spine, so this handles a single flat list.
-fn extract_in_list(
-    ast: &mut Ast,
-    list: &mut Vec<super::Stmt>,
-    counter: &mut u32,
-    class_names: &std::collections::HashSet<String>,
-) {
+fn extract_in_list(ast: &mut Ast, list: &mut Vec<super::Stmt>, counter: &mut u32, names: Names) {
     let mut i = 0;
     while i < list.len() {
-        match extract_one(ast, &mut list[i], counter, class_names) {
+        match extract_one(ast, &mut list[i], counter, names) {
             Some(binding) => {
                 list.insert(i, binding);
                 i += 2;
@@ -135,7 +138,7 @@ fn extract_one(
     ast: &mut Ast,
     s: &mut super::Stmt,
     counter: &mut u32,
-    class_names: &std::collections::HashSet<String>,
+    (class_names, rebound): Names,
 ) -> Option<super::Stmt> {
     use super::Stmt;
     let class = match s {
@@ -163,11 +166,14 @@ fn extract_one(
         // recognises it by name AFTER this pass), a binding this pass
         // already minted, or `undefined` (a shape no lane claims —
         // extracting it would only trade one loud error for another).
+        // Unless a scope around the class rebinds the name: then it is
+        // that binding's value (`scope_chain::rebound_heritages`).
         Expr::Ident(n)
-            if (class_names.contains(n)
-                || super::desugar_classes_builtin_heritage::is_subclassable_builtin(n)
-                || ast.es5_value_parents.contains(n)
-                || n == "undefined") =>
+            if !rebound.contains(&pid)
+                && (class_names.contains(n)
+                    || super::desugar_classes_builtin_heritage::is_subclassable_builtin(n)
+                    || ast.es5_value_parents.contains(n)
+                    || n == "undefined") =>
         {
             return None;
         }
