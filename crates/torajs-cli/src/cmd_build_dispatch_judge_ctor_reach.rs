@@ -1,5 +1,6 @@
-//! Whether a builtin constructor cell can reach the any world through
-//! a `constructor` read.
+//! Whether a builtin constructor cell can reach the any world: through
+//! a `constructor` read, a runtime-keyed property read, or a class whose
+//! heritage is a builtin constructor (its [[Prototype]] is that cell).
 //!
 //! A builtin constructor value owns the namespace statics of its
 //! family (`Object.keys`, `Array.of`, `Number.isInteger`), and a

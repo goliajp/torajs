@@ -232,8 +232,8 @@ pub(crate) fn build_link_config(
     t.tick("compile_module_funcs");
     // S2-5 blade 2b: judge which dispatch families the program can
     // never enter and stub their arm seams (cmd_build_dispatch_judge).
-    // TORAJS_DISPATCH_STUB_ALL forces every family (pricing);
-    // TORAJS_DISPATCH_STUB_OFF disables the judgment entirely.
+    // TORAJS_DISPATCH_STUB_ALL / _OFF stub every family / none; _NS and
+    // TORAJS_LINK_STUB_FORCE=<sym,…> force single seams (diagnostics).
     if crate::cmd_build_dispatch_stubs::stub_all_enabled() {
         crate::cmd_build_dispatch_stubs::append_dispatch_stubs(&mut funcs, u16::MAX, true, true);
     } else if !crate::cmd_build_dispatch_stubs::stub_off() {
