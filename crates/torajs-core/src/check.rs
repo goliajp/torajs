@@ -314,10 +314,11 @@ pub(crate) struct Checker {
     /// rewrites the declaration so the lowering shapes the slot's calls
     /// by what it holds.
     pub(crate) let_face_anns: HashMap<ExprId, String>,
-    /// A mutable fn-typed binding some store hands a value of another
-    /// face than its annotation: joins `Ast::fnsig_mismatch_bindings`,
+    /// A fn-typed binding, keyed by its declaration's initializer, that
+    /// some store hands a value whose face the calling convention tells
+    /// apart from the annotation's: joins `Ast::face_mismatch_lets`,
     /// whose calls ride the boxed entry.
-    pub(crate) face_mismatch_bindings: std::collections::HashSet<String>,
+    pub(crate) face_mismatch_lets: std::collections::HashSet<ExprId>,
     /// The function-value bindings a call hands an `any` argument for
     /// an object-typed parameter, with their parameter types; the
     /// closures they hold take the all-`any` twin

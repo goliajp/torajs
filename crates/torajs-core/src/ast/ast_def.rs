@@ -467,6 +467,14 @@ pub struct Ast {
     /// instead (argc + undefined-filled argv + per-face adapter
     /// unbox, the same lane a rest-typed binding rides).
     pub fnsig_mismatch_bindings: std::collections::HashSet<String>,
+    /// The checker's half of that census, keyed by the declaration (its
+    /// initializer) so a same-named binding elsewhere keeps its direct
+    /// calls: a fn-typed binding a store hands a value of another face
+    /// than its annotation (`check_stmt_let_decl::fn_face_slot`).
+    pub face_mismatch_lets: std::collections::HashSet<ExprId>,
+    /// The top-level ones among them by name, for a call that reaches
+    /// the binding as a module global.
+    pub face_mismatch_globals: std::collections::HashSet<String>,
     /// The calls through such a binding (or an `argv_boxed_params`
     /// parameter) the checker typed `any`: their boxed answer is
     /// returned unconverted. Filled after checking.

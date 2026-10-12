@@ -27,7 +27,9 @@ pub(super) fn global_variadic_value_binding(ctx: &LowerCtx<'_>, callee_name: &st
 /// calling fn, so `variadic_locals` never saw it. Locals-miss
 /// scoping mirrors [`global_variadic_value_binding`].
 pub(super) fn global_fnsig_mismatch_binding(ctx: &LowerCtx<'_>, callee_name: &str) -> bool {
-    !ctx.locals.contains_key(callee_name) && ctx.ast.fnsig_mismatch_bindings.contains(callee_name)
+    !ctx.locals.contains_key(callee_name)
+        && (ctx.ast.fnsig_mismatch_bindings.contains(callee_name)
+            || ctx.ast.face_mismatch_globals.contains(callee_name))
 }
 
 /// Is the runtime recv gate reachable for a callee resolved to

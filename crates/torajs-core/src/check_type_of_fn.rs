@@ -260,6 +260,7 @@ pub(crate) fn check_closure_body(
                     .unwrap_or_default(),
                 held_any: cap_outer.get(cap_name).is_some_and(|i| i.held_any),
                 ann: cap_outer.get(cap_name).and_then(|i| i.ann.clone()),
+                let_init: cap_outer.get(cap_name).and_then(|i| i.let_init),
                 ..LocalInfo::plain(cap_ty.clone())
             },
         );

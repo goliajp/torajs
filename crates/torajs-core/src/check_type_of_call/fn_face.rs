@@ -82,7 +82,7 @@ pub(in crate::check_type_of_call) fn fn_face_into_fn_param(
     {
         return true;
     }
-    let Some(ann) = face_ann(&pann, aps, aret, fps, fret) else {
+    let Face::Spelled(ann) = face_ann(&pann, aps, aret, fps, fret) else {
         return true;
     };
     record_widen_site(
@@ -117,32 +117,42 @@ fn user_param(ast: &Ast, name: &str, i: usize) -> Option<(String, String)> {
     })
 }
 
+/// How a function value's face stands against the fn-typed slot it
+/// reaches.
+#[derive(Debug, PartialEq)]
+pub(crate) enum Face {
+    /// Nothing differs in a way the calling convention sees.
+    Same,
+    /// The slot's annotation re-spelled in the value's face.
+    Spelled(String),
+    /// The faces differ in a way this lane does not spell.
+    Unspelled,
+}
+
 /// The param's annotation re-spelled in the value's face: the same
 /// repr marker (`__fn` / `__cls`, decided by the closure-param tagger
 /// from what flows into the slot), each slot the formal's own spelling
 /// where the two agree and the value's where they differ, the return
-/// likewise. `None` where the face is not one this lane spells, or
-/// where nothing differs in a way the calling convention sees.
-pub(crate) fn face_ann(
-    pann: &str,
-    aps: &[Type],
-    aret: &Type,
-    fps: &[Type],
-    fret: &Type,
-) -> Option<String> {
+/// likewise. A `never` return is never read, so it differs from no
+/// other return.
+pub(crate) fn face_ann(pann: &str, aps: &[Type], aret: &Type, fps: &[Type], fret: &Type) -> Face {
     let t = pann.trim();
     let marker = if t.starts_with("__cls(") {
         "__cls"
     } else if t.starts_with("__fn(") {
         "__fn"
     } else {
-        return None;
+        return Face::Unspelled;
     };
-    let canon = crate::num_width::fn_type_canon(t)?;
-    let (slots, ret) = crate::num_width::split_fn_type(&canon)?;
+    let Some(canon) = crate::num_width::fn_type_canon(t) else {
+        return Face::Unspelled;
+    };
+    let Some((slots, ret)) = crate::num_width::split_fn_type(&canon) else {
+        return Face::Unspelled;
+    };
     let slots: Vec<&str> = slots.into_iter().filter(|p| !p.is_empty()).collect();
     if slots.len() != fps.len() {
-        return None;
+        return Face::Unspelled;
     }
     let mut changed = false;
     let mut out: Vec<String> = Vec::with_capacity(aps.len());
@@ -171,41 +181,42 @@ pub(crate) fn face_ann(
             Type::Nullable(inner) if **inner == *f => {
                 out.push(format!("__nullable({spelled})"));
             }
-            _ => return None,
+            _ => return Face::Unspelled,
         }
     }
-    let ret = if aret == fret {
-        ret.to_string()
-    } else {
-        match (aret, fret) {
-            // the formal discards the value: the register read is
-            // never used
-            (_, Type::Void | Type::Undefined) => ret.to_string(),
-            (Type::Any | Type::Never, _) => {
-                changed = true;
-                crate::check::type_to_ann(aret)
-            }
-            (Type::Number | Type::String | Type::Boolean | Type::BigInt, Type::Any) => {
-                changed = true;
-                crate::check::type_to_ann(aret)
-            }
-            _ => return None,
+    let ret = match (aret, fret) {
+        (a, f) if a == f => ret.to_string(),
+        // the formal discards the value, or the value never returns:
+        // the register read is never used
+        (_, Type::Void | Type::Undefined) | (Type::Never, _) => ret.to_string(),
+        (Type::Any, _)
+        | (Type::Number | Type::String | Type::Boolean | Type::BigInt, Type::Any) => {
+            changed = true;
+            crate::check::type_to_ann(aret)
         }
+        _ => return Face::Unspelled,
     };
-    changed.then(|| crate::type_ann_fnsig::fn_type_ann(marker, &out.join("|"), &ret))
+    if !changed {
+        return Face::Same;
+    }
+    Face::Spelled(crate::type_ann_fnsig::fn_type_ann(
+        marker,
+        &out.join("|"),
+        &ret,
+    ))
 }
 
-/// The annotation an immutable fn-typed binding takes when its
-/// initializer's face `init_ty` differs from the annotated `ann_ty` in
-/// the direction the admit opens: `ann` re-spelled in the value's face
-/// ([`face_ann`]). The slot's calls are then shaped by what it holds,
-/// at no run-time cost; `None` leaves the annotation as written.
-pub(crate) fn let_face_ann(ann: &str, init_ty: &Type, ann_ty: &Type) -> Option<String> {
-    let (Type::Function(aps, aret), Type::Function(fps, fret)) = (init_ty, ann_ty) else {
-        return None;
+/// How a fn-typed binding's value of type `value_ty` stands against
+/// the binding's annotation `ann` (resolved: `ann_ty`): [`face_ann`]
+/// over the two signatures. `Spelled` is the annotation an immutable
+/// binding takes, so its calls are shaped by what it holds at no
+/// run-time cost.
+pub(crate) fn let_face_ann(ann: &str, value_ty: &Type, ann_ty: &Type) -> Face {
+    let (Type::Function(aps, aret), Type::Function(fps, fret)) = (value_ty, ann_ty) else {
+        return Face::Same;
     };
     if aps.iter().chain(fps).any(|t| matches!(t, Type::Rest(_))) {
-        return None;
+        return Face::Unspelled;
     }
     face_ann(ann, aps, aret, fps, fret)
 }

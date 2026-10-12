@@ -151,8 +151,8 @@ pub(crate) fn check(
                 ));
                 return;
             }
-            face_slot = fn_slot_widened
-                && record_let_face(checker, ann, init, mutable, name, &init_ty, &ann_ty);
+            face_slot =
+                fn_slot_widened && record_let_face(checker, ann, init, mutable, &init_ty, &ann_ty);
             if accessor_layout {
                 // Pushing the annotation's element type onto the
                 // literal is the same adoption by another route: it
@@ -224,6 +224,7 @@ pub(crate) fn check(
             union: const_literal(ast, mutable, type_ann, init),
             held_any,
             ann: type_ann.clone(),
+            let_init: Some(init),
             ..LocalInfo::plain(final_ty)
         },
     ) {

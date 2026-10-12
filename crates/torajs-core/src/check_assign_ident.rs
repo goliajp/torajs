@@ -27,6 +27,7 @@
 use crate::ast::{Ast, ExprId};
 use crate::check::{Checker, DiagPush, Type};
 use crate::check_assignable::is_assignable_to_resolved;
+use crate::check_stmt_let_decl::fn_face_slot::record_store_face;
 
 pub(crate) fn check(
     checker: &mut Checker,
@@ -192,7 +193,8 @@ pub(crate) fn check(
     let value_ty = checker.type_of(ast, value)?;
     let value_ty =
         crate::check_assignable::in_declared_order(checker, ast, &target_ty, value, value_ty);
-    admit_store(checker, &name, &target_ty, &value_ty)?;
+    let decl = (info.ann.as_deref(), info.let_init);
+    admit_store(checker, &name, decl, &target_ty, &value_ty)?;
     // See the global arm above — the literal is typed by the slot.
     crate::check_stmt_let_decl::apply_contextual_array_ann_store(checker, ast, value, &target_ty);
     // A possibly-null value kills an existing narrow right here
@@ -235,11 +237,13 @@ fn write_outside_lookup(
 /// store sites into closure cells), and a face-mismatched binding's
 /// calls ride the boxed dual entry, whose argc + undefined-filled argv
 /// deliver §10.2.1.4 for every stored face. A store of another face
-/// than the slot's joins that census here
-/// (`check_stmt_let_decl::fn_face_slot` for the let position).
+/// than the slot's, told apart by the calling convention, joins that
+/// census here for the declaration `decl` (annotation, initializer)
+/// the write reaches (`check_stmt_let_decl::fn_face_slot`).
 fn admit_store(
     checker: &mut Checker,
     name: &str,
+    decl: (Option<&str>, Option<ExprId>),
     target_ty: &Type,
     value_ty: &Type,
 ) -> Result<(), String> {
@@ -250,8 +254,9 @@ fn admit_store(
         &checker.aliases,
         &checker.generic_alias_decls,
     );
-    if fn_slot_widened && target_ty != value_ty && matches!(value_ty, Type::Function(..)) {
-        checker.face_mismatch_bindings.insert(name.to_string());
+    if fn_slot_widened {
+        let (ann, init) = decl;
+        record_store_face(checker, ann, init, target_ty, value_ty);
     }
     if !fn_slot_widened
         && !is_assignable_to_resolved(

@@ -302,6 +302,7 @@ pub(crate) fn record_binding_flags(
         // registers; the boxed dual entry's argc + undefined-filled
         // argv restores §10.2.1.4 for every stored face.
         || ctx.ast.fnsig_mismatch_bindings.contains(name)
+        || ctx.ast.face_mismatch_lets.contains(&init)
     {
         ctx.variadic_locals.insert(name.to_string());
     }

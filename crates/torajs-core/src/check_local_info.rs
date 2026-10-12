@@ -71,6 +71,9 @@ pub(crate) struct LocalInfo {
     /// a binding the program typed itself; `None` for one the compiler
     /// typed.
     pub(crate) ann: Option<String>,
+    /// The initializer of the `let` / `const` / `var` that declared the
+    /// binding: which declaration a write through the name reaches.
+    pub(crate) let_init: Option<crate::ast::ExprId>,
 }
 
 impl LocalInfo {
@@ -88,6 +91,7 @@ impl LocalInfo {
             union: UnionBinding::default(),
             held_any: false,
             ann: None,
+            let_init: None,
         }
     }
 }
