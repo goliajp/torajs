@@ -79,7 +79,7 @@ pub(super) fn select(
                     .any(|n| n != "arguments" && !names.contains(&n.as_str()))
         })
         .collect();
-    spread(&mut needs, |a, b| names_peer(a, b));
+    spread(&mut needs, names_peer);
     let mut refuses: Vec<bool> = decls
         .iter()
         .map(|s| !super::is_rewritable(ast, s))
@@ -88,7 +88,7 @@ pub(super) fn select(
     let mut stays: Vec<bool> = (0..decls.len())
         .map(|k| needs[k] || is_special(ast, decls[k]))
         .collect();
-    spread(&mut stays, |a, b| names_peer(a, b));
+    spread(&mut stays, names_peer);
     (0..decls.len())
         .map(|k| {
             if needs[k] && !refuses[k] {

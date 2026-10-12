@@ -152,17 +152,15 @@ pub(crate) fn build_copy_classes(
         let b = classes
             .remove(&rv)
             .unwrap_or_else(|| singleton(rv, &mut segs, &mut defs, intervals));
-        match try_merge(a, b, exact && live_ok, call_sites) {
-            Ok(merged) => {
-                for &m in &merged.members {
-                    leader_of.insert(m, rw);
-                }
-                classes.insert(rw, merged);
+        if mergeable(&a, &b, exact && live_ok, call_sites) {
+            let merged = merge(a, b);
+            for &m in &merged.members {
+                leader_of.insert(m, rw);
             }
-            Err((a, b)) => {
-                classes.insert(rw, a);
-                classes.insert(rv, b);
-            }
+            classes.insert(rw, merged);
+        } else {
+            classes.insert(rw, a);
+            classes.insert(rv, b);
         }
     }
     classes.retain(|_, c| c.members.len() > 1);
@@ -228,42 +226,45 @@ fn singleton(
     }
 }
 
-/// Merge the class `a` of a copy's destination into the class `b` of
-/// its source. Besides disjoint classes, when the copy moves the
-/// source's bits unchanged (`exact`), a destination with that copy as
-/// its only def may join while live together with the source: it
-/// holds the source's value until a member of `b` is written, so no
-/// such write may fall where `a` is live.
-fn try_merge(a: Class, b: Class, exact: bool, call_sites: &[u32]) -> Result<Class, (Class, Class)> {
-    let hull = Interval {
+fn joint_hull(a: &Class, b: &Class) -> Interval {
+    Interval {
         start: a.hull.start.min(b.hull.start),
         end: a.hull.end.max(b.hull.end),
-    };
-    let newly_crossing = crosses_call(hull, call_sites)
+    }
+}
+
+/// Whether the class `a` of a copy's destination may merge into the
+/// class `b` of its source. Besides disjoint classes, when the copy
+/// moves the source's bits unchanged (`exact`), a destination with that
+/// copy as its only def may join while live together with the source:
+/// it holds the source's value until a member of `b` is written, so no
+/// such write may fall where `a` is live.
+fn mergeable(a: &Class, b: &Class, exact: bool, call_sites: &[u32]) -> bool {
+    let newly_crossing = crosses_call(joint_hull(a, b), call_sites)
         && !crosses_call(a.hull, call_sites)
         && !crosses_call(b.hull, call_sites);
     if newly_crossing {
-        return Err((a, b));
+        return false;
     }
-    if overlaps(&a.segs, &b.segs) {
-        let same_value =
-            exact && a.members.len() == 1 && a.defs.len() == 1 && !any_inside(&b.defs, &a.segs);
-        if !same_value {
-            return Err((a, b));
-        }
-    }
+    !overlaps(&a.segs, &b.segs)
+        || (exact && a.members.len() == 1 && a.defs.len() == 1 && !any_inside(&b.defs, &a.segs))
+}
+
+/// Merge two classes [`mergeable`] accepted.
+fn merge(a: Class, b: Class) -> Class {
+    let hull = joint_hull(&a, &b);
     let segs = union(&a.segs, &b.segs);
     let mut defs = a.defs;
     defs.extend(b.defs);
     defs.sort_unstable();
     let mut members = a.members;
     members.extend(b.members);
-    Ok(Class {
+    Class {
         members,
         segs,
         hull,
         defs,
-    })
+    }
 }
 
 #[cfg(test)]

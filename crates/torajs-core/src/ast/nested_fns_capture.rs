@@ -165,7 +165,7 @@ fn walk_list(
             // A name an enclosing scope already binds is §B.3.3.1 step
             // 1.a.ii's early error — the extension does not apply and
             // the reference belongs to that owner.
-            if r.early || scope.annexb.iter().any(|b| *b == r.name) {
+            if r.early || scope.annexb.contains(&r.name) {
                 continue;
             }
             split_block_binding(ast, stmts, r.idx, &r.name, r.span, counter);

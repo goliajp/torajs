@@ -86,10 +86,8 @@ impl EarlyUse {
 /// Move the early sites, in order, to just above the first statement
 /// that reaches one of them.
 pub(in crate::ast) fn raise_early(stmts: &mut [Stmt], early: &EarlyUse) {
-    let mut dest = early.first_use;
-    for &i in &early.sites {
+    for (dest, &i) in (early.first_use..).zip(&early.sites) {
         stmts[dest..=i].rotate_right(1);
-        dest += 1;
     }
 }
 

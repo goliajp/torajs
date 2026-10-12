@@ -19,8 +19,8 @@ use super::walk::{Scopes, walk_children};
 use super::{EarlyUse, Routed, raise_early, route_list};
 use crate::ast::annexb_block_binding::split_block_binding;
 use crate::ast::annexb_fn_var::annexb_applies_at;
-use crate::ast::nested_fns_case_block::{clauses, rename_case_block};
 use crate::ast::desugar_async_nested_fns::rename::rename_expr;
+use crate::ast::nested_fns_case_block::{clauses, rename_case_block};
 use crate::ast::scope_chain::list_names;
 use crate::ast::{Ast, Expr, Stmt};
 use std::collections::HashMap;
@@ -74,7 +74,7 @@ pub(super) fn walk_case_block(
     // declaration gets (`walk_list`), or moves up its clause whole when
     // a statement above it reaches it
     for (ci, r) in &staying {
-        if !r.early && !scope.annexb.iter().any(|b| *b == r.name) {
+        if !r.early && !scope.annexb.contains(&r.name) {
             split_block_binding(ast, bodies[*ci], r.idx, &r.name, r.span, counter);
         }
     }
@@ -85,9 +85,7 @@ pub(super) fn walk_case_block(
         *counter += 1;
         // §B.3.3's var binding, written where the declaration sits; an
         // enclosing binding of the name is step 1.a.ii's early error
-        let site = if annexb_applies_at(ast, &r.name, r.span)
-            && !scope.annexb.iter().any(|b| *b == r.name)
-        {
+        let site = if annexb_applies_at(ast, &r.name, r.span) && !scope.annexb.contains(&r.name) {
             let init = ast.add_expr(Expr::Ident(slot.clone()));
             ast.set_expr_span(init, r.span);
             Stmt::LetDecl {

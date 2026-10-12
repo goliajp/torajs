@@ -13,14 +13,13 @@ use crate::ast::{Ast, Expr, ExprId, Stmt};
 use crate::check::Checker;
 use crate::check::face_slots::{field_read, ret_read};
 
+/// A slot's census key, and its stores paired with the slot's spelling.
+type Slot = (String, Option<Vec<(String, ExprId)>>);
+
 /// The census key of the slot `callee` reads, and the stores it holds
 /// paired with the slot's spelling; `None` stores when the slot's type
 /// is not on record.
-pub(super) fn slot(
-    checker: &mut Checker,
-    ast: &Ast,
-    callee: ExprId,
-) -> Option<(String, Option<Vec<(String, ExprId)>>)> {
+pub(super) fn slot(checker: &mut Checker, ast: &Ast, callee: ExprId) -> Option<Slot> {
     // the slot's spelling only once the census holds it: every call
     // through a field asks
     let pair = |checker: &Checker, stores: Vec<ExprId>| {
