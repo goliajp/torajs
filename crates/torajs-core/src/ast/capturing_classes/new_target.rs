@@ -9,8 +9,8 @@
 //! that reads it gets a construct face that `new`, `Reflect.construct`
 //! and the `super(…)` kernel enter with the real value, while every
 //! call through the value runs the call channel, where it is undefined
-//! (`new_target_param.rs`, `check_monomorph_ctor_face.rs`). So
-//! `new.target === undefined` is exactly the [[Call]].
+//! (`new_target_param.rs`, `check_monomorph_ctor_face.rs`). So an
+//! undefined `new.target` is exactly the [[Call]].
 //!
 //! The guard is what makes `P.call(this, …)` — the `super(…)` a lane
 //! sibling used to be lowered to — a [[Call]] that throws, and it also
@@ -19,7 +19,7 @@
 //! it goes through the kernel a value-shaped parent takes, which enters
 //! the construct face.
 
-use super::super::{Ast, BinOp, Expr, ExprId, Stmt};
+use super::super::{Ast, Expr, ExprId, Stmt, UnaryOp};
 use super::extends::REST_ARGS;
 
 /// What a `super(…)` passes on: the site's own argument list, or the
@@ -52,15 +52,15 @@ pub(super) fn sibling_super(ast: &mut Ast, target: &str, args: SuperArgs) -> Exp
 /// it (`ssa_lower_call_super_value`).
 pub(crate) const CALL_THROW: &str = "__torajs_class_call_throw";
 
-/// `if (new.target === undefined) __torajs_class_call_throw("<name>")`
-/// — `shown` is the class's own name, which the message carries.
+/// `if (!new.target) __torajs_class_call_throw("<name>")` — `shown`
+/// is the class's own name, which the message carries. new.target is
+/// undefined or a constructor, so its falsiness is the [[Call]] test
+/// (the guard names no `undefined` a program's own binding could take).
 pub(super) fn call_guard(ast: &mut Ast, shown: &str) -> Stmt {
     let nt = ast.add_expr(Expr::NewTarget);
-    let undef = ast.add_expr(Expr::Ident("undefined".to_string()));
-    let cond = ast.add_expr(Expr::BinOp {
-        op: BinOp::Eq,
-        left: nt,
-        right: undef,
+    let cond = ast.add_expr(Expr::Unary {
+        op: UnaryOp::Not,
+        expr: nt,
     });
     let callee = ast.add_expr(Expr::Ident(CALL_THROW.to_string()));
     let name = ast.add_expr(Expr::String(shown.to_string().into()));
@@ -73,4 +73,19 @@ pub(super) fn call_guard(ast: &mut Ast, shown: &str) -> Stmt {
         then_branch: Box::new(Stmt::Expr(raise)),
         else_branch: None,
     }
+}
+
+/// Is `s` a [`call_guard`]? A default the body takes over goes after it.
+pub(crate) fn is_call_guard(ast: &Ast, s: &Stmt) -> bool {
+    let Stmt::If {
+        then_branch,
+        else_branch: None,
+        ..
+    } = s
+    else {
+        return false;
+    };
+    matches!(then_branch.as_ref(), Stmt::Expr(e)
+        if matches!(ast.get_expr(*e), Expr::Call { callee, .. }
+            if matches!(ast.get_expr(*callee), Expr::Ident(n) if n == CALL_THROW)))
 }

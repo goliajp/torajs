@@ -90,7 +90,13 @@ pub(super) fn apply_fn_value_conv(ast: &mut Ast, ei: usize, conv: Vec<(usize, St
     if own_args {
         body_arguments::split_body_arguments(ast, &mut b);
     }
-    splice_guards(&mut b, guards, 0);
+    // a class constructor throws on [[Call]] before any default runs
+    // (§10.2.1 step 2 precedes FunctionDeclarationInstantiation)
+    let at = usize::from(
+        b.first()
+            .is_some_and(|s| crate::ast::capturing_classes::new_target::is_call_guard(ast, s)),
+    );
+    splice_guards(&mut b, guards, at);
     if let Expr::ArrowFn { body, .. } = &mut ast.exprs[ei] {
         *body = b;
     }
