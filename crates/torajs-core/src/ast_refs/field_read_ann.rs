@@ -30,9 +30,9 @@ use super::init_ann::{objlit_literal_inlobj_ann, unique_toplevel_binding};
 /// into a Closure slot. Each hop's own init is held to the same test.
 ///
 /// A METHOD field (`__mth(`) is left out: reading it as a value
-/// detaches the receiver it was spelled around. A variadic field is
-/// left out as its siblings leave it out: its boxed-dual routing is a
-/// fn-local table.
+/// detaches the receiver it was spelled around. A variadic field
+/// spells its `__rest(` tail; the binding's calls then take the boxed
+/// dual entry (`ast::variadic_closure_bindings`).
 pub fn closure_field_read_ann(
     ast: &Ast,
     init: ExprId,
@@ -74,5 +74,5 @@ pub fn closure_field_read_ann(
         .into_iter()
         .find_map(|f| f.strip_prefix(name.as_str())?.strip_prefix(':'))?;
     let is_closure = field.starts_with("__cls(") || field.starts_with("__nullable(__cls(");
-    (is_closure && !field.contains("__rest(")).then(|| field.to_string())
+    is_closure.then(|| field.to_string())
 }

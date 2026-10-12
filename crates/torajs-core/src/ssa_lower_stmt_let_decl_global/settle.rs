@@ -78,7 +78,7 @@ pub(super) fn settle_typed_init(
             ctx.emit_owned_result_inc(init_val, got);
         }
         Expr::Member { .. } | Expr::Index { .. } => {
-            if got != slot_ty {
+            if got != slot_ty && !variadic_cell_fits(ctx, name, slot_ty, got) {
                 panic!(
                     "ssa-lower: K.4 refcount global `{name}` reads a `{got:?}` into a `{slot_ty:?}` slot; this init shape is not yet supported"
                 );
@@ -115,8 +115,16 @@ fn ident_alias_fits(ctx: &LowerCtx, name: &str, slot_ty: Type, got: Type) -> boo
             (&slot_ty, &got),
             (Type::Arr(_), Type::Arr(_)) | (Type::Arr(_), Type::Any)
         )
-        || (matches!((&slot_ty, &got), (Type::Closure(_), Type::Closure(_)))
-            && ctx.ast.variadic_value_bindings.contains(name))
+        || variadic_cell_fits(ctx, name, slot_ty, got)
+}
+
+/// The variadic-binding case of [`ident_alias_fits`], shared with a
+/// read of a variadic closure field (`const g = src.f`): the field
+/// holds the env cell under the lifted fn's own sig, the slot under
+/// the fixed prefix, and the call route never reads either.
+fn variadic_cell_fits(ctx: &LowerCtx, name: &str, slot_ty: Type, got: Type) -> bool {
+    matches!((&slot_ty, &got), (Type::Closure(_), Type::Closure(_)))
+        && ctx.ast.variadic_value_bindings.contains(name)
 }
 
 /// Copy a string view out into an owned string for a `string` slot;

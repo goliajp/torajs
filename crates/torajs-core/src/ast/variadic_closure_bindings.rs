@@ -62,6 +62,7 @@ pub(crate) fn record(ast: &mut Ast) {
                 crate::ast_refs::closure_alias_fn_canon(ast, *init)
                     .is_some_and(|c| c.contains("__rest("))
                     || var_rooted_alias_is_variadic(ast, *init)
+                    || field_read_is_variadic(ast, *init)
             }
         };
         if is_variadic {
@@ -69,6 +70,18 @@ pub(crate) fn record(ast: &mut Ast) {
         }
     }
     ast.variadic_value_bindings.extend(out);
+}
+
+/// A read of a variadic closure FIELD (`const g = src.f`), through
+/// the same spelling that types the binding's slot. That spelling is
+/// asked without the checker's degrade / widen sets, which do not
+/// exist yet: a binding they move to `any` never resolves to a
+/// Closure slot, and only a Closure-typed callee consults this record,
+/// so the extra name is never read.
+fn field_read_is_variadic(ast: &Ast, init: ExprId) -> bool {
+    let none = std::collections::HashSet::new();
+    crate::ast_refs::closure_field_read_ann(ast, init, &none, &none)
+        .is_some_and(|c| c.contains("__rest("))
 }
 
 fn fn_decl_is_variadic(ast: &Ast, fn_name: &str) -> bool {
