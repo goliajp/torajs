@@ -41,7 +41,7 @@ use torajs_rc::any_method_family as fam;
 /// be a fallback trigger: it would kill the judgment for the empty
 /// program too. `SYNTH_ERROR_FNS` in the judge is what keeps that
 /// per-program tax off; it cannot retire while ToString is here.)
-pub(crate) const COERCION_PREFIXES: [&str; 54] = [
+pub(crate) const COERCION_PREFIXES: [&str; 55] = [
     "__torajs_anyv_to_number",
     // `x++` / `x--` run ToNumeric in the kernel (`eval++` asks for valueOf).
     "__torajs_anyv_incr_",
@@ -79,6 +79,9 @@ pub(crate) const COERCION_PREFIXES: [&str; 54] = [
     // §13.3.7.1 `super[k]`: ToPropertyKey(k) in the kernel, every
     // face (get / set / call / optional call / update).
     "__torajs_anyv_super_prop_",
+    // `super(…)` against a Proxy or bound parent constructs through the
+    // runtime, which calls the trap / target with the receiver.
+    "__torajs_anyv_super_call",
     // Rotation 691's census — kernels whose bodies reach the seam, or
     // a kernel above, through private helpers. Probed live
     // loud-rejects: `a.length = obj` on an any array (ArraySetLength
