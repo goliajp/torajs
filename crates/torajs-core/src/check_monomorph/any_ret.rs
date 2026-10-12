@@ -28,7 +28,7 @@ use std::collections::{HashMap, HashSet};
 use crate::ast::{Ast, Expr, ExprId, Stmt};
 use crate::ast_closure_param_tag::is_fnsig_ann;
 use crate::ast_collect_fn_closure_target::fn_returns;
-use crate::ast_collect_fn_closure_target::raw_ret::const_lets;
+use crate::ast_collect_fn_closure_target::raw_ret::{const_lets, is_cls_ann};
 use crate::check::Type;
 
 mod fn_ret_param;
@@ -44,6 +44,7 @@ pub(super) fn retag(ast: &mut Ast, expr_types: &HashMap<ExprId, Type>) {
         })
         .map(|(name, _, _)| name.clone())
         .collect();
+    lane.extend(cls_decls(ast));
     let fnsig_fns: HashSet<String> = decls.iter().map(|(n, _, _)| n.clone()).collect();
     let mut params = HashSet::new();
     let mut via = HashSet::new();
@@ -117,6 +118,27 @@ fn fnsig_decls(ast: &Ast) -> Vec<FnsigDecl<'_>> {
             && is_fnsig_ann(return_type)
         {
             out.push((name.clone(), fn_returns(body), const_lets(body)));
+        }
+        crate::ast_closure_param_tag::push_child_stmts(s, &mut stack);
+    }
+    out
+}
+
+/// Every declaration whose return the closure-param pass already
+/// retagged `__cls(`, the context did not seed: it hands back a cell
+/// on every path, so the parameters and slot rows it reaches face the
+/// same repr question as a declaration this pass retags.
+fn cls_decls(ast: &Ast) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut stack: Vec<&Stmt> = ast.stmts.iter().collect();
+    while let Some(s) = stack.pop() {
+        if let Stmt::FnDecl {
+            name, return_type, ..
+        } = s
+            && !ast.contextual_ret_fns.contains(name.as_str())
+            && return_type.as_deref().is_some_and(is_cls_ann)
+        {
+            out.push(name.clone());
         }
         crate::ast_closure_param_tag::push_child_stmts(s, &mut stack);
     }

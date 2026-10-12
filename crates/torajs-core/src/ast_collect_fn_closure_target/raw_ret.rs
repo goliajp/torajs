@@ -191,6 +191,14 @@ pub(crate) fn param_arg_targets(
     out
 }
 
+/// Whether an annotation is the closure repr of a fn type, optional
+/// or not (`__cls(...)`, `__nullable(__cls(...))`).
+pub(crate) fn is_cls_ann(a: &str) -> bool {
+    a.strip_prefix("__nullable(")
+        .unwrap_or(a)
+        .starts_with("__cls(")
+}
+
 /// The return annotation of a fn-typed parameter annotation, when it
 /// is itself a bare-pointer fn type (`(k: number) => (n: number) =>
 /// number`).
@@ -255,7 +263,8 @@ pub(crate) fn fn_ret_param_args(
 /// Whether some declaration returning a bare-pointer fn type returns a
 /// value the checker may type `any`, which is what opens the closure
 /// lane: anything but a top-level function, one of its own params, a
-/// function literal or `null`.
+/// function literal or `null`. A declaration whose return already has
+/// the closure repr is in the lane from the start.
 fn lane_may_open(ast: &Ast, fn_sigs: &HashMap<String, super::FnSig>) -> bool {
     crate::ast::toplevel_stmts_flat(ast).into_iter().any(|s| {
         let Stmt::FnDecl {
@@ -267,16 +276,19 @@ fn lane_may_open(ast: &Ast, fn_sigs: &HashMap<String, super::FnSig>) -> bool {
         else {
             return false;
         };
-        crate::ast_closure_param_tag::is_fnsig_ann(return_type)
-            && super::fn_returns(body).into_iter().any(|r| {
-                let leaves = crate::ast_closure_param_tag_member::passthrough_leaves(ast, r);
-                leaves.into_iter().any(|l| match ast.get_expr(l) {
-                    Expr::Ident(n) => {
-                        !fn_sigs.contains_key(n) && !params.iter().any(|p| &p.name == n)
-                    }
-                    Expr::Closure { .. } | Expr::ArrowFn { .. } | Expr::Null => false,
-                    _ => true,
+        // a return the closure-param pass retagged hands back a cell
+        // already, which is what the lane carries
+        return_type.as_deref().is_some_and(is_cls_ann)
+            || crate::ast_closure_param_tag::is_fnsig_ann(return_type)
+                && super::fn_returns(body).into_iter().any(|r| {
+                    let leaves = crate::ast_closure_param_tag_member::passthrough_leaves(ast, r);
+                    leaves.into_iter().any(|l| match ast.get_expr(l) {
+                        Expr::Ident(n) => {
+                            !fn_sigs.contains_key(n) && !params.iter().any(|p| &p.name == n)
+                        }
+                        Expr::Closure { .. } | Expr::ArrowFn { .. } | Expr::Null => false,
+                        _ => true,
+                    })
                 })
-            })
     })
 }

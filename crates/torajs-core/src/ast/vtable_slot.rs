@@ -108,18 +108,9 @@ fn plan_slot_returns(ast: &Ast, anns: &HashMap<String, String>) -> HashMap<Strin
         let mut heads: Vec<String> = Vec::new();
         let mut split = false;
         for rows in by_root.values() {
-            let head = anns[&rows[0]].clone();
-            if rows.iter().any(|r| !eq.same(&anns[r], &head)) {
-                // Rows that really answer different things: the
-                // slot's type is their join, and `any` is the
-                // spelling that holds a value and the undefined at
-                // once.
-                for r in rows {
-                    plan.insert(r.clone(), "any".to_string());
-                }
-                split = true;
-            } else {
-                heads.push(head);
+            match plan_root_rows(rows, anns, &eq, &mut plan) {
+                Some(head) => heads.push(head),
+                None => split = true,
             }
         }
         if stub.is_empty() {
@@ -166,6 +157,54 @@ fn plan_slot_returns(ast: &Ast, anns: &HashMap<String, String>) -> HashMap<Strin
         }
     }
     plan
+}
+
+/// One root's rows of a slot: their common return, or `None` when they
+/// answer different things and every row is planned as `any`.
+fn plan_root_rows(
+    rows: &[String],
+    anns: &HashMap<String, String>,
+    eq: &ann_eq::AnnEq<'_>,
+    plan: &mut HashMap<String, String>,
+) -> Option<String> {
+    let head = bare_repr(&anns[&rows[0]]);
+    if rows.iter().any(|r| !eq.same(&bare_repr(&anns[r]), &head)) {
+        // Rows that really answer different things: the slot's type is
+        // their join, and `any` is the spelling that holds a value and
+        // the undefined at once.
+        for r in rows {
+            plan.insert(r.clone(), "any".to_string());
+        }
+        return None;
+    }
+    if rows.iter().any(|r| anns[r] != bare_repr(&anns[r])) {
+        // One fn type, some rows handing back its fn object and some
+        // the bare function: the object is their join, a bare function
+        // converts to its own.
+        for r in rows {
+            let mut a = anns[r].clone();
+            crate::ast_closure_param_tag_retag::retag_to_cls(&mut a);
+            if a != anns[r] {
+                plan.insert(r.clone(), a);
+            }
+        }
+        let mut h = head;
+        crate::ast_closure_param_tag_retag::retag_to_cls(&mut h);
+        return Some(h);
+    }
+    Some(head)
+}
+
+/// A fn type's bare-function spelling for its closure-repr one
+/// (`__cls(` → `__fn(`); any other annotation as it is.
+fn bare_repr(ann: &str) -> String {
+    if let Some(rest) = ann.strip_prefix("__cls(") {
+        format!("__fn({rest}")
+    } else if let Some(rest) = ann.strip_prefix("__nullable(__cls(") {
+        format!("__nullable(__fn({rest}")
+    } else {
+        ann.to_string()
+    }
 }
 
 /// Every vtable slot's rows, keyed by method name then hierarchy
@@ -325,6 +364,22 @@ mod tests {
         join_vtable_slot_returns(&mut ast);
         assert_eq!(ret_of(&ast, "__cm_A__f").as_deref(), Some("any"));
         assert_eq!(ret_of(&ast, "__cm_B__f").as_deref(), Some("any"));
+    }
+
+    #[test]
+    fn a_bare_fn_row_and_a_closure_row_join_to_the_closure_repr() {
+        // One fn type in two reprs: the slot hands back the fn object,
+        // not `any`
+        let f = "__fn(number)->(number)";
+        let c = "__cls(number)->(number)";
+        let mut ast = ast_of(
+            &[("A", None), ("B", Some("A"))],
+            &["g"],
+            &[("__cm_A__g", Some(f)), ("__cm_B__g", Some(c))],
+        );
+        join_vtable_slot_returns(&mut ast);
+        assert_eq!(ret_of(&ast, "__cm_A__g").as_deref(), Some(c));
+        assert_eq!(ret_of(&ast, "__cm_B__g").as_deref(), Some(c));
     }
 
     #[test]

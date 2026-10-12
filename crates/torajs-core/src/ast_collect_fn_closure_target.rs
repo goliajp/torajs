@@ -17,13 +17,7 @@ type FnSig = (Vec<Param>, Option<String>, crate::lexer::Span);
 /// => number`) is spelled `__nullable(__cls(...))` and holds the same
 /// cell or nothing.
 pub(crate) fn cls_params(params: &[Param]) -> HashSet<String> {
-    let cls = |p: &&Param| {
-        p.type_ann.as_deref().is_some_and(|a| {
-            a.strip_prefix("__nullable(")
-                .unwrap_or(a)
-                .starts_with("__cls(")
-        })
-    };
+    let cls = |p: &&Param| p.type_ann.as_deref().is_some_and(raw_ret::is_cls_ann);
     params.iter().filter(cls).map(|p| p.name.clone()).collect()
 }
 
@@ -263,12 +257,13 @@ pub(crate) fn fn_returns(body: &[Stmt]) -> Vec<ExprId> {
     rets
 }
 
-/// The method rows declared to return a bare-pointer fn type in a
-/// vtable slot whose rows, between them, return both named functions
-/// and other values (`get() { return dbl; }` overridden by `get() {
-/// return v; }`). Once one row's return goes through the closure lane
-/// every row's does, so the named functions there need their fn
-/// objects.
+/// The method rows declared to return a fn type in a vtable slot whose
+/// rows, between them, return both named functions and other values
+/// (`get() { return dbl; }` overridden by `get() { return v; }`). Once
+/// one row's return goes through the closure lane every row's does, so
+/// the named functions there need their fn objects. A row whose return
+/// the closure-param pass already gave the closure repr is in the lane
+/// from the start, and counts among the rows.
 pub(crate) fn mixed_slot_rows(ast: &Ast, fn_sigs: &HashMap<String, FnSig>) -> HashSet<String> {
     type Row<'a> = (&'a Option<String>, &'a [Param], &'a [Stmt]);
     let bodies: HashMap<&str, Row> = crate::ast::toplevel_stmts_flat(ast)
@@ -294,9 +289,10 @@ pub(crate) fn mixed_slot_rows(ast: &Ast, fn_sigs: &HashMap<String, FnSig>) -> Ha
             let rows: Vec<&String> = rows
                 .iter()
                 .filter(|r| {
-                    bodies
-                        .get(r.as_str())
-                        .is_some_and(|(ann, ..)| crate::ast_closure_param_tag::is_fnsig_ann(ann))
+                    bodies.get(r.as_str()).is_some_and(|(ann, ..)| {
+                        crate::ast_closure_param_tag::is_fnsig_ann(ann)
+                            || ann.as_deref().is_some_and(raw_ret::is_cls_ann)
+                    })
                 })
                 .collect();
             let (mut named, mut raw, mut n) = (0, 0, 0);

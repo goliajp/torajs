@@ -10,7 +10,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::ast::{Ast, Expr, ExprId, Stmt};
 use crate::ast_collect_fn_closure_target::fn_returns;
-use crate::ast_collect_fn_closure_target::raw_ret::{RawRet, const_lets, raw_ret};
+use crate::ast_collect_fn_closure_target::raw_ret::{RawRet, const_lets, is_cls_ann, raw_ret};
 
 /// `lane`: the declarations `any_ret` retags; a declaration already
 /// annotated with the closure repr takes the lane too.
@@ -38,9 +38,7 @@ pub(super) fn hand_back_cells(ast: &mut Ast, lane: &HashSet<String>) {
         else {
             continue;
         };
-        let cls = return_type
-            .as_deref()
-            .is_some_and(|a| a.starts_with("__cls(") || a.starts_with("__nullable(__cls("));
+        let cls = return_type.as_deref().is_some_and(is_cls_ann);
         if !cls && !lane.contains(name) {
             continue;
         }
