@@ -33,8 +33,10 @@ use crate::ssa_lower_generics_monomorph::Generics;
 type WidenSite = (String, Vec<(usize, WidenTarget)>);
 
 mod faces;
+mod mirror;
 mod stmt_escape;
 pub(crate) mod struct_escape;
+use mirror::mirror_clone_tables;
 pub(crate) use stmt_escape::record_stmt_expr_escapes;
 
 pub(crate) use faces::RetFace;
@@ -236,31 +238,6 @@ fn widen_one(
     }
     call_retargets.insert(call_eid, mono_name);
     true
-}
-
-/// The any-widened clone `mono_name` of `fn_name` keeps the original's
-/// entries in the name-keyed side tables: whether its return type was
-/// written, and (H1, the same contract as the generic channel's mirror
-/// in `process_one_generic`) the head-less and this-first argc / argv
-/// tables.
-fn mirror_clone_tables(owned_ast: &mut Ast, fn_name: &str, mono_name: &str) {
-    owned_ast.mirror_ret_written(fn_name, mono_name);
-    if owned_ast.headless_argc_fns.contains(fn_name) {
-        owned_ast.headless_argc_fns.insert(mono_name.to_string());
-    }
-    if owned_ast.headless_argv_fns.contains(fn_name) {
-        owned_ast.headless_argv_fns.insert(mono_name.to_string());
-    }
-    if let Some(&head) = owned_ast.this_first_argc_fns.get(fn_name) {
-        owned_ast
-            .this_first_argc_fns
-            .insert(mono_name.to_string(), head);
-    }
-    if let Some(&head) = owned_ast.this_first_argv_fns.get(fn_name) {
-        owned_ast
-            .this_first_argv_fns
-            .insert(mono_name.to_string(), head);
-    }
 }
 
 /// Materialize the widened specialization: deep-clone the original

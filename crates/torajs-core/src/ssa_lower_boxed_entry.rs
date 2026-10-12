@@ -207,6 +207,7 @@ mod build;
 mod build_cast;
 mod build_reroute;
 mod build_rest;
+mod build_return;
 mod fit_tag;
 mod kin;
 pub(crate) use kin::{admit_generic_rows, encode as encode_class_list};
