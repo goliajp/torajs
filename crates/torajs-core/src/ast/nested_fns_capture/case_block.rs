@@ -20,7 +20,7 @@ use super::{EarlyUse, Routed, raise_early, route_list};
 use crate::ast::annexb_block_binding::split_block_binding;
 use crate::ast::annexb_fn_var::annexb_applies_at;
 use crate::ast::nested_fns_case_block::{clauses, rename_case_block};
-use crate::ast::nested_fns_idents::rewrite_idents_in_expr;
+use crate::ast::desugar_async_nested_fns::rename::rename_expr;
 use crate::ast::scope_chain::list_names;
 use crate::ast::{Ast, Expr, Stmt};
 use std::collections::HashMap;
@@ -78,15 +78,6 @@ pub(super) fn walk_case_block(
             split_block_binding(ast, bodies[*ci], r.idx, &r.name, r.span, counter);
         }
     }
-    for (ci, e) in early.into_iter().enumerate() {
-        let stays = |i: usize| staying.iter().any(|(c, r)| *c == ci && r.idx == i);
-        if let Some(e) = e.and_then(|e| e.retain(stays)) {
-            raise_early(bodies[ci], &e);
-        }
-    }
-    if movable.is_empty() {
-        return;
-    }
     let mut heads: Vec<Stmt> = Vec::new();
     let mut slots: Vec<(String, String)> = Vec::new();
     for (ci, r) in &movable {
@@ -118,12 +109,24 @@ pub(super) fn walk_case_block(
         heads.push(decl);
         slots.push((r.name.clone(), slot));
     }
+    // raised only after the moves: a move swaps one statement for its
+    // site in place, while a raise rotates the clause and would leave
+    // the moves' indices pointing at other statements
+    for (ci, e) in early.into_iter().enumerate() {
+        let stays = |i: usize| staying.iter().any(|(c, r)| *c == ci && r.idx == i);
+        if let Some(e) = e.and_then(|e| e.retain(stays)) {
+            raise_early(bodies[ci], &e);
+        }
+    }
+    if movable.is_empty() {
+        return;
+    }
     rename_case_block(ast, cases, default, &slots);
     // the moved bodies name themselves and each other
     let map: HashMap<String, String> = slots.into_iter().collect();
     for h in &heads {
         if let Stmt::LetDecl { init, .. } = h {
-            rewrite_idents_in_expr(ast, *init, &map, true);
+            rename_expr(ast, *init, &map);
         }
     }
     heads.push(std::mem::replace(s, Stmt::Block(Vec::new())));
