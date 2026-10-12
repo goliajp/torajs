@@ -46,6 +46,15 @@ pub(super) fn arg_admitted(
     {
         return true;
     }
+    // a binding typed by its annotation that holds a value of another
+    // face hands the callee that face (`fn_face::held_face`)
+    if let Some(face) = crate::check_type_of_call::fn_face::held_face(checker, ast, *arg_id)
+        && crate::check_type_of_call::fn_face::fn_face_into_fn_param(
+            checker, ast, eid, callee, &face, param_ty, i,
+        )
+    {
+        return true;
+    }
     if param_ty == &Type::Any || arg_ty == param_ty {
         return true;
     }

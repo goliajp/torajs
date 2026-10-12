@@ -220,3 +220,18 @@ pub(crate) fn let_face_ann(ann: &str, value_ty: &Type, ann_ty: &Type) -> Face {
     }
     face_ann(ann, aps, aret, fps, fret)
 }
+
+/// The face of the value an immutable fn-typed binding holds when its
+/// declaration took that face (`Checker::let_face_anns`): the binding
+/// is typed by its annotation, so a call handing it on would otherwise
+/// see the annotation's face and shape the callee's calls by it.
+pub(crate) fn held_face(checker: &Checker, ast: &Ast, arg: ExprId) -> Option<Type> {
+    let Expr::Ident(n) = ast.get_expr(arg) else {
+        return None;
+    };
+    let init = checker.lookup(n)?.let_init?;
+    if !checker.let_face_anns.contains_key(&init) {
+        return None;
+    }
+    checker.expr_types.get(&init).cloned()
+}
