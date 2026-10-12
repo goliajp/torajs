@@ -332,7 +332,10 @@ pub(crate) unsafe fn write_via_setter(
 ) {
     let value_anyv = unsafe { __torajs_anyv_box_from_pair(tag as i64, value as i64) };
     let recv = unsafe { __torajs_anyv_box_from_pair(4, arr as i64) };
-    if unsafe { __torajs_accessor_invoke_setter(pair, recv, value_anyv) } == 0 {
+    let ran = unsafe { __torajs_accessor_invoke_setter(pair, recv, value_anyv) };
+    // the setter borrows the value; the caller's +1 ends here
+    unsafe { drop_owned_pair(tag, value) };
+    if ran == 0 {
         unsafe { __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr()) };
     }
 }

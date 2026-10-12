@@ -150,14 +150,16 @@ unsafe fn dynobj_set_impl(
             // Receiver = the dynobj itself, boxed — an ACC_KIND_RECV
             // fn-expr face reads it as `this`; other faces ignore it.
             let recv_anyv = unsafe { __torajs_anyv_box_from_pair(4, obj as i64) };
-            if unsafe {
+            let ran = unsafe {
                 __torajs_accessor_invoke_setter(
                     cur_value_anyv as *const c_void,
                     recv_anyv,
                     value_anyv,
                 )
-            } == 0
-            {
+            };
+            // the setter borrows the value; the caller's +1 ends here
+            unsafe { drop_heap_payload(tag, value) };
+            if ran == 0 {
                 if throw_on_refusal {
                     unsafe {
                         __torajs_throw_type_error(
@@ -171,6 +173,7 @@ unsafe fn dynobj_set_impl(
         }
         let cur_flags = bucket_flags(unsafe { (*e).key_ptr_tagged });
         if cur_flags & BUCKET_FLAG_WRITABLE == 0 {
+            unsafe { drop_heap_payload(tag, value) };
             if throw_on_refusal {
                 unsafe {
                     __torajs_throw_type_error(
@@ -385,5 +388,12 @@ unsafe fn fresh_insert(obj: *mut c_void, key: *mut c_void, tag: u64, value: u64,
         *index_ptr(obj).add(pr.slot as usize) = e_idx;
         set_entries_len(obj, e_idx + 1);
         set_count(obj, count(obj) + 1);
+    }
+}
+
+/// Release the caller's +1 on a heap payload the set did not store.
+unsafe fn drop_heap_payload(tag: u64, value: u64) {
+    if tag & BUCKET_TAG_MASK == ANY_HEAP && value != 0 {
+        unsafe { __torajs_value_drop_heap(value as *mut c_void) };
     }
 }

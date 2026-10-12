@@ -109,7 +109,10 @@ pub(crate) unsafe fn set_arr_member(
             if !pair.is_null() {
                 let value_anyv = __torajs_anyv_box_from_pair(tag as i64, value as i64);
                 let recv_anyv = __torajs_anyv_box_from_pair(4, ptr as i64);
-                if __torajs_accessor_invoke_setter(pair, recv_anyv, value_anyv) == 0 {
+                // the setter borrows the value
+                let ran = __torajs_accessor_invoke_setter(pair, recv_anyv, value_anyv);
+                drop_payload(tag, value);
+                if ran == 0 {
                     if throw_on_refusal {
                         __torajs_throw_type_error(
                             c"Attempted to assign to readonly property.".as_ptr(),

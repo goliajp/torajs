@@ -172,10 +172,12 @@ unsafe fn inherited_set_walk(
                     let pair =
                         __torajs_dynobj_get_value(dict, key as *const c_void) as *const c_void;
                     let value_anyv = __torajs_anyv_box_from_pair(tag as i64, value as i64);
-                    // The setter consumes the value stake (the arr
-                    // accessor arm's ledger); a getter-only pair
-                    // refuses the strict assignment.
-                    if __torajs_accessor_invoke_setter(pair, recv, value_anyv) == 0 {
+                    // The setter borrows the value, so its stake ends
+                    // here either way; a getter-only pair refuses the
+                    // strict assignment.
+                    let ran = __torajs_accessor_invoke_setter(pair, recv, value_anyv);
+                    drop_payload(tag, value);
+                    if ran == 0 {
                         if throw_on_refusal {
                             __torajs_throw_type_error(
                                 c"Attempted to assign to readonly property.".as_ptr(),
