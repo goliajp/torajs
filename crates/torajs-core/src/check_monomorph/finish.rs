@@ -116,6 +116,9 @@ fn hand_over(
     owned_ast: &mut Ast,
     call_retargets: &HashMap<ExprId, String>,
 ) -> WidthTable {
+    // over every body, specializations and clones included: their
+    // checks record faces of their own
+    super::let_faces::apply(c, owned_ast);
     owned_ast
         .iter_destr_srcs
         .extend(std::mem::take(&mut c.iter_destr_srcs));
