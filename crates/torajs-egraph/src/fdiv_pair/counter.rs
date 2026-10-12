@@ -108,6 +108,9 @@ pub(super) struct Plan {
     pub int: Vec<(ValueId, Counter)>,
 }
 
+/// At most `room` cells: each holds one vector more than the splat it
+/// replaces (`LOOP_VECTORS_MAX`); the f64 ones go first, in the order
+/// the block first divides by them, then the i64 ones.
 pub(super) fn plan(
     func: &Function,
     b: BlockId,
@@ -115,6 +118,7 @@ pub(super) fn plan(
     known: &HashMap<ValueId, NumFact>,
     pairs: &[(Quot, Quot)],
     chains: &[Option<Chain>],
+    room: usize,
 ) -> Plan {
     let insts = &func.blocks[b.0 as usize].insts;
     let mut plan = Plan::default();
@@ -157,6 +161,8 @@ pub(super) fn plan(
             plan.int.push((dd, c));
         }
     }
+    plan.float.truncate(room);
+    plan.int.truncate(room - plan.float.len());
     plan
 }
 
@@ -336,3 +342,6 @@ pub(super) fn drop_unread(func: &mut Function, b: BlockId, cells: &Cells) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

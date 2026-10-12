@@ -150,6 +150,19 @@ fn successors(term: &Terminator) -> Vec<BlockId> {
 /// cannot spill; past this many the FP registers would run out.
 const PAIRS_PER_LOOP_MAX: usize = 4;
 
+/// Vectors a loop's pairs may hold at once besides each step's
+/// temporaries, out of the 21 FP registers the allocator hands out. A
+/// pair holds its dividend vector, and an accumulating pair its sum
+/// cell, through the whole loop; a splatted divisor (f64, or the i64
+/// operand of the masked adds) holds one over the block's reads of it;
+/// a counter cell holds two through the whole loop, itself and the
+/// splat of its step. Besides these, each of up to `PAIRS_PER_LOOP_MAX`
+/// pairs keeps at most two temporaries in flight (its quotient and the
+/// rounded value or mask). Pairs and splats count first, as they did
+/// before cells existed; a cell is built only while it fits, else its
+/// divisor is splatted.
+const LOOP_VECTORS_MAX: usize = 12;
+
 fn pair_function(
     func: &mut Function,
     known: Option<&HashMap<ValueId, NumFact>>,
@@ -158,7 +171,8 @@ fn pair_function(
     let dom = DominatorTree::compute(func);
     let la = LoopAnalysis::compute(func, &dom);
     let facts = Facts::of(func);
-    let mut per_loop: HashMap<BlockId, usize> = HashMap::default();
+    // per loop, the pairs and the vectors they hold
+    let mut per_loop: HashMap<BlockId, (usize, usize)> = HashMap::default();
     for b in 0..func.blocks.len() as u32 {
         let b = BlockId(b);
         let Some(lp) = la
@@ -173,7 +187,7 @@ fn pair_function(
             continue;
         };
         let mut pairs = plan_block(func, b, lp, &facts);
-        let used = per_loop.entry(lp.header).or_default();
+        let (used, held) = per_loop.entry(lp.header).or_default();
         pairs.truncate(PAIRS_PER_LOOP_MAX - *used);
         *used += pairs.len();
         if !pairs.is_empty() {
@@ -193,9 +207,13 @@ fn pair_function(
             };
             stats.pairs += pairs.len() as u32;
             stats.accumulated += chains.iter().flatten().count() as u32;
+            *held += vectors_held(&pairs, &chains);
+            let room = LOOP_VECTORS_MAX.saturating_sub(*held);
             let counters = known
-                .map(|known| counter::plan(func, b, lp, known, &pairs, &chains))
+                .map(|known| counter::plan(func, b, lp, known, &pairs, &chains, room))
                 .unwrap_or_default();
+            // a cell holds one vector more than the splat it replaces
+            *held += counters.float.len() + counters.int.len();
             stats.float_counters += counters.float.len() as u32;
             stats.int_counters += counters.int.len() as u32;
             let cells = counter::build_cells(func, pre, &counters);
@@ -206,6 +224,20 @@ fn pair_function(
             counter::drop_unread(func, b, &cells);
         }
     }
+}
+
+/// The vectors a block's pairs hold with every divisor splatted: a
+/// dividend vector per pair, a sum cell per accumulating pair, a splat
+/// per distinct f64 divisor and per distinct i64 divisor operand.
+fn vectors_held(pairs: &[(Quot, Quot)], chains: &[Option<accum::Chain>]) -> usize {
+    let mut divisors: Vec<ValueId> = pairs.iter().map(|(q, _)| q.y).collect();
+    let mut operands: Vec<ValueId> = chains.iter().flatten().map(|c| c.dd).collect();
+    for vs in [&mut divisors, &mut operands] {
+        vs.sort_by_key(|v| v.0);
+        vs.dedup();
+    }
+    let sums = chains.iter().flatten().count();
+    pairs.len() + sums + divisors.len() + operands.len()
 }
 
 /// The loop's single way in from outside, a plain jump to the header.
