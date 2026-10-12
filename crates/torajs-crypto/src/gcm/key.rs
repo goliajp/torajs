@@ -9,6 +9,7 @@ use crate::aes::{BLOCK_LEN, expand_key};
 use crate::cpu::CpuFeatures;
 use crate::ct::ct_eq;
 use crate::ct::zeroize::zeroize;
+use crate::dit;
 
 #[cfg(all(
     target_arch = "aarch64",
@@ -54,6 +55,7 @@ macro_rules! engine {
 /// A keyed AES-GCM instance shared by the three public key types.
 pub(super) struct Core {
     engine: Engine,
+    dit: dit::Mode,
 }
 
 impl Drop for Core {
@@ -80,6 +82,8 @@ impl Core {
         allow(unused_variables)
     )]
     pub(super) fn new(key: &[u8], cpu: CpuFeatures) -> Core {
+        let dit = dit::Mode::new(cpu);
+        let _dit = dit.enter();
         let (mut words, rounds) = expand_key(key);
         #[cfg(all(
             target_arch = "aarch64",
@@ -97,7 +101,7 @@ impl Core {
         )))]
         let engine = Engine::Soft(soft::Gcm::new(&words, rounds));
         zeroize(&mut words);
-        Core { engine }
+        Core { engine, dit }
     }
 
     #[cfg(test)]
@@ -178,6 +182,7 @@ impl Core {
         if !Self::lengths_ok(iv, aad, in_out) {
             return Err(AeadError);
         }
+        let _dit = self.dit.enter();
         Ok(self.crypt::<true>(iv, aad, in_out))
     }
 
@@ -192,6 +197,7 @@ impl Core {
             zeroize(in_out);
             return Err(AeadError);
         }
+        let _dit = self.dit.enter();
         // decryption is fused with hashing, so the plaintext exists in the
         // buffer before the verdict; a mismatch wipes it
         let mut ours = self.crypt::<false>(iv, aad, in_out);

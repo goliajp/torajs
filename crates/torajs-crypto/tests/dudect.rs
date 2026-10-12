@@ -19,7 +19,7 @@ use std::time::Instant;
 
 use torajs_crypto::Aead;
 use torajs_crypto::chacha20poly1305::ChaCha20Poly1305;
-use torajs_crypto::cpu::CpuFeatures;
+use torajs_crypto::cpu::{CpuFeatures, Feature};
 use torajs_crypto::gcm::Aes128Gcm;
 
 /// Calls per measurement, so one sample spans many timer ticks.
@@ -218,6 +218,24 @@ fn seal_key<K: Aead>(name: &str, key_len: usize, new: impl Fn(&[u8]) -> K) -> f6
     )
 }
 
+/// The portable code paths, with data-independent timing switched on where
+/// the build target guarantees the feature: a CPU that has the mode makes
+/// no timing promise with it off. On an Apple M4 Pro, ChaCha20-Poly1305
+/// sealing 1 KiB of zeros on the portable code measured |t| 12 to 15 with
+/// the mode off and 2.2 with it on, the machine code being the same.
+fn portable() -> CpuFeatures {
+    let target = CpuFeatures::compile_time();
+    let mut cpu = CpuFeatures::portable();
+    for f in [Feature::Aarch64Dit, Feature::Aarch64Sb] {
+        if target.has(f) {
+            // SAFETY: the build target enables the feature, so every CPU
+            // the binary runs on has it.
+            cpu = unsafe { cpu.with(f) };
+        }
+    }
+    cpu
+}
+
 fn assert_ct(t: f64) {
     println!("max |t| {t:.2}");
     assert!(t < 10.0, "|t| = {t:.2}");
@@ -226,7 +244,7 @@ fn assert_ct(t: f64) {
 #[test]
 #[ignore = "timing measurement; run on an idle machine"]
 fn gcm_open_tag_check_portable() {
-    let key = Aes128Gcm::new(&[0x11; 16], CpuFeatures::portable());
+    let key = Aes128Gcm::new(&[0x11; 16], portable());
     assert_ct(open_fail("gcm-open-portable", &key));
 }
 
@@ -240,7 +258,7 @@ fn gcm_open_tag_check_compile_time() {
 #[test]
 #[ignore = "timing measurement; run on an idle machine"]
 fn chacha_open_tag_check_portable() {
-    let key = ChaCha20Poly1305::new(&[0x22; 32], CpuFeatures::portable());
+    let key = ChaCha20Poly1305::new(&[0x22; 32], portable());
     assert_ct(open_fail("chacha-open-portable", &key));
 }
 
@@ -254,7 +272,7 @@ fn chacha_open_tag_check_compile_time() {
 #[test]
 #[ignore = "timing measurement; run on an idle machine"]
 fn gcm_seal_data_portable() {
-    let key = Aes128Gcm::new(&[0x11; 16], CpuFeatures::portable());
+    let key = Aes128Gcm::new(&[0x11; 16], portable());
     assert_ct(seal_checks("gcm-seal-portable", &key));
 }
 
@@ -268,7 +286,7 @@ fn gcm_seal_data_compile_time() {
 #[test]
 #[ignore = "timing measurement; run on an idle machine"]
 fn chacha_seal_data_portable() {
-    let key = ChaCha20Poly1305::new(&[0x22; 32], CpuFeatures::portable());
+    let key = ChaCha20Poly1305::new(&[0x22; 32], portable());
     assert_ct(seal_checks("chacha-seal-portable", &key));
 }
 
@@ -283,7 +301,7 @@ fn chacha_seal_data_compile_time() {
 #[ignore = "timing measurement; run on an idle machine"]
 fn gcm_key_portable() {
     assert_ct(seal_key("gcm-key-portable", 16, |k| {
-        Aes128Gcm::new(k.try_into().unwrap(), CpuFeatures::portable())
+        Aes128Gcm::new(k.try_into().unwrap(), portable())
     }));
 }
 

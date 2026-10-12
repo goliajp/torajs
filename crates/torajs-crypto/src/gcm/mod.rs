@@ -6,7 +6,11 @@
 //! [`Feature::Aarch64Pmull`](crate::cpu::Feature::Aarch64Pmull), the key
 //! uses the AES and PMULL instructions; otherwise it uses the portable
 //! code: bitsliced AES and a GHASH built from integer multiplications,
-//! neither of which reads a table. Both produce identical output.
+//! neither of which reads a table. Both produce identical output. When it
+//! vouches for [`Feature::Aarch64Dit`](crate::cpu::Feature::Aarch64Dit),
+//! key setup, sealing and opening run with data-independent timing
+//! switched on (see
+//! [`with_data_independent_timing`](crate::cpu::with_data_independent_timing)).
 //!
 //! The [`Aead`](crate::Aead) methods take the 96-bit nonce every protocol
 //! uses. [`Aes128Gcm::seal_with_iv`] and [`Aes128Gcm::open_with_iv`] (and

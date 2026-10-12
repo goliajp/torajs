@@ -18,7 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `expand_parts`.
 - `ct`: `Choice`, `ct_eq`, `ct_select`, `cmov`, and `ct::zeroize`.
 - `rand`: the `EntropySource` trait and `EntropyError`.
-- `cpu`: `CpuFeatures` and `Feature`, including `Feature::Aarch64Neon`.
+- `cpu`: `CpuFeatures` and `Feature`, including `Feature::Aarch64Neon`,
+  `Feature::Aarch64Dit` and `Feature::Aarch64Sb`.
+- `cpu::with_data_independent_timing`: runs a closure with Arm
+  `PSTATE.DIT` set (followed by a speculation barrier) and restores the
+  previous value; nested scopes leave the bit as they found it. The AEAD
+  keys enter the same scope for key setup, `seal` and `open` when their
+  `CpuFeatures` vouches for `Feature::Aarch64Dit`.
 - `aead`: the sealed `Aead` trait (`seal` / `open` in place, 96-bit nonce,
   128-bit tag), `AeadError`, `NONCE_LEN`, `TAG_LEN`.
 - `chacha20poly1305`: `ChaCha20Poly1305` (RFC 8439). The constructor takes

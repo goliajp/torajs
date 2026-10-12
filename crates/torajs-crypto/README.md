@@ -64,7 +64,11 @@ depends on the environment is passed in:
   `Aarch64Aes` and `Aarch64Pmull` set they use the ARMv8 AES and PMULL
   instructions, otherwise the portable code. The ChaCha20-Poly1305
   constructor takes one too and runs the keystream on NEON when
-  `Aarch64Neon` is set. The SHA-256 ARMv8 path is
+  `Aarch64Neon` is set. With `Aarch64Dit` set, both AEADs switch on
+  Arm data-independent timing (`PSTATE.DIT`) for key setup, sealing and
+  opening, and restore the previous state afterwards;
+  `cpu::with_data_independent_timing` does the same around any closure.
+  The SHA-256 ARMv8 path is
   still selected at compile time (`target_feature = "sha2"`).
 
 All buffers are provided by the caller. Nothing allocates.

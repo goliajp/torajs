@@ -4,7 +4,10 @@
 //! for [`Feature::Aarch64Neon`](crate::cpu::Feature::Aarch64Neon), the
 //! keystream runs on NEON registers, three groups of four blocks
 //! interleaved; otherwise on portable integer code. Both produce identical
-//! output.
+//! output. When it vouches for
+//! [`Feature::Aarch64Dit`](crate::cpu::Feature::Aarch64Dit), key setup,
+//! `seal` and `open` run with data-independent timing switched on (see
+//! [`with_data_independent_timing`](crate::cpu::with_data_independent_timing)).
 //!
 //! ```
 //! use torajs_crypto::Aead;
@@ -26,6 +29,7 @@ use crate::chacha20::{self, BLOCK_LEN, Engine};
 use crate::cpu::CpuFeatures;
 use crate::ct::ct_eq;
 use crate::ct::zeroize::zeroize;
+use crate::dit;
 use crate::poly1305::{self, Poly1305};
 
 /// Longest plaintext: the 32-bit block counter starts at 1 (RFC 8439 §2.8).
@@ -36,6 +40,7 @@ const MAX_DATA_LEN: u64 = ((1 << 32) - 1) * BLOCK_LEN as u64;
 pub struct ChaCha20Poly1305 {
     key: [u32; 8],
     engine: Engine,
+    dit: dit::Mode,
 }
 
 impl fmt::Debug for ChaCha20Poly1305 {
@@ -54,9 +59,12 @@ impl ChaCha20Poly1305 {
     /// Builds a key from 32 bytes. `cpu` selects the keystream code (see
     /// the [module documentation](self)).
     pub fn new(key: &[u8; 32], cpu: CpuFeatures) -> Self {
+        let dit = dit::Mode::new(cpu);
+        let _dit = dit.enter();
         ChaCha20Poly1305 {
             key: chacha20::key_words(key),
             engine: Engine::new(cpu),
+            dit,
         }
     }
 
@@ -95,6 +103,7 @@ impl Aead for ChaCha20Poly1305 {
         if in_out.len() as u64 > MAX_DATA_LEN {
             return Err(AeadError);
         }
+        let _dit = self.dit.enter();
         let nonce = chacha20::nonce_words(nonce);
         self.engine.xor_keystream(&self.key, 1, &nonce, in_out);
         Ok(self.tag(&nonce, aad, in_out))
@@ -111,6 +120,7 @@ impl Aead for ChaCha20Poly1305 {
             zeroize(in_out);
             return Err(AeadError);
         }
+        let _dit = self.dit.enter();
         let nonce = chacha20::nonce_words(nonce);
         // authenticate before decrypting: a forged message never turns
         // into plaintext, and the buffer is wiped on failure anyway
