@@ -1,0 +1,24 @@
+yielded 1
+body 1
+yielded 2
+body 2
+yielded 3
+returned 3
+step body 0
+yielded 2
+step body 2
+yielded 4
+step body 4
+yielded 6
+returned undefined
+yielded 2
+x 4
+yielded 3
+yielded 4
+y 30 4
+returned undefined
+yielded 1
+yielded 2
+a,b
+z 5
+returned undefined

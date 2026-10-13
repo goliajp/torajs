@@ -119,23 +119,9 @@ impl<'a> Parser<'a> {
         // §14.7.4 — parentheses reset the [In] restriction: a
         // for-head `for ((#x in o) ? a : b;;)` is legal inside them.
         let saved_in_for_init = std::mem::replace(&mut self.in_for_init, false);
-        // V3-18 m1.h.6 — JS spec §13.16 comma operator inside
-        // parentheses: `(a, b, c)` evaluates left-to-right and
-        // returns the rightmost value. Earlier subexpressions
-        // are still type-checked for side effects but their
-        // values are discarded. Encoded as nested
-        // Expr::Sequence (using a temp let + discard pattern at
-        // lower time) — for the MVP we simply discard left
-        // values and return the rightmost expression's id.
-        let mut last = self.parse_expr()?;
-        while matches!(self.peek(), Token::Comma) {
-            self.pos += 1;
-            let next = self.parse_expr()?;
-            last = self.ast.add_expr(Expr::Sequence {
-                left: last,
-                right: next,
-            });
-        }
+        // §13.16 comma operator: `(a, b, c)` evaluates left to right
+        // and answers the rightmost value.
+        let last = self.parse_comma_list()?;
         match self.peek() {
             Token::RParen => self.pos += 1,
             t => {

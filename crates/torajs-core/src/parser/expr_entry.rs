@@ -302,14 +302,11 @@ impl<'a> Parser<'a> {
     /// case value (§14.12.1). The step clause grew its own copy first;
     /// the other two were left on `parse_expr` and rejected
     /// `switch (a, b)` / `case a, b:` at the comma.
+    ///
+    /// A `yield` in an operand hoists after the operands before it
+    /// (`parse_comma_list`).
     pub(super) fn parse_expr_list(&mut self) -> Result<ExprId, String> {
-        let mut left = self.parse_expr()?;
-        while matches!(self.peek(), Token::Comma) {
-            self.pos += 1;
-            let right = self.parse_expr()?;
-            left = self.ast.add_expr(Expr::Sequence { left, right });
-        }
-        Ok(left)
+        self.parse_comma_list()
     }
 
     /// RC-3 (RFC 20260706-test262-bug-corpus) — any reassignment of a

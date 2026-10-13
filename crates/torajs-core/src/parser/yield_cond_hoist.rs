@@ -94,23 +94,41 @@ impl<'a> Parser<'a> {
         self.ast.add_expr(Expr::Ident(temp))
     }
 
-    /// A loop condition or step, `A, B, …`, whose yields run where
-    /// their operand does. The whole list hoisted into one buffer put
-    /// every yield in front of `A`, so `i++, yield i` yielded the value
-    /// before the increment (§13.16.1 evaluates the operands left to
-    /// right). Each operand captures its own yields instead, and the
-    /// operands before one that yields become a statement in front of
-    /// its yields: `A, yield B, C` answers `[A; <hB>]` and `B', C`.
-    /// Without a yield the list is the plain sequence and the
-    /// statements are empty.
+    /// A loop condition or step, `A, B, …`, and the statements its
+    /// yields hoisted.
     pub(super) fn parse_loop_clause(&mut self) -> Result<(ExprId, Vec<Stmt>), String> {
-        let mut before = Vec::new();
+        self.with_yield_hoist_captured(|p| p.parse_comma_list())
+    }
+
+    /// `A, B, …` whose yields run where their operand does. Hoisting
+    /// an operand's yields in front of the whole list ran them before
+    /// `A`, so `(i++, yield i)` yielded the value before the increment
+    /// (§13.16.1 evaluates the operands left to right). The operands
+    /// before one that yields are evaluated into a temp in front of its
+    /// hoisted statements instead: `A, yield B, C` leaves
+    /// `[let t = A; <hB>]` in the hoist buffer and answers `t, B', C`.
+    /// The answer stays a comma expression, which is no assignment
+    /// target, and the temp read stands where `A` was, so anything the
+    /// enclosing statement evaluates before the list still meets the
+    /// evaluation-order guard.
+    pub(super) fn parse_comma_list(&mut self) -> Result<ExprId, String> {
         let mut rest: Option<ExprId> = None;
         loop {
-            let (e, hoisted) = self.with_yield_hoist_captured(|p| p.parse_expr())?;
-            if !hoisted.is_empty() {
-                before.extend(rest.take().map(Stmt::Expr));
-                before.extend(hoisted);
+            let mark = self.yield_hoist_buf.len();
+            let e = self.parse_expr()?;
+            if self.yield_hoist_buf.len() > mark
+                && let Some(left) = rest
+            {
+                let temp = format!("__yx_{}", self.mint_desugar_id());
+                let decl = Stmt::LetDecl {
+                    mutable: false,
+                    name: temp.clone(),
+                    type_ann: None,
+                    init: left,
+                    is_var: false,
+                };
+                self.yield_hoist_buf.insert(mark, decl);
+                rest = Some(self.ast.add_expr(Expr::Ident(temp)));
             }
             rest = Some(match rest {
                 Some(left) => self.ast.add_expr(Expr::Sequence { left, right: e }),
@@ -121,7 +139,7 @@ impl<'a> Parser<'a> {
             }
             self.pos += 1;
         }
-        Ok((rest.expect("the loop parsed an operand"), before))
+        Ok(rest.expect("the list parsed an operand"))
     }
 
     /// A `for` test or step, which `empty` says the source left out.
