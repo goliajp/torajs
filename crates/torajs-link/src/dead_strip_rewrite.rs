@@ -255,15 +255,7 @@ pub(crate) fn strip_member_section(
         &remap,
     )?;
 
-    // Patch nlist n_value: live stripped-section symbols remap, dead
-    // ones go where `dead_at` says; later-section symbols shift down.
-    let collapse = |addr: u64| -> u64 {
-        let i = runs.partition_point(|r| r.old_start <= addr - sect_addr);
-        match (dead_at, i) {
-            (DeadRowPlacement::SectionBase, _) | (DeadRowPlacement::GapStart, 0) => sect_addr,
-            (DeadRowPlacement::GapStart, _) => sect_addr + runs[i - 1].new_start + runs[i - 1].len,
-        }
-    };
+    // nlist n_value: live symbols remap, dead ones per `dead_at`, later ones shift.
     let mut dead_rows: Vec<u32> = Vec::new();
     if let Some((symoff, nsyms)) = symtab {
         for i in 0..nsyms as usize {
@@ -277,7 +269,7 @@ pub(crate) fn strip_member_section(
             let new = if n_sect == strip_ord {
                 remap(n_value).unwrap_or_else(|| {
                     dead_rows.push(i as u32);
-                    collapse(n_value)
+                    dead_row_addr(&runs, dead_at, sect_addr, n_value)
                 })
             } else if n_value >= old_end {
                 n_value - shift
@@ -292,6 +284,17 @@ pub(crate) fn strip_member_section(
         bytes: out,
         dead_rows,
     }))
+}
+
+/// Where a dead symbol at `addr` of the stripped section lands, as
+/// `dead_at` places it: the section base, or the end of the last live
+/// run before it.
+fn dead_row_addr(runs: &[Run], dead_at: DeadRowPlacement, sect_addr: u64, addr: u64) -> u64 {
+    let i = runs.partition_point(|r| r.old_start <= addr - sect_addr);
+    match (dead_at, i) {
+        (DeadRowPlacement::SectionBase, _) | (DeadRowPlacement::GapStart, 0) => sect_addr,
+        (DeadRowPlacement::GapStart, _) => sect_addr + runs[i - 1].new_start + runs[i - 1].len,
+    }
 }
 
 /// Merge adjacent live atoms into placement runs. Each run lands at
