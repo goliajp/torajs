@@ -70,9 +70,11 @@ use super::{Ast, Expr, ExprId, Stmt};
 mod case_block;
 mod early_use;
 mod pad;
+mod rewrite;
 mod walk;
 pub(super) use early_use::hoist_above_first_use;
 use early_use::{EarlyUse, early_use, raise_early};
+use rewrite::rewrite_in_place;
 use walk::{Scopes, walk_children};
 
 /// Compiler-minted declarations (lifted arrows, class methods, generator
@@ -333,41 +335,4 @@ fn can_rewrite(s: &Stmt, free: &[String]) -> bool {
         unreachable!("site is a FnDecl");
     };
     !*is_generator && type_params.is_empty() && !free.iter().any(|n| n == "arguments")
-}
-
-/// `function f(p): R { … }` → `let f = function (p): R { … }`, in the
-/// slot the declaration occupied. Registering the expression as a
-/// function expression (rather than leaving it to read as an arrow) is
-/// what gives the lifted closure its `.prototype`, which a declaration
-/// has; the span carries over so the lifted decl still points at the
-/// user's text.
-fn rewrite_in_place(ast: &mut Ast, slot: &mut Stmt) {
-    let taken = std::mem::replace(slot, Stmt::Block(Vec::new()));
-    let Stmt::FnDecl {
-        name,
-        params,
-        return_type,
-        body,
-        span,
-        ..
-    } = taken
-    else {
-        unreachable!("site is a FnDecl");
-    };
-    let eid = ast.add_expr(Expr::ArrowFn {
-        params,
-        return_type,
-        body,
-    });
-    ast.set_expr_span(eid, span);
-    ast.fn_expr_exprs.insert(eid);
-    // a value has no static callee to pad its defaults at
-    super::apply_args_materialize::materialize_declared_fn_value(ast, eid, &name);
-    *slot = Stmt::LetDecl {
-        mutable: false,
-        name,
-        type_ann: None,
-        init: eid,
-        is_var: false,
-    };
 }
