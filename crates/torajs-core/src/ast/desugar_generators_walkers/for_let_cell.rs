@@ -242,7 +242,8 @@ fn unhosted(ast: &Ast, s: &Stmt, name: &str) -> bool {
 /// Whether a local placed right before `s` is still live where `s`
 /// makes its closures: `s` evaluates its own expressions before it
 /// suspends, if it does — a `yield` statement suspends after its
-/// operand, an `if` after its test — and a loop's own expressions run
+/// operand, an `if` after its test, a `switch` after its discriminant
+/// and case tests — and a loop's own expressions run
 /// once on entry, its test and step having been moved into its body
 /// (`rotate`).
 fn hostable(s: &Stmt) -> bool {
@@ -254,6 +255,7 @@ fn hostable(s: &Stmt) -> bool {
         | Stmt::ForOf { .. }
         | Stmt::ForOfSplitIter { .. }
         | Stmt::If { .. }
+        | Stmt::Switch { .. }
         | Stmt::Yield(_) => true,
         _ => !stmt_contains_yield(s),
     }
