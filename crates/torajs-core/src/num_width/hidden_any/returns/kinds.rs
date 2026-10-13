@@ -45,6 +45,9 @@ pub(in crate::num_width) struct RetKinds {
     /// (callee, caller): a return of the caller hands on what a call of
     /// the callee answers, not a member of it.
     hands: HashSet<(String, String)>,
+    /// (callee, caller): a return of the caller reads a member of what a
+    /// call of the callee answers, or takes it as an operand.
+    members: HashSet<(String, String)>,
 }
 
 impl RetKinds {
@@ -72,21 +75,27 @@ impl Graph<'_> {
     }
 
     /// Note that a return of `f` hands on what the functions whose
-    /// returns `nodes` names answer, when it reads them as its value.
+    /// returns `nodes` names answer (`read` is `Read::Value`), or reads
+    /// a member of it or takes it as an operand.
     pub(super) fn hands_on(&self, (f, read): (&str, Read), nodes: &[Node]) {
-        if read != Read::Value {
-            return;
-        }
         let mut rk = self.ret_kinds.borrow_mut();
+        let to = match read {
+            Read::Value => &mut rk.hands,
+            Read::Members => &mut rk.members,
+        };
         for n in nodes {
             if let Node::RetAny(g) = n {
-                rk.hands.insert((g.clone(), f.to_string()));
+                to.insert((g.clone(), f.to_string()));
             }
         }
     }
 
     /// The returns of the functions declared a scalar that hand on the
-    /// answer of a function hiding a value of another kind.
+    /// answer of a function hiding a value of another kind, and of the
+    /// functions that read a member of such an answer or take it as an
+    /// operand: what the member or the operation answers then depends on
+    /// a kind the checker did not see (`g() + 1` is `"s1"` when `g`
+    /// hides `"s"`).
     pub(in crate::num_width) fn kind_seeds(&self) -> Vec<Node> {
         let (Some(l), rk) = (self.lookups.get(), self.ret_kinds.borrow()) else {
             return Vec::new();
@@ -114,6 +123,11 @@ impl Graph<'_> {
             if let (Some(ks), Some(t)) = (kinds.get(g), l.declared(f))
                 && ks.iter().any(|k| *k != Kind::of(&t))
             {
+                out.push(Node::RetAny(f.clone()));
+            }
+        }
+        for (g, f) in &rk.members {
+            if kinds.get(g).is_some_and(|ks| !ks.is_empty()) {
                 out.push(Node::RetAny(f.clone()));
             }
         }
