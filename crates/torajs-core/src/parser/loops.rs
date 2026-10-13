@@ -35,7 +35,7 @@ impl<'a> Parser<'a> {
         // A yield in the condition runs per iteration, so its hoisted
         // statements go to the top of the body, not in front of the
         // loop (rotation 635; `loop_body_with_hoisted_cond`).
-        let (cond, hoisted) = self.with_yield_hoist_captured(|p| p.parse_expr_list())?;
+        let (cond, hoisted) = self.parse_loop_clause()?;
         match self.peek() {
             Token::RParen => self.pos += 1,
             t => {
@@ -95,7 +95,7 @@ impl<'a> Parser<'a> {
         // Per-iteration position, evaluated AFTER the body — a
         // `continue` must reach it, so a hoisted yield rotates the
         // loop (rotation 636; `rotated_loop`).
-        let (cond, hoisted) = self.with_yield_hoist_captured(|p| p.parse_expr_list())?;
+        let (cond, hoisted) = self.parse_loop_clause()?;
         match self.peek() {
             Token::RParen => self.pos += 1,
             t => {
@@ -331,12 +331,12 @@ impl<'a> Parser<'a> {
         // A yield in the condition runs per iteration: its hoisted
         // statements go to the top of the body and the clause empties
         // (rotation 635; `loop_body_with_hoisted_cond`). A yield in
-        // the step stays refused — `continue` would skip a step moved
-        // into the body.
+        // the step rotates the loop (`rotated_loop`), so `continue`
+        // still reaches it.
         let (cond, hoisted) = if matches!(self.peek(), Token::Semi) {
             (None, Vec::new())
         } else {
-            let (c, h) = self.with_yield_hoist_captured(|p| p.parse_expr_list())?;
+            let (c, h) = self.parse_loop_clause()?;
             (Some(c), h)
         };
         match self.peek() {
@@ -358,7 +358,7 @@ impl<'a> Parser<'a> {
         let (step, hoisted_step) = if matches!(self.peek(), Token::RParen) {
             (None, Vec::new())
         } else {
-            let (s, h) = self.with_yield_hoist_captured(|p| p.parse_expr_list())?;
+            let (s, h) = self.parse_loop_clause()?;
             (Some(s), h)
         };
         match self.peek() {
@@ -388,7 +388,10 @@ impl<'a> Parser<'a> {
         }) = init.as_deref()
         {
             let name = name.clone();
-            let mut list: Vec<Stmt> = cond.into_iter().chain(step).map(Stmt::Expr).collect();
+            // the operands a yield split off the test or step are
+            // statements now
+            let mut list: Vec<Stmt> = hoisted.iter().chain(&hoisted_step).cloned().collect();
+            list.extend(cond.into_iter().chain(step).map(Stmt::Expr));
             list.push(*body);
             crate::ast::rewrite_self_name_writes(&mut self.ast, &list, &name, true);
             Box::new(list.pop().expect("the body pushed above"))

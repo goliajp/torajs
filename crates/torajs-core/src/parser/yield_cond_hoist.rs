@@ -94,6 +94,36 @@ impl<'a> Parser<'a> {
         self.ast.add_expr(Expr::Ident(temp))
     }
 
+    /// A loop condition or step, `A, B, …`, whose yields run where
+    /// their operand does. The whole list hoisted into one buffer put
+    /// every yield in front of `A`, so `i++, yield i` yielded the value
+    /// before the increment (§13.16.1 evaluates the operands left to
+    /// right). Each operand captures its own yields instead, and the
+    /// operands before one that yields become a statement in front of
+    /// its yields: `A, yield B, C` answers `[A; <hB>]` and `B', C`.
+    /// Without a yield the list is the plain sequence and the
+    /// statements are empty.
+    pub(super) fn parse_loop_clause(&mut self) -> Result<(ExprId, Vec<Stmt>), String> {
+        let mut before = Vec::new();
+        let mut rest: Option<ExprId> = None;
+        loop {
+            let (e, hoisted) = self.with_yield_hoist_captured(|p| p.parse_expr())?;
+            if !hoisted.is_empty() {
+                before.extend(rest.take().map(Stmt::Expr));
+                before.extend(hoisted);
+            }
+            rest = Some(match rest {
+                Some(left) => self.ast.add_expr(Expr::Sequence { left, right: e }),
+                None => e,
+            });
+            if !matches!(self.peek(), Token::Comma) {
+                break;
+            }
+            self.pos += 1;
+        }
+        Ok((rest.expect("the loop parsed an operand"), before))
+    }
+
     /// A fresh `__yx_<n>` temp declared in the hoist buffer with `init`.
     fn mint_yield_temp(&mut self, init: ExprId) -> String {
         let id = self.mint_desugar_id();
