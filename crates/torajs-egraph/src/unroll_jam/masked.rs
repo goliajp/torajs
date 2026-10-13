@@ -44,7 +44,6 @@ use torajs_core::ssa::{
 
 use super::clone::{clone_into, new_value, push, reads_outside};
 use super::emit::reuse_shared;
-use super::masked_vec::{lanes as packed_lanes, packing};
 use super::retire::{Slot0, retire, snapped};
 use super::{LANE_GPR_BUDGET, MIN_LANES, Plan};
 
@@ -56,13 +55,13 @@ type Lane = HashMap<ValueId, ValueId>;
 const LANE_FPR_BUDGET: usize = 16;
 
 /// Lanes for a masked group: a step that packs two lanes to a vector
-/// takes as many pairs as fit (`masked_vec`); otherwise the default
+/// takes as many pairs as fit (`masked_vec::packing`); otherwise the default
 /// count, or fewer where every lane's state (its slot values, its
 /// snapshots and its flag) would no longer fit in registers; spilled
 /// lane state costs a load and a store each step. At least two.
 pub(super) fn masked_lanes(func: &Function, p: &Plan) -> usize {
-    if let Some(pk) = packing(func, p) {
-        return packed_lanes(&pk);
+    if let Some(pk) = &p.packing {
+        return pk.lanes;
     }
     let read_after_pre = reads_outside(func, &p.pre_order());
     let kept = snapped(func, p);
@@ -106,8 +105,8 @@ pub(super) fn steps(
     cur: BlockId,
     mut lanes: Vec<Lane>,
 ) {
-    if let Some(pk) = packing(func, p) {
-        return super::masked_vec::steps(func, p, &pk, cells, read_after_pre, g, cur, lanes);
+    if p.packing.is_some() {
+        return super::masked_vec::steps(func, p, cells, read_after_pre, g, cur, lanes);
     }
     let slots = slot_values(p, cells, read_after_pre, &lanes[0]);
     for lane in lanes.iter_mut() {
@@ -263,7 +262,7 @@ fn group_test(func: &mut Function, act: &[ValueId], b: BlockId, fb: BlockId, r: 
 }
 
 /// A new cell in `b` holding `v`.
-fn copy_of(func: &mut Function, b: BlockId, v: ValueId) -> ValueId {
+pub(super) fn copy_of(func: &mut Function, b: BlockId, v: ValueId) -> ValueId {
     let ty = func.values[v.0 as usize].ty;
     let cell = new_value(func, ty);
     push(func, b, cell, InstKind::Copy(ty, Operand::Value(v)));
@@ -350,7 +349,7 @@ fn lane_step(
 }
 
 /// `N`: slot k takes slot k+1's lane in each of `maps`, for `keys`.
-fn shift(func: &mut Function, n: BlockId, keys: &[ValueId], maps: &[Lane]) {
+pub(super) fn shift(func: &mut Function, n: BlockId, keys: &[ValueId], maps: &[Lane]) {
     for k in 0..maps.len() - 1 {
         for &v in keys {
             let ty = func.values[v.0 as usize].ty;

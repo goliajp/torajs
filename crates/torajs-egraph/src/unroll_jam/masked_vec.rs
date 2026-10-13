@@ -26,10 +26,12 @@
 //! truth value, the select by mask is the scalar select, and the
 //! exits fold into `go` as the scalar form folds them, so `masked`'s
 //! argument carries over. A kept cell the step bumps by a constant
-//! after its last exit test freezes itself (`c = c + (go & k)`) instead
-//! of keeping a snapshot: once a lane's `go` is false, the cell holds
-//! what the step began with, which is what the snapshot kept, and that
-//! lane never steps again.
+//! after its last exit test, through a sum nothing else reads, freezes
+//! itself (`c = c + (go & k)`) instead of keeping a snapshot: once a
+//! lane's `go` is false, the cell holds what the step began with,
+//! which is what the snapshot kept, and that lane never steps again.
+//! A slot value only the code after the inner loop reads stays one
+//! scalar per lane, shifted as `masked` shifts it.
 
 mod fit;
 mod slots;
@@ -43,10 +45,10 @@ use torajs_core::ssa::{
 
 use super::Plan;
 use super::clone::{new_value, push};
-use super::masked::slot_values;
+use super::masked::{copy_of, shift as shift_scalars, slot_values};
 use super::retire::snapped;
-use fit::args;
-pub(super) use fit::{Packing, lanes, packing};
+pub(super) use fit::{Packing, packing};
+use fit::{args, bump_by};
 use slots::{group_test, shift, unpack_slot0};
 
 type Lane = HashMap<ValueId, ValueId>;
@@ -74,12 +76,23 @@ fn vtemp(func: &mut Function, b: BlockId, ty: Type, vi: VecInst) -> ValueId {
     t
 }
 
-/// One pair's vectors: its slot values and snapshots by scalar id,
-/// and its flag.
+/// One pair's vectors: its packed slot values and snapshots by scalar
+/// id, and its flag.
 struct Pair {
     slots: HashMap<ValueId, ValueId>,
     snaps: HashMap<ValueId, ValueId>,
     act: ValueId,
+}
+
+/// What every part of the packed group reads alike.
+struct Group<'a> {
+    p: &'a Plan,
+    pk: &'a Packing,
+    /// Lane 0's renaming at the group's start, its scalar slots
+    /// included.
+    lane0: &'a Lane,
+    /// `GB`'s last block, where the splats go.
+    cur: BlockId,
 }
 
 /// Everything after `GB`'s pre lanes, which end in `cur`; `g` is the
@@ -87,14 +100,27 @@ struct Pair {
 pub(super) fn steps(
     func: &mut Function,
     p: &Plan,
-    pk: &Packing,
     cells: &HashSet<ValueId>,
     read_after_pre: &HashSet<ValueId>,
     g: BlockId,
     cur: BlockId,
-    lanes: Vec<Lane>,
+    mut lanes: Vec<Lane>,
 ) {
+    let pk = p.packing.as_ref().expect("a packed group has its packing");
+    assert!(
+        p.lanes == pk.lanes && p.lanes.is_multiple_of(2),
+        "a packed group runs its planned pairs"
+    );
     let slots = slot_values(p, cells, read_after_pre, &lanes[0]);
+    let (packed, scalar): (Vec<ValueId>, Vec<ValueId>) =
+        slots.iter().partition(|v| pk.packed.contains(v));
+    for lane in lanes.iter_mut() {
+        // a lane cell is its own slot
+        for &v in scalar.iter().filter(|v| !cells.contains(v)) {
+            let slot = copy_of(func, cur, lane.get(&v).copied().unwrap_or(v));
+            lane.insert(v, slot);
+        }
+    }
     let kept = snapped(func, p);
     let ones = vtemp(
         func,
@@ -109,19 +135,16 @@ pub(super) fn steps(
             snaps: HashMap::default(),
             act: vcell(func, cur, I64X2, ones),
         };
-        for &v in &slots {
-            let ty = Type::Vec(shape_of(func.value_type(v)));
+        for &v in &packed {
+            let shape = shape_of(func.value_type(v));
             let lo = lanes[2 * q].get(&v).copied().unwrap_or(v);
             let hi = lanes[2 * q + 1].get(&v).copied().unwrap_or(v);
-            let packed = VecInst::Pair(
-                shape_of(func.value_type(v)),
-                Operand::Value(lo),
-                Operand::Value(hi),
-            );
-            let t = vtemp(func, cur, ty, packed);
-            pair.slots.insert(v, vcell(func, cur, ty, t));
+            let both = VecInst::Pair(shape, Operand::Value(lo), Operand::Value(hi));
+            let t = vtemp(func, cur, Type::Vec(shape), both);
+            let cell = vcell(func, cur, Type::Vec(shape), t);
+            pair.slots.insert(v, cell);
         }
-        for &c in kept.iter().filter(|c| !pk.frozen.contains(c)) {
+        for &c in kept.iter().filter(|c| !pk.is_frozen(**c)) {
             let ty = func.value_type(pair.slots[&c]);
             let snap = vcell(func, cur, ty, pair.slots[&c]);
             pair.snaps.insert(c, snap);
@@ -136,24 +159,21 @@ pub(super) fn steps(
     let n = func.add_block();
     let ft = func.add_block();
     func.blocks[cur.0 as usize].term = Terminator::Br(fb);
+    let group = Group {
+        p,
+        pk,
+        lane0: &lanes[0],
+        cur,
+    };
     let mut splats: HashMap<Operand, ValueId> = HashMap::default();
-    for q in 0..pairs.len() {
-        pair_step(func, p, pk, &lanes[0], &mut pairs[q], fb, cur, &mut splats);
+    for pair in &mut pairs {
+        pair_step(func, &group, pair, fb, &mut splats);
     }
     group_test(func, &pairs, fb, fb, r);
     group_test(func, &pairs, ft, fb, r);
-    unpack_slot0(
-        func,
-        p,
-        pk,
-        cells,
-        read_after_pre,
-        &lanes[0],
-        &pairs[0],
-        r,
-        n,
-    );
+    unpack_slot0(func, &group, cells, read_after_pre, &pairs[0], (r, n));
     shift(func, &pairs, n);
+    shift_scalars(func, n, &scalar, &lanes);
     let dec = InstKind::BinOp(BinOp::Sub, Operand::Value(live), Operand::ConstI64(1));
     let left = new_value(func, Type::I64);
     push(func, n, left, dec);
@@ -176,20 +196,16 @@ pub(super) fn steps(
 /// One pair's inner step in `fb`: the step's instructions on vectors,
 /// the exit tests folded into `go`, then the snapshots and the flag.
 /// A loop-invariant operand is splat once, in `cur`.
-#[allow(clippy::too_many_arguments)]
 fn pair_step(
     func: &mut Function,
-    p: &Plan,
-    pk: &Packing,
-    lane0: &Lane,
+    group: &Group,
     pair: &mut Pair,
     fb: BlockId,
-    cur: BlockId,
     splats: &mut HashMap<Operand, ValueId>,
 ) {
     let mut vmap: HashMap<ValueId, ValueId> = pair.slots.clone();
     let mut go = pair.act;
-    let inner = p.inner_order();
+    let inner = group.p.inner_order();
     let v = Operand::Value;
     for &b in &inner {
         let block = func.blocks[b.0 as usize].clone();
@@ -198,25 +214,17 @@ fn pair_step(
             let mut ops = args(&inst.kind).into_iter();
             let mut arg = |func: &mut Function| {
                 let op = ops.next().expect("a packed instruction reads a value");
-                v(vector_of(func, op, &vmap, lane0, cur, splats))
+                v(vector_of(func, group, op, &vmap, splats))
             };
             let (ty, vi) = match &inst.kind {
-                InstKind::BinOp(BinOp::Add, Operand::Value(c), Operand::ConstI64(k))
-                | InstKind::BinOp(BinOp::Add, Operand::ConstI64(k), Operand::Value(c))
-                    if pk.frozen.contains(c) =>
-                {
-                    let cell = v(vmap[c]);
-                    if *k == 1 {
+                InstKind::BinOp(BinOp::Add, ..) if group.pk.bump_of(r).is_some() => {
+                    let (c, k) = bump_by(&inst.kind).expect("a frozen bump is a sum");
+                    let cell = v(vmap[&c]);
+                    if k == 1 {
                         (I64X2, VecInst::BinOp(VecOp::Sub, cell, v(go)))
                     } else {
-                        let step = v(vector_of(
-                            func,
-                            Operand::ConstI64(*k),
-                            &vmap,
-                            lane0,
-                            cur,
-                            splats,
-                        ));
+                        let k = Operand::ConstI64(k);
+                        let step = v(vector_of(func, group, k, &vmap, splats));
                         let masked =
                             vtemp(func, fb, I64X2, VecInst::BinOp(VecOp::And, v(go), step));
                         (I64X2, VecInst::BinOp(VecOp::Add, cell, v(masked)))
@@ -267,6 +275,7 @@ fn pair_step(
             let out = vtemp(func, fb, ty, vi);
             vmap.insert(r, out);
         }
+        // `fit` saw every branch of the step test a packed compare
         if let Terminator::CondBr {
             cond: Operand::Value(c),
             then_blk,
@@ -297,10 +306,9 @@ fn pair_step(
 /// made once in `cur`.
 fn vector_of(
     func: &mut Function,
+    group: &Group,
     op: Operand,
     vmap: &HashMap<ValueId, ValueId>,
-    lane0: &Lane,
-    cur: BlockId,
     splats: &mut HashMap<Operand, ValueId>,
 ) -> ValueId {
     if let Operand::Value(x) = op
@@ -314,12 +322,13 @@ fn vector_of(
     let (shape, scalar) = match op {
         Operand::Value(x) => (
             shape_of(func.value_type(x)),
-            Operand::Value(lane0.get(&x).copied().unwrap_or(x)),
+            Operand::Value(group.lane0.get(&x).copied().unwrap_or(x)),
         ),
         Operand::ConstF64(_) => (VecShape::F64x2, op),
         _ => (VecShape::I64x2, op),
     };
-    let s = vtemp(func, cur, Type::Vec(shape), VecInst::Splat(shape, scalar));
+    let splat = VecInst::Splat(shape, scalar);
+    let s = vtemp(func, group.cur, Type::Vec(shape), splat);
     splats.insert(op, s);
     s
 }

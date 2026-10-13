@@ -2,6 +2,7 @@ mod carried;
 mod escape;
 mod inner_exit;
 mod interp;
+mod packed;
 mod rising;
 mod shared;
 

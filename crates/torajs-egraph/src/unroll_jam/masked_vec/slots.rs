@@ -9,10 +9,9 @@ use torajs_core::ssa::{
     VecShape,
 };
 
-use super::super::Plan;
 use super::super::clone::{new_value, push};
 use super::super::retire::{Slot0, retire, snapped};
-use super::{I64X2, Lane, Packing, Pair, vtemp};
+use super::{Group, I64X2, Lane, Pair, vtemp};
 
 /// The end of `b`: step the group again while lane 0 of pair 0 and
 /// some other lane still step (as `masked::group_test`).
@@ -63,18 +62,15 @@ pub(super) fn group_test(func: &mut Function, pairs: &[Pair], b: BlockId, fb: Bl
     };
 }
 
-/// `R`: lane 0 of pair 0 as scalars, then `retire` on them.
-#[allow(clippy::too_many_arguments)]
+/// `R`: lane 0 of pair 0 as scalars beside slot 0's scalar slots, then
+/// `retire` on them, leaving for `n`.
 pub(super) fn unpack_slot0(
     func: &mut Function,
-    p: &Plan,
-    pk: &Packing,
+    group: &Group,
     cells: &HashSet<ValueId>,
     read_after_pre: &HashSet<ValueId>,
-    lane0: &Lane,
     pair: &Pair,
-    r: BlockId,
-    n: BlockId,
+    (r, n): (BlockId, BlockId),
 ) {
     let v = Operand::Value;
     let lane = |func: &mut Function, scalar: ValueId, vec: ValueId| {
@@ -83,7 +79,7 @@ pub(super) fn unpack_slot0(
         push(func, r, x, InstKind::Vec(VecInst::Lane(0, v(vec))));
         x
     };
-    let mut first = lane0.clone();
+    let mut first = group.lane0.clone();
     let mut slots: Vec<(ValueId, ValueId)> = pair.slots.iter().map(|(s, w)| (*s, *w)).collect();
     slots.sort_by_key(|(s, _)| s.0);
     for (s, vec) in slots {
@@ -91,8 +87,8 @@ pub(super) fn unpack_slot0(
         first.insert(s, x);
     }
     let mut snap: Lane = Lane::default();
-    for c in snapped(func, p) {
-        let vec = if pk.frozen.contains(&c) {
+    for c in snapped(func, group.p) {
+        let vec = if group.pk.is_frozen(c) {
             pair.slots[&c]
         } else {
             pair.snaps[&c]
@@ -113,7 +109,7 @@ pub(super) fn unpack_slot0(
         snap: &snap,
         act,
     };
-    retire(func, p, cells, read_after_pre, slot0, r, n);
+    retire(func, group.p, cells, read_after_pre, slot0, r, n);
 }
 
 /// `N`: every vector takes the next lane along; the last pair's high

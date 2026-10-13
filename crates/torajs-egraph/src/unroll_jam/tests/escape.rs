@@ -10,7 +10,7 @@ use torajs_core::ssa::{FPred, VecInst};
 
 /// What the exits' code reads.
 #[derive(Clone, Copy, PartialEq, Debug)]
-enum Reads {
+pub(super) enum Reads {
     /// the body exit the count, the header exit `max`
     Count,
     /// the header exit `zr` too
@@ -19,6 +19,13 @@ enum Reads {
     Point,
     /// as `Count`, but the step bumps `k` ahead of its body exit
     BumpFirst,
+    /// the header exit the count, the body exit a constant, and the
+    /// step bumps `k` ahead of its body exit: `k` is kept, yet a lane
+    /// leaving by the body exit has bumped it
+    CountAtHead,
+    /// as `Count`, but the sum `k + 1` is computed ahead of the body
+    /// exit and written after it
+    SumFirst,
 }
 
 fn f(x: f64) -> Operand {
@@ -39,7 +46,7 @@ fn fcopy(r: u32, src: Operand) -> Inst {
 ///   b2: ci; zr=zi=0; k=0      b6: r = max (+ zr) → b8
 ///   b3: k < max ? b4 : b6     b7: r = k (+ zr + zi) → b8
 ///   b8: total = total*0.5 + r; j++ → b1      b9: ret total
-fn escape(reads: Reads) -> Function {
+pub(super) fn escape(reads: Reads) -> Function {
     let bump = vec![
         inst(23, InstKind::BinOp(BinOp::Add, v(12), c(1))),
         copy(12, v(23)),
@@ -59,13 +66,21 @@ fn escape(reads: Reads) -> Function {
         fcopy(10, v(19)),
         fcopy(11, v(22)),
     ];
-    if reads == Reads::BumpFirst {
-        test.splice(0..0, bump);
-    } else {
-        step.extend(bump);
+    match reads {
+        Reads::BumpFirst | Reads::CountAtHead => drop(test.splice(0..0, bump)),
+        Reads::SumFirst => {
+            let [sum, write] = <[Inst; 2]>::try_from(bump).expect("two");
+            test.insert(0, sum);
+            step.push(write);
+        }
+        _ => step.extend(bump),
     }
-    let mut head_exit = vec![inst(28, InstKind::SiToFp(v(1)))];
+    let head_reads = if reads == Reads::CountAtHead { 12 } else { 1 };
+    let mut head_exit = vec![inst(28, InstKind::SiToFp(v(head_reads)))];
     let mut body_exit = vec![inst(29, InstKind::SiToFp(v(12)))];
+    if reads == Reads::CountAtHead {
+        body_exit = vec![fcopy(29, f(-1.0))];
+    }
     let (mut head_r, mut body_r) = (28, 29);
     if matches!(reads, Reads::HeadZr | Reads::Point) {
         head_exit.push(fbin(30, BinOp::FAdd, v(28), v(10)));
@@ -216,7 +231,14 @@ fn a_lane_keeping_only_its_count_carries_no_snapshot() {
 #[test]
 fn escape_time_lanes_retire_through_the_exit_they_took() {
     let fl = |x: f64| x.to_bits() as i64;
-    for reads in [Reads::Count, Reads::HeadZr, Reads::Point, Reads::BumpFirst] {
+    for reads in [
+        Reads::Count,
+        Reads::HeadZr,
+        Reads::Point,
+        Reads::BumpFirst,
+        Reads::CountAtHead,
+        Reads::SumFirst,
+    ] {
         let func = escape(reads);
         let (g, n) = jam(&func);
         assert_eq!(n, 1, "{reads:?}");

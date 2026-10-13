@@ -148,6 +148,9 @@ pub(crate) struct Plan {
     /// Under masks, the cells a lane keeps from the step it leaves in,
     /// when fewer than the inner loop writes (see `retire`).
     pub exit_cells: Option<Vec<ValueId>>,
+    /// Under masks, how the lanes pack two to a vector register, when
+    /// the step has two-lane forms (see `masked_vec`).
+    pub packing: Option<masked_vec::Packing>,
     /// Everything else in the outer body, the latch included.
     pub post: Vec<BlockId>,
     pub body: HashSet<BlockId>,
