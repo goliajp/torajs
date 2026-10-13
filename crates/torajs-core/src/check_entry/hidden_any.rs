@@ -16,21 +16,62 @@ use std::collections::{HashMap, HashSet};
 use super::{Round, check_round};
 use crate::ast::{Ast, Expr, ExprId, Stmt};
 use crate::check::Type;
+use fn_slots::{Guarded, SlotFlow, boxed, fn_slot_values};
 
-/// Run rounds from `first`, the round of `ast` as written.
+/// Run rounds from `first`, the round of `ast` as written. A function
+/// retyped while a slot it reaches holds it only through the census
+/// ([`Guarded`]) needs the census to box the slot: a closure's
+/// parameter from the first round on (the closure's own return is
+/// inferred from the calls through it), a binding by the last round.
+/// When the last round's census misses one, the rounds run again from
+/// the start with the slot left out.
 pub(super) fn settle(ast: &Ast, first: Round) -> Result<Round, String> {
+    let early = first.0.5.mono_ast.argv_boxed_params.clone();
+    let mut denied: HashSet<Guarded> = HashSet::new();
+    let mut start = Some(first);
+    loop {
+        let first = match start.take() {
+            Some(r) => r,
+            None => check_round(ast, &HashSet::new())?,
+        };
+        let allow = |g: &Guarded| {
+            !denied.contains(g)
+                && match g {
+                    Guarded::Param(f, p) => early.get(f).is_some_and(|ps| ps.contains(p)),
+                    Guarded::Let(_) => true,
+                }
+        };
+        let (round, needs) = settle_with(ast, first, &allow)?;
+        let mono = &round.0.5.mono_ast;
+        let unboxed: Vec<Guarded> = (needs.into_iter())
+            .filter(|g| !boxed(ast, mono, g))
+            .collect();
+        if unboxed.is_empty() {
+            return Ok(round);
+        }
+        denied.extend(unboxed);
+    }
+}
+
+/// [`settle`] with the slots `allow` refuses left out, and the census
+/// entries the functions it retyped need.
+fn settle_with(
+    ast: &Ast,
+    first: Round,
+    allow: &dyn Fn(&Guarded) -> bool,
+) -> Result<(Round, Vec<Guarded>), String> {
     let mut round = first;
     let mut inits: HashSet<ExprId> = HashSet::new();
     let mut args: HashSet<ExprId> = HashSet::new();
     let mut rets: HashSet<String> = HashSet::new();
     let mut fields: HashSet<ExprId> = HashSet::new();
-    let mut retypable: Option<HashSet<String>> = None;
+    let mut retypable: Option<(HashSet<String>, SlotFlow)> = None;
     let mut retyped: Option<Ast> = None;
     loop {
         let hidden = &round.0.5.widths.hidden_any;
         let before = rets.len();
         if !hidden.rets.is_empty() {
-            let ok = retypable.get_or_insert_with(|| retypable_returns(ast));
+            let (ok, _) = retypable.get_or_insert_with(|| retypable_returns(ast, allow));
             rets.extend((hidden.rets.iter()).filter(|f| ok.contains(*f)).cloned());
         }
         let grew = (rets.len() > before)
@@ -38,7 +79,13 @@ pub(super) fn settle(ast: &Ast, first: Round) -> Result<Round, String> {
             | extend_own(ast, &mut fields, &scalar_values(&round.0.1, &hidden.fields))
             | extend_own(ast, &mut fields, &objects_given_any(ast, &round.0.1));
         if !(extend_own(ast, &mut args, &hidden.args) || grew) {
-            return Ok(round);
+            let needs = match &retypable {
+                Some((_, flow)) if !rets.is_empty() => {
+                    flow.guarded_from(roots(ast, &rets).iter().map(String::as_str))
+                }
+                _ => Vec::new(),
+            };
+            return Ok((round, needs));
         }
         let r = retyped.get_or_insert_with(|| ast.clone());
         retype_any(&mut r.stmts, &inits);
@@ -170,7 +217,7 @@ fn retype_any(stmts: &mut [Stmt], inits: &HashSet<ExprId>) {
 /// `boolean`, or with no annotation, and only ever called by name or
 /// handed to a fn-typed slot ([`called_by_name_only`]). A generator or
 /// an async function answers an object of its own and keeps its face.
-fn retypable_returns(ast: &Ast) -> HashSet<String> {
+fn retypable_returns(ast: &Ast, allow: &dyn Fn(&Guarded) -> bool) -> (HashSet<String>, SlotFlow) {
     let mut out = HashSet::new();
     crate::ast::walk_stmts(&ast.stmts, &mut |s| {
         if let Stmt::FnDecl {
@@ -189,8 +236,24 @@ fn retypable_returns(ast: &Ast) -> HashSet<String> {
             out.insert(name.clone());
         }
     });
-    let by_name = called_by_name_only(ast);
+    let flow = fn_slot_values(ast, allow);
+    let by_name = called_by_name_only(ast, &flow.values);
     out.retain(|f| by_name.contains(f));
+    (out, flow)
+}
+
+/// The names the functions `fns` are read by: their own, and the
+/// binding with no annotation a closure among them initializes.
+fn roots(ast: &Ast, fns: &HashSet<String>) -> Vec<String> {
+    let mut out: Vec<String> = fns.iter().cloned().collect();
+    crate::ast::walk_stmts(&ast.stmts, &mut |s| {
+        if let Stmt::LetDecl { name, init, .. } = s
+            && let Expr::Closure { fn_name, .. } = ast.get_expr(*init)
+            && fns.contains(fn_name)
+        {
+            out.push(name.clone());
+        }
+    });
     out
 }
 
@@ -205,8 +268,8 @@ fn retypable_returns(ast: &Ast) -> HashSet<String> {
 /// callers read that return; retyping it would take the function out
 /// of the slot. A closure that initializes a binding with no annotation
 /// is called by name when every read of that binding is a call.
-fn called_by_name_only(ast: &Ast) -> HashSet<String> {
-    let mut callees: HashSet<ExprId> = fn_slot_values(ast);
+fn called_by_name_only(ast: &Ast, slot_values: &HashSet<ExprId>) -> HashSet<String> {
+    let mut callees: HashSet<ExprId> = slot_values.clone();
     for e in &ast.exprs {
         if let Expr::Call { callee, .. } = e {
             callees.insert(*callee);
@@ -257,46 +320,6 @@ fn called_by_name_only(ast: &Ast) -> HashSet<String> {
     out
 }
 
-/// The names read as the value of a fn-typed slot of the face census:
-/// a binding's initializer under a function-type annotation, or the
-/// argument of a declared function's fn-typed parameter.
-fn fn_slot_values(ast: &Ast) -> HashSet<ExprId> {
-    let fn_ann = |a: &Option<String>| a.as_deref().is_some_and(crate::ast::is_fn_like_ann);
-    let mut params: HashMap<String, Vec<bool>> = HashMap::new();
-    let mut out = HashSet::new();
-    crate::ast::walk_stmts(&ast.stmts, &mut |s| match s {
-        Stmt::FnDecl {
-            name, params: ps, ..
-        } => {
-            let user = ps.iter().filter(|p| !p.name.starts_with("__"));
-            params.insert(name.clone(), user.map(|p| fn_ann(&p.type_ann)).collect());
-        }
-        Stmt::LetDecl { type_ann, init, .. }
-            if fn_ann(type_ann) && matches!(ast.get_expr(*init), Expr::Ident(_)) =>
-        {
-            out.insert(*init);
-        }
-        _ => {}
-    });
-    for e in &ast.exprs {
-        let Expr::Call { callee, args } = e else {
-            continue;
-        };
-        let Some(fns) = (match ast.get_expr(*callee) {
-            Expr::Ident(g) => params.get(g),
-            _ => None,
-        }) else {
-            continue;
-        };
-        out.extend(
-            (args.iter().zip(fns))
-                .filter(|(a, f)| **f && matches!(ast.get_expr(**a), Expr::Ident(_)))
-                .map(|(a, _)| *a),
-        );
-    }
-    out
-}
-
 /// Annotate `any` the return of every function in `fns`. It may hand
 /// back a value of any kind, which §10.2.1.12 returns as is.
 fn retype_returns_any(stmts: &mut [Stmt], fns: &HashSet<String>) {
@@ -312,3 +335,5 @@ fn retype_returns_any(stmts: &mut [Stmt], fns: &HashSet<String>) {
         crate::ast_closure_param_tag_retag::push_child_stmts_mut(s, &mut stack);
     }
 }
+
+mod fn_slots;

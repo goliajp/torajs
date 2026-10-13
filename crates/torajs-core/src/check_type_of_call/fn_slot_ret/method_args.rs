@@ -13,7 +13,7 @@ use crate::ast::{Ast, Expr, ExprId, Stmt};
 /// `Some(empty)` when `f` is a declaration, called by its name; `None`
 /// when one of its calls may be out of sight, as a call of a closure
 /// is unless [`binding_args`] or [`method_args`] finds them all.
-pub(super) fn closure_args(ast: &Ast, f: &str, i: usize) -> Option<Vec<ExprId>> {
+pub(crate) fn closure_args(ast: &Ast, f: &str, i: usize) -> Option<Vec<ExprId>> {
     let Some(site) = (ast.exprs.iter().enumerate())
         .find(|(_, e)| matches!(e, Expr::Closure { fn_name, .. } if fn_name == f))
         .map(|(j, _)| ExprId(j as u32))
