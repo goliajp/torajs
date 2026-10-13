@@ -143,6 +143,7 @@ pub(super) fn parse_eval_source(
 ) -> Result<Vec<Stmt>, EvalRefusal> {
     let exprs_before = ast.exprs.len();
     let octal_before = ast.legacy_octal_positions.len();
+    let strict_spans_before = ast.strict_code_spans.len();
     let is_strict = strict == EvalStrictness::Strict;
     let stmts = parse_once(src, ast, super_ok, is_strict)
         .and_then(reject_module_decls)
@@ -164,17 +165,28 @@ pub(super) fn parse_eval_source(
     // checker does, which for eval text would refuse the whole program
     // where §19.2.1.1 step 12 wants this eval to throw.
     let text_strict = is_strict || has_use_strict_prologue(&stmts, ast);
-    if crate::ast_early_redecl::eval_code_redecl(&stmts, ast, text_strict).is_some() {
-        ast.legacy_octal_positions.truncate(octal_before);
-        return Err(neutralize(ast, exprs_before, EvalRefusal::EarlyError));
-    }
     // Annex B §B.1.1 / §B.1.2 — the one family of this set the lexer
     // RECORDS instead of refusing, because a sloppy program evaluates
     // every one of them and only the goal (or a prologue span) says
-    // otherwise. Its sites therefore have to be read back here rather
-    // than falling out of the parse. The table is truncated on every
-    // path, strict or not: the offsets index the eval text, so leaving
-    // them would make the NEXT eval's read see this one's sites.
+    // otherwise. A site is condemned when the eval text is strict, or
+    // when it sits in a body this parse found strict — which covers a
+    // literal written before its own body's `"use strict"`. Both
+    // tables index the eval text, not the program's source, so this
+    // parse's entries are read here and dropped before anything
+    // returns: left in place they would be judged against the file.
+    let octal_condemned = ast.legacy_octal_positions[octal_before..]
+        .iter()
+        .any(|&(at, _)| {
+            text_strict
+                || ast.strict_code_spans[strict_spans_before..]
+                    .iter()
+                    .any(|&(lo, hi)| at >= lo && at < hi)
+        });
+    ast.legacy_octal_positions.truncate(octal_before);
+    ast.strict_code_spans.truncate(strict_spans_before);
+    if crate::ast_early_redecl::eval_code_redecl(&stmts, ast, text_strict).is_some() {
+        return Err(neutralize(ast, exprs_before, EvalRefusal::EarlyError));
+    }
     // The statements now belong to a program whose `Ast::source` is a
     // different string — see `super::foreign_spans`.
     let mut stmts = stmts;
@@ -224,9 +236,7 @@ pub(super) fn parse_eval_source(
         let names = super::super::sloppy_implicit_globals::assigned_bare_names(ast, &stmts);
         ast.strict_eval_assign_names.extend(names);
     }
-    let octal_here = ast.legacy_octal_positions.len() > octal_before;
-    ast.legacy_octal_positions.truncate(octal_before);
-    if is_strict && octal_here {
+    if octal_condemned {
         return Err(neutralize(ast, exprs_before, EvalRefusal::EarlyError));
     }
     // §13.5.1.1 sites — `delete <bare name>` — carry their name for

@@ -1,0 +1,7 @@
+top: SyntaxError
+fn: SyntaxError
+after: SyntaxError
+nonoctal: SyntaxError
+indirect: SyntaxError
+sloppy: B
+function AB
