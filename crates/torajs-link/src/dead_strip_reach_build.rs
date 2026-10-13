@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use torajs_obj::{N_SECT, N_TYPE, NLIST_64_SIZE};
+use torajs_obj::{MH_SUBSECTIONS_VIA_SYMBOLS, N_SECT, N_TYPE, NLIST_64_SIZE};
 
 use crate::archive::ArMember;
 use crate::dead_strip_reach::{MemberReach, NlEntry, SectAtoms};
@@ -60,13 +60,18 @@ pub(crate) fn build_member_reach<'a>(member: &ArMember<'a>) -> Result<MemberReac
         }
     }
 
-    // Per-section atom tables.
+    // Per-section atom tables. Only a member that declares
+    // `MH_SUBSECTIONS_VIA_SYMBOLS` splits at its symbols; in any other
+    // (hand-written assembly: compiler-builtins' outlined atomics) code
+    // may fall through from one symbol into the next, so each section
+    // is one atom.
+    let subsections = splits_at_symbols(bytes);
     let mut sects: Vec<SectAtoms> = Vec::with_capacity(sections.len());
     for s in &sections {
         let ord = s.section_index;
         let mut starts: Vec<u64> = nlist
             .iter()
-            .filter(|e| e.n_type & N_TYPE == N_SECT && e.n_sect == ord)
+            .filter(|e| subsections && e.n_type & N_TYPE == N_SECT && e.n_sect == ord)
             .map(|e| e.n_value)
             .collect();
         starts.sort_unstable();
@@ -106,6 +111,13 @@ pub(crate) fn build_member_reach<'a>(member: &ArMember<'a>) -> Result<MemberReac
     })
 }
 
+/// Whether the object `bytes` declares `MH_SUBSECTIONS_VIA_SYMBOLS`,
+/// so its sections may be cut at any symbol.
+pub(crate) fn splits_at_symbols(bytes: &[u8]) -> bool {
+    bytes.len() >= 28
+        && u32::from_le_bytes(bytes[24..28].try_into().unwrap()) & MH_SUBSECTIONS_VIA_SYMBOLS != 0
+}
+
 /// Trim trailing NUL/space padding off a raw 16-byte name slot.
 pub(crate) fn trim16(raw: &[u8; 16]) -> &[u8] {
     let end = raw
@@ -113,4 +125,46 @@ pub(crate) fn trim16(raw: &[u8; 16]) -> &[u8] {
         .position(|&b| b == 0 || b == b' ')
         .unwrap_or(raw.len());
     &raw[..end]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use torajs_codegen::CompiledFunction;
+    use torajs_codegen::frame::FrameLayout;
+
+    fn leaf(name: &str) -> CompiledFunction {
+        CompiledFunction {
+            name: name.into(),
+            bytes: vec![0xC0, 0x03, 0x5F, 0xD6],
+            relocs: Vec::new(),
+            frame: FrameLayout::leaf_no_spill(),
+        }
+    }
+
+    /// `__text` atoms, section-relative.
+    fn text_atoms(obj: &[u8]) -> Vec<(u64, u64)> {
+        let member = ArMember {
+            name: "t.o",
+            data: obj,
+        };
+        let reach = build_member_reach(&member).unwrap();
+        let text = reach.sects.iter().find(|s| s.is_text).unwrap();
+        text.atoms
+            .iter()
+            .map(|&(s, e)| (s - text.addr, e - text.addr))
+            .collect()
+    }
+
+    #[test]
+    fn only_a_subsections_object_splits_at_its_symbols() {
+        let mut obj = torajs_obj::write_object(&[leaf("_a"), leaf("_b"), leaf("_c")]);
+        assert!(!splits_at_symbols(&obj));
+        assert_eq!(text_atoms(&obj), [(0, 12)]);
+
+        let flags = u32::from_le_bytes(obj[24..28].try_into().unwrap());
+        obj[24..28].copy_from_slice(&(flags | MH_SUBSECTIONS_VIA_SYMBOLS).to_le_bytes());
+        assert!(splits_at_symbols(&obj));
+        assert_eq!(text_atoms(&obj), [(0, 4), (4, 8), (8, 12)]);
+    }
 }

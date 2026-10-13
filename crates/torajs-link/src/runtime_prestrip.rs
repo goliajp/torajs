@@ -7,7 +7,8 @@
 //! torajs runtime member defines and every unmangled global. Their
 //! atom-level closure is the reach a dead-stripped link computes, with
 //! no call site judged dead, so it holds every atom any link keeps.
-//! Each member is rewritten to those atoms:
+//! Each member that splits at its symbols (`MH_SUBSECTIONS_VIA_SYMBOLS`;
+//! any other is kept whole) is rewritten to those atoms:
 //!   - the rows of dropped atoms become anonymous locals on the gap
 //!     they left: still an atom boundary, so a link's own strip of
 //!     the member places its runs as it would on the original, but no
@@ -28,6 +29,7 @@ use crate::archives_merge::{
     ArchiveLinkError, compute_required_members_cached, merge_archive_indexes,
 };
 use crate::dead_strip_reach::compute_reachability;
+use crate::dead_strip_reach_build::splits_at_symbols;
 use crate::dead_strip_reach_cache::ReachCache;
 use crate::dead_strip_repack::strip_member;
 use crate::dead_strip_rewrite::{DeadRowPlacement, SectHdr, scan_load_commands};
@@ -87,6 +89,11 @@ pub fn prestripped_runtime_image(archives: &[&[u8]]) -> Result<Vec<u8>, Prestrip
     let mut rewritten: BTreeMap<(usize, usize), Vec<u8>> = BTreeMap::new();
     for (&(a, m), r) in &reach.members {
         let member = &merged.per_archive_members[a][m];
+        // an object that does not split at its symbols has nothing to
+        // cut short of a whole section: it stays as it is
+        if !splits_at_symbols(member.data) {
+            continue;
+        }
         // nameless section rows are how a link tells a pre-stripped
         // section apart (`dead_content_in_prestripped`)
         let (_, symtab_pos, _, _) = scan_load_commands(member.data).map_err(PrestripError::Link)?;

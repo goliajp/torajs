@@ -46,7 +46,8 @@ mod write;
 pub use object::write_object;
 
 pub use macho::header::{
-    CPU_SUBTYPE_ARM64_ALL, CPU_TYPE_ARM64, MH_MAGIC_64, MH_OBJECT, MachHeader64,
+    CPU_SUBTYPE_ARM64_ALL, CPU_TYPE_ARM64, MH_MAGIC_64, MH_OBJECT, MH_SUBSECTIONS_VIA_SYMBOLS,
+    MachHeader64,
 };
 pub use macho::reloc::{
     ARM64_RELOC_ADDEND, ARM64_RELOC_BRANCH26, ARM64_RELOC_GOT_LOAD_PAGE21,

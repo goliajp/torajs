@@ -6,7 +6,8 @@
 //! Atom model: every rcgu.o carries `MH_SUBSECTIONS_VIA_SYMBOLS`,
 //! so an atom is the byte range from one defined symbol (local or
 //! extern — rustc's `l_anon.*` data labels anchor densely) to the
-//! next, in EVERY section. Reachability edges are the member reloc
+//! next, in EVERY section. A member without the flag (assembly
+//! objects) has one atom per section. Reachability edges are the member reloc
 //! tables:
 //!
 //!   - `r_extern=1` → the referenced nlist entry: an undef resolves

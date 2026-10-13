@@ -39,6 +39,12 @@ pub const CPU_SUBTYPE_ARM64_ALL: u32 = 0x0000_0000;
 /// torajs-link in #8, not here.)
 pub const MH_OBJECT: u32 = 0x0000_0001;
 
+/// `MH_SUBSECTIONS_VIA_SYMBOLS` — the object's sections may be split
+/// at every symbol: no code falls through from one symbol into the
+/// next and no reference reaches across one without a reloc. Without
+/// it a section is one indivisible unit.
+pub const MH_SUBSECTIONS_VIA_SYMBOLS: u32 = 0x0000_2000;
+
 /// In-memory representation of `mach_header_64`. Every field maps
 /// 1:1 to a 4-byte slot in the on-disk layout. `write_to` is the
 /// only way to serialize it — there's no `Default::default()` that
