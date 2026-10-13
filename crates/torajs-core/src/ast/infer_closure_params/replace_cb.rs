@@ -57,8 +57,10 @@ pub(super) fn seed_replace_cb_anns(
 ) {
     let n_caps = match args.first().map(|a| ast.get_expr(*a)) {
         Some(Expr::Regex { pattern, .. }) => Some(count_capture_groups(pattern)),
-        Some(Expr::Ident(re_name)) => crate::ast::regex_bound_name::toplevel_regex_literal(ast, re_name)
-            .map(|(pattern, _)| count_capture_groups(pattern)),
+        Some(Expr::Ident(re_name)) => {
+            crate::ast::regex_bound_name::toplevel_regex_literal(ast, re_name)
+                .map(|(pattern, _)| count_capture_groups(pattern))
+        }
         _ => None,
     };
     for (_arg_idx, fn_name) in closure_args {
