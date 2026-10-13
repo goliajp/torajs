@@ -208,8 +208,9 @@ fn route_list(
     if sites.is_empty() {
         return;
     }
-    let assigned =
-        crate::ssa_lower_closure_captures::collect_assigned_names_scoped(ast, stmts.iter(), &[]);
+    // a write an inner scope's own binding of the name takes is not
+    // one to the declaration
+    let assigned = super::nested_fns_top::writes::scope_writes(ast, stmts);
     if assigned.is_empty() {
         return;
     }

@@ -231,7 +231,13 @@ fn route_list(
             _ => unreachable!("site is a FnDecl"),
         })
         .collect();
-    let peers: HashSet<&str> = names.iter().map(|n| n.as_str()).collect();
+    // A peer a written `var` shares is that `var`, a local of the
+    // body: naming it is a capture like any other.
+    let peers: HashSet<&str> = names
+        .iter()
+        .filter(|n| !shared.contains(*n))
+        .map(|n| n.as_str())
+        .collect();
     // Free variables with the peers deliberately NOT pre-bound: the same
     // walk has to answer both questions — what the declaration reads from
     // outside (peers excluded) and which peers it names (peers alone).

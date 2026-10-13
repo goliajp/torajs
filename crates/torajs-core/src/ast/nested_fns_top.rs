@@ -47,6 +47,8 @@ use super::annexb_names::{block_nested_fn_names, own_fn_names};
 use super::{Ast, Expr, ExprId, Stmt};
 use std::collections::HashSet;
 
+pub(super) mod writes;
+
 /// Rename in place every eligible module-top declaration and mint its
 /// head `var`. Answers the hoisted decls (for the head of `top`) and
 /// the names, which seed the module-top walk's `declared` so the
@@ -102,8 +104,10 @@ pub(super) fn lift_top_fns_over_block_fns(
 }
 
 /// The list's own function declarations that a `var` of the same scope
-/// re-declares AND that something writes — a `var` initializer, or any
-/// assignment to the name. One binding holds both (§10.2.11 steps 27-28
+/// re-declares AND that something writes — a `var` initializer, or an
+/// assignment that lands on this scope's binding of the name
+/// (`writes::scope_writes`; one an inner scope's own `z` takes does
+/// not count). One binding holds both (§10.2.11 steps 27-28
 /// for a function body, §16.1.7 steps 8 / 10 for a script): the
 /// function's value from the scope's entry, then whatever the writes
 /// store. A name nothing writes keeps the function's value throughout,
@@ -122,8 +126,7 @@ pub(super) fn var_shared_fn_names(ast: &Ast, list: &[Stmt]) -> HashSet<String> {
     if !own.iter().any(|n| counts.contains_key(n)) {
         return HashSet::new();
     }
-    let assigned =
-        crate::ssa_lower_closure_captures::collect_assigned_names_scoped(ast, list.iter(), &[]);
+    let assigned = writes::scope_writes(ast, list);
     own.into_iter()
         .filter(|n| {
             counts.get(n).is_some_and(|sites| {
