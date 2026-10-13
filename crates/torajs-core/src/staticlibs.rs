@@ -5,9 +5,10 @@
 
 /// The runtime image: every Layer-1+ Rust sub-crate's `lib<name>.a`
 /// (as produced by `cargo build -p <crate>` in the active profile),
-/// preprocessed by `torajs_rtimage::image::build` into the flat
-/// layout the linker reads without parsing — members deduplicated by
-/// content, the merged first-archive-wins symbol index sorted.
+/// preprocessed by `torajs_rtimage::image::build_reachable` into the
+/// flat layout the linker reads without parsing — only the members a
+/// program can pull, the merged first-archive-wins symbol index
+/// sorted.
 ///
 /// The proc macro runs inside THIS crate's compilation, which cargo's
 /// dep graph schedules AFTER every sub-crate finishes building (and

@@ -7,8 +7,11 @@
 //! reader hands the result back as slices into the image bytes with
 //! no parsing beyond the fixed header. Members are deduplicated by
 //! `(name, bytes)`: each archive bundles its own copy of `core` /
-//! `alloc` / `std`, so 816 members are 53 distinct ones and 62 MB of
-//! archive is 4.4 MB of image.
+//! `alloc` / `std`. [`build_reachable`], what `tr` embeds, goes
+//! further and keeps only the members some program can pull
+//! ([`crate::prune`]): of the copies only the one winning names in the
+//! merged index, and of the rest only what the runtime's closure
+//! reaches.
 //!
 //! Layout (little-endian, offsets absolute within the image):
 //!
@@ -23,13 +26,14 @@
 //!   syms      n_syms × { name_off, name_len, archive_idx,
 //!                        member_idx, n_value(u64) }         (24 B)
 //!   names     member and symbol names, no terminators
-//!   blob      distinct member bodies
+//!   blob      distinct kept member bodies
 //! ```
 //!
-//! A slot is one `(archive, member)` position of the original walk;
-//! the slot table keeps that indexing intact so the linker's keys,
-//! member ordering and first-wins resolution are unchanged. `syms` is
-//! sorted by name bytes, which is the order a `BTreeMap<&str, _>`
+//! A slot is one kept `(archive, member)` position, in the original
+//! walk's order, so the linker's member ordering and first-wins
+//! resolution are unchanged; a symbol's `member_idx` counts the kept
+//! members of its archive. `syms` holds the names whose winner is
+//! kept, sorted by name bytes, which is the order a `BTreeMap<&str, _>`
 //! bulk-builds from.
 
 use std::collections::{BTreeMap, HashMap};
@@ -37,6 +41,7 @@ use std::collections::{BTreeMap, HashMap};
 use crate::archive::{
     ArMember, ArParseError, ArchiveParseError, build_archive_index, parse_archive,
 };
+use crate::prune::{Winners, live_members};
 
 const MAGIC: &[u8; 8] = b"TRIMG\0\0\0";
 const VERSION: u32 = 1;
@@ -63,29 +68,60 @@ fn u32v(n: usize) -> Result<u32, BuildError> {
     u32::try_from(n).map_err(|_| BuildError::TooLarge)
 }
 
-/// Preprocess `archives` (in link search order) into an image.
+/// Preprocess `archives` (in link search order) into an image holding
+/// every member.
 pub fn build(archives: &[&[u8]]) -> Result<Vec<u8>, BuildError> {
-    let mut names = Names::default();
+    build_inner(archives, false)
+}
 
+/// [`build`] keeping only the members some program can pull into its
+/// link; the names won by a dropped member leave the index, so a
+/// lookup of one misses instead of pulling a different member.
+pub fn build_reachable(archives: &[&[u8]]) -> Result<Vec<u8>, BuildError> {
+    build_inner(archives, true)
+}
+
+fn build_inner(archives: &[&[u8]], reachable_only: bool) -> Result<Vec<u8>, BuildError> {
+    let mut parsed: Vec<Vec<ArMember<'_>>> = Vec::with_capacity(archives.len());
+    let mut winners: Winners<'_> = BTreeMap::new();
+    for (archive_idx, bytes) in archives.iter().enumerate() {
+        let members = parse_archive(bytes).map_err(|err| BuildError::Ar { archive_idx, err })?;
+        let per_archive =
+            build_archive_index(&members).map_err(|err| BuildError::Member { archive_idx, err })?;
+        for (name, sym) in per_archive {
+            winners
+                .entry(name)
+                .or_insert((u32v(archive_idx)?, u32v(sym.member_idx)?, sym.n_value));
+        }
+        parsed.push(members);
+    }
+    let live = if reachable_only {
+        live_members(&parsed, &winners).map_err(|e| BuildError::Member {
+            archive_idx: e.archive_idx,
+            err: e.err,
+        })?
+    } else {
+        parsed.iter().map(|ms| vec![true; ms.len()]).collect()
+    };
+
+    let mut names = Names::default();
     let mut blob: Vec<u8> = Vec::new();
     let mut member_ids: HashMap<(&str, &[u8]), u32> = HashMap::new();
     // (name_off, name_len, data_off, data_len)
     let mut members: Vec<[u32; 4]> = Vec::new();
     let mut archive_table: Vec<[u32; 2]> = Vec::new();
     let mut slots: Vec<u32> = Vec::new();
-    let mut index: BTreeMap<&str, (u32, u32, u64)> = BTreeMap::new();
+    // original member index -> index among the archive's kept members
+    let mut renumber: Vec<Vec<Option<u32>>> = Vec::with_capacity(parsed.len());
 
-    for (archive_idx, bytes) in archives.iter().enumerate() {
-        let parsed = parse_archive(bytes).map_err(|err| BuildError::Ar { archive_idx, err })?;
-        let per_archive =
-            build_archive_index(&parsed).map_err(|err| BuildError::Member { archive_idx, err })?;
-        for (name, sym) in per_archive {
-            index
-                .entry(name)
-                .or_insert((u32v(archive_idx)?, u32v(sym.member_idx)?, sym.n_value));
-        }
-        archive_table.push([u32v(slots.len())?, u32v(parsed.len())?]);
-        for m in &parsed {
+    for (a, archive_members) in parsed.iter().enumerate() {
+        let start = slots.len();
+        let mut kept: Vec<Option<u32>> = vec![None; archive_members.len()];
+        for (i, m) in archive_members.iter().enumerate() {
+            if !live[a][i] {
+                continue;
+            }
+            kept[i] = Some(u32v(slots.len() - start)?);
             let id = match member_ids.get(&(m.name, m.data)) {
                 Some(&id) => id,
                 None => {
@@ -100,7 +136,14 @@ pub fn build(archives: &[&[u8]]) -> Result<Vec<u8>, BuildError> {
             };
             slots.push(id);
         }
+        archive_table.push([u32v(start)?, u32v(slots.len() - start)?]);
+        renumber.push(kept);
     }
+
+    let index: BTreeMap<&str, (u32, u32, u64)> = winners
+        .into_iter()
+        .filter_map(|(name, (a, m, v))| renumber[a as usize][m as usize].map(|k| (name, (a, k, v))))
+        .collect();
 
     let mut syms: Vec<u8> = Vec::with_capacity(index.len() * SYM_LEN);
     for (name, (a, m, n_value)) in &index {
@@ -334,17 +377,25 @@ mod tests {
     /// One `.o` with `LC_SYMTAB` naming `syms` as defined externs in
     /// section 1 at consecutive 4-byte offsets.
     fn object_with_syms(syms: &[&str]) -> Vec<u8> {
+        object_with(syms, &[])
+    }
+
+    /// [`object_with_syms`] that also imports `undefs`.
+    fn object_with(syms: &[&str], undefs: &[&str]) -> Vec<u8> {
         let mut strtab: Vec<u8> = vec![0];
         let mut nlist: Vec<u8> = Vec::new();
-        for (i, s) in syms.iter().enumerate() {
+        let rows = syms.iter().map(|s| (s, 0x0f, 1)); // N_SECT | N_EXT
+        let rows = rows.chain(undefs.iter().map(|s| (s, 0x01, 0))); // N_UNDF | N_EXT
+        for (i, (s, n_type, n_sect)) in rows.enumerate() {
             nlist.extend_from_slice(&(strtab.len() as u32).to_le_bytes());
-            nlist.push(0x0f); // N_SECT | N_EXT
-            nlist.push(1);
+            nlist.push(n_type);
+            nlist.push(n_sect);
             nlist.extend_from_slice(&0u16.to_le_bytes());
             nlist.extend_from_slice(&((i * 4) as u64).to_le_bytes());
             strtab.extend_from_slice(s.as_bytes());
             strtab.push(0);
         }
+        let syms = nlist.len() / 16;
         let symoff = 32 + 24;
         let stroff = symoff + nlist.len();
         let mut o: Vec<u8> = Vec::new();
@@ -356,7 +407,7 @@ mod tests {
         o.extend_from_slice(&0x2u32.to_le_bytes()); // LC_SYMTAB
         o.extend_from_slice(&24u32.to_le_bytes());
         o.extend_from_slice(&(symoff as u32).to_le_bytes());
-        o.extend_from_slice(&(syms.len() as u32).to_le_bytes());
+        o.extend_from_slice(&(syms as u32).to_le_bytes());
         o.extend_from_slice(&(stroff as u32).to_le_bytes());
         o.extend_from_slice(&(strtab.len() as u32).to_le_bytes());
         o.extend_from_slice(&nlist);
@@ -412,6 +463,14 @@ mod tests {
             (b_sym.archive_idx, b_sym.member_idx, b_sym.n_value),
             (1, 1, 0)
         );
+
+        // the copy of std.o in b wins no name, so no program pulls it
+        let img = build_reachable(&[&a, &b]).unwrap();
+        let v = Image::parse(&img).unwrap();
+        let mb: Vec<&str> = v.members(1).map(|m| m.name).collect();
+        assert_eq!(mb, ["b.o"]);
+        let b_sym = v.symbols().find(|s| s.name == "_b").unwrap();
+        assert_eq!((b_sym.archive_idx, b_sym.member_idx), (1, 0));
     }
 
     #[test]
@@ -424,6 +483,59 @@ mod tests {
         let v = Image::parse(&img).unwrap();
         assert_eq!(v.members(0).next().unwrap().data, x.as_slice());
         assert_eq!(v.members(1).next().unwrap().data, y.as_slice());
+    }
+
+    #[test]
+    fn members_no_program_can_pull_are_left_out() {
+        let rt = object_with(&["_torajs_f"], &["__ZN3std3barE"]);
+        let std_o = object_with(&["__ZN3std3barE"], &["__ZN5gimli3fooE"]);
+        let std_o2 = object_with(&["__ZN3std3bazE"], &[]);
+        let gimli = object_with(&["__ZN5gimli3fooE"], &[]);
+        let unused = object_with(&["__ZN5gimli3quxE"], &[]);
+        let shim = object_with(&["_memcpy"], &[]);
+        let a = archive_of(&[
+            ("torajs_rt.o", &rt),
+            ("std.o", &std_o),
+            ("std2.o", &std_o2),
+            ("gimli.o", &gimli),
+            ("unused.o", &unused),
+            ("shim.o", &shim),
+        ]);
+        // a second archive whose copies never win a name
+        let b = archive_of(&[("std.o", &std_o), ("torajs_rt.o", &rt)]);
+        let img = build_reachable(&[&a, &b]).unwrap();
+        let v = Image::parse(&img).unwrap();
+        let kept: Vec<&str> = v.members(0).map(|m| m.name).collect();
+        assert_eq!(kept, ["torajs_rt.o", "std.o", "gimli.o", "shim.o"]);
+        assert_eq!(
+            v.members(1).count(),
+            0,
+            "a copy that wins nothing is never pulled"
+        );
+        let syms: Vec<_> = v.symbols().collect();
+        let names: Vec<&str> = syms.iter().map(|s| s.name).collect();
+        assert_eq!(
+            names,
+            ["__ZN3std3barE", "__ZN5gimli3fooE", "_memcpy", "_torajs_f"],
+            "rows won by a dropped member leave the index"
+        );
+        let memcpy = syms[2];
+        assert_eq!(
+            (memcpy.archive_idx, memcpy.member_idx),
+            (0, 3),
+            "member indices count kept members only"
+        );
+    }
+
+    #[test]
+    fn rust_manglings_are_recognised() {
+        use crate::prune::is_rust_mangled;
+        assert!(is_rust_mangled("__ZN4core3fmt5write17h0123456789abcdefE"));
+        assert!(is_rust_mangled("__RNvCs1234_4core5write"));
+        assert!(!is_rust_mangled("___torajs_rc_inc"));
+        assert!(!is_rust_mangled("_memcpy"));
+        assert!(!is_rust_mangled("__ZNone"));
+        assert!(!is_rust_mangled("___rust_alloc"));
     }
 
     #[test]

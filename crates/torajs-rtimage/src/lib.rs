@@ -6,4 +6,6 @@
 #![deny(unsafe_code)]
 
 pub mod archive;
+pub mod archive_undef;
 pub mod image;
+mod prune;

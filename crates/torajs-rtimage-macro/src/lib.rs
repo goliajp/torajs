@@ -1,7 +1,8 @@
 //! `runtime_image!("ENV_A", "ENV_B", ...)` — each argument names an
 //! env var the embedding crate's build script set to a staticlib
 //! path. The macro reads those archives in the given order (link
-//! search order), builds the runtime image and expands to it as one
+//! search order), builds the runtime image of the members a program can
+//! pull (`image::build_reachable`) and expands to it as one
 //! byte-string literal; nothing is written to disk.
 //!
 //! Dependency tracking: the expansion also names every archive in an
@@ -37,8 +38,8 @@ pub fn runtime_image(input: TokenStream) -> TokenStream {
         .map(|p| std::fs::read(p).unwrap_or_else(|e| panic!("runtime_image!: read {p}: {e}")))
         .collect();
     let borrowed: Vec<&[u8]> = archives.iter().map(Vec::as_slice).collect();
-    let image =
-        torajs_rtimage::image::build(&borrowed).unwrap_or_else(|e| panic!("runtime_image!: {e:?}"));
+    let image = torajs_rtimage::image::build_reachable(&borrowed)
+        .unwrap_or_else(|e| panic!("runtime_image!: {e:?}"));
 
     let mut src = String::from("{\n");
     for p in &paths {
