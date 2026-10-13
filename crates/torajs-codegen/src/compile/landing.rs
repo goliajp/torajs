@@ -11,6 +11,8 @@
 //! A block opens with the assignment and frame of its side of the
 //! shrink-wrap save point.
 
+use std::cell::OnceCell;
+
 use torajs_core::ssa::id_hash::HashMap;
 
 use torajs_core::ssa::{Block, BlockId, Function, Terminator};
@@ -23,9 +25,13 @@ use crate::shrink_wrap::ShrinkWrap;
 
 pub(super) struct Landing<'a> {
     pub(super) blocks_by_id: HashMap<u32, &'a Block>,
+    blocks: &'a [Block],
     hollow: HashMap<u32, BlockId>,
     /// layout positions of the hollow blocks
     hollow_at: Vec<usize>,
+    /// DFS (preorder, postorder) numbers by block id, built on the
+    /// first back-edge question
+    order: OnceCell<Vec<(u32, u32)>>,
 }
 
 impl<'a> Landing<'a> {
@@ -50,8 +56,24 @@ impl<'a> Landing<'a> {
         }
         Landing {
             blocks_by_id: func.blocks.iter().map(|b| (b.id.0, b)).collect(),
+            blocks: &func.blocks,
             hollow,
             hollow_at,
+            order: OnceCell::new(),
+        }
+    }
+
+    /// Whether a branch from `from` to `target` is a back edge: where
+    /// it lands is `from` itself or a DFS ancestor of it, so the branch
+    /// closes a cycle and is taken once per iteration. Layout order is
+    /// not the test: a block laid out earlier is often a sibling that
+    /// the branch reaches going forward.
+    pub(super) fn goes_back(&self, from: BlockId, target: BlockId) -> bool {
+        let order = self.order.get_or_init(|| dfs_order(self.blocks));
+        let seen = |b: BlockId| order.get(b.0 as usize).filter(|o| o.0 != UNSEEN);
+        match (seen(from), seen(self.resolve(target))) {
+            (Some(&(f_pre, f_post)), Some(&(t_pre, t_post))) => t_pre <= f_pre && f_post <= t_post,
+            _ => false,
         }
     }
 
@@ -90,6 +112,57 @@ impl<'a> Landing<'a> {
         }
         id
     }
+}
+
+/// The preorder number of a block no walk from the entry reaches.
+const UNSEEN: u32 = u32::MAX;
+
+/// Preorder and postorder numbers, by block id, of a depth-first walk
+/// from the entry over the blocks' successors. An edge `u -> v` closes
+/// a cycle when `v` is an ancestor of `u` (or `u` itself): `v` is
+/// entered no later and left no earlier.
+fn dfs_order(blocks: &[Block]) -> Vec<(u32, u32)> {
+    let ids = blocks
+        .iter()
+        .map(|b| b.id.0 as usize + 1)
+        .max()
+        .unwrap_or(0);
+    let mut at = vec![0u32; ids];
+    for (i, b) in blocks.iter().enumerate() {
+        at[b.id.0 as usize] = i as u32;
+    }
+    let succ = |i: u32, k: usize| match blocks[i as usize].term {
+        Terminator::Br(t) if k == 0 => Some(t),
+        Terminator::CondBr {
+            then_blk, else_blk, ..
+        } => [then_blk, else_blk].get(k).copied(),
+        _ => None,
+    };
+    let mut order = vec![(UNSEEN, 0u32); ids];
+    if blocks.is_empty() {
+        return order;
+    }
+    let (mut pre, mut post) = (0u32, 0u32);
+    order[blocks[0].id.0 as usize].0 = 0;
+    let mut stack = vec![(0u32, 0usize)];
+    while let Some((i, k)) = stack.pop() {
+        match succ(i, k) {
+            Some(next) => {
+                stack.push((i, k + 1));
+                let o = &mut order[next.0 as usize];
+                if o.0 == UNSEEN {
+                    pre += 1;
+                    o.0 = pre;
+                    stack.push((at[next.0 as usize], 0));
+                }
+            }
+            None => {
+                order[blocks[i as usize].id.0 as usize].1 = post;
+                post += 1;
+            }
+        }
+    }
+    order
 }
 
 /// Follow chains of empty forwarder blocks (`insts: [], term: Br(t)`)
@@ -229,6 +302,44 @@ mod tests {
             let target = words[(i as i32 + disp) as usize];
             assert!(!is_b(target), "{i}: lands on a B: {words:08x?}");
         }
+    }
+
+    /// Two empty blocks that branch to each other, `b1 -> b2 -> b1`,
+    /// behind a test that enters the cycle or returns: the walk stops
+    /// on a hollow block, both stay emitted, and the function compiles.
+    #[test]
+    fn a_hollow_cycle_stays_emitted() {
+        let mut f = Function::new("c", Type::I64);
+        let b0 = f.add_block();
+        let b1 = f.add_block();
+        let b2 = f.add_block();
+        let b3 = f.add_block();
+        let p = f.add_param(Type::I64, "p");
+        let c = f.append_inst(
+            b0,
+            InstKind::ICmp(IPred::Ne, Operand::Value(p), Operand::ConstI64(0)),
+            Type::Bool,
+            None,
+        );
+        f.set_term(
+            b0,
+            Terminator::CondBr {
+                cond: Operand::Value(c),
+                then_blk: b1,
+                else_blk: b3,
+            },
+        );
+        f.set_term(b1, Terminator::Br(b2));
+        f.set_term(b2, Terminator::Br(b1));
+        f.set_term(b3, Terminator::Ret(Some(Operand::ConstI64(0))));
+        let homes = [(p, Gpr::X0), (c, Gpr::X1)];
+        let homes = homes.iter().map(|(v, g)| (v.0, Reg::Gpr(*g))).collect();
+        let alloc = Assignment::from_parts(homes, HashMap::default(), 0, 0, false);
+        let landing = Landing::of(&f, &alloc, &None);
+        assert!(landing.is_hollow(b1) && landing.is_hollow(b2));
+        assert_eq!(landing.emitted(&f.blocks), vec![true; 4]);
+        let bytes = compile_function_with(&f, alloc, &ModuleFacts::default()).bytes;
+        assert!(!bytes.is_empty());
     }
 
     #[test]

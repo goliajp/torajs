@@ -241,11 +241,13 @@ fn cond_plan(
     // header) runs on the not-taken path and the trailing B disappears.
     let then_falls = !else_falls && Some(landing.resolve(then_blk)) == next.resolved;
     let trailing = !then_falls && !else_falls;
-    // With no fall-through, a self-loop's back edge takes the
-    // conditional branch and the trailing B, run once on the way out,
-    // takes the exit: an iteration pays one branch. A block ending in
-    // a CondBr is its own landing.
-    let back_on_else = trailing && to_else == next.here && landing.resolve(then_blk) != next.here;
+    // With no fall-through, a loop's back edge (to this block or to a
+    // block on the path into it) takes the conditional branch and the
+    // trailing B, run once on the way out, takes the exit: an iteration
+    // pays one branch.
+    let back_on_else = trailing
+        && landing.goes_back(next.here, else_blk)
+        && !landing.goes_back(next.here, then_blk);
     let invert = then_falls || back_on_else;
     let pair = if invert {
         (else_blk, then_blk)
@@ -275,7 +277,7 @@ mod tests {
     use crate::enc::{nop, ret};
     use crate::reg::Gpr;
     use torajs_core::ssa::{
-        Block, BlockId, Function, IPred, Inst, InstKind, Operand, Terminator, Type, ValueId,
+        BinOp, Block, BlockId, Function, IPred, Inst, InstKind, Operand, Terminator, Type, ValueId,
         ValueInfo,
     };
 
@@ -350,7 +352,7 @@ mod tests {
         assert!(words[..first_ret].iter().all(|&w| w != nop()));
     }
 
-    /// A loop block `b1` testing `n != 0`, laid out `b0 b1 b2 b3 b4`:
+    /// A loop block `b1` testing `n + 1 != 0`, laid out `b0 b1 b2 b3 b4`:
     /// `b2` (`back`) and the `ret`s at `b3` and `b4`.
     fn loop_words(then_blk: u32, else_blk: u32, back: Terminator) -> Vec<u32> {
         let ret = |n| Terminator::Ret(Some(Operand::ConstI64(n)));
@@ -359,13 +361,25 @@ mod tests {
             insts: vec![],
             term,
         };
+        let step = InstKind::BinOp(BinOp::Add, Operand::Value(ValueId(0)), Operand::ConstI64(1));
         let test = Block {
             id: BlockId(1),
-            insts: vec![Inst {
-                result: Some(ValueId(1)),
-                kind: InstKind::ICmp(IPred::Ne, Operand::Value(ValueId(0)), Operand::ConstI64(0)),
-                origin: None,
-            }],
+            insts: vec![
+                Inst {
+                    result: Some(ValueId(2)),
+                    kind: step,
+                    origin: None,
+                },
+                Inst {
+                    result: Some(ValueId(1)),
+                    kind: InstKind::ICmp(
+                        IPred::Ne,
+                        Operand::Value(ValueId(2)),
+                        Operand::ConstI64(0),
+                    ),
+                    origin: None,
+                },
+            ],
             term: Terminator::CondBr {
                 cond: Operand::Value(ValueId(1)),
                 then_blk: BlockId(then_blk),
@@ -377,7 +391,7 @@ mod tests {
             name: "f".into(),
             params: vec![ValueId(0)],
             ret: Type::I64,
-            values: vec![info(Type::I64), info(Type::Bool)],
+            values: vec![info(Type::I64), info(Type::Bool), info(Type::I64)],
             blocks: vec![
                 block(0, Terminator::Br(BlockId(1))),
                 test,
@@ -416,7 +430,7 @@ mod tests {
     fn self_loop_branches_back_conditionally() {
         let words = loop_words(4, 1, Terminator::Ret(Some(Operand::ConstI64(2))));
         let (back, bs) = branches(&words);
-        assert!(back <= 0 && bs.len() == 1 && bs[0] > 0, "{words:08x?}");
+        assert!(back < 0 && bs.len() == 1 && bs[0] > 0, "{words:08x?}");
     }
 
     /// A back edge through an empty block laid out next: the block is
@@ -427,6 +441,120 @@ mod tests {
         let words = loop_words(2, 3, Terminator::Br(BlockId(1)));
         let (back, bs) = branches(&words);
         assert!(back <= 0 && bs.is_empty(), "{words:08x?}");
+    }
+
+    /// `p != 0` into Bool value `v`.
+    fn test_inst(v: u32) -> Inst {
+        Inst {
+            result: Some(ValueId(v)),
+            kind: InstKind::ICmp(IPred::Ne, Operand::Value(ValueId(0)), Operand::ConstI64(0)),
+            origin: None,
+        }
+    }
+
+    /// A block with one `test_inst` into `v` that branches on it.
+    fn test_block(id: u32, v: u32, then_blk: u32, else_blk: u32) -> Block {
+        Block {
+            id: BlockId(id),
+            insts: vec![test_inst(v)],
+            term: Terminator::CondBr {
+                cond: Operand::Value(ValueId(v)),
+                then_blk: BlockId(then_blk),
+                else_blk: BlockId(else_blk),
+            },
+        }
+    }
+
+    /// The words of `blocks` compiled as `f(p)`, with Bool values 1..=`bools`.
+    fn compile_words(blocks: Vec<Block>, bools: usize) -> Vec<u32> {
+        let info = |ty| ValueInfo { ty, name: None };
+        let mut values = vec![info(Type::I64)];
+        values.extend((0..bools).map(|_| info(Type::Bool)));
+        let func = Function {
+            name: "f".into(),
+            params: vec![ValueId(0)],
+            ret: Type::I64,
+            values,
+            blocks,
+            current_origin: None,
+        };
+        compile_function(&func)
+            .bytes
+            .chunks(4)
+            .map(|c| u32::from_le_bytes(c.try_into().unwrap()))
+            .collect()
+    }
+
+    fn simple(id: u32, insts: Vec<Inst>, term: Terminator) -> Block {
+        Block {
+            id: BlockId(id),
+            insts,
+            term,
+        }
+    }
+
+    fn ret_n(n: i64) -> Terminator {
+        Terminator::Ret(Some(Operand::ConstI64(n)))
+    }
+
+    /// A latch whose exit runs through a hollow block it does not fall
+    /// into, laid out `b0 b1 b2 b3 b4 b5`: b1 is the header, b2 the
+    /// latch (`CondBr(b3, b1)`), b3 an empty block to b5, and b4 / b5
+    /// return. The back edge to the header takes the conditional
+    /// branch, and the only B after it is the exit, run once.
+    #[test]
+    fn latch_back_edge_to_an_earlier_header_is_conditional() {
+        let words = compile_words(
+            vec![
+                simple(0, vec![], Terminator::Br(BlockId(1))),
+                simple(1, vec![test_inst(1)], Terminator::Br(BlockId(2))),
+                test_block(2, 2, 3, 1),
+                simple(3, vec![], Terminator::Br(BlockId(5))),
+                simple(4, vec![], ret_n(4)),
+                simple(5, vec![], ret_n(5)),
+            ],
+            2,
+        );
+        let cb = words
+            .iter()
+            .position(|&w| w & 0x7E00_0000 == 0x3400_0000)
+            .unwrap();
+        let is_b = |w: &u32| w & 0xFC00_0000 == 0x1400_0000;
+        assert!(!words[..cb].iter().any(is_b), "{words:08x?}");
+        let (back, bs) = branches(&words);
+        assert!(back < 0 && bs.len() == 1 && bs[0] > 0, "{words:08x?}");
+        assert!(is_b(&words[cb + 1]), "{words:08x?}");
+    }
+
+    /// A branch to a block laid out earlier that is no back edge, laid
+    /// out `b0 b1 b2 b4 b3 b6 b5`: header b1 tests into b2 or b3, the latch
+    /// b2 goes back to b1 or out to b5, and b3, reached from b1 beside
+    /// b2, goes out to b5 or on to b2. No path from b2 reaches b3 but
+    /// through the header, so b3's branch to b2 closes no cycle: b3 keeps
+    /// its compare on the exit, and only the latch's back edge takes a
+    /// conditional branch backwards.
+    #[test]
+    fn a_forward_edge_to_an_earlier_block_keeps_its_polarity() {
+        let words = compile_words(
+            vec![
+                simple(0, vec![], Terminator::Br(BlockId(1))),
+                test_block(1, 1, 2, 3),
+                test_block(2, 2, 5, 1),
+                simple(4, vec![], ret_n(4)),
+                test_block(3, 3, 5, 2),
+                simple(6, vec![], ret_n(6)),
+                simple(5, vec![], ret_n(5)),
+            ],
+            3,
+        );
+        let cbs: Vec<i32> = words
+            .iter()
+            .filter(|&&w| w & 0x7E00_0000 == 0x3400_0000)
+            .map(|&w| (((w >> 5) & 0x7_FFFF) as i32) << 13 >> 13)
+            .collect();
+        // b1 to b3, b2 back to b1, b3 out to b5
+        assert!(cbs.len() == 3, "{words:08x?}");
+        assert!(cbs[0] > 0 && cbs[1] < 0 && cbs[2] > 0, "{words:08x?}");
     }
 
     /// A branch into a chain of twenty empty blocks lands at its end,
