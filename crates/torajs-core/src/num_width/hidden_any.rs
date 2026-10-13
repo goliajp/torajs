@@ -117,6 +117,9 @@ pub(super) struct Graph<'s> {
     /// What the return walk looks up, built when a return first asks
     /// and shared by every pass.
     pub(super) lookups: &'s std::cell::OnceCell<returns::Lookups>,
+    /// The kinds the returns of each function with no scalar return
+    /// annotation hide behind `any` (`returns::kinds`).
+    pub(super) ret_kinds: std::cell::RefCell<returns::RetKinds>,
     /// The block frames of the body being walked, outermost first:
     /// its parameters, then its own top-level bindings.
     pub(super) frames: Vec<HashMap<String, Node>>,
@@ -169,6 +172,7 @@ pub(super) fn collect(
             lookups: &lookups,
             frames: Vec::new(),
             lit_fields: Vec::new(),
+            ret_kinds: Default::default(),
         };
         for b in &bodies {
             g.walk_body(a, b);
@@ -226,6 +230,8 @@ impl Graph<'_> {
             let r = Node::Read(k.clone());
             self.edges.entry(Node::Write(k)).or_default().push(r);
         }
+        let kind_seeds = self.kind_seeds();
+        self.seeds.extend(kind_seeds);
         let mut tainted: HashSet<Node> = HashSet::new();
         let mut work: VecDeque<Node> = self.seeds.into_iter().collect();
         while let Some(n) = work.pop_front() {

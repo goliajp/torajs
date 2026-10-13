@@ -25,6 +25,10 @@ pub(in crate::num_width) struct Lookups {
     pub(super) call_args: HashMap<String, Vec<Vec<ExprId>>>,
     /// The names read other than as a callee.
     pub(super) fn_values: HashSet<String>,
+    /// (function, parameter) → its annotation.
+    pub(super) param_anns: HashMap<(String, String), String>,
+    /// A binding's initializer → the binding's annotation.
+    pub(super) let_anns: HashMap<ExprId, String>,
     /// A function's return annotation, whoever wrote it.
     rets: HashMap<String, String>,
     /// The functions whose return annotation the program wrote, not a
@@ -61,6 +65,8 @@ impl Lookups {
             .collect();
         let mut user_params = HashMap::new();
         let mut open_params = HashMap::new();
+        let mut param_anns = HashMap::new();
+        let mut let_anns = HashMap::new();
         let mut decls: HashMap<String, Vec<Origin>> = HashMap::new();
         let mut fields = HashMap::new();
         let mut rets = HashMap::new();
@@ -94,6 +100,9 @@ impl Lookups {
                     let open =
                         !p.name.starts_with("__") && p.type_ann.as_deref().is_none_or(open_ann);
                     open_params.insert((name.clone(), p.name.clone()), open);
+                    if let Some(t) = &p.type_ann {
+                        param_anns.insert((name.clone(), p.name.clone()), t.clone());
+                    }
                 }
             }
             Stmt::LetDecl {
@@ -103,6 +112,9 @@ impl Lookups {
                 mutable,
                 ..
             } => {
+                if let Some(t) = type_ann {
+                    let_anns.insert(*init, t.clone());
+                }
                 let origin = match type_ann {
                     None if !*mutable => Origin::Fixed(*init),
                     _ => Origin::Open(*init),
@@ -119,6 +131,8 @@ impl Lookups {
             user_params,
             call_args,
             fn_values,
+            param_anns,
+            let_anns,
             rets,
             written,
         }

@@ -3,9 +3,10 @@
 //! annotation.
 
 use super::lookups;
+use crate::ast::{Expr, ExprId};
 use crate::check::Type;
-use crate::num_width::Analysis;
-use crate::num_width::hidden_any::{Graph, Node};
+use crate::num_width::hidden_any::{Graph, Node, Origin, Ref};
+use crate::num_width::{Analysis, Scope, SlotKey};
 
 impl Graph<'_> {
     /// Whether a call of method `name` on a receiver of type `recv`
@@ -21,31 +22,120 @@ impl Graph<'_> {
         declared: Option<&Type>,
         from: &mut Vec<Node>,
     ) -> bool {
-        let classes: Option<Vec<&str>> = match recv {
-            Some(Type::ClassRef(c)) => Some(vec![c.as_str()]),
-            Some(Type::Union(ts)) => (ts.iter())
-                .map(|t| match t {
-                    Type::ClassRef(c) => Some(c.as_str()),
-                    _ => None,
-                })
-                .collect(),
-            _ => None,
-        };
-        let Some(classes) = classes else {
+        let mut classes = Vec::new();
+        if !recv.is_some_and(|t| receiver_classes(t, &mut classes)) {
             return true;
-        };
+        }
         let l = self.lookups(a);
         let mut hit = false;
+        let mut ran = false;
         for c in classes {
+            // an arm with no such method cannot run the call (a union
+            // narrowed by `in` or a tag); one that holds it in a field or
+            // an accessor answers what that holds
             let Some(body) = method_body(a, c, name) else {
-                return true;
+                if self.member_in_chain(a, (c, name)) {
+                    return true;
+                }
+                continue;
             };
+            ran = true;
             match l.written_ret(&body).filter(|_| !generic(a, c)) {
                 Some(r) => hit |= lookups::open_ann(r) || lookups::scalar(r).as_ref() != declared,
                 None => from.push(Node::RetAny(body)),
             }
         }
-        hit
+        // a method no arm declares is one the walk does not see
+        hit || !ran
+    }
+
+    /// Whether member `f` of a value of type `t` is of a kind left open:
+    /// a field or getter of a struct or class that spells `any`, on any
+    /// arm of a union or behind `?.`. A member of a builtin value is
+    /// typed by its library.
+    pub(super) fn field_spelled_any(
+        &self,
+        a: &Analysis<'_>,
+        (t, f): (&Type, &str),
+        from: &mut Vec<Node>,
+    ) -> bool {
+        match t {
+            Type::Any => true,
+            Type::Struct(fs) => {
+                let getter = format!("__getter_{f}");
+                fs.iter().any(|(k, t)| match t {
+                    Type::Function(_, r) if k == getter.as_str() => **r == Type::Any,
+                    _ => k == f && *t == Type::Any,
+                })
+            }
+            Type::ClassRef(c) => self.member_spelled_any(a, (c, f), from),
+            Type::Nullable(t) => self.field_spelled_any(a, (t, f), from),
+            Type::Union(ts) => {
+                (ts.iter()).fold(false, |h, t| self.field_spelled_any(a, (t, f), from) | h)
+            }
+            _ => false,
+        }
+    }
+
+    /// The type the annotation of the binding or parameter `obj` reads
+    /// spells, when it joins classes by `|`: the checker types a union of
+    /// classes `any`, whose members are still the ones each class
+    /// declares. `null` and `undefined` arms hold no member; an arm of
+    /// any other type leaves the union unread.
+    pub(super) fn annotated_union(
+        &self,
+        a: &Analysis<'_>,
+        sc: &Scope,
+        obj: ExprId,
+    ) -> Option<Type> {
+        let Expr::Ident(n) = a.ast.get_expr(obj) else {
+            return None;
+        };
+        let l = self.lookups(a);
+        let ann = match self.resolve(a, n, sc) {
+            Ref::At(Node::Decl(i)) => match self.origin(i) {
+                Origin::Fixed(v) | Origin::Open(v) => l.let_anns.get(&v),
+                Origin::Param(_) | Origin::Unknown => None,
+            },
+            Ref::At(Node::Read(SlotKey::Param(f, p))) => l.param_anns.get(&(f, p)),
+            _ => None,
+        }?;
+        // a parameter's annotation spells a union `__union(A|B)` and
+        // an optional type `__nullable(A)`
+        let mut ann = ann.as_str();
+        while let Some(inner) = ["__union(", "__nullable("]
+            .iter()
+            .find_map(|w| ann.strip_prefix(w)?.strip_suffix(')'))
+        {
+            ann = inner;
+        }
+        if ann.contains(['(', ')', '<', '>', '{', '}', '[', ']', '&']) {
+            return None;
+        }
+        let arms: Option<Vec<Type>> = (ann.split('|').map(str::trim))
+            .filter(|t| !matches!(*t, "null" | "undefined"))
+            .map(|t| {
+                a.ast
+                    .class_parents
+                    .contains_key(t)
+                    .then(|| Type::ClassRef(t.to_string()))
+            })
+            .collect();
+        arms.filter(|ts| ts.len() > 1).map(Type::Union)
+    }
+
+    /// Does class `c`, or a class it extends, declare a field or an
+    /// accessor `f`?
+    fn member_in_chain(&self, a: &Analysis<'_>, (c, f): (&str, &str)) -> bool {
+        let fields = &self.lookups(a).fields;
+        let mut cur = Some(c.split('<').next().unwrap_or(c));
+        while let Some(k) = cur {
+            if fields.contains_key(&(k.to_string(), f.to_string())) {
+                return true;
+            }
+            cur = a.ast.class_parents.get(k).and_then(|p| p.as_deref());
+        }
+        crate::ast::accessor_lookup::accessor_getter_in_chain(a.ast, c, f).is_some()
     }
 
     /// Does class `c`, or the class it extends, declare member `f` of a
@@ -76,6 +166,22 @@ impl Graph<'_> {
             return false;
         }
         self.lookups(a).returns_open(&g.fn_name)
+    }
+}
+
+/// Push the classes a method call on a receiver of type `t` may run
+/// the method of; false when an arm of `t` is no class instance. `?.`
+/// skips a `null` or `undefined` receiver.
+fn receiver_classes<'t>(t: &'t Type, out: &mut Vec<&'t str>) -> bool {
+    match t {
+        Type::ClassRef(c) => {
+            out.push(c.as_str());
+            true
+        }
+        Type::Nullable(t) => receiver_classes(t, out),
+        Type::Union(ts) => (ts.iter())
+            .all(|t| matches!(t, Type::Null | Type::Undefined) || receiver_classes(t, out)),
+        _ => false,
     }
 }
 

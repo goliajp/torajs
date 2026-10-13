@@ -18,8 +18,8 @@
 //! as any`), or a source of any kind: a parameter annotated `any`,
 //! `unknown` or not at all, a catch binding, a field or getter
 //! declared `any`, an element of an `any[]`, a member of such a value,
-//! a library call the checker types `any` for no argument of any kind
-//! (`JSON.parse(s)`, `m.get(k)`), a call of a function or method the
+//! a library call the checker types `any` (`JSON.parse(s)`,
+//! `m.get(k)`), a call of a function or method the
 //! program declares to return `any`, a call through a fn-typed slot of
 //! the boxed-entry census.
 //!
@@ -44,10 +44,14 @@ use crate::check::Type;
 use crate::num_width::hidden_any_calls::answers_any;
 use crate::num_width::{Analysis, Scope, SlotKey};
 
+mod calls;
 mod fn_values;
+mod kinds;
 mod lookups;
 mod members;
 
+use kinds::Kind;
+pub(super) use kinds::RetKinds;
 pub(super) use lookups::Lookups;
 
 impl Graph<'_> {
@@ -88,12 +92,12 @@ impl Graph<'_> {
             Read::Value => self.lookups(a).declared(sc.fn_name),
             Read::Members => None,
         };
-        let differs = |t: &Type| declared.as_ref().is_some_and(|d| d != t);
+        let differs = |k: Kind| self.differs((sc.fn_name, read), declared.as_ref(), k);
         match a.expr_types.get(&e) {
             // a hoisted `var` before its first store
             _ if matches!(a.ast.get_expr(e), Expr::Uninit) => return false,
             Some(Type::Any) => {}
-            Some(t) => return differs(t),
+            Some(t) => return differs(Kind::of(t)),
             None => return false,
         }
         if !seen.insert((e, read)) {
@@ -107,47 +111,9 @@ impl Graph<'_> {
             Expr::Call { args, .. } if answers_any(a, e) => {
                 args.iter().fold(false, |h, x| go(*x, read, from) | h)
             }
-            Expr::Call { callee, .. } if factory(a, *callee) => declared.is_some(),
+            Expr::Call { callee, .. } if factory(a, *callee) => differs(Kind::Other),
             Expr::Call { callee, .. } | Expr::OptCall { callee, .. } => {
-                match self.callees(a, sc, e, *callee) {
-                    Some(rets) => {
-                        let l = self.lookups(a);
-                        let open = (rets.iter())
-                            .any(|n| matches!(n, Node::RetAny(f) if l.returns_open(f)));
-                        from.extend(rets);
-                        open
-                    }
-                    // a binding typed with a typed return answers it, though
-                    // the checker typed the call `any` (a variadic value's
-                    // boxed entry); a method answers what its declaration
-                    // does; any other call the walk does not follow answers
-                    // what its callee declares, which the checker typed `any`
-                    None => match (
-                        self.typed_callee(a, sc, *callee),
-                        a.ast.get_expr(e),
-                        a.ast.get_expr(*callee),
-                    ) {
-                        (Some(r), ..) => differs(r),
-                        (
-                            None,
-                            Expr::Call { args, .. } | Expr::OptCall { args, .. },
-                            Expr::Member { obj, name } | Expr::OptChain { obj, name },
-                        ) => match a.expr_types.get(obj) {
-                            // a method of a value of any kind
-                            Some(Type::Any) => go(*obj, Read::Members, from),
-                            recv @ Some(Type::ClassRef(_) | Type::Union(_)) => {
-                                self.method_spelled_any(a, (recv, name), declared.as_ref(), from)
-                            }
-                            // a library method the checker types `any` for an
-                            // argument of any kind answers what it computes
-                            // from it (`Math.abs(x)`); one it types `any`
-                            // otherwise answers `any` by its own declaration
-                            // (`JSON.parse(s)`)
-                            _ => !args.iter().any(|x| a.expr_types.get(x) == Some(&Type::Any)),
-                        },
-                        _ => true,
-                    },
-                }
+                self.call_spelled_any((a, sc), (e, *callee), read, from, seen)
             }
             Expr::Ident(n) => {
                 let mut hit = false;
@@ -164,17 +130,20 @@ impl Graph<'_> {
             // that type declares
             Expr::Member { obj, name } | Expr::OptChain { obj, name } => {
                 match a.expr_types.get(obj) {
-                    Some(Type::Any) => go(*obj, Read::Members, from),
-                    Some(Type::Struct(fs)) => {
-                        let getter = format!("__getter_{name}");
-                        fs.iter().any(|(k, t)| match t {
-                            Type::Function(_, r) if k == getter.as_str() => **r == Type::Any,
-                            _ => k == name.as_str() && *t == Type::Any,
-                        })
+                    Some(Type::Any) => {
+                        let u = self.annotated_union(a, sc, *obj);
+                        let at = from.len();
+                        let hit = u.is_some_and(|u| self.field_spelled_any(a, (&u, name), from));
+                        self.hands_on((sc.fn_name, read), &from[at..]);
+                        hit | go(*obj, Read::Members, from)
                     }
-                    Some(Type::ClassRef(c)) => self.member_spelled_any(a, (c, name), from),
-                    // a member of a builtin value is typed by its library
-                    _ => false,
+                    Some(t) => {
+                        let at = from.len();
+                        let hit = self.field_spelled_any(a, (t, name), from);
+                        self.hands_on((sc.fn_name, read), &from[at..]);
+                        hit
+                    }
+                    None => false,
                 }
             }
             Expr::Index { obj, .. } | Expr::OptIndex { obj, .. } => match a.expr_types.get(obj) {
@@ -184,17 +153,17 @@ impl Graph<'_> {
             },
             // an object, which no declared scalar return is; its members
             // hold what it is built from
-            Expr::New { .. } | Expr::Closure { .. } => declared.is_some(),
+            Expr::New { .. } | Expr::Closure { .. } => differs(Kind::Other),
             Expr::ObjectLit { .. } | Expr::Array(_) | Expr::NewDynamic { .. }
-                if declared.is_some() =>
+                if differs(Kind::Other) =>
             {
                 true
             }
-            Expr::ObjectLit { fields } => fields
-                .iter()
-                .fold(false, |h, (_, v)| go(*v, read, from) | h),
-            Expr::Array(vs) => vs.iter().fold(false, |h, v| go(*v, read, from) | h),
-            Expr::NewDynamic { callee, .. } => go(*callee, read, from),
+            Expr::ObjectLit { fields } => {
+                (fields.iter()).fold(false, |h, (_, v)| go(*v, Read::Members, from) | h)
+            }
+            Expr::Array(vs) => (vs.iter()).fold(false, |h, v| go(*v, Read::Members, from) | h),
+            Expr::NewDynamic { callee, .. } => go(*callee, Read::Members, from),
             // a string when an operand is one, a number when both are
             Expr::BinOp {
                 op: BinOp::Add,
@@ -203,11 +172,11 @@ impl Graph<'_> {
             } => {
                 let ty = |x: &ExprId| a.expr_types.get(x);
                 let kind = match (ty(left), ty(right)) {
-                    (Some(Type::String), _) | (_, Some(Type::String)) => Some(Type::String),
-                    (Some(Type::Number), Some(Type::Number)) => Some(Type::Number),
+                    (Some(Type::String), _) | (_, Some(Type::String)) => Some(Kind::String),
+                    (Some(Type::Number), Some(Type::Number)) => Some(Kind::Number),
                     _ => None,
                 };
-                kind.is_some_and(|k| differs(&k))
+                kind.is_some_and(differs)
                     | go(*left, Read::Members, from)
                     | go(*right, Read::Members, from)
             }
@@ -225,25 +194,25 @@ impl Graph<'_> {
                 else_branch: right,
                 ..
             } => go(*left, read, from) | go(*right, read, from),
-            Expr::BinOp { op, .. } if compares(*op) => differs(&Type::Boolean),
+            Expr::BinOp { op, .. } if compares(*op) => differs(Kind::Boolean),
             Expr::Unary {
                 op: UnaryOp::Not, ..
             }
-            | Expr::InstanceOf { .. } => differs(&Type::Boolean),
-            Expr::TypeOf { .. } => differs(&Type::String),
+            | Expr::InstanceOf { .. } => differs(Kind::Boolean),
+            Expr::TypeOf { .. } => differs(Kind::String),
             // `+x` refuses a bigint
             Expr::Unary {
                 op: UnaryOp::Plus, ..
-            } => differs(&Type::Number),
+            } => differs(Kind::Number),
             // the other operators answer a number, or a bigint when an
             // operand of any kind may be one
             Expr::BinOp { left, right, .. } => {
-                differs(&Type::Number)
+                differs(Kind::Number)
                     | (declared.is_some()
                         && (go(*left, Read::Members, from) | go(*right, Read::Members, from)))
             }
             Expr::Unary { expr: x, .. } | Expr::PostIncr { target: x, .. } => {
-                differs(&Type::Number) | (declared.is_some() && go(*x, Read::Members, from))
+                differs(Kind::Number) | (declared.is_some() && go(*x, Read::Members, from))
             }
             Expr::Sequence { right: x, .. }
             | Expr::As { expr: x, .. }
