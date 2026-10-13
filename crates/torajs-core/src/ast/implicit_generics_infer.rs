@@ -28,6 +28,8 @@
 
 use super::{Expr, ExprId, Param, Stmt, UnaryOp, retag_field_fn_ann};
 
+mod ternary;
+
 /// Borrow-shaped view of `Ast.exprs` for the inference helper. Defined
 /// at the top of `desugar_implicit_generics` (just below) — `&[Expr]`
 /// indexed by `ExprId.0 as usize`. The pre-pass walks expression
@@ -371,14 +373,7 @@ pub(crate) fn infer_expr_ann_with(
         Expr::Call { callee, args } => super::implicit_generics_infer_call::infer_call_ann(
             exprs, *callee, args, params, binds, fn_sigs,
         ),
-        Expr::Ternary {
-            then_branch,
-            else_branch,
-            ..
-        } => {
-            let (a, b) = (recur(*then_branch)?, recur(*else_branch)?);
-            if a == b { Some(a) } else { Some("any".into()) }
-        }
+        Expr::Ternary { .. } => ternary::ternary_ann(exprs, eid, &recur),
         // Heterogeneous literals widen to `any[]` (mirrors the
         // checker's T-10.c anchor widening — answering the first
         // element's type for `["use", x]` stamps a `string[]` ret the
