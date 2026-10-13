@@ -9,6 +9,8 @@
 use super::var_hoist_recurse::hoist_recurse_stmt;
 use super::{Expr, ExprId, Stmt};
 
+mod destr_params;
+
 /// RFC 20260912-global-var-cell — how a script's top-level `var` name
 /// reached the global object, which decides the property's
 /// attributes (§9.1.1.4.17 vs §9.1.1.4.6).
@@ -139,10 +141,13 @@ pub fn desugar_var_hoist(ast: &mut super::Ast) {
     // ride along — §10.2.11 step 28 gives a `var` that re-declares a
     // parameter the parameter's own binding (initialized from it),
     // so `function f(a = 0) { var a; }` declares nothing new.
+    // A destructuring parameter's names ride along too (`destr_params`).
     for stmt in top.iter_mut() {
         if let Stmt::FnDecl { body, params, .. } = stmt {
-            let names: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
+            let mut names: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
+            names.extend(destr_params::names(ast, body));
             hoist_vars_in_block(body, &mut ast.exprs, &names);
+            destr_params::make_written_mutable(ast, body);
         }
     }
     ast.stmts = top;
