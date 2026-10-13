@@ -6,16 +6,17 @@ use crate::dead_strip_elide::Guard;
 use crate::dead_strip_reach::{MemberReach, ReachResult};
 
 /// Is the guard's evidence live? `Member`: any text atom of a
-/// matching member, other than the atoms anchored by an ignored
-/// symbol (members outside the closure are absent from the map, so
-/// they answer `false`; a flag-rooted `all_live` text section
+/// matching member, other than the atoms every name of which is an
+/// ignored symbol (members outside the closure are absent from the
+/// map, so they answer `false`; a flag-rooted `all_live` text section
 /// answers `true` without looking at names). `Symbols`: any live
-/// text atom, in any member, anchored by one of the names.
+/// text atom, in any member, that holds one of the names.
 ///
-/// Every defined row's address starts an atom and an atom's anchor
-/// is a row at its own start (or none, for the leading gap), so both
-/// arms look names up by address instead of scanning the nlist per
-/// atom.
+/// A name belongs to the atom that covers its address. In an object
+/// with `MH_SUBSECTIONS_VIA_SYMBOLS` every defined row starts an
+/// atom; in any other a section is one atom and its rows sit
+/// anywhere inside it. Both arms look the names up by address
+/// instead of scanning the nlist per atom.
 pub(crate) fn guard_live(reach: &ReachResult<'_>, guard: &Guard) -> bool {
     let mut at: Vec<(u8, u64)> = Vec::new();
     match guard {
@@ -32,9 +33,9 @@ pub(crate) fn guard_live(reach: &ReachResult<'_>, guard: &Guard) -> bool {
                     let sect = (si + 1) as u8;
                     s.is_text
                         && (s.all_live
-                            || s.atoms.iter().zip(&s.live).any(|(&(start, _), &l)| {
-                                l && !(at.contains(&(sect, start))
-                                    && anchor_all_named(m, sect, start, ignore))
+                            || s.atoms.iter().zip(&s.live).any(|(&atom, &l)| {
+                                l && !(at.iter().any(|&(n, v)| n == sect && covers(atom, v))
+                                    && atom_all_named(m, sect, atom, ignore))
                             }))
                 })
             }),
@@ -47,8 +48,10 @@ pub(crate) fn guard_live(reach: &ReachResult<'_>, guard: &Guard) -> bool {
                 let Some(s) = (sect as usize).checked_sub(1).and_then(|i| m.sects.get(i)) else {
                     return false;
                 };
-                let i = s.atoms.partition_point(|&(a, _)| a < start);
-                s.is_text && s.atoms.get(i).is_some_and(|&(a, _)| a == start) && s.live[i]
+                let i = s.atoms.partition_point(|&(a, _)| a <= start);
+                s.is_text
+                    && i.checked_sub(1)
+                        .is_some_and(|i| covers(s.atoms[i], start) && s.live[i])
             })
         }),
     }
@@ -69,42 +72,43 @@ fn name_positions(m: &MemberReach<'_>, name: &str, out: &mut Vec<(u8, u64)>) {
     }
 }
 
-/// Every defined symbol anchored at `start`'s atom — the nearest
-/// `n_value <= start` in this section, and ALL the names that share
-/// it. One atom can carry several names: LLVM's MergeFunctions
-/// aliases identical bodies onto one address (`__torajs_closure_
-/// props_attach` / `__torajs_obj_props_attach` are both
-/// `str x1, [x0, #24]; ret`), and rustc emits `ltmp` labels beside
-/// the real name. A judgment that read only one of them answered
-/// "dead" for the other writer while its atom was live — the
-/// release-only `closure props drop stripped` reject (r506).
-fn anchor_names<'m>(
+/// Does the atom hold an address? An empty atom (a row at the
+/// section's end) holds the address it sits at.
+fn covers((start, end): (u64, u64), v: u64) -> bool {
+    start <= v && (v < end || v == start)
+}
+
+/// Every defined symbol inside the atom `[start, end)` of section
+/// `n_sect`. One atom can carry several names at one address: LLVM's
+/// MergeFunctions aliases identical bodies onto one address
+/// (`__torajs_closure_props_attach` / `__torajs_obj_props_attach` are
+/// both `str x1, [x0, #24]; ret`), and rustc emits `ltmp` labels
+/// beside the real name. A judgment that read only one of them
+/// answered "dead" for the other writer while its atom was live — the
+/// release-only `closure props drop stripped` reject (r506). An atom
+/// of an object without subsections-via-symbols is the whole section
+/// and carries every name in it.
+fn atom_names<'m>(
     m: &'m MemberReach<'_>,
     n_sect: u8,
-    start: u64,
+    atom: (u64, u64),
 ) -> impl Iterator<Item = &'m str> {
     use torajs_obj::{N_SECT, N_TYPE};
-    let anchor = m
-        .nlist
-        .iter()
-        .filter(|n| n.n_type & N_TYPE == N_SECT && n.n_sect == n_sect && n.n_value <= start)
-        .map(|n| n.n_value)
-        .max();
     m.nlist
         .iter()
         .filter(move |n| {
-            n.n_type & N_TYPE == N_SECT && n.n_sect == n_sect && Some(n.n_value) == anchor
+            n.n_type & N_TYPE == N_SECT && n.n_sect == n_sect && covers(atom, n.n_value)
         })
         .map(|n| n.name)
 }
 
 /// Are ALL of the atom's names in `names`? The `Member` guard's
 /// ignore test — an atom is only "just the writer entry" when every
-/// name it carries is one; a merged non-writer body counts as
-/// member liveness.
-fn anchor_all_named(m: &MemberReach<'_>, n_sect: u8, start: u64, names: &[String]) -> bool {
+/// name it carries is one; a merged non-writer body, or other code
+/// sharing the writer's one-atom section, counts as member liveness.
+fn atom_all_named(m: &MemberReach<'_>, n_sect: u8, atom: (u64, u64), names: &[String]) -> bool {
     let mut any = false;
-    for a in anchor_names(m, n_sect, start) {
+    for a in atom_names(m, n_sect, atom) {
         any = true;
         if !names.iter().any(|i| i == a) {
             return false;
@@ -169,10 +173,10 @@ mod tests {
         let all: Vec<String> = names.iter().map(|s| s.to_string()).collect();
         // Ignore-list semantics: the atom is "just the writer" only
         // when every name it carries is ignored.
-        assert!(!anchor_all_named(&m, 1, 0x4800, &closure));
-        assert!(anchor_all_named(&m, 1, 0x4800, &all));
-        // An atom with no anchoring symbol is never "all named".
-        assert!(!anchor_all_named(&m, 1, 0x4000, &all));
+        assert!(!atom_all_named(&m, 1, (0x4800, 0x5000), &closure));
+        assert!(atom_all_named(&m, 1, (0x4800, 0x5000), &all));
+        // An atom with no symbol in it is never "all named".
+        assert!(!atom_all_named(&m, 1, (0x4000, 0x4800), &all));
 
         let reach = ReachResult {
             members: [((0, 0), m)].into_iter().collect(),
@@ -235,5 +239,56 @@ mod tests {
             ignore: vec!["w".into()],
         };
         assert!(!guard_live(&reach, &member));
+    }
+
+    /// An object without subsections-via-symbols is one atom per
+    /// section, so a name past the section's start belongs to that
+    /// atom, and an ignored name at the start does not make the whole
+    /// section "just the writer".
+    #[test]
+    fn a_name_inside_a_whole_section_atom_answers_for_it() {
+        use crate::archive::ArMember;
+        use crate::dead_strip_reach_build::build_member_reach;
+        use torajs_codegen::CompiledFunction;
+        use torajs_codegen::frame::FrameLayout;
+        let leaf = |name: &str| CompiledFunction {
+            name: name.into(),
+            bytes: vec![0xC0, 0x03, 0x5F, 0xD6],
+            relocs: Vec::new(),
+            frame: FrameLayout::leaf_no_spill(),
+        };
+        let obj = torajs_obj::write_object(&[leaf("_head"), leaf("_inner")]);
+        let member = ArMember {
+            name: "x.o",
+            data: &obj,
+        };
+        let reach_with = |live: bool| {
+            let mut m = build_member_reach(&member).unwrap();
+            let text = m.sects.iter_mut().find(|s| s.is_text).unwrap();
+            assert_eq!(text.atoms.len(), 1);
+            text.live[0] = live;
+            ReachResult {
+                members: [((0, 0), m)].into_iter().collect(),
+                unresolved: Default::default(),
+                user_refs: Default::default(),
+                preds: Default::default(),
+            }
+        };
+        let names = |n: &[&str]| n.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let member_guard = |ignore: &[&str]| Guard::Member {
+            prefix: "x".into(),
+            ignore: names(ignore),
+        };
+
+        let live = reach_with(true);
+        assert!(guard_live(&live, &Guard::Symbols(names(&["_inner"]))));
+        assert!(guard_live(&live, &Guard::Symbols(names(&["_head"]))));
+        assert!(guard_live(&live, &member_guard(&["_head"])));
+        assert!(guard_live(&live, &member_guard(&["_inner"])));
+        assert!(!guard_live(&live, &member_guard(&["_head", "_inner"])));
+
+        let dead = reach_with(false);
+        assert!(!guard_live(&dead, &Guard::Symbols(names(&["_inner"]))));
+        assert!(!guard_live(&dead, &member_guard(&[])));
     }
 }

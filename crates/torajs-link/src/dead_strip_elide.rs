@@ -82,12 +82,12 @@ use crate::user_gc;
 pub enum Guard {
     /// Archive members whose name starts with `prefix`
     /// (`torajs_cycle-` covers every cgu of that crate), ignoring
-    /// atoms anchored by a symbol in `ignore` — the member's entry
+    /// atoms whose every symbol is in `ignore` — the member's entry
     /// points that can never matter (a drop, a printer, the hook
     /// being shadowed). An unlisted entry keeps the shape
     /// un-assumed, the safe direction.
     Member { prefix: String, ignore: Vec<String> },
-    /// Any live text atom, in any member, anchored by one of these
+    /// Any live text atom, in any member, that holds one of these
     /// defined symbols (exact Mach-O names). For a slow path whose
     /// only enablers are a few named entries of an otherwise-live
     /// member.

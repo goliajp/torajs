@@ -9,7 +9,7 @@ use std::sync::OnceLock;
 use torajs_codegen::CompiledFunction;
 use torajs_codegen::frame::FrameLayout;
 use torajs_link::runtime_prestrip::{prestrip_image, prestripped_runtime_image};
-use torajs_obj::MH_SUBSECTIONS_VIA_SYMBOLS;
+use torajs_obj::{MH_SUBSECTIONS_VIA_SYMBOLS, MachHeader64};
 use torajs_rtimage::archive::{ArMember, parse_member_defined_externs};
 use torajs_rtimage::image::Image;
 use torajs_rtimage::prune::nameable_by_program;
@@ -76,19 +76,26 @@ fn every_member_without_subsections_is_kept_as_it_is() {
         Image::parse(original()).unwrap(),
         Image::parse(stripped()).unwrap(),
     );
-    let mut checked = 0;
+    let (mut without, mut checked) = (0, 0);
     for a in 0..before.archive_count() {
         let kept: BTreeMap<&str, &[u8]> = after.members(a).map(|m| (m.name, m.data)).collect();
         for m in before.members(a) {
-            let flags = u32::from_le_bytes(m.data[24..28].try_into().unwrap());
-            if flags & MH_SUBSECTIONS_VIA_SYMBOLS == 0
-                && let Some(data) = kept.get(m.name)
-            {
+            let header = MachHeader64::parse(m.data)
+                .unwrap_or_else(|| panic!("{}: not a 64-bit Mach-O object", m.name));
+            if header.splits_at_symbols() {
+                continue;
+            }
+            without += 1;
+            if let Some(data) = kept.get(m.name) {
                 assert!(*data == m.data, "{} changed", m.name);
                 checked += 1;
             }
         }
     }
+    // none of them is dropped either: the image builder keeps a
+    // member while anything imports it, and stripping only removes
+    // imports of the members it cuts
+    assert_eq!(checked, without, "a member without subsections dropped");
     eprintln!("{checked} members without subsections checked");
 }
 
@@ -108,13 +115,13 @@ fn leaf(name: &str) -> CompiledFunction {
 /// one), with or without `MH_SUBSECTIONS_VIA_SYMBOLS`.
 fn head_and_tail(subsections: bool) -> Vec<u8> {
     let mut obj = torajs_obj::write_object(&[leaf("_head"), leaf(TAIL)]);
-    let flags = u32::from_le_bytes(obj[24..28].try_into().unwrap());
-    let flags = if subsections {
-        flags | MH_SUBSECTIONS_VIA_SYMBOLS
+    let mut header = MachHeader64::parse(&obj).unwrap();
+    if subsections {
+        header.flags |= MH_SUBSECTIONS_VIA_SYMBOLS;
     } else {
-        flags & !MH_SUBSECTIONS_VIA_SYMBOLS
-    };
-    obj[24..28].copy_from_slice(&flags.to_le_bytes());
+        header.flags &= !MH_SUBSECTIONS_VIA_SYMBOLS;
+    }
+    header.write_over(&mut obj);
     obj
 }
 

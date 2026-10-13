@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use torajs_obj::{MH_SUBSECTIONS_VIA_SYMBOLS, N_SECT, N_TYPE, NLIST_64_SIZE};
+use torajs_obj::{MachHeader64, N_SECT, N_TYPE, NLIST_64_SIZE};
 
 use crate::archive::ArMember;
 use crate::dead_strip_reach::{MemberReach, NlEntry, SectAtoms};
@@ -114,8 +114,7 @@ pub(crate) fn build_member_reach<'a>(member: &ArMember<'a>) -> Result<MemberReac
 /// Whether the object `bytes` declares `MH_SUBSECTIONS_VIA_SYMBOLS`,
 /// so its sections may be cut at any symbol.
 pub(crate) fn splits_at_symbols(bytes: &[u8]) -> bool {
-    bytes.len() >= 28
-        && u32::from_le_bytes(bytes[24..28].try_into().unwrap()) & MH_SUBSECTIONS_VIA_SYMBOLS != 0
+    MachHeader64::parse(bytes).is_some_and(|h| h.splits_at_symbols())
 }
 
 /// Trim trailing NUL/space padding off a raw 16-byte name slot.
@@ -162,8 +161,9 @@ mod tests {
         assert!(!splits_at_symbols(&obj));
         assert_eq!(text_atoms(&obj), [(0, 12)]);
 
-        let flags = u32::from_le_bytes(obj[24..28].try_into().unwrap());
-        obj[24..28].copy_from_slice(&(flags | MH_SUBSECTIONS_VIA_SYMBOLS).to_le_bytes());
+        let mut header = MachHeader64::parse(&obj).unwrap();
+        header.flags |= torajs_obj::MH_SUBSECTIONS_VIA_SYMBOLS;
+        header.write_over(&mut obj);
         assert!(splits_at_symbols(&obj));
         assert_eq!(text_atoms(&obj), [(0, 4), (4, 8), (8, 12)]);
     }

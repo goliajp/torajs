@@ -85,6 +85,39 @@ impl MachHeader64 {
         }
     }
 
+    /// Read the header `bytes` start with: `None` when they are shorter
+    /// than [`Self::SIZE`] or do not open with [`MH_MAGIC_64`].
+    pub fn parse(bytes: &[u8]) -> Option<Self> {
+        let field = |i: usize| u32::from_le_bytes(bytes[i * 4..i * 4 + 4].try_into().unwrap());
+        if bytes.len() < Self::SIZE || field(0) != MH_MAGIC_64 {
+            return None;
+        }
+        Some(Self {
+            magic: field(0),
+            cputype: field(1),
+            cpusubtype: field(2),
+            filetype: field(3),
+            ncmds: field(4),
+            sizeofcmds: field(5),
+            flags: field(6),
+            reserved: field(7),
+        })
+    }
+
+    /// Whether the object may be cut at its symbols
+    /// ([`MH_SUBSECTIONS_VIA_SYMBOLS`]).
+    pub fn splits_at_symbols(&self) -> bool {
+        self.flags & MH_SUBSECTIONS_VIA_SYMBOLS != 0
+    }
+
+    /// Overwrite the first [`Self::SIZE`] bytes of `bytes` with this
+    /// header.
+    pub fn write_over(&self, bytes: &mut [u8]) {
+        let mut buf = Vec::with_capacity(Self::SIZE);
+        self.write_to(&mut buf);
+        bytes[..Self::SIZE].copy_from_slice(&buf);
+    }
+
     /// Append the 32-byte little-endian on-disk form to `buf`.
     pub fn write_to(&self, buf: &mut Vec<u8>) {
         let start = buf.len();
@@ -164,6 +197,33 @@ mod tests {
         assert_eq!(&buf[24..28], &[0x00, 0x20, 0x00, 0x00]);
         // reserved still 0 @ 28..32
         assert_eq!(&buf[28..32], &[0x00, 0x00, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn parse_reads_back_what_write_to_wrote() {
+        let mut header = MachHeader64::arm64_object();
+        header.ncmds = 3;
+        header.flags = MH_SUBSECTIONS_VIA_SYMBOLS;
+        let mut buf = Vec::new();
+        header.write_to(&mut buf);
+        assert_eq!(MachHeader64::parse(&buf), Some(header));
+        assert!(header.splits_at_symbols());
+        assert!(!MachHeader64::arm64_object().splits_at_symbols());
+
+        header.flags = 0;
+        header.write_over(&mut buf);
+        assert_eq!(MachHeader64::parse(&buf), Some(header));
+    }
+
+    /// A short buffer or another magic is not a 64-bit Mach-O header.
+    #[test]
+    fn parse_rejects_short_or_foreign_bytes() {
+        let mut buf = Vec::new();
+        MachHeader64::arm64_object().write_to(&mut buf);
+        assert_eq!(MachHeader64::parse(&buf[..31]), None);
+        buf[0] ^= 1;
+        assert_eq!(MachHeader64::parse(&buf), None);
+        assert_eq!(MachHeader64::parse(b"!<arch>\n"), None);
     }
 
     #[test]
