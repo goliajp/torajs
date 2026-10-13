@@ -51,7 +51,7 @@ unsafe fn str_view<'a>(p: *const u8) -> (&'a [u8], u32, bool) {
 /// Single byte test — LLVM lowers to a small jump-table or
 /// branchless compare-chain at `-O3`.
 #[inline]
-pub fn is_trim_ws(c: u8) -> bool {
+pub const fn is_trim_ws(c: u8) -> bool {
     matches!(c, b'\t'..=b'\r' | b' ' | 0xa0)
 }
 

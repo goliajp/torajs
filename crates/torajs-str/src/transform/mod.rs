@@ -32,3 +32,4 @@ pub mod replace;
 pub mod replace_fn;
 pub mod replace_subst;
 pub mod trim;
+pub mod trim_table;
