@@ -94,6 +94,96 @@ pub fn ins_d1_d0(rd: Fpr, rn: Fpr) -> u32 {
     0x6E18_0400 | (rn.idx() << 5) | rd.idx()
 }
 
+/// FMUL / FSUB Vd.2D, Vn.2D, Vm.2D — lane-wise f64 multiply and
+/// subtract. ARM ARM C7.2.136 / C7.2.157 (Q=1, sz=1). Bases
+/// 0x6E60_DC00 and 0x4EE0_D400.
+pub fn fmul_v2d(rd: Fpr, rn: Fpr, rm: Fpr) -> u32 {
+    0x6E60_DC00 | (rm.idx() << 16) | (rn.idx() << 5) | rd.idx()
+}
+
+pub fn fsub_v2d(rd: Fpr, rn: Fpr, rm: Fpr) -> u32 {
+    0x4EE0_D400 | (rm.idx() << 16) | (rn.idx() << 5) | rd.idx()
+}
+
+/// SUB Vd.2D, Vn.2D, Vm.2D — lane-wise i64 subtract. ARM ARM
+/// C7.2.341 (Q=1, size=11). Base = 0x6EE0_8400.
+pub fn sub_v2d(rd: Fpr, rn: Fpr, rm: Fpr) -> u32 {
+    0x6EE0_8400 | (rm.idx() << 16) | (rn.idx() << 5) | rd.idx()
+}
+
+/// FCMGT / FCMGE Vd.2D, Vn.2D, Vm.2D — each lane all ones where the
+/// f64 lanes compare `n > m` / `n >= m` (NaN never does), else zero.
+/// ARM ARM C7.2.62 / C7.2.60 (register, Q=1, sz=1). Bases 0x6EE0_E400
+/// and 0x6E60_E400.
+pub fn fcmgt_v2d(rd: Fpr, rn: Fpr, rm: Fpr) -> u32 {
+    0x6EE0_E400 | (rm.idx() << 16) | (rn.idx() << 5) | rd.idx()
+}
+
+pub fn fcmge_v2d(rd: Fpr, rn: Fpr, rm: Fpr) -> u32 {
+    0x6E60_E400 | (rm.idx() << 16) | (rn.idx() << 5) | rd.idx()
+}
+
+/// CMEQ / CMGT / CMGE Vd.2D, Vn.2D, Vm.2D — each lane all ones where
+/// the signed i64 lanes compare `n == m` / `n > m` / `n >= m`, else
+/// zero. ARM ARM C7.2.29 / C7.2.33 / C7.2.31 (register, Q=1,
+/// size=11). Bases 0x6EE0_8C00, 0x4EE0_3400 and 0x4EE0_3C00.
+pub fn cmeq_v2d(rd: Fpr, rn: Fpr, rm: Fpr) -> u32 {
+    0x6EE0_8C00 | (rm.idx() << 16) | (rn.idx() << 5) | rd.idx()
+}
+
+pub fn cmgt_v2d(rd: Fpr, rn: Fpr, rm: Fpr) -> u32 {
+    0x4EE0_3400 | (rm.idx() << 16) | (rn.idx() << 5) | rd.idx()
+}
+
+pub fn cmge_v2d(rd: Fpr, rn: Fpr, rm: Fpr) -> u32 {
+    0x4EE0_3C00 | (rm.idx() << 16) | (rn.idx() << 5) | rd.idx()
+}
+
+/// BIC Vd.16B, Vn.16B, Vm.16B — `n & !m` of the full register. ARM
+/// ARM C7.2.20. Base = 0x4E60_1C00.
+pub fn bic_v16b(rd: Fpr, rn: Fpr, rm: Fpr) -> u32 {
+    0x4E60_1C00 | (rm.idx() << 16) | (rn.idx() << 5) | rd.idx()
+}
+
+/// BSL Vd.16B, Vn.16B, Vm.16B — bitwise select: Vd holds the mask on
+/// entry and takes Vn's bits where it is set, Vm's where clear. ARM
+/// ARM C7.2.23. Base = 0x6E60_1C00.
+pub fn bsl_v16b(rd: Fpr, rn: Fpr, rm: Fpr) -> u32 {
+    0x6E60_1C00 | (rm.idx() << 16) | (rn.idx() << 5) | rd.idx()
+}
+
+/// BIT Vd.16B, Vn.16B, Vm.16B — insert Vn's bits into Vd where the
+/// mask Vm is set. ARM ARM C7.2.22. Base = 0x6EA0_1C00.
+pub fn bit_v16b(rd: Fpr, rn: Fpr, rm: Fpr) -> u32 {
+    0x6EA0_1C00 | (rm.idx() << 16) | (rn.idx() << 5) | rd.idx()
+}
+
+/// BIF Vd.16B, Vn.16B, Vm.16B — insert Vn's bits into Vd where the
+/// mask Vm is clear. ARM ARM C7.2.21. Base = 0x6EE0_1C00.
+pub fn bif_v16b(rd: Fpr, rn: Fpr, rm: Fpr) -> u32 {
+    0x6EE0_1C00 | (rm.idx() << 16) | (rn.idx() << 5) | rd.idx()
+}
+
+/// EXT Vd.16B, Vn.16B, Vm.16B, #8 — the high D lane of Vn then the
+/// low D lane of Vm. ARM ARM C7.2.45 (Q=1, imm4=8). Base =
+/// 0x6E00_4000.
+pub fn ext_v16b_8(rd: Fpr, rn: Fpr, rm: Fpr) -> u32 {
+    0x6E00_4000 | (rm.idx() << 16) | (rn.idx() << 5) | rd.idx()
+}
+
+/// MOVI Vd.2D, #0xffffffffffffffff — both lanes all ones. ARM ARM
+/// C7.2.204 (64-bit variant, imm8 = 0xff). Base = 0x6F07_E7E0.
+pub fn movi_2d_ones(rd: Fpr) -> u32 {
+    0x6F07_E7E0 | rd.idx()
+}
+
+/// DUP Dd, Vn.D[1] (the `mov d, v.d[1]` alias) — the high D lane into
+/// a scalar register, the rest of Vd cleared. ARM ARM C7.2.41 (scalar,
+/// imm5 = 11000). Base = 0x5E18_0400.
+pub fn dup_d_d1(rd: Fpr, rn: Fpr) -> u32 {
+    0x5E18_0400 | (rn.idx() << 5) | rd.idx()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -151,5 +241,34 @@ mod tests {
         assert_eq!(fcmeq_v2d(Fpr::V7, Fpr::V16, Fpr::V29), 0x4E7D_E607);
         assert_eq!(and_v16b(Fpr::V1, Fpr::V2, Fpr::V3), 0x4E23_1C41);
         assert_eq!(and_v16b(Fpr::V7, Fpr::V16, Fpr::V29), 0x4E3D_1E07);
+    }
+
+    // clang golden words for the escape-time lane forms:
+    //   fmul.2d v1, v2, v3      6e63dc41    fmul.2d v7, v16, v29    6e7dde07
+    //   fsub.2d v1, v2, v3      4ee3d441    sub.2d v7, v16, v29     6efd8607
+    //   fcmgt.2d v7, v16, v29   6efde607    fcmge.2d v1, v2, v3     6e63e441
+    //   cmgt.2d v7, v16, v29    4efd3607    cmge.2d v1, v2, v3      4ee33c41
+    //   cmeq.2d v1, v2, v3      6ee38c41    bic.16b v7, v16, v29    4e7d1e07
+    //   bsl.16b v7, v16, v29    6e7d1e07    bit.16b v1, v2, v3      6ea31c41
+    //   bif.16b v1, v2, v3      6ee31c41    ext.16b v7, v16, v29, #8  6e1d4207
+    //   movi.2d v22, #0xffffffffffffffff  6f07e7f6    mov d7, v29.d[1]  5e1807a7
+    #[test]
+    fn escape_time_lane_forms_match_clang() {
+        assert_eq!(fmul_v2d(Fpr::V1, Fpr::V2, Fpr::V3), 0x6E63_DC41);
+        assert_eq!(fmul_v2d(Fpr::V7, Fpr::V16, Fpr::V29), 0x6E7D_DE07);
+        assert_eq!(fsub_v2d(Fpr::V1, Fpr::V2, Fpr::V3), 0x4EE3_D441);
+        assert_eq!(sub_v2d(Fpr::V7, Fpr::V16, Fpr::V29), 0x6EFD_8607);
+        assert_eq!(fcmgt_v2d(Fpr::V7, Fpr::V16, Fpr::V29), 0x6EFD_E607);
+        assert_eq!(fcmge_v2d(Fpr::V1, Fpr::V2, Fpr::V3), 0x6E63_E441);
+        assert_eq!(cmgt_v2d(Fpr::V7, Fpr::V16, Fpr::V29), 0x4EFD_3607);
+        assert_eq!(cmge_v2d(Fpr::V1, Fpr::V2, Fpr::V3), 0x4EE3_3C41);
+        assert_eq!(cmeq_v2d(Fpr::V1, Fpr::V2, Fpr::V3), 0x6EE3_8C41);
+        assert_eq!(bic_v16b(Fpr::V7, Fpr::V16, Fpr::V29), 0x4E7D_1E07);
+        assert_eq!(bsl_v16b(Fpr::V7, Fpr::V16, Fpr::V29), 0x6E7D_1E07);
+        assert_eq!(bit_v16b(Fpr::V1, Fpr::V2, Fpr::V3), 0x6EA3_1C41);
+        assert_eq!(bif_v16b(Fpr::V1, Fpr::V2, Fpr::V3), 0x6EE3_1C41);
+        assert_eq!(ext_v16b_8(Fpr::V7, Fpr::V16, Fpr::V29), 0x6E1D_4207);
+        assert_eq!(movi_2d_ones(Fpr::V22), 0x6F07_E7F6);
+        assert_eq!(dup_d_d1(Fpr::V7, Fpr::V29), 0x5E18_07A7);
     }
 }

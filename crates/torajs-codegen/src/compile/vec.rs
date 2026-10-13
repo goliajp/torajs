@@ -10,12 +10,14 @@ use torajs_core::ssa::{Inst, Operand, ValueId, VecInst, VecOp, VecShape};
 use super::operand::{materialize_operand_fpr, materialize_operand_gpr};
 use super::{
     FP_SCRATCH_LHS, FP_SCRATCH_RESULT, FP_SCRATCH_RHS, OP_SCRATCH_LHS, OP_SCRATCH_RESULT_GPR,
-    OP_SCRATCH_RHS, OP_SCRATCH_TMP, write_def_spill_gpr, write_u32,
+    OP_SCRATCH_RHS, OP_SCRATCH_TMP, write_def_spill_fpr, write_def_spill_gpr, write_u32,
 };
 use crate::enc::{
-    add_imm, add_v2d, addp_d_v2d, and_v16b, dup_2d_d, dup_2d_x, fadd_v2d, fcmeq_v2d, fcvtzs_v2d,
-    fdiv_v2d, fmov_d_from_x, fmov_x_from_d, frintz_v2d, ins_d1_d0, ins_d1_x, ldr_q_imm12,
-    ldur_q_imm9, mov_d_reg, movi_2d_zero, orr_reg, orr_v16b, str_q_imm12, stur_q_imm9, umov_x_d,
+    add_imm, add_v2d, addp_d_v2d, and_v16b, bic_v16b, bif_v16b, bit_v16b, bsl_v16b, cmeq_v2d,
+    cmge_v2d, cmgt_v2d, dup_2d_d, dup_2d_x, dup_d_d1, ext_v16b_8, fadd_v2d, fcmeq_v2d, fcmge_v2d,
+    fcmgt_v2d, fcvtzs_v2d, fdiv_v2d, fmov_d_from_x, fmov_x_from_d, fmul_v2d, frintz_v2d, fsub_v2d,
+    ins_d1_d0, ins_d1_x, ldr_q_imm12, ldur_q_imm9, mov_d_reg, movi_2d_ones, movi_2d_zero, orr_reg,
+    orr_v16b, str_q_imm12, stur_q_imm9, sub_v2d, umov_x_d,
 };
 use crate::reg::{Fpr, Gpr, Reg};
 use crate::regalloc::Assignment;
@@ -92,6 +94,9 @@ pub(super) fn emit_vec(bytes: &mut Vec<u8>, inst: &Inst, vi: &VecInst, alloc: &A
         VecInst::Splat(_, Operand::ConstI64(0)) => {
             write_u32(bytes, movi_2d_zero(vec_home(alloc, result)));
         }
+        VecInst::Splat(VecShape::I64x2, Operand::ConstI64(-1)) => {
+            write_u32(bytes, movi_2d_ones(vec_home(alloc, result)));
+        }
         VecInst::Splat(VecShape::F64x2, scalar) => {
             let src = materialize_operand_fpr(bytes, scalar, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
             write_u32(bytes, dup_2d_d(vec_home(alloc, result), src));
@@ -133,11 +138,55 @@ pub(super) fn emit_vec(bytes: &mut Vec<u8>, inst: &Inst, vi: &VecInst, alloc: &A
             let src = vec_operand(alloc, v);
             write_u32(bytes, frintz_v2d(vec_home(alloc, result), src));
         }
+        // an f64 lane: lane 0 is the register's own D view, lane 1
+        // the scalar dup
+        VecInst::Lane(k, v) if matches!(alloc.of(result), Reg::Fpr(_) | Reg::SpillFpr(_)) => {
+            let src = vec_operand(alloc, v);
+            let (dst, spill) = alloc.def_fpr(result, FP_SCRATCH_RESULT);
+            match k {
+                0 if dst == src => {}
+                0 => write_u32(bytes, mov_d_reg(dst, src)),
+                _ => write_u32(bytes, dup_d_d1(dst, src)),
+            }
+            write_def_spill_fpr(bytes, spill, dst);
+        }
         VecInst::Lane(k, v) => {
             let src = vec_operand(alloc, v);
             let (dst, spill) = alloc.def_gpr(result, OP_SCRATCH_RESULT_GPR);
             write_u32(bytes, umov_x_d(dst, src, u32::from(*k)));
             write_def_spill_gpr(bytes, spill, dst);
+        }
+        VecInst::AnyLane(v) => {
+            let src = vec_operand(alloc, v);
+            let (dst, spill) = alloc.def_gpr(result, OP_SCRATCH_RESULT_GPR);
+            write_u32(bytes, addp_d_v2d(FP_SCRATCH_RESULT, src));
+            write_u32(bytes, fmov_x_from_d(dst, FP_SCRATCH_RESULT));
+            write_def_spill_gpr(bytes, spill, dst);
+        }
+        // the mask register is the one bsl rewrites; with the result
+        // elsewhere, the insert forms keep the arm the result shares a
+        // register with
+        VecInst::Select(m, a, b) => {
+            let (m, a, b) = (
+                vec_operand(alloc, m),
+                vec_operand(alloc, a),
+                vec_operand(alloc, b),
+            );
+            let dst = vec_home(alloc, result);
+            if dst == m {
+                write_u32(bytes, bsl_v16b(dst, a, b));
+            } else if dst == a {
+                write_u32(bytes, bif_v16b(dst, b, m));
+            } else if dst == b {
+                write_u32(bytes, bit_v16b(dst, a, m));
+            } else {
+                write_u32(bytes, mov_d_reg(dst, m));
+                write_u32(bytes, bsl_v16b(dst, a, b));
+            }
+        }
+        VecInst::Ext(a, b) => {
+            let (ra, rb) = (vec_operand(alloc, a), vec_operand(alloc, b));
+            write_u32(bytes, ext_v16b_8(vec_home(alloc, result), ra, rb));
         }
         VecInst::BinOp(op, a, b) => {
             let (ra, rb) = (vec_operand(alloc, a), vec_operand(alloc, b));
@@ -146,11 +195,20 @@ pub(super) fn emit_vec(bytes: &mut Vec<u8>, inst: &Inst, vi: &VecInst, alloc: &A
                 bytes,
                 match op {
                     VecOp::Add => add_v2d(dst, ra, rb),
+                    VecOp::Sub => sub_v2d(dst, ra, rb),
                     VecOp::And => and_v16b(dst, ra, rb),
+                    VecOp::AndNot => bic_v16b(dst, ra, rb),
                     VecOp::Or => orr_v16b(dst, ra, rb),
                     VecOp::FAdd => fadd_v2d(dst, ra, rb),
+                    VecOp::FSub => fsub_v2d(dst, ra, rb),
+                    VecOp::FMul => fmul_v2d(dst, ra, rb),
                     VecOp::FDiv => fdiv_v2d(dst, ra, rb),
                     VecOp::FCmEq => fcmeq_v2d(dst, ra, rb),
+                    VecOp::FCmGt => fcmgt_v2d(dst, ra, rb),
+                    VecOp::FCmGe => fcmge_v2d(dst, ra, rb),
+                    VecOp::CmEq => cmeq_v2d(dst, ra, rb),
+                    VecOp::CmGt => cmgt_v2d(dst, ra, rb),
+                    VecOp::CmGe => cmge_v2d(dst, ra, rb),
                 },
             );
         }
@@ -167,9 +225,7 @@ pub(super) fn emit_vec(bytes: &mut Vec<u8>, inst: &Inst, vi: &VecInst, alloc: &A
                     write_u32(bytes, umov_x_d(dst, src, 0));
                     write_u32(bytes, orr_reg(dst, dst, OP_SCRATCH_TMP));
                 }
-                VecOp::And | VecOp::FAdd | VecOp::FDiv | VecOp::FCmEq => {
-                    panic!("vec.reduce.{} has no lowering", op.as_str())
-                }
+                _ => panic!("vec.reduce.{} has no lowering", op.as_str()),
             }
             write_def_spill_gpr(bytes, spill, dst);
         }
