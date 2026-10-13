@@ -44,6 +44,7 @@ use torajs_core::ssa::{
 
 use super::clone::{clone_into, new_value, push, reads_outside};
 use super::emit::reuse_shared;
+use super::masked_vec::{lanes as packed_lanes, packing};
 use super::retire::{Slot0, retire, snapped};
 use super::{LANE_GPR_BUDGET, MIN_LANES, Plan};
 
@@ -54,11 +55,15 @@ type Lane = HashMap<ValueId, ValueId>;
 /// temporaries.
 const LANE_FPR_BUDGET: usize = 16;
 
-/// Lanes for a masked group: the default count, or fewer where every
-/// lane's state (its slot values, its snapshots and its flag) would no
-/// longer fit in registers; spilled lane state costs a load and a
-/// store each step. At least two.
+/// Lanes for a masked group: a step that packs two lanes to a vector
+/// takes as many pairs as fit (`masked_vec`); otherwise the default
+/// count, or fewer where every lane's state (its slot values, its
+/// snapshots and its flag) would no longer fit in registers; spilled
+/// lane state costs a load and a store each step. At least two.
 pub(super) fn masked_lanes(func: &Function, p: &Plan) -> usize {
+    if let Some(pk) = packing(func, p) {
+        return packed_lanes(&pk);
+    }
     let read_after_pre = reads_outside(func, &p.pre_order());
     let kept = snapped(func, p);
     let mut own: HashSet<ValueId> = HashSet::default();
@@ -101,6 +106,9 @@ pub(super) fn steps(
     cur: BlockId,
     mut lanes: Vec<Lane>,
 ) {
+    if let Some(pk) = packing(func, p) {
+        return super::masked_vec::steps(func, p, &pk, cells, read_after_pre, g, cur, lanes);
+    }
     let slots = slot_values(p, cells, read_after_pre, &lanes[0]);
     for lane in lanes.iter_mut() {
         for &v in &slots {
@@ -265,7 +273,7 @@ fn copy_of(func: &mut Function, b: BlockId, v: ValueId) -> ValueId {
 /// What a slot holds for its lane: its own cells and pre values read
 /// past `pre`. Shared values are every lane's; a lane's counter is
 /// slot 0's plus its distance.
-fn slot_values(
+pub(super) fn slot_values(
     p: &Plan,
     cells: &HashSet<ValueId>,
     read_after_pre: &HashSet<ValueId>,

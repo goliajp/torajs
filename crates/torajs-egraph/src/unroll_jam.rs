@@ -29,7 +29,9 @@
 //!   that does not terminate hangs at the same iteration as before.
 //!   An inner loop with a guard that leaves only it (a `break`, an
 //!   inlined early `return`) is stepped under masks instead (`masked`):
-//!   the group runs while the earliest unfinished lane still steps.
+//!   the group runs while the earliest unfinished lane still steps,
+//!   two lanes to a vector register where the step allows
+//!   (`masked_vec`).
 //! - `post` (reductions and their overflow guards, calls, stores) runs
 //!   once per lane in iteration order: sums keep their order and each
 //!   exit sees the state the original saw at that point.
@@ -55,6 +57,7 @@ mod flow;
 mod guards;
 mod heads;
 mod masked;
+mod masked_vec;
 mod plan;
 mod retire;
 #[cfg(test)]

@@ -6,7 +6,7 @@
 
 use super::interp::run;
 use super::*;
-use torajs_core::ssa::FPred;
+use torajs_core::ssa::{FPred, VecInst};
 
 /// What the exits' code reads.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -148,11 +148,19 @@ fn plan_of(reads: Reads) -> Plan {
     plan::find_plan(&func, &Default::default()).expect("the j loop is planned")
 }
 
-fn float_selects(func: &Function) -> usize {
+fn vec_selects(func: &Function) -> usize {
     let insts = func.blocks.iter().flat_map(|b| b.insts.iter());
     insts
-        .filter(|i| matches!(i.kind, InstKind::Select(Type::F64, ..)))
+        .filter(|i| matches!(i.kind, InstKind::Vec(VecInst::Select(..))))
         .count()
+}
+
+fn packed(func: &Function) -> bool {
+    let insts = func.blocks.iter().flat_map(|b| b.insts.iter());
+    insts
+        .filter(|i| matches!(i.kind, InstKind::Vec(VecInst::BinOp(..))))
+        .count()
+        > 0
 }
 
 #[test]
@@ -169,22 +177,40 @@ fn a_lane_keeps_only_the_cells_its_exits_read() {
     assert_eq!(ids(plan_of(Reads::BumpFirst)), None);
 }
 
+/// Two lanes to a vector, beside three splats (cr, lim, max) and three
+/// temporaries (zr², zi² and their sum): 15 registers for pairs, 14
+/// with the `+ 1` splat.
 #[test]
 fn fewer_snapshots_make_room_for_more_lanes() {
-    // ci, zr, zi in float registers, with zr and zi's snapshots: 5
-    assert_eq!(plan_of(Reads::Point).lanes, 3);
-    // without them: 3, and the default four lanes fit
-    assert_eq!(plan_of(Reads::Count).lanes, MIN_LANES);
-    assert_eq!(plan_of(Reads::HeadZr).lanes, MIN_LANES);
+    let pk = |reads: Reads| {
+        let func = escape(reads);
+        let plan = plan::find_plan(&func, &Default::default()).expect("planned");
+        let pk = masked_vec::packing(&func, &plan).expect("packed");
+        (pk.per_pair, pk.splats, pk.temps, pk.frozen.len())
+    };
+    // the `+ 1` is a splat where the count is not frozen
+    assert_eq!(pk(Reads::Point), (8, 4, 3, 0));
+    assert_eq!(pk(Reads::Count), (5, 3, 3, 1));
+    assert_eq!(pk(Reads::HeadZr), (6, 3, 3, 1));
+    // ci, zr, zi, k, the flag and three snapshots: 8 a pair, one pair
+    assert_eq!(plan_of(Reads::Point).lanes, 2);
+    // the count freezes itself: 5 a pair, three pairs
+    assert_eq!(plan_of(Reads::Count).lanes, 6);
+    // zr's snapshot too: 6 a pair, two pairs
+    assert_eq!(plan_of(Reads::HeadZr).lanes, 4);
+    // every cell snapshotted: 8 a pair
+    assert_eq!(plan_of(Reads::BumpFirst).lanes, 2);
 }
 
 #[test]
-fn a_lane_keeping_only_its_count_carries_no_float_snapshot() {
+fn a_lane_keeping_only_its_count_carries_no_snapshot() {
     let (count, n) = jam(&escape(Reads::Count));
     assert_eq!(n, 1);
-    assert_eq!(float_selects(&count), 0);
+    assert!(packed(&count));
+    assert_eq!(vec_selects(&count), 0);
     let (point, _) = jam(&escape(Reads::Point));
-    assert!(float_selects(&point) > 0);
+    assert!(packed(&point));
+    assert_eq!(vec_selects(&point), 3);
 }
 
 #[test]
