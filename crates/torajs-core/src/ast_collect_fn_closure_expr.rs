@@ -281,8 +281,21 @@ impl<'a> FnToClosureCollector<'a> {
                 }
             }
             Expr::Index { obj, index } => {
-                self.walk_expr(*obj);
-                self.walk_expr(*index);
+                let (obj, index) = (*obj, *index);
+                // A computed key on a bare declaration reads a property
+                // of the function OBJECT (`f[Symbol.hasInstance](x)`),
+                // and the FnSig lane has no object to read it off: the
+                // base rides the canonical cell. A string key is a
+                // property name the static member arms answer.
+                let computed_on_plain_fn = !matches!(self.ast.get_expr(index), Expr::String(_))
+                    && matches!(self.ast.get_expr(obj), Expr::Ident(n)
+                        if !self.ast.generator_factory_classes.contains_key(n)
+                            && !self.ast.async_fns.contains(n)
+                            && !self.ast.async_generator_fns.contains(n));
+                if !(computed_on_plain_fn && self.try_mark(obj)) {
+                    self.walk_expr(obj);
+                }
+                self.walk_expr(index);
             }
             Expr::Assign { target, value } => {
                 let (target, value) = (*target, *value);
