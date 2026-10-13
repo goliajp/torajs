@@ -225,7 +225,19 @@ pub(super) fn emit_vec(bytes: &mut Vec<u8>, inst: &Inst, vi: &VecInst, alloc: &A
                     write_u32(bytes, umov_x_d(dst, src, 0));
                     write_u32(bytes, orr_reg(dst, dst, OP_SCRATCH_TMP));
                 }
-                _ => panic!("vec.reduce.{} has no lowering", op.as_str()),
+                VecOp::Sub
+                | VecOp::And
+                | VecOp::AndNot
+                | VecOp::FAdd
+                | VecOp::FSub
+                | VecOp::FMul
+                | VecOp::FDiv
+                | VecOp::FCmEq
+                | VecOp::FCmGt
+                | VecOp::FCmGe
+                | VecOp::CmEq
+                | VecOp::CmGt
+                | VecOp::CmGe => panic!("vec.reduce.{} has no lowering", op.as_str()),
             }
             write_def_spill_gpr(bytes, spill, dst);
         }
