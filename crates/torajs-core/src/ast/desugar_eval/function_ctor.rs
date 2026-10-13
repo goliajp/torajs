@@ -303,15 +303,9 @@ fn is_simple_ident(s: &str) -> bool {
 }
 
 fn strict_early_error(parsed: &[Stmt], ast: &Ast, arena_before: usize) -> Option<String> {
-    let [Stmt::FnDecl { params, body, .. }] = parsed else {
+    let [Stmt::FnDecl { params, .. }] = parsed else {
         return None;
     };
-    // §B.3.2 admits a labelled FunctionDeclaration in SLOPPY code
-    // only; under a strict prologue it is a LabelledItem early error
-    // (§14.13.1 via §15.2.1's strict-code restrictions).
-    if has_labeled_fn(body) {
-        return Some("dynamic function: labelled function declaration in strict mode".into());
-    }
     let mut seen: Vec<&str> = Vec::new();
     for p in params {
         let name = &p.name;
@@ -340,22 +334,6 @@ fn strict_early_error(parsed: &[Stmt], ast: &Ast, arena_before: usize) -> Option
         }
     }
     None
-}
-
-/// A labelled FunctionDeclaration anywhere down the label / block
-/// spine — `d: function w() {}`, `a: b: function w() {}`, or the same
-/// inside a bare block. Deeper carriers (if / loop bodies) already
-/// fail tr's parse via `reject_decl_in_single_stmt` and land in the
-/// NoParse throw arm.
-fn has_labeled_fn(stmts: &[Stmt]) -> bool {
-    stmts.iter().any(|s| match s {
-        Stmt::Labeled { body, .. } => {
-            matches!(body.as_ref(), Stmt::FnDecl { .. })
-                || has_labeled_fn(std::slice::from_ref(body))
-        }
-        Stmt::Block(inner) => has_labeled_fn(inner),
-        _ => false,
-    })
 }
 
 /// Whether the body text lexes a BARE `with` identifier token — one
