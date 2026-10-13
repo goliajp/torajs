@@ -8,6 +8,8 @@
 
 use super::*;
 
+mod labelled_fn;
+
 pub fn parse(source: &str, tokens: &[Spanned]) -> Result<Ast, String> {
     let mut ast = Ast::default();
     parse_into(source, tokens, &mut ast)?;
@@ -163,6 +165,7 @@ pub fn parse_into_eval(
     });
     *target = p.ast;
     if result.is_ok() {
+        labelled_fn::unwrap_labelled_fn_decls(target, stmt_offset, id_offset as usize);
         crate::ast::ret_written::record_written_returns(target, stmt_offset, id_offset as usize);
         super::fn_kind_split::split_fn_kind_names(
             target,
