@@ -212,10 +212,24 @@ fn lowers_to_unseen_any(ctx: &LowerCtx<'_>, mut eid: ExprId) -> bool {
         } => (*left, *right),
         _ => return false,
     };
+    // The nullable flag is keyed partly by name (a field or binding
+    // some write elsewhere handed the Str sentinel), so it can be set
+    // on a number / boolean read. Such a side lowers to a scalar, and
+    // the binop lowering boxes only the string sides of the pair: it
+    // stays on the numeric lane, and so must the literal holding it.
     let side = |id: ExprId| {
+        let ty = ctx.expr_types.get(&id);
+        let scalar = matches!(
+            ty,
+            Some(
+                crate::check::Type::Number
+                    | crate::check::Type::Boolean
+                    | crate::check::Type::BigInt
+            )
+        );
         (
-            crate::ssa_lower_nullable_guard::is_nullable_str_source(ctx, id),
-            matches!(ctx.expr_types.get(&id), Some(crate::check::Type::String)),
+            !scalar && crate::ssa_lower_nullable_guard::is_nullable_str_source(ctx, id),
+            matches!(ty, Some(crate::check::Type::String)),
         )
     };
     nullable_str_add_rides_any(side(left), side(right))
