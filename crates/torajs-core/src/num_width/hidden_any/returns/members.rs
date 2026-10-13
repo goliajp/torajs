@@ -3,10 +3,9 @@
 //! annotation.
 
 use super::lookups;
-use crate::ast::{Expr, ExprId};
 use crate::check::Type;
-use crate::num_width::hidden_any::{Graph, Node, Origin, Ref};
-use crate::num_width::{Analysis, Scope, SlotKey};
+use crate::num_width::Analysis;
+use crate::num_width::hidden_any::{Graph, Node};
 
 impl Graph<'_> {
     /// Whether a call of method `name` on a receiver of type `recv`
@@ -77,53 +76,6 @@ impl Graph<'_> {
         }
     }
 
-    /// The type the annotation of the binding or parameter `obj` reads
-    /// spells, when it joins classes by `|`: the checker types a union of
-    /// classes `any`, whose members are still the ones each class
-    /// declares. `null` and `undefined` arms hold no member; an arm of
-    /// any other type leaves the union unread.
-    pub(super) fn annotated_union(
-        &self,
-        a: &Analysis<'_>,
-        sc: &Scope,
-        obj: ExprId,
-    ) -> Option<Type> {
-        let Expr::Ident(n) = a.ast.get_expr(obj) else {
-            return None;
-        };
-        let l = self.lookups(a);
-        let ann = match self.resolve(a, n, sc) {
-            Ref::At(Node::Decl(i)) => match self.origin(i) {
-                Origin::Fixed(v) | Origin::Open(v) => l.let_anns.get(&v),
-                Origin::Param(_) | Origin::Unknown => None,
-            },
-            Ref::At(Node::Read(SlotKey::Param(f, p))) => l.param_anns.get(&(f, p)),
-            _ => None,
-        }?;
-        // a parameter's annotation spells a union `__union(A|B)` and
-        // an optional type `__nullable(A)`
-        let mut ann = ann.as_str();
-        while let Some(inner) = ["__union(", "__nullable("]
-            .iter()
-            .find_map(|w| ann.strip_prefix(w)?.strip_suffix(')'))
-        {
-            ann = inner;
-        }
-        if ann.contains(['(', ')', '<', '>', '{', '}', '[', ']', '&']) {
-            return None;
-        }
-        let arms: Option<Vec<Type>> = (ann.split('|').map(str::trim))
-            .filter(|t| !matches!(*t, "null" | "undefined"))
-            .map(|t| {
-                a.ast
-                    .class_parents
-                    .contains_key(t)
-                    .then(|| Type::ClassRef(t.to_string()))
-            })
-            .collect();
-        arms.filter(|ts| ts.len() > 1).map(Type::Union)
-    }
-
     /// Does class `c`, or a class it extends, declare a field or an
     /// accessor `f`?
     fn member_in_chain(&self, a: &Analysis<'_>, (c, f): (&str, &str)) -> bool {
@@ -154,7 +106,7 @@ impl Graph<'_> {
         let mut cur = Some(c.split('<').next().unwrap_or(c));
         while let Some(k) = cur {
             if let Some(ann) = fields.get(&(k.to_string(), f.to_string())) {
-                return *ann;
+                return lookups::open_ann(ann);
             }
             cur = a.ast.class_parents.get(k).and_then(|p| p.as_deref());
         }
@@ -197,7 +149,7 @@ fn generic(a: &Analysis<'_>, c: &str) -> bool {
 
 /// The body of method `m` a receiver of class `c` runs: its own, or the
 /// nearest ancestor's.
-fn method_body(a: &Analysis<'_>, c: &str, m: &str) -> Option<String> {
+pub(super) fn method_body(a: &Analysis<'_>, c: &str, m: &str) -> Option<String> {
     let mut cur = Some(c.split('<').next().unwrap_or(c));
     while let Some(k) = cur {
         let body = format!("__cm_{k}__{m}");

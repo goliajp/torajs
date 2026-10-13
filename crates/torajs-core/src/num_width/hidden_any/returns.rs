@@ -17,7 +17,9 @@
 //! (`const s: any = "x"; return s` from a `number` function, `(a < b)
 //! as any`), or a source of any kind: a parameter annotated `any`,
 //! `unknown` or not at all, a catch binding, a field or getter
-//! declared `any`, an element of an `any[]`, a member of such a value,
+//! declared `any`, an element of an `any[]`, a member of such a value
+//! or of a receiver the checker types `any` whose classes the walk
+//! cannot name (a union under an alias, a call's answer),
 //! a library call the checker types `any` (`JSON.parse(s)`,
 //! `m.get(k)`), a call of a function or method the
 //! program declares to return `any`, a call through a fn-typed slot of
@@ -49,10 +51,12 @@ mod fn_values;
 mod kinds;
 mod lookups;
 mod members;
+mod receivers;
 
 use kinds::Kind;
 pub(super) use kinds::RetKinds;
 pub(super) use lookups::Lookups;
+use receivers::Receiver;
 
 impl Graph<'_> {
     /// `return e` from the body `sc` walks.
@@ -130,13 +134,20 @@ impl Graph<'_> {
             // that type declares
             Expr::Member { obj, name } | Expr::OptChain { obj, name } => {
                 match a.expr_types.get(obj) {
-                    Some(Type::Any) => {
-                        let u = self.annotated_union(a, sc, *obj);
-                        let at = from.len();
-                        let hit = u.is_some_and(|u| self.field_spelled_any(a, (&u, name), from));
-                        self.hands_on((sc.fn_name, read), &from[at..]);
-                        hit | go(*obj, Read::Members, from)
-                    }
+                    // a receiver the checker types `any` whose classes
+                    // the walk cannot name may hold a member of any kind
+                    Some(Type::Any) => match self.receiver(a, sc, *obj) {
+                        Receiver::Classes(u) => {
+                            let at = from.len();
+                            let hit = self.field_spelled_any(a, (&u, name), from);
+                            self.hands_on((sc.fn_name, read), &from[at..]);
+                            hit | go(*obj, Read::Members, from)
+                        }
+                        Receiver::Traced | Receiver::Builtin { .. } => {
+                            go(*obj, Read::Members, from)
+                        }
+                        Receiver::Unknown => true,
+                    },
                     Some(t) => {
                         let at = from.len();
                         let hit = self.field_spelled_any(a, (t, name), from);

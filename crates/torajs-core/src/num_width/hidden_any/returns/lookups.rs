@@ -16,9 +16,8 @@ pub(in crate::num_width) struct Lookups {
     pub(super) open_params: HashMap<(String, String), bool>,
     /// Every declaration of a name, as a top-level read reaches it.
     pub(super) decls: HashMap<String, Vec<Origin>>,
-    /// (struct or class, field) → whether its annotation is
-    /// [`open_ann`].
-    pub(super) fields: HashMap<(String, String), bool>,
+    /// (struct or class, field) → its annotation.
+    pub(super) fields: HashMap<(String, String), String>,
     /// A function's parameters the program writes, in order.
     pub(super) user_params: HashMap<String, Vec<String>>,
     /// The argument lists of the direct calls of each name.
@@ -29,6 +28,11 @@ pub(in crate::num_width) struct Lookups {
     pub(super) param_anns: HashMap<(String, String), String>,
     /// A binding's initializer → the binding's annotation.
     pub(super) let_anns: HashMap<ExprId, String>,
+    /// A type alias with no type parameters → the type it names
+    /// (`type AB = A | B`).
+    pub(super) aliases: HashMap<String, String>,
+    /// The object types with no type parameters (`type P = { x: number }`).
+    pub(super) structs: HashSet<String>,
     /// A function's return annotation, whoever wrote it.
     rets: HashMap<String, String>,
     /// The functions whose return annotation the program wrote, not a
@@ -69,14 +73,29 @@ impl Lookups {
         let mut let_anns = HashMap::new();
         let mut decls: HashMap<String, Vec<Origin>> = HashMap::new();
         let mut fields = HashMap::new();
+        let mut aliases = HashMap::new();
+        let mut structs = HashSet::new();
         let mut rets = HashMap::new();
         let mut written = HashSet::new();
         crate::ast::walk_stmts(&a.ast.stmts, &mut |s| match s {
             Stmt::TypeDecl {
-                name, fields: fs, ..
+                name,
+                fields: fs,
+                type_params,
             } => {
+                match fs.as_slice() {
+                    [(k, ann)] if k.lossy() == "__alias__" => {
+                        if type_params.is_empty() {
+                            aliases.insert(name.clone(), ann.clone());
+                        }
+                    }
+                    _ if type_params.is_empty() => {
+                        structs.insert(name.clone());
+                    }
+                    _ => {}
+                }
                 for (k, ann) in fs {
-                    fields.insert((name.clone(), k.lossy().into_owned()), open_ann(ann));
+                    fields.insert((name.clone(), k.lossy().into_owned()), ann.clone());
                 }
             }
             Stmt::FnDecl {
@@ -133,6 +152,8 @@ impl Lookups {
             fn_values,
             param_anns,
             let_anns,
+            aliases,
+            structs,
             rets,
             written,
         }
