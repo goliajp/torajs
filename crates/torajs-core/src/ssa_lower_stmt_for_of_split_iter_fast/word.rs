@@ -272,7 +272,7 @@ fn sep_runs(sep: u8) -> impl Iterator<Item = i64> {
         if rest == 0 {
             return None;
         }
-        let low = rest & rest.wrapping_neg();
+        let low = rest.isolate_lowest_one();
         let run = if rest == 0xff {
             0xfe
         } else {
