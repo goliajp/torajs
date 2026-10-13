@@ -16,7 +16,7 @@ use std::collections::{HashMap, HashSet};
 use super::{Round, check_round};
 use crate::ast::{Ast, Expr, ExprId, Stmt};
 use crate::check::Type;
-use fn_slots::{Guarded, SlotFlow, boxed};
+use fn_slots::{Guarded, boxed};
 use retypable::{retypable_returns, roots};
 
 /// Run rounds from `first`, the round of `ast` as written. A function
@@ -25,16 +25,11 @@ use retypable::{retypable_returns, roots};
 /// parameter from the first round on (the closure's own return is
 /// inferred from the calls through it), a binding by the last round.
 /// When the last round's census misses one, the rounds run again from
-/// the start with the slot left out.
+/// `first` with the slot left out.
 pub(super) fn settle(ast: &Ast, first: Round) -> Result<Round, String> {
-    let early = first.0.5.mono_ast.argv_boxed_params.clone();
+    let early = &first.0.5.mono_ast.argv_boxed_params;
     let mut denied: HashSet<Guarded> = HashSet::new();
-    let mut start = Some(first);
     loop {
-        let first = match start.take() {
-            Some(r) => r,
-            None => check_round(ast, &HashSet::new())?,
-        };
         let allow = |g: &Guarded| {
             !denied.contains(g)
                 && match g {
@@ -42,34 +37,36 @@ pub(super) fn settle(ast: &Ast, first: Round) -> Result<Round, String> {
                     Guarded::Let(_) => true,
                 }
         };
-        let (round, needs) = settle_with(ast, first, &allow)?;
-        let mono = &round.0.5.mono_ast;
+        let (round, needs) = settle_with(ast, &first, &allow)?;
+        let mono = &round.as_ref().unwrap_or(&first).0.5.mono_ast;
         let unboxed: Vec<Guarded> = (needs.into_iter())
             .filter(|g| !boxed(ast, mono, g))
             .collect();
         if unboxed.is_empty() {
-            return Ok(round);
+            return Ok(round.unwrap_or(first));
         }
         denied.extend(unboxed);
     }
 }
 
-/// [`settle`] with the slots `allow` refuses left out, and the census
-/// entries the functions it retyped need.
+/// [`settle`] with the slots `allow` refuses left out: the last round,
+/// `None` when it is `first`, and the census entries the functions it
+/// retyped need.
 fn settle_with(
     ast: &Ast,
-    first: Round,
+    first: &Round,
     allow: &dyn Fn(&Guarded) -> bool,
-) -> Result<(Round, Vec<Guarded>), String> {
-    let mut round = first;
+) -> Result<(Option<Round>, Vec<Guarded>), String> {
+    let mut round: Option<Round> = None;
     let mut inits: HashSet<ExprId> = HashSet::new();
     let mut args: HashSet<ExprId> = HashSet::new();
     let mut rets: HashSet<String> = HashSet::new();
     let mut fields: HashSet<ExprId> = HashSet::new();
-    let mut retypable: Option<(HashSet<String>, SlotFlow)> = None;
+    let mut retypable = None;
     let mut retyped: Option<Ast> = None;
     loop {
-        let hidden = &round.0.5.widths.hidden_any;
+        let cur = round.as_ref().unwrap_or(first);
+        let hidden = &cur.0.5.widths.hidden_any;
         let before = rets.len();
         if !hidden.rets.is_empty() {
             let (ok, _) = retypable.get_or_insert_with(|| retypable_returns(ast, allow));
@@ -77,8 +74,8 @@ fn settle_with(
         }
         let grew = (rets.len() > before)
             | extend_own(ast, &mut inits, &hidden.inits)
-            | extend_own(ast, &mut fields, &scalar_values(&round.0.1, &hidden.fields))
-            | extend_own(ast, &mut fields, &objects_given_any(ast, &round.0.1));
+            | extend_own(ast, &mut fields, &scalar_values(&cur.0.1, &hidden.fields))
+            | extend_own(ast, &mut fields, &objects_given_any(ast, &cur.0.1));
         if !(extend_own(ast, &mut args, &hidden.args) || grew) {
             let needs = match &retypable {
                 Some((_, flow)) if !rets.is_empty() => {
@@ -92,7 +89,7 @@ fn settle_with(
         retype_any(&mut r.stmts, &inits);
         retype_returns_any(&mut r.stmts, &rets);
         spell_fields_any(r, &fields);
-        round = check_round(r, &args)?;
+        round = Some(check_round(r, &args)?);
     }
 }
 
