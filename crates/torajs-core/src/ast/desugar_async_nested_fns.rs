@@ -139,14 +139,23 @@ pub fn desugar_async_nested_fns(ast: &mut Ast) {
 /// above it finds it live (`hoist_gen_fn_exprs_decls::raise_binding`).
 /// Those it routes to a lift go to top level (`lift`).
 /// `capture_frames` is `None` for an async body (see `select`).
+/// `fn_body`: `body` is the function's own list, not a block's, where
+/// a declaration a written `var` shares its binding with
+/// (`nested_fns_top::var_shared_fn_names`) becomes that `var`, at the
+/// head: §10.2.11 step 36 initializes it before any statement runs.
 fn rewrite_declarations(
     ast: &mut Ast,
     body: &mut [Stmt],
     lifts: &mut lift::Lifts,
     parent: &str,
     capture_frames: Option<&[String]>,
+    fn_body: bool,
 ) {
-    let routes = select::select(ast, body, &lifts.globals, capture_frames);
+    let var_shared = match fn_body {
+        true => super::nested_fns_top::var_shared_fn_names(ast, body),
+        false => std::collections::HashSet::new(),
+    };
+    let routes = select::select(ast, body, &lifts.globals, capture_frames, &var_shared);
     let decls: Vec<usize> = (0..body.len())
         .filter(|i| matches!(body[*i], Stmt::FnDecl { .. }))
         .collect();
@@ -159,6 +168,7 @@ fn rewrite_declarations(
     // first, while every index still holds: a lifted slot empties in place
     lifts.lift(ast, body, &of(Route::Lift), parent);
     let mut values: Vec<ExprId> = Vec::new();
+    let mut shared_at = 0;
     // ascending, so a raise (which rotates only slots above `i`) leaves
     // the later ones where they were
     for i in of(Route::Value) {
@@ -180,10 +190,15 @@ fn rewrite_declarations(
             )),
             _ => None,
         };
+        let shared = matches!(&taken, Stmt::FnDecl { name, .. } if var_shared.contains(name));
         let assigned = matches!(&taken, Stmt::FnDecl { name, .. }
             if body.iter().any(|s| super::free_vars_write::assigns_name(ast, s, name)));
-        body[i] = value::to_value_binding(ast, taken, assigned);
-        if let Some(reads) = reads {
+        body[i] = value::to_value_binding(ast, taken, assigned, shared);
+        if shared {
+            let at = super::sloppy_this_prologue::directive_prologue_len(body, &ast.exprs);
+            body[at + shared_at..=i].rotate_right(1);
+            shared_at += 1;
+        } else if let Some(reads) = reads {
             super::hoist_gen_fn_exprs_decls::raise_binding(body, i, &reads);
         } else if let Stmt::LetDecl { init, .. } = &body[i] {
             values.push(*init);

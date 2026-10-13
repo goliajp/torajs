@@ -25,6 +25,7 @@
 use crate::ast::free_vars::free_vars_of_fn;
 use crate::ast::scope_chain::not_rebound;
 use crate::ast::{Ast, Stmt};
+use std::collections::HashSet;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Route {
@@ -40,12 +41,16 @@ pub(super) enum Route {
 /// route. `capture_frames` is `None` for an async body; for a generator
 /// body it holds every name the frames around a direct declaration bind
 /// (the generator's own included), and `globals` the top-level
-/// function names.
+/// function names. A declaration in `var_shared` shares its binding
+/// with a written `var` (`nested_fns_top::var_shared_fn_names`): the
+/// binding has to be a value the body writes, so it needs one too, and
+/// a declaration naming it reads a local of the frame.
 pub(super) fn select(
     ast: &Ast,
     body: &[Stmt],
     globals: &[String],
     capture_frames: Option<&[String]>,
+    var_shared: &HashSet<String>,
 ) -> Vec<Route> {
     let decls: Vec<&Stmt> = body
         .iter()
@@ -73,10 +78,13 @@ pub(super) fn select(
     let names_peer = |a: usize, b: usize| free[a].iter().any(|n| n == names[b]);
     let mut needs: Vec<bool> = free
         .iter()
-        .map(|f| {
+        .zip(&names)
+        .map(|(f, name)| {
             capture_frames.is_none()
-                || f.iter()
-                    .any(|n| n != "arguments" && !names.contains(&n.as_str()))
+                || var_shared.contains(*name)
+                || f.iter().any(|n| {
+                    n != "arguments" && (!names.contains(&n.as_str()) || var_shared.contains(n))
+                })
         })
         .collect();
     spread(&mut needs, names_peer);

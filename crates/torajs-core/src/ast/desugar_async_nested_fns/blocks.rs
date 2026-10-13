@@ -39,7 +39,7 @@ impl Lifts {
         owners: Vec<String>,
     ) {
         Blocks::new(self, parent).rewrite_body(ast, body, frames, owners);
-        super::rewrite_declarations(ast, body, self, parent, frames);
+        super::rewrite_declarations(ast, body, self, parent, frames, true);
     }
 }
 
@@ -179,7 +179,7 @@ impl<'a> Blocks<'a> {
             return;
         }
         self.split_annexb(ast, list, owners);
-        super::rewrite_declarations(ast, list, self.lifts, self.parent, inner.as_deref());
+        super::rewrite_declarations(ast, list, self.lifts, self.parent, inner.as_deref(), false);
     }
 
     /// §B.3.3 in sloppy code: rename the block binding and write the var
