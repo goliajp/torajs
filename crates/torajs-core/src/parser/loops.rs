@@ -333,12 +333,7 @@ impl<'a> Parser<'a> {
         // (rotation 635; `loop_body_with_hoisted_cond`). A yield in
         // the step rotates the loop (`rotated_loop`), so `continue`
         // still reaches it.
-        let (cond, hoisted) = if matches!(self.peek(), Token::Semi) {
-            (None, Vec::new())
-        } else {
-            let (c, h) = self.parse_loop_clause()?;
-            (Some(c), h)
-        };
+        let (cond, hoisted) = self.parse_opt_loop_clause(matches!(self.peek(), Token::Semi))?;
         match self.peek() {
             Token::Semi => self.pos += 1,
             t => {
@@ -355,12 +350,8 @@ impl<'a> Parser<'a> {
         // Per-iteration position that a `continue` must reach: a
         // hoisted yield rotates the loop (rotation 636;
         // `rotated_loop`).
-        let (step, hoisted_step) = if matches!(self.peek(), Token::RParen) {
-            (None, Vec::new())
-        } else {
-            let (s, h) = self.parse_loop_clause()?;
-            (Some(s), h)
-        };
+        let (step, hoisted_step) =
+            self.parse_opt_loop_clause(matches!(self.peek(), Token::RParen))?;
         match self.peek() {
             Token::RParen => self.pos += 1,
             t => {

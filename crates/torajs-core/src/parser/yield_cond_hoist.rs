@@ -124,6 +124,18 @@ impl<'a> Parser<'a> {
         Ok((rest.expect("the loop parsed an operand"), before))
     }
 
+    /// A `for` test or step, which `empty` says the source left out.
+    pub(super) fn parse_opt_loop_clause(
+        &mut self,
+        empty: bool,
+    ) -> Result<(Option<ExprId>, Vec<Stmt>), String> {
+        if empty {
+            return Ok((None, Vec::new()));
+        }
+        let (e, hoisted) = self.parse_loop_clause()?;
+        Ok((Some(e), hoisted))
+    }
+
     /// A fresh `__yx_<n>` temp declared in the hoist buffer with `init`.
     fn mint_yield_temp(&mut self, init: ExprId) -> String {
         let id = self.mint_desugar_id();
