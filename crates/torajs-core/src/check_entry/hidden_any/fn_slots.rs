@@ -48,20 +48,29 @@ impl SlotFlow {
     }
 }
 
-/// Does the census of the checked `mono` ast box `g`?
+/// Does the census of the checked `mono` ast box `g`? A store reaches a
+/// binding by its spelling, so every binding of that name under a
+/// function-type annotation must be boxed.
 pub(super) fn boxed(ast: &Ast, mono: &Ast, g: &Guarded) -> bool {
     match g {
         Guarded::Param(f, p) => mono.boxed_params_of(f).is_some_and(|ps| ps.contains(p)),
         Guarded::Let(n) => {
-            let mut hit = false;
+            let (mut seen, mut all) = (false, true);
             crate::ast::walk_stmts(&ast.stmts, &mut |s| {
-                if let Stmt::LetDecl { name, init, .. } = s
+                if let Stmt::LetDecl {
+                    name,
+                    type_ann,
+                    init,
+                    ..
+                } = s
                     && name == n
+                    && type_ann.as_deref().is_some_and(crate::ast::is_fn_like_ann)
                 {
-                    hit |= mono.face_mismatch_lets.contains(init);
+                    seen = true;
+                    all &= mono.face_mismatch_lets.contains(init);
                 }
             });
-            hit
+            seen && all
         }
     }
 }
