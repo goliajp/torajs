@@ -115,8 +115,12 @@ pub(super) fn parse_generic(
             } else {
                 substituted
             };
+            // a plain optional member is spelled `a?` in the generic
+            // declaration's copy (`ssa_lower_pass_0_5`)
+            let plain_optional = fname.as_wtf8().as_bytes().ends_with(b"?");
             let fty = parse_struct_field_type(
                 &substituted,
+                plain_optional,
                 aliases,
                 arr_layouts,
                 fn_sigs,
@@ -124,7 +128,11 @@ pub(super) fn parse_generic(
                 struct_layouts,
                 inst_memo,
             );
-            layout.push((fname.clone(), fty));
+            let fname = match plain_optional {
+                true => PropKey::from(fname.lossy().trim_end_matches('?')),
+                false => fname.clone(),
+            };
+            layout.push((fname, fty));
         }
         struct_layouts[id.0 as usize] = layout;
         return Some(Type::Obj(id));

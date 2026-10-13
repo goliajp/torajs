@@ -16,6 +16,10 @@ pub(crate) use absent::{nullable_inner_boxes, slot_is_any};
 use crate::ssa::{self, Type};
 use crate::ssa_lower::intern_arr_layout;
 
+/// The annotation of an optional `number` member, as the parser spells
+/// it.
+pub(crate) const OPTIONAL_NUMBER_ANN: &str = "__nullable(number)";
+
 /// The slot of `T | null` once `T` has resolved: an alias resolving to
 /// a scalar has nowhere to put the null either, so it boxes like the
 /// spelled-out `number` / `boolean` ([`nullable_inner_boxes`]).
@@ -36,8 +40,17 @@ fn nullable_slot(inner: Type) -> Type {
 /// is unchanged. A `__nullable(<alias>)` whose alias RESOLVES to a
 /// scalar boxes the same way, through [`parse_type`]; every other
 /// spelling delegates verbatim.
+///
+/// The exception is a plain optional `number` member (`a?: number`,
+/// `plain_optional`: the written type spells neither `null` nor
+/// `undefined`): it keeps an f64 slot, and `undefined` is the slot's
+/// sentinel (`F64_UNDEF_SENTINEL_BITS`), which every consumer of a
+/// `number` field that may hold one already reads. The cell's absent
+/// set says whether the member is an own property. `a?: number | null`
+/// may hold `null`, which an f64 has no spelling for, so it boxes.
 pub(crate) fn parse_struct_field_type(
     ann: &str,
+    plain_optional: bool,
     aliases: &HashMap<String, Type>,
     arr_layouts: &mut Vec<Type>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
@@ -45,6 +58,9 @@ pub(crate) fn parse_struct_field_type(
     struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
     inst_memo: &mut HashMap<String, ssa::StructId>,
 ) -> Type {
+    if plain_optional && ann == OPTIONAL_NUMBER_ANN {
+        return Type::F64;
+    }
     if let Some(rest) = ann.strip_prefix("__nullable(")
         && let Some(inner) = rest.strip_suffix(')')
         && nullable_inner_boxes(inner)

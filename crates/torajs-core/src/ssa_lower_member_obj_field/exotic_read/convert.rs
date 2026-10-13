@@ -77,10 +77,16 @@ pub(super) fn conversion(
     // by kind
     let base = (ann.as_deref().map(|a| strip_nullable(a).trim().to_string()))
         .filter(|b| !b.starts_with("__"));
-    let or_undef = ann.as_deref().is_some_and(|a| a.starts_with("__nullable("));
+    // an optional `number` member of an object type has no class
+    // annotation to read; its checked type says the same thing
+    let optional_number = obj.is_some_and(|o| {
+        crate::ssa_lower_object_lit::absent::optional_number_member(ctx, o, name, field_ty)
+    });
+    let or_undef = ann.as_deref().is_some_and(|a| a.starts_with("__nullable(")) || optional_number;
     let shown = match (&base, or_undef) {
         (Some(b), true) => format!("{b} | undefined"),
         (Some(b), false) => b.clone(),
+        (None, true) if field_ty == Type::F64 => "number | undefined".to_string(),
         (None, _) if matches!(field_ty, Type::Closure(_) | Type::FnSig(_)) => {
             "function".to_string()
         }
@@ -185,6 +191,22 @@ pub(super) fn convert(
 }
 
 /// A kernel call answering `ret`, then its throw check.
+/// The any-lane value `got` (an immediate or a borrowed cell) stored
+/// into the optional `number` member `name`, whose slot is an f64: a
+/// number as itself, `undefined` as the slot's sentinel, anything else
+/// — `null` included, which TS does not admit there (TS2322) — the
+/// TypeError the kernel spells.
+pub(crate) fn optional_number(ctx: &mut LowerCtx<'_>, got: Operand, name: &str) -> Operand {
+    let text = format!("cannot store {{}} into the field `{name}: number | undefined`");
+    let site = Operand::Value(ctx.intern_string_literal(text.as_str()));
+    call(
+        ctx,
+        ctx.fn_table[NUMBER_OR_UNDEF],
+        vec![got, site],
+        Type::F64,
+    )
+}
+
 fn call(ctx: &mut LowerCtx<'_>, f: FuncId, args: Vec<Operand>, ret: Type) -> Operand {
     let v = ctx
         .f

@@ -553,6 +553,13 @@ pub struct Ast {
     /// declaration marks optional (`m?: T`, `m?(): T`) — its annotation
     /// alone (`__nullable(T)`) also spells a required `T | null`.
     pub optional_members: std::collections::HashSet<(String, PropKey)>,
+    /// `(type, member)` for every optional member of a type or class
+    /// declaration whose written type spells neither `null` nor
+    /// `undefined` (`m?: T`; the parser added the `__nullable(` wrapper
+    /// itself). Such a `number` member keeps an f64 slot, with the
+    /// undefined sentinel in it; `m?: T | null` boxes, as it may hold
+    /// `null`.
+    pub optional_plain_members: std::collections::HashSet<(String, PropKey)>,
     /// M-OO.5 — `(class_name, member_name)` → visibility, populated by
     /// the parser when a `private` / `protected` modifier appears on a
     /// field or method. Public is the absent-default (no entry stored).

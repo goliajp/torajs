@@ -209,11 +209,18 @@ impl Parser<'_> {
         if !optional {
             return Ok((fname, fty_raw, src, at));
         }
-        let fty = match fty_raw.starts_with("__nullable(") {
-            true => fty_raw,
-            false => format!("__nullable({fty_raw})"),
-        };
-        Ok((format!("{fname}?"), fty, src, at))
+        // `a??`: the written type spells `null` / `undefined` itself, so
+        // the member may hold `null`; `a?` is the plain optional member,
+        // whose `number` keeps an f64 slot (`ssa_lower_parse_type`).
+        if fty_raw.starts_with("__nullable(") {
+            return Ok((format!("{fname}??"), fty_raw, src, at));
+        }
+        Ok((
+            format!("{fname}?"),
+            format!("__nullable({fty_raw})"),
+            src,
+            at,
+        ))
     }
 
     /// Whether the object type body opening at the `{` under the

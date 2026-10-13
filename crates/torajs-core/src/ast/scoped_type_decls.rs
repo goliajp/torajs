@@ -228,13 +228,16 @@ fn rekey_side_tables(ast: &mut Ast, old: &str, new: &str, env: &Env) {
         ast.literal_type_decls
             .insert(new.to_string(), Some(precise));
     }
-    let optional: Vec<_> = ast
-        .optional_members
-        .iter()
-        .filter(|(owner, _)| owner == old)
-        .map(|(_, k)| (new.to_string(), k.clone()))
-        .collect();
+    let rekey = |set: &std::collections::HashSet<(String, super::PropKey)>| {
+        set.iter()
+            .filter(|(owner, _)| owner == old)
+            .map(|(_, k)| (new.to_string(), k.clone()))
+            .collect::<Vec<_>>()
+    };
+    let optional = rekey(&ast.optional_members);
     ast.optional_members.extend(optional);
+    let plain = rekey(&ast.optional_plain_members);
+    ast.optional_plain_members.extend(plain);
 }
 
 mod walk;

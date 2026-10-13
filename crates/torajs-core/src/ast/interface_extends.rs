@@ -38,16 +38,20 @@ pub fn flatten_interface_extends(ast: &mut Ast) {
     }
     let mut done: HashMap<String, Vec<(PropKey, String)>> = HashMap::new();
     let mut inherited: Vec<(String, PropKey)> = Vec::new();
+    let mut inherited_plain: Vec<(String, PropKey)> = Vec::new();
     for s in ast.stmts.iter_mut() {
         if let Stmt::TypeDecl { name, fields, .. } = s
             && fields.iter().any(|(k, _)| is_extends(k))
         {
             let keys = optional_keys(name, &decls, &ast.optional_members, 0);
             inherited.extend(keys.into_iter().map(|k| (name.clone(), k)));
+            let plain = optional_keys(name, &decls, &ast.optional_plain_members, 0);
+            inherited_plain.extend(plain.into_iter().map(|k| (name.clone(), k)));
             *fields = resolve(name, &decls, &mut done, 0);
         }
     }
     ast.optional_members.extend(inherited);
+    ast.optional_plain_members.extend(inherited_plain);
 }
 
 /// The members `name` declares optional or inherits optional and does

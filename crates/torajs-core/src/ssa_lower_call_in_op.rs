@@ -301,36 +301,12 @@ fn absent_member_in(ctx: &mut LowerCtx<'_>, obj: Operand, key: &torajs_wtf8::Wtf
             let call = InstKind::Call(ctx.intrinsics.in_op_any_str, vec![boxed, k]);
             Operand::Value(ctx.f.append_inst(chain, call, Type::Bool, None))
         }
-        // the cell's own words, never the cell: a frame cell stays put
-        false => {
-            let load = |ctx: &mut LowerCtx<'_>, ty, off| {
-                let v = ctx
-                    .f
-                    .append_inst(chain, InstKind::Load(ty, obj, off), ty, None);
-                Operand::Value(v)
-            };
-            let hdr = load(ctx, Type::I32, 4);
-            let flags = ctx
-                .f
-                .append_inst(chain, InstKind::ZExtI32ToI64(hdr), Type::I64, None);
-            let flags = ctx.f.append_inst(
-                chain,
-                InstKind::BinOp(BinOp::LShr, Operand::Value(flags), Operand::ConstI64(16)),
-                Type::I64,
-                None,
-            );
-            let tag = load(ctx, Type::I64, 8);
-            let props = load(ctx, Type::Ptr, crate::ssa_lower::OBJ_PROPS_OFF);
-            let args = vec![Operand::Value(flags), tag, props, k];
-            let call = InstKind::Call(ctx.intrinsics.struct_expando.struct_lacks_in, args);
-            let r = ctx.f.append_inst(chain, call, Type::I64, None);
-            let cmp = InstKind::ICmp(IPred::Ne, Operand::Value(r), Operand::ConstI64(0));
-            Operand::Value(ctx.f.append_inst(chain, cmp, Type::Bool, None))
-        }
+        false => lacking_member_chain(ctx, obj, k, cont),
     };
+    let blk = ctx.cur_block;
     ctx.f
-        .append_void(chain, InstKind::Store(r, Operand::Value(slot), 0));
-    ctx.f.set_term(chain, crate::ssa::Terminator::Br(cont));
+        .append_void(blk, InstKind::Store(r, Operand::Value(slot), 0));
+    ctx.f.set_term(blk, crate::ssa::Terminator::Br(cont));
     ctx.cur_block = cont;
     let v = ctx.f.append_inst(
         cont,
@@ -339,4 +315,123 @@ fn absent_member_in(ctx: &mut LowerCtx<'_>, obj: Operand, key: &torajs_wtf8::Wtf
         None,
     );
     Operand::Value(v)
+}
+
+/// The C symbol of torajs-rc's "user code added a key to
+/// %Object.prototype%" flag.
+const OBJECT_PROTO_TOUCHED_SYM: &str = "___torajs_object_proto_touched";
+
+/// HasProperty of `k` past the own face of the struct cell `obj`, which
+/// lacks the declared member: the rest of the chain. Leaves `cur_block`
+/// on the block holding the answer; `skip` is where a `false` answer
+/// already waits (the caller stored the own answer there).
+///
+/// A cell that is no class instance and carries no user [[Prototype]]
+/// inherits from %Object.prototype% alone, and while user code has
+/// added nothing to that object (`__torajs_object_proto_touched` down,
+/// read inline) the answer is false without the walk — three cells in
+/// four on objlit-optional-field-1m, 165 instructions each in the walk.
+/// The cell's own words, never the cell, cross into the walk, so a
+/// frame cell stays put.
+fn lacking_member_chain(
+    ctx: &mut LowerCtx<'_>,
+    obj: Operand,
+    k: Operand,
+    skip: crate::ssa::BlockId,
+) -> Operand {
+    let load = |ctx: &mut LowerCtx<'_>, ty, off| {
+        let v = ctx
+            .f
+            .append_inst(ctx.cur_block, InstKind::Load(ty, obj, off), ty, None);
+        Operand::Value(v)
+    };
+    let hdr = load(ctx, Type::I32, 4);
+    let flags = ctx
+        .f
+        .append_inst(ctx.cur_block, InstKind::ZExtI32ToI64(hdr), Type::I64, None);
+    let flags = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::BinOp(BinOp::LShr, Operand::Value(flags), Operand::ConstI64(16)),
+        Type::I64,
+        None,
+    );
+    if !is_class_layout(ctx, obj) {
+        let user_proto = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::BinOp(
+                BinOp::And,
+                Operand::Value(flags),
+                Operand::ConstI64(i64::from(torajs_rc::FLAG_OBJ_USER_PROTO)),
+            ),
+            Type::I64,
+            None,
+        );
+        let touched_ptr = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::GlobalRef(OBJECT_PROTO_TOUCHED_SYM.to_string()),
+            Type::Ptr,
+            None,
+        );
+        let touched = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Load(Type::I64, Operand::Value(touched_ptr), 0),
+            Type::I64,
+            None,
+        );
+        let either = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::BinOp(
+                BinOp::Or,
+                Operand::Value(user_proto),
+                Operand::Value(touched),
+            ),
+            Type::I64,
+            None,
+        );
+        let walk = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::ICmp(IPred::Ne, Operand::Value(either), Operand::ConstI64(0)),
+            Type::Bool,
+            None,
+        );
+        let ask = ctx.f.add_block();
+        ctx.f.set_term(
+            ctx.cur_block,
+            crate::ssa::Terminator::CondBr {
+                cond: Operand::Value(walk),
+                then_blk: ask,
+                else_blk: skip,
+            },
+        );
+        ctx.cur_block = ask;
+    }
+    let tag = load(ctx, Type::I64, 8);
+    let props = load(ctx, Type::Ptr, crate::ssa_lower::OBJ_PROPS_OFF);
+    let args = vec![Operand::Value(flags), tag, props, k];
+    let call = InstKind::Call(ctx.intrinsics.struct_expando.struct_lacks_in, args);
+    let r = ctx.f.append_inst(ctx.cur_block, call, Type::I64, None);
+    let cmp = InstKind::ICmp(IPred::Ne, Operand::Value(r), Operand::ConstI64(0));
+    Operand::Value(ctx.f.append_inst(ctx.cur_block, cmp, Type::Bool, None))
+}
+
+/// Whether the struct `obj` is an instance of a declared class, whose
+/// prototype answers for members the cell lacks (`struct_proto_has`).
+/// An object literal's layout registers no member table.
+fn is_class_layout(ctx: &LowerCtx<'_>, obj: Operand) -> bool {
+    let Type::Obj(sid) = ctx.operand_ty(&obj) else {
+        return true;
+    };
+    let named = ctx
+        .ast
+        .class_parents
+        .keys()
+        .any(|c| matches!(ctx.aliases.get(c), Some(Type::Obj(s)) if *s == sid));
+    // a generic class instantiation lives under its spelled key
+    let generic = ctx.inst_memo.iter().any(|(key, s)| {
+        *s == sid
+            && key
+                .split_once('<')
+                .is_some_and(|(head, _)| ctx.ast.class_parents.contains_key(head))
+    });
+    named || generic
 }

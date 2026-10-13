@@ -53,6 +53,7 @@ pub mod pool;
 pub mod print_any;
 pub mod probe;
 pub mod proto_chain;
+pub mod proto_root;
 pub mod resize;
 pub mod seal;
 pub mod set;
@@ -76,6 +77,7 @@ pub use iter::{
     __torajs_dynobj_iter_flags, __torajs_dynobj_iter_key, __torajs_dynobj_iter_len,
     __torajs_dynobj_iter_order, __torajs_dynobj_iter_value,
 };
+pub use proto_root::__torajs_dynobj_mark_object_proto;
 pub use seal::{
     __torajs_dynobj_all_entries_non_configurable, __torajs_dynobj_freeze_entries,
     __torajs_dynobj_lock_builtin_fn_class_slots, __torajs_dynobj_seal_entries,
@@ -88,6 +90,14 @@ pub use set::__torajs_dynobj_set;
 // stubs here let the test binary link cleanly. Same pattern as
 // torajs-arr's `__torajs_throw_range_error` / `__torajs_str_alloc_pooled`
 // test stubs.
+/// # Safety
+/// Never called; the unit tests mark no %Object.prototype%.
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_object_proto_touch() {
+    panic!("torajs-dynobj unit-test stub: __torajs_object_proto_touch should not be called");
+}
+
 /// # Safety
 /// Never called; any call panics.
 #[cfg(test)]

@@ -138,6 +138,10 @@ pub(crate) fn lower(
         }
     }
     let order = order::to_declared_order(ctx, eid, declared_hint, &mut field_tys, &mut field_vals);
+    let undef_lits: Vec<bool> = field_tys
+        .iter()
+        .map(|(n, _)| undef_fields.contains(n))
+        .collect();
     let sid = crate::ssa_lower_objlit_layout::resolve_objlit_layout(
         ctx.struct_layouts,
         ctx.f,
@@ -145,6 +149,7 @@ pub(crate) fn lower(
         &mut field_tys,
         &mut field_vals,
         declared_hint,
+        &undef_lits,
     );
     let slot = |n: &PropKey| {
         field_tys
@@ -175,58 +180,14 @@ pub(crate) fn lower(
     }
     write_vtable_ptr(ctx, obj_ptr, sid, owner);
     let layout = ctx.struct_layouts[sid.0 as usize].clone();
-    for (i, (fname, slot_ty)) in layout.iter().enumerate() {
-        if undef_fields.contains(fname)
-            && let Some(sentinel) = ctx.str_undef_sentinel_for(*slot_ty)
-        {
-            field_vals[i] = sentinel;
-        }
-        // RFC 20260710 C4 — a declared-Any slot (`__nullable(number|
-        // boolean)` optional field, plain `any` field) takes a
-        // NaN-box, never a raw scalar: resolve_objlit_layout only
-        // retyped the slot, the value boxes here. The expr-aware
-        // variant keeps null vs undefined distinct (ANY_NULL vs
-        // ANY_UNDEF from the same lowered ConstPtrNull). Sources
-        // outside the scalar/nullish set (heap values behind an
-        // `any` field) keep their pre-RFC raw store — their
-        // ownership story is a separate face.
-        if *slot_ty == Type::Any {
-            let src_ty = ctx.operand_ty(&field_vals[i]);
-            let boxable = matches!(src_ty, Type::I64 | Type::I32 | Type::F64 | Type::Bool)
-                || (src_ty == Type::Ptr && matches!(field_vals[i], Operand::ConstPtrNull));
-            if boxable {
-                let veid = fields
-                    .iter()
-                    .rev()
-                    .find(|(n, _)| n == fname)
-                    .map(|(_, veid)| *veid);
-                field_vals[i] = match veid {
-                    Some(e) => ctx.box_to_any_from_expr(e, field_vals[i]),
-                    None if absent.iter().any(|(_, n)| n == fname) => absent::any_undef(ctx),
-                    // spread-unfolded field — no source expr; the
-                    // plain box maps ConstPtrNull to ANY_NULL.
-                    None => ctx.box_to_any(field_vals[i]),
-                };
-            }
-        } else if ctx.operand_ty(&field_vals[i]) == Type::Any {
-            // Unbox mirror — a typed slot taking an Any-valued init:
-            // a declared layout (let-decl / return-type hint, or a
-            // generator step struct's `value: T`) pins the slot to T
-            // while the field expr carries a NaN-box. Pre-fix the box
-            // bits stored raw and read back as garbage (`{ value: x }`
-            // with `x: any` under a `{ value: number }` return type
-            // answered NaN). Same helpers as the as-cast unbox arms;
-            // str / bigint mint fresh owned values the slot takes
-            // over like any other owned init.
-            field_vals[i] = match slot_ty {
-                Type::F64 | Type::I64 => ctx.coerce_any_to_number(field_vals[i], *slot_ty),
-                Type::Str => ctx.coerce_to_str(field_vals[i], Type::Any),
-                Type::Bool => ctx.coerce_to_bool(field_vals[i]),
-                Type::BigInt => ctx.coerce_any_to_bigint(field_vals[i]),
-                _ => field_vals[i],
-            };
-        }
-    }
+    slot_fit::fit_slot_values(
+        ctx,
+        &layout,
+        &fields,
+        &undef_fields,
+        &absent,
+        &mut field_vals,
+    );
     for (i, val) in field_vals.iter().enumerate() {
         // L3b #6 crash fix — a typed Array stored into a struct field
         // reaches runtime walkers (inspect's Tag::Obj field printer,
@@ -349,6 +310,7 @@ mod any_slot;
 mod order;
 // Phase 2, the W4 field-width widen.
 mod regular_field;
+mod slot_fit;
 use regular_field::lower_regular_field;
 mod widen;
 use widen::apply_w4_widen;

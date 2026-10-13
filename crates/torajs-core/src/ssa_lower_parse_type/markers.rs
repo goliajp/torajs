@@ -31,8 +31,12 @@ pub(super) fn parse_struct(
     // r381 found two more still nesting parens only.
     for part in crate::check_type_ann::split_top_pipe(inner) {
         let (n, t) = part.split_once(':').unwrap_or((part, ""));
+        // `a?` is the plain optional member; `a??` spells `null` /
+        // `undefined` in its own type (`parser::type_ann::inline_obj`)
+        let plain_optional = n.ends_with('?') && !n.ends_with("??");
         let fty = parse_struct_field_type(
             t,
+            plain_optional,
             aliases,
             arr_layouts,
             fn_sigs,

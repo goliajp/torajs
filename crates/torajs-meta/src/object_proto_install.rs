@@ -58,6 +58,9 @@ unsafe extern "C" {
     /// torajs-dynobj — fresh `+1`-rc AccessorPair (faces transfer;
     /// the immortal cells' rc traffic no-ops on the static flag).
     fn __torajs_accessor_pair_new(get: *mut c_void, set: *mut c_void, kinds: u64) -> *mut c_void;
+    /// torajs-dynobj — marks the %Object.prototype% singleton, so a
+    /// later insert into it raises `__torajs_object_proto_touched`.
+    fn __torajs_dynobj_mark_object_proto(obj: *mut c_void);
     /// torajs-dynobj — define kernel (§10.1.6.3 apply core).
     fn __torajs_dynobj_define_plain(
         obj_slot: *mut *mut c_void,
@@ -87,6 +90,8 @@ pub unsafe extern "C" fn __torajs_object_proto_install(proto: *mut c_void) {
         // helper has one contract.
         let mut slot = proto;
         install_accessor_entry(&mut slot, b"__proto__", get_cell, set_cell);
+        // after the mint's own entry: only user code counts as touching
+        __torajs_dynobj_mark_object_proto(proto);
     }
 }
 

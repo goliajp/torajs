@@ -7,8 +7,7 @@
 use core::ffi::c_void;
 
 use crate::probe::{
-    Entry, bucket_make_key_tagged, count, entries, entries_cap, entries_len, index_ptr, probe,
-    set_count, set_entries_len,
+    Entry, bucket_make_key_tagged, entries, entries_cap, entries_len, index_ptr, probe,
 };
 use crate::resize::resize;
 
@@ -62,8 +61,7 @@ pub unsafe extern "C" fn __torajs_dynobj_set_entry_flags(
                 value_anyv: __torajs_anyv_box_from_pair(5, 0),
             };
             *index_ptr(obj).add(pr.slot as usize) = e_idx;
-            set_entries_len(obj, e_idx + 1);
-            set_count(obj, count(obj) + 1);
+            crate::proto_root::note_entry_added(obj, e_idx);
         }
     }
 }
@@ -148,8 +146,7 @@ pub unsafe extern "C" fn __torajs_dynobj_set_entry_hole(
                 value_anyv: crate::layout::DYNOBJ_HOLE_SENTINEL,
             };
             *index_ptr(obj).add(pr.slot as usize) = e_idx;
-            set_entries_len(obj, e_idx + 1);
-            set_count(obj, count(obj) + 1);
+            crate::proto_root::note_entry_added(obj, e_idx);
         }
     }
 }

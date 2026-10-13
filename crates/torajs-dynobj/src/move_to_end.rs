@@ -17,9 +17,7 @@
 use core::ffi::c_void;
 
 use crate::layout::{DYNOBJ_KEY_HOLE, IDX_TOMBSTONE, TAG_DYNOBJ};
-use crate::probe::{
-    Entry, count, entries, entries_cap, entries_len, index_ptr, probe, set_count, set_entries_len,
-};
+use crate::probe::{Entry, count, entries, entries_cap, entries_len, index_ptr, probe, set_count};
 
 /// `__torajs_dynobj_move_own_to_end(obj, key)` — re-append `key`'s
 /// own entry so it sorts after every other string key. Answers 1 iff
@@ -75,8 +73,7 @@ pub unsafe extern "C" fn __torajs_dynobj_move_own_to_end(
             value_anyv: carried_value,
         };
         *index_ptr(obj).add(slot as usize) = e_idx;
-        set_entries_len(obj, e_idx + 1);
-        set_count(obj, count(obj) + 1);
+        crate::proto_root::note_entry_added(obj, e_idx);
     }
     1
 }

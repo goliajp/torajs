@@ -92,9 +92,16 @@ fn lower_inner(ctx: &mut LowerCtx<'_>, eid: ExprId, lhs: ExprId, rhs: ExprId) ->
     // F64 lhs (number[] index read / alias) branches on the
     // undefined-NaN bits instead of the non-nullable short-circuit;
     // gated to a Number-typed rhs so the merged slot stays F64.
+    // `a ??= v` is `a ?? (a = v)`: the store's value is what fit the
+    // f64 slot, so its `number | undefined` type still names an f64
+    let compound_store = matches!(ctx.ast.get_expr(rhs), crate::ast::Expr::Assign { .. })
+        && matches!(
+            ctx.expr_types.get(&rhs),
+            Some(check_mod::Type::Nullable(n)) if **n == check_mod::Type::Number
+        );
     if lhs_ty == Type::F64
         && crate::ssa_lower_undef_f64_source::is_undef_f64_source(ctx, lhs)
-        && matches!(ctx.expr_types.get(&rhs), Some(check_mod::Type::Number))
+        && (matches!(ctx.expr_types.get(&rhs), Some(check_mod::Type::Number)) || compound_store)
     {
         return lower_f64_undefable_lhs(ctx, lhs_op, rhs);
     }

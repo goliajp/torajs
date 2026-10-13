@@ -90,6 +90,9 @@ impl<'a> Parser<'a> {
         // marker the parameter position wraps. Written-out
         // `T | undefined` already arrives wrapped, hence the guard.
         if marker.is_optional() && !ty.starts_with("__nullable(") {
+            self.ast
+                .optional_plain_members
+                .insert((name.to_string(), member_name.clone()));
             ty = format!("__nullable({ty})");
         }
         let visibility = explicit_visibility.unwrap_or(ast::Visibility::Public);

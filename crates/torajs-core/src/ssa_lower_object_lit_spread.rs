@@ -143,6 +143,10 @@ fn maybe_absent(
                 _ if undef && field_vals[pos] == Operand::ConstPtrNull => {
                     crate::ssa_lower_object_lit::absent::any_undef(ctx)
                 }
+                // an optional `number` member's f64 may be its sentinel
+                Type::F64 if ctx.undefable_f64_fields.contains(name) => {
+                    ctx.box_f64_or_undef(field_vals[pos])
+                }
                 _ => ctx.box_to_any(field_vals[pos]),
             };
             (Type::Any, Some((boxed, Type::Any)))
@@ -201,9 +205,12 @@ fn maybe_absent(
     }
     let read = crate::ssa_lower_member_obj_field::exotic_read::owned_field;
     let owned = read(ctx, Some(src_eid), src, (off, st), &name.lossy());
-    let owned = match ty == st {
-        true => owned,
-        false => ctx.box_to_any(owned),
+    let owned = match (ty == st, st) {
+        (true, _) => owned,
+        (false, Type::F64) if ctx.undefable_f64_fields.contains(name) => {
+            ctx.box_f64_or_undef(owned)
+        }
+        (false, _) => ctx.box_to_any(owned),
     };
     ctx.f.append_void(
         ctx.cur_block,

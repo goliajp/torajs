@@ -236,6 +236,15 @@ pub const DYNOBJ_HOLE_SENTINEL: u64 = 0x1A;
 /// at bits 13-14 since RFC 20260706 chunk 573).
 pub const DYNOBJ_HDR_FLAG_NULL_PROTO: u16 = 1 << 6;
 
+/// Heap-header `flags` bit (u16 @6) marking the %Object.prototype%
+/// singleton (set by its mint, after its own `__proto__` entry lands).
+/// An entry insert into a cell wearing it raises torajs-rc's
+/// `__torajs_object_proto_touched`, the flag the typed `in` reads
+/// inline to skip the chain walk for a member a cell lacks. Bit 7 is
+/// free on DynObj: torajs-rc's table gives it to Obj (ERROR), Arr
+/// (LENGTH_RO) and Closure (FN_ASYNC), disjoint by tag.
+pub const DYNOBJ_HDR_FLAG_OBJECT_PROTO: u16 = 1 << 7;
+
 /// Heap-header `flags` bit (u16 @6) mirror of
 /// `torajs_rc::FLAG_NON_EXTENSIBLE` (bit 8). Mirrored here so
 /// `__torajs_dynobj_define` can gate fresh-key inserts on a sealed /

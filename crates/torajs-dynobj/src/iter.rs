@@ -309,7 +309,7 @@ mod tests {
     use crate::alloc::__torajs_dynobj_alloc;
     use crate::layout::{BUCKET_FLAGS_DEFAULT, IDX_TOMBSTONE, STR_DATA_OFF, STR_LEN_OFF};
     use crate::probe::{
-        Entry, bucket_make_key_tagged, count, entries, index_ptr, probe, set_count, set_entries_len,
+        Entry, bucket_make_key_tagged, count, entries, index_ptr, probe, set_count,
     };
 
     /// Synthesize a Str-shaped heap block: [hdr:8][len:8][bytes].
@@ -339,8 +339,7 @@ mod tests {
                 value_anyv,
             };
             *index_ptr(obj).add(pr.slot as usize) = e_idx;
-            set_entries_len(obj, e_idx + 1);
-            set_count(obj, count(obj) + 1);
+            crate::proto_root::note_entry_added(obj, e_idx);
         }
     }
 

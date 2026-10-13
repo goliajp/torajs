@@ -13,7 +13,7 @@
 //! | 4     | [`FLAG_FROZEN`] | universal |
 //! | 5     | [`FLAG_BUFFERED`] | universal (cycle collector) |
 //! | 6     | NULL_PROTO (torajs-dynobj private, DynObj) / [`FLAG_CLASS_METHOD_THIS_FREE`] (Closure) / [`FLAG_ARR_SPARSE_TAIL`] (Arr) / [`FLAG_OBJ_USER_PROTO`] (Obj) | disjoint-by-tag |
-//! | 7     | [`FLAG_ERROR`] (Obj) / [`FLAG_ARR_LENGTH_RO`] (Arr) / [`FLAG_FN_ASYNC`] (Closure) | disjoint-by-tag |
+//! | 7     | [`FLAG_ERROR`] (Obj) / [`FLAG_ARR_LENGTH_RO`] (Arr) / [`FLAG_FN_ASYNC`] (Closure) / OBJECT_PROTO (torajs-dynobj private, DynObj) | disjoint-by-tag |
 //! | 8     | [`FLAG_NON_EXTENSIBLE`] | universal |
 //! | 9     | [`FLAG_SEALED`] | universal |
 //! | 10-12 | element-kind field (`arr_kind.rs`) | Arr, typed cells only |

@@ -111,7 +111,24 @@ pub(crate) fn run(
         } = stmt
         {
             if !type_params.is_empty() {
-                generic_struct_decls.insert(name.clone(), (type_params.clone(), fields.clone()));
+                // a plain optional member rides into the instantiation
+                // spelled `a?`, the way an inline object type spells it
+                let fields = fields
+                    .iter()
+                    .map(|(k, ann)| {
+                        match ast
+                            .optional_plain_members
+                            .contains(&(name.clone(), k.clone()))
+                        {
+                            true => (
+                                PropKey::from(format!("{}?", k.lossy()).as_str()),
+                                ann.clone(),
+                            ),
+                            false => (k.clone(), ann.clone()),
+                        }
+                    })
+                    .collect();
+                generic_struct_decls.insert(name.clone(), (type_params.clone(), fields));
                 continue;
             }
             // V3-18 wedge — already handled in the placeholder
@@ -132,8 +149,12 @@ pub(crate) fn run(
                 || num_f64_slots.is_nominal_alias(name))
             .then(|| crate::num_width::SlotKey::Class(name.clone()));
             for (fname, fty_ann) in fields {
+                let plain_optional = ast
+                    .optional_plain_members
+                    .contains(&(name.clone(), fname.clone()));
                 let mut ty = parse_struct_field_type(
                     fty_ann.as_str(),
+                    plain_optional,
                     &aliases,
                     &mut arr_layouts,
                     &mut fn_sigs,
@@ -193,22 +214,7 @@ pub(crate) fn run(
         }
     }
 
-    // Phase H.1.b — assign each declared class a runtime tag.
-    // Tags are keyed by class name (not sid) because structurally
-    // identical classes share a single sid via the intern table;
-    // keying by sid would silently mis-route `__dispatch_<M>`. Tag 0
-    // is reserved for "not a class". Walk names in lexical order so
-    // codegen stays deterministic across builds (HashMap iteration
-    // is unordered).
-    let class_name_to_tag: HashMap<String, u32> = {
-        let mut class_names: Vec<&String> = ast.class_parents.keys().collect();
-        class_names.sort();
-        class_names
-            .iter()
-            .enumerate()
-            .map(|(i, cname)| ((*cname).clone(), (i as u32) + 1))
-            .collect()
-    };
+    let class_name_to_tag = class_tags(ast);
 
     Pass05 {
         aliases,
@@ -264,4 +270,20 @@ fn intern_or_finalize(
         struct_layouts[reserved_sid.0 as usize] = layout;
         pending_reserved.remove(&reserved_sid.0);
     }
+}
+
+/// Phase H.1.b — assign each declared class a runtime tag. Tags are
+/// keyed by class name (not sid) because structurally identical classes
+/// share a single sid via the intern table; keying by sid would
+/// silently mis-route `__dispatch_<M>`. Tag 0 is reserved for "not a
+/// class". Walk names in lexical order so codegen stays deterministic
+/// across builds (HashMap iteration is unordered).
+fn class_tags(ast: &Ast) -> HashMap<String, u32> {
+    let mut class_names: Vec<&String> = ast.class_parents.keys().collect();
+    class_names.sort();
+    class_names
+        .iter()
+        .enumerate()
+        .map(|(i, cname)| ((*cname).clone(), (i as u32) + 1))
+        .collect()
 }

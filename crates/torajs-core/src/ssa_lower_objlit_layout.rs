@@ -50,14 +50,26 @@ pub(crate) fn resolve_objlit_layout(
     field_tys: &mut [(PropKey, Type)],
     field_vals: &mut [Operand],
     declared_hint: Option<StructId>,
+    undef_lits: &[bool],
 ) -> StructId {
+    // An `undefined` the literal spelled, or a member it left out, is
+    // the lowered null pointer; an optional `number` member's f64 slot
+    // takes it as its sentinel (the ObjectLit caller re-materializes it
+    // after resolution), so such a field fits that slot everywhere a
+    // pointer-shaped one fits.
+    let undef_into_f64 =
+        |i: usize, rt: &Type, lt: &Type| undef_lits[i] && *lt == Type::Ptr && *rt == Type::F64;
     let exact = |reg: &Vec<(PropKey, Type)>| -> bool {
         reg.len() == field_tys.len()
             && reg
                 .iter()
                 .zip(field_tys.iter())
-                .all(|((rn, rt), (ln, lt))| {
-                    rn == ln && (rt == lt || (*lt == Type::Ptr && rt.is_pointer_shaped()))
+                .enumerate()
+                .all(|(i, ((rn, rt), (ln, lt)))| {
+                    rn == ln
+                        && (rt == lt
+                            || (*lt == Type::Ptr && rt.is_pointer_shaped())
+                            || undef_into_f64(i, rt, lt))
                 })
     };
     let coercible = |reg: &Vec<(PropKey, Type)>, narrow: bool| -> bool {
@@ -65,10 +77,12 @@ pub(crate) fn resolve_objlit_layout(
             && reg
                 .iter()
                 .zip(field_tys.iter())
-                .all(|((rn, rt), (ln, lt))| {
+                .enumerate()
+                .all(|(i, ((rn, rt), (ln, lt)))| {
                     rn == ln
                         && (rt == lt
                             || (*lt == Type::Ptr && rt.is_pointer_shaped())
+                            || undef_into_f64(i, rt, lt)
                             || (narrow && *lt == Type::F64 && *rt == Type::I64)
                             || (*lt == Type::I64 && *rt == Type::F64)
                             // RFC 20260710 C4 — a declared-Any slot
@@ -145,7 +159,8 @@ pub(crate) fn resolve_objlit_layout(
                             || (*lt == Type::I64 && *rt == Type::F64)
                             || (*rt == Type::Any
                                 && matches!(*lt, Type::I64 | Type::I32 | Type::F64 | Type::Bool))
-                            || (null_lits[i] && (*rt == Type::Any || rt.is_pointer_shaped())))
+                            || (null_lits[i] && (*rt == Type::Any || rt.is_pointer_shaped()))
+                            || undef_into_f64(i, rt, lt))
                 })
     };
     let hinted = declared_hint.filter(|sid| {

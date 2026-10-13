@@ -282,6 +282,8 @@ impl<'a> Parser<'a> {
         }
         let ty_raw = self.parse_type_ann()?;
         let ty = if optional && !ty_raw.starts_with("__nullable(") {
+            let at = (owner.to_string(), PropKey::from(name.as_str()));
+            self.ast.optional_plain_members.insert(at);
             format!("__nullable({ty_raw})")
         } else {
             ty_raw

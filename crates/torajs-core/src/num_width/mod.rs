@@ -60,6 +60,7 @@ mod magnitude;
 mod method_value;
 mod mono;
 mod nonzero_neg;
+mod optional_number_fields;
 mod sentinel_hof;
 mod sentinel_member_reads;
 mod sentinel_tables;

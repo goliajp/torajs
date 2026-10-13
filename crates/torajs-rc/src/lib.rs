@@ -106,6 +106,7 @@ use std::ffi::c_void;
 
 pub mod builtin_proto;
 pub mod extensible;
+pub mod object_proto_touched;
 mod undef_f64;
 pub use undef_f64::F64_UNDEF_SENTINEL_BITS;
 pub mod freeze;
@@ -243,10 +244,6 @@ pub use tag::Tag;
 
 pub mod closure_entry;
 pub mod obj_entry;
-
-// ============================================================
-// Any-slot tag (16-byte Array<Any> slot)
-// ============================================================
 
 /// Tag for the 16-byte `Array<Any>` slot `{ tag: u64, value: u64 }`.
 /// Orthogonal to `HeapHeader::type_tag` — `ANY_HEAP` slots hold a

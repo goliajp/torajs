@@ -57,6 +57,7 @@ pub(super) struct SentinelTables {
 pub(super) fn close_sentinel_tables(a: &Analysis<'_>, stmts: &[Stmt]) -> SentinelTables {
     let mut t = SentinelTables {
         members: super::sentinel_member_reads::collect_member_candidates(a),
+        fields: super::optional_number_fields::collect(a),
         ..Default::default()
     };
     loop {

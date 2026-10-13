@@ -60,6 +60,47 @@ pub(super) fn insert_absent(
     }
 }
 
+/// Whether the member `field` of the receiver `obj` is an optional
+/// `number` member kept in an f64 slot (`parse_struct_field_type`): its
+/// checked type is `number | undefined`, and the slot is an f64 — a
+/// member that may also hold `null` boxes, and a plain `number` member
+/// is typed `number`.
+pub(crate) fn optional_number_member(
+    ctx: &LowerCtx<'_>,
+    obj: ExprId,
+    field: &str,
+    slot_ty: Type,
+) -> bool {
+    use crate::check::Type as CType;
+    if slot_ty != Type::F64 {
+        return false;
+    }
+    let fields = match ctx.expr_types.get(&obj) {
+        Some(CType::Struct(fs)) => Some(fs),
+        Some(CType::Nullable(inner)) => match &**inner {
+            CType::Struct(fs) => Some(fs),
+            _ => None,
+        },
+        _ => None,
+    };
+    match fields {
+        Some(fs) => fs
+            .iter()
+            .any(|(k, t)| *k == field && matches!(t, CType::Nullable(n) if **n == CType::Number)),
+        // a class instance: the declaration's annotation
+        None => crate::ast_throw_info::class_field_ann(ctx.ast, ctx.expr_types, obj, field)
+            .is_some_and(|a| a == crate::ssa_lower_parse_type::OPTIONAL_NUMBER_ANN),
+    }
+}
+
+/// An f64 slot's undefined: the sentinel every consumer of a `number`
+/// field that may hold one reads.
+pub(crate) fn f64_undef() -> Operand {
+    Operand::ConstF64(f64::from_bits(
+        crate::ssa_lower_undef_f64_source::F64_UNDEF_SENTINEL_BITS,
+    ))
+}
+
 /// An Any slot's undefined (`ANY_UNDEF`, payload 0).
 pub(crate) fn any_undef(ctx: &mut LowerCtx<'_>) -> Operand {
     let v = ctx.f.append_inst(

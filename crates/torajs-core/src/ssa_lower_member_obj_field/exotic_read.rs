@@ -24,6 +24,7 @@ use crate::ssa::{FuncId, IPred, InstKind, Module, Operand, Terminator, Type};
 use crate::ssa_lower::{LowerCtx, declare_intrinsic};
 
 mod convert;
+pub(crate) use convert::optional_number;
 
 /// The read leg: `(cell, name Str) -> owned any`.
 const GET_LEG: &str = "__torajs_obj_field_get_exotic";
