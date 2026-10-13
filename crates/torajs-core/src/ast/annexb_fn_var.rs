@@ -265,7 +265,7 @@ impl LiftCtx {
     /// mints for it stays at the declaration's own position. The splice
     /// blanked the span to `(0, 0)`, which a declaration the program
     /// wrote never carries.
-    pub(super) fn from_sloppy_eval(&self, name: &str, span: crate::lexer::Span) -> bool {
+    pub(super) fn spliced_by_sloppy_eval(&self, name: &str, span: crate::lexer::Span) -> bool {
         span.start == 0 && span.end == 0 && self.goal.sloppy_eval_names.contains(name)
     }
 

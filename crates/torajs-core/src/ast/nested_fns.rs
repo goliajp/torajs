@@ -275,7 +275,7 @@ pub(super) fn collect_nested_fns_to_lift(
                 if !mode.nested && ctx.body_level_var_lift(name, fn_decl_span(&s)) {
                     branch_scoped.insert(name.clone());
                     let decl = ctx.mint_var_decl(name, &mangled);
-                    match ctx.from_sloppy_eval(name, fn_decl_span(&s)) {
+                    match ctx.spliced_by_sloppy_eval(name, fn_decl_span(&s)) {
                         true => new_body.push(decl),
                         false => hoisted.push(decl),
                     }

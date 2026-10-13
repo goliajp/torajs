@@ -32,20 +32,20 @@ pub(super) fn unwrap_labelled_fn_decls(ast: &mut Ast, stmt_offset: usize, id_off
     let mut top = ast.stmts.split_off(stmt_offset);
     unwrap_list(&mut top);
     for s in top.iter_mut() {
-        for_each_nested_vec_mut(s, &mut unwrap_list);
+        for_each_nested_vec_mut(s, &mut |l| unwrap_list(l));
     }
     ast.stmts.append(&mut top);
     for e in ast.exprs[id_offset..].iter_mut() {
         if let Expr::ArrowFn { body, .. } = e {
             unwrap_list(body);
             for s in body.iter_mut() {
-                for_each_nested_vec_mut(s, &mut unwrap_list);
+                for_each_nested_vec_mut(s, &mut |l| unwrap_list(l));
             }
         }
     }
 }
 
-fn unwrap_list(list: &mut Vec<Stmt>) {
+fn unwrap_list(list: &mut [Stmt]) {
     for s in list.iter_mut() {
         if labels_fn_decl(s) {
             let mut inner = std::mem::replace(s, Stmt::Block(Vec::new()));
