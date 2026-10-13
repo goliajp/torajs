@@ -7,11 +7,16 @@
 //! parameter it reads, through a `const` with none to its initializer,
 //! the written return of the function or method it calls, the
 //! annotation of the field it reads, the type an `as` gives it, each
-//! through a type alias. A union of builtin types keeps the fields its
-//! library declares. A receiver whose annotation names something else
+//! through a type alias. A union of builtin types, named by the members
+//! the checker keeps for the value where it is read (a guard narrows
+//! them) or else by its annotation, keeps the members its library
+//! declares. A receiver whose annotation names something else
 //! (an interface, a generic, an inline object type, classes mixed with
 //! builtin types) may hold a member of any kind.
 
+use super::Read;
+use super::builtins::{self, Arm, scalar_kind};
+use super::kinds::{Kind, Kinds};
 use super::lookups::{Lookups, open_ann};
 use super::members::method_body;
 use crate::ast::{Expr, ExprId};
@@ -31,14 +36,34 @@ pub(super) enum Receiver {
     /// annotation or one that leaves its kind open.
     Traced,
     /// A value of a builtin scalar or array type, or a union of them,
-    /// whose fields its library declares; `arrays` when an arm is an
-    /// array, whose methods may answer its elements.
-    Builtin { arrays: bool },
+    /// whose members its library declares.
+    Builtin(Vec<Arm>),
     /// A value whose classes the walk cannot name.
     Unknown,
 }
 
 impl Graph<'_> {
+    /// Whether a return of the body `sc` walks would convert parameter
+    /// `e` (`Read::Value`), whose annotation closes its kind though the
+    /// checker types it `any` (`x: string | number`): a value of a kind
+    /// the annotation names other than the one declared.
+    pub(super) fn annotated(
+        &self,
+        (a, sc): (&Analysis<'_>, &Scope),
+        e: ExprId,
+        read: Read,
+        declared: &Option<Type>,
+    ) -> bool {
+        let ks = match self.receiver(a, sc, e) {
+            Receiver::Builtin(arms) => builtins::values(&arms),
+            Receiver::Classes(_) => Kinds::one(Kind::Other),
+            Receiver::Unknown => Kinds::ANY,
+            // a parameter the compiler adds holds what it is handed
+            Receiver::Traced => return false,
+        };
+        read == Read::Value && self.differs_any((sc.fn_name, read), declared.as_ref(), ks)
+    }
+
     /// What the walk knows of receiver `obj`.
     pub(super) fn receiver(&self, a: &Analysis<'_>, sc: &Scope, obj: ExprId) -> Receiver {
         self.receiver_at(a, sc, obj, 0)
@@ -47,6 +72,12 @@ impl Graph<'_> {
     fn receiver_at(&self, a: &Analysis<'_>, sc: &Scope, obj: ExprId, depth: u8) -> Receiver {
         if depth > DEPTH {
             return Receiver::Unknown;
+        }
+        // the members the checker keeps for a union, as narrowed here
+        if let Some(Type::Union(ms)) = a.union_types.get(&obj)
+            && let Some(arms) = builtins::arms_of(ms)
+        {
+            return Receiver::Builtin(arms);
         }
         let l = self.lookups(a);
         let ann: Option<&str> = match a.ast.get_expr(obj) {
@@ -59,6 +90,11 @@ impl Graph<'_> {
                 Ref::At(Node::Read(SlotKey::Param(f, p))) => {
                     l.param_anns.get(&(f, p)).map(String::as_str)
                 }
+                // a top-level binding a function reads
+                Ref::Keyed(_) => match l.decls.get(n).map(Vec::as_slice) {
+                    Some([Origin::Open(v)]) => l.let_anns.get(v).map(String::as_str),
+                    _ => None,
+                },
                 _ => None,
             },
             Expr::Call { callee, .. } | Expr::OptCall { callee, .. } => {
@@ -116,14 +152,15 @@ impl Graph<'_> {
         {
             return Receiver::Unknown;
         }
-        let (mut classes, mut builtin, mut arrays) = (Vec::new(), false, false);
+        let (mut classes, mut builtins) = (Vec::new(), Vec::new());
         for arm in ann.split('|').map(str::trim) {
             if matches!(arm, "null" | "undefined") {
                 continue;
             }
-            if builtin_arm(arm) {
-                builtin = true;
-                arrays |= arm.ends_with("[]");
+            if let Some(el) = arm.strip_suffix("[]") {
+                builtins.push(Arm::Array(self.elements(a, el.trim(), depth)));
+            } else if let Some(k) = scalar_kind(arm) {
+                builtins.push(Arm::Scalar(k));
             } else if a.ast.class_parents.contains_key(arm) || self.lookups(a).structs.contains(arm)
             {
                 classes.push(Type::ClassRef(arm.to_string()));
@@ -133,7 +170,7 @@ impl Graph<'_> {
                 match self.classify(a, t, depth + 1) {
                     Receiver::Classes(Type::Union(ts)) => classes.extend(ts),
                     Receiver::Classes(t) => classes.push(t),
-                    Receiver::Builtin { arrays: r } => (builtin, arrays) = (true, arrays | r),
+                    Receiver::Builtin(arms) => builtins.extend(arms),
                     Receiver::Traced => {}
                     Receiver::Unknown => return Receiver::Unknown,
                 }
@@ -141,25 +178,34 @@ impl Graph<'_> {
                 return Receiver::Unknown;
             }
         }
-        match (classes.len(), builtin) {
-            (0, true) => Receiver::Builtin { arrays },
-            (0, false) => Receiver::Traced,
-            (_, true) => Receiver::Unknown,
-            (1, false) => Receiver::Classes(classes.remove(0)),
+        match (classes.len(), builtins.is_empty()) {
+            (0, false) => Receiver::Builtin(builtins),
+            (0, true) => Receiver::Traced,
+            (_, false) => Receiver::Unknown,
+            (1, true) => Receiver::Classes(classes.remove(0)),
             _ => Receiver::Classes(Type::Union(classes)),
         }
     }
-}
 
-/// Is `arm` a builtin scalar type, an array or a literal type?
-fn builtin_arm(arm: &str) -> bool {
-    arm.ends_with("[]")
-        || matches!(
-            arm,
-            "string" | "number" | "boolean" | "bigint" | "symbol" | "true" | "false"
-        )
-        || arm.starts_with(['"', '\'', '`', '-'])
-        || arm.starts_with(|c: char| c.is_ascii_digit())
+    /// The kinds of the elements of an array annotated `el[]`.
+    fn elements(&self, a: &Analysis<'_>, el: &str, depth: u8) -> Kinds {
+        let l = self.lookups(a);
+        if let Some(k) = scalar_kind(el) {
+            return Kinds::one(k);
+        }
+        if el.ends_with("[]") || a.ast.class_parents.contains_key(el) || l.structs.contains(el) {
+            return Kinds::one(Kind::Other);
+        }
+        match l.aliases.get(el) {
+            Some(t) if depth < DEPTH => match self.classify(a, t, depth + 1) {
+                Receiver::Builtin(arms) => builtins::values(&arms),
+                Receiver::Classes(_) => Kinds::one(Kind::Other),
+                Receiver::Traced | Receiver::Unknown => Kinds::ANY,
+            },
+            // `any`, `unknown`, an interface, a generic
+            _ => Kinds::ANY,
+        }
+    }
 }
 
 /// The annotation of field `f` that class `c`, or a class it extends,

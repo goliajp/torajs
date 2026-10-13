@@ -150,5 +150,6 @@ fn hand_over(
         call_retargets,
         &c.demoted_cm_rewrites,
         &c.expr_types,
+        &c.unions.types,
     )
 }

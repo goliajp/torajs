@@ -42,7 +42,13 @@ fn retyped_in(src: &str, lift: bool) -> Vec<String> {
         crate::ast::lift_arrow_fns(&mut ast);
     }
     let (_, types) = crate::check::check_with_types(&ast).expect("check");
-    let t = analyze(&ast, &HashMap::new(), &HashMap::new(), &types);
+    let t = analyze(
+        &ast,
+        &HashMap::new(),
+        &HashMap::new(),
+        &types,
+        &HashMap::new(),
+    );
     let mut all = Vec::new();
     decls(&ast, &ast.stmts, &mut all);
     let mut out: Vec<String> = (all.into_iter())
@@ -62,7 +68,13 @@ fn hidden_in(src: &str) -> (Ast, super::HiddenAny) {
     let tokens = lexer::tokenize(src).expect("lex");
     let ast = parser::parse(src, &tokens).expect("parse");
     let (_, types) = crate::check::check_with_types(&ast).expect("check");
-    let t = analyze(&ast, &HashMap::new(), &HashMap::new(), &types);
+    let t = analyze(
+        &ast,
+        &HashMap::new(),
+        &HashMap::new(),
+        &types,
+        &HashMap::new(),
+    );
     (ast, t.hidden_any)
 }
 
@@ -161,7 +173,13 @@ fn an_array_stored_an_escaped_element_escapes() {
     let tokens = lexer::tokenize(&src).expect("lex");
     let ast = parser::parse(&src, &tokens).expect("parse");
     let (_, types) = crate::check::check_with_types(&ast).expect("check");
-    let t = analyze(&ast, &HashMap::new(), &HashMap::new(), &types);
+    let t = analyze(
+        &ast,
+        &HashMap::new(),
+        &HashMap::new(),
+        &types,
+        &HashMap::new(),
+    );
     let escapes = |n: &str| t.slot_escapes_any(&SlotKey::Global(n.into()));
     assert!(escapes("acc") && escapes("lit"));
     assert!(!escapes("t") && !escapes("w"));

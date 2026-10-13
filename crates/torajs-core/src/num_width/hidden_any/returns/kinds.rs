@@ -37,6 +37,30 @@ impl Kind {
     }
 }
 
+/// A set of kinds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Kinds(u8);
+
+impl Kinds {
+    pub(super) const NONE: Kinds = Kinds(0);
+    pub(super) const ANY: Kinds = Kinds(0b1111);
+
+    pub(super) fn one(k: Kind) -> Kinds {
+        Kinds(1 << k as u8)
+    }
+
+    pub(super) fn with(self, o: Kinds) -> Kinds {
+        Kinds(self.0 | o.0)
+    }
+
+    fn iter(self) -> impl Iterator<Item = Kind> {
+        use Kind::*;
+        [Number, String, Boolean, Other]
+            .into_iter()
+            .filter(move |k| self.0 & Kinds::one(*k).0 != 0)
+    }
+}
+
 /// What the walk notes for [`Graph::kind_seeds`].
 #[derive(Default)]
 pub(in crate::num_width) struct RetKinds {
@@ -72,6 +96,20 @@ impl Graph<'_> {
             self.ret_kinds.borrow_mut().note(f, k);
         }
         declared.is_some_and(|d| Kind::of(d) != k)
+    }
+
+    /// [`Graph::differs`] for a value of one of the kinds `ks`; a
+    /// receiver whose member is read may hold a member of any kind.
+    pub(super) fn differs_any(
+        &self,
+        (f, read): (&str, Read),
+        declared: Option<&Type>,
+        ks: Kinds,
+    ) -> bool {
+        read == Read::Members
+            || ks
+                .iter()
+                .fold(false, |h, k| self.differs((f, read), declared, k) | h)
     }
 
     /// Note that a return of `f` hands on what the functions whose

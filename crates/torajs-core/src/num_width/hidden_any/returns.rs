@@ -23,7 +23,11 @@
 //! a library call the checker types `any` (`JSON.parse(s)`,
 //! `m.get(k)`), a call of a function or method the
 //! program declares to return `any`, a call through a fn-typed slot of
-//! the boxed-entry census.
+//! the boxed-entry census. A union of builtin types the checker types
+//! `any` holds a value of one of its arms, and each of its members
+//! answers what the library declares for each arm: `x.toString()` of a
+//! `string | number` is a string, `x[0]` of an `any[] | string` an
+//! element of any kind (`builtins`).
 //!
 //! A binding hands on what its initializer and its stores hold,
 //! whatever it is annotated (a desugar pass writes `any` on bindings of
@@ -46,6 +50,7 @@ use crate::check::Type;
 use crate::num_width::hidden_any_calls::answers_any;
 use crate::num_width::{Analysis, Scope};
 
+mod builtins;
 mod calls;
 mod fn_values;
 mod kinds;
@@ -54,8 +59,8 @@ mod members;
 mod origins;
 mod receivers;
 
-use kinds::Kind;
 pub(super) use kinds::RetKinds;
+use kinds::{Kind, Kinds};
 pub(super) use lookups::Lookups;
 use receivers::Receiver;
 
@@ -108,6 +113,9 @@ impl Graph<'_> {
         if !seen.insert((e, read)) {
             return false;
         }
+        // what a return declared a scalar hands back as is passed the
+        // checker's return check, which a guard narrows a union for
+        let checked = seen.len() == 1 && declared.is_some();
         let mut go =
             |x: ExprId, r: Read, from: &mut Vec<Node>| self.spelled_any((a, sc), x, r, from, seen);
         match a.ast.get_expr(e) {
@@ -124,7 +132,10 @@ impl Graph<'_> {
                 let mut hit = false;
                 for o in self.origins(a, sc, n) {
                     hit |= match (o, self.values(a, n, o)) {
-                        (Origin::Param(open), _) => open,
+                        (Origin::Param(true), _) => true,
+                        (Origin::Param(false), _) => {
+                            !checked && self.annotated((a, sc), e, read, &declared)
+                        }
                         (_, Some(vs)) => vs.into_iter().fold(false, |h, v| go(v, read, from) | h),
                         (_, None) => true,
                     };
@@ -144,9 +155,12 @@ impl Graph<'_> {
                             self.hands_on((sc.fn_name, read), &from[at..]);
                             hit | go(*obj, Read::Members, from)
                         }
-                        Receiver::Traced | Receiver::Builtin { .. } => {
-                            go(*obj, Read::Members, from)
-                        }
+                        Receiver::Builtin(arms) => self.differs_any(
+                            (sc.fn_name, read),
+                            declared.as_ref(),
+                            builtins::member(&arms, name, false),
+                        ),
+                        Receiver::Traced => go(*obj, Read::Members, from),
                         Receiver::Unknown => true,
                     },
                     Some(t) => {
@@ -158,11 +172,24 @@ impl Graph<'_> {
                     None => false,
                 }
             }
-            Expr::Index { obj, .. } | Expr::OptIndex { obj, .. } => match a.expr_types.get(obj) {
-                Some(Type::Any) => go(*obj, Read::Members, from),
-                Some(Type::Array(el)) => **el == Type::Any,
-                _ => true,
-            },
+            Expr::Index { obj, index } | Expr::OptIndex { obj, index } => {
+                match a.expr_types.get(obj) {
+                    // an element of a union of builtins is what each arm
+                    // holds; another key may read a member of any kind
+                    Some(Type::Any) => match self.receiver(a, sc, *obj) {
+                        Receiver::Builtin(arms) => {
+                            let ks = match a.expr_types.get(index) {
+                                Some(Type::Number) => builtins::element(&arms),
+                                _ => Kinds::ANY,
+                            };
+                            self.differs_any((sc.fn_name, read), declared.as_ref(), ks)
+                        }
+                        _ => go(*obj, Read::Members, from),
+                    },
+                    Some(Type::Array(el)) => **el == Type::Any,
+                    _ => true,
+                }
+            }
             // an object, which no declared scalar return is; its members
             // hold what it is built from
             Expr::New { .. } | Expr::Closure { .. } => differs(Kind::Other),

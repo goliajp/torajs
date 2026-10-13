@@ -243,7 +243,13 @@ mod tests {
         let tokens = lexer::tokenize(src).expect("lex");
         let mut ast = parser::parse(src, &tokens).expect("parse");
         crate::ast::lift_arrow_fns(&mut ast);
-        analyze(&ast, &HashMap::new(), &HashMap::new(), &HashMap::new())
+        analyze(
+            &ast,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+        )
     }
 
     fn ret(f: &str) -> SlotKey {

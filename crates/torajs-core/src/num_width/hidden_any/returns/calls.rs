@@ -2,9 +2,9 @@
 
 use std::collections::HashSet;
 
-use super::Read;
 use super::kinds::Kind;
 use super::receivers::Receiver;
+use super::{Read, builtins};
 use crate::ast::{Expr, ExprId};
 use crate::check::Type;
 use crate::num_width::hidden_any::{Graph, Node};
@@ -53,9 +53,9 @@ impl Graph<'_> {
                 ) => match a.expr_types.get(obj) {
                     // a method of a union of classes the checker typed
                     // `any`; a receiver whose classes the walk cannot
-                    // name may run a method of any kind; a union of
-                    // builtins answers its own value (`v.valueOf()` of a
-                    // `string | number`) or an array's element
+                    // name may run a method of any kind; a method of a
+                    // union of builtins answers what its library
+                    // declares for each arm (`v.toString()` a string)
                     Some(Type::Any) => match self.receiver(a, sc, *obj) {
                         Receiver::Classes(u) => {
                             let at = from.len();
@@ -68,8 +68,12 @@ impl Graph<'_> {
                             self.hands_on((sc.fn_name, read), &from[at..]);
                             hit | self.spelled_any((a, sc), *obj, Read::Members, from, seen)
                         }
-                        Receiver::Builtin { arrays } if answers_own(arrays, name) => true,
-                        Receiver::Traced | Receiver::Builtin { .. } => {
+                        Receiver::Builtin(arms) => self.differs_any(
+                            (sc.fn_name, read),
+                            declared.as_ref(),
+                            builtins::member(&arms, name, true),
+                        ),
+                        Receiver::Traced => {
                             self.spelled_any((a, sc), *obj, Read::Members, from, seen)
                         }
                         Receiver::Unknown => true,
@@ -93,15 +97,4 @@ impl Graph<'_> {
             },
         }
     }
-}
-
-/// Does method `m` of a union of builtins answer the receiver's own
-/// value, or, when an arm is an array (`arrays`), one of its elements?
-fn answers_own(arrays: bool, m: &str) -> bool {
-    m == "valueOf"
-        || arrays
-            && matches!(
-                m,
-                "at" | "pop" | "shift" | "find" | "findLast" | "reduce" | "reduceRight"
-            )
 }

@@ -100,6 +100,9 @@ pub(super) struct Analysis<'a> {
     /// materialize it rather than on where it came from — see the
     /// `Expr::As` arm in `width.rs`.
     pub(super) expr_types: &'a HashMap<ExprId, crate::check::Type>,
+    /// The members of each expression the checker types a union, as
+    /// narrowed where it is read (`check::union_narrow::UnionFacts`).
+    pub(super) union_types: &'a HashMap<ExprId, crate::check::Type>,
     /// Per-call-site monomorphization retargets — a generic call's
     /// callee ident still spells the generic name in the AST; the
     /// edges must land on the mono instance lowering actually calls.
@@ -245,6 +248,7 @@ pub(crate) fn analyze(
     retargets: &HashMap<ExprId, String>,
     demoted: &HashMap<ExprId, ExprId>,
     expr_types: &HashMap<ExprId, crate::check::Type>,
+    union_types: &HashMap<ExprId, crate::check::Type>,
 ) -> WidthTable {
     let (fn_params, toplevel_lets, by_name, const_ints) =
         analyze_tables::collect_slot_registry(ast);
@@ -262,6 +266,7 @@ pub(crate) fn analyze(
     let mut a = Analysis {
         ast,
         expr_types,
+        union_types,
         retargets,
         demoted,
         fn_params,
@@ -399,6 +404,7 @@ mod tests {
         let ast = parser::parse(src, &tokens).expect("parse");
         Slots(analyze(
             &ast,
+            &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),

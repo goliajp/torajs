@@ -313,7 +313,13 @@ mod tests {
     fn escaped(src: &str, names: &[&str]) -> Vec<bool> {
         let tokens = lexer::tokenize(src).expect("lex");
         let ast = parser::parse(src, &tokens).expect("parse");
-        let t = analyze(&ast, &HashMap::new(), &HashMap::new(), &HashMap::new());
+        let t = analyze(
+            &ast,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+        );
         names
             .iter()
             .map(|n| t.slot_escapes_any(&SlotKey::Global((*n).into())))
@@ -343,7 +349,13 @@ mod tests {
         let src = "interface B { v: any; w: number[] }\nconst o = { v: [1], w: [2] };\n(o as B).v.push(3);\nconst p = { u: [4] };\n(p as { u: any }).u.push(5);";
         let tokens = lexer::tokenize(src).expect("lex");
         let ast = parser::parse(src, &tokens).expect("parse");
-        let t = analyze(&ast, &HashMap::new(), &HashMap::new(), &HashMap::new());
+        let t = analyze(
+            &ast,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+        );
         let field = |o: &str, f: &str| {
             t.slot_escapes_any(&SlotKey::Field(
                 Box::new(SlotKey::Global(o.into())),
@@ -398,7 +410,13 @@ mod tests {
         let src = "function t1(x?: number) { return x * 2 }\nfunction t2(o: { a?: number }) { return o.a * 2 }\nfunction t3(x: number) { return x * 2 }\nconsole.log(t1(), t2({}), t3(1));";
         let tokens = lexer::tokenize(src).expect("lex");
         let ast = parser::parse(src, &tokens).expect("parse");
-        let t = analyze(&ast, &HashMap::new(), &HashMap::new(), &HashMap::new());
+        let t = analyze(
+            &ast,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+        );
         let ret = |f: &str| t.slot_is_f64(&SlotKey::Ret(f.into()));
         assert_eq!([ret("t1"), ret("t2"), ret("t3")], [true, true, false]);
     }
