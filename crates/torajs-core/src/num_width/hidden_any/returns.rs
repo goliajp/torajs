@@ -184,7 +184,8 @@ impl Graph<'_> {
                             };
                             self.differs_any((sc.fn_name, read), declared.as_ref(), ks)
                         }
-                        _ => go(*obj, Read::Members, from),
+                        Receiver::Unknown => true,
+                        Receiver::Classes(_) | Receiver::Traced => go(*obj, Read::Members, from),
                     },
                     Some(Type::Array(el)) => **el == Type::Any,
                     _ => true,

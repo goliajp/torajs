@@ -4,7 +4,9 @@
 //! The checker types a union of classes or object types `any`, whose
 //! members are still the ones each declares. The walk names them by
 //! the annotation that types the receiver: the one on the binding or
-//! parameter it reads, through a `const` with none to its initializer,
+//! parameter it reads, through a `const` with none to its initializer
+//! and through a `let` or `var` with none, or an open one, to its
+//! initializer and every value stored to it,
 //! the written return of the function or method it calls, the
 //! annotation of the field it reads, the type an `as` gives it, each
 //! through a type alias. A union of builtin types, named by the members
@@ -13,6 +15,8 @@
 //! declares. A receiver whose annotation names something else
 //! (an interface, a generic, an inline object type, classes mixed with
 //! builtin types) may hold a member of any kind.
+
+use std::collections::HashSet;
 
 use super::Read;
 use super::builtins::{self, Arm, scalar_kind};
@@ -66,10 +70,18 @@ impl Graph<'_> {
 
     /// What the walk knows of receiver `obj`.
     pub(super) fn receiver(&self, a: &Analysis<'_>, sc: &Scope, obj: ExprId) -> Receiver {
-        self.receiver_at(a, sc, obj, 0)
+        self.receiver_at((a, sc), obj, 0, &mut HashSet::new())
     }
 
-    fn receiver_at(&self, a: &Analysis<'_>, sc: &Scope, obj: ExprId, depth: u8) -> Receiver {
+    /// `seen` holds the `let` / `var` declarations whose values the walk
+    /// already joins.
+    fn receiver_at(
+        &self,
+        (a, sc): (&Analysis<'_>, &Scope),
+        obj: ExprId,
+        depth: u8,
+        seen: &mut HashSet<usize>,
+    ) -> Receiver {
         if depth > DEPTH {
             return Receiver::Unknown;
         }
@@ -83,8 +95,16 @@ impl Graph<'_> {
         let ann: Option<&str> = match a.ast.get_expr(obj) {
             Expr::Ident(n) => match self.resolve(a, n, sc) {
                 Ref::At(Node::Decl(i)) => match self.origin(i) {
-                    Origin::Fixed(v) => return self.receiver_at(a, sc, v, depth + 1),
-                    Origin::Open(v) => l.let_anns.get(&v).map(String::as_str),
+                    Origin::Fixed(v) => return self.receiver_at((a, sc), v, depth + 1, seen),
+                    // what an open annotation (one a desugar pass writes
+                    // on a hoisted `var`) leaves is what the binding holds
+                    Origin::Open(v) => match l.let_anns.get(&v) {
+                        Some(t) if !open_ann(t) => Some(t.as_str()),
+                        _ => {
+                            let held = self.held((a, sc), (n, i, v), depth, seen);
+                            return held.unwrap_or(Receiver::Traced);
+                        }
+                    },
                     Origin::Param(_) | Origin::Unknown => None,
                 },
                 Ref::At(Node::Read(SlotKey::Param(f, p))) => {
@@ -122,7 +142,7 @@ impl Graph<'_> {
                 }
             }
             Expr::As { ty_ann, expr } if open_ann(ty_ann) => {
-                return self.receiver_at(a, sc, *expr, depth + 1);
+                return self.receiver_at((a, sc), *expr, depth + 1, seen);
             }
             Expr::As { ty_ann, .. } => Some(ty_ann.as_str()),
             _ => None,
@@ -131,6 +151,54 @@ impl Graph<'_> {
             Some(t) if !open_ann(t) => self.classify(a, t, depth),
             _ => Receiver::Traced,
         }
+    }
+
+    /// What the walk knows of a `let` or `var` `n` with no annotation or
+    /// an open one, declaration `i` with initializer `init`: the join of
+    /// what it knows of each value the binding holds. `None` when it
+    /// holds none the walk has not joined already.
+    fn held(
+        &self,
+        (a, sc): (&Analysis<'_>, &Scope),
+        (n, i, init): (&str, usize, ExprId),
+        depth: u8,
+        seen: &mut HashSet<usize>,
+    ) -> Option<Receiver> {
+        if depth >= DEPTH {
+            return Some(Receiver::Unknown);
+        }
+        if !seen.insert(i) {
+            return None;
+        }
+        let mut joined = None;
+        for v in self.values(a, n, Origin::Open(init)).unwrap_or_default() {
+            let r = match (a.ast.get_expr(v), a.expr_types.get(&v)) {
+                // `let r;` holds `undefined`, which holds no member
+                (Expr::Uninit | Expr::Null, _)
+                | (_, Some(Type::Null | Type::Undefined | Type::Void)) => continue,
+                (_, Some(Type::ClassRef(c))) => Receiver::Classes(Type::ClassRef(c.clone())),
+                (_, Some(t)) if *t != Type::Any => {
+                    match builtins::arms_of(std::slice::from_ref(t)) {
+                        Some(arms) => Receiver::Builtin(arms),
+                        // an object the program types, whose members the
+                        // walk traces as it did the binding's
+                        None => Receiver::Traced,
+                    }
+                }
+                (Expr::Ident(m), _) if self.joined(a, sc, m, seen) => continue,
+                _ => self.receiver_at((a, sc), v, depth + 1, seen),
+            };
+            joined = Some(match joined {
+                None => r,
+                Some(j) => join(j, r),
+            });
+        }
+        joined
+    }
+
+    /// Does `m` name a `let` or `var` whose values the walk joins already?
+    fn joined(&self, a: &Analysis<'_>, sc: &Scope, m: &str, seen: &HashSet<usize>) -> bool {
+        matches!(self.resolve(a, m, sc), Ref::At(Node::Decl(j)) if seen.contains(&j))
     }
 
     /// What annotation `ann` says of the values it types.
@@ -205,6 +273,35 @@ impl Graph<'_> {
             // `any`, `unknown`, an interface, a generic
             _ => Kinds::ANY,
         }
+    }
+}
+
+/// What the walk knows of a value that is one of two it knows `x` and
+/// `y` of.
+fn join(x: Receiver, y: Receiver) -> Receiver {
+    let classes = |t: Type| match t {
+        Type::Union(ts) => ts,
+        t => vec![t],
+    };
+    match (x, y) {
+        (Receiver::Builtin(mut p), Receiver::Builtin(q)) => {
+            p.extend(q);
+            Receiver::Builtin(p)
+        }
+        (Receiver::Classes(p), Receiver::Classes(q)) => {
+            let mut ts = classes(p);
+            for t in classes(q) {
+                if !ts.contains(&t) {
+                    ts.push(t);
+                }
+            }
+            match ts.len() {
+                1 => Receiver::Classes(ts.remove(0)),
+                _ => Receiver::Classes(Type::Union(ts)),
+            }
+        }
+        (Receiver::Traced, Receiver::Traced) => Receiver::Traced,
+        _ => Receiver::Unknown,
     }
 }
 
