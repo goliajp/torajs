@@ -10,7 +10,7 @@ use torajs_core::ssa::{
     lowers_to_call, visit_value_operands,
 };
 
-use super::super::clone::reads_outside;
+use super::super::plan::Ctx;
 use super::super::retire::{exits, snapped};
 use super::super::{MAX_LANES, Plan};
 
@@ -43,6 +43,9 @@ pub(crate) struct Packing {
     /// Kept cells that freeze themselves (see the module doc), each
     /// with the sum its bump writes.
     pub frozen: Vec<(ValueId, ValueId)>,
+    /// The operand every lane's packed slot starts from, where they
+    /// all start from one: the pair is a splat of it.
+    pub starts: HashMap<ValueId, Operand>,
 }
 
 impl Packing {
@@ -60,7 +63,7 @@ impl Packing {
 /// has no two-lane form (the step reads only i64 and f64 values, its
 /// compares are read by its branches alone, and nothing reads the
 /// counter) or where not even one pair's vectors fit.
-pub(crate) fn packing(func: &Function, p: &Plan) -> Option<Packing> {
+pub(crate) fn packing(func: &Function, p: &Plan, ctx: &Ctx) -> Option<Packing> {
     let inner = p.inner_order();
     let insts: Vec<Inst> = inner
         .iter()
@@ -78,15 +81,10 @@ pub(crate) fn packing(func: &Function, p: &Plan) -> Option<Packing> {
             _ => return None,
         }
     }
-    let read_by_inst = func.blocks.iter().flat_map(|b| &b.insts).any(|i| {
-        let mut hit = false;
-        visit_value_operands(&i.kind, |v| hit |= compares.contains(&v));
-        hit
-    });
-    if read_by_inst {
-        return None;
-    }
-    let read_after_pre = reads_outside(func, &p.pre_order());
+    let read_after_pre = p
+        .read_after_pre
+        .as_ref()
+        .expect("a masked plan has its reads past pre");
     let lane_owned: HashSet<ValueId> = p
         .pre_order()
         .iter()
@@ -109,7 +107,20 @@ pub(crate) fn packing(func: &Function, p: &Plan) -> Option<Packing> {
     if carried_outside(&insts, &defined, &packed) || kept.iter().any(|c| !packed.contains(c)) {
         return None;
     }
-    let frozen = frozen_cells(func, p, &inner, &kept);
+    let uses = |v: &ValueId| ctx.uses.get(v).copied().unwrap_or(0);
+    // a compare is read by the step's branches alone
+    for c in &compares {
+        let branches = inner.iter().filter(|b| {
+            super::super::plan::term_value(&func.blocks[b.0 as usize].term) == Some(*c)
+        });
+        if uses(c) != branches.count() as u32 {
+            return None;
+        }
+    }
+    let mut frozen = frozen_cells(func, p, &inner, &kept);
+    // the bump's sum is read by the cell's write alone
+    frozen.retain(|(_, s)| uses(s) == 1);
+    let starts = common_starts(func, p, ctx, &packed);
     let pk = Packing {
         lanes: 0,
         per_pair: packed.len() + kept.len() - frozen.len() + 1,
@@ -118,6 +129,7 @@ pub(crate) fn packing(func: &Function, p: &Plan) -> Option<Packing> {
             + usize::from(calls(func, p)),
         packed,
         frozen,
+        starts,
     };
     let room = VEC_REGISTERS.saturating_sub(pk.splats + pk.temps);
     let pairs = (room / pk.per_pair).min(MAX_LANES / 2);
@@ -229,8 +241,9 @@ pub(crate) fn bump_by(kind: &InstKind) -> Option<(ValueId, i64)> {
 /// The kept cells that may freeze themselves, with their sums: the
 /// step's one write of `c` copies `c + k`, the sum and the write both
 /// come after the step's last exit test, and nothing else reads the
-/// sum. A bump ahead of an exit would leave a lane that exits there
-/// holding `c + k` where its snapshot holds `c`.
+/// sum (`packing` checks that last). A bump ahead of an exit would
+/// leave a lane that exits there holding `c + k` where its snapshot
+/// holds `c`.
 fn frozen_cells(
     func: &Function,
     p: &Plan,
@@ -259,23 +272,55 @@ fn frozen_cells(
         };
         let def = after.iter().find(|i| i.result == Some(sum))?;
         let late = after.iter().any(|i| std::ptr::eq(*i, *write));
-        (late && bump_by(&def.kind)?.0 == c && reads(func, sum) == 1).then_some(sum)
+        (late && bump_by(&def.kind)?.0 == c).then_some(sum)
     };
     kept.iter()
         .filter_map(|&c| freezes(c).map(|s| (c, s)))
         .collect()
 }
 
-/// How many times `func` reads `v`.
-fn reads(func: &Function, v: ValueId) -> usize {
-    let mut n = 0;
-    for block in &func.blocks {
-        for inst in &block.insts {
-            visit_value_operands(&inst.kind, |x| n += usize::from(x == v));
-        }
-        n += usize::from(super::super::plan::term_value(&block.term) == Some(v));
+/// The operand every lane's packed slot `v` starts from where `pre`
+/// defines `v` once, copying an operand no lane renames (a value
+/// neither `pre` defines nor a lane cell nor the counter): a constant,
+/// or such a value, followed to the constant its one definition copies.
+/// Every lane reads it in `GB`, where nothing writes it.
+fn common_starts(
+    func: &Function,
+    p: &Plan,
+    ctx: &Ctx,
+    packed: &HashSet<ValueId>,
+) -> HashMap<ValueId, Operand> {
+    let pre = p.pre_order();
+    let defs = |v: ValueId| ctx.defs.get(&v).map_or(&[][..], Vec::as_slice);
+    let constant = |op: Operand| matches!(op, Operand::ConstF64(_) | Operand::ConstI64(_));
+    let copies = |(b, at): (BlockId, usize)| match func.blocks[b.0 as usize].insts[at].kind {
+        InstKind::Copy(_, src) => Some(src),
+        _ => None,
+    };
+    let mut out: HashMap<ValueId, Operand> = HashMap::default();
+    for &v in packed {
+        let mut in_pre = defs(v).iter().filter(|(b, _)| pre.contains(b));
+        let (Some(&def), None) = (in_pre.next(), in_pre.next()) else {
+            continue;
+        };
+        let start = match copies(def) {
+            Some(c) if constant(c) => c,
+            Some(Operand::Value(x))
+                if x != p.iv
+                    && !p.lane_cells.contains(&x)
+                    && !defs(x).iter().any(|(b, _)| pre.contains(b)) =>
+            {
+                match defs(x) {
+                    &[one] => copies(one).filter(|c| constant(*c)),
+                    _ => None,
+                }
+                .unwrap_or(Operand::Value(x))
+            }
+            _ => continue,
+        };
+        out.insert(v, start);
     }
-    n
+    out
 }
 
 /// Peak count of one pair's step's own vectors live at once: each

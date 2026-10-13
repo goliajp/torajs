@@ -148,6 +148,9 @@ pub(crate) struct Plan {
     /// Under masks, the cells a lane keeps from the step it leaves in,
     /// when fewer than the inner loop writes (see `retire`).
     pub exit_cells: Option<Vec<ValueId>>,
+    /// Under masks, the values read outside `pre`, taken once for the
+    /// lane count and the rewrite.
+    pub read_after_pre: Option<HashSet<ValueId>>,
     /// Under masks, how the lanes pack two to a vector register, when
     /// the step has two-lane forms (see `masked_vec`).
     pub packing: Option<masked_vec::Packing>,

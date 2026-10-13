@@ -129,7 +129,6 @@ pub(super) fn steps(
         I64X2,
         VecInst::Splat(VecShape::I64x2, Operand::ConstI64(-1)),
     );
-    let starts = constant_starts(func);
     let mut splatted: HashSet<ValueId> = HashSet::default();
     let mut pairs: Vec<Pair> = Vec::with_capacity(p.lanes / 2);
     for q in 0..p.lanes / 2 {
@@ -142,13 +141,12 @@ pub(super) fn steps(
             let shape = shape_of(func.value_type(v));
             let lo = lanes[2 * q].get(&v).copied().unwrap_or(v);
             let hi = lanes[2 * q + 1].get(&v).copied().unwrap_or(v);
-            let both = match (starts.get(&lo), starts.get(&hi)) {
-                // both lanes start from one constant
-                (Some(a), Some(b)) if a == b => {
+            let both = match pk.starts.get(&v) {
+                Some(&start) => {
                     splatted.extend([lo, hi]);
-                    VecInst::Splat(shape, *a)
+                    VecInst::Splat(shape, start)
                 }
-                _ => VecInst::Pair(shape, Operand::Value(lo), Operand::Value(hi)),
+                None => VecInst::Pair(shape, Operand::Value(lo), Operand::Value(hi)),
             };
             let t = vtemp(func, cur, Type::Vec(shape), both);
             let cell = vcell(func, cur, Type::Vec(shape), t);
@@ -161,6 +159,8 @@ pub(super) fn steps(
         }
         pairs.push(pair);
     }
+    // a lane's copy only its pair's splat stood for
+    drop_unread(func, g, &splatted);
     let live = new_value(func, Type::I64);
     let lanes_left = Operand::ConstI64(p.lanes as i64);
     push(func, cur, live, InstKind::Copy(Type::I64, lanes_left));
@@ -201,49 +201,13 @@ pub(super) fn steps(
         then_blk: ft,
         else_blk: g,
     };
-    // a lane value only its pair's splat stood for
-    drop_unread(func, &splatted);
 }
 
-/// The constant each value starts from where its one definition
-/// copies one, directly or through another value defined once.
-fn constant_starts(func: &Function) -> HashMap<ValueId, Operand> {
-    let mut copies: HashMap<ValueId, (usize, Operand)> = HashMap::default();
-    for inst in func.blocks.iter().flat_map(|b| &b.insts) {
-        if let (Some(r), &InstKind::Copy(_, src)) = (inst.result, &inst.kind) {
-            copies.entry(r).or_insert((0, src)).0 += 1;
-        }
-    }
-    // a value some other instruction also defines is not a copy's alone
-    for inst in func.blocks.iter().flat_map(|b| &b.insts) {
-        if let Some(r) = inst.result
-            && !matches!(inst.kind, InstKind::Copy(..))
-        {
-            copies.remove(&r);
-        }
-    }
-    copies.retain(|v, (n, _)| *n == 1 && !func.params.contains(v));
-    let mut out: HashMap<ValueId, Operand> = HashMap::default();
-    for (&v, &(_, first)) in &copies {
-        let mut src = first;
-        // a copy of a copy, at most a few deep
-        for _ in 0..4 {
-            match src {
-                Operand::Value(x) if copies.contains_key(&x) => src = copies[&x].1,
-                _ => break,
-            }
-        }
-        if matches!(src, Operand::ConstF64(_) | Operand::ConstI64(_)) {
-            out.insert(v, src);
-        }
-    }
-    out
-}
-
-/// Drops the definitions of `values` nothing reads.
-fn drop_unread(func: &mut Function, values: &HashSet<ValueId>) {
+/// Drops the definitions of `values` nothing reads, all of them in
+/// `GB`'s blocks: `g` and every block made after it.
+fn drop_unread(func: &mut Function, g: BlockId, values: &HashSet<ValueId>) {
     let mut read: HashSet<ValueId> = HashSet::default();
-    for block in &func.blocks {
+    for block in &func.blocks[g.0 as usize..] {
         for inst in &block.insts {
             visit_value_operands(&inst.kind, |v| {
                 if values.contains(&v) {
@@ -253,7 +217,7 @@ fn drop_unread(func: &mut Function, values: &HashSet<ValueId>) {
         }
         read.extend(term_value(&block.term).filter(|v| values.contains(v)));
     }
-    for block in &mut func.blocks {
+    for block in &mut func.blocks[g.0 as usize..] {
         block.insts.retain(|i| {
             !i.result
                 .is_some_and(|r| values.contains(&r) && !read.contains(&r))

@@ -31,11 +31,18 @@ use super::heads::inner_heads;
 
 pub(super) fn apply(func: &mut Function, p: &Plan) {
     let cells = cell_set(func);
-    let read_after_pre = reads_outside(func, &p.pre_order());
+    let computed;
+    let read_after_pre = match &p.read_after_pre {
+        Some(reads) => reads,
+        None => {
+            computed = reads_outside(func, &p.pre_order());
+            &computed
+        }
+    };
     let (g, gb) = group_entry(func, p);
     if p.masked {
         let (lanes, cur) = pre_lanes(func, p, gb);
-        super::masked::steps(func, p, &cells, &read_after_pre, g, cur, lanes);
+        super::masked::steps(func, p, &cells, read_after_pre, g, cur, lanes);
         return;
     }
     let heads: Vec<BlockId> = (0..p.lanes).map(|_| func.add_block()).collect();

@@ -200,7 +200,7 @@ fn fewer_snapshots_make_room_for_more_lanes() {
     let pk = |reads: Reads| {
         let func = escape(reads);
         let plan = plan::find_plan(&func, &Default::default()).expect("planned");
-        let pk = masked_vec::packing(&func, &plan).expect("packed");
+        let pk = plan.packing.expect("packed");
         (pk.per_pair, pk.splats, pk.temps, pk.frozen.len())
     };
     // the `+ 1` is a splat where the count is not frozen

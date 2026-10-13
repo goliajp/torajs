@@ -10,6 +10,7 @@ use torajs_core::ssa::{
 };
 
 use super::chain::{inner_chain, inner_exit, pre_chain};
+use super::clone::reads_outside;
 use super::fit::{lane_count, regions_fit};
 use super::flow::{escaping, lane_cells, lane_shared};
 use super::masked_vec::packing;
@@ -171,6 +172,7 @@ fn plan_loop(func: &Function, la: &LoopAnalysis, l: &NaturalLoop, ctx: &Ctx) -> 
         chain,
         masked: !inner_exits.is_empty(),
         exit_cells: None,
+        read_after_pre: None,
         packing: None,
         post,
         body,
@@ -191,7 +193,8 @@ fn complete(func: &Function, ctx: &Ctx, mut plan: Plan) -> Option<Plan> {
     plan.escaping = escaping(func, ctx, &plan)?;
     plan.shared = lane_shared(func, &plan);
     plan.exit_cells = plan.masked.then(|| exit_cells(func, &plan)).flatten();
-    plan.packing = plan.masked.then(|| packing(func, &plan)).flatten();
+    plan.read_after_pre = plan.masked.then(|| reads_outside(func, &plan.pre_order()));
+    plan.packing = plan.masked.then(|| packing(func, &plan, ctx)).flatten();
     plan.lanes = lane_count(func, &plan);
     wrap_ok(&plan).then_some(plan)
 }

@@ -42,7 +42,7 @@ use torajs_core::ssa::{
     visit_value_operands,
 };
 
-use super::clone::{clone_into, new_value, push, reads_outside};
+use super::clone::{clone_into, new_value, push};
 use super::emit::reuse_shared;
 use super::retire::{Slot0, retire, snapped};
 use super::{LANE_GPR_BUDGET, MIN_LANES, Plan};
@@ -63,7 +63,10 @@ pub(super) fn masked_lanes(func: &Function, p: &Plan) -> usize {
     if let Some(pk) = &p.packing {
         return pk.lanes;
     }
-    let read_after_pre = reads_outside(func, &p.pre_order());
+    let read_after_pre = p
+        .read_after_pre
+        .as_ref()
+        .expect("a masked plan has its reads past pre");
     let kept = snapped(func, p);
     let mut own: HashSet<ValueId> = HashSet::default();
     for b in p.pre_order() {
