@@ -21,9 +21,9 @@
 //! alias itself, and otherwise must mean the same type everywhere (one
 //! type declaration, no type parameter of that name), since the
 //! spelling lands in scopes other than the alias's own. A union target
-//! is encoded `__union(..)` / `__nullable(..)` and is not inlined, nor
-//! is a variadic function type (`__rest(..)`), which resolves by name
-//! to its own closure shape. Declined — left
+//! is encoded `__union(..)` / `__nullable(..)` and is not inlined. A
+//! variadic function type (`__rest(..)`) inlines like any other: the
+//! call lane it takes is chosen by that spelling. Declined — left
 //! to resolve by name, as before — when anything else claims the
 //! name: a second type declaration (a nested `type`, a class), a type
 //! parameter, or a top-level value binding (an enum's object).
@@ -167,7 +167,7 @@ fn resolve(
     let target = targets.get(name)?;
     let head = target.trim_end_matches("[]");
     let suffix = &target[head.len()..];
-    let r = if target.starts_with("__fn(") && !target.contains("__rest(") {
+    let r = if target.starts_with("__fn(") {
         fn_target(target, targets, claims, memo, visiting)
     } else if !head.bytes().all(is_word_byte) {
         None
