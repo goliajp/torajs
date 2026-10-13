@@ -5,12 +5,16 @@
 //! (CreatePerIterationEnvironment), so a closure made in one iteration
 //! keeps that iteration's binding. The let-lift turns the binding into
 //! one state-machine field, which every closure then shares. When a
-//! closure in the loop body reads the binding, it is boxed instead: the
+//! closure in the loop reads the binding, it is boxed instead: the
 //! field holds a one-element array, the cell of the current iteration;
 //! the step expression first replaces it with a copy, then steps the
-//! copy; every plain reference reads and writes `cell[0]`; and each
-//! statement that makes such a closure is preceded by a local holding
-//! the current cell, which the closure captures in place of the field.
+//! copy; every plain reference reads and writes `cell[0]`; and every
+//! closure reading the binding captures the cell that is current when
+//! it is made, never the field.
+//!
+//! Each statement that makes such a closure is preceded by a local
+//! holding the current cell, which the closure captures in place of the
+//! field:
 //!
 //! ```text
 //! for (let i = 0; i < n; i++) fs.push(() => i)
@@ -21,17 +25,28 @@
 //! ```
 //!
 //! That local is a plain local of one state arm (`LiftCtx::arm_locals`
-//! keeps it out of the lift), so the statement that makes the closure
-//! must not itself suspend; a loop where one does is left as it was.
+//! keeps it out of the lift), so it has to be evaluated in the arm that
+//! makes the closure. A loop test or step runs again on every pass, so
+//! one that makes such a closure — the boxed loop's own or a nested
+//! loop's — is first moved into the loop body (`rotate`), where it is a
+//! statement of its own. A later declaration of the boxed loop's head
+//! that makes one takes its local inside the head, and the first
+//! iteration then starts from a copy of the cell the head made, the
+//! copy §14.7.4.2 makes before the first iteration. A statement that
+//! suspends before it is done evaluating its own expressions has no
+//! arm for the local; a loop where one makes such a closure is left as
+//! it was.
 
+mod rotate;
 mod scan;
 
 use super::LiftCtx;
 use crate::ast::desugar_generators_sm_rewrite::stmt_contains_yield;
-use crate::ast::desugar_with::walk::stmt_children_ref;
+use crate::ast::desugar_with::walk::{stmt_children_ref, stmt_exprs};
 use crate::ast::{Ast, Expr, ExprId, Stmt};
 use scan::{
-    arrow_reads, arrows_in, collect_deep, decl_reads, idents_outside_arrows, own_arrows, stmt_roots,
+    arrow_reads, arrows_in, collect_deep, decl_reads, head_decls, head_decls_mut,
+    idents_outside_arrows, mentions, own_arrows, stmt_roots,
 };
 use std::collections::HashMap;
 
@@ -43,21 +58,53 @@ struct Cell {
     marker: String,
     /// The cell's type, `Array<T>`.
     ty: String,
-    /// Arm locals minted so far.
+    /// Arm locals and rotation flags minted so far.
     locals: usize,
 }
 
-/// Box the binding of the `for (let …)` at `s` when a closure in the
-/// loop body reads it. `taken` is what a lifted field may not be called.
+/// Box each binding of the `for (let …)` at `s` that a closure in the
+/// loop reads. `taken` is what a lifted field may not be called.
 pub(super) fn box_captured_for_let(
     ast: &mut Ast,
     s: &mut Stmt,
     taken: &[(String, String)],
     ctx: &mut LiftCtx,
 ) {
-    let Some((name, type_ann, first)) = boxable(ast, s) else {
+    let Stmt::For { init: Some(i), .. } = s else {
         return;
     };
+    // by name: boxing one binding adds statements to the head
+    let names: Vec<String> = head_decls(i)
+        .into_iter()
+        .filter_map(|d| match d {
+            Stmt::LetDecl { name, .. } => Some(name.clone()),
+            _ => None,
+        })
+        .collect();
+    for name in names {
+        let Stmt::For { init: Some(i), .. } = s else {
+            return;
+        };
+        let at = head_decls(i)
+            .into_iter()
+            .position(|d| matches!(d, Stmt::LetDecl { name: n, .. } if *n == name));
+        if let Some(k) = at
+            && let Some(binding) = boxable(ast, s, k)
+        {
+            box_one(ast, s, k, binding, taken, ctx);
+        }
+    }
+}
+
+/// Box the binding declared by the `k`th statement of the head.
+fn box_one(
+    ast: &mut Ast,
+    s: &mut Stmt,
+    k: usize,
+    (name, type_ann, first): (String, Option<String>, ExprId),
+    taken: &[(String, String)],
+    ctx: &mut LiftCtx,
+) {
     let field = mint(&format!("{name}__iter"), taken);
     let marker = format!("{field}__ref");
     let map = HashMap::from([(name.clone(), marker.clone())]);
@@ -70,7 +117,7 @@ pub(super) fn box_captured_for_let(
         locals: 0,
     };
     let Stmt::For {
-        init,
+        init: Some(init),
         cond,
         step,
         body,
@@ -80,34 +127,60 @@ pub(super) fn box_captured_for_let(
     };
     let mut roots: Vec<ExprId> = cond.iter().chain(step.iter()).copied().collect();
     stmt_roots(body, &mut roots);
+    for d in head_decls(init).into_iter().skip(k + 1) {
+        roots.extend(stmt_exprs(d));
+    }
     for r in idents_outside_arrows(ast, &roots, &cell.marker) {
         let read = cell_read(ast, &cell.field);
         ast.exprs[r.0 as usize] = read;
     }
+    rotate::rotate(ast, s, &mut cell);
+    let Stmt::For {
+        init: Some(init),
+        step,
+        body,
+        ..
+    } = s
+    else {
+        return;
+    };
     bind_in_slot(ast, body, &mut cell, ctx);
     let first_cell = ast.add_expr(Expr::Array(vec![first]));
-    *init = Some(Box::new(Stmt::LetDecl {
+    let decl = Stmt::LetDecl {
         mutable: true,
         name: cell.field.clone(),
-        type_ann: Some(cell.ty),
+        type_ann: Some(cell.ty.clone()),
         init: first_cell,
         is_var: false,
-    }));
-    let target = ast.add_expr(Expr::Ident(cell.field.clone()));
-    let current = cell_read(ast, &cell.field);
-    let current = ast.add_expr(current);
-    let value = ast.add_expr(Expr::Array(vec![current]));
-    let copy = ast.add_expr(Expr::Assign { target, value });
+    };
+    *head_decls_mut(init).swap_remove(k) = decl;
+    let copy = cell_copy(ast, &cell.field);
     *step = Some(match *step {
         Some(right) => ast.add_expr(Expr::Sequence { left: copy, right }),
         None => copy,
     });
+    let Stmt::Multi(v) = init.as_mut() else {
+        return;
+    };
+    let made = cell.locals;
+    bind_in_list(ast, v, &mut cell, ctx);
+    if cell.locals > made {
+        v.push(Stmt::Expr(cell_copy(ast, &cell.field)));
+    }
 }
 
-/// The binding of a `for (let …)` that needs boxing: some statement of
-/// the body makes a closure reading it, and every such statement can
-/// take a local in front of it.
-fn boxable(ast: &Ast, s: &Stmt) -> Option<(String, Option<String>, ExprId)> {
+/// `field = [field[0]]`: the next iteration's cell.
+fn cell_copy(ast: &mut Ast, field: &str) -> ExprId {
+    let target = ast.add_expr(Expr::Ident(field.to_string()));
+    let current = cell_read(ast, field);
+    let current = ast.add_expr(current);
+    let value = ast.add_expr(Expr::Array(vec![current]));
+    ast.add_expr(Expr::Assign { target, value })
+}
+
+/// The `k`th head statement's binding, when it needs boxing: some
+/// closure in the loop reads it.
+fn boxable(ast: &Ast, s: &Stmt, k: usize) -> Option<(String, Option<String>, ExprId)> {
     let Stmt::For {
         init: Some(init),
         cond,
@@ -117,68 +190,79 @@ fn boxable(ast: &Ast, s: &Stmt) -> Option<(String, Option<String>, ExprId)> {
     else {
         return None;
     };
+    let decls = head_decls(init);
     let Stmt::LetDecl {
         name,
         type_ann,
         init: first,
         is_var: false,
         ..
-    } = init.as_ref()
+    } = decls[k]
     else {
         return None;
     };
     // An inner declaration of the same name ends the rename's reach,
     // which the rename walk does not see; a function or class declared
-    // in the body, or a closure in the test or step, has no statement
-    // of its own to take the local. Such a loop is left alone.
-    let head: Vec<ExprId> = cond.iter().chain(step.iter()).copied().collect();
+    // in the body has no statement of its own to take the local; and a
+    // head declaration up to this one runs before there is a cell to
+    // read. Such a loop is left alone.
     if crate::ast::rebinds_in_stmt(body, name)
         || decl_reads(ast, body, name)
-        || arrows_in(ast, &head)
-            .iter()
-            .any(|&a| arrow_reads(ast, a, name))
+        || decls[..=k].iter().any(|d| mentions(ast, d, name))
     {
         return None;
     }
-    match owners(ast, body, name) {
-        Some(n) if n > 0 => Some((name.clone(), type_ann.clone(), *first)),
-        _ => None,
+    let mut roots: Vec<ExprId> = cond.iter().chain(step.iter()).copied().collect();
+    stmt_roots(body, &mut roots);
+    for d in &decls[k + 1..] {
+        roots.extend(stmt_exprs(d));
     }
+    let read = arrows_in(ast, &roots)
+        .iter()
+        .any(|&a| arrow_reads(ast, a, name));
+    (read && !unhosted(ast, body, name)).then(|| (name.clone(), type_ann.clone(), *first))
 }
 
-/// How many statements under `s` make a closure reading `name`; `None`
-/// when one of them suspends or is a loop (whose head would have to be
-/// re-evaluated per iteration, which a local in front cannot do).
-fn owners(ast: &Ast, s: &Stmt, name: &str) -> Option<usize> {
-    let mut n = 0;
-    if own_arrows(ast, s)
-        .iter()
-        .any(|&a| arrow_reads(ast, a, name))
+/// Whether a statement under `s` makes a closure reading `name` where
+/// no local can stand in front of it.
+fn unhosted(ast: &Ast, s: &Stmt, name: &str) -> bool {
+    if !hostable(s)
+        && own_arrows(ast, s)
+            .iter()
+            .any(|&a| arrow_reads(ast, a, name))
     {
-        let is_loop = matches!(
-            s,
-            Stmt::For { .. }
-                | Stmt::While { .. }
-                | Stmt::DoWhile { .. }
-                | Stmt::ForOf { .. }
-                | Stmt::ForOfSplitIter { .. }
-        );
-        if is_loop || stmt_contains_yield(s) {
-            return None;
-        }
-        n += 1;
+        return true;
     }
-    if !matches!(s, Stmt::FnDecl { .. } | Stmt::ClassDecl { .. }) {
-        for c in stmt_children_ref(s) {
-            n += owners(ast, c, name)?;
-        }
+    !matches!(s, Stmt::FnDecl { .. } | Stmt::ClassDecl { .. })
+        && stmt_children_ref(s)
+            .into_iter()
+            .any(|c| unhosted(ast, c, name))
+}
+
+/// Whether a local placed right before `s` is still live where `s`
+/// makes its closures: `s` evaluates its own expressions before it
+/// suspends, if it does — a `yield` statement suspends after its
+/// operand, an `if` after its test — and a loop's own expressions run
+/// once on entry, its test and step having been moved into its body
+/// (`rotate`).
+fn hostable(s: &Stmt) -> bool {
+    match s {
+        Stmt::Labeled { body, .. } => hostable(body),
+        Stmt::For { .. }
+        | Stmt::DoWhile { .. }
+        | Stmt::While { .. }
+        | Stmt::ForOf { .. }
+        | Stmt::ForOfSplitIter { .. }
+        | Stmt::If { .. }
+        | Stmt::Yield(_) => true,
+        _ => !stmt_contains_yield(s),
     }
-    Some(n)
 }
 
 fn bind_in_list(ast: &mut Ast, list: &mut Vec<Stmt>, cell: &mut Cell, ctx: &mut LiftCtx) {
     let mut i = 0;
     while i < list.len() {
+        rotate_loop(ast, &mut list[i], cell);
         if let Some(decl) = bind_own(ast, &list[i], cell, ctx) {
             list.insert(i, decl);
             i += 1;
@@ -192,6 +276,7 @@ fn bind_in_slot(ast: &mut Ast, slot: &mut Stmt, cell: &mut Cell, ctx: &mut LiftC
     if let Stmt::Block(v) = slot {
         return bind_in_list(ast, v, cell, ctx);
     }
+    rotate_loop(ast, slot, cell);
     match bind_own(ast, slot, cell, ctx) {
         Some(decl) => {
             let inner = std::mem::replace(slot, Stmt::Block(Vec::new()));
@@ -243,6 +328,14 @@ fn bind_children(ast: &mut Ast, s: &mut Stmt, cell: &mut Cell, ctx: &mut LiftCtx
             }
         }
         _ => {}
+    }
+}
+
+/// [`rotate::rotate`] the loop `s` is, under its labels.
+fn rotate_loop(ast: &mut Ast, s: &mut Stmt, cell: &mut Cell) {
+    match s {
+        Stmt::Labeled { body, .. } => rotate_loop(ast, body, cell),
+        _ => rotate::rotate(ast, s, cell),
     }
 }
 

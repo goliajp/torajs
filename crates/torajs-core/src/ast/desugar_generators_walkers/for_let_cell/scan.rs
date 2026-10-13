@@ -5,14 +5,48 @@
 use crate::ast::desugar_with::walk::{expr_children, stmt_children_ref, stmt_exprs};
 use crate::ast::{Ast, Expr, ExprId, Stmt};
 
-/// The expressions `s` evaluates itself — a `for` head's declaration
-/// included — not its child statements'.
+/// The closures made by the expressions `s` evaluates itself — a `for`
+/// head's declarations included, labels seen through — not by its child
+/// statements'.
 pub(super) fn own_arrows(ast: &Ast, s: &Stmt) -> Vec<ExprId> {
+    if let Stmt::Labeled { body, .. } = s {
+        return own_arrows(ast, body);
+    }
     let mut roots = stmt_exprs(s);
     if let Stmt::For { init: Some(i), .. } = s {
-        roots.extend(stmt_exprs(i));
+        for d in head_decls(i) {
+            roots.extend(stmt_exprs(d));
+        }
     }
     arrows_in(ast, &roots)
+}
+
+/// The statements of a `for` head in order: the head itself, or the
+/// members of its `Multi` — several declarators, or the flag the
+/// parser adds to a loop it rotated.
+pub(super) fn head_decls(init: &Stmt) -> Vec<&Stmt> {
+    match init {
+        Stmt::Multi(v) => v.iter().flat_map(head_decls).collect(),
+        s => vec![s],
+    }
+}
+
+/// [`head_decls`] for a rewrite.
+pub(super) fn head_decls_mut(init: &mut Stmt) -> Vec<&mut Stmt> {
+    match init {
+        Stmt::Multi(v) => v.iter_mut().flat_map(head_decls_mut).collect(),
+        s => vec![s],
+    }
+}
+
+/// Whether `name` occurs anywhere in what `s` evaluates itself,
+/// closures included.
+pub(super) fn mentions(ast: &Ast, s: &Stmt, name: &str) -> bool {
+    let mut out = Vec::new();
+    for e in stmt_exprs(s) {
+        collect_deep(ast, e, name, &mut out);
+    }
+    !out.is_empty()
 }
 
 pub(super) fn stmt_roots(s: &Stmt, out: &mut Vec<ExprId>) {
