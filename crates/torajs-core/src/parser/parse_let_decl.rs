@@ -173,6 +173,13 @@ impl<'a> Parser<'a> {
                 Some(rhs_temp) => rhs_temp,
                 None => {
                     self.note_decl_init(&name, init, kw == "const" && type_ann.is_none());
+                    // §14.3.1.2 — the binder names an anonymous function
+                    // initializer; recorded here because a generator or
+                    // async body later lifts the binding into a field.
+                    self.ast
+                        .field_init_names
+                        .entry(init)
+                        .or_insert_with(|| name.clone());
                     init
                 }
             };
