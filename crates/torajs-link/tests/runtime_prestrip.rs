@@ -1,12 +1,96 @@
-//! The pre-stripped runtime image on synthetic archives: what it may
-//! cut in a member and what it must leave whole.
+//! The pre-stripped runtime image: on the runtime this build embeds,
+//! every name a program can reference still resolves to the member it
+//! did; on synthetic archives, what it may cut in a member and what it
+//! must leave whole.
+
+use std::collections::BTreeMap;
+use std::sync::OnceLock;
 
 use torajs_codegen::CompiledFunction;
 use torajs_codegen::frame::FrameLayout;
-use torajs_link::runtime_prestrip::prestripped_runtime_image;
+use torajs_link::runtime_prestrip::{prestrip_image, prestripped_runtime_image};
 use torajs_obj::MH_SUBSECTIONS_VIA_SYMBOLS;
 use torajs_rtimage::archive::{ArMember, parse_member_defined_externs};
 use torajs_rtimage::image::Image;
+use torajs_rtimage::prune::nameable_by_program;
+
+fn original() -> &'static [u8] {
+    torajs_core::staticlibs::TORAJS_RUNTIME_IMAGE
+}
+
+fn stripped() -> &'static [u8] {
+    static STRIPPED: OnceLock<Vec<u8>> = OnceLock::new();
+    STRIPPED.get_or_init(|| prestrip_image(original()).expect("prestrip the embedded runtime"))
+}
+
+/// `(archive, member name)` of every member of `img`, by index.
+fn member_names<'a>(img: &Image<'a>) -> Vec<Vec<&'a str>> {
+    (0..img.archive_count())
+        .map(|a| img.members(a).map(|m| m.name).collect())
+        .collect()
+}
+
+/// A program's link looks each name it references up in the merged
+/// index and pulls the member that wins it: the strip must leave every
+/// such name in the index, won by the same member.
+#[test]
+fn every_name_a_program_can_reference_resolves_to_the_same_member() {
+    let (before, after) = (
+        Image::parse(original()).unwrap(),
+        Image::parse(stripped()).unwrap(),
+    );
+    let (names_before, names_after) = (member_names(&before), member_names(&after));
+    let index_after: BTreeMap<&str, (usize, &str)> = after
+        .symbols()
+        .map(|s| {
+            (
+                s.name,
+                (s.archive_idx, names_after[s.archive_idx][s.member_idx]),
+            )
+        })
+        .collect();
+    let mut checked = 0;
+    for s in before.symbols() {
+        let member = names_before[s.archive_idx][s.member_idx];
+        if !nameable_by_program(s.name, member) {
+            continue;
+        }
+        assert_eq!(
+            index_after.get(s.name),
+            Some(&(s.archive_idx, member)),
+            "{}",
+            s.name
+        );
+        checked += 1;
+    }
+    assert!(checked > 1000, "only {checked} names checked");
+    eprintln!("{checked} names checked");
+}
+
+/// A member that does not declare `MH_SUBSECTIONS_VIA_SYMBOLS` (the
+/// compiler-builtins assembly objects some archives carry) reaches the
+/// stripped image unchanged.
+#[test]
+fn every_member_without_subsections_is_kept_as_it_is() {
+    let (before, after) = (
+        Image::parse(original()).unwrap(),
+        Image::parse(stripped()).unwrap(),
+    );
+    let mut checked = 0;
+    for a in 0..before.archive_count() {
+        let kept: BTreeMap<&str, &[u8]> = after.members(a).map(|m| (m.name, m.data)).collect();
+        for m in before.members(a) {
+            let flags = u32::from_le_bytes(m.data[24..28].try_into().unwrap());
+            if flags & MH_SUBSECTIONS_VIA_SYMBOLS == 0
+                && let Some(data) = kept.get(m.name)
+            {
+                assert!(*data == m.data, "{} changed", m.name);
+                checked += 1;
+            }
+        }
+    }
+    eprintln!("{checked} members without subsections checked");
+}
 
 /// A Rust-mangled global outside a torajs member: no program names it.
 const TAIL: &str = "__ZN4test4tail17h0123456789abcdefE";

@@ -48,8 +48,13 @@ pub enum PrestripError {
 /// every atom no program can reach removed.
 pub fn prestripped_runtime_image(archives: &[&[u8]]) -> Result<Vec<u8>, PrestripError> {
     let image = build_reachable(archives).map_err(PrestripError::Image)?;
-    let merged =
-        merge_archive_indexes(&image).map_err(|e| PrestripError::Link(format!("{e:?}")))?;
+    prestrip_image(&image)
+}
+
+/// [`prestripped_runtime_image`] from the image
+/// [`build_reachable`] made of the archives.
+pub fn prestrip_image(image: &[u8]) -> Result<Vec<u8>, PrestripError> {
+    let merged = merge_archive_indexes(image).map_err(|e| PrestripError::Link(format!("{e:?}")))?;
     let roots: Vec<&str> = merged
         .index
         .iter()
