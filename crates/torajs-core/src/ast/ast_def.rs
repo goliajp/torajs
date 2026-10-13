@@ -1403,6 +1403,14 @@ pub struct Ast {
     /// alloc stamps `FLAG_FN_ASYNC` so `.constructor` reflects
     /// %AsyncFunction% (刀 4 consumes the bit).
     pub fn_async_value_fns: std::collections::HashSet<String>,
+    /// Arrows whose rest param has no annotation (`(...xs) => …`).
+    /// The parser gives it `any[]`, the type it has with no context;
+    /// `lift_arrow_fns` carries the mark onto the lifted name as
+    /// `implicit_rest_fns`, and `infer_anonymous_closure_params`
+    /// replaces the `any[]` with the element type a variadic target
+    /// declares (`(...xs: number[]) => R` types `xs` as `number[]`).
+    pub implicit_rest_arrows: std::collections::HashSet<ExprId>,
+    pub implicit_rest_fns: std::collections::HashSet<String>,
     /// Generator factory fn name → desugared `__Gen_<name>` class
     /// name, recorded by `desugar_generators` when it replaces the
     /// `function*` decl with its thin factory (RFC 20260713 blade 5).

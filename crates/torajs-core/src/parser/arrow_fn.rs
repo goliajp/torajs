@@ -34,7 +34,7 @@ impl<'a> Parser<'a> {
         // `ConciseBody` is NOT parameterized either — the restore
         // below hands the body plain asyncness, which is why
         // `static { () => { var await = 1; } }` stays legal.
-        let (params, param_destr_lets) = self
+        let (params, param_destr_lets, implicit_rest) = self
             .with_async_params(was_async_prefixed || self.await_reserved, |p| {
                 p.parse_arrow_param_list()
             })?;
@@ -123,14 +123,18 @@ impl<'a> Parser<'a> {
             full.extend(body);
             full
         };
-        Ok(self.add_expr_at(
+        let eid = self.add_expr_at(
             start_pos,
             Expr::ArrowFn {
                 params,
                 return_type,
                 body,
             },
-        ))
+        );
+        if implicit_rest {
+            self.ast.implicit_rest_arrows.insert(eid);
+        }
+        Ok(eid)
     }
 
     /// The parenthesized parameter list — enters just past the `(`,
@@ -138,9 +142,12 @@ impl<'a> Parser<'a> {
     /// prelude lets the body must open with. Extracted from
     /// `parse_arrow_fn` (200-line function limit; the audit's brace
     /// counter had been fooled by a `}}` inside an error string, so
-    /// the overage predates 552-03's context flag).
-    fn parse_arrow_param_list(&mut self) -> Result<(Vec<Param>, Vec<Stmt>), String> {
+    /// the overage predates 552-03's context flag). The flag answers
+    /// whether a rest param took the `any[]` it gets with no
+    /// annotation, which a contextual type replaces later.
+    fn parse_arrow_param_list(&mut self) -> Result<(Vec<Param>, Vec<Stmt>, bool), String> {
         let mut params = Vec::new();
+        let mut implicit_rest = false;
         // V3-18 wedge — destructuring patterns in arrow-fn params,
         // mirror of the parse_fn wedge. `xs.map(([a, b]) => a + b)`
         // is the common shape this unblocks.
@@ -170,6 +177,7 @@ impl<'a> Parser<'a> {
                         Some(self.parse_type_ann()?)
                     } else if is_rest {
                         // Untyped rest param is implicitly `any[]`.
+                        implicit_rest = true;
                         Some("any[]".into())
                     } else {
                         None
@@ -261,6 +269,7 @@ impl<'a> Parser<'a> {
                 // generic TypeVar here mis-lowers the closure (the
                 // destr-default force-`any` precedent above).
                 let type_ann = if is_rest && type_ann.is_none() {
+                    implicit_rest = true;
                     Some("any[]".to_string())
                 } else {
                     type_ann
@@ -295,7 +304,7 @@ impl<'a> Parser<'a> {
             Token::RParen => self.pos += 1,
             t => return Err(format!("expected `)`, got {t:?} at {}", self.at())),
         }
-        Ok((params, param_destr_lets))
+        Ok((params, param_destr_lets, implicit_rest))
     }
 
     /// A `{ … }` arrow body's statement list — enters on the `{`,

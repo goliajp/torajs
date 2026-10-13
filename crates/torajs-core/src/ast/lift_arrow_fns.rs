@@ -317,6 +317,9 @@ pub fn lift_arrow_fns(ast: &mut Ast) {
         // (generator fn-exprs never reach this walk — hoisted to decl
         // form before lifting).
         let eid = crate::ast::ExprId(i as u32);
+        if ast.implicit_rest_arrows.contains(&eid) {
+            ast.implicit_rest_fns.insert(name.clone());
+        }
         if ast.async_fn_value_exprs.contains(&eid) {
             ast.fn_async_value_fns.insert(name.clone());
         } else if ast.fn_expr_exprs.contains(&eid) {

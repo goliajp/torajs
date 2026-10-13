@@ -14,7 +14,7 @@
 //!   fallback, so the cb's actual return face isn't clobbered by a
 //!   promise-inner guess that only fits the param position.
 
-use super::{Ast, Stmt, infer_return_ann};
+use super::{Ast, Param, Stmt, infer_return_ann};
 
 /// Apply the deferred updates: mutate each lifted FnDecl's params +
 /// return type (deferred so the call-site walk doesn't mutate
@@ -29,6 +29,7 @@ pub(super) fn apply_closure_ann_updates(
         return;
     }
     let (stmts, exprs, seeded) = (&mut ast.stmts, &ast.exprs, &mut ast.contextual_ret_fns);
+    let implicit_rest = &ast.implicit_rest_fns;
     for stmt in stmts.iter_mut() {
         if let Stmt::FnDecl {
             name,
@@ -45,15 +46,9 @@ pub(super) fn apply_closure_ann_updates(
             } else {
                 0
             };
+            let rest_open = implicit_rest.contains(name.as_str());
             if let Some((new_param_anns, new_ret_ann)) = updates.get(name) {
-                for (i, ann) in new_param_anns.iter().enumerate() {
-                    let pidx = user_start + i;
-                    if let Some(p) = params.get_mut(pidx)
-                        && p.type_ann.is_none()
-                    {
-                        p.type_ann = Some(ann.clone());
-                    }
-                }
+                seed_user_params(&mut params[user_start..], new_param_anns, rest_open);
                 // S2 (RFC 20260810-indirect-argc-abi) — a "void"
                 // hint never seeds onto a value-returning body: TS's
                 // void-return exception says the face IGNORES the
@@ -121,14 +116,7 @@ pub(super) fn apply_closure_ann_updates(
                 }
             }
             if let Some(new_param_anns) = param_only_updates.get(name) {
-                for (i, ann) in new_param_anns.iter().enumerate() {
-                    let pidx = user_start + i;
-                    if let Some(p) = params.get_mut(pidx)
-                        && p.type_ann.is_none()
-                    {
-                        p.type_ann = Some(ann.clone());
-                    }
-                }
+                seed_user_params(&mut params[user_start..], new_param_anns, rest_open);
             }
             // srcArray-slot view promotion — a user-annotated
             // `{elem}[]` / `Array<{elem}>` on the spec srcArray slot
@@ -145,6 +133,52 @@ pub(super) fn apply_closure_ann_updates(
             {
                 p.type_ann = Some("any[]".to_string());
             }
+        }
+    }
+}
+
+/// Seed a closure's user params from the target's param spellings,
+/// position by position; a param the user annotated keeps its own.
+///
+/// A rest param with no annotation of its own (`rest_open`, the
+/// `any[]` the parser gives it standing in) takes the target's rest
+/// spelling at the same position: against `(...xs: number[]) => R`,
+/// `(...xs) => …` has `xs: number[]` (TS's contextual typing of a rest
+/// param). The target's `__rest(T[])` marker is the per-argument shape
+/// of a fn TYPE; the closure's own param is the array itself, which is
+/// how a declared rest param is spelled. A target with plain params at
+/// that position would type the rest as a tuple, which has no spelling
+/// here, so it keeps `any[]`.
+fn seed_user_params(params: &mut [Param], anns: &[String], rest_open: bool) {
+    let rest_arr = |a: &str| {
+        a.strip_prefix("__rest(")
+            .and_then(|r| r.strip_suffix(')'))
+            .map(str::to_string)
+    };
+    // a trailing rest in the target covers every position from its own
+    let tail = anns
+        .last()
+        .and_then(|a| rest_arr(a))
+        .map(|arr| (anns.len() - 1, arr));
+    for (i, p) in params.iter_mut().enumerate() {
+        let (ann, from_rest) = match &tail {
+            Some((at, arr)) if i >= *at => {
+                if p.is_rest {
+                    (arr.clone(), true)
+                } else {
+                    match crate::ast::infer_closure_lets::array_elem_ann(arr) {
+                        Some(e) => (e.to_string(), false),
+                        None => continue,
+                    }
+                }
+            }
+            _ => match anns.get(i) {
+                Some(a) => (a.clone(), false),
+                None => break,
+            },
+        };
+        if p.type_ann.is_none() || (from_rest && rest_open) {
+            p.type_ann = Some(ann);
         }
     }
 }
