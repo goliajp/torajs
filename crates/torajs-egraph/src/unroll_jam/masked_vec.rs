@@ -40,12 +40,13 @@ use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{
     BinOp, BlockId, FPred, Function, IPred, InstKind, Operand, Terminator, Type, ValueId, VecInst,
-    VecOp, VecShape,
+    VecOp, VecShape, visit_value_operands,
 };
 
 use super::Plan;
 use super::clone::{new_value, push};
 use super::masked::{copy_of, shift as shift_scalars, slot_values};
+use super::plan::term_value;
 use super::retire::snapped;
 pub(super) use fit::{Packing, packing};
 use fit::{args, bump_by};
@@ -128,6 +129,8 @@ pub(super) fn steps(
         I64X2,
         VecInst::Splat(VecShape::I64x2, Operand::ConstI64(-1)),
     );
+    let starts = constant_starts(func);
+    let mut splatted: HashSet<ValueId> = HashSet::default();
     let mut pairs: Vec<Pair> = Vec::with_capacity(p.lanes / 2);
     for q in 0..p.lanes / 2 {
         let mut pair = Pair {
@@ -139,7 +142,14 @@ pub(super) fn steps(
             let shape = shape_of(func.value_type(v));
             let lo = lanes[2 * q].get(&v).copied().unwrap_or(v);
             let hi = lanes[2 * q + 1].get(&v).copied().unwrap_or(v);
-            let both = VecInst::Pair(shape, Operand::Value(lo), Operand::Value(hi));
+            let both = match (starts.get(&lo), starts.get(&hi)) {
+                // both lanes start from one constant
+                (Some(a), Some(b)) if a == b => {
+                    splatted.extend([lo, hi]);
+                    VecInst::Splat(shape, *a)
+                }
+                _ => VecInst::Pair(shape, Operand::Value(lo), Operand::Value(hi)),
+            };
             let t = vtemp(func, cur, Type::Vec(shape), both);
             let cell = vcell(func, cur, Type::Vec(shape), t);
             pair.slots.insert(v, cell);
@@ -191,6 +201,64 @@ pub(super) fn steps(
         then_blk: ft,
         else_blk: g,
     };
+    // a lane value only its pair's splat stood for
+    drop_unread(func, &splatted);
+}
+
+/// The constant each value starts from where its one definition
+/// copies one, directly or through another value defined once.
+fn constant_starts(func: &Function) -> HashMap<ValueId, Operand> {
+    let mut copies: HashMap<ValueId, (usize, Operand)> = HashMap::default();
+    for inst in func.blocks.iter().flat_map(|b| &b.insts) {
+        if let (Some(r), &InstKind::Copy(_, src)) = (inst.result, &inst.kind) {
+            copies.entry(r).or_insert((0, src)).0 += 1;
+        }
+    }
+    // a value some other instruction also defines is not a copy's alone
+    for inst in func.blocks.iter().flat_map(|b| &b.insts) {
+        if let Some(r) = inst.result
+            && !matches!(inst.kind, InstKind::Copy(..))
+        {
+            copies.remove(&r);
+        }
+    }
+    copies.retain(|v, (n, _)| *n == 1 && !func.params.contains(v));
+    let mut out: HashMap<ValueId, Operand> = HashMap::default();
+    for (&v, &(_, first)) in &copies {
+        let mut src = first;
+        // a copy of a copy, at most a few deep
+        for _ in 0..4 {
+            match src {
+                Operand::Value(x) if copies.contains_key(&x) => src = copies[&x].1,
+                _ => break,
+            }
+        }
+        if matches!(src, Operand::ConstF64(_) | Operand::ConstI64(_)) {
+            out.insert(v, src);
+        }
+    }
+    out
+}
+
+/// Drops the definitions of `values` nothing reads.
+fn drop_unread(func: &mut Function, values: &HashSet<ValueId>) {
+    let mut read: HashSet<ValueId> = HashSet::default();
+    for block in &func.blocks {
+        for inst in &block.insts {
+            visit_value_operands(&inst.kind, |v| {
+                if values.contains(&v) {
+                    read.insert(v);
+                }
+            });
+        }
+        read.extend(term_value(&block.term).filter(|v| values.contains(v)));
+    }
+    for block in &mut func.blocks {
+        block.insts.retain(|i| {
+            !i.result
+                .is_some_and(|r| values.contains(&r) && !read.contains(&r))
+        });
+    }
 }
 
 /// One pair's inner step in `fb`: the step's instructions on vectors,

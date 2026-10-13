@@ -94,6 +94,9 @@ pub(super) fn emit_vec(bytes: &mut Vec<u8>, inst: &Inst, vi: &VecInst, alloc: &A
         VecInst::Splat(_, Operand::ConstI64(0)) => {
             write_u32(bytes, movi_2d_zero(vec_home(alloc, result)));
         }
+        VecInst::Splat(_, Operand::ConstF64(x)) if x.to_bits() == 0 => {
+            write_u32(bytes, movi_2d_zero(vec_home(alloc, result)));
+        }
         VecInst::Splat(VecShape::I64x2, Operand::ConstI64(-1)) => {
             write_u32(bytes, movi_2d_ones(vec_home(alloc, result)));
         }
@@ -324,6 +327,25 @@ mod tests {
                 .unwrap_or_else(|| panic!("missing {w:#010x} after word {at}"))
                 + 1;
         }
+    }
+
+    /// A splat of +0.0 is the all-zero register, one `movi`; -0.0 is
+    /// not zero bits and is dup-ed.
+    #[test]
+    fn a_zero_f64_splat_is_one_movi() {
+        const F: Type = Type::Vec(VecShape::F64x2);
+        let mut f = Function::new("zeros", Type::I64);
+        let blk = f.add_block();
+        let splat = |x: f64| VecInst::Splat(VecShape::F64x2, Operand::ConstF64(x));
+        let z = vec_inst(&mut f, splat(0.0), F);
+        let n = vec_inst(&mut f, splat(-0.0), F);
+        let o = vec_inst(&mut f, VecInst::BinOp(VecOp::Or, val(z), val(n)), V);
+        let r = vec_inst(&mut f, VecInst::Reduce(VecOp::Or, val(o)), Type::I64);
+        f.set_term(blk, Terminator::Ret(Some(val(r))));
+        let alloc = allocate_linear_scan(&f);
+        let got = words(&compile_function(&f).bytes);
+        assert!(got.contains(&enc::movi_2d_zero(vec_home(&alloc, z))));
+        assert!(!got.contains(&enc::movi_2d_zero(vec_home(&alloc, n))));
     }
 
     /// `(a, b) & (trunc(p[0..2] / p[2..4]) == p[0..2] / p[2..4])`,

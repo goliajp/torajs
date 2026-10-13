@@ -88,12 +88,12 @@ pub(super) fn unpack_slot0(
     }
     let mut snap: Lane = Lane::default();
     for c in snapped(func, group.p) {
-        let vec = if group.pk.is_frozen(c) {
-            pair.slots[&c]
-        } else {
-            pair.snaps[&c]
+        // a frozen cell is its own snapshot, already unpacked
+        let x = match group.pk.is_frozen(c) {
+            true => first[&c],
+            false => lane(func, c, pair.snaps[&c]),
         };
-        snap.insert(c, lane(func, c, vec));
+        snap.insert(c, x);
     }
     let flag = new_value(func, Type::I64);
     push(func, r, flag, InstKind::Vec(VecInst::Lane(0, v(pair.act))));
