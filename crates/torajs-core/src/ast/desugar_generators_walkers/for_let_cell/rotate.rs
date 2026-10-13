@@ -70,7 +70,7 @@ pub(super) fn rotate(ast: &mut Ast, s: &mut Stmt, cell: &mut Cell) {
 /// running `then` on every pass but the first: `if (go) then; go =
 /// true;`.
 fn later_passes(ast: &mut Ast, then: Stmt, cell: &mut Cell) -> (Stmt, Vec<Stmt>) {
-    let go = format!("{}__go{}", cell.field, cell.locals);
+    let go = format!("{}__go{}", cell.stem, cell.locals);
     cell.locals += 1;
     let no = ast.add_expr(Expr::Bool(false));
     let decl = Stmt::LetDecl {

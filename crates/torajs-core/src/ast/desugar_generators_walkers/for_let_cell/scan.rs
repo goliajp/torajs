@@ -140,3 +140,17 @@ fn collect_deep_stmt(ast: &Ast, s: &Stmt, name: &str, out: &mut Vec<ExprId>) {
         collect_deep_stmt(ast, c, name, out);
     }
 }
+
+/// Whether something under `roots`, closures and the function
+/// declarations inside them included, assigns `name`.
+pub(super) fn assigns_deep(ast: &Ast, roots: &[ExprId], name: &str) -> bool {
+    let mut idents = Vec::new();
+    for &e in roots {
+        collect_deep(ast, e, name, &mut idents);
+    }
+    !idents.is_empty()
+        && ast.exprs.iter().any(|x| {
+            matches!(x, Expr::Assign { target, .. } | Expr::PostIncr { target, .. }
+                if idents.contains(target))
+        })
+}

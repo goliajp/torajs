@@ -56,6 +56,12 @@ pub(crate) struct LiftCtx<'a> {
     /// Locals `for_let_cell` placed right before the statement that
     /// reads them: they live within one state arm and stay locals.
     pub(crate) arm_locals: std::collections::HashSet<String>,
+    /// How many loop bodies the lift is inside: a statement list there
+    /// may run more than once, each time with fresh block bindings.
+    pub(crate) loop_depth: usize,
+    /// Block bindings `for_let_cell` gave a per-pass local so far,
+    /// which keeps the names of those locals apart.
+    pub(crate) cells: usize,
 }
 
 /// Lift the lets of one statement list — every scope that owns one
@@ -73,6 +79,9 @@ pub(crate) fn lift_lets_in_list(
         let taken = taken_names(ctx, lifted);
         super::desugar_generators_alpha::resolve_duplicate_let(ast, &mut list[i..], &taken);
         lift_lets_in_stmt(ast, &mut list[i], lifted, ctx);
+    }
+    if ctx.loop_depth > 0 {
+        for_let_cell::box_captured_block_lets(ast, list, lifted, ctx);
     }
 }
 
@@ -140,7 +149,9 @@ pub(crate) fn lift_lets_in_stmt(
             }
         }
         Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
+            ctx.loop_depth += 1;
             lift_lets_in_stmt(ast, body, lifted, ctx);
+            ctx.loop_depth -= 1;
         }
         Stmt::Labeled { body, .. } => {
             lift_lets_in_stmt(ast, body, lifted, ctx);
@@ -149,7 +160,9 @@ pub(crate) fn lift_lets_in_stmt(
             if let Some(i) = init.as_deref_mut() {
                 lift_lets_in_stmt(ast, i, lifted, ctx);
             }
+            ctx.loop_depth += 1;
             lift_lets_in_stmt(ast, body, lifted, ctx);
+            ctx.loop_depth -= 1;
         }
         Stmt::Block(stmts) => lift_lets_in_list(ast, stmts, lifted, ctx),
         // Not a scope of its own: `Stmt::Multi` is the wrapper the

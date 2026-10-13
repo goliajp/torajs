@@ -37,8 +37,11 @@
 //! arm for the local; a loop where one makes such a closure is left as
 //! it was.
 
+mod block_let;
 mod rotate;
 mod scan;
+
+pub(super) use block_let::box_captured_block_lets;
 
 use super::LiftCtx;
 use crate::ast::desugar_generators_sm_rewrite::stmt_contains_yield;
@@ -56,10 +59,16 @@ struct Cell {
     field: String,
     /// What the binding's references were renamed to.
     marker: String,
-    /// The cell's type, `Array<T>`.
+    /// The type of what the field holds: the cell's, `Array<T>`, or
+    /// the binding's own when it is not boxed.
     ty: String,
+    /// What the arm locals and rotation flags are named after.
+    stem: String,
     /// Arm locals and rotation flags minted so far.
     locals: usize,
+    /// Whether the field holds a cell. A binding nothing writes after
+    /// its declaration is not boxed: its arm locals hold the value.
+    boxed: bool,
 }
 
 /// Box each binding of the `for (let …)` at `s` that a closure in the
@@ -111,10 +120,12 @@ fn box_one(
     crate::ast::nested_fns_idents::rewrite_idents_in_body(ast, std::slice::from_mut(s), &map, true);
     let elem = super::local_ann::local_ann(ast, &name, type_ann.as_ref(), first, ctx);
     let mut cell = Cell {
+        stem: field.clone(),
         field,
         marker,
         ty: format!("Array<{elem}>"),
         locals: 0,
+        boxed: true,
     };
     let Stmt::For {
         init: Some(init),
@@ -351,10 +362,14 @@ fn bind_own(ast: &mut Ast, s: &Stmt, cell: &mut Cell, ctx: &mut LiftCtx) -> Opti
     if refs.is_empty() {
         return None;
     }
-    let local = format!("{}__k{}", cell.field, cell.locals);
+    let local = format!("{}__k{}", cell.stem, cell.locals);
     cell.locals += 1;
     for r in refs {
-        let read = cell_read(ast, &local);
+        let read = if cell.boxed {
+            cell_read(ast, &local)
+        } else {
+            Expr::Ident(local.clone())
+        };
         ast.exprs[r.0 as usize] = read;
     }
     ctx.arm_locals.insert(local.clone());
