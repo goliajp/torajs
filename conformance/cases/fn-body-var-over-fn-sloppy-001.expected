@@ -1,0 +1,5 @@
+top-assign function 3
+eval-init number
+eval-leak number:1
+eval-no-init 9
+eval-over-own own,eval

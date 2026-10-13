@@ -65,7 +65,7 @@ fn desugar_nested_fns_once(ast: &mut Ast) {
     // declaration.
     let (top_hoisted, top_hoisted_names) = super::nested_fns_top::lift_top_fns_over_block_fns(
         &mut top,
-        &ast.exprs,
+        ast,
         ast.sloppy_script_goal,
         &ast.source_dunder_idents,
         &mut ctx,
@@ -97,6 +97,7 @@ fn desugar_nested_fns_once(ast: &mut Ast) {
             ctx.declared = own.intersection(&nested_names).cloned().collect();
             ctx.shadowed = own.difference(&nested_names).cloned().collect();
             ctx.params = param_names(params);
+            ctx.var_shared = super::nested_fns_top::var_shared_fn_names(ast, body);
             ctx.catch_renames.clear();
             ctx.lex.clear();
             let mut renames: HashMap<String, String> = HashMap::new();
@@ -161,6 +162,7 @@ fn desugar_nested_fns_once(ast: &mut Ast) {
     ctx.declared = top_hoisted_names;
     ctx.shadowed = top_declared;
     ctx.params = HashSet::new();
+    ctx.var_shared.clear();
     ctx.catch_renames.clear();
     ctx.lex.clear();
     let top_mark = ctx.lex.enter_scope(&top);
@@ -273,7 +275,10 @@ pub(super) fn collect_nested_fns_to_lift(
                 if !mode.nested && ctx.body_level_var_lift(name, fn_decl_span(&s)) {
                     branch_scoped.insert(name.clone());
                     let decl = ctx.mint_var_decl(name, &mangled);
-                    hoisted.push(decl);
+                    match ctx.from_sloppy_eval(name, fn_decl_span(&s)) {
+                        true => new_body.push(decl),
+                        false => hoisted.push(decl),
+                    }
                 }
                 match ctx.annexb(name, fn_decl_span(&s), mode) {
                     AnnexB::Apply => {

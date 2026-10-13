@@ -37,11 +37,14 @@
 //! hoist used to keep a prelude slot for that name, and the slot
 //! shadowed the function until the `var` ran. An init-less `var f;`
 //! re-declares the function's binding and mints nothing there, so it
-//! is not a reason to take the declaration here either.
+//! takes the declaration here only when something else writes `f`
+//! (`var f; function f() {} f = 3`): left a declaration, the write
+//! became a second `let` beside the var's and the checker refused the
+//! program as a redeclaration.
 
 use super::annexb_fn_var::LiftCtx;
-use super::annexb_names::block_nested_fn_names;
-use super::{Expr, ExprId, Stmt};
+use super::annexb_names::{block_nested_fn_names, own_fn_names};
+use super::{Ast, Expr, ExprId, Stmt};
 use std::collections::HashSet;
 
 /// Rename in place every eligible module-top declaration and mint its
@@ -61,14 +64,14 @@ use std::collections::HashSet;
 /// `is_synthesized_dunder`'s, not `starts_with`.
 pub(super) fn lift_top_fns_over_block_fns(
     top: &mut [Stmt],
-    exprs: &[Expr],
+    ast: &Ast,
     script_goal: bool,
     source_dunders: &HashSet<String>,
     ctx: &mut LiftCtx,
 ) -> (Vec<Stmt>, HashSet<String>) {
     let nested = block_nested_fn_names(top);
     let var_init = if script_goal {
-        var_names_with_init(top, exprs)
+        var_shared_fn_names(ast, top)
     } else {
         HashSet::new()
     };
@@ -98,20 +101,37 @@ pub(super) fn lift_top_fns_over_block_fns(
     (hoisted, names)
 }
 
-/// The names the module's `var` sites declare WITH an initializer, at
-/// any depth the hoist walks (`count_var_names`: blocks and branches,
-/// not function bodies).
-fn var_names_with_init(top: &[Stmt], exprs: &[Expr]) -> HashSet<String> {
+/// The list's own function declarations that a `var` of the same scope
+/// re-declares AND that something writes — a `var` initializer, or any
+/// assignment to the name. One binding holds both (§10.2.11 steps 27-28
+/// for a function body, §16.1.7 steps 8 / 10 for a script): the
+/// function's value from the scope's entry, then whatever the writes
+/// store. A name nothing writes keeps the function's value throughout,
+/// so it stays a direct-call declaration.
+///
+/// The `var` sites are the ones the hoist walks (`count_var_names`:
+/// blocks and branches, not function bodies).
+pub(super) fn var_shared_fn_names(ast: &Ast, list: &[Stmt]) -> HashSet<String> {
+    let own = own_fn_names(list);
+    if own.is_empty() {
+        return own;
+    }
     let mut counts: std::collections::HashMap<String, Vec<ExprId>> =
         std::collections::HashMap::new();
-    super::var_hoist::count_var_names(top, &mut counts);
-    counts
-        .into_iter()
-        .filter(|(_, sites)| {
-            sites
-                .iter()
-                .any(|e| !matches!(exprs[e.0 as usize], Expr::Uninit))
+    super::var_hoist::count_var_names(list, &mut counts);
+    if !own.iter().any(|n| counts.contains_key(n)) {
+        return HashSet::new();
+    }
+    let assigned =
+        crate::ssa_lower_closure_captures::collect_assigned_names_scoped(ast, list.iter(), &[]);
+    own.into_iter()
+        .filter(|n| {
+            counts.get(n).is_some_and(|sites| {
+                assigned.contains(n)
+                    || sites
+                        .iter()
+                        .any(|e| !matches!(ast.exprs[e.0 as usize], Expr::Uninit))
+            })
         })
-        .map(|(n, _)| n)
         .collect()
 }

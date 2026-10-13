@@ -194,6 +194,9 @@ pub(super) struct LiftCtx {
     pub(super) shadowed: HashSet<String>,
     /// The current parent function's parameter names.
     pub(super) params: HashSet<String>,
+    /// The parent's own declarations that share their binding with a
+    /// written `var` of the same name (`nested_fns_top::var_shared_fn_names`).
+    pub(super) var_shared: HashSet<String>,
     /// Catch parameters this pass renamed away, as `(original, fresh)`.
     /// §B.3.3.1 writes through `varEnv.SetMutableBinding` — the
     /// VariableEnvironment of the enclosing function or script, which a
@@ -234,6 +237,7 @@ impl LiftCtx {
             declared: HashSet::new(),
             shadowed: HashSet::new(),
             params: HashSet::new(),
+            var_shared: HashSet::new(),
             catch_renames: Vec::new(),
             eval_annexb: ast.eval_annexb_fn_names.clone(),
             eval_var_inits: Vec::new(),
@@ -243,14 +247,26 @@ impl LiftCtx {
     }
 
     /// Does a BODY-LEVEL declaration of `name` have to become a var
-    /// binding of its own? Only when the same body also declares the
-    /// name in a block: the block declaration's §B.3.3 write needs
+    /// binding of its own? When the same body also declares the name in
+    /// a block (sloppy code): the block declaration's §B.3.3 write needs
     /// something to land on, and after the lift the body binds nothing.
+    /// And, in any code, when a written `var` of the body shares the
+    /// binding (§10.2.11 steps 27-28): the writes need it too.
     /// Answering yes makes the body-level declaration a hoisted
     /// `var name = <mangled>` at the head of the list, which is where a
     /// function declaration's initialization belongs anyway.
     pub(super) fn body_level_var_lift(&self, name: &str, span: crate::lexer::Span) -> bool {
-        self.declared.contains(name) && self.goal.applies(name, span)
+        self.var_shared.contains(name)
+            || (self.declared.contains(name) && self.goal.applies(name, span))
+    }
+
+    /// Did a sloppy eval splice this declaration in? Its binding is
+    /// written where the eval ran (§19.2.1.3 step 17), so the var a lift
+    /// mints for it stays at the declaration's own position. The splice
+    /// blanked the span to `(0, 0)`, which a declaration the program
+    /// wrote never carries.
+    pub(super) fn from_sloppy_eval(&self, name: &str, span: crate::lexer::Span) -> bool {
+        span.start == 0 && span.end == 0 && self.goal.sloppy_eval_names.contains(name)
     }
 
     /// §B.3.3's strictness precondition alone, for the module-top

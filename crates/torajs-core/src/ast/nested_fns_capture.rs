@@ -74,7 +74,7 @@ mod rewrite;
 mod walk;
 pub(super) use early_use::hoist_above_first_use;
 use early_use::{EarlyUse, early_use, raise_early};
-use rewrite::rewrite_in_place;
+use rewrite::{raise_var_shared, rewrite_in_place};
 use walk::{Scopes, walk_children};
 
 /// Compiler-minted declarations (lifted arrows, class methods, generator
@@ -200,6 +200,10 @@ fn route_list(
     scope: &Scopes,
     in_block: bool,
 ) -> (Vec<Routed>, Option<EarlyUse>) {
+    let shared = match in_block {
+        true => HashSet::new(),
+        false => raise_var_shared(ast, stmts),
+    };
     let sites: Vec<usize> = stmts
         .iter()
         .enumerate()
@@ -260,7 +264,7 @@ fn route_list(
     }
     for (k, i) in sites.iter().enumerate() {
         if routed[k] {
-            rewrite_in_place(ast, &mut stmts[*i]);
+            rewrite_in_place(ast, &mut stmts[*i], shared.contains(&names[k]));
         }
     }
     let routed_sites: Vec<usize> = (0..sites.len())

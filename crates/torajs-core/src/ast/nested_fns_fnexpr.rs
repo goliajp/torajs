@@ -91,6 +91,7 @@ fn lift_one_body(
     ctx.declared = own.intersection(&nested_names).cloned().collect();
     ctx.shadowed = own.difference(&nested_names).cloned().collect();
     ctx.params = param_names(params);
+    ctx.var_shared = super::nested_fns_top::var_shared_fn_names(ast, body);
     ctx.catch_renames.clear();
     ctx.lex.clear();
     let mut renames: HashMap<String, String> = HashMap::new();

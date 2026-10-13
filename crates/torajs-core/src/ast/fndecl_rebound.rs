@@ -213,12 +213,20 @@ fn route_list(
     if assigned.is_empty() {
         return;
     }
+    // A scope that also declares the name with `var` gets its one shared
+    // binding from the nested-fn lift, at the head of the scope; a
+    // second slot here would be a redeclaration of it.
+    let var_shared = if in_block {
+        std::collections::HashSet::new()
+    } else {
+        super::nested_fns_top::var_shared_fn_names(ast, stmts)
+    };
     for i in sites {
         let (name, span) = match &stmts[i] {
             Stmt::FnDecl { name, span, .. } => (name.clone(), *span),
             _ => unreachable!("site is a FnDecl"),
         };
-        if !assigned.contains(&name) {
+        if !assigned.contains(&name) || var_shared.contains(&name) {
             continue;
         }
         if read_before(ast, &stmts[..i], &name) || !can_rewrite(ast, &stmts[i]) {
