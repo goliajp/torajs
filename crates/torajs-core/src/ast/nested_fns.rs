@@ -20,7 +20,10 @@ use super::{Ast, Stmt};
 use std::collections::{HashMap, HashSet};
 
 mod bare_branch;
+mod body_lift;
+
 pub(super) use bare_branch::collect_nested_fns_in_stmt;
+pub(super) use body_lift::collect_fn_body_lifts;
 
 /// P3.4 — block-scoped / nested function declaration hoisting per
 /// ES spec Annex B §B.3.3 (FunctionDeclarations in IfStatement
@@ -103,24 +106,15 @@ fn desugar_nested_fns_once(ast: &mut Ast) {
             let mut renames: HashMap<String, String> = HashMap::new();
             let mut branch_scoped: HashSet<String> = HashSet::new();
             let mut lifted: Vec<Stmt> = Vec::new();
-            // the declarations the lift mints at the head go below the
-            // directive prologue, which has to stay the body's head
-            let prologue_len =
-                super::sloppy_this_prologue::directive_prologue_len(body, &ast.exprs);
-            let prologue: Vec<Stmt> = body.drain(..prologue_len).collect();
-            collect_nested_fns_to_lift(
+            body_lift::collect_fn_body_lifts(
+                &ast.exprs,
                 body,
                 &parent,
                 &mut renames,
                 &mut branch_scoped,
-                LiftMode {
-                    in_fn_body: true,
-                    nested: false,
-                },
                 &mut lifted,
                 &mut ctx,
             );
-            body.splice(0..0, prologue);
             ctx.flush(ast);
             if !renames.is_empty() {
                 // A bare-branch decl (`if (c) function f() {}`) is

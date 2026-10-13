@@ -36,10 +36,10 @@
 //! safely out of a top-level body — the lift to top level is sound for
 //! the same reason there.
 
-use super::annexb_fn_var::{LiftCtx, LiftMode};
+use super::annexb_fn_var::LiftCtx;
 use super::annexb_names::{block_nested_fn_names, own_fn_names, param_names};
 use super::desugar_async_nested_fns::rename::rename_in_owner;
-use super::nested_fns::collect_nested_fns_to_lift;
+use super::nested_fns::collect_fn_body_lifts;
 use super::nested_fns_catch::apply_after_lift;
 use super::{Ast, Expr, Stmt};
 use std::collections::{HashMap, HashSet};
@@ -97,23 +97,15 @@ fn lift_one_body(
     let mut renames: HashMap<String, String> = HashMap::new();
     let mut branch_scoped: HashSet<String> = HashSet::new();
     let mut lifted: Vec<Stmt> = Vec::new();
-    // the declarations the lift mints at the head go below the
-    // directive prologue, which has to stay the body's head
-    let prologue_len = super::sloppy_this_prologue::directive_prologue_len(body, &ast.exprs);
-    let prologue: Vec<Stmt> = body.drain(..prologue_len).collect();
-    collect_nested_fns_to_lift(
+    collect_fn_body_lifts(
+        &ast.exprs,
         body,
         parent,
         &mut renames,
         &mut branch_scoped,
-        LiftMode {
-            in_fn_body: true,
-            nested: false,
-        },
         &mut lifted,
         ctx,
     );
-    body.splice(0..0, prologue);
     ctx.flush(ast);
     if !renames.is_empty() {
         // Bare-branch declarations keep the original name outside the
