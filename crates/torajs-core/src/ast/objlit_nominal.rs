@@ -65,7 +65,7 @@ pub(super) struct MethodPatch {
 pub(crate) fn run(
     stmts: &mut Vec<Stmt>,
     exprs: &mut Vec<Expr>,
-    sloppy: bool,
+    sloppy: super::sloppy_this_prologue::SloppyGoal<'_>,
     spans: &mut Vec<crate::lexer::Span>,
     objlit_method_exprs: &std::collections::HashSet<ExprId>,
     objlit_shorthand_proto_exprs: &std::collections::HashSet<ExprId>,

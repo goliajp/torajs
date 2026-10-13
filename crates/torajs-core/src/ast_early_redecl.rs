@@ -179,10 +179,7 @@ fn walk_stmt(s: &Stmt, ast: &Ast, code: Code, errors: &mut Vec<String>) {
         Stmt::FnDecl { body, .. } => {
             let code = match code {
                 Code::Eval { strict } => Code::Eval {
-                    strict: strict
-                        || crate::ast::sloppy_this_prologue::has_use_strict_directive(
-                            body, &ast.exprs,
-                        ),
+                    strict: strict || ast.body_says_use_strict(body),
                 },
                 Code::Program => Code::Program,
             };

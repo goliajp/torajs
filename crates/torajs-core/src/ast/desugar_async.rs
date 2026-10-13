@@ -228,7 +228,7 @@ pub(super) fn build_async_body(
     // "sloppy" for every async function — including one carrying its
     // own `"use strict"`. Re-minted at the head rather than moved:
     // the original is a pure string expression, harmless where it is.
-    let strict = crate::ast::sloppy_this_prologue::has_use_strict_directive(&new_body, &ast.exprs);
+    let strict = ast.body_says_use_strict(&new_body);
     let mut wrapped_body = Vec::with_capacity(2);
     if strict {
         let e = crate::ast::sloppy_this_prologue::mint_use_strict_directive(ast);

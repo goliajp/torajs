@@ -97,10 +97,7 @@ impl<'a> Parser<'a> {
         // Minted AFTER the range push on purpose: the window records
         // the expressions the USER wrote in this initializer, and a
         // synthetic directive is not one of them.
-        if !crate::ast::sloppy_this_prologue::has_use_strict_directive(
-            &block_stmts,
-            &self.ast.exprs,
-        ) {
+        if !self.ast.body_says_use_strict(&block_stmts) {
             let e = crate::ast::sloppy_this_prologue::mint_use_strict_directive(&mut self.ast);
             block_stmts.insert(0, Stmt::Expr(e));
         }

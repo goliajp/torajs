@@ -38,10 +38,7 @@ impl<'a> Parser<'a> {
         name: &str,
         body: &[Stmt],
     ) -> Result<(), String> {
-        let own = body
-            .iter()
-            .map_while(|s| self.directive_value(s))
-            .any(|v| v == "use strict");
+        let own = self.prologue_says_use_strict(body);
         let strict = self.strict_here() || own;
         self.note_strict_binding(name, strict)
     }

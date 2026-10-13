@@ -105,5 +105,6 @@ pub(super) fn callee_eval_form(callee: ExprId, ast: &Ast) -> Option<CallForm> {
 /// the source's completion value when nothing after it produces one.
 pub(super) fn has_use_strict_prologue(parsed: &[Stmt], ast: &Ast) -> bool {
     matches!(parsed.first(), Some(Stmt::Expr(e))
-        if matches!(ast.exprs.get(e.0 as usize), Some(Expr::String(s)) if s == "use strict"))
+        if matches!(ast.exprs.get(e.0 as usize), Some(Expr::String(s)) if s == "use strict")
+            && !ast.escaped_use_strict.contains(e))
 }

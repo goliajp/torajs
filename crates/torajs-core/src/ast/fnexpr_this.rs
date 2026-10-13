@@ -62,7 +62,7 @@ use super::{Expr, ExprId, Stmt};
 pub(crate) fn run(
     stmts: &mut [Stmt],
     exprs: &mut Vec<Expr>,
-    sloppy: bool,
+    sloppy: super::sloppy_this_prologue::SloppyGoal<'_>,
     fn_expr_exprs: &std::collections::HashSet<ExprId>,
     objlit_method_exprs: &std::collections::HashSet<ExprId>,
     closure_argc_locals: &std::collections::HashSet<String>,

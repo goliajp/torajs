@@ -280,8 +280,7 @@ fn desugar_one_generator(
     // `while(true)` loop re-enters the if-chain at the new state.
     // Read the body's strictness BEFORE the state machine consumes it
     // — see `carry_strictness_to_next`.
-    let body_is_strict =
-        crate::ast::sloppy_this_prologue::has_use_strict_directive(&gen_body, &ast.exprs);
+    let body_is_strict = ast.body_says_use_strict(&gen_body);
     let (next_body, gen_hoisted, has_try_regions, has_finally_ret) =
         crate::ast::desugar_generators_assemble::build_state_machine_next_body(
             ast,

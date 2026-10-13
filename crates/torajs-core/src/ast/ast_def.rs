@@ -924,6 +924,12 @@ pub struct Ast {
     /// synthetic directive re-emitted into a function with a
     /// non-simple parameter list would be the §15.1.3 SyntaxError.
     pub synth_strict_directives: std::collections::HashSet<ExprId>,
+    /// String literals whose cooked value is `"use strict"` but whose
+    /// source spells it with an escape or a line continuation. §11.2.1:
+    /// such a literal still belongs to a directive prologue, but it is
+    /// not a Use Strict Directive, so every strictness probe that reads
+    /// a prologue's cooked values must leave these out.
+    pub escaped_use_strict: std::collections::HashSet<ExprId>,
     /// Sites that are legal in sloppy script code and a SyntaxError
     /// under a strict goal, parked because the goal is only stamped
     /// after the parse. `(byte offset, word)` — the word names the

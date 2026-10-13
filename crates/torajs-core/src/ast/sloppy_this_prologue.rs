@@ -25,6 +25,13 @@
 
 use super::{Ast, Expr, ExprId, Stmt};
 use crate::lexer::Span;
+use std::collections::HashSet;
+
+/// The sloppy script goal as the `this`-prologue passes receive it:
+/// `None` under a strict goal, otherwise the program's escaped
+/// `"use strict"` literals (`Ast::escaped_use_strict`), which the
+/// prologue's own strictness probe has to leave out.
+pub(crate) type SloppyGoal<'a> = Option<&'a HashSet<ExprId>>;
 
 /// Mint a synthetic `"use strict"` directive expression, recorded in
 /// `Ast::synth_strict_directives` so `tr fmt` knows not to print it.
@@ -41,16 +48,22 @@ pub(crate) fn mint_use_strict_directive(ast: &mut Ast) -> ExprId {
 }
 
 /// `true` when `body`'s directive prologue — the leading run of
-/// string-literal expression statements — says `"use strict"`. Shared
-/// with [`crate::ast::fnexpr_this_default`], which owes the same
-/// per-function strict answer for its no-receiver binding.
-pub(crate) fn has_use_strict_directive(body: &[Stmt], exprs: &[Expr]) -> bool {
+/// string-literal expression statements — holds a Use Strict
+/// Directive: the cooked value `"use strict"` from a literal not in
+/// `escaped` (§11.2.1). Shared with [`crate::ast::fnexpr_this_default`],
+/// which owes the same per-function strict answer for its no-receiver
+/// binding.
+pub(crate) fn has_use_strict_directive(
+    body: &[Stmt],
+    exprs: &[Expr],
+    escaped: &HashSet<ExprId>,
+) -> bool {
     for s in body.iter() {
         let Stmt::Expr(e) = s else { return false };
         let Expr::String(v) = &exprs[e.0 as usize] else {
             return false;
         };
-        if v == "use strict" {
+        if v == "use strict" && !escaped.contains(e) {
             return true;
         }
     }
@@ -84,6 +97,7 @@ pub(crate) fn insert_sloppy_this_prologue(
     body: &mut Vec<Stmt>,
     exprs: &mut Vec<Expr>,
     spans: &mut Vec<Span>,
+    escaped: &HashSet<ExprId>,
 ) {
     // Per-function strict (§10.2.1.2 step 5): a body whose directive
     // prologue — the leading run of string-literal expression
@@ -97,7 +111,7 @@ pub(crate) fn insert_sloppy_this_prologue(
     // that are strict only by INHERITANCE carry a directive too — the
     // parser writes one in (`parser::strict_directive`), which is what
     // makes this one probe answer for both.
-    if has_use_strict_directive(body, exprs) {
+    if has_use_strict_directive(body, exprs, escaped) {
         return;
     }
     // Idempotent by shape probe: a body whose first stmt already

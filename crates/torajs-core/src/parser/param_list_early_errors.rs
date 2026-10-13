@@ -183,17 +183,11 @@ impl<'a> Parser<'a> {
         if simple {
             return Ok(());
         }
-        for s in body {
-            let Stmt::Expr(id) = s else { break };
-            let Expr::String(v) = &self.ast.exprs[id.0 as usize] else {
-                break;
-            };
-            if v == "use strict" {
-                return Err(format!(
-                    "`\"use strict\"` directive in a function with a non-simple parameter list at {}",
-                    self.at()
-                ));
-            }
+        if self.prologue_says_use_strict(body) {
+            return Err(format!(
+                "`\"use strict\"` directive in a function with a non-simple parameter list at {}",
+                self.at()
+            ));
         }
         Ok(())
     }

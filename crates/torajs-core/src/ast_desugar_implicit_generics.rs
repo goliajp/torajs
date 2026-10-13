@@ -81,10 +81,12 @@ pub(crate) fn run(ast: &mut Ast) {
         fnexpr_recv_faces,
         fnexpr_recv_locals,
         fnsig_mismatch_bindings,
+        escaped_use_strict,
         objlit_computed_keys,
         objlit_computed_accessors,
         ..
     } = ast;
+    let sloppy = sloppy.then_some(&*escaped_use_strict);
     let ast_exprs_view: AstExprsView = &*exprs;
 
     let mut fn_sigs = declared_sigs::seed_declared_fn_sigs(stmts);

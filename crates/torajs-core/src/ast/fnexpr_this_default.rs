@@ -91,7 +91,6 @@
 
 use super::fnexpr_this_default_slots::{HANDLER_METHODS, no_receiver_slots};
 use super::fnexpr_this_default_writes::SingleWrite;
-use super::sloppy_this_prologue::has_use_strict_directive;
 use super::{Ast, Expr, ExprId, Stmt};
 
 /// The bindings whose value satisfies `pred` and whose name the
@@ -262,7 +261,7 @@ pub fn bind_fnexpr_this_default(ast: &mut Ast) {
         let global_this = ast.program_is_sloppy()
             && ast.stmts.iter().any(|s| {
                 matches!(s, Stmt::FnDecl { name, body, .. }
-                    if name == &fn_name && !has_use_strict_directive(body, &ast.exprs))
+                    if name == &fn_name && !ast.body_says_use_strict(body))
             });
         let init = if global_this {
             // §10.2.1.2 step 4's ToObject over step 6's global

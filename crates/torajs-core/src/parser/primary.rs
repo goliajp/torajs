@@ -137,8 +137,15 @@ impl<'a> Parser<'a> {
             }
             Token::String(s) => {
                 let s = s.clone();
+                let span = self.tokens[self.pos].span;
                 self.pos += 1;
-                Ok(self.ast.add_expr(Expr::String(s)))
+                let escaped = s == "use strict"
+                    && self.source[span.start as usize..span.end as usize].contains('\\');
+                let e = self.ast.add_expr(Expr::String(s));
+                if escaped {
+                    self.ast.escaped_use_strict.insert(e);
+                }
+                Ok(e)
             }
             Token::Template { parts } => {
                 let parts = parts.clone();

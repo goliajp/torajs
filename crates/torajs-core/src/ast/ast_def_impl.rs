@@ -43,8 +43,17 @@ impl Ast {
     /// Reach for this, not [`Self::program_is_sloppy`], whenever the
     /// answer describes a function rather than the program.
     pub fn body_is_sloppy(&self, body: &[Stmt]) -> bool {
-        self.program_is_sloppy()
-            && !crate::ast::sloppy_this_prologue::has_use_strict_directive(body, &self.exprs)
+        self.program_is_sloppy() && !self.body_says_use_strict(body)
+    }
+
+    /// Whether `body`'s own directive prologue holds a Use Strict
+    /// Directive (see `sloppy_this_prologue::has_use_strict_directive`).
+    pub fn body_says_use_strict(&self, body: &[Stmt]) -> bool {
+        crate::ast::sloppy_this_prologue::has_use_strict_directive(
+            body,
+            &self.exprs,
+            &self.escaped_use_strict,
+        )
     }
 
     /// RFC 20260921 — a fresh `Stmt::ClassDecl::decl_id` (see there).

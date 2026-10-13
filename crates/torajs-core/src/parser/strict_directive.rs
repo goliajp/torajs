@@ -47,7 +47,7 @@ impl Parser<'_> {
     /// everything parsed afterwards, which is exactly the set of
     /// functions nested inside this one.
     pub(super) fn arm_strict_directive(&mut self, s: &Stmt, seen: &[Stmt]) {
-        if self.in_strict_fn || self.directive_value(s) != Some("use strict") {
+        if self.in_strict_fn || !self.is_use_strict_directive(s) {
             return;
         }
         // Still inside the prologue only if nothing but string-literal
@@ -246,8 +246,8 @@ impl Parser<'_> {
             return;
         }
         match self.directive_value(s) {
-            Some(v) => {
-                if v == "use strict" {
+            Some(_) => {
+                if self.is_use_strict_directive(s) {
                     self.in_strict_fn = true;
                     self.ast.program_strict_prologue = true;
                     self.record_strict_prologue_body();
@@ -255,6 +255,22 @@ impl Parser<'_> {
             }
             None => *in_prologue = false,
         }
+    }
+
+    /// `true` when `s` is a Use Strict Directive (§11.2.1): a string
+    /// literal whose cooked value is "use strict" and whose source has
+    /// no escape or line continuation (`Ast::escaped_use_strict`).
+    pub(super) fn is_use_strict_directive(&self, s: &Stmt) -> bool {
+        matches!(s, Stmt::Expr(id) if self.directive_value(s) == Some("use strict")
+            && !self.ast.escaped_use_strict.contains(id))
+    }
+
+    /// `true` when `body`'s directive prologue holds a Use Strict
+    /// Directive.
+    pub(super) fn prologue_says_use_strict(&self, body: &[Stmt]) -> bool {
+        body.iter()
+            .take_while(|s| self.directive_value(s).is_some())
+            .any(|s| self.is_use_strict_directive(s))
     }
 
     /// The cooked value of `s` when it is an expression statement
@@ -385,11 +401,7 @@ impl Parser<'_> {
             return Ok(());
         }
         // A prologue that already says it needs nothing written.
-        if body
-            .iter()
-            .map_while(|s| self.directive_value(s))
-            .any(|v| v == "use strict")
-        {
+        if self.prologue_says_use_strict(body) {
             return Ok(());
         }
         let simple = params

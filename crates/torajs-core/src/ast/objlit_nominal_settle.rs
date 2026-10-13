@@ -26,7 +26,7 @@ pub(super) struct Settle<'a> {
     pub(super) type_decls: Vec<Stmt>,
     pub(super) fn_sigs: &'a mut HashMap<String, String>,
     pub(super) fnexpr_recv_fns: &'a mut std::collections::HashSet<String>,
-    pub(super) sloppy: bool,
+    pub(super) sloppy: super::sloppy_this_prologue::SloppyGoal<'a>,
     pub(super) spans: &'a mut Vec<crate::lexer::Span>,
 }
 

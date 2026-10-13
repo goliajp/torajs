@@ -69,6 +69,7 @@ pub fn bind_this_param(ast: &mut Ast) {
         stmts,
         exprs,
         expr_spans,
+        escaped_use_strict,
         ..
     } = ast;
     for st in stmts.iter_mut() {
@@ -102,7 +103,12 @@ pub fn bind_this_param(ast: &mut Ast) {
         // strict — by its own directive or by the lexical inheritance
         // the parser writes in — is skipped inside the helper.
         if sloppy {
-            crate::ast::sloppy_this_prologue::insert_sloppy_this_prologue(body, exprs, expr_spans);
+            crate::ast::sloppy_this_prologue::insert_sloppy_this_prologue(
+                body,
+                exprs,
+                expr_spans,
+                escaped_use_strict,
+            );
         }
     }
 

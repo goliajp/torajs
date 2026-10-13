@@ -53,7 +53,6 @@
 //!
 //! Runs right after the readonly sibling, before the checker.
 
-use super::sloppy_this_prologue::has_use_strict_directive;
 use super::{Ast, Expr, ExprId, Stmt};
 
 pub fn synthesize_sloppy_implicit_globals(ast: &mut Ast) {
@@ -231,7 +230,7 @@ impl Walk<'_> {
             // strict-by-inheritance bodies carry a parser-written
             // directive of their own).
             Stmt::FnDecl { body, .. } => {
-                if !has_use_strict_directive(body, &ast.exprs) {
+                if !ast.body_says_use_strict(body) {
                     self.walk_deferred(ast, body);
                 }
             }
@@ -366,7 +365,7 @@ impl Walk<'_> {
             // FnDecl above (arrows inherit strictness, and inherited
             // strict bodies carry a parser-written directive).
             Expr::ArrowFn { body, .. } => {
-                if !has_use_strict_directive(body, &ast.exprs) {
+                if !ast.body_says_use_strict(body) {
                     self.walk_deferred(ast, body);
                 }
             }

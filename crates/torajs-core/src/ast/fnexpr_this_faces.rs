@@ -143,7 +143,7 @@ pub(crate) fn promote_recv_any(
     exprs: &mut Vec<Expr>,
     patches: &[(ExprId, String)],
     fnexpr_recv_fns: &mut std::collections::HashSet<String>,
-    sloppy: bool,
+    sloppy: super::sloppy_this_prologue::SloppyGoal<'_>,
     spans: &mut Vec<crate::lexer::Span>,
 ) {
     for (eid, _) in patches {
@@ -188,8 +188,8 @@ pub(crate) fn promote_recv_any(
                     },
                 );
             }
-            if sloppy {
-                insert_sloppy_this_prologue(body, exprs, spans);
+            if let Some(escaped) = sloppy {
+                insert_sloppy_this_prologue(body, exprs, spans, escaped);
             }
             fnexpr_recv_fns.insert(fn_name.clone());
             break;
