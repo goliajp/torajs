@@ -291,7 +291,11 @@ impl LiftCtx {
         if !self.goal.applies(name, span) || self.goal.is_async_form(name) {
             return AnnexB::Strict;
         }
-        if self.params.contains(name) || self.lex.owns(name, span) {
+        // §B.3.3.1 skips a name that is also a parameter; §B.3.2.3,
+        // its eval-text counterpart, has no such exclusion — the
+        // block's write lands on the parameter's binding.
+        let param = self.params.contains(name) && !self.spliced_by_sloppy_eval(name, span);
+        if param || self.lex.owns(name, span) {
             return AnnexB::Skip;
         }
         AnnexB::Apply
