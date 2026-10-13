@@ -65,6 +65,7 @@ mod sentinel_member_reads;
 mod sentinel_tables;
 mod slot_abi;
 mod slot_key;
+mod variadic_short;
 mod walk;
 mod walk_call;
 mod width;
@@ -227,6 +228,12 @@ pub(super) struct Analysis<'a> {
     /// Each callback-taking iteration with the array it walks and that
     /// array's key (`hof_receivers`).
     pub(super) hof_receivers: Vec<(ExprId, ExprId, SlotKey)>,
+    /// Each call through a variadic fn face, with the callee's key and
+    /// the first position it may leave unfilled (`variadic_short`).
+    pub(super) variadic_calls: Vec<(SlotKey, usize)>,
+    /// Each function value stored into a slot, with the parameters
+    /// that slot's argument positions reach (`fn_value_flow`).
+    pub(super) fn_flows: Vec<(SlotKey, String, Vec<String>)>,
 }
 
 /// Full analysis result — the F64 slot classes plus the container
@@ -288,6 +295,8 @@ pub(crate) fn analyze(
         mag: Default::default(),
         nonzero_negs,
         hof_receivers: Vec::new(),
+        variadic_calls: Vec::new(),
+        fn_flows: Vec::new(),
     };
 
     // Top-level statements walk under the "" scope; fn bodies under
@@ -345,6 +354,7 @@ pub(crate) fn analyze(
     cycle::seed_growth_cycles(&a.edges, &mut a.seeds);
     let arith_in_window = magnitude::settle(&mut a);
     analyze_tables::seed_any_and_poison(&mut a);
+    variadic_short::seed(&mut a, &mut tables.params);
     let canon_out = fixpoint(std::mem::take(&mut a.seeds), &a.edges);
     dump_f64_classes(&canon_out);
 

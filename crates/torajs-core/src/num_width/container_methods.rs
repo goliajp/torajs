@@ -247,6 +247,7 @@ impl<'a> Analysis<'a> {
         // dead keys.
         if !class_hit && !BUILTIN_MEMBER_METHODS.contains(&name.as_str()) {
             let fk = SlotKey::Field(Box::new(recv.clone()), PropKey::from(name));
+            self.record_variadic_call(callee, args, &fk);
             for (i, a) in args.iter().enumerate() {
                 let w = self.flow(*a, scope);
                 let pk = SlotKey::Field(Box::new(fk.clone()), PropKey::from(format!("__p{i}")));

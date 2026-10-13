@@ -68,6 +68,7 @@ impl Analysis<'_> {
                 self.container_key_of(callee, scope);
             }
             self.fn_value_flow(&ck, callee, scope);
+            self.record_variadic_call(callee, args, &ck);
             for (i, arg) in args.iter().enumerate() {
                 let w = self.flow(*arg, scope);
                 let pk = SlotKey::Field(Box::new(ck.clone()), PropKey::from(format!("__p{i}")));
