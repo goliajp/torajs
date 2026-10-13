@@ -30,7 +30,14 @@ impl LowerCtx<'_> {
         if self.pins.operands.contains_key(&eid) {
             return false;
         }
-        let eid = self.peel_as_wrappers(eid);
+        // A comma expression answers its right operand, so an arm
+        // `(f(), s[i])` mints the view `s[i]` does.
+        let mut eid = eid;
+        while let Expr::As { expr, .. } | Expr::Sequence { right: expr, .. } =
+            self.ast.get_expr(eid)
+        {
+            eid = *expr;
+        }
         matches!(self.ast.get_expr(eid), Expr::Index { obj, .. }
             if matches!(self.expr_types.get(obj), Some(crate::check::Type::String)))
     }
