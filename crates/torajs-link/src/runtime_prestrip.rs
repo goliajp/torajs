@@ -157,7 +157,9 @@ pub(crate) fn dead_content_in_prestripped(
         &bytes[hdr.reloff as usize..][..hdr.nreloc as usize * RELOCATION_INFO_SIZE as usize];
     let reloc_in = |s: u64, e: u64| {
         relocs
-            .chunks_exact(RELOCATION_INFO_SIZE as usize)
+            .as_chunks::<{ RELOCATION_INFO_SIZE as usize }>()
+            .0
+            .iter()
             .any(|r| (s..e).contains(&u64::from(u32::from_le_bytes(r[0..4].try_into().unwrap()))))
     };
     let dead_content = atoms_rel.iter().zip(live).any(|(&(s, e), &l)| {
