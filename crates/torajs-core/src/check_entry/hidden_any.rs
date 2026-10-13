@@ -167,9 +167,9 @@ fn retype_any(stmts: &mut [Stmt], inits: &HashSet<ExprId>) {
 
 /// The functions whose return a round may retype `any`: a declaration
 /// or a lifted closure declared to return a `number`, `string` or
-/// `boolean`, or with no annotation, and only ever called by name
-/// ([`called_by_name_only`]). A generator or an async function answers
-/// an object of its own and keeps its face.
+/// `boolean`, or with no annotation, and only ever called by name or
+/// handed to a fn-typed slot ([`called_by_name_only`]). A generator or
+/// an async function answers an object of its own and keeps its face.
 fn retypable_returns(ast: &Ast) -> HashSet<String> {
     let mut out = HashSet::new();
     crate::ast::walk_stmts(&ast.stmts, &mut |s| {
@@ -194,14 +194,19 @@ fn retypable_returns(ast: &Ast) -> HashSet<String> {
     out
 }
 
-/// The functions only ever called by name. A function that flows on
-/// as a value may land in a slot typed with its declared return (`cb:
-/// (x: number) => number`, a declared function return type), whose
+/// The functions only ever called by name, or handed to a fn-typed
+/// slot whose calls follow the face of what it holds: the initializer
+/// of a binding annotated with a function type (`const h: (x: number)
+/// => number = q`, the let lane's face census) or the argument of a
+/// declared function's fn-typed parameter (`run(q)`, the parameter
+/// census), whose calls then answer what `q` returns. A function that
+/// flows on as a value anywhere else may land in a slot typed with its
+/// declared return (an array, a field, a builtin's callback), whose
 /// callers read that return; retyping it would take the function out
 /// of the slot. A closure that initializes a binding with no annotation
 /// is called by name when every read of that binding is a call.
 fn called_by_name_only(ast: &Ast) -> HashSet<String> {
-    let mut callees: HashSet<ExprId> = HashSet::new();
+    let mut callees: HashSet<ExprId> = fn_slot_values(ast);
     for e in &ast.exprs {
         if let Expr::Call { callee, .. } = e {
             callees.insert(*callee);
@@ -248,6 +253,46 @@ fn called_by_name_only(ast: &Ast) -> HashSet<String> {
         if all.iter().all(|n| !values.contains(n)) && all.iter().any(|n| called.contains(n)) {
             out.insert(f.to_string());
         }
+    }
+    out
+}
+
+/// The names read as the value of a fn-typed slot of the face census:
+/// a binding's initializer under a function-type annotation, or the
+/// argument of a declared function's fn-typed parameter.
+fn fn_slot_values(ast: &Ast) -> HashSet<ExprId> {
+    let fn_ann = |a: &Option<String>| a.as_deref().is_some_and(crate::ast::is_fn_like_ann);
+    let mut params: HashMap<String, Vec<bool>> = HashMap::new();
+    let mut out = HashSet::new();
+    crate::ast::walk_stmts(&ast.stmts, &mut |s| match s {
+        Stmt::FnDecl {
+            name, params: ps, ..
+        } => {
+            let user = ps.iter().filter(|p| !p.name.starts_with("__"));
+            params.insert(name.clone(), user.map(|p| fn_ann(&p.type_ann)).collect());
+        }
+        Stmt::LetDecl { type_ann, init, .. }
+            if fn_ann(type_ann) && matches!(ast.get_expr(*init), Expr::Ident(_)) =>
+        {
+            out.insert(*init);
+        }
+        _ => {}
+    });
+    for e in &ast.exprs {
+        let Expr::Call { callee, args } = e else {
+            continue;
+        };
+        let Some(fns) = (match ast.get_expr(*callee) {
+            Expr::Ident(g) => params.get(g),
+            _ => None,
+        }) else {
+            continue;
+        };
+        out.extend(
+            (args.iter().zip(fns))
+                .filter(|(a, f)| **f && matches!(ast.get_expr(**a), Expr::Ident(_)))
+                .map(|(a, _)| *a),
+        );
     }
     out
 }

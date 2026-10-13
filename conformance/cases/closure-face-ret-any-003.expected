@@ -1,0 +1,9 @@
+string:x
+string:y
+s 1
+boolean:true
+number:3
+undefined:undefined 2
+bigint:-2 -4
+string:x 1
+42

@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 
 use super::captures::Body;
-use super::hidden_any::{Decl, Graph, Node, candidate};
+use super::hidden_any::{Decl, Graph, Node, Origin, candidate};
 use super::{Analysis, Scope, SlotKey};
 use crate::ast::desugar_async_sm_walk::visit_expr_children;
 use crate::ast::{Expr, ExprId, Stmt};
@@ -55,17 +55,21 @@ impl Graph<'_> {
                     type_ann,
                     init,
                     is_var,
-                    ..
+                    mutable,
                 } => {
                     let at = if *is_var { 1 } else { self.frames.len() - 1 };
                     // a `var` declared twice is one binding
                     if !self.frames[at].contains_key(name) {
                         let cand = !export && candidate(a, type_ann.as_deref(), *init);
-                        self.declare(sc, name, cand.then_some(*init), at);
+                        let origin = match type_ann {
+                            None if !*mutable && !*is_var => Origin::Fixed(*init),
+                            _ => Origin::Open(*init),
+                        };
+                        self.declare(sc, name, (cand.then_some(*init), origin), at);
                     }
                 }
                 Stmt::UsingDecl { name, .. } => {
-                    self.declare(sc, name, None, self.frames.len() - 1);
+                    self.declare(sc, name, (None, Origin::Unknown), self.frames.len() - 1);
                 }
                 Stmt::Multi(v) => self.predeclare(a, sc, &v.iter().collect::<Vec<_>>(), export),
                 Stmt::ExportDecl { inner: Some(i), .. } => self.predeclare(a, sc, &[i], true),
@@ -74,15 +78,16 @@ impl Graph<'_> {
         }
     }
 
-    /// A fresh declaration of `n` in frame `at`.
-    fn declare(&mut self, sc: &Scope, n: &str, init: Option<ExprId>, at: usize) -> Node {
+    /// A fresh declaration of `n` in frame `at`; `held` is its candidate initializer and origin.
+    fn declare(&mut self, sc: &Scope, n: &str, held: (Option<ExprId>, Origin), at: usize) -> Node {
+        let (init, origin) = held;
         let key = if sc.fn_name.is_empty() {
             SlotKey::Global(n.to_string())
         } else {
             SlotKey::Local(sc.fn_name.to_string(), n.to_string())
         };
         let node = Node::Decl(self.decls.len());
-        self.decls.push(Decl { key, init });
+        self.decls.push(Decl { key, init, origin });
         self.frames[at].insert(n.to_string(), node.clone());
         node
     }
@@ -92,13 +97,13 @@ impl Graph<'_> {
         self.exprs(a, sc, value);
         let node = match self.frames.iter().rev().find_map(|f| f.get(n)) {
             Some(node) => node.clone(),
-            None => self.declare(sc, n, None, self.frames.len() - 1),
+            None => self.declare(sc, n, (None, Origin::Unknown), self.frames.len() - 1),
         };
         self.flow(a, &[node], value, sc);
     }
 
     /// A frame of its own for a loop or catch binding `n`, which stores
-    /// `value` when there is one, around `body`.
+    /// `value` (and holds what it reads) when there is one, around `body`.
     fn bound(
         &mut self,
         a: &Analysis<'_>,
@@ -108,7 +113,8 @@ impl Graph<'_> {
         body: &[&Stmt],
     ) {
         self.frames.push(HashMap::new());
-        let node = self.declare(sc, n, None, self.frames.len() - 1);
+        let origin = value.map_or(Origin::Unknown, Origin::Open);
+        let node = self.declare(sc, n, (None, origin), self.frames.len() - 1);
         if let Some(v) = value {
             self.flow(a, &[node], v, sc);
         }
@@ -124,6 +130,7 @@ impl Graph<'_> {
             Stmt::Expr(e) | Stmt::Throw(e) | Stmt::Yield(e) => self.exprs(a, sc, *e),
             Stmt::Return(Some(e)) => {
                 self.exprs(a, sc, *e);
+                self.returned(a, sc, *e);
                 self.flow(a, &[Node::Ret(sc.fn_name.to_string())], *e, sc);
             }
             Stmt::YieldInto { value, .. } => self.exprs(a, sc, *value),

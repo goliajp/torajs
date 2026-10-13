@@ -43,6 +43,9 @@ pub(super) enum Node {
     Arg(ExprId),
     /// What a function returns.
     Ret(String),
+    /// A function that may return a value the program spells `any`
+    /// (`returns`); it reaches only other returns.
+    RetAny(String),
     /// What a container stores (`hidden_any_containers`).
     Into(SlotKey),
 }
@@ -75,6 +78,25 @@ pub(super) struct Decl {
     pub(super) key: SlotKey,
     /// The initializer of a retype candidate ([`candidate`]).
     pub(super) init: Option<ExprId>,
+    /// Where the values it holds come from (`returns`).
+    pub(super) origin: Origin,
+}
+
+/// What a declaration says about the values it holds.
+#[derive(Clone, Copy, Debug)]
+pub(super) enum Origin {
+    /// A `const` with no annotation: its initializer is all it holds.
+    Fixed(ExprId),
+    /// A `let` / `var`, a binding with an annotation (which a desugar
+    /// pass may have written) or a loop binding: its initializer, or the
+    /// element it reads, and every value stored to its name.
+    Open(ExprId),
+    /// A parameter, and whether its annotation leaves its kind open
+    /// (absent, or `any`).
+    Param(bool),
+    /// A binding the walk does not trace (`using`, a catch binding, a
+    /// loop binding with no element read).
+    Unknown,
 }
 
 /// Lifted fn and captured name → the binding its creator handed it.
@@ -89,6 +111,12 @@ pub(super) struct Graph<'s> {
     /// The captures resolved by the previous pass, and by this one.
     pub(super) caps_in: CapMap,
     pub(super) caps_out: CapMap,
+    /// [`Decl::origin`] by declaration as the previous pass found them:
+    /// a capture names a declaration of a body walked later.
+    pub(super) origins_in: Vec<Origin>,
+    /// What the return walk looks up, built when a return first asks
+    /// and shared by every pass.
+    pub(super) lookups: &'s std::cell::OnceCell<returns::Lookups>,
     /// The block frames of the body being walked, outermost first:
     /// its parameters, then its own top-level bindings.
     pub(super) frames: Vec<HashMap<String, Node>>,
@@ -125,6 +153,8 @@ pub(super) fn collect(
     let bodies = bodies(a.ast);
     // one pass per closure nesting level settles the captures
     let mut caps = CapMap::new();
+    let mut origins = Vec::new();
+    let lookups = std::cell::OnceCell::new();
     let g = loop {
         let mut g = Graph {
             any_escaped,
@@ -135,6 +165,8 @@ pub(super) fn collect(
             decls: Vec::new(),
             caps_in: caps,
             caps_out: CapMap::new(),
+            origins_in: origins,
+            lookups: &lookups,
             frames: Vec::new(),
             lit_fields: Vec::new(),
         };
@@ -145,6 +177,7 @@ pub(super) fn collect(
             break g;
         }
         caps = g.caps_out;
+        origins = g.decls.iter().map(|d| d.origin).collect();
     };
     g.retyped()
 }
@@ -210,7 +243,7 @@ impl Graph<'_> {
         for n in &tainted {
             match n {
                 Node::Arg(e) => drop(out.args.insert(*e)),
-                Node::Ret(f) => drop(out.rets.insert(f.clone())),
+                Node::Ret(f) | Node::RetAny(f) => drop(out.rets.insert(f.clone())),
                 Node::Into(k) => out.filled.push(k.clone()),
                 _ => {}
             }
@@ -251,6 +284,8 @@ impl Graph<'_> {
         Ref::Keyed(Vec::new())
     }
 }
+
+mod returns;
 
 #[cfg(test)]
 #[path = "hidden_any_tests.rs"]
