@@ -14,13 +14,67 @@
 //! program can reach already stripped
 //! ([`torajs_link::runtime_prestrip`]), as a byte-string literal.
 //!
+//! Both run the same pre-strip, so it runs once when one compilation
+//! expands both over the same archives.
+//!
 //! Every archive is also named in an unused `include_bytes!`, so the
 //! embedding crate rebuilds when one changes.
+
+use std::cell::RefCell;
+use std::rc::Rc;
+use std::time::SystemTime;
 
 use proc_macro::{Delimiter, Literal, TokenStream, TokenTree};
 use torajs_link::rtlinked_build::build_rtlinked_image;
 use torajs_link::rtlinked_format::SEGMENT_ALIGN;
 use torajs_link::runtime_prestrip::prestripped_runtime_image;
+
+/// What identifies an archive file between two reads: its path, size
+/// and modification time.
+type ArchiveStamp = (String, u64, SystemTime);
+
+/// Archives and the pre-stripped image built from them.
+type Prestripped = (Vec<ArchiveStamp>, Rc<[u8]>);
+
+thread_local! {
+    /// The archives last pre-stripped on this thread and their image.
+    static LAST_PRESTRIP: RefCell<Option<Prestripped>> = const { RefCell::new(None) };
+}
+
+/// The pre-stripped runtime image of the archives at `paths`. The
+/// embedding crate expands both macros over the same archives, one
+/// after the other in one rustc, so the second reuses the first's image
+/// instead of reading and stripping again; archives that differ in
+/// path, size or modification time are stripped anew.
+fn prestripped(paths: &[String], mac: &str) -> Rc<[u8]> {
+    let stamps: Vec<ArchiveStamp> = paths
+        .iter()
+        .map(|p| {
+            let meta = std::fs::metadata(p).unwrap_or_else(|e| panic!("{mac}: stat {p}: {e}"));
+            let mtime = meta
+                .modified()
+                .unwrap_or_else(|e| panic!("{mac}: mtime {p}: {e}"));
+            (p.clone(), meta.len(), mtime)
+        })
+        .collect();
+    LAST_PRESTRIP.with_borrow_mut(|last| {
+        if let Some((seen, image)) = last
+            && *seen == stamps
+        {
+            return Rc::clone(image);
+        }
+        let archives: Vec<Vec<u8>> = paths
+            .iter()
+            .map(|p| std::fs::read(p).unwrap_or_else(|e| panic!("{mac}: read {p}: {e}")))
+            .collect();
+        let borrowed: Vec<&[u8]> = archives.iter().map(Vec::as_slice).collect();
+        let image: Rc<[u8]> = prestripped_runtime_image(&borrowed)
+            .unwrap_or_else(|e| panic!("{mac}: {e:?}"))
+            .into();
+        *last = Some((stamps, Rc::clone(&image)));
+        image
+    })
+}
 
 fn parse_base(lit: &str) -> u64 {
     let digits: String = lit.chars().filter(|c| *c != '_').collect();
@@ -60,15 +114,7 @@ pub fn runtime_linked_image(input: TokenStream) -> TokenStream {
         }
     }
     let base = base.expect("runtime_linked_image!: missing base address");
-    let archives: Vec<Vec<u8>> = paths
-        .iter()
-        .map(|p| {
-            std::fs::read(p).unwrap_or_else(|e| panic!("runtime_linked_image!: read {p}: {e}"))
-        })
-        .collect();
-    let borrowed: Vec<&[u8]> = archives.iter().map(Vec::as_slice).collect();
-    let runtime = prestripped_runtime_image(&borrowed)
-        .unwrap_or_else(|e| panic!("runtime_linked_image!: {e:?}"));
+    let runtime = prestripped(&paths, "runtime_linked_image!");
     let image = build_rtlinked_image(&runtime, base)
         .unwrap_or_else(|e| panic!("runtime_linked_image!: {e:?}"));
 
@@ -100,13 +146,7 @@ pub fn runtime_image(input: TokenStream) -> TokenStream {
             other => panic!("runtime_image!: unexpected token {other}"),
         }
     }
-    let archives: Vec<Vec<u8>> = paths
-        .iter()
-        .map(|p| std::fs::read(p).unwrap_or_else(|e| panic!("runtime_image!: read {p}: {e}")))
-        .collect();
-    let borrowed: Vec<&[u8]> = archives.iter().map(Vec::as_slice).collect();
-    let image =
-        prestripped_runtime_image(&borrowed).unwrap_or_else(|e| panic!("runtime_image!: {e:?}"));
+    let image = prestripped(&paths, "runtime_image!");
 
     let mut src = String::from("{\n");
     for p in &paths {
