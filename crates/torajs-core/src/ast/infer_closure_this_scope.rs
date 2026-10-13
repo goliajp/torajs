@@ -108,3 +108,49 @@ pub(super) fn seed_this_assign_hints(
         }
     }
 }
+
+/// The class `__this` names at each call reached through it, answered
+/// per function for the same reason [`seed_this_assign_hints`] is: the
+/// flat table holds one `__this` for the whole program.
+///
+/// A generator's locals live on its `__this` (`__this.fs.push(cb)`),
+/// and so do an awaiting async function's. With a second such function
+/// anywhere in the program, the receiver of every `push` but the last
+/// function's resolved to the wrong class, the stored arrow kept an
+/// `any` param, and the call through the array handed it an unboxed
+/// number. Calls outside every function with a `__this` of its own are
+/// absent and keep the table's answer.
+pub(super) fn this_anns_by_call(ast: &Ast) -> std::collections::HashMap<ExprId, String> {
+    use super::desugar_with::walk::{expr_children, stmt_children_ref, stmt_exprs};
+    type Out = std::collections::HashMap<ExprId, String>;
+    fn walk_expr(ast: &Ast, e: ExprId, ann: &str, out: &mut Out) {
+        if matches!(ast.get_expr(e), Expr::Call { .. }) {
+            out.insert(e, ann.to_string());
+        }
+        for c in expr_children(ast, e) {
+            walk_expr(ast, c, ann, out);
+        }
+    }
+    fn walk_stmt(ast: &Ast, s: &Stmt, ann: &str, out: &mut Out) {
+        for e in stmt_exprs(s) {
+            walk_expr(ast, e, ann, out);
+        }
+        for c in stmt_children_ref(s) {
+            walk_stmt(ast, c, ann, out);
+        }
+    }
+    let mut out = Out::new();
+    for s in &ast.stmts {
+        let Stmt::FnDecl { params, body, .. } = s else {
+            continue;
+        };
+        let this_ann = params.iter().find(|p| p.name == "__this");
+        let Some(ann) = this_ann.and_then(|p| p.type_ann.as_deref()) else {
+            continue;
+        };
+        for st in body {
+            walk_stmt(ast, st, ann, &mut out);
+        }
+    }
+    out
+}

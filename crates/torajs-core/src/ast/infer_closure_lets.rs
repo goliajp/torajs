@@ -149,37 +149,13 @@ pub(super) fn collect_let_anns(
                 }
                 seed_container_field_hints(ast, ann, *init, closure_hints);
             }
-            Stmt::Block(stmts) | Stmt::Multi(stmts) => {
-                collect_let_anns(ast, stmts, out, closure_hints)
-            }
-            Stmt::If {
-                then_branch,
-                else_branch,
-                ..
-            } => {
-                collect_let_anns(
-                    ast,
-                    std::slice::from_ref(then_branch.as_ref()),
-                    out,
-                    closure_hints,
-                );
-                if let Some(eb) = else_branch {
-                    collect_let_anns(ast, std::slice::from_ref(eb.as_ref()), out, closure_hints);
-                }
-            }
-            Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
-                collect_let_anns(ast, std::slice::from_ref(body.as_ref()), out, closure_hints);
-            }
-            Stmt::Labeled { body, .. } => {
-                collect_let_anns(ast, std::slice::from_ref(body.as_ref()), out, closure_hints);
-            }
-            Stmt::For { init, body, .. } => {
-                if let Some(i) = init {
-                    collect_let_anns(ast, std::slice::from_ref(i.as_ref()), out, closure_hints);
-                }
-                collect_let_anns(ast, std::slice::from_ref(body.as_ref()), out, closure_hints);
-            }
-            _ => {}
+            // a nested fn's lets are its own; every other compound form
+            // is walked, the async Try `desugar_async` wraps a body in
+            // included
+            Stmt::FnDecl { .. } => {}
+            _ => crate::ast::stmt_nested_lists::for_each_nested_list(s, &mut |list| {
+                collect_let_anns(ast, list, out, closure_hints)
+            }),
         }
     }
 }
@@ -187,10 +163,14 @@ pub(super) fn collect_let_anns(
 /// The lifted closure an initializer names, in either post-lift shape:
 /// `Expr::Closure` when the arrow captured something, a bare ident at
 /// the lifted FnDecl when it did not.
+///
+/// A comma expression's value is its last operand, and so is the type
+/// the context gives it (`fs.push((yield 0, () => i))`).
 pub(super) fn lifted_closure_name(ast: &Ast, init: ExprId) -> Option<String> {
     match ast.get_expr(init) {
         Expr::Closure { fn_name, .. } => Some(fn_name.clone()),
         Expr::Ident(n) if n.starts_with("__closure_") => Some(n.clone()),
+        Expr::Sequence { right, .. } => lifted_closure_name(ast, *right),
         _ => None,
     }
 }
@@ -238,16 +218,9 @@ pub(super) fn seed_container_field_hints(
             }
         }
         Expr::Array(elems) => {
-            let Some(elem_ann) = ann.trim().strip_suffix("[]") else {
+            let Some(elem_ann) = array_elem_ann(ann) else {
                 return;
             };
-            let elem_ann = elem_ann.trim();
-            // `((n: number) => number)[]` — the element type keeps the
-            // parens the array suffix needed.
-            let elem_ann = elem_ann
-                .strip_prefix('(')
-                .and_then(|t| t.strip_suffix(')'))
-                .unwrap_or(elem_ann);
             for e in elems {
                 match lifted_closure_name(ast, *e) {
                     Some(fn_name) => {
@@ -259,6 +232,44 @@ pub(super) fn seed_container_field_hints(
         }
         _ => {}
     }
+}
+
+/// The element annotation of an array annotation, in either spelling:
+/// `T[]` or `Array<T>`. Both are the same type, so an arrow stored into
+/// one takes its element type exactly as it does from the other; the
+/// `Array<F>` spelling used to give it no context at all, and the
+/// arrow's unannotated params stayed `any` while the slot it was
+/// stored into called them with the declared element types.
+pub(super) fn array_elem_ann(ann: &str) -> Option<&str> {
+    let ann = ann.trim();
+    let elem = match ann.strip_suffix("[]") {
+        Some(e) => e.trim(),
+        None => {
+            let inner = ann.strip_prefix("Array<")?.strip_suffix('>')?;
+            // `Array<A> | Array<B>` also opens and closes like one; the
+            // `>` of a fn-type's `->` is not a bracket
+            let bytes = inner.as_bytes();
+            let mut depth = 0i32;
+            for (i, &b) in bytes.iter().enumerate() {
+                match b {
+                    b'<' => depth += 1,
+                    b'>' if i == 0 || bytes[i - 1] != b'-' => depth -= 1,
+                    _ => {}
+                }
+                if depth < 0 {
+                    return None;
+                }
+            }
+            inner.trim()
+        }
+    };
+    // `((n: number) => number)[]` — the element type keeps the parens
+    // the array suffix needed
+    Some(
+        elem.strip_prefix('(')
+            .and_then(|t| t.strip_suffix(')'))
+            .unwrap_or(elem),
+    )
 }
 
 /// The declared annotation of field `fname` on an object typed `ann`.
@@ -345,12 +356,14 @@ fn assign_target_ann(
     match ast.get_expr(target) {
         Expr::Ident(n) => all_anns.get(n).cloned(),
         Expr::Member { obj, name } => {
-            let obj_ann = super::infer_closure_params::resolve_receiver_ann(ast, *obj, all_anns)?;
+            let obj_ann =
+                super::infer_closure_params::resolve_receiver_ann(ast, *obj, all_anns, None)?;
             field_ann_of(ast, &obj_ann, name)
         }
         Expr::Index { obj, .. } => {
-            let obj_ann = super::infer_closure_params::resolve_receiver_ann(ast, *obj, all_anns)?;
-            Some(obj_ann.trim().strip_suffix("[]")?.to_string())
+            let obj_ann =
+                super::infer_closure_params::resolve_receiver_ann(ast, *obj, all_anns, None)?;
+            array_elem_ann(&obj_ann).map(str::to_string)
         }
         _ => None,
     }
@@ -380,46 +393,10 @@ pub(super) fn seed_return_hints(
                     closure_hints.insert(fn_name, ret_ann.to_string());
                 }
             }
-            Stmt::Block(stmts) | Stmt::Multi(stmts) => {
-                seed_return_hints(ast, stmts, ret_ann, closure_hints)
-            }
-            Stmt::If {
-                then_branch,
-                else_branch,
-                ..
-            } => {
-                seed_return_hints(
-                    ast,
-                    std::slice::from_ref(then_branch.as_ref()),
-                    ret_ann,
-                    closure_hints,
-                );
-                if let Some(eb) = else_branch {
-                    seed_return_hints(
-                        ast,
-                        std::slice::from_ref(eb.as_ref()),
-                        ret_ann,
-                        closure_hints,
-                    );
-                }
-            }
-            Stmt::While { body, .. } | Stmt::DoWhile { body, .. } | Stmt::Labeled { body, .. } => {
-                seed_return_hints(
-                    ast,
-                    std::slice::from_ref(body.as_ref()),
-                    ret_ann,
-                    closure_hints,
-                );
-            }
-            Stmt::For { body, .. } => {
-                seed_return_hints(
-                    ast,
-                    std::slice::from_ref(body.as_ref()),
-                    ret_ann,
-                    closure_hints,
-                );
-            }
-            _ => {}
+            Stmt::FnDecl { .. } => {}
+            _ => crate::ast::stmt_nested_lists::for_each_nested_list(s, &mut |list| {
+                seed_return_hints(ast, list, ret_ann, closure_hints)
+            }),
         }
     }
 }

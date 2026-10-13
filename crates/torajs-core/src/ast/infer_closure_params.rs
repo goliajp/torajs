@@ -148,10 +148,15 @@ pub(super) fn infer_lit_ann(ast: &Ast, eid: ExprId) -> Option<String> {
 ///   at all, so the arrow it stores kept the parameter it gets with
 ///   no context and `o.fs[0](3)` answered -562949953421311.
 /// - literal shapes — [`infer_lit_ann`].
+///
+/// `this_ann`, when given, is what `__this` names at this site, which
+/// the flat table cannot answer (see
+/// [`super::infer_closure_this_scope::this_anns_by_call`]).
 pub(super) fn resolve_receiver_ann(
     ast: &Ast,
     eid: ExprId,
     all_anns: &std::collections::HashMap<String, String>,
+    this_ann: Option<&str>,
 ) -> Option<String> {
     const IDENTITY_PRESERVING: &[&str] = &[
         "reverse",
@@ -166,9 +171,10 @@ pub(super) fn resolve_receiver_ann(
         "concat",
     ];
     match ast.get_expr(eid) {
+        Expr::Ident(n) if n == "__this" && this_ann.is_some() => this_ann.map(str::to_string),
         Expr::Ident(n) => all_anns.get(n).cloned(),
         Expr::Member { obj, name } => {
-            let obj_ann = resolve_receiver_ann(ast, *obj, all_anns)?;
+            let obj_ann = resolve_receiver_ann(ast, *obj, all_anns, this_ann)?;
             super::infer_closure_lets::field_ann_of(ast, &obj_ann, name)
         }
         Expr::Call { callee, .. } => {
@@ -176,7 +182,7 @@ pub(super) fn resolve_receiver_ann(
                 return None;
             };
             if IDENTITY_PRESERVING.contains(&name.as_str()) {
-                resolve_receiver_ann(ast, *obj, all_anns)
+                resolve_receiver_ann(ast, *obj, all_anns, this_ann)
             } else {
                 None
             }
@@ -199,11 +205,10 @@ fn classify_call_args(ast: &Ast, args: &[ExprId]) -> (Vec<(usize, String)>, bool
     let mut closure_args: Vec<(usize, String)> = Vec::new();
     let mut has_container_arg = false;
     for (i, a) in args.iter().enumerate() {
-        match ast.get_expr(*a) {
-            Expr::Closure { fn_name, .. } => closure_args.push((i, fn_name.clone())),
-            Expr::Ident(n) if n.starts_with("__closure_") => closure_args.push((i, n.clone())),
-            Expr::Array(_) | Expr::ObjectLit { .. } => has_container_arg = true,
-            _ => {}
+        if let Some(fn_name) = super::infer_closure_lets::lifted_closure_name(ast, *a) {
+            closure_args.push((i, fn_name));
+        } else if matches!(ast.get_expr(*a), Expr::Array(_) | Expr::ObjectLit { .. }) {
+            has_container_arg = true;
         }
     }
     (closure_args, has_container_arg)
@@ -268,6 +273,7 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
             .map(|(_, call, segs)| (call, segs.into_iter().map(Some).collect()))
             .collect();
 
+    let this_anns = super::infer_closure_this_scope::this_anns_by_call(ast);
     let n = ast.exprs.len();
     for i in 0..n {
         let Expr::Call { callee, args } = &ast.exprs[i] else {
@@ -326,7 +332,8 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
             );
             continue;
         }
-        let obj_ann = resolve_receiver_ann(ast, obj, &all_anns);
+        let this_ann = this_anns.get(&ExprId(i as u32)).map(String::as_str);
+        let obj_ann = resolve_receiver_ann(ast, obj, &all_anns, this_ann);
         let Some(ann) = obj_ann else { continue };
         if ann == "string" && matches!(name.as_str(), "replace" | "replaceAll") {
             seed_replace_cb_anns(
@@ -356,18 +363,26 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
             }
             continue;
         }
-        // Only handle T[] receivers for the known Array methods.
+        // An arrow at an element position of `push` / `unshift` /
+        // `fill` / `with` / `splice` is stored, not called — the
+        // receiver's element type is its type, the same contextual
+        // typing a literal element already gets, in either spelling of
+        // the array type.
+        if let Some(elem_ann) = super::infer_closure_lets::array_elem_ann(&ann)
+            && apply_stored_elem_arm(ast, &name, elem_ann, &closure_args, &mut updates)
+        {
+            continue;
+        }
+        // Only handle T[] receivers for the known Array methods. An
+        // `Array<T>` receiver's callbacks keep their `any` params: a
+        // typed callback calls the elements through the declared
+        // element type, and an element stored from a function value of
+        // another face (`any` return) is not reabstracted on the way
+        // in, so the typed call would read it wrong.
         let Some(elem_ann) = ann.strip_suffix("[]") else {
             continue;
         };
         let elem_ann = elem_ann.to_string();
-        // An arrow at an element position of `push` / `unshift` /
-        // `fill` / `with` / `splice` is stored, not called — the
-        // receiver's element type is its type, the same contextual
-        // typing a literal element already gets.
-        if apply_stored_elem_arm(ast, &name, &elem_ann, &closure_args, &mut updates) {
-            continue;
-        }
         if apply_hof_param_only_arm(
             ast,
             &name,
