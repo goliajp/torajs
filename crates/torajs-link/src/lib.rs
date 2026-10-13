@@ -112,6 +112,7 @@ mod rtlinked_build_regions;
 mod rtlinked_build_tlv;
 pub mod rtlinked_format;
 mod rtlinked_format_check;
+pub mod runtime_prestrip;
 pub mod sign;
 pub mod stubs;
 pub mod text_payload;

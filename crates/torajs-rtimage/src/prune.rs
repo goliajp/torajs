@@ -14,9 +14,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use crate::archive::{
-    ArMember, ArchiveParseError, MemberSymtabError, parse_member_defined_externs,
-};
+use crate::archive::{ArMember, ArchiveParseError, MemberSymtabError};
 use crate::archive_undef::member_undef_extern_names;
 
 /// `(archive_idx, member_idx, n_value)` of the member winning a name.
@@ -29,14 +27,18 @@ pub(crate) struct PruneError {
     pub err: ArchiveParseError,
 }
 
-/// Members of a torajs runtime crate (`torajs_rc-<hash>.torajs_rc.<cgu>.rcgu.o`).
-pub(crate) fn is_runtime_member(name: &str) -> bool {
-    name.starts_with("torajs")
+/// Whether a program's relocs can carry `sym`, given the member that
+/// wins it: any global a torajs runtime crate's member
+/// (`torajs_rc-<hash>.torajs_rc.<cgu>.rcgu.o`) defines, and any
+/// unmangled global. A Rust-mangled name defined elsewhere (std, core,
+/// alloc, ...) carries a crate hash the compiler never sees.
+pub fn nameable_by_program(sym: &str, winner_member: &str) -> bool {
+    winner_member.starts_with("torajs") || !is_rust_mangled(sym)
 }
 
 /// Legacy (`_ZN<len>...`) and v0 (`_R<path>`) Rust symbol manglings,
 /// after the Mach-O leading underscore.
-pub(crate) fn is_rust_mangled(sym: &str) -> bool {
+pub fn is_rust_mangled(sym: &str) -> bool {
     let Some(s) = sym.strip_prefix('_') else {
         return false;
     };
@@ -56,19 +58,10 @@ pub(crate) fn live_members(
 ) -> Result<Vec<Vec<bool>>, PruneError> {
     let mut live: Vec<Vec<bool>> = parsed.iter().map(|ms| vec![false; ms.len()]).collect();
     let mut worklist: Vec<&str> = winners
-        .keys()
-        .copied()
-        .filter(|n| !is_rust_mangled(n))
+        .iter()
+        .filter(|(n, (a, m, _))| nameable_by_program(n, parsed[*a as usize][*m as usize].name))
+        .map(|(n, _)| *n)
         .collect();
-    for (a, members) in parsed.iter().enumerate() {
-        for (m, member) in members.iter().enumerate() {
-            if !is_runtime_member(member.name) {
-                continue;
-            }
-            let defs = parse_member_defined_externs(member).map_err(|e| blame(a, m, member, e))?;
-            worklist.extend(defs.into_iter().map(|(n, _, _)| n));
-        }
-    }
 
     let mut seen: HashSet<&str> = HashSet::new();
     while let Some(name) = worklist.pop() {

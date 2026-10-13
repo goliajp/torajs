@@ -3,7 +3,9 @@
 //! `lib.rs` so the crate root stays a pure module scaffold; `lib.rs`
 //! re-exports both constants.
 
-/// The runtime image: every Layer-1+ Rust sub-crate's `lib<name>.a`
+/// The runtime image torajs-link's tests link against (tr embeds the
+/// one torajs-cli builds from the same archives, further stripped to
+/// the atoms a program can reach): every Layer-1+ Rust sub-crate's `lib<name>.a`
 /// (as produced by `cargo build -p <crate>` in the active profile),
 /// preprocessed by `torajs_rtimage::image::build_reachable` into the
 /// flat layout the linker reads without parsing — only the members a

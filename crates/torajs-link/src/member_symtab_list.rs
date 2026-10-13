@@ -5,7 +5,9 @@
 //! `__TEXT,__text` symbols: without them a sampled PC inside a
 //! file-local function resolves to whichever extern precedes it in
 //! the image, often one from another member. Assembler / linker
-//! temporaries (`l*`, `L*`, e.g. `ltmp0`) are skipped as ld64 does.
+//! temporaries (`l*`, `L*`, e.g. `ltmp0`) are skipped as ld64 does,
+//! and so are nameless locals (the rows of atoms the runtime image
+//! dropped when `tr` was built).
 //! Rows whose atom the dead-strip pre-pass dropped are left out: the
 //! rewriter keeps them (clamped to the section base) so reloc indices
 //! and resolution hold, but they name no code in the image.
@@ -120,7 +122,7 @@ pub fn list_member_symbols(
                 })?;
         let name = std::str::from_utf8(&tail[..len])
             .map_err(|_| MemberSymtabError::NameNotUtf8 { sym_index: i })?;
-        if !external && name.starts_with(['l', 'L']) {
+        if !external && (name.is_empty() || name.starts_with(['l', 'L'])) {
             continue;
         }
         let n_value = u64::from_le_bytes(bytes[p + 8..p + 16].try_into().unwrap());
@@ -230,6 +232,7 @@ mod tests {
             1,
             &[(0, 16), (16, 32)],
             &[false, true],
+            crate::dead_strip_rewrite::DeadRowPlacement::SectionBase,
         )
         .unwrap()
         .expect("half the section is dead");

@@ -12,7 +12,7 @@ name = "tr"
 path = "src/main.rs"
 
 [dependencies]
-torajs-core = { path = "../torajs-core", features = ["runtime-image"] }
+torajs-core = { path = "../torajs-core" }
 # host-side consumer of the mid/family tables for the blade-2b
 # dispatch stub judgment (cmd_build_dispatch_judge) — same in-house
 # crate torajs-core already links for compile-time mid interning.

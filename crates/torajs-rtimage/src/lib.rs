@@ -8,4 +8,4 @@
 pub mod archive;
 pub mod archive_undef;
 pub mod image;
-mod prune;
+pub mod prune;

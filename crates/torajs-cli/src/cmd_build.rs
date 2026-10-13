@@ -17,11 +17,11 @@ use crate::cmd_build_synthesize::{
     ENTRY_SYM, USER_MAIN_SYM, synthesize_main_argv_wrapper, synthesize_obj_alloc,
     synthesize_obj_drop_sized,
 };
+use crate::runtime_image::TORAJS_RUNTIME_IMAGE;
 use torajs_codegen::CompiledFunction;
 use torajs_codegen::frame::FrameLayout;
 use torajs_codegen::reloc::{CallTarget, RelocKind};
 use torajs_codegen::{ModuleFacts, compile_function_in};
-use torajs_core::TORAJS_RUNTIME_IMAGE;
 use torajs_core::ssa::Module;
 use torajs_link::archive_emit::link_to_exec_for_exit;
 use torajs_link::exec::LinkConfig;

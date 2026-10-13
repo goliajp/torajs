@@ -8,12 +8,18 @@
 //! templates are segment-aligned within the blob, so they are
 //! segment-aligned in the embedding binary's memory and file too.
 //!
+//! `runtime_image!("ENV_A", "ENV_B", ...)` expands to the runtime
+//! image `tr build` links against: the same archives, every atom no
+//! program can reach already stripped
+//! ([`torajs_link::runtime_prestrip`]), as a byte-string literal.
+//!
 //! Every archive is also named in an unused `include_bytes!`, so the
 //! embedding crate rebuilds when one changes.
 
 use proc_macro::{Delimiter, Literal, TokenStream, TokenTree};
 use torajs_link::rtlinked_build::build_rtlinked_image;
 use torajs_link::rtlinked_format::SEGMENT_ALIGN;
+use torajs_link::runtime_prestrip::prestripped_runtime_image;
 
 fn parse_base(lit: &str) -> u64 {
     let digits: String = lit.chars().filter(|c| *c != '_').collect();
@@ -28,8 +34,8 @@ fn env_path(lit: &str) -> String {
     let var = lit
         .strip_prefix('"')
         .and_then(|s| s.strip_suffix('"'))
-        .unwrap_or_else(|| panic!("runtime_linked_image!: expected a string literal, got {lit}"));
-    std::env::var(var).unwrap_or_else(|e| panic!("runtime_linked_image!: env var {var}: {e}"))
+        .unwrap_or_else(|| panic!("expected a string literal, got {lit}"));
+    std::env::var(var).unwrap_or_else(|e| panic!("env var {var}: {e}"))
 }
 
 #[proc_macro]
@@ -77,4 +83,35 @@ pub fn runtime_linked_image(input: TokenStream) -> TokenStream {
     ));
     src.parse()
         .expect("runtime_linked_image!: generated expression parses")
+}
+
+#[proc_macro]
+pub fn runtime_image(input: TokenStream) -> TokenStream {
+    let mut paths: Vec<String> = Vec::new();
+    let flat = input.into_iter().flat_map(|tt| match tt {
+        TokenTree::Group(g) if g.delimiter() == Delimiter::None => g.stream().into_iter().collect(),
+        other => vec![other],
+    });
+    for tt in flat {
+        match tt {
+            TokenTree::Literal(lit) => paths.push(env_path(&lit.to_string())),
+            TokenTree::Punct(p) if p.as_char() == ',' => {}
+            other => panic!("runtime_image!: unexpected token {other}"),
+        }
+    }
+    let archives: Vec<Vec<u8>> = paths
+        .iter()
+        .map(|p| std::fs::read(p).unwrap_or_else(|e| panic!("runtime_image!: read {p}: {e}")))
+        .collect();
+    let borrowed: Vec<&[u8]> = archives.iter().map(Vec::as_slice).collect();
+    let image =
+        prestripped_runtime_image(&borrowed).unwrap_or_else(|e| panic!("runtime_image!: {e:?}"));
+
+    let mut src = String::from("{\n");
+    for p in &paths {
+        src.push_str(&format!("const _: &[u8] = include_bytes!({p:?});\n"));
+    }
+    src.push_str(&format!("{}\n}}", Literal::byte_string(&image)));
+    src.parse()
+        .expect("runtime_image!: generated expression parses")
 }

@@ -15,10 +15,11 @@ links = "torajs_runtime"
 path = "src/lib.rs"
 
 [features]
-# Embeds the runtime staticlibs (`TORAJS_RUNTIME_IMAGE`). Off for the
-# host build a proc macro reaches through torajs-link: under
-# `--target`, the runtime archives only exist for the target, and the
-# host copy of this crate has no use for them.
+# Embeds the runtime staticlibs (`TORAJS_RUNTIME_IMAGE`) for
+# torajs-link's tests; tr links the stripped image torajs-cli builds.
+# Off for the host build a proc macro reaches through torajs-link:
+# under `--target`, the runtime archives only exist for the target, and
+# the host copy of this crate has no use for them.
 runtime-image = ["dep:torajs-rtimage-macro"]
 
 [dependencies]

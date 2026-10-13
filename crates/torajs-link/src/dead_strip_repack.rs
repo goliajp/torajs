@@ -22,7 +22,9 @@ use crate::archive_link_extra_syms::collect_extra_defined_syms;
 use crate::archives_merge::{MergedArchives, compute_required_members_cached};
 use crate::dead_strip_reach::{MemberReach, SectAtoms, compute_reachability};
 use crate::dead_strip_reach_cache::ReachCache;
-use crate::dead_strip_rewrite::{StrippedMember, scan_load_commands, strip_member_section};
+use crate::dead_strip_rewrite::{
+    DeadRowPlacement, StrippedMember, scan_load_commands, strip_member_section,
+};
 use crate::exec::{LinkConfig, UserClassLayoutEntry, UserFnNameEntry};
 use crate::phase_timer::PhaseTimer;
 
@@ -90,7 +92,7 @@ pub(crate) fn strip_archives<'a>(
         if let Some(StrippedMember {
             bytes,
             dead_rows: mut dead,
-        }) = strip_member(m.data, r)?
+        }) = strip_member(m.data, r, DeadRowPlacement::SectionBase)?
         {
             if !cfg.strip_member_symbols && !dead.is_empty() {
                 dead.sort_unstable();
@@ -160,7 +162,11 @@ fn strippable(sa: &SectAtoms) -> bool {
 /// pass's shifted headers). Atom ranges are handed over
 /// section-relative — relative offsets survive earlier passes;
 /// absolute reach addresses do not.
-fn strip_member(bytes: &[u8], reach: &MemberReach<'_>) -> Result<Option<StrippedMember>, String> {
+pub(crate) fn strip_member(
+    bytes: &[u8],
+    reach: &MemberReach<'_>,
+    dead_at: DeadRowPlacement,
+) -> Result<Option<StrippedMember>, String> {
     let mut cur: Option<Vec<u8>> = None;
     let mut dead_rows: Vec<u32> = Vec::new();
     for (i, sa) in reach.sects.iter().enumerate() {
@@ -173,7 +179,7 @@ fn strip_member(bytes: &[u8], reach: &MemberReach<'_>) -> Result<Option<Stripped
             .map(|&(s, e)| (s - sa.addr, e - sa.addr))
             .collect();
         let b = cur.as_deref().unwrap_or(bytes);
-        if let Some(next) = strip_member_section(b, (i + 1) as u8, &atoms_rel, &sa.live)? {
+        if let Some(next) = strip_member_section(b, (i + 1) as u8, &atoms_rel, &sa.live, dead_at)? {
             cur = Some(next.bytes);
             dead_rows.extend(next.dead_rows);
         }

@@ -100,7 +100,7 @@ fn roots<'a>(merged: &MergedArchives<'a>) -> Vec<&'a str> {
 
 /// One function whose relocs name every root, so the stock closure
 /// walk pulls the whole runtime.
-fn root_fn(roots: &[&str]) -> CompiledFunction {
+pub(crate) fn root_fn(roots: &[&str]) -> CompiledFunction {
     let relocs = roots
         .iter()
         .map(|r| Reloc {
@@ -120,7 +120,7 @@ fn root_fn(roots: &[&str]) -> CompiledFunction {
 
 /// The user-table names become 8-byte data globals: the closure treats
 /// them as defined, and their storage is the GOT slot.
-fn link_cfg(runtime_image: &[u8], root: CompiledFunction) -> LinkConfig {
+pub(crate) fn link_cfg(runtime_image: &[u8], root: CompiledFunction) -> LinkConfig {
     let data_globals = USER_TABLE_NAMES
         .iter()
         .map(|s| UserDataGlobalEntry {

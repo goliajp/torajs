@@ -31,6 +31,7 @@ mod objlit_argv_accessor_tests;
 mod repl;
 #[cfg(all(target_arch = "aarch64", target_vendor = "apple"))]
 mod rtlinked;
+mod runtime_image;
 #[cfg(test)]
 mod str_split_ir_tests;
 mod util;

@@ -71,32 +71,48 @@ fn u32v(n: usize) -> Result<u32, BuildError> {
 /// Preprocess `archives` (in link search order) into an image holding
 /// every member.
 pub fn build(archives: &[&[u8]]) -> Result<Vec<u8>, BuildError> {
-    build_inner(archives, false)
+    build_members(&parse_all(archives)?, false)
 }
 
 /// [`build`] keeping only the members some program can pull into its
 /// link; the names won by a dropped member leave the index, so a
 /// lookup of one misses instead of pulling a different member.
 pub fn build_reachable(archives: &[&[u8]]) -> Result<Vec<u8>, BuildError> {
-    build_inner(archives, true)
+    build_members(&parse_all(archives)?, true)
 }
 
-fn build_inner(archives: &[&[u8]], reachable_only: bool) -> Result<Vec<u8>, BuildError> {
-    let mut parsed: Vec<Vec<ArMember<'_>>> = Vec::with_capacity(archives.len());
+/// [`build_reachable`] over archives already split into members, in
+/// link search order (members a caller rewrote included).
+pub fn build_reachable_from_members(archives: &[Vec<ArMember<'_>>]) -> Result<Vec<u8>, BuildError> {
+    build_members(archives, true)
+}
+
+fn parse_all<'a>(archives: &[&'a [u8]]) -> Result<Vec<Vec<ArMember<'a>>>, BuildError> {
+    archives
+        .iter()
+        .enumerate()
+        .map(|(archive_idx, bytes)| {
+            parse_archive(bytes).map_err(|err| BuildError::Ar { archive_idx, err })
+        })
+        .collect()
+}
+
+fn build_members(
+    parsed: &[Vec<ArMember<'_>>],
+    reachable_only: bool,
+) -> Result<Vec<u8>, BuildError> {
     let mut winners: Winners<'_> = BTreeMap::new();
-    for (archive_idx, bytes) in archives.iter().enumerate() {
-        let members = parse_archive(bytes).map_err(|err| BuildError::Ar { archive_idx, err })?;
+    for (archive_idx, members) in parsed.iter().enumerate() {
         let per_archive =
-            build_archive_index(&members).map_err(|err| BuildError::Member { archive_idx, err })?;
+            build_archive_index(members).map_err(|err| BuildError::Member { archive_idx, err })?;
         for (name, sym) in per_archive {
             winners
                 .entry(name)
                 .or_insert((u32v(archive_idx)?, u32v(sym.member_idx)?, sym.n_value));
         }
-        parsed.push(members);
     }
     let live = if reachable_only {
-        live_members(&parsed, &winners).map_err(|e| BuildError::Member {
+        live_members(parsed, &winners).map_err(|e| BuildError::Member {
             archive_idx: e.archive_idx,
             err: e.err,
         })?
@@ -167,7 +183,7 @@ fn build_inner(archives: &[&[u8]], reachable_only: bool) -> Result<Vec<u8>, Buil
     out.extend_from_slice(MAGIC);
     out.extend_from_slice(&VERSION.to_le_bytes());
     for n in [
-        archives.len(),
+        parsed.len(),
         slots.len(),
         members.len(),
         index.len(),
