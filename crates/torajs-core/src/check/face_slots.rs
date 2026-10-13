@@ -26,6 +26,12 @@ use crate::check::{Checker, Type};
 pub(crate) struct Reads {
     fields: HashSet<String>,
     rets: HashSet<String>,
+    /// bindings, by declaration, a call reached before any store
+    /// joined them to the census
+    lets: HashSet<ExprId>,
+    /// parameters, by function, a call reached while the body was
+    /// checked before any call joined them to the census
+    params: HashSet<(String, String)>,
     /// a store entered a key some read had already asked for
     pub(crate) stale: bool,
 }
@@ -64,6 +70,58 @@ pub(crate) fn ret_read(checker: &mut Checker, g: &str) -> bool {
         remember(&mut checker.face_slot_reads.rets, g);
     }
     hit
+}
+
+/// Did a store join the binding declared by `init` to the census
+/// (`n = raw` with `raw: any`)? A miss is remembered.
+pub(crate) fn let_read(checker: &mut Checker, init: ExprId) -> bool {
+    let hit = checker.face_mismatch_lets.contains(&init);
+    if !hit {
+        checker.face_slot_reads.lets.insert(init);
+    }
+    hit
+}
+
+/// A store joins the binding declared by `init` to the census; a call
+/// typed before it is typed again in the next run.
+pub(crate) fn record_let_store(checker: &mut Checker, init: ExprId) {
+    if checker.face_mismatch_lets.insert(init) {
+        checker.face_slot_reads.stale |= checker.face_slot_reads.lets.contains(&init);
+    }
+}
+
+/// Did a call hand parameter `p` of `owner` a value of another face
+/// (`obj.m(mkS(1))` into `m(f: (y?: number) => number)`)? A
+/// specialization asks for its generic's verdict too. A miss is
+/// remembered.
+pub(crate) fn param_read(checker: &mut Checker, owner: &str, p: &str) -> bool {
+    let generic = crate::ast::boxed_params::spec_generic(owner);
+    let hit = [Some(owner), generic].into_iter().flatten().any(|f| {
+        let key = (f.to_string(), p.to_string());
+        checker.face_mismatch_params.contains(&key)
+    });
+    if !hit {
+        checker
+            .face_slot_reads
+            .params
+            .insert((owner.to_string(), p.to_string()));
+    }
+    hit
+}
+
+/// A call or a store joins parameter `p` of `owner` to the census; a
+/// call through it typed before then (the body checked ahead of the
+/// call, as an object literal's method is) is typed again in the next
+/// run.
+pub(crate) fn record_param(checker: &mut Checker, owner: &str, p: &str) {
+    let key = (owner.to_string(), p.to_string());
+    if checker.face_mismatch_params.insert(key.clone()) {
+        let reads = &checker.face_slot_reads.params;
+        checker.face_slot_reads.stale |= reads.contains(&key)
+            || reads
+                .iter()
+                .any(|(f, q)| q == p && crate::ast::boxed_params::spec_generic(f) == Some(owner));
+    }
 }
 
 /// Do the two signatures differ in a way the calling convention sees?

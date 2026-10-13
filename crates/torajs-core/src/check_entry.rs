@@ -66,10 +66,12 @@ fn has_errors(c: &Checker) -> bool {
 /// (`u = total`). The set only grows and is bounded by the program's
 /// mutable `let`s.
 ///
-/// The property / return slot census (`check::face_slots`) is carried
-/// into the next run the same way, when a read asked for one of its
-/// keys before the store that entered it (`Reads::stale`): that call is
-/// typed again once the census holds it. It too only grows.
+/// The property / return slot census (`check::face_slots`) and the
+/// binding and parameter census (`Checker::face_mismatch_lets` /
+/// `face_mismatch_params`) are carried into the next run the same way,
+/// when a read asked for one of their keys before the store that
+/// entered it (`Reads::stale`): that call is typed again once the
+/// census holds it. They too only grow.
 fn fixpoint_with(ast: &Ast, widen_ret_declared: bool, hidden: &HashSet<ExprId>) -> Checker {
     let mut c = Checker::new();
     c.widen_ret_declared = widen_ret_declared;
@@ -83,11 +85,15 @@ fn fixpoint_with(ast: &Ast, widen_ret_declared: bool, hidden: &HashSet<ExprId>) 
         let mut seed = std::mem::take(&mut c.cross_type_widened);
         seed.extend(found);
         let face_slots = std::mem::take(&mut c.face_slots);
+        let lets = std::mem::take(&mut c.face_mismatch_lets);
+        let params = std::mem::take(&mut c.face_mismatch_params);
         c = Checker::new();
         c.widen_ret_declared = widen_ret_declared;
         c.hidden_any_args = hidden.clone();
         c.cross_type_widened = seed;
         c.face_slots = face_slots;
+        c.face_mismatch_lets = lets;
+        c.face_mismatch_params = params;
         c.run_full_pipeline(ast);
     }
 }

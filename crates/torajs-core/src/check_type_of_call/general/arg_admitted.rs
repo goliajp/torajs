@@ -8,6 +8,7 @@ use crate::check_type_of_call::any_widen::{
     any_into_heap_param, arr_any_into_typed_arr_param, as_cast_inner_ty,
     hidden_any_into_scalar_param,
 };
+use crate::check_type_of_call::fn_face::{box_census_arg, fn_face_into_fn_param, held_face};
 
 /// Per-arg admit predicate — strict equality plus the accumulated
 /// carve-out wedges (chunk 762 extraction; the wedge stack had
@@ -48,13 +49,13 @@ pub(super) fn arg_admitted(
     }
     // a binding typed by its annotation that holds a value of another
     // face hands the callee that face (`fn_face::held_face`)
-    if let Some(face) = crate::check_type_of_call::fn_face::held_face(checker, ast, *arg_id)
-        && crate::check_type_of_call::fn_face::fn_face_into_fn_param(
-            checker, ast, eid, callee, &face, param_ty, i,
-        )
+    if let Some(face) = held_face(checker, ast, *arg_id)
+        && fn_face_into_fn_param(checker, ast, eid, callee, &face, param_ty, i)
     {
         return true;
     }
+    // a census slot handed on: the parameter holds what it holds
+    box_census_arg(checker, ast, (*callee, i), (param_ty, *arg_id));
     if param_ty == &Type::Any || arg_ty == param_ty {
         return true;
     }

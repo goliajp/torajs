@@ -151,8 +151,8 @@ pub(crate) fn check(
                 ));
                 return;
             }
-            face_slot =
-                fn_slot_widened && record_let_face(checker, ann, init, mutable, &init_ty, &ann_ty);
+            let tys = (&init_ty, &ann_ty);
+            face_slot = record_let_face(checker, ast, (ann, init, mutable), tys, fn_slot_widened);
             face_slots::record_objlit_stores(checker, ast, &ann_ty, init);
             if accessor_layout {
                 // Pushing the annotation's element type onto the

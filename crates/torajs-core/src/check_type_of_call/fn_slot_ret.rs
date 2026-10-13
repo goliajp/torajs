@@ -29,7 +29,11 @@ use std::collections::{HashMap, HashSet};
 use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
 use crate::check::{Checker, FnSlot, Type};
 use crate::check_type_ann::resolve_type_ann_full;
+use joined::joined_slot;
 
+mod call_store;
+mod joined;
+pub(crate) mod method_args;
 mod prop_ret;
 
 /// What a census slot holds: the binding the callee resolves to, or the
@@ -57,7 +61,7 @@ pub(super) fn call_ret_face(
     let (key, held) = match ast.get_expr(callee) {
         Expr::Ident(n) => {
             let slot = match checker.lookup(n) {
-                Some(info) => info.fn_slot,
+                Some(info) => joined_slot(checker, ast, n, (info.fn_slot, info.decl)),
                 // a named body reaches a top-level binding as a global; a
                 // declaration that took its value's face is a census slot
                 // there too
@@ -197,18 +201,38 @@ fn param_stores(ast: &Ast, f: &str, n: &str) -> Option<Vec<(String, ExprId)>> {
     if escapes {
         return None;
     }
-    out.extend(assign_stores(ast, n).map(|e| (ann.to_string(), e)));
+    let mut stores = method_args::closure_args(ast, f, i)?;
+    stores.extend(assign_stores(ast, n));
+    out.extend(stores.into_iter().map(|e| (ann.to_string(), e)));
     Some(out)
 }
 
 /// Does the function stored by `store` still return `ret` when its
-/// parameters are read with the types the slot `ann` declares?
+/// parameters are read with the types the slot `ann` declares? A store
+/// that calls a function hands over the closures that function returns
+/// ([`call_store::returns_declared`]).
 fn returns_declared(checker: &Checker, ast: &Ast, ann: &str, store: ExprId, ret: &Type) -> bool {
     let name = match ast.get_expr(store) {
         Expr::Closure { fn_name, .. } => fn_name.as_str(),
         Expr::Ident(g) => g.as_str(),
+        Expr::Call { callee, .. } => {
+            return call_store::returns_declared(checker, ast, ann, *callee, ret);
+        }
         _ => return false,
     };
+    fn_returns_declared(checker, ast, ann, name, &HashMap::new(), ret)
+}
+
+/// [`returns_declared`] for the function `name`, whose captures read
+/// the bindings `outer` spells.
+fn fn_returns_declared(
+    checker: &Checker,
+    ast: &Ast,
+    ann: &str,
+    name: &str,
+    outer: &HashMap<String, String>,
+    ret: &Type,
+) -> bool {
     if ast.async_fns.contains(name) || ast.async_generator_fns.contains(name) {
         return false;
     }
@@ -238,9 +262,13 @@ fn returns_declared(checker: &Checker, ast: &Ast, ann: &str, store: ExprId, ret:
         .collect();
     // every argument fits the function's own parameters (the slot is
     // boxed for its argument vector, not for a type), so the call
-    // answers what the function itself is typed to return
-    if user.len() <= slot_ps.len() && user.iter().zip(&slot_ps).all(|(u, s)| u == s) {
-        return matches!(checker.globals.get(name), Some(Type::Function(_, r)) if **r == *ret);
+    // answers what the function itself is typed to return; a return
+    // the checker did not infer goes through the sniff
+    if user.len() <= slot_ps.len()
+        && user.iter().zip(&slot_ps).all(|(u, s)| u == s)
+        && matches!(checker.globals.get(name), Some(Type::Function(_, r)) if **r == *ret)
+    {
+        return true;
     }
     let mut slot_ps = slot_ps.into_iter();
     let mut params = params.clone();
@@ -249,7 +277,7 @@ fn returns_declared(checker: &Checker, ast: &Ast, ann: &str, store: ExprId, ret:
         // only `any` reads as itself
         p.type_ann = Some(slot_ps.next().unwrap_or("any").to_string());
     }
-    crate::ast::infer_return_ann(&ast.exprs, body, &params, &HashMap::new())
+    crate::ast::infer_return_ann_seeded(&ast.exprs, body, &params, outer, &HashMap::new())
         .and_then(|ann| {
             resolve_type_ann_full(&ann, &checker.aliases, &[], &checker.generic_alias_decls)
         })

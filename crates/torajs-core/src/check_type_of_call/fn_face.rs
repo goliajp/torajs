@@ -42,6 +42,9 @@ use super::any_widen::{clonable_callee, record_widen_site};
 use crate::ast::{Ast, Expr, ExprId, Stmt};
 use crate::check::{Checker, FnSlot, Type, WidenTarget};
 
+mod handed_on;
+pub(crate) use handed_on::{box_census_arg, held_face};
+
 /// Record the call `eid` as a face-widen site for argument `i` when the
 /// callback admit holds between `param_ty` and `arg_ty` and the callee
 /// is a clonable declaration. Returns whether the argument is admitted.
@@ -291,9 +294,7 @@ fn box_param(
         return;
     };
     if let_face_ann(&pann, arg_ty, param_ty) != Face::Same {
-        checker
-            .face_mismatch_params
-            .insert((name.to_string(), pname));
+        crate::check::face_slots::record_param(checker, name, &pname);
     }
 }
 
@@ -418,21 +419,4 @@ pub(crate) fn let_face_ann(ann: &str, value_ty: &Type, ann_ty: &Type) -> Face {
         return Face::Unspelled;
     }
     face_ann(ann, aps, aret, fps, fret)
-}
-
-/// The face of the value an immutable fn-typed binding holds when its
-/// declaration took that face (`Checker::let_face_anns`): the binding
-/// is typed by its annotation, so a call handing it on would otherwise
-/// see the annotation's face and shape the callee's calls by it.
-pub(crate) fn held_face(checker: &Checker, ast: &Ast, arg: ExprId) -> Option<Type> {
-    let Expr::Ident(n) = ast.get_expr(arg) else {
-        return None;
-    };
-    let Some(FnSlot::Let(init)) = checker.lookup(n)?.decl else {
-        return None;
-    };
-    if !checker.let_face_anns.contains_key(&init) {
-        return None;
-    }
-    checker.expr_types.get(&init).cloned()
 }

@@ -27,6 +27,8 @@ mod callback_slot_throw;
 pub(crate) mod fn_face;
 mod fn_slot_ret;
 mod general;
+
+pub(crate) use fn_slot_ret::method_args::carrier_values;
 pub(crate) mod reduce_acc;
 mod route_arity_widen;
 mod route_collections;

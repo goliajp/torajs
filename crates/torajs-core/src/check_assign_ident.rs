@@ -27,7 +27,9 @@
 use crate::ast::{Ast, ExprId};
 use crate::check::{Checker, DiagPush, Type};
 use crate::check_assignable::is_assignable_to_resolved;
-use crate::check_stmt_let_decl::fn_face_slot::{record_global_store_face, record_store_face};
+use crate::check_stmt_let_decl::fn_face_slot::{
+    record_census_store, record_global_store_face, record_store_face,
+};
 
 pub(crate) fn check(
     checker: &mut Checker,
@@ -195,7 +197,7 @@ pub(crate) fn check(
     let value_ty =
         crate::check_assignable::in_declared_order(checker, ast, &target_ty, value, value_ty);
     let decl = (info.ann.as_deref(), info.decl.as_ref());
-    admit_store(checker, &name, decl, &target_ty, &value_ty)?;
+    admit_store(checker, (ast, &name), decl, &target_ty, (&value_ty, value))?;
     // See the global arm above — the literal is typed by the slot.
     crate::check_stmt_let_decl::apply_contextual_array_ann_store(checker, ast, value, &target_ty);
     // A possibly-null value kills an existing narrow right here
@@ -240,13 +242,14 @@ fn write_outside_lookup(
 /// deliver §10.2.1.4 for every stored face. A store of another face
 /// than the slot's, told apart by the calling convention, joins that
 /// census here for the declaration `decl` (annotation, initializer)
-/// the write reaches (`check_stmt_let_decl::fn_face_slot`).
+/// the write reaches (`check_stmt_let_decl::fn_face_slot`), and so
+/// does a store of a census slot's value.
 fn admit_store(
     checker: &mut Checker,
-    name: &str,
+    (ast, name): (&Ast, &str),
     decl: (Option<&str>, Option<&crate::check::FnSlot>),
     target_ty: &Type,
-    value_ty: &Type,
+    (value_ty, value): (&Type, ExprId),
 ) -> Result<(), String> {
     let fn_slot_widened = crate::check_assignable::fn_slot_admits(
         target_ty,
@@ -255,7 +258,7 @@ fn admit_store(
         &checker.aliases,
         &checker.generic_alias_decls,
     );
-    if fn_slot_widened {
+    if fn_slot_widened || *value_ty == Type::Any {
         let (ann, init) = decl;
         record_store_face(checker, name, ann, init, target_ty, value_ty);
     }
@@ -272,5 +275,6 @@ fn admit_store(
             "type mismatch assigning to `{name}`: declared {target_ty:?}, value is {value_ty:?}"
         ));
     }
+    record_census_store(checker, ast, name, decl.1, target_ty, value);
     Ok(())
 }
