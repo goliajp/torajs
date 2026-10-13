@@ -19,7 +19,7 @@
 
 use std::collections::BTreeMap;
 
-use torajs_obj::{N_EXT, NLIST_64_SIZE};
+use torajs_obj::{N_EXT, N_SECT, N_TYPE, NLIST_64_SIZE, RELOCATION_INFO_SIZE};
 use torajs_rtimage::image::{BuildError, build_reachable, build_reachable_from_members};
 use torajs_rtimage::prune::nameable_by_program;
 
@@ -30,7 +30,7 @@ use crate::archives_merge::{
 use crate::dead_strip_reach::compute_reachability;
 use crate::dead_strip_reach_cache::ReachCache;
 use crate::dead_strip_repack::strip_member;
-use crate::dead_strip_rewrite::{DeadRowPlacement, scan_load_commands};
+use crate::dead_strip_rewrite::{DeadRowPlacement, SectHdr, scan_load_commands};
 use crate::exec_user_entries::UserDataGlobalEntry;
 use crate::rtlinked_build::{link_cfg, root_fn};
 
@@ -87,6 +87,17 @@ pub fn prestripped_runtime_image(archives: &[&[u8]]) -> Result<Vec<u8>, Prestrip
     let mut rewritten: BTreeMap<(usize, usize), Vec<u8>> = BTreeMap::new();
     for (&(a, m), r) in &reach.members {
         let member = &merged.per_archive_members[a][m];
+        // nameless section rows are how a link tells a pre-stripped
+        // section apart (`dead_content_in_prestripped`)
+        let (_, symtab_pos, _, _) = scan_load_commands(member.data).map_err(PrestripError::Link)?;
+        if let Some(sp) = symtab_pos
+            && nameless_row_sections(member.data, sp).next().is_some()
+        {
+            return Err(PrestripError::Link(format!(
+                "{}: a nameless section row in the input",
+                member.name
+            )));
+        }
         let Some(stripped) = strip_member(member.data, r, DeadRowPlacement::GapStart)
             .map_err(PrestripError::Link)?
         else {
@@ -106,7 +117,7 @@ pub fn prestripped_runtime_image(archives: &[&[u8]]) -> Result<Vec<u8>, Prestrip
 
 /// Turn nlist `rows` into nameless locals: out of the merged index and
 /// of every symbol listing, still an atom start where they sit.
-fn anonymize_rows(bytes: &mut [u8], rows: &[u32]) -> Result<(), String> {
+pub(crate) fn anonymize_rows(bytes: &mut [u8], rows: &[u32]) -> Result<(), String> {
     if rows.is_empty() {
         return Ok(());
     }
@@ -125,4 +136,47 @@ fn anonymize_rows(bytes: &mut [u8], rows: &[u32]) -> Result<(), String> {
         bytes[p + 4] &= !N_EXT;
     }
     Ok(())
+}
+
+/// Whether a link must rewrite section `hdr` of member `bytes` even
+/// though dropping its dead atoms buys no bytes. The pre-strip stands
+/// in for the original member: where it rewrote a section (and left
+/// nameless rows in it), stripping the original against the same
+/// program would have bought bytes and left zeros where every dead
+/// atom was. So a dead atom holding a non-zero byte or a reloc site
+/// must not reach the binary as it is.
+pub(crate) fn dead_content_in_prestripped(
+    bytes: &[u8],
+    symtab_pos: Option<usize>,
+    hdr: &SectHdr,
+    atoms_rel: &[(u64, u64)],
+    live: &[bool],
+) -> bool {
+    let payload = &bytes[hdr.offset as usize..][..hdr.size as usize];
+    let relocs =
+        &bytes[hdr.reloff as usize..][..hdr.nreloc as usize * RELOCATION_INFO_SIZE as usize];
+    let reloc_in = |s: u64, e: u64| {
+        relocs
+            .chunks_exact(RELOCATION_INFO_SIZE as usize)
+            .any(|r| (s..e).contains(&u64::from(u32::from_le_bytes(r[0..4].try_into().unwrap()))))
+    };
+    let dead_content = atoms_rel.iter().zip(live).any(|(&(s, e), &l)| {
+        !l && (payload[s as usize..e as usize].iter().any(|&b| b != 0) || reloc_in(s, e))
+    });
+    dead_content
+        && symtab_pos.is_some_and(|sp| nameless_row_sections(bytes, sp).any(|n| n == hdr.ord))
+}
+
+/// The section ordinal of every nameless local row (what
+/// [`anonymize_rows`] leaves) in the member whose `LC_SYMTAB` command
+/// sits at `symtab_pos`.
+fn nameless_row_sections(bytes: &[u8], symtab_pos: usize) -> impl Iterator<Item = u8> + '_ {
+    let rd = |o: usize| u32::from_le_bytes(bytes[o..o + 4].try_into().unwrap()) as usize;
+    let (symoff, nsyms, stroff) = (rd(symtab_pos + 8), rd(symtab_pos + 12), rd(symtab_pos + 16));
+    (0..nsyms).filter_map(move |i| {
+        let p = symoff + i * NLIST_64_SIZE as usize;
+        let n_type = bytes[p + 4];
+        (n_type & N_TYPE == N_SECT && n_type & N_EXT == 0 && bytes[stroff + rd(p)] == 0)
+            .then_some(bytes[p + 5])
+    })
 }

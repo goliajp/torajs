@@ -42,6 +42,8 @@ use torajs_obj::{
     RELOCATION_INFO_SIZE, SECTION_64_SIZE, SEGMENT_COMMAND_64_SIZE,
 };
 
+use crate::runtime_prestrip::dead_content_in_prestripped;
+
 const LC_DYSYMTAB: u32 = 0xb;
 const ARM64_RELOC_SUBTRACTOR: u8 = 1;
 
@@ -56,10 +58,10 @@ struct Run {
 pub(crate) struct SectHdr {
     /// File position of this `section_64` header inside the `.o`.
     hdr_pos: usize,
-    ord: u8,
+    pub(crate) ord: u8,
     addr: u64,
-    size: u64,
-    offset: u32,
+    pub(crate) size: u64,
+    pub(crate) offset: u32,
     align: u8,
     pub(crate) reloff: u32,
     pub(crate) nreloc: u32,
@@ -93,8 +95,10 @@ pub(crate) enum DeadRowPlacement {
 /// atom table as section-relative `[start, end)` ranges (relative
 /// offsets survive earlier passes over other sections; absolute
 /// reach addresses do not). Returns `None` when stripping buys
-/// nothing (no dead bytes after run alignment); otherwise the new
-/// bytes plus the nlist indices of the rows whose atom was dropped.
+/// nothing (no dead bytes after run alignment) and the section is not
+/// one the runtime pre-strip rewrote with dead content left in it;
+/// otherwise the new bytes plus the nlist indices of the rows whose
+/// atom was dropped.
 pub(crate) fn strip_member_section(
     bytes: &[u8],
     strip_ord: u8,
@@ -114,7 +118,8 @@ pub(crate) fn strip_member_section(
     let old_size = hdr.size;
 
     let (runs, new_size) = build_runs(atoms_rel, live, hdr.align);
-    if new_size >= old_size {
+    if new_size >= old_size && !dead_content_in_prestripped(bytes, symtab_pos, hdr, atoms_rel, live)
+    {
         return Ok(None);
     }
     let shift = old_size - new_size;
@@ -519,6 +524,14 @@ mod tests {
     /// value, the section start always one) and strip against the ones
     /// a `keep` name starts.
     fn strip(bytes: &[u8], keep: &[&str], dead_at: DeadRowPlacement) -> Vec<u8> {
+        strip_rows(bytes, keep, dead_at).map_or_else(|| bytes.to_vec(), |m| m.bytes)
+    }
+
+    fn strip_rows(
+        bytes: &[u8],
+        keep: &[&str],
+        dead_at: DeadRowPlacement,
+    ) -> Option<StrippedMember> {
         let (_, rows, size) = text_of(bytes);
         let mut starts: Vec<u64> = rows.iter().map(|r| r.1).chain([0]).collect();
         starts.sort_unstable();
@@ -535,9 +548,7 @@ mod tests {
                     .any(|r| r.1 == a.0 && keep.contains(&r.0.as_str()))
             })
             .collect();
-        strip_member_section(bytes, 1, &atoms, &live, dead_at)
-            .unwrap()
-            .map_or_else(|| bytes.to_vec(), |m| m.bytes)
+        strip_member_section(bytes, 1, &atoms, &live, dead_at).unwrap()
     }
 
     /// Stripping against a superset of the live atoms first, then
@@ -546,32 +557,7 @@ mod tests {
     /// leaves ahead of a run must not join the run before it.
     #[test]
     fn stripping_twice_places_runs_as_stripping_once() {
-        let mut obj = torajs_obj::write_object(&[
-            leaf("_f0", 32),
-            leaf("_f1", 1),
-            leaf("_f2", 1),
-            leaf("_f3", 1),
-            leaf("_f4", 1),
-            leaf("_f5", 1),
-            leaf("_f6", 1),
-        ]);
-        // re-point the rows so the atoms pack at 4 bytes: f0 0..12,
-        // f1 ..36, f2 ..44, f3 ..52, f4 ..60, f5 ..64, f6 64..
-        let (_, symtab_pos, _, sects) = scan_load_commands(&obj).unwrap();
-        let base = sects.iter().find(|s| s.ord == 1).unwrap().addr;
-        let sp = symtab_pos.unwrap();
-        let rd = |b: &[u8], o: usize| u32::from_le_bytes(b[o..o + 4].try_into().unwrap()) as usize;
-        let (symoff, nsyms) = (rd(&obj, sp + 8), rd(&obj, sp + 12));
-        let (_, rows, _) = text_of(&obj);
-        let offs = [0u64, 12, 36, 44, 52, 60, 64];
-        for i in 0..nsyms {
-            let p = symoff + i * NLIST_64_SIZE as usize;
-            let v = u64::from_le_bytes(obj[p + 8..p + 16].try_into().unwrap()) - base;
-            if let Some(k) = rows.iter().position(|r| r.1 == v) {
-                let k = rows[k].0[2..].parse::<usize>().unwrap();
-                obj[p + 8..p + 16].copy_from_slice(&(base + offs[k]).to_le_bytes());
-            }
-        }
+        let obj = packed_obj();
         let subset = ["_f0", "_f6"];
         let base = DeadRowPlacement::SectionBase;
         let once = strip(&obj, &subset, base);
@@ -587,5 +573,59 @@ mod tests {
         assert_eq!(at(&rows_twice, "_f6"), 16);
         assert_eq!(at(&rows_twice, "_f0"), 0);
         assert_eq!(text_twice, text_once);
+    }
+
+    /// A pre-stripped section whose one dead atom sits where the next
+    /// run's alignment padding goes buys no bytes from the second
+    /// strip, yet stripping the original leaves zeros there: the second
+    /// strip must still rewrite it.
+    #[test]
+    fn a_prestripped_dead_atom_in_padding_is_zeroed() {
+        let obj = packed_obj();
+        let subset = ["_f0", "_f6"];
+        let once = strip(&obj, &subset, DeadRowPlacement::SectionBase);
+        let pre = strip_rows(&obj, &["_f0", "_f5", "_f6"], DeadRowPlacement::GapStart).unwrap();
+        let mut pre_bytes = pre.bytes;
+        crate::runtime_prestrip::anonymize_rows(&mut pre_bytes, &pre.dead_rows).unwrap();
+        // f5 sits at 12..16 and f6 at 16 in the pre-stripped section,
+        // where f6 lands with f5 gone too
+        let (text_pre, _, _) = text_of(&pre_bytes);
+        let twice = strip(&pre_bytes, &subset, DeadRowPlacement::SectionBase);
+        let (text_once, _, _) = text_of(&once);
+        let (text_twice, _, _) = text_of(&twice);
+        assert_eq!(text_pre.len(), text_once.len());
+        assert_ne!(text_pre, text_once);
+        assert_eq!(text_twice, text_once);
+    }
+
+    /// Seven leaf fns whose rows are re-pointed so the atoms pack at 4
+    /// bytes: f0 0..12, f1 ..36, f2 ..44, f3 ..52, f4 ..60, f5 ..64,
+    /// f6 64..
+    fn packed_obj() -> Vec<u8> {
+        let mut obj = torajs_obj::write_object(&[
+            leaf("_f0", 32),
+            leaf("_f1", 1),
+            leaf("_f2", 1),
+            leaf("_f3", 1),
+            leaf("_f4", 1),
+            leaf("_f5", 1),
+            leaf("_f6", 1),
+        ]);
+        let (_, symtab_pos, _, sects) = scan_load_commands(&obj).unwrap();
+        let base = sects.iter().find(|s| s.ord == 1).unwrap().addr;
+        let sp = symtab_pos.unwrap();
+        let rd = |b: &[u8], o: usize| u32::from_le_bytes(b[o..o + 4].try_into().unwrap()) as usize;
+        let (symoff, nsyms) = (rd(&obj, sp + 8), rd(&obj, sp + 12));
+        let (_, rows, _) = text_of(&obj);
+        let offs = [0u64, 12, 36, 44, 52, 60, 64];
+        for i in 0..nsyms {
+            let p = symoff + i * NLIST_64_SIZE as usize;
+            let v = u64::from_le_bytes(obj[p + 8..p + 16].try_into().unwrap()) - base;
+            if let Some(k) = rows.iter().position(|r| r.1 == v) {
+                let k = rows[k].0[2..].parse::<usize>().unwrap();
+                obj[p + 8..p + 16].copy_from_slice(&(base + offs[k]).to_le_bytes());
+            }
+        }
+        obj
     }
 }
