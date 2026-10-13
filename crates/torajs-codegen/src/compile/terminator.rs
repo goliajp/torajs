@@ -33,6 +33,14 @@ pub(super) enum BranchKind {
     Imm14,
 }
 
+/// The block being emitted, and the final identity of the block whose
+/// code follows it.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Next {
+    pub(super) here: BlockId,
+    pub(super) resolved: Option<BlockId>,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub(super) struct BranchFixup {
     pub(super) site_byte_offset: u32,
@@ -109,7 +117,7 @@ pub(super) fn emit_terminator(
     alloc: &Assignment,
     fused: Option<&brfuse::FusedCmp>,
     landing: &Landing,
-    next_resolved: Option<BlockId>,
+    next: Next,
 ) {
     let resolve = |t: BlockId| landing.resolve(t);
     match term {
@@ -150,7 +158,7 @@ pub(super) fn emit_terminator(
             // target is where execution lands anyway is dead weight —
             // the popcount/collatz loop bodies string 4-5 of these
             // per iteration through pass-split blocks.
-            if Some(resolve(*target_block)) == next_resolved {
+            if Some(resolve(*target_block)) == next.resolved {
                 return;
             }
             let site = bytes.len() as u32;
@@ -167,26 +175,15 @@ pub(super) fn emit_terminator(
             then_blk,
             else_blk,
         } => {
-            let else_falls = Some(resolve(*else_blk)) == next_resolved;
-            // Layout-driven flip: when the then-target is the fall-
-            // through block, branch on the inverted predicate to the
-            // else-target instead — the hot successor (loop bodies
-            // sit right after their header) runs on the not-taken
-            // path and the trailing B disappears.
-            let then_falls = !else_falls && Some(resolve(*then_blk)) == next_resolved;
+            let (invert, (br_target, other), trailing) =
+                cond_plan(landing, next, *then_blk, *else_blk);
             if let Some(fc) = fused {
-                let (invert, br_target, other) = if then_falls {
-                    (true, *else_blk, *then_blk)
-                } else {
-                    (false, *then_blk, *else_blk)
-                };
                 if fc.bits.is_some() {
-                    let trailing = !then_falls && !else_falls;
                     let to = (br_target, other);
                     bittest::emit_condbr(bytes, fixups, fc, invert, to, trailing, alloc);
                     return;
                 }
-                let trailing = (!then_falls && !else_falls).then_some(*else_blk);
+                let trailing = trailing.then_some(other);
                 brfuse::emit_fused_condbr(bytes, fixups, fc, invert, br_target, trailing, alloc);
                 return;
             }
@@ -195,26 +192,26 @@ pub(super) fn emit_terminator(
             // register and materialize_operand_gpr is a fast lookup.
             let cond_reg = operand::materialize_operand_gpr(bytes, cond, OP_SCRATCH_LHS, alloc);
             // CBNZ cond, then_blk — branch when cond != 0 (i.e. true);
-            // flipped to CBZ cond, else_blk when then falls through.
+            // flipped to CBZ cond, else_blk when the branch goes there.
             let cb_site = bytes.len() as u32;
             fixups.push(BranchFixup {
                 site_byte_offset: cb_site,
-                target_block: if then_falls { *else_blk } else { *then_blk },
+                target_block: br_target,
                 kind: BranchKind::Imm19,
             });
             write_u32(
                 bytes,
-                if then_falls {
+                if invert {
                     cbz_x(cond_reg, 0)
                 } else {
                     cbnz_x(cond_reg, 0)
                 },
             );
-            if !then_falls && !else_falls {
+            if trailing {
                 let b_site = bytes.len() as u32;
                 fixups.push(BranchFixup {
                     site_byte_offset: b_site,
-                    target_block: *else_blk,
+                    target_block: other,
                     kind: BranchKind::Imm26,
                 });
                 write_u32(bytes, b_imm26(0));
@@ -227,15 +224,42 @@ pub(super) fn emit_terminator(
     }
 }
 
+/// How a CondBr to `then_blk` / `else_blk` branches: whether on the
+/// inverted condition, the (branch target, other successor) pair, and
+/// whether a trailing B to the other successor follows.
+fn cond_plan(
+    landing: &Landing,
+    next: Next,
+    then_blk: BlockId,
+    else_blk: BlockId,
+) -> (bool, (BlockId, BlockId), bool) {
+    let to_else = landing.resolve(else_blk);
+    let else_falls = Some(to_else) == next.resolved;
+    // Layout-driven flip: when the then-target is the fall-through
+    // block, branch on the inverted predicate to the else-target
+    // instead — the hot successor (loop bodies sit right after their
+    // header) runs on the not-taken path and the trailing B disappears.
+    let then_falls = !else_falls && Some(landing.resolve(then_blk)) == next.resolved;
+    let trailing = !then_falls && !else_falls;
+    // With no fall-through, a self-loop's back edge takes the
+    // conditional branch and the trailing B, run once on the way out,
+    // takes the exit: an iteration pays one branch. A block ending in
+    // a CondBr is its own landing.
+    let back_on_else = trailing && to_else == next.here && landing.resolve(then_blk) != next.here;
+    let invert = then_falls || back_on_else;
+    let pair = if invert {
+        (else_blk, then_blk)
+    } else {
+        (then_blk, else_blk)
+    };
+    (invert, pair, trailing)
+}
+
 /// `true` iff `term` can hand control to the next block in layout
 /// without a branch — the same fall-through tests `emit_terminator`
 /// uses to elide or flip its branches.
-pub(super) fn falls_through(
-    term: &Terminator,
-    landing: &Landing,
-    next_resolved: Option<BlockId>,
-) -> bool {
-    let lands_next = |t: &BlockId| Some(landing.resolve(*t)) == next_resolved;
+pub(super) fn falls_through(term: &Terminator, landing: &Landing, next: Next) -> bool {
+    let lands_next = |t: &BlockId| Some(landing.resolve(*t)) == next.resolved;
     match term {
         Terminator::Ret(_) | Terminator::Unreachable => false,
         Terminator::Br(t) => lands_next(t),
@@ -324,5 +348,131 @@ mod tests {
                 .all(|&w| w == nop())
         );
         assert!(words[..first_ret].iter().all(|&w| w != nop()));
+    }
+
+    /// A loop block `b1` testing `n != 0`, laid out `b0 b1 b2 b3 b4`:
+    /// `b2` (`back`) and the `ret`s at `b3` and `b4`.
+    fn loop_words(then_blk: u32, else_blk: u32, back: Terminator) -> Vec<u32> {
+        let ret = |n| Terminator::Ret(Some(Operand::ConstI64(n)));
+        let block = |id, term| Block {
+            id: BlockId(id),
+            insts: vec![],
+            term,
+        };
+        let test = Block {
+            id: BlockId(1),
+            insts: vec![Inst {
+                result: Some(ValueId(1)),
+                kind: InstKind::ICmp(IPred::Ne, Operand::Value(ValueId(0)), Operand::ConstI64(0)),
+                origin: None,
+            }],
+            term: Terminator::CondBr {
+                cond: Operand::Value(ValueId(1)),
+                then_blk: BlockId(then_blk),
+                else_blk: BlockId(else_blk),
+            },
+        };
+        let info = |ty| ValueInfo { ty, name: None };
+        let func = Function {
+            name: "f".into(),
+            params: vec![ValueId(0)],
+            ret: Type::I64,
+            values: vec![info(Type::I64), info(Type::Bool)],
+            blocks: vec![
+                block(0, Terminator::Br(BlockId(1))),
+                test,
+                block(2, back),
+                block(3, ret(3)),
+                block(4, ret(4)),
+            ],
+            current_origin: None,
+        };
+        compile_function(&func)
+            .bytes
+            .chunks(4)
+            .map(|c| u32::from_le_bytes(c.try_into().unwrap()))
+            .collect()
+    }
+
+    /// The one conditional branch of `words` and the B words after it,
+    /// as (conditional displacement, B displacements).
+    fn branches(words: &[u32]) -> (i32, Vec<i32>) {
+        let cb = words
+            .iter()
+            .position(|&w| w & 0x7E00_0000 == 0x3400_0000)
+            .unwrap();
+        let imm19 = ((words[cb] >> 5) & 0x7_FFFF) as i32;
+        let bs = words[cb + 1..]
+            .iter()
+            .filter(|&&w| w & 0xFC00_0000 == 0x1400_0000)
+            .map(|&w| ((w & 0x03FF_FFFF) as i32) << 6 >> 6)
+            .collect();
+        (imm19 << 13 >> 13, bs)
+    }
+
+    /// A self-loop whose exit is not next takes its back edge with the
+    /// conditional branch and leaves by the trailing B.
+    #[test]
+    fn self_loop_branches_back_conditionally() {
+        let words = loop_words(4, 1, Terminator::Ret(Some(Operand::ConstI64(2))));
+        let (back, bs) = branches(&words);
+        assert!(back <= 0 && bs.len() == 1 && bs[0] > 0, "{words:08x?}");
+    }
+
+    /// A back edge through an empty block laid out next: the block is
+    /// not emitted, the loop branches back once and falls through to
+    /// its exit behind it.
+    #[test]
+    fn back_edge_through_a_forwarder_branches_once() {
+        let words = loop_words(2, 3, Terminator::Br(BlockId(1)));
+        let (back, bs) = branches(&words);
+        assert!(back <= 0 && bs.is_empty(), "{words:08x?}");
+    }
+
+    /// A branch into a chain of twenty empty blocks lands at its end,
+    /// and none of the chain is emitted.
+    #[test]
+    fn long_forwarder_chain_lands_at_its_end() {
+        let mut blocks = vec![Block {
+            id: BlockId(0),
+            insts: vec![Inst {
+                result: Some(ValueId(1)),
+                kind: InstKind::ICmp(IPred::Ne, Operand::Value(ValueId(0)), Operand::ConstI64(0)),
+                origin: None,
+            }],
+            term: Terminator::CondBr {
+                cond: Operand::Value(ValueId(1)),
+                then_blk: BlockId(1),
+                else_blk: BlockId(22),
+            },
+        }];
+        blocks.extend((1..=20).map(|i| Block {
+            id: BlockId(i),
+            insts: vec![],
+            term: Terminator::Br(BlockId(i + 1)),
+        }));
+        for (id, n) in [(21, 1), (22, 2)] {
+            blocks.push(Block {
+                id: BlockId(id),
+                insts: vec![],
+                term: Terminator::Ret(Some(Operand::ConstI64(n))),
+            });
+        }
+        let info = |ty| ValueInfo { ty, name: None };
+        let func = Function {
+            name: "f".into(),
+            params: vec![ValueId(0)],
+            ret: Type::I64,
+            values: vec![info(Type::I64), info(Type::Bool)],
+            blocks,
+            current_origin: None,
+        };
+        let words: Vec<u32> = compile_function(&func)
+            .bytes
+            .chunks(4)
+            .map(|c| u32::from_le_bytes(c.try_into().unwrap()))
+            .collect();
+        let (to_else, bs) = branches(&words);
+        assert!(to_else > 0 && bs.is_empty(), "{words:08x?}");
     }
 }

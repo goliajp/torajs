@@ -272,7 +272,12 @@ fn emit_body(
     let mut falls_in = true;
     // slot index of the block's first inst, numbered as in liveness
     let mut block_slot: u32 = 0;
+    let emitted = landing.emitted(&func.blocks);
     for (bi, block) in func.blocks.iter().enumerate() {
+        if !emitted[bi] {
+            block_slot += block.insts.len() as u32 + 1;
+            continue;
+        }
         if !falls_in {
             while !bytes.len().is_multiple_of(BRANCH_TARGET_ALIGN) {
                 write_u32(&mut bytes, crate::enc::nop());
@@ -302,9 +307,15 @@ fn emit_body(
             continue;
         }
         // The layout successor's final identity — a branch resolving
-        // there is a fall-through and needs no B (the next block, or
-        // the empty-forwarder chain it heads, is about to emit).
-        let next_resolved = func.blocks.get(bi + 1).map(|nb| landing.resolve(nb.id));
+        // there is a fall-through and needs no B (the next emitted
+        // block, or the empty-forwarder chain it heads, is about to
+        // emit).
+        let next = terminator::Next {
+            here: block.id,
+            resolved: (bi + 1..func.blocks.len())
+                .find(|&k| emitted[k])
+                .map(|k| landing.resolve(func.blocks[k].id)),
+        };
         assert!(!landing.is_hollow(block.id) || bytes.len() == start);
         emit_terminator(
             &mut bytes,
@@ -314,9 +325,9 @@ fn emit_body(
             alloc,
             fused,
             &landing,
-            next_resolved,
+            next,
         );
-        falls_in = terminator::falls_through(&block.term, &landing, next_resolved);
+        falls_in = terminator::falls_through(&block.term, &landing, next);
     }
 
     let patched = terminator::patch_all(&mut bytes, &fixups, &landing, &block_byte_starts);

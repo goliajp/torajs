@@ -24,6 +24,8 @@ use crate::shrink_wrap::ShrinkWrap;
 pub(super) struct Landing<'a> {
     pub(super) blocks_by_id: HashMap<u32, &'a Block>,
     hollow: HashMap<u32, BlockId>,
+    /// layout positions of the hollow blocks
+    hollow_at: Vec<usize>,
 }
 
 impl<'a> Landing<'a> {
@@ -33,7 +35,8 @@ impl<'a> Landing<'a> {
     /// never hollow.
     pub(super) fn of(func: &'a Function, alloc: &Assignment, shrink: &Option<ShrinkWrap>) -> Self {
         let mut hollow = HashMap::default();
-        for block in &func.blocks {
+        let mut hollow_at = Vec::new();
+        for (at, block) in func.blocks.iter().enumerate() {
             let Terminator::Br(t) = block.term else {
                 continue;
             };
@@ -42,11 +45,13 @@ impl<'a> Landing<'a> {
             };
             if t != block.id && block.insts.iter().all(|i| copy_emits_nothing(i, alloc)) {
                 hollow.insert(block.id.0, t);
+                hollow_at.push(at);
             }
         }
         Landing {
             blocks_by_id: func.blocks.iter().map(|b| (b.id.0, b)).collect(),
             hollow,
+            hollow_at,
         }
     }
 
@@ -54,12 +59,29 @@ impl<'a> Landing<'a> {
         self.hollow.contains_key(&block.0)
     }
 
-    /// The block a branch to `start` lands on. Bounded walk: a cycle
-    /// of such blocks (a degenerate infinite loop) stops on the last
-    /// id reached.
+    /// Which of `blocks`, the function's in layout order, are emitted.
+    /// A hollow block that every branch to it lands past is not, the
+    /// entry block excepted: the block before it then falls through
+    /// to, or branches to, where it would have jumped, for no more than
+    /// its own B cost. Kept, it would stand between that block and the
+    /// code after it, so a loop exit laid out behind a hollow latch
+    /// could not fall through.
+    pub(super) fn emitted(&self, blocks: &[Block]) -> Vec<bool> {
+        let mut emitted = vec![true; blocks.len()];
+        for &at in &self.hollow_at {
+            emitted[at] = at == 0 || self.is_hollow(self.resolve(blocks[at].id));
+        }
+        emitted
+    }
+
+    /// The block a branch to `start` lands on. The walk takes one step
+    /// more than there are hollow blocks, so only a cycle of them (a
+    /// degenerate infinite loop) stops it on a hollow block, which is
+    /// then emitted: a chain of copies out of a long join is walked to
+    /// its end.
     pub(super) fn resolve(&self, start: BlockId) -> BlockId {
         let mut id = start;
-        for _ in 0..16 {
+        for _ in 0..=self.hollow.len() {
             id = resolve_forwarded_target(&self.blocks_by_id, id);
             match self.hollow.get(&id.0) {
                 Some(&t) => id = t,
