@@ -200,14 +200,14 @@ pub(super) fn rewrite_function_ctors(ast: &mut Ast) {
                     synth += 1;
                 }
             }
-            // A definite strict-code early error resolved post-parse —
+            // A definite early error resolved post-parse — a
+            // redeclaration, or in strict code
             // `delete <bare name>` or an assignment / update targeting
             // `eval` / `arguments`, in the body's own strict code or a
             // nested 'use strict' function inside a sloppy body.
             // Creation-time SyntaxError either way (§20.2.1.1 step 22).
-            Err(EvalRefusal::StrictEarlyError) => {
-                let throw =
-                    syntax_error_throw("dynamic function: early error in strict code".into(), ast);
+            Err(EvalRefusal::EarlyError) => {
+                let throw = syntax_error_throw("dynamic function: early error".into(), ast);
                 wrap_throw_iife(i, throw, ast);
             }
             Err(EvalRefusal::NoParse) => {

@@ -42,18 +42,55 @@ enum DeclKind {
 pub fn run(ast: &mut Ast) {
     let mut errors: Vec<String> = Vec::new();
     for s in &ast.stmts {
-        walk_stmt(s, ast, &mut errors);
+        walk_stmt(s, ast, Code::Program, &mut errors);
     }
     ast.redecl_parse_errors = errors;
 }
 
+/// Whose statements a walk is checking.
+#[derive(Clone, Copy)]
+enum Code {
+    /// The program's own text. A function body's top level stays with
+    /// the checker's declare-time detection (module doc).
+    Program,
+    /// Eval code (§19.2.1.1). Its early errors are a SyntaxError thrown
+    /// when the eval runs (step 12), so nothing downstream may meet the
+    /// conflict first: the checker would refuse the whole program for
+    /// it. Function bodies are therefore checked here too, and the
+    /// strictness the Annex B allowances hang on arrives as a flag —
+    /// the text's spans are foreign to the program.
+    Eval { strict: bool },
+}
+
+/// The redeclaration early errors of one eval code text: its ScriptBody
+/// (§16.1.1), every Block / CaseBlock / loop head in it, and every
+/// function or class body it declares in statement position. `strict`
+/// is the text's own strictness, inherited or from its prologue.
+pub fn eval_code_redecl(stmts: &[Stmt], ast: &Ast, strict: bool) -> Option<String> {
+    let mut errors: Vec<String> = Vec::new();
+    walk_body(stmts, ast, Code::Eval { strict }, &mut errors);
+    errors.into_iter().next()
+}
+
+/// A function / script / static-block body: under `Code::Eval` its top
+/// level is checked (§15.2.1, §15.7.1, §16.1.1), then its statements
+/// are walked.
+fn walk_body(body: &[Stmt], ast: &Ast, code: Code, errors: &mut Vec<String>) {
+    if let Code::Eval { .. } = code {
+        check_top_level(body, ast, errors);
+    }
+    for s in body {
+        walk_stmt(s, ast, code, errors);
+    }
+}
+
 /// Recurse looking for `Block` / `Switch` statement lists to check.
-fn walk_stmt(s: &Stmt, ast: &Ast, errors: &mut Vec<String>) {
+fn walk_stmt(s: &Stmt, ast: &Ast, code: Code, errors: &mut Vec<String>) {
     match s {
         Stmt::Block(list) => {
-            check_list(list.iter(), &block_fn_kind(ast), errors);
+            check_list(list.iter(), &block_kind(ast, code), errors);
             for c in list {
-                walk_stmt(c, ast, errors);
+                walk_stmt(c, ast, code, errors);
             }
         }
         Stmt::Switch { cases, default, .. } => {
@@ -62,14 +99,14 @@ fn walk_stmt(s: &Stmt, ast: &Ast, errors: &mut Vec<String>) {
                 .iter()
                 .flat_map(|c| c.body.iter())
                 .chain(default.iter().flatten());
-            check_list(all, &case_block_fn_kind(ast), errors);
+            check_list(all, &case_kind(ast, code), errors);
             for c in cases {
                 for s in &c.body {
-                    walk_stmt(s, ast, errors);
+                    walk_stmt(s, ast, code, errors);
                 }
             }
             for s in default.iter().flatten() {
-                walk_stmt(s, ast, errors);
+                walk_stmt(s, ast, code, errors);
             }
         }
         Stmt::If {
@@ -77,13 +114,13 @@ fn walk_stmt(s: &Stmt, ast: &Ast, errors: &mut Vec<String>) {
             else_branch,
             ..
         } => {
-            walk_stmt(then_branch, ast, errors);
+            walk_stmt(then_branch, ast, code, errors);
             if let Some(e) = else_branch {
-                walk_stmt(e, ast, errors);
+                walk_stmt(e, ast, code, errors);
             }
         }
         Stmt::While { body, .. } | Stmt::DoWhile { body, .. } | Stmt::Labeled { body, .. } => {
-            walk_stmt(body, ast, errors)
+            walk_stmt(body, ast, code, errors)
         }
         // §14.7.5.1 / §14.7.4.1 — a loop head's lexical BoundNames may
         // not recur in the body's VarDeclaredNames (`for (let x of xs)
@@ -96,7 +133,7 @@ fn walk_stmt(s: &Stmt, ast: &Ast, errors: &mut Vec<String>) {
             if !var_name.starts_with("__") {
                 check_loop_head(std::iter::once(var_name.as_str()), body, errors);
             }
-            walk_stmt(body, ast, errors)
+            walk_stmt(body, ast, code, errors)
         }
         Stmt::For { init, body, .. } => {
             if let Some(i) = init {
@@ -111,9 +148,9 @@ fn walk_stmt(s: &Stmt, ast: &Ast, errors: &mut Vec<String>) {
                     _ => None,
                 });
                 check_loop_head(names, body, errors);
-                walk_stmt(i, ast, errors);
+                walk_stmt(i, ast, code, errors);
             }
-            walk_stmt(body, ast, errors);
+            walk_stmt(body, ast, code, errors);
         }
         Stmt::Try {
             body,
@@ -122,27 +159,34 @@ fn walk_stmt(s: &Stmt, ast: &Ast, errors: &mut Vec<String>) {
             ..
         } => {
             // try/catch/finally bodies are each their own block scope.
-            check_list(body.iter(), &block_fn_kind(ast), errors);
-            check_list(catch_body.iter(), &block_fn_kind(ast), errors);
+            check_list(body.iter(), &block_kind(ast, code), errors);
+            check_list(catch_body.iter(), &block_kind(ast, code), errors);
             for s in body.iter().chain(catch_body.iter()) {
-                walk_stmt(s, ast, errors);
+                walk_stmt(s, ast, code, errors);
             }
             if let Some(f) = finally_body {
-                check_list(f.iter(), &block_fn_kind(ast), errors);
+                check_list(f.iter(), &block_kind(ast, code), errors);
                 for s in f {
-                    walk_stmt(s, ast, errors);
+                    walk_stmt(s, ast, code, errors);
                 }
             }
         }
         Stmt::Multi(list) => {
             for c in list {
-                walk_stmt(c, ast, errors);
+                walk_stmt(c, ast, code, errors);
             }
         }
         Stmt::FnDecl { body, .. } => {
-            for c in body {
-                walk_stmt(c, ast, errors);
-            }
+            let code = match code {
+                Code::Eval { strict } => Code::Eval {
+                    strict: strict
+                        || crate::ast::sloppy_this_prologue::has_use_strict_directive(
+                            body, &ast.exprs,
+                        ),
+                },
+                Code::Program => Code::Program,
+            };
+            walk_body(body, ast, code, errors);
         }
         Stmt::ClassDecl {
             ctor,
@@ -151,26 +195,25 @@ fn walk_stmt(s: &Stmt, ast: &Ast, errors: &mut Vec<String>) {
             static_init,
             ..
         } => {
+            // §11.2.2 — all parts of a class are strict mode code.
+            let code = match code {
+                Code::Eval { .. } => Code::Eval { strict: true },
+                Code::Program => Code::Program,
+            };
             if let Some(c) = ctor {
-                for s in &c.body {
-                    walk_stmt(s, ast, errors);
-                }
+                walk_body(&c.body, ast, code, errors);
             }
             for m in methods.iter().chain(static_methods.iter()) {
-                for s in &m.body {
-                    walk_stmt(s, ast, errors);
-                }
+                walk_body(&m.body, ast, code, errors);
             }
             for si in static_init {
                 if let StaticInit::Block(list) = si {
-                    for s in list {
-                        walk_stmt(s, ast, errors);
-                    }
+                    walk_body(list, ast, code, errors);
                 }
             }
         }
         Stmt::ExportDecl { inner: Some(i), .. } => {
-            walk_stmt(i, ast, errors);
+            walk_stmt(i, ast, code, errors);
         }
         _ => {}
     }
@@ -255,6 +298,61 @@ fn check_list<'a>(
         if lexical.contains_key(v) {
             errors.push(format!("\"{v}\" has already been declared"));
         }
+    }
+}
+
+/// A body's top level: LexicallyDeclaredNames without duplicates and
+/// disjoint from VarDeclaredNames, where every top-level function
+/// declaration is a var name, so only a lexical name can collide. The
+/// `let`s a destructuring parameter desugars to are parameters, which
+/// a `var` or a function may share a name with.
+fn check_top_level(list: &[Stmt], ast: &Ast, errors: &mut Vec<String>) {
+    let mut lexical: HashMap<&str, DeclKind> = HashMap::new();
+    let mut vars: Vec<&str> = Vec::new();
+    let mut flat: Vec<&Stmt> = Vec::new();
+    for s in list {
+        flatten_multi(s, &mut flat);
+    }
+    for s in flat {
+        match s {
+            Stmt::LetDecl { init, .. } if ast.param_destr_inits.contains(init) => {}
+            Stmt::LetDecl {
+                name,
+                is_var: false,
+                ..
+            }
+            | Stmt::UsingDecl { name, .. }
+            | Stmt::ClassDecl { name, .. } => {
+                insert_lexical(name, DeclKind::Lexical, &mut lexical, errors)
+            }
+            Stmt::FnDecl { name, .. } => vars.push(name),
+            other => collect_nested_vars(other, &mut vars),
+        }
+    }
+    for v in vars {
+        if lexical.contains_key(v) {
+            errors.push(format!("\"{v}\" has already been declared"));
+        }
+    }
+}
+
+/// The Block classifier for `code`: strict eval code has no Annex B
+/// §B.3.3.4 allowance, so its plain functions are lexical.
+fn block_kind(ast: &Ast, code: Code) -> impl Fn(&str, bool, Span) -> DeclKind + '_ {
+    move |name, is_generator, span| match code {
+        Code::Eval { strict: true } => DeclKind::Lexical,
+        Code::Eval { strict: false } | Code::Program => {
+            block_fn_kind(ast)(name, is_generator, span)
+        }
+    }
+}
+
+/// The CaseBlock classifier for `code` (§B.3.2.4 is sloppy-only too;
+/// eval code carries its strictness as the flag, not as spans).
+fn case_kind(ast: &Ast, code: Code) -> impl Fn(&str, bool, Span) -> DeclKind + '_ {
+    move |name, is_generator, span| match code {
+        Code::Eval { .. } => block_kind(ast, code)(name, is_generator, span),
+        Code::Program => case_block_fn_kind(ast)(name, is_generator, span),
     }
 }
 

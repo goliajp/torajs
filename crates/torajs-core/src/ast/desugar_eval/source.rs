@@ -99,8 +99,9 @@ pub(super) fn eval_strictness(
 
 /// Why a parse attempt refused the text. `NoParse` is a lex / parse /
 /// Script-goal failure — a real syntax error OR a shape tr's subset
-/// does not cover, indistinguishable here. `StrictEarlyError` is a
-/// strict-code early error resolved post-parse — `delete <bare name>`
+/// does not cover, indistinguishable here. `EarlyError` is an early
+/// error resolved post-parse — a redeclaration (§14.2.1, §14.12.1,
+/// §15.2.1, §16.1.1), or in strict code `delete <bare name>`
 /// (§13.5.1.1), an assignment / update targeting `eval` / `arguments`
 /// (§13.15.1, §13.4 via AssignmentTargetType), or an Annex B
 /// legacy-octal spelling (§B.1.1 / §B.1.2): a DEFINITE syntax error,
@@ -109,7 +110,7 @@ pub(super) fn eval_strictness(
 /// without probing.
 pub(super) enum EvalRefusal {
     NoParse,
-    StrictEarlyError,
+    EarlyError,
 }
 
 /// Refuse the WHOLE freshly parsed segment, not just the offending
@@ -159,6 +160,14 @@ pub(super) fn parse_eval_source(
             parse_once(&with_semi, ast, super_ok, is_strict).and_then(reject_module_decls)
         })
         .ok_or(EvalRefusal::NoParse)?;
+    // The parser does not judge redeclarations; for the program the
+    // checker does, which for eval text would refuse the whole program
+    // where §19.2.1.1 step 12 wants this eval to throw.
+    let text_strict = is_strict || has_use_strict_prologue(&stmts, ast);
+    if crate::ast_early_redecl::eval_code_redecl(&stmts, ast, text_strict).is_some() {
+        ast.legacy_octal_positions.truncate(octal_before);
+        return Err(neutralize(ast, exprs_before, EvalRefusal::EarlyError));
+    }
     // Annex B §B.1.1 / §B.1.2 — the one family of this set the lexer
     // RECORDS instead of refusing, because a sloppy program evaluates
     // every one of them and only the goal (or a prologue span) says
@@ -218,7 +227,7 @@ pub(super) fn parse_eval_source(
     let octal_here = ast.legacy_octal_positions.len() > octal_before;
     ast.legacy_octal_positions.truncate(octal_before);
     if is_strict && octal_here {
-        return Err(neutralize(ast, exprs_before, EvalRefusal::StrictEarlyError));
+        return Err(neutralize(ast, exprs_before, EvalRefusal::EarlyError));
     }
     // §13.5.1.1 sites — `delete <bare name>` — carry their name for
     // the sloppy fold and must be neutralized on refusal (the goal
@@ -281,7 +290,7 @@ pub(super) fn parse_eval_source(
         del_sites.iter().any(|(i, _)| in_strict(i)) || ea_sites.iter().any(in_strict)
     };
     if strict_hit {
-        return Err(neutralize(ast, exprs_before, EvalRefusal::StrictEarlyError));
+        return Err(neutralize(ast, exprs_before, EvalRefusal::EarlyError));
     }
     // A sloppy `Function(...)` body that ALSO contains a `with`
     // somewhere in the program cannot take the fold — a with-body

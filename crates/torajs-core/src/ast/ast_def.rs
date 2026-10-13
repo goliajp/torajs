@@ -22,6 +22,8 @@ pub struct Ast {
     /// before a desugar moves it into a slot whose name is tr's.
     /// §15.7.10 / §14.3.1.2: the initializer is a NamedEvaluation.
     pub field_init_names: std::collections::HashMap<ExprId, String>,
+    /// Initializers of the `let`s a destructuring parameter desugars to.
+    pub param_destr_inits: std::collections::HashSet<ExprId>,
     /// Lifted-closure name (`__closure_N`) → fn-expression
     /// self-name, translated from `fn_expr_self_names` by
     /// `lift_arrow_fns`; overlaid LAST in pass-2B's NamedEvaluation

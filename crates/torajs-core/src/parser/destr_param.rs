@@ -18,6 +18,9 @@ impl<'a> Parser<'a> {
         self.parse_destr_into(synth.clone(), lets)?;
         let strict = self.strict_here();
         for s in &lets[from..] {
+            if let Stmt::LetDecl { init, .. } = s {
+                self.ast.param_destr_inits.insert(*init);
+            }
             if let Stmt::LetDecl { name, .. } = s
                 && !name.starts_with("__")
             {
