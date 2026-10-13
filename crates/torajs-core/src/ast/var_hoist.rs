@@ -205,9 +205,9 @@ fn hoist_vars_in_block(body: &mut Vec<Stmt>, exprs: &mut Vec<Expr>, params: &[St
             is_var: false, // already hoisted; downstream sees a regular let
         });
     }
-    let tail = std::mem::take(body);
-    *body = prelude;
-    body.extend(tail);
+    // after a "use strict" prologue, which has to stay the body's head
+    let at = super::sloppy_this_prologue::directive_prologue_len(body, exprs);
+    body.splice(at..at, prelude);
 }
 
 /// Count every `var`-declared name in this stmt list, recursing the

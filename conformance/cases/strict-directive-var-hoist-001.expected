@@ -1,0 +1,4 @@
+strict-var 11
+strict-shared 10:3
+strict-this undefined1
+sloppy-var 3

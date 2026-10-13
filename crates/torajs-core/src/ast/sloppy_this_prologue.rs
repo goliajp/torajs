@@ -57,6 +57,19 @@ pub(crate) fn has_use_strict_directive(body: &[Stmt], exprs: &[Expr]) -> bool {
     false
 }
 
+/// How many statements `body`'s directive prologue spans. A pass that
+/// mints declarations "at the head" of a body inserts them here, after
+/// the prologue: in front of it they end the prologue early, and
+/// [`has_use_strict_directive`] no longer sees the body's own
+/// `"use strict"`.
+pub(crate) fn directive_prologue_len(body: &[Stmt], exprs: &[Expr]) -> usize {
+    body.iter()
+        .take_while(
+            |s| matches!(s, Stmt::Expr(e) if matches!(exprs[e.0 as usize], Expr::String(_))),
+        )
+        .count()
+}
+
 /// Insert the prologue at the head of `body`, unless the body is
 /// strict or already carries it.
 ///

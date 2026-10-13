@@ -16,8 +16,9 @@ use std::collections::HashSet;
 /// initialized where the eval ran (§19.2.1.3 step 17).
 pub(super) fn raise_var_shared(ast: &Ast, stmts: &mut [Stmt]) -> HashSet<String> {
     let shared = crate::ast::nested_fns_top::var_shared_fn_names(ast, stmts);
-    let mut head = 0;
-    for i in 0..stmts.len() {
+    // below the directive prologue, which has to stay the body's head
+    let mut head = crate::ast::sloppy_this_prologue::directive_prologue_len(stmts, &ast.exprs);
+    for i in head..stmts.len() {
         if matches!(&stmts[i], Stmt::FnDecl { name, span, .. } if shared.contains(name)
             && !(span.start == 0 && span.end == 0 && ast.sloppy_eval_fn_names.contains(name)))
         {

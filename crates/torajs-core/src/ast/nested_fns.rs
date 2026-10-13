@@ -103,6 +103,11 @@ fn desugar_nested_fns_once(ast: &mut Ast) {
             let mut renames: HashMap<String, String> = HashMap::new();
             let mut branch_scoped: HashSet<String> = HashSet::new();
             let mut lifted: Vec<Stmt> = Vec::new();
+            // the declarations the lift mints at the head go below the
+            // directive prologue, which has to stay the body's head
+            let prologue_len =
+                super::sloppy_this_prologue::directive_prologue_len(body, &ast.exprs);
+            let prologue: Vec<Stmt> = body.drain(..prologue_len).collect();
             collect_nested_fns_to_lift(
                 body,
                 &parent,
@@ -115,6 +120,7 @@ fn desugar_nested_fns_once(ast: &mut Ast) {
                 &mut lifted,
                 &mut ctx,
             );
+            body.splice(0..0, prologue);
             ctx.flush(ast);
             if !renames.is_empty() {
                 // A bare-branch decl (`if (c) function f() {}`) is
