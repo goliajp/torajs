@@ -2,7 +2,8 @@
 //! image's preferred load address, each string names an env var the
 //! embedding crate's build script set to a staticlib path, in link
 //! search order. The macro builds the runtime image from those
-//! archives, links it into one fixed-layout image
+//! archives (stripped as `runtime_image!` strips it, so both images
+//! hold the same runtime), links it into one fixed-layout image
 //! ([`torajs_link::rtlinked_format`]) and expands to a `&'static [u8]`
 //! whose first byte sits on a [`SEGMENT_ALIGN`] boundary. The image's
 //! templates are segment-aligned within the blob, so they are
@@ -66,7 +67,7 @@ pub fn runtime_linked_image(input: TokenStream) -> TokenStream {
         })
         .collect();
     let borrowed: Vec<&[u8]> = archives.iter().map(Vec::as_slice).collect();
-    let runtime = torajs_rtimage::image::build(&borrowed)
+    let runtime = prestripped_runtime_image(&borrowed)
         .unwrap_or_else(|e| panic!("runtime_linked_image!: {e:?}"));
     let image = build_rtlinked_image(&runtime, base)
         .unwrap_or_else(|e| panic!("runtime_linked_image!: {e:?}"));
