@@ -154,17 +154,9 @@ impl<'a> Parser<'a> {
         // enclosing stream, so a `__` user name written inside `${…}`
         // is only recorded here (doc on the pass).
         crate::ast::record_source_dunder_idents(&mut self.ast, tokens);
-        // Those spans index the INTERPOLATION, not the program, so a
-        // byte range minted below is measured from the wrong origin —
-        // and a low range lands on unrelated text near the top of the
-        // file. Measured: a class in `${…}` condemned an octal literal
-        // on line 1. The ranges this sub-parse mints are dropped on the
-        // way out (same recorded gap as `legacy_octal_sites`').
-        let strict_spans_before = self.ast.strict_code_spans.len();
         let mut sub = Parser {
-            // Template interpolation tokens were extracted
-            // from `self.source` — the same slice satisfies
-            // ASI's byte-span probe for the sub-parse.
+            // The lexer rebased the interpolation's spans onto the
+            // program text, so `self.source` answers every span probe.
             source: self.source,
             tokens,
             pos: 0,
@@ -267,7 +259,6 @@ impl<'a> Parser<'a> {
             ));
         }
         self.ast = sub.ast;
-        self.ast.strict_code_spans.truncate(strict_spans_before);
         self.gen_recv_minted = sub.gen_recv_minted;
         self.invalid_target_ids = sub.invalid_target_ids;
         self.desugar_id = sub.desugar_id;

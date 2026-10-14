@@ -16,16 +16,9 @@
 //! whether the author wrote `8` or `010`. The token's span can, so
 //! this reads the source text back through it.
 //!
-//! One gap, deliberate and recorded here because it is invisible from
-//! the call site: a `${…}` interpolation's tokens are lexed from a
-//! SEPARATE slice ([`crate::lexer::scan_template`] hands
-//! `bytes[expr_start..expr_end]` to a fresh `tokenize`), so their spans
-//! index the interpolation, not the program. Reading them against
-//! `ast.source` would slice unrelated text, so `${"\101"}` gets its
-//! sloppy VALUE (the lexer is unconditional) but no strict-goal
-//! rejection. The fix is absolute interpolation spans, which is a
-//! change to what every downstream consumer of those spans sees and
-//! not this pass's to make.
+//! A `${…}` interpolation's tokens ride inside the template token, and
+//! [`crate::lexer::scan_template`] rebases their spans onto the program
+//! text, so the walk descends into them like any other tokens.
 //!
 //! The escape walk itself lives with the grammar it asks
 //! ([`crate::lexer::legacy_octal::first_legacy_escape`]) rather than
@@ -35,7 +28,7 @@
 
 use super::Ast;
 use crate::lexer::legacy_octal::{first_legacy_escape, legacy_octal_number_value};
-use crate::lexer::{Spanned, Token};
+use crate::lexer::{Spanned, TemplatePart, Token};
 
 /// Fill [`Ast::legacy_octal_positions`] from one token stream. Called
 /// from the same two parse entry points that record the `__` spellings,
@@ -57,6 +50,13 @@ pub fn record_legacy_octal_sites(ast: &mut Ast, source: &str, tokens: &[Spanned]
                 let raw = &source[lo as usize..hi as usize];
                 if legacy_octal_number_value(raw).is_some() {
                     ast.legacy_octal_positions.push((lo, NUMBER));
+                }
+            }
+            Token::Template { parts } => {
+                for p in parts {
+                    if let TemplatePart::Expr(inner) = p {
+                        record_legacy_octal_sites(ast, source, inner);
+                    }
                 }
             }
             _ => {}

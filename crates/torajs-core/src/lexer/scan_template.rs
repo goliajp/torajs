@@ -151,7 +151,8 @@ pub(super) fn scan_template(
             *i += 1; // consume `}`
             let expr_src = std::str::from_utf8(&bytes[expr_start as usize..expr_end as usize])
                 .map_err(|_| format!("invalid utf-8 in template interp at {start}"))?;
-            let inner = super::tokenize(expr_src)?;
+            let mut inner = super::tokenize(expr_src)?;
+            rebase(&mut inner, expr_start);
             // Keep the trailing Eof so the sub-Parser's
             // peek() never falls off the end (its expr
             // parsers rely on the Eof guard).
@@ -175,4 +176,22 @@ pub(super) fn scan_template(
     }
     emit(out, Token::Template { parts }, start, *i);
     Ok(())
+}
+
+/// Shift an interpolation's spans from its own slice to the text the
+/// template was lexed from, so every span in the stream indexes the
+/// program. A nested template's interpolations were rebased onto THIS
+/// slice when it was lexed, so they move by the same amount.
+fn rebase(tokens: &mut [Spanned], by: u32) {
+    for t in tokens {
+        t.span.start += by;
+        t.span.end += by;
+        if let Token::Template { parts } = &mut t.token {
+            for p in parts {
+                if let TemplatePart::Expr(inner) = p {
+                    rebase(inner, by);
+                }
+            }
+        }
+    }
 }
