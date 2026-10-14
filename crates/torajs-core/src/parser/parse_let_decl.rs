@@ -39,7 +39,7 @@ impl<'a> Parser<'a> {
             // block-scoped where §14.3.2 hoists it.
             if matches!(self.peek(), Token::LBracket | Token::LBrace) {
                 self.parse_destructuring_declarator(mutable, is_var, &mut decls)?;
-                if self.next_declarator() {
+                if self.next_declarator()? {
                     continue;
                 }
                 break;
@@ -154,7 +154,7 @@ impl<'a> Parser<'a> {
                     init,
                     is_var,
                 });
-                if self.next_declarator() {
+                if self.next_declarator()? {
                     continue;
                 }
                 break;
@@ -190,7 +190,7 @@ impl<'a> Parser<'a> {
                 init,
                 is_var,
             });
-            if !self.next_declarator() {
+            if !self.next_declarator()? {
                 break;
             }
         }
@@ -202,17 +202,16 @@ impl<'a> Parser<'a> {
     }
 
     /// Step past one declarator: `true` after a `,` (another follows).
-    /// Otherwise the list is over, and only a `;` is consumed — an
-    /// ASI-style statement start stays for the outer parse.
-    fn next_declarator(&mut self) -> bool {
+    /// Otherwise the list is over and has to end where §12.10.1 lets
+    /// it: `var s = '' ''` is a SyntaxError, not a declaration
+    /// followed by a stray expression statement.
+    fn next_declarator(&mut self) -> Result<bool, String> {
         if matches!(self.peek(), Token::Comma) {
             self.pos += 1;
-            return true;
+            return Ok(true);
         }
-        if matches!(self.peek(), Token::Semi) {
-            self.pos += 1;
-        }
-        false
+        self.expect_asi_end("a variable declaration")?;
+        Ok(false)
     }
 
     /// §13.15.2 — a destructuring assignment in the INIT position

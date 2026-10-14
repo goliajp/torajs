@@ -151,9 +151,7 @@ impl<'a> Parser<'a> {
                 ty = crate::ast::uninit_let::no_init_type_ann(&ty);
                 self.ast.add_expr(Expr::Ident("undefined".into()))
             };
-            if matches!(self.peek(), Token::Semi) {
-                self.pos += 1;
-            }
+            self.expect_asi_end("a class field")?;
             static_init.push(StaticInit::Field(ast::StaticField {
                 name: member_name,
                 type_ann: ty,
@@ -179,9 +177,7 @@ impl<'a> Parser<'a> {
             } else {
                 None
             };
-            if matches!(self.peek(), Token::Semi) {
-                self.pos += 1;
-            }
+            self.expect_asi_end("a class field")?;
             if let Some(init_expr) = init {
                 self.name_field_init(name, &member_name, init_expr);
                 field_inits.push((member_name.clone(), init_expr));
@@ -224,9 +220,7 @@ impl<'a> Parser<'a> {
             // the member name, plus the `?` / `!` of `p?;`
             self.pos += 1 + marker.shift();
         }
-        if matches!(self.peek(), Token::Semi) {
-            self.pos += 1;
-        }
+        self.expect_asi_end("a class field")?;
         let visibility = explicit_visibility.unwrap_or(ast::Visibility::Public);
         if visibility != ast::Visibility::Public {
             self.ast

@@ -268,8 +268,8 @@ impl<'a> Parser<'a> {
                 ));
             }
         }
-        // Span recorded BEFORE the trailing `;` consume — the source
-        // text ends at the body's closing brace.
+        // Span ends at the body's `}`, before a declaration's trailing
+        // `;` (an expression's `;` belongs to the statement around it).
         let class_span = self.span_from(class_start);
         self.ast.class_decl_spans.insert(name.clone(), class_span);
         self.ast
@@ -283,7 +283,7 @@ impl<'a> Parser<'a> {
         self.ast
             .strict_code_spans
             .push((class_span.start, class_span.end));
-        if matches!(self.peek(), Token::Semi) {
+        if !force_synth && matches!(self.peek(), Token::Semi) {
             self.pos += 1;
         }
         // V3-18 wedge — prepend `this.<n> = <init>` stmts for each

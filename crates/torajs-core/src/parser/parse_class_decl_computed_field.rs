@@ -59,9 +59,7 @@ impl<'a> Parser<'a> {
         } else {
             self.ast.add_expr(Expr::Ident("undefined".into()))
         };
-        if matches!(self.peek(), Token::Semi) {
-            self.pos += 1;
-        }
+        self.expect_asi_end("a class field")?;
         let (after, static_pos) = position;
         if is_static {
             self.ast

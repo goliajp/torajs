@@ -42,11 +42,18 @@ impl<'a> Parser<'a> {
 
     pub(super) fn parse_throw(&mut self) -> Result<Stmt, String> {
         self.pos += 1; // consume `throw`
-        // §14.14 `throw Expression` — the comma list, like `return`.
-        let expr = self.parse_expr_list()?;
-        if matches!(self.peek(), Token::Semi) {
-            self.pos += 1;
+        // §14.14 `throw [no LineTerminator here] Expression ;` — unlike
+        // `return`, the Expression is not optional, so a line break
+        // right after the keyword leaves nothing to throw.
+        if self.has_newline_before(self.pos) {
+            return Err(format!(
+                "a line break is not allowed after `throw` at {} (ES §14.14)",
+                self.at()
+            ));
         }
+        // The comma list, like `return`.
+        let expr = self.parse_expr_list()?;
+        self.expect_asi_end("a throw statement")?;
         Ok(Stmt::Throw(expr))
     }
 

@@ -52,6 +52,13 @@ impl<'a> Parser<'a> {
             None
         };
         match self.peek() {
+            // §15.3 ArrowParameters [no LineTerminator here] `=>`.
+            Token::FatArrow if self.has_newline_before(self.pos) => {
+                return Err(format!(
+                    "a line break is not allowed before `=>` at {} (ES §15.3)",
+                    self.at()
+                ));
+            }
             Token::FatArrow => self.pos += 1,
             t => return Err(format!("expected `=>`, got {t:?} at {}", self.at())),
         }

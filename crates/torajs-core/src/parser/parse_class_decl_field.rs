@@ -223,9 +223,7 @@ impl<'a> Parser<'a> {
             _ => "any",
         };
         let ty = inferred.to_string();
-        if matches!(self.peek(), Token::Semi) {
-            self.pos += 1;
-        }
+        self.expect_asi_end("a class field")?;
         let visibility = explicit_visibility.unwrap_or(ast::Visibility::Public);
         if visibility != ast::Visibility::Public {
             self.ast
