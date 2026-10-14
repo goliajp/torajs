@@ -125,6 +125,17 @@ pub fn analyze_function_with(
         state.insert(*p, opaque_for(func.values[p.0 as usize].ty));
     }
 
+    // each cell's slot in the per-round join, a flat table
+    let mut cell_ids: Vec<ValueId> = cells.iter().copied().collect();
+    cell_ids.sort_unstable_by_key(|v| v.0);
+    let mut slot = vec![u32::MAX; func.values.len()];
+    for (k, c) in cell_ids.iter().enumerate() {
+        slot[c.0 as usize] = k as u32;
+    }
+    // per cell, the join of the defs this round evaluated (none for a
+    // cell no reached block writes)
+    let mut contrib: Vec<Option<AbsVal>> = vec![None; cell_ids.len()];
+
     let mut live = Live::new(&inherited, func.values.len());
     let mut stable_since = None;
     // the roots of the square bounds the previous round read
@@ -142,7 +153,6 @@ pub fn analyze_function_with(
         };
         roots.clear();
         let merged = merges.ranges(&state);
-        let mut contrib: HashMap<ValueId, AbsVal> = HashMap::default();
         let mut changed = false;
 
         for &bid in dom.reverse_postorder() {
@@ -181,8 +191,9 @@ pub fn analyze_function_with(
                     }
                     _ => ev,
                 };
-                if cells.contains(&r) {
-                    let e = contrib.entry(r).or_insert(AbsVal::Bottom);
+                let k = slot[r.0 as usize];
+                if k != u32::MAX {
+                    let e = contrib[k as usize].get_or_insert(AbsVal::Bottom);
                     *e = e.join(ev);
                     live.kill(r);
                 } else if state.get(&r) != Some(&ev) {
@@ -207,8 +218,10 @@ pub fn analyze_function_with(
         // its init cells, so updating in place would let map order
         // decide which of them it sees
         let stepped: Vec<(ValueId, AbsVal)> = contrib
-            .iter()
-            .filter_map(|(&cell, &new)| {
+            .iter_mut()
+            .zip(&cell_ids)
+            .filter_map(|(c, &cell)| {
+                let new = c.take()?;
                 let old = state.get(&cell).copied().unwrap_or(AbsVal::Bottom);
                 let next = step(old, new, narrowing, round, thresholds);
                 let capped = horizon.cap(cell, next, &state);
