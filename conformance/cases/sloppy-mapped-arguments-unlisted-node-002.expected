@@ -1,0 +1,8 @@
+partialWrite 1,undefined,5,1 1,undefined,5,1 1,5,5,2
+partialParam undefined,6 undefined,6 6,6
+cond 1,undefined 1,undefined
+tmpl 1,undefined,1 1,undefined,1
+newArgs 1,undefined,1 1,undefined,1
+fin 1,undefined 1,undefined
+spread 1,1 1,1
+triple 1,2,9 1,2,9 1,2,undefined 1,2,undefined
