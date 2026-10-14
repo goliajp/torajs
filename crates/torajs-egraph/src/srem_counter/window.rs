@@ -12,18 +12,12 @@ use crate::interval::transfer::op_const_int;
 /// `p ≤ 0` branching away, `p ≥ 1`, `p > 0` branching in) or `g != 0`
 /// branching away with `g` an `or` tree holding `(p - 1) >>> k` for
 /// some `2 ≤ k < 64` — so `1 ≤ p ≤ 2^(64-k)`, the window check
-/// frem_guard puts in front of its integer arm. Answers `Some(p - 1)`
-/// when the test spells it.
-pub(super) fn tested_window(
-    cfg: &Cfg,
-    dom: &DominatorTree,
-    b: usize,
-    p: ValueId,
-) -> Option<Option<ValueId>> {
+/// frem_guard puts in front of its integer arm.
+pub(super) fn tested_window(cfg: &Cfg, dom: &DominatorTree, b: usize, p: ValueId) -> bool {
     // the test and the site must read one number
     let p = root(cfg, p);
     if !cfg.once(p) {
-        return None;
+        return false;
     }
     let mut cur = BlockId(b as u32);
     while let Some(d) = dom.immediate_dominator(cur) {
@@ -40,26 +34,22 @@ pub(super) fn tested_window(
             continue;
         };
         let z = op_const_int(z);
-        let (pass, pm1) = match (pred, z) {
+        let (pass, holds) = match (pred, z) {
             (IPred::Ne, Some(0)) => (else_blk, window_leaf(cfg, *a, p, 8)),
             (IPred::Eq, Some(0)) => (then_blk, window_leaf(cfg, *a, p, 8)),
-            (IPred::Slt, Some(1)) | (IPred::Sle, Some(0)) if root(cfg, *a) == p => {
-                (else_blk, Some(None))
-            }
-            (IPred::Sge, Some(1)) | (IPred::Sgt, Some(0)) if root(cfg, *a) == p => {
-                (then_blk, Some(None))
-            }
+            (IPred::Slt, Some(1)) | (IPred::Sle, Some(0)) if root(cfg, *a) == p => (else_blk, true),
+            (IPred::Sge, Some(1)) | (IPred::Sgt, Some(0)) if root(cfg, *a) == p => (then_blk, true),
             _ => continue,
         };
         if then_blk != else_blk
             && cfg.preds(*pass).len() == 1
             && dom.dominates(*pass, BlockId(b as u32))
-            && pm1.is_some()
+            && holds
         {
-            return pm1;
+            return true;
         }
     }
-    None
+    false
 }
 
 /// The value `v` copies, followed back through one-def copies of
@@ -79,24 +69,21 @@ fn root(cfg: &Cfg, mut v: ValueId) -> ValueId {
     v
 }
 
-/// In the `or` tree under `g`, a leaf `lshr (sub p, 1), k`; answers
-/// `Some(Some(sub))`.
-fn window_leaf(cfg: &Cfg, g: ValueId, p: ValueId, depth: u32) -> Option<Option<ValueId>> {
-    match cfg.one_def(g)? {
-        InstKind::BinOp(BinOp::Or, l, r) if depth > 0 => [l, r].into_iter().find_map(|o| match o {
-            Operand::Value(v) => window_leaf(cfg, *v, p, depth - 1),
-            _ => None,
-        }),
-        InstKind::BinOp(BinOp::LShr, Operand::Value(s), k)
+/// In the `or` tree under `g`, a leaf `lshr (sub p, 1), k`.
+fn window_leaf(cfg: &Cfg, g: ValueId, p: ValueId, depth: u32) -> bool {
+    match cfg.one_def(g) {
+        Some(InstKind::BinOp(BinOp::Or, l, r)) if depth > 0 => [l, r]
+            .into_iter()
+            .any(|o| matches!(o, Operand::Value(v) if window_leaf(cfg, *v, p, depth - 1))),
+        Some(InstKind::BinOp(BinOp::LShr, Operand::Value(s), k))
             if op_const_int(k).is_some_and(|k| (2..64).contains(&k)) =>
         {
             matches!(
-                cfg.one_def(*s)?,
-                InstKind::BinOp(BinOp::Sub, Operand::Value(a), Operand::ConstI64(1))
+                cfg.one_def(*s),
+                Some(InstKind::BinOp(BinOp::Sub, Operand::Value(a), Operand::ConstI64(1)))
                     if root(cfg, *a) == p
             )
-            .then_some(Some(*s))
         }
-        _ => None,
+        _ => false,
     }
 }

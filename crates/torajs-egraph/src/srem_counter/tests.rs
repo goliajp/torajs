@@ -146,6 +146,15 @@ fn assert_counter_step(insts: &[Inst], r: ValueId, pm1: Operand) {
     assert_eq!(insts[3].result, Some(r));
 }
 
+/// The entry's `p - 1`, computed right where the counter starts.
+fn assert_pm1(inst: &Inst, p: Operand) -> Operand {
+    assert_eq!(
+        inst.kind,
+        InstKind::BinOp(BinOp::Sub, p, Operand::ConstI64(1))
+    );
+    Operand::Value(inst.result.unwrap())
+}
+
 #[test]
 fn a_proven_divisor_becomes_a_wrapping_counter() {
     let mut f = plain_loop(Operand::ConstI64(0), v(0), step(1));
@@ -156,14 +165,14 @@ fn a_proven_divisor_becomes_a_wrapping_counter() {
             srems: 1
         }
     );
-    // entry: `pm1 = p - 1`, `r = copy pm1`, one move short of 0
+    // entry: `m = p - 1`, `r = copy -1`, one move short of 0
     let pre = &f.blocks[0].insts;
-    let pm1 = Operand::Value(pre[1].result.unwrap());
+    assert_eq!(pre.len(), 3);
+    let pm1 = assert_pm1(&pre[1], v(0));
     assert_eq!(
-        pre[1].kind,
-        InstKind::BinOp(BinOp::Sub, v(0), Operand::ConstI64(1))
+        pre[2].kind,
+        InstKind::Copy(Type::I64, Operand::ConstI64(-1))
     );
-    assert_eq!(pre[2].kind, InstKind::Copy(Type::I64, pm1));
     let r = pre[2].result.unwrap();
     // the body's first block moves it ahead of the site; the header
     // stays a bare test
@@ -176,19 +185,8 @@ fn a_proven_divisor_becomes_a_wrapping_counter() {
 
 #[test]
 fn a_nonzero_start_divides_once_before_the_loop() {
-    let mut f = plain_loop(Operand::ConstI64(7), v(0), step(1));
-    assert_eq!(run(&mut f, 0, 1).counters, 1);
-    let pre = &f.blocks[0].insts;
-    let res = |k: usize| Operand::Value(pre[k].result.unwrap());
-    // `(i + p - 1) mod p`, one move short of `i mod p`
-    assert_eq!(pre[2].kind, InstKind::BinOp(BinOp::Add, v(1), res(1)));
-    assert_eq!(pre[3].kind, InstKind::BinOp(BinOp::SRem, res(2), v(0)));
-    assert_eq!(pre[4].kind, InstKind::Copy(Type::I64, res(3)));
-}
-
-#[test]
-fn an_unbounded_divisor_starts_without_adding_to_the_counter() {
-    // `i + p - 1` could wrap: `s == 0 ? p - 1 : s - 1` instead
+    // `(i mod p) - 1`, one move short of `i mod p`, whatever `p`'s range:
+    // the start never adds to `i`
     let mut f = plain_loop(Operand::ConstI64(7), v(0), step(1));
     let facts = HashMap::from_iter([
         (ValueId(0), NumFact::new(1, 1 << 63)),
@@ -199,19 +197,13 @@ fn an_unbounded_divisor_starts_without_adding_to_the_counter() {
     assert_eq!(stats.counters, 1);
     let pre = &f.blocks[0].insts;
     let res = |k: usize| Operand::Value(pre[k].result.unwrap());
+    assert_pm1(&pre[1], v(0));
     assert_eq!(pre[2].kind, InstKind::BinOp(BinOp::SRem, v(1), v(0)));
     assert_eq!(
         pre[3].kind,
-        InstKind::ICmp(IPred::Eq, res(2), Operand::ConstI64(0))
-    );
-    assert_eq!(
-        pre[4].kind,
         InstKind::BinOp(BinOp::Sub, res(2), Operand::ConstI64(1))
     );
-    assert_eq!(
-        pre[5].kind,
-        InstKind::Select(Type::I64, res(3), res(1), res(4))
-    );
+    assert_eq!(pre[4].kind, InstKind::Copy(Type::I64, res(3)));
 }
 
 #[test]
@@ -222,7 +214,7 @@ fn a_site_after_the_step_moves_the_counter_with_the_step() {
     f.blocks[2].insts.push(site);
     assert_eq!(run(&mut f, 0, 1).srems, 1);
     let pre = &f.blocks[0].insts;
-    let pm1 = Operand::Value(pre[1].result.unwrap());
+    let pm1 = assert_pm1(&pre[1], v(0));
     assert_eq!(pre[2].kind, InstKind::Copy(Type::I64, Operand::ConstI64(0)));
     let r = pre[2].result.unwrap();
     assert_eq!(f.blocks[1].insts.len(), 1);
@@ -232,16 +224,22 @@ fn a_site_after_the_step_moves_the_counter_with_the_step() {
 }
 
 #[test]
-fn the_window_test_proves_the_divisor_and_lends_its_p_minus_1() {
+fn the_window_test_proves_the_divisor() {
     let mut f = guarded_loop();
     assert_eq!(run(&mut f, 0, i128::MIN).srems, 1);
-    let r = f.blocks[0].insts[3].result.unwrap();
-    assert_eq!(f.blocks[0].insts[3].kind, InstKind::Copy(Type::I64, v(6)));
+    // its own `p - 1` at the start, not the test's, which would then
+    // live from the test across every loop after it
+    let pm1 = assert_pm1(&f.blocks[0].insts[3], v(0));
+    let r = f.blocks[0].insts[4].result.unwrap();
+    assert_eq!(
+        f.blocks[0].insts[4].kind,
+        InstKind::Copy(Type::I64, Operand::ConstI64(-1))
+    );
     assert_eq!(
         f.blocks[5].insts[0].kind,
         InstKind::Copy(Type::I64, Operand::Value(r))
     );
-    assert_counter_step(&f.blocks[2].insts[..4], r, v(6));
+    assert_counter_step(&f.blocks[2].insts[..4], r, pm1);
 }
 
 #[test]
@@ -250,13 +248,13 @@ fn a_guarded_nonzero_start_divides_by_one_when_the_divisor_is_low() {
     f.blocks[0].insts[2] = i(1, InstKind::Copy(Type::I64, Operand::ConstI64(5)));
     assert_eq!(run(&mut f, 0, i128::MIN).counters, 1);
     let pre = &f.blocks[0].insts;
-    let low = Operand::Value(pre[3].result.unwrap());
+    let low = Operand::Value(pre[4].result.unwrap());
     assert_eq!(
-        pre[3].kind,
+        pre[4].kind,
         InstKind::ICmp(IPred::Slt, v(0), Operand::ConstI64(1))
     );
     assert_eq!(
-        pre[4].kind,
+        pre[5].kind,
         InstKind::Select(Type::I64, low, Operand::ConstI64(1), v(0))
     );
 }
@@ -302,10 +300,21 @@ fn constant_divisors_skip_powers_of_two() {
     assert_eq!(run(&mut f, 0, 1), NONE);
     let mut f = plain_loop(Operand::ConstI64(0), Operand::ConstI64(6), step(1));
     assert_eq!(run(&mut f, 0, 1).counters, 1);
-    assert_counter_step(
-        &f.blocks[2].insts[..4],
-        f.blocks[0].insts[1].result.unwrap(),
-        Operand::ConstI64(5),
+    // `p - 1` is an immediate: compare before the increment, one CSINC
+    let r = Operand::Value(f.blocks[0].insts[1].result.unwrap());
+    let body = &f.blocks[2].insts;
+    let res = |k: usize| Operand::Value(body[k].result.unwrap());
+    assert_eq!(
+        body[0].kind,
+        InstKind::ICmp(IPred::Eq, r, Operand::ConstI64(5))
+    );
+    assert_eq!(
+        body[1].kind,
+        InstKind::BinOp(BinOp::Add, r, Operand::ConstI64(1))
+    );
+    assert_eq!(
+        body[2].kind,
+        InstKind::Select(Type::I64, res(0), Operand::ConstI64(0), res(1))
     );
 }
 
@@ -319,15 +328,14 @@ fn a_compare_against_one_before_the_loop_proves_the_divisor() {
     f.blocks
         .push(block(4, vec![first], Terminator::Br(BlockId(1))));
     assert_eq!(run(&mut f, 0, i128::MIN).srems, 1);
-    // `p - 1` is computed in the entry block, the start is one move
-    // short of 0
+    // `p - 1` and the start, one move short of 0, end the entry block
     let entry = &f.blocks[4].insts;
+    assert_eq!(entry.len(), 3);
+    assert_pm1(&entry[1], v(0));
     assert_eq!(
-        entry[1].kind,
-        InstKind::BinOp(BinOp::Sub, v(0), Operand::ConstI64(1))
+        entry[2].kind,
+        InstKind::Copy(Type::I64, Operand::ConstI64(-1))
     );
-    let pm1 = Operand::Value(entry[1].result.unwrap());
-    assert_eq!(entry[2].kind, InstKind::Copy(Type::I64, pm1));
 }
 
 #[test]
@@ -366,8 +374,8 @@ fn a_header_that_is_not_a_bare_test_moves_the_counter_at_its_top() {
     let site = f.blocks[2].insts.remove(0);
     f.blocks[1].insts.insert(0, site);
     assert_eq!(run(&mut f, 0, 1).srems, 1);
-    let r = f.blocks[0].insts[2].result.unwrap();
     let pm1 = Operand::Value(f.blocks[0].insts[1].result.unwrap());
+    let r = f.blocks[0].insts[2].result.unwrap();
     let h = &f.blocks[1].insts;
     assert_counter_step(&h[..4], r, pm1);
     assert_eq!(h[4].kind, InstKind::Copy(Type::I64, Operand::Value(r)));
@@ -387,8 +395,8 @@ fn a_loop_that_is_not_top_tested_moves_at_its_header() {
     f.blocks[1].term = cond(2, 1, 3);
     f.blocks[2].term = Terminator::Br(BlockId(1));
     assert_eq!(run(&mut f, 0, 1).srems, 1);
-    let r = f.blocks[0].insts[2].result.unwrap();
     let pm1 = Operand::Value(f.blocks[0].insts[1].result.unwrap());
+    let r = f.blocks[0].insts[2].result.unwrap();
     let h = &f.blocks[1].insts;
     assert_counter_step(&h[..4], r, pm1);
     assert_eq!(h[4].kind, InstKind::Copy(Type::I64, Operand::Value(r)));

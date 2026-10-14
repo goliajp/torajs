@@ -4,13 +4,21 @@
 //! `i` and wraps to 0 past `p - 1`:
 //!
 //! ```text
-//!   entry:      r = copy (i + p - 1) mod p   ; p - 1 when i is 0 there
-//!   each trip:  c  = icmp eq r, p - 1
+//!   entry:      m = sub p, 1
+//!               r = copy (i mod p) - 1   ; -1 when i is 0 there
+//!   each trip:  c  = icmp eq r, m
 //!               t  = add r, 1
-//!               rn = select c, 0, t          ; one CSINC
+//!               rn = select c, 0, t      ; one CSINC
 //!               r  = copy rn
-//!   the site:   x = copy r                   ; was srem i, p
+//!   the site:   x = copy r               ; was srem i, p
 //! ```
+//!
+//! `m` is computed where the counter starts, so it lives across this
+//! loop only; a constant divisor's is an immediate. The move is two
+//! instructions, as many as the `sdiv` / `msub` it replaces, so no
+//! loop runs more of them; comparing after the increment against `p`
+//! itself keeps one register fewer but costs one more instruction per
+//! trip (array-any-str-to-num-1m ran 1.8% more instructions that way).
 //!
 //! The move runs once per trip around the loop when every back edge
 //! leaves a block holding one step `i = copy (i + 1)`: no step
@@ -40,9 +48,10 @@
 //! check frem_guard puts in front of its integer arm,
 //! `(... | (p - 1) >>> 53) != 0`. With only the test, `p` may be
 //! anything on entry; the counter then runs without being read, and
-//! its start divides by 1 when `p < 1`. The start adds `p - 1` to `i`
-//! only when `p ≤ 2^62` wherever it is read, so the sum cannot wrap. A dividend that may be negative, a step other than `+ 1`, a
-//! divisor the loop writes, or one not proven `≥ 1` keeps the `srem`.
+//! its start divides by 1 when `p < 1`. A start one move short is
+//! `(i mod p) - 1`, never a sum with `i`, so nothing can wrap. A
+//! dividend that may be negative, a step other than `+ 1`, a divisor
+//! the loop writes, or one not proven `≥ 1` keeps the `srem`.
 //! Powers of two keep it too: their remainder is one `and`.
 //!
 //! Runs in `fact_folds` after frem_guard (whose integer arms it takes)
@@ -116,8 +125,8 @@ type At = (usize, usize);
 enum Proof {
     /// everywhere: the facts, or a constant
     Everywhere,
-    /// past a test (`window`), which may spell `p - 1`
-    Tested(Option<ValueId>),
+    /// past a test (`window`)
+    Tested,
 }
 
 /// One counter: the remainders of `i` by `p` in one loop.
@@ -126,15 +135,10 @@ struct Group {
     p: Operand,
     /// the block whose end starts the counter
     entry: BlockId,
-    /// `p - 1`: a constant, a value already computed before `entry`,
-    /// or `None` to compute it there
-    pm1: Option<Operand>,
     /// `i` is 0 at the end of `entry`
     zero: bool,
     /// `p ≥ 1` holds at `entry` too (else only at the sites)
     proven: bool,
-    /// `p ≤ 2^62` wherever `p ≥ 1` is known: `i + p - 1` cannot wrap
-    small: bool,
     sites: Vec<At>,
     /// the in-loop `i = copy (i + 1)` defs
     steps: Vec<At>,
@@ -206,23 +210,13 @@ fn find_groups(
             let Some(entry) = cfg.entry_block(dom, lp, *i) else {
                 continue;
             };
-            let below = |v: &ValueId| facts.get(v).is_some_and(|f| f.hi <= 1 << 62);
-            let (pm1, proven, small) = match (p, divisor_at_least_one(&cfg, dom, facts, b, p)) {
-                (Operand::ConstI64(c), Some(_)) => (Some(Operand::ConstI64(c - 1)), true, true),
+            let proven = match (p, divisor_at_least_one(&cfg, dom, facts, b, p)) {
+                (Operand::ConstI64(_), Some(_)) => true,
                 (Operand::Value(pv), Some(proof)) if !cfg.defined_in(*pv, lp) => {
                     if !cfg.settled_at(*pv, entry, dom) {
                         continue;
                     }
-                    match proof {
-                        Proof::Everywhere => (None, true, below(pv)),
-                        // a window test bounds `p` by `2^(64-k)`, `k ≥ 2`
-                        Proof::Tested(m) => (
-                            m.filter(|m| cfg.settled_at(*m, entry, dom))
-                                .map(Operand::Value),
-                            false,
-                            m.is_some() || below(pv),
-                        ),
-                    }
+                    matches!(proof, Proof::Everywhere)
                 }
                 _ => continue,
             };
@@ -230,10 +224,8 @@ fn find_groups(
                 i: *i,
                 p: *p,
                 entry,
-                pm1,
                 zero: cfg.zero_at(entry, *i),
                 proven,
-                small,
                 sites: Vec::new(),
                 trip: cfg
                     .steps_close_iterations(la, lp, &steps)
@@ -307,7 +299,7 @@ fn divisor_at_least_one(
             Some(Proof::Everywhere)
         }
         Operand::Value(pv) if facts.get(pv).is_some_and(|f| f.lo >= 1) => Some(Proof::Everywhere),
-        Operand::Value(pv) => window::tested_window(cfg, dom, b, *pv).map(Proof::Tested),
+        Operand::Value(pv) => window::tested_window(cfg, dom, b, *pv).then_some(Proof::Tested),
         _ => None,
     }
 }
@@ -316,15 +308,18 @@ fn divisor_at_least_one(
 fn emit(func: &mut Function, g: Group, edits: &mut Vec<(At, Vec<Inst>)>) {
     let r = push_value(&mut func.values, Type::I64);
     let mut head = Vec::new();
-    let pm1 = g.pm1.unwrap_or_else(|| {
-        let m = push_value(&mut func.values, Type::I64);
-        head.push(inst(
-            m,
-            InstKind::BinOp(BinOp::Sub, g.p, Operand::ConstI64(1)),
-        ));
-        Operand::Value(m)
-    });
-    let start = start_value(func, &g, pm1, &mut head);
+    let pm1 = match g.p {
+        Operand::ConstI64(k) => Operand::ConstI64(k - 1),
+        p => {
+            let m = push_value(&mut func.values, Type::I64);
+            head.push(inst(
+                m,
+                InstKind::BinOp(BinOp::Sub, p, Operand::ConstI64(1)),
+            ));
+            Operand::Value(m)
+        }
+    };
+    let start = start_value(func, &g, &mut head);
     head.push(inst(r, InstKind::Copy(Type::I64, start)));
     let e = g.entry.0 as usize;
     edits.push(((e, func.blocks[e].insts.len()), head));
@@ -344,13 +339,10 @@ fn emit(func: &mut Function, g: Group, edits: &mut Vec<(At, Vec<Inst>)>) {
 
 /// What the counter holds on entry: `i mod p`, or, when each trip
 /// moves it before anything reads it, one move short of that.
-fn start_value(func: &mut Function, g: &Group, pm1: Operand, head: &mut Vec<Inst>) -> Operand {
+fn start_value(func: &mut Function, g: &Group, head: &mut Vec<Inst>) -> Operand {
+    let short = g.trip.is_some();
     if g.zero {
-        return if g.trip.is_some() {
-            pm1
-        } else {
-            Operand::ConstI64(0)
-        };
+        return Operand::ConstI64(if short { -1 } else { 0 });
     }
     let mut def = |func: &mut Function, ty: Type, kind: InstKind| {
         let v = push_value(&mut func.values, ty);
@@ -369,35 +361,25 @@ fn start_value(func: &mut Function, g: &Group, pm1: Operand, head: &mut Vec<Inst
         let pick = InstKind::Select(Type::I64, low, Operand::ConstI64(1), g.p);
         def(func, Type::I64, pick)
     };
-    let rem = |x: Operand| InstKind::BinOp(BinOp::SRem, x, q);
-    if g.trip.is_none() {
-        return def(func, Type::I64, rem(Operand::Value(g.i)));
-    }
-    if g.small {
-        // `(i + p - 1) mod p`, one move short of `i mod p`
-        let t = def(
-            func,
-            Type::I64,
-            InstKind::BinOp(BinOp::Add, Operand::Value(g.i), pm1),
-        );
-        return def(func, Type::I64, rem(t));
-    }
-    let s = def(func, Type::I64, rem(Operand::Value(g.i)));
-    let z = def(
+    let s = def(
         func,
-        Type::Bool,
-        InstKind::ICmp(IPred::Eq, s, Operand::ConstI64(0)),
+        Type::I64,
+        InstKind::BinOp(BinOp::SRem, Operand::Value(g.i), q),
     );
-    let d = def(
+    if !short {
+        return s;
+    }
+    def(
         func,
         Type::I64,
         InstKind::BinOp(BinOp::Sub, s, Operand::ConstI64(1)),
-    );
-    def(func, Type::I64, InstKind::Select(Type::I64, z, pm1, d))
+    )
 }
 
 /// One move of the counter `r`: `r = r == p - 1 ? 0 : r + 1`, spelled
 /// as the compare / add / select run the backend fuses into one CSINC.
+/// A counter at -1 moves to 0, `p - 1` being at least 0 wherever the
+/// counter is read.
 fn advance(func: &mut Function, r: ValueId, pm1: Operand) -> Vec<Inst> {
     let c = push_value(&mut func.values, Type::Bool);
     let t = push_value(&mut func.values, Type::I64);
