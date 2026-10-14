@@ -17,8 +17,8 @@
 //!   args.len() >= 2
 //! - `Some(Ok(Type::Nullable<Array<String>>))` for match under
 //!   the same gates
-//! - `Some(Ok(Type::Any))` for single-arg `match` with an
-//!   Any-typed pattern — the §22.1.3.13 step-3 custom `@@match`
+//! - `Some(Ok(Type::Any))` for single-arg `match` / `matchAll` with
+//!   an Any-typed pattern — the custom `@@match` / `@@matchAll`
 //!   shape (`ssa_lower_call_str_match_custom` is the SSA mirror)
 //! - `Some(Err(_))` on receiver / arg type_of failure
 //! - `None` otherwise (non-Member callee, m_name not in
@@ -46,12 +46,13 @@ pub(crate) fn try_match(
         return None;
     }
     // §22.1.3.13 step 3 — a single-arg `s.match(x)` whose pattern
-    // syntactically can carry a user `@@match` types `any` (the SSA
+    // syntactically can carry a user `@@match` types `any` (matchAll's
+    // step 2.c `@@matchAll` likewise; the SSA
     // mirror is `ssa_lower_call_str_match_custom`). The syntactic
     // probe runs BEFORE any type_of so a non-matching shape falls
     // through with the cascade completely untouched.
     if args.len() == 1 {
-        if m_name != "match" || !any_pattern_may_carry_matcher(ast, args[0]) {
+        if !any_pattern_may_carry_matcher(ast, args[0]) {
             return None;
         }
         let src_ty = match crate::check::receiver_type(checker, ast, *src_id) {

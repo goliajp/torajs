@@ -1,6 +1,7 @@
 //! §22.1.3.13 / §22.1.3.20 String.prototype.{match,search} step 3 —
 //! the custom `@@match` / `@@search` branch for an Any-typed pattern
-//! argument (rotation 262).
+//! argument (rotation 262), and matchAll's step-2.c `@@matchAll`
+//! twin.
 //!
 //! `"".match(obj)` where `obj[Symbol.match] = fn` (and the search
 //! twin): step 3.a runs GetMethod(regexp, @@sym); when it answers a
@@ -47,6 +48,9 @@ pub(crate) enum SymbolDispatchKind {
     Match,
     /// `@@search`, wk idx 9; coerce answers `regex_search` (I64).
     Search,
+    /// `@@matchAll`, wk idx 7; coerce answers `regex_match_all` over
+    /// a `"g"` RegExp (§22.1.3.13 step 4).
+    MatchAll,
 }
 
 /// Lower `s.match(x)` / `s.search(x)` with an Any-typed `x`.
@@ -62,6 +66,7 @@ pub(crate) fn lower_symbol_dispatch_pattern(
     let wk_idx = match kind {
         SymbolDispatchKind::Match => 6,
         SymbolDispatchKind::Search => 9,
+        SymbolDispatchKind::MatchAll => 7,
     };
     // Argument evaluation in source order: the pattern first, then
     // trailing args per the S286 eval-then-discard idiom (spec reads
@@ -118,7 +123,11 @@ pub(crate) fn lower_symbol_dispatch_pattern(
     let arg_ty = ctx.operand_ty(&raw_arg);
     let pat_op =
         crate::ssa_lower_call_coercion::emit_to_string(ctx, args[0], raw_arg, arg_ty, false);
-    let flags_v = ctx.intern_string_literal("");
+    let flags_v = ctx.intern_string_literal(if kind == SymbolDispatchKind::MatchAll {
+        "g"
+    } else {
+        ""
+    });
     let re_v = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(
@@ -158,6 +167,20 @@ pub(crate) fn lower_symbol_dispatch_pattern(
                 None,
             );
             Operand::Value(idx_v)
+        }
+        SymbolDispatchKind::MatchAll => {
+            let inner_id = crate::ssa_lower::intern_arr_layout(ctx.arr_layouts, Type::Str);
+            let outer_id = crate::ssa_lower::intern_arr_layout(ctx.arr_layouts, Type::Arr(inner_id));
+            let arr_v = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.regex_match_all,
+                    vec![recv_op, Operand::Value(re_v)],
+                ),
+                Type::Arr(outer_id),
+                None,
+            );
+            Operand::Value(arr_v)
         }
     };
     ctx.f.append_void(

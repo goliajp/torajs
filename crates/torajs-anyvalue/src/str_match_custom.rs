@@ -37,22 +37,27 @@ unsafe extern "C" {
 
 /// `WELL_KNOWN_DESCS` indices — pick the invoke legs'
 /// not-a-function message (torajs-core's gate passes 6 = `@@match`
-/// / 8 = `@@replace` / 9 = `@@search` / 11 = `@@split` as the
-/// `wk_idx` operand).
+/// / 7 = `@@matchAll` / 8 = `@@replace` / 9 = `@@search` / 11 =
+/// `@@split` as the `wk_idx` operand).
+pub(crate) const WK_MATCH_ALL: i64 = 7;
 const WK_REPLACE: i64 = 8;
 const WK_SEARCH: i64 = 9;
 pub(crate) const WK_SPLIT: i64 = 11;
 
-/// The per-symbol GetMethod step-4 TypeError text.
+/// The per-symbol GetMethod step-4 TypeError text, in the spec's
+/// `@@name` spelling. Kept short: every program that links the
+/// dispatch carries all five.
 fn not_a_function_msg(wk_idx: i64) -> &'static core::ffi::CStr {
     if wk_idx == WK_SEARCH {
-        c"o[Symbol.search] is not a function"
+        c"@@search is not callable"
     } else if wk_idx == WK_REPLACE {
-        c"o[Symbol.replace] is not a function"
+        c"@@replace is not callable"
     } else if wk_idx == WK_SPLIT {
-        c"o[Symbol.split] is not a function"
+        c"@@split is not callable"
+    } else if wk_idx == WK_MATCH_ALL {
+        c"@@matchAll is not callable"
     } else {
-        c"o[Symbol.match] is not a function"
+        c"@@match is not callable"
     }
 }
 
@@ -68,7 +73,8 @@ const TAG_NULL: u64 = 0;
 /// check — and `0` when there is no custom method, which is the
 /// caller's cue to run its step-4 coerce lane.
 ///
-/// `argc` is 1 for the `«S»` faces (`@@match` / `@@search`) and 2 for
+/// `argc` is 1 for the `«S»` faces (`@@match` / `@@matchAll` /
+/// `@@search`) and 2 for
 /// the `«S, extra»` ones (`@@replace`'s replaceValue, `@@split`'s
 /// raw limit).
 ///

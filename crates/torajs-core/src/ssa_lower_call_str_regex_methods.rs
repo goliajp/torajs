@@ -374,8 +374,9 @@ pub(crate) fn try_lower(
     } else {
         raw_recv
     };
-    // §22.1.3.{13,20} step 3 — an Any-typed pattern may carry a
-    // user `@@match` / `@@search` method; branch on the runtime
+    // §22.1.3.{13,20} step 3 (matchAll: step 2.c) — an Any-typed
+    // pattern may carry a user `@@match` / `@@matchAll` / `@@search`
+    // method; branch on the runtime
     // probe before the step-4 coerce. The checker mirrors this
     // exact gate with a `Type::Any` result
     // (`check_type_of_call_string_match` / `_search_regex`), so
@@ -385,15 +386,15 @@ pub(crate) fn try_lower(
     let symbol_dispatch = if replace_symbol_lane {
         Some(crate::ssa_lower_call_str_match_custom::lower_replace_any_pattern(ctx, recv_op, args))
     } else if coerce_match_lane
-        && matches!(name.as_str(), "match" | "search")
+        && (matches!(name.as_str(), "match" | "search") || (name == "matchAll" && args.len() == 1))
         && arg0_is_any
         && symbol_face_may_be_rewritten
     {
         use crate::ssa_lower_call_str_match_custom::SymbolDispatchKind;
-        let kind = if name == "search" {
-            SymbolDispatchKind::Search
-        } else {
-            SymbolDispatchKind::Match
+        let kind = match name.as_str() {
+            "search" => SymbolDispatchKind::Search,
+            "matchAll" => SymbolDispatchKind::MatchAll,
+            _ => SymbolDispatchKind::Match,
         };
         Some(
             crate::ssa_lower_call_str_match_custom::lower_symbol_dispatch_pattern(
