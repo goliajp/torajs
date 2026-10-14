@@ -1582,12 +1582,10 @@ pub struct Ast {
     pub script_global_var_names:
         std::collections::BTreeMap<String, super::var_hoist::ScriptGlobalVar>,
     /// RFC 20260912-global-var-cell knife 4 — the `var` sites the eval
-    /// desugar inlined, by the declaration's `init` slot (fresh per
-    /// site), each with the flavour its text gives it: an eval's `var`
-    /// is a deletable global (§19.2.1.3), a Script's is not (§16.1.7),
-    /// and both bind their property where the text ran, not at program
-    /// start. A name the program itself also declares stays a written
-    /// `var` — its sites are not all in here.
+    /// desugar inlined, by `init` slot, with the flavour its text gives:
+    /// an eval's `var` is deletable (§19.2.1.3), a Script's is not
+    /// (§16.1.7); a name the program declares stays a written `var`.
+    /// After the hoist: the binding self-reads (`mark_eval_var_sites`).
     pub eval_var_sites: std::collections::HashMap<ExprId, super::var_hoist::ScriptGlobalVar>,
     /// RFC 20260912-global-var-cell knife 4 — the script-global names
     /// with NO bare compiled writer: no assignment / update names them
@@ -1621,6 +1619,8 @@ pub struct Ast {
     /// declaration (`drop_script_shadowed_decls`) — flat, the two would
     /// be one name declared twice to the checker.
     pub script_lex_names: std::collections::HashSet<String>,
+    /// What an eval's global instantiation needs (`EvalGlobalNames`).
+    pub eval_global_names: super::var_hoist_eval_sites::EvalGlobalNames,
     /// RFC 20260825-injection-reachability — the parser met at least
     /// one `try` or `throw` statement, at ANY nesting depth. The
     /// injection reachability gate's catch-face door reads this flag:

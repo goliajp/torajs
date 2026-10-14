@@ -133,6 +133,7 @@ mod completion_stmt;
 mod const_prop;
 mod foreign_spans;
 mod function_ctor;
+mod instantiate;
 mod param_default;
 mod param_default_arrow;
 mod recognize;

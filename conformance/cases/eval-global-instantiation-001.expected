@@ -1,0 +1,16 @@
+undefined
+read before true
+1 number
+undefined
+fn before true
+function 1
+undefined true
+head undefined true
+function 3
+after if 4
+undefined ReferenceError
+string five
+assigned true
+catch head undefined
+function 7
+decl 8 decl

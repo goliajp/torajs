@@ -118,6 +118,7 @@ impl Names {
 /// the inlining walk, on the program as parsed.
 pub(super) fn throw_colliding_scripts(ast: &mut Ast) {
     let mut reg = Names::of(&ast.stmts);
+    ast.eval_global_names.program_lex = reg.lex.clone();
     // The program is itself a Script under the script goal: §16.1.7
     // step 5.c on ITS lexical names, before any of it runs. The whole
     // program becomes the throw — GlobalDeclarationInstantiation fails
@@ -228,6 +229,9 @@ fn visit(s: &mut Stmt, ast: &mut Ast, reg: &mut Names, in_fn: bool, sink: &mut V
                 if let Stmt::FnDecl { name, .. } = st
                     && !reg.program_fns.contains(name)
                 {
+                    if ast.eval_fn_names.contains_key(name) {
+                        ast.eval_global_names.multi_text_fns.insert(name.clone());
+                    }
                     ast.eval_fn_names.entry(name.clone()).or_insert(fn_flavor);
                 }
             }

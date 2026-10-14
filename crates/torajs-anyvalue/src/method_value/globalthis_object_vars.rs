@@ -266,8 +266,10 @@ pub unsafe extern "C" fn __torajs_global_var_bind(
 /// its throw is recorded for the caller's check); a data property's
 /// value is copied, with a stake of its own on a heap payload. Once
 /// the text has bound the property, the entry is a cell over this slot
-/// and nothing moves. An absent property leaves the slot as it is: its
-/// `undefined`, or a value the program stored.
+/// and nothing moves. An absent property is an unbound name — every
+/// compiled write of the name binds it, so the text has not run, or
+/// the binding was deleted — and the read a ReferenceError, recorded
+/// for the caller's check.
 ///
 /// The slot owns what it holds, so the payload it held is released.
 ///
@@ -282,25 +284,17 @@ pub unsafe extern "C" fn __torajs_global_var_sync(key: *mut c_void, slot_ptr: *m
     // cell and `slot_ptr` a live slot per the caller invariant; every
     // callee borrows what it is handed.
     unsafe {
-        if obj.is_null()
-            || __torajs_dynobj_has(obj, key) == 0
-            || __torajs_dynobj_entry_is_global_cell(obj, key) != 0
+        if !obj.is_null()
+            && __torajs_dynobj_has(obj, key) != 0
+            && __torajs_dynobj_entry_is_global_cell(obj, key) != 0
         {
             return;
         }
-        let tag = __torajs_dynobj_get_tag(obj, key);
-        let value = __torajs_dynobj_get_value(obj, key);
-        let fresh = if tag == ANY_ACCESSOR {
-            __torajs_accessor_invoke_getter(
-                value as *const c_void,
-                crate::nanbox::box_void_ptr(obj),
-            )
-        } else {
-            if tag == ANY_HEAP {
-                __torajs_rc_inc(value as *mut c_void);
-            }
-            __torajs_anyv_box_from_pair(tag as i64, value as i64)
-        };
+        // The bare read of an unresolved name answers the rest: the
+        // property's value (an accessor's getter run, a heap payload
+        // with its own stake), or, absent, a recorded ReferenceError
+        // and the `undefined` an unbound name's slot holds.
+        let fresh = super::globalthis_object_idents::__torajs_global_ident_get(key);
         let old = *(slot_ptr as *const u64);
         *(slot_ptr as *mut u64) = fresh;
         if __torajs_anyv_unbox_tag(old) as u64 == ANY_HEAP {

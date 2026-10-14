@@ -1,33 +1,112 @@
-//! A bare read of a name that only a LATER eval / Script declares —
+//! A bare read of a name that only an eval / Script declares —
 //! `EvalVar` / `ScriptVar` in `Ast::script_global_var_names`, the
 //! flavours whose property binds where the text runs (RFC
-//! 20260912-global-var-cell knife 4) rather than in the prelude.
+//! 20260912-global-var-cell knife 4) rather than in the prelude, and
+//! the `EvalFn` functions of the same texts.
 //!
 //! Until that text has run the name has no declarative binding at all
 //! (§16.1.7 / §19.2.1.3 instantiate it then), so §9.1.1.4
 //! GetBindingValue resolves it on the OBJECT half of the global
 //! record: `Object.defineProperty(this, "f", {value: "x"})` followed
 //! by a Script that declares `f` makes every `f` between the two read
-//! `"x"`. The compiled program keeps one slot for the name from the
-//! start, and every read loads it; so before the load the slot is
-//! refreshed from the object's own property (`__torajs_global_var_sync`
-//! — an accessor's getter runs, and may throw). Once the text has
+//! `"x"`, and with no such property the read is a ReferenceError
+//! (`typeof` answers `"undefined"`). The compiled program keeps one
+//! slot for the name from the start, and every read loads it; so
+//! before the load the slot is refreshed from the object's own
+//! property (`__torajs_global_var_sync` — an accessor's getter runs,
+//! and may throw, and an absent property throws). Once the text has
 //! bound the property it is a cell over this very slot and the kernel
-//! answers at once; an absent property leaves the slot as it is.
+//! answers at once.
 //!
-//! A written `var` or a function binding is never here: their
-//! property exists from instantiation over the slot itself.
+//! A written `var` or a program function is never here: their
+//! property exists from instantiation over the slot itself. Nor is a
+//! program without eval / Script text: these flavours come only from
+//! one, so such a program emits nothing extra.
 
-use crate::ssa::{InstKind, Operand, ValueId};
+use crate::ast::ScriptGlobalVar;
+use crate::ssa::{InstKind, Operand, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 
-pub(crate) fn emit_sync(ctx: &mut LowerCtx<'_>, name: &str, slot: ValueId) {
+pub(crate) fn emit_sync(
+    ctx: &mut LowerCtx<'_>,
+    eid: crate::ast::ExprId,
+    name: &str,
+    slot: ValueId,
+) {
     if !matches!(
         ctx.ast.script_global_var_names.get(name),
-        Some(crate::ast::ScriptGlobalVar::EvalVar | crate::ast::ScriptGlobalVar::ScriptVar)
+        Some(ScriptGlobalVar::EvalVar | ScriptGlobalVar::ScriptVar)
     ) {
         return;
     }
+    // The `x = x` that creates the binding reads the slot before the
+    // property exists (`var_hoist_eval_sites::mark_eval_var_sites`).
+    if ctx.ast.eval_var_sites.contains_key(&eid) {
+        return;
+    }
+    call_sync(ctx, name, slot);
+}
+
+/// A value read of an eval's top-level function: its property binds
+/// at the head of the text (`script_global_fns`), and before that the
+/// name is unbound. The read itself stays the declaration's value
+/// lane; this only raises the ReferenceError ahead of it.
+pub(crate) fn emit_eval_fn_presence(ctx: &mut LowerCtx<'_>, name: &str) {
+    let Some(slot_name) = eval_fn_slot(ctx, name) else {
+        return;
+    };
+    let cur_block = ctx.cur_block;
+    let ptr = ctx
+        .f
+        .append_inst(cur_block, InstKind::GlobalRef(slot_name), Type::Ptr, None);
+    call_sync(ctx, name, ptr);
+}
+
+/// `typeof` on one of these names: the object answers, absent or not
+/// (§13.5.3 step 2.a), through the kernel an unresolvable name uses.
+pub(crate) fn try_typeof(ctx: &mut LowerCtx<'_>, name: &str) -> Option<Operand> {
+    if ctx.locals.contains_key(name) {
+        return None;
+    }
+    let var = matches!(
+        ctx.ast.script_global_var_names.get(name),
+        Some(ScriptGlobalVar::EvalVar | ScriptGlobalVar::ScriptVar)
+    ) && ctx.globals.contains_key(name);
+    if !var && eval_fn_slot(ctx, name).is_none() {
+        return None;
+    }
+    let key = ctx.intern_string_literal(name);
+    let f = ctx.intrinsics.global_ident_typeof;
+    let cur_block = ctx.cur_block;
+    let v = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(f, vec![Operand::Value(key)]),
+        Type::Str,
+        None,
+    );
+    ctx.emit_throw_check_owned(None, Operand::Value(v), Type::Str);
+    Some(Operand::Value(v))
+}
+
+/// The hidden slot of an eval's function, when the name has one whose
+/// binding happens at a single place — not a Script's (bound where its
+/// declaration sits, which a read inside the Script may precede), and
+/// not one several texts declare.
+fn eval_fn_slot(ctx: &LowerCtx<'_>, name: &str) -> Option<String> {
+    if ctx.ast.eval_fn_names.get(name) != Some(&ScriptGlobalVar::EvalFn)
+        || ctx.locals.contains_key(name)
+        || ctx.ast.eval_global_names.multi_text_fns.contains(name)
+    {
+        return None;
+    }
+    let slot = format!(
+        "{}{name}",
+        crate::ast::script_global_fns::SCRIPT_GLOBAL_FN_SLOT_PREFIX
+    );
+    ctx.globals.contains_key(&slot).then_some(slot)
+}
+
+fn call_sync(ctx: &mut LowerCtx<'_>, name: &str, slot: ValueId) {
     let key = ctx.intern_string_literal(name);
     let sync = ctx.intrinsics.global_var_sync;
     let cur_block = ctx.cur_block;

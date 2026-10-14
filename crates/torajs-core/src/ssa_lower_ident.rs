@@ -73,6 +73,8 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: crate::ast::ExprId, name: &str)
         if name == "Infinity" {
             return Operand::ConstF64(f64::INFINITY);
         }
+        // An eval's function is unbound until its text has run.
+        crate::ssa_lower_ident_site_bound::emit_eval_fn_presence(ctx, name);
         // L3b ③ — a generic-fn VALUE escape was retargeted by the
         // checker to its all-`any` clone (`$$anywv`); take the
         // CLONE's address — the generic original never lowers.
@@ -87,7 +89,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: crate::ast::ExprId, name: &str)
         if let Some(op) = try_inline_const_literal(ctx, eid, name) {
             return op;
         }
-        if let Some(op) = try_k3_global_data(ctx, name) {
+        if let Some(op) = try_k3_global_data(ctx, eid, name) {
             return op;
         }
         if let Some(op) = try_class_sentinel(ctx, name) {
@@ -414,7 +416,11 @@ fn try_inline_const_literal(
     Some(Operand::Value(ctx.intern_string_literal(&sv)))
 }
 
-fn try_k3_global_data(ctx: &mut LowerCtx<'_>, name: &str) -> Option<Operand> {
+fn try_k3_global_data(
+    ctx: &mut LowerCtx<'_>,
+    eid: crate::ast::ExprId,
+    name: &str,
+) -> Option<Operand> {
     let ty = ctx.globals.get(name).copied()?;
     let cur_block = ctx.cur_block;
     let ptr = ctx.f.append_inst(
@@ -425,7 +431,7 @@ fn try_k3_global_data(ctx: &mut LowerCtx<'_>, name: &str) -> Option<Operand> {
     );
     // A name a LATER eval / Script declares reads the object's own
     // property until the text has run (rotation 640).
-    crate::ssa_lower_ident_site_bound::emit_sync(ctx, name, ptr);
+    crate::ssa_lower_ident_site_bound::emit_sync(ctx, eid, name, ptr);
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur_block,

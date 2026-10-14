@@ -77,6 +77,9 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, expr: ExprId) -> Operand {
     if let Expr::Ident(name) = ctx.ast.get_expr(expr) {
         let name = name.clone();
         crate::ssa_lower_ident::emit_tdz_raise(ctx, expr, &name);
+        if let Some(op) = crate::ssa_lower_ident_site_bound::try_typeof(ctx, &name) {
+            return op;
+        }
     }
     if let Some(check_mod::Type::Undefined) = ctx.expr_types.get(&expr) {
         // Chunk 806 — typeof evaluates its operand (ES §13.5.3); a
