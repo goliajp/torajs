@@ -422,6 +422,8 @@ impl<'a> Parser<'a> {
                     self.at()
                 ));
             }
+            let script_may_parse = self.await_operand_may_continue_name();
+            self.note_module_only_await(script_may_parse);
             self.pos += 1;
             let inner = self.parse_unary()?;
             let read = self.ast.add_expr(Expr::Member {

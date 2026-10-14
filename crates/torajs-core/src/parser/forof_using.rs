@@ -52,12 +52,16 @@ impl<'a> Parser<'a> {
             }
             _ => return None,
         };
-        (matches!(self.tokens.get(u_at + 1).map(|t| &t.token), Some(Token::Ident(n)) if n != "of" && n != "in")
-            && matches!(self.tokens.get(u_at + 2).map(|t| &t.token), Some(Token::Ident(n)) if n == "of" || n == "in"))
-        .then(|| {
-            self.pos = u_at + 1; // past `await`? + `using`
-            is_await
-        })
+        let head = matches!(self.tokens.get(u_at + 1).map(|t| &t.token), Some(Token::Ident(n)) if n != "of" && n != "in")
+            && matches!(self.tokens.get(u_at + 2).map(|t| &t.token), Some(Token::Ident(n)) if n == "of" || n == "in");
+        if !head {
+            return None;
+        }
+        if is_await {
+            self.note_module_only_await(false);
+        }
+        self.pos = u_at + 1; // past `await`? + `using`
+        Some(is_await)
     }
 
     /// Body wrap: mint the fresh loop local and open the body with

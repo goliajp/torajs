@@ -144,6 +144,7 @@ pub(super) fn parse_eval_source(
     let exprs_before = ast.exprs.len();
     let octal_before = ast.legacy_octal_positions.len();
     let strict_spans_before = ast.strict_code_spans.len();
+    let module_await_before = ast.module_await_positions.len();
     let is_strict = strict == EvalStrictness::Strict;
     let stmts = parse_once(src, ast, super_ok, is_strict)
         .and_then(reject_module_decls)
@@ -184,6 +185,14 @@ pub(super) fn parse_eval_source(
         });
     ast.legacy_octal_positions.truncate(octal_before);
     ast.strict_code_spans.truncate(strict_spans_before);
+    // Eval code is Script code (§19.2.1.1), so an `await` the parser
+    // read as a top-level operator is the script goal's SyntaxError
+    // (`ast::triage_await_idents`), whatever the program's own goal.
+    let module_await = ast.module_await_positions.len() > module_await_before;
+    ast.module_await_positions.truncate(module_await_before);
+    if module_await {
+        return Err(neutralize(ast, exprs_before, EvalRefusal::EarlyError));
+    }
     if crate::ast_early_redecl::eval_code_redecl(&stmts, ast, text_strict).is_some() {
         return Err(neutralize(ast, exprs_before, EvalRefusal::EarlyError));
     }

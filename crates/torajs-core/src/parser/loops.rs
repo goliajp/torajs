@@ -281,6 +281,8 @@ impl<'a> Parser<'a> {
         // to be a C-style for, we emit a clean error since `for
         // await` requires the iterable form.
         let is_async = if matches!(self.peek(), Token::Await) {
+            // `for await` has no name reading: `for` must meet `(`
+            self.note_module_only_await(false);
             self.pos += 1;
             true
         } else {

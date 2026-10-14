@@ -11,16 +11,26 @@
 //! records each site in `ast.await_ident_positions` (the rotation-374
 //! `yield` pattern). This raw-AST gate, run in the prelude beside the
 //! yield triage, raises the module-goal SyntaxError; under the script
-//! goal the admitted identifiers are already exactly right and
-//! nothing moves.
+//! goal the admitted identifiers are already exactly right; what the
+//! script goal refuses instead is a top-level AwaitExpression the
+//! parser read for the module goal.
 
 use super::Ast;
 
-/// `Some(msg)` = module-goal SyntaxError (the caller reports it as a
-/// parse error and stops). Script goal always answers `None`.
+/// `Some(msg)` = goal SyntaxError (the caller reports it as a parse
+/// error and stops). The module goal refuses the admitted names; the
+/// script goal refuses the top-level `await` operators the parser read
+/// for the module goal (`ast.module_await_positions`) whose name
+/// reading cannot parse either: `await x;`, `await using x = y;`,
+/// `for await (...)` at a Script's top level (§13.1.1, §15.8.1).
 pub fn triage_await_idents(ast: &Ast) -> Option<String> {
     if ast.sloppy_script_goal {
-        return None;
+        return ast.module_await_positions.first().map(|at| {
+            format!(
+                "`await` is only valid in async functions and at the top level of a module at \
+                 {at} (ES §15.8.1)"
+            )
+        });
     }
     ast.await_ident_positions
         .first()

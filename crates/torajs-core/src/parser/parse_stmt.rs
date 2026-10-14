@@ -189,6 +189,10 @@ impl<'a> Parser<'a> {
                         self.at()
                     ));
                 }
+                // a Script reads `await` as a name, which `using` on the
+                // same line cannot follow
+                let script_may_parse = self.has_newline_before(self.pos + 1);
+                self.note_module_only_await(script_may_parse);
                 self.pos += 1; // consume `await`
                 return self.parse_using_decl(true);
             }

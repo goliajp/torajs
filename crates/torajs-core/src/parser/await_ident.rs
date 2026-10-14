@@ -101,6 +101,45 @@ impl Parser<'_> {
         self.await_reads_as_ident() && (!self.await_allowed || self.await_next_token_ends_a_name())
     }
 
+    /// Record an `await` the parser is about to take as an operator
+    /// (AwaitExpression, `await using`, `for await`) at a program's top
+    /// level, where only the module goal makes it one. Under the script
+    /// goal the word is an IdentifierReference (§13.1.1) and
+    /// `ast::triage_await_idents` refuses the site — but only sites
+    /// whose name reading cannot parse either: `script_may_parse` is
+    /// the caller's judgement of that.
+    pub(super) fn note_module_only_await(&mut self, script_may_parse: bool) {
+        if self.await_allowed && !self.await_reserved && !script_may_parse {
+            let at = self.at();
+            self.ast.module_await_positions.push(at);
+        }
+    }
+
+    /// Whether a Script could read the `await` at the cursor, taken
+    /// here as an AwaitExpression, as a name: a line break after it
+    /// lets ASI end the statement (`await\nf()`), and an operand that
+    /// can also continue a name makes a call, an index, a tagged
+    /// template or a binary operator of it (`await (x)`, `await [0]`,
+    /// `await - 1`, `await /x/g`).
+    pub(super) fn await_operand_may_continue_name(&self) -> bool {
+        self.has_newline_before(self.pos + 1)
+            || matches!(
+                self.tokens.get(self.pos + 1).map(|t| &t.token),
+                Some(
+                    Token::LParen
+                        | Token::LBracket
+                        | Token::Template { .. }
+                        | Token::Plus
+                        | Token::Minus
+                        | Token::PlusPlus
+                        | Token::MinusMinus
+                        | Token::Slash
+                        | Token::SlashEq
+                        | Token::Regex { .. }
+                )
+            )
+    }
+
     /// Record an admitted binding-position `await` for the module-goal
     /// gate and return the name the caller binds.
     pub(super) fn admit_await_ident(&mut self) -> String {
