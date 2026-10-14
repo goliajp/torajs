@@ -11,7 +11,7 @@ use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
 mod member_set;
-pub(crate) use member_set::{emit_any_member_set, emit_any_member_set_dyn};
+pub(crate) use member_set::{emit_any_member_set, emit_any_member_set_dyn, write_back_recv};
 
 pub(crate) fn lower_dynobj_assign(
     ctx: &mut LowerCtx<'_>,

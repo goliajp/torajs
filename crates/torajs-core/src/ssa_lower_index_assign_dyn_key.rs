@@ -15,6 +15,7 @@
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{Operand, Type};
 use crate::ssa_lower::LowerCtx;
+use crate::ssa_lower_index::dict;
 
 impl<'a> LowerCtx<'a> {
     /// L3b #3 (chunk 527) — an Ident receiver rides its variable slot
@@ -172,22 +173,28 @@ impl<'a> LowerCtx<'a> {
         let v_raw = self.lower_expr(value);
         // Chunk 567 — SHARE, no consume.
         let v_ty = self.operand_ty(&v_raw);
-        let (tag_op, value_op) = self.pack_any_slot_value_shared(value, &v_raw, v_ty);
         let recv_owned = self.expr_transfers_ownership(obj);
-        // Stake before the store (consuming receivers release the
-        // transferred pair inside the kernel).
-        crate::ssa_lower_index_assign::mint_index_assign_value(self, eid, &v_raw);
-        crate::ssa_lower_assign_member_any::emit_any_member_set_dyn(
-            self,
-            self.intrinsics.any_member_set,
-            obj_val,
-            key_v,
-            -1,
-            tag_op,
-            value_op,
-            &obj_ident,
-            recv_owned,
-        );
+        let on_dict = !recv_owned && self.ast.number_dicts.contains(&obj);
+        if on_dict && let Some(boxed) = dict::box_value(self, value, &v_raw, v_ty) {
+            crate::ssa_lower_index_assign::mint_index_assign_value(self, eid, &v_raw);
+            dict::set(self, obj_val, key_v, boxed, &obj_ident);
+        } else {
+            let (tag_op, value_op) = self.pack_any_slot_value_shared(value, &v_raw, v_ty);
+            // Stake before the store (consuming receivers release the
+            // transferred pair inside the kernel).
+            crate::ssa_lower_index_assign::mint_index_assign_value(self, eid, &v_raw);
+            crate::ssa_lower_assign_member_any::emit_any_member_set_dyn(
+                self,
+                self.intrinsics.any_member_set,
+                obj_val,
+                key_v,
+                -1,
+                tag_op,
+                value_op,
+                &obj_ident,
+                recv_owned,
+            );
+        }
         if key_owned {
             // Substr view materialized to a fresh owned Str.
             self.emit_drop_value(key_op, Type::Str);

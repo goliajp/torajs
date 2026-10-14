@@ -117,6 +117,16 @@ pub(crate) fn emit_any_member_set_dyn(
         ctx.emit_drop_value(Operand::Value(fresh), Type::Any);
         return;
     }
+    write_back_recv(ctx, slot, obj_ident);
+}
+
+/// An `any` local receiver takes back the slot a write kernel read it
+/// through (a dynobj resize leaves the relocated cell there).
+pub(crate) fn write_back_recv(
+    ctx: &mut LowerCtx<'_>,
+    slot: crate::ssa::ValueId,
+    obj_ident: &Option<String>,
+) {
     let Some(name) = obj_ident else { return };
     let Some(info) = ctx.locals.get(name).copied() else {
         return;

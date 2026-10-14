@@ -1,21 +1,28 @@
-//! The keyed read the lowering emits for a binding the checker typed
-//! as a dictionary of numbers (`Record<string, number>`).
+//! The keyed read and write the lowering emits for a binding the
+//! checker typed as a dictionary of numbers (`Record<string, number>`).
 //!
 //! The type does not change what the access answers: a key may name an
 //! inherited member (§10.1.8.1 OrdinaryGet walks the chain on a miss)
 //! and an `any` alias may have stored any value. It only says which
-//! outcome to try first. The read is one call that takes and answers
-//! NaN-box values, so the call site is the call alone: an own entry
-//! holding a number is the answer verbatim (a number owns nothing and
-//! is never an accessor), and every other outcome is what the generic
-//! pair read followed by the accessor-or-data result answers.
+//! outcome to try first. Each entry is one call that takes and answers
+//! NaN-box values, so the call site is the call alone:
+//!
+//! - the read answers an own entry holding a number verbatim (a number
+//!   owns nothing and is never an accessor) and every other outcome
+//!   exactly as the generic pair read followed by the accessor-or-data
+//!   result does;
+//! - the write stores into a writable own data entry whose current
+//!   value is an immediate (nothing to release, no setter, no global
+//!   binding behind it) and hands every other case to the member-set
+//!   kernel the generic write calls.
 
 use core::ffi::c_void;
 
 use crate::get::type_tag;
-use crate::layout::{ANY_ACCESSOR, TAG_DYNOBJ};
+use crate::layout::{ANY_ACCESSOR, BUCKET_FLAG_WRITABLE, DYNOBJ_HDR_FLAG_MODULE_NS, TAG_DYNOBJ};
 use crate::nanbox;
-use crate::probe::{entries, probe};
+use crate::probe::{Entry, bucket_flags, entries, probe};
+use crate::set::note_own_write;
 
 unsafe extern "C" {
     /// torajs-anyvalue — both channels of the any-lane member read.
@@ -24,6 +31,21 @@ unsafe extern "C" {
     fn __torajs_any_accessor_get(recv: u64, key: *const c_void, pair_bits: u64) -> u64;
     /// torajs-anyvalue — the caller's own stake on a borrowed box.
     fn __torajs_anyv_retain(v: u64) -> u64;
+    /// torajs-anyvalue — the member-set kernel, strict and sloppy.
+    fn __torajs_any_member_set(
+        recv_slot: *mut u64,
+        key: *mut c_void,
+        tag: u64,
+        value: u64,
+        hint: i64,
+    );
+    fn __torajs_any_member_set_soft(
+        recv_slot: *mut u64,
+        key: *mut c_void,
+        tag: u64,
+        value: u64,
+        hint: i64,
+    ) -> i64;
 }
 
 /// `recv` when it boxes a dynamic object, else `None`.
@@ -48,6 +70,28 @@ unsafe fn own_number(obj: *mut c_void, key: *const c_void) -> Option<u64> {
     nanbox::is_number(v).then_some(v)
 }
 
+/// The entry of `obj` that a write to `key` may overwrite in place: an
+/// own writable data entry holding an immediate. A module namespace
+/// refuses every write (§10.4.6.9) whatever its entries say.
+///
+/// # Safety
+/// `obj` is a live dynobj; `key` is a live Str or Symbol cell.
+#[inline]
+unsafe fn plain_own_entry(obj: *mut c_void, key: *const c_void) -> Option<*mut Entry> {
+    unsafe {
+        if (obj.cast::<u8>().add(6) as *const u16).read() & DYNOBJ_HDR_FLAG_MODULE_NS != 0 {
+            return None;
+        }
+        let p = probe(obj, key);
+        if !p.found {
+            return None;
+        }
+        let e = entries(obj).add(p.entry as usize);
+        let writable = bucket_flags((*e).key_ptr_tagged) & BUCKET_FLAG_WRITABLE != 0;
+        (writable && !nanbox::is_cell((*e).value_anyv)).then_some(e)
+    }
+}
+
 /// `recv[key]` as an owned box.
 ///
 /// # Safety
@@ -68,9 +112,40 @@ pub unsafe extern "C" fn __torajs_dynobj_dict_get(recv: u64, key: *const c_void)
     unsafe { __torajs_anyv_retain(nanbox::box_from_pair(tag as i64, value as i64)) }
 }
 
-// The generic read lives in torajs-anyvalue, whose archive the unit
-// tests do not link: the tests stay on own number entries, so any call
-// reaching these is a test bug.
+/// `*recv_slot[key] = v`, `v` carrying the caller's stake on a heap
+/// payload. `throw_on_refusal` is the strict goal's §13.15.2 TypeError
+/// (sloppy code discards the refusal).
+///
+/// # Safety
+/// `recv_slot` points at the receiver's live box; `key` is a live Str
+/// cell; `v` is a live box. The caller checks for a pending throw.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dynobj_dict_set(
+    recv_slot: *mut u64,
+    key: *mut c_void,
+    v: u64,
+    throw_on_refusal: bool,
+) {
+    unsafe {
+        if let Some(obj) = dynobj_cell(*recv_slot)
+            && let Some(e) = plain_own_entry(obj, key)
+        {
+            note_own_write(obj, key);
+            (*e).value_anyv = v;
+            return;
+        }
+        let (tag, value) = (nanbox::unbox_tag(v) as u64, nanbox::unbox_value(v) as u64);
+        if throw_on_refusal {
+            __torajs_any_member_set(recv_slot, key, tag, value, -1);
+        } else {
+            __torajs_any_member_set_soft(recv_slot, key, tag, value, -1);
+        }
+    }
+}
+
+// The generic read and the kernel write live in torajs-anyvalue, whose
+// archive the unit tests do not link: the tests stay on the own-entry
+// paths, so any call reaching these is a test bug.
 #[cfg(test)]
 mod generic_stubs {
     use core::ffi::c_void;
@@ -92,16 +167,42 @@ mod generic_stubs {
     pub unsafe extern "C" fn __torajs_anyv_retain(_: u64) -> u64 {
         panic!("torajs-dynobj unit-test stub: the dictionary tests stay on own entries")
     }
+
+    /// # Safety
+    /// Never called; any call panics.
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_any_member_set(
+        _: *mut u64,
+        _: *mut c_void,
+        _: u64,
+        _: u64,
+        _: i64,
+    ) {
+        panic!("torajs-dynobj unit-test stub: the dictionary tests stay on own entries")
+    }
+
+    /// # Safety
+    /// Never called; any call panics.
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_any_member_set_soft(
+        _: *mut u64,
+        _: *mut c_void,
+        _: u64,
+        _: u64,
+        _: i64,
+    ) -> i64 {
+        panic!("torajs-dynobj unit-test stub: the dictionary tests stay on own entries")
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::alloc::{__torajs_dynobj_alloc, free_dynobj_blocks};
-    use crate::layout::{BUCKET_FLAGS_DEFAULT, STR_DATA_OFF, STR_LEN_OFF};
+    use crate::layout::{BUCKET_FLAG_CONFIGURABLE, BUCKET_FLAGS_DEFAULT, STR_DATA_OFF, STR_LEN_OFF};
     use crate::probe::{
-        Entry, KEY_STR_FLAG_IS_LATIN1, bucket_make_key_tagged, count, entries_len, index_ptr,
-        set_count, set_entries_len,
+        KEY_STR_FLAG_IS_LATIN1, bucket_make_key_tagged, count, entries_len, index_ptr, set_count,
+        set_entries_len,
     };
     use torajs_anyvalue::nanbox as av;
 
@@ -175,6 +276,53 @@ mod tests {
             assert_eq!(own_number(obj, kc.as_ptr() as *const c_void), None);
             assert_eq!(dynobj_cell(av::box_int32(1)), None);
             assert_eq!(dynobj_cell(obj as u64), Some(obj));
+            free_dynobj_blocks(obj);
+        }
+    }
+
+    /// A writable own entry holding an immediate takes the box as is,
+    /// in place, with its flags.
+    #[test]
+    fn set_stores_the_box_into_a_writable_immediate_entry() {
+        let k = make_str("k");
+        unsafe {
+            let obj = __torajs_dynobj_alloc();
+            let kp = k.as_ptr() as *mut c_void;
+            insert(obj, kp, BUCKET_FLAGS_DEFAULT, av::box_int32(1));
+            let mut recv = obj as u64;
+            let v = av::box_double(2.5);
+            __torajs_dynobj_dict_set(&mut recv, kp, v, true);
+            assert_eq!((*plain_own_entry(obj, kp).unwrap()).value_anyv, v);
+            assert_eq!(recv, obj as u64);
+            let flags = bucket_flags((*entries(obj)).key_ptr_tagged);
+            assert_eq!(flags, BUCKET_FLAGS_DEFAULT);
+            free_dynobj_blocks(obj);
+        }
+    }
+
+    /// Only a writable own entry holding an immediate is written in
+    /// place: a non-writable entry, one holding a heap cell (a value to
+    /// release, an accessor, a global binding), a miss and a module
+    /// namespace all go to the kernel.
+    #[test]
+    fn only_a_writable_immediate_entry_is_written_in_place() {
+        let (ka, kb, kc, kd) = (make_str("a"), make_str("b"), make_str("c"), make_str("d"));
+        let cell = vec![0u64; 4];
+        unsafe {
+            let obj = __torajs_dynobj_alloc();
+            let a = ka.as_ptr() as *mut c_void;
+            let b = kb.as_ptr() as *mut c_void;
+            let c = kc.as_ptr() as *mut c_void;
+            insert(obj, a, BUCKET_FLAGS_DEFAULT, av::VALUE_UNDEFINED);
+            insert(obj, b, BUCKET_FLAG_CONFIGURABLE, av::box_int32(3));
+            insert(obj, c, BUCKET_FLAGS_DEFAULT, cell.as_ptr() as u64);
+            assert!(plain_own_entry(obj, a).is_some());
+            assert!(plain_own_entry(obj, b).is_none());
+            assert!(plain_own_entry(obj, c).is_none());
+            assert!(plain_own_entry(obj, kd.as_ptr() as *const c_void).is_none());
+            *(obj.cast::<u8>().add(6) as *mut u16) |= DYNOBJ_HDR_FLAG_MODULE_NS;
+            assert!(plain_own_entry(obj, a).is_none());
+            *(obj.cast::<u8>().add(6) as *mut u16) &= !DYNOBJ_HDR_FLAG_MODULE_NS;
             free_dynobj_blocks(obj);
         }
     }

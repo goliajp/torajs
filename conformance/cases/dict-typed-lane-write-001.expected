@@ -1,0 +1,12 @@
+15 15
+true no t
+s,b,a 11 2
+true true 3
+seal true
+{"a":2}
+frozen a true
+frozen b true
+frozen c true
+{"a":1,"b":2}
+101 100 a
+{"a":7.5,"b":7.5,"c":7.5}

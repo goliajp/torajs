@@ -67,10 +67,11 @@ const SINKS: [&str; 9] = [
 /// Calls that may take the `"constructor"` literal (at the given
 /// operand) without reading a property with it: a drop, the `in`
 /// operator's key, and the writes that store a program value under it.
-const KEY_SINKS: [(&str, usize); 6] = [
+const KEY_SINKS: [(&str, usize); 7] = [
     ("__torajs_str_drop", 0),
     ("__torajs_in_op_any_str", 1),
     ("__torajs_any_member_set", 1),
+    ("__torajs_dynobj_dict_set", 1),
     ("__torajs_dynobj_set_fresh", 1),
     ("__torajs_dynobj_define", 1),
     ("__torajs_arr_define", 1),

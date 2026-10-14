@@ -193,9 +193,11 @@ pub(crate) const PREFIX_FAMILIES: [(&str, u16); 36] = [
         "__torajs_closure_install_gen_proto",
         fam::FAM_CLOSURE | fam::FAM_ITER,
     ),
-    // a number dictionary's keyed read runs the generic read (getters
-    // included) inside it: what `__torajs_any_accessor_get` keeps in
-    // the coercion table, one exported hop deeper than the census looks
+    // a number dictionary's keyed read and write run the generic read
+    // (getters included) and the member-set kernel inside them: what
+    // `__torajs_any_accessor_get` and `__torajs_any_member_set` keep
+    // in the coercion table, one exported hop deeper than the census
+    // looks
     ("__torajs_dynobj_dict_", fam::FAM_OBJ_WORLD),
 ];
 
@@ -220,7 +222,13 @@ const PRINT_WORLD: [&str; 6] = [
 /// through the inspect world — so a program that has BOTH a writer
 /// and a typed array printer keeps the printer kernels (rotation
 /// 561: `[ 1, 2, g: { … } ]` threw "printer kernel stripped").
-const ANY_WRITERS: [&str; 2] = ["__torajs_any_member_set", "__torajs_any_index_set"];
+const ANY_WRITERS: [&str; 3] = [
+    "__torajs_any_member_set",
+    "__torajs_any_index_set",
+    // a number dictionary's keyed write: any receiver but an own
+    // entry's owner reaches the member-set kernel
+    "__torajs_dynobj_dict_set",
+];
 
 /// A prologue-synthesized error-world fn: one of the base names or
 /// a synthesized wrapper of one (`__boxed___cm_Error__ctor` — the

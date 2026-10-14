@@ -233,7 +233,7 @@ pub unsafe extern "C" fn __torajs_dynobj_set_own(
 ///
 /// # Safety
 /// `obj` is a live dynobj; `key` is a live Str or Symbol cell.
-unsafe fn note_own_write(obj: *mut c_void, key: *mut c_void) {
+pub(crate) unsafe fn note_own_write(obj: *mut c_void, key: *mut c_void) {
     if let Some((data, len, true)) = unsafe { key_str_bytes(key) } {
         unsafe { __torajs_builtin_proto_note_own_write(obj, data, len as i64) };
     }
