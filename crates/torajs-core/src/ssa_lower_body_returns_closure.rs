@@ -66,6 +66,29 @@ fn collect_any_locals(body: &[Stmt], out: &mut HashSet<String>) {
     }
 }
 
+/// Does the body return the result of calling a top-level function
+/// that itself returns a closure (`__forward_N` relaying `N()`)? The
+/// relay's declared return is the target's, so it has to take the
+/// same upgrade, or the value it hands on is read as a raw fn
+/// address and the relay gets no boxed adapter.
+pub(crate) fn body_relays_closure(ast: &Ast, body: &[Stmt]) -> bool {
+    let [Stmt::Return(Some(eid))] = body else {
+        return false;
+    };
+    let Expr::Call { callee, .. } = ast.get_expr(*eid) else {
+        return false;
+    };
+    let Expr::Ident(target) = ast.get_expr(*callee) else {
+        return false;
+    };
+    ast.stmts.iter().any(|s| {
+        matches!(s, Stmt::FnDecl { name, params, body, .. }
+            if name == target
+                && !params.first().is_some_and(|p| p.name == "__env")
+                && body_returns_closure(ast, body))
+    })
+}
+
 pub(crate) fn body_returns_closure(ast: &Ast, body: &[Stmt]) -> bool {
     let mut closure_locals: HashSet<String> = HashSet::new();
     // Chunk 522 — top-level closure bindings count too: a lifted

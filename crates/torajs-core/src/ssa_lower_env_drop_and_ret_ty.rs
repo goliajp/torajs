@@ -249,7 +249,8 @@ pub(crate) fn effective_ret_ty(parsed: Type, ast: &Ast, params: &[Param], body: 
         && (body_returns_closure(ast, body)
             // 398-11 — a returned `any` binding is a closure cell
             // whenever it is callable at all (doc on the predicate).
-            || crate::ssa_lower_body_returns_closure::body_returns_any_binding(ast, params, body))
+            || crate::ssa_lower_body_returns_closure::body_returns_any_binding(ast, params, body)
+            || crate::ssa_lower_body_returns_closure::body_relays_closure(ast, body))
     {
         return Type::Closure(sig_id);
     }
