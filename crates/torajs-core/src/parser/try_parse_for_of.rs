@@ -250,7 +250,7 @@ impl<'a> Parser<'a> {
         // else (`=` for a regular let-in-init, `;` for empty init, etc.)
         // means this is NOT a for-of/in and we restore.
         let kind = match self.peek() {
-            Token::Ident(n) if n == "of" => Some("of"),
+            Token::Ident(_) if self.at_word("of") => Some("of"),
             Token::Ident(n) if n == "in" => Some("in"),
             _ => None,
         };

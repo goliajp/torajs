@@ -150,9 +150,7 @@ impl<'a> Parser<'a> {
         // `static <name>` — `static #x` accepted here so the field-decl
         // dispatch can reject it with a targeted error rather than
         // leaving `static` to be parsed as a member name.
-        let is_static = if let Token::Ident(s) = self.peek()
-            && s == "static"
-        {
+        let is_static = if self.at_word("static") {
             let next = self.tokens.get(self.pos + 1).map(|t| &t.token);
             if token_starts_class_member_name(next, true) {
                 self.pos += 1;

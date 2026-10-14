@@ -71,7 +71,7 @@ impl Parser<'_> {
 
     pub(super) fn expect_ident_keyword(&mut self, kw: &str) -> Result<(), String> {
         match self.peek() {
-            Token::Ident(n) if n == kw => {
+            Token::Ident(_) if self.at_word(kw) => {
                 self.pos += 1;
                 Ok(())
             }
@@ -79,10 +79,45 @@ impl Parser<'_> {
         }
     }
 
-    pub(super) fn skip_optional_semi(&mut self) {
+    /// §16.2.2 NamedImports / §16.2.3 NamedExports — specifiers are
+    /// comma-separated, so `{a \u0061s b}` is not three of them: after
+    /// one, only a `,` or the closing `}` may follow.
+    pub(super) fn end_specifier(&mut self) -> Result<(), String> {
+        match self.peek() {
+            Token::Comma => self.pos += 1,
+            Token::RBrace => {}
+            t => {
+                return Err(format!(
+                    "expected `,` or `}}` after a specifier, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// §16.2.3 — what `export default` heads at `head` decides how it
+    /// ends: a HoistableDeclaration or ClassDeclaration closes at its
+    /// own `}`, while an AssignmentExpression needs the `;` that ASI
+    /// may supply (§12.10.1). So `export default \u0061sync function
+    /// f() {}` — an escaped `async` is the identifier, not the keyword —
+    /// is an expression followed by a stray declaration.
+    pub(super) fn end_export_default(&mut self, head: usize) -> Result<(), String> {
+        let decl = match &self.tokens[head].token {
+            Token::Function | Token::Class => true,
+            Token::Async => matches!(
+                self.tokens.get(head + 1).map(|t| &t.token),
+                Some(Token::Function)
+            ),
+            _ => false,
+        };
+        if !decl {
+            return self.expect_asi_end("an `export default` expression");
+        }
         if matches!(self.peek(), Token::Semi) {
             self.pos += 1;
         }
+        Ok(())
     }
 
     /// §16.2 — an ImportDeclaration / ExportDeclaration ends at its

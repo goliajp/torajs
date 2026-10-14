@@ -166,7 +166,7 @@ impl<'a> Parser<'a> {
         if matches!(self.peek(), Token::Dot) {
             self.pos += 1;
             match self.peek() {
-                Token::Ident(n) if n == "target" => {
+                Token::Ident(_) if self.at_word("target") => {
                     self.pos += 1;
                     return Ok(self.ast.add_expr(Expr::NewTarget));
                 }

@@ -7,7 +7,7 @@
 //! - parse_export — `export <decl>` / `export { a, b as c }` /
 //!   `export default <expr>`
 //! - expect_ident_keyword — contextual-keyword matcher (`from` / `as`)
-//! - skip_optional_semi — trailing `;` tolerance
+//! - end_export_default — where `export default` ends
 //! - expect_decl_end — §16.2 declaration terminator (`;` / `}` / EOF /
 //!   a line break for ASI)
 //!
@@ -146,7 +146,7 @@ impl<'a> Parser<'a> {
                     },
                 };
                 self.pos += 1;
-                let alias = if matches!(self.peek(), Token::Ident(n) if n == "as") {
+                let alias = if self.at_word("as") {
                     self.pos += 1;
                     let a = match self.pattern_binding_name() {
                         Some(a) => a,
@@ -164,9 +164,7 @@ impl<'a> Parser<'a> {
                     None
                 };
                 if typed { &mut type_named } else { &mut named }.push((orig, alias));
-                if matches!(self.peek(), Token::Comma) {
-                    self.pos += 1;
-                }
+                self.end_specifier()?;
             }
             self.pos += 1; // consume `}`
         }
@@ -226,6 +224,7 @@ impl<'a> Parser<'a> {
         // `export default <expr>;`
         if matches!(self.peek(), Token::Default) {
             self.pos += 1;
+            let head = self.pos;
             let e = self.parse_expr()?;
             // §16.2.3.7 — `export default` of an anonymous function or
             // class definition is a NamedEvaluation with "default":
@@ -234,7 +233,7 @@ impl<'a> Parser<'a> {
             // spellings (an ArrowFn and a `__ClassExpr_` synth); a
             // definition with its own name keeps it.
             self.record_dstr_default_name(e, "default");
-            self.skip_optional_semi();
+            self.end_export_default(head)?;
             return Ok(Stmt::ExportDecl {
                 inner: None,
                 named: Vec::new(),
@@ -278,20 +277,18 @@ impl<'a> Parser<'a> {
                 if !orig_is_ident && non_ident_ref.is_none() {
                     non_ident_ref = Some(orig.clone());
                 }
-                let alias = if matches!(self.peek(), Token::Ident(n) if n == "as") {
+                let alias = if self.at_word("as") {
                     self.pos += 1;
                     Some(self.expect_module_export_name("`as`")?.0)
                 } else {
                     None
                 };
                 if typed { &mut type_named } else { &mut named }.push((orig, alias));
-                if matches!(self.peek(), Token::Comma) {
-                    self.pos += 1;
-                }
+                self.end_specifier()?;
             }
             self.pos += 1; // consume `}`
             // P13-S4 — optional `from "./b"` for re-export form.
-            let source = if matches!(self.peek(), Token::Ident(n) if n == "from") {
+            let source = if self.at_word("from") {
                 self.pos += 1;
                 Some(self.expect_module_source()?)
             } else {
@@ -339,7 +336,7 @@ impl<'a> Parser<'a> {
     /// both legal spellings alongside a plain identifier.
     fn parse_export_star(&mut self, type_only: bool) -> Result<Stmt, String> {
         self.pos += 1; // consume `*`
-        let star = if matches!(self.peek(), Token::Ident(n) if n == "as") {
+        let star = if self.at_word("as") {
             self.pos += 1;
             ExportStar::AsNamespace(self.expect_module_export_name("`* as`")?.0)
         } else {

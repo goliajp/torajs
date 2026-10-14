@@ -94,8 +94,7 @@ impl<'a> Parser<'a> {
             // to consume them above the block is correct — `public static {}`
             // and similar fall through to the existing modifier-misapplication
             // error.
-            if let Token::Ident(s) = self.peek()
-                && s == "static"
+            if self.at_word("static")
                 && matches!(
                     self.tokens.get(self.pos + 1).map(|t| &t.token),
                     Some(Token::LBrace)

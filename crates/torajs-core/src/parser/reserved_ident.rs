@@ -14,6 +14,12 @@
 //! into a name: its key is read by the property-name reader, which
 //! admits the whole reserved list (`{ this: 1 }` is legal), and only the
 //! shorthand shape then re-reads the key as an IdentifierReference.
+//!
+//! The contextual keywords go the opposite way: `of`, `as`, `from`,
+//! `static`, `target` are names everywhere except the one production
+//! that spells them, and there they are terminal symbols that must
+//! appear exactly as written (§5.1.5) — `for (x o\u0066 y)` is no
+//! for-of. `at_word` is the test those productions ask.
 
 use super::*;
 
@@ -24,6 +30,15 @@ pub(super) fn is_ident_spelled_reserved(name: &str) -> bool {
 }
 
 impl Parser<'_> {
+    /// The current token is the word `word` spelled without an escape:
+    /// an escape always lengthens the source span past the decoded name.
+    pub(super) fn at_word(&self, word: &str) -> bool {
+        self.tokens.get(self.pos).is_some_and(|t| {
+            matches!(&t.token, Token::Ident(n) if n == word)
+                && (t.span.end - t.span.start) as usize == word.len()
+        })
+    }
+
     pub(super) fn refuse_ident_spelled_reserved(&self, name: &str) -> Result<(), String> {
         if is_ident_spelled_reserved(name) {
             return Err(format!(
