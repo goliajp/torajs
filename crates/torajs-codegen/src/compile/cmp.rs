@@ -54,6 +54,11 @@ pub(crate) fn emit_compare_nzcv(
     alloc: &Assignment,
 ) {
     let rn = materialize_operand_gpr(bytes, lhs, OP_SCRATCH_LHS, alloc);
+    compare_from(bytes, rn, lhs, rhs, alloc);
+}
+
+/// [`emit_compare_nzcv`] with `lhs` already in `rn`.
+fn compare_from(bytes: &mut Vec<u8>, rn: Gpr, lhs: &Operand, rhs: &Operand, alloc: &Assignment) {
     // Round 5 popcount branch/const attack — `icmp x, #imm12` uses
     // the CMP-immediate alias, skipping the MOVZ rematerialization
     // of the constant into a scratch register on every compare
@@ -111,11 +116,33 @@ pub(super) fn emit_select(
         return;
     }
     let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
+    if let Some((x, one_on_then)) = one_arm(then_op, else_op) {
+        let rx = select_arm_gpr(bytes, x, OP_SCRATCH_LHS, alloc);
+        flags.compare_zero(bytes, cond_op, OP_SCRATCH_TMP, alloc);
+        let cc = if one_on_then { cond::EQ } else { cond::NE };
+        write_u32(bytes, csinc_cond(dst, rx, Gpr::XZR, cc));
+        write_def_spill_gpr(bytes, spill_off, dst);
+        return;
+    }
     let rn = select_arm_gpr(bytes, then_op, OP_SCRATCH_LHS, alloc);
     let rm = select_arm_gpr(bytes, else_op, OP_SCRATCH_RHS, alloc);
     flags.compare_zero(bytes, cond_op, OP_SCRATCH_TMP, alloc);
     write_u32(bytes, csel_cond(dst, rn, rm, cond::NE));
     write_def_spill_gpr(bytes, spill_off, dst);
+}
+
+/// A select whose one arm is the constant 1 and whose other arm is
+/// not: that other arm, and whether the 1 is the then-arm. CSINC off
+/// the zero register yields `0 + 1` where it does not take its first
+/// source, so the 1 needs no register of its own (`max(p, 1)`, the
+/// divisor a remainder counter starts from).
+fn one_arm<'a>(then_op: &'a Operand, else_op: &'a Operand) -> Option<(&'a Operand, bool)> {
+    let one = |op: &Operand| matches!(op, Operand::ConstI64(1));
+    match (one(then_op), one(else_op)) {
+        (true, false) => Some((else_op, true)),
+        (false, true) => Some((then_op, false)),
+        _ => None,
+    }
 }
 
 /// Fused `icmp/fcmp; select` — the compare re-emits directly before
@@ -178,6 +205,22 @@ pub(crate) fn emit_select_fused(
     // owns LHS/RHS (GPR for cmp, FPR + GPR carrier for fcmp) and
     // would clobber them. A spilled dst aliasing rm's scratch is
     // fine: CSEL reads its sources before writing Rd.
+    if let Some((x, one_on_then)) = one_arm(then_op, else_op) {
+        let rx = select_arm_gpr(bytes, x, OP_SCRATCH_TMP, alloc);
+        // a compare of the arm itself reads it where the arm just put it
+        let cc = match &fc.pred {
+            FusedSelPred::Int(p) if fc.lhs == *x && matches!(x, Operand::Value(_)) => {
+                compare_from(bytes, rx, &fc.lhs, &fc.rhs, alloc);
+                ipred_to_cond(*p)
+            }
+            _ => emit_compare(bytes),
+        };
+        // CSINC takes `x` where its condition holds, `0 + 1` elsewhere
+        let cc = if one_on_then { cc ^ 1 } else { cc };
+        write_u32(bytes, csinc_cond(dst, rx, Gpr::XZR, cc));
+        write_def_spill_gpr(bytes, spill_off, dst);
+        return;
+    }
     let rn = select_arm_gpr(bytes, then_op, OP_SCRATCH_TMP, alloc);
     let rm = select_arm_gpr(bytes, else_op, OP_SCRATCH_RESULT_GPR, alloc);
     let cc = emit_compare(bytes);
@@ -305,7 +348,7 @@ mod tests {
     use super::*;
     use crate::enc;
     use crate::reg::{Fpr, Gpr};
-    use torajs_core::ssa::InstKind;
+    use torajs_core::ssa::{Function, InstKind, Terminator};
 
     /// Small-const RHS ICmps take the CMP-immediate form (Round 5
     /// popcount branch/const attack) — the constant never touches a
@@ -362,6 +405,54 @@ mod tests {
                 enc::ret(Gpr::X30),
             ]);
             assert_eq!(compile_function(&func).bytes, expected, "{rhs:?}");
+        }
+    }
+
+    /// `max(p, 1)` as `select (p < 1), 1, p`, and its mirror: one
+    /// compare and one CSINC off the zero register, the 1 never
+    /// materialized.
+    #[test]
+    fn a_select_with_a_one_arm_is_a_csinc() {
+        for one_on_then in [true, false] {
+            let mut f = Function::new("max1", Type::I64);
+            let p = f.add_param(Type::I64, "p");
+            let b = f.add_block();
+            let (pred, then_op, else_op) = if one_on_then {
+                (IPred::Slt, Operand::ConstI64(1), Operand::Value(p))
+            } else {
+                (IPred::Sge, Operand::Value(p), Operand::ConstI64(1))
+            };
+            let c = f.append_inst(
+                b,
+                InstKind::ICmp(pred, Operand::Value(p), Operand::ConstI64(1)),
+                Type::Bool,
+                None,
+            );
+            let s = f.append_inst(
+                b,
+                InstKind::Select(Type::I64, Operand::Value(c), then_op, else_op),
+                Type::I64,
+                None,
+            );
+            f.blocks[0].term = Terminator::Ret(Some(Operand::Value(s)));
+            let words: Vec<u32> = compile_function(&f)
+                .bytes
+                .chunks(4)
+                .map(|w| u32::from_le_bytes(w.try_into().unwrap()))
+                .collect();
+            // CSINC Xd, Xn, XZR, GE: `p` where `p >= 1`, else `0 + 1`
+            let csincs: Vec<&u32> = words
+                .iter()
+                .filter(|w| *w & 0xFFE0_0C00 == 0x9A80_0400)
+                .collect();
+            assert_eq!(csincs.len(), 1, "one on then: {one_on_then}");
+            assert_eq!((csincs[0] >> 16) & 31, 31, "Rm is XZR");
+            assert_eq!((csincs[0] >> 12) & 15, cond::GE as u32);
+            assert!(
+                !words.iter().any(|w| *w & 0xFFE0_0C00 == 0x9A80_0000),
+                "no CSEL"
+            );
+            assert!(!words.contains(&enc::movz_imm(Gpr::X9, 1, 0)));
         }
     }
 
