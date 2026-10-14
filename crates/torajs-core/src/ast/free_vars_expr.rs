@@ -144,8 +144,10 @@ pub(super) fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Bound<'_>, out: &mut
             // resolver's hidden-dep census is the pass that meets this
             // shape; the arrow-lift caller runs after desugar_classes /
             // builtin-new rewrites, where class News have become
-            // factory calls.
-            if !is_global_name(class_name) && !bound.names.contains(class_name) {
+            // factory calls. A global name a scope rebinds is a local, as
+            // for an `Ident`.
+            let global = is_global_name(class_name) && !bound.rebound_globals.contains(class_name);
+            if !global && !bound.names.contains(class_name) {
                 out.free(class_name, Some(eid), &bound.names);
             }
             for a in args {
