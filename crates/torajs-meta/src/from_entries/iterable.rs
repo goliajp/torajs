@@ -12,10 +12,7 @@
 
 use core::ffi::c_void;
 
-use super::{
-    arr_cell, dynobj_cell, set_prop_from_dynobj_entry, set_prop_from_pair_arr,
-    set_prop_from_struct_entry, struct_cell,
-};
+use super::{arr_cell, object_entry, set_prop_from_object_entry, set_prop_from_pair_arr};
 use crate::reflect::VALUE_UNDEFINED_IMM;
 
 unsafe extern "C" {
@@ -48,10 +45,8 @@ pub(super) unsafe fn from_iterable(entries: u64, k0: *const u8, k1: *const u8) -
             }
             if arr_cell(entry).is_some() {
                 set_prop_from_pair_arr(&mut obj, entry as *const c_void);
-            } else if dynobj_cell(entry).is_some() {
-                set_prop_from_dynobj_entry(&mut obj, entry as *const c_void, k0, k1);
-            } else if struct_cell(entry).is_some() {
-                set_prop_from_struct_entry(&mut obj, entry, k0, k1);
+            } else if object_entry(entry) {
+                set_prop_from_object_entry(&mut obj, entry, k0, k1);
             } else {
                 __torajs_throw_type_error(c"Object.fromEntries entry is not an object".as_ptr());
             }

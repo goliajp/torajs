@@ -14,8 +14,8 @@
 //!   (the any_box writeback idiom).
 //! - `Type::Map` / `Type::Set` (chunk 694) — same raw-pointer
 //!   exposure (the hash cell is self-describing, no kind stamp);
-//!   the walker rides `__torajs_map_iter_next` over the shared
-//!   storage.
+//!   the walker rides `__torajs_map_iter_next` over a Map's storage
+//!   and the iteration protocol over a Set.
 //! - `Type::Any` — passed through; undefined / null / non-array
 //!   cells throw a catchable TypeError inside the helper.
 //!

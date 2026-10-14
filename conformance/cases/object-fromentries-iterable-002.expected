@@ -1,0 +1,19 @@
+{"a":1,"b":2}
+TypeError
+{"g":3} 2
+{"p":4}
+{"d":5}
+item 1
+closed 1
+item 1
+closed 2
+item 1
+closed 2
+item 1
+closed 2
+item 1
+TypeError 
+item 1
+RangeError getter
+item 1
+TypeError 
