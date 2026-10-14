@@ -62,6 +62,13 @@ impl Names {
         let mut counts = std::collections::HashMap::new();
         super::super::var_hoist::count_var_names(stmts, &mut counts);
         out.vars.extend(counts.into_keys());
+        out.top_level(stmts);
+        out
+    }
+
+    /// A `Multi` (`let a = 0, b = 1`, a destructuring) shares the
+    /// list's scope, so its declarations are the list's own.
+    fn top_level(&mut self, stmts: &[Stmt]) {
         for s in stmts {
             match s {
                 Stmt::LetDecl {
@@ -70,15 +77,15 @@ impl Names {
                     ..
                 }
                 | Stmt::ClassDecl { name, .. } => {
-                    out.lex.insert(name.clone());
+                    self.lex.insert(name.clone());
                 }
                 Stmt::FnDecl { name, .. } => {
-                    out.vars.insert(name.clone());
+                    self.vars.insert(name.clone());
                 }
+                Stmt::Multi(v) => self.top_level(v),
                 _ => {}
             }
         }
-        out
     }
 
     /// The first name that may not be declared against `self` as the
