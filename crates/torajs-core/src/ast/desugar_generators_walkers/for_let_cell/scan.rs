@@ -56,7 +56,9 @@ pub(super) fn stmt_roots(s: &Stmt, out: &mut Vec<ExprId>) {
     }
 }
 
-/// Whether a function or class declared in the loop body reads `name`.
+/// Whether a function declared in the loop body reads `name`. A class
+/// is no such declaration: it is made where its statement runs
+/// (`class_member`).
 pub(super) fn decl_reads(ast: &Ast, s: &Stmt, name: &str) -> bool {
     match s {
         Stmt::FnDecl { .. } => {
@@ -64,7 +66,7 @@ pub(super) fn decl_reads(ast: &Ast, s: &Stmt, name: &str) -> bool {
                 .iter()
                 .any(|n| n == name)
         }
-        Stmt::ClassDecl { .. } => true,
+        Stmt::ClassDecl { .. } => false,
         _ => stmt_children_ref(s)
             .into_iter()
             .any(|c| decl_reads(ast, c, name)),
@@ -128,7 +130,7 @@ pub(super) fn collect_deep(ast: &Ast, e: ExprId, name: &str, out: &mut Vec<ExprI
     }
 }
 
-fn collect_deep_stmt(ast: &Ast, s: &Stmt, name: &str, out: &mut Vec<ExprId>) {
+pub(super) fn collect_deep_stmt(ast: &Ast, s: &Stmt, name: &str, out: &mut Vec<ExprId>) {
     for e in stmt_exprs(s) {
         collect_deep(ast, e, name, out);
     }

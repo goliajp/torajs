@@ -202,7 +202,14 @@ fn names_compiler_minted(
         &[super::super::ClassMethod],
     ),
 ) -> bool {
-    let mut prebound = vec![name.to_string(), "arguments".to_string()];
+    // A generator's `__gself` alias is a local of the state machine's
+    // `next`, which a class declared in the generator body reads its
+    // lifted locals through.
+    let mut prebound = vec![
+        name.to_string(),
+        "arguments".to_string(),
+        crate::ast::GEN_SELF_ALIAS.to_string(),
+    ];
     if let Some(p) = ast.parent_ident_name(parent) {
         prebound.push(p.to_string());
     }
