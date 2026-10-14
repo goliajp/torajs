@@ -64,11 +64,15 @@ impl Layout<'_> {
 /// the structs the checker inferred. A layout seen twice is listed
 /// twice; the verdicts ask about every layout alike, so a repeat
 /// answers as the first did.
+/// A written member's verdicts: the read member, whether
+/// `number | undefined` counted, and the answer.
+type Verdicts = HashMap<String, Vec<(String, bool, bool)>>;
+
 pub(super) struct Layouts<'a> {
     sets: Vec<Layout<'a>>,
     /// The verdicts given, by the written member: the read member,
     /// whether `number | undefined` counted, and the answer.
-    asked: RefCell<HashMap<String, Vec<(String, bool, bool)>>>,
+    asked: RefCell<Verdicts>,
 }
 
 impl<'a> Layouts<'a> {
@@ -190,11 +194,11 @@ fn stepped(f: &Facts<'_, '_>, e: ExprId, recv: ExprId, written: &str) -> bool {
         // a literal is never -0: `-0` is a negation
         Expr::Number(n) => n.fract() == 0.0 && n.abs() <= 9007199254740992.0,
         Expr::Member { obj, name } => name == written && same_receiver(f.ast, *obj, recv),
-        Expr::BinOp { op, left, right }
-            if matches!(op, Add | Sub | BitAnd | BitOr | BitXor | Shl | Shr | UShr) =>
-        {
-            stepped(f, *left, recv, written) && stepped(f, *right, recv, written)
-        }
+        Expr::BinOp {
+            op: Add | Sub | BitAnd | BitOr | BitXor | Shl | Shr | UShr,
+            left,
+            right,
+        } => stepped(f, *left, recv, written) && stepped(f, *right, recv, written),
         _ => false,
     }
 }

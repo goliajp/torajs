@@ -50,6 +50,8 @@ fn nullable_slot(inner: Type) -> Type {
 /// `number` field that may hold one already reads. The cell's absent
 /// set says whether the member is an own property. `a?: number | null`
 /// may hold `null`, which an f64 has no spelling for, so it boxes.
+// the lowering tables are separate borrows of the pass-0.5 state; a struct would hold them all
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn parse_struct_field_type(
     ann: &str,
     plain_optional: bool,
