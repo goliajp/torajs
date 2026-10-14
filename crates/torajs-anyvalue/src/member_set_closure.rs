@@ -247,37 +247,24 @@ pub(crate) unsafe fn set_closure_member(
     throw_on_refusal: bool,
 ) -> i64 {
     unsafe {
-        // chunk C (RFC 20260711) — ES §20.2.4 `name` / `length`
-        // are non-writable; tr programs are module-strict so the
-        // assign throws (bun: "Attempted to assign to readonly
-        // property."). Unconditional even after a delete — the
-        // set then walks to `Function.prototype`'s own
-        // non-writable pair and refuses the same way (bun
-        // parity); recreates go through defineProperty (a
-        // recorded follow-up).
-        if crate::prop_has::key_is(key, b"name") || crate::prop_has::key_is(key, b"length") {
-            drop_payload(tag, value);
-            if throw_on_refusal {
-                __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
-            }
-            return 0;
-        }
-        // §22.1.2.4 family — a builtin ctor cell's `prototype`
-        // is {[[Writable]]: false} (RFC 20260721 刀 11 G11); an
-        // ordinary closure keeps its writable prototype expando.
-        if crate::prop_has::key_is(key, b"prototype")
-            && crate::method_value::ctor::ctor_tag_of_cell(ptr).is_some()
-        {
-            drop_payload(tag, value);
-            if throw_on_refusal {
-                __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
-            }
-            return 0;
-        }
-        // §6.1.5.1 — the Symbol ctor's well-known data statics
-        // are {writable: false}; module-strict assign throws
-        // (RFC 20260722 刀 2).
-        if crate::method_value::symbol_static::is_wellknown_on_symbol_ctor(ptr, key)
+        // The read-only own faces; tr programs are module-strict, so
+        // the assign throws (bun: "Attempted to assign to readonly
+        // property."):
+        //   - chunk C (RFC 20260711) — ES §20.2.4 `name` / `length`.
+        //     Unconditional even after a delete — the set then walks
+        //     to `Function.prototype`'s own non-writable pair and
+        //     refuses the same way (bun parity); recreates go through
+        //     defineProperty (a recorded follow-up);
+        //   - §22.1.2.4 family — a builtin ctor cell's `prototype` is
+        //     {[[Writable]]: false} (RFC 20260721 刀 11 G11); an
+        //     ordinary closure keeps its writable prototype expando;
+        //   - §6.1.5.1 — the Symbol ctor's well-known data statics
+        //     (RFC 20260722 刀 2).
+        if crate::prop_has::key_is(key, b"name")
+            || crate::prop_has::key_is(key, b"length")
+            || (crate::prop_has::key_is(key, b"prototype")
+                && crate::method_value::ctor::ctor_tag_of_cell(ptr).is_some())
+            || crate::method_value::symbol_static::is_wellknown_on_symbol_ctor(ptr, key)
             || crate::method_value::is_ctor_data_constant(ptr, key)
         {
             drop_payload(tag, value);
@@ -294,9 +281,10 @@ pub(crate) unsafe fn set_closure_member(
         // A function's own faces here are the expando and the virtual
         // `prototype` pair; `name` / `length` never reach this far.
         let in_bag = !props.is_null() && __torajs_dynobj_has(props, key as *const c_void) != 0;
-        let own = in_bag
-            || (crate::prop_has::key_is(key, b"prototype")
-                && crate::closure_proto::fn_prototype_pair(ptr).is_some());
+        // The virtual `prototype` pair: an own key with no bag entry.
+        let virtual_proto = !in_bag
+            && crate::prop_has::key_is(key, b"prototype")
+            && crate::closure_proto::fn_prototype_pair(ptr).is_some();
         // `fn_prototype_pair` is not a pure read: on a function with
         // no bag yet it MATERIALIZES the virtual pair — a fresh bag in
         // the +24 slot holding `prototype → {constructor: F}`. The
@@ -309,41 +297,39 @@ pub(crate) unsafe fn set_closure_member(
         // this write — so the first write still defines with the
         // virtual pair's attributes, now over the materialized entry.
         props = *props_slot as *mut c_void;
-        // An own entry is consulted from the cell, not from the bag: an
-        // accessor there (a static setter of a class lowered to a
-        // function value) runs with the function as `this`.
-        let level = if in_bag {
-            Some(ptr as u64)
-        } else if own {
-            None
+        if virtual_proto {
+            // The virtual pair has no bag entry to carry the writable
+            // bit `Object.freeze` clears, so the header answers for
+            // it: a frozen function's `prototype` is read-only.
+            let hflags = (ptr.cast::<u8>().add(6) as *const u16).read();
+            if hflags & FLAG_FROZEN != 0 {
+                drop_payload(tag, value);
+                if throw_on_refusal {
+                    __torajs_throw_type_error(
+                        c"Attempted to assign to readonly property.".as_ptr(),
+                    );
+                }
+                return 0;
+            }
         } else {
-            crate::member_set_proto_root::chain_parent(ptr as u64)
-        };
-        if level.is_some()
-            && let Some(handled) = crate::member_set_dynobj::inherited_set_walk(
-                level,
+            // The walk is seeded at the cell, not at its prototype: an
+            // own bag entry is met first, and an accessor there (a
+            // static setter of a class lowered to a function value)
+            // runs with the function as `this`; an own miss walks on
+            // up the chain.
+            if let Some(handled) = crate::member_set_dynobj::inherited_set_walk(
+                Some(ptr as u64),
                 crate::nanbox::box_void_ptr(ptr),
                 key,
                 tag,
                 value,
                 throw_on_refusal,
-            )
-        {
-            return handled;
-        }
-        if refuse_new_key_non_extensible(ptr, own, tag, value, throw_on_refusal) {
-            return 0;
-        }
-        // The virtual `prototype` pair has no bag entry to carry the
-        // writable bit `Object.freeze` clears, so the header answers
-        // for it: a frozen function's `prototype` is read-only.
-        let hflags = (ptr.cast::<u8>().add(6) as *const u16).read();
-        if own && !in_bag && hflags & FLAG_FROZEN != 0 {
-            drop_payload(tag, value);
-            if throw_on_refusal {
-                __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
+            ) {
+                return handled;
             }
-            return 0;
+            if refuse_new_key_non_extensible(ptr, in_bag, tag, value, throw_on_refusal) {
+                return 0;
+            }
         }
         let first_attach = props.is_null();
         if first_attach {
@@ -355,7 +341,7 @@ pub(crate) unsafe fn set_closure_member(
         // it had (§10.1.9.2 step 2.c), so that write is a define with
         // those bits. The plain set's all-true default made a written
         // `prototype` enumerable and deletable.
-        let wrote = if own && !in_bag && crate::prop_has::key_is(key, b"prototype") {
+        let wrote = if virtual_proto {
             // value present + W/E/C present + W only = 0x79.
             __torajs_dynobj_define(&mut props, key, tag, value, 0x79);
             1
