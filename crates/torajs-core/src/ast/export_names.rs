@@ -20,9 +20,9 @@
 use crate::ast::{Ast, ExportStar, Stmt};
 use std::collections::HashSet;
 
-/// The one name an `export` statement hands on, when it hands on
-/// exactly one. Clauses with a list are walked by the caller.
-fn single_exported_name(s: &Stmt) -> Option<String> {
+/// The names an `export` statement hands on outside its `{ … }` list,
+/// which the caller walks itself.
+fn clause_exported_names(s: &Stmt, out: &mut Vec<String>) {
     let Stmt::ExportDecl {
         inner,
         default_expr,
@@ -30,25 +30,28 @@ fn single_exported_name(s: &Stmt) -> Option<String> {
         ..
     } = s
     else {
-        return None;
+        return;
     };
     if default_expr.is_some() {
-        return Some("default".to_string());
+        out.push("default".to_string());
+    } else if let Some(ExportStar::AsNamespace(n)) = star {
+        out.push(n.clone());
+    } else if let Some(d) = inner.as_deref() {
+        decl_export_names(d, out);
     }
-    if let Some(ExportStar::AsNamespace(n)) = star {
-        return Some(n.clone());
-    }
-    inner.as_deref().and_then(decl_export_name)
 }
 
-fn decl_export_name(s: &Stmt) -> Option<String> {
+/// A declaration's BoundNames — every declarator of `export var a, a`
+/// counts, which the parser hands over as one `Multi`.
+fn decl_export_names(s: &Stmt, out: &mut Vec<String>) {
     match s {
         Stmt::FnDecl { name, .. } | Stmt::ClassDecl { name, .. } | Stmt::LetDecl { name, .. } => {
-            Some(name.clone())
+            out.push(name.clone())
         }
+        Stmt::Multi(list) => list.iter().for_each(|d| decl_export_names(d, out)),
         // `export type T = …` is erased before anything can observe
         // it, and TS lets a type and a value share a name.
-        _ => None,
+        _ => {}
     }
 }
 
@@ -63,7 +66,7 @@ pub fn triage_duplicate_exports(ast: &Ast) -> Option<String> {
             .iter()
             .map(|(orig, alias)| alias.clone().unwrap_or_else(|| orig.clone()))
             .collect();
-        names.extend(single_exported_name(s));
+        clause_exported_names(s, &mut names);
         for n in names {
             if !seen.insert(n.clone()) {
                 return Some(format!("duplicate export name `{n}`"));
