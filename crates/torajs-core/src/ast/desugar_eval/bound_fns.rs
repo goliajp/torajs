@@ -11,10 +11,11 @@
 //! So every bare occurrence of the name that resolves to the global
 //! binding names the hidden slot instead: the reads sync it from the
 //! property (`ssa_lower_ident_site_bound`), a call calls the value it
-//! holds, and the declaration itself keeps its name, which only the
-//! function's own relay (the slot's value) calls. Occurrences a local
-//! declaration of the name shadows stay as written, and so does
-//! `new f()`, whose callee is a class name to the passes that follow.
+//! holds, `new f()` constructs it (§13.3.5.1 evaluates the callee
+//! first, so an unbound name throws before any argument runs), and the
+//! declaration itself keeps its name, which only the function's own
+//! relay (the slot's value) calls. Occurrences a local declaration of
+//! the name shadows stay as written.
 //!
 //! Only a name whose slot is minted gets here
 //! (`var_hoist_eval_sites::eval_bound_fn_slot`): a sloppy script, a
@@ -75,9 +76,20 @@ pub(super) fn route_global_reads(ast: &mut Ast) {
     let mut sites: Vec<ExprId> = census.reached_refs.difference(&shadowed).copied().collect();
     sites.sort_unstable_by_key(|e| e.0);
     for eid in sites {
-        if let Expr::Ident(n) = &ast.exprs[eid.0 as usize] {
-            let slot = eval_bound_fn_slot(ast, n).expect("a routed name has a slot");
-            ast.exprs[eid.0 as usize] = Expr::Ident(slot);
+        match &ast.exprs[eid.0 as usize] {
+            Expr::Ident(n) => {
+                let slot = eval_bound_fn_slot(ast, n).expect("a routed name has a slot");
+                ast.exprs[eid.0 as usize] = Expr::Ident(slot);
+            }
+            Expr::New {
+                class_name, args, ..
+            } => {
+                let slot = eval_bound_fn_slot(ast, class_name).expect("a routed name has a slot");
+                let args = args.clone();
+                let callee = ast.add_expr(Expr::Ident(slot));
+                ast.exprs[eid.0 as usize] = Expr::NewDynamic { callee, args };
+            }
+            _ => {}
         }
     }
 }
