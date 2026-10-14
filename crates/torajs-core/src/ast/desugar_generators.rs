@@ -234,6 +234,7 @@ fn desugar_one_generator(
     // lifted_locals) for the class-assembly step below.
     // Destr leaf names join the rewrite set so body reads of a
     // destructured binding resolve to the ctor-assigned field.
+    super::desugar_generators_method_names::free_method_names(ast, &mut gen_params, &mut gen_body);
     let mut rewrite_params = gen_params.clone();
     for leaf in &destr_leaf_fields {
         rewrite_params.push(Param {

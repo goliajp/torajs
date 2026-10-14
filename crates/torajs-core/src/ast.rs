@@ -136,6 +136,7 @@ mod desugar_generators_forof_split;
 mod desugar_generators_forof_step;
 mod desugar_generators_frame_link;
 mod desugar_generators_lift;
+mod desugar_generators_method_names;
 mod desugar_generators_methods;
 mod desugar_generators_prep;
 mod desugar_generators_rewrite;

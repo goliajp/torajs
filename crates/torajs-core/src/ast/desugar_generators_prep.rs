@@ -91,6 +91,10 @@ pub(super) fn prep_generator_body(
             .iter()
             .map(|p| (p.name.clone(), String::new()))
             .chain(std::iter::once((gen_name.to_string(), String::new())))
+            .chain(
+                (super::desugar_generators_method_names::MACHINE_METHODS.iter())
+                    .map(|m| (m.to_string(), String::new())),
+            )
             .collect(),
         fn_sigs,
         binds: gen_params
