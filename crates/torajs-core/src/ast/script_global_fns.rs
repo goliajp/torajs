@@ -25,7 +25,8 @@
 //! (`wrap_escaping_fn_ident_bindings` for a bound alias,
 //! `promote_this_fn_values` for a `this`-reading body, the ObjectLit /
 //! return / argument synthesizers for theirs), so `globalThis.f === f`
-//! holds on every route. Minted here when no earlier pass needed it
+//! holds on every route; for a `this`-reading declaration it is the
+//! receiver-first `__fwdrecv_<name>` face. Minted here when no earlier pass needed it
 //! (this pass runs after them all); a bare `Ident(f)` would reach the
 //! store as a `FnSig` with nothing to box (`box_to_any element type
 //! FnSig … not supported`, the reject every un-relayed value use meets).
@@ -105,13 +106,15 @@ pub fn synthesize_script_global_fns(ast: &mut Ast) {
             fn_sigs.insert(name.clone(), (params.clone(), return_type.clone(), *span));
         }
     }
+    let mut new_decls = receiver_first_shells(ast, &names, &fn_sigs, &mut existing_forwarders);
     let targets: std::collections::HashSet<String> = names.iter().cloned().collect();
-    let (new_decls, renames) = super::forwarders_object::synthesize_forwarder_decls(
+    let (plain_decls, renames) = super::forwarders_object::synthesize_forwarder_decls(
         ast,
         &targets,
         &fn_sigs,
         &existing_forwarders,
     );
+    new_decls.extend(plain_decls);
     let mut prelude: Vec<Stmt> = Vec::with_capacity(names.len() * 2);
     // Knife 4-3: a function declared by eval / Script text binds its
     // property where the text ran — the slot's assignment goes right
@@ -171,6 +174,46 @@ pub fn synthesize_script_global_fns(ast: &mut Ast) {
     ast.stmts.extend(tail);
     ast.stmts.extend(new_decls);
 }
+
+/// The receiver-first shell of each `this`-reading declaration that
+/// has no shell yet. The slot's value is what every read the program
+/// routes to the binding sees — a method call, `.call`, `new` — so it
+/// must carry the receiver; the plain face pins it to `undefined`.
+/// `promote_this_fn_values` mints this same shell for a value use of
+/// the bare name, so either way the declaration keeps one cell.
+fn receiver_first_shells(
+    ast: &mut Ast,
+    names: &[String],
+    fn_sigs: &FnSigs,
+    existing: &mut std::collections::HashSet<String>,
+) -> Vec<Stmt> {
+    let mut out = Vec::new();
+    for name in names {
+        let (params, return_type, span) = &fn_sigs[name];
+        let shells = super::shell_names(name);
+        if !ast.this_param_fns.contains(name)
+            || params.first().is_none_or(|p| p.name != "__this")
+            || shells.iter().any(|n| existing.contains(n))
+        {
+            continue;
+        }
+        let [recv, _] = shells;
+        out.push(super::forwarder_synth::synth_forwarder_decl(
+            ast,
+            &recv,
+            name,
+            params,
+            return_type.clone(),
+            *span,
+            super::ShellFace::ReceiverFirst,
+        ));
+        existing.insert(recv);
+    }
+    out
+}
+
+type FnSigs =
+    std::collections::HashMap<String, (Vec<super::Param>, Option<String>, crate::lexer::Span)>;
 
 /// The first statement that is neither a declaration nor a
 /// compiler-minted head statement: an uninitialized binding (the
