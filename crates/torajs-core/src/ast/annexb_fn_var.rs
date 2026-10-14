@@ -86,12 +86,14 @@ impl AnnexBGoal {
     /// Unless the declaration came out of sloppy eval code, in which
     /// case neither reading applies to it: the goal describes the FILE,
     /// and `(0, 0)` is the very sentinel the splice stamped on. Those
-    /// are answered by name.
+    /// are answered by name. A declaration with a span of its own is
+    /// the program's, whatever an eval text declares under its name.
     fn applies(&self, name: &str, span: crate::lexer::Span) -> bool {
-        if self.sloppy_eval_names.contains(name) {
+        let blanked = span.start == 0 && span.end == 0;
+        if blanked && self.sloppy_eval_names.contains(name) {
             return true;
         }
-        if span.start == 0 && span.end == 0 && self.strict_eval_names.contains(name) {
+        if blanked && self.strict_eval_names.contains(name) {
             return false;
         }
         self.sloppy

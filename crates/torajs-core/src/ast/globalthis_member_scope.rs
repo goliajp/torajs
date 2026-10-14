@@ -9,19 +9,20 @@
 //! every bare `X` in the program which side it reaches, so a binding
 //! that is in scope at some read can be renamed out of the way.
 //!
-//! Scopes follow §9.1 closely enough to rename by: a function (its
-//! parameters, its `var`s anywhere in its body, the lexical
-//! declarations of its body), a block (its own `let` / `const` /
-//! `using`), a `for` head, a catch clause, a class body (its name). A
-//! function or class declaration and a loop variable are put in the
-//! enclosing function's scope wherever they sit, which can only make a
-//! read look shadowed when it is not; those binders are never renamed
-//! (`pinned`), so the over-approximation keeps a read on the member
-//! form and changes nothing else. The top-level frame drops the names
-//! `take_census`'s `props` lists, so a `for…of` / `for…in` body binds
-//! its loop variable in a frame of its own as well.
+//! Scopes follow §9.1: a function (its parameters, its `var`s anywhere
+//! in its body, the declarations of its own statement list, and the
+//! block functions §B.3.3 gives a `var` there — `annexb_vars`), a
+//! block (its own `let` / `const` / `using` / `class` / `function`), a
+//! `for` head, a `for…of` / `for…in` body (its loop variable), a catch
+//! clause, a class body (its name). A lexical binding belongs to its
+//! block alone: `desugar_eval::bound_fns` routes every read the census
+//! finds unshadowed to the global binding, so a read that only LOOKS
+//! shadowed would reach the wrong declaration. The top-level frame
+//! drops the names `take_census`'s `props` lists.
 
 use std::collections::{HashMap, HashSet};
+
+mod annexb_vars;
 
 use super::desugar_with::walk::{expr_node_children, stmt_children_ref, stmt_exprs};
 use super::{Ast, Expr, ExprId, Param, StaticInit, Stmt};
@@ -133,6 +134,9 @@ impl Walk<'_> {
             self.bind(&mut out, n, true);
         }
         self.fn_binders(body, true, &mut out);
+        for n in annexb_vars::annexb_var_names(self.ast, body, self.watch) {
+            self.bind(&mut out, &n, true);
+        }
         out
     }
 
@@ -151,11 +155,10 @@ impl Walk<'_> {
                 }
                 Stmt::UsingDecl { name, .. } if top => self.bind(out, name, false),
                 Stmt::FnDecl { name, .. } | Stmt::ClassDecl { name, .. } => {
-                    self.bind(out, name, true);
+                    if top {
+                        self.bind(out, name, true);
+                    }
                     continue;
-                }
-                Stmt::ForOf { var_name, .. } | Stmt::ForOfSplitIter { var_name, .. } => {
-                    self.bind(out, var_name, true)
                 }
                 Stmt::ImportDecl {
                     default,
