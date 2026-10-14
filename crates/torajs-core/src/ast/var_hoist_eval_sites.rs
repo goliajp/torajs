@@ -42,6 +42,27 @@ pub struct EvalGlobalNames {
     pub annexb_heads: std::collections::HashMap<ExprId, String>,
 }
 
+/// The hidden slot (`script_global_fns`) of a function an eval's text
+/// declares at its top level, when that text is the only one that
+/// declares it. Its global binding is created when the text runs, as
+/// a property over the slot; before that the name is unbound, and
+/// after it the property is what the name reads and calls — the
+/// program may have put anything there first. Not a Script's
+/// function: that binds where its declaration sits, which a read in
+/// the Script may precede. Not one several texts declare: only the
+/// last declaration is kept.
+pub fn eval_bound_fn_slot(ast: &Ast, name: &str) -> Option<String> {
+    if ast.eval_fn_names.get(name) != Some(&ScriptGlobalVar::EvalFn)
+        || ast.eval_global_names.multi_text_fns.contains(name)
+    {
+        return None;
+    }
+    Some(format!(
+        "{}{name}",
+        super::script_global_fns::SCRIPT_GLOBAL_FN_SLOT_PREFIX
+    ))
+}
+
 /// The flavour a name's sites give it, or `None` when some site is
 /// the program's own.
 pub(super) fn eval_flavor(

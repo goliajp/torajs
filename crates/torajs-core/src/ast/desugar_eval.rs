@@ -126,6 +126,7 @@
 //!   completes normally): a statement rewrite in statement position,
 //!   a throw-IIFE in value position (`completion.rs`).
 
+mod bound_fns;
 mod class_field_arguments;
 mod collapse;
 mod completion;
@@ -201,6 +202,7 @@ pub fn desugar_eval(ast: &mut Ast) {
         ast.stmts = stmts;
         rewrite_arrow_bodies(ast);
         completion::rewrite_completion_value_evals(ast);
+        bound_fns::route_global_reads(ast);
     }
     function_ctor::rewrite_function_ctors(ast);
 }

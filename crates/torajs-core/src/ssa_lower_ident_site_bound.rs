@@ -2,7 +2,9 @@
 //! `EvalVar` / `ScriptVar` in `Ast::script_global_var_names`, the
 //! flavours whose property binds where the text runs (RFC
 //! 20260912-global-var-cell knife 4) rather than in the prelude, and
-//! the `EvalFn` functions of the same texts.
+//! the hidden slot of an `EvalFn` function of such a text, which every
+//! read of the function's global binding names
+//! (`desugar_eval::bound_fns`).
 //!
 //! Until that text has run the name has no declarative binding at all
 //! (§16.1.7 / §19.2.1.3 instantiate it then), so §9.1.1.4
@@ -33,49 +35,32 @@ pub(crate) fn emit_sync(
     name: &str,
     slot: ValueId,
 ) {
-    if !matches!(
-        ctx.ast.script_global_var_names.get(name),
-        Some(ScriptGlobalVar::EvalVar | ScriptGlobalVar::ScriptVar)
-    ) {
+    let Some(key) = property_name(ctx, name) else {
         return;
-    }
+    };
     // The `x = x` that creates the binding reads the slot before the
     // property exists (`var_hoist_eval_sites::mark_eval_var_sites`).
     if ctx.ast.eval_var_sites.contains_key(&eid) {
         return;
     }
-    call_sync(ctx, name, slot);
-}
-
-/// A value read of an eval's top-level function: its property binds
-/// at the head of the text (`script_global_fns`), and before that the
-/// name is unbound. The read itself stays the declaration's value
-/// lane; this only raises the ReferenceError ahead of it.
-pub(crate) fn emit_eval_fn_presence(ctx: &mut LowerCtx<'_>, name: &str) {
-    let Some(slot_name) = eval_fn_slot(ctx, name) else {
-        return;
-    };
+    let key = ctx.intern_string_literal(key);
+    let sync = ctx.intrinsics.global_var_sync;
     let cur_block = ctx.cur_block;
-    let ptr = ctx
-        .f
-        .append_inst(cur_block, InstKind::GlobalRef(slot_name), Type::Ptr, None);
-    call_sync(ctx, name, ptr);
+    ctx.f.append_void(
+        cur_block,
+        InstKind::Call(sync, vec![Operand::Value(key), Operand::Value(slot)]),
+    );
+    ctx.emit_throw_check(None);
 }
 
 /// `typeof` on one of these names: the object answers, absent or not
 /// (§13.5.3 step 2.a), through the kernel an unresolvable name uses.
 pub(crate) fn try_typeof(ctx: &mut LowerCtx<'_>, name: &str) -> Option<Operand> {
-    if ctx.locals.contains_key(name) {
+    if ctx.locals.contains_key(name) || !ctx.globals.contains_key(name) {
         return None;
     }
-    let var = matches!(
-        ctx.ast.script_global_var_names.get(name),
-        Some(ScriptGlobalVar::EvalVar | ScriptGlobalVar::ScriptVar)
-    ) && ctx.globals.contains_key(name);
-    if !var && eval_fn_slot(ctx, name).is_none() {
-        return None;
-    }
-    let key = ctx.intern_string_literal(name);
+    let key = property_name(ctx, name)?;
+    let key = ctx.intern_string_literal(key);
     let f = ctx.intrinsics.global_ident_typeof;
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
@@ -88,31 +73,14 @@ pub(crate) fn try_typeof(ctx: &mut LowerCtx<'_>, name: &str) -> Option<Operand> 
     Some(Operand::Value(v))
 }
 
-/// The hidden slot of an eval's function, when the name has one whose
-/// binding happens at a single place — not a Script's (bound where its
-/// declaration sits, which a read inside the Script may precede), and
-/// not one several texts declare.
-fn eval_fn_slot(ctx: &LowerCtx<'_>, name: &str) -> Option<String> {
-    if ctx.ast.eval_fn_names.get(name) != Some(&ScriptGlobalVar::EvalFn)
-        || ctx.locals.contains_key(name)
-        || ctx.ast.eval_global_names.multi_text_fns.contains(name)
-    {
-        return None;
+/// The global object's property a read of this slot resolves through,
+/// for the names here.
+fn property_name<'n>(ctx: &LowerCtx<'_>, name: &'n str) -> Option<&'n str> {
+    match ctx.ast.script_global_var_names.get(name)? {
+        ScriptGlobalVar::EvalVar | ScriptGlobalVar::ScriptVar => Some(name),
+        ScriptGlobalVar::EvalFn => {
+            name.strip_prefix(crate::ast::script_global_fns::SCRIPT_GLOBAL_FN_SLOT_PREFIX)
+        }
+        _ => None,
     }
-    let slot = format!(
-        "{}{name}",
-        crate::ast::script_global_fns::SCRIPT_GLOBAL_FN_SLOT_PREFIX
-    );
-    ctx.globals.contains_key(&slot).then_some(slot)
-}
-
-fn call_sync(ctx: &mut LowerCtx<'_>, name: &str, slot: ValueId) {
-    let key = ctx.intern_string_literal(name);
-    let sync = ctx.intrinsics.global_var_sync;
-    let cur_block = ctx.cur_block;
-    ctx.f.append_void(
-        cur_block,
-        InstKind::Call(sync, vec![Operand::Value(key), Operand::Value(slot)]),
-    );
-    ctx.emit_throw_check(None);
 }

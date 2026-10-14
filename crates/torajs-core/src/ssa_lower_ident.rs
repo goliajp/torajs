@@ -73,8 +73,6 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: crate::ast::ExprId, name: &str)
         if name == "Infinity" {
             return Operand::ConstF64(f64::INFINITY);
         }
-        // An eval's function is unbound until its text has run.
-        crate::ssa_lower_ident_site_bound::emit_eval_fn_presence(ctx, name);
         // L3b ③ — a generic-fn VALUE escape was retargeted by the
         // checker to its all-`any` clone (`$$anywv`); take the
         // CLONE's address — the generic original never lowers.
