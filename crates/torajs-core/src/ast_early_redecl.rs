@@ -24,12 +24,12 @@
 //! statements down to (not through) function boundaries — a `{ var
 //! f; }` inner block conflicts with an outer-block lexical `f`.
 //!
-//! Recorded boundary: closure/function-expression bodies reached
-//! only through the expr arena are not walked (the generated-matrix
-//! corpus declares its conflicts in statement position); top-level
-//! script and fn-body lists keep the checker's existing coverage.
+//! Function and arrow EXPRESSION bodies live in the expression arena,
+//! out of reach of the statement walk, so `run` visits them from there;
+//! top-level script and fn-body lists keep the checker's existing
+//! coverage.
 
-use crate::ast::{Ast, StaticInit, Stmt};
+use crate::ast::{Ast, Expr, StaticInit, Stmt};
 use crate::lexer::Span;
 use std::collections::HashMap;
 
@@ -43,6 +43,11 @@ pub fn run(ast: &mut Ast) {
     let mut errors: Vec<String> = Vec::new();
     for s in &ast.stmts {
         walk_stmt(s, ast, Code::Program, &mut errors);
+    }
+    for e in &ast.exprs {
+        if let Expr::ArrowFn { body, .. } = e {
+            walk_body(body, ast, Code::Program, &mut errors);
+        }
     }
     ast.redecl_parse_errors = errors;
 }
@@ -338,9 +343,8 @@ fn check_top_level(list: &[Stmt], ast: &Ast, errors: &mut Vec<String>) {
 fn block_kind(ast: &Ast, code: Code) -> impl Fn(&str, bool, Span) -> DeclKind + '_ {
     move |name, is_generator, span| match code {
         Code::Eval { strict: true } => DeclKind::Lexical,
-        Code::Eval { strict: false } | Code::Program => {
-            block_fn_kind(ast)(name, is_generator, span)
-        }
+        Code::Eval { strict: false } => block_fn_kind(ast)(name, is_generator, span),
+        Code::Program => sloppy_only_fn_kind(ast)(name, is_generator, span),
     }
 }
 
@@ -349,7 +353,7 @@ fn block_kind(ast: &Ast, code: Code) -> impl Fn(&str, bool, Span) -> DeclKind + 
 fn case_kind(ast: &Ast, code: Code) -> impl Fn(&str, bool, Span) -> DeclKind + '_ {
     move |name, is_generator, span| match code {
         Code::Eval { .. } => block_kind(ast, code)(name, is_generator, span),
-        Code::Program => case_block_fn_kind(ast)(name, is_generator, span),
+        Code::Program => sloppy_only_fn_kind(ast)(name, is_generator, span),
     }
 }
 
@@ -365,11 +369,12 @@ fn block_fn_kind(ast: &Ast) -> impl Fn(&str, bool, Span) -> DeclKind + '_ {
     }
 }
 
-/// A CaseBlock's `function` is the Annex B `PlainFn` only in sloppy
-/// code: §B.3.2.4's allowance for duplicates bound only by function
-/// declarations is for source text that is not strict mode code, so a
-/// strict CaseBlock declaring `function f` twice is §14.12.1's error.
-fn case_block_fn_kind(ast: &Ast) -> impl Fn(&str, bool, Span) -> DeclKind + '_ {
+/// A Block's or CaseBlock's `function` is the Annex B `PlainFn` only in
+/// sloppy code: the allowance for duplicates bound only by function
+/// declarations (§14.2.1, §B.3.2.4) is for source text that is not
+/// strict mode code, so a strict block declaring `function f` twice is
+/// §14.2.1's / §14.12.1's error.
+fn sloppy_only_fn_kind(ast: &Ast) -> impl Fn(&str, bool, Span) -> DeclKind + '_ {
     move |name, is_generator, span| {
         if crate::ast::annexb_fn_var::annexb_applies_at(ast, name, span) {
             block_fn_kind(ast)(name, is_generator, span)

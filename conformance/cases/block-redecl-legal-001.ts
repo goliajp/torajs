@@ -21,17 +21,9 @@
   console.log(b);
 }
 
-// plain function × plain function in one block (Annex B.3.3.4 —
-// bun accepts; the second declaration wins)
-{
-  function f() {
-    console.log("f1");
-  }
-  function f() {
-    console.log("f2");
-  }
-  f();
-}
+// plain function × plain function in one block is legal only in
+// sloppy code (§14.2.1), and this file is a module: that shape lives in
+// block-fn-dup-sloppy-001.cts
 
 // fn-body top level var + fn stays outside the pass's block scope
 function g() {

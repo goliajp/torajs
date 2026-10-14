@@ -58,13 +58,9 @@ console.log(bodyAsync());
   console.log(which());
 }
 
-// Two plain declarations of one name in one block are legal and the
-// last wins (§B.3.3.4), so the block gets ONE binding, not two.
-{
-  function twin(): string { return "first"; }
-  function twin(): string { return "second"; }
-  console.log(twin());
-}
+// Two plain declarations of one name in one block are legal only in
+// sloppy code (§14.2.1), so that shape lives in
+// block-fn-dup-sloppy-001.cts rather than in this module.
 
 // A body-level declaration is NOT block-nested and keeps the whole
 // body, including the part above it.
