@@ -19,6 +19,13 @@
 //! typed call, a twin stores values of its mono's types into slots its
 //! class declares, which the subclass lays out alike
 //! (`super::twinned`), and the census counts those stores at the mono.
+//!
+//! A generic class's method has two more bodies in the mono program,
+//! both typed all `any`: the twin's instance (`__cmany_<C>__<m>$$anywv`),
+//! which the adapter enters as it enters a twin, and the mono's
+//! (`__cm_<C>__<m>$$anywv`), which its dispatch rows enter for a call
+//! through a receiver no class type names. Each is judged as the
+//! twin of its mono; the typed calls bind the specializations.
 
 use std::collections::{HashMap, HashSet};
 
@@ -33,9 +40,9 @@ pub(crate) struct TwinBodies<'a> {
     ast: &'a Ast,
     /// The body each expression sits in: [`NO_BODY`], [`PROTOCOL`] (an
     /// iterator-protocol helper's), or `TWIN + k` for the `k`-th twin
-    /// of `twins`.
+    /// body, whose mono is `twin_monos[k]`.
     owner: Vec<u32>,
-    twins: Vec<&'a str>,
+    twin_monos: Vec<&'a str>,
     /// `None` when no twin is idle whatever the types: there is none,
     /// one cannot be read back off its name, or a road no type rules
     /// out leads to them.
@@ -65,15 +72,25 @@ impl<'a> TwinBodies<'a> {
         let mut out = TwinBodies {
             ast,
             owner: Vec::new(),
-            twins: Vec::new(),
+            twin_monos: Vec::new(),
             roads: None,
         };
         let Some(twinned) = super::twinned(ast, true).filter(|t| !t.is_empty()) else {
             return out;
         };
-        out.twins = ast.cmany_twins.values().map(String::as_str).collect();
-        let index: HashMap<&str, u32> = (out.twins.iter().enumerate())
-            .map(|(k, t)| (*t, TWIN + k as u32))
+        let mut bodies: Vec<String> = Vec::new();
+        for (mono, twin) in &ast.cmany_twins {
+            for body in [
+                twin.clone(),
+                format!("{twin}$$anywv"),
+                format!("{mono}$$anywv"),
+            ] {
+                bodies.push(body);
+                out.twin_monos.push(mono.as_str());
+            }
+        }
+        let index: HashMap<&str, u32> = (bodies.iter().enumerate())
+            .map(|(k, t)| (t.as_str(), TWIN + k as u32))
             .collect();
         let helpers = crate::ast::desugar_generators_forof_helpers::HELPERS;
         let label = |n: &str| match index.get(n) {
@@ -167,8 +184,8 @@ impl<'a> TwinBodies<'a> {
                 };
             }
         }
-        // by the twin's index in `twins`
-        let mut idle = vec![false; self.twins.len()];
+        // by the body's index in `twin_monos`
+        let mut idle = vec![false; self.twin_monos.len()];
         for (mono, method) in &roads.twinned {
             let params = roads.monos.get(mono).copied();
             let fixed = ast.cm_fixed_argc.contains_key(*mono);
@@ -179,10 +196,8 @@ impl<'a> TwinBodies<'a> {
             if runs {
                 continue;
             }
-            if let Some(twin) = ast.cmany_twins.get(*mono) {
-                for (k, t) in self.twins.iter().enumerate() {
-                    idle[k] |= t == twin;
-                }
+            for (k, m) in self.twin_monos.iter().enumerate() {
+                idle[k] |= m == mono;
             }
         }
         let mut out = ExprMask::new(ast);
