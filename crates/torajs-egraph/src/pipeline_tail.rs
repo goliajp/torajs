@@ -3,10 +3,10 @@ use crate::id_hash::HashMap;
 use torajs_core::ssa::{FuncId, Module, ValueId};
 
 use crate::{
-    block_layout, concat_len, concat_licm, concat_num_fuse, fdiv_pair, gated_pass, interval,
-    iv_merge, loop_rotate, map_find_cse, pass_gates, pass_timer, rc_borrow, rc_dec_immediate,
-    rc_peephole, scaled_addr, select_form, srem_fquot, str_append, strip_assumes, unroll_jam,
-    unroll_pair,
+    block_layout, concat_len, concat_licm, concat_num_fuse, const_copy_fwd, fdiv_pair, gated_pass,
+    interval, iv_merge, loop_rotate, map_find_cse, pass_gates, pass_timer, rc_borrow,
+    rc_dec_immediate, rc_peephole, scaled_addr, select_form, srem_fquot, str_append, strip_assumes,
+    unroll_jam, unroll_pair,
 };
 
 mod global_ref_share;
@@ -170,6 +170,15 @@ pub(crate) fn finish_pipeline(
     // ranges; no inst-level rewrites. `TORAJS_BLOCK_LAYOUT_OFF=1`
     // skips (bisect gate).
     gated_pass("BLOCK_LAYOUT", module, block_layout::layout_module);
+    // A constant set of a cell that only its own block reads, handed on
+    // by a copy that tail_dup put next to it, goes straight into the
+    // copy. After block_layout, whose tail_dup makes the shape.
+    // `TORAJS_CONST_COPY_FWD_OFF=1` skips.
+    gated_pass(
+        "CONST_COPY_FWD",
+        module,
+        const_copy_fwd::forward_constant_copies,
+    );
 }
 
 /// The integer clones' entry assumptions, read by every analysis
