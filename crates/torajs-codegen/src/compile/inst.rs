@@ -3,6 +3,7 @@
 use torajs_core::ssa::{Function, InstKind, Operand, Type};
 
 use super::ModuleFacts;
+use super::call_carry::{self, CallCarry};
 use super::slot;
 use super::{
     emit_alloca, emit_binop, emit_bitcast_f64_to_i64, emit_bitcast_i64_to_f64,
@@ -125,7 +126,10 @@ pub(super) fn emit_plain(
 /// `emit_inst` for the instruction at slot index `site`, with every
 /// register the allocator keeps live across this call site stored
 /// before it and reloaded after. A vector is stored whole around the
-/// instruction, whichever arm of it runs.
+/// instruction, whichever arm of it runs. `carry` is what the
+/// instruction emitted just before left in its slots (`call_carry`),
+/// and comes back as what this one leaves.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn emit_inst_at(
     bytes: &mut Vec<u8>,
     relocs: &mut Vec<Reloc>,
@@ -134,24 +138,32 @@ pub(super) fn emit_inst_at(
     alloc: &Assignment,
     facts: &ModuleFacts,
     site: u32,
+    carry: &mut Option<CallCarry>,
 ) {
     let wide = alloc
         .vec_call_saves
         .get(&site)
         .map_or(&[][..], Vec::as_slice);
+    if !wide.is_empty() {
+        *carry = None;
+    }
     for &(f, off) in wide {
         slot::sp_str_q(bytes, f, off);
     }
-    emit_saved(bytes, relocs, func, inst, alloc, facts, site);
+    *carry = emit_saved(bytes, relocs, func, inst, alloc, facts, site, carry.take());
     for &(f, off) in wide {
         slot::sp_ldr_q(bytes, f, off);
+    }
+    if !wide.is_empty() {
+        *carry = None;
     }
 }
 
 /// The instruction with its caller-saved scalar registers stored
 /// before the call and reloaded after. The store precedes the
 /// argument setup, which may overwrite an argument register; the
-/// reload follows the result move.
+/// reload follows the result move. Answers the reloads it ends with.
+#[allow(clippy::too_many_arguments)]
 fn emit_saved(
     bytes: &mut Vec<u8>,
     relocs: &mut Vec<Reloc>,
@@ -160,7 +172,8 @@ fn emit_saved(
     alloc: &Assignment,
     facts: &ModuleFacts,
     site: u32,
-) {
+    carry: Option<CallCarry>,
+) -> Option<CallCarry> {
     // a call-defined member of a coalesced class sits inside the class
     // hull: its result lands in the saved register, which must not be
     // reloaded over it
@@ -180,27 +193,21 @@ fn emit_saved(
     // these itself
     if let InstKind::RcDecAny(v) = &inst.kind {
         super::rc_dec::emit_rc_dec_any(bytes, relocs, v, alloc, &saves);
-        return;
+        return None;
     }
     // likewise an intrinsic whose common case opens inline
     if super::inline_sites::try_emit_saved(bytes, relocs, func, inst, alloc, &saves, facts) {
-        return;
+        return None;
     }
-    for &(reg, off) in &saves {
-        match reg {
-            Reg::Gpr(g) => slot::sp_str_x(bytes, g, off),
-            Reg::Fpr(f) => slot::sp_str_d(bytes, f, off),
-            other => unreachable!("saved value not in a register: {other:?}"),
-        }
+    let kept = call_carry::take(bytes, carry, inst, alloc, &saves);
+    for &s in saves.iter().filter(|s| !kept.contains(s)) {
+        call_carry::store(bytes, s);
     }
     emit_plain(bytes, relocs, func, inst, alloc, &facts.fn_sigs);
-    for &(reg, off) in &saves {
-        match reg {
-            Reg::Gpr(g) => slot::sp_ldr_x(bytes, g, off),
-            Reg::Fpr(f) => slot::sp_ldr_d(bytes, f, off),
-            other => unreachable!("saved value not in a register: {other:?}"),
-        }
+    for &s in &saves {
+        call_carry::reload(bytes, s);
     }
+    CallCarry::after(bytes, saves)
 }
 
 #[cfg(test)]
@@ -244,7 +251,16 @@ mod tests {
         let mut bytes = Vec::new();
         let func = Function::new("f", Type::I64);
         let facts = ModuleFacts::default();
-        emit_inst_at(&mut bytes, &mut Vec::new(), &func, &inst, &alloc, &facts, 7);
+        emit_inst_at(
+            &mut bytes,
+            &mut Vec::new(),
+            &func,
+            &inst,
+            &alloc,
+            &facts,
+            7,
+            &mut None,
+        );
 
         let mut expect = Vec::new();
         slot::sp_str_x(&mut expect, Gpr::X6, 24);

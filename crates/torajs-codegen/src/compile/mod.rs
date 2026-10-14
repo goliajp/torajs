@@ -29,6 +29,7 @@ mod box_any;
 mod brfuse;
 mod call;
 mod call_args;
+mod call_carry;
 mod cast;
 mod cell;
 mod cmp;
@@ -291,6 +292,9 @@ fn emit_body(
         let sib = sibcall::plan(func, block, &landing.blocks_by_id, alloc, facts);
         let body = sib.as_ref().map_or(block.insts.len(), |s| s.at);
         let mut flags = cond_flags::CondFlags::default();
+        // never across a block start: another way in may not have run
+        // the call before
+        let mut carry = None;
         for (ii, inst) in block.insts[..body].iter().enumerate() {
             if fusions.emit(&mut bytes, &mut relocs, block, ii, inst, alloc)
                 || flags.emit_select(&mut bytes, inst, alloc)
@@ -298,7 +302,16 @@ fn emit_body(
                 continue;
             }
             let site = block_slot + ii as u32;
-            emit_inst_at(&mut bytes, &mut relocs, func, inst, alloc, facts, site);
+            emit_inst_at(
+                &mut bytes,
+                &mut relocs,
+                func,
+                inst,
+                alloc,
+                facts,
+                site,
+                &mut carry,
+            );
         }
         block_slot += block.insts.len() as u32 + 1;
         if let Some(s) = &sib {
