@@ -32,7 +32,8 @@ pub(crate) fn names(ast: &Ast, expr_types: &HashMap<ExprId, Type>) -> HashSet<Pr
         for (k, ann) in fields {
             if ann == crate::ssa_lower_parse_type::OPTIONAL_NUMBER_ANN
                 && ast
-                    .optional_plain_members
+                    .optional_members
+                    .plain
                     .contains(&(name.clone(), k.clone()))
             {
                 out.insert(k.clone());

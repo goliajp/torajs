@@ -191,10 +191,11 @@ impl ShadowedNames {
 }
 
 /// Every write of the program, by the names it reaches. A
-/// receiver-polymorphic twin's writes count like any other: the twin
-/// types its receiver, parameters and locals `any`, so its `t.m = v`
-/// is an any-lane [[Set]] onto whatever cell the caller handed it, and
-/// the value is a number only when `write_kind` shows it is one. That
+/// receiver-polymorphic twin's writes count like any other once the
+/// twin can run: it types its receiver, parameters and locals `any`, so
+/// its `t.m = v` is an any-lane [[Set]] onto whatever cell the caller
+/// handed it, and the value is a number only when `write_kind` shows it
+/// is one. A twin nothing enters (`idle_twin_exprs`) writes nothing. That
 /// verdict reads which members the writes leave holding values of any
 /// kind, so the census repeats until that set stops growing.
 fn writes(
@@ -208,6 +209,7 @@ fn writes(
     // traced only when some write names a member through the any lane
     let origins = std::cell::OnceCell::new();
     let origins = || origins.get_or_init(|| super::receiver_origin::Origins::of(ast, expr_types));
+    let dead_twins = crate::ssa_lower_pass_0_5::arr_head_census::idle_twin_exprs(ast, expr_types);
     let mut unknown: HashSet<String> = HashSet::new();
     loop {
         let facts = super::write_kind::Facts {
@@ -218,7 +220,10 @@ fn writes(
             accessor,
         };
         let mut names = Names::default();
-        for e in &ast.exprs {
+        for (i, e) in ast.exprs.iter().enumerate() {
+            if dead_twins.contains(&ExprId(i as u32)) {
+                continue;
+            }
             let (hit, recv) = match e {
                 Expr::Assign { target, value } => (
                     write(&facts, *target, Some(*value)),

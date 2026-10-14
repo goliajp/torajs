@@ -48,6 +48,7 @@ impl StructFields {
             .iter()
             .filter(|(n, _)| {
                 ast.optional_members
+                    .all
                     .contains(&(owner.to_string(), n.clone()))
             })
             .map(|(n, _)| n.clone())

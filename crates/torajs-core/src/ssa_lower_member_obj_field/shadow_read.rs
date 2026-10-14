@@ -12,7 +12,7 @@
 //! a program whose writes cannot shadow the field never comes here.
 
 use crate::ast::ExprId;
-use crate::ssa::{InstKind, Operand, Terminator, Type};
+use crate::ssa::{BlockId, IPred, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 
 /// Whether the read of the field `name` of the receiver `obj`, whose
@@ -106,23 +106,43 @@ fn box_owned(ctx: &mut LowerCtx<'_>, v: Operand, field_ty: Type) -> Operand {
 
 /// The field's value as an owned `any`: the sidecar's on a hit, the
 /// slot's boxed otherwise (an f64 slot's undefined sentinel boxes as
-/// `undefined`).
+/// `undefined`). The read `eid` on the left of a `??` that asked for it
+/// (`ssa_lower_nullish_any::split`) answers the nullish test on each
+/// arm instead: a nullish value branches to a block left open for the
+/// `??`, so the plain arm boxes only a number and the tag is read only
+/// on a hit.
 pub(super) fn boxed_load(
     ctx: &mut LowerCtx<'_>,
+    eid: Option<ExprId>,
     obj_val: Operand,
     (offset, field_ty): (u64, Type),
     name: &str,
 ) -> Operand {
+    let split =
+        field_ty == Type::F64 && eid.is_some_and(|e| ctx.binop.nullish_split == Some((e, None)));
     let res = ctx.alloca_in_entry(Type::Any, Some("__field_read"));
     let (hit_blk, plain_blk) = super::exotic_read::branch(ctx, obj_val);
     let done = ctx.f.add_block();
+    let nullish = split.then(|| ctx.f.add_block());
 
     ctx.cur_block = hit_blk;
     let got = super::exotic_read::emit_get(ctx, obj_val, name);
     let blk = ctx.cur_block;
     ctx.f
         .append_void(blk, InstKind::Store(got, Operand::Value(res), 0));
-    ctx.f.set_term(blk, Terminator::Br(done));
+    let term = match nullish {
+        Some(n) => {
+            let tag = ctx.f.append_inst(
+                blk,
+                InstKind::Call(ctx.intrinsics.any_unbox_tag, vec![got]),
+                Type::I64,
+                None,
+            );
+            cond_br(crate::ssa_lower_nullish_any::nullish_tag(ctx, tag), n, done)
+        }
+        None => Terminator::Br(done),
+    };
+    ctx.f.set_term(blk, term);
 
     ctx.cur_block = plain_blk;
     let v = ctx.f.append_inst(
@@ -131,11 +151,17 @@ pub(super) fn boxed_load(
         field_ty,
         None,
     );
-    let boxed = box_owned(ctx, Operand::Value(v), field_ty);
+    let boxed = match nullish {
+        Some(n) => box_number_or_branch(ctx, Operand::Value(v), n),
+        None => box_owned(ctx, Operand::Value(v), field_ty),
+    };
     let blk = ctx.cur_block;
     ctx.f
         .append_void(blk, InstKind::Store(boxed, Operand::Value(res), 0));
     ctx.f.set_term(blk, Terminator::Br(done));
+    if let (Some(e), Some(n)) = (eid, nullish) {
+        ctx.binop.nullish_split = Some((e, Some(n)));
+    }
 
     ctx.cur_block = done;
     let out = ctx.f.append_inst(
@@ -145,4 +171,38 @@ pub(super) fn boxed_load(
         None,
     );
     Operand::Value(out)
+}
+
+/// The f64 slot value `v` boxed as a number; its undefined sentinel
+/// branches to `nullish` instead.
+fn box_number_or_branch(ctx: &mut LowerCtx<'_>, v: Operand, nullish: BlockId) -> Operand {
+    let bits = ctx
+        .f
+        .append_inst(ctx.cur_block, InstKind::BitCastF64ToI64(v), Type::I64, None);
+    let sentinel = crate::ssa_lower_undef_f64_source::F64_UNDEF_SENTINEL_BITS as i64;
+    let is_undef = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Eq, Operand::Value(bits), Operand::ConstI64(sentinel)),
+        Type::Bool,
+        None,
+    );
+    let num = ctx.f.add_block();
+    ctx.f
+        .set_term(ctx.cur_block, cond_br(is_undef, nullish, num));
+    ctx.cur_block = num;
+    let boxed = ctx.f.append_inst(
+        num,
+        InstKind::BoxAny(3, Operand::Value(bits)),
+        Type::Any,
+        None,
+    );
+    Operand::Value(boxed)
+}
+
+fn cond_br(cond: ValueId, then_blk: BlockId, else_blk: BlockId) -> Terminator {
+    Terminator::CondBr {
+        cond: Operand::Value(cond),
+        then_blk,
+        else_blk,
+    }
 }

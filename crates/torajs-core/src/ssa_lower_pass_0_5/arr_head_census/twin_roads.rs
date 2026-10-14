@@ -23,6 +23,9 @@ use crate::ast::desugar_async_sm_walk::{visit_expr_children, visit_stmt_exprs};
 use crate::ast::{Ast, Expr, ExprId, Stmt};
 use crate::check::Type;
 
+mod idle;
+pub(crate) use idle::idle_twin_exprs;
+
 /// Member or string names that reach a method value or move one onto
 /// another receiver.
 const REBIND_NAMES: &[&str] = &[
@@ -58,28 +61,36 @@ pub(crate) fn unreachable_twin_exprs(
     for s in &ast.stmts {
         collect_twin_bodies(ast, s, &twins, &mut inside);
     }
-    // a `this.m(..)` call rewritten to the static `__cm_` form keeps
-    // its member callee on the side, still a callee
-    let callees: HashSet<ExprId> = ast
-        .exprs
-        .iter()
+    let callees = callees(ast);
+    let road = ast.exprs.iter().enumerate().any(|(i, e)| {
+        let id = ExprId(i as u32);
+        !inside.contains(&id) && is_road(e, id, (&methods, &callees), expr_types, false)
+    });
+    if road { HashSet::new() } else { inside }
+}
+
+/// Every callee of a call. A `this.m(..)` call rewritten to the static
+/// `__cm_` form keeps its member callee on the side, still a callee.
+fn callees(ast: &Ast) -> HashSet<ExprId> {
+    (ast.exprs.iter())
         .filter_map(|e| match e {
             Expr::Call { callee, .. } | Expr::OptCall { callee, .. } => Some(*callee),
             _ => None,
         })
         .chain(ast.cm_this_static_calls.values().copied())
-        .collect();
-    let road = ast.exprs.iter().enumerate().any(|(i, e)| {
-        let id = ExprId(i as u32);
-        !inside.contains(&id) && is_road(e, id, &methods, &callees, expr_types)
-    });
-    if road { HashSet::new() } else { inside }
+        .collect()
 }
 
 /// The method names that have a twin; `None` when one cannot be read
 /// back off its mangled name or its class has a subclass.
 fn twinned_methods(ast: &Ast) -> Option<HashSet<String>> {
-    let mut out = HashSet::new();
+    Some(twinned(ast)?.into_iter().map(|(_, m)| m).collect())
+}
+
+/// Every mono method with a twin, with the method's name; `None` as
+/// for [`twinned_methods`].
+fn twinned(ast: &Ast) -> Option<Vec<(&str, String)>> {
+    let mut out = Vec::new();
     for mono in ast.cmany_twins.keys() {
         let rest = mono.strip_prefix("__cm_")?;
         let class = ast
@@ -97,7 +108,7 @@ fn twinned_methods(ast: &Ast) -> Option<HashSet<String>> {
         {
             return None;
         }
-        out.insert(rest[class.len() + 2..].to_string());
+        out.push((mono.as_str(), rest[class.len() + 2..].to_string()));
     }
     Some(out)
 }
@@ -132,12 +143,15 @@ fn add_tree(ast: &Ast, e: ExprId, out: &mut HashSet<ExprId>) {
     }
 }
 
+/// Whether `e` is a road. With `reached_only`, a computed read the
+/// checker never reached, key and all (the array lane a for-of over an
+/// iterator leaves behind), is not one: it is never performed.
 fn is_road(
     e: &Expr,
     id: ExprId,
-    methods: &HashSet<String>,
-    callees: &HashSet<ExprId>,
+    (methods, callees): (&HashSet<String>, &HashSet<ExprId>),
     expr_types: &std::collections::HashMap<ExprId, Type>,
+    reached_only: bool,
 ) -> bool {
     match e {
         Expr::Ident(n) => REBIND_NAMES.contains(&n.as_str()),
@@ -149,7 +163,9 @@ fn is_road(
             REBIND_NAMES.iter().any(|n| s == *n) || methods.iter().any(|m| s == m.as_str())
         }
         Expr::Index { obj, index } | Expr::OptIndex { obj, index } => {
-            !key_is_numeric(expr_types.get(index)) && !never_an_instance(expr_types.get(obj))
+            (!reached_only || expr_types.contains_key(&id) || expr_types.contains_key(index))
+                && !key_is_numeric(expr_types.get(index))
+                && !never_an_instance(expr_types.get(obj))
         }
         _ => false,
     }

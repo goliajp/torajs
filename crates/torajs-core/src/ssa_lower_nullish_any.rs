@@ -3,8 +3,8 @@
 //! the non-nullish value unboxes to rhs's SSA type. Split from the
 //! nullish lowering at the file-size line.
 
-use crate::ast::ExprId;
-use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type};
+use crate::ast::{Expr, ExprId};
+use crate::ssa::{BinOp as SsaBinOp, BlockId, IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::LowerCtx;
 
 /// Chunk 723 — rebuilt on the Ternary join shape: the tag test
@@ -32,7 +32,7 @@ pub(crate) fn lower_any_lhs(
         Type::I64,
         None,
     );
-    let nullish = emit_nullish_check(ctx, tag);
+    let nullish = nullish_tag(ctx, tag);
     let rhs_blk = ctx.f.add_block();
     let unbox_blk = ctx.f.add_block();
     let after = ctx.f.add_block();
@@ -46,28 +46,9 @@ pub(crate) fn lower_any_lhs(
         },
     );
     ctx.cur_block = rhs_blk;
-    ctx.proofs.enter_cond();
-    let rhs_raw = ctx.lower_expr(rhs);
-    ctx.proofs.leave_cond();
-    let rhs_raw_ty = ctx.operand_ty(&rhs_raw);
-    // Rotation 362 — the join is ANY (mirrors check_nullish): a
-    // non-nullish lhs IS the result, whatever its tag holds, so the
-    // old unbox-to-rhs-width read an f64 box's raw bits as an i64
-    // (probe: `argsAnyArr[0] ?? nParam` printed 4611686018427387904)
-    // and squeezed a non-bool payload through an ICmp. Box the rhs
-    // side instead; a borrow-shape rhs takes +1 before the box (the
-    // chunk-722 transfer contract, same as the ternary widen).
-    let rhs_op = if rhs_raw_ty == Type::Any {
-        rhs_raw
-    } else {
-        let is_borrow = !ctx.expr_transfers_ownership(rhs);
-        ctx.box_owned_from_expr(rhs, rhs_raw, is_borrow)
-    };
+    let rhs_op = owned_rhs(ctx, rhs);
     let rhs_ty = Type::Any;
     let rhs_end = ctx.cur_block;
-    if rhs_raw_ty == Type::Any && !ctx.expr_transfers_ownership(rhs) {
-        ctx.emit_owned_result_inc_in(rhs_end, rhs_op, rhs_ty);
-    }
     ctx.cur_block = unbox_blk;
     let unboxed = unbox_lhs_to_rhs_ty(ctx, lhs_op, rhs_ty);
     let unbox_end = ctx.cur_block;
@@ -99,7 +80,88 @@ pub(crate) fn lower_any_lhs(
     Operand::Value(r)
 }
 
-fn emit_nullish_check(ctx: &mut LowerCtx<'_>, tag: crate::ssa::ValueId) -> crate::ssa::ValueId {
+/// The nullish arm's value: rhs, lowered in the current block, as an
+/// owned `any`.
+fn owned_rhs(ctx: &mut LowerCtx<'_>, rhs: ExprId) -> Operand {
+    ctx.proofs.enter_cond();
+    let rhs_raw = ctx.lower_expr(rhs);
+    ctx.proofs.leave_cond();
+    // Rotation 362 — the join is ANY (mirrors check_nullish): a
+    // non-nullish lhs IS the result, whatever its tag holds, so the
+    // old unbox-to-rhs-width read an f64 box's raw bits as an i64
+    // (probe: `argsAnyArr[0] ?? nParam` printed 4611686018427387904)
+    // and squeezed a non-bool payload through an ICmp. Box the rhs
+    // side instead; a borrow-shape rhs takes +1 before the box (the
+    // chunk-722 transfer contract, same as the ternary widen).
+    if ctx.operand_ty(&rhs_raw) != Type::Any {
+        let is_borrow = !ctx.expr_transfers_ownership(rhs);
+        return ctx.box_owned_from_expr(rhs, rhs_raw, is_borrow);
+    }
+    if !ctx.expr_transfers_ownership(rhs) {
+        ctx.emit_owned_result_inc(rhs_raw, Type::Any);
+    }
+    rhs_raw
+}
+
+/// Ask the member read `lhs` of `lhs ?? rhs` to answer the nullish test
+/// itself (`shadow_read::boxed_load`): a read through a binding, whose
+/// receiver no later step releases, so a nullish arm that leaves the
+/// read early skips nothing. Whether it did comes from [`split_taken`].
+pub(crate) fn split(ctx: &mut LowerCtx<'_>, lhs: ExprId, rhs: ExprId) -> bool {
+    let ast = ctx.ast;
+    let asked = matches!(ast.get_expr(lhs), Expr::Member { obj, .. }
+            if matches!(ast.get_expr(*obj), Expr::Ident(_)))
+        && !matches!(ast.get_expr(rhs), Expr::Assign { .. })
+        && ctx.binop.nullish_split.is_none();
+    if asked {
+        ctx.binop.nullish_split = Some((lhs, None));
+    }
+    asked
+}
+
+/// The block the read left open for a nullish lhs, when it took the
+/// request [`split`] made.
+pub(crate) fn split_taken(ctx: &mut LowerCtx<'_>, asked: bool) -> Option<BlockId> {
+    if !asked {
+        return None;
+    }
+    ctx.binop.nullish_split.take().and_then(|(_, b)| b)
+}
+
+/// `lhs ?? rhs` whose lhs read answered the nullish test: `lhs_op`, at
+/// the current block, is the owned non-nullish value and is the result
+/// as it is; rhs lowers in `nullish_blk`.
+pub(crate) fn join_split(
+    ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
+    lhs_op: Operand,
+    nullish_blk: BlockId,
+    rhs: ExprId,
+) -> Operand {
+    let res_slot = ctx.alloca_in_entry(Type::Any, Some("__nullish_any"));
+    let after = ctx.f.add_block();
+    let blk = ctx.cur_block;
+    ctx.f
+        .append_void(blk, InstKind::Store(lhs_op, Operand::Value(res_slot), 0));
+    ctx.f.set_term(blk, Terminator::Br(after));
+    ctx.cur_block = nullish_blk;
+    let rhs_op = owned_rhs(ctx, rhs);
+    let blk = ctx.cur_block;
+    ctx.f
+        .append_void(blk, InstKind::Store(rhs_op, Operand::Value(res_slot), 0));
+    ctx.f.set_term(blk, Terminator::Br(after));
+    ctx.cur_block = after;
+    ctx.owned_member_reads.insert(eid);
+    let r = ctx.f.append_inst(
+        after,
+        InstKind::Load(Type::Any, Operand::Value(res_slot), 0),
+        Type::Any,
+        None,
+    );
+    Operand::Value(r)
+}
+
+pub(crate) fn nullish_tag(ctx: &mut LowerCtx<'_>, tag: crate::ssa::ValueId) -> crate::ssa::ValueId {
     let cur_block = ctx.cur_block;
     let is_null = ctx.f.append_inst(
         cur_block,

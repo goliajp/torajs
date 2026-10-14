@@ -25,7 +25,7 @@
 
 mod twin_roads;
 
-pub(crate) use twin_roads::unreachable_twin_exprs;
+pub(crate) use twin_roads::{idle_twin_exprs, unreachable_twin_exprs};
 
 use std::collections::HashMap;
 

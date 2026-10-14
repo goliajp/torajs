@@ -263,7 +263,7 @@ impl<'a> Parser<'a> {
         if optional {
             self.pos += 1;
             let at = (owner.to_string(), PropKey::from(name.as_str()));
-            self.ast.optional_members.insert(at);
+            self.ast.optional_members.all.insert(at);
         }
         // `m?(p: T): R` — an optional method is an optional member of
         // the method's fn type
@@ -283,7 +283,7 @@ impl<'a> Parser<'a> {
         let ty_raw = self.parse_type_ann()?;
         let ty = if optional && !ty_raw.starts_with("__nullable(") {
             let at = (owner.to_string(), PropKey::from(name.as_str()));
-            self.ast.optional_plain_members.insert(at);
+            self.ast.optional_members.plain.insert(at);
             format!("__nullable({ty_raw})")
         } else {
             ty_raw

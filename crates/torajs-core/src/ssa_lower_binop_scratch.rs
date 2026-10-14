@@ -74,6 +74,10 @@ pub(crate) struct BinopScratch {
     /// window dispatches (`WidthTable::arith_in_window`): it computes
     /// in f64.
     pub(crate) arith_unbounded: bool,
+    /// The member read on the left of a `??` being lowered, and, once
+    /// the read has answered the nullish test itself, the block its
+    /// nullish arms left open (`ssa_lower_nullish_any::split`).
+    pub(crate) nullish_split: Option<(ExprId, Option<crate::ssa::BlockId>)>,
     /// The one field that outlives its binop: a string `+` on the
     /// right of an assignment hands its throw check to the assignment
     /// (`ssa_lower_binop::str_check`).

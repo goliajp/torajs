@@ -369,10 +369,12 @@ impl Census<'_> {
             self.optional |= self
                 .ast
                 .optional_members
+                .all
                 .contains(&(name.to_string(), k.clone()));
             let plain_optional = self
                 .ast
-                .optional_plain_members
+                .optional_members
+                .plain
                 .contains(&(name.to_string(), k.clone()));
             if plain_optional
                 && ann == crate::ssa_lower_parse_type::OPTIONAL_NUMBER_ANN

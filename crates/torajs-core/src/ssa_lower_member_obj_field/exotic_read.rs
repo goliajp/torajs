@@ -128,7 +128,7 @@ pub(crate) fn guarded_load(
 ) -> Option<Operand> {
     if super::shadow_read::mistyped(ctx, eid, name, slot.1) {
         let v = match receiver_may_be_exotic(ctx, Some(obj)) {
-            true => super::shadow_read::boxed_load(ctx, obj_val, slot, name),
+            true => super::shadow_read::boxed_load(ctx, Some(eid), obj_val, slot, name),
             false => super::shadow_read::boxed_slot(ctx, obj_val, slot),
         };
         ctx.owned_member_reads.insert(eid);
@@ -137,7 +137,7 @@ pub(crate) fn guarded_load(
     if super::shadow_read::applies(ctx, Some(obj), name, slot.1)
         && receiver_may_be_exotic(ctx, Some(obj))
     {
-        let v = super::shadow_read::boxed_load(ctx, obj_val, slot, name);
+        let v = super::shadow_read::boxed_load(ctx, Some(eid), obj_val, slot, name);
         ctx.owned_member_reads.insert(eid);
         return Some(v);
     }
@@ -164,7 +164,7 @@ pub(crate) fn slot_value(
     let shadowed = super::shadow_read::applies(ctx, obj, name, field_ty)
         || super::shadow_read::mistyped_field(ctx, name, field_ty);
     if shadowed && receiver_may_be_exotic(ctx, obj) {
-        let v = super::shadow_read::boxed_load(ctx, obj_val, (offset, field_ty), name);
+        let v = super::shadow_read::boxed_load(ctx, None, obj_val, (offset, field_ty), name);
         return (v, Type::Any, true);
     }
     if let Some(v) = owned_slot_read(ctx, obj, obj_val, (offset, field_ty), name) {

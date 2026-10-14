@@ -234,10 +234,10 @@ fn rekey_side_tables(ast: &mut Ast, old: &str, new: &str, env: &Env) {
             .map(|(_, k)| (new.to_string(), k.clone()))
             .collect::<Vec<_>>()
     };
-    let optional = rekey(&ast.optional_members);
-    ast.optional_members.extend(optional);
-    let plain = rekey(&ast.optional_plain_members);
-    ast.optional_plain_members.extend(plain);
+    let optional = rekey(&ast.optional_members.all);
+    ast.optional_members.all.extend(optional);
+    let plain = rekey(&ast.optional_members.plain);
+    ast.optional_members.plain.extend(plain);
 }
 
 mod walk;

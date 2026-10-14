@@ -93,6 +93,17 @@ function __gfor_close_result(__r: any): void {
 }
 "#;
 
+/// The functions [`FOROF_SRC`] defines. Each reads `next` / `return` /
+/// `then` off the value it was handed and calls what it read with that
+/// same value as the receiver, so none moves a method onto a receiver
+/// it was not read from.
+pub(crate) const HELPERS: [&str; 4] = [
+    "__agen_step_call",
+    "__gfor_close",
+    "__gfor_close_async",
+    "__gfor_close_result",
+];
+
 /// Put [`FOROF_SRC`] in the tree when the program holds a `function*`
 /// declaration — by the time `desugar_generators` calls this, every
 /// machine (an async function's, an async generator's, a generator

@@ -91,7 +91,8 @@ impl<'a> Parser<'a> {
         // `T | undefined` already arrives wrapped, hence the guard.
         if marker.is_optional() && !ty.starts_with("__nullable(") {
             self.ast
-                .optional_plain_members
+                .optional_members
+                .plain
                 .insert((name.to_string(), member_name.clone()));
             ty = format!("__nullable({ty})");
         }

@@ -130,7 +130,7 @@ mod desugar_generators_field_ann_fnsigs;
 mod desugar_generators_forin;
 mod desugar_generators_forof;
 mod desugar_generators_forof_close;
-mod desugar_generators_forof_helpers;
+pub(crate) mod desugar_generators_forof_helpers;
 mod desugar_generators_forof_label;
 mod desugar_generators_forof_split;
 mod desugar_generators_forof_step;

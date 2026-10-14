@@ -197,6 +197,7 @@ fn members_of(
         }
         let optional = ast
             .optional_members
+            .all
             .contains(&(iface.to_string(), k.clone()));
         let kind = match crate::num_width::fn_type_canon(ann)
             .as_deref()

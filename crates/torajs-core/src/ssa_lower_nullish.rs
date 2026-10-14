@@ -82,7 +82,11 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId, lhs: ExprId, rhs: ExprI
 }
 
 fn lower_inner(ctx: &mut LowerCtx<'_>, eid: ExprId, lhs: ExprId, rhs: ExprId) -> Operand {
+    let asked = crate::ssa_lower_nullish_any::split(ctx, lhs, rhs);
     let lhs_op = ctx.lower_expr(lhs);
+    if let Some(nullish_blk) = crate::ssa_lower_nullish_any::split_taken(ctx, asked) {
+        return crate::ssa_lower_nullish_any::join_split(ctx, eid, lhs_op, nullish_blk, rhs);
+    }
     let lhs_ty = ctx.operand_ty(&lhs_op);
     if matches!(lhs_ty, Type::Any) {
         return lower_any_lhs(ctx, eid, lhs, lhs_op, rhs);

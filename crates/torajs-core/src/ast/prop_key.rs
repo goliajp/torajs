@@ -51,7 +51,8 @@ impl Ast {
         let plain_optional = fields
             .iter()
             .filter(|(k, _)| {
-                self.optional_plain_members
+                self.optional_members
+                    .plain
                     .contains(&(name.to_string(), k.clone()))
             })
             .map(|(k, _)| k.clone())
