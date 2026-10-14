@@ -24,6 +24,7 @@
 //! the field's initializing store and a name the list shares with
 //! another scope already has its own field.
 
+use super::class_member::{class_assigns, class_reads, rebinds_past_members, rename_in_classes};
 use super::scan::{
     arrow_reads, arrows_in, assigns_deep, decl_reads, idents_outside_arrows, mentions, stmt_roots,
 };
@@ -112,22 +113,21 @@ fn box_one(
         stmt_roots(s, &mut roots);
     }
     // A closure made before the declaration, or by its own initializer,
-    // reads the binding before there is a value to hold; a function or
-    // class declared after it has no statement of its own to take the
-    // local; and a scope that declares the name again ends the rename's
-    // reach. Such a binding is left alone.
+    // reads the binding before there is a value to hold; a function
+    // declared after it, being hoisted, has no statement of its own to
+    // take the local; and a scope that declares the name again ends
+    // the rename's reach. Such a binding is left alone.
     let read = arrows_in(ast, &roots)
         .iter()
-        .any(|&a| arrow_reads(ast, a, name));
+        .any(|&a| arrow_reads(ast, a, name))
+        || after.iter().any(|s| class_reads(ast, s, name));
     if !read
         || mentions(ast, &Stmt::Expr(value), name)
-        || before
-            .iter()
-            .any(|s| reads_under(ast, s, name) || decl_reads(ast, s, name))
+        || before.iter().any(|s| {
+            reads_under(ast, s, name) || decl_reads(ast, s, name) || class_reads(ast, s, name)
+        })
         || after.iter().any(|s| {
-            crate::ast::rebinds_in_stmt(s, name)
-                || decl_reads(ast, s, name)
-                || unhosted(ast, s, name)
+            rebinds_past_members(s, name) || decl_reads(ast, s, name) || unhosted(ast, s, name)
         })
     {
         return;
@@ -135,13 +135,15 @@ fn box_one(
     let Some(slot) = lifted.iter_mut().find(|(n, _)| n == name) else {
         return;
     };
-    let boxed = assigns_deep(ast, &roots, name);
+    let boxed =
+        assigns_deep(ast, &roots, name) || after.iter().any(|s| class_assigns(ast, s, name));
     let stem = format!("{name}__blk{}", ctx.cells);
     ctx.cells += 1;
     let marker = format!("{stem}__ref");
     let map = HashMap::from([(name.to_string(), marker.clone())]);
     for s in after.iter_mut() {
         crate::ast::nested_fns_idents::rewrite_idents_in_stmt(ast, s, &map, true);
+        rename_in_classes(ast, s, &map);
     }
     if boxed {
         slot.1 = format!("Array<{}>", slot.1);
