@@ -165,6 +165,10 @@ pub struct Ast {
     /// the same orphan story `parse_eval_source` records for the
     /// expressions it leaves behind.
     pub sloppy_eval_fn_names: std::collections::HashSet<String>,
+    /// The same splice from an eval text whose own code is STRICT: a
+    /// block function there binds its block only (§B.3.3 does not
+    /// exist for strict code), and the blanked span cannot say so.
+    pub strict_eval_fn_names: std::collections::HashSet<String>,
     /// The mirror of the set above, for the other direction: names that
     /// an assignment inside STRICT eval text would create if it were
     /// sloppy. §19.2.1.1 gives eval code its own strictness, and a

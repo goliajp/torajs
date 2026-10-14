@@ -53,6 +53,8 @@ pub(super) struct AnnexBGoal {
     /// blanked at the splice, so the goal and the prologue ranges both
     /// answer for the wrong program; the name is what is left.
     sloppy_eval_names: HashSet<String>,
+    /// The same, from strict eval code.
+    strict_eval_names: HashSet<String>,
 }
 
 impl AnnexBGoal {
@@ -67,6 +69,7 @@ impl AnnexBGoal {
                 .cloned()
                 .collect(),
             sloppy_eval_names: ast.sloppy_eval_fn_names.clone(),
+            strict_eval_names: ast.strict_eval_fn_names.clone(),
         }
     }
 
@@ -87,6 +90,9 @@ impl AnnexBGoal {
     fn applies(&self, name: &str, span: crate::lexer::Span) -> bool {
         if self.sloppy_eval_names.contains(name) {
             return true;
+        }
+        if span.start == 0 && span.end == 0 && self.strict_eval_names.contains(name) {
+            return false;
         }
         self.sloppy
             && !self

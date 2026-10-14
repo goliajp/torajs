@@ -1,0 +1,4 @@
+direct-block true
+indirect-block true
+indirect-switch true
+sloppy-indirect function

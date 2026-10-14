@@ -244,6 +244,7 @@ pub(super) fn parse_eval_source(
         // and the spans were blanked above.
         let names = super::super::sloppy_implicit_globals::assigned_bare_names(ast, &stmts);
         ast.strict_eval_assign_names.extend(names);
+        ast.strict_eval_fn_names.extend(blanked);
     }
     if octal_condemned {
         return Err(neutralize(ast, exprs_before, EvalRefusal::EarlyError));
