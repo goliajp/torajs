@@ -5,8 +5,9 @@
 //! its encode / decode are calls into that staticlib, which the link
 //! cannot inline. The few tests the probe paths make on every entry —
 //! is the box a heap cell (accessor pair, global-variable cell, a value
-//! to release), is it an int32 (the read in `get_own`) — are restated
-//! here with the owner's constants; every full encode / decode still
+//! to release), is it a number and which kind (the reads in `get_own`
+//! and the dictionary lane) — are restated here with the owner's
+//! constants, with a double's bits; every other encode / decode still
 //! goes to the owner, since an inline copy of it would cost every
 //! product that links the dict more `__text` than the calls it saves.
 //! The tests below hold every constant and every step to the
@@ -20,6 +21,7 @@ unsafe extern "C" {
 }
 
 const TAG_TYPE_NUMBER: u64 = 0xFFFE_0000_0000_0000;
+const DOUBLE_ENCODE_OFFSET: u64 = 0x0007_0000_0000_0000;
 const TOP_16_MASK: u64 = 0xFFFF_0000_0000_0000;
 const TAG_BIT_TYPE_OTHER: u64 = 0x2;
 
@@ -27,6 +29,19 @@ const TAG_BIT_TYPE_OTHER: u64 = 0x2;
 #[inline]
 pub(crate) const fn is_int32(v: u64) -> bool {
     v & TOP_16_MASK == TAG_TYPE_NUMBER
+}
+
+/// A number, int32 or double: every other encoding leaves the top 15
+/// bits clear.
+#[inline]
+pub(crate) const fn is_number(v: u64) -> bool {
+    v & TAG_TYPE_NUMBER != 0
+}
+
+/// The IEEE bits of a double box (`is_number` and not `is_int32`).
+#[inline]
+pub(crate) const fn double_bits(v: u64) -> u64 {
+    v.wrapping_sub(DOUBLE_ENCODE_OFFSET)
 }
 
 /// A heap cell: the box is the pointer itself. ShortStr and every
@@ -69,9 +84,8 @@ pub(crate) unsafe fn unbox_value(v: u64) -> i64 {
 /// above are held to.
 #[cfg(test)]
 pub(crate) mod reference {
+    pub(super) use super::DOUBLE_ENCODE_OFFSET;
     use super::{TAG_TYPE_NUMBER, is_cell, is_int32};
-
-    pub(super) const DOUBLE_ENCODE_OFFSET: u64 = 0x0007_0000_0000_0000;
     pub(super) const SHORT_STR_TAG: u64 = 0x0001_0000_0000_0000;
     pub(super) const VALUE_NULL: u64 = 0x02;
     pub(super) const VALUE_FALSE: u64 = 0x06;
@@ -224,6 +238,7 @@ mod tests {
     fn decode_matches_anyvalue() {
         for b in samples() {
             assert_eq!(is_int32(b), av::is_int32(b), "{b:#x}");
+            assert_eq!(is_number(b), av::is_int32(b) || av::is_double(b), "{b:#x}");
             assert_eq!(is_double(b), av::is_double(b), "{b:#x}");
             assert_eq!(is_cell(b), av::is_cell(b), "{b:#x}");
             assert_eq!(is_short_str(b), av::is_short_str(b), "{b:#x}");
@@ -243,6 +258,10 @@ mod tests {
                     0
                 };
                 assert_eq!(reference::unbox_value(b), want, "{b:#x}");
+                // get_own's inline double decode
+                if is_double(b) {
+                    assert_eq!(double_bits(b) as i64, want, "{b:#x}");
+                }
                 // get_own's inline int32 decode
                 if is_int32(b) {
                     assert_eq!(b as i32 as i64, want, "{b:#x}");

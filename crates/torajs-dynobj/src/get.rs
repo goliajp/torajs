@@ -24,6 +24,9 @@ use crate::layout::{
 };
 use crate::probe::{bucket_flags, entries, probe};
 
+/// The `(tag, value)` pair tag of a double.
+const ANY_F64: u64 = 3;
+
 /// Read the `type_tag: u16` at offset 4 of the heap header.
 ///
 /// # Safety
@@ -96,6 +99,8 @@ pub unsafe extern "C" fn __torajs_dynobj_get_own(
         // only a heap cell can be an accessor pair
         let pair = unsafe { type_tag(v as *const c_void) } == TAG_ACCESSOR_PAIR;
         (if pair { ANY_ACCESSOR } else { ANY_HEAP }, v)
+    } else if nanbox::is_number(v) {
+        (ANY_F64, nanbox::double_bits(v))
     } else {
         // A ShortStr's value is a fresh `Str`: it is materialized only
         // for a caller that takes the value.
