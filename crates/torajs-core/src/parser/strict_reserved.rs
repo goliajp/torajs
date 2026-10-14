@@ -27,6 +27,7 @@
 //! Sloppy script code keeps every one of these as an ordinary
 //! identifier, which is why the default has to be admission.
 
+use super::reserved_ident::is_ident_spelled_reserved;
 use super::*;
 
 /// The strict-only future reserved words that arrive as plain
@@ -48,8 +49,13 @@ const STRICT_BAD_BINDING: [&str; 2] = ["eval", "arguments"];
 /// Whether `name` is refused where strict code binds or assigns it —
 /// the union of both lists, since a future reserved word is refused in
 /// every position including these.
+///
+/// `let` is on the list too: the literal word reaches the parser as its
+/// own token, so a `"let"` name here was spelled with an escape
+/// (`var l\u0065t`), which §12.7.2 judges on its StringValue like the
+/// bare word.
 pub(super) fn refused_as_binding(name: &str) -> bool {
-    STRICT_RESERVED.contains(&name) || STRICT_BAD_BINDING.contains(&name)
+    STRICT_RESERVED.contains(&name) || STRICT_BAD_BINDING.contains(&name) || name == "let"
 }
 
 /// The §12.7.2 list as a REFERENCE position sees it, which is the
@@ -63,8 +69,7 @@ pub(super) fn refused_as_binding(name: &str) -> bool {
 /// shorthand shape then re-reads that string as an
 /// IdentifierReference — so `{ let }` has to be refused in strict
 /// code while `{ let: 1 }` stays legal, and this is where that is
-/// decided. (The binding list above is deliberately unchanged: no
-/// binding site hands `let` to a name-shaped judge today.)
+/// decided.
 fn refused_as_reference(name: &str) -> bool {
     STRICT_RESERVED.contains(&name) || name == "let"
 }
@@ -81,6 +86,7 @@ impl Parser<'_> {
     /// by which point `self.in_strict_fn` has been restored to the
     /// enclosing function's answer.
     pub(super) fn note_strict_binding(&mut self, name: &str, strict: bool) -> Result<(), String> {
+        self.refuse_ident_spelled_reserved(name)?;
         if !refused_as_binding(name) {
             return Ok(());
         }
@@ -105,6 +111,7 @@ impl Parser<'_> {
     /// so consulting `self.in_strict_fn` here would answer for the
     /// wrong function.
     pub(super) fn reject_if_strict_binding(&self, name: &str, strict: bool) -> Result<(), String> {
+        self.refuse_ident_spelled_reserved(name)?;
         if strict && STRICT_BAD_BINDING.contains(&name) {
             return Err(format!(
                 "`{name}` cannot be bound in strict code at {} (ES §13.1.1)",
@@ -276,6 +283,9 @@ impl Parser<'_> {
     /// SyntaxErrors that node runs. One spelling, asked everywhere.
     pub(super) fn pattern_binding_name(&mut self) -> Option<String> {
         if let Token::Ident(n) = self.peek() {
+            if is_ident_spelled_reserved(n) {
+                return None;
+            }
             return Some(n.clone());
         }
         self.shorthand_binding_name().map(|s| s.to_string())
@@ -407,6 +417,7 @@ impl Parser<'_> {
     /// goal and whatever enclosing function said — which is
     /// [`Parser::strict_here`], the one predicate that now spells it.
     pub(super) fn note_strict_reference(&mut self, name: &str) -> Result<(), String> {
+        self.refuse_ident_spelled_reserved(name)?;
         if !refused_as_reference(name) {
             return Ok(());
         }

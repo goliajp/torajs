@@ -112,6 +112,7 @@ mod primary_new_super;
 mod private_in;
 mod private_refs;
 mod program;
+mod reserved_ident;
 mod ret_throw_try;
 mod strict_directive;
 mod strict_reserved;

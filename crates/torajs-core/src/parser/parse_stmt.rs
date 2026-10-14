@@ -29,6 +29,9 @@ impl<'a> Parser<'a> {
             self.pos += 1;
             return Ok(Stmt::Block(Vec::new()));
         }
+        if let Some(r) = self.try_parse_debugger() {
+            return r;
+        }
         // §16.2 ModuleItem — `import` / `export` DECLARATIONS are
         // reachable only from a module's top level, never from a
         // statement body. `parser/module_item.rs` owns that rule,
@@ -230,7 +233,7 @@ impl<'a> Parser<'a> {
     /// since §16.2 needed them, and its doc already names what the
     /// tolerant reading costs — "silently accepted source no engine
     /// does". This site is the one that never asked.
-    fn expect_stmt_end(&mut self) -> Result<(), String> {
+    pub(super) fn expect_stmt_end(&mut self) -> Result<(), String> {
         if matches!(self.peek(), Token::Semi) {
             self.pos += 1;
             return Ok(());

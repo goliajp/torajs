@@ -104,7 +104,7 @@ impl<'a> Parser<'a> {
         if let Some(pair) = self.try_parse_computed_property(false)? {
             return Ok(pair);
         }
-        let (literal_key, escaped_key) = self.key_token_shape();
+        let ((literal_key, escaped_key), key_pos) = (self.key_token_shape(), self.pos);
         let name = match self.peek() {
             Token::Ident(n) => PropKey::from(n),
             // ES §12.7.2 — an escaped ReservedWord is a legal
@@ -189,7 +189,7 @@ impl<'a> Parser<'a> {
             // itself — the name has already been consumed by the time
             // the shorthand shape is recognised, and the message says
             // which word.
-            self.note_strict_reference(&ident)?;
+            self.judge_shorthand_key(key_pos, &ident)?;
             let value = self.ast.add_expr(Expr::Ident(ident));
             // §B.3.1 — a shorthand `__proto__` is an ordinary own
             // property; only the `__proto__: v` production sets
@@ -214,7 +214,7 @@ impl<'a> Parser<'a> {
             // Same reference position as the plain shorthand above, and
             // an assignment target on top of it — either clause refuses
             // the seven words, so the one judge answers both.
-            self.note_strict_reference(&ident)?;
+            self.judge_shorthand_key(key_pos, &ident)?;
             self.pos += 1;
             let default = self.parse_expr()?;
             let target = self.ast.add_expr(Expr::Ident(ident));
