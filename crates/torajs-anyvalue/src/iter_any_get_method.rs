@@ -411,19 +411,33 @@ pub(crate) unsafe fn generic_iter_step(
 pub(crate) unsafe fn generic_iter_close(iter: AnyValue) {
     unsafe {
         let key = interned(&NAME_RETURN, b"return") as *const c_void;
-        let tag = __torajs_any_member_get_tag(iter, key);
-        let payload = if tag == TAG_UNDEF {
+        let mut tag = __torajs_any_member_get_tag(iter, key);
+        let mut payload = if tag == TAG_UNDEF {
             0
         } else {
             __torajs_any_member_get_value(iter, key)
         };
+        // GetMethod is a [[Get]]: an accessor `return` (a class's `get
+        // return()`) runs its getter, whose throw is the close's
+        // completion (§7.4.9 step 5)
+        let mut got = VALUE_UNDEFINED;
+        if tag == crate::struct_probe::ANY_ACCESSOR_TAG {
+            got = crate::struct_probe::__torajs_any_accessor_get(iter, key, payload);
+            if __torajs_throw_check() != 0 {
+                return;
+            }
+            tag = crate::nanbox_encode::__torajs_anyv_unbox_tag(got) as u64;
+            payload = crate::nanbox_encode::__torajs_anyv_unbox_value(got) as u64;
+        }
         // §7.4.9 step 4 — GetMethod answering undefined ends the
         // close; an iterator without a `return` is closed already.
         let Some(m) = callable_method(tag, payload, iter, c"return is not a function") else {
+            __torajs_anyv_rc_dec(got);
             return;
         };
         let argv: [u64; 0] = [];
         let result = invoke_with_this(m.env(), m.entry(), iter, argv.as_ptr(), 0);
+        __torajs_anyv_rc_dec(got);
         if __torajs_throw_check() == 0 {
             // §7.4.6 step 9 — non-Object answer → TypeError (the
             // shared reject; original-throw precedence is the abrupt
