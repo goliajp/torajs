@@ -258,6 +258,11 @@ pub(crate) struct Checker {
     /// (`crate::let_widen` scope-correct walk); such bindings type
     /// `any` from declaration.
     pub(crate) cross_type_widened: std::collections::HashSet<crate::ast::ExprId>,
+    /// The members an any-lane write can leave holding a value of
+    /// another type; their typed reads type `any`
+    /// (`check_type_of_member::mistyped_read`). Seeded by the run
+    /// before (`check_entry::fixpoint_with`).
+    pub(crate) shadowed_reads: crate::ast::ShadowedNames,
     pub(crate) held_any: crate::check_stmt_let_decl::held_any::HeldAny,
     /// S2.35 — init ExprIds pass_2 promoted to an `Any` global via
     /// the shared [`crate::ast_refs_any_promote`] verdict (call-init

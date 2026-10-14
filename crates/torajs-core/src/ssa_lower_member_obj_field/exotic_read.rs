@@ -126,6 +126,14 @@ pub(crate) fn guarded_load(
     slot: (u64, Type),
     name: &str,
 ) -> Option<Operand> {
+    if super::shadow_read::mistyped(ctx, eid, name, slot.1) {
+        let v = match receiver_may_be_exotic(ctx, Some(obj)) {
+            true => super::shadow_read::boxed_load(ctx, obj_val, slot, name),
+            false => super::shadow_read::boxed_slot(ctx, obj_val, slot),
+        };
+        ctx.owned_member_reads.insert(eid);
+        return Some(v);
+    }
     if super::shadow_read::applies(ctx, Some(obj), name, slot.1)
         && receiver_may_be_exotic(ctx, Some(obj))
     {
@@ -153,7 +161,9 @@ pub(crate) fn slot_value(
     (offset, field_ty): (u64, Type),
     name: &str,
 ) -> (Operand, Type, bool) {
-    if super::shadow_read::applies(ctx, obj, name, field_ty) && receiver_may_be_exotic(ctx, obj) {
+    let shadowed = super::shadow_read::applies(ctx, obj, name, field_ty)
+        || super::shadow_read::mistyped_field(ctx, name, field_ty);
+    if shadowed && receiver_may_be_exotic(ctx, obj) {
         let v = super::shadow_read::boxed_load(ctx, obj_val, (offset, field_ty), name);
         return (v, Type::Any, true);
     }

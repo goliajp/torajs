@@ -120,7 +120,7 @@ pub unsafe extern "C" fn __torajs_dataview_get(
                 b[0], b[1],
             ]))),
             Kind::Float32 => box_double(f64::from(f32::from_le_bytes([b[0], b[1], b[2], b[3]]))),
-            Kind::Float64 => box_double(f64::from_le_bytes(b)),
+            Kind::Float64 => box_double(crate::typedarray_elem::f64_payload(f64::from_le_bytes(b))),
             Kind::BigInt64 => __torajs_anyv_box_pointer(__torajs_bigint_from_i64(
                 i64::from_le_bytes(b),
             ) as *mut c_void),

@@ -118,6 +118,9 @@ pub(crate) fn check(
         // in (`yield*` lifts its delegate iterator into exactly such a
         // field, then calls `.next()` on it). Structural consumers
         // resolve on their own.
+        if mistyped_read(checker, fields, name, ty) {
+            return Ok(Type::Any);
+        }
         return Ok(ty.clone());
     }
     // Accessor reads (objlit `__getter_` slot + class
@@ -225,4 +228,36 @@ pub(crate) fn check(
             declared_private: checker.declared_privates.contains(name),
         },
     )
+}
+
+/// Whether a read of the declared member `name` (type `ty`) of a struct
+/// with `fields` may meet a value of another type: an any-lane write of
+/// the program parks a value its slot cannot spell in the sidecar, and
+/// the read answers it (§10.1.8.1), so the read is `any` and its
+/// consumers take the any lane — an annotated binding casts it
+/// (checked), an inferred one holds it as it is. An `any` member needs
+/// nothing; an optional `number` member keeps its own lane, the f64
+/// slot's sentinel read boxed (`shadow_read`). A member of a heap type
+/// keeps the read's checked conversion: its typed lane (a closure's
+/// calling face, a layout) has no any-lane spelling to fall back on.
+fn mistyped_read(
+    checker: &Checker,
+    fields: &crate::check::StructFields,
+    name: &str,
+    ty: &Type,
+) -> bool {
+    let scalar = |t: &Type| {
+        matches!(
+            t,
+            Type::Number | Type::String | Type::Boolean | Type::Literal(_)
+        )
+    };
+    let scalar = scalar(ty) || matches!(ty, Type::Nullable(t) if scalar(t));
+    if !scalar {
+        return false;
+    }
+    let number = matches!(ty, Type::Number);
+    let optional_number = fields.is_optional(&crate::ast::PropKey::from(name))
+        && matches!(ty, Type::Nullable(n) if **n == Type::Number);
+    !optional_number && checker.shadowed_reads.may_mistype(name, number)
 }

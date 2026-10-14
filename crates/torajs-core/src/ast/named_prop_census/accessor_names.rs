@@ -45,6 +45,10 @@ pub struct AccessorFieldNames {
     /// (`crate::num_width::optional_number_fields`): a literal
     /// stores a value such a slot cannot spell through the any lane.
     pub(super) optional_number: HashSet<super::super::PropKey>,
+    /// The members whose typed reads the checker typed `any`: an
+    /// any-lane write can leave them holding a value of another type
+    /// (`check_type_of_member::mistyped_read`).
+    pub(super) mistyped: super::shadow_names::ShadowedNames,
 }
 
 impl Reach {
@@ -89,6 +93,13 @@ impl AccessorFieldNames {
         self.optional_number.contains(name)
     }
 
+    /// Whether the checker typed the reads of the member `name`, a
+    /// `number` when `number_slot`, `any` for a value of another type
+    /// an any-lane write can leave there.
+    pub fn mistyped_read(&self, name: &str, number_slot: bool) -> bool {
+        self.mistyped.may_mistype(name, number_slot)
+    }
+
     /// Whether a write of the program can leave the declared field
     /// `name` holding a value its slot cannot spell; `f64_slot` says
     /// the slot holds every number, which a `number` write then fits.
@@ -116,11 +127,20 @@ impl AccessorFieldNames {
     /// number, a symbol or a literal type cannot) may pick a definer,
     /// and then every name is reachable.
     pub fn settle_key_reads(ast: &mut Ast, expr_types: &HashMap<ExprId, crate::check::Type>) {
-        let reads = std::mem::take(&mut ast.accessor_field_names.key_reads);
+        let open = ast.accessor_field_names.key_reads_open(ast, expr_types);
+        ast.accessor_field_names.key_reads.clear();
+        if open {
+            ast.accessor_field_names.reach = Reach::All;
+        }
+    }
+
+    /// Whether some computed-key read the census left open may pick a
+    /// definer, judged by `expr_types`.
+    fn key_reads_open(&self, ast: &Ast, expr_types: &HashMap<ExprId, crate::check::Type>) -> bool {
         // a read the checker never reached (rewritten away by a pass, or
         // in a body nothing calls) is not one the program performs
         let reached = |e: &ExprId| expr_types.contains_key(e);
-        let open = reads.iter().any(|r| match ast.get_expr(*r) {
+        self.key_reads.iter().any(|r| match ast.get_expr(*r) {
             Expr::Index { obj, index } | Expr::OptIndex { obj, index } => {
                 (reached(r) || reached(obj))
                     && expr_types.get(obj).is_none_or(may_hold_definer)
@@ -129,10 +149,19 @@ impl AccessorFieldNames {
             // rewritten in place since the census: nothing says the
             // new shape is harmless
             _ => reached(r),
-        });
-        if open {
-            ast.accessor_field_names.reach = Reach::All;
-        }
+        })
+    }
+
+    /// [`AccessorFieldNames::may`] as it will answer once
+    /// [`AccessorFieldNames::settle_key_reads`] has run over
+    /// `expr_types`, for a pass that runs before.
+    pub(super) fn may_settled(
+        &self,
+        ast: &Ast,
+        expr_types: &HashMap<ExprId, crate::check::Type>,
+    ) -> impl Fn(&str) -> bool + use<'_> {
+        let open = self.key_reads_open(ast, expr_types);
+        move |name: &str| open || self.reach.may(name)
     }
 }
 
@@ -178,6 +207,7 @@ fn names(ast: &Ast) -> AccessorFieldNames {
         shadow_number: Reach::None,
         cast_leaves_members_out: false,
         optional_number: HashSet::new(),
+        mistyped: Default::default(),
     }
 }
 

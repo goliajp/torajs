@@ -31,6 +31,7 @@ impl Checker {
             proto_shadow: Default::default(),
             declared_privates: Default::default(),
             cross_type_widened: std::collections::HashSet::new(),
+            shadowed_reads: Default::default(),
             held_any: Default::default(),
             any_promoted_inits: std::collections::HashSet::new(),
             generic_type_params: HashMap::new(),

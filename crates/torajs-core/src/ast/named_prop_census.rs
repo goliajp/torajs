@@ -35,6 +35,7 @@
 pub(super) mod accessor_names;
 mod cast_targets;
 pub(super) mod shadow_names;
+mod write_kind;
 
 use super::{Ast, Expr, ExprId, Stmt};
 use std::collections::HashSet;

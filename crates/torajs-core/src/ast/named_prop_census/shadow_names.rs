@@ -41,6 +41,8 @@ enum Kind {
 enum Hit {
     None,
     Name(String, Kind),
+    /// Several names, each with the kind of its own value.
+    Names(Vec<(String, Kind)>),
     All(Kind),
 }
 
@@ -61,6 +63,11 @@ impl Names {
             }
             Hit::Name(n, Kind::Number) => {
                 self.number.insert(n);
+            }
+            Hit::Names(ns) => {
+                for (n, k) in ns {
+                    self.take(Hit::Name(n, k));
+                }
             }
             Hit::All(Kind::Unknown) => self.all_unknown = true,
             Hit::All(Kind::Number) => self.all_number = true,
@@ -85,34 +92,18 @@ impl AccessorFieldNames {
     pub fn settle_shadow_writes(
         ast: &mut Ast,
         expr_types: &HashMap<ExprId, Type>,
-        aliases: &HashMap<String, Type>,
-        generic_aliases: &GenericAliasMap,
+        (aliases, generic_aliases): (&HashMap<String, Type>, &GenericAliasMap),
+        mistyped: &ShadowedNames,
     ) {
+        ast.accessor_field_names.mistyped = mistyped.clone();
         let optional_number = crate::num_width::optional_number_fields::names(ast, expr_types);
         ast.accessor_field_names.optional_number = optional_number.clone();
         if matches!(ast.accessor_field_names.reach, Reach::All) {
             ast.accessor_field_names.shadow = Reach::All;
             return;
         }
-        let twins = crate::ast::twin_body_exprs(ast);
-        let mut names = Names::default();
-        for (i, e) in ast.exprs.iter().enumerate() {
-            let in_twin = twins.contains(&ExprId(i as u32));
-            let hit = match e {
-                Expr::Assign { target, value } if in_twin => {
-                    twin_write(ast, expr_types, &optional_number, *target, *value)
-                }
-                _ if in_twin => Hit::None,
-                Expr::Assign { target, value } => write(ast, expr_types, *target, Some(*value)),
-                Expr::PostIncr { target, .. } => write(ast, expr_types, *target, None),
-                Expr::Call { callee, args } | Expr::OptCall { callee, args } => {
-                    call(ast, expr_types, *callee, args)
-                }
-                Expr::ObjectLit { fields } => literal(expr_types, &optional_number, fields),
-                _ => Hit::None,
-            };
-            names.take(hit);
-        }
+        let fields = &ast.accessor_field_names;
+        let mut names = writes(ast, expr_types, &optional_number, &|n| fields.may(n));
         let casts = super::cast_targets::names(
             ast,
             expr_types,
@@ -120,25 +111,133 @@ impl AccessorFieldNames {
             &optional_number,
         );
         names.unknown.extend(casts.number_names);
-        ast.accessor_field_names.cast_leaves_members_out = casts.optional;
+        let mut leaves_members_out = casts.optional;
+        // a read that converts a shadowed field's value into its layout
+        // is a cast too; the names it adds are optional `number`
+        // members, which may name a layout field of another type
+        loop {
+            let reached = |k: &str| {
+                names.all_unknown || names.unknown.contains(k) || ast.accessor_field_names.may(k)
+            };
+            let conv = super::cast_targets::converted_fields(
+                ast,
+                expr_types,
+                (aliases, generic_aliases),
+                &optional_number,
+                &reached,
+            );
+            leaves_members_out |= conv.optional;
+            if conv.number_names.is_subset(&names.unknown) {
+                break;
+            }
+            names.unknown.extend(conv.number_names);
+        }
+        ast.accessor_field_names.cast_leaves_members_out = leaves_members_out;
         ast.accessor_field_names.shadow = Names::reach(names.all_unknown, names.unknown);
         ast.accessor_field_names.shadow_number = Names::reach(names.all_number, names.number);
+    }
+}
+
+/// The member names the program's writes can leave holding a value
+/// their slot has no spelling for, each set by the kind of the value
+/// (`ShadowedNames`). A write that may reach every name (a computed key
+/// on an `any` receiver) is no name of its own and is left out.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ShadowedNames {
+    /// Written a value of any kind.
+    pub unknown: HashSet<String>,
+    /// Written a number.
+    pub number: HashSet<String>,
+}
+
+impl ShadowedNames {
+    pub fn of(ast: &Ast, expr_types: &HashMap<ExprId, Type>) -> Self {
+        let accessor = ast.accessor_field_names.may_settled(ast, expr_types);
+        let names = writes(ast, expr_types, &HashSet::new(), &accessor);
+        ShadowedNames {
+            unknown: names.unknown,
+            number: names.number,
+        }
+    }
+
+    pub fn is_subset(&self, other: &ShadowedNames) -> bool {
+        self.unknown.is_subset(&other.unknown) && self.number.is_subset(&other.number)
+    }
+
+    pub fn extend(&mut self, other: ShadowedNames) {
+        self.unknown.extend(other.unknown);
+        self.number.extend(other.number);
+    }
+
+    /// Whether the member `name`, whose slot holds a `number` when
+    /// `number_slot`, may hold a value of another type. A member the
+    /// compiler mints (`__state`, `__sent`, an awaited value's slot)
+    /// is read by the code it generates, which casts what the protocol
+    /// hands it; its reads keep their type and their guard.
+    pub fn may_mistype(&self, name: &str, number_slot: bool) -> bool {
+        !name.starts_with("__")
+            && (self.unknown.contains(name) || (!number_slot && self.number.contains(name)))
+    }
+}
+
+/// Every write of the program, by the names it reaches. A
+/// receiver-polymorphic twin's writes count like any other: the twin
+/// types its receiver, parameters and locals `any`, so its `t.m = v`
+/// is an any-lane [[Set]] onto whatever cell the caller handed it, and
+/// the value is a number only when `write_kind` shows it is one. That
+/// verdict reads which members the writes leave holding values of any
+/// kind, so the census repeats until that set stops growing.
+fn writes(
+    ast: &Ast,
+    expr_types: &HashMap<ExprId, Type>,
+    optional_number: &HashSet<PropKey>,
+    accessor: &dyn Fn(&str) -> bool,
+) -> Names {
+    let layouts = super::write_kind::Layouts::of(ast, expr_types);
+    let mut unknown: HashSet<String> = HashSet::new();
+    loop {
+        let facts = super::write_kind::Facts {
+            ast,
+            expr_types,
+            layouts: &layouts,
+            unknown: &unknown,
+            accessor,
+        };
+        let mut names = Names::default();
+        for e in &ast.exprs {
+            let hit = match e {
+                Expr::Assign { target, value } => write(&facts, *target, Some(*value)),
+                Expr::PostIncr { target, .. } => write(&facts, *target, None),
+                Expr::Call { callee, args } | Expr::OptCall { callee, args } => {
+                    call(ast, expr_types, *callee, args)
+                }
+                Expr::ObjectLit { fields } => literal(expr_types, optional_number, fields),
+                _ => Hit::None,
+            };
+            names.take(hit);
+        }
+        if names.unknown.is_subset(&unknown) {
+            return names;
+        }
+        unknown.extend(names.unknown);
     }
 }
 
 /// A write to `target`, with `value` its rhs (none for `++` / `--`,
 /// whose result is a number unless the old value was a BigInt the
 /// sidecar already holds).
-fn write(
-    ast: &Ast,
-    expr_types: &HashMap<ExprId, Type>,
-    target: ExprId,
-    value: Option<ExprId>,
-) -> Hit {
+fn write(facts: &super::write_kind::Facts<'_>, target: ExprId, value: Option<ExprId>) -> Hit {
+    let (ast, expr_types) = (facts.ast, facts.expr_types);
     let kind = value.map_or(Kind::Number, |v| kind_of(expr_types.get(&v)));
     match ast.get_expr(target) {
         Expr::Member { obj, name } => {
             if !struct_like(expr_types.get(obj)) {
+                if value.is_some_and(|v| super::write_kind::steps_itself(facts, v, *obj, name)) {
+                    return Hit::None;
+                }
+                let number =
+                    value.is_some_and(|v| super::write_kind::number_value(facts, v, *obj, name));
+                let kind = if number { Kind::Number } else { kind };
                 return Hit::Name(name.clone(), kind);
             }
             // a typed store: the slot takes a typed value; a number slot
@@ -174,30 +273,6 @@ fn write(
     }
 }
 
-/// A write inside a receiver-polymorphic twin (`ast::twin_body_exprs`),
-/// the compiler's clone of a method body with every parameter retyped
-/// `any`. Its writes are the original's, already counted — except that
-/// `this.m = v` with a parameter `v` now carries any value into an
-/// optional `number` member's f64 slot, which the original's typed
-/// store never did.
-fn twin_write(
-    ast: &Ast,
-    expr_types: &HashMap<ExprId, Type>,
-    optional_number: &HashSet<PropKey>,
-    target: ExprId,
-    value: ExprId,
-) -> Hit {
-    let Expr::Member { obj, name } = ast.get_expr(target) else {
-        return Hit::None;
-    };
-    let this = matches!(ast.get_expr(*obj), Expr::This);
-    let unspelled = may_hold_unspelled(expr_types.get(&value));
-    match this && unspelled && optional_number.contains(&PropKey::from(name.as_str())) {
-        true => Hit::Name(name.clone(), Kind::Unknown),
-        false => Hit::None,
-    }
-}
-
 /// A bulk or reflective write: `Reflect.set` names its key when the
 /// key is a literal; `Object.assign` reaches every own field of its
 /// sources, each with its own type when the source is a struct, and
@@ -228,12 +303,11 @@ fn call(ast: &Ast, expr_types: &HashMap<ExprId, Type>, callee: ExprId, args: &[E
     }
 }
 
-/// The fields `Object.assign` copies out of `sources`: one hit covers
-/// them all, so a source whose fields are not all known settles for
-/// every name.
+/// The fields `Object.assign` copies out of `sources`, each with the
+/// kind of its own value; a source whose fields are not all known
+/// settles for every name.
 fn assign_sources(ast: &Ast, expr_types: &HashMap<ExprId, Type>, sources: &[ExprId]) -> Hit {
-    let mut number = true;
-    let mut names: Vec<String> = Vec::new();
+    let mut names: Vec<(String, Kind)> = Vec::new();
     for s in sources {
         if matches!(ast.get_expr(*s), Expr::Spread { .. }) {
             return Hit::All(Kind::Unknown);
@@ -245,24 +319,10 @@ fn assign_sources(ast: &Ast, expr_types: &HashMap<ExprId, Type>, sources: &[Expr
             let Some(k) = k.as_wtf8().as_str() else {
                 return Hit::All(Kind::Unknown);
             };
-            number &= kind_of(Some(t)) == Kind::Number;
-            names.push(k.to_string());
+            names.push((k.to_string(), kind_of(Some(t))));
         }
     }
-    // the hit names one field; a struct source with several of mixed
-    // kinds takes the wider one for them all
-    match names.len() {
-        0 => Hit::None,
-        1 => Hit::Name(names.remove(0), kind(number)),
-        _ => Hit::All(kind(number)),
-    }
-}
-
-fn kind(number: bool) -> Kind {
-    match number {
-        true => Kind::Number,
-        false => Kind::Unknown,
-    }
+    Hit::Names(names)
 }
 
 /// A literal whose member named like an optional `number` member takes
@@ -302,13 +362,15 @@ fn struct_like(t: Option<&Type>) -> bool {
 }
 
 /// A keyed write that may reach a declared field: on an array, a
-/// string, a collection or a buffer the key picks an element, and a
-/// dictionary (`Record<K, V>`) never holds a struct cell — the checker
-/// admits no struct type into one (`check_assignable`).
+/// string, a collection or a buffer the key picks an element. A
+/// dictionary (`Record<K, V>`) is a property receiver: the checker
+/// admits no struct type into one, but an `any` value does
+/// (`const d: Record<string, V> = p as any`), and the write then lands
+/// on the struct cell.
 fn property_receiver(t: Option<&Type>) -> bool {
     match t {
         None | Some(Type::Any | Type::Struct(_) | Type::ClassRef(_) | Type::Object(_)) => true,
-        Some(Type::TypeVar(_)) => true,
+        Some(Type::TypeVar(_) | Type::Dict(..)) => true,
         Some(Type::Nullable(t)) => property_receiver(Some(t)),
         Some(Type::Union(ts)) => ts.iter().any(|t| property_receiver(Some(t))),
         _ => false,
@@ -359,8 +421,8 @@ mod tests {
         AccessorFieldNames::settle_shadow_writes(
             &mut ast,
             &types,
-            &HashMap::new(),
-            &HashMap::new(),
+            (&HashMap::new(), &HashMap::new()),
+            &ShadowedNames::default(),
         );
         ast.accessor_field_names
     }
@@ -420,7 +482,8 @@ mod tests {
             t
         });
         assert!(!n.may_shadow("a", false));
-        let n = settled("p[0] = 1; q[\"b\"] = 2;", |ast| {
+        // a fraction: an integer literal fits every number slot
+        let n = settled("p[0] = 1.5; q[\"b\"] = 2.5;", |ast| {
             ident_types(ast, "p", Type::Any)
         });
         assert!(n.may_shadow("0", false) && n.may_shadow("b", false));
@@ -435,17 +498,31 @@ mod tests {
             t
         });
         assert!(!n.may_shadow("a", true) && n.may_shadow("a", false));
-        // a dictionary never holds a struct cell
+    }
+
+    #[test]
+    fn a_dictionary_may_alias_a_struct_cell() {
+        let dict = |v: Type| Type::Dict(Box::new(Type::String), Box::new(v));
         let n = settled("counts[w] = v;", |ast| {
-            let mut t = ident_types(
-                ast,
-                "counts",
-                Type::Dict(Box::new(Type::String), Box::new(Type::Number)),
-            );
+            let mut t = ident_types(ast, "counts", dict(Type::Any));
             t.extend(ident_types(ast, "v", Type::Any));
             t
         });
-        assert!(!n.may_shadow("a", true) && !n.may_shadow("a", false));
+        assert!(n.may_shadow("a", true) && n.may_shadow("a", false));
+        // a number keeps the f64 slots' bare loads
+        let n = settled("counts[w] = n; d[\"s\"] = n;", |ast| {
+            let mut t = ident_types(ast, "counts", dict(Type::Number));
+            t.extend(ident_types(ast, "d", dict(Type::Number)));
+            t.extend(ident_types(ast, "n", Type::Number));
+            t
+        });
+        assert!(!n.may_shadow("a", true) && n.may_shadow("a", false));
+        let n = settled("d[\"s\"] = v;", |ast| {
+            let mut t = ident_types(ast, "d", dict(Type::Any));
+            t.extend(ident_types(ast, "v", Type::Any));
+            t
+        });
+        assert!(n.may_shadow("s", false) && !n.may_shadow("t", false));
     }
 
     #[test]
@@ -480,5 +557,62 @@ mod tests {
             ident_types(ast, "q", one.clone())
         });
         assert!(n.may_shadow("s", true) && !n.may_shadow("t", false));
+        // several fields of mixed kinds: each name with its own
+        let mixed = crate::check::Type::struct_of(vec![
+            (PropKey::from("a"), Type::Number),
+            (PropKey::from("s"), Type::String),
+        ]);
+        let n = settled("Object.assign(p, q, r);", |ast| {
+            let mut t = ident_types(ast, "q", mixed.clone());
+            t.extend(ident_types(ast, "r", src.clone()));
+            t
+        });
+        assert!(!n.may_shadow("a", true) && n.may_shadow("a", false));
+        assert!(n.may_shadow("s", true) && !n.may_shadow("b", true));
+        assert!(!n.may_shadow("zz", false));
+    }
+
+    #[test]
+    fn an_any_receiver_stepping_its_own_number_member_fits_the_slot() {
+        let decl = "type P = { pos: number; start: number; s: string };";
+        let any_o = |ast: &Ast| ident_types(ast, "o", Type::Any);
+        let n = settled(
+            &format!("{decl} o.pos = o.pos + 1; o.pos = o.pos - 2;"),
+            any_o,
+        );
+        assert!(!n.may_shadow("pos", false));
+        // a product may be -0, which an integer slot cannot hold
+        let n = settled(&format!("{decl} o.pos = o.pos * 2;"), any_o);
+        assert!(!n.may_shadow("pos", true) && n.may_shadow("pos", false));
+        // another number member of the same receiver
+        let n = settled(&format!("{decl} o.pos = o.start;"), any_o);
+        assert!(!n.may_shadow("pos", true) && n.may_shadow("pos", false));
+        // a member a layout declares a string is no number
+        let n = settled(&format!("{decl} o.pos = o.s;"), any_o);
+        assert!(n.may_shadow("pos", true));
+        // nor is a member another write leaves holding any value
+        let n = settled(
+            &format!("{decl} o.start = v; o.pos = o.start + 1;"),
+            |ast| {
+                let mut t = any_o(ast);
+                t.extend(ident_types(ast, "v", Type::Any));
+                t
+            },
+        );
+        assert!(n.may_shadow("pos", true) && n.may_shadow("start", true));
+    }
+
+    #[test]
+    fn the_checker_retypes_the_members_written_a_value_of_another_type() {
+        let src = "x.b = v; x.c = 1.5; x.__state = v;";
+        let tokens = crate::lexer::tokenize(src).expect("tokenize");
+        let ast = crate::parser::parse(src, &tokens).expect("parse");
+        let mut types = ident_types(&ast, "x", Type::Any);
+        types.extend(ident_types(&ast, "v", Type::Any));
+        let names = ShadowedNames::of(&ast, &types);
+        assert!(names.may_mistype("b", true) && names.may_mistype("b", false));
+        assert!(!names.may_mistype("c", true) && names.may_mistype("c", false));
+        // a member the compiler mints keeps its type
+        assert!(!names.may_mistype("__state", false));
     }
 }

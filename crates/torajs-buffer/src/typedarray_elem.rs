@@ -19,6 +19,19 @@ use torajs_anyvalue::nanbox::{AnyValue, box_double, box_void_ptr};
 
 use crate::typedarray::Kind;
 
+/// A double read out of memory, as the engine's typed lane may hold
+/// it: a NaN wearing the `undefined` sentinel's payload becomes the
+/// default quiet NaN. The typed lane's optional `number` slots read
+/// that payload as `undefined`, and nothing but a genuine `undefined`
+/// may wear it; arithmetic cannot forge it (FPCR.DN), so bytes a
+/// program wrote are the one remaining source.
+pub(crate) fn f64_payload(x: f64) -> f64 {
+    match x.to_bits() == torajs_rc::F64_UNDEF_SENTINEL_BITS {
+        true => f64::from_bits(0x7FF8_0000_0000_0000),
+        false => x,
+    }
+}
+
 unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
     fn __torajs_throw_check() -> i64;
@@ -98,7 +111,7 @@ pub(crate) unsafe fn read(base: *const u8, kind: Kind, i: i64) -> AnyValue {
                 p.cast::<u16>().read_unaligned(),
             )),
             Kind::Float32 => box_double(f64::from(p.cast::<f32>().read_unaligned())),
-            Kind::Float64 => box_double(p.cast::<f64>().read_unaligned()),
+            Kind::Float64 => box_double(f64_payload(p.cast::<f64>().read_unaligned())),
             Kind::BigInt64 => {
                 let cell = __torajs_bigint_from_i64(p.cast::<i64>().read_unaligned());
                 box_void_ptr(cell as *mut c_void)
@@ -134,7 +147,7 @@ pub(crate) unsafe fn read_f64(base: *const u8, kind: Kind, i: i64) -> f64 {
             Kind::Uint32 => f64::from(p.cast::<u32>().read_unaligned()),
             Kind::Float16 => crate::binary16::f16_bits_to_f64(p.cast::<u16>().read_unaligned()),
             Kind::Float32 => f64::from(p.cast::<f32>().read_unaligned()),
-            Kind::Float64 => p.cast::<f64>().read_unaligned(),
+            Kind::Float64 => f64_payload(p.cast::<f64>().read_unaligned()),
             Kind::BigInt64 | Kind::BigUint64 => unreachable!("a BigInt element is not a Number"),
         }
     }

@@ -126,15 +126,13 @@ fn maybe_absent(
 ) -> (Type, Operand) {
     // a field a write of the program can shadow reads as an any-lane
     // value, so the member takes the any lane whatever came before
-    let shadowed = crate::ssa_lower_member_obj_field::shadow_read::applies(
-        ctx,
-        Some(src_eid),
-        &name.lossy(),
-        st,
-    ) && crate::ssa_lower_member_obj_field::exotic_read::receiver_may_be_exotic(
-        ctx,
-        Some(src_eid),
-    );
+    use crate::ssa_lower_member_obj_field::shadow_read;
+    let shadowed = (shadow_read::applies(ctx, Some(src_eid), &name.lossy(), st)
+        || shadow_read::mistyped_field(ctx, &name.lossy(), st))
+        && crate::ssa_lower_member_obj_field::exotic_read::receiver_may_be_exotic(
+            ctx,
+            Some(src_eid),
+        );
     let prev = field_tys.iter().position(|(k, _)| k == name);
     let (ty, prev_val) = match prev {
         None if shadowed => (Type::Any, None),

@@ -17,11 +17,12 @@ fn main() {
             recs.push(Rec { key: format!("k{}", i), hits: Some(i), n: i });
         }
     }
-    let mut counts: HashMap<String, i64> = HashMap::new();
+    // the keys borrow the records' strings: a lookup allocates nothing
+    let mut counts: HashMap<&str, i64> = HashMap::new();
     let mut total: i64 = 0;
     for i in 0..n {
         let r = &recs[(i & 63) as usize];
-        *counts.entry(r.key.clone()).or_insert(0) += 1;
+        *counts.entry(r.key.as_str()).or_insert(0) += 1;
         total = total + r.hits.unwrap_or(1) + r.n;
     }
     let mut sum: i64 = 0;

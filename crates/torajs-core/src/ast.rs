@@ -268,6 +268,7 @@ mod module_ns_members;
 mod module_passes;
 mod named_eval;
 mod named_prop_census;
+pub(crate) use named_prop_census::shadow_names::ShadowedNames;
 pub(crate) mod namedfn_rebound_scope;
 mod namedfn_this_value;
 pub(crate) mod nested_closure_captures;

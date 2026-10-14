@@ -45,7 +45,9 @@ fn has_errors(c: &Checker) -> bool {
 /// types of every read of it — the whole table has to be recomputed
 /// with the binding widened, and that can widen the next one
 /// (`u = total`). The set only grows and is bounded by the program's
-/// mutable `let`s.
+/// mutable `let`s. The members an any-lane write can leave holding a
+/// value of another type grow the same way: their reads type `any`,
+/// which can make the next write's value `any`.
 ///
 /// The property / return slot census (`check::face_slots`) and the
 /// binding and parameter census (`Checker::face_mismatch_lets` /
@@ -60,11 +62,17 @@ fn fixpoint_with(ast: &Ast, widen_ret_declared: bool, hidden: &HashSet<ExprId>) 
     c.run_full_pipeline(ast);
     loop {
         let found = crate::let_widen::collect_cross_type_widen_inits(ast, Some(&c.expr_types));
-        if found.is_subset(&c.cross_type_widened) && !c.face_slot_reads.stale {
+        let shadowed = crate::ast::ShadowedNames::of(ast, &c.expr_types);
+        if found.is_subset(&c.cross_type_widened)
+            && shadowed.is_subset(&c.shadowed_reads)
+            && !c.face_slot_reads.stale
+        {
             return c;
         }
         let mut seed = std::mem::take(&mut c.cross_type_widened);
         seed.extend(found);
+        let mut reads = std::mem::take(&mut c.shadowed_reads);
+        reads.extend(shadowed);
         let face_slots = std::mem::take(&mut c.face_slots);
         let lets = std::mem::take(&mut c.face_mismatch_lets);
         let params = std::mem::take(&mut c.face_mismatch_params);
@@ -72,6 +80,7 @@ fn fixpoint_with(ast: &Ast, widen_ret_declared: bool, hidden: &HashSet<ExprId>) 
         c.widen_ret_declared = widen_ret_declared;
         c.hidden_any_args = hidden.clone();
         c.cross_type_widened = seed;
+        c.shadowed_reads = reads;
         c.face_slots = face_slots;
         c.face_mismatch_lets = lets;
         c.face_mismatch_params = params;

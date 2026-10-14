@@ -265,7 +265,9 @@ fn runtime_walks(
     let shadowed = props.iter().any(|p| {
         matches!(p.src, crate::ssa_lower_struct_own_props::PropSource::Data { ty, .. }
             if crate::ssa_lower_member_obj_field::shadow_read::applies(
-                ctx, Some(recv), &p.key.lossy(), ty))
+                ctx, Some(recv), &p.key.lossy(), ty)
+                || crate::ssa_lower_member_obj_field::shadow_read::mistyped_field(
+                    ctx, &p.key.lossy(), ty))
     });
     props.is_empty() || shadowed || !props.iter().all(|p| p.ty() == props[0].ty())
 }

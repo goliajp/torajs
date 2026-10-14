@@ -31,6 +31,66 @@ pub(crate) fn applies(ctx: &LowerCtx<'_>, obj: Option<ExprId>, name: &str, slot_
         && crate::ssa_lower_object_lit::absent::optional_number_slot(ctx, obj, name, slot_ty)
 }
 
+/// Whether the member read `eid` of the field `name`, whose slot is
+/// `slot_ty`, is one the checker typed `any` because an any-lane write
+/// of the program can leave the field holding a value of another type
+/// (`check_type_of_member::mistyped_read`): the read answers the
+/// sidecar's value as it is, and its consumers take the any lane.
+pub(crate) fn mistyped(ctx: &LowerCtx<'_>, eid: ExprId, name: &str, slot_ty: Type) -> bool {
+    matches!(ctx.expr_types.get(&eid), Some(crate::check::Type::Any))
+        && mistyped_field(ctx, name, slot_ty)
+}
+
+/// Whether a whole-object reader (a spread, `Object.values`) of the
+/// field `name`, whose slot is `slot_ty`, reads it as the checker reads
+/// the member: an `any` value, since the field may hold a value of
+/// another type.
+pub(crate) fn mistyped_field(ctx: &LowerCtx<'_>, name: &str, slot_ty: Type) -> bool {
+    // the checker retypes a scalar member only (a number, a string, a
+    // boolean); a heap member keeps its checked read
+    let number_slot = matches!(slot_ty, Type::F64 | Type::I64 | Type::I32);
+    let scalar = number_slot || matches!(slot_ty, Type::Bool | Type::Str | Type::Substr);
+    scalar
+        && ctx
+            .ast
+            .accessor_field_names
+            .mistyped_read(name, number_slot)
+}
+
+/// The slot's value boxed as an owned `any`, for a receiver that
+/// cannot carry the sidecar (a constructor's fresh `this`).
+pub(super) fn boxed_slot(
+    ctx: &mut LowerCtx<'_>,
+    obj_val: Operand,
+    (offset, field_ty): (u64, Type),
+) -> Operand {
+    let blk = ctx.cur_block;
+    let v = ctx.f.append_inst(
+        blk,
+        InstKind::Load(field_ty, obj_val, offset),
+        field_ty,
+        None,
+    );
+    box_owned(ctx, Operand::Value(v), field_ty)
+}
+
+/// A slot value boxed as an owned `any` (an f64 slot's undefined
+/// sentinel boxes as `undefined`).
+fn box_owned(ctx: &mut LowerCtx<'_>, v: Operand, field_ty: Type) -> Operand {
+    match field_ty {
+        Type::F64 => ctx.box_f64_or_undef(v),
+        _ if field_ty.is_refcounted() => {
+            ctx.emit_owned_result_inc(v, field_ty);
+            // a heap slot spells `undefined` with a cell of its own
+            match ctx.str_undef_sentinel_for(field_ty) {
+                Some(_) => ctx.box_heap_slot_or_undef(v),
+                None => ctx.box_to_any(v),
+            }
+        }
+        _ => ctx.box_to_any(v),
+    }
+}
+
 /// The field's value as an owned `any`: the sidecar's on a hit, the
 /// slot's boxed otherwise (an f64 slot's undefined sentinel boxes as
 /// `undefined`).
@@ -58,16 +118,7 @@ pub(super) fn boxed_load(
         field_ty,
         None,
     );
-    let v = Operand::Value(v);
-    let boxed = match field_ty {
-        Type::F64 => ctx.box_f64_or_undef(v),
-        _ => {
-            if field_ty.is_refcounted() {
-                ctx.emit_owned_result_inc(v, field_ty);
-            }
-            ctx.box_to_any(v)
-        }
-    };
+    let boxed = box_owned(ctx, Operand::Value(v), field_ty);
     let blk = ctx.cur_block;
     ctx.f
         .append_void(blk, InstKind::Store(boxed, Operand::Value(res), 0));

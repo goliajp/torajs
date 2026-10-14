@@ -148,8 +148,8 @@ fn hand_over(
     crate::ast::AccessorFieldNames::settle_shadow_writes(
         owned_ast,
         &c.expr_types,
-        &c.aliases,
-        &c.generic_alias_decls,
+        (&c.aliases, &c.generic_alias_decls),
+        &c.shadowed_reads,
     );
     owned_ast.mints_absent_set |= owned_ast.accessor_field_names.cast_leaves_members_out;
     crate::num_width::analyze(

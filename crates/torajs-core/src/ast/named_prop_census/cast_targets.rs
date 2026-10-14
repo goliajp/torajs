@@ -47,6 +47,53 @@ pub(super) struct CastTargets {
     pub(super) optional: bool,
 }
 
+/// The layouts a typed read converts a field's value into when the
+/// field may hold an accessor's answer or a value parked in its sidecar
+/// (`exotic_read::convert`, the object and array rows): the read casts
+/// that value into a fresh cell of the field's declared layout, and a
+/// `null` for an optional `number` member of it lands in the new cell's
+/// sidecar as any cast's does. `converted(name)` says whether a read of
+/// a field called `name` can take the conversion.
+pub(super) fn converted_fields(
+    ast: &Ast,
+    expr_types: &HashMap<ExprId, Type>,
+    resolve: Resolve<'_>,
+    optional_number: &HashSet<PropKey>,
+    converted: &dyn Fn(&str) -> bool,
+) -> CastTargets {
+    let mut c = Census {
+        ast,
+        expr_types,
+        resolve,
+        optional_number,
+        seen: HashSet::new(),
+        out: HashSet::new(),
+        optional: false,
+    };
+    for s in &ast.stmts {
+        let Stmt::TypeDecl {
+            type_params,
+            fields,
+            ..
+        } = s
+        else {
+            continue;
+        };
+        if !type_params.is_empty() {
+            continue;
+        }
+        for (k, ann) in fields {
+            if k.as_wtf8().as_str().is_some_and(converted) {
+                c.ann(ann);
+            }
+        }
+    }
+    CastTargets {
+        number_names: c.out,
+        optional: c.optional,
+    }
+}
+
 /// The layouts a cast can reach, summed up ([`CastTargets`]).
 pub(super) fn names(
     ast: &Ast,
