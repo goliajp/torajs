@@ -15,6 +15,10 @@
 //! iterator they read it from (so they are no road). A mono whose
 //! parameters take every argument, or every missing one, sends no such
 //! call to its twin, unless it answers for one argument count alone.
+//! A subclass instance is no foreign receiver here: handed one by a
+//! typed call, a twin stores values of its mono's types into slots its
+//! class declares, which the subclass lays out alike
+//! (`super::twinned`), and the census counts those stores at the mono.
 
 use std::collections::{HashMap, HashSet};
 
@@ -52,6 +56,8 @@ struct Roads<'a> {
     /// Some helper has a body: its `next()` / `return()` calls pass no
     /// argument.
     protocol: bool,
+    /// The classes whose methods have twins.
+    classes: Vec<&'a str>,
 }
 
 impl<'a> TwinBodies<'a> {
@@ -62,7 +68,7 @@ impl<'a> TwinBodies<'a> {
             twins: Vec::new(),
             roads: None,
         };
-        let Some(twinned) = super::twinned(ast).filter(|t| !t.is_empty()) else {
+        let Some(twinned) = super::twinned(ast, true).filter(|t| !t.is_empty()) else {
             return out;
         };
         out.twins = ast.cmany_twins.values().map(String::as_str).collect();
@@ -87,6 +93,14 @@ impl<'a> TwinBodies<'a> {
             if out.owner[i] != NO_BODY {
                 continue;
             }
+            // `x.constructor` hands out a class only when `x` may be an
+            // instance of one: its receiver's type decides
+            if let Expr::Member { name, .. } | Expr::OptChain { name, .. } = e
+                && name == "constructor"
+            {
+                typed.push(id);
+                continue;
+            }
             if super::untyped_road(e, id, (&methods, &callees)) {
                 return out;
             }
@@ -100,8 +114,12 @@ impl<'a> TwinBodies<'a> {
                 typed.push(id);
             }
         }
+        let classes = (twinned.iter())
+            .map(|(mono, m)| &mono["__cm_".len()..mono.len() - m.len() - 2])
+            .collect();
         out.roads = Some(Roads {
             twinned,
+            classes,
             typed,
             monos: mono_params(ast),
             protocol: out.owner.contains(&PROTOCOL),
@@ -128,6 +146,12 @@ impl<'a> TwinBodies<'a> {
         }
         for &id in &roads.typed {
             let e = ast.get_expr(id);
+            if let Expr::Member { obj, .. } | Expr::OptChain { obj, .. } = e {
+                if may_hold_twinned(ast, expr_types.get(obj), &roads.classes) {
+                    return ExprMask::default();
+                }
+                continue;
+            }
             if super::typed_road(e, id, expr_types, true) {
                 return ExprMask::default();
             }
@@ -206,6 +230,32 @@ fn mark_tree(ast: &Ast, e: ExprId, k: u32, owner: &mut [u32]) {
         owner[e.0 as usize] = k;
         visit_expr_children(ast, e, &mut |c| mark_tree(ast, c, k, owner));
     }
+}
+
+/// Whether a value of type `t` may be an instance of one of `classes`:
+/// a value of a class type is an instance of that class or of one
+/// descending from it.
+fn may_hold_twinned(ast: &Ast, t: Option<&Type>, classes: &[&str]) -> bool {
+    match t {
+        Some(Type::ClassRef(c)) => classes.iter().any(|k| descends(ast, k, c)),
+        Some(Type::Nullable(t)) => may_hold_twinned(ast, Some(t), classes),
+        t => !super::never_an_instance(t),
+    }
+}
+
+/// Whether the class `k` is `c` or descends from it. A hierarchy the
+/// program spells as a cycle (a TypeError when the classes evaluate)
+/// has no more links than classes.
+pub(super) fn descends(ast: &Ast, k: &str, c: &str) -> bool {
+    let mut at = Some(k.to_string());
+    for _ in 0..=ast.class_parents.len() {
+        match at {
+            Some(p) if p == c => return true,
+            Some(p) => at = ast.class_parents.get(&p).cloned().flatten(),
+            None => return false,
+        }
+    }
+    false
 }
 
 /// A receiver whose method calls the lowering binds statically.

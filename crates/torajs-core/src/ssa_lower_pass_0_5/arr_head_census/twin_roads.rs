@@ -112,12 +112,15 @@ fn callees(ast: &Ast) -> ExprMask {
 /// The method names that have a twin; `None` when one cannot be read
 /// back off its mangled name or its class has a subclass.
 fn twinned_methods(ast: &Ast) -> Option<HashSet<String>> {
-    Some(twinned(ast)?.into_iter().map(|(_, m)| m).collect())
+    Some(twinned(ast, false)?.into_iter().map(|(_, m)| m).collect())
 }
 
 /// Every mono method with a twin, with the method's name; `None` as
-/// for [`twinned_methods`].
-fn twinned(ast: &Ast) -> Option<Vec<(&str, String)>> {
+/// for [`twinned_methods`]. With `subclassed`, a class whose every
+/// subclass lays out its fields as it does ([`subclasses_agree`]) keeps
+/// its twins: a subclass instance the twin stores into holds those
+/// fields in slots of the types the mono stores.
+fn twinned(ast: &Ast, subclassed: bool) -> Option<Vec<(&str, String)>> {
     let mut out = Vec::new();
     for mono in ast.cmany_twins.keys() {
         let rest = mono.strip_prefix("__cm_")?;
@@ -133,12 +136,36 @@ fn twinned(ast: &Ast) -> Option<Vec<(&str, String)>> {
             .class_parents
             .values()
             .any(|p| p.as_deref() == Some(class.as_str()))
+            && !(subclassed && subclasses_agree(ast, class))
         {
             return None;
         }
         out.push((mono.as_str(), rest[class.len() + 2..].to_string()));
     }
     Some(out)
+}
+
+/// Whether every class descending from `class` declares each data
+/// field `class` declares with the same annotation. An accessor's slots
+/// (`__getter_v` / `__setter_v`) are no data field a write lands in,
+/// and an override respells them.
+fn subclasses_agree(ast: &Ast, class: &str) -> bool {
+    use crate::ast_throw_info::obj_cast::decl_fields;
+    let Some((_, own)) = decl_fields(ast, class) else {
+        return false;
+    };
+    let data = |k: &crate::ast::PropKey| {
+        let k = k.lossy();
+        !k.starts_with("__getter_") && !k.starts_with("__setter_")
+    };
+    let mut subclasses =
+        (ast.class_parents.keys()).filter(|c| *c != class && idle::descends(ast, c, class));
+    subclasses.all(|sub| {
+        decl_fields(ast, sub).is_some_and(|(_, fields)| {
+            (fields.iter().filter(|(k, _)| data(k)))
+                .all(|(k, a)| own.iter().all(|(o, oa)| o != k || oa == a))
+        })
+    })
 }
 
 fn collect_twin_bodies(ast: &Ast, s: &Stmt, twins: &HashSet<&str>, out: &mut ExprMask) {
