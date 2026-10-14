@@ -239,6 +239,14 @@ pub(in crate::ast) fn rename_expr(ast: &mut Ast, eid: ExprId, renames: &Renames)
                     ast.exprs[id.0 as usize] = Expr::Ident(nm.clone());
                 }
             }
+            // `new N()` carries `N` as its target name, not an `Ident`
+            Expr::New { class_name, .. } if renames.contains_key(class_name) => {
+                let nm = renames[class_name].clone();
+                if let Expr::New { class_name, .. } = &mut ast.exprs[id.0 as usize] {
+                    *class_name = nm;
+                }
+                stack.extend(expr_children(ast, id));
+            }
             Expr::ArrowFn { params, body, .. } => {
                 let params = params.clone();
                 let mut taken = body.clone();
