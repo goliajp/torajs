@@ -19,7 +19,6 @@ use torajs_rc::Tag;
 use crate::member_get::{__torajs_any_member_get_tag, recv_cell};
 use crate::member_get_own::{dynobj_proto_pair, user_proto_cell};
 use crate::member_get_reify_tail::dynobj_builtin_tail_tag;
-use crate::member_get_symbol::{key_is_symbol, symbol_key_pair};
 use crate::member_get_value::{__torajs_any_member_get_value, reify_value};
 use crate::nanbox::AnyValue;
 
@@ -48,17 +47,18 @@ pub(crate) unsafe fn dynobj_own_tag(ptr: *mut c_void, key: *const c_void) -> Opt
     (tag != DYNOBJ_GET_OWN_MISS).then_some(tag)
 }
 
-/// The value the receiver's own entry for `key` answers (an entry
-/// storing `undefined` is `Some(0)`; a ShortStr is a fresh `Str` the
-/// caller owns); `None` when the receiver owns no entry for it.
+/// The receiver's own entry for `key` as its whole `(tag, value)`
+/// pair (an entry storing `undefined` is `Some((5, 0))`; a ShortStr
+/// value is a fresh `Str` the caller owns); `None` when the receiver
+/// owns no entry for it, a NULL or non-DynObj cell included.
 ///
 /// # Safety
-/// As [`dynobj_own_tag`].
+/// `ptr` is NULL or a live cell; `key` is a live Str or Symbol cell.
 #[inline]
-pub(crate) unsafe fn dynobj_own_value(ptr: *mut c_void, key: *const c_void) -> Option<u64> {
+pub(crate) unsafe fn dynobj_own_pair(ptr: *const c_void, key: *const c_void) -> Option<(u64, u64)> {
     let mut value = 0u64;
     let tag = unsafe { __torajs_dynobj_get_own(ptr, key, &mut value) };
-    (tag != DYNOBJ_GET_OWN_MISS).then_some(value)
+    (tag != DYNOBJ_GET_OWN_MISS).then_some((tag, value))
 }
 
 /// Both channels of an any-lane member read in one call: the tag is
@@ -76,26 +76,20 @@ pub unsafe extern "C" fn __torajs_any_member_get_pair(
     value_out: *mut u64,
 ) -> u64 {
     unsafe {
-        if let Some((ptr, t)) = recv_cell(recv) {
-            // §6.1.7 — a symbol key's walk answers both channels at
-            // once already; a Proxy keeps its sentinel pair below.
-            if key_is_symbol(key) {
-                if t != Tag::Proxy as u16 {
-                    let (tag, value) = symbol_key_pair(recv, key);
-                    value_out.write(value);
-                    return tag;
-                }
-            } else if t == Tag::DynObj as u16 {
-                // a miss leaves `value_out` alone
-                let tag = __torajs_dynobj_get_own(ptr, key, value_out);
-                if tag != DYNOBJ_GET_OWN_MISS {
-                    return tag;
-                }
+        // An own entry answers a Str and a Symbol key alike (§10.1.8.1
+        // OrdinaryGet step 2 stops there for either key kind).
+        if let Some((ptr, t)) = recv_cell(recv)
+            && t == Tag::DynObj as u16
+        {
+            // a miss leaves `value_out` alone
+            let tag = __torajs_dynobj_get_own(ptr, key, value_out);
+            if tag != DYNOBJ_GET_OWN_MISS {
+                return tag;
             }
-            // An absent key takes the two channels below, so each
-            // absent-key tail keeps a single caller (and its inlined
-            // place in that channel).
         }
+        // An absent key and every other receiver take the two
+        // channels, so each absent-key tail keeps a single caller (and
+        // its inlined place in that channel).
         let tag = __torajs_any_member_get_tag(recv, key);
         value_out.write(__torajs_any_member_get_value(recv, key));
         tag
