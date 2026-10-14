@@ -161,6 +161,7 @@ mod locale_options_date;
 mod locale_options_number;
 pub(crate) mod member_get;
 mod member_get_buffer;
+mod member_get_dynobj;
 pub(crate) mod member_get_layout;
 pub(crate) mod member_get_own;
 pub(crate) mod member_get_private;

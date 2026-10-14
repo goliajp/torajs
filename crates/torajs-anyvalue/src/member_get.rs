@@ -47,8 +47,7 @@ use torajs_rc::{AnySlotTag, Tag};
 
 pub(crate) use crate::member_get_own::canonical_index;
 use crate::member_get_own::{
-    arr_own_pair, array_proto_props, closure_virtual_pair, dynobj_proto_pair, function_proto_props,
-    user_proto_cell,
+    arr_own_pair, array_proto_props, closure_virtual_pair, function_proto_props,
 };
 use crate::nanbox::{AnyValue, is_null, is_short_str, is_undefined};
 
@@ -375,7 +374,7 @@ unsafe fn arr_arm_tag(ptr: *mut c_void, recv: AnyValue, key: *const c_void) -> u
 
 // The reify tail — split to `member_get_reify_tail.rs` (file-size
 // HARD RULE); the re-export keeps every arm's call spelling.
-pub(crate) use crate::member_get_reify_tail::{dynobj_builtin_tail_tag, reify_tag};
+pub(crate) use crate::member_get_reify_tail::reify_tag;
 
 // Value channel — split to `member_get_value.rs` (file-size HARD
 // RULE); the re-export keeps every `crate::member_get::` consumer
@@ -458,39 +457,6 @@ pub(crate) unsafe fn dynobj_arm_tag(ptr: *mut c_void, recv: AnyValue, key: *cons
         if __torajs_dynobj_has(ptr, key) != 0 {
             return 5;
         }
-        // Annex B §B.2.2.1 — a dynamic key spelling `__proto__`
-        // answers the RECEIVER's [[Prototype]] via the inherited
-        // accessor (the own DATA probe above already covered the
-        // shadow case); the chain walk below must not run — the
-        // internal simulation slot no longer carries the
-        // user-spellable name, so the walk would miss to the
-        // reify surface.
-        if crate::prop_has::key_is(key, b"__proto__") {
-            return dynobj_proto_pair(ptr).0;
-        }
-        // Knife 2 — the user [[Prototype]] chain answers before
-        // the builtin surface reifies (§10.1.8.1 OrdinaryGet
-        // walks the chain; the recursion covers grandparents).
-        if let Some(parent) = user_proto_cell(ptr) {
-            return __torajs_any_member_get_tag(parent, key);
-        }
-        // §10.1.8.1 OrdinaryGet step 2 — an explicit null proto
-        // cuts the chain: no builtin reify surface either.
-        if crate::member_get_own::dynobj_null_proto(ptr) {
-            return 5;
-        }
-        // RFC 20260807-global-object G2 — a KNOWN builtin the
-        // globalThis singleton's fill list is missing must stay
-        // LOUD (bun answers a function; a silent undefined here
-        // would mask it). Unknown names keep the ordinary miss.
-        // None of the missing names collides with the builtin
-        // tails below, so probing first loses nothing.
-        if crate::method_value::globalthis_object::globalthis_missing_known(ptr, key) {
-            __torajs_throw_type_error(
-                c"not yet supported: this builtin is not reachable through globalThis".as_ptr(),
-            );
-            return 5;
-        }
-        dynobj_builtin_tail_tag(ptr, recv, key)
+        crate::member_get_dynobj::dynobj_miss_tag(ptr, recv, key)
     }
 }

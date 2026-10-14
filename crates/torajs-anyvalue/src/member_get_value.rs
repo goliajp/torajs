@@ -10,8 +10,8 @@ use torajs_rc::{AnySlotTag, Tag};
 
 use crate::member_get::{closure_props, is_wrapper_tag, recv_cell, wrapper_props};
 use crate::member_get_own::{
-    arr_own_pair, array_proto_props, closure_virtual_pair, dynobj_proto_pair, function_proto_props,
-    strwrapper_length, user_proto_cell, wrapper_proto_props,
+    arr_own_pair, array_proto_props, closure_virtual_pair, function_proto_props, strwrapper_length,
+    wrapper_proto_props,
 };
 use crate::nanbox::{AnyValue, is_short_str};
 
@@ -313,49 +313,7 @@ unsafe fn dynobj_arm_value(ptr: *mut c_void, recv: AnyValue, key: *const c_void)
             if __torajs_dynobj_has(ptr, key) != 0 {
                 return 0;
             }
-            // Annex B §B.2.2.1 dynamic-key `__proto__` read —
-            // see the tag twin.
-            if crate::prop_has::key_is(key, b"__proto__") {
-                return dynobj_proto_pair(ptr).1;
-            }
-            // Knife 2 — user chain before builtin reify
-            // (tag twin above).
-            if let Some(parent) = user_proto_cell(ptr) {
-                return __torajs_any_member_get_value(parent, key);
-            }
-            // Explicit null proto cuts the chain — tag twin
-            // above (§10.1.8.1 OrdinaryGet step 2).
-            if crate::member_get_own::dynobj_null_proto(ptr) {
-                return 0;
-            }
-            // G2 globalThis missing-known probe — tag twin
-            // above (the tag channel already threw; answering 0
-            // here keeps the pair protocol coherent).
-            if crate::method_value::globalthis_object::globalthis_missing_known(ptr, key) {
-                return 0;
-            }
-            let cell = crate::method_support::__torajs_builtin_proto_own_method_cell(ptr, key);
-            if cell != 0 {
-                return cell;
-            }
-            // Function.prototype's virtual own name/length pair
-            // (§20.2.3, RFC 20260722 刀 3) — tag twin above.
-            if let Some((_, mval)) =
-                crate::method_support_proto_meta::builtin_proto_own_meta(ptr, key)
-            {
-                return mval;
-            }
-            // Direct proto-accessor read (tag twin above) — the zero
-            // value channel of the accessor sentinel.
-            if crate::method_support_proto::proto_virtual_accessor_owned(ptr, key) {
-                return 0;
-            }
-            // Implicit %Object.prototype% hop — tag twin above.
-            if let Some(parent) = crate::member_get_own::implicit_proto_parent(ptr) {
-                return __torajs_any_member_get_value(parent, key);
-            }
-            // Inherited Object.prototype reify (tag twin above).
-            return reify_value(recv, key);
+            return crate::member_get_dynobj::dynobj_miss_value(ptr, recv, key);
         }
         v
     }
@@ -367,7 +325,7 @@ unsafe fn dynobj_arm_value(ptr: *mut c_void, recv: AnyValue, key: *const c_void)
 ///
 /// # Safety
 /// `key` is NULL or a live Str cell.
-unsafe fn reify_value(recv: AnyValue, key: *const c_void) -> u64 {
+pub(crate) unsafe fn reify_value(recv: AnyValue, key: *const c_void) -> u64 {
     // Mirror of the tag channel's subclass step.
     if let Some(proto) = unsafe { crate::method_call_subclass::subclass_proto_for(recv, key) } {
         return unsafe { __torajs_any_member_get_value(proto, key) };
