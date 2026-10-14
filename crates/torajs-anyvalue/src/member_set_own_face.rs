@@ -75,6 +75,16 @@ pub(crate) unsafe fn own_face_write(
             __torajs_arrprops_set(ptr, key, tag as i64, value as i64);
             return true;
         }
+        // A struct's declared data field IS its own property: the write
+        // goes to the slot (or its shadow), never to the expando bag,
+        // which no typed read of that field looks at. With the property
+        // present, step 5's Set and the slot store coincide.
+        if cell_tag == Tag::Obj as u16
+            && crate::struct_probe::struct_field_pair(ptr, key).is_some()
+            && crate::member_set_struct::set_obj_member(ptr, recv, key, tag, value, true).is_some()
+        {
+            return true;
+        }
         let Some(off) = props_slot_off(cell_tag) else {
             drop_payload(tag, value);
             return false;

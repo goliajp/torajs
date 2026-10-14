@@ -64,8 +64,8 @@ pub(super) fn spare<'a>(
 }
 
 /// The expressions that may write a member: a store or a step through
-/// a member or a key, a call spelled `Reflect.set` / `Object.assign`,
-/// and, with `literals`, an object literal (an expression of any other
+/// a member or a key, a call spelled `Reflect.set` / `Object.assign`
+/// or one that hands out a setter, and, with `literals`, an object literal (an expression of any other
 /// kind reaches no name, whatever its type). A generic body's writes
 /// are left out: it never lowers, the checker types nothing in it, and
 /// each specialization the mono pass clones from it is a body of its
@@ -134,13 +134,39 @@ fn generic_bodies(ast: &Ast) -> Vec<bool> {
     out
 }
 
-/// A callee spelled `Reflect.set` or `Object.assign` ([`call`]).
+/// A callee spelled `Reflect.set` or `Object.assign`, or one that hands
+/// out a setter ([`call`]).
 fn bulk(ast: &Ast, callee: ExprId) -> bool {
     let Expr::Member { obj, name } = ast.get_expr(callee) else {
         return false;
     };
-    matches!(ast.get_expr(*obj), Expr::Ident(b)
-        if (b == "Reflect" && name == "set") || (b == "Object" && name == "assign"))
+    name == "__lookupSetter__"
+        || matches!(ast.get_expr(*obj), Expr::Ident(b)
+        if (b == "Reflect" && name == "set") || (b == "Object" && name == "assign")
+            || descriptor_getter(b, name))
+}
+
+/// `Object` / `Reflect` methods that answer a property descriptor, and
+/// with it an accessor's setter as a function value.
+fn descriptor_getter(base: &str, name: &str) -> bool {
+    matches!(
+        (base, name),
+        ("Object" | "Reflect", "getOwnPropertyDescriptor")
+            | ("Object", "getOwnPropertyDescriptors")
+    )
+}
+
+/// What a setter handed out as a value can write once it is called on
+/// some receiver. The one built-in setter that writes a name on its
+/// receiver's own face is `set Iterator.prototype.constructor`
+/// (§27.1.2.1, SetterThatIgnoresPrototypeProperties), so an extraction
+/// that may name `constructor` reaches that field, with any value.
+fn setter_reach(ast: &Ast, key: Option<&ExprId>) -> Hit {
+    let ctor = || Hit::Name("constructor".to_string(), Kind::Unknown);
+    match key.map(|k| ast.get_expr(*k)) {
+        Some(Expr::String(s)) if s.as_str().is_some_and(|s| s != "constructor") => Hit::None,
+        _ => ctor(),
+    }
 }
 
 /// A write to `target`, with `value` its rhs (none for `++` / `--`,
@@ -211,10 +237,19 @@ pub(super) fn call(
     let Expr::Member { obj, name } = ast.get_expr(callee) else {
         return Hit::None;
     };
+    if name == "__lookupSetter__" {
+        return setter_reach(ast, args.first());
+    }
     let base = match ast.get_expr(*obj) {
         Expr::Ident(n) => n.as_str(),
         _ => return Hit::None,
     };
+    if descriptor_getter(base, name) {
+        return match name.as_str() {
+            "getOwnPropertyDescriptors" => setter_reach(ast, None),
+            _ => setter_reach(ast, args.get(1)),
+        };
+    }
     match (base, name.as_str()) {
         ("Reflect", "set") => {
             let kind = args
