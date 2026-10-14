@@ -33,6 +33,9 @@ struct Census<'a> {
     optional_number: &'a HashSet<PropKey>,
     /// The class names already walked (a class may contain itself).
     seen: HashSet<String>,
+    /// The annotations already walked: a cast into one reaches the same
+    /// layouts each time.
+    anns: HashSet<&'a str>,
     out: HashSet<String>,
     /// Some reached layout has an optional member of any type: a cast
     /// of a value lacking the key builds a cell without it.
@@ -67,6 +70,7 @@ pub(super) fn converted_fields(
         resolve,
         optional_number,
         seen: HashSet::new(),
+        anns: HashSet::new(),
         out: HashSet::new(),
         optional: false,
     };
@@ -108,6 +112,7 @@ pub(super) fn names(
         resolve,
         optional_number,
         seen: HashSet::new(),
+        anns: HashSet::new(),
         out: HashSet::new(),
         optional: false,
     };
@@ -123,7 +128,7 @@ pub(super) fn names(
     }
 }
 
-impl Census<'_> {
+impl<'a> Census<'a> {
     fn any(&self, e: ExprId) -> bool {
         matches!(self.expr_types.get(&e), Some(Type::Any))
     }
@@ -131,7 +136,7 @@ impl Census<'_> {
     /// The statements of one function body (`ret` its return
     /// annotation): a declaration's annotation an `any` init enters, a
     /// return of an `any` value, and the functions declared inside.
-    fn stmt(&mut self, s: &Stmt, ret: Option<&str>) {
+    fn stmt(&mut self, s: &'a Stmt, ret: Option<&'a str>) {
         match s {
             Stmt::LetDecl {
                 type_ann: Some(ann),
@@ -320,7 +325,10 @@ impl Census<'_> {
         resolve_type_ann_decl(ann, self.resolve.0, &[], self.resolve.1)
     }
 
-    fn ann(&mut self, ann: &str) {
+    fn ann(&mut self, ann: &'a str) {
+        if holds_no_layout(ann) || !self.anns.insert(ann) {
+            return;
+        }
         if let Some(t) = self.resolve_ann(ann) {
             self.ty(&t);
         }
@@ -389,6 +397,24 @@ impl Census<'_> {
             }
         }
     }
+}
+
+/// An annotation naming a primitive, or an array of one: no layout.
+fn holds_no_layout(ann: &str) -> bool {
+    matches!(
+        ann.trim().trim_end_matches("[]"),
+        "number"
+            | "string"
+            | "boolean"
+            | "bigint"
+            | "symbol"
+            | "any"
+            | "unknown"
+            | "never"
+            | "void"
+            | "undefined"
+            | "null"
+    )
 }
 
 /// Whether the any lane can call this function: the shapes

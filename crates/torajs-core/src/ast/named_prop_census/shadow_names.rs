@@ -23,28 +23,14 @@
 //! layout has an optional `number` member goes to the sidecar the same
 //! way (`super::cast_targets`).
 
+use std::cell::OnceCell;
 use std::collections::{HashMap, HashSet};
 
 use super::accessor_names::{AccessorFieldNames, Reach};
+use super::write_hit::{Hit, Kind, any_receiver, call, literal, spare, write};
 use crate::ast::{Ast, Expr, ExprId, PropKey};
 use crate::check::{GenericAliasMap, Lit, Type};
-
-/// What a written value may be.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Kind {
-    /// A number: it fits an f64 slot and shadows every other.
-    Number,
-    /// Anything: it may shadow any slot.
-    Unknown,
-}
-
-enum Hit {
-    None,
-    Name(String, Kind),
-    /// Several names, each with the kind of its own value.
-    Names(Vec<(String, Kind)>),
-    All(Kind),
-}
+use crate::ssa_lower_pass_0_5::arr_head_census::TwinBodies;
 
 #[derive(Default)]
 struct Names {
@@ -103,7 +89,13 @@ impl AccessorFieldNames {
             return;
         }
         let fields = &ast.accessor_field_names;
-        let mut names = writes(ast, expr_types, &optional_number, &|n| fields.may(n));
+        let mut names = writes(
+            ast,
+            expr_types,
+            &optional_number,
+            &|n| fields.may(n),
+            &OnceCell::new(),
+        );
         let casts = super::cast_targets::names(
             ast,
             expr_types,
@@ -152,8 +144,18 @@ pub struct ShadowedNames {
 
 impl ShadowedNames {
     pub fn of(ast: &Ast, expr_types: &HashMap<ExprId, Type>) -> Self {
+        ShadowedNames::of_shared(ast, expr_types, &OnceCell::new())
+    }
+
+    /// [`ShadowedNames::of`] under one of the runs of a fixpoint over
+    /// `ast`, which share what `twins` reads off the program alone.
+    pub(crate) fn of_shared<'a>(
+        ast: &'a Ast,
+        expr_types: &HashMap<ExprId, Type>,
+        twins: &OnceCell<TwinBodies<'a>>,
+    ) -> Self {
         let accessor = ast.accessor_field_names.may_settled(ast, expr_types);
-        let names = writes(ast, expr_types, &HashSet::new(), &accessor);
+        let names = writes(ast, expr_types, &HashSet::new(), &accessor, twins);
         ShadowedNames {
             unknown: names.unknown,
             number: names.number,
@@ -195,278 +197,89 @@ impl ShadowedNames {
 /// twin can run: it types its receiver, parameters and locals `any`, so
 /// its `t.m = v` is an any-lane [[Set]] onto whatever cell the caller
 /// handed it, and the value is a number only when `write_kind` shows it
-/// is one. A twin nothing enters (`idle_twin_exprs`) writes nothing. That
-/// verdict reads which members the writes leave holding values of any
-/// kind, so the census repeats until that set stops growing.
-fn writes(
-    ast: &Ast,
+/// is one. A twin nothing enters (`TwinBodies::idle`) writes nothing.
+/// That verdict reads which members the writes leave holding values of
+/// any kind, so the census repeats while the set grows by a member some
+/// verdict of the pass asked about. The receiver, the twin and the
+/// layout facts a write needs are gathered on the first write that asks
+/// for them; `twins` reads the program alone, so the runs of one
+/// fixpoint share it.
+fn writes<'a>(
+    ast: &'a Ast,
     expr_types: &HashMap<ExprId, Type>,
     optional_number: &HashSet<PropKey>,
     accessor: &dyn Fn(&str) -> bool,
+    twins: &OnceCell<TwinBodies<'a>>,
 ) -> Names {
     // built only when some write's value needs its number-ness judged
-    let layouts = std::cell::OnceCell::new();
+    let layouts = OnceCell::new();
     // traced only when some write names a member through the any lane
-    let origins = std::cell::OnceCell::new();
+    let origins = OnceCell::new();
     let origins = || origins.get_or_init(|| super::receiver_origin::Origins::of(ast, expr_types));
-    let dead_twins = crate::ssa_lower_pass_0_5::arr_head_census::idle_twin_exprs(ast, expr_types);
+    // settled only when a write inside some twin names a member
+    let dead_twins = OnceCell::new();
+    let dead = |id: ExprId| {
+        let twins = twins.get_or_init(|| TwinBodies::of(ast));
+        twins.in_twin(id) && (dead_twins.get_or_init(|| twins.idle(expr_types))).contains(id)
+    };
     let mut unknown: HashSet<String> = HashSet::new();
     loop {
+        let asked = std::cell::RefCell::new(HashSet::new());
         let facts = super::write_kind::Facts {
             ast,
             expr_types,
             layouts: &layouts,
             unknown: &unknown,
+            asked: &asked,
             accessor,
         };
         let mut names = Names::default();
         for (i, e) in ast.exprs.iter().enumerate() {
-            if dead_twins.contains(&ExprId(i as u32)) {
-                continue;
-            }
-            let (hit, recv) = match e {
-                Expr::Assign { target, value } => (
-                    write(&facts, *target, Some(*value)),
-                    any_receiver(ast, expr_types, *target),
-                ),
-                Expr::PostIncr { target, .. } => (
-                    write(&facts, *target, None),
-                    any_receiver(ast, expr_types, *target),
-                ),
+            let (hit, target) = match e {
+                Expr::Assign { target, value } => {
+                    (write(&facts, *target, Some(*value)), Some(*target))
+                }
+                Expr::PostIncr { target, .. } => (write(&facts, *target, None), Some(*target)),
                 Expr::Call { callee, args } | Expr::OptCall { callee, args } => {
-                    let reflect_set = matches!(ast.get_expr(*callee),
-                        Expr::Member { obj, name } if name == "set"
-                            && matches!(ast.get_expr(*obj), Expr::Ident(r) if r == "Reflect"));
-                    let target = args.first().copied().filter(|_| reflect_set);
-                    (call(ast, expr_types, *callee, args), target)
+                    (call(ast, expr_types, *callee, args), None)
                 }
                 Expr::ObjectLit { fields } => (literal(expr_types, optional_number, fields), None),
-                _ => (Hit::None, None),
+                _ => continue,
             };
-            names.take(spare(&origins, recv, hit));
+            if matches!(hit, Hit::None) {
+                continue;
+            }
+            let recv = match (e, target) {
+                (_, Some(t)) => any_receiver(ast, expr_types, t),
+                (Expr::Call { callee, args } | Expr::OptCall { callee, args }, None) => {
+                    args.first().copied().filter(|_| reflect_set(ast, *callee))
+                }
+                _ => None,
+            };
+            let hit = spare(&origins, recv, hit);
+            if !matches!(hit, Hit::None) && !dead(ExprId(i as u32)) {
+                names.take(hit);
+            }
         }
-        if names.unknown.is_subset(&unknown) {
+        // a pass whose verdicts asked about none of the members it adds
+        // answers the same with them added
+        let asked = asked.into_inner();
+        if names
+            .unknown
+            .iter()
+            .all(|n| unknown.contains(n) || !asked.contains(n))
+        {
             return names;
         }
         unknown.extend(names.unknown);
     }
 }
 
-/// The receiver of a write to `target` the lowering makes through the
-/// any lane: a member or keyed write whose receiver is no layout the
-/// checker knows.
-fn any_receiver(ast: &Ast, expr_types: &HashMap<ExprId, Type>, target: ExprId) -> Option<ExprId> {
-    match ast.get_expr(target) {
-        Expr::Member { obj, .. } | Expr::Index { obj, .. } if !struct_like(expr_types.get(obj)) => {
-            Some(*obj)
-        }
-        _ => None,
-    }
-}
-
-/// `hit` less what a write through `recv` cannot leave in any layout's
-/// slot: the name, when the receiver never holds a struct cell laid out
-/// with that slot, and every name, when it never holds one with any
-/// slot (`receiver_origin`; `counts[w] = n` on a fresh dictionary). A
-/// `Reflect.set` writes into its first argument; `Object.assign` names
-/// the fields of its sources, which its target does not narrow here.
-fn spare<'a>(
-    origins: &dyn Fn() -> &'a super::receiver_origin::Origins<'a>,
-    recv: Option<ExprId>,
-    hit: Hit,
-) -> Hit {
-    match (recv, hit) {
-        (Some(r), Hit::Name(n, _)) if origins().excludes(r, &n) => Hit::None,
-        (Some(r), Hit::All(_)) if origins().holds_no_slot(r) => Hit::None,
-        (_, hit) => hit,
-    }
-}
-
-/// A write to `target`, with `value` its rhs (none for `++` / `--`,
-/// whose result is a number unless the old value was a BigInt the
-/// sidecar already holds).
-fn write(facts: &super::write_kind::Facts<'_>, target: ExprId, value: Option<ExprId>) -> Hit {
-    let (ast, expr_types) = (facts.ast, facts.expr_types);
-    let kind = value.map_or(Kind::Number, |v| kind_of(expr_types.get(&v)));
-    match ast.get_expr(target) {
-        Expr::Member { obj, name } => {
-            if !struct_like(expr_types.get(obj)) {
-                if value.is_some_and(|v| super::write_kind::steps_itself(facts, v, *obj, name)) {
-                    return Hit::None;
-                }
-                let number =
-                    value.is_some_and(|v| super::write_kind::number_value(facts, v, *obj, name));
-                let kind = if number { Kind::Number } else { kind };
-                return Hit::Name(name.clone(), kind);
-            }
-            // a typed store: the slot takes a typed value; a number slot
-            // handed an any-lane value or a `null` joins the any lane
-            let unspelled = value.is_some_and(|v| may_hold_unspelled(expr_types.get(&v)));
-            match unspelled && number_field(ast, expr_types, *obj, name) {
-                true => Hit::Name(name.clone(), Kind::Unknown),
-                false => Hit::None,
-            }
-        }
-        Expr::Index { obj, index } => {
-            if !property_receiver(expr_types.get(obj)) {
-                return Hit::None;
-            }
-            match ast.get_expr(*index) {
-                Expr::String(s) => match s.as_str() {
-                    Some(s) => Hit::Name(s.to_string(), kind),
-                    None => Hit::All(kind),
-                },
-                Expr::Number(n) => match crate::ast::number_prop_key(*n).as_wtf8().as_str() {
-                    Some(s) => Hit::Name(s.to_string(), kind),
-                    None => Hit::All(kind),
-                },
-                _ if matches!(expr_types.get(obj), Some(Type::Any))
-                    && !key_may_name_field(expr_types.get(index)) =>
-                {
-                    Hit::None
-                }
-                _ => Hit::All(kind),
-            }
-        }
-        _ => Hit::None,
-    }
-}
-
-/// A bulk or reflective write: `Reflect.set` names its key when the
-/// key is a literal; `Object.assign` reaches every own field of its
-/// sources, each with its own type when the source is a struct, and
-/// every name otherwise.
-fn call(ast: &Ast, expr_types: &HashMap<ExprId, Type>, callee: ExprId, args: &[ExprId]) -> Hit {
-    let Expr::Member { obj, name } = ast.get_expr(callee) else {
-        return Hit::None;
-    };
-    let base = match ast.get_expr(*obj) {
-        Expr::Ident(n) => n.as_str(),
-        _ => return Hit::None,
-    };
-    match (base, name.as_str()) {
-        ("Reflect", "set") => {
-            let kind = args
-                .get(2)
-                .map_or(Kind::Unknown, |v| kind_of(expr_types.get(v)));
-            match args.get(1).map(|k| ast.get_expr(*k)) {
-                Some(Expr::String(s)) => match s.as_str() {
-                    Some(s) => Hit::Name(s.to_string(), kind),
-                    None => Hit::All(kind),
-                },
-                _ => Hit::All(kind),
-            }
-        }
-        ("Object", "assign") => assign_sources(ast, expr_types, args.get(1..).unwrap_or(&[])),
-        _ => Hit::None,
-    }
-}
-
-/// The fields `Object.assign` copies out of `sources`, each with the
-/// kind of its own value; a source whose fields are not all known
-/// settles for every name.
-fn assign_sources(ast: &Ast, expr_types: &HashMap<ExprId, Type>, sources: &[ExprId]) -> Hit {
-    let mut names: Vec<(String, Kind)> = Vec::new();
-    for s in sources {
-        if matches!(ast.get_expr(*s), Expr::Spread { .. }) {
-            return Hit::All(Kind::Unknown);
-        }
-        let Some(Type::Struct(fs)) = expr_types.get(s) else {
-            return Hit::All(Kind::Unknown);
-        };
-        for (k, t) in fs.iter() {
-            let Some(k) = k.as_wtf8().as_str() else {
-                return Hit::All(Kind::Unknown);
-            };
-            names.push((k.to_string(), kind_of(Some(t))));
-        }
-    }
-    Hit::Names(names)
-}
-
-/// A literal whose member named like an optional `number` member takes
-/// a value an f64 slot cannot spell: stored as that type, the lowering
-/// stores the value through the any lane once the cell exists.
-fn literal(
-    expr_types: &HashMap<ExprId, Type>,
-    optional_number: &HashSet<PropKey>,
-    fields: &[(PropKey, ExprId)],
-) -> Hit {
-    for (k, v) in fields {
-        if optional_number.contains(k)
-            && may_hold_unspelled(expr_types.get(v))
-            && let Some(k) = k.as_wtf8().as_str()
-        {
-            return Hit::Name(k.to_string(), Kind::Unknown);
-        }
-    }
-    Hit::None
-}
-
-/// What a value of this type may be once written.
-fn kind_of(t: Option<&Type>) -> Kind {
-    match t {
-        Some(Type::Number | Type::Literal(Lit::Num(_))) => Kind::Number,
-        _ => Kind::Unknown,
-    }
-}
-
-/// A receiver the lowering stores into through the layout.
-fn struct_like(t: Option<&Type>) -> bool {
-    match t {
-        Some(Type::Struct(_) | Type::ClassRef(_)) => true,
-        Some(Type::Nullable(t)) => struct_like(Some(t)),
-        _ => false,
-    }
-}
-
-/// A keyed write that may reach a declared field: on an array, a
-/// string, a collection or a buffer the key picks an element. A
-/// dictionary (`Record<K, V>`) is a property receiver: the checker
-/// admits no struct type into one, but an `any` value does
-/// (`const d: Record<string, V> = p as any`), and the write then lands
-/// on the struct cell.
-fn property_receiver(t: Option<&Type>) -> bool {
-    match t {
-        None | Some(Type::Any | Type::Struct(_) | Type::ClassRef(_) | Type::Object(_)) => true,
-        Some(Type::TypeVar(_) | Type::Dict(..)) => true,
-        Some(Type::Nullable(t)) => property_receiver(Some(t)),
-        Some(Type::Union(ts)) => ts.iter().any(|t| property_receiver(Some(t))),
-        _ => false,
-    }
-}
-
-/// Whether a key of this type can spell a declared field's name: a
-/// number picks an element of an `any` receiver, not a field.
-fn key_may_name_field(t: Option<&Type>) -> bool {
-    !matches!(t, Some(Type::Number | Type::Literal(Lit::Num(_))))
-}
-
-/// A value the lowering may hand a number slot as an any-lane value or
-/// a `null`: the any lane itself, `null`, or a type the checker spells
-/// `T | null`, whose storage may be a box.
-fn may_hold_unspelled(t: Option<&Type>) -> bool {
-    matches!(
-        t,
-        None | Some(Type::Any | Type::Null | Type::Nullable(_) | Type::Union(_))
-    )
-}
-
-/// Whether the field `name` of the struct-typed receiver `obj` is a
-/// number slot: `number`, or an optional `number`. An unknown field
-/// counts.
-fn number_field(ast: &Ast, expr_types: &HashMap<ExprId, Type>, obj: ExprId, name: &str) -> bool {
-    let mut t = expr_types.get(&obj);
-    while let Some(Type::Nullable(inner)) = t {
-        t = Some(inner);
-    }
-    match t {
-        Some(Type::Struct(fs)) => fs.iter().find(|(k, _)| *k == name).is_none_or(|(_, t)| {
-            matches!(t, Type::Number) || matches!(t, Type::Nullable(n) if **n == Type::Number)
-        }),
-        _ => crate::ast_throw_info::class_field_ann(ast, expr_types, obj, name)
-            .is_none_or(|a| a == "number" || a == crate::ssa_lower_parse_type::OPTIONAL_NUMBER_ANN),
-    }
+/// A callee spelled `Reflect.set`.
+fn reflect_set(ast: &Ast, callee: ExprId) -> bool {
+    matches!(ast.get_expr(callee),
+        Expr::Member { obj, name } if name == "set"
+            && matches!(ast.get_expr(*obj), Expr::Ident(r) if r == "Reflect"))
 }
 
 #[cfg(test)]

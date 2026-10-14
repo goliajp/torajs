@@ -9,14 +9,21 @@
 //! appends at the tail — JS "delete then set moves to the end" order.
 
 use core::ffi::c_void;
+use core::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::layout::{DYNOBJ_KEY_HOLE, IDX_TOMBSTONE};
+use crate::layout::{DYNOBJ_HDR_FLAG_KEY_DELETED, DYNOBJ_KEY_HOLE, IDX_TOMBSTONE};
 use crate::probe::{bucket_key_ptr, count, drop_key, entries, index_ptr, probe, set_count};
+
+/// Mirror of `torajs_rc::builtin_proto::OBJECT_PROTO_TAG`.
+const OBJECT_PROTO_TAG: usize = 1;
 
 unsafe extern "C" {
     /// Cross-tier — universal heap-value drop (NaN-box-safe; the 7d-A
     /// cell gate filters immediate AnyValues so this is unconditional).
     fn __torajs_value_drop_heap(child: *mut c_void);
+    /// torajs-rc — the builtin prototype singletons by tag, 0 until
+    /// minted.
+    static __torajs_builtin_proto_slots: [AtomicUsize; OBJECT_PROTO_TAG + 1];
 }
 
 /// `__torajs_dynobj_delete(obj, key)` — remove `key` from `obj`.
@@ -46,6 +53,12 @@ pub unsafe extern "C" fn __torajs_dynobj_delete(obj: *mut c_void, key: *const c_
         (*e).value_anyv = 0;
         *index_ptr(obj).add(pr.slot as usize) = IDX_TOMBSTONE;
         set_count(obj, count(obj) - 1);
+        // %Object.prototype%'s count answers for its key set only while
+        // no key ever left it
+        if obj as usize == __torajs_builtin_proto_slots[OBJECT_PROTO_TAG].load(Ordering::Acquire) {
+            let flags = (obj as *mut u8).add(6) as *mut u16;
+            *flags |= DYNOBJ_HDR_FLAG_KEY_DELETED;
+        }
     }
     1
 }

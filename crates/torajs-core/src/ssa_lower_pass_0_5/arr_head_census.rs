@@ -25,7 +25,7 @@
 
 mod twin_roads;
 
-pub(crate) use twin_roads::{idle_twin_exprs, unreachable_twin_exprs};
+pub(crate) use twin_roads::{ExprMask, TwinBodies, unreachable_twin_exprs};
 
 use std::collections::HashMap;
 
@@ -35,7 +35,7 @@ use crate::check::Type;
 pub(crate) fn program_pins_arr_head(ast: &Ast, expr_types: &HashMap<ExprId, Type>) -> bool {
     let dead_twins = twin_roads::unreachable_twin_exprs(ast, expr_types);
     !ast.exprs.iter().enumerate().any(|(i, e)| {
-        !dead_twins.contains(&ExprId(i as u32)) && expr_may_reach_head_mutation(ast, expr_types, e)
+        !dead_twins.contains(ExprId(i as u32)) && expr_may_reach_head_mutation(ast, expr_types, e)
     })
 }
 

@@ -58,7 +58,10 @@ pub(crate) fn generator_any_twin(ast: &mut Ast, name: &str) -> Option<String> {
 /// factory, its iterator class's ctor, methods and step type, or the
 /// class's own factory?
 pub(crate) fn is_generator_any_twin_decl(name: &str) -> bool {
-    name.starts_with(PREFIX) || name.contains(&format!("_Gen_{PREFIX}"))
+    const GEN: &[u8] = b"_Gen_";
+    name.starts_with(PREFIX)
+        || (name.as_bytes().windows(GEN.len() + PREFIX.len()))
+            .any(|w| w.starts_with(GEN) && w.ends_with(PREFIX.as_bytes()))
 }
 
 /// The twin factory of `name`, when one was minted (no request).

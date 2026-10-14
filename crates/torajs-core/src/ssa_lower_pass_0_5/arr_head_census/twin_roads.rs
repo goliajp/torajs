@@ -24,61 +24,89 @@ use crate::ast::{Ast, Expr, ExprId, Stmt};
 use crate::check::Type;
 
 mod idle;
-pub(crate) use idle::idle_twin_exprs;
+pub(crate) use idle::TwinBodies;
 
-/// Member or string names that reach a method value or move one onto
-/// another receiver.
-const REBIND_NAMES: &[&str] = &[
-    "call",
-    "apply",
-    "bind",
-    "prototype",
-    "__proto__",
-    "constructor",
-    "setPrototypeOf",
-    "getPrototypeOf",
-    "create",
-    "Reflect",
-    "eval",
-    "Function",
-];
+/// A member or string name that reaches a method value or moves one
+/// onto another receiver.
+fn rebinds(n: &str) -> bool {
+    matches!(
+        n,
+        "call"
+            | "apply"
+            | "bind"
+            | "prototype"
+            | "__proto__"
+            | "constructor"
+            | "setPrototypeOf"
+            | "getPrototypeOf"
+            | "create"
+            | "Reflect"
+            | "eval"
+            | "Function"
+    )
+}
+
+/// A set of the program's expressions, one flag per arena slot.
+#[derive(Default)]
+pub(crate) struct ExprMask(Vec<bool>);
+
+impl ExprMask {
+    fn new(ast: &Ast) -> Self {
+        ExprMask(vec![false; ast.exprs.len()])
+    }
+
+    pub(crate) fn contains(&self, e: ExprId) -> bool {
+        self.0.get(e.0 as usize).is_some_and(|b| *b)
+    }
+
+    /// Add `e`; false when it was there already.
+    fn insert(&mut self, e: ExprId) -> bool {
+        !std::mem::replace(&mut self.0[e.0 as usize], true)
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        !self.0.contains(&true)
+    }
+}
 
 /// The expressions of every twin body, or nothing when some road can
 /// hand a twin a foreign receiver.
 pub(crate) fn unreachable_twin_exprs(
     ast: &Ast,
     expr_types: &std::collections::HashMap<ExprId, Type>,
-) -> HashSet<ExprId> {
+) -> ExprMask {
     let Some(methods) = twinned_methods(ast) else {
-        return HashSet::new();
+        return ExprMask::default();
     };
 
     if methods.is_empty() {
-        return HashSet::new();
+        return ExprMask::default();
     }
     let twins: HashSet<&str> = ast.cmany_twins.values().map(String::as_str).collect();
-    let mut inside: HashSet<ExprId> = HashSet::new();
+    let mut inside = ExprMask::new(ast);
     for s in &ast.stmts {
         collect_twin_bodies(ast, s, &twins, &mut inside);
     }
     let callees = callees(ast);
     let road = ast.exprs.iter().enumerate().any(|(i, e)| {
         let id = ExprId(i as u32);
-        !inside.contains(&id) && is_road(e, id, (&methods, &callees), expr_types, false)
+        !inside.contains(id) && is_road(e, id, (&methods, &callees), expr_types, false)
     });
-    if road { HashSet::new() } else { inside }
+    if road { ExprMask::default() } else { inside }
 }
 
 /// Every callee of a call. A `this.m(..)` call rewritten to the static
 /// `__cm_` form keeps its member callee on the side, still a callee.
-fn callees(ast: &Ast) -> HashSet<ExprId> {
-    (ast.exprs.iter())
-        .filter_map(|e| match e {
-            Expr::Call { callee, .. } | Expr::OptCall { callee, .. } => Some(*callee),
-            _ => None,
-        })
-        .chain(ast.cm_this_static_calls.values().copied())
-        .collect()
+fn callees(ast: &Ast) -> ExprMask {
+    let mut out = ExprMask::new(ast);
+    let calls = ast.exprs.iter().filter_map(|e| match e {
+        Expr::Call { callee, .. } | Expr::OptCall { callee, .. } => Some(*callee),
+        _ => None,
+    });
+    for c in calls.chain(ast.cm_this_static_calls.values().copied()) {
+        out.insert(c);
+    }
+    out
 }
 
 /// The method names that have a twin; `None` when one cannot be read
@@ -113,7 +141,7 @@ fn twinned(ast: &Ast) -> Option<Vec<(&str, String)>> {
     Some(out)
 }
 
-fn collect_twin_bodies(ast: &Ast, s: &Stmt, twins: &HashSet<&str>, out: &mut HashSet<ExprId>) {
+fn collect_twin_bodies(ast: &Ast, s: &Stmt, twins: &HashSet<&str>, out: &mut ExprMask) {
     match s {
         Stmt::FnDecl {
             name, params, body, ..
@@ -137,7 +165,7 @@ fn collect_twin_bodies(ast: &Ast, s: &Stmt, twins: &HashSet<&str>, out: &mut Has
     }
 }
 
-fn add_tree(ast: &Ast, e: ExprId, out: &mut HashSet<ExprId>) {
+fn add_tree(ast: &Ast, e: ExprId, out: &mut ExprMask) {
     if out.insert(e) {
         visit_expr_children(ast, e, &mut |c| add_tree(ast, c, out));
     }
@@ -149,19 +177,35 @@ fn add_tree(ast: &Ast, e: ExprId, out: &mut HashSet<ExprId>) {
 fn is_road(
     e: &Expr,
     id: ExprId,
-    (methods, callees): (&HashSet<String>, &HashSet<ExprId>),
+    (methods, callees): (&HashSet<String>, &ExprMask),
+    expr_types: &std::collections::HashMap<ExprId, Type>,
+    reached_only: bool,
+) -> bool {
+    untyped_road(e, id, (methods, callees)) || typed_road(e, id, expr_types, reached_only)
+}
+
+/// The roads the types play no part in: a name.
+fn untyped_road(e: &Expr, id: ExprId, (methods, callees): (&HashSet<String>, &ExprMask)) -> bool {
+    match e {
+        Expr::Ident(n) => rebinds(n),
+        Expr::Member { name, .. } | Expr::OptChain { name, .. } => {
+            rebinds(name) || (!callees.contains(id) && methods.contains(name))
+        }
+        Expr::String(s) => {
+            s.as_str().is_some_and(rebinds) || methods.iter().any(|m| s == m.as_str())
+        }
+        _ => false,
+    }
+}
+
+/// The roads the types decide: a computed read.
+fn typed_road(
+    e: &Expr,
+    id: ExprId,
     expr_types: &std::collections::HashMap<ExprId, Type>,
     reached_only: bool,
 ) -> bool {
     match e {
-        Expr::Ident(n) => REBIND_NAMES.contains(&n.as_str()),
-        Expr::Member { name, .. } | Expr::OptChain { name, .. } => {
-            REBIND_NAMES.contains(&name.as_str())
-                || (methods.contains(name) && !callees.contains(&id))
-        }
-        Expr::String(s) => {
-            REBIND_NAMES.iter().any(|n| s == *n) || methods.iter().any(|m| s == m.as_str())
-        }
         Expr::Index { obj, index } | Expr::OptIndex { obj, index } => {
             (!reached_only || expr_types.contains_key(&id) || expr_types.contains_key(index))
                 && !key_is_numeric(expr_types.get(index))

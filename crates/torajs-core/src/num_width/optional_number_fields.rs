@@ -10,19 +10,20 @@ use crate::check::Type;
 use std::collections::{HashMap, HashSet};
 
 /// By name, like the rest of the sentinel tables: a same-named member
-/// of another type costs one predictable compare at the consumer.
-///
-/// Two sources, because the two spellings of an object type keep the
-/// optional flag in two places: a declaration records it on the AST,
-/// an inline object type (`p: { a?: number }`) only in the checker's
-/// struct type, which is where every struct type that reaches an
-/// expression ends up anyway.
+/// of another type costs one predictable compare at the consumer. The
+/// shadow census (`ast::named_prop_census::shadow_names`) gathers them
+/// ([`names`]) before the width analysis runs, and keeps them on the
+/// AST.
 pub(super) fn collect(a: &Analysis<'_>) -> HashSet<PropKey> {
-    names(a.ast, a.expr_types)
+    a.ast.accessor_field_names.optional_number_members().clone()
 }
 
-/// [`collect`] over the checked program's two tables; the shadow census
-/// (`ast::named_prop_census::shadow_names`) reads the same answer.
+/// The names over the checked program's two tables. Two sources,
+/// because the two spellings of an object type keep the optional flag
+/// in two places: a declaration records it on the AST, an inline object
+/// type (`p: { a?: number }`) only in the checker's struct type, which
+/// is where every struct type that reaches an expression ends up
+/// anyway.
 pub(crate) fn names(ast: &Ast, expr_types: &HashMap<ExprId, Type>) -> HashSet<PropKey> {
     let mut out = HashSet::new();
     for stmt in &ast.stmts {

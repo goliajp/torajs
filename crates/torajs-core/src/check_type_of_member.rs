@@ -257,7 +257,7 @@ fn mistyped_read(
         return false;
     }
     let number = crate::ast::ShadowedNames::number_member(ty);
-    let optional_number = fields.is_optional(&crate::ast::PropKey::from(name))
-        && matches!(ty, Type::Nullable(n) if **n == Type::Number);
+    let optional_number = matches!(ty, Type::Nullable(n) if **n == Type::Number)
+        && fields.optional().iter().any(|k| *k == *name);
     !optional_number && checker.shadowed_reads.retypes(name, number)
 }

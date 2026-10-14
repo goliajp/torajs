@@ -214,6 +214,8 @@ pub extern "C" fn __torajs_proto_parent_tag(tag: i64) -> i64 {
 // expose to ssa_lower-emitted IR.
 #[allow(clippy::declare_interior_mutable_const)]
 const SLOT_INIT: AtomicUsize = AtomicUsize::new(0);
+// exported: the typed `in` and the dict key deletion read a slot inline
+#[unsafe(export_name = "__torajs_builtin_proto_slots")]
 static SLOTS: [AtomicUsize; NUM_BUILTIN_PROTOS] = [SLOT_INIT; NUM_BUILTIN_PROTOS];
 
 /// Lazy-init singleton for a builtin's `.prototype`.

@@ -21,7 +21,8 @@ use crate::layout::{
     DEFINE_PRESENT_VALUE, DYNOBJ_HDR_FLAG_NON_EXTENSIBLE,
 };
 use crate::probe::{
-    Entry, bucket_make_key_tagged, entries, entries_len, index_ptr, key_str_bytes, probe,
+    Entry, bucket_make_key_tagged, count, entries, entries_len, index_ptr, key_str_bytes, probe,
+    set_count, set_entries_len,
 };
 unsafe extern "C" {
     fn __torajs_rc_inc(p: *mut c_void);
@@ -182,7 +183,8 @@ pub(crate) unsafe fn define_fresh_entry(
             value_anyv: __torajs_anyv_box_from_pair(init_tag as i64, init_value as i64),
         };
         *index_ptr(obj).add(slot as usize) = e_idx;
-        crate::proto_root::note_entry_added(obj, e_idx);
+        set_entries_len(obj, e_idx + 1);
+        set_count(obj, count(obj) + 1);
     }
     1
 }

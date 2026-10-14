@@ -16,6 +16,7 @@
 //! A name bound any other way (a parameter, a loop or catch variable, an
 //! import, a function, a class) can hold anything.
 
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
 use crate::ast::{Ast, Expr, ExprId, Stmt};
@@ -24,45 +25,37 @@ use crate::check::Type;
 pub(super) struct Origins<'a> {
     ast: &'a Ast,
     expr_types: &'a HashMap<ExprId, Type>,
-    /// Every value each binding name is initialized or assigned with.
-    values: HashMap<String, Vec<ExprId>>,
-    /// The names bound some other way, or stepped by `++` / `--`.
-    opaque: HashSet<String>,
-    /// A class declaration survived to here: its bodies are not walked,
-    /// so no binding is traced.
-    untraced: bool,
+    /// The bindings traced so far, by name ([`Binding::of`]).
+    traced: RefCell<HashMap<&'a str, Option<Vec<ExprId>>>>,
+}
+
+/// How the program binds one name: every value it is initialized or
+/// assigned with, unless it is also bound some other way or stepped by
+/// `++` / `--` (`opaque`), or a class declaration survived to here,
+/// whose bodies are not walked, so that no binding is traced.
+struct Binding<'n> {
+    name: &'n str,
+    values: Vec<ExprId>,
+    opaque: bool,
 }
 
 impl<'a> Origins<'a> {
     pub(super) fn of(ast: &'a Ast, expr_types: &'a HashMap<ExprId, Type>) -> Self {
-        let mut o = Origins {
+        Origins {
             ast,
             expr_types,
-            values: HashMap::new(),
-            opaque: HashSet::new(),
-            untraced: false,
-        };
-        o.stmts(&ast.stmts);
-        for e in &ast.exprs {
-            match e {
-                Expr::Assign { target, value } => {
-                    if let Expr::Ident(n) = ast.get_expr(*target) {
-                        o.values.entry(n.clone()).or_default().push(*value);
-                    }
-                }
-                Expr::PostIncr { target, .. } => {
-                    if let Expr::Ident(n) = ast.get_expr(*target) {
-                        o.opaque.insert(n.clone());
-                    }
-                }
-                Expr::ArrowFn { params, body, .. } => {
-                    o.opaque.extend(params.iter().map(|p| p.name.clone()));
-                    o.stmts(body);
-                }
-                _ => {}
-            }
+            traced: RefCell::default(),
         }
-        o
+    }
+
+    /// The values the binding `n` holds, none when it can hold anything.
+    fn values(&self, n: &'a str) -> Option<Vec<ExprId>> {
+        if let Some(v) = self.traced.borrow().get(n) {
+            return v.clone();
+        }
+        let v = Binding::of(self.ast, n);
+        self.traced.borrow_mut().insert(n, v.clone());
+        v
     }
 
     /// Whether the receiver `obj` never holds a struct cell whose
@@ -79,7 +72,7 @@ impl<'a> Origins<'a> {
     }
 
     /// `field` none: no slot of any name.
-    fn value_excludes(&self, e: ExprId, field: Option<&str>, seen: &mut HashSet<String>) -> bool {
+    fn value_excludes(&self, e: ExprId, field: Option<&str>, seen: &mut HashSet<&'a str>) -> bool {
         match self.ast.get_expr(e) {
             Expr::Null
             | Expr::Uninit
@@ -124,17 +117,65 @@ impl<'a> Origins<'a> {
             }
             Expr::Ident(n) if n == "undefined" => true,
             Expr::Ident(n) => {
-                if self.untraced || self.opaque.contains(n) {
+                let Some(vs) = self.values(n) else {
                     return false;
-                }
-                if !seen.insert(n.clone()) {
+                };
+                if !seen.insert(n.as_str()) {
                     return true;
                 }
-                self.values
-                    .get(n)
-                    .is_some_and(|vs| vs.iter().all(|v| self.value_excludes(*v, field, seen)))
+                !vs.is_empty() && vs.iter().all(|v| self.value_excludes(*v, field, seen))
             }
             _ => false,
+        }
+    }
+}
+
+impl<'n> Binding<'n> {
+    fn of(ast: &Ast, name: &'n str) -> Option<Vec<ExprId>> {
+        let mut o = Binding {
+            name,
+            values: Vec::new(),
+            opaque: false,
+        };
+        o.stmts(&ast.stmts);
+        for e in &ast.exprs {
+            if o.opaque {
+                return None;
+            }
+            match e {
+                Expr::Assign { target, value } => {
+                    if let Expr::Ident(n) = ast.get_expr(*target) {
+                        o.value(n, *value);
+                    }
+                }
+                Expr::PostIncr { target, .. } => {
+                    if let Expr::Ident(n) = ast.get_expr(*target) {
+                        o.bound(n);
+                    }
+                }
+                Expr::ArrowFn { params, body, .. } => {
+                    o.bound_all(params.iter().map(|p| p.name.as_str()));
+                    o.stmts(body);
+                }
+                _ => {}
+            }
+        }
+        (!o.opaque).then_some(o.values)
+    }
+
+    fn value(&mut self, n: &str, v: ExprId) {
+        if n == self.name {
+            self.values.push(v);
+        }
+    }
+
+    fn bound(&mut self, n: &str) {
+        self.opaque |= n == self.name;
+    }
+
+    fn bound_all<'s>(&mut self, ns: impl IntoIterator<Item = &'s str>) {
+        for n in ns {
+            self.bound(n);
         }
     }
 
@@ -145,15 +186,18 @@ impl<'a> Origins<'a> {
     }
 
     fn stmt(&mut self, s: &Stmt) {
+        if self.opaque {
+            return;
+        }
         match s {
             Stmt::LetDecl { name, init, .. } | Stmt::UsingDecl { name, init, .. } => {
-                self.values.entry(name.clone()).or_default().push(*init);
+                self.value(name, *init);
             }
             Stmt::FnDecl {
                 name, params, body, ..
             } => {
-                self.opaque.insert(name.clone());
-                self.opaque.extend(params.iter().map(|p| p.name.clone()));
+                self.bound(name);
+                self.bound_all(params.iter().map(|p| p.name.as_str()));
                 self.stmts(body);
             }
             Stmt::ForOf {
@@ -163,12 +207,11 @@ impl<'a> Origins<'a> {
                 body,
                 ..
             } => {
-                self.opaque
-                    .extend([var_name.clone(), src_ident.clone(), i_ident.clone()]);
+                self.bound_all([var_name, src_ident, i_ident].map(String::as_str));
                 self.stmt(body);
             }
             Stmt::ForOfSplitIter { var_name, body, .. } => {
-                self.opaque.insert(var_name.clone());
+                self.bound(var_name);
                 self.stmt(body);
             }
             Stmt::Try {
@@ -178,13 +221,13 @@ impl<'a> Origins<'a> {
                 finally_body,
                 ..
             } => {
-                self.opaque.extend(catch_param.iter().cloned());
+                self.bound_all(catch_param.iter().map(String::as_str));
                 self.stmts(body);
                 self.stmts(catch_body);
                 self.stmts(finally_body.as_deref().unwrap_or(&[]));
             }
             Stmt::YieldInto { var, .. } => {
-                self.opaque.insert(var.clone());
+                self.bound(var);
             }
             Stmt::ImportDecl {
                 default,
@@ -193,16 +236,15 @@ impl<'a> Origins<'a> {
                 type_named,
                 ..
             } => {
-                self.opaque.extend(default.iter().cloned());
-                self.opaque.extend(namespace.iter().cloned());
+                self.bound_all(default.iter().map(String::as_str));
+                self.bound_all(namespace.iter().map(String::as_str));
                 for (n, alias) in named.iter().chain(type_named) {
-                    self.opaque
-                        .insert(alias.clone().unwrap_or_else(|| n.clone()));
+                    self.bound(alias.as_deref().unwrap_or(n));
                 }
             }
-            Stmt::ClassDecl { name, .. } => {
-                self.opaque.insert(name.clone());
-                self.untraced = true;
+            Stmt::ClassDecl { .. } => {
+                // its bodies are not walked: no binding is traced
+                self.opaque = true;
             }
             Stmt::If {
                 then_branch,

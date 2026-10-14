@@ -24,8 +24,8 @@ use crate::layout::{
     BUCKET_TAG_MASK, DYNOBJ_HDR_FLAG_NON_EXTENSIBLE,
 };
 use crate::probe::{
-    Entry, Probe, bucket_flags, bucket_make_key_tagged, entries, entries_cap, entries_len,
-    index_ptr, key_str_bytes, probe,
+    Entry, Probe, bucket_flags, bucket_make_key_tagged, count, entries, entries_cap, entries_len,
+    index_ptr, key_str_bytes, probe, set_count, set_entries_len,
 };
 use crate::resize::resize;
 
@@ -267,7 +267,8 @@ unsafe fn dynobj_set_impl(
                 ),
             };
             *index_ptr(obj).add(pr.slot as usize) = e_idx;
-            crate::proto_root::note_entry_added(obj, e_idx);
+            set_entries_len(obj, e_idx + 1);
+            set_count(obj, count(obj) + 1);
         }
         1
     }
@@ -385,7 +386,8 @@ unsafe fn fresh_insert(obj: *mut c_void, key: *mut c_void, tag: u64, value: u64,
             value_anyv: __torajs_anyv_box_from_pair((tag & BUCKET_TAG_MASK) as i64, value as i64),
         };
         *index_ptr(obj).add(pr.slot as usize) = e_idx;
-        crate::proto_root::note_entry_added(obj, e_idx);
+        set_entries_len(obj, e_idx + 1);
+        set_count(obj, count(obj) + 1);
     }
 }
 

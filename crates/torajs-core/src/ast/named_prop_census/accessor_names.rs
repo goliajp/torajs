@@ -93,6 +93,11 @@ impl AccessorFieldNames {
         self.optional_number.contains(name)
     }
 
+    /// Every optional `number` member kept in an f64 slot.
+    pub fn optional_number_members(&self) -> &HashSet<super::super::PropKey> {
+        &self.optional_number
+    }
+
     /// Whether the checker typed the reads of the member `name`, a
     /// `number` when `number_slot`, `any` for a value of another type
     /// an any-lane write can leave there.

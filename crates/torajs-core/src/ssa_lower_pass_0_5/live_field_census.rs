@@ -53,7 +53,7 @@ use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
 use crate::check::Type;
 use crate::num_width::WidthTable;
 
-use super::arr_head_census::unreachable_twin_exprs;
+use super::arr_head_census::{ExprMask, unreachable_twin_exprs};
 use walk::{
     ctor_class, derives_from, factory_class, key_is_numeric, nested_stmts, never_an_instance,
     user_params,
@@ -151,7 +151,7 @@ impl<'a> Census<'a> {
         ast: &'a Ast,
         expr_types: &'a HashMap<ExprId, Type>,
         widths: &'a WidthTable,
-        dead: &HashSet<ExprId>,
+        dead: &ExprMask,
     ) -> Self {
         let mut c = Census {
             ast,
@@ -186,7 +186,7 @@ impl<'a> Census<'a> {
         let prefix_writes: HashSet<ExprId> = c.prefix_assigns();
         for (i, e) in ast.exprs.iter().enumerate() {
             let id = ExprId(i as u32);
-            if dead.contains(&id) || prefix_writes.contains(&id) {
+            if dead.contains(id) || prefix_writes.contains(&id) {
                 continue;
             }
             c.collect_expr(id, e);
