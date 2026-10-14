@@ -9,6 +9,8 @@
 //! (`ast::desugar_arguments_object`) reaches them via `super::`
 //! and the pub(super) markers below.
 
+mod mapped;
+
 use super::arguments_object::ArgcMode;
 use super::arguments_object_rewrite_recurse::rewrite_recurse_arm;
 use super::arguments_object_rewrite_spread::{rewrite_array_arm, rewrite_call_arm};
@@ -60,6 +62,11 @@ pub(super) fn rewrite_arguments_in_expr(
     sloppy_callee: SloppyCallee<'_>,
 ) -> ExprId {
     let e = ast.get_expr(eid).clone();
+    if argc_mode == ArgcMode::MappedArgc
+        && let Some(w) = mapped::rewrite_mapped_write(ast, &e, params, from_array, sloppy_callee)
+    {
+        return w;
+    }
     match e {
         // `arguments.callee` — §10.4.4.6 step 21: on tr's
         // always-strict module goal the read runs the
@@ -245,6 +252,11 @@ fn rewrite_index_arm(
         if argc_mode == ArgcMode::KeepLoud {
             return eid;
         }
+        if argc_mode == ArgcMode::MappedArgc
+            && let Some(k) = mapped::mapped_position(ast, eid, params)
+        {
+            return mapped::mapped_read(ast, params, k);
+        }
         // Unmapped / LiveLength faces (module code is strict,
         // ES §10.4.4.6/7) — `arguments[i]` never aliases the
         // param: the literal-index substitution below would
@@ -307,7 +319,7 @@ fn rewrite_length_read(
     match argc_mode {
         // S3.2 — every real-argc face reads the S1 hidden ABI argc
         // (env-first S3.2, this-first S1-T2, head-less S1-H2).
-        ArgcMode::Real => ast.add_expr(Expr::Ident("__torajs_argc".into())),
+        ArgcMode::Real | ArgcMode::MappedArgc => ast.add_expr(Expr::Ident("__torajs_argc".into())),
         // Write-shaped env-first face — both positions (read and
         // Assign / PostIncr target) land on the synthesized local.
         ArgcMode::RealLocal => ast.add_expr(Expr::Ident("__torajs_argc_len".into())),

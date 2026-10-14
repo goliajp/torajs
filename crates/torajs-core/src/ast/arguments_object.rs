@@ -101,6 +101,15 @@ pub(super) enum ArgcMode {
     /// out-of-range index all need the materialized array, and a
     /// mapped body must never mix the two views.
     Mapped(usize),
+    /// The sloppy goal's mapped face on an argv body (a function
+    /// called through a value: an alias, `f.call`, a global binding),
+    /// admitted on the same blockers as [`ArgcMode::Mapped`] plus
+    /// `...arguments`. §10.4.4 maps a parameter only at a position
+    /// the caller passed, which only the hidden argc knows here: an
+    /// in-range literal `arguments[k]` reads and writes the parameter
+    /// when `__torajs_argc > k`, and the materialized array's slot
+    /// otherwise. Length reads ride the hidden argc, as on Real.
+    MappedArgc,
     /// Leave the node alone so the checker rejects it loudly — a
     /// closure VALUE's real argc needs the ABI face (recorded);
     /// folding the declared arity would be silent-wrong.

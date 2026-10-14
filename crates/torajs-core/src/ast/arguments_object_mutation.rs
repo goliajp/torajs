@@ -30,6 +30,10 @@ enum MutScan {
     /// element writes are the POINT (they alias); only the shapes
     /// that need the materialized array disqualify.
     MappedBlocker,
+    /// The same question for an argv body ([`super::arguments_object::ArgcMode::MappedArgc`]):
+    /// a `...arguments` spread also disqualifies, since it reads the
+    /// materialized array, whose mapped slots the parameters own.
+    MappedArgvBlocker,
 }
 
 /// True if the body can observe the difference between the FoldTo
@@ -51,6 +55,25 @@ pub(super) fn body_mutates_args_view(ast: &Ast, body: &[Stmt], params: &[String]
 pub(super) fn body_has_mapped_blockers(ast: &Ast, body: &[Stmt], params: &[String]) -> bool {
     body.iter()
         .any(|s| stmt_walk(ast, s, params, MutScan::MappedBlocker))
+}
+
+/// Whether an argv body keeps the sloppy goal's mapped arguments
+/// object (see `ArgcMode::MappedArgc`): a sloppy body with simple
+/// parameters that touches `arguments` only through in-range literal
+/// indices and `.length`.
+pub(super) fn argv_body_is_mapped(
+    ast: &Ast,
+    body: &[Stmt],
+    decl_params: &[super::Param],
+    params: &[String],
+) -> bool {
+    ast.body_is_sloppy(body)
+        && decl_params
+            .iter()
+            .all(|p| p.default.is_none() && !p.is_rest && !p.name.starts_with("__param_destr_"))
+        && !body
+            .iter()
+            .any(|s| stmt_walk(ast, s, params, MutScan::MappedArgvBlocker))
 }
 
 fn is_arguments_ident(ast: &Ast, eid: ExprId) -> bool {
@@ -183,7 +206,7 @@ fn expr_walk(ast: &Ast, eid: ExprId, params: &[String], what: MutScan) -> bool {
         // dynamic read would ride the materialized array, blind to
         // the substituted writes.
         Expr::Index { obj, index } if is_arguments_ident(ast, *obj) => {
-            (what == MutScan::MappedBlocker && !is_mapped_literal_index(ast, *index, params))
+            (what != MutScan::View && !is_mapped_literal_index(ast, *index, params))
                 || expr_walk(ast, *index, params, what)
         }
         // `arguments.length` — absorbed (folds to the static argc).
@@ -192,8 +215,11 @@ fn expr_walk(ast: &Ast, eid: ExprId, params: &[String], what: MutScan) -> bool {
         // observes the object itself — no snapshot equivalence.
         Expr::Member { obj, .. } if is_arguments_ident(ast, *obj) => true,
         // `...arguments` spread — absorbed: the inline expansion is
-        // the snapshot, correct under the same no-write condition.
-        Expr::Spread { expr } if is_arguments_ident(ast, *expr) => false,
+        // the snapshot, correct under the same no-write condition. An
+        // argv body spreads the materialized array instead.
+        Expr::Spread { expr } if is_arguments_ident(ast, *expr) => {
+            what == MutScan::MappedArgvBlocker
+        }
         // A bare `arguments` value use anywhere else is an escape —
         // the alias can be written through invisibly.
         Expr::Ident(n) if n == "arguments" => true,

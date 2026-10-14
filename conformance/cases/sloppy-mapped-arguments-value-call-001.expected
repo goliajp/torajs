@@ -1,0 +1,46 @@
+M 9 9 2
+M2 5 5
+M3 7 7
+M 9 9 2
+M2 5 5
+M3 7 7
+M 9 9 2
+M2 5 5
+M3 7 7
+M 9 9 2
+M2 5 5
+M3 7 7
+M 9 9 1
+M2 5 5
+M3 undefined 7
+M undefined 9 0
+M2 5 9
+M3 undefined 7
+T 9 9 2 true
+T2 5 5
+T3 7 7
+T 9 9 2 true
+T2 5 5
+T3 7 7
+T 9 9 2 true
+T2 5 5
+T3 7 7
+T 9 9 2 false
+T2 5 5
+T3 7 7
+T 9 9 1 true
+T2 5 5
+T3 undefined 7
+U 11
+U2 12 12
+U3 13
+U 12
+U2 13 13
+U3 14
+U undefined
+U2 undefined NaN
+U3 NaN
+L 9 true
+L 9 false
+L undefined true
+S 1 9

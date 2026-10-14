@@ -149,6 +149,14 @@ fn rewrite_one_body(
             this_first_argc_fns,
         },
     );
+    let argc_mode = if is_argv_fn
+        && argc_mode == ArgcMode::Real
+        && super::arguments_object_mutation::argv_body_is_mapped(ast, body, decl_params, &params)
+    {
+        ArgcMode::MappedArgc
+    } else {
+        argc_mode
+    };
     // a class method whose body answers one fixed count: its argv twin
     // hosts every boxed call that passes another
     if let Some(n) = fixed_argc(argc_mode, params.len())
