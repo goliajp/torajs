@@ -109,12 +109,15 @@ pub(crate) unsafe fn chain_set_from_self(
     unsafe { inherited_set_walk(Some(cell), recv, key, tag, value, false) }
 }
 
-/// The walk both seeds share — see [`inherited_set_handled`] for the
-/// verdict contract.
+/// The walk the seeds share — see [`inherited_set_handled`] for the
+/// verdict contract. A lane that keeps its own entries in a side bag (a
+/// function's `+24` props) seeds it at the cell itself, so an own
+/// accessor runs its setter with the CELL as `this`; a plain write into
+/// the bag would make the bag the receiver.
 ///
 /// # Safety
 /// `level` is `None` or a live cell; the rest per the seeds.
-unsafe fn inherited_set_walk(
+pub(crate) unsafe fn inherited_set_walk(
     mut level: Option<u64>,
     recv: AnyValue,
     key: *mut c_void,

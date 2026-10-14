@@ -1,0 +1,5 @@
+get true
+set true function 1
+set true function 2
+static set true
+7

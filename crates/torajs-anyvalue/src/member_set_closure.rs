@@ -309,9 +309,19 @@ pub(crate) unsafe fn set_closure_member(
         // this write — so the first write still defines with the
         // virtual pair's attributes, now over the materialized entry.
         props = *props_slot as *mut c_void;
-        if !own
-            && let Some(handled) = crate::member_set_dynobj::inherited_set_handled(
-                ptr,
+        // An own entry is consulted from the cell, not from the bag: an
+        // accessor there (a static setter of a class lowered to a
+        // function value) runs with the function as `this`.
+        let level = if in_bag {
+            Some(ptr as u64)
+        } else if own {
+            None
+        } else {
+            crate::member_set_proto_root::chain_parent(ptr as u64)
+        };
+        if level.is_some()
+            && let Some(handled) = crate::member_set_dynobj::inherited_set_walk(
+                level,
                 crate::nanbox::box_void_ptr(ptr),
                 key,
                 tag,
