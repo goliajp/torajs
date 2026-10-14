@@ -81,6 +81,7 @@ pub mod self_tail_call;
 pub mod sext_elide;
 pub mod slot_cells;
 pub mod slot_forward;
+pub mod srem_counter;
 pub mod srem_fquot;
 pub mod srem_parity;
 pub mod str_append;

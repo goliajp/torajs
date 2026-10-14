@@ -177,7 +177,7 @@ fn rotatable(
 }
 
 /// Pure, trap-free and cheap enough to run twice in the binary.
-fn duplicable(kind: &InstKind) -> bool {
+pub(crate) fn duplicable(kind: &InstKind) -> bool {
     match kind {
         InstKind::BinOp(op, _, _) => !matches!(op, BinOp::SDiv | BinOp::SRem | BinOp::FRem),
         InstKind::ICmp(..) | InstKind::FCmp(..) => true,
