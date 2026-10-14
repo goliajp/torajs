@@ -73,12 +73,12 @@ pub(super) fn rewrite_class(
     }
 }
 
-/// A class member's body (§15.7.14 evaluates its methods, constructor
-/// and static initializers inside the class's scope, which encloses
-/// the generator's locals). Its `this` is the instance or the class,
-/// never the generator, so a lifted local is read through the
-/// `__gself` alias as in a function expression, minus the names the
-/// member rebinds itself.
+/// A class member's body and parameter defaults (§15.7.14 evaluates
+/// its methods, constructor and static initializers inside the class's
+/// scope, which encloses the generator's locals). Its `this` is the
+/// instance or the class, never the generator, so a lifted local is
+/// read through the `__gself` alias as in a function expression, minus
+/// the names the member rebinds itself.
 fn rewrite_member_body(
     ast: &mut Ast,
     params: &[Param],
@@ -86,6 +86,13 @@ fn rewrite_member_body(
     pset: &ParamMap,
     visited: &mut std::collections::HashSet<u32>,
 ) {
+    // §10.2.11: a parameter default sees the parameters, not the body
+    let outer = member_map(pset, |k| params.iter().any(|p| p.name == k));
+    if !outer.fields.is_empty() {
+        for d in params.iter().filter_map(|p| p.default) {
+            rewrite_params_in_expr(ast, d, &outer, visited);
+        }
+    }
     let sub = member_map(pset, |k| {
         crate::ast::nested_fns_idents::arrow_rebinds(params, body, k)
     });

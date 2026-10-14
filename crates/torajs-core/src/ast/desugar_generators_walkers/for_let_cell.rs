@@ -38,6 +38,7 @@
 //! it was.
 
 mod block_let;
+mod class_binding;
 mod class_member;
 mod rotate;
 mod scan;
@@ -119,7 +120,7 @@ fn box_one(
     let marker = format!("{field}__ref");
     let map = HashMap::from([(name.clone(), marker.clone())]);
     crate::ast::nested_fns_idents::rewrite_idents_in_body(ast, std::slice::from_mut(s), &map, true);
-    class_member::rename_in_classes(ast, s, &map);
+    class_member::rename_in_parts(ast, s, &map);
     let elem = super::local_ann::local_ann(ast, &name, type_ann.as_ref(), first, ctx);
     let mut cell = Cell {
         stem: field.clone(),

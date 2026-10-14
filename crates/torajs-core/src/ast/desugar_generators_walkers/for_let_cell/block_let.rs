@@ -63,6 +63,29 @@ pub(in crate::ast::desugar_generators_walkers) fn box_captured_block_lets(
             after.extend(rest.iter_mut());
             box_one(ast, before, store, &name, after, lifted, ctx);
         }
+        let classes: Vec<String> = members(at)
+            .iter()
+            .filter_map(|s| match s {
+                Stmt::ClassDecl { name, .. } if ctx.local_classes.contains(name) => {
+                    Some(name.clone())
+                }
+                _ => None,
+            })
+            .collect();
+        for name in classes {
+            let mut after: Vec<&mut Stmt> = Vec::new();
+            if let Stmt::Multi(v) = &mut *at {
+                let Some(p) = v
+                    .iter()
+                    .position(|s| matches!(s, Stmt::ClassDecl { name: n, .. } if *n == name))
+                else {
+                    continue;
+                };
+                after.extend(v[p + 1..].iter_mut());
+            }
+            after.extend(rest.iter_mut());
+            super::class_binding::box_class(ast, before, &name, after, lifted, ctx);
+        }
     }
 }
 
@@ -159,17 +182,30 @@ fn box_one(
         locals: 0,
         boxed,
     };
-    for r in idents_outside_arrows(ast, &roots, &cell.marker) {
-        ast.exprs[r.0 as usize] = if boxed {
-            cell_read(ast, name)
+    host(ast, &mut cell, &roots, after, ctx);
+}
+
+/// Point the renamed references under `after` at the binding: the
+/// plain ones at the field, the closures' at a per-pass local placed
+/// in front of the statement that makes them.
+pub(super) fn host(
+    ast: &mut Ast,
+    cell: &mut Cell,
+    roots: &[ExprId],
+    after: Vec<&mut Stmt>,
+    ctx: &mut LiftCtx,
+) {
+    for r in idents_outside_arrows(ast, roots, &cell.marker) {
+        ast.exprs[r.0 as usize] = if cell.boxed {
+            cell_read(ast, &cell.field)
         } else {
-            Expr::Ident(name.to_string())
+            Expr::Ident(cell.field.clone())
         };
     }
     for s in after {
-        rotate_loop(ast, s, &mut cell);
-        let decl = bind_own(ast, s, &mut cell, ctx);
-        bind_children(ast, s, &mut cell, ctx);
+        rotate_loop(ast, s, cell);
+        let decl = bind_own(ast, s, cell, ctx);
+        bind_children(ast, s, cell, ctx);
         if let Some(decl) = decl {
             let inner = std::mem::replace(s, Stmt::Block(Vec::new()));
             *s = Stmt::Multi(vec![decl, inner]);
