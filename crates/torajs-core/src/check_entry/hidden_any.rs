@@ -14,6 +14,7 @@
 use std::collections::{HashMap, HashSet};
 
 use super::{Round, check_round};
+use crate::ast::named_prop_census::shadow_names::ShadowedNames;
 use crate::ast::{Ast, Expr, ExprId, Stmt};
 use crate::check::Type;
 use fn_slots::{Guarded, boxed};
@@ -89,7 +90,7 @@ fn settle_with(
         retype_any(&mut r.stmts, &inits);
         retype_returns_any(&mut r.stmts, &rets);
         spell_fields_any(r, &fields);
-        round = Some(check_round(r, &args)?);
+        round = Some(check_round(r, &args, &ShadowedNames::default())?);
     }
 }
 

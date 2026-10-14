@@ -47,28 +47,30 @@ struct Names {
 }
 
 impl Names {
-    fn take(&mut self, hit: Hit) {
+    fn take(&mut self, hit: &Hit) {
         match hit {
             Hit::None => {}
-            Hit::Name(n, Kind::Number) => {
-                self.number.insert(n);
-            }
-            Hit::Name(n, k) => {
-                let by_kind = match k {
-                    Kind::String => &mut self.string,
-                    Kind::Boolean => &mut self.boolean,
-                    Kind::Number | Kind::Unknown => &mut self.any,
-                };
-                by_kind.insert(n.clone());
-                self.unknown.insert(n);
-            }
+            Hit::Name(n, k) => self.name(n, *k),
             Hit::Names(ns) => {
                 for (n, k) in ns {
-                    self.take(Hit::Name(n, k));
+                    self.name(n, *k);
                 }
             }
             Hit::All(Kind::Number) => self.all_number = true,
             Hit::All(_) => self.all_unknown = true,
+        }
+    }
+
+    fn name(&mut self, n: &str, k: Kind) {
+        let by_kind = match k {
+            Kind::Number => &mut self.number,
+            Kind::String => &mut self.string,
+            Kind::Boolean => &mut self.boolean,
+            Kind::Unknown => &mut self.any,
+        };
+        by_kind.insert(n.to_string());
+        if k != Kind::Number {
+            self.unknown.insert(n.to_string());
         }
     }
 
@@ -109,6 +111,7 @@ impl AccessorFieldNames {
             &|n| fields.may(n),
             &ProgramWrites::default(),
         );
+        ast.accessor_field_names.shadowed.found = ShadowedNames::of_names(&names);
         // a cast reaches no optional member in a program that has none
         if typed_optional || !ast.optional_members.none() {
             let resolve = (aliases, generic_aliases);
@@ -228,13 +231,22 @@ impl ShadowedNames {
             (settled.get_or_init(|| ast.accessor_field_names.may_settled(ast, expr_types)))(n)
         };
         let names = writes(ast, expr_types, &HashSet::new(), &accessor, program);
+        ShadowedNames::of_names(&names)
+    }
+
+    /// The user-named members a pass reached, by the kind of the value.
+    fn of_names(names: &Names) -> Self {
         // a member the compiler mints never mistypes (`may_mistype`)
-        let user = |n: &String| !n.starts_with("__");
+        let user = |ns: &HashSet<String>| {
+            (ns.iter().filter(|n| !n.starts_with("__")))
+                .cloned()
+                .collect()
+        };
         ShadowedNames {
-            unknown: names.any.into_iter().filter(user).collect(),
-            number: names.number.into_iter().filter(user).collect(),
-            string: names.string.into_iter().filter(user).collect(),
-            boolean: names.boolean.into_iter().filter(user).collect(),
+            unknown: user(&names.any),
+            number: user(&names.number),
+            string: user(&names.string),
+            boolean: user(&names.boolean),
         }
     }
 
@@ -317,58 +329,79 @@ fn writes<'a>(
         let twins = program.twins.get_or_init(|| TwinBodies::of(ast));
         twins.in_twin(id) && (dead_twins.get_or_init(|| twins.idle(expr_types))).contains(id)
     };
+    // the verdict of each site, and the members it asked about while
+    // `unknown` left them out: only a site that asked about a member a
+    // pass adds can answer otherwise under the grown set
     let mut unknown: HashSet<String> = HashSet::new();
+    let mut hits: Vec<Hit> = (0..sites.len()).map(|_| Hit::None).collect();
+    let mut asked_by: Vec<Vec<String>> = vec![Vec::new(); sites.len()];
+    let mut redo: Vec<usize> = (0..sites.len()).collect();
     loop {
-        let asked = std::cell::RefCell::new(HashSet::new());
-        let facts = super::write_kind::Facts {
-            ast,
-            expr_types,
-            layouts: &layouts,
-            unknown: &unknown,
-            asked: &asked,
-            accessor,
-        };
-        let mut names = Names::default();
-        for &id in sites {
-            let e = ast.get_expr(id);
-            let (hit, target) = match e {
-                Expr::Assign { target, value } => {
-                    (write(&facts, *target, Some(*value)), Some(*target))
-                }
-                Expr::PostIncr { target, .. } => (write(&facts, *target, None), Some(*target)),
-                Expr::Call { callee, args } | Expr::OptCall { callee, args } => {
-                    (call(ast, expr_types, *callee, args), None)
-                }
-                Expr::ObjectLit { fields } => (literal(expr_types, optional_number, fields), None),
-                _ => continue,
+        for &k in &redo {
+            let asked = std::cell::RefCell::new(Vec::new());
+            let facts = super::write_kind::Facts {
+                ast,
+                expr_types,
+                layouts: &layouts,
+                unknown: &unknown,
+                asked: &asked,
+                accessor,
+                optional_number,
             };
-            if matches!(hit, Hit::None) {
-                continue;
-            }
-            let recv = match (e, target) {
-                (_, Some(t)) => any_receiver(ast, expr_types, t),
-                (Expr::Call { callee, args } | Expr::OptCall { callee, args }, None) => {
-                    args.first().copied().filter(|_| reflect_set(ast, *callee))
-                }
-                _ => None,
-            };
-            let hit = spare(&origins, recv, hit);
-            if !matches!(hit, Hit::None) && !dead(id) {
-                names.take(hit);
-            }
+            hits[k] = verdict(&facts, &origins, &dead, sites[k]);
+            asked_by[k] = asked.into_inner();
         }
-        // a pass whose verdicts asked about none of the members it adds
-        // answers the same with them added
-        let asked = asked.into_inner();
-        if names
-            .unknown
-            .iter()
-            .all(|n| unknown.contains(n) || !asked.contains(n))
-        {
+        let mut names = Names::default();
+        for hit in &hits {
+            names.take(hit);
+        }
+        let added: Vec<&String> = (names.unknown.iter())
+            .filter(|n| !unknown.contains(*n))
+            .collect();
+        redo = (0..sites.len())
+            .filter(|k| asked_by[*k].iter().any(|n| added.contains(&n)))
+            .collect();
+        if redo.is_empty() {
             return names;
         }
-        unknown.extend(names.unknown);
+        unknown.extend(added.into_iter().cloned());
     }
+}
+
+/// What the write site `id` reaches under `facts`: nothing when its
+/// receiver spares the name or the site sits in an idle twin.
+fn verdict<'o>(
+    facts: &super::write_kind::Facts<'_, '_>,
+    origins: &dyn Fn() -> &'o super::receiver_origin::Origins<'o>,
+    dead: &dyn Fn(ExprId) -> bool,
+    id: ExprId,
+) -> Hit {
+    let (ast, expr_types) = (facts.ast, facts.expr_types);
+    let e = ast.get_expr(id);
+    let (hit, target) = match e {
+        Expr::Assign { target, value } => (write(facts, *target, Some(*value)), Some(*target)),
+        Expr::PostIncr { target, .. } => (write(facts, *target, None), Some(*target)),
+        Expr::Call { callee, args } | Expr::OptCall { callee, args } => {
+            (call(ast, expr_types, *callee, args), None)
+        }
+        Expr::ObjectLit { fields } => (literal(expr_types, facts.optional_number, fields), None),
+        _ => (Hit::None, None),
+    };
+    if matches!(hit, Hit::None) {
+        return Hit::None;
+    }
+    let recv = match (e, target) {
+        (_, Some(t)) => any_receiver(ast, expr_types, t),
+        (Expr::Call { callee, args } | Expr::OptCall { callee, args }, None) => {
+            args.first().copied().filter(|_| reflect_set(ast, *callee))
+        }
+        _ => None,
+    };
+    let hit = spare(origins, recv, hit);
+    if matches!(hit, Hit::None) || dead(id) {
+        return Hit::None;
+    }
+    hit
 }
 
 /// A callee spelled `Reflect.set`.

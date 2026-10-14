@@ -18,6 +18,7 @@
 //! promoted from `fn` to `pub(crate) fn` to let this sibling module
 //! drive them.
 
+use crate::ast::named_prop_census::shadow_names::ShadowedNames;
 use crate::ast::{Ast, ExprId};
 use crate::check::{Diagnostic, GenericCallSites, Severity, Type};
 use std::collections::{HashMap, HashSet};
@@ -87,8 +88,10 @@ pub fn check_with_arity(ast: &Ast) -> Result<CheckArtifacts, String> {
 /// ([`hidden_any::settle`]).
 pub fn check_with_arity_warn(ast: &Ast) -> Result<(CheckArtifacts, Vec<String>), String> {
     crate::iface_witness::begin_compile();
-    let (artifacts, warnings, census) =
-        hidden_any::settle(ast, check_round(ast, &HashSet::new())?)?;
+    let (artifacts, warnings, census) = hidden_any::settle(
+        ast,
+        check_round(ast, &HashSet::new(), &ShadowedNames::default())?,
+    )?;
     if let Some(line) = census {
         eprintln!("{line}");
     }
@@ -100,9 +103,14 @@ pub fn check_with_arity_warn(ast: &Ast) -> Result<(CheckArtifacts, Vec<String>),
 type Round = (CheckArtifacts, Vec<String>, Option<String>);
 
 /// One check of `ast` and its mono pass, reading the call arguments
-/// `hidden` holds as values of any kind.
-fn check_round(ast: &Ast, hidden: &HashSet<ExprId>) -> Result<Round, String> {
-    let mut c = fixpoint_hidden(ast, hidden);
+/// `hidden` holds as values of any kind, and the members `shadowed`
+/// holds as written values of another kind.
+fn check_round(
+    ast: &Ast,
+    hidden: &HashSet<ExprId>,
+    shadowed: &ShadowedNames,
+) -> Result<Round, String> {
+    let mut c = fixpoint_hidden(ast, hidden, shadowed);
     // typed 覆盖率读数(`TORAJS_TYPED_CENSUS=1` 下才打)。在错误分支
     // 提前返回**之前**算 —— 一次被拒的编译同样要有读数,否则 `refused`
     // 永远是 0。见 `crate::typed_census`。
@@ -154,6 +162,15 @@ fn check_round(ast: &Ast, hidden: &HashSet<ExprId>) -> Result<Round, String> {
     warnings.extend(admitted.into_iter().map(|m| format!("[s0-admit] {m}")));
     let before_mono = c.errors.len();
     let mut mono = crate::check_monomorph::monomorphize_and_check(&mut c, ast);
+    // the census over the mono program sees the specializations' writes,
+    // which no run over the generic program did: a read that would
+    // answer otherwise under them asks for a round seeded with them
+    let found = &mono.mono_ast.accessor_field_names.shadowed.found;
+    if c.shadowed_reads.would_retype(found) {
+        let mut seed = std::mem::take(&mut c.shadowed_reads).names;
+        seed.extend(found.clone());
+        return check_round(ast, hidden, &seed);
+    }
     mono.mono_ast.face_slots = std::mem::take(&mut c.face_slots);
     mono.mono_ast.face_slots.ret_any = std::mem::take(&mut c.fn_slot_ret_any);
     // A specialization body's diagnostics are discarded inside the

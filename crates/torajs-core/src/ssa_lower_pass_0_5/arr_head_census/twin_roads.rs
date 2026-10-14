@@ -218,9 +218,9 @@ fn untyped_road(e: &Expr, id: ExprId, (methods, callees): (&HashSet<String>, &Ex
         Expr::Member { name, .. } | Expr::OptChain { name, .. } => {
             rebinds(name) || (!callees.contains(id) && methods.contains(name))
         }
-        Expr::String(s) => {
-            s.as_str().is_some_and(rebinds) || methods.iter().any(|m| s == m.as_str())
-        }
+        Expr::String(s) => s
+            .as_str()
+            .is_some_and(|s| rebinds(s) || methods.contains(s)),
         _ => false,
     }
 }

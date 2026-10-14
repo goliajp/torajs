@@ -21,17 +21,23 @@ use crate::check::{Checker, Severity};
 /// then it lowers from the declared run, as if no call were typed
 /// `any`.
 pub(super) fn check_to_fixpoint(ast: &Ast) -> Checker {
-    fixpoint_hidden(ast, &HashSet::new())
+    fixpoint_hidden(ast, &HashSet::new(), &ShadowedNames::default())
 }
 
 /// [`check_to_fixpoint`] with the call arguments `hidden` holds read as
-/// values of any kind ([`super::hidden_any::settle`]).
-pub(super) fn fixpoint_hidden(ast: &Ast, hidden: &HashSet<ExprId>) -> Checker {
-    let c = fixpoint_with(ast, false, hidden);
+/// values of any kind ([`super::hidden_any::settle`]), and the members
+/// `shadowed` holds retyped from the first run (a round the census over
+/// the mono program asked for, [`super::check_round`]).
+pub(super) fn fixpoint_hidden(
+    ast: &Ast,
+    hidden: &HashSet<ExprId>,
+    shadowed: &ShadowedNames,
+) -> Checker {
+    let c = fixpoint_with(ast, false, hidden, shadowed);
     if c.widen_ret_any.is_empty() {
         return c;
     }
-    let declared = fixpoint_with(ast, true, hidden);
+    let declared = fixpoint_with(ast, true, hidden, shadowed);
     if has_errors(&c) || has_errors(&declared) {
         declared
     } else {
@@ -61,10 +67,16 @@ fn has_errors(c: &Checker) -> bool {
 /// when a read asked for one of their keys before the store that
 /// entered it (`Reads::stale`): that call is typed again once the
 /// census holds it. They too only grow.
-fn fixpoint_with(ast: &Ast, widen_ret_declared: bool, hidden: &HashSet<ExprId>) -> Checker {
+fn fixpoint_with(
+    ast: &Ast,
+    widen_ret_declared: bool,
+    hidden: &HashSet<ExprId>,
+    shadowed: &ShadowedNames,
+) -> Checker {
     let mut c = Checker::new();
     c.widen_ret_declared = widen_ret_declared;
     c.hidden_any_args = hidden.clone();
+    c.shadowed_reads = ShadowedReads::seeded(shadowed.clone());
     c.run_full_pipeline(ast);
     let program = Default::default();
     loop {

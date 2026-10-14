@@ -142,9 +142,11 @@ pub(super) struct Facts<'a, 'b> {
     /// The members a write can leave holding a value of any kind.
     pub(super) unknown: &'b HashSet<String>,
     /// The members a verdict asked about while `unknown` left them out.
-    pub(super) asked: &'b RefCell<HashSet<String>>,
+    pub(super) asked: &'b RefCell<Vec<String>>,
     /// Whether an accessor can stand at the member.
     pub(super) accessor: &'b dyn Fn(&str) -> bool,
+    /// The optional `number` members kept in an f64 slot.
+    pub(super) optional_number: &'b HashSet<PropKey>,
 }
 
 impl Facts<'_, '_> {
@@ -152,8 +154,8 @@ impl Facts<'_, '_> {
     /// any kind, noting the question when the answer may grow.
     fn unknown(&self, name: &str) -> bool {
         let hit = self.unknown.contains(name);
-        if !hit && !self.asked.borrow().contains(name) {
-            self.asked.borrow_mut().insert(name.to_string());
+        if !hit && !self.asked.borrow().iter().any(|n| n == name) {
+            self.asked.borrow_mut().push(name.to_string());
         }
         hit
     }

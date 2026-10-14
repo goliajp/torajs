@@ -29,6 +29,12 @@ pub struct ShadowFacts {
     /// any-lane write can leave them holding a value of another type
     /// (`check_type_of_member::mistyped_read`).
     pub(super) mistyped: super::shadow_names::ShadowedNames,
+    /// What the census over this program found, by the kind of the
+    /// written value. Over the mono program it sees the specializations
+    /// the checker's runs over the generic program did not; a read that
+    /// would answer otherwise under it asks for another round
+    /// (`check_entry::check_round`).
+    pub(crate) found: super::shadow_names::ShadowedNames,
 }
 
 impl Reach {
