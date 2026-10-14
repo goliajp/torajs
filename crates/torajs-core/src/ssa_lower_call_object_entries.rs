@@ -325,9 +325,9 @@ fn emit_one_pair(
         match crate::ssa_lower_struct_own_props::emit_prop_value_any(ctx, arg_op, prop) {
             Some(v) => (v, true, Type::Any),
             None => {
-                let (v, owned) =
+                let (v, ty, owned) =
                     crate::ssa_lower_struct_own_props::emit_prop_value(ctx, arg_op, None, prop);
-                (v, owned, prop.ty())
+                (v, owned, ty)
             }
         };
     ctx.pop_throw_temp(parked);

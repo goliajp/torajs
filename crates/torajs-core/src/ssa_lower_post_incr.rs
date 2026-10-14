@@ -327,6 +327,14 @@ fn lower_member(
         return boxed_member_step(ctx, eid, target, obj_val, &field, step);
     };
     let field_ty = ctx.struct_layouts[sid.0 as usize][idx].1;
+    // a cell the program reaches as `any` (`(p as any).k++`), or a field
+    // a write of the program can shadow, steps through the any lane: the
+    // slot may not hold the field's value
+    if matches!(ctx.expr_types.get(&obj), Some(crate::check::Type::Any))
+        || crate::ssa_lower_member_obj_field::shadow_read::applies(ctx, Some(obj), &field, field_ty)
+    {
+        return boxed_member_step(ctx, eid, target, obj_val, &field, step);
+    }
     let offset = OBJ_HEADER_SIZE + (idx as u64) * 8;
     let guarded = crate::ssa_lower_member_obj_field::exotic_read::guarded_load(
         ctx,

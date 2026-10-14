@@ -40,26 +40,19 @@ pub(super) fn fit_to_field(
     ) {
         return (cast, field_ty == Type::Str);
     }
-    // an optional `number` member keeps an f64 slot: `undefined` is the
-    // slot's sentinel, and the any lane (a `null` among it) crosses
-    // through the kernel that refuses what the slot cannot hold
-    let optional_f64 =
-        crate::ssa_lower_object_lit::absent::optional_number_member(ctx, obj, field, field_ty);
-    if optional_f64 && matches!(v_ty, Type::Ptr | Type::Any) {
-        let undef = matches!(v, Operand::ConstPtrNull)
-            && matches!(
-                ctx.expr_types.get(&value),
-                Some(crate::check::Type::Undefined)
-            );
-        if undef {
-            return (crate::ssa_lower_object_lit::absent::f64_undef(), false);
-        }
-        let boxed = match v_ty {
-            Type::Any => v,
-            _ => ctx.box_to_any_from_expr(value, v),
-        };
-        let cross = crate::ssa_lower_member_obj_field::exotic_read::optional_number;
-        return (cross(ctx, boxed, field), false);
+    // an optional `number` member keeps an f64 slot whose `undefined`
+    // is the sentinel (a `null` or an any-lane value never reaches
+    // here: `number_slot_cannot_spell`)
+    if field_ty == Type::F64
+        && matches!(v, Operand::ConstPtrNull)
+        && crate::ssa_lower_object_lit::absent::optional_number_slot(
+            ctx,
+            Some(obj),
+            field,
+            field_ty,
+        )
+    {
+        return (crate::ssa_lower_object_lit::absent::f64_undef(), false);
     }
     match (field_ty, v_ty) {
         (Type::F64, Type::I64) => (ctx.coerce_to_f64(v), false),

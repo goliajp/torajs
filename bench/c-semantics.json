@@ -21,6 +21,7 @@
   "split-only-1m": {"kind": "different", "why": "materialises the slice array every iteration; tr proves the array is only measured and answers a count", "note": "both split operands are literals, so the whole call can be folded at compile time; split-only-argv-100k takes them from argv"},
   "split-only-argv-100k": {"kind": "different", "why": "materialises the slice array every iteration; tr proves the array is only measured and answers a count"},
   "map-str-100k": {"kind": "same", "why": "SipHash-1-3 open addressing as std HashMap; tr hashes keys with FNV-1a"},
+  "dict-count-optional-read-1m": {"kind": "same", "why": "FNV-1a open addressing over the 64 keys, as tr's dictionary; the record is a struct with a presence flag"},
   "array-copy-1m": {"kind": "suppressed", "why": "volatile / asm per element block the memcpy the loop is"},
   "array-map-1m": {"kind": "suppressed", "why": "noinline callback + volatile keep the call indirect"},
   "array-sum-1m": {"kind": "suppressed", "why": "volatile / asm per element block vectorisation"},

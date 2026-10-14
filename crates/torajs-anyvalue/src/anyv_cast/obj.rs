@@ -33,12 +33,12 @@ use core::ffi::c_void;
 
 use torajs_rc::Tag;
 
-use super::plan::{Fail, OBJ, Plan};
+use super::plan::{Fail, NUM, OBJ, OPT, Plan};
 use super::{cell_tag, reject};
 use crate::arg_struct_coerce::{
     __torajs_anyv_struct_fits, OBJ_CLASS_TAG_OFF, OBJ_HEADER_SIZE, OBJ_TAG_OFF,
 };
-use crate::nanbox::{AnyValue, as_void_ptr, is_cell};
+use crate::nanbox::{AnyValue, as_void_ptr, is_cell, is_null, is_undefined};
 
 /// OBJ node flags: the slot names a class; the node copies nothing
 /// (a field of the layout is of a type the plan cannot judge).
@@ -54,7 +54,17 @@ unsafe extern "C" {
     fn __torajs_str_drop(p: *mut c_void);
     fn __torajs_throw_check() -> i64;
     fn __torajs_struct_layout_lookup(class_tag: u32) -> *const c_void;
+    /// torajs-dynobj — the deletion record of a declared field, for a
+    /// slot past the ones the absent set can name.
+    fn __torajs_obj_declared_field_delete(obj: *mut c_void, key: *mut c_void) -> i64;
 }
+
+/// The slots the absent set names: bit `i` of the u32 at
+/// [`ABSENT_SET_OFF`] for slot `i` (torajs-meta `struct_absent`).
+const ABSENT_SET_SLOTS: usize = 32;
+const ABSENT_SET_OFF: usize = 12;
+/// The header's flags half-word.
+const OBJ_FLAGS_OFF: usize = 6;
 
 #[cfg(not(test))]
 unsafe extern "C" {
@@ -164,6 +174,15 @@ impl Plan {
             let node = field + 10 + len;
             let got = unsafe { self.get(v, field + 10, len) };
             let cast = got.and_then(|g| {
+                if self.u8(node) == OPT
+                    && is_undefined(g)
+                    && !unsafe { self.owns(v, field + 10, len) }
+                {
+                    unsafe { self.mark_absent(cell, off, field + 10, len) };
+                }
+                if self.optional_number(node) && is_null(g) {
+                    return unsafe { self.park_null(cell, off, field + 10, len) };
+                }
                 let r = unsafe { self.cast(node, g) };
                 unsafe { crate::nanbox_ffi::__torajs_anyv_rc_dec(g) };
                 r
@@ -180,6 +199,89 @@ impl Plan {
             field = end;
         }
         Ok(cell as u64)
+    }
+
+    /// Whether the node at `at` is an optional `number` member's: `OPT`
+    /// over `NUM`, an f64 slot that spells a number or `undefined`.
+    fn optional_number(&self, at: usize) -> bool {
+        self.u8(at) == OPT && self.u8(at + 1) == NUM
+    }
+
+    /// A `null` the value carries for an optional `number` member: the
+    /// slot takes its undefined sentinel and the `null` goes to the
+    /// field's sidecar behind `FLAG_OBJ_EXOTIC_FIELD` (§10.1.9.2 [[Set]]
+    /// on the fresh cell), where a write through the any lane would
+    /// have put it. Answers the slot bits.
+    ///
+    /// # Safety
+    /// `cell` is the fresh cell being built, with its header written;
+    /// `name` / `len` address the field name in the plan.
+    unsafe fn park_null(
+        &self,
+        cell: *mut u8,
+        off: usize,
+        name: usize,
+        len: usize,
+    ) -> Result<u64, Fail> {
+        unsafe {
+            (cell.add(off) as *mut u64).write(torajs_rc::F64_UNDEF_SENTINEL_BITS);
+        }
+        let key = unsafe { __torajs_str_alloc(self.base.add(name), len as i64) };
+        unsafe {
+            crate::struct_field_ffi::exotic::__torajs_obj_field_set_exotic_impl(
+                cell.cast(),
+                key.cast(),
+                0,
+                0,
+                1,
+            );
+            __torajs_str_drop(key.cast());
+        }
+        if unsafe { __torajs_throw_check() } != 0 {
+            return Err(Fail::Thrown);
+        }
+        Ok(torajs_rc::F64_UNDEF_SENTINEL_BITS)
+    }
+
+    /// Whether `v` owns the property named at `name` (`len` bytes):
+    /// §7.3.12 HasOwnProperty, which tells a member the value lacks from
+    /// one it holds as `undefined`.
+    ///
+    /// # Safety
+    /// `v` is a live object cell.
+    unsafe fn owns(&self, v: AnyValue, name: usize, len: usize) -> bool {
+        let key = unsafe { __torajs_str_alloc(self.base.add(name), len as i64) };
+        let has = unsafe { crate::prop_has::__torajs_any_own_prop_has(v, key.cast()) };
+        unsafe { __torajs_str_drop(key.cast()) };
+        has != 0
+    }
+
+    /// The optional member at slot offset `off` is no own property of
+    /// the cell: the value lacked it (§10.1.11 — `"a" in p` is false
+    /// and the keys leave it out). Recorded the way a literal that
+    /// leaves the member out records it: the header bit and the slot's
+    /// bit in the absent set, or the deletion record for a slot the set
+    /// cannot name.
+    ///
+    /// # Safety
+    /// `cell` is the fresh cell being built, with its header written;
+    /// `name` / `len` address the field name in the plan.
+    unsafe fn mark_absent(&self, cell: *mut u8, off: usize, name: usize, len: usize) {
+        let slot = (off - OBJ_HEADER_SIZE) / 8;
+        if slot < ABSENT_SET_SLOTS {
+            unsafe {
+                let flags = cell.add(OBJ_FLAGS_OFF) as *mut u16;
+                flags.write(flags.read() | torajs_rc::flags::FLAG_OBJ_ABSENT_FIELD);
+                let set = cell.add(ABSENT_SET_OFF) as *mut u32;
+                set.write(set.read() | 1 << slot);
+            }
+            return;
+        }
+        let key = unsafe { __torajs_str_alloc(self.base.add(name), len as i64) };
+        unsafe {
+            __torajs_obj_declared_field_delete(cell.cast(), key.cast());
+            __torajs_str_drop(key.cast());
+        }
     }
 
     /// `v.[[Get]](name)` for the field name at `name` (`len` bytes):
@@ -258,6 +360,17 @@ mod tests {
         assert_eq!(cast(&[BOXED, 0], VALUE_NULL), Some(VALUE_NULL));
         assert_eq!(cast(&[BOXED, 0], VALUE_TRUE), None);
         assert_eq!(cast(&[BOXED, 1], VALUE_TRUE), Some(VALUE_TRUE));
+    }
+
+    #[test]
+    fn an_optional_number_takes_undefined_as_the_sentinel_and_refuses_null() {
+        assert_eq!(
+            cast(&[OPT, NUM], VALUE_UNDEFINED),
+            Some(torajs_rc::F64_UNDEF_SENTINEL_BITS)
+        );
+        assert_eq!(cast(&[OPT, NUM], VALUE_NULL), None);
+        assert_eq!(cast(&[OPT, NUM], box_int32(3)), Some(3.0f64.to_bits()));
+        assert_eq!(cast(&[OPT, NUM], VALUE_TRUE), None);
     }
 
     #[test]

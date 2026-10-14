@@ -155,7 +155,10 @@ fn snapshot_type_field_anns(
                 fields.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
             struct_field_anns.insert(name.clone(), map);
             if !type_params.is_empty() {
-                generic_field_anns.insert(name.clone(), (type_params.clone(), fields.clone()));
+                generic_field_anns.insert(
+                    name.clone(),
+                    ast.generic_struct_decl(name, type_params, fields),
+                );
             }
         }
     }

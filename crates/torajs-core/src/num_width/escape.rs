@@ -197,7 +197,7 @@ impl<'a> Analysis<'a> {
             return Some(f.clone());
         }
         let open = base.find('<')?;
-        let (params, fields) = self.generic_decls.get(&base[..open])?;
+        let (params, fields, _) = self.generic_decls.get(&base[..open])?;
         let args = split_inst_args(base[open + 1..].strip_suffix('>')?);
         if args.len() != params.len() {
             return None;

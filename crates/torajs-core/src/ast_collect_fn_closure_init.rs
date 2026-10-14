@@ -90,7 +90,7 @@ impl<'a> FnToClosureCollector<'a> {
         if !t.ends_with('>') {
             return None;
         }
-        let (tp_names, fields) = self.generic_field_anns.get(&t[..open_idx])?;
+        let (tp_names, fields, _) = self.generic_field_anns.get(&t[..open_idx])?;
         let args = split_generic_args(&t[open_idx + 1..t.len() - 1]);
         if args.len() != tp_names.len() {
             return None;

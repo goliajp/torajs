@@ -15,7 +15,7 @@
 
 use core::ffi::c_void;
 
-mod exotic;
+pub(crate) mod exotic;
 
 unsafe extern "C" {
     /// torajs-rc — the cell's FROZEN header bit.

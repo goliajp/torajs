@@ -19,7 +19,8 @@ pub(super) fn fit_slot_values(
     undef_fields: &HashSet<PropKey>,
     absent: &[(usize, PropKey)],
     field_vals: &mut [Operand],
-) {
+) -> Vec<(PropKey, Operand)> {
+    let mut unspelled = Vec::new();
     for (i, (fname, slot_ty)) in layout.iter().enumerate() {
         if undef_fields.contains(fname)
             && let Some(sentinel) = ctx.str_undef_sentinel_for(*slot_ty)
@@ -27,17 +28,20 @@ pub(super) fn fit_slot_values(
             field_vals[i] = sentinel;
         }
         // an optional `number` member keeps an f64 slot: `undefined`
-        // (spelled or left out) is the slot's sentinel, and a `null`
-        // takes the any-lane crossing, which refuses it loudly
-        if *slot_ty == Type::F64 && matches!(field_vals[i], Operand::ConstPtrNull) {
-            field_vals[i] = match undef_fields.contains(fname) {
-                true => super::absent::f64_undef(),
-                false => {
-                    let boxed = ctx.box_to_any(field_vals[i]);
-                    let cross = crate::ssa_lower_member_obj_field::exotic_read::optional_number;
-                    cross(ctx, boxed, fname.lossy().as_ref())
-                }
-            };
+        // (spelled or left out) is the slot's sentinel; a `null` or an
+        // any-lane value the slot cannot spell is stored through the
+        // any lane once the cell exists (`store_unspelled`), and the
+        // slot takes the sentinel until then
+        if *slot_ty == Type::F64 && ctx.ast.accessor_field_names.optional_number_member(fname) {
+            let v = field_vals[i];
+            let null = matches!(v, Operand::ConstPtrNull);
+            if undef_fields.contains(fname) {
+                field_vals[i] = super::absent::f64_undef();
+            } else if null || ctx.operand_ty(&v) == Type::Any {
+                let boxed = ctx.box_to_any(v);
+                unspelled.push((fname.clone(), boxed));
+                field_vals[i] = super::absent::f64_undef();
+            }
         }
         // RFC 20260710 C4 — a declared-Any slot (`__nullable(number|
         // boolean)` optional field, plain `any` field) takes a
@@ -84,5 +88,39 @@ pub(super) fn fit_slot_values(
                 _ => field_vals[i],
             };
         }
+    }
+    unspelled
+}
+
+/// Store each value of `unspelled` into the member it names on the
+/// fresh cell `obj` through the any lane's [[Set]]: a number lands in
+/// the f64 slot, anything else (a `null`, a string, an object) stays
+/// in the field's sidecar behind the exotic bit. The boxed value is
+/// the literal's own stake, released once the leg has taken its share.
+pub(super) fn store_unspelled(
+    ctx: &mut LowerCtx<'_>,
+    obj: crate::ssa::ValueId,
+    unspelled: Vec<(PropKey, Operand)>,
+) {
+    let strict = !crate::ssa_lower_set_flavor::cur_fn_is_sloppy(ctx);
+    for (name, boxed) in unspelled {
+        let (tag, val) = ctx.box_to_tag_value(boxed);
+        let name_str = ctx.intern_string_literal(name.as_wtf8());
+        let leg = ctx.intrinsics.obj_field_set_exotic;
+        ctx.f.append_void(
+            ctx.cur_block,
+            crate::ssa::InstKind::Call(
+                leg,
+                vec![
+                    Operand::Value(obj),
+                    Operand::Value(name_str),
+                    tag,
+                    val,
+                    Operand::ConstI64(i64::from(strict)),
+                ],
+            ),
+        );
+        ctx.emit_throw_check(None);
+        ctx.emit_drop_value(boxed, Type::Any);
     }
 }

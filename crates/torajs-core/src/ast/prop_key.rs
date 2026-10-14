@@ -24,9 +24,41 @@ use super::{Ast, Expr, ExprId};
 pub struct PropKey(Wtf8Buf);
 
 /// Generic struct declaration index: name → (type-param names, field
-/// annotation pairs).
-pub type GenericStructDecls =
-    std::collections::HashMap<String, (Vec<String>, Vec<(PropKey, String)>)>;
+/// annotation pairs, the plain optional members — `m?: T` with a type
+/// that spells neither `null` nor `undefined`).
+pub type GenericStructDecls = std::collections::HashMap<
+    String,
+    (
+        Vec<String>,
+        Vec<(PropKey, String)>,
+        std::collections::HashSet<PropKey>,
+    ),
+>;
+
+impl Ast {
+    /// The entry of [`GenericStructDecls`] for the generic declaration
+    /// `name` with the fields `fields`.
+    pub fn generic_struct_decl(
+        &self,
+        name: &str,
+        type_params: &[String],
+        fields: &[(PropKey, String)],
+    ) -> (
+        Vec<String>,
+        Vec<(PropKey, String)>,
+        std::collections::HashSet<PropKey>,
+    ) {
+        let plain_optional = fields
+            .iter()
+            .filter(|(k, _)| {
+                self.optional_plain_members
+                    .contains(&(name.to_string(), k.clone()))
+            })
+            .map(|(k, _)| k.clone())
+            .collect();
+        (type_params.to_vec(), fields.to_vec(), plain_optional)
+    }
+}
 
 impl PropKey {
     /// `prefix` + `key`: the synthetic-name spelling (`__getter_x`).

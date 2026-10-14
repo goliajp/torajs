@@ -20,6 +20,31 @@ pub(crate) fn lower_dynobj_assign(
     recv_owned: bool,
 ) -> Operand {
     let v_raw = ctx.lower_expr(value);
+    lower_dynobj_assign_value(
+        ctx,
+        eid,
+        obj_val,
+        field,
+        (value, v_raw),
+        obj_ident,
+        recv_owned,
+    )
+}
+
+/// [`lower_dynobj_assign`] with the rhs `value` already lowered to
+/// `v_raw`: a typed struct store whose number slot cannot hold the
+/// value it was handed (an `any`, a `null`) joins the any lane here,
+/// where the runtime fits the payload into the slot or keeps it in the
+/// field's sidecar.
+pub(crate) fn lower_dynobj_assign_value(
+    ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
+    obj_val: Operand,
+    field: &str,
+    (value, v_raw): (ExprId, Operand),
+    obj_ident: &Option<String>,
+    recv_owned: bool,
+) -> Operand {
     // Chunk 566 — SHARE: the dynobj bucket takes its own +1 (the
     // refcounted arm's rc_inc / the Any payload path's
     // any_payload_rc_inc); no consume, so a borrow-shape rhs keeps

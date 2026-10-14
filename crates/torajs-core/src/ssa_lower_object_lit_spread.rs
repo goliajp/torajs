@@ -85,9 +85,9 @@ pub(crate) fn unfold_spread(
                     (sn.clone(), ty, val)
                 } else {
                     let name = sn.lossy();
-                    let read = crate::ssa_lower_member_obj_field::exotic_read::owned_field;
-                    let v = read(ctx, Some(eid), src_op, (off, *st), &name);
-                    (sn.clone(), *st, v)
+                    let read = crate::ssa_lower_member_obj_field::exotic_read::owned_field_or_any;
+                    let (v, ty) = read(ctx, Some(eid), src_op, (off, *st), &name);
+                    (sn.clone(), ty, v)
                 }
             }
         };
@@ -124,11 +124,26 @@ fn maybe_absent(
     (field_tys, field_vals): (&mut Vec<(PropKey, Type)>, &mut Vec<Operand>),
     absent: &mut Vec<(PropKey, Operand)>,
 ) -> (Type, Operand) {
+    // a field a write of the program can shadow reads as an any-lane
+    // value, so the member takes the any lane whatever came before
+    let shadowed = crate::ssa_lower_member_obj_field::shadow_read::applies(
+        ctx,
+        Some(src_eid),
+        &name.lossy(),
+        st,
+    ) && crate::ssa_lower_member_obj_field::exotic_read::receiver_may_be_exotic(
+        ctx,
+        Some(src_eid),
+    );
     let prev = field_tys.iter().position(|(k, _)| k == name);
     let (ty, prev_val) = match prev {
+        None if shadowed => (Type::Any, None),
         None => (st, None),
+        Some(pos) if shadowed && field_tys[pos].1 == Type::Any => {
+            (Type::Any, Some((field_vals[pos], Type::Any)))
+        }
         // a `null` the slot spells as its own null pointer
-        Some(pos) if field_tys[pos].1 == st || null_fits(field_vals[pos], st) => {
+        Some(pos) if !shadowed && (field_tys[pos].1 == st || null_fits(field_vals[pos], st)) => {
             (st, Some((field_vals[pos], st)))
         }
         Some(pos) => {
@@ -175,7 +190,12 @@ fn maybe_absent(
             let raw = ctx
                 .f
                 .append_inst(ctx.cur_block, InstKind::Load(st, src, off), st, None);
-            Operand::Value(raw)
+            let raw = Operand::Value(raw);
+            match (ty, st) {
+                (Type::Any, Type::F64) => ctx.box_f64_or_undef(raw),
+                (Type::Any, _) => ctx.box_to_any(raw),
+                _ => raw,
+            }
         }
     };
     let slot = ctx.alloca_in_entry(ty, Some("__spread_field"));
@@ -203,9 +223,9 @@ fn maybe_absent(
     if let Some((v, v_ty)) = prev_val {
         ctx.emit_drop_value(v, v_ty);
     }
-    let read = crate::ssa_lower_member_obj_field::exotic_read::owned_field;
-    let owned = read(ctx, Some(src_eid), src, (off, st), &name.lossy());
-    let owned = match (ty == st, st) {
+    let read = crate::ssa_lower_member_obj_field::exotic_read::owned_field_or_any;
+    let (owned, got) = read(ctx, Some(src_eid), src, (off, st), &name.lossy());
+    let owned = match (ty == got, st) {
         (true, _) => owned,
         (false, Type::F64) if ctx.undefable_f64_fields.contains(name) => {
             ctx.box_f64_or_undef(owned)

@@ -75,7 +75,18 @@ pub(crate) fn lower(
     if obj_ty == Type::RegExp && field == "lastIndex" {
         return lower_regex_last_index_assign(ctx, obj_val, value);
     }
+    // a struct cell the program reaches as `any` (`(p as any).a = v`:
+    // the cast passes a heap source through wearing its SSA type) is an
+    // any-lane write — the runtime's §10.1.9 [[Set]] fits the value
+    // into the layout slot or keeps it in the field's sidecar, where
+    // the typed store would have put the raw bits into the slot
     if let Type::Obj(sid) = obj_ty {
+        if matches!(ctx.expr_types.get(&obj), Some(crate::check::Type::Any)) {
+            let boxed = ctx.box_to_any(obj_val);
+            return crate::ssa_lower_assign_member_any::lower_dynobj_assign(
+                ctx, eid, boxed, &field, value, &None, false,
+            );
+        }
         return lower_obj_assign(ctx, eid, obj, obj_val, sid, &field, value);
     }
     // Every other receiver: box the cell and take the any lane.

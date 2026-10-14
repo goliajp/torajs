@@ -160,7 +160,9 @@ impl Builder<'_, '_> {
     fn node(&mut self, ty: Type, ann: Option<&str>) -> Option<()> {
         let nullable = ann.is_some_and(|a| a.trim().starts_with("__nullable("));
         let base = ann.map(|a| strip_nullable(a.trim()).trim());
-        if nullable && matches!(ty, Type::Str | Type::Obj(_) | Type::Arr(_)) {
+        // an optional `number` member keeps an f64 slot: the node admits
+        // `undefined` (and a key the value lacks) as the slot's sentinel
+        if nullable && matches!(ty, Type::Str | Type::Obj(_) | Type::Arr(_) | Type::F64) {
             self.bytes.push(OPT);
             self.nullish = true;
         }

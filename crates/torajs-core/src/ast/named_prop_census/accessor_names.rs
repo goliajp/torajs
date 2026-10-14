@@ -26,13 +26,39 @@ use super::super::{Ast, Expr, ExprId};
 /// The answer, read by every typed field read and its throw analysis.
 #[derive(Debug, Clone, Default)]
 pub struct AccessorFieldNames {
-    reach: Reach,
+    pub(super) reach: Reach,
     /// Computed-key reads whose receiver's type is not settled yet.
     key_reads: Vec<ExprId>,
+    /// The fields a write of the program can park in the sidecar: a
+    /// value the layout slot has no spelling for, written through the
+    /// any lane (`super::shadow_names`). A typed read of one tests the
+    /// same header bit as an accessor's and answers the sidecar.
+    pub(super) shadow: Reach,
+    /// The fields a `number` the program writes through the any lane
+    /// can reach: it fits an f64 slot, and shadows any other.
+    pub(super) shadow_number: Reach,
+    /// A cast from the any lane into a layout with an optional member
+    /// can build a cell lacking it (`super::cast_targets`), so the
+    /// absent set is in play even when no literal leaves a member out.
+    pub cast_leaves_members_out: bool,
+    /// The optional `number` members whose slot is an f64
+    /// (`crate::num_width::optional_number_fields`): a literal
+    /// stores a value such a slot cannot spell through the any lane.
+    pub(super) optional_number: HashSet<super::super::PropKey>,
+}
+
+impl Reach {
+    pub(super) fn may(&self, name: &str) -> bool {
+        match self {
+            Reach::None => false,
+            Reach::Names(n) => n.contains(name),
+            Reach::All => true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
-enum Reach {
+pub(super) enum Reach {
     /// No definer is named: every typed field read is a plain load.
     #[default]
     None,
@@ -56,6 +82,18 @@ impl AccessorFieldNames {
     /// Whether some declared field can.
     pub fn reaches_any(&self) -> bool {
         !self.key_reads.is_empty() || !matches!(self.reach, Reach::None)
+    }
+
+    /// Whether `name` is an optional `number` member kept in an f64 slot.
+    pub fn optional_number_member(&self, name: &super::super::PropKey) -> bool {
+        self.optional_number.contains(name)
+    }
+
+    /// Whether a write of the program can leave the declared field
+    /// `name` holding a value its slot cannot spell; `f64_slot` says
+    /// the slot holds every number, which a `number` write then fits.
+    pub fn may_shadow(&self, name: &str, f64_slot: bool) -> bool {
+        self.shadow.may(name) || (!f64_slot && self.shadow_number.may(name))
     }
 }
 
@@ -133,7 +171,14 @@ fn names(ast: &Ast) -> AccessorFieldNames {
             .map(|(i, _)| ExprId(i as u32))
             .collect(),
     };
-    AccessorFieldNames { reach, key_reads }
+    AccessorFieldNames {
+        reach,
+        key_reads,
+        shadow: Reach::None,
+        shadow_number: Reach::None,
+        cast_leaves_members_out: false,
+        optional_number: HashSet::new(),
+    }
 }
 
 /// A read whose key is not a literal (`o[k]`, `o?.[k]`).

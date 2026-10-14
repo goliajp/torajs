@@ -13,7 +13,10 @@
 //!   REF     u32 offset of an OBJ node (a type that contains itself)
 //!   ARR     u8 element kind (`__torajs_arr_any_to_typed`), node
 //!   CELL    u16 heap tag
-//!   OPT     node: the node's type, `| null | undefined`
+//!   OPT     node: the node's type, `| null | undefined`; over NUM
+//!           (an optional `number` member's f64 slot) `undefined` is
+//!           the slot's sentinel and a field's `null` goes to the
+//!           cell's sidecar (`super::obj`)
 //! field := u32 end (offset past this field), u32 slot offset,
 //!          u16 name length, name (WTF-8), node
 //! lists := u32 count, then per list: u32 n, u32 tags[n]
@@ -179,8 +182,12 @@ impl Plan {
             BOXED if self.u8(at + 1) == 1 && is_bool(v) => Ok(v),
             OPT if is_undefined(v) => Ok(match self.u8(at + 1) {
                 STR => (unsafe { __torajs_str_undef() }) as u64,
+                NUM => torajs_rc::F64_UNDEF_SENTINEL_BITS,
                 _ => undef_cell_ptr() as u64,
             }),
+            // an f64 slot has no spelling for null: a field's takes it
+            // to the sidecar (`super::obj`), a bare node refuses it
+            OPT if is_null(v) && self.u8(at + 1) == NUM => Err(Fail::Mismatch),
             OPT if is_null(v) => Ok(0),
             OPT => unsafe { self.cast(at + 1, v) },
             REF => unsafe { self.cast(self.u32(at + 1) as usize, v) },
@@ -199,6 +206,10 @@ impl Plan {
     /// # Safety
     /// `bits` came from `cast` on that node.
     pub(super) unsafe fn release(&self, at: usize, bits: u64) {
+        let at = match self.u8(at) {
+            OPT => at + 1,
+            _ => at,
+        };
         if matches!(self.u8(at), INT | NUM | BOOL | BOXED) {
             return;
         }

@@ -145,6 +145,73 @@ pub(crate) fn lower_struct_field_store(
     // typed (RFC 20260706 Phase C conviction: an any[] field cycle
     // was invisible to the collector, and its NaN-box cell elems
     // were never dec'd on drop).
+    let v = match store_rhs(ctx, (assign, obj), obj_val, sid, field, field_ty, value) {
+        Rhs::Stored(v) => return v,
+        Rhs::Value(v) => v,
+    };
+    // §13.15.2 — the value exists before PutValue asks anything of the
+    // base. An absent receiver (§7.1.20 ToObject) and a frozen or
+    // redefined field (§10.1.9.2) both refuse here, after the rhs; the
+    // value is parked as a throw temp so either refusal releases the
+    // stake it took above. The nullish test is self-gating: a receiver
+    // that cannot be absent emits nothing.
+    // A ctor's leading writes reach an instance nothing has seen yet
+    // (`ssa_lower_fn::fresh_this`): no guard, and the first write to a
+    // nullish-default field has nothing to release.
+    let v_ty = ctx.operand_ty(&v);
+    let parked = (!v_ty.is_copy()).then(|| ctx.push_throw_temp(v, v_ty));
+    crate::ssa_lower_nullable_guard_emit::emit_undefable_heap_guard(ctx, obj, &obj_val);
+    let done = guard::emit_field_writable_guard(ctx, obj, obj_val, field, v);
+    if let Some(token) = parked {
+        ctx.pop_throw_temp(token);
+    }
+    // Drop the old field value if non-Copy.
+    if !field_ty.is_copy() && !ctx.proofs.fresh_this_first_write.contains(&obj) {
+        let cur_block = ctx.cur_block;
+        let old = ctx.f.append_inst(
+            cur_block,
+            InstKind::Load(field_ty, obj_val, offset),
+            field_ty,
+            None,
+        );
+        ctx.emit_drop_value(Operand::Value(old), field_ty);
+    }
+    // L3b #6 crash fix — mirror the ObjectLit field-store mark: a
+    // typed Array entering a struct field must carry its elem kind
+    // for the runtime walkers (inspect / cycle collector). No-op for
+    // non-Arr fields. Chunk 621 — the chain now derives from the
+    // value's own type inside the helper: an `any[]` field taking a
+    // typed array (T-11 widen) marked chain 0 off the field type and
+    // left the block invisible to the kind-aware readers.
+    ctx.emit_arr_mark_kind(&v);
+    let cur_block = ctx.cur_block;
+    ctx.f
+        .append_void(cur_block, InstKind::Store(v, obj_val, offset));
+    guard::mint_read_stake(ctx, (assign, obj, field), v, done);
+    guard::finish_guarded_store(ctx, done);
+    v
+}
+
+/// What the rhs of a struct field store became.
+enum Rhs {
+    /// A value for the slot, owned by the field once stored.
+    Value(Operand),
+    /// The any lane stored it already; this is the assignment's value.
+    Stored(Operand),
+}
+
+/// Lower the rhs `value` of the store into `obj.field` (slot type
+/// `field_ty`) and bring it into the slot's shape — or, for a value a
+/// number slot cannot spell, store it through the any lane.
+fn store_rhs(
+    ctx: &mut LowerCtx<'_>,
+    (assign, obj): (ExprId, ExprId),
+    obj_val: Operand,
+    sid: StructId,
+    field: &str,
+    field_ty: Type,
+    value: ExprId,
+) -> Rhs {
     let v = if matches!(
         ctx.expr_types.get(&value),
         Some(crate::check::Type::Undefined)
@@ -230,6 +297,23 @@ pub(crate) fn lower_struct_field_store(
         }
         let v = ctx.lower_expr(value);
         ctx.let_declared_obj_layout = None;
+        // a value a number slot cannot spell (an any-lane value, a
+        // `null`) takes the any lane's [[Set]]: a number lands in the
+        // slot, anything else in the field's sidecar
+        let cannot_spell = crate::ssa_lower_object_lit::absent::number_slot_cannot_spell;
+        if cannot_spell(ctx, field_ty, v, value) {
+            let boxed = ctx.box_to_any(obj_val);
+            let stored = crate::ssa_lower_assign_member_any::lower_dynobj_assign_value(
+                ctx,
+                assign,
+                boxed,
+                field,
+                (value, v),
+                &None,
+                false,
+            );
+            return Rhs::Stored(stored);
+        }
         // Chunk 566 — a field store SHARES the rhs (TS has no move
         // semantics): a borrow-shape value takes +1 so the field
         // owns its stake while the source binding keeps its own —
@@ -246,45 +330,5 @@ pub(crate) fn lower_struct_field_store(
         }
         v
     };
-    // §13.15.2 — the value exists before PutValue asks anything of the
-    // base. An absent receiver (§7.1.20 ToObject) and a frozen or
-    // redefined field (§10.1.9.2) both refuse here, after the rhs; the
-    // value is parked as a throw temp so either refusal releases the
-    // stake it took above. The nullish test is self-gating: a receiver
-    // that cannot be absent emits nothing.
-    // A ctor's leading writes reach an instance nothing has seen yet
-    // (`ssa_lower_fn::fresh_this`): no guard, and the first write to a
-    // nullish-default field has nothing to release.
-    let v_ty = ctx.operand_ty(&v);
-    let parked = (!v_ty.is_copy()).then(|| ctx.push_throw_temp(v, v_ty));
-    crate::ssa_lower_nullable_guard_emit::emit_undefable_heap_guard(ctx, obj, &obj_val);
-    let done = guard::emit_field_writable_guard(ctx, obj, obj_val, field, v);
-    if let Some(token) = parked {
-        ctx.pop_throw_temp(token);
-    }
-    // Drop the old field value if non-Copy.
-    if !field_ty.is_copy() && !ctx.proofs.fresh_this_first_write.contains(&obj) {
-        let cur_block = ctx.cur_block;
-        let old = ctx.f.append_inst(
-            cur_block,
-            InstKind::Load(field_ty, obj_val, offset),
-            field_ty,
-            None,
-        );
-        ctx.emit_drop_value(Operand::Value(old), field_ty);
-    }
-    // L3b #6 crash fix — mirror the ObjectLit field-store mark: a
-    // typed Array entering a struct field must carry its elem kind
-    // for the runtime walkers (inspect / cycle collector). No-op for
-    // non-Arr fields. Chunk 621 — the chain now derives from the
-    // value's own type inside the helper: an `any[]` field taking a
-    // typed array (T-11 widen) marked chain 0 off the field type and
-    // left the block invisible to the kind-aware readers.
-    ctx.emit_arr_mark_kind(&v);
-    let cur_block = ctx.cur_block;
-    ctx.f
-        .append_void(cur_block, InstKind::Store(v, obj_val, offset));
-    guard::mint_read_stake(ctx, (assign, obj, field), v, done);
-    guard::finish_guarded_store(ctx, done);
-    v
+    Rhs::Value(v)
 }

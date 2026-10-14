@@ -30,6 +30,7 @@
 pub(crate) mod accessor_argv;
 pub(crate) mod accessor_slot;
 pub(crate) mod exotic_read;
+pub(crate) mod shadow_read;
 
 use crate::ast::ExprId;
 use crate::ssa::{InstKind, Operand, StructId, Type};

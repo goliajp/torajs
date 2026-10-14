@@ -5,9 +5,9 @@
 //! sentinel field table (`sentinel_tables`).
 
 use super::Analysis;
-use crate::ast::{PropKey, Stmt};
+use crate::ast::{Ast, ExprId, PropKey, Stmt};
 use crate::check::Type;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// By name, like the rest of the sentinel tables: a same-named member
 /// of another type costs one predictable compare at the consumer.
@@ -18,14 +18,20 @@ use std::collections::HashSet;
 /// struct type, which is where every struct type that reaches an
 /// expression ends up anyway.
 pub(super) fn collect(a: &Analysis<'_>) -> HashSet<PropKey> {
+    names(a.ast, a.expr_types)
+}
+
+/// [`collect`] over the checked program's two tables; the shadow census
+/// (`ast::named_prop_census::shadow_names`) reads the same answer.
+pub(crate) fn names(ast: &Ast, expr_types: &HashMap<ExprId, Type>) -> HashSet<PropKey> {
     let mut out = HashSet::new();
-    for stmt in &a.ast.stmts {
+    for stmt in &ast.stmts {
         let Stmt::TypeDecl { name, fields, .. } = stmt else {
             continue;
         };
         for (k, ann) in fields {
             if ann == crate::ssa_lower_parse_type::OPTIONAL_NUMBER_ANN
-                && a.ast
+                && ast
                     .optional_plain_members
                     .contains(&(name.clone(), k.clone()))
             {
@@ -33,7 +39,7 @@ pub(super) fn collect(a: &Analysis<'_>) -> HashSet<PropKey> {
             }
         }
     }
-    for t in a.expr_types.values() {
+    for t in expr_types.values() {
         walk(t, &mut out);
     }
     out

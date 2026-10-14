@@ -195,19 +195,7 @@ pub(crate) fn try_lower(
     // layout slots: an accessor is one property whose value comes from
     // its getter ([[Get]]), and a get/set pair is not two of them.
     let props = crate::ssa_lower_struct_own_props::own_props(&layout, ctx.fn_sigs);
-    // S132 — heterogeneous fields route the boxed runtime own-walk
-    // (the same Any-arm above), which per-field decodes via the
-    // field_metadata's type_tag. Two ways here: the checker's
-    // rotation-545 `Array<Any>` verdict for a plain heterogeneous
-    // (or empty) struct, and the older `<typed> as any` spelling
-    // where check sees Type::Any but ssa-lower still sees
-    // Type::Obj(sid) (`lower_as_cast` is a no-op for refcounted
-    // inner types). Falling through the homogeneous fast path
-    // instead would emit a wrong-type Load for every field — the
-    // str ptr read through layout[0]=I64 returns the raw VA as a
-    // Number. An empty struct has no elem type to narrow to and the
-    // walker answers its [] directly.
-    if props.is_empty() || !props.iter().all(|p| p.ty() == props[0].ty()) {
+    if runtime_walks(ctx, &props, args[0]) {
         let boxed = ctx.box_to_any(arg_op);
         let arr_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
         let v = ctx.f.append_inst(
@@ -252,6 +240,34 @@ pub(crate) fn try_lower(
     // the join block covers them both.
     ctx.release_owned_temp(args[0], &arg_raw);
     Some(out)
+}
+
+/// Whether the values come from the boxed runtime own-walk rather than
+/// the homogeneous fast path. S132 — heterogeneous fields route the
+/// walk (the same Any-arm as an `any` receiver), which per-field
+/// decodes via the field_metadata's type_tag. Two ways here: the
+/// checker's rotation-545 `Array<Any>` verdict for a plain
+/// heterogeneous (or empty) struct, and the older `<typed> as any`
+/// spelling where check sees Type::Any but ssa-lower still sees
+/// Type::Obj(sid) (`lower_as_cast` is a no-op for refcounted inner
+/// types). Falling through the homogeneous fast path instead would
+/// emit a wrong-type Load for every field — the str ptr read through
+/// layout[0]=I64 returns the raw VA as a Number. An empty struct has no
+/// elem type to narrow to and the walker answers its [] directly. A
+/// member a write of the program can shadow answers the sidecar as an
+/// any-lane value (`shadow_read`), which no typed element slot can
+/// carry, so it takes the walk too, which reads the sidecar.
+fn runtime_walks(
+    ctx: &LowerCtx<'_>,
+    props: &[crate::ssa_lower_struct_own_props::OwnProp],
+    recv: ExprId,
+) -> bool {
+    let shadowed = props.iter().any(|p| {
+        matches!(p.src, crate::ssa_lower_struct_own_props::PropSource::Data { ty, .. }
+            if crate::ssa_lower_member_obj_field::shadow_read::applies(
+                ctx, Some(recv), &p.key.lossy(), ty))
+    });
+    props.is_empty() || shadowed || !props.iter().all(|p| p.ty() == props[0].ty())
 }
 
 /// The static unfold: one array slot per own property, in declaration
@@ -317,7 +333,7 @@ fn emit_values_unfold(
         // straight over. A borrowed field slot keeps the pre-blade-6
         // shape (the array views the struct's stake). The push and the
         // store take it the same way — neither adds a reference.
-        let (v, _owned) =
+        let (v, _ty, _owned) =
             crate::ssa_lower_struct_own_props::emit_prop_value(ctx, arg_op, Some(src), prop);
         if let Some(next_blk) = skip_blk {
             let raw = ctx.raw_slot_arg(v);

@@ -25,7 +25,9 @@ pub(super) fn parse_generic(
     inst_memo: &mut HashMap<String, ssa::StructId>,
 ) -> Option<Type> {
     let head = &s[..open_idx];
-    if let Some((tp_names, fields)) = generic_struct_decls.get(head).cloned() {
+    if let Some((tp_names, fields, plain_optional_members)) =
+        generic_struct_decls.get(head).cloned()
+    {
         let inner = &s[open_idx + 1..s.len() - 1];
         let mut args: Vec<&str> = Vec::new();
         let mut depth: i32 = 0;
@@ -115,9 +117,7 @@ pub(super) fn parse_generic(
             } else {
                 substituted
             };
-            // a plain optional member is spelled `a?` in the generic
-            // declaration's copy (`ssa_lower_pass_0_5`)
-            let plain_optional = fname.as_wtf8().as_bytes().ends_with(b"?");
+            let plain_optional = plain_optional_members.contains(fname);
             let fty = parse_struct_field_type(
                 &substituted,
                 plain_optional,
@@ -128,11 +128,7 @@ pub(super) fn parse_generic(
                 struct_layouts,
                 inst_memo,
             );
-            let fname = match plain_optional {
-                true => PropKey::from(fname.lossy().trim_end_matches('?')),
-                false => fname.clone(),
-            };
-            layout.push((fname, fty));
+            layout.push((fname.clone(), fty));
         }
         struct_layouts[id.0 as usize] = layout;
         return Some(Type::Obj(id));

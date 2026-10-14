@@ -204,8 +204,8 @@ fn resolve_field(
             if let Some(v) = exotic_read::any_field_value(ctx, obj, slot, &name) {
                 return Some((fname.to_owned(), v, Type::Any, true));
             }
-            let (v, owned) = exotic_read::slot_value(ctx, None, obj, slot, &name);
-            Some((fname.to_owned(), v, *slot_ty, owned))
+            let (v, ty, owned) = exotic_read::slot_value(ctx, None, obj, slot, &name);
+            Some((fname.to_owned(), v, ty, owned))
         }
     }
 }

@@ -136,7 +136,10 @@ pub(super) fn collect_generic_decls(ast: &Ast) -> GenericStructDecls {
         } = stmt
             && !type_params.is_empty()
         {
-            out.insert(name.clone(), (type_params.clone(), fields.clone()));
+            out.insert(
+                name.clone(),
+                ast.generic_struct_decl(name, type_params, fields),
+            );
         }
     }
     out

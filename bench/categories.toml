@@ -141,7 +141,12 @@ cases = ["generator-yield-100k"]
 
 [categories.container]
 weight = 4
-cases = ["fifo-queue-100k", "fifo-queue-10m", "map-str-100k"]
+cases = [
+  "dict-count-optional-read-1m",
+  "fifo-queue-100k",
+  "fifo-queue-10m",
+  "map-str-100k",
+]
 
 [categories.throw]
 weight = 3

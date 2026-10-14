@@ -38,7 +38,7 @@ use crate::ast::{Expr, ExprId};
 use crate::ssa::{IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_struct_own_props::{
-    emit_prop_store, emit_prop_value, own_prop_sinks, own_props,
+    PropSink, emit_prop_store, emit_prop_store_any, emit_prop_value, own_prop_sinks, own_props,
 };
 
 pub(crate) fn try_lower(
@@ -164,7 +164,6 @@ pub(crate) fn try_lower(
                     )
                 })
                 .sink;
-            let val_ty = prop.ty();
             let copy_blk = ctx.f.add_block();
             let next_blk = ctx.f.add_block();
             let probe_blk = ctx.f.add_block();
@@ -203,8 +202,13 @@ pub(crate) fn try_lower(
                 },
             );
             ctx.cur_block = copy_blk;
-            let (value, owned) = emit_prop_value(ctx, &source_op, Some(*src_eid), &prop);
-            emit_prop_store(ctx, &target_op, &sink, value, owned, val_ty);
+            let (value, val_ty, owned) = emit_prop_value(ctx, &source_op, Some(*src_eid), &prop);
+            match sink {
+                PropSink::Data { ty, .. } if val_ty == Type::Any && ty != Type::Any => {
+                    emit_prop_store_any(ctx, &target_op, &prop.key, value, owned)
+                }
+                _ => emit_prop_store(ctx, &target_op, &sink, value, owned, val_ty),
+            }
             let end = ctx.cur_block;
             ctx.f.set_term(end, Terminator::Br(next_blk));
             ctx.cur_block = next_blk;

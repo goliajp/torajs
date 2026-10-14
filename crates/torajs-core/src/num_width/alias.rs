@@ -196,7 +196,7 @@ impl<'a> Analysis<'a> {
         let Some(open) = key.find('<') else {
             return false;
         };
-        let Some((tp_names, fields)) = self.generic_decls.get(&key[..open]).cloned() else {
+        let Some((tp_names, fields, _)) = self.generic_decls.get(&key[..open]).cloned() else {
             return false;
         };
         if fields.len() == 1 && fields[0].0 == "__alias__" {

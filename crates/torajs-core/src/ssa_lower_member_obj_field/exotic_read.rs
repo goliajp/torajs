@@ -24,7 +24,6 @@ use crate::ssa::{FuncId, IPred, InstKind, Module, Operand, Terminator, Type};
 use crate::ssa_lower::{LowerCtx, declare_intrinsic};
 
 mod convert;
-pub(crate) use convert::optional_number;
 
 /// The read leg: `(cell, name Str) -> owned any`.
 const GET_LEG: &str = "__torajs_obj_field_get_exotic";
@@ -41,19 +40,31 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
 }
 
 /// Whether a read of the declared field `name` of the instance `obj`
-/// (an operand with no expression of its own when `None`) can meet an
-/// accessor.
-fn applies(ctx: &LowerCtx<'_>, obj: Option<ExprId>, name: &str) -> bool {
-    ctx.ast.accessor_field_names.may(name)
-        && obj.is_none_or(|obj| {
-            !ctx.proofs.fresh_this_recv.contains(&obj)
-                && !crate::ssa_lower_assign_member_field::guard::generator_own_slot(ctx, obj)
-        })
+/// (an operand with no expression of its own when `None`), whose slot
+/// is `slot_ty`, can meet an accessor, or a value a write of the
+/// program parked in the sidecar.
+fn applies(ctx: &LowerCtx<'_>, obj: Option<ExprId>, name: &str, slot_ty: Type) -> bool {
+    let names = &ctx.ast.accessor_field_names;
+    (names.may(name) || names.may_shadow(name, slot_ty == Type::F64))
+        && receiver_may_be_exotic(ctx, obj)
+}
+
+/// Whether the instance `obj` can carry the exotic-field bit at this
+/// read: a constructor's fresh `this` and a generator's own state
+/// cannot.
+pub(crate) fn receiver_may_be_exotic(ctx: &LowerCtx<'_>, obj: Option<ExprId>) -> bool {
+    obj.is_none_or(|obj| {
+        !ctx.proofs.fresh_this_recv.contains(&obj)
+            && !crate::ssa_lower_assign_member_field::guard::generator_own_slot(ctx, obj)
+    })
 }
 
 /// Branch on the instance's exotic-field bit: `(hit, plain)`, with the
 /// current block terminated.
-fn branch(ctx: &mut LowerCtx<'_>, obj_val: Operand) -> (crate::ssa::BlockId, crate::ssa::BlockId) {
+pub(super) fn branch(
+    ctx: &mut LowerCtx<'_>,
+    obj_val: Operand,
+) -> (crate::ssa::BlockId, crate::ssa::BlockId) {
     let hdr_word = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(Type::I32, obj_val, 4),
@@ -91,7 +102,7 @@ fn branch(ctx: &mut LowerCtx<'_>, obj_val: Operand) -> (crate::ssa::BlockId, cra
 }
 
 /// The any-lane [[Get]] of `name` on the instance, owned.
-fn emit_get(ctx: &mut LowerCtx<'_>, obj_val: Operand, name: &str) -> Operand {
+pub(super) fn emit_get(ctx: &mut LowerCtx<'_>, obj_val: Operand, name: &str) -> Operand {
     let name_str = ctx.intern_string_literal(name);
     let leg = ctx.fn_table[GET_LEG];
     let got = ctx.f.append_inst(
@@ -115,6 +126,13 @@ pub(crate) fn guarded_load(
     slot: (u64, Type),
     name: &str,
 ) -> Option<Operand> {
+    if super::shadow_read::applies(ctx, Some(obj), name, slot.1)
+        && receiver_may_be_exotic(ctx, Some(obj))
+    {
+        let v = super::shadow_read::boxed_load(ctx, obj_val, slot, name);
+        ctx.owned_member_reads.insert(eid);
+        return Some(v);
+    }
     let v = owned_slot_read(ctx, Some(obj), obj_val, slot, name)?;
     if slot.1.is_refcounted() {
         ctx.owned_member_reads.insert(eid);
@@ -123,17 +141,24 @@ pub(crate) fn guarded_load(
 }
 
 /// A whole-object reader's view of one declared field (a spread, a
-/// serializer, `Object.values`): the value, and whether it is OWNED
-/// (the guarded read) or borrowed out of the slot (the bare load).
+/// serializer, `Object.values`): the value, its type, and whether it is
+/// OWNED (the guarded read) or borrowed out of the slot (the bare
+/// load). A field a write of the program can shadow answers as an
+/// owned any-lane value (`shadow_read`), so the type is the value's,
+/// not always the slot's.
 pub(crate) fn slot_value(
     ctx: &mut LowerCtx<'_>,
     obj: Option<ExprId>,
     obj_val: Operand,
     (offset, field_ty): (u64, Type),
     name: &str,
-) -> (Operand, bool) {
+) -> (Operand, Type, bool) {
+    if super::shadow_read::applies(ctx, obj, name, field_ty) && receiver_may_be_exotic(ctx, obj) {
+        let v = super::shadow_read::boxed_load(ctx, obj_val, (offset, field_ty), name);
+        return (v, Type::Any, true);
+    }
     if let Some(v) = owned_slot_read(ctx, obj, obj_val, (offset, field_ty), name) {
-        return (v, true);
+        return (v, field_ty, true);
     }
     let v = ctx.f.append_inst(
         ctx.cur_block,
@@ -141,23 +166,23 @@ pub(crate) fn slot_value(
         field_ty,
         None,
     );
-    (Operand::Value(v), false)
+    (Operand::Value(v), field_ty, false)
 }
 
 /// [`slot_value`] taken as an owned value: a borrowed one takes a
 /// share.
-pub(crate) fn owned_field(
+pub(crate) fn owned_field_or_any(
     ctx: &mut LowerCtx<'_>,
     obj: Option<ExprId>,
     obj_val: Operand,
     slot: (u64, Type),
     name: &str,
-) -> Operand {
-    let (v, owned) = slot_value(ctx, obj, obj_val, slot, name);
-    if !owned && slot.1.is_refcounted() {
+) -> (Operand, Type) {
+    let (v, ty, owned) = slot_value(ctx, obj, obj_val, slot, name);
+    if !owned && ty.is_refcounted() {
         ctx.emit_rc_inc(v);
     }
-    v
+    (v, ty)
 }
 
 /// Before a call through the callable field `name`: the call reads
@@ -186,7 +211,7 @@ fn owned_slot_read(
     (offset, field_ty): (u64, Type),
     name: &str,
 ) -> Option<Operand> {
-    if !applies(ctx, obj, name) {
+    if !applies(ctx, obj, name, field_ty) {
         return None;
     }
     let (conv, shown) = convert::conversion(ctx, obj, name, field_ty)?;
@@ -242,7 +267,7 @@ pub(crate) fn guarded_load_boxed(
     name: &str,
     res_slot: crate::ssa::ValueId,
 ) -> Option<crate::ssa::BlockId> {
-    if !applies(ctx, Some(obj), name) {
+    if !applies(ctx, Some(obj), name, slot.1) {
         return None;
     }
     let done = boxed_read(ctx, obj_val, slot, name, res_slot);
@@ -260,7 +285,7 @@ pub(crate) fn any_field_value(
     slot: (u64, Type),
     name: &str,
 ) -> Option<Operand> {
-    if !applies(ctx, None, name) {
+    if !applies(ctx, None, name, slot.1) {
         return None;
     }
     let res = ctx.alloca_in_entry(Type::Any, Some("__field_read"));
@@ -303,7 +328,12 @@ fn boxed_read(
     if field_ty.is_refcounted() {
         ctx.emit_owned_result_inc(Operand::Value(v), field_ty);
     }
-    let boxed = ctx.box_to_any(Operand::Value(v));
+    // an f64 slot may hold the undefined sentinel, which boxes as
+    // `undefined`, not as a NaN
+    let boxed = match field_ty {
+        Type::F64 => ctx.box_f64_or_undef(Operand::Value(v)),
+        _ => ctx.box_to_any(Operand::Value(v)),
+    };
     let blk = ctx.cur_block;
     ctx.f
         .append_void(blk, InstKind::Store(boxed, Operand::Value(res_slot), 0));

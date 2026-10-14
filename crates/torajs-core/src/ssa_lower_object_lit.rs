@@ -180,7 +180,7 @@ pub(crate) fn lower(
     }
     write_vtable_ptr(ctx, obj_ptr, sid, owner);
     let layout = ctx.struct_layouts[sid.0 as usize].clone();
-    slot_fit::fit_slot_values(
+    let unspelled = slot_fit::fit_slot_values(
         ctx,
         &layout,
         &fields,
@@ -213,6 +213,7 @@ pub(crate) fn lower(
         let fixed: Vec<PropKey> = absent.into_iter().map(|(_, n)| n).collect();
         absent::record_deleted(ctx, obj_ptr, &fixed, &spread_absent);
     }
+    slot_fit::store_unspelled(ctx, obj_ptr, unspelled);
     Operand::Value(obj_ptr)
 }
 

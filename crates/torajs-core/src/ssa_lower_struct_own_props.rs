@@ -198,6 +198,41 @@ pub(crate) fn emit_prop_store(
     }
 }
 
+/// Write the any-lane value `value` into the data property `key` of
+/// `obj` through §10.1.9.2 [[Set]]: a value the slot can hold lands in
+/// it, anything else stays in the field's sidecar behind the exotic
+/// bit — what a source field a write of the program shadowed hands on
+/// (`exotic_read::slot_value` answers it as an owned `any`).
+pub(crate) fn emit_prop_store_any(
+    ctx: &mut LowerCtx<'_>,
+    obj: &Operand,
+    key: &PropKey,
+    value: Operand,
+    owned: bool,
+) {
+    let strict = !crate::ssa_lower_set_flavor::cur_fn_is_sloppy(ctx);
+    let (tag, val) = ctx.box_to_tag_value(value);
+    let name_str = ctx.intern_string_literal(key.as_wtf8());
+    let leg = ctx.intrinsics.obj_field_set_exotic;
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Call(
+            leg,
+            vec![
+                *obj,
+                Operand::Value(name_str),
+                tag,
+                val,
+                Operand::ConstI64(i64::from(strict)),
+            ],
+        ),
+    );
+    ctx.emit_throw_check(None);
+    if owned {
+        ctx.emit_drop_value(value, Type::Any);
+    }
+}
+
 /// Emit the property's value off `obj`. The bool is OWNED: `true` when
 /// the value arrives with its own reference (a getter's result, a fresh
 /// `undefined` box), `false` when it is borrowed out of the struct's
@@ -210,7 +245,7 @@ pub(crate) fn emit_prop_value(
     obj: &Operand,
     src: Option<ExprId>,
     prop: &OwnProp,
-) -> (Operand, bool) {
+) -> (Operand, Type, bool) {
     match prop.src {
         PropSource::Data { idx, ty } => {
             let off = OBJ_HEADER_SIZE + (idx as u64) * 8;
@@ -234,7 +269,7 @@ pub(crate) fn emit_prop_value(
                 &[],
             );
             ctx.emit_throw_check(None);
-            (v, true)
+            (v, prop.ty(), true)
         }
         PropSource::SetterOnly => {
             let cur = ctx.cur_block;
@@ -244,7 +279,7 @@ pub(crate) fn emit_prop_value(
                 Type::Any,
                 None,
             );
-            (Operand::Value(v), true)
+            (Operand::Value(v), Type::Any, true)
         }
     }
 }

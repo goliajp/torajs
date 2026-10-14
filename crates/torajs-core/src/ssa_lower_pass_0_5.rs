@@ -111,24 +111,10 @@ pub(crate) fn run(
         } = stmt
         {
             if !type_params.is_empty() {
-                // a plain optional member rides into the instantiation
-                // spelled `a?`, the way an inline object type spells it
-                let fields = fields
-                    .iter()
-                    .map(|(k, ann)| {
-                        match ast
-                            .optional_plain_members
-                            .contains(&(name.clone(), k.clone()))
-                        {
-                            true => (
-                                PropKey::from(format!("{}?", k.lossy()).as_str()),
-                                ann.clone(),
-                            ),
-                            false => (k.clone(), ann.clone()),
-                        }
-                    })
-                    .collect();
-                generic_struct_decls.insert(name.clone(), (type_params.clone(), fields));
+                generic_struct_decls.insert(
+                    name.clone(),
+                    ast.generic_struct_decl(name, type_params, fields),
+                );
                 continue;
             }
             // V3-18 wedge — already handled in the placeholder
