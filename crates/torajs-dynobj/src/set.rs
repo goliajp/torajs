@@ -17,6 +17,8 @@
 
 use core::ffi::c_void;
 
+use crate::nanbox;
+
 use crate::accessor::{__torajs_accessor_invoke_setter, value_is_accessor};
 use crate::global_cell::{global_cell_write, value_is_global_cell};
 use crate::layout::{
@@ -44,17 +46,6 @@ unsafe extern "C" {
     /// entry value when overwriting.
     fn __torajs_value_drop_heap(child: *mut c_void);
 
-    /// torajs-anyvalue — NaN-box AnyValue pair encoder. Takes (tag,
-    /// value) as i64 + returns the packed u64 immediate.
-    fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
-
-    /// torajs-anyvalue — NaN-box AnyValue tag decoder.
-    fn __torajs_anyv_unbox_tag(v: u64) -> i64;
-
-    /// torajs-anyvalue — borrow-shaped cell-pointer read (a global
-    /// cell entry hands its cell over for the write-through).
-    fn __torajs_anyv_cell_ptr(v: u64) -> i64;
-
     /// torajs-rc — builtin-prototype-singleton own-write note (RFC
     /// 20260721 刀 11 G13): marks the (proto tag, mid) patch bit the
     /// any-method dispatcher's primitive fast arms pre-gate on.
@@ -81,7 +72,7 @@ pub unsafe extern "C" fn __torajs_dynobj_set(
     tag: u64,
     value: u64,
 ) {
-    unsafe { dynobj_set_impl(obj_slot, key, tag, value, true) };
+    unsafe { dynobj_set_impl(obj_slot, key, tag, value, true, false) };
 }
 
 /// §28.1.13 Reflect.set flavor — a [[Set]] refusal (readonly entry /
@@ -99,34 +90,43 @@ pub unsafe extern "C" fn __torajs_dynobj_set_soft(
     tag: u64,
     value: u64,
 ) -> i64 {
-    unsafe { dynobj_set_impl(obj_slot, key, tag, value, false) }
+    unsafe { dynobj_set_impl(obj_slot, key, tag, value, false, false) }
 }
 
 /// Flavor-carrying core of the two shells above — `throw_on_refusal`
 /// picks §13.15.2 strict-assignment (record the TypeError) or
 /// §28.1.13 Reflect.set (answer false). Both flavors return the
 /// success i64 (1 = written / setter ran, 0 = refused).
+///
+/// `own_only` is [`__torajs_dynobj_set_own`]'s flavor: an absent key
+/// writes nothing and answers [`DYNOBJ_SET_OWN_MISS`]. One body serves
+/// all three entries.
+#[inline(never)]
 unsafe fn dynobj_set_impl(
     obj_slot: *mut *mut c_void,
     key: *mut c_void,
     tag: u64,
     value: u64,
     throw_on_refusal: bool,
+    own_only: bool,
 ) -> i64 {
     let obj = unsafe { *obj_slot };
     if obj.is_null() {
         return 1;
     }
-    unsafe { note_own_write(obj, key) };
     // Dense-array-full guard: compact (and grow if genuinely full)
     // before probing so a fresh insert always has an append slot.
     // Resize swaps the store inside the header cell — `obj` itself
     // stays valid (RFC 20260809-dynobj-store-split).
-    if unsafe { entries_len(obj) } == unsafe { entries_cap(obj) } {
+    if !own_only && unsafe { entries_len(obj) } == unsafe { entries_cap(obj) } {
         unsafe { resize(obj) };
     }
 
     let pr = unsafe { probe(obj, key as *const c_void) };
+    if !pr.found && own_only {
+        return DYNOBJ_SET_OWN_MISS;
+    }
+    unsafe { note_own_write(obj, key) };
     let ent = unsafe { entries(obj) };
     if pr.found {
         unsafe {
@@ -180,10 +180,7 @@ unsafe fn dynobj_set_impl(
             __torajs_rc_inc(key);
             *ent.add(e_idx as usize) = Entry {
                 key_ptr_tagged: bucket_make_key_tagged(key, attrs),
-                value_anyv: __torajs_anyv_box_from_pair(
-                    (tag & BUCKET_TAG_MASK) as i64,
-                    value as i64,
-                ),
+                value_anyv: nanbox::box_from_pair((tag & BUCKET_TAG_MASK) as i64, value as i64),
             };
             *index_ptr(obj).add(pr.slot as usize) = e_idx;
             set_entries_len(obj, e_idx + 1);
@@ -220,20 +217,8 @@ pub unsafe extern "C" fn __torajs_dynobj_set_own(
     value: u64,
     throw_on_refusal: bool,
 ) -> i64 {
-    unsafe {
-        let pr = probe(obj, key as *const c_void);
-        if !pr.found {
-            return DYNOBJ_SET_OWN_MISS;
-        }
-        note_own_write(obj, key);
-        write_own_entry(
-            obj,
-            entries(obj).add(pr.entry as usize),
-            tag,
-            value,
-            throw_on_refusal,
-        )
-    }
+    let mut slot = obj;
+    unsafe { dynobj_set_impl(&mut slot, key, tag, value, throw_on_refusal, true) }
 }
 
 /// A write landing on a builtin `<Ctor>.prototype` singleton is a
@@ -260,6 +245,7 @@ unsafe fn note_own_write(obj: *mut c_void, key: *mut c_void) {
 /// # Safety
 /// `e` is a live entry of `obj`; `(tag, value)` carries the caller's
 /// `+1` on a heap payload.
+#[inline]
 unsafe fn write_own_entry(
     obj: *mut c_void,
     e: *mut Entry,
@@ -273,11 +259,10 @@ unsafe fn write_own_entry(
     // writable bit, so the data path would wrongly throw "read
     // only"). `cur_value_anyv` is the AccessorPair cell verbatim.
     if unsafe { value_is_accessor(cur_value_anyv) } {
-        let value_anyv =
-            unsafe { __torajs_anyv_box_from_pair((tag & BUCKET_TAG_MASK) as i64, value as i64) };
+        let value_anyv = nanbox::box_from_pair((tag & BUCKET_TAG_MASK) as i64, value as i64);
         // Receiver = the dynobj itself, boxed — an ACC_KIND_RECV
         // fn-expr face reads it as `this`; other faces ignore it.
-        let recv_anyv = unsafe { __torajs_anyv_box_from_pair(4, obj as i64) };
+        let recv_anyv = nanbox::box_from_pair(4, obj as i64);
         let ran = unsafe {
             __torajs_accessor_invoke_setter(cur_value_anyv as *const c_void, recv_anyv, value_anyv)
         };
@@ -312,7 +297,7 @@ unsafe fn write_own_entry(
     // slot that cannot spell the value refuses loudly rather
     // than storing bits every bare read after it would misread.
     if unsafe { value_is_global_cell(cur_value_anyv) } {
-        let cell = unsafe { __torajs_anyv_cell_ptr(cur_value_anyv) } as *const c_void;
+        let cell = nanbox::cell_ptr(cur_value_anyv) as *const c_void;
         if unsafe { global_cell_write(cell, tag & BUCKET_TAG_MASK, value) } {
             return 1;
         }
@@ -326,7 +311,7 @@ unsafe fn write_own_entry(
         }
         return 0;
     }
-    let cur_tag = unsafe { __torajs_anyv_unbox_tag(cur_value_anyv) } as u64;
+    let cur_tag = nanbox::unbox_tag_inline(cur_value_anyv) as u64;
     // Drop the old heap value if the current slot was ANY_HEAP.
     // (The NaN-box cell gate in __torajs_value_drop_heap would
     // also short-circuit immediates, but checking tag first keeps
@@ -339,7 +324,8 @@ unsafe fn write_own_entry(
     // Preserve existing flag bits in key_ptr_tagged; rebox the
     // (tag, value) pair into a fresh NaN-box AnyValue.
     unsafe {
-        (*e).value_anyv = __torajs_anyv_box_from_pair((tag & BUCKET_TAG_MASK) as i64, value as i64);
+        (*e).value_anyv =
+            nanbox::box_from_pair_inline((tag & BUCKET_TAG_MASK) as i64, value as i64);
     }
     1
 }
@@ -410,11 +396,10 @@ pub unsafe extern "C" fn __torajs_dynobj_set_fresh_dup(
         if pr.found {
             let e = entries(obj).add(pr.entry as usize);
             let cur = (*e).value_anyv;
-            if __torajs_anyv_unbox_tag(cur) as u64 == ANY_HEAP {
+            if nanbox::unbox_tag(cur) as u64 == ANY_HEAP {
                 __torajs_value_drop_heap(cur as *mut c_void);
             }
-            (*e).value_anyv =
-                __torajs_anyv_box_from_pair((tag & BUCKET_TAG_MASK) as i64, value as i64);
+            (*e).value_anyv = nanbox::box_from_pair((tag & BUCKET_TAG_MASK) as i64, value as i64);
             return;
         }
         fresh_insert(obj, key, tag, value, &pr);
@@ -453,7 +438,7 @@ unsafe fn fresh_insert(obj: *mut c_void, key: *mut c_void, tag: u64, value: u64,
         __torajs_rc_inc(key);
         *entries(obj).add(e_idx as usize) = Entry {
             key_ptr_tagged: bucket_make_key_tagged(key, BUCKET_FLAGS_DEFAULT),
-            value_anyv: __torajs_anyv_box_from_pair((tag & BUCKET_TAG_MASK) as i64, value as i64),
+            value_anyv: nanbox::box_from_pair((tag & BUCKET_TAG_MASK) as i64, value as i64),
         };
         *index_ptr(obj).add(pr.slot as usize) = e_idx;
         set_entries_len(obj, e_idx + 1);
@@ -535,21 +520,11 @@ mod tests {
             let obj = __torajs_dynobj_alloc();
             let a = ka.as_ptr() as *mut c_void;
             let b = kb.as_ptr() as *mut c_void;
-            insert(
-                obj,
-                a,
-                BUCKET_FLAGS_DEFAULT,
-                __torajs_anyv_box_from_pair(2, 1),
-            );
-            insert(
-                obj,
-                b,
-                BUCKET_FLAGS_DEFAULT,
-                __torajs_anyv_box_from_pair(2, 2),
-            );
+            insert(obj, a, BUCKET_FLAGS_DEFAULT, nanbox::box_from_pair(2, 1));
+            insert(obj, b, BUCKET_FLAGS_DEFAULT, nanbox::box_from_pair(2, 2));
             assert_eq!(__torajs_dynobj_set_own(obj, b, 2, 9, true), 1);
-            assert_eq!(value_of(obj, b), __torajs_anyv_box_from_pair(2, 9));
-            assert_eq!(value_of(obj, a), __torajs_anyv_box_from_pair(2, 1));
+            assert_eq!(value_of(obj, b), nanbox::box_from_pair(2, 9));
+            assert_eq!(value_of(obj, a), nanbox::box_from_pair(2, 1));
             assert_eq!(entries_len(obj), 2);
             let flags = bucket_flags((*entries(obj).add(1)).key_ptr_tagged);
             assert_eq!(flags, BUCKET_FLAGS_DEFAULT);
@@ -565,7 +540,7 @@ mod tests {
         unsafe {
             let obj = __torajs_dynobj_alloc();
             let kp = k.as_ptr() as *mut c_void;
-            let before = __torajs_anyv_box_from_pair(2, 3);
+            let before = nanbox::box_from_pair(2, 3);
             insert(obj, kp, BUCKET_FLAG_CONFIGURABLE, before);
             assert_eq!(__torajs_dynobj_set_own(obj, kp, 2, 4, false), 0);
             assert_eq!(value_of(obj, kp), before);
@@ -586,18 +561,8 @@ mod tests {
             let obj = __torajs_dynobj_alloc();
             let a = ka.as_ptr() as *mut c_void;
             let b = kb.as_ptr() as *mut c_void;
-            insert(
-                obj,
-                a,
-                BUCKET_FLAGS_DEFAULT,
-                __torajs_anyv_box_from_pair(2, 7),
-            );
-            insert(
-                obj,
-                b,
-                BUCKET_FLAGS_DEFAULT,
-                __torajs_anyv_box_from_pair(5, 0),
-            );
+            insert(obj, a, BUCKET_FLAGS_DEFAULT, nanbox::box_from_pair(2, 7));
+            insert(obj, b, BUCKET_FLAGS_DEFAULT, nanbox::box_from_pair(5, 0));
             let mut v = 99u64;
             assert_eq!(__torajs_dynobj_get_own(obj, a, &mut v), 2);
             assert_eq!(v, 7);

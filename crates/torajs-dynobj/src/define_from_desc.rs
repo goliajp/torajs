@@ -9,6 +9,8 @@
 
 use core::ffi::c_void;
 
+use crate::nanbox;
+
 use crate::define::define_apply;
 use crate::layout::{
     CELL_PROPS_OFF, DEFINE_FLAG_CONFIGURABLE, DEFINE_FLAG_ENUMERABLE, DEFINE_FLAG_WRITABLE,
@@ -40,17 +42,10 @@ unsafe extern "C" {
     /// torajs-anyvalue — §10.5.6 [[DefineOwnProperty]] on a Proxy.
     fn __torajs_proxy_define_own(recv: u64, key: *mut c_void, desc: *const c_void) -> i64;
     fn __torajs_value_drop_heap(child: *mut c_void);
-    fn __torajs_anyv_unbox_tag(v: u64) -> i64;
-    fn __torajs_anyv_unbox_value(v: u64) -> i64;
     /// torajs-anyvalue — owned payload decode: cell +1, ShortStr
     /// materialized at rc=1 (the materialization IS the stake),
     /// immediates raw.
     fn __torajs_anyv_unbox_value_owned(v: u64) -> i64;
-    /// torajs-anyvalue — borrow-shaped cell read: cell → pointer
-    /// bits, every immediate (ShortStr included) → 0, zero
-    /// materialization.
-    fn __torajs_anyv_cell_ptr(v: u64) -> i64;
-    fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
     fn __torajs_anyv_to_bool(v: u64) -> bool;
     /// torajs-anyvalue — the expando bag of ANY cell kind (the cell
     /// itself for a dynobj), NULL when the shape has none or never
@@ -199,10 +194,10 @@ unsafe fn desc_field(desc: DescStore, name: &str) -> Option<u64> {
 unsafe fn desc_field_get(desc: DescStore, name: &str) -> Option<(u64, bool)> {
     let raw = unsafe { desc_field(desc, name) }?;
     if unsafe { crate::accessor::value_is_accessor(raw) } {
-        let pair = unsafe { __torajs_anyv_cell_ptr(raw) } as *const c_void;
+        let pair = nanbox::cell_ptr(raw) as *const c_void;
         // §6.2.6.5 [[Get]] receiver = the descriptor object itself.
         let (DescStore::Dyn(d, _) | DescStore::Struct(d)) = desc;
-        let recv = unsafe { __torajs_anyv_box_from_pair(4, d as i64) };
+        let recv = nanbox::box_from_pair(4, d as i64);
         let v = unsafe { crate::accessor::__torajs_accessor_invoke_getter(pair, recv) };
         return Some((v, true));
     }
@@ -214,7 +209,7 @@ unsafe fn desc_field_get(desc: DescStore, name: &str) -> Option<(u64, bool)> {
 /// (immediates — ShortStr included — no-op through the cell gate).
 unsafe fn release_desc_field(anyv: u64, owned: bool) {
     if owned {
-        let val = unsafe { __torajs_anyv_cell_ptr(anyv) };
+        let val = nanbox::cell_ptr(anyv);
         if val != 0 {
             unsafe { __torajs_value_drop_heap(val as *mut c_void) };
         }
@@ -439,7 +434,7 @@ unsafe fn define_from_desc_impl(
     }
 
     if let Some((v_anyv, v_owned)) = unsafe { desc_field_get(desc, "value") } {
-        let v_tag = unsafe { __torajs_anyv_unbox_tag(v_anyv) } as u64;
+        let v_tag = nanbox::unbox_tag(v_anyv) as u64;
         // define_apply consumes one rc of a Heap value. A borrowed
         // field (still owned by `desc`) owned-unboxes — cell +1, a
         // ShortStr materializes at rc=1 (the stake; the pre-fix
@@ -447,7 +442,7 @@ unsafe fn define_from_desc_impl(
         // leaked per struct-desc define). A getter product transfers
         // its fresh ref as-is (its ShortStr materializes its own).
         let v_val = if v_owned {
-            unsafe { __torajs_anyv_unbox_value(v_anyv) as u64 }
+            unsafe { nanbox::unbox_value(v_anyv) as u64 }
         } else {
             unsafe { __torajs_anyv_unbox_value_owned(v_anyv) as u64 }
         };

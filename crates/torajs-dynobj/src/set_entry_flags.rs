@@ -6,6 +6,8 @@
 
 use core::ffi::c_void;
 
+use crate::nanbox;
+
 use crate::probe::{
     Entry, bucket_make_key_tagged, count, entries, entries_cap, entries_len, index_ptr, probe,
     set_count, set_entries_len,
@@ -15,7 +17,6 @@ use crate::resize::resize;
 unsafe extern "C" {
     fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_value_drop_heap(child: *mut c_void);
-    fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
 }
 
 /// Raw attribute-flags upsert — RFC 20260712-arr-exotic-define
@@ -52,14 +53,14 @@ pub unsafe extern "C" fn __torajs_dynobj_set_entry_flags(
         unsafe { (*e).key_ptr_tagged = bucket_make_key_tagged(key_ptr, flags) };
         // A flags upsert revives a hole entry (RFC 20260713 chunk C):
         // the dead value slot resets to the live-shadow spelling.
-        unsafe { (*e).value_anyv = __torajs_anyv_box_from_pair(5, 0) };
+        unsafe { (*e).value_anyv = nanbox::box_from_pair(5, 0) };
     } else {
         let e_idx = unsafe { entries_len(obj) };
         unsafe {
             __torajs_rc_inc(key);
             *ent.add(e_idx as usize) = Entry {
                 key_ptr_tagged: bucket_make_key_tagged(key, flags),
-                value_anyv: __torajs_anyv_box_from_pair(5, 0),
+                value_anyv: nanbox::box_from_pair(5, 0),
             };
             *index_ptr(obj).add(pr.slot as usize) = e_idx;
             set_entries_len(obj, e_idx + 1);
@@ -101,7 +102,7 @@ pub unsafe extern "C" fn __torajs_dynobj_set_entry_value_raw(
     let e = unsafe { entries(obj).add(pr.entry as usize) };
     unsafe {
         __torajs_value_drop_heap((*e).value_anyv as *mut c_void);
-        (*e).value_anyv = __torajs_anyv_box_from_pair(tag as i64, value as i64);
+        (*e).value_anyv = nanbox::box_from_pair(tag as i64, value as i64);
     }
 }
 

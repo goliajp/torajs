@@ -5,6 +5,8 @@
 
 use core::ffi::c_void;
 
+use crate::nanbox;
+
 use crate::define::refuse;
 use crate::global_cell::{CellRedefine, redefine_through_cell, value_is_global_cell};
 use crate::layout::{
@@ -19,9 +21,6 @@ unsafe extern "C" {
     fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_throw_type_error(msg: *const u8);
     fn __torajs_value_drop_heap(child: *mut c_void);
-    fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
-    fn __torajs_anyv_unbox_tag(v: u64) -> i64;
-    fn __torajs_anyv_unbox_value(v: u64) -> i64;
     /// torajs-anyvalue — §7.2.10 SameValue over two boxed values.
     fn __torajs_anyv_same_value(l: u64, r: u64) -> bool;
 }
@@ -82,8 +81,8 @@ pub(crate) unsafe fn module_ns_refuses(
     if flags_byte & DEFINE_PRESENT_VALUE != 0 {
         let key = unsafe { (*e).key_ptr_tagged & !0x7 } as *mut c_void;
         let cur_anyv = unsafe { crate::global_cell::deref_global_cell((*e).value_anyv, key) };
-        let cur_tag = unsafe { __torajs_anyv_unbox_tag(cur_anyv) } as u64;
-        let cur_val = unsafe { __torajs_anyv_unbox_value(cur_anyv) } as u64;
+        let cur_tag = nanbox::unbox_tag(cur_anyv) as u64;
+        let cur_val = unsafe { nanbox::unbox_value(cur_anyv) } as u64;
         return cur_tag != (tag & BUCKET_TAG_MASK) || cur_val != value;
     }
     // 9. Nothing was asked to change.
@@ -110,7 +109,7 @@ pub(crate) unsafe fn redefine_entry(
     let cur_writable = cur_flags & BUCKET_FLAG_WRITABLE != 0;
     let cur_enumerable = cur_flags & BUCKET_FLAG_ENUMERABLE != 0;
     let cur_configurable = cur_flags & BUCKET_FLAG_CONFIGURABLE != 0;
-    let cur_value_tag = unsafe { __torajs_anyv_unbox_tag(cur_value_anyv) } as u64;
+    let cur_value_tag = nanbox::unbox_tag(cur_value_anyv) as u64;
     // Descriptor kind split (RFC 20260713 residual fix-up) — the
     // data-only writable/value rules must not fire on accessor pairs
     // (a fresh pair never SameValue-matches the current one, so a
@@ -182,9 +181,7 @@ pub(crate) unsafe fn redefine_entry(
                 // cell with equal bytes IS the same value; the old
                 // exact-pointer approximation rejected `{value:
                 // "abcd"}` redefined with another "abcd").
-                let incoming = unsafe {
-                    __torajs_anyv_box_from_pair((tag & BUCKET_TAG_MASK) as i64, value as i64)
-                };
+                let incoming = nanbox::box_from_pair((tag & BUCKET_TAG_MASK) as i64, value as i64);
                 let same = unsafe { __torajs_anyv_same_value(incoming, cur_value_anyv) };
                 if !same {
                     return unsafe {
@@ -269,7 +266,7 @@ pub(crate) unsafe fn redefine_entry(
     let new_value = if has_value {
         value
     } else {
-        unsafe { __torajs_anyv_unbox_value(cur_value_anyv) as u64 }
+        unsafe { nanbox::unbox_value(cur_value_anyv) as u64 }
     };
 
     // Preserve the existing key pointer (re-pack with new flags);
@@ -277,7 +274,7 @@ pub(crate) unsafe fn redefine_entry(
     let cur_key_ptr = (cur_kp_tagged & BUCKET_KEY_PTR_MASK) as *mut c_void;
     unsafe {
         (*e).key_ptr_tagged = bucket_make_key_tagged(cur_key_ptr, new_flags);
-        (*e).value_anyv = __torajs_anyv_box_from_pair(new_value_tag as i64, new_value as i64);
+        (*e).value_anyv = nanbox::box_from_pair(new_value_tag as i64, new_value as i64);
     }
     1
 }
@@ -302,7 +299,7 @@ unsafe fn merge_accessor_redefine(
     throw_on_refusal: bool,
 ) -> bool {
     use crate::accessor::{ACC_GET_OFF, ACC_KINDS_OFF, ACC_SET_OFF};
-    let cur_pair = unsafe { __torajs_anyv_unbox_value(cur_value_anyv) } as *const u8;
+    let cur_pair = unsafe { nanbox::unbox_value(cur_value_anyv) } as *const u8;
     let has_get = flags_byte & crate::layout::DEFINE_PRESENT_GET != 0;
     let has_set = flags_byte & crate::layout::DEFINE_PRESENT_SET != 0;
     let cur_get = unsafe { cur_pair.add(ACC_GET_OFF).cast::<u64>().read() };

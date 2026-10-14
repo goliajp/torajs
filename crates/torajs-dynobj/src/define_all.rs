@@ -18,6 +18,8 @@
 
 use core::ffi::c_void;
 
+use crate::nanbox;
+
 use crate::accessor::TAG_ACCESSOR_PAIR;
 use crate::define_from_desc::__torajs_dynobj_define_from_desc;
 use crate::get::type_tag;
@@ -42,9 +44,6 @@ unsafe extern "C" {
     fn free(p: *mut c_void, size: usize);
     fn __torajs_throw_type_error(msg: *const u8);
     fn __torajs_throw_check() -> i64;
-    fn __torajs_anyv_unbox_tag(v: u64) -> i64;
-    fn __torajs_anyv_unbox_value(v: u64) -> i64;
-    fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
     fn __torajs_accessor_invoke_getter(pair: *const c_void, recv_anyv: u64) -> u64;
     fn __torajs_value_drop_heap(p: *mut c_void);
     /// torajs-meta struct_enum — own enumerable layout keys of a
@@ -155,7 +154,7 @@ pub unsafe extern "C" fn __torajs_dynobj_define_properties_from(
     // The §20.1.2.3.1 step 3.b [[Get]] receiver stays the ORIGINAL
     // `props` object (the shadow below narrows to its entry storage —
     // a wrapper's expando table is not the `this` a getter sees).
-    let props_recv = unsafe { __torajs_anyv_box_from_pair(ANY_HEAP as i64, props as i64) };
+    let props_recv = nanbox::box_from_pair(ANY_HEAP as i64, props as i64);
     let props: *const c_void = match source_tag {
         TAG_DYNOBJ => props,
         TAG_CLOSURE_HDR | TAG_ARR_HDR => {
@@ -296,8 +295,8 @@ pub unsafe extern "C" fn __torajs_dynobj_define_properties_from(
 /// `props_recv` is a live boxed heap receiver; caller must check for
 /// pending throw before consuming the returned triple.
 unsafe fn resolve_desc_value(desc_anyv: u64, props_recv: u64) -> Option<(u64, u64, bool)> {
-    let raw_tag = unsafe { __torajs_anyv_unbox_tag(desc_anyv) } as u64;
-    let raw_val = unsafe { __torajs_anyv_unbox_value(desc_anyv) } as u64;
+    let raw_tag = nanbox::unbox_tag(desc_anyv) as u64;
+    let raw_val = unsafe { nanbox::unbox_value(desc_anyv) } as u64;
     if raw_tag == ANY_HEAP
         && raw_val != 0
         && unsafe { type_tag(raw_val as *const c_void) } == TAG_ACCESSOR_PAIR
@@ -307,8 +306,8 @@ unsafe fn resolve_desc_value(desc_anyv: u64, props_recv: u64) -> Option<(u64, u6
             return None;
         }
         Some((
-            unsafe { __torajs_anyv_unbox_tag(g) } as u64,
-            unsafe { __torajs_anyv_unbox_value(g) } as u64,
+            nanbox::unbox_tag(g) as u64,
+            unsafe { nanbox::unbox_value(g) } as u64,
             true,
         ))
     } else {
@@ -354,7 +353,7 @@ fn desc_kind_is_object(t: u16) -> bool {
 /// through `any_accessor_get`, owned) into the shared triple buffer,
 /// Phase 2 applies via `define_from_desc` in field order.
 unsafe fn define_all_from_keys(obj_slot: *mut *mut c_void, props: *const c_void, generic: bool) {
-    let props_anyv = unsafe { __torajs_anyv_box_from_pair(ANY_HEAP as i64, props as i64) };
+    let props_anyv = nanbox::box_from_pair(ANY_HEAP as i64, props as i64);
     let keys = if generic {
         unsafe { __torajs_anyv_own_keys(props_anyv, 0) }
     } else {
@@ -385,8 +384,8 @@ unsafe fn define_all_from_keys(obj_slot: *mut *mut c_void, props: *const c_void,
                 unsafe { release_buf(buf, buf_bytes, n) };
                 return unsafe { release_struct_keys(keys, klen, kdata) };
             }
-            let gt = unsafe { __torajs_anyv_unbox_tag(g) } as u64;
-            let gv = unsafe { __torajs_anyv_unbox_value(g) } as u64;
+            let gt = nanbox::unbox_tag(g) as u64;
+            let gv = unsafe { nanbox::unbox_value(g) } as u64;
             (gt, gv, true)
         } else {
             let v = unsafe { __torajs_any_member_get_value(props_anyv, key) };

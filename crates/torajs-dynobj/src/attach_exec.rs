@@ -19,21 +19,16 @@
 //! * the keys are the immortal static `"index"` / `"input"` /
 //!   `"groups"` Strs — no per-entry rc_inc;
 //! * the value tags are fixed (`I64` / `HEAP` / `UNDEF`) — the
-//!   NaN-box encode stays on the `__torajs_anyv_box_from_pair`
-//!   extern (single source of truth in torajs-anyvalue).
+//!   NaN-box encode is [`crate::nanbox::box_from_pair`].
 
 use core::ffi::c_void;
+
+use crate::nanbox;
 
 use crate::layout::{ANY_HEAP, ANY_UNDEF, BUCKET_FLAGS_DEFAULT, DYNOBJ_INITIAL_CAP, IDX_EMPTY};
 use crate::probe::{
     Entry, bucket_make_key_tagged, count, entries, index_ptr, set_count, set_entries_len,
 };
-
-unsafe extern "C" {
-    /// torajs-anyvalue — NaN-box AnyValue pair encoder (same wire as
-    /// `set.rs`).
-    fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
-}
 
 /// `AnySlotTag::I64` (torajs-rc). Mirrored here like
 /// [`ANY_HEAP`] / [`ANY_UNDEF`] in `layout.rs`.
@@ -112,15 +107,15 @@ pub unsafe extern "C" fn __torajs_dynobj_attach_exec3(
         debug_assert_eq!(*idx.add(s2 as usize), IDX_EMPTY);
         *ent = Entry {
             key_ptr_tagged: bucket_make_key_tagged(k_index, BUCKET_FLAGS_DEFAULT),
-            value_anyv: __torajs_anyv_box_from_pair(ANY_I64 as i64, index_val),
+            value_anyv: nanbox::box_from_pair(ANY_I64 as i64, index_val),
         };
         *ent.add(1) = Entry {
             key_ptr_tagged: bucket_make_key_tagged(k_input, BUCKET_FLAGS_DEFAULT),
-            value_anyv: __torajs_anyv_box_from_pair(ANY_HEAP as i64, input_ptr),
+            value_anyv: nanbox::box_from_pair(ANY_HEAP as i64, input_ptr),
         };
         *ent.add(2) = Entry {
             key_ptr_tagged: bucket_make_key_tagged(k_groups, BUCKET_FLAGS_DEFAULT),
-            value_anyv: __torajs_anyv_box_from_pair(ANY_UNDEF as i64, 0),
+            value_anyv: nanbox::box_from_pair(ANY_UNDEF as i64, 0),
         };
         *idx.add(s0 as usize) = 0;
         *idx.add(s1 as usize) = 1;
@@ -134,11 +129,6 @@ pub unsafe extern "C" fn __torajs_dynobj_attach_exec3(
 mod tests {
     use super::*;
     use crate::probe::{hash_str, probe};
-
-    unsafe extern "C" {
-        fn __torajs_anyv_unbox_tag(v: u64) -> i64;
-        fn __torajs_anyv_unbox_value(v: u64) -> i64;
-    }
 
     /// Build a bare Str heap block (header + len + payload) the way
     /// probe's `hash_str` / `str_eq` read it. Leaked on purpose —
@@ -177,7 +167,8 @@ mod tests {
         let k_index = make_str(b"index");
         let k_input = make_str(b"input");
         let k_groups = make_str(b"groups");
-        let fake_input: i64 = 0x6000_dead_beef;
+        // a heap pointer is 8-aligned
+        let fake_input: i64 = 0x6000_dead_bee0;
         let mut slot: *mut c_void = core::ptr::null_mut();
         unsafe {
             __torajs_dynobj_attach_exec3(&mut slot, k_index, 7, k_input, fake_input, k_groups);
@@ -194,9 +185,9 @@ mod tests {
                 assert!(pr.found, "key not found via generic probe");
                 let e = entries(slot).add(pr.entry as usize);
                 let v = (*e).value_anyv;
-                assert_eq!(__torajs_anyv_unbox_tag(v), want_tag);
+                assert_eq!(nanbox::unbox_tag(v), want_tag);
                 if want_tag != ANY_UNDEF as i64 {
-                    assert_eq!(__torajs_anyv_unbox_value(v), want_val);
+                    assert_eq!(nanbox::unbox_value(v), want_val);
                 }
             }
         }

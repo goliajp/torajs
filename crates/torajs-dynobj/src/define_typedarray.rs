@@ -7,6 +7,8 @@
 
 use core::ffi::c_void;
 
+use crate::nanbox;
+
 use crate::define::{bag_receiver_define, drop_rejected_value};
 use crate::layout::DEFINE_PRESENT_VALUE;
 
@@ -15,7 +17,6 @@ unsafe extern "C" {
     fn __torajs_throw_check() -> i64;
     /// torajs-anyvalue — borrow-shaped cell box (no rc traffic).
     fn __torajs_anyv_box_pointer(p: *mut c_void) -> u64;
-    fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
     fn __torajs_anyv_rc_dec(v: u64);
     /// torajs-anyvalue — §7.1.21 CanonicalNumericIndexString probe
     /// (1 = numeric, `out` written).
@@ -148,7 +149,7 @@ unsafe fn typedarray_numeric_define(
             return 0;
         }
         if flags_byte & DEFINE_PRESENT_VALUE != 0 {
-            let boxed = __torajs_anyv_box_from_pair(tag as i64, value as i64);
+            let boxed = nanbox::box_from_pair(tag as i64, value as i64);
             __torajs_typedarray_index_set(recv, n, boxed);
             __torajs_anyv_rc_dec(boxed);
             if __torajs_throw_check() != 0 {

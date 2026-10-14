@@ -11,6 +11,8 @@
 
 use core::ffi::c_void;
 
+use crate::nanbox;
+
 use crate::define::{
     __torajs_closure_length, __torajs_closure_name_str, ANY_I64, FN_LENGTH_DELETED,
     FN_NAME_DELETED, define_apply, refuse,
@@ -26,7 +28,6 @@ use crate::probe::{
 };
 unsafe extern "C" {
     fn __torajs_rc_inc(p: *mut c_void);
-    fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
     /// torajs-rc — builtin-prototype-singleton own-write note (same
     /// hook the front door's dynobj tail records; see
     /// [`__torajs_dynobj_define_plain`]).
@@ -180,7 +181,7 @@ pub(crate) unsafe fn define_fresh_entry(
         __torajs_rc_inc(key);
         *ent.add(e_idx as usize) = Entry {
             key_ptr_tagged: bucket_make_key_tagged(key, new_flags),
-            value_anyv: __torajs_anyv_box_from_pair(init_tag as i64, init_value as i64),
+            value_anyv: nanbox::box_from_pair(init_tag as i64, init_value as i64),
         };
         *index_ptr(obj).add(slot as usize) = e_idx;
         set_entries_len(obj, e_idx + 1);

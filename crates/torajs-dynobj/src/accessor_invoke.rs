@@ -10,6 +10,8 @@
 
 use core::ffi::c_void;
 
+use crate::nanbox;
+
 use crate::accessor::{
     ACC_GET_OFF, ACC_KIND_BOOL, ACC_KIND_BOXED, ACC_KIND_F64, ACC_KIND_I64, ACC_KIND_NAKED,
     ACC_KIND_PTR, ACC_KIND_RECV, ACC_KIND_VOID, ACC_KINDS_OFF, ACC_SET_OFF, CLOSURE_FN_ADDR_OFF,
@@ -20,12 +22,6 @@ unsafe extern "C" {
     /// torajs-rc — the one boxed-entry reader (link-judged; see
     /// `torajs_rc::closure_entry`).
     fn __torajs_closure_boxed_entry(cell: *const u8) -> u64;
-    /// torajs-anyvalue — NaN-box a `(tag, value)` pair into an
-    /// `AnyValue`. `tag`: 0=Null 1=Bool 2=I64 3=F64(bits) 4=Heap(ptr).
-    fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
-    /// torajs-anyvalue — extract the payload (per-tag value) from a
-    /// NaN-box `AnyValue` (F64 returns the bits, Heap the pointer).
-    fn __torajs_anyv_unbox_value(v: u64) -> i64;
     /// torajs-anyvalue — the interned builtin-method mid a face
     /// carries, `-1` for ordinary closures (RFC
     /// 20260718-accessor-reify 刀 1).
@@ -161,22 +157,22 @@ pub unsafe extern "C" fn __torajs_accessor_invoke_getter(
             ACC_KIND_F64 => {
                 let f: unsafe extern "C" fn(*mut c_void, i64) -> f64 =
                     core::mem::transmute(fn_addr);
-                __torajs_anyv_box_from_pair(3, f(getter, 0).to_bits() as i64)
+                nanbox::box_from_pair(3, f(getter, 0).to_bits() as i64)
             }
             ACC_KIND_BOOL => {
                 let f: unsafe extern "C" fn(*mut c_void, i64) -> i64 =
                     core::mem::transmute(fn_addr);
-                __torajs_anyv_box_from_pair(1, i64::from(f(getter, 0) != 0))
+                nanbox::box_from_pair(1, i64::from(f(getter, 0) != 0))
             }
             ACC_KIND_I64 => {
                 let f: unsafe extern "C" fn(*mut c_void, i64) -> i64 =
                     core::mem::transmute(fn_addr);
-                __torajs_anyv_box_from_pair(2, f(getter, 0))
+                nanbox::box_from_pair(2, f(getter, 0))
             }
             ACC_KIND_PTR => {
                 let f: unsafe extern "C" fn(*mut c_void, i64) -> u64 =
                     core::mem::transmute(fn_addr);
-                __torajs_anyv_box_from_pair(4, f(getter, 0) as i64)
+                nanbox::box_from_pair(4, f(getter, 0) as i64)
             }
             ACC_KIND_VOID => {
                 let f: unsafe extern "C" fn(*mut c_void, i64) = core::mem::transmute(fn_addr);
@@ -282,7 +278,7 @@ pub unsafe extern "C" fn __torajs_accessor_invoke_setter(
         unsafe {
             match param_kind {
                 ACC_KIND_F64 => {
-                    let raw = __torajs_anyv_unbox_value(value_anyv);
+                    let raw = nanbox::unbox_value(value_anyv);
                     let f: unsafe extern "C" fn(f64) = core::mem::transmute(fn_addr);
                     f(f64::from_bits(raw as u64));
                     // Scalar faces never consume a Heap payload — a
@@ -293,7 +289,7 @@ pub unsafe extern "C" fn __torajs_accessor_invoke_setter(
                     }
                 }
                 ACC_KIND_BOOL | ACC_KIND_I64 => {
-                    let raw = __torajs_anyv_unbox_value(value_anyv);
+                    let raw = nanbox::unbox_value(value_anyv);
                     let f: unsafe extern "C" fn(i64) = core::mem::transmute(fn_addr);
                     f(raw);
                     if value_is_short_str(value_anyv) {
@@ -301,7 +297,7 @@ pub unsafe extern "C" fn __torajs_accessor_invoke_setter(
                     }
                 }
                 ACC_KIND_PTR => {
-                    let raw = __torajs_anyv_unbox_value(value_anyv) as *mut c_void;
+                    let raw = nanbox::unbox_value(value_anyv) as *mut c_void;
                     let f: unsafe extern "C" fn(*mut c_void) = core::mem::transmute(fn_addr);
                     f(raw);
                     // The setter borrowed; a ShortStr materialization
@@ -336,7 +332,7 @@ pub unsafe extern "C" fn __torajs_accessor_invoke_setter(
     unsafe {
         match param_kind {
             ACC_KIND_F64 => {
-                let raw = __torajs_anyv_unbox_value(value_anyv);
+                let raw = nanbox::unbox_value(value_anyv);
                 let f: unsafe extern "C" fn(*mut c_void, i64, f64) = core::mem::transmute(fn_addr);
                 f(setter, 1, f64::from_bits(raw as u64));
                 // Same scalar-face reclaim as the naked twin above.
@@ -345,7 +341,7 @@ pub unsafe extern "C" fn __torajs_accessor_invoke_setter(
                 }
             }
             ACC_KIND_BOOL | ACC_KIND_I64 => {
-                let raw = __torajs_anyv_unbox_value(value_anyv);
+                let raw = nanbox::unbox_value(value_anyv);
                 let f: unsafe extern "C" fn(*mut c_void, i64, i64) = core::mem::transmute(fn_addr);
                 f(setter, 1, raw);
                 if value_is_short_str(value_anyv) {
@@ -353,7 +349,7 @@ pub unsafe extern "C" fn __torajs_accessor_invoke_setter(
                 }
             }
             ACC_KIND_PTR => {
-                let v = __torajs_anyv_unbox_value(value_anyv) as *mut c_void;
+                let v = nanbox::unbox_value(value_anyv) as *mut c_void;
                 let f: unsafe extern "C" fn(*mut c_void, i64, *mut c_void) =
                     core::mem::transmute(fn_addr);
                 f(setter, 1, v);

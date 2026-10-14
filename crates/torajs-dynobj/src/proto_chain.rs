@@ -26,6 +26,8 @@
 
 use core::ffi::c_void;
 
+use crate::nanbox;
+
 use crate::iter::{__torajs_dynobj_iter_key, __torajs_dynobj_iter_len, __torajs_dynobj_iter_value};
 use crate::layout::{DYNOBJ_HDR_FLAG_NULL_PROTO, TAG_DYNOBJ, TAG_OBJ};
 use crate::probe::key_str_bytes;
@@ -42,7 +44,6 @@ const HDR_TYPE_OFF: usize = 4;
 const HDR_FLAGS_OFF: usize = 6;
 
 unsafe extern "C" {
-    fn __torajs_anyv_cell_ptr(v: u64) -> i64;
     /// torajs-rc — `>= 0` when the cell IS a builtin prototype.
     fn __torajs_builtin_proto_tag_of(obj: *const c_void) -> i64;
 }
@@ -84,7 +85,7 @@ pub unsafe extern "C" fn __torajs_dynobj_proto_next(obj: *const c_void) -> *cons
             if core::slice::from_raw_parts(p, n as usize) != PROTO_SLOT_KEY {
                 continue;
             }
-            let cell = __torajs_anyv_cell_ptr(__torajs_dynobj_iter_value(obj, i)) as *const c_void;
+            let cell = nanbox::cell_ptr(__torajs_dynobj_iter_value(obj, i)) as *const c_void;
             if cell.is_null() {
                 return core::ptr::null();
             }

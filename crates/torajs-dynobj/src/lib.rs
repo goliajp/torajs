@@ -51,6 +51,7 @@ pub mod iter_slow_mode;
 mod key_wtf8;
 pub mod layout;
 pub mod move_to_end;
+mod nanbox;
 pub mod pool;
 pub mod print_any;
 pub mod probe;
@@ -246,18 +247,15 @@ pub unsafe extern "C" fn __torajs_symbol_drop(_s: *mut core::ffi::c_void) {
     );
 }
 
-// Faithful *pair* of NaN-box stubs for unit tests (attach_exec /
-// probe round-trips). The real torajs-anyvalue encoding is linked at
-// `tr build` time; these test stubs only need to be mutually
-// consistent (box → unbox round-trips) — structural correctness of
-// the entries is what the tests assert, byte-level encoding parity
-// is covered end-to-end by the conformance gate.
+// The owner's encode / decode for unit tests: the same steps
+// `crate::nanbox` inlines on the probe paths, so a value written on one
+// path reads back on the other. No unit test stores a ShortStr.
 /// # Safety
 /// Takes no pointer arguments.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64 {
-    ((tag as u64) << 48) | ((value as u64) & 0x0000_FFFF_FFFF_FFFF)
+    nanbox::box_from_pair_inline(tag, value)
 }
 
 /// # Safety
@@ -265,30 +263,15 @@ pub unsafe extern "C" fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u6
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_unbox_tag(v: u64) -> i64 {
-    (v >> 48) as i64
+    nanbox::unbox_tag_inline(v)
 }
 
 /// # Safety
-/// Takes no pointer arguments.
+/// `v` is not a ShortStr.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_unbox_value(v: u64) -> i64 {
-    (v & 0x0000_FFFF_FFFF_FFFF) as i64
-}
-
-// Third member of the faithful pair above: a heap-tagged box (tag 4)
-// answers its pointer bits, every immediate answers 0 — the borrow-
-// shaped read the global-cell and accessor predicates gate on.
-/// # Safety
-/// Takes no pointer arguments.
-#[cfg(test)]
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_anyv_cell_ptr(v: u64) -> i64 {
-    if (v >> 48) == 4 {
-        (v & 0x0000_FFFF_FFFF_FFFF) as i64
-    } else {
-        0
-    }
+    unsafe { nanbox::unbox_value_inline(v) }
 }
 
 // Accessor-pair builtin-face probe stubs — unit tests exercise

@@ -20,6 +20,8 @@
 
 use core::ffi::c_void;
 
+use crate::nanbox;
+
 use crate::layout::{
     ANY_HEAP, DEFINE_FLAG_CONFIGURABLE, DEFINE_FLAG_ENUMERABLE, DEFINE_FLAG_WRITABLE,
     DEFINE_PRESENT_CONFIGURABLE, DEFINE_PRESENT_ENUMERABLE, DEFINE_PRESENT_VALUE,
@@ -48,8 +50,6 @@ unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const u8);
     fn __torajs_value_drop_heap(child: *mut c_void);
     fn __torajs_dynobj_alloc() -> *mut c_void;
-    /// torajs-anyvalue — NaN-box AnyValue pair encoder.
-    fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
     /// torajs-anyvalue — `===` over two NaN-box AnyValues (string
     /// content compare across Str / Substr / ShortStr shapes; the
     /// SameValue delta — NaN / ±0 — cannot arise for a char cell or
@@ -113,10 +113,7 @@ unsafe fn validate_immutable_slot(
             && (flags_byte & DEFINE_FLAG_ENUMERABLE != 0) != cur_enumerable)
         || (flags_byte & DEFINE_PRESENT_VALUE != 0
             && unsafe {
-                !__torajs_anyv_strict_eq(
-                    __torajs_anyv_box_from_pair(tag as i64, value as i64),
-                    cur_anyv,
-                )
+                !__torajs_anyv_strict_eq(nanbox::box_from_pair(tag as i64, value as i64), cur_anyv)
             });
     // The desc's value arrives with one owned stake (define_apply's
     // consume contract); neither leg stores it.
@@ -168,7 +165,7 @@ pub(crate) unsafe fn wrapper_define(
         let key_bytes =
             unsafe { core::slice::from_raw_parts(key.cast::<u8>().add(16) as *const u8, key_len) };
         if key_bytes == b"length" {
-            let cur = unsafe { __torajs_anyv_box_from_pair(2, len as i64) };
+            let cur = nanbox::box_from_pair(2, len as i64);
             return unsafe {
                 validate_immutable_slot(tag, value, flags_byte, cur, false, throw_on_refusal)
             };
@@ -177,7 +174,7 @@ pub(crate) unsafe fn wrapper_define(
             && idx < len
         {
             let ch = unsafe { __torajs_str_at(inner, idx as i64) };
-            let cur = unsafe { __torajs_anyv_box_from_pair(ANY_HEAP as i64, ch as i64) };
+            let cur = nanbox::box_from_pair(ANY_HEAP as i64, ch as i64);
             let ok = unsafe {
                 validate_immutable_slot(tag, value, flags_byte, cur, true, throw_on_refusal)
             };

@@ -1571,8 +1571,10 @@ dependencies = [
 name = "torajs-dynobj"
 version = "0.1.0"
 dependencies = [
+ "torajs-anyvalue",
  "torajs-bench",
  "torajs-mmalloc",
+ "torajs-rc",
 ]
 
 [[package]]

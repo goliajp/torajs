@@ -29,6 +29,8 @@
 
 use core::ffi::c_void;
 
+use crate::nanbox;
+
 // Invoke paths live in `accessor_invoke` (file-size split, RFC
 // 20260718-accessor-reify 刀 1); re-export so callers keep importing
 // from `crate::accessor::{...}` unchanged.
@@ -46,10 +48,6 @@ unsafe extern "C" {
     /// Cross-tier — refcount dec. Returns 1 iff the caller should free
     /// + release children; 0 otherwise.
     fn __torajs_rc_dec(p: *mut c_void) -> i32;
-    /// torajs-anyvalue — borrow-shaped cell-pointer read: a heap cell
-    /// answers its pointer bits, every immediate (ShortStr included)
-    /// answers 0 with zero materialization.
-    fn __torajs_anyv_cell_ptr(v: u64) -> i64;
 }
 
 /// True when an entry's `value_anyv` is an `AccessorPair` cell — the
@@ -63,7 +61,7 @@ unsafe extern "C" {
 /// `v_anyv` is an entry / descriptor-field value; if it is a cell its
 /// payload is a live heap pointer.
 pub(crate) unsafe fn value_is_accessor(v_anyv: u64) -> bool {
-    let ptr = unsafe { __torajs_anyv_cell_ptr(v_anyv) } as *const c_void;
+    let ptr = nanbox::cell_ptr(v_anyv) as *const c_void;
     !ptr.is_null() && unsafe { *((ptr as *const u8).add(4) as *const u16) } == TAG_ACCESSOR_PAIR
 }
 

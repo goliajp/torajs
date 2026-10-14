@@ -36,6 +36,8 @@
 
 use core::ffi::c_void;
 
+use crate::nanbox;
+
 use crate::layout::{
     ANY_HEAP, BUCKET_FLAG_CONFIGURABLE, BUCKET_FLAG_ENUMERABLE, BUCKET_FLAG_WRITABLE,
     DEFINE_FLAG_CONFIGURABLE, DEFINE_FLAG_ENUMERABLE, DEFINE_FLAG_WRITABLE,
@@ -50,11 +52,6 @@ unsafe extern "C" {
     fn free(p: *mut c_void, size: usize);
     fn __torajs_rc_dec(p: *mut c_void) -> i32;
     fn __torajs_value_drop_heap(child: *mut c_void);
-    /// torajs-anyvalue — borrow-shaped cell-pointer read: a heap cell
-    /// answers its pointer bits, every immediate answers 0.
-    fn __torajs_anyv_cell_ptr(v: u64) -> i64;
-    fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
-    fn __torajs_anyv_unbox_tag(v: u64) -> i64;
     /// torajs-anyvalue — §7.2.10 SameValue over two boxed values.
     fn __torajs_anyv_same_value(l: u64, r: u64) -> bool;
     /// torajs-throw — records the pending ReferenceError; the caller
@@ -115,7 +112,7 @@ const TAG_STR: u16 = 0;
 /// detection predicate every seeing-through kernel shares.
 #[inline]
 pub(crate) unsafe fn value_is_global_cell(v_anyv: u64) -> bool {
-    let ptr = unsafe { __torajs_anyv_cell_ptr(v_anyv) } as *const c_void;
+    let ptr = nanbox::cell_ptr(v_anyv) as *const c_void;
     !ptr.is_null() && unsafe { *((ptr as *const u8).add(4) as *const u16) } == TAG_GLOBAL_CELL
 }
 
@@ -127,7 +124,7 @@ pub(crate) unsafe fn value_is_global_cell(v_anyv: u64) -> bool {
 #[inline]
 pub(crate) unsafe fn deref_global_cell(v_anyv: u64, key: *mut c_void) -> u64 {
     if unsafe { value_is_global_cell(v_anyv) } {
-        unsafe { global_cell_read(__torajs_anyv_cell_ptr(v_anyv) as *const c_void, key) }
+        unsafe { global_cell_read(nanbox::cell_ptr(v_anyv) as *const c_void, key) }
     } else {
         v_anyv
     }
@@ -249,21 +246,21 @@ pub(crate) unsafe fn global_cell_read(cell: *const c_void, key: *mut c_void) -> 
         // §9.1.1.1.6 — the binding is in its temporal dead zone; the
         // error is pending, the value handed back is never read
         unsafe { __torajs_throw_reference_error_tdz(key) };
-        return unsafe { __torajs_anyv_box_from_pair(ANY_UNDEF as i64, 0) };
+        return nanbox::box_from_pair(ANY_UNDEF as i64, 0);
     }
     let slot = unsafe { *((cell as *const u8).add(SLOT_OFF) as *const u64) } as *const u64;
     let kind = unsafe { cell_kind(cell) };
     let word = unsafe { *slot };
     match kind {
         KIND_ANY => word,
-        KIND_I64 => unsafe { __torajs_anyv_box_from_pair(ANY_I64 as i64, word as i64) },
-        KIND_F64 => unsafe { __torajs_anyv_box_from_pair(ANY_F64 as i64, word as i64) },
-        KIND_BOOL => unsafe { __torajs_anyv_box_from_pair(ANY_BOOL as i64, (word & 1) as i64) },
+        KIND_I64 => nanbox::box_from_pair(ANY_I64 as i64, word as i64),
+        KIND_F64 => nanbox::box_from_pair(ANY_F64 as i64, word as i64),
+        KIND_BOOL => nanbox::box_from_pair(ANY_BOOL as i64, (word & 1) as i64),
         _ => {
             if word == 0 {
-                unsafe { __torajs_anyv_box_from_pair(ANY_UNDEF as i64, 0) }
+                nanbox::box_from_pair(ANY_UNDEF as i64, 0)
             } else {
-                unsafe { __torajs_anyv_box_from_pair(ANY_HEAP as i64, word as i64) }
+                nanbox::box_from_pair(ANY_HEAP as i64, word as i64)
             }
         }
     }
@@ -280,10 +277,10 @@ pub(crate) unsafe fn global_cell_write(cell: *const c_void, tag: u64, value: u64
     let new_word = match kind {
         KIND_ANY => {
             let old = unsafe { *slot };
-            if unsafe { __torajs_anyv_unbox_tag(old) } as u64 == ANY_HEAP {
+            if nanbox::unbox_tag(old) as u64 == ANY_HEAP {
                 unsafe { __torajs_value_drop_heap(old as *mut c_void) };
             }
-            unsafe { __torajs_anyv_box_from_pair(tag as i64, value as i64) }
+            nanbox::box_from_pair(tag as i64, value as i64)
         }
         KIND_I64 => match tag {
             ANY_I64 => value,
@@ -308,7 +305,7 @@ pub(crate) unsafe fn global_cell_write(cell: *const c_void, tag: u64, value: u64
             }
             let old = unsafe { *slot };
             if old != 0 {
-                let boxed = unsafe { __torajs_anyv_box_from_pair(ANY_HEAP as i64, old as i64) };
+                let boxed = nanbox::box_from_pair(ANY_HEAP as i64, old as i64);
                 unsafe { __torajs_value_drop_heap(boxed as *mut c_void) };
             }
             value
@@ -372,7 +369,7 @@ pub(crate) unsafe fn redefine_through_cell(
         && value != 0
         && unsafe { *((value as *const u8).add(4) as *const u16) }
             == crate::accessor::TAG_ACCESSOR_PAIR;
-    let cell = unsafe { __torajs_anyv_cell_ptr(cur_value_anyv) } as *const c_void;
+    let cell = nanbox::cell_ptr(cur_value_anyv) as *const c_void;
     // `writable: false` on a slot the bare compiled writes go straight
     // into cannot be honoured; an accessor replacing the value slot
     // likewise. Both stay loud (registered tr limitation).
@@ -389,7 +386,7 @@ pub(crate) unsafe fn redefine_through_cell(
     if !cur_configurable && !cur_writable {
         let becomes_writable = writable_change && flags_byte & DEFINE_FLAG_WRITABLE != 0;
         let other_value = has_value && {
-            let boxed = unsafe { __torajs_anyv_box_from_pair(tag as i64, value as i64) };
+            let boxed = nanbox::box_from_pair(tag as i64, value as i64);
             !unsafe { __torajs_anyv_same_value(global_cell_read(cell, key), boxed) }
         };
         if becomes_writable || other_value {

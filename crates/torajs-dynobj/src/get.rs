@@ -1,8 +1,10 @@
-//! DynObj key lookups — `get_tag` / `get_value` / `get_flags`.
+//! DynObj key lookups — `get_own` / `get_tag` / `get_value` /
+//! `get_flags`.
 //!
-//! All three share [`crate::probe::probe`] + the dense `Entry` layout;
-//! the only per-fn variation is which field returns and the default
-//! for an absent / non-dynobj input.
+//! `get_tag` and `get_value` are the two halves of `get_own`'s
+//! one-probe `(tag, value)` read (one body, kept out of line so the
+//! three entries share it); `get_flags` reads the entry's attribute
+//! bits off the same [`crate::probe::probe`].
 //!
 //! Defensive type-tag check: callers occasionally pass an Any-box that
 //! does not wrap a DynObj (e.g. typed Struct via `obj?.x.y` chained
@@ -11,6 +13,8 @@
 
 use core::ffi::c_void;
 
+use crate::nanbox;
+
 use crate::accessor::TAG_ACCESSOR_PAIR;
 use crate::global_cell::deref_global_cell;
 use crate::layout::{
@@ -18,13 +22,6 @@ use crate::layout::{
     BUCKET_FLAG_WRITABLE, TAG_DYNOBJ,
 };
 use crate::probe::{bucket_flags, entries, probe};
-
-unsafe extern "C" {
-    /// torajs-anyvalue — NaN-box AnyValue tag decoder.
-    fn __torajs_anyv_unbox_tag(v: u64) -> i64;
-    /// torajs-anyvalue — NaN-box AnyValue value decoder.
-    fn __torajs_anyv_unbox_value(v: u64) -> i64;
-}
 
 /// Read the `type_tag: u16` at offset 4 of the heap header.
 ///
@@ -50,33 +47,11 @@ pub unsafe extern "C" fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const
     if unsafe { type_tag(obj) } != TAG_DYNOBJ {
         return ANY_UNDEF;
     }
-    let p = unsafe { probe(obj, key) };
-    if !p.found {
-        return ANY_UNDEF;
+    let mut value = 0;
+    match unsafe { __torajs_dynobj_get_own(obj, key, &mut value) } {
+        DYNOBJ_GET_OWN_MISS => ANY_UNDEF,
+        tag => tag,
     }
-    let ent = unsafe { entries(obj) };
-    let v = unsafe { (*ent.add(p.entry as usize)).value_anyv };
-    // A hole tombstone (deleted shadow-domain key — arguments
-    // length / callee) is ABSENT to a get: the sentinel must never
-    // surface as a value.
-    if v == crate::layout::DYNOBJ_HOLE_SENTINEL {
-        return ANY_UNDEF;
-    }
-    // A global-variable cell answers the binding's current value
-    // (RFC 20260912-global-var-cell); every other value is itself.
-    let v = unsafe { deref_global_cell(v, key as *mut c_void) };
-    let tag = unsafe { __torajs_anyv_unbox_tag(v) } as u64;
-    // Accessor entries store an `AccessorPair` cell — surface the
-    // synthetic ANY_ACCESSOR sentinel so the SSA GET path dispatches
-    // the getter instead of yielding the pair pointer. Only a Heap-tag
-    // value can be an accessor, so the pointee type_tag read is gated.
-    if tag == ANY_HEAP {
-        let ptr = unsafe { __torajs_anyv_unbox_value(v) } as *const c_void;
-        if !ptr.is_null() && unsafe { type_tag(ptr) } == TAG_ACCESSOR_PAIR {
-            return ANY_ACCESSOR;
-        }
-    }
-    tag
 }
 
 /// [`__torajs_dynobj_get_own`]'s answer when `obj` has no entry for
@@ -98,6 +73,7 @@ pub const DYNOBJ_GET_OWN_MISS: u64 = u64::MAX;
 /// `obj` is a live DynObj; `key` is a live Str or Symbol cell;
 /// `value_out` is writable.
 #[unsafe(no_mangle)]
+#[inline(never)]
 pub unsafe extern "C" fn __torajs_dynobj_get_own(
     obj: *const c_void,
     key: *const c_void,
@@ -113,8 +89,9 @@ pub unsafe extern "C" fn __torajs_dynobj_get_own(
         return ANY_UNDEF;
     }
     let v = unsafe { deref_global_cell(v, key as *mut c_void) };
-    let tag = unsafe { __torajs_anyv_unbox_tag(v) } as u64;
-    let value = unsafe { __torajs_anyv_unbox_value(v) } as u64;
+    // the probe-and-read path: the decode is inlined here
+    let tag = nanbox::unbox_tag_inline(v) as u64;
+    let value = unsafe { nanbox::unbox_value_inline(v) } as u64;
     unsafe { value_out.write(value) };
     if tag == ANY_HEAP
         && value != 0
@@ -139,18 +116,10 @@ pub unsafe extern "C" fn __torajs_dynobj_get_value(obj: *const c_void, key: *con
     if unsafe { type_tag(obj) } != TAG_DYNOBJ {
         return 0;
     }
-    let p = unsafe { probe(obj, key) };
-    if !p.found {
-        return 0;
-    }
-    let ent = unsafe { entries(obj) };
-    let v = unsafe { (*ent.add(p.entry as usize)).value_anyv };
-    // Hole tombstone — absent (see the tag twin above).
-    if v == crate::layout::DYNOBJ_HOLE_SENTINEL {
-        return 0;
-    }
-    let v = unsafe { deref_global_cell(v, key as *mut c_void) };
-    unsafe { __torajs_anyv_unbox_value(v) as u64 }
+    // a miss leaves the slot at 0
+    let mut value = 0;
+    unsafe { __torajs_dynobj_get_own(obj, key, &mut value) };
+    value
 }
 
 /// `__torajs_dynobj_get_flags(obj, key)` — return the slot's

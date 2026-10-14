@@ -28,6 +28,11 @@ torajs-mmalloc = { path = "../torajs-mmalloc" }
 
 [dev-dependencies]
 torajs-bench = { path = "../torajs-bench" }
+# The NaN-box encoding `src/nanbox.rs` restates is pinned to its owner
+# by the tests there; only constants and inline encode/decode steps are
+# used, so no archive member of either crate is linked into the tests.
+torajs-anyvalue = { path = "../torajs-anyvalue" }
+torajs-rc = { path = "../torajs-rc" }
 
 [[bench]]
 name = "dynobj"

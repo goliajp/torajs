@@ -76,7 +76,7 @@
 //! the slot's `(tag, value)` pair as a single 64-bit immediate. Cells
 //! (heap pointers) are stored verbatim; immediates (int32 / double /
 //! bool / null / undef) are NaN-encoded per the AnyValue ABI. Decode
-//! via `__torajs_anyv_unbox_tag` / `_unbox_value` externs.
+//! and encode through [`crate::nanbox`].
 
 /// Universal heap header size (`{ refcount: u32, type_tag: u16, flags: u16 }`).
 pub const HEAP_HEADER_SIZE: usize = 8;

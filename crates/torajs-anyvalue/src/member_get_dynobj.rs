@@ -7,9 +7,10 @@
 //! order is read in one place.
 //!
 //! [`__torajs_any_member_get_pair`] is the one-call read the lowering
-//! emits for a dynamic key: on an ordinary object it probes once for
-//! both channels; every other receiver gets the two channels of
-//! `member_get.rs` / `member_get_value.rs` in their usual order.
+//! emits for a dynamic key: an ordinary object that owns the key
+//! answers both channels from one probe; an absent key and every other
+//! receiver get the two channels of `member_get.rs` /
+//! `member_get_value.rs` in their usual order.
 
 use core::ffi::c_void;
 
@@ -70,17 +71,15 @@ pub unsafe extern "C" fn __torajs_any_member_get_pair(
                     value_out.write(value);
                     return tag;
                 }
-            } else if t == Tag::DynObj as u16 {
-                let (tag, value) = match dynobj_own_pair(ptr, key) {
-                    Some(pair) => pair,
-                    None => (
-                        dynobj_miss_tag(ptr, recv, key),
-                        dynobj_miss_value(ptr, recv, key),
-                    ),
-                };
+            } else if t == Tag::DynObj as u16
+                && let Some((tag, value)) = dynobj_own_pair(ptr, key)
+            {
                 value_out.write(value);
                 return tag;
             }
+            // An absent key takes the two channels below, so each
+            // absent-key tail keeps a single caller (and its inlined
+            // place in that channel).
         }
         let tag = __torajs_any_member_get_tag(recv, key);
         value_out.write(__torajs_any_member_get_value(recv, key));
@@ -94,6 +93,7 @@ pub unsafe extern "C" fn __torajs_any_member_get_pair(
 /// # Safety
 /// `ptr` is a live DynObj cell that owns no entry for `key`; `key` is
 /// NULL or a live Str cell; `recv` boxes `ptr`.
+#[inline]
 pub(crate) unsafe fn dynobj_miss_tag(ptr: *mut c_void, recv: AnyValue, key: *const c_void) -> u64 {
     unsafe {
         // Annex B §B.2.2.1 — a dynamic key spelling `__proto__`
@@ -138,6 +138,7 @@ pub(crate) unsafe fn dynobj_miss_tag(ptr: *mut c_void, recv: AnyValue, key: *con
 ///
 /// # Safety
 /// As [`dynobj_miss_tag`].
+#[inline]
 pub(crate) unsafe fn dynobj_miss_value(
     ptr: *mut c_void,
     recv: AnyValue,

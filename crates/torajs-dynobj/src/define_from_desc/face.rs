@@ -6,10 +6,11 @@
 
 use core::ffi::c_void;
 
+use crate::nanbox;
+
 use super::{
-    __torajs_anyv_cell_ptr, __torajs_anyv_to_bool, __torajs_anyv_unbox_tag, __torajs_rc_inc,
-    __torajs_throw_type_error, __torajs_value_drop_heap, DescStore, desc_field, desc_field_get,
-    release_desc_field,
+    __torajs_anyv_to_bool, __torajs_rc_inc, __torajs_throw_type_error, __torajs_value_drop_heap,
+    DescStore, desc_field, desc_field_get, release_desc_field,
 };
 use crate::define::define_apply;
 use crate::layout::{
@@ -42,14 +43,14 @@ unsafe fn take_accessor_closure(
     let Some((anyv, owned)) = field else {
         return Ok(core::ptr::null_mut());
     };
-    if unsafe { __torajs_anyv_unbox_tag(anyv) } as u64 == ANY_UNDEF {
+    if nanbox::unbox_tag(anyv) as u64 == ANY_UNDEF {
         return Ok(core::ptr::null_mut());
     }
     // Closure heap cell — universal header type_tag at +4 (Tag::Closure
     // = 3). The cell gate keeps a ShortStr field on the not-callable
     // path without materializing (the pre-fix `unbox_value` minted an
     // owned Str the throw leg never reclaimed).
-    let val = unsafe { __torajs_anyv_cell_ptr(anyv) } as u64;
+    let val = nanbox::cell_ptr(anyv) as u64;
     if val != 0 {
         let type_tag = unsafe { *((val as *const u8).add(4) as *const u16) };
         if type_tag == 3 {

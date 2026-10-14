@@ -33,7 +33,6 @@ unsafe extern "C" {
     fn __torajs_closure_props_attach(cell: *mut u8, props: *mut c_void);
     fn __torajs_throw_type_error(msg: *const u8);
     fn __torajs_value_drop_heap(child: *mut c_void);
-    fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
     fn __torajs_anyv_to_bool(v: u64) -> bool;
     /// torajs-regex — §22.2.4.1's `lastIndex` lives in the RegExp
     /// cell, so its [[DefineOwnProperty]] belongs to the crate that
