@@ -77,8 +77,10 @@ fn lower_left_boxed(
     expr: ExprId,
 ) -> Option<(Operand, Option<(Operand, Type)>)> {
     let v = ctx.lower_expr(expr);
-    if has_any_encoding(ctx.operand_ty(&v)) {
-        return Some((ctx.box_to_any(v), None));
+    let ty = ctx.operand_ty(&v);
+    if has_any_encoding(ty) {
+        let owned = ctx.expr_transfers_ownership(expr).then_some((v, ty));
+        return Some((ctx.box_to_any(v), owned));
     }
     let Expr::Ident(n) = ctx.ast.get_expr(expr) else {
         return None;
