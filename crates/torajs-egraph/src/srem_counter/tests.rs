@@ -1,7 +1,7 @@
 use super::*;
 
 fn rewrite(f: &mut Function, facts: &HashMap<ValueId, NumFact>, stats: &mut SremCounterStats) {
-    rewrite_function(f, facts, stats);
+    rewrite_function(f, facts, stats, &mut LoopShapes::new(1), 0);
 }
 use torajs_core::ssa::{Block, Terminator, ValueInfo};
 

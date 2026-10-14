@@ -15,17 +15,19 @@ use torajs_core::ssa::{
 };
 
 use super::{Readers, Site, SremFquotStats, Uses, rewrite_function, zero_tests_only};
+use crate::fact_folds::LoopShapes;
 use crate::interval::transfer::op_const_int;
 
 pub fn float_quotient_select_srems(module: &mut Module) -> SremFquotStats {
     let names: Vec<String> = module.funcs.iter().map(|f| f.name.clone()).collect();
     let mut stats = SremFquotStats::default();
-    for func in module.funcs.iter_mut() {
+    let mut shapes = LoopShapes::new(module.funcs.len());
+    for (fi, func) in module.funcs.iter_mut().enumerate() {
         if func.is_declaration() || !has_select_test(func) {
             continue;
         }
         let facts = crate::interval::analyze_function_with(func, &names);
-        rewrite_function(func, &facts, &mut stats, Readers::Selects);
+        rewrite_function(func, &facts, &mut stats, Readers::Selects, &mut shapes, fi);
     }
     stats
 }

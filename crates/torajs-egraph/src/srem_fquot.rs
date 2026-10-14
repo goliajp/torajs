@@ -30,13 +30,12 @@ pub use select::float_quotient_select_srems;
 
 use crate::id_hash::HashMap;
 
-use torajs_core::ssa::dominator::DominatorTree;
-use torajs_core::ssa::loop_analysis::LoopAnalysis;
 use torajs_core::ssa::{
     BinOp, BlockId, Function, IPred, Inst, InstKind, Module, Operand, Terminator, Type, ValueId,
     visit_value_operands,
 };
 
+use crate::fact_folds::LoopShapes;
 use crate::float_demote::push_value;
 use crate::interval::NumFact;
 use crate::interval::transfer::op_const_int;
@@ -59,14 +58,15 @@ enum Readers {
     Selects,
 }
 
-pub fn float_quotient_srems(
+pub(crate) fn float_quotient_srems(
     module: &mut Module,
     facts: &mut [HashMap<ValueId, NumFact>],
+    shapes: &mut LoopShapes,
 ) -> SremFquotStats {
     let mut stats = SremFquotStats::default();
-    for (func, fm) in module.funcs.iter_mut().zip(facts) {
+    for (fi, (func, fm)) in module.funcs.iter_mut().zip(facts).enumerate() {
         if !func.is_declaration() {
-            for r in rewrite_function(func, fm, &mut stats, Readers::ExitBranch) {
+            for r in rewrite_function(func, fm, &mut stats, Readers::ExitBranch, shapes, fi) {
                 fm.remove(&r);
             }
         }
@@ -212,10 +212,20 @@ fn rewrite_function(
     facts: &HashMap<ValueId, NumFact>,
     stats: &mut SremFquotStats,
     readers: Readers,
+    shapes: &mut LoopShapes,
+    fi: usize,
 ) -> Vec<ValueId> {
+    // the site test below without its loop and reader parts: most
+    // functions have no such remainder and skip the analyses
+    let candidate = func.blocks.iter().flat_map(|b| &b.insts).any(|i| {
+        matches!(&i.kind, InstKind::BinOp(BinOp::SRem, x, y @ Operand::Value(_))
+            if within(x, facts, 0, F64_EXACT) && within(y, facts, 1, i128::MAX))
+    });
+    if !candidate {
+        return Vec::new();
+    }
     let uses = Uses::of(func);
-    let dom = DominatorTree::compute(func);
-    let la = LoopAnalysis::compute(func, &dom);
+    let (_, la) = shapes.of(fi, func);
     let innermost = |b: BlockId| {
         (0..la.loops().len())
             .filter(|&l| la.loops()[l].body.contains(&b))
@@ -375,7 +385,7 @@ mod tests {
             (ValueId(1), NumFact::new(i_lo, 1 << 70)),
         ]);
         let mut stats = SremFquotStats::default();
-        rewrite_function(f, &facts, &mut stats, readers);
+        rewrite_function(f, &facts, &mut stats, readers, &mut LoopShapes::new(1), 0);
         stats
     }
 

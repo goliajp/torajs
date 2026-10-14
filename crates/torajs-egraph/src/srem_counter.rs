@@ -55,11 +55,11 @@ mod window;
 use crate::id_hash::HashMap;
 
 use torajs_core::ssa::dominator::DominatorTree;
-use torajs_core::ssa::loop_analysis::LoopAnalysis;
 use torajs_core::ssa::{
     BinOp, BlockId, Function, IPred, Inst, InstKind, Module, Operand, Type, ValueId,
 };
 
+use crate::fact_folds::LoopShapes;
 use crate::float_demote::push_value;
 use crate::interval::NumFact;
 use cfg::Cfg;
@@ -74,11 +74,15 @@ pub struct SremCounterStats {
     pub srems: u32,
 }
 
-pub fn count_srems(module: &mut Module, facts: &[HashMap<ValueId, NumFact>]) -> SremCounterStats {
+pub(crate) fn count_srems(
+    module: &mut Module,
+    facts: &[HashMap<ValueId, NumFact>],
+    shapes: &mut LoopShapes,
+) -> SremCounterStats {
     let mut stats = SremCounterStats::default();
-    for (func, fm) in module.funcs.iter_mut().zip(facts) {
+    for (fi, (func, fm)) in module.funcs.iter_mut().zip(facts).enumerate() {
         if !func.is_declaration() {
-            rewrite_function(func, fm, &mut stats);
+            rewrite_function(func, fm, &mut stats, shapes, fi);
         }
     }
     stats
@@ -88,8 +92,10 @@ fn rewrite_function(
     func: &mut Function,
     facts: &HashMap<ValueId, NumFact>,
     stats: &mut SremCounterStats,
+    shapes: &mut LoopShapes,
+    fi: usize,
 ) {
-    let groups = find_groups(func, facts);
+    let groups = find_groups(func, facts, shapes, fi);
     stats.counters += groups.len() as u32;
     stats.srems += groups.iter().map(|g| g.sites.len() as u32).sum::<u32>();
     let mut edits = Vec::new();
@@ -153,12 +159,16 @@ impl Group {
     }
 }
 
-fn find_groups(func: &Function, facts: &HashMap<ValueId, NumFact>) -> Vec<Group> {
+fn find_groups(
+    func: &Function,
+    facts: &HashMap<ValueId, NumFact>,
+    shapes: &mut LoopShapes,
+    fi: usize,
+) -> Vec<Group> {
     if !worth_analyzing(func, facts) {
         return Vec::new();
     }
-    let dom = &DominatorTree::compute(func);
-    let la = &LoopAnalysis::compute(func, dom);
+    let (dom, la) = shapes.of(fi, func);
     let cfg = Cfg::of(func, la);
     let mut groups: Vec<Group> = Vec::new();
     for (b, block) in func.blocks.iter().enumerate() {
@@ -226,7 +236,7 @@ fn find_groups(func: &Function, facts: &HashMap<ValueId, NumFact>) -> Vec<Group>
                 small,
                 sites: Vec::new(),
                 trip: cfg
-                    .steps_close_iterations(&la, lp, &steps)
+                    .steps_close_iterations(la, lp, &steps)
                     .then(|| cfg.trip_block(lp)),
                 steps,
                 header: lp.header,
