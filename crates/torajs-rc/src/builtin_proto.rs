@@ -334,10 +334,9 @@ pub unsafe extern "C" fn __torajs_get_builtin_prototype(tag: i64) -> *mut c_void
     unsafe { __torajs_proto_symbol_keys_install(fresh, idx as i64) };
     unsafe { __torajs_proto_tostringtag_install(fresh, idx as i64) };
     let fresh_addr = fresh as usize;
-    // Cheap front gate for the own-write note below — a program that
-    // never touched any `<Ctor>.prototype` skips the singleton scan
-    // on every dynobj own write with one relaxed load.
-    ANY_MINTED.store(1, Ordering::Release);
+    // the own-write note's front gate learns the address before any
+    // reader can see it
+    patch_bits::note_minted(fresh_addr);
     match slot.compare_exchange(0, fresh_addr, Ordering::AcqRel, Ordering::Acquire) {
         Ok(_) => fresh,
         Err(winner) => winner as *mut c_void,
@@ -381,8 +380,6 @@ pub unsafe extern "C" fn __torajs_builtin_proto_tag_of(p: *const c_void) -> i64 
 /// borrowed immediate like `CLASSES_BY_TAG_IMM` does.
 pub mod iter_proto;
 mod patch_bits;
-
-use patch_bits::ANY_MINTED;
 
 // The masks moved to the child, but callers across the workspace
 // reach them as `torajs_rc::builtin_proto::<fn>` — keep that path

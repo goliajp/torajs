@@ -70,10 +70,32 @@ pub unsafe extern "C" fn __torajs_builtin_proto_is_deleted(tag: i64, mid: i64) -
     ((DELETED_MIDS[t][m / 64].load(Ordering::Acquire) >> (m % 64)) & 1) as i64
 }
 
-// "Some `<Ctor>.prototype` singleton exists" front gate for the
-// own-write note — set once at mint time, read on every dynobj own
-// write (RFC 20260721 刀 11 G13).
-pub(super) static ANY_MINTED: AtomicU64 = AtomicU64::new(0);
+// Front gate for the own-write note: one bit per address hash of
+// every minted `<Ctor>.prototype` singleton, set before the singleton
+// is published. A clear bit proves the target is no singleton, so an
+// ordinary own write pays one load and a bit test; a set bit (a
+// singleton, or another address sharing its hash) falls to the scan.
+// A single "anything minted" flag sent every own write of a program
+// that once read a missing key, which mints %Object.prototype%, into
+// the scan.
+const MINT_FILTER_WORDS: usize = 16;
+#[allow(clippy::declare_interior_mutable_const)]
+const MINT_FILTER_INIT: AtomicU64 = AtomicU64::new(0);
+static MINT_FILTER: [AtomicU64; MINT_FILTER_WORDS] = [MINT_FILTER_INIT; MINT_FILTER_WORDS];
+
+/// The filter bit of `addr`: Fibonacci hashing of the cell address
+/// (cells are 16-byte aligned) onto the filter's 1024 bits.
+#[inline]
+fn mint_filter_bit(addr: usize) -> (usize, u64) {
+    let h = ((addr as u64) >> 4).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> (64 - 10);
+    ((h >> 6) as usize, 1u64 << (h & 63))
+}
+
+/// Record a singleton about to be published (the parent's mint).
+pub(super) fn note_minted(addr: usize) {
+    let (w, b) = mint_filter_bit(addr);
+    MINT_FILTER[w].fetch_or(b, Ordering::Release);
+}
 
 // Per-tag patched-method-id bitmask (RFC 20260721 刀 11 G13) — the
 // DELETED_MIDS shape mirrored for the opposite question: a user own
@@ -93,8 +115,8 @@ static PATCHED_MIDS: [[AtomicU64; DELETED_MASK_WORDS]; NUM_BUILTIN_PROTOS] =
 /// Own-entry write note — every kernel that can create an own entry
 /// on a dynobj calls here with the target and the key's name bytes.
 /// `obj` values that are not a minted builtin-prototype singleton
-/// (the overwhelmingly common case) return after one relaxed load /
-/// one O(14) address scan; a singleton hit interns the name and
+/// (the overwhelmingly common case) return after one filter-bit test,
+/// rarely an address scan; a singleton hit interns the name and
 /// marks the (tag, mid) patch bit.
 ///
 /// # Safety
@@ -106,7 +128,8 @@ pub unsafe extern "C" fn __torajs_builtin_proto_note_own_write(
     name: *const u8,
     len: i64,
 ) {
-    if ANY_MINTED.load(Ordering::Acquire) == 0 {
+    let (w, b) = mint_filter_bit(obj as usize);
+    if MINT_FILTER[w].load(Ordering::Acquire) & b == 0 {
         return;
     }
     let tag = unsafe { __torajs_builtin_proto_tag_of(obj) };
