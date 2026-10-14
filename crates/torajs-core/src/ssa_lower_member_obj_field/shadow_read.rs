@@ -35,10 +35,23 @@ pub(crate) fn applies(ctx: &LowerCtx<'_>, obj: Option<ExprId>, name: &str, slot_
 /// `slot_ty`, is one the checker typed `any` because an any-lane write
 /// of the program can leave the field holding a value of another type
 /// (`check_type_of_member::mistyped_read`): the read answers the
-/// sidecar's value as it is, and its consumers take the any lane.
+/// sidecar's value as it is, and its consumers take the any lane. The
+/// checker's verdict decides, so a scalar slot whose name a write of
+/// either kind reaches follows it; boxing the slot is right whatever
+/// the slot holds.
 pub(crate) fn mistyped(ctx: &LowerCtx<'_>, eid: ExprId, name: &str, slot_ty: Type) -> bool {
     matches!(ctx.expr_types.get(&eid), Some(crate::check::Type::Any))
-        && mistyped_field(ctx, name, slot_ty)
+        && scalar_slot(slot_ty)
+        && ctx.ast.accessor_field_names.mistyped_read(name, false)
+}
+
+/// A slot of a member the checker can retype: a number, a string, a
+/// boolean.
+fn scalar_slot(slot_ty: Type) -> bool {
+    matches!(
+        slot_ty,
+        Type::F64 | Type::I64 | Type::I32 | Type::Bool | Type::Str | Type::Substr
+    )
 }
 
 /// Whether a whole-object reader (a spread, `Object.values`) of the
@@ -47,10 +60,10 @@ pub(crate) fn mistyped(ctx: &LowerCtx<'_>, eid: ExprId, name: &str, slot_ty: Typ
 /// another type.
 pub(crate) fn mistyped_field(ctx: &LowerCtx<'_>, name: &str, slot_ty: Type) -> bool {
     // the checker retypes a scalar member only (a number, a string, a
-    // boolean); a heap member keeps its checked read
+    // boolean); a heap member keeps its checked read. A number slot is
+    // what `ShadowedNames::number_member` names on the checker's side.
     let number_slot = matches!(slot_ty, Type::F64 | Type::I64 | Type::I32);
-    let scalar = number_slot || matches!(slot_ty, Type::Bool | Type::Str | Type::Substr);
-    scalar
+    scalar_slot(slot_ty)
         && ctx
             .ast
             .accessor_field_names
@@ -82,7 +95,7 @@ fn box_owned(ctx: &mut LowerCtx<'_>, v: Operand, field_ty: Type) -> Operand {
         _ if field_ty.is_refcounted() => {
             ctx.emit_owned_result_inc(v, field_ty);
             // a heap slot spells `undefined` with a cell of its own
-            match ctx.str_undef_sentinel_for(field_ty) {
+            match crate::ssa_lower_binop_null_undef::undef_cell_sym(field_ty) {
                 Some(_) => ctx.box_heap_slot_or_undef(v),
                 None => ctx.box_to_any(v),
             }

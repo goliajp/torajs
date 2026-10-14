@@ -89,6 +89,54 @@ pub(crate) fn class_field_ann(
     })
 }
 
+/// [`class_field_ann`], an instance of a generic class reading its
+/// declaration's field ([`decl_fields`]).
+pub(crate) fn instance_field_ann(
+    ast: &Ast,
+    expr_types: &HashMap<ExprId, Type>,
+    obj: ExprId,
+    field: &str,
+) -> Option<String> {
+    let class = class_of(expr_types, obj)?;
+    let (_, fields) = decl_fields(ast, &class)?;
+    fields
+        .into_iter()
+        .find(|(k, _)| *k == field)
+        .map(|(_, a)| a)
+}
+
+/// The declaration the type `name` names and its fields, each with its
+/// annotation. An instance of a generic declaration (`W<number>`) reads
+/// its declaration's fields, less the ones whose annotation names a
+/// type parameter: those do not spell the instance's type.
+pub(crate) fn decl_fields<'a>(
+    ast: &'a Ast,
+    name: &str,
+) -> Option<(&'a str, Vec<(crate::ast::PropKey, String)>)> {
+    let bare = name.split('<').next().unwrap_or(name);
+    ast.stmts.iter().find_map(|s| match s {
+        Stmt::TypeDecl {
+            name: n,
+            type_params,
+            fields,
+        } if n == name || (n == bare && !type_params.is_empty()) => {
+            let plain = fields
+                .iter()
+                .filter(|(_, a)| !names_type_param(a, type_params));
+            Some((n.as_str(), plain.cloned().collect()))
+        }
+        _ => None,
+    })
+}
+
+/// Whether the annotation `ann` spells one of `params`.
+pub(crate) fn names_type_param(ann: &str, params: &[String]) -> bool {
+    !params.is_empty()
+        && ann
+            .split(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$'))
+            .any(|w| params.iter().any(|p| p == w))
+}
+
 /// The class whose instance `e` reads, by its checked type.
 pub(crate) fn class_of(expr_types: &HashMap<ExprId, Type>, e: ExprId) -> Option<String> {
     match expr_types.get(&e)? {
@@ -153,4 +201,35 @@ pub(crate) fn elem_ann(ann: &str) -> Option<String> {
         None => ann.strip_prefix("Array<")?.strip_suffix('>')?,
     };
     Some(elem.trim().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_type_parameter_is_matched_as_a_whole_name() {
+        let t = ["T".to_string()];
+        assert!(names_type_param("__nullable(T)", &t));
+        assert!(names_type_param("Map<string, T>", &t));
+        assert!(names_type_param("T[]", &t));
+        assert!(!names_type_param("Tree | null", &t));
+        assert!(!names_type_param("__nullable(Inner)", &t));
+        assert!(!names_type_param("T", &[]));
+    }
+
+    #[test]
+    fn a_generic_instance_reads_the_fields_every_instance_lays_out_alike() {
+        let src = "type Inner = { b: number }; type W<T> = { inner: Inner | null; t: T | null };";
+        let tokens = crate::lexer::tokenize(src).expect("tokenize");
+        let ast = crate::parser::parse(src, &tokens).expect("parse");
+        let names = |ty: &str| -> Vec<String> {
+            decl_fields(&ast, ty)
+                .map(|(_, fs)| fs.iter().map(|(k, _)| k.lossy().to_string()).collect())
+                .unwrap_or_default()
+        };
+        assert_eq!(names("W<number>"), ["inner"]);
+        assert_eq!(names("Inner"), ["b"]);
+        assert!(names("V<number>").is_empty());
+    }
 }

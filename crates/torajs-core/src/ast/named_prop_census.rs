@@ -34,6 +34,7 @@
 
 pub(super) mod accessor_names;
 mod cast_targets;
+mod receiver_origin;
 pub(super) mod shadow_names;
 mod write_kind;
 

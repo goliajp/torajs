@@ -169,6 +169,16 @@ impl ShadowedNames {
         self.number.extend(other.number);
     }
 
+    /// Whether a member of the checked type `t` lives in a number slot,
+    /// which every number a write leaves there fits: `number`, and a
+    /// number literal type (`k: 1`), whose slot is the f64 `number`'s.
+    /// The lowering reads the same answer off the slot's type
+    /// (`shadow_read::mistyped_field`); the two have to agree, or the
+    /// checker retypes a read the lowering keeps as a bare number.
+    pub fn number_member(t: &Type) -> bool {
+        matches!(t, Type::Number | Type::Literal(Lit::Num(_)))
+    }
+
     /// Whether the member `name`, whose slot holds a `number` when
     /// `number_slot`, may hold a value of another type. A member the
     /// compiler mints (`__state`, `__sent`, an awaited value's slot)
@@ -193,7 +203,11 @@ fn writes(
     optional_number: &HashSet<PropKey>,
     accessor: &dyn Fn(&str) -> bool,
 ) -> Names {
-    let layouts = super::write_kind::Layouts::of(ast, expr_types);
+    // built only when some write's value needs its number-ness judged
+    let layouts = std::cell::OnceCell::new();
+    // traced only when some write names a member through the any lane
+    let origins = std::cell::OnceCell::new();
+    let origins = || origins.get_or_init(|| super::receiver_origin::Origins::of(ast, expr_types));
     let mut unknown: HashSet<String> = HashSet::new();
     loop {
         let facts = super::write_kind::Facts {
@@ -205,21 +219,61 @@ fn writes(
         };
         let mut names = Names::default();
         for e in &ast.exprs {
-            let hit = match e {
-                Expr::Assign { target, value } => write(&facts, *target, Some(*value)),
-                Expr::PostIncr { target, .. } => write(&facts, *target, None),
+            let (hit, recv) = match e {
+                Expr::Assign { target, value } => (
+                    write(&facts, *target, Some(*value)),
+                    any_receiver(ast, expr_types, *target),
+                ),
+                Expr::PostIncr { target, .. } => (
+                    write(&facts, *target, None),
+                    any_receiver(ast, expr_types, *target),
+                ),
                 Expr::Call { callee, args } | Expr::OptCall { callee, args } => {
-                    call(ast, expr_types, *callee, args)
+                    let reflect_set = matches!(ast.get_expr(*callee),
+                        Expr::Member { obj, name } if name == "set"
+                            && matches!(ast.get_expr(*obj), Expr::Ident(r) if r == "Reflect"));
+                    let target = args.first().copied().filter(|_| reflect_set);
+                    (call(ast, expr_types, *callee, args), target)
                 }
-                Expr::ObjectLit { fields } => literal(expr_types, optional_number, fields),
-                _ => Hit::None,
+                Expr::ObjectLit { fields } => (literal(expr_types, optional_number, fields), None),
+                _ => (Hit::None, None),
             };
-            names.take(hit);
+            names.take(spare(&origins, recv, hit));
         }
         if names.unknown.is_subset(&unknown) {
             return names;
         }
         unknown.extend(names.unknown);
+    }
+}
+
+/// The receiver of a write to `target` the lowering makes through the
+/// any lane: a member or keyed write whose receiver is no layout the
+/// checker knows.
+fn any_receiver(ast: &Ast, expr_types: &HashMap<ExprId, Type>, target: ExprId) -> Option<ExprId> {
+    match ast.get_expr(target) {
+        Expr::Member { obj, .. } | Expr::Index { obj, .. } if !struct_like(expr_types.get(obj)) => {
+            Some(*obj)
+        }
+        _ => None,
+    }
+}
+
+/// `hit` less what a write through `recv` cannot leave in any layout's
+/// slot: the name, when the receiver never holds a struct cell laid out
+/// with that slot, and every name, when it never holds one with any
+/// slot (`receiver_origin`; `counts[w] = n` on a fresh dictionary). A
+/// `Reflect.set` writes into its first argument; `Object.assign` names
+/// the fields of its sources, which its target does not narrow here.
+fn spare<'a>(
+    origins: &dyn Fn() -> &'a super::receiver_origin::Origins<'a>,
+    recv: Option<ExprId>,
+    hit: Hit,
+) -> Hit {
+    match (recv, hit) {
+        (Some(r), Hit::Name(n, _)) if origins().excludes(r, &n) => Hit::None,
+        (Some(r), Hit::All(_)) if origins().holds_no_slot(r) => Hit::None,
+        (_, hit) => hit,
     }
 }
 
@@ -603,6 +657,51 @@ mod tests {
     }
 
     #[test]
+    fn a_number_member_is_one_the_lowering_gives_a_number_slot() {
+        // the parser writes a member's literal type as its base type's
+        // annotation (`k: 1` declares `k: number`), and the slot follows it
+        let s = |s: &str| Type::Literal(Lit::Str(s.into()));
+        for checked in [
+            Type::Number,
+            Type::Literal(Lit::Num(1.0)),
+            Type::Literal(Lit::Num(-2.5)),
+            Type::String,
+            s("a"),
+            Type::Boolean,
+            Type::Literal(Lit::Bool(true)),
+        ] {
+            let base = match &checked {
+                Type::Literal(l) => l.base(),
+                t => t.clone(),
+            };
+            let ann = match base {
+                Type::Number => "number",
+                Type::String => "string",
+                _ => "boolean",
+            };
+            let slot = crate::ssa_lower_parse_type::parse_struct_field_type(
+                ann,
+                false,
+                &HashMap::new(),
+                &mut Vec::new(),
+                &mut Vec::new(),
+                &Default::default(),
+                &mut Vec::new(),
+                &mut HashMap::new(),
+            );
+            let number_slot = matches!(
+                slot,
+                crate::ssa::Type::F64 | crate::ssa::Type::I64 | crate::ssa::Type::I32
+            );
+            assert_eq!(
+                ShadowedNames::number_member(&checked),
+                number_slot,
+                "{checked:?}"
+            );
+        }
+    }
+
+    #[test]
     fn the_checker_retypes_the_members_written_a_value_of_another_type() {
         let src = "x.b = v; x.c = 1.5; x.__state = v;";
         let tokens = crate::lexer::tokenize(src).expect("tokenize");
@@ -614,5 +713,56 @@ mod tests {
         assert!(!names.may_mistype("c", true) && names.may_mistype("c", false));
         // a member the compiler mints keeps its type
         assert!(!names.may_mistype("__state", false));
+    }
+
+    #[test]
+    fn a_receiver_that_never_holds_a_struct_cell_shadows_nothing() {
+        let p = crate::check::Type::struct_of(vec![(PropKey::from("y"), Type::Number)]);
+        let any_of = |names: &[&str]| {
+            let p = p.clone();
+            let names: Vec<String> = names.iter().map(|n| n.to_string()).collect();
+            move |ast: &Ast| {
+                let mut t: HashMap<ExprId, Type> = HashMap::new();
+                for n in &names {
+                    t.extend(ident_types(ast, n, Type::Any));
+                }
+                t.extend(ident_types(ast, "p", p.clone()));
+                t
+            }
+        };
+        let n = settled(
+            "const cfg: any = {}; cfg.x = v; cfg[\"w\"] = v; Reflect.set(cfg, \"u\", v);",
+            any_of(&["cfg", "v"]),
+        );
+        assert!(!n.may_shadow("x", false) && !n.may_shadow("w", false));
+        assert!(!n.may_shadow("u", false));
+        // a JSON value, a literal without the key, a ternary of both
+        let n = settled(
+            "let j: any = JSON.parse(s); j.x = v; const t: any = c ? {} : { z: 1 }; t.x = v;",
+            any_of(&["j", "t", "v"]),
+        );
+        assert!(!n.may_shadow("x", false));
+        // a computed key on an empty literal reaches no slot; on a
+        // literal with keys it may reach one
+        let n = settled(
+            "const counts: any = {}; counts[w] = v;",
+            any_of(&["counts", "v", "w"]),
+        );
+        assert!(!n.may_shadow("a", false));
+        let n = settled(
+            "const d: any = { a: 1 }; d[k] = v;",
+            any_of(&["d", "v", "k"]),
+        );
+        assert!(n.may_shadow("a", false) && n.may_shadow("b", false));
+        // a literal with the key, an assigned struct, a parameter, a reviver
+        for src in [
+            "const o: any = { x: 1 }; o.x = v;",
+            "let o: any = {}; o = p; o.x = v;",
+            "function f(o: any) { o.x = v; }",
+            "const o: any = JSON.parse(s, r); o.x = v;",
+        ] {
+            let n = settled(src, any_of(&["o", "v"]));
+            assert!(n.may_shadow("x", false), "{src}");
+        }
     }
 }

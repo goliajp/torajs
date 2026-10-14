@@ -71,8 +71,8 @@ pub(super) fn conversion(
     name: &str,
     field_ty: Type,
 ) -> Option<(Conv, String)> {
-    let ann =
-        obj.and_then(|o| crate::ast_throw_info::class_field_ann(ctx.ast, ctx.expr_types, o, name));
+    let ann = obj
+        .and_then(|o| crate::ast_throw_info::instance_field_ann(ctx.ast, ctx.expr_types, o, name));
     // an annotation the parser respelled (`__cls(..)`) names its type
     // by kind
     let base = (ann.as_deref().map(|a| strip_nullable(a).trim().to_string()))

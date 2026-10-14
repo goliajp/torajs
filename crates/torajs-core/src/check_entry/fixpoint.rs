@@ -47,7 +47,9 @@ fn has_errors(c: &Checker) -> bool {
 /// (`u = total`). The set only grows and is bounded by the program's
 /// mutable `let`s. The members an any-lane write can leave holding a
 /// value of another type grow the same way: their reads type `any`,
-/// which can make the next write's value `any`.
+/// which can make the next write's value `any`. A grown member set no
+/// read of the run would answer otherwise needs no run of its own
+/// ([`super::shadowed_reads::ShadowedReads::would_retype`]).
 ///
 /// The property / return slot census (`check::face_slots`) and the
 /// binding and parameter census (`Checker::face_mismatch_lets` /
@@ -63,15 +65,16 @@ fn fixpoint_with(ast: &Ast, widen_ret_declared: bool, hidden: &HashSet<ExprId>) 
     loop {
         let found = crate::let_widen::collect_cross_type_widen_inits(ast, Some(&c.expr_types));
         let shadowed = crate::ast::ShadowedNames::of(ast, &c.expr_types);
-        if found.is_subset(&c.cross_type_widened)
-            && shadowed.is_subset(&c.shadowed_reads)
-            && !c.face_slot_reads.stale
-        {
+        let retypes = c.shadowed_reads.would_retype(&shadowed);
+        if found.is_subset(&c.cross_type_widened) && !retypes && !c.face_slot_reads.stale {
+            // no read answers otherwise under the grown set: a run
+            // seeded with it would type the program the same
+            c.shadowed_reads.names.extend(shadowed);
             return c;
         }
         let mut seed = std::mem::take(&mut c.cross_type_widened);
         seed.extend(found);
-        let mut reads = std::mem::take(&mut c.shadowed_reads);
+        let mut reads = std::mem::take(&mut c.shadowed_reads).names;
         reads.extend(shadowed);
         let face_slots = std::mem::take(&mut c.face_slots);
         let lets = std::mem::take(&mut c.face_mismatch_lets);
@@ -80,7 +83,7 @@ fn fixpoint_with(ast: &Ast, widen_ret_declared: bool, hidden: &HashSet<ExprId>) 
         c.widen_ret_declared = widen_ret_declared;
         c.hidden_any_args = hidden.clone();
         c.cross_type_widened = seed;
-        c.shadowed_reads = reads;
+        c.shadowed_reads = super::shadowed_reads::ShadowedReads::seeded(reads);
         c.face_slots = face_slots;
         c.face_mismatch_lets = lets;
         c.face_mismatch_params = params;

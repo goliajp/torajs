@@ -101,11 +101,20 @@ fn collect(t: &Type, seen: &mut HashSet<Vec<(String, Num)>>) {
 pub(super) struct Facts<'a> {
     pub(super) ast: &'a Ast,
     pub(super) expr_types: &'a HashMap<ExprId, Type>,
-    pub(super) layouts: &'a Layouts,
+    pub(super) layouts: &'a std::cell::OnceCell<Layouts>,
     /// The members a write can leave holding a value of any kind.
     pub(super) unknown: &'a HashSet<String>,
     /// Whether an accessor can stand at the member.
     pub(super) accessor: &'a dyn Fn(&str) -> bool,
+}
+
+impl Facts<'_> {
+    /// The program's layouts, gathered on the first verdict that reads
+    /// them.
+    fn layouts(&self) -> &Layouts {
+        self.layouts
+            .get_or_init(|| Layouts::of(self.ast, self.expr_types))
+    }
 }
 
 /// Whether `value`, stored into the member `written` of the receiver
@@ -120,7 +129,7 @@ pub(super) struct Facts<'a> {
 /// sees it.
 pub(super) fn steps_itself(f: &Facts<'_>, value: ExprId, recv: ExprId, written: &str) -> bool {
     !f.unknown.contains(written)
-        && f.layouts.declare_number(written, written, true)
+        && f.layouts().declare_number(written, written, true)
         && stepped(f, value, recv, written)
 }
 
@@ -158,7 +167,7 @@ fn numeric(f: &Facts<'_>, e: ExprId, (recv, written): (ExprId, &str), arith: boo
             same_receiver(f.ast, *obj, recv)
                 && !f.unknown.contains(name)
                 && !(f.accessor)(name)
-                && f.layouts.declare_number(written, name, arith)
+                && f.layouts().declare_number(written, name, arith)
         }
         Expr::BinOp { op, left, right } if arithmetic(*op) => {
             numeric(f, *left, at, true) && numeric(f, *right, at, true)

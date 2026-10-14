@@ -241,7 +241,7 @@ pub(crate) fn check(
 /// keeps the read's checked conversion: its typed lane (a closure's
 /// calling face, a layout) has no any-lane spelling to fall back on.
 fn mistyped_read(
-    checker: &Checker,
+    checker: &mut Checker,
     fields: &crate::check::StructFields,
     name: &str,
     ty: &Type,
@@ -256,8 +256,8 @@ fn mistyped_read(
     if !scalar {
         return false;
     }
-    let number = matches!(ty, Type::Number);
+    let number = crate::ast::ShadowedNames::number_member(ty);
     let optional_number = fields.is_optional(&crate::ast::PropKey::from(name))
         && matches!(ty, Type::Nullable(n) if **n == Type::Number);
-    !optional_number && checker.shadowed_reads.may_mistype(name, number)
+    !optional_number && checker.shadowed_reads.retypes(name, number)
 }

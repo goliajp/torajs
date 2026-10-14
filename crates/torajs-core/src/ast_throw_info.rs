@@ -67,7 +67,10 @@ mod scan;
 mod shapes;
 
 pub(crate) use crate::ast_throw_info_fixpoint::compute_may_throw_fns;
-pub(crate) use obj_cast::{class_field_ann, class_of, elem_ann, returns_any_into_obj, written_ann};
+pub(crate) use obj_cast::{
+    class_field_ann, class_of, decl_fields, elem_ann, instance_field_ann, names_type_param,
+    returns_any_into_obj, written_ann,
+};
 pub(crate) use scan::Scan;
 pub(crate) use shapes::ident_read_raises;
 use shapes::is_property_store;

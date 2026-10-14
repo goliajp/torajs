@@ -149,7 +149,7 @@ fn hand_over(
         owned_ast,
         &c.expr_types,
         (&c.aliases, &c.generic_alias_decls),
-        &c.shadowed_reads,
+        &c.shadowed_reads.names,
     );
     owned_ast.mints_absent_set |= owned_ast.accessor_field_names.cast_leaves_members_out;
     crate::num_width::analyze(

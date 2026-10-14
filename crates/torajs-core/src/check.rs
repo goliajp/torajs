@@ -262,7 +262,7 @@ pub(crate) struct Checker {
     /// another type; their typed reads type `any`
     /// (`check_type_of_member::mistyped_read`). Seeded by the run
     /// before (`check_entry::fixpoint_with`).
-    pub(crate) shadowed_reads: crate::ast::ShadowedNames,
+    pub(crate) shadowed_reads: crate::check_entry::shadowed_reads::ShadowedReads,
     pub(crate) held_any: crate::check_stmt_let_decl::held_any::HeldAny,
     /// S2.35 — init ExprIds pass_2 promoted to an `Any` global via
     /// the shared [`crate::ast_refs_any_promote`] verdict (call-init

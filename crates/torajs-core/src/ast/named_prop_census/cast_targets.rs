@@ -79,11 +79,12 @@ pub(super) fn converted_fields(
         else {
             continue;
         };
-        if !type_params.is_empty() {
-            continue;
-        }
+        // a generic declaration's field whose annotation names none of
+        // its type parameters has the same layout in every instance
         for (k, ann) in fields {
-            if k.as_wtf8().as_str().is_some_and(converted) {
+            if k.as_wtf8().as_str().is_some_and(converted)
+                && !crate::ast_throw_info::names_type_param(ann, type_params)
+            {
                 c.ann(ann);
             }
         }
@@ -358,13 +359,13 @@ impl Census<'_> {
         if !self.seen.insert(name.to_string()) {
             return;
         }
-        let fields = self.ast.stmts.iter().find_map(|s| match s {
-            Stmt::TypeDecl {
-                name: n, fields, ..
-            } if n == name => Some(fields.clone()),
-            _ => None,
-        });
-        for (k, ann) in fields.unwrap_or_default() {
+        // an instance of a generic class reads its declaration's
+        // fields, the ones every instance lays out alike
+        let Some((decl, fields)) = crate::ast_throw_info::decl_fields(self.ast, name) else {
+            return;
+        };
+        let name = decl;
+        for (k, ann) in fields {
             self.optional |= self
                 .ast
                 .optional_members

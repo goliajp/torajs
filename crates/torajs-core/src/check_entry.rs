@@ -24,6 +24,7 @@ use std::collections::{HashMap, HashSet};
 
 mod fixpoint;
 mod hidden_any;
+pub(crate) mod shadowed_reads;
 
 use fixpoint::{check_to_fixpoint, fixpoint_hidden};
 

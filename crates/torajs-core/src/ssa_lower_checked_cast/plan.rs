@@ -14,7 +14,7 @@
 
 use std::collections::HashMap;
 
-use crate::ast::{Ast, Stmt};
+use crate::ast::Ast;
 use crate::check_type_ann::strip_nullable;
 use crate::ssa::{StructId, Type};
 use crate::ssa_lower_anon_stamp::AnonStampPoolCell;
@@ -276,8 +276,9 @@ impl Builder<'_, '_> {
 }
 
 /// The field annotations of the object type `owner` names: an object
-/// type literal's, or a declared non-generic type's (a class's among
-/// them), keyed by the field name's bytes.
+/// type literal's, or a declared type's (a class's among them; a generic
+/// instance's, the fields every instance lays out alike), keyed by the
+/// field name's bytes.
 fn field_anns(ast: &Ast, owner: Option<&str>) -> Option<HashMap<Vec<u8>, String>> {
     let owner = owner?;
     if let Some(fields) = crate::ast_collect_fn_closure_init::parse_inlobj_field_anns(owner) {
@@ -287,18 +288,12 @@ fn field_anns(ast: &Ast, owner: Option<&str>) -> Option<HashMap<Vec<u8>, String>
                 .collect(),
         );
     }
-    ast.stmts.iter().find_map(|s| match s {
-        Stmt::TypeDecl {
-            name,
-            type_params,
-            fields,
-        } if name == owner && type_params.is_empty() => Some(
-            (fields.iter())
-                .map(|(k, a)| (k.as_wtf8().as_bytes().to_vec(), a.clone()))
-                .collect(),
-        ),
-        _ => None,
-    })
+    let (_, fields) = crate::ast_throw_info::decl_fields(ast, owner)?;
+    Some(
+        (fields.into_iter())
+            .map(|(k, a)| (k.as_wtf8().as_bytes().to_vec(), a))
+            .collect(),
+    )
 }
 
 /// The heap tag every value of the single-family heap type `ty` wears.
