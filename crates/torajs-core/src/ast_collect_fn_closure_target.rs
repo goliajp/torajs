@@ -232,16 +232,6 @@ impl FnToClosureCollector<'_> {
         }
     }
 
-    /// `eid` is a bare name that is not a generator or async function:
-    /// those carry their own value shapes, so only a plain declaration
-    /// is wrapped into its canonical cell on that account.
-    pub(crate) fn names_plain_fn(&self, eid: ExprId) -> bool {
-        matches!(self.ast.get_expr(eid), Expr::Ident(n)
-            if !self.ast.generator_factory_classes.contains_key(n)
-                && !self.ast.async_fns.contains(n)
-                && !self.ast.async_generator_fns.contains(n))
-    }
-
     pub(crate) fn mark_ident(&mut self, eid: ExprId) -> bool {
         let Some(name) = self.fn_name(eid) else {
             return false;

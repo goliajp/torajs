@@ -288,7 +288,10 @@ impl<'a> FnToClosureCollector<'a> {
                 // base rides the canonical cell. A string key is a
                 // property name the static member arms answer.
                 let computed_on_plain_fn = !matches!(self.ast.get_expr(index), Expr::String(_))
-                    && self.names_plain_fn(obj);
+                    && matches!(self.ast.get_expr(obj), Expr::Ident(n)
+                        if !self.ast.generator_factory_classes.contains_key(n)
+                            && !self.ast.async_fns.contains(n)
+                            && !self.ast.async_generator_fns.contains(n));
                 if !(computed_on_plain_fn && self.try_mark(obj)) {
                     self.walk_expr(obj);
                 }
@@ -319,16 +322,8 @@ impl<'a> FnToClosureCollector<'a> {
             }
             Expr::Unary { expr, .. } | Expr::Spread { expr } => self.walk_expr(*expr),
             Expr::InstanceOf { expr, rhs } => {
-                let (expr, rhs) = (*expr, *rhs);
-                // The left operand is a value the operator hands to the
-                // target's `@@hasInstance`, or to its checks that throw
-                // for a non-object or non-callable target whatever the
-                // left side holds; a bare declaration has no value on the
-                // FnSig lane, so it rides the canonical cell.
-                if !(self.names_plain_fn(expr) && self.try_mark(expr)) {
-                    self.walk_expr(expr);
-                }
-                self.walk_expr(rhs);
+                self.walk_expr(*expr);
+                self.walk_expr(*rhs);
             }
             // `fn as any` — the cast IS an any-boxing position (the
             // widened box has no FnSig arm), so a bare top-FnDecl

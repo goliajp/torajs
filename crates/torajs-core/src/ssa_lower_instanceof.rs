@@ -113,26 +113,7 @@ pub(crate) fn lower_class_membership(
     }
 }
 
-/// The left operand is consumed by the operator, never kept: every lane
-/// below reads it (boxing is a pure encode) and answers a Bool. So an
-/// operand that arrived OWNED — a function expression, or a declaration
-/// name riding its canonical cell at +1 — is released here, whichever
-/// lane answered.
 fn lower_named(ctx: &mut LowerCtx<'_>, expr: ExprId, class_name: &str) -> Operand {
-    let v = ctx.lower_expr(expr);
-    let r = lower_named_on(ctx, (expr, v), class_name);
-    if ctx.expr_transfers_ownership(expr) {
-        let ty = ctx.operand_ty(&v);
-        ctx.emit_drop_value(v, ty);
-    }
-    r
-}
-
-fn lower_named_on(
-    ctx: &mut LowerCtx<'_>,
-    (expr, v): (ExprId, Operand),
-    class_name: &str,
-) -> Operand {
     // RFC 20260713 blade 5 — `x instanceof g` where g is a generator
     // factory: §27.5.3 [[HasInstance]] walks g.prototype, which IS
     // the desugared __Gen class's prototype object, so the class
@@ -144,6 +125,7 @@ fn lower_named_on(
         .cloned()
         .unwrap_or_else(|| class_name.to_string());
     let class_name = class_name.as_str();
+    let v = ctx.lower_expr(expr);
     let actual_ty = ctx.operand_ty(&v);
     // RFC 20260730-iterator-global 刀 1 — `x instanceof Iterator` is
     // pure §7.3.22 prototype-chain membership (no per-instance heap
