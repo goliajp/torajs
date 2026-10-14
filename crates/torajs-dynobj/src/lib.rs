@@ -247,15 +247,15 @@ pub unsafe extern "C" fn __torajs_symbol_drop(_s: *mut core::ffi::c_void) {
     );
 }
 
-// The owner's encode / decode for unit tests: the same steps
-// `crate::nanbox` inlines on the probe paths, so a value written on one
+// The owner's encode / decode for unit tests: the reference encoding
+// `crate::nanbox` holds its inline steps to, so a value written on one
 // path reads back on the other. No unit test stores a ShortStr.
 /// # Safety
 /// Takes no pointer arguments.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64 {
-    nanbox::box_from_pair_inline(tag, value)
+    nanbox::reference::box_from_pair(tag, value)
 }
 
 /// # Safety
@@ -263,7 +263,7 @@ pub unsafe extern "C" fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u6
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_unbox_tag(v: u64) -> i64 {
-    nanbox::unbox_tag_inline(v)
+    nanbox::reference::unbox_tag(v)
 }
 
 /// # Safety
@@ -271,7 +271,7 @@ pub unsafe extern "C" fn __torajs_anyv_unbox_tag(v: u64) -> i64 {
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_unbox_value(v: u64) -> i64 {
-    unsafe { nanbox::unbox_value_inline(v) }
+    nanbox::reference::unbox_value(v)
 }
 
 // Accessor-pair builtin-face probe stubs — unit tests exercise

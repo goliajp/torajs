@@ -19,8 +19,9 @@ use core::ffi::c_void;
 
 use crate::nanbox;
 
-use crate::accessor::{__torajs_accessor_invoke_setter, value_is_accessor};
-use crate::global_cell::{global_cell_write, value_is_global_cell};
+use crate::accessor::{__torajs_accessor_invoke_setter, TAG_ACCESSOR_PAIR};
+use crate::get::type_tag;
+use crate::global_cell::{TAG_GLOBAL_CELL, global_cell_write};
 use crate::layout::{
     ANY_HEAP, BUCKET_FLAG_CONFIGURABLE, BUCKET_FLAG_WRITABLE, BUCKET_FLAGS_DEFAULT,
     BUCKET_TAG_MASK, DYNOBJ_HDR_FLAG_NON_EXTENSIBLE,
@@ -114,25 +115,16 @@ unsafe fn dynobj_set_impl(
     if obj.is_null() {
         return 1;
     }
-    // Dense-array-full guard: compact (and grow if genuinely full)
-    // before probing so a fresh insert always has an append slot.
-    // Resize swaps the store inside the header cell — `obj` itself
-    // stays valid (RFC 20260809-dynobj-store-split).
-    if !own_only && unsafe { entries_len(obj) } == unsafe { entries_cap(obj) } {
-        unsafe { resize(obj) };
-    }
-
-    let pr = unsafe { probe(obj, key as *const c_void) };
+    let mut pr = unsafe { probe(obj, key as *const c_void) };
     if !pr.found && own_only {
         return DYNOBJ_SET_OWN_MISS;
     }
     unsafe { note_own_write(obj, key) };
-    let ent = unsafe { entries(obj) };
     if pr.found {
         unsafe {
             write_own_entry(
                 obj,
-                ent.add(pr.entry as usize),
+                entries(obj).add(pr.entry as usize),
                 tag,
                 value,
                 throw_on_refusal,
@@ -173,12 +165,23 @@ unsafe fn dynobj_set_impl(
             } else {
                 BUCKET_FLAGS_DEFAULT
             };
+        // Dense-array-full guard: compact (and grow if genuinely full)
+        // so the insert has an append slot. Resize swaps the store
+        // inside the header cell — `obj` itself stays valid (RFC
+        // 20260809-dynobj-store-split) — and rehashes, so the slot is
+        // probed again.
+        if unsafe { entries_len(obj) } == unsafe { entries_cap(obj) } {
+            unsafe {
+                resize(obj);
+                pr = probe(obj, key as *const c_void);
+            }
+        }
         // Fresh insert: append to the dense array (insertion order),
         // point the probed slot (tombstone reuse or empty) at it.
         let e_idx = unsafe { entries_len(obj) };
         unsafe {
             __torajs_rc_inc(key);
-            *ent.add(e_idx as usize) = Entry {
+            *entries(obj).add(e_idx as usize) = Entry {
                 key_ptr_tagged: bucket_make_key_tagged(key, attrs),
                 value_anyv: nanbox::box_from_pair((tag & BUCKET_TAG_MASK) as i64, value as i64),
             };
@@ -254,11 +257,18 @@ unsafe fn write_own_entry(
     throw_on_refusal: bool,
 ) -> i64 {
     let cur_value_anyv = unsafe { (*e).value_anyv };
+    // The current value's heap type tag, read once for the accessor
+    // and global-cell checks and the drop below; an immediate has none.
+    let cur_kind = if nanbox::is_cell(cur_value_anyv) {
+        Some(unsafe { type_tag(cur_value_anyv as *const c_void) })
+    } else {
+        None
+    };
     // RFC C3 — accessor entry: dispatch the setter, never a data
     // write (checked before the writable gate — accessors carry no
     // writable bit, so the data path would wrongly throw "read
     // only"). `cur_value_anyv` is the AccessorPair cell verbatim.
-    if unsafe { value_is_accessor(cur_value_anyv) } {
+    if cur_kind == Some(TAG_ACCESSOR_PAIR) {
         let value_anyv = nanbox::box_from_pair((tag & BUCKET_TAG_MASK) as i64, value as i64);
         // Receiver = the dynobj itself, boxed — an ACC_KIND_RECV
         // fn-expr face reads it as `this`; other faces ignore it.
@@ -296,36 +306,32 @@ unsafe fn write_own_entry(
     // binding's slot: the write lands IN the binding. A typed
     // slot that cannot spell the value refuses loudly rather
     // than storing bits every bare read after it would misread.
-    if unsafe { value_is_global_cell(cur_value_anyv) } {
-        let cell = nanbox::cell_ptr(cur_value_anyv) as *const c_void;
-        if unsafe { global_cell_write(cell, tag & BUCKET_TAG_MASK, value) } {
-            return 1;
-        }
-        if throw_on_refusal {
-            unsafe {
-                __torajs_throw_type_error(
-                    c"Cannot store a value of this type into a typed global variable binding through the global object (not yet supported)."
-                        .as_ptr() as *const u8,
-                );
+    match cur_kind {
+        Some(TAG_GLOBAL_CELL) => {
+            let cell = cur_value_anyv as *const c_void;
+            if unsafe { global_cell_write(cell, tag & BUCKET_TAG_MASK, value) } {
+                return 1;
             }
+            if throw_on_refusal {
+                unsafe {
+                    __torajs_throw_type_error(
+                        c"Cannot store a value of this type into a typed global variable binding through the global object (not yet supported)."
+                            .as_ptr() as *const u8,
+                    );
+                }
+            }
+            return 0;
         }
-        return 0;
-    }
-    let cur_tag = nanbox::unbox_tag_inline(cur_value_anyv) as u64;
-    // Drop the old heap value if the current slot was ANY_HEAP.
-    // (The NaN-box cell gate in __torajs_value_drop_heap would
-    // also short-circuit immediates, but checking tag first keeps
-    // the hot path one extern call lighter on the common case.)
-    if cur_tag == ANY_HEAP {
-        unsafe {
-            __torajs_value_drop_heap(cur_value_anyv as *mut c_void);
-        }
+        // Drop the old value if it is a heap cell. A ShortStr also
+        // decodes to ANY_HEAP, but it is an immediate the drop's own
+        // cell gate turns away, so the cell test alone decides.
+        Some(_) => unsafe { __torajs_value_drop_heap(cur_value_anyv as *mut c_void) },
+        None => {}
     }
     // Preserve existing flag bits in key_ptr_tagged; rebox the
     // (tag, value) pair into a fresh NaN-box AnyValue.
     unsafe {
-        (*e).value_anyv =
-            nanbox::box_from_pair_inline((tag & BUCKET_TAG_MASK) as i64, value as i64);
+        (*e).value_anyv = nanbox::box_from_pair((tag & BUCKET_TAG_MASK) as i64, value as i64);
     }
     1
 }

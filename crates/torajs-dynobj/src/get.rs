@@ -15,11 +15,12 @@ use core::ffi::c_void;
 
 use crate::nanbox;
 
-use crate::accessor::TAG_ACCESSOR_PAIR;
+use crate::accessor::{TAG_ACCESSOR_PAIR, VALUE_UNDEFINED};
+use crate::define::ANY_I64;
 use crate::global_cell::deref_global_cell;
 use crate::layout::{
     ANY_ACCESSOR, ANY_HEAP, ANY_UNDEF, BUCKET_FLAG_CONFIGURABLE, BUCKET_FLAG_ENUMERABLE,
-    BUCKET_FLAG_WRITABLE, TAG_DYNOBJ,
+    BUCKET_FLAG_WRITABLE, DYNOBJ_HOLE_SENTINEL, TAG_DYNOBJ,
 };
 use crate::probe::{bucket_flags, entries, probe};
 
@@ -41,12 +42,6 @@ pub(crate) unsafe fn type_tag(obj: *const c_void) -> u16 {
 /// `key` (if reached) is a live Str heap pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64 {
-    if obj.is_null() {
-        return ANY_UNDEF;
-    }
-    if unsafe { type_tag(obj) } != TAG_DYNOBJ {
-        return ANY_UNDEF;
-    }
     let mut value = 0;
     match unsafe { __torajs_dynobj_get_own(obj, key, &mut value) } {
         DYNOBJ_GET_OWN_MISS => ANY_UNDEF,
@@ -67,11 +62,12 @@ pub const DYNOBJ_GET_OWN_MISS: u64 = u64::MAX;
 /// is a hit `(ANY_UNDEF, 0)`, and so is a hole tombstone (the get
 /// pair reads it as undefined and `has` as present); only a key with
 /// no entry answers [`DYNOBJ_GET_OWN_MISS`], leaving `value_out`
-/// untouched.
+/// untouched; a null `obj` or a cell that is not a DynObj owns no
+/// entry.
 ///
 /// # Safety
-/// `obj` is a live DynObj; `key` is a live Str or Symbol cell;
-/// `value_out` is writable.
+/// `obj` is null or a live heap pointer with a universal header;
+/// `key` is a live Str or Symbol cell; `value_out` is writable.
 #[unsafe(no_mangle)]
 #[inline(never)]
 pub unsafe extern "C" fn __torajs_dynobj_get_own(
@@ -79,26 +75,32 @@ pub unsafe extern "C" fn __torajs_dynobj_get_own(
     key: *const c_void,
     value_out: *mut u64,
 ) -> u64 {
+    if obj.is_null() || unsafe { type_tag(obj) } != TAG_DYNOBJ {
+        return DYNOBJ_GET_OWN_MISS;
+    }
     let p = unsafe { probe(obj, key) };
     if !p.found {
         return DYNOBJ_GET_OWN_MISS;
     }
     let v = unsafe { (*entries(obj).add(p.entry as usize)).value_anyv };
-    if v == crate::layout::DYNOBJ_HOLE_SENTINEL {
-        unsafe { value_out.write(0) };
-        return ANY_UNDEF;
-    }
-    let v = unsafe { deref_global_cell(v, key as *mut c_void) };
-    // the probe-and-read path: the decode is inlined here
-    let tag = nanbox::unbox_tag_inline(v) as u64;
-    let value = unsafe { nanbox::unbox_value_inline(v) } as u64;
+    // A hole tombstone reads as an entry storing undefined.
+    let v = if v == DYNOBJ_HOLE_SENTINEL {
+        VALUE_UNDEFINED
+    } else {
+        unsafe { deref_global_cell(v, key as *mut c_void) }
+    };
+    let (tag, value) = if nanbox::is_int32(v) {
+        (ANY_I64, v as i32 as i64 as u64)
+    } else if nanbox::is_cell(v) {
+        // only a heap cell can be an accessor pair
+        let pair = unsafe { type_tag(v as *const c_void) } == TAG_ACCESSOR_PAIR;
+        (if pair { ANY_ACCESSOR } else { ANY_HEAP }, v)
+    } else {
+        (nanbox::unbox_tag(v) as u64, unsafe {
+            nanbox::unbox_value(v) as u64
+        })
+    };
     unsafe { value_out.write(value) };
-    if tag == ANY_HEAP
-        && value != 0
-        && unsafe { type_tag(value as *const c_void) } == TAG_ACCESSOR_PAIR
-    {
-        return ANY_ACCESSOR;
-    }
     tag
 }
 
@@ -110,12 +112,6 @@ pub unsafe extern "C" fn __torajs_dynobj_get_own(
 /// Same contract as [`__torajs_dynobj_get_tag`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64 {
-    if obj.is_null() {
-        return 0;
-    }
-    if unsafe { type_tag(obj) } != TAG_DYNOBJ {
-        return 0;
-    }
     // a miss leaves the slot at 0
     let mut value = 0;
     unsafe { __torajs_dynobj_get_own(obj, key, &mut value) };
