@@ -16,11 +16,11 @@
 //! deleted release goes with it — left behind, it would still be
 //! materialized every iteration.
 
-use crate::id_hash::HashSet;
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{
-    ANY_SLOT_TAG_HEAP, BinOp, BlockId, Function, Inst, InstKind, Module, Operand, Terminator,
-    ValueId,
+    ANY_SLOT_TAG_HEAP, BinOp, BlockId, Function, IPred, Inst, InstKind, Module, Operand,
+    TAG_TYPE_NUMBER, Terminator, Type, ValueId,
 };
 
 use crate::anynum::expand::is_number_node;
@@ -51,24 +51,96 @@ pub fn fold_number_rcs(module: &mut Module) -> RcFoldStats {
 /// The values a true branch on `c` proves to be numbers: the tests
 /// `c` is made of must sit in the branching block, each with no def
 /// of its operand between it and the branch — a cell stored again
-/// after its test holds a value the test never saw.
-fn proven_by(insts: &[Inst], end: usize, c: ValueId, out: &mut Vec<ValueId>) {
+/// after its test holds a value the test never saw. Read in the
+/// typed form (`any_is_number` / `any_is_int32`) and in the bit form
+/// those expand to (`(bits & TAG) != 0`, `(bits >> 48) == TAG >> 48`,
+/// the constant possibly hoisted into a `copy`).
+fn proven_by(
+    insts: &[Inst],
+    end: usize,
+    c: ValueId,
+    consts: &HashMap<ValueId, i64>,
+    out: &mut Vec<ValueId>,
+) {
     let Some(at) = insts[..end].iter().rposition(|i| i.result == Some(c)) else {
         return;
     };
-    let unchanged = |v: &ValueId| !insts[at + 1..].iter().any(|i| i.result == Some(*v));
+    let unchanged =
+        |v: &ValueId, from: usize| !insts[from + 1..].iter().any(|i| i.result == Some(*v));
+    // the `ptrtoint` the bit tests read, earlier in the block
+    let read_of = |x: ValueId, before: usize| -> Option<(ValueId, usize)> {
+        let k = insts[..before].iter().rposition(|i| i.result == Some(x))?;
+        match &insts[k].kind {
+            InstKind::PtrToInt(Operand::Value(v)) => Some((*v, k)),
+            _ => None,
+        }
+    };
+    let const_of = |op: &Operand| match op {
+        Operand::ConstI64(k) => Some(*k),
+        Operand::Value(v) => consts.get(v).copied(),
+        _ => None,
+    };
     match &insts[at].kind {
         InstKind::AnyIsNumber(Operand::Value(v)) | InstKind::AnyIsInt32(Operand::Value(v))
-            if unchanged(v) =>
+            if unchanged(v, at) =>
         {
             out.push(*v);
         }
         InstKind::BinOp(BinOp::And, Operand::Value(a), Operand::Value(b)) => {
-            proven_by(insts, at, *a, out);
-            proven_by(insts, at, *b, out);
+            proven_by(insts, at, *a, consts, out);
+            proven_by(insts, at, *b, consts, out);
+        }
+        InstKind::ICmp(IPred::Ne, Operand::Value(t), Operand::ConstI64(0)) => {
+            let Some(k) = insts[..at].iter().rposition(|i| i.result == Some(*t)) else {
+                return;
+            };
+            if let InstKind::BinOp(BinOp::And, Operand::Value(bits), Operand::ConstI64(tag)) =
+                &insts[k].kind
+                && *tag == TAG_TYPE_NUMBER as i64
+                && let Some((v, r)) = read_of(*bits, k)
+                && unchanged(&v, r)
+            {
+                out.push(v);
+            }
+        }
+        InstKind::ICmp(IPred::Eq, Operand::Value(top), k) => {
+            if const_of(k) != Some((TAG_TYPE_NUMBER >> 48) as i64) {
+                return;
+            }
+            let Some(j) = insts[..at].iter().rposition(|i| i.result == Some(*top)) else {
+                return;
+            };
+            if let InstKind::BinOp(BinOp::LShr, Operand::Value(bits), Operand::ConstI64(48)) =
+                &insts[j].kind
+                && let Some((v, r)) = read_of(*bits, j)
+                && unchanged(&v, r)
+            {
+                out.push(v);
+            }
         }
         _ => {}
     }
+}
+
+/// Values defined once, as a copy of an integer constant: the hoisted
+/// `iconst` cells the bit tests compare against.
+fn int_consts(func: &Function) -> HashMap<ValueId, i64> {
+    let mut seen: HashMap<ValueId, Option<i64>> = HashMap::default();
+    for block in &func.blocks {
+        for inst in &block.insts {
+            let Some(r) = inst.result else {
+                continue;
+            };
+            let k = match &inst.kind {
+                InstKind::Copy(Type::I64, Operand::ConstI64(k)) => Some(*k),
+                _ => None,
+            };
+            seen.entry(r).and_modify(|e| *e = None).or_insert(k);
+        }
+    }
+    seen.into_iter()
+        .filter_map(|(v, k)| k.map(|k| (v, k)))
+        .collect()
 }
 
 /// What a def proves about its result: a box of a number, or a copy
@@ -96,6 +168,85 @@ fn transfer(func: &Function, b: BlockId, mut facts: HashSet<ValueId>) -> HashSet
     facts
 }
 
+/// What the number tests of a function prove: the values proven
+/// numbers at each block's entry (`None` for a block never reached)
+/// and, per block, the values its true edge proves.
+pub(super) struct NumberFacts {
+    live_in: Vec<Option<HashSet<ValueId>>>,
+    edge_proofs: Vec<Option<(BlockId, Vec<ValueId>)>>,
+}
+
+impl NumberFacts {
+    /// The forward must-analysis over `func`.
+    pub(super) fn compute(func: &Function) -> Self {
+        let n = func.blocks.len();
+        let consts = int_consts(func);
+        // what the true edge out of a block proves
+        let mut edge_proofs: Vec<Option<(BlockId, Vec<ValueId>)>> = vec![None; n];
+        for block in &func.blocks {
+            if let Terminator::CondBr {
+                cond: Operand::Value(c),
+                then_blk,
+                else_blk,
+            } = &block.term
+                && then_blk != else_blk
+            {
+                let mut proven = Vec::new();
+                proven_by(&block.insts, block.insts.len(), *c, &consts, &mut proven);
+                if !proven.is_empty() {
+                    edge_proofs[block.id.0 as usize] = Some((*then_blk, proven));
+                }
+            }
+        }
+        // None is the top of the lattice: not yet reached
+        let mut live_in: Vec<Option<HashSet<ValueId>>> = vec![None; n];
+        live_in[0] = Some(HashSet::default());
+        let mut changed = true;
+        while changed {
+            changed = false;
+            for bi in 0..n {
+                let Some(entry) = live_in[bi].clone() else {
+                    continue;
+                };
+                let out = transfer(func, BlockId(bi as u32), entry);
+                for s in successors(&func.blocks[bi].term) {
+                    let mut via = out.clone();
+                    if let Some((t, proven)) = &edge_proofs[bi]
+                        && *t == s
+                    {
+                        via.extend(proven.iter().copied());
+                    }
+                    let next = match &live_in[s.0 as usize] {
+                        None => via,
+                        Some(cur) => cur.intersection(&via).copied().collect(),
+                    };
+                    if live_in[s.0 as usize].as_ref() != Some(&next) {
+                        live_in[s.0 as usize] = Some(next);
+                        changed = true;
+                    }
+                }
+            }
+        }
+        NumberFacts {
+            live_in,
+            edge_proofs,
+        }
+    }
+
+    /// Is `v` proven a number on the edge from `b` to `s`: at `b`'s
+    /// exit, or by the test `b`'s true edge into `s` passes?
+    pub(super) fn proven_on_edge(&self, func: &Function, b: usize, s: BlockId, v: ValueId) -> bool {
+        let Some(entry) = &self.live_in[b] else {
+            // an unreached block runs nothing
+            return true;
+        };
+        if transfer(func, BlockId(b as u32), entry.clone()).contains(&v) {
+            return true;
+        }
+        matches!(&self.edge_proofs[b], Some((t, proven)) if *t == s && proven.contains(&v))
+    }
+}
+
 fn fold_in_function(func: &mut Function) -> u32 {
     let has_rc = func.blocks.iter().flat_map(|b| b.insts.iter()).any(|i| {
         matches!(
@@ -107,52 +258,7 @@ fn fold_in_function(func: &mut Function) -> u32 {
         return 0;
     }
     let n = func.blocks.len();
-    // what the true edge out of a block proves
-    let mut edge_proofs: Vec<Option<(BlockId, Vec<ValueId>)>> = vec![None; n];
-    for block in &func.blocks {
-        if let Terminator::CondBr {
-            cond: Operand::Value(c),
-            then_blk,
-            else_blk,
-        } = &block.term
-            && then_blk != else_blk
-        {
-            let mut proven = Vec::new();
-            proven_by(&block.insts, block.insts.len(), *c, &mut proven);
-            if !proven.is_empty() {
-                edge_proofs[block.id.0 as usize] = Some((*then_blk, proven));
-            }
-        }
-    }
-    // None is the top of the lattice: not yet reached
-    let mut live_in: Vec<Option<HashSet<ValueId>>> = vec![None; n];
-    live_in[0] = Some(HashSet::default());
-    let mut changed = true;
-    while changed {
-        changed = false;
-        for bi in 0..n {
-            let Some(entry) = live_in[bi].clone() else {
-                continue;
-            };
-            let out = transfer(func, BlockId(bi as u32), entry);
-            for s in successors(&func.blocks[bi].term) {
-                let mut via = out.clone();
-                if let Some((t, proven)) = &edge_proofs[bi]
-                    && *t == s
-                {
-                    via.extend(proven.iter().copied());
-                }
-                let next = match &live_in[s.0 as usize] {
-                    None => via,
-                    Some(cur) => cur.intersection(&via).copied().collect(),
-                };
-                if live_in[s.0 as usize].as_ref() != Some(&next) {
-                    live_in[s.0 as usize] = Some(next);
-                    changed = true;
-                }
-            }
-        }
-    }
+    let live_in = NumberFacts::compute(func).live_in;
     let mut removed = 0u32;
     for (bi, entry) in live_in.iter().enumerate().take(n) {
         let Some(mut facts) = entry.clone() else {

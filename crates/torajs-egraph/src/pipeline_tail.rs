@@ -109,6 +109,16 @@ pub(crate) fn finish_pipeline(
     // retain/release pairs. `TORAJS_RC_PEEPHOLE_OFF=1` skips (bisect
     // gate, mirrors TORAJS_INLINER_OFF).
     gated_pass("RC_PEEPHOLE", module, rc_peephole::elide_rc_pairs);
+    // A retain the two passes above left moves down to the paths that
+    // have not proven its value a number (`anynum::inc_sink`), so the
+    // number arms of a `+` carry no cell test. After the loop
+    // versioning, whose copies have the shape the walk can pass.
+    // `TORAJS_ANYNUM_INC_SINK_OFF=1` skips.
+    gated_pass(
+        "ANYNUM_INC_SINK",
+        module,
+        crate::anynum::inc_sink::sink_number_retains,
+    );
     // Map lookup sharing — a repeated string-key find on the same Map
     // with no Map write between reuses the earlier index; set_str takes
     // it as a checked hint. `TORAJS_MAP_FIND_CSE_OFF=1` skips.
