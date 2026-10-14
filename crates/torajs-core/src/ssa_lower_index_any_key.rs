@@ -32,7 +32,14 @@ pub(crate) fn declare_get_pair(module: &mut Module, fn_table: &mut HashMap<Strin
 /// The dynamic-key read: [`GET_PAIR`] in place of the tag / value
 /// call pair, consumed by the same accessor-or-data result emit.
 fn emit_any_member_get_pair(ctx: &mut LowerCtx, obj_val: &Operand, key: ValueId) -> Operand {
-    let slot = ctx.alloca_in_entry(Type::I64, Some("__get_value"));
+    let slot = match ctx.temps.get_pair_slot {
+        Some(slot) => slot,
+        None => {
+            let slot = ctx.alloca_in_entry(Type::I64, Some("__get_value"));
+            ctx.temps.get_pair_slot = Some(slot);
+            slot
+        }
+    };
     let tag = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(

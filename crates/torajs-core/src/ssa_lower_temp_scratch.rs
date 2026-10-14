@@ -38,6 +38,11 @@ pub(crate) struct TempScratch {
     /// dispatcher so the receiver resolver can hand it to the arm and
     /// the dispatcher can release it after (`ssa_lower_arr_mutator_recv`).
     pub(crate) mutator_recv: Option<(crate::ast::ExprId, Operand)>,
+    /// The entry slot every `__torajs_any_member_get_pair` read in this
+    /// function writes its value into, loaded right after the call.
+    /// One slot per function: a slot per read keeps one more stack
+    /// address live across the body for each read site.
+    pub(crate) get_pair_slot: Option<ValueId>,
 }
 
 /// One parked temp: a value with its drop type, or a relocation slot
