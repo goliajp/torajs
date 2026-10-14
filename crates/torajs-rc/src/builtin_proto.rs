@@ -352,6 +352,7 @@ pub unsafe extern "C" fn __torajs_get_builtin_prototype(tag: i64) -> *mut c_void
 /// # Safety
 /// `p` is any pointer value — only compared, never dereferenced.
 #[unsafe(no_mangle)]
+#[inline(never)]
 pub unsafe extern "C" fn __torajs_builtin_proto_tag_of(p: *const c_void) -> i64 {
     if p.is_null() {
         return -1;

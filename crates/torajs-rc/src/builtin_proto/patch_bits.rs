@@ -83,18 +83,19 @@ const MINT_FILTER_WORDS: usize = 16;
 const MINT_FILTER_INIT: AtomicU64 = AtomicU64::new(0);
 static MINT_FILTER: [AtomicU64; MINT_FILTER_WORDS] = [MINT_FILTER_INIT; MINT_FILTER_WORDS];
 
-/// The filter bit of `addr`: Fibonacci hashing of the cell address
-/// (cells are 16-byte aligned) onto the filter's 1024 bits.
+/// The filter bit of `addr`: bits 4..14 of the cell address (cells are
+/// 16-byte aligned) pick one of the filter's 1024 bits — a word and a
+/// shift, two bitfield extracts with no constant to load.
 #[inline]
-fn mint_filter_bit(addr: usize) -> (usize, u64) {
-    let h = ((addr as u64) >> 4).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> (64 - 10);
-    ((h >> 6) as usize, 1u64 << (h & 63))
+fn mint_filter_bit(addr: usize) -> (usize, u32) {
+    let h = (addr >> 4) & 1023;
+    (h >> 6, (h & 63) as u32)
 }
 
 /// Record a singleton about to be published (the parent's mint).
 pub(super) fn note_minted(addr: usize) {
     let (w, b) = mint_filter_bit(addr);
-    MINT_FILTER[w].fetch_or(b, Ordering::Release);
+    MINT_FILTER[w].fetch_or(1 << b, Ordering::Release);
 }
 
 // Per-tag patched-method-id bitmask (RFC 20260721 刀 11 G13) — the
@@ -129,9 +130,20 @@ pub unsafe extern "C" fn __torajs_builtin_proto_note_own_write(
     len: i64,
 ) {
     let (w, b) = mint_filter_bit(obj as usize);
-    if MINT_FILTER[w].load(Ordering::Acquire) & b == 0 {
+    if (MINT_FILTER[w].load(Ordering::Acquire) >> b) & 1 == 0 {
         return;
     }
+    unsafe { note_singleton_write(obj, name, len) }
+}
+
+/// The note's rare half, out of line so the common return above needs
+/// no stack frame.
+///
+/// # Safety
+/// As [`__torajs_builtin_proto_note_own_write`].
+#[cold]
+#[inline(never)]
+unsafe fn note_singleton_write(obj: *const c_void, name: *const u8, len: i64) {
     let tag = unsafe { __torajs_builtin_proto_tag_of(obj) };
     if tag < 0 || name.is_null() || len <= 0 {
         return;
