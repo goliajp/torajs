@@ -40,7 +40,7 @@ impl Parser<'_> {
             // must still see it (§13.15.1 — invalid
             // AssignmentTargetType is a parse-time SyntaxError,
             // while `undefined = x` fails at runtime).
-            self.void_folds.insert(id.0);
+            self.invalid_target_ids.insert(id.0);
             return Ok(id);
         }
         let undef = self.ast.add_expr(Expr::Ident("undefined".into()));

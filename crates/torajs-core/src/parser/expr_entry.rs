@@ -207,7 +207,7 @@ impl<'a> Parser<'a> {
             gen_recv_minted: self.gen_recv_minted,
             // Shares the outer arena, so the fold ids must ride along
             // (taken here, flowed back below with the arena).
-            void_folds: std::mem::take(&mut self.void_folds),
+            invalid_target_ids: std::mem::take(&mut self.invalid_target_ids),
             // Same inheritance rationale: `${this.x}` in a
             // static method body must mint the class-object
             // reference the surrounding body does (S2.37).
@@ -269,7 +269,7 @@ impl<'a> Parser<'a> {
         self.ast = sub.ast;
         self.ast.strict_code_spans.truncate(strict_spans_before);
         self.gen_recv_minted = sub.gen_recv_minted;
-        self.void_folds = sub.void_folds;
+        self.invalid_target_ids = sub.invalid_target_ids;
         self.desugar_id = sub.desugar_id;
         self.generator_fns = sub.generator_fns;
         // P8.5 — propagate any class expressions parsed

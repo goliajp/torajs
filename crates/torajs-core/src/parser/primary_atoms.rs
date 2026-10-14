@@ -132,6 +132,12 @@ impl<'a> Parser<'a> {
             }
         }
         self.in_for_init = saved_in_for_init;
+        if matches!(
+            self.ast.get_expr(last),
+            Expr::ObjectLit { .. } | Expr::Array(_)
+        ) {
+            self.invalid_target_ids.insert(last.0);
+        }
         Ok(last)
     }
 

@@ -126,7 +126,7 @@ pub fn parse_into_eval(
         bare_logical: false,
         in_gen_class_method: false,
         gen_recv_minted: false,
-        void_folds: std::collections::HashSet::new(),
+        invalid_target_ids: std::collections::HashSet::new(),
         in_async_gen: false,
         in_generator: false,
         in_strict_fn: strict,

@@ -364,9 +364,17 @@ impl<'a> Parser<'a> {
             // The folded `void <literal>` — the plain `undefined`
             // ident everywhere EXCEPT as an assignment target, where
             // the erased `void` still decides (§13.15.1).
-            Expr::Ident(n) if n == "undefined" && self.void_folds.contains(&target.0) => {
+            Expr::Ident(n) if n == "undefined" && self.invalid_target_ids.contains(&target.0) => {
                 return Err(format!(
                     "`void` expression is not a valid assignment target at {} (ES §13.15.1)",
+                    self.at()
+                ));
+            }
+            Expr::ObjectLit { .. } | Expr::Array(_)
+                if self.invalid_target_ids.contains(&target.0) =>
+            {
+                return Err(format!(
+                    "a parenthesized literal is not a valid assignment target at {} (ES §13.15.1)",
                     self.at()
                 ));
             }

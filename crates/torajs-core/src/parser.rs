@@ -279,8 +279,10 @@ struct Parser<'a> {
     /// assignment TARGET the two differ: a void expression's
     /// AssignmentTargetType is invalid (parse-time SyntaxError), while
     /// `undefined = x` parses and fails at runtime (§6.2.5.6).
+    /// A parenthesized object / array literal is the other such node:
+    /// `({}) = 1` is no pattern (§13.15.1), though `{}` alone would be.
     /// `reject_invalid_assignment_target` consults this set.
-    void_folds: std::collections::HashSet<u32>,
+    invalid_target_ids: std::collections::HashSet<u32>,
     /// F2/F3 (RFC 20260728-gen-forof-yieldstar) — whether the cursor
     /// is inside an `async function*` body. The generic `yield* e`
     /// desugar reads it to stamp `is_await` on its ForOf (F3: the F1
