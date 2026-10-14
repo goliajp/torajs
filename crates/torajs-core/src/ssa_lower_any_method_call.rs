@@ -298,8 +298,16 @@ fn non_any_recv_admitted(ctx: &LowerCtx<'_>, callee: ExprId, obj: &ExprId, name:
     ) && (crate::ssa_lower_any_call::callee_slot_is_any(ctx, *obj)
         || matches!(ctx.ast.get_expr(*obj), Expr::Index { obj: arr, .. }
             if crate::ssa_lower_index_any_method_call::obj_slot_elems_are_any(ctx, *arr)));
+    // an array or union receiver the lowering keeps in an any slot
+    // (`xs: (string | number)[] | any[]`): no typed lane claims its
+    // methods, so the runtime dispatcher answers them
+    let union_in_any_slot = matches!(
+        ctx.expr_types.get(obj),
+        Some(crate::check::Type::Union(_) | crate::check::Type::Array(_))
+    ) && crate::ssa_lower_any_call::callee_slot_is_any(ctx, *obj);
     sugar_fn_on_any
         || object_in_any_slot
+        || union_in_any_slot
         || builtin_mv
         || ns_static_fn
         || builtin_ctor_fn
