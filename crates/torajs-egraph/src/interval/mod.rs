@@ -56,9 +56,14 @@ use torajs_core::ssa::dominator::DominatorTree;
 use transfer::eval_inst;
 use widen::step;
 
-/// Hard cap on ascending rounds; anything still moving loses its
-/// bounds. Sized so threshold widening (one ladder step per round)
-/// can climb a realistic icmp-constant ladder before the cap.
+/// Ascending rounds that widen through the thresholds; past it a
+/// growing bound jumps straight to its sentinel, so the ascent still
+/// reaches a post-fixpoint a few rounds later. Stopping the ascent here
+/// instead is unsound: a cell that did not move in the last round can
+/// hold a fact computed from a neighbour's older, smaller one, and
+/// narrowing never grows it back. Sized so threshold widening (one
+/// ladder step per round) can climb a realistic icmp-constant ladder
+/// first.
 const MAX_ASCEND: usize = 32;
 /// Narrowing sweeps after the ascend stabilizes.
 const NARROW_ROUNDS: usize = 2;
@@ -127,7 +132,9 @@ pub fn analyze_function_with(
     for round in 0.. {
         let narrowing = stable_since.is_some();
         let with_roots;
-        let thresholds: &[i128] = if roots.is_empty() {
+        let thresholds: &[i128] = if round >= MAX_ASCEND {
+            &[]
+        } else if roots.is_empty() {
             &thresholds
         } else {
             with_roots = square::with_roots(&thresholds, &roots);
@@ -185,8 +192,6 @@ pub fn analyze_function_with(
             }
         }
 
-        let mut moved_cells: Vec<ValueId> = Vec::new();
-        let mut moved_elems: Vec<ValueId> = Vec::new();
         for (root, ws) in &elems.writes {
             let new = ws
                 .iter()
@@ -196,7 +201,6 @@ pub fn analyze_function_with(
             if next != old {
                 elem_state.insert(*root, next);
                 changed = true;
-                moved_elems.push(*root);
             }
         }
         // every cell steps from the same state: a counter's cap reads
@@ -207,34 +211,28 @@ pub fn analyze_function_with(
             .filter_map(|(&cell, &new)| {
                 let old = state.get(&cell).copied().unwrap_or(AbsVal::Bottom);
                 let next = step(old, new, narrowing, round, thresholds);
-                let next = horizon.cap(cell, next, &state);
+                let capped = horizon.cap(cell, next, &state);
+                // past the threshold budget a counter whose cap still
+                // moves takes the uncapped bound: the cap follows an init
+                // that is itself growing, one horizon a round, and two
+                // counters seeding each other would climb toward the end
+                // of i64 that way for thousands of rounds
+                let next = if narrowing || round < MAX_ASCEND || capped == old {
+                    capped
+                } else {
+                    next
+                };
                 (next != old).then_some((cell, next))
             })
             .collect();
         for (cell, next) in stepped {
             state.insert(cell, next);
             changed = true;
-            moved_cells.push(cell);
         }
 
-        match (narrowing, changed, round) {
-            (false, false, _) | (false, _, MAX_ASCEND..) => {
-                // ascend done (stable or capped) → start narrowing.
-                // capped: cells still moving lose their bounds (the
-                // join stays sound; int-valuedness survives).
-                for cell in moved_cells {
-                    if let Some(AbsVal::Fact(f)) = state.get_mut(&cell) {
-                        *f = NumFact::new(transfer::NEG_INF, transfer::POS_INF);
-                    }
-                }
-                for root in moved_elems {
-                    if let Some(AbsVal::Fact(f)) = elem_state.get_mut(&root) {
-                        *f = NumFact::new(transfer::NEG_INF, transfer::POS_INF);
-                    }
-                }
-                stable_since = Some(round);
-            }
-            (true, _, _) if round >= stable_since.unwrap() + NARROW_ROUNDS => break,
+        match (narrowing, changed) {
+            (false, false) => stable_since = Some(round),
+            (true, _) if round >= stable_since.unwrap() + NARROW_ROUNDS => break,
             _ => {}
         }
     }

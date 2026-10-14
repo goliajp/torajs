@@ -23,10 +23,6 @@ impl State {
         self.slots.get(v.0 as usize)?.as_ref()
     }
 
-    pub(super) fn get_mut(&mut self, v: &ValueId) -> Option<&mut AbsVal> {
-        self.slots.get_mut(v.0 as usize)?.as_mut()
-    }
-
     pub(super) fn insert(&mut self, v: ValueId, val: AbsVal) {
         self.slots[v.0 as usize] = Some(val);
     }
