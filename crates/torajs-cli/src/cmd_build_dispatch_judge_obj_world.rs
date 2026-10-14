@@ -41,7 +41,7 @@ use torajs_rc::any_method_family as fam;
 /// be a fallback trigger: it would kill the judgment for the empty
 /// program too. `SYNTH_ERROR_FNS` in the judge is what keeps that
 /// per-program tax off; it cannot retire while ToString is here.)
-pub(crate) const COERCION_PREFIXES: [&str; 55] = [
+pub(crate) const COERCION_PREFIXES: [&str; 56] = [
     "__torajs_anyv_to_number",
     // `x++` / `x--` run ToNumeric in the kernel (`eval++` asks for valueOf).
     "__torajs_anyv_incr_",
@@ -143,6 +143,12 @@ pub(crate) const COERCION_PREFIXES: [&str; 55] = [
     // the toLocaleString gate walks a locales list (ToString of each
     // object entry) and reads options through [[Get]] (getters run).
     "__torajs_locale_args_check",
+    // the object cast reads each field of the layout with [[Get]] on the
+    // value (§7.3.2), so an accessor's getter runs with that object as
+    // the receiver — and the getter may be a borrowed builtin method
+    // unit, which the call dispatches. Both entries (plain and the
+    // optional-member one) share the prefix.
+    "__torajs_anyv_cast_obj",
 ];
 
 /// What a hit keeps — see [`COERCION_PREFIXES`]. Shared truth with
