@@ -300,7 +300,7 @@ fn store_rhs(
         // a value a number slot cannot spell (an any-lane value, a
         // `null`) takes the any lane's [[Set]]: a number lands in the
         // slot, anything else in the field's sidecar
-        let cannot_spell = crate::ssa_lower_object_lit::absent::number_slot_cannot_spell;
+        let cannot_spell = crate::ssa_lower_object_lit::optional_number::number_slot_cannot_spell;
         if cannot_spell(ctx, field_ty, v, value) {
             let boxed = ctx.box_to_any(obj_val);
             let stored = crate::ssa_lower_assign_member_any::lower_dynobj_assign_value(

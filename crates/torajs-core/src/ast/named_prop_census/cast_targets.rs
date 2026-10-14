@@ -87,7 +87,7 @@ pub(super) fn converted_fields(
         // its type parameters has the same layout in every instance
         for (k, ann) in fields {
             if k.as_wtf8().as_str().is_some_and(converted)
-                && !crate::ast_throw_info::names_type_param(ann, type_params)
+                && !crate::ast_throw_info::obj_cast::names_type_param(ann, type_params)
             {
                 c.ann(ann);
             }
@@ -369,7 +369,8 @@ impl<'a> Census<'a> {
         }
         // an instance of a generic class reads its declaration's
         // fields, the ones every instance lays out alike
-        let Some((decl, fields)) = crate::ast_throw_info::decl_fields(self.ast, name) else {
+        let Some((decl, fields)) = crate::ast_throw_info::obj_cast::decl_fields(self.ast, name)
+        else {
             return;
         };
         let name = decl;

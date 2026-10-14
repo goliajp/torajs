@@ -1,7 +1,11 @@
-//! The checker's full pipeline, run to its fixpoint.
+//! The checker's run to its fixpoint: the full pipeline, run again
+//! while what one run found changes how the next one types the
+//! program. Moved out of [`super`].
 
 use std::collections::HashSet;
 
+use super::shadowed_reads::ShadowedReads;
+use crate::ast::named_prop_census::shadow_names::ShadowedNames;
 use crate::ast::{Ast, ExprId};
 use crate::check::{Checker, Severity};
 
@@ -49,7 +53,7 @@ fn has_errors(c: &Checker) -> bool {
 /// value of another type grow the same way: their reads type `any`,
 /// which can make the next write's value `any`. A grown member set no
 /// read of the run would answer otherwise needs no run of its own
-/// ([`super::shadowed_reads::ShadowedReads::would_retype`]).
+/// ([`ShadowedReads::would_retype`]).
 ///
 /// The property / return slot census (`check::face_slots`) and the
 /// binding and parameter census (`Checker::face_mismatch_lets` /
@@ -65,7 +69,7 @@ fn fixpoint_with(ast: &Ast, widen_ret_declared: bool, hidden: &HashSet<ExprId>) 
     let program = Default::default();
     loop {
         let found = crate::let_widen::collect_cross_type_widen_inits(ast, Some(&c.expr_types));
-        let shadowed = crate::ast::ShadowedNames::of_shared(ast, &c.expr_types, &program);
+        let shadowed = ShadowedNames::of_shared(ast, &c.expr_types, &program);
         let retypes = c.shadowed_reads.would_retype(&shadowed);
         if found.is_subset(&c.cross_type_widened) && !retypes && !c.face_slot_reads.stale {
             // no read answers otherwise under the grown set: a run
@@ -84,7 +88,7 @@ fn fixpoint_with(ast: &Ast, widen_ret_declared: bool, hidden: &HashSet<ExprId>) 
         c.widen_ret_declared = widen_ret_declared;
         c.hidden_any_args = hidden.clone();
         c.cross_type_widened = seed;
-        c.shadowed_reads = super::shadowed_reads::ShadowedReads::seeded(reads);
+        c.shadowed_reads = ShadowedReads::seeded(reads);
         c.face_slots = face_slots;
         c.face_mismatch_lets = lets;
         c.face_mismatch_params = params;

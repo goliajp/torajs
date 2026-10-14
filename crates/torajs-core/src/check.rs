@@ -240,12 +240,10 @@ pub(crate) struct Checker {
     /// when an `Expr::Closure` references them, so the captures are in
     /// scope.
     pub(crate) closure_fn_names: std::collections::HashSet<String>,
-    /// RC-4 F1c — init ExprIds of the `let` declarations whose
-    /// binding is the receiver of an `Object.defineProperty` /
-    /// `defineProperties` call (`crate::dynobj_degrade` scope-correct
-    /// walk). Such an unannotated `let x = { ... }` types as `any`
-    /// so it lowers through the P3.2 dynobj-init lane and the define
-    /// write-back can rebind it.
+    /// RC-4 F1c — init ExprIds of the `let` declarations whose binding is the receiver
+    /// of an `Object.defineProperty` / `defineProperties` call (`crate::dynobj_degrade`
+    /// scope-correct walk). Such an unannotated `let x = { ... }` types as `any` so it
+    /// lowers through the P3.2 dynobj-init lane and the define write-back can rebind it.
     pub(crate) dynobj_degraded: std::collections::HashSet<crate::ast::ExprId>,
     /// §8.1.1.1 — `Ast::tdz_reads`, so the ident lane can tell a
     /// dead-zone read (resolvable, raises on GetValue) from an
@@ -258,10 +256,7 @@ pub(crate) struct Checker {
     /// (`crate::let_widen` scope-correct walk); such bindings type
     /// `any` from declaration.
     pub(crate) cross_type_widened: std::collections::HashSet<crate::ast::ExprId>,
-    /// The members an any-lane write can leave holding a value of
-    /// another type; their typed reads type `any`
-    /// (`check_type_of_member::mistyped_read`). Seeded by the run
-    /// before (`check_entry::fixpoint_with`).
+    /// The members whose typed reads type `any` (`check_entry::shadowed_reads`).
     pub(crate) shadowed_reads: crate::check_entry::shadowed_reads::ShadowedReads,
     pub(crate) held_any: crate::check_stmt_let_decl::held_any::HeldAny,
     /// S2.35 — init ExprIds pass_2 promoted to an `Any` global via

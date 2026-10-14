@@ -11,8 +11,21 @@
 use core::ffi::c_void;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::layout::{DYNOBJ_HDR_FLAG_KEY_DELETED, DYNOBJ_KEY_HOLE, IDX_TOMBSTONE};
+use crate::layout::{DYNOBJ_KEY_HOLE, IDX_TOMBSTONE};
 use crate::probe::{bucket_key_ptr, count, drop_key, entries, index_ptr, probe, set_count};
+
+/// Heap-header `flags` bit (u16 @6) raised on the %Object.prototype%
+/// singleton when a key is deleted from it. The typed `in` reads it beside the singleton's `count`: one that holds
+/// as many entries as its mint left ([`OBJECT_PROTO_MINT_ENTRIES`]) and
+/// never lost one holds those entries alone. Bit 7 is free on DynObj:
+/// torajs-rc's table gives it to Obj (ERROR), Arr (LENGTH_RO) and
+/// Closure (FN_ASYNC), disjoint by tag.
+pub const DYNOBJ_HDR_FLAG_KEY_DELETED: u16 = 1 << 7;
+
+/// The entries %Object.prototype% holds once minted: the Annex B
+/// `__proto__` accessor torajs-meta's `__torajs_object_proto_install`
+/// defines, and nothing else.
+pub const OBJECT_PROTO_MINT_ENTRIES: u32 = 1;
 
 /// Mirror of `torajs_rc::builtin_proto::OBJECT_PROTO_TAG`.
 const OBJECT_PROTO_TAG: usize = 1;

@@ -34,8 +34,10 @@
 
 pub(super) mod accessor_names;
 mod cast_targets;
+mod optional_number_fields;
 mod receiver_origin;
-pub(super) mod shadow_names;
+pub(super) mod shadow_facts;
+pub(crate) mod shadow_names;
 mod write_hit;
 mod write_kind;
 

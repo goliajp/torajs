@@ -236,20 +236,6 @@ pub const DYNOBJ_HOLE_SENTINEL: u64 = 0x1A;
 /// at bits 13-14 since RFC 20260706 chunk 573).
 pub const DYNOBJ_HDR_FLAG_NULL_PROTO: u16 = 1 << 6;
 
-/// Heap-header `flags` bit (u16 @6) raised on the %Object.prototype%
-/// singleton when a key is deleted from it ([`crate::delete`]). The
-/// typed `in` reads it beside the singleton's `count`: one that holds
-/// as many entries as its mint left ([`OBJECT_PROTO_MINT_ENTRIES`]) and
-/// never lost one holds those entries alone. Bit 7 is free on DynObj:
-/// torajs-rc's table gives it to Obj (ERROR), Arr (LENGTH_RO) and
-/// Closure (FN_ASYNC), disjoint by tag.
-pub const DYNOBJ_HDR_FLAG_KEY_DELETED: u16 = 1 << 7;
-
-/// The entries %Object.prototype% holds once minted: the Annex B
-/// `__proto__` accessor torajs-meta's `__torajs_object_proto_install`
-/// defines, and nothing else.
-pub const OBJECT_PROTO_MINT_ENTRIES: u32 = 1;
-
 /// Heap-header `flags` bit (u16 @6) mirror of
 /// `torajs_rc::FLAG_NON_EXTENSIBLE` (bit 8). Mirrored here so
 /// `__torajs_dynobj_define` can gate fresh-key inserts on a sealed /

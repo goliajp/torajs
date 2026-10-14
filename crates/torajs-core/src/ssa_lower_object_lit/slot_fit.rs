@@ -36,11 +36,11 @@ pub(super) fn fit_slot_values(
             let v = field_vals[i];
             let null = matches!(v, Operand::ConstPtrNull);
             if undef_fields.contains(fname) {
-                field_vals[i] = super::absent::f64_undef();
+                field_vals[i] = super::optional_number::f64_undef();
             } else if null || ctx.operand_ty(&v) == Type::Any {
                 let boxed = ctx.box_to_any(v);
                 unspelled.push((fname.clone(), boxed));
-                field_vals[i] = super::absent::f64_undef();
+                field_vals[i] = super::optional_number::f64_undef();
             }
         }
         // RFC 20260710 C4 — a declared-Any slot (`__nullable(number|

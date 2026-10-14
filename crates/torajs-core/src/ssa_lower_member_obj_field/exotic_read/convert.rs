@@ -71,16 +71,18 @@ pub(super) fn conversion(
     name: &str,
     field_ty: Type,
 ) -> Option<(Conv, String)> {
-    let ann = obj
-        .and_then(|o| crate::ast_throw_info::instance_field_ann(ctx.ast, ctx.expr_types, o, name));
+    let ann = obj.and_then(|o| {
+        crate::ast_throw_info::obj_cast::instance_field_ann(ctx.ast, ctx.expr_types, o, name)
+    });
     // an annotation the parser respelled (`__cls(..)`) names its type
     // by kind
     let base = (ann.as_deref().map(|a| strip_nullable(a).trim().to_string()))
         .filter(|b| !b.starts_with("__"));
     // an optional `number` member of an object type has no class
     // annotation to read; its checked type says the same thing
-    let optional_number =
-        crate::ssa_lower_object_lit::absent::optional_number_slot(ctx, obj, name, field_ty);
+    let optional_number = crate::ssa_lower_object_lit::optional_number::optional_number_slot(
+        ctx, obj, name, field_ty,
+    );
     let or_undef = ann.as_deref().is_some_and(|a| a.starts_with("__nullable(")) || optional_number;
     let shown = match (&base, or_undef) {
         (Some(b), true) => format!("{b} | undefined"),

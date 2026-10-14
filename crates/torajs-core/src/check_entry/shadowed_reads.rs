@@ -11,7 +11,7 @@
 
 use std::collections::HashSet;
 
-use crate::ast::ShadowedNames;
+use crate::ast::named_prop_census::shadow_names::ShadowedNames;
 
 #[derive(Default)]
 pub(crate) struct ShadowedReads {

@@ -151,14 +151,10 @@ fn snapshot_type_field_anns(
             fields,
         } = s
         {
-            let map: std::collections::HashMap<PropKey, String> =
-                fields.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-            struct_field_anns.insert(name.clone(), map);
+            struct_field_anns.insert(name.clone(), fields.iter().cloned().collect());
             if !type_params.is_empty() {
-                generic_field_anns.insert(
-                    name.clone(),
-                    ast.generic_struct_decl(name, type_params, fields),
-                );
+                let decl = ast.generic_struct_decl(name, type_params, fields);
+                generic_field_anns.insert(name.clone(), decl);
             }
         }
     }

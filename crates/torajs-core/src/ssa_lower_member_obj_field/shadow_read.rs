@@ -24,11 +24,13 @@ use crate::ssa_lower::LowerCtx;
 /// (`super::exotic_read::convert`), which refuses a value of another
 /// type aloud. The receiver's type says whether the member is optional
 /// — a same-named required `number` member of another type is read as
-/// the f64 its consumers expect (`absent::optional_number_slot`).
+/// the f64 its consumers expect (`optional_number::optional_number_slot`).
 pub(crate) fn applies(ctx: &LowerCtx<'_>, obj: Option<ExprId>, name: &str, slot_ty: Type) -> bool {
     slot_ty == Type::F64
         && ctx.ast.accessor_field_names.may_shadow(name, true)
-        && crate::ssa_lower_object_lit::absent::optional_number_slot(ctx, obj, name, slot_ty)
+        && crate::ssa_lower_object_lit::optional_number::optional_number_slot(
+            ctx, obj, name, slot_ty,
+        )
 }
 
 /// Whether the member read `eid` of the field `name`, whose slot is

@@ -26,6 +26,8 @@ pub mod accessor;
 pub mod accessor_invoke;
 pub mod alloc;
 pub mod attach_exec;
+#[cfg(test)]
+mod builtin_proto_stubs;
 pub mod define;
 pub mod define_all;
 mod define_bag;
@@ -162,39 +164,6 @@ pub unsafe extern "C" fn __torajs_throw_type_error(_msg: *const u8) {
         "torajs-dynobj unit-test stub: __torajs_throw_type_error should not be called from cargo test paths"
     );
 }
-
-// Faithful no-op double (the real note is a no-op too until some
-// `<Ctor>.prototype` singleton is minted, which no unit test does).
-/// # Safety
-/// Test stub; dereferences none of its arguments.
-#[cfg(test)]
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_builtin_proto_note_own_write(
-    _obj: *const core::ffi::c_void,
-    _name: *const u8,
-    _len: i64,
-) {
-}
-
-// Faithful double for the same reason: no unit test mints a
-// `<Ctor>.prototype` singleton, so the real probe answers 0 here too.
-/// # Safety
-/// Test stub; dereferences none of its arguments.
-#[cfg(test)]
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_builtin_proto_own_method_cell(
-    _obj: *const core::ffi::c_void,
-    _key: *const core::ffi::c_void,
-) -> u64 {
-    0
-}
-
-/// Test stub for torajs-rc's builtin prototype slots: nothing is
-/// minted in a unit test.
-#[cfg(test)]
-#[unsafe(no_mangle)]
-pub static __torajs_builtin_proto_slots: [core::sync::atomic::AtomicUsize; 2] =
-    [const { core::sync::atomic::AtomicUsize::new(0) }; 2];
 
 // Faithful Closure-arm double for unit tests (mirrors the faithful
 // rc_dec stub below): `accessor::tests` legitimately exercises the

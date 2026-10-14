@@ -308,6 +308,7 @@ pub(crate) mod absent;
 mod alloc;
 use alloc::{alloc_obj, init_header, write_class_tag, write_vtable_ptr};
 mod any_slot;
+pub(crate) mod optional_number;
 mod order;
 // Phase 2, the W4 field-width widen.
 mod regular_field;

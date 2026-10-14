@@ -45,14 +45,17 @@ pub(super) fn fit_to_field(
     // here: `number_slot_cannot_spell`)
     if field_ty == Type::F64
         && matches!(v, Operand::ConstPtrNull)
-        && crate::ssa_lower_object_lit::absent::optional_number_slot(
+        && crate::ssa_lower_object_lit::optional_number::optional_number_slot(
             ctx,
             Some(obj),
             field,
             field_ty,
         )
     {
-        return (crate::ssa_lower_object_lit::absent::f64_undef(), false);
+        return (
+            crate::ssa_lower_object_lit::optional_number::f64_undef(),
+            false,
+        );
     }
     match (field_ty, v_ty) {
         (Type::F64, Type::I64) => (ctx.coerce_to_f64(v), false),

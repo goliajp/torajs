@@ -1,22 +1,15 @@
 //! The names of the optional `number` members whose slot is an f64
 //! (`ssa_lower_parse_type::parse_struct_field_type`): a literal that
 //! leaves one out, or spells it `undefined`, puts the sentinel in the
-//! slot, so a read of the member may answer it. The names seed the
-//! sentinel field table (`sentinel_tables`).
+//! slot, so a read of the member may answer it. By name, like the rest
+//! of the sentinel tables (`num_width::sentinel_tables`, which they
+//! seed): a same-named member of another type costs one predictable
+//! compare at the consumer. The shadow census gathers them before the
+//! width analysis runs, and keeps them on the AST.
 
-use super::Analysis;
 use crate::ast::{Ast, ExprId, PropKey, Stmt};
 use crate::check::Type;
 use std::collections::{HashMap, HashSet};
-
-/// By name, like the rest of the sentinel tables: a same-named member
-/// of another type costs one predictable compare at the consumer. The
-/// shadow census (`ast::named_prop_census::shadow_names`) gathers them
-/// ([`names`]) before the width analysis runs, and keeps them on the
-/// AST.
-pub(super) fn collect(a: &Analysis<'_>) -> HashSet<PropKey> {
-    a.ast.accessor_field_names.optional_number_members().clone()
-}
 
 /// The names over the checked program's two tables. Two sources,
 /// because the two spellings of an object type keep the optional flag
@@ -26,7 +19,7 @@ pub(super) fn collect(a: &Analysis<'_>) -> HashSet<PropKey> {
 /// anyway. Also whether some struct type an expression has holds an
 /// optional member of any type (one the checker joined from literals,
 /// `c ? { a: 1 } : {}`, among them).
-pub(crate) fn names(ast: &Ast, expr_types: &HashMap<ExprId, Type>) -> (HashSet<PropKey>, bool) {
+pub(super) fn names(ast: &Ast, expr_types: &HashMap<ExprId, Type>) -> (HashSet<PropKey>, bool) {
     let mut out = HashSet::new();
     for stmt in &ast.stmts {
         let Stmt::TypeDecl { name, fields, .. } = stmt else {
