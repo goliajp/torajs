@@ -20,6 +20,12 @@ use crate::check::{Checker, Type};
 use crate::check_assignable::is_assignable_to_resolved;
 
 pub(crate) fn matches(checker: &Checker, param_ty: &Type, arg_ty: &Type) -> bool {
+    // an optional or `| undefined` struct parameter takes a struct
+    // argument by the same rule as the struct itself
+    let param_ty = match param_ty {
+        Type::Nullable(inner) if matches!(**inner, Type::Struct(_)) => inner.as_ref(),
+        t => t,
+    };
     matches!(param_ty, Type::Struct(_))
         && matches!(arg_ty, Type::Struct(_))
         && is_assignable_to_resolved(
