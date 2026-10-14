@@ -222,7 +222,6 @@ pub(crate) unsafe fn inherited_set_walk(
 /// `Tag::DynObj` receiver — the ordinary own-entry write, plus the
 /// Annex B §B.2.2.1 `__proto__` setter route.
 pub(crate) unsafe fn set_dynobj_member(
-    recv_slot: *mut AnyValue,
     recv: AnyValue,
     ptr: *mut c_void,
     key: *mut c_void,
@@ -273,14 +272,9 @@ pub(crate) unsafe fn set_dynobj_member(
         if let Some(handled) = inherited_set_handled(ptr, recv, key, tag, value, throw_on_refusal) {
             return handled;
         }
+        // A resize swaps the store inside the header cell, so the cell
+        // never moves and the slot needs no write-back.
         let mut obj = ptr;
-        let wrote = dynobj_set_flavored(&mut obj, key, tag, value, throw_on_refusal);
-        if obj != ptr {
-            // Relocated block — the NaN-box cell encoding is the
-            // pointer bits; transfer, no rc traffic (same object
-            // identity, moved storage).
-            *recv_slot = __torajs_anyv_box_from_pair(4, obj as i64);
-        }
-        wrote
+        dynobj_set_flavored(&mut obj, key, tag, value, throw_on_refusal)
     }
 }

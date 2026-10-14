@@ -239,7 +239,6 @@ pub(crate) unsafe fn any_member_set_impl(
         }
         if cell_tag == Tag::DynObj as u16 {
             return crate::member_set_dynobj::set_dynobj_member(
-                recv_slot,
                 recv,
                 ptr,
                 key,
