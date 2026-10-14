@@ -61,6 +61,7 @@
   "str-replace-100k": {"kind": "different", "why": "hand-coded forward scan for a(b+)c stands in for a regex engine"},
   "str-replace-argv-100k": {"kind": "different", "why": "hand-coded forward scan for a(b+)c stands in for a regex engine"},
   "generator-yield-100k": {"kind": "same", "why": "hand-written resumable state struct"},
+  "generator-yield-100m": {"kind": "same", "why": "hand-written resumable state struct"},
   "async-fn-call-100k": {"kind": "same", "why": "hand-written microtask queue + reaction list; enqueues and resumes as the spec orders", "caveat": "tr does not suspend at these awaits yet (P-LOOP 4): the drain runs inline in an order the spec forbids, so tr's lead here is not a ceiling reading"},
   "promise-all-1m": {"kind": "same", "why": "hand-written microtask queue", "caveat": "tr does not suspend at these awaits yet (P-LOOP 4): the drain runs inline in an order the spec forbids, so tr's lead here is not a ceiling reading"},
   "promise-await-100k": {"kind": "same", "why": "hand-written microtask queue", "caveat": "tr does not suspend at these awaits yet (P-LOOP 4): the drain runs inline in an order the spec forbids, so tr's lead here is not a ceiling reading"},

@@ -1,0 +1,5 @@
+# generator-yield-100k at 1000x the yields, same programs. The total is
+# passes * end * (end - 1) / 2 = 49999950000000, under 2^53 and inside
+# i64, so every runtime still prints it exactly. At 1e5 yields tr kept
+# under 0.3 ms of work after startup.
+args = "100 1000000"

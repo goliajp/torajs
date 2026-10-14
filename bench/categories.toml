@@ -137,7 +137,7 @@ cases = ["closure-counter", "closure-counter-renamed", "closure-pipeline-1m"]
 
 [categories.generator]
 weight = 4
-cases = ["generator-yield-100k"]
+cases = ["generator-yield-100k", "generator-yield-100m"]
 
 [categories.container]
 weight = 4
