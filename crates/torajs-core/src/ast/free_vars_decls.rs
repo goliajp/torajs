@@ -6,7 +6,7 @@
 use super::free_vars::walk_stmt;
 use super::free_vars::{Bound, FreeSink};
 use super::free_vars_expr::walk_expr;
-use super::free_vars_hoisted_names::hoist_list_names;
+use super::free_vars_hoisted_names::{hoist_list_names, hoist_var_names};
 use super::{Ast, ClassCtor, ClassMethod, Expr, ExprId, Param, StaticInit, Stmt};
 
 /// A nested `function` declaration's body walk. The decl's own name is
@@ -39,6 +39,7 @@ pub(super) fn walk_fn_decl(
     bound.names.push("__this".into());
     walk_param_defaults(ast, params, bound, out);
     hoist_list_names(body, &mut bound.names);
+    hoist_var_names(body, &mut bound.names);
     for s in body {
         walk_stmt(ast, s, bound, out);
     }
@@ -53,9 +54,17 @@ pub(super) fn walk_fn_decl(
 /// ignoring it). Each callable body is a fn scope; instance-field
 /// inits already live in the ctor body
 /// (`finalize_class_field_inits`).
+///
+/// The computed keys and computed static-field initializers live in
+/// side tables keyed by the class name; the keys are walked in arena
+/// order. A static initializer's `this` is the class, so it binds
+/// `__this` like a member does. The class's own name is the
+/// caller's: a walk from the list holding the class binds it, and a
+/// walk of the declaration alone reports its self-references.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn walk_class_decl(
     ast: &Ast,
+    name: &str,
     parent: &Option<ExprId>,
     ctor: &Option<ClassCtor>,
     methods: &[ClassMethod],
@@ -64,8 +73,19 @@ pub(super) fn walk_class_decl(
     bound: &mut Bound<'_>,
     out: &mut dyn FreeSink,
 ) {
+    let saved = bound.names.len();
     if let Some(pid) = parent {
         walk_expr(ast, *pid, bound, out);
+    }
+    let mut keys: Vec<ExprId> = ast
+        .class_computed_keys
+        .iter()
+        .filter(|((c, _), _)| c == name)
+        .map(|(_, &e)| e)
+        .collect();
+    keys.sort_by_key(|e| e.0);
+    for k in keys {
+        walk_expr(ast, k, bound, out);
     }
     if let Some(c) = ctor {
         walk_fn_decl(ast, &c.params, &c.body, bound, out);
@@ -73,19 +93,27 @@ pub(super) fn walk_class_decl(
     for m in methods.iter().chain(static_methods.iter()) {
         walk_fn_decl(ast, &m.params, &m.body, bound, out);
     }
+    bound.names.push("__this".into());
     for si in static_init {
         match si {
             StaticInit::Field(f) => walk_expr(ast, f.init, bound, out),
             StaticInit::Block(v) => {
-                let saved = bound.names.len();
+                let inner = bound.names.len();
                 hoist_list_names(v, &mut bound.names);
+                hoist_var_names(v, &mut bound.names);
                 for s in v {
                     walk_stmt(ast, s, bound, out);
                 }
-                bound.names.truncate(saved);
+                bound.names.truncate(inner);
             }
         }
     }
+    for (c, _, init) in &ast.class_computed_static_fields {
+        if c == name {
+            walk_expr(ast, *init, bound, out);
+        }
+    }
+    bound.names.truncate(saved);
 }
 
 /// The parameter defaults of one function, walked in its own frame.

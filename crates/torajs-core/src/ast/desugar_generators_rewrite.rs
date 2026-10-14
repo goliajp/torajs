@@ -9,7 +9,7 @@
 
 use super::{Ast, Expr, ExprId, Param, Stmt};
 
-mod class_scope;
+mod scoped;
 
 /// The generator object, aliased as a METHOD LOCAL at the top of the
 /// state machine's `next` body (`desugar_generators_assemble`). A
@@ -238,8 +238,8 @@ fn rewrite_params_in_stmt(
                 }
             }
         }
-        // A class declared inside the generator body (`class_scope`).
-        Stmt::ClassDecl { .. } => class_scope::rewrite_class(ast, s, pset, visited),
+        // A class declared inside the generator body (`scoped`).
+        Stmt::ClassDecl { .. } => scoped::rewrite_class(ast, s, pset, visited),
         _ => {}
     }
 }
@@ -399,10 +399,9 @@ fn rewrite_params_in_expr(
         // already carried the arrow to top level by the time anything
         // else looks.
         //
-        // The same omission `nested_fns_idents` carried until r302 —
-        // hence the shared `arrow_rebinds`, which drops the names the
-        // arrow rebinds itself so a shadowing reference keeps its own
-        // meaning.
+        // The scopes inside the body are its own: a name a parameter,
+        // a declaration list, a block, a loop head or a catch binds
+        // again keeps its meaning there (`scoped`).
         //
         // A function EXPRESSION (or an object-literal method — the
         // parser parks both in ArrowFn) owns its `this`, so its body
@@ -414,25 +413,7 @@ fn rewrite_params_in_expr(
         // Once inside one, everything below it — arrows included,
         // their `this` being that function's — stays on the alias.
         Expr::ArrowFn { params, body, .. } => {
-            let owns_this =
-                ast.fn_expr_exprs.contains(&eid) || ast.objlit_method_exprs.contains(&eid);
-            let sub = ParamMap {
-                fields: pset
-                    .fields
-                    .iter()
-                    .filter(|(k, _)| !super::nested_fns_idents::arrow_rebinds(&params, &body, k))
-                    .map(|(k, v)| (k.clone(), v.clone()))
-                    .collect(),
-                base: match &pset.base {
-                    RefBase::This if owns_this => RefBase::SelfAlias,
-                    b => b.clone(),
-                },
-            };
-            if !sub.fields.is_empty() {
-                for s in &body {
-                    rewrite_params_in_stmt(ast, s, &sub, visited);
-                }
-            }
+            scoped::rewrite_fn_expr(ast, eid, &params, &body, pset, visited)
         }
         _ => {}
     }
