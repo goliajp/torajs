@@ -52,11 +52,11 @@ impl AccessorFieldNames {
         &self.shadowed.optional_number
     }
 
-    /// Whether the checker typed the reads of the member `name`, a
-    /// `number` when `number_slot`, `any` for a value of another type
-    /// an any-lane write can leave there.
-    pub fn mistyped_read(&self, name: &str, number_slot: bool) -> bool {
-        self.shadowed.mistyped.may_mistype(name, number_slot)
+    /// Whether the checker typed the reads of the member `name`, whose
+    /// slot is a `slot` one, `any` for a value of another type an
+    /// any-lane write can leave there.
+    pub fn mistyped_read(&self, name: &str, slot: super::shadow_names::SlotKind) -> bool {
+        self.shadowed.mistyped.may_mistype(name, slot)
     }
 
     /// Whether a write of the program can leave the declared field

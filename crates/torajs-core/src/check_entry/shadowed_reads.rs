@@ -11,15 +11,22 @@
 
 use std::collections::HashSet;
 
-use crate::ast::named_prop_census::shadow_names::ShadowedNames;
+use crate::ast::named_prop_census::shadow_names::{ShadowedNames, SlotKind};
+
+const KINDS: [SlotKind; 4] = [
+    SlotKind::Number,
+    SlotKind::String,
+    SlotKind::Boolean,
+    SlotKind::Other,
+];
 
 #[derive(Default)]
 pub(crate) struct ShadowedReads {
     /// The names this run retypes.
     pub(crate) names: ShadowedNames,
-    /// The members a read asked about, a `number` member's apart.
-    asked_number: HashSet<String>,
-    asked_other: HashSet<String>,
+    /// The members a read asked about, by the kind of their slot
+    /// (`KINDS` order, which is the enum's).
+    asked: [HashSet<String>; 4],
 }
 
 impl ShadowedReads {
@@ -30,21 +37,18 @@ impl ShadowedReads {
         }
     }
 
-    /// Whether the read of the member `name` (a `number` member when
-    /// `number`) types `any`, noting that it asked.
-    pub(crate) fn retypes(&mut self, name: &str, number: bool) -> bool {
+    /// Whether the read of the member `name`, whose slot is a `slot`
+    /// one, types `any`, noting that it asked.
+    pub(crate) fn retypes(&mut self, name: &str, slot: SlotKind) -> bool {
         // a member the compiler mints never mistypes, whatever grows
         if name.starts_with("__") {
             return false;
         }
-        let asked = match number {
-            true => &mut self.asked_number,
-            false => &mut self.asked_other,
-        };
+        let asked = &mut self.asked[slot as usize];
         if !asked.contains(name) {
             asked.insert(name.to_string());
         }
-        self.names.may_mistype(name, number)
+        self.names.may_mistype(name, slot)
     }
 
     /// Whether a run seeded with `more` too would answer some read of
@@ -55,11 +59,10 @@ impl ShadowedReads {
         }
         let mut grown = self.names.clone();
         grown.extend(more.clone());
-        let flips = |n: &String, number: bool| {
-            grown.may_mistype(n, number) && !self.names.may_mistype(n, number)
+        let flips = |n: &String, slot: SlotKind| {
+            grown.may_mistype(n, slot) && !self.names.may_mistype(n, slot)
         };
-        self.asked_number.iter().any(|n| flips(n, true))
-            || self.asked_other.iter().any(|n| flips(n, false))
+        (KINDS.iter().zip(&self.asked)).any(|(k, names)| names.iter().any(|n| flips(n, *k)))
     }
 }
 
@@ -71,15 +74,16 @@ mod tests {
         ShadowedNames {
             unknown: unknown.iter().map(|s| s.to_string()).collect(),
             number: number.iter().map(|s| s.to_string()).collect(),
+            ..Default::default()
         }
     }
 
     #[test]
     fn a_run_whose_reads_answer_alike_needs_no_successor() {
         let mut r = ShadowedReads::seeded(names(&["a"], &[]));
-        assert!(r.retypes("a", true));
-        assert!(!r.retypes("b", true));
-        assert!(!r.retypes("s", false));
+        assert!(r.retypes("a", SlotKind::Number));
+        assert!(!r.retypes("b", SlotKind::Number));
+        assert!(!r.retypes("s", SlotKind::String));
         // a number written into a number member changes no read
         assert!(!r.would_retype(&names(&[], &["b"])));
         // nor does a name no read asked about
@@ -87,5 +91,14 @@ mod tests {
         // a number written into a string member does
         assert!(r.would_retype(&names(&[], &["s"])));
         assert!(r.would_retype(&names(&["b"], &[])));
+        // a string written into a string member changes no read; a
+        // boolean does
+        let more = |string: &[&str], boolean: &[&str]| ShadowedNames {
+            string: string.iter().map(|s| s.to_string()).collect(),
+            boolean: boolean.iter().map(|s| s.to_string()).collect(),
+            ..Default::default()
+        };
+        assert!(!r.would_retype(&more(&["s"], &[])));
+        assert!(r.would_retype(&more(&[], &["s"])));
     }
 }

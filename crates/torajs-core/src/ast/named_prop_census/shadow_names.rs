@@ -32,10 +32,16 @@ use crate::ast::{Ast, Expr, ExprId, PropKey};
 use crate::check::{GenericAliasMap, Lit, Type};
 use crate::ssa_lower_pass_0_5::arr_head_census::TwinBodies;
 
+/// The names a pass reaches. `unknown` holds every name written a
+/// value that is no number, which may shadow any slot but a number
+/// slot; `any`, `string` and `boolean` split it by what the value was.
 #[derive(Default)]
 struct Names {
     unknown: HashSet<String>,
     number: HashSet<String>,
+    any: HashSet<String>,
+    string: HashSet<String>,
+    boolean: HashSet<String>,
     all_unknown: bool,
     all_number: bool,
 }
@@ -44,19 +50,25 @@ impl Names {
     fn take(&mut self, hit: Hit) {
         match hit {
             Hit::None => {}
-            Hit::Name(n, Kind::Unknown) => {
-                self.unknown.insert(n);
-            }
             Hit::Name(n, Kind::Number) => {
                 self.number.insert(n);
+            }
+            Hit::Name(n, k) => {
+                let by_kind = match k {
+                    Kind::String => &mut self.string,
+                    Kind::Boolean => &mut self.boolean,
+                    Kind::Number | Kind::Unknown => &mut self.any,
+                };
+                by_kind.insert(n.clone());
+                self.unknown.insert(n);
             }
             Hit::Names(ns) => {
                 for (n, k) in ns {
                     self.take(Hit::Name(n, k));
                 }
             }
-            Hit::All(Kind::Unknown) => self.all_unknown = true,
             Hit::All(Kind::Number) => self.all_number = true,
+            Hit::All(_) => self.all_unknown = true,
         }
     }
 
@@ -154,6 +166,49 @@ pub struct ShadowedNames {
     pub unknown: HashSet<String>,
     /// Written a number.
     pub number: HashSet<String>,
+    /// Written a string.
+    pub string: HashSet<String>,
+    /// Written a boolean.
+    pub boolean: HashSet<String>,
+}
+
+/// What a member's slot holds as it is: a value of that kind written
+/// through the any lane lands in the slot (`struct_data_field_set`), a
+/// value of any other kind in the sidecar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SlotKind {
+    Number,
+    String,
+    Boolean,
+    /// A slot no write is known to fit.
+    Other,
+}
+
+impl SlotKind {
+    /// The slot of a member of the checked type `t`: a `number`,
+    /// `string` or `boolean` member, or one of a literal type (`k: 1`),
+    /// whose slot is its base type's. The lowering reads the same answer
+    /// off the slot's type ([`SlotKind::of_slot`]); the two have to
+    /// agree, or the checker retypes a read the lowering keeps bare.
+    pub fn of_member(t: &Type) -> SlotKind {
+        match t {
+            Type::Number | Type::Literal(Lit::Num(_)) => SlotKind::Number,
+            Type::String | Type::Literal(Lit::Str(_)) => SlotKind::String,
+            Type::Boolean | Type::Literal(Lit::Bool(_)) => SlotKind::Boolean,
+            _ => SlotKind::Other,
+        }
+    }
+
+    /// The kind of a layout slot of the lowering's type `t`.
+    pub fn of_slot(t: crate::ssa::Type) -> SlotKind {
+        use crate::ssa::Type as S;
+        match t {
+            S::F64 | S::I64 | S::I32 => SlotKind::Number,
+            S::Str | S::Substr => SlotKind::String,
+            S::Bool => SlotKind::Boolean,
+            _ => SlotKind::Other,
+        }
+    }
 }
 
 impl ShadowedNames {
@@ -176,38 +231,39 @@ impl ShadowedNames {
         // a member the compiler mints never mistypes (`may_mistype`)
         let user = |n: &String| !n.starts_with("__");
         ShadowedNames {
-            unknown: names.unknown.into_iter().filter(user).collect(),
+            unknown: names.any.into_iter().filter(user).collect(),
             number: names.number.into_iter().filter(user).collect(),
+            string: names.string.into_iter().filter(user).collect(),
+            boolean: names.boolean.into_iter().filter(user).collect(),
         }
     }
 
     pub fn is_subset(&self, other: &ShadowedNames) -> bool {
-        self.unknown.is_subset(&other.unknown) && self.number.is_subset(&other.number)
+        self.unknown.is_subset(&other.unknown)
+            && self.number.is_subset(&other.number)
+            && self.string.is_subset(&other.string)
+            && self.boolean.is_subset(&other.boolean)
     }
 
     pub fn extend(&mut self, other: ShadowedNames) {
         self.unknown.extend(other.unknown);
         self.number.extend(other.number);
+        self.string.extend(other.string);
+        self.boolean.extend(other.boolean);
     }
 
-    /// Whether a member of the checked type `t` lives in a number slot,
-    /// which every number a write leaves there fits: `number`, and a
-    /// number literal type (`k: 1`), whose slot is the f64 `number`'s.
-    /// The lowering reads the same answer off the slot's type
-    /// (`shadow_read::mistyped_field`); the two have to agree, or the
-    /// checker retypes a read the lowering keeps as a bare number.
-    pub fn number_member(t: &Type) -> bool {
-        matches!(t, Type::Number | Type::Literal(Lit::Num(_)))
-    }
-
-    /// Whether the member `name`, whose slot holds a `number` when
-    /// `number_slot`, may hold a value of another type. A member the
-    /// compiler mints (`__state`, `__sent`, an awaited value's slot)
-    /// is read by the code it generates, which casts what the protocol
-    /// hands it; its reads keep their type and their guard.
-    pub fn may_mistype(&self, name: &str, number_slot: bool) -> bool {
+    /// Whether the member `name`, whose slot is a `slot` one, may hold a
+    /// value of another type. A member the compiler mints (`__state`,
+    /// `__sent`, an awaited value's slot) is read by the code it
+    /// generates, which casts what the protocol hands it; its reads keep
+    /// their type and their guard.
+    pub fn may_mistype(&self, name: &str, slot: SlotKind) -> bool {
+        let other = |kind, names: &HashSet<String>| slot != kind && names.contains(name);
         !name.starts_with("__")
-            && (self.unknown.contains(name) || (!number_slot && self.number.contains(name)))
+            && (self.unknown.contains(name)
+                || other(SlotKind::Number, &self.number)
+                || other(SlotKind::String, &self.string)
+                || other(SlotKind::Boolean, &self.boolean))
     }
 }
 

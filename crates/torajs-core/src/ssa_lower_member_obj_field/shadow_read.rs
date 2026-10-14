@@ -12,6 +12,7 @@
 //! a program whose writes cannot shadow the field never comes here.
 
 use crate::ast::ExprId;
+use crate::ast::named_prop_census::shadow_names::SlotKind;
 use crate::ssa::{BlockId, IPred, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 
@@ -44,7 +45,7 @@ pub(crate) fn applies(ctx: &LowerCtx<'_>, obj: Option<ExprId>, name: &str, slot_
 pub(crate) fn mistyped(ctx: &LowerCtx<'_>, eid: ExprId, name: &str, slot_ty: Type) -> bool {
     matches!(ctx.expr_types.get(&eid), Some(crate::check::Type::Any))
         && scalar_slot(slot_ty)
-        && ctx.ast.accessor_field_names.mistyped_read(name, false)
+        && (ctx.ast.accessor_field_names).mistyped_read(name, SlotKind::Other)
 }
 
 /// A slot of a member the checker can retype: a number, a string, a
@@ -62,14 +63,10 @@ fn scalar_slot(slot_ty: Type) -> bool {
 /// another type.
 pub(crate) fn mistyped_field(ctx: &LowerCtx<'_>, name: &str, slot_ty: Type) -> bool {
     // the checker retypes a scalar member only (a number, a string, a
-    // boolean); a heap member keeps its checked read. A number slot is
-    // what `ShadowedNames::number_member` names on the checker's side.
-    let number_slot = matches!(slot_ty, Type::F64 | Type::I64 | Type::I32);
+    // boolean); a heap member keeps its checked read. The slot's kind is
+    // what `SlotKind::of_member` names on the checker's side.
     scalar_slot(slot_ty)
-        && ctx
-            .ast
-            .accessor_field_names
-            .mistyped_read(name, number_slot)
+        && (ctx.ast.accessor_field_names).mistyped_read(name, SlotKind::of_slot(slot_ty))
 }
 
 /// The slot's value boxed as an owned `any`, for a receiver that

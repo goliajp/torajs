@@ -189,7 +189,7 @@ fn an_any_receiver_stepping_its_own_number_member_fits_the_slot() {
 }
 
 #[test]
-fn a_number_member_is_one_the_lowering_gives_a_number_slot() {
+fn a_member_kind_is_the_kind_of_the_slot_the_lowering_gives_it() {
     // the parser writes a member's literal type as its base type's
     // annotation (`k: 1` declares `k: number`), and the slot follows it
     let s = |s: &str| Type::Literal(Lit::Str(s.into()));
@@ -221,13 +221,9 @@ fn a_number_member_is_one_the_lowering_gives_a_number_slot() {
             &mut Vec::new(),
             &mut HashMap::new(),
         );
-        let number_slot = matches!(
-            slot,
-            crate::ssa::Type::F64 | crate::ssa::Type::I64 | crate::ssa::Type::I32
-        );
         assert_eq!(
-            ShadowedNames::number_member(&checked),
-            number_slot,
+            SlotKind::of_member(&checked),
+            SlotKind::of_slot(slot),
             "{checked:?}"
         );
     }
@@ -241,10 +237,10 @@ fn the_checker_retypes_the_members_written_a_value_of_another_type() {
     let mut types = ident_types(&ast, "x", Type::Any);
     types.extend(ident_types(&ast, "v", Type::Any));
     let names = ShadowedNames::of(&ast, &types);
-    assert!(names.may_mistype("b", true) && names.may_mistype("b", false));
-    assert!(!names.may_mistype("c", true) && names.may_mistype("c", false));
+    assert!(names.may_mistype("b", SlotKind::Number) && names.may_mistype("b", SlotKind::Other));
+    assert!(!names.may_mistype("c", SlotKind::Number) && names.may_mistype("c", SlotKind::String));
     // a member the compiler mints keeps its type
-    assert!(!names.may_mistype("__state", false));
+    assert!(!names.may_mistype("__state", SlotKind::Other));
 }
 
 #[test]
@@ -296,4 +292,24 @@ fn a_receiver_that_never_holds_a_struct_cell_shadows_nothing() {
         let n = settled(src, any_of(&["o", "v"]));
         assert!(n.may_shadow("x", false), "{src}");
     }
+}
+
+#[test]
+fn a_string_or_a_boolean_written_through_the_any_lane_fits_its_own_slot() {
+    let src = "x.s = v + \"!\"; x.t = typeof v; x.b = !v; x.c = v < 1; x.u = v + 1;";
+    let tokens = crate::lexer::tokenize(src).expect("tokenize");
+    let ast = crate::parser::parse(src, &tokens).expect("parse");
+    let mut types = ident_types(&ast, "x", Type::Any);
+    types.extend(ident_types(&ast, "v", Type::Any));
+    let names = ShadowedNames::of(&ast, &types);
+    for s in ["s", "t"] {
+        assert!(!names.may_mistype(s, SlotKind::String), "{s}");
+        assert!(names.may_mistype(s, SlotKind::Number) && names.may_mistype(s, SlotKind::Boolean));
+    }
+    for b in ["b", "c"] {
+        assert!(!names.may_mistype(b, SlotKind::Boolean), "{b}");
+        assert!(names.may_mistype(b, SlotKind::String) && names.may_mistype(b, SlotKind::Number));
+    }
+    // a `+` of no string operand may be either
+    assert!(names.may_mistype("u", SlotKind::String) && names.may_mistype("u", SlotKind::Number));
 }

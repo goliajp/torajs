@@ -13,6 +13,10 @@ use crate::check::{Lit, Type};
 pub(super) enum Kind {
     /// A number: it fits an f64 slot and shadows every other.
     Number,
+    /// A string: it fits a string slot and shadows every other.
+    String,
+    /// A boolean: it fits a boolean slot and shadows every other.
+    Boolean,
     /// Anything: it may shadow any slot.
     Unknown,
 }
@@ -94,7 +98,7 @@ pub(super) fn write(
     value: Option<ExprId>,
 ) -> Hit {
     let (ast, expr_types) = (facts.ast, facts.expr_types);
-    let kind = || value.map_or(Kind::Number, |v| kind_of(expr_types.get(&v)));
+    let kind = || value.map_or(Kind::Number, |v| value_kind(ast, expr_types, v));
     match ast.get_expr(target) {
         Expr::Member { obj, name } => {
             if !struct_like(expr_types.get(obj)) {
@@ -161,7 +165,7 @@ pub(super) fn call(
         ("Reflect", "set") => {
             let kind = args
                 .get(2)
-                .map_or(Kind::Unknown, |v| kind_of(expr_types.get(v)));
+                .map_or(Kind::Unknown, |v| value_kind(ast, expr_types, *v));
             match args.get(1).map(|k| ast.get_expr(*k)) {
                 Some(Expr::String(s)) => match s.as_str() {
                     Some(s) => Hit::Name(s.to_string(), kind),
@@ -223,7 +227,42 @@ pub(super) fn literal(
 fn kind_of(t: Option<&Type>) -> Kind {
     match t {
         Some(Type::Number | Type::Literal(Lit::Num(_))) => Kind::Number,
+        Some(Type::String | Type::Literal(Lit::Str(_))) => Kind::String,
+        Some(Type::Boolean | Type::Literal(Lit::Bool(_))) => Kind::Boolean,
         _ => Kind::Unknown,
+    }
+}
+
+/// What the written value `v` may be: what its type says, else what its
+/// own shape guarantees whatever its operands hold, which is what a
+/// value the checker types `any` (a twin's, a state machine's) still
+/// has. A `+` with a string operand concatenates (§13.15.3 step 1.c), a
+/// `typeof` names a type; a comparison, a negation, an `instanceof` and
+/// a `delete` answer a boolean.
+fn value_kind(ast: &Ast, expr_types: &HashMap<ExprId, Type>, v: ExprId) -> Kind {
+    use crate::ast::{BinOp, UnaryOp};
+    let string = |e: &ExprId| {
+        matches!(ast.get_expr(*e), Expr::String(_))
+            || matches!(kind_of(expr_types.get(e)), Kind::String)
+    };
+    match (kind_of(expr_types.get(&v)), ast.get_expr(v)) {
+        (Kind::Unknown, Expr::String(_) | Expr::TypeOf { .. }) => Kind::String,
+        (Kind::Unknown, Expr::BinOp { op, left, right }) => match op {
+            BinOp::Add if string(left) || string(right) => Kind::String,
+            BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => Kind::Boolean,
+            BinOp::Eq | BinOp::Neq | BinOp::LooseEq | BinOp::LooseNeq => Kind::Boolean,
+            _ => Kind::Unknown,
+        },
+        (Kind::Unknown, Expr::Bool(_) | Expr::InstanceOf { .. } | Expr::Delete { .. }) => {
+            Kind::Boolean
+        }
+        (
+            Kind::Unknown,
+            Expr::Unary {
+                op: UnaryOp::Not, ..
+            },
+        ) => Kind::Boolean,
+        (k, _) => k,
     }
 }
 

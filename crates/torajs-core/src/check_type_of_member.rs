@@ -256,8 +256,8 @@ fn mistyped_read(
     if !scalar {
         return false;
     }
-    let number = crate::ast::named_prop_census::shadow_names::ShadowedNames::number_member(ty);
+    let slot = crate::ast::named_prop_census::shadow_names::SlotKind::of_member(ty);
     let optional_number = matches!(ty, Type::Nullable(n) if **n == Type::Number)
         && fields.optional().iter().any(|k| *k == *name);
-    !optional_number && checker.shadowed_reads.retypes(name, number)
+    !optional_number && checker.shadowed_reads.retypes(name, slot)
 }
