@@ -12,6 +12,7 @@ use crate::enc::{
     cmp_imm, cmp_reg, cmp_w_imm, cmp_w_reg, cond, csel_cond, cset_cond, csinc_cond, fcsel_d,
     logical_imm, orr_reg, tst_imm,
 };
+use crate::reg::Gpr;
 use crate::regalloc::Assignment;
 
 pub fn emit_icmp(
@@ -197,7 +198,11 @@ pub(crate) fn emit_select_inc(
 ) {
     let result_vid = inst.result.expect("Select must have a result");
     let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
-    let hold = materialize_operand_gpr(bytes, &plan.hold, OP_SCRATCH_TMP, alloc);
+    // a zero hold is the zero register (a wrapping counter's reset)
+    let hold = match plan.hold {
+        Operand::ConstI64(0) => Gpr::XZR,
+        _ => materialize_operand_gpr(bytes, &plan.hold, OP_SCRATCH_TMP, alloc),
+    };
     let inc = materialize_operand_gpr(bytes, &plan.inc, OP_SCRATCH_RESULT_GPR, alloc);
     match &plan.cmp {
         Some(fc) => emit_int_nzcv(bytes, fc, alloc),
