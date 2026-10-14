@@ -105,14 +105,15 @@ unsafe fn word(p: *mut c_void, off: usize) -> *mut *mut c_void {
     unsafe { (p as *mut u8).add(off) as *mut *mut c_void }
 }
 
-/// The settled value when it is a heap cell, else NULL. The three
-/// conditions are the drop kernel's, verbatim: settled, flagged as
-/// heap, non-zero.
-///
-/// # Safety
-/// `p` must be a live Promise cell.
+/// The settled value word when the drop kernel would release it,
+/// else NULL: settled, flagged as heap, non-zero — the kernel's three
+/// conditions, verbatim. A cell settled through the any lane is
+/// flagged heap whatever it holds, because its value word is a NaN-box
+/// the kernel releases through the box-gated helper, so this word may
+/// be an immediate (`undefined` is `0x…0a`, a boxed int has its top
+/// bits set); [`promise_value`] is the pointer the walk may follow.
 #[inline]
-pub unsafe fn promise_value(p: *mut c_void) -> *mut c_void {
+unsafe fn promise_value_word(p: *mut c_void) -> *mut c_void {
     let base = p as *const u8;
     if unsafe { *base.add(VALUE_IS_HEAP_OFF) } == 0
         || unsafe { *base.add(STATE_OFF) } == STATE_PENDING
@@ -120,6 +121,22 @@ pub unsafe fn promise_value(p: *mut c_void) -> *mut c_void {
         return core::ptr::null_mut();
     }
     unsafe { *word(p, VALUE_OFF) }
+}
+
+/// The settled value when it is a heap cell, else NULL: the walk
+/// dereferences what this answers, so an immediate in the value word
+/// is not one.
+///
+/// # Safety
+/// `p` must be a live Promise cell.
+#[inline]
+pub unsafe fn promise_value(p: *mut c_void) -> *mut c_void {
+    let v = unsafe { promise_value_word(p) };
+    if crate::layout::nan_box_is_cell_like(v) {
+        v
+    } else {
+        core::ptr::null_mut()
+    }
 }
 
 /// The owned closure env of an unfired reaction, else NULL.
@@ -131,10 +148,12 @@ unsafe fn promise_rx_env(p: *mut c_void) -> *mut c_void {
     unsafe { *word(p, RX_CB_OFF) }
 }
 
-/// True when a bagless promise has an edge to walk. A non-empty
+/// True when a bagless promise may have an edge to walk. A non-empty
 /// callback list counts even when it holds only heap records, which
-/// yield nothing: one load instead of a list scan, on a predicate
-/// the walk asks of every child it meets. torajs-promise's
+/// yield nothing, and a settled value word counts even when it is an
+/// immediate, which yields nothing either: one load or two instead of
+/// a list scan or a box test, on a predicate the walk asks of every
+/// child it meets. torajs-promise's
 /// `cycle_candidate` is the narrower question of whether a cell can
 /// close a ring at all, and implies this one.
 ///
@@ -144,7 +163,7 @@ unsafe fn promise_rx_env(p: *mut c_void) -> *mut c_void {
 pub unsafe fn promise_has_edges(p: *mut c_void) -> bool {
     unsafe {
         !(*word(p, CALLBACKS_OFF)).is_null()
-            || !promise_value(p).is_null()
+            || !promise_value_word(p).is_null()
             || !promise_rx_env(p).is_null()
     }
 }
@@ -308,6 +327,28 @@ mod tests {
         }
         // the opaque record still links the list on
         assert_eq!(opaque[2], 0);
+    }
+
+    #[test]
+    fn an_any_lane_immediate_value_is_not_an_edge() {
+        let mut d = pending();
+        let mut v = pending();
+        let (dp, vp) = (at(&mut d), at(&mut v));
+        unsafe {
+            *(dp as *mut u8).add(STATE_OFF) = 1;
+            *(dp as *mut u8).add(VALUE_IS_HEAP_OFF) = 1;
+            for imm in [0x0000_0000_0000_000a_u64, 0xfffe_0000_0000_0003] {
+                *(word(dp, VALUE_OFF) as *mut u64) = imm;
+                assert!(promise_value(dp).is_null());
+                let mut seen = Vec::new();
+                for_each_promise_child(dp, &mut |_, c| seen.push(c));
+                assert!(seen.is_empty());
+            }
+            *word(dp, VALUE_OFF) = vp;
+            let mut seen = Vec::new();
+            for_each_promise_child(dp, &mut |i, c| seen.push((i, c)));
+            assert_eq!(seen, vec![(PROMISE_VALUE_SLOT, vp)]);
+        }
     }
 
     #[test]
