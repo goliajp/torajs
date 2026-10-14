@@ -455,7 +455,7 @@ pub use regex_result_props::analyze_regex_result_props;
 pub use reparent_census::census_program_reparents;
 pub(crate) use scalar_alias_spell::canonical_unions;
 pub use scoped_type_decls::resolve_type_decls;
-pub use script_global_fns::synthesize_script_global_fns;
+pub use script_global_fns::{mint_script_global_receiver_shells, synthesize_script_global_fns};
 pub use sfi_pass::rewrite_split_for_i_to_iter;
 pub use sig_thunk::synthesize_sig_thunks;
 pub use sloppy_implicit_globals::synthesize_sloppy_implicit_globals;

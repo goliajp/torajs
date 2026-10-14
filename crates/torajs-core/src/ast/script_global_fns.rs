@@ -69,45 +69,16 @@ pub(super) fn toplevel_fn_decl_names(top: &[Stmt]) -> Vec<String> {
 /// expression became a ReferenceError). Minted after, the relay peels
 /// the injected param and its own boxed entry packs the argv.
 pub fn synthesize_script_global_fns(ast: &mut Ast) {
-    if !ast.sloppy_script_goal {
+    let Some(names) = script_global_fn_names(ast) else {
         return;
-    }
-    let names: Vec<String> = toplevel_fn_decl_names(&ast.stmts)
-        .into_iter()
-        .filter(|n| !super::is_synthesized_dunder(ast, n) && !ast.class_parents.contains_key(n))
-        .collect();
-    if names.is_empty() {
-        return;
-    }
-    // The LAST declaration of a name is the binding's (§16.1.7 step
-    // 10.a.ii), and the one `fn_table` resolves a call to. The shared
-    // synthesizer erases a generic target's own type variables to
-    // `any` (402-01) — a forwarder is a plain declaration with no type
-    // params to bind them, and the test262 harness is all
-    // implicitly-generic functions.
-    let mut fn_sigs: std::collections::HashMap<
-        String,
-        (Vec<super::Param>, Option<String>, crate::lexer::Span),
-    > = std::collections::HashMap::new();
-    let mut existing_forwarders: std::collections::HashSet<String> =
-        std::collections::HashSet::new();
-    for s in &ast.stmts {
-        if let Stmt::FnDecl {
-            name,
-            params,
-            return_type,
-            span,
-            ..
-        } = s
-        {
-            if super::is_shell(name) {
-                existing_forwarders.insert(name.clone());
-            }
-            fn_sigs.insert(name.clone(), (params.clone(), return_type.clone(), *span));
-        }
-    }
+    };
+    let (fn_sigs, mut existing_forwarders) = fn_sigs_and_shells(ast);
     let mut new_decls = receiver_first_shells(ast, &names, &fn_sigs, &mut existing_forwarders);
     let targets: std::collections::HashSet<String> = names.iter().cloned().collect();
+    // The shared synthesizer erases a generic target's own type
+    // variables to `any` (402-01) — a forwarder is a plain declaration
+    // with no type params to bind them, and the test262 harness is all
+    // implicitly-generic functions.
     let (plain_decls, renames) = super::forwarders_object::synthesize_forwarder_decls(
         ast,
         &targets,
@@ -173,6 +144,66 @@ pub fn synthesize_script_global_fns(ast: &mut Ast) {
     ast.stmts.extend(prelude);
     ast.stmts.extend(tail);
     ast.stmts.extend(new_decls);
+}
+
+/// The top-level declarations that take a global binding, or `None`
+/// when the program is not a sloppy script or declares none.
+fn script_global_fn_names(ast: &Ast) -> Option<Vec<String>> {
+    if !ast.sloppy_script_goal {
+        return None;
+    }
+    let names: Vec<String> = toplevel_fn_decl_names(&ast.stmts)
+        .into_iter()
+        .filter(|n| !super::is_synthesized_dunder(ast, n) && !ast.class_parents.contains_key(n))
+        .collect();
+    (!names.is_empty()).then_some(names)
+}
+
+/// Each top-level declaration's signature — the LAST declaration of a
+/// name is the binding's (§16.1.7 step 10.a.ii), and the one
+/// `fn_table` resolves a call to — and the relay shells already
+/// minted.
+fn fn_sigs_and_shells(ast: &Ast) -> (FnSigs, std::collections::HashSet<String>) {
+    let mut fn_sigs = FnSigs::new();
+    let mut shells = std::collections::HashSet::new();
+    for s in &ast.stmts {
+        if let Stmt::FnDecl {
+            name,
+            params,
+            return_type,
+            span,
+            ..
+        } = s
+        {
+            if super::is_shell(name) {
+                shells.insert(name.clone());
+            }
+            fn_sigs.insert(name.clone(), (params.clone(), return_type.clone(), *span));
+        }
+    }
+    (fn_sigs, shells)
+}
+
+/// The binding's receiver-first shell, minted where
+/// `promote_this_fn_values` mints the one a value use needs, for a
+/// declaration no value use reached — one a global eval declares has
+/// every occurrence routed to its slot (`desugar_eval::bound_fns`), so
+/// `new f()` constructs the slot's value and nothing else names the
+/// shell. Minted this early, it is a shell every later pass already
+/// knows: `synthesize_new_target_ctor_faces` gives it the construct
+/// face that carries `new.target` (none exists for a shell minted
+/// after that pass, so `new.target` read undefined), and the arguments
+/// rewrite sees it (minted after that rewrite, a body that reads
+/// `arguments` was constructed with `this` pinned to the global
+/// object). The late mint in `synthesize_script_global_fns` stays for
+/// a declaration that gains its receiver after this point.
+pub fn mint_script_global_receiver_shells(ast: &mut Ast) {
+    let Some(names) = script_global_fn_names(ast) else {
+        return;
+    };
+    let (fn_sigs, mut shells) = fn_sigs_and_shells(ast);
+    let decls = receiver_first_shells(ast, &names, &fn_sigs, &mut shells);
+    ast.stmts.extend(decls);
 }
 
 /// The receiver-first shell of each `this`-reading declaration that
