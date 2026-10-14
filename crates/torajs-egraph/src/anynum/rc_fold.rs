@@ -16,6 +16,8 @@
 //! deleted release goes with it — left behind, it would still be
 //! materialized every iteration.
 
+use std::collections::VecDeque;
+
 use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{
@@ -143,23 +145,56 @@ fn int_consts(func: &Function) -> HashMap<ValueId, i64> {
         .collect()
 }
 
+/// A set of values as a bitmap over the function's value ids: the
+/// facts are cloned and intersected once per block visit, and a word
+/// per 64 values keeps that to a few stores.
+#[derive(Clone, PartialEq, Eq)]
+pub(super) struct ValueSet(Vec<u64>);
+
+impl ValueSet {
+    fn empty(n_values: usize) -> Self {
+        ValueSet(vec![0; n_values.div_ceil(64)])
+    }
+
+    pub(super) fn contains(&self, v: ValueId) -> bool {
+        let i = v.0 as usize;
+        i / 64 < self.0.len() && (self.0[i / 64] >> (i % 64)) & 1 == 1
+    }
+
+    fn insert(&mut self, v: ValueId) {
+        let i = v.0 as usize;
+        self.0[i / 64] |= 1 << (i % 64);
+    }
+
+    fn remove(&mut self, v: ValueId) {
+        let i = v.0 as usize;
+        self.0[i / 64] &= !(1 << (i % 64));
+    }
+
+    fn intersect_with(&mut self, other: &ValueSet) {
+        for (a, b) in self.0.iter_mut().zip(&other.0) {
+            *a &= *b;
+        }
+    }
+}
+
 /// What a def proves about its result: a box of a number, or a copy
 /// of a proven value.
-fn proves(kind: &InstKind, facts: &HashSet<ValueId>) -> bool {
+fn proves(kind: &InstKind, facts: &ValueSet) -> bool {
     match kind {
         InstKind::BoxInt32(_) | InstKind::BoxF64(_) => true,
         InstKind::BoxAny(t, _) => *t != ANY_SLOT_TAG_HEAP,
-        InstKind::Copy(_, Operand::Value(s)) => facts.contains(s),
+        InstKind::Copy(_, Operand::Value(s)) => facts.contains(*s),
         _ => false,
     }
 }
 
 /// The facts at the block's exit from those at its entry.
-fn transfer(func: &Function, b: BlockId, mut facts: HashSet<ValueId>) -> HashSet<ValueId> {
+fn transfer(func: &Function, b: BlockId, mut facts: ValueSet) -> ValueSet {
     for inst in &func.blocks[b.0 as usize].insts {
         if let Some(r) = inst.result {
             let proven = proves(&inst.kind, &facts);
-            facts.remove(&r);
+            facts.remove(r);
             if proven {
                 facts.insert(r);
             }
@@ -168,79 +203,111 @@ fn transfer(func: &Function, b: BlockId, mut facts: HashSet<ValueId>) -> HashSet
     facts
 }
 
+/// What the true edge out of each block proves.
+fn edge_proofs(func: &Function) -> Vec<Option<(BlockId, Vec<ValueId>)>> {
+    let consts = int_consts(func);
+    let mut out: Vec<Option<(BlockId, Vec<ValueId>)>> = vec![None; func.blocks.len()];
+    for block in &func.blocks {
+        if let Terminator::CondBr {
+            cond: Operand::Value(c),
+            then_blk,
+            else_blk,
+        } = &block.term
+            && then_blk != else_blk
+        {
+            let mut proven = Vec::new();
+            proven_by(&block.insts, block.insts.len(), *c, &consts, &mut proven);
+            if !proven.is_empty() {
+                out[block.id.0 as usize] = Some((*then_blk, proven));
+            }
+        }
+    }
+    out
+}
+
 /// What the number tests of a function prove: the values proven
-/// numbers at each block's entry (`None` for a block never reached)
-/// and, per block, the values its true edge proves.
+/// numbers at each block's entry and exit (`None` for a block never
+/// reached) and, per block, the values its true edge proves.
 pub(super) struct NumberFacts {
-    live_in: Vec<Option<HashSet<ValueId>>>,
+    live_in: Vec<Option<ValueSet>>,
+    live_out: Vec<Option<ValueSet>>,
     edge_proofs: Vec<Option<(BlockId, Vec<ValueId>)>>,
 }
 
 impl NumberFacts {
     /// The forward must-analysis over `func`.
     pub(super) fn compute(func: &Function) -> Self {
+        Self::from_edge_proofs(func, edge_proofs(func))
+    }
+
+    /// The analysis, or `None` when no branch of `func` proves a value
+    /// a number: the facts would then hold only boxes, which
+    /// `rc_fold` already acts on.
+    pub(super) fn compute_if_any_edge_proof(func: &Function) -> Option<Self> {
+        let proofs = edge_proofs(func);
+        proofs
+            .iter()
+            .any(Option::is_some)
+            .then(|| Self::from_edge_proofs(func, proofs))
+    }
+
+    /// The worklist fixpoint: a block is revisited when its entry set
+    /// shrinks.
+    fn from_edge_proofs(
+        func: &Function,
+        edge_proofs: Vec<Option<(BlockId, Vec<ValueId>)>>,
+    ) -> Self {
         let n = func.blocks.len();
-        let consts = int_consts(func);
-        // what the true edge out of a block proves
-        let mut edge_proofs: Vec<Option<(BlockId, Vec<ValueId>)>> = vec![None; n];
-        for block in &func.blocks {
-            if let Terminator::CondBr {
-                cond: Operand::Value(c),
-                then_blk,
-                else_blk,
-            } = &block.term
-                && then_blk != else_blk
-            {
-                let mut proven = Vec::new();
-                proven_by(&block.insts, block.insts.len(), *c, &consts, &mut proven);
-                if !proven.is_empty() {
-                    edge_proofs[block.id.0 as usize] = Some((*then_blk, proven));
-                }
-            }
-        }
         // None is the top of the lattice: not yet reached
-        let mut live_in: Vec<Option<HashSet<ValueId>>> = vec![None; n];
-        live_in[0] = Some(HashSet::default());
-        let mut changed = true;
-        while changed {
-            changed = false;
-            for bi in 0..n {
-                let Some(entry) = live_in[bi].clone() else {
-                    continue;
-                };
-                let out = transfer(func, BlockId(bi as u32), entry);
-                for s in successors(&func.blocks[bi].term) {
-                    let mut via = out.clone();
-                    if let Some((t, proven)) = &edge_proofs[bi]
-                        && *t == s
-                    {
-                        via.extend(proven.iter().copied());
+        let mut live_in: Vec<Option<ValueSet>> = vec![None; n];
+        let mut live_out: Vec<Option<ValueSet>> = vec![None; n];
+        live_in[0] = Some(ValueSet::empty(func.values.len()));
+        let mut queued = vec![false; n];
+        let mut work: VecDeque<usize> = VecDeque::new();
+        work.push_back(0);
+        queued[0] = true;
+        while let Some(bi) = work.pop_front() {
+            queued[bi] = false;
+            let entry = live_in[bi].clone().expect("a queued block was reached");
+            let out = transfer(func, BlockId(bi as u32), entry);
+            for s in successors(&func.blocks[bi].term) {
+                let si = s.0 as usize;
+                let mut via = out.clone();
+                if let Some((t, proven)) = &edge_proofs[bi]
+                    && *t == s
+                {
+                    for v in proven {
+                        via.insert(*v);
                     }
-                    let next = match &live_in[s.0 as usize] {
-                        None => via,
-                        Some(cur) => cur.intersection(&via).copied().collect(),
-                    };
-                    if live_in[s.0 as usize].as_ref() != Some(&next) {
-                        live_in[s.0 as usize] = Some(next);
-                        changed = true;
+                }
+                if let Some(cur) = &live_in[si] {
+                    via.intersect_with(cur);
+                }
+                if live_in[si].as_ref() != Some(&via) {
+                    live_in[si] = Some(via);
+                    if !queued[si] {
+                        queued[si] = true;
+                        work.push_back(si);
                     }
                 }
             }
+            live_out[bi] = Some(out);
         }
         NumberFacts {
             live_in,
+            live_out,
             edge_proofs,
         }
     }
 
     /// Is `v` proven a number on the edge from `b` to `s`: at `b`'s
     /// exit, or by the test `b`'s true edge into `s` passes?
-    pub(super) fn proven_on_edge(&self, func: &Function, b: usize, s: BlockId, v: ValueId) -> bool {
-        let Some(entry) = &self.live_in[b] else {
+    pub(super) fn proven_on_edge(&self, b: usize, s: BlockId, v: ValueId) -> bool {
+        let Some(out) = &self.live_out[b] else {
             // an unreached block runs nothing
             return true;
         };
-        if transfer(func, BlockId(b as u32), entry.clone()).contains(&v) {
+        if out.contains(v) {
             return true;
         }
         matches!(&self.edge_proofs[b], Some((t, proven)) if *t == s && proven.contains(&v))
@@ -269,14 +336,14 @@ fn fold_in_function(func: &mut Function) -> u32 {
         for inst in insts {
             if let InstKind::RcIncAny(Operand::Value(v)) | InstKind::RcDecAny(Operand::Value(v)) =
                 &inst.kind
-                && facts.contains(v)
+                && facts.contains(*v)
             {
                 removed += 1;
                 continue;
             }
             if let Some(r) = inst.result {
                 let proven = proves(&inst.kind, &facts);
-                facts.remove(&r);
+                facts.remove(r);
                 if proven {
                     facts.insert(r);
                 }

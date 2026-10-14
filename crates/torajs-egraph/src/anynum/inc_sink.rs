@@ -95,7 +95,11 @@ fn sink_in_function(func: &mut Function) -> (u32, u32) {
     if sites.is_empty() {
         return (0, 0);
     }
-    let facts = NumberFacts::compute(func);
+    // without a test that proves a value a number, every path keeps the
+    // retain and the walk could only move it about
+    let Some(facts) = NumberFacts::compute_if_any_edge_proof(func) else {
+        return (0, 0);
+    };
     let dom = DominatorTree::compute(func);
     let loops = LoopAnalysis::compute(func, &dom);
     let mut preds: Vec<Vec<usize>> = vec![Vec::new(); func.blocks.len()];
@@ -252,7 +256,7 @@ fn plan(func: &Function, shape: &Shape, site: Site, v: ValueId) -> Option<Vec<(S
                         continue;
                     }
                     for s in successors(&block.term) {
-                        if shape.facts.proven_on_edge(func, b, s, val) {
+                        if shape.facts.proven_on_edge(b, s, val) {
                             continue;
                         }
                         pending.entry(s.0 as usize).or_default().push((b, val));
@@ -288,7 +292,7 @@ fn plan(func: &Function, shape: &Shape, site: Site, v: ValueId) -> Option<Vec<(S
                     && shape.within_loops_of(s, site.0)
                     && shape.preds[s].iter().all(|&p| {
                         edges.iter().any(|(e, _)| *e == p)
-                            || shape.facts.proven_on_edge(func, p, BlockId(s as u32), val)
+                            || shape.facts.proven_on_edge(p, BlockId(s as u32), val)
                     });
                 if ok {
                     continue;
