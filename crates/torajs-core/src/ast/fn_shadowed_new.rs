@@ -46,11 +46,10 @@
 //! block that declares it. `Stmt::Multi` shares the surrounding scope
 //! by definition and so is spliced rather than given a scope.
 //!
-//! Recorded gaps: a `for` / `for-of` loop variable and a `catch`
-//! parameter are bindings too and are not collected yet; a class
-//! METHOD body is not walked either, since this pass runs before
-//! `desugar_classes` flattens them and the bodies are still inside
-//! `Stmt::ClassDecl`.
+//! Recorded gaps: a `for` / `for-of` loop variable is a binding too
+//! and is not collected yet; a class METHOD body is not walked
+//! either, since this pass runs before `desugar_classes` flattens them
+//! and the bodies are still inside `Stmt::ClassDecl`.
 
 use super::annexb_names::{block_nested_fn_names, own_fn_names, param_names};
 use super::desugar_with::walk::stmt_children_ref;
@@ -147,6 +146,24 @@ fn walk_body(
     scopes.pop();
 }
 
+/// A block: the `let` / `const` it binds directly, plus `extra` (a
+/// catch parameter).
+fn walk_block(
+    ast: &Ast,
+    list: &[Stmt],
+    extra: Option<&str>,
+    scopes: &mut Vec<HashSet<String>>,
+    out: &mut HashSet<ExprId>,
+) {
+    let mut names = let_const_names(list);
+    names.extend(extra.map(str::to_string));
+    scopes.push(names);
+    for s in list {
+        walk_stmt(ast, s, scopes, out);
+    }
+    scopes.pop();
+}
+
 fn walk_stmt(ast: &Ast, stmt: &Stmt, scopes: &mut Vec<HashSet<String>>, out: &mut HashSet<ExprId>) {
     match stmt {
         Stmt::Expr(e) | Stmt::Return(Some(e)) | Stmt::Throw(e) | Stmt::Yield(e) => {
@@ -201,14 +218,8 @@ fn walk_stmt(ast: &Ast, stmt: &Stmt, scopes: &mut Vec<HashSet<String>>, out: &mu
             walk_expr(ast, *sep, scopes, out);
             walk_stmt(ast, body, scopes, out);
         }
-        Stmt::Block(b) => {
-            // A block is a scope of its own for `let` / `const`.
-            scopes.push(let_const_names(b));
-            for s in b {
-                walk_stmt(ast, s, scopes, out);
-            }
-            scopes.pop();
-        }
+        // A block is a scope of its own for `let` / `const`.
+        Stmt::Block(b) => walk_block(ast, b, None, scopes, out),
         Stmt::Multi(b) => {
             // Shares the surrounding scope — its bindings were already
             // collected by whoever owns that scope.
@@ -216,17 +227,20 @@ fn walk_stmt(ast: &Ast, stmt: &Stmt, scopes: &mut Vec<HashSet<String>>, out: &mu
                 walk_stmt(ast, s, scopes, out);
             }
         }
+        // Each of the three is a block (§14.15), and the catch block
+        // also binds its parameter. An async function's body is
+        // wrapped in one before this pass runs.
         Stmt::Try {
             body,
+            catch_param,
             catch_body,
             finally_body,
             ..
         } => {
-            for s in body.iter().chain(catch_body.iter()) {
-                walk_stmt(ast, s, scopes, out);
-            }
-            for s in finally_body.iter().flatten() {
-                walk_stmt(ast, s, scopes, out);
+            walk_block(ast, body, None, scopes, out);
+            walk_block(ast, catch_body, catch_param.as_deref(), scopes, out);
+            if let Some(f) = finally_body {
+                walk_block(ast, f, None, scopes, out);
             }
         }
         Stmt::Switch {
