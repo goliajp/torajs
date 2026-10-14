@@ -449,8 +449,8 @@ pub(crate) unsafe fn dynobj_arm_tag(ptr: *mut c_void, recv: AnyValue, key: *cons
         // An own entry STORING undefined is a hit too: it shadows the
         // proto surface (`o.toString = undefined` must not reify the
         // builtin).
-        match crate::member_get_dynobj::dynobj_own_pair(ptr, key) {
-            Some((tag, _)) => tag,
+        match crate::member_get_dynobj::dynobj_own_tag(ptr, key) {
+            Some(tag) => tag,
             None => crate::member_get_dynobj::dynobj_miss_tag(ptr, recv, key),
         }
     }

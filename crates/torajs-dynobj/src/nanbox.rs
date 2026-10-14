@@ -89,7 +89,7 @@ pub(crate) mod reference {
         v & TAG_TYPE_NUMBER != 0 && !is_int32(v)
     }
 
-    pub(super) const fn is_short_str(v: u64) -> bool {
+    pub(crate) const fn is_short_str(v: u64) -> bool {
         v & super::TOP_16_MASK == SHORT_STR_TAG
     }
 

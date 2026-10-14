@@ -581,4 +581,26 @@ mod tests {
             free_dynobj_blocks(obj);
         }
     }
+
+    /// A tag-only read of an entry holding a ShortStr materializes no
+    /// `Str` (nobody would release it); the value read materializes
+    /// the one its caller owns.
+    #[test]
+    fn tag_read_of_short_str_materializes_nothing() {
+        use crate::SHORT_STR_MATERIALIZED as N;
+        use crate::get::{__torajs_dynobj_get_tag, __torajs_dynobj_get_value};
+        let k = make_str("s");
+        let short = torajs_anyvalue::nanbox::try_box_short_str(b"ab").unwrap();
+        unsafe {
+            let obj = __torajs_dynobj_alloc();
+            let kp = k.as_ptr() as *mut c_void;
+            insert(obj, kp, BUCKET_FLAGS_DEFAULT, short);
+            let before = N.with(|n| n.get());
+            assert_eq!(__torajs_dynobj_get_tag(obj, kp), ANY_HEAP);
+            assert_eq!(N.with(|n| n.get()), before);
+            assert_eq!(__torajs_dynobj_get_value(obj, kp), 0x1000);
+            assert_eq!(N.with(|n| n.get()), before + 1);
+            free_dynobj_blocks(obj);
+        }
+    }
 }

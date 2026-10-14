@@ -249,7 +249,7 @@ pub unsafe extern "C" fn __torajs_symbol_drop(_s: *mut core::ffi::c_void) {
 
 // The owner's encode / decode for unit tests: the reference encoding
 // `crate::nanbox` holds its inline steps to, so a value written on one
-// path reads back on the other. No unit test stores a ShortStr.
+// path reads back on the other.
 /// # Safety
 /// Takes no pointer arguments.
 #[cfg(test)]
@@ -266,11 +266,27 @@ pub unsafe extern "C" fn __torajs_anyv_unbox_tag(v: u64) -> i64 {
     nanbox::reference::unbox_tag(v)
 }
 
+#[cfg(test)]
+thread_local! {
+    /// How many ShortStr boxes the value decode double below was asked
+    /// to materialize on this thread: the owner mints a fresh `Str`
+    /// for each, which its caller has to release.
+    pub(crate) static SHORT_STR_MATERIALIZED: core::cell::Cell<usize> =
+        const { core::cell::Cell::new(0) };
+}
+
+/// A ShortStr is counted and answers a stand-in pointer; every other
+/// box decodes as the owner does.
+///
 /// # Safety
-/// `v` is not a ShortStr.
+/// Takes no pointer arguments.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_unbox_value(v: u64) -> i64 {
+    if nanbox::reference::is_short_str(v) {
+        SHORT_STR_MATERIALIZED.with(|n| n.set(n.get() + 1));
+        return 0x1000;
+    }
     nanbox::reference::unbox_value(v)
 }
 

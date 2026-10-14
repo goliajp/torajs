@@ -42,8 +42,7 @@ pub(crate) unsafe fn type_tag(obj: *const c_void) -> u16 {
 /// `key` (if reached) is a live Str heap pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64 {
-    let mut value = 0;
-    match unsafe { __torajs_dynobj_get_own(obj, key, &mut value) } {
+    match unsafe { __torajs_dynobj_get_own(obj, key, core::ptr::null_mut()) } {
         DYNOBJ_GET_OWN_MISS => ANY_UNDEF,
         tag => tag,
     }
@@ -63,11 +62,13 @@ pub const DYNOBJ_GET_OWN_MISS: u64 = u64::MAX;
 /// pair reads it as undefined and `has` as present); only a key with
 /// no entry answers [`DYNOBJ_GET_OWN_MISS`], leaving `value_out`
 /// untouched; a null `obj` or a cell that is not a DynObj owns no
-/// entry.
+/// entry. A null `value_out` asks for the tag alone: a ShortStr
+/// entry then materializes no `Str` (nobody would release it).
 ///
 /// # Safety
 /// `obj` is null or a live heap pointer with a universal header;
-/// `key` is a live Str or Symbol cell; `value_out` is writable.
+/// `key` is a live Str or Symbol cell; `value_out` is null or
+/// writable.
 #[unsafe(no_mangle)]
 #[inline(never)]
 pub unsafe extern "C" fn __torajs_dynobj_get_own(
@@ -96,11 +97,18 @@ pub unsafe extern "C" fn __torajs_dynobj_get_own(
         let pair = unsafe { type_tag(v as *const c_void) } == TAG_ACCESSOR_PAIR;
         (if pair { ANY_ACCESSOR } else { ANY_HEAP }, v)
     } else {
-        (nanbox::unbox_tag(v) as u64, unsafe {
-            nanbox::unbox_value(v) as u64
-        })
+        // A ShortStr's value is a fresh `Str`: it is materialized only
+        // for a caller that takes the value.
+        let value = if value_out.is_null() {
+            0
+        } else {
+            unsafe { nanbox::unbox_value(v) as u64 }
+        };
+        (nanbox::unbox_tag(v) as u64, value)
     };
-    unsafe { value_out.write(value) };
+    if !value_out.is_null() {
+        unsafe { value_out.write(value) };
+    }
     tag
 }
 

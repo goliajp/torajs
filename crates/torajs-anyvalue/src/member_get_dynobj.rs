@@ -26,7 +26,8 @@ use crate::nanbox::AnyValue;
 unsafe extern "C" {
     /// torajs-throw — record a pending catchable TypeError.
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
-    /// torajs-dynobj — the own entry's `(tag, value)` from one probe;
+    /// torajs-dynobj — the own entry's `(tag, value)` from one probe
+    /// (a null `value_out` takes the tag alone);
     /// [`DYNOBJ_GET_OWN_MISS`] when there is no entry.
     fn __torajs_dynobj_get_own(obj: *const c_void, key: *const c_void, value_out: *mut u64) -> u64;
 }
@@ -34,17 +35,30 @@ unsafe extern "C" {
 /// `torajs_dynobj::get::DYNOBJ_GET_OWN_MISS` mirror.
 const DYNOBJ_GET_OWN_MISS: u64 = u64::MAX;
 
-/// The receiver's own entry for `key` as the `(tag, value)` pair the
-/// two read channels answer (an entry storing `undefined` is
-/// `Some((5, 0))`); `None` when the receiver owns no entry for it.
+/// The tag the receiver's own entry for `key` answers (an entry
+/// storing `undefined` is `Some(5)`); `None` when the receiver owns
+/// no entry for it. The value is not decoded, so a ShortStr entry
+/// materializes nothing.
 ///
 /// # Safety
 /// `ptr` is a live DynObj cell; `key` is a live Str or Symbol cell.
 #[inline]
-pub(crate) unsafe fn dynobj_own_pair(ptr: *mut c_void, key: *const c_void) -> Option<(u64, u64)> {
+pub(crate) unsafe fn dynobj_own_tag(ptr: *mut c_void, key: *const c_void) -> Option<u64> {
+    let tag = unsafe { __torajs_dynobj_get_own(ptr, key, core::ptr::null_mut()) };
+    (tag != DYNOBJ_GET_OWN_MISS).then_some(tag)
+}
+
+/// The value the receiver's own entry for `key` answers (an entry
+/// storing `undefined` is `Some(0)`; a ShortStr is a fresh `Str` the
+/// caller owns); `None` when the receiver owns no entry for it.
+///
+/// # Safety
+/// As [`dynobj_own_tag`].
+#[inline]
+pub(crate) unsafe fn dynobj_own_value(ptr: *mut c_void, key: *const c_void) -> Option<u64> {
     let mut value = 0u64;
     let tag = unsafe { __torajs_dynobj_get_own(ptr, key, &mut value) };
-    (tag != DYNOBJ_GET_OWN_MISS).then_some((tag, value))
+    (tag != DYNOBJ_GET_OWN_MISS).then_some(value)
 }
 
 /// Both channels of an any-lane member read in one call: the tag is
@@ -71,11 +85,12 @@ pub unsafe extern "C" fn __torajs_any_member_get_pair(
                     value_out.write(value);
                     return tag;
                 }
-            } else if t == Tag::DynObj as u16
-                && let Some((tag, value)) = dynobj_own_pair(ptr, key)
-            {
-                value_out.write(value);
-                return tag;
+            } else if t == Tag::DynObj as u16 {
+                // a miss leaves `value_out` alone
+                let tag = __torajs_dynobj_get_own(ptr, key, value_out);
+                if tag != DYNOBJ_GET_OWN_MISS {
+                    return tag;
+                }
             }
             // An absent key takes the two channels below, so each
             // absent-key tail keeps a single caller (and its inlined
