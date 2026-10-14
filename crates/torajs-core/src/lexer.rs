@@ -104,7 +104,7 @@ fn tokenize_goal(src: &str, html_comments: bool) -> Result<Vec<Spanned>, String>
                 continue;
             }
             b'.' => {
-                scan_number::scan_dot(bytes, &mut i, &mut out, start);
+                scan_number::scan_dot(bytes, &mut i, &mut out, start)?;
                 reject_ident_after_numeric(bytes, &out, i)?;
             }
             b',' => emit(&mut out, Token::Comma, start, advance(&mut i)),

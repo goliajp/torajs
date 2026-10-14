@@ -244,7 +244,12 @@ pub(super) fn scan_number(
 /// Extracted verbatim from `tokenize`'s `b'.'` match arm
 /// (2026-07-03, fn-debt decomp; only change is `i` threading
 /// through `&mut u32`).
-pub(super) fn scan_dot(bytes: &[u8], i: &mut u32, out: &mut Vec<Spanned>, start: u32) {
+pub(super) fn scan_dot(
+    bytes: &[u8],
+    i: &mut u32,
+    out: &mut Vec<Spanned>,
+    start: u32,
+) -> Result<(), String> {
     // `...` (spread/rest) emits a single DotDotDot token.
     // Bare `.` stays Dot for member access.
     if peek(bytes, *i + 1) == Some(b'.') && peek(bytes, *i + 2) == Some(b'.') {
@@ -284,17 +289,25 @@ pub(super) fn scan_dot(bytes: &[u8], i: &mut u32, out: &mut Vec<Spanned>, start:
                 *i += 1;
             }
             while let Some(c) = peek(bytes, *i) {
-                if c.is_ascii_digit() {
-                    digits.push(c as char);
+                if c.is_ascii_digit() || c == b'_' {
+                    if c != b'_' {
+                        digits.push(c as char);
+                    }
                     *i += 1;
                 } else {
                     break;
                 }
             }
         }
+        // §12.9.3 — the same separator rule as the integer-led path:
+        // `.0_e1` puts one between a digit and the exponent marker.
+        let raw = std::str::from_utf8(&bytes[start as usize + 1..*i as usize])
+            .expect("ascii digits are valid utf-8");
+        validate_separators(raw, start, |c| c.is_ascii_digit())?;
         let n: f64 = digits.parse().unwrap_or(0.0);
         emit(out, Token::Number(n), start, *i);
     } else {
         emit(out, Token::Dot, start, super::util::advance(i));
     }
+    Ok(())
 }
