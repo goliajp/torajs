@@ -233,6 +233,26 @@ fn transparent(kind: &InstKind) -> bool {
         )
 }
 
+/// Where a retain placed at the exit of block `b` (walked from
+/// `start`) goes: ahead of the compare its conditional branch reads
+/// when that compare ends the block, so the compare stays next to the
+/// branch. Behind it, the inline retain's own tests would clobber the
+/// flags and the compare would have to be kept in a register.
+fn exit_at(func: &Function, b: usize, start: usize) -> usize {
+    let block = &func.blocks[b];
+    let end = block.insts.len();
+    match (&block.term, block.insts.last()) {
+        (
+            Terminator::CondBr {
+                cond: Operand::Value(c),
+                ..
+            },
+            Some(last),
+        ) if last.result == Some(*c) && end > start => end - 1,
+        _ => end,
+    }
+}
+
 /// The placements of the retain at `site` once sunk, or `None` when
 /// it stays. An empty answer means every path proved the value a
 /// number.
@@ -299,7 +319,8 @@ fn plan(func: &Function, shape: &Shape, site: Site, v: ValueId) -> Option<Vec<(S
                 }
                 for (p, val) in pending.remove(&s).expect("a listed target") {
                     if placed_end.insert(p) {
-                        out.push(((p, func.blocks[p].insts.len()), val));
+                        let start = if p == site.0 { site.1 + 1 } else { 0 };
+                        out.push(((p, exit_at(func, p, start)), val));
                     }
                 }
                 settled = false;
@@ -321,7 +342,7 @@ fn plan(func: &Function, shape: &Shape, site: Site, v: ValueId) -> Option<Vec<(S
 #[cfg(test)]
 mod tests {
     use super::*;
-    use torajs_core::ssa::{Block, FuncId, ValueInfo};
+    use torajs_core::ssa::{Block, FuncId, IPred, ValueInfo};
 
     fn v(id: u32) -> Operand {
         Operand::Value(ValueId(id))
@@ -536,6 +557,84 @@ mod tests {
 
     /// A retain whose every path proves the value a number goes
     /// without a copy anywhere.
+    #[test]
+    fn a_retain_at_an_exit_goes_ahead_of_the_compare_the_branch_reads() {
+        // as above, but `bb3` ends in its own test: the retain lands
+        // before the compare, which stays next to the branch
+        let blocks = vec![
+            Block {
+                id: BlockId(0),
+                insts: vec![],
+                term: Terminator::CondBr {
+                    cond: v(5),
+                    then_blk: BlockId(1),
+                    else_blk: BlockId(4),
+                },
+            },
+            Block {
+                id: BlockId(1),
+                insts: vec![
+                    inst(None, InstKind::RcIncAny(v(0))),
+                    inst(Some(2), InstKind::Copy(Type::Any, v(0))),
+                    inst(Some(1), InstKind::AnyIsNumber(v(2))),
+                ],
+                term: Terminator::CondBr {
+                    cond: v(1),
+                    then_blk: BlockId(2),
+                    else_blk: BlockId(3),
+                },
+            },
+            Block {
+                id: BlockId(2),
+                insts: vec![inst(Some(3), InstKind::AnyToInt32(v(2)))],
+                term: Terminator::Br(BlockId(5)),
+            },
+            Block {
+                id: BlockId(3),
+                insts: vec![
+                    inst(Some(4), InstKind::BoxInt32(Operand::ConstI64(1))),
+                    inst(
+                        Some(6),
+                        InstKind::ICmp(IPred::Ne, v(7), Operand::ConstI64(0)),
+                    ),
+                ],
+                term: Terminator::CondBr {
+                    cond: v(6),
+                    then_blk: BlockId(5),
+                    else_blk: BlockId(4),
+                },
+            },
+            Block {
+                id: BlockId(4),
+                insts: vec![],
+                term: Terminator::Br(BlockId(5)),
+            },
+            Block {
+                id: BlockId(5),
+                insts: vec![inst(None, InstKind::Call(FuncId(0), vec![v(2)]))],
+                term: Terminator::Ret(None),
+            },
+        ];
+        let mut m = module(
+            vec![0, 5, 7],
+            &[
+                Type::Any,
+                Type::Bool,
+                Type::Any,
+                Type::I64,
+                Type::Any,
+                Type::Bool,
+                Type::Bool,
+                Type::I64,
+            ],
+            blocks,
+        );
+        assert_eq!(sink_number_retains(&mut m).retains_placed, 1);
+        let b3 = &m.funcs[0].blocks[3].insts;
+        assert!(matches!(b3[1].kind, InstKind::RcIncAny(_)));
+        assert!(matches!(b3[2].kind, InstKind::ICmp(..)));
+    }
+
     #[test]
     fn a_retain_every_path_proves_a_number_goes() {
         let blocks = vec![
