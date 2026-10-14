@@ -1128,6 +1128,17 @@ mod tests {
     pub unsafe extern "C" fn __torajs_dynobj_has(_obj: *const c_void, _key: *const c_void) -> i32 {
         0
     }
+    /// Agrees with the `has` stub above: no own entry, nothing written.
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_dynobj_set_own(
+        _obj: *mut c_void,
+        _key: *mut c_void,
+        _tag: u64,
+        _value: u64,
+        _throw_on_refusal: bool,
+    ) -> i64 {
+        -1
+    }
     // RFC 20260721 刀 9 — closure_proto's materialization makes the
     // dynobj define kernel test-reachable (shipped binary resolves
     // libtorajs_dynobj.a).

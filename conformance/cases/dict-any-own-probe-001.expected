@@ -1,0 +1,10 @@
+undefined true 2
+function
+undefined 1,a,toString
+5 5 undefined
+z z 1,a,toString,01
+undefined false
+{"a":7,"b":7,"toString":"function toString() { [native code] }111111"}
+undefined {"p":1,"r":3}
+9 {"p":1,"r":3,"q":9} p,r,q
+10

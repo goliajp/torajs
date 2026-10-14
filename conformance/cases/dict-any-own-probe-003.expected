@@ -1,0 +1,25 @@
+1.5 undefined getter object from proto undefined
+function zero zero null
+true true false
+0 number 0 true
+1 number 0 true
+2 number 1 true
+3 number 2147483647 true
+4 number 2147483648 true
+5 number -1.25 true
+6 number null true
+7 boolean true true
+8 boolean false true
+9 object null true
+10 undefined undefined true
+11 string "s" true
+12 string "longer string" true
+13 object [1,2] true
+14 object {"a":1} true
+proto getter
+true proto getter 0
+undefined pg
+undefined
+3
+undefined true
+4 undefined

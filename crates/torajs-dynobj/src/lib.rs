@@ -346,6 +346,16 @@ pub unsafe extern "C" fn __torajs_class_accessor_face_invoke(
     0
 }
 
+// The own-entry write tests reach the setter dispatch; none of them
+// stores an accessor, so the closure entry read never runs.
+/// # Safety
+/// Never called; any call panics.
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_closure_boxed_entry(_cell: *const u8) -> u64 {
+    panic!("torajs-dynobj unit-test stub: no unit test stores an accessor closure")
+}
+
 /// # Safety
 /// Never called; any call panics.
 #[cfg(test)]

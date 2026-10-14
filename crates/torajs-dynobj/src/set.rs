@@ -117,15 +117,7 @@ unsafe fn dynobj_set_impl(
     if obj.is_null() {
         return 1;
     }
-    // A write landing on a builtin `<Ctor>.prototype` singleton is a
-    // monkey-patch — note it for the fast-arm pre-gate (RFC 20260721
-    // 刀 11 G13; one relaxed load when no singleton exists). The gate
-    // keys off the method NAME, so a symbol key has nothing to report
-    // and must not have the Str payload offsets read off its 16-byte
-    // cell.
-    if let Some((data, len, true)) = unsafe { key_str_bytes(key) } {
-        unsafe { __torajs_builtin_proto_note_own_write(obj, data, len as i64) };
-    }
+    unsafe { note_own_write(obj, key) };
     // Dense-array-full guard: compact (and grow if genuinely full)
     // before probing so a fresh insert always has an append slot.
     // Resize swaps the store inside the header cell — `obj` itself
@@ -137,88 +129,15 @@ unsafe fn dynobj_set_impl(
     let pr = unsafe { probe(obj, key as *const c_void) };
     let ent = unsafe { entries(obj) };
     if pr.found {
-        let e = unsafe { ent.add(pr.entry as usize) };
-        let cur_value_anyv = unsafe { (*e).value_anyv };
-        // RFC C3 — accessor entry: dispatch the setter, never a data
-        // write (checked before the writable gate — accessors carry no
-        // writable bit, so the data path would wrongly throw "read
-        // only"). `cur_value_anyv` is the AccessorPair cell verbatim.
-        if unsafe { value_is_accessor(cur_value_anyv) } {
-            let value_anyv = unsafe {
-                __torajs_anyv_box_from_pair((tag & BUCKET_TAG_MASK) as i64, value as i64)
-            };
-            // Receiver = the dynobj itself, boxed — an ACC_KIND_RECV
-            // fn-expr face reads it as `this`; other faces ignore it.
-            let recv_anyv = unsafe { __torajs_anyv_box_from_pair(4, obj as i64) };
-            let ran = unsafe {
-                __torajs_accessor_invoke_setter(
-                    cur_value_anyv as *const c_void,
-                    recv_anyv,
-                    value_anyv,
-                )
-            };
-            // the setter borrows the value; the caller's +1 ends here
-            unsafe { drop_heap_payload(tag, value) };
-            if ran == 0 {
-                if throw_on_refusal {
-                    unsafe {
-                        __torajs_throw_type_error(
-                            c"Attempted to assign to readonly property.".as_ptr() as *const u8,
-                        );
-                    }
-                }
-                return 0;
-            }
-            return 1;
-        }
-        let cur_flags = bucket_flags(unsafe { (*e).key_ptr_tagged });
-        if cur_flags & BUCKET_FLAG_WRITABLE == 0 {
-            unsafe { drop_heap_payload(tag, value) };
-            if throw_on_refusal {
-                unsafe {
-                    __torajs_throw_type_error(
-                        c"Attempted to assign to readonly property.".as_ptr() as *const u8,
-                    );
-                }
-            }
-            return 0;
-        }
-        // RFC 20260912-global-var-cell — the entry is a top-level
-        // binding's slot: the write lands IN the binding. A typed
-        // slot that cannot spell the value refuses loudly rather
-        // than storing bits every bare read after it would misread.
-        if unsafe { value_is_global_cell(cur_value_anyv) } {
-            let cell = unsafe { __torajs_anyv_cell_ptr(cur_value_anyv) } as *const c_void;
-            if unsafe { global_cell_write(cell, tag & BUCKET_TAG_MASK, value) } {
-                return 1;
-            }
-            if throw_on_refusal {
-                unsafe {
-                    __torajs_throw_type_error(
-                        c"Cannot store a value of this type into a typed global variable binding through the global object (not yet supported)."
-                            .as_ptr() as *const u8,
-                    );
-                }
-            }
-            return 0;
-        }
-        let cur_tag = unsafe { __torajs_anyv_unbox_tag(cur_value_anyv) } as u64;
-        // Drop the old heap value if the current slot was ANY_HEAP.
-        // (The NaN-box cell gate in __torajs_value_drop_heap would
-        // also short-circuit immediates, but checking tag first keeps
-        // the hot path one extern call lighter on the common case.)
-        if cur_tag == ANY_HEAP {
-            unsafe {
-                __torajs_value_drop_heap(cur_value_anyv as *mut c_void);
-            }
-        }
-        // Preserve existing flag bits in key_ptr_tagged; rebox the
-        // (tag, value) pair into a fresh NaN-box AnyValue.
         unsafe {
-            (*e).value_anyv =
-                __torajs_anyv_box_from_pair((tag & BUCKET_TAG_MASK) as i64, value as i64);
+            write_own_entry(
+                obj,
+                ent.add(pr.entry as usize),
+                tag,
+                value,
+                throw_on_refusal,
+            )
         }
-        1
     } else {
         // §10.1.5.1 [[Set]] on a non-extensible dict must reject new
         // keys in strict mode (tr modules are all strict). Mirrors
@@ -272,6 +191,157 @@ unsafe fn dynobj_set_impl(
         }
         1
     }
+}
+
+/// `__torajs_dynobj_set_own`'s answer when `key` has no own entry:
+/// nothing was written and the caller still holds its `+1` on a heap
+/// payload.
+pub const DYNOBJ_SET_OWN_MISS: i64 = -1;
+
+/// §10.1.9.2 OrdinarySet when the receiver owns `key`: the own entry
+/// decides alone (step 2 never consults the prototype chain), so one
+/// probe both finds the entry and writes it. An accessor entry runs
+/// its setter and a non-writable one refuses, exactly as
+/// [`__torajs_dynobj_set`] does. A miss writes nothing and answers
+/// [`DYNOBJ_SET_OWN_MISS`]: the caller then takes the paths an
+/// absent key needs (`__proto__`, the inherited setter walk, the
+/// extensibility gate, the insert).
+///
+/// # Safety
+/// `obj` is a live dynobj; `key` is a live Str or Symbol cell; on a
+/// hit, a heap payload's `+1` moves into the entry (or is dropped on
+/// a refusal / setter call), and the caller checks for a pending
+/// throw.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dynobj_set_own(
+    obj: *mut c_void,
+    key: *mut c_void,
+    tag: u64,
+    value: u64,
+    throw_on_refusal: bool,
+) -> i64 {
+    unsafe {
+        let pr = probe(obj, key as *const c_void);
+        if !pr.found {
+            return DYNOBJ_SET_OWN_MISS;
+        }
+        note_own_write(obj, key);
+        write_own_entry(
+            obj,
+            entries(obj).add(pr.entry as usize),
+            tag,
+            value,
+            throw_on_refusal,
+        )
+    }
+}
+
+/// A write landing on a builtin `<Ctor>.prototype` singleton is a
+/// monkey-patch — note it for the fast-arm pre-gate (RFC 20260721
+/// 刀 11 G13; one relaxed load when no singleton exists). The gate
+/// keys off the method NAME, so a symbol key has nothing to report
+/// and must not have the Str payload offsets read off its 16-byte
+/// cell.
+///
+/// # Safety
+/// `obj` is a live dynobj; `key` is a live Str or Symbol cell.
+unsafe fn note_own_write(obj: *mut c_void, key: *mut c_void) {
+    if let Some((data, len, true)) = unsafe { key_str_bytes(key) } {
+        unsafe { __torajs_builtin_proto_note_own_write(obj, data, len as i64) };
+    }
+}
+
+/// The write into an entry the probe found: an accessor runs its
+/// setter, a non-writable entry refuses, a global-variable cell
+/// writes through to its binding, and a data entry swaps its value
+/// keeping its flag bits. Answers 1 = written / setter ran, 0 =
+/// refused.
+///
+/// # Safety
+/// `e` is a live entry of `obj`; `(tag, value)` carries the caller's
+/// `+1` on a heap payload.
+unsafe fn write_own_entry(
+    obj: *mut c_void,
+    e: *mut Entry,
+    tag: u64,
+    value: u64,
+    throw_on_refusal: bool,
+) -> i64 {
+    let cur_value_anyv = unsafe { (*e).value_anyv };
+    // RFC C3 — accessor entry: dispatch the setter, never a data
+    // write (checked before the writable gate — accessors carry no
+    // writable bit, so the data path would wrongly throw "read
+    // only"). `cur_value_anyv` is the AccessorPair cell verbatim.
+    if unsafe { value_is_accessor(cur_value_anyv) } {
+        let value_anyv =
+            unsafe { __torajs_anyv_box_from_pair((tag & BUCKET_TAG_MASK) as i64, value as i64) };
+        // Receiver = the dynobj itself, boxed — an ACC_KIND_RECV
+        // fn-expr face reads it as `this`; other faces ignore it.
+        let recv_anyv = unsafe { __torajs_anyv_box_from_pair(4, obj as i64) };
+        let ran = unsafe {
+            __torajs_accessor_invoke_setter(cur_value_anyv as *const c_void, recv_anyv, value_anyv)
+        };
+        // the setter borrows the value; the caller's +1 ends here
+        unsafe { drop_heap_payload(tag, value) };
+        if ran == 0 {
+            if throw_on_refusal {
+                unsafe {
+                    __torajs_throw_type_error(
+                        c"Attempted to assign to readonly property.".as_ptr() as *const u8,
+                    );
+                }
+            }
+            return 0;
+        }
+        return 1;
+    }
+    let cur_flags = bucket_flags(unsafe { (*e).key_ptr_tagged });
+    if cur_flags & BUCKET_FLAG_WRITABLE == 0 {
+        unsafe { drop_heap_payload(tag, value) };
+        if throw_on_refusal {
+            unsafe {
+                __torajs_throw_type_error(
+                    c"Attempted to assign to readonly property.".as_ptr() as *const u8
+                );
+            }
+        }
+        return 0;
+    }
+    // RFC 20260912-global-var-cell — the entry is a top-level
+    // binding's slot: the write lands IN the binding. A typed
+    // slot that cannot spell the value refuses loudly rather
+    // than storing bits every bare read after it would misread.
+    if unsafe { value_is_global_cell(cur_value_anyv) } {
+        let cell = unsafe { __torajs_anyv_cell_ptr(cur_value_anyv) } as *const c_void;
+        if unsafe { global_cell_write(cell, tag & BUCKET_TAG_MASK, value) } {
+            return 1;
+        }
+        if throw_on_refusal {
+            unsafe {
+                __torajs_throw_type_error(
+                    c"Cannot store a value of this type into a typed global variable binding through the global object (not yet supported)."
+                        .as_ptr() as *const u8,
+                );
+            }
+        }
+        return 0;
+    }
+    let cur_tag = unsafe { __torajs_anyv_unbox_tag(cur_value_anyv) } as u64;
+    // Drop the old heap value if the current slot was ANY_HEAP.
+    // (The NaN-box cell gate in __torajs_value_drop_heap would
+    // also short-circuit immediates, but checking tag first keeps
+    // the hot path one extern call lighter on the common case.)
+    if cur_tag == ANY_HEAP {
+        unsafe {
+            __torajs_value_drop_heap(cur_value_anyv as *mut c_void);
+        }
+    }
+    // Preserve existing flag bits in key_ptr_tagged; rebox the
+    // (tag, value) pair into a fresh NaN-box AnyValue.
+    unsafe {
+        (*e).value_anyv = __torajs_anyv_box_from_pair((tag & BUCKET_TAG_MASK) as i64, value as i64);
+    }
+    1
 }
 
 /// Object-literal-init set — the narrow kernel the lowering emits
@@ -395,5 +465,111 @@ unsafe fn fresh_insert(obj: *mut c_void, key: *mut c_void, tag: u64, value: u64,
 unsafe fn drop_heap_payload(tag: u64, value: u64) {
     if tag & BUCKET_TAG_MASK == ANY_HEAP && value != 0 {
         unsafe { __torajs_value_drop_heap(value as *mut c_void) };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::alloc::{__torajs_dynobj_alloc, free_dynobj_blocks};
+    use crate::layout::{STR_DATA_OFF, STR_LEN_OFF};
+    use crate::probe::KEY_STR_FLAG_IS_LATIN1;
+
+    /// A Latin-1 Str cell (header flags `IS_LATIN1`), as the probe reads it.
+    fn make_str(s: &str) -> Vec<u64> {
+        let mut v = vec![0u64; (STR_DATA_OFF + s.len()).div_ceil(8)];
+        unsafe {
+            let p = v.as_mut_ptr() as *mut u8;
+            *(p.add(6) as *mut u16) = KEY_STR_FLAG_IS_LATIN1;
+            *(p.add(STR_LEN_OFF) as *mut u64) = s.len() as u64;
+            core::ptr::copy_nonoverlapping(s.as_ptr(), p.add(STR_DATA_OFF), s.len());
+        }
+        v
+    }
+
+    /// The fresh insert minus the key retain (the tests own their key
+    /// buffers).
+    unsafe fn insert(obj: *mut c_void, key: *mut c_void, flags: u64, value_anyv: u64) {
+        unsafe {
+            let pr = probe(obj, key);
+            assert!(!pr.found);
+            let e_idx = entries_len(obj);
+            *entries(obj).add(e_idx as usize) = Entry {
+                key_ptr_tagged: bucket_make_key_tagged(key, flags),
+                value_anyv,
+            };
+            *index_ptr(obj).add(pr.slot as usize) = e_idx;
+            set_entries_len(obj, e_idx + 1);
+            set_count(obj, count(obj) + 1);
+        }
+    }
+
+    unsafe fn value_of(obj: *mut c_void, key: *mut c_void) -> u64 {
+        unsafe {
+            let pr = probe(obj, key);
+            assert!(pr.found);
+            (*entries(obj).add(pr.entry as usize)).value_anyv
+        }
+    }
+
+    /// An absent key writes nothing and leaves the payload with the caller.
+    #[test]
+    fn set_own_miss_writes_nothing() {
+        let k = make_str("k");
+        unsafe {
+            let obj = __torajs_dynobj_alloc();
+            let r = __torajs_dynobj_set_own(obj, k.as_ptr() as *mut c_void, 2, 7, true);
+            assert_eq!(r, DYNOBJ_SET_OWN_MISS);
+            assert_eq!(entries_len(obj), 0);
+            assert_eq!(count(obj), 0);
+            free_dynobj_blocks(obj);
+        }
+    }
+
+    /// A writable own entry takes the new value in place, flags kept.
+    #[test]
+    fn set_own_hit_overwrites_in_place() {
+        let ka = make_str("a");
+        let kb = make_str("b");
+        unsafe {
+            let obj = __torajs_dynobj_alloc();
+            let a = ka.as_ptr() as *mut c_void;
+            let b = kb.as_ptr() as *mut c_void;
+            insert(
+                obj,
+                a,
+                BUCKET_FLAGS_DEFAULT,
+                __torajs_anyv_box_from_pair(2, 1),
+            );
+            insert(
+                obj,
+                b,
+                BUCKET_FLAGS_DEFAULT,
+                __torajs_anyv_box_from_pair(2, 2),
+            );
+            assert_eq!(__torajs_dynobj_set_own(obj, b, 2, 9, true), 1);
+            assert_eq!(value_of(obj, b), __torajs_anyv_box_from_pair(2, 9));
+            assert_eq!(value_of(obj, a), __torajs_anyv_box_from_pair(2, 1));
+            assert_eq!(entries_len(obj), 2);
+            let flags = bucket_flags((*entries(obj).add(1)).key_ptr_tagged);
+            assert_eq!(flags, BUCKET_FLAGS_DEFAULT);
+            free_dynobj_blocks(obj);
+        }
+    }
+
+    /// A non-writable own entry refuses (soft flavor: no throw) and
+    /// keeps its value.
+    #[test]
+    fn set_own_hit_readonly_refuses() {
+        let k = make_str("ro");
+        unsafe {
+            let obj = __torajs_dynobj_alloc();
+            let kp = k.as_ptr() as *mut c_void;
+            let before = __torajs_anyv_box_from_pair(2, 3);
+            insert(obj, kp, BUCKET_FLAG_CONFIGURABLE, before);
+            assert_eq!(__torajs_dynobj_set_own(obj, kp, 2, 4, false), 0);
+            assert_eq!(value_of(obj, kp), before);
+            free_dynobj_blocks(obj);
+        }
     }
 }

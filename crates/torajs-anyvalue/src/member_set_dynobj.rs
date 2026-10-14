@@ -28,7 +28,19 @@ unsafe extern "C" {
     fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
     fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
     fn __torajs_dynobj_get_flags(obj: *const c_void, key: *const c_void) -> u64;
+    /// torajs-dynobj — the write into an own entry in one probe;
+    /// [`DYNOBJ_SET_OWN_MISS`] when the key has none (nothing written).
+    fn __torajs_dynobj_set_own(
+        obj: *mut c_void,
+        key: *mut c_void,
+        tag: u64,
+        value: u64,
+        throw_on_refusal: bool,
+    ) -> i64;
 }
+
+/// `torajs_dynobj::set::DYNOBJ_SET_OWN_MISS` mirror.
+const DYNOBJ_SET_OWN_MISS: i64 = -1;
 
 /// `DYNOBJ_HDR_FLAG_NULL_PROTO` mirror (torajs-dynobj layout, header
 /// flag bit 6) — the null-proto shape has no inherited `__proto__`
@@ -229,24 +241,27 @@ pub(crate) unsafe fn set_dynobj_member(
         // / defineProperty) shadows the setter the same way
         // (§10.1.9.2 OrdinarySet finds the own data property
         // first) — its write stays ordinary too.
+        // §10.1.9.2 step 2 — an own entry decides the write alone, so
+        // the hit is one probe; everything below is the absent-key
+        // path.
+        let own = __torajs_dynobj_set_own(ptr, key, tag, value, throw_on_refusal);
+        if own != DYNOBJ_SET_OWN_MISS {
+            return own;
+        }
         let hdr_flags = (ptr.cast::<u8>().add(6) as *const u16).read();
-        let has_own = __torajs_dynobj_has(ptr, key as *const c_void) != 0;
         // Function.prototype's virtual own name/length pair is
         // {writable: false} (§20.2.3, RFC 20260722 刀 3) — while no
         // own entry shadows it (a defineProperty recreate may), the
         // module-strict assign throws. Tombstoned = absent, so the
         // write walks on and creates an ordinary entry.
-        if !has_own && crate::method_support_proto_meta::builtin_proto_own_meta(ptr, key).is_some()
-        {
+        if crate::method_support_proto_meta::builtin_proto_own_meta(ptr, key).is_some() {
             drop_payload(tag, value);
             if throw_on_refusal {
                 __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
             }
             return 0;
         }
-        if hdr_flags & DYNOBJ_HDR_FLAG_NULL_PROTO == 0
-            && !has_own
-            && crate::prop_has::key_is(key, b"__proto__")
+        if hdr_flags & DYNOBJ_HDR_FLAG_NULL_PROTO == 0 && crate::prop_has::key_is(key, b"__proto__")
         {
             let boxed = __torajs_anyv_box_from_pair(tag as i64, value as i64);
             __torajs_anyv_proto_member_set(recv, boxed);
@@ -255,10 +270,7 @@ pub(crate) unsafe fn set_dynobj_member(
             drop_payload(tag, value);
             return 1;
         }
-        if !has_own
-            && let Some(handled) =
-                inherited_set_handled(ptr, recv, key, tag, value, throw_on_refusal)
-        {
+        if let Some(handled) = inherited_set_handled(ptr, recv, key, tag, value, throw_on_refusal) {
             return handled;
         }
         let mut obj = ptr;
