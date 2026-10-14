@@ -22,8 +22,8 @@
 //!   what we do here — single-pass back-edge collection + body
 //!   discovery + nest-depth assignment)
 
-use crate::ssa::dominator::{Adjacency, DominatorTree, id_span, predecessors};
-use crate::ssa::{BlockId, Function, Terminator};
+use crate::ssa::dominator::{Adjacency, DominatorTree, id_span, predecessors, targets};
+use crate::ssa::{BlockId, Function};
 
 /// One natural loop, identified by its header block. A header may
 /// have multiple back-edges into it (irreducible-CFG-adjacent
@@ -141,7 +141,8 @@ fn back_edges(func: &Function, dom: &DominatorTree, n: usize) -> Vec<(BlockId, V
     // position of each header in `groups`
     let mut slot: Vec<Option<usize>> = vec![None; n];
     for blk in &func.blocks {
-        for succ in successors(&blk.term) {
+        let (ts, k) = targets(&blk.term);
+        for &succ in &ts[..k] {
             if !dom.dominates(succ, blk.id) {
                 continue;
             }
@@ -160,21 +161,6 @@ fn back_edges(func: &Function, dom: &DominatorTree, n: usize) -> Vec<(BlockId, V
         }
     }
     groups
-}
-
-fn successors(term: &Terminator) -> impl Iterator<Item = BlockId> + '_ {
-    let mut out: [Option<BlockId>; 2] = [None, None];
-    match term {
-        Terminator::Br(b) => out[0] = Some(*b),
-        Terminator::CondBr {
-            then_blk, else_blk, ..
-        } => {
-            out[0] = Some(*then_blk);
-            out[1] = Some(*else_blk);
-        }
-        Terminator::Ret(_) | Terminator::Unreachable => {}
-    }
-    out.into_iter().flatten()
 }
 
 /// Reverse-BFS from each back-edge source, stopping at the header.

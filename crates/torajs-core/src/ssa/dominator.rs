@@ -72,19 +72,20 @@ impl DominatorTree {
                 idom: Vec::new(),
                 rpo: Vec::new(),
                 rpo_index: Vec::new(),
-                children: Adjacency::from_pairs(0, &[]),
+                children: Adjacency::empty(),
                 enter: Vec::new(),
                 exit: Vec::new(),
             };
         }
         let entry = func.blocks[0].id;
-        let rpo = reverse_postorder(func, entry, n);
+        let succ = successor_table(func, n);
+        let rpo = reverse_postorder(&succ, entry);
         let mut rpo_index = vec![usize::MAX; n];
         for (pos, blk) in rpo.iter().enumerate() {
             rpo_index[blk.0 as usize] = pos;
         }
         let preds = predecessors(func, n);
-        let idom = compute_idoms(&rpo, &rpo_index, &preds, entry);
+        let idom = compute_idoms(&rpo, &rpo_index, &preds);
         let children = build_children(&idom);
         let (enter, exit) = tree_intervals(&children, entry, n);
         Self {
@@ -153,52 +154,64 @@ impl DominatorTree {
 
 // ---- algorithm internals --------------------------------------------------
 
-/// Successor blocks reachable via `term`. Returns 0 (`Ret` /
-/// `Unreachable`), 1 (`Br`), or 2 (`CondBr`).
-fn successors(term: &Terminator) -> impl Iterator<Item = BlockId> + '_ {
-    let mut out: [Option<BlockId>; 2] = [None, None];
+/// The blocks `term` branches to, `then` before `else`: `ts[..k]` of
+/// `(ts, k)`. 0 (`Ret` / `Unreachable`), 1 (`Br`), or 2 (`CondBr`).
+pub(crate) fn targets(term: &Terminator) -> ([BlockId; 2], usize) {
     match term {
-        Terminator::Br(b) => out[0] = Some(*b),
+        Terminator::Br(b) => ([*b, *b], 1),
         Terminator::CondBr {
             then_blk, else_blk, ..
-        } => {
-            out[0] = Some(*then_blk);
-            out[1] = Some(*else_blk);
-        }
-        Terminator::Ret(_) | Terminator::Unreachable => {}
+        } => ([*then_blk, *else_blk], 2),
+        Terminator::Ret(_) | Terminator::Unreachable => ([BlockId(0); 2], 0),
     }
-    out.into_iter().flatten()
+}
+
+/// No successor in a [`successor_table`] slot.
+const NO: u32 = u32::MAX;
+
+/// Each block's successors by id, `then` before `else`; [`NO`] in an
+/// unused slot and for an id no block has. A target outside the id
+/// span is left out.
+fn successor_table(func: &Function, n: usize) -> Vec<[u32; 2]> {
+    let mut succ = vec![[NO; 2]; n];
+    for b in &func.blocks {
+        let (ts, k) = targets(&b.term);
+        let slot = &mut succ[b.id.0 as usize];
+        for (j, t) in ts[..k].iter().enumerate() {
+            if (t.0 as usize) < n {
+                slot[j] = t.0;
+            }
+        }
+    }
+    succ
 }
 
 /// Reverse postorder = postorder, then reverse. Standard iterative DFS
 /// with a "first visit / finalise" two-state marker on each block so
-/// we don't recurse into already-being-explored cycles.
-fn reverse_postorder(func: &Function, entry: BlockId, n: usize) -> Vec<BlockId> {
-    let mut term_of: Vec<Option<&Terminator>> = vec![None; n];
-    for b in &func.blocks {
-        term_of[b.id.0 as usize] = Some(&b.term);
-    }
+/// we don't recurse into already-being-explored cycles (the marker is
+/// the top bit of the stacked id).
+fn reverse_postorder(succ: &[[u32; 2]], entry: BlockId) -> Vec<BlockId> {
+    const FINAL: u32 = 1 << 31;
+    let n = succ.len();
     let mut postorder = Vec::with_capacity(n);
     let mut visited = vec![false; n];
-    let mut stack: Vec<(BlockId, bool)> = Vec::with_capacity(n);
-    stack.push((entry, false));
-    while let Some((blk, finalised)) = stack.pop() {
-        let i = blk.0 as usize;
-        if finalised {
-            postorder.push(blk);
+    let mut stack: Vec<u32> = Vec::with_capacity(n);
+    stack.push(entry.0);
+    while let Some(top) = stack.pop() {
+        if top & FINAL != 0 {
+            postorder.push(BlockId(top & !FINAL));
             continue;
         }
+        let i = top as usize;
         if visited[i] {
             continue;
         }
         visited[i] = true;
         // Schedule finalisation after children.
-        stack.push((blk, true));
-        let term = term_of[i].expect("branch target is a block of this function");
-        for succ in successors(term) {
-            let si = succ.0 as usize;
-            if si < n && !visited[si] {
-                stack.push((succ, false));
+        stack.push(top | FINAL);
+        for t in succ[i] {
+            if t != NO && !visited[t as usize] {
+                stack.push(t);
             }
         }
     }
@@ -218,69 +231,62 @@ pub(crate) fn id_span(func: &Function) -> usize {
 }
 
 /// Cooper-Harvey-Kennedy iterative-doms loop. Operates over the RPO
-/// ordering so `intersect`'s finger walk converges quickly.
-fn compute_idoms(
-    rpo: &[BlockId],
-    rpo_index: &[usize],
-    preds: &Adjacency,
-    entry: BlockId,
-) -> Vec<Option<BlockId>> {
-    let n = rpo_index.len();
-    let mut doms: Vec<Option<BlockId>> = vec![None; n];
-    // The CHK convention sets entry's idom to itself so `intersect`
-    // can climb both fingers without a special root case.
-    doms[entry.0 as usize] = Some(entry);
-
+/// ordering so `intersect`'s finger walk converges quickly, and on
+/// RPO positions rather than ids, so a finger compares and climbs
+/// without a lookup.
+fn compute_idoms(rpo: &[BlockId], rpo_index: &[usize], preds: &Adjacency) -> Vec<Option<BlockId>> {
+    const UNSET: u32 = u32::MAX;
+    // `doms[k]` = position of the idom of the block at position `k`.
+    // The CHK convention sets the entry's idom to itself so
+    // `intersect` can climb both fingers without a special root case.
+    let mut doms = vec![UNSET; rpo.len()];
+    doms[0] = 0;
     let mut changed = true;
     while changed {
         changed = false;
         // Process RPO order, skipping the entry (it's fixed).
-        for &b in rpo.iter().skip(1) {
-            let bi = b.0 as usize;
-            let mut new_idom: Option<BlockId> = None;
-            for &p in preds.of(bi) {
-                if doms[p.0 as usize].is_none() {
-                    continue; // predecessor not yet processed in this iteration
+        for (k, b) in rpo.iter().enumerate().skip(1) {
+            let mut new_idom = UNSET;
+            for p in preds.of(b.0 as usize) {
+                let q = rpo_index[p.0 as usize];
+                // unreachable, or not yet processed in this iteration
+                if q == usize::MAX || doms[q] == UNSET {
+                    continue;
                 }
-                new_idom = Some(match new_idom {
-                    None => p,
-                    Some(prev) => intersect(p, prev, &doms, rpo_index),
-                });
+                new_idom = match new_idom {
+                    UNSET => q as u32,
+                    prev => intersect(q as u32, prev, &doms),
+                };
             }
-            if doms[bi] != new_idom {
-                doms[bi] = new_idom;
+            if doms[k] != new_idom {
+                doms[k] = new_idom;
                 changed = true;
             }
         }
     }
-    doms
+    let mut idom = vec![None; rpo_index.len()];
+    for (k, b) in rpo.iter().enumerate() {
+        idom[b.0 as usize] = Some(rpo[doms[k] as usize]);
+    }
+    idom
 }
 
-/// Climb two RPO-numbered fingers until they meet — the meeting point
-/// is the nearest common dominator. RPO indices: higher = deeper in
-/// the CFG, so we always advance the "deeper" finger toward the root.
-fn intersect(
-    mut b1: BlockId,
-    mut b2: BlockId,
-    doms: &[Option<BlockId>],
-    rpo_index: &[usize],
-) -> BlockId {
-    while b1 != b2 {
-        while rpo_index[b1.0 as usize] > rpo_index[b2.0 as usize] {
-            // Advance b1 toward root.
-            match doms[b1.0 as usize] {
-                Some(d) => b1 = d,
-                None => return b2, // shouldn't happen in a well-formed CHK pass
-            }
+/// Climb two RPO-position fingers until they meet — the meeting point
+/// is the nearest common dominator. Higher = deeper in the CFG, so we
+/// always advance the "deeper" finger toward the root. Every block a
+/// finger reaches was processed: a processed block's idom sits at a
+/// lower position (its DFS parent precedes it and is processed first
+/// in each sweep), so the climb ends at the entry at the latest.
+fn intersect(mut a: u32, mut b: u32, doms: &[u32]) -> u32 {
+    while a != b {
+        while a > b {
+            a = doms[a as usize];
         }
-        while rpo_index[b2.0 as usize] > rpo_index[b1.0 as usize] {
-            match doms[b2.0 as usize] {
-                Some(d) => b2 = d,
-                None => return b1,
-            }
+        while b > a {
+            b = doms[b as usize];
         }
     }
-    b1
+    a
 }
 
 #[cfg(test)]

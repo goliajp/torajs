@@ -1,6 +1,6 @@
 //! The tree's per-block lists and its depth-first numbering.
 
-use super::successors;
+use super::targets;
 use crate::ssa::{BlockId, Function};
 
 /// Per-block lists of blocks, all in one buffer: block `i`'s list is
@@ -11,24 +11,63 @@ pub(crate) struct Adjacency {
     list: Vec<BlockId>,
 }
 
+/// An [`Adjacency`] built in two walks over the same `(owner, member)`
+/// pairs: [`count`](Self::count) each pair, then [`fill`](Self::fill)
+/// them in the order each owner's list keeps. The walks are plain
+/// loops: an iterator chain over the terminators cost several times
+/// more per block.
+pub(super) struct Counted {
+    start: Vec<u32>,
+}
+
+pub(super) struct Filling {
+    start: Vec<u32>,
+    fill: Vec<u32>,
+    list: Vec<BlockId>,
+}
+
+impl Counted {
+    pub(super) fn new(n: usize) -> Self {
+        Counted {
+            start: vec![0u32; n + 1],
+        }
+    }
+
+    pub(super) fn count(&mut self, owner: usize) {
+        self.start[owner + 1] += 1;
+    }
+
+    pub(super) fn into_filling(mut self) -> Filling {
+        for i in 1..self.start.len() {
+            self.start[i] += self.start[i - 1];
+        }
+        let total = self.start[self.start.len() - 1] as usize;
+        Filling {
+            fill: self.start.clone(),
+            start: self.start,
+            list: vec![BlockId(0); total],
+        }
+    }
+}
+
+impl Filling {
+    pub(super) fn fill(&mut self, owner: usize, member: BlockId) {
+        let at = &mut self.fill[owner];
+        self.list[*at as usize] = member;
+        *at += 1;
+    }
+
+    pub(super) fn done(self) -> Adjacency {
+        Adjacency {
+            start: self.start,
+            list: self.list,
+        }
+    }
+}
+
 impl Adjacency {
-    /// From `(owner, member)` pairs; each owner's list keeps the order
-    /// the pairs give it.
-    pub(super) fn from_pairs(n: usize, pairs: &[(usize, BlockId)]) -> Self {
-        let mut start = vec![0u32; n + 1];
-        for &(o, _) in pairs {
-            start[o + 1] += 1;
-        }
-        for i in 0..n {
-            start[i + 1] += start[i];
-        }
-        let mut fill = start.clone();
-        let mut list = vec![BlockId(0); pairs.len()];
-        for &(o, m) in pairs {
-            list[fill[o] as usize] = m;
-            fill[o] += 1;
-        }
-        Adjacency { start, list }
+    pub(super) fn empty() -> Self {
+        Counted::new(0).into_filling().done()
     }
 
     pub(crate) fn of(&self, i: usize) -> &[BlockId] {
@@ -40,18 +79,27 @@ impl Adjacency {
 }
 
 /// The predecessor blocks of each block, in layout order. Computed by
-/// walking every block's terminator once.
+/// walking every block's terminator twice (count, then fill).
 pub(crate) fn predecessors(func: &Function, n: usize) -> Adjacency {
-    let mut pairs: Vec<(usize, BlockId)> = Vec::with_capacity(func.blocks.len() * 2);
+    let mut counted = Counted::new(n);
     for blk in &func.blocks {
-        for succ in successors(&blk.term) {
-            let si = succ.0 as usize;
-            if si < n {
-                pairs.push((si, blk.id));
+        let (ts, k) = targets(&blk.term);
+        for t in &ts[..k] {
+            if (t.0 as usize) < n {
+                counted.count(t.0 as usize);
             }
         }
     }
-    Adjacency::from_pairs(n, &pairs)
+    let mut filling = counted.into_filling();
+    for blk in &func.blocks {
+        let (ts, k) = targets(&blk.term);
+        for t in &ts[..k] {
+            if (t.0 as usize) < n {
+                filling.fill(t.0 as usize, blk.id);
+            }
+        }
+    }
+    filling.done()
 }
 
 /// Reverse the `idom` table into a parent → children adjacency list.
@@ -61,16 +109,23 @@ pub(crate) fn predecessors(func: &Function, n: usize) -> Adjacency {
 /// edge. Result is keyed by block index (matching `idom.len()`).
 pub(super) fn build_children(idom: &[Option<BlockId>]) -> Adjacency {
     let n = idom.len();
-    let mut pairs: Vec<(usize, BlockId)> = Vec::with_capacity(n);
-    for (i, parent) in idom.iter().enumerate() {
-        if let Some(p) = parent {
-            let pi = p.0 as usize;
-            if pi != i && pi < n {
-                pairs.push((pi, BlockId(i as u32)));
-            }
+    let parent = |i: usize| match idom[i] {
+        Some(p) if p.0 as usize != i && (p.0 as usize) < n => Some(p.0 as usize),
+        _ => None,
+    };
+    let mut counted = Counted::new(n);
+    for i in 0..n {
+        if let Some(p) = parent(i) {
+            counted.count(p);
         }
     }
-    Adjacency::from_pairs(n, &pairs)
+    let mut filling = counted.into_filling();
+    for i in 0..n {
+        if let Some(p) = parent(i) {
+            filling.fill(p, BlockId(i as u32));
+        }
+    }
+    filling.done()
 }
 
 /// Depth-first entry and exit times over the tree rooted at `entry`.
