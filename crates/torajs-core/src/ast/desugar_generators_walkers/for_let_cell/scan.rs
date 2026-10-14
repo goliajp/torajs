@@ -56,9 +56,7 @@ pub(super) fn stmt_roots(s: &Stmt, out: &mut Vec<ExprId>) {
     }
 }
 
-/// Whether a function declared in the loop body reads `name`. A class
-/// is no such declaration: it is made where its statement runs
-/// (`class_member`).
+/// Whether a function or class declared in the loop body reads `name`.
 pub(super) fn decl_reads(ast: &Ast, s: &Stmt, name: &str) -> bool {
     match s {
         Stmt::FnDecl { .. } => {
@@ -66,7 +64,7 @@ pub(super) fn decl_reads(ast: &Ast, s: &Stmt, name: &str) -> bool {
                 .iter()
                 .any(|n| n == name)
         }
-        Stmt::ClassDecl { .. } => false,
+        Stmt::ClassDecl { .. } => true,
         _ => stmt_children_ref(s)
             .into_iter()
             .any(|c| decl_reads(ast, c, name)),
@@ -111,10 +109,9 @@ pub(super) fn idents_outside_arrows(ast: &Ast, roots: &[ExprId], name: &str) -> 
     out
 }
 
-/// Every `Ident(name)` under `e`, closures and the function and class
-/// declarations inside them included, class members with their
-/// parameter defaults. The rename already stopped where a nested scope
-/// rebinds the name.
+/// Every `Ident(name)` under `e`, closures and the function
+/// declarations inside them included. The rename already stopped
+/// where a nested scope rebinds the name.
 pub(super) fn collect_deep(ast: &Ast, e: ExprId, name: &str, out: &mut Vec<ExprId>) {
     match ast.get_expr(e) {
         Expr::Ident(n) if n == name => out.push(e),
@@ -131,19 +128,12 @@ pub(super) fn collect_deep(ast: &Ast, e: ExprId, name: &str, out: &mut Vec<ExprI
     }
 }
 
-pub(super) fn collect_deep_stmt(ast: &Ast, s: &Stmt, name: &str, out: &mut Vec<ExprId>) {
+fn collect_deep_stmt(ast: &Ast, s: &Stmt, name: &str, out: &mut Vec<ExprId>) {
     for e in stmt_exprs(s) {
         collect_deep(ast, e, name, out);
     }
     let children: Vec<&Stmt> = match s {
         Stmt::FnDecl { body, .. } => body.iter().collect(),
-        Stmt::ClassDecl { .. } => {
-            let (exprs, stmts) = super::class_member::member_roots(s);
-            for e in exprs {
-                collect_deep(ast, e, name, out);
-            }
-            stmts
-        }
         _ => stmt_children_ref(s),
     };
     for c in children {
@@ -158,11 +148,6 @@ pub(super) fn assigns_deep(ast: &Ast, roots: &[ExprId], name: &str) -> bool {
     for &e in roots {
         collect_deep(ast, e, name, &mut idents);
     }
-    assigned(ast, &idents)
-}
-
-/// Whether one of `idents` is the target of an assignment.
-pub(super) fn assigned(ast: &Ast, idents: &[ExprId]) -> bool {
     !idents.is_empty()
         && ast.exprs.iter().any(|x| {
             matches!(x, Expr::Assign { target, .. } | Expr::PostIncr { target, .. }

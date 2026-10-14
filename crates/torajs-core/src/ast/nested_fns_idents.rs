@@ -153,24 +153,23 @@ fn without(renames: &HashMap<String, String>, bound: &[String]) -> HashMap<Strin
         .collect()
 }
 
-/// True when an arrow rebinds `name` itself: as a parameter, or as a
-/// declaration of its own frame (one in its body list, a declaration
-/// list's included, or a `var` however deep in blocks). Such a
-/// reference belongs to the arrow, not to the enclosing scope whose
-/// declaration is being renamed, so it must keep the original name.
-/// A rebinding in an inner block shadows only that block, which the
-/// walks below the arrow answer as they reach it.
+/// True when an arrow rebinds `name` itself — as a parameter, or as a
+/// declaration at the top of its body. Such a reference belongs to the
+/// arrow, not to the enclosing scope whose declaration is being
+/// renamed, so it must keep the original name.
 ///
-/// Shared with the per-pass rename of generator loop bindings, which
-/// descends into arrow bodies for the same reason.
+/// Deliberately shallow: a rebinding nested deeper than the arrow's
+/// own statement list shadows only within that inner block, where a
+/// reference to the outer name cannot appear anyway.
+///
+/// Shared with `desugar_generators_rewrite`, which descends into arrow
+/// bodies for the same reason and needs the same exclusion.
 pub(super) fn arrow_rebinds(params: &[super::Param], body: &[Stmt], name: &str) -> bool {
-    if params.iter().any(|p| p.name == name) {
-        return true;
-    }
-    let mut frame = Vec::new();
-    list_names(body, &mut frame);
-    super::free_vars_hoisted_names::hoist_var_names(body, &mut frame);
-    frame.iter().any(|n| n == name)
+    params.iter().any(|p| p.name == name)
+        || body.iter().any(|s| match s {
+            Stmt::LetDecl { name: n, .. } | Stmt::FnDecl { name: n, .. } => n == name,
+            _ => false,
+        })
 }
 
 /// 421-04 K.2 closure — rewrite a renamed import decl's free

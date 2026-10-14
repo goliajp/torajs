@@ -22,9 +22,9 @@
 //! `rebinds_name` finds such an inner redeclaration and declines,
 //! leaving the original abort in place — loud, not silently wrong.
 //! Its reach is the statement structure; an arrow is left to the
-//! rename walk's own `nested_fns_idents::arrow_rebinds`, and
-//! `desugar_generators_rewrite` answers the identical question inside
-//! arrow bodies and class members with the scoped free-variable walk.
+//! rename walk's own `nested_fns_idents::arrow_rebinds`, which is the
+//! same depth `desugar_generators_rewrite` relies on when it descends
+//! into arrow bodies to answer the identical question.
 
 use super::{Ast, Stmt};
 use std::collections::HashMap;

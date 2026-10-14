@@ -18,7 +18,7 @@ use super::free_vars_hoisted_names::{hoist_annexb_fn_names, hoist_list_names, ho
 use super::{Ast, ExprId, Param, Stmt};
 
 mod sites;
-pub(crate) use sites::{ScopedRef, foreign_ref_sites, scoped_refs, top_ref_sites};
+pub(crate) use sites::{foreign_ref_sites, top_ref_sites};
 
 /// Free-variable analysis for an arrow fn body. Returns a deterministic,
 /// de-duplicated list of identifier names referenced in the body that are
@@ -101,21 +101,7 @@ pub(super) fn free_vars_of_fn(
         rebound_globals,
     };
     let mut out: Vec<String> = Vec::new();
-    walk_fn(ast, &mut bound, params, body, &mut out);
-    out
-}
-
-/// One function frame: its parameter defaults, then its body with
-/// the body's own declarations bound. `bound` already holds the
-/// parameter names.
-fn walk_fn(
-    ast: &Ast,
-    bound: &mut Bound<'_>,
-    params: &[Param],
-    body: &[Stmt],
-    out: &mut dyn FreeSink,
-) {
-    walk_param_defaults(ast, params, bound, out);
+    walk_param_defaults(ast, params, &mut bound, &mut out);
     hoist_list_names(body, &mut bound.names);
     // `var` is function-scoped, so a declaration written inside a block
     // is bound for the whole body — including after the block, where
@@ -125,8 +111,9 @@ fn walk_fn(
     // sloppy code — see `hoist_annexb_fn_names`.
     hoist_annexb_fn_names(ast, body, &mut bound.names);
     for s in body {
-        walk_stmt(ast, s, bound, out);
+        walk_stmt(ast, s, &mut bound, &mut out);
     }
+    out
 }
 
 /// Where the walk reports a free reference. The name list is the
@@ -376,8 +363,6 @@ pub(super) fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Bound<'_>, out: &mut dy
         Stmt::FnDecl { params, body, .. } => walk_fn_decl(ast, params, body, bound, out),
         Stmt::TypeDecl { .. } => {}
         Stmt::ClassDecl {
-            name,
-            decl_id,
             parent,
             ctor,
             methods,
@@ -386,8 +371,6 @@ pub(super) fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Bound<'_>, out: &mut dy
             ..
         } => walk_class_decl(
             ast,
-            name,
-            *decl_id,
             parent,
             ctor,
             methods,

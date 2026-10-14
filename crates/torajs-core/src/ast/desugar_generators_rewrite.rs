@@ -9,8 +9,6 @@
 
 use super::{Ast, Expr, ExprId, Param, Stmt};
 
-mod scoped;
-
 /// The generator object, aliased as a METHOD LOCAL at the top of the
 /// state machine's `next` body (`desugar_generators_assemble`). A
 /// function expression's `this` is its own (§10.2.1.2), so a
@@ -238,8 +236,36 @@ fn rewrite_params_in_stmt(
                 }
             }
         }
-        // A class declared inside the generator body (`scoped`).
-        Stmt::ClassDecl { .. } => scoped::rewrite_class(ast, s, pset, visited),
+        // A class declared INSIDE the generator body: its computed
+        // member keys (and computed static-field inits) live in the
+        // `class_computed_keys` / `class_computed_static_fields` side
+        // tables, not on the stmt tree, so the walk above never
+        // reaches them — a lifted-local read inside the brackets
+        // (`[k]`, a hoisted `__yx_N` yield temp most of all) kept its
+        // old name while the binding became a state-machine field
+        // (the cpn-class-*-yield t262 family). Rewrite the side-table
+        // exprs here — they evaluate in the ENCLOSING scope per
+        // §15.7.14, so the lifted-field mapping applies verbatim.
+        // Method / ctor bodies stay untouched: their `this` is the
+        // class instance, and the capturing (ES5) lane owns their
+        // semantics.
+        Stmt::ClassDecl { name, .. } => {
+            let keys: Vec<crate::ast::ExprId> = ast
+                .class_computed_keys
+                .iter()
+                .filter(|((c, _), _)| c == name)
+                .map(|(_, &e)| e)
+                .chain(
+                    ast.class_computed_static_fields
+                        .iter()
+                        .filter(|(c, _, _)| c == name)
+                        .map(|(_, _, init)| *init),
+                )
+                .collect();
+            for k in keys {
+                rewrite_params_in_expr(ast, k, pset, visited);
+            }
+        }
         _ => {}
     }
 }
@@ -399,9 +425,10 @@ fn rewrite_params_in_expr(
         // already carried the arrow to top level by the time anything
         // else looks.
         //
-        // The scopes inside the body are its own: a name a parameter,
-        // a declaration list, a block, a loop head or a catch binds
-        // again keeps its meaning there (`scoped`).
+        // The same omission `nested_fns_idents` carried until r302 —
+        // hence the shared `arrow_rebinds`, which drops the names the
+        // arrow rebinds itself so a shadowing reference keeps its own
+        // meaning.
         //
         // A function EXPRESSION (or an object-literal method — the
         // parser parks both in ArrowFn) owns its `this`, so its body
@@ -413,7 +440,25 @@ fn rewrite_params_in_expr(
         // Once inside one, everything below it — arrows included,
         // their `this` being that function's — stays on the alias.
         Expr::ArrowFn { params, body, .. } => {
-            scoped::rewrite_fn_expr(ast, eid, &params, &body, pset, visited)
+            let owns_this =
+                ast.fn_expr_exprs.contains(&eid) || ast.objlit_method_exprs.contains(&eid);
+            let sub = ParamMap {
+                fields: pset
+                    .fields
+                    .iter()
+                    .filter(|(k, _)| !super::nested_fns_idents::arrow_rebinds(&params, &body, k))
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect(),
+                base: match &pset.base {
+                    RefBase::This if owns_this => RefBase::SelfAlias,
+                    b => b.clone(),
+                },
+            };
+            if !sub.fields.is_empty() {
+                for s in &body {
+                    rewrite_params_in_stmt(ast, s, &sub, visited);
+                }
+            }
         }
         _ => {}
     }

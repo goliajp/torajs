@@ -38,8 +38,6 @@
 //! it was.
 
 mod block_let;
-mod class_binding;
-mod class_member;
 mod rotate;
 mod scan;
 
@@ -120,7 +118,6 @@ fn box_one(
     let marker = format!("{field}__ref");
     let map = HashMap::from([(name.clone(), marker.clone())]);
     crate::ast::nested_fns_idents::rewrite_idents_in_body(ast, std::slice::from_mut(s), &map, true);
-    class_member::rename_in_parts(ast, s, &map);
     let elem = super::local_ann::local_ann(ast, &name, type_ann.as_ref(), first, ctx);
     let mut cell = Cell {
         stem: field.clone(),
@@ -216,11 +213,11 @@ fn boxable(ast: &Ast, s: &Stmt, k: usize) -> Option<(String, Option<String>, Exp
         return None;
     };
     // An inner declaration of the same name ends the rename's reach,
-    // which the rename walk does not see; a function declared in the
-    // body, being hoisted, has no statement of its own to take the
-    // local; and a head declaration up to this one runs before there
-    // is a cell to read. Such a loop is left alone.
-    if class_member::rebinds_past_members(body, name)
+    // which the rename walk does not see; a function or class declared
+    // in the body has no statement of its own to take the local; and a
+    // head declaration up to this one runs before there is a cell to
+    // read. Such a loop is left alone.
+    if crate::ast::rebinds_in_stmt(body, name)
         || decl_reads(ast, body, name)
         || decls[..=k].iter().any(|d| mentions(ast, d, name))
     {
@@ -233,8 +230,7 @@ fn boxable(ast: &Ast, s: &Stmt, k: usize) -> Option<(String, Option<String>, Exp
     }
     let read = arrows_in(ast, &roots)
         .iter()
-        .any(|&a| arrow_reads(ast, a, name))
-        || class_member::class_reads(ast, body, name);
+        .any(|&a| arrow_reads(ast, a, name));
     (read && !unhosted(ast, body, name)).then(|| (name.clone(), type_ann.clone(), *first))
 }
 
@@ -359,7 +355,7 @@ fn rotate_loop(ast: &mut Ast, s: &mut Stmt, cell: &mut Cell) {
 /// When `s` itself makes a closure reading the binding: point the
 /// closure at a fresh arm local and return that local's declaration.
 fn bind_own(ast: &mut Ast, s: &Stmt, cell: &mut Cell, ctx: &mut LiftCtx) -> Option<Stmt> {
-    let mut refs = class_member::own_class_refs(ast, s, &cell.marker);
+    let mut refs = Vec::new();
     for a in own_arrows(ast, s) {
         collect_deep(ast, a, &cell.marker, &mut refs);
     }

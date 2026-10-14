@@ -24,7 +24,6 @@
 //! the field's initializing store and a name the list shares with
 //! another scope already has its own field.
 
-use super::class_member::{class_assigns, class_reads, rebinds_past_members, rename_in_classes};
 use super::scan::{
     arrow_reads, arrows_in, assigns_deep, decl_reads, idents_outside_arrows, mentions, stmt_roots,
 };
@@ -62,29 +61,6 @@ pub(in crate::ast::desugar_generators_walkers) fn box_captured_block_lets(
             }
             after.extend(rest.iter_mut());
             box_one(ast, before, store, &name, after, lifted, ctx);
-        }
-        let classes: Vec<String> = members(at)
-            .iter()
-            .filter_map(|s| match s {
-                Stmt::ClassDecl { name, .. } if ctx.local_classes.contains(name) => {
-                    Some(name.clone())
-                }
-                _ => None,
-            })
-            .collect();
-        for name in classes {
-            let mut after: Vec<&mut Stmt> = Vec::new();
-            if let Stmt::Multi(v) = &mut *at {
-                let Some(p) = v
-                    .iter()
-                    .position(|s| matches!(s, Stmt::ClassDecl { name: n, .. } if *n == name))
-                else {
-                    continue;
-                };
-                after.extend(v[p + 1..].iter_mut());
-            }
-            after.extend(rest.iter_mut());
-            super::class_binding::box_class(ast, before, &name, after, lifted, ctx);
         }
     }
 }
@@ -136,21 +112,22 @@ fn box_one(
         stmt_roots(s, &mut roots);
     }
     // A closure made before the declaration, or by its own initializer,
-    // reads the binding before there is a value to hold; a function
-    // declared after it, being hoisted, has no statement of its own to
-    // take the local; and a scope that declares the name again ends
-    // the rename's reach. Such a binding is left alone.
+    // reads the binding before there is a value to hold; a function or
+    // class declared after it has no statement of its own to take the
+    // local; and a scope that declares the name again ends the rename's
+    // reach. Such a binding is left alone.
     let read = arrows_in(ast, &roots)
         .iter()
-        .any(|&a| arrow_reads(ast, a, name))
-        || after.iter().any(|s| class_reads(ast, s, name));
+        .any(|&a| arrow_reads(ast, a, name));
     if !read
         || mentions(ast, &Stmt::Expr(value), name)
-        || before.iter().any(|s| {
-            reads_under(ast, s, name) || decl_reads(ast, s, name) || class_reads(ast, s, name)
-        })
+        || before
+            .iter()
+            .any(|s| reads_under(ast, s, name) || decl_reads(ast, s, name))
         || after.iter().any(|s| {
-            rebinds_past_members(s, name) || decl_reads(ast, s, name) || unhosted(ast, s, name)
+            crate::ast::rebinds_in_stmt(s, name)
+                || decl_reads(ast, s, name)
+                || unhosted(ast, s, name)
         })
     {
         return;
@@ -158,15 +135,13 @@ fn box_one(
     let Some(slot) = lifted.iter_mut().find(|(n, _)| n == name) else {
         return;
     };
-    let boxed =
-        assigns_deep(ast, &roots, name) || after.iter().any(|s| class_assigns(ast, s, name));
+    let boxed = assigns_deep(ast, &roots, name);
     let stem = format!("{name}__blk{}", ctx.cells);
     ctx.cells += 1;
     let marker = format!("{stem}__ref");
     let map = HashMap::from([(name.to_string(), marker.clone())]);
     for s in after.iter_mut() {
         crate::ast::nested_fns_idents::rewrite_idents_in_stmt(ast, s, &map, true);
-        rename_in_classes(ast, s, &map);
     }
     if boxed {
         slot.1 = format!("Array<{}>", slot.1);
@@ -182,30 +157,17 @@ fn box_one(
         locals: 0,
         boxed,
     };
-    host(ast, &mut cell, &roots, after, ctx);
-}
-
-/// Point the renamed references under `after` at the binding: the
-/// plain ones at the field, the closures' at a per-pass local placed
-/// in front of the statement that makes them.
-pub(super) fn host(
-    ast: &mut Ast,
-    cell: &mut Cell,
-    roots: &[ExprId],
-    after: Vec<&mut Stmt>,
-    ctx: &mut LiftCtx,
-) {
-    for r in idents_outside_arrows(ast, roots, &cell.marker) {
-        ast.exprs[r.0 as usize] = if cell.boxed {
-            cell_read(ast, &cell.field)
+    for r in idents_outside_arrows(ast, &roots, &cell.marker) {
+        ast.exprs[r.0 as usize] = if boxed {
+            cell_read(ast, name)
         } else {
-            Expr::Ident(cell.field.clone())
+            Expr::Ident(name.to_string())
         };
     }
     for s in after {
-        rotate_loop(ast, s, cell);
-        let decl = bind_own(ast, s, cell, ctx);
-        bind_children(ast, s, cell, ctx);
+        rotate_loop(ast, s, &mut cell);
+        let decl = bind_own(ast, s, &mut cell, ctx);
+        bind_children(ast, s, &mut cell, ctx);
         if let Some(decl) = decl {
             let inner = std::mem::replace(s, Stmt::Block(Vec::new()));
             *s = Stmt::Multi(vec![decl, inner]);
