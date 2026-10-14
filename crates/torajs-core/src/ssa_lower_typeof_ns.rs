@@ -54,7 +54,12 @@ pub(crate) fn try_member_typeof(ctx: &LowerCtx<'_>, expr: ExprId) -> Option<&'st
                 | "toString"
                 | "toLocaleString"
         ) && matches!(ctx.expr_types.get(obj), Some(crate::check::Type::Any));
+        // a member the object declares itself (`{ constructor: "x" }`)
+        // reads that member's value
+        let own_field = matches!(ctx.expr_types.get(obj),
+            Some(crate::check::Type::Struct(fs)) if fs.iter().any(|(k, _)| *k == member_name.as_str()));
         if !runtime_answers
+            && !own_field
             && matches!(
                 member_name.as_str(),
                 "constructor"

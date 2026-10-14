@@ -21,3 +21,11 @@ d.set.call(r, s);
 console.log((r as any).constructor === s, Object.keys(r).join(","));
 
 console.log(Iterator.prototype.constructor === Iterator);
+
+// typeof of a member the object declares itself reads that member
+class K { m() { return 1 } }
+const k = new K();
+const t = { toString: 42, valueOf: "v", constructor: true };
+console.log(typeof t.toString, typeof t.valueOf, typeof t.constructor);
+console.log(typeof k.constructor, typeof k.hasOwnProperty, typeof k.toString);
+console.log(typeof [1].constructor, typeof "s".constructor, typeof ({}).constructor);
