@@ -55,6 +55,7 @@ unsafe extern "C" {
     fn __torajs_value_drop_heap(p: *mut c_void);
     fn __torajs_accessor_invoke_getter(pair: *const c_void, recv_anyv: u64) -> u64;
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+    fn __torajs_throw_reference_error_name(name: *mut c_void);
     fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
     fn __torajs_anyv_unbox_tag(v: u64) -> i64;
     fn __torajs_anyv_unbox_value(v: u64) -> i64;
@@ -284,17 +285,26 @@ pub unsafe extern "C" fn __torajs_global_var_sync(key: *mut c_void, slot_ptr: *m
     // cell and `slot_ptr` a live slot per the caller invariant; every
     // callee borrows what it is handed.
     unsafe {
-        if !obj.is_null()
-            && __torajs_dynobj_has(obj, key) != 0
-            && __torajs_dynobj_entry_is_global_cell(obj, key) != 0
-        {
+        let fresh = if obj.is_null() || __torajs_dynobj_has(obj, key) == 0 {
+            __torajs_throw_reference_error_name(key);
+            __torajs_anyv_box_from_pair(ANY_UNDEF as i64, 0)
+        } else if __torajs_dynobj_entry_is_global_cell(obj, key) != 0 {
             return;
-        }
-        // The bare read of an unresolved name answers the rest: the
-        // property's value (an accessor's getter run, a heap payload
-        // with its own stake), or, absent, a recorded ReferenceError
-        // and the `undefined` an unbound name's slot holds.
-        let fresh = super::globalthis_object_idents::__torajs_global_ident_get(key);
+        } else {
+            let tag = __torajs_dynobj_get_tag(obj, key);
+            let value = __torajs_dynobj_get_value(obj, key);
+            if tag == ANY_ACCESSOR {
+                __torajs_accessor_invoke_getter(
+                    value as *const c_void,
+                    crate::nanbox::box_void_ptr(obj),
+                )
+            } else {
+                if tag == ANY_HEAP {
+                    __torajs_rc_inc(value as *mut c_void);
+                }
+                __torajs_anyv_box_from_pair(tag as i64, value as i64)
+            }
+        };
         let old = *(slot_ptr as *const u64);
         *(slot_ptr as *mut u64) = fresh;
         if __torajs_anyv_unbox_tag(old) as u64 == ANY_HEAP {
