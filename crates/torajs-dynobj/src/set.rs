@@ -572,4 +572,42 @@ mod tests {
             free_dynobj_blocks(obj);
         }
     }
+
+    /// The one-probe read answers the stored pair, an entry storing
+    /// undefined as a hit `(5, 0)`, and an absent key as a miss that
+    /// leaves the out slot alone.
+    #[test]
+    fn get_own_reads_the_own_pair() {
+        use crate::get::{__torajs_dynobj_get_own, DYNOBJ_GET_OWN_MISS};
+        let ka = make_str("a");
+        let kb = make_str("b");
+        let kc = make_str("c");
+        unsafe {
+            let obj = __torajs_dynobj_alloc();
+            let a = ka.as_ptr() as *mut c_void;
+            let b = kb.as_ptr() as *mut c_void;
+            insert(
+                obj,
+                a,
+                BUCKET_FLAGS_DEFAULT,
+                __torajs_anyv_box_from_pair(2, 7),
+            );
+            insert(
+                obj,
+                b,
+                BUCKET_FLAGS_DEFAULT,
+                __torajs_anyv_box_from_pair(5, 0),
+            );
+            let mut v = 99u64;
+            assert_eq!(__torajs_dynobj_get_own(obj, a, &mut v), 2);
+            assert_eq!(v, 7);
+            assert_eq!(__torajs_dynobj_get_own(obj, b, &mut v), 5);
+            assert_eq!(v, 0);
+            v = 99;
+            let c = kc.as_ptr() as *const c_void;
+            assert_eq!(__torajs_dynobj_get_own(obj, c, &mut v), DYNOBJ_GET_OWN_MISS);
+            assert_eq!(v, 99);
+            free_dynobj_blocks(obj);
+        }
+    }
 }

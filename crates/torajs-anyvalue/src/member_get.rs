@@ -446,17 +446,12 @@ unsafe fn regexp_arm_tag(ptr: *mut c_void, key: *const c_void, recv: AnyValue) -
 /// `recv` boxes `ptr`.
 pub(crate) unsafe fn dynobj_arm_tag(ptr: *mut c_void, recv: AnyValue, key: *const c_void) -> u64 {
     unsafe {
-        let tag = __torajs_dynobj_get_tag(ptr, key);
-        if tag != 5 {
-            return tag;
+        // An own entry STORING undefined is a hit too: it shadows the
+        // proto surface (`o.toString = undefined` must not reify the
+        // builtin).
+        match crate::member_get_dynobj::dynobj_own_pair(ptr, key) {
+            Some((tag, _)) => tag,
+            None => crate::member_get_dynobj::dynobj_miss_tag(ptr, recv, key),
         }
-        // An own entry STORING undefined shadows the proto
-        // surface (`o.toString = undefined` must not reify the
-        // builtin) — `get_tag` answers 5 for both shapes, the
-        // has probe disambiguates (777e756c's read-side leg).
-        if __torajs_dynobj_has(ptr, key) != 0 {
-            return 5;
-        }
-        crate::member_get_dynobj::dynobj_miss_tag(ptr, recv, key)
     }
 }

@@ -77,6 +77,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
     crate::ssa_lower_main_exit::declare(module, fn_table);
     crate::ssa_lower_process_on::declare(module, fn_table);
     crate::ssa_lower_member_obj_field::exotic_read::declare(module, fn_table);
+    crate::ssa_lower_index_any_key::declare_get_pair(module, fn_table);
     InitC {
         any_substrate,
         global_object,

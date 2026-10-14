@@ -72,7 +72,10 @@ pub use alloc::{
 pub use define::__torajs_dynobj_define;
 pub use delete::__torajs_dynobj_delete;
 pub use drop::__torajs_dynobj_drop;
-pub use get::{__torajs_dynobj_get_flags, __torajs_dynobj_get_tag, __torajs_dynobj_get_value};
+pub use get::{
+    __torajs_dynobj_get_flags, __torajs_dynobj_get_own, __torajs_dynobj_get_tag,
+    __torajs_dynobj_get_value,
+};
 pub use has::__torajs_dynobj_has;
 pub use iter::{
     __torajs_dynobj_iter_flags, __torajs_dynobj_iter_key, __torajs_dynobj_iter_len,

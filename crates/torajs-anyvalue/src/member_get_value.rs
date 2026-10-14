@@ -307,15 +307,11 @@ unsafe fn arr_arm_value(ptr: *mut c_void, recv: AnyValue, key: *const c_void) ->
 /// hard line (r483).
 unsafe fn dynobj_arm_value(ptr: *mut c_void, recv: AnyValue, key: *const c_void) -> u64 {
     unsafe {
-        let v = __torajs_dynobj_get_value(ptr, key);
-        if v == 0 && __torajs_dynobj_get_tag(ptr, key) == 5 {
-            // Stored-undefined shadow — see the tag twin.
-            if __torajs_dynobj_has(ptr, key) != 0 {
-                return 0;
-            }
-            return crate::member_get_dynobj::dynobj_miss_value(ptr, recv, key);
+        // Stored-undefined shadow — see the tag twin.
+        match crate::member_get_dynobj::dynobj_own_pair(ptr, key) {
+            Some((_, value)) => value,
+            None => crate::member_get_dynobj::dynobj_miss_value(ptr, recv, key),
         }
-        v
     }
 }
 

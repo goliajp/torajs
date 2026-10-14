@@ -1,22 +1,91 @@
-//! The `Tag::DynObj` receiver's absent-key read, both channels: what
-//! an ordinary object answers for a key it does not own (the Annex B
+//! The `Tag::DynObj` receiver's read, both channels: the own probe
+//! that answers the whole `(tag, value)` pair at once, and what an
+//! ordinary object answers for a key it does not own (the Annex B
 //! `__proto__` accessor, the user prototype chain, a null prototype,
 //! the globalThis fill gaps, the builtin prototype faces and the
-//! reify tail). The own probe in front of it stays with each channel;
-//! the two tails live side by side so their arm-for-arm order is read
-//! in one place.
+//! reify tail). The two tails live side by side so their arm-for-arm
+//! order is read in one place.
+//!
+//! [`__torajs_any_member_get_pair`] is the one-call read the lowering
+//! emits for a dynamic key: on an ordinary object it probes once for
+//! both channels; every other receiver gets the two channels of
+//! `member_get.rs` / `member_get_value.rs` in their usual order.
 
 use core::ffi::c_void;
 
-use crate::member_get::__torajs_any_member_get_tag;
+use torajs_rc::Tag;
+
+use crate::member_get::{__torajs_any_member_get_tag, recv_cell};
 use crate::member_get_own::{dynobj_proto_pair, user_proto_cell};
 use crate::member_get_reify_tail::dynobj_builtin_tail_tag;
+use crate::member_get_symbol::{key_is_symbol, symbol_key_pair};
 use crate::member_get_value::{__torajs_any_member_get_value, reify_value};
 use crate::nanbox::AnyValue;
 
 unsafe extern "C" {
     /// torajs-throw — record a pending catchable TypeError.
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+    /// torajs-dynobj — the own entry's `(tag, value)` from one probe;
+    /// [`DYNOBJ_GET_OWN_MISS`] when there is no entry.
+    fn __torajs_dynobj_get_own(obj: *const c_void, key: *const c_void, value_out: *mut u64) -> u64;
+}
+
+/// `torajs_dynobj::get::DYNOBJ_GET_OWN_MISS` mirror.
+const DYNOBJ_GET_OWN_MISS: u64 = u64::MAX;
+
+/// The receiver's own entry for `key` as the `(tag, value)` pair the
+/// two read channels answer (an entry storing `undefined` is
+/// `Some((5, 0))`); `None` when the receiver owns no entry for it.
+///
+/// # Safety
+/// `ptr` is a live DynObj cell; `key` is a live Str or Symbol cell.
+#[inline]
+pub(crate) unsafe fn dynobj_own_pair(ptr: *mut c_void, key: *const c_void) -> Option<(u64, u64)> {
+    let mut value = 0u64;
+    let tag = unsafe { __torajs_dynobj_get_own(ptr, key, &mut value) };
+    (tag != DYNOBJ_GET_OWN_MISS).then_some((tag, value))
+}
+
+/// Both channels of an any-lane member read in one call: the tag is
+/// returned and the value written to `value_out`, each exactly what
+/// `__torajs_any_member_get_tag` / `__torajs_any_member_get_value`
+/// answer for the same `(recv, key)` (accessor sentinel, absent
+/// `(5, 0)` and the null / undefined receiver TypeError included).
+///
+/// # Safety
+/// As `__torajs_any_member_get_tag`; `value_out` is writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_any_member_get_pair(
+    recv: AnyValue,
+    key: *const c_void,
+    value_out: *mut u64,
+) -> u64 {
+    unsafe {
+        if let Some((ptr, t)) = recv_cell(recv) {
+            // §6.1.7 — a symbol key's walk answers both channels at
+            // once already; a Proxy keeps its sentinel pair below.
+            if key_is_symbol(key) {
+                if t != Tag::Proxy as u16 {
+                    let (tag, value) = symbol_key_pair(recv, key);
+                    value_out.write(value);
+                    return tag;
+                }
+            } else if t == Tag::DynObj as u16 {
+                let (tag, value) = match dynobj_own_pair(ptr, key) {
+                    Some(pair) => pair,
+                    None => (
+                        dynobj_miss_tag(ptr, recv, key),
+                        dynobj_miss_value(ptr, recv, key),
+                    ),
+                };
+                value_out.write(value);
+                return tag;
+            }
+        }
+        let tag = __torajs_any_member_get_tag(recv, key);
+        value_out.write(__torajs_any_member_get_value(recv, key));
+        tag
+    }
 }
 
 /// Tag channel of an absent key; the order inside is load-bearing and

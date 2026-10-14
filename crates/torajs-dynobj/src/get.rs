@@ -79,6 +79,52 @@ pub unsafe extern "C" fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const
     tag
 }
 
+/// [`__torajs_dynobj_get_own`]'s answer when `obj` has no entry for
+/// `key` (no `(tag, value)` pair uses it: tags stop at
+/// [`ANY_ACCESSOR`]).
+pub const DYNOBJ_GET_OWN_MISS: u64 = u64::MAX;
+
+/// `__torajs_dynobj_get_own(obj, key, value_out)` — the own entry's
+/// whole `(tag, value)` pair from one probe: the tag is returned (the
+/// same answer [`__torajs_dynobj_get_tag`] gives, accessor sentinel
+/// included) and the value is written to `value_out` (the same answer
+/// [`__torajs_dynobj_get_value`] gives). An entry storing `undefined`
+/// is a hit `(ANY_UNDEF, 0)`, and so is a hole tombstone (the get
+/// pair reads it as undefined and `has` as present); only a key with
+/// no entry answers [`DYNOBJ_GET_OWN_MISS`], leaving `value_out`
+/// untouched.
+///
+/// # Safety
+/// `obj` is a live DynObj; `key` is a live Str or Symbol cell;
+/// `value_out` is writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dynobj_get_own(
+    obj: *const c_void,
+    key: *const c_void,
+    value_out: *mut u64,
+) -> u64 {
+    let p = unsafe { probe(obj, key) };
+    if !p.found {
+        return DYNOBJ_GET_OWN_MISS;
+    }
+    let v = unsafe { (*entries(obj).add(p.entry as usize)).value_anyv };
+    if v == crate::layout::DYNOBJ_HOLE_SENTINEL {
+        unsafe { value_out.write(0) };
+        return ANY_UNDEF;
+    }
+    let v = unsafe { deref_global_cell(v, key as *mut c_void) };
+    let tag = unsafe { __torajs_anyv_unbox_tag(v) } as u64;
+    let value = unsafe { __torajs_anyv_unbox_value(v) } as u64;
+    unsafe { value_out.write(value) };
+    if tag == ANY_HEAP
+        && value != 0
+        && unsafe { type_tag(value as *const c_void) } == TAG_ACCESSOR_PAIR
+    {
+        return ANY_ACCESSOR;
+    }
+    tag
+}
+
 /// `__torajs_dynobj_get_value(obj, key)` — return the slot's
 /// per-tag payload (decoded from the NaN-box `value_anyv`). Returns
 /// 0 when `obj` is NULL, not a DynObj, or the key is absent.

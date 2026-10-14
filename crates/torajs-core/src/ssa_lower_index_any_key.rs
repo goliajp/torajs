@@ -8,9 +8,49 @@
 //! Re-exported from `ssa_lower_index` so every existing caller path
 //! is unchanged.
 
+use std::collections::HashMap;
+
 use crate::ast::ExprId;
-use crate::ssa::{InstKind, Operand, Type, ValueId};
-use crate::ssa_lower::LowerCtx;
+use crate::ssa::{FuncId, InstKind, Module, Operand, Type, ValueId};
+use crate::ssa_lower::{LowerCtx, declare_intrinsic};
+
+/// `__torajs_any_member_get_pair(recv, key, value_out) -> tag`: both
+/// channels of the any-lane read in one call (one dict probe on an
+/// ordinary object), the value coming back through a stack slot.
+const GET_PAIR: &str = "__torajs_any_member_get_pair";
+
+pub(crate) fn declare_get_pair(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) {
+    declare_intrinsic(
+        module,
+        fn_table,
+        GET_PAIR,
+        &[Type::Any, Type::Ptr, Type::Ptr],
+        Type::I64,
+    );
+}
+
+/// The dynamic-key read: [`GET_PAIR`] in place of the tag / value
+/// call pair, consumed by the same accessor-or-data result emit.
+fn emit_any_member_get_pair(ctx: &mut LowerCtx, obj_val: &Operand, key: ValueId) -> Operand {
+    let slot = ctx.alloca_in_entry(Type::I64, Some("__get_value"));
+    let tag = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.fn_table[GET_PAIR],
+            vec![*obj_val, Operand::Value(key), Operand::Value(slot)],
+        ),
+        Type::I64,
+        None,
+    );
+    let value = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I64, Operand::Value(slot), 0),
+        Type::I64,
+        None,
+    );
+    ctx.emit_throw_check(None);
+    crate::ssa_lower_accessor::emit_any_get_result(ctx, obj_val, key, tag, value)
+}
 
 /// Typed array receiver with a KEY that no static lane can answer —
 /// an `any` key (`a[i]`, whose runtime tag decides between an element
@@ -303,7 +343,7 @@ pub(crate) fn lower_any_index_str_key(
     let Operand::Value(key_v) = key_op else {
         panic!("ssa-lower: string index key lowered to a non-value operand");
     };
-    let out = crate::ssa_lower_any_member::emit_any_member_probe(ctx, &obj_val, key_v);
+    let out = emit_any_member_get_pair(ctx, &obj_val, key_v);
     if owned {
         ctx.emit_drop_value(key_op, Type::Str);
     }
@@ -332,7 +372,7 @@ pub(crate) fn lower_any_index_symbol_key(
     let Operand::Value(key_v) = k_raw else {
         panic!("ssa-lower: symbol index key lowered to a non-value operand");
     };
-    let out = crate::ssa_lower_any_member::emit_any_member_probe(ctx, &obj_val, key_v);
+    let out = emit_any_member_get_pair(ctx, &obj_val, key_v);
     // Borrow contract as the string-key twin: an Ident key keeps its
     // stake and its scope drop, an owned temp (a fresh `Symbol(desc)`
     // in the index position) is released after the probe reads it.
