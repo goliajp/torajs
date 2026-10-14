@@ -300,11 +300,16 @@ fn non_any_recv_admitted(ctx: &LowerCtx<'_>, callee: ExprId, obj: &ExprId, name:
             if crate::ssa_lower_index_any_method_call::obj_slot_elems_are_any(ctx, *arr)));
     // an array or union receiver the lowering keeps in an any slot
     // (`xs: (string | number)[] | any[]`): no typed lane claims its
-    // methods, so the runtime dispatcher answers them
+    // methods, so the runtime dispatcher answers them; a cast of such
+    // a binding (`(xs as any[]).push(v)`) passes its value through
+    let mut slot_expr = *obj;
+    while let Expr::As { expr, .. } = ctx.ast.get_expr(slot_expr) {
+        slot_expr = *expr;
+    }
     let union_in_any_slot = matches!(
         ctx.expr_types.get(obj),
         Some(crate::check::Type::Union(_) | crate::check::Type::Array(_))
-    ) && crate::ssa_lower_any_call::callee_slot_is_any(ctx, *obj);
+    ) && crate::ssa_lower_any_call::callee_slot_is_any(ctx, slot_expr);
     sugar_fn_on_any
         || object_in_any_slot
         || union_in_any_slot
