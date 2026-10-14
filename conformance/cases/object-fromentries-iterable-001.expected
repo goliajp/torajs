@@ -1,0 +1,8 @@
+{"a":1,"b":2}
+{"k1":10,"k2":20}
+{"m":3}
+{"x!":1}
+true next 0
+TypeError 1
+true key 2 0
+TypeError

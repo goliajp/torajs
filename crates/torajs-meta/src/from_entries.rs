@@ -28,14 +28,19 @@
 //! the built slot (value side) or drops after ToPropertyKey (key
 //! side) instead of taking the borrowed-read inc.
 //!
+//! Any other iterable (a user iterator object, a generator, a helper)
+//! walks the iteration protocol instead (`iterable`).
+//!
 //! Two passes: validate first (undefined / null / non-iterable
 //! receivers and non-object entries throw a catchable TypeError
-//! BEFORE anything allocates), then construct (no throw path — no
-//! half-built dynobj leaks under the pending-throw model; the "0" /
-//! "1" key str temps mint before pass 1 and drop on every return
-//! path — a key temp is not half-built state).
+//! BEFORE anything allocates), then construct; an entry's getter is
+//! the one thing that can throw there, and the half-built dynobj is
+//! released when it does. The "0" / "1" key str temps mint before
+//! pass 1 and drop on every return path.
 
 use core::ffi::{c_char, c_void};
+
+mod iterable;
 
 use crate::reflect::{
     TAG_OBJ, VALUE_NULL_IMM, VALUE_UNDEFINED_IMM, alloc_str_key, heap_type_tag, is_cell_imm,
@@ -55,6 +60,7 @@ unsafe extern "C" {
     /// view is copied out rather than shared).
     fn __torajs_anyv_unbox_value_owned(v: u64) -> i64;
     fn __torajs_throw_type_error(msg: *const c_char);
+    fn __torajs_throw_check() -> i64;
     fn __torajs_dynobj_alloc() -> *mut c_void;
     fn __torajs_dynobj_set(dst: *mut *mut c_void, key: *const u8, tag: u64, value: u64);
     fn __torajs_accessor_invoke_getter(pair: *const c_void, recv_anyv: u64) -> u64;
@@ -71,6 +77,7 @@ unsafe extern "C" {
     fn __torajs_dynobj_get_value(dynobj: *const c_void, key: *const u8) -> u64;
     fn __torajs_any_member_get_tag(recv: u64, key: *const c_void) -> u64;
     fn __torajs_any_member_get_value(recv: u64, key: *const c_void) -> u64;
+    fn __torajs_any_accessor_get(recv: u64, key: *const c_void, pair_bits: u64) -> u64;
     fn __torajs_str_drop(s: *mut u8);
     fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_map_iter_next(
@@ -186,11 +193,13 @@ pub unsafe extern "C" fn __torajs_anyv_from_entries(entries: u64) -> u64 {
                 return unsafe { from_set(p) };
             }
         }
-        // SAFETY: NUL-terminated static C string.
-        unsafe {
-            __torajs_throw_type_error(c"Object.fromEntries argument is not iterable".as_ptr());
-        }
-        return VALUE_UNDEFINED_IMM;
+        // any other iterable walks the iteration protocol (a value
+        // that is not iterable throws from GetIterator there)
+        let k0 = unsafe { alloc_str_key(b"0") };
+        let k1 = unsafe { alloc_str_key(b"1") };
+        let obj = unsafe { iterable::from_iterable(entries, k0, k1) };
+        unsafe { drop_pair_keys(k0, k1) };
+        return obj;
     };
     // SAFETY: live Arr cell; len lives at ARR_LEN_OFF per layout.
     let len = unsafe { (outer.cast::<u8>().add(ARR_LEN_OFF) as *const u64).read() };
@@ -217,7 +226,7 @@ pub unsafe extern "C" fn __torajs_anyv_from_entries(entries: u64) -> u64 {
         }
         return VALUE_UNDEFINED_IMM;
     }
-    // Pass 2 — construct. No throw path from here on.
+    // Pass 2 — construct; only an entry's getter can throw here.
     let mut obj = unsafe { __torajs_dynobj_alloc() };
     for i in 0..len {
         let entry = unsafe { __torajs_arr_get_any_boxed(outer, i) };
@@ -228,6 +237,12 @@ pub unsafe extern "C" fn __torajs_anyv_from_entries(entries: u64) -> u64 {
         } else {
             // Pass 1 proved the only remaining shape is a struct cell.
             unsafe { set_prop_from_struct_entry(&mut obj, entry, k0, k1) };
+        }
+        // an entry's getter threw: the half-built object goes
+        if unsafe { __torajs_throw_check() } != 0 {
+            unsafe { drop_pair_keys(k0, k1) };
+            unsafe { __torajs_value_drop_heap(obj) };
+            return VALUE_UNDEFINED_IMM;
         }
     }
     unsafe { drop_pair_keys(k0, k1) };
@@ -268,6 +283,10 @@ unsafe fn set_prop_from_dynobj_entry(
     k1: *const u8,
 ) {
     let (k_tag, k_val, k_owned) = unsafe { dynobj_entry_get(entry, k0) };
+    // an abrupt Get(entry, "0") ends the entry before "1" is read
+    if unsafe { __torajs_throw_check() } != 0 {
+        return;
+    }
     // ToPropertyKey → string (owned temp this walk drops).
     let k_str = unsafe { __torajs_anyv_to_str_pair(k_tag as i64, k_val as i64) };
     if k_owned && k_tag == ANY_HEAP && k_val != 0 {
@@ -294,13 +313,37 @@ unsafe fn set_prop_from_struct_entry(
     k0: *const u8,
     k1: *const u8,
 ) {
-    let k_tag = unsafe { __torajs_any_member_get_tag(entry, k0 as *const c_void) };
-    let k_val = unsafe { __torajs_any_member_get_value(entry, k0 as *const c_void) };
+    let (k_tag, k_val, k_owned) = unsafe { struct_entry_get(entry, k0) };
+    // an abrupt Get(entry, "0") ends the entry before "1" is read
+    if unsafe { __torajs_throw_check() } != 0 {
+        return;
+    }
     // ToPropertyKey → string (owned temp this walk drops).
     let k_str = unsafe { __torajs_anyv_to_str_pair(k_tag as i64, k_val as i64) };
-    let v_tag = unsafe { __torajs_any_member_get_tag(entry, k1 as *const c_void) };
-    let v_val = unsafe { __torajs_any_member_get_value(entry, k1 as *const c_void) };
-    unsafe { set_prop(obj, k_str, v_tag, v_val) };
+    if k_owned && k_tag == ANY_HEAP && k_val != 0 {
+        unsafe { __torajs_value_drop_heap(k_val as *mut c_void) };
+    }
+    let (v_tag, v_val, v_owned) = unsafe { struct_entry_get(entry, k1) };
+    unsafe { set_prop_with(obj, k_str, v_tag, v_val, v_owned) };
+}
+
+/// ES `Get(entry, k)` on a struct entry: a data field answers the
+/// borrowed probe pair, an accessor (`{ get "0"() {…} }`) runs its
+/// getter and answers the OWNED result, flagged like
+/// [`dynobj_entry_get`].
+unsafe fn struct_entry_get(entry: u64, k: *const u8) -> (u64, u64, bool) {
+    let key = k as *const c_void;
+    let t = unsafe { __torajs_any_member_get_tag(entry, key) };
+    let v = unsafe { __torajs_any_member_get_value(entry, key) };
+    if t == ANY_ACCESSOR {
+        let g = unsafe { __torajs_any_accessor_get(entry, key, v) };
+        return (
+            unsafe { __torajs_anyv_unbox_tag(g) } as u64,
+            unsafe { __torajs_anyv_unbox_value(g) } as u64,
+            true,
+        );
+    }
+    (t, v, false)
 }
 
 /// Shared define tail — the dynobj slot owns its share of a heap
@@ -398,7 +441,7 @@ unsafe fn from_set(set: *const c_void) -> u64 {
         }
         return VALUE_UNDEFINED_IMM;
     }
-    // Pass 2 — construct. No throw path from here on.
+    // Pass 2 — construct; only an entry's getter can throw here.
     let mut obj = unsafe { __torajs_dynobj_alloc() };
     cursor = -1;
     while unsafe { __torajs_map_iter_next(set, &mut cursor, &mut kt, &mut kp, &mut vt, &mut vp) }
@@ -412,6 +455,11 @@ unsafe fn from_set(set: *const c_void) -> u64 {
             unsafe { set_prop_from_dynobj_entry(&mut obj, kp as *const c_void, k0, k1) };
         } else {
             unsafe { set_prop_from_struct_entry(&mut obj, kp as u64, k0, k1) };
+        }
+        if unsafe { __torajs_throw_check() } != 0 {
+            unsafe { drop_pair_keys(k0, k1) };
+            unsafe { __torajs_value_drop_heap(obj) };
+            return VALUE_UNDEFINED_IMM;
         }
     }
     unsafe { drop_pair_keys(k0, k1) };

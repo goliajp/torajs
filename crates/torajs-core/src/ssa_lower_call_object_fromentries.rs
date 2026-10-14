@@ -19,8 +19,9 @@
 //! - `Type::Any` — passed through; undefined / null / non-array
 //!   cells throw a catchable TypeError inside the helper.
 //!
-//! Everything else (structs, primitives) falls through to the
-//! resolve_callee loud panic, unchanged.
+//! - anything else (a generator or iterator object, a primitive) —
+//!   boxed; the walker runs the iteration protocol over it, which
+//!   throws the TypeError for a value that is not iterable.
 
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
@@ -79,7 +80,9 @@ pub(crate) fn try_lower(
             );
             Operand::Value(as_any)
         }
-        other => panic!("ssa-lower: unsupported member call shape: fromEntries on {other:?}"),
+        // any other value (a generator or iterator object, a
+        // primitive) boxes, and the walker iterates it or throws
+        _ => ctx.box_to_any(arg_op),
     };
     let v = ctx.f.append_inst(
         ctx.cur_block,
