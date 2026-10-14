@@ -10,7 +10,7 @@
 use super::free_vars::{Bound, FreeSink};
 use super::free_vars::{is_global_name, walk_stmt};
 use super::free_vars_decls::walk_param_defaults;
-use super::free_vars_hoisted_names::hoist_list_names;
+use super::free_vars_hoisted_names::{hoist_list_names, hoist_var_names};
 use super::{Ast, Expr, ExprId};
 
 pub(super) fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Bound<'_>, out: &mut dyn FreeSink) {
@@ -97,6 +97,7 @@ pub(super) fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Bound<'_>, out: &mut
             }
             walk_param_defaults(ast, params, bound, out);
             hoist_list_names(body, &mut bound.names);
+            hoist_var_names(body, &mut bound.names);
             for s in body {
                 walk_stmt(ast, s, bound, out);
             }

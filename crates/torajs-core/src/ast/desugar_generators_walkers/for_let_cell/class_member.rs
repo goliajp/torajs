@@ -11,9 +11,8 @@
 
 use super::scan::{arrows_in, assigned, collect_deep_stmt};
 use crate::ast::desugar_with::walk::{stmt_children, stmt_children_ref, stmt_exprs};
-use crate::ast::nested_fns_idents::{
-    arrow_rebinds, rewrite_idents_in_body, rewrite_idents_in_expr,
-};
+use crate::ast::free_vars::scoped_refs;
+use crate::ast::nested_fns_idents::arrow_rebinds;
 use crate::ast::scope_chain::list_names;
 use crate::ast::{Ast, Expr, ExprId, Param, StaticInit, Stmt};
 use std::collections::HashMap;
@@ -96,11 +95,15 @@ pub(super) fn class_reads(ast: &Ast, s: &Stmt, name: &str) -> bool {
     })
 }
 
-/// Whether a member of a class declared under `s` assigns `name`.
+/// Whether a member of a class declared under `s` assigns `name`
+/// where no scope inside the class declares it again.
 pub(super) fn class_assigns(ast: &Ast, s: &Stmt, name: &str) -> bool {
+    let names = [name.to_string()];
     classes_under(s).into_iter().any(|c| {
-        let mut idents = Vec::new();
-        collect_deep_stmt(ast, c, name, &mut idents);
+        let idents: Vec<ExprId> = scoped_refs(ast, &[], std::slice::from_ref(c), &names)
+            .into_iter()
+            .map(|r| r.site)
+            .collect();
         assigned(ast, &idents)
     })
 }
@@ -114,12 +117,14 @@ pub(super) fn rename_in_classes(ast: &mut Ast, s: &mut Stmt, renames: &Renames) 
     if renames.is_empty() {
         return;
     }
+    if matches!(s, Stmt::ClassDecl { .. }) {
+        return in_class(ast, s, renames);
+    }
     for e in stmt_exprs(s) {
         in_arrows(ast, e, renames);
     }
     match s {
         Stmt::FnDecl { .. } => {}
-        Stmt::ClassDecl { .. } => in_members(ast, s, renames),
         Stmt::Block(v) => in_list(ast, v, renames, &[]),
         Stmt::Try {
             body,
@@ -207,46 +212,14 @@ fn in_list(ast: &mut Ast, list: &mut [Stmt], renames: &Renames, bound: &[String]
     }
 }
 
-/// The members of the class `s`: each body and its parameter defaults
-/// read the enclosing binding unless the member rebinds the name.
-fn in_members(ast: &mut Ast, s: &mut Stmt, renames: &Renames) {
-    for e in static_fields(s) {
-        rewrite_idents_in_expr(ast, e, renames, true);
-        in_arrows(ast, e, renames);
-    }
-    let Stmt::ClassDecl {
-        ctor,
-        methods,
-        static_methods,
-        static_init,
-        ..
-    } = s
-    else {
-        return;
-    };
-    let mut bodies: Vec<(&[Param], &mut Vec<Stmt>)> = Vec::new();
-    if let Some(c) = ctor {
-        bodies.push((&c.params, &mut c.body));
-    }
-    for m in methods.iter_mut().chain(static_methods.iter_mut()) {
-        bodies.push((&m.params, &mut m.body));
-    }
-    for i in static_init.iter_mut() {
-        if let StaticInit::Block(b) = i {
-            bodies.push((&[], b));
-        }
-    }
-    for (params, body) in bodies {
-        // §10.2.11: a default sees the parameters, not the body
-        let outer = without(renames, |k| params.iter().any(|p| p.name == k));
-        for d in params.iter().filter_map(|p| p.default) {
-            rewrite_idents_in_expr(ast, d, &outer, true);
-            in_arrows(ast, d, &outer);
-        }
-        let inner = without(renames, |k| arrow_rebinds(params, body, k));
-        rewrite_idents_in_body(ast, body, &inner, true);
-        for st in body.iter_mut() {
-            rename_in_classes(ast, st, &inner);
+/// The class `s`: every reference in it, heritage and computed keys
+/// included, that reads the enclosing binding, past the scopes inside
+/// it that declare the name again.
+fn in_class(ast: &mut Ast, s: &Stmt, renames: &Renames) {
+    let names: Vec<String> = renames.keys().cloned().collect();
+    for r in scoped_refs(ast, &[], std::slice::from_ref(s), &names) {
+        if let Expr::Ident(_) = ast.get_expr(r.site) {
+            ast.exprs[r.site.0 as usize] = Expr::Ident(renames[&r.name].clone());
         }
     }
 }
