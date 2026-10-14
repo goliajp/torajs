@@ -45,14 +45,21 @@ pub(super) fn is_property_store(ast: &Ast, eid: ExprId) -> bool {
     matches!(ast.get_expr(eid), Expr::Member { .. } | Expr::Index { .. })
 }
 
-/// The two marks that make a bare identifier read RAISE instead of
-/// answering: an unresolvable Reference (RFC 20260730-undeclared-ident,
-/// §6.2.5.5) and a binding still in its temporal dead zone
-/// (`ast::mark_tdz_reads`, §8.1.1.1). Either way the enclosing
-/// fn must enter `may_throw`, or callers prune the check and the throw
-/// is silently swallowed across the fn boundary.
+/// What makes a bare identifier read RAISE instead of answering: an
+/// unresolvable Reference (RFC 20260730-undeclared-ident, §6.2.5.5), a
+/// binding still in its temporal dead zone (`ast::mark_tdz_reads`,
+/// §8.1.1.1), and a name only an eval / Script text binds, read before
+/// that text ran (`ssa_lower_ident_site_bound`, which skips the
+/// binding's own self-read). Either way the enclosing fn must enter
+/// `may_throw`, or callers prune the check and the throw is silently
+/// swallowed across the fn boundary.
 pub(crate) fn ident_read_raises(ast: &Ast, eid: ExprId) -> bool {
-    ast.undeclared_reads.contains_key(&eid) || ast.tdz_reads.contains(&eid)
+    use crate::ast::ScriptGlobalVar::{EvalFn, EvalVar, ScriptVar};
+    ast.undeclared_reads.contains_key(&eid)
+        || ast.tdz_reads.contains(&eid)
+        || matches!(ast.get_expr(eid), Expr::Ident(n)
+            if matches!(ast.script_global_var_names.get(n), Some(EvalVar | ScriptVar | EvalFn))
+                && !ast.eval_var_sites.contains_key(&eid))
 }
 
 /// An object literal's spread of a class instance or struct (`{ ...c }`)
