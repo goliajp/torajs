@@ -127,7 +127,9 @@ fn prefix_start(ast: &Ast, body: &[Stmt], forwards: bool) -> usize {
         .map_or(0, |i| i + 1)
 }
 
-fn define_call(
+/// `__torajs_priv_field_define(<recv>, "<name>", <value>)` — PrivateFieldAdd
+/// (§7.3.34 step 3) of one private field onto `recv`.
+pub(super) fn define_call(
     ast: &mut Ast,
     this: super::super::ExprId,
     name: &str,

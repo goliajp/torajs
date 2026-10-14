@@ -51,6 +51,14 @@ pub(super) fn install_static_inits(
                     sf.init
                 };
                 let recv = ast.add_expr(Expr::Ident(name.to_string()));
+                // A static PRIVATE field is added, not written: the
+                // class object carries no brand for it until this very
+                // define, so a write would fail the PrivateSet brand check.
+                if let Some(priv_name) = sf.name.as_str().filter(|n| n.starts_with("__priv_")) {
+                    let define = super::private_fields::define_call(ast, recv, priv_name, value);
+                    out.push(Stmt::Expr(ast.add_expr(define)));
+                    continue;
+                }
                 let target = if let Some(ident) = sf.name.as_str() {
                     ast.add_expr(Expr::Member {
                         obj: recv,
