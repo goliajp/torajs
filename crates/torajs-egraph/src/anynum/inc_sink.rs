@@ -97,7 +97,8 @@ fn sink_in_function(func: &mut Function) -> (u32, u32) {
     }
     // without a test that proves a value a number, every path keeps the
     // retain and the walk could only move it about
-    let Some(facts) = NumberFacts::compute_if_any_edge_proof(func) else {
+    let seeds: Vec<ValueId> = sites.iter().map(|&(_, v)| v).collect();
+    let Some(facts) = NumberFacts::compute_if_any_edge_proof(func, &seeds) else {
         return (0, 0);
     };
     let dom = DominatorTree::compute(func);

@@ -21,7 +21,7 @@ use crate::id_hash::HashSet;
 use torajs_core::ssa::{Function, InstKind, Module, Operand, ValueId};
 
 use crate::anynum::expand::is_number_node;
-use crate::anynum::number_facts::{NumberFacts, proves};
+use crate::anynum::number_facts::NumberFacts;
 use crate::float_demote::cfg::term_operand_value;
 use crate::rc_peephole::visit_value_operands;
 
@@ -47,42 +47,49 @@ pub fn fold_number_rcs(module: &mut Module) -> RcFoldStats {
 }
 
 fn fold_in_function(func: &mut Function) -> u32 {
-    let has_rc = func.blocks.iter().flat_map(|b| b.insts.iter()).any(|i| {
-        matches!(
-            i.kind,
-            InstKind::RcIncAny(Operand::Value(_)) | InstKind::RcDecAny(Operand::Value(_))
-        )
-    });
-    if !has_rc {
+    let seeds: Vec<ValueId> = func
+        .blocks
+        .iter()
+        .flat_map(|b| &b.insts)
+        .filter_map(|i| match i.kind {
+            InstKind::RcIncAny(Operand::Value(v)) | InstKind::RcDecAny(Operand::Value(v)) => {
+                Some(v)
+            }
+            _ => None,
+        })
+        .collect();
+    if seeds.is_empty() {
         return 0;
     }
-    let n = func.blocks.len();
-    let live_in = NumberFacts::compute(func).live_in;
+    let facts = NumberFacts::compute(func, &seeds);
     let mut removed = 0u32;
-    for (bi, entry) in live_in.iter().enumerate().take(n) {
-        let Some(mut facts) = entry.clone() else {
+    let mut gone: Vec<usize> = Vec::new();
+    for (bi, block) in func.blocks.iter_mut().enumerate() {
+        let Some(mut at) = facts.at_entry(bi) else {
             continue;
         };
-        let insts = std::mem::take(&mut func.blocks[bi].insts);
-        let mut kept = Vec::with_capacity(insts.len());
-        for inst in insts {
+        gone.clear();
+        for (k, inst) in block.insts.iter().enumerate() {
             if let InstKind::RcIncAny(Operand::Value(v)) | InstKind::RcDecAny(Operand::Value(v)) =
                 &inst.kind
-                && facts.contains(*v)
+                && at.contains(*v)
             {
-                removed += 1;
+                gone.push(k);
                 continue;
             }
-            if let Some(r) = inst.result {
-                let proven = proves(&inst.kind, &facts);
-                facts.remove(r);
-                if proven {
-                    facts.insert(r);
-                }
-            }
-            kept.push(inst);
+            at.step(inst);
         }
-        func.blocks[bi].insts = kept;
+        if gone.is_empty() {
+            continue;
+        }
+        removed += gone.len() as u32;
+        let (mut k, mut next) = (0, 0);
+        block.insts.retain(|_| {
+            let keep = gone.get(next) != Some(&k);
+            next += usize::from(!keep);
+            k += 1;
+            keep
+        });
     }
     removed
 }
