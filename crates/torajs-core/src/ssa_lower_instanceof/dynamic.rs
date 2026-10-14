@@ -35,9 +35,9 @@ use super::builtin_proto_tag;
 ///
 /// The left operand is boxed here; the right one goes through
 /// [`emit_has_instance`], which already knows to keep a cell the
-/// any-encoding cannot carry on the plain §7.3.22 walk. Neither
-/// operand is owned by us (both are plain sub-expression values), so
-/// there is no release to thread — `None`.
+/// any-encoding cannot carry on the plain §7.3.22 walk. The operator
+/// only reads the left operand, so one that arrived owned is released
+/// once the answer is in.
 pub(super) fn lower_general_rhs(ctx: &mut LowerCtx<'_>, expr: ExprId, rhs: ExprId) -> Operand {
     let Some((v_any, owned)) = lower_left_boxed(ctx, expr) else {
         // No encoding and no cell to mint — the operand has no value

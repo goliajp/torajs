@@ -1,0 +1,15 @@
+param fn false true true
+param fnExpr false true true
+param obj true false true
+param prim false false false
+param plain false false true
+global true true false
+capture true,true,false true,true,false
+catch true false false
+catch false true false
+catch false false false
+catch false false true
+owned true true true true
+throws true
+async true,true,true
+intact 3 1 2 10 5
