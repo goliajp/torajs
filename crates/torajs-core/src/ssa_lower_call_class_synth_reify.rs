@@ -236,8 +236,10 @@ pub(super) fn try_lower_unit_static_field_define(
     let [unit_id, name_id, init_id] = args else {
         return None;
     };
-    let val = ctx.lower_expr(*init_id);
-    let (vtag, vvalue) = ctx.box_to_tag_value(val);
+    // `static f;` initializes to `undefined` (DefineField: no
+    // initializer means undefined), which the bare pair encoder spells
+    // as null.
+    let (vtag, vvalue) = ctx.lower_to_tag_value(*init_id);
     let unit_op = ctx.lower_expr(*unit_id);
     let name_op = ctx.lower_expr(*name_id);
     let define = ctx.intrinsics.class_unit_static_field_define;
