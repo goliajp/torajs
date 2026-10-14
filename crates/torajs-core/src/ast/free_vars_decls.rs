@@ -3,6 +3,7 @@
 //! whole declaration BODY (a fn's or a class's own scope) leaves
 //! free in the enclosing scope.
 
+use super::class_computed_owner::owns;
 use super::free_vars::walk_stmt;
 use super::free_vars::{Bound, FreeSink};
 use super::free_vars_expr::walk_expr;
@@ -56,7 +57,9 @@ pub(super) fn walk_fn_decl(
 /// (`finalize_class_field_inits`).
 ///
 /// The computed keys and computed static-field initializers live in
-/// side tables keyed by the class name; the keys are walked in arena
+/// side tables keyed by the class name, and a name is not an identity
+/// (two functions may each declare `class K`), so a row counts only
+/// when `decl_id` owns its sentinel. The keys are walked in arena
 /// order. A static initializer's `this` is the class, so it binds
 /// `__this` like a member does. The class's own name is the
 /// caller's: a walk from the list holding the class binds it, and a
@@ -65,6 +68,7 @@ pub(super) fn walk_fn_decl(
 pub(super) fn walk_class_decl(
     ast: &Ast,
     name: &str,
+    decl_id: u32,
     parent: &Option<ExprId>,
     ctor: &Option<ClassCtor>,
     methods: &[ClassMethod],
@@ -80,7 +84,7 @@ pub(super) fn walk_class_decl(
     let mut keys: Vec<ExprId> = ast
         .class_computed_keys
         .iter()
-        .filter(|((c, _), _)| c == name)
+        .filter(|((c, sent), _)| c == name && owns(ast, sent, decl_id))
         .map(|(_, &e)| e)
         .collect();
     keys.sort_by_key(|e| e.0);
@@ -108,8 +112,8 @@ pub(super) fn walk_class_decl(
             }
         }
     }
-    for (c, _, init) in &ast.class_computed_static_fields {
-        if c == name {
+    for (c, sent, init) in &ast.class_computed_static_fields {
+        if c == name && owns(ast, sent, decl_id) {
             walk_expr(ast, *init, bound, out);
         }
     }
