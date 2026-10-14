@@ -139,7 +139,13 @@ pub(super) fn arg_admitted(
     // Every lowering call-arg station pairs this admit with
     // `emit_arr_mark_kind` per the RFC §2 protocol so the
     // callee's kind-aware Arr<Any> readers decode the raw block.
-    if matches!(param_ty, Type::Array(el) if matches!(**el, Type::Any))
+    // An optional or `| undefined` parameter of that type widens the
+    // same way: its slot is the same array pointer, null when absent.
+    let arr_param = match param_ty {
+        Type::Nullable(inner) => inner.as_ref(),
+        t => t,
+    };
+    if matches!(arr_param, Type::Array(el) if matches!(**el, Type::Any))
         && matches!(arg_ty, Type::Array(_))
     {
         return true;
