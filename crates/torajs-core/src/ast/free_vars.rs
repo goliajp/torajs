@@ -377,6 +377,7 @@ pub(super) fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Bound<'_>, out: &mut dy
         Stmt::TypeDecl { .. } => {}
         Stmt::ClassDecl {
             name,
+            decl_id,
             parent,
             ctor,
             methods,
@@ -386,6 +387,7 @@ pub(super) fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Bound<'_>, out: &mut dy
         } => walk_class_decl(
             ast,
             name,
+            *decl_id,
             parent,
             ctor,
             methods,
