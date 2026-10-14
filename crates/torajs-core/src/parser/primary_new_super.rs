@@ -247,16 +247,27 @@ impl<'a> Parser<'a> {
                         ));
                     }
                 }
-                match self.ast.get_expr(inner) {
-                    Expr::Ident(n) => NewHead::Named(n.clone()),
-                    // `new (E as SomeType)(args)` — the TS `as` cast is a
-                    // static-only assertion; the runtime callee is still
-                    // the inner expression. Peel it here so the downstream
-                    // class-registry lookup (P8.5 `new C(args)`) sees `E`.
-                    Expr::As { expr, .. } => match self.ast.get_expr(*expr) {
-                        Expr::Ident(n) => NewHead::Named(n.clone()),
-                        _ => NewHead::Dynamic(inner),
-                    },
+                // `new (E as SomeType)(args)` — the TS `as` cast is a
+                // static-only assertion; the runtime callee is still the
+                // inner expression. Peel it here so the downstream
+                // class-registry lookup (P8.5 `new C(args)`) sees `E`.
+                let ident = match self.ast.get_expr(inner) {
+                    Expr::As { expr, .. } => *expr,
+                    _ => inner,
+                };
+                match self.ast.get_expr(ident) {
+                    Expr::Ident(n) => {
+                        let n = n.clone();
+                        // The head carries the name from here on, so the
+                        // parsed `Ident` node is left unreferenced. It
+                        // must stop naming the binding: the by-name use
+                        // censuses walk the whole arena, and an orphan
+                        // `Ident(E)` reads to them as a use in no known
+                        // position — `new (F as any)()` refused the
+                        // receiver promotion that `new F()` got.
+                        self.ast.exprs[ident.0 as usize] = Expr::Null;
+                        NewHead::Named(n)
+                    }
                     _ => NewHead::Dynamic(inner),
                 }
             }

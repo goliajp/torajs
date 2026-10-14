@@ -1,0 +1,6 @@
+sync new 3 4 true
+sync call true true
+sync .call 1 2
+async new 5 15
+async call true 3
+done

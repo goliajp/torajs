@@ -1,0 +1,8 @@
+ctor new 7 17
+ctor call true 10
+m new 1 2
+m call true true
+m .call 7 8
+s new 6 16
+s call true 9
+field 5 undefined
