@@ -111,12 +111,15 @@ pub(super) fn eq_operand_idents(exprs: &[Expr]) -> std::collections::HashSet<Exp
 ///
 /// Only the bare-name spelling qualifies: a larger target IS a value
 /// expression and takes the runtime operator, which calls a handler.
+/// An `as` cast is not larger — it is type-only, the operand is the
+/// same name — so `o instanceof (F as any)` counts as the bare name.
 pub(super) fn instanceof_name_idents(exprs: &[Expr]) -> std::collections::HashSet<ExprId> {
     exprs
         .iter()
         .filter_map(|e| match e {
-            Expr::InstanceOf { rhs, .. } if matches!(&exprs[rhs.0 as usize], Expr::Ident(_)) => {
-                Some(*rhs)
+            Expr::InstanceOf { rhs, .. } => {
+                let r = super::fnexpr_this_names::peel_as(exprs, *rhs);
+                matches!(&exprs[r.0 as usize], Expr::Ident(_)).then_some(r)
             }
             _ => None,
         })
