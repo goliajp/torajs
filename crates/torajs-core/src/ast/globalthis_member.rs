@@ -31,6 +31,9 @@
 //!   out of the way when the rename cannot be observed
 //!   (`globalthis_member_rename`), and the read becomes the bare
 //!   builtin; otherwise it stays a member read of the runtime object.
+//! - A class declaration of `X` anywhere keeps every read of
+//!   `globalThis.X` a member read: a nested class is hoisted to the
+//!   top level later, where the bare name would reach it.
 //! - A binding NAMED `globalThis` anywhere disables the pass: the
 //!   object itself could be the user's.
 //!
@@ -44,6 +47,7 @@ use crate::check_js_semantics::is_known_builtin_global;
 
 use super::globalthis_member_rename::{renamable, rename};
 use super::globalthis_member_scope::{script_global_props, take_census};
+use super::hoist_nested_classes_census::count_class_decl_names;
 use super::{Ast, Expr, ExprId, Param, Stmt};
 
 pub fn desugar_globalthis_members(ast: &mut Ast) {
@@ -96,14 +100,18 @@ pub fn desugar_globalthis_members(ast: &mut Ast) {
         HashSet::new()
     };
     let census = take_census(ast, &watch, &props);
+    let classes = class_names(ast, &watch);
     // A read the walk did not reach (a side-table root) is judged by
     // whether the program declares the name at all.
     let mut declared: HashMap<String, bool> = HashMap::new();
-    let mut shadowed = |ast: &Ast, eid: ExprId, name: &str| match census.site_shadowed.get(&eid) {
-        Some(&b) => b,
-        None => *declared
-            .entry(name.to_string())
-            .or_insert_with(|| binds_anywhere(ast, name)),
+    let mut shadowed = |ast: &Ast, eid: ExprId, name: &str| {
+        classes.contains(name)
+            || match census.site_shadowed.get(&eid) {
+                Some(&b) => b,
+                None => *declared
+                    .entry(name.to_string())
+                    .or_insert_with(|| binds_anywhere(ast, name)),
+            }
     };
     let mut keep: HashSet<ExprId> = HashSet::new();
     for (eid, name) in &sites {
@@ -117,7 +125,8 @@ pub fn desugar_globalthis_members(ast: &mut Ast) {
         let hit = sites.iter().any(|(e, n)| n == name && keep.contains(e));
         // a rename would also move the script's own top-level binding,
         // which is the property the read reaches
-        if hit && !props.contains(name) && renamable(ast, &census, name) {
+        if hit && !props.contains(name) && !classes.contains(name) && renamable(ast, &census, name)
+        {
             let fresh = rename(ast, &census, name, |ast, c| {
                 binds_anywhere(ast, c)
                     || ast
@@ -134,6 +143,23 @@ pub fn desugar_globalthis_members(ast: &mut Ast) {
             ast.exprs[eid.0 as usize] = Expr::Ident(name);
         }
     }
+}
+
+/// The watched names some class declaration in the program spells.
+/// `hoist_nested_classes` moves a class declared in a block or a
+/// function body to the top level under its own name, so after it a
+/// bare `X` anywhere may reach the user's class even where the scopes
+/// the census follows say no declaration of `X` is in scope.
+fn class_names(ast: &Ast, watch: &HashSet<String>) -> HashSet<String> {
+    let mut counts = HashMap::new();
+    let arrow_bodies = ast.exprs.iter().filter_map(|e| match e {
+        Expr::ArrowFn { body, .. } => Some(body),
+        _ => None,
+    });
+    for s in ast.stmts.iter().chain(arrow_bodies.flatten()) {
+        count_class_decl_names(s, &mut counts);
+    }
+    counts.into_keys().filter(|n| watch.contains(n)).collect()
 }
 
 /// Some declaration anywhere in the program — statement-level or in
