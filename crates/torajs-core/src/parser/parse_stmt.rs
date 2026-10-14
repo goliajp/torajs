@@ -277,6 +277,7 @@ impl<'a> Parser<'a> {
                     .get(self.pos + 1)
                     .is_some_and(|t| matches!(t.token, Token::Colon));
             let body = Box::new(self.parse_single_stmt_body()?);
+            self.reject_duplicate_label(&label, &body)?;
             self.reject_decl_in_single_stmt(
                 &body,
                 body_start,

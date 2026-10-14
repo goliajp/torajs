@@ -297,14 +297,42 @@ fn stmt_contains_inner(
         Stmt::ExportDecl { inner, .. } => inner
             .as_deref()
             .is_some_and(|s| stmt_contains_inner(ast, s, sym, hit)),
-        // `function` decls and nested classes bind their own
-        // `arguments` scope (methods / initializers re-check when
-        // they parse); the rest carry no expressions.
+        // A nested class binds its own `arguments` in its methods and
+        // initializers (which re-check when they parse), but its
+        // heritage and computed keys evaluate out here: Contains on a
+        // ClassTail recurses through ClassHeritage and
+        // ComputedPropertyContains (§8.5.1).
+        Stmt::ClassDecl {
+            parent, decl_id, ..
+        } => {
+            parent.is_some_and(|p| expr_contains_inner(ast, p, sym, hit))
+                || class_computed_keys_of(ast, *decl_id)
+                    .into_iter()
+                    .any(|k| expr_contains_inner(ast, k, sym, hit))
+        }
+        // `function` decls bind their own `arguments` scope; the rest
+        // carry no expressions.
         Stmt::FnDecl { .. }
-        | Stmt::ClassDecl { .. }
         | Stmt::TypeDecl { .. }
         | Stmt::ImportDecl { .. }
         | Stmt::Break(_)
         | Stmt::Continue(_) => false,
     }
+}
+
+/// The computed-key expressions the class `decl_id` declares, in arena
+/// order so a walk that records what it meets stays deterministic.
+fn class_computed_keys_of(ast: &Ast, decl_id: u32) -> Vec<ExprId> {
+    let mut keys: Vec<ExprId> = ast
+        .class_computed_keys
+        .iter()
+        .filter(|((_, sentinel), _)| {
+            ast.class_computed_owner
+                .get(sentinel)
+                .is_some_and(|ids| ids.contains(&decl_id))
+        })
+        .map(|(_, &k)| k)
+        .collect();
+    keys.sort_by_key(|k| k.0);
+    keys
 }

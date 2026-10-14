@@ -67,6 +67,7 @@ impl<'a> Parser<'a> {
             ));
         }
         self.pos += 1; // consume `}`
+        self.reject_static_block_return(&block_stmts)?;
         // §15.7.1 — the second of the two productions this early error
         // is stated for (see the walk's own doc).
         if super::class_field_early_errors::static_block_contains_arguments(&self.ast, &block_stmts)
