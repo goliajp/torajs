@@ -125,9 +125,16 @@ fn walk(s: &Stmt, bound: &mut Vec<String>) {
                 walk(eb, bound);
             }
         }
+        // a `for (var ...)` head declares in the function scope too
+        // (§14.7.4.2 VarDeclaredNames), not only in the loop
+        Stmt::For { init, body, .. } => {
+            if let Some(i) = init.as_deref() {
+                walk(i, bound);
+            }
+            walk(body, bound);
+        }
         Stmt::While { body, .. }
         | Stmt::DoWhile { body, .. }
-        | Stmt::For { body, .. }
         | Stmt::ForOf { body, .. }
         | Stmt::ForOfSplitIter { body, .. }
         | Stmt::Labeled { body, .. } => walk(body, bound),
