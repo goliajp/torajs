@@ -195,10 +195,7 @@ fn members_of(
         if !plain {
             return None;
         }
-        let optional = ast
-            .optional_members
-            .all
-            .contains(&(iface.to_string(), k.clone()));
+        let optional = ast.optional_members.declared(iface, k);
         let kind = match crate::num_width::fn_type_canon(ann)
             .as_deref()
             .and_then(crate::num_width::split_fn_type)

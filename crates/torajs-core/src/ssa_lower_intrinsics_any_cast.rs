@@ -62,3 +62,21 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         ),
     }
 }
+
+/// The object cast of a plan with an optional member among its fields,
+/// which the emitters find by name (`ssa_lower_checked_cast::plan_emit`,
+/// the boxed entries' parameter casts). Only a program that writes an
+/// optional member (`m?`) has such a plan, so no other declares it.
+pub(crate) fn declare_members(
+    module: &mut Module,
+    fn_table: &mut HashMap<String, FuncId>,
+    ast: &crate::ast::Ast,
+) {
+    if ast.optional_members.none() {
+        return;
+    }
+    let params = [Type::Any, Type::I64, Type::Ptr, Type::Str];
+    declare_intrinsic(module, fn_table, MEMBERS_CAST, &params, Type::Ptr);
+}
+
+pub(crate) const MEMBERS_CAST: &str = "__torajs_anyv_cast_obj_members";

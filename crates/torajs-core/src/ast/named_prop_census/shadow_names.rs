@@ -82,7 +82,8 @@ impl AccessorFieldNames {
         mistyped: &ShadowedNames,
     ) {
         ast.accessor_field_names.mistyped = mistyped.clone();
-        let optional_number = crate::num_width::optional_number_fields::names(ast, expr_types);
+        let (optional_number, typed_optional) =
+            crate::num_width::optional_number_fields::names(ast, expr_types);
         ast.accessor_field_names.optional_number = optional_number.clone();
         if matches!(ast.accessor_field_names.reach, Reach::All) {
             ast.accessor_field_names.shadow = Reach::All;
@@ -96,37 +97,49 @@ impl AccessorFieldNames {
             &|n| fields.may(n),
             &OnceCell::new(),
         );
-        let casts = super::cast_targets::names(
-            ast,
-            expr_types,
-            (aliases, generic_aliases),
-            &optional_number,
-        );
-        names.unknown.extend(casts.number_names);
-        let mut leaves_members_out = casts.optional;
-        // a read that converts a shadowed field's value into its layout
-        // is a cast too; the names it adds are optional `number`
-        // members, which may name a layout field of another type
-        loop {
-            let reached = |k: &str| {
-                names.all_unknown || names.unknown.contains(k) || ast.accessor_field_names.may(k)
-            };
-            let conv = super::cast_targets::converted_fields(
-                ast,
-                expr_types,
-                (aliases, generic_aliases),
-                &optional_number,
-                &reached,
-            );
-            leaves_members_out |= conv.optional;
-            if conv.number_names.is_subset(&names.unknown) {
-                break;
-            }
-            names.unknown.extend(conv.number_names);
+        // a cast reaches no optional member in a program that has none
+        if typed_optional || !ast.optional_members.none() {
+            let resolve = (aliases, generic_aliases);
+            let out = cast_reach(ast, expr_types, resolve, &optional_number, &mut names);
+            ast.accessor_field_names.cast_leaves_members_out = out;
         }
-        ast.accessor_field_names.cast_leaves_members_out = leaves_members_out;
         ast.accessor_field_names.shadow = Names::reach(names.all_unknown, names.unknown);
         ast.accessor_field_names.shadow_number = Names::reach(names.all_number, names.number);
+    }
+}
+
+/// What the program's casts from the any lane add to `names`: the
+/// optional `number` members a cast can write a `null` into; and
+/// whether a cast can leave an optional member out of a cell.
+fn cast_reach(
+    ast: &Ast,
+    expr_types: &HashMap<ExprId, Type>,
+    resolve: (&HashMap<String, Type>, &GenericAliasMap),
+    optional_number: &HashSet<PropKey>,
+    names: &mut Names,
+) -> bool {
+    let casts = super::cast_targets::names(ast, expr_types, resolve, optional_number);
+    names.unknown.extend(casts.number_names);
+    let mut leaves_members_out = casts.optional;
+    // a read that converts a shadowed field's value into its layout
+    // is a cast too; the names it adds are optional `number`
+    // members, which may name a layout field of another type
+    loop {
+        let reached = |k: &str| {
+            names.all_unknown || names.unknown.contains(k) || ast.accessor_field_names.may(k)
+        };
+        let conv = super::cast_targets::converted_fields(
+            ast,
+            expr_types,
+            resolve,
+            optional_number,
+            &reached,
+        );
+        leaves_members_out |= conv.optional;
+        if conv.number_names.is_subset(&names.unknown) {
+            return leaves_members_out;
+        }
+        names.unknown.extend(conv.number_names);
     }
 }
 

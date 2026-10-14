@@ -16,9 +16,12 @@
 //!   OPT     node: the node's type, `| null | undefined`; over NUM
 //!           (an optional `number` member's f64 slot) `undefined` is
 //!           the slot's sentinel and a field's `null` goes to the
-//!           cell's sidecar (`super::obj`)
+//!           cell's sidecar (`super::members`)
 //! field := u32 end (offset past this field), u32 slot offset,
-//!          u16 name length, name (WTF-8), node
+//!          u16 name length, name (WTF-8), [MEMBER] node
+//!   MEMBER  the field is an optional member (`m?: T`) over an OPT
+//!           node: a value lacking the key leaves it out of the copy
+//!           (`super::members`)
 //! lists := u32 count, then per list: u32 n, u32 tags[n]
 //! ```
 //!
@@ -48,6 +51,7 @@ pub(super) const REF: u8 = 7;
 pub(super) const ARR: u8 = 8;
 pub(super) const CELL: u8 = 9;
 pub(super) const OPT: u8 = 10;
+pub(super) const MEMBER: u8 = 11;
 
 /// Below 2^53 every integer-valued double converts to i64 exactly.
 const I64_EXACT: f64 = 9_007_199_254_740_992.0;
@@ -99,10 +103,30 @@ pub(super) enum Fail {
 /// this cast has made so far: an object or array reached again (a
 /// cycle, or one value under two names) answers the copy already made
 /// for the same node, so a cycle stays a cycle and the walk ends.
+///
+/// `member` casts an optional member's field (a `MEMBER` node); only
+/// the entry for a plan with one sets it (`super::members`), so a
+/// program that casts no optional member links none of that code.
 pub(super) struct Plan {
     pub(super) base: *const u8,
     pub(super) vtables: *const *mut c_void,
     pub(super) copies: RefCell<BTreeMap<(AnyValue, usize), u64>>,
+    pub(super) member: Option<MemberCast>,
+}
+
+/// The cast of an optional member's field into the fresh cell, from
+/// the value `v` that holds the field and the field's value (owned).
+pub(super) type MemberCast = unsafe fn(&Plan, AnyValue, AnyValue, &Field) -> Result<u64, Fail>;
+
+/// A field of an OBJ node being copied: the fresh cell and the slot's
+/// offset in it, the name (`len` bytes at `name`) and the field's node
+/// (past its `MEMBER` byte).
+pub(super) struct Field {
+    pub(super) cell: *mut u8,
+    pub(super) off: usize,
+    pub(super) name: usize,
+    pub(super) len: usize,
+    pub(super) node: usize,
 }
 
 impl Plan {
@@ -111,6 +135,7 @@ impl Plan {
             base,
             vtables,
             copies: RefCell::new(BTreeMap::new()),
+            member: None,
         }
     }
 

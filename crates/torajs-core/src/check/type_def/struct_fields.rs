@@ -46,11 +46,7 @@ impl StructFields {
     ) -> Vec<PropKey> {
         fields
             .iter()
-            .filter(|(n, _)| {
-                ast.optional_members
-                    .all
-                    .contains(&(owner.to_string(), n.clone()))
-            })
+            .filter(|(n, _)| ast.optional_members.declared(owner, n))
             .map(|(n, _)| n.clone())
             .collect()
     }

@@ -12,7 +12,7 @@
 //! methods) leaves the slot without a plan: such a slot takes a cell
 //! of its layout and nothing else.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::ast::Ast;
 use crate::check_type_ann::strip_nullable;
@@ -31,6 +31,7 @@ const REF: u8 = 7;
 const ARR: u8 = 8;
 const CELL: u8 = 9;
 const OPT: u8 = 10;
+const MEMBER: u8 = 11;
 /// OBJ node flags: a class slot; a slot whose node copies nothing.
 const CLASS: u8 = 1;
 const FITS_ONLY: u8 = 2;
@@ -89,6 +90,9 @@ pub(crate) struct CastPlan {
     /// Some node admits `null` / `undefined` besides its type (a
     /// `T | null` or optional field the annotation spells).
     pub(crate) nullish: bool,
+    /// Some object node has an optional member (`m?: T`) among its
+    /// fields, which only the kernel's `_members` entry casts.
+    pub(crate) members: bool,
 }
 
 /// The plan of a slot of type `ty` the program annotated `ann`. When
@@ -110,6 +114,7 @@ fn build(t: &PlanTables<'_>, ty: Type, ann: &str, fits_only: bool) -> Option<Cas
         lists: Vec::new(),
         open: HashMap::new(),
         nullish: false,
+        members: false,
     };
     b.node(ty, Some(ann))?;
     let lists_off = b.bytes.len() as u32;
@@ -123,6 +128,7 @@ fn build(t: &PlanTables<'_>, ty: Type, ann: &str, fits_only: bool) -> Option<Cas
         bytes: b.bytes,
         vtables: b.vtables,
         nullish: b.nullish,
+        members: b.members,
     })
 }
 
@@ -154,15 +160,14 @@ struct Builder<'t, 'a> {
     /// The OBJ node already written for a layout and its class.
     open: HashMap<(StructId, Option<String>), u32>,
     nullish: bool,
+    members: bool,
 }
 
 impl Builder<'_, '_> {
     fn node(&mut self, ty: Type, ann: Option<&str>) -> Option<()> {
-        let nullable = ann.is_some_and(|a| a.trim().starts_with("__nullable("));
+        let nullable = nullable(ann);
         let base = ann.map(|a| strip_nullable(a.trim()).trim());
-        // an optional `number` member keeps an f64 slot: the node admits
-        // `undefined` (and a key the value lacks) as the slot's sentinel
-        if nullable && matches!(ty, Type::Str | Type::Obj(_) | Type::Arr(_) | Type::F64) {
+        if opt_node(ty, ann) {
             self.bytes.push(OPT);
             self.nullish = true;
         }
@@ -215,7 +220,7 @@ impl Builder<'_, '_> {
             flags |= FITS_ONLY;
             layout.clear();
         }
-        let anns = field_anns(self.t.ast, class.as_deref().or(base));
+        let (anns, optional) = field_anns(self.t.ast, class.as_deref().or(base)).unzip();
         let (tag, list, vtable) = match &class {
             Some(c) => {
                 let tags = descendant_tags(&self.t.ast.class_parents, self.t.class_name_to_tag, c);
@@ -247,6 +252,14 @@ impl Builder<'_, '_> {
             self.bytes.extend((name.len() as u16).to_le_bytes());
             self.bytes.extend(name);
             let fann = anns.as_ref().and_then(|m| m.get(name).cloned());
+            // an optional member's node: a value lacking the key leaves
+            // it out of the copy
+            if optional.as_ref().is_some_and(|o| o.contains(name))
+                && opt_node(*fty, fann.as_deref())
+            {
+                self.bytes.push(MEMBER);
+                self.members = true;
+            }
             self.node(*fty, fann.as_deref())?;
             let end = self.bytes.len() as u32;
             self.bytes[start..start + 4].copy_from_slice(&end.to_le_bytes());
@@ -275,25 +288,46 @@ impl Builder<'_, '_> {
     }
 }
 
+/// Whether the annotation spells `T | null | undefined` (an optional
+/// member's among them).
+fn nullable(ann: Option<&str>) -> bool {
+    ann.is_some_and(|a| a.trim().starts_with("__nullable("))
+}
+
+/// Whether the node of a slot of type `ty` annotated `ann` is an `OPT`
+/// node. An optional `number` member keeps an f64 slot: the node admits
+/// `undefined` (and a key the value lacks) as the slot's sentinel.
+fn opt_node(ty: Type, ann: Option<&str>) -> bool {
+    nullable(ann) && matches!(ty, Type::Str | Type::Obj(_) | Type::Arr(_) | Type::F64)
+}
+
+/// Field annotations keyed by the field name's bytes, and the fields
+/// declared optional.
+type FieldAnns = (HashMap<Vec<u8>, String>, HashSet<Vec<u8>>);
+
 /// The field annotations of the object type `owner` names: an object
 /// type literal's, or a declared type's (a class's among them; a generic
-/// instance's, the fields every instance lays out alike), keyed by the
-/// field name's bytes.
-fn field_anns(ast: &Ast, owner: Option<&str>) -> Option<HashMap<Vec<u8>, String>> {
+/// instance's, the fields every instance lays out alike), with the
+/// members it declares optional.
+fn field_anns(ast: &Ast, owner: Option<&str>) -> Option<FieldAnns> {
     let owner = owner?;
-    if let Some(fields) = crate::ast_collect_fn_closure_init::parse_inlobj_field_anns(owner) {
-        return Some(
-            (fields.into_iter())
-                .map(|(k, a)| (k.into_bytes(), a))
-                .collect(),
-        );
+    if let Some(fields) = crate::ast_collect_fn_closure_init::inlobj_fields(owner) {
+        let optional = fields
+            .iter()
+            .filter(|f| f.1)
+            .map(|f| f.0.clone().into_bytes());
+        let optional = optional.collect();
+        let anns = fields.into_iter().map(|(k, _, a)| (k.into_bytes(), a));
+        return Some((anns.collect(), optional));
     }
-    let (_, fields) = crate::ast_throw_info::decl_fields(ast, owner)?;
-    Some(
-        (fields.into_iter())
-            .map(|(k, a)| (k.as_wtf8().as_bytes().to_vec(), a))
-            .collect(),
-    )
+    let (decl, fields) = crate::ast_throw_info::decl_fields(ast, owner)?;
+    let members = &ast.optional_members;
+    let optional = (fields.iter())
+        .filter(|(k, _)| members.declared(decl, k) || members.plain_at(decl, k))
+        .map(|(k, _)| k.as_wtf8().as_bytes().to_vec())
+        .collect();
+    let anns = (fields.into_iter()).map(|(k, a)| (k.as_wtf8().as_bytes().to_vec(), a));
+    Some((anns.collect(), optional))
 }
 
 /// The heap tag every value of the single-family heap type `ty` wears.

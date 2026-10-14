@@ -22,24 +22,33 @@ use crate::ast_collect_fn_closure::{FnToClosureCollector, is_fn_like_field_ann};
 /// with a multi-argument generic (`{ m: Map<string, number> }` →
 /// `__inlobj(m:Map<string|number>)`) in half.
 pub(crate) fn parse_inlobj_field_anns(ann: &str) -> Option<HashMap<String, String>> {
+    let fields = inlobj_fields(ann)?;
+    Some(fields.into_iter().map(|(k, _, a)| (k, a)).collect())
+}
+
+/// [`parse_inlobj_field_anns`] with each field's optional mark (`m?`
+/// or `m??` in the encoding: a member written `m?: T`).
+pub(crate) fn inlobj_fields(ann: &str) -> Option<Vec<(String, bool, String)>> {
     let t = ann.trim();
     let t = t
         .strip_prefix("__nullable(")
         .and_then(|r| r.strip_suffix(')'))
         .unwrap_or(t);
     let body = t.strip_prefix("__inlobj(")?.strip_suffix(')')?;
-    let mut map = HashMap::new();
+    let mut out = Vec::new();
     if body.trim().is_empty() {
-        return Some(map);
+        return Some(out);
     }
     for seg in crate::check_type_ann::split_top_pipe(body) {
         let colon = seg.find(':')?;
-        map.insert(
-            seg[..colon].trim().trim_end_matches('?').to_string(),
+        let name = seg[..colon].trim();
+        out.push((
+            name.trim_end_matches('?').to_string(),
+            name.ends_with('?'),
             seg[colon + 1..].trim().to_string(),
-        );
+        ));
     }
-    Some(map)
+    Some(out)
 }
 
 /// Chunk 795 — split a generic-instantiation arg list at depth-0

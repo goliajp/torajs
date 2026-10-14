@@ -176,6 +176,7 @@ impl Parser<'_> {
         let optional = matches!(self.peek(), Token::Question);
         if optional {
             self.pos += 1;
+            self.ast.optional_members.unnamed = true;
         }
         // `m(p: T): R` — a MethodSignature, which TS reads as the
         // property holding a `(p: T) => R`, so nothing downstream

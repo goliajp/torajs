@@ -50,11 +50,7 @@ impl Ast {
     ) {
         let plain_optional = fields
             .iter()
-            .filter(|(k, _)| {
-                self.optional_members
-                    .plain
-                    .contains(&(name.to_string(), k.clone()))
-            })
+            .filter(|(k, _)| self.optional_members.plain_at(name, k))
             .map(|(k, _)| k.clone())
             .collect();
         (type_params.to_vec(), fields.to_vec(), plain_optional)

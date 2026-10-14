@@ -95,6 +95,8 @@ impl<'a> Parser<'a> {
                 .plain
                 .insert((name.to_string(), member_name.clone()));
             ty = format!("__nullable({ty})");
+        } else if marker.is_optional() {
+            self.ast.optional_members.unnamed = true;
         }
         let visibility = explicit_visibility.unwrap_or(ast::Visibility::Public);
         if visibility != ast::Visibility::Public {

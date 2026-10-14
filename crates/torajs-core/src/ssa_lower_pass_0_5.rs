@@ -135,10 +135,7 @@ pub(crate) fn run(
                 || num_f64_slots.is_nominal_alias(name))
             .then(|| crate::num_width::SlotKey::Class(name.clone()));
             for (fname, fty_ann) in fields {
-                let plain_optional = ast
-                    .optional_members
-                    .plain
-                    .contains(&(name.clone(), fname.clone()));
+                let plain_optional = ast.optional_members.plain_at(name, fname);
                 let mut ty = parse_struct_field_type(
                     fty_ann.as_str(),
                     plain_optional,

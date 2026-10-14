@@ -20,4 +20,27 @@ pub struct OptionalMembers {
     /// Every optional member of a type or class declaration whose
     /// written type spells neither `null` nor `undefined`.
     pub plain: HashSet<(String, PropKey)>,
+    /// Some optional member neither set names: an inline object type's
+    /// (`p: { a?: T }`), or a class field whose written type spells
+    /// `null` / `undefined`.
+    pub unnamed: bool,
+}
+
+impl OptionalMembers {
+    /// Whether the program writes no optional member (`m?`) at all.
+    pub fn none(&self) -> bool {
+        self.all.is_empty() && self.plain.is_empty() && !self.unnamed
+    }
+
+    /// Whether the declaration `owner` marks `key` optional ([`Self::all`]).
+    /// The key is built only when the set has a member.
+    pub fn declared(&self, owner: &str, key: &PropKey) -> bool {
+        !self.all.is_empty() && self.all.contains(&(owner.to_string(), key.clone()))
+    }
+
+    /// Whether `key` is a plain optional member of `owner`
+    /// ([`Self::plain`]).
+    pub fn plain_at(&self, owner: &str, key: &PropKey) -> bool {
+        !self.plain.is_empty() && self.plain.contains(&(owner.to_string(), key.clone()))
+    }
 }

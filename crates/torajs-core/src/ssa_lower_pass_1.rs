@@ -137,6 +137,7 @@ pub(crate) fn run(
     let mut fn_dflt_lits: HashMap<FuncId, Vec<Option<crate::ssa_lower_boxed_entry::DfltLit>>> =
         HashMap::new();
 
+    crate::ssa_lower_intrinsics_any_cast::declare_members(module, fn_table, ast);
     // Pass 0.4 — register every Pass-0 intrinsic's signature in
     // `fn_sig_ids`. The call-site coercion arm later (`Expr::Call`
     // lowering, F64↔I64 directions) needs the param type list to

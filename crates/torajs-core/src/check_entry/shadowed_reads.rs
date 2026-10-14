@@ -46,6 +46,9 @@ impl ShadowedReads {
     /// Whether a run seeded with `more` too would answer some read of
     /// this run otherwise.
     pub(crate) fn would_retype(&self, more: &ShadowedNames) -> bool {
+        if more.is_subset(&self.names) {
+            return false;
+        }
         let mut grown = self.names.clone();
         grown.extend(more.clone());
         let flips = |n: &String, number: bool| {

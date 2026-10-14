@@ -23,8 +23,10 @@ pub(super) fn collect(a: &Analysis<'_>) -> HashSet<PropKey> {
 /// in two places: a declaration records it on the AST, an inline object
 /// type (`p: { a?: number }`) only in the checker's struct type, which
 /// is where every struct type that reaches an expression ends up
-/// anyway.
-pub(crate) fn names(ast: &Ast, expr_types: &HashMap<ExprId, Type>) -> HashSet<PropKey> {
+/// anyway. Also whether some struct type an expression has holds an
+/// optional member of any type (one the checker joined from literals,
+/// `c ? { a: 1 } : {}`, among them).
+pub(crate) fn names(ast: &Ast, expr_types: &HashMap<ExprId, Type>) -> (HashSet<PropKey>, bool) {
     let mut out = HashSet::new();
     for stmt in &ast.stmts {
         let Stmt::TypeDecl { name, fields, .. } = stmt else {
@@ -32,41 +34,42 @@ pub(crate) fn names(ast: &Ast, expr_types: &HashMap<ExprId, Type>) -> HashSet<Pr
         };
         for (k, ann) in fields {
             if ann == crate::ssa_lower_parse_type::OPTIONAL_NUMBER_ANN
-                && ast
-                    .optional_members
-                    .plain
-                    .contains(&(name.clone(), k.clone()))
+                && ast.optional_members.plain_at(name, k)
             {
                 out.insert(k.clone());
             }
         }
     }
+    let mut optional = false;
     for t in expr_types.values() {
-        walk(t, &mut out);
+        walk(t, &mut out, &mut optional);
     }
-    out
+    (out, optional)
 }
 
-fn walk(t: &Type, out: &mut HashSet<PropKey>) {
+fn walk(t: &Type, out: &mut HashSet<PropKey>, optional: &mut bool) {
     match t {
         Type::Struct(fs) => {
+            *optional |= !fs.optional().is_empty();
             for (k, ft) in fs.iter() {
                 if fs.is_optional(k) && matches!(ft, Type::Nullable(n) if **n == Type::Number) {
                     out.insert(k.clone());
                 }
-                walk(ft, out);
+                walk(ft, out, optional);
             }
         }
-        Type::Array(t) | Type::Nullable(t) | Type::Promise(t) | Type::Rest(t) => walk(t, out),
+        Type::Array(t) | Type::Nullable(t) | Type::Promise(t) | Type::Rest(t) => {
+            walk(t, out, optional)
+        }
         Type::Map(k, v) => {
-            walk(k, out);
-            walk(v, out);
+            walk(k, out, optional);
+            walk(v, out, optional);
         }
         Type::Function(ps, r) => {
             for p in ps {
-                walk(p, out);
+                walk(p, out, optional);
             }
-            walk(r, out);
+            walk(r, out, optional);
         }
         _ => {}
     }

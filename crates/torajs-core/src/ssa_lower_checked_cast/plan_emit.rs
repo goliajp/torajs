@@ -60,12 +60,16 @@ impl LowerCtx<'_> {
         self.anon_stamp_pool.borrow_mut().note_cast_plan(id);
         let block = self.cur_block;
         let (plan_bits, vtables) = emit_plan_operands(self.f, block, id, &plan.vtables);
+        let kernel = match plan.members {
+            true => *(self
+                .fn_table
+                .get(crate::ssa_lower_intrinsics_any_cast::MEMBERS_CAST))
+            .expect("a plan with a member declares its cast"),
+            false => self.intrinsics.anyv_cast_obj,
+        };
         let v = self.f.append_inst(
             self.cur_block,
-            InstKind::Call(
-                self.intrinsics.anyv_cast_obj,
-                vec![op, plan_bits, vtables, site],
-            ),
+            InstKind::Call(kernel, vec![op, plan_bits, vtables, site]),
             ty,
             None,
         );

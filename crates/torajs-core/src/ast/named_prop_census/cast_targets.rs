@@ -374,16 +374,8 @@ impl<'a> Census<'a> {
         };
         let name = decl;
         for (k, ann) in fields {
-            self.optional |= self
-                .ast
-                .optional_members
-                .all
-                .contains(&(name.to_string(), k.clone()));
-            let plain_optional = self
-                .ast
-                .optional_members
-                .plain
-                .contains(&(name.to_string(), k.clone()));
+            self.optional |= self.ast.optional_members.declared(name, &k);
+            let plain_optional = self.ast.optional_members.plain_at(name, &k);
             if plain_optional
                 && ann == crate::ssa_lower_parse_type::OPTIONAL_NUMBER_ANN
                 && self.optional_number.contains(&k)
