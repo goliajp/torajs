@@ -170,7 +170,8 @@ pub(crate) fn lower_symbol_dispatch_pattern(
         }
         SymbolDispatchKind::MatchAll => {
             let inner_id = crate::ssa_lower::intern_arr_layout(ctx.arr_layouts, Type::Str);
-            let outer_id = crate::ssa_lower::intern_arr_layout(ctx.arr_layouts, Type::Arr(inner_id));
+            let outer_id =
+                crate::ssa_lower::intern_arr_layout(ctx.arr_layouts, Type::Arr(inner_id));
             let arr_v = ctx.f.append_inst(
                 ctx.cur_block,
                 InstKind::Call(
