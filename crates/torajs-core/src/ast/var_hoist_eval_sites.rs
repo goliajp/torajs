@@ -35,11 +35,16 @@ pub struct EvalGlobalNames {
     /// binds there, and an earlier text's reads cannot be told apart
     /// from reads before any text ran.
     pub multi_text_fns: std::collections::HashSet<String>,
-    /// The placeholders (`undefined;`) at the head of a text, one per
-    /// block function that may take a §B.3.2.3 `var`, by the
-    /// placeholder's expression. Whether it does is the lift's verdict;
-    /// [`mark_eval_var_sites`] reads it off the name's flavour.
-    pub annexb_heads: std::collections::HashMap<ExprId, String>,
+    /// The placeholders (`undefined;`) at the head of a text that bind
+    /// a name there, by the placeholder's expression: one per block
+    /// function that may take a §B.3.2.3 `var` (whether it does is the
+    /// lift's verdict), and one per `var` of a text evaluated as an
+    /// expression, whose own `var`s became assignments.
+    /// [`mark_eval_var_sites`] reads the verdict off the name's flavour.
+    pub heads: std::collections::HashMap<ExprId, String>,
+    /// The `var` sites that declare a name for an eval's text without
+    /// binding it: the text's own head binds it (`heads`).
+    pub inert_sites: std::collections::HashSet<ExprId>,
 }
 
 /// The hidden slot (`script_global_fns`) of a function an eval's text
@@ -92,14 +97,28 @@ pub(super) fn eval_flavor(
 /// and must not raise the ReferenceError every other read of a name
 /// not yet bound raises (`ssa_lower_ident_site_bound`).
 ///
-/// A block function's head placeholder becomes the same
-/// self-assignment when the lift gave the name a site-bound `var`, and
-/// stays inert otherwise.
+/// A head placeholder becomes the same self-assignment, in place, when
+/// its name is site-bound, and stays inert otherwise; a placeholder may
+/// sit in a function body (the IIFE an expression-position eval
+/// becomes), where the walk does not go.
 pub(super) fn mark_eval_var_sites(top: &mut [Stmt], ast: &mut Ast) {
     let sites = std::mem::take(&mut ast.eval_var_sites);
-    let heads = std::mem::take(&mut ast.eval_global_names.annexb_heads);
+    let mut heads: Vec<(ExprId, String)> = std::mem::take(&mut ast.eval_global_names.heads)
+        .into_iter()
+        .collect();
+    heads.sort_unstable_by_key(|(e, _)| e.0);
+    for (mark, name) in heads {
+        if let Some(flavor @ (ScriptGlobalVar::EvalVar | ScriptGlobalVar::ScriptVar)) =
+            ast.script_global_var_names.get(&name).copied()
+        {
+            let target = ast.add_expr(Expr::Ident(name.clone()));
+            let value = ast.add_expr(Expr::Ident(name));
+            ast.eval_var_sites.insert(value, flavor);
+            ast.exprs[mark.0 as usize] = Expr::Assign { target, value };
+        }
+    }
     for s in top.iter_mut() {
-        mark_stmt(s, ast, &sites, &heads);
+        mark_stmt(s, ast, &sites);
     }
 }
 
@@ -107,19 +126,7 @@ fn mark_stmt(
     s: &mut Stmt,
     ast: &mut Ast,
     sites: &std::collections::HashMap<ExprId, ScriptGlobalVar>,
-    heads: &std::collections::HashMap<ExprId, String>,
 ) {
-    if let Stmt::Expr(mark) = s
-        && let Some(name) = heads.get(mark)
-        && let Some(flavor @ (ScriptGlobalVar::EvalVar | ScriptGlobalVar::ScriptVar)) =
-            ast.script_global_var_names.get(name).copied()
-    {
-        let target = ast.add_expr(Expr::Ident(name.clone()));
-        let value = ast.add_expr(Expr::Ident(name.clone()));
-        ast.eval_var_sites.insert(value, flavor);
-        *mark = ast.add_expr(Expr::Assign { target, value });
-        return;
-    }
     if let Stmt::LetDecl {
         name,
         init,
@@ -134,6 +141,7 @@ fn mark_stmt(
         if site_bound
             && let Some(flavor) = sites.get(init)
             && matches!(ast.exprs[init.0 as usize], Expr::Uninit)
+            && !ast.eval_global_names.inert_sites.contains(init)
         {
             *init = ast.add_expr(Expr::Ident(name.clone()));
             ast.eval_var_sites.insert(*init, *flavor);
@@ -144,6 +152,6 @@ fn mark_stmt(
         return;
     }
     for c in walk::stmt_children(s) {
-        mark_stmt(c, ast, sites, heads);
+        mark_stmt(c, ast, sites);
     }
 }

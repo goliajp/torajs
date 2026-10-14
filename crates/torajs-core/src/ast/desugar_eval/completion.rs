@@ -218,9 +218,12 @@ pub(super) fn wrap_iife(i: usize, body: Vec<Stmt>, ast: &mut Ast) {
 /// binding; a name the program declares nowhere gets a `var` of its
 /// own at the head of the script, filed as an eval-declared site so
 /// the hoist gives it the eval flavour (§19.2.1.3: a deletable global).
+/// That declaration binds nothing (`inert_sites`): the eval binds the
+/// name when it runs, at the head of its text (a placeholder in
+/// `heads`), and not at program start.
 /// A call site inside a function keeps the sealed frame — the
 /// function's own var scope is not reachable from here (registered).
-fn hoist_sloppy_vars_to_script(body: &mut [Stmt], ast: &mut Ast) {
+fn hoist_sloppy_vars_to_script(body: &mut Vec<Stmt>, ast: &mut Ast) {
     let mut counts = std::collections::HashMap::new();
     super::super::var_hoist::count_var_names(body, &mut counts);
     if counts.is_empty() {
@@ -245,6 +248,10 @@ fn hoist_sloppy_vars_to_script(body: &mut [Stmt], ast: &mut Ast) {
         let init = ast.add_expr(Expr::Uninit);
         ast.eval_var_sites
             .insert(init, super::super::var_hoist::ScriptGlobalVar::EvalVar);
+        ast.eval_global_names.inert_sites.insert(init);
+        let mark = ast.add_expr(Expr::Ident("undefined".to_string()));
+        ast.eval_global_names.heads.insert(mark, name.clone());
+        body.insert(0, Stmt::Expr(mark));
         ast.stmts.insert(
             0,
             Stmt::LetDecl {

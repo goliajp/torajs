@@ -17,7 +17,7 @@
 //! must not see a `var` of the name it did not write — a `var f` in the
 //! scope changes what the block function's own references to `f`
 //! mean. So the head of the text gets an inert placeholder per
-//! candidate name instead (`EvalGlobalNames::annexb_heads`), which the
+//! candidate name instead (`EvalGlobalNames::heads`), which the
 //! `var` hoist turns into the binding self-assignment only when the
 //! lift did give the name its `var` (`var_hoist_eval_sites`). A name a
 //! lexical declaration of the program, or of a scope of the text that
@@ -78,7 +78,7 @@ pub(super) fn prepend_global_instantiation(inlined: &mut Vec<Stmt>, ast: &mut As
         .map(|(name, block_fn)| {
             if block_fn {
                 let mark = ast.add_expr(Expr::Ident("undefined".to_string()));
-                ast.eval_global_names.annexb_heads.insert(mark, name);
+                ast.eval_global_names.heads.insert(mark, name);
                 return Stmt::Expr(mark);
             }
             Stmt::LetDecl {
