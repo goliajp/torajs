@@ -1,12 +1,13 @@
 //! Member calls on a builtin namespace receiver (`Promise.*`,
-//! `Array.from`, `Object.defineProperty`, `Reflect.set` /
-//! `Reflect.deleteProperty`): the receiver is no
+//! `Array.from`, `Object.defineProperty`, `Object.assign`,
+//! `Reflect.set` / `Reflect.deleteProperty`): the receiver is no
 //! container, so each wires its own edges. Also the value properties
 //! of `Math` and `Number`, which no container lattice holds. Split from
 //! `container_methods.rs` (file-size limit).
 
-use super::{Analysis, Scope, SlotKey};
-use crate::ast::{Expr, ExprId};
+use super::magnitude::Mag;
+use super::{Analysis, Scope, SlotKey, W};
+use crate::ast::{Expr, ExprId, PropKey};
 
 impl<'a> Analysis<'a> {
     /// A call on a builtin namespace receiver (`Promise.*`,
@@ -90,7 +91,54 @@ impl<'a> Analysis<'a> {
             }
             return true;
         }
+        if let Expr::Ident(ns) = self.ast.get_expr(obj)
+            && ns == "Object"
+            && self.resolve(ns, scope).is_none()
+            && name == "assign"
+        {
+            self.assign_wiring(args, scope);
+            return true;
+        }
         false
+    }
+
+    /// §20.1.2.1 `Object.assign(target, ...sources)` reads each own
+    /// property of a source and [[Set]]s it on the target: every source
+    /// field writes the target field of its name, so the target's
+    /// field takes the source field's width as `t.k = s.k` gives it. A
+    /// getter half answers what its body returns, which no field holds:
+    /// it writes an f64.
+    fn assign_wiring(&mut self, args: &[ExprId], scope: &Scope) {
+        let Some(rk) = args.first().and_then(|t| self.container_key_of(*t, scope)) else {
+            return;
+        };
+        self.mark_containerish(&rk);
+        for s in args.iter().skip(1) {
+            let Some(crate::check::Type::Struct(fs)) = self.expr_types.get(s) else {
+                continue;
+            };
+            let sk = self.container_key_of(*s, scope);
+            for (k, _) in fs.iter() {
+                let (key, getter) = match k
+                    .as_wtf8()
+                    .as_str()
+                    .and_then(|n| n.strip_prefix("__getter_"))
+                {
+                    Some(p) => (PropKey::from(p), true),
+                    None => (k.clone(), false),
+                };
+                let flow = match &sk {
+                    Some(sk) if !getter => {
+                        let fk = SlotKey::Field(Box::new(sk.clone()), key.clone());
+                        let name = key.lossy().into_owned();
+                        let mag = Mag::Max(vec![Mag::Slot(fk.clone()), Mag::Prop(name)]);
+                        (W::Num(vec![(fk, false)]), mag)
+                    }
+                    _ => super::magnitude::f64_flow(),
+                };
+                self.add_container_constraint(SlotKey::Field(Box::new(rk.clone()), key), flow);
+            }
+        }
     }
 
     /// `Math.PI` / `Number.EPSILON` and their siblings (§21.3.1,

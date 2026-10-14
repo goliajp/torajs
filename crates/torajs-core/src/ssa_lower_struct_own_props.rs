@@ -165,6 +165,17 @@ pub(crate) fn emit_prop_store(
             if !owned && ty.is_refcounted() {
                 ctx.emit_rc_inc(value);
             }
+            // the width analysis joins the target field with the
+            // source's, so an integer source may meet an f64 slot but
+            // never the reverse
+            let value = match (ty, val_ty) {
+                (Type::F64, Type::I64) => ctx.coerce_to_f64(value),
+                (Type::I64, Type::F64) => panic!(
+                    "ssa-lower: f64 property into an i64 struct field — \
+                     container width analysis missed this write"
+                ),
+                _ => value,
+            };
             let cur = ctx.cur_block;
             ctx.f.append_void(cur, InstKind::Store(value, *obj, off));
         }
