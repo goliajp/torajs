@@ -33,6 +33,10 @@ impl ShadowedReads {
     /// Whether the read of the member `name` (a `number` member when
     /// `number`) types `any`, noting that it asked.
     pub(crate) fn retypes(&mut self, name: &str, number: bool) -> bool {
+        // a member the compiler mints never mistypes, whatever grows
+        if name.starts_with("__") {
+            return false;
+        }
         let asked = match number {
             true => &mut self.asked_number,
             false => &mut self.asked_other,

@@ -27,7 +27,7 @@ use std::cell::OnceCell;
 use std::collections::{HashMap, HashSet};
 
 use super::accessor_names::{AccessorFieldNames, Reach};
-use super::write_hit::{Hit, Kind, any_receiver, call, literal, spare, write};
+use super::write_hit::{Hit, Kind, any_receiver, call, candidates, literal, spare, write};
 use crate::ast::{Ast, Expr, ExprId, PropKey};
 use crate::check::{GenericAliasMap, Lit, Type};
 use crate::ssa_lower_pass_0_5::arr_head_census::TwinBodies;
@@ -95,7 +95,7 @@ impl AccessorFieldNames {
             expr_types,
             &optional_number,
             &|n| fields.may(n),
-            &OnceCell::new(),
+            &ProgramWrites::default(),
         );
         // a cast reaches no optional member in a program that has none
         if typed_optional || !ast.optional_members.none() {
@@ -157,21 +157,26 @@ pub struct ShadowedNames {
 
 impl ShadowedNames {
     pub fn of(ast: &Ast, expr_types: &HashMap<ExprId, Type>) -> Self {
-        ShadowedNames::of_shared(ast, expr_types, &OnceCell::new())
+        ShadowedNames::of_shared(ast, expr_types, &ProgramWrites::default())
     }
 
     /// [`ShadowedNames::of`] under one of the runs of a fixpoint over
-    /// `ast`, which share what `twins` reads off the program alone.
+    /// `ast`, which share what `program` reads off the program alone.
     pub(crate) fn of_shared<'a>(
         ast: &'a Ast,
         expr_types: &HashMap<ExprId, Type>,
-        twins: &OnceCell<TwinBodies<'a>>,
+        program: &ProgramWrites<'a>,
     ) -> Self {
-        let accessor = ast.accessor_field_names.may_settled(ast, expr_types);
-        let names = writes(ast, expr_types, &HashSet::new(), &accessor, twins);
+        let settled = OnceCell::new();
+        let accessor = |n: &str| {
+            (settled.get_or_init(|| ast.accessor_field_names.may_settled(ast, expr_types)))(n)
+        };
+        let names = writes(ast, expr_types, &HashSet::new(), &accessor, program);
+        // a member the compiler mints never mistypes (`may_mistype`)
+        let user = |n: &String| !n.starts_with("__");
         ShadowedNames {
-            unknown: names.unknown,
-            number: names.number,
+            unknown: names.unknown.into_iter().filter(user).collect(),
+            number: names.number.into_iter().filter(user).collect(),
         }
     }
 
@@ -205,6 +210,15 @@ impl ShadowedNames {
     }
 }
 
+/// What the census reads off the program alone, whatever the types:
+/// the expressions that may write a member, and the twin bodies. The
+/// runs of one fixpoint over the program share it.
+#[derive(Default)]
+pub(crate) struct ProgramWrites<'a> {
+    writes: OnceCell<Vec<ExprId>>,
+    twins: OnceCell<TwinBodies<'a>>,
+}
+
 /// Every write of the program, by the names it reaches. A
 /// receiver-polymorphic twin's writes count like any other once the
 /// twin can run: it types its receiver, parameters and locals `any`, so
@@ -215,15 +229,26 @@ impl ShadowedNames {
 /// any kind, so the census repeats while the set grows by a member some
 /// verdict of the pass asked about. The receiver, the twin and the
 /// layout facts a write needs are gathered on the first write that asks
-/// for them; `twins` reads the program alone, so the runs of one
-/// fixpoint share it.
+/// for them.
 fn writes<'a>(
     ast: &'a Ast,
     expr_types: &HashMap<ExprId, Type>,
     optional_number: &HashSet<PropKey>,
     accessor: &dyn Fn(&str) -> bool,
-    twins: &OnceCell<TwinBodies<'a>>,
+    program: &ProgramWrites<'a>,
 ) -> Names {
+    // a literal writes only an optional `number` member
+    let with_literals;
+    let sites: &[ExprId] = match optional_number.is_empty() {
+        true => program.writes.get_or_init(|| candidates(ast, false)),
+        false => {
+            with_literals = candidates(ast, true);
+            &with_literals
+        }
+    };
+    if sites.is_empty() {
+        return Names::default();
+    }
     // built only when some write's value needs its number-ness judged
     let layouts = OnceCell::new();
     // traced only when some write names a member through the any lane
@@ -232,7 +257,7 @@ fn writes<'a>(
     // settled only when a write inside some twin names a member
     let dead_twins = OnceCell::new();
     let dead = |id: ExprId| {
-        let twins = twins.get_or_init(|| TwinBodies::of(ast));
+        let twins = program.twins.get_or_init(|| TwinBodies::of(ast));
         twins.in_twin(id) && (dead_twins.get_or_init(|| twins.idle(expr_types))).contains(id)
     };
     let mut unknown: HashSet<String> = HashSet::new();
@@ -247,7 +272,8 @@ fn writes<'a>(
             accessor,
         };
         let mut names = Names::default();
-        for (i, e) in ast.exprs.iter().enumerate() {
+        for &id in sites {
+            let e = ast.get_expr(id);
             let (hit, target) = match e {
                 Expr::Assign { target, value } => {
                     (write(&facts, *target, Some(*value)), Some(*target))
@@ -270,7 +296,7 @@ fn writes<'a>(
                 _ => None,
             };
             let hit = spare(&origins, recv, hit);
-            if !matches!(hit, Hit::None) && !dead(ExprId(i as u32)) {
+            if !matches!(hit, Hit::None) && !dead(id) {
                 names.take(hit);
             }
         }

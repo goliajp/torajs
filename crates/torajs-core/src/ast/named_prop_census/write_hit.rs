@@ -59,6 +59,32 @@ pub(super) fn spare<'a>(
     }
 }
 
+/// The expressions that may write a member: a store or a step through
+/// a member or a key, a call spelled `Reflect.set` / `Object.assign`,
+/// and, with `literals`, an object literal (an expression of any other
+/// kind reaches no name, whatever its type).
+pub(super) fn candidates(ast: &Ast, literals: bool) -> Vec<ExprId> {
+    let member = |t: &ExprId| matches!(ast.get_expr(*t), Expr::Member { .. } | Expr::Index { .. });
+    (ast.exprs.iter().enumerate())
+        .filter(|(_, e)| match e {
+            Expr::Assign { target, .. } | Expr::PostIncr { target, .. } => member(target),
+            Expr::Call { callee, .. } | Expr::OptCall { callee, .. } => bulk(ast, *callee),
+            Expr::ObjectLit { .. } => literals,
+            _ => false,
+        })
+        .map(|(i, _)| ExprId(i as u32))
+        .collect()
+}
+
+/// A callee spelled `Reflect.set` or `Object.assign` ([`call`]).
+fn bulk(ast: &Ast, callee: ExprId) -> bool {
+    let Expr::Member { obj, name } = ast.get_expr(callee) else {
+        return false;
+    };
+    matches!(ast.get_expr(*obj), Expr::Ident(b)
+        if (b == "Reflect" && name == "set") || (b == "Object" && name == "assign"))
+}
+
 /// A write to `target`, with `value` its rhs (none for `++` / `--`,
 /// whose result is a number unless the old value was a BigInt the
 /// sidecar already holds).

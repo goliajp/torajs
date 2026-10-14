@@ -62,10 +62,10 @@ fn fixpoint_with(ast: &Ast, widen_ret_declared: bool, hidden: &HashSet<ExprId>) 
     c.widen_ret_declared = widen_ret_declared;
     c.hidden_any_args = hidden.clone();
     c.run_full_pipeline(ast);
-    let twins = std::cell::OnceCell::new();
+    let program = Default::default();
     loop {
         let found = crate::let_widen::collect_cross_type_widen_inits(ast, Some(&c.expr_types));
-        let shadowed = crate::ast::ShadowedNames::of_shared(ast, &c.expr_types, &twins);
+        let shadowed = crate::ast::ShadowedNames::of_shared(ast, &c.expr_types, &program);
         let retypes = c.shadowed_reads.would_retype(&shadowed);
         if found.is_subset(&c.cross_type_widened) && !retypes && !c.face_slot_reads.stale {
             // no read answers otherwise under the grown set: a run
