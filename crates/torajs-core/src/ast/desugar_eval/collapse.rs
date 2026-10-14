@@ -118,7 +118,8 @@ pub(super) fn decl_names(stmts: &[Stmt], out: &mut Vec<String>) {
 }
 
 /// Could the program reach a global binding of this name? Any
-/// identifier spelling it, any member access naming it (`this.x`), or
+/// identifier spelling it (`new f()` included, which keeps the name
+/// on the node), any member access naming it (`this.x`), or
 /// any string literal equal to it (`'x' in this`,
 /// `getOwnPropertyDescriptor(this, "x")`) counts. So does the name
 /// appearing as an identifier token inside the literal SOURCE of
@@ -134,7 +135,7 @@ pub(super) fn decl_names(stmts: &[Stmt], out: &mut Vec<String>) {
 pub(super) fn name_mentioned(ast: &Ast, name: &str, limit: usize, self_call: ExprId) -> bool {
     let scanned = &ast.exprs[..limit.min(ast.exprs.len())];
     scanned.iter().any(|e| match e {
-        Expr::Ident(n) => n == name,
+        Expr::Ident(n) | Expr::New { class_name: n, .. } => n == name,
         Expr::Member { name: n, .. } | Expr::OptChain { name: n, .. } => n == name,
         Expr::String(s) => s == name,
         _ => false,
