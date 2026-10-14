@@ -22,7 +22,9 @@
 //!   what we do here — single-pass back-edge collection + body
 //!   discovery + nest-depth assignment)
 
-use crate::ssa::dominator::{Adjacency, DominatorTree, id_span, predecessors, targets};
+use crate::ssa::dominator::{
+    Adjacency, DominatorTree, id_span, memoized_loops, predecessors, targets,
+};
 use crate::ssa::{BlockId, Function};
 
 /// One natural loop, identified by its header block. A header may
@@ -63,7 +65,17 @@ pub struct LoopAnalysis {
 impl LoopAnalysis {
     /// Run natural-loop detection. Requires a precomputed dominator
     /// tree (the same one the optimize / elaborate phases use).
+    ///
+    /// The loops found last for a function of the same name, control
+    /// flow and tree are handed out again (`dominator::memo`).
     pub fn compute(func: &Function, dom: &DominatorTree) -> Self {
+        if func.blocks.is_empty() {
+            return Self::build(func, dom);
+        }
+        memoized_loops(func, dom, || Self::build(func, dom))
+    }
+
+    fn build(func: &Function, dom: &DominatorTree) -> Self {
         let n = id_span(func);
         let mut loops: Vec<NaturalLoop> = Vec::new();
         let mut nest_depth = vec![0u32; n];

@@ -18,9 +18,11 @@
 use crate::ssa::{BlockId, Function, Terminator};
 
 mod lists;
+mod memo;
 
 pub(crate) use lists::{Adjacency, predecessors};
 use lists::{build_children, tree_intervals};
+pub(crate) use memo::loops as memoized_loops;
 
 /// Immediate-dominator table + reverse-postorder traversal of the CFG.
 ///
@@ -64,8 +66,17 @@ pub struct DominatorTree {
 impl DominatorTree {
     /// Compute the domtree for `func`. The entry is the first block in
     /// layout order, whatever its id; if the function has no blocks
-    /// this returns an empty tree (every query returns `None`).
+    /// this returns an empty tree (every query returns `None`). The
+    /// tree built last for a function of the same name and control
+    /// flow is handed out again ([`memo`]).
     pub fn compute(func: &Function) -> Self {
+        if func.blocks.is_empty() {
+            return Self::build(func);
+        }
+        memo::tree(func, || Self::build(func))
+    }
+
+    fn build(func: &Function) -> Self {
         let n = id_span(func);
         if n == 0 {
             return Self {
