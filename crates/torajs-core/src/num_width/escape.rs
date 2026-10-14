@@ -106,6 +106,28 @@ impl<'a> Analysis<'a> {
             self.seed_field_faces(key, &fields, path, holders);
             return;
         }
+        // A union slot holds whichever member's value it is handed, so
+        // every member's faces apply to it (`xs: (string | number)[] |
+        // any[]` writes values of any kind through the `any[]` member).
+        if let Some(members) = union_members(ann) {
+            for m in members {
+                self.seed_any_face_on_path(key, m, path, field, holders);
+            }
+            return;
+        }
+        // An array whose element face is a union (`(string | number)[]`)
+        // is written values of more than one kind: a typed array handed
+        // to it takes the other kinds through it, as through `any[]`.
+        if let Some(depth) = union_elem_depth(ann) {
+            if holders {
+                let mut h = key.clone();
+                for _ in 1..depth {
+                    h = SlotKey::Elem(Box::new(h));
+                }
+                self.escape_only_seeds.push(h);
+            }
+            return;
+        }
         let Some((base, depth)) = named_ref(ann) else {
             return;
         };
@@ -261,6 +283,54 @@ fn holds_undefined_number(ann: &str) -> bool {
         .is_some_and(|inner| inner.trim() == "number")
 }
 
+/// The members of a union face `__union(A|B)`, under an optional
+/// `__nullable(..)` wrapper.
+fn union_members(ann: &str) -> Option<Vec<&str>> {
+    let inner = union_inner(crate::check_type_ann::strip_nullable(ann.trim()))?;
+    Some(crate::check_type_ann::split_top_pipe(inner))
+}
+
+/// How many `[]` an array of a union element (`__union(A|B)[]`,
+/// `__nullable(__union(A|B)[])[]`) is deep, or None for any other face.
+fn union_elem_depth(ann: &str) -> Option<usize> {
+    let mut t = ann.trim();
+    let mut depth = 0;
+    loop {
+        if let Some(inner) = t
+            .strip_prefix("__nullable(")
+            .and_then(|r| r.strip_suffix(')'))
+        {
+            t = inner.trim();
+        } else if let Some(inner) = t.strip_suffix("[]") {
+            t = inner.trim_end();
+            depth += 1;
+        } else {
+            break;
+        }
+    }
+    (depth > 0 && union_inner(t).is_some()).then_some(depth)
+}
+
+/// The text inside `__union( .. )` when that marker's parenthesis is
+/// the one closing `t`.
+fn union_inner(t: &str) -> Option<&str> {
+    let inner = t.strip_prefix("__union(")?.strip_suffix(')')?;
+    let mut d: i32 = 0;
+    for b in inner.bytes() {
+        match b {
+            b'(' => d += 1,
+            b')' => {
+                d -= 1;
+                if d < 0 {
+                    return None;
+                }
+            }
+            _ => {}
+        }
+    }
+    (d == 0).then_some(inner)
+}
+
 fn is_any_face(base: &str) -> bool {
     matches!(base, "any" | "unknown" | "object")
 }
@@ -385,6 +455,15 @@ mod tests {
     fn generic_struct_any_field_escapes() {
         let src = "interface Box<T> { v: any; t: T }\nconst c: number[] = [1];\nconst b: Box<number> = { v: c, t: 1 };";
         assert_eq!(escaped(src, &["c"]), [true]);
+    }
+
+    #[test]
+    fn written_union_array_params_escape() {
+        let src = "function f(xs: (string | number)[]) { xs.push(\"s\") }\nfunction g(xs: (string | number)[] | any[]) { xs.push(1) }\nfunction h(xs: (string | number)[] | undefined) { xs!.push(1) }\nfunction r(xs: (string | number)[]) { return xs.length }\nconst a: number[] = [1];\nconst b: string[] = [\"x\"];\nconst c: number[] = [2];\nconst d: number[] = [3];\nf(a); g(b); h(c); r(d);";
+        assert_eq!(
+            escaped(src, &["a", "b", "c", "d"]),
+            [true, true, true, false]
+        );
     }
 
     #[test]
