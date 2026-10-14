@@ -17,6 +17,13 @@
 //!
 //! Any hit routes the body to ArgcMode::Unmapped, where every index
 //! rides the materialized `__torajs_arguments` array.
+//!
+//! The walk matches every statement and expression kind with no
+//! catch-all arm: the rewrites substitute parameters inside every
+//! node, so a node this scan skipped would be rewritten unexamined.
+//! A kind whose contents the scan cannot reason about (a nested
+//! declaration or class, a binding that may shadow a parameter)
+//! answers "hit".
 
 use super::{Ast, Expr, ExprId, Stmt};
 
@@ -28,33 +35,42 @@ enum MutScan {
     View,
     /// The S3 Mapped-admission scan: param and in-range literal
     /// element writes are the POINT (they alias); only the shapes
-    /// that need the materialized array disqualify.
-    MappedBlocker,
+    /// that need the materialized array disqualify. The count is the
+    /// call site's argc: a position at or past it is not mapped.
+    MappedBlocker(usize),
     /// The same question for an argv body ([`super::arguments_object::ArgcMode::MappedArgc`]):
     /// a `...arguments` spread also disqualifies, since it reads the
     /// materialized array, whose mapped slots the parameters own.
     MappedArgvBlocker,
+    /// Does this subtree touch `arguments` at all — asked of the
+    /// scope of a binding that shadows a parameter, where a
+    /// substituted `arguments[k]` would read the inner binding.
+    Touch,
 }
 
 /// True if the body can observe the difference between the FoldTo
 /// snapshot and the real unmapped arguments object — see the module
 /// doc for the three trigger classes.
 pub(super) fn body_mutates_args_view(ast: &Ast, body: &[Stmt], params: &[String]) -> bool {
-    body.iter()
-        .any(|s| stmt_walk(ast, s, params, MutScan::View))
+    stmts_walk(ast, body, params, MutScan::View)
 }
 
 /// RFC 20260810-sloppy-goal-arguments S3 — what disqualifies a
-/// sloppy simple-param static-face body from the Mapped rewrite
-/// (the literal-index param substitution, whose two-way aliasing IS
-/// §10.4.4 CreateMappedArgumentsObject's semantics): an escape, a
-/// non-length member touch, an element delete, or a dynamic /
-/// out-of-range index — those need the materialized array, and a
-/// mapped body must never mix the two views (a dynamic write would
-/// be invisible to a substituted literal read).
-pub(super) fn body_has_mapped_blockers(ast: &Ast, body: &[Stmt], params: &[String]) -> bool {
-    body.iter()
-        .any(|s| stmt_walk(ast, s, params, MutScan::MappedBlocker))
+/// sloppy simple-param static-face body called with `argc` arguments
+/// from the Mapped rewrite (the literal-index param substitution,
+/// whose two-way aliasing IS §10.4.4 CreateMappedArgumentsObject's
+/// semantics): an escape, a non-length member touch, an element
+/// delete, or a dynamic / unmapped index — those need the
+/// materialized array, and a mapped body must never mix the two
+/// views (a dynamic write would be invisible to a substituted
+/// literal read).
+pub(super) fn body_has_mapped_blockers(
+    ast: &Ast,
+    body: &[Stmt],
+    params: &[String],
+    argc: usize,
+) -> bool {
+    stmts_walk(ast, body, params, MutScan::MappedBlocker(argc))
 }
 
 /// Whether an argv body keeps the sloppy goal's mapped arguments
@@ -71,9 +87,7 @@ pub(super) fn argv_body_is_mapped(
         && decl_params
             .iter()
             .all(|p| p.default.is_none() && !p.is_rest && !p.name.starts_with("__param_destr_"))
-        && !body
-            .iter()
-            .any(|s| stmt_walk(ast, s, params, MutScan::MappedArgvBlocker))
+        && !stmts_walk(ast, body, params, MutScan::MappedArgvBlocker)
 }
 
 fn is_arguments_ident(ast: &Ast, eid: ExprId) -> bool {
@@ -88,29 +102,97 @@ fn is_write_target_hit(ast: &Ast, target: ExprId, params: &[String], what: MutSc
         // a dynamic or out-of-range index still disqualifies.
         Expr::Index { obj, index } => {
             is_arguments_ident(ast, *obj)
-                && (what == MutScan::View || !is_mapped_literal_index(ast, *index, params))
+                && (matches!(what, MutScan::View | MutScan::Touch)
+                    || !is_mapped_literal_index(ast, *index, params, what))
         }
         // `p = v` / `p++` on a user param — the aliasing IS the
         // Mapped semantics.
-        Expr::Ident(n) => what == MutScan::View && params.iter().any(|p| p == n),
+        Expr::Ident(n) => what == MutScan::View && is_param(n, params),
+        // A destructuring target binds names inside the pattern: a
+        // parameter there is a parameter write, and an `arguments[k]`
+        // there a write the mapped rewrites do not take apart.
+        Expr::Array(_) | Expr::ObjectLit { .. } => subtree_has_ident(ast, target, &|n| {
+            n == "arguments" || (what == MutScan::View && is_param(n, params))
+        }),
         _ => false,
     }
 }
 
-/// An integer Number literal the substitution arm covers (mirrors
-/// the rewrite's `< params.len()` bound — extras included, which is
-/// observationally exact either way: nothing else writes an extra).
-fn is_mapped_literal_index(ast: &Ast, index: ExprId, params: &[String]) -> bool {
+/// An integer Number literal the substitution arm covers. The bound
+/// mirrors each rewrite: the argv face guards every position with
+/// the hidden argc, the static face substitutes only the positions
+/// its call site passed (an unpassed one is unmapped storage).
+fn is_mapped_literal_index(ast: &Ast, index: ExprId, params: &[String], what: MutScan) -> bool {
+    let bound = match what {
+        MutScan::MappedBlocker(argc) => argc.min(params.len()),
+        MutScan::View | MutScan::MappedArgvBlocker | MutScan::Touch => params.len(),
+    };
     matches!(ast.get_expr(index), Expr::Number(n)
-        if n.fract() == 0.0 && (*n as usize) < params.len())
+        if n.fract() == 0.0 && *n >= 0.0 && (*n as usize) < bound)
+}
+
+fn is_param(name: &str, params: &[String]) -> bool {
+    params.iter().any(|p| p == name)
+}
+
+/// A binding over a parameter's name scoped to `scope`: hit when the
+/// scope touches `arguments`, since a substituted `arguments[k]`
+/// there would name the inner binding.
+fn shadow_hit(ast: &Ast, name: &str, scope: &[&Stmt], params: &[String], what: MutScan) -> bool {
+    what != MutScan::Touch
+        && is_param(name, params)
+        && scope
+            .iter()
+            .any(|s| stmt_walk(ast, s, params, MutScan::Touch))
+}
+
+/// The lexical names a statement of a block declares (a
+/// multi-declaration lists several).
+fn lexical_names<'a>(s: &'a Stmt, out: &mut Vec<&'a str>) {
+    match s {
+        Stmt::LetDecl {
+            name,
+            is_var: false,
+            ..
+        }
+        | Stmt::UsingDecl { name, .. } => out.push(name),
+        Stmt::Multi(v) => v.iter().for_each(|s| lexical_names(s, out)),
+        _ => {}
+    }
+}
+
+fn stmts_walk(ast: &Ast, body: &[Stmt], params: &[String], what: MutScan) -> bool {
+    let mut names = Vec::new();
+    body.iter().for_each(|s| lexical_names(s, &mut names));
+    let scope: Vec<&Stmt> = body.iter().collect();
+    names
+        .iter()
+        .any(|n| shadow_hit(ast, n, &scope, params, what))
+        || body.iter().any(|s| stmt_walk(ast, s, params, what))
 }
 
 fn stmt_walk(ast: &Ast, s: &Stmt, params: &[String], what: MutScan) -> bool {
     match s {
         Stmt::Expr(eid) | Stmt::Throw(eid) | Stmt::Yield(eid) => expr_walk(ast, *eid, params, what),
         Stmt::Return(opt) => opt.is_some_and(|e| expr_walk(ast, e, params, what)),
-        Stmt::LetDecl { init, .. } => expr_walk(ast, *init, params, what),
-        Stmt::YieldInto { value, .. } => expr_walk(ast, *value, params, what),
+        // A redeclared `var` of a parameter is the parameter; its
+        // initializer writes it. A lexical one is scoped to the
+        // enclosing statement list (see `stmts_walk`).
+        Stmt::LetDecl {
+            name, init, is_var, ..
+        } => {
+            name == "arguments"
+                || (*is_var && what == MutScan::View && is_param(name, params))
+                || expr_walk(ast, *init, params, what)
+        }
+        Stmt::UsingDecl { name, init, .. } => {
+            name == "arguments" || expr_walk(ast, *init, params, what)
+        }
+        Stmt::YieldInto { var, value, .. } => {
+            var == "arguments"
+                || (what == MutScan::View && is_param(var, params))
+                || expr_walk(ast, *value, params, what)
+        }
         Stmt::If {
             cond,
             then_branch,
@@ -131,16 +213,28 @@ fn stmt_walk(ast: &Ast, s: &Stmt, params: &[String], what: MutScan) -> bool {
             step,
             body,
         } => {
-            init.as_ref()
-                .is_some_and(|s| stmt_walk(ast, s, params, what))
+            let mut names = Vec::new();
+            if let Some(i) = init {
+                lexical_names(i, &mut names);
+            }
+            names.iter().any(|n| shadow_hit(ast, n, &[s], params, what))
+                || init
+                    .as_ref()
+                    .is_some_and(|s| stmt_walk(ast, s, params, what))
                 || cond.is_some_and(|c| expr_walk(ast, c, params, what))
                 || step.is_some_and(|st| expr_walk(ast, st, params, what))
                 || stmt_walk(ast, body, params, what)
         }
+        // The loop variable either writes a same-named parameter
+        // (`for (a of xs)`) or shadows it (`for (let a of xs)`).
         Stmt::ForOfSplitIter {
-            parent, sep, body, ..
+            var_name,
+            parent,
+            sep,
+            body,
         } => {
-            expr_walk(ast, *parent, params, what)
+            loop_var_hit(ast, var_name, body, params, what)
+                || expr_walk(ast, *parent, params, what)
                 || expr_walk(ast, *sep, params, what)
                 || stmt_walk(ast, body, params, what)
         }
@@ -148,33 +242,62 @@ fn stmt_walk(ast: &Ast, s: &Stmt, params: &[String], what: MutScan) -> bool {
             var_name,
             elem_expr,
             body,
+            forin_obj,
             ..
         } => {
-            // The loop variable rebinds each iteration; a same-named
-            // param is shadowed inside, but treating its writes as
-            // param writes only loses a FoldTo admit — never wrong.
-            let _ = var_name;
-            expr_walk(ast, *elem_expr, params, what) || stmt_walk(ast, body, params, what)
+            loop_var_hit(ast, var_name, body, params, what)
+                || expr_walk(ast, *elem_expr, params, what)
+                || forin_obj.is_some_and(|o| expr_walk(ast, o, params, what))
+                || stmt_walk(ast, body, params, what)
         }
-        Stmt::Block(stmts) | Stmt::Multi(stmts) => {
-            stmts.iter().any(|s| stmt_walk(ast, s, params, what))
+        Stmt::Labeled { body, .. } => stmt_walk(ast, body, params, what),
+        Stmt::Switch {
+            scrutinee,
+            cases,
+            default,
+            ..
+        } => {
+            expr_walk(ast, *scrutinee, params, what)
+                || cases.iter().any(|c| {
+                    expr_walk(ast, c.value, params, what) || stmts_walk(ast, &c.body, params, what)
+                })
+                || default
+                    .as_ref()
+                    .is_some_and(|d| stmts_walk(ast, d, params, what))
         }
+        Stmt::Block(stmts) | Stmt::Multi(stmts) => stmts_walk(ast, stmts, params, what),
         Stmt::Try {
             body,
+            catch_param,
             catch_body,
             finally_body,
             ..
         } => {
-            body.iter().any(|s| stmt_walk(ast, s, params, what))
-                || catch_body.iter().any(|s| stmt_walk(ast, s, params, what))
+            catch_param.as_ref().is_some_and(|c| {
+                c == "arguments"
+                    || shadow_hit(ast, c, &catch_body.iter().collect::<Vec<_>>(), params, what)
+            }) || stmts_walk(ast, body, params, what)
+                || stmts_walk(ast, catch_body, params, what)
                 || finally_body
                     .as_ref()
-                    .is_some_and(|fb| fb.iter().any(|s| stmt_walk(ast, s, params, what)))
+                    .is_some_and(|fb| stmts_walk(ast, fb, params, what))
         }
-        // Nested FnDecl owns its own arguments scope (lifted to
-        // top-level before this pass; defensive).
-        _ => false,
+        Stmt::Break(_) | Stmt::Continue(_) | Stmt::TypeDecl { .. } | Stmt::ImportDecl { .. } => {
+            false
+        }
+        // A nested declaration is lifted out before this pass; one
+        // still here may read the parameters or `arguments` itself.
+        Stmt::FnDecl { .. } | Stmt::ClassDecl { .. } | Stmt::ExportDecl { .. } => true,
     }
+}
+
+/// A for-of variable named like a parameter either writes it (a
+/// mutation the strict snapshot cannot show) or shadows it in the
+/// loop body.
+fn loop_var_hit(ast: &Ast, var: &str, body: &Stmt, params: &[String], what: MutScan) -> bool {
+    var == "arguments"
+        || (what == MutScan::View && is_param(var, params))
+        || shadow_hit(ast, var, &[body], params, what)
 }
 
 fn expr_walk(ast: &Ast, eid: ExprId, params: &[String], what: MutScan) -> bool {
@@ -206,52 +329,82 @@ fn expr_walk(ast: &Ast, eid: ExprId, params: &[String], what: MutScan) -> bool {
         // dynamic read would ride the materialized array, blind to
         // the substituted writes.
         Expr::Index { obj, index } if is_arguments_ident(ast, *obj) => {
-            (what != MutScan::View && !is_mapped_literal_index(ast, *index, params))
+            what == MutScan::Touch
+                || (what != MutScan::View && !is_mapped_literal_index(ast, *index, params, what))
                 || expr_walk(ast, *index, params, what)
         }
         // `arguments.length` — absorbed (folds to the static argc).
-        Expr::Member { obj, name } if name == "length" && is_arguments_ident(ast, *obj) => false,
+        Expr::Member { obj, name } if name == "length" && is_arguments_ident(ast, *obj) => {
+            what == MutScan::Touch
+        }
         // Any OTHER member touch (`arguments.callee`, …) hands out /
         // observes the object itself — no snapshot equivalence.
         Expr::Member { obj, .. } if is_arguments_ident(ast, *obj) => true,
+        // `arguments[k]()` calls with the arguments object as `this`.
+        Expr::Call { callee, .. } | Expr::OptCall { callee, .. }
+            if matches!(ast.get_expr(*callee), Expr::Index { obj, .. } | Expr::Member { obj, .. }
+                if is_arguments_ident(ast, *obj)) =>
+        {
+            true
+        }
         // `...arguments` spread — absorbed: the inline expansion is
         // the snapshot, correct under the same no-write condition. An
         // argv body spreads the materialized array instead.
         Expr::Spread { expr } if is_arguments_ident(ast, *expr) => {
-            what == MutScan::MappedArgvBlocker
+            matches!(what, MutScan::MappedArgvBlocker | MutScan::Touch)
         }
         // A bare `arguments` value use anywhere else is an escape —
         // the alias can be written through invisibly.
-        Expr::Ident(n) if n == "arguments" => true,
-        Expr::Member { obj, .. } | Expr::TypeOf { expr: obj } | Expr::Unary { expr: obj, .. } => {
-            expr_walk(ast, *obj, params, what)
-        }
-        Expr::Index { obj, index } | Expr::OptIndex { obj, index } => {
-            expr_walk(ast, *obj, params, what) || expr_walk(ast, *index, params, what)
-        }
-        Expr::BinOp { left, right, .. } => {
-            expr_walk(ast, *left, params, what) || expr_walk(ast, *right, params, what)
-        }
-        Expr::Call { callee, args } | Expr::OptCall { callee, args } => {
-            expr_walk(ast, *callee, params, what)
-                || args.iter().any(|a| expr_walk(ast, *a, params, what))
-        }
-        Expr::Array(items) => items.iter().any(|e| expr_walk(ast, *e, params, what)),
-        Expr::ObjectLit { fields } => fields.iter().any(|(_, e)| expr_walk(ast, *e, params, what)),
-        Expr::Spread { expr } => expr_walk(ast, *expr, params, what),
-        Expr::Ternary {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            expr_walk(ast, *cond, params, what)
-                || expr_walk(ast, *then_branch, params, what)
-                || expr_walk(ast, *else_branch, params, what)
-        }
-        Expr::Nullish { lhs, rhs } => {
-            expr_walk(ast, *lhs, params, what) || expr_walk(ast, *rhs, params, what)
-        }
-        Expr::OptChain { obj, .. } => expr_walk(ast, *obj, params, what),
-        _ => false,
+        Expr::Ident(n) => n == "arguments",
+        // A lifted closure that captures `arguments` holds the object
+        // itself; one that captures a parameter can write it, which
+        // only the mapped faces' substitution keeps in step.
+        Expr::Closure { captures, .. } => captures
+            .iter()
+            .any(|c| c == "arguments" || (what == MutScan::View && is_param(c, params))),
+        // Function expressions are lifted before this pass.
+        Expr::ArrowFn { .. } => true,
+        Expr::String(_)
+        | Expr::Number(_)
+        | Expr::BigInt { .. }
+        | Expr::Bool(_)
+        | Expr::Uninit
+        | Expr::Regex { .. }
+        | Expr::Null
+        | Expr::This
+        | Expr::NewTarget
+        | Expr::Elision => false,
+        Expr::BinOp { .. }
+        | Expr::Unary { .. }
+        | Expr::Member { .. }
+        | Expr::Call { .. }
+        | Expr::Index { .. }
+        | Expr::Array(_)
+        | Expr::ObjectLit { .. }
+        | Expr::New { .. }
+        | Expr::NewDynamic { .. }
+        | Expr::Super { .. }
+        | Expr::Ternary { .. }
+        | Expr::Sequence { .. }
+        | Expr::As { .. }
+        | Expr::TypeOf { .. }
+        | Expr::InstanceOf { .. }
+        | Expr::Spread { .. }
+        | Expr::Nullish { .. }
+        | Expr::OptChain { .. }
+        | Expr::OptIndex { .. }
+        | Expr::OptCall { .. } => super::desugar_with::walk::expr_children(ast, eid)
+            .into_iter()
+            .any(|c| expr_walk(ast, c, params, what)),
+    }
+}
+
+/// Whether an identifier `pred` accepts appears anywhere under `eid`.
+fn subtree_has_ident(ast: &Ast, eid: ExprId, pred: &dyn Fn(&str) -> bool) -> bool {
+    match ast.get_expr(eid) {
+        Expr::Ident(n) => pred(n),
+        _ => super::desugar_with::walk::expr_children(ast, eid)
+            .into_iter()
+            .any(|c| subtree_has_ident(ast, c, pred)),
     }
 }

@@ -1,0 +1,5 @@
+blockLet 2,2 2,2
+loopLet 3 3
+redeclared 5,5 5,5
+forOf 4,4 4,4
+inner 7 7

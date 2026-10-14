@@ -205,7 +205,7 @@ pub(super) fn classify_argc_mode(
             // materialized array (see ArgcMode::Mapped).
             if ast.body_is_sloppy(body)
                 && !non_simple
-                && !super::arguments_object_mutation::body_has_mapped_blockers(ast, body, params)
+                && !super::arguments_object_mutation::body_has_mapped_blockers(ast, body, params, n)
             {
                 ArgcMode::Mapped(n)
             } else {

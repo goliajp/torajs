@@ -1,0 +1,7 @@
+labeled 1,undefined 1,undefined
+comma 2 2
+deleteInComma 1,undefined 1,undefined
+newArg 9 9
+callThis 1,2 1,2
+awaited 3
+awaitedV 3

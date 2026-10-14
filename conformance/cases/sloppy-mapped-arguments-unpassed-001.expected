@@ -1,0 +1,3 @@
+writeSlot 1,undefined,5,1
+writeParam undefined,6
+passed 3,1

@@ -102,3 +102,21 @@ pub(super) fn callee_value_fn(
     pf.known.insert(fwd.clone());
     Some(CalleeSpelling::Shim(fwd))
 }
+
+/// A sloppy function may repeat a parameter name, and only the last
+/// position binds it; §10.4.4.7 step 15 maps `arguments[k]` to the
+/// name only at that position. Every earlier position gets a name of
+/// its own that no source can spell, so each position keeps its value
+/// and the one-name-per-position rewrites read the right binding.
+pub(super) fn rename_repeated_params(ast: &mut Ast) {
+    for s in &mut ast.stmts {
+        let Stmt::FnDecl { params, .. } = s else {
+            continue;
+        };
+        for i in 0..params.len() {
+            if params[i + 1..].iter().any(|p| p.name == params[i].name) {
+                params[i].name = format!("__param_dup_{i}");
+            }
+        }
+    }
+}
