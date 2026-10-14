@@ -211,7 +211,7 @@ fn lower_any_hit(ctx: &mut LowerCtx<'_>, eid: ExprId, obj_op: Operand, index: Ex
     // 6.2MB flat). The string-literal lane above records inside
     // `lower_any_member_read` (chunk 717).
     if matches!(ctx.expr_types.get(&index), Some(crate::check::Type::String)) {
-        let v = crate::ssa_lower_index::lower_any_index_str_key(ctx, obj_op, index);
+        let v = crate::ssa_lower_index::lower_any_index_str_key(ctx, obj_op, index, false);
         ctx.owned_member_reads.insert(eid);
         return v;
     }

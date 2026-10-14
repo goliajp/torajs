@@ -37,6 +37,21 @@ pub(crate) struct UnionFacts {
     pub(crate) loose_globals: std::collections::HashSet<String>,
 }
 
+impl UnionFacts {
+    /// The expressions typed as a dictionary whose values are numbers.
+    /// Their keyed reads still answer `any` (a key may name an
+    /// inherited member, or the entry may hold anything an `any` alias
+    /// stored); the lowering only uses the fact to try the own entry
+    /// first.
+    pub(crate) fn number_dicts(&self) -> std::collections::HashSet<ExprId> {
+        self.types
+            .iter()
+            .filter(|(_, t)| matches!(t, Type::Dict(_, v) if **v == Type::Number))
+            .map(|(eid, _)| *eid)
+            .collect()
+    }
+}
+
 /// What `typeof` answers for a value of type `t` (ES §13.5.3), when
 /// the type decides it.
 fn typeof_tag(t: &Type) -> Option<&'static str> {

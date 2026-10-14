@@ -342,6 +342,7 @@ pub(crate) fn lower_any_index_str_key(
     ctx: &mut LowerCtx<'_>,
     obj_val: Operand,
     index: ExprId,
+    number_dict: bool,
 ) -> Operand {
     let k_raw = ctx.lower_expr(index);
     let k_ty = ctx.operand_ty(&k_raw);
@@ -350,7 +351,11 @@ pub(crate) fn lower_any_index_str_key(
     let Operand::Value(key_v) = key_op else {
         panic!("ssa-lower: string index key lowered to a non-value operand");
     };
-    let out = emit_any_member_get_pair(ctx, &obj_val, key_v);
+    let out = if number_dict {
+        crate::ssa_lower_index::dict::get(ctx, &obj_val, key_v)
+    } else {
+        emit_any_member_get_pair(ctx, &obj_val, key_v)
+    };
     if owned {
         ctx.emit_drop_value(key_op, Type::Str);
     }
@@ -409,7 +414,7 @@ pub(crate) fn lower_struct_like_index(
         // Chunk 726 convention (OptIndex already does this) —
         // the dynamic-key probe answers a fresh owned box; the
         // eid joins the owned track so the consumer releases.
-        let v = lower_any_index_str_key(ctx, boxed, index);
+        let v = lower_any_index_str_key(ctx, boxed, index, false);
         ctx.owned_member_reads.insert(eid);
         return v;
     }

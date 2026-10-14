@@ -485,6 +485,8 @@ pub struct Ast {
     /// The property and return slots a store hands a function value of
     /// another face, and the calls through any such slot typed `any`.
     pub face_slots: face_slots::FaceSlots,
+    /// Expressions typed `Record<string, number>`: their keyed accesses take the dictionary lane.
+    pub number_dicts: std::collections::HashSet<ExprId>,
     /// Phase H.3.b — method name → declaring classes in source order
     /// (deepest sub last). Used by ssa_lower's `__dispatch_<M>` Call
     /// interception to emit the runtime tag-switch and call the right

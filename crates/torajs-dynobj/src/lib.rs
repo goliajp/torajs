@@ -41,6 +41,7 @@ mod define_struct_shadow;
 mod define_typedarray;
 pub mod define_wrapper;
 pub mod delete;
+pub mod dict;
 pub mod drop;
 pub mod get;
 pub mod global_cell;

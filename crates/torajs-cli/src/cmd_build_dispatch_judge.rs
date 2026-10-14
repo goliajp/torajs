@@ -122,7 +122,7 @@ const SYNTH_ERROR_FNS: [&str; 16] = [
 /// iterable-init adders ride `map_`/`set_` (SET/ADD + the iterable
 /// walk), the iterator protocol rides `any_iter`/`*_iter_`, and
 /// generator steps ride `genfn_`/`closure_install_gen_proto`.
-pub(crate) const PREFIX_FAMILIES: [(&str, u16); 35] = [
+pub(crate) const PREFIX_FAMILIES: [(&str, u16); 36] = [
     // the array toLocaleString kernels walk Invoke(elem,
     // "toLocaleString") over ANY element value — the any-lane walk
     // directly, the typed kernels once the receiver is exotic (an
@@ -193,6 +193,10 @@ pub(crate) const PREFIX_FAMILIES: [(&str, u16); 35] = [
         "__torajs_closure_install_gen_proto",
         fam::FAM_CLOSURE | fam::FAM_ITER,
     ),
+    // a number dictionary's keyed read runs the generic read (getters
+    // included) inside it: what `__torajs_any_accessor_get` keeps in
+    // the coercion table, one exported hop deeper than the census looks
+    ("__torajs_dynobj_dict_", fam::FAM_OBJ_WORLD),
 ];
 
 /// Print-world symbols whose emission proves heap values can reach

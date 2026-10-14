@@ -24,11 +24,14 @@ use torajs_core::ssa::{
 const GOPD: &str = "__torajs_anyv_get_property_descriptor";
 
 /// Readers whose operand 0 is the receiver and operand 1 the key.
-pub(crate) const KEYED_READERS: [&str; 7] = [
+pub(crate) const KEYED_READERS: [&str; 8] = [
     "__torajs_any_member_get_tag",
     "__torajs_any_member_get_value",
     "__torajs_any_member_get_with_receiver",
     "__torajs_any_accessor_get",
+    // a number dictionary's keyed read: the pair read and the
+    // accessor-or-data answer in one call
+    "__torajs_dynobj_dict_get",
     GOPD,
     "__torajs_any_index_get_keyed",
     // typed array `xs.<name>`: the own expando, then the

@@ -40,6 +40,8 @@
 //! Returns `Operand` directly (terminal arm — caller's
 //! `Expr::Index` match arm bottoms out here, no None fall-through).
 
+pub(crate) mod dict;
+
 use crate::ast::ExprId;
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
@@ -165,7 +167,8 @@ pub(crate) fn lower_from_value(
             // Chunk 726 convention (OptIndex already does this) —
             // owned track + release an owned-shape receiver temp,
             // mirroring the numeric lane below.
-            let v = lower_any_index_str_key(ctx, arr_val, index);
+            let number_dict = ctx.ast.number_dicts.contains(&obj);
+            let v = lower_any_index_str_key(ctx, arr_val, index, number_dict);
             ctx.owned_member_reads.insert(eid);
             ctx.release_owned_temp(obj, &arr_val);
             return v;

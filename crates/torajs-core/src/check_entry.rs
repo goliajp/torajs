@@ -173,6 +173,7 @@ fn check_round(
     }
     mono.mono_ast.face_slots = std::mem::take(&mut c.face_slots);
     mono.mono_ast.face_slots.ret_any = std::mem::take(&mut c.fn_slot_ret_any);
+    mono.mono_ast.number_dicts = c.unions.number_dicts();
     // A specialization body's diagnostics are discarded inside the
     // pass — except when the body left a HOLE (a generic call with no
     // retarget). Those are not diagnostics about a program that
