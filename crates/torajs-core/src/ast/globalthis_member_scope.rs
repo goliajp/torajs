@@ -17,7 +17,9 @@
 //! enclosing function's scope wherever they sit, which can only make a
 //! read look shadowed when it is not; those binders are never renamed
 //! (`pinned`), so the over-approximation keeps a read on the member
-//! form and changes nothing else.
+//! form and changes nothing else. The top-level frame drops the names
+//! `take_census`'s `props` lists, so a `for…of` / `for…in` body binds
+//! its loop variable in a frame of its own as well.
 
 use std::collections::{HashMap, HashSet};
 
@@ -258,6 +260,15 @@ impl Walk<'_> {
         self.scoped(frame, |w| w.stmts(body));
     }
 
+    /// The loop variable of a `for…of` / `for…in` is the body's own
+    /// binding (§14.7.5.7 — a `var` head names a fresh loop local
+    /// here), whatever the enclosing scope's frame says about the name.
+    fn loop_body(&mut self, var_name: &str, body: &Stmt) {
+        let mut frame = Vec::new();
+        self.bind(&mut frame, var_name, true);
+        self.scoped(frame, |w| w.stmt(body));
+    }
+
     fn stmts(&mut self, stmts: &[Stmt]) {
         for s in stmts {
             self.stmt(s);
@@ -319,6 +330,7 @@ impl Walk<'_> {
                 });
             }
             Stmt::ForOf {
+                var_name,
                 elem_expr,
                 forin_obj,
                 body,
@@ -328,7 +340,17 @@ impl Walk<'_> {
                 if let Some(o) = forin_obj {
                     self.expr(*o);
                 }
-                self.stmt(body);
+                self.loop_body(var_name, body);
+            }
+            Stmt::ForOfSplitIter {
+                var_name,
+                parent,
+                sep,
+                body,
+            } => {
+                self.expr(*parent);
+                self.expr(*sep);
+                self.loop_body(var_name, body);
             }
             Stmt::Try {
                 body,
