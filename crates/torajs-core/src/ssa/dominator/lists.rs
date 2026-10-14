@@ -66,8 +66,13 @@ impl Filling {
 }
 
 impl Adjacency {
+    /// No lists, and no allocation: most functions a pass asks about
+    /// are declarations without blocks.
     pub(super) fn empty() -> Self {
-        Counted::new(0).into_filling().done()
+        Adjacency {
+            start: Vec::new(),
+            list: Vec::new(),
+        }
     }
 
     pub(crate) fn of(&self, i: usize) -> &[BlockId] {
