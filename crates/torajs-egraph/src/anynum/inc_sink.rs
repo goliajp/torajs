@@ -36,6 +36,8 @@
 //! form. `TORAJS_ANYNUM_INC_SINK_OFF=1` skips,
 //! `TORAJS_ANYNUM_INC_SINK_STATS=1` dumps counters.
 
+use std::cell::OnceCell;
+
 use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::dominator::DominatorTree;
@@ -101,18 +103,10 @@ fn sink_in_function(func: &mut Function) -> (u32, u32) {
     let Some(facts) = NumberFacts::compute_if_any_edge_proof(func, &seeds) else {
         return (0, 0);
     };
-    let dom = DominatorTree::compute(func);
-    let loops = LoopAnalysis::compute(func, &dom);
-    let mut preds: Vec<Vec<usize>> = vec![Vec::new(); func.blocks.len()];
-    for (b, block) in func.blocks.iter().enumerate() {
-        for s in successors(&block.term) {
-            preds[s.0 as usize].push(b);
-        }
-    }
     let shape = Shape {
+        func,
         facts,
-        loops,
-        preds,
+        cfg: OnceCell::new(),
     };
     let mut remove: HashSet<Site> = HashSet::default();
     let mut place: Vec<(Site, Inst)> = Vec::new();
@@ -138,10 +132,15 @@ fn sink_in_function(func: &mut Function) -> (u32, u32) {
         return (0, 0);
     }
     let mut before: HashMap<Site, Vec<Inst>> = HashMap::default();
+    let mut touched: Vec<usize> = remove.iter().map(|at| at.0).collect();
     for (at, inst) in place {
+        touched.push(at.0);
         before.entry(at).or_default().push(inst);
     }
-    for (b, block) in func.blocks.iter_mut().enumerate() {
+    touched.sort_unstable();
+    touched.dedup();
+    for b in touched {
+        let block = &mut func.blocks[b];
         let old = std::mem::take(&mut block.insts);
         let n = old.len();
         let mut out = Vec::with_capacity(n + 1);
@@ -161,21 +160,70 @@ fn sink_in_function(func: &mut Function) -> (u32, u32) {
     (sunk, placed)
 }
 
-struct Shape {
+struct Shape<'f> {
+    func: &'f Function,
     facts: NumberFacts,
-    loops: LoopAnalysis,
-    preds: Vec<Vec<usize>>,
+    /// The loops and the predecessors, built when a walk first
+    /// reaches a block it might enter: most retains stop before.
+    cfg: OnceCell<(LoopAnalysis, Preds)>,
 }
 
-impl Shape {
+impl Shape<'_> {
+    fn cfg(&self) -> &(LoopAnalysis, Preds) {
+        self.cfg.get_or_init(|| {
+            let dom = DominatorTree::compute(self.func);
+            (LoopAnalysis::compute(self.func, &dom), Preds::of(self.func))
+        })
+    }
+
     /// Is every loop around `b` also around `home`? A retain placed
     /// in a loop the site is outside of would run once per trip.
     fn within_loops_of(&self, b: usize, home: usize) -> bool {
         let (b, home) = (BlockId(b as u32), BlockId(home as u32));
-        self.loops
+        self.cfg()
+            .0
             .loops()
             .iter()
             .all(|l| !l.contains(&b) || l.contains(&home))
+    }
+
+    fn preds(&self, b: usize) -> &[usize] {
+        self.cfg().1.of_block(b)
+    }
+}
+
+/// The predecessors of each block, in one array.
+struct Preds {
+    start: Vec<u32>,
+    list: Vec<usize>,
+}
+
+impl Preds {
+    fn of(func: &Function) -> Self {
+        let n = func.blocks.len();
+        let mut start = vec![0u32; n + 1];
+        for block in &func.blocks {
+            for s in successors(&block.term) {
+                start[s.0 as usize + 1] += 1;
+            }
+        }
+        for b in 0..n {
+            start[b + 1] += start[b];
+        }
+        let mut fill = start.clone();
+        let mut list = vec![0; start[n] as usize];
+        for (b, block) in func.blocks.iter().enumerate() {
+            for s in successors(&block.term) {
+                let at = &mut fill[s.0 as usize];
+                list[*at as usize] = b;
+                *at += 1;
+            }
+        }
+        Preds { start, list }
+    }
+
+    fn of_block(&self, b: usize) -> &[usize] {
+        &self.list[self.start[b] as usize..self.start[b + 1] as usize]
     }
 }
 
@@ -311,7 +359,7 @@ fn plan(func: &Function, shape: &Shape, site: Site, v: ValueId) -> Option<Vec<(S
                     .all(|(e, x)| *x == val && !placed_end.contains(e))
                     && !visited.contains(&s)
                     && shape.within_loops_of(s, site.0)
-                    && shape.preds[s].iter().all(|&p| {
+                    && shape.preds(s).iter().all(|&p| {
                         edges.iter().any(|(e, _)| *e == p)
                             || shape.facts.proven_on_edge(p, BlockId(s as u32), val)
                     });
