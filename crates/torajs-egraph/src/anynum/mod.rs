@@ -28,6 +28,7 @@ mod apply;
 pub mod expand;
 pub mod inc_sink;
 mod live;
+mod number_facts;
 pub mod rc_fold;
 mod web;
 

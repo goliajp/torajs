@@ -45,7 +45,7 @@ use torajs_core::ssa::{
 };
 
 use crate::anynum::expand::is_number_node;
-use crate::anynum::rc_fold::NumberFacts;
+use crate::anynum::number_facts::NumberFacts;
 use crate::float_demote::cfg::successors;
 use crate::optimize::classify_pure;
 
