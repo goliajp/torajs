@@ -16,7 +16,8 @@
 //! deleted release goes with it — left behind, it would still be
 //! materialized every iteration.
 
-use std::collections::VecDeque;
+use std::cmp::Reverse;
+use std::collections::BinaryHeap;
 
 use crate::id_hash::{HashMap, HashSet};
 
@@ -57,13 +58,7 @@ pub fn fold_number_rcs(module: &mut Module) -> RcFoldStats {
 /// typed form (`any_is_number` / `any_is_int32`) and in the bit form
 /// those expand to (`(bits & TAG) != 0`, `(bits >> 48) == TAG >> 48`,
 /// the constant possibly hoisted into a `copy`).
-fn proven_by(
-    insts: &[Inst],
-    end: usize,
-    c: ValueId,
-    consts: &HashMap<ValueId, i64>,
-    out: &mut Vec<ValueId>,
-) {
+fn proven_by(insts: &[Inst], end: usize, c: ValueId, consts: &IntConsts, out: &mut Vec<ValueId>) {
     let Some(at) = insts[..end].iter().rposition(|i| i.result == Some(c)) else {
         return;
     };
@@ -79,7 +74,7 @@ fn proven_by(
     };
     let const_of = |op: &Operand| match op {
         Operand::ConstI64(k) => Some(*k),
-        Operand::Value(v) => consts.get(v).copied(),
+        Operand::Value(v) => consts.get(*v),
         _ => None,
     };
     match &insts[at].kind {
@@ -121,6 +116,20 @@ fn proven_by(
             }
         }
         _ => {}
+    }
+}
+
+/// [`int_consts`] of one function, built the first time a test asks:
+/// most functions hold no bit test that compares against a cell.
+struct IntConsts<'f> {
+    func: &'f Function,
+    map: std::cell::OnceCell<HashMap<ValueId, i64>>,
+}
+
+impl IntConsts<'_> {
+    fn get(&self, v: ValueId) -> Option<i64> {
+        let map = self.map.get_or_init(|| int_consts(self.func));
+        map.get(&v).copied()
     }
 }
 
@@ -190,22 +199,24 @@ fn proves(kind: &InstKind, facts: &ValueSet) -> bool {
 }
 
 /// The facts at the block's exit from those at its entry.
-fn transfer(func: &Function, b: BlockId, mut facts: ValueSet) -> ValueSet {
-    for inst in &func.blocks[b.0 as usize].insts {
+fn transfer(func: &Function, b: usize, facts: &mut ValueSet) {
+    for inst in &func.blocks[b].insts {
         if let Some(r) = inst.result {
-            let proven = proves(&inst.kind, &facts);
+            let proven = proves(&inst.kind, facts);
             facts.remove(r);
             if proven {
                 facts.insert(r);
             }
         }
     }
-    facts
 }
 
 /// What the true edge out of each block proves.
 fn edge_proofs(func: &Function) -> Vec<Option<(BlockId, Vec<ValueId>)>> {
-    let consts = int_consts(func);
+    let consts = IntConsts {
+        func,
+        map: std::cell::OnceCell::new(),
+    };
     let mut out: Vec<Option<(BlockId, Vec<ValueId>)>> = vec![None; func.blocks.len()];
     for block in &func.blocks {
         if let Terminator::CondBr {
@@ -258,21 +269,29 @@ impl NumberFacts {
         edge_proofs: Vec<Option<(BlockId, Vec<ValueId>)>>,
     ) -> Self {
         let n = func.blocks.len();
+        let empty = ValueSet::empty(func.values.len());
         // None is the top of the lattice: not yet reached
         let mut live_in: Vec<Option<ValueSet>> = vec![None; n];
         let mut live_out: Vec<Option<ValueSet>> = vec![None; n];
-        live_in[0] = Some(ValueSet::empty(func.values.len()));
+        live_in[0] = Some(empty.clone());
+        // one buffer for every edge; a block's sets are allocated once,
+        // when it is first reached
+        let mut via = empty.clone();
+        // lowest index first: blocks come mostly in program order, so a
+        // block tends to be visited after its forward predecessors
         let mut queued = vec![false; n];
-        let mut work: VecDeque<usize> = VecDeque::new();
-        work.push_back(0);
+        let mut work: BinaryHeap<Reverse<usize>> = BinaryHeap::new();
+        work.push(Reverse(0));
         queued[0] = true;
-        while let Some(bi) = work.pop_front() {
+        while let Some(Reverse(bi)) = work.pop() {
             queued[bi] = false;
-            let entry = live_in[bi].clone().expect("a queued block was reached");
-            let out = transfer(func, BlockId(bi as u32), entry);
+            let entry = live_in[bi].as_ref().expect("a queued block was reached");
+            let out = live_out[bi].get_or_insert_with(|| empty.clone());
+            out.0.copy_from_slice(&entry.0);
+            transfer(func, bi, out);
             for s in successors(&func.blocks[bi].term) {
                 let si = s.0 as usize;
-                let mut via = out.clone();
+                via.0.copy_from_slice(&out.0);
                 if let Some((t, proven)) = &edge_proofs[bi]
                     && *t == s
                 {
@@ -280,18 +299,23 @@ impl NumberFacts {
                         via.insert(*v);
                     }
                 }
-                if let Some(cur) = &live_in[si] {
-                    via.intersect_with(cur);
-                }
-                if live_in[si].as_ref() != Some(&via) {
-                    live_in[si] = Some(via);
-                    if !queued[si] {
-                        queued[si] = true;
-                        work.push_back(si);
+                let moved = match &mut live_in[si] {
+                    Some(cur) => {
+                        via.intersect_with(cur);
+                        let moved = *cur != via;
+                        cur.0.copy_from_slice(&via.0);
+                        moved
                     }
+                    None => {
+                        live_in[si] = Some(via.clone());
+                        true
+                    }
+                };
+                if moved && !queued[si] {
+                    queued[si] = true;
+                    work.push(Reverse(si));
                 }
             }
-            live_out[bi] = Some(out);
         }
         NumberFacts {
             live_in,
