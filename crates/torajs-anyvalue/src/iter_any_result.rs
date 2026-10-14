@@ -58,6 +58,9 @@ pub(crate) unsafe fn iter_result_obj(value: AnyValue, done: bool) -> AnyValue {
 /// `done` stayed false and `value` stayed undefined forever: the
 /// poisoned getter never fired and the walk never terminated.
 ///
+/// IteratorClose's `GetMethod(iterator, "return")` (§7.4.9) is the
+/// same [[Get]] and reads through here as well.
+///
 /// Answers the OWNED boxed value; `None` when a getter threw (the
 /// pending throw is already recorded — the caller forwards it).
 ///

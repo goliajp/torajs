@@ -40,11 +40,9 @@ use core::sync::atomic::{AtomicPtr, Ordering};
 
 use torajs_rc::ANY_METHOD_NEXT;
 
-use crate::member_get::__torajs_any_member_get_tag;
-use crate::member_get_value::__torajs_any_member_get_value;
 use crate::method_call::__torajs_any_method_call;
 use crate::method_call_closure_dispatch::invoke_with_this;
-use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell};
+use crate::nanbox::{AnyValue, VALUE_NULL, VALUE_UNDEFINED, as_void_ptr, is_cell};
 use crate::nanbox_encode::__torajs_anyv_box_from_pair;
 use crate::nanbox_ffi::{__torajs_anyv_rc_dec, __torajs_anyv_to_bool};
 
@@ -112,11 +110,10 @@ pub(crate) unsafe fn callable_method(
     }
 }
 
-/// Interned property-name cells the step tier keys off. Minted once
-/// and never released — they are immortal by construction, and every
-/// consumer only READS a key.
+/// The interned property-name cell the step tier keys off. Minted
+/// once and never released — it is immortal by construction, and
+/// every consumer only READS the key.
 static NAME_NEXT: AtomicPtr<u8> = AtomicPtr::new(core::ptr::null_mut());
-static NAME_RETURN: AtomicPtr<u8> = AtomicPtr::new(core::ptr::null_mut());
 
 /// The interned cell for `bytes`, minting it on first use. A racing
 /// initializer's loser drops its own mint; the winner is what
@@ -399,9 +396,8 @@ pub(crate) unsafe fn generic_iter_step(
 /// §7.4.9 IteratorClose for an iterator whose `return` is an ordinary
 /// property rather than a vtable method.
 ///
-/// The optional-call flavor of the dispatcher is exactly the spec's
-/// step 4: an iterator with no `return` closes silently, while one
-/// whose `return` resolves to a non-callable still throws. A `return`
+/// An iterator with no `return` closes silently (step 4), while one
+/// whose `return` is not callable throws. A `return`
 /// that throws leaves its throw in flight — on a normal completion
 /// §7.4.9 step 6 propagates it, and touching the result would be
 /// reading an aborted call's sentinel.
@@ -410,34 +406,29 @@ pub(crate) unsafe fn generic_iter_step(
 /// `iter` is a live cell.
 pub(crate) unsafe fn generic_iter_close(iter: AnyValue) {
     unsafe {
-        let key = interned(&NAME_RETURN, b"return") as *const c_void;
-        let mut tag = __torajs_any_member_get_tag(iter, key);
-        let mut payload = if tag == TAG_UNDEF {
-            0
-        } else {
-            __torajs_any_member_get_value(iter, key)
-        };
         // GetMethod is a [[Get]]: an accessor `return` (a class's `get
         // return()`) runs its getter, whose throw is the close's
-        // completion (§7.4.9 step 5)
-        let mut got = VALUE_UNDEFINED;
-        if tag == crate::struct_probe::ANY_ACCESSOR_TAG {
-            got = crate::struct_probe::__torajs_any_accessor_get(iter, key, payload);
-            if __torajs_throw_check() != 0 {
-                return;
-            }
-            tag = crate::nanbox_encode::__torajs_anyv_unbox_tag(got) as u64;
-            payload = crate::nanbox_encode::__torajs_anyv_unbox_value(got) as u64;
-        }
-        // §7.4.9 step 4 — GetMethod answering undefined ends the
-        // close; an iterator without a `return` is closed already.
-        let Some(m) = callable_method(tag, payload, iter, c"return is not a function") else {
-            __torajs_anyv_rc_dec(got);
+        // completion (§7.4.9 step 5); the read answers an owned value
+        let Some(method) =
+            crate::iter_any_result::iter_result_get(iter, as_void_ptr(iter), b"return")
+        else {
             return;
         };
-        let argv: [u64; 0] = [];
-        let result = invoke_with_this(m.env(), m.entry(), iter, argv.as_ptr(), 0);
-        __torajs_anyv_rc_dec(got);
+        // §7.4.9 step 4 — GetMethod answering undefined ends the
+        // close; an iterator without a `return` is closed already.
+        if method == VALUE_UNDEFINED || method == VALUE_NULL {
+            return;
+        }
+        let result = {
+            let Some(m) = crate::callback_resolve::resolve(method, iter) else {
+                __torajs_anyv_rc_dec(method);
+                __torajs_throw_type_error(c"return is not a function".as_ptr());
+                return;
+            };
+            let argv: [u64; 0] = [];
+            invoke_with_this(m.env(), m.entry(), iter, argv.as_ptr(), 0)
+        };
+        __torajs_anyv_rc_dec(method);
         if __torajs_throw_check() == 0 {
             // §7.4.6 step 9 — non-Object answer → TypeError (the
             // shared reject; original-throw precedence is the abrupt
