@@ -39,8 +39,9 @@
 //!   fields and blocks, private ones included: they run inside
 //!   `__cunit_C` on the evaluation's own class object;
 //! - W7 the constructor returns no value; W16 reads no `arguments`;
-//! - W8 no member body names the class (the body would read the
-//!   registered template);
+//! - W8 no instance member body names the class (the body would read
+//!   the registered template); a static body's references read
+//!   `__unit`, the evaluation's class object it holds;
 //! - W12 not a class expression of a field initializer / computed key
 //!   (`class_expr_deferred`); with private elements, no member body
 //!   holds a class (K6-1);

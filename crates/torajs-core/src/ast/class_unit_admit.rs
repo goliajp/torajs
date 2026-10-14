@@ -3,7 +3,7 @@
 //! an admitted class then turns into. Split out of it (verbatim move)
 //! ahead of K5's family rule.
 
-use super::class_unit_census::{Occurrences, names_class, returns_value};
+use super::class_unit_census::{Occurrences, names_class, returns_value, static_self_refs};
 use super::{Ast, Expr, PropKey, StaticInit, Stmt};
 
 /// Whether the ClassDecl `cls` (about to be hoisted out of a
@@ -117,31 +117,25 @@ pub(super) fn admits_shape(ast: &Ast, cls: &Stmt, assumed_parent: Option<&str>) 
     {
         return false;
     }
-    // Static method bodies count too (K4-1): `static m() { return
-    // S.k }` would read the registered template's `k`.
-    let mut bodies: Vec<&[Stmt]> = methods
-        .iter()
-        .chain(static_methods.iter())
-        .map(|m| m.body.as_slice())
-        .collect();
+    // W8 — an instance body naming the class would read the
+    // registered template. A STATIC body's references are spelled
+    // `__unit` instead (`static_self_refs`), so they only have to be
+    // spellable that way.
+    if static_self_refs(ast, static_methods, static_init, name).is_none() {
+        return false;
+    }
+    let mut in_bodies = Occurrences::default();
+    for m in methods {
+        in_bodies.list(ast, &m.body, name);
+    }
     if let Some(c) = ctor {
         if c.body.iter().any(returns_value) {
             return false;
         }
-        bodies.push(&c.body);
+        in_bodies.list(ast, &c.body, name);
     }
-    let mut in_bodies = Occurrences::default();
-    for b in bodies {
-        in_bodies.list(ast, b, name);
-    }
-    // A static initializer naming the class would read the registered
-    // template, exactly like a method body (W8).
-    for si in static_init {
-        match si {
-            StaticInit::Field(sf) => in_bodies.expr(ast, sf.init, name),
-            StaticInit::Block(b) => in_bodies.list(ast, b, name),
-        }
-    }
+    let instance_refs = in_bodies.name;
+    in_bodies.statics(ast, static_methods, static_init, name);
     let has_private = methods
         .iter()
         .chain(static_methods.iter())
@@ -153,7 +147,7 @@ pub(super) fn admits_shape(ast: &Ast, cls: &Stmt, assumed_parent: Option<&str>) 
     // runtime-value lane its methods become `function` expressions
     // after this census ran. Either way the brand cannot be compared
     // here, so such an outer class keeps the shared identity.
-    if in_bodies.name != 0
+    if instance_refs != 0
         || in_bodies.arguments
         || (has_private && (in_bodies.fn_exprs || in_bodies.holds_class))
     {
@@ -217,7 +211,7 @@ pub(super) fn refs_avoid_class_bodies(
 /// outside any class body there: a sibling class is hoisted too, and
 /// from up there `new D()` builds through the registered template, not
 /// through this evaluation's `D` (`new E().make() instanceof D` answered
-/// false).
+/// false). The class's own static bodies count as local.
 pub(super) fn refs_stay_local(ast: &Ast, container: &[Stmt], idx: usize, name: &str) -> bool {
     let mut in_container = Occurrences {
         skip_class_bodies: true,
@@ -239,6 +233,16 @@ pub(super) fn refs_stay_local(ast: &Ast, container: &[Stmt], idx: usize, name: &
             }
         }
     }
+    // The class's own static bodies name it as `__unit` once it is a
+    // unit class (`static_self_refs`), which keeps them local too.
+    let own = match &container[idx] {
+        Stmt::ClassDecl {
+            static_methods,
+            static_init,
+            ..
+        } => static_self_refs(ast, static_methods, static_init, name).map_or(0, |v| v.len()),
+        _ => 0,
+    };
     let program = ast.exprs.iter().filter(|e| names_class(e, name)).count();
-    in_container.name == program
+    in_container.name + own == program
 }

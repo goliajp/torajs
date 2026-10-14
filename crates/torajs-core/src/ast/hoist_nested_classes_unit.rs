@@ -81,6 +81,7 @@ pub(super) fn take_unit_lane(
         return false;
     }
     let mut cls = std::mem::replace(&mut stmts[idx], Stmt::Multi(Vec::new()));
+    super::class_unit_census::spell_static_self_refs(ast, &cls);
     let (slot, unit_fn) = super::class_unit::make_unit(ast, &mut cls, binding);
     stmts[idx] = slot;
     hoisted.push(cls);

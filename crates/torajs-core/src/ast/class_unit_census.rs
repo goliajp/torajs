@@ -39,6 +39,26 @@ pub(super) struct Occurrences {
 }
 
 impl Occurrences {
+    /// The static bodies of a class: static methods and accessors,
+    /// static field initializers, static blocks.
+    pub(super) fn statics(
+        &mut self,
+        ast: &Ast,
+        static_methods: &[super::ClassMethod],
+        static_init: &[StaticInit],
+        name: &str,
+    ) {
+        for m in static_methods {
+            self.list(ast, &m.body, name);
+        }
+        for si in static_init {
+            match si {
+                StaticInit::Block(b) => self.list(ast, b, name),
+                StaticInit::Field(f) => self.expr(ast, f.init, name),
+            }
+        }
+    }
+
     pub(super) fn list(&mut self, ast: &Ast, stmts: &[Stmt], name: &str) {
         for s in stmts {
             self.stmt(ast, s, name);
@@ -97,6 +117,117 @@ impl Occurrences {
         }
         for c in expr_children(ast, eid) {
             self.expr(ast, c, name);
+        }
+    }
+}
+
+/// The references to `name` a unit class's STATIC bodies hold — static
+/// methods and accessors (their parameter defaults included), static
+/// field initializers, static blocks — each an `Ident` the unit lane
+/// spells as `__unit`. Inside the class body the name is the class
+/// scope's own binding (§15.7.14 step 4.a), this evaluation's class
+/// object, and every static body has that object in hand: a static
+/// method or accessor face holds it, a field initializer runs in
+/// `__cunit_<C>`, a block takes it as a parameter. `None` when one of
+/// them cannot be spelled that way: a `new C(…)` (the name as a
+/// constructor callee), a scope in those bodies that binds the name
+/// again, or a class declared in them (hoisted, its bodies leave
+/// `__unit`'s reach).
+pub(super) fn static_self_refs(
+    ast: &Ast,
+    static_methods: &[super::ClassMethod],
+    static_init: &[StaticInit],
+    name: &str,
+) -> Option<Vec<ExprId>> {
+    let mut walk = SelfRefs {
+        name,
+        ids: Vec::new(),
+        ok: true,
+    };
+    for m in static_methods {
+        walk.params(ast, &m.params);
+        walk.list(ast, &m.body);
+    }
+    for si in static_init {
+        match si {
+            StaticInit::Field(f) => walk.expr(ast, f.init),
+            StaticInit::Block(b) => walk.list(ast, b),
+        }
+    }
+    walk.ok.then_some(walk.ids)
+}
+
+/// W8 — a static body of the admitted class `cls` naming the class
+/// names this evaluation's class object, which it holds as `__unit`.
+pub(super) fn spell_static_self_refs(ast: &mut Ast, cls: &Stmt) {
+    let Stmt::ClassDecl {
+        name,
+        static_methods,
+        static_init,
+        ..
+    } = cls
+    else {
+        return;
+    };
+    for id in static_self_refs(ast, static_methods, static_init, name).unwrap_or_default() {
+        ast.exprs[id.0 as usize] = Expr::Ident(super::class_unit::UNIT_PARAM.into());
+    }
+}
+
+struct SelfRefs<'a> {
+    name: &'a str,
+    ids: Vec<ExprId>,
+    ok: bool,
+}
+
+impl SelfRefs<'_> {
+    fn params(&mut self, ast: &Ast, params: &[super::Param]) {
+        for p in params {
+            self.ok &= p.name != self.name;
+            if let Some(d) = p.default {
+                self.expr(ast, d);
+            }
+        }
+    }
+
+    fn list(&mut self, ast: &Ast, stmts: &[Stmt]) {
+        for s in stmts {
+            self.stmt(ast, s);
+        }
+    }
+
+    fn stmt(&mut self, ast: &Ast, s: &Stmt) {
+        if matches!(s, Stmt::ClassDecl { .. })
+            || super::desugar_generators_alpha::rebinds_in_stmt(s, self.name)
+        {
+            self.ok = false;
+            return;
+        }
+        if let Stmt::FnDecl { params, body, .. } = s {
+            self.params(ast, params);
+            self.list(ast, body);
+        }
+        for e in stmt_exprs(s) {
+            self.expr(ast, e);
+        }
+        for c in stmt_children_ref(s) {
+            self.stmt(ast, c);
+        }
+    }
+
+    fn expr(&mut self, ast: &Ast, eid: ExprId) {
+        match ast.get_expr(eid) {
+            Expr::Ident(n) if n == self.name => self.ids.push(eid),
+            Expr::New { class_name, .. } if class_name == self.name => self.ok = false,
+            Expr::ArrowFn { params, body, .. } => {
+                self.params(ast, params);
+                self.list(ast, body);
+                return;
+            }
+            _ => {}
+        }
+        for c in expr_children(ast, eid) {
+            self.expr(ast, c);
         }
     }
 }
