@@ -64,6 +64,10 @@ pub struct Assignment {
     /// stored and reloaded whole around the instruction, fast paths
     /// included.
     pub vec_call_saves: HashMap<u32, Vec<(Fpr, u32)>>,
+    /// By block position: the block runs at most once in 64 function
+    /// entries by the static estimate (a throw or slow-path arm), so
+    /// where it starts in a fetch line does not matter. Empty: none.
+    pub cold_blocks: Vec<bool>,
 }
 
 impl Assignment {
@@ -92,7 +96,13 @@ impl Assignment {
             stack_param_entry_loads: Vec::new(),
             call_saves: HashMap::default(),
             vec_call_saves: HashMap::default(),
+            cold_blocks: Vec::new(),
         }
+    }
+
+    /// Is the block at position `bi` cold (`cold_blocks`)?
+    pub(crate) fn is_cold(&self, bi: usize) -> bool {
+        self.cold_blocks.get(bi).copied().unwrap_or(false)
     }
 
     /// Total sp adjustment the prologue must carve = alloca + spill,

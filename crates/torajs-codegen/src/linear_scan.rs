@@ -34,6 +34,7 @@
 //! independently) from `linear_scan_lanes::param_lanes`.
 
 use torajs_core::ssa::Function;
+use torajs_core::ssa::block_freq::ENTRY_FREQ;
 
 use crate::coalesce::build_copy_classes;
 use crate::compile::InlineSites;
@@ -210,8 +211,25 @@ pub fn allocate_linear_scan_with(func: &Function, inline: InlineSites) -> Assign
     assignment.stack_param_entry_loads = stack_param_entry_loads;
     assignment.call_saves = call_saves;
     assignment.vec_call_saves = vec_call_saves;
+    assignment.cold_blocks = cold_blocks(func, &units);
     crate::vec_homes::assert_vec_homes(func, &assignment);
     assignment
+}
+
+/// By block position, whether the block's estimated frequency (that of
+/// its first slot in `units`) is at most a slow path's share of one
+/// function entry.
+fn cold_blocks(func: &Function, units: &[u64]) -> Vec<bool> {
+    let slow = (ENTRY_FREQ as f64 * torajs_core::ssa::branch_prob::P_SLOW_PATH) as u64;
+    let mut slot = 0usize;
+    func.blocks
+        .iter()
+        .map(|b| {
+            let cold = units.get(slot).is_some_and(|&f| f <= slow);
+            slot += b.insts.len() + 1;
+            cold
+        })
+        .collect()
 }
 
 #[cfg(test)]

@@ -268,8 +268,8 @@ fn emit_body(
     let landing = landing::Landing::of(func, alloc, &shrink);
 
     // A block no predecessor falls into starts on a 16-byte fetch
-    // boundary. The pad sits after an unconditional branch or a
-    // return, so it never runs.
+    // boundary, unless it is cold. The pad sits after an unconditional
+    // branch or a return, so it never runs.
     let mut falls_in = true;
     // slot index of the block's first inst, numbered as in liveness
     let mut block_slot: u32 = 0;
@@ -279,7 +279,7 @@ fn emit_body(
             block_slot += block.insts.len() as u32 + 1;
             continue;
         }
-        if !falls_in {
+        if !falls_in && !alloc.is_cold(bi) {
             while !bytes.len().is_multiple_of(BRANCH_TARGET_ALIGN) {
                 write_u32(&mut bytes, crate::enc::nop());
             }
