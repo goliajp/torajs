@@ -46,7 +46,7 @@ impl<'a> Parser<'a> {
             } else {
                 self.static_this_class.take()
             };
-            let e = self.parse_assign();
+            let e = self.parse_field_initializer();
             self.static_this_class = saved_static_this;
             let e = e?;
             if super::class_field_early_errors::init_contains_arguments(&self.ast, e) {

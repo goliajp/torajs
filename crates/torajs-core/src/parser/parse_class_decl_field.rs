@@ -199,7 +199,7 @@ impl<'a> Parser<'a> {
             self.static_this_class.take()
         };
         let init = if is_static {
-            self.parse_assign()
+            self.parse_field_initializer()
         } else {
             self.parse_instance_field_init()
         };

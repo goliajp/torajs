@@ -107,7 +107,7 @@ impl<'a> Parser<'a> {
     pub(super) fn parse_instance_field_init(&mut self) -> Result<ExprId, String> {
         let mark = self.synth_classes_local.len();
         let saved = std::mem::replace(&mut self.in_instance_field_init, true);
-        let init = self.parse_assign();
+        let init = self.parse_field_initializer();
         self.in_instance_field_init = saved;
         let init = init?;
         let decls = self.synth_classes_local.split_off(mark);
@@ -115,6 +115,20 @@ impl<'a> Parser<'a> {
             self.field_init_classes.insert(init.0, decls);
         }
         Ok(init)
+    }
+
+    /// §15.7 FieldDefinition — `Initializer[+In, ~Yield, ~Await]`. The
+    /// initializer drops the enclosing `[Await]`, so inside an async body
+    /// `await` reads as a name there again and `x = await 1` is a name
+    /// followed by a stray number; the Module goal still reserves the
+    /// name through the site the admission records.
+    pub(super) fn parse_field_initializer(&mut self) -> Result<ExprId, String> {
+        let saved_await = std::mem::replace(&mut self.await_allowed, false);
+        let saved_reserved = std::mem::replace(&mut self.await_reserved, false);
+        let init = self.parse_assign();
+        self.await_allowed = saved_await;
+        self.await_reserved = saved_reserved;
+        init
     }
 
     /// RFC 20260916-private-element-brand slice 2b — §7.3.34 step 3

@@ -117,7 +117,7 @@ impl<'a> Parser<'a> {
                 // receiver), so register the token the way a static
                 // method body's is.
                 let saved_static_this = self.static_this_class.replace(name.to_string());
-                let init = self.parse_assign();
+                let init = self.parse_field_initializer();
                 self.static_this_class = saved_static_this;
                 let init = init?;
                 self.name_field_init(name, &member_name, init);
