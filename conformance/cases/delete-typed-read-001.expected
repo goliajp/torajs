@@ -1,0 +1,10 @@
+undefined undefined false a,b
+3 true NaN
+5 a,b,c {"a":1,"b":2,"c":5}
+undefined a,b
+4 a,b,c
+1 undefined undefined a {"a":1}
+undefined true no
+undefined a
+z a,b {"a":"x","b":"z"}
+24

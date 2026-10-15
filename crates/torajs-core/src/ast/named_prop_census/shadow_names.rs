@@ -382,6 +382,7 @@ fn verdict<'o>(
     let (hit, target) = match e {
         Expr::Assign { target, value } => (write(facts, *target, Some(*value)), Some(*target)),
         Expr::PostIncr { target, .. } => (write(facts, *target, None), Some(*target)),
+        Expr::Delete { expr } => (super::delete_hit::hit(facts, *expr), Some(*expr)),
         Expr::Call { callee, args } | Expr::OptCall { callee, args } => {
             (call(ast, expr_types, *callee, args), None)
         }
@@ -393,9 +394,10 @@ fn verdict<'o>(
     }
     let recv = match (e, target) {
         (_, Some(t)) => any_receiver(ast, expr_types, t),
-        (Expr::Call { callee, args } | Expr::OptCall { callee, args }, None) => {
-            args.first().copied().filter(|_| reflect_set(ast, *callee))
-        }
+        (Expr::Call { callee, args } | Expr::OptCall { callee, args }, None) => args
+            .first()
+            .copied()
+            .filter(|_| super::delete_hit::reflect_write(ast, *callee)),
         _ => None,
     };
     let hit = spare(origins, recv, hit);
@@ -403,13 +405,6 @@ fn verdict<'o>(
         return Hit::None;
     }
     hit
-}
-
-/// A callee spelled `Reflect.set`.
-fn reflect_set(ast: &Ast, callee: ExprId) -> bool {
-    matches!(ast.get_expr(callee),
-        Expr::Member { obj, name } if name == "set"
-            && matches!(ast.get_expr(*obj), Expr::Ident(r) if r == "Reflect"))
 }
 
 #[cfg(test)]

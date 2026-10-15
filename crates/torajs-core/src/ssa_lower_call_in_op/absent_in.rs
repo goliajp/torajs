@@ -1,6 +1,7 @@
 //! `"k" in o` for a member the struct layout of `o` declares, in a
-//! program where some literal leaves a member out: the cell's own answer
-//! first, then the rest of the prototype chain. Moved out of [`super`].
+//! program where a cell can lack it (a literal left it out, a delete
+//! removed it): the cell's own answer first, then the rest of the
+//! prototype chain. Moved out of [`super`].
 
 use crate::ssa::{BinOp, IPred, InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
@@ -22,8 +23,8 @@ const OBJECT_PROTO_MEMBERS: [&str; 12] = [
 ];
 
 /// `"k" in o` for a member `k` the layout of the struct `obj` declares,
-/// in a program where some literal leaves a member out: true when the
-/// cell owns it (one inline test), else the prototype chain answers.
+/// in a program where a cell can lack it: true when the cell owns it
+/// (one inline test), else the prototype chain answers.
 pub(super) fn absent_member_in(
     ctx: &mut LowerCtx<'_>,
     obj: Operand,

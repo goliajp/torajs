@@ -145,11 +145,11 @@ pub(crate) fn lower_has_property(
                         || crate::check_type_of_object_lit::accessor_slot(n)
                             .is_some_and(|(_, prop)| *prop == **s)
                 });
-            if present && !ctx.ast.mints_absent_set {
+            if present && !crate::ssa_lower_object_lit::absent::own_set_moves(ctx) {
                 return Operand::ConstBool(true);
             }
-            // a member a literal left out is no own property, and the
-            // chain answers for it
+            // a member a literal left out or a delete removed is no own
+            // property, and the chain answers for it
             if present {
                 let s = s.clone();
                 return absent_in::absent_member_in(ctx, obj_op, &s);

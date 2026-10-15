@@ -180,6 +180,7 @@ pub(super) fn call(
                 _ => Hit::All(kind),
             }
         }
+        ("Reflect", "deleteProperty") => super::delete_hit::reflect(ast, args),
         ("Object", "assign") => assign_sources(ast, expr_types, args.get(1..).unwrap_or(&[])),
         _ => Hit::None,
     }

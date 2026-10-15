@@ -4,10 +4,11 @@
 use super::write_hit::descriptor_getter;
 use crate::ast::{Ast, Expr, ExprId};
 
-/// The expressions that may write a member: a store or a step through
-/// a member or a key, a call spelled `Reflect.set` / `Object.assign`
-/// or one that hands out a setter, and, with `literals`, an object literal (an expression of any other
-/// kind reaches no name, whatever its type). A generic body's writes
+/// The expressions that may write a member: a store, a step or a
+/// delete through a member or a key, a call spelled `Reflect.set` /
+/// `Reflect.deleteProperty` / `Object.assign` or one that hands out a
+/// setter, and, with `literals`, an object literal (an expression of
+/// any other kind reaches no name, whatever its type). A generic body's writes
 /// are left out: it never lowers, the checker types nothing in it, and
 /// each specialization the mono pass clones from it is a body of its
 /// own, typed and counted in the census over the mono program.
@@ -18,7 +19,9 @@ pub(super) fn candidates(ast: &Ast, literals: bool) -> Vec<ExprId> {
         .filter(|(i, e)| {
             !generic.get(*i).is_some_and(|g| *g)
                 && match e {
-                    Expr::Assign { target, .. } | Expr::PostIncr { target, .. } => member(target),
+                    Expr::Assign { target, .. }
+                    | Expr::PostIncr { target, .. }
+                    | Expr::Delete { expr: target } => member(target),
                     Expr::Call { callee, .. } | Expr::OptCall { callee, .. } => bulk(ast, *callee),
                     Expr::ObjectLit { .. } => literals,
                     _ => false,
@@ -75,7 +78,8 @@ fn generic_bodies(ast: &Ast) -> Vec<bool> {
     out
 }
 
-/// A callee spelled `Reflect.set` or `Object.assign`, or one that hands
+/// A callee spelled `Reflect.set`, `Reflect.deleteProperty` or
+/// `Object.assign`, or one that hands
 /// out a setter ([`super::write_hit::call`]).
 fn bulk(ast: &Ast, callee: ExprId) -> bool {
     let Expr::Member { obj, name } = ast.get_expr(callee) else {
@@ -83,6 +87,7 @@ fn bulk(ast: &Ast, callee: ExprId) -> bool {
     };
     name == "__lookupSetter__"
         || matches!(ast.get_expr(*obj), Expr::Ident(b)
-        if (b == "Reflect" && name == "set") || (b == "Object" && name == "assign")
+        if (b == "Reflect" && matches!(name.as_str(), "set" | "deleteProperty"))
+            || (b == "Object" && name == "assign")
             || descriptor_getter(b, name))
 }

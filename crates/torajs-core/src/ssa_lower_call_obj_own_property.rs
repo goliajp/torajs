@@ -179,7 +179,7 @@ pub(crate) fn emit_obj_has_own_property(
             None,
         );
         let mut eq_op = Operand::Value(eq);
-        if ctx.ast.mints_absent_set {
+        if crate::ssa_lower_object_lit::absent::own_set_moves(ctx) {
             let own =
                 crate::ssa_lower_object_lit::absent::declared_field_own(ctx, *recv_op, public);
             let and = ctx.f.append_inst(

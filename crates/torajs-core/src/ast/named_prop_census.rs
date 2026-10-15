@@ -34,6 +34,7 @@
 
 pub(super) mod accessor_names;
 mod cast_targets;
+mod delete_hit;
 mod optional_number_fields;
 mod receiver_origin;
 pub(super) mod shadow_facts;

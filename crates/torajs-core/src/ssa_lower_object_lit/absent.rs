@@ -71,15 +71,21 @@ pub(crate) fn any_undef(ctx: &mut LowerCtx<'_>) -> Operand {
     Operand::Value(v)
 }
 
+/// Whether a cell can lack a declared field: some literal of the
+/// program leaves a member out, or the program can delete one.
+pub(crate) fn own_set_moves(ctx: &LowerCtx<'_>) -> bool {
+    ctx.ast.mints_absent_set || ctx.ast.accessor_field_names.may_freeze_or_delete()
+}
+
 /// The own-property answer for the declared field `key` of the struct
-/// `obj`, which the layout lists: true, unless some literal of the
-/// program leaves a member out, when the cell decides.
+/// `obj`, which the layout lists: true, unless a cell can lack it
+/// ([`own_set_moves`]), when the cell decides.
 pub(crate) fn declared_field_own(
     ctx: &mut LowerCtx<'_>,
     obj: Operand,
     key: &torajs_wtf8::Wtf8,
 ) -> Operand {
-    if !ctx.ast.mints_absent_set {
+    if !own_set_moves(ctx) {
         return Operand::ConstBool(true);
     }
     let absent = field_absent(ctx, obj, key);
