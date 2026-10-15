@@ -67,14 +67,16 @@ impl Census<'_> {
     }
 
     /// The parser folded the instance field initializers into the
-    /// constructor body as `this.<n> = <init>`, but they are evaluated
-    /// in the class scope (§15.7.10), out of reach of the
-    /// constructor's parameters and locals.
+    /// constructor body as `this.<n> = <init>`, each preceded by the
+    /// declarations of the class expressions its initializer wrote,
+    /// but they are evaluated in the class scope (§15.7.10), out of
+    /// reach of the constructor's parameters and locals.
     fn ctor(&mut self, c: &ClassCtor) {
+        let in_class_scope = self.field_init_stmts(&c.body);
         let scope = self.body_scope(&c.body, &c.params);
         self.scopes.push(scope);
-        for s in &c.body {
-            if self.is_field_init(s) {
+        for (s, &field) in c.body.iter().zip(&in_class_scope) {
+            if field {
                 let own = self.scopes.pop();
                 self.stmt(s);
                 self.scopes.extend(own);
@@ -83,6 +85,23 @@ impl Census<'_> {
             }
         }
         self.scopes.pop();
+    }
+
+    /// Which statements of a constructor body came from a field
+    /// initializer: the `this.<n> = <init>` itself, and a run of class
+    /// declarations right in front of one, which is where the parser
+    /// puts the class expressions the initializer contains. Nothing a
+    /// program writes can be a class declaration right in front of an
+    /// initializer: the initializers go first, or right after the
+    /// `super(...)` call.
+    fn field_init_stmts(&self, body: &[Stmt]) -> Vec<bool> {
+        let mut out = vec![false; body.len()];
+        let mut next = false;
+        for (i, s) in body.iter().enumerate().rev() {
+            next = self.is_field_init(s) || (next && matches!(s, Stmt::ClassDecl { .. }));
+            out[i] = next;
+        }
+        out
     }
 
     fn is_field_init(&self, s: &Stmt) -> bool {
