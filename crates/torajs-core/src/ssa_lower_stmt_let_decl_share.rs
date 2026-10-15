@@ -35,6 +35,20 @@ use crate::ssa_lower::LowerCtx;
 /// lowering actually produced (a detached member read, a
 /// conversion) and can still take the answer back.
 pub(crate) fn init_is_alias(ctx: &LowerCtx, init: ExprId, cur_depth: usize) -> bool {
+    // `xs[i] as Rec` / `xs[i]!` hand the element read through
+    // untouched, so the element read decides; a cast that mints a
+    // value records itself owned and `lower` takes the answer back
+    // (`init_lowered_owned`). An Ident under a cast keeps its share
+    // arm in `init_shares_source_stake`.
+    let leaf = crate::ssa_lower_return_borrow::peel_passthrough(ctx.ast, init);
+    if leaf != init
+        && matches!(
+            ctx.ast.get_expr(leaf),
+            Expr::Index { .. } | Expr::Member { .. }
+        )
+    {
+        return init_is_alias(ctx, leaf, cur_depth);
+    }
     match ctx.ast.get_expr(init) {
         // L3b #15 residual (chunk 561) — string indexing (`s[i]` on
         // a Str/Substr receiver) emits a FRESH standalone Substr
@@ -64,6 +78,22 @@ pub(crate) fn init_is_alias(ctx: &LowerCtx, init: ExprId, cur_depth: usize) -> b
                     .unwrap_or(false)
         }
         _ => false,
+    }
+}
+
+/// Whether the init's lowering answered an owned value: the init
+/// itself or any node a pass-through wrapper hands on (a minting
+/// `as string` cast, a detached member read under a cast).
+pub(crate) fn init_lowered_owned(ctx: &LowerCtx, init: ExprId) -> bool {
+    let mut eid = init;
+    loop {
+        if ctx.owned_member_reads.contains(&eid) {
+            return true;
+        }
+        match ctx.ast.get_expr(eid) {
+            Expr::As { expr, .. } | Expr::Sequence { right: expr, .. } => eid = *expr,
+            _ => return false,
+        }
     }
 }
 

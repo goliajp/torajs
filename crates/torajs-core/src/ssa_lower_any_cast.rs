@@ -99,6 +99,11 @@ impl crate::ssa_lower::LowerCtx<'_> {
                 "boolean" => Type::Bool,
                 _ => Type::Void,
             };
+            // a string or bigint face is a fresh value the binding
+            // that takes it owns, not a view of the element it read
+            if matches!(ty_ann, "string" | "bigint") {
+                self.owned_member_reads.insert(eid);
+            }
             if let Some(v) = self.checked_cast(
                 inner_op,
                 target,

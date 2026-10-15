@@ -215,11 +215,14 @@ fn visit_nested(env: &Env, s: &Stmt, out: &mut HashSet<ExprId>) {
 /// for a shape that never binds as a borrow. `Some(None)` is a borrow
 /// rooted in no rebindable name (`this.k`).
 fn alias_root(ast: &Ast, init: ExprId) -> Option<Option<String>> {
+    // a cast over an element or member read binds as that read does
+    let leaf = crate::ssa_lower_return_borrow::peel_passthrough(ast, init);
     match ast.get_expr(init) {
         Expr::Member { .. } | Expr::Index { .. } | Expr::Ident(_) => {}
+        _ if matches!(ast.get_expr(leaf), Expr::Member { .. } | Expr::Index { .. }) => {}
         _ => return None,
     }
-    let mut e = init;
+    let mut e = leaf;
     loop {
         match ast.get_expr(e) {
             Expr::Member { obj, .. }

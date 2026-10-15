@@ -1,0 +1,20 @@
+first 1 true
+4
+second 0 1 a
+second undefined 1
+second 2 3 c
+bang a
+bang c
+angle 1
+angle 3
+[{"key":"a","n":1},null,{"key":"c","n":3}]
+field b 2
+field b 2
+typed t 7
+typed t 7
+str x string
+str yy string
+str zzz string
+name p
+name q
+p,q 3

@@ -49,6 +49,7 @@
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
+use crate::ssa_lower_stmt_let_decl_share as share;
 // Conversion crossings live in the convert sibling; the re-export
 // keeps the pre-split call face (`ssa_lower_stmt_let_decl::…`) for
 // the return-boundary and global-lane callers.
@@ -110,7 +111,7 @@ pub(crate) fn lower(
     }
     crate::ssa_lower_stmt_let_decl_general::record_binding_flags(ctx, name, type_ann, init);
     let cur_depth = ctx.scope_stack.len() - 1;
-    let is_alias_init = crate::ssa_lower_stmt_let_decl_share::init_is_alias(ctx, init, cur_depth);
+    let is_alias_init = share::init_is_alias(ctx, init, cur_depth);
     let stack_alloc_hinted = matches!(ctx.ast.get_expr(init), Expr::ObjectLit { .. })
         && !ctx.escape_obj_lets.contains(name);
     if stack_alloc_hinted {
@@ -144,7 +145,7 @@ pub(crate) fn lower(
     // owned by this binding, which must keep its stake and drop at
     // scope end (probe l16o: the alias path stranded the field's
     // +1, 25.6 MB churn vs 6.4 MB flat).
-    let is_alias_init = is_alias_init && !ctx.owned_member_reads.contains(&init);
+    let is_alias_init = is_alias_init && !share::init_lowered_owned(ctx, init);
     // Chunk 698 — the mirror of the chunk-621 crossing below: an
     // `Array<Any>` value bound to a typed `Array<T>` annotation
     // (`const a: number[] = Array.from(set)`). The typed raw-slot
@@ -205,9 +206,7 @@ pub(crate) fn lower(
     let is_alias_init = is_alias_init && !owned_alias;
     if !is_alias_init && !owned_alias {
         let pre_ty = ctx.operand_ty(&init_val);
-        let shares = crate::ssa_lower_stmt_let_decl_share::init_shares_source_stake(
-            ctx, init, pre_ty, ty, converted,
-        );
+        let shares = share::init_shares_source_stake(ctx, init, pre_ty, ty, converted);
         // No consume on the non-share side: every shape reaching it is
         // a no-op for the move-walk (Copy / non-local Ident / non-Ident
         // expr — local refcounted Idents all take the share arm) —
