@@ -42,9 +42,13 @@ pub(super) fn local_bind_receiver_inits(ast: &mut Ast) -> Vec<ExprId> {
 pub(super) fn local_bind_receiver_closures(ast: &Ast) -> Vec<String> {
     ast.fnexpr_bind_local_inits
         .iter()
-        .filter_map(|&init| match ast.get_expr(init) {
-            Expr::Closure { fn_name, .. } => Some(fn_name.clone()),
-            _ => None,
+        .map(|&init| match ast.get_expr(init) {
+            Expr::Closure { fn_name, .. } => fn_name.clone(),
+            // step 2 records only `ArrowFn` slots and `lift_arrow_fns`
+            // turns every arena `ArrowFn` into a `Closure`; a slot that is
+            // neither would leave a `__this` parameter the bind kernel
+            // never routes into
+            other => unreachable!("promoted bind-receiver init not lifted: {other:?}"),
         })
         .collect()
 }
