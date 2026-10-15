@@ -29,7 +29,15 @@ impl Census<'_> {
             return;
         };
         let strict = std::mem::replace(&mut self.strict, true);
-        self.scopes.push(Scope::from([(name.clone(), false)]));
+        let mut own = Scope::from([(name.clone(), false)]);
+        // A named class expression binds under a synthesized name; the
+        // name the source wrote is parked beside it, and the body's
+        // `new X()` is renamed to the synthesized one before the class
+        // pass reads it.
+        if let Some(d) = self.ast.class_expr_display_names.get(name) {
+            own.insert(d.clone(), false);
+        }
+        self.scopes.push(own);
         if let Some(p) = parent {
             self.expr(*p);
         }
@@ -49,6 +57,7 @@ impl Census<'_> {
             self.ctor(c);
         }
         for m in methods.iter().chain(static_methods) {
+            self.defaults(&m.params);
             self.body(&m.body, &m.params);
         }
         for si in static_init {
@@ -72,6 +81,7 @@ impl Census<'_> {
     /// but they are evaluated in the class scope (§15.7.10), out of
     /// reach of the constructor's parameters and locals.
     fn ctor(&mut self, c: &ClassCtor) {
+        self.defaults(&c.params);
         let in_class_scope = self.field_init_stmts(&c.body);
         let scope = self.body_scope(&c.body, &c.params);
         self.scopes.push(scope);

@@ -191,9 +191,11 @@ pub(super) fn rewrite_class_value_refs(
 
 /// The names a function scope rebinds: its parameters plus every
 /// declaration in its own var scope (any block depth, stopping at
-/// nested function boundaries — their declarations are their own).
-fn shrunk(sh: &Shadow, params: &[Param], body: &[Stmt]) -> Shadow {
+/// nested function boundaries — their declarations are their own),
+/// and a named function expression's own name (§15.2.5).
+fn shrunk(sh: &Shadow, params: &[Param], body: &[Stmt], own: Option<&String>) -> Shadow {
     let mut declared: HashSet<String> = params.iter().map(|p| p.name.clone()).collect();
+    declared.extend(own.cloned());
     collect_scope_decls(body, &mut declared);
     sh.without(&declared)
 }
@@ -212,7 +214,7 @@ fn rewrite_stmt(ast: &mut Ast, s: &Stmt, sh: &Shadow) {
         Stmt::Expr(eid) | Stmt::Return(Some(eid)) | Stmt::Throw(eid) => rewrite_expr(ast, *eid, sh),
         Stmt::LetDecl { init, .. } => rewrite_expr(ast, *init, sh),
         Stmt::FnDecl { params, body, .. } => {
-            let inner = shrunk(sh, params, body);
+            let inner = shrunk(sh, params, body, None);
             for p in params {
                 if let Some(d) = p.default {
                     rewrite_expr(ast, d, &inner);
@@ -246,11 +248,11 @@ fn rewrite_stmt(ast: &mut Ast, s: &Stmt, sh: &Shadow) {
                 None => sh.clone(),
             };
             if let Some(c) = ctor {
-                let inner = shrunk(&body_sh, &c.params, &c.body);
+                let inner = shrunk(&body_sh, &c.params, &c.body, None);
                 rewrite_stmts(ast, &c.body, &inner);
             }
             for m in methods.iter().chain(static_methods) {
-                let inner = shrunk(&body_sh, &m.params, &m.body);
+                let inner = shrunk(&body_sh, &m.params, &m.body, None);
                 rewrite_stmts(ast, &m.body, &inner);
             }
             for si in static_init {
@@ -441,11 +443,21 @@ fn rewrite_expr(ast: &mut Ast, eid: ExprId, sh: &Shadow) {
                     stack.push(a);
                 }
             }
-            Expr::New { args, .. } | Expr::Super { args } => {
-                for a in args {
-                    stack.push(a);
+            // the self-name pass also owns `new C()` in the body: the
+            // class pass binds that spelling by name alone
+            Expr::New {
+                class_name, args, ..
+            } => {
+                if sh.scanning
+                    && let Some((from, to)) = &sh.alias
+                    && *from == class_name
+                    && let Expr::New { class_name, .. } = &mut ast.exprs[id.0 as usize]
+                {
+                    *class_name = to.clone();
                 }
+                stack.extend(args);
             }
+            Expr::Super { args } => stack.extend(args),
             Expr::Array(els) => {
                 for e in els {
                     stack.push(e);
@@ -466,7 +478,8 @@ fn rewrite_expr(ast: &mut Ast, eid: ExprId, sh: &Shadow) {
                 stack.push(else_branch);
             }
             Expr::ArrowFn { params, body, .. } => {
-                let inner = shrunk(sh, &params, &body);
+                let own = ast.fn_expr_self_names.get(&id);
+                let inner = shrunk(sh, &params, &body, own);
                 for p in &params {
                     if let Some(d) = p.default {
                         rewrite_expr(ast, d, &inner);

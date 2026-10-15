@@ -2,7 +2,7 @@
 //! scopes, and an arrow function opens a function scope.
 
 use super::super::{Expr, ExprId};
-use super::Census;
+use super::{Census, Scope};
 
 impl Census<'_> {
     pub(super) fn expr(&mut self, eid: ExprId) {
@@ -17,7 +17,19 @@ impl Census<'_> {
                     self.expr(*a);
                 }
             }
-            Expr::ArrowFn { body, params, .. } => self.body(body, params),
+            // A named function expression binds its own name in a
+            // scope between the enclosing one and its body (§15.2.5).
+            Expr::ArrowFn { body, params, .. } => {
+                let own = self.ast.fn_expr_self_names.get(&eid);
+                if let Some(n) = own {
+                    self.scopes.push(Scope::from([(n.clone(), true)]));
+                }
+                self.defaults(params);
+                self.body(body, params);
+                if own.is_some() {
+                    self.scopes.pop();
+                }
+            }
             Expr::BinOp { left, right, .. }
             | Expr::Sequence { left, right }
             | Expr::Assign {

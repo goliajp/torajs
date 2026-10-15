@@ -140,6 +140,21 @@ impl Census<'_> {
         self.strict = strict;
     }
 
+    /// Parameter defaults are evaluated in a scope that holds the
+    /// parameters only (§10.2.11 steps 27-28): the body's `var`s and
+    /// functions are bound in a separate environment once a parameter
+    /// list has expressions in it.
+    fn defaults(&mut self, params: &[super::Param]) {
+        if params.iter().all(|p| p.default.is_none()) {
+            return;
+        }
+        self.scopes.push(shadowing(param_names(params)));
+        for d in params.iter().filter_map(|p| p.default) {
+            self.expr(d);
+        }
+        self.scopes.pop();
+    }
+
     fn body_scope(&self, body: &[Stmt], params: &[super::Param]) -> Scope {
         let mut names = own_fn_names(body);
         if !self.strict && !self.ast.body_says_use_strict(body) {
@@ -284,7 +299,10 @@ impl Census<'_> {
                 self.scopes.pop();
             }
             Stmt::Labeled { body, .. } => self.stmt(body),
-            Stmt::FnDecl { body, params, .. } => self.body(body, params),
+            Stmt::FnDecl { body, params, .. } => {
+                self.defaults(params);
+                self.body(body, params)
+            }
             Stmt::ExportDecl { inner, .. } => {
                 if let Some(i) = inner {
                     self.stmt(i);
