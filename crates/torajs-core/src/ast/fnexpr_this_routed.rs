@@ -264,6 +264,15 @@ pub(super) fn promote_variable_routed(
             {
                 continue;
             }
+            // an alias called by name rides the static seed with it
+            let called = super::fnexpr_this_alias::called_alias_names(stmts, exprs, &shapes, name);
+            let seeded = !no_static_seed.contains(name) && !from_hoist && !rebindable;
+            let argv_lane =
+                closure_argc_locals.contains(name) || closure_argv_locals.contains(name);
+            if !called.is_empty() && (!seeded || argv_lane) {
+                continue;
+            }
+            fnexpr_recv_locals.extend(called);
             patches.push(FacePatch {
                 eid: init,
                 fn_name: fn_name.clone(),
@@ -407,6 +416,10 @@ fn try_promote_scope_paired(
             return;
         }
         plans.push((init, fn_name.clone(), g_faces));
+    }
+    // a by-name alias cannot tell which declaration it reads
+    if !super::fnexpr_this_alias::called_alias_names(stmts, exprs, shapes, name).is_empty() {
+        return;
     }
     for (init, fn_name, g_faces) in plans {
         patches.push(FacePatch { eid: init, fn_name });

@@ -13,11 +13,15 @@
 //!
 //! Per-use rules inside the fixpoint:
 //!
-//! * every [`UseShapes`] shape EXCEPT the direct-call callee admits —
-//!   the value shapes never call, and the any-escaping shapes shift
-//!   argv on FLAG_CLOSURE_RECV_FIRST wherever the value lands. The
-//!   callee shape is exactly the one that is name-keyed at the call
-//!   site, so it refutes;
+//! * every [`UseShapes`] shape admits — the value shapes never call,
+//!   and the any-escaping shapes shift argv on FLAG_CLOSURE_RECV_FIRST
+//!   wherever the value lands. The direct-call callee is name-keyed at
+//!   the call site, so it admits only for an alias the promotion can
+//!   put on that key alongside its source: declared without an
+//!   annotation and never written again. [`called_alias_names`] hands
+//!   such aliases to the promotion, which registers them next to the
+//!   source or, where the source itself stays off the static list,
+//!   declines;
 //! * the argument of `Object.__forinKeys(v)` admits — §14.7.5.9
 //!   EnumerateObjectProperties never calls the enumerated object,
 //!   and this synthesized call is how the for-in head desugar
@@ -79,6 +83,7 @@ pub(super) fn safe_alias_init_sites(
         collect_decls_by_name(stmts, b, &mut decls);
         decls.len() == 1 && !name_shadowed_elsewhere(stmts, b)
     });
+    let callable = callable_aliases(stmts, exprs, base, &aliases, &assign_targets);
     let mut safe: std::collections::HashSet<String> =
         aliases.iter().map(|(_, b)| b.clone()).collect();
     loop {
@@ -98,7 +103,8 @@ pub(super) fn safe_alias_init_sites(
                     return false;
                 }
                 let eid = ExprId(i as u32);
-                let ok = (base.admits(eid, b) && !base.callee.contains(&eid))
+                let ok = (base.admits(eid, b)
+                    && (!base.callee.contains(&eid) || callable.contains(b.as_str())))
                     || forin_keys_args.contains(&eid)
                     || assign_targets.contains(&eid)
                     || safe_inits.contains(&eid);
@@ -171,4 +177,79 @@ fn collect_alias_decls(
             collect_alias_decls(inner, exprs, out, targets)
         });
     }
+}
+
+/// Aliases whose direct calls the promotion can seed: declared by an
+/// unannotated `LetDecl` (the type follows the source, so the call
+/// takes the same static lane) and never the target of a write other
+/// than the one that introduced them.
+fn callable_aliases<'a>(
+    stmts: &[Stmt],
+    exprs: &[Expr],
+    base: &UseShapes,
+    aliases: &'a [(ExprId, String)],
+    intro_targets: &std::collections::HashSet<ExprId>,
+) -> std::collections::HashSet<&'a str> {
+    let mut unannotated = std::collections::HashSet::new();
+    collect_unannotated_decl_names(stmts, &mut unannotated);
+    aliases
+        .iter()
+        .map(|(_, b)| b.as_str())
+        .filter(|b| unannotated.contains(*b) && !base.any_ann_names.contains(*b))
+        .filter(|b| {
+            !exprs.iter().enumerate().any(|(i, e)| {
+                let eid = ExprId(i as u32);
+                matches!(e, Expr::Ident(n) if n == b)
+                    && base.assign_target.contains(&eid)
+                    && !intro_targets.contains(&eid)
+            })
+        })
+        .collect()
+}
+
+fn collect_unannotated_decl_names(stmts: &[Stmt], out: &mut std::collections::HashSet<String>) {
+    for s in stmts {
+        if let Stmt::LetDecl {
+            name,
+            type_ann: None,
+            ..
+        } = s
+        {
+            out.insert(name.clone());
+        }
+        super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
+            collect_unannotated_decl_names(inner, out)
+        });
+    }
+}
+
+/// The safe aliases of `source`, directly or through other aliases,
+/// that are called by name — the names the promotion of `source` must
+/// put on the direct-call key with it.
+pub(super) fn called_alias_names(
+    stmts: &[Stmt],
+    exprs: &[Expr],
+    shapes: &UseShapes,
+    source: &str,
+) -> Vec<String> {
+    let mut aliases: Vec<(ExprId, String)> = Vec::new();
+    collect_alias_decls(stmts, exprs, &mut aliases, &mut Default::default());
+    let mut reach: Vec<String> = vec![source.to_string()];
+    let mut i = 0;
+    while i < reach.len() {
+        for (init, b) in &aliases {
+            let from = matches!(&exprs[init.0 as usize], Expr::Ident(n) if *n == reach[i]);
+            if from && shapes.safe_alias_init.contains(init) && !reach.contains(b) {
+                reach.push(b.clone());
+            }
+        }
+        i += 1;
+    }
+    reach.remove(0);
+    reach.retain(|b| {
+        exprs.iter().enumerate().any(|(i, e)| {
+            matches!(e, Expr::Ident(n) if n == b) && shapes.callee.contains(&ExprId(i as u32))
+        })
+    });
+    reach
 }

@@ -65,7 +65,9 @@ fn a_function_expression_passing_its_own_this_is_refused() {
 
 #[test]
 fn a_call_before_super_in_a_derived_constructor_is_refused() {
-    let ctor = "class B { constructor() {} }\nclass D extends B { r: any; constructor() { const f = function () { return this }; keep(f); const g = f; const r = CALL; super(); this.r = r } }\nconsole.log(new D().r);";
+    // `f.bind(this)` keeps `f` unclaimed; a plain call through an
+    // alias of a claimed `f` is seeded and needs no refusal
+    let ctor = "class B { constructor() {} }\nclass D extends B { r: any; constructor() { const f = function () { return this }; const g = f; const r = CALL; super(); keep(f.bind(this)); this.r = r } }\nconsole.log(new D().r);";
     refused_at(ctor, "g()");
 }
 
