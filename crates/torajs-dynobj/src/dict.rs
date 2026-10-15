@@ -21,7 +21,8 @@ use core::ffi::c_void;
 use crate::get::type_tag;
 use crate::layout::{ANY_ACCESSOR, BUCKET_FLAG_WRITABLE, DYNOBJ_HDR_FLAG_MODULE_NS, TAG_DYNOBJ};
 use crate::nanbox;
-use crate::probe::{Entry, bucket_flags, entries, probe};
+use crate::probe::{Entry, bucket_flags, entries};
+use crate::probe_str::{find_str, find_str_noted, hinted};
 use crate::set::note_own_write;
 
 unsafe extern "C" {
@@ -59,14 +60,11 @@ fn dynobj_cell(recv: u64) -> Option<*mut c_void> {
 /// a number.
 ///
 /// # Safety
-/// `obj` is a live dynobj; `key` is a live Str or Symbol cell.
+/// `obj` is a live dynobj; `key` is a live Str cell.
 #[inline]
 unsafe fn own_number(obj: *mut c_void, key: *const c_void) -> Option<u64> {
-    let p = unsafe { probe(obj, key) };
-    if !p.found {
-        return None;
-    }
-    let v = unsafe { (*entries(obj).add(p.entry as usize)).value_anyv };
+    let i = unsafe { find_str_noted(obj, key) }?;
+    let v = unsafe { (*entries(obj).add(i as usize)).value_anyv };
     nanbox::is_number(v).then_some(v)
 }
 
@@ -75,18 +73,18 @@ unsafe fn own_number(obj: *mut c_void, key: *const c_void) -> Option<u64> {
 /// refuses every write (§10.4.6.9) whatever its entries say.
 ///
 /// # Safety
-/// `obj` is a live dynobj; `key` is a live Str or Symbol cell.
+/// `obj` is a live dynobj; `key` is a live Str cell.
 #[inline]
 unsafe fn plain_own_entry(obj: *mut c_void, key: *const c_void) -> Option<*mut Entry> {
     unsafe {
         if (obj.cast::<u8>().add(6) as *const u16).read() & DYNOBJ_HDR_FLAG_MODULE_NS != 0 {
             return None;
         }
-        let p = probe(obj, key);
-        if !p.found {
-            return None;
-        }
-        let e = entries(obj).add(p.entry as usize);
+        // the read of `d[k] = (d[k] ?? 0) + 1` found this entry just now
+        let e = match hinted(obj, key) {
+            Some(e) => e,
+            None => entries(obj).add(find_str(obj, key)? as usize),
+        };
         let writable = bucket_flags((*e).key_ptr_tagged) & BUCKET_FLAG_WRITABLE != 0;
         (writable && !nanbox::is_cell((*e).value_anyv)).then_some(e)
     }
@@ -104,6 +102,20 @@ pub unsafe extern "C" fn __torajs_dynobj_dict_get(recv: u64, key: *const c_void)
     {
         return v;
     }
+    unsafe { get_generic(recv, key) }
+}
+
+// the generic halves of both entries stay out of line: the own-entry
+// paths above them then call nothing but a tail call and need no
+// stack frame
+
+/// The generic read: the pair read, then the getter on an accessor
+/// answer, else the retained box.
+///
+/// # Safety
+/// As [`__torajs_dynobj_dict_get`].
+#[inline(never)]
+unsafe fn get_generic(recv: u64, key: *const c_void) -> u64 {
     let mut value = 0;
     let tag = unsafe { __torajs_any_member_get_pair(recv, key, &mut value) };
     if tag == ANY_ACCESSOR {
@@ -130,10 +142,23 @@ pub unsafe extern "C" fn __torajs_dynobj_dict_set(
         if let Some(obj) = dynobj_cell(*recv_slot)
             && let Some(e) = plain_own_entry(obj, key)
         {
-            note_own_write(obj, key);
+            // the note only flags a builtin prototype's patched name,
+            // so it may follow the store (and be the tail call)
             (*e).value_anyv = v;
+            note_own_write(obj, key);
             return;
         }
+        set_generic(recv_slot, key, v, throw_on_refusal);
+    }
+}
+
+/// The generic write: the member-set kernel on the decoded box.
+///
+/// # Safety
+/// As [`__torajs_dynobj_dict_set`].
+#[inline(never)]
+unsafe fn set_generic(recv_slot: *mut u64, key: *mut c_void, v: u64, throw_on_refusal: bool) {
+    unsafe {
         let (tag, value) = (nanbox::unbox_tag(v) as u64, nanbox::unbox_value(v) as u64);
         if throw_on_refusal {
             __torajs_any_member_set(recv_slot, key, tag, value, -1);
@@ -203,8 +228,8 @@ mod tests {
         BUCKET_FLAG_CONFIGURABLE, BUCKET_FLAGS_DEFAULT, STR_DATA_OFF, STR_LEN_OFF,
     };
     use crate::probe::{
-        KEY_STR_FLAG_IS_LATIN1, bucket_make_key_tagged, count, entries_len, index_ptr, set_count,
-        set_entries_len,
+        KEY_STR_FLAG_IS_LATIN1, bucket_make_key_tagged, count, entries_len, index_ptr, probe,
+        set_count, set_entries_len,
     };
     use torajs_anyvalue::nanbox as av;
 

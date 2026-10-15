@@ -56,6 +56,7 @@ mod nanbox;
 pub mod pool;
 pub mod print_any;
 pub mod probe;
+mod probe_str;
 pub mod proto_chain;
 pub mod resize;
 pub mod seal;
