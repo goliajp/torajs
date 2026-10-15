@@ -13,8 +13,9 @@
 //! a hunch:
 //!
 //! 1. **It never calls the binding.** A member's object, the right of
-//!    `instanceof`, a `typeof` operand, an equality operand, the target
-//!    of `Object.defineProperty`, the name in `export default <name>` —
+//!    `instanceof`, a `typeof` operand, an equality operand, a test
+//!    (`if (f)`, `f ? a : b`, `!f`), the target of
+//!    `Object.defineProperty`, the name in `export default <name>` —
 //!    these consume the cell as a value and enter no call lane at all.
 //! 2. **Every path the value can be called back through honors the
 //!    receiver channel.** An explicitly-`any` parameter slot, an array
@@ -45,6 +46,7 @@ use super::fnexpr_this_names::peel_as;
 use super::{Expr, ExprId, Stmt};
 
 mod hof_cb_arg;
+mod test_operand;
 
 /// Every receiver-safe position in the program, by kind.
 pub(super) struct UseShapes {
@@ -94,6 +96,9 @@ pub(super) struct UseShapes {
     pub(super) instanceof_name: std::collections::HashSet<ExprId>,
     /// The bare name under `typeof`.
     pub(super) typeof_operand: std::collections::HashSet<ExprId>,
+    /// The bare name in a test position — see
+    /// [`test_operand::test_operand_idents`].
+    pub(super) test_operand: std::collections::HashSet<ExprId>,
     /// The bare name in `export default <name>`.
     pub(super) export_default: std::collections::HashSet<ExprId>,
     /// `return <bare name>` out of a function whose return type is
@@ -197,6 +202,7 @@ impl UseShapes {
             any_valued_store: super::fnexpr_this_kv::any_valued_store_idents(stmts, exprs),
             instanceof_name: instanceof_name_idents(exprs),
             typeof_operand: typeof_operand_idents(exprs),
+            test_operand: test_operand::test_operand_idents(stmts, exprs),
             export_default: export_default_idents(stmts, exprs),
             any_return: super::fnexpr_this_ret_boundary::any_boundary_return_idents(stmts, exprs),
             define_target: define_property_target_idents(exprs),
@@ -230,6 +236,7 @@ impl UseShapes {
             || self.any_valued_store.contains(&e)
             || self.instanceof_name.contains(&e)
             || self.typeof_operand.contains(&e)
+            || self.test_operand.contains(&e)
             || self.export_default.contains(&e)
             || self.define_target.contains(&e)
             || self.hof_cb_arg.contains(&e)
