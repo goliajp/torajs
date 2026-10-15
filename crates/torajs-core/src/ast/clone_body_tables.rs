@@ -120,6 +120,12 @@ pub(crate) fn migrate(cloner: &mut BodyCloner<'_>) {
     copy_set!(paren_optchains);
     copy_set!(regex_result_props_unread);
     copy_map!(regex_exec_record_callees);
+    copy_map!(eval_var_sites);
+    copy_set!(escaped_use_strict);
+    copy_set!(new_target_fn_exprs);
+    copy_set!(implicit_rest_arrows);
+    copy_set!(param_destr_inits);
+    copy_set!(spread_filled_args);
 }
 
 fn resolve_value(cloner: &mut BodyCloner<'_>, v: ExprId) -> ExprId {
