@@ -12,6 +12,8 @@ use std::collections::HashMap;
 
 use super::{Expr, ExprId, Stmt};
 
+mod values_read;
+
 /// RFC 20260813-detached-objlit-method — widen `const o = { m() {
 /// this… } }` to the (a)-leg spelling when the program reads `o.m` as
 /// a VALUE rather than calling it.
@@ -56,6 +58,7 @@ pub(crate) fn widen_detached_method_objlits(
     stmts: &mut [Stmt],
     exprs: &mut Vec<Expr>,
     spans: &mut Vec<crate::lexer::Span>,
+    objlit_method_exprs: &std::collections::HashSet<ExprId>,
 ) {
     {
         let mut reads = value_read_members(exprs);
@@ -72,6 +75,7 @@ pub(crate) fn widen_detached_method_objlits(
             widen_inner(stmts, &admit);
         }
     }
+    values_read::widen_values_read_objlits(stmts, exprs, objlit_method_exprs);
     let returned = super::objlit_nominal_returned::value_read_call_members(exprs);
     if !returned.is_empty() {
         super::objlit_nominal_returned::force_returned_literals(stmts, exprs, spans, &returned);

@@ -42,6 +42,7 @@
 
 use std::collections::HashMap;
 
+use super::objlit_nominal_anylane::widen_detached_method_objlits;
 use super::{
     AstExprsView, Expr, ExprId, Param, PropKey, Stmt, binds_to_params, infer_expr_ann_with,
 };
@@ -81,9 +82,8 @@ pub(crate) fn run(
     if objlit_method_exprs.is_empty() {
         return;
     }
-    // RFC 20260813-detached-objlit-method — widen FIRST: the (a) leg
-    // of the collector below is what picks the widened binding up.
-    super::objlit_nominal_anylane::widen_detached_method_objlits(stmts, exprs, spans);
+    // widen first: the (a) leg of the collector below picks the widened binding up
+    widen_detached_method_objlits(stmts, exprs, spans, objlit_method_exprs);
     // Same widen-not-mark rule, the other reason a literal's methods
     // can meet a foreign receiver: the program installs the literal
     // as somebody's [[Prototype]].
