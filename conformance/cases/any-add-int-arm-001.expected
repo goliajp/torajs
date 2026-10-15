@@ -1,0 +1,68 @@
+8:number 8:number 7:number 7:number
+6:number 2147483654:number -2147483641:number
+-2:number -2:number -3:number -3:number
+-4:number 2147483644:number -2147483651:number
+1:number 1:number 0:number 0:number
+-1:number 2147483647:number -2147483648:number
+2147483648:number 2147483648:number 2147483647:number 2147483647:number
+2147483646:number 4294967294:number -1:number
+-2147483647:number -2147483647:number -2147483648:number -2147483648:number
+-2147483649:number -1:number -4294967296:number
+2147483647:number 2147483647:number 2147483646:number 2147483646:number
+2147483645:number 4294967293:number -2:number
+-2147483646:number -2147483646:number -2147483647:number -2147483647:number
+-2147483648:number 0:number -4294967295:number
+3.5:number 3.5:number 2.5:number 2.5:number
+1.5:number 2147483649.5:number -2147483645.5:number
+-1.5:number -1.5:number -2.5:number -2.5:number
+-3.5:number 2147483644.5:number -2147483650.5:number
+1:number 1:number 0:number 0:number
+-1:number 2147483647:number -2147483648:number
+NaN:number NaN:number NaN:number NaN:number
+NaN:number NaN:number NaN:number
+Infinity:number Infinity:number Infinity:number Infinity:number
+Infinity:number Infinity:number Infinity:number
+-Infinity:number -Infinity:number -Infinity:number -Infinity:number
+-Infinity:number -Infinity:number -Infinity:number
+1e+300:number 1e+300:number 1e+300:number 1e+300:number
+1e+300:number 1e+300:number 1e+300:number
+9007199254740992:number 9007199254740992:number 9007199254740991:number 9007199254740991:number
+9007199254740990:number 9007201402224638:number 9007197107257343:number
+-9007199254740990:number -9007199254740990:number -9007199254740991:number -9007199254740991:number
+-9007199254740992:number -9007197107257344:number -9007201402224640:number
+4294967297:number 4294967297:number 4294967296:number 4294967296:number
+4294967295:number 6442450943:number 2147483648:number
+NaN:number NaN:number NaN:number NaN:number
+NaN:number NaN:number NaN:number
+NaN:number NaN:number NaN:number NaN:number
+NaN:number NaN:number NaN:number
+NaN:number NaN:number NaN:number NaN:number
+NaN:number NaN:number NaN:number
+x1:string 1x:string x0:string 0x:string
+x-1:string x2147483647:string -2147483648x:string
+1:string 1:string 0:string 0:string
+-1:string 2147483647:string -2147483648:string
+121:string 112:string 120:string 012:string
+12-1:string 122147483647:string -214748364812:string
+1:number 1:number 0:number 0:number
+-1:number 2147483647:number -2147483648:number
+NaN:number NaN:number NaN:number NaN:number
+NaN:number NaN:number NaN:number
+2:number 2:number 1:number 1:number
+0:number 2147483648:number -2147483647:number
+1:number 1:number 0:number 0:number
+-1:number 2147483647:number -2147483648:number
+41:number 41:number 40:number 40:number
+39:number 2147483687:number -2147483608:number
+51:string 15:string 50:string 05:string
+5-1:string 52147483647:string -21474836485:string
+1,21:string 11,2:string 1,20:string 01,2:string
+1,2-1:string 1,22147483647:string -21474836481,2:string
+o1:string 1o:string o0:string 0o:string
+o-1:string o2147483647:string -2147483648o:string
+-2147483650:number|-2147483650:number 1e+300:number|1e+300:number x-3:string|-3x:string 37:number|37:number 2147483645:number|2147483645:number NaN:number|NaN:number NaN:number|NaN:number NaN:number|NaN:number 6:number|6:number 1.5:number|1.5:number 9007199254740990:number|9007199254740990:number -1:string|-1:string 5-1:string|-15:string -2147483648:number|-2147483648:number Infinity:number|Infinity:number NaN:number|NaN:number 1:number|1:number -2:number|-2:number -1.5:number|-1.5:number -9007199254740990:number|-9007199254740990:number 121:string|112:string 1,21:string|11,2:string 2147483648:number|2147483648:number -Infinity:number|-Infinity:number NaN:number|NaN:number 2:number|2:number 3:number|3:number 3:number|3:number 4294967299:number|4294967299:number 3:number|3:number o3:string|3o:string
+2147484640 2147484640 2147484640 number
+2147483700 number
+-2147483700
+true
+true

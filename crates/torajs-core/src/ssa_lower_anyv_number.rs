@@ -61,6 +61,33 @@ pub(crate) fn number_add(
     let res = ctx.alloca(Type::Any, None);
     let slow_blk = ctx.f.add_block();
     let done_blk = ctx.f.add_block();
+    match (a_ty, b_ty) {
+        (Type::Any, Type::I64) => emit_any_int_add(ctx, (a, b), res, slow_blk, done_blk),
+        (Type::I64, Type::Any) => emit_any_int_add(ctx, (b, a), res, slow_blk, done_blk),
+        _ => emit_general_add(ctx, (a, a_ty), (b, b_ty), res, slow_blk, done_blk),
+    }
+
+    ctx.cur_block = slow_blk;
+    let r = slow(ctx);
+    store_and_join(ctx, r, res, done_blk);
+
+    ctx.cur_block = done_blk;
+    Operand::Value(inst(
+        ctx,
+        InstKind::Load(Type::Any, Operand::Value(res), 0),
+        Type::Any,
+    ))
+}
+
+/// Every `any` addend a number: the F64 sum, boxed per [`emit_box_sum`].
+fn emit_general_add(
+    ctx: &mut LowerCtx<'_>,
+    (a, a_ty): (Operand, Type),
+    (b, b_ty): (Operand, Type),
+    res: ValueId,
+    slow_blk: BlockId,
+    done_blk: BlockId,
+) {
     // past a failed int32 pair test the two `any` addends are never
     // both int32 encodings, so the sum boxes as a double
     let pair = a_ty == Type::Any && b_ty == Type::Any;
@@ -87,17 +114,58 @@ pub(crate) fn number_add(
         )),
     };
     emit_box_sum(ctx, sum, both_int, res, done_blk);
+}
 
-    ctx.cur_block = slow_blk;
-    let r = slow(ctx);
-    store_and_join(ctx, r, res, done_blk);
+/// An `any` addend `v` plus an I64 `n` (addition commutes, so either
+/// source order lands here). An int32 encoding adds as an integer: the
+/// sum is exact in i64 (`n` near the i64 edge never wraps into int32
+/// range) and boxes as an int32 when it fits, else as the double the
+/// float sum gives. A double encoding never makes the sum
+/// integer-shaped, so it boxes as a double with no range test.
+fn emit_any_int_add(
+    ctx: &mut LowerCtx<'_>,
+    (v, n): (Operand, Operand),
+    slot: ValueId,
+    slow: BlockId,
+    done: BlockId,
+) {
+    let int_blk = ctx.f.add_block();
+    let other_blk = ctx.f.add_block();
+    let is_int = inst(ctx, InstKind::AnyIsInt32(v), Type::Bool);
+    branch(ctx, is_int, int_blk, other_blk);
 
-    ctx.cur_block = done_blk;
-    Operand::Value(inst(
+    ctx.cur_block = int_blk;
+    let x = inst(ctx, InstKind::AnyToInt32(v), Type::I64);
+    let sum = inst(
         ctx,
-        InstKind::Load(Type::Any, Operand::Value(res), 0),
-        Type::Any,
-    ))
+        InstKind::BinOp(BinOp::Add, Operand::Value(x), n),
+        Type::I64,
+    );
+    let narrow = sext32(ctx, sum);
+    let fits = inst(
+        ctx,
+        InstKind::ICmp(IPred::Eq, Operand::Value(narrow), Operand::Value(sum)),
+        Type::Bool,
+    );
+    let fits_blk = ctx.f.add_block();
+    let float_blk = ctx.f.add_block();
+    branch(ctx, fits, fits_blk, float_blk);
+    ctx.cur_block = fits_blk;
+    let boxed = inst(ctx, InstKind::BoxInt32(Operand::Value(sum)), Type::Any);
+    store_and_join(ctx, Operand::Value(boxed), slot, done);
+
+    ctx.cur_block = other_blk;
+    let is_num = inst(ctx, InstKind::AnyIsNumber(v), Type::Bool);
+    branch(ctx, is_num, float_blk, slow);
+
+    // a sum past int32 and a double encoding both add as floats
+    ctx.cur_block = float_blk;
+    let f = InstKind::AnyToF64(v, Operand::Value(is_int));
+    let f = inst(ctx, f, Type::F64);
+    let nf = inst(ctx, InstKind::SiToFp(n), Type::F64);
+    let sum = InstKind::BinOp(BinOp::FAdd, Operand::Value(f), Operand::Value(nf));
+    let sum = inst(ctx, sum, Type::F64);
+    emit_box_double(ctx, sum, slot, done);
 }
 
 /// Both `any` addends int32 encodings: add them as i64 (no overflow
