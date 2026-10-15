@@ -69,6 +69,9 @@ pub(crate) struct Proofs {
     /// > 0 while lowering a sub-expression that runs on one branch of
     /// > a join (`a && b`, `c ? x : y`, `o?.p`, `a ?? b`).
     cond_depth: u32,
+    /// The drop being emitted releases a binding a guard proved live,
+    /// so its nullish test is known false (`emit_frame_drops`).
+    drop_live: bool,
 }
 
 impl Proofs {
@@ -128,6 +131,17 @@ impl Proofs {
     /// before the region and the region did not kill it.
     pub(crate) fn region_leave(&mut self, saved: &HashSet<String>) {
         self.nonnull_lets.retain(|n| saved.contains(n));
+    }
+
+    /// The next drop releases a binding a guard proved live.
+    pub(crate) fn arm_drop_live(&mut self) {
+        self.drop_live = true;
+    }
+
+    /// Whether the drop asking is the one [`Self::arm_drop_live`] armed;
+    /// it disarms, so the drops of the value's own fields test theirs.
+    pub(crate) fn take_drop_live(&mut self) -> bool {
+        std::mem::take(&mut self.drop_live)
     }
 
     pub(crate) fn enter_cond(&mut self) {

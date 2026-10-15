@@ -23,7 +23,7 @@
 //! then the frame is re-entered by a loop) is a no-op rather than a
 //! double free.
 
-use crate::ssa::{BlockId, InstKind, Operand, ValueId};
+use crate::ssa::{BlockId, InstKind, Operand, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 
 /// A block control can transfer to from inside deeper scope frames,
@@ -146,7 +146,11 @@ impl LowerCtx<'_> {
                 info.ty,
                 None,
             );
+            if matches!(info.ty, Type::Obj(_)) && self.proofs.let_is_nonnull(name) {
+                self.proofs.arm_drop_live();
+            }
             self.emit_drop_value(Operand::Value(val), info.ty);
+            self.proofs.take_drop_live();
             if info.ty.is_refcounted() {
                 self.f.append_void(
                     self.cur_block,

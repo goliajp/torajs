@@ -57,8 +57,12 @@ mod obj;
 /// null) or the immortal generic undefined cell; both must skip the
 /// inline rc-dec (the runtime FFI paths are FLAG_STATIC-gated, but
 /// the IR-level `emit_rc_dec_inline` writes the header directly —
-/// dec'ing the static cell would write rodata). Two cmps + or.
+/// dec'ing the static cell would write rodata). Two cmps + or; none
+/// for a binding a guard proved live (`Proofs::arm_drop_live`).
 pub(super) fn nullish_skip_cond(ctx: &mut LowerCtx, val: &Operand) -> Operand {
+    if ctx.proofs.take_drop_live() {
+        return Operand::ConstBool(false);
+    }
     let val_ty = ctx.operand_ty(val);
     let is_null = ctx.f.append_inst(
         ctx.cur_block,
