@@ -23,8 +23,10 @@ use std::collections::{HashMap, HashSet};
 
 use super::super::{Ast, Expr, ExprId};
 use definer_types::{may_hold_definer, may_spell_definer};
+use key_read_sinks::KeyReadSinks;
 
 mod definer_types;
+mod key_read_sinks;
 
 /// The answer, read by every typed field read and its throw analysis.
 #[derive(Debug, Clone, Default)]
@@ -91,7 +93,8 @@ impl AccessorFieldNames {
     }
 
     /// Whether some computed-key read the census left open may pick a
-    /// definer, judged by `expr_types`.
+    /// definer, judged by `expr_types`; a read whose value only meets a
+    /// store or a conversion picks none (`key_read_sinks`).
     pub(super) fn key_reads_open(
         &self,
         ast: &Ast,
@@ -100,11 +103,16 @@ impl AccessorFieldNames {
         // a read the checker never reached (rewritten away by a pass, or
         // in a body nothing calls) is not one the program performs
         let reached = |e: &ExprId| expr_types.contains_key(e);
+        let sinks = std::cell::OnceCell::new();
+        let named = |h: &str| matches!(&self.reach, Reach::Names(n) if n.contains(h));
+        let closes =
+            |r: ExprId| (sinks.get_or_init(|| KeyReadSinks::of(ast, expr_types, &named))).closes(r);
         self.key_reads.iter().any(|r| match ast.get_expr(*r) {
             Expr::Index { obj, index } | Expr::OptIndex { obj, index } => {
                 (reached(r) || reached(obj))
                     && expr_types.get(obj).is_none_or(may_hold_definer)
                     && expr_types.get(index).is_none_or(may_spell_definer)
+                    && !closes(*r)
             }
             // rewritten in place since the census: nothing says the
             // new shape is harmless
