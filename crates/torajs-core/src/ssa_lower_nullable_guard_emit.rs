@@ -79,16 +79,17 @@ fn emit_proven_nullish_guard(
 }
 
 /// The fn-local binding `eid` reads, when a guard on it can be
-/// remembered: a plain local of a non-main fn that this fn's closures
-/// do not capture. A capture box, a captured binding and a top-level
-/// binding can all be written by a call in between.
+/// remembered: a plain local that this fn's closures do not capture
+/// and, in the program's main body, one declared inside a block. A
+/// capture box, a captured binding and a top-level binding can all be
+/// written by a call in between.
 fn provable_binding(ctx: &LowerCtx<'_>, eid: ExprId) -> Option<String> {
-    if ctx.is_main_fn {
-        return None;
-    }
     match ctx.ast.get_expr(eid) {
         Expr::Ident(n)
-            if ctx.locals.get(n).is_some_and(|l| !l.boxed)
+            if ctx
+                .locals
+                .get(n)
+                .is_some_and(|l| !l.boxed && (!ctx.is_main_fn || l.scope_depth > 0))
                 && !ctx.globals.contains_key(n)
                 && !ctx.escape_captured_lets.contains(n) =>
         {
