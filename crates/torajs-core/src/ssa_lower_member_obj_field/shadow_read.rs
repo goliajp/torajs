@@ -19,7 +19,8 @@ use crate::ssa_lower::LowerCtx;
 /// Whether the read of the field `name` of the receiver `obj`, whose
 /// slot is `slot_ty`, answers the sidecar as an any-lane value: an
 /// optional `number` member's f64 slot a write of the program can
-/// shadow. Its checked type, `number | undefined`, already sends its
+/// shadow, or that can become an accessor, whose getter answers any
+/// value. Its checked type, `number | undefined`, already sends its
 /// consumers down the any lane when the value arrives boxed; a member
 /// of another type keeps the cast the accessor read runs
 /// (`super::exotic_read::convert`), which refuses a value of another
@@ -27,8 +28,9 @@ use crate::ssa_lower::LowerCtx;
 /// — a same-named required `number` member of another type is read as
 /// the f64 its consumers expect (`optional_number::optional_number_slot`).
 pub(crate) fn applies(ctx: &LowerCtx<'_>, obj: Option<ExprId>, name: &str, slot_ty: Type) -> bool {
+    let fields = &ctx.ast.accessor_field_names;
     slot_ty == Type::F64
-        && ctx.ast.accessor_field_names.may_shadow(name, true)
+        && (fields.may_shadow(name, true) || fields.may(name))
         && crate::ssa_lower_object_lit::optional_number::optional_number_slot(
             ctx, obj, name, slot_ty,
         )

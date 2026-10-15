@@ -1,0 +1,10 @@
+object number 7 fallback 10 [null]
+string string str str str ["str"]
+number number 5 5 5 [5]
+undefined number 7 fallback 10 [null]
+number number 0 0 0 [0]
+boolean boolean false false false [false]
+number number 2.5 2.5 2.5 [2.5]
+2
+10 3
+8.25 12.25 3
