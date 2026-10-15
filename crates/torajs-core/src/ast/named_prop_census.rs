@@ -40,6 +40,7 @@ pub(super) mod shadow_facts;
 pub(crate) mod shadow_names;
 mod write_hit;
 mod write_kind;
+mod write_sites;
 
 use super::{Ast, Expr, ExprId, Stmt};
 use std::collections::HashSet;

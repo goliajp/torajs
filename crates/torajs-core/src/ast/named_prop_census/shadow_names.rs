@@ -27,7 +27,8 @@ use std::cell::OnceCell;
 use std::collections::{HashMap, HashSet};
 
 use super::accessor_names::{AccessorFieldNames, Reach};
-use super::write_hit::{Hit, Kind, any_receiver, call, candidates, literal, spare, write};
+use super::write_hit::{Hit, Kind, any_receiver, call, literal, spare, write};
+use super::write_sites::candidates;
 use crate::ast::{Ast, Expr, ExprId, PropKey};
 use crate::check::{GenericAliasMap, Lit, Type};
 use crate::ssa_lower_pass_0_5::arr_head_census::TwinBodies;
