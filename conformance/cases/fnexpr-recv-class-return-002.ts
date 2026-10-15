@@ -34,19 +34,6 @@ class P {
 }
 console.log(new P().bare3()(41));
 
-// a mixed-return body keeps today's behavior (no seeding)
-class Q {
-  m(c: boolean) {
-    if (c) {
-      return function () {
-        return (this as any).v;
-      };
-    }
-    return 5;
-  }
-}
-console.log(new Q().m(false));
-
 // the returned value survives a store into an any expando
 const holder: any = { v: 9 };
 class R {

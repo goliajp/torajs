@@ -1,5 +1,6 @@
 //! Which bindings of a body hold only an unclaimed function
-//! expression: the names [`super::misroutes`] follows a value through.
+//! expression: the names [`super::misroutes`] and [`super::escape`]
+//! follow a value through.
 
 use std::collections::{HashMap, HashSet};
 
@@ -9,18 +10,18 @@ use crate::ast::fnexpr_this_default::unclaimed_fnexpr;
 use crate::ast::fnexpr_this_names::peel_as;
 use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
 
-/// Every name some `x = …` anywhere in the program writes.
-pub(super) fn assigned_names(ast: &Ast) -> HashSet<&str> {
-    ast.exprs
-        .iter()
-        .filter_map(|e| match e {
-            Expr::Assign { target, .. } => match ast.get_expr(*target) {
-                Expr::Ident(n) => Some(n.as_str()),
-                _ => None,
-            },
-            _ => None,
-        })
-        .collect()
+/// Every name some `x = …` anywhere in the program writes, with the
+/// values written.
+pub(super) fn assigned_names(ast: &Ast) -> HashMap<&str, Vec<ExprId>> {
+    let mut out: HashMap<&str, Vec<ExprId>> = HashMap::new();
+    for e in &ast.exprs {
+        if let Expr::Assign { target, value } = e
+            && let Expr::Ident(n) = ast.get_expr(*target)
+        {
+            out.entry(n.as_str()).or_default().push(*value);
+        }
+    }
+    out
 }
 
 /// Bindings visible in this body whose only value is an unclaimed
@@ -32,7 +33,7 @@ pub(super) fn held_of<'a>(
     ast: &'a Ast,
     fns: &HashMap<&'a str, (&'a [Param], &'a [Stmt])>,
     mints: &HashMap<&'a str, (ExprId, &'a str)>,
-    assigned: &HashSet<&str>,
+    assigned: &HashMap<&str, Vec<ExprId>>,
     name: &str,
     depth: usize,
 ) -> HashMap<&'a str, Held> {
@@ -63,19 +64,38 @@ pub(super) fn held_of<'a>(
     for (n, _) in &decls {
         *count.entry(n).or_default() += 1;
     }
-    let single = |n: &str| count.get(n) == Some(&1) && !assigned.contains(n);
+    let single = |n: &str| count.get(n) == Some(&1) && !assigned.contains_key(n);
+    // what a value written into a binding holds: such an expression, or
+    // a binding already known to hold one
+    let value_kind = |held: &HashMap<&'a str, Held>, v: ExprId| {
+        let v = peel_as(&ast.exprs, v);
+        match ast.get_expr(v) {
+            Expr::Ident(src) => held.get(src.as_str()).copied(),
+            _ => own
+                .filter(|_| unclaimed_fnexpr(ast, v).is_some())
+                .map(|k| (k, true)),
+        }
+    };
+    // a name declared without a value (a hoisted `var` is, see
+    // `var_hoist`) whose every write anywhere holds the same such value
+    let stored_only = |held: &HashMap<&'a str, Held>, n: &str, init: ExprId| {
+        if count.get(n) != Some(&1) || !matches!(ast.get_expr(init), Expr::Uninit) {
+            return None;
+        }
+        let mut kinds = assigned.get(n)?.iter().map(|&v| value_kind(held, v));
+        let first = kinds.next()??;
+        kinds.all(|k| k == Some(first)).then_some(first)
+    };
     loop {
         let before = held.len();
         for &(n, init) in &decls {
-            if held.contains_key(n) || !single(n) {
+            if held.contains_key(n) {
                 continue;
             }
-            let v = peel_as(&ast.exprs, init);
-            let kind = match ast.get_expr(v) {
-                Expr::Ident(src) => held.get(src.as_str()).copied(),
-                _ => own
-                    .filter(|_| unclaimed_fnexpr(ast, v).is_some())
-                    .map(|k| (k, true)),
+            let kind = if single(n) {
+                value_kind(&held, init)
+            } else {
+                stored_only(&held, n, init)
             };
             if let Some(k) = kind {
                 held.insert(n, k);
@@ -85,6 +105,33 @@ pub(super) fn held_of<'a>(
             return held;
         }
     }
+}
+
+/// Names this body declares more than once, every time by `let` /
+/// `const`, and never writes: distinct block-scoped bindings, each
+/// holding its initializer alone. The scan cannot tell which of them a
+/// use reaches, so it follows none of them.
+pub(super) fn scoped_twice<'a>(
+    body: &'a [Stmt],
+    assigned: &HashMap<&str, Vec<ExprId>>,
+) -> HashSet<&'a str> {
+    let mut decls: Vec<(&'a str, bool)> = Vec::new();
+    let mut todo: Vec<&'a Stmt> = body.iter().collect();
+    while let Some(s) = todo.pop() {
+        match s {
+            Stmt::FnDecl { .. } => {}
+            Stmt::LetDecl { name, is_var, .. } => decls.push((name, *is_var)),
+            other => todo.extend(stmt_children_ref(other)),
+        }
+    }
+    let mut out = HashSet::new();
+    for &(n, _) in &decls {
+        let mut of_n = decls.iter().filter(|(m, _)| *m == n);
+        if of_n.clone().count() > 1 && of_n.all(|(_, var)| !var) && !assigned.contains_key(n) {
+            out.insert(n);
+        }
+    }
+    out
 }
 
 /// Declarations in this body, nested blocks included, nested functions

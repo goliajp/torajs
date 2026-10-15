@@ -89,10 +89,24 @@ fn a_plain_call_in_a_plain_function_is_accepted() {
     }
 }
 
+// a reassigned name is not followed to its uses, so writing an
+// unclaimed function expression into it refuses rather than leaving a
+// call through it unjudged
 #[test]
-fn a_redeclared_or_reassigned_name_is_not_tracked() {
+fn a_write_into_a_reassigned_name_is_refused() {
     for src in [
+        "class C { m() { const f = function () { return this }; keep(f.bind(this)); let g: any = f; g = () => 1; return g() } }\nconsole.log(new C().m());",
+        // ran `f.call(5)` on the instance
+        "class C { m() { let f: any = function () { return this }; const r = f.call(5); f = () => 1; return [r, f()] } }\nconsole.log(new C().m());",
+    ] {
+        assert!(!pipeline_ok(src), "accepted:\n{src}");
+    }
+    for src in [
+        // `const` in sibling blocks: two bindings, each holding its
+        // initializer alone, and not followed
         "class C { m() { { const f = function () { return this }; keep(f) } { const f = () => 1; return f() } } }\nconsole.log(new C().m());",
+        // every use receiver-safe: the function expression is promoted
+        // to a receiver of its own, and no write of it is left to judge
         "class C { m() { let f: any = function () { return this }; keep(f); f = () => 1; return f() } }\nconsole.log(new C().m());",
         "class C { m() { const f = function () { return this }; keep(f); let g: any = f; g = () => 1; return g() } }\nconsole.log(new C().m());",
     ] {

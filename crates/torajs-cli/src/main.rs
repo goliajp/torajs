@@ -25,6 +25,8 @@ mod cmd_fmt;
 mod cmd_lint;
 mod cmd_run;
 #[cfg(test)]
+mod fnexpr_this_escape_tests;
+#[cfg(test)]
 mod fnexpr_this_misrouted_tests;
 mod lsp;
 mod lsp_bench;

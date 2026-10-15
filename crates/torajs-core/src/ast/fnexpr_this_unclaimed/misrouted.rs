@@ -24,10 +24,13 @@
 //! value is one: declared once in the body, never the target of an
 //! assignment anywhere, and initialized with the function expression
 //! or with another such binding; a lifted arrow sees the bindings it
-//! captures from the body that minted it. Two declarations of the name (sibling
-//! blocks, `var` twice) or an assignment drop the name — the scan
-//! under-fires there and never refuses a program whose capture nothing
-//! observes.
+//! captures from the body that minted it. A name declared without a
+//! value whose every write is such an expression or such a binding
+//! counts too (`{ var f = function () { … } }` in a nested block). Two
+//! declarations of the name (sibling blocks, `var` twice) or any other
+//! assignment drop the name, and [`escape`] refuses a write of the
+//! value into a name it drops. Uses other than these call sites are
+//! [`escape`]'s.
 
 use std::collections::HashMap;
 
@@ -36,6 +39,7 @@ use crate::ast::fnexpr_this_default::unclaimed_fnexpr;
 use crate::ast::fnexpr_this_names::peel_as;
 use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
 
+mod escape;
 mod held;
 
 use held::{assigned_names, held_of};
@@ -44,6 +48,9 @@ use held::{assigned_names, held_of};
 /// reading the binding sees that same `__this` (it reached the body
 /// through arrows only).
 type Held = (Outer, bool);
+
+/// Every top-level function: its parameters and body.
+type Fns<'a> = HashMap<&'a str, (&'a [Param], &'a [Stmt])>;
 
 /// What the enclosing body's `__this` holds when it was entered.
 #[derive(Clone, Copy, PartialEq)]
@@ -79,11 +86,15 @@ pub(super) fn misrouted_receiver(ast: &Ast) -> bool {
         .collect();
     let mints = mint_sites(ast, &fns);
     let assigned = assigned_names(ast);
-    for (&name, &(_, body)) in &fns {
+    for (&name, &(params, body)) in &fns {
         let outer = outer_of(ast, &fns, &mints, name, 0);
         let held = held_of(ast, &fns, &mints, &assigned, name, 0);
         if outer.is_none() && held.is_empty() {
             continue;
+        }
+        let scoped = held::scoped_twice(body, &assigned);
+        if escape::escapes(ast, &fns, (params, body), (&held, &scoped), outer) {
+            return true;
         }
         let mut roots: Vec<ExprId> = Vec::new();
         collect_roots(body, &mut roots);
