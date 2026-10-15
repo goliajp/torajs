@@ -105,6 +105,14 @@ pub(crate) fn migrate(cloner: &mut BodyCloner<'_>) {
             cloner.ast.yield_into_await_origins.insert(*new, origin);
         }
     }
+    // An optional call keeps its chain base, a node under the call: the
+    // cloned call is guarded by the cloned base.
+    for (old, new) in &pairs {
+        if let Some(base) = cloner.ast.optchain_calls.get(old).copied() {
+            let base = cloner.map.get(&base).copied().unwrap_or(base);
+            cloner.ast.optchain_calls.insert(*new, base);
+        }
+    }
     copy_set!(stack_array_literals);
     copy_set!(regex_result_props_unread);
     copy_map!(regex_exec_record_callees);
