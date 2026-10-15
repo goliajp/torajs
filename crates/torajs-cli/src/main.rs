@@ -24,6 +24,8 @@ mod cmd_debug;
 mod cmd_fmt;
 mod cmd_lint;
 mod cmd_run;
+#[cfg(test)]
+mod fnexpr_this_misrouted_tests;
 mod lsp;
 mod lsp_bench;
 #[cfg(test)]

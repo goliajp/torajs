@@ -31,6 +31,8 @@
 use super::desugar_with::walk::{expr_children, stmt_children_ref, stmt_exprs};
 use super::{Ast, Expr, ExprId, Stmt};
 
+mod misrouted;
+
 /// The one line the reject prints (under the pipeline's
 /// `not yet supported:` prefix) — fixed on purpose, so the sweep sees
 /// one signature instead of a spread of per-case spellings, and free
@@ -43,7 +45,9 @@ const MESSAGE: &str = "fnexpr this in unclaimed receiver position: \
 /// the pipeline prints it under `not yet supported:` and stops before
 /// the checker can spell the same reject cryptically.
 pub fn unclaimed_fnexpr_this(ast: &Ast) -> Option<String> {
-    scan_list(ast, &ast.stmts, false)
+    scan_list(ast, &ast.stmts, false).or_else(|| {
+        misrouted::misrouted_receiver(ast).then(|| MESSAGE.to_string())
+    })
 }
 
 fn scan_list(ast: &Ast, stmts: &[Stmt], provided: bool) -> Option<String> {
@@ -99,7 +103,7 @@ fn scan_expr(ast: &Ast, eid: ExprId, provided: bool) -> Option<String> {
 /// A `let` / `var` binding literally named `__this` anywhere in the
 /// statement (nested blocks included, nested FUNCTIONS excluded —
 /// those open their own scope and answer for themselves).
-fn stmt_declares_this(s: &Stmt) -> bool {
+pub(super) fn stmt_declares_this(s: &Stmt) -> bool {
     match s {
         Stmt::LetDecl { name, .. } => name == "__this",
         Stmt::FnDecl { .. } => false,
@@ -110,7 +114,7 @@ fn stmt_declares_this(s: &Stmt) -> bool {
 /// `__env(a|b|__this|c)` — the capture-list spelling
 /// `bind_fnexpr_this_default` and the lift keep in the env param's
 /// annotation.
-fn env_ann_has_this(ann: &str) -> bool {
+pub(super) fn env_ann_has_this(ann: &str) -> bool {
     ann.strip_prefix("__env(")
         .and_then(|rest| rest.strip_suffix(')'))
         .is_some_and(|caps| caps.split('|').any(|c| c == "__this"))
