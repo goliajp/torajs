@@ -6,7 +6,8 @@
 //! compare is a `memcmp` call; that keeps a stack frame and a dozen
 //! saved registers on every walk. [`find_str`] walks the same index
 //! with the same hash, remembers no tombstone and compares payloads
-//! in place, so it is a leaf with no frame.
+//! in place, so it is a leaf with no frame. [`cached`] answers before
+//! any walk when the same key cell found its entry before.
 
 use core::ffi::c_void;
 use core::sync::atomic::{AtomicU32, Ordering};
@@ -17,15 +18,29 @@ use crate::probe::{
     index_ptr,
 };
 
-/// The entry index [`find_str`] found last, in whichever object.
+/// Slots of [`FOUND_BY_CELL`]; a power of two.
+const FOUND_SLOTS: usize = 1024;
+
+/// The entry index [`find_str_noted`] found last for a key cell, in
+/// whichever object, filed by the cell's address.
 ///
-/// A hint, never a fact: [`hinted`] accepts it only where the object
+/// A hint, never a fact: [`cached`] accepts it only where the object
 /// has a live entry at that index holding the very key cell asked for.
 /// An entry owns a share of its key cell, so the cell cannot have been
 /// freed and reused while the entry holds it, and an object has one
-/// entry per key; a stale index (another object, a deleted entry, a
-/// rebuilt store) fails the test and costs only the test.
-static LAST_FOUND: AtomicU32 = AtomicU32::new(u32::MAX);
+/// entry per key; a stale index (another object, another cell filed in
+/// the same slot, a deleted entry, a rebuilt store) fails the test and
+/// costs only the test. Keys taken from the same cells over and over
+/// (a field of each record, the names `Object.keys` answered) then find
+/// their entry without hashing.
+static FOUND_BY_CELL: [AtomicU32; FOUND_SLOTS] = [const { AtomicU32::new(0) }; FOUND_SLOTS];
+
+/// The [`FOUND_BY_CELL`] slot of the key cell `key`, by address above
+/// the low four bits (an allocation granule, the same for most cells).
+#[inline(always)]
+fn found_slot(key: *const c_void) -> &'static AtomicU32 {
+    &FOUND_BY_CELL[(key as usize >> 4) & (FOUND_SLOTS - 1)]
+}
 
 /// `(header flags, length in code units)` of a Str cell.
 ///
@@ -114,7 +129,7 @@ unsafe fn same_str(kp: *const c_void, latin1: u16, len: u32, data: *const u8, n:
     }
 }
 
-/// [`find_str`], remembering the index it found for [`hinted`].
+/// [`find_str`], remembering the index it found for [`cached`].
 ///
 /// # Safety
 /// As [`find_str`].
@@ -122,19 +137,19 @@ unsafe fn same_str(kp: *const c_void, latin1: u16, len: u32, data: *const u8, n:
 pub(crate) unsafe fn find_str_noted(obj: *const c_void, key: *const c_void) -> Option<u32> {
     let found = unsafe { find_str(obj, key) };
     if let Some(i) = found {
-        LAST_FOUND.store(i, Ordering::Relaxed);
+        found_slot(key).store(i, Ordering::Relaxed);
     }
     found
 }
 
 /// The entry of `obj` holding the very key cell `key` at the index
-/// [`find_str_noted`] found last, if there is one.
+/// [`find_str_noted`] last found for that cell, if there is one.
 ///
 /// # Safety
 /// `obj` is a live dynobj; `key` is a live Str cell.
-#[inline]
-pub(crate) unsafe fn hinted(obj: *const c_void, key: *const c_void) -> Option<*mut Entry> {
-    let i = LAST_FOUND.load(Ordering::Relaxed);
+#[inline(always)]
+pub(crate) unsafe fn cached(obj: *const c_void, key: *const c_void) -> Option<*mut Entry> {
+    let i = found_slot(key).load(Ordering::Relaxed);
     unsafe {
         if i >= entries_len(obj) {
             return None;
@@ -233,10 +248,10 @@ mod tests {
         }
     }
 
-    /// The remembered index answers only for the very key cell at that
+    /// A remembered index answers only for the very key cell at that
     /// index in the object asked about.
     #[test]
-    fn hinted_answers_only_the_same_cell_at_the_same_index() {
+    fn cached_answers_only_the_same_cell_at_the_same_index() {
         let (ka, kb) = (latin1("a"), latin1("b"));
         let ka2 = ka.clone();
         let a = ka.as_ptr() as *mut c_void;
@@ -248,18 +263,22 @@ mod tests {
             insert(x, b);
             insert(y, b);
             assert_eq!(find_str_noted(x, b), Some(1));
-            assert_eq!(hinted(x, b), Some(entries(x).add(1)));
-            // a copy in another cell, another object, another key
+            assert_eq!(cached(x, b), Some(entries(x).add(1)));
+            // another object holding the cell at another index
+            assert_eq!(cached(y, b), None);
             assert_eq!(find_str_noted(x, a), Some(0));
-            assert_eq!(hinted(x, ka2.as_ptr() as *const c_void), None);
-            assert_eq!(hinted(y, a), None);
-            assert_eq!(find_str_noted(x, a), Some(0));
-            assert_eq!(hinted(x, b), None);
+            assert_eq!(cached(x, a), Some(entries(x)));
+            // a copy in another cell has its own slot
+            assert_eq!(cached(x, ka2.as_ptr() as *const c_void), None);
+            assert_eq!(cached(y, a), None);
+            // each cell keeps its own index
+            assert_eq!(cached(x, b), Some(entries(x).add(1)));
+            assert_eq!(find_str_noted(y, b), Some(0));
+            assert_eq!(cached(y, b), Some(entries(y)));
+            assert_eq!(cached(x, b), None);
             // a deleted entry keeps its index but not its key
             (*entries(x)).key_ptr_tagged = DYNOBJ_KEY_HOLE;
-            assert_eq!(hinted(x, a), None);
-            assert_eq!(find_str_noted(y, b), Some(0));
-            assert_eq!(hinted(y, b), Some(entries(y)));
+            assert_eq!(cached(x, a), None);
             free_dynobj_blocks(x);
             free_dynobj_blocks(y);
         }

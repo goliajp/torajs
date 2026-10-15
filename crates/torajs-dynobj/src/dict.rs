@@ -22,7 +22,7 @@ use crate::get::type_tag;
 use crate::layout::{ANY_ACCESSOR, BUCKET_FLAG_WRITABLE, DYNOBJ_HDR_FLAG_MODULE_NS, TAG_DYNOBJ};
 use crate::nanbox;
 use crate::probe::{Entry, bucket_flags, entries};
-use crate::probe_str::{find_str, find_str_noted, hinted};
+use crate::probe_str::{cached, find_str_noted};
 use crate::set::note_own_write;
 
 unsafe extern "C" {
@@ -71,25 +71,44 @@ unsafe fn own_number(obj: *mut c_void, key: *const c_void) -> Option<u64> {
     nanbox::is_number(v).then_some(v)
 }
 
+/// True when a write may overwrite the entry `e` in place: a writable
+/// data entry holding an immediate (nothing to release, no setter, no
+/// global binding behind it).
+///
+/// # Safety
+/// `e` is a live entry.
+#[inline(always)]
+unsafe fn plain(e: *mut Entry) -> bool {
+    unsafe {
+        bucket_flags((*e).key_ptr_tagged) & BUCKET_FLAG_WRITABLE != 0
+            && !nanbox::is_cell((*e).value_anyv)
+    }
+}
+
+/// True for a module namespace, which refuses every write (§10.4.6.9)
+/// whatever its entries say.
+///
+/// # Safety
+/// `obj` is a live dynobj.
+#[inline(always)]
+unsafe fn module_ns(obj: *mut c_void) -> bool {
+    unsafe { (obj.cast::<u8>().add(6) as *const u16).read() & DYNOBJ_HDR_FLAG_MODULE_NS != 0 }
+}
+
 /// The entry of `obj` that a write to `key` may overwrite in place: an
-/// own writable data entry holding an immediate. A module namespace
-/// refuses every write (§10.4.6.9) whatever its entries say.
+/// own entry that is [`plain`], of an object that is no module
+/// namespace.
 ///
 /// # Safety
 /// `obj` is a live dynobj; `key` is a live Str cell.
 #[inline]
 unsafe fn plain_own_entry(obj: *mut c_void, key: *const c_void) -> Option<*mut Entry> {
     unsafe {
-        if (obj.cast::<u8>().add(6) as *const u16).read() & DYNOBJ_HDR_FLAG_MODULE_NS != 0 {
+        if module_ns(obj) {
             return None;
         }
-        // the read of `d[k] = (d[k] ?? 0) + 1` found this entry just now
-        let e = match hinted(obj, key) {
-            Some(e) => e,
-            None => entries(obj).add(find_str(obj, key)? as usize),
-        };
-        let writable = bucket_flags((*e).key_ptr_tagged) & BUCKET_FLAG_WRITABLE != 0;
-        (writable && !nanbox::is_cell((*e).value_anyv)).then_some(e)
+        let e = entries(obj).add(find_str_noted(obj, key)? as usize);
+        plain(e).then_some(e)
     }
 }
 
@@ -100,17 +119,34 @@ unsafe fn plain_own_entry(obj: *mut c_void, key: *const c_void) -> Option<*mut E
 /// for a pending throw (a nullish receiver, a throwing getter).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_dynobj_dict_get(recv: u64, key: *const c_void) -> u64 {
-    if let Some(obj) = dynobj_cell(recv)
-        && let Some(v) = unsafe { own_number(obj, key) }
-    {
-        return v;
+    let Some(obj) = dynobj_cell(recv) else {
+        return unsafe { get_generic(recv, key) };
+    };
+    if let Some(e) = unsafe { cached(obj, key) } {
+        let v = unsafe { (*e).value_anyv };
+        if nanbox::is_number(v) {
+            return v;
+        }
     }
-    unsafe { get_generic(recv, key) }
+    unsafe { get_walk(obj, key) }
 }
 
-// the generic halves of both entries stay out of line: the own-entry
-// paths above them then call nothing but a tail call and need no
-// stack frame
+/// [`__torajs_dynobj_dict_get`] on a dynobj whose cached entry did not
+/// answer: the walk, then the generic read.
+///
+/// # Safety
+/// `obj` is a live dynobj; otherwise as [`__torajs_dynobj_dict_get`].
+#[inline(never)]
+unsafe fn get_walk(obj: *mut c_void, key: *const c_void) -> u64 {
+    match unsafe { own_number(obj, key) } {
+        Some(v) => v,
+        None => unsafe { get_generic(obj as u64, key) },
+    }
+}
+
+// the walks and the generic halves of both entries stay out of line:
+// the cached paths above them then call nothing but a tail call and
+// need no stack frame
 
 /// The generic read: the pair read, then the getter on an accessor
 /// answer, else the retained box.
@@ -153,16 +189,57 @@ pub unsafe extern "C" fn __torajs_dynobj_dict_set(
     throw_on_refusal: bool,
 ) {
     unsafe {
-        if let Some(obj) = dynobj_cell(*recv_slot)
-            && let Some(e) = plain_own_entry(obj, key)
+        let Some(obj) = dynobj_cell(*recv_slot) else {
+            return set_generic(recv_slot, key, v, throw_on_refusal);
+        };
+        // the read of `d[k] = (d[k] ?? 0) + 1` found this entry just now
+        if !module_ns(obj)
+            && let Some(e) = cached(obj, key)
+            && plain(e)
         {
-            // the note only flags a builtin prototype's patched name,
-            // so it may follow the store (and be the tail call)
-            (*e).value_anyv = v;
-            note_own_write(obj, key);
+            store_own(obj, e, key, v);
             return;
         }
-        set_generic(recv_slot, key, v, throw_on_refusal);
+        set_walk(recv_slot, key, v, throw_on_refusal, obj);
+    }
+}
+
+/// The in-place write into the entry `e` that [`plain_own_entry`]
+/// answers.
+///
+/// # Safety
+/// `e` is a plain own entry of `obj` keyed by `key`; `v` is a live box.
+#[inline(always)]
+unsafe fn store_own(obj: *mut c_void, e: *mut Entry, key: *mut c_void, v: u64) {
+    unsafe {
+        // the note only flags a builtin prototype's patched name,
+        // so it may follow the store (and be the tail call)
+        (*e).value_anyv = v;
+        note_own_write(obj, key);
+    }
+}
+
+/// [`__torajs_dynobj_dict_set`] on the dynobj `obj` held in
+/// `*recv_slot` whose cached entry did not take the write: the walk,
+/// then the generic write. `obj` comes last so the other arguments
+/// stay in the registers the entry received them in.
+///
+/// # Safety
+/// `obj` is the live dynobj `*recv_slot` holds; otherwise as
+/// [`__torajs_dynobj_dict_set`].
+#[inline(never)]
+unsafe fn set_walk(
+    recv_slot: *mut u64,
+    key: *mut c_void,
+    v: u64,
+    throw_on_refusal: bool,
+    obj: *mut c_void,
+) {
+    unsafe {
+        match plain_own_entry(obj, key) {
+            Some(e) => store_own(obj, e, key, v),
+            None => set_generic(recv_slot, key, v, throw_on_refusal),
+        }
     }
 }
 
