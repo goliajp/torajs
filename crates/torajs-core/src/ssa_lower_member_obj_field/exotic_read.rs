@@ -143,8 +143,9 @@ pub(crate) fn guarded_load(
         ctx.owned_member_reads.insert(eid);
         return Some(v);
     }
-    let v = owned_slot_read(ctx, Some(obj), obj_val, slot, name)?;
-    if slot.1.is_refcounted() {
+    let borrow = crate::ssa_lower_index::dict::key_borrow_asked(ctx, eid, slot.1);
+    let v = slot_read(ctx, Some(obj), obj_val, slot, name, borrow)?;
+    if slot.1.is_refcounted() && !borrow {
         ctx.owned_member_reads.insert(eid);
     }
     Some(v)
@@ -173,14 +174,30 @@ pub(super) fn owned_slot_read(
     ctx: &mut LowerCtx<'_>,
     obj: Option<ExprId>,
     obj_val: Operand,
+    slot: (u64, Type),
+    name: &str,
+) -> Option<Operand> {
+    slot_read(ctx, obj, obj_val, slot, name, false)
+}
+
+/// [`owned_slot_read`], or with `borrow` a read whose plain arm takes
+/// no stake: the getter's answer on the hit arm is owned all the same,
+/// and a flag handed to the asking key lane
+/// (`ssa_lower_index::dict::answer_key_borrow`) says which arm ran.
+fn slot_read(
+    ctx: &mut LowerCtx<'_>,
+    obj: Option<ExprId>,
+    obj_val: Operand,
     (offset, field_ty): (u64, Type),
     name: &str,
+    borrow: bool,
 ) -> Option<Operand> {
     if !applies(ctx, obj, name, field_ty) {
         return None;
     }
     let (conv, shown) = convert::conversion(ctx, obj, name, field_ty)?;
     let res = ctx.alloca_in_entry(field_ty, Some("__field_read"));
+    let flag = borrow.then(|| crate::ssa_lower_index::dict::answer_key_borrow(ctx));
     let (hit_blk, plain_blk) = branch(ctx, obj_val);
     let done = ctx.f.add_block();
 
@@ -190,6 +207,10 @@ pub(super) fn owned_slot_read(
     let blk = ctx.cur_block;
     ctx.f
         .append_void(blk, InstKind::Store(v, Operand::Value(res), 0));
+    if let Some(flag) = flag {
+        let set = InstKind::Store(Operand::ConstBool(true), Operand::Value(flag), 0);
+        ctx.f.append_void(blk, set);
+    }
     ctx.f.set_term(blk, Terminator::Br(done));
 
     ctx.cur_block = plain_blk;
@@ -199,7 +220,10 @@ pub(super) fn owned_slot_read(
         field_ty,
         None,
     );
-    if field_ty.is_refcounted() {
+    if let Some(flag) = flag {
+        let clear = InstKind::Store(Operand::ConstBool(false), Operand::Value(flag), 0);
+        ctx.f.append_void(plain_blk, clear);
+    } else if field_ty.is_refcounted() {
         ctx.emit_owned_result_inc(Operand::Value(v), field_ty);
     }
     let blk = ctx.cur_block;

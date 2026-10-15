@@ -56,6 +56,83 @@ pub(crate) fn get(ctx: &mut LowerCtx<'_>, recv: &Operand, key: ValueId) -> Opera
     Operand::Value(v)
 }
 
+/// Ask the field read `index` keying a read of a number dictionary to
+/// answer borrowed: a read behind the exotic-field guard otherwise
+/// takes a stake on its plain arm only for this call to release it.
+///
+/// The borrow is sound because the key's last use is the call itself:
+/// nothing is evaluated between the field load and the call, the
+/// own-entry path runs no code of the program, and the generic half,
+/// the only path that can run a getter or a proxy trap (which may
+/// rewrite the field or release the record), pins the key first
+/// (`torajs-dynobj`'s `dict.rs`). A write keeps its stake: its
+/// right-hand side runs between the key read and the store.
+pub(crate) fn ask_key_borrow(ctx: &mut LowerCtx<'_>, index: ExprId) -> bool {
+    let asked = matches!(ctx.ast.get_expr(index), crate::ast::Expr::Member { .. });
+    if asked {
+        ctx.binop.key_borrow = Some((index, None));
+    }
+    asked
+}
+
+/// Whether the field read `eid` of a `slot_ty` slot is the key
+/// [`ask_key_borrow`] asked to answer borrowed.
+pub(crate) fn key_borrow_asked(ctx: &LowerCtx<'_>, eid: ExprId, slot_ty: Type) -> bool {
+    slot_ty == Type::Str && ctx.binop.key_borrow == Some((eid, None))
+}
+
+/// The read takes the request: the flag slot its arms write (true where
+/// the getter's answer carries a stake).
+pub(crate) fn answer_key_borrow(ctx: &mut LowerCtx<'_>) -> ValueId {
+    let flag = ctx.alloca_in_entry(Type::Bool, Some("__key_owned"));
+    if let Some((_, answer)) = &mut ctx.binop.key_borrow {
+        *answer = Some(flag);
+    }
+    flag
+}
+
+/// The flag slot when the read answered the request.
+pub(crate) fn key_borrow_answer(ctx: &mut LowerCtx<'_>, asked: bool) -> Option<ValueId> {
+    if !asked {
+        return None;
+    }
+    ctx.binop.key_borrow.take().and_then(|(_, answer)| answer)
+}
+
+/// [`get`], then, for a borrowed key read, the release of the stake
+/// its hit arm took.
+pub(crate) fn get_then_settle(
+    ctx: &mut LowerCtx<'_>,
+    recv: &Operand,
+    key: ValueId,
+    borrowed: Option<ValueId>,
+) -> Operand {
+    let out = get(ctx, recv, key);
+    let Some(flag) = borrowed else {
+        return out;
+    };
+    let owned = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::Bool, Operand::Value(flag), 0),
+        Type::Bool,
+        None,
+    );
+    let drop_blk = ctx.f.add_block();
+    let after = ctx.f.add_block();
+    let cond = crate::ssa::Terminator::CondBr {
+        cond: Operand::Value(owned),
+        then_blk: drop_blk,
+        else_blk: after,
+    };
+    ctx.f.set_term(ctx.cur_block, cond);
+    ctx.cur_block = drop_blk;
+    ctx.emit_drop_value(Operand::Value(key), Type::Str);
+    ctx.f
+        .set_term(ctx.cur_block, crate::ssa::Terminator::Br(after));
+    ctx.cur_block = after;
+    out
+}
+
 /// The assigned value as a box carrying a stake of its own, for the
 /// value types the write takes boxed (the encoding the member-set
 /// kernel would store); `None` sends the write to the kernel.

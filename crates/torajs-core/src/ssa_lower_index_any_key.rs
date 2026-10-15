@@ -344,7 +344,9 @@ pub(crate) fn lower_any_index_str_key(
     index: ExprId,
     number_dict: bool,
 ) -> Operand {
+    let asked = number_dict && crate::ssa_lower_index::dict::ask_key_borrow(ctx, index);
     let k_raw = ctx.lower_expr(index);
+    let borrowed = crate::ssa_lower_index::dict::key_borrow_answer(ctx, asked);
     let k_ty = ctx.operand_ty(&k_raw);
     let owned = k_ty == Type::Substr;
     let key_op = ctx.coerce_to_str(k_raw, k_ty);
@@ -352,7 +354,7 @@ pub(crate) fn lower_any_index_str_key(
         panic!("ssa-lower: string index key lowered to a non-value operand");
     };
     let out = if number_dict {
-        crate::ssa_lower_index::dict::get(ctx, &obj_val, key_v)
+        crate::ssa_lower_index::dict::get_then_settle(ctx, &obj_val, key_v, borrowed)
     } else {
         emit_any_member_get_pair(ctx, &obj_val, key_v)
     };

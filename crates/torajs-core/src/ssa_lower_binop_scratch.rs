@@ -78,6 +78,10 @@ pub(crate) struct BinopScratch {
     /// the read has answered the nullish test itself, the block its
     /// nullish arms left open (`ssa_lower_nullish_any::split`).
     pub(crate) nullish_split: Option<(ExprId, Option<crate::ssa::BlockId>)>,
+    /// The field read keying a number dictionary's read, and, once the
+    /// read has answered borrowed, the slot of the flag that says it
+    /// took a stake after all (`ssa_lower_index::dict::ask_key_borrow`).
+    pub(crate) key_borrow: Option<(ExprId, Option<crate::ssa::ValueId>)>,
     /// The one field that outlives its binop: a string `+` on the
     /// right of an assignment hands its throw check to the assignment
     /// (`ssa_lower_binop::str_check`).

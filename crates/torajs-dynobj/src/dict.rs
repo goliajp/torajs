@@ -32,6 +32,9 @@ unsafe extern "C" {
     fn __torajs_any_accessor_get(recv: u64, key: *const c_void, pair_bits: u64) -> u64;
     /// torajs-anyvalue — the caller's own stake on a borrowed box.
     fn __torajs_anyv_retain(v: u64) -> u64;
+    /// torajs-rc / torajs-str — a share of a key cell, and its release.
+    fn __torajs_rc_inc(p: *mut c_void);
+    fn __torajs_str_drop(s: *mut c_void);
     /// torajs-anyvalue — the member-set kernel, strict and sloppy.
     fn __torajs_any_member_set(
         recv_slot: *mut u64,
@@ -112,16 +115,27 @@ pub unsafe extern "C" fn __torajs_dynobj_dict_get(recv: u64, key: *const c_void)
 /// The generic read: the pair read, then the getter on an accessor
 /// answer, else the retained box.
 ///
+/// The caller may have borrowed `key` from a binding or a field that a
+/// getter or a proxy trap run from here can rewrite, and the proxy
+/// path reads the key again after its trap returns, so the read holds
+/// a share of the key cell until it is done.
+///
 /// # Safety
 /// As [`__torajs_dynobj_dict_get`].
 #[inline(never)]
 unsafe fn get_generic(recv: u64, key: *const c_void) -> u64 {
-    let mut value = 0;
-    let tag = unsafe { __torajs_any_member_get_pair(recv, key, &mut value) };
-    if tag == ANY_ACCESSOR {
-        return unsafe { __torajs_any_accessor_get(recv, key, value) };
+    unsafe {
+        __torajs_rc_inc(key as *mut c_void);
+        let mut value = 0;
+        let tag = __torajs_any_member_get_pair(recv, key, &mut value);
+        let out = if tag == ANY_ACCESSOR {
+            __torajs_any_accessor_get(recv, key, value)
+        } else {
+            __torajs_anyv_retain(nanbox::box_from_pair(tag as i64, value as i64))
+        };
+        __torajs_str_drop(key as *mut c_void);
+        out
     }
-    unsafe { __torajs_anyv_retain(nanbox::box_from_pair(tag as i64, value as i64)) }
 }
 
 /// `*recv_slot[key] = v`, `v` carrying the caller's stake on a heap
