@@ -59,7 +59,11 @@ pub(crate) unsafe fn iter_result_obj(value: AnyValue, done: bool) -> AnyValue {
 /// poisoned getter never fired and the walk never terminated.
 ///
 /// IteratorClose's `GetMethod(iterator, "return")` (§7.4.9) is the
-/// same [[Get]] and reads through here as well.
+/// same [[Get]] and reads through here as well. Its key on the
+/// dispatcher lane is the interned `"return"` cell: an iterator whose
+/// `return` is an expando or a dynobj entry misses the struct lane on
+/// every close, and a fresh Str per close was an allocation and a free
+/// for one lookup. The name test sits on the miss path only.
 ///
 /// Answers the OWNED boxed value; `None` when a getter threw (the
 /// pending throw is already recorded — the caller forwards it).
@@ -91,13 +95,20 @@ pub(crate) unsafe fn iter_result_get(
             payload_rc_inc(tag as i64, payload as i64);
             return Some(__torajs_anyv_box_from_pair(tag as i64, payload as i64));
         }
-        let key = __torajs_str_alloc(name.as_ptr(), name.len() as i64) as *const c_void;
+        let interned = name == b"return";
+        let key = if interned {
+            crate::closure_proto::iter_proto::return_name_cell() as *const c_void
+        } else {
+            __torajs_str_alloc(name.as_ptr(), name.len() as i64) as *const c_void
+        };
         let tag = crate::member_get::__torajs_any_member_get_tag(step, key);
         let out = if tag == crate::struct_probe::ANY_ACCESSOR_TAG {
             let pair_bits = crate::member_get_value::__torajs_any_member_get_value(step, key);
             let got = crate::struct_probe::__torajs_any_accessor_get(step, key, pair_bits);
             if __torajs_throw_check() != 0 {
-                __torajs_str_drop(key as *mut c_void);
+                if !interned {
+                    __torajs_str_drop(key as *mut c_void);
+                }
                 return None;
             }
             got
@@ -108,7 +119,9 @@ pub(crate) unsafe fn iter_result_get(
             payload_rc_inc(tag as i64, payload as i64);
             __torajs_anyv_box_from_pair(tag as i64, payload as i64)
         };
-        __torajs_str_drop(key as *mut c_void);
+        if !interned {
+            __torajs_str_drop(key as *mut c_void);
+        }
         Some(out)
     }
 }

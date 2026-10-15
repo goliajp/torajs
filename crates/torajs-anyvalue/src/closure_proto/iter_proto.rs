@@ -46,6 +46,14 @@ pub(crate) fn return_name_cell() -> *mut u8 {
     if p != 0 {
         return p as *mut u8;
     }
+    mint_return_name_cell()
+}
+
+/// The first ask only: kept out of line so each caller carries just
+/// the load and the test.
+#[cold]
+#[inline(never)]
+fn mint_return_name_cell() -> *mut u8 {
     let cell = mint_immortal_str(b"return");
     RETURN_NAME_CELL.store(cell as u64, Ordering::Relaxed);
     cell
