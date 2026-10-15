@@ -77,7 +77,7 @@ pub(crate) unsafe fn find_str(obj: *const c_void, key: *const c_void) -> Option<
             }
             if iv != IDX_TOMBSTONE {
                 let kp = bucket_key_ptr((*ent.add(iv as usize)).key_ptr_tagged);
-                if kp as *const c_void == key || same_str(kp, latin1, len, data, n) {
+                if std::ptr::eq(kp as *const c_void, key) || same_str(kp, latin1, len, data, n) {
                     return Some(iv);
                 }
             }
@@ -140,7 +140,7 @@ pub(crate) unsafe fn hinted(obj: *const c_void, key: *const c_void) -> Option<*m
             return None;
         }
         let e = entries(obj).add(i as usize);
-        (bucket_key_ptr((*e).key_ptr_tagged) as *const c_void == key).then_some(e)
+        std::ptr::eq(bucket_key_ptr((*e).key_ptr_tagged) as *const c_void, key).then_some(e)
     }
 }
 
