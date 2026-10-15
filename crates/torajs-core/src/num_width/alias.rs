@@ -155,14 +155,27 @@ pub(super) fn named_ref(ann: &str) -> Option<(&str, usize)> {
 }
 
 impl<'a> Analysis<'a> {
-    /// Union an annotated slot onto its cyclic alias's nominal key
-    /// (no-op for every other annotation). `Item[]` wraps the slot key
-    /// in `Elem` per array layer — the *elements* are the instances.
+    /// Union an annotated slot onto its cyclic alias's nominal key; tie
+    /// a slot typed as a class to the class's field widths (no-op for
+    /// every other annotation). `Item[]` wraps the slot key in `Elem`
+    /// per array layer — the *elements* are the instances.
     pub(super) fn alias_ann_union(&mut self, key: &SlotKey, ann: &str) {
         let Some((base, depth)) = named_ref(ann) else {
             return;
         };
+        let mut k = key.clone();
+        for _ in 0..depth {
+            k = SlotKey::Elem(Box::new(k));
+        }
         if !self.nominal_aliases.contains(base) {
+            if self
+                .classes
+                .binary_search_by(|c| c.as_str().cmp(base))
+                .is_ok()
+            {
+                self.class_field_widths(&k, base);
+                return;
+            }
             // Generic instantiation key — register lazily on first
             // sighting; built-ins / unknown heads fall through to the
             // D3 per-slot path.
@@ -170,14 +183,37 @@ impl<'a> Analysis<'a> {
                 return;
             }
         }
-        let mut k = key.clone();
-        for _ in 0..depth {
-            k = SlotKey::Elem(Box::new(k));
-        }
         let ck = SlotKey::Class(base.to_string());
         self.mark_containerish(&ck);
         self.mark_containerish(&k);
         self.uf.union(&ck, &k);
+    }
+
+    /// Every instance of class `class` has the class's one layout, so a
+    /// number field read through the slot `k` typed as the class answers
+    /// with the layout's width, whichever road the instance took into
+    /// the slot (an element of an array held in another class's field
+    /// reaches no `__new_C` result by the value flow alone). An edge from
+    /// the layout to the slot, not a union: the slot stays its own
+    /// container class and widens no layout. The lowerer's own classes
+    /// (`__`-named: generator frames and the like) join their slots by
+    /// their own nominal fields and are left alone.
+    fn class_field_widths(&mut self, k: &SlotKey, class: &str) {
+        if class.starts_with("__") {
+            return;
+        }
+        let ck = SlotKey::Class(class.to_string());
+        for (fname, fann) in self.object_fields(class) {
+            if !super::json_seed::number_domain(Some(&fann)) {
+                continue;
+            }
+            let (a, b) = (
+                SlotKey::Field(Box::new(k.clone()), fname.clone()),
+                SlotKey::Field(Box::new(ck.clone()), fname),
+            );
+            self.mark_containerish(&a);
+            self.c_edges.entry(b).or_default().push((a, false));
+        }
     }
 
     /// First sighting of a generic instantiation key (`Rec<number>`):

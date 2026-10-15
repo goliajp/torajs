@@ -17,7 +17,7 @@ use crate::ast::{Expr, ExprId, Stmt};
 use std::collections::HashSet;
 
 /// `number`-domain spelling: `number` or absent (inference).
-fn number_domain(ann: Option<&str>) -> bool {
+pub(super) fn number_domain(ann: Option<&str>) -> bool {
     matches!(ann, None | Some("number"))
 }
 
@@ -106,7 +106,7 @@ impl Analysis<'_> {
 
     /// The fields of the object type `ann`: an object type literal's,
     /// or a declared non-generic type's (a class's among them).
-    fn object_fields(&self, ann: &str) -> Vec<(PropKey, String)> {
+    pub(super) fn object_fields(&self, ann: &str) -> Vec<(PropKey, String)> {
         let inline = crate::ast_collect_fn_closure_init::parse_inlobj_field_anns(ann)
             .map(|fs| fs.into_iter().map(|(f, a)| (PropKey::from(f), a)).collect());
         inline
