@@ -67,10 +67,12 @@
 //! not a name of the enclosing function scope there.
 
 mod class;
+mod expr;
+mod scope;
 
 use super::annexb_names::{block_nested_fn_names, own_fn_names, param_names};
-use super::desugar_with::walk::stmt_children_ref;
-use super::{Ast, Expr, ExprId, Stmt};
+use super::{Ast, ExprId, Stmt};
+use scope::{add_class_names, block_scope, let_const_names, shadowing, var_names};
 use std::collections::{HashMap, HashSet};
 
 /// Name → whether the binding shadows a class or builtin of that name
@@ -110,78 +112,6 @@ struct Census<'a> {
     /// parameters and locals (§15.7.10).
     field_inits: HashSet<ExprId>,
     strict: bool,
-}
-
-fn shadowing(names: HashSet<String>) -> Scope {
-    names.into_iter().map(|n| (n, true)).collect()
-}
-
-/// The names a statement list declares with a `class` of its own
-/// (`Multi` shares the list's scope). They resolve to the class.
-fn add_class_names(stmts: &[Stmt], scope: &mut Scope) {
-    for s in stmts {
-        match s {
-            Stmt::ClassDecl { name, .. } => {
-                scope.entry(name.clone()).or_insert(false);
-            }
-            Stmt::Multi(inner) => add_class_names(inner, scope),
-            _ => {}
-        }
-    }
-}
-
-/// The `let` / `const` names a statement list binds DIRECTLY. `Multi`
-/// shares the surrounding scope, so its entries belong to this list;
-/// a nested `Block` gets its own scope and is not descended into here.
-fn let_const_names(stmts: &[Stmt]) -> HashSet<String> {
-    let mut out = HashSet::new();
-    for s in stmts {
-        match s {
-            Stmt::LetDecl {
-                name,
-                is_var: false,
-                ..
-            }
-            | Stmt::UsingDecl { name, .. } => {
-                out.insert(name.clone());
-            }
-            Stmt::Multi(inner) => out.extend(let_const_names(inner)),
-            _ => {}
-        }
-    }
-    out
-}
-
-/// Every `var` the body binds, at any depth — `var` is function-scoped,
-/// so a `var W` inside a nested block shadows the whole body and not
-/// just that block. The walk stops at a nested function: its `var`s
-/// are its own.
-fn var_names(stmts: &[Stmt], out: &mut HashSet<String>) {
-    for s in stmts {
-        if let Stmt::LetDecl {
-            name, is_var: true, ..
-        } = s
-        {
-            out.insert(name.clone());
-        }
-        if matches!(s, Stmt::FnDecl { .. }) {
-            continue;
-        }
-        for c in stmt_children_ref(s) {
-            var_names(std::slice::from_ref(c), out);
-        }
-    }
-}
-
-/// The lexical names a block-shaped list binds: its `let` / `const`,
-/// its own `function`s (a block's own in strict code, and its block
-/// binding under §B.3.3 too) and its classes.
-fn block_scope(list: &[Stmt]) -> Scope {
-    let mut names = let_const_names(list);
-    names.extend(own_fn_names(list));
-    let mut scope = shadowing(names);
-    add_class_names(list, &mut scope);
-    scope
 }
 
 impl Census<'_> {
@@ -374,98 +304,5 @@ impl Census<'_> {
             .push(Scope::from([(var_name.to_string(), true)]));
         self.stmt(body);
         self.scopes.pop();
-    }
-
-    fn expr(&mut self, eid: ExprId) {
-        match self.ast.get_expr(eid) {
-            Expr::New {
-                class_name, args, ..
-            } => {
-                if self.shadowed(class_name) {
-                    self.out.insert(eid);
-                }
-                for a in args {
-                    self.expr(*a);
-                }
-            }
-            Expr::ArrowFn { body, params, .. } => self.body(body, params),
-            Expr::BinOp { left, right, .. }
-            | Expr::Sequence { left, right }
-            | Expr::Assign {
-                target: left,
-                value: right,
-            }
-            | Expr::Index {
-                obj: left,
-                index: right,
-            }
-            | Expr::OptIndex {
-                obj: left,
-                index: right,
-            }
-            | Expr::Nullish {
-                lhs: left,
-                rhs: right,
-            }
-            | Expr::InstanceOf {
-                expr: left,
-                rhs: right,
-            } => {
-                self.expr(*left);
-                self.expr(*right);
-            }
-            Expr::Unary { expr, .. }
-            | Expr::Member { obj: expr, .. }
-            | Expr::As { expr, .. }
-            | Expr::TypeOf { expr }
-            | Expr::Delete { expr }
-            | Expr::Spread { expr }
-            | Expr::OptChain { obj: expr, .. }
-            | Expr::PostIncr { target: expr, .. } => self.expr(*expr),
-            Expr::Call { callee, args }
-            | Expr::NewDynamic { callee, args }
-            | Expr::OptCall { callee, args } => {
-                self.expr(*callee);
-                for a in args {
-                    self.expr(*a);
-                }
-            }
-            Expr::Array(items) => {
-                for e in items {
-                    self.expr(*e);
-                }
-            }
-            Expr::Super { args } => {
-                for a in args {
-                    self.expr(*a);
-                }
-            }
-            Expr::ObjectLit { fields } => {
-                for (_, e) in fields {
-                    self.expr(*e);
-                }
-            }
-            Expr::Ternary {
-                cond,
-                then_branch,
-                else_branch,
-            } => {
-                self.expr(*cond);
-                self.expr(*then_branch);
-                self.expr(*else_branch);
-            }
-            Expr::Ident(_)
-            | Expr::String(_)
-            | Expr::Number(_)
-            | Expr::BigInt { .. }
-            | Expr::Bool(_)
-            | Expr::Null
-            | Expr::Uninit
-            | Expr::Elision
-            | Expr::Regex { .. }
-            | Expr::Closure { .. }
-            | Expr::This
-            | Expr::NewTarget => {}
-        }
     }
 }
