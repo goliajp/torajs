@@ -365,6 +365,13 @@ pub(crate) fn js_loose_eq_supported(l: &Type, r: &Type) -> bool {
     if (nullish(l) && heap_ref(r)) || (nullish(r) && heap_ref(l)) {
         return true;
     }
+    // `f == null` with `f` a function: a function object is never
+    // nullish (§7.2.14 steps 2-3, then no later step applies), and
+    // ssa_lower compares the function value against null the same way
+    let function = |t: &Type| matches!(t, Type::Function(..));
+    if (nullish(l) && function(r)) || (nullish(r) && function(l)) {
+        return true;
+    }
     // RFC 20260713-loose-eq-substrate blade 3 — C3: a same-type
     // object pair (§7.2.14 step 1 → IsStrictlyEqual) is pointer
     // identity, mirroring `===`.
