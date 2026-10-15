@@ -437,7 +437,7 @@ pub(crate) use nested_fns_idents::rename_fn_self_refs;
 pub use ns_alias::desugar_ns_alias_members;
 pub(crate) use ns_alias::walk_stmts;
 pub use ns_tdz_flag::{NS_INIT_FLAG_PREFIX, flag_ns_tdz};
-pub use optchain_call::desugar_optchain_calls;
+pub use optchain_call::{desugar_optchain_calls, distribute_spelled_callees};
 pub use prop_key::{GenericStructDecls, PropKey, literal_prop_key, number_prop_key};
 pub use prop_key_mangle::{mangle_key, unmangle_key};
 pub use prototype_call::desugar_prototype_call;

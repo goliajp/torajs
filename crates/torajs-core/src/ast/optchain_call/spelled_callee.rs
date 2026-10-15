@@ -1,0 +1,369 @@
+//! `(a, f)(x)` and `(c ? f : g)(x)` — a callee spelled through a
+//! comma or a conditional, distributed into the call.
+//!
+//! §13.3.6.2: the callee of such a call is no Reference, so the
+//! function runs with an `undefined` receiver — exactly what a direct
+//! call through the bare name passes (a binding's environment record
+//! supplies no `this`). The rewrite moves the call onto the operand
+//! that produces the callee:
+//!
+//! ```text
+//! (a, f)(x)          → (a, f(x))
+//! (c ? f : g)(x)     → c ? f(x) : g(x)
+//! (a, f).call(t)     → (a, f.call(t))      (also .apply / .bind)
+//! ```
+//!
+//! Evaluation order is kept — the operands before the callee, then the
+//! callee, then the arguments, then the call — and in the conditional
+//! form the arguments sit in two branches of which one runs. What it
+//! buys is that every pass keyed on a direct call (the receiver seed of
+//! a function expression reading `this`, the static call lanes) sees
+//! one; until now the program was refused with "fnexpr this in
+//! unclaimed receiver position".
+//!
+//! Only a bare name is called at a leaf (an `as` cast around it
+//! stays): `(0, o.m)()` passes `undefined` where `o.m()` passes `o`.
+//! `eval` is not a name here — `(0, eval)(s)` is an indirect eval.
+//! The conditional form copies the arguments into its second branch,
+//! so it declines when one of them holds a function body or a tagged
+//! template. An optional call (`(c ? f : g)?.(x)`) stays as written:
+//! its guard tests the callee value as a whole. A callee none of whose
+//! leaves names a function expression reading `this` stays as written
+//! too (see [`receiver_names`]), unless the call carries explicit type
+//! arguments, which a union-typed call cannot apply. Runs after
+//! `desugar_with` (a name inside `with` no longer stands for an object
+//! property by then).
+
+use crate::ast::clone_body::BodyCloner;
+use crate::ast::desugar_with::walk::expr_children;
+use crate::ast::{Ast, Expr, ExprId};
+
+mod receiver_names;
+
+pub fn distribute_spelled_callees(ast: &mut Ast) {
+    // the census walks the whole program; most programs spell no
+    // callee this way and never pay for it
+    let mut wanted = None;
+    for i in 0..ast.exprs.len() {
+        let Expr::Call { callee, args } = &ast.exprs[i] else {
+            continue;
+        };
+        // `(c ? f : g)?.call(t)` — the optional-chain guard is keyed on
+        // this call and tests the whole callee value; distributing the
+        // call would leave the guard nothing to short-circuit
+        if ast.optchain_calls.contains_key(&ExprId(i as u32)) {
+            continue;
+        }
+        let (callee, args) = (*callee, args.clone());
+        let (base, method) = match ast.get_expr(callee) {
+            Expr::Member { obj, name } if matches!(name.as_str(), "call" | "apply" | "bind") => {
+                (*obj, Some(name.clone()))
+            }
+            _ => (callee, None),
+        };
+        // explicit type arguments have no union-call reading: each
+        // leaf instantiates them on its own
+        let typed = ast.call_type_args.contains_key(&ExprId(i as u32));
+        if !spelled(ast, base) || !leaves_are_names(ast, base) {
+            continue;
+        }
+        if !typed {
+            let wanted = wanted.get_or_insert_with(|| receiver_names::Receivers::of(ast));
+            if !names_a_leaf(ast, base, wanted) {
+                continue;
+            }
+        }
+        let branches = leaf_count(ast, base);
+        if branches > 1 && args.iter().any(|&a| holds_site(ast, a)) {
+            continue;
+        }
+        let span = ast.expr_spans[i];
+        // `(c ? f : g)<T>(x)` — each distributed call takes the type
+        // arguments the program wrote on the original
+        let type_args = ast.call_type_args.remove(&ExprId(i as u32));
+        let mut rw = Rewrite {
+            args,
+            used: false,
+            method,
+            type_args,
+            span,
+        };
+        let root = rw.distribute(ast, base);
+        ast.exprs[i] = std::mem::replace(&mut ast.exprs[root.0 as usize], Expr::Null);
+        neutralize(ast, base);
+        if callee != base {
+            ast.exprs[callee.0 as usize] = Expr::Null;
+        }
+    }
+}
+
+/// A comma or conditional on the way down to the callee.
+fn spelled(ast: &Ast, e: ExprId) -> bool {
+    match ast.get_expr(e) {
+        Expr::Sequence { .. } | Expr::Ternary { .. } => true,
+        Expr::As { expr, .. } => spelled(ast, *expr),
+        _ => false,
+    }
+}
+
+fn leaves_are_names(ast: &Ast, e: ExprId) -> bool {
+    match ast.get_expr(e) {
+        Expr::Sequence { right, .. } => leaves_are_names(ast, *right),
+        Expr::Ternary {
+            then_branch,
+            else_branch,
+            ..
+        } => leaves_are_names(ast, *then_branch) && leaves_are_names(ast, *else_branch),
+        Expr::As { expr, .. } => leaves_are_names(ast, *expr),
+        Expr::Ident(n) => n != "eval",
+        _ => false,
+    }
+}
+
+fn names_a_leaf(ast: &Ast, e: ExprId, wanted: &receiver_names::Receivers) -> bool {
+    match ast.get_expr(e) {
+        Expr::Sequence { right, .. } => names_a_leaf(ast, *right, wanted),
+        Expr::Ternary {
+            then_branch,
+            else_branch,
+            ..
+        } => names_a_leaf(ast, *then_branch, wanted) || names_a_leaf(ast, *else_branch, wanted),
+        Expr::As { expr, .. } => names_a_leaf(ast, *expr, wanted),
+        Expr::Ident(_) => wanted.names(ast, e),
+        _ => false,
+    }
+}
+
+fn leaf_count(ast: &Ast, e: ExprId) -> usize {
+    match ast.get_expr(e) {
+        Expr::Sequence { right, .. } => leaf_count(ast, *right),
+        Expr::Ternary {
+            then_branch,
+            else_branch,
+            ..
+        } => leaf_count(ast, *then_branch) + leaf_count(ast, *else_branch),
+        Expr::As { expr, .. } => leaf_count(ast, *expr),
+        _ => 1,
+    }
+}
+
+/// A function body, or a tagged template whose template object is
+/// cached per syntax node (§13.2.8.4): a copy in the second branch
+/// would be a second site with an object of its own.
+fn holds_site(ast: &Ast, e: ExprId) -> bool {
+    matches!(ast.get_expr(e), Expr::ArrowFn { .. } | Expr::Closure { .. })
+        || crate::ssa_lower_call_template_object::is_template_object_call(ast, e)
+        || expr_children(ast, e)
+            .into_iter()
+            .any(|c| holds_site(ast, c))
+}
+
+/// The spelled nodes above the leaves no longer belong to the tree;
+/// left in the arena they would still show a by-arena scan the leaf
+/// as their operand.
+fn neutralize(ast: &mut Ast, e: ExprId) {
+    let kids: Vec<ExprId> = match ast.get_expr(e) {
+        Expr::Sequence { right, .. } => vec![*right],
+        Expr::Ternary {
+            then_branch,
+            else_branch,
+            ..
+        } => vec![*then_branch, *else_branch],
+        Expr::As { expr, .. } if spelled(ast, *expr) => vec![*expr],
+        _ => return,
+    };
+    ast.exprs[e.0 as usize] = Expr::Null;
+    for k in kids {
+        neutralize(ast, k);
+    }
+}
+
+struct Rewrite {
+    args: Vec<ExprId>,
+    /// The original argument nodes went to a leaf already; later
+    /// leaves take copies.
+    used: bool,
+    method: Option<String>,
+    type_args: Option<Vec<String>>,
+    span: crate::lexer::Span,
+}
+
+impl Rewrite {
+    fn add(&self, ast: &mut Ast, e: Expr) -> ExprId {
+        let id = ast.add_expr(e);
+        ast.set_expr_span(id, self.span);
+        id
+    }
+
+    fn distribute(&mut self, ast: &mut Ast, e: ExprId) -> ExprId {
+        match ast.get_expr(e).clone() {
+            Expr::Sequence { left, right } => {
+                let right = self.distribute(ast, right);
+                self.add(ast, Expr::Sequence { left, right })
+            }
+            Expr::Ternary {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                let then_branch = self.distribute(ast, then_branch);
+                let else_branch = self.distribute(ast, else_branch);
+                self.add(
+                    ast,
+                    Expr::Ternary {
+                        cond,
+                        then_branch,
+                        else_branch,
+                    },
+                )
+            }
+            Expr::As { expr, ty_ann } if spelled(ast, expr) => {
+                // `((a, f) as T)(x)` — the cast is type-only and
+                // types the callee value, which is the leaf's value
+                self.push_cast(ast, expr, &ty_ann);
+                self.distribute(ast, expr)
+            }
+            _ => self.leaf(ast, e),
+        }
+    }
+
+    /// Wrap every leaf under `e` in `as ty`, in place.
+    fn push_cast(&self, ast: &mut Ast, e: ExprId, ty: &str) {
+        match ast.get_expr(e).clone() {
+            Expr::Sequence { right, .. } => self.push_cast(ast, right, ty),
+            Expr::Ternary {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                self.push_cast(ast, then_branch, ty);
+                self.push_cast(ast, else_branch, ty);
+            }
+            Expr::As { expr, .. } if spelled(ast, expr) => self.push_cast(ast, expr, ty),
+            leaf => {
+                let inner = ast.add_expr(leaf);
+                ast.set_expr_span(inner, ast.expr_spans[e.0 as usize]);
+                ast.exprs[e.0 as usize] = Expr::As {
+                    expr: inner,
+                    ty_ann: ty.to_string(),
+                };
+            }
+        }
+    }
+
+    fn leaf(&mut self, ast: &mut Ast, callee: ExprId) -> ExprId {
+        let args = if self.used {
+            let mut cloner = BodyCloner::new(ast);
+            let copies = self.args.iter().map(|&a| cloner.clone_expr(a)).collect();
+            crate::ast::clone_body_tables::migrate(&mut cloner);
+            copies
+        } else {
+            self.used = true;
+            self.args.clone()
+        };
+        let callee = match &self.method {
+            Some(name) => self.add(
+                ast,
+                Expr::Member {
+                    obj: callee,
+                    name: name.clone(),
+                },
+            ),
+            None => callee,
+        };
+        let call = self.add(ast, Expr::Call { callee, args });
+        if let Some(t) = &self.type_args {
+            ast.call_type_args.insert(call, t.clone());
+        }
+        call
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `const f = function () { return this }`
+    fn declare_this_fn(ast: &mut Ast) {
+        let this = ast.add_expr(Expr::This);
+        let f = ast.add_expr(Expr::ArrowFn {
+            params: vec![],
+            return_type: None,
+            body: vec![crate::ast::Stmt::Return(Some(this))],
+        });
+        ast.fn_expr_exprs.insert(f);
+        ast.stmts.push(crate::ast::Stmt::LetDecl {
+            mutable: false,
+            name: "f".into(),
+            type_ann: None,
+            init: f,
+            is_var: false,
+        });
+    }
+
+    /// `(0, <leaf>)(1)` — returns the ast and the call's id.
+    fn comma_call(leaf: Expr) -> (Ast, ExprId) {
+        let mut ast = Ast::default();
+        declare_this_fn(&mut ast);
+        let zero = ast.add_expr(Expr::Number(0.0));
+        let leaf = ast.add_expr(leaf);
+        let seq = ast.add_expr(Expr::Sequence {
+            left: zero,
+            right: leaf,
+        });
+        let one = ast.add_expr(Expr::Number(1.0));
+        let call = ast.add_expr(Expr::Call {
+            callee: seq,
+            args: vec![one],
+        });
+        (ast, call)
+    }
+
+    #[test]
+    fn a_comma_callee_moves_the_call_onto_its_last_operand() {
+        let (mut ast, call) = comma_call(Expr::Ident("f".into()));
+        distribute_spelled_callees(&mut ast);
+        let Expr::Sequence { left, right } = ast.get_expr(call) else {
+            panic!("expected a sequence");
+        };
+        assert!(matches!(ast.get_expr(*left), Expr::Number(n) if *n == 0.0));
+        let Expr::Call { callee, args } = ast.get_expr(*right) else {
+            panic!("expected a call");
+        };
+        assert!(matches!(ast.get_expr(*callee), Expr::Ident(n) if n == "f"));
+        assert_eq!(args.len(), 1);
+    }
+
+    #[test]
+    fn a_member_or_eval_leaf_stays_as_written() {
+        let (mut ast, call) = comma_call(Expr::Ident("eval".into()));
+        distribute_spelled_callees(&mut ast);
+        assert!(matches!(ast.get_expr(call), Expr::Call { .. }));
+
+        let mut ast = Ast::default();
+        declare_this_fn(&mut ast);
+        let o = ast.add_expr(Expr::Ident("o".into()));
+        let m = ast.add_expr(Expr::Member {
+            obj: o,
+            name: "m".into(),
+        });
+        let zero = ast.add_expr(Expr::Number(0.0));
+        let seq = ast.add_expr(Expr::Sequence {
+            left: zero,
+            right: m,
+        });
+        let call = ast.add_expr(Expr::Call {
+            callee: seq,
+            args: vec![],
+        });
+        distribute_spelled_callees(&mut ast);
+        assert!(matches!(ast.get_expr(call), Expr::Call { callee, .. } if *callee == seq));
+    }
+
+    #[test]
+    fn a_leaf_without_a_receiver_reading_function_stays_as_written() {
+        let (mut ast, call) = comma_call(Expr::Ident("g".into()));
+        distribute_spelled_callees(&mut ast);
+        assert!(matches!(ast.get_expr(call), Expr::Call { .. }));
+    }
+}

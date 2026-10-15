@@ -24,6 +24,9 @@
 
 use super::{Ast, Expr, ExprId};
 
+mod spelled_callee;
+pub use spelled_callee::distribute_spelled_callees;
+
 pub fn desugar_optchain_calls(ast: &mut Ast) {
     let mut rewrites: Vec<(usize, ExprId, ExprId, Vec<ExprId>)> = Vec::new();
     for i in 0..ast.exprs.len() {

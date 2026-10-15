@@ -66,6 +66,10 @@ pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) -> Result<(), ()> {
     // shape; the guard goes back on at the checker (result widening)
     // and in lowering, keyed off `Ast::optchain_calls`.
     ast::desugar_optchain_calls(ast);
+    // A callee spelled through a comma or a conditional is called
+    // through the operand that produces it, so the passes keyed on a
+    // direct call see one.
+    ast::distribute_spelled_callees(ast);
     ast::desugar_prototype_call(ast);
     ast::inject_builtin_classes(ast);
     // Before `desugar_classes`, which binds every `Expr::New` to the
