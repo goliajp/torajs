@@ -21,7 +21,7 @@ use crate::probe::{
 /// Slots of [`FOUND_BY_CELL`]; a power of two.
 const FOUND_SLOTS: usize = 1024;
 
-/// The entry index [`find_str_noted`] found last for a key cell, in
+/// The entry index [`walk_str`] found last for a key cell, in
 /// whichever object, filed by the cell's address.
 ///
 /// A hint, never a fact: [`cached`] accepts it only where the object
@@ -129,21 +129,19 @@ unsafe fn same_str(kp: *const c_void, latin1: u16, len: u32, data: *const u8, n:
     }
 }
 
-/// [`find_str`], remembering the index it found for [`cached`].
+/// The entry [`find_str`] finds, remembering its index for [`cached`].
 ///
 /// # Safety
 /// As [`find_str`].
 #[inline]
-pub(crate) unsafe fn find_str_noted(obj: *const c_void, key: *const c_void) -> Option<u32> {
-    let found = unsafe { find_str(obj, key) };
-    if let Some(i) = found {
-        found_slot(key).store(i, Ordering::Relaxed);
-    }
-    found
+pub(crate) unsafe fn walk_str(obj: *const c_void, key: *const c_void) -> Option<*mut Entry> {
+    let i = unsafe { find_str(obj, key) }?;
+    found_slot(key).store(i, Ordering::Relaxed);
+    Some(unsafe { entries(obj).add(i as usize) })
 }
 
 /// The entry of `obj` holding the very key cell `key` at the index
-/// [`find_str_noted`] last found for that cell, if there is one.
+/// [`walk_str`] last found for that cell, if there is one.
 ///
 /// # Safety
 /// `obj` is a live dynobj; `key` is a live Str cell.
@@ -262,18 +260,18 @@ mod tests {
             insert(x, a);
             insert(x, b);
             insert(y, b);
-            assert_eq!(find_str_noted(x, b), Some(1));
+            assert_eq!(walk_str(x, b), Some(entries(x).add(1)));
             assert_eq!(cached(x, b), Some(entries(x).add(1)));
             // another object holding the cell at another index
             assert_eq!(cached(y, b), None);
-            assert_eq!(find_str_noted(x, a), Some(0));
+            assert_eq!(walk_str(x, a), Some(entries(x)));
             assert_eq!(cached(x, a), Some(entries(x)));
             // a copy in another cell has its own slot
             assert_eq!(cached(x, ka2.as_ptr() as *const c_void), None);
             assert_eq!(cached(y, a), None);
             // each cell keeps its own index
             assert_eq!(cached(x, b), Some(entries(x).add(1)));
-            assert_eq!(find_str_noted(y, b), Some(0));
+            assert_eq!(walk_str(y, b), Some(entries(y)));
             assert_eq!(cached(y, b), Some(entries(y)));
             assert_eq!(cached(x, b), None);
             // a deleted entry keeps its index but not its key

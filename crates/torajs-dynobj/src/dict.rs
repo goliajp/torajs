@@ -21,9 +21,8 @@ use core::ffi::c_void;
 use crate::get::type_tag;
 use crate::layout::{ANY_ACCESSOR, BUCKET_FLAG_WRITABLE, DYNOBJ_HDR_FLAG_MODULE_NS, TAG_DYNOBJ};
 use crate::nanbox;
-use crate::probe::{Entry, bucket_flags, entries};
-use crate::probe_str::{cached, find_str_noted};
-use crate::set::note_own_write;
+use crate::probe::{Entry, bucket_flags};
+use crate::probe_str::{cached, walk_str};
 
 unsafe extern "C" {
     /// torajs-anyvalue — both channels of the any-lane member read.
@@ -66,8 +65,7 @@ fn dynobj_cell(recv: u64) -> Option<*mut c_void> {
 /// `obj` is a live dynobj; `key` is a live Str cell.
 #[inline]
 unsafe fn own_number(obj: *mut c_void, key: *const c_void) -> Option<u64> {
-    let i = unsafe { find_str_noted(obj, key) }?;
-    let v = unsafe { (*entries(obj).add(i as usize)).value_anyv };
+    let v = unsafe { (*walk_str(obj, key)?).value_anyv };
     nanbox::is_number(v).then_some(v)
 }
 
@@ -95,19 +93,16 @@ unsafe fn module_ns(obj: *mut c_void) -> bool {
     unsafe { (obj.cast::<u8>().add(6) as *const u16).read() & DYNOBJ_HDR_FLAG_MODULE_NS != 0 }
 }
 
-/// The entry of `obj` that a write to `key` may overwrite in place: an
-/// own entry that is [`plain`], of an object that is no module
-/// namespace.
+/// The own entry of `obj` that a write to `key` may overwrite in
+/// place, found by the walk: one that is [`plain`]. The caller has
+/// ruled out a module namespace.
 ///
 /// # Safety
 /// `obj` is a live dynobj; `key` is a live Str cell.
 #[inline]
 unsafe fn plain_own_entry(obj: *mut c_void, key: *const c_void) -> Option<*mut Entry> {
     unsafe {
-        if module_ns(obj) {
-            return None;
-        }
-        let e = entries(obj).add(find_str_noted(obj, key)? as usize);
+        let e = walk_str(obj, key)?;
         plain(e).then_some(e)
     }
 }
@@ -192,12 +187,17 @@ pub unsafe extern "C" fn __torajs_dynobj_dict_set(
         let Some(obj) = dynobj_cell(*recv_slot) else {
             return set_generic(recv_slot, key, v, throw_on_refusal);
         };
-        // the read of `d[k] = (d[k] ?? 0) + 1` found this entry just now
-        if !module_ns(obj)
-            && let Some(e) = cached(obj, key)
-            && plain(e)
+        if module_ns(obj) {
+            return set_generic(recv_slot, key, v, throw_on_refusal);
+        }
+        // the read of `d[k] = (d[k] ?? 0) + 1` found this entry just
+        // now; a number in it is an immediate (the walk takes the
+        // other immediates)
+        if let Some(e) = cached(obj, key)
+            && bucket_flags((*e).key_ptr_tagged) & BUCKET_FLAG_WRITABLE != 0
+            && nanbox::is_number((*e).value_anyv)
         {
-            store_own(obj, e, key, v);
+            store_own(e, v);
             return;
         }
         set_walk(recv_slot, key, v, throw_on_refusal, obj);
@@ -207,25 +207,29 @@ pub unsafe extern "C" fn __torajs_dynobj_dict_set(
 /// The in-place write into the entry `e` that [`plain_own_entry`]
 /// answers.
 ///
+/// It owes the builtin-prototype own-write note nothing: the note
+/// marks a name the first time an own entry is created under it on a
+/// `<Ctor>.prototype` singleton, the mark is never cleared, and every
+/// kernel that creates an entry notes it, so the entry overwritten
+/// here was noted when it was made. (The installs that run before a
+/// singleton is published add no writable entry holding an immediate.)
+///
 /// # Safety
-/// `e` is a plain own entry of `obj` keyed by `key`; `v` is a live box.
+/// `e` is a plain own entry; `v` is a live box.
 #[inline(always)]
-unsafe fn store_own(obj: *mut c_void, e: *mut Entry, key: *mut c_void, v: u64) {
-    unsafe {
-        // the note only flags a builtin prototype's patched name,
-        // so it may follow the store (and be the tail call)
-        (*e).value_anyv = v;
-        note_own_write(obj, key);
-    }
+unsafe fn store_own(e: *mut Entry, v: u64) {
+    unsafe { (*e).value_anyv = v };
 }
 
 /// [`__torajs_dynobj_dict_set`] on the dynobj `obj` held in
-/// `*recv_slot` whose cached entry did not take the write: the walk,
+/// `*recv_slot`, no module namespace, whose cached entry did not take
+/// the write: the walk,
 /// then the generic write. `obj` comes last so the other arguments
 /// stay in the registers the entry received them in.
 ///
 /// # Safety
-/// `obj` is the live dynobj `*recv_slot` holds; otherwise as
+/// `obj` is the live dynobj `*recv_slot` holds, no module namespace;
+/// otherwise as
 /// [`__torajs_dynobj_dict_set`].
 #[inline(never)]
 unsafe fn set_walk(
@@ -237,7 +241,7 @@ unsafe fn set_walk(
 ) {
     unsafe {
         match plain_own_entry(obj, key) {
-            Some(e) => store_own(obj, e, key, v),
+            Some(e) => store_own(e, v),
             None => set_generic(recv_slot, key, v, throw_on_refusal),
         }
     }
@@ -319,8 +323,8 @@ mod tests {
         BUCKET_FLAG_CONFIGURABLE, BUCKET_FLAGS_DEFAULT, STR_DATA_OFF, STR_LEN_OFF,
     };
     use crate::probe::{
-        KEY_STR_FLAG_IS_LATIN1, bucket_make_key_tagged, count, entries_len, index_ptr, probe,
-        set_count, set_entries_len,
+        KEY_STR_FLAG_IS_LATIN1, bucket_make_key_tagged, count, entries, entries_len, index_ptr,
+        probe, set_count, set_entries_len,
     };
     use torajs_anyvalue::nanbox as av;
 
@@ -438,8 +442,9 @@ mod tests {
             assert!(plain_own_entry(obj, b).is_none());
             assert!(plain_own_entry(obj, c).is_none());
             assert!(plain_own_entry(obj, kd.as_ptr() as *const c_void).is_none());
+            assert!(!module_ns(obj));
             *(obj.cast::<u8>().add(6) as *mut u16) |= DYNOBJ_HDR_FLAG_MODULE_NS;
-            assert!(plain_own_entry(obj, a).is_none());
+            assert!(module_ns(obj));
             *(obj.cast::<u8>().add(6) as *mut u16) &= !DYNOBJ_HDR_FLAG_MODULE_NS;
             free_dynobj_blocks(obj);
         }
