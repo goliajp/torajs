@@ -11,8 +11,8 @@
 //! taken branches.
 //!
 //! The pass walks a retain forward: past retain-transparent
-//! instructions (pure ops, loads, copies; nothing that can lower a
-//! count or write a slot), following a `copy any` of the retained
+//! instructions (pure ops, loads other than a count read, copies;
+//! nothing that can lower a count or write a slot), following a `copy any` of the retained
 //! value onto its result, and down a branch onto every edge that
 //! does not prove the value a number (`rc_fold`'s facts: the true
 //! edge of `any_is_number` / `any_is_int32`, a box). It stops before
@@ -257,7 +257,16 @@ fn walk(func: &Function, b: usize, start: usize, mut v: ValueId) -> Walk {
 
 /// Can a pending retain move past `kind`: nothing that lowers a
 /// count, frees, or writes a heap slot.
+///
+/// A read of a header's count is not: an inline release is `load i32
+/// [p+0]; sub 1; store [p+0]`, and a retain of the same object placed
+/// between the load and the store is overwritten by the store, one
+/// reference lost. The walk stops at the load, ahead of the whole
+/// release, whatever the blocks around it look like.
 fn transparent(kind: &InstKind) -> bool {
+    if matches!(kind, InstKind::Load(Type::I32, _, 0)) {
+        return false;
+    }
     classify_pure(kind)
         || is_number_node(kind)
         || matches!(
@@ -738,6 +747,54 @@ mod tests {
         assert!(incs(&f.blocks[1]).is_empty());
         assert!(incs(&f.blocks[3]).is_empty());
         assert_eq!(incs(&f.blocks[4]), vec![ValueId(0)]);
+    }
+
+    /// The cell arm releases an object inline with no null test
+    /// splitting the block: the retain lands ahead of the count read,
+    /// not between it and the store that writes the count back.
+    #[test]
+    fn a_retain_stops_ahead_of_an_inline_release() {
+        let blocks = vec![
+            Block {
+                id: BlockId(0),
+                insts: vec![
+                    inst(None, InstKind::RcIncAny(v(0))),
+                    inst(Some(1), InstKind::AnyIsNumber(v(0))),
+                ],
+                term: Terminator::CondBr {
+                    cond: v(1),
+                    then_blk: BlockId(1),
+                    else_blk: BlockId(2),
+                },
+            },
+            Block {
+                id: BlockId(1),
+                insts: vec![],
+                term: Terminator::Ret(None),
+            },
+            Block {
+                id: BlockId(2),
+                insts: vec![
+                    inst(Some(3), InstKind::Load(Type::I32, v(2), 0)),
+                    inst(
+                        Some(4),
+                        InstKind::BinOp(torajs_core::ssa::BinOp::Sub, v(3), Operand::ConstI32(1)),
+                    ),
+                    inst(None, InstKind::Store(v(4), v(2), 0)),
+                    inst(None, InstKind::Call(FuncId(0), vec![v(0)])),
+                ],
+                term: Terminator::Ret(None),
+            },
+        ];
+        let mut m = module(
+            vec![0, 2],
+            &[Type::Any, Type::Bool, Type::Ptr, Type::I32, Type::I32],
+            blocks,
+        );
+        assert_eq!(sink_number_retains(&mut m).retains_placed, 1);
+        let b2 = &m.funcs[0].blocks[2].insts;
+        assert!(matches!(b2[0].kind, InstKind::RcIncAny(_)));
+        assert!(matches!(b2[1].kind, InstKind::Load(..)));
     }
 
     /// A retain ahead of a loop stays: sunk into the body it would run
