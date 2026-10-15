@@ -45,9 +45,8 @@ const MESSAGE: &str = "fnexpr this in unclaimed receiver position: \
 /// the pipeline prints it under `not yet supported:` and stops before
 /// the checker can spell the same reject cryptically.
 pub fn unclaimed_fnexpr_this(ast: &Ast) -> Option<String> {
-    scan_list(ast, &ast.stmts, false).or_else(|| {
-        misrouted::misrouted_receiver(ast).then(|| MESSAGE.to_string())
-    })
+    scan_list(ast, &ast.stmts, false)
+        .or_else(|| misrouted::misrouted_receiver(ast).then(|| MESSAGE.to_string()))
 }
 
 fn scan_list(ast: &Ast, stmts: &[Stmt], provided: bool) -> Option<String> {
