@@ -1020,6 +1020,10 @@ pub struct Ast {
     /// byte `ACC_KIND_RECV`, so receiver-aware invokers put the
     /// receiver in argv[0].
     pub fnexpr_recv_fns: std::collections::HashSet<String>,
+    /// Function-expression inits of function-local bindings used only
+    /// as `.bind` receivers, given `__this: any` before the lift; the
+    /// lifted closure in each slot joins `fnexpr_recv_fns` after it.
+    pub fnexpr_bind_local_inits: std::collections::HashSet<ExprId>,
     /// Top-level `function` declarations `bind_this_param` promoted —
     /// their body had `__this` free, so it inserted the hidden
     /// receiver parameter and seeded `undefined` at every DIRECT call

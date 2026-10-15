@@ -39,6 +39,7 @@
 
 use super::{Ast, Expr, Param, Stmt};
 
+mod local;
 mod normalize;
 pub use normalize::normalize_function_bind_call;
 
@@ -153,6 +154,7 @@ pub fn register_bind_receiver_recv_fns(ast: &mut Ast) {
             found.push(fn_name.clone());
         }
     }
+    found.extend(local::local_bind_receiver_closures(ast));
     for f in found {
         ast.fnexpr_recv_fns.insert(f);
     }
@@ -266,6 +268,8 @@ pub fn promote_bind_receiver_this(ast: &mut Ast) {
             wanted.push(*init);
         }
     }
+    // A binding declared in a function body — see [`local`].
+    wanted.extend(local::local_bind_receiver_inits(ast));
     // C5 (rotation 435) — the INLINE receiver:
     // `(function () { …this… }).bind(obj)` has no binding to
     // profile — the fn-expr node itself stands in `.bind`-receiver

@@ -26,8 +26,8 @@ fn refused_at(body: &str, use_site: &str) {
     assert!(!pipeline_ok(&refused), "accepted:\n{refused}");
 }
 
-// `f.bind(this)` keeps `f` off every receiver promotion and is itself
-// accepted, so `f` stays unclaimed whatever `USE` is
+// `f.bind(this)` is accepted, and keeps `f` off every receiver
+// promotion as soon as `USE` names `f` other than as a `.bind` receiver
 const METHOD: &str = "class C { tag = 0; h: any; m() { const f: any = function () { return this }; keep(f.bind(this)); let s: any; return USE } }\nconsole.log(new C().m());";
 
 #[test]
@@ -43,12 +43,18 @@ fn a_callee_spelled_through_another_expression_is_refused() {
     }
 }
 
+// `f` called directly stays off the bind-receiver promotion
+const CALLED: &str = "class C { tag = 0; m() { const f = function () { return this }; f(); return USE } }\nconsole.log(new C().m());";
+
 #[test]
-fn bind_is_refused() {
-    refused_at(METHOD, "f.bind(5)()");
-    refused_at(METHOD, "f.bind(undefined)");
-    let src = METHOD.replace("USE", "f.bind(this)()");
-    assert!(pipeline_ok(&src), "refused:\n{src}");
+fn bind_next_to_another_use_is_refused() {
+    refused_at(CALLED, "f.bind(5)()");
+    refused_at(CALLED, "f.bind(undefined)");
+    // every use a `.bind` receiver: `f` takes the bound receiver
+    for site in ["f.bind(5)()", "f.bind(undefined)", "f.bind(this)()"] {
+        let src = METHOD.replace("USE", site);
+        assert!(pipeline_ok(&src), "refused:\n{src}");
+    }
 }
 
 #[test]

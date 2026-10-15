@@ -96,6 +96,7 @@ pub(crate) fn migrate(cloner: &mut BodyCloner<'_>) {
     copy_set!(synth_global_refs);
     copy_set!(fnexpr_recv_faces);
     copy_set!(fn_shadowed_new);
+    copy_set!(fnexpr_bind_local_inits);
     copy_set!(async_fn_value_exprs);
     copy_set!(async_sm_value_exprs);
     copy_set!(await_yield_values);
