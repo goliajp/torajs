@@ -41,6 +41,8 @@ pub(crate) struct FreshThis {
     /// The subset whose field holds the factory's null / undefined
     /// default at that point, so there is no old value to release.
     pub(crate) first_write: HashSet<ExprId>,
+    /// The fields those writes store.
+    pub(crate) fields: HashSet<String>,
 }
 
 pub(crate) fn fresh_this_writes(
@@ -78,6 +80,7 @@ pub(crate) fn fresh_this_writes(
                         return out;
                     }
                     out.recv.insert(recv);
+                    out.fields.insert(field.to_string());
                     if written.insert(field) && fields.nullish.contains(field) {
                         out.first_write.insert(recv);
                     }
@@ -145,7 +148,14 @@ impl DeclaredFields {
         let mut plain: HashSet<String> = HashSet::new();
         let mut nullish: HashSet<String> = HashSet::new();
         let mut other: HashSet<String> = HashSet::new();
+        let factory = format!("__new_{cname}");
+        let mut seed: Option<ExprId> = None;
         for s in &ast.stmts {
+            if let Stmt::FnDecl { name, body, .. } = s
+                && *name == factory
+            {
+                seed = this_seed(body);
+            }
             let Stmt::TypeDecl { name, fields, .. } = s else {
                 continue;
             };
@@ -168,9 +178,36 @@ impl DeclaredFields {
             }
         }
         nullish.retain(|f| !other.contains(f));
+        nullish.extend(undefined_seeds(ast, cname, seed));
         plain.retain(|f| !has_setter_in_chain(ast, cname, f));
         DeclaredFields { plain, nullish }
     }
+}
+
+/// The fields `__new_<cname>` seeds with an annotation's undefined
+/// sentinel (`desugar_classes::factory_unset`, or a type with no zero of
+/// its own), when no class derives from `cname`: a derived factory
+/// seeds the base fields itself, possibly with a cell.
+fn undefined_seeds(ast: &Ast, cname: &str, seed: Option<ExprId>) -> Vec<String> {
+    if (ast.class_parents.values()).any(|p| p.as_deref() == Some(cname)) {
+        return Vec::new();
+    }
+    let Some(Expr::ObjectLit { fields }) = seed.map(|e| ast.get_expr(e)) else {
+        return Vec::new();
+    };
+    let marked = |e: &ExprId| matches!(ast.get_expr(*e), Expr::Ident(n) if n.starts_with(super::UNDEF_SLOT_MARKER));
+    (fields.iter())
+        .filter(|(_, e)| marked(e))
+        .map(|(k, _)| k.lossy().into_owned())
+        .collect()
+}
+
+/// The literal a factory body seeds `__this` with.
+pub(crate) fn this_seed(body: &[Stmt]) -> Option<ExprId> {
+    body.iter().find_map(|s| match s {
+        Stmt::LetDecl { name, init, .. } if name == "__this" => Some(*init),
+        _ => None,
+    })
 }
 
 fn has_setter_in_chain(ast: &Ast, cname: &str, field: &str) -> bool {

@@ -22,6 +22,8 @@
 
 use super::*;
 
+mod factory_unset;
+
 pub fn desugar_classes(ast: &mut Ast) {
     // RFC 20260815 knife 2a — extract each non-Ident heritage
     // expression to a `__ccp<N>` binding before the hoist runs, so
@@ -220,6 +222,7 @@ pub fn desugar_classes(ast: &mut Ast) {
         accessor_getter_records,
         accessor_setter_records,
     );
+    factory_unset::seed_written_fields_unset(ast);
 }
 
 /// RFC 20260718-accessor-reify 刀 3 — rewrite static-accessor
