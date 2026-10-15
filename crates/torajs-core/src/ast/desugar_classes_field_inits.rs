@@ -56,11 +56,13 @@ pub(super) fn compute_class_field_default_inits(
     // the FLATTENED field list (parent fields + self fields) so subclass
     // factories produce a fully-initialized object.
     //
-    // Empty `T[]` defaults need special handling: a bare `[]` in expression
-    // position has no inferable element type. We hoist these out into a
-    // typed prelude let — `let __def_arr_<field>: T[] = []` — and use the
-    // ident as the field init. The let-binding's annotation gives ssa-lower
-    // enough context to emit a typed `arr_alloc(0)`.
+    // A `T[]` field seeds as its type's undefined. Where an empty array
+    // is still the seed (a member of a nested literal seed, an array of a
+    // type parameter), a bare `[]` in expression position has no
+    // inferable element type, so it is hoisted into a typed prelude let —
+    // `let __def_arr_<field>: T[] = []` — and the ident is the field init.
+    // The let-binding's annotation gives ssa-lower enough context to emit
+    // a typed `arr_alloc(0)`.
     //
     // Class- or alias-typed fields recursively expand into a nested
     // ObjectLit of zero-initialized children, looked up via

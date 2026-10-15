@@ -1,0 +1,7 @@
+add true put true walk true
+{} xs true
+added walked 18 {"xs":[5,6,7]}
+base sees undefined
+sub caught true
+-1 {"tag":"b"}
+1 {"tag":"b","ys":["p"]}

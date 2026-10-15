@@ -11,7 +11,11 @@ use crate::ast::{Ast, Expr, ExprId, PropKey, Stmt, mangle_key};
 /// object is well-typed even on fields a buggy constructor forgets to
 /// touch.
 /// Recursive default-initializer for a class field. Knows how to:
-///   - hoist `T[]` into a typed prelude let returning the bound ident
+///   - seed a field of a `T[]` type with that type's undefined, which a
+///     field holds until its initializer or the constructor writes it
+///     (§10.2.1.3); a member of a nested literal seed, or an array of
+///     a type parameter, hoists an empty `T[]` into a typed prelude let
+///     and answers the bound ident
 ///   - expand a class- or alias-typed field into an ObjectLit of
 ///     recursively-defaulted children (looked up in `class_layouts`
 ///     and `alias_layouts`)
@@ -31,6 +35,10 @@ pub(crate) fn default_init_for_field(
     seen: &mut std::collections::HashSet<String>,
 ) -> ExprId {
     if fty.ends_with("[]") {
+        if seen.is_empty() && !is_likely_typevar(fty.trim_end_matches("[]")) {
+            let undef = format!("{}{fty}", crate::ast::UNDEF_SLOT_MARKER);
+            return ast.add_expr(Expr::Ident(undef));
+        }
         let local = format!("__def_arr_{parent_cname}_{}", mangle_key(parent_fname));
         let arr_lit = ast.add_expr(Expr::Array(Vec::new()));
         prelude.push(Stmt::LetDecl {

@@ -1,8 +1,10 @@
 //! A factory's seed for a field its constructor writes first.
 //!
 //! `__new_<C>` seeds every declared field before it calls the
-//! constructor, and a field typed as an array, a struct or a keyed
-//! collection gets a fresh empty one (`default_init_for_field`). When
+//! constructor, and a field typed as a struct or a keyed collection
+//! gets a fresh empty one (`default_init_for_field`; an array field
+//! seeds as undefined already, unless it is an array of a type
+//! parameter). When
 //! the constructor's leading run of statements (`fresh_this`) stores
 //! the field before the instance can be seen, no read ever meets that
 //! seed: the store releases it unread, and a constructor that throws
