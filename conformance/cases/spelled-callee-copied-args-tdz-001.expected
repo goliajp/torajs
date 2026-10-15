@@ -1,0 +1,5 @@
+for-of else true
+for-of then true
+class key else true
+class key then true
+comma true
