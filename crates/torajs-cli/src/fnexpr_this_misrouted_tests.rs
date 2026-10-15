@@ -113,3 +113,41 @@ fn a_write_into_a_reassigned_name_is_refused() {
         assert!(pipeline_ok(src), "refused:\n{src}");
     }
 }
+
+// one of two `const g` in sibling blocks holds the function
+// expression: that block's uses are judged (they ran `f` with the
+// method's receiver)
+#[test]
+fn a_call_through_a_sibling_block_binding_is_refused() {
+    let body = "class C { m() { const f = function () { return this }; { const g = f; keep(CALL) } { const g = 1; keep(g) } return 0 } }\nconsole.log(new C().m());";
+    for call in ["g()", "g.call(undefined)", "(() => g())()"] {
+        refused_at(body, call);
+    }
+    // an object-literal method: a control without the call is refused
+    // too, so only the refusal is pinned (this ran `f` on `o`)
+    let objlit = "const o = { m() { const f = function () { return this }; { const g = f; keep(g.call(undefined)) } { const g = 2; keep(g) } return 0 } };\nconsole.log(o.m());";
+    assert!(!pipeline_ok(objlit), "accepted:\n{objlit}");
+}
+
+#[test]
+fn a_call_through_the_other_sibling_block_binding_is_accepted() {
+    let src = "class C { m() { const f = function () { return this }; keep(f.bind(this)); { const g = f; keep(g.call(this)) } { const g = function () { return 5 }; keep(g()) } return 0 } }\nconsole.log(new C().m());";
+    assert!(pipeline_ok(src), "refused:\n{src}");
+}
+
+// a nested redeclaration hides the outer `g` only inside its own block:
+// a call after that block still reaches the binding holding `f`
+#[test]
+fn a_call_past_a_nested_redeclaration_is_refused() {
+    let body = "class C { m() { const f = function () { return this }; { const g = f; { const g = 1; keep(g) } keep(CALL) } { const g = 2; keep(g) } return 0 } }\nconsole.log(new C().m());";
+    refused_at(body, "g()");
+}
+
+// an arrow minted in a sibling block captures that block's `g`
+#[test]
+fn an_arrow_is_judged_in_the_block_it_is_minted_in() {
+    let other = "class C { m() { const f = function () { return this }; { const g = f; keep(g.call(this)) } { const g = function () { return 5 }; keep([1].map(() => g())) } return 0 } }\nconsole.log(new C().m());";
+    assert!(pipeline_ok(other), "refused:\n{other}");
+    let held = "class C { m() { const f = function () { return this }; { const g = f; keep([1].map(() => CALL)) } { const g = 2; keep(g) } return 0 } }\nconsole.log(new C().m());";
+    refused_at(held, "g()");
+}

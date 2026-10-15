@@ -32,13 +32,13 @@
 //! too, a `var` declared twice) is not followed, so a write into one
 //! refuses. The exception is a name declared by `let` / `const` in
 //! sibling blocks and never written: each such binding holds its
-//! initializer alone, the scan cannot tell which one a use reaches,
-//! and it lets the initializer stand — a call through the binding
-//! that holds the function expression goes unjudged there.
+//! initializer alone, so the initializer stands here, and the binding
+//! that holds the function expression is judged within its own block
+//! (`super::scoped`).
 
 use std::collections::{HashMap, HashSet};
 
-use super::{Fns, Held, Outer};
+use super::{Fns, Held, Outer, Skip};
 use crate::ast::desugar_with::walk::{expr_children, stmt_children_ref, stmt_exprs};
 use crate::ast::fnexpr_this_default::unclaimed_fnexpr;
 use crate::ast::fnexpr_this_names::peel_as;
@@ -52,6 +52,7 @@ pub(super) fn escapes(
     (params, body): (&[Param], &[Stmt]),
     (held, scoped): (&HashMap<&str, Held>, &HashSet<&str>),
     outer: Option<Outer>,
+    skip: &Skip,
 ) -> bool {
     let scan = Scan {
         ast,
@@ -59,6 +60,7 @@ pub(super) fn escapes(
         held,
         scoped,
         outer,
+        skip,
     };
     scan.defaults(params) || scan.stmts(body)
 }
@@ -69,6 +71,7 @@ struct Scan<'a> {
     held: &'a HashMap<&'a str, Held>,
     scoped: &'a HashSet<&'a str>,
     outer: Option<Outer>,
+    skip: &'a Skip,
 }
 
 impl Scan<'_> {
@@ -85,7 +88,7 @@ impl Scan<'_> {
     }
 
     fn stmt(&self, s: &Stmt) -> bool {
-        if matches!(s, Stmt::FnDecl { .. }) {
+        if matches!(s, Stmt::FnDecl { .. }) || self.skip.contains(&(s as *const Stmt)) {
             return false;
         }
         let safe_root = match s {

@@ -48,8 +48,21 @@ pub(super) fn held_of<'a>(
         .filter(|p| p.name == "__env")
         .and_then(|p| p.type_ann.as_deref())
         .and_then(|a| a.strip_prefix("__env(")?.strip_suffix(')'));
-    if let (Some(caps), Some(&(_, minter)), true) = (caps, mints.get(name), depth < 64) {
-        let outer = held_of(ast, fns, mints, assigned, minter, depth + 1);
+    if let (Some(caps), Some(&(mint, minter)), true) = (caps, mints.get(name), depth < 64) {
+        let mut outer = held_of(ast, fns, mints, assigned, minter, depth + 1);
+        // a binding the minter declares in one of several sibling
+        // blocks: the arrow captures it when minted in its scope
+        if let Some(&(_, minter_body)) = fns.get(minter) {
+            let own = outer_of(ast, fns, mints, minter, 0);
+            let scoped = scoped_twice(minter_body, assigned);
+            for (n, k, region, skip) in
+                super::scoped::regions(ast, minter_body, &scoped, &outer, own)
+            {
+                if super::reaches(ast, (region, &skip), mint) {
+                    outer.entry(n).or_insert(k);
+                }
+            }
+        }
         let own_this = params.iter().any(|p| p.name == "__this")
             || body.iter().any(super::super::stmt_declares_this);
         for c in caps.split('|') {

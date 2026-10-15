@@ -29,10 +29,11 @@
 //! counts too (`{ var f = function () { … } }` in a nested block). Two
 //! declarations of the name (sibling blocks, `var` twice) or any other
 //! assignment drop the name, and [`escape`] refuses a write of the
-//! value into a name it drops. Uses other than these call sites are
-//! [`escape`]'s.
+//! value into a name it drops. A name `let` / `const` declares in
+//! sibling blocks is judged per block ([`scoped`]). Uses other than
+//! these call sites are [`escape`]'s.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::ast::desugar_with::walk::{expr_children, stmt_children_ref, stmt_exprs};
 use crate::ast::fnexpr_this_default::unclaimed_fnexpr;
@@ -41,6 +42,7 @@ use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
 
 mod escape;
 mod held;
+mod scoped;
 
 use held::{assigned_names, held_of};
 
@@ -48,6 +50,10 @@ use held::{assigned_names, held_of};
 /// reading the binding sees that same `__this` (it reached the body
 /// through arrows only).
 type Held = (Outer, bool);
+
+/// Statements a scan passes over: another binding of the name it
+/// judges is in scope there.
+type Skip = HashSet<*const Stmt>;
 
 /// Every top-level function: its parameters and body.
 type Fns<'a> = HashMap<&'a str, (&'a [Param], &'a [Stmt])>;
@@ -93,17 +99,40 @@ pub(super) fn misrouted_receiver(ast: &Ast) -> bool {
             continue;
         }
         let scoped = held::scoped_twice(body, &assigned);
-        if escape::escapes(ast, &fns, (params, body), (&held, &scoped), outer) {
+        let none = Skip::new();
+        if escape::escapes(ast, &fns, (params, body), (&held, &scoped), outer, &none)
+            || misroutes_in(ast, (body, &none), &held, outer)
+        {
             return true;
         }
-        let mut roots: Vec<ExprId> = Vec::new();
-        collect_roots(body, &mut roots);
-        while let Some(e) = roots.pop() {
-            if misroutes(ast, e, &held, outer) {
+        for (n, kind, region, skip) in scoped::regions(ast, body, &scoped, &held, outer) {
+            let mut held = held.clone();
+            held.insert(n, kind);
+            let mut scoped = scoped.clone();
+            scoped.remove(n);
+            if escape::escapes(ast, &fns, (&[], region), (&held, &scoped), outer, &skip)
+                || misroutes_in(ast, (region, &skip), &held, outer)
+            {
                 return true;
             }
-            roots.extend(expr_children(ast, e));
         }
+    }
+    false
+}
+
+fn misroutes_in(
+    ast: &Ast,
+    (stmts, skip): (&[Stmt], &Skip),
+    held: &HashMap<&str, Held>,
+    outer: Option<Outer>,
+) -> bool {
+    let mut roots: Vec<ExprId> = Vec::new();
+    collect_roots(stmts, skip, &mut roots);
+    while let Some(e) = roots.pop() {
+        if misroutes(ast, e, held, outer) {
+            return true;
+        }
+        roots.extend(expr_children(ast, e));
     }
     false
 }
@@ -117,7 +146,7 @@ fn mint_sites<'a>(
     let mut out = HashMap::new();
     for (&owner, &(_, body)) in fns {
         let mut roots: Vec<ExprId> = Vec::new();
-        collect_roots(body, &mut roots);
+        collect_roots(body, &Skip::new(), &mut roots);
         while let Some(e) = roots.pop() {
             if let Expr::Closure { fn_name, .. } = ast.get_expr(e) {
                 out.insert(fn_name.as_str(), (e, owner));
@@ -163,16 +192,29 @@ fn outer_of(
     outer_of(ast, fns, mints, minter, depth + 1)
 }
 
-fn collect_roots(stmts: &[Stmt], out: &mut Vec<ExprId>) {
+fn collect_roots(stmts: &[Stmt], skip: &Skip, out: &mut Vec<ExprId>) {
     for s in stmts {
-        if matches!(s, Stmt::FnDecl { .. }) {
+        if matches!(s, Stmt::FnDecl { .. }) || skip.contains(&(s as *const Stmt)) {
             continue;
         }
         out.extend(stmt_exprs(s));
         for c in stmt_children_ref(s) {
-            collect_roots(std::slice::from_ref(c), out);
+            collect_roots(std::slice::from_ref(c), skip, out);
         }
     }
+}
+
+/// Expression `e` sits in `stmts`, outside the skipped statements.
+fn reaches(ast: &Ast, (stmts, skip): (&[Stmt], &Skip), e: ExprId) -> bool {
+    let mut roots: Vec<ExprId> = Vec::new();
+    collect_roots(stmts, skip, &mut roots);
+    while let Some(r) = roots.pop() {
+        if r == e {
+            return true;
+        }
+        roots.extend(expr_children(ast, r));
+    }
+    false
 }
 
 /// `e` hands an unclaimed function expression — inline, or through a
