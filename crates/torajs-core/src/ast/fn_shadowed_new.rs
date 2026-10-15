@@ -53,12 +53,29 @@
 //! before `desugar_classes` flattens them, so they are still inside
 //! `Stmt::ClassDecl`, along with the heritage and computed keys that
 //! the enclosing scope evaluates.
+//!
+//! **The innermost binding decides.** A scope maps each name it binds
+//! to whether that binding shadows: a class declaration's name (in the
+//! list that declares it, and inside its own body, §15.7.14 step 4)
+//! resolves to the class, which is the route `desugar_classes` gives a
+//! `new` anyway, so it is recorded as NOT shadowing — an enclosing
+//! `function W` is not what `new W()` means beside a `class W`.
+//!
+//! In strict code (a strict program, a class body, a function with a
+//! `"use strict"` prologue) a `function` declared in a block binds in
+//! that block only (§14.2.2; Annex B §B.3.3 is sloppy-only), so it is
+//! not a name of the enclosing function scope there.
+
+mod class;
 
 use super::annexb_names::{block_nested_fn_names, own_fn_names, param_names};
-use super::class_computed_owner::owns;
 use super::desugar_with::walk::stmt_children_ref;
-use super::{Ast, Expr, ExprId, StaticInit, Stmt};
-use std::collections::HashSet;
+use super::{Ast, Expr, ExprId, Stmt};
+use std::collections::{HashMap, HashSet};
+
+/// Name → whether the binding shadows a class or builtin of that name
+/// for `new`. `false` is a class binding, which the class route reads.
+type Scope = HashMap<String, bool>;
 
 /// Record every `new <name>()` whose name is shadowed by a `function`
 /// declaration in an enclosing function scope.
@@ -67,23 +84,50 @@ pub fn mark_fn_shadowed_new(ast: &mut Ast) {
     // top-level `function N` next to a `class N` is a redeclaration,
     // which the injection gate and the checker already answer.
     let stmts = std::mem::take(&mut ast.stmts);
-    let mut scopes: Vec<HashSet<String>> = Vec::new();
-    let mut out: HashSet<ExprId> = HashSet::new();
+    let field_inits = ast.class_field_init_roots.iter().copied().collect();
+    let strict = !ast.program_is_sloppy();
+    let mut c = Census {
+        ast,
+        scopes: Vec::new(),
+        out: HashSet::new(),
+        field_inits,
+        strict,
+    };
     for s in &stmts {
-        walk_stmt(ast, s, &mut scopes, &mut out);
+        c.stmt(s);
     }
+    let out = c.out;
     ast.stmts = stmts;
     ast.fn_shadowed_new = out;
 }
 
-/// The names a function body binds with `function`, at its top level
-/// or inside one of its blocks — Annex B §B.3.3 puts the block ones in
-/// the function scope too, which is the same set `desugar_nested_fns`
-/// lifts and renames.
-fn body_fn_names(body: &[Stmt]) -> HashSet<String> {
-    let mut names = own_fn_names(body);
-    names.extend(block_nested_fn_names(body));
-    names
+struct Census<'a> {
+    ast: &'a Ast,
+    scopes: Vec<Scope>,
+    out: HashSet<ExprId>,
+    /// Class field initializers. An instance one rides the constructor
+    /// body but reads the class's scope, not the constructor's
+    /// parameters and locals (§15.7.10).
+    field_inits: HashSet<ExprId>,
+    strict: bool,
+}
+
+fn shadowing(names: HashSet<String>) -> Scope {
+    names.into_iter().map(|n| (n, true)).collect()
+}
+
+/// The names a statement list declares with a `class` of its own
+/// (`Multi` shares the list's scope). They resolve to the class.
+fn add_class_names(stmts: &[Stmt], scope: &mut Scope) {
+    for s in stmts {
+        match s {
+            Stmt::ClassDecl { name, .. } => {
+                scope.entry(name.clone()).or_insert(false);
+            }
+            Stmt::Multi(inner) => add_class_names(inner, scope),
+            _ => {}
+        }
+    }
 }
 
 /// The `let` / `const` names a statement list binds DIRECTLY. `Multi`
@@ -129,340 +173,299 @@ fn var_names(stmts: &[Stmt], out: &mut HashSet<String>) {
     }
 }
 
-/// A function scope: its `function` declarations, its parameters, the
-/// `let` / `const` its body binds at top level (the body is that
-/// block), and every `var` at any depth.
-fn walk_body(
-    ast: &Ast,
-    body: &[Stmt],
-    params: &[super::Param],
-    scopes: &mut Vec<HashSet<String>>,
-    out: &mut HashSet<ExprId>,
-) {
-    let mut names = body_fn_names(body);
-    names.extend(param_names(params));
-    names.extend(let_const_names(body));
-    var_names(body, &mut names);
-    scopes.push(names);
-    for s in body {
-        walk_stmt(ast, s, scopes, out);
-    }
-    scopes.pop();
-}
-
-/// A block: the `let` / `const` it binds directly, plus `extra` (a
-/// catch parameter).
-fn walk_block(
-    ast: &Ast,
-    list: &[Stmt],
-    extra: Option<&str>,
-    scopes: &mut Vec<HashSet<String>>,
-    out: &mut HashSet<ExprId>,
-) {
+/// The lexical names a block-shaped list binds: its `let` / `const`,
+/// its own `function`s (a block's own in strict code, and its block
+/// binding under §B.3.3 too) and its classes.
+fn block_scope(list: &[Stmt]) -> Scope {
     let mut names = let_const_names(list);
-    names.extend(extra.map(str::to_string));
-    scopes.push(names);
-    for s in list {
-        walk_stmt(ast, s, scopes, out);
-    }
-    scopes.pop();
+    names.extend(own_fn_names(list));
+    let mut scope = shadowing(names);
+    add_class_names(list, &mut scope);
+    scope
 }
 
-fn walk_stmt(ast: &Ast, stmt: &Stmt, scopes: &mut Vec<HashSet<String>>, out: &mut HashSet<ExprId>) {
-    match stmt {
-        Stmt::Expr(e) | Stmt::Return(Some(e)) | Stmt::Throw(e) | Stmt::Yield(e) => {
-            walk_expr(ast, *e, scopes, out)
+impl Census<'_> {
+    fn shadowed(&self, name: &str) -> bool {
+        self.scopes
+            .iter()
+            .rev()
+            .find_map(|s| s.get(name))
+            .copied()
+            .unwrap_or(false)
+    }
+
+    /// A function scope: its `function` declarations (and, in sloppy
+    /// code, the ones its blocks hoist under Annex B), its parameters,
+    /// the `let` / `const` and classes its body binds at top level
+    /// (the body is that block), and every `var` at any depth.
+    fn body(&mut self, body: &[Stmt], params: &[super::Param]) {
+        let scope = self.body_scope(body, params);
+        let strict = self.strict;
+        self.strict = strict || self.ast.body_says_use_strict(body);
+        self.scopes.push(scope);
+        for s in body {
+            self.stmt(s);
         }
-        Stmt::YieldInto { value, .. } => walk_expr(ast, *value, scopes, out),
-        Stmt::LetDecl { init, .. } | Stmt::UsingDecl { init, .. } => {
-            walk_expr(ast, *init, scopes, out)
+        self.scopes.pop();
+        self.strict = strict;
+    }
+
+    fn body_scope(&self, body: &[Stmt], params: &[super::Param]) -> Scope {
+        let mut names = own_fn_names(body);
+        if !self.strict && !self.ast.body_says_use_strict(body) {
+            names.extend(block_nested_fn_names(body));
         }
-        Stmt::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            walk_expr(ast, *cond, scopes, out);
-            walk_stmt(ast, then_branch, scopes, out);
-            if let Some(e) = else_branch {
-                walk_stmt(ast, e, scopes, out);
+        names.extend(param_names(params));
+        names.extend(let_const_names(body));
+        var_names(body, &mut names);
+        let mut scope = shadowing(names);
+        add_class_names(body, &mut scope);
+        scope
+    }
+
+    /// A block's own bindings, plus `extra` (a catch parameter).
+    fn block(&mut self, list: &[Stmt], extra: Option<&str>) {
+        let mut scope = block_scope(list);
+        if let Some(p) = extra {
+            scope.insert(p.to_string(), true);
+        }
+        self.scopes.push(scope);
+        for s in list {
+            self.stmt(s);
+        }
+        self.scopes.pop();
+    }
+
+    fn stmt(&mut self, stmt: &Stmt) {
+        match stmt {
+            Stmt::Expr(e) | Stmt::Return(Some(e)) | Stmt::Throw(e) | Stmt::Yield(e) => {
+                self.expr(*e)
             }
-        }
-        Stmt::While { cond, body } | Stmt::DoWhile { body, cond } => {
-            walk_expr(ast, *cond, scopes, out);
-            walk_stmt(ast, body, scopes, out);
-        }
-        // A `let` / `const` head binds in a scope around the whole
-        // loop (§14.7.4.2); a `var` one is the function's.
-        Stmt::For {
-            init,
-            cond,
-            step,
-            body,
-        } => {
-            let head = init
-                .as_deref()
-                .map(std::slice::from_ref)
-                .unwrap_or_default();
-            scopes.push(let_const_names(head));
-            if let Some(i) = init {
-                walk_stmt(ast, i, scopes, out);
-            }
-            if let Some(c) = cond {
-                walk_expr(ast, *c, scopes, out);
-            }
-            if let Some(s) = step {
-                walk_expr(ast, *s, scopes, out);
-            }
-            walk_stmt(ast, body, scopes, out);
-            scopes.pop();
-        }
-        // The loop variable is bound in the body (§14.7.5.7).
-        Stmt::ForOf {
-            var_name,
-            elem_expr,
-            body,
-            ..
-        } => {
-            walk_expr(ast, *elem_expr, scopes, out);
-            walk_loop_body(ast, var_name, body, scopes, out);
-        }
-        Stmt::ForOfSplitIter {
-            var_name,
-            parent,
-            sep,
-            body,
-        } => {
-            walk_expr(ast, *parent, scopes, out);
-            walk_expr(ast, *sep, scopes, out);
-            walk_loop_body(ast, var_name, body, scopes, out);
-        }
-        // A block is a scope of its own for `let` / `const`.
-        Stmt::Block(b) => walk_block(ast, b, None, scopes, out),
-        Stmt::Multi(b) => {
-            // Shares the surrounding scope — its bindings were already
-            // collected by whoever owns that scope.
-            for s in b {
-                walk_stmt(ast, s, scopes, out);
-            }
-        }
-        // Each of the three is a block (§14.15), and the catch block
-        // also binds its parameter. An async function's body is
-        // wrapped in one before this pass runs.
-        Stmt::Try {
-            body,
-            catch_param,
-            catch_body,
-            finally_body,
-            ..
-        } => {
-            walk_block(ast, body, None, scopes, out);
-            walk_block(ast, catch_body, catch_param.as_deref(), scopes, out);
-            if let Some(f) = finally_body {
-                walk_block(ast, f, None, scopes, out);
-            }
-        }
-        Stmt::Switch {
-            scrutinee,
-            cases,
-            default,
-            ..
-        } => {
-            walk_expr(ast, *scrutinee, scopes, out);
-            // Every clause shares one block (§14.12.4), so a `let` /
-            // `const` in one clause is in scope in all of them.
-            let mut names = HashSet::new();
-            for list in cases.iter().map(|c| &c.body[..]).chain(default.as_deref()) {
-                names.extend(let_const_names(list));
-            }
-            scopes.push(names);
-            for c in cases {
-                walk_expr(ast, c.value, scopes, out);
-                for s in &c.body {
-                    walk_stmt(ast, s, scopes, out);
+            Stmt::YieldInto { value, .. } => self.expr(*value),
+            Stmt::LetDecl { init, .. } | Stmt::UsingDecl { init, .. } => self.expr(*init),
+            Stmt::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                self.expr(*cond);
+                self.stmt(then_branch);
+                if let Some(e) = else_branch {
+                    self.stmt(e);
                 }
             }
-            for s in default.iter().flatten() {
-                walk_stmt(ast, s, scopes, out);
+            Stmt::While { cond, body } | Stmt::DoWhile { body, cond } => {
+                self.expr(*cond);
+                self.stmt(body);
             }
-            scopes.pop();
-        }
-        Stmt::Labeled { body, .. } => walk_stmt(ast, body, scopes, out),
-        Stmt::FnDecl { body, params, .. } => walk_body(ast, body, params, scopes, out),
-        Stmt::ExportDecl { inner, .. } => {
-            if let Some(i) = inner {
-                walk_stmt(ast, i, scopes, out);
+            // A `let` / `const` head binds in a scope around the whole
+            // loop (§14.7.4.2); a `var` one is the function's.
+            Stmt::For {
+                init,
+                cond,
+                step,
+                body,
+            } => {
+                let head = init
+                    .as_deref()
+                    .map(std::slice::from_ref)
+                    .unwrap_or_default();
+                self.scopes.push(shadowing(let_const_names(head)));
+                if let Some(i) = init {
+                    self.stmt(i);
+                }
+                if let Some(c) = cond {
+                    self.expr(*c);
+                }
+                if let Some(s) = step {
+                    self.expr(*s);
+                }
+                self.stmt(body);
+                self.scopes.pop();
             }
+            // The loop variable is bound in the body (§14.7.5.7).
+            Stmt::ForOf {
+                var_name,
+                elem_expr,
+                body,
+                ..
+            } => {
+                self.expr(*elem_expr);
+                self.loop_body(var_name, body);
+            }
+            Stmt::ForOfSplitIter {
+                var_name,
+                parent,
+                sep,
+                body,
+            } => {
+                self.expr(*parent);
+                self.expr(*sep);
+                self.loop_body(var_name, body);
+            }
+            // A block is a scope of its own for `let` / `const`.
+            Stmt::Block(b) => self.block(b, None),
+            Stmt::Multi(b) => {
+                // Shares the surrounding scope — its bindings were already
+                // collected by whoever owns that scope.
+                for s in b {
+                    self.stmt(s);
+                }
+            }
+            // Each of the three is a block (§14.15), and the catch block
+            // also binds its parameter. An async function's body is
+            // wrapped in one before this pass runs.
+            Stmt::Try {
+                body,
+                catch_param,
+                catch_body,
+                finally_body,
+                ..
+            } => {
+                self.block(body, None);
+                self.block(catch_body, catch_param.as_deref());
+                if let Some(f) = finally_body {
+                    self.block(f, None);
+                }
+            }
+            Stmt::Switch {
+                scrutinee,
+                cases,
+                default,
+                ..
+            } => {
+                self.expr(*scrutinee);
+                // Every clause shares one block (§14.12.4), so a `let` /
+                // `const` in one clause is in scope in all of them.
+                let mut scope = Scope::new();
+                for list in cases.iter().map(|c| &c.body[..]).chain(default.as_deref()) {
+                    scope.extend(block_scope(list));
+                }
+                self.scopes.push(scope);
+                for c in cases {
+                    self.expr(c.value);
+                    for s in &c.body {
+                        self.stmt(s);
+                    }
+                }
+                for s in default.iter().flatten() {
+                    self.stmt(s);
+                }
+                self.scopes.pop();
+            }
+            Stmt::Labeled { body, .. } => self.stmt(body),
+            Stmt::FnDecl { body, params, .. } => self.body(body, params),
+            Stmt::ExportDecl { inner, .. } => {
+                if let Some(i) = inner {
+                    self.stmt(i);
+                }
+            }
+            Stmt::ClassDecl { .. } => self.class(stmt),
+            Stmt::Return(None)
+            | Stmt::Break(_)
+            | Stmt::Continue(_)
+            | Stmt::TypeDecl { .. }
+            | Stmt::ImportDecl { .. } => {}
         }
-        Stmt::ClassDecl { .. } => walk_class(ast, stmt, scopes, out),
-        Stmt::Return(None)
-        | Stmt::Break(_)
-        | Stmt::Continue(_)
-        | Stmt::TypeDecl { .. }
-        | Stmt::ImportDecl { .. } => {}
     }
-}
 
-fn walk_loop_body(
-    ast: &Ast,
-    var_name: &str,
-    body: &Stmt,
-    scopes: &mut Vec<HashSet<String>>,
-    out: &mut HashSet<ExprId>,
-) {
-    scopes.push(HashSet::from([var_name.to_string()]));
-    walk_stmt(ast, body, scopes, out);
-    scopes.pop();
-}
+    fn loop_body(&mut self, var_name: &str, body: &Stmt) {
+        self.scopes
+            .push(Scope::from([(var_name.to_string(), true)]));
+        self.stmt(body);
+        self.scopes.pop();
+    }
 
-/// A class declaration: the heritage and the computed keys are read in
-/// the enclosing scope; each constructor, method and static block is a
-/// function scope of its own, and a field initializer reads the scope
-/// the class sits in (an instance field's already rides the
-/// constructor body). The computed keys and computed static fields
-/// live in side tables keyed by the class name, which two functions
-/// may share, so a row counts only when this declaration owns it.
-fn walk_class(
-    ast: &Ast,
-    stmt: &Stmt,
-    scopes: &mut Vec<HashSet<String>>,
-    out: &mut HashSet<ExprId>,
-) {
-    let Stmt::ClassDecl {
-        name,
-        decl_id,
-        parent,
-        ctor,
-        methods,
-        static_methods,
-        static_init,
-        ..
-    } = stmt
-    else {
-        return;
-    };
-    if let Some(p) = parent {
-        walk_expr(ast, *p, scopes, out);
-    }
-    let owned = |c: &String, sent: &str| c == name && owns(ast, sent, *decl_id);
-    let mut keys: Vec<ExprId> = ast
-        .class_computed_keys
-        .iter()
-        .filter(|((c, sent), _)| owned(c, sent))
-        .map(|(_, &e)| e)
-        .collect();
-    keys.sort_by_key(|e| e.0);
-    for k in keys {
-        walk_expr(ast, k, scopes, out);
-    }
-    if let Some(c) = ctor {
-        walk_body(ast, &c.body, &c.params, scopes, out);
-    }
-    for m in methods.iter().chain(static_methods) {
-        walk_body(ast, &m.body, &m.params, scopes, out);
-    }
-    for si in static_init {
-        match si {
-            StaticInit::Field(f) => walk_expr(ast, f.init, scopes, out),
-            StaticInit::Block(b) => walk_body(ast, b, &[], scopes, out),
-        }
-    }
-    for (c, sent, init) in &ast.class_computed_static_fields {
-        if owned(c, sent) {
-            walk_expr(ast, *init, scopes, out);
-        }
-    }
-}
-
-fn walk_expr(ast: &Ast, eid: ExprId, scopes: &mut Vec<HashSet<String>>, out: &mut HashSet<ExprId>) {
-    match ast.get_expr(eid) {
-        Expr::New {
-            class_name, args, ..
-        } => {
-            if scopes.iter().any(|s| s.contains(class_name)) {
-                out.insert(eid);
+    fn expr(&mut self, eid: ExprId) {
+        match self.ast.get_expr(eid) {
+            Expr::New {
+                class_name, args, ..
+            } => {
+                if self.shadowed(class_name) {
+                    self.out.insert(eid);
+                }
+                for a in args {
+                    self.expr(*a);
+                }
             }
-            for a in args {
-                walk_expr(ast, *a, scopes, out);
+            Expr::ArrowFn { body, params, .. } => self.body(body, params),
+            Expr::BinOp { left, right, .. }
+            | Expr::Sequence { left, right }
+            | Expr::Assign {
+                target: left,
+                value: right,
             }
-        }
-        Expr::ArrowFn { body, params, .. } => walk_body(ast, body, params, scopes, out),
-        Expr::BinOp { left, right, .. }
-        | Expr::Sequence { left, right }
-        | Expr::Assign {
-            target: left,
-            value: right,
-        }
-        | Expr::Index {
-            obj: left,
-            index: right,
-        }
-        | Expr::OptIndex {
-            obj: left,
-            index: right,
-        }
-        | Expr::Nullish {
-            lhs: left,
-            rhs: right,
-        }
-        | Expr::InstanceOf {
-            expr: left,
-            rhs: right,
-        } => {
-            walk_expr(ast, *left, scopes, out);
-            walk_expr(ast, *right, scopes, out);
-        }
-        Expr::Unary { expr, .. }
-        | Expr::Member { obj: expr, .. }
-        | Expr::As { expr, .. }
-        | Expr::TypeOf { expr }
-        | Expr::Delete { expr }
-        | Expr::Spread { expr }
-        | Expr::OptChain { obj: expr, .. }
-        | Expr::PostIncr { target: expr, .. } => walk_expr(ast, *expr, scopes, out),
-        Expr::Call { callee, args }
-        | Expr::NewDynamic { callee, args }
-        | Expr::OptCall { callee, args } => {
-            walk_expr(ast, *callee, scopes, out);
-            for a in args {
-                walk_expr(ast, *a, scopes, out);
+            | Expr::Index {
+                obj: left,
+                index: right,
             }
-        }
-        Expr::Array(items) => {
-            for e in items {
-                walk_expr(ast, *e, scopes, out);
+            | Expr::OptIndex {
+                obj: left,
+                index: right,
             }
-        }
-        Expr::Super { args } => {
-            for a in args {
-                walk_expr(ast, *a, scopes, out);
+            | Expr::Nullish {
+                lhs: left,
+                rhs: right,
             }
-        }
-        Expr::ObjectLit { fields } => {
-            for (_, e) in fields {
-                walk_expr(ast, *e, scopes, out);
+            | Expr::InstanceOf {
+                expr: left,
+                rhs: right,
+            } => {
+                self.expr(*left);
+                self.expr(*right);
             }
+            Expr::Unary { expr, .. }
+            | Expr::Member { obj: expr, .. }
+            | Expr::As { expr, .. }
+            | Expr::TypeOf { expr }
+            | Expr::Delete { expr }
+            | Expr::Spread { expr }
+            | Expr::OptChain { obj: expr, .. }
+            | Expr::PostIncr { target: expr, .. } => self.expr(*expr),
+            Expr::Call { callee, args }
+            | Expr::NewDynamic { callee, args }
+            | Expr::OptCall { callee, args } => {
+                self.expr(*callee);
+                for a in args {
+                    self.expr(*a);
+                }
+            }
+            Expr::Array(items) => {
+                for e in items {
+                    self.expr(*e);
+                }
+            }
+            Expr::Super { args } => {
+                for a in args {
+                    self.expr(*a);
+                }
+            }
+            Expr::ObjectLit { fields } => {
+                for (_, e) in fields {
+                    self.expr(*e);
+                }
+            }
+            Expr::Ternary {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                self.expr(*cond);
+                self.expr(*then_branch);
+                self.expr(*else_branch);
+            }
+            Expr::Ident(_)
+            | Expr::String(_)
+            | Expr::Number(_)
+            | Expr::BigInt { .. }
+            | Expr::Bool(_)
+            | Expr::Null
+            | Expr::Uninit
+            | Expr::Elision
+            | Expr::Regex { .. }
+            | Expr::Closure { .. }
+            | Expr::This
+            | Expr::NewTarget => {}
         }
-        Expr::Ternary {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            walk_expr(ast, *cond, scopes, out);
-            walk_expr(ast, *then_branch, scopes, out);
-            walk_expr(ast, *else_branch, scopes, out);
-        }
-        Expr::Ident(_)
-        | Expr::String(_)
-        | Expr::Number(_)
-        | Expr::BigInt { .. }
-        | Expr::Bool(_)
-        | Expr::Null
-        | Expr::Uninit
-        | Expr::Elision
-        | Expr::Regex { .. }
-        | Expr::Closure { .. }
-        | Expr::This
-        | Expr::NewTarget => {}
     }
 }
