@@ -23,7 +23,7 @@ use crate::lc::{
 };
 use crate::resolve::{SymTable, apply_relocs};
 use crate::sign::{adhoc_codesign_blob_size, build_adhoc_codesign_blob};
-use crate::text_payload::{TEXT_FN_ALIGN, place_text};
+use crate::text_payload::{TEXT_FN_ALIGN, place_text, text_slot};
 
 // ---- Public API ----
 
@@ -225,7 +225,7 @@ pub fn compute_layout(cfg: &LinkConfig) -> ExecLayout {
     let text_file_offset = round_up_to(u64::from(header_plus_lc), u64::from(TEXT_FN_ALIGN)) as u32;
 
     // Each fn's section-relative offset for the vaddr table.
-    let placement = place_text(cfg.funcs.iter().map(|f| f.bytes.len() as u32), &[]);
+    let placement = place_text(cfg.funcs.iter().map(text_slot), &[]);
     let (fn_offsets_in_text, text_size) = (placement.user, placement.size);
 
     // `__TEXT` segment vmsize is page-aligned and covers

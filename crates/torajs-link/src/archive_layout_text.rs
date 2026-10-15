@@ -17,7 +17,7 @@ use crate::lc::{
 };
 use crate::non_text_layout::{NonTextLayoutError, NonTextSectionLayout, compute_non_text_layouts};
 use crate::stubs::{LA_PTR_SLOT_SIZE, STUB_SIZE};
-use crate::text_payload::{TEXT_FN_ALIGN, TextPlacement, place_text};
+use crate::text_payload::{TEXT_FN_ALIGN, TextPlacement, place_text, text_slot};
 use crate::user_strings_layout::{UserStringsLayout, build_user_strings_region};
 use crate::user_vtables_layout::{UserVtablesLayout, build_user_vtables_region};
 
@@ -169,10 +169,7 @@ pub(crate) fn compute_text_region_plan(
     // outgrows its page; `emit_binary`'s overrun gate catches it.
     let text_file_offset =
         round_up_to(u64::from(header_plus_lc), u64::from(TEXT_FN_ALIGN)) as u32 + text_shift();
-    let text_placement = place_text(
-        cfg.funcs.iter().map(|f| f.bytes.len() as u32),
-        member_text_sizes,
-    );
+    let text_placement = place_text(cfg.funcs.iter().map(text_slot), member_text_sizes);
 
     // Non-text region (member __cstring/__const) lands between member
     // __texts and `__TEXT,__stubs`; folds into text_size auto-shift.
