@@ -284,14 +284,22 @@ fn write_user_symtab_only(buf: &mut Vec<u8>, cfg: &LinkConfig, layout: &ArchiveL
 /// slots (empty bytes — `compile_module_funcs` keeps them so
 /// `FuncId`s stay stable) define nothing; a row for them would claim
 /// the runtime symbol lives at the text start and mis-attribute crash
-/// frames there.
+/// frames there. A compiler-supplied definition in the runtime's own
+/// namespace (a dispatch or guarded stub, a synthesized allocator)
+/// stands in for a runtime member's, so a stripped build drops its row
+/// with the member rows.
 pub(crate) fn symtab_rows(
     cfg: &LinkConfig,
 ) -> impl Iterator<Item = (usize, &torajs_codegen::CompiledFunction)> {
     cfg.funcs.iter().enumerate().filter(|(_, f)| {
-        !f.bytes.is_empty() && !(cfg.strip_member_symbols && is_local_label(&f.name))
+        !f.bytes.is_empty()
+            && !(cfg.strip_member_symbols
+                && (is_local_label(&f.name) || f.name.starts_with(RUNTIME_SYM_PREFIX)))
     })
 }
+
+/// Mach-O spelling of the runtime's `__torajs_` symbol namespace.
+const RUNTIME_SYM_PREFIX: &str = "___torajs_";
 
 #[cfg(test)]
 mod tests {
@@ -309,11 +317,12 @@ mod tests {
         }
     }
 
-    /// A local label loses its row only when the build is stripped.
+    /// A local label and a definition in the runtime namespace lose
+    /// their rows only when the build is stripped.
     #[test]
     fn local_label_rows_follow_the_strip_policy() {
         let mut cfg = LinkConfig {
-            funcs: vec![leaf("_main"), leaf(".Lfib.int")],
+            funcs: vec![leaf("_main"), leaf(".Lfib.int"), leaf("___torajs_hook")],
             entry: "_main".into(),
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
@@ -334,7 +343,7 @@ mod tests {
             baked_regex_entries: Vec::new(),
         };
         let rows = |cfg: &LinkConfig| symtab_rows(cfg).map(|(i, _)| i).collect::<Vec<_>>();
-        assert_eq!(rows(&cfg), vec![0, 1]);
+        assert_eq!(rows(&cfg), vec![0, 1, 2]);
         cfg.strip_member_symbols = true;
         assert_eq!(rows(&cfg), vec![0]);
     }
