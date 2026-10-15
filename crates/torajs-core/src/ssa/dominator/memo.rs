@@ -10,6 +10,19 @@
 //! everything the analysis reads: the block ids in layout order and
 //! each block's branch targets ([`CfgKey`]), and for the loops also
 //! the dominator tree they were given.
+//!
+//! The key holds everything a build reads, so an entry kept from an
+//! earlier module can only be handed out to a function whose control
+//! flow is the same and is still the right answer; what it costs is
+//! memory. A compile therefore starts its module with [`forget`]: a
+//! process that compiles many modules on one thread keeps one
+//! module's entries, not every name it has ever seen.
+//!
+//! The tables are per thread because they are a cache of values
+//! derived from the function being compiled, not shared state: the
+//! compiler runs a module on one thread, a second thread compiling
+//! its own module fills its own tables, and nothing reads another
+//! thread's entries.
 
 use std::cell::RefCell;
 
@@ -51,6 +64,14 @@ thread_local! {
     static TREES: RefCell<HashMap<String, (CfgKey, DominatorTree)>> =
         RefCell::new(HashMap::default());
     static LOOPS: RefCell<HashMap<String, LoopEntry>> = RefCell::new(HashMap::default());
+}
+
+/// Drops every kept tree and loop analysis of this thread, freeing
+/// them; called as a module's compile begins, when the tables are
+/// usually empty already and this costs nothing.
+pub fn forget() {
+    TREES.with_borrow_mut(|m| drop(std::mem::take(m)));
+    LOOPS.with_borrow_mut(|m| drop(std::mem::take(m)));
 }
 
 /// The dominator tree of `func`: the one built last for a function of

@@ -22,6 +22,7 @@ mod memo;
 
 pub(crate) use lists::{Adjacency, predecessors};
 use lists::{build_children, tree_intervals};
+pub use memo::forget as forget_kept_analyses;
 pub(crate) use memo::loops as memoized_loops;
 
 /// Immediate-dominator table + reverse-postorder traversal of the CFG.

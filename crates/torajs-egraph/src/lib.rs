@@ -149,6 +149,9 @@ fn egraph_functions(module: &mut Module) {
 /// `tr run` new-pipeline drivers; they call this between
 /// `ssa_lower::lower_with_arity` and `torajs_codegen::compile_function`.
 pub fn transform_module(mut module: Module) -> Module {
+    // the analyses kept for an earlier module's functions are of no
+    // use to this one
+    torajs_core::ssa::dominator::forget_kept_analyses();
     if std::env::var("TORAJS_EGRAPH_OFF").as_deref() == Ok("1") {
         anynum::expand::expand_number_nodes(&mut module);
         return module;
