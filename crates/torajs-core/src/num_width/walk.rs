@@ -193,7 +193,7 @@ impl<'a> Analysis<'a> {
         } else if let Some(ann) = type_ann
             && self.expr_types.get(&init) == Some(&crate::check::Type::Any)
         {
-            self.any_object_seed(&key, ann);
+            self.any_object_seed(init, &key, ann);
         }
         self.add_constraint(key.clone(), w);
         self.alias_guarded(key.clone(), init, scope);
@@ -215,7 +215,7 @@ impl<'a> Analysis<'a> {
                     if let Some(k) = self.resolve(&n, scope) {
                         if self.expr_types.get(value) == Some(&crate::check::Type::Any) {
                             for ann in self.binding_anns(&k) {
-                                self.any_object_seed(&k, &ann);
+                                self.any_object_seed(*value, &k, &ann);
                             }
                         }
                         self.alias_guarded(k.clone(), *value, scope);

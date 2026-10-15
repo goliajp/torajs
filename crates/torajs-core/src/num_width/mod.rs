@@ -53,6 +53,7 @@ mod hidden_any_scope;
 mod hidden_any_seeds;
 mod hidden_any_sources;
 pub(crate) mod hof_receivers;
+mod idle_bodies;
 mod json_seed;
 mod lattice;
 mod let_names;
@@ -237,6 +238,9 @@ pub(super) struct Analysis<'a> {
     /// Each function value stored into a slot, with the parameters
     /// that slot's argument positions reach (`fn_value_flow`).
     pub(super) fn_flows: Vec<(SlotKey, String, Vec<String>)>,
+    /// The expressions that never run (`idle_bodies`), settled at the
+    /// first `any` cast that asks.
+    idle: std::cell::OnceCell<idle_bodies::IdleBodies>,
 }
 
 /// Full analysis result — the F64 slot classes plus the container
@@ -302,6 +306,7 @@ pub(crate) fn analyze(
         hof_receivers: Vec::new(),
         variadic_calls: Vec::new(),
         fn_flows: Vec::new(),
+        idle: std::cell::OnceCell::new(),
     };
 
     // Top-level statements walk under the "" scope; fn bodies under

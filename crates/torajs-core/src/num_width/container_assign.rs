@@ -48,7 +48,7 @@ impl<'a> Analysis<'a> {
                             name,
                         )
                     {
-                        self.any_object_seed(&fk, &ann);
+                        self.any_object_seed(value, &fk, &ann);
                     }
                     let w = self.flow(value, scope);
                     self.add_container_constraint(fk.clone(), w);

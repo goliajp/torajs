@@ -98,8 +98,15 @@ impl Analysis<'_> {
     /// layout (`ssa_lower_checked_cast::obj`): its property values are
     /// runtime data like JSON text, and a field narrowed past `number`
     /// would reject a fraction the annotation admits (RFC 20260922
-    /// §4.4 item 1).
-    pub(super) fn any_object_seed(&mut self, key: &SlotKey, ann: &str) {
+    /// §4.4 item 1). A write at `site` in a body that never runs casts
+    /// nothing.
+    pub(super) fn any_object_seed(&mut self, site: ExprId, key: &SlotKey, ann: &str) {
+        let (ast, retargets, types) = (self.ast, self.retargets, self.expr_types);
+        let idle =
+            (self.idle).get_or_init(|| super::idle_bodies::IdleBodies::of(ast, retargets, types));
+        if idle.contains(site) {
+            return;
+        }
         let mut seen: HashSet<String> = HashSet::new();
         self.seed_number_faces(key, Some(ann), &mut seen);
     }

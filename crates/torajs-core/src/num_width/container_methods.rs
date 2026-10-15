@@ -183,7 +183,7 @@ impl<'a> Analysis<'a> {
                 && self.expr_types.get(&a) == Some(&crate::check::Type::Any)
             {
                 for ann in self.pushed_elem_anns(obj, scope) {
-                    self.any_object_seed(&ek, &ann);
+                    self.any_object_seed(a, &ek, &ann);
                 }
             }
             let w = self.flow(a, scope);

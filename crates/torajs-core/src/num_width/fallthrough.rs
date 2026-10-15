@@ -48,13 +48,15 @@ pub(super) fn seed_and_walk_fn(
     if let Some(r) = return_type {
         let rk = SlotKey::Ret(name.clone());
         a.seed_any_face(&rk, r, !widen_clone);
-        let mut any_ret = false;
-        crate::ast::walk_stmts(body, &mut |s| {
-            any_ret |= matches!(s, Stmt::Return(Some(e))
-                if a.expr_types.get(e) == Some(&crate::check::Type::Any));
+        let mut any_rets = Vec::new();
+        crate::ast::walk_stmts(body, &mut |s| match s {
+            Stmt::Return(Some(e)) if a.expr_types.get(e) == Some(&crate::check::Type::Any) => {
+                any_rets.push(*e)
+            }
+            _ => {}
         });
-        if any_ret {
-            a.any_object_seed(&rk, r);
+        for e in any_rets {
+            a.any_object_seed(e, &rk, r);
         }
         seed_fallthrough_return(a, rk, r, name, body, tables, fallthrough_fns);
     }
