@@ -309,7 +309,7 @@ mod tests {
     #[test]
     fn only_a_writable_immediate_entry_is_written_in_place() {
         let (ka, kb, kc, kd) = (make_str("a"), make_str("b"), make_str("c"), make_str("d"));
-        let cell = vec![0u64; 4];
+        let cell = [0u64; 4];
         unsafe {
             let obj = __torajs_dynobj_alloc();
             let a = ka.as_ptr() as *mut c_void;
