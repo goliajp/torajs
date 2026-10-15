@@ -67,7 +67,10 @@ mod dynamic;
 mod fold;
 pub(crate) mod tags;
 
-use dynamic::{emit_has_instance, has_any_encoding, lower_general_rhs, try_lower_dynamic_target};
+use dynamic::{
+    emit_has_instance, has_any_encoding, lower_general_rhs, try_lower_dynamic_target,
+    try_lower_local_shadow,
+};
 use fold::{builtin_proto_tag, try_compile_time_fold};
 use tags::{compute_descendant_tags, generic_half_tags};
 
@@ -133,6 +136,9 @@ fn lower_named_on(
     (expr, v): (ExprId, Operand),
     class_name: &str,
 ) -> Operand {
+    if let Some(op) = try_lower_local_shadow(ctx, v, class_name) {
+        return op;
+    }
     // RFC 20260713 blade 5 — `x instanceof g` where g is a generator
     // factory: §27.5.3 [[HasInstance]] walks g.prototype, which IS
     // the desugared __Gen class's prototype object, so the class

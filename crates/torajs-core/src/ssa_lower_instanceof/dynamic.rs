@@ -168,6 +168,46 @@ pub(super) fn try_lower_dynamic_target(
     Some(Operand::Value(r))
 }
 
+/// `x instanceof N` where a local binding is spelled like a name the
+/// ladder reads statically — a builtin constructor, a declared class,
+/// a generator factory. ResolveBinding (§9.4.2) finds the innermost
+/// binding, so `const TypeError = function () {}` in a function body
+/// is what `N` means there; every fold below reads the name as the
+/// intrinsic or the class and never consults scope. The binding's
+/// value goes to the operator, as a target of any other value would.
+///
+/// A left operand with no any-encoding is a bare function value; its
+/// chain is %Function.prototype%'s, which a fresh `.prototype` is not
+/// on, so `false` is the answer short of a handler (same recorded
+/// residue as [`emit_has_instance`]'s `FnSig` slot).
+pub(super) fn try_lower_local_shadow(
+    ctx: &mut LowerCtx<'_>,
+    v: Operand,
+    class_name: &str,
+) -> Option<Operand> {
+    let info = ctx.locals.get(class_name).copied()?;
+    let read_statically = builtin_proto_tag(class_name).is_some()
+        || crate::ssa_lower_call_typedarray::kind_of_name(class_name).is_some()
+        || matches!(class_name, "Object" | "Iterator" | "BigInt" | "Symbol")
+        || ctx.ast.class_parents.contains_key(class_name)
+        || ctx.ast.generator_factory_classes.contains_key(class_name);
+    if !read_statically {
+        return None;
+    }
+    if !has_any_encoding(ctx.operand_ty(&v)) {
+        return Some(Operand::ConstBool(false));
+    }
+    let v_any = ctx.box_to_any(v);
+    let cur_block = ctx.cur_block;
+    let target = ctx.f.append_inst(
+        cur_block,
+        InstKind::Load(info.ty, Operand::Value(info.slot), 0),
+        info.ty,
+        None,
+    );
+    Some(emit_has_instance(ctx, v_any, Operand::Value(target), None))
+}
+
 /// Does [`LowerCtx::box_to_any`] have an encoding for this type?
 ///
 /// Its match ends in a panic, and a panic in the lowerer rejects the
