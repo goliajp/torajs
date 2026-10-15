@@ -4,6 +4,7 @@
 //! one arm that consults the published fn sigs (and the parser's
 //! synthetic relational calls) for a callee.
 
+mod cb_ret;
 pub(crate) mod object_type_seeds;
 
 use super::{AstExprsView, Expr, ExprId, Param, infer_expr_ann_with};
@@ -60,9 +61,7 @@ pub(super) fn infer_call_ann(
             // opaque callback keeps the historical same-`T`
             // approximation.
             (_, Some(_), "map" | "flatMap") => {
-                match super::implicit_generics_cb_ret::hof_result_ann(
-                    name, exprs, args, params, binds, fn_sigs,
-                ) {
+                match cb_ret::hof_result_ann(name, exprs, args, params, binds, fn_sigs) {
                     Some(u) => return Some(u),
                     None => &r,
                 }
@@ -78,8 +77,7 @@ pub(super) fn infer_call_ann(
             // without one the element type `T`.
             (_, Some(e), "reduce" | "reduceRight") => {
                 let seed = args.get(1).and_then(|s| recur(*s));
-                match super::implicit_generics_cb_ret::reduce_result_ann(exprs, args, seed, fn_sigs)
-                {
+                match cb_ret::reduce_result_ann(exprs, args, seed, fn_sigs) {
                     Some(u) => return Some(u),
                     None => e,
                 }

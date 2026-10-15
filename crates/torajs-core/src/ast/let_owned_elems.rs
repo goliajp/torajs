@@ -71,13 +71,15 @@
 //! alias inits among them get the view layout at their declaration
 //! (`view_slot_inits`) — and is listed here in neither set.
 
+mod writes;
+
 use std::collections::HashSet;
 
 use super::let_owned_elems_alias::{self as alias, AliasNames, Decl};
 use super::let_owned_elems_nest::Nest;
-use super::let_owned_elems_writes::{Query, stmt_writes};
 use super::view_homes;
 use super::{Ast, ExprId, Stmt};
+use writes::{Query, stmt_writes};
 
 /// Record the init ExprIds of the bindings that must hold owned
 /// elements: written into with an owned value, or escaping as a bare

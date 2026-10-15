@@ -29,7 +29,7 @@
 //! - Where one is — a parameter, a local, a module or script top-level
 //!   `let` / `const` / `class`, an import — that declaration is renamed
 //!   out of the way when the rename cannot be observed
-//!   (`globalthis_member_rename`), and the read becomes the bare
+//!   (`rename`), and the read becomes the bare
 //!   builtin; otherwise it stays a member read of the runtime object.
 //! - A class declaration of `X` anywhere keeps every read of
 //!   `globalThis.X` a member read: a nested class is hoisted to the
@@ -41,14 +41,16 @@
 //! (prelude) are already in place, and no later pass consumes a
 //! `globalThis` member shape.
 
+mod rename;
+
 use std::collections::{HashMap, HashSet};
 
 use crate::check_js_semantics::is_known_builtin_global;
 
-use super::globalthis_member_rename::{renamable, rename};
 use super::globalthis_member_scope::{script_global_props, take_census};
 use super::hoist_nested_classes_census::count_class_decl_names;
 use super::{Ast, Expr, ExprId, Param, Stmt};
+use rename::{renamable, rename};
 
 pub fn desugar_globalthis_members(ast: &mut Ast) {
     if binds_anywhere(ast, "globalThis") {

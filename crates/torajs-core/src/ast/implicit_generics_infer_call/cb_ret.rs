@@ -14,7 +14,7 @@
 //! `None` keeps the historical same-`T` approximation (never a new
 //! bail — an opaque callback behaves exactly as before this file).
 
-use super::{Expr, ExprId, Param};
+use crate::ast::{Expr, ExprId, Param};
 
 /// The whitelist arm bodies for `map` / `flatMap` — the callback's
 /// return ann as the result element (`map`), with one array layer
@@ -101,7 +101,7 @@ fn first_param_ann(ann: &str) -> Option<String> {
 /// binding whose ann spells `__fn(..)->(R)`.
 pub(super) fn callback_ret_ann(
     exprs: &[Expr],
-    arg: super::ExprId,
+    arg: ExprId,
     params: &[Param],
     binds: &std::collections::HashMap<String, String>,
     fn_sigs: &std::collections::HashMap<String, String>,

@@ -28,6 +28,8 @@
 //!     - sibling collision: leave Member as-is (SSA picks the
 //!       right `__cm_<C>__M` from obj's static type).
 
+mod calls;
+
 use super::desugar_classes_super::ClassIndexEntry;
 use super::*;
 use std::collections::{HashMap, HashSet};
@@ -40,7 +42,7 @@ pub(super) fn rewrite_expr_arena_pass2(
 ) {
     let n = ast.exprs.len();
     let enclosing = crate::cm_demote::this_enclosing_classes(ast, class_index);
-    let tables = super::desugar_classes_pass2_calls::Pass2Tables {
+    let tables = calls::Pass2Tables {
         class_index,
         method_owners,
         chain_methods,
@@ -152,9 +154,7 @@ pub(super) fn rewrite_expr_arena_pass2(
             Expr::Call { callee, args } => {
                 let callee_id = *callee;
                 let args_clone = args.clone();
-                super::desugar_classes_pass2_calls::rewrite_method_call(
-                    ast, i, callee_id, args_clone, &tables,
-                );
+                calls::rewrite_method_call(ast, i, callee_id, args_clone, &tables);
             }
             _ => {}
         }

@@ -2,13 +2,13 @@
 //! `Expr::Call { callee: Member { obj, name } }` over a known method
 //! name becomes the static `__cm_<C>__<M>` call, the `__dispatch_<M>`
 //! chain dispatcher, or stays a Member call (sibling collision). Split
-//! out of [`super::desugar_classes_pass2`] when K4 (static members of
+//! out of [`crate::ast::desugar_classes_pass2`] when K4 (static members of
 //! a unit class) needed the `This` arm to grow (function-size limit).
 //! Body verbatim; the four tables travel as one struct so the call
 //! carries five arguments, not eight.
 
-use super::desugar_classes_super::ClassIndexEntry;
-use super::*;
+use crate::ast::desugar_classes_super::ClassIndexEntry;
+use crate::ast::*;
 use std::collections::{HashMap, HashSet};
 
 /// The pass-2 lookups the call rewrite reads.

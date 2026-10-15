@@ -16,9 +16,9 @@
 //! a program that had a `with`; or a name some earlier pass recorded
 //! by spelling in a side table.
 
-use super::desugar_with::walk::stmt_children;
-use super::globalthis_member_scope::Census;
-use super::{Ast, Expr, ExprId, Param, Stmt};
+use crate::ast::desugar_with::walk::stmt_children;
+use crate::ast::globalthis_member_scope::Census;
+use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
 
 pub(super) fn renamable(ast: &Ast, census: &Census, name: &str) -> bool {
     if census.pinned.contains(name) || ast.has_with_stmt || in_name_tables(ast, name) {

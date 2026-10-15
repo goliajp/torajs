@@ -1,20 +1,20 @@
 //! Does a node write an owned value INTO the binding `x`, or hand
-//! `x` on as a bare value — the predicate [`super::let_owned_elems`]
+//! `x` on as a bare value — the predicate [`crate::ast::let_owned_elems`]
 //! asks of every statement in a binding's window. The rule and its
 //! bias (a shape the walk cannot prove safe counts as a write) are
 //! documented there.
 
-use super::let_owned_elems_alias::{AliasNames, alias_edge};
-use super::let_owned_elems_nest::{self as nest, Nest};
-use super::view_homes::stores_owned;
-use super::{Ast, BinOp, Expr, ExprId, Stmt};
+use crate::ast::let_owned_elems_alias::{AliasNames, alias_edge};
+use crate::ast::let_owned_elems_nest::{self as nest, Nest};
+use crate::ast::view_homes::stores_owned;
+use crate::ast::{Ast, BinOp, Expr, ExprId, Stmt};
 
 /// The binding asked about, and whether a bare alias between two
 /// connectable bindings (`y = x` / `let y = x`,
-/// [`super::let_owned_elems_alias`]) counts as a write. With `None`
+/// [`crate::ast::let_owned_elems_alias`]) counts as a write. With `None`
 /// it does, which is the verdict a poisoned alias class falls back
 /// to. `nest` is set when `x` is a container's element class
-/// ([`super::let_owned_elems_nest`]).
+/// ([`crate::ast::let_owned_elems_nest`]).
 pub(super) struct Query<'a> {
     pub x: &'a str,
     pub aliases: Option<&'a AliasNames>,
