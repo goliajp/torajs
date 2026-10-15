@@ -11,6 +11,8 @@
 //! (a, f)(x)          → (a, f(x))
 //! (c ? f : g)(x)     → c ? f(x) : g(x)
 //! (a, f).call(t)     → (a, f.call(t))      (also .apply / .bind)
+//! (a ?? g)(x)        → a == null ? g(x) : a(x)   (`a` a name)
+//! f?.(x)             → f == null ? undefined : f(x)   (see [`opt_call`])
 //! ```
 //!
 //! Evaluation order is kept — the operands before the callee, then the
@@ -35,18 +37,31 @@
 //! property by then).
 
 use crate::ast::clone_body::BodyCloner;
-use crate::ast::{Ast, Expr, ExprId};
+use crate::ast::{Ast, BinOp, Expr, ExprId};
 
+mod opt_call;
 mod receiver_names;
 mod shape;
 
-use shape::{holds_site, leaf_count, leaves_are_names, names_a_leaf, neutralize, spelled};
+use shape::{
+    holds_site, leaf_count, leaves_are_names, names_a_leaf, neutralize, nullish_name, spelled,
+};
 
 pub fn distribute_spelled_callees(ast: &mut Ast) {
     // the census walks the whole program; most programs spell no
     // callee this way and never pay for it
     let mut wanted = None;
     for i in 0..ast.exprs.len() {
+        if let Expr::OptCall { callee, .. } = &ast.exprs[i] {
+            if let Expr::Ident(_) = ast.get_expr(*callee) {
+                let callee = *callee;
+                let wanted = wanted.get_or_insert_with(|| receiver_names::Receivers::of(ast));
+                if wanted.names(ast, callee) {
+                    opt_call::guard(ast, i);
+                }
+            }
+            continue;
+        }
         let Expr::Call { callee, args } = &ast.exprs[i] else {
             continue;
         };
@@ -138,6 +153,31 @@ impl Rewrite {
                     },
                 )
             }
+            Expr::Nullish { lhs, rhs } => {
+                // `(a ?? g)(x)` → `a == null ? g(x) : a(x)` (§13.15.4:
+                // `a` when it is neither undefined nor null)
+                let name = nullish_name(ast, lhs).expect("operands admits a named lhs only");
+                let read = self.add(ast, Expr::Ident(name));
+                let null = self.add(ast, Expr::Null);
+                let cond = self.add(
+                    ast,
+                    Expr::BinOp {
+                        op: BinOp::LooseEq,
+                        left: read,
+                        right: null,
+                    },
+                );
+                let then_branch = self.distribute(ast, rhs);
+                let else_branch = self.distribute(ast, lhs);
+                self.add(
+                    ast,
+                    Expr::Ternary {
+                        cond,
+                        then_branch,
+                        else_branch,
+                    },
+                )
+            }
             Expr::As { expr, ty_ann } if spelled(ast, expr) => {
                 // `((a, f) as T)(x)` — the cast is type-only and
                 // types the callee value, which is the leaf's value
@@ -150,26 +190,18 @@ impl Rewrite {
 
     /// Wrap every leaf under `e` in `as ty`, in place.
     fn push_cast(&self, ast: &mut Ast, e: ExprId, ty: &str) {
-        match ast.get_expr(e).clone() {
-            Expr::Sequence { right, .. } => self.push_cast(ast, right, ty),
-            Expr::Ternary {
-                then_branch,
-                else_branch,
-                ..
-            } => {
-                self.push_cast(ast, then_branch, ty);
-                self.push_cast(ast, else_branch, ty);
+        if spelled(ast, e) {
+            for k in shape::operands(ast, e).unwrap_or_default() {
+                self.push_cast(ast, k, ty);
             }
-            Expr::As { expr, .. } if spelled(ast, expr) => self.push_cast(ast, expr, ty),
-            leaf => {
-                let inner = ast.add_expr(leaf);
-                ast.set_expr_span(inner, ast.expr_spans[e.0 as usize]);
-                ast.exprs[e.0 as usize] = Expr::As {
-                    expr: inner,
-                    ty_ann: ty.to_string(),
-                };
-            }
+            return;
         }
+        let inner = ast.add_expr(ast.get_expr(e).clone());
+        ast.set_expr_span(inner, ast.expr_spans[e.0 as usize]);
+        ast.exprs[e.0 as usize] = Expr::As {
+            expr: inner,
+            ty_ann: ty.to_string(),
+        };
     }
 
     fn leaf(&mut self, ast: &mut Ast, callee: ExprId) -> ExprId {
@@ -286,5 +318,62 @@ mod tests {
         let (mut ast, call) = comma_call(Expr::Ident("g".into()));
         distribute_spelled_callees(&mut ast);
         assert!(matches!(ast.get_expr(call), Expr::Call { .. }));
+    }
+
+    #[test]
+    fn a_nullish_callee_becomes_a_test_of_its_left_name() {
+        let mut ast = Ast::default();
+        declare_this_fn(&mut ast);
+        let a = ast.add_expr(Expr::Ident("a".into()));
+        let f = ast.add_expr(Expr::Ident("f".into()));
+        let callee = ast.add_expr(Expr::Nullish { lhs: a, rhs: f });
+        let call = ast.add_expr(Expr::Call {
+            callee,
+            args: vec![],
+        });
+        distribute_spelled_callees(&mut ast);
+        let Expr::Ternary {
+            cond,
+            then_branch,
+            else_branch,
+        } = ast.get_expr(call).clone()
+        else {
+            panic!("expected a conditional");
+        };
+        assert!(matches!(
+            ast.get_expr(cond),
+            Expr::BinOp {
+                op: BinOp::LooseEq,
+                ..
+            }
+        ));
+        let callee_of = |e: ExprId| match ast.get_expr(e) {
+            Expr::Call { callee, .. } => *callee,
+            other => panic!("expected a call, got {other:?}"),
+        };
+        assert_eq!(callee_of(then_branch), f);
+        assert_eq!(callee_of(else_branch), a);
+    }
+
+    #[test]
+    fn an_optional_call_of_the_name_tests_it_first() {
+        let mut ast = Ast::default();
+        declare_this_fn(&mut ast);
+        let f = ast.add_expr(Expr::Ident("f".into()));
+        let call = ast.add_expr(Expr::OptCall {
+            callee: f,
+            args: vec![],
+        });
+        distribute_spelled_callees(&mut ast);
+        let Expr::Ternary {
+            then_branch,
+            else_branch,
+            ..
+        } = ast.get_expr(call)
+        else {
+            panic!("expected a conditional");
+        };
+        assert!(matches!(ast.get_expr(*then_branch), Expr::Ident(n) if n == "undefined"));
+        assert!(matches!(ast.get_expr(*else_branch), Expr::Call { callee, .. } if *callee == f));
     }
 }
