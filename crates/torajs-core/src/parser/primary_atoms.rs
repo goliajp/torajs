@@ -138,6 +138,14 @@ impl<'a> Parser<'a> {
         ) {
             self.invalid_target_ids.insert(last.0);
         }
+        // §13.3.9: the parentheses end an optional chain
+        let mut link = last;
+        while let Expr::Member { obj, .. } = self.ast.get_expr(link) {
+            link = *obj;
+        }
+        if matches!(self.ast.get_expr(link), Expr::OptChain { .. }) {
+            self.ast.paren_optchains.insert(last);
+        }
         Ok(last)
     }
 

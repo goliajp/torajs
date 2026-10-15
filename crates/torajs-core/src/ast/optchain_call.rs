@@ -28,17 +28,33 @@ mod spelled_callee;
 pub use spelled_callee::distribute_spelled_callees;
 
 pub fn desugar_optchain_calls(ast: &mut Ast) {
-    let mut rewrites: Vec<(usize, ExprId, ExprId, Vec<ExprId>)> = Vec::new();
+    let mut rewrites: Vec<(usize, ExprId, ExprId, Vec<ExprId>, Vec<String>)> = Vec::new();
     for i in 0..ast.exprs.len() {
         let Expr::Call { callee, args } = &ast.exprs[i] else {
             continue;
         };
-        let Expr::OptChain { obj, name: _ } = ast.get_expr(*callee) else {
+        // the chain may go on past the optional link — `o?.m.call(t)`
+        // short-circuits as a whole too (§13.3.9.1: an OptionalChain
+        // continues through `.name`)
+        let mut tail: Vec<String> = Vec::new();
+        let mut link = *callee;
+        // `(o?.m).call(t)`: the parentheses end the chain, so the call
+        // past them is an ordinary one on its value
+        let mut cut = false;
+        while let Expr::Member { obj, name } = ast.get_expr(link) {
+            cut |= ast.paren_optchains.contains(&link);
+            tail.push(name.clone());
+            link = *obj;
+        }
+        let Expr::OptChain { obj, name: _ } = ast.get_expr(link) else {
             continue;
         };
-        rewrites.push((i, *callee, *obj, args.clone()));
+        if cut || (!tail.is_empty() && ast.paren_optchains.contains(&link)) {
+            continue;
+        }
+        rewrites.push((i, link, *obj, args.clone(), tail));
     }
-    for (i, callee, obj, args) in rewrites {
+    for (i, callee, obj, args, tail) in rewrites {
         let Expr::OptChain { name, .. } = ast.get_expr(callee) else {
             unreachable!("collected as an OptChain callee");
         };
@@ -56,7 +72,10 @@ pub fn desugar_optchain_calls(ast: &mut Ast) {
         // A FRESH node rather than a mutation of the chain in place:
         // the same `OptChain` expr may also be read as a value
         // elsewhere in the arena, and that reading is still a chain.
-        let member = ast.add_expr(Expr::Member { obj: base, name });
+        let mut member = ast.add_expr(Expr::Member { obj: base, name });
+        for name in tail.into_iter().rev() {
+            member = ast.add_expr(Expr::Member { obj: member, name });
+        }
         ast.exprs[i] = Expr::Call {
             callee: member,
             args,
@@ -160,5 +179,58 @@ mod tests {
         desugar_optchain_calls(&mut ast);
         assert!(ast.optchain_calls.is_empty());
         assert!(matches!(ast.get_expr(call), Expr::Call { .. }));
+    }
+
+    #[test]
+    fn a_chain_going_on_past_the_link_is_guarded_on_its_base() {
+        // `a?.m.call(1)`
+        let mut ast = Ast::default();
+        let obj = ast.add_expr(Expr::Ident("a".into()));
+        let chain = ast.add_expr(Expr::OptChain {
+            obj,
+            name: "m".into(),
+        });
+        let callee = ast.add_expr(Expr::Member {
+            obj: chain,
+            name: "call".into(),
+        });
+        let one = ast.add_expr(Expr::Number(1.0));
+        let call = ast.add_expr(Expr::Call {
+            callee,
+            args: vec![one],
+        });
+        desugar_optchain_calls(&mut ast);
+        assert_eq!(ast.optchain_calls.get(&call), Some(&obj));
+        let Expr::Call { callee, .. } = ast.get_expr(call) else {
+            panic!("the call stays a call")
+        };
+        let Expr::Member { obj: inner, name } = ast.get_expr(*callee) else {
+            panic!("expected `.call`")
+        };
+        assert_eq!(name, "call");
+        assert!(matches!(ast.get_expr(*inner), Expr::Member { name, .. } if name == "m"));
+    }
+
+    #[test]
+    fn a_parenthesized_chain_ends_before_the_call() {
+        // `(a?.m).call()`
+        let mut ast = Ast::default();
+        let obj = ast.add_expr(Expr::Ident("a".into()));
+        let chain = ast.add_expr(Expr::OptChain {
+            obj,
+            name: "m".into(),
+        });
+        ast.paren_optchains.insert(chain);
+        let callee = ast.add_expr(Expr::Member {
+            obj: chain,
+            name: "call".into(),
+        });
+        let call = ast.add_expr(Expr::Call {
+            callee,
+            args: Vec::new(),
+        });
+        desugar_optchain_calls(&mut ast);
+        assert!(ast.optchain_calls.is_empty());
+        assert!(matches!(ast.get_expr(call), Expr::Call { callee: c, .. } if *c == callee));
     }
 }
