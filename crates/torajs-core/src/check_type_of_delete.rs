@@ -16,10 +16,10 @@ use crate::check::{Checker, Type};
 
 /// ES §13.5.1 — `delete <Member|Index>` → Boolean. The parser only
 /// admits property-reference operands; here the receiver must be
-/// `any`-typed (the dynobj / expando world where OrdinaryDelete is
-/// meaningful) and an Index key must be one the property-key domain
-/// can name. Only the receiver and key are typechecked, never the
-/// property itself: deleting an absent key is legal and answers true.
+/// one whose storage can say "no longer here" (below), and an Index
+/// key must be one the property-key domain can name. Only the
+/// receiver and key are typechecked, never the property itself:
+/// deleting an absent key is legal and answers true.
 /// Which receivers reach the OrdinaryDelete kernel.
 ///
 /// Everything here turns on one question: can the storage say "no
@@ -38,6 +38,12 @@ use crate::check::{Checker, Type};
 ///   target's element slot F64, as it does an unproven read); a
 ///   `string[]` or an array of objects / arrays / functions — a NULL
 ///   slot under the same mark.
+/// - A struct or class instance. A declared member's removal is kept
+///   in the instance's sidecar, which every read that can meet it
+///   consults: the any lane answers undefined, and a typed read of a
+///   member that some delete in the program names takes the any lane
+///   too (`named_prop_census::delete_hit`). The kernel removes it the
+///   same way whether the receiver arrived typed or as `any`.
 ///
 /// Out, and not for want of a lowering:
 ///
@@ -45,14 +51,8 @@ use crate::check::{Checker, Type};
 ///   trade a compile-time refusal for a run-time throw. (A `number[]`
 ///   the width analysis could not move off an integer lane is refused
 ///   by the lowering for the same reason.)
-/// - A Struct. Its declared members are fixed layout slots with nowhere
-///   to go, so the kernel answers false and removes nothing (bun
-///   deletes and answers true — the divergence recorded in r312).
-///   Admitting it would turn a whole-program refusal into a program
-///   that runs and answers wrongly, which the design principles rank
-///   strictly worse.
 ///
-/// Both gates lift together when a slot can express absence, not before.
+/// The gate lifts when its slot can express absence.
 fn receiver_admits_delete(obj_ty: &Type) -> bool {
     match obj_ty {
         Type::Any => true,
@@ -84,6 +84,7 @@ fn receiver_admits_delete(obj_ty: &Type) -> bool {
         // box; `ssa_lower_delete::lower_receiver` reifies it through
         // the canonical singleton the accessor face mints.
         Type::Function(_, _) => true,
+        Type::Struct(_) | Type::ClassRef(_) => true,
         _ => false,
     }
 }
