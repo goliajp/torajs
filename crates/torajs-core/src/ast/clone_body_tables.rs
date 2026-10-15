@@ -93,6 +93,7 @@ pub(crate) fn migrate(cloner: &mut BodyCloner<'_>) {
     // just a name spelled `String`, and the outer object answers it.
     copy_set!(synth_global_refs);
     copy_set!(fnexpr_recv_faces);
+    copy_set!(fn_shadowed_new);
     copy_set!(async_fn_value_exprs);
     copy_set!(async_sm_value_exprs);
     copy_set!(await_yield_values);

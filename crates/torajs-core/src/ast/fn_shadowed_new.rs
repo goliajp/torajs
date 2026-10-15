@@ -46,14 +46,18 @@
 //! block that declares it. `Stmt::Multi` shares the surrounding scope
 //! by definition and so is spliced rather than given a scope.
 //!
-//! Recorded gaps: a `for` / `for-of` loop variable is a binding too
-//! and is not collected yet; a class METHOD body is not walked
-//! either, since this pass runs before `desugar_classes` flattens them
-//! and the bodies are still inside `Stmt::ClassDecl`.
+//! The other scopes a binding can open are walked as such: a loop
+//! head's `let` / `const` and a `for-of` variable (§14.7.4.2,
+//! §14.7.5.7), the one block every clause of a `switch` shares
+//! (§14.12.4), and each callable body of a class — this pass runs
+//! before `desugar_classes` flattens them, so they are still inside
+//! `Stmt::ClassDecl`, along with the heritage and computed keys that
+//! the enclosing scope evaluates.
 
 use super::annexb_names::{block_nested_fn_names, own_fn_names, param_names};
+use super::class_computed_owner::owns;
 use super::desugar_with::walk::stmt_children_ref;
-use super::{Ast, Expr, ExprId, Stmt};
+use super::{Ast, Expr, ExprId, StaticInit, Stmt};
 use std::collections::HashSet;
 
 /// Record every `new <name>()` whose name is shadowed by a `function`
@@ -188,12 +192,19 @@ fn walk_stmt(ast: &Ast, stmt: &Stmt, scopes: &mut Vec<HashSet<String>>, out: &mu
             walk_expr(ast, *cond, scopes, out);
             walk_stmt(ast, body, scopes, out);
         }
+        // A `let` / `const` head binds in a scope around the whole
+        // loop (§14.7.4.2); a `var` one is the function's.
         Stmt::For {
             init,
             cond,
             step,
             body,
         } => {
+            let head = init
+                .as_deref()
+                .map(std::slice::from_ref)
+                .unwrap_or_default();
+            scopes.push(let_const_names(head));
             if let Some(i) = init {
                 walk_stmt(ast, i, scopes, out);
             }
@@ -204,19 +215,27 @@ fn walk_stmt(ast: &Ast, stmt: &Stmt, scopes: &mut Vec<HashSet<String>>, out: &mu
                 walk_expr(ast, *s, scopes, out);
             }
             walk_stmt(ast, body, scopes, out);
+            scopes.pop();
         }
+        // The loop variable is bound in the body (§14.7.5.7).
         Stmt::ForOf {
-            elem_expr, body, ..
+            var_name,
+            elem_expr,
+            body,
+            ..
         } => {
             walk_expr(ast, *elem_expr, scopes, out);
-            walk_stmt(ast, body, scopes, out);
+            walk_loop_body(ast, var_name, body, scopes, out);
         }
         Stmt::ForOfSplitIter {
-            parent, sep, body, ..
+            var_name,
+            parent,
+            sep,
+            body,
         } => {
             walk_expr(ast, *parent, scopes, out);
             walk_expr(ast, *sep, scopes, out);
-            walk_stmt(ast, body, scopes, out);
+            walk_loop_body(ast, var_name, body, scopes, out);
         }
         // A block is a scope of its own for `let` / `const`.
         Stmt::Block(b) => walk_block(ast, b, None, scopes, out),
@@ -250,6 +269,13 @@ fn walk_stmt(ast: &Ast, stmt: &Stmt, scopes: &mut Vec<HashSet<String>>, out: &mu
             ..
         } => {
             walk_expr(ast, *scrutinee, scopes, out);
+            // Every clause shares one block (§14.12.4), so a `let` /
+            // `const` in one clause is in scope in all of them.
+            let mut names = HashSet::new();
+            for list in cases.iter().map(|c| &c.body[..]).chain(default.as_deref()) {
+                names.extend(let_const_names(list));
+            }
+            scopes.push(names);
             for c in cases {
                 walk_expr(ast, c.value, scopes, out);
                 for s in &c.body {
@@ -259,6 +285,7 @@ fn walk_stmt(ast: &Ast, stmt: &Stmt, scopes: &mut Vec<HashSet<String>>, out: &mu
             for s in default.iter().flatten() {
                 walk_stmt(ast, s, scopes, out);
             }
+            scopes.pop();
         }
         Stmt::Labeled { body, .. } => walk_stmt(ast, body, scopes, out),
         Stmt::FnDecl { body, params, .. } => walk_body(ast, body, params, scopes, out),
@@ -267,12 +294,83 @@ fn walk_stmt(ast: &Ast, stmt: &Stmt, scopes: &mut Vec<HashSet<String>>, out: &mu
                 walk_stmt(ast, i, scopes, out);
             }
         }
+        Stmt::ClassDecl { .. } => walk_class(ast, stmt, scopes, out),
         Stmt::Return(None)
         | Stmt::Break(_)
         | Stmt::Continue(_)
         | Stmt::TypeDecl { .. }
-        | Stmt::ClassDecl { .. }
         | Stmt::ImportDecl { .. } => {}
+    }
+}
+
+fn walk_loop_body(
+    ast: &Ast,
+    var_name: &str,
+    body: &Stmt,
+    scopes: &mut Vec<HashSet<String>>,
+    out: &mut HashSet<ExprId>,
+) {
+    scopes.push(HashSet::from([var_name.to_string()]));
+    walk_stmt(ast, body, scopes, out);
+    scopes.pop();
+}
+
+/// A class declaration: the heritage and the computed keys are read in
+/// the enclosing scope; each constructor, method and static block is a
+/// function scope of its own, and a field initializer reads the scope
+/// the class sits in (an instance field's already rides the
+/// constructor body). The computed keys and computed static fields
+/// live in side tables keyed by the class name, which two functions
+/// may share, so a row counts only when this declaration owns it.
+fn walk_class(
+    ast: &Ast,
+    stmt: &Stmt,
+    scopes: &mut Vec<HashSet<String>>,
+    out: &mut HashSet<ExprId>,
+) {
+    let Stmt::ClassDecl {
+        name,
+        decl_id,
+        parent,
+        ctor,
+        methods,
+        static_methods,
+        static_init,
+        ..
+    } = stmt
+    else {
+        return;
+    };
+    if let Some(p) = parent {
+        walk_expr(ast, *p, scopes, out);
+    }
+    let owned = |c: &String, sent: &str| c == name && owns(ast, sent, *decl_id);
+    let mut keys: Vec<ExprId> = ast
+        .class_computed_keys
+        .iter()
+        .filter(|((c, sent), _)| owned(c, sent))
+        .map(|(_, &e)| e)
+        .collect();
+    keys.sort_by_key(|e| e.0);
+    for k in keys {
+        walk_expr(ast, k, scopes, out);
+    }
+    if let Some(c) = ctor {
+        walk_body(ast, &c.body, &c.params, scopes, out);
+    }
+    for m in methods.iter().chain(static_methods) {
+        walk_body(ast, &m.body, &m.params, scopes, out);
+    }
+    for si in static_init {
+        match si {
+            StaticInit::Field(f) => walk_expr(ast, f.init, scopes, out),
+            StaticInit::Block(b) => walk_body(ast, b, &[], scopes, out),
+        }
+    }
+    for (c, sent, init) in &ast.class_computed_static_fields {
+        if owned(c, sent) {
+            walk_expr(ast, *init, scopes, out);
+        }
     }
 }
 
