@@ -72,3 +72,18 @@ pub unsafe extern "C" fn __torajs_dynobj_delete(_dynobj: *mut c_void, _key: *con
 /// stub torajs-rc's own tests use.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_weakref_target_dying(_target: *mut c_void) {}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_obj_props_drop_slow(_cell: *mut c_void) {
+    unreachable_stub!(__torajs_obj_props_drop_slow)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_obj_buffer_slow(_cell: *mut c_void) {
+    unreachable_stub!(__torajs_obj_buffer_slow)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_obj_free_cell(_p: *mut c_void) {
+    unreachable_stub!(__torajs_obj_free_cell)
+}

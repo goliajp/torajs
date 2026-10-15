@@ -149,6 +149,14 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
     // Its `Array<Any>`-slot sibling: the boxed array cell itself,
     // shared, or a TypeError.
     let _ = decl!("__torajs_arr_cell_from_any", [Any], Ptr);
+    // The last-owner release of an array of fields-all-scalar struct
+    // cells — resolved by name in `ssa_lower_emit_drop_value::leaf_arr`
+    // (sized, with the sid `cell_size::settle` reads and drops) and
+    // in `cell_size` (the by-cell twins).
+    let _ = decl!("__torajs_arr_drop_leaf_objs", [Ptr, I64], Void);
+    let _ = decl!("__torajs_arr_drop_leaf_objs_by_cell", [Ptr], Void);
+    let _ = decl!("__torajs_arr_drop_leaf_instances", [Ptr, I64], Void);
+    let _ = decl!("__torajs_arr_drop_leaf_instances_by_cell", [Ptr], Void);
     // The Number / BigInt / Date `toLocaleString` family's locales /
     // options checks and the malformed-literal-tag RangeError —
     // fn_table-only, resolved by name in `ssa_lower_locale_args`.

@@ -88,6 +88,41 @@ const _: () = assert!(SPILL_AT.is_power_of_two());
 // every row is one ldp / stp signed offset from the cache
 const _: () = assert!((N_CLASSES - 1) * TLAB_ROW_STRIDE <= 504);
 
+/// A row held outside the cache by [`TlabCache::lift`]: a loop that
+/// frees many blocks of one class pushes here without reloading and
+/// storing the row around every link write.
+pub struct LiftedRow {
+    class: usize,
+    head: *mut u8,
+    len: usize,
+}
+
+impl LiftedRow {
+    /// [`TlabCache::push`] on the lifted row; `false` when it is at
+    /// `SPILL_AT`.
+    ///
+    /// # Safety
+    /// `p` is a live block of the row's class: its link word is written.
+    #[inline(always)]
+    pub unsafe fn push(&mut self, p: *mut u8) -> bool {
+        if self.len & SPILL_AT != 0 {
+            return false;
+        }
+        #[cfg(torajs_alloc_guard)]
+        {
+            let mut q = self.head;
+            while !q.is_null() {
+                assert!(q != p, "block freed twice (row)");
+                q = unsafe { *link(q) };
+            }
+        }
+        unsafe { *link(p) = self.head };
+        self.head = p;
+        self.len += 1;
+        true
+    }
+}
+
 #[inline]
 unsafe fn link(p: *mut u8) -> *mut *mut u8 {
     unsafe { p.add(FREE_LINK_OFF) as *mut *mut u8 }
@@ -161,6 +196,37 @@ impl TlabCache {
         row.head = p;
         row.len += 1;
         true
+    }
+
+    /// Take the row of `class` out for a run of pushes that keeps its
+    /// head and length in registers; `None` out of range. Until
+    /// [`TlabCache::lower`] puts it back, nothing else may touch this
+    /// row: an allocation or free of the class would be lost.
+    #[inline(always)]
+    pub fn lift(&self, class: usize) -> Option<LiftedRow> {
+        let row = self.rows.get(class)?;
+        Some(LiftedRow {
+            class,
+            head: row.head,
+            len: row.len,
+        })
+    }
+
+    /// Put a lifted row back.
+    #[inline(always)]
+    pub fn lower(&mut self, lifted: &LiftedRow) {
+        self.splice(lifted.class, lifted.head, lifted.len);
+    }
+
+    /// Lift again the row `lifted` was taken from, once it is back.
+    #[inline(always)]
+    pub fn relift(&self, lifted: &LiftedRow) -> LiftedRow {
+        let (head, len) = self.row(lifted.class);
+        LiftedRow {
+            class: lifted.class,
+            head,
+            len,
+        }
     }
 
     /// Make a chain of `len` blocks the row of `class`, replacing
@@ -246,6 +312,28 @@ mod tests {
         assert_eq!(t.pop(2), Some(p[0]));
         assert_eq!(t.pop(2), None);
         assert!(t.is_empty());
+    }
+
+    #[test]
+    fn a_lifted_row_lands_where_the_row_would() {
+        let (_buf, p) = blocks(SPILL_AT + 1);
+        let mut t = TlabCache::new();
+        assert!(unsafe { t.push(1, p[0]) });
+        let mut row = t.lift(1).unwrap();
+        assert!(unsafe { row.push(p[1]) });
+        t.lower(&row);
+        assert_eq!(t.row_len(1), 2);
+        // a push made while the row is back in the cache is seen again
+        assert!(unsafe { t.push(1, p[2]) });
+        let mut row = t.relift(&row);
+        for &b in &p[3..SPILL_AT] {
+            assert!(unsafe { row.push(b) });
+        }
+        assert!(!unsafe { row.push(p[SPILL_AT]) }, "full at SPILL_AT");
+        t.lower(&row);
+        assert_eq!(t.pop(1), Some(p[SPILL_AT - 1]));
+        assert_eq!(t.row_len(1), SPILL_AT - 1);
+        assert!(t.lift(N_CLASSES).is_none());
     }
 
     #[test]

@@ -53,6 +53,7 @@ pub mod define_index;
 pub mod define_index_flags;
 pub mod define_length;
 pub mod drop;
+pub mod drop_leaf_cells;
 pub mod drop_str_elems;
 pub mod exotic_seam;
 pub mod flat_present;

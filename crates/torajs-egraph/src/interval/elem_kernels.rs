@@ -63,5 +63,9 @@ pub(super) const VOID_INERT_CALLS: &[&str] = &[
     "__torajs_arr_drop_any",
     "__torajs_arr_drop_heap",
     "__torajs_arr_drop_str_elems",
+    "__torajs_arr_drop_leaf_objs",
+    "__torajs_arr_drop_leaf_objs_by_cell",
+    "__torajs_arr_drop_leaf_instances",
+    "__torajs_arr_drop_leaf_instances_by_cell",
     "__torajs_arr_shift",
 ];

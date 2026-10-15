@@ -34,6 +34,9 @@ use torajs_mmalloc::size_class::bucket_for;
 use crate::ast::PropKey;
 use crate::ssa::{FuncId, InstKind, Module, Operand, Type, ValueId};
 use crate::ssa_lower::{OBJ_CLASS_TAG_OFF, OBJ_HEADER_SIZE};
+use crate::ssa_lower_emit_drop_value::leaf_arr::{
+    LEAF_INSTANCES, LEAF_INSTANCES_BY_CELL, LEAF_OBJS, LEAF_OBJS_BY_CELL,
+};
 use crate::ssa_lower_intrinsics_obj_capture::{OBJ_DROP_SIZED_SYM, OBJ_FREE_CELL_SYM};
 
 use super::cell_slot_flow::{EnvLayouts, env_layouts, is_prefix, open_sids};
@@ -59,7 +62,8 @@ pub(crate) fn settle(
 }
 
 /// A typed object drop leaves lowering as `obj_drop_sized(p, size,
-/// sid)`. Keep the sized free where every cell the slot can hold
+/// sid)`, an array of such cells as a leaf kernel with the same
+/// operands. Keep the sized free where every cell the slot can hold
 /// lands in the size class of `sid`'s own; where a wider layout
 /// would not, or where the slot can hold a cell of any layout, free
 /// by what the cell says of itself instead.
@@ -68,9 +72,16 @@ fn settle_typed_frees(module: &mut Module, envs: &EnvLayouts, unsettled: &HashSe
         let at = module.funcs.iter().position(|f| f.name == name)?;
         Some(FuncId(at as u32))
     };
-    let (Some(sized), Some(by_cell)) = (find(OBJ_DROP_SIZED_SYM), find(OBJ_FREE_CELL_SYM)) else {
-        return;
-    };
+    // each sized free with its by-cell twin: the single cell's, and
+    // the array kernels' that free every element the same way
+    let twins: Vec<(FuncId, FuncId)> = [
+        (OBJ_DROP_SIZED_SYM, OBJ_FREE_CELL_SYM),
+        (LEAF_OBJS, LEAF_OBJS_BY_CELL),
+        (LEAF_INSTANCES, LEAF_INSTANCES_BY_CELL),
+    ]
+    .into_iter()
+    .filter_map(|(s, b)| Some((find(s)?, find(b)?)))
+    .collect();
     let open = open_sids(module, envs);
     let layouts = &module.struct_layouts;
     let mut admits_wider: HashMap<i64, bool> = HashMap::new();
@@ -79,9 +90,9 @@ fn settle_typed_frees(module: &mut Module, envs: &EnvLayouts, unsettled: &HashSe
             let InstKind::Call(fid, args) = &mut inst.kind else {
                 continue;
             };
-            if *fid != sized {
+            let Some(&(_, twin)) = twins.iter().find(|(s, _)| s == fid) else {
                 continue;
-            }
+            };
             let [_, _, Operand::ConstI64(sid)] = args.as_slice() else {
                 continue;
             };
@@ -91,7 +102,7 @@ fn settle_typed_frees(module: &mut Module, envs: &EnvLayouts, unsettled: &HashSe
                 .or_insert_with(|| admits_wider_cell(layouts, sid as usize));
             if wider || open[sid as usize] || unsettled.contains(&(sid as usize)) {
                 args.truncate(1);
-                *fid = by_cell;
+                *fid = twin;
             } else {
                 args.truncate(2);
             }

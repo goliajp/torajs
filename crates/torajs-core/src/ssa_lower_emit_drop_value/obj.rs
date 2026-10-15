@@ -48,14 +48,7 @@ pub(super) fn emit_drop_obj(ctx: &mut LowerCtx, val: Operand, sid: crate::ssa::S
         Type::Bool,
         None,
     );
-    // a class's own sid, or one its factory stamps a class tag onto:
-    // the runtime buffers both as named instances
-    let is_class_sid = ctx
-        .ast
-        .class_parents
-        .keys()
-        .any(|cn| matches!(ctx.aliases.get(cn), Some(Type::Obj(s)) if s.0 == sid.0))
-        || ctx.anon_stamp_pool.borrow().is_class_minted(sid);
+    let is_class_sid = is_class_sid(ctx, sid);
     let buffer_blk = if is_class_sid {
         ctx.f.add_block()
     } else {
@@ -191,6 +184,16 @@ pub(super) fn emit_drop_obj(ctx: &mut LowerCtx, val: Operand, sid: crate::ssa::S
     ctx.f.set_term(ctx.cur_block, Terminator::Br(after));
     ctx.cur_block = after;
     ctx.drop_inline_stack.remove(&sid.0);
+}
+
+/// A class's own sid, or one its factory stamps a class tag onto: the
+/// runtime buffers both as named instances.
+pub(super) fn is_class_sid(ctx: &LowerCtx, sid: crate::ssa::StructId) -> bool {
+    ctx.ast
+        .class_parents
+        .keys()
+        .any(|cn| matches!(ctx.aliases.get(cn), Some(Type::Obj(s)) if s.0 == sid.0))
+        || ctx.anon_stamp_pool.borrow().is_class_minted(sid)
 }
 
 /// A class instance the cycle collector holds as a candidate root

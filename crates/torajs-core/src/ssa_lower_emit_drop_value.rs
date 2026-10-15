@@ -50,6 +50,7 @@ pub(crate) mod class_drop;
 pub(crate) mod class_drop_arr;
 pub(crate) mod class_drop_cells;
 pub(crate) mod class_drop_setup;
+pub(crate) mod leaf_arr;
 mod obj;
 
 /// RFC 20260710 C2b — nullish skip condition for the inline drop
@@ -163,6 +164,11 @@ fn emit_drop_arr(ctx: &mut LowerCtx, val: Operand, arr_id: crate::ssa::ArrId) {
             ctx.cur_block,
             InstKind::Call(ctx.intrinsics.arr_drop_str_elems, vec![val]),
         );
+        ctx.f.set_term(ctx.cur_block, Terminator::Br(after));
+        ctx.cur_block = after;
+        return;
+    }
+    if leaf_arr::try_emit(ctx, val, elem_ty) {
         ctx.f.set_term(ctx.cur_block, Terminator::Br(after));
         ctx.cur_block = after;
         return;
