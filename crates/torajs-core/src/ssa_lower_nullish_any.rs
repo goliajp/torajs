@@ -25,26 +25,10 @@ pub(crate) fn lower_any_lhs(
     lhs_op: Operand,
     rhs: ExprId,
 ) -> Operand {
-    let cur_block = ctx.cur_block;
-    let tag = ctx.f.append_inst(
-        cur_block,
-        InstKind::Call(ctx.intrinsics.any_unbox_tag, vec![lhs_op]),
-        Type::I64,
-        None,
-    );
-    let nullish = nullish_tag(ctx, tag);
     let rhs_blk = ctx.f.add_block();
     let unbox_blk = ctx.f.add_block();
     let after = ctx.f.add_block();
-    let cb = ctx.cur_block;
-    ctx.f.set_term(
-        cb,
-        Terminator::CondBr {
-            cond: Operand::Value(nullish),
-            then_blk: rhs_blk,
-            else_blk: unbox_blk,
-        },
-    );
+    branch_nullish(ctx, &lhs_op, rhs_blk, unbox_blk);
     ctx.cur_block = rhs_blk;
     let rhs_op = owned_rhs(ctx, rhs);
     let rhs_ty = Type::Any;
@@ -159,6 +143,48 @@ pub(crate) fn join_split(
         None,
     );
     Operand::Value(r)
+}
+
+/// Branch on whether the NaN-box bits of `v` are null or undefined —
+/// the answer `__torajs_anyv_unbox_tag` gives as Null / Undef for every
+/// 64-bit pattern — to `nullish` or `other`, terminating the current
+/// block. A pattern with any of the top 16 bits set (a number, a
+/// ShortStr) is decided by that one test; below it, the nullish ones
+/// are those that are neither a cell (TAG_BIT_TYPE_OTHER clear,
+/// non-zero) nor a bool (`v | 1 == true`): null 0x02, undefined 0x0A
+/// and the array hole 0.
+fn branch_nullish(ctx: &mut LowerCtx<'_>, v: &Operand, nullish: BlockId, other: BlockId) {
+    use crate::ssa_lower_anyv_inline::{bin, branch, cmp_zero, emit_bits, inst};
+    use torajs_anyvalue::nanbox::{TAG_BIT_TYPE_OTHER, TOP_16_MASK, VALUE_TRUE};
+    let bits = emit_bits(ctx, v);
+    let top = bin(SsaBinOp::And, bits, Operand::ConstI64(TOP_16_MASK as i64));
+    let top = inst(ctx, top, Type::I64);
+    let top_set = inst(ctx, cmp_zero(IPred::Ne, top), Type::Bool);
+    let low_blk = ctx.f.add_block();
+    branch(ctx, top_set, other, low_blk);
+
+    ctx.cur_block = low_blk;
+    let tag_bit = Operand::ConstI64(TAG_BIT_TYPE_OTHER as i64);
+    let tagged = inst(ctx, bin(SsaBinOp::And, bits, tag_bit), Type::I64);
+    let tagged = inst(ctx, cmp_zero(IPred::Ne, tagged), Type::Bool);
+    let zero = inst(ctx, cmp_zero(IPred::Eq, bits), Type::Bool);
+    let not_cell = InstKind::BinOp(SsaBinOp::Or, Operand::Value(tagged), Operand::Value(zero));
+    let not_cell = inst(ctx, not_cell, Type::Bool);
+    let low_set = inst(
+        ctx,
+        bin(SsaBinOp::Or, bits, Operand::ConstI64(1)),
+        Type::I64,
+    );
+    let true_bits = Operand::ConstI64(VALUE_TRUE as i64);
+    let not_bool = InstKind::ICmp(IPred::Ne, Operand::Value(low_set), true_bits);
+    let not_bool = inst(ctx, not_bool, Type::Bool);
+    let both = InstKind::BinOp(
+        SsaBinOp::And,
+        Operand::Value(not_cell),
+        Operand::Value(not_bool),
+    );
+    let is_nullish = inst(ctx, both, Type::Bool);
+    branch(ctx, is_nullish, nullish, other);
 }
 
 pub(crate) fn nullish_tag(ctx: &mut LowerCtx<'_>, tag: crate::ssa::ValueId) -> crate::ssa::ValueId {
