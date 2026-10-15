@@ -243,4 +243,30 @@ impl<'a> LowerCtx<'a> {
             None
         }
     }
+
+    /// A store through an array receiver that may be holding the
+    /// generic undefined cell (a declared field nothing has written
+    /// yet, a read past the end of an array of arrays) raises the
+    /// TypeError §7.1.18 ToObject raises in PutValue — after the rhs
+    /// exists (§13.15.2), so an owned rhs is parked across the raise.
+    /// The store itself would have written through the cell.
+    pub(crate) fn emit_store_recv_guard(
+        &mut self,
+        obj: ExprId,
+        recv: &Operand,
+        value: ExprId,
+        v: &Operand,
+    ) {
+        let recv_ty = self.operand_ty(recv);
+        if !crate::ssa_lower_nullable_guard::holds_undef_cell(self, obj, recv_ty) {
+            return;
+        }
+        let v_ty = self.operand_ty(v);
+        let parked = (!v_ty.is_copy() && self.expr_transfers_ownership(value))
+            .then(|| self.push_throw_temp(*v, v_ty));
+        crate::ssa_lower_nullable_guard_emit::emit_undefable_heap_guard(self, obj, recv);
+        if let Some(token) = parked {
+            self.pop_throw_temp(token);
+        }
+    }
 }

@@ -1,0 +1,13 @@
+rhs nested elem
+nested elem true
+nested length true
+rhs nested str
+nested str true
+rhs optional elem
+optional elem true
+optional length true
+rhs optional str
+optional str true
+rhs local
+local true
+1,2 a,b 7,8 1

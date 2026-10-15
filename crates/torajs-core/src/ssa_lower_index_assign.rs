@@ -163,6 +163,7 @@ impl<'a> LowerCtx<'a> {
         // bypass the box/drop bookkeeping).
         if matches!(elem_ty, Type::Any) {
             let v_raw = self.lower_expr(value);
+            self.emit_store_recv_guard(obj, &arr_val, value, &v_raw);
             // Chunk 567 — SHARE, no consume: arr_set_any/_grow store
             // the pair raw (slot takes the passed reference), the
             // unfixed sibling of the chunk-565 push/fill lanes.
@@ -202,6 +203,7 @@ impl<'a> LowerCtx<'a> {
         // path).
         let v = self.lower_expr(value);
         let v_raw = v;
+        self.emit_store_recv_guard(obj, &arr_val, value, &v_raw);
         // An F64 index splits the store in two arms, and the expando
         // arm's kernel takes the value as an owned stake of the
         // assignment's: mint it here, ahead of the split, so the

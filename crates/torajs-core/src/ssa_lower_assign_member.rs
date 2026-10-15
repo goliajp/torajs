@@ -70,7 +70,7 @@ pub(crate) fn lower(
         return lower_fnsig_props_assign(ctx, eid, obj_val, &field, value);
     }
     if matches!(obj_ty, Type::Arr(_)) && field == "length" {
-        return lower_arr_length_assign(ctx, eid, obj_val, obj_ty, value);
+        return lower_arr_length_assign(ctx, eid, (obj, obj_val), obj_ty, value);
     }
     if obj_ty == Type::RegExp && field == "lastIndex" {
         return lower_regex_last_index_assign(ctx, obj_val, value);
@@ -179,7 +179,7 @@ fn lower_fnsig_props_assign(
 fn lower_arr_length_assign(
     ctx: &mut LowerCtx<'_>,
     eid: ExprId,
-    obj_val: Operand,
+    (obj, obj_val): (ExprId, Operand),
     obj_ty: Type,
     value: ExprId,
 ) -> Operand {
@@ -188,6 +188,7 @@ fn lower_arr_length_assign(
     // rhs must keep its stake (the validate helper only reads).
     let (tag, val_op, v_raw, v_ty) = ctx.lower_to_tag_value_raw(value);
     let _ = &tag;
+    ctx.emit_store_recv_guard(obj, &obj_val, value, &v_raw);
     // ES §10.4.2.5 — scalar element types keep the truncate helper;
     // every other element type (Any / Str / Arr / ...) routes to the
     // full resize helper (per-slot release on truncate, undefined
