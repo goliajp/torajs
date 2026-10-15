@@ -199,7 +199,9 @@ mod generic_stubs {
 mod tests {
     use super::*;
     use crate::alloc::{__torajs_dynobj_alloc, free_dynobj_blocks};
-    use crate::layout::{BUCKET_FLAG_CONFIGURABLE, BUCKET_FLAGS_DEFAULT, STR_DATA_OFF, STR_LEN_OFF};
+    use crate::layout::{
+        BUCKET_FLAG_CONFIGURABLE, BUCKET_FLAGS_DEFAULT, STR_DATA_OFF, STR_LEN_OFF,
+    };
     use crate::probe::{
         KEY_STR_FLAG_IS_LATIN1, bucket_make_key_tagged, count, entries_len, index_ptr, set_count,
         set_entries_len,
