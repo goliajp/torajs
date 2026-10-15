@@ -161,7 +161,7 @@ pub(crate) fn lower_struct_field_store(
     let v_ty = ctx.operand_ty(&v);
     let parked = (!v_ty.is_copy()).then(|| ctx.push_throw_temp(v, v_ty));
     crate::ssa_lower_nullable_guard_emit::emit_undefable_heap_guard(ctx, obj, &obj_val);
-    let done = guard::emit_field_writable_guard(ctx, obj, obj_val, field, v);
+    let done = guard::emit_field_writable_guard(ctx, obj, obj_val, (field, field_ty), v);
     if let Some(token) = parked {
         ctx.pop_throw_temp(token);
     }

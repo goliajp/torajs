@@ -26,6 +26,7 @@ use definer_types::{may_hold_definer, may_spell_definer};
 use key_read_sinks::KeyReadSinks;
 
 mod definer_types;
+mod integrity;
 mod key_read_sinks;
 
 /// The answer, read by every typed field read and its throw analysis.
@@ -36,6 +37,8 @@ pub struct AccessorFieldNames {
     key_reads: Vec<ExprId>,
     /// What the shadow census found (`super::shadow_facts`).
     pub shadowed: super::shadow_facts::ShadowFacts,
+    /// The program spells `freeze` or a property delete (`integrity`).
+    integrity_named: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -63,6 +66,14 @@ impl AccessorFieldNames {
     /// Whether some declared field can.
     pub fn reaches_any(&self) -> bool {
         !self.key_reads.is_empty() || !matches!(self.reach, Reach::None)
+    }
+
+    /// Whether the program can freeze an object or delete a property
+    /// (`integrity`): it spells one of them, or reaches `Object` /
+    /// `Reflect` by a spelling the census cannot follow (the same
+    /// spellings that reach every definer name).
+    pub fn may_freeze_or_delete(&self) -> bool {
+        self.integrity_named || !self.key_reads.is_empty() || matches!(self.reach, Reach::All)
     }
 }
 
@@ -134,6 +145,7 @@ fn names(ast: &Ast) -> AccessorFieldNames {
         reach,
         key_reads,
         shadowed: Default::default(),
+        integrity_named: integrity::named(ast),
     }
 }
 
@@ -274,6 +286,20 @@ mod tests {
         n.sort();
         assert_eq!(n, ["v", "w", "x", "y"]);
         assert!(!census_of("Object.keys(c);").reaches_any());
+    }
+
+    #[test]
+    fn freeze_and_property_deletes_are_counted_by_spelling() {
+        let may = |src: &str| census_of(src).may_freeze_or_delete();
+        assert!(may("Object.freeze(c);"));
+        assert!(may("const f = Object.freeze;"));
+        assert!(may(r#"const k = "freeze";"#));
+        assert!(may("delete o.x;"));
+        assert!(may("delete o[k];"));
+        assert!(may(r#"Reflect.deleteProperty(o, "x");"#));
+        assert!(may("const O = globalThis.Object;"));
+        assert!(!may("Object.keys(c); o.x = 1;"));
+        assert!(!may("Object.seal(c); Object.isFrozen(c);"));
     }
 
     #[test]

@@ -48,12 +48,15 @@ pub(crate) fn emit_field_writable_guard(
     ctx: &mut LowerCtx,
     obj: ExprId,
     obj_val: Operand,
-    field: &str,
+    (field, slot_ty): (&str, Type),
     v: Operand,
 ) -> Option<BlockId> {
     // a ctor's leading writes reach an instance nothing has seen yet
     // (`ssa_lower_fn::fresh_this`)
-    if generator_own_slot(ctx, obj) || ctx.proofs.fresh_this_recv.contains(&obj) {
+    if generator_own_slot(ctx, obj)
+        || ctx.proofs.fresh_this_recv.contains(&obj)
+        || !store_may_divert(ctx, field, slot_ty)
+    {
         return None;
     }
     let hdr_word = ctx.f.append_inst(
@@ -147,6 +150,22 @@ pub(crate) fn emit_field_writable_guard(
     }
     ctx.cur_block = store_blk;
     Some(done_blk)
+}
+
+/// Whether some instance's `field` can be anything but a writable data
+/// slot when a store reaches it. Each bit the guard tests has its
+/// writers behind spellings the program censuses: `FLAG_FROZEN` behind
+/// `freeze`; `FLAG_OBJ_EXOTIC_FIELD` behind a definer naming the
+/// field, a property delete, or a write parking a value in the field's
+/// sidecar; the absent set behind a literal or a cast that leaves a
+/// member out. The exotic bit is per instance, not per field: one
+/// raised by another field's redefinition leaves this one a plain slot.
+fn store_may_divert(ctx: &LowerCtx, field: &str, slot_ty: Type) -> bool {
+    let names = &ctx.ast.accessor_field_names;
+    ctx.ast.mints_absent_set
+        || names.may_freeze_or_delete()
+        || names.may(field)
+        || names.may_shadow(field, slot_ty == Type::F64)
 }
 
 /// Whether the assignment storing into `obj.field` is an expression

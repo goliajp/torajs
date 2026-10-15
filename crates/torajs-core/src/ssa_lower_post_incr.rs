@@ -372,7 +372,13 @@ fn lower_member(
     // plain-assign spelling of the same field threw. Same guard, one
     // definition — the `Store` below rides the block it leaves us on.
     use crate::ssa_lower_assign_member_field::guard;
-    let done = guard::emit_field_writable_guard(ctx, obj, obj_val, &field, Operand::Value(new_v));
+    let done = guard::emit_field_writable_guard(
+        ctx,
+        obj,
+        obj_val,
+        (&field, field_ty),
+        Operand::Value(new_v),
+    );
     let store_block = ctx.cur_block;
     ctx.f.append_void(
         store_block,
