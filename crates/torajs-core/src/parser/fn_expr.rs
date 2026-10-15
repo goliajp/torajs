@@ -18,6 +18,7 @@
 use super::*;
 
 mod self_name;
+mod this_any;
 
 impl<'a> Parser<'a> {
     /// Lookahead: from a `(` at `self.pos`, find the matching `)` and peek
@@ -246,8 +247,8 @@ impl<'a> Parser<'a> {
         // self-name above stayed on the enclosing scope's bit). Error
         // paths do not restore (failed parse, value moot).
         let saved_gen = std::mem::replace(&mut self.in_generator, is_generator);
-        let (params, destr_lets) =
-            self.with_async_params(was_async_prefixed, |p| p.parse_param_list())?;
+        let (params, destr_lets, this_any) =
+            self.with_async_params(was_async_prefixed, |p| p.parse_fn_expr_params())?;
         // A function *expression* takes plain FormalParameters.
         self.finish_formal_params(&params, &destr_lets, false)?;
         let mut return_type = if matches!(self.peek(), Token::Colon) {
@@ -383,6 +384,7 @@ impl<'a> Parser<'a> {
                 },
             );
         }
+        self.cast_own_this_to_any(this_any, &params, &stmts);
         let eid = self.add_expr_at(
             start_pos,
             Expr::ArrowFn {
