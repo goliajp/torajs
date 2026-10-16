@@ -32,7 +32,8 @@ enum Site {
     Ret,
 }
 
-/// The def-use graph of one function, as the conditions read it.
+/// The def-use graph of one function, as the conditions read it, over
+/// the values of the starting candidate set.
 pub(super) struct Graph {
     sites: HashMap<ValueId, Vec<Site>>,
     /// Per value, the values whose defs read it.
@@ -40,7 +41,11 @@ pub(super) struct Graph {
 }
 
 impl Graph {
-    pub(super) fn of(func: &Function, defs: &HashMap<ValueId, Vec<InstKind>>) -> Graph {
+    pub(super) fn of(
+        func: &Function,
+        defs: &HashMap<ValueId, Vec<InstKind>>,
+        set: &HashSet<ValueId>,
+    ) -> Graph {
         let mut sites: HashMap<ValueId, Vec<Site>> = HashMap::default();
         for block in &func.blocks {
             for inst in &block.insts {
@@ -49,13 +54,17 @@ impl Graph {
                     _ => None,
                 };
                 visit_value_operands(&inst.kind, |v| {
-                    sites
-                        .entry(v)
-                        .or_default()
-                        .push(Site::Inst(inst.result, fcmp));
+                    if set.contains(&v) {
+                        sites
+                            .entry(v)
+                            .or_default()
+                            .push(Site::Inst(inst.result, fcmp));
+                    }
                 });
             }
-            if let Terminator::Ret(Some(Operand::Value(v))) = &block.term {
+            if let Terminator::Ret(Some(Operand::Value(v))) = &block.term
+                && set.contains(v)
+            {
                 sites.entry(*v).or_default().push(Site::Ret);
             }
         }

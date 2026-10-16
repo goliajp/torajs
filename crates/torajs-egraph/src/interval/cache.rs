@@ -4,6 +4,7 @@
 //! difference in the body or the names is a miss.
 
 use crate::id_hash::HashMap;
+use std::borrow::Cow;
 
 use torajs_core::ssa::{Function, Module, ValueId};
 
@@ -28,10 +29,23 @@ impl FactCache {
         }
     }
 
-    /// This cache when `names` are the names it was built under (a pass
-    /// that adds, drops or renames a function invalidates every entry).
-    pub fn for_names(&self, names: &[String]) -> Option<&Self> {
-        (names == self.names.as_slice()).then_some(self)
+    /// `module`'s function names, and `cache` when it was built under
+    /// those names (a pass that adds, drops or renames a function
+    /// invalidates every entry). A matching cache lends its own copy
+    /// of the names.
+    pub fn for_module<'a>(
+        cache: Option<&'a FactCache>,
+        module: &Module,
+    ) -> (Option<&'a FactCache>, Cow<'a, [String]>) {
+        match cache {
+            Some(c) if c.names.iter().eq(module.funcs.iter().map(|f| &f.name)) => {
+                (Some(c), Cow::Borrowed(c.names.as_slice()))
+            }
+            _ => (
+                None,
+                Cow::Owned(module.funcs.iter().map(|f| f.name.clone()).collect()),
+            ),
+        }
     }
 
     /// The facts for `module.funcs[idx]` when that body is the one

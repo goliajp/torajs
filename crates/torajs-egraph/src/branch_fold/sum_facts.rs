@@ -35,8 +35,7 @@ pub fn bound_sums(
     facts: &mut [HashMap<ValueId, NumFact>],
     cache: Option<&FactCache>,
 ) -> SumFactStats {
-    let names: Vec<String> = module.funcs.iter().map(|f| f.name.clone()).collect();
-    let cache = cache.and_then(|c| c.for_names(&names));
+    let (cache, names) = FactCache::for_module(cache, module);
     let mut stats = SumFactStats::default();
     for (fi, (func, fm)) in module.funcs.iter().zip(facts.iter_mut()).enumerate() {
         if func.is_declaration() {

@@ -27,19 +27,19 @@
 //! built on first use: it is the one source that knows an element load
 //! (`interval::elem`), which no point has a def for.
 
-use crate::id_hash::HashMap;
+use crate::id_hash::{HashMap, HashSet};
 use std::borrow::Cow;
 use std::cell::{Cell, OnceCell, RefCell};
 
 use torajs_core::ssa::{Function, InstKind, Operand, ValueId};
 
-use super::accum::cell_bound_after_loop;
 use crate::interval::analyze_function_with;
-use crate::interval::elem_len::{LenCells, LenDef, len_cells};
+use crate::interval::elem_len::{LenCells, is_len_load};
 use crate::interval::transfer::{self, AbsVal, NumFact};
 use torajs_core::ssa::dominator::DominatorTree;
 use torajs_core::ssa::loop_analysis::LoopAnalysis;
 
+mod len;
 mod succ;
 pub(crate) use succ::successors;
 /// A program point: `(block index, inst index)`. Operand reads of the
@@ -57,7 +57,11 @@ pub(crate) struct PointEval<'a> {
     la: &'a LoopAnalysis,
     /// Every def site of every value, in layout order.
     pub(super) defs: HashMap<ValueId, Vec<Point>>,
-    len: LenCells,
+    /// Built on the first read of a value some def loads as an array
+    /// length: most functions evaluated never read one.
+    len: OnceCell<LenCells>,
+    /// The values one of whose defs is an array length load.
+    len_loads: HashSet<ValueId>,
     names: &'a [String],
     flow: OnceCell<Cow<'a, HashMap<ValueId, NumFact>>>,
     memo: RefCell<HashMap<(ValueId, usize, usize), Option<NumFact>>>,
@@ -76,10 +80,14 @@ impl<'a> PointEval<'a> {
         seed: Option<&'a HashMap<ValueId, NumFact>>,
     ) -> Self {
         let mut defs: HashMap<ValueId, Vec<Point>> = HashMap::default();
+        let mut len_loads: HashSet<ValueId> = HashSet::default();
         for (bi, block) in func.blocks.iter().enumerate() {
             for (ii, inst) in block.insts.iter().enumerate() {
                 if let Some(r) = inst.result {
                     defs.entry(r).or_default().push((bi, ii));
+                    if is_len_load(&inst.kind) {
+                        len_loads.insert(r);
+                    }
                 }
             }
         }
@@ -88,7 +96,8 @@ impl<'a> PointEval<'a> {
             dom,
             la,
             defs,
-            len: len_cells(func, names),
+            len: OnceCell::new(),
+            len_loads,
             names,
             flow: seed.map_or_else(OnceCell::new, |f| OnceCell::from(Cow::Borrowed(f))),
             memo: RefCell::new(HashMap::default()),
@@ -203,30 +212,12 @@ impl<'a> PointEval<'a> {
         Some(last)
     }
 
-    /// A length load: the value the root's unique last length def
-    /// left, read at that def's point.
-    fn eval_len(&self, root: ValueId, at: Point) -> Option<NumFact> {
-        let sites = self.len.defs.get(&root)?;
-        let points: Vec<Point> = sites.iter().map(|(p, _)| *p).collect();
-        let last = self.unique_last_def(&points, at)?;
-        let (_, def) = sites.iter().find(|(p, _)| *p == last)?;
-        let LenDef::Known(op) = def else {
-            return None;
-        };
-        self.eval_operand(op, last).or_else(|| match op {
-            Operand::Value(v) => {
-                cell_bound_after_loop(self.func, self.la, self, self.dom, *v, last)
-            }
-            _ => None,
-        })
-    }
-
     /// Evaluate a def instruction with its operands read at the def's
     /// own point. Arithmetic shapes delegate to the shared interval
     /// transfer function.
     fn eval_def_inst(&self, kind: &InstKind, r: ValueId, at: Point) -> Option<NumFact> {
-        if let Some(root) = self.len.reads.get(&r) {
-            return self.eval_len(*root, at);
+        if let Some(root) = self.len_root(r) {
+            return self.eval_len(root, at);
         }
         let ty = self.func.values[r.0 as usize].ty;
         let env = |op: &Operand| match self.eval_operand(op, at) {

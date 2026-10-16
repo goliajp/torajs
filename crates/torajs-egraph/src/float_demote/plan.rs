@@ -16,11 +16,8 @@ use torajs_core::ssa::{BlockId, Function, Operand, ValueId};
 
 use crate::rc_peephole::visit_value_operands;
 use torajs_core::ssa::dominator::DominatorTree;
-use torajs_core::ssa::loop_analysis::LoopAnalysis;
 
-use super::cfg::{
-    collect_value_blocks, innermost_loop, multi_def_values, pred_map, successors, touched_values,
-};
+use super::cfg::{PlanCfg, innermost_loop, successors, tail_split_point, touched_values};
 use super::guard::{GuardCheck, GuardSite};
 
 /// One versionable region, planned against the pre-mutation shape.
@@ -75,24 +72,22 @@ enum PlanOutcome {
 /// re-plans).
 pub(crate) fn plan_regions(
     func: &Function,
+    cfg: &PlanCfg,
     set: &HashSet<ValueId>,
     growth_sites: Vec<GuardSite>,
     entry_sites: Vec<GuardSite>,
 ) -> Result<Vec<RegionPlan>, PlanFail> {
-    let dom = DominatorTree::compute(func);
-    let loops = LoopAnalysis::compute(func, &dom);
-    let value_blocks = collect_value_blocks(func);
-    let preds = pred_map(func);
+    let (loops, value_blocks) = (&cfg.loops, &cfg.value_blocks);
 
     // candidate headers: innermost loop of every in-set def block,
     // innermost-first
     let mut headers: Vec<(usize, BlockId)> = Vec::new();
-    for (v, (defs, _)) in &value_blocks {
+    for (v, (defs, _)) in value_blocks {
         if !set.contains(v) {
             continue;
         }
         for d in defs {
-            if let Some((len, h)) = innermost_loop(&loops, *d)
+            if let Some((len, h)) = innermost_loop(loops, *d)
                 && !headers.iter().any(|(_, eh)| *eh == h)
             {
                 headers.push((len, h));
@@ -114,9 +109,10 @@ pub(crate) fn plan_regions(
         match plan_one(
             func,
             set,
-            &dom,
-            &preds,
-            &value_blocks,
+            &cfg.dom,
+            &cfg.preds,
+            &cfg.cells,
+            value_blocks,
             body,
             header,
             &growth_sites,
@@ -161,6 +157,7 @@ fn plan_one(
     set: &HashSet<ValueId>,
     dom: &DominatorTree,
     preds: &[Vec<BlockId>],
+    cells: &HashSet<ValueId>,
     value_blocks: &HashMap<ValueId, (Vec<BlockId>, Vec<BlockId>)>,
     body: Vec<BlockId>,
     header: BlockId,
@@ -245,63 +242,11 @@ fn plan_one(
         return PlanOutcome::Fail;
     };
 
-    // renamed clone values must not escape: any value the clone will
-    // rename (in-set or single-def intermediate defined inside) is
-    // used only inside — except an in-set value marked escaped, whose
-    // external uses read the merge-bridge cell on both versions. A
-    // violation inside an absorbed pre-chain block is a mixed
-    // preheader (the `loopSum` env-object setup sharing the sum-init
-    // block): request a tail split so the unrelated defs leave the
-    // region, and re-plan.
-    let cells = multi_def_values(func);
-    // Scan in value order. This loop returns on its first violation, so
-    // `value_blocks`' hash order picked which one was reported — and
-    // with it whether a split happened at all, since a candidate whose
-    // `tail_split_point` answers None falls through to Fail while a
-    // later one might have answered Some. The split is the only thing
-    // this pass leaves behind when planning then fails, so the same
-    // input produced two different modules with identical (all-zero)
-    // demotion stats.
-    let mut scan: Vec<ValueId> = value_blocks.keys().copied().collect();
-    scan.sort_by_key(|v| v.0);
-    for v in &scan {
-        let (defs, uses) = &value_blocks[v];
-        if !defs.iter().any(|b| region.contains(b)) {
-            continue;
-        }
-        let renamed = set.contains(v) || !cells.contains(v);
-        if renamed && !escapes.contains(v) && uses.iter().any(|b| !region.contains(b)) {
-            if let Some(&d) = defs.iter().find(|b| region.contains(b))
-                && let Some(p) =
-                    tail_split_point(func, set, &cells, value_blocks, &region, &body, d)
-            {
-                return PlanOutcome::Split(d, p);
-            }
-            return PlanOutcome::Fail;
-        }
+    if let Some(out) = clone_violation(func, set, cells, value_blocks, &region, &escapes, &body) {
+        return out;
     }
-
-    // an external use that is itself an in-set def (a cross-region
-    // demotion chain) cannot read the f64 bridge cell — bail out
-    for v in &escapes {
-        let Some((_, uses)) = value_blocks.get(v) else {
-            return PlanOutcome::Fail;
-        };
-        for b in uses {
-            if region.contains(b) {
-                continue;
-            }
-            for inst in &func.blocks[b.0 as usize].insts {
-                if !inst.result.is_some_and(|r| set.contains(&r)) {
-                    continue;
-                }
-                let mut reads_v = false;
-                visit_value_operands(&inst.kind, |o| reads_v |= o == *v);
-                if reads_v {
-                    return PlanOutcome::Fail;
-                }
-            }
-        }
+    if escape_feeds_set(func, set, value_blocks, &region, &escapes) {
+        return PlanOutcome::Fail;
     }
 
     let mut growth: Vec<GuardSite> = growth_sites
@@ -350,6 +295,95 @@ fn plan_one(
     })
 }
 
+/// The answer when a renamed clone value would escape. Any value the
+/// clone will rename (in-set or single-def intermediate defined
+/// inside) is used only inside — except an in-set value marked escaped, whose
+/// external uses read the merge-bridge cell on both versions. A
+/// violation inside an absorbed pre-chain block is a mixed
+/// preheader (the `loopSum` env-object setup sharing the sum-init
+/// block): request a tail split so the unrelated defs leave the
+/// region, and re-plan.
+///
+/// Scan in value order: only the first violation is answered, so
+/// `value_blocks`' hash order would pick which one was reported — and
+/// with it whether a split happened at all, since a candidate whose
+/// `tail_split_point` answers None falls through to Fail while a
+/// later one might have answered Some. The split is the only thing
+/// this pass leaves behind when planning then fails, so the same
+/// input would produce two different modules with identical
+/// (all-zero) demotion stats.
+///
+/// A violating value defined in the loop body fails the region
+/// whatever a split does: splits leave the body alone, and a block
+/// reading a body value cannot dominate the header to be absorbed.
+/// Splitting for an earlier violation would only leave a split
+/// behind, so the whole scan runs before the first one is answered.
+fn clone_violation(
+    func: &Function,
+    set: &HashSet<ValueId>,
+    cells: &HashSet<ValueId>,
+    value_blocks: &HashMap<ValueId, (Vec<BlockId>, Vec<BlockId>)>,
+    region: &HashSet<BlockId>,
+    escapes: &HashSet<ValueId>,
+    body: &[BlockId],
+) -> Option<PlanOutcome> {
+    let mut scan: Vec<ValueId> = value_blocks.keys().copied().collect();
+    scan.sort_by_key(|v| v.0);
+    let mut first: Option<BlockId> = None;
+    for v in &scan {
+        let (defs, uses) = &value_blocks[v];
+        let Some(&d) = defs.iter().find(|b| region.contains(b)) else {
+            continue;
+        };
+        let renamed = set.contains(v) || !cells.contains(v);
+        if renamed && !escapes.contains(v) && uses.iter().any(|b| !region.contains(b)) {
+            if body.contains(&d) {
+                return Some(PlanOutcome::Fail);
+            }
+            first.get_or_insert(d);
+        }
+    }
+    let d = first?;
+    Some(
+        match tail_split_point(func, set, cells, value_blocks, region, body, d) {
+            Some(p) => PlanOutcome::Split(d, p),
+            None => PlanOutcome::Fail,
+        },
+    )
+}
+
+/// Whether an external use of an escaped value is itself an in-set def
+/// (a cross-region demotion chain), which cannot read the f64 bridge cell.
+fn escape_feeds_set(
+    func: &Function,
+    set: &HashSet<ValueId>,
+    value_blocks: &HashMap<ValueId, (Vec<BlockId>, Vec<BlockId>)>,
+    region: &HashSet<BlockId>,
+    escapes: &HashSet<ValueId>,
+) -> bool {
+    for v in escapes {
+        let Some((_, uses)) = value_blocks.get(v) else {
+            return true;
+        };
+        for b in uses {
+            if region.contains(b) {
+                continue;
+            }
+            for inst in &func.blocks[b.0 as usize].insts {
+                if !inst.result.is_some_and(|r| set.contains(&r)) {
+                    continue;
+                }
+                let mut reads_v = false;
+                visit_value_operands(&inst.kind, |o| reads_v |= o == *v);
+                if reads_v {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
 /// Per-iteration profitability: a region fires only when the checks
 /// it pays per iteration are covered by the f64 ops it removes.
 /// Weights are coarse op-cost classes: `frem`/`fdiv` rewrite away a
@@ -377,46 +411,6 @@ pub(crate) fn profitable(func: &Function, plan: &RegionPlan, set: &HashSet<Value
         }
     }
     checks <= savings
-}
-
-/// The split point of a mixed pre-chain block: the position of its
-/// first in-set def. Valid when the block is absorbed pre-chain (not
-/// loop body), something precedes the point, and every def at or
-/// after it is region-clean — in-set (bridged when escaping), a
-/// shared multi-def cell, or used only inside the region and this
-/// block. The head segment then leaves the region on re-plan.
-fn tail_split_point(
-    func: &Function,
-    set: &HashSet<ValueId>,
-    cells: &HashSet<ValueId>,
-    value_blocks: &HashMap<ValueId, (Vec<BlockId>, Vec<BlockId>)>,
-    region: &HashSet<BlockId>,
-    body: &[BlockId],
-    d: BlockId,
-) -> Option<usize> {
-    if !region.contains(&d) || body.contains(&d) {
-        return None;
-    }
-    let insts = &func.blocks[d.0 as usize].insts;
-    let p = insts
-        .iter()
-        .position(|i| i.result.is_some_and(|r| set.contains(&r)))?;
-    if p == 0 {
-        return None;
-    }
-    for inst in &insts[p..] {
-        let Some(r) = inst.result else { continue };
-        if set.contains(&r) || cells.contains(&r) {
-            continue;
-        }
-        let clean = value_blocks
-            .get(&r)
-            .is_none_or(|(_, uses)| uses.iter().all(|b| region.contains(b) || *b == d));
-        if !clean {
-            return None;
-        }
-    }
-    Some(p)
 }
 
 #[cfg(test)]

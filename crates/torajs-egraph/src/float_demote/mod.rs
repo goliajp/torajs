@@ -144,26 +144,15 @@ fn compute_demote_set(
     func: &mut Function,
     facts: &HashMap<ValueId, NumFact>,
 ) -> Option<(HashSet<ValueId>, Vec<plan::RegionPlan>)> {
-    // def sites per value (loop cells have several).
-    let mut defs: HashMap<ValueId, Vec<InstKind>> = HashMap::default();
-    for block in &func.blocks {
-        for inst in &block.insts {
-            if let Some(r) = inst.result {
-                defs.entry(r).or_default().push(inst.kind.clone());
-            }
-        }
-    }
-
-    // candidate set: integer-valued f64 values, shrunk until every
-    // def fits AND every bridged escape is -0-free AND every guarded
-    // def is hosted by a versionable region.
-    let mut set: HashSet<ValueId> = facts
-        .keys()
-        .filter(|v| func.values[v.0 as usize].ty == Type::F64)
-        .copied()
-        .collect();
+    // candidate set, shrunk until every def fits AND every bridged
+    // escape is -0-free AND every guarded def is hosted by a
+    // versionable region.
+    let (mut set, defs) = candidates(func, facts)?;
+    // a split moves instructions between blocks and adds none, so the
+    // def-use graph outlives it; the planning shape does not
+    let graph = settle::Graph::of(func, &defs, &set);
+    let mut shape: Option<cfg::PlanCfg> = None;
     loop {
-        let graph = settle::Graph::of(func, &defs);
         settle::settle(&mut set, &defs, facts, &graph);
         if set.is_empty() {
             return None;
@@ -173,7 +162,8 @@ fn compute_demote_set(
         if growth.is_empty() && entries.is_empty() {
             return Some((set, Vec::new()));
         }
-        match plan::plan_regions(func, &set, growth, entries) {
+        let cfg = shape.get_or_insert_with(|| cfg::PlanCfg::of(func));
+        match plan::plan_regions(func, cfg, &set, growth, entries) {
             Ok(plans) => {
                 // profitability gate: an unprofitable region's guarded
                 // values evict like an infeasible one — the f64
@@ -198,9 +188,34 @@ fn compute_demote_set(
             Err(plan::PlanFail::Split(b, p)) => {
                 // sites re-collect next round on the split shape
                 apply::split_block_at(func, b, &[p]);
+                shape = None;
             }
         }
     }
+}
+
+/// A candidate set and each candidate's def sites.
+type Candidates = (HashSet<ValueId>, HashMap<ValueId, Vec<InstKind>>);
+
+/// The candidate set (integer-valued f64 values) and each candidate's
+/// def sites (loop cells have several): the set only shrinks, so no
+/// other value's defs are read.
+fn candidates(func: &Function, facts: &HashMap<ValueId, NumFact>) -> Option<Candidates> {
+    let set: HashSet<ValueId> = facts
+        .keys()
+        .filter(|v| func.values[v.0 as usize].ty == Type::F64)
+        .copied()
+        .collect();
+    if set.is_empty() {
+        return None;
+    }
+    let mut defs: HashMap<ValueId, Vec<InstKind>> = HashMap::default();
+    for inst in func.blocks.iter().flat_map(|b| &b.insts) {
+        if let Some(r) = inst.result.filter(|r| set.contains(r)) {
+            defs.entry(r).or_default().push(inst.kind.clone());
+        }
+    }
+    Some((set, defs))
 }
 
 /// Rewrite the function in place. Single walk — every inst takes

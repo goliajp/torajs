@@ -62,8 +62,7 @@ pub fn narrow_prints(module: &mut Module, cache: Option<&FactCache>) -> PrintNar
     if pairs.is_empty() {
         return stats;
     }
-    let names: Vec<String> = module.funcs.iter().map(|f| f.name.clone()).collect();
-    let cache = cache.and_then(|c| c.for_names(&names));
+    let (cache, names) = FactCache::for_module(cache, module);
     for (fi, func) in module.funcs.iter_mut().enumerate() {
         if func.is_declaration() {
             continue;

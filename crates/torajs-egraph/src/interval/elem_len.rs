@@ -39,6 +39,12 @@ pub(crate) struct LenCells {
     pub(crate) reads: HashMap<ValueId, ValueId>,
 }
 
+/// Whether `kind` reads an array's length field (what `len_cells`
+/// records a read for, when the pointer is a tracked array).
+pub(crate) fn is_len_load(kind: &InstKind) -> bool {
+    matches!(kind, InstKind::Load(Type::I64, _, ARR_LEN_OFF))
+}
+
 /// The length cells of every fully tracked allocation in `func`; empty
 /// when `callee_names` is empty (no call can be recognized).
 pub(crate) fn len_cells(func: &Function, callee_names: &[String]) -> LenCells {

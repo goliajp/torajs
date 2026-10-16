@@ -7,6 +7,7 @@ use crate::id_hash::{HashMap, HashSet};
 use torajs_core::ssa::{BlockId, Function, Operand, Terminator, ValueId};
 
 use crate::rc_peephole::visit_value_operands;
+use torajs_core::ssa::dominator::DominatorTree;
 use torajs_core::ssa::loop_analysis::LoopAnalysis;
 
 pub(crate) fn successors(term: &Terminator) -> impl Iterator<Item = BlockId> + '_ {
@@ -204,4 +205,69 @@ pub(crate) fn retarget_edge(term: &mut Terminator, from: BlockId, to: BlockId) {
         }
         _ => {}
     }
+}
+
+/// The function's shape as planning reads it. Evicting values from
+/// the set leaves the function as it was, so one of these serves
+/// every planning round until a split changes the blocks.
+pub(crate) struct PlanCfg {
+    pub(super) dom: DominatorTree,
+    pub(super) loops: LoopAnalysis,
+    pub(super) value_blocks: HashMap<ValueId, (Vec<BlockId>, Vec<BlockId>)>,
+    pub(super) preds: Vec<Vec<BlockId>>,
+    pub(super) cells: HashSet<ValueId>,
+}
+
+impl PlanCfg {
+    pub(crate) fn of(func: &Function) -> PlanCfg {
+        let dom = DominatorTree::compute(func);
+        let loops = LoopAnalysis::compute(func, &dom);
+        PlanCfg {
+            dom,
+            loops,
+            value_blocks: collect_value_blocks(func),
+            preds: pred_map(func),
+            cells: multi_def_values(func),
+        }
+    }
+}
+
+/// The split point of a mixed pre-chain block: the position of its
+/// first in-set def. Valid when the block is absorbed pre-chain (not
+/// loop body), something precedes the point, and every def at or
+/// after it is region-clean — in-set (bridged when escaping), a
+/// shared multi-def cell, or used only inside the region and this
+/// block. The head segment then leaves the region on re-plan.
+pub(super) fn tail_split_point(
+    func: &Function,
+    set: &HashSet<ValueId>,
+    cells: &HashSet<ValueId>,
+    value_blocks: &HashMap<ValueId, (Vec<BlockId>, Vec<BlockId>)>,
+    region: &HashSet<BlockId>,
+    body: &[BlockId],
+    d: BlockId,
+) -> Option<usize> {
+    if !region.contains(&d) || body.contains(&d) {
+        return None;
+    }
+    let insts = &func.blocks[d.0 as usize].insts;
+    let p = insts
+        .iter()
+        .position(|i| i.result.is_some_and(|r| set.contains(&r)))?;
+    if p == 0 {
+        return None;
+    }
+    for inst in &insts[p..] {
+        let Some(r) = inst.result else { continue };
+        if set.contains(&r) || cells.contains(&r) {
+            continue;
+        }
+        let clean = value_blocks
+            .get(&r)
+            .is_none_or(|(_, uses)| uses.iter().all(|b| region.contains(b) || *b == d));
+        if !clean {
+            return None;
+        }
+    }
+    Some(p)
 }

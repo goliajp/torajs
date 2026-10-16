@@ -73,8 +73,7 @@ pub struct BranchFoldStats {
 /// `cache` answers the lattice facts of bodies no pass has changed
 /// since they were analyzed.
 pub fn fold_branches(module: &mut Module, cache: Option<&FactCache>) -> BranchFoldStats {
-    let names: Vec<String> = module.funcs.iter().map(|f| f.name.clone()).collect();
-    let cache = cache.and_then(|c| c.for_names(&names));
+    let (cache, names) = FactCache::for_module(cache, module);
     let mut stats = BranchFoldStats::default();
     for (fi, func) in module.funcs.iter_mut().enumerate() {
         if func.is_declaration() {
