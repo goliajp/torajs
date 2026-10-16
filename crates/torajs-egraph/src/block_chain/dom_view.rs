@@ -25,6 +25,11 @@ impl<'a> DomView<'a> {
         DomView { tree, moved }
     }
 
+    /// The tree, when nothing of it is replaced.
+    pub(crate) fn whole_tree(&self) -> Option<&'a DominatorTree> {
+        self.moved.is_empty().then_some(self.tree)
+    }
+
     fn moved(&self, b: u32) -> Option<u32> {
         self.moved.get(b as usize).copied().flatten()
     }

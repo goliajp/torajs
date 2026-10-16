@@ -11,6 +11,10 @@ pub(crate) struct ChainFacts<'a> {
     pub(crate) dom: DomView<'a>,
     /// Edges `(from, to)` into an arm the lowerer's guards mark cold.
     pub(super) cold_edges: ColdEdges,
+    /// Whether a block that calls is a cold arm: in a loop it is a
+    /// detour off the path that repeats; in a function without loops
+    /// the calls are its work (a recursion, the allocation it returns).
+    pub(super) calls_cold: bool,
 }
 
 impl<'a> ChainFacts<'a> {
@@ -20,7 +24,19 @@ impl<'a> ChainFacts<'a> {
 
     /// The facts with the cold edges already read off the function.
     pub(crate) fn with_cold_edges(dom: DomView<'a>, cold_edges: ColdEdges) -> Self {
-        ChainFacts { dom, cold_edges }
+        ChainFacts {
+            dom,
+            cold_edges,
+            calls_cold: true,
+        }
+    }
+
+    /// The facts for a function without loops.
+    pub(crate) fn straight_line(self) -> Self {
+        ChainFacts {
+            calls_cold: false,
+            ..self
+        }
     }
 
     /// Hands back the cold edges, for the same function changed in
@@ -29,8 +45,8 @@ impl<'a> ChainFacts<'a> {
         self.cold_edges
     }
 
-    /// Every path to `block` inside `body` runs a call, ends the
-    /// function, or takes a predicted-cold edge: read off the
+    /// Every path to `block` inside `body` runs a call (when calls are
+    /// cold), traps, or takes a predicted-cold edge: read off the
     /// dominators of the block, which every path passes through.
     pub(crate) fn cold_path(
         &self,
@@ -40,7 +56,7 @@ impl<'a> ChainFacts<'a> {
     ) -> bool {
         let mut cur = block;
         loop {
-            if is_cold(func, cur) {
+            if is_cold(func, cur, self.calls_cold) {
                 return true;
             }
             let Some(idom) = self.dom.immediate_dominator(BlockId(cur)) else {
@@ -58,7 +74,7 @@ impl<'a> ChainFacts<'a> {
 
     /// `cold_path` of each of `starts`, sharing the walks: the walks
     /// up from the blocks of one loop meet early.
-    pub(super) fn cold_paths(
+    pub(crate) fn cold_paths(
         &self,
         func: &Function,
         in_body: &impl Fn(u32) -> bool,
@@ -72,7 +88,7 @@ impl<'a> ChainFacts<'a> {
                 if let Some(k) = known[cur as usize] {
                     break k;
                 }
-                if is_cold(func, cur) {
+                if is_cold(func, cur, self.calls_cold) {
                     break true;
                 }
                 match self.dom.immediate_dominator(BlockId(cur)) {

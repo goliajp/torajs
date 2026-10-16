@@ -11,8 +11,8 @@
 //! common path fall through.
 //!
 //! "Cold" is decided statically and conservatively: an edge that
-//! leaves the loop, a block that ends the function (`ret` /
-//! `unreachable`), a block that makes a call, or an arm the lowerer's
+//! leaves the loop, a block that traps (`unreachable`), a block that
+//! makes a call, or an arm the lowerer's
 //! own guard marks rare (`torajs_core::ssa::branch_prob::cold_arms`:
 //! the out-of-bounds side of a bounds check, a header-flag slow path,
 //! a throw probe). Of two warm arms, the
@@ -35,8 +35,10 @@ pub(crate) use facts::{ChainFacts, ColdEdges};
 
 /// Reorder `order[span]` (the loop's contiguous range) into
 /// hot-successor chains starting at `header`. `children` are the bodies of the
-/// loops nested in this one, each already contiguous. Answers whether
-/// the order changed.
+/// loops nested in this one, each already contiguous; `cold`, when the
+/// caller has it, is `ChainFacts::cold_paths` of every unit's first
+/// block. Answers whether the order changed.
+#[allow(clippy::too_many_arguments)] // one loop's range, and what is known about it
 pub(crate) fn chain_loop_range(
     func: &Function,
     order: &mut [u32],
@@ -45,6 +47,7 @@ pub(crate) fn chain_loop_range(
     body: &BlockSet,
     children: &[(&BlockSet, u32)],
     facts: &ChainFacts,
+    cold: Option<Vec<bool>>,
 ) -> bool {
     let range = &order[span.clone()];
     let units = units_of(range, children);
@@ -74,7 +77,7 @@ pub(crate) fn chain_loop_range(
     // hull, then saved every value those blocks read around the call;
     // units are judged once, when a chain first ends (most loops chain
     // whole and never ask)
-    let cold = std::cell::OnceCell::new();
+    let cold = cold.map_or_else(std::cell::OnceCell::new, std::cell::OnceCell::from);
     let cold = |u: usize| {
         cold.get_or_init(|| {
             let firsts: Vec<u32> = units.iter().map(|r| range[r.start]).collect();
@@ -97,10 +100,8 @@ pub(crate) fn chain_loop_range(
             &placed.flags,
         )
         .or_else(|| placed.first_open(cold));
-        match next {
-            Some(n) => cur = n,
-            None => break,
-        }
+        let Some(n) = next else { break };
+        cur = n;
     }
     let new: Vec<u32> = chain
         .iter()
@@ -210,7 +211,7 @@ fn hot_successor(
         let pick = open
             .iter()
             .copied()
-            .filter(|t| !is_cold(func, *t) && !facts.cold_edges.contains(b, *t))
+            .filter(|t| !is_cold(func, *t, facts.calls_cold) && !facts.cold_edges.contains(b, *t))
             .min_by_key(|t| (!leads_to_loop(*t), unit_of(*t)))
             .or_else(|| open.iter().copied().min_by_key(|t| unit_of(*t)));
         if let Some(t) = pick {
@@ -220,17 +221,20 @@ fn hot_successor(
     None
 }
 
-/// A block the path rarely runs: one that ends the function, calls,
-/// or drops an `any` (which may call).
-fn is_cold(func: &Function, id: u32) -> bool {
+/// A block the path rarely runs: one that traps, or, when `calls` are
+/// cold, calls or drops an `any` (which may call). A return is where
+/// the path through the function ends, not a cold arm; a loop body
+/// holds neither.
+fn is_cold(func: &Function, id: u32, calls: bool) -> bool {
     let block = &func.blocks[id as usize];
-    matches!(block.term, Terminator::Ret(_) | Terminator::Unreachable)
-        || block.insts.iter().any(|i| {
-            matches!(
-                i.kind,
-                InstKind::Call(..) | InstKind::CallIndirect(..) | InstKind::RcDecAny(_)
-            )
-        })
+    matches!(block.term, Terminator::Unreachable)
+        || calls
+            && block.insts.iter().any(|i| {
+                matches!(
+                    i.kind,
+                    InstKind::Call(..) | InstKind::CallIndirect(..) | InstKind::RcDecAny(_)
+                )
+            })
 }
 
 #[cfg(test)]

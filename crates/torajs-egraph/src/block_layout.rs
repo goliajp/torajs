@@ -138,12 +138,17 @@ fn layout_with(
     mut loops: Vec<(BlockSet, u32, Vec<u32>)>,
     cold_edges: Option<ColdEdges>,
 ) -> (u32, u32, u32) {
-    if loops.is_empty() {
+    if func.blocks.len() < 3 {
         return (0, 0, 0);
     }
     let facts = match cold_edges {
         Some(edges) => ChainFacts::with_cold_edges(dom, edges),
         None => ChainFacts::new(func, dom),
+    };
+    let facts = if loops.is_empty() {
+        facts.straight_line()
+    } else {
+        facts
     };
     // innermost (smallest) first so nested bodies are already
     // contiguous units when their parent partitions
@@ -194,18 +199,31 @@ fn layout_with(
             body,
             &children,
             &facts,
+            None,
         ) {
             chained += 1;
         } else if sink_latch(func, &mut order, lo, lo + body.len() - 1, *header, latches) {
             latches_sunk += 1;
         }
     }
+    if loops.is_empty() && chain_straight_line(func, &mut order, &facts) {
+        chained += 1;
+    }
     if sunk + latches_sunk + chained == 0 {
         return (0, 0, 0);
     }
 
-    // Rebuild func.blocks in the new order, renumbering ids and
-    // terminator targets (BlockId.0 == position invariant).
+    let remap = renumber(func, &order);
+    // the allocator's block frequencies ask for the tree again
+    if let Some(tree) = dom.whole_tree() {
+        tree.keep_renumbered(func, &remap);
+    }
+    (sunk, latches_sunk, chained)
+}
+
+/// Rebuild `func.blocks` in `order`, renumbering ids and terminator
+/// targets (BlockId.0 == position invariant); answers old id -> new.
+fn renumber(func: &mut Function, order: &[u32]) -> Vec<u32> {
     let span = order.iter().max().map_or(0, |&m| m as usize + 1);
     let mut remap = vec![u32::MAX; span];
     for (new, &old) in order.iter().enumerate() {
@@ -216,7 +234,7 @@ fn layout_with(
         let id = block.id.0 as usize;
         by_id[id] = Some(block);
     }
-    for &old in &order {
+    for &old in order {
         let mut block = by_id[old as usize]
             .take()
             .expect("layout order covers every block");
@@ -233,7 +251,31 @@ fn layout_with(
         }
         func.blocks.push(block);
     }
-    (sunk, latches_sunk, chained)
+    remap
+}
+
+/// Chain a function without loops from its entry as a loop body is
+/// chained, when a cold path (a trap, an arm a guard marks rare) sits
+/// ahead of a warm block: a guard in straight-line code (the nullish
+/// and bounds checks in front of a property or element read) otherwise
+/// keeps its cold arm next, and the path that runs pays a taken branch
+/// around it. Without one, chaining only reorders warm arms, moving a
+/// join ahead of an arm that reaches it, and stretches the positional
+/// live intervals the register allocator reads, which then saves more
+/// registers around calls. A function with loops keeps its order
+/// outside them for the same reason.
+fn chain_straight_line(func: &Function, order: &mut [u32], facts: &ChainFacts) -> bool {
+    // every block is a unit, and the chain asks the same of each
+    let cold = facts.cold_paths(func, &|_| true, order);
+    let Some(first_cold) = (1..cold.len()).find(|&i| cold[i]) else {
+        return false;
+    };
+    if cold[first_cold..].iter().all(|&c| c) {
+        return false;
+    }
+    let all = BlockSet::of(order.iter().copied());
+    let (entry, span) = (order[0], 0..order.len());
+    crate::block_chain::chain_loop_range(func, order, span, entry, &all, &[], facts, Some(cold))
 }
 
 /// Move a loop's only latch to the bottom of its (now contiguous)
@@ -287,6 +329,17 @@ mod tests {
             result: Some(ValueId(result)),
             kind,
             origin: None,
+        }
+    }
+
+    fn void_fn(blocks: Vec<Block>) -> Function {
+        Function {
+            name: "f".into(),
+            params: vec![],
+            ret: Type::Void,
+            values: vec![],
+            blocks,
+            current_origin: None,
         }
     }
 
@@ -535,6 +588,79 @@ mod tests {
             matches!(f.blocks[4].term, Terminator::Br(BlockId(3))),
             "call arm rejoins"
         );
+    }
+
+    /// A function without loops: the trap arm the lowering placed
+    /// first leaves the path, and an arm that calls keeps its place
+    /// (in straight-line code the call is the work, not a detour).
+    ///
+    ///   b0: c ? b1 : b2 ; b1: unreachable ; b2: c ? b3(call) : b4 ;
+    ///   b3: ret ; b4: ret
+    #[test]
+    fn straight_line_trap_arm_leaves_the_path() {
+        let cond = Operand::Value(ValueId(0));
+        let cbr = |t: u32, e: u32| Terminator::CondBr {
+            cond,
+            then_blk: BlockId(t),
+            else_blk: BlockId(e),
+        };
+        let call = Inst {
+            result: None,
+            kind: InstKind::Call(torajs_core::ssa::FuncId(0), vec![]),
+            origin: None,
+        };
+        let mut f = void_fn(vec![
+            block(0, vec![], cbr(1, 2)),
+            block(1, vec![], Terminator::Unreachable),
+            block(2, vec![], cbr(3, 4)),
+            block(3, vec![call], Terminator::Ret(None)),
+            block(4, vec![], Terminator::Ret(None)),
+        ]);
+        assert_eq!(layout_function(&mut f), (0, 0, 1));
+        // new order: b0, b2, b3 (call), b4, trap
+        assert!(matches!(
+            f.blocks[0].term,
+            Terminator::CondBr {
+                then_blk: BlockId(4),
+                else_blk: BlockId(1),
+                ..
+            }
+        ));
+        assert!(matches!(
+            f.blocks[1].term,
+            Terminator::CondBr {
+                then_blk: BlockId(2),
+                else_blk: BlockId(3),
+                ..
+            }
+        ));
+        assert!(matches!(f.blocks[4].term, Terminator::Unreachable));
+    }
+
+    /// A function without loops whose cold paths already come after
+    /// every warm block keeps its order: the chain would only reorder
+    /// the warm arms.
+    ///
+    ///   b0: c ? b2 : b1 ; b1: ret ; b2: c ? b3 : b4 ; b3: ret ;
+    ///   b4: unreachable
+    #[test]
+    fn straight_line_with_its_trap_last_keeps_its_order() {
+        let cond = Operand::Value(ValueId(0));
+        let cbr = |t: u32, e: u32| Terminator::CondBr {
+            cond,
+            then_blk: BlockId(t),
+            else_blk: BlockId(e),
+        };
+        let mut f = void_fn(vec![
+            block(0, vec![], cbr(2, 1)),
+            block(1, vec![], Terminator::Ret(None)),
+            block(2, vec![], cbr(3, 4)),
+            block(3, vec![], Terminator::Ret(None)),
+            block(4, vec![], Terminator::Unreachable),
+        ]);
+        let before = f.clone();
+        assert_eq!(layout_function(&mut f), (0, 0, 0));
+        assert_eq!(f, before);
     }
 
     /// A bounds check's out-of-bounds read has no call and no exit, so

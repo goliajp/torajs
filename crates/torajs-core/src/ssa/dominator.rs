@@ -162,6 +162,49 @@ impl DominatorTree {
     pub fn children(&self, b: BlockId) -> &[BlockId] {
         self.children.of(b.0 as usize)
     }
+
+    /// Keep for the next [`compute`](Self::compute) of `func` the tree
+    /// it has now that its blocks were renumbered, `remap[old]` being
+    /// each block's new id, with every branch and its targets' order
+    /// unchanged. The walk from the entry visits the same blocks in the
+    /// same order under the new ids, so this tree, renamed, is what a
+    /// build would find; only the per-id lists are laid out again.
+    pub fn keep_renumbered(&self, func: &Function, remap: &[u32]) {
+        let tree = self.renumbered(func, remap);
+        debug_assert!(tree.same_as(&Self::build(func)), "{}", func.name);
+        memo::keep(func, tree);
+    }
+
+    fn renumbered(&self, func: &Function, remap: &[u32]) -> Self {
+        let n = id_span(func);
+        let new = |b: BlockId| BlockId(remap[b.0 as usize]);
+        let mut idom = vec![None; n];
+        let mut rpo_index = vec![usize::MAX; n];
+        for (pos, &b) in self.rpo.iter().enumerate() {
+            idom[new(b).0 as usize] = self.idom[b.0 as usize].map(new);
+            rpo_index[new(b).0 as usize] = pos;
+        }
+        let rpo: Vec<BlockId> = self.rpo.iter().map(|&b| new(b)).collect();
+        let children = build_children(&idom);
+        let (enter, exit) = tree_intervals(&children, func.blocks[0].id, n);
+        Self {
+            idom,
+            rpo,
+            rpo_index,
+            children,
+            enter,
+            exit,
+        }
+    }
+
+    /// Whether two trees answer every query alike.
+    fn same_as(&self, other: &Self) -> bool {
+        self.idom == other.idom
+            && self.rpo == other.rpo
+            && self.rpo_index == other.rpo_index
+            && self.enter == other.enter
+            && self.exit == other.exit
+    }
 }
 
 // ---- algorithm internals --------------------------------------------------
@@ -419,6 +462,57 @@ mod tests {
         assert_eq!(dt.immediate_dominator(BlockId(3)), Some(BlockId(1)));
         assert!(dt.dominates(BlockId(1), BlockId(2)));
         assert!(dt.dominates(BlockId(1), BlockId(3)));
+    }
+
+    /// Renumbering the blocks of a function (as block layout does when
+    /// it reorders them) and renaming the tree it had gives the tree a
+    /// build of the renumbered function finds, unreachable block too.
+    #[test]
+    fn a_renumbered_tree_is_the_tree_of_the_renumbered_function() {
+        let cbr = |t: u32, e: u32| Terminator::CondBr {
+            cond: Operand::ConstBool(true),
+            then_blk: BlockId(t),
+            else_blk: BlockId(e),
+        };
+        let br = |t: u32| Terminator::Br(BlockId(t));
+        let func = fixture(vec![
+            block(0, cbr(1, 4)),
+            block(1, cbr(2, 3)),
+            block(2, br(5)),
+            block(3, br(1)),
+            block(4, Terminator::Unreachable),
+            block(5, cbr(6, 7)),
+            block(6, br(5)),
+            block(7, Terminator::Ret(None)),
+            block(8, br(7)),
+        ]);
+        let old = DominatorTree::build(&func);
+        for order in [[0, 1, 3, 2, 5, 7, 6, 8, 4], [0, 8, 4, 7, 6, 5, 3, 2, 1]] {
+            let mut remap = [0u32; 9];
+            for (new, &id) in order.iter().enumerate() {
+                remap[id as usize] = new as u32;
+            }
+            let at = |b: BlockId| BlockId(remap[b.0 as usize]);
+            let mut moved = fixture(Vec::new());
+            for &id in &order {
+                let mut b = func.blocks[id as usize].clone();
+                b.id = at(b.id);
+                match &mut b.term {
+                    Terminator::Br(t) => *t = at(*t),
+                    Terminator::CondBr {
+                        then_blk, else_blk, ..
+                    } => {
+                        *then_blk = at(*then_blk);
+                        *else_blk = at(*else_blk);
+                    }
+                    _ => {}
+                }
+                moved.blocks.push(b);
+            }
+            let renamed = old.renumbered(&moved, &remap);
+            assert!(renamed.same_as(&DominatorTree::build(&moved)), "{order:?}");
+            assert!(!renamed.is_reachable(at(BlockId(8))));
+        }
     }
 
     #[test]

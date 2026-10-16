@@ -91,6 +91,15 @@ pub(super) fn tree(func: &Function, build: impl FnOnce() -> DominatorTree) -> Do
     t
 }
 
+/// Keep `tree` as the dominator tree of `func` as it is now.
+pub(super) fn keep(func: &Function, tree: DominatorTree) {
+    let key = CfgKey::of(func);
+    TREES.with_borrow_mut(|m| match m.get_mut(func.name.as_str()) {
+        Some(kept) => *kept = (key, tree),
+        None => drop(m.insert(func.name.clone(), (key, tree))),
+    });
+}
+
 /// The loops of `func` under `dom`, kept like [`tree`]; `dom` must also
 /// be the tree they were found with.
 pub(crate) fn loops(
