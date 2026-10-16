@@ -57,9 +57,9 @@ pub fn builtin_ctor_meta(tag: i64) -> Option<(&'static str, u32)> {
         32 => ("DataView", 1),
         // §23.2.2 — the abstract %TypedArray% intrinsic: `name`
         // "TypedArray", `length` 0.
-        38 => ("TypedArray", 0),
+        39 => ("TypedArray", 0),
         // §26.2.2 — `length` 1 (cleanupCallback).
-        39 => ("FinalizationRegistry", 1),
+        40 => ("FinalizationRegistry", 1),
         _ => return None,
     })
 }
@@ -67,7 +67,7 @@ pub fn builtin_ctor_meta(tag: i64) -> Option<(&'static str, u32)> {
 /// §23.2.5.1 table 71 — a typed-array constructor's (and its
 /// prototype's) `BYTES_PER_ELEMENT`, keyed by the builtin-proto tag:
 /// the twelve kinds sit at 20-31 in element-kind order. `None` for
-/// every other tag, including %TypedArray% (38), which owns no such
+/// every other tag, including %TypedArray% (39), which owns no such
 /// property.
 pub fn typedarray_bytes_per_element(tag: i64) -> Option<i64> {
     if !(20..=31).contains(&tag) {

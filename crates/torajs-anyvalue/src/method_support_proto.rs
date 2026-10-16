@@ -120,13 +120,13 @@ pub(crate) unsafe fn proto_own_probe(proto: *mut c_void, key: *const c_void) -> 
 }
 
 /// Own-key membership against a builtin prototype, whichever cell
-/// shape backs it — the disambiguator [`proto_own_probe`]'s tag
-/// channel needs, because ANY_UNDEF is the answer for BOTH an absent
-/// key and an own entry storing undefined. Those two are not the same
-/// property: `Map.prototype.get = undefined` shadows the builtin
-/// method surface with a real, non-callable entry (§10.1.8.1
-/// OrdinaryGet), while an absent key leaves the surface showing
-/// through.
+/// shape backs it — what [`proto_own_probe`]'s tag channel cannot
+/// tell: ANY_UNDEF answers both an absent key and an own entry storing
+/// undefined, and `Map.prototype.get = undefined` shadows the method
+/// surface (§10.1.8.1 OrdinaryGet) where an absent key does not.
+/// # Safety
+/// `proto` is a live builtin prototype cell; `key` a live Str cell.
+#[inline]
 pub unsafe fn proto_own_has(proto: *mut c_void, key: *const c_void) -> bool {
     if unsafe { proto_is_arr(proto) } {
         return unsafe { __torajs_arrprops_has(proto, key) } != 0;
@@ -241,8 +241,8 @@ pub(crate) unsafe fn proto_tag_accessor_mid(tag: i64, key: *const c_void) -> Opt
                 key,
             )
         },
-        // §23.2.3 — %TypedArray.prototype% (tag 38) owns four.
-        38 => unsafe { crate::member_get_buffer::typedarray_accessor_mid(key) },
+        // §23.2.3 — %TypedArray.prototype% (tag 39) owns four.
+        39 => unsafe { crate::member_get_buffer::typedarray_accessor_mid(key) },
         _ => None,
     }
 }

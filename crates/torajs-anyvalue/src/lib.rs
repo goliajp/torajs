@@ -701,8 +701,8 @@ mod tests {
         crate::method_value::ns_static_cell_impl(id)
     }
     // The RegExp protocol and ctor-build seams: their defaults are
-    // `torajs-regexp-protocol`, which this test binary does not link;
-    // no unit test here reaches either.
+    // `torajs-regexp-lane` and `torajs-regexp-protocol`, which this
+    // test binary does not link; no unit test here reaches either.
     #[unsafe(no_mangle)]
     pub extern "C" fn __torajs_regexp_protocol_call(
         _recv: u64,

@@ -133,6 +133,8 @@ pub(crate) fn intern_family(family: i64, mid: i64) -> i64 {
 /// a family-less mint. Callers gate on
 /// [`super::builtin_method_mid`] being `Some` first (this reads the
 /// capture slot unconditionally).
+/// # Safety
+/// `ptr` is a live reified builtin method cell.
 pub unsafe fn builtin_method_family(ptr: *mut c_void) -> i64 {
     unsafe { ((*(ptr.cast::<u8>().add(CLOSURE_CAP_BASE_OFF) as *const u64) >> 32) as i64) - 1 }
 }
@@ -171,7 +173,7 @@ pub(crate) fn recv_proto_family(recv: AnyValue) -> i64 {
         t if t == Tag::WeakMap as u16 => 16,
         t if t == Tag::WeakSet as u16 => 17,
         t if t == Tag::WeakRef as u16 => 18,
-        t if t == Tag::FinalizationRegistry as u16 => 39,
+        t if t == Tag::FinalizationRegistry as u16 => 40,
         // §25.1.6 — ArrayBuffer.prototype is its own singleton, so
         // its row is exact. A typed array reads through
         // %TypedArray.prototype%'s one row (RFC 20260916-typedarray-

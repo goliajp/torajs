@@ -66,6 +66,9 @@ torajs-dispatch = { path = "../torajs-dispatch" }
 # The RegExp protocol algorithms' own member (behind the protocol and
 # ctor-build seams); built before build.rs snapshots staticlib paths.
 torajs-regexp-protocol = { path = "../torajs-regexp-protocol" }
+# The RegExp protocol seam's body, a member of its own in front of the
+# algorithms; built before build.rs snapshots staticlib paths.
+torajs-regexp-lane = { path = "../torajs-regexp-lane" }
 # Layer-1 substrate: native-error factory registry + throw_range/
 # type_error helpers. Same dual rlib+staticlib usage.
 torajs-throw = { path = "../torajs-throw" }

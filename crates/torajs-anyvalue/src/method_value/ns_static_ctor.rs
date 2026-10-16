@@ -120,7 +120,7 @@ pub(super) fn ctor_ns_name(proto_tag: i64) -> &'static str {
         // statics. The twelve concrete constructors own none; they
         // inherit them through their [[Prototype]] (§23.2.6), which
         // `ctor_buffer::ctor_read_cell_inherited` walks.
-        38 => "TypedArray",
+        39 => "TypedArray",
         // §25.1.5.1 — ArrayBuffer's one table static. DataView (32)
         // stays out: the spec gives it no statics, so it answers
         // through `ns_static_id`'s natural miss.

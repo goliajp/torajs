@@ -3,15 +3,21 @@ mod accessor_override_check_tests;
 mod ast_pipeline;
 mod cmd_build;
 mod cmd_build_dispatch_judge;
+mod cmd_build_dispatch_judge_callee;
 #[cfg(test)]
 mod cmd_build_dispatch_judge_census;
 #[cfg(test)]
 mod cmd_build_dispatch_judge_census_parse;
 mod cmd_build_dispatch_judge_ctor_reach;
+#[cfg(test)]
+mod cmd_build_dispatch_judge_ctor_reach_tests;
 mod cmd_build_dispatch_judge_ctor_uses;
 #[cfg(test)]
 mod cmd_build_dispatch_judge_ctor_uses_tests;
 mod cmd_build_dispatch_judge_obj_world;
+mod cmd_build_dispatch_judge_regexp_unseen;
+#[cfg(test)]
+mod cmd_build_dispatch_judge_regexp_unseen_tests;
 mod cmd_build_dispatch_judge_regexp_world;
 mod cmd_build_dispatch_stubs;
 mod cmd_build_elide;

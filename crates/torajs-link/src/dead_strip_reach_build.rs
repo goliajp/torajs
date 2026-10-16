@@ -66,14 +66,16 @@ pub(crate) fn build_member_reach<'a>(member: &ArMember<'a>) -> Result<MemberReac
     // may fall through from one symbol into the next, so each section
     // is one atom.
     let subsections = splits_at_symbols(bytes);
+    // each section's symbol addresses, in one pass over the nlist
+    let mut starts_by_ord: Vec<Vec<u64>> = vec![Vec::new(); usize::from(u8::MAX) + 1];
+    if subsections {
+        for e in nlist.iter().filter(|e| e.n_type & N_TYPE == N_SECT) {
+            starts_by_ord[usize::from(e.n_sect)].push(e.n_value);
+        }
+    }
     let mut sects: Vec<SectAtoms> = Vec::with_capacity(sections.len());
     for s in &sections {
-        let ord = s.section_index;
-        let mut starts: Vec<u64> = nlist
-            .iter()
-            .filter(|e| subsections && e.n_type & N_TYPE == N_SECT && e.n_sect == ord)
-            .map(|e| e.n_value)
-            .collect();
+        let mut starts = std::mem::take(&mut starts_by_ord[usize::from(s.section_index)]);
         starts.sort_unstable();
         starts.dedup();
         // Leading unnamed gap becomes atom 0.

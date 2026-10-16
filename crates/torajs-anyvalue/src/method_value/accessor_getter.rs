@@ -40,10 +40,10 @@ pub(crate) fn proto_accessor_getter_cell(proto_tag: i64, mid: i64) -> *mut u8 {
         (7, m) => 9 + (m - torajs_rc::any_method_regexp::ANY_METHOD_GET_HAS_INDICES) as usize,
         // §23.2.3.1 / .2 / .3 / .21 — %TypedArray.prototype%'s four,
         // one distinct function object each.
-        (38, buf::ANY_METHOD_GET_TA_BUFFER) => 5,
-        (38, buf::ANY_METHOD_GET_TA_BYTE_LENGTH) => 6,
-        (38, buf::ANY_METHOD_GET_TA_BYTE_OFFSET) => 7,
-        (38, _) => 8,
+        (39, buf::ANY_METHOD_GET_TA_BUFFER) => 5,
+        (39, buf::ANY_METHOD_GET_TA_BYTE_LENGTH) => 6,
+        (39, buf::ANY_METHOD_GET_TA_BYTE_OFFSET) => 7,
+        (39, _) => 8,
         _ => 2,
     };
     let slot = &ACCESSOR_GETTER_CELLS[idx];

@@ -111,7 +111,7 @@ const CTOR_PROPS: &[(&[u8], i64)] = &[
     (b"WeakMap", 16),
     (b"WeakSet", 17),
     (b"WeakRef", 18),
-    (b"FinalizationRegistry", 39),
+    (b"FinalizationRegistry", 40),
 ];
 
 /// Known builtin globals the fill list CANNOT always mint — a

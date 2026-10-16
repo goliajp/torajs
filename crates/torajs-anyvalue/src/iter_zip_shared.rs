@@ -42,6 +42,8 @@ pub(crate) const ZIP_MODE_STRICT: u64 = 2;
 
 /// True when `v` is a language-value Object (a heap cell that is not
 /// a primitive Str / Symbol / BigInt cell).
+/// # Safety
+/// `v` is a live AnyValue.
 pub unsafe fn av_is_object(v: AnyValue) -> bool {
     if is_short_str(v) || !is_cell(v) {
         return false;
@@ -88,6 +90,9 @@ pub(crate) unsafe fn member_pair(obj: AnyValue, name: &[u8]) -> (u64, u64) {
 }
 
 /// Borrowed member read with an existing key cell.
+/// # Safety
+/// `obj` is a live AnyValue; `key` a live Str cell.
+#[inline]
 pub unsafe fn member_pair_cell(obj: AnyValue, key: *const c_void) -> (u64, u64) {
     unsafe {
         let tag = crate::member_get::__torajs_any_member_get_tag(obj, key);

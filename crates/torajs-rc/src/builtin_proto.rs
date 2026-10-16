@@ -60,8 +60,10 @@ unsafe extern "C" {
 /// step. The five per-family ITERATOR prototypes joined as 33-37 —
 /// they are the first slots whose [[Prototype]] is not
 /// %Object.prototype%, which is what [`proto_parent_tag`] was made
-/// for). %TypedArray%.prototype joined as 38, the abstract parent of
-/// the twelve per-kind prototypes (RFC 20260916-typedarray-intrinsic).
+/// for), and %RegExpStringIteratorPrototype% as 38, right after them so
+/// the iterator slots stay one range. %TypedArray%.prototype is 39, the
+/// abstract parent of the twelve per-kind prototypes (RFC
+/// 20260916-typedarray-intrinsic).
 pub const NUM_BUILTIN_PROTOS: usize = 41;
 
 mod ctor_meta;
@@ -141,21 +143,22 @@ pub const SET_ITER_PROTO_TAG: usize = 36;
 /// five that owns a `return` as well as a `next`.
 pub const ITER_HELPER_PROTO_TAG: usize = 37;
 
+/// `%RegExpStringIteratorPrototype%`'s slot (§22.2.9.2) — what
+/// `re[Symbol.matchAll](s)` inherits from, one link below
+/// %Iterator.prototype% like the five iterator prototypes above, and
+/// next to them, so every iterator slot is one range test.
+pub const REGEXP_STRING_ITER_PROTO_TAG: usize = 38;
+
 /// `%TypedArray%.prototype`'s slot (§23.2.3) — the one prototype the
 /// twelve per-kind typed-array prototypes (20-31) inherit from, and
 /// the owner of every typed-array method. Its constructor is the
 /// abstract %TypedArray% (§23.2.1), which both [[Call]] and
 /// [[Construct]] refuse.
-pub const TYPEDARRAY_PROTO_TAG: usize = 38;
+pub const TYPEDARRAY_PROTO_TAG: usize = 39;
 
 /// `FinalizationRegistry.prototype`'s slot (§26.2.3) — the next free
 /// one after %TypedArray%.prototype.
-pub const FINREG_PROTO_TAG: usize = 39;
-
-/// `%RegExpStringIteratorPrototype%`'s slot (§22.2.9.2) — what
-/// `re[Symbol.matchAll](s)` inherits from, one link below
-/// %Iterator.prototype% like the five iterator prototypes above.
-pub const REGEXP_STRING_ITER_PROTO_TAG: usize = 40;
+pub const FINREG_PROTO_TAG: usize = 40;
 
 /// The per-kind typed-array prototype slots, `Int8Array` .. `Float16Array`
 /// (20 + `torajs_buffer::typedarray::Kind`).
@@ -233,7 +236,7 @@ static SLOTS: [AtomicUsize; NUM_BUILTIN_PROTOS] =
 /// Array=2, String=3, Boolean=4, Symbol=5, BigInt=6, RegExp=7,
 /// Date=8, Error=9, Promise=10, Map=11, Set=12, Function=13,
 /// AsyncFunction=14, Iterator=15, WeakMap=16, WeakSet=17,
-/// WeakRef=18, FinalizationRegistry=39.
+/// WeakRef=18, FinalizationRegistry=40.
 /// ssa_lower must emit one of these via `Operand::ConstI64(<tag>)`.
 /// Out-of-range `tag` returns NULL (defensive — ssa_lower should
 /// never emit it).

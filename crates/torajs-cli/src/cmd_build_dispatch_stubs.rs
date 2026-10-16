@@ -144,17 +144,23 @@ pub(crate) fn append_dispatch_stubs(
     }
 }
 
-/// The two RegExp-world seams the judgment stubs
+/// The three RegExp-world seams the judgment stubs
 /// ([`crate::cmd_build_dispatch_judge_regexp_world`]): the protocol
-/// algorithms and the ctor-value build body, both rejecting under the
+/// seam, the protocol algorithms behind it and the ctor-value build
+/// body, all rejecting under the
 /// regexp family's name (bit 9) — they are that family's text, split
 /// off by their own judgment. Offered to the link as guarded stubs
 /// with no enabler, so a stub is applied exactly when some live atom
 /// still imports its seam and costs nothing in a program that links
 /// neither caller.
-pub(crate) fn regexp_world_stubs(protocol: bool, ctor: bool) -> Vec<GuardedStub> {
+///
+/// The algorithms seam's one importer is the protocol seam's default
+/// body (torajs-regexp-lane): with that seam stubbed nothing imports
+/// it, so it is offered only beside a live protocol seam.
+pub(crate) fn regexp_world_stubs(protocol: bool, algorithms: bool, ctor: bool) -> Vec<GuardedStub> {
     [
         (protocol, "___torajs_regexp_protocol_call"),
+        (algorithms && !protocol, "___torajs_regexp_protocol_run"),
         (ctor, "___torajs_ctor_regexp_build"),
     ]
     .into_iter()

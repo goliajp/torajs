@@ -39,7 +39,7 @@
 
 use std::collections::HashSet;
 
-use torajs_core::ssa::{InstKind, Module, Operand};
+use torajs_core::ssa::{InstKind, Module, Operand, Type};
 
 use crate::cmd_build_dispatch_judge_ctor_uses::KEYED_READERS;
 
@@ -73,14 +73,21 @@ pub(crate) fn ctor_cell_reachable(module: &Module, diag: bool) -> bool {
             return true;
         }
         // values that cannot be a runtime "constructor": string
-        // literals (judged above) and boxed scalars (`box_any` tags
-        // other than 4, the heap pointer)
+        // literals (judged above), boxed scalars (`box_any` tags other
+        // than 4, the heap pointer), and symbols and their boxes (a
+        // symbol key is its own property key, never a string)
+        let symbol =
+            |op: &Operand| matches!(op, Operand::Value(v) if f.value_type(*v) == Type::Symbol);
         let mut fixed_keys = HashSet::new();
         for b in &f.blocks {
             for inst in &b.insts {
                 let fixed = match &inst.kind {
                     InstKind::StaticStrRef(_) | InstKind::StringRef(_) => true,
-                    InstKind::BoxAny(tag, _) => *tag != 4,
+                    InstKind::BoxAny(tag, v) => *tag != 4 || symbol(v),
+                    InstKind::Call(fid, args) => {
+                        module.funcs[fid.0 as usize].name == "__torajs_anyv_box_from_pair"
+                            && args.get(1).is_some_and(symbol)
+                    }
                     _ => false,
                 };
                 if let (true, Some(r)) = (fixed, inst.result) {
@@ -104,7 +111,9 @@ pub(crate) fn ctor_cell_reachable(module: &Module, diag: bool) -> bool {
                 }
                 let open = OPEN_READERS.contains(&name)
                     || (KEYED_READERS.contains(&name)
-                        && !matches!(args.get(1), Some(Operand::Value(v)) if fixed_keys.contains(v)));
+                        && !args.get(1).is_some_and(|k| {
+                            symbol(k) || matches!(k, Operand::Value(v) if fixed_keys.contains(v))
+                        }));
                 if open {
                     if diag {
                         eprintln!("[judge] ns-world: {} calls {name}", f.name);

@@ -1529,6 +1529,8 @@ dependencies = [
  "torajs-promise",
  "torajs-rc",
  "torajs-regex",
+ "torajs-regexp-lane",
+ "torajs-regexp-protocol",
  "torajs-rtimage-macro",
  "torajs-str",
  "torajs-structmeta",
@@ -1756,6 +1758,22 @@ version = "0.1.0"
 dependencies = [
  "torajs-bench",
  "torajs-syscall",
+]
+
+[[package]]
+name = "torajs-regexp-lane"
+version = "0.1.0"
+dependencies = [
+ "torajs-anyvalue",
+ "torajs-rc",
+]
+
+[[package]]
+name = "torajs-regexp-protocol"
+version = "0.1.0"
+dependencies = [
+ "torajs-anyvalue",
+ "torajs-rc",
 ]
 
 [[package]]

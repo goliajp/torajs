@@ -119,7 +119,7 @@ pub(crate) unsafe fn install_bytes_per_element(proto: *mut c_void, idx: i64) {
 
 static BPE_KEY_CELL: AtomicU64 = AtomicU64::new(0);
 
-/// Install the accessor own entry into the freshly minted slot-38
+/// Install the accessor own entry into the freshly minted slot-39
 /// singleton, after its `[Symbol.iterator]` (§23.2.3.37 precedes
 /// .38, which is the order `getOwnPropertySymbols` answers in) and
 /// before its address is published.

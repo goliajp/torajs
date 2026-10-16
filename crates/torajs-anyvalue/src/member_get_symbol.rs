@@ -292,6 +292,7 @@ impl OwnedPair {
     /// transfers the reference it already holds, a borrowed one takes
     /// its own first. Either way this guard stops releasing.
     #[cfg_attr(test, allow(dead_code))]
+    #[inline]
     pub fn into_owned_value(self) -> AnyValue {
         // SAFETY: the pair came out of `symbol_key_get`, so it is
         // either an immediate or a live cell.

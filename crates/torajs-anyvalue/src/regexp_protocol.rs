@@ -1,9 +1,9 @@
 //! What the rest of this crate knows of the RegExp protocol methods
 //! (§22.2.6.8 / .9 / .11 / .12 / .14): the receiver tests, the RegExp
 //! String Iterator's cell kind, and the two answers the protocol seam
-//! gives besides a completion. The algorithms themselves are
-//! `torajs-regexp-protocol`, an archive member of their own behind
-//! `__torajs_regexp_protocol_call` (see [`crate::dispatch_seam`]).
+//! gives besides a completion. Whether a call needs the spec algorithm
+//! is `torajs-regexp-lane`, the seam's body; the algorithms are
+//! `torajs-regexp-protocol` behind it (see [`crate::dispatch_seam`]).
 
 use core::ffi::c_void;
 
@@ -54,6 +54,7 @@ pub fn regexp_cell(av: AnyValue) -> Option<*const c_void> {
 ///
 /// # Safety
 /// `rx` boxes a live RegExp cell; `key` is a live Str cell.
+#[inline]
 pub unsafe fn shadowed(rx: AnyValue, key: *const c_void) -> bool {
     unsafe {
         let bag = *(as_void_ptr(rx).cast::<u8>().add(8) as *const *const c_void);
@@ -66,9 +67,8 @@ pub unsafe fn shadowed(rx: AnyValue, key: *const c_void) -> bool {
 }
 
 /// The protocol seam's answer when the native kernels compute exactly
-/// what the spec algorithm would: the
-/// caller runs its kernel lane. The reserved no-such bit pattern,
-/// which no completion value can carry.
+/// what the spec algorithm would: the caller runs its kernel lane. The
+/// reserved no-such bit pattern, which no completion value can carry.
 pub const KERNEL_LANE: AnyValue = crate::method_call::ANY_METHOD_NO_SUCH;
 
 /// A RegExp String Iterator step's "no value" answer through the

@@ -1,6 +1,6 @@
 //! What `torajs-regexp-protocol` — the §22.2.6 protocol algorithms and
-//! the RegExp ctor build, an archive member of their own — reads of
-//! this crate.
+//! the RegExp ctor build, an archive member of their own — and
+//! `torajs-regexp-lane`, the protocol seam's body, read of this crate.
 
 pub use crate::closure_proto::ctor_species_accessor::species_replaced;
 pub use crate::construct::{__torajs_anyv_construct, is_callable, is_constructor};

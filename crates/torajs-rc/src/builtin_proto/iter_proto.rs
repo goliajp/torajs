@@ -53,22 +53,25 @@ const FAMILY_STRING: u32 = 1;
 pub const ITER_HELPER_KIND_OFF: usize = 32;
 pub const ITER_HELPER_KIND_REGEXP_STRING: u8 = 9;
 
+const _: () = assert!(REGEXP_STRING_ITER_PROTO_TAG == ITER_HELPER_PROTO_TAG + 1);
+
 /// The MapIter / ArrIter source cell — both layouts put it at +8.
 const SOURCE_OFF: usize = 8;
 
 /// The iterator prototypes — each hangs off %Iterator.prototype% and
-/// owns no `constructor`. `|`, not `||`: both tests are a compare,
-/// and evaluating both keeps the callers' selects branch-free.
+/// owns no `constructor`. Their slots are one range, so the test is
+/// one compare.
 pub(super) fn is_iter_proto_tag(tag: i64) -> bool {
-    (ARRAY_ITER_PROTO_TAG as i64..=ITER_HELPER_PROTO_TAG as i64).contains(&tag)
-        | (tag == REGEXP_STRING_ITER_PROTO_TAG as i64)
+    (ARRAY_ITER_PROTO_TAG as i64..=REGEXP_STRING_ITER_PROTO_TAG as i64).contains(&tag)
 }
 
 /// The builtin-proto slot an iterator cell inherits from, or `-1`
-/// when `tag` is not an iterator tag.
+/// when `tag` is not an iterator tag. Never inlined: the extern face
+/// and the `in` family walk share this one copy.
 ///
 /// # Safety
 /// `ptr` is a live heap cell whose header tag is `tag`.
+#[inline(never)]
 pub unsafe fn iter_cell_proto_tag(ptr: *const c_void, tag: u16) -> i64 {
     if tag == Tag::MapIter as u16 {
         let src = unsafe {
@@ -96,13 +99,10 @@ pub unsafe fn iter_cell_proto_tag(ptr: *const c_void, tag: u16) -> i64 {
     }
     if tag == Tag::IterHelper as u16 {
         // §22.2.9 — a RegExp String Iterator is a helper-shaped cell
-        // of its own kind, with its own prototype.
+        // of its own kind, with its own prototype: the slot after the
+        // helpers'.
         let kind = unsafe { ptr.cast::<u8>().add(ITER_HELPER_KIND_OFF).read() };
-        return if kind == ITER_HELPER_KIND_REGEXP_STRING {
-            REGEXP_STRING_ITER_PROTO_TAG as i64
-        } else {
-            ITER_HELPER_PROTO_TAG as i64
-        };
+        return ITER_HELPER_PROTO_TAG as i64 + i64::from(kind == ITER_HELPER_KIND_REGEXP_STRING);
     }
     -1
 }

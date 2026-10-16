@@ -89,7 +89,7 @@ pub(crate) fn proto_tag_family_owns(tag: i64, mid: i64) -> bool {
     // the one `intern_family` already carries for this mid; asking
     // one question in two places had let the two drift.
     if mid == ANY_METHOD_TO_LOCALE_STRING {
-        return matches!(tag, 0 | 1 | 2 | 6 | 8 | 38);
+        return matches!(tag, 0 | 1 | 2 | 6 | 8 | 39);
     }
     match tag {
         0 => num_supports(mid),
@@ -139,7 +139,7 @@ pub(crate) fn proto_tag_family_owns(tag: i64, mid: i64) -> bool {
         // per-family iterator prototype owns exactly its `next`. The
         // helper family is INHERITED from %Iterator.prototype% one
         // link out, which is why those mids are not listed here.
-        33..=36 | 40 => mid == torajs_rc::ANY_METHOD_NEXT,
+        33..=36 | 38 => mid == torajs_rc::ANY_METHOD_NEXT,
         // §27.1.5.1-2 — %IteratorHelperPrototype% is the only one
         // that owns a `return` as well.
         37 => {
@@ -157,7 +157,7 @@ pub(crate) fn proto_tag_family_owns(tag: i64, mid: i64) -> bool {
         16 => weakmap_supports(mid),
         17 => weakset_supports(mid),
         18 => weakref_supports(mid),
-        39 => crate::method_support::finreg_supports(mid),
+        40 => crate::method_support::finreg_supports(mid),
         // %ArrayBuffer.prototype% (§25.1.6) — the same table the
         // instance dispatch answers from (slice / resize / transfer /
         // transferToFixedLength); the row used to spell two of the
@@ -176,7 +176,7 @@ pub(crate) fn proto_tag_family_owns(tag: i64, mid: i64) -> bool {
         // the identity `intern_family` hands out). The four text
         // conversions are `Uint8Array.prototype`'s own (the arm
         // below), so they stay off this row.
-        38 => {
+        39 => {
             mid == ANY_METHOD_TO_STRING
                 || (crate::method_support::typedarray_supports(mid)
                     && !crate::method_support::is_uint8_text_method(mid))

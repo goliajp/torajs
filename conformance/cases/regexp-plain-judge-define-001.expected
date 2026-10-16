@@ -1,0 +1,7 @@
+exec banana
+null
+exec banana
+-1
+exec banana
+banana
+[ "n", "n" ]

@@ -30,10 +30,9 @@
 use torajs_core::ssa::{InstKind, Module, Operand};
 use torajs_rc::any_method_family as fam;
 
-use crate::cmd_build_dispatch_judge_obj_world::{COERCION_KEEP, COERCION_PREFIXES};
-use crate::cmd_build_dispatch_judge_regexp_world::{
-    RegexpWorld, STR_SYMBOL_GATE, hands_out_regexp_ctor, is_protocol_mid, mints_regexp,
-};
+use crate::cmd_build_dispatch_judge_callee::CalleeMemo;
+use crate::cmd_build_dispatch_judge_obj_world::COERCION_KEEP;
+use crate::cmd_build_dispatch_judge_regexp_world::{RegexpWorld, enters_protocol, unplain_mid};
 
 /// Mid-carrying dispatch intrinsics: (symbol, index of the mid in
 /// the call's operand list). Closed set — every ssa_lower site that
@@ -81,7 +80,7 @@ pub(crate) const FALLBACK_PREFIXES: [&str; 5] = [
 /// ns-static dispatch universe dead-strips. (Builtin ctor values and
 /// proxies can also reach ctor own-static reads, but both are
 /// FALLBACK triggers — nothing is stubbed there at all.)
-const NS_WORLD_PREFIXES: [&str; 4] = [
+pub(crate) const NS_WORLD_PREFIXES: [&str; 4] = [
     "__torajs_ns_static_cell",
     "__torajs_ns_object_",
     "__torajs_globalthis_object",
@@ -210,7 +209,7 @@ pub(crate) const PREFIX_FAMILIES: [(&str, u16); 36] = [
 /// `arr_print_<scalar>`) are NOT here: they answer without the
 /// per-tag inspect world — except through the expando props face,
 /// see [`ANY_WRITERS`].
-const PRINT_WORLD: [&str; 6] = [
+pub(crate) const PRINT_WORLD: [&str; 6] = [
     "__torajs_print_anyv",
     "__torajs_fn_print_outer",
     "__torajs_map_print_outer",
@@ -225,7 +224,7 @@ const PRINT_WORLD: [&str; 6] = [
 /// through the inspect world — so a program that has BOTH a writer
 /// and a typed array printer keeps the printer kernels (rotation
 /// 561: `[ 1, 2, g: { … } ]` threw "printer kernel stripped").
-const ANY_WRITERS: [&str; 3] = [
+pub(crate) const ANY_WRITERS: [&str; 3] = [
     "__torajs_any_member_set",
     "__torajs_any_index_set",
     // a number dictionary's keyed write: any receiver but an own
@@ -239,7 +238,7 @@ const ANY_WRITERS: [&str; 3] = [
 /// whose NAME ends in a base spelling (`class Foo__cm_Error`) would
 /// be mis-exempted here; the cost is a loud stub TypeError caught
 /// by the gate, never a silent wrong answer.
-fn is_synth_error_fn(name: &str) -> bool {
+pub(crate) fn is_synth_error_fn(name: &str) -> bool {
     SYNTH_ERROR_FNS
         .iter()
         .any(|b| name == *b || (b.starts_with("__cm_") && name.ends_with(b)))
@@ -257,9 +256,11 @@ pub(crate) struct DispatchJudgment {
     /// proven print-quiet (no path from user code into the per-tag
     /// inspect dispatch).
     pub stub_printers: bool,
-    /// Stub the RegExp protocol seam and the RegExp ctor-value build
-    /// seam ([`crate::cmd_build_dispatch_judge_regexp_world`]).
+    /// Stub the RegExp protocol seam, the protocol algorithms seam
+    /// and the RegExp ctor-value build seam
+    /// ([`crate::cmd_build_dispatch_judge_regexp_world`]).
     pub stub_regexp_protocol: bool,
+    pub stub_regexp_algorithms: bool,
     pub stub_ctor_regexp: bool,
 }
 
@@ -282,6 +283,7 @@ pub(crate) fn judge(module: &Module) -> DispatchJudgment {
     let mut symbol_gate = false;
     let (mut regexp_world, mut regexp_ctor) = (false, false);
 
+    let mut memo = CalleeMemo::new(module);
     for f in &module.funcs {
         let synth_error_fn = is_synth_error_fn(&f.name);
         for b in &f.blocks {
@@ -295,7 +297,8 @@ pub(crate) fn judge(module: &Module) -> DispatchJudgment {
                     eprintln!("[judge] sym: {} calls {name}", f.name);
                     seen_syms.push(name.to_string());
                 }
-                if !synth_error_fn && is_synth_error_fn(name) {
+                let facts = memo.get(module, *fid);
+                if !synth_error_fn && facts.synth_error {
                     // constructing a native error from user-visible
                     // code: its message coercion can reach user
                     // objects. (Synth-internal edges — the factory
@@ -305,15 +308,15 @@ pub(crate) fn judge(module: &Module) -> DispatchJudgment {
                     }
                     keep_bits |= COERCION_KEEP;
                 }
-                if let Some((_, pos)) = MID_CARRIERS.iter().find(|(n, _)| *n == name) {
-                    match args.get(*pos) {
+                if let Some(pos) = facts.mid_slot {
+                    match args.get(pos) {
                         Some(Operand::ConstI64(mid)) => observed.push(*mid),
                         // a non-constant mid slot means a lowering
                         // changed shape under us — unknowable, punt.
                         _ => fallback = true,
                     }
                 }
-                if name == "__torajs_ns_static_cell" {
+                if facts.ns_static_cell {
                     // a reified namespace static: the constant id
                     // resolves the cell kernel's modelled
                     // re-dispatch surface (per-static table).
@@ -342,52 +345,33 @@ pub(crate) fn judge(module: &Module) -> DispatchJudgment {
                         _ => fallback = true,
                     }
                 }
-                if name == STR_SYMBOL_GATE {
-                    symbol_gate = true;
-                }
-                regexp_ctor = regexp_ctor || hands_out_regexp_ctor(name, args);
-                regexp_world = regexp_world || mints_regexp(name);
-                if NS_WORLD_PREFIXES.iter().any(|p| name.starts_with(p)) {
-                    ns_world = true;
-                }
-                if FALLBACK_PREFIXES.iter().any(|p| name.starts_with(p)) {
+                symbol_gate |= facts.symbol_gate;
+                regexp_ctor = regexp_ctor || facts.ctor_handout.hands_out(args);
+                regexp_world |= facts.mints_regexp;
+                ns_world |= facts.ns_world;
+                if facts.fallback {
                     if diag {
                         eprintln!("[judge] fallback trigger: {name}");
                     }
                     fallback = true;
                 }
-                if !synth_error_fn && COERCION_PREFIXES.iter().any(|p| name.starts_with(p)) {
+                if !synth_error_fn && facts.coercion {
                     if diag && keep_bits & COERCION_KEEP != COERCION_KEEP {
                         eprintln!("[judge] coercion keep: {} calls {name}", f.name);
                     }
                     keep_bits |= COERCION_KEEP;
                 }
-                for (p, bits) in PREFIX_FAMILIES {
-                    if name.starts_with(p) {
-                        if diag && keep_bits & bits != bits {
-                            eprintln!("[judge] prefix keep: {name} -> {bits:#b}");
-                        }
-                        keep_bits |= bits;
-                    }
+                let bits = facts.family_bits;
+                if diag && keep_bits & bits != bits {
+                    eprintln!("[judge] prefix keep: {name} -> {bits:#b}");
                 }
-                if PRINT_WORLD.iter().any(|p| name.starts_with(p))
-                    || crate::cmd_build_dispatch_stubs::is_printer_sym(name)
-                {
-                    print_world = true;
-                }
-                if ANY_WRITERS.iter().any(|p| name.starts_with(p)) {
-                    any_writer = true;
-                }
-                if name.starts_with("__torajs_arr_print_")
-                    && !crate::cmd_build_dispatch_stubs::is_printer_sym(name)
-                {
-                    typed_arr_print = true;
-                }
-                if crate::cmd_build_dispatch_stubs::is_arm_sym(name) {
-                    // user code somehow calls an arm seam directly —
-                    // not a shape we emit today; refuse to stub it.
-                    printer_ref = true;
-                }
+                keep_bits |= bits;
+                print_world |= facts.print_world;
+                any_writer |= facts.any_writer;
+                typed_arr_print |= facts.typed_arr_print;
+                // user code somehow calls an arm seam directly — not
+                // a shape we emit today; refuse to stub it.
+                printer_ref |= facts.arm_sym;
             }
         }
     }
@@ -436,11 +420,17 @@ pub(crate) fn judge(module: &Module) -> DispatchJudgment {
              regexp_world={regexp_world} regexp_ctor={regexp_ctor}"
         );
     }
+    // a fallback trigger hides protocol ids only behind a key the
+    // program spells or cannot pin
+    let unseen = fallback
+        && (regexp_world || regexp_ctor)
+        && crate::cmd_build_dispatch_judge_regexp_unseen::unseen_protocol_call(module, diag);
     let rx = RegexpWorld {
         world: regexp_world || regexp_ctor,
         ctor: regexp_ctor,
         ctor_read,
-        protocol_entry: fallback || symbol_gate || observed.iter().any(|&m| is_protocol_mid(m)),
+        protocol_entry: unseen || symbol_gate || observed.iter().any(|&m| enters_protocol(m)),
+        plain_candidate: !unseen && !symbol_gate && !observed.iter().any(|&m| unplain_mid(m)),
     }
     .verdict(module, diag);
     if fallback || printer_ref {
@@ -449,6 +439,7 @@ pub(crate) fn judge(module: &Module) -> DispatchJudgment {
             stub_ns_static: false,
             stub_printers: false,
             stub_regexp_protocol: rx.protocol,
+            stub_regexp_algorithms: rx.algorithms,
             stub_ctor_regexp: rx.ctor,
         };
     }
@@ -460,6 +451,7 @@ pub(crate) fn judge(module: &Module) -> DispatchJudgment {
         // (nothing observed, no family usage, no print world).
         stub_printers: !print_world && observed.is_empty() && keep_bits == 0,
         stub_regexp_protocol: rx.protocol,
+        stub_regexp_algorithms: rx.algorithms,
         stub_ctor_regexp: rx.ctor,
     }
 }

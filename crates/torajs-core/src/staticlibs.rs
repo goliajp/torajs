@@ -93,6 +93,7 @@ macro_rules! runtime_staticlib_envs {
             "TORAJS_ABORT_STATICLIB_PATH",
             "TORAJS_PRINT_STATICLIB_PATH",
             "TORAJS_FNNAME_STATICLIB_PATH",
+            "TORAJS_REGEXP_LANE_STATICLIB_PATH",
             "TORAJS_REGEXP_PROTOCOL_STATICLIB_PATH",
         )
     };

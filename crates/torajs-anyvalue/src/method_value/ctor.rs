@@ -68,6 +68,7 @@ pub(crate) fn builtin_ctor_cell(proto_tag: i64) -> *mut u8 {
 /// probe asks "has anyone stored on it", and a cell nobody ever
 /// minted cannot have been written through, so a null peek answers
 /// "unpatched" without paying the allocation.
+#[inline]
 pub fn ctor_cell_peek(proto_tag: i64) -> *mut u8 {
     CTOR_CELLS[proto_tag as usize].load(Ordering::Relaxed) as *mut u8
 }
@@ -385,7 +386,7 @@ fn ctor_family_tag(recv: AnyValue) -> Option<i64> {
         t if t == Tag::WeakMap as u16 => Some(16),
         t if t == Tag::WeakSet as u16 => Some(17),
         t if t == Tag::WeakRef as u16 => Some(18),
-        t if t == Tag::FinalizationRegistry as u16 => Some(39),
+        t if t == Tag::FinalizationRegistry as u16 => Some(40),
         t if t == Tag::Promise as u16 => Some(10),
         t if t == Tag::NumberWrapper as u16 => Some(0),
         t if t == Tag::StringWrapper as u16 => Some(3),

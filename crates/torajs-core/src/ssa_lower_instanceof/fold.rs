@@ -84,7 +84,7 @@ pub(super) fn builtin_proto_tag(class_name: &str) -> Option<i64> {
         "WeakRef" => 18,
         "ArrayBuffer" => 19,
         "DataView" => 32,
-        "FinalizationRegistry" => 39,
+        "FinalizationRegistry" => torajs_rc::builtin_proto::FINREG_PROTO_TAG as i64,
         _ => return None,
     })
 }

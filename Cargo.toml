@@ -13,6 +13,7 @@ members = [
     "crates/torajs-rc",
     "crates/torajs-anyvalue",
     "crates/torajs-dispatch",
+    "crates/torajs-regexp-lane",
     "crates/torajs-regexp-protocol",
     "crates/torajs-throw",
     "crates/torajs-str",

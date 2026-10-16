@@ -242,7 +242,7 @@ unsafe fn builtin_cell_proto_tag(dynobj: *const c_void, tag: u16) -> i64 {
         12 => 16, // WeakMap
         13 => 17, // WeakSet
         11 => 18, // WeakRef
-        31 => 39, // FinalizationRegistry
+        31 => 40, // FinalizationRegistry
         // RFC 20260716 刀 15 — primitive-wrapper cells (刀 2 alloc
         // tags 21/22/23) return the corresponding
         // `<Ctor>.prototype` singleton per §10.1.1: the wrapper's

@@ -247,7 +247,7 @@ fn proto_tag_iterator_alias(proto_tag: i64) -> Option<(i64, i64)> {
         12 => (12, torajs_rc::ANY_METHOD_VALUES),
         // §23.2.3.36 — %TypedArray.prototype%'s `[Symbol.iterator]`
         // is its `values`.
-        38 => (38, torajs_rc::ANY_METHOD_VALUES),
+        39 => (39, torajs_rc::ANY_METHOD_VALUES),
         _ => return None,
     })
 }

@@ -1,0 +1,27 @@
+[package]
+name = "torajs-regexp-lane"
+description = "The RegExp protocol seam's body for the torajs AOT TypeScript runtime: whether a @@match / @@matchAll / @@replace / @@search / @@split call can run the native kernels or needs the ECMAScript algorithm, which it then reaches through a second seam. An archive member of its own, so a program whose dispatch judgment stubs the seam never links or walks it."
+keywords = ["torajs", "regexp", "dead-strip"]
+categories = ["compilers"]
+documentation = "https://docs.rs/torajs-regexp-lane"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+# Dual emit like every runtime crate: `rlib` for workspace builds,
+# `staticlib` for the in-house link pipeline. Being a SEPARATE
+# archive member is load-bearing: the link walks every member it
+# pulls, the always-pulled members import only the seam, and its one
+# import of the algorithms seam must not sit in one of them.
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+torajs-anyvalue = { path = "../torajs-anyvalue" }
+torajs-rc = { path = "../torajs-rc" }

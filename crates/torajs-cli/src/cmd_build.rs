@@ -237,7 +237,7 @@ pub(crate) fn build_link_config(
     let mut judged_stubs = Vec::new();
     if crate::cmd_build_dispatch_stubs::stub_all_enabled() {
         crate::cmd_build_dispatch_stubs::append_dispatch_stubs(&mut funcs, u16::MAX, true, true);
-        judged_stubs = crate::cmd_build_dispatch_stubs::regexp_world_stubs(true, true);
+        judged_stubs = crate::cmd_build_dispatch_stubs::regexp_world_stubs(true, true, true);
     } else if !crate::cmd_build_dispatch_stubs::stub_off() {
         let j = crate::cmd_build_dispatch_judge::judge(ssa_module);
         crate::cmd_build_dispatch_stubs::append_dispatch_stubs(
@@ -248,6 +248,7 @@ pub(crate) fn build_link_config(
         );
         judged_stubs = crate::cmd_build_dispatch_stubs::regexp_world_stubs(
             j.stub_regexp_protocol,
+            j.stub_regexp_algorithms,
             j.stub_ctor_regexp,
         );
         crate::cmd_build_dispatch_stubs::append_absent_settle_stub(&mut funcs, ssa_module);

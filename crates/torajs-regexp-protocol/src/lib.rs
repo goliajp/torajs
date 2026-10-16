@@ -24,13 +24,10 @@
 //! that lived in the always-linked `torajs-anyvalue` member cost every
 //! `tr build` its size.
 
-use core::ffi::c_void;
-
 use torajs_anyvalue::nanbox::{AnyValue, VALUE_UNDEFINED};
 use torajs_anyvalue::regexp_support as av;
 use torajs_rc::{
-    ANY_METHOD_MATCH, ANY_METHOD_MATCH_ALL, ANY_METHOD_REPLACE, ANY_METHOD_SEARCH,
-    ANY_METHOD_SPLIT, Tag,
+    ANY_METHOD_MATCH, ANY_METHOD_MATCH_ALL, ANY_METHOD_REPLACE, ANY_METHOD_SEARCH, ANY_METHOD_SPLIT,
 };
 
 mod ctor_build;
@@ -42,85 +39,17 @@ mod species;
 mod split;
 mod subst;
 
-unsafe extern "C" {
-    /// torajs-regex — 1 when the cell itself carries nothing the
-    /// protocol algorithms could observe (no own bag, no subclass,
-    /// a plain writable numeric `lastIndex`).
-    fn __torajs_regex_protocol_plain(re: *const c_void) -> i64;
-}
-
-/// %RegExp.prototype%'s builtin-prototype tag.
-const REGEXP_PROTO_TAG: i64 = 7;
-
-/// Whether a program has put anything on %RegExp.prototype%. A
-/// singleton nobody minted carries nothing; a minted one holds exactly
-/// the protocol-method entries its mint installed until a program
-/// adds (appends past them) or deletes (drops the live count) one.
-fn regexp_proto_untouched() -> bool {
-    unsafe {
-        let proto = torajs_rc::builtin_proto::__torajs_peek_builtin_prototype(REGEXP_PROTO_TAG);
-        if proto.is_null() {
-            return true;
-        }
-        let p = proto.cast::<u8>();
-        let minted = av::REGEXP_PROTO_MINT_LEN.load(core::sync::atomic::Ordering::Relaxed);
-        (p.add(4) as *const u16).read() == Tag::DynObj as u16
-            && (p.add(av::DYNOBJ_ENTRIES_LEN_OFF) as *const u32).read() == minted
-            && (p.add(av::DYNOBJ_COUNT_OFF) as *const u32).read() == minted
-    }
-}
-
-/// Whether `RegExp[@@species]` is still the installed accessor.
-fn regexp_species_untouched() -> bool {
-    let ctor = av::ctor_cell_peek(REGEXP_PROTO_TAG);
-    ctor.is_null() || !unsafe { av::species_replaced(REGEXP_PROTO_TAG, ctor.cast()) }
-}
-
-/// Whether the native kernel computes exactly what the spec
-/// algorithm for `mid` would on `re`, with nothing observable lost.
-/// @@split also copies the receiver into its splitter BEFORE it
-/// coerces `limit`, so a `limit` whose `valueOf` recompiles the
-/// receiver is observable too.
-fn native_lane_exact(re: *const c_void, mid: i64, limit: AnyValue) -> bool {
-    (unsafe { __torajs_regex_protocol_plain(re) } != 0)
-        && regexp_proto_untouched()
-        && (mid != ANY_METHOD_SPLIT
-            || (regexp_species_untouched() && !unsafe { av::av_is_object(limit) }))
-}
-
-/// Whether the protocol method `mid` on `this` must run its spec
-/// algorithm rather than the native lane — every receiver except a
-/// plain RegExp cell under an untouched prototype (and @@matchAll
-/// always: it answers an iterator, which no kernel builds).
-///
-/// # Safety
-/// `argv` addresses `argc` live slots.
-unsafe fn spec_needed(this: AnyValue, mid: i64, argv: *const u64, argc: i64) -> bool {
-    let limit = if argc > 1 {
-        unsafe { *argv.add(1) }
-    } else {
-        VALUE_UNDEFINED
-    };
-    match av::regexp_cell(this) {
-        Some(re) => mid == ANY_METHOD_MATCH_ALL || !native_lane_exact(re, mid, limit),
-        None => true,
-    }
-}
-
-/// The protocol seam's body: one RegExp String Iterator step for a
-/// `next` on one of its cells; [`av::KERNEL_LANE`] for a protocol method
-/// whose receiver cannot tell the native kernels from the algorithm
-/// (or is no Object at all — the string symbol-dispatch gate's
-/// coerce lane); else the spec algorithm of the protocol method `mid`
-/// over the Object `recv` — its completion, undefined with a pending
-/// throw on an abrupt one. The judgment of which lane runs sits
-/// behind the seam with the algorithms, so a program whose seam is
-/// stubbed links neither.
+/// The algorithms seam's body: one RegExp String Iterator step for a
+/// `next` on one of its cells; else the spec algorithm of the protocol
+/// method `mid` over the Object `recv` — its completion, undefined
+/// with a pending throw on an abrupt one. The protocol seam's body in
+/// `torajs-regexp-lane` judges first, so a receiver the native kernels
+/// serve exactly never comes here.
 ///
 /// # Safety
 /// `recv` is a live Object value; `argv` addresses `argc` live slots.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_regexp_protocol_call(
+pub unsafe extern "C" fn __torajs_regexp_protocol_run(
     recv: AnyValue,
     mid: i64,
     argv: *const u64,
@@ -130,15 +59,12 @@ pub unsafe extern "C" fn __torajs_regexp_protocol_call(
         if av::is_regexp_string_iter(recv) && mid == torajs_rc::ANY_METHOD_NEXT {
             return match_all::regexp_string_step(recv);
         }
-        if !av::av_is_object(recv) || !spec_needed(recv, mid, argv, argc) {
-            return av::KERNEL_LANE;
-        }
         spec_run(recv, mid, argv, argc)
     }
 }
 
 /// The spec algorithm of the protocol method `mid` over the Object
-/// `this` — see [`__torajs_regexp_protocol_call`].
+/// `this` — see [`__torajs_regexp_protocol_run`].
 unsafe fn spec_run(this: AnyValue, mid: i64, argv: *const u64, argc: i64) -> AnyValue {
     let arg = |i: i64| -> AnyValue {
         if i < argc {

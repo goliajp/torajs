@@ -81,7 +81,7 @@ const CTOR_KEY: &[u8] = b"constructor";
 
 /// A use of a value: an instruction (block, index) or a block's
 /// terminator (index `None`).
-type Use = (usize, Option<usize>);
+pub(crate) type Use = (usize, Option<usize>);
 
 /// The string ids that spell `constructor`.
 pub(crate) fn ctor_key_ids(module: &Module) -> HashSet<StringId> {
@@ -261,7 +261,7 @@ fn names_static(key: &[u8]) -> bool {
         .any(|r| r.name.as_bytes() == key)
 }
 
-fn use_lists(f: &Function) -> HashMap<ValueId, Vec<Use>> {
+pub(crate) fn use_lists(f: &Function) -> HashMap<ValueId, Vec<Use>> {
     let mut uses: HashMap<ValueId, Vec<Use>> = HashMap::new();
     for (bi, b) in f.blocks.iter().enumerate() {
         for (ii, inst) in b.insts.iter().enumerate() {

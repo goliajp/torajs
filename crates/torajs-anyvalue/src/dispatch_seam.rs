@@ -64,8 +64,8 @@ unsafe extern "C" {
     /// The RegExp protocol seam: the §22.2.6 protocol algorithms and
     /// the RegExp String Iterator step, behind the RegExp arm (the
     /// iterator step and a method cell's object `this` call it
-    /// directly). Split
-    /// out because a program can hold regexes without ever calling a
+    /// directly); its default definition is `torajs-regexp-lane`.
+    /// Split out because a program can hold regexes without ever calling a
     /// protocol method through the any world (every typed
     /// `s.replace(re, …)` lowers to a kernel), and the algorithms are
     /// a fifth of the regex family's text; the dispatch judgment stubs

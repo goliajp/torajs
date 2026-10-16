@@ -188,6 +188,8 @@ pub(crate) unsafe fn iter_helper_mint(recv: AnyValue, kind: u8, fn_av: AnyValue)
 /// Fresh rc-1 helper cell of `kind` with every AnyValue slot set to
 /// undefined — the shared alloc under [`iter_helper_mint_wrap`] and
 /// the concat mint (each fills its own underlying slot after).
+/// # Safety
+/// `kind` is a helper kind this crate defines.
 pub unsafe fn iter_helper_cell_alloc(kind: u8) -> *mut u8 {
     unsafe {
         let layout = core::alloc::Layout::from_size_align(CELL_SIZE, 8).unwrap();

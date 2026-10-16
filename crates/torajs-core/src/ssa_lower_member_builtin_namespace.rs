@@ -269,7 +269,7 @@ fn builtin_proto_tag(ns_name: &str) -> Option<i64> {
         "ArrayBuffer" => Some(19),
         // 刀 7 — DataView after the per-kind block.
         "DataView" => Some(32),
-        "FinalizationRegistry" => Some(39),
+        "FinalizationRegistry" => Some(torajs_rc::builtin_proto::FINREG_PROTO_TAG as i64),
         n => crate::ssa_lower_call_typedarray::kind_of_name(n).map(|k| 20 + k),
     }
 }

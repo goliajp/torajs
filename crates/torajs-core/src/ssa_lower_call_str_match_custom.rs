@@ -305,13 +305,7 @@ pub(crate) fn lower_replace_any_pattern(
         }
         (Some(op), Some(Type::Closure(_))) => (fn_fid, *op),
         (Some(op), Some(ty @ (Type::I64 | Type::I32 | Type::F64 | Type::Bool))) => {
-            let s = crate::ssa_lower_call_coercion::emit_to_string(
-                ctx,
-                args[1],
-                *op,
-                ty.clone(),
-                false,
-            );
+            let s = crate::ssa_lower_call_coercion::emit_to_string(ctx, args[1], *op, *ty, false);
             repl_temp = Some(s);
             (str_fid, s)
         }
