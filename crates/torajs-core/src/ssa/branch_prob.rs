@@ -6,7 +6,10 @@
 //!
 //! 1. **Throw probe** — `icmp ne (load (global_ref THROW_ACTIVE)), 0`:
 //!    the throw arm is taken only when an exception is in flight.
-//! 2. **Unreachable arm** — an arm ending in `unreachable`.
+//! 2. **Unreachable arm** — an arm ending in `unreachable`, or one that
+//!    raises an error: it ends in a branch on the throw probe whose
+//!    nothing-thrown side is `unreachable` (the nullish check in front
+//!    of a property read).
 //! 3. **Header flag guard** — `icmp eq|ne (and (load p +off), MASK), K`
 //!    with `off` inside the refcount-and-flags word and `K` a constant,
 //!    where exactly one arm calls something: the latin1 / frozen / COW
@@ -91,6 +94,15 @@ pub fn cold_arms(func: &Function) -> Vec<(BlockId, BlockId, f64)> {
             Terminator::Unreachable
         )
     };
+    // a block that raises an error: its branch on the throw probe goes
+    // on only into `unreachable` when nothing was thrown
+    let throws = |b: BlockId| match &func.blocks[blocks[b.0 as usize]].term {
+        Terminator::CondBr { cond, else_blk, .. } => {
+            ends_unreachable(*else_blk)
+                && value_def(cond, &defs).is_some_and(|c| is_throw_probe(c, &defs))
+        }
+        _ => false,
+    };
 
     let mut out = Vec::new();
     for b in &func.blocks {
@@ -113,6 +125,8 @@ pub fn cold_arms(func: &Function) -> Vec<(BlockId, BlockId, f64)> {
             Some((t, P_NEVER))
         } else if ends_unreachable(t) != ends_unreachable(e) {
             Some((if ends_unreachable(t) { t } else { e }, P_NEVER))
+        } else if throws(t) != throws(e) {
+            Some((if throws(t) { t } else { e }, P_NEVER))
         } else if one_calls && cond.is_some_and(|c| is_flag_guard(c, &defs)) {
             Some((calling_arm(), P_SLOW_PATH))
         } else if let Some(oob) = cond.and_then(|c| out_of_bounds_arm(c, &defs, &cells, t, e)) {
@@ -176,10 +190,13 @@ fn is_flag_guard(cond: &InstKind, defs: &Defs) -> bool {
     let InstKind::ICmp(IPred::Ne | IPred::Eq, masked, k) = cond else {
         return false;
     };
-    if !is_const(k, defs) {
+    // a guard on the 32-bit flags half (a field store's frozen / exotic
+    // test) spells its mask and constant as i32
+    if !is_const(k, defs) && !matches!(k, Operand::ConstI32(_)) {
         return false;
     }
-    let Some(InstKind::BinOp(BinOp::And, word, Operand::ConstI64(_))) = value_def(masked, defs)
+    let Some(InstKind::BinOp(BinOp::And, word, Operand::ConstI64(_) | Operand::ConstI32(_))) =
+        value_def(masked, defs)
     else {
         return false;
     };
@@ -275,4 +292,103 @@ fn out_of_bounds_arm(
     } else {
         then_blk
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ssa::{Block, FuncId, Inst, Type, ValueId};
+
+    fn func(blocks: Vec<Block>) -> Function {
+        Function {
+            name: "test".to_string(),
+            params: vec![],
+            ret: Type::Void,
+            blocks,
+            values: vec![],
+            current_origin: None,
+        }
+    }
+
+    fn block(id: u32, insts: Vec<Inst>, term: Terminator) -> Block {
+        Block {
+            id: BlockId(id),
+            insts,
+            term,
+        }
+    }
+
+    fn inst(result: u32, kind: InstKind) -> Inst {
+        Inst {
+            result: Some(ValueId(result)),
+            kind,
+            origin: None,
+        }
+    }
+
+    fn call() -> Inst {
+        Inst {
+            result: None,
+            kind: InstKind::Call(FuncId(0), vec![]),
+            origin: None,
+        }
+    }
+
+    fn v(id: u32) -> Operand {
+        Operand::Value(ValueId(id))
+    }
+
+    fn cond_br(cond: u32, then_blk: u32, else_blk: u32) -> Terminator {
+        Terminator::CondBr {
+            cond: v(cond),
+            then_blk: BlockId(then_blk),
+            else_blk: BlockId(else_blk),
+        }
+    }
+
+    /// A field store's frozen / exotic test reads the 32-bit flags half
+    /// and spells its mask and constant as i32.
+    #[test]
+    fn an_i32_flag_guard_predicts_its_calling_arm_cold() {
+        let guard = vec![
+            inst(1, InstKind::Load(Type::I32, v(0), 4)),
+            inst(
+                2,
+                InstKind::BinOp(BinOp::And, v(1), Operand::ConstI32(-2146435072)),
+            ),
+            inst(3, InstKind::ICmp(IPred::Ne, v(2), Operand::ConstI32(0))),
+        ];
+        let f = func(vec![
+            block(0, guard, cond_br(3, 2, 1)),
+            block(1, vec![], Terminator::Br(BlockId(3))),
+            block(2, vec![call()], Terminator::Br(BlockId(3))),
+            block(3, vec![], Terminator::Ret(None)),
+        ]);
+        assert_eq!(cold_arms(&f), vec![(BlockId(0), BlockId(2), P_SLOW_PATH)]);
+    }
+
+    /// The nullish check in front of a property read: the arm calls the
+    /// raising helper, branches on the throw probe, and traps when
+    /// nothing was thrown.
+    #[test]
+    fn an_arm_that_raises_is_cold() {
+        let test = vec![inst(
+            1,
+            InstKind::ICmp(IPred::Eq, v(0), Operand::ConstPtrNull),
+        )];
+        let raise = vec![
+            call(),
+            inst(2, InstKind::GlobalRef(THROW_ACTIVE_SYM.to_string())),
+            inst(3, InstKind::Load(Type::I64, v(2), 0)),
+            inst(4, InstKind::ICmp(IPred::Ne, v(3), Operand::ConstI64(0))),
+        ];
+        let f = func(vec![
+            block(0, test, cond_br(1, 1, 2)),
+            block(1, raise, cond_br(4, 3, 4)),
+            block(2, vec![], Terminator::Ret(None)),
+            block(3, vec![], Terminator::Ret(None)),
+            block(4, vec![], Terminator::Unreachable),
+        ]);
+        assert!(cold_arms(&f).contains(&(BlockId(0), BlockId(1), P_NEVER)));
+    }
 }
