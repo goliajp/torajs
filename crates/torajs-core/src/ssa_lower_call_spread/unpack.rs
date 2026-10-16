@@ -133,7 +133,7 @@ pub(super) fn emit(
             Operand::ConstI64(i as i64),
         );
         let casts = match (pty, ann.as_deref()) {
-            (Type::Obj(sid), Some(a)) => ctx.casts_obj_slot(sid, a),
+            (Type::Obj(_), Some(a)) => ctx.casts_obj_slot(a),
             (Type::Arr(_), Some(a)) => ctx.casts_obj_arr_slot(pty, a),
             _ => false,
         };

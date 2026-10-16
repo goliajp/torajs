@@ -22,6 +22,7 @@ use crate::ssa_lower_instanceof::tags::descendant_tags;
 use anns::{field_anns, nullable, opt_node};
 
 mod anns;
+pub(super) mod uncast;
 
 const ANY: u8 = 0;
 const INT: u8 = 1;
@@ -67,9 +68,7 @@ impl PlanTables<'_> {
             .is_none();
         }
         let layout = &self.struct_layouts[sid.0 as usize];
-        let iface = self.ast.iface_slots.layouts().any(|(_, names)| {
-            names.len() == layout.len() && names.iter().zip(layout).all(|(n, (k, _))| *n == k)
-        });
+        let iface = self.iface_names(sid).next().is_some();
         let methods = (layout.iter()).any(|(_, t)| matches!(t, Type::FnSig(_) | Type::Closure(_)));
         !(iface || methods)
     }
@@ -235,7 +234,7 @@ impl Builder<'_, '_> {
                     .then(|| format!("__vtable_{c}"));
                 (self.t.class_name_to_tag[c], self.lists.len() as u32 - 1, vt)
             }
-            None => (self.sid_class_tag(sid), NO_LIST, self.lit_vtable(sid)),
+            None => (sid_tag(self.t, sid), NO_LIST, self.lit_vtable(sid)),
         };
         let at = self.bytes.len() as u32;
         self.open.insert((sid, class.clone()), at);
@@ -270,17 +269,6 @@ impl Builder<'_, '_> {
         Some(())
     }
 
-    /// The tag a cell of layout `sid` wears when no class is named:
-    /// the lowest of the classes laid out as `sid`, else its anonymous
-    /// stamp (the split the object literal alloc stamps by).
-    fn sid_class_tag(&self, sid: StructId) -> u32 {
-        (self.t.class_name_to_tag.iter())
-            .filter(|(name, _)| self.t.aliases.get(*name) == Some(&Type::Obj(sid)))
-            .map(|(_, &tag)| tag)
-            .min()
-            .unwrap_or_else(|| self.t.anon_stamp_pool.borrow_mut().assign_or_get(sid))
-    }
-
     /// The literal vtable row of layout `sid`, when an interface slot
     /// may read such a value (`ssa_lower_iface::store_lit_vtable`).
     fn lit_vtable(&self, sid: StructId) -> Option<String> {
@@ -289,6 +277,17 @@ impl Builder<'_, '_> {
             && !crate::ssa_lower_iface::lit_row_ifaces(self.t.ast, layout).is_empty())
         .then(|| format!("__vtable_{}", crate::ssa_lower_iface::lit_row_name(sid)))
     }
+}
+
+/// The tag a cell of layout `sid` wears when no class is named: the
+/// lowest of the classes laid out as `sid`, else its anonymous stamp
+/// (the split the object literal alloc stamps by).
+fn sid_tag(t: &PlanTables<'_>, sid: StructId) -> u32 {
+    (t.class_name_to_tag.iter())
+        .filter(|(name, _)| t.aliases.get(*name) == Some(&Type::Obj(sid)))
+        .map(|(_, &tag)| tag)
+        .min()
+        .unwrap_or_else(|| t.anon_stamp_pool.borrow_mut().assign_or_get(sid))
 }
 
 /// The heap tag every value of the single-family heap type `ty` wears.

@@ -99,7 +99,7 @@ pub(super) fn conversion(
         Type::Str => Conv::Str(or_undef),
         Type::Any => Conv::Any,
         Type::Obj(sid) => match ann {
-            Some(ann) if ctx.casts_obj_slot(sid, &ann) => Conv::Obj(sid, ann),
+            Some(ann) if ctx.casts_obj_slot(&ann) => Conv::Obj(sid, ann),
             _ => Conv::SameCell,
         },
         Type::Arr(_) => match ann {

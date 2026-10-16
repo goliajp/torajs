@@ -20,7 +20,11 @@
 //! Anything else throws at the write. An interface whose members
 //! dispatch through witness rows (`ssa_lower_iface`), or any object
 //! type with a method, takes an instance of any class implementing it,
-//! whose methods are not among its fields, so neither is cast here.
+//! whose methods are not among its fields, so its fields are not
+//! copied: such a slot takes a cell its readers can read as it is,
+//! `null` / `undefined` as its annotation admits them, and throws for
+//! anything else ([`super::plan::uncast::uncast`]); so does the slot of a
+//! class rooted in an exotic builtin.
 
 use crate::ast::ExprId;
 use crate::check_type_ann::strip_nullable;
@@ -74,10 +78,10 @@ impl LowerCtx<'_> {
     /// global when `global`) whose slot is `slot` is cast
     /// ([`Self::cast_assigned_obj`]).
     pub(crate) fn casts_assigned_obj(&self, name: &str, global: bool, slot: Type, v: Type) -> bool {
-        let (Type::Obj(sid), Type::Any) = (slot, v) else {
+        let (Type::Obj(_), Type::Any) = (slot, v) else {
             return false;
         };
-        (self.binding_ann(name, global)).is_some_and(|a| self.casts_into(sid, &a))
+        (self.binding_ann(name, global)).is_some_and(|a| self.casts_obj_slot(&a))
     }
 
     /// `v`, an `any` value `value` stores into the field `field` of the
@@ -132,8 +136,11 @@ impl LowerCtx<'_> {
 
     /// The checked cast of `op` into the object slot `sid` the program
     /// annotated `ann`: a value typed `Obj(sid)` holding a stake of its
-    /// own, after a throw check. `None` when `op` is not `any` or the
-    /// slot is not cast (a witness interface's, a compiler-made type's).
+    /// own, after a throw check. A slot whose layout no plan tests (a
+    /// witness interface's, one with a method among its fields) takes
+    /// only a cell its readers can read ([`super::plan::uncast::uncast`]).
+    /// `None` when `op` is not `any` or the slot is a compiler-made
+    /// type's.
     pub(crate) fn checked_cast_obj(
         &mut self,
         op: Operand,
@@ -141,7 +148,7 @@ impl LowerCtx<'_> {
         ann: &str,
         slot: CastSlot,
     ) -> Option<Operand> {
-        if self.operand_ty(&op) != Type::Any || !self.casts_obj_slot(sid, ann) {
+        if self.operand_ty(&op) != Type::Any || compiler_made(ann) {
             return None;
         }
         let base = strip_nullable(ann).trim();
@@ -151,20 +158,24 @@ impl LowerCtx<'_> {
             base.to_string()
         };
         let site = super::site_line(slot, &shown);
+        if !self.casts_into(sid, ann)
+            && let Some(plan) = super::plan::uncast::uncast(&self.plan_tables(), sid, ann)
+        {
+            let kernel = self
+                .fn_table
+                .get(crate::ssa_lower_intrinsics_any_cast::AS_IS_CAST);
+            let kernel = *kernel.expect("a slot with such a plan declares its cast");
+            let v = self.emit_cast_call(kernel, op, Type::Obj(sid), plan, &site);
+            self.emit_throw_check(None);
+            return Some(v);
+        }
         Some(self.emit_plan_cast(op, Type::Obj(sid), ann, &site))
     }
 
-    /// Whether [`Self::checked_cast_obj`] casts an `any` value into the
-    /// object slot `sid` annotated `ann`.
-    pub(crate) fn casts_obj_slot(&self, sid: StructId, ann: &str) -> bool {
-        let base = strip_nullable(ann).trim();
-        // a `__`-named type is one the compiler made (a generator's
-        // wrapper), never the program's own annotation; so is the empty
-        // shape inferred from an object built up from `{}`. A written
-        // object type literal is spelled `__inlobj(fields)`
-        let compiler_made =
-            base == "__inlobj()" || (base.starts_with("__") && !base.starts_with("__inlobj("));
-        !compiler_made && self.casts_into(sid, ann)
+    /// Whether [`Self::checked_cast_obj`] casts an `any` value into an
+    /// object slot annotated `ann`.
+    pub(crate) fn casts_obj_slot(&self, ann: &str) -> bool {
+        !compiler_made(ann)
     }
 
     /// [`Self::checked_cast_obj`] for an array of object layouts,
@@ -227,4 +238,13 @@ impl LowerCtx<'_> {
     fn casts_into(&self, sid: StructId, ann: &str) -> bool {
         self.plan_tables().casts_into(sid, ann)
     }
+}
+
+/// A `__`-named type is one the compiler made (a generator's wrapper),
+/// never the program's own annotation; so is the empty shape inferred
+/// from an object built up from `{}`. A written object type literal is
+/// spelled `__inlobj(fields)`.
+fn compiler_made(ann: &str) -> bool {
+    let base = strip_nullable(ann).trim();
+    base == "__inlobj()" || (base.starts_with("__") && !base.starts_with("__inlobj("))
 }

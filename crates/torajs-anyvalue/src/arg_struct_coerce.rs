@@ -65,8 +65,8 @@ use crate::nanbox::{AnyValue, as_void_ptr, is_cell};
 use crate::struct_probe::struct_field_pair_bytes;
 
 mod fits;
-pub(crate) use fits::__torajs_anyv_struct_fits;
 use fits::cell_fits;
+pub(crate) use fits::{__torajs_anyv_struct_fits, kin_admits};
 
 /// Mirror of `torajs-structmeta::StrSlice` (repr(C) pair).
 #[repr(C)]

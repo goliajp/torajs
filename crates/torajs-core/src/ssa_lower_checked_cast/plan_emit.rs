@@ -5,7 +5,7 @@
 use crate::ssa::{self, BlockId, InstKind, Operand, StringId, StringLiteral, Type};
 use crate::ssa_lower::LowerCtx;
 
-use super::plan::PlanTables;
+use super::plan::{CastPlan, PlanTables};
 
 impl LowerCtx<'_> {
     /// The tables a cast plan is compiled from.
@@ -53,13 +53,12 @@ impl LowerCtx<'_> {
         site: &str,
     ) -> Operand {
         let plan = super::plan::compile(&self.plan_tables(), ty, ann);
-        let site = Operand::Value(self.intern_string_literal(site));
-        let id = StringId((self.string_id_base + self.new_strings.len()) as u32);
-        self.new_strings
-            .push(StringLiteral::from_latin1_bytes(plan.bytes));
-        self.anon_stamp_pool.borrow_mut().note_cast_plan(id);
-        let block = self.cur_block;
-        let (plan_bits, vtables) = emit_plan_operands(self.f, block, id, &plan.vtables);
+        self.emit_compiled_cast(op, ty, plan, site)
+    }
+
+    /// The object cast kernel's call casting `op` by the compiled
+    /// `plan` into a slot of type `ty`, without the throw check.
+    fn emit_compiled_cast(&mut self, op: Operand, ty: Type, plan: CastPlan, site: &str) -> Operand {
         let kernel = match plan.members {
             true => *(self
                 .fn_table
@@ -67,6 +66,26 @@ impl LowerCtx<'_> {
             .expect("a plan with a member declares its cast"),
             false => self.intrinsics.anyv_cast_obj,
         };
+        self.emit_cast_call(kernel, op, ty, plan, site)
+    }
+
+    /// The call of the cast `kernel` casting `op` by the compiled `plan`
+    /// into a slot of type `ty`, without the throw check.
+    pub(super) fn emit_cast_call(
+        &mut self,
+        kernel: ssa::FuncId,
+        op: Operand,
+        ty: Type,
+        plan: CastPlan,
+        site: &str,
+    ) -> Operand {
+        let site = Operand::Value(self.intern_string_literal(site));
+        let id = StringId((self.string_id_base + self.new_strings.len()) as u32);
+        self.new_strings
+            .push(StringLiteral::from_latin1_bytes(plan.bytes));
+        self.anon_stamp_pool.borrow_mut().note_cast_plan(id);
+        let block = self.cur_block;
+        let (plan_bits, vtables) = emit_plan_operands(self.f, block, id, &plan.vtables);
         let v = self.f.append_inst(
             self.cur_block,
             InstKind::Call(kernel, vec![op, plan_bits, vtables, site]),

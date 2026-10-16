@@ -61,7 +61,8 @@ pub unsafe extern "C" fn __torajs_anyv_struct_fits(
 ///
 /// # Safety
 /// `kin` is a class list.
-unsafe fn kin_admits(kin: *const u8, cell_tag: u32) -> bool {
+#[inline(always)]
+pub(crate) unsafe fn kin_admits(kin: *const u8, cell_tag: u32) -> bool {
     let word = |i: usize| unsafe { kin.add(i * 4).cast::<u32>().read_unaligned() };
     (1..=word(0) as usize).any(|i| word(i) == cell_tag)
 }

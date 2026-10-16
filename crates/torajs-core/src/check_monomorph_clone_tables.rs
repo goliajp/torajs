@@ -73,10 +73,9 @@ pub(crate) fn carry(owned_ast: &mut Ast, id_map: &[(ExprId, ExprId)]) {
         })
         .collect();
     owned_ast.default_padded_argc.extend(argc);
-    // `synth_promise_static_calls` — the async desugar's internal
-    // settle spellings (rotation 448): a cloned async body reproduces
-    // those Call sites verbatim, and the clone must bypass the
-    // Promise-static patch probe exactly like the original.
+    // `synth_promise_static_calls` — the async desugar's own settle
+    // spellings: a cloned async body reproduces those Call sites, and
+    // the clone bypasses the Promise-static patch probe as they do.
     let synth: Vec<ExprId> = id_map
         .iter()
         .filter_map(|&(old, new)| {
@@ -110,4 +109,22 @@ pub(crate) fn carry(owned_ast: &mut Ast, id_map: &[(ExprId, ExprId)]) {
         })
         .collect();
     owned_ast.field_default_objlits.extend(owners);
+    carry_optchain(owned_ast, id_map);
+}
+
+/// `optchain_calls` / `paren_optchain_calls` — the guard of an optional
+/// call `a?.m()` (§13.3.9): a clone that lost them lowers a plain call,
+/// which throws on a nullish `a`. The base is a node under the call, so
+/// the clone is guarded by the cloned base.
+fn carry_optchain(owned_ast: &mut Ast, id_map: &[(ExprId, ExprId)]) {
+    let map: std::collections::HashMap<ExprId, ExprId> = id_map.iter().copied().collect();
+    for &(old, new) in id_map {
+        if let Some(base) = owned_ast.optchain_calls.get(&old).copied() {
+            let base = map.get(&base).copied().unwrap_or(base);
+            owned_ast.optchain_calls.insert(new, base);
+        }
+        if owned_ast.paren_optchain_calls.contains(&old) {
+            owned_ast.paren_optchain_calls.insert(new);
+        }
+    }
 }
